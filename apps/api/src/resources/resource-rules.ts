@@ -226,7 +226,7 @@ export async function afterSaveRule(type: string, ctx: AfterSaveContext): Promis
 
 /** 营业执照建好后，自动补齐法人手机号、合作人、税务资料、对公账户和法人卡档案。 */
 export async function afterCreateRule(type: string, ctx: AfterCreateContext): Promise<void> {
-  if (type !== 'licenses') return;
+  if (type !== 'licenses' || ctx.em.queryRunner?.data.legacyImport) return;
   const { em, host, user, record, plain } = ctx;
   const note = `由营业执照「${record.title}」自动生成`;
   const legalPhone = plain.legalPhone ? normalizePhone(String(plain.legalPhone)) : '';

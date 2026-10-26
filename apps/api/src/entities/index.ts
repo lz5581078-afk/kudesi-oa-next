@@ -242,11 +242,11 @@ export class User {
   @Column({ name: 'company_id', type: 'int', unsigned: true })
   companyId!: number;
 
-  /** 账号只在公司内唯一，登录时配合公司代码，避免不同公司用手机号当账号撞号 */
-  @Column({ type: 'varchar', length: 64 })
-  account!: string;
+  /** 登录账号全系统唯一；历史无账号人员用 NULL，不能登录。 */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  account!: string | null;
 
-  @Column({ name: 'password_hash', type: 'varchar', length: 100 })
+  @Column({ name: 'password_hash', type: 'varchar', length: 255 })
   passwordHash!: string;
 
   @Column({ type: 'varchar', length: 50 })
@@ -558,8 +558,8 @@ export class FinanceDocumentLine {
   @Column({ name: 'product_id', type: 'int', unsigned: true, nullable: true }) productId!: number | null;
   @Column({ name: 'fee_item_id', type: 'int', unsigned: true, nullable: true }) feeItemId!: number | null;
   @Column({ type: 'decimal', precision: 18, scale: 4, transformer: { to: (v: number) => v, from: (v: string) => Number(v) } }) qty!: number;
-  @Column({ name: 'unit_price_cents', type: 'bigint', transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) unitPriceCents!: number;
-  @Column({ name: 'unit_cost_cents', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | number | null) => (v === null ? null : Number(v)) } }) unitCostCents!: number | null;
+  @Column({ name: 'unit_price_cents', type: 'decimal', precision: 24, scale: 4, transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) unitPriceCents!: number;
+  @Column({ name: 'unit_cost_cents', type: 'decimal', precision: 24, scale: 4, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | number | null) => (v === null ? null : Number(v)) } }) unitCostCents!: number | null;
   @Column({ type: 'varchar', length: 200, nullable: true }) memo!: string | null;
   @Column({ name: 'related_node', type: 'varchar', length: 20, nullable: true }) relatedNode!: string | null;
   @Column({ name: 'related_id', type: 'int', unsigned: true, nullable: true }) relatedId!: number | null;
@@ -594,7 +594,7 @@ export class FinanceCostSnapshot {
   @Column({ type: 'varchar', length: 120 }) code!: string;
   @Column({ type: 'varchar', length: 300 }) name!: string;
   @Column({ type: 'int', unsigned: true }) revision!: number;
-  @Column({ name: 'pre_ship_cost_cents', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) preShipCostCents!: number | null;
+  @Column({ name: 'pre_ship_cost_cents', type: 'decimal', precision: 24, scale: 4, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) preShipCostCents!: number | null;
   @Column({ name: 'weight_g', type: 'decimal', precision: 14, scale: 2, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) weightG!: number | null;
   @Column({ name: 'freight_cents', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) freightCents!: number | null;
   @Column({ name: 'margin_percent', type: 'decimal', precision: 10, scale: 6, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) marginPercent!: number | null;

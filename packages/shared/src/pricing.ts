@@ -1,3 +1,4 @@
+import { unitCentsTicks, validUnitCents } from './unit-price';
 /**
  * 最低售价（沿用旧系统线上在用的“成本登记”口径，旧的加价率体系不再保留）：
  *
@@ -58,11 +59,11 @@ export interface MinPriceMicroInput {
 export function minSalePriceCentsByMicroPercent(input: MinPriceMicroInput): number | null {
   const { preShipCostCents, freightCents, marginMicroPercent } = input;
   if (freightCents === null || marginMicroPercent === null) return null;
-  if (!Number.isInteger(preShipCostCents) || !Number.isInteger(freightCents) || !Number.isInteger(marginMicroPercent)) {
+  if (!validUnitCents(preShipCostCents) || !validUnitCents(freightCents) || !Number.isInteger(marginMicroPercent)) {
     throw new Error('成本、运费必须是整数分，利润率必须是整数微百分点');
   }
   if (marginMicroPercent < 0 || marginMicroPercent >= MICRO_PERCENT_FULL) return null;
-  return Number(ceilDiv(BigInt(preShipCostCents + freightCents) * BigInt(MICRO_PERCENT_FULL), BigInt(MICRO_PERCENT_FULL - marginMicroPercent)));
+  return Number(ceilDiv((unitCentsTicks(preShipCostCents) + unitCentsTicks(freightCents)) * BigInt(MICRO_PERCENT_FULL), 10_000n * BigInt(MICRO_PERCENT_FULL - marginMicroPercent)));
 }
 
 /** 整数向上取整除法（分母必须为正） */

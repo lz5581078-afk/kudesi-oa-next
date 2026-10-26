@@ -5,6 +5,15 @@ import { CryptoService } from './crypto.service';
 const key = () => randomBytes(32);
 
 describe('CryptoService', () => {
+  it('敏感唯一索引不含明文，且支持密钥轮换查重', () => {
+    const k1 = key(), k2 = key();
+    const before = new CryptoService({ k1 }, 'k1');
+    const after = new CryptoService({ k1, k2 }, 'k2');
+    const value = '6222000012345678';
+    expect(before.indexTokens(value)[0]).not.toContain(value);
+    expect(after.indexTokens(value)).toContain(before.indexTokens(value)[0]);
+    expect(after.indexTokens(value)[0]).not.toBe(before.indexTokens(value)[0]);
+  });
   it('加密后能解回原文，且每次密文不同', () => {
     const service = new CryptoService({ k1: key() }, 'k1');
     const a = service.encrypt('110101199001011234');

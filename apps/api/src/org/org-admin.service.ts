@@ -345,7 +345,7 @@ export class OrgAdminService {
 
   private toStaff(u: User, positions: Map<number, string>, withSalary = false): StaffDto {
     return {
-      id: u.id, account: u.account, name: u.name, departmentId: u.departmentId, positionId: u.positionId,
+      id: u.id, account: u.account ?? '', name: u.name, departmentId: u.departmentId, positionId: u.positionId,
       positionName: u.positionId ? positions.get(u.positionId) ?? null : null,
       extraPositionIds: u.extraPositionIds ?? [],
       isCompanyAdmin: u.isCompanyAdmin, status: u.status, lastLoginAt: u.lastLoginAt,

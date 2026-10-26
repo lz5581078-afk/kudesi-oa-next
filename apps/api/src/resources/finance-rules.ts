@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { pinyin } from 'pinyin-pro';
 import { EntityManager } from 'typeorm';
-import { ARCHIVE_TYPE_CODE, FEE_BOOKING_NODE_MAP, createChecker } from '@kudesi/shared';
+import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, FEE_BOOKING_NODE_MAP, createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceLink, ResourceRecord } from '../entities';
 import { buildSnapshot, aliasCode, rawNames } from './base-code-support';
@@ -196,8 +196,8 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   if (canEditCost && !statusChanging && type !== 'self_made') {
     for (const k of ['freight', 'handlingFee'] as const) {
       const v = num(data[k]);
-      if (v === null) throw new BadRequestException(`请填写${k === 'freight' ? '运费' : '装卸费'}（没有就填 0 并说明原因）`);
-      if (v < 0) throw new BadRequestException(`${k === 'freight' ? '运费' : '装卸费'}不能是负数`);
+      if (v === null && !em.queryRunner?.data.legacyImport) throw new BadRequestException(`请填写${k === 'freight' ? '运费' : '装卸费'}（没有就填 0 并说明原因）`);
+      if (v !== null && v < 0) throw new BadRequestException(`${k === 'freight' ? '运费' : '装卸费'}不能是负数`);
     }
   }
   const reasonLines = str(data.zeroValueReason).split(/\r?\n/).map((x) => x.trim());
@@ -207,10 +207,12 @@ async function beforeProduct(ctx: BeforeSaveContext) {
     }
   }
 
+  if (em.queryRunner?.data.legacyNotices?.length) data.migrationNotice = em.queryRunner.data.legacyNotices.join('；');
+
   // 成本：采购价 + 运费 + 装卸费，任何一项缺失则总成本为空；自制品和 OEM 由构成汇总，这里不动
   if (type !== 'self_made' && !(type === 'purchased' && data.supplyMode === 'supplier_oem')) {
     const p = num(data.purchasePrice), f = num(data.freight), h = num(data.handlingFee);
-    if (p !== null && f !== null && h !== null) data.totalCost = p + f + h;
+    if (p !== null && f !== null && h !== null) data.totalCost = sumUnitCents([p,f,h]);
     else delete data.totalCost;
   }
 
@@ -301,9 +303,11 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     if (real.data.productId !== product.id) throw new BadRequestException('马甲必须和真实编码来自同一个商品档案');
     if (product.data.archiveType !== 'raw') throw new BadRequestException('只有原料档案才有成品名（马甲）');
     if (!existing) {
-      const ok = rawNames(product.data.rawFinishedNames).some((n) => aliasCode(user.companyId, product.id, n) === str(data.code));
+      const migrating = em.queryRunner?.data.legacyImport === true;
+      const ok = migrating || rawNames(product.data.rawFinishedNames).some((n) => aliasCode(user.companyId, product.id, n) === str(data.code));
       if (!ok) throw new BadRequestException('马甲由原料档案的“成品名（马甲）”自动生成，不能手工新增');
-      data.aliasKey = data.code;
+      data.aliasKey = migrating && str(em.queryRunner?.data.legacyAliasName) ? aliasCode(user.companyId, product.id, str(em.queryRunner?.data.legacyAliasName)) : data.code;
+      if(migrating){data.migratedAliasName=str(em.queryRunner?.data.legacyAliasName);data.migratedAliasSpec=JSON.stringify([product.data.specQty,product.data.specUnit]);}
       const n = (await host.findWhere(em, user.companyId, 'finance-base-codes', 'canonicalId', real.id)).length;
       if (n >= 100) throw new BadRequestException('一个真实编码最多 100 个马甲');
     } else {
@@ -403,6 +407,11 @@ async function beforeBundle(ctx: BeforeSaveContext) {
     if (str(data.manualCode).length > 120) throw new BadRequestException('组合编码不能超过 120 位');
   }
 
+  if (em.queryRunner?.data.legacyImport) {
+    for (const [manual, computed] of [['manualCode','code'],['manualName','name'],['manualStyleCode','styleCode'],['manualShortName','shortName']]) {
+      if (str(data[manual])) data[computed] = data[manual];
+    }
+  }
   if (status === 'verified' && existing?.status !== 'verified') {
     if (!existing) throw new BadRequestException('先添加组合构成再验证');
     // 有待发布的构成修订：按修订后的构成验证，验证通过后随之发布
@@ -523,7 +532,7 @@ async function beforeBundleLine(ctx: BeforeSaveContext) {
   } else {
     const bc = await rec(em, user.companyId, 'finance-base-codes', data.baseCodeId);
     if (!bc) throw new BadRequestException('请选择基础编码');
-    if (bc.status !== 'verified') throw new BadRequestException(`基础编码「${bc.title}」还没验证，验证通过后才能加入组合`);
+    if (bc.status !== 'verified' && !em.queryRunner?.data.legacyImport) throw new BadRequestException(`基础编码「${bc.title}」还没验证，验证通过后才能加入组合`);
     delete data.laborId;
     name = bc.title;
   }
@@ -716,8 +725,11 @@ async function syncAliases(host: RuleHost, em: EntityManager, user: AuthUser, pr
     const cur = have.get(code);
     if (!cur) {
       await host.createRecord(em, user, 'finance-base-codes', { productId, code, name: full, canonicalId: real.id }, '由成品名（马甲）自动生成');
+    } else if (cur.data.migratedAliasName === n && cur.data.migratedAliasSpec === JSON.stringify([p.data.specQty,p.data.specUnit])) {
+      // 旧名称未变、规格未变时保留原展示名；改成本等字段不能重命名马甲。
+      continue;
     } else if (str(cur.data.name) !== full) {
-      await host.patchData(em, user, 'finance-base-codes', cur.id, { name: full }, '成品名（马甲）变了');
+      await host.patchData(em, user, 'finance-base-codes', cur.id, { name: full, migratedAliasName: null, migratedAliasSpec: null }, '成品名（马甲）变了');
       if (cur.status === 'verified') await host.setStatusDirect(em, user, 'finance-base-codes', cur.id, 'reverify', '名称变了，需要重新验证');
     }
   }
@@ -761,15 +773,15 @@ export async function recomputeProduct(host: RuleHost, em: EntityManager, user: 
       if (typeof b.data.laborId === 'number') {
         const lab = await rec(em, user.companyId, 'finance-labor-costs', b.data.laborId);
         const price = lab ? num(lab.data.unitPrice) : null;
-        if (cost !== null) cost = price === null ? null : cost + Math.round(qty * price);
+        if (cost !== null) cost = price === null ? null : sumUnitCents([cost, multiplyUnitCents(price, qty)]);
         continue;
       }
       const c = await rec(em, user.companyId, 'finance-products', b.data.componentId);
       const ct = c ? num(c.data.totalCost) : null;
-      if (cost !== null) cost = ct === null ? null : cost + Math.round(qty * (1 + (num(b.data.lossPercent) ?? 0) / 100) * ct);
+      if (cost !== null) cost = ct === null ? null : sumUnitCents([cost, multiplyUnitCents(ct, qty, num(b.data.lossPercent) ?? 0)]);
       weight += qty * (num(c?.data.weightG) ?? 0);
     }
-    if (cost !== null) cost += (isOem ? num(p.data.purchasePrice) ?? 0 : 0) + (num(p.data.freight) ?? 0) + (num(p.data.handlingFee) ?? 0);
+    if (cost !== null) cost = sumUnitCents([cost, isOem ? num(p.data.purchasePrice) ?? 0 : 0, num(p.data.freight) ?? 0, num(p.data.handlingFee) ?? 0]);
     let weightG = p.data.weightG;
     if (p.data.weightManual !== true) {
       if (isOem) {
@@ -788,15 +800,15 @@ export async function recomputeProduct(host: RuleHost, em: EntityManager, user: 
 }
 
 /** 原料/发货物料的当前采购价和供应商 = 最近更新的启用供货来源。 */
-async function refreshFromSources(host: RuleHost, em: EntityManager, user: AuthUser, productId: number) {
+export async function refreshFromSources(host: RuleHost, em: EntityManager, user: AuthUser, productId: number) {
   const p = await rec(em, user.companyId, 'finance-products', productId);
   if (!p || !['raw', 'shipping_material'].includes(str(p.data.archiveType))) return;
   const live = (await host.findWhere(em, user.companyId, 'finance-product-sources', 'productId', productId)).filter((x) => x.status === 'active');
-  live.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id);
+  live.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || (a.data.legacySourceId && b.data.legacySourceId ? Number(BigInt(str(b.data.legacySourceId))-BigInt(str(a.data.legacySourceId))) : b.id - a.id));
   const cur = live[0];
   const price = cur ? num(cur.data.purchasePrice) : null;
   const f = num(p.data.freight), h = num(p.data.handlingFee);
-  const patch: Data = { purchasePrice: price, supplierId: cur ? cur.data.supplierId : null, totalCost: price !== null && f !== null && h !== null ? price + f + h : null };
+  const patch: Data = { purchasePrice: price, supplierId: cur ? cur.data.supplierId : null, totalCost: price !== null && f !== null && h !== null ? sumUnitCents([price,f,h]) : null };
   await host.patchData(em, user, 'finance-products', productId, patch, '供货来源变化，更新当前采购价');
 }
 
@@ -935,6 +947,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
     }
   },
   'finance-product-sources': async ({ em, host, user, record, existing }) => {
+    if (em.queryRunner?.data.legacyImport) return;
     if (typeof record.data.productId === 'number') await refreshFromSources(host, em, user, record.data.productId);
     if (existing && typeof existing.data.productId === 'number' && existing.data.productId !== record.data.productId) await refreshFromSources(host, em, user, existing.data.productId);
   },
@@ -945,7 +958,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
     }
   },
   'finance-products': async ({ em, host, user, record, existing }) => {
-    if (existing) await syncAliases(host, em, user, record.id);
+    if (existing && !em.queryRunner?.data.legacyImport) await syncAliases(host, em, user, record.id);
     const changed = existing && (existing.data.weightG !== record.data.weightG || existing.data.totalCost !== record.data.totalCost);
     if (changed) await markReverify(host, em, user, record.id);
     if (existing && (record.data.archiveType === 'self_made' || (record.data.archiveType === 'purchased' && record.data.supplyMode === 'supplier_oem'))) await recomputeProduct(host, em, user, record.id);
@@ -959,7 +972,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
   },
   'finance-base-codes': async ({ em, host, user, record, existing }) => {
     if (!existing) {
-      if (!record.data.canonicalId && typeof record.data.productId === 'number') await syncAliases(host, em, user, record.data.productId);
+      if (!em.queryRunner?.data.legacyImport && !record.data.canonicalId && typeof record.data.productId === 'number') await syncAliases(host, em, user, record.data.productId);
       return;
     }
     // 已验证的基础编码，自己的资料（名称、简称、规格、款式编码、品种）改了也要重新验证

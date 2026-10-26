@@ -71,7 +71,7 @@ d('平台后台（真实数据库）', () => {
     const org = new OrgAdminService(ds);
     await expect(org.createStaff(boss, { account: admin.account, name: '撞平台' })).rejects.toThrow(/已经存在/);
     const other = await ds.manager.save(User, ds.manager.create(User, { companyId: (await ds.manager.findOneByOrFail(Company, {} as never)).id, account: `own${tag}`, passwordHash: 'x', name: '他司', isCompanyAdmin: false, status: 'active', mustChangePassword: false }));
-    await expect(org.createStaff(boss, { account: other.account, name: '撞他司' })).rejects.toThrow(/已经存在/);
+    await expect(org.createStaff(boss, { account: other.account!, name: '撞他司' })).rejects.toThrow(/已经存在/);
   });
 
   it('公司列表与启停：停用后记审计，恢复后再记一条', async () => {

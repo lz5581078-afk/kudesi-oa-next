@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  OPENING_PREPAYMENT_PERMISSION, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
+  lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -217,7 +217,7 @@ export class FinanceDocumentsService {
         const [sid, pid] = k.split(':').map(Number);
         const lines = await em.find(FinanceDocumentLine, { where: { documentId: sid, companyId: user.companyId, productId: pid } });
         if (!lines.length) throw new BadRequestException(`单据 ${open.get(sid)!.doc.docNo} 里没有这个商品`);
-        const lineAmt = lines.reduce((a, l) => a + Math.round(l.qty * l.unitPriceCents), 0);
+        const lineAmt = lines.reduce((a, l) => a + lineAmount(l), 0);
         const left = lineAmt - (open.get(sid)!.byProduct.get(pid) ?? 0);
         if (amt > left) throw new BadRequestException(`单据 ${open.get(sid)!.doc.docNo} 这个商品还没结算的只有 ${(left / 100).toFixed(2)} 元，不能结算 ${(amt / 100).toFixed(2)} 元`);
       }
@@ -234,9 +234,10 @@ export class FinanceDocumentsService {
     // 草稿允许没填完，但数字本身必须合法
     if (!DOC_TYPE_MAP.get(input.type)) throw new BadRequestException('单据类型不认识');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date ?? '') || Number.isNaN(Date.parse(input.date))) throw new BadRequestException('单据日期格式应为 YYYY-MM-DD');
-    for (const v of [input.amountCents, input.offsetCents, input.paidCents, ...(input.accounts ?? []).map((a) => a.amountCents), ...(input.settlements ?? []).map((x) => x.amountCents), ...(input.lines ?? []).flatMap((l) => [l.unitPriceCents, l.unitCostCents])]) {
+    for (const v of [input.amountCents, input.offsetCents, input.paidCents, ...(input.accounts ?? []).map((a) => a.amountCents), ...(input.settlements ?? []).map((x) => x.amountCents)]) {
       if (v !== null && v !== undefined && (!Number.isInteger(v) || Math.abs(v) > 99_999_999_999)) throw new BadRequestException('金额必须是以分为单位的整数');
     }
+    for (const l of input.lines ?? []) for(const v of [l.unitPriceCents,l.unitCostCents]) if(v!==undefined && v!==null && !validUnitCents(v)) throw new BadRequestException('单价最多支持六位元小数');
     for (const l of input.lines ?? []) if (!(l.qty > 0) || Math.round(l.qty * 10000) / 10000 !== l.qty) throw new BadRequestException('数量必须大于 0，最多 4 位小数');
     if ((input.lines?.length ?? 0) > 200) throw new BadRequestException('一张单据最多 200 行');
   }
@@ -656,7 +657,7 @@ export class FinanceDocumentsService {
       const byProd = new Map<number, { productId: number; productName: string; amountCents: number; outstandingCents: number }>();
       for (const l of lines.filter((x) => x.documentId === d.id && x.productId)) {
         const cur = byProd.get(l.productId as number) ?? { productId: l.productId as number, productName: names.get(l.productId as number) ?? '', amountCents: 0, outstandingCents: 0 };
-        cur.amountCents += Math.round(l.qty * l.unitPriceCents);
+        cur.amountCents += lineAmount(l);
         byProd.set(l.productId as number, cur);
       }
       for (const p of byProd.values()) p.outstandingCents = Math.max(0, p.amountCents - (o.byProduct.get(p.productId) ?? 0));

@@ -4,9 +4,12 @@
  * 成本金额字段要 product.cost.view 才看得到、product.cost.edit 才改得了（服务端强制）。
  */
 import type { ResourceDef, StatusDef } from './resources';
-import { NOTE, date, files, money, o, ref, refs, select, sensitive, text, textarea } from './resource-kit';
+import { NOTE, date, files, money as baseMoney, o, ref, refs, select, sensitive, text, textarea } from './resource-kit';
 import { FEE_BOOKING_NODES } from './fee-archive';
 
+// 此文件里的采购/单位成本保留六位元小数；结算金额不在这些资料字段中。
+const UNIT_PRICE_KEYS = new Set(['purchasePrice','freight','handlingFee','totalCost','unitPrice','cost','firstPrice','extraPrice','fixedPrice','amount']);
+const money = (key: string, label: string, group: string, extra: Parameters<typeof baseMoney>[3] = {}) => baseMoney(key,label,group,{ ...(UNIT_PRICE_KEYS.has(key) ? {scale:4} : {}), ...extra });
 const F = { section: 'finance' } as const;
 const COST_VIEW = 'product.cost.view';
 const COST_EDIT = 'product.cost.edit';
@@ -16,7 +19,7 @@ const STOPPED: StatusDef = { value: 'inactive', label: '停用', tone: 'muted', 
 const EXPRESS_NORMAL: StatusDef = { value: 'normal', label: '正常', tone: 'ok' };
 const EXPRESS_STOPPED: StatusDef = { value: 'inactive', label: '停用', tone: 'muted' };
 
-export const UNIT_OPTIONS = o('G:克', 'KG:千克', 'J:斤', 'T:吨', 'ML:毫升', 'LTR:升', 'L:粒', 'K:棵', 'B:包', 'D:袋', 'BOX:盒', 'CTN:箱', 'BTL:瓶', 'CAN:罐', 'PCS:件', 'EA:个');
+export const UNIT_OPTIONS = o('G:克', 'KG:千克', 'J:斤', 'T:吨', 'ML:毫升', 'LTR:升', 'L:粒', 'K:棵', 'B:包', 'D:袋', 'BOX:盒', 'CTN:箱', 'BTL:瓶', 'CAN:罐', 'PCS:件', 'EA:个', 'SHEET:张', 'M:米', 'CM:厘米', 'MM:毫米');
 
 export const ARCHIVE_TYPES = o('raw:原料档案', 'self_made:自制品档案', 'purchased:采购成品档案', 'package:产品包装档案', 'shipping_material:发货物料档案', 'oem_package:OEM 包装档案');
 export const ARCHIVE_TYPE_CODE: Record<string, string> = { raw: 'YL', self_made: 'ZC', purchased: 'WG', package: 'BZ', shipping_material: 'FH', oem_package: 'OEM' };
@@ -59,7 +62,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('productPackagingSpec', '产品包装规格', '规格', { maxLength: 30, showWhen: { field: 'archiveType', in: ['self_made'] }, help: '参与编码，如“500G袋”' }),
       { key: 'specQty', label: '规格数量', type: 'decimal', group: '规格', required: true, scale: 3, list: true },
       select('specUnit', '规格单位', '规格', UNIT_OPTIONS, { required: true, list: true }),
-      { key: 'weightG', label: '重量(克)', type: 'decimal', group: '规格', scale: 2, list: true, help: '自动换算：原料按系统规格，其它按规格数量和单位，自制品/OEM 按构成汇总；换算不了或要人工修正时勾选下面的“人工修正重量”' },
+      { key: 'weightG', label: '重量(克)', type: 'decimal', group: '规格', scale: 6, list: true, help: '自动换算：原料按系统规格，其它按规格数量和单位，自制品/OEM 按构成汇总；换算不了或要人工修正时勾选下面的“人工修正重量”' },
       { key: 'weightManual', label: '人工修正重量', type: 'bool', group: '规格', help: '勾选后重量不再自动换算，按你填的为准' },
       { key: 'oemPackageWeightG', label: 'OEM 包装重量(克)', type: 'decimal', group: '规格', scale: 2, showWhen: { field: 'supplyMode', in: ['supplier_oem'] } },
       select('packagingCategory', '包装类别', '包装', o('bag:袋', 'bottle:瓶', 'box:盒', 'carton:箱', 'can:罐', 'label:标签', 'other:其他'), { showWhen: { field: 'archiveType', in: ['package', 'oem_package'] } }),
@@ -75,6 +78,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       { ...money('handlingFee', '装卸费', '成本', { help: '必填，没有就填 0 并写零值说明' }), permission: COST_VIEW, writePermission: COST_EDIT },
       { ...money('totalCost', '总成本', '成本', { list: true, readonly: true, help: '采购价 + 运费 + 装卸费；自制品/OEM 为构成成本合计，自动计算' }), permission: COST_VIEW },
       textarea('zeroValueReason', '零值说明', '成本', { help: '采购价/运费/装卸费明确填 0 时，逐项写明原因（每项一行，如“运费：自提”）' }),
+      { key: 'migrationNotice', label: '迁移待核对', type: 'textarea', group: '成本', readonly: true, permission: COST_VIEW, maxLength: 1000 },
       textarea('rawFinishedNames', '成品名（马甲）', '原料', { help: '原料可对应的成品名，一行一个，最多 100 个，每个不超过 160 字，不能重复', showWhen: { field: 'archiveType', in: ['raw'] } }),
       files('photos', '商品照片', '照片', { maxFiles: 20, accept: 'image' }),
       NOTE(),

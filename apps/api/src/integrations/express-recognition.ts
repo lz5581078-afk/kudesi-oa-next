@@ -1,3 +1,4 @@
+import { yuanToPreciseCents } from '@kudesi/shared';
 import { readZipEntries } from '../resources/xlsx-lite';
 
 /** “2026年03月12日”“2026.3.12”统一成 YYYY-MM-DD；认不出来返回空 */
@@ -87,7 +88,8 @@ const toNum = (v: unknown): number | null => {
 };
 const toCents = (v: unknown): number | null => {
   const n = toNum(v);
-  return n === null ? null : Math.round(n * 100);
+  if(n===null)return null;
+  try{return yuanToPreciseCents(n);}catch{return null;}
 };
 const text = (v: unknown) => (typeof v === 'string' ? v.trim() : v === undefined || v === null ? '' : String(v).trim());
 
