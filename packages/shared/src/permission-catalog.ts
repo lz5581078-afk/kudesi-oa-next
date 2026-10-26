@@ -2,7 +2,7 @@
  * 可授予的权限清单：岗位权限、员工个人允许/拒绝都只能从这里选。
  * 全部由导航注册表和资料定义派生，新增页面或资料后自动出现，不用另外维护。
  */
-import { NAV_SECTIONS, PAGE_TABS, SPECIAL_PERMISSIONS } from './navigation';
+import { NAV_SECTIONS, PAGE_TABS, SPECIAL_PERMISSIONS, OPENING_PREPAYMENT_PERMISSION } from './navigation';
 import { RESOURCE_ACTIONS, RESOURCE_DEFS, permissionOwner, resourcePermission, type ResourceAction } from './resources';
 
 export interface CatalogItem {
@@ -24,6 +24,7 @@ export const FINANCE_DOC_ACTIONS = [
   { key: 'finance.docs.create', label: '新建、修改单据草稿' },
   { key: 'finance.docs.issue', label: '开立单据' },
   { key: 'finance.docs.post', label: '过账' },
+  { key: OPENING_PREPAYMENT_PERMISSION, label: '登记已有预付款余额（不扣银行）' },
   { key: 'finance.docs.reverse', label: '红冲已过账单据' },
   { key: 'finance.docs.edit-header', label: '修改已过账单据的日期、经手人、说明' },
   { key: 'finance.docs.audit', label: '财务审核（审核后不能再红冲、修改）' },

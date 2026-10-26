@@ -1,9 +1,11 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { FilesService, MAX_UPLOAD_BYTES, type UploadedFile as Upload } from '../integrations/files.service';
 import { Type } from 'class-transformer';
-import { IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
-import { DOC_TYPES, type DocType } from '@kudesi/shared';
-import { AuthUser, AuthenticatedOnly, CurrentUser } from '../common/auth.decorators';
-import { FinanceDocumentsService } from './finance-documents.service';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, Equals, IsArray, IsIn, MinLength, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { OPENING_PREPAYMENT_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
+import { AuthUser, AuthenticatedOnly, CurrentUser, RequirePermission } from '../common/auth.decorators';
+import { OPENING_VOUCHER_TYPE, FinanceDocumentsService } from './finance-documents.service';
 
 const TYPES = DOC_TYPES.map((d) => d.type);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,6 +64,11 @@ class DocDto {
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => LineDto) lines?: LineDto[];
   @IsOptional() @IsString() @MaxLength(500) memo?: string;
 }
+class OpeningPrepaymentDto {
+  @IsString() @MinLength(1) @MaxLength(500) reason!: string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(10) @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true }) fileIds!: number[];
+  @Equals(true) confirmed!: boolean;
+}
 class HeaderDto {
   @IsOptional() @Matches(DATE) date?: string;
   @IsOptional() @IsString() @MaxLength(60) handler?: string | null;
@@ -102,7 +109,7 @@ class KeyAccountDto { @IsIn([true, false]) on!: boolean }
 // 单据按“单据类型”分权限，类型不固定，所以权限在服务里按类型检查（页面查看权限 + finance.docs.* 操作权限）
 @Controller('finance')
 export class FinanceDocumentsController {
-  constructor(private readonly docs: FinanceDocumentsService) {}
+  constructor(private readonly docs: FinanceDocumentsService, private readonly files: FilesService) {}
 
   @AuthenticatedOnly() @Get('docs')
   list(@CurrentUser() u: AuthUser, @Query() q: ListDto) {
@@ -128,6 +135,22 @@ export class FinanceDocumentsController {
 
   @AuthenticatedOnly() @Post('docs/:id/post')
   post(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.docs.post(u, id); }
+
+  @RequirePermission(OPENING_PREPAYMENT_PERMISSION) @Post('docs/:id/opening-prepayment')
+  registerOpening(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: OpeningPrepaymentDto) { return this.docs.registerOpeningPrepayment(u, id, b); }
+
+  @RequirePermission(OPENING_PREPAYMENT_PERMISSION) @Post('docs/:id/opening-vouchers')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }))
+  async uploadOpeningVoucher(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @UploadedFile() file: Upload) {
+    await this.docs.checkOpeningPrepayment(u, id);
+    return this.files.putBlob(u.companyId, u.id, OPENING_VOUCHER_TYPE, 'voucher', file);
+  }
+
+  @AuthenticatedOnly() @Get('docs/:id/opening-vouchers/:fileId/url')
+  async openingVoucherUrl(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Param('fileId', ParseIntPipe) fileId: number) {
+    await this.docs.openingVoucher(u, id, fileId);
+    return this.files.urlOf(u.companyId, fileId, OPENING_VOUCHER_TYPE);
+  }
 
   @AuthenticatedOnly() @Post('docs/:id/reverse')
   reverse(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReasonDto) { return this.docs.reverse(u, id, b.reason); }

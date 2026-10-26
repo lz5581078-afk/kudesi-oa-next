@@ -9,6 +9,8 @@
 import { DOC_TYPES } from './finance-documents';
 import { RESOURCE_DEFS, RESOURCE_VIEWS } from './resources';
 
+export const OPENING_PREPAYMENT_PERMISSION = 'finance.docs.opening-prepayment';
+
 export interface NavPage {
   id: string;
   label: string;

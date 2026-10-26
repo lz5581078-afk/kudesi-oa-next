@@ -21,7 +21,7 @@ export type DocStatus = 'draft' | 'issued' | 'posted' | 'reversed';
 
 export type AccountKind =
   | 'bank' | 'receivable' | 'payable' | 'advance_receipt' | 'prepayment'
-  | 'inventory' | 'revenue' | 'cogs' | 'expense' | 'other_income';
+  | 'inventory' | 'revenue' | 'cogs' | 'expense' | 'other_income' | 'opening';
 
 /** 往来对象来源：客户档案 / 店铺档案 / 供应商档案（资料里的三份档案，id 在资料表里全局唯一） */
 export type PartyKind = 'customer' | 'store' | 'supplier';
@@ -120,7 +120,7 @@ export const hasBankRef = (def: DocTypeDef): boolean => !!def.store || def.bank 
 export const DOC_STATUS_LABEL: Record<DocStatus, string> = { draft: '草稿', issued: '已开立', posted: '已过账', reversed: '已红冲' };
 export const ACCOUNT_LABEL: Record<AccountKind, string> = {
   bank: '银行账户', receivable: '应收账款', payable: '应付账款', advance_receipt: '预收款', prepayment: '预付款',
-  inventory: '库存', revenue: '销售收入', cogs: '销售成本', expense: '费用', other_income: '其他收入',
+  opening: '期初', inventory: '库存', revenue: '销售收入', cogs: '销售成本', expense: '费用', other_income: '其他收入',
 };
 
 export interface DocLineInput {
