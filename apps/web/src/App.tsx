@@ -1,10 +1,11 @@
 import { ComponentType } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
-import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, visibleSections, type DocType } from '@kudesi/shared';
+import { Route, Routes } from 'react-router-dom';
+import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, type DocType } from '@kudesi/shared';
 import { useAuth } from './auth/AuthContext';
 import { Shell } from './layout/Shell';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { LoginPage } from './pages/LoginPage';
+import { HomePage } from './pages/home/HomePage';
 import { AuditPage } from './pages/system/AuditPage';
 import { BankFundPage } from './pages/system/BankFundPage';
 import { FeeSettingsPage } from './pages/system/FeeSettingsPage';
@@ -138,16 +139,14 @@ export function App() {
     );
   }
 
-  const landing = visibleSections(can)[0]?.landingPath;
-
   return (
     <Routes>
       <Route element={<Shell />}>
-        <Route index element={landing ? <Navigate to={landing} replace /> : <NoAccessPage />} />
+        <Route index element={<HomePage />} />
         <Route path="/account/password" element={<ChangePasswordPage />} />
         {NAV_SECTIONS.flatMap((section) =>
           section.pages
-            .filter((page) => page.ready && PAGE_COMPONENTS[`${section.id}.${page.id}`])
+            .filter((page) => page.ready && !page.open && PAGE_COMPONENTS[`${section.id}.${page.id}`])
             .map((page) => {
               const Component = PAGE_COMPONENTS[`${section.id}.${page.id}`];
               return (
