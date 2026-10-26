@@ -39,7 +39,7 @@ async function partA(plat) {
   const { registerWithCode } = require('../dist/api');
   const { saveConfig, loadConfig } = require('../dist/config');
   const call = async (p, body, method = 'POST', h) => { const r = await fetch(API + '/api' + p, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); const t = await r.text(); if (!r.ok) throw new Error(p + ' ' + r.status + ' ' + t); return t ? JSON.parse(t) : {}; };
-  const lg = await call('/auth/login', { companyCode: 'demo', account: 'admin', password: 'Admin-Test-2026!' }, 'POST', { 'content-type': 'application/json' });
+  const lg = await call('/auth/login', { account: 'admin', password: 'Admin-Test-2026!' }, 'POST', { 'content-type': 'application/json' });
   const H = { authorization: 'Bearer ' + lg.accessToken, 'content-type': 'application/json' };
   const sfx = String(Date.now() % 100000);
   const store = await call('/resources/stores', { values: { platform: 'pdd', name: '助手测试店' + sfx } }, 'POST', H);

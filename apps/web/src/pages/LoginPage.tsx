@@ -1,17 +1,16 @@
 import { FormEvent, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import mascot from '../assets/xiaobai.jpg';
-
-const COMPANY_KEY = 'kudesi.companyCode';
+import { CompanyApplyDialog } from './CompanyApplyDialog';
 
 export function LoginPage() {
   const { login } = useAuth();
-  const [companyCode, setCompanyCode] = useState(() => localStorage.getItem(COMPANY_KEY) ?? '');
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -19,10 +18,9 @@ export function LoginPage() {
     setError(null);
     setBusy(true);
     try {
-      await login({ companyCode: companyCode.trim(), account: account.trim(), password });
-      localStorage.setItem(COMPANY_KEY, companyCode.trim());
+      await login({ account: account.trim(), password });
     } catch (e) {
-      setError(e instanceof Error ? e.message : '登录失败，请检查公司代码、账号和密码。');
+      setError(e instanceof Error ? e.message : '登录失败，请检查账号和密码。');
     } finally {
       setBusy(false);
     }
@@ -49,10 +47,6 @@ export function LoginPage() {
           <form className="login-form" onSubmit={submit}>
             <h2>账号登录</h2>
             <label>
-              <span>公司代码</span>
-              <input value={companyCode} onChange={(e) => setCompanyCode(e.target.value)} placeholder="请输入公司代码" autoComplete="organization" required />
-            </label>
-            <label>
               <span>登录账号</span>
               <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder="请输入登录账号" autoComplete="username" autoFocus required />
             </label>
@@ -73,13 +67,18 @@ export function LoginPage() {
               </div>
             </label>
             {error && <div role="alert" className="notice error">{error}</div>}
-            <button type="submit" className="primary-button login-submit" disabled={busy || !companyCode.trim() || !account.trim() || !password}>
+            <button type="submit" className="primary-button login-submit" disabled={busy || !account.trim() || !password}>
               {busy ? '正在登录…' : '登录'}
             </button>
+            <div className="login-apply-entry">
+              <span>企业尚未开通系统？</span>
+              <button type="button" onClick={() => setApplying(true)}>申请开通公司</button>
+            </div>
           </form>
           <footer className="login-provider">杭州酷得斯科技有限公司 开发</footer>
         </section>
       </div>
+      {applying && <CompanyApplyDialog onClose={() => setApplying(false)} />}
     </main>
   );
 }

@@ -5,6 +5,7 @@ import { useAuth } from './auth/AuthContext';
 import { Shell } from './layout/Shell';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { LoginPage } from './pages/LoginPage';
+import { PlatformApp } from './pages/platform/PlatformApp';
 import { AuditPage } from './pages/system/AuditPage';
 import { BankFundPage } from './pages/system/BankFundPage';
 import { FeeSettingsPage } from './pages/system/FeeSettingsPage';
@@ -127,9 +128,10 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
 }
 
 export function App() {
-  const { user, loading, can } = useAuth();
+  const { user, platformAdmin, loading, can } = useAuth();
 
   if (loading) return <div className="center-screen">加载中…</div>;
+  if (platformAdmin) return <PlatformApp />;
   if (!user) {
     return (
       <Routes>

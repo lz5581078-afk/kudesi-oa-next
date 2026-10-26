@@ -423,3 +423,9 @@ label.check-line input[type='checkbox'] { width: auto; margin: 0; }
   .login-mascot { right: -20px; bottom: -10px; width: 190px; }
   .login-access { padding: 28px 24px 16px; }
 }
+.login-apply-entry { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.login-apply-entry button { border: 0; background: transparent; color: #188669; font-weight: 600; cursor: pointer; padding: 0; }
+.muted-text { color: var(--muted); font-size: 13px; }
+.modal textarea { padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; resize: vertical; }
+.platform-content { max-width: 1280px; width: 100%; margin: 0 auto; }
+button.topnav-link { background: transparent; border-top: 0; border-left: 0; border-right: 0; cursor: pointer; font-family: inherit; }

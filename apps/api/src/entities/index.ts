@@ -34,6 +34,76 @@ export class Company {
   createdAt!: Date;
 }
 
+@Entity('platform_admins')
+export class PlatformAdmin {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true })
+  id!: number;
+
+  @Index('uq_platform_admin_account', { unique: true })
+  @Column({ type: 'varchar', length: 64 })
+  account!: string;
+
+  @Column({ name: 'password_hash', type: 'varchar', length: 100 })
+  passwordHash!: string;
+
+  @Column({ type: 'varchar', length: 50 })
+  name!: string;
+
+  @Column({ type: 'varchar', length: 16, default: 'active' })
+  status!: 'active' | 'disabled';
+
+  @Column({ name: 'last_login_at', type: 'datetime', nullable: true })
+  lastLoginAt!: Date | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'datetime' })
+  createdAt!: Date;
+}
+
+@Entity('company_applications')
+export class CompanyApplication {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true })
+  id!: number;
+
+  @Column({ name: 'company_name', type: 'varchar', length: 100 })
+  companyName!: string;
+
+  @Column({ name: 'contact_name', type: 'varchar', length: 50 })
+  contactName!: string;
+
+  @Column({ name: 'contact_phone', type: 'varchar', length: 20 })
+  contactPhone!: string;
+
+  @Column({ name: 'admin_account', type: 'varchar', length: 64 })
+  adminAccount!: string;
+
+  @Column({ name: 'admin_password_hash', type: 'varchar', length: 100 })
+  adminPasswordHash!: string;
+
+  @Column({ name: 'contact_title', type: 'varchar', length: 50, nullable: true })
+  contactTitle!: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  remark!: string | null;
+
+  @Column({ type: 'varchar', length: 16, default: 'pending' })
+  status!: 'pending' | 'approved' | 'rejected';
+
+  @Column({ name: 'reject_reason', type: 'varchar', length: 300, nullable: true })
+  rejectReason!: string | null;
+
+  @Column({ name: 'reviewed_by', type: 'int', unsigned: true, nullable: true })
+  reviewedBy!: number | null;
+
+  @Column({ name: 'reviewed_at', type: 'datetime', nullable: true })
+  reviewedAt!: Date | null;
+
+  @Column({ name: 'approved_company_id', type: 'int', unsigned: true, nullable: true })
+  approvedCompanyId!: number | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'datetime' })
+  createdAt!: Date;
+}
+
 @Entity('departments')
 @Index('idx_departments_company_parent', ['companyId', 'parentId'])
 export class Department {
@@ -916,6 +986,8 @@ export const ALL_ENTITIES = [
   FinanceEntry,
   FinanceDocumentEvent,
   Company,
+  PlatformAdmin,
+  CompanyApplication,
   Department,
   Position,
   PositionDuty,

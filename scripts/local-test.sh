@@ -22,7 +22,8 @@ show_login() {
   echo
   echo "================ 测试环境已就绪 ================"
   echo "网页：   http://localhost:$WEB_PORT"
-  echo "公司代码：demo     账号：admin     密码：$pw"
+  echo "企业账号：admin     密码：$pw"
+  echo "平台后台账号：platform     密码：$pw （同一个登录页，进入后是平台管理后台）"
   echo "（首次登录会要求改密码；改过之后以新密码为准）"
   echo "店铺登录助手：见 apps/agent/windows/README.txt（Mac 也能直接用：node apps/agent/dist/cli.js register --server http://127.0.0.1:$API_PORT --code <绑定码>）"
   echo "日志：$RUN/api.log  $RUN/web.log     停止：bash scripts/local-test.sh stop"
@@ -69,6 +70,7 @@ npm run build:shared >/dev/null
 npm run build -w @kudesi/agent >/dev/null 2>&1 || true
 npm run db:migrate >"$RUN/migrate.log" 2>&1 || { echo "迁移失败，详见 $RUN/migrate.log"; exit 1; }
 npm run db:seed >"$RUN/seed.log" 2>&1 || true   # 已有公司时种子会提示已存在，不算错误
+PLATFORM_ADMIN_ACCOUNT=platform PLATFORM_ADMIN_PASSWORD="$(grep '^SEED_ADMIN_PASSWORD=' .env | cut -d= -f2-)" npm run db:platform-admin >"$RUN/platform-admin.log" 2>&1 || true   # 已存在时报错，不算错误
 
 # ---------- 3. 启动 ----------
 stop_all
@@ -85,7 +87,7 @@ if [ ! -f "$RUN/demo-done" ]; then
   API_URL="http://127.0.0.1:$API_PORT/api" ADMIN_PW="$ADMIN_PW" node -e '
     const A=process.env.API_URL, J={"content-type":"application/json"};
     (async()=>{
-      const r=await fetch(A+"/auth/login",{method:"POST",headers:J,body:JSON.stringify({companyCode:"demo",account:"admin",password:process.env.ADMIN_PW})});
+      const r=await fetch(A+"/auth/login",{method:"POST",headers:J,body:JSON.stringify({account:"admin",password:process.env.ADMIN_PW})});
       const lg=await r.json(); if(!lg.accessToken){console.log("（跳过演示数据：需要先登录改密码）");return;}
       const H={...J,authorization:"Bearer "+lg.accessToken};
       const post=(p,v)=>fetch(A+p,{method:"POST",headers:H,body:JSON.stringify({values:v})}).then(x=>x.ok?"ok":"skip");

@@ -13,6 +13,7 @@ import {
   AuditLog,
   Company,
   Department,
+  PlatformAdmin,
   Position,
   PositionPermission,
   User,
@@ -21,6 +22,8 @@ import {
 import { HealthController } from './health/health.controller';
 import { OrgController } from './org/org.controller';
 import { OrgService } from './org/org.service';
+import { PlatformController } from './platform/platform.controller';
+import { PlatformService } from './platform/platform.service';
 import { Controller, Get } from '@nestjs/common';
 
 /** 内存假仓库：没有 MySQL 时验证守卫、令牌、多公司隔离的整条链路。 */
@@ -79,6 +82,7 @@ describe('后端整体链路（内存假仓库）', () => {
   let base: string;
   let audits: FakeRepo<AuditLog>;
   let deps: FakeRepo<Department>;
+  let platformAdmins: FakeRepo<PlatformAdmin>;
 
   beforeAll(async () => {
     const hash = bcrypt.hashSync('correct-password-1', 4);
@@ -104,13 +108,18 @@ describe('后端整体链路（内存假仓库）', () => {
       { id: 2, companyId: 2, parentId: null, name: '公司2-财务', sortOrder: 0, status: 'active', createdAt: new Date() },
     ]);
     audits = new FakeRepo<AuditLog>([]);
+    platformAdmins = new FakeRepo<PlatformAdmin>([
+      { id: 1, account: 'root', passwordHash: hash, name: '平台管理员', status: 'active', lastLoginAt: null, createdAt: new Date() },
+    ]);
 
     const moduleRef = await Test.createTestingModule({
       imports: [JwtModule.register({ secret: 'x'.repeat(40), signOptions: { expiresIn: '1h' } })],
-      controllers: [HealthController, AuthController, OrgController, ProbeController],
+      controllers: [HealthController, AuthController, OrgController, ProbeController, PlatformController],
       providers: [
         AuthService,
         OrgService,
+        { provide: PlatformService, useValue: { listCompanies: async () => [] } },
+        { provide: getRepositoryToken(PlatformAdmin), useValue: platformAdmins },
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_GUARD, useClass: PermissionsGuard },
         { provide: getRepositoryToken(Company), useValue: companies },
@@ -141,8 +150,8 @@ describe('后端整体链路（内存假仓库）', () => {
     });
   const get = (path: string, token?: string) =>
     fetch(`${base}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
-  const login = async (companyCode: string, account: string, password = 'correct-password-1') => {
-    const res = await post('/auth/login', { companyCode, account, password });
+  const login = async (account: string, password = 'correct-password-1') => {
+    const res = await post('/auth/login', { account, password });
     return res.status === 201 ? ((await res.json()) as { accessToken: string }).accessToken : null;
   };
 
@@ -152,19 +161,41 @@ describe('后端整体链路（内存假仓库）', () => {
 
   it('登录失败统一提示，不泄露哪一项错', async () => {
     for (const body of [
-      { companyCode: 'demo', account: 'admin', password: 'wrong-password' },
-      { companyCode: 'demo', account: 'nobody', password: 'correct-password-1' },
-      { companyCode: 'nope', account: 'admin', password: 'correct-password-1' },
-      { companyCode: 'demo', account: 'gone', password: 'correct-password-1' },
+      { account: 'admin', password: 'wrong-password' },
+      { account: 'nobody', password: 'correct-password-1' },
+      { account: 'gone', password: 'correct-password-1' },
     ]) {
       const res = await post('/auth/login', body);
       expect(res.status).toBe(401);
-      expect(((await res.json()) as { message: string }).message).toBe('公司代码、账号或密码不正确');
+      expect(((await res.json()) as { message: string }).message).toBe('账号或密码不正确');
     }
   });
 
+  it('登录只要账号密码：员工拿到公司令牌，平台管理员拿到平台令牌', async () => {
+    const staff = (await (await post('/auth/login', { account: 'ops', password: 'correct-password-1' })).json()) as { type: string; user?: { companyId: number } };
+    expect(staff).toMatchObject({ type: 'company', user: { companyId: 1 } });
+    const root = (await (await post('/auth/login', { account: 'root', password: 'correct-password-1' })).json()) as { type: string; admin?: { account: string } };
+    expect(root).toMatchObject({ type: 'platform', admin: { account: 'root' } });
+    expect((await post('/auth/login', { account: 'root', password: 'bad' })).status).toBe(401);
+    // 登录接口不再接收公司代码（多余字段直接拒绝）
+    expect((await post('/auth/login', { companyCode: 'demo', account: 'ops', password: 'correct-password-1' })).status).toBe(400);
+  });
+
+  it('平台令牌只能进平台后台，公司令牌进不了平台后台；停用平台管理员立即失效', async () => {
+    const root = (await login('root'))!;
+    const ops = (await login('ops'))!;
+    expect((await get('/platform/companies', root)).status).toBe(200);
+    expect((await get('/platform/companies', ops)).status).toBe(403);
+    expect((await get('/platform/companies')).status).toBe(401);
+    expect((await get('/org/departments', root)).status).toBe(403);
+    expect((await get('/auth/me', root)).status).toBe(403);
+    await platformAdmins.update({ id: 1 }, { status: 'disabled' });
+    expect((await get('/platform/companies', root)).status).toBe(401);
+    await platformAdmins.update({ id: 1 }, { status: 'active' });
+  });
+
   it('登录后 /auth/me 返回权限，用于前端过滤菜单', async () => {
-    const token = (await login('demo', 'ops'))!;
+    const token = (await login('ops'))!;
     const me = (await (await get('/auth/me', token)).json()) as { name: string; permissions: { allow: string[] } };
     expect(me.name).toBe('运营');
     expect(me.permissions.allow).toEqual(['workbench.todos.view']);
@@ -176,22 +207,22 @@ describe('后端整体链路（内存假仓库）', () => {
   });
 
   it('没有声明权限策略的接口默认拒绝，声明了的才放行', async () => {
-    const token = (await login('demo', 'admin'))!;
+    const token = (await login('admin'))!;
     expect((await get('/probe/undeclared', token)).status).toBe(403);
     expect((await get('/probe/declared', token)).status).toBe(200);
     expect((await get('/probe/public')).status).toBe(200);
   });
 
   it('权限不足返回 403，管理员可访问', async () => {
-    const ops = (await login('demo', 'ops'))!;
+    const ops = (await login('ops'))!;
     expect((await get('/org/departments', ops)).status).toBe(403);
-    const admin = (await login('demo', 'admin'))!;
+    const admin = (await login('admin'))!;
     expect((await get('/org/departments', admin)).status).toBe(200);
   });
 
   it('多公司隔离：只能看到自己公司的部门', async () => {
-    const t1 = (await login('demo', 'admin'))!;
-    const t2 = (await login('other', 'boss2'))!;
+    const t1 = (await login('admin'))!;
+    const t2 = (await login('boss2'))!;
     const a = (await (await get('/org/departments', t1)).json()) as Array<{ name: string }>;
     const b = (await (await get('/org/departments', t2)).json()) as Array<{ name: string }>;
     expect(a.map((d) => d.name)).toEqual(['公司1-运营']);
@@ -199,7 +230,7 @@ describe('后端整体链路（内存假仓库）', () => {
   });
 
   it('不能把部门挂到别家公司的部门下；操作人和公司只取自令牌，并写入审计', async () => {
-    const t1 = (await login('demo', 'admin'))!;
+    const t1 = (await login('admin'))!;
     const bad = await post('/org/departments', { name: '越权', parentId: 2 }, t1);
     expect(bad.status).toBe(400);
 
@@ -210,24 +241,24 @@ describe('后端整体链路（内存假仓库）', () => {
   });
 
   it('请求体里夹带 companyId / actorId 会被直接拒绝', async () => {
-    const t1 = (await login('demo', 'admin'))!;
+    const t1 = (await login('admin'))!;
     const res = await post('/org/departments', { name: 'x', companyId: 2, actorId: 99 }, t1);
     expect(res.status).toBe(400);
   });
 
   it('修改密码：旧密码必须正确、新密码至少 10 位，改完旧密码失效', async () => {
-    const token = (await login('other', 'boss2'))!;
+    const token = (await login('boss2'))!;
     expect((await post('/auth/change-password', { oldPassword: 'bad', newPassword: 'new-password-123' }, token)).status).toBe(400);
     expect((await post('/auth/change-password', { oldPassword: 'correct-password-1', newPassword: 'short' }, token)).status).toBe(400);
     expect((await post('/auth/change-password', { oldPassword: 'correct-password-1', newPassword: 'correct-password-1' }, token)).status).toBe(400);
     expect((await post('/auth/change-password', { oldPassword: 'correct-password-1', newPassword: 'new-password-123' }, token)).status).toBe(201);
-    expect(await login('other', 'boss2', 'correct-password-1')).toBeNull();
-    expect(await login('other', 'boss2', 'new-password-123')).not.toBeNull();
+    expect(await login('boss2', 'correct-password-1')).toBeNull();
+    expect(await login('boss2', 'new-password-123')).not.toBeNull();
     expect(audits.rows.at(-1)).toMatchObject({ action: 'user.change_password', actorId: 4 });
   });
 
   it('停用账号后，已签发的令牌立即失效', async () => {
-    const token = (await login('demo', 'ops'))!;
+    const token = (await login('ops'))!;
     expect((await get('/auth/me', token)).status).toBe(200);
     const usersRepo = app.get(getRepositoryToken(User)) as FakeRepo<User>;
     await usersRepo.update({ id: 2 }, { status: 'disabled' });

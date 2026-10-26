@@ -228,3 +228,10 @@ export function findPageByPath(pathname: string): { section: NavSection; page: N
   }
   return undefined;
 }
+
+/** 平台后台（平台管理员专用，与公司菜单分开；不使用公司权限键，只有“平台管理员”这一种身份）。 */
+export const PLATFORM_PAGES = [
+  { id: 'applications', title: '企业申请审核' },
+  { id: 'companies', title: '企业管理' },
+] as const;
+export type PlatformPageId = (typeof PLATFORM_PAGES)[number]['id'];

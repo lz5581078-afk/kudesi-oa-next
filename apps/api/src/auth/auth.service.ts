@@ -4,9 +4,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
 import { CurrentUserDto, LoginResponse, resolvePermissions } from '@kudesi/shared';
-import { AuditLog, Company, Position, PositionPermission, User, UserPermissionOverride } from '../entities';
+import { AuditLog, Company, PlatformAdmin, Position, PositionPermission, User, UserPermissionOverride } from '../entities';
 
 // 用户不存在时也做一次哈希比较，避免通过响应时间判断账号是否存在
+const LOGIN_FAILED = '账号或密码不正确';
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
 
 @Injectable()
@@ -14,6 +15,7 @@ export class AuthService {
   constructor(
     private readonly jwt: JwtService,
     @InjectRepository(Company) private readonly companies: Repository<Company>,
+    @InjectRepository(PlatformAdmin) private readonly platformAdmins: Repository<PlatformAdmin>,
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(Position) private readonly positions: Repository<Position>,
     @InjectRepository(PositionPermission) private readonly positionPermissions: Repository<PositionPermission>,
@@ -21,21 +23,32 @@ export class AuthService {
     @InjectRepository(AuditLog) private readonly audits: Repository<AuditLog>,
   ) {}
 
-  async login(companyCode: string, account: string, password: string): Promise<LoginResponse> {
-    const company = await this.companies.findOne({ where: { code: companyCode.trim().toLowerCase() } });
-    const user = company
-      ? await this.users.findOne({ where: { companyId: company.id, account: account.trim() } })
-      : null;
+  /**
+   * 登录只填账号和密码：账号全系统唯一（平台管理员与员工账号互不重名），
+   * 先找平台管理员，再找员工。无论哪一项错都返回同一句提示。
+   */
+  async login(account: string, password: string): Promise<LoginResponse> {
+    const name = account.trim();
+    const admin = await this.platformAdmins.findOne({ where: { account: name } });
+    const matches = admin ? [] : await this.users.find({ where: { account: name }, take: 2 });
+    // 同名账号（历史遗留）不可能判断是谁，直接按失败处理，绝不串到别的公司
+    const user = matches.length === 1 ? matches[0] : null;
+    const passwordOk = await bcrypt.compare(password, admin?.passwordHash ?? user?.passwordHash ?? DUMMY_HASH);
 
-    const passwordOk = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
-    if (!company || !user || !passwordOk || user.status !== 'active' || company.status !== 'active') {
-      // 统一提示，不透露具体是哪一项错了
-      throw new UnauthorizedException('公司代码、账号或密码不正确');
+    if (admin) {
+      if (!passwordOk || admin.status !== 'active') throw new UnauthorizedException(LOGIN_FAILED);
+      await this.platformAdmins.update({ id: admin.id }, { lastLoginAt: new Date() });
+      const accessToken = await this.jwt.signAsync({ sub: admin.id, typ: 'platform' });
+      return { type: 'platform', accessToken, admin: { id: admin.id, name: admin.name, account: admin.account } };
     }
 
+    const company = user ? await this.companies.findOne({ where: { id: user.companyId } }) : null;
+    if (!company || !user || !passwordOk || user.status !== 'active' || company.status !== 'active') {
+      throw new UnauthorizedException(LOGIN_FAILED);
+    }
     await this.users.update({ id: user.id }, { lastLoginAt: new Date() });
     const accessToken = await this.jwt.signAsync({ sub: user.id, cid: user.companyId });
-    return { accessToken, user: await this.buildCurrentUser(user, company) };
+    return { type: 'company', accessToken, user: await this.buildCurrentUser(user, company) };
   }
 
   /** 修改自己的密码：必须验证旧密码；新密码至少 10 位且不能与旧密码相同。 */

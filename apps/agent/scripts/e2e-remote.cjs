@@ -1,7 +1,7 @@
 /**
  * 远程协助端到端（真实浏览器 + 真实 WebRTC + 真实 OA 接口）：
  *   OA_API=http://127.0.0.1:4001 KUDESI_CHROME=<chrome路径> node scripts/e2e-remote.cjs
- * 需要：API 已启动并连着一个已迁移、已 seed 的开发库（公司代码 demo、管理员 admin / Admin-Test-2026!，仅限开发库）。
+ * 需要：API 已启动并连着一个已迁移、已 seed 的开发库（管理员 admin / Admin-Test-2026!，仅限开发库）。
  * 流程：助手（本机 Chromium 里的假商家后台）←→ OA 信令信箱 ←→ 网页端的 viewerConnection（打包后放进另一个 Chromium 页面）。
  * 验证：默认关闭 → 开启后可申请 → 助手自动同意 → WebRTC 连上并收到画面 → 点击/输入/拖动真的作用在店铺页面上
  *      → 只观看模式不能操作 → 页面离开平台域名后画面和操作都停 → 结束后记录与日志 → 紧急停止。
@@ -63,7 +63,7 @@ window.addEventListener('mouseup',()=>{if(drag){drag=null;fetch('/hit?what=drag&
 
   const call = async (p, body, method, h = H0) => { const r = await fetch(API + '/api' + p, { method: method || (body === undefined ? 'GET' : 'POST'), headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch { /* 非 JSON */ } if (!r.ok) { const e = new Error(p + ' ' + r.status + ' ' + (j.message || t)); e.status = r.status; throw e; } return j; };
   let H0 = { 'content-type': 'application/json' };
-  const lg = await call('/auth/login', { companyCode: 'demo', account: 'admin', password: 'Admin-Test-2026!' });
+  const lg = await call('/auth/login', { account: 'admin', password: 'Admin-Test-2026!' });
   const H = { authorization: 'Bearer ' + lg.accessToken, 'content-type': 'application/json' };
   H0 = H;
   const sfx = String(Date.now() % 100000);

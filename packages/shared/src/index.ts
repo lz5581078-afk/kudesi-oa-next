@@ -15,3 +15,4 @@ export * from './packaging';
 export * from './express-engine';
 export * from './sku-apply';
 export * from './remote-assist';
+export * from './platform';

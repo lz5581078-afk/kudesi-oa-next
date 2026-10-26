@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { createChecker, getResourceDef, permissionOwner, resourcePermission, ResourceAction } from '@kudesi/shared';
-import { AUTHENTICATED_ONLY, AuthUser, IS_PUBLIC, REQUIRED_PERMISSIONS, RESOURCE_ACTION } from './auth.decorators';
+import { AUTHENTICATED_ONLY, AuthUser, IS_PUBLIC, PLATFORM_ONLY, REQUIRED_PERMISSIONS, RESOURCE_ACTION } from './auth.decorators';
 
 /**
  * 全局权限守卫，默认拒绝：
@@ -16,6 +16,12 @@ export class PermissionsGuard implements CanActivate {
     const targets = [context.getHandler(), context.getClass()];
 
     if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, targets)) return true;
+
+    if (this.reflector.getAllAndOverride<boolean>(PLATFORM_ONLY, targets)) {
+      // 令牌类型已由登录守卫核对：能走到这里的只有平台管理员
+      if (!context.switchToHttp().getRequest().platformAdmin) throw new ForbiddenException('仅平台管理员可以执行该操作');
+      return true;
+    }
 
     const user = context.switchToHttp().getRequest().user as AuthUser | undefined;
     if (!user) throw new ForbiddenException('未登录');

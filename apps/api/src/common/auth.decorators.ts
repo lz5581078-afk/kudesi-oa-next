@@ -13,6 +13,7 @@ export const IS_PUBLIC = 'auth:public';
 export const AUTHENTICATED_ONLY = 'auth:authenticated-only';
 export const REQUIRED_PERMISSIONS = 'auth:permissions';
 export const RESOURCE_ACTION = 'auth:resource-action';
+export const PLATFORM_ONLY = 'auth:platform-only';
 
 /** 无需登录（仅登录、健康检查等） */
 export const Public = () => SetMetadata(IS_PUBLIC, true);
@@ -32,3 +33,17 @@ export const CurrentUser = createParamDecorator((_data: unknown, ctx: ExecutionC
  * 由全局守卫校验。子资源沿用父资源的权限。
  */
 export const RequireResourceAction = (action: ResourceAction) => SetMetadata(RESOURCE_ACTION, action);
+
+/** 平台后台接口：只有平台管理员的令牌能进；公司员工的令牌一律 403。 */
+export const PlatformOnly = () => SetMetadata(PLATFORM_ONLY, true);
+
+/** 平台管理员（只来自令牌 + 数据库）。 */
+export interface PlatformAdminUser {
+  id: number;
+  name: string;
+  account: string;
+}
+
+export const CurrentPlatformAdmin = createParamDecorator((_data: unknown, ctx: ExecutionContext): PlatformAdminUser => {
+  return ctx.switchToHttp().getRequest().platformAdmin as PlatformAdminUser;
+});
