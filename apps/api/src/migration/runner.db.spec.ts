@@ -15,12 +15,13 @@ const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 d('迁入账本与马甲（隔离MySQL）', () => {
   let ds: DataSource, company: Company, actor: User, svc: ReturnType<typeof buildServices>;
   let source: LegacyArchive;
-  const oldFilesRoot=process.env.FILES_LOCAL_ROOT;
+  const oldFilesRoot=process.env.FILES_LOCAL_ROOT, oldJwtSecret=process.env.JWT_SECRET;
   const fileRoot=mkdtempSync(join(tmpdir(),'migration-files-'));
   const image=Buffer.from([137,80,78,71,13,10,26,10,0]);
   const contentHash=createHash('sha256').update(image).digest('hex');
   beforeAll(async () => {
     process.env.FILES_LOCAL_ROOT=fileRoot;
+    process.env.JWT_SECRET='isolated-migration-test-signing-key-32bytes';
     ds = await new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true }).initialize();
     svc = buildServices(ds);
     const tag = randomBytes(6).toString('hex');
@@ -47,7 +48,7 @@ d('迁入账本与马甲（隔离MySQL）', () => {
       { type:'finance-bundle-lines', id:'line',data:{bundleId:ref('finance-bundles','bundle'),baseCodeId:ref('finance-base-codes','alias'),role:'main',qty:1} },
     ] };
   });
-  afterAll(async () => { await ds?.destroy();if(oldFilesRoot===undefined)delete process.env.FILES_LOCAL_ROOT;else process.env.FILES_LOCAL_ROOT=oldFilesRoot;rmSync(fileRoot,{recursive:true,force:true}); });
+  afterAll(async () => { await ds?.destroy();if(oldFilesRoot===undefined)delete process.env.FILES_LOCAL_ROOT;else process.env.FILES_LOCAL_ROOT=oldFilesRoot;if(oldJwtSecret===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=oldJwtSecret;rmSync(fileRoot,{recursive:true,force:true}); });
   const run = (apply:boolean) => runLegacyImport(ds,svc.resources,svc.files,source,{companyId:company.id,actorId:actor.id,expectedName:'迁前公司',apply});
   it('试跑走真实校验并全部回滚，不增加人员/资料/账本', async () => {
     const before = await ds.manager.count(User,{where:{companyId:company.id}});
