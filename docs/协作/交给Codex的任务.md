@@ -63,3 +63,20 @@
 1. `npm run typecheck`、`npm test`、`npm run build` 全部通过，新功能要有测试（含权限拒绝、跨公司隔离、错误路径）。
 2. 在 `docs/协作/任务板.md` 里把任务状态改成"待合并"，写清改了哪些共用热点文件、用了哪个迁移编号。
 3. 在 PR 描述里写：做了什么、没做什么和原因、需要用户在真机或浏览器里确认的点。
+
+---
+
+## 任务：做成“Claude 也能用”的一键部署（优先）
+
+背景：lc.kudesi.com 的服务器登录权限只在 Codex 这边，Claude 没有。要求把部署做成**推送代码即可触发**，这样任何窗口（含 Claude）不用拿服务器密码也能发布。
+
+做法（建议，可换更合适的）：
+1. 新增 `.github/workflows/deploy.yml`：推送到 `main`（或手动触发）时，在 CI 里执行 `npm ci`、`typecheck`、`test`、`build`，打包发布目录（同 `deploy/server/README.md` 的第 1 步），用 SSH 上传到服务器 `/srv/kudesi-lc/releases/<日期-序号>/`，再在服务器上执行发布脚本。
+2. 新增 `deploy/server/release.sh`（放服务器端，由 CI 调用）：发布前备份 `current` 指向和数据库 → 构建镜像 → **只在发布包里带有新迁移且已备份时才执行迁移**（遵守 README“已有业务库禁止自动运行迁移”，本次这个版本没有新迁移）→ 切换 `current` → `up -d --wait api` → 检查网页/API 健康 → 失败自动回滚到上一个版本并让 CI 报红。不覆盖 shared 里任何配置，不执行 `down -v`。
+3. 服务器 SSH 私钥、主机、用户只放 GitHub 仓库的 Secrets（`DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_SSH_KEY`，建议用只能执行发布脚本的专用受限账号），**不进 Git，不要发给 Claude**。需要用户在 GitHub 设置里添加 Secrets，请在完成时告诉用户具体要加哪几个。
+4. 把 `feat/server-deploy` 里已有的内容保留（已合进 integration）；在 `deploy/server/README.md` 补“如何触发发布、如何看结果、如何回滚”。
+5. 完成后更新任务板，并在这里写明：触发方式、看结果的地方、回滚命令。
+
+验收：在 integration 合并到 main 之后，不需要任何人登录服务器，lc.kudesi.com 自动更新到新版本，并能用 `https://lc.kudesi.com/api/health` 验证。
+
+首次使用的新版本内容：登录页重做（不再沿用旧样式）、站名统一为“小白全流程系统”，无新数据库迁移。
