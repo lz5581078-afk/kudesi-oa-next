@@ -221,6 +221,15 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
             for (const f of r.files!.filter((f) => f.field === field)) {
               const fileKey = `${r.type}:${r.id}:${f.field}:${f.id}`;
               let fileId = lookup('file', fileKey);
+              if (!fileId && f.contentHash && /^[0-9a-f]{64}$/.test(f.contentHash)) {
+                // 同一合并资料、同一字段、相同摘要复用附件；保留每个来源文件对照。
+                for(const other of source.records){
+                  if(other.type!==r.type || lookup(other.type,other.id)!==recordId)continue;
+                  const same=other.files?.find(x=>x.field===field&&x.contentHash===f.contentHash&&lookup('file',`${other.type}:${other.id}:${x.field}:${x.id}`));
+                  if(same){fileId=lookup('file',`${other.type}:${other.id}:${same.field}:${same.id}`);break;}
+                }
+                if(fileId){await register('file',fileKey,fileId);count('reused','file');}
+              }
               if (!fileId) {
                 const buffer = await source.loadFile(f.locator);
                 const info = await files.putBlob(company.id, actor.id, r.type, field, { originalname: f.name, buffer, size: buffer.length }, em);
