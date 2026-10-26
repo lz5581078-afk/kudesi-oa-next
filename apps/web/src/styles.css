@@ -366,20 +366,21 @@ label.check-line input[type='checkbox'] { width: auto; margin: 0; }
 .data-table.compact { min-width: 0; font-size: 13px; }
 .data-table.compact td, .data-table.compact th { padding: 6px 10px; }
 
-/* 登录页：沿用系统自己的深青配色，左侧说明、右侧登录卡片 */
+/* 登录页：左侧浅薄荷底（与小白图片底色一致，图自然融入），右侧登录卡片 */
 .auth-page { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 5fr) minmax(360px, 4fr); background: var(--bg); }
-.auth-aside { background: var(--topbar); color: var(--topbar-ink); padding: 40px 56px; display: flex; flex-direction: column; justify-content: space-between; gap: 32px; }
-.auth-aside .brand { color: #fff; }
-.auth-aside h1 { margin: 0 0 12px; color: #fff; font-size: 34px; line-height: 1.25; }
-.auth-aside p { margin: 0; max-width: 460px; line-height: 1.7; }
-.auth-points { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 14px; max-width: 460px; }
-.auth-points li { display: grid; grid-template-columns: 8px 1fr; gap: 12px; align-items: baseline; }
-.auth-points li::before { content: ''; width: 8px; height: 8px; border-radius: 2px; background: var(--topbar-accent); }
-.auth-points strong { color: #fff; font-weight: 600; }
-.auth-aside { position: relative; overflow: hidden; }
+.auth-aside { position: relative; overflow: hidden; background: #eaf5f1; color: #3d5a55; padding: 40px 56px; display: flex; flex-direction: column; gap: 32px; }
 .auth-aside > * { position: relative; z-index: 1; }
-.auth-aside > .auth-mascot { position: absolute; z-index: 0; right: -24px; bottom: -8px; width: min(46%, 360px); height: auto; opacity: .96; -webkit-mask-image: radial-gradient(circle at center, #000 55%, transparent 70%); mask-image: radial-gradient(circle at center, #000 55%, transparent 70%); pointer-events: none; }
-.auth-aside small { color: #7f8e9b; }
+.auth-aside .brand { color: var(--accent-ink); }
+.auth-aside h1 { margin: 56px 0 12px; max-width: 480px; color: #12383a; font-size: 32px; line-height: 1.3; }
+.auth-aside p { margin: 0; max-width: 420px; line-height: 1.7; }
+.auth-points { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 12px; max-width: 360px; }
+.auth-points li { display: grid; grid-template-columns: 8px 1fr; gap: 12px; align-items: baseline; }
+.auth-points li::before { content: ''; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+.auth-points strong { color: #12383a; font-weight: 600; }
+.auth-aside small { position: absolute; left: 56px; bottom: 28px; color: #7a948e; }
+.auth-mascot-wrap { position: absolute !important; z-index: 0 !important; right: 4%; bottom: 0; width: min(52%, 460px); }
+.auth-mascot { display: block; width: 100%; height: auto; -webkit-mask-image: radial-gradient(closest-side, #000 82%, transparent 100%); mask-image: radial-gradient(closest-side, #000 82%, transparent 100%); }
+.auth-bubble { position: absolute; right: -4%; top: 2%; padding: 8px 14px; background: #fff; color: var(--accent-ink); border-radius: 14px 14px 4px 14px; box-shadow: 0 6px 18px rgba(11, 107, 107, .15); font-weight: 600; font-size: 14px; white-space: nowrap; }
 .auth-main { display: flex; align-items: center; justify-content: center; padding: 32px 24px; }
 .auth-card { width: 100%; max-width: 380px; padding: 28px; display: flex; flex-direction: column; gap: 16px; }
 .auth-card h2 { margin: 0; font-size: 20px; }
@@ -393,10 +394,11 @@ label.check-line input[type='checkbox'] { width: auto; margin: 0; }
 .auth-apply button { border: 0; background: transparent; color: var(--accent); font-weight: 600; cursor: pointer; padding: 0; }
 @media (max-width: 860px) {
   .auth-page { grid-template-columns: 1fr; }
-  .auth-aside { padding: 24px; gap: 16px; }
-  .auth-aside h1 { font-size: 24px; }
-  .auth-points { display: none; }
-  .auth-aside > .auth-mascot { width: 140px; right: 8px; bottom: 0; }
+  .auth-aside { padding: 24px; gap: 12px; min-height: 280px; }
+  .auth-aside h1 { font-size: 22px; margin-top: 20px; max-width: 60%; }
+  .auth-aside p, .auth-points, .auth-bubble { display: none; }
+  .auth-aside small { left: 24px; bottom: 12px; }
+  .auth-mascot-wrap { width: 170px; right: 4px; }
 }
 .muted-text { color: var(--muted); font-size: 13px; }
 .modal textarea { padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; resize: vertical; }

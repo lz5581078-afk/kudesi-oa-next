@@ -42,7 +42,10 @@ export function LoginPage() {
             <li><span><strong>财务成本</strong>　商品成本、快递运费、利润一张表算清</span></li>
           </ul>
         </div>
-        <img className="auth-mascot" src={mascot} alt="小白" />
+        <div className="auth-mascot-wrap">
+          <img className="auth-mascot" src={mascot} alt="小白" />
+          <span className="auth-bubble">你好，我是小白</span>
+        </div>
         <small>杭州酷得斯科技有限公司 开发</small>
       </section>
 
