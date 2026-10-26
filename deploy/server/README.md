@@ -1,5 +1,13 @@
 # lc.kudesi.com 部署
 
+## 首次上线记录
+
+2026-10-26 已部署 https://lc.kudesi.com ，发布目录 `/srv/kudesi-lc/releases/20261026-01`，镜像 `kudesi-lc-api:20261026-01`，代码版本见发布目录的 `release.json`。HTTPS 页面、HTTP 跳转、API 健康、公司和平台管理员登录已验证。
+
+公司管理员账号 `admin`（首次登录需改密），平台管理员账号 `platformadmin`；初始密码仅存在服务器的 `/srv/kudesi-lc/shared/bootstrap.env`，需 sudo 权限查看。禁止复制到文档、日志或 Git。
+
+初始数据库与站点备份位于 `/srv/kudesi-lc/backups/`（权限 700）。证书到期日 2027-01-24，Certbot 已配置自动续期；本站专用重载钩子为 `/etc/letsencrypt/renewal-hooks/deploy/kudesi-lc-nginx.sh`。
+
 网站名称：小白全流程系统。该站点使用独立的 `kudesi-lc` Docker Compose 项目、MySQL 数据卷和 `127.0.0.1:4107` API 端口。Nginx 提供网页、API 代理与 HTTPS；现有其他网站不变。
 
 ## 首次部署与发布
