@@ -96,7 +96,14 @@ def assessment(source,target,rules):
     support={'resource_media':'附件索引供字段迁移使用，不原样搬表','finance_product_archive_photos':'商品图片按新附件机制迁移','finance_zero_value_reasons':'零值理由参考，须匹配到具体字段，不造缺失理由','finance_product_freight_history':'当前运费来源需核对，历史不直接写成当前成本','finance_product_units':'单位字典需与新固定选项比对，不能静默替换单位','finance_product_packaging_units':'包装单位需核对新字段支持范围','finance_shipping_material_units':'物料单位需核对新字段支持范围','finance_production_cost_rates':'旧生产成本规则暂未找到明确目标，先列待核对','finance_product_archive_types':'档案类型与新固定枚举对应，不导入旧页面配置'}
     for t in source['tables']:
         name=t['name'];profile=source.get('profiles',{}).get(name,{})
-        if name in used:decision='关联到新目标，逐字段取用';why='对应 '+','.join(used[name])+'；不表示整表全量迁入'
+        if name in used:
+            linked=[rules['resources'][key] for key in used[name]]
+            if all(r.get('policy')=='exclude-derived' for r in linked):
+                decision='本轮不迁';why='；'.join(dict.fromkeys(r.get('reason','计算或运行历史') for r in linked))
+            elif all(r.get('policy','').startswith('review-') for r in linked):
+                decision='口径待定，暂不导入';why='对应 '+','.join(used[name])+'；待核定范围和转换口径'
+            else:
+                decision='关联到新目标，逐字段取用';why='对应 '+','.join(used[name])+'；各子类仍按资料清单的排除/待定策略处理，不表示整表全量迁入'
         elif name in org:decision='组织账号来源';why='转为新公司/部门/岗位/用户及权限；旧角色和权限不是原样复制'
         elif name in support:decision='辅助来源或待核对';why=support[name]
         elif any(v in name for v in ['log','event','snapshot','backup','import']):decision='本轮不迁';why='旧日志、历史快照、导入/备份过程记录，无当前资料字段用途；保留旧系统'

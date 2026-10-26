@@ -43,8 +43,9 @@ class AssessmentTests(unittest.TestCase):
 
     def test_excluded_dataset_cannot_become_ready(self):
         self.rule['policy'] = 'exclude-derived'
-        fields, _, _ = m.assessment(self.source, self.target, self.rules)
+        fields, _, tables = m.assessment(self.source, self.target, self.rules)
         self.assertIn('本轮不迁', fields[0]['结论'])
+        self.assertEqual(tables[0]['处置'], '本轮不迁')
 
 if __name__ == '__main__':
     unittest.main()
