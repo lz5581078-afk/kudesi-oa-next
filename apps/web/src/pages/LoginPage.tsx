@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import mascot from '../assets/xiaobai.jpg';
 import { CompanyApplyDialog } from './CompanyApplyDialog';
 
 export function LoginPage() {
@@ -41,6 +42,7 @@ export function LoginPage() {
             <li><span><strong>财务成本</strong>　商品成本、快递运费、利润一张表算清</span></li>
           </ul>
         </div>
+        <img className="auth-mascot" src={mascot} alt="小白" />
         <small>杭州酷得斯科技有限公司 开发</small>
       </section>
 
