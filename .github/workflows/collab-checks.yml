@@ -40,6 +40,7 @@ jobs:
       - run: RESOURCE_DB_TEST=0 npm test
       # 多个数据库套件共享测试库，串行执行避免范围锁互相死锁。
       - run: npm test -w @kudesi/api -- --runInBand
+      - run: python3 -m unittest discover -s deploy/server/tests -v
       - run: npm run build
   merge:
     needs: check
