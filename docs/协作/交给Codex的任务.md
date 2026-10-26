@@ -80,3 +80,12 @@
 验收：在 integration 合并到 main 之后，不需要任何人登录服务器，lc.kudesi.com 自动更新到新版本，并能用 `https://lc.kudesi.com/api/health` 验证。
 
 首次使用的新版本内容：登录页重做（不再沿用旧样式）、站名统一为“小白全流程系统”，无新数据库迁移。
+
+
+### 一键部署实现记录（2026-10-26，Codex）
+
+- 触发：工作流合入 main 后，push/main 自动发布；Actions 的 Deploy lc.kudesi.com 可在 main 手动 action=deploy。integration 不发布。
+- 查看：GitHub Actions 的 Deploy lc.kudesi.com，以及 https://lc.kudesi.com/api/health 和 /release.json（发布编号、Git SHA）。
+- 回滚：Actions 手动 action=rollback + release_id；管理员可用 `sudo /usr/local/sbin/kudesi-lc-command rollback <发布编号>`。恢复程序版本，不自动覆盖业务数据库；备份与日志保留。
+- Secrets：DEPLOY_HOST、DEPLOY_USER、DEPLOY_SSH_KEY、DEPLOY_KNOWN_HOSTS 已加密配置在 GitHub，未在聊天、代码或文档展示私钥。服务器专用账号 lcdeploy 仅能调用固定发布控制器。
+- 完整运维说明与验证边界见 deploy/server/README.md；本次不合并 main，不提前切换生产应用，等待用户合并 main 触发首次真实发布。
