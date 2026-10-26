@@ -1,4 +1,5 @@
 import type { DocInput, DocLineInput, DocType } from '@kudesi/shared';
+import type { FileInfo } from '../../resources/api';
 import { api } from '../../api/client';
 
 export interface DocRow { id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null }
@@ -10,6 +11,7 @@ export interface DocDetailDto {
   id: number; docNo: string; docType: DocType; typeLabel: string; status: DocRow['status']; docDate: string; partyId: number | null; partyName: string;
   storeId: number | null; storeName: string; refNo: string | null; bankAccountId: number | null; bankName: string; toBankAccountId: number | null; toBankName: string; warehouseId: number | null; warehouseName: string;
   amountCents: number; offsetCents: number; paidCents: number; partyKind: 'customer' | 'store' | 'supplier' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
+  sourceKey?: string | null; openingVouchers?: FileInfo[];
   settleBy?: 'doc' | 'product' | null; settleByLabel?: string | null;
   settlements?: Array<{ id: number; sourceDocId: number; sourceDocNo: string; sourceTypeLabel: string; productId: number | null; productName: string; amountCents: number }>;
   settledBy?: Array<{ id: number; docNo: string; docType: string; status: string; amountCents: number }>;
@@ -92,6 +94,9 @@ export const financeApi = {
   copy: (id: number) => api<DocDetailDto>(`/finance/docs/${id}/copy`, { method: 'POST', body: {} }),
   batch: (action: 'post' | 'delete' | 'copy', ids: number[]) => api<BatchResult>('/finance/docs-batch', { method: 'POST', body: { action, ids } }),
   post: (id: number) => api<DocDetailDto>(`/finance/docs/${id}/post`, { method: 'POST', body: {} }),
+  registerOpeningPrepayment: (id: number, body: { reason: string; fileIds: number[]; confirmed: boolean }) => api<DocDetailDto>(`/finance/docs/${id}/opening-prepayment`, { method: 'POST', body }),
+  uploadOpeningVoucher: (id: number, file: File) => { const form = new FormData(); form.append('file', file); return api<FileInfo>(`/finance/docs/${id}/opening-vouchers`, { form }); },
+  openingVoucherUrl: (id: number, fileId: number) => api<{ url: string }>(`/finance/docs/${id}/opening-vouchers/${fileId}/url`),
   reverse: (id: number, reason: string) => api<DocDetailDto>(`/finance/docs/${id}/reverse`, { method: 'POST', body: { reason } }),
   costTable: (p: { categoryId?: number; keyword?: string; page?: number }) => api<CostTableData>(`/finance/cost-table${qs({ ...p, pageSize: 20 })}`),
   saveCostPricing: (bundleId: number, b: CostPricingSave) => api<{ ok: true; changed: boolean }>(`/finance/cost-table/${bundleId}/pricing`, { method: 'PUT', body: b }),

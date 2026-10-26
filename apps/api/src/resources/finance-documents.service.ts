@@ -2,17 +2,20 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
+  OPENING_PREPAYMENT_PERMISSION, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { FinanceDocument, FinanceDocumentAccount, FinanceDocumentEvent, FinanceDocumentLine, FinanceDocumentSettlement, FinanceEntry, ResourceRecord } from '../entities';
+import { AuditLog, ResourceFile, FinanceDocument, FinanceDocumentAccount, FinanceDocumentEvent, FinanceDocumentLine, FinanceDocumentSettlement, FinanceEntry, ResourceRecord } from '../entities';
 
 const COST_VIEW = 'product.cost.view';
 const today = todayInChina;
 const ymd = (d: string) => d.replace(/-/g, '');
 /** 单据来源：流程办理时自动生成的单据 sourceKey 以 flow: 开头；其余都是人在制单中心手工做的 */
 export const sourceLabel = (key: string | null | undefined) => (key?.startsWith('flow:') ? '流程自动记账' : '手工制单');
+
+export const OPENING_VOUCHER_TYPE = 'opening-prepayment-voucher';
+export interface OpeningPrepaymentInput { reason: string; fileIds: number[]; confirmed: boolean }
 
 export interface ListQuery { scope: 'drafts' | 'history' | DocType; direction?: 'in' | 'out' | 'internal'; status?: string; creatorId?: number; audited?: 'yes' | 'no'; docType?: string; from?: string; to?: string; keyword?: string; page: number; pageSize: number }
 
@@ -385,6 +388,57 @@ export class FinanceDocumentsService {
     });
   }
 
+  /** 期初登记只能用于已开立的手工供应商预付单，独立于普通过账权限。 */
+  private openingCandidate(doc: FinanceDocument) {
+    if (doc.docType !== 'prepayment' || doc.partyKind !== 'supplier' || !doc.partyId) throw new BadRequestException('只能登记供应商预付款单');
+    if (doc.sourceKey !== null || doc.reversesId) throw new BadRequestException('只能登记手工来源的原始单据');
+    if (doc.status !== 'issued') throw new ConflictException('只有已开立、未过账的单据能登记已有预付款余额');
+    if (!Number.isSafeInteger(doc.amountCents) || doc.amountCents <= 0) throw new BadRequestException('登记金额必须为大于 0 的整数分');
+  }
+
+  async checkOpeningPrepayment(user: AuthUser, id: number) {
+    this.need(user, OPENING_PREPAYMENT_PERMISSION, '没有登记已有预付款余额的权限');
+    const { doc } = await this.load(this.dataSource.manager, user, id);
+    if (!this.canSee(user, doc.docType)) throw new ForbiddenException('没有查看单据的权限');
+    this.openingCandidate(doc);
+  }
+
+  async openingVoucher(user: AuthUser, id: number, fileId: number) {
+    const { doc } = await this.load(this.dataSource.manager, user, id);
+    if (!this.canSee(user, doc.docType)) throw new ForbiddenException('没有查看单据的权限');
+    const file = await this.dataSource.manager.findOne(ResourceFile, { where: { id: fileId, companyId: user.companyId, resourceType: OPENING_VOUCHER_TYPE, resourceId: id, fieldKey: 'voucher' } });
+    if (!file) throw new NotFoundException('凭证不存在');
+    return file;
+  }
+
+  async registerOpeningPrepayment(user: AuthUser, id: number, input: OpeningPrepaymentInput) {
+    this.need(user, OPENING_PREPAYMENT_PERMISSION, '没有登记已有预付款余额的权限');
+    const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+    if (!reason || input.reason.length > 500) throw new BadRequestException('核对说明必填，且不能超过 500 字');
+    if (input.confirmed !== true) throw new BadRequestException('请确认款项已在系统上线前付出，本次不扣银行余额');
+    const ids = input.fileIds;
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > 10 || ids.some((v) => !Number.isSafeInteger(v) || v <= 0) || new Set(ids).size !== ids.length) throw new BadRequestException('请提供 1–10 个不重复的凭证附件');
+    return this.dataSource.transaction(async (em) => {
+      await this.lockPosting(em, user);
+      const { doc, lines, accounts, settlements } = await this.load(em, user, id, true);
+      if (!this.canSee(user, doc.docType)) throw new ForbiddenException('没有查看单据的权限');
+      this.openingCandidate(doc);
+      await this.checkRefs(em, user, this.toInput(doc, lines, accounts, settlements), id);
+      if (await em.count(FinanceEntry, { where: { companyId: user.companyId, documentId: id } })) throw new ConflictException('这张单据已经入账，不能重复登记');
+      const files = await em.find(ResourceFile, { where: { companyId: user.companyId, id: In(ids) }, lock: { mode: 'pessimistic_write' } });
+      if (files.length !== ids.length || files.some((f) => f.resourceType !== OPENING_VOUCHER_TYPE || f.fieldKey !== 'voucher' || f.resourceId !== null || f.uploadedBy !== user.id || f.size <= 0 || f.size > 10 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'].includes(f.mime))) throw new BadRequestException('凭证无效、已被占用或不属于当前上传人，请重新上传');
+      await em.update(ResourceFile, { companyId: user.companyId, id: In(ids) }, { resourceId: id });
+      await this.writeEntries(em, user, id, doc.docDate, [
+        { kind: 'prepayment', accountId: doc.partyId!, subId: 0, amount: doc.amountCents, qty: null },
+        { kind: 'opening', accountId: 0, subId: 0, amount: -doc.amountCents, qty: null },
+      ]);
+      await em.update(FinanceDocument, { id, companyId: user.companyId }, { status: 'posted', postedAt: new Date(), paidCents: 0 });
+      await this.event(em, user, id, 'opening-prepay', reason);
+      await em.insert(AuditLog, { companyId: user.companyId, actorId: user.id, action: 'finance.opening-prepayment', resourceType: 'finance-document', resourceId: String(id), detail: { reason, fileIds: ids, amountCents: doc.amountCents, supplierId: doc.partyId! } });
+      return this.view(user, em, id);
+    });
+  }
+
   private async writeEntries(em: EntityManager, user: AuthUser, documentId: number, date: string, entries: Entry[]) {
     for (const e of entries) {
       await em.insert(FinanceEntry, { companyId: user.companyId, documentId, entryDate: date, kind: e.kind, accountId: e.accountId, subId: e.subId, amountCents: e.amount, qty: e.qty });
@@ -554,6 +608,7 @@ export class FinanceDocumentsService {
     const actorName = new Map<number, string>(actors.map((a: { id: number; name: string }) => [a.id, a.name]));
     return {
       ...doc,
+      openingVouchers: (await em.find(ResourceFile, { where: { companyId: user.companyId, resourceType: OPENING_VOUCHER_TYPE, resourceId: id, fieldKey: 'voucher' }, order: { id: 'ASC' } })).map((f) => ({ id: f.id, name: f.name, mime: f.mime, size: f.size })),
       typeLabel: DOC_TYPE_MAP.get(doc.docType as DocType)?.label ?? doc.docType,
       partyName: doc.partyId ? names.get(doc.partyId) ?? '' : '', storeName: doc.storeId ? names.get(doc.storeId) ?? '' : '', bankName: doc.bankAccountId ? names.get(doc.bankAccountId) ?? '' : '',
       toBankName: doc.toBankAccountId ? names.get(doc.toBankAccountId) ?? '' : '', warehouseName: doc.warehouseId ? names.get(doc.warehouseId) ?? '' : '',
