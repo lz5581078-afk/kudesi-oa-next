@@ -21,6 +21,8 @@ export interface NavPage {
   ready: boolean;
   /** 左侧菜单里的分组小标题（可选） */
   group?: string;
+  /** 任何已登录的人都能进（如首页），不进权限清单，也不需要授权 */
+  open?: boolean;
 }
 
 export interface NavSection {
@@ -136,6 +138,11 @@ function page(section: string, id: string, label: string, ready = false): NavPag
 
 export const NAV_SECTIONS: readonly NavSection[] = [
   {
+    id: 'home',
+    label: '首页',
+    pages: [{ id: 'home', label: '首页', path: '/', permission: 'home.view', ready: true, open: true }],
+  },
+  {
     id: 'workbench',
     label: '工作台',
     pages: [
@@ -213,7 +220,7 @@ export function visibleSections(
   const result: VisibleSection[] = [];
   for (const section of NAV_SECTIONS) {
     const pages = section.pages.filter(
-      (p) => (options.includePlanned || p.ready) && can(p.permission),
+      (p) => (options.includePlanned || p.ready) && (p.open || can(p.permission)),
     );
     if (pages.length === 0) continue;
     result.push({ ...section, pages, landingPath: pages[0].path });

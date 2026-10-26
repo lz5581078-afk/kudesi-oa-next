@@ -73,6 +73,8 @@ import { OrgAdminController } from './org/org-admin.controller';
 import { AuditController, BankFundController } from './org/audit.controller';
 import { OrgAdminService } from './org/org-admin.service';
 import { OrgService } from './org/org.service';
+import { HomeController } from './home/home.controller';
+import { HomeService } from './home/home.service';
 
 const env = loadEnv();
 
@@ -112,7 +114,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [HealthController, AuthController, OrgController, OrgAdminController, AuditController, BankFundController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, OutboxController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController],
+  controllers: [HealthController, AuthController, OrgController, OrgAdminController, AuditController, BankFundController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, OutboxController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, HomeController],
   providers: [
     AuthService,
     OrgService,
@@ -137,6 +139,7 @@ const env = loadEnv();
     MaintenanceService,
     RemoteAssistService,
     FlowScheduler,
+    HomeService,
     FinanceDocumentsService,
     IntegrationSettingsService,
     FilesService,
