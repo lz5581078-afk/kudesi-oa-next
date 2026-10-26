@@ -1,0 +1,35 @@
+{
+  "valid": [
+    { "t": "move", "id": "a1", "x": 0.5, "y": 0.25 },
+    { "t": "down", "id": "a2", "x": 0, "y": 1, "button": "right" },
+    { "t": "up", "id": "a3", "x": 0.1, "y": 0.2 },
+    { "t": "click", "id": "a4", "x": 0.3, "y": 0.4, "button": "left", "count": 2 },
+    { "t": "click", "id": "a5", "x": 0.3, "y": 0.4 },
+    { "t": "wheel", "id": "a6", "x": 0.5, "y": 0.5, "dx": 0, "dy": -120 },
+    { "t": "key", "id": "a7", "key": "Enter" },
+    { "t": "key", "id": "a8", "key": "a", "mods": 2 },
+    { "t": "text", "id": "a9", "text": "你好 abc 123" }
+  ],
+  "invalid": [
+    null,
+    "click",
+    [],
+    { "t": "move", "x": 0.5, "y": 0.5 },
+    { "t": "move", "id": "bad id!", "x": 0.5, "y": 0.5 },
+    { "t": "move", "id": "b1", "x": 1.01, "y": 0.5 },
+    { "t": "move", "id": "b2", "x": -0.1, "y": 0.5 },
+    { "t": "move", "id": "b3", "x": "0.5", "y": 0.5 },
+    { "t": "move", "id": "b4", "x": null, "y": 0.5 },
+    { "t": "click", "id": "b5", "x": 0.5, "y": 0.5, "button": "back" },
+    { "t": "click", "id": "b6", "x": 0.5, "y": 0.5, "count": 3 },
+    { "t": "wheel", "id": "b7", "x": 0.5, "y": 0.5, "dx": 0, "dy": 99999 },
+    { "t": "wheel", "id": "b8", "x": 0.5, "y": 0.5, "dx": 0 },
+    { "t": "key", "id": "b9", "key": "F12" },
+    { "t": "key", "id": "c1", "key": "Control" },
+    { "t": "key", "id": "c2", "key": "a", "mods": 99 },
+    { "t": "text", "id": "c3", "text": "" },
+    { "t": "text", "id": "c4", "text": "\u0007beep" },
+    { "t": "navigate", "id": "c5", "url": "https://evil.example" },
+    { "t": "eval", "id": "c6", "code": "alert(1)" }
+  ]
+}

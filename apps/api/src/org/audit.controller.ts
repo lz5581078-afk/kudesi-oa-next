@@ -1,0 +1,93 @@
+import { Controller, Get, Query } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
+
+/** 审计日志：系统操作记录（AuditLog）与资料变更记录（ResourceChangeLog）合并只读查看。 */
+@Controller('audit')
+export class AuditController {
+  constructor(private readonly ds: DataSource) {}
+
+  @RequirePermission('system.audit.view')
+  @Get()
+  async list(
+    @CurrentUser() u: AuthUser,
+    @Query('source') source?: string,
+    @Query('keyword') keyword?: string,
+    @Query('actorId') actorId?: string,
+    @Query('page') pageRaw?: string,
+  ) {
+    const page = Math.max(1, Number(pageRaw) || 1);
+    const size = 30;
+    const kw = (keyword ?? '').trim();
+    const actor = /^\d+$/.test(actorId ?? '') ? Number(actorId) : null;
+    const parts: string[] = [];
+    const params: unknown[] = [];
+    if (source !== 'resource') {
+      let w = 'a.company_id = ?';
+      const p: unknown[] = [u.companyId];
+      if (actor) { w += ' AND a.actor_id = ?'; p.push(actor); }
+      if (kw) { w += ' AND (a.action LIKE ? OR a.resource_type LIKE ? OR a.resource_id LIKE ?)'; p.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); }
+      parts.push(`SELECT CONVERT('system' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS source, a.id AS id, a.created_at AS at, a.actor_id AS actorId, CONVERT(a.action USING utf8mb4) COLLATE utf8mb4_unicode_ci AS action, CONVERT(a.resource_type USING utf8mb4) COLLATE utf8mb4_unicode_ci AS resourceType, CONVERT(a.resource_id USING utf8mb4) COLLATE utf8mb4_unicode_ci AS resourceId, CONVERT(CAST(a.detail AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS detail FROM audit_logs a WHERE ${w}`);
+      params.push(...p);
+    }
+    if (source !== 'system') {
+      let w = 'c.company_id = ?';
+      const p: unknown[] = [u.companyId];
+      if (actor) { w += ' AND c.actor_id = ?'; p.push(actor); }
+      if (kw) { w += ' AND (c.action LIKE ? OR c.resource_type LIKE ? OR c.note LIKE ?)'; p.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); }
+      parts.push(`SELECT CONVERT('resource' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS source, c.id AS id, c.created_at AS at, c.actor_id AS actorId, CONVERT(c.action USING utf8mb4) COLLATE utf8mb4_unicode_ci AS action, CONVERT(c.resource_type USING utf8mb4) COLLATE utf8mb4_unicode_ci AS resourceType, CONVERT(CAST(c.resource_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS resourceId, CONVERT(CAST(JSON_OBJECT('before', c.before_json, 'after', c.after_json, 'note', c.note) AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS detail FROM resource_change_logs c WHERE ${w}`);
+      params.push(...p);
+    }
+    const union = parts.join(' UNION ALL ');
+    const total = (await this.ds.query(`SELECT COUNT(*) AS n FROM (${union}) t`, params))[0].n;
+    const rows = await this.ds.query(
+      `SELECT t.*, u.name AS actorName FROM (${union}) t LEFT JOIN users u ON u.id = t.actorId ORDER BY t.at DESC, t.id DESC LIMIT ${size} OFFSET ${(page - 1) * size}`,
+      params,
+    );
+    return {
+      total: Number(total),
+      page,
+      size,
+      items: rows.map((r: any) => ({ ...r, id: String(r.id), detail: r.detail ? safeJson(r.detail) : null })),
+    };
+  }
+}
+
+function safeJson(s: string) {
+  try { return JSON.parse(s); } catch { return s; }
+}
+
+/** 银行卡资金概况：按账户类型汇总手工登记余额（资料里的“当前余额”）。 */
+@Controller('bank-fund')
+export class BankFundController {
+  constructor(private readonly ds: DataSource) {}
+
+  @RequirePermission('resource.bank-accounts.view')
+  @Get()
+  async summary(@CurrentUser() u: AuthUser) {
+    const rows: Array<{ id: number; title: string; status: string; kind: string | null; balance: string | null; bank: string | null; owner: string | null; reconcileCycle: string | null }> = await this.ds.query(
+      `SELECT id, title, status, JSON_UNQUOTE(JSON_EXTRACT(data,'$.kind')) AS kind, JSON_UNQUOTE(JSON_EXTRACT(data,'$.balance')) AS balance,
+              JSON_UNQUOTE(JSON_EXTRACT(data,'$.bank')) AS bank, JSON_UNQUOTE(JSON_EXTRACT(data,'$.ownerName')) AS owner,
+              JSON_UNQUOTE(JSON_EXTRACT(data,'$.reconcileCycle')) AS reconcileCycle
+       FROM resource_records WHERE company_id = ? AND type = 'bank-accounts' ORDER BY id`,
+      [u.companyId],
+    );
+    const COMPANY = new Set(['company_public', 'company_card', 'cashier_account']);
+    const STORE = new Set(['store_public', 'store_personal_card']);
+    const KINDS = ['company_public', 'company_card', 'cashier_account', 'store_public', 'store_personal_card'];
+    const cents = (r: { balance: string | null }) => Math.round(Number(r.balance ?? 0)) || 0;
+    const live = rows.filter((r) => r.status !== 'inactive');
+    const sum = (list: typeof rows) => list.reduce((a, r) => a + cents(r), 0);
+    return {
+      totalCents: sum(live),
+      companyCents: sum(live.filter((r) => COMPANY.has(r.kind ?? ''))),
+      storeCents: sum(live.filter((r) => STORE.has(r.kind ?? ''))),
+      abnormalCount: rows.filter((r) => r.status === 'abnormal').length,
+      kinds: KINDS.map((kind) => {
+        const list = rows.filter((r) => r.kind === kind);
+        return { kind, count: list.length, balanceCents: sum(list.filter((r) => r.status !== 'inactive')) };
+      }),
+      recent: [...rows].reverse().slice(0, 20).map((r) => ({ id: r.id, kind: r.kind, title: r.title, status: r.status, bank: r.bank, owner: r.owner, balanceCents: cents(r) })),
+    };
+  }
+}

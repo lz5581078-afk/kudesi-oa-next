@@ -1,0 +1,228 @@
+/**
+ * 导航注册表：页面、路由、权限键只在这里定义一次。
+ * 前端菜单、路由守卫和后端的权限键都从这里派生，不再三处同步。
+ *
+ * `ready: false` 的页面表示还没做出来，不会出现在菜单里（旧系统把占位页留在导航里，用户分不清哪些能用）。
+ * 做完一个页面时，把它的 ready 改成 true 即可。
+ */
+
+import { DOC_TYPES } from './finance-documents';
+import { RESOURCE_DEFS, RESOURCE_VIEWS } from './resources';
+
+export interface NavPage {
+  id: string;
+  label: string;
+  /** 完整路由路径 */
+  path: string;
+  /** 访问这个页面需要的权限键 */
+  permission: string;
+  ready: boolean;
+  /** 左侧菜单里的分组小标题（可选） */
+  group?: string;
+}
+
+export interface NavSection {
+  id: string;
+  label: string;
+  pages: NavPage[];
+}
+
+/**
+ * 资料菜单的分组与顺序，照旧程序的「资料」导航：
+ * 资料首页 / 组织与人员 / 经营资料 / 账号与资质 / 银行卡 / 公司资产 / 公司店铺维护。
+ * 条目可以是资源 key、银行卡「视图」（同一份银行账户资料按类型分页）或专门页面。
+ */
+const RESOURCE_MENU: Array<{ group: string; items: string[] }> = [
+  { group: '组织与人员', items: ['org-tree', 'employees', 'position-profiles', 'duty-groups'] },
+  { group: '经营资料', items: ['licenses', 'tax-profiles', 'trademarks', 'partners', 'stores', 'self-media', 'wechat'] },
+  { group: '账号与资质', items: ['phones', 'broadband', 'fee-settings', 'qualifications', 'memos'] },
+  { group: '银行卡', items: ['bank-fund', ...RESOURCE_VIEWS.map((v) => v.id)] },
+  { group: '公司资产', items: ['fixed-assets', 'locations'] },
+  { group: '公司店铺维护', items: ['company-store-maintenance'] },
+];
+
+/** 不是资源、而是专门页面的资料菜单项：权限跟着它背后的资料走。 */
+const RESOURCE_SPECIAL: Record<string, { label: string; permission: string }> = {
+  'org-tree': { label: '部门与岗位', permission: 'org.structure.view' },
+  'employees': { label: '员工与权限', permission: 'org.staff.view' },
+  'position-profiles': { label: '岗位档案', permission: 'org.structure.view' },
+  'bank-fund': { label: '资金概况', permission: 'resource.bank-accounts.view' },
+  'fee-settings': { label: '费用模块', permission: 'resource.phones.view' },
+  'company-store-maintenance': { label: '管理公司店铺维护', permission: 'resource.company-store-maintenance.view' },
+};
+
+function resourcePages(): NavPage[] {
+  const pages: NavPage[] = [];
+  for (const g of RESOURCE_MENU) {
+    for (const id of g.items) {
+      const def = RESOURCE_DEFS.find((d) => d.key === id);
+      const view = RESOURCE_VIEWS.find((v) => v.id === id);
+      const special = RESOURCE_SPECIAL[id];
+      if (def) pages.push({ ...page('resource', def.key, def.label, true), group: g.group });
+      else if (view) pages.push({ ...page('resource', view.id, view.label, true), permission: `resource.${view.type}.view`, group: g.group });
+      else if (special) pages.push({ ...page('resource', id, special.label, true), permission: special.permission, group: g.group });
+    }
+  }
+  return pages;
+}
+
+/** 已经做完的财务专门页面（做完一个加一个，菜单里不出现占位页）。 */
+const FINANCE_BUILT = new Set<string>([
+  'overview', 'history', 'drafts', 'cost-table', 'packaging-match', 'zone-suggestion', 'jst-sync', 'cost-history', 'api-keys', 'master-reset', 'pricing-debug', 'inventory', 'cash-bank', 'settlement-detail', 'unsettled-receipts', 'master-import', 'jst-maintenance',
+  ...DOC_TYPES.map((d) => `doc-${d.type}`),
+]);
+
+/** 财务页面：旧系统的分组顺序。资料类页面由资源定义派生，其余是专门页面。 */
+function financePages(): NavPage[] {
+  const res = (key: string, group: string): NavPage => {
+    const def = RESOURCE_DEFS.find((d) => d.key === key);
+    if (!def) throw new Error(`财务导航引用了不存在的资料：${key}`);
+    return { id: key, label: def.label, path: `/finance/${key}`, permission: `resource.${key}.view`, ready: true, group };
+  };
+  const own = (id: string, label: string, group: string): NavPage => ({ ...page('finance', id, label, FINANCE_BUILT.has(id)), group });
+  return [
+    own('overview', '财务经营', '经营财务'),
+    own('doc-withdrawal', '店铺提现', '经营财务'),
+    res('finance-products', '基础资料'),
+    res('finance-suppliers', '基础资料'),
+    res('finance-customers', '基础资料'),
+    res('finance-fee-items', '基础资料'),
+    own('history', '经营历程', '单据中心'),
+    own('drafts', '草稿中心', '单据中心'),
+    ...DOC_TYPES.filter((d) => d.type !== 'withdrawal').map((d) => own(`doc-${d.type}`, d.label, '制单中心')),
+    own('cost-table', '成本表', '数据'),
+    own('pricing-debug', '定价调试表', '数据'),
+    res('finance-labor-costs', '数据'),
+    res('finance-express-prices', '数据'),
+    own('inventory', '库存查询', '实时查询'),
+    own('cash-bank', '现金银行查询', '实时查询'),
+    own('unsettled-receipts', '未完全结算收付款单', '实时查询'),
+    own('settlement-detail', '收付款结算明细表', '实时查询'),
+    res('finance-base-codes', '聚水潭分类'),
+    res('finance-bundles', '聚水潭分类'),
+    own('master-import', '商品数据导入', '聚水潭分类'),
+    own('jst-maintenance', '资料维护', '聚水潭分类'),
+  ];
+}
+
+/**
+ * 宿主页面里的标签页：旧程序里这些内容是页面内的 Tab/面板，不是独立菜单。
+ * ref 是资源 key（走通用资料页）或专门页面 id；permission 是进入这个标签需要的权限。
+ * 第一个标签就是宿主页面本身。
+ */
+export interface PageTab { id: string; label: string; ref: string; permission: string }
+const rtab = (key: string, label: string): PageTab => ({ id: key, label, ref: key, permission: `resource.${key}.view` });
+const ptab = (id: string, label: string): PageTab => ({ id, label, ref: id, permission: `finance.${id}.view` });
+export const PAGE_TABS: Record<string, readonly PageTab[]> = {
+  'finance/cost-table': [ptab('cost-table', 'SKU成本表'), ptab('cost-history', '成本历史'), rtab('finance-margins', '分类利润率')],
+  'finance/finance-express-prices': [rtab('finance-express-prices', '快递价格'), rtab('finance-freight-overrides', '成本表预估快递费'), ptab('zone-suggestion', '分区建议')],
+  'finance/finance-products': [rtab('finance-products', '商品档案'), rtab('finance-packaging-schemes', '包装方案'), ptab('packaging-match', '包装方案匹配')],
+  'finance/finance-suppliers': [rtab('finance-suppliers', '供应商档案'), rtab('finance-supplier-categories', '供应商分类')],
+  'finance/finance-customers': [rtab('finance-customers', '客户档案'), rtab('finance-customer-categories', '客户分类')],
+  'finance/finance-fee-items': [rtab('finance-fee-items', '费用档案'), rtab('finance-fee-categories', '费用类别')],
+  'finance/finance-base-codes': [rtab('finance-base-codes', '商品基础编码'), rtab('finance-categories', '商品分类'), rtab('finance-brands', '品牌')],
+  'finance/finance-bundles': [rtab('finance-bundles', '商品组合编码'), rtab('finance-platforms', '销售平台'), rtab('finance-scenarios', '销售场景')],
+  'finance/inventory': [ptab('inventory', '库存查询'), rtab('finance-warehouses', '仓库')],
+  'finance/master-import': [ptab('master-import', '导入'), ptab('master-reset', '主数据重置')],
+  'finance/jst-maintenance': [ptab('jst-upload', '商品资料上传'), ptab('jst-sync', '同步队列')],
+  'system/integrations': [{ id: 'integrations', label: '接口设置', ref: 'integrations', permission: 'system.integrations.view' }, ptab('api-keys', 'API 密钥')],
+};
+
+function page(section: string, id: string, label: string, ready = false): NavPage {
+  return { id, label, path: `/${section}/${id}`, permission: `${section}.${id}.view`, ready };
+}
+
+export const NAV_SECTIONS: readonly NavSection[] = [
+  {
+    id: 'workbench',
+    label: '工作台',
+    pages: [
+      page('workbench', 'todos', '我的待办', true),
+      page('workbench', 'tasks', '任务中心', true),
+      page('workbench', 'started', '我发起的', true),
+      page('workbench', 'cc', '抄送我的', true),
+    ],
+  },
+  {
+    id: 'flow',
+    label: '流程',
+    pages: [
+      page('flow', 'apply', '申请中心', true),
+      page('flow', 'overview', '流程总览', true),
+      page('flow', 'templates', '流程配置', true),
+    ],
+  },
+  {
+    id: 'finance',
+    label: '财务',
+    pages: financePages(),
+  },
+  {
+    id: 'resource',
+    label: '资料',
+    pages: [
+      { ...page('resource', 'overview', '资料总览', true) },
+      ...resourcePages(),
+    ],
+  },
+  {
+    id: 'system',
+    label: '系统',
+    pages: [
+      page('system', 'integrations', '接口设置', true),
+      page('system', 'settings', '系统设置'),
+      page('system', 'audit', '审计日志', true),
+    ],
+  },
+];
+
+/** 页面之外的、需要单独授权的敏感能力。 */
+export const SPECIAL_PERMISSIONS = {
+  /** 查看成本金额；运营默认没有 */
+  productCostView: 'product.cost.view',
+  /** 编辑成本与利润率；财务和管理员才有 */
+  productCostEdit: 'product.cost.edit',
+  /** 店铺提现登录管理：添加店铺、填账号密码、查看密码、请求登录、管理授权电脑 */
+  financeSessionManage: 'finance.session.manage',
+  /** 远程协助：对授权电脑上的店铺窗口发起"观看/协助"（电脑要先由管理员开启远程协助） */
+  financeSessionRemote: 'finance.session.remote',
+  /** 公司店铺维护：添加店铺、填登录账号密码、看密码、请求登录、改店铺状态 */
+  companyStoreMaintenanceManage: 'resource.company-store-maintenance.manage',
+  /** 给别人指派任务（给自己建任务不需要） */
+  tasksAssign: 'tasks.assign',
+  /** 创建、修改、停用周期任务 */
+  tasksRoutinesManage: 'tasks.routines.manage',
+  /** 保存并发布流程配置（办理人、时限、抄送）；看配置页另需 flow.templates.view */
+  flowTemplatesManage: 'flow.templates.manage',
+  /** 查看商品价格 */
+  productPriceView: 'product.price.view',
+} as const;
+
+export interface VisibleSection extends NavSection {
+  /** 该一级菜单下第一个可进入的页面路径，点击一级菜单时跳这里 */
+  landingPath: string;
+}
+
+/** 按权限过滤出可见的一级菜单和页面；只含已完成的页面，没有可见页面的一级菜单会被去掉。 */
+export function visibleSections(
+  can: (permission: string) => boolean,
+  options: { includePlanned?: boolean } = {},
+): VisibleSection[] {
+  const result: VisibleSection[] = [];
+  for (const section of NAV_SECTIONS) {
+    const pages = section.pages.filter(
+      (p) => (options.includePlanned || p.ready) && can(p.permission),
+    );
+    if (pages.length === 0) continue;
+    result.push({ ...section, pages, landingPath: pages[0].path });
+  }
+  return result;
+}
+
+export function findPageByPath(pathname: string): { section: NavSection; page: NavPage } | undefined {
+  for (const section of NAV_SECTIONS) {
+    const found = section.pages.find((p) => pathname === p.path || pathname.startsWith(`${p.path}/`));
+    if (found) return { section, page: found };
+  }
+  return undefined;
+}

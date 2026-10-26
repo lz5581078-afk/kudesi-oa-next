@@ -1,0 +1,59 @@
+import { api } from '../../../api/client';
+
+export interface IssueGroup { archiveKey: string; productId: number; archiveName: string; parentPath: string[]; messages: string[] }
+export interface Change { source: string; field: string; label: string; before: unknown; after: unknown }
+export interface BaseCodeReport {
+  id: number; code: string; name: string; status: string; aliasOf: { id: number; code: string } | null; signature: string;
+  issues: IssueGroup[]; issueCount: number; secondVerification: boolean; baselineMissing: boolean; changes: Change[];
+  outbound: { labels: Record<string, string>; values: Record<string, string | number | null> };
+  uploadSignature: string; uploadedCode: string | null; replacing: boolean; jstStatus: string;
+}
+export interface VerifyResult { results: Array<{ id: number; ok: boolean; error?: string; queued?: boolean }>; verified: number; failed: number }
+export interface DeleteGroup { token: string; ids: number[]; code: string; name: string; aliasCount: number; everSynced: boolean; canDelete: boolean; reason: string }
+export interface DeleteExecResult { results: Array<{ code: string; ok: boolean; error?: string; disableQueued?: boolean }> }
+
+export interface BundleReport {
+  id: number; code: string; name: string; styleCode: string; shortName: string; status: string;
+  components: Array<{ role: string; code: string; name: string; qty: number; weightG: number | null; cost?: number | null }>;
+  totalWeightG: number; totalCost?: number; pendingRevision: { id: number; reason: string } | null; signature: string; issues: string[];
+  secondVerification: boolean; baselineMissing: boolean; changes: Change[];
+  outbound: { sku_id: string; i_id: string; name: string; short_name: string; weight: number; cost_price?: number };
+  uploadSignature: string; uploadedCode: string | null; replacing: boolean; jstStatus: string;
+}
+export interface LineInput { role: string; baseCodeId?: number; laborId?: number; qty: number }
+export interface TargetInput { platformId: number; scenarioId: number; configNo?: string }
+export interface PreviewTarget {
+  platformId: number; platformName: string; scenarioId: number; scenarioName: string; configNo: string; code: string; name: string; styleCode: string; shortName: string;
+  reuse: { id: number; code: string; status: string } | null; duplicates: Array<{ layer: string; label: string; hit: string }>; ok: boolean;
+}
+
+export const jstApi = {
+  baseOverview: () => api<{ status: Record<string, number>; byCategory: Record<string, Record<string, number>> }>('/finance/base-codes/overview'),
+  baseReport: (id: number) => api<BaseCodeReport>(`/finance/base-codes/${id}/report`),
+  baseVerify: (items: Array<{ id: number; signature: string; uploadSignature?: string }>, confirmed: boolean, syncToJst: boolean, replaceConfirmed: boolean) =>
+    api<VerifyResult>('/finance/base-codes/verify', { method: 'POST', body: { items, confirmed, syncToJst, replaceConfirmed } }),
+  baseDeletePreview: (mode: 'pending' | 'source', ids?: number[]) => api<{ mode: string; groups: DeleteGroup[] }>('/finance/base-codes/deletion/preview', { method: 'POST', body: { mode, ids } }),
+  baseDeleteExecute: (mode: 'pending' | 'source', groups: Array<{ token: string; ids: number[] }>, reason: string, disableConfirmed: boolean) =>
+    api<DeleteExecResult>('/finance/base-codes/deletion/execute', { method: 'POST', body: { mode, groups, reason, disableConfirmed } }),
+
+  bundleOverview: () => api<{ status: Record<string, number> }>('/finance/bundles/overview'),
+  bundleReport: (id: number) => api<BundleReport>(`/finance/bundles/${id}/report`),
+  bundlePreview: (lines: LineInput[], targets: TargetInput[]) => api<{ targets: PreviewTarget[]; namingRule: boolean }>('/finance/bundles/preview', { method: 'POST', body: { lines, targets } }),
+  bundleGenerate: (lines: LineInput[], targets: TargetInput[]) => api<{ created: Array<{ id: number; code: string; reused: boolean }> }>('/finance/bundles/generate', { method: 'POST', body: { lines, targets } }),
+  bundleVerify: (items: Array<{ id: number; signature: string; uploadSignature?: string }>, confirmed: boolean, syncToJst: boolean, replaceConfirmed: boolean) =>
+    api<VerifyResult>('/finance/bundles/verify', { method: 'POST', body: { items, confirmed, syncToJst, replaceConfirmed } }),
+  bundleRevise: (id: number, reason: string, lines: LineInput[]) => api<{ id: number }>(`/finance/bundles/${id}/revisions`, { method: 'POST', body: { reason, lines } }),
+  bundleCancelRevision: (id: number, reason: string) => api<{ ok: true }>(`/finance/bundles/${id}/revisions/cancel`, { method: 'POST', body: { reason } }),
+  bundleDeletion: (id: number) => api<{ id: number; code: string; name: string; canDelete: boolean; reason: string; token: string }>(`/finance/bundles/${id}/deletion`),
+  bundleDelete: (id: number, token: string, confirmCode: string, reason: string) => api<{ ok: true }>(`/finance/bundles/${id}/deletion`, { method: 'POST', body: { token, confirmCode, reason } }),
+  bundleArchive: (id: number, reason: string, disableConfirmed: boolean) => api<{ ok: true; disableQueued: boolean }>(`/finance/bundles/${id}/archive`, { method: 'POST', body: { reason, disableConfirmed } }),
+
+  uploadOptions: () => api<{ categories: string[]; brands: string[] }>('/finance/jst-maintenance/options'),
+  uploadCheck: (b: { skuId?: string; styleId?: string; name?: string }) =>
+    api<{ hasHighRisk: boolean; hasWarning: boolean; matches: Array<{ source: string; field: string; level: 'high' | 'warning'; hit: string }> }>('/finance/jst-maintenance/check-duplicate', { method: 'POST', body: b }),
+  upload: (form: Record<string, string | number>) => api<{ id: number; queued: boolean; warnings: unknown[] }>('/finance/jst-maintenance/upload', { method: 'POST', body: { form } }),
+  uploadLogs: (p: { keyword?: string; page: number }) => {
+    const q = new URLSearchParams({ page: String(p.page), pageSize: '20', ...(p.keyword ? { keyword: p.keyword } : {}) });
+    return api<{ total: number; rows: Array<{ id: number; skuId: string; styleId: string; name: string; status: string; message: string; createdAt: string }> }>(`/finance/jst-maintenance/logs?${q}`);
+  },
+};
