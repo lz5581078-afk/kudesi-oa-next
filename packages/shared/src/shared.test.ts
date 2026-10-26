@@ -67,9 +67,8 @@ describe('导航注册表', () => {
     expect(new Set(own.map((p) => p.permission)).size).toBe(own.length);
   });
 
-  it('一级菜单收敛为 6 个（首页 + 5 个业务分区，组织页面并入资料）', () => {
-    expect(NAV_SECTIONS).toHaveLength(6);
-    expect(NAV_SECTIONS[0]).toMatchObject({ id: 'home', pages: [{ path: '/', open: true, ready: true }] });
+  it('一级菜单收敛为 5 个（组织页面并入资料）', () => {
+    expect(NAV_SECTIONS).toHaveLength(5);
   });
 
   it('只显示已完成且有权限的页面，空的一级菜单被去掉', () => {
@@ -77,12 +76,9 @@ describe('导航注册表', () => {
       resolvePermissions({ isCompanyAdmin: false, positionPermissions: ['workbench.todos.view'], overrides: [] }),
     );
     const sections = visibleSections(can);
-    // 首页人人可见，其余按权限
-    expect(sections.map((s) => s.id)).toEqual(['home', 'workbench']);
-    expect(sections[0].landingPath).toBe('/');
-    expect(sections[1].pages.map((p) => p.id)).toEqual(['todos']);
-    expect(sections[1].landingPath).toBe('/workbench/todos');
-    expect(visibleSections(() => false).map((s) => s.id)).toEqual(['home']);
+    expect(sections.map((s) => s.id)).toEqual(['workbench']);
+    expect(sections[0].pages.map((p) => p.id)).toEqual(['todos']);
+    expect(sections[0].landingPath).toBe('/workbench/todos');
   });
 
   it('管理员能看到所有已完成页面，includePlanned 时能看到全部', () => {

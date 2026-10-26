@@ -54,7 +54,7 @@ export function permissionCatalog(): CatalogGroup[] {
   for (const section of NAV_SECTIONS) {
     if (section.id === 'resource') continue; // 资料按类型单独列
     if (section.id === 'finance') continue; // 财务单独列
-    const items = section.pages.filter((p) => p.ready && !p.open).map((p) => ({ key: p.permission, label: `查看「${p.label}」` }));
+    const items = section.pages.filter((p) => p.ready).map((p) => ({ key: p.permission, label: `查看「${p.label}」` }));
     if (items.length > 0) groups.push({ id: section.id, label: section.label, items });
   }
   groups.push(ORG_ACTIONS);

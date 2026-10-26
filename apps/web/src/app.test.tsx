@@ -64,9 +64,8 @@ describe('登录与菜单', () => {
     const top = screen.getByRole('navigation', { name: '一级导航' });
     expect(within(top).getByText('工作台')).toBeTruthy();
     expect(within(top).queryByText('商品')).toBeNull();
-    // 首页人人可见，内容见 pages/home/HomePage.test.tsx；这里只确认“/”不再跳走
-    expect(within(top).getByText('首页')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: '首页' })).toBeTruthy();
+    // 首页自动进入第一个可见页面
+    expect(screen.getByRole('heading', { name: '我的待办' })).toBeTruthy();
   });
 
   it('管理员能看到已开放的全部菜单；未开放的页面不在菜单里', () => {
