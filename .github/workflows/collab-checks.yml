@@ -1,0 +1,53 @@
+name: collab-checks
+# PR 到 integration 时：类型检查 + 全部测试（含 MySQL 8 数据库测试）；通过后自动合并，失败则在 PR 留言。不部署。
+on:
+  pull_request:
+    branches: [integration]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USER: root
+      DB_PASSWORD: ci-only-password
+      DB_NAME: kudesi_oa_next
+      TEST_DB_NAME: kudesi_oa_test
+      RESOURCE_DB_TEST: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: 启动 MySQL 8（时区 +08:00，和开发环境一致）
+        run: |
+          docker run -d --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=ci-only-password mysql:8 --default-time-zone=+08:00 --character-set-server=utf8mb4
+          for i in $(seq 1 60); do docker exec mysql mysqladmin -uroot -pci-only-password ping >/dev/null 2>&1 && break; sleep 2; done
+          docker exec mysql mysql -uroot -pci-only-password -e "create database if not exists kudesi_oa_next character set utf8mb4; create database if not exists kudesi_oa_test character set utf8mb4;"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+  merge:
+    needs: check
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查通过，自动合并到 integration
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge "${{ github.event.pull_request.html_url }}" --merge
+  report-failure:
+    needs: check
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 在 PR 留言
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr comment "${{ github.event.pull_request.html_url }}" --body "自动检查没通过（类型检查、测试或构建失败，或和 integration 有冲突）。请看 Actions 日志修好后再推送；有冲突先把 integration 合进你的分支。"

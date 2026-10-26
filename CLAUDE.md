@@ -42,3 +42,13 @@
 ## 常用命令
 
 `npm run typecheck` · `npm test` · `npm run build` · `npm run db:migrate` · `npm run db:seed`
+
+## 多窗口协作
+
+多个窗口（Claude、Codex 等）并行开发，只通过 Git 分支和 `docs/协作/任务板.md` 协作。完整规则见 `AGENTS.md`，要点：
+
+- 开始前读任务板并认领；用 `bash scripts/collab/start-task.sh <简称>` 从 `integration` 切出 `feat/<简称>` 和独立工作目录。
+- 只改自己范围内的文件；共用热点文件只做最小追加式改动；新迁移编号先 `bash scripts/collab/next-migration.sh` 并登记。
+- PR 目标是 `integration`；完成后更新任务板。
+- 合并到 `main` 只在用户明确说“合并/上线”时做；合并前检查任务板有无进行中任务并告知用户；合并前备份 main 到 `backup/main-before-<说明>-<日期>`。
+- 红线：生产库只读、不写密码、不强推别人的分支。
