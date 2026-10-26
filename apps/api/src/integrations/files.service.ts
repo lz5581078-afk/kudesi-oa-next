@@ -1,3 +1,4 @@
+import { configuredLocalStorage, LocalStorage } from './local-storage';
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
@@ -60,6 +61,7 @@ export class FilesService {
 
   private async storage(companyId: number): Promise<ObjectStorage> {
     const cfg = await this.settings.getQiniu(companyId);
+    if (!cfg && configuredLocalStorage()) return configuredLocalStorage()!;
     if (!cfg) throw new BadRequestException('还没有配置七牛云存储，请先到“系统 → 接口设置”填写');
     return this.factory(cfg);
   }
@@ -84,7 +86,7 @@ export class FilesService {
     }
     const storage = await this.storage(user.companyId);
     const month = new Date().toISOString().slice(0, 7).replace('-', '');
-    const key = `oa/${user.companyId}/${type}/${month}/${crypto.randomUUID()}.${kind.ext}`;
+    const key = `${storage instanceof LocalStorage ? 'local:' : ''}oa/${user.companyId}/${type}/${month}/${crypto.randomUUID()}.${kind.ext}`;
     const name = cleanFileName(file.originalname);
     try {
       await storage.upload(key, file.buffer, kind.mime, name);
@@ -103,23 +105,24 @@ export class FilesService {
 
 
   /** 服务端直接存一个文件（提现凭证、助手截图用）：不检查资料权限，调用方负责权限。只收图片和 PDF。 */
-  async putBlob(companyId: number, uploadedBy: number | null, type: string, fieldKey: string, file: UploadedFile | undefined): Promise<FileInfo> {
+  async putBlob(companyId: number, uploadedBy: number | null, type: string, fieldKey: string, file: UploadedFile | undefined, em: EntityManager = this.dataSource.manager): Promise<FileInfo> {
     if (!file || file.size === 0) throw new BadRequestException('没有收到文件');
     if (file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('文件不能超过 10MB');
     const kind = sniffFile(file.buffer);
     if (!kind) throw new BadRequestException('只能上传图片（png、jpg、gif、webp）或 PDF');
     const storage = await this.storage(companyId);
     const month = new Date().toISOString().slice(0, 7).replace('-', '');
-    const key = `oa/${companyId}/${type}/${month}/${crypto.randomUUID()}.${kind.ext}`;
+    const key = `${storage instanceof LocalStorage ? 'local:' : ''}oa/${companyId}/${type}/${month}/${crypto.randomUUID()}.${kind.ext}`;
     const name = cleanFileName(file.originalname);
     try {
       await storage.upload(key, file.buffer, kind.mime, name);
     } catch (e) {
       throw new BadRequestException(`上传到七牛失败：${(e as Error).message}`);
     }
-    const row = await this.dataSource.manager.save(
+    if (em.queryRunner?.data.legacyImport) (em.queryRunner.data.importUploadedKeys ??= []).push(key);
+    const row = await em.save(
       ResourceFile,
-      this.dataSource.manager.create(ResourceFile, { companyId, resourceType: type, resourceId: null, fieldKey, storageKey: key, name, mime: kind.mime, size: file.size, uploadedBy }),
+      em.create(ResourceFile, { companyId, resourceType: type, resourceId: null, fieldKey, storageKey: key, name, mime: kind.mime, size: file.size, uploadedBy }),
     );
     return { id: row.id, name: row.name, mime: row.mime, size: row.size };
   }
@@ -128,7 +131,8 @@ export class FilesService {
   async urlOf(companyId: number, id: number, type: string) {
     const row = await this.dataSource.manager.findOne(ResourceFile, { where: { id, companyId, resourceType: type } });
     if (!row) throw new NotFoundException('文件不存在');
-    const storage = await this.storage(companyId);
+    const storage = row.storageKey.startsWith('local:') ? configuredLocalStorage() : await this.storage(companyId);
+    if (!storage) throw new BadRequestException('本地文件存储尚未挂载');
     return { url: storage.downloadUrl(row.storageKey, 300), expiresIn: 300, name: row.name, mime: row.mime };
   }
 
@@ -148,7 +152,9 @@ export class FilesService {
     } catch (e) {
       return { ok: false, message: (e as Error).message };
     }
-    const key = `oa/${user.companyId}/_selftest/${crypto.randomUUID()}.pdf`;
+    const key = storage instanceof LocalStorage
+      ? `local:oa/${user.companyId}/selftest/${new Date().toISOString().slice(0,7).replace('-', '')}/${crypto.randomUUID()}.pdf`
+      : `oa/${user.companyId}/_selftest/${crypto.randomUUID()}.pdf`;
     try {
       await storage.upload(key, Buffer.from('%PDF-1.4\n%selftest\n'), 'application/pdf', 'selftest.pdf');
     } catch (e) {
@@ -163,7 +169,8 @@ export class FilesService {
     const row = await this.dataSource.manager.findOne(ResourceFile, { where: { id, companyId: user.companyId } });
     if (!row) throw new NotFoundException('文件不存在');
     this.assertCan(user, row.resourceType, 'view');
-    const storage = await this.storage(user.companyId);
+    const storage = row.storageKey.startsWith('local:') ? configuredLocalStorage() : await this.storage(user.companyId);
+    if (!storage) throw new BadRequestException('本地文件存储尚未挂载');
     return { url: storage.downloadUrl(row.storageKey, 300), expiresIn: 300, name: row.name, mime: row.mime };
   }
 
@@ -209,8 +216,11 @@ export class FilesService {
   async deleteObjects(companyId: number, keys: string[]) {
     if (keys.length === 0) return;
     try {
-      const storage = await this.storage(companyId);
-      await Promise.all(keys.map((k) => storage.remove(k).catch((e) => console.warn(`删除七牛文件失败 ${k}：${(e as Error).message}`))));
+      await Promise.all(keys.map(async (k) => {
+        const storage = k.startsWith('local:') ? configuredLocalStorage() : await this.storage(companyId);
+        if (!storage) return;
+        await storage.remove(k).catch((e) => console.warn(`删除文件失败 ${k}：${(e as Error).message}`));
+      }));
     } catch (e) {
       console.warn(`删除七牛文件失败：${(e as Error).message}`);
     }

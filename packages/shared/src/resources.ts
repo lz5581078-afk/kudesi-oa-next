@@ -1,3 +1,4 @@
+import { validUnitCents } from './unit-price';
 /**
  * 资料（基础资源）定义：前后端共用的唯一来源。
  * 一个资源 = 一份配置（字段、状态、规则），列表/详情/表单/校验/导入导出都从它生成，
@@ -769,7 +770,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '账号与资质' },
     titleField: 'title',
     tabsBy: 'kind',
-    statuses: [NORMAL, { value: 'expiring', label: '即将到期', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, INACTIVE],
+    statuses: [NORMAL, ABNORMAL, { value: 'expiring', label: '即将到期', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, INACTIVE],
     defaultStatus: 'normal',
     alerts: [{ field: 'endAt', withinDays: 30, label: '30 天内到期' }],
     fields: [
@@ -1045,7 +1046,7 @@ export function validateResourceInput(
       }
       case 'money': {
         const n = Number(raw);
-        if (!Number.isInteger(n) || Math.abs(n) > 99_999_999_999) errors.push(`${label}必须是以分为单位的整数`);
+        if (!validUnitCents(n, field.scale ?? 0)) errors.push(field.scale ? `${label}精度不合法（最多 ${2 + field.scale} 位元小数）` : `${label}必须是以分为单位的整数`);
         else values[field.key] = n;
         break;
       }

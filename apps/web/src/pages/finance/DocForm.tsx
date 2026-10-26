@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { ACCOUNT_LABEL, DOC_TYPE_MAP, FEE_BOOKING_NODES, FEE_BOOKING_NODE_MAP, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, SETTLE_BY_LABEL, SETTLEMENT_DOC_TYPES, docTotal, hasBankRef, lineAmount, todayInChina as today, validateDoc, type DocType, type PartyKind, type PayMode, type SettleBy } from '@kudesi/shared';
+import { unitYuanText, yuanToPreciseCents, ACCOUNT_LABEL, DOC_TYPE_MAP, FEE_BOOKING_NODES, FEE_BOOKING_NODE_MAP, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, SETTLE_BY_LABEL, SETTLEMENT_DOC_TYPES, docTotal, hasBankRef, lineAmount, todayInChina as today, validateDoc, type DocType, type PartyKind, type PayMode, type SettleBy } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { resourceApi } from '../../resources/api';
@@ -8,6 +8,7 @@ import { financeApi, type DocDetailDto, type OpenItem } from './financeApi';
 import { sessionApi, type VoucherFile } from './sessionApi';
 import { VoucherPanel } from './VoucherPanel';
 
+const unitPriceOf=(v:string)=>{if(!v.trim())return null;try{return yuanToPreciseCents(v);}catch{return NaN;}};
 interface LineState {
   productId: number | null; productName: string; feeItemId: number | null; feeItemName: string; qty: string; price: string; memo: string;
   /** 费用/收入行的挂账节点和对象 */
@@ -56,7 +57,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
   const [memo, setMemo] = useState(doc?.memo ?? '');
   const [lines, setLines] = useState<LineState[]>(
     doc?.lines.length
-      ? doc.lines.map((l) => ({ productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: String(l.qty), price: centsToYuan(l.unitPriceCents), memo: l.memo ?? '', node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
+      ? doc.lines.map((l) => ({ productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents), memo: l.memo ?? '', node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
       : def.lines ? emptyLines(inline ? 3 : 1) : [],
   );
   const toAccts = (role: 'out' | 'in'): AcctState[] => (doc?.accounts ?? []).filter((a) => a.role === role).map((a) => ({ id: a.bankAccountId, name: a.bankName, amount: centsToYuan(a.amountCents) }));
@@ -87,7 +88,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
   const body = () => {
     const parsedLines = lines
       .filter((l) => !(inline && !doc && !l.productId && !l.feeItemId && !l.price)) // 开单页预留的空行不算
-      .map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: Number(l.qty), unitPriceCents: parse(l.price) ?? 0, memo: l.memo || undefined, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
+      .map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: Number(l.qty), unitPriceCents: (()=>{const v=unitPriceOf(l.price);if(Number.isNaN(v))throw new Error('单价格式不对（最多六位小数）');return v??0;})(), memo: l.memo || undefined, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
     const accounts = def.bank === 'transfer'
       ? [...outs.map((a) => ({ role: 'out' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })), ...ins.map((a) => ({ role: 'in' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 }))]
       : null;
@@ -256,7 +257,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
                     )}
                     <td><input inputMode="decimal" aria-label={`第${i + 1}行数量`} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} /></td>
                     <td><input inputMode="decimal" aria-label={`第${i + 1}行单价`} value={l.price} onChange={(e) => setLine(i, { price: e.target.value })} /></td>
-                    <td className="num">{money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: yuanToCents(l.price) || 0 }))}</td>
+                    <td className="num">{money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: unitPriceOf(l.price) || 0 }))}</td>
                     <td><input aria-label={`第${i + 1}行备注`} value={l.memo} maxLength={200} onChange={(e) => setLine(i, { memo: e.target.value })} /></td>
                     <td><button type="button" className="link-button" disabled={lines.length <= 1} onClick={() => setLines((ls) => ls.filter((_, k) => k !== i))}>删除</button></td>
                   </tr>
