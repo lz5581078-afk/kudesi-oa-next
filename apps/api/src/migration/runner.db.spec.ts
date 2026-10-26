@@ -1,5 +1,8 @@
 import 'reflect-metadata';
-import { randomBytes, scryptSync } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { buildDataSourceOptions } from '../database/data-source';
 import { Company, User, ResourceRecord } from '../entities';
@@ -12,7 +15,13 @@ const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 d('迁入账本与马甲（隔离MySQL）', () => {
   let ds: DataSource, company: Company, actor: User, svc: ReturnType<typeof buildServices>;
   let source: LegacyArchive;
+  const oldFilesRoot=process.env.FILES_LOCAL_ROOT, oldJwtSecret=process.env.JWT_SECRET;
+  const fileRoot=mkdtempSync(join(tmpdir(),'migration-files-'));
+  const image=Buffer.from([137,80,78,71,13,10,26,10,0]);
+  const contentHash=createHash('sha256').update(image).digest('hex');
   beforeAll(async () => {
+    process.env.FILES_LOCAL_ROOT=fileRoot;
+    process.env.JWT_SECRET='isolated-migration-test-signing-key-32bytes';
     ds = await new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true }).initialize();
     svc = buildServices(ds);
     const tag = randomBytes(6).toString('hex');
@@ -22,9 +31,9 @@ d('迁入账本与马甲（隔离MySQL）', () => {
     source = { company: { id: 99, name: '迁入测试公司' }, departments: [{ id: 1, name: '来源部门', status: 'active' }], positions: [], employees: [
       { id: 1, name: '有账号人员', login_account: 'migration-user-'+tag, role_key:'boss', password_salt: salt, password_hash: scryptSync('original-pass-123',salt,64).toString('hex'), status: 'active', department_id: 1 },
       { id: 2, name: '无账号人员', login_account: null, status: 'inactive', department_id: 1 },
-    ], employeePositions: [], positionPermissions: [], exclusions: [], loadFile: async () => Buffer.from(''), records: [
-      { type:'bank-accounts',id:'bank-a',data:{kind:'company_public',accountName:'测试账户',bank:'测试银行',accountNo:'6222000055556666'} },
-      { type:'bank-accounts',id:'bank-b',data:{kind:'company_public',accountName:'测试账户',bank:'测试银行',accountNo:'6222000055556666',note:'第二条来源备注'} },
+    ], employeePositions: [], positionPermissions: [], exclusions: [], loadFile: async () => image, records: [
+      { type:'bank-accounts',id:'bank-a',files:[{field:'attachments',id:'a',name:'a.png',locator:'a',contentHash}],data:{kind:'company_public',accountName:'测试账户',bank:'测试银行',accountNo:'6222000055556666'} },
+      { type:'bank-accounts',id:'bank-b',files:[{field:'attachments',id:'b',name:'b.png',locator:'b',contentHash}],data:{kind:'company_public',accountName:'测试账户',bank:'测试银行',accountNo:'6222000055556666',note:'第二条来源备注'} },
       {type:'finance-suppliers',id:'vendor-old',data:{name:'旧来源供应商'}},
       {type:'finance-suppliers',id:'vendor-new',data:{name:'新来源供应商'}},
       {type:'finance-product-sources',id:'2',sourceUpdatedAt:'2026-10-02 10:00:00',data:{productId:ref('finance-products','prod'),supplierId:ref('finance-suppliers','vendor-new'),originArea:'测试产区',purchasePrice:0.75}},
@@ -39,7 +48,7 @@ d('迁入账本与马甲（隔离MySQL）', () => {
       { type:'finance-bundle-lines', id:'line',data:{bundleId:ref('finance-bundles','bundle'),baseCodeId:ref('finance-base-codes','alias'),role:'main',qty:1} },
     ] };
   });
-  afterAll(async () => { await ds?.destroy(); });
+  afterAll(async () => { await ds?.destroy();if(oldFilesRoot===undefined)delete process.env.FILES_LOCAL_ROOT;else process.env.FILES_LOCAL_ROOT=oldFilesRoot;if(oldJwtSecret===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=oldJwtSecret;rmSync(fileRoot,{recursive:true,force:true}); });
   const run = (apply:boolean) => runLegacyImport(ds,svc.resources,svc.files,source,{companyId:company.id,actorId:actor.id,expectedName:'迁前公司',apply});
   it('试跑走真实校验并全部回滚，不增加人员/资料/账本', async () => {
     const before = await ds.manager.count(User,{where:{companyId:company.id}});
@@ -53,6 +62,8 @@ d('迁入账本与马甲（隔离MySQL）', () => {
   it('保留马甲旧码与组合引用、无账号人员和原密码；重跑无重复', async () => {
     const first = await run(true);
     expect(first.failures).toEqual([]);
+    expect(first.created.file).toBe(1);expect(first.reused.file).toBe(1);
+    expect(first.mappings.filter(m=>m.type==='file').map(m=>m.targetId)).toEqual([expect.any(Number),first.mappings.find(m=>m.type==='file')!.targetId]);
     const storedBank=await ds.manager.findOneByOrFail(ResourceRecord,{companyId:company.id,type:'bank-accounts'});
     expect(JSON.stringify(storedBank)).not.toContain('6222000055556666');
     expect(storedBank.uniqueKey).toMatch(/^idx1:/);expect(first.created['bank-accounts']).toBe(1);expect(first.reused['bank-accounts']).toBe(1);

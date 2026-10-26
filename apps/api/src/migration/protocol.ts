@@ -1,5 +1,5 @@
 export interface LegacyRef { legacyRef: { type: string; id: string } }
-export interface LegacyFile { field: string; id: string; name: string; locator: string }
+export interface LegacyFile { field: string; id: string; name: string; locator: string; contentHash?: string }
 export interface LegacyRecord { id: string; type: string; data: Record<string, unknown>; status?: string; sourceUpdatedAt?: string; aliasName?: string; notices?: string[]; files?: LegacyFile[] }
 export interface LegacyArchive {
   company: { id: number; name: string };
