@@ -42,7 +42,7 @@ async function main(){
    if(f?.showWhen&&!f.showWhen.in.includes(f.showWhen.field==='status'?target.status:target.data[f.showWhen.field])){if(v!==null&&v!==undefined&&v!=='')applied.excluded.push({type:r.type+'.'+k,id:r.id,reason:'新系统当前类型/状态不使用此字段，按新资料规则未写入'});continue;}
    if(skippedFields.has(r.type+'.'+k+':'+r.id)||skippedFields.has(r.type+'.duplicate.'+k+':'+r.id))continue;
    if(v?.legacyRef){refChecks++;check(target.data[k]===ids.get(v.legacyRef.type+':'+v.legacyRef.id),r.type,r.id,k);}
-   if(f?.type==='money'&&(f.scale||0)>0&&r.type==='finance-product-sources'){priceChecks++;check(target.data[k]===v,r.type,r.id,k);}
+   if(f?.type==='money'&&(f.scale||0)>0&&!(r.type==='finance-products'&&k==='purchasePrice')){priceChecks++;check(target.data[k]===v,r.type,r.id,k);}
    if(['sensitive','secret'].includes(f?.type)&&v){sensitiveChecks++;let equal=false;try{equal=crypto.decrypt(JSON.parse(target.secrets||'{}')[k])===v;}catch{}if(!equal&&links.filter(l=>l.target_type===r.type&&Number(l.target_id)===id).length>1){applied.excluded.push({type:r.type+'.duplicate.'+k,id:r.id,reason:'合并的同一资料敏感字段存在差异，保留首条值；未覆盖，需核对'});}else check(equal,r.type,r.id,k);}
   }
   if(r.type==='finance-base-codes'){
