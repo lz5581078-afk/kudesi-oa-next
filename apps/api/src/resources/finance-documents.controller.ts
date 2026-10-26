@@ -14,8 +14,8 @@ class LineDto {
   @IsOptional() @IsInt() @Min(1) productId?: number | null;
   @IsOptional() @IsInt() @Min(1) feeItemId?: number | null;
   @IsNumber({ maxDecimalPlaces: 4 }) qty!: number;
-  @IsInt() unitPriceCents!: number;
-  @IsOptional() @IsInt() unitCostCents?: number | null;
+  @IsNumber({maxDecimalPlaces:4}) unitPriceCents!: number;
+  @IsOptional() @IsNumber({maxDecimalPlaces:4}) unitCostCents?: number | null;
   @IsOptional() @IsString() @MaxLength(200) memo?: string;
   @IsOptional() @IsString() @MaxLength(20) relatedNode?: string | null;
   @IsOptional() @IsInt() @Min(1) relatedId?: number | null;

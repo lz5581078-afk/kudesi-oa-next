@@ -1,3 +1,4 @@
+import { validUnitCents, settledLineCents } from './unit-price';
 /**
  * 财务单据（制单中心）：13 种单据的定义和过账规则，前后端共用。
  *
@@ -191,7 +192,7 @@ export interface Entry {
   qty: number | null;
 }
 
-export const lineAmount = (l: Pick<DocLineInput, 'qty' | 'unitPriceCents'>): number => Math.round(l.qty * l.unitPriceCents);
+export const lineAmount = (l: Pick<DocLineInput, 'qty' | 'unitPriceCents'>): number => { try { return settledLineCents(l.unitPriceCents, l.qty); } catch { return NaN; } };
 
 /** 当场结算金额。费用单/其他收入单没填就当“当场付清/收齐”（现金费用）；其他单据没填就是 0（全部挂账）。 */
 export function effectivePaid(def: DocTypeDef, input: Pick<DocInput, 'paidCents' | 'partyId'>, total: number): number {
@@ -243,7 +244,7 @@ export function validateDoc(input: DocInput): string[] {
       if (def.lines === 'product' && !l.productId) errors.push(`第 ${n} 行请选择商品`);
       if (def.lines === 'fee' && !l.feeItemId) errors.push(`第 ${n} 行请选择费用项目`);
       if (!(l.qty > 0) || Math.round(l.qty * 10000) / 10000 !== l.qty) errors.push(`第 ${n} 行数量必须大于 0（最多 4 位小数）`);
-      if (!Number.isInteger(l.unitPriceCents) || l.unitPriceCents < 0) errors.push(`第 ${n} 行单价不合法`);
+      if (!validUnitCents(l.unitPriceCents) || l.unitPriceCents < 0) errors.push(`第 ${n} 行单价不合法`);
     });
   } else if (!(def.bank === 'transfer' && input.accounts?.length) && (!Number.isInteger(input.amountCents) || (input.amountCents as number) <= 0)) {
     errors.push('金额必须大于 0');
@@ -304,7 +305,7 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
     const productId = l.productId as number;
     const unit = l.unitCostCents ?? costOf(productId);
     if (unit === null || unit === undefined) throw new Error('COST_MISSING');
-    return { productId, qty: l.qty, cost: Math.round(l.qty * unit) };
+    return { productId, qty: l.qty, cost: settledLineCents(unit, l.qty) };
   });
 
   switch (input.type) {

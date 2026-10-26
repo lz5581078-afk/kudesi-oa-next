@@ -1,0 +1,1642 @@
+{
+  "version": 1,
+  "principle": "以目标字段为起点；无对应或口径不明标为待核对，禁止猜值；不含业务数据或凭据",
+  "commonAliases": {
+    "note": [
+      "remark",
+      "note"
+    ],
+    "sort": [
+      "sort_order",
+      "order"
+    ],
+    "sortOrder": [
+      "sort_order",
+      "order"
+    ],
+    "keeperUserId": [
+      "keeper_employee_id"
+    ],
+    "userId": [
+      "user_employee_id",
+      "employee_id"
+    ],
+    "operatorUserId": [
+      "owner_employee_id",
+      "owner_id"
+    ],
+    "parentId": [
+      "parent_id"
+    ],
+    "code": [
+      "code"
+    ],
+    "name": [
+      "name"
+    ]
+  },
+  "resources": {
+    "licenses": {
+      "tables": [
+        "business_licenses"
+      ],
+      "aliases": {
+        "category": [
+          "license_category"
+        ],
+        "companyName": [
+          "subject_name"
+        ],
+        "licenseNo": [
+          "license_no"
+        ],
+        "creditCode": [
+          "credit_code"
+        ],
+        "legalPerson": [
+          "legal_person"
+        ],
+        "licenseType": [
+          "license_type"
+        ],
+        "registeredCapital": [
+          "registered_capital"
+        ],
+        "address": [
+          "registered_address"
+        ],
+        "businessScope": [
+          "business_scope"
+        ],
+        "foundedAt": [
+          "established_at"
+        ],
+        "approvedAt": [
+          "approved_at"
+        ],
+        "registrar": [
+          "registration_authority"
+        ],
+        "annualAuditDay": [
+          "annual_review_month_day"
+        ],
+        "originalPhoto": [
+          "original_photo_data_url"
+        ],
+        "copyPhoto": [
+          "duplicate_photo_data_url"
+        ],
+        "originalState": [
+          "original_material_status"
+        ],
+        "copyState": [
+          "duplicate_material_status"
+        ],
+        "copyLocationId": [
+          "duplicate_location_id"
+        ],
+        "sealNote": [
+          "seal_remark"
+        ],
+        "ktBoard": [
+          "signboard_status"
+        ],
+        "ktBoardLocationId": [
+          "signboard_location_id"
+        ],
+        "ktBoardNote": [
+          "signboard_remark"
+        ],
+        "publicAccountBank": [
+          "public_bank_name"
+        ],
+        "publicAccountNo": [
+          "public_bank_account"
+        ],
+        "legalCardName": [
+          "legal_person_bank_account_name"
+        ],
+        "legalCardBank": [
+          "legal_person_bank_name"
+        ],
+        "legalCardNo": [
+          "legal_person_bank_card_no"
+        ],
+        "legalCardPhone": [
+          "legal_person_bank_reserved_phone"
+        ],
+        "reconcileCycle": [
+          "reconciliation_cycle"
+        ],
+        "reconcileDay": [
+          "reconciliation_reminder_day"
+        ],
+        "officialState": [
+          "official_seal_status"
+        ],
+        "officialKind": [
+          "official_seal_kind"
+        ],
+        "officialLocationId": [
+          "official_seal_location_id"
+        ],
+        "financeState": [
+          "finance_seal_status"
+        ],
+        "financeKind": [
+          "finance_seal_kind"
+        ],
+        "financeLocationId": [
+          "finance_seal_location_id"
+        ],
+        "legalState": [
+          "legal_person_seal_status"
+        ],
+        "legalKind": [
+          "legal_person_seal_kind"
+        ],
+        "legalLocationId": [
+          "legal_person_seal_location_id"
+        ],
+        "invoiceState": [
+          "invoice_seal_status"
+        ],
+        "invoiceKind": [
+          "invoice_seal_kind"
+        ],
+        "invoiceLocationId": [
+          "invoice_seal_location_id"
+        ]
+      }
+    },
+    "stores": {
+      "tables": [
+        "stores"
+      ],
+      "aliases": {
+        "url": [
+          "store_url"
+        ],
+        "operatorUserId": [
+          "current_claimer_id",
+          "owner_id"
+        ],
+        "promotionReleaseAt": [
+          "promotion_restriction_released_at"
+        ],
+        "account": [
+          "store_account"
+        ],
+        "storePassword": [
+          "store_password"
+        ],
+        "withdrawPassword": [
+          "withdraw_payment_password"
+        ],
+        "phoneId": [
+          "@phones:store_id"
+        ],
+        "phoneNumber": [
+          "@phones:store_id.number"
+        ],
+        "jushuitan": [
+          "jushuitan_connected"
+        ],
+        "jushuitanExpireAt": [
+          "jushuitan_expires_at"
+        ],
+        "trademark": [
+          "authorized_trademark"
+        ],
+        "trademarkExpireAt": [
+          "trademark_expires_at"
+        ],
+        "qualification": [
+          "qualification_upload_status"
+        ],
+        "qualificationNote": [
+          "qualification_upload_remark"
+        ],
+        "deposit": [
+          "deposit_amount"
+        ],
+        "frozen": [
+          "frozen_amount"
+        ],
+        "goodsFund": [
+          "goods_payment_amount"
+        ],
+        "promotionBalance": [
+          "promotion_fee_balance"
+        ],
+        "qualificationFiles": [
+          "@resource_media:stores"
+        ]
+      }
+    },
+    "phones": {
+      "tables": [
+        "phone_numbers"
+      ],
+      "aliases": {
+        "plan": [
+          "package_name"
+        ],
+        "certifiedName": [
+          "phone_owner_name"
+        ],
+        "assetId": [
+          "fixed_asset_id"
+        ],
+        "areaLocationId": [
+          "save_area_location_id"
+        ],
+        "assetLocationId": [
+          "save_asset_location_id"
+        ],
+        "externalUser": [
+          "external_user_name"
+        ],
+        "deviceType": [
+          "phone_device_type"
+        ],
+        "forwardApp": [
+          "has_forwarding_app"
+        ],
+        "forwardAppName": [
+          "forwarding_app_name"
+        ],
+        "partnerId": [
+          "partner_profile_id"
+        ],
+        "rechargeCycleDays": [
+          "@transform:recharge_cycle,recharge_day"
+        ]
+      }
+    },
+    "tax-profiles": {
+      "tables": [
+        "tax_profiles"
+      ],
+      "aliases": {
+        "bankAccountNo": [
+          "bank_account"
+        ],
+        "contactName": [
+          "tax_contact"
+        ],
+        "contactPhone": [
+          "tax_contact_phone"
+        ],
+        "lastFiledAt": [
+          "last_tax_filed_at"
+        ]
+      }
+    },
+    "partners": {
+      "tables": [
+        "partner_profiles"
+      ],
+      "aliases": {
+        "name": [
+          "partner_name"
+        ],
+        "phone": [
+          "partner_contact_phone"
+        ],
+        "idNumber": [
+          "id_no"
+        ],
+        "contactUserId": [
+          "relationship_owner_employee_id"
+        ],
+        "contactNote": [
+          "relationship_description"
+        ],
+        "idFront": [
+          "id_card_front_photo_data_url"
+        ],
+        "idBack": [
+          "id_card_back_photo_data_url"
+        ],
+        "cardHolder": [
+          "bank_account_name"
+        ],
+        "cardBank": [
+          "bank_name"
+        ],
+        "cardNo": [
+          "bank_account_no"
+        ],
+        "cardPhone": [
+          "bank_reserved_phone"
+        ]
+      }
+    },
+    "bank-accounts": {
+      "tables": [
+        "bank_accounts"
+      ],
+      "aliases": {
+        "kind": [
+          "@transform:account_scope,account_kind"
+        ],
+        "bank": [
+          "bank_name"
+        ],
+        "reservedPhoneNumber": [
+          "reserved_phone"
+        ],
+        "reservedPhoneHolder": [
+          "reserved_phone_owner_name"
+        ],
+        "phoneId": [
+          "phone_number_id"
+        ],
+        "customerNo": [
+          "public_account_customer_no"
+        ],
+        "attachments": [
+          "public_account_attachment_1_data_url",
+          "public_account_attachment_2_data_url",
+          "public_account_attachment_3_data_url",
+          "public_account_attachment_4_data_url"
+        ],
+        "balance": [
+          "current_balance"
+        ],
+        "reconcileCycle": [
+          "reconciliation_cycle"
+        ],
+        "reconcileDay": [
+          "reconciliation_reminder_day"
+        ]
+      }
+    },
+    "u-shields": {
+      "tables": [
+        "bank_u_shields"
+      ],
+      "aliases": {
+        "name": [
+          "shield_name"
+        ]
+      }
+    },
+    "qualifications": {
+      "tables": [
+        "qualifications"
+      ],
+      "aliases": {
+        "type": [
+          "qualification_type"
+        ],
+        "certNo": [
+          "certificate_no"
+        ],
+        "filedAt": [
+          "filing_date"
+        ],
+        "filedProducts": [
+          "filing_products"
+        ],
+        "platformAccount": [
+          "platform_login_account"
+        ],
+        "platformPassword": [
+          "platform_login_password"
+        ],
+        "attachments": [
+          "attachment_data_url"
+        ]
+      }
+    },
+    "trademarks": {
+      "tables": [
+        "trademarks"
+      ],
+      "aliases": {
+        "source": [
+          "trademark_source"
+        ],
+        "name": [
+          "trademark_name"
+        ],
+        "classNo": [
+          "trademark_class"
+        ],
+        "applicant": [
+          "applicant_name"
+        ],
+        "cooperativeContact": [
+          "cooperation_owner_name"
+        ],
+        "registrationNo": [
+          "trademark_no"
+        ],
+        "appliedAt": [
+          "application_at"
+        ],
+        "acceptedAt": [
+          "acceptance_at"
+        ],
+        "validUntil": [
+          "expires_at"
+        ],
+        "image": [
+          "trademark_photo_data_url"
+        ],
+        "acceptNotice": [
+          "acceptance_notice_data_url"
+        ],
+        "certificate": [
+          "certificate_photo_data_url"
+        ]
+      }
+    },
+    "self-media": {
+      "tables": [
+        "self_media_accounts"
+      ],
+      "aliases": {
+        "name": [
+          "account_name"
+        ],
+        "password": [
+          "account_password"
+        ],
+        "phoneNumber": [
+          "account_phone"
+        ],
+        "phoneId": [
+          "@phones:number(account_phone)"
+        ],
+        "homepage": [
+          "homepage_url"
+        ],
+        "followers": [
+          "followers_count"
+        ],
+        "deposit": [
+          "deposit_amount"
+        ],
+        "operatorUserId": [
+          "owner_employee_id"
+        ],
+        "certifiedName": [
+          "certifier_name"
+        ]
+      },
+      "json": {
+        "column": "platform_properties",
+        "path": "$"
+      }
+    },
+    "wechat": {
+      "tables": [
+        "wechat_accounts"
+      ],
+      "aliases": {
+        "name": [
+          "wechat_name"
+        ],
+        "wechatNo": [
+          "wechat_account"
+        ],
+        "password": [
+          "account_password"
+        ],
+        "purpose": [
+          "usage_purpose"
+        ],
+        "phoneNumber": [
+          "bound_phone"
+        ],
+        "phoneId": [
+          "phone_number_id"
+        ]
+      }
+    },
+    "broadband": {
+      "tables": [
+        "broadband_accounts"
+      ],
+      "aliases": {
+        "account": [
+          "account_no"
+        ],
+        "cycle": [
+          "package_cycle"
+        ],
+        "amount": [
+          "package_amount"
+        ],
+        "phoneId": [
+          "phone_number_id"
+        ]
+      }
+    },
+    "memos": {
+      "tables": [
+        "account_service_memos"
+      ],
+      "aliases": {
+        "kind": [
+          "memo_type"
+        ],
+        "title": [
+          "@transform:account_name,service_name,provider_name"
+        ],
+        "provider": [
+          "provider_name"
+        ],
+        "loginName": [
+          "login_account"
+        ],
+        "password": [
+          "account_password"
+        ],
+        "url": [
+          "homepage_url"
+        ],
+        "ownerUserId": [
+          "owner_employee_id"
+        ],
+        "parentId": [
+          "parent_account_id"
+        ],
+        "startAt": [
+          "started_at"
+        ],
+        "endAt": [
+          "expires_at"
+        ],
+        "renewCycle": [
+          "renewal_cycle"
+        ],
+        "renewAmount": [
+          "renewal_amount"
+        ]
+      }
+    },
+    "software": {
+      "tables": [
+        "software_accounts"
+      ],
+      "aliases": {
+        "account": [
+          "account_no"
+        ]
+      }
+    },
+    "fixed-assets": {
+      "tables": [
+        "fixed_assets"
+      ],
+      "aliases": {
+        "config": [
+          "configuration"
+        ],
+        "purchasedAt": [
+          "purchase_date"
+        ],
+        "purchasePrice": [
+          "purchase_amount"
+        ],
+        "warrantyUntil": [
+          "warranty_until"
+        ],
+        "photos": [
+          "@resource_media:fixed_assets"
+        ],
+        "attrs": [
+          "@review:旧资产自定义属性来源需代码核对"
+        ]
+      }
+    },
+    "asset-categories": {
+      "tables": [
+        "asset_categories"
+      ],
+      "aliases": {}
+    },
+    "locations": {
+      "tables": [
+        "company_locations"
+      ],
+      "aliases": {
+        "scope": [
+          "location_scope"
+        ]
+      }
+    },
+    "archives": {
+      "tables": [
+        "archive_items"
+      ],
+      "aliases": {
+        "licenseId": [
+          "@transform:related_type,related_id"
+        ],
+        "storeId": [
+          "@transform:related_type,related_id"
+        ],
+        "photos": [
+          "@resource_media:archive_items"
+        ]
+      }
+    },
+    "duty-groups": {
+      "tables": [
+        "responsibility_groups"
+      ],
+      "aliases": {
+        "groupKey": [
+          "group_key"
+        ],
+        "description": [
+          "description"
+        ]
+      }
+    },
+    "duty-group-items": {
+      "tables": [
+        "responsibility_group_items"
+      ],
+      "aliases": {
+        "module": [
+          "related_module"
+        ]
+      }
+    },
+    "duty-group-members": {
+      "tables": [
+        "employee_responsibility_groups"
+      ],
+      "aliases": {
+        "userId": [
+          "employee_id"
+        ],
+        "role": [
+          "@review:旧成员source不能当新成员role"
+        ]
+      }
+    },
+    "license-borrows": {
+      "tables": [
+        "license_borrow_records"
+      ],
+      "aliases": {
+        "item": [
+          "item_type"
+        ],
+        "borrower": [
+          "borrower_employee_id"
+        ]
+      },
+      "policy": "review-history",
+      "reason": "资料下挂借用记录：未归还关系建议保留；已归还历史范围需确认"
+    },
+    "license-usages": {
+      "tables": [
+        "license_usage_records"
+      ],
+      "aliases": {
+        "item": [
+          "item_type"
+        ],
+        "userId": [
+          "used_by_employee_id"
+        ]
+      },
+      "policy": "review-history",
+      "reason": "资料下挂使用历史，非档案必填项，先报告数量再确认"
+    },
+    "store-claims": {
+      "tables": [
+        "store_claim_records"
+      ],
+      "aliases": {
+        "action": [
+          "record_type"
+        ],
+        "userId": [
+          "created_by"
+        ],
+        "happenedAt": [
+          "created_at"
+        ],
+        "product": [
+          "last_order_product"
+        ]
+      },
+      "policy": "review-history",
+      "reason": "领退店历史；当前运营/领用关系从店铺主档映射，不用历史反复执行领店动作"
+    },
+    "store-abnormal-reasons": {
+      "tables": [
+        "store_abnormal_reasons"
+      ],
+      "aliases": {}
+    },
+    "phone-abnormal-reasons": {
+      "tables": [
+        "phone_abnormal_reasons"
+      ],
+      "aliases": {}
+    },
+    "store-daily-metrics": {
+      "tables": [
+        "store_daily_metrics"
+      ],
+      "aliases": {
+        "day": [
+          "metric_date"
+        ],
+        "orders": [
+          "order_count"
+        ],
+        "visitors": [
+          "product_visitors"
+        ],
+        "sales": [
+          "sales_amount"
+        ],
+        "adCost": [
+          "promotion_spend"
+        ],
+        "source": [
+          "source_method"
+        ]
+      },
+      "policy": "review-history",
+      "reason": "资料页经营日指标为历史经营数据，需确认本轮是否纳入"
+    },
+    "store-promotions": {
+      "tables": [
+        "store_promotion_items",
+        "store_promotion_snapshots"
+      ],
+      "aliases": {
+        "day": [
+          "@store_promotion_snapshots:snapshot_date"
+        ],
+        "campaign": [
+          "item_name"
+        ],
+        "spend": [
+          "spend_amount"
+        ],
+        "gmv": [
+          "deal_amount"
+        ]
+      },
+      "policy": "review-history",
+      "reason": "资料页推广历史；主快照与明细需聚合，不能随意填新字段"
+    },
+    "store-scores": {
+      "tables": [
+        "store_score_dimension_items",
+        "store_score_snapshots"
+      ],
+      "aliases": {
+        "snapshotDate": [
+          "@store_score_snapshots:snapshot_date"
+        ],
+        "dimension": [
+          "dimension_key"
+        ],
+        "metric": [
+          "@review:评分指标名和值结构需代码核对"
+        ]
+      },
+      "policy": "review-history",
+      "reason": "资料页评分历史，暂列范围待定"
+    },
+    "store-funds": {
+      "tables": [
+        "stores"
+      ],
+      "aliases": {
+        "storeId": [
+          "id"
+        ],
+        "deposit": [
+          "deposit_amount"
+        ],
+        "frozen": [
+          "frozen_amount"
+        ],
+        "withdrawable": [
+          "goods_payment_amount"
+        ],
+        "promotion": [
+          "promotion_fee_balance"
+        ],
+        "snapshotDate": [
+          "@review:需指定余额快照时点"
+        ]
+      },
+      "policy": "review-balance",
+      "reason": "余额快照须确认时点和口径，本轮不自动生成经营余额或分录"
+    },
+    "finance-products": {
+      "tables": [
+        "finance_products",
+        "finance_product_archive_costs"
+      ],
+      "aliases": {
+        "archiveType": [
+          "archive_key"
+        ],
+        "code": [
+          "product_code"
+        ],
+        "name": [
+          "product_name"
+        ],
+        "brandId": [
+          "@derive:finance_products.brand 去重建品牌"
+        ],
+        "categoryId": [
+          "category_id"
+        ],
+        "shape": [
+          "shape_style"
+        ],
+        "specQty": [
+          "amount"
+        ],
+        "specUnit": [
+          "unit"
+        ],
+        "weightG": [
+          "@transform:weighing_weight+payload_json.weightUnit"
+        ],
+        "weightManual": [
+          "@json:$.weightManualCorrected"
+        ],
+        "purchaseSpec": [
+          "@json:$.purchaseSpecification"
+        ],
+        "productPackagingSpec": [
+          "@json:$.productPackagingSpecification"
+        ],
+        "purchasePrice": [
+          "@effective:finance_product_archive_costs.purchase 或供货来源"
+        ],
+        "freight": [
+          "@effective:finance_product_archive_costs.freight 或payload_json.freightAmount"
+        ],
+        "handlingFee": [
+          "@effective:finance_product_archive_costs.handling 或payload_json.handlingAmount"
+        ],
+        "zeroValueReason": [
+          "@json:$.zeroConfirmations"
+        ],
+        "rawFinishedNames": [
+          "@json:$.rawFinishedNames"
+        ],
+        "photos": [
+          "@resource_media:finance_products",
+          "@finance_product_archive_photos:data_url"
+        ],
+        "supplierId": [
+          "@json:$.supplierId"
+        ]
+      },
+      "json": {
+        "column": "payload_json",
+        "path": "$"
+      }
+    },
+    "finance-product-sources": {
+      "tables": [
+        "finance_raw_material_sources"
+      ],
+      "aliases": {
+        "systemSpec": [
+          "purchase_specification"
+        ],
+        "note": [
+          "remark"
+        ]
+      }
+    },
+    "finance-product-boms": {
+      "tables": [
+        "finance_product_archive_bom_lines",
+        "finance_product_archive_boms",
+        "finance_product_archive_labor_lines"
+      ],
+      "aliases": {
+        "productId": [
+          "@finance_product_archive_boms:owner_product_id via bom_id"
+        ],
+        "componentId": [
+          "component_product_id"
+        ],
+        "qty": [
+          "quantity"
+        ],
+        "lossPercent": [
+          "loss_rate"
+        ],
+        "laborId": [
+          "@finance_product_archive_labor_lines:labor_cost_item_id"
+        ]
+      }
+    },
+    "finance-supplier-categories": {
+      "tables": [
+        "finance_shared_archives"
+      ],
+      "aliases": {
+        "contact": [
+          "@json:$.categories[].contactName"
+        ],
+        "phone": [
+          "@json:$.categories[].contactPhone"
+        ],
+        "bank": [
+          "@json:$.categories[].bankName"
+        ],
+        "paymentQr": [
+          "@json:$.categories[].paymentQrCodeDataUrl"
+        ],
+        "sort": [
+          "@json:$.categories[].order"
+        ],
+        "note": [
+          "@json:$.categories[].remark"
+        ]
+      },
+      "json": {
+        "column": "data_json",
+        "path": "$.categories[]",
+        "kind": "suppliers"
+      }
+    },
+    "finance-customer-categories": {
+      "tables": [
+        "finance_shared_archives"
+      ],
+      "aliases": {
+        "contact": [
+          "@json:$.categories[].contactName"
+        ],
+        "phone": [
+          "@json:$.categories[].contactPhone"
+        ],
+        "bank": [
+          "@json:$.categories[].bankName"
+        ],
+        "paymentQr": [
+          "@json:$.categories[].paymentQrCodeDataUrl"
+        ],
+        "sort": [
+          "@json:$.categories[].order"
+        ],
+        "note": [
+          "@json:$.categories[].remark"
+        ]
+      },
+      "json": {
+        "column": "data_json",
+        "path": "$.categories[]",
+        "kind": "customers"
+      }
+    },
+    "finance-fee-categories": {
+      "tables": [
+        "finance_shared_archives"
+      ],
+      "aliases": {
+        "contact": [
+          "@json:$.categories[].contactName"
+        ],
+        "phone": [
+          "@json:$.categories[].contactPhone"
+        ],
+        "bank": [
+          "@json:$.categories[].bankName"
+        ],
+        "paymentQr": [
+          "@json:$.categories[].paymentQrCodeDataUrl"
+        ],
+        "sort": [
+          "@json:$.categories[].order"
+        ],
+        "note": [
+          "@json:$.categories[].remark"
+        ]
+      },
+      "json": {
+        "column": "data_json",
+        "path": "$.categories[]",
+        "kind": "expenses"
+      }
+    },
+    "finance-suppliers": {
+      "tables": [
+        "finance_shared_archives"
+      ],
+      "aliases": {
+        "contact": [
+          "@json:$.items[].contactName"
+        ],
+        "phone": [
+          "@json:$.items[].contactPhone"
+        ],
+        "bank": [
+          "@json:$.items[].bankName"
+        ],
+        "paymentQr": [
+          "@json:$.items[].paymentQrCodeDataUrl"
+        ],
+        "sort": [
+          "@json:$.items[].order"
+        ],
+        "note": [
+          "@json:$.items[].remark"
+        ]
+      },
+      "json": {
+        "column": "data_json",
+        "path": "$.items[]",
+        "kind": "suppliers"
+      }
+    },
+    "finance-customers": {
+      "tables": [
+        "finance_shared_archives"
+      ],
+      "aliases": {
+        "contact": [
+          "@json:$.items[].contactName"
+        ],
+        "phone": [
+          "@json:$.items[].contactPhone"
+        ],
+        "bank": [
+          "@json:$.items[].bankName"
+        ],
+        "paymentQr": [
+          "@json:$.items[].paymentQrCodeDataUrl"
+        ],
+        "sort": [
+          "@json:$.items[].order"
+        ],
+        "note": [
+          "@json:$.items[].remark"
+        ]
+      },
+      "json": {
+        "column": "data_json",
+        "path": "$.items[]",
+        "kind": "customers"
+      }
+    },
+    "finance-fee-items": {
+      "tables": [
+        "finance_shared_archives"
+      ],
+      "aliases": {
+        "contact": [
+          "@json:$.items[].contactName"
+        ],
+        "phone": [
+          "@json:$.items[].contactPhone"
+        ],
+        "bank": [
+          "@json:$.items[].bankName"
+        ],
+        "paymentQr": [
+          "@json:$.items[].paymentQrCodeDataUrl"
+        ],
+        "sort": [
+          "@json:$.items[].order"
+        ],
+        "note": [
+          "@json:$.items[].remark"
+        ]
+      },
+      "json": {
+        "column": "data_json",
+        "path": "$.items[]",
+        "kind": "expenses"
+      }
+    },
+    "finance-warehouses": {
+      "tables": [
+        "finance_shared_archives"
+      ],
+      "aliases": {
+        "contact": [
+          "@json:$.items[].contactName"
+        ],
+        "phone": [
+          "@json:$.items[].contactPhone"
+        ],
+        "bank": [
+          "@json:$.items[].bankName"
+        ],
+        "paymentQr": [
+          "@json:$.items[].paymentQrCodeDataUrl"
+        ],
+        "sort": [
+          "@json:$.items[].order"
+        ],
+        "note": [
+          "@json:$.items[].remark"
+        ]
+      },
+      "json": {
+        "column": "data_json",
+        "path": "$.items[]",
+        "kind": "warehouses"
+      }
+    },
+    "finance-brands": {
+      "tables": [
+        "finance_products",
+        "finance_product_code_dictionary"
+      ],
+      "aliases": {
+        "name": [
+          "@derive:brand字段及dictionary_type=brand 去重"
+        ],
+        "code": [
+          "@finance_product_code_dictionary:item_code"
+        ]
+      }
+    },
+    "finance-categories": {
+      "tables": [
+        "finance_product_categories",
+        "finance_product_code_dictionary"
+      ],
+      "aliases": {
+        "archiveType": [
+          "archive_key"
+        ],
+        "code": [
+          "category_code"
+        ],
+        "sort": [
+          "sort_order"
+        ]
+      },
+      "reason": "商品类别主表与编码字典有镜像关系，需先消重并保留父子树"
+    },
+    "finance-platforms": {
+      "tables": [
+        "finance_sales_platforms"
+      ],
+      "aliases": {
+        "code": [
+          "platform_code"
+        ],
+        "name": [
+          "platform_name"
+        ]
+      },
+      "reason": "与新库已有平台按code复用，不新增同义重复记录"
+    },
+    "finance-scenarios": {
+      "tables": [
+        "finance_bundle_sales_scenarios"
+      ],
+      "aliases": {
+        "code": [
+          "scenario_key"
+        ],
+        "name": [
+          "scenario_name"
+        ],
+        "segment": [
+          "code_segment"
+        ]
+      },
+      "reason": "按code匹配新库既有场景"
+    },
+    "finance-margins": {
+      "tables": [
+        "finance_bundle_cost_margins"
+      ],
+      "aliases": {
+        "profitPercent": [
+          "@transform:profit_rate 精度/百分比换算"
+        ],
+        "reason": [
+          "@review:旧表无变更理由，需合法迁入说明"
+        ]
+      }
+    },
+    "finance-labor-versions": {
+      "tables": [
+        "finance_labor_cost_versions"
+      ],
+      "aliases": {}
+    },
+    "finance-labor-categories": {
+      "tables": [
+        "finance_labor_work_categories"
+      ],
+      "aliases": {
+        "versionId": [
+          "labor_cost_version_id"
+        ],
+        "name": [
+          "category_name"
+        ],
+        "code": [
+          "category_code"
+        ]
+      }
+    },
+    "finance-labor-work-types": {
+      "tables": [
+        "finance_labor_work_types"
+      ],
+      "aliases": {
+        "name": [
+          "type_name"
+        ],
+        "code": [
+          "type_code"
+        ]
+      }
+    },
+    "finance-labor-units": {
+      "tables": [
+        "finance_labor_billing_units"
+      ],
+      "aliases": {
+        "name": [
+          "unit_name"
+        ],
+        "code": [
+          "unit_code"
+        ]
+      }
+    },
+    "finance-labor-costs": {
+      "tables": [
+        "finance_labor_cost_items"
+      ],
+      "aliases": {
+        "versionId": [
+          "labor_cost_version_id"
+        ],
+        "archiveCategoryId": [
+          "archive_category_id"
+        ],
+        "workTypeId": [
+          "work_category_id"
+        ],
+        "unitId": [
+          "billing_unit_id"
+        ],
+        "unitPrice": [
+          "unit_cost"
+        ],
+        "zeroReason": [
+          "zero_cost_confirmation"
+        ]
+      },
+      "reason": "人力单价旧精度可高于分；超出新精度的行须报告，不自动四舍五入"
+    },
+    "finance-express-carriers": {
+      "tables": [
+        "finance_express_catalogs"
+      ],
+      "aliases": {},
+      "json": {
+        "column": "carriers_json",
+        "path": "$[]"
+      },
+      "reason": "JSON层级拆表，父级ID映射；保留有效规则/版本，旧历史范围单列"
+    },
+    "finance-express-branches": {
+      "tables": [
+        "finance_express_catalogs"
+      ],
+      "aliases": {
+        "carrierId": [
+          "@parent:finance-express-carriers.id"
+        ],
+        "currentVersionId": [
+          "@json:$[].branches[].currentVersionId"
+        ]
+      },
+      "json": {
+        "column": "carriers_json",
+        "path": "$[].branches[]"
+      },
+      "reason": "JSON层级拆表，父级ID映射；保留有效规则/版本，旧历史范围单列"
+    },
+    "finance-express-versions": {
+      "tables": [
+        "finance_express_catalogs"
+      ],
+      "aliases": {
+        "branchId": [
+          "@parent:finance-express-branches.id"
+        ],
+        "versionName": [
+          "@json:$[].branches[].versions[].name"
+        ]
+      },
+      "json": {
+        "column": "carriers_json",
+        "path": "$[].branches[].versions[]"
+      },
+      "reason": "JSON层级拆表，父级ID映射；保留有效规则/版本，旧历史范围单列"
+    },
+    "finance-express-prices": {
+      "tables": [
+        "finance_express_catalogs"
+      ],
+      "aliases": {
+        "versionId": [
+          "@parent:finance-express-versions.id"
+        ],
+        "firstPrice": [
+          "first_weight_amount"
+        ],
+        "extraPrice": [
+          "continued_weight_amount"
+        ],
+        "fixedPrice": [
+          "@review:base_amount和计价类型需按旧计算代码逐项转换"
+        ],
+        "shipWeightMin": [
+          "range_start_weight"
+        ],
+        "shipWeightMax": [
+          "range_end_weight"
+        ]
+      },
+      "json": {
+        "column": "carriers_json",
+        "path": "$[].branches[].versions[].priceRows[]"
+      },
+      "reason": "JSON层级拆表，父级ID映射；保留有效规则/版本，旧历史范围单列"
+    },
+    "finance-express-fee-batches": {
+      "tables": [
+        "finance_express_catalogs"
+      ],
+      "aliases": {
+        "versionId": [
+          "@parent:finance-express-versions.id"
+        ]
+      },
+      "json": {
+        "column": "carriers_json",
+        "path": "$[].branches[].versions[].surchargeBatches[]"
+      },
+      "reason": "JSON层级拆表，父级ID映射；保留有效规则/版本，旧历史范围单列"
+    },
+    "finance-express-surcharges": {
+      "tables": [
+        "finance_express_catalogs"
+      ],
+      "aliases": {
+        "versionId": [
+          "@parent:finance-express-versions.id"
+        ],
+        "name": [
+          "surcharge_name"
+        ]
+      },
+      "json": {
+        "column": "carriers_json",
+        "path": "$[].branches[].versions[].surcharges[]"
+      },
+      "reason": "JSON层级拆表，父级ID映射；保留有效规则/版本，旧历史范围单列"
+    },
+    "finance-freight-overrides": {
+      "tables": [
+        "finance_express_cost_estimates"
+      ],
+      "aliases": {
+        "weightFrom": [
+          "@json:$.rows_json[].weightStart"
+        ],
+        "weightTo": [
+          "@json:$.rows_json[].weightEnd"
+        ],
+        "amount": [
+          "@json:$.rows_json[].manualAmount"
+        ]
+      },
+      "policy": "review-transform",
+      "reason": "只提取有来源的人工覆盖段，自动预估结果在新系统重算"
+    },
+    "finance-packaging-schemes": {
+      "tables": [
+        "finance_packaging_schemes"
+      ],
+      "aliases": {
+        "categoryId": [
+          "@derive:category_name匹配分类"
+        ],
+        "brandId": [
+          "@derive:brand_name匹配品牌"
+        ]
+      }
+    },
+    "finance-packaging-lines": {
+      "tables": [
+        "finance_packaging_scheme_lines"
+      ],
+      "aliases": {
+        "componentId": [
+          "component_product_id"
+        ],
+        "qty": [
+          "quantity"
+        ]
+      }
+    },
+    "finance-packaging-rules": {
+      "tables": [
+        "finance_packaging_scheme_rules"
+      ],
+      "aliases": {
+        "categoryId": [
+          "@derive:category_name匹配分类"
+        ],
+        "brandId": [
+          "@derive:brand_name匹配品牌"
+        ],
+        "scenarioId": [
+          "@derive:sales_scenario匹配场景"
+        ],
+        "discreteWeights": [
+          "discrete_weights_json"
+        ]
+      }
+    },
+    "finance-base-codes": {
+      "tables": [
+        "finance_product_base_codes",
+        "finance_product_code_links",
+        "finance_product_data_verifications"
+      ],
+      "aliases": {
+        "productId": [
+          "source_product_id",
+          "@finance_product_code_links:product_id"
+        ],
+        "code": [
+          "final_code"
+        ],
+        "name": [
+          "product_name"
+        ],
+        "styleCode": [
+          "final_style_code"
+        ],
+        "spec": [
+          "properties_value"
+        ],
+        "canonicalId": [
+          "canonical_base_code_id"
+        ],
+        "jstStatus": [
+          "@review:不复制旧同步队列状态"
+        ],
+        "codeChangeReason": [
+          "@review:保留旧编码须来源说明"
+        ]
+      },
+      "reason": "新基础编码必填单一productId，旧聚合多商品/无来源编码须专项处理；不能重新生成旧代码"
+    },
+    "finance-bundles": {
+      "tables": [
+        "finance_product_bundle_codes",
+        "finance_product_bundle_definitions"
+      ],
+      "aliases": {
+        "manualCode": [
+          "final_code"
+        ],
+        "manualStyleCode": [
+          "final_style_code"
+        ],
+        "manualName": [
+          "product_name"
+        ],
+        "manualShortName": [
+          "short_name"
+        ],
+        "manualReason": [
+          "@review:为保留既有编码提供真实迁移来源说明"
+        ],
+        "scenarioId": [
+          "@derive:sales_scenario匹配场景"
+        ],
+        "configNo": [
+          "configuration_code"
+        ],
+        "weightMode": [
+          "@finance_product_bundle_definitions:weight_mode"
+        ],
+        "manualWeightG": [
+          "@finance_product_bundle_definitions:weighing_weight"
+        ],
+        "jstStatus": [
+          "@review:不复制旧同步状态"
+        ]
+      },
+      "reason": "最终code/name为新引擎计算字段，须通过允许的manual字段保存旧值并验证一致；不得直接写readonly字段"
+    },
+    "finance-bundle-lines": {
+      "tables": [
+        "finance_product_bundle_bom_lines",
+        "finance_bundle_labor_lines",
+        "finance_product_bundle_codes"
+      ],
+      "aliases": {
+        "bundleId": [
+          "@finance_product_bundle_codes:bom_id展开到每个组合"
+        ],
+        "baseCodeId": [
+          "base_code_id"
+        ],
+        "laborId": [
+          "@finance_bundle_labor_lines:labor_item_id"
+        ],
+        "qty": [
+          "quantity"
+        ]
+      },
+      "reason": "旧定义/BOM按平台展开到每个组合；组件为档案而非基础编码的行需显式转换，不能自动丢弃"
+    },
+    "finance-bundle-naming-rules": {
+      "tables": [
+        "finance_bundle_naming_rules"
+      ],
+      "aliases": {},
+      "json": {
+        "column": "rule_json",
+        "path": "$"
+      }
+    },
+    "finance-express-recognitions": {
+      "tables": [
+        "finance_express_catalogs"
+      ],
+      "aliases": {},
+      "policy": "exclude-derived",
+      "reason": "OCR识别过程历史，不是有效价格规则",
+      "json": {
+        "column": "carriers_json",
+        "path": "$[].branches[].versions[].recognitions[]"
+      }
+    },
+    "finance-freight-estimates": {
+      "tables": [
+        "finance_express_cost_estimates"
+      ],
+      "aliases": {},
+      "policy": "exclude-derived",
+      "reason": "计算结果由新引擎重算，不回填只读快照"
+    },
+    "finance-zone-runs": {
+      "tables": [
+        "finance_express_catalogs"
+      ],
+      "aliases": {},
+      "policy": "exclude-derived",
+      "reason": "旧分区建议/生成历史不作为新主档，按新引擎重新生成"
+    },
+    "finance-bundle-revisions": {
+      "tables": [
+        "finance_bundle_composition_revisions"
+      ],
+      "aliases": {},
+      "policy": "exclude-derived",
+      "reason": "历史修订流程不按当前主档再次执行"
+    },
+    "finance-jst-skus": {
+      "tables": [
+        "jst_skus"
+      ],
+      "aliases": {},
+      "policy": "exclude-derived",
+      "reason": "外部镜像缓存不作为主档迁入；旧外部编码关联需保留核对"
+    },
+    "finance-jst-uploads": {
+      "tables": [
+        "jst_sku_sync_logs"
+      ],
+      "aliases": {},
+      "policy": "exclude-derived",
+      "reason": "历史上传日志不迁，不重放外部写入"
+    }
+  }
+}

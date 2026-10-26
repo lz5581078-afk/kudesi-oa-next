@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { isLegacyPassword, verifyPassword } from './password';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -33,7 +34,7 @@ export class AuthService {
     const matches = admin ? [] : await this.users.find({ where: { account: name }, take: 2 });
     // 同名账号（历史遗留）不可能判断是谁，直接按失败处理，绝不串到别的公司
     const user = matches.length === 1 ? matches[0] : null;
-    const passwordOk = await bcrypt.compare(password, admin?.passwordHash ?? user?.passwordHash ?? DUMMY_HASH);
+    const passwordOk = await verifyPassword(password, admin?.passwordHash ?? user?.passwordHash ?? DUMMY_HASH);
 
     if (admin) {
       if (!passwordOk || admin.status !== 'active') throw new UnauthorizedException(LOGIN_FAILED);
@@ -46,7 +47,9 @@ export class AuthService {
     if (!company || !user || !passwordOk || user.status !== 'active' || company.status !== 'active') {
       throw new UnauthorizedException(LOGIN_FAILED);
     }
-    await this.users.update({ id: user.id }, { lastLoginAt: new Date() });
+    const upgrade = isLegacyPassword(user.passwordHash);
+    const result = await this.users.update({ id: user.id, companyId: user.companyId, passwordHash: user.passwordHash }, { lastLoginAt: new Date(), ...(upgrade ? { passwordHash: await bcrypt.hash(password, 10) } : {}) });
+    if (result && result.affected === 0) throw new UnauthorizedException(LOGIN_FAILED);
     const accessToken = await this.jwt.signAsync({ sub: user.id, cid: user.companyId });
     return { type: 'company', accessToken, user: await this.buildCurrentUser(user, company) };
   }
@@ -54,15 +57,16 @@ export class AuthService {
   /** 修改自己的密码：必须验证旧密码；新密码至少 10 位且不能与旧密码相同。 */
   async changePassword(userId: number, companyId: number, oldPassword: string, newPassword: string): Promise<void> {
     const user = await this.users.findOneOrFail({ where: { id: userId, companyId } });
-    if (!(await bcrypt.compare(oldPassword, user.passwordHash))) {
+    if (!(await verifyPassword(oldPassword, user.passwordHash))) {
       throw new BadRequestException('当前密码不正确');
     }
     if (newPassword.length < 10) throw new BadRequestException('新密码至少 10 位');
     if (newPassword === oldPassword) throw new BadRequestException('新密码不能与当前密码相同');
-    await this.users.update(
-      { id: userId, companyId },
+    const changed = await this.users.update(
+      { id: userId, companyId, passwordHash: user.passwordHash },
       { passwordHash: await bcrypt.hash(newPassword, 10), mustChangePassword: false },
     );
+    if (changed && changed.affected === 0) throw new BadRequestException('密码已变更，请重新登录后操作');
     await this.audits.save(
       this.audits.create({
         companyId,
@@ -90,7 +94,7 @@ export class AuthService {
     return {
       id: user.id,
       name: user.name,
-      account: user.account,
+      account: user.account ?? '',
       companyId: company.id,
       companyName: company.name,
       positionName: position?.name ?? null,

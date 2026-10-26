@@ -1,4 +1,4 @@
-import { formatYuan, type FieldDef, type ResourceDef, type StatusDef } from '@kudesi/shared';
+import { unitYuanText, formatYuan, type FieldDef, type ResourceDef, type StatusDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 
 export function statusOf(def: ResourceDef, value: string): StatusDef {
@@ -14,7 +14,7 @@ export function displayValue(f: FieldDef, dto: ResourceDto): string {
     case 'select':
       return f.options?.find((o) => o.value === v)?.label ?? String(v);
     case 'money':
-      return formatYuan(Number(v));
+      return f.scale ? `¥${unitYuanText(Number(v))}` : formatYuan(Number(v));
     case 'bool':
       return v ? '是' : '否';
     case 'ref':

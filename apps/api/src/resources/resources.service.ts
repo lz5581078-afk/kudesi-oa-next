@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Not } from 'typeorm';
 import {
-  createChecker,
+  unitYuanText, yuanToPreciseCents, createChecker,
   daysUntil,
   FieldDef,
   getResourceDef,
@@ -85,6 +85,11 @@ export class ResourcesService implements RuleHost {
     const def = getResourceDef(type);
     if (!def) throw new NotFoundException('没有这种资料');
     return def;
+  }
+
+  private uniqueKeyOf(def: ResourceDef, value: unknown): string | null {
+    const key = toUniqueKey(def, value);
+    return key && def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(key)[0] : key;
   }
 
   private readSecrets(record: ResourceRecord): Record<string, string> {
@@ -275,7 +280,7 @@ export class ResourcesService implements RuleHost {
       if (f.ref === 'user') {
         const u = await em.findOne(User, { where: { id: value, companyId: user.companyId } });
         if (!u) throw new BadRequestException(`${f.label}：员工不存在`);
-        if (changed && u.status !== 'active') throw new BadRequestException(`${f.label}：只能选在职员工（${u.name} 已停用）`);
+        if (changed && u.status !== 'active' && !em.queryRunner?.data.legacyImport) throw new BadRequestException(`${f.label}：只能选在职员工（${u.name} 已停用）`);
         continue;
       }
       if (f.ref === 'department') {
@@ -407,10 +412,12 @@ export class ResourcesService implements RuleHost {
     const uniqueKey = !def.uniqueField
       ? null
       : ufDef?.type === 'sensitive'
-        ? (input[def.uniqueField] === undefined ? existing?.uniqueKey ?? null : toUniqueKey(def, input[def.uniqueField]))
-        : toUniqueKey(def, data[def.uniqueField]);
+        ? (input[def.uniqueField] === undefined ? existing?.uniqueKey ?? null : this.uniqueKeyOf(def, input[def.uniqueField]))
+        : this.uniqueKeyOf(def, data[def.uniqueField]);
     if (uniqueKey) {
-      const clash = await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: def.key, uniqueKey } });
+      const clash = ufDef?.type === 'sensitive' && input[def.uniqueField!] !== undefined
+        ? await this.findByUnique(em, user.companyId, def.key, String(input[def.uniqueField!]))
+        : await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: def.key, uniqueKey } });
       if (clash && clash.id !== existing?.id) {
         const label = def.fields.find((f) => f.key === def.uniqueField)?.label ?? '编号';
         throw new ConflictException(`${label}「${String(data[def.uniqueField!] ?? input[def.uniqueField!])}」已存在`);
@@ -472,12 +479,27 @@ export class ResourcesService implements RuleHost {
   // ---------- RuleHost ----------
 
   async findByUnique(em: EntityManager, companyId: number, type: string, uniqueKey: string) {
-    return em.findOne(ResourceRecord, { where: { companyId, type, uniqueKey: uniqueKey.toLowerCase() } });
+    const def = this.def(type);
+    const raw = toUniqueKey(def, uniqueKey)!;
+    const keys = def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(raw) : [raw];
+    return em.findOne(ResourceRecord, { where: { companyId, type, uniqueKey: In(keys) } });
   }
 
   async createRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, note?: string) {
     const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined && v !== null && v !== ''));
     return this.saveRecord(em, user, this.def(type), null, clean, { note });
+  }
+
+  /** 仅服务器迁移CLI调用，无HTTP入口；保留与手工录入相同的字段/引用/加密校验。 */
+  async importRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, status?: string) {
+    if (em.queryRunner?.data.legacyImport !== true || !user.permissions.isCompanyAdmin) throw new ForbiddenException('仅允许受控迁移事务');
+    return this.saveRecord(em, user, this.def(type), null, values, { status, note: '旧系统资料迁入，来源对照见迁移账本' });
+  }
+
+  async importPatch(em: EntityManager, user: AuthUser, type: string, id: number, values: Record<string, unknown>) {
+    if (em.queryRunner?.data.legacyImport !== true || !user.permissions.isCompanyAdmin) throw new ForbiddenException('仅允许受控迁移事务');
+    const record = await this.load(em, user, type, id);
+    return this.saveRecord(em, user, this.def(type), record, values, { note: '旧系统资料迁入字段补齐' });
   }
 
   async titleOf(em: EntityManager, companyId: number, type: string, id: number) {
@@ -506,7 +528,7 @@ export class ResourcesService implements RuleHost {
     if (JSON.stringify(data) === JSON.stringify(record.data) && title === record.title) return;
     let uniqueKey = record.uniqueKey;
     if (def.uniqueField && patch[def.uniqueField] !== undefined) {
-      uniqueKey = toUniqueKey(def, data[def.uniqueField]);
+      uniqueKey = this.uniqueKeyOf(def, data[def.uniqueField]);
       if (uniqueKey) {
         const clash = await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type, uniqueKey } });
         if (clash && clash.id !== id) throw new ConflictException(`「${String(data[def.uniqueField])}」已存在，请先处理重复的编码`);
@@ -897,7 +919,7 @@ export class ResourcesService implements RuleHost {
     const v = dto.data[f.key];
     if (v === undefined || v === null) return '';
     if (f.type === 'select') return f.options?.find((o) => o.value === v)?.label ?? String(v);
-    if (f.type === 'money') return (Number(v) / 100).toFixed(2);
+    if (f.type === 'money') return f.scale ? unitYuanText(Number(v)) : (Number(v) / 100).toFixed(2);
     if (f.type === 'bool') return v ? '是' : '否';
     if (f.type === 'ref' || f.type === 'refs') return dto.refLabels[f.key] ?? '';
     if (f.type === 'files') return (Array.isArray(v) ? v : []).map((id) => dto.files[id as number]?.name ?? '').filter(Boolean).join('；');
@@ -948,9 +970,8 @@ export class ResourcesService implements RuleHost {
         if (!opt) errors.push(`${f.label}“${raw}”不在可选项里`);
         else input[f.key] = opt.value;
       } else if (f.type === 'money') {
-        const yuan = Number(raw.replace(/[,，]/g, ''));
-        if (Number.isNaN(yuan)) errors.push(`${f.label}不是数字`);
-        else input[f.key] = Math.round(yuan * 100);
+        try { input[f.key] = yuanToPreciseCents(raw.replace(/[,，]/g, ''), f.scale ?? 0); }
+        catch { errors.push(`${f.label}金额格式或精度不合法`); }
       } else if (f.type === 'decimal') {
         const n = Number(raw.replace(/[,，]/g, ''));
         if (Number.isNaN(n)) errors.push(`${f.label}不是数字`);
@@ -1002,9 +1023,9 @@ export class ResourcesService implements RuleHost {
             continue;
           }
           try {
-            const uniqueKey = def.uniqueField ? toUniqueKey(def, converted.input[def.uniqueField]) : null;
+            const uniqueKey = def.uniqueField ? this.uniqueKeyOf(def, converted.input[def.uniqueField]) : null;
             const existing = uniqueKey
-              ? await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type, uniqueKey } })
+              ? await this.findByUnique(em, user.companyId, type, String(converted.input[def.uniqueField!]))
               : null;
             const saved = await em.transaction((inner) =>
               this.saveRecord(inner, user, def, existing, converted.input, { status: converted.status, note: '批量导入', cleanup }),

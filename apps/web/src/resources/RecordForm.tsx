@@ -1,10 +1,21 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
 import { resourceApi, type FileInfo, type ResourceDto } from './api';
 import { FilesInput } from './FilesField';
 import { LicenseRecognizeButton } from './LicenseRecognize';
+
+export function MoneyControl({value,scale,onChange}:{value:unknown;scale:number;onChange:(v:unknown)=>void}) {
+  const textOf=(v:unknown)=>v===undefined||v===null||v===''?'':unitYuanText(Number(v));
+  const [text,setText]=useState(()=>textOf(value));
+  useEffect(()=>{if(!Number.isNaN(value))setText(textOf(value));},[value]);
+  return <input inputMode="decimal" value={text} placeholder={scale?'元（最多六位小数）':'元'} onChange={e=>{
+    const raw=e.target.value;setText(raw);
+    if(!raw.trim())return onChange('');
+    try{onChange(yuanToPreciseCents(raw.trim().replace(/^\./,'0.'),scale));}catch{onChange(NaN);}
+  }} />;
+}
 
 const refCache = new Map<string, Promise<Array<{ value: number; label: string; disabled?: boolean }>>>();
 export function clearRefCache(type?: string) {
@@ -145,20 +156,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
     case 'decimal':
       return <input type="number" min={0} step="any" value={str} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))} />;
     case 'money':
-      // 界面按元输入，提交时转成整数分
-      return (
-        <input
-          inputMode="decimal"
-          value={value === undefined || value === null || value === '' ? '' : String(Number(value) / 100)}
-          placeholder="元"
-          onChange={(e) => {
-            const t = e.target.value.trim();
-            if (t === '') return onChange('');
-            const n = Number(t);
-            if (!Number.isNaN(n)) onChange(Math.round(n * 100));
-          }}
-        />
-      );
+      return <MoneyControl value={value} scale={field.scale ?? 0} onChange={onChange} />;
     case 'files':
       return <FilesInput field={field} type={type} value={Array.isArray(value) ? (value as number[]) : []} known={known} onChange={onChange} onKnown={onKnown} />;
     case 'refs':

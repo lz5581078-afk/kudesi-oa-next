@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  PROVINCES, todayInChina, minSalePriceCentsByMicroPercent, percentToMicro, resolveMargin, createChecker, buildEstimateRows, buildAutomaticRecommendations, groupAutomaticRecommendations, sortRecommendationRules,
+  multiplyUnitCents, sumUnitCents, PROVINCES, todayInChina, minSalePriceCentsByMicroPercent, percentToMicro, resolveMargin, createChecker, buildEstimateRows, buildAutomaticRecommendations, groupAutomaticRecommendations, sortRecommendationRules,
   freightFromEstimateRows, validParcelLimit, type EstimateRow,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -130,8 +130,8 @@ export class CostService {
         name = str(bc?.data.name) || bc?.title || '';
         if (role === 'main' && categoryId === null && bc) categoryId = num(bc.data.categoryId);
       }
-      const sub = unit === null ? null : Math.round(unit * qty);
-      if (sub === null) { issues.push(`「${name || code}」还没有成本`); cost = null; } else if (cost !== null) cost += sub;
+      const sub = unit === null ? null : multiplyUnitCents(unit, qty);
+      if (sub === null) { issues.push(`「${name || code}」还没有成本`); cost = null; } else if (cost !== null) cost = sumUnitCents([cost,sub]);
       weight += w * qty;
       lines.push({ role, code, name, qty, unitCostCents: unit, subtotalCents: sub, unitWeightG: hasWeight ? w : null, weightG: Math.round(w * qty * 100) / 100 });
     }
@@ -159,7 +159,7 @@ export class CostService {
       bundleId: b.id, code: str(b.data.code), name: str(b.data.name), status: b.status, categoryId, categoryName: categoryId ? (d.categories.get(categoryId)?.title ?? '') : '',
       preShipCostCents: cost, weightG, freightCents: freight, freightMethod: method, marginPercent: m.percent, marginSource: m.source,
       marginOverride: own !== null, inheritedMargin: inherited, carrierName: str(b.data.carrierName),
-      costIncludingFreightCents: cost === null || freight === null ? null : cost + freight,
+      costIncludingFreightCents: cost === null || freight === null ? null : sumUnitCents([cost,freight]),
       revision: bundleRevision(b),
       minPriceCents: min, issues, lines, updatedAtMs: b.updatedAt ? new Date(b.updatedAt).getTime() : 0,
     };
