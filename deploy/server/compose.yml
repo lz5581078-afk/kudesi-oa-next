@@ -1,0 +1,33 @@
+name: kudesi-lc
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--default-time-zone=+08:00"]
+    env_file: /srv/kudesi-lc/shared/mysql.env
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql --protocol=TCP -h127.0.0.1 -u$$MYSQL_USER -N -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [backend]
+  api:
+    image: ${KUDESI_API_IMAGE:?Set the release image}
+    restart: unless-stopped
+    env_file: /srv/kudesi-lc/shared/api.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports: ["127.0.0.1:4107:4000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [backend]
+networks:
+  backend:
+volumes:
+  mysql-data:

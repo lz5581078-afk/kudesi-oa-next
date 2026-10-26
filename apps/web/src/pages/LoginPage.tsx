@@ -29,14 +29,14 @@ export function LoginPage() {
   return (
     <main className="login-screen">
       <div className="login-shell">
-        <section className="login-visual" aria-label="全流程业务系统">
+        <section className="login-visual" aria-label="小白全流程系统">
           <div className="login-brand">
             <span className="login-brand-symbol" aria-hidden="true"><i /><i /><i /><i /></span>
-            <span>酷得斯</span>
+            <span>小白全流程系统</span>
           </div>
           <div className="login-visual-copy">
             <span className="login-visual-rule" aria-hidden="true" />
-            <h1>全流程业务系统</h1>
+            <h1>小白全流程系统</h1>
             <p>让每一步，都清晰有序。</p>
           </div>
           <div className="login-visual-steps" aria-hidden="true"><i /><i /><i /><i /></div>
