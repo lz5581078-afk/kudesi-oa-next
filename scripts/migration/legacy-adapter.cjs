@@ -100,7 +100,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
       for(const f of def.fields.filter(x=>x.type==='files')){
         const candidates=[];const columns=(rule.aliases?.[f.key]||[]).filter(x=>!x.startsWith('@'));columns.push(snake(f.key),f.key);
         for(const col of columns)if(typeof row[col]==='string'&&row[col])candidates.push({value:row[col],name:row.attachment_name||`${f.label}.bin`,id:col});
-        for(const m of tables.resource_media||[]){if(mediaMap[m.resource_type]===type&&String(m.resource_id)===String(id)){const target=f.key.toLowerCase();if(target.includes('attachment')||target.includes('photo')||target.includes('image'))candidates.push({value:m.storage_path,name:m.original_name||`${f.label}.bin`,id:'media:'+m.id,sha:m.sha256});}}
+        for(const m of tables.resource_media||[]){if(mediaMap[m.resource_type]===type&&String(m.resource_id)===String(id)&&columns.some(col=>col===m.field_key||col===snake(String(m.field_key)))){const target=f.key.toLowerCase();if(target.includes('attachment')||target.includes('photo')||target.includes('image'))candidates.push({value:m.storage_path,name:m.original_name||`${f.label}.bin`,id:'media:'+m.id,sha:m.sha256});}}
         if(type==='finance-products'&&f.key==='photos')for(const p of tables.finance_product_archive_photos||[])if(String(p.product_id)===String(id))candidates.push({value:p.data_url,name:p.file_name||'商品照片.bin',id:'photo:'+p.id});
         const chosen=candidates.some(x=>String(x.id).startsWith('media:'))?candidates.filter(x=>String(x.id).startsWith('media:')):candidates;
         for(const item of chosen){const locator=String(++locatorN);locators.set(locator,item);fspec.push({field:f.key,id:item.id,name:item.name,locator});}
