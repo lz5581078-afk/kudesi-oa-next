@@ -32,7 +32,7 @@ npm run dev:api             # http://localhost:4000/api/health
 npm run dev:web             # http://localhost:5173
 ```
 
-用 `.env` 里的公司代码、管理员账号和密码登录；首次登录会被要求修改密码。
+用 `.env` 里的管理员账号和密码登录（登录不填公司代码，账号全系统唯一）；平台管理员用 `PLATFORM_ADMIN_ACCOUNT=… PLATFORM_ADMIN_PASSWORD=… npm run db:platform-admin` 创建；首次登录会被要求修改密码。
 
 ## 检查
 

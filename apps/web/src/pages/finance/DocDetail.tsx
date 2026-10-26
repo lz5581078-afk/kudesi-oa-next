@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
-import { ACCOUNT_LABEL, DOC_STATUS_LABEL, DOC_TYPE_MAP, PARTY_KIND_LABEL, type AccountKind } from '@kudesi/shared';
+import { OPENING_PREPAYMENT_PERMISSION, ACCOUNT_LABEL, DOC_STATUS_LABEL, DOC_TYPE_MAP, PARTY_KIND_LABEL, type AccountKind } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { ReasonDialog } from '../../resources/RecordForm';
+import { OpeningPrepaymentDialog } from './OpeningPrepaymentDialog';
 import { DocForm } from './DocForm';
 import { DOC_STATUS_TONE, money } from './common';
 import { financeApi, type DocDetailDto } from './financeApi';
 import { sessionApi, type VoucherFile } from './sessionApi';
 import { VoucherPanel } from './VoucherPanel';
 
-const ACTION_LABEL: Record<string, string> = { create: '新建草稿', update: '修改草稿', issue: '开立', unissue: '退回草稿', post: '过账', reverse: '红冲', 'edit-header': '修改单据', audit: '财务审核', unaudit: '取消财务审核' };
+const ACTION_LABEL: Record<string, string> = { create: '新建草稿', update: '修改草稿', issue: '开立', unissue: '退回草稿', post: '过账', reverse: '红冲', 'edit-header': '修改单据', 'opening-prepay': '登记已有预付款余额', audit: '财务审核', unaudit: '取消财务审核' };
 
 /** 单据详情抽屉：头信息、明细、分录（借/贷）、操作记录，以及按状态和权限出现的操作按钮。 */
 export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged: () => void }) {
@@ -18,7 +19,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [dialog, setDialog] = useState<'reverse' | 'unissue' | 'header' | null>(null);
+  const [dialog, setDialog] = useState<'reverse' | 'unissue' | 'header' | 'opening' | null>(null);
   const [copied, setCopied] = useState('');
   const [vouchers, setVouchers] = useState<VoucherFile[]>([]);
 
@@ -60,6 +61,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
       <div className="drawer-body">
         {error && <div role="alert" className="notice error">{error}</div>}
         {copied && <div role="status" className="notice ok">已复制为草稿 {copied}，到草稿中心调出修改后再过账</div>}
+        {doc.entries.some((e) => e.kind === 'opening') && <div className="notice">此单登记的是已有预付款余额，未扣银行或现金余额。</div>}
         {doc.auditedAt && <div className="notice">已财务审核，不能再红冲和修改</div>}
         <dl className="kv">
           <div className="kv-row"><dt>类型</dt><dd>{doc.typeLabel}</dd></div>
@@ -105,6 +107,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
             </table></div>
           </>
         )}
+        {!!doc.openingVouchers?.length && <section><h3 className="section-title">期初预付凭证</h3><ul className="stack">{doc.openingVouchers.map((f) => <li key={f.id}><button type="button" className="link-button" onClick={() => financeApi.openingVoucherUrl(doc.id, f.id).then((r) => window.open(r.url, '_blank', 'noopener')).catch((e) => setError(e instanceof Error ? e.message : '凭证加载失败'))}>{f.name}</button></li>)}</ul></section>}
         {doc.docType === 'withdrawal' && <VoucherPanel files={vouchers} readOnly />}
 
         {doc.lines.length > 0 && (
@@ -143,6 +146,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
         {isDraft && can('finance.docs.create') && <button type="button" className="secondary-button" disabled={busy} onClick={() => setEditing(true)}>编辑</button>}
         {isDraft && can('finance.docs.issue') && <button type="button" className="secondary-button" disabled={busy} onClick={() => run(() => financeApi.issue(doc.id))}>开立</button>}
         {(isDraft || isIssued) && can('finance.docs.post') && <button type="button" className="primary-button" disabled={busy} onClick={() => run(() => financeApi.post(doc.id))}>过账</button>}
+        {isIssued && doc.docType === 'prepayment' && doc.partyKind === 'supplier' && doc.sourceKey == null && !doc.reversesId && doc.amountCents > 0 && can(OPENING_PREPAYMENT_PERMISSION) && <button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog('opening')}>登记已有预付款余额</button>}
         {isIssued && can('finance.docs.issue') && <button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog('unissue')}>退回草稿</button>}
         {isDraft && can('finance.docs.delete') && <button type="button" className="ghost-button danger-text" disabled={busy} onClick={() => run(() => financeApi.remove(doc.id), true)}>删除草稿</button>}
         {isPosted && !doc.auditedAt && can('finance.docs.edit-header') && <button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog('header')}>修改单据</button>}
@@ -152,6 +156,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
       </div>
       {editing && <DocForm type={doc.docType} doc={doc} onClose={() => setEditing(false)} onSaved={(d) => { setDoc(d); setEditing(false); onChanged(); }} />}
       {dialog === 'reverse' && <ReasonDialog title={`红冲 ${doc.docNo}`} hint="会生成一张金额取反的红冲单，原单变为“已红冲”。库存、往来、银行都会随之冲回。" confirmLabel="确认红冲" danger onClose={() => setDialog(null)} onConfirm={async (reason) => { const r = await financeApi.reverse(doc.id, reason); setDialog(null); onChanged(); setDoc(await financeApi.doc(doc.id)); void r; }} />}
+      {dialog === 'opening' && <OpeningPrepaymentDialog doc={doc} onClose={() => setDialog(null)} onSaved={(d) => { setDoc(d); setDialog(null); onChanged(); }} />}
       {dialog === 'header' && <HeaderDialog doc={doc} onClose={() => setDialog(null)} onSave={async (b) => { setDoc(await financeApi.editHeader(doc.id, b)); setDialog(null); onChanged(); }} />}
       {dialog === 'unissue' && <ReasonDialog title={`退回草稿 ${doc.docNo}`} confirmLabel="退回" onClose={() => setDialog(null)} onConfirm={async (reason) => { setDoc(await financeApi.unissue(doc.id, reason)); setDialog(null); onChanged(); }} />}
     </aside>

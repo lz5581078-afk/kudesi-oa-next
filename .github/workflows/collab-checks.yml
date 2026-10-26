@@ -26,12 +26,20 @@ jobs:
           cache: npm
       - name: 启动 MySQL 8（时区 +08:00，和开发环境一致）
         run: |
-          docker run -d --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=ci-only-password mysql:8 --default-time-zone=+08:00 --character-set-server=utf8mb4
-          for i in $(seq 1 60); do docker exec mysql mysqladmin -uroot -pci-only-password ping >/dev/null 2>&1 && break; sleep 2; done
-          docker exec mysql mysql -uroot -pci-only-password -e "create database if not exists kudesi_oa_next character set utf8mb4; create database if not exists kudesi_oa_test character set utf8mb4;"
+          docker run -d --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=ci-only-password mysql:8.0 --default-time-zone=+08:00 --character-set-server=utf8mb4
+          # 初始化期间临时服务也会响应 ping；必须等最终 TCP 服务能用指定密码查询。
+          ready=false
+          for i in $(seq 1 60); do
+            if docker exec -e MYSQL_PWD="$DB_PASSWORD" mysql mysql --protocol=TCP -h127.0.0.1 -uroot -N -e "SELECT 1" >/dev/null 2>&1; then ready=true; break; fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then echo "MySQL 未能在 120 秒内就绪"; exit 1; fi
+          docker exec -e MYSQL_PWD="$DB_PASSWORD" mysql mysql --protocol=TCP -h127.0.0.1 -uroot -e "create database if not exists kudesi_oa_next character set utf8mb4; create database if not exists kudesi_oa_test character set utf8mb4;"
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - run: RESOURCE_DB_TEST=0 npm test
+      # 多个数据库套件共享测试库，串行执行避免范围锁互相死锁。
+      - run: npm test -w @kudesi/api -- --runInBand
       - run: npm run build
   merge:
     needs: check

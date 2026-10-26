@@ -8,6 +8,7 @@ import { buildDataSourceOptions } from '../database/data-source';
 import { AuditLog, Company, User } from '../entities';
 import { OrgAdminService, generatePassword } from './org-admin.service';
 
+const T = crypto.randomBytes(3).toString('hex'); // 账号全系统唯一，测试库会累积数据，所以每次运行加后缀
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 
 d('组织与权限管理（真实数据库）', () => {
@@ -41,20 +42,20 @@ d('组织与权限管理（真实数据库）', () => {
     await expect(svc.setPositionPermissions(boss, p.id, ['resource.stores.view', 'hack.everything'])).rejects.toThrow(/不存在的权限/);
     const set = await svc.setPositionPermissions(boss, p.id, ['resource.stores.view', 'resource.stores.edit', 'resource.stores.view']);
     expect(set.permissions).toEqual(['resource.stores.edit', 'resource.stores.view']);
-    const created = await svc.createStaff(boss, { account: 'xiaoyun', name: '小运营', positionId: p.id });
+    const created = await svc.createStaff(boss, { account: `xiaoyun${T}`, name: '小运营', positionId: p.id });
     await expect(svc.deletePosition(boss, p.id)).rejects.toThrow(/还有员工/);
     expect((await svc.listPositions(boss))[0].userCount).toBe(1);
     expect(created.staff.positionName).toBe('运营');
   });
 
   it('新员工：随机初始密码只返回一次、哈希入库、必须改密码；账号重复被拒', async () => {
-    const r = await svc.createStaff(boss, { account: 'zhang3', name: '张三' });
+    const r = await svc.createStaff(boss, { account: `zhang3${T}`, name: '张三' });
     expect(r.initialPassword).toHaveLength(12);
     const row = await ds.manager.findOneByOrFail(User, { id: r.staff.id });
     expect(row.mustChangePassword).toBe(true);
     expect(await bcrypt.compare(r.initialPassword, row.passwordHash)).toBe(true);
     expect(JSON.stringify(r.staff)).not.toContain(r.initialPassword);
-    await expect(svc.createStaff(boss, { account: 'zhang3', name: '重名' })).rejects.toThrow(/已经存在/);
+    await expect(svc.createStaff(boss, { account: `zhang3${T}`, name: '重名' })).rejects.toThrow(/已经存在/);
     const reset = await svc.resetPassword(boss, r.staff.id);
     expect(reset.password).not.toBe(r.initialPassword);
     expect(generatePassword()).toMatch(/^[A-Za-z0-9]{12}$/);
@@ -62,15 +63,15 @@ d('组织与权限管理（真实数据库）', () => {
 
   it('跨公司隔离：别家的部门、岗位、员工都找不到', async () => {
     const p = await svc.createPosition(boss, { name: '隔离岗', workspaceType: 'blank' });
-    const s = await svc.createStaff(boss, { account: 'iso1', name: '隔离' });
-    await expect(svc.createStaff(other, { account: 'x', name: 'x', positionId: p.id })).rejects.toThrow(/岗位不存在/);
+    const s = await svc.createStaff(boss, { account: `iso1${T}`, name: '隔离' });
+    await expect(svc.createStaff(other, { account: `x${T}`, name: 'x', positionId: p.id })).rejects.toThrow(/岗位不存在/);
     await expect(svc.getStaff(other, s.staff.id)).rejects.toThrow(/不存在/);
     await expect(svc.setStatus(other, s.staff.id, 'disabled', '离职')).rejects.toThrow(/不存在/);
     await expect(svc.setPositionPermissions(other, p.id, [])).rejects.toThrow(/不存在/);
   });
 
   it('个人权限：允许/拒绝互斥；非管理员不能越权授予、不能改自己、不能动管理员', async () => {
-    const s = await svc.createStaff(boss, { account: 'ov1', name: '覆盖' });
+    const s = await svc.createStaff(boss, { account: `ov1${T}`, name: '覆盖' });
     await expect(svc.setOverrides(boss, s.staff.id, ['resource.stores.view'], ['resource.stores.view'])).rejects.toThrow(/既允许又拒绝/);
     const ok = await svc.setOverrides(boss, s.staff.id, ['resource.stores.view'], ['resource.phones.view']);
     expect(ok.allow).toEqual(['resource.stores.view']);
@@ -84,7 +85,7 @@ d('组织与权限管理（真实数据库）', () => {
 
   it('停用：不能停用自己和最后一个管理员；停用后可再启用；全部变更写审计', async () => {
     await expect(svc.setStatus(boss, boss.id, 'disabled', '测试')).rejects.toThrow(/不能停用自己/);
-    const s = await svc.createStaff(boss, { account: 'off1', name: '离职' });
+    const s = await svc.createStaff(boss, { account: `off1${T}`, name: '离职' });
     expect((await svc.setStatus(boss, s.staff.id, 'disabled', '离职')).status).toBe('disabled');
     expect((await svc.setStatus(boss, s.staff.id, 'active')).status).toBe('active');
     const actions = (await ds.manager.find(AuditLog, { where: { companyId: boss.companyId } })).map((a) => a.action);
@@ -107,7 +108,7 @@ d('组织与权限管理（真实数据库）', () => {
     expect((await svc.updateDepartment(boss, a, { status: 'inactive', reason: '合并' })).status).toBe('inactive');
     await svc.updateDepartment(boss, a, { status: 'active' });
     const pos = await svc.createPosition(boss, { name: '转出岗', departmentId: a, workspaceType: 'blank' });
-    const st = await svc.createStaff(boss, { account: 'mv1', name: '转移人', departmentId: a });
+    const st = await svc.createStaff(boss, { account: `mv1${T}`, name: '转移人', departmentId: a });
     await expect(svc.deleteDepartment(boss, a, kid)).rejects.toThrow(/下级部门/);
     await expect(svc.deleteDepartment(boss, a, a)).rejects.toThrow(/不能是被删除/);
     const r = await svc.deleteDepartment(boss, a, to);
@@ -122,7 +123,7 @@ d('组织与权限管理（真实数据库）', () => {
     const mgr = await svc.createPosition(boss, { name: '档案主管岗', workspaceType: 'general', level: 'manager', supervisorPositionId: boss1.id, description: '带团队' });
     await expect(svc.updatePosition(boss, boss1.id, { supervisorPositionId: mgr.id })).rejects.toThrow(/下级岗位/);
     await expect(svc.updatePosition(boss, mgr.id, { supervisorPositionId: mgr.id })).rejects.toThrow(/不能是自己/);
-    const s = await svc.createStaff(boss, { account: 'pf1', name: '在岗人', positionId: mgr.id });
+    const s = await svc.createStaff(boss, { account: `pf1${T}`, name: '在岗人', positionId: mgr.id });
     await expect(svc.updatePosition(boss, mgr.id, { status: 'inactive' })).rejects.toThrow(/必须填写原因/);
     await expect(svc.updatePosition(boss, mgr.id, { status: 'inactive', reason: '撤销岗位' })).rejects.toThrow(/还有在职员工/);
     const duty = await svc.createDuty(boss, mgr.id, { category: '岗位职责', title: '每日巡店', frequency: '每日', isKey: true });
@@ -144,8 +145,8 @@ d('组织与权限管理（真实数据库）', () => {
 
   it('员工档案：直属上级不成环、底薪要单独权限；停用时把待办、流程步骤、周期任务交给接收人', async () => {
     const hr = { ...manager, permissions: { isCompanyAdmin: false, allow: ['org.staff.edit', 'org.staff.create', 'org.staff.disable'], deny: [] } };
-    const a = (await svc.createStaff(boss, { account: 'hv-a', name: '交接甲', title: '运营经理', baseSalary: 800000 })).staff;
-    const b = (await svc.createStaff(boss, { account: 'hv-b', name: '交接乙', managerId: a.id })).staff;
+    const a = (await svc.createStaff(boss, { account: `hv-a${T}`, name: '交接甲', title: '运营经理', baseSalary: 800000 })).staff;
+    const b = (await svc.createStaff(boss, { account: `hv-b${T}`, name: '交接乙', managerId: a.id })).staff;
     expect(a).toMatchObject({ title: '运营经理', baseSalary: 800000 });
     expect((await svc.getStaff(hr, a.id)).baseSalary).toBeUndefined(); // 没有底薪权限看不到
     await expect(svc.updateStaff(hr, b.id, { baseSalary: 1 })).rejects.toThrow(/底薪/);
@@ -177,9 +178,9 @@ d('组织与权限管理（真实数据库）', () => {
     };
     const main = await mkPos('兼任主岗');
     const side = await mkPos('兼任副岗');
-    await expect(svc.createStaff(boss, { account: 'cc-0', name: '无主岗', extraPositionIds: [side.id] })).rejects.toThrow(/主岗位/);
-    await expect(svc.createStaff(boss, { account: 'cc-1', name: '相同', positionId: main.id, extraPositionIds: [main.id] })).rejects.toThrow(/相同/);
-    const s = (await svc.createStaff(boss, { account: 'cc-2', name: '兼任人', positionId: main.id, extraPositionIds: [side.id] })).staff;
+    await expect(svc.createStaff(boss, { account: `cc-0${T}`, name: '无主岗', extraPositionIds: [side.id] })).rejects.toThrow(/主岗位/);
+    await expect(svc.createStaff(boss, { account: `cc-1${T}`, name: '相同', positionId: main.id, extraPositionIds: [main.id] })).rejects.toThrow(/相同/);
+    const s = (await svc.createStaff(boss, { account: `cc-2${T}`, name: '兼任人', positionId: main.id, extraPositionIds: [side.id] })).staff;
     expect(s.extraPositionIds).toEqual([side.id]);
     expect((await svc.listPositions(boss)).find((p) => p.id === side.id)!.userCount).toBe(1);
     const prof = await svc.positionProfile(boss, side.id);

@@ -4,10 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createChecker, CurrentUserDto, EffectivePermissions } from '@kudesi/shared';
 
 let currentUser: CurrentUserDto | null = null;
+let platformAdmin: { id: number; name: string; account: string } | null = null;
 
 vi.mock('./auth/AuthContext', () => ({
   useAuth: () => ({
     user: currentUser,
+    platformAdmin,
     loading: false,
     can: currentUser ? createChecker(currentUser.permissions) : () => false,
     login: vi.fn(),
@@ -47,6 +49,7 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   currentUser = null;
+  platformAdmin = null;
   apiMock.mockReset();
   apiMock.mockImplementation(async () => ({ rows: [], total: 0, counts: { pending: 0, overdue: 0, returned: 0, cc: 0 } }) as never);
 });
@@ -56,6 +59,31 @@ describe('登录与菜单', () => {
   it('未登录显示登录页', () => {
     renderAt('/');
     expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+  });
+
+  it('登录页不要公司代码，只填账号和密码；可以打开“申请开通公司”', () => {
+    renderAt('/');
+    expect(screen.queryByText('公司代码')).toBeNull();
+    expect(screen.getByText('登录账号')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '申请开通公司' }));
+    expect(screen.getByRole('dialog', { name: '申请开通公司' })).toBeTruthy();
+    expect(screen.getByText('联系人手机号将作为企业管理员账号')).toBeTruthy();
+  });
+
+  it('平台管理员登录后进入平台后台，不出现公司菜单；能看到待审核申请并通过', async () => {
+    platformAdmin = { id: 1, name: '平台甲', account: 'root' };
+    const row = { id: 7, companyName: '新公司', contactName: '王', contactPhone: '13900000001', contactTitle: null, remark: '想用', status: 'pending', rejectReason: null, reviewedAt: null, reviewedByName: null, approvedCompanyId: null, approvedCompanyName: null, createdAt: '2026-10-26T01:00:00.000Z' };
+    apiMock.mockImplementation(async (path: string, init?: { method?: string }) => {
+      if (path === '/platform/company-applications' && !init?.method) return [row] as never;
+      if (path === '/platform/company-applications/7/approve') return { companyId: 9, companyName: '新公司', adminAccount: '13900000001' } as never;
+      return [] as never;
+    });
+    renderAt('/');
+    expect(screen.queryByRole('navigation', { name: '一级导航' })).toBeNull();
+    expect(screen.getByRole('navigation', { name: '平台导航' })).toBeTruthy();
+    expect(await screen.findByText('新公司')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '通过并开通' }));
+    expect(await screen.findByText(/已开通：新公司，企业管理员账号：13900000001/)).toBeTruthy();
   });
 
   it('只看到自己有权限的一级菜单；没有商品权限就没有“商品”菜单', () => {

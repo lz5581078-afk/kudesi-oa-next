@@ -18,6 +18,7 @@
     "dev:api": "npm run start:dev -w @kudesi/api",
     "dev:web": "npm run dev -w @kudesi/web",
     "db:migrate": "npm run migration:run -w @kudesi/api",
-    "db:seed": "npm run seed -w @kudesi/api"
+    "db:seed": "npm run seed -w @kudesi/api",
+    "db:platform-admin": "npm run platform-admin -w @kudesi/api"
   }
 }

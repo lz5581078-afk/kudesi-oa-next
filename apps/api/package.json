@@ -11,7 +11,8 @@
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
-    "seed": "ts-node --transpile-only src/scripts/seed.ts"
+    "seed": "ts-node --transpile-only src/scripts/seed.ts",
+    "platform-admin": "ts-node --transpile-only src/scripts/create-platform-admin.ts"
   },
   "dependencies": {
     "@kudesi/shared": "*",

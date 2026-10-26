@@ -7,11 +7,6 @@ import { AuthService } from './auth.service';
 class LoginDto {
   @IsString()
   @IsNotEmpty()
-  @MaxLength(32)
-  companyCode!: string;
-
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(64)
   account!: string;
 
@@ -42,7 +37,7 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
   login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.companyCode, dto.account, dto.password);
+    return this.auth.login(dto.account, dto.password);
   }
 
   @AuthenticatedOnly()

@@ -5,7 +5,7 @@ import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { allGrantableKeys, createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, Department, FlowStep, Position, PositionDuty, PositionPermission, TaskRoutine, User, UserPermissionOverride, WorkItem, WorkspaceType } from '../entities';
+import { AuditLog, Department, PlatformAdmin, FlowStep, Position, PositionDuty, PositionPermission, TaskRoutine, User, UserPermissionOverride, WorkItem, WorkspaceType } from '../entities';
 
 export const DUTY_CATEGORIES = ['岗位职责', '入职培训', '绩效考核', '监督规则', '流程节点说明'] as const;
 export const POSITION_LEVELS = ['boss', 'manager', 'staff'] as const;
@@ -393,7 +393,8 @@ export class OrgAdminService {
       const extra = await this.cleanExtraPositions(em, actor.companyId, input.positionId ?? null, input.extraPositionIds);
       if (input.managerId) await this.mustActiveUser(em, actor.companyId, input.managerId, '直属上级');
       if (input.baseSalary !== undefined && input.baseSalary !== null && !this.canSalary(actor)) throw new ForbiddenException('没有设置底薪的权限');
-      if (await em.findOne(User, { where: { companyId: actor.companyId, account } })) throw new ConflictException('这个账号已经存在');
+      // 账号全系统唯一（登录不填公司），提示不透露是哪家公司在用
+      if ((await em.findOne(User, { where: { account } })) || (await em.findOne(PlatformAdmin, { where: { account } }))) throw new ConflictException('这个账号已经存在，请换一个');
       const u = await em.save(User, em.create(User, {
         companyId: actor.companyId, account, passwordHash, name: input.name.trim(),
         departmentId: input.departmentId ?? null, positionId: input.positionId ?? null, extraPositionIds: extra.length ? extra : null,

@@ -52,4 +52,4 @@ npm run db:migrate
 npm run db:seed
 echo
 echo "完成。分别在两个终端运行：  npm run dev:api    和    npm run dev:web"
-echo "然后打开 http://localhost:5173 ，公司代码 demo，账号 admin，密码见 .env 的 SEED_ADMIN_PASSWORD。"
+echo "然后打开 http://localhost:5173 ，账号 admin，密码见 .env 的 SEED_ADMIN_PASSWORD。"
