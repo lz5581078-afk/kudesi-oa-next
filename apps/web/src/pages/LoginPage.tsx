@@ -28,30 +28,16 @@ export function LoginPage() {
 
   return (
     <main className="auth-page">
-      <section className="auth-aside" aria-label="系统介绍">
+      <section className="auth-main">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">白</span>
           <span>小白全流程系统</span>
         </div>
-        <div>
-          <h1>一套系统，管住从采购到结算的每一步</h1>
-          <p>流程、资料、财务和店铺运营放在同一个地方，谁能看什么、谁来批什么，都按岗位清清楚楚。</p>
-          <ul className="auth-points">
-            <li><span><strong>统一流程</strong>　申请、审批、待办，一处办理</span></li>
-            <li><span><strong>按岗位授权</strong>　成本、价格等敏感信息只给该看的人</span></li>
-            <li><span><strong>财务成本</strong>　商品成本、快递运费、利润一张表算清</span></li>
-          </ul>
-        </div>
-        <div className="auth-mascot-wrap">
-          <img className="auth-mascot" src={mascot} alt="小白" />
-          <span className="auth-bubble">你好，我是小白</span>
-        </div>
-        <small>杭州酷得斯科技有限公司 开发</small>
-      </section>
-
-      <section className="auth-main">
-        <form className="card auth-card" onSubmit={submit}>
-          <h2>登录</h2>
+        <form className="auth-form" onSubmit={submit}>
+          <div>
+            <h2>登录</h2>
+            <p className="auth-sub">使用公司管理员为你开通的账号</p>
+          </div>
           <label>
             登录账号
             <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder="请输入登录账号" autoComplete="username" autoFocus required />
@@ -77,10 +63,20 @@ export function LoginPage() {
             {busy ? '正在登录…' : '登录'}
           </button>
           <div className="auth-apply">
-            <span>企业尚未开通系统？</span>
-            <button type="button" onClick={() => setApplying(true)}>申请开通公司</button>
+            企业尚未开通系统？<button type="button" onClick={() => setApplying(true)}>申请开通公司</button>
           </div>
         </form>
+        <div className="auth-foot">杭州酷得斯科技有限公司 开发</div>
+      </section>
+
+      <section className="auth-art" aria-label="系统介绍">
+        <span className="auth-art-disc" aria-hidden="true" />
+        <span className="auth-art-ring" aria-hidden="true" />
+        <img className="auth-mascot" src={mascot} alt="小白" />
+        <div className="auth-art-copy">
+          <strong>从采购到结算，一步不落</strong>
+          <span>流程 · 资料 · 财务 · 店铺运营</span>
+        </div>
       </section>
       {applying && <CompanyApplyDialog onClose={() => setApplying(false)} />}
     </main>
