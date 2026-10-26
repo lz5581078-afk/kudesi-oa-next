@@ -78,7 +78,7 @@ describe('本机配置', () => {
     expect(a).not.toBe(b);
     expect(await profileDirFor(cfg, 11)).toBe(a); // 同一家店铺目录稳定
     expect(a.startsWith(dir)).toBe(true);
-    expect(path.basename(a)).not.toContain('11'); // 目录名不泄露店铺信息
+    expect(path.basename(a)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/); // 目录名为随机 UUID；随机字符偶尔包含店铺编号并不代表泄露
     const loaded = (await loadConfig())!;
     expect(loaded.profiles['11']).toBe(path.basename(a));
     await clearAuthorization(loaded);

@@ -18,8 +18,8 @@ export function PlatformApp() {
     <div className="shell">
       <header className="topbar">
         <span className="brand">
-          <span className="brand-mark" aria-hidden="true">酷</span>
-          <span>平台管理后台</span>
+          <span className="brand-mark" aria-hidden="true">白</span>
+          <span>小白全流程系统 · 平台管理</span>
         </span>
         <nav aria-label="平台导航" className="topnav">
           {PLATFORM_PAGES.map((p) => (

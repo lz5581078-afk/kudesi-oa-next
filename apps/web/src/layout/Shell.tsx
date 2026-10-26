@@ -33,8 +33,8 @@ export function Shell() {
     <div className="shell">
       <header className="topbar">
         <Link to="/" className="brand">
-          <span className="brand-mark" aria-hidden="true">酷</span>
-          <span>酷得斯 OA</span>
+          <span className="brand-mark" aria-hidden="true">白</span>
+          <span>小白全流程系统</span>
         </Link>
         <nav aria-label="一级导航" className="topnav">
           {sections.map((section) => (

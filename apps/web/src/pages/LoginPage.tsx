@@ -29,8 +29,8 @@ export function LoginPage() {
     <main className="auth-page">
       <section className="auth-aside" aria-label="系统介绍">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">酷</span>
-          <span>酷得斯 OA</span>
+          <span className="brand-mark" aria-hidden="true">白</span>
+          <span>小白全流程系统</span>
         </div>
         <div>
           <h1>一套系统，管住从采购到结算的每一步</h1>
