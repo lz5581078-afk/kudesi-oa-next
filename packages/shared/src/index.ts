@@ -28,3 +28,4 @@ export * from './reminders';
 export * from './position-templates';
 export * from './archive-quality';
 export * from './workspace';
+export * from './service-cases';

@@ -51,7 +51,7 @@ describe('导航分组与搜索', () => {
   it('手机底栏：优先项按固定顺序，其余收进更多；看不到的不出现', () => {
     const { primary, more } = splitMobileSections(all);
     expect(primary.map((s) => s.id)).toEqual(['workbench', 'flow', 'finance', 'resource']);
-    expect(more.map((s) => s.id)).toEqual(['system']);
+    expect(more.map((s) => s.id)).toEqual(['after-sales', 'supervision', 'system']);
     const few = splitMobileSections(visibleSections((p) => p.startsWith('workbench.') || p.startsWith('system.')));
     expect(few.primary.map((s) => s.id)).toEqual(['workbench']);
     expect(few.more.map((s) => s.id)).toEqual(['system']);

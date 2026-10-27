@@ -5,6 +5,9 @@ import { useAuth } from './auth/AuthContext';
 import { Shell } from './layout/Shell';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { LoginPage } from './pages/LoginPage';
+import { AfterSalesPage } from './pages/service/AfterSalesPage';
+import { AppealsPage } from './pages/service/AppealsPage';
+import { SupervisionPage } from './pages/service/SupervisionPage';
 import { PhoneUploadPage } from './resources/PhoneUploadPage';
 import { PlatformApp } from './pages/platform/PlatformApp';
 import { AuditPage } from './pages/system/AuditPage';
@@ -116,6 +119,11 @@ PAGE_COMPONENTS['finance.zone-suggestion'] = ZoneRunsPage;
 PAGE_COMPONENTS['finance.finance-base-codes'] = BaseCodesPage;
 PAGE_COMPONENTS['finance.finance-bundles'] = BundlesPage;
 PAGE_COMPONENTS['finance.jst-upload'] = JstUploadPage;
+
+// 售后、订单申诉、兜底监督
+PAGE_COMPONENTS['after-sales.table'] = AfterSalesPage;
+PAGE_COMPONENTS['after-sales.appeals'] = AppealsPage;
+PAGE_COMPONENTS['supervision.center'] = SupervisionPage;
 
 // 宿主页：旧程序里的页面内 Tab/面板，合并为标签页（不再单独占菜单）
 for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {

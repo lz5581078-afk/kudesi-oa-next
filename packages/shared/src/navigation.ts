@@ -31,7 +31,7 @@ export interface NavSection {
   pages: NavPage[];
 }
 
-export type NavIconName = 'inbox' | 'flow' | 'wallet' | 'database' | 'settings';
+export type NavIconName = 'inbox' | 'flow' | 'wallet' | 'database' | 'settings' | 'support' | 'shield';
 
 /**
  * 资料菜单的分组与顺序，照旧程序的「资料」导航：
@@ -165,6 +165,21 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     ],
   },
   {
+    id: 'after-sales',
+    icon: 'support',
+    label: '售后',
+    pages: [
+      { ...page('after-sales', 'table', '售后表格', true), group: '售后管理' },
+      { ...page('after-sales', 'appeals', '订单申诉', true), group: '售后管理' },
+    ],
+  },
+  {
+    id: 'supervision',
+    icon: 'shield',
+    label: '监督',
+    pages: [{ ...page('supervision', 'center', '兜底监督', true), group: '兜底监督' }],
+  },
+  {
     id: 'finance',
     icon: 'wallet',
     label: '财务',
@@ -213,6 +228,8 @@ export const SPECIAL_PERMISSIONS = {
   productPriceView: 'product.price.view',
   /** 组合装同步维护：把组合编码加入聚水潭同步队列（上传、改码、归档停用、基本售价同步）、重试/取消组合装任务；旧系统 finance-product-bundles.sync。总开关仍只有公司管理员能动 */
   financeBundleSync: 'finance.bundle-sync.manage',
+  /** 兜底监督管理：关闭/升级异常、改监督规则、立即扫描；看监督中心另需 supervision.center.view */
+  supervisionManage: 'supervision.manage',
 } as const;
 
 export interface VisibleSection extends NavSection {

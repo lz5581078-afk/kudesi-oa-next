@@ -758,4 +758,25 @@ div.ws-task { cursor: default; }
 @media (max-width: 860px) {
   .ws-layout, .ws-two { grid-template-columns: 1fr; }
   .ws-picker select { min-width: 0; width: 100%; }
+
+/* 售后、订单申诉、兜底监督 */
+.svc-section { margin-bottom: 16px; }
+.svc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.svc-cols > .card { min-width: 0; }
+.svc-list { list-style: none; margin: 0; padding: 8px 16px 12px; display: grid; gap: 8px; }
+.svc-due { font-size: 12px; color: var(--muted); }
+.svc-due.is-late { color: var(--bad-ink); font-weight: 600; }
+.svc-due.is-soon { color: var(--warn-ink, #b54708); font-weight: 600; }
+.svc-metric-late strong { color: var(--bad-ink); }
+.svc-files { display: grid; gap: 8px; }
+.svc-follow { display: grid; gap: 8px; margin-top: 8px; }
+.svc-pending { margin-top: 12px; }
+.svc-pending-list { margin: 8px 0 0; padding-left: 18px; }
+.kv-grid .wide, .form-grid .wide { grid-column: 1 / -1; }
+.appeal-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; padding: 0 16px 16px; }
+.appeal-entry-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; display: grid; gap: 8px; align-content: space-between; }
+.appeal-entry-card p { margin: 4px 0 0; font-size: 12px; }
+@media (max-width: 720px) {
+  .svc-cols { grid-template-columns: 1fr; }
+  .appeal-card-grid { grid-template-columns: 1fr; }
 }

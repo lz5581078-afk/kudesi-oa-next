@@ -9,6 +9,7 @@
  */
 import type { FieldDef } from './resources';
 import { date, money, o, ref, refs, select, text, textarea } from './resource-kit';
+import { AFTER_SALES_TYPES, APPEAL_TYPES } from './service-cases';
 
 export type StepType = 'submit' | 'approval' | 'execute' | 'finance' | 'end';
 export const STEP_TYPE_LABEL: Record<StepType, string> = { submit: '发起', approval: '审批', execute: '办理', finance: '财务', end: '结束' };
@@ -69,6 +70,8 @@ export interface FlowTemplate {
   steps: readonly StepDef[];
   /** 自动记账声明；没有就是这条流程不产生财务单据 */
   posting?: FlowPostingDecl;
+  /** 有专门的业务页面来发起（如售后表格、订单申诉）：申请中心只引导过去，接口也不允许绕过业务页面直接发起 */
+  entry?: { path: string; label: string };
 }
 
 /** 校验模板里的自动记账声明：步骤、字段都必须真实存在，类型要对得上。返回错误列表（空 = 合法）。 */
@@ -207,6 +210,65 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
       { key: 'apply', name: '运营申请', type: 'submit', assignee: { source: 'requester' }, locked: true },
       { key: 'warehouse', name: '仓库完善', type: 'execute', dueMinutes: 3600, locked: true },
       { key: 'review', name: '财务审核', type: 'finance', dueMinutes: 3600, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
+  {
+    key: 'after-sales',
+    label: '售后工单',
+    description: '客服处理买家的退款、退货、换货、补发和补偿：客服登记 → 客服处理（默认 72 小时内办结）→ 主管复核。高金额或有争议的由主管把关；超时进入“兜底监督”。',
+    entry: { path: '/after-sales/table', label: '在“售后表格”里登记' },
+    fields: [
+      ref('storeId', '店铺', '工单', 'stores', { required: true }),
+      text('orderNo', '订单号', '工单', { required: true, maxLength: 80 }),
+      text('buyerName', '买家', '工单', { maxLength: 80 }),
+      select('caseType', '售后类型', '工单', [...AFTER_SALES_TYPES], { required: true }),
+      money('amountCents', '申请金额', '工单', { required: true, help: '买家申请的退款/补偿金额，没有金额填 0' }),
+      textarea('reason', '原因', '工单', { required: true, maxLength: 500 }),
+      date('dueDate', '要求办结日期', '工单', { help: '不填就按流程配置里“客服处理”的时限' }),
+    ],
+    stepFields: {
+      handle: [
+        textarea('resolution', '处理结果', '处理', { required: true, maxLength: 500, help: '例如：已同意退货退款，快递单号……' }),
+        money('refundCents', '实际退款/补偿金额', '处理', { help: '没有实际付出就不填' }),
+      ],
+    },
+    steps: [
+      { key: 'apply', name: '客服登记', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'handle', name: '客服处理', type: 'execute', dueMinutes: 4320, locked: true },
+      { key: 'review', name: '主管复核', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
+  {
+    key: 'order-appeal',
+    label: '订单申诉',
+    description: '对平台订单的申诉与举证：登记 → 主管复核举证 → 提交平台 → 登记平台结果。失败可对该申诉发起复议。申诉失败次数不限，但提交平台前必须有有效凭证。',
+    entry: { path: '/after-sales/appeals', label: '在“订单申诉”里登记' },
+    fields: [
+      ref('storeId', '店铺', '申诉', 'stores', { required: true }),
+      select('appealType', '申诉类型', '申诉', APPEAL_TYPES.map((t) => ({ value: t.value, label: t.label })), { required: true }),
+      text('orderNo', '订单号', '申诉', { required: true, maxLength: 80 }),
+      money('amountCents', '涉及金额', '申诉', { required: true, help: '没有金额填 0' }),
+      textarea('reason', '申诉理由', '申诉', { required: true, maxLength: 1000 }),
+      date('deadlineDate', '平台申诉截止日', '申诉', { help: '平台页面上的倒计时截止日；填了会按这一天提醒和监督' }),
+      { key: 'parentId', label: '复议的原申诉', type: 'number', group: '申诉', help: '只有“申诉复议”需要' },
+    ],
+    stepFields: {
+      submit: [
+        text('platformAppealNo', '平台申诉单号', '提交平台', { required: true, maxLength: 80 }),
+        date('submittedAt', '提交平台日期', '提交平台', { required: true }),
+      ],
+      result: [
+        select('result', '平台结果', '结果', o('approved:申诉通过', 'rejected:申诉驳回'), { required: true }),
+        textarea('resultNote', '结果说明', '结果', { maxLength: 500, help: '驳回时写明平台给的理由，方便决定要不要复议' }),
+      ],
+    },
+    steps: [
+      { key: 'apply', name: '登记申诉', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'review', name: '举证复核', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'submit', name: '提交平台', type: 'execute', dueMinutes: 1440, locked: true },
+      { key: 'result', name: '登记结果', type: 'execute', dueMinutes: 10080, locked: true },
       { key: 'end', name: '结束', type: 'end', locked: true },
     ],
   },

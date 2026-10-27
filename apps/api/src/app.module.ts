@@ -2,6 +2,12 @@ import { PhoneUploadController } from './integrations/phone-upload.controller';
 import { PhoneUploadService } from './integrations/phone-upload.service';
 import { FormDraftsController } from './resources/form-drafts.controller';
 import { FormDraftsService } from './resources/form-drafts.service';
+import { AfterSalesService } from './service/after-sales.service';
+import { AppealsService } from './service/appeals.service';
+import { CaseSupport } from './service/case-support';
+import { AfterSalesController, AppealsController, SupervisionController } from './service/service.controller';
+import { SupervisionScheduler } from './service/supervision.scheduler';
+import { SupervisionService } from './service/supervision.service';
 import { LocalFilesController } from './integrations/local-files.controller';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
@@ -144,7 +150,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController],
   providers: [
     AuthService,
     PlatformService,
@@ -186,6 +192,11 @@ const env = loadEnv();
     FlowScheduler,
     WorkspaceService,
     WorkspaceModuleRegistry,
+    CaseSupport,
+    AfterSalesService,
+    AppealsService,
+    SupervisionService,
+    SupervisionScheduler,
     FinanceDocumentsService,
     IntegrationSettingsService,
     FilesService,

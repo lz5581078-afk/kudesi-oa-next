@@ -62,7 +62,7 @@ export class FlowService {
     const defs = await this.dataSource.manager.find(FlowDefinition, { where: { companyId: user.companyId, status: 'active' } });
     return FLOW_TEMPLATES.map((t) => {
       const active = defs.find((d) => d.templateKey === t.key);
-      return { key: t.key, label: t.label, description: t.description, fields: t.fields, stepFields: t.stepFields, active: Boolean(active), version: active?.version ?? null, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
+      return { key: t.key, label: t.label, description: t.description, entry: t.entry ?? null, fields: t.fields, stepFields: t.stepFields, active: Boolean(active), version: active?.version ?? null, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
     });
   }
 
@@ -200,9 +200,11 @@ export class FlowService {
 
   // ================= 发起 =================
 
-  async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string) {
-    this.need(user, 'flow.apply.view', '没有发起流程的权限');
+  async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string, opts: { internal?: boolean } = {}) {
     const t = this.tpl(templateKey);
+    // 有专门业务页面的流程（售后、申诉）：权限由业务模块自己判断，申请中心/接口不能绕过业务页面直接发起
+    if (t.entry && !opts.internal) throw new BadRequestException(`这条流程要${t.entry.label}`);
+    if (!opts.internal) this.need(user, 'flow.apply.view', '没有发起流程的权限');
     const adapter = FLOW_ADAPTERS[t.key];
     const checked = validateResourceInput(pseudoDef(t.key, t.fields), payloadIn ?? {}, { status: '' });
     if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
@@ -228,6 +230,7 @@ export class FlowService {
         status: 'done', recipients: [user.id], handledBy: user.id, action: 'submit', finishedAt: new Date(),
       });
       await this.event(em, run, user.id, 'submit', Number(first.identifiers[0].id));
+      await adapter.onStart?.({ em, user, payload, run, ...this.svc() });
       await this.enter(em, user, run, steps, 1, 'normal');
       return this.detailIn(em, user, run.id);
     });
@@ -413,6 +416,7 @@ export class FlowService {
       run.payload = { ...payload };
       run.title = await adapter.title(em, run.companyId, payload);
       await em.save(FlowRun, run);
+      await adapter.onResubmit?.({ em, user, payload, run, ...this.svc() });
       await this.closeStep(em, run, step, user, 'done', 'resubmit');
       const steps = run.stepsSnapshot as StepDef[];
       const idx = steps.findIndex((s) => s.key === step.stepKey);
