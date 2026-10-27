@@ -123,3 +123,20 @@ describe('新建关闭确认', () => {
     ask.mockRestore();
   });
 });
+
+describe('人力成本版本：自动存草稿', () => {
+  it('填写后自动保存草稿，再打开自动恢复', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const laborDef = (await import('@kudesi/shared')).getResourceDef('finance-labor-versions')!;
+    const first = render(<RecordForm def={laborDef} record={null} onClose={() => undefined} onSaved={() => undefined} />);
+    fireEvent.change(screen.getAllByLabelText(/^版本编号/)[0], { target: { value: 'V9' } });
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(draftSave).toHaveBeenCalledTimes(1);
+    expect((draftSave.mock.calls[0][1] as { payload: Record<string, unknown> }).payload.versionCode).toBe('V9');
+    first.unmount();
+    draftGet.mockResolvedValue({ draft: { payload: { versionCode: 'V9' }, title: '', updatedAt: '' } });
+    render(<RecordForm def={laborDef} record={null} onClose={() => undefined} onSaved={() => undefined} />);
+    await screen.findByText(/已恢复上次保存的草稿/);
+    vi.useRealTimers();
+  });
+});

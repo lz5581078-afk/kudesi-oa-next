@@ -4,6 +4,7 @@ import { SearchPick, money, pct } from './common';
 import { JstSyncItems } from './jst/JstSyncItems';
 import { JstSyncExtras } from './jst/JstSyncExtras';
 import { api } from '../../api/client';
+import { CopyButton } from '../../resources/CopyValue';
 import { financeApi, type MarginHistoryRow, type PricingHistoryRow, type OutboxJobRow, type ApiKeyRow, type CostSnapshotRow, type PackagingMatch, type ResetPreview, type SnapshotRow } from './financeApi';
 
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
@@ -123,7 +124,7 @@ export function PackagingMatchPage() {
           {res.ambiguous && <div role="alert" className="notice error">有多条同优先级的规则同时命中，请在方案里调整优先级。</div>}
           {res.selected && (
             <>
-              <h2 className="section-title">命中：{res.selected.scheme.name}（{res.selected.scheme.code}）</h2>
+              <h2 className="section-title">命中：{res.selected.scheme.name}（{res.selected.scheme.code}） <CopyButton value={matchText(res.selected)} label="匹配结果" /></h2>
               <table className="data-table"><thead><tr><th>包装档案</th><th className="num">数量</th><th className="num">损耗率</th><th>计价处理</th></tr></thead>
                 <tbody>{res.selected.lines.map((l, i) => <tr key={i}><td>{l.componentName}</td><td className="num">{l.qty}</td><td className="num">{l.lossRate ?? 0}%</td><td>{TREAT[l.costTreatment] ?? l.costTreatment}</td></tr>)}</tbody></table>
             </>
@@ -134,6 +135,9 @@ export function PackagingMatchPage() {
     </div>
   );
 }
+
+const matchText = (sel: NonNullable<PackagingMatch['selected']>) =>
+  [`命中方案：${sel.scheme.name}（${sel.scheme.code}）`, ...sel.lines.map((l) => `${l.componentName}\t数量 ${l.qty}\t损耗率 ${l.lossRate ?? 0}%\t${TREAT[l.costTreatment] ?? l.costTreatment}`)].join('\n');
 
 /** API 密钥：给外部程序只读已验证的组合。密钥只在创建时显示一次，库里只存哈希。 */
 export function ApiKeysPage() {

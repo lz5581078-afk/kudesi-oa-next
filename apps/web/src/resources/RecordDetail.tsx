@@ -99,6 +99,12 @@ export function childDefaults(childType: string, isNew: boolean, parent: Resourc
 }
 
 const todayText = () => todayShanghai();
+/** 供货来源：启用的来源里最近更新的一条，就是商品当前取用的最新成本。 */
+export function isLatestSource(it: ResourceDto, all: ResourceDto[]): boolean {
+  const live = all.filter((x) => x.status === 'active');
+  if (it.status !== 'active' || live.length < 2) return false;
+  return !live.some((x) => x.id !== it.id && (x.updatedAt > it.updatedAt || (x.updatedAt === it.updatedAt && x.id > it.id)));
+}
 /** 同一成本类型里，启用、已开始、没结束且生效日最新的一条。 */
 export function isCurrentCost(it: ResourceDto, all: ResourceDto[]): boolean {
   const today = todayText();
@@ -137,7 +143,7 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
       {items.map((it) => (
         <div key={it.id} className="line-item col">
           <div className="between">
-            <strong>{it.title}{childType === 'finance-product-costs' && isCurrentCost(it, items) && <span className="pill ok"> 当前生效</span>}</strong>
+            <strong>{it.title}{childType === 'finance-product-costs' && isCurrentCost(it, items) && <span className="pill ok"> 当前生效</span>}{childType === 'finance-product-sources' && isLatestSource(it, items) && <span className="pill ok"> 当前最新成本</span>}</strong>
             <span className={`pill ${statusOf(def, it.status).tone === 'muted' ? 'warn' : statusOf(def, it.status).tone}`}>{statusOf(def, it.status).label}</span>
           </div>
           <small className="muted">{cols.map((f) => displayValue(f, it)).filter(Boolean).join(' · ')}</small>

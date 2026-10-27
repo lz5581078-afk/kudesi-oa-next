@@ -12,7 +12,7 @@ vi.mock('./api', async (orig) => {
   const mod = await orig<typeof import('./api')>();
   return { ...mod, resourceApi: { ...mod.resourceApi, get: vi.fn(), list: vi.fn(), logs: vi.fn().mockResolvedValue([]), relations: vi.fn().mockResolvedValue([]) } };
 });
-import { RecordDetail, childDefaults, isCurrentCost } from './RecordDetail';
+import { RecordDetail, childDefaults, isCurrentCost, isLatestSource } from './RecordDetail';
 
 const dto = (over: Partial<ResourceDto>): ResourceDto => ({ id: 1, type: 'x', title: 'T', status: 'active', statusReason: null, data: {}, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', ...over });
 const clip = vi.fn().mockResolvedValue(undefined);
@@ -69,5 +69,17 @@ describe('成本明细行', () => {
     const mk = (id: number, from: string, to?: string, type = 'purchase') => dto({ id, data: { costType: type, effectiveFrom: from, effectiveTo: to ?? '' } });
     const all = [mk(1, '2020-01-01', '2020-12-31'), mk(2, '2021-01-01'), mk(3, '2022-01-01'), mk(4, '2999-01-01'), mk(5, '2021-06-01', undefined, 'express')];
     expect(all.filter((x) => isCurrentCost(x, all)).map((x) => x.id)).toEqual([3, 5]);
+  });
+});
+
+describe('供货来源：当前最新成本', () => {
+  const src = (id: number, updatedAt: string, status = 'active') => ({ id, status, updatedAt, data: {} }) as never;
+  it('启用来源里最近更新的一条标最新；只有一条或已停用的不标', () => {
+    const a = src(1, '2026-01-01'), b = src(2, '2026-03-01'), c = src(3, '2026-05-01', 'inactive');
+    const all = [a, b, c];
+    expect(isLatestSource(b, all)).toBe(true);
+    expect(isLatestSource(a, all)).toBe(false);
+    expect(isLatestSource(c, all)).toBe(false);
+    expect(isLatestSource(a, [a])).toBe(false);
   });
 });

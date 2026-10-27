@@ -307,7 +307,9 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
 
   // 商品档案新建：草稿（每人每个档案类型一份，存在服务器上）、保存并继续新建
   const isProduct = def.key === 'finance-products';
-  const draftEnabled = !record && isProduct;
+  // 人力成本版本：旧系统是边填边自动存草稿，关掉再开能接着填
+  const autoDraft = !record && def.key === 'finance-labor-versions';
+  const draftEnabled = !record && (isProduct || autoDraft);
   const draftKey = draftApi.key(`resource:${def.key}`, [String(initial?.archiveType ?? ''), String(initial?.supplyMode ?? '')]);
   const [draftNote, setDraftNote] = useState('');
   const [quality, setQuality] = useState<{ body: Record<string, unknown>; mode: SaveMode; options: QualityOptions } | null>(null);
@@ -322,6 +324,20 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const draftReady = useRef(false);
+  useEffect(() => {
+    if (!autoDraft) return;
+    if (!draftReady.current) { draftReady.current = true; return; }
+    const t = setTimeout(() => {
+      const body = currentBody();
+      if (Object.values(body).some((v) => v !== '' && v !== undefined && !(Array.isArray(v) && !v.length))) {
+        void draftApi.save(draftKey, { moduleKey: `resource:${def.key}`, title: `新增${def.label}`, payload: body }).then(() => setDraftNote('草稿已自动保存。')).catch(() => undefined);
+      }
+    }, 1200);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values]);
 
   function currentBody() {
     // 只提交可见字段；密码类留空表示不修改，所以空值不提交
