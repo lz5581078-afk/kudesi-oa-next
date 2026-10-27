@@ -29,3 +29,4 @@ export * from './position-templates';
 export * from './archive-quality';
 export * from './workspace';
 export * from './service-cases';
+export * from './relation-kinds';

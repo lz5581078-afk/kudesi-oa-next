@@ -5,7 +5,7 @@ import {
   unitYuanText, yuanToPreciseCents, createChecker,
   addDaysText, daysBetweenDates, dueDateFor, expirySources, EXPIRY_SKIP_STATUSES, todayShanghai,
   FieldDef,
-  getResourceDef,
+  getResourceDef, isKnownRelationKind,
   isTreeResource,
   treeFilterField,
   SIMILARITY_RESOURCES,
@@ -1227,7 +1227,7 @@ export class ResourcesService implements RuleHost {
     return l.relation === 'manual' ? { validFrom: l.validFrom, validTo: l.validTo, purpose: l.purpose, relationKind: l.relationKind } : {};
   }
 
-  private cleanLinkProps(p: { validFrom?: string | null; validTo?: string | null; purpose?: string | null; relationKind?: string | null }) {
+  private cleanLinkProps(p: { validFrom?: string | null; validTo?: string | null; purpose?: string | null; relationKind?: string | null }, pair?: { type: string; target: string }) {
     const date = (v: unknown, label: string) => {
       if (v === undefined || v === null || v === '') return null;
       if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(`${v}T00:00:00Z`))) throw new BadRequestException(`${label}格式应为 YYYY-MM-DD`);
@@ -1237,7 +1237,9 @@ export class ResourcesService implements RuleHost {
     const validTo = date(p.validTo, '结束日期');
     if (validFrom && validTo && validTo < validFrom) throw new BadRequestException('结束日期不能早于开始日期');
     const purpose = typeof p.purpose === 'string' && p.purpose.trim() ? p.purpose.trim().slice(0, 200) : null;
-    const relationKind = typeof p.relationKind === 'string' && ['使用', '授权', '保管', '其他'].includes(p.relationKind) ? p.relationKind : null;
+    const asked = typeof p.relationKind === 'string' ? p.relationKind.trim() : '';
+    const relationKind = asked && isKnownRelationKind(asked, pair?.type, pair?.target) ? asked : null;
+    if (asked && !relationKind && pair) throw new BadRequestException('这两类资料之间没有这种关系类型');
     return { validFrom, validTo, purpose, relationKind };
   }
 
@@ -1304,7 +1306,7 @@ export class ResourcesService implements RuleHost {
   /** 手动关联：把另一条资料关联到这条上（一条可以关联多条，如合作人对应多个执照/店铺）。 */
   async addManualLink(user: AuthUser, type: string, id: number, targetType: string, targetId: number, can: (permission: string) => boolean, props: { validFrom?: string | null; validTo?: string | null; purpose?: string | null; relationKind?: string | null } = {}) {
     this.def(type);
-    const clean = this.cleanLinkProps(props);
+    const clean = this.cleanLinkProps(props, { type, target: targetType });
     if (targetType === 'user') return this.addUserLink(user, type, id, targetId, clean);
     const tdef = getResourceDef(targetType);
     if (!tdef) throw new BadRequestException('要关联的资料类型不存在');

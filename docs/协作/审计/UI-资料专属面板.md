@@ -46,7 +46,7 @@
 | 部门树拖拽排序/改层级（前/内/后三区，防环；保留上移下移） | ✓ | deptMove.test.tsx、StructurePage.test.tsx「拖动部门」 |
 | 软件订阅并入「账号与服务」页签（原已是同页页签，改名「软件订阅」） | ✓ | CompanionPage.test.tsx |
 | 营业执照识别：拖图、Ctrl+V 粘贴、读取剪贴板图片 | ✓ | LicenseRecognize.test.tsx |
-| 关联绑定弹窗：关系类型单选（使用/授权/保管/其他，独立列 relation_kind）+ 对象 + 授权起止 + 用途（u1 的 RelationDialog） | ✓ | RelationDialog.test.tsx |
+| 关联绑定弹窗：关系类型按旧系统 15 种 link 关系（packages/shared/src/relation-kinds.ts）随「当前资料+目标资料」给选项、默认第一个、反向看用反向名称；这对资料没定义时为「手工关联」；旧通用类型（使用/授权/保管/其他）仍可读；服务端校验这一对有这种关系；详情关系行显示旧系统关系名 | ✓ | relation-kinds.test.ts、RelationDialog.test.tsx、def-conditions.db.spec.ts「关系类型按资料类型」 |
 | 总览「未建档手机号 → 建立手机号档案并绑定」（后端 POST /resources/:type/:id/create-phone，事务内建档+绑定，同号只绑定；校验修改+新增手机号权限；数据问题补微信/自媒体/合作人） | ✓ | resources.db.spec.ts「未建档手机号」、OverviewPage.test.tsx |
 | 人事专属分区（人事记录/薪资变更/工资发放/奖励/处罚/任务/流程/交接）、员工导入导出、计薪方式/时薪/用工类型 | ✓ 已有（StaffRecordsDialog、StaffImportDialog、StaffPage） | 旧审计 C 文档该节已过时 |
 | 员工页职责组筛选 | ✓ | StaffPositions.test.tsx |

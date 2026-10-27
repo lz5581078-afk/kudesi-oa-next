@@ -258,4 +258,14 @@ d('资料配置：快捷页签 / 计算筛选 / 派生列 / 批量动作（真�
     stores.quickTabs = [{ key: 'bad', label: '坏', when: { viaUserDept: 'name', dept: top.id } }];
     await expect(svc.list(boss, 'stores', { tab: 'q:bad' })).rejects.toThrow();
   });
+
+  it('关系类型按资料类型：这一对有的才能选，没有的拒绝', async () => {
+    const can = () => true;
+    const phone = await svc.create(boss, 'phones', { number: '13500135001', usageType: 'company_kept' });
+    const store = await svc.create(boss, 'stores', { platform: 'pdd', name: '关系店' });
+    await expect(svc.addManualLink(boss, 'phones', phone.id, 'stores', store.id, can, { relationKind: '关联营业执照' })).rejects.toThrow(/没有这种关系类型/);
+    await svc.addManualLink(boss, 'phones', phone.id, 'stores', store.id, can, { relationKind: '绑定店铺' });
+    const rel = (await svc.relations(boss, 'phones', phone.id, can)).find((r) => r.relation === 'manual')!;
+    expect(rel.relationKind).toBe('绑定店铺');
+  });
 });

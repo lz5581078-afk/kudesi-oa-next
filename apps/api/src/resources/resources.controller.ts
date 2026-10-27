@@ -63,14 +63,14 @@ class LinkDto {
   @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
   @IsOptional() @IsString() @MaxLength(10) validTo?: string;
   @IsOptional() @IsString() @MaxLength(200) purpose?: string;
-  @IsOptional() @IsIn(['使用', '授权', '保管', '其他', '']) relationKind?: string;
+  @IsOptional() @IsString() @MaxLength(16) relationKind?: string;
 }
 
 class LinkPropsDto {
   @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
   @IsOptional() @IsString() @MaxLength(10) validTo?: string;
   @IsOptional() @IsString() @MaxLength(200) purpose?: string;
-  @IsOptional() @IsIn(['使用', '授权', '保管', '其他', '']) relationKind?: string;
+  @IsOptional() @IsString() @MaxLength(16) relationKind?: string;
 }
 
 class PhotoIdsDto {
