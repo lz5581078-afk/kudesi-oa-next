@@ -33,4 +33,18 @@ describe('商品基础编码页', () => {
     fireEvent.click(await screen.findByRole('button', { name: '清除搜索和分类' }));
     expect((screen.getByLabelText('搜索') as HTMLInputElement).value).toBe('');
   });
+
+  it('点“编码”列头按编码升序/降序/取消排序，并带给服务端', async () => {
+    vi.mocked(resourceApi.list).mockImplementation(async (type) => (type === 'finance-base-codes' ? { items: [row], total: 1, page: 1, pageSize: 20 } : { items: [], total: 0, page: 1, pageSize: 200 }) as never);
+    vi.mocked(jstApi.baseOverview).mockResolvedValue({ status: { pending: 1 }, byCategory: {} } as never);
+    render(<BaseCodesPage />);
+    await screen.findByText('SG-PG-HFS-1KG');
+    const head = () => screen.getAllByRole('columnheader').find((h) => h.textContent?.includes('编码') && h.querySelector('button'))!;
+    fireEvent.click(head().querySelector('button')!);
+    await waitFor(() => expect(resourceApi.list).toHaveBeenLastCalledWith('finance-base-codes', expect.objectContaining({ sortBy: 'code', sortDir: 'asc' })));
+    fireEvent.click(head().querySelector('button')!);
+    await waitFor(() => expect(resourceApi.list).toHaveBeenLastCalledWith('finance-base-codes', expect.objectContaining({ sortBy: 'code', sortDir: 'desc' })));
+    fireEvent.click(head().querySelector('button')!);
+    await waitFor(() => expect(resourceApi.list).toHaveBeenLastCalledWith('finance-base-codes', expect.objectContaining({ sortBy: undefined })));
+  });
 });

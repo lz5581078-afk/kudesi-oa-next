@@ -43,6 +43,7 @@ export function PricingDebugPage() {
   const [exporting, setExporting] = useState(false);
   const [addingAll, setAddingAll] = useState(false);
   const serial = useRef(0);
+  const resultRef = useRef<HTMLElement>(null);
   const quoteTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const quoteSerial = useRef<Record<number, number>>({});
   const sliderTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
@@ -309,7 +310,7 @@ export function PricingDebugPage() {
             <span className="row-actions"><button type="button" className="secondary-button small" disabled={page <= 1 || loading || addingAll} onClick={() => setPage(page - 1)}>上一页</button><button type="button" className="secondary-button small" disabled={page >= pageCount || loading || addingAll} onClick={() => setPage(page + 1)}>下一页</button></span></footer>
         </section>
 
-        <section className="card pricing-debug-panel">
+        <section className="card pricing-debug-panel" ref={resultRef}>
           <header className="between"><h2>联动试算</h2>
             <span className="row-actions"><small className="muted">已选 {chosen.length} 项 · 可导出 {exportable.length} 项</small>
               <button type="button" className="secondary-button small" disabled={exporting || addingAll || !chosen.length} onClick={clearSelection}>清空</button>
@@ -363,6 +364,12 @@ export function PricingDebugPage() {
           )}
         </section>
       </div>
+      {chosen.length > 0 && (
+        <div className="pricing-mobile-bar" role="status">
+          <span>已选 {chosen.length} 项 · 可导出 {exportable.length} 项</span>
+          <button type="button" className="secondary-button small" onClick={() => resultRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })}>去试算</button>
+        </div>
+      )}
     </div>
   );
 }

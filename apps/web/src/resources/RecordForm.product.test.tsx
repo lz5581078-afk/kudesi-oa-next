@@ -106,3 +106,20 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 });
+
+describe('新建关闭确认', () => {
+  it('填了内容点“取消”先确认；没填直接关；确认取消则留在表单', () => {
+    const onClose = vi.fn();
+    const ask = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw' }} onClose={onClose} onSaved={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(onClose).toHaveBeenCalledTimes(1); // 没填内容，直接关
+    expect(ask).not.toHaveBeenCalled();
+    fill('商品名称', '苹果');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(onClose).toHaveBeenCalledTimes(1); // 选了“取消”，没关
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+    ask.mockRestore();
+  });
+});

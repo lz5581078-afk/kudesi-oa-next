@@ -66,6 +66,7 @@ export function BaseCodesPage() {
   const [tab, setTab] = useState('pending');
   const [cat, setCat] = useState<number | null>(null);
   const [keyword, setKeyword] = useState('');
+  const [sort, setSort] = useState<{ by: string; dir: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<ListResult | null>(null);
   const [error, setError] = useState('');
@@ -80,11 +81,11 @@ export function BaseCodesPage() {
 
   const reload = useCallback(async () => {
     try {
-      setData(await resourceApi.list(TYPE, { page, pageSize: 20, keyword: keyword.trim() || undefined, status: tab || undefined, fieldKey: cat ? 'categoryId' : undefined, fieldValue: cat ?? undefined, filters: { realView: 'foldVerified' } }));
+      setData(await resourceApi.list(TYPE, { page, pageSize: 20, keyword: keyword.trim() || undefined, status: tab || undefined, fieldKey: cat ? 'categoryId' : undefined, fieldValue: cat ?? undefined, sortBy: sort?.by, sortDir: sort?.dir, filters: { realView: 'foldVerified' } }));
       setOverview(await jstApi.baseOverview());
       setError('');
     } catch (e) { setError(e instanceof ApiError ? e.message : '加载失败'); }
-  }, [page, keyword, tab, cat]);
+  }, [page, keyword, tab, cat, sort]);
   useEffect(() => { const t = setTimeout(() => void reload(), 200); return () => clearTimeout(t); }, [reload]);
   useEffect(() => {
     resourceApi.list('finance-categories', { pageSize: 200, showHidden: true }).then((r) => setCats(r.items.map((c) => ({ id: c.id, name: c.title, parentId: typeof c.data.parentId === 'number' ? c.data.parentId : null })))).catch(() => setCats([]));
@@ -134,7 +135,9 @@ export function BaseCodesPage() {
             <table className="data-table">
               <thead><tr>
                 <th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={!!data?.items.length && data.items.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...(data?.items.map((r) => r.id) ?? [])])] : checked.filter((id) => !data?.items.some((r) => r.id === id)))} /></th>
-                {columns.map((f) => <th key={f.key}>{f.label}</th>)}<th>聚水潭</th><th>状态</th><th />
+                {columns.map((f) => ['code', 'weightG'].includes(f.key)
+                  ? <th key={f.key} aria-sort={sort?.by === f.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" className="link-button" onClick={() => { setSort(sort?.by === f.key ? (sort.dir === 'asc' ? { by: f.key, dir: 'desc' } : null) : { by: f.key, dir: 'asc' }); setPage(1); }}>{f.label}{sort?.by === f.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button></th>
+                  : <th key={f.key}>{f.label}</th>)}<th>聚水潭</th><th>状态</th><th />
               </tr></thead>
               <tbody>
                 {data?.items.map((row) => {

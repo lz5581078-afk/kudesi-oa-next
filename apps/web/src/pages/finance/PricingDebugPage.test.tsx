@@ -138,4 +138,18 @@ describe('定价调试表：使用细节', () => {
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(screen.queryByLabelText('梨礼盒 预留利润')).toBeNull();
   });
+
+  it('手机浮条显示已选项数，点“去试算”滚到右侧', async () => {
+    setup();
+    await screen.findByText('苹果礼盒');
+    expect(screen.queryByText(/已选 \d+ 项 · 可导出/, { selector: '.pricing-mobile-bar span' })).toBeNull();
+    fireEvent.click(screen.getByLabelText('全选当前页商品'));
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    await screen.findByLabelText('梨礼盒 预留利润');
+    const bar = document.querySelector('.pricing-mobile-bar')!;
+    expect(bar.textContent).toContain('已选 2 项');
+    fireEvent.click(bar.querySelector('button')!);
+    expect(scroll).toHaveBeenCalled();
+  });
 });

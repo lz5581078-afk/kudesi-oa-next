@@ -58,7 +58,7 @@ export function BundlesPage() {
   }, [page, keyword, tab, categoryId]);
   useEffect(() => { const t = setTimeout(() => void reload(), 200); return () => clearTimeout(t); }, [reload]);
 
-  const columns = ['code', 'name', 'bundleCategoryId', 'platformId', 'scenarioId', 'jstStatus'].map((k) => def.fields.find((f) => f.key === k)!);
+  const columns = ['code', 'styleCode', 'name', 'bundleCategoryId', 'platformId', 'scenarioId', 'jstStatus'].map((k) => def.fields.find((f) => f.key === k)!);
   const rows = data?.items ?? [];
   const verifiable = rows.filter((r) => checked.includes(r.id) && ['pending', 'reverify'].includes(r.status));
   const one = rows.find((r) => r.id === checked[0]);
