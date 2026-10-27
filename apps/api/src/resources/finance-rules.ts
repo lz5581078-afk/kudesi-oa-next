@@ -141,7 +141,7 @@ async function beforeBrand(ctx: BeforeSaveContext) {
 async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[]): Promise<string> {
   const { em, user, data } = ctx;
   const type = str(data.archiveType);
-  const parts: string[] = [ARCHIVE_TYPE_CODE[type] ?? 'XX'];
+  const parts: string[] = [ARCHIVE_TYPE_CODE[type] ?? (type.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8) || 'XX')]; // 自定义档案类型用自己的编码
   if (type === 'purchased') parts.push(data.supplyMode === 'supplier_oem' ? 'OEM' : 'YZ');
   const chainCode = chain.map((c) => str(c.data.code)).join('');
   if (chainCode) parts.push(chainCode);
@@ -185,7 +185,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   if (!cat) throw new BadRequestException('请选择分类');
   if (cat.status !== 'active') throw new BadRequestException('这个分类已停用');
   if ((await host.findWhere(em, user.companyId, 'finance-categories', 'parentId', cat.id)).length > 0) throw new BadRequestException('必须选最末级分类');
-  const need = FAMILY[type]?.(data);
+  const need = type in FAMILY ? FAMILY[type](data) : (type || null); // 自定义档案类型：分类树的类型就是它自己
   if (!need || cat.data.archiveType !== need) throw new BadRequestException('分类和档案类型不匹配');
   if (!((num(data.specQty) ?? 0) > 0)) throw new BadRequestException('规格数量必须大于 0');
 
@@ -294,7 +294,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
 export async function previewProductCode(em: EntityManager, host: Pick<RuleHost, 'findByUnique'>, user: AuthUser, input: Data, excludeId: number | null) {
   const data: Data = { ...input };
   const type = str(data.archiveType);
-  if (!ARCHIVE_TYPE_CODE[type]) throw new BadRequestException('请先选择档案类型');
+  if (!type) throw new BadRequestException('请先选择档案类型');
   const cat = await rec(em, user.companyId, 'finance-categories', data.categoryId);
   const chain = cat ? await categoryChain(em, user.companyId, cat.id) : [];
   const notes: string[] = [];

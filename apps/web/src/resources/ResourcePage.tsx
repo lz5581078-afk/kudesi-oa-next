@@ -19,6 +19,7 @@ import { ReasonLibraryDialog } from './ReasonLibraryDialog';
 import { CategorySortDialog } from './CategorySortDialog';
 import { RecordDetail, useResourceCan } from './RecordDetail';
 import { RecordForm } from './RecordForm';
+import { ArchiveTypeDialog } from './ArchiveTypeDialog';
 import { InventoryDialog } from './AssetPanels';
 
 const PAGE_SIZES = [20, 50, 100] as const;
@@ -68,7 +69,7 @@ function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
 export function ResourcePage({ type, lockedTab, title }: { type: string; lockedTab?: string; title?: string }) {
   const def = getResourceDef(type)!;
   const can = useResourceCan(type);
-  useUnitOptions(); // 单位列表读到后，列表里的单位编码才能换成名称
+  const unitOpts = useUnitOptions(); // 单位列表读到后，列表里的单位编码才能换成名称
   const [keyword, setKeyword] = useState('');
   const [tab, setTab] = useState(lockedTab ?? '');
   const [status, setStatus] = useState(() => readPrefs(type).status ?? '');
@@ -199,6 +200,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [packagingXlOpen, setPackagingXlOpen] = useState(false);
   const [costXlOpen, setCostXlOpen] = useState(false);
+  const [archiveTypesOpen, setArchiveTypesOpen] = useState(false);
   const { user: me } = useAuth();
   const costCan = createChecker(me?.permissions ?? { isCompanyAdmin: false, allow: [], deny: [] });
   async function seedFees() {
@@ -266,6 +268,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           <div className="pill-row">
             {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="secondary-button" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
             {type === 'finance-packaging-schemes' && <button type="button" className="secondary-button" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
+            {type === 'finance-products' && can('edit') && <button type="button" className="secondary-button" onClick={() => setArchiveTypesOpen(true)}>管理档案类型</button>}
             {type === 'finance-product-units' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedUnits}>{seeding ? '导入中…' : '导入默认项'}</button>}
             {type === 'finance-fee-items' && can('create') && hasFeeDefaults(me?.companyName) && <button type="button" className="secondary-button" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
             {type === 'finance-fee-items' && <button type="button" className="secondary-button" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
@@ -310,7 +313,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           {(tabField || def.quickTabs?.length) && !lockedTab && (
             <div className="tab-group page-tabs" role="tablist" aria-label="分类">
               <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'chip active' : 'chip'} onClick={() => { setTab(''); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>全部</button>
-              {[...resourceTabOptions(def), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)].map((o) => (
+              {[...resourceTabOptions(def), ...(def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || [], ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)].map((o) => (
                 <button key={o.value} type="button" role="tab" aria-selected={tab === o.value} className={tab === o.value ? 'chip active' : 'chip'} onClick={() => { setTab(o.value); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>
                   {o.label}{data?.tabCounts ? ` ${data.tabCounts[o.value] ?? 0}` : ''}
                 </button>
@@ -466,6 +469,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         </div>
       </section>
 
+      {archiveTypesOpen && <ArchiveTypeDialog counts={data?.tabCounts} onClose={() => setArchiveTypesOpen(false)} onChanged={() => void load()} />}
       {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}
       {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}
