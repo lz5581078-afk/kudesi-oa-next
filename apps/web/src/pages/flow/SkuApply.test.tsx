@@ -77,3 +77,34 @@ describe('仓库配置与规格明细', () => {
     expect(screen.getByText('新建')).toBeTruthy();
   });
 });
+
+describe('SKU 批量申请：复制与套用', () => {
+  it('复制规格带出商品；删除有内容的规格要先确认；仓库配置可套用到其他规格', async () => {
+    const specs: SkuSpec[] = [{ name: '苹果礼盒', main: [{ baseCodeId: 11, qty: 2 }], gift: [] }];
+    render(<Harness initial={{ specs }} />);
+    await screen.findByText('淘宝');
+    fireEvent.click(screen.getByText('复制这个规格'));
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('out').textContent!).specs).toHaveLength(2));
+    const copy = JSON.parse(screen.getByTestId('out').textContent!).specs[1];
+    expect(copy).toMatchObject({ name: '苹果礼盒（副本）', main: [{ baseCodeId: 11, qty: 2 }] });
+    const ask = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fireEvent.click(screen.getAllByText('删除这个规格')[1]);
+    expect(JSON.parse(screen.getByTestId('out').textContent!).specs).toHaveLength(2);
+    fireEvent.click(screen.getAllByText('删除这个规格')[1]);
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('out').textContent!).specs).toHaveLength(1));
+    expect(ask).toHaveBeenCalledTimes(2);
+    ask.mockRestore();
+  });
+
+  it('仓库配置：把一个规格的包装等套用到其他规格', async () => {
+    const specs: SkuSpec[] = [{ name: 'A', main: [], gift: [] }, { name: 'B', main: [], gift: [] }];
+    const first: WarehouseSpec = { lines: [{ role: 'package', baseCodeId: 31, qty: 1 }], notRequired: { label: '无' } };
+    function WH() {
+      const [v, setV] = useState<Record<string, unknown>>({ config: [first, { lines: [], notRequired: {} }] });
+      return <><SkuWarehouseFields specs={specs} values={v} onChange={(k, x) => setV((c) => ({ ...c, [k]: x }))} /><pre data-testid="wh">{JSON.stringify(v)}</pre></>;
+    }
+    render(<WH />);
+    fireEvent.click(screen.getByLabelText('把规格 A 的配置套用到其他规格'));
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('wh').textContent!).config[1]).toEqual(first));
+  });
+});

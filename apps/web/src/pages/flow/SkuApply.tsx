@@ -111,7 +111,10 @@ export function SkuApplyFields({ values, onChange }: { values: Record<string, un
         <section key={i} className="sku-spec card">
           <div className="between">
             <label className="grow"><span>规格 {i + 1} 名称</span><input value={s.name} maxLength={100} onChange={(e) => patch(i, { name: e.target.value })} /></label>
-            <button type="button" className="link-button" onClick={() => setSpecs(specs.filter((_, j) => j !== i))}>删除这个规格</button>
+            <span className="row-actions">
+              <button type="button" className="link-button" disabled={specs.length >= 100} onClick={() => setSpecs([...specs.slice(0, i + 1), { ...s, name: s.name ? `${s.name}（副本）` : '', main: s.main.map((l) => ({ ...l })), gift: s.gift.map((l) => ({ ...l })), reuseReason: '' }, ...specs.slice(i + 1)])}>复制这个规格</button>
+              <button type="button" className="link-button" onClick={() => { if ((s.name || s.main.length || s.gift.length) && !window.confirm(`确定删除规格 ${i + 1}${s.name ? `「${s.name}」` : ''}？已选的商品会一起去掉。`)) return; setSpecs(specs.filter((_, j) => j !== i)); }}>删除这个规格</button>
+            </span>
           </div>
           <div className="sku-cols">
             <div><strong>主商品（必填）</strong><LineRows lines={s.main} names={names} onChange={(l) => patch(i, { main: l })} /><ItemPicker kind="main" label="添加主商品" onPick={(o) => pick(i, 'main', o)} /></div>
@@ -141,7 +144,13 @@ export function SkuWarehouseFields({ specs, values, onChange }: { specs: SkuSpec
         const w = config[i];
         return (
           <section key={i} className="sku-spec card">
-            <strong>规格：{s.name}</strong>
+            <div className="between"><strong>规格：{s.name}</strong>
+              {specs.length > 1 && <button type="button" className="link-button" aria-label={`把规格 ${s.name} 的配置套用到其他规格`} onClick={() => {
+                const others = config.filter((_, j) => j !== i);
+                if (others.some((c) => c.lines.length) && !window.confirm('其他规格已选的包装、标签等会被覆盖，确定套用？')) return;
+                onChange('config', config.map((c, j) => (j === i ? c : { lines: w.lines.map((l) => ({ ...l })), notRequired: { ...w.notRequired } })));
+              }}>套用到其他规格</button>}
+            </div>
             {WAREHOUSE_GROUPS.map((g) => {
               const mine = w.lines.map((l, idx) => ({ l, idx })).filter(({ l }) => g.roles.includes(l.role));
               return (

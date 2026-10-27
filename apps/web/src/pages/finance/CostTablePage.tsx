@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../../api/client';
+import { CopyButton } from '../../resources/CopyValue';
 import { Pager, money, pct } from './common';
 import { CostCategoryTree } from './CostCategoryTree';
 import { BreakdownDialog, METHOD, PricingEditDialog, SkuHistoryDialog, type EditTarget } from './CostDialogs';
@@ -81,6 +82,7 @@ export function CostTablePage() {
           <div className="toolbar">
             <input className="search-box" type="search" aria-label="搜索SKU成本" placeholder="SKU组合编码 / SKU名称" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
             <span className="muted">{data.total} 条</span>
+            {(keyword || categoryId !== null) && <button type="button" className="secondary-button small" onClick={() => { setKeyword(''); setCategoryId(null); setPage(1); }}>清除筛选</button>}
           </div>
           <div className="table-scroll">
             <table className="data-table">
@@ -89,7 +91,7 @@ export function CostTablePage() {
                 {data.rows.length === 0 && <tr><td colSpan={11} className="empty-state muted">{busy ? '正在加载成本资料…' : '暂无符合条件的SKU成本。先去“商品组合编码”建组合并验证。'}</td></tr>}
                 {data.rows.map((r) => (
                   <tr key={r.bundleId}>
-                    <td className="mono">{r.code}</td>
+                    <td className="mono" data-label="SKU组合编码">{r.code}<CopyButton value={r.code} label="SKU组合编码" /></td>
                     <td>{r.name}</td>
                     <td className="num"><button type="button" className="link-button" aria-label={`查看${r.name}成本组成`} onClick={() => setBreakdown({ row: r, kind: 'cost' })}>{money(r.preShipCostCents)}</button></td>
                     <td className="num"><button type="button" className="link-button" aria-label={`查看${r.name}重量组成`} onClick={() => setBreakdown({ row: r, kind: 'weight' })}>{r.weightG ?? '未设置'}</button></td>
