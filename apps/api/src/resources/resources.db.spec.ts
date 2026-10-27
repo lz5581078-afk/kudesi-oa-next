@@ -218,6 +218,20 @@ d('资料引擎（真实数据库）', () => {
     expect(createChecker(limited.permissions)('resource.stores.secret')).toBe(false);
   });
 
+  it('总览最近变更：按权限过滤，带资料名称和操作人，不含查看明文的记录', async () => {
+    const q = await svc.create(boss, 'qualifications', { type: 'general', name: '最近变更用资质' });
+    await svc.update(boss, 'qualifications', q.id, { note: '改备注' });
+    const all = await svc.recentChanges(boss);
+    const mine = all.filter((c) => c.resourceId === q.id && c.type === 'qualifications');
+    expect(mine.length).toBeGreaterThanOrEqual(2);
+    expect(mine[0].name).toBe('最近变更用资质');
+    expect(mine[0].typeLabel).toBe('资质证照');
+    expect(all.every((c) => c.action !== 'reveal')).toBe(true);
+    const limited: AuthUser = { ...boss, permissions: { isCompanyAdmin: false, allow: ['resource.stores.view'], deny: [] } };
+    expect((await svc.recentChanges(limited)).some((c) => c.type === 'qualifications')).toBe(false);
+    expect((await svc.recentChanges(other)).some((c) => c.resourceId === q.id && c.type === 'qualifications')).toBe(false);
+  });
+
   it('证件号：可明文编辑和清除，没改时不会重复记日志，必填的卡号不能清空', async () => {
     const p = await svc.create(boss, 'partners', { name: '赵六', idNumber: '110101199001011234' });
     expect(p.data.idNumber).toBe('110101199001011234');

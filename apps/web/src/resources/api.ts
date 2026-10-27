@@ -155,6 +155,7 @@ export const resourceApi = {
   relations: (type: string, id: number) => api<Relation[]>(`/resources/${type}/${id}/relations`),
   overview: () => api<OverviewResult>('/resources/overview'),
   dataIssues: () => api<DataIssuesResult>('/resources/data-issues'),
+  recentChanges: () => api<RecentChange[]>('/resources/recent-changes'),
   expiring: (days: number) => api<ExpiringResult>(`/resources/expiring?days=${days}`),
   /** scope：不传=全部；传筛选条件=当前筛选结果；ids=所选 */
   export: (type: string, includeHidden: boolean, scope: ListParams & { ids?: number[] } = {}) => {
@@ -252,6 +253,8 @@ export const settingsApi = {
 
 export interface RevenueTotals { sales: number; refund: number; adCost: number; platformFee: number; purchaseCost: number; otherCost: number; profit: number; orders: number; days: number }
 export interface RevenueResult { licenseId: number; licenseTitle: string; from: string; to: string; stores: Array<{ storeId: number; name: string } & RevenueTotals>; total: RevenueTotals }
+
+export interface RecentChange { id: string; type: string; typeLabel: string; resourceId: number; name: string; action: string; note: string | null; actor: string; createdAt: string }
 
 export interface DataIssuesResult {
   total: number;

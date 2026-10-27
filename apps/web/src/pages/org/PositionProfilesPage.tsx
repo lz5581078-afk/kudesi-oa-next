@@ -52,7 +52,7 @@ function DutyDialog({ positionId, duty, category, onClose, onSaved }: { position
 function Detail({ id, canEdit, onChanged }: { id: number; canEdit: boolean; onChanged: () => void }) {
   const [p, setP] = useState<PositionProfile | null>(null);
   const [error, setError] = useState('');
-  const [dlg, setDlg] = useState<{ kind: 'duty'; duty: DutyDto | null; category: string } | { kind: 'off'; duty: DutyDto } | { kind: 'status' } | null>(null);
+  const [dlg, setDlg] = useState<{ kind: 'duty'; duty: DutyDto | null; category: string } | { kind: 'off'; duty: DutyDto } | { kind: 'del'; duty: DutyDto } | { kind: 'status' } | null>(null);
   const [showOff, setShowOff] = useState(false);
   const load = useCallback(() => { orgApi.positionProfile(id).then((d) => { setP(d); setError(''); }).catch((e) => setError(errText(e))); }, [id]);
   useEffect(() => { setP(null); load(); }, [load]);
@@ -97,6 +97,7 @@ function Detail({ id, canEdit, onChanged }: { id: number; canEdit: boolean; onCh
                           {d.status === 'active'
                             ? <button type="button" className="link-button danger-text" onClick={() => setDlg({ kind: 'off', duty: d })}>停用</button>
                             : <button type="button" className="link-button" onClick={() => void orgApi.updateDuty(d.id, { status: 'active' }).then(done).catch((e) => setError(errText(e)))}>启用</button>}
+                          <button type="button" className="link-button danger-text" onClick={() => setDlg({ kind: 'del', duty: d })}>删除</button>
                         </span>
                       )}
                     </div>
@@ -136,6 +137,10 @@ function Detail({ id, canEdit, onChanged }: { id: number; canEdit: boolean; onCh
         <ConfirmDialog title={`停用条目「${dlg.duty.title}」`} text="停用后不再显示，变更记录保留，可随时启用。" confirmLabel="确认停用" reasonLabel="停用原因" onClose={() => setDlg(null)}
           onConfirm={async (reason) => { await orgApi.updateDuty(dlg.duty.id, { status: 'inactive', reason }); done(); }} />
       )}
+      {dlg?.kind === 'del' && (
+        <ConfirmDialog title={`删除条目「${dlg.duty.title}」`} text="删除后不能恢复，操作记录会保留。只是暂时不用时请选择停用。" confirmLabel="删除条目" onClose={() => setDlg(null)}
+          onConfirm={async () => { await orgApi.deleteDuty(dlg.duty.id); done(); }} />
+      )}
       {dlg?.kind === 'status' && (
         <ConfirmDialog title={`${pos.status === 'inactive' ? '启用' : '停用'}岗位「${pos.name}」`} text={pos.status === 'inactive' ? '启用后可重新分配给员工。' : '停用后不能再分配给新员工；已在岗的人员不受影响。'} confirmLabel="确认" reasonLabel="原因" onClose={() => setDlg(null)}
           onConfirm={async (reason) => { await orgApi.updatePosition(id, { status: pos.status === 'inactive' ? 'active' : 'inactive', reason }); done(); }} />
@@ -153,6 +158,7 @@ export function PositionProfilesPage() {
   const [dept, setDept] = useState('');
   const [level, setLevel] = useState('');
   const [status, setStatus] = useState('active');
+  const [vacantOnly, setVacantOnly] = useState(false);
   const [sel, setSel] = useState<number | null>(null);
   const [error, setError] = useState('');
   const reload = useCallback(() => {
@@ -161,7 +167,8 @@ export function PositionProfilesPage() {
   useEffect(reload, [reload]);
   const deptName = useMemo(() => new Map(flattenDepartments(tree).map((d) => [d.id, d.name])), [tree]);
   const shown = positions.filter((p) =>
-    (!keyword.trim() || p.name.includes(keyword.trim())) && (!dept || String(p.departmentId) === dept) && (!level || p.level === level) && (!status || p.status === status));
+    (!keyword.trim() || p.name.includes(keyword.trim())) && (!dept || String(p.departmentId) === dept) && (!level || p.level === level) && (!status || p.status === status) && (!vacantOnly || (p.status === 'active' && p.userCount === 0)));
+  const posName = new Map(positions.map((p) => [p.id, p.name]));
   return (
     <div>
       <div className="page-head"><h1>岗位档案</h1></div>
@@ -180,14 +187,15 @@ export function PositionProfilesPage() {
           <select aria-label="状态" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">全部状态</option><option value="active">启用</option><option value="inactive">已停用</option>
           </select>
+          <button type="button" className={vacantOnly ? 'chip active' : 'chip'} aria-pressed={vacantOnly} onClick={() => setVacantOnly((v) => !v)}>无人在岗 {positions.filter((p) => p.status === 'active' && p.userCount === 0).length}</button>
         </div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>岗位</th><th>部门</th><th>层级</th><th>在岗人数</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>岗位</th><th>部门</th><th>层级</th><th>上级岗位</th><th>在岗人数</th><th>状态</th><th>操作</th></tr></thead>
             <tbody>
               {shown.map((p) => (
                 <tr key={p.id} className={sel === p.id ? 'selected' : undefined}>
-                  <td>{p.name}</td><td>{p.departmentId ? deptName.get(p.departmentId) ?? '—' : '—'}</td><td>{LEVEL_LABELS[p.level]}</td><td>{p.userCount}</td>
+                  <td>{p.name}</td><td>{p.departmentId ? deptName.get(p.departmentId) ?? '—' : '—'}</td><td>{LEVEL_LABELS[p.level]}</td><td>{p.supervisorPositionId ? posName.get(p.supervisorPositionId) ?? '—' : '—'}</td><td>{p.userCount}</td>
                   <td><span className={p.status === 'active' ? 'pill ok' : 'pill warn'}>{p.status === 'active' ? '启用' : '已停用'}</span></td>
                   <td><button type="button" className="link-button" onClick={() => setSel(p.id)}>查看档案</button></td>
                 </tr>

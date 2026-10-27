@@ -126,6 +126,12 @@ export class ResourcesController {
   }
 
   @AuthenticatedOnly()
+  @Get('recent-changes')
+  recentChanges(@CurrentUser() user: AuthUser) {
+    return this.resources.recentChanges(user, 40);
+  }
+
+  @AuthenticatedOnly()
   @Get('expiring')
   expiring(@CurrentUser() user: AuthUser, @Query() q: ExpiringQueryDto) {
     return this.resources.expiring(user, q.days, q.includeExpired !== '0');

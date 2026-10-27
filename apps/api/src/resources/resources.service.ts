@@ -1297,6 +1297,26 @@ export class ResourcesService implements RuleHost {
     return { items };
   }
 
+  /** 资料总览的“最近变更”：本公司最近的资料修改（只含用户有查看权限的资料类型；不含查看明文的记录）。 */
+  async recentChanges(user: AuthUser, limit = 40) {
+    const can = createChecker(user.permissions);
+    const em = this.dataSource.manager;
+    const allowed = RESOURCE_DEFS.filter((d) => d.nav && !d.nav.section && can(resourcePermission(permissionOwner(d.key), 'view'))).map((d) => d.key);
+    if (allowed.length === 0) return [];
+    const take = Math.min(100, Math.max(1, Math.floor(limit) || 40));
+    const logs = await em.find(ResourceChangeLog, { where: { companyId: user.companyId, resourceType: In(allowed), action: Not('reveal') }, order: { id: 'DESC' }, take });
+    if (logs.length === 0) return [];
+    const ids = [...new Set(logs.map((l) => l.resourceId))];
+    const records = await em.find(ResourceRecord, { where: { companyId: user.companyId, id: In(ids) }, select: ['id', 'type', 'title'] });
+    const titleOf = new Map(records.map((r) => [`${r.type}:${r.id}`, r.title]));
+    const actors = await em.createQueryBuilder(User, 'u').select(['u.id', 'u.name']).where('u.companyId = :c AND u.id IN (:...ids)', { c: user.companyId, ids: [...new Set(logs.map((l) => l.actorId).filter((x): x is number => x != null))].concat([0]) }).getMany();
+    const nameOf = new Map(actors.map((a) => [a.id, a.name]));
+    return logs.map((l) => ({
+      id: l.id, type: l.resourceType, typeLabel: getResourceDef(l.resourceType)?.label ?? l.resourceType, resourceId: l.resourceId,
+      name: titleOf.get(`${l.resourceType}:${l.resourceId}`) ?? `#${l.resourceId}`, action: l.action, note: l.note, actor: l.actorId ? nameOf.get(l.actorId) ?? `#${l.actorId}` : '系统', createdAt: l.createdAt,
+    }));
+  }
+
   /** 即将到期 / 已过期统一列表（旧系统 expiring.js）：按每种资料的查看权限过滤；停用/注销/已归档的不提醒。 */
   async expiring(user: AuthUser, days = 30, includeExpired = true, today: string = todayShanghai()) {
     const can = createChecker(user.permissions);
