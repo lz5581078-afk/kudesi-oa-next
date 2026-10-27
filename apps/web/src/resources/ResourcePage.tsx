@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PARTY_SEED_CATEGORIES, archivePolicyOf, expirySources, getResourceDef, treeFilterField, type FieldDef } from '@kudesi/shared';
+import { PARTY_SEED_CATEGORIES, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, todayShanghai, treeFilterField, viewFiltersOf, type FieldDef } from '@kudesi/shared';
 import { useSearchParams } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
@@ -53,6 +53,8 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [filterVals, setFilterVals] = useState<Record<string, string>>({});
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
   const treeField = useMemo(() => treeFilterField(def), [def]);
+  const viewFilters = useMemo(() => viewFiltersOf(type), [type]);
+  const today = useMemo(() => todayShanghai(), []);
   const filterFields = useMemo(
     () => (def.filterBy ? ([] as string[]).concat(def.filterBy as string | string[]) : []).map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f)),
     [def],
@@ -233,6 +235,12 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                 {(filterOpts[ff.key] ?? []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             ))}
+            {viewFilters.map((vf) => (
+              <select key={vf.key} aria-label={vf.label} value={filterVals[vf.key] ?? ''} onChange={(e) => { setFilterVals((v) => ({ ...v, [vf.key]: e.target.value })); setPage(1); }}>
+                <option value="">{vf.label}：全部</option>
+                {vf.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            ))}
             <select aria-label="状态" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
               <option value="">状态：全部</option>
               {def.statuses.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -343,7 +351,15 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                       }}
                     >
                       {def.batch && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>}
-                      {columns.map((f) => <td key={f.key} className={f.type === 'money' ? 'num' : undefined}>{displayValue(f, row)}</td>)}
+                      {columns.map((f) => {
+                        const due = dueBadgeFor(type, f.key, row.data, row.status, today);
+                        return (
+                          <td key={f.key} className={f.type === 'money' ? 'num' : undefined}>
+                            {displayValue(f, row)}
+                            {due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`} title="到期提醒按今天的日期实时计算">{due.text}</span></>}
+                          </td>
+                        );
+                      })}
                       <td><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
                     </tr>
                   );

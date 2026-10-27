@@ -21,11 +21,13 @@ import {
   restrictedFieldKeys,
   validateResourceInput,
   validateStatusChange,
+  normalizePhoneImportText,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
 import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
+import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
 
 export interface ResourceDto {
@@ -256,8 +258,11 @@ export class ResourcesService implements RuleHost {
       def.fields.filter((f) => f.type === 'files').flatMap((f) => (Array.isArray(r.data[f.key]) ? (r.data[f.key] as number[]) : [])),
     );
     const fileMap = await this.files.info(companyId, fileIds);
+    // 手机号的“绑定店铺 / 主子卡”：读时从店铺档案和主卡字段算，不存库
+    const derived = def.key === 'phones' ? await derivePhoneFields(em, companyId, records, (r) => labels.get(r.id)?.parentPhoneId) : null;
     return records.map((r) => {
       const dto = this.toDto(def, r, labels.get(r.id) ?? {}, fileMap);
+      if (derived) for (const [k, v] of Object.entries(derived.get(r.id) ?? {})) if (v !== undefined) dto.data[k] = v;
       // 成本等受限字段：没有权限的人，接口里就没有（不是前端隐藏）
       for (const k of restricted) {
         delete dto.data[k];
@@ -618,13 +623,16 @@ export class ResourcesService implements RuleHost {
     const hiddenStatuses = def.statuses.filter((s) => s.hidden).map((s) => s.value);
 
     const filterPairs: Array<[string, string]> = [];
+    const viewPairs: Array<[string, string]> = [];
     if (q.fieldKey && q.fieldValue !== undefined) filterPairs.push([q.fieldKey, String(q.fieldValue)]);
     if (q.filters) {
       let obj: unknown;
       try { obj = JSON.parse(q.filters); } catch { throw new BadRequestException('筛选条件不合法'); }
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) throw new BadRequestException('筛选条件不合法');
-      for (const [k, v] of Object.entries(obj as Record<string, unknown>).slice(0, 4)) {
-        if (v !== '' && v !== null && v !== undefined) filterPairs.push([k, String(v)]);
+      for (const [k, v] of Object.entries(obj as Record<string, unknown>).slice(0, 8)) {
+        if (v === '' || v === null || v === undefined) continue;
+        if (isViewFilter(type, k)) viewPairs.push([k, String(v)]);
+        else filterPairs.push([k, String(v)]);
       }
     }
     // 分类字段：选上级分类时，下级分类的资料一并列出（商品分类、供应商分类等所有树形资料通用）
@@ -685,6 +693,9 @@ export class ResourcesService implements RuleHost {
     };
 
     const listQb = base();
+    for (const [i, [k, v]] of viewPairs.entries()) {
+      if (!(await applyViewFilter(listQb, em, user.companyId, type, k, v, todayShanghai(), i))) throw new BadRequestException('筛选条件不合法');
+    }
     if (q.tab && def.tabsBy) {
       listQb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.tabsBy}')) = :tab`, { tab: q.tab });
     }
@@ -708,7 +719,9 @@ export class ResourcesService implements RuleHost {
 
     let tabCounts: Record<string, number> | undefined;
     if (def.tabsBy) {
-      const rows = await base()
+      const countQb = base();
+      for (const [i, [k, v]] of viewPairs.entries()) await applyViewFilter(countQb, em, user.companyId, type, k, v, todayShanghai(), i);
+      const rows = await countQb
         .select(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.tabsBy}'))`, 'tab')
         .addSelect('COUNT(*)', 'n')
         .groupBy('tab')
@@ -1252,7 +1265,11 @@ export class ResourcesService implements RuleHost {
     }
     for (const f of def.fields) {
       if (f.type === 'secret' || f.type === 'files' || f.type === 'attrs' || f.readonly) continue; // 密码、文件、系统计算的字段不走导入
-      const raw = (row[f.label] ?? '').trim();
+      let raw = (row[f.label] ?? '').trim();
+      // Excel 弄坏的手机号（="138…"、138….0、科学计数法）先还原
+      if (raw && (f.type === 'phone' || (def.key === 'stores' && f.key === 'phoneNumber'))) raw = normalizePhoneImportText(raw);
+      // 店铺的“所属执照”可填统一社会信用代码
+      if (raw && def.key === 'stores' && f.key === 'licenseId') raw = await mapLicenseByCreditCode(em, user.companyId, raw);
       if (!raw) continue;
       if (f.type === 'select') {
         const opt = f.options?.find((o) => o.label === raw || o.value === raw);
@@ -1298,7 +1315,7 @@ export class ResourcesService implements RuleHost {
     if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('没有可导入的行');
     if (rows.length > MAX_IMPORT_ROWS) throw new BadRequestException(`一次最多导入 ${MAX_IMPORT_ROWS} 行`);
 
-    const results: Array<{ line: number; action: 'create' | 'update' | 'error'; title?: string; errors: string[] }> = [];
+    const results: Array<{ line: number; action: 'create' | 'update' | 'error'; title?: string; errors: string[]; warnings?: string[] }> = [];
     const cleanup: string[] = [];
     // 真正导入前先留一份整类快照，导错了可以一键恢复；预览不留
     const backupId = dryRun ? null : await this.createImportBackup(user, type);
@@ -1325,7 +1342,15 @@ export class ResourcesService implements RuleHost {
             const saved = await em.transaction((inner) =>
               this.saveRecord(inner, user, def, existing, converted.input, { status: converted.status, note: '批量导入', cleanup }),
             );
-            results.push({ line, action: existing ? 'update' : 'create', title: saved.title, errors: [] });
+            let warnings: string[] | undefined;
+            if (type === 'phones') {
+              const storeDef = this.def('stores');
+              const bound = await em.transaction((inner) =>
+                bindPhoneStores(inner, user, saved, rows[i], (store, input) => this.saveRecord(inner, user, storeDef, store, input, { note: `手机号导入绑定：${saved.title}`, cleanup })),
+              );
+              if (bound.warnings.length) warnings = bound.warnings;
+            }
+            results.push({ line, action: existing ? 'update' : 'create', title: saved.title, errors: [], warnings });
           } catch (e) {
             const message = (e as { response?: { message?: string | string[] } }).response?.message ?? (e as Error).message;
             results.push({ line, action: 'error', errors: [Array.isArray(message) ? message.join('；') : String(message)] });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ASSET_LOG_LABELS, RESOURCE_DEFS, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
+import { ASSET_LOG_LABELS, RESOURCE_DEFS, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
 import { useAuth } from '../auth/AuthContext';
@@ -11,6 +11,7 @@ import { ReasonDialog, RecordForm, clearRefCache, loadRefOptions } from './Recor
 import { StatusControl, typeLabel } from './StatusControl';
 import { RevenuePanel } from './RevenuePanel';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
+import { StoreMetricsPanel } from './StoreMetricsPanel';
 
 export function useResourceCan(type: string) {
   const { user } = useAuth();
@@ -144,7 +145,7 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
   );
 }
 
-type Tab = 'info' | 'relations' | 'logs' | 'revenue' | 'flow' | 'storage' | 'contents' | `child:${string}`;
+type Tab = 'info' | 'relations' | 'logs' | 'revenue' | 'flow' | 'storage' | 'contents' | 'metrics' | `child:${string}`;
 
 export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: ResourceDef; id: number; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const can = useResourceCan(def.key);
@@ -197,6 +198,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
     ...((def.children ?? []).map((c) => [`child:${c}|${getResourceDef(c)?.parent?.field}` as Tab, getResourceDef(c)?.label ?? c]) as Array<[Tab, string]>),
     ...((def.related ?? []).filter((r) => canView(r.type)).map((r) => [`child:${r.type}|${r.field}` as Tab, getResourceDef(r.type)?.label ?? r.type]) as Array<[Tab, string]>),
     ...(def.key === 'licenses' && canView('store-daily-metrics') ? ([['revenue' as Tab, '营收']] as Array<[Tab, string]>) : []),
+    ...(def.key === 'stores' ? ([['metrics' as Tab, '经营数据']] as Array<[Tab, string]>) : []),
     ['logs', '操作记录'],
   ];
 
@@ -280,6 +282,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         {tab === 'contents' && <LocationContentsPanel id={record.id} />}
         {tab === 'flow' && <AssetFlowPanel record={record} version={record.updatedAt} />}
         {tab === 'storage' && <AssetStoragePanel record={record} />}
+        {tab === 'metrics' && <StoreMetricsPanel store={record} />}
         {tab === 'logs' && (
           <section>
             <h2 className="section-title">操作记录</h2>
@@ -296,6 +299,14 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
       </div>
       <div className="drawer-foot">
         {record.archived && can('delete') && <button type="button" className="secondary-button" onClick={() => setRestoring(true)}>恢复…</button>}
+        {!record.archived && def.key === 'phones' && can('edit') && (
+          <button type="button" className="secondary-button" title="把最近充值日记为今天，下次充值日按充值周期自动更新" onClick={async () => {
+            const today = todayShanghai();
+            const cycle = Number(record.data.rechargeCycleDays) || 30;
+            if (!window.confirm(`最近充值日记为 ${today}，下次充值日更新为 ${addDaysText(today, cycle)}。`)) return;
+            try { setRecord(await resourceApi.update('phones', record.id, { lastRechargeAt: today })); setLogs(null); onChanged(); } catch (e) { setError(e instanceof ApiError ? e.message : '记录失败'); }
+          }}>记录今天已充值</button>
+        )}
         {!record.archived && can('edit') && <button type="button" className="secondary-button" onClick={() => setEditing(true)}>编辑</button>}
         {!record.archived && onCopy && can('create') && (
           <button type="button" className="secondary-button" title="按这条的内容新建一条，编码、图片不带过去" onClick={() => {

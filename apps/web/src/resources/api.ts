@@ -63,7 +63,7 @@ export interface ImportResult {
   created: number;
   updated: number;
   failed: number;
-  results: Array<{ line: number; action: 'create' | 'update' | 'error'; title?: string; errors: string[] }>;
+  results: Array<{ line: number; action: 'create' | 'update' | 'error'; title?: string; errors: string[]; warnings?: string[] }>;
 }
 
 export interface Relation {
