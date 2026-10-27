@@ -86,4 +86,14 @@ describe('资料列表通用壳', () => {
     await waitFor(() => expect(vi.mocked(resourceApi.list).mock.calls.some((c) => c[1]?.sortDir === 'desc')).toBe(true));
     expect(screen.getByLabelText('排序方式')).toBeTruthy();
   });
+
+  it('显示列菜单有“全部显示 / 恢复默认”', async () => {
+    page();
+    await screen.findByRole('button', { name: '复制号码' });
+    fireEvent.click(screen.getByRole('button', { name: '显示列' }));
+    fireEvent.click(screen.getByRole('button', { name: '全部显示' }));
+    expect(screen.getAllByRole('checkbox', { name: /绑定店铺|运营商/ }).every((c) => (c as HTMLInputElement).checked)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认' }));
+    expect(JSON.parse(localStorage.getItem('kudesi.cols.phones') ?? '[]').length).toBeGreaterThan(0);
+  });
 });

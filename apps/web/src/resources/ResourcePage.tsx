@@ -369,6 +369,10 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                       {f.label}
                     </label>
                   ))}
+                  <div className="pill-row">
+                    <button type="button" className="link-button" onClick={() => setColKeys(shownFields.map((f) => f.key))}>全部显示</button>
+                    <button type="button" className="link-button" onClick={() => setColKeys(defaults.map((f) => f.key))}>恢复默认</button>
+                  </div>
                 </div>
               )}
             </div>
