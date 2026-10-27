@@ -52,6 +52,7 @@ export class AssetsService {
     await this.dataSource.transaction(async (em) => {
       em.queryRunner!.data[ASSET_ACTION_FLAG] = input.action;
       const asset = await this.loadAsset(em, user, id);
+      if (asset.archivedAt) throw new ConflictException('该资产已归档，请先恢复再操作');
       // 历史数据里不认识的状态，按闲置处理
       const state = (KNOWN.includes(asset.status) ? asset.status : 'idle') as AssetState;
       if (!rule.from.includes(state)) throw new ConflictException(`当前状态不能${rule.label}，请刷新后再试`);
@@ -88,7 +89,7 @@ export class AssetsService {
         if (seen.has(item.id)) { summary.skipped.push(item.id); continue; }
         seen.add(item.id);
         const asset = await em.findOne(ResourceRecord, { where: { id: item.id, companyId: user.companyId, type: 'fixed-assets' } });
-        if (!asset || asset.status === 'retired') { summary.skipped.push(item.id); continue; }
+        if (!asset || asset.status === 'retired' || asset.archivedAt) { summary.skipped.push(item.id); continue; }
         if (item.result === 'present') {
           await this.resources.logAction(em, user, 'fixed-assets', asset.id, 'inventory_checked', `盘点在位${suffix}`);
           summary.present++;
