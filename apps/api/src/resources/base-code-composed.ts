@@ -71,7 +71,8 @@ export async function inspectBaseCodeReferences(em: EntityManager, companyId: nu
 
 const LOCK_MSG = '该商品编码已有生效引用，只允许修改商品名称、简称、颜色及规格和启停状态';
 /** 身份字段：编码、款式编码、来源商品、多构成的分类/品牌/规格 */
-const IDENTITY = ['code', 'styleCode', 'productId', 'canonicalId', 'origin', 'varietyName', 'codeCategoryId', 'codeBrandId', 'codeSpecQty', 'codeSpecUnit'];
+export const BASE_CODE_IDENTITY_FIELDS = ['code', 'styleCode', 'productId', 'canonicalId', 'origin', 'varietyName', 'codeCategoryId', 'codeBrandId', 'codeSpecQty', 'codeSpecUnit'] as const;
+const IDENTITY: readonly string[] = BASE_CODE_IDENTITY_FIELDS;
 
 /** 保存基础编码前：已有生效引用时，身份字段不能变；被已验证组合引用时不能停用。 */
 export async function guardReferenced(em: EntityManager, user: AuthUser, existing: ResourceRecord | null, data: Data, status: string): Promise<void> {

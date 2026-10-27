@@ -5,6 +5,7 @@ import { createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ProductVerificationEvent, ResourceRecord, User } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
+import { BASE_CODE_IDENTITY_FIELDS, inspectBaseCodeReferences } from './base-code-composed';
 import {
   OUTBOUND_LABELS, baseCodeOutbound, buildSnapshot, diffSnapshots, groupIssues, parseSnapshot, sigOf, stripCostChanges, stripOutboundCost,
 } from './base-code-support';
@@ -113,6 +114,14 @@ export class BaseCodeToolsService {
       }
     }
     return { results, verified: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
+  }
+
+  /** 引用信息（旧 /:id/references）：被哪些组合、聚水潭商品用着；前端据此提示“已有生效引用，只能改名称简称规格”并锁定身份字段 */
+  async references(user: AuthUser, id: number) {
+    const em = this.ds.manager;
+    const bc = await this.load(em, user, id);
+    const refs = await inspectBaseCodeReferences(em, user.companyId, bc);
+    return { ...refs, lockedFields: refs.permissions.editIdentityFields ? [] : [...BASE_CODE_IDENTITY_FIELDS] };
   }
 
   /** 验证历史：每次验证通过一行，带和上一次验证相比改了什么（成本类差异按权限去掉） */

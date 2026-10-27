@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
-import { ApiError } from '../api/client';
+import { ApiError, api } from '../api/client';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
@@ -234,6 +234,16 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
 
   const { user: me } = useAuth();
   const canField = (f: FieldDef) => !f.permission || (me ? createChecker(me.permissions)(f.permission) : false);
+  // 基础编码已有生效引用（组合在用、已上传聚水潭）：身份字段锁定，只能改名称、简称、规格和启停
+  const [refLock, setRefLock] = useState<{ label: string; fields: string[]; items: Array<{ sourceLabel: string; name: string }> } | null>(null);
+  useEffect(() => {
+    if (def.key !== 'finance-base-codes' || !record) return;
+    let alive = true;
+    api<{ level: string; label: string; items: Array<{ sourceLabel: string; name: string }>; lockedFields: string[] }>(`/finance/base-codes/${record.id}/references`)
+      .then((r) => alive && setRefLock(r.lockedFields.length ? { label: r.label, fields: r.lockedFields, items: r.items } : null)).catch(() => undefined);
+    return () => { alive = false; };
+  }, [def.key, record]);
+  const locked = useMemo(() => [...(lockedFields ?? []), ...(refLock?.fields ?? [])], [lockedFields, refLock]);
   const visible = useMemo(() => {
     const ctx: Record<string, unknown> = { ...values, status };
     return def.fields.filter((f) => !f.readonly && canField(f)).filter((f) => !(def.key === 'fixed-assets' && record && f.key === 'userId')).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? '')));
@@ -378,7 +388,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
                       type={def.key}
                       known={known}
                       onKnown={(info) => setKnown((cur) => ({ ...cur, [info.id]: info }))}
-                      onChange={(v) => !lockedFields?.includes(f.key) && setValues((cur) => ({ ...cur, [f.key]: v }))}
+                      onChange={(v) => !locked.includes(f.key) && setValues((cur) => ({ ...cur, [f.key]: v }))}
                     />}
                     {f.help && <small className="muted">{f.help}</small>}
                   </label>
@@ -386,6 +396,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
               </div>
             </fieldset>
           ))}
+          {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
           {error && <div role="alert" className="notice error">{error}</div>}
         </div>
         <div className="modal-foot">

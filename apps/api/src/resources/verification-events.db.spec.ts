@@ -59,6 +59,20 @@ d('基础编码验证事件历史（真实数据库）', () => {
     expect(JSON.stringify(h2.rows[0].changes)).not.toMatch(/1200|1000/);
   });
 
+  it('引用信息：没人用是未引用；上传过聚水潭算生效引用，给出被锁定的身份字段，且身份字段真的改不了', async () => {
+    const none = await bc.references(boss, codeId);
+    expect(none.level).toBe('none');
+    expect(none.lockedFields).toEqual([]);
+    await ds.manager.query("UPDATE resource_records SET data = JSON_SET(data, '$.jstUploadedCode', 'JST-1') WHERE id = ?", [codeId]);
+    const eff = await bc.references(boss, codeId);
+    expect(eff.level).toBe('effective');
+    expect(eff.items[0].sourceLabel).toMatch(/聚水潭/);
+    expect(eff.lockedFields).toContain('code');
+    expect(eff.permissions.editDisplayFields).toBe(true);
+    await expect(svc.update(boss, 'finance-base-codes', codeId, { code: 'SG-PG-NEW', codeChangeReason: '改' })).rejects.toThrow(/生效引用/);
+    await ds.manager.query("UPDATE resource_records SET data = JSON_REMOVE(data, '$.jstUploadedCode') WHERE id = ?", [codeId]);
+  });
+
   it('有验证历史的编码不能按“未验证”直接删除', async () => {
     const p = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '另一个苹果', categoryId: (await svc.get(boss, 'finance-products', productId)).data.categoryId as number, purchaseSpec: '千克', specQty: 2, specUnit: 'KG', purchasePrice: 1000, freight: 100, handlingFee: 50 });
     const id = (await svc.list(boss, 'finance-base-codes', { fieldKey: 'productId', fieldValue: p.id } as never)).items[0].id;
