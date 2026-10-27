@@ -208,11 +208,13 @@ d('资料引擎（真实数据库）', () => {
 
   it('总览只统计有权限的类型，并给出到期预警', async () => {
     await svc.create(boss, 'qualifications', { type: 'general', name: '快到期资质', expiresAt: new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10) });
-    const all = await svc.overview(boss);
-    expect(all.alerts.some((a) => a.title === '快到期资质')).toBe(true);
+    await svc.overview(boss);
+    const exp = await svc.expiring(boss, 30);
+    expect(exp.rows.some((a) => a.name === '快到期资质' && a.status === 'due_soon')).toBe(true);
     const limited: AuthUser = { ...boss, permissions: { isCompanyAdmin: false, allow: ['resource.stores.view'], deny: [] } };
     const mine = await svc.overview(limited);
     expect(mine.items.map((i) => i.type)).toEqual(['stores']);
+    expect((await svc.expiring(limited, 30)).rows.some((r) => r.type === 'qualifications')).toBe(false);
     expect(createChecker(limited.permissions)('resource.stores.secret')).toBe(false);
   });
 

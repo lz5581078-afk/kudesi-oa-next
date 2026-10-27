@@ -40,6 +40,7 @@ export interface ListParams {
   tab?: string;
   showHidden?: boolean;
   archived?: boolean;
+  expiring?: boolean;
   fieldKey?: string;
   fieldValue?: string | number;
   filters?: Record<string, string>;
@@ -82,7 +83,14 @@ export interface LogEntry {
 
 export interface OverviewResult {
   items: Array<{ type: string; label: string; total: number; abnormal: number }>;
-  alerts: Array<{ type: string; typeLabel: string; id: number; title: string; label: string; days: number }>;
+}
+
+export interface ExpiringResult {
+  today: string;
+  days: number;
+  total: number;
+  counts: { expired: number; dueSoon: number };
+  rows: Array<{ type: string; typeLabel: string; id: number; name: string; field: string; fieldLabel: string; dueDate: string; daysLeft: number; status: 'expired' | 'due_soon'; resourceStatus: string }>;
 }
 
 export function query(params: ListParams): string {
@@ -94,6 +102,7 @@ export function query(params: ListParams): string {
   if (params.tab) q.set('tab', params.tab);
   if (params.showHidden) q.set('showHidden', '1');
   if (params.archived) q.set('archived', '1');
+  if (params.expiring) q.set('expiring', '1');
   if (params.fieldKey) q.set('fieldKey', params.fieldKey);
   if (params.fieldValue !== undefined) q.set('fieldValue', String(params.fieldValue));
   if (params.filters && Object.keys(params.filters).length) q.set('filters', JSON.stringify(params.filters));
@@ -133,6 +142,7 @@ export const resourceApi = {
   removeLink: (type: string, id: number, linkId: number) => api<{ ok: true }>(`/resources/${type}/${id}/links/${linkId}`, { method: 'DELETE' }),
   relations: (type: string, id: number) => api<Relation[]>(`/resources/${type}/${id}/relations`),
   overview: () => api<OverviewResult>('/resources/overview'),
+  expiring: (days: number) => api<ExpiringResult>(`/resources/expiring?days=${days}`),
   export: (type: string, includeHidden: boolean) =>
     api<{ filename: string; csv: string; count: number }>(`/resources/${type}/export${includeHidden ? '?includeHidden=1' : ''}`),
   importBackups: (type: string) => api<ImportBackupInfo[]>(`/resources/${type}/import-backups`),

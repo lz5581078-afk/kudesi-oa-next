@@ -170,6 +170,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       textarea('businessScope', '经营范围', '基础'),
       date('foundedAt', '成立日期', '基础'),
       date('approvedAt', '核准日期', '基础'),
+      date('expiresAt', '营业期限至', '基础', { list: true, help: '长期经营的不用填；到期前会在资料总览的“即将到期”里提醒' }),
       text('registrar', '登记机关', '基础'),
       { key: 'annualAuditDay', label: '年审日期(月-日)', type: 'monthday', group: '基础', list: true },
       textarea('abnormalReason', '异常原因', '基础', { showWhen: { field: 'status', in: ['abnormal'] } }),

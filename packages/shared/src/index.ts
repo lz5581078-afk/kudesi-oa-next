@@ -8,6 +8,7 @@ export * from './pricing';
 export * from './pricing-debug';
 export * from './auth';
 export * from './resources';
+export * from './expiry';
 export * from './archive-policy';
 export * from './freight';
 export * from './flow';

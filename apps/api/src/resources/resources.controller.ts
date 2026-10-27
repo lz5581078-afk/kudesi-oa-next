@@ -17,6 +17,12 @@ class ListQueryDto {
   @IsOptional() @IsString() @MaxLength(400) filters?: string;
   @IsOptional() @IsString() showHidden?: string;
   @IsOptional() @IsString() archived?: string;
+  @IsOptional() @IsString() expiring?: string;
+}
+
+class ExpiringQueryDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(366) days?: number;
+  @IsOptional() @IsString() includeExpired?: string;
 }
 
 class CategoryTreeQueryDto {
@@ -85,6 +91,12 @@ export class ResourcesController {
     return this.resources.overview(user);
   }
 
+  @AuthenticatedOnly()
+  @Get('expiring')
+  expiring(@CurrentUser() user: AuthUser, @Query() q: ExpiringQueryDto) {
+    return this.resources.expiring(user, q.days, q.includeExpired !== '0');
+  }
+
   @RequireResourceAction('view')
   @Get(':type/category-tree')
   categoryTree(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: CategoryTreeQueryDto) {
@@ -94,7 +106,7 @@ export class ResourcesController {
   @RequireResourceAction('view')
   @Get(':type')
   list(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ListQueryDto) {
-    return this.resources.list(user, type, { ...q, showHidden: q.showHidden === '1', archived: q.archived === '1' });
+    return this.resources.list(user, type, { ...q, showHidden: q.showHidden === '1', archived: q.archived === '1', expiring: q.expiring === '1' });
   }
 
   @RequireResourceAction('export')

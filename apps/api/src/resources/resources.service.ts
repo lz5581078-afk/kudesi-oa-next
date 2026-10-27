@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, IsNull, Not } from 'typeorm';
 import {
   unitYuanText, yuanToPreciseCents, createChecker,
-  daysUntil,
+  addDaysText, daysBetweenDates, dueDateFor, expirySources, EXPIRY_SKIP_STATUSES, todayShanghai,
   FieldDef,
   getResourceDef,
   isTreeResource,
@@ -51,6 +51,8 @@ export interface ResourceDto {
 export interface ListQuery {
   /** true=只看已归档；默认不含已归档 */
   archived?: boolean;
+  /** true=只看即将到期/已过期的（30 天内，规则见 shared/expiry.ts） */
+  expiring?: boolean;
   page?: number;
   pageSize?: number;
   keyword?: string;
@@ -635,11 +637,18 @@ export class ResourcesService implements RuleHost {
       }
     }
 
+    let expiringIds: number[] | null = null;
+    if (q.expiring) {
+      expiringIds = [...new Set((await this.expiring(user, 30, true)).rows.filter((r) => r.type === type).map((r) => r.id))];
+      if (!expiringIds.length) expiringIds = [0];
+    }
+
     const base = () => {
       const qb = em
         .createQueryBuilder(ResourceRecord, 'r')
         .where('r.companyId = :companyId AND r.type = :type', { companyId: user.companyId, type });
       qb.andWhere(q.archived ? 'r.archivedAt IS NOT NULL' : 'r.archivedAt IS NULL');
+      if (expiringIds) qb.andWhere('r.id IN (:...expiringIds)', { expiringIds });
       if (q.archived) {
         // 已归档列表：不再按“隐藏状态”过滤（归档后的状态本来就是停用/注销）
       } else if (q.status) {
@@ -1058,24 +1067,50 @@ export class ResourcesService implements RuleHost {
     const can = createChecker(user.permissions);
     const em = this.dataSource.manager;
     const items: Array<{ type: string; label: string; total: number; abnormal: number }> = [];
-    const alerts: Array<{ type: string; typeLabel: string; id: number; title: string; label: string; days: number }> = [];
     for (const def of RESOURCE_DEFS) {
       if (!def.nav || def.nav.section || !can(resourcePermission(def.key, 'view'))) continue;
       const hidden = def.statuses.filter((s) => s.hidden).map((s) => s.value);
-      const rows = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: def.key, archivedAt: IsNull() }, select: ['id', 'title', 'status', 'data'] });
+      const rows = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: def.key, archivedAt: IsNull() }, select: ['id', 'status'] });
       const active = rows.filter((r) => !hidden.includes(r.status));
       items.push({ type: def.key, label: def.label, total: active.length, abnormal: active.filter((r) => r.status === 'abnormal').length });
-      for (const rule of def.alerts ?? []) {
-        for (const r of active) {
-          const v = r.data[rule.field];
-          if (typeof v !== 'string') continue;
-          const days = daysUntil(v);
-          if (days !== null && days <= rule.withinDays) alerts.push({ type: def.key, typeLabel: def.label, id: r.id, title: r.title, label: rule.label, days });
+    }
+    return { items };
+  }
+
+  /** 即将到期 / 已过期统一列表（旧系统 expiring.js）：按每种资料的查看权限过滤；停用/注销/已归档的不提醒。 */
+  async expiring(user: AuthUser, days = 30, includeExpired = true, today: string = todayShanghai()) {
+    const can = createChecker(user.permissions);
+    const window = Math.min(366, Math.max(0, Math.floor(Number.isFinite(days) ? days : 30)));
+    const limit = addDaysText(today, window);
+    const em = this.dataSource.manager;
+    const sources = expirySources().filter((src) => can(resourcePermission(src.resource, 'view')));
+    const types = [...new Set(sources.map((x) => x.resource))];
+    const rows: Array<{ type: string; typeLabel: string; id: number; name: string; field: string; fieldLabel: string; dueDate: string; daysLeft: number; status: 'expired' | 'due_soon'; resourceStatus: string }> = [];
+    for (const type of types) {
+      const def = getResourceDef(type);
+      if (!def) continue;
+      const records = await em.find(ResourceRecord, {
+        where: { companyId: user.companyId, type, archivedAt: IsNull(), status: Not(In([...EXPIRY_SKIP_STATUSES])) },
+        select: ['id', 'title', 'status', 'data'],
+      });
+      for (const src of sources.filter((x) => x.resource === type)) {
+        for (const r of records) {
+          const due = dueDateFor(src, r.data, today);
+          if (!due || due > limit) continue;
+          const daysLeft = daysBetweenDates(today, due);
+          if (daysLeft < 0 && !includeExpired) continue;
+          rows.push({ type, typeLabel: def.label, id: r.id, name: r.title, field: src.field, fieldLabel: src.label, dueDate: due, daysLeft, status: daysLeft < 0 ? 'expired' : 'due_soon', resourceStatus: r.status });
         }
       }
     }
-    alerts.sort((a, b) => a.days - b.days);
-    return { items, alerts: alerts.slice(0, 100) };
+    rows.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : a.type.localeCompare(b.type) || a.id - b.id));
+    return {
+      today,
+      days: window,
+      total: rows.length,
+      counts: { expired: rows.filter((x) => x.status === 'expired').length, dueSoon: rows.filter((x) => x.status === 'due_soon').length },
+      rows: rows.slice(0, 500),
+    };
   }
 
   // ---------- 导出 / 导入 ----------

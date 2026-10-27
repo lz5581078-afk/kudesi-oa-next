@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { resourceApi, type OverviewResult } from './api';
+import { recordLink } from './recordLink';
+import { resourceApi, type ExpiringResult, type OverviewResult } from './api';
 
 export function ResourceOverviewPage() {
   const [data, setData] = useState<OverviewResult | null>(null);
+  const [exp, setExp] = useState<ExpiringResult | null>(null);
+  const [days, setDays] = useState(30);
   const [error, setError] = useState('');
   useEffect(() => {
     resourceApi.overview().then(setData).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
   }, []);
+  useEffect(() => {
+    resourceApi.expiring(days).then(setExp).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
+  }, [days]);
   return (
     <div className="stack">
       <div className="page-head"><h1>资料总览</h1></div>
@@ -23,19 +29,25 @@ export function ResourceOverviewPage() {
         ))}
       </div>
       <section className="card">
-        <div className="card-foot"><strong>需要关注</strong>（已过期、或即将到期）</div>
+        <div className="card-foot between">
+          <span><strong>即将到期 / 已过期</strong>{exp ? `（已过期 ${exp.counts.expired}，${days} 天内到期 ${exp.counts.dueSoon}）` : ''}</span>
+          <select aria-label="提前天数" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            {[7, 30, 60, 90, 180, 366].map((d) => <option key={d} value={d}>{d} 天内</option>)}
+          </select>
+        </div>
         <table className="data-table">
-          <thead><tr><th>资料</th><th>名称</th><th>事项</th><th>剩余</th></tr></thead>
+          <thead><tr><th>资料</th><th>名称</th><th>事项</th><th>日期</th><th>剩余</th></tr></thead>
           <tbody>
-            {data?.alerts.map((a) => (
-              <tr key={`${a.type}-${a.id}-${a.label}`}>
+            {exp?.rows.map((a) => (
+              <tr key={`${a.type}-${a.id}-${a.field}`}>
                 <td>{a.typeLabel}</td>
-                <td><Link to={`/resource/${a.type}`}>{a.title}</Link></td>
-                <td>{a.label}</td>
-                <td>{a.days < 0 ? <span className="pill bad">已过 {-a.days} 天</span> : <span className="pill warn">{a.days} 天</span>}</td>
+                <td>{recordLink(a.type, a.id) ? <Link to={recordLink(a.type, a.id)!}>{a.name}</Link> : a.name}</td>
+                <td>{a.fieldLabel}</td>
+                <td>{a.dueDate}</td>
+                <td>{a.daysLeft < 0 ? <span className="pill bad">已过 {-a.daysLeft} 天</span> : <span className="pill warn">{a.daysLeft} 天</span>}</td>
               </tr>
             ))}
-            {data && data.alerts.length === 0 && <tr><td colSpan={4} className="muted center">暂无预警</td></tr>}
+            {exp && exp.rows.length === 0 && <tr><td colSpan={5} className="muted center">暂无到期事项</td></tr>}
           </tbody>
         </table>
       </section>

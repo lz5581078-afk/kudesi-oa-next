@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PARTY_SEED_CATEGORIES, archivePolicyOf, getResourceDef, treeFilterField, type FieldDef } from '@kudesi/shared';
+import { PARTY_SEED_CATEGORIES, archivePolicyOf, expirySources, getResourceDef, treeFilterField, type FieldDef } from '@kudesi/shared';
+import { useSearchParams } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
 import { resourceApi, type ListResult } from './api';
@@ -44,6 +45,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [status, setStatus] = useState('');
   const [showHidden, setShowHidden] = useState(false);
   const [archived, setArchived] = useState(false);
+  const [expiring, setExpiring] = useState(false);
   const [filterVals, setFilterVals] = useState<Record<string, string>>({});
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
   const treeField = useMemo(() => treeFilterField(def), [def]);
@@ -100,16 +102,26 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
     setData(null);
   }, [type, lockedTab]);
 
+  // 从别处（关联、到期提醒）带 ?open=id 跳来时，直接打开这条记录
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const open = Number(searchParams.get('open'));
+    if (open > 0) {
+      setSelected(open);
+      setSearchParams((p) => { p.delete('open'); return p; }, { replace: true });
+    }
+  }, [searchParams, setSearchParams, type]);
+
   const load = useCallback(async () => {
     try {
-      setData(await resourceApi.list(type, { page, pageSize: PAGE_SIZE, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, filters: filterVals }));
+      setData(await resourceApi.list(type, { page, pageSize: PAGE_SIZE, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, filters: filterVals }));
       setError('');
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
-  }, [type, page, keyword, tab, status, showHidden, archived, filterVals]);
+  }, [type, page, keyword, tab, status, showHidden, archived, expiring, filterVals]);
 
-  useEffect(() => { setArchived(false); }, [type]);
+  useEffect(() => { setArchived(false); setExpiring(false); }, [type]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), 200); // 输入搜索时稍作防抖
@@ -214,6 +226,11 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               <option value="">状态：全部</option>
               {def.statuses.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
+            {expirySources().some((x) => x.resource === type) && (
+              <button type="button" className={expiring ? 'secondary-button active' : 'secondary-button'} aria-pressed={expiring} onClick={() => { setExpiring((v) => !v); setPage(1); }}>
+                即将到期
+              </button>
+            )}
             {archivePolicyOf(type) && (
               <button type="button" className={archived ? 'secondary-button active' : 'secondary-button'} aria-pressed={archived} onClick={() => { setArchived((v) => !v); setPage(1); }}>
                 已归档{data?.archivedCount !== undefined ? ` ${data.archivedCount}` : ''}

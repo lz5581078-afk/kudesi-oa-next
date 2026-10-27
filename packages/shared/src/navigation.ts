@@ -235,3 +235,23 @@ export const PLATFORM_PAGES = [
   { id: 'companies', title: '企业管理' },
 ] as const;
 export type PlatformPageId = (typeof PLATFORM_PAGES)[number]['id'];
+
+/**
+ * 资料记录的页面路径（用于“关联”“到期提醒”等处跳转并打开这条记录）。
+ * 优先找以资料类型为页面的菜单项；银行卡这类按类型拆成多个入口的，取第一个入口；找不到（只在别的页面里作为页签/子资料出现）返回 null。
+ */
+export function resourcePagePath(type: string): string | null {
+  for (const section of NAV_SECTIONS) {
+    if (section.id !== 'resource' && section.id !== 'finance') continue;
+    const direct = section.pages.find((p) => p.id === type && p.ready);
+    if (direct) return direct.path;
+  }
+  const view = RESOURCE_VIEWS.find((v) => v.type === type);
+  if (view) {
+    for (const section of NAV_SECTIONS) {
+      const p = section.pages.find((x) => x.id === view.id && x.ready);
+      if (p) return p.path;
+    }
+  }
+  return null;
+}
