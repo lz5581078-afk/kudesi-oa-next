@@ -2,7 +2,8 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { SIMILARITY_RESOURCES, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
-import { resourceApi, type FileInfo, type ResourceDto } from './api';
+import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
+import { ProductQualityDialog, mergeZeroReasons, zeroItemsMissingReason } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
 import { LicenseRecognizeButton } from './LicenseRecognize';
 
@@ -212,14 +213,18 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
   }
 }
 
+type SaveMode = 'close' | 'blank' | 'keep';
+
 /** 新建/编辑弹窗：按字段定义生成，按字段分组；showWhen 不满足的字段不显示。 */
-export function RecordForm({ def, record, initial, lockedFields, onClose, onSaved }: {
+export function RecordForm({ def, record, initial, lockedFields, onClose, onSaved, onContinued }: {
   def: ResourceDef;
   record: ResourceDto | null;
   initial?: Record<string, unknown>;
   lockedFields?: string[];
   onClose: () => void;
   onSaved: (dto: ResourceDto) => void;
+  /** 提供了它，新建时就多出“保存并继续新建”：保存后不关弹窗，列表由它刷新 */
+  onContinued?: (dto: ResourceDto) => void;
 }) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...(record?.data ?? {}), ...(initial ?? {}) }));
   const [status, setStatus] = useState(record?.status ?? def.defaultStatus);
@@ -240,29 +245,95 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
     return [...map.entries()];
   }, [visible]);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  // 商品档案新建：草稿（每人每个档案类型一份，存在服务器上）、保存并继续新建
+  const isProduct = def.key === 'finance-products';
+  const draftEnabled = !record && isProduct;
+  const draftKey = draftApi.key(`resource:${def.key}`, [String(initial?.archiveType ?? ''), String(initial?.supplyMode ?? '')]);
+  const [draftNote, setDraftNote] = useState('');
+  const [quality, setQuality] = useState<{ body: Record<string, unknown>; mode: SaveMode; missing: Array<{ key: string; label: string }> } | null>(null);
+  useEffect(() => {
+    if (!draftEnabled) return;
+    let alive = true;
+    draftApi.get(draftKey).then((r) => {
+      if (!alive || !r.draft) return;
+      setValues((cur) => ({ ...cur, ...r.draft!.payload }));
+      setDraftNote('已恢复上次保存的草稿。');
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function currentBody() {
+    // 只提交可见字段；密码类留空表示不修改，所以空值不提交
+    const body: Record<string, unknown> = {};
+    for (const f of visible) {
+      const v = values[f.key];
+      if (f.type === 'secret' && (v === undefined || v === '')) continue;
+      body[f.key] = v === undefined ? (f.type === 'files' ? [] : f.type === 'attrs' ? {} : '') : v;
+    }
+    return body;
+  }
+
+  async function saveDraft() {
     setBusy(true);
     setError('');
     try {
-      // 只提交可见字段；密码类留空表示不修改，所以空值不提交
-      const body: Record<string, unknown> = {};
-      for (const f of visible) {
-        const v = values[f.key];
-        if (f.type === 'secret' && (v === undefined || v === '')) continue;
-        body[f.key] = v === undefined ? (f.type === 'files' ? [] : f.type === 'attrs' ? {} : '') : v;
-      }
-      if (SIMILARITY_RESOURCES.includes(def.key)) {
+      await draftApi.save(draftKey, { moduleKey: `resource:${def.key}`, title: `新增${def.label}`, payload: currentBody() });
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '草稿保存失败');
+      setBusy(false);
+    }
+  }
+
+  async function clearDraft() {
+    await draftApi.remove(draftKey).catch(() => undefined);
+    setDraftNote('');
+  }
+
+  async function prepare(mode: SaveMode) {
+    setBusy(true);
+    setError('');
+    try {
+      const body = currentBody();
+      if (SIMILARITY_RESOURCES.includes(def.key) && (!isProduct || !record || body.name !== record.data.name)) {
         const sim = await resourceApi.similarCheck(def.key, { ...(record?.data ?? {}), ...body }, record?.id).catch(() => null);
         if (sim?.warnings.length && !window.confirm(`发现相似的资料，确定仍要保存吗？\n\n${sim.warnings.slice(0, 3).map((w) => w.text).join('\n')}`)) { setBusy(false); return; }
       }
-      const saved = record ? await resourceApi.update(def.key, record.id, body) : await resourceApi.create(def.key, body, status);
-      clearRefCache(def.key);
-      onSaved(saved);
+      const missing = isProduct ? zeroItemsMissingReason(body) : [];
+      if (missing.length) { setQuality({ body, mode, missing }); setBusy(false); return; }
+      await commit(body, mode);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存失败，请重试');
       setBusy(false);
     }
+  }
+
+  async function commit(body: Record<string, unknown>, mode: SaveMode) {
+    setBusy(true);
+    setError('');
+    try {
+      const saved = record ? await resourceApi.update(def.key, record.id, body) : await resourceApi.create(def.key, body, status);
+      clearRefCache(def.key);
+      if (draftEnabled) await clearDraft();
+      if (mode === 'close' || !onContinued) { onSaved(saved); return; }
+      // 继续新建：“保存并继续新建”留空重填（只留档案类型、分类、采购方式），“不清除保存”带着内容，只清掉每个商品独有的编码和赠品简称
+      onContinued(saved);
+      setValues(mode === 'blank'
+        ? Object.fromEntries(['archiveType', 'supplyMode', 'categoryId', 'purchaseSpec', 'specUnit'].filter((k) => values[k] !== undefined).map((k) => [k, values[k]]))
+        : { ...values, code: '', giftShortName: '', giftCodeShortName: '', zeroValueReason: '' });
+      setKnown({});
+      setDraftNote(`已保存「${String(saved.title ?? '')}」，可以继续新建。`);
+      setBusy(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '保存失败，请重试');
+      setBusy(false);
+    }
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    void prepare('close');
   }
 
   return (
@@ -278,6 +349,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
               onApply={(fields) => setValues((cur) => ({ ...cur, ...fields }))}
             />
           )}
+          {draftNote && <div className="notice">{draftNote}{draftEnabled && draftNote.startsWith('已恢复') && <> <button type="button" className="link-button" onClick={() => void clearDraft()}>清除草稿</button></>}</div>}
           {!record && def.statuses.length > 1 && def.key !== 'fixed-assets' && (
             <label>初始状态
               <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -312,9 +384,24 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
         </div>
         <div className="modal-foot">
           <button type="button" className="secondary-button" onClick={onClose}>取消</button>
+          {draftEnabled && <button type="button" className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>存为草稿</button>}
+          {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新建</button>}
+          {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('blank')}>保存并继续新建</button>}
           <button type="submit" className="primary-button" disabled={busy}>{busy ? '保存中…' : '保存'}</button>
         </div>
       </form>
+      {quality && (
+        <ProductQualityDialog
+          body={quality.body}
+          missing={quality.missing}
+          onCancel={() => setQuality(null)}
+          onConfirm={(reasons) => {
+            const { body, mode } = quality;
+            setQuality(null);
+            void commit({ ...body, zeroValueReason: mergeZeroReasons(String(body.zeroValueReason ?? ''), reasons) }, mode);
+          }}
+        />
+      )}
     </div>
   );
 }

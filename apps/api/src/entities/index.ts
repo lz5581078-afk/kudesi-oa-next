@@ -1063,6 +1063,21 @@ export class SessionRemoteSignal {
   @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
 }
 
+/** 表单草稿：每人每个草稿标识一份（草稿只给本人看，内容就是还没保存的表单值）。 */
+@Entity('form_drafts')
+export class FormDraft {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'user_id', type: 'int', unsigned: true }) userId!: number;
+  @Column({ name: 'draft_key', type: 'varchar', length: 190 }) draftKey!: string;
+  @Column({ name: 'module_key', type: 'varchar', length: 80 }) moduleKey!: string;
+  @Column({ type: 'varchar', length: 200, default: '' }) title!: string;
+  @Column({ name: 'source_record_id', type: 'varchar', length: 40, nullable: true }) sourceRecordId!: string | null;
+  @Column({ type: 'json' }) payload!: Record<string, unknown>;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+  @Column({ name: 'updated_at', ...dt, insert: false, update: false }) updatedAt!: Date;
+}
+
 export const ALL_ENTITIES = [
   SessionDevice,
   SessionBindCode,
@@ -1109,4 +1124,5 @@ export const ALL_ENTITIES = [
   ResourceChangeLog,
   IntegrationSetting,
   ResourceFile,
+  FormDraft,
 ];

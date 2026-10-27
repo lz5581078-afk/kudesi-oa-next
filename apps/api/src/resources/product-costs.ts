@@ -33,7 +33,7 @@ function validDate(v: unknown, label: string, required = false): string | null {
 }
 
 /** 系统自动写入时用的身份：操作人还是本人（日志记他），但不受他字段权限的限制（运营没有成本权限，也要记运费历史）。 */
-const asAdmin = (user: AuthUser): AuthUser => ({ ...user, permissions: { isCompanyAdmin: true, allow: [], deny: [] } });
+export const asAdmin = (user: AuthUser): AuthUser => ({ ...user, permissions: { isCompanyAdmin: true, allow: [], deny: [] } });
 
 /** 系统自己写入（自动同步、运费历史）时在事务上做标记，手工保存不带标记。 */
 export async function asSystem<T>(em: EntityManager, key: string, fn: () => Promise<T>): Promise<T> {

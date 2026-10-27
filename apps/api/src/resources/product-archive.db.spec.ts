@@ -16,6 +16,7 @@ d('商品档案与基础编码（真实数据库）', () => {
   let boss: AuthUser;
   let ops: AuthUser;
   const ids: Record<string, number> = {};
+  let brandCode = '';
 
   const mkRaw = (over: Record<string, unknown> = {}) =>
     svc.create(boss, 'finance-products', { archiveType: 'raw', name: '苹果', categoryId: ids.leaf, purchaseSpec: '千克', specQty: 1, specUnit: 'KG', purchasePrice: 1000, freight: 100, handlingFee: 50, ...over });
@@ -33,7 +34,9 @@ d('商品档案与基础编码（真实数据库）', () => {
     const root = (await svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '水果', code: 'SG' })).id;
     ids.leaf = (await svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '苹果类', code: 'PG', parentId: root })).id;
     ids.pkgCat = (await svc.create(boss, 'finance-categories', { archiveType: 'package', name: '礼盒', code: 'LH' })).id;
-    ids.brand = (await svc.create(boss, 'finance-brands', { name: '果园先生' })).id;
+    const brand = await svc.create(boss, 'finance-brands', { name: '果园先生' });
+    ids.brand = brand.id;
+    brandCode = String(brand.data.code);
   });
   afterAll(async () => { await ds?.destroy(); });
 
@@ -212,5 +215,31 @@ d('商品档案与基础编码（真实数据库）', () => {
     await svc.create(boss, 'finance-product-sources', { productId: raw.id, supplierId: sup.id, originArea: '山东', purchasePrice: 888 });
     const rawCosts = await costs(raw.id);
     expect(rawCosts.some((r) => r.data.sourceType === 'raw_supply_source' && r.data.unitCost === 888)).toBe(true);
+  });
+
+  it('相似提示：只和同一档案类型的比，名称相同/相似给提示；品牌和单位显示成名称；分类码、品牌码不能重复', async () => {
+    await mkRaw({ name: '阳光玫瑰葡萄', specQty: 2, specUnit: 'J' });
+    const same = await svc.similarCheck(boss, 'finance-products', { archiveType: 'raw', name: '阳光玫瑰葡萄', specQty: 2, specUnit: 'J' });
+    expect(same.warnings[0].text).toContain('名称完全相同');
+    const alike = await svc.similarCheck(boss, 'finance-products', { archiveType: 'raw', name: '阳光玫瑰葡萄干', specQty: 1, specUnit: 'KG' });
+    expect(alike.warnings[0].warnings.join()).toMatch(/名称相似/);
+    expect(alike.warnings[0].text).toContain('规格单位（本次：千克；已有：斤）');
+    // 别的档案类型不比
+    const other = await svc.similarCheck(boss, 'finance-products', { archiveType: 'package', name: '阳光玫瑰葡萄' });
+    expect(other.warnings).toHaveLength(0);
+    await expect(svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '水果二', code: 'SG' })).rejects.toThrow(/分类码 SG 已被“水果”使用，请换一个，例如 SG2/);
+    await expect(svc.create(boss, 'finance-brands', { name: '果园先生二', code: brandCode })).rejects.toThrow(/品牌码 .* 已被“果园先生”使用/);
+    // 自己保存自己不算重复
+    await svc.update(boss, 'finance-brands', ids.brand, { name: '果园先生', code: brandCode });
+  });
+
+  it('零值原因库：商品档案“零值说明”里写过的原因自动入库，重复不重复入；可手工维护', async () => {
+    await mkRaw({ name: '零值苹果', purchasePrice: 1000, freight: 0, handlingFee: 0, zeroValueReason: '运费：产地自提\n装卸费：  产地自提 ' });
+    await mkRaw({ name: '零值苹果二', purchasePrice: 1000, freight: 0, handlingFee: 50, zeroValueReason: '运费：产地自提' });
+    const rows = (await svc.list(boss, 'finance-zero-reasons', { pageSize: 50 } as never)).items as Array<{ title: string }>;
+    expect(rows.filter((r) => r.title === '产地自提')).toHaveLength(1);
+    await svc.create(boss, 'finance-zero-reasons', { reason: ' 客户  自备 ' });
+    await expect(svc.create(boss, 'finance-zero-reasons', { reason: '客户 自备' })).rejects.toThrow(/已存在|重复/);
+    await expect(svc.create(boss, 'finance-zero-reasons', { reason: '   ' })).rejects.toThrow();
   });
 });

@@ -9,6 +9,8 @@ import {
   isTreeResource,
   treeFilterField,
   SIMILARITY_RESOURCES,
+  PRODUCT_SIMILARITY_FIELDS,
+  UNIT_OPTIONS,
   inspectArchiveSimilarity,
   formatSimilarityMatch,
   normalizePhone,
@@ -859,7 +861,21 @@ export class ResourcesService implements RuleHost {
   async similarCheck(user: AuthUser, type: string, values: Record<string, unknown>, excludeId?: number) {
     if (!SIMILARITY_RESOURCES.includes(type)) throw new BadRequestException('这类资料不做相似检测');
     const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'data'] });
-    const r = inspectArchiveSimilarity(values, rows.map((x) => ({ id: x.id, data: x.data })), excludeId);
+    const isProduct = type === 'finance-products';
+    // 商品档案只和同一档案类型的比，且已删除/归档的不算
+    let pool = isProduct ? rows.filter((x) => x.data.archiveType === values.archiveType) : rows;
+    let cand = values;
+    if (isProduct) {
+      // 品牌、规格单位显示成名称，比较提示里才看得懂
+      const brands = new Map((await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-brands' }, select: ['id', 'title'] })).map((b) => [b.id, b.title] as const));
+      const unitLabel = (v: unknown) => UNIT_OPTIONS.find((u) => u.value === v)?.label ?? v;
+      const readable = (d: Record<string, unknown>) => ({ ...d, brandId: brands.get(Number(d.brandId)) ?? '', specUnit: unitLabel(d.specUnit) });
+      cand = readable(values);
+      pool = pool.map((x) => ({ ...x, data: readable(x.data) }) as ResourceRecord);
+    }
+    const r = inspectArchiveSimilarity(cand, pool.map((x) => ({ id: x.id, data: x.data })), excludeId, isProduct ? PRODUCT_SIMILARITY_FIELDS : undefined);
+    // 商品编码是自动生成、本来就不会相同，“已填字段完全相同”在商品上只提示（需确认），不直接拦截
+    if (isProduct) return { blocked: [], warnings: [...r.blocked, ...r.warnings].slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })) };
     return { blocked: r.blocked.slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })), warnings: r.warnings.slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })) };
   }
 

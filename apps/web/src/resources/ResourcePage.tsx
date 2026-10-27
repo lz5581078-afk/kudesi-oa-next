@@ -404,6 +404,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           record={null}
           initial={copyInit ?? newInitial()}
           onClose={() => { setCreating(false); setCopyInit(null); }}
+          onContinued={() => void load()}
           onSaved={(dto) => {
             setCreating(false);
             setCopyInit(null);

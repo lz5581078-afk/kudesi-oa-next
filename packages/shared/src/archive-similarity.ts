@@ -3,7 +3,12 @@
  * 名称完全相同或相似度 >= 55%、简称相同、电话相同给提示（可确认后继续）；
  * 编号相同、税号相同，或已填写的字段全部相同则直接阻止。
  */
-export const SIMILARITY_RESOURCES: readonly string[] = ['finance-suppliers', 'finance-customers'];
+export const SIMILARITY_RESOURCES: readonly string[] = ['finance-suppliers', 'finance-customers', 'finance-products'];
+
+/** 商品档案参与比较的字段（只在同一档案类型里比；旧系统比较整张表单，这里取有区分意义的字段） */
+export const PRODUCT_SIMILARITY_FIELDS: Readonly<Record<string, string>> = {
+  code: '编码', name: '名称', brandId: '品牌', specQty: '规格数量', specUnit: '规格单位', purchaseSpec: '系统规格', supplyMode: '供货方式',
+};
 
 /** 参与比较的字段 → 显示名；其余字段（分类、备注、状态、加密字段）不参与 */
 export const SIMILARITY_FIELDS: Readonly<Record<string, string>> = {
@@ -47,8 +52,8 @@ export interface SimilarityMatch {
   differentFields: Array<{ label: string; candidate: string; existing: string }>;
 }
 
-export function inspectArchiveSimilarity(candidate: Record<string, unknown>, existing: SimilarityExisting[], excludeId?: number): { blocked: SimilarityMatch[]; warnings: SimilarityMatch[] } {
-  const entries = Object.keys(SIMILARITY_FIELDS).map((k) => [k, candidate[k]] as const).filter(([, v]) => normalizeArchiveValue(v));
+export function inspectArchiveSimilarity(candidate: Record<string, unknown>, existing: SimilarityExisting[], excludeId?: number, fields: Readonly<Record<string, string>> = SIMILARITY_FIELDS): { blocked: SimilarityMatch[]; warnings: SimilarityMatch[] } {
+  const entries = Object.keys(fields).map((k) => [k, candidate[k]] as const).filter(([, v]) => normalizeArchiveValue(v));
   const name = normalizeArchiveValue(candidate.name);
   const out: SimilarityMatch[] = [];
   for (const item of existing) {
@@ -62,10 +67,10 @@ export function inspectArchiveSimilarity(candidate: Record<string, unknown>, exi
     const diff: SimilarityMatch['differentFields'] = [];
     for (const [k, v] of entries) {
       const equal = normalizeArchiveValue(v) === normalizeArchiveValue(item.data[k]);
-      if (equal) same.push(SIMILARITY_FIELDS[k]);
-      else diff.push({ label: SIMILARITY_FIELDS[k], candidate: String(v ?? '').trim(), existing: String(item.data[k] ?? '').trim() });
+      if (equal) same.push(fields[k]);
+      else diff.push({ label: fields[k], candidate: String(v ?? '').trim(), existing: String(item.data[k] ?? '').trim() });
       if (!equal || k === 'name') continue;
-      if (IDENTITY.has(k)) blockers.push(`${SIMILARITY_FIELDS[k]}完全相同`);
+      if (IDENTITY.has(k)) blockers.push(`${fields[k]}完全相同`);
       else if (k === 'shortName') warnings.push('简称相同');
       else if (k === 'phone') warnings.push('联系电话相同');
     }

@@ -183,6 +183,16 @@ export const resourceApi = {
   users: () => api<Array<{ id: number; name: string; active: boolean }>>('/org/users'),
 };
 
+/** 表单草稿（每人每个标识一份，存在服务器上，换电脑也能接着填） */
+export const draftApi = {
+  key: (moduleKey: string, parts: string[] = []) =>
+    [moduleKey, ...parts].map((v) => encodeURIComponent(String(v ?? '').trim() || '_')).join(':').slice(0, 190),
+  get: (key: string) => api<{ draft: { payload: Record<string, unknown>; title: string; updatedAt: string } | null }>(`/form-drafts/${encodeURIComponent(key)}`),
+  save: (key: string, body: { moduleKey: string; title: string; payload: Record<string, unknown> }) =>
+    api<unknown>(`/form-drafts/${encodeURIComponent(key)}`, { method: 'PUT', body }),
+  remove: (key: string) => api<unknown>(`/form-drafts/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+};
+
 export type { ResourceDef };
 
 export interface IntegrationOverview {

@@ -13,7 +13,7 @@ import { EXPRESS_AFTER_SAVE, EXPRESS_BEFORE_SAVE } from './express-rules';
 import { applyGiftAliases, basicInfoFullName } from './product-extras';
 import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, beforeBaseCodeLine, guardReferenced, isComposed, refreshComposedTotals, seedMainLine } from './base-code-composed';
 import { composedFacts } from './base-code-support';
-import { afterFreightHistoryDelete, beforeFreightHistory, beforeProductCost, recordFreightHistory, refreshLatestCost, syncAutoCost } from './product-costs';
+import { asAdmin, afterFreightHistoryDelete, beforeFreightHistory, beforeProductCost, recordFreightHistory, refreshLatestCost, syncAutoCost } from './product-costs';
 import { bundleIssues, hasChildren, normalizeLineExtras, pickLine } from './bundle-checks';
 import { assertLaborUsable, LABOR_AFTER_SAVE, LABOR_BEFORE_SAVE } from './labor-rules';
 
@@ -79,6 +79,7 @@ async function beforeCategory(ctx: BeforeSaveContext) {
   data.name = str(data.name).normalize('NFKC').trim().replace(/\s+/g, ' ');
   data.code = str(data.code).toUpperCase();
   if (!/^[A-Z0-9]{1,8}$/.test(str(data.code))) throw new BadRequestException('分类码只能是 1～8 位大写字母或数字');
+  await assertCodeFree(ctx, 'finance-categories', str(data.code), '分类码');
   const parent = await rec(em, user.companyId, 'finance-categories', data.parentId);
   if (parent) {
     data.archiveType = parent.data.archiveType;
@@ -96,9 +97,33 @@ async function beforeCategory(ctx: BeforeSaveContext) {
   }
 }
 
+/** 商品档案“零值说明”里写过的原因，自动记进零值原因库，下次可以直接选（旧系统确认零值时同样入库）。 */
+async function rememberZeroReasons(host: RuleHost, em: EntityManager, user: AuthUser, text: string) {
+  for (const line of text.split(/\r?\n/)) {
+    const reason = line.replace(/^[^：:]*[：:]/, '').normalize('NFKC').trim().replace(/\s+/g, ' ');
+    if (!reason || reason.length > 180) continue;
+    if (await host.findByUnique(em, user.companyId, 'finance-zero-reasons', reason.toLowerCase())) continue;
+    await host.createRecord(em, asAdmin(user), 'finance-zero-reasons', { reason }, '商品档案零值说明自动入库');
+  }
+}
+
+/** 分类码、品牌码在同一类字典里不能重复（旧系统 uk_product_code_dictionary_code）；重复时给出可用的建议。 */
+async function assertCodeFree(ctx: BeforeSaveContext, type: string, code: string, label: string) {
+  const { em, user, existing } = ctx;
+  if (em.queryRunner?.data.legacyImport) return;
+  const all = (await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'title', 'data'] })).filter((r) => r.id !== existing?.id && str(r.data.code));
+  const used = new Map(all.map((r) => [str(r.data.code).toUpperCase(), r.title] as const));
+  if (!used.has(code)) return;
+  let n = 2;
+  const stem = code.slice(0, 7);
+  while (used.has(`${stem}${n}`) && n < 100) n++;
+  throw new BadRequestException(`${label} ${code} 已被“${used.get(code)}”使用，请换一个，例如 ${stem}${n}`);
+}
+
 async function beforeBrand(ctx: BeforeSaveContext) {
   const { data } = ctx;
   data.code = (str(data.code) || initials(str(data.name))).toUpperCase().slice(0, 8);
+  await assertCodeFree(ctx, 'finance-brands', str(data.code), '品牌码');
 }
 
 /** 商品编码：类型段 – (采购:YZ|OEM) – 分类链 – 品牌码 – 名称首字母 – 规格 – 形态 */
@@ -808,6 +833,11 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
   'finance-packaging-rules': beforePackagingRule,
   'finance-categories': beforeCategory,
   'finance-brands': beforeBrand,
+  'finance-zero-reasons': async ({ data }) => {
+    const reason = str(data.reason).normalize('NFKC').trim().replace(/\s+/g, ' ');
+    if (!reason || reason.length > 180) throw new BadRequestException('原因必填，最多 180 个字符');
+    data.reason = reason;
+  },
   'finance-suppliers': beforeParty('GYS', 'finance-suppliers'),
   'finance-customers': beforeParty('KH', 'finance-customers'),
   'finance-supplier-categories': beforePartyCategory('finance-supplier-categories'),
@@ -1244,6 +1274,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
       }
     }
     if (existing) await recheckBaseCodes(host, em, user, record.id);
+    if (!em.queryRunner?.data.legacyImport) await rememberZeroReasons(host, em, user, str(record.data.zeroValueReason));
   },
   'finance-product-costs': async ({ em, host, user, record, existing }) => {
     if (typeof record.data.productId === 'number') await refreshLatestCost(host, em, user, record.data.productId);

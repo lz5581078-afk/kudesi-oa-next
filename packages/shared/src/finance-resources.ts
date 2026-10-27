@@ -975,6 +975,18 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
   },
   {
+    key: 'finance-zero-reasons',
+    label: '零值原因',
+    nav: { group: '资料维护', ...F },
+    titleField: 'reason',
+    uniqueField: 'reason',
+    statuses: [ACTIVE],
+    defaultStatus: 'active',
+    fields: [
+      text('reason', '常用原因', '基础', { required: true, list: true, search: true, maxLength: 180, help: '商品档案里采购价、运费、装卸费填 0 时，“零值说明”可以从这里选；保存商品时写过的新原因会自动加进来' }),
+    ],
+  },
+  {
     key: 'finance-platforms',
     label: '销售平台',
     nav: { group: '资料维护', ...F },
