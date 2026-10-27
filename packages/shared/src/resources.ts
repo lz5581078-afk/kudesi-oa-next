@@ -93,6 +93,76 @@ export interface StatusDef extends Option {
   hidden?: boolean;
 }
 
+/**
+ * 声明式条件（快捷页签、计算筛选、派生列共用；服务端翻译成带公司隔离的 SQL，字段和资料类型都按配置白名单校验）。
+ * field 写字段 key；写 '$status' 表示记录状态。
+ * - eq/ne/in/notIn：字段值等于/不等于/属于；empty/notEmpty：字段没填/已填（引用、多选为空数组也算没填）
+ * - rel：别的资料里有（exists）/没有（none）指向本记录的记录（rel.field 是对方的引用字段；可再加 where 限定对方的条件）
+ * - viaRef：本记录的引用字段 viaRef 指向的那条记录满足 where（没填引用则不满足）
+ */
+export type Cond =
+  | { field: string; op: 'eq' | 'ne'; value: string | number | boolean }
+  | { field: string; op: 'in' | 'notIn'; value: ReadonlyArray<string | number> }
+  | { field: string; op: 'empty' | 'notEmpty' }
+  | { rel: { type: string; field: string; where?: Cond }; op: 'exists' | 'none' }
+  | { viaRef: string; where: Cond }
+  | { all: readonly Cond[] }
+  | { any: readonly Cond[] }
+  | { not: Cond };
+
+/** 列表快捷页签：和 tabsBy 页签放在同一排，条件满足的记录才算；各自带数量 */
+export interface QuickTab {
+  key: string;
+  label: string;
+  when: Cond;
+  /** 条件里要看停用/注销的记录（如“已注销”）：这个页签下不套“默认隐藏停用状态” */
+  includeHidden?: boolean;
+}
+
+/** 计算筛选：列表上方的下拉，每个选项是一个条件（如 执照情况：没有绑定 / 已停用） */
+export interface ComputedFilter {
+  key: string;
+  label: string;
+  options: ReadonlyArray<{ value: string; label: string; when: Cond }>;
+}
+
+/**
+ * 派生列：列表里按页现算的数字（不存库），如“店铺数”“本月营业额”“成员数”。
+ * 统计 type 资料里 field 等于“本记录 match 字段值（默认本记录 id）”的记录：count=条数，sum=sumField 求和（money 为分）。
+ * via：先找 via.type 里 via.field 等于本记录值的记录，再统计 type 里 field 指向这些记录的记录（两跳，如 执照→店铺→经营数据）。
+ * month：只统计这个日期字段落在本月（按北京时间）的记录。where 限定被统计的记录（如只算正常状态的）。
+ */
+export interface DerivedColumn {
+  key: string;
+  label: string;
+  kind: 'count' | 'sum';
+  type: string;
+  field: string;
+  match?: string;
+  via?: { type: string; field: string };
+  sumField?: string;
+  month?: string;
+  where?: Cond;
+  /** sum 的显示：money（元）或 number；count 总是 number */
+  format?: 'money' | 'number';
+  /** 默认在列表里显示（否则只在“列”菜单里可选） */
+  list?: boolean;
+}
+
+/** 带原因的批量动作：勾选后让用户选一个值（pick）、填原因，然后对每条走一遍正常的保存流程 */
+export interface BatchAction {
+  key: string;
+  label: string;
+  /** 要用户选的字段（ref/select），选到的值写进这个字段 */
+  pick?: string;
+  /** 固定写入的字段值 */
+  set?: Record<string, unknown>;
+  /** 原因写进这个字段（如 assignReason）；不填则只进操作日志 */
+  reasonField?: string;
+  reasonRequired?: boolean;
+  reasonLabel?: string;
+}
+
 export interface ResourceDef {
   key: string;
   label: string;
@@ -120,6 +190,14 @@ export interface ResourceDef {
   tabSplit?: { tab: string; field: string; default: string; options: readonly Option[] };
   /** 列表勾选后可批量做的事：status=批量停用/启用（要填原因），其余是批量修改这个字段（如移动分类） */
   batch?: readonly string[];
+  /** 快捷页签（条件页签，不依赖 tabsBy）；页签值为 q:<key> */
+  quickTabs?: readonly QuickTab[];
+  /** 计算筛选下拉（条件在服务端按今天实时算） */
+  computedFilters?: readonly ComputedFilter[];
+  /** 派生列（按页现算的统计数字） */
+  derivedColumns?: readonly DerivedColumn[];
+  /** 带原因的批量动作（如批量指派运营并写指派原因） */
+  batchActions?: readonly BatchAction[];
   /** 预警：状态异常，或某日期字段在 N 天内到期 */
   alerts?: Array<{ field: string; withinDays: number; label: string }>;
   /** 详情里多一个只读“适用店铺”页签：按本记录的这个执照字段，列出该执照下的店铺 */
@@ -1078,7 +1156,7 @@ export function resourceTabOptions(def: ResourceDef): readonly Option[] {
 
 /** 页签值 → 查询条件：tabsBy 字段等于 value；拆出的页签还要求拆分字段等于某值（default 页签把没填的也算上） */
 export function resourceTabCondition(def: ResourceDef, tab: string): { field: string; value: string; split?: { field: string; value: string; orMissing: boolean } } | null {
-  if (!tab || !def.tabsBy) return null;
+  if (!tab || !def.tabsBy || tab.startsWith('q:')) return null;
   const split = def.tabSplit;
   if (split && split.options.some((o) => o.value === tab)) return { field: def.tabsBy, value: split.tab, split: { field: split.field, value: tab, orMissing: tab === split.default } };
   return { field: def.tabsBy, value: tab };

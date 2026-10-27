@@ -34,6 +34,7 @@ import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, Resource
 import { FileInfo, FilesService } from '../integrations/files.service';
 import { deriveStoreFunds } from './store-funds';
 import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
+import { applyCond, deriveColumns } from './def-conditions';
 import { certImportMatch } from './entity-rules';
 import { optionsKindOf } from '@kudesi/shared';
 import { dynamicOptionsFor, loadUnitLists, seedUnitDefaults, unitLabel, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
@@ -99,6 +100,12 @@ function toUniqueKey(def: ResourceDef, value: unknown): string | null {
 
 /** 页签条件（别名 r）：拆出的页签（如外购成品的原装采购 / 供应商 OEM）还要按拆分字段筛，default 页签把没填的也算上 */
 function applyTabFilter(qb: SelectQueryBuilder<ResourceRecord>, def: ResourceDef, tab: string | undefined) {
+  if (tab?.startsWith('q:')) {
+    const qt = def.quickTabs?.find((t) => `q:${t.key}` === tab);
+    if (!qt) throw new BadRequestException('页签不存在');
+    applyCond(qb, def, qt.when, 'qt');
+    return;
+  }
   const c = resourceTabCondition(def, tab ?? '');
   if (!c) return;
   qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${c.field}')) = :tab`, { tab: c.value });
@@ -304,8 +311,10 @@ export class ResourcesService implements RuleHost {
     const fileMap = await this.files.info(companyId, fileIds);
     // 手机号的“绑定店铺 / 主子卡”：读时从店铺档案和主卡字段算，不存库
     const derived = def.key === 'phones' ? await derivePhoneFields(em, companyId, records, (r) => labels.get(r.id)?.parentPhoneId) : def.key === 'stores' ? await deriveStoreFunds(em, companyId, records) : null;
+    const derivedCols = def.derivedColumns?.length ? await deriveColumns(em, companyId, def, records) : null;
     return records.map((r) => {
       const dto = this.toDto(def, r, labels.get(r.id) ?? {}, fileMap);
+      if (derivedCols) Object.assign(dto.data, derivedCols.get(r.id) ?? {});
       if (derived) for (const [k, v] of Object.entries(derived.get(r.id) ?? {})) { if (v !== undefined) dto.data[k] = v; else if (def.key === 'stores') delete dto.data[k]; }
       // 成本等受限字段：没有权限的人，接口里就没有（不是前端隐藏）
       for (const k of restricted) {
@@ -757,7 +766,7 @@ export class ResourcesService implements RuleHost {
       if (!expiringIds.length) expiringIds = [0];
     }
 
-    const base = () => {
+    const base = (forceHidden = false) => {
       const qb = em
         .createQueryBuilder(ResourceRecord, 'r')
         .where('r.companyId = :companyId AND r.type = :type', { companyId: user.companyId, type });
@@ -769,7 +778,7 @@ export class ResourcesService implements RuleHost {
       } else if (q.status) {
         if (!def.statuses.some((s) => s.value === q.status)) throw new BadRequestException('状态不合法');
         qb.andWhere('r.status = :status', { status: q.status });
-      } else if (!q.showHidden && hiddenStatuses.length > 0) {
+      } else if (!q.showHidden && !forceHidden && hiddenStatuses.length > 0) {
         qb.andWhere('r.status NOT IN (:...hiddenStatuses)', { hiddenStatuses });
       }
       if (q.archived && q.status) qb.andWhere('r.status = :status', { status: q.status });
@@ -791,7 +800,8 @@ export class ResourcesService implements RuleHost {
       return qb;
     };
 
-    const listQb = base();
+    const quickTab = q.tab?.startsWith('q:') ? def.quickTabs?.find((t) => `q:${t.key}` === q.tab) : undefined;
+    const listQb = base(Boolean(quickTab?.includeHidden));
     for (const [i, [k, v]] of viewPairs.entries()) {
       if (!(await applyViewFilter(listQb, em, user.companyId, type, k, v, todayShanghai(), i))) throw new BadRequestException('筛选条件不合法');
     }
@@ -815,6 +825,15 @@ export class ResourcesService implements RuleHost {
     ]);
 
     let tabCounts: Record<string, number> | undefined;
+    if (def.quickTabs?.length) {
+      tabCounts = {};
+      for (const t of def.quickTabs) {
+        const cq = base(Boolean(t.includeHidden));
+        for (const [i, [k, v]] of viewPairs.entries()) await applyViewFilter(cq, em, user.companyId, type, k, v, todayShanghai(), i);
+        applyCond(cq, def, t.when, 'qc');
+        tabCounts[`q:${t.key}`] = await cq.getCount();
+      }
+    }
     if (def.tabsBy) {
       const countQb = base();
       for (const [i, [k, v]] of viewPairs.entries()) await applyViewFilter(countQb, em, user.companyId, type, k, v, todayShanghai(), i);
@@ -823,7 +842,7 @@ export class ResourcesService implements RuleHost {
         .addSelect('COUNT(*)', 'n')
         .groupBy('tab')
         .getRawMany<{ tab: string | null; n: string }>();
-      tabCounts = {};
+      tabCounts = tabCounts ?? {};
       for (const row of rows) tabCounts[row.tab ?? ''] = Number(row.n);
     }
 
@@ -922,13 +941,13 @@ export class ResourcesService implements RuleHost {
     return this.get(user, type, record.id);
   }
 
-  async update(user: AuthUser, type: string, id: number, values: Record<string, unknown>) {
+  async update(user: AuthUser, type: string, id: number, values: Record<string, unknown>, note?: string) {
     const def = this.def(type);
     const cleanup: string[] = [];
     await this.dataSource.transaction(async (em) => {
       const existing = await this.load(em, user, type, id);
       if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再修改');
-      await this.saveRecord(em, user, def, existing, values, { cleanup });
+      await this.saveRecord(em, user, def, existing, values, { cleanup, note });
     });
     await this.files.deleteObjects(user.companyId, cleanup);
     return this.get(user, type, id);
@@ -957,21 +976,44 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 批量改字段（仅限资料定义里声明的 batch 字段）或批量改状态；逐条走统一保存流程，失败的单独返回 */
-  async batchUpdate(user: AuthUser, type: string, ids: number[], values: Record<string, unknown>, status?: string, reason?: string) {
+  /** 带原因的批量动作（资料配置 batchActions）：固定值 + 用户选的值 + 原因，逐条走正常保存流程 */
+  async batchAction(user: AuthUser, type: string, ids: number[], actionKey: string, value: unknown, reason?: string) {
     const def = this.def(type);
+    const action = def.batchActions?.find((a) => a.key === actionKey);
+    if (!action) throw new BadRequestException('不支持这个批量操作');
+    const text = (reason ?? '').trim();
+    if (action.reasonRequired && !text) throw new BadRequestException(`请填写${action.reasonLabel ?? '原因'}`);
+    const values: Record<string, unknown> = { ...(action.set ?? {}) };
+    if (action.pick) {
+      if (value === undefined || value === null || value === '') throw new BadRequestException('请先选择要设置的值');
+      values[action.pick] = value;
+    }
+    if (action.reasonField && text) values[action.reasonField] = text;
+    return this.batchUpdate(user, type, ids, values, undefined, undefined, { trusted: true, note: text ? `${action.label}：${text}` : action.label });
+  }
+
+  async batchUpdate(user: AuthUser, type: string, ids: number[], values: Record<string, unknown>, status?: string, reason?: string, opts: { trusted?: boolean; note?: string } = {}) {
+    const def = this.def(type);
+    // 批量停用/启用：所有资料都可以（逐条走 changeStatus，状态是否合法、原因、归档、停用权限都在那里校验）
     const allowed = def.batch ?? [];
-    if (!allowed.length) throw new BadRequestException('这类资料不支持批量修改');
     const keys = Object.keys(values);
     if (!keys.length && !status) throw new BadRequestException('请选择要批量修改的内容');
-    for (const k of keys) if (!allowed.includes(k)) throw new BadRequestException('不能批量修改这个字段');
-    if (status && !allowed.includes('status')) throw new BadRequestException('不能批量修改状态');
+    if (status && !allowed.includes('status')) {
+      const st = def.statuses.find((x) => x.value === status);
+      if (!st) throw new BadRequestException('状态不合法');
+      if (!st.hidden && status !== def.defaultStatus) throw new BadRequestException('这类资料只能批量停用或启用');
+    }
+    if (!opts.trusted) {
+      if (keys.length && !allowed.length) throw new BadRequestException('这类资料不支持批量修改');
+      for (const k of keys) if (!allowed.includes(k)) throw new BadRequestException('不能批量修改这个字段');
+    }
     const uniq = [...new Set(ids)];
     if (!uniq.length) throw new BadRequestException('请先勾选要修改的记录');
     let done = 0;
     const failed: Array<{ id: number; message: string }> = [];
     for (const id of uniq) {
       try {
-        if (keys.length) await this.update(user, type, id, values);
+        if (keys.length) await this.update(user, type, id, values, opts.note);
         if (status) await this.changeStatus(user, type, id, status, reason);
         done++;
       } catch (e) {

@@ -53,6 +53,8 @@ class BatchDto {
   @IsOptional() @IsObject() values?: Record<string, unknown>;
   @IsOptional() @IsString() @MaxLength(24) status?: string;
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
+  @IsOptional() @IsString() @MaxLength(40) action?: string;
+  @IsOptional() value?: unknown;
 }
 
 class LinkDto {
@@ -187,6 +189,7 @@ export class ResourcesController {
   @RequireResourceAction('edit')
   @Post(':type/batch')
   batch(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: BatchDto) {
+    if (dto.action) return this.resources.batchAction(user, type, dto.ids, dto.action, dto.value, dto.reason);
     return this.resources.batchUpdate(user, type, dto.ids, dto.values ?? {}, undefined, undefined);
   }
 

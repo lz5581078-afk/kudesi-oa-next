@@ -125,6 +125,8 @@ export const resourceApi = {
     api<{ blocked: Array<{ text: string }>; warnings: Array<{ text: string }> }>(`/resources/${type}/similar-check`, { method: 'POST', body: { values, excludeId } }),
   batch: (type: string, ids: number[], values: Record<string, unknown>) =>
     api<{ done: number; failed: Array<{ id: number; message: string }> }>(`/resources/${type}/batch`, { method: 'POST', body: { ids, values } }),
+  batchAction: (type: string, ids: number[], action: string, value: unknown, reason?: string) =>
+    api<{ done: number; failed: Array<{ id: number; message: string }> }>(`/resources/${type}/batch`, { method: 'POST', body: { ids, action, value, reason } }),
   batchStatus: (type: string, ids: number[], status: string, reason?: string) =>
     api<{ done: number; failed: Array<{ id: number; message: string }> }>(`/resources/${type}/batch-status`, { method: 'POST', body: { ids, status, reason } }),
   categoryTree: (type: string, p: { field: string; tab?: string; status?: string; showHidden?: boolean }) => {

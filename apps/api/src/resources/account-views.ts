@@ -2,6 +2,7 @@ import { EntityManager, SelectQueryBuilder } from 'typeorm';
 import { addDaysText, getResourceDef, phoneStoreImportColumns, viewFiltersOf, PHONE_RECHARGE_DAYS, MEMO_DUE_DAYS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
+import { applyCond } from './def-conditions';
 
 /**
  * 店铺与账号类资料的“按日期实时算”的筛选，以及手机号 <-> 店铺 的派生信息与导入绑定（旧系统行为）。
@@ -30,6 +31,11 @@ export async function applyViewFilter(
 ): Promise<boolean> {
   const def = viewFiltersOf(type).find((f) => f.key === key);
   if (!def || !def.options.some((o) => o.value === value)) return false;
+  const computed = getResourceDef(type)?.computedFilters?.find((f) => f.key === key)?.options.find((o) => o.value === value);
+  if (computed) {
+    applyCond(qb, getResourceDef(type)!, computed.when, `cf${idx}x`);
+    return true;
+  }
   const p = (name: string) => `${name}${idx}`;
   if (type === 'stores' && key === 'jstExpiry') {
     qb.andWhere(`${J('jushuitan')} = 'connected' AND ${J('jushuitanExpireAt')} IS NOT NULL AND ${J('jushuitanExpireAt')} <> ''`);

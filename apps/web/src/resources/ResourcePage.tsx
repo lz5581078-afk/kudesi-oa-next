@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadUnitOptions, useUnitOptions } from './unitOptions';
+import { BatchBar } from './BatchBar';
 import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -102,9 +103,6 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [page, setPage] = useState(1);
   const [checked, setChecked] = useState<number[]>([]);
   const [batchMsg, setBatchMsg] = useState('');
-  const batchFields = (def.batch ?? []).filter((k) => k !== 'status').map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f));
-  const [batchField, setBatchField] = useState('');
-  const [batchValue, setBatchValue] = useState('');
   const [data, setData] = useState<ListResult | null>(null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
@@ -119,11 +117,14 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const libCan = useResourceCan(libType || type);
   const catCan = useResourceCan('asset-categories');
 
-  const shownFields = useMemo(() => def.fields.filter((f) => f.type !== 'secret'), [def]);
-  const defaults = useMemo(() => def.fields.filter((f) => f.list), [def]);
+  // 派生列（配置 derivedColumns）：按页现算的数字，当作只读列显示，不能排序
+  const derivedFields = useMemo<FieldDef[]>(() => (def.derivedColumns ?? []).map((d) => ({ key: d.key, label: d.label, type: d.kind === 'sum' && d.format === 'money' ? 'money' : 'number', group: '统计', readonly: true, list: d.list !== false })), [def]);
+  const derivedKeys = useMemo(() => new Set(derivedFields.map((f) => f.key)), [derivedFields]);
+  const shownFields = useMemo(() => [...def.fields.filter((f) => f.type !== 'secret'), ...derivedFields], [def, derivedFields]);
+  const defaults = useMemo(() => [...def.fields.filter((f) => f.list), ...derivedFields.filter((f) => f.list)], [def, derivedFields]);
   const [colKeys, setColKeys] = useColumns(type, shownFields, defaults);
   const warehouseMode = Boolean(data?.items.some((i) => i.warehouseMode));
-  const columns = colKeys.map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
+  const columns = colKeys.map((k) => shownFields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
     .filter((f) => !warehouseMode || WAREHOUSE_PRODUCT_FIELDS.includes(f.key));
   const tabField = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
 
@@ -299,10 +300,10 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           />
         )}
         <div className="card">
-          {tabField && !lockedTab && (
+          {(tabField || def.quickTabs?.length) && !lockedTab && (
             <div className="tab-group page-tabs" role="tablist" aria-label="分类">
               <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'chip active' : 'chip'} onClick={() => { setTab(''); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>全部</button>
-              {resourceTabOptions(def).map((o) => (
+              {[...resourceTabOptions(def), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label }))].map((o) => (
                 <button key={o.value} type="button" role="tab" aria-selected={tab === o.value} className={tab === o.value ? 'chip active' : 'chip'} onClick={() => { setTab(o.value); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>
                   {o.label}{data?.tabCounts ? ` ${data.tabCounts[o.value] ?? 0}` : ''}
                 </button>
@@ -321,7 +322,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             )}
             <select className="sort-mobile" aria-label="排序方式" value={sort ? `${sort.by}:${sort.dir}` : ''} onChange={(e) => { const [by, dir] = e.target.value.split(':'); setSort(by ? { by, dir: dir as 'asc' | 'desc' } : null); setPage(1); }}>
               <option value="">默认排序</option>
-              {columns.filter((f) => SORTABLE.has(f.type)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
+              {columns.filter((f) => SORTABLE.has(f.type) && !derivedKeys.has(f.key)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
             </select>
             <div className={`filter-group${filtersOpen ? ' open' : ''}`}>
             {filterFields.filter((ff) => ff.key !== treeField?.key).map((ff) => (
@@ -385,53 +386,14 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           )}
           {catPath && <div className="muted" style={{ padding: '6px 12px' }}>当前分类：{catPath}（含下级分类）</div>}
           {error && <div role="alert" className="notice error m">{error}</div>}
-          {checked.length > 0 && (
-            <div className="toolbar" role="group" aria-label="批量操作">
-              <span>已勾选 {checked.length} 条</span>
-              {def.batch && can('edit') && batchFields.length > 0 && (
-                <>
-                  <select aria-label="批量修改字段" value={batchField} onChange={(e) => { setBatchField(e.target.value); setBatchValue(''); }}>
-                    <option value="">批量修改…</option>
-                    {batchFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-                  </select>
-                  {batchField && (
-                    <select aria-label="新的值" value={batchValue} onChange={(e) => setBatchValue(e.target.value)}>
-                      <option value="">选择新的值</option>
-                      {(filterOpts[batchField] ?? []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-                    </select>
-                  )}
-                  <button type="button" className="secondary-button" disabled={!batchField || !batchValue} onClick={async () => {
-                    const f = def.fields.find((x) => x.key === batchField);
-                    try {
-                      const r = await resourceApi.batch(type, checked, { [batchField]: f?.type === 'refs' ? [Number(batchValue)] : f?.ref ? Number(batchValue) : batchValue });
-                      setBatchMsg(`已修改 ${r.done} 条${r.failed.length ? `，${r.failed.length} 条失败：${r.failed.slice(0, 3).map((x) => `#${x.id} ${x.message}`).join('；')}` : ''}`);
-                      setChecked([]); void load();
-                    } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '批量修改失败'); }
-                  }}>应用</button>
-                </>
-              )}
-              {can('disable') && def.batch?.includes('status') && def.statuses.filter((s) => s.value !== 'deleted').slice(0, 4).map((s) => (
-                <button key={s.value} type="button" className="secondary-button" onClick={async () => {
-                  const reason = s.requiresReason ? window.prompt(`批量改为“${s.label}”的原因`) : undefined;
-                  if (s.requiresReason && !reason) return;
-                  try {
-                    const r = await resourceApi.batchStatus(type, checked, s.value, reason ?? undefined);
-                    setBatchMsg(`已改为${s.label} ${r.done} 条${r.failed.length ? `，${r.failed.length} 条失败：${r.failed.slice(0, 3).map((x) => `#${x.id} ${x.message}`).join('；')}` : ''}`);
-                    setChecked([]); void load();
-                  } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '批量改状态失败'); }
-                }}>批量{s.label}</button>
-              ))}
-              {can('export') && <button type="button" className="secondary-button" onClick={() => void doExport('picked')}>导出所选</button>}
-              <button type="button" className="secondary-button" onClick={() => setChecked([])}>取消勾选</button>
-            </div>
-          )}
+          {checked.length > 0 && <BatchBar def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
           <div className="table-scroll">
             <table className="data-table cards-narrow">
               <thead>
                 <tr>
                   {<th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={!!data?.items.length && data.items.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...(data?.items.map((r) => r.id) ?? [])])] : checked.filter((id) => !data?.items.some((r) => r.id === id)))} /></th>}
-                  {columns.map((f) => SORTABLE.has(f.type) ? (
+                  {columns.map((f) => SORTABLE.has(f.type) && !derivedKeys.has(f.key) ? (
                     <th key={f.key} aria-sort={sort?.by === f.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button type="button" className="link-button" title="点击排序" onClick={() => { setSort(sort?.by === f.key ? (sort.dir === 'asc' ? { by: f.key, dir: 'desc' } : null) : { by: f.key, dir: 'asc' }); setPage(1); }}>
                         {f.label}{sort?.by === f.key ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
