@@ -48,6 +48,8 @@ import { DataToolsService } from './resources/data-tools.service';
 import { FeeArchiveController } from './resources/fee-archive.controller';
 import { FeeArchiveService } from './resources/fee-archive.service';
 import { LaborController } from './resources/labor.controller';
+import { PackagingImportController } from './resources/packaging-import.controller';
+import { PackagingImportService } from './resources/packaging-import.service';
 import { FeeSnapshotService } from './resources/fee-snapshot.service';
 import { EmployeePartyController } from './resources/employee-party.controller';
 import { EmployeePartyService } from './resources/employee-party.service';
@@ -125,7 +127,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, EmployeePartyController, OutboxController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController],
   providers: [
     AuthService,
     PlatformService,
@@ -137,6 +139,7 @@ const env = loadEnv();
     RevenueService,
     FeeArchiveService,
     LaborCopyService,
+    PackagingImportService,
     EmployeePartyService,
     FeeSnapshotService,
     DataToolsService,

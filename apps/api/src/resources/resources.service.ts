@@ -553,6 +553,13 @@ export class ResourcesService implements RuleHost {
     return this.saveRecord(em, user, this.def(type), null, clean, { note });
   }
 
+  /** 在调用方的事务里修改一条记录，走与手工修改完全相同的校验、日志、关联流程（批量导入用，权限由调用方检查） */
+  async updateRecord(em: EntityManager, user: AuthUser, type: string, id: number, values: Record<string, unknown>, note?: string) {
+    const existing = await this.load(em, user, type, id);
+    if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再修改');
+    return this.saveRecord(em, user, this.def(type), existing, values, { note });
+  }
+
   /** 仅服务器迁移CLI调用，无HTTP入口；保留与手工录入相同的字段/引用/加密校验。 */
   async importRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, status?: string) {
     if (em.queryRunner?.data.legacyImport !== true || !user.permissions.isCompanyAdmin) throw new ForbiddenException('仅允许受控迁移事务');

@@ -101,7 +101,7 @@ export class DataToolsService {
   }
 
   // ---------- 包装方案匹配试算 ----------
-  async packagingMatch(user: AuthUser, t: { usageScene?: string; targetType: 'base_code' | 'bundle'; targetCode?: string; categoryId?: number; brandId?: number; scenarioId?: number; weightKg?: number }) {
+  async packagingMatch(user: AuthUser, t: { usageScene?: string; targetType: 'base_code' | 'bundle' | 'product_archive'; targetCode?: string; categoryId?: number; brandId?: number; scenarioId?: number; weightKg?: number }) {
     const em = this.dataSource.manager;
     const schemes = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-packaging-schemes', status: 'active' } });
     const day = new Date().toISOString().slice(0, 10);

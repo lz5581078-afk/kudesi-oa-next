@@ -20,7 +20,7 @@ class RegisterDto {
 class ZoneDto { @Type(() => Number) @IsNumber() @Min(0.01) @Max(1000) maxWeightKg!: number }
 class MatchDto {
   @IsOptional() @IsIn(['production', 'supplier_oem', 'dispatch']) usageScene?: string;
-  @IsIn(['base_code', 'bundle']) targetType!: 'base_code' | 'bundle';
+  @IsIn(['base_code', 'bundle', 'product_archive']) targetType!: 'base_code' | 'bundle' | 'product_archive';
   @IsOptional() @IsString() @MaxLength(120) targetCode?: string;
   @IsOptional() @IsInt() @Min(1) categoryId?: number;
   @IsOptional() @IsInt() @Min(1) brandId?: number;

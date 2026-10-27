@@ -7,6 +7,7 @@ import { resourceApi, type ListResult } from './api';
 import { displayValue, statusOf } from './format';
 import { CategoryTree } from './CategoryTree';
 import { FeeSnapshotsDialog } from './FeeSnapshotsDialog';
+import { PackagingExcelDialog } from './PackagingExcelDialog';
 import { ImportDialog } from './ImportDialog';
 import { TaxPendingDialog } from './TaxPendingDialog';
 import { ReasonLibraryDialog } from './ReasonLibraryDialog';
@@ -141,6 +142,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
 
   const [seeding, setSeeding] = useState(false);
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  const [packagingXlOpen, setPackagingXlOpen] = useState(false);
   async function seedFees() {
     if (!window.confirm('把旧程序里的费用类别树和费用项目（约 380 项）导入进来？已经有的编号不会重复，也不会被覆盖。')) return;
     setSeeding(true);
@@ -182,6 +184,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         <div className="page-head">
           <h1>{title ?? def.label}</h1>
           <div className="pill-row">
+            {type === 'finance-packaging-schemes' && <button type="button" className="secondary-button" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
             {type === 'finance-fee-items' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
             {type === 'finance-fee-items' && <button type="button" className="secondary-button" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
             {(type === 'finance-supplier-categories' || type === 'finance-customer-categories') && can('create') && (
@@ -389,6 +392,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         </div>
       </section>
 
+      {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}
       {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}
       {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
 
