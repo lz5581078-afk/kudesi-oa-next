@@ -192,3 +192,63 @@ export function StoreReleaseButton({ record, onDone, onError }: {
     </>
   );
 }
+
+/** 指派/更换运营（旧系统“指派运营”）：选在职运营人、领取状态（推广限制要填解除日）、必填原因；原因写进领退店记录。 */
+export function StoreAssignButton({ record, onDone, onError }: {
+  record: ResourceDto; onDone: () => void; onError: (m: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [users, setUsers] = useState<Array<{ id: number; name: string }>>([]);
+  const [userId, setUserId] = useState('');
+  const [claim, setClaim] = useState('claimed');
+  const [releaseAt, setReleaseAt] = useState('');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const current = typeof record.data.operatorUserId === 'number' ? record.data.operatorUserId : null;
+  useEffect(() => {
+    if (!open) return;
+    setUserId(current ? String(current) : '');
+    setClaim(record.data.claimStatus && record.data.claimStatus !== 'public' ? String(record.data.claimStatus) : 'claimed');
+    setReleaseAt(String(record.data.promotionReleaseAt ?? ''));
+    resourceApi.users().then((r) => setUsers(r.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name })))).catch(() => setUsers([]));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function save() {
+    if (!userId) return setError('请选择运营人员');
+    if (!reason.trim()) return setError('请填写指派原因');
+    if (claim === 'promotion_limited' && !releaseAt) return setError('推广限制店铺请填写推广限制解除日期');
+    setBusy(true); setError('');
+    try {
+      await resourceApi.update('stores', record.id, { operatorUserId: Number(userId), claimStatus: claim, ...(claim === 'promotion_limited' ? { promotionReleaseAt: releaseAt } : {}) });
+      const name = users.find((u) => String(u.id) === userId)?.name ?? `#${userId}`;
+      await resourceApi.create('store-claims', { storeId: record.id, action: 'claim', userId: Number(userId), happenedAt: new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10), note: `指派运营：${name}。原因：${reason.trim()}` });
+      setOpen(false); onDone();
+    } catch (e) { const m = msg(e, '指派失败'); setError(m); onError(m); }
+    setBusy(false);
+  }
+  if (!open) return <button type="button" className="link-button" onClick={() => setOpen(true)}>{current ? '更换运营' : '指派运营'}</button>;
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="modal card small" role="dialog" aria-label={current ? '更换运营' : '指派运营'}>
+        <div className="modal-head"><strong>{current ? '更换运营' : '指派运营'}：{record.title}</strong></div>
+        <div className="modal-body">
+          <p className="muted">只能指派在职人员。原因会记在领退店记录里。</p>
+          <label>运营人员<select aria-label="运营人员" value={userId} onChange={(e) => { setUserId(e.target.value); setError(''); }}>
+            <option value="">选择在职人员</option>
+            {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select></label>
+          <label>领取状态<select aria-label="领取状态" value={claim} onChange={(e) => setClaim(e.target.value)}>
+            <option value="claimed">已领取</option><option value="reserved">预留店铺</option><option value="promotion_limited">推广限制店铺</option>
+          </select></label>
+          {claim === 'promotion_limited' && <label>推广限制解除日期<input type="date" aria-label="推广限制解除日期" value={releaseAt} onChange={(e) => setReleaseAt(e.target.value)} /></label>}
+          <label>指派原因<textarea aria-label="指派原因" rows={2} placeholder="例如：新员工接手、原运营调岗" value={reason} onChange={(e) => { setReason(e.target.value); setError(''); }} /></label>
+          {error && <div role="alert" className="notice error">{error}</div>}
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="secondary-button" disabled={busy} onClick={() => setOpen(false)}>取消</button>
+          <button type="button" className="primary-button" disabled={busy} onClick={() => void save()}>{busy ? '正在指派…' : '指派'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -19,7 +19,7 @@ import { KeyFacts } from './KeyFacts';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
 import { StoreMetricsPanel } from './StoreMetricsPanel';
 import { ProductCostSummary } from './ProductCostSummary';
-import { DerivedStoresPanel, PartnerSubjectPanel, PhoneArchiveButton, ReturnBorrowButton, StoreReleaseButton } from './CertPanels';
+import { DerivedStoresPanel, PartnerSubjectPanel, PhoneArchiveButton, ReturnBorrowButton, StoreAssignButton, StoreReleaseButton } from './CertPanels';
 
 export function useResourceCan(type: string) {
   const { user } = useAuth();
@@ -354,7 +354,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         {tab === 'info' && def.key === 'licenses' && can('edit') && <LinkExistingStoresButton license={record} onDone={() => { void load(); onChanged(); }} onError={setError} />}
         {tab === 'info' && def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} />}
         {tab === 'info' && def.key === 'stores' && can('edit') && (
-          <StoreReleaseButton record={record} onDone={() => { void load(); onChanged(); }} onError={setError} />
+          <><StoreAssignButton record={record} onDone={() => { void load(); onChanged(); }} onError={setError} /> <StoreReleaseButton record={record} onDone={() => { void load(); onChanged(); }} onError={setError} /></>
         )}
         {tab === 'info' && def.key === 'partners' && (
           <PhoneArchiveButton type="partners" record={record} numberKey="cardPhone" idKey="cardPhoneId" holder={String(record.data.cardPhoneHolder ?? record.title)} onDone={() => { void load(); onChanged(); }} onError={setError} />
