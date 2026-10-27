@@ -3,6 +3,7 @@ import { fieldOptions, useUnitOptions } from './unitOptions';
 import { SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
+import { CodePreview } from './CodePreview';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
@@ -490,6 +491,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
             </fieldset>
           ))}
           {isProduct && <TotalCostPreview values={values} />}
+          {isProduct && <CodePreview values={values} excludeId={record?.id} />}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
           {Object.values(errors).some(Boolean) && (
             <div role="alert" className="notice error error-summary">

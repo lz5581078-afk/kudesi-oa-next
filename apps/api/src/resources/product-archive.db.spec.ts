@@ -6,6 +6,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
 import { Company, User } from '../entities';
 import { buildServices } from '../test-support';
+import { previewProductCode } from './finance-rules';
 import { ResourcesService } from './resources.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
@@ -255,5 +256,20 @@ d('商品档案与基础编码（真实数据库）', () => {
     expect(mine).not.toContain(cb.id);
     expect(await list(other.id)).toEqual([cb.id]);
     await expect(list('1 OR 1=1')).rejects.toThrow(/筛选条件不合法/);
+  });
+
+  it('编码实时预览：和保存用同一套规则；重名自动加序号；手填编码只校验格式和占用；不写数据', async () => {
+    const input = { archiveType: 'raw', name: '预览苹果', categoryId: ids.leaf, specQty: 1, specUnit: 'KG' };
+    const p1 = await previewProductCode(ds.manager, svc as never, boss, input, null);
+    expect(p1.manual).toBe(false);
+    const saved = await mkRaw({ name: '预览苹果' });
+    expect(saved.data.code).toBe(p1.code);
+    const p2 = await previewProductCode(ds.manager, svc as never, boss, input, null);
+    expect(p2.code).toBe(`${p1.code}-2`);
+    expect((await previewProductCode(ds.manager, svc as never, boss, input, saved.id)).code).toBe(p1.code);
+    await expect(previewProductCode(ds.manager, svc as never, boss, { ...input, code: String(saved.data.code) }, null)).rejects.toThrow(/已被/);
+    await expect(previewProductCode(ds.manager, svc as never, boss, { ...input, code: 'bad code!' }, null)).rejects.toThrow(/只能用/);
+    await expect(previewProductCode(ds.manager, svc as never, boss, { name: 'x' }, null)).rejects.toThrow(/档案类型/);
+    expect((await svc.list(boss, 'finance-products', { keyword: '预览苹果', pageSize: 50 } as never)).total).toBe(1);
   });
 });
