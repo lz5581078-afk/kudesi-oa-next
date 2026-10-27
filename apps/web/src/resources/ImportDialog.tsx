@@ -21,6 +21,8 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const [over, setOver] = useState(false);
   const [backups, setBackups] = useState<ImportBackupInfo[]>([]);
   const [restoreMsg, setRestoreMsg] = useState('');
   const loadBackups = () => resourceApi.importBackups(def.key).then(setBackups).catch(() => setBackups([]));
@@ -34,6 +36,8 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
     if (!file) return;
     setError('');
     setPreview(null);
+    if (file.size > 10 * 1024 * 1024) { setRows([]); setFileName(''); return setError(`文件 ${(file.size / 1048576).toFixed(1)} MB，超过 10 MB 上限，请拆成多个文件分别导入`); }
+    setFileName(`${file.name}（${file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / 1048576).toFixed(1)} MB`}）`);
     let objects: Array<Record<string, string>>;
     try {
       objects = csvToObjects(isXlsx(file) ? await readXlsxRows(file) : parseCsv(await readCsvText(file)));
@@ -84,6 +88,20 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
   }
 
   const instructionRows = (): string[][] => [['列名', '是否必填', '可选值 / 说明'], ['状态', '否', def.statuses.map((s) => s.label).join('、')], ...importable.map((f) => [f.label, f.required ? '是' : '否', f.options ? f.options.map((o) => o.label).join('、') : f.type === 'ref' ? '填对方资料的名称（要先建好，重名无法匹配）' : f.type === 'money' ? '元，最多两位小数' : f.type === 'date' ? 'YYYY-MM-DD' : f.type === 'phone' ? '手机号' : (f.help ?? '')])];
+  /** 填写示例：每列给一个像样的例子，照着改就行 */
+  const exampleRow = (): string[] => ['', ...importable.map((f) => f.options?.[0]?.label ?? (f.type === 'money' ? '12.5' : f.type === 'date' ? '2026-01-01' : f.type === 'phone' ? '13800000000' : f.type === 'number' || f.type === 'decimal' ? '1' : f.type === 'ref' || f.type === 'refs' ? '（对方资料的名称）' : `示例${f.label}`)), ...extraHeaders.map(() => '')];
+  function dropped(files: FileList | null) {
+    setOver(false);
+    if (!files?.length) return;
+    if (files.length > 1) return setError('一次只能导入一个文件，请只拖入一个');
+    void onFile(files[0]);
+  }
+  function discard() { setRows([]); setPreview(null); setFileName(''); setError(''); }
+  function errorReport() {
+    if (!preview) return;
+    const bad = preview.results.filter((r) => r.action === 'error');
+    downloadText(`${def.label}-导入错误报告.csv`, toCsv([['行号', '问题'], ...bad.map((r) => [String(r.line), r.errors.join('；')])]));
+  }
   const instructions = () => downloadText(`${def.label}-填写说明.csv`, toCsv(instructionRows()));
 
   return (
@@ -105,7 +123,11 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
             <button type="button" className="secondary-button" onClick={() => void downloadXlsx(`${def.label}-导入模板.xlsx`, [['状态', ...importable.map((f) => f.label), ...extraHeaders]])}>下载 Excel 模板</button>
             <button type="button" className="secondary-button" onClick={instructions}>下载填写说明</button>
             <button type="button" className="secondary-button" onClick={() => void downloadXlsx(`${def.label}-填写说明.xlsx`, instructionRows())}>下载填写说明（Excel）</button>
-            <input type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="选择 Excel 或 CSV 文件" onChange={(e) => onFile(e.target.files?.[0])} />
+            <button type="button" className="secondary-button" onClick={() => void downloadXlsx(`${def.label}-填写示例.xlsx`, [['状态', ...importable.map((f) => f.label), ...extraHeaders], exampleRow()])}>下载填写示例</button>
+          </div>
+          <div className={over ? 'import-drop over' : 'import-drop'} onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={(e) => { e.preventDefault(); dropped(e.dataTransfer.files); }}>
+            {fileName ? <>已选：{fileName} <button type="button" className="link-button" onClick={discard}>放弃此文件</button></> : '把 Excel 或 CSV 文件拖到这里，或点下面选择（不超过 10 MB，一次一个）'}
+            <div><input type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="选择 Excel 或 CSV 文件" onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ''; }} /></div>
           </div>
           {busy && <p className="muted">处理中…</p>}
           {restoreMsg && <div role="status" className="notice ok-notice">{restoreMsg}</div>}
@@ -132,6 +154,7 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
               <p>
                 共 {preview.results.length} 行：新建 {preview.created}，更新 {preview.updated}，
                 <strong className={preview.failed ? 'bad-text' : undefined}> 有问题 {preview.failed}</strong>
+                {preview.failed > 0 && <> <button type="button" className="link-button" onClick={errorReport}>下载错误报告 (CSV)</button></>}
               </p>
               <div className="table-scroll preview-scroll">
                 <table className="data-table">
