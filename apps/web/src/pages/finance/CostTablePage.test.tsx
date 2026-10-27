@@ -7,7 +7,7 @@ import { financeApi, type CostRow, type CostTableData } from './financeApi';
 
 vi.mock('./financeApi', async (orig) => {
   const real = await orig<typeof import('./financeApi')>();
-  return { ...real, financeApi: { costTable: vi.fn(), saveCostPricing: vi.fn(), saveCategoryMargin: vi.fn(), skuCostHistory: vi.fn() } };
+  return { ...real, financeApi: { exportCostTable: vi.fn(), costTable: vi.fn(), saveCostPricing: vi.fn(), saveCategoryMargin: vi.fn(), skuCostHistory: vi.fn() } };
 });
 const m = vi.mocked(financeApi);
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -111,6 +111,19 @@ describe('SKU成本表', () => {
     fireEvent.change(screen.getByLabelText('修改原因'), { target: { value: '整体上调' } });
     fireEvent.click(screen.getByRole('button', { name: '确认保存并生效' }));
     await waitFor(() => expect(m.saveCategoryMargin).toHaveBeenCalledWith(0, { revision: 'none', profitPercent: 18.5, reason: '整体上调' }));
+  });
+
+  it('导出 Excel：带着当前分类和搜索条件，导出结果交给浏览器下载', async () => {
+    m.costTable.mockResolvedValue(table(true));
+    m.exportCostTable.mockResolvedValue({ fileName: 'SKU成本表.xlsx', fileBase64: 'AAEC', rowCount: 1 });
+    const url = vi.fn(() => 'blob:x');
+    Object.assign(URL, { createObjectURL: url, revokeObjectURL: vi.fn() });
+    renderPage();
+    await screen.findByText('ZH-TB-001');
+    fireEvent.click(screen.getByText('苹果类'));
+    fireEvent.click(screen.getByRole('button', { name: '导出 Excel' }));
+    await waitFor(() => expect(m.exportCostTable).toHaveBeenCalledWith({ categoryId: 3, keyword: undefined }));
+    await screen.findByText(/已导出 1 条/);
   });
 
   it('每 15 秒自动刷新一次', async () => {

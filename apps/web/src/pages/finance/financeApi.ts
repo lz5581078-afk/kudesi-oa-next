@@ -61,7 +61,7 @@ export interface Overview {
   receivableCents: number; payableCents: number; advanceReceiptCents: number; prepaymentCents: number; bankCents: number | null; drafts: number; issued: number;
 }
 
-export interface CostSnapshotRow { id: number; bundleId: number; code: string; name: string; revision: number; reason: string; actorName: string; createdAt: string; preShipCostCents: number | null; weightG: number | null; freightCents: number | null; marginPercent: number | null; minPriceCents: number | null; changes: Array<{ field: string; label: string; before: number | null; after: number | null }> }
+export interface CostSnapshotRow { eventType?: string; eventLabel?: string; id: number; bundleId: number; code: string; name: string; revision: number; reason: string; actorName: string; createdAt: string; preShipCostCents: number | null; weightG: number | null; freightCents: number | null; marginPercent: number | null; minPriceCents: number | null; changes: Array<{ field: string; label: string; before: number | null; after: number | null }> }
 export interface ZoneRow { carrier: string; branch: string; weightStart: number; weightEnd: number; cents: number; provinces: string[]; suggestedName: string }
 export interface PackagingMatch {
   selected: { scheme: { id: number; code: string; name: string; usageScene: string }; lines: Array<{ componentName: string; qty: number; lossRate: number | null; costTreatment: string; costBucket: string }> } | null;
@@ -99,6 +99,7 @@ export const financeApi = {
   openingVoucherUrl: (id: number, fileId: number) => api<{ url: string }>(`/finance/docs/${id}/opening-vouchers/${fileId}/url`),
   reverse: (id: number, reason: string) => api<DocDetailDto>(`/finance/docs/${id}/reverse`, { method: 'POST', body: { reason } }),
   costTable: (p: { categoryId?: number; keyword?: string; page?: number }) => api<CostTableData>(`/finance/cost-table${qs({ ...p, pageSize: 20 })}`),
+  exportCostTable: (p: { categoryId?: number; keyword?: string }) => api<{ fileName: string; fileBase64: string; rowCount: number }>(`/finance/cost-table/export${qs(p)}`),
   saveCostPricing: (bundleId: number, b: CostPricingSave) => api<{ ok: true; changed: boolean }>(`/finance/cost-table/${bundleId}/pricing`, { method: 'PUT', body: b }),
   saveCategoryMargin: (categoryId: number, b: { revision: string; profitPercent: number | null; reason: string }) => api<{ ok: true; changed: boolean }>(`/finance/cost-table/category-margins/${categoryId}`, { method: 'PUT', body: b }),
   skuCostHistory: (bundleId: number, page = 1) => api<{ changes: { total: number; rows: CostSnapshotRow[] }; pricing: { total: number; rows: PricingHistoryRow[] } }>(`/finance/cost-table/${bundleId}/history${qs({ page })}`),

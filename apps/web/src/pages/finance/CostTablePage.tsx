@@ -37,6 +37,19 @@ export function CostTablePage() {
       .finally(() => { if (current === serial.current) setBusy(false); });
   }, [keyword, categoryId, page]);
 
+  async function exportTable() {
+    setError('');
+    try {
+      const r = await financeApi.exportCostTable({ categoryId: categoryId ?? undefined, keyword: keyword.trim() || undefined });
+      const bytes = Uint8Array.from(window.atob(r.fileBase64), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = r.fileName; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setNotice(`已导出 ${r.rowCount} 条（按当前分类和搜索条件）`);
+    } catch (e) { setError(e instanceof ApiError ? e.message : '导出失败'); }
+  }
+
   useEffect(() => { const t = setTimeout(() => load(), 200); return () => { clearTimeout(t); serial.current++; }; }, [load]);
   useEffect(() => {
     const refresh = () => { if (document.visibilityState !== 'hidden') load(true); };
@@ -50,7 +63,10 @@ export function CostTablePage() {
     <div>
       <div className="page-head between">
         <h1>成本表</h1>
-        <button type="button" className="secondary-button" disabled={busy} onClick={() => load()}>刷新</button>
+        <div className="row-actions">
+          <button type="button" className="secondary-button" disabled={busy} onClick={() => void exportTable()}>导出 Excel</button>
+          <button type="button" className="secondary-button" disabled={busy} onClick={() => load()}>刷新</button>
+        </div>
       </div>
       <p className="muted">
         最低售价 = (发货前成本 + 运费) ÷ (1 − 利润率)，向上取整到分。成本、重量、运费、利润率任何一处改了，这里立刻跟着变（每 15 秒自动刷新）。
