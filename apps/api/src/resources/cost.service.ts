@@ -9,7 +9,7 @@ import {
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
-import { buildPriceGroups, DEFAULT_PARCEL_LIMIT } from './express.service';
+import { buildPriceGroups, DEFAULT_PARCEL_LIMIT } from './express-groups';
 import { buildXlsx } from './xlsx-lite';
 
 type Data = Record<string, unknown>;
