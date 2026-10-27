@@ -40,7 +40,7 @@ d('商品与成本目录接口（真实数据库）', () => {
       const p = await svc.create(boss, 'finance-products', { archiveType: 'raw', name, categoryId: leaf.id, purchaseSpec: '千克', specQty: 1, specUnit: 'KG', purchasePrice: 1000, freight: 0, handlingFee: 0, zeroValueReason: '运费：无\n装卸费：无' });
       const bc = await svc.create(boss, 'finance-base-codes', { productId: p.id });
       await svc.changeStatus(boss, 'finance-base-codes', bc.id, 'verified');
-      const b = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, configNo: `0${bundleIds.length + 1}` });
+      const b = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, configNo: `0${bundleIds.length + 1}`, bundleCategoryId: (await svc.list(boss, 'finance-categories', { pageSize: 200 } as never)).items.find((c) => c.data.archiveType === 'bundle')?.id ?? (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '组合', code: 'ZH' })).id });
       await svc.create(boss, 'finance-bundle-lines', { bundleId: b.id, role: 'main', baseCodeId: bc.id, qty: 1 });
       if (name !== '橙子') await svc.changeStatus(boss, 'finance-bundles', b.id, 'verified');
       bundleIds.push(b.id);

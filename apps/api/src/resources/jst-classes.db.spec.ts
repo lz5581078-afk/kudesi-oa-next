@@ -46,6 +46,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     ids.tb = (await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' })).id;
     ids.dy = (await svc.create(boss, 'finance-platforms', { code: 'DY', name: '抖音' })).id;
     ids.std = (await svc.create(boss, 'finance-scenarios', { code: 'standard', name: '标准' })).id;
+    ids.bcat = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '梨组合', code: 'LZH' })).id;
   });
   afterAll(async () => { await ds?.destroy(); });
 
@@ -178,42 +179,42 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     const main = await svc.create(boss, 'finance-base-codes', { productId: p.id });
     await svc.changeStatus(boss, 'finance-base-codes', main.id, 'verified');
     const lines = [{ role: 'main', baseCodeId: main.id, qty: 2 }];
-    const first = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.dy, scenarioId: ids.std }]);
-    expect(first.targets.map((t) => t.code)).toEqual([`ZH-TB-${main.data.code}*2`, `ZH-DY-${main.data.code}*2`]);
-    await expect(bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.tb, scenarioId: ids.std }])).rejects.toThrow(/不能重复/);
+    const first = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.dy, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
+    expect(first.targets.map((t) => t.code)).toEqual(['ZH-TB-HXL-2KG', 'ZH-DY-HXL-2KG']);
+    await expect(bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }])).rejects.toThrow(/不能重复/);
 
     // 命名规则挂在上级分类，下级沿用；非管理员不能改
     await expect(svc.create(ops, 'finance-bundle-naming-rules', { categoryId: ids.root, prefix: 'ZZ-', codeFields: 'category,platform,baseCode' })).rejects.toThrow();
     await expect(svc.create(boss, 'finance-bundle-naming-rules', { categoryId: ids.root, prefix: 'bad', codeFields: 'platform' })).rejects.toThrow(/前缀/);
     await svc.create(boss, 'finance-bundle-naming-rules', { categoryId: ids.root, prefix: 'ZZ-', namePrefix: '套-', codeFields: 'category,platform,quantity', nameFields: 'name,quantity' });
-    const named = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }]);
-    expect(named.targets[0].code).toBe('ZZ-SG-PG-TB-2');
-    expect(named.targets[0].name).toBe('套-红肖梨×2-×2');
+    const named = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
+    expect(named.targets[0].code).toBe('ZZ-TB-PG-2');
+    expect(named.targets[0].name).toBe('套-红肖梨×2-2');
 
     // 聚水潭镜像撞码
-    await svc.create(boss, 'finance-jst-skus', { skuId: 'ZZ-SG-PG-DY-2', goodsType: 'combine' });
-    const jst = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.dy, scenarioId: ids.std }]);
+    await svc.create(boss, 'finance-jst-skus', { skuId: 'ZZ-DY-PG-2', goodsType: 'combine' });
+    const jst = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.dy, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
     expect(jst.targets[1].duplicates[0].layer).toBe('jstCombine');
-    await expect(bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.dy, scenarioId: ids.std }])).rejects.toThrow(/重复/);
+    await expect(bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.dy, scenarioId: ids.std, bundleCategoryId: ids.bcat }])).rejects.toThrow(/重复/);
     // 全部失败：一个组合都没有生成
     expect((await svc.list(boss, 'finance-bundles', { pageSize: 50 } as never)).items).toHaveLength(0);
-    await svc.create(boss, 'finance-jst-skus', { skuId: 'ZZ-SG-PG-TB-2', goodsType: 'normal' });
-    expect((await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }])).targets[0].duplicates[0].layer).toBe('jstNormal');
+    await svc.create(boss, 'finance-jst-skus', { skuId: 'ZZ-TB-PG-2', goodsType: 'normal' });
+    expect((await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }])).targets[0].duplicates[0].layer).toBe('jstNormal');
     await ds.manager.query("DELETE FROM resource_records WHERE company_id = ? AND type = 'finance-jst-skus'", [boss.companyId]);
 
-    const made = await bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.dy, scenarioId: ids.std }]);
-    expect(made.created.map((c) => c.code)).toEqual(['ZZ-SG-PG-TB-2', 'ZZ-SG-PG-DY-2']);
+    const made = await bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.dy, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
+    expect(made.created.map((c) => c.code)).toEqual(['ZZ-TB-PG-2', 'ZZ-DY-PG-2']);
     ids.b1 = made.created[0].id;
     ids.b2 = made.created[1].id;
     // 同构成同平台同场景：复用
-    const again = await bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }]);
+    const again = await bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
     expect(again.created[0]).toMatchObject({ id: ids.b1, reused: true });
 
     await expect(svc.update(boss, 'finance-bundles', ids.b1, { manualCode: 'MY-CODE' })).rejects.toThrow(/原因/);
     const manual = await svc.update(boss, 'finance-bundles', ids.b1, { manualCode: 'MY-CODE', manualReason: '客户指定' });
     expect(manual.data.code).toBe('MY-CODE');
     await svc.update(boss, 'finance-bundles', ids.b1, { manualCode: '', manualReason: '' });
-    expect((await svc.get(boss, 'finance-bundles', ids.b1)).data.code).toBe('ZZ-SG-PG-TB-2');
+    expect((await svc.get(boss, 'finance-bundles', ids.b1)).data.code).toBe('ZZ-TB-PG-2');
     ids.main = main.id;
   });
 
@@ -260,7 +261,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     const after = await svc.get(boss, 'finance-bundles', ids.b1);
     expect(after.status).toBe('verified');
     expect(after.data.pendingRevisionId).toBeUndefined();
-    expect(after.data.code).toBe('ZZ-SG-PG-TB-3');
+    expect(after.data.code).toBe('ZZ-TB-PG-3');
     expect((await svc.get(boss, 'finance-bundle-revisions', r3.id)).status).toBe('published');
   });
 

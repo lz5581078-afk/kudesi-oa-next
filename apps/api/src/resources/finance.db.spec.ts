@@ -147,25 +147,29 @@ d('财务资料（真实数据库）', () => {
     await svc.changeStatus(boss, 'finance-base-codes', ids.bc, 'verified');
     const plat = await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' });
     const scen = await svc.create(boss, 'finance-scenarios', { code: 'supply_chain', name: '供应链', segment: 'GYL' });
-    const bundle = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id });
+    const bcat = await svc.create(boss, 'finance-categories', { name: '水果组合', code: 'SGZH', archiveType: 'bundle' });
+    ids.bcat = bcat.id;
+    const bundle = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, bundleCategoryId: bcat.id });
     expect(String(bundle.data.code)).toMatch(/^ZH-待配置-/);
     const apple2Bc = await svc.create(boss, 'finance-base-codes', { productId: ids.apple2, code: 'APPLE-B', codeChangeReason: '历史编码' });
     await expect(svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'main', baseCodeId: apple2Bc.id, qty: 1 })).rejects.toThrow(/还没验证/);
     await svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'main', baseCodeId: ids.bc, qty: 2 });
     const mid = await svc.get(boss, 'finance-bundles', bundle.id);
-    expect(mid.data.code).toBe('ZH-TB-SG-PG-HFSPGG-2D5KG*2-GYL');
-    expect(mid.data.name).toBe('组合-红富士苹果（改）×2');
+    expect(mid.data.code).toBe('ZH-TB-HFSPGG-5KG-GYL');
+    expect(mid.data.name).toBe('组合-苹果类-红富士苹果（改）-5千克');
     await svc.update(boss, 'finance-products', ids.apple2, { weightG: 100 });
     await svc.changeStatus(boss, 'finance-base-codes', apple2Bc.id, 'verified');
+    await expect(svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'gift', baseCodeId: apple2Bc.id, qty: 1 })).rejects.toThrow(/别名/);
+    await svc.update(boss, 'finance-products', ids.apple2, { giftShortName: '苹果赠', giftCodeShortName: 'apple' });
     const gift = await svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'gift', baseCodeId: apple2Bc.id, qty: 1 });
-    expect((await svc.get(boss, 'finance-bundles', bundle.id)).data.code).toBe('ZH-TB-SG-PG-HFSPGG-2D5KG*2+ZP-APPLE-B-GYL');
+    expect((await svc.get(boss, 'finance-bundles', bundle.id)).data.code).toBe('ZH-TB-HFSPGG-5KG-GYL+ZP-APPLE*1');
     const verified = await svc.changeStatus(boss, 'finance-bundles', bundle.id, 'verified');
     expect(verified.status).toBe('verified');
     // 构成一变，就要重新验证；删除赠品后编码回到只有主品
     await svc.remove(boss, 'finance-bundle-lines', gift.id, '不要赠品了');
     const back = await svc.get(boss, 'finance-bundles', bundle.id);
     expect(back.status).toBe('reverify');
-    expect(back.data.code).toBe('ZH-TB-SG-PG-HFSPGG-2D5KG*2-GYL');
+    expect(back.data.code).toBe('ZH-TB-HFSPGG-5KG-GYL');
     // 手工重量/运费/利润率覆盖必须写原因
     await expect(svc.update(boss, 'finance-bundles', bundle.id, { manualFreight: 800 })).rejects.toThrow(/原因/);
     await svc.update(boss, 'finance-bundles', bundle.id, { manualFreight: 800, overrideReason: '特殊线路' });

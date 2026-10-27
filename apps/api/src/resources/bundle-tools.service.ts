@@ -7,6 +7,7 @@ import { ResourceRecord } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
 import { COST_FIELDS, sigOf } from './base-code-support';
 import { composeBundle } from './bundle-naming';
+import { pickLine } from './bundle-checks';
 import { buildBundleLines, bundleSnapshotJson, findNamingRule, namingInputFor } from './finance-rules';
 import { ResourcesService } from './resources.service';
 
@@ -14,8 +15,8 @@ const TYPE = 'finance-bundles';
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-export interface LineInput { role: string; baseCodeId?: number; laborId?: number; qty: number }
-export interface TargetInput { platformId: number; scenarioId: number; configNo?: string }
+export interface LineInput { role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean; costBucket?: string; costTreatment?: string; note?: string }
+export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number }
 interface SnapLine { role: string; ref: string; qty: number; weightG: number | null; cost: number | null }
 interface BundleSnap { profile: Record<string, string>; lines: SnapLine[] }
 
@@ -96,7 +97,7 @@ export class BundleToolsService {
       const scenario = await em.findOne(ResourceRecord, { where: { id: t.scenarioId, companyId: user.companyId, type: 'finance-scenarios' } });
       if (!platform || !scenario) throw new BadRequestException('销售平台或销售场景不存在');
       const configNo = t.configNo || '01';
-      const composed = composeBundle(rule, await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, configNo));
+      const composed = composeBundle(rule, await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, configNo, t.brandId));
       const reuse = allBundles.find((b) => b.status !== 'archived' && b.data.platformId === platform.id && b.data.scenarioId === scenario.id && str(b.data.configNo || '01') === configNo
         && sigOf(...(linesOf.get(b.id) ?? []).map(lineKey).sort()) === mySig);
       const layers: { layer: string; label: string; hit: string }[] = [];
@@ -115,7 +116,8 @@ export class BundleToolsService {
         code: composed.code, name: composed.name, styleCode: composed.styleCode, shortName: composed.shortName,
         reuse: reuse ? { id: reuse.id, code: str(reuse.data.code), status: reuse.status } : null,
         duplicates: layers,
-        ok: !!reuse || layers.length === 0,
+        errors: composed.errors,
+        ok: (!!reuse || layers.length === 0) && composed.errors.length === 0,
       });
     }
     return { targets: out, namingRule: !!rule };
@@ -128,13 +130,14 @@ export class BundleToolsService {
     return run(async (em) => {
       const pre = await this.preview(user, lines, targets, em);
       const bad = pre.targets.find((t) => !t.ok);
+      if (bad?.errors.length) throw new BadRequestException(bad.errors.join('；'));
       if (bad) throw new ConflictException(`「${bad.code}」重复：${bad.duplicates.map((d) => `${d.label}「${d.hit}」`).join('、')}`);
       const created: { id: number; code: string; reused: boolean }[] = [];
       for (const t of pre.targets) {
         if (t.reuse) { created.push({ id: t.reuse.id, code: t.reuse.code, reused: true }); continue; }
-        const b = await this.resources.createRecord(em, user, TYPE, { platformId: t.platformId, scenarioId: t.scenarioId, configNo: t.configNo }, '批量生成组合');
+        const b = await this.resources.createRecord(em, user, TYPE, { platformId: t.platformId, scenarioId: t.scenarioId, configNo: t.configNo, bundleCategoryId: targets.find((x) => x.platformId === t.platformId && x.scenarioId === t.scenarioId)?.bundleCategoryId, brandId: targets.find((x) => x.platformId === t.platformId && x.scenarioId === t.scenarioId)?.brandId }, '批量生成组合');
         await buildBundleLines(this.resources as never, em, user, b.id, async () => {
-          for (const l of lines) await this.resources.createRecord(em, user, 'finance-bundle-lines', { bundleId: b.id, role: l.role, baseCodeId: l.baseCodeId, laborId: l.laborId, qty: l.qty }, '批量生成组合');
+          for (const l of lines) await this.resources.createRecord(em, user, 'finance-bundle-lines', { bundleId: b.id, ...pickLine(l as never), sortOrder: undefined }, '批量生成组合');
         });
         const fresh = await this.load(em, user, b.id);
         created.push({ id: b.id, code: str(fresh.data.code), reused: false });

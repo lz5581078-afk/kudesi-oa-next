@@ -99,8 +99,15 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     for (const r of recs) {
       if (!ids?.length && r.data.jstStatus === 'synced') { skipped++; continue; }
       const payload = await this.payloadFor(t, r);
-      // 幂等键 = 记录 + 更新时间 + 上传内容指纹：同一版本只入队一次，内容变了就是新版本
-      const key = `${t}:${r.id}:${r.updatedAt ? new Date(r.updatedAt).getTime() : 0}:${sigOf(JSON.stringify(payload)).slice(0, 8)}`;
+      // 幂等键 = 记录 + 上传内容指纹：只看内容，不看更新时间（入队后回写状态会改更新时间，跨秒会让同一内容重复入队）。
+      // 内容和最近一条非停用任务相同 → 跳过；内容改回以前的版本（A→B→A）→ 键后加序号，允许重发。
+      const baseKey = `${t}:${r.id}:${sigOf(JSON.stringify(payload)).slice(0, 16)}`;
+      const prior: { idempotency_key: string }[] = await em.query(
+        "SELECT idempotency_key FROM outbox_jobs WHERE company_id = ? AND resource_type = ? AND resource_id = ? AND kind NOT LIKE '%\\_disable' ORDER BY id DESC",
+        [user.companyId, t, r.id]);
+      const sameBase = (k: string) => k === baseKey || k.startsWith(`${baseKey}:`);
+      if (prior.length && sameBase(prior[0].idempotency_key)) { skipped++; continue; }
+      const key = prior.some((p) => sameBase(p.idempotency_key)) ? `${baseKey}:${prior.filter((p) => sameBase(p.idempotency_key)).length}` : baseKey;
       const old = str(r.data.jstUploadedCode);
       const replacing = !!old && old !== str(r.data.code);
       if (replacing && !opts.replaceConfirmed) {

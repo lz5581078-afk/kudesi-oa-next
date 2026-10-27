@@ -50,13 +50,14 @@ d('成本表与定价调试表（真实数据库）', () => {
     await svc.changeStatus(boss, 'finance-base-codes', bc.id, 'verified');
     const plat = await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' });
     const scen = await svc.create(boss, 'finance-scenarios', { code: 'retail', name: '零售', segment: 'LS' });
-    ids.bundle = (await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id })).id;
+    const bcat = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '水果组合', code: 'SGZH' })).id;
+    ids.bundle = (await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, bundleCategoryId: bcat })).id;
     await svc.create(boss, 'finance-bundle-lines', { bundleId: ids.bundle, role: 'main', baseCodeId: bc.id, qty: 1 });
     await svc.changeStatus(boss, 'finance-bundles', ids.bundle, 'verified');
     // 手工运费 8 元，避免依赖快递价格表
     await svc.update(boss, 'finance-bundles', ids.bundle, { manualFreight: 800, overrideReason: '测试固定运费' });
     // 第二个组合：同分类，没有手工运费、没有重量段报价 → 运费估不出来
-    const b2 = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, configNo: '02' });
+    const b2 = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, configNo: '02', bundleCategoryId: bcat });
     await svc.create(boss, 'finance-bundle-lines', { bundleId: b2.id, role: 'main', baseCodeId: bc.id, qty: 2 });
     await svc.changeStatus(boss, 'finance-bundles', b2.id, 'verified');
     ids.bundle2 = b2.id;

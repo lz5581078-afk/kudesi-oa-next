@@ -30,7 +30,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
     ({ key: k, name, type, ...(type === 'submit' ? { assignee: { source: 'requester' } } : assigneeId ? { assignee: { source: 'employee', id: assigneeId } } : {}) }) as StepDef;
 
   const spec = (name: string, main: number, over: Record<string, unknown> = {}) => ({ name, main: [{ baseCodeId: main, qty: 2 }], gift: [], ...over });
-  const payload = (specs: unknown[], over: Record<string, unknown> = {}) => ({ batchName: '10 月新品', scenarioId: ids.scen, platformIds: [ids.tb, ids.dy], specs, ...over });
+  const payload = (specs: unknown[], over: Record<string, unknown> = {}) => ({ batchName: '10 月新品', scenarioId: ids.scen, platformIds: [ids.tb, ids.dy], specs, bundleCategoryId: ids.bcat, ...over });
   const whLines = (over: Record<string, unknown> = {}) => ({
     lines: [{ role: 'package', baseCodeId: ids.boxBc, qty: 1 }, { role: 'label', baseCodeId: ids.labelBc, qty: 1 }, { role: 'labor', laborId: ids.labor, qty: 1 }],
     notRequired: { other: '没有其他物料' }, ...over,
@@ -88,6 +88,9 @@ d('SKU 批量申请流程（真实数据库）', () => {
     const wt = await resources.create(admin, 'finance-labor-work-types', { name: '包装' });
     const unit = await resources.create(admin, 'finance-labor-units', { name: '元/个' });
     ids.labor = (await resources.create(admin, 'finance-labor-costs', { versionId: v.id, workTypeId: wt.id, unitId: unit.id, workName: '装箱', unitPrice: 150, archiveCategoryId: lc.id })).id;
+    ids.bcat = (await resources.create(admin, 'finance-categories', { archiveType: 'bundle', name: '水果组合', code: 'SGZH' })).id;
+    const giftProductId = (await resources.get(admin, 'finance-base-codes', ids.giftBc)).data.productId as number;
+    await resources.update(admin, 'finance-products', giftProductId, { giftShortName: '小赠品', giftCodeShortName: 'XZP' });
     ids.tb = (await resources.create(admin, 'finance-platforms', { code: 'TB', name: '淘宝' })).id;
     ids.dy = (await resources.create(admin, 'finance-platforms', { code: 'DY', name: '抖音' })).id;
     ids.scen = (await resources.create(admin, 'finance-scenarios', { code: 'standard', name: '标准', segment: '' })).id;

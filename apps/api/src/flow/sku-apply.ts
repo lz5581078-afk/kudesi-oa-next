@@ -157,6 +157,7 @@ export const skuBatchApply: FlowAdapter = {
     if (!bundles) throw new BadRequestException('服务没有准备好');
     const name = str(payload.batchName).trim();
     if (!name) throw new BadRequestException('请填写申请名称');
+    if (!num(payload.bundleCategoryId)) throw new BadRequestException('请选择组合分类');
     await checkApplication(em, user, bundles, payload, { strict: true });
   },
   async beforePass({ em, user, run, payload, stepKey, form, bundles }) {
@@ -197,7 +198,7 @@ export const skuBatchApply: FlowAdapter = {
     const actor = asEngine(user);
     const created: CreatedBundle[] = [];
     for (const [i, spec] of specs.entries()) {
-      const res = await bundles.generate(actor, specLines(spec, wh[i]), platformIds.map((platformId) => ({ platformId, scenarioId })), em);
+      const res = await bundles.generate(actor, specLines(spec, wh[i]), platformIds.map((platformId) => ({ platformId, scenarioId, bundleCategoryId: num(payload.bundleCategoryId) ?? undefined })), em);
       for (const c of res.created) {
         const rec = await em.findOne(ResourceRecord, { where: { id: c.id, companyId: user.companyId, type: 'finance-bundles' } });
         if (!rec) continue;
