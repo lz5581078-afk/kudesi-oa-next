@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RESOURCE_DEFS, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
+import { RESOURCE_DEFS, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
 import { FileList } from './FilesField';
@@ -16,8 +16,16 @@ export function useResourceCan(type: string) {
 }
 
 const ACTION_LABEL: Record<string, string> = {
-  create: '新建', update: '修改', status: '改状态', delete: '删除', reveal: '查看明文',
+  create: '新建', update: '修改', status: '改状态', delete: '删除', reveal: '查看明文', archived: '归档', restored: '恢复',
 };
+
+/** 归档确认框里的“关联摘要”：告诉操作人这条资料现在还关联着什么（归档不会动它们）。 */
+function relationHint(relations: Relation[] | null): string {
+  if (!relations || relations.length === 0) return '';
+  const by = new Map<string, number>();
+  for (const r of relations) by.set(typeLabel(r.type), (by.get(typeLabel(r.type)) ?? 0) + 1);
+  return `现在关联着：${[...by].map(([k, n]) => `${k} ${n} 条`).join('、')}。`;
+}
 
 function SecretCell({ def, record, fieldKey }: { def: ResourceDef; record: ResourceDto; fieldKey: string }) {
   const can = useResourceCan(def.key);
@@ -140,6 +148,8 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   const [logs, setLogs] = useState<LogEntry[] | null>(null);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const archivable = Boolean(archivePolicyOf(def.key));
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -158,9 +168,9 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   }, [load]);
 
   useEffect(() => {
-    if (tab === 'relations' && relations === null) resourceApi.relations(def.key, id).then(setRelations).catch(() => setRelations([]));
+    if ((tab === 'relations' || deleting) && relations === null) resourceApi.relations(def.key, id).then(setRelations).catch(() => setRelations([]));
     if (tab === 'logs' && logs === null) resourceApi.logs(def.key, id).then(setLogs).catch(() => setLogs([]));
-  }, [tab, relations, logs, def.key, id]);
+  }, [tab, deleting, relations, logs, def.key, id]);
 
   if (!record) return <aside className="drawer card">{error ? <div className="notice error" role="alert">{error}</div> : <div className="empty-state muted">加载中…</div>}</aside>;
 
@@ -191,6 +201,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         <div className="pill-row">
           <span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>
           {record.statusReason && <span className="muted">原因：{record.statusReason}</span>}
+          {record.archived && <span className="muted">已归档{record.archived.reason ? `：${record.archived.reason}` : ''}（{new Date(record.archived.at).toLocaleDateString('zh-CN')}）</span>}
         </div>
       </div>
       <div role="tablist" aria-label="详情分区" className="tabs">
@@ -256,8 +267,9 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         )}
       </div>
       <div className="drawer-foot">
-        {can('edit') && <button type="button" className="secondary-button" onClick={() => setEditing(true)}>编辑</button>}
-        {onCopy && can('create') && (
+        {record.archived && can('delete') && <button type="button" className="secondary-button" onClick={() => setRestoring(true)}>恢复…</button>}
+        {!record.archived && can('edit') && <button type="button" className="secondary-button" onClick={() => setEditing(true)}>编辑</button>}
+        {!record.archived && onCopy && can('create') && (
           <button type="button" className="secondary-button" title="按这条的内容新建一条，编码、图片不带过去" onClick={() => {
             const values: Record<string, unknown> = {};
             for (const f of def.fields) {
@@ -268,11 +280,26 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
             onCopy(values);
           }}>复制新建</button>
         )}
-        {can('disable') && (
+        {!record.archived && can('disable') && (
           <StatusControl def={def} id={record.id} current={record.status} onChanged={() => { void load(); onChanged(); }} onError={setError} />
         )}
-        {can('delete') && <button type="button" className="secondary-button danger" onClick={() => setDeleting(true)}>删除…</button>}
+        {!record.archived && can('delete') && <button type="button" className="secondary-button danger" onClick={() => setDeleting(true)}>{archivable ? '归档…' : '删除…'}</button>}
       </div>
+      {restoring && (
+        <ReasonDialog
+          title={`恢复${def.label}`}
+          hint={`恢复后回到归档前的状态${record.archived?.fromStatus ? `（${statusOf(def, record.archived.fromStatus)?.label ?? record.archived.fromStatus}）` : ''}，关联关系原样保留。`}
+          confirmLabel="确认恢复"
+          onClose={() => setRestoring(false)}
+          onConfirm={async (reason) => {
+            await resourceApi.restore(def.key, record.id, reason);
+            clearRefCache(def.key);
+            setRestoring(false);
+            await load();
+            onChanged();
+          }}
+        />
+      )}
       {editing && (
         <RecordForm
           def={def}
@@ -289,9 +316,11 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
       )}
       {deleting && (
         <ReasonDialog
-          title={`删除${def.label}`}
-          hint="删除后无法恢复。还被其他资料引用时不能删除，请先解除引用，或改为停用。"
-          confirmLabel="确认删除"
+          title={`${archivable ? '归档' : '删除'}${def.label}`}
+          hint={archivable
+            ? `归档后不再出现在日常列表，但这条资料的关联和历史记录原样保留，可在「已归档」里恢复。${relationHint(relations)}`
+            : '删除后无法恢复。还被其他资料引用时不能删除，请先解除引用，或改为停用。'}
+          confirmLabel={archivable ? '确认归档' : '确认删除'}
           danger
           onClose={() => setDeleting(false)}
           onConfirm={async (reason) => {

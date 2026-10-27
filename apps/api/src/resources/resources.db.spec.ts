@@ -127,25 +127,26 @@ d('资料引擎（真实数据库）', () => {
     expect(JSON.stringify(logs)).not.toContain('Secret-123');
   });
 
-  it('停用必须填原因；默认列表隐藏停用；删除必须填原因，被引用时不能删', async () => {
+  it('停用必须填原因；默认列表隐藏停用；删除=归档（旧系统同款）：必须填原因，被引用也能归档，关联不丢，可恢复', async () => {
     const lic = await svc.create(boss, 'licenses', { category: 'operation', companyName: '乙公司', creditCode: 'X-DEL-1', legalPerson: '李四' });
     await expect(svc.changeStatus(boss, 'licenses', lic.id, 'inactive', '')).rejects.toThrow(/必须填写原因/);
     const store = await svc.create(boss, 'stores', { platform: 'taobao', name: '引用执照的店', licenseId: lic.id });
-    await expect(svc.remove(boss, 'licenses', lic.id, '不要了')).rejects.toThrow(/还被/);
     await svc.changeStatus(boss, 'licenses', lic.id, 'inactive', '公司已注销');
     expect((await svc.list(boss, 'licenses', { keyword: 'X-DEL-1' })).total).toBe(0);
     expect((await svc.list(boss, 'licenses', { keyword: 'X-DEL-1', showHidden: true })).total).toBe(1);
     expect((await svc.get(boss, 'licenses', lic.id)).statusReason).toBe('公司已注销');
-    await expect(svc.remove(boss, 'stores', store.id, '')).rejects.toThrow(/必须填写原因/);
+    await expect(svc.remove(boss, 'stores', store.id, '')).rejects.toThrow(/必须填写归档原因/);
     await svc.remove(boss, 'stores', store.id, '录错了');
-    // 执照创建时自动生成了合作人和税务资料，它们还引用着执照，所以要先清掉才能删
-    await expect(svc.remove(boss, 'licenses', lic.id, '确认删除')).rejects.toThrow(/还被 2 条记录引用/);
-    for (const type of ['partners', 'tax-profiles']) {
-      const deps = await svc.list(boss, type, { fieldKey: 'licenseId', fieldValue: String(lic.id), showHidden: true });
-      for (const dep of deps.items) await svc.remove(boss, type, dep.id, '先清理附属记录');
-    }
-    await svc.remove(boss, 'licenses', lic.id, '确认删除');
-    await expect(svc.get(boss, 'licenses', lic.id)).rejects.toThrow(/不存在/);
+    // 归档后执照、合作人、税务资料仍互相关联；执照归档不受引用限制
+    await svc.changeStatus(boss, 'licenses', lic.id, 'normal');
+    const arch = (await svc.remove(boss, 'licenses', lic.id, '确认归档')) as { archived: { reason: string } | null };
+    expect(arch.archived?.reason).toBe('确认归档');
+    expect((await svc.get(boss, 'licenses', lic.id)).title).toBeTruthy();
+    // 税务资料：对应执照已归档后才可归档
+    const taxes = await svc.list(boss, 'tax-profiles', { fieldKey: 'licenseId', fieldValue: String(lic.id), showHidden: true });
+    for (const t of taxes.items) await svc.remove(boss, 'tax-profiles', t.id, '随执照归档');
+    const back = await svc.restore(boss, 'licenses', lic.id, '误归档');
+    expect(back.status).toBe('normal');
   });
 
   it('公司之间互相隔离：读取、修改、引用别家记录都不行', async () => {

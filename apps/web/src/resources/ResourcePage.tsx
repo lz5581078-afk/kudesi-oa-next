@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PARTY_SEED_CATEGORIES, getResourceDef, treeFilterField, type FieldDef } from '@kudesi/shared';
+import { PARTY_SEED_CATEGORIES, archivePolicyOf, getResourceDef, treeFilterField, type FieldDef } from '@kudesi/shared';
 import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
 import { resourceApi, type ListResult } from './api';
@@ -43,6 +43,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [tab, setTab] = useState(lockedTab ?? '');
   const [status, setStatus] = useState('');
   const [showHidden, setShowHidden] = useState(false);
+  const [archived, setArchived] = useState(false);
   const [filterVals, setFilterVals] = useState<Record<string, string>>({});
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
   const treeField = useMemo(() => treeFilterField(def), [def]);
@@ -99,12 +100,14 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
 
   const load = useCallback(async () => {
     try {
-      setData(await resourceApi.list(type, { page, pageSize: PAGE_SIZE, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, filters: filterVals }));
+      setData(await resourceApi.list(type, { page, pageSize: PAGE_SIZE, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, filters: filterVals }));
       setError('');
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
-  }, [type, page, keyword, tab, status, showHidden, filterVals]);
+  }, [type, page, keyword, tab, status, showHidden, archived, filterVals]);
+
+  useEffect(() => { setArchived(false); }, [type]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), 200); // 输入搜索时稍作防抖
@@ -209,7 +212,12 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               <option value="">状态：全部</option>
               {def.statuses.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
-            {hiddenExists && !status && (
+            {archivePolicyOf(type) && (
+              <button type="button" className={archived ? 'secondary-button active' : 'secondary-button'} aria-pressed={archived} onClick={() => { setArchived((v) => !v); setPage(1); }}>
+                已归档{data?.archivedCount !== undefined ? ` ${data.archivedCount}` : ''}
+              </button>
+            )}
+            {hiddenExists && !status && !archived && (
               <label className="check"><input type="checkbox" checked={showHidden} onChange={(e) => { setShowHidden(e.target.checked); setPage(1); }} /> 显示{def.statuses.filter((s) => s.hidden).map((s) => s.label).join('/')}</label>
             )}
             <div className="menu-wrap">

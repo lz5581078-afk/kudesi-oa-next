@@ -14,6 +14,7 @@ export interface ResourceDto {
   title: string;
   status: string;
   statusReason: string | null;
+  archived?: { at: string; reason: string | null; by: number | null; fromStatus: string | null } | null;
   data: Record<string, unknown>;
   secretConfigured: Record<string, boolean>;
   refLabels: Record<string, string>;
@@ -28,6 +29,7 @@ export interface ListResult {
   page: number;
   pageSize: number;
   tabCounts?: Record<string, number>;
+  archivedCount?: number;
 }
 
 export interface ListParams {
@@ -37,6 +39,7 @@ export interface ListParams {
   status?: string;
   tab?: string;
   showHidden?: boolean;
+  archived?: boolean;
   fieldKey?: string;
   fieldValue?: string | number;
   filters?: Record<string, string>;
@@ -90,6 +93,7 @@ export function query(params: ListParams): string {
   if (params.status) q.set('status', params.status);
   if (params.tab) q.set('tab', params.tab);
   if (params.showHidden) q.set('showHidden', '1');
+  if (params.archived) q.set('archived', '1');
   if (params.fieldKey) q.set('fieldKey', params.fieldKey);
   if (params.fieldValue !== undefined) q.set('fieldValue', String(params.fieldValue));
   if (params.filters && Object.keys(params.filters).length) q.set('filters', JSON.stringify(params.filters));
@@ -119,6 +123,8 @@ export const resourceApi = {
     api<ResourceDto>(`/resources/${type}/${id}/status`, { method: 'POST', body: { status, reason } }),
   remove: (type: string, id: number, reason: string) =>
     api<{ ok: true }>(`/resources/${type}/${id}`, { method: 'DELETE', body: { reason } }),
+  restore: (type: string, id: number, reason: string) =>
+    api<ResourceDto>(`/resources/${type}/${id}/restore`, { method: 'POST', body: { reason } }),
   reveal: (type: string, id: number, field: string) => api<{ field: string; value: string }>(`/resources/${type}/${id}/secret/${field}`),
   logs: (type: string, id: number) => api<LogEntry[]>(`/resources/${type}/${id}/logs`),
   addLink: (type: string, id: number, targetType: string, targetId: number) => api<{ ok: true }>(`/resources/${type}/${id}/links`, { method: 'POST', body: { targetType, targetId } }),

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { config as loadDotenv } from 'dotenv';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { ALL_ENTITIES } from '../entities';
+import { ResourceArchive1735000000000 } from './migrations/1735000000000-ResourceArchive';
 import { UnitPricePrecision1734000000000 } from './migrations/1734000000000-UnitPricePrecision';
 import { LegacySourceHash1733000000000 } from './migrations/1733000000000-LegacySourceHash';
 import { LegacyImport1732000000000 } from './migrations/1732000000000-LegacyImport';
@@ -33,7 +34,7 @@ import { ResourceTables1730000100000 } from './migrations/1730000100000-Resource
 // 仓库根目录的 .env（从 apps/api/src/database 向上四级）
 loadDotenv({ path: path.resolve(__dirname, '../../../../.env') });
 
-export const MIGRATIONS = [InitialSchema1730000000000, ResourceTables1730000100000, IntegrationsAndFiles1730000200000, FinanceDocuments1730000300000, FlowEngine1730000400000, TaskCenter1730000500000, StoreWithdrawal1730000600000, WithdrawalVoucher1730000700000, FinanceSettlement1730000800000, FinanceAudit1730000900000, TransferAccountsAndLineObjects1730001000000, DocumentSettlements1730001100000, DataTools1730001200000, Outbox1730001300000, ImportBackups1730001400000, ManualLinks1730001500000, OrgProfile1730001600000, ExtraPositions1730001700000, FinanceKeyAccountsAndDeviceUpdates1730003000000, CostSnapshotMargin61730004000000, RemoteAssist1730006000000, AgentReleases1730007000000, PlatformAdmin1731000000000, LegacyImport1732000000000, LegacySourceHash1733000000000, UnitPricePrecision1734000000000];
+export const MIGRATIONS = [InitialSchema1730000000000, ResourceTables1730000100000, IntegrationsAndFiles1730000200000, FinanceDocuments1730000300000, FlowEngine1730000400000, TaskCenter1730000500000, StoreWithdrawal1730000600000, WithdrawalVoucher1730000700000, FinanceSettlement1730000800000, FinanceAudit1730000900000, TransferAccountsAndLineObjects1730001000000, DocumentSettlements1730001100000, DataTools1730001200000, Outbox1730001300000, ImportBackups1730001400000, ManualLinks1730001500000, OrgProfile1730001600000, ExtraPositions1730001700000, FinanceKeyAccountsAndDeviceUpdates1730003000000, CostSnapshotMargin61730004000000, RemoteAssist1730006000000, AgentReleases1730007000000, PlatformAdmin1731000000000, LegacyImport1732000000000, LegacySourceHash1733000000000, UnitPricePrecision1734000000000, ResourceArchive1735000000000];
 
 export function buildDataSourceOptions(env: NodeJS.ProcessEnv = process.env): DataSourceOptions {
   const required = (name: string) => {

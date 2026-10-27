@@ -386,6 +386,19 @@ export class ResourceRecord {
   @Column({ name: 'updated_by', type: 'int', unsigned: true, nullable: true })
   updatedBy!: number | null;
 
+  /** 软归档（见 shared/archive-policy.ts）：归档后不出现在默认列表，可恢复 */
+  @Column({ name: 'archived_at', type: 'datetime', nullable: true })
+  archivedAt!: Date | null;
+
+  @Column({ name: 'archived_by', type: 'int', unsigned: true, nullable: true })
+  archivedBy!: number | null;
+
+  @Column({ name: 'archive_reason', type: 'varchar', length: 500, nullable: true })
+  archiveReason!: string | null;
+
+  @Column({ name: 'archived_from_status', type: 'varchar', length: 24, nullable: true })
+  archivedFromStatus!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
 

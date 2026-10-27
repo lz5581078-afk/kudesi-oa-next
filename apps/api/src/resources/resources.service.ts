@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Not } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Not } from 'typeorm';
 import {
   unitYuanText, yuanToPreciseCents, createChecker,
   daysUntil,
@@ -12,6 +12,7 @@ import {
   permissionOwner,
   RESOURCE_DEFS,
   ResourceDef,
+  archivePolicyOf,
   resourcePermission,
   readOnlyFieldKeys,
   restrictedFieldKeys,
@@ -30,6 +31,8 @@ export interface ResourceDto {
   title: string;
   status: string;
   statusReason: string | null;
+  /** 已归档时的信息（归档时间/原因/操作人）；未归档为 null */
+  archived: { at: Date; reason: string | null; by: number | null; fromStatus: string | null } | null;
   /** 字段值：敏感字段是脱敏值，密码类字段不出现 */
   data: Record<string, unknown>;
   /** 密码/证件号类字段是否已设置 */
@@ -43,6 +46,8 @@ export interface ResourceDto {
 }
 
 export interface ListQuery {
+  /** true=只看已归档；默认不含已归档 */
+  archived?: boolean;
   page?: number;
   pageSize?: number;
   keyword?: string;
@@ -217,6 +222,7 @@ export class ResourcesService implements RuleHost {
       title: r.title,
       status: r.status,
       statusReason: r.statusReason,
+      archived: r.archivedAt ? { at: r.archivedAt, reason: r.archiveReason, by: r.archivedBy, fromStatus: r.archivedFromStatus } : null,
       data,
       secretConfigured,
       refLabels: labels,
@@ -298,6 +304,10 @@ export class ResourcesService implements RuleHost {
         if (list.length) {
           const found = await em.count(ResourceRecord, { where: { id: In(list), companyId: user.companyId, type: f.ref! } });
           if (found !== list.length) throw new BadRequestException(`${f.label}：引用的记录不存在`);
+          const before = Array.isArray(existing?.data[f.key]) ? (existing!.data[f.key] as number[]) : [];
+          const added = list.filter((x) => !before.includes(x));
+          if (added.length && (await em.count(ResourceRecord, { where: { id: In(added), companyId: user.companyId, archivedAt: Not(IsNull()) } })))
+            throw new BadRequestException(`${f.label}：引用的记录已归档，请先恢复`);
         }
         continue;
       }
@@ -317,6 +327,7 @@ export class ResourcesService implements RuleHost {
       }
       const target = await em.findOne(ResourceRecord, { where: { id: value, companyId: user.companyId, type: f.ref! } });
       if (!target) throw new BadRequestException(`${f.label}：引用的记录不存在`);
+      if (target.archivedAt && changed) throw new BadRequestException(`${f.label}：「${target.title}」已归档，请先恢复`);
       if (f.ref === def.key) {
         if (existing && value === existing.id) throw new BadRequestException(`${f.label}不能选自己`);
         // 沿上级链往上走，遇到自己就是成环
@@ -625,12 +636,16 @@ export class ResourcesService implements RuleHost {
       const qb = em
         .createQueryBuilder(ResourceRecord, 'r')
         .where('r.companyId = :companyId AND r.type = :type', { companyId: user.companyId, type });
-      if (q.status) {
+      qb.andWhere(q.archived ? 'r.archivedAt IS NOT NULL' : 'r.archivedAt IS NULL');
+      if (q.archived) {
+        // 已归档列表：不再按“隐藏状态”过滤（归档后的状态本来就是停用/注销）
+      } else if (q.status) {
         if (!def.statuses.some((s) => s.value === q.status)) throw new BadRequestException('状态不合法');
         qb.andWhere('r.status = :status', { status: q.status });
       } else if (!q.showHidden && hiddenStatuses.length > 0) {
         qb.andWhere('r.status NOT IN (:...hiddenStatuses)', { hiddenStatuses });
       }
+      if (q.archived && q.status) qb.andWhere('r.status = :status', { status: q.status });
       (q.keyword ?? '')
         .trim()
         .toLowerCase()
@@ -675,7 +690,11 @@ export class ResourcesService implements RuleHost {
       for (const row of rows) tabCounts[row.tab ?? ''] = Number(row.n);
     }
 
-    return { items: await this.toDtos(em, user, def, records), total, page, pageSize, tabCounts };
+    let archivedCount: number | undefined;
+    if (archivePolicyOf(type)) {
+      archivedCount = await em.count(ResourceRecord, { where: { companyId: user.companyId, type, archivedAt: Not(IsNull()) } });
+    }
+    return { items: await this.toDtos(em, user, def, records), total, page, pageSize, tabCounts, archivedCount };
   }
 
   /** 列表左侧的分类目录：该字段所指分类树的全部节点，带各节点（含下级）下的资料数。 */
@@ -749,6 +768,7 @@ export class ResourcesService implements RuleHost {
     const cleanup: string[] = [];
     await this.dataSource.transaction(async (em) => {
       const existing = await this.load(em, user, type, id);
+      if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再修改');
       await this.saveRecord(em, user, def, existing, values, { cleanup });
     });
     await this.files.deleteObjects(user.companyId, cleanup);
@@ -793,6 +813,7 @@ export class ResourcesService implements RuleHost {
     if (problem) throw new BadRequestException(problem);
     await this.dataSource.transaction(async (em) => {
       const existing = await this.load(em, user, type, id);
+      if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再改状态');
       if (existing.status === status) return;
       const needsReason = def.statuses.find((s) => s.value === status)?.requiresReason;
       // 走统一保存流程，这样状态相关字段的清理、规则校验、日志都一致
@@ -804,8 +825,61 @@ export class ResourcesService implements RuleHost {
     return this.get(user, type, id);
   }
 
+  /** 旧系统同款软归档：只标记这条资料本身（状态变为停用/注销等）并写变更记录，关联和业务历史原样保留，可恢复。 */
+  async archive(user: AuthUser, type: string, id: number, reason: string | undefined) {
+    const def = this.def(type);
+    const policy = archivePolicyOf(type);
+    if (!policy) throw new BadRequestException('该资料类型不支持归档');
+    const text = (reason ?? '').trim();
+    if (!text) throw new BadRequestException('归档必须填写归档原因');
+    if (text.length > 500) throw new BadRequestException('原因不能超过 500 个字');
+    await this.dataSource.transaction(async (em) => {
+      const before = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
+      if (!before) throw new NotFoundException('记录不存在');
+      if (before.archivedAt) throw new ConflictException('该资料已归档');
+      if (type === 'tax-profiles') {
+        const licenseId = before.data.licenseId;
+        if (typeof licenseId === 'number' && (await em.count(ResourceRecord, { where: { id: licenseId, companyId: user.companyId, type: 'licenses', archivedAt: IsNull() } })))
+          throw new BadRequestException('营业执照仍然存在，不能归档对应税务资料');
+      }
+      await em.update(
+        ResourceRecord,
+        { id, companyId: user.companyId },
+        { archivedAt: () => 'CURRENT_TIMESTAMP', archivedBy: user.id, archiveReason: text, archivedFromStatus: before.status, status: policy.archivedStatus, updatedBy: user.id },
+      );
+      const after = await this.load(em, user, type, id);
+      await this.writeLog(em, user, def, id, 'archived', before, after, `归档原因：${text}`);
+    });
+    return this.get(user, type, id);
+  }
+
+  async restore(user: AuthUser, type: string, id: number, reason: string | undefined) {
+    const def = this.def(type);
+    const policy = archivePolicyOf(type);
+    if (!policy) throw new BadRequestException('该资料类型不支持归档');
+    const text = (reason ?? '').trim();
+    if (!text) throw new BadRequestException('恢复必须填写恢复原因');
+    if (text.length > 500) throw new BadRequestException('原因不能超过 500 个字');
+    await this.dataSource.transaction(async (em) => {
+      const before = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
+      if (!before) throw new NotFoundException('记录不存在');
+      if (!before.archivedAt) throw new ConflictException('该资料未归档，无需恢复');
+      const restored = before.archivedFromStatus && def.statuses.some((x) => x.value === before.archivedFromStatus) ? before.archivedFromStatus : policy.defaultStatus;
+      await em.update(
+        ResourceRecord,
+        { id, companyId: user.companyId },
+        { status: restored, statusReason: null, archivedAt: null, archivedBy: null, archiveReason: null, archivedFromStatus: null, updatedBy: user.id },
+      );
+      const after = await this.load(em, user, type, id);
+      await this.writeLog(em, user, def, id, 'restored', before, after, `恢复原因：${text}`);
+    });
+    return this.get(user, type, id);
+  }
+
   async remove(user: AuthUser, type: string, id: number, reason: string | undefined) {
     const def = this.def(type);
+    // 旧系统里这些资料不物理删除：删除 = 归档
+    if (archivePolicyOf(type)) return this.archive(user, type, id, reason);
     if (!reason || reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
     const cleanup: string[] = [];
     await this.dataSource.transaction(async (em) => {
@@ -971,7 +1045,7 @@ export class ResourcesService implements RuleHost {
     for (const def of RESOURCE_DEFS) {
       if (!def.nav || def.nav.section || !can(resourcePermission(def.key, 'view'))) continue;
       const hidden = def.statuses.filter((s) => s.hidden).map((s) => s.value);
-      const rows = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: def.key }, select: ['id', 'title', 'status', 'data'] });
+      const rows = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: def.key, archivedAt: IsNull() }, select: ['id', 'title', 'status', 'data'] });
       const active = rows.filter((r) => !hidden.includes(r.status));
       items.push({ type: def.key, label: def.label, total: active.length, abnormal: active.filter((r) => r.status === 'abnormal').length });
       for (const rule of def.alerts ?? []) {

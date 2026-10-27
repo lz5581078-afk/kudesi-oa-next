@@ -16,6 +16,7 @@ class ListQueryDto {
   @IsOptional() @IsString() @MaxLength(100) fieldValue?: string;
   @IsOptional() @IsString() @MaxLength(400) filters?: string;
   @IsOptional() @IsString() showHidden?: string;
+  @IsOptional() @IsString() archived?: string;
 }
 
 class CategoryTreeQueryDto {
@@ -88,7 +89,7 @@ export class ResourcesController {
   @RequireResourceAction('view')
   @Get(':type')
   list(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ListQueryDto) {
-    return this.resources.list(user, type, { ...q, showHidden: q.showHidden === '1' });
+    return this.resources.list(user, type, { ...q, showHidden: q.showHidden === '1', archived: q.archived === '1' });
   }
 
   @RequireResourceAction('export')
@@ -159,6 +160,12 @@ export class ResourcesController {
   @Delete(':type/:id')
   remove(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: DeleteDto) {
     return this.resources.remove(user, type, id, dto.reason);
+  }
+
+  @RequireResourceAction('delete')
+  @Post(':type/:id/restore')
+  restore(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: DeleteDto) {
+    return this.resources.restore(user, type, id, dto.reason);
   }
 
   @RequireResourceAction('secret')
