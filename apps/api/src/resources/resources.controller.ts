@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsString, MaxLength, Max, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, Max, Min } from 'class-validator';
 import { createChecker } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequireResourceAction } from '../common/auth.decorators';
 import { DataToolsService } from './data-tools.service';
@@ -18,6 +18,8 @@ class ListQueryDto {
   @IsOptional() @IsString() showHidden?: string;
   @IsOptional() @IsString() archived?: string;
   @IsOptional() @IsString() expiring?: string;
+  @IsOptional() @IsString() @MaxLength(48) sortBy?: string;
+  @IsOptional() @IsIn(['asc', 'desc']) sortDir?: 'asc' | 'desc';
 }
 
 class ExpiringQueryDto {
@@ -83,6 +85,16 @@ class SimilarDto {
 
 class ExportQueryDto {
   @IsOptional() @IsString() includeHidden?: string;
+  // 导出范围：带上列表当前的筛选条件=导出当前筛选结果；带 ids=导出所选；都不带=全部
+  @IsOptional() @IsString() @MaxLength(100) keyword?: string;
+  @IsOptional() @IsString() @MaxLength(24) status?: string;
+  @IsOptional() @IsString() @MaxLength(64) tab?: string;
+  @IsOptional() @IsString() @MaxLength(400) filters?: string;
+  @IsOptional() @IsString() archived?: string;
+  @IsOptional() @IsString() expiring?: string;
+  @IsOptional() @IsString() @MaxLength(48) sortBy?: string;
+  @IsOptional() @IsIn(['asc', 'desc']) sortDir?: 'asc' | 'desc';
+  @IsOptional() @IsString() @MaxLength(20000) ids?: string;
 }
 
 /**
@@ -121,7 +133,11 @@ export class ResourcesController {
   @RequireResourceAction('export')
   @Get(':type/export')
   export(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ExportQueryDto) {
-    return this.resources.exportCsv(user, type, q.includeHidden === '1');
+    const ids = (q.ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    return this.resources.exportCsv(user, type, q.includeHidden === '1', {
+      keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, archived: q.archived === '1', expiring: q.expiring === '1',
+      sortBy: q.sortBy, sortDir: q.sortDir, ids: ids.length ? ids : undefined,
+    });
   }
 
   @RequireResourceAction('import')

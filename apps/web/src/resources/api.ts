@@ -41,6 +41,8 @@ export interface ListParams {
   showHidden?: boolean;
   archived?: boolean;
   expiring?: boolean;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
   fieldKey?: string;
   fieldValue?: string | number;
   filters?: Record<string, string>;
@@ -106,6 +108,7 @@ export function query(params: ListParams): string {
   if (params.showHidden) q.set('showHidden', '1');
   if (params.archived) q.set('archived', '1');
   if (params.expiring) q.set('expiring', '1');
+  if (params.sortBy) { q.set('sortBy', params.sortBy); q.set('sortDir', params.sortDir ?? 'desc'); }
   if (params.fieldKey) q.set('fieldKey', params.fieldKey);
   if (params.fieldValue !== undefined) q.set('fieldValue', String(params.fieldValue));
   if (params.filters && Object.keys(params.filters).length) q.set('filters', JSON.stringify(params.filters));
@@ -149,8 +152,14 @@ export const resourceApi = {
   relations: (type: string, id: number) => api<Relation[]>(`/resources/${type}/${id}/relations`),
   overview: () => api<OverviewResult>('/resources/overview'),
   expiring: (days: number) => api<ExpiringResult>(`/resources/expiring?days=${days}`),
-  export: (type: string, includeHidden: boolean) =>
-    api<{ filename: string; csv: string; count: number }>(`/resources/${type}/export${includeHidden ? '?includeHidden=1' : ''}`),
+  /** scope：不传=全部；传筛选条件=当前筛选结果；ids=所选 */
+  export: (type: string, includeHidden: boolean, scope: ListParams & { ids?: number[] } = {}) => {
+    const q = new URLSearchParams(query({ ...scope, page: undefined, pageSize: undefined, showHidden: undefined }).replace(/^\?/, ''));
+    if (includeHidden) q.set('includeHidden', '1');
+    if (scope.ids?.length) q.set('ids', scope.ids.join(','));
+    const qs = q.toString();
+    return api<{ filename: string; csv: string; count: number }>(`/resources/${type}/export${qs ? `?${qs}` : ''}`);
+  },
   importBackups: (type: string) => api<ImportBackupInfo[]>(`/resources/${type}/import-backups`),
   restoreBackup: (type: string, id: number) => api<{ restored: number; removed: number; skippedDelete: number }>(`/resources/${type}/import-backups/${id}/restore`, { method: 'POST' }),
   import: (type: string, rows: Array<Record<string, string>>, dryRun: boolean) =>

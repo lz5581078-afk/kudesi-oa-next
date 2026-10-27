@@ -88,4 +88,20 @@ d('软归档/恢复（真实数据库）', () => {
     expect((await svc.relations(boss, 'stores', st.id, can)).find((r) => r.relation === 'manual')!.validTo).toBeNull();
     await expect(svc.addManualLink(boss, 'stores', st.id, target.type, target.id, can)).rejects.toThrow('已经关联过');
   });
+
+  it('列表可按字段排序；导出可限定范围（所选/当前筛选）', async () => {
+    const a = await svc.create(boss, 'software', { name: '排序乙', account: 's2', annualFee: 20 } as never);
+    const b = await svc.create(boss, 'software', { name: '排序甲', account: 's1', annualFee: 300 } as never);
+    const asc = await svc.list(boss, 'software', { keyword: '排序', sortBy: 'name', sortDir: 'asc' });
+    expect(asc.items.map((x) => x.title)).toEqual(['排序乙', '排序甲'].sort());
+    const fee = await svc.list(boss, 'software', { keyword: '排序', sortBy: 'annualFee', sortDir: 'desc' });
+    expect(fee.items.map((x) => x.id)).toEqual([b.id, a.id]);
+    await expect(svc.list(boss, 'software', { sortBy: 'password' })).rejects.toThrow('不能排序');
+    const picked = await svc.exportCsv(boss, 'software', false, { ids: [a.id] });
+    expect(picked.count).toBe(1);
+    expect(picked.csv).toContain('排序乙');
+    expect(picked.csv).not.toContain('排序甲');
+    const filt = await svc.exportCsv(boss, 'software', false, { keyword: '排序甲' });
+    expect(filt.count).toBe(1);
+  });
 });

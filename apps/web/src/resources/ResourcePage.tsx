@@ -13,7 +13,8 @@ import { RecordDetail, useResourceCan } from './RecordDetail';
 import { RecordForm } from './RecordForm';
 import { InventoryDialog } from './AssetPanels';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZES = [20, 50, 100] as const;
+const SORTABLE = new Set(['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select']);
 
 function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
   const key = `kudesi.cols.${type}`;
@@ -47,6 +48,8 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [showHidden, setShowHidden] = useState(false);
   const [archived, setArchived] = useState(false);
   const [expiring, setExpiring] = useState(false);
+  const [pageSize, setPageSize] = useState<number>(20);
+  const [sort, setSort] = useState<{ by: string; dir: 'asc' | 'desc' } | null>(null);
   const [filterVals, setFilterVals] = useState<Record<string, string>>({});
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
   const treeField = useMemo(() => treeFilterField(def), [def]);
@@ -116,21 +119,21 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
 
   const load = useCallback(async () => {
     try {
-      setData(await resourceApi.list(type, { page, pageSize: PAGE_SIZE, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, filters: filterVals }));
+      setData(await resourceApi.list(type, { page, pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals }));
       setError('');
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
-  }, [type, page, keyword, tab, status, showHidden, archived, expiring, filterVals]);
+  }, [type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals]);
 
-  useEffect(() => { setArchived(false); setExpiring(false); }, [type]);
+  useEffect(() => { setArchived(false); setExpiring(false); setSort(null); }, [type]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), 200); // 输入搜索时稍作防抖
     return () => clearTimeout(t);
   }, [load]);
 
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
   const hiddenExists = def.statuses.some((s) => s.hidden);
 
   const [seeding, setSeeding] = useState(false);
@@ -157,9 +160,12 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
     return Object.keys(init).length ? init : undefined;
   }
 
-  async function doExport() {
+  const filtered = Boolean(keyword.trim() || tab || status || archived || expiring || Object.values(filterVals).some(Boolean));
+  async function doExport(scope: 'filtered' | 'all' | 'picked') {
     try {
-      const out = await resourceApi.export(type, showHidden);
+      const out = await resourceApi.export(type, showHidden || archived, scope === 'all' ? {} : scope === 'picked'
+        ? { ids: checked }
+        : { keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, archived, expiring, filters: filterVals, sortBy: sort?.by, sortDir: sort?.dir });
       downloadText(out.filename, out.csv);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '导出失败');
@@ -188,7 +194,9 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             {type === 'tax-profiles' && can('create') && <button type="button" className="secondary-button" onClick={() => setTaxPending(true)}>待生成</button>}
             {libType && libCan('view') && <button type="button" className="secondary-button" onClick={() => setReasonLib(true)}>异常原因库</button>}
             {can('import') && <button type="button" className="secondary-button" onClick={() => setImporting(true)}>导入</button>}
-            {can('export') && <button type="button" className="secondary-button" onClick={doExport}>导出</button>}
+            {can('export') && <button type="button" className="secondary-button" onClick={() => void doExport('filtered')}>{filtered ? '导出当前筛选' : '导出'}</button>}
+            {can('export') && filtered && <button type="button" className="secondary-button" onClick={() => void doExport('all')}>导出全部</button>}
+            {can('export') && checked.length > 0 && <button type="button" className="secondary-button" onClick={() => void doExport('picked')}>导出所选 {checked.length}</button>}
             {can('create') && <button type="button" className="primary-button" onClick={() => setCreating(true)}>＋ 新增</button>}
           </div>
         </div>
@@ -307,7 +315,13 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               <thead>
                 <tr>
                   {def.batch && <th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={!!data?.items.length && data.items.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...(data?.items.map((r) => r.id) ?? [])])] : checked.filter((id) => !data?.items.some((r) => r.id === id)))} /></th>}
-                  {columns.map((f) => <th key={f.key}>{f.label}</th>)}
+                  {columns.map((f) => SORTABLE.has(f.type) ? (
+                    <th key={f.key} aria-sort={sort?.by === f.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                      <button type="button" className="link-button" title="点击排序" onClick={() => { setSort(sort?.by === f.key ? (sort.dir === 'desc' ? { by: f.key, dir: 'asc' } : null) : { by: f.key, dir: 'desc' }); setPage(1); }}>
+                        {f.label}{sort?.by === f.key ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </button>
+                    </th>
+                  ) : <th key={f.key}>{f.label}</th>)}
                   <th>状态</th>
                 </tr>
               </thead>
@@ -344,6 +358,9 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           <div className="card-foot between">
             <span>共 {data?.total ?? 0} 条 · 点击一行在右侧查看，不跳转页面</span>
             <span className="pill-row">
+              <select aria-label="每页条数" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
+                {PAGE_SIZES.map((n) => <option key={n} value={n}>每页 {n} 条</option>)}
+              </select>
               <button type="button" className="secondary-button" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button>
               <span>{page} / {totalPages}</span>
               <button type="button" className="secondary-button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>下一页</button>

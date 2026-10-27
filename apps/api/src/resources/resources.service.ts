@@ -63,6 +63,11 @@ export interface ListQuery {
   fieldValue?: string;
   /** 多个字段筛选：JSON 对象 {字段: 值}；分类字段会包含下级分类 */
   filters?: string;
+  /** 按这个字段排序（文本/数字/金额/日期/选项字段）；不传用默认顺序 */
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+  /** 只要这些记录（导出所选等） */
+  ids?: number[];
 }
 
 const MAX_IMPORT_ROWS = 2000;
@@ -651,6 +656,7 @@ export class ResourcesService implements RuleHost {
         .where('r.companyId = :companyId AND r.type = :type', { companyId: user.companyId, type });
       qb.andWhere(q.archived ? 'r.archivedAt IS NOT NULL' : 'r.archivedAt IS NULL');
       if (expiringIds) qb.andWhere('r.id IN (:...expiringIds)', { expiringIds });
+      if (q.ids?.length) qb.andWhere('r.id IN (:...pickIds)', { pickIds: q.ids.slice(0, 2000) });
       if (q.archived) {
         // 已归档列表：不再按“隐藏状态”过滤（归档后的状态本来就是停用/注销）
       } else if (q.status) {
@@ -682,7 +688,14 @@ export class ResourcesService implements RuleHost {
     if (q.tab && def.tabsBy) {
       listQb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.tabsBy}')) = :tab`, { tab: q.tab });
     }
-    if (def.sortField) {
+    const sortF = q.sortBy ? def.fields.find((f) => f.key === q.sortBy) : undefined;
+    if (q.sortBy && (!sortF || !['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
+    if (sortF) {
+      const dir = q.sortDir === 'asc' ? 'ASC' : 'DESC';
+      const numeric = sortF.type === 'number' || sortF.type === 'money';
+      const expr = `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${sortF.key}'))`;
+      listQb.addSelect(numeric ? `CAST(${expr} AS DECIMAL(30,6))` : expr, 'sortv').orderBy('sortv', dir).addOrderBy('r.id', 'DESC');
+    } else if (def.sortField) {
       // 经营数据这类按日期倒序；日期是 YYYY-MM-DD，按文本排序即可
       listQb.addSelect(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.sortField}'))`, 'sortv').orderBy('sortv', 'DESC').addOrderBy('r.id', 'DESC');
     } else {
@@ -1203,13 +1216,13 @@ export class ResourcesService implements RuleHost {
     return String(v);
   }
 
-  async exportCsv(user: AuthUser, type: string, includeHidden: boolean) {
+  async exportCsv(user: AuthUser, type: string, includeHidden: boolean, scope: Partial<ListQuery> = {}) {
     const def = this.def(type);
     const hidden = restrictedFieldKeys(def, createChecker(user.permissions));
     const fields = def.fields.filter((f) => f.type !== 'secret' && !hidden.has(f.key));
     const items: ResourceDto[] = [];
     for (let page = 1; page < 100; page++) {
-      const res = await this.list(user, type, { page, pageSize: 200, showHidden: includeHidden });
+      const res = await this.list(user, type, { ...scope, page, pageSize: 200, showHidden: includeHidden });
       items.push(...res.items);
       if (items.length >= res.total) break;
     }
