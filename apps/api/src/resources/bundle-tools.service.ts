@@ -152,6 +152,9 @@ export class BundleToolsService {
 
   async createRevision(user: AuthUser, bundleId: number, reason: string, lines: LineInput[]) {
     if (await this.pendingJobs(user, bundleId)) throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请等它发完再改构成');
+    const cur = await this.load(this.ds.manager, user, bundleId);
+    const app = await unfinishedApplications(this.ds.manager, user.companyId, cur, await this.lineRecords(this.ds.manager, user, bundleId));
+    if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再改构成`);
     return this.ds.transaction(async (em) => {
       await this.load(em, user, bundleId);
       const r = await this.resources.createRecord(em, user, 'finance-bundle-revisions', { bundleId, reason, payload: JSON.stringify(lines) }, '提交构成修订');
@@ -249,7 +252,7 @@ export class BundleToolsService {
   async verify(user: AuthUser, items: { id: number; signature: string; uploadSignature?: string }[], opts: { confirmed: boolean; syncToJst: boolean; replaceConfirmed?: boolean }) {
     if (!opts.confirmed) throw new BadRequestException('请先勾选“已核对”');
     if (!items.length) throw new BadRequestException('没有要验证的组合');
-    if (opts.syncToJst && !user.permissions.isCompanyAdmin) throw new ForbiddenException('只有公司管理员能把验证结果同步到聚水潭');
+    if (opts.syncToJst) this.outbox.needBundles(user);
     const results: { id: number; ok: boolean; error?: string; queued?: boolean }[] = [];
     for (const it of items) {
       try {
@@ -257,6 +260,12 @@ export class BundleToolsService {
         if (!['pending', 'reverify'].includes(rep.status)) throw new BadRequestException('这条已经验证过了');
         if (rep.signature !== it.signature) throw new ConflictException('核对之后资料又变了，请重新核对');
         if (rep.issues.length) throw new BadRequestException(rep.issues[0]);
+        if (rep.pendingRevision) {
+          // 发布构成修订：有还没办完的 SKU 申请用到旧构成时拦住，避免申请办到一半构成变了
+          const cur = await this.load(this.ds.manager, user, it.id);
+          const app = await unfinishedApplications(this.ds.manager, user.companyId, cur, await this.lineRecords(this.ds.manager, user, it.id));
+          if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再发布修订`);
+        }
         if (opts.syncToJst && rep.uploadSignature !== it.uploadSignature) throw new ConflictException('要上传的内容在核对之后变了，请重新核对');
         await this.resources.changeStatus(user, TYPE, it.id, 'verified');
         await registerCostSnapshots(this.ds.manager, user.companyId, user.id, [it.id], '验证通过', 'workflow_publish');
@@ -313,7 +322,8 @@ export class BundleToolsService {
     const synced = !!str(b.data.jstUploadedCode);
     if (synced && !disableConfirmed) throw new BadRequestException('这个组合上传过聚水潭，需要确认“同时在聚水潭停用它”');
     if (synced && !this.outbox.canBundles(user)) throw new ForbiddenException('上传过聚水潭的组合，只有公司管理员或有「组合装同步维护」权限的人能归档');
-    if (await unfinishedApplications(this.ds.manager, user.companyId, b, await this.lineRecords(this.ds.manager, user, id))) throw new ConflictException('有还没办完的 SKU 批量申请用到了这个组合，请等申请办完或撤销后再归档');
+    const app = await unfinishedApplications(this.ds.manager, user.companyId, b, await this.lineRecords(this.ds.manager, user, id));
+    if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再归档`);
     let queued = false;
     let disable: Awaited<ReturnType<OutboxService['enqueueDisable']>> | null = null;
     if (synced) { disable = await this.outbox.enqueueDisable(user, TYPE, id, reason.trim()); queued = disable.queued; }

@@ -56,7 +56,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
     admin = { id: await mkUser(c.id, 'admin', '管理员', { isCompanyAdmin: true }), companyId: c.id, name: '管理员', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
     ops = au(await mkUser(c.id, 'ops', '运营'), c.id, '运营', ['flow.apply.view']);
     wh = au(await mkUser(c.id, 'wh', '仓库'), c.id, '仓库');
-    fin = au(await mkUser(c.id, 'fin', '财务'), c.id, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit', 'finance.jst-sync.view', 'product.cost.view']);
+    fin = au(await mkUser(c.id, 'fin', '财务'), c.id, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit', 'finance.jst-sync.view', 'finance.bundle-sync.manage', 'product.cost.view']);
     finNoPerm = au(await mkUser(c.id, 'fin2', '财务二'), c.id, '财务二');
     stranger = au(await mkUser(c.id, 'str', '路人'), c.id, '路人', ['flow.apply.view']);
     noApply = au(await mkUser(c.id, 'na', '无权限'), c.id, '无权限');
@@ -179,7 +179,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
   it('没有同步权限不能勾选加入同步队列；没勾选就不入队', async () => {
     const run = await toReview([spec('丙', ids.pearBc)]);
     const noSync = au(fin.id, fin.companyId, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit']);
-    await expect(finPass(noSync, run, { confirmed: true, syncToJst: true })).rejects.toThrow(/同步的权限/);
+    await expect(finPass(noSync, run, { confirmed: true, syncToJst: true })).rejects.toThrow(/同步维护/);
     const before = (await ds.query("SELECT COUNT(*) AS n FROM outbox_jobs WHERE company_id = ?", [admin.companyId]))[0].n;
     const done = await finPass(noSync, run, { confirmed: true });
     expect(done.status).toBe('completed');

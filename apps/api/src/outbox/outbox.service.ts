@@ -6,7 +6,7 @@ import { OutboxJob, OutboxSwitch, ResourceRecord } from '../entities';
 import { ResourcesService } from '../resources/resources.service';
 import { baseCodeOutbound, sigOf, stripOutboundCost } from '../resources/base-code-support';
 import { createChecker, SPECIAL_PERMISSIONS } from '@kudesi/shared';
-import { afterJobDone, afterJobFailed, afterJobSent, type JobOutcome } from './outbox-handlers';
+import { afterJobDone, afterJobFailed, afterJobSent, beforeJobSend, type JobOutcome } from './outbox-handlers';
 
 export const JST_CHANNEL = 'jushuitan';
 /** 组合基本售价自动同步的独立开关（外部写入，默认关；总开关关着时同样不发送） */
@@ -75,17 +75,22 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
   }
   private needFor(user: AuthUser, type: string) { if (type === 'finance-bundles') this.needBundles(user); else this.admin(user); }
 
-  async getSwitch(companyId: number) {
-    const row = await this.dataSource.manager.findOne(OutboxSwitch, { where: { companyId, channel: JST_CHANNEL } });
+  get senderTargetKey() { return this.sender.targetKey ?? null; }
+  get senderRead() { return this.sender.read ? (id: string) => this.sender.read!(id) : null; }
+  get senderReadCategories() { return this.sender.readCategories ? () => this.sender.readCategories!() : null; }
+
+  async getSwitch(companyId: number, channel: string = JST_CHANNEL) {
+    const row = await this.dataSource.manager.findOne(OutboxSwitch, { where: { companyId, channel } });
     return { enabled: row?.enabled ?? false, note: row?.note ?? null, updatedAt: row?.updatedAt ?? null, senderConfigured: this.sender.configured };
   }
 
-  async setSwitch(user: AuthUser, enabled: boolean, note?: string) {
+  /** 总开关（channel=jushuitan）和基本售价同步开关（channel=jst_price）都只有公司管理员能改；总开关关着，什么都不发 */
+  async setSwitch(user: AuthUser, enabled: boolean, note?: string, channel: string = JST_CHANNEL) {
     this.admin(user);
     await this.dataSource.manager.query(
       'INSERT INTO outbox_switches (company_id, channel, enabled, note, updated_by) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), note = VALUES(note), updated_by = VALUES(updated_by)',
-      [user.companyId, JST_CHANNEL, enabled ? 1 : 0, note?.slice(0, 200) ?? null, user.id]);
-    return this.getSwitch(user.companyId);
+      [user.companyId, channel, enabled ? 1 : 0, note?.slice(0, 200) ?? null, user.id]);
+    return this.getSwitch(user.companyId, channel);
   }
 
   private async payloadFor(type: Syncable, rec: ResourceRecord): Promise<Record<string, unknown>> {
@@ -348,7 +353,8 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 发送后回读确认：组合装的子商品列表、基本售价、禁用状态要和上传的一致 */
-  private async confirm(job: OutboxJob): Promise<void> {
+  private async confirm(job: OutboxJob, result?: JobOutcome): Promise<void> {
+    if (job.kind === 'category_sync') return this.confirmCategory(job, result);
     if (!this.sender.read) return;
     const bundleKinds = ['bundle_upsert', 'bundle_replace', 'bundle_price_update', 'bundle_disable'];
     if (job.resourceType !== 'finance-bundles' || !bundleKinds.includes(job.kind)) return;
@@ -367,6 +373,26 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     }
     const norm = (v: unknown) => JSON.stringify(((v as { src_sku_id: string; qty: number }[]) ?? []).map((c) => [c.src_sku_id, Number(c.qty)]).sort());
     if (norm(got.childList) !== norm(p.childList)) throw new Error('回读的子商品和上传的不一致，请到聚水潭确认');
+  }
+
+  /** 分类写入后回读：聚水潭上的分类要和写入的一致；刚停用的分类聚水潭可能不再返回，算正常 */
+  private async confirmCategory(job: OutboxJob, result?: JobOutcome): Promise<void> {
+    if (!this.sender.readCategories) return;
+    const p = job.payloadJson as Record<string, unknown>;
+    const id = result?.remoteId ?? str(p.remoteId);
+    if (!id) throw new Error('聚水潭没有返回分类 ID，请人工回查');
+    if (str(p.remoteId) && id !== str(p.remoteId)) throw new Error('聚水潭返回的分类 ID 和关联的不一致，请人工回查');
+    let all: RemoteCategory[];
+    try { all = await this.sender.readCategories(); } catch (e) { throw new Error(`回读失败，结果未知，请先到聚水潭确认：${(e as Error).message}`); }
+    const got = all.find((c) => c.id === id);
+    // 实际发出去的内容（上级 ID 已补全）记在关联表的 pending_json 里
+    const [lk] = await this.dataSource.query('SELECT pending_json FROM jst_category_links WHERE company_id = ? AND category_id = ? AND target_key = ?', [job.companyId, job.resourceId, str(p.targetKey) || 'default']);
+    const sent = lk?.pending_json ? (typeof lk.pending_json === 'string' ? JSON.parse(lk.pending_json) : lk.pending_json) : null;
+    if (!sent) throw new Error('找不到这次写入的记录，结果未知，请人工回查');
+    const d = sent as { name?: string; sort?: number | null; enable?: boolean; parentId?: string };
+    if (!got) { if (d.enable === false) return; throw new Error('回读不到刚写入的分类，结果未知，请人工回查'); }
+    const bad = got.name !== d.name || got.parentId !== (d.parentId ?? '0') || (got.sort != null && got.sort !== d.sort) || (got.enable != null && got.enable !== d.enable);
+    if (bad) throw new Error('聚水潭写入后回查不一致，请人工核对');
   }
 
   private get hookCtx() { return { ds: this.dataSource, resources: this.resources }; }
@@ -412,10 +438,11 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       let sendOk = false;
       const hook = { ...this.hookCtx, sys };
       try {
-        const result = (await this.sender.send({ kind: job.kind, idempotencyKey: job.idempotencyKey, payload: job.payloadJson })) ?? undefined;
+        const payload = await beforeJobSend(hook, job);
+        const result = (await this.sender.send({ kind: job.kind, idempotencyKey: job.idempotencyKey, payload })) ?? undefined;
         sendOk = true;
         await afterJobSent(hook, job);
-        await this.confirm(job);
+        await this.confirm(job, result as JobOutcome | undefined);
         await em.update(OutboxJob, { id: job.id }, { status: 'done', doneAt: new Date(), attempts: job.attempts + 1, lastError: null });
         if (job.resourceType === 'finance-jst-uploads') {
           await this.dataSource.transaction((tx) => this.resources.setStatusDirect(tx, sys, job.resourceType, job.resourceId, 'success', '已上传到聚水潭'));

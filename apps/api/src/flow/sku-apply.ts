@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { createChecker, normalizeSpecs, normalizeWarehouse, type SkuSpec, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
+import { createChecker, SPECIAL_PERMISSIONS, normalizeSpecs, normalizeWarehouse, type SkuSpec, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { FlowRun, Notification, ResourceRecord } from '../entities';
 import { sigOf } from '../resources/base-code-support';
@@ -175,7 +175,7 @@ export const skuBatchApply: FlowAdapter = {
       // 生成并验证组合编码相当于改「商品组合编码」资料，办理人自己必须有这个权限
       if (!can('resource.finance-bundles.create') || !can('resource.finance-bundles.edit')) throw new BadRequestException('财务审核会生成并验证商品组合编码，你没有「商品组合编码」的新增和修改权限，请联系管理员');
       if (form.confirmed !== true) throw new BadRequestException('请先勾选“我已核对规格、成本和编码”');
-      if (form.syncToJst === true && !can('finance.jst-sync.view')) throw new BadRequestException('你没有聚水潭同步的权限，不能勾选“加入聚水潭同步队列”');
+      if (form.syncToJst === true && !can(SPECIAL_PERMISSIONS.financeBundleSync)) throw new BadRequestException('你没有「组合装同步维护」的权限，不能勾选“加入聚水潭同步队列”');
       const wh = payload._warehouse as WarehouseSpec[] | undefined;
       if (!wh || !payload._reviewSig) throw new BadRequestException('仓库还没有提交配置，不能审核');
       const now = await reviewSignature(em, user, bundles, payload, wh, run.id);

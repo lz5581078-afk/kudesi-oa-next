@@ -33,10 +33,13 @@ export async function afterJobDone(ctx: JobCtx, job: OutboxJob, result?: JobOutc
   if (job.kind === 'category_sync') {
     const op = str(p.op);
     const local = p.local ?? {};
+    const [lk] = await ds.query('SELECT pending_json FROM jst_category_links WHERE company_id = ? AND category_id = ? AND target_key = ?', [job.companyId, job.resourceId, str(p.targetKey) || 'default']);
+    const sentDesired = lk?.pending_json ? (typeof lk.pending_json === 'string' ? JSON.parse(lk.pending_json) : lk.pending_json) : null;
+    const remoteId = result?.remoteId ?? (str(p.remoteId) || null);
     await ds.query(
       `INSERT INTO jst_category_links (company_id, category_id, target_key, remote_id, status, local_json, remote_json, pending_json) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
        ON DUPLICATE KEY UPDATE remote_id = VALUES(remote_id), status = VALUES(status), local_json = VALUES(local_json), remote_json = VALUES(remote_json), pending_json = NULL`,
-      [job.companyId, job.resourceId, str(p.targetKey) || 'default', result?.remoteId ?? (str(p.remoteId) || null), op === 'retire' ? 'retired' : 'linked', JSON.stringify(local), JSON.stringify(p.desired ?? null)]);
+      [job.companyId, job.resourceId, str(p.targetKey) || 'default', remoteId, op === 'retire' ? 'retired' : 'linked', JSON.stringify(local), JSON.stringify(sentDesired && remoteId ? { ...sentDesired, id: remoteId } : null)]);
     return true;
   }
   if (job.kind === 'bundle_disable') {
@@ -57,7 +60,11 @@ export async function afterJobFailed(ctx: JobCtx, job: OutboxJob, error: string,
     return true;
   }
   if (job.kind === 'category_sync') {
-    if (dead && unknown) await ds.query("UPDATE jst_category_links SET status = 'uncertain', pending_json = ? WHERE company_id = ? AND category_id = ? AND target_key = ?", [JSON.stringify(p.desired ?? null), job.companyId, job.resourceId, str(p.targetKey) || 'default']);
+    if (dead) {
+      // 新增请求发出后结果不明，不能盲目重发；改名/停用被明确拒绝的，修好后可以重新核对再同步
+      const status = unknown || str(p.op) === 'create' || str(p.op) === 'bind' ? 'uncertain' : 'rejected';
+      await ds.query("UPDATE jst_category_links SET status = ?, pending_json = IF(? = 'rejected', NULL, pending_json) WHERE company_id = ? AND category_id = ? AND target_key = ?", [status, status, job.companyId, job.resourceId, str(p.targetKey) || 'default']);
+    }
     return true;
   }
   if (job.kind === 'bundle_disable' && dead) {
@@ -70,4 +77,25 @@ export async function afterJobFailed(ctx: JobCtx, job: OutboxJob, error: string,
 /** 发送出去之后（回读确认之前） */
 export async function afterJobSent(ctx: JobCtx, job: OutboxJob): Promise<void> {
   if (job.kind === 'bundle_disable') await ctx.ds.query("UPDATE bundle_archive_jobs SET status = 'confirming', message = '已提交聚水潭禁用，等待回查确认' WHERE company_id = ? AND bundle_id = ? AND status IN ('pending', 'failed')", [job.companyId, job.resourceId]);
+}
+
+/**
+ * 发送之前：分类同步先把“要写什么”记在关联表里（结果不明时留作凭据），并把上级的聚水潭分类 ID 补进去
+ * （上级是同一批里刚新增的，入队时还没有 ID）。上级还没成功就报错，等上级任务完成后重试。
+ */
+export async function beforeJobSend(ctx: JobCtx, job: OutboxJob): Promise<Record<string, unknown>> {
+  const p = job.payloadJson;
+  if (job.kind !== 'category_sync') return p;
+  const desired = { ...((p.desired ?? {}) as Record<string, unknown>) };
+  const target = str(p.targetKey) || 'default';
+  if (desired.parentLocalId != null && desired.parentLocalId !== '0') {
+    const [up] = await ctx.ds.query("SELECT remote_id FROM jst_category_links WHERE company_id = ? AND target_key = ? AND category_id = ? AND status = 'linked'", [job.companyId, target, Number(desired.parentLocalId)]);
+    if (!up?.remote_id) throw new Error('上级分类还没有同步成功，稍后自动重试');
+    desired.parentRemoteId = String(up.remote_id);
+  } else if (desired.parentRemoteId == null) desired.parentRemoteId = '0';
+  await ctx.ds.query(
+    `INSERT INTO jst_category_links (company_id, category_id, target_key, remote_id, status, local_json, pending_json) VALUES (?, ?, ?, ?, 'uncertain', ?, ?)
+     ON DUPLICATE KEY UPDATE pending_json = VALUES(pending_json), status = 'uncertain'`,
+    [job.companyId, job.resourceId, target, str(p.remoteId) || null, JSON.stringify(p.local ?? {}), JSON.stringify({ name: desired.name, parentId: desired.parentRemoteId, sort: desired.sort, enable: desired.enable })]);
+  return { ...p, desired };
 }

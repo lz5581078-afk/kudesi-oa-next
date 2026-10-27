@@ -40,6 +40,8 @@ import { OcrService } from './integrations/ocr.service';
 import { RevenueController } from './resources/revenue.controller';
 import { OutboxController } from './outbox/outbox.controller';
 import { OutboxService } from './outbox/outbox.service';
+import { PriceSyncService } from './outbox/price-sync.service';
+import { CategorySyncService } from './outbox/category-sync.service';
 import { CatalogApiController, DataToolsController, ExternalFeedController } from './resources/data-tools.controller';
 import { CatalogApiService } from './resources/catalog-api.service';
 import { JstMaintenanceController } from './resources/jst-maintenance.controller';
@@ -154,6 +156,8 @@ const env = loadEnv();
     JstMaintenanceService,
     BundleToolsService,
     OutboxService,
+    PriceSyncService,
+    CategorySyncService,
     CostService,
     ExpressService,
     CostMaintainService,
