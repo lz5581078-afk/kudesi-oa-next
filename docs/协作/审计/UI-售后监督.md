@@ -60,6 +60,8 @@
 - 形状（`packages/shared/src/service-cases.ts` 的 `ServiceSummary`）：`asOf`；`afterSales{open,overdue,dueSoon,openAmountCents,overdueAmountCents}`；`appeals{open,overdue,dueSoon,toSubmit,openAmountCents}`；`tasks{pending,overdue,completed,total}`；`flows{running,overdue}`；`exceptions{open,urgent,escalated}`。
 - 金额为整数分；公司取自登录令牌。
 
+- 工作台接入：`ServiceWorkspaceProvider`（`apps/api/src/service/service-workspace.provider.ts`）已向 u7 的 `WorkspaceModuleRegistry` 注册 `supervision`（异常列表/人员异常数/卡片）和 `after-sales`（售后待处理、订单申诉在办卡片，按各自页面查看权限出数）。接入测试在 `service-cases.db.spec.ts` 最后一个用例。
+
 ## 6. 验证矩阵
 
 | 页面 | 功能区布局是否与旧一致 | 功能是否齐 |

@@ -9,6 +9,8 @@ import { Company, Notification, User } from '../entities';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { FlowService } from '../flow/flow.service';
 import { TaskService } from '../flow/task.service';
+import { WorkspaceModuleRegistry } from '../workspace/module-registry';
+import { ServiceWorkspaceProvider } from './service-workspace.provider';
 import { buildServices } from '../test-support';
 import { AfterSalesService } from './after-sales.service';
 import { AppealsService } from './appeals.service';
@@ -369,5 +371,22 @@ d('售后、申诉、监督（真实数据库）', () => {
     expect((await sup.overview(outsider)).exceptions).toEqual([]);
     expect((await sup.summary(outsider.companyId)).afterSales.open).toBe(0);
     await sup.saveRule(mgr, 'after_sales', { status: 'active', overdueMinutes: 0, supervisorVisibleMinutes: 0 });
+  });
+  it('接入老板总控台/岗位工作台：按页面权限给出异常列表和售后、申诉卡片，且只算本公司', async () => {
+    const registry = new WorkspaceModuleRegistry();
+    new ServiceWorkspaceProvider(sup, registry);
+    expect(registry.has('supervision') && registry.has('after-sales')).toBe(true);
+    await sup.register(ops, { title: '工作台接入测试', severity: 'urgent', ownerId: cs.id });
+    const ex = await registry.get('supervision')!.exceptions!(lead);
+    expect(ex.total).toBeGreaterThan(0);
+    expect(ex.rows.find((r) => r.title === '工作台接入测试')).toMatchObject({ severity: 'urgent' });
+    expect(ex.byUser![cs.id]).toBeGreaterThan(0);
+    expect(await registry.get('supervision')!.exceptions!(cs)).toMatchObject({ total: 0, rows: [] }); // 没有监督页面权限
+    expect((await registry.get('supervision')!.exceptions!(outsider)).rows.find((r) => r.title === '工作台接入测试')).toBeUndefined();
+    const cards = await registry.get('after-sales')!.deskCards!(cs, 'support');
+    expect(cards.map((c) => c.key)).toEqual(['after-sales-open', 'appeals-open']);
+    expect(cards.every((c) => typeof c.value === 'number' && c.module === 'after-sales')).toBe(true);
+    expect((await registry.get('after-sales')!.bossCards!(ops)).map((c) => c.key)).toEqual(['appeals-open']);
+    expect(await registry.get('after-sales')!.bossCards!({ ...cs, permissions: { isCompanyAdmin: false, allow: [], deny: [] } })).toEqual([]);
   });
 });

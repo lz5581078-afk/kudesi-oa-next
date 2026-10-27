@@ -6,6 +6,7 @@ import { AfterSalesService } from './service/after-sales.service';
 import { AppealsService } from './service/appeals.service';
 import { CaseSupport } from './service/case-support';
 import { AfterSalesController, AppealsController, SupervisionController } from './service/service.controller';
+import { ServiceWorkspaceProvider } from './service/service-workspace.provider';
 import { SupervisionScheduler } from './service/supervision.scheduler';
 import { SupervisionService } from './service/supervision.service';
 import { LocalFilesController } from './integrations/local-files.controller';
@@ -197,6 +198,7 @@ const env = loadEnv();
     AppealsService,
     SupervisionService,
     SupervisionScheduler,
+    ServiceWorkspaceProvider,
     FinanceDocumentsService,
     IntegrationSettingsService,
     FilesService,
