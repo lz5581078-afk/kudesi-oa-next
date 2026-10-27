@@ -937,6 +937,9 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL_R, INACTIVE],
     filterBy: 'operatorUserId',
     importMatch: ['platform', 'name'],
+    computedFilters: [
+      { key: 'operatorDept', label: '运营部门', optionsFrom: 'departments', when: { viaUserDept: 'operatorUserId', dept: '$value', includeChildren: true } },
+    ],
     defaultStatus: 'normal',
     fields: [
       select('platform', '平台', '基础', o('douyin:抖音', 'kuaishou:快手', 'channels:视频号', 'xhs:小红书', 'other:其他'), { required: true, list: true }),
@@ -1029,6 +1032,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     filterBy: ['ownerUserId'],
     importMatch: ['provider', 'title'],
     quickTabs: [
+      { key: 'due-soon', label: '即将到期', when: { all: [{ field: '$status', op: 'notIn', value: ['inactive'] }, { field: 'endAt', op: 'dateWithin', days: 30 }] } },
+      { key: 'expired', label: '已过期', when: { all: [{ field: '$status', op: 'notIn', value: ['inactive'] }, { field: 'endAt', op: 'expired' }] } },
       { key: 'domain', label: '域名', when: { all: [{ field: 'kind', op: 'eq', value: 'service' }, { any: [{ field: 'serviceType', op: 'in', value: ['域名', 'domain', 'Domain'] }] }] } },
     ],
     defaultStatus: 'normal',

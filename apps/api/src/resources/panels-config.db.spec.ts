@@ -116,4 +116,25 @@ d('资料专属页列表配置（真实数据库）', () => {
     await svc.create(boss, 'memos', { kind: 'account', title: '账号', provider: '阿里云', serviceType: '域名' });
     expect(await names('memos', 'q:domain')).toEqual(['qinghe.cn']);
   });
+
+  it('备忘即将到期/已过期页签；自媒体按运营人所在部门筛选（含下级部门）', async () => {
+    const addDays = (n: number) => new Date(Date.now() + 8 * 3600_000 + n * 86400_000).toISOString().slice(0, 10);
+    await svc.create(boss, 'memos', { kind: 'service', title: '快到期服务', provider: 'P', endAt: addDays(10) });
+    await svc.create(boss, 'memos', { kind: 'service', title: '很久后服务', provider: 'P', endAt: addDays(200) });
+    await svc.create(boss, 'memos', { kind: 'service', title: '已过期服务', provider: 'P', endAt: addDays(-3) });
+    await svc.create(boss, 'memos', { kind: 'service', title: '没填日期', provider: 'P' });
+    expect(await names('memos', 'q:due-soon')).toEqual(['快到期服务']);
+    expect(await names('memos', 'q:expired')).toEqual(['已过期服务']);
+
+    const { Department } = await import('../entities');
+    const top = await ds.manager.save(Department, ds.manager.create(Department, { companyId: boss.companyId, name: '运营中心', sortOrder: 10, status: 'active' } as never)) as { id: number };
+    const sub = await ds.manager.save(Department, ds.manager.create(Department, { companyId: boss.companyId, name: '抖音组', parentId: top.id, sortOrder: 10, status: 'active' } as never)) as { id: number };
+    await ds.manager.update(User, { id: staffId }, { departmentId: sub.id } as never);
+    const mine = await svc.create(boss, 'self-media', { platform: 'douyin', name: '抖音号A', operatorUserId: staffId });
+    const nobody = await svc.create(boss, 'self-media', { platform: 'douyin', name: '无人号' });
+    const f = async (v: number) => (await svc.list(boss, 'self-media', { filters: JSON.stringify({ operatorDept: String(v) }), pageSize: 100, showHidden: true })).items.map((i) => i.id);
+    expect(await f(top.id)).toContain(mine.id);
+    expect(await f(sub.id)).toContain(mine.id);
+    expect(await f(top.id)).not.toContain(nobody.id);
+  });
 });
