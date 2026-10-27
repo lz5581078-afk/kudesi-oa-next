@@ -100,7 +100,7 @@
 | 编号 | 项 | 状态 |
 |---|---|---|
 | P5.1 | 方案模板下载、导入预检、确认（含“N个方案、N条明细、N条规则；N项提醒”摘要） | ✓ packagingExcel.test |
-| P5.2 | 匹配试算页 | ✓ 第二轮：匹配结果可复制（DataToolPages.test） |
+| P5.2 | 匹配试算页 | ✓ 第二轮：匹配结果可复制（PackagingMatch.test） |
 
 ## 6. 成本表（SKU 成本表 / 成本历史 / 分类利润率）
 旧：`FinanceCostTablePageV3.jsx`、`BundleCostRegister.jsx`、`BundleCostHistory.jsx` → 新：`CostTablePage.tsx` + `CostDialogs.tsx` + `CostCategoryTree.tsx` + `DataToolPages.CostHistoryPage`
@@ -144,7 +144,7 @@
 | P8.3 | 工作项目表：编号、分类、名称、单位、单价、零值原因、启停、删除 | ✓ |
 | P8.4 | 项目“复制新增” | ✓ labor.test「复制新增工作项目」 |
 | P8.5 | 版本概览卡（当前默认版本、生效期间、项目数） | ≠ 版本条已显示状态/默认/编号/适用期间；项目数在分类树“全部”里，不另做概览卡 |
-| P8.6 | 版本草稿自动保存与恢复 | ✓ 第二轮：版本表单自动保存草稿、再打开可恢复（RecordForm 草稿，LaborCostPage 相关测试） |
+| P8.6 | 版本草稿自动保存与恢复 | ✓ 第二轮：版本表单自动保存草稿、再打开可恢复（fin-round2.test）） |
 | P8.7 | 搜索无结果提示 | ✓ |
 
 ## 9. 快递价格表（含成本表预估快递费、分区建议）
