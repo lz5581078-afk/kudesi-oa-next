@@ -6,6 +6,7 @@ import { ArrayMaxSize, ArrayMinSize, ArrayUnique, Equals, IsArray, IsIn, MinLeng
 import { OPENING_PREPAYMENT_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
 import { AuthUser, AuthenticatedOnly, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { OPENING_VOUCHER_TYPE, FinanceDocumentsService } from './finance-documents.service';
+import { EmployeePartyService } from './employee-party.service';
 
 const TYPES = DOC_TYPES.map((d) => d.type);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -33,7 +34,7 @@ class SettlementDto {
 }
 class OpenItemsDto {
   @IsIn(['in', 'out']) dir!: 'in' | 'out';
-  @IsIn(['customer', 'store', 'supplier']) partyKind!: string;
+  @IsIn(['customer', 'store', 'supplier', 'employee']) partyKind!: string;
   @Type(() => Number) @IsInt() @Min(1) partyId!: number;
 }
 class SettlementQueryDto {
@@ -48,7 +49,7 @@ class DocDto {
   @IsIn(TYPES) type!: DocType;
   @Matches(DATE) date!: string;
   @IsOptional() @IsInt() @Min(1) partyId?: number | null;
-  @IsOptional() @IsIn(['customer', 'store', 'supplier']) partyKind?: 'customer' | 'store' | 'supplier' | null;
+  @IsOptional() @IsIn(['customer', 'store', 'supplier', 'employee']) partyKind?: 'customer' | 'store' | 'supplier' | 'employee' | null;
   @IsOptional() @IsInt() @Min(0) paidCents?: number | null;
   @IsOptional() @IsString() @MaxLength(60) handler?: string | null;
   @IsOptional() @IsString() @MaxLength(60) department?: string | null;
@@ -109,7 +110,11 @@ class KeyAccountDto { @IsIn([true, false]) on!: boolean }
 // 单据按“单据类型”分权限，类型不固定，所以权限在服务里按类型检查（页面查看权限 + finance.docs.* 操作权限）
 @Controller('finance')
 export class FinanceDocumentsController {
-  constructor(private readonly docs: FinanceDocumentsService, private readonly files: FilesService) {}
+  constructor(private readonly docs: FinanceDocumentsService, private readonly files: FilesService, private readonly employeeParties: EmployeePartyService) {}
+
+  /** 开单选“员工”作往来对象前先同步一下员工名单（需要有制单权限） */
+  @AuthenticatedOnly() @Post('employee-parties/sync')
+  syncEmployees(@CurrentUser() u: AuthUser) { return this.employeeParties.sync(u); }
 
   @AuthenticatedOnly() @Get('docs')
   list(@CurrentUser() u: AuthUser, @Query() q: ListDto) {

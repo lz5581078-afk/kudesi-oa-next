@@ -6,6 +6,7 @@ import { buildDataSourceOptions } from '../database/data-source';
 import { Company, User } from '../entities';
 import { buildServices } from '../test-support';
 import { FeeArchiveService } from './fee-archive.service';
+import { FeeSnapshotService } from './fee-snapshot.service';
 import { applyFeeBookingFix, planFeeBookingFix } from './fee-booking-fix';
 import { ResourcesService } from './resources.service';
 
@@ -65,4 +66,27 @@ d('费用档案：仓库/公户挂账节点（真实数据库）', () => {
     expect(r.done).toBe(2);
     expect((await svc.get(boss, 'finance-suppliers', b.id)).data.categoryIds).toEqual([leaf2.id]);
   }, 60000);
+
+  it('费用档案存档表：存档、改动后恢复（原编号还原，多出来的停用），恢复前自动备份；没权限不行', async () => {
+    const snaps = new FeeSnapshotService(ds, svc);
+    const cats = (await svc.list(boss, 'finance-fee-categories', { pageSize: 1 } as never)).total;
+    const fy16 = (await svc.list(boss, 'finance-fee-items', { keyword: 'FY-016', page: 1, pageSize: 5 } as never)).items[0] as { id: number; title: string };
+    const s = await snaps.create(boss, '改前', '测试');
+    expect(s.itemCount).toBeGreaterThan(300);
+    await svc.update(boss, 'finance-fee-items', fy16.id, { name: '被改了' });
+    const extra = await svc.create(boss, 'finance-fee-items', { name: '新加的费用', direction: 'expense' });
+    const view = await snaps.view(boss, s.id);
+    expect(view.items.find((i) => i.code === 'FY-016')?.name).toBe(fy16.title);
+    const r = await snaps.restore(boss, s.id);
+    expect(r.stopped).toBeGreaterThanOrEqual(1);
+    expect((await svc.get(boss, 'finance-fee-items', fy16.id)).title).toBe(fy16.title);
+    expect((await svc.get(boss, 'finance-fee-items', extra.id)).status).toBe('inactive');
+    expect((await svc.list(boss, 'finance-fee-categories', { pageSize: 1 } as never)).total).toBe(cats);
+    const list = await snaps.list(boss);
+    expect(list.some((x) => x.auto && x.name.includes('自动备份'))).toBe(true);
+    const clerk = { ...boss, permissions: { isCompanyAdmin: false, allow: [], deny: [] } } as AuthUser;
+    await expect(snaps.create(clerk, 'x')).rejects.toThrow(/权限/);
+    await snaps.remove(boss, s.id);
+    await expect(snaps.view(boss, s.id)).rejects.toThrow(/不存在/);
+  }, 120000);
 });

@@ -181,7 +181,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
           <label className="slip-party">{ui.partyLabel}{def.partyRequired ? ' *' : ''}
             <div className="slip-party-row">
               {kinds.length > 1 && (
-                <select aria-label="往来对象来源" value={partyKind} onChange={(e) => { setPartyKind(e.target.value as PartyKind); setParty({ id: null, name: '' }); }}>
+                <select aria-label="往来对象来源" value={partyKind} onChange={(e) => { if (e.target.value === 'employee') void financeApi.syncEmployees().catch(() => undefined); setPartyKind(e.target.value as PartyKind); setParty({ id: null, name: '' }); }}>
                   {kinds.map((k) => <option key={k} value={k}>来自{PARTY_KIND_LABEL[k]}档案</option>)}
                 </select>
               )}

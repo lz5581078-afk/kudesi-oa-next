@@ -6,6 +6,7 @@ import { downloadText } from './csv';
 import { resourceApi, type ListResult } from './api';
 import { displayValue, statusOf } from './format';
 import { CategoryTree } from './CategoryTree';
+import { FeeSnapshotsDialog } from './FeeSnapshotsDialog';
 import { ImportDialog } from './ImportDialog';
 import { TaxPendingDialog } from './TaxPendingDialog';
 import { ReasonLibraryDialog } from './ReasonLibraryDialog';
@@ -139,6 +140,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const hiddenExists = def.statuses.some((s) => s.hidden);
 
   const [seeding, setSeeding] = useState(false);
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   async function seedFees() {
     if (!window.confirm('把旧程序里的费用类别树和费用项目（约 380 项）导入进来？已经有的编号不会重复，也不会被覆盖。')) return;
     setSeeding(true);
@@ -181,6 +183,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           <h1>{title ?? def.label}</h1>
           <div className="pill-row">
             {type === 'finance-fee-items' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
+            {type === 'finance-fee-items' && <button type="button" className="secondary-button" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
             {(type === 'finance-supplier-categories' || type === 'finance-customer-categories') && can('create') && (
               <button type="button" className="secondary-button" onClick={async () => {
                 try {
@@ -386,6 +389,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         </div>
       </section>
 
+      {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}
       {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
 
       {creating && (

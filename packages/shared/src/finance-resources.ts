@@ -290,6 +290,20 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       NOTE(),
     ],
   },
+  // 员工作为往来对象（付款、费用、其他收入）：每个在职员工一条，由开单页同步生成；权限沿用供应商档案
+  {
+    key: 'finance-employee-parties',
+    label: '员工往来',
+    parent: { type: 'finance-suppliers', field: 'name' },
+    titleField: 'name',
+    uniqueField: 'userId',
+    statuses: [ACTIVE, STOPPED],
+    defaultStatus: 'active',
+    fields: [
+      text('name', '员工姓名', '基础', { required: true, list: true, search: true, maxLength: 50 }),
+      ref('userId', '员工', '基础', 'user', { required: true, list: true }),
+    ],
+  },
   {
     key: 'finance-fee-categories',
     label: '费用类别',

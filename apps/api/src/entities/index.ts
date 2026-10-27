@@ -686,6 +686,21 @@ export class ResourceImportBackup {
   @Column({ name: 'restored_at', type: 'datetime', nullable: true }) restoredAt!: Date | null;
 }
 
+@Entity('finance_fee_snapshots')
+export class FeeArchiveSnapshot {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ type: 'varchar', length: 120 }) name!: string;
+  @Column({ type: 'varchar', length: 500, nullable: true }) remark!: string | null;
+  @Column({ type: 'tinyint', width: 1, default: 0, transformer: { to: (v: boolean) => (v ? 1 : 0), from: (v: number | boolean) => v === 1 || v === true } }) auto!: boolean;
+  @Column({ name: 'category_count', type: 'int', unsigned: true, default: 0 }) categoryCount!: number;
+  @Column({ name: 'item_count', type: 'int', unsigned: true, default: 0 }) itemCount!: number;
+  @Column({ name: 'snapshot_json', type: 'longtext' }) snapshotJson!: string;
+  @Column({ name: 'created_by', type: 'int', unsigned: true, nullable: true }) createdBy!: number | null;
+  @CreateDateColumn({ name: 'created_at', type: 'datetime' }) createdAt!: Date;
+  @Column({ name: 'restored_at', type: 'datetime', nullable: true }) restoredAt!: Date | null;
+}
+
 @Entity('outbox_switches')
 export class OutboxSwitch {
   @PrimaryColumn({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
@@ -1005,6 +1020,7 @@ export const ALL_ENTITIES = [
   FinanceMasterSnapshot,
   OutboxJob,
   ResourceImportBackup,
+  FeeArchiveSnapshot,
   OutboxSwitch,
   FinanceEntry,
   FinanceDocumentEvent,

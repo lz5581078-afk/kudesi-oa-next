@@ -10,7 +10,7 @@ export interface DocLineView extends DocLineInput { id: number; productName: str
 export interface DocDetailDto {
   id: number; docNo: string; docType: DocType; typeLabel: string; status: DocRow['status']; docDate: string; partyId: number | null; partyName: string;
   storeId: number | null; storeName: string; refNo: string | null; bankAccountId: number | null; bankName: string; toBankAccountId: number | null; toBankName: string; warehouseId: number | null; warehouseName: string;
-  amountCents: number; offsetCents: number; paidCents: number; partyKind: 'customer' | 'store' | 'supplier' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
+  amountCents: number; offsetCents: number; paidCents: number; partyKind: 'customer' | 'store' | 'supplier' | 'employee' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
   sourceKey?: string | null; openingVouchers?: FileInfo[];
   settleBy?: 'doc' | 'product' | null; settleByLabel?: string | null;
   settlements?: Array<{ id: number; sourceDocId: number; sourceDocNo: string; sourceTypeLabel: string; productId: number | null; productName: string; amountCents: number }>;
@@ -116,6 +116,7 @@ export const financeApi = {
   banks: () => api<BankBalance[]>('/finance/bank-balances'),
   ledger: (id: number, p: { from?: string; to?: string } = {}) => api<Ledger>(`/finance/bank-ledger/${id}${qs(p)}`),
   inventory: (p: { warehouseId?: number; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
+  syncEmployees: () => api<{ created: number }>('/finance/employee-parties/sync', { method: 'POST', body: {} }),
   openItems: (p: { dir: 'in' | 'out'; partyKind: string; partyId: number }) => api<OpenItem[]>(`/finance/open-items${qs(p)}`),
   settlementDetail: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<SettlementRow[]>(`/finance/settlement-detail${qs(p)}`),
   unsettledReceipts: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<UnsettledRow[]>(`/finance/unsettled-receipts${qs(p)}`),

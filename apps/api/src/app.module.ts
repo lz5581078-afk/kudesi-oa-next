@@ -48,6 +48,8 @@ import { DataToolsService } from './resources/data-tools.service';
 import { FeeArchiveController } from './resources/fee-archive.controller';
 import { FeeArchiveService } from './resources/fee-archive.service';
 import { LaborController } from './resources/labor.controller';
+import { FeeSnapshotService } from './resources/fee-snapshot.service';
+import { EmployeePartyService } from './resources/employee-party.service';
 import { LaborCopyService } from './resources/labor-copy.service';
 import { RevenueService } from './resources/revenue.service';
 import { AgentController, MaintenanceController, SessionController } from './session/session.controller';
@@ -132,6 +134,8 @@ const env = loadEnv();
     RevenueService,
     FeeArchiveService,
     LaborCopyService,
+    EmployeePartyService,
+    FeeSnapshotService,
     DataToolsService,
     BaseCodeToolsService,
     CatalogApiService,

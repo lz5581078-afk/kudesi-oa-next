@@ -515,6 +515,12 @@ export class ResourcesService implements RuleHost {
     return record;
   }
 
+  /** 整批恢复数据后，按记录现在的字段重建它的引用关系 */
+  async resyncLinks(em: EntityManager, user: AuthUser, type: string, id: number) {
+    const rec = await em.findOneOrFail(ResourceRecord, { where: { id, companyId: user.companyId, type } });
+    await this.syncLinks(em, user, this.def(type), rec);
+  }
+
   private async syncLinks(em: EntityManager, user: AuthUser, def: ResourceDef, record: ResourceRecord) {
     await em.delete(ResourceLink, { companyId: user.companyId, sourceId: record.id, relation: Not('manual') });
     for (const f of def.fields) {
