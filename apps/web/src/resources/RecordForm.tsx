@@ -414,15 +414,23 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
     }
   }
 
+  /** 一个字段现在有什么问题（没有返回空串）：必填没填、数字格式不对、日期格式不对 */
+  function fieldProblem(f: (typeof visible)[number]): string {
+    if (locked.includes(f.key) || f.type === 'bool') return '';
+    const v = values[f.key];
+    if ((f.type === 'money' || f.type === 'number') && typeof v === 'number' && Number.isNaN(v)) return `${f.label}请填写数字`;
+    if (f.required && f.type !== 'secret' && isEmptyValue(v)) return `请填写${f.label}`;
+    if (f.required && f.type === 'secret' && !record?.secretConfigured[f.key] && isEmptyValue(v)) return `请填写${f.label}`;
+    if (f.type === 'date' && typeof v === 'string' && v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return `${f.label}日期格式不对`;
+    return '';
+  }
+
   /** 必填没填、金额格式不对，先在表单里标出来，不用等服务器退回 */
   function validate(): boolean {
     const next: Record<string, string> = {};
     for (const f of visible) {
-      if (locked.includes(f.key) || f.type === 'bool') continue;
-      const v = values[f.key];
-      if (f.type === 'money' && typeof v === 'number' && Number.isNaN(v)) next[f.key] = `${f.label}请填写数字`;
-      else if (f.required && f.type !== 'secret' && isEmptyValue(v)) next[f.key] = `请填写${f.label}`;
-      else if (f.required && f.type === 'secret' && !record?.secretConfigured[f.key] && isEmptyValue(v)) next[f.key] = `请填写${f.label}`;
+      const p = fieldProblem(f);
+      if (p) next[f.key] = p;
     }
     setErrors(next);
     const first = visible.find((f) => next[f.key]);
@@ -462,7 +470,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
               <legend>{group}</legend>
               <div className="form-grid">
                 {fields.map((f) => (
-                  <label key={f.key} data-field={f.key} className={[f.type === 'textarea' || f.type === 'attrs' ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
+                  <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[f.type === 'textarea' || f.type === 'attrs' ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
                     <span>{f.label}{f.required && <b className="req"> *</b>}</span>
                     {f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
                       field={f}

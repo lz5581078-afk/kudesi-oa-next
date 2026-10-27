@@ -9,6 +9,7 @@ import { VerificationHistoryPanel } from './VerificationHistoryPanel';
 import { FileList } from './FilesField';
 import { resourceApi, type LogEntry, type Relation, type ResourceDto } from './api';
 import { displayValue, statusOf } from './format';
+import { RelationDialog, parsePurpose, type EditableLink } from './RelationDialog';
 import { ReasonDialog, RecordForm, clearRefCache, loadRefOptions } from './RecordForm';
 import { StatusControl, typeLabel } from './StatusControl';
 import { RevenuePanel } from './RevenuePanel';
@@ -225,6 +226,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   const canView = (t: string) => (me ? createChecker(me.permissions)(resourcePermission(permissionOwner(t), 'view')) : false);
   const [record, setRecord] = useState<ResourceDto | null>(null);
   const [tab, setTab] = useState<Tab>('info');
+  const [linkDialog, setLinkDialog] = useState<'new' | EditableLink | null>(null);
   const [relations, setRelations] = useState<Relation[] | null>(null);
   const [logs, setLogs] = useState<LogEntry[] | null>(null);
   const [editing, setEditing] = useState(false);
@@ -371,25 +373,18 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
                   {recordLink(r.type, r.id) && canView(r.type) ? <Link to={recordLink(r.type, r.id)!}>{r.title}</Link> : r.title}
                 </span>
                 {r.relation === 'manual' && (r.purpose || r.validFrom || r.validTo) && (
-                  <small className="muted">{r.purpose ? `${r.purpose} ` : ''}{r.validFrom || r.validTo ? `有效期 ${r.validFrom ?? '…'} ~ ${r.validTo ?? '长期'}` : ''}</small>
+                  <small className="muted">{r.purpose ? `${(() => { const p = parsePurpose(r.purpose); return `${p.kind}${p.text ? `：${p.text}` : ''}`; })()} ` : ''}{r.validFrom || r.validTo ? `有效期 ${r.validFrom ?? '…'} ~ ${r.validTo ?? '长期'}` : ''}</small>
                 )}
                 {r.relation === 'manual' && r.linkId && can('edit') && (
-                  <button type="button" className="link-button" onClick={() => {
-                    const purpose = window.prompt('用途（留空=不填）', r.purpose ?? '');
-                    if (purpose === null) return;
-                    const validFrom = window.prompt('有效期开始（YYYY-MM-DD，留空=不填）', r.validFrom ?? '');
-                    if (validFrom === null) return;
-                    const validTo = window.prompt('有效期结束（YYYY-MM-DD，留空=长期）', r.validTo ?? '');
-                    if (validTo === null) return;
-                    resourceApi.updateLink(def.key, id, r.linkId!, { purpose, validFrom, validTo }).then(() => setRelations(null)).catch((e) => setError(e instanceof ApiError ? e.message : '修改失败'));
-                  }}>改属性</button>
+                  <button type="button" className="link-button" onClick={() => setLinkDialog({ linkId: r.linkId!, title: r.title, purpose: r.purpose, validFrom: r.validFrom, validTo: r.validTo })}>改属性</button>
                 )}
                 {r.relation === 'manual' && r.linkId && can('edit') && (
                   <button type="button" className="link-button" onClick={() => { if (window.confirm(`取消和「${r.title}」的关联？`)) resourceApi.removeLink(def.key, id, r.linkId!).then(() => setRelations(null)).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败')); }}>取消关联</button>
                 )}
               </div>
             ))}
-            {can('edit') && <ManualLinkAdder type={def.key} id={id} canView={canView} onAdded={() => setRelations(null)} onError={setError} />}
+            {can('edit') && <button type="button" className="secondary-button" style={{ marginTop: 12 }} onClick={() => setLinkDialog('new')}>添加关联</button>}
+            {linkDialog && <RelationDialog type={def.key} id={id} link={linkDialog === 'new' ? undefined : linkDialog} canView={canView} onClose={() => setLinkDialog(null)} onSaved={() => { setLinkDialog(null); setRelations(null); }} />}
           </section>
         )}
         {tab.startsWith('child:') && <ChildPanel key={tab} parentDef={def} parent={record} childType={tab.slice(6).split('|')[0]} field={tab.split('|')[1]} />}
@@ -559,59 +554,5 @@ function FragmentRow({ label, children }: { label: string; children: React.React
       <dt>{label}</dt>
       <dd>{children}</dd>
     </>
-  );
-}
-
-/** 手动关联：选一类资料，搜索并选其中一条，可填用途和有效期（如商标授权给某店铺的起止日期），关联到当前记录（可以关联多条）。 */
-function ManualLinkAdder({ type, id, canView, onAdded, onError }: { type: string; id: number; canView: (t: string) => boolean; onAdded: () => void; onError: (m: string) => void }) {
-  const types = RESOURCE_DEFS.filter((d) => !d.parent && canView(d.key));
-  const [target, setTarget] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const [options, setOptions] = useState<Array<{ value: number; label: string }>>([]);
-  const [pick, setPick] = useState<number | ''>('');
-  const [purpose, setPurpose] = useState('');
-  const [validFrom, setValidFrom] = useState('');
-  const [validTo, setValidTo] = useState('');
-  useEffect(() => {
-    setPick('');
-    if (!target) { setOptions([]); return; }
-    let alive = true;
-    const t = setTimeout(() => {
-      if (target === 'user') {
-        resourceApi.users()
-          .then((r) => alive && setOptions(r.filter((u) => u.active && (!keyword.trim() || u.name.includes(keyword.trim()))).slice(0, 50).map((u) => ({ value: u.id, label: u.name }))))
-          .catch(() => alive && setOptions([]));
-        return;
-      }
-      resourceApi.list(target, { pageSize: 50, showHidden: true, keyword: keyword.trim() || undefined })
-        .then((r) => alive && setOptions(r.items.map((i) => ({ value: i.id, label: i.title }))))
-        .catch(() => alive && setOptions([]));
-    }, 250);
-    return () => { alive = false; clearTimeout(t); };
-  }, [target, keyword]);
-  return (
-    <div className="toolbar" style={{ marginTop: 12, flexWrap: 'wrap' }}>
-      <select value={target} onChange={(e) => { setTarget(e.target.value); setKeyword(''); }}>
-        <option value="">关联其他资料：选类型</option>
-        <option value="user">员工</option>
-        {types.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
-      </select>
-      {target && <input type="search" aria-label="搜索要关联的资料" placeholder="输入关键字搜索…" value={keyword} onChange={(e) => setKeyword(e.target.value)} />}
-      {target && (
-        <select value={pick} onChange={(e) => setPick(e.target.value ? Number(e.target.value) : '')}>
-          <option value="">选择一条</option>
-          {options.filter((o) => !(target === type && o.value === id)).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      )}
-      {target && <input aria-label="用途" placeholder="用途（可选）" maxLength={200} value={purpose} onChange={(e) => setPurpose(e.target.value)} />}
-      {target && <label className="inline-field"><small className="muted">开始</small><input type="date" aria-label="有效期开始" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} /></label>}
-      {target && <label className="inline-field"><small className="muted">结束</small><input type="date" aria-label="有效期结束" value={validTo} onChange={(e) => setValidTo(e.target.value)} /></label>}
-      <button type="button" className="secondary-button" disabled={!target || !pick} onClick={() => {
-        onError('');
-        resourceApi.addLink(type, id, target, Number(pick), { purpose: purpose.trim() || undefined, validFrom: validFrom || undefined, validTo: validTo || undefined })
-          .then(() => { setPick(''); setPurpose(''); setValidFrom(''); setValidTo(''); onAdded(); })
-          .catch((e) => onError(e instanceof ApiError ? e.message : '关联失败'));
-      }}>添加关联</button>
-    </div>
   );
 }

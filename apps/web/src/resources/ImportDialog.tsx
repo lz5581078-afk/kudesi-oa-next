@@ -17,6 +17,7 @@ async function readCsvText(file: File): Promise<string> {
 
 /** 导入：先选文件 → 预览（逐行校验，不落库）→ 无错误才允许确认导入；有错整体不导入。 */
 export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClose: () => void; onDone: (message?: string) => void }) {
+  const [onlyBad, setOnlyBad] = useState(false);
   const [rows, setRows] = useState<Array<Record<string, string>>>([]);
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
@@ -156,11 +157,12 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
                 <strong className={preview.failed ? 'bad-text' : undefined}> 有问题 {preview.failed}</strong>
                 {preview.failed > 0 && <> <button type="button" className="link-button" onClick={errorReport}>下载错误报告 (CSV)</button></>}
               </p>
+              <label className="inline-field"><input type="checkbox" checked={onlyBad} onChange={(e) => setOnlyBad(e.target.checked)} /> 只看有问题的行（出错或有提示）</label>
               <div className="table-scroll preview-scroll">
                 <table className="data-table">
                   <thead><tr><th>行</th><th>结果</th><th>说明</th></tr></thead>
                   <tbody>
-                    {preview.results.filter((r) => r.action === 'error').concat(preview.results.filter((r) => r.action !== 'error').slice(0, 20)).map((r) => (
+                    {(onlyBad ? preview.results.filter((r) => r.action === 'error' || r.warnings?.length) : preview.results.filter((r) => r.action === 'error').concat(preview.results.filter((r) => r.action !== 'error').slice(0, 20))).map((r) => (
                       <tr key={r.line}>
                         <td>{r.line}</td>
                         <td>{r.action === 'error' ? <span className="pill bad">有问题</span> : r.action === 'create' ? <span className="pill ok">新建</span> : <span className="pill warn">更新</span>}</td>
@@ -169,6 +171,7 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
                     ))}
                   </tbody>
                 </table>
+                {onlyBad && !preview.results.some((r) => r.action === 'error' || r.warnings?.length) && <p className="muted center">没有有问题的行</p>}
               </div>
             </>
           )}

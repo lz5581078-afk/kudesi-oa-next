@@ -42,4 +42,13 @@ describe('导入向导', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('超过 10 MB'));
     expect(vi.mocked(resourceApi.import).mock.calls.filter((c) => c.length > 0)).toHaveLength(0);
   });
+  it('“只看有问题的行”：打开后正常行不显示', async () => {
+    vi.mocked(resourceApi.import).mockResolvedValue({ dryRun: true, committed: false, created: 2, updated: 0, failed: 1, results: [{ line: 2, action: 'create', errors: [], title: '正常甲' }, { line: 3, action: 'error', errors: ['名称必填'] }, { line: 4, action: 'create', errors: [], title: '正常乙' }] } as never);
+    render(<ImportDialog def={getResourceDef('finance-suppliers')!} onClose={() => undefined} onDone={() => undefined} />);
+    fireEvent.drop(screen.getByText(/拖到这里/).closest('.import-drop')!, { dataTransfer: { files: [csv()] } });
+    await screen.findByText('正常甲');
+    fireEvent.click(screen.getByLabelText(/只看有问题的行/));
+    expect(screen.queryByText('正常甲')).toBeNull();
+    expect(screen.getByText('名称必填')).toBeTruthy();
+  });
 });

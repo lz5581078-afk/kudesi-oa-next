@@ -23,6 +23,17 @@ describe('资料表单通用壳', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('失焦即时校验：必填字段点进去再离开，立刻提示“请填写…”，填了就消失', () => {
+    render(<RecordForm def={def} record={null} onClose={() => undefined} onSaved={() => undefined} />);
+    const req = def.fields.find((f) => f.required && f.type === 'text')!;
+    const input = document.querySelector<HTMLInputElement>(`[data-field="${req.key}"] input`)!;
+    fireEvent.focus(input);
+    fireEvent.blur(input);
+    expect(screen.getByText(`请填写${req.label}`)).toBeTruthy();
+    fireEvent.change(input, { target: { value: '甲' } });
+    expect(screen.queryByText(`请填写${req.label}`)).toBeNull();
+  });
+
   it('填了内容没保存就关：先确认；没动过直接关；Esc 同样', () => {
     const onClose = vi.fn();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
