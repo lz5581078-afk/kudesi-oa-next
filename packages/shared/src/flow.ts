@@ -10,6 +10,7 @@
 import type { FieldDef } from './resources';
 import { date, money, o, ref, refs, select, text, textarea } from './resource-kit';
 import { AFTER_SALES_TYPES, APPEAL_TYPES } from './service-cases';
+import { LIVE_FINAL_SOURCES } from './live';
 
 export type StepType = 'submit' | 'approval' | 'execute' | 'finance' | 'end';
 export const STEP_TYPE_LABEL: Record<StepType, string> = { submit: '发起', approval: '审批', execute: '办理', finance: '财务', end: '结束' };
@@ -291,6 +292,33 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     ],
   },
   {
+    key: 'live-session-review',
+    label: '直播场次审核',
+    description: '主播、中控报完下播后提交本场审核。审核人确认最终销售额、运营人员和主播工资，通过后自动生成主播、中控、运营的提成记录和主播工资记录；退回后主播或中控修改下播报告再重新提交。由直播管理页面发起。',
+    entry: { path: '/features/live-desk', label: '在“直播管理”里提交' },
+    fields: [
+      { key: 'sessionId', label: '直播场次', type: 'number', group: '场次', required: true },
+    ],
+    stepFields: {
+      review: [
+        select('finalSource', '最终销售额来源', '审核', Object.entries(LIVE_FINAL_SOURCES).map(([value, label]) => ({ value, label })), { required: true, help: '选主播或中控所报的值，或手填并写明原因' }),
+        money('finalSalesCents', '手填最终销售额', '审核', { showWhen: { field: 'finalSource', in: ['manual'] } }),
+        text('finalReason', '手填原因', '审核', { maxLength: 500, showWhen: { field: 'finalSource', in: ['manual'] } }),
+        ref('operatorUserId', '运营人员', '审核', 'user', { help: '不选则沿用排场/上播时填的运营；运营不能同时是主播；运营兼任中控时不另算运营提成' }),
+        { key: 'noOperator', label: '本场没有运营人员', type: 'bool', group: '审核' },
+        text('wageStartAt', '主播工资上播时间', '主播工资', { help: '格式 2026-03-01 20:00；不填按场次上播时间' }),
+        text('wageEndAt', '主播工资下播时间', '主播工资', { help: '格式 2026-03-01 23:30；不填按场次下播时间' }),
+        money('wageHourlyRateCents', '主播时薪', '主播工资', { help: '员工档案是计时且有时薪时可不填；否则必须填写' }),
+        text('wageNote', '工资调整说明', '主播工资', { maxLength: 500 }),
+      ],
+    },
+    steps: [
+      { key: 'apply', name: '提交审核', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'review', name: '场次审核', type: 'approval', dueMinutes: 2880, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
+  {
     key: 'order-appeal',
     label: '订单申诉',
     description: '对平台订单的申诉与举证：登记 → 主管复核举证 → 提交平台 → 登记平台结果。失败可对该申诉发起复议。申诉失败次数不限，但提交平台前必须有有效凭证。',
@@ -319,6 +347,21 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
       { key: 'review', name: '举证复核', type: 'approval', dueMinutes: 1440, locked: true },
       { key: 'submit', name: '提交平台', type: 'execute', dueMinutes: 1440, locked: true },
       { key: 'result', name: '登记结果', type: 'execute', dueMinutes: 10080, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
+  {
+    key: 'live-settlement',
+    label: '直播提成月结审批',
+    description: '人事按月生成直播提成结算单（聚水潭退款按原提成比例扣减）后提交审批。审批通过后结算单锁定，只能在月份结束后通过；退回后人事重新核对再提交。由直播管理页面发起。',
+    entry: { path: '/features/live-desk', label: '在“直播管理”里提交' },
+    fields: [
+      { key: 'settlementId', label: '结算单', type: 'number', group: '结算', required: true },
+    ],
+    stepFields: {},
+    steps: [
+      { key: 'apply', name: '提交审批', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'approve', name: '月结审批', type: 'approval', dueMinutes: 4320, locked: true },
       { key: 'end', name: '结束', type: 'end', locked: true },
     ],
   },

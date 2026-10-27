@@ -4,6 +4,7 @@
  */
 import { FINANCE_RESOURCE_DEFS } from '@kudesi/shared';
 import { EntityManager } from 'typeorm';
+import { ensureDefaultLiveRules } from '../live/live-core';
 import { Company, Department, Position, PositionPermission, ResourceRecord, User, WorkspaceType } from '../entities';
 
 export const DEFAULT_DEPARTMENTS = ['管理层', '综合', '财务', '运营', '仓库', '采购', '客服'];
@@ -80,6 +81,9 @@ export const DEFAULT_POSITIONS: Array<{ name: string; workspaceType: WorkspaceTy
       'finance.docs.create',
     ],
   },
+  // 直播主播、直播中控：菜单只剩「我的直播」和待办/任务（直播账号的可见范围靠权限，不靠名称判断）
+  { name: '直播主播', workspaceType: 'live_anchor', permissions: ['features.live-desk.view', 'workbench.todos.view', 'workbench.tasks.view', 'workbench.started.view'] },
+  { name: '直播中控', workspaceType: 'live_control', permissions: ['features.live-desk.view', 'workbench.todos.view', 'workbench.tasks.view', 'workbench.started.view'] },
 ];
 
 export const DEFAULT_PLATFORMS = [['TB', '淘宝'], ['DY', '抖音'], ['KS', '快手'], ['PDD', '拼多多'], ['GENERAL', '通用']];
@@ -126,5 +130,6 @@ export async function provisionCompany(manager: EntityManager, input: ProvisionI
     manager.save(manager.create(ResourceRecord, { companyId: company.id, type, title, uniqueKey: code.toLowerCase(), status: 'active', statusReason: null, searchText: `${title} ${code}`.toLowerCase(), data }));
   for (const [pcode, name] of DEFAULT_PLATFORMS) await rec('finance-platforms', name, pcode, { code: pcode, name });
   for (const [scode, name, segment] of DEFAULT_SCENARIOS) await rec('finance-scenarios', name, scode, { code: scode, name, segment });
+  await ensureDefaultLiveRules(manager, company.id);
   return company;
 }

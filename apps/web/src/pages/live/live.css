@@ -1,0 +1,53 @@
+.live-page { display: flex; flex-direction: column; gap: 14px; }
+.live-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.live-stat { padding: 12px 16px; display: flex; flex-direction: column; gap: 2px; }
+.live-stat span { color: var(--muted); font-size: 13px; }
+.live-stat strong { font-size: 22px; }
+.live-section { padding: 0; }
+.live-section > h2 { margin: 0; padding: 12px 16px; font-size: 15px; border-bottom: 1px solid var(--border); }
+.live-list { list-style: none; margin: 0; padding: 0; }
+.live-list > li { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.live-list > li:first-child { border-top: 0; }
+.live-list .main { display: flex; flex-direction: column; gap: 2px; min-width: 200px; flex: 1 1 260px; }
+.live-list small { color: var(--muted); }
+.live-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.live-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.live-field input, .live-field select, .live-field textarea { height: 34px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink); font: inherit; }
+.live-field textarea { height: auto; padding: 6px 10px; }
+.live-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.live-fields .wide { grid-column: 1 / -1; }
+.live-amounts { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.live-amounts li { display: flex; gap: 6px; align-items: baseline; }
+.live-preview { background: var(--accent-soft); border-radius: var(--radius-sm); padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.live-orders { max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.live-orders label { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--border); }
+.live-orders label:first-child { border-top: 0; }
+.live-orders label.off { opacity: .55; }
+.live-orders .amt { margin-left: auto; font-variant-numeric: tabular-nums; }
+.live-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.live-filter { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.live-scroll { overflow-x: auto; }
+.live-pickbox { max-height: 180px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.live-pickbox label { display: flex; gap: 8px; padding: 5px 10px; align-items: center; }
+.live-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 全览：南北两排，走廊在中间 */
+.live-floor { display: flex; flex-direction: column; gap: 10px; }
+.live-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.live-row .big { grid-column: span 2; }
+.live-corridor { text-align: center; color: var(--muted); font-size: 12px; letter-spacing: 6px; padding: 4px; background: var(--bg); border-radius: var(--radius-sm); }
+.live-room { text-align: left; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; color: inherit; }
+.live-room.is-live { border-color: var(--bad-ink); box-shadow: inset 3px 0 0 var(--bad-ink); }
+.live-room.is-finished { background: var(--bg); }
+.live-room h3 { margin: 0; font-size: 14px; display: flex; justify-content: space-between; gap: 6px; }
+.live-bar { position: relative; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.live-bar i { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .85; }
+.live-bar i.done { background: var(--ok-ink); }
+.live-bar i.missed { background: var(--bad-ink); }
+.live-bar b { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--ink); }
+.live-day { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px; }
+.live-rule-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 640px) {
+  .live-row .big { grid-column: span 1; }
+  .live-rule-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .live-list > li { padding: 10px 12px; }
+}

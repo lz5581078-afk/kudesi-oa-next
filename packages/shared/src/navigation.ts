@@ -31,7 +31,7 @@ export interface NavSection {
   pages: NavPage[];
 }
 
-export type NavIconName = 'inbox' | 'flow' | 'wallet' | 'database' | 'settings' | 'support' | 'shield';
+export type NavIconName = 'inbox' | 'flow' | 'wallet' | 'database' | 'settings' | 'support' | 'shield' | 'live';
 
 /**
  * 资料菜单的分组与顺序，照旧程序的「资料」导航：
@@ -197,6 +197,17 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     ],
   },
   {
+    id: 'features',
+    icon: 'live',
+    label: '功能',
+    pages: [
+      // 我的直播：主播、中控、运营的工作台（报上播/下播、提交审核、本人提成）；旧系统的主播/中控工作台
+      { ...page('features', 'live-desk', '我的直播', true), group: '直播管理' },
+      // 直播管理：全览图、排场、场次记录、待审核、提成记录、主播工资、提成结算、提成规则（页面内标签，按下面的权限显示）
+      { ...page('features', 'live', '直播管理', true), group: '直播管理' },
+    ],
+  },
+  {
     id: 'system',
     icon: 'settings',
     label: '系统',
@@ -236,6 +247,10 @@ export const SPECIAL_PERMISSIONS = {
   financeBundleSync: 'finance.bundle-sync.manage',
   /** 兜底监督管理：关闭/升级异常、改监督规则、立即扫描；看监督中心另需 supervision.center.view */
   supervisionManage: 'supervision.manage',
+  /** 直播管理：排场、修改提成规则、生成月结单并提交审批 */
+  liveManage: 'live.manage',
+  /** 直播管理：查看全员的提成、主播工资和月结（没有它只能看本人的） */
+  liveCommissionsView: 'live.commissions.view',
 } as const;
 
 export interface VisibleSection extends NavSection {
@@ -297,7 +312,7 @@ export function resourcePagePath(type: string): string | null {
 
 
 /** 手机底部标签栏固定放的一级菜单（按这个顺序，只放当前账号看得到的），其余收进“更多”。 */
-export const MOBILE_PRIMARY_SECTIONS = ['workbench', 'flow', 'finance', 'resource'] as const;
+export const MOBILE_PRIMARY_SECTIONS = ['workbench', 'flow', 'finance', 'resource', 'features'] as const;
 
 /** 一级菜单下的分组：同一个分组标题连续的页面归为一组；没有分组标题的页面归到以一级菜单名命名的组。 */
 export interface PageGroup { title: string; pages: NavPage[] }

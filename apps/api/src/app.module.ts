@@ -84,6 +84,14 @@ import { TaskController } from './flow/task.controller';
 import { TaskService } from './flow/task.service';
 import { FlowController } from './flow/flow.controller';
 import { FlowScheduler } from './flow/flow.scheduler';
+import { LiveController } from './live/live.controller';
+import { LiveLedgerService } from './live/live-ledger.service';
+import { LiveOrderSource, UnconfiguredLiveOrderSource } from './live/live-order-source';
+import { LiveScheduleService } from './live/live-schedule.service';
+import { LiveScheduler } from './live/live.scheduler';
+import { LiveWorkspaceModule } from './live/live-workspace';
+import { LiveSessionService } from './live/live-session.service';
+import { LiveSettlementService } from './live/live-settlement.service';
 import { FlowService } from './flow/flow.service';
 import { FlowDesignerController } from './flow/flow-designer.controller';
 import { FlowDesignerService } from './flow/flow-designer.service';
@@ -156,7 +164,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController],
   providers: [
     AuthService,
     PlatformService,
@@ -207,6 +215,8 @@ const env = loadEnv();
     SupervisionService,
     SupervisionScheduler,
     ServiceWorkspaceProvider,
+    LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
+    { provide: LiveOrderSource, useClass: UnconfiguredLiveOrderSource },
     FinanceDocumentsService,
     IntegrationSettingsService,
     AiProviderService,

@@ -51,7 +51,7 @@ export interface DepartmentProfile {
 }
 
 export const WORKSPACE_LABELS: Record<string, string> = {
-  boss: '老板', general: '综合', operations: '运营', finance: '财务', cashier: '出纳', warehouse: '仓库', purchasing: '采购', support: '客服', blank: '空白（无默认工作台）',
+  boss: '老板', general: '综合', operations: '运营', finance: '财务', cashier: '出纳', warehouse: '仓库', purchasing: '采购', support: '客服', live_anchor: '直播主播', live_control: '直播中控', blank: '空白（无默认工作台）',
 };
 
 export const orgApi = {

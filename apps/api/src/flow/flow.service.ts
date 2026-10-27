@@ -425,7 +425,7 @@ export class FlowService {
     const decl = await this.runTpl(em, run);
     const adapter = adapterFor(decl);
     const lastStep = step ?? (await em.findOne(FlowStep, { where: { runId: run.id }, order: { seq: 'DESC' } }));
-    if (adapter.onFinish && lastStep) await adapter.onFinish(this.stepCtx(em, actor, run, lastStep, {}), status);
+    if (adapter.onFinish && lastStep) await adapter.onFinish({ ...this.stepCtx(em, actor, run, lastStep, {}), reason: lastStep.comment ?? '' }, status);
     if (status === 'completed' && decl?.posting?.at === 'complete' && lastStep) {
       await postDeclared(this.stepCtx(em, actor, run, lastStep, {}), decl);
       await em.update(FlowRun, { id: run.id }, { payload: run.payload } as never);
@@ -522,6 +522,11 @@ export class FlowService {
       await this.closeStep(em, run, step, user, 'returned', 'return', p.reason);
       await this.cancelActive(em, run);
       await this.enter(em, user, run, steps, target, 'return');
+      const returnAdapter = adapterFor(await this.runTpl(em, run));
+      if (returnAdapter.onReturn) {
+        const toSubmit = run.status === 'running' && (await this.activeStep(em, run)).stepType === 'submit';
+        await returnAdapter.onReturn({ ...this.stepCtx(em, user, run, step, {}), reason: p.reason }, { reason: p.reason, toSubmit });
+      }
       return this.detailIn(em, user, run.id);
     });
   }
@@ -581,11 +586,11 @@ export class FlowService {
   async resubmit(user: AuthUser, runId: number, p: { revision: number; payload: Record<string, unknown> }) {
     return this.dataSource.transaction(async (em) => {
       const run = await this.lockRun(em, user, runId, p.revision);
-      if (run.requesterId !== user.id) throw new ForbiddenException('只有发起人能重新提交');
+      const t = await this.runTpl(em, run);
+      if (run.requesterId !== user.id && !(await adapterFor(t).canResubmit?.({ em, user, run }))) throw new ForbiddenException('只有发起人能重新提交');
       if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
       const step = await this.activeStep(em, run);
       if (step.stepType !== 'submit') throw new BadRequestException('现在不在退回给你修改的状态');
-      const t = await this.runTpl(em, run);
       const checked = validateResourceInput(pseudoDef(t.key, t.fields), p.payload ?? {}, { status: '' });
       if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
       const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));

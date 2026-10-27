@@ -427,6 +427,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       refs('phoneIds', '更多绑定手机号', '账号', 'phones', { help: '一店可绑多个手机号，同一手机号在同一平台只能绑一个店铺' }),
       select('jushuitan', '聚水潭', '授权与资质', o('connected:已连接', 'not_connected:未连接')),
       date('jushuitanExpireAt', '聚水潭到期日', '授权与资质'),
+      text('jushuitanShopId', '聚水潭店铺编号', '授权与资质', { maxLength: 64, search: true, help: '聚水潭里这个店铺的编号；直播管理按它只读核对本场订单和退款，没有就不能报下播' }),
       refs('trademarkIds', '授权商标档案', '授权与资质', 'trademarks', { help: '关联商标档案；到期日仍以下面“商标授权到期日”为准' }),
       text('trademark', '授权商标', '授权与资质'),
       date('trademarkExpireAt', '商标授权到期日', '授权与资质'),

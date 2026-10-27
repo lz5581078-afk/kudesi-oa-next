@@ -150,6 +150,8 @@ export type WorkspaceType =
   | 'warehouse'
   | 'purchasing'
   | 'support'
+  | 'live_anchor'
+  | 'live_control'
   | 'blank';
 
 @Entity('positions')

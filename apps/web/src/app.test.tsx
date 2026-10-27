@@ -142,7 +142,7 @@ describe('登录与菜单', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: /菜单/ })).toBeNull();
     const tabbar = screen.getByRole('navigation', { name: '手机底部导航' });
-    for (const label of ['工作台', '流程', '财务', '资料', '更多']) expect(within(tabbar).getByText(label)).toBeTruthy();
+    for (const label of ['工作台', '流程', '财务', '资料', '功能', '更多']) expect(within(tabbar).getByText(label)).toBeTruthy();
     fireEvent.click(within(tabbar).getByText('更多'));
     expect(screen.getByRole('dialog', { name: '售后菜单' })).toBeTruthy();
   });

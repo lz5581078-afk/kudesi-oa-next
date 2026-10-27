@@ -15,7 +15,7 @@ export const PAY_TYPES = ['monthly', 'hourly'] as const;
 export const DEPARTED_DEPARTMENT = '离职员工';
 export const POSITION_LEVELS = ['boss', 'manager', 'staff'] as const;
 
-export const WORKSPACE_TYPES: WorkspaceType[] = ['boss', 'general', 'operations', 'finance', 'cashier', 'warehouse', 'purchasing', 'support', 'blank'];
+export const WORKSPACE_TYPES: WorkspaceType[] = ['boss', 'general', 'operations', 'finance', 'cashier', 'warehouse', 'purchasing', 'support', 'live_anchor', 'live_control', 'blank'];
 
 /** 只含容易读的字符，避免 0/O、1/l 混淆 */
 const PASSWORD_CHARS = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';

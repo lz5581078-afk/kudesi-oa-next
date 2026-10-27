@@ -69,6 +69,14 @@ export function permissionCatalog(): CatalogGroup[] {
     { key: SPECIAL_PERMISSIONS.supervisionManage, label: '兜底监督：关闭异常、改监督规则、立即扫描' },
   ] });
   groups.push({
+    id: 'live-actions',
+    label: '直播管理',
+    items: [
+      { key: SPECIAL_PERMISSIONS.liveManage, label: '排场、修改提成规则、生成月结单并提交审批' },
+      { key: SPECIAL_PERMISSIONS.liveCommissionsView, label: '查看全员提成、主播工资和月结（没有则只看本人）' },
+    ],
+  });
+  groups.push({
     id: 'product-sensitive',
     label: '商品敏感数据',
     items: [

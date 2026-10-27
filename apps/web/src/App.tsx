@@ -54,12 +54,16 @@ import { HomePage } from './pages/workspace/HomePage';
 import { BossPage } from './pages/workspace/BossPage';
 import { DeskPage } from './pages/workspace/DeskPage';
 import { PersonalPage } from './pages/workspace/PersonalPage';
+import { LiveDeskPage } from './pages/live/LiveDeskPage';
+import { LiveManagePage } from './pages/live/LiveManagePage';
 
 /**
  * 页面组件登记：键是导航注册表里的“分区.页面id”。
  * 新做一个页面 = 在这里登记组件 + 把注册表里该页面的 ready 改成 true。
  */
 const PAGE_COMPONENTS: Record<string, ComponentType> = {
+  'features.live-desk': LiveDeskPage,
+  'features.live': LiveManagePage,
   'workbench.home': HomePage,
   'workbench.boss': BossPage,
   'workbench.desk': DeskPage,

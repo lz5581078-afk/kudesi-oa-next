@@ -76,12 +76,14 @@ export interface DeskDef {
 export const DESK_DEFS: Readonly<Record<PositionWorkspaceType, DeskDef>> = {
   boss: { type: 'boss', title: '老板工作台', focus: '经营总览 · 异常跟进', links: ['workbench.boss', 'finance.overview', 'finance.history', 'flow.overview', 'resource.org-tree'], modules: ['supervision'] },
   general: { type: 'general', title: '综合事务工作台', focus: '经营资料 · 账号与资产', links: ['resource.stores', 'resource.licenses', 'resource.phones', 'resource.qualifications', 'resource.memos', 'resource.fixed-assets', 'resource.employees', 'resource.org-tree'], managerLinks: ['flow.overview', 'resource.position-profiles'] },
-  operations: { type: 'operations', title: '运营工作台', focus: '店铺经营 · SKU申请', links: ['flow.apply', 'resource.stores', 'finance.finance-products', 'finance.finance-bundles', 'finance.pricing-debug', 'resource.phones'], managerLinks: ['flow.overview', 'finance.overview'], modules: ['live'] },
+  operations: { type: 'operations', title: '运营工作台', focus: '店铺经营 · SKU申请', links: ['flow.apply', 'resource.stores', 'finance.finance-products', 'finance.finance-bundles', 'finance.pricing-debug', 'resource.phones'], managerLinks: ['flow.overview', 'finance.overview', 'features.live'], modules: ['live'] },
   finance: { type: 'finance', title: '财务工作台', focus: 'SKU成本审核 · 财务单据', links: ['finance.cost-table', 'finance.history', 'finance.drafts', 'finance.finance-express-prices', 'finance.cash-bank', 'finance.finance-products'], managerLinks: ['finance.overview', 'flow.overview'] },
   cashier: { type: 'cashier', title: '出纳工作台', focus: '收付款资料 · 资金核对', links: ['finance.cash-bank', 'finance.doc-receipt', 'finance.doc-payment', 'finance.doc-transfer', 'finance.drafts'], managerLinks: ['finance.overview'] },
   warehouse: { type: 'warehouse', title: '仓库工作台', focus: '发货组成 · 库存与收货', links: ['finance.inventory', 'finance.finance-bundles', 'finance.doc-purchase-in', 'finance.finance-products'], managerLinks: ['flow.overview'], pending: ['仓库收发货汇总'], modules: ['after-sales'] },
   purchasing: { type: 'purchasing', title: '采购供应链工作台', focus: '供应商资料 · 到货跟进', links: ['finance.finance-suppliers', 'finance.finance-products', 'finance.doc-purchase-in', 'finance.history'], managerLinks: ['flow.overview'], pending: ['采购到货汇总'] },
   support: { type: 'support', title: '客服工作台', focus: '售后处理 · 订单申诉', links: ['resource.stores'], managerLinks: ['flow.overview'], modules: ['after-sales', 'supervision'] },
+  live_anchor: { type: 'live_anchor', title: '主播工作台', focus: '我的直播 · 排场与提成', links: ['features.live-desk', 'flow.apply'], modules: ['live'] },
+  live_control: { type: 'live_control', title: '中控工作台', focus: '我的直播 · 排场与提成', links: ['features.live-desk', 'flow.apply'], modules: ['live'] },
   blank: { type: 'blank', title: '空白工作台', focus: '', links: [] },
 };
 
