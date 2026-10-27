@@ -43,12 +43,20 @@ import { TasksPage } from './pages/flow/TasksPage';
 import { RunsPage } from './pages/flow/RunsPage';
 import { TemplatesPage } from './pages/flow/TemplatesPage';
 import { MyTodosPage } from './pages/flow/TodosPage';
+import { HomePage } from './pages/workspace/HomePage';
+import { BossPage } from './pages/workspace/BossPage';
+import { DeskPage } from './pages/workspace/DeskPage';
+import { PersonalPage } from './pages/workspace/PersonalPage';
 
 /**
  * 页面组件登记：键是导航注册表里的“分区.页面id”。
  * 新做一个页面 = 在这里登记组件 + 把注册表里该页面的 ready 改成 true。
  */
 const PAGE_COMPONENTS: Record<string, ComponentType> = {
+  'workbench.home': HomePage,
+  'workbench.boss': BossPage,
+  'workbench.desk': DeskPage,
+  'workbench.personal': PersonalPage,
   'workbench.todos': MyTodosPage,
   'workbench.tasks': TasksPage,
   'workbench.started': () => <RunsPage view="started" />,

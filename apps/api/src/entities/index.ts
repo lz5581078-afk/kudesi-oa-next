@@ -888,6 +888,11 @@ export class WorkItem {
   @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
   @Column({ name: 'finished_at', ...dt, nullable: true }) finishedAt!: Date | null;
   @Column({ name: 'done_note', type: 'varchar', length: 500, nullable: true }) doneNote!: string | null;
+  /** 个人任务：负责人点“开始处理”的时间 */
+  @Column({ name: 'started_at', ...dt, nullable: true }) startedAt!: Date | null;
+  /** 个人任务：负责人提交给指派人复核的时间；复核退回后清空 */
+  @Column({ name: 'submitted_at', ...dt, nullable: true }) submittedAt!: Date | null;
+  @Column({ name: 'review_note', type: 'varchar', length: 500, nullable: true }) reviewNote!: string | null;
 }
 
 /** 周期任务：到点自动给负责人生成一条待办。 */

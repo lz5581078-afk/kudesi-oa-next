@@ -144,6 +144,10 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     icon: 'inbox',
     label: '工作台',
     pages: [
+      page('workbench', 'home', '功能首页', true),
+      page('workbench', 'boss', '老板总控台', true),
+      page('workbench', 'desk', '岗位工作台', true),
+      page('workbench', 'personal', '个人工作台', true),
       page('workbench', 'todos', '我的待办', true),
       page('workbench', 'tasks', '任务中心', true),
       page('workbench', 'started', '我发起的', true),

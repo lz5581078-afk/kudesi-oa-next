@@ -101,6 +101,10 @@ import { OrgService } from './org/org.service';
 import { CompanyApplyController, PlatformController } from './platform/platform.controller';
 import { PlatformService } from './platform/platform.service';
 
+import { WorkspaceController } from './workspace/workspace.controller';
+import { WorkspaceService } from './workspace/workspace.service';
+import { WorkspaceModuleRegistry } from './workspace/module-registry';
+
 const env = loadEnv();
 
 @Module({
@@ -140,7 +144,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController],
   providers: [
     AuthService,
     PlatformService,
@@ -180,6 +184,8 @@ const env = loadEnv();
     MaintenanceService,
     RemoteAssistService,
     FlowScheduler,
+    WorkspaceService,
+    WorkspaceModuleRegistry,
     FinanceDocumentsService,
     IntegrationSettingsService,
     FilesService,
