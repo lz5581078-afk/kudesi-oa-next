@@ -40,7 +40,7 @@ export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDon
       manualCode: m?.code.trim() || undefined, manualName: m?.name.trim() || undefined, manualShortName: m?.shortName.trim() || undefined, manualReason: m && (m.code || m.name || m.shortName).trim() ? reason.trim() : undefined };
   });
   const anyManual = Object.entries(manual).some(([k, m]) => picked.includes(Number(k)) && (m.code || m.name || m.shortName).trim());
-  const setM = (p: number, patch: Partial<{ code: string; name: string; shortName: string }>) => { setManual({ ...manual, [p]: { code: '', name: '', shortName: '', ...manual[p], ...patch } }); setStale(true); };
+  const setM = (p: number, patch: Partial<{ code: string; name: string; shortName: string }>) => { setManual({ ...manual, [p]: { ...(manual[p] ?? { code: '', name: '', shortName: '' }), ...patch } }); setStale(true); };
   const invalid = lines().length === 0 || picked.length === 0 || !scenarioId || !categoryId;
   async function check() {
     setBusy(true); setError('');
