@@ -94,4 +94,20 @@ d('分类排序与批量重生成编码（真实数据库）', () => {
     expect(after.status).toBe('reverify');
     expect((await tools.regeneratePreview(boss)).rows).toHaveLength(0);
   });
+
+  it('真实编码有马甲：验证通过后列表里隐藏（马甲代表它），没验证的仍然显示；计数一致', async () => {
+    const p = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '红富士', categoryId: ids.leaf, purchaseSpec: '千克', specQty: 1, specUnit: 'KG', purchasePrice: 1000, freight: 0, handlingFee: 0, zeroValueReason: '运费：无\n装卸费：无', rawFinishedNames: '精品红富士' });
+    const real = await svc.create(boss, 'finance-base-codes', { productId: p.id });
+    const listIds = async (status: string) => (await svc.list(boss, 'finance-base-codes', { status, pageSize: 100, filters: JSON.stringify({ realView: 'foldVerified' }) } as never)).items.map((i: { id: number }) => i.id);
+    expect(await listIds('pending')).toContain(real.id);
+    await svc.changeStatus(boss, 'finance-base-codes', real.id, 'verified');
+    expect(await listIds('verified')).not.toContain(real.id);
+    // 不带这个筛选（比如详情、选择器）仍然看得到
+    expect((await svc.list(boss, 'finance-base-codes', { status: 'verified', pageSize: 100 } as never)).items.map((i: { id: number }) => i.id)).toContain(real.id);
+    const aliases = (await svc.list(boss, 'finance-base-codes', { pageSize: 100 } as never)).items.filter((r: { data: Record<string, unknown> }) => r.data.canonicalId === real.id);
+    expect(aliases).toHaveLength(1);
+    const ov = await new (await import('./base-code-tools.service')).BaseCodeToolsService(ds, svc, new OutboxService(ds, svc)).overview(boss);
+    const byCat = ov.byCategory[String(ids.leaf)] ?? {};
+    expect(byCat.verified ?? 0).toBe(1); // 只剩马甲这一条，真实编码不计
+  });
 });

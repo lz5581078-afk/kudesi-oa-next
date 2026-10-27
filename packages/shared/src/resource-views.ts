@@ -77,6 +77,9 @@ export function viewFiltersOf(type: string): ViewFilterDef[] {
       ];
     case 'memos':
       return [{ key: 'memoView', label: '快捷视图', options: [{ value: 'domain', label: '域名' }, { value: 'dueSoon', label: `即将到期（${MEMO_DUE_DAYS} 天内）` }, { value: 'expired', label: '已过期' }] }];
+    case 'finance-base-codes':
+      // 旧系统 display_hidden：真实编码有马甲时，验证通过后在列表里隐藏（马甲代表它），详情里仍能看到
+      return [{ key: 'realView', label: '真实编码', options: [{ value: 'foldVerified', label: '隐藏已验证且有马甲的真实编码' }] }];
     default:
       return [];
   }

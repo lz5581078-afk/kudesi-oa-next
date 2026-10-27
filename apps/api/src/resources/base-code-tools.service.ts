@@ -10,6 +10,7 @@ import {
 } from './base-code-support';
 import { ResourcesService } from './resources.service';
 
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const TYPE = 'finance-base-codes';
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 
@@ -38,7 +39,10 @@ export class BaseCodeToolsService {
     const rows = await this.ds.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE }, select: ['id', 'status', 'data'] });
     const status: Record<string, number> = {};
     const byCategory: Record<string, Record<string, number>> = {};
+    // 有马甲的真实编码，验证通过后列表里隐藏，计数也不算（旧系统 display_hidden）
+    const realWithAlias = new Set(rows.map((r) => num(r.data.canonicalId)).filter((x): x is number => x !== null));
     for (const r of rows) {
+      if (r.status === 'verified' && realWithAlias.has(r.id)) continue;
       status[r.status] = (status[r.status] ?? 0) + 1;
       const c = String(r.data.categoryId ?? 0);
       byCategory[c] ??= {};

@@ -8,6 +8,9 @@ import { ResourceRecord } from '../entities';
  * 条件按今天的日期在查询时计算，不存成字段，所以不会过期失真。
  */
 
+/** 这个基础编码是不是某个马甲指向的真实编码（马甲没归档） */
+export const HAS_ALIAS = `EXISTS (SELECT 1 FROM resource_records a WHERE a.company_id = r.company_id AND a.type = 'finance-base-codes' AND a.archived_at IS NULL AND JSON_EXTRACT(a.data, '$.canonicalId') = r.id)`;
+
 const J = (k: string) => `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${k}'))`;
 
 export function isViewFilter(type: string, key: string): boolean {
@@ -33,6 +36,10 @@ export async function applyViewFilter(
     if (value === 'expired') qb.andWhere(`${J('jushuitanExpireAt')} < :${p('t')}`, { [p('t')]: today });
     else if (value === 'urgent') qb.andWhere(`${J('jushuitanExpireAt')} >= :${p('t')} AND ${J('jushuitanExpireAt')} <= :${p('u')}`, { [p('t')]: today, [p('u')]: addDaysText(today, 15) });
     else qb.andWhere(`${J('jushuitanExpireAt')} > :${p('t')} AND ${J('jushuitanExpireAt')} <= :${p('u')}`, { [p('t')]: addDaysText(today, 15), [p('u')]: addDaysText(today, 30) });
+    return true;
+  }
+  if (type === 'finance-base-codes' && key === 'realView') {
+    qb.andWhere(`NOT (r.status = 'verified' AND ${HAS_ALIAS})`);
     return true;
   }
   if (type === 'stores' && key === 'legacyOwner') {
