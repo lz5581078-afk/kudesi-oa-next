@@ -61,7 +61,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
     for(const p of tables.finance_products||[]){const name=String(p.brand||'').trim();if(!name||brandMap.has(name))continue;const dictionary=(tables.finance_product_code_dictionary||[]).find(x=>x.dictionary_type==='brand'&&x.item_name===name);const id='brand:'+name;brandMap.set(name,id);add('finance-brands',id,{name,code:dictionary?.item_code},'active');}
     const scenarioMap=new Map();
     for(const b of tables.finance_product_bundle_codes||[]){const name=String(b.sales_scenario||'').trim();if(!name||scenarioMap.has(name))continue;const direct=(tables.finance_bundle_sales_scenarios||[]).find(x=>x.scenario_name===name||x.name===name);const id=direct?.id||'scenario:'+name;scenarioMap.set(name,id);add('finance-scenarios',id,{name:({standard:'标准',supply_chain:'供应链'})[name]||name,code:direct?.scenario_code||direct?.code||name,segment:({standard:'',supply_chain:'GYL'})[name]??direct?.scenario_code??direct?.code??name},'active');}
-    const productFamily=p=>p.archive_key==='purchased'?p.supply_mode:p.archive_key==='oem_package'?'package':p.archive_key;
+    const productFamily=p=>p.archive_key==='purchased'?p.supply_mode:p.archive_key;
     const categoryFamilies=new Map();
     for(const p of tables.finance_products||[]){let id=p.category_id;const seen=new Set();while(id&&!seen.has(String(id))){seen.add(String(id));if(!categoryFamilies.has(String(id)))categoryFamilies.set(String(id),new Set());categoryFamilies.get(String(id)).add(productFamily(p));id=byId('finance_product_categories',id)?.parent_id;}}
     const categoryKey=(id,family)=>id===null||id===undefined||id===''?undefined:String(id)+':'+family;
@@ -117,7 +117,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
         if(rule.json){if(rule.json.kind&&row.archive_type!==rule.json.kind)continue;const value=json(row[rule.json.column]);for(const x of itemsAt(value,rule.json.path))entries.push({row:rule.json.path==='$'?row:x.value,payload:x.value,ancestors:x.ancestors,container:row});}
         else entries.push({row,payload:{},ancestors:[],container:row});
       }
-      if(type==='finance-categories')entries=entries.flatMap(x=>[...(categoryFamilies.get(String(x.row.id))||new Set([x.row.archive_key==='oem_package'?'package':x.row.archive_key==='purchased'?(json(x.row.payload_json||{}).supplyModeScope||x.row.archive_key):x.row.archive_key]))].map(family=>({...x,row:{...x.row,__family:family,__sourceId:x.row.id,id:categoryKey(x.row.id,family)}})));
+      if(type==='finance-categories')entries=entries.flatMap(x=>[...(categoryFamilies.get(String(x.row.id))||new Set([x.row.archive_key==='purchased'?(json(x.row.payload_json||{}).supplyModeScope||x.row.archive_key):x.row.archive_key]))].map(family=>({...x,row:{...x.row,__family:family,__sourceId:x.row.id,id:categoryKey(x.row.id,family)}})));
       for(const {row,payload,ancestors,container} of entries){
         const id=row.id??row.category_id??container.id??'default';
         if(['deleted','archived'].includes(row.status)&&!(type==='finance-fee-categories'&&neededFeeCategories.has(String(id)))){excluded(type,id,'旧系统已删除或归档，不作为在用资料迁入');continue;}
@@ -138,11 +138,6 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(type==='asset-categories'){const value=typeof row.custom_fields==='string'?json(row.custom_fields):row.custom_fields;data.customFields=Array.isArray(value)?value.map(x=>typeof x==='string'?x:x.label||x.name||x.key).join(','):undefined;}
           if(type==='fixed-assets'){const config=typeof row.configuration==='string'?json(row.configuration):row.configuration;if(config&&typeof config==='object'){data.config=Object.entries(config).map(([k,v])=>k+'：'+(typeof v==='object'?JSON.stringify(v):String(v))).join('\n');}}
           if(type==='memos'){data.title=row.account_name||row.service_name||row.provider_name;if(row.status==='active')status='normal';}
-          if(type==='finance-supplier-categories'){
-            const all=json(container.data_json)?.categories||[];const chain=[row];const seen=new Set([String(row.id)]);let current=row;
-            while(current.parentId){const parent=all.find(x=>String(x.id)===String(current.parentId));if(!parent||seen.has(String(parent.id)))break;seen.add(String(parent.id));chain.unshift(parent);current=parent;}
-            if(chain.length>3){data.parentId=ref(type,chain[1].id);data.name=chain.slice(2).map(x=>x.name).join(' / ');excluded(type+'.hierarchy',id,'旧分类超过三级，按新系统三级限制保留后段完整名称路径，不丢分类内容');}
-          }
           if(type==='finance-fee-items'){if(row.direction==='支出'||!row.direction){data.direction='expense';if(!row.direction)notices.push('旧费用项目未显式记方向，按旧页面的默认支出规则转换');}if(row.direction==='冲减')data.direction='offset';if(row.direction==='往来')data.direction='current';if(['不限','不固定'].includes(row.defaultObject))delete data.defaultObject;else{const allowed=def.fields.find(f=>f.key==='defaultObject')?.options?.map(x=>x.value)||[];const raw=String(row.defaultObject||'').split(/[、,，]/).filter(Boolean);const mapped=raw.flatMap(x=>x==='公户'?['公司公户','店铺公户']:[x]);const missing=mapped.filter(x=>!allowed.includes(x));if(missing.length)excluded(type+'.defaultObject',id,'新系统不支持这些默认挂账节点，费用项目保留、这些节点未写入：'+missing.join('、'));data.defaultObject=mapped.filter(x=>allowed.includes(x)).join('、')||undefined;}}
 
           if(type==='finance-categories'){data.archiveType=row.__family;data.code=row.category_code;if(data.archiveType==='original_purchase'&&String(data.code).length>8&&String(data.code).startsWith('YZCG')){data.code=String(data.code).slice(4);excluded(type+'.code',id,'旧分类码'+row.category_code+'去掉已由采购方式表示的YZCG前缀，转换为'+data.code+'；基础/组合原码仍保留');}data.parentId=ref('finance-categories',categoryKey(row.parent_id,row.__family));}

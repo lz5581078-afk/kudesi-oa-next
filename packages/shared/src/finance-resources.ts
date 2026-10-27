@@ -23,7 +23,7 @@ export const UNIT_OPTIONS = o('G:克', 'KG:千克', 'J:斤', 'T:吨', 'ML:毫升
 
 export const ARCHIVE_TYPES = o('raw:原料档案', 'self_made:自产成品档案', 'purchased:外购成品档案', 'package:产品包装档案', 'shipping_material:发货物料档案', 'oem_package:OEM包装档案');
 export const ARCHIVE_TYPE_CODE: Record<string, string> = { raw: 'YL', self_made: 'ZC', purchased: 'WG', package: 'BZ', shipping_material: 'FH', oem_package: 'OEM' };
-export const CATEGORY_ROOTS = o('raw:原料档案', 'self_made:自产成品档案', 'original_purchase:原装采购成品', 'supplier_oem:供应商OEM成品', 'package:产品包装档案', 'shipping_material:发货物料档案');
+export const CATEGORY_ROOTS = o('raw:原料档案', 'self_made:自产成品档案', 'original_purchase:原装采购成品', 'supplier_oem:供应商OEM成品', 'package:产品包装档案', 'oem_package:OEM包装档案', 'shipping_material:发货物料档案');
 
 export const BUNDLE_ROLES = o('main:主品', 'gift:赠品', 'package:包装', 'label:标签', 'instruction:说明书', 'other:其他物料', 'labor:人工');
 
@@ -49,7 +49,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [ACTIVE, STOPPED, { value: 'deleted', label: '已删除', tone: 'bad', requiresReason: true, hidden: true }],
     defaultStatus: 'active',
     filterBy: ['categoryId', 'supplyMode'],
-    treeTabMap: { purchased: ['original_purchase', 'supplier_oem'], oem_package: ['package'] },
+    treeTabMap: { purchased: ['original_purchase', 'supplier_oem'] },
     batch: ['status', 'categoryId'],
     fields: [
       select('archiveType', '档案类型', '基础', ARCHIVE_TYPES, { required: true, list: true }),
@@ -129,7 +129,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     uniqueTogether: [{ fields: ['name', 'parentId'], message: '同一上级下已经有这个分类了' }],
     fields: [
       text('name', '分类名称', '基础', { required: true, list: true, search: true }),
-      ref('parentId', '上级分类', '基础', 'finance-supplier-categories', { list: true, help: '不选 = 一级分类；最多 3 级' }),
+      ref('parentId', '上级分类', '基础', 'finance-supplier-categories', { list: true, help: '不选 = 一级分类；最多 4 级' }),
       text('subtitle', '说明', '基础', { maxLength: 200 }),
       { key: 'sort', label: '排序', type: 'number', group: '基础' },
     ],
@@ -144,7 +144,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     uniqueTogether: [{ fields: ['name', 'parentId'], message: '同一上级下已经有这个分类了' }],
     fields: [
       text('name', '分类名称', '基础', { required: true, list: true, search: true }),
-      ref('parentId', '上级分类', '基础', 'finance-customer-categories', { list: true, help: '不选 = 一级分类；最多 3 级' }),
+      ref('parentId', '上级分类', '基础', 'finance-customer-categories', { list: true, help: '不选 = 一级分类；最多 4 级' }),
       text('subtitle', '说明', '基础', { maxLength: 200 }),
       { key: 'sort', label: '排序', type: 'number', group: '基础' },
     ],

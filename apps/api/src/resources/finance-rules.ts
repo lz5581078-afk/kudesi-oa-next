@@ -51,7 +51,7 @@ const FAMILY: Record<string, (data: Data) => string | null> = {
   raw: () => 'raw',
   self_made: () => 'self_made',
   package: () => 'package',
-  oem_package: () => 'package',
+  oem_package: () => 'oem_package',
   shipping_material: () => 'shipping_material',
   purchased: (d) => (d.supplyMode === 'supplier_oem' ? 'supplier_oem' : d.supplyMode === 'original_purchase' ? 'original_purchase' : null),
 };
@@ -612,7 +612,7 @@ const beforeParty = (prefix: string, type: string) => async (ctx: BeforeSaveCont
   else data.shortCode = str(data.shortCode).trim().toUpperCase();
 };
 
-/** 供应商/客户分类树：最多 3 级。 */
+/** 供应商/客户分类树：最多 4 级（和旧系统一致）。 */
 const beforePartyCategory = (type: string) => async (ctx: BeforeSaveContext) => {
   const { data, em, user } = ctx;
   let depth = 1;
@@ -621,9 +621,9 @@ const beforePartyCategory = (type: string) => async (ctx: BeforeSaveContext) => 
     depth++;
     cur = await rec(em, user.companyId, type, cur.data.parentId);
   }
-  if (depth > 3) throw new BadRequestException('分类最多 3 级');
+  if (depth > 4) throw new BadRequestException('分类最多 4 级');
   if (ctx.existing && typeof data.parentId === 'number') {
-    // 下面已经挂了子分类的，加上自己这一层也不能超过 3 级
+    // 下面已经挂了子分类的，加上自己这一层也不能超过 4 级
     const kids = await ctx.host.findWhere(em, user.companyId, type, 'parentId', ctx.existing.id);
     if (kids.length) {
       const deeper = async (id: number, d: number): Promise<number> => {
@@ -632,7 +632,7 @@ const beforePartyCategory = (type: string) => async (ctx: BeforeSaveContext) => 
         for (const k of sub) m = Math.max(m, await deeper(k.id, d + 1));
         return m;
       };
-      if (depth - 1 + (await deeper(ctx.existing.id, 1)) > 3) throw new BadRequestException('挪过去后下面的分类会超过 3 级');
+      if (depth - 1 + (await deeper(ctx.existing.id, 1)) > 4) throw new BadRequestException('挪过去后下面的分类会超过 4 级');
     }
   }
 };

@@ -62,6 +62,18 @@ d('财务资料（真实数据库）', () => {
     expect(tabPurchased.nodes.some((n) => n.id === ids.rawCat)).toBe(false);
   });
 
+  it('OEM 包装有自己独立的分类树，和产品包装不混用', async () => {
+    const pk = await svc.create(boss, 'finance-categories', { archiveType: 'package', name: '独立树测试包装', code: 'DL1' });
+    const oem = await svc.create(boss, 'finance-categories', { archiveType: 'oem_package', name: '独立树测试OEM', code: 'DL2' });
+    const base = { archiveType: 'oem_package', name: 'OEM袋子', capacities: '1KG', purchaseSpec: '个', specQty: 1, specUnit: 'EA', purchasePrice: 10, freight: 1, handlingFee: 1, brandId: ids.brand };
+    await expect(svc.create(boss, 'finance-products', { ...base, categoryId: pk.id })).rejects.toThrow(/不匹配/);
+    const ok = await svc.create(boss, 'finance-products', { ...base, categoryId: oem.id });
+    expect(ok.refLabels.categoryId).toBe('独立树测试OEM');
+    const tree = await svc.categoryTree(boss, 'finance-products', 'categoryId', { tab: 'oem_package' });
+    expect(tree.nodes.some((n) => n.id === oem.id)).toBe(true);
+    expect(tree.nodes.some((n) => n.id === pk.id)).toBe(false);
+  });
+
   it('商品档案：必须挂最末级分类、类型匹配、自动生成编码、零值要说明、总成本自动算', async () => {
     const base = { archiveType: 'raw', name: '红富士苹果', purchaseSpec: '千克', specQty: 2.5, specUnit: 'KG', freight: 100, handlingFee: 50, supplierId: undefined };
     await expect(svc.create(boss, 'finance-products', { ...base, categoryId: ids.rawCat })).rejects.toThrow(/最末级/);
@@ -214,11 +226,12 @@ d('财务资料（真实数据库）', () => {
     expect((await svc.get(boss, 'finance-products', ids.apple2)).status).toBe('inactive');
     await svc.changeStatus(boss, 'finance-products', ids.apple2, 'active');
   });
-  it('供应商/客户/费用档案：自动编号、多分类、分类最多 3 级、挂账节点推出“必须挂对象”', async () => {
+  it('供应商/客户/费用档案：自动编号、多分类、分类最多 4 级、挂账节点推出“必须挂对象”', async () => {
     const c1 = await svc.create(boss, 'finance-supplier-categories', { name: '种子供应商' });
     const c2 = await svc.create(boss, 'finance-supplier-categories', { name: '玉米', parentId: c1.id });
     const c3 = await svc.create(boss, 'finance-supplier-categories', { name: '甜玉米', parentId: c2.id });
-    await expect(svc.create(boss, 'finance-supplier-categories', { name: '太深', parentId: c3.id })).rejects.toThrow(/最多 3 级/);
+    const c4 = await svc.create(boss, 'finance-supplier-categories', { name: '四级', parentId: c3.id });
+    await expect(svc.create(boss, 'finance-supplier-categories', { name: '太深', parentId: c4.id })).rejects.toThrow(/最多 4 级/);
     const s1 = await svc.create(boss, 'finance-suppliers', { name: '润农种业', shortName: '润农', categoryIds: [c1.id, c3.id] });
     expect(s1.data.code).toBe('GYS-001');
     expect(s1.data.shortCode).toBe('RN');
