@@ -1,79 +1,90 @@
 import { useEffect, useId, useState } from 'react';
+import { archiveQualityFields, archiveQualityIssues, mergeQualityReasons, parseQualityReasons, unitYuanText, type QualityField, type QualityOptions } from '@kudesi/shared';
 import { resourceApi } from './api';
-import { unitYuanText } from '@kudesi/shared';
+import { ReasonLibraryDialog } from './ReasonLibraryDialog';
 
-/** 采购价、运费、装卸费明确填 0 时，旧系统要求“核算资料确认”：逐项选或写原因。这里的原因就是商品档案的“零值说明”。 */
-export const ZERO_ITEMS = [
-  { key: 'purchasePrice', label: '采购价' },
-  { key: 'freight', label: '运费' },
-  { key: 'handlingFee', label: '装卸费' },
-] as const;
+const MONEY = new Set(['purchasePrice', 'freight', 'handlingFee']);
+const confirmLabel = (f: QualityField) => (f.mode === 'weight' ? '确认不计重量' : f.mode === 'optionalGroup' ? '确认不需要' : '确认该项为0');
 
-const lineLabel = (line: string) => line.split(/[：:]/)[0].trim();
-const lineReason = (line: string) => line.replace(/^[^：:]*[：:]?/, '').trim();
-
-/** 取“零值说明”里每一项已写的原因 */
-export function parseZeroReasons(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split(/\r?\n/)) {
-    const label = lineLabel(line);
-    if (ZERO_ITEMS.some((z) => z.label === label)) out[label] = lineReason(line);
-  }
-  return out;
+function valueText(f: QualityField, confirmedReason: string | undefined): string {
+  if (confirmedReason) return `已确认：${confirmedReason}`;
+  if (f.value === null || f.value === undefined || String(f.value).trim() === '') return '未填写';
+  const n = Number(f.value);
+  if (n === 0) return '0 · 待确认';
+  if (MONEY.has(f.id)) return `${unitYuanText(n)} 元`;
+  return `${f.value}${f.unit ? ` ${f.unit}` : ''}`;
 }
 
-/** 填 0 且还没写原因的项目 */
-export function zeroItemsMissingReason(body: Record<string, unknown>): Array<{ key: string; label: string }> {
-  const have = parseZeroReasons(String(body.zeroValueReason ?? ''));
-  return ZERO_ITEMS.filter((z) => body[z.key] === 0 && !have[z.label]);
-}
-
-/** 把确认的原因写回“零值说明”：该项一行，其它行原样保留 */
-export function mergeZeroReasons(text: string, reasons: Record<string, string>): string {
-  const keep = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !Object.keys(reasons).includes(lineLabel(l)));
-  return [...Object.entries(reasons).map(([label, reason]) => `${label}：${reason.trim()}`), ...keep].join('\n');
-}
-
-export function ProductQualityDialog({ body, missing, onCancel, onConfirm }: {
-  body: Record<string, unknown>;
-  missing: Array<{ key: string; label: string }>;
+/**
+ * 核算资料确认（旧 ArchiveQualityConfirmation）：保存商品档案前，逐项列出采购价、运费、装卸费、重量、包装/人力组成等，
+ * 填 0 或空的要选或写原因后“确认该项为0”；下面列出还没完成的项目，没有未完成项才能“确认并保存”。
+ * 原因写进档案的“零值说明”（每项一行）。
+ */
+export function ProductQualityDialog({ values, options, onCancel, onConfirm }: {
+  values: Record<string, unknown>;
+  options: QualityOptions;
   onCancel: () => void;
-  onConfirm: (reasons: Record<string, string>) => void;
+  onConfirm: (next: Record<string, unknown>) => void;
 }) {
-  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [form, setForm] = useState<Record<string, unknown>>(values);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [library, setLibrary] = useState<string[]>([]);
+  const [managing, setManaging] = useState(false);
   const listId = useId();
-  useEffect(() => {
-    let alive = true;
-    resourceApi.list('finance-zero-reasons', { page: 1, pageSize: 200 }).then((r) => alive && setLibrary(r.items.map((i) => i.title))).catch(() => undefined);
-    return () => { alive = false; };
-  }, []);
-  const money = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? `${unitYuanText(v)} 元` : '未填写');
-  const done = missing.every((m) => (reasons[m.label] ?? '').trim());
+  const loadLibrary = () => resourceApi.list('finance-zero-reasons', { page: 1, pageSize: 200 }).then((r) => setLibrary(r.items.map((i) => i.title))).catch(() => undefined);
+  useEffect(() => { void loadLibrary(); }, []);
+  const issues = archiveQualityIssues(form, options);
+  const reasons = parseQualityReasons(form.zeroValueReason);
+  const rows = archiveQualityFields(form, options).filter((f) => ['zero', 'weight', 'optionalGroup'].includes(f.mode));
+
+  function confirmRow(f: QualityField) {
+    const reason = (drafts[f.id] ?? '').trim();
+    if (!reason) return;
+    const next: Record<string, unknown> = { ...form, zeroValueReason: mergeQualityReasons(form.zeroValueReason, { [f.label]: reason }) };
+    if (f.mode === 'zero' || f.mode === 'weight') next[f.id] = 0;
+    if (f.mode === 'weight') next.weightManual = true;
+    setForm(next);
+  }
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="modal card small" role="dialog" aria-modal="true" aria-label="核算资料确认">
         <div className="modal-head between"><strong>核算资料确认</strong><button type="button" className="icon-button" aria-label="返回修改" onClick={onCancel}>✕</button></div>
         <div className="modal-body">
-          <p className="muted">{String(body.name ?? '')}</p>
-          <ul className="plain-list">
-            <li className="between"><span>采购价</span><span>{money(body.purchasePrice)}</span></li>
-            <li className="between"><span>运费</span><span>{money(body.freight)}</span></li>
-            <li className="between"><span>装卸费</span><span>{money(body.handlingFee)}</span></li>
-          </ul>
-          <p>下面这些项目填了 0，请逐项选择或写明原因：</p>
+          <div className="between"><span className="muted">{String(form.name ?? '')}</span><button type="button" className="link-button" onClick={() => setManaging(true)}>管理零值原因</button></div>
           <datalist id={listId}>{library.map((r) => <option key={r} value={r} />)}</datalist>
-          {missing.map((m) => (
-            <label key={m.key}>{m.label}为 0 的原因
-              <input list={listId} maxLength={180} placeholder="选择或输入原因" aria-label={`${m.label}零值原因`} value={reasons[m.label] ?? ''} onChange={(e) => setReasons({ ...reasons, [m.label]: e.target.value })} />
-            </label>
-          ))}
+          {rows.length === 0 && <p className="muted">没有需要确认的核算项目。</p>}
+          {rows.map((f) => {
+            const reason = reasons[f.label];
+            const n = f.value === null || f.value === undefined || String(f.value).trim() === '' ? null : Number(f.value);
+            const confirmed = Boolean(reason) && n === 0;
+            const needs = !confirmed && (n === null || n === 0) && f.mode !== 'positive';
+            // 原料、发货物料的采购价取自供货来源，空着不用确认
+            const optionalBlank = f.id === 'purchasePrice' && n === null && ['raw', 'shipping_material'].includes(String(form.archiveType));
+            return (
+              <div key={f.id} className="between" style={{ flexWrap: 'wrap', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--line, #e3e8ee)' }}>
+                <strong style={{ minWidth: 90 }}>{f.label}</strong>
+                <span>{optionalBlank ? '取自供货来源' : valueText(f, confirmed ? reason : undefined)}</span>
+                {needs && !optionalBlank && (
+                  <span className="pill-row">
+                    <input list={listId} maxLength={180} placeholder="选择或输入原因" aria-label={`${f.label}零值原因`} value={drafts[f.id] ?? ''} onChange={(e) => setDrafts({ ...drafts, [f.id]: e.target.value })} />
+                    <button type="button" className="secondary-button" disabled={!(drafts[f.id] ?? '').trim()} onClick={() => confirmRow(f)}>{confirmLabel(f)}</button>
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          {issues.length > 0 && (
+            <div className="notice warn" role="status"><strong>尚未完成的项目</strong>
+              <ul>{issues.map((i, idx) => <li key={`${i.id}-${idx}`}>{i.message}</li>)}</ul>
+            </div>
+          )}
         </div>
         <div className="modal-foot">
           <button type="button" className="secondary-button" onClick={onCancel}>返回修改</button>
-          <button type="button" className="primary-button" disabled={!done} onClick={() => onConfirm(Object.fromEntries(missing.map((m) => [m.label, (reasons[m.label] ?? '').trim()])))}>确认并保存</button>
+          <button type="button" className="primary-button" disabled={issues.length > 0} onClick={() => onConfirm(form)}>确认并保存</button>
         </div>
       </div>
+      {managing && <ReasonLibraryDialog libType="finance-zero-reasons" title="零值原因" onClose={() => { setManaging(false); void loadLibrary(); }} />}
     </div>
   );
 }

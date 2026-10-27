@@ -4,7 +4,9 @@ import { pinyin } from 'pinyin-pro';
 import { EntityManager } from 'typeorm';
 import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, UNIT_OPTIONS, FEE_BOOKING_NODE_MAP, FINANCE_RESOURCE_DEFS, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceLink, ResourceRecord } from '../entities';
+import { ProductVerificationEvent, ResourceLink, ResourceRecord } from '../entities';
+
+const parseJsonOrNull = (v: unknown): unknown => { if (typeof v !== 'string') return v ?? null; try { return JSON.parse(v); } catch { return null; } };
 import { beforeExclusive } from './product-exclusive';
 import { buildSnapshot, aliasCode, rawNames } from './base-code-support';
 import { NamingInput, NamingItem, NamingRule, composeBundle, parseFieldList, parseOverrides, validateRule } from './bundle-naming';
@@ -1286,6 +1288,13 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
   },
   'finance-base-code-lines': async (ctx) => afterBaseCodeLineSave(ctx, (id) => markBundlesOfBaseCode(ctx.host, ctx.em, ctx.user, id)),
   'finance-base-codes': async ({ em, host, user, record, existing }) => {
+    // 每次验证通过（首次，或指纹变了的再次验证）追加一条验证事件（旧系统验证历史）
+    if (record.status === 'verified' && record.data.signature && !(existing?.status === 'verified' && existing.data.signature === record.data.signature)) {
+      await em.insert(ProductVerificationEvent, {
+        companyId: user.companyId, baseCodeId: record.id, compositionSignature: str(record.data.signature).slice(0, 64),
+        verifiedBy: user.id > 0 ? user.id : null, snapshotJson: parseJsonOrNull(record.data.snapshot) as never,
+      });
+    }
     if (!existing) {
       if (!em.queryRunner?.data.legacyImport) await seedMainLine(host, em, user, record);
       if (!em.queryRunner?.data.legacyImport && !record.data.canonicalId && typeof record.data.productId === 'number') await syncAliases(host, em, user, record.data.productId);

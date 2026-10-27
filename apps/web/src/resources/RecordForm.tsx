@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { SIMILARITY_RESOURCES, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
-import { ProductQualityDialog, mergeZeroReasons, zeroItemsMissingReason } from './ProductQualityDialog';
+import { ProductQualityDialog } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
 import { LicenseRecognizeButton } from './LicenseRecognize';
 
@@ -250,7 +250,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
   const draftEnabled = !record && isProduct;
   const draftKey = draftApi.key(`resource:${def.key}`, [String(initial?.archiveType ?? ''), String(initial?.supplyMode ?? '')]);
   const [draftNote, setDraftNote] = useState('');
-  const [quality, setQuality] = useState<{ body: Record<string, unknown>; mode: SaveMode; missing: Array<{ key: string; label: string }> } | null>(null);
+  const [quality, setQuality] = useState<{ body: Record<string, unknown>; mode: SaveMode; options: QualityOptions } | null>(null);
   useEffect(() => {
     if (!draftEnabled) return;
     let alive = true;
@@ -300,8 +300,14 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
         const sim = await resourceApi.similarCheck(def.key, { ...(record?.data ?? {}), ...body }, record?.id).catch(() => null);
         if (sim?.warnings.length && !window.confirm(`发现相似的资料，确定仍要保存吗？\n\n${sim.warnings.slice(0, 3).map((w) => w.text).join('\n')}`)) { setBusy(false); return; }
       }
-      const missing = isProduct ? zeroItemsMissingReason(body) : [];
-      if (missing.length) { setQuality({ body, mode, missing }); setBusy(false); return; }
+      if (isProduct) {
+        // 旧系统每次保存商品档案都先弹“核算资料确认”：逐项核对、零值写原因
+        const merged = { ...(record?.data ?? {}), ...body };
+        const options: QualityOptions = { canCost: Boolean(me && createChecker(me.permissions)('product.cost.edit')), composition: await compositionCounts(record?.id, merged) };
+        setQuality({ body: merged, mode, options });
+        setBusy(false);
+        return;
+      }
       await commit(body, mode);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存失败，请重试');
@@ -392,18 +398,34 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
       </form>
       {quality && (
         <ProductQualityDialog
-          body={quality.body}
-          missing={quality.missing}
+          values={quality.body}
+          options={quality.options}
           onCancel={() => setQuality(null)}
-          onConfirm={(reasons) => {
-            const { body, mode } = quality;
+          onConfirm={(next) => {
+            const { mode } = quality;
             setQuality(null);
-            void commit({ ...body, zeroValueReason: mergeZeroReasons(String(body.zeroValueReason ?? ''), reasons) }, mode);
+            void commit(next, mode);
           }}
         />
       )}
     </div>
   );
+}
+
+/** 已有构成的自制品/OEM 成品：包装组成、人力组成各有几行（新建时没有构成，返回 undefined） */
+async function compositionCounts(productId: number | undefined, values: Record<string, unknown>): Promise<QualityOptions['composition']> {
+  if (!productId || !isComposedArchive(values)) return undefined;
+  try {
+    const boms = (await resourceApi.list('finance-product-boms', { fieldKey: 'productId', fieldValue: String(productId), pageSize: 200 })).items;
+    const pkgIds = new Set<number>();
+    for (const tab of ['package', 'oem_package']) (await resourceApi.list('finance-products', { tab, pageSize: 200, showHidden: true })).items.forEach((i) => pkgIds.add(i.id));
+    return {
+      labor: boms.filter((b) => typeof b.data.laborId === 'number').length,
+      packaging: boms.filter((b) => typeof b.data.componentId === 'number' && pkgIds.has(b.data.componentId as number)).length,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /** 停用/删除等需要填写原因的确认框。 */

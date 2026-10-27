@@ -22,6 +22,9 @@ import { RecordForm } from './RecordForm';
 const def = FINANCE_RESOURCE_DEFS.find((d) => d.key === 'finance-products')!;
 const saved = { id: 9, type: 'finance-products', title: '苹果', status: 'active', statusReason: null, data: {}, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '', updatedAt: '' };
 const fill = (label: string, value: string) => fireEvent.change(screen.getAllByLabelText(new RegExp(`^${label}`))[0], { target: { value } });
+/** 原料的必填核算资料都填上，核算资料确认没有未完成项 */
+const fillRaw = (name: string) => { fill('商品名称', name); fill('系统规格', '千克'); fill('运费', '1'); fill('装卸费', '1'); };
+const confirmQuality = async () => { fireEvent.click(await screen.findByRole('button', { name: '确认并保存' })); };
 
 beforeEach(() => {
   create.mockReset().mockResolvedValue(saved);
@@ -56,8 +59,9 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     const onSaved = vi.fn();
     const onContinued = vi.fn();
     render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw' }} onClose={() => undefined} onSaved={onSaved} onContinued={onContinued} />);
-    fill('商品名称', '苹果');
+    fillRaw('苹果');
     fireEvent.click(screen.getByRole('button', { name: '保存并继续新建' }));
+    await confirmQuality();
     await screen.findByText(/可以继续新建/);
     expect(onContinued).toHaveBeenCalledTimes(1);
     expect(onSaved).not.toHaveBeenCalled();
@@ -69,13 +73,14 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     similar.mockResolvedValue({ blocked: [], warnings: [{ text: '“苹果”：名称完全相同' }] });
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw' }} onClose={() => undefined} onSaved={() => undefined} />);
-    fill('商品名称', '苹果');
+    fillRaw('苹果');
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(String(confirm.mock.calls[0][0])).toContain('名称完全相同');
     expect(create).not.toHaveBeenCalled();
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await confirmQuality();
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     confirm.mockRestore();
   });
@@ -84,11 +89,14 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     const onSaved = vi.fn();
     render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw' }} onClose={() => undefined} onSaved={onSaved} />);
     fill('商品名称', '苹果');
+    fill('系统规格', '千克');
     fill('运费', '0');
+    fill('装卸费', '1');
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     const dialog = await screen.findByRole('dialog', { name: '核算资料确认' });
     expect(create).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('运费零值原因'), { target: { value: '产地自提' } });
+    fireEvent.click(screen.getByRole('button', { name: '确认该项为0' }));
     fireEvent.click(screen.getByRole('button', { name: '确认并保存' }));
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect((create.mock.calls[0][1] as Record<string, unknown>).zeroValueReason).toContain('运费：产地自提');

@@ -47,6 +47,10 @@ export class BaseCodeToolsController {
   @Get(':id/report')
   report(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.tools.report(u, id); }
 
+  @RequirePermission('resource.finance-base-codes.view')
+  @Get(':id/verification-events')
+  history(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.tools.verificationHistory(u, id); }
+
   @RequirePermission('resource.finance-base-codes.edit')
   @Post('verify')
   @HttpCode(200)

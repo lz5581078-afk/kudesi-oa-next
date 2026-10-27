@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
+import { VerificationHistoryPanel } from './VerificationHistoryPanel';
 import { FileList } from './FilesField';
 import { resourceApi, type LogEntry, type Relation, type ResourceDto } from './api';
 import { displayValue, statusOf } from './format';
@@ -147,7 +148,7 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
   );
 }
 
-type Tab = 'info' | 'relations' | 'logs' | 'revenue' | 'flow' | 'storage' | 'contents' | 'metrics' | 'derived' | 'partner' | `child:${string}`;
+type Tab = 'info' | 'relations' | 'logs' | 'revenue' | 'flow' | 'storage' | 'contents' | 'metrics' | 'derived' | 'partner' | 'verify-history' | `child:${string}`;
 
 /** 仓库岗位：商品档案只读，只能追加上传商品照片（旧仓库档案视图） */
 function WarehousePhotoUpload({ record, onDone }: { record: ResourceDto; onDone: (r: ResourceDto) => void }) {
@@ -232,6 +233,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
     ...(def.key === 'partners' ? ([['partner' as Tab, '法人主体与银行卡']] as Array<[Tab, string]>) : []),
     ...(def.key === 'licenses' && canView('store-daily-metrics') ? ([['revenue' as Tab, '营收']] as Array<[Tab, string]>) : []),
     ...(def.key === 'stores' ? ([['metrics' as Tab, '经营数据']] as Array<[Tab, string]>) : []),
+    ...(def.key === 'finance-base-codes' ? ([['verify-history' as Tab, '验证历史']] as Array<[Tab, string]>) : []),
     ['logs', '操作记录'],
   ].filter(([key]) => !record.warehouseMode || key === 'info') as Array<[Tab, string]>;
 
@@ -325,6 +327,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         {tab === 'metrics' && <StoreMetricsPanel store={record} />}
         {tab === 'derived' && def.derivedStores && <DerivedStoresPanel licenseId={typeof record.data[def.derivedStores] === 'number' ? (record.data[def.derivedStores] as number) : null} />}
         {tab === 'partner' && <PartnerSubjectPanel partner={record} onChanged={() => { void load(); onChanged(); }} />}
+        {tab === 'verify-history' && <VerificationHistoryPanel id={record.id} />}
         {tab === 'logs' && (
           <section>
             <h2 className="section-title">操作记录</h2>

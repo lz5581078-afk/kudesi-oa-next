@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceRecord } from '../entities';
+import { ProductVerificationEvent, ResourceRecord, User } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
 import {
   OUTBOUND_LABELS, baseCodeOutbound, buildSnapshot, diffSnapshots, groupIssues, parseSnapshot, sigOf, stripCostChanges, stripOutboundCost,
@@ -111,6 +111,23 @@ export class BaseCodeToolsService {
     return { results, verified: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
   }
 
+  /** 验证历史：每次验证通过一行，带和上一次验证相比改了什么（成本类差异按权限去掉） */
+  async verificationHistory(user: AuthUser, id: number) {
+    const em = this.ds.manager;
+    await this.load(em, user, id);
+    const rows = await em.find(ProductVerificationEvent, { where: { companyId: user.companyId, baseCodeId: id }, order: { id: 'ASC' } });
+    const names = new Map((await em.find(User, { where: { companyId: user.companyId }, select: ['id', 'name'] })).map((u) => [u.id, u.name]));
+    const cost = this.canCost(user);
+    let prev: ReturnType<typeof parseSnapshot> = null;
+    const out = rows.map((r) => {
+      const snap = parseSnapshot(typeof r.snapshotJson === 'string' ? r.snapshotJson : JSON.stringify(r.snapshotJson ?? null));
+      const changes = prev && snap ? diffSnapshots(prev, snap) : [];
+      prev = snap ?? prev;
+      return { id: Number(r.id), verifiedAt: r.verifiedAt, verifiedBy: r.verifiedBy ? names.get(r.verifiedBy) ?? `#${r.verifiedBy}` : '系统', signature: r.compositionSignature.slice(0, 12), first: r.id === rows[0].id, changes: cost ? changes : stripCostChanges(changes) };
+    });
+    return { rows: out.reverse() };
+  }
+
   // ---------- 删除 ----------
 
   private async groupsFor(em: EntityManager, user: AuthUser, mode: 'pending' | 'source', ids?: number[]) {
@@ -118,6 +135,8 @@ export class BaseCodeToolsService {
     const byId = new Map(all.map((r) => [r.id, r]));
     const lines = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-bundle-lines' }, select: ['id', 'data'] });
     const used = new Set(lines.map((l) => Number(l.data.baseCodeId)));
+    const eventRows = await em.createQueryBuilder(ProductVerificationEvent, 'e').select('e.baseCodeId', 'id').addSelect('COUNT(*)', 'n').where('e.companyId = :c', { c: user.companyId }).groupBy('e.baseCodeId').getRawMany<{ id: number; n: string }>();
+    const withHistory = new Set(eventRows.map((e) => Number(e.id)));
     const products = new Map((await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-products' }, select: ['id', 'status'] })).map((p) => [p.id, p.status]));
     const realOf = (r: ResourceRecord) => (typeof r.data.canonicalId === 'number' ? byId.get(r.data.canonicalId) ?? r : r);
     const roots = new Map<number, ResourceRecord>();
@@ -135,6 +154,7 @@ export class BaseCodeToolsService {
       if (mode === 'pending') {
         const touched = members.find((m) => m.data.verifiedAt || m.data.snapshot || m.data.jstUploadedCode || ['synced', 'pending', 'failed'].includes(str(m.data.jstStatus)) || m.status === 'verified' || m.status === 'reverify');
         if (touched) reason = `「${touched.title}」验证过或同步过聚水潭，不能直接删除`;
+        else if (members.some((m) => withHistory.has(m.id))) reason = '存在验证历史，不能直接删除';
       } else {
         if (products.get(Number(root.data.productId)) !== 'deleted') reason = '来源商品档案还在，不能按“来源已删除”处理';
         else if (root.status === 'deleted') reason = '已经处理过了';

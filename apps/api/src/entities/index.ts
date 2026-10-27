@@ -1097,6 +1097,18 @@ export class PhoneUploadSession {
   @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
 }
 
+/** 基础编码验证事件：每次验证通过追加一行（旧 finance_product_data_verification_events），只增不改。 */
+@Entity('finance_product_data_verification_events')
+export class ProductVerificationEvent {
+  @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true }) id!: string;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'base_code_id', type: 'int', unsigned: true }) baseCodeId!: number;
+  @Column({ name: 'composition_signature', type: 'varchar', length: 64 }) compositionSignature!: string;
+  @Column({ name: 'verified_by', type: 'int', unsigned: true, nullable: true }) verifiedBy!: number | null;
+  @CreateDateColumn({ name: 'verified_at', ...dt }) verifiedAt!: Date;
+  @Column({ name: 'snapshot_json', type: 'json', nullable: true }) snapshotJson!: Record<string, unknown> | null;
+}
+
 export const ALL_ENTITIES = [
   SessionDevice,
   SessionBindCode,
@@ -1145,4 +1157,5 @@ export const ALL_ENTITIES = [
   ResourceFile,
   FormDraft,
   PhoneUploadSession,
+  ProductVerificationEvent,
 ];
