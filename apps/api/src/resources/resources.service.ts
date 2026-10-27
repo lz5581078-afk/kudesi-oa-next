@@ -26,6 +26,7 @@ import {
   normalizePhoneImportText,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
+import { WAREHOUSE_PRODUCT_FIELDS, isWarehouseMode } from './warehouse-mode';
 import { CryptoService } from '../common/crypto.service';
 import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
@@ -49,6 +50,8 @@ export interface ResourceDto {
   refLabels: Record<string, string>;
   /** 文件字段里的文件信息（文件 id → 名称/类型/大小） */
   files: Record<number, FileInfo>;
+  /** 仓库角色模式：只给了精简列、不含日志和关联（旧仓库档案视图） */
+  warehouseMode?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -256,6 +259,8 @@ export class ResourcesService implements RuleHost {
   private async toDtos(em: EntityManager, user: AuthUser, def: ResourceDef, records: ResourceRecord[]) {
     const companyId = user.companyId;
     const restricted = restrictedFieldKeys(def, createChecker(user.permissions));
+    // 仓库角色模式：商品档案只给精简列（成本价格另由字段权限脱敏）
+    const warehouseKeep = def.key === 'finance-products' && (await isWarehouseMode(em, user)) ? new Set(WAREHOUSE_PRODUCT_FIELDS) : null;
     const labels = await this.refLabelsFor(em, companyId, def, records);
     const fileIds = records.flatMap((r) =>
       def.fields.filter((f) => f.type === 'files').flatMap((f) => (Array.isArray(r.data[f.key]) ? (r.data[f.key] as number[]) : [])),
@@ -271,6 +276,12 @@ export class ResourcesService implements RuleHost {
         delete dto.data[k];
         delete dto.refLabels[k];
         delete dto.secretConfigured[k];
+      }
+      if (warehouseKeep) {
+        for (const k of Object.keys(dto.data)) if (!warehouseKeep.has(k)) delete dto.data[k];
+        for (const k of Object.keys(dto.refLabels)) if (!warehouseKeep.has(k)) delete dto.refLabels[k];
+        dto.secretConfigured = {};
+        dto.warehouseMode = true;
       }
       return dto;
     });
@@ -837,6 +848,26 @@ export class ResourcesService implements RuleHost {
     return (await this.toDtos(this.dataSource.manager, user, def, [record]))[0];
   }
 
+  /** 仓库角色只读商品档案，但可以给档案追加照片（只加不删，旧仓库档案视图的规则）。 */
+  async addWarehousePhotos(user: AuthUser, id: number, fileIds: number[]) {
+    const em = this.dataSource.manager;
+    if (!(await isWarehouseMode(em, user))) throw new ForbiddenException('只有仓库岗位用这个入口上传照片，其他人请直接修改商品档案');
+    const def = this.def('finance-products');
+    const cap = def.fields.find((f) => f.key === 'photos')?.maxFiles ?? 20;
+    await this.dataSource.transaction(async (tx) => {
+      const record = await this.load(tx, user, 'finance-products', id);
+      if (record.archivedAt) throw new ConflictException('这条资料已归档，不能再上传');
+      const old = Array.isArray(record.data.photos) ? (record.data.photos as number[]) : [];
+      const add = [...new Set(fileIds)].filter((x) => !old.includes(x));
+      if (!add.length) return;
+      if (old.length + add.length > cap) throw new BadRequestException(`最多 ${cap} 张照片`);
+      await this.files.verify(tx, user.companyId, 'finance-products', 'photos', add, null);
+      await this.files.bind(tx, user.companyId, id, add);
+      await this.patchData(tx, user, 'finance-products', id, { photos: [...old, ...add] }, '仓库岗位上传了商品照片');
+    });
+    return this.get(user, 'finance-products', id);
+  }
+
   async create(user: AuthUser, type: string, values: Record<string, unknown>, status?: string) {
     const def = this.def(type);
     const cleanup: string[] = [];
@@ -1050,6 +1081,7 @@ export class ResourcesService implements RuleHost {
 
   async logs(user: AuthUser, type: string, id: number) {
     this.def(type);
+    if (type === 'finance-products' && (await isWarehouseMode(this.dataSource.manager, user))) return [];
     const em = this.dataSource.manager;
     await this.load(em, user, type, id);
     const rows = await em.find(ResourceChangeLog, {
@@ -1106,6 +1138,7 @@ export class ResourcesService implements RuleHost {
     this.def(type);
     const em = this.dataSource.manager;
     await this.load(em, user, type, id);
+    if (type === 'finance-products' && (await isWarehouseMode(em, user))) return [];
     const links = await em
       .createQueryBuilder(ResourceLink, 'l')
       .where('l.companyId = :c AND ((l.sourceType = :t AND l.sourceId = :id) OR (l.targetType = :t AND l.targetId = :id))', {

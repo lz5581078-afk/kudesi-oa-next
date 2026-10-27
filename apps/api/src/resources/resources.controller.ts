@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query 
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, Max, Min } from 'class-validator';
 import { createChecker } from '@kudesi/shared';
-import { AuthenticatedOnly, AuthUser, CurrentUser, RequireResourceAction } from '../common/auth.decorators';
+import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission, RequireResourceAction } from '../common/auth.decorators';
 import { DataToolsService } from './data-tools.service';
 import { ResourcesService } from './resources.service';
 
@@ -67,6 +67,10 @@ class LinkPropsDto {
   @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
   @IsOptional() @IsString() @MaxLength(10) validTo?: string;
   @IsOptional() @IsString() @MaxLength(200) purpose?: string;
+}
+
+class PhotoIdsDto {
+  @IsArray() @ArrayMaxSize(20) @IsInt({ each: true }) fileIds!: number[];
 }
 
 class DeleteDto {
@@ -178,6 +182,13 @@ export class ResourcesController {
   @Post(':type/batch-status')
   batchStatus(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: BatchDto) {
     return this.resources.batchUpdate(user, type, dto.ids, {}, dto.status, dto.reason);
+  }
+
+  // 仓库岗位只读商品档案，但可以上传照片（只加不删）
+  @RequirePermission('resource.finance-products.view')
+  @Post('finance-products/:id/warehouse-photos')
+  warehousePhotos(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: PhotoIdsDto) {
+    return this.resources.addWarehousePhotos(user, id, dto.fileIds);
   }
 
   @RequireResourceAction('create')

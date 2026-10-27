@@ -30,6 +30,13 @@ export const COST_BUCKETS = o('purchase:采购成本', 'transfer:调运成本', 
 /** 档案成本来源类型（旧系统 ARCHIVE_COST_SOURCE_TYPES，另加档案采购价自动同步） */
 export const COST_SOURCE_TYPES = o('manual:人工录入', 'purchase_order:采购单', 'raw_supply_source:原料供货来源', 'finance_document:财务单据', 'seasonal_cost_table:本季成本表', 'seasonal_cost_inference:本季成本推导', 'archive_cost_repair:档案成本修复', 'historical_packaging:历史包装构成表', 'production_bom:生产BOM自动计算', 'system_calculation:系统自动计算', 'excel_import:Excel导入', 'archive_purchase_price:商品档案采购价同步');
 
+/** 仓库角色模式下商品档案能看到的字段（旧 WarehouseProductArchives 精简列，不含成本/价格/备注/供应商）；照片可上传 */
+export const WAREHOUSE_PRODUCT_FIELDS: readonly string[] = [
+  'archiveType', 'supplyMode', 'code', 'name', 'basicInfoFullName', 'brandId', 'categoryId', 'shape',
+  'purchaseSpec', 'productPackagingSpec', 'specQty', 'specUnit', 'weightG',
+  'packagingCategory', 'dimensions', 'dimensionUnit', 'capacities', 'rawFinishedNames', 'photos',
+];
+
 export const BUNDLE_ROLES = o('main:主品', 'gift:赠品', 'auxiliary:辅料', 'package:包装', 'label:标签', 'instruction:说明书', 'other:其他物料', 'labor:人工');
 export const COST_TREATMENTS = o('include:计入', 'included_in_parent:已含上级', 'reference_only:仅参考');
 

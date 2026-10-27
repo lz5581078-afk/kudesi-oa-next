@@ -149,6 +149,35 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
 
 type Tab = 'info' | 'relations' | 'logs' | 'revenue' | 'flow' | 'storage' | 'contents' | 'metrics' | 'derived' | 'partner' | `child:${string}`;
 
+/** 仓库岗位：商品档案只读，只能追加上传商品照片（旧仓库档案视图） */
+function WarehousePhotoUpload({ record, onDone }: { record: ResourceDto; onDone: (r: ResourceDto) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  async function pick(files: FileList | null) {
+    if (!files?.length) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      const ids: number[] = [];
+      for (const f of Array.from(files)) ids.push((await resourceApi.uploadFile(record.type, 'photos', f)).id);
+      onDone(await resourceApi.warehousePhotos(record.id, ids));
+    } catch (e) {
+      setMsg(e instanceof ApiError ? e.message : '上传失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="pill-row">
+      <label className="secondary-button">
+        {busy ? '上传中…' : '上传商品照片'}
+        <input type="file" accept="image/*" multiple hidden disabled={busy} aria-label="上传商品照片" onChange={(e) => { void pick(e.target.files); e.target.value = ''; }} />
+      </label>
+      {msg && <span role="alert" className="muted">{msg}</span>}
+    </div>
+  );
+}
+
 export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: ResourceDef; id: number; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const can = useResourceCan(def.key);
   const { user: me } = useAuth();
@@ -204,7 +233,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
     ...(def.key === 'licenses' && canView('store-daily-metrics') ? ([['revenue' as Tab, '营收']] as Array<[Tab, string]>) : []),
     ...(def.key === 'stores' ? ([['metrics' as Tab, '经营数据']] as Array<[Tab, string]>) : []),
     ['logs', '操作记录'],
-  ];
+  ].filter(([key]) => !record.warehouseMode || key === 'info') as Array<[Tab, string]>;
 
   return (
     <aside className="drawer card" aria-label={`${def.label}详情`}>
@@ -229,6 +258,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
       </div>
       <div className="drawer-body">
         {error && <div role="alert" className="notice error">{error}</div>}
+        {record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}
         {tab === 'info' &&
           [...groups.entries()].map(([group, fields]) => (
             <section key={group}>

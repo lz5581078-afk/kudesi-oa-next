@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PARTY_SEED_CATEGORIES, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, type FieldDef } from '@kudesi/shared';
+import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
@@ -98,7 +98,9 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const shownFields = useMemo(() => def.fields.filter((f) => f.type !== 'secret'), [def]);
   const defaults = useMemo(() => def.fields.filter((f) => f.list), [def]);
   const [colKeys, setColKeys] = useColumns(type, shownFields, defaults);
-  const columns = colKeys.map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f));
+  const warehouseMode = Boolean(data?.items.some((i) => i.warehouseMode));
+  const columns = colKeys.map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
+    .filter((f) => !warehouseMode || WAREHOUSE_PRODUCT_FIELDS.includes(f.key));
   const tabField = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
 
   // 切换资料类型时重置筛选

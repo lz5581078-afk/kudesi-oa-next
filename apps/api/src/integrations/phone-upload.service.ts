@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, GoneException, Injectable, Not
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
+import { canWarehouseUploadPhotos } from '../resources/warehouse-mode';
 import { createChecker, getResourceDef, permissionOwner, resourcePermission } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { AuditLog, PhoneUploadSession, User } from '../entities';
@@ -36,7 +37,7 @@ export class PhoneUploadService {
     const { field } = this.fieldOf(type, fieldKey);
     const can = createChecker(user.permissions);
     const owner = permissionOwner(type);
-    if (!(['create', 'edit'] as const).some((a) => can(resourcePermission(owner, a)))) throw new ForbiddenException('没有权限执行此操作');
+    if (!(['create', 'edit'] as const).some((a) => can(resourcePermission(owner, a))) && !(await canWarehouseUploadPhotos(this.ds.manager, user, type, fieldKey))) throw new ForbiddenException('没有权限执行此操作');
     const token = crypto.randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + PHONE_UPLOAD_TTL_MINUTES * 60_000);
     const row = await this.ds.manager.save(PhoneUploadSession, this.ds.manager.create(PhoneUploadSession, {

@@ -19,6 +19,8 @@ export interface ResourceDto {
   secretConfigured: Record<string, boolean>;
   refLabels: Record<string, string>;
   files: Record<number, FileInfo>;
+  /** 仓库角色模式：精简列、只读 */
+  warehouseMode?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -149,6 +151,7 @@ export const resourceApi = {
   updateLink: (type: string, id: number, linkId: number, props: { purpose?: string; validFrom?: string; validTo?: string }) =>
     api<{ ok: true }>(`/resources/${type}/${id}/links/${linkId}`, { method: 'PATCH', body: props }),
   removeLink: (type: string, id: number, linkId: number) => api<{ ok: true }>(`/resources/${type}/${id}/links/${linkId}`, { method: 'DELETE' }),
+  warehousePhotos: (id: number, fileIds: number[]) => api<ResourceDto>(`/resources/finance-products/${id}/warehouse-photos`, { method: 'POST', body: { fileIds } }),
   relations: (type: string, id: number) => api<Relation[]>(`/resources/${type}/${id}/relations`),
   overview: () => api<OverviewResult>('/resources/overview'),
   dataIssues: () => api<DataIssuesResult>('/resources/data-issues'),
