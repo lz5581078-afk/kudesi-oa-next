@@ -514,3 +514,22 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
   .mp-group.dense { grid-column: 1 / -1; }
   .mp-backdrop { bottom: 62px; }
 }
+
+/* 详情顶部关键信息 + 复制按钮（页面补齐 u2） */
+.key-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 16px; margin: 6px 0 0; padding-top: 8px; border-top: 1px dashed var(--border); }
+.key-facts dt { color: var(--muted); font-size: 12px; }
+.key-facts dd { margin: 0; word-break: break-all; }
+.copy-btn { font-size: 12px; margin-left: 2px; white-space: nowrap; }
+
+/* 部门与岗位：左树右卷宗 */
+.org-node { align-items: center; justify-content: flex-start; gap: 4px; margin-bottom: 2px; }
+.org-node .org-name { flex: 1; text-align: left; text-decoration: none; color: inherit; }
+.org-node.active { background: var(--accent-soft); }
+.org-node.active .org-name { font-weight: 600; }
+.org-toggle { width: 18px; flex: none; text-decoration: none; text-align: center; }
+.dept-back { display: none; margin-bottom: 8px; }
+@media (max-width: 800px) {
+  .org-tree-pane.has-selection { display: none; }
+  .org-detail-pane:not(.has-selection) { display: none; }
+  .dept-back { display: inline-block; }
+}

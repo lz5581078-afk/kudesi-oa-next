@@ -7,6 +7,7 @@ import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
 import { resourceApi, type ListResult } from './api';
 import { displayValue, statusOf } from './format';
+import { CopyButton, isCopyable } from './CopyValue';
 import { CategoryTree } from './CategoryTree';
 import { FeeSnapshotsDialog } from './FeeSnapshotsDialog';
 import { PackagingExcelDialog } from './PackagingExcelDialog';
@@ -395,6 +396,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                         return (
                           <td key={f.key} className={f.type === 'money' ? 'num' : undefined}>
                             {displayValue(f, row)}
+                            {isCopyable(def, f) && f.type !== 'number' && displayValue(f, row) && <> <CopyButton value={displayValue(f, row)} label={f.label} /></>}
                             {due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`} title="到期提醒按今天的日期实时计算">{due.text}</span></>}
                           </td>
                         );

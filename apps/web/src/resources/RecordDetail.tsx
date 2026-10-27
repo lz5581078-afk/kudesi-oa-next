@@ -12,6 +12,8 @@ import { displayValue, statusOf } from './format';
 import { ReasonDialog, RecordForm, clearRefCache, loadRefOptions } from './RecordForm';
 import { StatusControl, typeLabel } from './StatusControl';
 import { RevenuePanel } from './RevenuePanel';
+import { CopyButton, isCopyable } from './CopyValue';
+import { KeyFacts } from './KeyFacts';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
 import { StoreMetricsPanel } from './StoreMetricsPanel';
 import { DerivedStoresPanel, PartnerSubjectPanel, PhoneArchiveButton, ReturnBorrowButton } from './CertPanels';
@@ -252,6 +254,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
           {record.statusReason && <span className="muted">原因：{record.statusReason}</span>}
           {record.archived && <span className="muted">已归档{record.archived.reason ? `：${record.archived.reason}` : ''}（{new Date(record.archived.at).toLocaleDateString('zh-CN')}）</span>}
         </div>
+        <KeyFacts def={def} record={record} canSee={(f) => !f.permission || Boolean(me && createChecker(me.permissions)(f.permission))} />
       </div>
       <div role="tablist" aria-label="详情分区" className="tabs">
         {tabs.map(([key, label]) => (
@@ -275,7 +278,10 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
                     ) : f.type === 'files' ? (
                       <FileList ids={Array.isArray(record.data[f.key]) ? (record.data[f.key] as number[]) : []} files={record.files} />
                     ) : (
-                      displayValue(f, record) || <span className="muted">—</span>
+                      <>
+                        {displayValue(f, record) || <span className="muted">—</span>}
+                        {isCopyable(def, f) && displayValue(f, record) && <> <CopyButton value={displayValue(f, record)} label={f.label} /></>}
+                      </>
                     )}
                   </FragmentRow>
                 ))}
