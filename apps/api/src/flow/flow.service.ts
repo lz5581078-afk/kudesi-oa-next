@@ -70,7 +70,7 @@ export class FlowService {
       const active = defs.find((d) => d.templateKey === r.templateKey);
       if (!active) return [];
       const t = customFrom(r, active);
-      return [{ key: t.key, label: t.label, description: t.description, fields: t.fields, stepFields: t.stepFields, active: true, version: active.version, custom: true, steps: (active.steps as StepDef[]).map((x) => ({ name: x.name, type: x.type })) }];
+      return [{ key: t.key, label: t.label, description: t.description, entry: null, fields: t.fields, stepFields: t.stepFields, active: true, version: active.version, custom: true, steps: (active.steps as StepDef[]).map((x) => ({ name: x.name, type: x.type })) }];
     });
     return [...builtin, ...custom];
   }
@@ -248,7 +248,12 @@ export class FlowService {
   // ================= 发起 =================
 
   async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string, opts: { internal?: boolean } = {}) {
-    if (!opts.internal) this.need(user, 'flow.apply.view', '没有发起流程的权限');
+    if (!opts.internal) {
+      // 有专门业务页面的流程（售后、申诉）：权限由业务模块自己判断，申请中心/接口不能绕过业务页面直接发起
+      const t0 = await this.tpl(this.dataSource.manager, user.companyId, templateKey);
+      if (t0.entry) throw new BadRequestException(`这条流程要${t0.entry.label}`);
+      this.need(user, 'flow.apply.view', '没有发起流程的权限');
+    }
     if (requestKey !== undefined && !/^[A-Za-z0-9_-]{12,80}$/.test(requestKey)) throw new BadRequestException('requestKey 要 12 到 80 位字母数字');
     return this.dataSource.transaction(async (em) => {
       if (requestKey) {
@@ -261,8 +266,6 @@ export class FlowService {
         throw new BadRequestException('这条流程还没有启用，请管理员先在“流程配置”里配置办理人并发布');
       }
       const t = await this.tpl(em, user.companyId, templateKey, def.id);
-      // 有专门业务页面的流程（售后、申诉）：权限由业务模块自己判断，申请中心/接口不能绕过业务页面直接发起
-      if (t.entry && !opts.internal) throw new BadRequestException(`这条流程要${t.entry.label}`);
       const adapter = adapterFor(t);
       const checked = validateResourceInput(pseudoDef(t.key, t.fields), payloadIn ?? {}, { status: '' });
       if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
