@@ -40,7 +40,8 @@ import {
   UserPermissionOverride,
 } from './entities';
 import { HealthController } from './health/health.controller';
-import { FilesController, IntegrationSettingsController, OcrController } from './integrations/integrations.controller';
+import { AiProviderService } from './integrations/ai-providers.service';
+import { AiSettingsController, FilesController, IntegrationSettingsController, OcrController } from './integrations/integrations.controller';
 import { defaultStorageFactory, FilesService, STORAGE_FACTORY } from './integrations/files.service';
 import { IntegrationSettingsService } from './integrations/integration-settings.service';
 import { OcrService } from './integrations/ocr.service';
@@ -108,7 +109,8 @@ import { AuditController, BankFundController } from './org/audit.controller';
 import { OrgAdminService } from './org/org-admin.service';
 import { StaffImportService } from './org/staff-import.service';
 import { OrgService } from './org/org.service';
-import { CompanyApplyController, PlatformController } from './platform/platform.controller';
+import { CompanyApplyController, PlatformController, PlatformIntegrationController } from './platform/platform.controller';
+import { PlatformIntegrationService } from './platform/platform-integrations.service';
 import { PlatformService } from './platform/platform.service';
 
 import { WorkspaceController } from './workspace/workspace.controller';
@@ -154,10 +156,12 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController],
+>>>>>>> 4008eea (系统：新增 AI API 接口、OCR 设置菜单页（多服务商与模型同步默认关）；平台后台新增接口应用配置；更新审计文档)
   providers: [
     AuthService,
     PlatformService,
+    PlatformIntegrationService,
     OrgService,
     OrgAdminService,
     StaffImportService,
@@ -206,6 +210,7 @@ const env = loadEnv();
     ServiceWorkspaceProvider,
     FinanceDocumentsService,
     IntegrationSettingsService,
+    AiProviderService,
     FilesService,
     OcrService,
     { provide: STORAGE_FACTORY, useValue: defaultStorageFactory },

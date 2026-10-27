@@ -202,6 +202,8 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     label: '系统',
     pages: [
       page('system', 'integrations', '接口设置', true),
+      page('system', 'ai-api', 'AI API 接口', true),
+      page('system', 'ocr', 'OCR 设置', true),
       page('system', 'settings', '系统设置'),
       page('system', 'audit', '审计日志', true),
     ],
@@ -269,6 +271,7 @@ export function findPageByPath(pathname: string): { section: NavSection; page: N
 export const PLATFORM_PAGES = [
   { id: 'applications', title: '企业申请审核' },
   { id: 'companies', title: '企业管理' },
+  { id: 'integrations', title: '接口应用' },
 ] as const;
 export type PlatformPageId = (typeof PLATFORM_PAGES)[number]['id'];
 

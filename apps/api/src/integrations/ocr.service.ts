@@ -1,6 +1,7 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
+import { AiProviderService, type AiScope } from './ai-providers.service';
 import { IntegrationSettingsService } from './integration-settings.service';
 import { sniffFile, UploadedFile } from './files.service';
 import { extractJson, VisionClient, VisionConfig } from './vision.client';
@@ -62,12 +63,17 @@ export class OcrService {
   /** 测试里可替换成假的识别客户端 */
   visionFactory: (cfg: VisionConfig) => VisionClient = (cfg) => new VisionClient(cfg);
 
-  constructor(private readonly settings: IntegrationSettingsService) {}
+  constructor(private readonly settings: IntegrationSettingsService, @Optional() private readonly ai?: AiProviderService) {}
+
+  /** 这个识别场景在“OCR 设置”里选了默认模型就用它，否则用“接口设置”里的识别大模型。 */
+  private async visionFor(companyId: number, scope: AiScope) {
+    return (await this.ai?.resolveVision(companyId, scope)) ?? (await this.settings.getVision(companyId));
+  }
 
   async recognizeLicense(user: AuthUser, file: UploadedFile | undefined) {
     const can = createChecker(user.permissions);
     if (!can('resource.licenses.create') && !can('resource.licenses.edit')) throw new ForbiddenException('没有权限执行此操作');
-    const cfg = await this.settings.getVision(user.companyId);
+    const cfg = await this.visionFor(user.companyId, 'business_license_recognition');
     if (!cfg || !cfg.enabled) throw new BadRequestException('还没有启用识别接口，请先到“系统 → 接口设置”填写并启用');
     if (!file || file.size === 0) throw new BadRequestException('没有收到图片');
     if (file.size > 8 * 1024 * 1024) throw new BadRequestException('图片不能超过 8MB');
@@ -91,7 +97,7 @@ export class OcrService {
   async recognizeExpress(user: AuthUser, file: UploadedFile | undefined, provinces: readonly string[]) {
     const can = createChecker(user.permissions);
     if (!can('resource.finance-express-prices.create')) throw new ForbiddenException('没有权限执行此操作');
-    const cfg = await this.settings.getVision(user.companyId);
+    const cfg = await this.visionFor(user.companyId, 'express_price_recognition');
     if (!cfg || !cfg.enabled) throw new BadRequestException('还没有启用识别接口，请先到“系统 → 接口设置”填写并启用');
     if (!file || file.size === 0) throw new BadRequestException('没有收到图片');
     if (file.size > 8 * 1024 * 1024) throw new BadRequestException('图片不能超过 8MB');
@@ -117,7 +123,7 @@ export class OcrService {
   async recognizeExpressDocument(user: AuthUser, file: UploadedFile | undefined, kind: RecognitionKind, provinces: readonly string[]) {
     const can = createChecker(user.permissions);
     if (!can('resource.finance-express-prices.edit')) throw new ForbiddenException('没有权限执行此操作');
-    const cfg = await this.settings.getVision(user.companyId);
+    const cfg = await this.visionFor(user.companyId, 'express_price_recognition');
     if (!cfg || !cfg.enabled) throw new BadRequestException('还没有启用识别接口，请先到“系统 → 接口设置”填写并启用');
     if (!file || file.size === 0) throw new BadRequestException('没有收到文件');
     if (file.size > 8 * 1024 * 1024) throw new BadRequestException('文件不能超过 8MB');

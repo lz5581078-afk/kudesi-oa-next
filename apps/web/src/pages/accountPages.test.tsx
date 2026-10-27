@@ -9,6 +9,7 @@ import { NotificationBell } from '../layout/NotificationBell';
 import { flowApi } from './flow/flowApi';
 import { ApplicationsPage } from './platform/ApplicationsPage';
 import { CompaniesPage } from './platform/CompaniesPage';
+import { IntegrationAppsPage } from './platform/IntegrationAppsPage';
 
 const login = vi.fn();
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ login, refresh: vi.fn() }) }));
@@ -92,6 +93,26 @@ describe('通知面板', () => {
 });
 
 describe('平台后台', () => {
+  it('接口应用：Key 脱敏显示、Secret 不显示；新增必须填 Key 和 Secret；修改留空不改', async () => {
+    const row = { id: 1, integrationKey: 'jushuitan', environment: 'production', appKeyMasked: 'abc***********wxyz', secretConfigured: true, baseUrl: null, status: 'active', remark: null, updatedAt: '2026-01-01T00:00:00Z' };
+    apiMock.mockResolvedValue([row] as never);
+    render(<IntegrationAppsPage />);
+    expect(await screen.findByText('abc***********wxyz')).toBeTruthy();
+    expect(screen.getByText('已设置')).toBeTruthy();
+    fireEvent.click(screen.getByText('新增应用配置'));
+    const dlg = await screen.findByRole('dialog', { name: '接口应用配置' });
+    fireEvent.click(within(dlg).getByText('保存'));
+    expect(await within(dlg).findByText('新增时 App Key 和 App Secret 都要填')).toBeTruthy();
+    cleanup();
+    apiMock.mockClear();
+    apiMock.mockResolvedValue([row] as never);
+    render(<IntegrationAppsPage />);
+    fireEvent.click(await screen.findByText('修改'));
+    const edit = await screen.findByRole('dialog', { name: '接口应用配置' });
+    expect(within(edit).getAllByPlaceholderText('已设置，留空表示不修改')).toHaveLength(2);
+    fireEvent.click(within(edit).getByText('保存'));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/platform/integration-apps', { method: 'PUT', body: expect.objectContaining({ integrationKey: 'jushuitan', appKey: undefined, appSecret: undefined }) }));
+  });
   const app = (id: number, status: string, name: string) => ({ id, companyName: name, contactName: '张', contactTitle: null, contactPhone: '13900000001', remark: null, createdAt: '2026-01-01T00:00:00Z', status, approvedCompanyName: null, reviewedAt: null, rejectReason: null, reviewedByName: null });
   it('申请页有统计，点“待审核”只看待审核；开通前要确认', async () => {
     apiMock.mockResolvedValue([app(1, 'pending', '新公司'), app(2, 'approved', '老公司'), app(3, 'rejected', '被拒公司')] as never);

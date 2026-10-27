@@ -124,7 +124,7 @@ function VisionCard({ data, canEdit, onSaved }: { data: IntegrationOverview; can
   return (
     <form className="card settings-card" onSubmit={save} aria-label="识别大模型">
       <div className="between"><h2 className="section-title">识别大模型（营业执照识别）</h2>{v.configured && v.enabled ? <span className="pill ok">已启用</span> : <span className="pill warn">未启用</span>}</div>
-      <p className="muted">填写任意兼容 OpenAI 接口格式、支持图片输入的模型服务。</p>
+      <p className="muted">填写任意兼容 OpenAI 接口格式、支持图片输入的模型服务。需要多个服务商、同步模型清单、按识别场景选模型的，到“系统 → AI API 接口”和“OCR 设置”；那里选了模型就优先用，没选才用这里。</p>
       <label>接口地址<input value={form.baseUrl} placeholder="https://api.openai.com/v1" onChange={(e) => set({ baseUrl: e.target.value })} disabled={!canEdit} aria-invalid={Boolean(urlError)} />{urlError && <small className="field-error-text">{urlError}</small>}</label>
       <label>API Key<SecretInput value={form.apiKey} placeholder={v.apiKeyConfigured ? '已设置，留空表示不修改' : ''} onChange={(e) => set({ apiKey: e.target.value })} disabled={!canEdit} /></label>
       <label>模型名<input value={form.model} placeholder="如 gpt-4o" onChange={(e) => set({ model: e.target.value })} disabled={!canEdit} /></label>

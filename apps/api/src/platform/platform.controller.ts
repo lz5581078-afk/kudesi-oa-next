@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { IsIn, IsNotEmpty, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 import { APPLY_PASSWORD_MIN, PHONE_PATTERN } from '@kudesi/shared';
 import { CurrentPlatformAdmin, PlatformAdminUser, PlatformOnly, Public } from '../common/auth.decorators';
+import { PlatformIntegrationService } from './platform-integrations.service';
 import { PlatformService } from './platform.service';
 
 class ApplyDto {
@@ -16,6 +17,16 @@ class ApplyDto {
 
 class RejectDto {
   @IsString() @IsNotEmpty() @MaxLength(300) reason!: string;
+}
+
+class IntegrationAppDto {
+  @IsString() @MaxLength(30) integrationKey!: string;
+  @IsString() @MaxLength(16) environment!: string;
+  @IsOptional() @IsString() @MaxLength(200) appKey?: string;
+  @IsOptional() @IsString() @MaxLength(300) appSecret?: string;
+  @IsOptional() @IsString() @MaxLength(200) baseUrl?: string;
+  @IsOptional() @IsIn(['active', 'disabled']) status?: 'active' | 'disabled';
+  @IsOptional() @IsString() @MaxLength(200) remark?: string;
 }
 
 class CompanyStatusDto {
@@ -81,4 +92,22 @@ export class PlatformController {
     await this.platform.setCompanyStatus(admin, id, dto.status);
     return { ok: true };
   }
+}
+
+/** 平台级接口应用配置（聚水潭等的应用密钥）：只有平台管理员；Secret 永不返回。 */
+@Controller('platform/integration-apps')
+export class PlatformIntegrationController {
+  constructor(private readonly apps: PlatformIntegrationService) {}
+
+  @PlatformOnly()
+  @Get()
+  list() { return this.apps.list(); }
+
+  @PlatformOnly()
+  @Put()
+  save(@CurrentPlatformAdmin() admin: PlatformAdminUser, @Body() dto: IntegrationAppDto) { return this.apps.save(admin, dto); }
+
+  @PlatformOnly()
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) { return this.apps.remove(id); }
 }
