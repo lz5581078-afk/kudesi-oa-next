@@ -6,6 +6,7 @@ import { Pager } from '../finance/common';
 import { RunDetail } from './RunDetail';
 import { RUN_TONE, flowApi, fmtTime, type RunList, type TemplateInfo } from './flowApi';
 import { dueHint, dwell, useDebounced } from './flowUi';
+import { flattenDepartments, orgApi } from '../org/orgApi';
 
 type View = 'started' | 'cc' | 'all';
 const TITLE: Record<View, string> = { started: '我发起的', cc: '抄送我的', all: '流程总览' };
@@ -23,31 +24,37 @@ export function RunsPage({ view }: { view: View }) {
   const [keyword, setKeyword] = useState('');
   const kw = useDebounced(keyword.trim(), 300);
   const [overdue, setOverdue] = useState(false);
+  const [departmentId, setDepartmentId] = useState('');
+  const [handler, setHandler] = useState('');
+  const handlerKw = useDebounced(handler.trim(), 300);
+  const [returned, setReturned] = useState(false);
+  const [depts, setDepts] = useState<Array<{ id: number; name: string; depth: number }>>([]);
   const [page, setPage] = useState(1);
   const [list, setList] = useState<RunList | null>(null);
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
-  const [stats, setStats] = useState<{ running: number; overdue: number } | null>(null);
+  const [stats, setStats] = useState<{ running: number; overdue: number; returned: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [error, setError] = useState('');
   const open = Number(params.get('run')) || null;
 
   // 视图切换时清空筛选，避免把“流程总览”的筛选带到“我发起的”
-  useEffect(() => { setStatus(''); setTemplateKey(''); setKeyword(''); setOverdue(false); setPage(1); }, [view]);
+  useEffect(() => { setStatus(''); setTemplateKey(''); setKeyword(''); setOverdue(false); setDepartmentId(''); setHandler(''); setReturned(false); setPage(1); }, [view]);
 
   const load = useCallback(() => {
     setLoading(true);
-    flowApi.runs({ view, status, templateKey, keyword: kw, overdue, page })
+    flowApi.runs({ view, status, templateKey, keyword: kw, overdue, returned, departmentId: departmentId ? Number(departmentId) : undefined, handler: handlerKw, page })
       .then((r) => { setList(r); setError(''); setUpdatedAt(Date.now()); })
       .catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'))
       .finally(() => setLoading(false));
     if (view === 'all') {
-      Promise.all([flowApi.runs({ view, status: 'running', pageSize: 1 }), flowApi.runs({ view, overdue: true, pageSize: 1 })])
-        .then(([a, b]) => setStats({ running: a.total, overdue: b.total })).catch(() => undefined);
+      Promise.all([flowApi.runs({ view, status: 'running', pageSize: 1 }), flowApi.runs({ view, overdue: true, pageSize: 1 }), flowApi.runs({ view, returned: true, pageSize: 1 })])
+        .then(([a, b, c]) => setStats({ running: a.total, overdue: b.total, returned: c.total })).catch(() => undefined);
     }
-  }, [view, status, templateKey, kw, overdue, page]);
+  }, [view, status, templateKey, kw, overdue, returned, departmentId, handlerKw, page]);
   useEffect(load, [load]);
   useEffect(() => { flowApi.templates().then(setTemplates).catch(() => undefined); }, []);
+  useEffect(() => { if (view === 'all') orgApi.departments().then((d) => setDepts(flattenDepartments(d))).catch(() => undefined); }, [view]);
   // 流程总览是看板：页面可见时每分钟自动刷新一次
   useEffect(() => {
     if (view !== 'all') return undefined;
@@ -55,8 +62,8 @@ export function RunsPage({ view }: { view: View }) {
     return () => clearInterval(t);
   }, [view, load]);
 
-  const filtered = Boolean(status || templateKey || kw || overdue);
-  const clear = () => { setStatus(''); setTemplateKey(''); setKeyword(''); setOverdue(false); setPage(1); };
+  const filtered = Boolean(status || templateKey || kw || overdue || returned || departmentId || handlerKw);
+  const clear = () => { setStatus(''); setTemplateKey(''); setKeyword(''); setOverdue(false); setReturned(false); setDepartmentId(''); setHandler(''); setPage(1); };
   const now = Date.now();
 
   return (
@@ -70,8 +77,9 @@ export function RunsPage({ view }: { view: View }) {
       </div>
       {view === 'all' && stats && (
         <div className="stat-tiles" aria-label="进行中的流程统计">
-          <button type="button" className={`stat-tile${status === 'running' && !overdue ? ' on' : ''}`} onClick={() => { setStatus('running'); setOverdue(false); setPage(1); }}><span>进行中</span><strong>{stats.running}</strong></button>
-          <button type="button" className={`stat-tile bad${overdue ? ' on' : ''}`} onClick={() => { setStatus(''); setOverdue(true); setPage(1); }}><span>已超时</span><strong>{stats.overdue}</strong></button>
+          <button type="button" className={`stat-tile${status === 'running' && !overdue ? ' on' : ''}`} onClick={() => { setStatus('running'); setOverdue(false); setReturned(false); setPage(1); }}><span>进行中</span><strong>{stats.running}</strong></button>
+          <button type="button" className={`stat-tile bad${overdue ? ' on' : ''}`} onClick={() => { setStatus(''); setOverdue(true); setReturned(false); setPage(1); }}><span>已超时</span><strong>{stats.overdue}</strong></button>
+          <button type="button" className={`stat-tile warn${returned ? ' on' : ''}`} onClick={() => { setStatus(''); setOverdue(false); setReturned(true); setPage(1); }}><span>退回待补充</span><strong>{stats.returned}</strong></button>
         </div>
       )}
       <div className="toolbar">
@@ -84,6 +92,15 @@ export function RunsPage({ view }: { view: View }) {
           <option value="">全部状态</option>
           {Object.entries(RUN_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
+        {view === 'all' && (
+          <>
+            <select aria-label="发起部门" value={departmentId} onChange={(e) => { setDepartmentId(e.target.value); setPage(1); }}>
+              <option value="">全部发起部门</option>
+              {depts.map((d) => <option key={d.id} value={d.id}>{'　'.repeat(d.depth)}{d.name}</option>)}
+            </select>
+            <input type="search" className="search-input" aria-label="当前办理人" placeholder="当前办理人" value={handler} onChange={(e) => { setHandler(e.target.value); setPage(1); }} />
+          </>
+        )}
         <label className="check-line"><input type="checkbox" checked={overdue} onChange={(e) => { setOverdue(e.target.checked); setPage(1); }} />只看已逾期</label>
         {filtered && <button type="button" className="secondary-button" onClick={clear}>清除筛选</button>}
       </div>

@@ -511,7 +511,7 @@ export class FlowService {
     };
   }
 
-  async listRuns(user: AuthUser, q: { view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; page: number; pageSize: number }) {
+  async listRuns(user: AuthUser, q: { view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page: number; pageSize: number }) {
     if (q.view === 'all') this.need(user, 'flow.overview.view', '没有查看流程总览的权限');
     const where = ['r.company_id = ?'];
     const args: unknown[] = [user.companyId];
@@ -522,6 +522,18 @@ export class FlowService {
     if (q.templateKey) { where.push('r.template_key = ?'); args.push(q.templateKey); }
     if (q.keyword?.trim()) { where.push('r.title LIKE ?'); args.push(`%${q.keyword.trim()}%`); }
     if (q.overdue) { where.push("r.status = 'running' AND r.due_at IS NOT NULL AND r.due_at < ?"); args.push(new Date()); }
+    if (q.departmentId) {
+      const depts: Array<{ id: number; parentId: number | null }> = await this.dataSource.query('SELECT id, parent_id AS parentId FROM departments WHERE company_id = ?', [user.companyId]);
+      const ids = new Set<number>([q.departmentId]);
+      for (let grew = true; grew;) { grew = false; for (const d of depts) if (d.parentId && ids.has(d.parentId) && !ids.has(d.id)) { ids.add(d.id); grew = true; } }
+      where.push(`r.requester_id IN (SELECT id FROM users WHERE company_id = ? AND department_id IN (${[...ids].map(() => '?').join(',')}))`);
+      args.push(user.companyId, ...ids);
+    }
+    if (q.handler?.trim()) {
+      where.push("EXISTS (SELECT 1 FROM flow_steps hs JOIN users hu ON hu.company_id = r.company_id AND JSON_CONTAINS(hs.recipients, CAST(hu.id AS JSON)) WHERE hs.run_id = r.id AND hs.status = 'active' AND hu.name LIKE ?)");
+      args.push(`%${q.handler.trim().replace(/[\\%_]/g, '\\$&')}%`);
+    }
+    if (q.returned) where.push("r.status = 'running' AND EXISTS (SELECT 1 FROM flow_steps rs WHERE rs.run_id = r.id AND rs.status = 'active' AND rs.entered_via = 'return')");
     // 参数顺序：join 的参数在最前（unshift 处理），其余按 where 顺序
     const w = where.join(' AND ');
     const [{ n }] = await this.dataSource.query(`SELECT COUNT(*) AS n FROM flow_runs r ${join} WHERE ${w}`, args);

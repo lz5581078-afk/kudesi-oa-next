@@ -12,6 +12,7 @@ vi.mock('./flowApi', async (orig) => {
   const mod = await orig<typeof import('./flowApi')>();
   return { ...mod, flowApi: { todos: vi.fn(), runs: vi.fn(), templates: vi.fn(), run: vi.fn(), start: vi.fn(), assigned: vi.fn(), cancelTask: vi.fn(), createTask: vi.fn(), completeTask: vi.fn(), routines: vi.fn() } };
 });
+vi.mock('../org/orgApi', async (orig) => ({ ...(await orig<typeof import('../org/orgApi')>()), orgApi: { departments: vi.fn().mockResolvedValue([{ id: 4, name: '运营部', children: [{ id: 5, name: '直播组', children: [] }] }]) } }));
 vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ can: () => true }) }));
 vi.mock('../../resources/RecordForm', async (orig) => ({ ...(await orig<typeof import('../../resources/RecordForm')>()), loadRefOptions: vi.fn().mockResolvedValue([{ value: 7, label: '小李' }]) }));
 const f = vi.mocked(flowApi);
@@ -90,6 +91,26 @@ describe('我发起的 / 流程总览', () => {
     fireEvent.change(screen.getByLabelText('搜索标题'), { target: { value: '报销' } });
     fireEvent.click(await screen.findByText('清除筛选，查看全部'));
     expect((screen.getByLabelText('搜索标题') as HTMLInputElement).value).toBe('');
+  });
+});
+
+describe('流程总览筛选', () => {
+  it('可按发起部门、当前办理人筛选，也能点“退回待补充”', async () => {
+    f.runs.mockImplementation(async (p) => ({ total: p.pageSize === 1 ? 3 : 1, page: 1, pageSize: p.pageSize ?? 20, rows: p.pageSize === 1 ? [] : [runRow()] }));
+    wrap(<RunsPage view="all" />);
+    await screen.findByText('差旅费报销');
+    fireEvent.change(await screen.findByLabelText('发起部门'), { target: { value: '5' } });
+    await waitFor(() => expect(f.runs).toHaveBeenCalledWith(expect.objectContaining({ view: 'all', departmentId: 5 })));
+    fireEvent.change(screen.getByLabelText('当前办理人'), { target: { value: '李' } });
+    await waitFor(() => expect(f.runs).toHaveBeenCalledWith(expect.objectContaining({ handler: '李' })));
+    fireEvent.click(screen.getByRole('button', { name: /退回待补充/ }));
+    await waitFor(() => expect(f.runs).toHaveBeenCalledWith(expect.objectContaining({ returned: true })));
+  });
+  it('我发起的没有部门和办理人筛选', async () => {
+    f.runs.mockResolvedValue({ total: 0, page: 1, pageSize: 20, rows: [] });
+    wrap(<RunsPage view="started" />);
+    await screen.findByText('没有流程');
+    expect(screen.queryByLabelText('发起部门')).toBeNull();
   });
 });
 

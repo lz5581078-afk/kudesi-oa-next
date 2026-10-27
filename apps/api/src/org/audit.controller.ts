@@ -16,11 +16,23 @@ export class AuditController {
     @Query('keyword') keyword?: string,
     @Query('actorId') actorId?: string,
     @Query('page') pageRaw?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     const page = Math.max(1, Number(pageRaw) || 1);
     const size = 30;
     const kw = (keyword ?? '').trim();
     const actor = /^\d+$/.test(actorId ?? '') ? Number(actorId) : null;
+    // 时间范围：按日期（含起止当天）
+    const day = (v?: string) => (/^\d{4}-\d{2}-\d{2}$/.test(v ?? '') ? (v as string) : null);
+    const fromDay = day(from);
+    const toDay = day(to);
+    const range = (col: string, p: unknown[]) => {
+      let w = '';
+      if (fromDay) { w += ` AND ${col} >= ?`; p.push(`${fromDay} 00:00:00`); }
+      if (toDay) { w += ` AND ${col} < DATE_ADD(?, INTERVAL 1 DAY)`; p.push(`${toDay} 00:00:00`); }
+      return w;
+    };
     const parts: string[] = [];
     const params: unknown[] = [];
     if (source !== 'resource') {
@@ -28,6 +40,7 @@ export class AuditController {
       const p: unknown[] = [u.companyId];
       if (actor) { w += ' AND a.actor_id = ?'; p.push(actor); }
       if (kw) { w += ' AND (a.action LIKE ? OR a.resource_type LIKE ? OR a.resource_id LIKE ?)'; p.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); }
+      w += range('a.created_at', p);
       parts.push(`SELECT CONVERT('system' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS source, a.id AS id, a.created_at AS at, a.actor_id AS actorId, CONVERT(a.action USING utf8mb4) COLLATE utf8mb4_unicode_ci AS action, CONVERT(a.resource_type USING utf8mb4) COLLATE utf8mb4_unicode_ci AS resourceType, CONVERT(a.resource_id USING utf8mb4) COLLATE utf8mb4_unicode_ci AS resourceId, CONVERT(CAST(a.detail AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS detail FROM audit_logs a WHERE ${w}`);
       params.push(...p);
     }
@@ -36,6 +49,7 @@ export class AuditController {
       const p: unknown[] = [u.companyId];
       if (actor) { w += ' AND c.actor_id = ?'; p.push(actor); }
       if (kw) { w += ' AND (c.action LIKE ? OR c.resource_type LIKE ? OR c.note LIKE ?)'; p.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); }
+      w += range('c.created_at', p);
       parts.push(`SELECT CONVERT('resource' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS source, c.id AS id, c.created_at AS at, c.actor_id AS actorId, CONVERT(c.action USING utf8mb4) COLLATE utf8mb4_unicode_ci AS action, CONVERT(c.resource_type USING utf8mb4) COLLATE utf8mb4_unicode_ci AS resourceType, CONVERT(CAST(c.resource_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS resourceId, CONVERT(CAST(JSON_OBJECT('before', c.before_json, 'after', c.after_json, 'note', c.note) AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS detail FROM resource_change_logs c WHERE ${w}`);
       params.push(...p);
     }

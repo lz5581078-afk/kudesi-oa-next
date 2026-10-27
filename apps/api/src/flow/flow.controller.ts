@@ -43,6 +43,12 @@ class RunsQuery {
   @IsOptional() @IsString() templateKey?: string;
   @IsOptional() @IsString() @MaxLength(100) keyword?: string;
   @IsOptional() @Type(() => Boolean) @IsBoolean() overdue?: boolean;
+  /** 发起人所在部门（含下级部门） */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) departmentId?: number;
+  /** 当前办理人姓名（模糊） */
+  @IsOptional() @IsString() @MaxLength(50) handler?: string;
+  /** 只看被退回、等待补充的 */
+  @IsOptional() @Type(() => Boolean) @IsBoolean() returned?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }

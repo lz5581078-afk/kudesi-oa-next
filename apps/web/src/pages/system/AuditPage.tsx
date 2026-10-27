@@ -13,6 +13,8 @@ const fmt = (s: string) => new Date(s).toLocaleString('zh-CN', { hour12: false }
 export function AuditPage() {
   const [source, setSource] = useState('');
   const [actorId, setActorId] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [keyword, setKeyword] = useState('');
   const kw = useDebounced(keyword.trim(), 300);
   const [page, setPage] = useState(1);
@@ -31,15 +33,17 @@ export function AuditPage() {
       if (source) q.set('source', source);
       if (actorId) q.set('actorId', actorId);
       if (kw) q.set('keyword', kw);
+      if (from) q.set('from', from);
+      if (to) q.set('to', to);
       setData(await api<Result>(`/audit?${q}`));
       setError('');
     } catch (e) { setError(e instanceof ApiError ? e.message : '加载失败'); }
     setLoading(false);
-  }, [page, source, actorId, kw]);
+  }, [page, source, actorId, kw, from, to]);
   useEffect(() => { void load(); }, [load]);
 
-  const filtered = Boolean(source || actorId || kw);
-  const clear = () => { setSource(''); setActorId(''); setKeyword(''); setPage(1); };
+  const filtered = Boolean(source || actorId || kw || from || to);
+  const clear = () => { setSource(''); setActorId(''); setKeyword(''); setFrom(''); setTo(''); setPage(1); };
   async function copyDetail(r: Item) {
     setCopied((await copyText(JSON.stringify(r.detail, null, 2))) ? '详情已复制' : '复制失败，请手动选中复制');
   }
@@ -53,6 +57,8 @@ export function AuditPage() {
         <select value={actorId} onChange={(e) => { setActorId(e.target.value); setPage(1); }} aria-label="操作人">
           <option value="">全部操作人</option>{users.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
         </select>
+        <label className="check-line">从<input type="date" aria-label="开始日期" value={from} max={to || undefined} onChange={(e) => { setFrom(e.target.value); setPage(1); }} /></label>
+        <label className="check-line">到<input type="date" aria-label="结束日期" value={to} min={from || undefined} onChange={(e) => { setTo(e.target.value); setPage(1); }} /></label>
         <input type="search" className="search-input" aria-label="搜索" placeholder="搜索动作 / 类型 / 编号" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
         {filtered && <button type="button" className="secondary-button" onClick={clear}>清除筛选</button>}
       </div>

@@ -3,15 +3,9 @@ import { useAuth } from '../auth/AuthContext';
 import mascot from '../assets/xiaobai.jpg';
 import { CompanyApplyDialog } from './CompanyApplyDialog';
 
-const ACCOUNT_KEY = 'kudesi.login.account';
-/** 只记住账号（不记密码）；存储被禁用时静默跳过。 */
-const savedAccount = () => { try { return window.localStorage.getItem(ACCOUNT_KEY) ?? ''; } catch { return ''; } };
-const saveAccount = (v: string | null) => { try { if (v) window.localStorage.setItem(ACCOUNT_KEY, v); else window.localStorage.removeItem(ACCOUNT_KEY); } catch { /* ignore */ } };
-
 export function LoginPage() {
   const { login } = useAuth();
-  const [account, setAccount] = useState(savedAccount);
-  const [remember, setRemember] = useState(() => savedAccount() !== '');
+  const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +19,6 @@ export function LoginPage() {
     setBusy(true);
     try {
       await login({ account: account.trim(), password });
-      saveAccount(remember ? account.trim() : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : '登录失败，请检查账号和密码。');
     } finally {
@@ -47,7 +40,7 @@ export function LoginPage() {
           </div>
           <label>
             登录账号
-            <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder="请输入登录账号" autoComplete="username" autoFocus={!account} required />
+            <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder="请输入登录账号" autoComplete="username" autoFocus required />
           </label>
           <label>
             登录密码
@@ -58,7 +51,6 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="请输入密码"
                 autoComplete="current-password"
-                autoFocus={Boolean(account)}
                 required
               />
               <button type="button" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? '隐藏密码' : '显示密码'}>
@@ -66,7 +58,6 @@ export function LoginPage() {
               </button>
             </span>
           </label>
-          <label className="check"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ width: 'auto', height: 'auto' }} /> 记住账号（不会记住密码）</label>
           {error && <div role="alert" className="notice error">{error}</div>}
           <button type="submit" className="primary-button" disabled={busy || !account.trim() || !password}>
             {busy ? '正在登录…' : '登录'}

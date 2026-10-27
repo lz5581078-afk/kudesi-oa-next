@@ -21,32 +21,23 @@ beforeEach(() => { window.localStorage.clear(); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('登录页', () => {
-  it('登录成功后记住账号（不记密码），下次打开直接带出，焦点落到密码框', async () => {
+  it('登录时账号去掉首尾空格；没有“记住账号”选项，也不往本机存账号', async () => {
     login.mockResolvedValue(undefined);
-    const first = wrap(<LoginPage />);
+    wrap(<LoginPage />);
+    expect(screen.queryByLabelText(/记住账号/)).toBeNull();
     fireEvent.change(screen.getByLabelText('登录账号'), { target: { value: ' boss ' } });
     fireEvent.change(screen.getByPlaceholderText('请输入密码'), { target: { value: 'secret-pass' } });
-    fireEvent.click(screen.getByLabelText(/记住账号/));
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(login).toHaveBeenCalledWith({ account: 'boss', password: 'secret-pass' }));
-    expect(window.localStorage.getItem('kudesi.login.account')).toBe('boss');
-    expect(JSON.stringify({ ...window.localStorage })).not.toContain('secret-pass');
-    first.unmount();
-    wrap(<LoginPage />);
-    expect((screen.getByLabelText('登录账号') as HTMLInputElement).value).toBe('boss');
-    expect(document.activeElement).toBe(screen.getByPlaceholderText('请输入密码'));
+    expect(window.localStorage.length).toBe(0);
   });
-  it('不勾选记住账号则清掉；密码错误显示服务端提示', async () => {
-    window.localStorage.setItem('kudesi.login.account', 'old');
+  it('密码错误显示服务端提示', async () => {
     login.mockRejectedValueOnce(new Error('账号或密码不对'));
     wrap(<LoginPage />);
+    fireEvent.change(screen.getByLabelText('登录账号'), { target: { value: 'a' } });
     fireEvent.change(screen.getByPlaceholderText('请输入密码'), { target: { value: 'x' } });
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
     expect(await screen.findByText('账号或密码不对')).toBeTruthy();
-    login.mockResolvedValueOnce(undefined);
-    fireEvent.click(screen.getByLabelText(/记住账号/));
-    fireEvent.click(screen.getByRole('button', { name: '登录' }));
-    await waitFor(() => expect(window.localStorage.getItem('kudesi.login.account')).toBeNull());
   });
 });
 

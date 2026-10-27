@@ -96,6 +96,17 @@ describe('API 密钥', () => {
   });
 });
 
+describe('审计日志时间范围', () => {
+  it('选开始、结束日期后请求带 from/to', async () => {
+    apiMock.mockResolvedValue({ total: 0, page: 1, size: 30, items: [] } as never);
+    render(<AuditPage />);
+    await screen.findByText('没有记录');
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-01-31' } });
+    await waitFor(() => expect(apiMock).toHaveBeenLastCalledWith(expect.stringMatching(/from=2026-01-01.*to=2026-01-31|to=2026-01-31.*from=2026-01-01/)));
+  });
+});
+
 describe('审计日志', () => {
   const page = { total: 1, page: 1, size: 20, items: [{ source: 'system', id: '1', at: '2026-01-01T00:00:00Z', actorName: '王会计', actorId: 3, action: 'login', resourceType: 'auth', resourceId: null, detail: { ip: '1.1.1.1' } }] };
   beforeEach(() => { apiMock.mockResolvedValue(page as never); });

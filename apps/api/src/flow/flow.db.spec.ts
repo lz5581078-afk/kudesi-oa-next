@@ -111,6 +111,12 @@ d('流程引擎（真实数据库）', () => {
     expect(hit.rows.some((r: { runId: number }) => r.runId === run.id)).toBe(true);
     expect((await flow.todos(boss1, { tab: 'pending', keyword: '不存在的词语xyz', page: 1, pageSize: 20 })).total).toBe(0);
     expect((await flow.todos(boss1, { tab: 'pending', keyword: '%', page: 1, pageSize: 20 })).total).toBe(0);
+    // 总览筛选：按当前办理人姓名、发起人部门；被退回筛选
+    const byHandler = await flow.listRuns(admin, { view: 'all', handler: boss1.name.slice(0, 1), page: 1, pageSize: 20 });
+    expect(byHandler.rows.some((r: { id: number }) => r.id === run.id)).toBe(true);
+    expect((await flow.listRuns(admin, { view: 'all', handler: '没有这个人zzz', page: 1, pageSize: 20 })).total).toBe(0);
+    expect((await flow.listRuns(admin, { view: 'all', returned: true, page: 1, pageSize: 20 })).rows.some((r: { id: number }) => r.id === run.id)).toBe(false);
+    expect((await flow.listRuns(admin, { view: 'all', departmentId: 999999, page: 1, pageSize: 20 })).total).toBe(0);
     // 版本号过期
     await expect(flow.pass(boss1, run.id, { revision: run.revision - 1, stepId: run.activeStep!.id })).rejects.toThrow(/刷新/);
 
