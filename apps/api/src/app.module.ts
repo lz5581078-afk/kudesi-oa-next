@@ -1,3 +1,5 @@
+import { PhoneUploadController } from './integrations/phone-upload.controller';
+import { PhoneUploadService } from './integrations/phone-upload.service';
 import { FormDraftsController } from './resources/form-drafts.controller';
 import { FormDraftsService } from './resources/form-drafts.service';
 import { LocalFilesController } from './integrations/local-files.controller';
@@ -130,7 +132,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController],
   providers: [
     AuthService,
     PlatformService,
@@ -160,6 +162,7 @@ const env = loadEnv();
     SkuApplyService,
     TaskService,
     FormDraftsService,
+    PhoneUploadService,
     SessionService,
     MaintenanceService,
     RemoteAssistService,

@@ -1078,6 +1078,23 @@ export class FormDraft {
   @Column({ name: 'updated_at', ...dt, insert: false, update: false }) updatedAt!: Date;
 }
 
+/** 手机扫码上传会话：令牌只存哈希；绑定公司、发起人、资料类型和字段；短期有效、限次数。 */
+@Entity('phone_upload_sessions')
+export class PhoneUploadSession {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'token_hash', type: 'char', length: 64 }) tokenHash!: string;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'user_id', type: 'int', unsigned: true }) userId!: number;
+  @Column({ name: 'resource_type', type: 'varchar', length: 40 }) resourceType!: string;
+  @Column({ name: 'field_key', type: 'varchar', length: 48 }) fieldKey!: string;
+  @Column({ name: 'max_uploads', type: 'tinyint', unsigned: true }) maxUploads!: number;
+  @Column({ name: 'upload_count', type: 'tinyint', unsigned: true, default: 0 }) uploadCount!: number;
+  @Column({ name: 'file_ids', type: 'json' }) fileIds!: number[];
+  @Column({ name: 'expires_at', ...dt }) expiresAt!: Date;
+  @Column({ name: 'scanned_at', ...dt, nullable: true }) scannedAt!: Date | null;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+}
+
 export const ALL_ENTITIES = [
   SessionDevice,
   SessionBindCode,
@@ -1125,4 +1142,5 @@ export const ALL_ENTITIES = [
   IntegrationSetting,
   ResourceFile,
   FormDraft,
+  PhoneUploadSession,
 ];

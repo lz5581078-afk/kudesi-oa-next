@@ -68,6 +68,8 @@ export interface FieldDef {
   maxFiles?: number;
   /** type=files：只收图片，还是图片和 PDF 都收（默认都收） */
   accept?: 'image' | 'any';
+  /** type=files：电脑上可以点“手机上传”，扫码用手机拍照/选图传到这个字段（只收图片） */
+  phoneUpload?: boolean;
   /** 仅当另一个字段（或 status）取这些值时才显示/保存，不满足时服务端清空 */
   showWhen?: { field: string; in: readonly string[] };
   help?: string;
