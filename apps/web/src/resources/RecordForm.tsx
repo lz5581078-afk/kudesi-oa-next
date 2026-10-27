@@ -17,7 +17,30 @@ export function MoneyControl({value,scale,onChange}:{value:unknown;scale:number;
   }} />;
 }
 
-const refCache = new Map<string, Promise<Array<{ value: number; label: string; disabled?: boolean }>>>();
+type RefOption = { value: number; label: string; disabled?: boolean };
+type RefOptions = RefOption[] & { total?: number };
+/** 引用选择器一次最多取这么多条；更多的靠搜索框按关键字找（店铺、手机号等可能有几百条） */
+const REF_PAGE = 50;
+const refCache = new Map<string, Promise<RefOptions>>();
+
+/** 按关键字服务端搜索可选项；员工/部门这类小列表不走这里 */
+function searchRefOptions(target: string, keyword: string): Promise<RefOptions> {
+  return resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true, keyword }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: i.title })), { total: r.total }));
+}
+
+/** 选择器上方的搜索框：输入后（稍作防抖）向服务端搜索；用户/部门是整表加载，不显示 */
+function useRefSearch(target: string, initial: RefOptions | null) {
+  const [keyword, setKeyword] = useState('');
+  const [found, setFound] = useState<RefOptions | null>(null);
+  const searchable = target !== 'department' && target !== 'user' && (initial?.total ?? 0) > (initial?.length ?? 0);
+  useEffect(() => {
+    if (!searchable || !keyword.trim()) { setFound(null); return; }
+    let alive = true;
+    const t = setTimeout(() => { searchRefOptions(target, keyword.trim()).then((o) => alive && setFound(o)).catch(() => alive && setFound([])); }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [keyword, searchable, target]);
+  return { keyword, setKeyword, searchable, shown: found ?? initial, truncated: (found ?? initial) ? ((found ?? initial)!.total ?? 0) > (found ?? initial)!.length : false };
+}
 export function clearRefCache(type?: string) {
   if (type) refCache.delete(type);
   else refCache.clear();
@@ -31,7 +54,7 @@ export function loadRefOptions(target: string) {
         ? resourceApi.departments().then((list) => list.map((d) => ({ value: d.id, label: d.name })))
         : target === 'user'
         ? resourceApi.users().then((list) => list.map((u) => ({ value: u.id, label: u.active ? u.name : `${u.name}（已停用）`, disabled: !u.active })))
-        : resourceApi.list(target, { pageSize: 200, showHidden: true }).then((r) => r.items.map((i) => ({ value: i.id, label: i.title })));
+        : resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: i.title })), { total: r.total }));
     p.catch(() => refCache.delete(target));
     refCache.set(target, p);
   }
@@ -39,7 +62,7 @@ export function loadRefOptions(target: string) {
 }
 
 function RefSelect({ field, value, onChange, labelNow }: { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string }) {
-  const [options, setOptions] = useState<Array<{ value: number; label: string; disabled?: boolean }> | null>(null);
+  const [options, setOptions] = useState<RefOptions | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -48,45 +71,55 @@ function RefSelect({ field, value, onChange, labelNow }: { field: FieldDef; valu
       alive = false;
     };
   }, [field.ref]);
+  const search = useRefSearch(field.ref!, options);
   const current = typeof value === 'number' ? value : '';
   if (failed) return <input disabled value={labelNow ?? ''} placeholder="没有权限查看可选项" />;
-  const list = options ?? [];
+  const list: RefOptions = search.shown ?? Object.assign([], { total: 0 });
   const missing = current !== '' && !list.some((o) => o.value === current);
   return (
-    <select value={current} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} disabled={!options}>
-      <option value="">{options ? '（不选）' : '加载中…'}</option>
-      {missing && <option value={current}>{labelNow ?? `#${current}`}</option>}
-      {list.map((o) => (
-        // 已停用的员工不能新选；若本来就是这个值则保留显示
-        <option key={o.value} value={o.value} disabled={o.disabled && o.value !== current}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <>
+      {search.searchable && <input type="search" className="ref-search" aria-label={`搜索${field.label}`} placeholder="输入关键字搜索…" value={search.keyword} onChange={(e) => search.setKeyword(e.target.value)} />}
+      <select value={current} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} disabled={!options}>
+        <option value="">{options ? '（不选）' : '加载中…'}</option>
+        {missing && <option value={current}>{labelNow ?? `#${current}`}</option>}
+        {list.map((o) => (
+          // 已停用的员工不能新选；若本来就是这个值则保留显示
+          <option key={o.value} value={o.value} disabled={o.disabled && o.value !== current}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {search.truncated && <small className="muted">只列出前 {list.length} 条，共 {list.total ?? '更多'} 条，输入关键字缩小范围</small>}
+    </>
   );
 }
 
 /** 多选引用：勾选若干条记录（如供应商同时属于多个分类） */
 function RefsSelect({ field, value, onChange, labelNow }: { field: FieldDef; value: number[]; onChange: (v: number[]) => void; labelNow?: string }) {
-  const [options, setOptions] = useState<Array<{ value: number; label: string }> | null>(null);
+  const [options, setOptions] = useState<RefOptions | null>(null);
   useEffect(() => {
     let alive = true;
-    loadRefOptions(field.ref!).then((o) => alive && setOptions(o)).catch(() => alive && setOptions([]));
+    loadRefOptions(field.ref!).then((o) => alive && setOptions(o)).catch(() => alive && setOptions(Object.assign([], { total: 0 })));
     return () => { alive = false; };
   }, [field.ref]);
+  const search = useRefSearch(field.ref!, options);
   if (!options) return <span className="muted">加载中…</span>;
+  const shown = search.shown ?? options;
   const labels = (labelNow ?? '').split('、');
-  const extra = value.filter((v) => !options.some((o) => o.value === v));
+  // 已选但不在当前列出范围内的（分页/搜索之外），固定显示在最上面，保证能取消
+  const extra = value.filter((v) => !shown.some((o) => o.value === v));
   return (
     <div className="check-list" role="group" aria-label={field.label}>
+      {search.searchable && <input type="search" className="ref-search" aria-label={`搜索${field.label}`} placeholder="输入关键字搜索…" value={search.keyword} onChange={(e) => search.setKeyword(e.target.value)} />}
       {extra.map((v, i) => <label key={v} className="check"><input type="checkbox" checked onChange={() => onChange(value.filter((x) => x !== v))} /> {labels[i] ?? `#${v}`}</label>)}
-      {options.map((o) => (
+      {shown.map((o) => (
         <label key={o.value} className="check">
           <input type="checkbox" checked={value.includes(o.value)} onChange={(e) => onChange(e.target.checked ? [...value, o.value] : value.filter((x) => x !== o.value))} />
           {o.label}
         </label>
       ))}
-      {options.length === 0 && extra.length === 0 && <span className="muted">还没有可选项</span>}
+      {search.truncated && <small className="muted">只列出前 {shown.length} 条，共 {shown.total} 条，输入关键字缩小范围</small>}
+      {shown.length === 0 && extra.length === 0 && <span className="muted">还没有可选项</span>}
     </div>
   );
 }
