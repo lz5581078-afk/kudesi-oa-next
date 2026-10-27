@@ -106,8 +106,53 @@ describe('登录与菜单', () => {
     expect(within(top).getByText('流程')).toBeTruthy();
     // 没有“商品”这样自己发明的一级菜单
     expect(within(top).queryByText('商品')).toBeNull();
+    // 二级菜单点开才出现；只列已开放页面
+    fireEvent.click(within(top).getByText('财务'));
     const sub = screen.getByRole('navigation', { name: '二级导航' });
+    expect(within(sub).getByText('制单中心')).toBeTruthy();
+    expect(within(sub).getByText('成本表')).toBeTruthy();
     expect(within(sub).queryByText('岗位看板')).toBeNull();
+  });
+
+  it('点一级菜单弹出分组菜单；搜索能跨一级菜单找页面；点链接后收起并进入页面', () => {
+    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] });
+    renderAt('/');
+    const top = screen.getByRole('navigation', { name: '一级导航' });
+    expect(screen.queryByRole('navigation', { name: '二级导航' })).toBeNull();
+    fireEvent.click(within(top).getByText('资料'));
+    const panel = screen.getByRole('dialog', { name: '资料菜单' });
+    expect(within(panel).getByText('组织与人员')).toBeTruthy();
+    // 在面板里搜索别的一级菜单下的页面
+    fireEvent.change(within(panel).getByLabelText('搜索菜单'), { target: { value: '定价调试' } });
+    const hit = within(screen.getByRole('navigation', { name: '二级导航' })).getByRole('link', { name: /定价调试表/ });
+    fireEvent.click(hit);
+    expect(screen.queryByRole('dialog', { name: /菜单/ })).toBeNull();
+    expect(screen.getByRole('heading', { name: '定价调试表' })).toBeTruthy();
+    // 顶部栏显示当前位置
+    expect(within(screen.getByLabelText('当前位置')).getByText('财务')).toBeTruthy();
+  });
+
+  it('当前页面在二级菜单里高亮；Esc 收起菜单；手机底栏有常用一级菜单和“更多”', () => {
+    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] });
+    renderAt('/finance/cost-table');
+    fireEvent.click(within(screen.getByRole('navigation', { name: '一级导航' })).getByText('财务'));
+    const current = within(screen.getByRole('navigation', { name: '二级导航' })).getByRole('link', { name: '成本表' });
+    expect(current.getAttribute('aria-current')).toBe('page');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: /菜单/ })).toBeNull();
+    const tabbar = screen.getByRole('navigation', { name: '手机底部导航' });
+    for (const label of ['工作台', '流程', '财务', '资料', '更多']) expect(within(tabbar).getByText(label)).toBeTruthy();
+    fireEvent.click(within(tabbar).getByText('更多'));
+    expect(screen.getByRole('dialog', { name: '系统菜单' })).toBeTruthy();
+  });
+
+  it('账号菜单：能去修改密码、能退出', () => {
+    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] });
+    renderAt('/');
+    fireEvent.click(screen.getByRole('button', { name: /^账号/ }));
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: '修改密码' })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: '退出登录' })).toBeTruthy();
   });
 
   it('通过地址直接访问没有权限的页面，显示无权限而不是页面内容', () => {
