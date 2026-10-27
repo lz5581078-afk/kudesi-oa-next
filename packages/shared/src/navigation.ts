@@ -181,6 +181,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     label: '系统',
     pages: [
       page('system', 'integrations', '接口设置', true),
+      page('system', 'jst-sync-center', '聚水潭同步能力中心', true),
       page('system', 'settings', '系统设置'),
       page('system', 'audit', '审计日志', true),
     ],

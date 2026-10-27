@@ -35,6 +35,7 @@ import { PricingDebugPage } from './pages/finance/PricingDebugPage';
 import { ResourceOverviewPage } from './resources/OverviewPage';
 import { ResourcePage } from './resources/ResourcePage';
 import { IntegrationsPage } from './pages/system/IntegrationsPage';
+import { JstSyncCenterPage } from './pages/system/JstSyncCenterPage';
 import { StaffPage } from './pages/org/StaffPage';
 import { StructurePage } from './pages/org/StructurePage';
 import { PositionProfilesPage } from './pages/org/PositionProfilesPage';
@@ -72,6 +73,7 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
   'resource.overview': ResourceOverviewPage,
   'system.integrations': IntegrationsPage,
   'system.audit': AuditPage,
+  'system.jst-sync-center': JstSyncCenterPage,
   'resource.bank-fund': BankFundPage,
   'resource.fee-settings': FeeSettingsPage,
   'resource.company-store-maintenance': MaintenancePage,
