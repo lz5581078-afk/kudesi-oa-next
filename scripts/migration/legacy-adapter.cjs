@@ -4,6 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { createRequire } = require('node:module');
 const rules = require('./mapping-rules.json');
+const productMapping = require('./product-mapping.cjs');
 const legacyError=(message)=>{const error=new Error(message);error.name='LegacyDataError';return error;};
 const snake = (s) => s.replace(/[A-Z]/g, (c) => '_'+c.toLowerCase());
 const ref = (type,id) => id===null||id===undefined||id===''?undefined:{legacyRef:{type,id:String(id)}};
@@ -59,6 +60,9 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
     const byId=(table,id)=>(tables[table]||[]).find(x=>String(x.id)===String(id));
     const brandMap=new Map();
     for(const p of tables.finance_products||[]){const name=String(p.brand||'').trim();if(!name||brandMap.has(name))continue;const dictionary=(tables.finance_product_code_dictionary||[]).find(x=>x.dictionary_type==='brand'&&x.item_name===name);const id='brand:'+name;brandMap.set(name,id);add('finance-brands',id,{name,code:dictionary?.item_code},'active');}
+    // 商品档案单位与规格：旧三张单位表 + 档案里用到的包装类别、尺寸单位，建成新的公司级列表（必须排在商品档案前面，商品里存的是编码）
+    const unitCatalog=productMapping.buildUnitCatalog({tables,defs:definitions,payloadOf:p=>{try{return json(p.payload_json||{})||{};}catch{return {};}}});
+    if(defs.has('finance-product-units'))for(const r of unitCatalog.records)add('finance-product-units',r.id,r.data,'active');
     const scenarioMap=new Map();
     for(const b of tables.finance_product_bundle_codes||[]){const name=String(b.sales_scenario||'').trim();if(!name||scenarioMap.has(name))continue;const direct=(tables.finance_bundle_sales_scenarios||[]).find(x=>x.scenario_name===name||x.name===name);const id=direct?.id||'scenario:'+name;scenarioMap.set(name,id);add('finance-scenarios',id,{name:({standard:'标准',supply_chain:'供应链'})[name]||name,code:direct?.scenario_code||direct?.code||name,segment:({standard:'',supply_chain:'GYL'})[name]??direct?.scenario_code??direct?.code??name},'active');}
     const productFamily=p=>p.archive_key==='purchased'?p.supply_mode:p.archive_key;
@@ -107,9 +111,10 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
       }
       return fspec;
     }
+    const composedLines=[];
     for(const [type,rule] of Object.entries(rules.resources)){
       if(type==='finance-bundle-naming-rules'){for(const row of tables[rule.tables[0]]||[])excluded(type,row.category_id,'旧规则范围是基础编码字典分类，新规则范围是商品档案分类，不能直接等同；现有组合原码与原名已保留，未自动启用这些规则');continue;}
-      if(!defs.has(type)||['finance-brands','finance-scenarios','finance-bundle-lines','finance-product-boms'].includes(type))continue;
+      if(!defs.has(type)||['finance-brands','finance-scenarios','finance-bundle-lines','finance-product-boms','finance-product-units','finance-base-code-lines'].includes(type))continue;
       const def=defs.get(type);
       if(rule.policy){for(const r of tables[rule.tables[0]]||[])excluded(type,r.id||'snapshot',rule.reason||rule.policy);continue;}
       let entries=[];
@@ -148,9 +153,12 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(type==='finance-products'){
             data.archiveType=archiveTypes[row.archive_key];data.categoryId=ref('finance-categories',categoryKey(row.category_id,productFamily(row)));data.brandId=ref('finance-brands',brandMap.get(String(row.brand||'').trim()));
             data.specQty=Number(row.amount);data.code=row.product_code;data.name=row.product_name;data.weightG=kgToG(row.weighing_weight);data.weightManual=Boolean(payload.weightManualCorrected);data.purchaseSpec=payload.purchaseSpecification;data.productPackagingSpec=payload.productPackagingSpecification;
-            const packaging={'蛇皮袋':'bag','塑料包装':'bag','纸箱':'carton','无版印刷胶版':'label'};if(packaging[payload.packagingCategory])data.packagingCategory=packaging[payload.packagingCategory];
+            // 旧档案存的是单位/类别名称，新档案存编码：按旧单位表和用到的名称建成的列表转换（对不上的不猜）
+            const unitFields=productMapping.productUnitFields({row,payload,catalog:unitCatalog});
+            for(const key of ['productPackagingUnit','packagingCategory','dimensionUnit']){delete data[key];if(unitFields[key])data[key]=unitFields[key];else if(String(payload[key]||'').trim())notices.push(key+'：旧值“'+String(payload[key]).trim()+'”不在旧单位列表里，未迁入，待核对');}
+            if(unitFields.specUnit)data.specUnit=unitFields.specUnit;
             if(Array.isArray(payload.capacities))data.capacities=payload.capacities.map(x=>typeof x==='string'?x:(x.value??x.amount??'')+(x.unit??'')).join('\n');
-            if(!Number.isFinite(data.specQty)){const pricingUnit=def.fields.find(f=>f.key==='specUnit').options.find(o=>o.label===payload.purchaseSpecification||o.value===payload.purchaseSpecification);if(pricingUnit){data.specQty=1;data.specUnit=pricingUnit.value;data.shape=[row.shape_style,String(row.amount||'')+String(row.unit||'')].filter(Boolean).join(' / ');notices.push('旧规格为尺寸描述，按原计价单位保留为一单位；尺寸见形态/款式');}}
+            if(!Number.isFinite(data.specQty)){const pricingCode=unitCatalog.codeOf(row.archive_key==='shipping_material'?'shipping_unit':'spec_unit',payload.purchaseSpecification);const pricingUnit=pricingCode?{value:pricingCode}:def.fields.find(f=>f.key==='specUnit').options.find(o=>o.label===payload.purchaseSpecification||o.value===payload.purchaseSpecification);if(pricingUnit){data.specQty=1;data.specUnit=pricingUnit.value;data.shape=[row.shape_style,String(row.amount||'')+String(row.unit||'')].filter(Boolean).join(' / ');notices.push('旧规格为尺寸描述，按原计价单位保留为一单位；尺寸见形态/款式');}}
             data.freight=money('freight',payload.freightAmount);data.handlingFee=money('handlingFee',payload.handlingAmount);
             const costs=(tables.finance_product_archive_costs||[]).filter(x=>String(x.product_id)===String(row.id)&&x.status==='active'&&(!x.effective_from||x.effective_from<=businessDay)&&(!x.effective_to||x.effective_to>=businessDay)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from))||Number(b.id)-Number(a.id));
             const purchase=costs.find(x=>x.cost_type==='purchase');if(purchase)data.purchasePrice=money('purchasePrice',purchase.unit_cost);
@@ -164,6 +172,22 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
             const canonical=byId('finance_product_base_codes',row.canonical_base_code_id);
             const productId=row.source_product_id||canonical?.source_product_id;data.productId=ref('finance-products',productId);data.canonicalId=ref('finance-base-codes',row.canonical_base_code_id);
             data.codeChangeReason='迁移保留旧系统已有基础编码及款式编码';
+            // 旧系统一个基础编码关联多个商品 = 多构成：新系统用“多构成”来源 + 构成行保留，不拆也不丢数量
+            const composed=canonical?null:productMapping.composedFromLinks((tables.finance_product_code_links||[]).filter(l=>String(l.base_code_id)===String(row.id)));
+            if(composed){
+              const primary=byId('finance_products',composed.primaryProductId);
+              if(!primary)throw Error('复杂来源需专项转换：多构成编码的主要商品不在迁入范围');
+              const dictName=(id)=>(tables.finance_product_code_dictionary||[]).find(x=>String(x.id)===String(id))?.item_name;
+              data.origin='composed';data.productId=ref('finance-products',primary.id);
+              data.codeCategoryId=ref('finance-categories',categoryKey(primary.category_id,productFamily(primary)));
+              if(String(primary.brand||'').trim())data.codeBrandId=ref('finance-brands',brandMap.get(String(primary.brand).trim()));
+              if(row.spec_quantity!==null&&row.spec_quantity!==undefined)data.codeSpecQty=Number(row.spec_quantity);
+              const specUnitName=dictName(row.spec_unit_dictionary_id);const specUnitCode=specUnitName&&unitCatalog.codeOf('spec_unit',specUnitName);
+              if(specUnitCode)data.codeSpecUnit=specUnitCode;
+              if(!data.varietyName){const v=dictName(row.variety_dictionary_id);if(v)data.varietyName=v;else{data.varietyName=String(row.product_name||'').slice(0,80);notices.push('多构成编码旧品种为空，暂按名称填，待核对');}}
+              notices.push('多构成编码的分类、品牌按主要商品迁入，待核对');
+              composedLines.push({baseId:String(row.id),lines:composed.lines});
+            }
             if(canonical){const p=byId('finance_products',productId);const names=json(p?.payload_json||{}).rawFinishedNames||[];aliasName=names.find(x=>x.id===row.raw_finished_name_id)?.name;if(!aliasName)throw Error('马甲名称ID未对应到原料成品名');}
           }
           if(type==='finance-bundles'){
@@ -200,6 +224,8 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
         }catch(e){excluded(type,id,'字段转换待核对：'+(e instanceof SyntaxError?'来源结构不是合法JSON':/^(金额|马甲|旧地区|旧公式|重量|布尔|复杂)/.test(e.message)?e.message:e.name));}
       }
     }
+    // 多构成基础编码的构成行：只给已成功转换的编码补行；主要商品行是第一行
+    for(const c of composedLines){if(!out.records.some(r=>r.type==='finance-base-codes'&&r.id===c.baseId))continue;for(const l of c.lines)add('finance-base-code-lines',c.baseId+':'+l.id,{baseCodeId:ref('finance-base-codes',c.baseId),productId:ref('finance-products',l.productId),...l.data},'active');}
     // 商品构成依赖BOM表，不能把bom_id误当商品ID。
     for(const l of tables.finance_product_archive_bom_lines||[]){const bom=byId('finance_product_archive_boms',l.bom_id);if(!bom){excluded('finance-product-boms',l.id,'BOM父记录缺失');continue;}add('finance-product-boms',l.id,{productId:ref('finance-products',bom.owner_product_id),componentId:ref('finance-products',l.component_product_id),qty:Number(l.quantity),lossPercent:Number(l.loss_rate||0)},'active');}
     for(const l of tables.finance_product_archive_labor_lines||[]){const bom=byId('finance_product_archive_boms',l.bom_id);if(!bom){excluded('finance-product-boms','labor:'+l.id,'人工BOM父记录缺失');continue;}add('finance-product-boms','labor:'+l.id,{productId:ref('finance-products',bom.owner_product_id),laborId:ref('finance-labor-costs',l.labor_cost_item_id),qty:Number(l.quantity)},'active');}

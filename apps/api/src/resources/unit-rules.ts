@@ -27,9 +27,13 @@ export async function productsUsingUnit(em: EntityManager, companyId: number, ki
 }
 
 /** 常用单位用固定编码（克 G、千克 KG…），其它取名称拼音首字母（对照旧系统 suggestUnitCode） */
-function suggestCode(name: string): string {
-  const seeded = PRODUCT_UNIT_SEEDS.find((s) => s[1] === name && s[2]);
+const KEEP_CASE = ['packaging_category', 'dimension_unit'];
+
+function suggestCode(name: string, kind: string): string {
+  const seeded = PRODUCT_UNIT_SEEDS.find((s) => s[0] === kind && s[1] === name && s[2]);
   if (seeded) return seeded[2];
+  const seededAny = PRODUCT_UNIT_SEEDS.find((s) => s[1] === name && s[2] && !KEEP_CASE.includes(s[0]));
+  if (seededAny && !KEEP_CASE.includes(kind)) return seededAny[2];
   return initials(name).toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
@@ -41,7 +45,9 @@ export async function beforeUnit(ctx: BeforeSaveContext) {
   data.name = name;
   const coded = (PRODUCT_UNIT_CODED_KINDS as readonly string[]).includes(kind);
   if (coded) {
-    const code = (str(data.code) || suggestCode(name)).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // 单位编码一律大写（旧系统规则）；包装类别、尺寸单位保留原有大小写（bag、cm 这类内置编码已在商品里用着）
+    const raw = (str(data.code) || suggestCode(name, kind)).replace(/[^A-Za-z0-9]/g, '');
+    const code = KEEP_CASE.includes(kind) ? raw : raw.toUpperCase();
     if (!code) throw new BadRequestException('编码只能是英文字母和数字，请手动填写');
     data.code = code;
   } else {

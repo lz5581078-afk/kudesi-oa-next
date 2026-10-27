@@ -36,6 +36,7 @@ d('单位与规格（真实数据库）', () => {
     await expect(svc.create(boss, 'finance-products', product({ specUnit: 'ZZZ' }))).rejects.toThrow('规格单位的取值不合法');
     const opts = await svc.unitOptions(boss);
     expect(opts.spec_unit.find((o) => o.value === 'KG')?.label).toBe('千克');
+    expect(opts.dimension_unit.map((o) => o.value)).toEqual(['mm', 'cm', 'm']); // 包装类别、尺寸单位的内置编码保持小写
     expect(opts.system_spec.map((o) => o.label)).toContain('斤');
   });
 
