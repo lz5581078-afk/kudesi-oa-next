@@ -1295,6 +1295,24 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 把一行（表头为字段中文名）转换成字段值；转换失败返回错误。 */
+  /** 位置完整路径 → 记录：末级名称相同的候选里，上级链和路径逐级对得上的才算。 */
+  private async locationByPath(em: EntityManager, companyId: number, path: string): Promise<ResourceRecord[]> {
+    const names = path.split(/[\/>→›]/).map((x) => x.trim()).filter(Boolean);
+    if (names.length < 2) return [];
+    const all = await em.find(ResourceRecord, { where: { companyId, type: 'locations' }, select: ['id', 'title', 'data'] });
+    const byId = new Map(all.map((r) => [r.id, r]));
+    return all.filter((r) => {
+      if (r.title !== names[names.length - 1]) return false;
+      let cur: ResourceRecord | undefined = r;
+      for (let i = names.length - 1; i >= 0; i--) {
+        if (!cur || cur.title !== names[i]) return false;
+        const pid: unknown = cur.data.parentId;
+        cur = typeof pid === 'number' ? byId.get(pid) : undefined;
+      }
+      return true;
+    });
+  }
+
   private async rowToInput(
     em: EntityManager,
     user: AuthUser,
@@ -1340,7 +1358,9 @@ export class ResourcesService implements RuleHost {
           if (matches.length !== 1) errors.push(`${f.label}“${raw}”${matches.length === 0 ? '找不到该部门' : '有重名部门，无法确定'}`);
           else input[f.key] = matches[0].id;
         } else {
-          const matches = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: f.ref!, title: raw }, select: ['id'], take: 2 });
+          let matches = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: f.ref!, title: raw }, select: ['id'], take: 2 });
+          // 存放位置可以填完整路径（如 总部/二楼/保险柜），按上级链逐级核对
+          if (matches.length === 0 && f.ref === 'locations' && /[\/>→›]/.test(raw)) matches = await this.locationByPath(em, user.companyId, raw);
           if (matches.length !== 1) errors.push(`${f.label}“${raw}”${matches.length === 0 ? '找不到' : '有重名，无法确定'}`);
           else input[f.key] = matches[0].id;
         }

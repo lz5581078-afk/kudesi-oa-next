@@ -216,4 +216,14 @@ d('证照与主体（真实数据库）', () => {
     await svc.update(boss, 'phones', ph.id, { number: '13933334444' });
     expect((await svc.get(boss, 'bank-accounts', ba.id)).data.reservedPhoneNumber).toBe('13933334444');
   });
+
+  it('导入：存放位置可填完整路径', async () => {
+    const root = await svc.create(boss, 'locations', { name: '总部', scope: 'area' });
+    const floor = await svc.create(boss, 'locations', { name: '二楼', scope: 'area', parentId: root.id });
+    const safe = await svc.create(boss, 'locations', { name: '保险柜', scope: 'area', parentId: floor.id });
+    const r = await svc.importRows(boss, 'licenses', [{ 执照类别: '经营执照', 主体名称: '路径公司', 统一社会信用代码: 'PATH-1', 法人: '路', 存放总位置: '总部/二楼/保险柜' }], false);
+    expect(r.created).toBe(1);
+    const got = (await svc.list(boss, 'licenses', { keyword: 'PATH-1' })).items[0];
+    expect(got.data.locationId).toBe(safe.id);
+  });
 });
