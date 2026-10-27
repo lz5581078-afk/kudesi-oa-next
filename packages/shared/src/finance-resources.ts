@@ -25,6 +25,15 @@ export const ARCHIVE_TYPES = o('raw:原料档案', 'self_made:自产成品档案
 export const ARCHIVE_TYPE_CODE: Record<string, string> = { raw: 'YL', self_made: 'ZC', purchased: 'WG', package: 'BZ', shipping_material: 'FH', oem_package: 'OEM' };
 export const CATEGORY_ROOTS = o('raw:原料档案', 'self_made:自产成品档案', 'original_purchase:原装采购成品', 'supplier_oem:供应商OEM成品', 'package:产品包装档案', 'oem_package:OEM包装档案', 'shipping_material:发货物料档案', 'bundle:组合分类');
 
+/** 旧系统的单位是自由文字字典：导入时常见写法对到固定单位（数据里写“公斤”“只”也能进来） */
+const UNIT_SYNONYMS: Record<string, string> = { 公斤: 'KG', 千克: 'KG', kg: 'KG', 克: 'G', g: 'G', 斤: 'J', 市斤: 'J', 吨: 'T', 毫升: 'ML', ml: 'ML', 升: 'LTR', 公升: 'LTR', 粒: 'L', 颗: 'L', 棵: 'K', 包: 'B', 袋: 'D', 盒: 'BOX', 箱: 'CTN', 瓶: 'BTL', 罐: 'CAN', 件: 'PCS', 个: 'EA', 只: 'EA', 枚: 'EA', 张: 'SHEET', 米: 'M', 厘米: 'CM', cm: 'CM', 毫米: 'MM', mm: 'MM' };
+/** 把导入文件里的单位文字对到单位选项；对不上返回 undefined（由调用方报“不在可选项里”） */
+export function unitOptionFromText(raw: string) {
+  const t = raw.trim();
+  const value = UNIT_OPTIONS.find((o) => o.value === t || o.label === t)?.value ?? UNIT_SYNONYMS[t] ?? UNIT_SYNONYMS[t.toLowerCase()];
+  return UNIT_OPTIONS.find((o) => o.value === value);
+}
+
 /** 档案成本归集科目（旧系统 COST_BUCKETS） */
 export const COST_BUCKETS = o('purchase:采购成本', 'transfer:调运成本', 'pre_ship_package:发货前包装成本', 'production:生产成本', 'shipping_package:发货包装成本', 'express:快递成本');
 /** 档案成本来源类型（旧系统 ARCHIVE_COST_SOURCE_TYPES，另加档案采购价自动同步） */

@@ -110,4 +110,13 @@ d('分类排序与批量重生成编码（真实数据库）', () => {
     const byCat = ov.byCategory[String(ids.leaf)] ?? {};
     expect(byCat.verified ?? 0).toBe(1); // 只剩马甲这一条，真实编码不计
   });
+
+  it('商品档案导入：旧系统自由写的单位（公斤、只、斤）对到固定单位；对不上的报错', async () => {
+    const row = (name: string, unit: string) => ({ 档案类型: '原料档案', 商品名称: name, 分类: '水果 / 苹果类', 系统规格: '千克', 规格数量: '1', 规格单位: unit, 采购价: '10', 运费: '0', 装卸费: '0', 零值说明: '运费：无\n装卸费：无' });
+    const r = await svc.importRows(boss, 'finance-products', [row('导入苹果甲', '公斤'), row('导入苹果乙', '斤'), row('导入苹果丙', '光年')], true);
+    const unitErrors = r.results.map((x: { errors: string[] }) => x.errors.filter((e) => e.includes('规格单位')));
+    expect(unitErrors[0]).toHaveLength(0);
+    expect(unitErrors[1]).toHaveLength(0);
+    expect(unitErrors[2].length).toBeGreaterThan(0);
+  });
 });

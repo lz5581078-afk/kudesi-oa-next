@@ -11,6 +11,7 @@ import {
   SIMILARITY_RESOURCES,
   PRODUCT_SIMILARITY_FIELDS,
   UNIT_OPTIONS,
+  unitOptionFromText,
   inspectArchiveSimilarity,
   formatSimilarityMatch,
   normalizePhone,
@@ -1394,7 +1395,7 @@ export class ResourcesService implements RuleHost {
       if (raw && f.type === 'ref' && f.ref === 'licenses') raw = await mapLicenseByCreditCode(em, user.companyId, raw);
       if (!raw) continue;
       if (f.type === 'select') {
-        const opt = f.options?.find((o) => o.label === raw || o.value === raw);
+        const opt = f.options?.find((o) => o.label === raw || o.value === raw) ?? (f.options === UNIT_OPTIONS ? unitOptionFromText(raw) : undefined);
         if (!opt) errors.push(`${f.label}“${raw}”不在可选项里`);
         else input[f.key] = opt.value;
       } else if (f.type === 'money') {
