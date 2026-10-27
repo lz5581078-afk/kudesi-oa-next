@@ -89,3 +89,12 @@
 - 回滚：Actions 手动 action=rollback + release_id；管理员可用 `sudo /usr/local/sbin/kudesi-lc-command rollback <发布编号>`。恢复程序版本，不自动覆盖业务数据库；备份与日志保留。
 - Secrets：DEPLOY_HOST、DEPLOY_USER、DEPLOY_SSH_KEY、DEPLOY_KNOWN_HOSTS 已加密配置在 GitHub，未在聊天、代码或文档展示私钥。服务器专用账号 lcdeploy 仅能调用固定发布控制器。
 - 完整运维说明与验证边界见 deploy/server/README.md；本次不合并 main，不提前切换生产应用，等待用户合并 main 触发首次真实发布。
+
+## 迁入后分类结构修正（Claude 已写好，待 Codex 在线上执行）
+
+背景：线上已迁入的数据里，① OEM 包装的分类树被并进了“产品包装”，② 3 个四级供应商分类被压成了“丙 / 丁”一个名字。代码和迁移适配器已改好（OEM 包装有独立分类树，供应商/客户分类最多 4 级），但线上已有数据要修一次。
+
+脚本：`apps/api/src/scripts/fix-category-structure.ts`（编译后 `dist/scripts/fix-category-structure.js`）。
+1. 先试跑（不改数据）：`node dist/scripts/fix-category-structure.js --company <公司ID>`，把输出的计划发给用户核对。标“需人工确认”的树不会被改。
+2. 备份数据库后执行：`--apply --actor <管理员ID> --confirm <库名:公司ID>`。可重复执行，改过的不会再改。
+3. 执行前先发布含本次代码的版本；用户说“上线”之后再做。

@@ -18,6 +18,13 @@ class ListQueryDto {
   @IsOptional() @IsString() showHidden?: string;
 }
 
+class CategoryTreeQueryDto {
+  @IsString() @MaxLength(48) field!: string;
+  @IsOptional() @IsString() @MaxLength(64) tab?: string;
+  @IsOptional() @IsString() @MaxLength(24) status?: string;
+  @IsOptional() @IsString() showHidden?: string;
+}
+
 class SaveDto {
   @IsObject() values!: Record<string, unknown>;
   @IsOptional() @IsString() @MaxLength(24) status?: string;
@@ -70,6 +77,12 @@ export class ResourcesController {
   @Get('overview')
   overview(@CurrentUser() user: AuthUser) {
     return this.resources.overview(user);
+  }
+
+  @RequireResourceAction('view')
+  @Get(':type/category-tree')
+  categoryTree(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: CategoryTreeQueryDto) {
+    return this.resources.categoryTree(user, type, q.field, { tab: q.tab, status: q.status, showHidden: q.showHidden === '1' });
   }
 
   @RequireResourceAction('view')

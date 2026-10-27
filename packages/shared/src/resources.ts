@@ -102,6 +102,8 @@ export interface ResourceDef {
   tabsBy?: string;
   /** 列表上方的下拉筛选：关联字段（按所选节点及其所有下级筛）或选项字段（如固定资产按分类、商品按分类和采购方式） */
   filterBy?: string | readonly string[];
+  /** 分类目录随页签显示哪些“所属类型”的分类（页签值与分类的所属类型不一一对应时用，如外购成品含原装采购和供应商 OEM 两棵树） */
+  treeTabMap?: Record<string, readonly string[]>;
   /** 列表勾选后可批量做的事：status=批量停用/启用（要填原因），其余是批量修改这个字段（如移动分类） */
   batch?: readonly string[];
   /** 预警：状态异常，或某日期字段在 N 天内到期 */
@@ -919,6 +921,17 @@ const BY_KEY = new Map(RESOURCE_DEFS.map((d) => [d.key, d]));
 
 export function getResourceDef(key: string): ResourceDef | undefined {
   return BY_KEY.get(key);
+}
+
+/** 这种资料自己是一棵树（有指向自己的“上级”字段），如商品分类、供应商分类 */
+export function isTreeResource(key: string): boolean {
+  return !!BY_KEY.get(key)?.fields.some((f) => f.key === 'parentId' && f.type === 'ref' && f.ref === key);
+}
+
+/** 列表左侧要显示分类目录的字段：filterBy 里第一个指向“树形资料”的关联字段 */
+export function treeFilterField(def: ResourceDef): FieldDef | undefined {
+  const keys = def.filterBy ? ([] as string[]).concat(def.filterBy as string | string[]) : [];
+  return keys.map((k) => def.fields.find((f) => f.key === k)).find((f) => !!f && (f.type === 'ref' || f.type === 'refs') && !!f.ref && isTreeResource(f.ref));
 }
 
 /** 资源动作权限键：resource.<key>.<action> */
