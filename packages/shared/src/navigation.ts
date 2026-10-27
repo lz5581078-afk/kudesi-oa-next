@@ -26,8 +26,12 @@ export interface NavPage {
 export interface NavSection {
   id: string;
   label: string;
+  /** 左侧图标栏用的图标名（图形由前端自己画，这里只记名字） */
+  icon: NavIconName;
   pages: NavPage[];
 }
+
+export type NavIconName = 'inbox' | 'flow' | 'wallet' | 'database' | 'settings';
 
 /**
  * 资料菜单的分组与顺序，照旧程序的「资料」导航：
@@ -137,6 +141,7 @@ function page(section: string, id: string, label: string, ready = false): NavPag
 export const NAV_SECTIONS: readonly NavSection[] = [
   {
     id: 'workbench',
+    icon: 'inbox',
     label: '工作台',
     pages: [
       page('workbench', 'todos', '我的待办', true),
@@ -147,6 +152,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   },
   {
     id: 'flow',
+    icon: 'flow',
     label: '流程',
     pages: [
       page('flow', 'apply', '申请中心', true),
@@ -156,11 +162,13 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   },
   {
     id: 'finance',
+    icon: 'wallet',
     label: '财务',
     pages: financePages(),
   },
   {
     id: 'resource',
+    icon: 'database',
     label: '资料',
     pages: [
       { ...page('resource', 'overview', '资料总览', true) },
@@ -169,6 +177,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   },
   {
     id: 'system',
+    icon: 'settings',
     label: '系统',
     pages: [
       page('system', 'integrations', '接口设置', true),
@@ -256,4 +265,51 @@ export function resourcePagePath(type: string): string | null {
     }
   }
   return null;
+}
+
+
+/** 手机底部标签栏固定放的一级菜单（按这个顺序，只放当前账号看得到的），其余收进“更多”。 */
+export const MOBILE_PRIMARY_SECTIONS = ['workbench', 'flow', 'finance', 'resource'] as const;
+
+/** 一级菜单下的分组：同一个分组标题连续的页面归为一组；没有分组标题的页面归到以一级菜单名命名的组。 */
+export interface PageGroup { title: string; pages: NavPage[] }
+export function groupPages(section: Pick<NavSection, 'label' | 'pages'>): PageGroup[] {
+  const groups: PageGroup[] = [];
+  for (const p of section.pages) {
+    const title = p.group ?? section.label;
+    const last = groups[groups.length - 1];
+    if (last && last.title === title) last.pages.push(p);
+    else groups.push({ title, pages: [p] });
+  }
+  return groups;
+}
+
+/** 一级菜单只有一个页面时，点它直接进入，不用再弹二级菜单。 */
+export function directPage(section: Pick<NavSection, 'pages'>): NavPage | null {
+  return section.pages.length === 1 ? section.pages[0] : null;
+}
+
+export interface NavSearchHit { sectionId: string; sectionLabel: string; groupTitle: string; page: NavPage }
+
+/** 菜单搜索：关键词用空格/逗号分开，每个词都要命中页面名、分组名或一级菜单名。 */
+export function searchNav(sections: readonly VisibleSection[], query: string): NavSearchHit[] {
+  const terms = query.toLowerCase().split(/[\s,，、]+/).filter(Boolean).slice(0, 6);
+  if (terms.length === 0) return [];
+  const hits: NavSearchHit[] = [];
+  for (const section of sections) {
+    for (const group of groupPages(section)) {
+      for (const page of group.pages) {
+        const text = `${page.label} ${group.title} ${section.label}`.toLowerCase();
+        if (terms.every((t) => text.includes(t))) hits.push({ sectionId: section.id, sectionLabel: section.label, groupTitle: group.title, page });
+      }
+    }
+  }
+  return hits;
+}
+
+/** 手机底栏要放的一级菜单和收进“更多”的一级菜单。 */
+export function splitMobileSections<T extends { id: string }>(sections: readonly T[]): { primary: T[]; more: T[] } {
+  const primary = MOBILE_PRIMARY_SECTIONS.map((id) => sections.find((s) => s.id === id)).filter((s): s is T => Boolean(s));
+  const ids = new Set(primary.map((s) => s.id));
+  return { primary, more: sections.filter((s) => !ids.has(s.id)) };
 }
