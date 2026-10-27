@@ -125,6 +125,14 @@ export class Department {
   @Column({ type: 'varchar', length: 12, default: 'active' })
   status!: 'active' | 'inactive';
 
+  /** 部门主管（显式字段；不再像旧系统那样按层级或名称猜） */
+  @Column({ name: 'manager_id', type: 'int', unsigned: true, nullable: true })
+  managerId!: number | null;
+
+  /** 系统归档部门（如“离职员工”）：不出现在组织架构和部门选择里，不能编辑、删除 */
+  @Column({ name: 'is_system', type: 'tinyint', width: 1, default: 0, transformer: boolTransformer() })
+  isSystem!: boolean;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
 }
@@ -177,6 +185,10 @@ export class Position {
 
   @Column({ type: 'varchar', length: 12, default: 'active' })
   status!: 'active' | 'inactive';
+
+  /** 岗位编码，同一部门内唯一（可空） */
+  @Column({ name: 'position_key', type: 'varchar', length: 64, nullable: true })
+  positionKey!: string | null;
 }
 
 /** 岗位档案条目：岗位职责 / 入职培训 / 绩效考核 / 监督规则 / 流程节点说明，同一张表按分类区分。 */
@@ -286,8 +298,65 @@ export class User {
   @Column({ name: 'base_salary', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } })
   baseSalary!: number | null;
 
+  /** 计薪方式：月薪（用底薪）/ 时薪（用 hourly_rate） */
+  @Column({ name: 'pay_type', type: 'varchar', length: 12, default: 'monthly' })
+  payType!: 'monthly' | 'hourly';
+
+  /** 时薪，分/小时；要 org.staff.salary 权限才能看、改 */
+  @Column({ name: 'hourly_rate', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } })
+  hourlyRate!: number | null;
+
+  /** 用工类型：正式 / 兼职 / 临时工 */
+  @Column({ name: 'employment_type', type: 'varchar', length: 16, default: 'regular' })
+  employmentType!: 'regular' | 'part_time' | 'temp';
+
   @Column({ name: 'last_login_at', type: 'datetime', nullable: true })
   lastLoginAt!: Date | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'datetime' })
+  createdAt!: Date;
+}
+
+/** 员工薪酬记录：薪资变更（改月薪/时薪/计薪方式时自动写）、工资发放、奖励、处罚。金额为分。 */
+@Entity('employee_compensation_records')
+@Index('idx_comp_user_type', ['companyId', 'userId', 'recordType', 'createdAt'])
+export class EmployeeCompensationRecord {
+  @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
+  id!: string;
+
+  @Column({ name: 'company_id', type: 'int', unsigned: true })
+  companyId!: number;
+
+  @Column({ name: 'user_id', type: 'int', unsigned: true })
+  userId!: number;
+
+  /** salary_change / payroll / reward / penalty */
+  @Column({ name: 'record_type', type: 'varchar', length: 40 })
+  recordType!: string;
+
+  @Column({ type: 'varchar', length: 160 })
+  title!: string;
+
+  @Column({ type: 'bigint', default: 0, transformer: { to: (v: number) => v, from: (v: string) => Number(v) } })
+  amount!: number;
+
+  @Column({ name: 'effective_date', type: 'date', nullable: true })
+  effectiveDate!: string | null;
+
+  @Column({ name: 'pay_period', type: 'varchar', length: 40, nullable: true })
+  payPeriod!: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  reason!: string | null;
+
+  @Column({ name: 'source_type', type: 'varchar', length: 80, nullable: true })
+  sourceType!: string | null;
+
+  @Column({ name: 'source_id', type: 'bigint', unsigned: true, nullable: true })
+  sourceId!: string | null;
+
+  @Column({ name: 'actor_id', type: 'int', unsigned: true, nullable: true })
+  actorId!: number | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
@@ -1033,6 +1102,7 @@ export const ALL_ENTITIES = [
   PositionPermission,
   User,
   UserPermissionOverride,
+  EmployeeCompensationRecord,
   AuditLog,
   ResourceRecord,
   ResourceLink,

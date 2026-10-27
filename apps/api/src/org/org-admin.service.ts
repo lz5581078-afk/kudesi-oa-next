@@ -2,12 +2,17 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { allGrantableKeys, createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, Department, PlatformAdmin, FlowStep, Position, PositionDuty, PositionPermission, ResourceChangeLog, ResourceRecord, TaskRoutine, User, UserPermissionOverride, WorkItem, WorkspaceType } from '../entities';
+import { AuditLog, Department, EmployeeCompensationRecord, FlowRun, PlatformAdmin, FlowStep, Position, PositionDuty, PositionPermission, ResourceChangeLog, ResourceRecord, TaskRoutine, User, UserPermissionOverride, WorkItem, WorkspaceType } from '../entities';
 
-export const DUTY_CATEGORIES = ['岗位职责', '入职培训', '绩效考核', '监督规则', '流程节点说明'] as const;
+/** 岗位条目分类：前 5 类是岗位档案的主要分区，后 5 类对应旧系统的“其他条目” */
+export const DUTY_CATEGORIES = ['岗位职责', '入职培训', '绩效考核', '监督规则', '流程节点说明', '日常工作', '周期工作', '审批职责', '资料维护', '其他'] as const;
+export const EMPLOYMENT_TYPES = ['regular', 'part_time', 'temp'] as const;
+export const PAY_TYPES = ['monthly', 'hourly'] as const;
+/** 删除部门时，停用员工归档到的系统部门（不出现在组织架构里，与旧系统一致） */
+export const DEPARTED_DEPARTMENT = '离职员工';
 export const POSITION_LEVELS = ['boss', 'manager', 'staff'] as const;
 
 export const WORKSPACE_TYPES: WorkspaceType[] = ['boss', 'general', 'operations', 'finance', 'cashier', 'warehouse', 'purchasing', 'support', 'blank'];
@@ -34,8 +39,12 @@ export interface StaffDto {
   lastLoginAt: Date | null;
   managerId: number | null;
   title: string | null;
+  payType: 'monthly' | 'hourly';
+  employmentType: 'regular' | 'part_time' | 'temp';
   /** 底薪（分）；没有 org.staff.salary 权限时不返回 */
   baseSalary?: number | null;
+  /** 时薪（分/小时）；没有 org.staff.salary 权限时不返回 */
+  hourlyRate?: number | null;
 }
 
 /** 部门、岗位、员工与权限管理。所有查询都带 companyId（取自令牌），所有变更写审计。 */
@@ -61,17 +70,22 @@ export class OrgAdminService {
   private async mustDepartment(em: EntityManager, companyId: number, id: number | null | undefined) {
     if (id === null || id === undefined) return null;
     const d = await em.findOne(Department, { where: { id, companyId } });
-    if (!d) throw new BadRequestException('部门不存在');
+    if (!d || d.isSystem) throw new BadRequestException('部门不存在');
     return d;
   }
 
   // ---------- 部门 ----------
   /** 改部门：名称、上级、同级排序；上级不能是自己或自己的下级（防止成环）。 */
-  async updateDepartment(actor: AuthUser, id: number, input: { name?: string; parentId?: number | null; sortOrder?: number; status?: 'active' | 'inactive'; reason?: string }) {
+  async updateDepartment(actor: AuthUser, id: number, input: { name?: string; parentId?: number | null; sortOrder?: number; status?: 'active' | 'inactive'; managerId?: number | null; reason?: string }) {
     return this.ds.transaction(async (em) => {
       const d = await em.findOne(Department, { where: { id, companyId: actor.companyId } });
       if (!d) throw new NotFoundException('部门不存在');
-      const before = { name: d.name, parentId: d.parentId, sortOrder: d.sortOrder, status: d.status };
+      if (d.isSystem) throw new ConflictException('系统归档部门不可编辑');
+      const before = { name: d.name, parentId: d.parentId, sortOrder: d.sortOrder, status: d.status, managerId: d.managerId };
+      if (input.managerId !== undefined) {
+        if (input.managerId !== null && input.managerId !== d.managerId) await this.mustActiveUser(em, actor.companyId, input.managerId, '部门主管');
+        d.managerId = input.managerId;
+      }
       if (input.name !== undefined) d.name = input.name.trim();
       if (input.parentId !== undefined && input.parentId !== d.parentId) {
         if (input.parentId !== null) {
@@ -97,32 +111,38 @@ export class OrgAdminService {
         d.status = input.status;
       }
       await em.save(d);
-      await this.audit(em, actor, 'department.update', 'department', id, { from: before, to: { name: d.name, parentId: d.parentId, sortOrder: d.sortOrder, status: d.status }, ...(reason ? { reason } : {}) });
+      await this.audit(em, actor, 'department.update', 'department', id, { from: before, to: { name: d.name, parentId: d.parentId, sortOrder: d.sortOrder, status: d.status, managerId: d.managerId }, ...(reason ? { reason } : {}) });
       return d;
     });
   }
 
-  /** 删除部门：空部门直接删；有下级部门、岗位或员工时，必须指定一个接收部门，全部转过去再删。 */
+  /**
+   * 删除部门：空部门直接删；有下级部门、岗位、在职员工或固定资产时，必须指定一个接收部门，全部转过去再删。
+   * 停用的员工不占用接收部门，归档到系统部门“离职员工”（旧系统同样处理）。
+   */
   async deleteDepartment(actor: AuthUser, id: number, transferToId?: number | null) {
     return this.ds.transaction(async (em) => {
       const d = await em.findOne(Department, { where: { id, companyId: actor.companyId } });
       if (!d) throw new NotFoundException('部门不存在');
-      const [kids, pos, users] = await Promise.all([
+      if (d.isSystem) throw new ConflictException('系统归档部门不能删除');
+      const [kids, positions, users] = await Promise.all([
         em.count(Department, { where: { companyId: actor.companyId, parentId: id } }),
-        em.count(Position, { where: { companyId: actor.companyId, departmentId: id } }),
-        em.count(User, { where: { companyId: actor.companyId, departmentId: id } }),
+        em.find(Position, { where: { companyId: actor.companyId, departmentId: id } }),
+        em.find(User, { where: { companyId: actor.companyId, departmentId: id } }),
       ]);
+      const activeUsers = users.filter((u) => u.status === 'active');
+      const inactiveUsers = users.filter((u) => u.status !== 'active');
       // 固定资产的“所属部门”存在资料数据里，也要跟着转移（旧系统同样处理并写日志）
       const assets = await em
         .createQueryBuilder(ResourceRecord, 'r')
         .where('r.companyId = :c AND r.type = :t', { c: actor.companyId, t: 'fixed-assets' })
         .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.departmentId')) = :d", { d: String(id) })
         .getMany();
-      const moved = { kids, positions: pos, users, assets: assets.length };
-      if (kids + pos + users + assets.length > 0) {
-        if (!transferToId) throw new ConflictException('部门下还有下级部门、岗位、员工或固定资产，请选择一个接收部门后再删除');
+      const moved = { kids, positions: positions.length, users: activeUsers.length, assets: assets.length, archivedUsers: inactiveUsers.length };
+      if (kids + positions.length + activeUsers.length + assets.length > 0) {
+        if (!transferToId) throw new ConflictException('部门下还有下级部门、岗位、在职员工或固定资产，请选择一个接收部门后再删除');
         if (transferToId === id) throw new BadRequestException('接收部门不能是被删除的部门');
-        await this.mustDepartment(em, actor.companyId, transferToId);
+        const target = await this.mustDepartment(em, actor.companyId, transferToId);
         // 接收部门不能是被删除部门的下级，否则下级部门会挂到自己下面
         let cur: number | null = transferToId;
         for (let guard = 0; cur !== null && guard < 100; guard++) {
@@ -130,10 +150,15 @@ export class OrgAdminService {
           const up: Department | null = await em.findOne(Department, { where: { id: cur, companyId: actor.companyId } });
           cur = up?.parentId ?? null;
         }
+        // 岗位编码在部门内唯一：接收部门已有相同编码就不能转
+        const keys = positions.map((p) => p.positionKey).filter((k): k is string => !!k);
+        if (keys.length) {
+          const clash = await em.find(Position, { where: { companyId: actor.companyId, departmentId: transferToId, positionKey: In(keys) } });
+          if (clash.length) throw new ConflictException(`接收部门已有相同岗位编码：${clash.map((c) => c.positionKey).join('、')}。请先调整岗位编码或选择其他部门`);
+        }
         await em.update(Department, { companyId: actor.companyId, parentId: id }, { parentId: transferToId });
         await em.update(Position, { companyId: actor.companyId, departmentId: id }, { departmentId: transferToId });
-        await em.update(User, { companyId: actor.companyId, departmentId: id }, { departmentId: transferToId });
-        const target = await em.findOne(Department, { where: { id: transferToId, companyId: actor.companyId } });
+        await em.update(User, { companyId: actor.companyId, departmentId: id, status: 'active' }, { departmentId: transferToId });
         for (const a of assets) {
           const before = { title: a.title, status: a.status, ...a.data };
           a.data = { ...a.data, departmentId: transferToId };
@@ -141,14 +166,57 @@ export class OrgAdminService {
           await em.insert(ResourceChangeLog, {
             companyId: actor.companyId, resourceType: 'fixed-assets', resourceId: a.id, action: 'department_transferred', actorId: actor.id,
             beforeJson: before as never, afterJson: { title: a.title, status: a.status, ...a.data } as never,
-            note: `部门「${d.name}」已删除，资产转到「${target?.name ?? transferToId}」`,
+            note: `部门「${d.name}」已删除，资产转到「${target!.name}」`,
           });
         }
+      }
+      if (inactiveUsers.length) {
+        let departed = await em.findOne(Department, { where: { companyId: actor.companyId, isSystem: true, name: DEPARTED_DEPARTMENT } });
+        if (!departed) {
+          departed = await em.save(Department, em.create(Department, { companyId: actor.companyId, parentId: null, name: DEPARTED_DEPARTMENT, sortOrder: 2147483647, status: 'inactive', managerId: null, isSystem: true }));
+        }
+        await em.update(User, { companyId: actor.companyId, departmentId: id, status: In(['disabled']) }, { departmentId: departed.id });
       }
       await em.delete(Department, { id, companyId: actor.companyId });
       await this.audit(em, actor, 'department.delete', 'department', id, { name: d.name, transferToId: transferToId ?? null, moved });
       return { ok: true, moved };
     });
+  }
+
+  /** 部门档案：主管、人数、岗位、人员（含直属上级和所在职责组）、下级部门。 */
+  async departmentProfile(actor: AuthUser, id: number) {
+    const em = this.ds.manager;
+    const d = await em.findOne(Department, { where: { id, companyId: actor.companyId } });
+    if (!d || d.isSystem) throw new NotFoundException('部门不存在');
+    const [positions, users, kids, allUsers] = await Promise.all([
+      em.find(Position, { where: { companyId: actor.companyId, departmentId: id }, order: { sortOrder: 'ASC', id: 'ASC' } }),
+      em.find(User, { where: { companyId: actor.companyId, departmentId: id }, order: { id: 'ASC' } }),
+      em.find(Department, { where: { companyId: actor.companyId, parentId: id, isSystem: false }, order: { sortOrder: 'ASC', id: 'ASC' } }),
+      em.find(User, { where: { companyId: actor.companyId }, select: ['id', 'name', 'departmentId', 'status'] }),
+    ]);
+    const nameOf = new Map(allUsers.map((u) => [u.id, u.name]));
+    const parent = d.parentId ? await em.findOne(Department, { where: { id: d.parentId, companyId: actor.companyId } }) : null;
+    // 职责组：职责组成员是资料（duty-group-members），按成员找所属组
+    const memberRows = users.length
+      ? (await em.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'duty-group-members' }, select: ['id', 'data'] })).filter((r) => users.some((u) => u.id === Number(r.data.userId)))
+      : [];
+    const groupIds = [...new Set(memberRows.map((r) => Number(r.data.groupId)))];
+    const groups = groupIds.length ? await em.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'duty-groups', id: In(groupIds) }, select: ['id', 'title'] }) : [];
+    const groupName = new Map(groups.map((g) => [g.id, g.title]));
+    const posName = new Map(positions.map((p) => [p.id, p.name]));
+    const posAll = await this.positionMap(em, actor.companyId);
+    const headcount = async (deptId: number) => allUsers.filter((u) => u.departmentId === deptId && u.status === 'active').length;
+    return {
+      department: { id: d.id, name: d.name, parentId: d.parentId, parentName: parent?.name ?? null, status: d.status, managerId: d.managerId, managerName: d.managerId ? nameOf.get(d.managerId) ?? null : null },
+      headcount: users.filter((u) => u.status === 'active').length,
+      positions: positions.map((p) => ({ id: p.id, name: p.name, level: p.level, status: p.status, userCount: users.filter((u) => u.status === 'active' && (u.positionId === p.id || (u.extraPositionIds ?? []).includes(p.id))).length })),
+      staff: users.map((u) => ({
+        id: u.id, name: u.name, account: u.account ?? '', status: u.status, positionName: u.positionId ? posName.get(u.positionId) ?? posAll.get(u.positionId) ?? null : null,
+        managerName: u.managerId ? nameOf.get(u.managerId) ?? null : null,
+        groups: memberRows.filter((r) => Number(r.data.userId) === u.id).map((r) => groupName.get(Number(r.data.groupId)) ?? '').filter(Boolean),
+      })),
+      children: await Promise.all(kids.map(async (k) => ({ id: k.id, name: k.name, status: k.status, headcount: await headcount(k.id) }))),
+    };
   }
 
   // ---------- 岗位 ----------
@@ -159,14 +227,14 @@ export class OrgAdminService {
     const people = await this.ds.manager.find(User, { where: { companyId: actor.companyId }, select: ['id', 'positionId', 'extraPositionIds'] });
     const countOf = (pid: number) => people.filter((u) => u.positionId === pid || (u.extraPositionIds ?? []).includes(pid)).length;
     return rows.map((r) => ({
-      id: r.id, name: r.name, departmentId: r.departmentId, workspaceType: r.workspaceType,
+      id: r.id, name: r.name, positionKey: r.positionKey, departmentId: r.departmentId, workspaceType: r.workspaceType,
       level: r.level, supervisorPositionId: r.supervisorPositionId, description: r.description, status: r.status,
       permissions: perms.filter((p) => p.positionId === r.id).map((p) => p.permission).sort(),
       userCount: countOf(r.id),
     }));
   }
 
-  async createPosition(actor: AuthUser, input: { name: string; departmentId?: number | null; workspaceType: WorkspaceType; level?: 'boss' | 'manager' | 'staff'; supervisorPositionId?: number | null; description?: string }) {
+  async createPosition(actor: AuthUser, input: { name: string; positionKey?: string | null; departmentId?: number | null; workspaceType: WorkspaceType; level?: 'boss' | 'manager' | 'staff'; supervisorPositionId?: number | null; description?: string }) {
     if (!WORKSPACE_TYPES.includes(input.workspaceType)) throw new BadRequestException('岗位类型不合法');
     return this.ds.transaction(async (em) => {
       await this.mustDepartment(em, actor.companyId, input.departmentId);
@@ -174,13 +242,22 @@ export class OrgAdminService {
       if (await em.findOne(Position, { where: { companyId: actor.companyId, name } })) throw new ConflictException('已有同名岗位');
       if (input.level && !POSITION_LEVELS.includes(input.level)) throw new BadRequestException('岗位层级不合法');
       if (input.supervisorPositionId) await this.mustPosition(em, actor.companyId, input.supervisorPositionId);
-      const p = await em.save(Position, em.create(Position, { companyId: actor.companyId, name, departmentId: input.departmentId ?? null, workspaceType: input.workspaceType, sortOrder: 0, level: input.level ?? 'staff', supervisorPositionId: input.supervisorPositionId ?? null, description: input.description?.trim() || null, status: 'active' }));
+      const positionKey = input.positionKey?.trim() || null;
+      await this.checkPositionKey(em, actor.companyId, input.departmentId ?? null, positionKey, null);
+      const p = await em.save(Position, em.create(Position, { companyId: actor.companyId, positionKey, name, departmentId: input.departmentId ?? null, workspaceType: input.workspaceType, sortOrder: 0, level: input.level ?? 'staff', supervisorPositionId: input.supervisorPositionId ?? null, description: input.description?.trim() || null, status: 'active' }));
       await this.audit(em, actor, 'position.create', 'position', p.id, { name, workspaceType: p.workspaceType });
       return p;
     });
   }
 
-  async updatePosition(actor: AuthUser, id: number, input: { name?: string; departmentId?: number | null; workspaceType?: WorkspaceType; level?: 'boss' | 'manager' | 'staff'; supervisorPositionId?: number | null; description?: string | null; status?: 'active' | 'inactive'; reason?: string }) {
+  /** 岗位编码在同一部门内唯一（可以不填） */
+  private async checkPositionKey(em: EntityManager, companyId: number, departmentId: number | null, key: string | null, selfId: number | null) {
+    if (!key) return;
+    const dup = await em.findOne(Position, { where: { companyId, departmentId: departmentId === null ? IsNull() : departmentId, positionKey: key } });
+    if (dup && dup.id !== selfId) throw new ConflictException(`这个部门里已有岗位编码「${key}」`);
+  }
+
+  async updatePosition(actor: AuthUser, id: number, input: { name?: string; positionKey?: string | null; departmentId?: number | null; workspaceType?: WorkspaceType; level?: 'boss' | 'manager' | 'staff'; supervisorPositionId?: number | null; description?: string | null; status?: 'active' | 'inactive'; reason?: string }) {
     return this.ds.transaction(async (em) => {
       const p = await em.findOne(Position, { where: { id, companyId: actor.companyId } });
       if (!p) throw new NotFoundException('岗位不存在');
@@ -194,6 +271,8 @@ export class OrgAdminService {
         await this.mustDepartment(em, actor.companyId, input.departmentId);
         p.departmentId = input.departmentId;
       }
+      if (input.positionKey !== undefined) p.positionKey = input.positionKey?.trim() || null;
+      if (input.departmentId !== undefined || input.positionKey !== undefined) await this.checkPositionKey(em, actor.companyId, p.departmentId, p.positionKey, id);
       if (input.workspaceType !== undefined) {
         if (!WORKSPACE_TYPES.includes(input.workspaceType)) throw new BadRequestException('岗位类型不合法');
         p.workspaceType = input.workspaceType;
@@ -288,7 +367,7 @@ export class OrgAdminService {
       [actor.companyId, String(id), ...dutyIds],
     );
     return {
-      position: { id: p.id, name: p.name, departmentId: p.departmentId, departmentName: dept?.name ?? null, workspaceType: p.workspaceType, level: p.level, supervisorPositionId: p.supervisorPositionId, supervisorPositionName: sup?.name ?? null, description: p.description, status: p.status },
+      position: { id: p.id, name: p.name, positionKey: p.positionKey, departmentId: p.departmentId, departmentName: dept?.name ?? null, workspaceType: p.workspaceType, level: p.level, supervisorPositionId: p.supervisorPositionId, supervisorPositionName: sup?.name ?? null, description: p.description, status: p.status },
       duties: duties.map((d) => ({ id: d.id, category: d.category, title: d.title, description: d.description, frequency: d.frequency, relatedModule: d.relatedModule, completionStandard: d.completionStandard, isKey: d.isKey, status: d.status })),
       staff: staff.map((u) => ({ id: u.id, name: u.name, status: u.status, concurrent: u.positionId !== id })),
       permissions: perms.map((x) => x.permission).sort(),
@@ -366,8 +445,8 @@ export class OrgAdminService {
       positionName: u.positionId ? positions.get(u.positionId) ?? null : null,
       extraPositionIds: u.extraPositionIds ?? [],
       isCompanyAdmin: u.isCompanyAdmin, status: u.status, lastLoginAt: u.lastLoginAt,
-      managerId: u.managerId, title: u.title,
-      ...(withSalary ? { baseSalary: u.baseSalary } : {}),
+      managerId: u.managerId, title: u.title, payType: u.payType, employmentType: u.employmentType,
+      ...(withSalary ? { baseSalary: u.baseSalary, hourlyRate: u.hourlyRate } : {}),
     };
   }
 
@@ -400,7 +479,7 @@ export class OrgAdminService {
   }
 
   /** 新员工的初始密码由系统随机生成，只在这次返回里出现一次，首次登录必须改。 */
-  async createStaff(actor: AuthUser, input: { account: string; name: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string; baseSalary?: number | null; extraPositionIds?: number[] }) {
+  async createStaff(actor: AuthUser, input: { account: string; name: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }) {
     const account = input.account.trim();
     const initialPassword = generatePassword();
     const passwordHash = await bcrypt.hash(initialPassword, 10);
@@ -409,13 +488,14 @@ export class OrgAdminService {
       await this.mustPosition(em, actor.companyId, input.positionId);
       const extra = await this.cleanExtraPositions(em, actor.companyId, input.positionId ?? null, input.extraPositionIds);
       if (input.managerId) await this.mustActiveUser(em, actor.companyId, input.managerId, '直属上级');
-      if (input.baseSalary !== undefined && input.baseSalary !== null && !this.canSalary(actor)) throw new ForbiddenException('没有设置底薪的权限');
+      if (((input.baseSalary !== undefined && input.baseSalary !== null) || (input.hourlyRate !== undefined && input.hourlyRate !== null) || (input.payType !== undefined && input.payType !== 'monthly')) && !this.canSalary(actor)) throw new ForbiddenException('没有设置底薪的权限');
       // 账号全系统唯一（登录不填公司），提示不透露是哪家公司在用
       if ((await em.findOne(User, { where: { account } })) || (await em.findOne(PlatformAdmin, { where: { account } }))) throw new ConflictException('这个账号已经存在，请换一个');
       const u = await em.save(User, em.create(User, {
         companyId: actor.companyId, account, passwordHash, name: input.name.trim(),
         departmentId: input.departmentId ?? null, positionId: input.positionId ?? null, extraPositionIds: extra.length ? extra : null,
         managerId: input.managerId ?? null, title: input.title?.trim() || null, baseSalary: input.baseSalary ?? null,
+        payType: input.payType ?? 'monthly', hourlyRate: input.hourlyRate ?? null, employmentType: input.employmentType ?? 'regular',
         isCompanyAdmin: false, status: 'active', mustChangePassword: true,
       }));
       await this.audit(em, actor, 'user.create', 'user', u.id, { account, positionId: u.positionId, extraPositionIds: u.extraPositionIds });
@@ -439,7 +519,12 @@ export class OrgAdminService {
     return u;
   }
 
-  async updateStaff(actor: AuthUser, id: number, input: { name?: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string | null; baseSalary?: number | null; extraPositionIds?: number[] }) {
+  private payText(type: string, base: number | null, hourly: number | null) {
+    const yuan = (v: number | null) => ((v ?? 0) / 100).toFixed(2);
+    return type === 'hourly' ? `时薪 ${yuan(hourly)} 元/小时` : `月薪 ${yuan(base)} 元/月`;
+  }
+
+  async updateStaff(actor: AuthUser, id: number, input: { name?: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string | null; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }) {
     await this.ds.transaction(async (em) => {
       const u = await this.mustEditable(em, actor, id);
       if ((input.positionId !== undefined || input.extraPositionIds !== undefined) && id === actor.id && !actor.permissions.isCompanyAdmin) throw new ForbiddenException('不能修改自己的岗位');
@@ -464,16 +549,34 @@ export class OrgAdminService {
         u.managerId = input.managerId;
       }
       if (input.title !== undefined) u.title = input.title?.trim() || null;
+      if (input.employmentType !== undefined) u.employmentType = input.employmentType;
       let salaryChange: { from: number | null; to: number | null } | null = null;
-      if (input.baseSalary !== undefined) {
+      const beforePay = { type: u.payType, base: u.baseSalary ?? null, hourly: u.hourlyRate ?? null };
+      if (input.baseSalary !== undefined || input.payType !== undefined || input.hourlyRate !== undefined) {
         if (!this.canSalary(actor)) throw new ForbiddenException('没有设置底薪的权限');
+      }
+      if (input.baseSalary !== undefined) {
         if ((u.baseSalary ?? null) !== input.baseSalary) salaryChange = { from: u.baseSalary ?? null, to: input.baseSalary };
         u.baseSalary = input.baseSalary;
       }
+      if (input.payType !== undefined) u.payType = input.payType;
+      if (input.hourlyRate !== undefined) u.hourlyRate = input.hourlyRate;
       await em.save(u);
-      const { baseSalary: _salary, ...logged } = input;
+      const { baseSalary: _salary, hourlyRate: _hourly, ...logged } = input;
       await this.audit(em, actor, 'user.update', 'user', id, { ...logged });
       if (salaryChange) await this.audit(em, actor, 'user.salary', 'user', id, salaryChange);
+      // 月薪、时薪或计薪方式变了：写一条薪资变更记录（员工档案的“薪资变更”里看）
+      const payChanged = beforePay.type !== u.payType || (u.payType === 'hourly' ? beforePay.hourly !== (u.hourlyRate ?? null) : beforePay.base !== (u.baseSalary ?? null));
+      if (payChanged) {
+        await em.insert(EmployeeCompensationRecord, {
+          companyId: actor.companyId, userId: id, recordType: 'salary_change',
+          title: beforePay.type !== u.payType ? '计薪方式变更' : u.payType === 'hourly' ? '时薪变更' : '月薪变更',
+          amount: (u.payType === 'hourly' ? u.hourlyRate : u.baseSalary) ?? 0,
+          effectiveDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }),
+          reason: `${this.payText(beforePay.type, beforePay.base, beforePay.hourly)} 调整为 ${this.payText(u.payType, u.baseSalary ?? null, u.hourlyRate ?? null)}`,
+          sourceType: 'employee_profile', actorId: actor.id, payPeriod: null, sourceId: null,
+        });
+      }
     });
     return this.getStaff(actor, id);
   }
@@ -553,6 +656,69 @@ export class OrgAdminService {
     const result = { toUserId: target.id, toUserName: target.name, workItems: moved, mergedWorkItems: merged, flowSteps: steps, routines: routines.affected ?? 0 };
     await this.audit(em, actor, 'user.handover', 'user', u.id, { ...result, reason });
     return result;
+  }
+
+  /** 调岗、请假时手动交接：把员工手上未完成的待办、流程步骤、周期任务交给接收人（不停用）。 */
+  async handover(actor: AuthUser, id: number, input: { targetUserId?: number; reason?: string }) {
+    const reason = (input.reason ?? '').trim() || '人员档案中手动交接';
+    const result = await this.ds.transaction(async (em) => {
+      const u = await this.mustEditable(em, actor, id);
+      let target: { id: number; name: string } | null = null;
+      if (input.targetUserId) {
+        if (input.targetUserId === id) throw new BadRequestException('接收人不能是交出人自己');
+        target = await this.mustActiveUser(em, actor.companyId, input.targetUserId, '接收人');
+      } else target = await this.suggestHandoverTarget(em, u);
+      if (!target) throw new ConflictException('找不到可以接收交接的在职人员，请指定接收人');
+      return this.doHandover(em, actor, u, target, reason);
+    });
+    return result;
+  }
+
+  /** 人员记录：人事记录、薪资变更、工资发放、奖励、处罚、任务、流程、交接。薪酬类要 org.staff.salary 权限。 */
+  async staffRecords(actor: AuthUser, id: number) {
+    const em = this.ds.manager;
+    const u = await em.findOne(User, { where: { id, companyId: actor.companyId } });
+    if (!u) throw new NotFoundException('员工不存在');
+    const nameOf = async (ids: Array<number | null>) => {
+      const list = [...new Set(ids.filter((x): x is number => !!x))];
+      const rows = list.length ? await em.find(User, { where: { companyId: actor.companyId, id: In(list) }, select: ['id', 'name'] }) : [];
+      return new Map(rows.map((r) => [r.id, r.name]));
+    };
+    const hrLogs: Array<{ id: string; action: string; actorName: string | null; detail: unknown; createdAt: Date }> = await em.query(
+      `SELECT a.id, a.action, a.detail, a.created_at AS createdAt, u.name AS actorName
+       FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id
+       WHERE a.company_id = ? AND a.resource_type = 'user' AND a.resource_id = ? ORDER BY a.id DESC LIMIT 50`,
+      [actor.companyId, String(id)],
+    );
+    const sal = this.canSalary(actor);
+    const comp = async (type: string) => {
+      if (!sal) return [];
+      const rows = await em.find(EmployeeCompensationRecord, { where: { companyId: actor.companyId, userId: id, recordType: type }, order: { id: 'DESC' }, take: 50 });
+      const names = await nameOf(rows.map((r) => r.actorId));
+      return rows.map((r) => ({ id: r.id, title: r.title, amount: r.amount, effectiveDate: r.effectiveDate, payPeriod: r.payPeriod, reason: r.reason, actorName: r.actorId ? names.get(r.actorId) ?? null : null, createdAt: r.createdAt }));
+    };
+    const [salaryChanges, payrollRecords, rewardRecords, penaltyRecords] = await Promise.all([comp('salary_change'), comp('payroll'), comp('reward'), comp('penalty')]);
+    const items = await em.find(WorkItem, { where: [{ companyId: actor.companyId, assigneeId: id }, { companyId: actor.companyId, createdBy: id }], order: { id: 'DESC' }, take: 50 });
+    const itemNames = await nameOf(items.flatMap((i) => [i.assigneeId, i.createdBy]));
+    const runs = await em.find(FlowRun, { where: { companyId: actor.companyId, requesterId: id }, order: { id: 'DESC' }, take: 50 });
+    const handled = await em.find(FlowStep, { where: { companyId: actor.companyId, handledBy: id }, order: { id: 'DESC' }, take: 50 });
+    const handovers: Array<{ id: string; detail: Record<string, unknown>; actorName: string | null; createdAt: Date; fromUserId: string }> = await em.query(
+      `SELECT a.id, a.detail, a.created_at AS createdAt, a.resource_id AS fromUserId, u.name AS actorName
+       FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id
+       WHERE a.company_id = ? AND a.action = 'user.handover' AND (a.resource_id = ? OR JSON_EXTRACT(a.detail, '$.toUserId') = ?) ORDER BY a.id DESC LIMIT 50`,
+      [actor.companyId, String(id), id],
+    );
+    const hn = await nameOf(handovers.flatMap((h) => [Number(h.fromUserId), Number(h.detail?.toUserId)]));
+    return {
+      hrLogs,
+      salaryChanges, payrollRecords, rewardRecords, penaltyRecords,
+      tasks: items.map((i) => ({ id: i.id, title: i.title, status: i.status, assigneeName: itemNames.get(i.assigneeId) ?? null, createdByName: i.createdBy ? itemNames.get(i.createdBy) ?? null : null, dueAt: i.dueAt, createdAt: i.createdAt })),
+      flows: [
+        ...runs.map((r) => ({ id: `run-${r.id}`, title: r.title, kind: '发起的流程', status: r.status, action: null as string | null, createdAt: r.createdAt })),
+        ...handled.map((st) => ({ id: `step-${st.id}`, title: st.stepName, kind: '办理的节点', status: st.status, action: st.action, createdAt: st.finishedAt ?? st.enteredAt })),
+      ],
+      handovers: handovers.map((h) => ({ id: h.id, fromName: hn.get(Number(h.fromUserId)) ?? null, toName: hn.get(Number(h.detail?.toUserId)) ?? (h.detail?.toUserName as string | undefined) ?? null, actorName: h.actorName, reason: (h.detail?.reason as string | undefined) ?? null, workItems: Number(h.detail?.workItems ?? 0), flowSteps: Number(h.detail?.flowSteps ?? 0), routines: Number(h.detail?.routines ?? 0), createdAt: h.createdAt })),
+    };
   }
 
   async setStatus(actor: AuthUser, id: number, status: 'active' | 'disabled', reason?: string, handoverToUserId?: number) {

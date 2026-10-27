@@ -36,7 +36,7 @@ export const ASSET_ACTIONS: Record<AssetAction, AssetActionRule> = {
 export const ASSET_ACTIONS_BY_STATE: Record<AssetState, readonly AssetAction[]> = {
   idle: ['checkout', 'repair', 'lost', 'retire'],
   in_use: ['transfer', 'return', 'repair', 'lost', 'retire'],
-  repairing: ['repaired', 'retire'],
+  repairing: ['repaired', 'lost', 'retire'],
   lost: ['found', 'retire'],
   retired: [],
 };

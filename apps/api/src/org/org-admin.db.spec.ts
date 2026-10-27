@@ -112,7 +112,7 @@ d('组织与权限管理（真实数据库）', () => {
     await expect(svc.deleteDepartment(boss, a, kid)).rejects.toThrow(/下级部门/);
     await expect(svc.deleteDepartment(boss, a, a)).rejects.toThrow(/不能是被删除/);
     const r = await svc.deleteDepartment(boss, a, to);
-    expect(r.moved).toEqual({ kids: 1, positions: 1, users: 1, assets: 0 });
+    expect(r.moved).toEqual({ kids: 1, positions: 1, users: 1, assets: 0, archivedUsers: 0 });
     expect((await svc.getStaff(boss, st.staff.id)).departmentId).toBe(to);
     expect((await svc.listPositions(boss)).find((x) => x.id === pos.id)!.departmentId).toBe(to);
     expect((await ds.manager.query('SELECT parent_id p FROM departments WHERE id = ?', [kid]))[0].p).toBe(to);
@@ -193,5 +193,65 @@ d('组织与权限管理（真实数据库）', () => {
     // 清掉主岗位，兼任一并清空
     const cleared = await svc.updateStaff(boss, s.id, { positionId: null });
     expect(cleared.extraPositionIds).toEqual([]);
+  });
+  it('计薪方式：时薪要薪资权限；改薪写薪资变更记录；人员记录里薪酬类只有薪资权限的人能看', async () => {
+    const hr = { ...manager, permissions: { isCompanyAdmin: false, allow: ['org.staff.edit', 'org.staff.create', 'org.staff.disable', 'org.staff.view'], deny: [] } };
+    await expect(svc.createStaff(hr, { account: `pay0${T}`, name: '越权', payType: 'hourly', hourlyRate: 3000 })).rejects.toThrow(/底薪/);
+    const s = (await svc.createStaff(boss, { account: `pay1${T}`, name: '时薪工', payType: 'hourly', hourlyRate: 3000, employmentType: 'part_time' })).staff;
+    expect(s).toMatchObject({ payType: 'hourly', hourlyRate: 3000, employmentType: 'part_time' });
+    const seen = await svc.getStaff(hr, s.id);
+    expect(seen.hourlyRate).toBeUndefined();
+    expect(seen).toMatchObject({ payType: 'hourly', employmentType: 'part_time' });
+    await svc.updateStaff(boss, s.id, { hourlyRate: 3500 });
+    await svc.updateStaff(boss, s.id, { payType: 'monthly', baseSalary: 600000 });
+    const rec = await svc.staffRecords(boss, s.id);
+    expect(rec.salaryChanges.length).toBeGreaterThanOrEqual(2);
+    expect(rec.salaryChanges[0].reason).toContain('调整为');
+    const hidden = await svc.staffRecords(hr, s.id);
+    expect(hidden.salaryChanges).toEqual([]);
+    expect(hidden.hrLogs.length).toBeGreaterThan(0);
+    await expect(svc.staffRecords(other, s.id)).rejects.toThrow(/不存在/);
+  });
+
+  it('手动交接：调岗不停用也能把待办交给别人；不能交给自己', async () => {
+    const a = (await svc.createStaff(boss, { account: `mh-a${T}`, name: '手交甲' })).staff;
+    const b = (await svc.createStaff(boss, { account: `mh-b${T}`, name: '手交乙' })).staff;
+    const wi = Number((await ds.manager.query("INSERT INTO work_items (company_id, kind, assignee_id, title, status) VALUES (?, 'task', ?, '手交待办', 'open')", [boss.companyId, a.id])).insertId);
+    await expect(svc.handover(boss, a.id, { targetUserId: a.id })).rejects.toThrow(/自己/);
+    const r = await svc.handover(boss, a.id, { targetUserId: b.id, reason: '调岗' });
+    expect(r).toMatchObject({ toUserId: b.id, workItems: 1 });
+    expect((await ds.manager.query('SELECT assignee_id x FROM work_items WHERE id = ?', [wi]))[0].x).toBe(b.id);
+    expect((await svc.getStaff(boss, a.id)).status).toBe('active');
+    expect((await svc.staffRecords(boss, b.id)).handovers[0]).toMatchObject({ fromName: '手交甲', reason: '调岗' });
+  });
+
+  it('部门主管与档案；删除部门时停用员工归到系统部门“离职员工”，不出现在组织树里', async () => {
+    const mkDept = async (name: string) => Number((await ds.manager.query('INSERT INTO departments (company_id, parent_id, name, sort_order) VALUES (?, NULL, ?, 0)', [boss.companyId, name])).insertId);
+    const from = await mkDept('主管转出部'), to = await mkDept('主管接收部');
+    const head = (await svc.createStaff(boss, { account: `dh${T}`, name: '部门长', departmentId: from })).staff;
+    const gone = (await svc.createStaff(boss, { account: `dg${T}`, name: '已离职', departmentId: from })).staff;
+    await svc.setStatus(boss, gone.id, 'disabled', '离职');
+    await expect(svc.updateDepartment(boss, from, { managerId: 99999999 })).rejects.toThrow();
+    await svc.updateDepartment(boss, from, { managerId: head.id });
+    const prof = await svc.departmentProfile(boss, from);
+    expect(prof.department).toMatchObject({ managerId: head.id, managerName: '部门长' });
+    expect(prof.headcount).toBe(1);
+    const r = await svc.deleteDepartment(boss, from, to);
+    expect(r.moved).toMatchObject({ users: 1, archivedUsers: 1 });
+    expect((await svc.getStaff(boss, head.id)).departmentId).toBe(to);
+    const archivedDept = (await svc.getStaff(boss, gone.id)).departmentId!;
+    const row = (await ds.manager.query('SELECT name, is_system s FROM departments WHERE id = ?', [archivedDept]))[0];
+    expect(row).toMatchObject({ name: '离职员工', s: 1 });
+    await expect(svc.updateDepartment(boss, archivedDept, { name: '改名' })).rejects.toThrow();
+    await expect(svc.departmentProfile(boss, archivedDept)).rejects.toThrow(/不存在/);
+  });
+
+  it('岗位：职责分类 10 种；岗位标识在同部门内不重复', async () => {
+    const p = await svc.createPosition(boss, { name: '标识岗甲', workspaceType: 'blank', positionKey: 'key_a' });
+    await expect(svc.createPosition(boss, { name: '标识岗乙', workspaceType: 'blank', positionKey: 'key_a' })).rejects.toThrow(/岗位编码/);
+    for (const c of ['审批职责', '资料维护', '其他', '日常工作', '周期工作']) {
+      await svc.createDuty(boss, p.id, { category: c, title: `条目-${c}` });
+    }
+    expect((await svc.positionProfile(boss, p.id)).duties).toHaveLength(5);
   });
 });

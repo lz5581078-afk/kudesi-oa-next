@@ -6,7 +6,7 @@ import { refreshFromSources, recomputeProduct } from '../resources/finance-rules
 import { ResourcesService } from '../resources/resources.service';
 import { FilesService } from '../integrations/files.service';
 import { AuthUser } from '../common/auth.decorators';
-import { yuanToPreciseCents, normalizePhone, getResourceDef } from '@kudesi/shared';
+import { yuanToPreciseCents, normalizePhone, getResourceDef, workspaceTypeFromLegacyTemplate } from '@kudesi/shared';
 import { encodeLegacyPassword } from '../auth/password';
 import { aliasCode } from '../resources/base-code-support';
 import { LegacyArchive, LegacyRecord, LegacyRef } from './protocol';
@@ -96,7 +96,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     for (const d of source.departments) if (orgCreated.has(key('department',d.id)) && d.parent_department_id) await em.update(Department, { id: required('department', d.id), companyId: company.id }, { parentId: required('department', d.parent_department_id) });
     for (const p of source.positions) {
       if (reuse('position', p.id)) continue;
-      const workspace = ['boss','general','operations','finance','cashier','warehouse','purchasing','support','blank'].includes(p.workspace_template_key) ? p.workspace_template_key : 'blank';
+      const workspace = workspaceTypeFromLegacyTemplate(p.workspace_template_key) ?? 'blank';
       if (!p.name || String(p.name).length > 100 || !['boss','manager','staff'].includes(p.level)) throw new MigrationError('岗位名称或显式层级待核定');
       let positionName = String(p.name);
       if (await em.findOneBy(Position, { companyId: company.id, name: positionName })) {
@@ -106,7 +106,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
         if (positionName.length > 100) throw new MigrationError('同名岗位区分名称超长');
         out.excluded.push({ type: 'position.name', id: String(p.id), reason: '旧岗位名与目标公司岗位重名，使用来源部门名加岗位名区分；保留旧新ID对照' });
       }
-      const r = await em.save(Position, em.create(Position, { companyId: company.id, departmentId: required('department', p.department_id), name: positionName, workspaceType: workspace, level: p.level, supervisorPositionId: null, description: p.description, status: p.status === 'active' ? 'active' : 'inactive' }));
+      const r = await em.save(Position, em.create(Position, { companyId: company.id, departmentId: required('department', p.department_id), name: positionName, positionKey: p.position_key ? String(p.position_key).slice(0, 64) : null, workspaceType: workspace, level: p.level, supervisorPositionId: null, description: p.description, status: p.status === 'active' ? 'active' : 'inactive' }));
       await register('position', p.id, r.id); count('created', 'position'); orgCreated.add(key('position', p.id));
       if (workspace === 'blank') out.excluded.push({ type: 'position.workspaceType', id: String(p.id), reason: '旧岗位未提供新系统支持的显式工作台类型，保留空白，不按名称猜测' });
     }
@@ -118,7 +118,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       if (account && (await em.findOneBy(User, { account }) || await em.findOneBy(PlatformAdmin, { account }))) throw new MigrationError('员工账号与目标系统已有账号冲突，禁止覆盖');
       const positions = source.employeePositions.filter((x) => String(x.employee_id) === String(e.id));
       const primary = positions.find((x) => x.is_primary) ?? positions[0];
-      const r = await em.save(User, em.create(User, { companyId: company.id, account, passwordHash: account ? encodeLegacyPassword(String(e.password_salt), String(e.password_hash)) : '!no-login', name: e.name, departmentId: required('department', e.department_id), positionId: primary ? required('position', primary.position_id) : null, extraPositionIds: positions.filter((x) => x !== primary).map((x) => required('position', x.position_id)), managerId: null, title: e.title || null, baseSalary: e.base_salary===null||e.base_salary===undefined?null:yuanToPreciseCents(String(e.base_salary),0), isCompanyAdmin: ['admin','company_admin','boss'].includes(e.role_key), status: e.status === 'active' ? 'active' : 'disabled', mustChangePassword: false }));
+      const r = await em.save(User, em.create(User, { companyId: company.id, account, passwordHash: account ? encodeLegacyPassword(String(e.password_salt), String(e.password_hash)) : '!no-login', name: e.name, departmentId: required('department', e.department_id), positionId: primary ? required('position', primary.position_id) : null, extraPositionIds: positions.filter((x) => x !== primary).map((x) => required('position', x.position_id)), managerId: null, title: e.title || null, baseSalary: e.base_salary===null||e.base_salary===undefined?null:yuanToPreciseCents(String(e.base_salary),0), payType: e.pay_type==='hourly'?'hourly':'monthly', hourlyRate: e.hourly_rate===null||e.hourly_rate===undefined?null:yuanToPreciseCents(String(e.hourly_rate),0), employmentType: ['part_time','temp'].includes(e.employment_type)?e.employment_type:'regular', isCompanyAdmin: ['admin','company_admin','boss'].includes(e.role_key), status: e.status === 'active' ? 'active' : 'disabled', mustChangePassword: false }));
       await register('user', e.id, r.id); count('created', 'user'); orgCreated.add(key('user', e.id));
     }
     for (const e of source.employees) if (orgCreated.has(key('user',e.id)) && e.manager_id) await em.update(User, { id: required('user', e.id), companyId: company.id }, { managerId: required('user', e.manager_id) });
