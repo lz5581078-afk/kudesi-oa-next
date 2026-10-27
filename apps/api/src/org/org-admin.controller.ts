@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Po
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, ValidateIf } from 'class-validator';
 import { permissionCatalog } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
+import { StaffImportService } from './staff-import.service';
 import { DUTY_CATEGORIES, EMPLOYMENT_TYPES, OrgAdminService, PAY_TYPES, POSITION_LEVELS, WORKSPACE_TYPES } from './org-admin.service';
 
 const WS = WORKSPACE_TYPES as string[];
@@ -28,6 +29,10 @@ class UpdatePositionDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(100) name?: string;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) departmentId?: number | null;
   @IsOptional() @IsIn(WS) workspaceType?: string;
+}
+class StaffImportDto {
+  @IsString() @MaxLength(2_000_000) csv!: string;
+  @IsOptional() @IsIn([true, false]) dryRun?: boolean;
 }
 class PermissionsDto {
   @IsArray() @IsString({ each: true }) permissions!: string[];
@@ -104,7 +109,7 @@ class UpdateDutyDto {
 
 @Controller('org')
 export class OrgAdminController {
-  constructor(private readonly admin: OrgAdminService) {}
+  constructor(private readonly admin: OrgAdminService, private readonly staffImport: StaffImportService) {}
 
   /** 权限清单本身不含敏感信息，岗位/员工页都要用 */
   @AuthenticatedOnly()
@@ -185,6 +190,20 @@ export class OrgAdminController {
   @HttpCode(204)
   async deletePosition(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) {
     await this.admin.deletePosition(u, id);
+  }
+
+  @RequirePermission('org.staff.view')
+  @Get('staff/export')
+  async exportStaff(@CurrentUser() u: AuthUser) {
+    return { csv: await this.staffImport.exportCsv(u) };
+  }
+
+  /** 员工 CSV 导入：先 dryRun 预检，再正式导入。新增靠 org.staff.create，修改已有员工还要 org.staff.edit。 */
+  @RequirePermission('org.staff.create')
+  @Post('staff/import')
+  @HttpCode(200)
+  importStaff(@CurrentUser() u: AuthUser, @Body() dto: StaffImportDto) {
+    return this.staffImport.importCsv(u, dto.csv, dto.dryRun !== false);
   }
 
   @RequirePermission('org.staff.view')

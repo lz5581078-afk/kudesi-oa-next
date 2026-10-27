@@ -7,6 +7,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
 import { AuditLog, Company, User } from '../entities';
 import { OrgAdminService, generatePassword } from './org-admin.service';
+import { StaffImportService, parseCsv } from './staff-import.service';
 
 const T = crypto.randomBytes(3).toString('hex'); // 账号全系统唯一，测试库会累积数据，所以每次运行加后缀
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
@@ -253,5 +254,37 @@ d('组织与权限管理（真实数据库）', () => {
       await svc.createDuty(boss, p.id, { category: c, title: `条目-${c}` });
     }
     expect((await svc.positionProfile(boss, p.id)).duties).toHaveLength(5);
+  });
+
+  it('员工 CSV：导出薪资列只给有权限的人；导入先预检不落库，再正式导入，只改填了的列，新账号的初始密码只返回一次', async () => {
+    const imp = new StaffImportService(ds, svc);
+    expect(parseCsv('a,"b,c","d""e"\r\n1,2,3\n')).toEqual([['a', 'b,c', 'd"e'], ['1', '2', '3']]);
+    const pos = await svc.createPosition(boss, { name: `导入岗${T}`, workspaceType: 'blank' });
+    const exist = (await svc.createStaff(boss, { account: `imp-a${T}`, name: `导入甲${T}`, title: '旧职称', baseSalary: 500000 })).staff;
+    const csv = ['姓名,登录账号,岗位,职称,用工类型,计薪方式,月薪(元),时薪(元)',
+      `导入甲${T},imp-a${T},,新职称,,,6000.50,`,
+      `导入乙${T},imp-b${T},导入岗${T},,兼职,时薪,,35`,
+      `,,,,,,,`,
+      `导入丙${T},,,,,,,`,
+      `导入丁${T},imp-d${T},不存在的岗,,,,,`].join('\n');
+    const dry = await imp.importCsv(boss, csv, true);
+    expect(dry.summary).toEqual({ create: 1, update: 1, skip: 0, error: 2 });
+    expect(await ds.manager.findOneBy(User, { account: `imp-b${T}`, companyId: boss.companyId })).toBeNull(); // 预检不落库
+    expect(dry.rows.find((r) => r.action === 'error' && r.name === `导入丙${T}`)!.message).toMatch(/登录账号/);
+    const done = await imp.importCsv(boss, csv, false);
+    expect(done.summary).toEqual({ create: 1, update: 1, skip: 0, error: 2 });
+    const created = done.rows.find((r) => r.action === 'create')!;
+    expect(created.initialPassword).toHaveLength(12);
+    const a = await svc.getStaff(boss, exist.id);
+    expect(a).toMatchObject({ title: '新职称', baseSalary: 600050 });
+    const b = await ds.manager.findOneByOrFail(User, { account: `imp-b${T}`, companyId: boss.companyId });
+    expect(b).toMatchObject({ employmentType: 'part_time', payType: 'hourly', hourlyRate: 3500, positionId: pos.id });
+    // 没有薪资权限：不能导入薪资，导出的薪资列是空的
+    const hr = { ...manager, permissions: { isCompanyAdmin: false, allow: ['org.staff.view', 'org.staff.create', 'org.staff.edit'], deny: [] } };
+    expect((await imp.importCsv(hr, `姓名,登录账号,月薪(元)\n甲,imp-a${T},1`, true)).rows[0].message).toMatch(/薪资/);
+    const out = await imp.exportCsv(hr);
+    expect(out).not.toContain('6000.50');
+    expect(await imp.exportCsv(boss)).toContain('6000.50');
+    expect(await imp.exportCsv(other)).not.toContain(`imp-a${T}`);
   });
 });

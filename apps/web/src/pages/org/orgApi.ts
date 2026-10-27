@@ -57,6 +57,8 @@ export const WORKSPACE_LABELS: Record<string, string> = {
 export const orgApi = {
   catalog: () => api<CatalogGroup[]>('/org/permission-catalog'),
   departments: () => api<DepartmentNode[]>('/org/departments'),
+  exportStaff: () => api<{ csv: string }>('/org/staff/export'),
+  importStaff: (csv: string, dryRun: boolean) => api<StaffImportResult>('/org/staff/import', { method: 'POST', body: { csv, dryRun } }),
   staffRecords: (id: number) => api<StaffRecords>(`/org/staff/${id}/records`),
   handover: (id: number, body: { targetUserId?: number; reason?: string }) => api<{ toUserId: number; toUserName: string; workItems: number; flowSteps: number; routines: number }>(`/org/staff/${id}/handover`, { method: 'POST', body }),
   departmentProfile: (id: number) => api<DepartmentProfile>(`/org/departments/${id}/profile`),
@@ -85,4 +87,10 @@ export const orgApi = {
 
 export function flattenDepartments(nodes: DepartmentNode[], depth = 0): Array<{ id: number; name: string; depth: number }> {
   return nodes.flatMap((n) => [{ id: n.id, name: n.name, depth }, ...flattenDepartments(n.children, depth + 1)]);
+}
+
+export interface StaffImportResult {
+  dryRun: boolean; error?: string;
+  summary: { create: number; update: number; skip: number; error: number };
+  rows: Array<{ line: number; name: string; account: string; action: 'create' | 'update' | 'skip' | 'error'; message: string; initialPassword?: string }>;
 }

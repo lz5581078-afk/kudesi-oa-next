@@ -6,6 +6,7 @@ import { ConfirmDialog } from './StructurePage';
 import { PermissionPicker } from './PermissionPicker';
 import { orgApi, flattenDepartments, type DepartmentNode, type PositionDto, type StaffDetail, type StaffDto, type HandoverPreview, type PayType, type EmploymentType, PAY_TYPE_LABELS, EMPLOYMENT_LABELS } from './orgApi';
 import { StaffRecordsDialog } from './StaffRecordsDialog';
+import { StaffImportDialog } from './StaffImportDialog';
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : '操作失败');
 
@@ -240,7 +241,7 @@ export function StaffPage() {
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState<
     { kind: 'edit'; staff: StaffDto | null } | { kind: 'perm'; staff: StaffDto } | { kind: 'reset'; staff: StaffDto }
-    | { kind: 'disable'; staff: StaffDto } | { kind: 'records'; staff: StaffDto } | { kind: 'password'; title: string; account: string; password: string } | null
+    | { kind: 'disable'; staff: StaffDto } | { kind: 'records'; staff: StaffDto } | { kind: 'import' } | { kind: 'password'; title: string; account: string; password: string } | null
   >(null);
 
   const reload = useCallback(async () => {
@@ -255,6 +256,17 @@ export function StaffPage() {
   const shown = staff.filter((s) => (showDisabled || s.status === 'active') && (!onlyNoPosition || !s.positionId) && (!keyword.trim() || `${s.name}${s.account}`.toLowerCase().includes(keyword.trim().toLowerCase())));
   const done = async () => { setDialog(null); await reload(); };
 
+  async function exportCsv() {
+    try {
+      const { csv } = await orgApi.exportStaff();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = `员工档案-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) { setError(errText(e)); }
+  }
+
   async function toggle(s: StaffDto) {
     try { await orgApi.setStatus(s.id, 'active'); await reload(); } catch (e) { setError(errText(e)); }
   }
@@ -263,7 +275,11 @@ export function StaffPage() {
     <div>
       <div className="page-head">
         <h1>员工与权限</h1>
-        {can('org.staff.create') && <button type="button" className="primary-button" onClick={() => setDialog({ kind: 'edit', staff: null })}>＋ 新增员工</button>}
+        <span className="row-actions">
+          {can('org.staff.view') && <button type="button" className="secondary-button" onClick={() => void exportCsv()}>导出</button>}
+          {can('org.staff.create') && <button type="button" className="secondary-button" onClick={() => setDialog({ kind: 'import' })}>导入</button>}
+          {can('org.staff.create') && <button type="button" className="primary-button" onClick={() => setDialog({ kind: 'edit', staff: null })}>＋ 新增员工</button>}
+        </span>
       </div>
       {error && <div role="alert" className="notice error">{error}</div>}
       <div className="card">
@@ -317,6 +333,7 @@ export function StaffPage() {
         <ConfirmDialog title={`重置「${dialog.staff.name}」的密码`} text="会生成新的临时密码，原密码立即失效，对方下次登录必须改密码。" confirmLabel="重置" onClose={() => setDialog(null)}
           onConfirm={async () => { const r = await orgApi.resetPassword(dialog.staff.id); setDialog({ kind: 'password', title: '密码已重置', account: dialog.staff.account, password: r.password }); }} />
       )}
+      {dialog?.kind === 'import' && <StaffImportDialog onClose={() => setDialog(null)} onDone={() => void reload()} />}
       {dialog?.kind === 'records' && <StaffRecordsDialog staff={dialog.staff} all={staff} canHandover={can('org.staff.disable')} canSalary={can('org.staff.salary')} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'disable' && <DisableDialog staff={dialog.staff} onClose={() => setDialog(null)} onDone={() => void done()} />}
       {dialog?.kind === 'password' && <PasswordNotice title={dialog.title} account={dialog.account} password={dialog.password} onClose={() => setDialog(null)} />}

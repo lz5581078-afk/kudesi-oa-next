@@ -84,6 +84,7 @@ import { OrgController } from './org/org.controller';
 import { OrgAdminController } from './org/org-admin.controller';
 import { AuditController, BankFundController } from './org/audit.controller';
 import { OrgAdminService } from './org/org-admin.service';
+import { StaffImportService } from './org/staff-import.service';
 import { OrgService } from './org/org.service';
 import { CompanyApplyController, PlatformController } from './platform/platform.controller';
 import { PlatformService } from './platform/platform.service';
@@ -133,6 +134,7 @@ const env = loadEnv();
     PlatformService,
     OrgService,
     OrgAdminService,
+    StaffImportService,
     ResourcesService,
     AssetsService,
     DataIssuesService,
