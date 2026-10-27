@@ -11,6 +11,7 @@ import { FinanceDocumentsService } from '../resources/finance-documents.service'
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { ResourcesService } from '../resources/resources.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { FLOW_ADAPTERS, StepContext, postDeclared } from './flow-adapters';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -37,6 +38,7 @@ export class FlowService {
     private readonly docs: FinanceDocumentsService,
     @Optional() private readonly bundles?: BundleToolsService,
     @Optional() private readonly outbox?: OutboxService,
+    @Optional() private readonly feishu?: FeishuNoticeService,
   ) {}
   private readonly log = new Logger('Flow');
 
@@ -163,9 +165,11 @@ export class FlowService {
     return new Map(rows.map((r) => [r.id, r.name]));
   }
 
-  private async notify(em: EntityManager, companyId: number, userIds: number[], n: { kind: string; title: string; body?: string; link?: string }) {
+  private async notify(em: EntityManager, companyId: number, userIds: number[], n: { kind: string; title: string; body?: string; link?: string }, run?: FlowRun) {
     for (const uid of [...new Set(userIds)]) {
       await em.insert(Notification, { companyId, userId: uid, kind: n.kind, title: n.title.slice(0, 200), body: n.body?.slice(0, 500) ?? null, link: n.link ?? null });
+      // 飞书通知（出站队列，独立开关默认关；只有 SKU 批量申请会发）：和站内通知同一个事务入队，幂等键带步骤编号
+      if (run && this.feishu) await this.feishu.enqueue(em, companyId, run.templateKey, `${run.id}:${n.kind}:${run.currentStepKey ?? ''}:${run.revision}`, { userId: uid, title: n.title, body: n.body, link: n.link, runId: run.id });
     }
   }
 
@@ -254,7 +258,7 @@ export class FlowService {
     for (const uid of recipients) {
       await em.insert(WorkItem, { companyId: run.companyId, kind: 'flow', runId: run.id, stepId, assigneeId: uid, title: `${def.name} · ${label}`.slice(0, 200), status: 'open', dueAt: due });
     }
-    await this.notify(em, run.companyId, recipients, { kind: via === 'return' ? 'returned' : 'todo', title: via === 'return' ? `被退回：${run.title}` : `新待办：${run.title}`, body: `步骤：${def.name}`, link: `/workbench/todos?run=${run.id}` });
+    await this.notify(em, run.companyId, recipients, { kind: via === 'return' ? 'returned' : 'todo', title: via === 'return' ? `被退回：${run.title}` : `新待办：${run.title}`, body: `步骤：${def.name}`, link: `/workbench/todos?run=${run.id}` }, run);
     for (const uid of def.ccUserIds ?? []) {
       const exists = await em.findOne(FlowCc, { where: { runId: run.id, userId: uid } });
       if (!exists && uid !== run.requesterId) {
@@ -285,7 +289,7 @@ export class FlowService {
       await em.update(FlowRun, { id: run.id }, { payload: run.payload } as never);
     }
     const word = status === 'completed' ? '已完成' : status === 'cancelled' ? '已废除' : '被拒绝';
-    await this.notify(em, run.companyId, [run.requesterId], { kind: 'result', title: `${run.title} ${word}`, link: `/workbench/started?run=${run.id}` });
+    await this.notify(em, run.companyId, [run.requesterId], { kind: 'result', title: `${run.title} ${word}`, link: `/workbench/started?run=${run.id}` }, run);
   }
 
   // ================= 办理动作 =================

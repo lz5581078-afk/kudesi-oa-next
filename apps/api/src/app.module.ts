@@ -40,6 +40,8 @@ import { OcrService } from './integrations/ocr.service';
 import { RevenueController } from './resources/revenue.controller';
 import { OutboxController } from './outbox/outbox.controller';
 import { OutboxService } from './outbox/outbox.service';
+import { FeishuNoticeController } from './outbox/feishu-notice.controller';
+import { FeishuNoticeService } from './outbox/feishu-notice.service';
 import { CategoryToolsController, ProductCodePreviewController } from './resources/category-tools.controller';
 import { CategoryToolsService } from './resources/category-tools.service';
 import { PriceSyncService } from './outbox/price-sync.service';
@@ -138,7 +140,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController],
   providers: [
     AuthService,
     PlatformService,
@@ -161,6 +163,7 @@ const env = loadEnv();
     JstMaintenanceService,
     BundleToolsService,
     OutboxService,
+    FeishuNoticeService,
     CategoryToolsService,
     PriceSyncService,
     CategorySyncService,
