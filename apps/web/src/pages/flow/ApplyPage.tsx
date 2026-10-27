@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import { FlowFieldsForm } from './FlowFields';
 import { RunDetail } from './RunDetail';
+import { SKU_TEMPLATE, skuApi } from './SkuApply';
 import { flowApi, newRequestKey, type TemplateInfo } from './flowApi';
 import { remember } from './flowUi';
 
@@ -34,7 +35,19 @@ export function ApplyPage() {
     setBusy(true);
     setError('');
     try {
-      const run = await flowApi.start(sel.key, values, keyRef.current);
+      const { splitSpecs, ...rest } = values;
+      const split = sel.key === SKU_TEMPLATE && splitSpecs === true && Array.isArray(rest.specs) && rest.specs.length > 1;
+      if (split) {
+        // 每个规格独立办理：拆成一规格一条流程；有失败的规格单独提示，已发起的不受影响
+        const out = await skuApi.startSplit(rest, keyRef.current);
+        keyRef.current = newRequestKey();
+        setSubmitted(`「${sel.label}」已拆成 ${out.runs.length} 条独立流程（${out.runs.map((r) => `#${r.id}`).join('、')}）${out.failed.length ? `；${out.failed.length} 个规格没发起成功：${out.failed.map((f) => `${f.specName}（${f.message}）`).join('；')}` : ''}。`);
+        setSel(null);
+        setValues({});
+        if (out.runs[0]) setOpenRun(out.runs[0].id);
+        return;
+      }
+      const run = await flowApi.start(sel.key, rest, keyRef.current);
       keyRef.current = newRequestKey();
       const next = [sel.key, ...recent.filter((k) => k !== sel.key)].slice(0, 6);
       setRecent(next);
