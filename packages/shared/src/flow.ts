@@ -183,6 +183,81 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     ],
   },
   {
+    key: 'purchase-request',
+    label: '采购申请',
+    description: '运营提采购需求（商品、数量、要求到货日）→ 采购定供应商和单价 → 审批 → 出纳登记货款（生成预付款单）→ 分批发货、到货、核对实收、质检（异常可换货、折价或终止退款）→ 申报运费装卸费 → 财务结算（生成采购入库单、冲抵预付款、更新商品采购价和物流成本）→ 支付费用。运营看不到单价和付款。',
+    fields: [
+      { key: 'lines', label: '采购商品', type: 'json', group: '需求', required: true, help: '每行：商品、数量、计价单位；原料有成品名（马甲）的要选一个' },
+      date('requestedArrivalAt', '要求到货日期', '需求', { required: true, help: '到这天仓库还没收到货，会提醒办理人' }),
+      textarea('note', '申请说明', '需求', { maxLength: 500, help: '为什么采购、用在哪（选填）' }),
+    ],
+    stepFields: {
+      plan: [
+        { key: 'data', label: '采购方案', type: 'json', group: '方案', required: true, help: '供应商、仓库、每个商品的单价、货款方式、收款资料' },
+        textarea('comment', '方案备注', '方案', { maxLength: 500 }),
+      ],
+      approve: [textarea('comment', '审批意见', '审批', { maxLength: 500 })],
+      pay: [
+        { key: 'data', label: '货款安排', type: 'json', group: '付款', required: true, help: '新付款（账户、金额、流水、凭证）和占用的已有预付款' },
+        textarea('comment', '付款备注', '付款', { maxLength: 500 }),
+      ],
+      prepay_review: [textarea('comment', '复核备注', '复核', { maxLength: 500 })],
+      dispatch: [
+        { key: 'data', label: '发货登记', type: 'json', group: '发货', required: true, help: '本批商品和数量、物流单号、预计到货、凭证' },
+        textarea('comment', '发货备注', '发货', { maxLength: 500, help: '预计到货晚于要求日期时必填' }),
+      ],
+      arrival: [
+        { key: 'data', label: '到货凭证', type: 'json', group: '到货', required: true },
+        textarea('comment', '到货备注', '到货', { maxLength: 500 }),
+      ],
+      receive: [
+        { key: 'data', label: '实收数量', type: 'json', group: '收货', required: true },
+        textarea('comment', '差异说明', '收货', { maxLength: 500, help: '实收和发货数量不一致时必填' }),
+      ],
+      quality: [
+        { key: 'data', label: '质检结果', type: 'json', group: '质检', required: true },
+        textarea('comment', '质检说明', '质检', { maxLength: 500, help: '有不合格时必填' }),
+      ],
+      exception: [
+        { key: 'data', label: '异常处置', type: 'json', group: '异常', required: true },
+        textarea('comment', '处理原因', '异常', { maxLength: 500, required: true }),
+      ],
+      refund: [
+        { key: 'data', label: '退款确认', type: 'json', group: '退款', required: true },
+        textarea('comment', '退款备注', '退款', { maxLength: 500 }),
+      ],
+      expense: [
+        { key: 'data', label: '费用申报', type: 'json', group: '费用', required: true },
+        textarea('comment', '费用备注', '费用', { maxLength: 500 }),
+      ],
+      settle: [
+        { key: 'data', label: '结算', type: 'json', group: '结算', required: true },
+        textarea('comment', '复核备注', '结算', { maxLength: 500 }),
+      ],
+      expense_pay: [
+        { key: 'data', label: '费用付款', type: 'json', group: '费用付款', required: true },
+        textarea('comment', '付款备注', '费用付款', { maxLength: 500 }),
+      ],
+    },
+    steps: [
+      { key: 'apply', name: '提交采购需求', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'plan', name: '完善采购方案', type: 'execute', dueMinutes: 1440, locked: true },
+      { key: 'approve', name: '审核采购方案', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'pay', name: '登记采购货款', type: 'finance', dueMinutes: 1440, locked: true },
+      { key: 'prepay_review', name: '核对预付款使用', type: 'finance', dueMinutes: 1440, locked: true },
+      { key: 'dispatch', name: '跟进供应商发货', type: 'execute', locked: true },
+      { key: 'arrival', name: '登记本批到货', type: 'execute', locked: true },
+      { key: 'receive', name: '核对实收数量', type: 'execute', dueMinutes: 2880, locked: true },
+      { key: 'quality', name: '登记质检结果', type: 'execute', dueMinutes: 2880, locked: true },
+      { key: 'exception', name: '处理采购异常', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'refund', name: '确认预付款退款', type: 'finance', dueMinutes: 1440, locked: true },
+      { key: 'expense', name: '申报运费装卸费', type: 'execute', dueMinutes: 2880, locked: true },
+      { key: 'settle', name: '核对到货并结算', type: 'finance', dueMinutes: 1440, locked: true },
+      { key: 'expense_pay', name: '支付运费装卸费', type: 'finance', dueMinutes: 1440, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
+  {
     key: 'sku-batch-apply',
     label: 'SKU 批量申请',
     description: '运营一次申请多个新商品组合编码：运营填规格（主商品、赠品）→ 仓库补包装、标签、人工 → 财务核对后自动生成商品组合编码。财务通过后可选择加入聚水潭同步队列（只入队，总开关打开后才会发送）。',

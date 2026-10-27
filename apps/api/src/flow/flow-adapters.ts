@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import type { FlowTemplate } from '@kudesi/shared';
+import type { FlowTemplate, StepDef } from '@kudesi/shared';
 import { FlowRun, ResourceRecord } from '../entities';
 import { AuthUser } from '../common/auth.decorators';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
@@ -9,6 +9,7 @@ import { ResourcesService } from '../resources/resources.service';
 import type { OutboxService } from '../outbox/outbox.service';
 import { skuBatchApply } from './sku-apply';
 import { productExclusive } from './product-exclusive';
+import { purchase } from './purchase';
 
 /**
  * 业务适配器：流程引擎只管流转，业务规则（能不能发起、办理时要做什么、能不能退回废除）由适配器声明。
@@ -28,6 +29,8 @@ export interface StartContext extends FlowServices {
   em: EntityManager;
   user: AuthUser;
   payload: Record<string, unknown>;
+  /** 重新提交时才有：这条在办的流程（发起时没有） */
+  run?: FlowRun;
 }
 
 export interface StepContext extends FlowServices {
@@ -60,6 +63,17 @@ export interface FlowAdapter {
   stepDueAt?(stepKey: string, payload: Record<string, unknown>): Date | null;
   beforePass?(ctx: StepContext): Promise<void>;
   onPass?(ctx: StepContext): Promise<void>;
+  /**
+   * 办理通过后下一步去哪：返回步骤编号（跳转或回到前面的步骤，如“还有未到货的 → 回到发货”）；
+   * 返回 undefined 就按流程定义里的顺序走下一步。在 onPass 之后调用，可以看到办理后的业务状态。
+   */
+  nextStep?(ctx: StepContext, steps: StepDef[]): string | undefined;
+  /** 退回时回到哪一步：返回步骤编号；undefined 就退回上一步 */
+  returnTarget?(ctx: StepContext, steps: StepDef[]): string | undefined;
+  /** 为 true 时，被退回给发起人重新提交以后，业务痕迹（以下划线开头的字段）原样保留，而不是清空 */
+  keepStateOnResubmit?: boolean;
+  /** 重新提交之后（payload 已换成新的）调用，用来让业务状态跟上新提交的内容 */
+  onResubmit?(ctx: StepContext): Promise<void>;
   /** 返回不能退回的原因；null 表示可以退回 */
   returnBlocked?(ctx: StepContext): string | null;
   /** 返回不能废除/拒绝/撤回的原因；null 表示可以 */
@@ -191,4 +205,4 @@ export async function postDeclared(ctx: StepContext, t: FlowTemplate): Promise<v
   payload._docNo = finalDoc.docNo;
 }
 
-export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive };
+export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [purchase.key]: purchase };

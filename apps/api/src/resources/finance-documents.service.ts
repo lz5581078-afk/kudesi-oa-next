@@ -476,10 +476,10 @@ export class FinanceDocumentsService {
   }
 
   // ---------- 红冲 ----------
-  async reverse(user: AuthUser, id: number, reason: string) {
+  async reverse(user: AuthUser, id: number, reason: string, outer?: EntityManager) {
     this.need(user, 'finance.docs.reverse', '没有红冲的权限');
     if (!reason?.trim()) throw new BadRequestException('红冲要写原因');
-    return this.dataSource.transaction(async (em) => {
+    return this.tx(outer, async (em) => {
       await this.lockPosting(em, user);
       const { doc, lines, accounts } = await this.load(em, user, id, true);
       if (doc.status !== 'posted') throw new ConflictException('只有已过账的单据能红冲');

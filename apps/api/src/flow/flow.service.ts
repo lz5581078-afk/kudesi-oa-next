@@ -326,7 +326,10 @@ export class FlowService {
       await this.closeStep(em, run, step, user, 'done', 'pass', p.comment, form);
       const steps = run.stepsSnapshot as StepDef[];
       const idx = steps.findIndex((s) => s.key === step.stepKey);
-      await this.enter(em, user, run, steps, idx + 1, 'normal');
+      const jump = adapter.nextStep?.(ctx, steps);
+      const to = jump === undefined ? idx + 1 : steps.findIndex((s) => s.key === jump);
+      if (to < 0) throw new ConflictException(`流程里找不到步骤「${jump}」，请管理员检查流程配置`);
+      await this.enter(em, user, run, steps, to, 'normal');
       if (adapter.afterCommit) {
         const payload = JSON.parse(JSON.stringify(run.payload)) as Record<string, unknown>;
         after = () => adapter.afterCommit!({ user, runId: run.id, companyId: run.companyId, requesterId: run.requesterId, payload, db: this.dataSource.manager, ...this.svc() });
@@ -352,7 +355,10 @@ export class FlowService {
       const blocked = FLOW_ADAPTERS[run.templateKey].returnBlocked?.(this.stepCtx(em, user, run, step, {}));
       if (blocked) throw new BadRequestException(blocked);
       await this.closeStep(em, run, step, user, 'returned', 'return', p.reason);
-      await this.enter(em, user, run, steps, idx - 1, 'return');
+      const back = FLOW_ADAPTERS[run.templateKey].returnTarget?.(this.stepCtx(em, user, run, step, {}), steps);
+      const to = back === undefined ? idx - 1 : steps.findIndex((s) => s.key === back);
+      if (to < 0) throw new ConflictException(`流程里找不到步骤「${back}」，请管理员检查流程配置`);
+      await this.enter(em, user, run, steps, to, 'return');
       return this.detailIn(em, user, run.id);
     });
   }
@@ -405,14 +411,37 @@ export class FlowService {
       const adapter = FLOW_ADAPTERS[t.key];
       // 重新提交时，自己这条在办的流程不算“重复申请”：临时把它标成非 running 做检查
       await em.update(FlowRun, { id: run.id }, { status: 'cancelled' });
-      try { await adapter.validateStart?.({ em, user, payload, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
-      run.payload = { ...payload };
+      try { await adapter.validateStart?.({ em, user, payload, run, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
+      const kept = adapter.keepStateOnResubmit ? Object.fromEntries(Object.entries(run.payload).filter(([k]) => k.startsWith('_'))) : {};
+      run.payload = { ...payload, ...kept };
       run.title = await adapter.title(em, run.companyId, payload);
+      await adapter.onResubmit?.(this.stepCtx(em, user, run, step, {}));
       await em.save(FlowRun, run);
       await this.closeStep(em, run, step, user, 'done', 'resubmit');
       const steps = run.stepsSnapshot as StepDef[];
       const idx = steps.findIndex((s) => s.key === step.stepKey);
       await this.enter(em, user, run, steps, idx + 1, 'normal');
+      return this.detailIn(em, user, run.id);
+    });
+  }
+
+  /**
+   * 业务动作把流程转到指定步骤（采购的“申请变更”“申请终止并退款”）：先由 mutate 检查并改业务状态，
+   * 再收掉当前步骤、进入目标步骤（办理人和时限仍按流程定义）。谁能做由调用方（业务服务）在 mutate 里判断。
+   */
+  async redirect(user: AuthUser, runId: number, p: { toKey: string; reason: string; via: 'normal' | 'return'; mutate: (ctx: StepContext) => void | Promise<void> }) {
+    if (!p.reason.trim()) throw new BadRequestException('请写明原因');
+    return this.dataSource.transaction(async (em) => {
+      const run = await this.lockRun(em, user, runId);
+      if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
+      const step = await this.activeStep(em, run);
+      const steps = run.stepsSnapshot as StepDef[];
+      const to = steps.findIndex((s) => s.key === p.toKey);
+      if (to < 0) throw new ConflictException(`流程里找不到步骤「${p.toKey}」，请管理员检查流程配置`);
+      await p.mutate(this.stepCtx(em, user, run, step, {}));
+      await em.update(FlowRun, { id: run.id }, { payload: run.payload } as never);
+      await this.closeStep(em, run, step, user, 'returned', 'return', p.reason);
+      await this.enter(em, user, run, steps, to, p.via);
       return this.detailIn(em, user, run.id);
     });
   }
