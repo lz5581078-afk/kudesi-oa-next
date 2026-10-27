@@ -71,7 +71,7 @@ export class PricingDebugService {
     };
   }
 
-  async list(user: AuthUser, q: { keyword?: string; categoryId?: number; baseCodeId?: number; page: number; pageSize: number }) {
+  async list(user: AuthUser, q: { keyword?: string; categoryId?: number; baseCodeId?: number; exclusive?: string; page: number; pageSize: number }) {
     const costViewer = this.viewer(user);
     const { d, rows } = await this.rows(user);
     const kw = (q.keyword ?? '').trim().toLowerCase();
@@ -86,13 +86,19 @@ export class PricingDebugService {
       return true;
     });
     const w = (r: CostRow) => (r.weightG !== null && r.weightG > 0 ? r.weightG : Infinity);
+    const owners = await this.cost.bundleOwnership(user.companyId, d.lines);
+    const mine = (bundleId: number) => (owners.get(bundleId) ?? []).some((g) => g.ownerId === user.id);
     const found = rows
       .filter((r) => !kw || `${r.code} ${r.name}`.toLowerCase().includes(kw))
+      .filter((r) => q.exclusive !== 'mine' || mine(r.bundleId))
       .filter((r) => (!q.categoryId && !q.baseCodeId) || used(r.bundleId))
       // 按计费重量由轻到重；没有重量的排最后
       .sort((a, b) => (w(a) === w(b) ? 0 : w(a) < w(b) ? -1 : 1) || a.name.localeCompare(b.name, 'zh-CN') || a.bundleId - b.bundleId);
     return {
-      rows: found.slice((q.page - 1) * q.pageSize, q.page * q.pageSize).map((r) => this.publicRow(r, costViewer)),
+      rows: found.slice((q.page - 1) * q.pageSize, q.page * q.pageSize).map((r) => ({
+        ...this.publicRow(r, costViewer),
+        exclusiveOwners: (owners.get(r.bundleId) ?? []).map((g) => ({ id: g.id, ownerName: g.ownerName, endsAt: g.endsAt, mine: g.ownerId === user.id })),
+      })),
       total: found.length, page: q.page, pageSize: q.pageSize, canViewInternals: costViewer,
     };
   }

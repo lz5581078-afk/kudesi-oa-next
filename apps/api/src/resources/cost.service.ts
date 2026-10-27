@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { bundleOwnership } from './product-exclusive';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
@@ -58,6 +59,11 @@ export const marginRevision = (m: Pick<ResourceRecord, 'data'> | undefined) => (
 @Injectable()
 export class CostService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+
+  /** 组合的专属归属（定价调试表里显示“某某的专属品”、按“我的专属品”筛选） */
+  bundleOwnership(companyId: number, lines: ResourceRecord[]) {
+    return bundleOwnership(this.dataSource.manager, companyId, lines);
+  }
 
   async load(companyId: number, em: EntityManager = this.dataSource.manager) {
     const rows = await em.find(ResourceRecord, { where: { companyId, type: In(TYPES) } });

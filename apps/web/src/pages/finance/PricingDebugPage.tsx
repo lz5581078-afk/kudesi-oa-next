@@ -21,6 +21,7 @@ const PAGE = 30;
  */
 export function PricingDebugPage() {
   const [keyword, setKeyword] = useState('');
+  const [exclusive, setExclusive] = useState<'' | 'mine'>('');
   const [component, setComponent] = useState<ComponentFilterValue | null>(null);
   const [page, setPage] = useState(1);
   const [resultPage, setResultPage] = useState(1);
@@ -47,7 +48,7 @@ export function PricingDebugPage() {
   const load = useCallback((quiet = false) => {
     const current = ++serial.current;
     if (!quiet) setLoading(true);
-    financeApi.debugList({ keyword: keyword.trim() || undefined, categoryId, baseCodeId, page, pageSize: PAGE })
+    financeApi.debugList({ keyword: keyword.trim() || undefined, categoryId, baseCodeId, exclusive: exclusive || undefined, page, pageSize: PAGE })
       .then((r) => {
         if (current !== serial.current) return;
         setData(r); setError('');
@@ -56,7 +57,7 @@ export function PricingDebugPage() {
       })
       .catch((e) => { if (current === serial.current && !quiet) setError(msg(e)); })
       .finally(() => { if (current === serial.current) setLoading(false); });
-  }, [keyword, categoryId, baseCodeId, page]);
+  }, [keyword, categoryId, baseCodeId, exclusive, page]);
   useEffect(() => { setLoading(true); const t = setTimeout(() => load(), 220); return () => { clearTimeout(t); serial.current++; }; }, [load]);
   useEffect(() => {
     const refresh = () => { if (document.visibilityState === 'visible') load(true); };
@@ -183,7 +184,7 @@ export function PricingDebugPage() {
     try {
       const rows = new Map<number, DebugRow>();
       for (let p = 1; ; p++) {
-        const r = await financeApi.debugList({ keyword: keyword.trim() || undefined, categoryId, baseCodeId, page: p, pageSize: 100 });
+        const r = await financeApi.debugList({ keyword: keyword.trim() || undefined, categoryId, baseCodeId, exclusive: exclusive || undefined, page: p, pageSize: 100 });
         if (cancelled.current) return;
         r.rows.forEach((x) => rows.set(x.id, x));
         if (!r.rows.length || p * r.pageSize >= r.total) break;
@@ -262,6 +263,10 @@ export function PricingDebugPage() {
           <header className="between"><h2>挑选商品</h2><small className="muted">{loading ? '正在筛选…' : `筛选结果 ${data.total} 项`}</small></header>
           <div className="toolbar">
             <PricingComponentFilter value={component} disabled={addingAll} onChange={(v) => { setComponent(v); setPage(1); }} />
+            <select aria-label="专属品筛选" disabled={addingAll} value={exclusive} onChange={(e) => { setExclusive(e.target.value as '' | 'mine'); setPage(1); }}>
+              <option value="">全部商品</option>
+              <option value="mine">我的专属品</option>
+            </select>
             <input type="search" aria-label="搜索组合编码或名称" placeholder="搜索组合编码或名称" disabled={addingAll} value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
             <button type="button" className="primary-button" disabled={loading || addingAll || exporting || Boolean(error) || !data.total} onClick={addAll}>{addingAll ? '加入中…' : '全选到右侧 →'}</button>
           </div>
@@ -275,7 +280,7 @@ export function PricingDebugPage() {
             {!loading && !error && sortPricingRows(data.rows).map((row) => (
               <label key={row.id} className="pricing-debug-item">
                 <input type="checkbox" checked={Boolean(selected[row.id])} disabled={exporting || addingAll} onChange={() => toggle(row)} />
-                <span><strong>{row.skuName}</strong><small className="muted">{row.skuCode} · {row.categoryName} · {weightText(row)}{!row.ready ? ' · 暂不可试算' : ''}</small></span>
+                <span><strong>{row.skuName}</strong>{row.exclusiveOwners?.map((g) => <small className="pricing-exclusive-label" key={g.id}>{g.mine ? '我的专属品' : `${g.ownerName}的专属品`} · 至{new Date(g.endsAt).toLocaleDateString('zh-CN')}</small>)}<small className="muted">{row.skuCode} · {row.categoryName} · {weightText(row)}{!row.ready ? ' · 暂不可试算' : ''}</small></span>
                 <em>公司低价 {money(row.minPriceCents)}</em>
               </label>
             ))}
@@ -301,7 +306,7 @@ export function PricingDebugPage() {
                   return (
                     <tr key={row.id}>
                       <td>
-                        <div><strong>{row.skuName}</strong> <button type="button" className="link-button" aria-label={`复制商品名称 ${row.skuName}`} onClick={() => copyText(row.skuName, '商品名称')}>复制</button></div>
+                        <div><strong>{row.skuName}</strong> <button type="button" className="link-button" aria-label={`复制商品名称 ${row.skuName}`} onClick={() => copyText(row.skuName, '商品名称')}>复制</button>{row.exclusiveOwners?.map((g) => <small className="pricing-exclusive-label" key={g.id}>{g.mine ? '我的专属品' : `${g.ownerName}的专属品`} · 至{new Date(g.endsAt).toLocaleDateString('zh-CN')}</small>)}</div>
                         <div className="muted">{row.skuCode} · {row.categoryName} · {weightText(row)} <button type="button" className="link-button" aria-label={`复制SKU编码 ${row.skuCode}`} onClick={() => copyText(row.skuCode, 'SKU编码')}>复制</button></div>
                       </td>
                       <td className="pricing-debug-slider-cell">

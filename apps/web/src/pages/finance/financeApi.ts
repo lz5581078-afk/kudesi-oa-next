@@ -34,7 +34,7 @@ export interface MarginHistoryRow { id: string; createdAt: string; actorName: st
 export interface PricingHistoryRow { id: string; createdAt: string; actorName: string; bundleId: number; code: string; name: string; beforeCarrier: string; afterCarrier: string; beforePercent: number | null; afterPercent: number | null; reason: string }
 export interface Paged<T> { total: number; page: number; pageSize: number; rows: T[] }
 
-export interface DebugRow { id: number; skuCode: string; skuName: string; categoryId: number | null; categoryName: string; ready: boolean; weightG: number | null; minPriceCents: number | null; preShipCostCents?: number | null }
+export interface DebugRow { id: number; skuCode: string; skuName: string; categoryId: number | null; categoryName: string; ready: boolean; weightG: number | null; minPriceCents: number | null; preShipCostCents?: number | null; exclusiveOwners?: Array<{ id: number; ownerName: string; endsAt: string; mine: boolean }> }
 export interface DebugList { rows: DebugRow[]; total: number; page: number; pageSize: number; canViewInternals: boolean }
 export interface DebugComponents { categories: Array<{ id: number; name: string; parentId: number | null }>; rows: Array<{ id: number; code: string; name: string; categoryId: number | null }>; total: number; page: number; pageSize: number }
 export interface DebugProfit { id: number; amountCents: number }
@@ -106,7 +106,7 @@ export const financeApi = {
   marginHistory: (p: { keyword?: string; page?: number }) => api<Paged<MarginHistoryRow>>(`/finance/cost-history/margins${qs(p)}`),
   pricingHistory: (p: { keyword?: string; page?: number }) => api<Paged<PricingHistoryRow>>(`/finance/cost-history/pricing${qs(p)}`),
   debugComponents: (p: { categoryId?: number; keyword?: string; page?: number }) => api<DebugComponents>(`/finance/pricing-debug/components${qs(p)}`),
-  debugList: (p: { categoryId?: number; baseCodeId?: number; keyword?: string; page?: number; pageSize?: number }) => api<DebugList>(`/finance/pricing-debug${qs(p)}`),
+  debugList: (p: { categoryId?: number; baseCodeId?: number; keyword?: string; exclusive?: 'mine'; page?: number; pageSize?: number }) => api<DebugList>(`/finance/pricing-debug${qs(p)}`),
   debugSlider: (b: { id: number; step: number; profit?: DebugProfit }) => api<DebugSlider>('/finance/pricing-debug/slider-price', { method: 'POST', body: b }),
   debugQuote: (b: { mode: 'roiToPrice' | 'priceToRoi'; inputs: Array<{ id: number; step: number; value: number; profit?: DebugProfit }> }) => api<{ rows: DebugQuote[] }>('/finance/pricing-debug/quote', { method: 'POST', body: b }),
   debugExport: (inputs: DebugExportInput[]) => api<{ fileName: string; fileBase64: string; rowCount: number }>('/finance/pricing-debug/export', { method: 'POST', body: { inputs } }),

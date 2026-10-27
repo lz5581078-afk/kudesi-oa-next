@@ -157,7 +157,7 @@ export function composeGroups(i: NamingInput): Composition {
 
 /** 没有别名的赠品不能用：返回提示文字 */
 export function giftAliasIssue(g: NamingItem): string {
-  return g.giftName && g.giftCode ? '' : '请先在「赠品别名」里填写赠品名称简称和赠品编码简称';
+  return g.giftName && g.giftCode ? '' : '请先在商品档案填写赠品简称和赠品编码简称';
 }
 
 // ---------- 按规则渲染 ----------

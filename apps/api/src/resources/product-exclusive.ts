@@ -65,6 +65,33 @@ export async function activeGrants(em: EntityManager, companyId: number): Promis
   return (await em.find(ResourceRecord, { where: { companyId, type: EXCLUSIVE_TYPE, status: 'active' } })).filter((g) => isLive(g, now));
 }
 
+export interface BundleOwner { id: number; ownerId: number; ownerName: string; productName: string; startsAt: string; endsAt: string }
+
+/**
+ * 组合的专属归属（旧系统 bundleOwnership）：组合里“主品”行的基础编码所在的族有有效专属，就算这个组合有专属人。
+ * 每族只看第一条有效专属；同一组合里同一条专属只算一次。lines 是组合构成行（bundleId、baseCodeId、role）。
+ */
+export async function bundleOwnership(em: EntityManager, companyId: number, lines: ResourceRecord[]): Promise<Map<number, BundleOwner[]>> {
+  const out = new Map<number, BundleOwner[]>();
+  const grants = await activeGrants(em, companyId);
+  if (!grants.length) return out;
+  const members = await familyMembers(em, companyId);
+  const byFamily = new Map<string, ResourceRecord>();
+  for (const g of [...grants].sort((a, b) => str(a.data.startsAt).localeCompare(str(b.data.startsAt)) || a.id - b.id)) if (!byFamily.has(str(g.data.familyKey))) byFamily.set(str(g.data.familyKey), g);
+  const seen = new Map<number, Set<number>>();
+  for (const l of lines) {
+    if (str(l.data.role) !== 'main') continue;
+    const g = byFamily.get(members.get(Number(l.data.baseCodeId))?.familyKey ?? '');
+    if (!g) continue;
+    const bundleId = Number(l.data.bundleId);
+    const ids = seen.get(bundleId) ?? new Set<number>();
+    if (ids.has(g.id)) continue;
+    ids.add(g.id); seen.set(bundleId, ids);
+    (out.get(bundleId) ?? out.set(bundleId, []).get(bundleId)!).push({ id: g.id, ownerId: Number(g.data.ownerId), ownerName: str(g.data.ownerName), productName: str(g.data.productName), startsAt: str(g.data.startsAt), endsAt: str(g.data.endsAt) });
+  }
+  return out;
+}
+
 /** 申请前后都要查：这一族已有有效专属，或有别的在办申请，就不能再领。selfRunId 是本申请自己。 */
 export async function assertFamilyFree(em: EntityManager, companyId: number, baseCodeId: unknown, selfRunId: number | null): Promise<{ member: FamilyMember; members: FamilyMember[] }> {
   const all = await familyMembers(em, companyId);

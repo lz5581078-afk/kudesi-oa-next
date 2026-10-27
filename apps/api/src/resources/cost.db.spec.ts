@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, FinanceCostSnapshot, ResourceChangeLog, User } from '../entities';
+import { Company, FinanceCostSnapshot, ResourceChangeLog, ResourceRecord, User } from '../entities';
 import { buildServices } from '../test-support';
 import { CostMaintainService } from './cost-maintain.service';
 import { CostService } from './cost.service';
@@ -325,5 +325,23 @@ d('成本表与定价调试表（真实数据库）', () => {
     const zones = await cost.zoneSuggestion(boss, 5);
     expect(zones.rows.length).toBeGreaterThan(0);
     expect(zones.rows[0]).toMatchObject({ carrier: '测试快递', branch: '总部', cents: 1000 });
+  });
+  it('定价调试表显示组合的专属归属，并能只看“我的专属品”（旧 bundleOwnership）', async () => {
+    const { familyMembers } = await import('./product-exclusive');
+    const bcId = (await svc.list(boss, 'finance-base-codes', { fieldKey: 'productId', fieldValue: ids.product } as never)).items[0].id;
+    const familyKey = (await familyMembers(ds.manager, boss.companyId)).get(bcId)!.familyKey;
+    const now = Date.now();
+    await ds.manager.save(ResourceRecord, ds.manager.create(ResourceRecord, {
+      companyId: boss.companyId, type: 'finance-product-exclusives', title: '红富士苹果 · 小王', status: 'active',
+      data: { familyKey, baseCodeId: bcId, productName: '红富士苹果', ownerId: boss.id + 999, ownerName: '小王', startsAt: new Date(now - 86_400_000).toISOString(), endsAt: new Date(now + 86_400_000 * 30).toISOString(), memberIds: [bcId] },
+    } as never));
+    const all = await debug.list(boss, { page: 1, pageSize: 30 });
+    expect(all.rows.every((r) => r.exclusiveOwners.length === 1 && r.exclusiveOwners[0].ownerName === '小王' && r.exclusiveOwners[0].mine === false)).toBe(true);
+    expect((await debug.list(boss, { exclusive: 'mine', page: 1, pageSize: 30 })).total).toBe(0);
+    // 专属人本人看到“我的专属品”
+    const owner = { ...boss, id: boss.id + 999 };
+    const mine = await debug.list(owner, { exclusive: 'mine', page: 1, pageSize: 30 });
+    expect(mine.total).toBe(all.total);
+    expect(mine.rows[0].exclusiveOwners[0].mine).toBe(true);
   });
 });

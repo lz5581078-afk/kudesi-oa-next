@@ -42,6 +42,7 @@ class ComponentsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
 }
 class DebugListDto extends ComponentsDto {
+  @IsOptional() @IsIn(['mine']) exclusive?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) baseCodeId?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
@@ -150,7 +151,7 @@ export class CostController {
   @RequirePermission('finance.pricing-debug.view')
   @Get('pricing-debug')
   debugList(@CurrentUser() user: AuthUser, @Query() q: DebugListDto) {
-    return this.debug.list(user, { keyword: q.keyword, categoryId: q.categoryId, baseCodeId: q.baseCodeId, page: q.page ?? 1, pageSize: q.pageSize ?? 30 });
+    return this.debug.list(user, { keyword: q.keyword, categoryId: q.categoryId, baseCodeId: q.baseCodeId, exclusive: q.exclusive, page: q.page ?? 1, pageSize: q.pageSize ?? 30 });
   }
 
   @RequirePermission('finance.pricing-debug.view')

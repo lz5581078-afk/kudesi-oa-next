@@ -17,7 +17,7 @@ describe('组合命名（旧系统规则）', () => {
   });
   it('赠品没有别名时给出错误', () => {
     const r = composeBundle(null, input([item({})], [item({ id: 9, code: 'G-1', name: '赠品' })]));
-    expect(r.errors.join()).toContain('赠品别名');
+    expect(r.errors.join()).toContain('赠品简称');
   });
   it('赠品用别名：+ZP-别名编码*数量', () => {
     const r = composeBundle(null, input([item({})], [item({ id: 9, code: 'G-1', name: '赠品', giftName: '小赠', giftCode: 'XZ', qty: 2, identity: 'g' })]));
