@@ -532,4 +532,22 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
   .org-tree-pane.has-selection { display: none; }
   .org-detail-pane:not(.has-selection) { display: none; }
   .dept-back { display: inline-block; }
+/* ===== u4：商品档案详情成本汇总、复制按钮、手机卡片表、定价调试浮条 ===== */
+.cost-summary { padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.cost-summary-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 6px 0; }
+.cost-summary-row > div { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 90px; }
+.cost-summary-row > div.is-total { background: var(--accent-soft); color: var(--accent-ink); }
+.cost-summary-row > i { align-self: center; font-style: normal; color: var(--muted); }
+.copy-button { margin-left: 4px; font-size: 12px; }
+.import-drop { border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); padding: 12px; text-align: center; color: var(--muted); }
+.import-drop.over { background: var(--accent-soft); border-color: var(--accent); }
+.pricing-mobile-bar { display: none; }
+@media (max-width: 720px) {
+  .pricing-mobile-bar { display: flex; position: fixed; left: 12px; right: 12px; bottom: 74px; z-index: 25; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 12px; background: var(--topbar, #1f2d3a); color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+  .data-table.cards-narrow thead { display: none; }
+  .data-table.cards-narrow, .data-table.cards-narrow tbody, .data-table.cards-narrow tr, .data-table.cards-narrow td { display: block; width: 100%; }
+  .data-table.cards-narrow tr { border: 1px solid var(--border); border-radius: 10px; margin: 0 0 10px; padding: 6px 10px; background: var(--surface, #fff); }
+  .data-table.cards-narrow td { max-width: none; white-space: normal; border: 0; padding: 3px 0; display: flex; justify-content: space-between; gap: 12px; text-align: right; }
+  .data-table.cards-narrow td[data-label]::before { content: attr(data-label); color: var(--muted); text-align: left; flex: none; }
+  .data-table.cards-narrow td.card-skip { display: none; }
 }

@@ -16,6 +16,7 @@ import { CopyButton, isCopyable } from './CopyValue';
 import { KeyFacts } from './KeyFacts';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
 import { StoreMetricsPanel } from './StoreMetricsPanel';
+import { ProductCostSummary } from './ProductCostSummary';
 import { DerivedStoresPanel, PartnerSubjectPanel, PhoneArchiveButton, ReturnBorrowButton } from './CertPanels';
 
 export function useResourceCan(type: string) {
@@ -78,6 +79,23 @@ function SecretCell({ def, record, fieldKey }: { def: ResourceDef; record: Resou
   );
 }
 
+/** 新增子记录时的默认值：成本明细行默认采购成本、商品规格单位、今天生效、手工锁定（旧系统同款）。 */
+export function childDefaults(childType: string, isNew: boolean, parent: ResourceDto): Record<string, unknown> {
+  if (!isNew || childType !== 'finance-product-costs') return {};
+  const d = parent.data;
+  const unit = String(d.purchaseSpec || [d.specQty, d.specUnit].filter(Boolean).join('') || '');
+  return { costType: 'purchase', ...(unit ? { unitName: unit } : {}), effectiveFrom: todayShanghai(), manualOverride: true, manualLockReason: '人工确认成本' };
+}
+
+const todayText = () => todayShanghai();
+/** 同一成本类型里，启用、已开始、没结束且生效日最新的一条。 */
+export function isCurrentCost(it: ResourceDto, all: ResourceDto[]): boolean {
+  const today = todayText();
+  const ok = (x: ResourceDto) => x.status === 'active' && String(x.data.effectiveFrom ?? '') <= today && (!x.data.effectiveTo || String(x.data.effectiveTo) >= today);
+  if (!ok(it)) return false;
+  return !all.some((x) => x.id !== it.id && x.data.costType === it.data.costType && ok(x) && String(x.data.effectiveFrom) > String(it.data.effectiveFrom));
+}
+
 function ChildPanel({ parentDef, parent, childType, field }: { parentDef: ResourceDef; parent: ResourceDto; childType: string; field: string }) {
   const def = getResourceDef(childType)!;
   const can = useResourceCan(childType);
@@ -87,7 +105,8 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
   const [error, setError] = useState('');
   const reload = useCallback(async () => {
     try {
-      setItems((await resourceApi.list(childType, { pageSize: 100, showHidden: true, fieldKey: field, fieldValue: parent.id })).items);
+      const list = (await resourceApi.list(childType, { pageSize: 100, showHidden: true, fieldKey: field, fieldValue: parent.id })).items;
+      setItems(childType === 'finance-product-costs' ? [...list].sort((a, b) => String(b.data.effectiveFrom ?? '').localeCompare(String(a.data.effectiveFrom ?? ''))) : list);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
@@ -107,7 +126,7 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
       {items.map((it) => (
         <div key={it.id} className="line-item col">
           <div className="between">
-            <strong>{it.title}</strong>
+            <strong>{it.title}{childType === 'finance-product-costs' && isCurrentCost(it, items) && <span className="pill ok"> 当前生效</span>}</strong>
             <span className={`pill ${statusOf(def, it.status).tone === 'muted' ? 'warn' : statusOf(def, it.status).tone}`}>{statusOf(def, it.status).label}</span>
           </div>
           <small className="muted">{cols.map((f) => displayValue(f, it)).filter(Boolean).join(' · ')}</small>
@@ -123,7 +142,7 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
         <RecordForm
           def={def}
           record={editing === 'new' ? null : editing}
-          initial={{ [field]: parent.id, ...(childType === 'bank-accounts' && parent.data.category ? { kind: parent.data.category === 'ecommerce' ? 'store_public' : 'company_public' } : {}) }}
+          initial={{ [field]: parent.id, ...childDefaults(childType, editing === 'new', parent), ...(childType === 'bank-accounts' && parent.data.category ? { kind: parent.data.category === 'ecommerce' ? 'store_public' : 'company_public' } : {}) }}
           lockedFields={[field]}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -266,6 +285,8 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
       <div className="drawer-body">
         {error && <div role="alert" className="notice error">{error}</div>}
         {record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}
+        {tab === 'info' && def.key === 'finance-products' && <ProductCostSummary def={def} record={record} />}
+        {tab === 'info' && <BankCopyAll def={def} record={record} />}
         {tab === 'info' &&
           [...groups.entries()].map(([group, fields]) => (
             <section key={group}>
@@ -428,6 +449,14 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
       )}
     </aside>
   );
+}
+
+/** 供应商等有开户名/开户行/账号的资料：一键复制整组银行信息，付款对账时直接粘贴。 */
+function BankCopyAll({ def, record }: { def: ResourceDef; record: ResourceDto }) {
+  const d = record.data;
+  if (!def.fields.some((f) => f.key === 'bankAccountNo') || !d.bankAccountNo) return null;
+  const text = [`户名：${String(d.bankAccountName ?? record.title)}`, `开户行：${String(d.bank ?? '')}`, `账号：${String(d.bankAccountNo)}`].join('\n');
+  return <div className="pill-row"><span className="muted">银行信息</span><CopyButton value={text} label="全部银行信息" /></div>;
 }
 
 function FragmentRow({ label, children }: { label: string; children: React.ReactNode }) {

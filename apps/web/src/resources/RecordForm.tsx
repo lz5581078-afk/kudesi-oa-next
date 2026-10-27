@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { fieldOptions, useUnitOptions } from './unitOptions';
 import { SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -246,6 +246,12 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [known, setKnown] = useState<Record<number, FileInfo>>(record?.files ?? {});
+  // 新建时填了内容就关闭，先确认，免得点错丢内容（旧系统同款）
+  const startValues = useRef(JSON.stringify(values));
+  const requestClose = () => {
+    if (!record && JSON.stringify(values) !== startValues.current && !window.confirm('新增的资料还没有保存，关闭后填写的内容会丢失。确定直接关闭吗？')) return;
+    onClose();
+  };
 
   const { user: me } = useAuth();
   const canField = (f: FieldDef) => !f.permission || (me ? createChecker(me.permissions)(f.permission) : false);
@@ -372,7 +378,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
       <form className="modal card" role="dialog" aria-label={record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
         <div className="modal-head between">
           <strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>
-          <button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button>
+          <button type="button" className="icon-button" aria-label="关闭" onClick={requestClose}>✕</button>
         </div>
         <div className="modal-body">
           {def.key === 'licenses' && (
@@ -412,11 +418,12 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
               </div>
             </fieldset>
           ))}
+          {isProduct && <TotalCostPreview values={values} />}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
           {error && <div role="alert" className="notice error">{error}</div>}
         </div>
         <div className="modal-foot">
-          <button type="button" className="secondary-button" onClick={onClose}>取消</button>
+          <button type="button" className="secondary-button" onClick={requestClose}>取消</button>
           {draftEnabled && <button type="button" className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>存为草稿</button>}
           {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新建</button>}
           {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('blank')}>保存并继续新建</button>}
@@ -437,6 +444,17 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
       )}
     </div>
   );
+}
+
+/** 填写时实时看总成本价：采购价 + 运费 + 装卸费（自制品/OEM 的采购价来自构成，保存后才有，这里只提示）。 */
+export function TotalCostPreview({ values }: { values: Record<string, unknown> }) {
+  const num = (k: string) => (values[k] === '' || values[k] === undefined || values[k] === null ? null : Number(values[k]));
+  const p = num('purchasePrice'), f = num('freight'), h = num('handlingFee');
+  if (p === null && f === null && h === null) return null;
+  const composed = ['self_made', 'oem_package'].includes(String(values.archiveType)) || values.supplyMode === 'supplier_oem';
+  if (composed && p === null) return <div className="notice" role="status">自制品/OEM 的采购价由构成汇总，保存后在“构成（BOM）”页签里添加原料、包装和人工。</div>;
+  const total = (p ?? 0) + (f ?? 0) + (h ?? 0);
+  return <div className="notice" role="status" aria-label="总成本预览">总成本价预览：采购价 ¥{unitYuanText(p ?? 0)} + 运费 ¥{unitYuanText(f ?? 0)} + 装卸费 ¥{unitYuanText(h ?? 0)} = <strong>¥{unitYuanText(total)}</strong></div>;
 }
 
 /** 已有构成的自制品/OEM 成品：包装组成、人力组成各有几行（新建时没有构成，返回 undefined） */

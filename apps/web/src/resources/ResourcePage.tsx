@@ -197,6 +197,9 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   }
 
   const filtered = Boolean(keyword.trim() || tab || status || archived || expiring || Object.values(filterVals).some(Boolean));
+  function clearFilters() {
+    setKeyword(''); setStatus(''); setArchived(false); setExpiring(false); setFilterVals({}); setTab(lockedTab ?? ''); setPage(1);
+  }
   async function doExport(scope: 'filtered' | 'all' | 'picked') {
     try {
       const out = await resourceApi.export(type, showHidden || archived, scope === 'all' ? {} : scope === 'picked'
@@ -298,6 +301,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             {hiddenExists && !status && !archived && (
               <label className="check"><input type="checkbox" checked={showHidden} onChange={(e) => { setShowHidden(e.target.checked); setPage(1); }} /> 显示{def.statuses.filter((s) => s.hidden).map((s) => s.label).join('/')}</label>
             )}
+            {filtered && <button type="button" className="secondary-button" onClick={clearFilters}>清除筛选</button>}
             <div className="menu-wrap">
               <button type="button" className="secondary-button" aria-expanded={columnMenu} onClick={() => setColumnMenu((v) => !v)}>显示列</button>
               {columnMenu && (
@@ -359,7 +363,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           )}
           {batchMsg && <div role="status" className="notice m">{batchMsg}</div>}
           <div className="table-scroll">
-            <table className="data-table">
+            <table className="data-table cards-narrow">
               <thead>
                 <tr>
                   {def.batch && <th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={!!data?.items.length && data.items.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...(data?.items.map((r) => r.id) ?? [])])] : checked.filter((id) => !data?.items.some((r) => r.id === id)))} /></th>}
@@ -390,23 +394,25 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                         }
                       }}
                     >
-                      {def.batch && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>}
+                      {def.batch && <td className="card-skip" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>}
                       {columns.map((f) => {
                         const due = dueBadgeFor(type, f.key, row.data, row.status, today);
                         return (
-                          <td key={f.key} className={f.type === 'money' ? 'num' : undefined}>
+                          <td key={f.key} data-label={f.label} className={f.type === 'money' ? 'num' : undefined}>
                             {displayValue(f, row)}
                             {isCopyable(def, f) && f.type !== 'number' && displayValue(f, row) && <> <CopyButton value={displayValue(f, row)} label={f.label} /></>}
                             {due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`} title="到期提醒按今天的日期实时计算">{due.text}</span></>}
                           </td>
                         );
                       })}
-                      <td><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
+                      <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
                     </tr>
                   );
                 })}
                 {data && data.items.length === 0 && (
-                  <tr><td colSpan={columns.length + 2} className="muted center">没有匹配的{def.label}</td></tr>
+                  <tr><td colSpan={columns.length + 2} className="muted center">
+                    {filtered ? <>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。 <button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></> : `还没有${def.label}`}
+                  </td></tr>
                 )}
                 {!data && !error && <tr><td colSpan={columns.length + 2} className="muted center">加载中…</td></tr>}
               </tbody>
