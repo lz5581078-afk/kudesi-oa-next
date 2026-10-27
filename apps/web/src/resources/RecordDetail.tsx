@@ -35,10 +35,11 @@ function SecretCell({ def, record, fieldKey }: { def: ResourceDef; record: Resou
   const can = useResourceCan(def.key);
   const [value, setValue] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
   const shown = record.secretConfigured[fieldKey] ? '••••••' : '';
   useEffect(() => {
     if (value === null) return;
-    const t = setTimeout(() => setValue(null), 15000); // 明文只显示 15 秒
+    const t = setTimeout(() => setValue(null), 30000); // 明文只显示 30 秒（旧系统同款）
     return () => clearTimeout(t);
   }, [value]);
   if (!record.secretConfigured[fieldKey]) return <span className="muted">未设置</span>;
@@ -61,7 +62,10 @@ function SecretCell({ def, record, fieldKey }: { def: ResourceDef; record: Resou
             查看（会留记录）
           </button>
         ) : (
-          <button type="button" className="link-button" onClick={() => setValue(null)}>隐藏</button>
+          <>
+            <button type="button" className="link-button" onClick={() => { void navigator.clipboard?.writeText(value).then(() => setCopied(true)).catch(() => setError('复制失败，请手动选中复制')); }}>{copied ? '已复制' : '复制'}</button>{' '}
+            <button type="button" className="link-button" onClick={() => { setValue(null); setCopied(false); }}>隐藏</button>
+          </>
         ))}
       {error && <small className="bad-text"> {error}</small>}
     </span>

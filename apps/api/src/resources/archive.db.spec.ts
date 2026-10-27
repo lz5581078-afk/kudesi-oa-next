@@ -104,4 +104,20 @@ d('软归档/恢复（真实数据库）', () => {
     const filt = await svc.exportCsv(boss, 'software', false, { keyword: '排序甲' });
     expect(filt.count).toBe(1);
   });
+
+  it('导入：默认有问题整批不导；选“只导入没问题的行”则局部成功', async () => {
+    const rows = [
+      { 软件名称: '局部成功甲', 账号: 'p1' },
+      { 软件名称: '', 账号: 'p2' },
+      { 软件名称: '局部成功乙', 账号: 'p3' },
+    ];
+    const all = await svc.importRows(boss, 'software', rows, false);
+    expect(all.committed).toBe(false);
+    expect((await svc.list(boss, 'software', { keyword: '局部成功' })).total).toBe(0);
+    const part = await svc.importRows(boss, 'software', rows, false, true);
+    expect(part.committed).toBe(true);
+    expect(part.created).toBe(2);
+    expect(part.failed).toBe(1);
+    expect((await svc.list(boss, 'software', { keyword: '局部成功' })).total).toBe(2);
+  });
 });

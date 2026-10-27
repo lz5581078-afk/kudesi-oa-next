@@ -50,10 +50,10 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
     setBusy(false);
   }
 
-  async function commit() {
+  async function commit(partial = false) {
     setBusy(true);
     try {
-      const res = await resourceApi.import(def.key, rows, false);
+      const res = await resourceApi.import(def.key, rows, false, partial);
       if (!res.committed) {
         setPreview(res);
         setBusy(false);
@@ -150,7 +150,12 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
         </div>
         <div className="modal-foot">
           <button type="button" className="secondary-button" onClick={onClose}>取消</button>
-          <button type="button" className="primary-button" disabled={busy || !preview || preview.failed > 0} onClick={commit}>
+          {preview && preview.failed > 0 && preview.failed < preview.results.length && (
+            <button type="button" className="secondary-button" disabled={busy} title="有问题的行跳过，其余照常导入" onClick={() => void commit(true)}>
+              只导入没问题的 {preview.results.length - preview.failed} 行
+            </button>
+          )}
+          <button type="button" className="primary-button" disabled={busy || !preview || preview.failed > 0} onClick={() => void commit()}>
             确认导入
           </button>
         </div>

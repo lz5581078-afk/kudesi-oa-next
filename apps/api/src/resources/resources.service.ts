@@ -1293,7 +1293,7 @@ export class ResourcesService implements RuleHost {
    * 批量导入：先在事务里真正执行一遍，出任何错都整体回滚；预览（dryRun）也一律回滚。
    * 有唯一字段的资料按它“有则更新、无则新建”，没有唯一字段的都是新建。
    */
-  async importRows(user: AuthUser, type: string, rows: Array<Record<string, string>>, dryRun: boolean) {
+  async importRows(user: AuthUser, type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false) {
     const def = this.def(type);
     if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('没有可导入的行');
     if (rows.length > MAX_IMPORT_ROWS) throw new BadRequestException(`一次最多导入 ${MAX_IMPORT_ROWS} 行`);
@@ -1331,19 +1331,21 @@ export class ResourcesService implements RuleHost {
             results.push({ line, action: 'error', errors: [Array.isArray(message) ? message.join('；') : String(message)] });
           }
         }
-        if (dryRun || results.some((r) => r.action === 'error')) throw new Rollback();
+        // 默认有一行有问题就整批不导入；partial=只导入没问题的行（局部成功），有问题的行原样返回
+        if (dryRun || (!partial && results.some((r) => r.action === 'error'))) throw new Rollback();
       });
     } catch (e) {
       if (!(e instanceof Rollback)) throw e;
     }
     const failed = results.filter((r) => r.action === 'error').length;
-    if (!dryRun && failed === 0) await this.files.deleteObjects(user.companyId, cleanup);
+    const committed = !dryRun && (failed === 0 || (partial && results.length > failed));
+    if (committed) await this.files.deleteObjects(user.companyId, cleanup);
     // 没导进去就不留这份备份
-    if (backupId && failed > 0) await this.dataSource.getRepository(ResourceImportBackup).delete({ id: backupId });
+    if (backupId && !committed) await this.dataSource.getRepository(ResourceImportBackup).delete({ id: backupId });
     return {
       dryRun,
-      committed: !dryRun && failed === 0,
-      backupId: !dryRun && failed === 0 ? backupId : null,
+      committed,
+      backupId: committed ? backupId : null,
       created: results.filter((r) => r.action === 'create').length,
       updated: results.filter((r) => r.action === 'update').length,
       failed,

@@ -76,6 +76,8 @@ class DeleteDto {
 class ImportDto {
   @IsArray() @ArrayMaxSize(2000) rows!: Array<Record<string, string>>;
   @IsBoolean() dryRun!: boolean;
+  /** true=有问题的行跳过，其余照常导入 */
+  @IsOptional() @IsBoolean() partial?: boolean;
 }
 
 class SimilarDto {
@@ -155,7 +157,7 @@ export class ResourcesController {
   @RequireResourceAction('import')
   @Post(':type/import')
   import(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: ImportDto) {
-    return this.resources.importRows(user, type, dto.rows, dto.dryRun);
+    return this.resources.importRows(user, type, dto.rows, dto.dryRun, dto.partial === true);
   }
 
   // 往来档案保存前的相似/重复提示：返回阻止项和提示项

@@ -370,7 +370,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         </div>
       </section>
 
-      {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void load()} onCopy={def.batch ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
+      {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
 
       {creating && (
         <RecordForm
