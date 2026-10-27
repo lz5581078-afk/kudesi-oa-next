@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In, IsNull } from 'typeorm';
@@ -145,15 +145,16 @@ export class DataToolsService {
   /** 外部程序用 X-API-Key 读已验证组合；密钥只存哈希，常数时间比较 */
   async authenticateKey(raw: string | undefined, scope: string = API_SCOPE): Promise<number> {
     const m = KEY_RE.exec(raw ?? '');
-    if (!m) throw new ForbiddenException('请提供有效的 X-API-Key');
+    if (!m) throw new UnauthorizedException('请提供有效的 X-API-Key。');
     const row = await this.dataSource.manager.findOne(FinanceApiKey, { where: { id: m[1], scope } });
     const expected = Buffer.from(row?.keyHash ?? '0'.repeat(64), 'hex'), actual = Buffer.from(sha(raw as string), 'hex');
-    if (!row || row.revokedAt || expected.length !== actual.length || !crypto.timingSafeEqual(actual, expected)) throw new ForbiddenException('API 密钥无效或已撤销');
+    if (!row || row.revokedAt || expected.length !== actual.length || !crypto.timingSafeEqual(actual, expected)) throw new UnauthorizedException('API 密钥无效或已撤销。');
     await this.dataSource.manager.update(FinanceApiKey, { id: row.id }, { lastUsedAt: new Date() });
     return row.companyId;
   }
 
-  async externalFeed(companyId: number) { return { rows: await this.cost.verifiedFeed(companyId) }; }
+  /** 金额一律是整数分（amountUnit: 'cent'）；旧系统的 /api/external/verified-bundles 兼容路径见 LegacyVerifiedFeedController（旧字段名和单位） */
+  async externalFeed(companyId: number) { return { amountUnit: 'cent', rows: await this.cost.verifiedFeed(companyId) }; }
 
   // ---------- 主数据重置 ----------
   private scope(includePlatforms: boolean) { return RESET_TYPES.filter((t) => !t.optional || includePlatforms); }

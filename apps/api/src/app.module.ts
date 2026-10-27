@@ -44,7 +44,7 @@ import { CategoryToolsController } from './resources/category-tools.controller';
 import { CategoryToolsService } from './resources/category-tools.service';
 import { PriceSyncService } from './outbox/price-sync.service';
 import { CategorySyncService } from './outbox/category-sync.service';
-import { CatalogApiController, DataToolsController, ExternalFeedController } from './resources/data-tools.controller';
+import { CatalogApiController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController } from './resources/data-tools.controller';
 import { CatalogApiService } from './resources/catalog-api.service';
 import { JstMaintenanceController } from './resources/jst-maintenance.controller';
 import { JstMaintenanceService } from './resources/jst-maintenance.service';
@@ -136,7 +136,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, CategoryToolsController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, CategoryToolsController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController],
   providers: [
     AuthService,
     PlatformService,

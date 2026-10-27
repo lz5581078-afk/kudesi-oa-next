@@ -79,4 +79,38 @@ d('商品与成本目录接口（真实数据库）', () => {
     expect(cats.items.find((c) => c.name === '组合')?.bundleCount).toBe(2);
     expect((await catalog.costCategories(boss.companyId, {})).items.length).toBeGreaterThan(0);
   });
+
+  it('旧接口兼容：旧字段名保留（金额元、利润率小数、重量千克），新字段仍是分；旧 /verified-feed 形状', async () => {
+    const sku = await catalog.skuCosts(boss.companyId, {});
+    expect(sku.amountUnit).toBe('cent');
+    expect(sku.rows).toBe(sku.items); // 旧：rows
+    expect(sku.nextCursor).toBeNull(); // 旧：最后一页 nextCursor = null
+    expect(sku.items[0]).toMatchObject({ preShipCostCents: 1000, skuCode: sku.items[0].code, productCost: 10, preShipCost: 10, profitRate: 0.2 });
+    expect(sku.items[0].minimumSellingPrice).toBe(sku.items[0].minPriceCents === null ? null : (sku.items[0].minPriceCents as number) / 100);
+    const p1 = await catalog.skuCosts(boss.companyId, { limit: 1 });
+    expect(p1.nextCursor).toBe(p1.nextAfterId);
+    const codes = await catalog.bundleCodes(boss.companyId, {});
+    expect(codes.items[0]).toMatchObject({ verificationStatus: 'verified', issues: [] });
+    expect((codes.items[0].components as unknown[]).length).toBe(1);
+    expect(codes.items[0].profile).toMatchObject({ final_code: codes.items[0].code });
+    const cc = await catalog.costCategories(boss.companyId, {});
+    expect(cc.defaultMargin.profitRate).toBe(0.2);
+    // 旧 /verified-feed
+    const feed = await catalog.legacyFeed(boss.companyId, { limit: 1 });
+    expect(feed.total).toBe(2);
+    expect(feed.rows).toHaveLength(1);
+    expect(feed.nextCursor).toBe(feed.rows[0].id);
+    expect(feed.rows[0]).toMatchObject({ verification: { status: 'verified' }, details: { components: [{ role: 'main' }] } });
+    expect(feed.rows[0].mainProducts).toHaveLength(1);
+    expect(feed.rows[0].category?.name).toBe('组合');
+    expect((await catalog.legacyFeed(boss.companyId, { afterId: feed.rows[0].id, limit: 5 })).nextCursor).toBeNull();
+    expect((await catalog.legacyAll(boss.companyId)).rows).toHaveLength(2);
+    expect((await catalog.legacyByCode(boss.companyId, feed.rows[0].code))?.id).toBe(feed.rows[0].id);
+    expect(await catalog.legacyByCode(boss.companyId, 'NOPE')).toBeNull();
+    const lc = await catalog.legacyCategories(boss.companyId);
+    expect(lc.rows.map((r) => r.name)).toContain('组合');
+    expect(lc.tree.length).toBeGreaterThan(0);
+    // 未验证的（橙子）不在旧接口里
+    expect(feed.total).toBe(2);
+  });
 });
