@@ -63,3 +63,11 @@ export function isCopyable(def: ResourceDef, f: FieldDef): boolean {
   if (f.type === 'sensitive' || f.type === 'phone') return true;
   return f.key === def.uniqueField || COPY_KEY.test(f.key) || f.key === 'account' || f.key === 'loginName';
 }
+
+/** 主页链接、登录地址一类的网址字段：详情里做成可点的链接（旧系统自媒体、账号备忘的主页/登录地址可直接打开）。 */
+export function urlOf(f: FieldDef, value: string): string | null {
+  if (!/^(homepage|url)$/.test(f.key)) return null;
+  const v = value.trim();
+  if (!v) return null;
+  return /^https?:\/\//i.test(v) ? v : /^[\w-]+(\.[\w-]+)+/.test(v) ? `https://${v}` : null;
+}

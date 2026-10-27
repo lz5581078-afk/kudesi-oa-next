@@ -12,7 +12,8 @@ import { displayValue, statusOf } from './format';
 import { ReasonDialog, RecordForm, clearRefCache, loadRefOptions } from './RecordForm';
 import { StatusControl, typeLabel } from './StatusControl';
 import { RevenuePanel } from './RevenuePanel';
-import { CopyButton, isCopyable } from './CopyValue';
+import { CopyButton, isCopyable, urlOf } from './CopyValue';
+import { DutyGroupSummary } from './DutyGroupSummary';
 import { KeyFacts } from './KeyFacts';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
 import { StoreMetricsPanel } from './StoreMetricsPanel';
@@ -300,7 +301,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
                       <FileList ids={Array.isArray(record.data[f.key]) ? (record.data[f.key] as number[]) : []} files={record.files} />
                     ) : (
                       <>
-                        {displayValue(f, record) || <span className="muted">—</span>}
+                        {urlOf(f, displayValue(f, record)) ? <a href={urlOf(f, displayValue(f, record))!} target="_blank" rel="noopener noreferrer">{displayValue(f, record)}</a> : (displayValue(f, record) || <span className="muted">—</span>)}
                         {isCopyable(def, f) && displayValue(f, record) && <> <CopyButton value={displayValue(f, record)} label={f.label} /></>}
                       </>
                     )}
@@ -312,6 +313,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         {tab === 'info' && def.key === 'bank-accounts' && (
           <PhoneArchiveButton type="bank-accounts" record={record} numberKey="reservedPhoneNumber" idKey="phoneId" holder={String(record.data.reservedPhoneHolder ?? '')} onDone={() => { void load(); onChanged(); }} onError={setError} />
         )}
+        {tab === 'info' && def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} />}
         {tab === 'info' && def.key === 'stores' && can('edit') && (
           <StoreReleaseButton record={record} onDone={() => { void load(); onChanged(); }} onError={setError} />
         )}

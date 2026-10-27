@@ -4,6 +4,31 @@ import { resourceApi } from './api';
 
 interface Pending { id: number; title: string; creditCode: string; category: 'operation' | 'ecommerce' }
 
+/** 还没有对应类别税务资料的营业执照（类别跟随执照）。 */
+export async function loadPendingTax(): Promise<Pending[]> {
+  const [lic, tax] = await Promise.all([
+    resourceApi.list('licenses', { pageSize: 200 }),
+    resourceApi.list('tax-profiles', { pageSize: 200, showHidden: true }),
+  ]);
+  const taken = new Set(tax.items.map((t) => `${Number(t.data.licenseId)}:${String(t.data.taxCategory ?? 'operation')}`));
+  const cat = (l: { data: Record<string, unknown> }): 'operation' | 'ecommerce' => (l.data.category === 'ecommerce' ? 'ecommerce' : 'operation');
+  return lic.items.filter((l) => !taken.has(`${l.id}:${cat(l)}`)).map((l) => ({ id: l.id, title: l.title, creditCode: String(l.data.creditCode ?? ''), category: cat(l) }));
+}
+
+/** 税务页顶部入口：显示还有多少张执照没有税务资料（旧系统是页签下的提示条），点开逐张或全部生成。 */
+export function TaxPendingButton({ refreshKey, onCreated }: { refreshKey: unknown; onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => { loadPendingTax().then((r) => setCount(r.length)).catch(() => setCount(null)); }, [refreshKey, open]);
+  return (
+    <>
+      <button type="button" className="secondary-button" onClick={() => setOpen(true)}>待生成{count ? `（${count}）` : ''}</button>
+      {count ? <span className="pill warn" role="status">{count} 张营业执照还没有税务资料</span> : null}
+      {open && <TaxPendingDialog onClose={() => setOpen(false)} onCreated={onCreated} />}
+    </>
+  );
+}
+
 /** 列出还没有对应类别税务资料的营业执照（类别跟随执照：经营/电商），可逐张或全部按执照信息生成，税种待确认。 */
 export function TaxPendingDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [rows, setRows] = useState<Pending[] | null>(null);
@@ -11,13 +36,7 @@ export function TaxPendingDialog({ onClose, onCreated }: { onClose: () => void; 
   const [busyId, setBusyId] = useState<number | null>(null);
   async function load() {
     try {
-      const [lic, tax] = await Promise.all([
-        resourceApi.list('licenses', { pageSize: 200 }),
-        resourceApi.list('tax-profiles', { pageSize: 200, showHidden: true }),
-      ]);
-      const taken = new Set(tax.items.map((t) => `${Number(t.data.licenseId)}:${String(t.data.taxCategory ?? 'operation')}`));
-      const cat = (l: { data: Record<string, unknown> }): 'operation' | 'ecommerce' => (l.data.category === 'ecommerce' ? 'ecommerce' : 'operation');
-      setRows(lic.items.filter((l) => !taken.has(`${l.id}:${cat(l)}`)).map((l) => ({ id: l.id, title: l.title, creditCode: String(l.data.creditCode ?? ''), category: cat(l) })));
+      setRows(await loadPendingTax());
       setError('');
     } catch (e) { setError(e instanceof ApiError ? e.message : '加载失败'); }
   }
