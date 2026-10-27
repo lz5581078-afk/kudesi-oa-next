@@ -219,6 +219,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
   });
 
   it('组合验证：核对报告、验证入队；构成修订只能改主品、需原因、随验证发布，过期的修订要拒绝', async () => {
+    await ds.query("UPDATE resource_records SET data = JSON_SET(data, '$.jstUploadedCode', JSON_UNQUOTE(JSON_EXTRACT(data, '$.code'))) WHERE company_id = ? AND type = 'finance-base-codes' AND JSON_EXTRACT(data, '$.jstUploadedCode') IS NULL", [boss.companyId]);
     const rep = await bt.report(boss, ids.b1);
     expect(rep.components[0]).toMatchObject({ qty: 2 });
     const v = await bt.verify(boss, [{ id: ids.b1, signature: rep.signature, uploadSignature: rep.uploadSignature }], { confirmed: true, syncToJst: true });
@@ -233,6 +234,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
 
     const newLines = [{ role: 'main', baseCodeId: ids.main, qty: 3 }];
     await expect(bt.createRevision(boss, ids.b1, '', newLines)).rejects.toThrow();
+    await ds.query("UPDATE outbox_jobs SET status = 'done' WHERE company_id = ? AND resource_type = 'finance-bundles' AND status IN ('pending', 'sending')", [boss.companyId]);
     await expect(bt.createRevision(boss, ids.b1, '加量', [...newLines, { role: 'gift', baseCodeId: gift.id, qty: 1 }])).rejects.toThrow(/赠品/);
     const r = await bt.createRevision(boss, ids.b1, '主品加到 3 件', newLines);
     expect(r.id).toBeGreaterThan(0);
@@ -244,6 +246,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     await expect(bt.cancelRevision(boss, ids.b1, '')).rejects.toThrow(/原因/);
     await bt.cancelRevision(boss, ids.b1, '写错了');
     expect((await svc.get(boss, 'finance-bundles', ids.b1)).data.pendingRevisionId).toBeUndefined();
+    await ds.query("UPDATE outbox_jobs SET status = 'done' WHERE company_id = ? AND resource_type = 'finance-bundles' AND status IN ('pending', 'sending')", [boss.companyId]);
     const r2 = await bt.createRevision(boss, ids.b1, '主品加到 3 件', newLines);
     // 修订发布前，直接改构成会让修订过期
     const line = (await svc.list(boss, 'finance-bundle-lines', { pageSize: 50 } as never)).items.find((x: { data: Record<string, unknown> }) => x.data.bundleId === ids.b1);
@@ -253,6 +256,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     expect(stale.results[0].error).toMatch(/又被改过/);
     await bt.cancelRevision(boss, ids.b1, '作废');
     void r2;
+    await ds.query("UPDATE outbox_jobs SET status = 'done' WHERE company_id = ? AND resource_type = 'finance-bundles' AND status IN ('pending', 'sending')", [boss.companyId]);
     const r3 = await bt.createRevision(boss, ids.b1, '主品改 3 件', newLines);
     const rep3 = await bt.report(boss, ids.b1);
     expect(rep3.pendingRevision?.id).toBe(r3.id);
@@ -274,6 +278,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     expect((await bt.deletionPreview(boss, ids.b1)).canDelete).toBe(false);
     await expect(bt.archive(boss, ids.b1, '', false)).rejects.toThrow(/原因/);
     await ds.manager.query("UPDATE resource_records SET data = JSON_SET(data, '$.jstUploadedCode', 'OLD-B') WHERE id = ?", [ids.b1]);
+    await ds.query("UPDATE outbox_jobs SET status = 'done' WHERE company_id = ? AND resource_type = 'finance-bundles' AND status IN ('pending', 'sending')", [boss.companyId]);
     await expect(bt.archive(boss, ids.b1, '停售', false)).rejects.toThrow(/停用/);
     await expect(bt.archive(ops, ids.b1, '停售', true)).rejects.toThrow(/管理员/);
     const r = await bt.archive(boss, ids.b1, '停售', true);

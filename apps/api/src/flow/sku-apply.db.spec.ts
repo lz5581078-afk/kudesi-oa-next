@@ -95,6 +95,8 @@ d('SKU 批量申请流程（真实数据库）', () => {
     ids.dy = (await resources.create(admin, 'finance-platforms', { code: 'DY', name: '抖音' })).id;
     ids.scen = (await resources.create(admin, 'finance-scenarios', { code: 'standard', name: '标准', segment: '' })).id;
 
+    // 子商品已在聚水潭上（组合装上传前的依赖检查）
+    await ds.query("UPDATE resource_records SET data = JSON_SET(data, '$.jstUploadedCode', JSON_UNQUOTE(JSON_EXTRACT(data, '$.code'))) WHERE company_id = ? AND type = 'finance-base-codes'", [admin.companyId]);
     // ---- 流程配置并发布 ----
     await flow.saveDraft(admin, 'sku-batch-apply', [step('apply', '运营申请', 'submit'), step('warehouse', '仓库完善', 'execute', wh.id), step('review', '财务审核', 'finance', fin.id), step('end', '结束', 'end')], []);
     await flow.publish(admin, 'sku-batch-apply');
