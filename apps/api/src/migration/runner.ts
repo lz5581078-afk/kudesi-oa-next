@@ -150,7 +150,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
           const definition = getResourceDef(r.type);
           const deferred: Record<string,unknown> = {};
           const immediate = { ...r.data };
-          const structural = new Set(['parentId','canonicalId','productId','componentId','baseCodeId','laborId','schemeId','versionId','branchId','carrierId','supplierId','categoryId','bundleId']);
+          const structural = new Set(['parentId','canonicalId','productId','componentId','baseCodeId','laborId','schemeId','versionId','branchId','carrierId','supplierId','categoryId','bundleId','abnormalReason']);
           for (const [field,v] of Object.entries(immediate)) {
             const link = (v as LegacyRef)?.legacyRef;
             const fd = definition?.fields.find(f=>f.key===field);
