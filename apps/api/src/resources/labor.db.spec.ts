@@ -6,6 +6,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
 import { Company, User } from '../entities';
 import { buildServices } from '../test-support';
+import { LaborCopyService } from './labor-copy.service';
 import { ResourcesService } from './resources.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
@@ -32,13 +33,10 @@ d('人力成本表（真实数据库）', () => {
     await expect(svc.create(boss, 'finance-labor-versions', { versionCode: 'V2026A', versionName: '重复' })).rejects.toThrow(/已存在/);
     await expect(svc.create(boss, 'finance-labor-versions', { versionCode: 'X', versionName: 'x', effectiveFrom: '2026-02-01', effectiveTo: '2026-01-01' })).rejects.toThrow(/不能早于/);
     await expect(svc.update(boss, 'finance-labor-versions', v1.id, { isDefault: true })).rejects.toThrow(/已启用/);
-    await svc.changeStatus(boss, 'finance-labor-versions', v1.id, 'active');
-    expect((await svc.get(boss, 'finance-labor-versions', v1.id)).data.activatedAt).toBeTruthy();
-    await svc.update(boss, 'finance-labor-versions', v1.id, { isDefault: true });
+    await expect(svc.changeStatus(boss, 'finance-labor-versions', v1.id, 'active')).rejects.toThrow(/至少维护一条/);
     const v2 = await svc.create(boss, 'finance-labor-versions', { versionCode: 'V2026B', versionName: '2026秋' }, 'active');
     ids.v2 = v2.id;
     await svc.update(boss, 'finance-labor-versions', v2.id, { isDefault: true });
-    expect((await svc.get(boss, 'finance-labor-versions', v1.id)).data.isDefault).toBeFalsy();
     expect((await svc.get(boss, 'finance-labor-versions', v2.id)).data.isDefault).toBe(true);
   });
 
@@ -74,6 +72,11 @@ d('人力成本表（真实数据库）', () => {
     const item = await svc.create(boss, 'finance-labor-costs', { ...base, archiveCategoryId: ids.catC });
     expect(item.data.workCode).toBe('RL-V2026A-BZCJ-LH-DLH-BZ-ZLH');
     ids.item = item.id;
+    // 启用版本：自动成为默认版本，原默认版本取消
+    await svc.changeStatus(boss, 'finance-labor-versions', ids.v1, 'active');
+    expect((await svc.get(boss, 'finance-labor-versions', ids.v1)).data.activatedAt).toBeTruthy();
+    expect((await svc.get(boss, 'finance-labor-versions', ids.v1)).data.isDefault).toBe(true);
+    expect((await svc.get(boss, 'finance-labor-versions', ids.v2)).data.isDefault).toBeFalsy();
     await expect(svc.create(boss, 'finance-labor-costs', { ...base, archiveCategoryId: ids.catC, workName: ' 装礼盒 ' })).rejects.toThrow(/已经有/);
     const zero = await svc.create(boss, 'finance-labor-costs', { ...base, archiveCategoryId: ids.catC, workName: '贴标', unitPrice: 0, zeroReason: '外包赠送，不另收费' });
     expect(zero.data.zeroReason).toBe('外包赠送，不另收费');
@@ -111,5 +114,27 @@ d('人力成本表（真实数据库）', () => {
     await expect(svc.create(boss, 'finance-product-boms', { productId: box.id, laborId: di.id, qty: 1 })).rejects.toThrow(/还没启用/);
     // 没被引用的可以删
     await svc.remove(boss, 'finance-labor-costs', ids.zero, '测试删除');
+  });
+
+  it('复制版本：带走分类树和全部项目（含停用的），新版本是草稿；编号重复整体不留残余；中文版本码取拼音首字母', async () => {
+    const copy = new LaborCopyService(ds, svc);
+    const before = (await svc.list(boss, 'finance-labor-costs', { pageSize: 200, showHidden: true } as never)).total;
+    const r = await copy.copyVersion(boss, ids.v1, { versionCode: 'RL-秋季版', versionName: '2026秋复制', periodName: '秋' });
+    const nv = await svc.get(boss, 'finance-labor-versions', r.id);
+    expect(nv.status).toBe('draft');
+    const srcItems = (await svc.list(boss, 'finance-labor-costs', { fieldKey: 'versionId', fieldValue: ids.v1, pageSize: 200, showHidden: true } as never)).items;
+    const newItems = (await svc.list(boss, 'finance-labor-costs', { fieldKey: 'versionId', fieldValue: r.id, pageSize: 200, showHidden: true } as never)).items;
+    expect(newItems).toHaveLength(srcItems.length);
+    expect(r.items).toBe(srcItems.length);
+    const a = srcItems.find((i) => i.id === ids.item)!;
+    const b = newItems.find((i) => i.data.workName === a.data.workName)!;
+    expect(b.data.unitPrice).toBe(a.data.unitPrice);
+    expect(String(b.data.workCode)).toContain('QJB'); // 去掉 RL- 前缀，中文取拼音首字母
+    expect(b.data.archiveCategoryId).not.toBe(a.data.archiveCategoryId);
+    expect(b.refLabels.archiveCategoryId).toBe(a.refLabels.archiveCategoryId);
+    const total = (await svc.list(boss, 'finance-labor-costs', { pageSize: 200, showHidden: true } as never)).total;
+    await expect(copy.copyVersion(boss, ids.v1, { versionCode: 'RL-秋季版', versionName: '重复' })).rejects.toThrow(/已存在/);
+    expect((await svc.list(boss, 'finance-labor-costs', { pageSize: 200, showHidden: true } as never)).total).toBe(total);
+    expect(total).toBe(before + srcItems.length);
   });
 });
