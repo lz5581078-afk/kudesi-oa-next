@@ -122,7 +122,7 @@ export const PAGE_TABS: Record<string, readonly PageTab[]> = {
   'finance/finance-suppliers': [rtab('finance-suppliers', '供应商档案'), rtab('finance-supplier-categories', '供应商分类')],
   'finance/finance-customers': [rtab('finance-customers', '客户档案'), rtab('finance-customer-categories', '客户分类')],
   'finance/finance-fee-items': [rtab('finance-fee-items', '费用档案'), rtab('finance-fee-categories', '费用类别')],
-  'finance/finance-base-codes': [rtab('finance-base-codes', '商品基础编码'), rtab('finance-categories', '商品分类'), rtab('finance-brands', '品牌')],
+  'finance/finance-base-codes': [rtab('finance-base-codes', '商品基础编码'), rtab('finance-categories', '商品分类'), rtab('finance-brands', '品牌'), rtab('finance-product-exclusives', '专属品')],
   'finance/finance-bundles': [rtab('finance-bundles', '商品组合编码'), rtab('finance-platforms', '销售平台'), rtab('finance-scenarios', '销售场景')],
   'finance/inventory': [ptab('inventory', '库存查询'), rtab('finance-warehouses', '仓库')],
   'finance/master-import': [ptab('master-import', '导入'), ptab('master-reset', '主数据重置')],

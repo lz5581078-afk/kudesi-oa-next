@@ -163,6 +163,25 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     posting: { at: 'pay', docType: 'expense', post: true, date: 'form.paidAt', bankAccountId: 'form.bankAccountId', feeItemId: 'payload.feeItemId', amountCents: 'payload.amountCents', memo: 'payload.reason', refNo: 'form.voucher' },
   },
   {
+    key: 'product-exclusive',
+    label: '专属品领取',
+    description: '运营领取一个基础商品的专属归属：同分类、同品牌、同品种的基础商品共享归属，其不同规格、平台和带赠品组合都算在内。审批人通过时定专属有效期（1 到 3650 天），通过后专属立即生效；到期自动解除，期间其他人不能再领取。',
+    fields: [
+      ref('baseCodeId', '基础商品', '领取', 'finance-base-codes', { required: true, help: '已有有效专属或正在申请的商品不能再申请' }),
+      textarea('reason', '领取原因', '领取', { required: true, maxLength: 500, help: '说明为什么领取、计划如何经营（审批人会看到）' }),
+    ],
+    stepFields: {
+      approve: [
+        { key: 'periodDays', label: '专属有效期（天）', type: 'number', group: '审批', required: true, help: '1 到 3650 天，从审批通过时起算' },
+      ],
+    },
+    steps: [
+      { key: 'apply', name: '提交申请', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'approve', name: '审批', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
+  {
     key: 'sku-batch-apply',
     label: 'SKU 批量申请',
     description: '运营一次申请多个新商品组合编码：运营填规格（主商品、赠品）→ 仓库补包装、标签、人工 → 财务核对后自动生成商品组合编码。财务通过后可选择加入聚水潭同步队列（只入队，总开关打开后才会发送）。',

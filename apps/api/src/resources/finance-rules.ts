@@ -5,6 +5,7 @@ import { EntityManager } from 'typeorm';
 import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, UNIT_OPTIONS, FEE_BOOKING_NODE_MAP, FINANCE_RESOURCE_DEFS, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceLink, ResourceRecord } from '../entities';
+import { beforeExclusive } from './product-exclusive';
 import { buildSnapshot, aliasCode, rawNames } from './base-code-support';
 import { NamingInput, NamingItem, NamingRule, composeBundle, parseFieldList, parseOverrides, validateRule } from './bundle-naming';
 import type { AfterSaveContext, BeforeSaveContext, RuleHost } from './resource-rules';
@@ -819,6 +820,7 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
   'finance-base-code-lines': beforeBaseCodeLine,
   'finance-product-costs': beforeProductCost,
   'finance-product-freight-history': beforeFreightHistory,
+  'finance-product-exclusives': beforeExclusive,
   'finance-bundles': beforeBundle,
   'finance-bundle-lines': beforeBundleLine,
   'finance-bundle-naming-rules': beforeNamingRule,

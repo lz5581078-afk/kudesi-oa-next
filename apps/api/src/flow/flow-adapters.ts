@@ -8,6 +8,7 @@ import { BundleToolsService } from '../resources/bundle-tools.service';
 import { ResourcesService } from '../resources/resources.service';
 import type { OutboxService } from '../outbox/outbox.service';
 import { skuBatchApply } from './sku-apply';
+import { productExclusive } from './product-exclusive';
 
 /**
  * 业务适配器：流程引擎只管流转，业务规则（能不能发起、办理时要做什么、能不能退回废除）由适配器声明。
@@ -190,4 +191,4 @@ export async function postDeclared(ctx: StepContext, t: FlowTemplate): Promise<v
   payload._docNo = finalDoc.docNo;
 }
 
-export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply };
+export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive };
