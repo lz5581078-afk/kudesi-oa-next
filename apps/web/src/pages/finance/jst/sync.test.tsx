@@ -108,16 +108,22 @@ describe('基本售价、归档任务、分类同步', () => {
 });
 
 describe('同步清单：状态汇总、筛选与全选本页', () => {
-  it('显示本页状态汇总；按状态筛选；全选只选可同步的，且最多 50 条', async () => {
-    apiMock.mockResolvedValue({ total: 3, rows: [item(1), item(2, { state: 'synced', uploaded: {} }), item(3, { state: 'failed' })] });
+  it('汇总来自服务端全量统计；状态筛选交给服务端；全选只选可同步的', async () => {
+    const rows = [item(1), item(2, { state: 'synced', uploaded: {} }), item(3, { state: 'failed' })];
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.includes('/items/summary')) return { total: 120, counts: { not_synced: 80, synced: 30, failed: 10 } };
+      if (path.includes('state=synced')) return { total: 30, rows: [rows[1]] };
+      return { total: 120, rows };
+    });
     render(<JstSyncItems onQueued={() => undefined} />);
     fireEvent.change(await screen.findByLabelText('资料类型'), { target: { value: 'finance-bundles' } });
-    await screen.findByText(/本页 3 条：未同步 1 · 已同步 1 · 同步失败 1/);
-    fireEvent.click(screen.getByLabelText('全选本页可同步的'));
+    await screen.findByText(/共 120 条已验证：未同步 80 · 已同步 30 · 同步失败 10/);
+    fireEvent.click(await screen.findByLabelText('全选本页可同步的'));
     expect(screen.getByText(/已选 2 条/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('同步状态'), { target: { value: 'synced' } });
-    expect(screen.queryByText('ZH-1', { exact: false })).toBeNull();
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('state=synced')));
+    await waitFor(() => expect(screen.queryByText('ZH-1', { exact: false })).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
-    expect(screen.getByText('ZH-1', { exact: false })).toBeTruthy();
+    await screen.findByText('ZH-1', { exact: false });
   });
 });
