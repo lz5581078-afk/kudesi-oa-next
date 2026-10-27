@@ -776,15 +776,17 @@ export class ResourcesService implements RuleHost {
     const em = this.dataSource.manager;
     const target = field.ref!;
     const tdef = this.def(target);
+    // 没有页签的资料（如商品组合编码）也可以按所属类型只看某一棵分类树
+    const tabBy = def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy) ? def.tabsBy : (!def.tabsBy && target === 'finance-categories' ? 'archiveType' : '');
     const cats = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: target }, select: ['id', 'title', 'status', 'data'] });
     const hidden = new Set(tdef.statuses.filter((s) => s.hidden).map((s) => s.value));
     const num = (v: unknown) => (typeof v === 'number' && v > 0 ? v : 0);
     let nodes = cats.filter((c) => !hidden.has(c.status) || q.showHidden).map((c) => ({
       id: c.id, title: c.title, status: c.status, parentId: num((c.data as Record<string, unknown>).parentId), sort: Number((c.data as Record<string, unknown>).sort) || 0,
-      tab: def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy) ? String((c.data as Record<string, unknown>)[def.tabsBy] ?? '') : '',
+      tab: tabBy ? String((c.data as Record<string, unknown>)[tabBy] ?? '') : '',
     }));
     // 页签切换时，只显示属于这个页签的分类
-    if (q.tab && def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy)) {
+    if (q.tab && tabBy) {
       const roots = def.treeTabMap?.[q.tab] ?? [q.tab];
       nodes = nodes.filter((n) => roots.includes(n.tab));
     }

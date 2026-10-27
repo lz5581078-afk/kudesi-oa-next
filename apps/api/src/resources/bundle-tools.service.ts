@@ -7,7 +7,7 @@ import { ResourceRecord } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
 import { COST_FIELDS, sigOf } from './base-code-support';
 import { composeBundle } from './bundle-naming';
-import { pickLine } from './bundle-checks';
+import { bundleIssues, pickLine } from './bundle-checks';
 import { buildBundleLines, bundleSnapshotJson, findNamingRule, namingInputFor } from './finance-rules';
 import { ResourcesService } from './resources.service';
 
@@ -15,7 +15,7 @@ const TYPE = 'finance-bundles';
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-export interface LineInput { role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean; costBucket?: string; costTreatment?: string; note?: string }
+export interface LineInput { sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean; costBucket?: string; costTreatment?: string; note?: string }
 export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number }
 interface SnapLine { role: string; ref: string; qty: number; weightG: number | null; cost: number | null }
 interface BundleSnap { profile: Record<string, string>; lines: SnapLine[] }
@@ -172,7 +172,7 @@ export class BundleToolsService {
     const revId = num(b.data.pendingRevisionId);
     const revision = revId ? await em.findOne(ResourceRecord, { where: { id: revId, companyId: user.companyId, type: 'finance-bundle-revisions' } }) : null;
     if (revision && revision.status === 'pending') return { lines: JSON.parse(str(revision.data.payload)) as LineInput[], revision };
-    const lines = (await this.lineRecords(em, user, b.id)).map((l) => ({ role: str(l.data.role), baseCodeId: num(l.data.baseCodeId) ?? undefined, laborId: num(l.data.laborId) ?? undefined, qty: Number(l.data.qty) }));
+    const lines = (await this.lineRecords(em, user, b.id)).map((l) => pickLine(l.data) as unknown as LineInput);
     return { lines, revision: null };
   }
 
@@ -183,12 +183,12 @@ export class BundleToolsService {
     const { lines, revision } = await this.currentLines(em, user, b);
     const issues: string[] = [];
     if (!lines.some((l) => l.role === 'main')) issues.push('还没有主品');
-    const components = [];
+    const components: Array<Record<string, unknown>> = [];
     let totalWeight = 0, totalCost = 0;
     for (const l of lines) {
       if (l.role === 'labor') {
         const lab = await em.findOne(ResourceRecord, { where: { id: Number(l.laborId), companyId: user.companyId, type: 'finance-labor-costs' } });
-        components.push({ role: l.role, code: '', name: lab?.title ?? '已删除的人工项目', qty: l.qty, weightG: null, cost: null });
+        components.push({ role: l.role, code: '', name: lab?.title ?? '已删除的人工项目', qty: l.qty, weightG: null, cost: null, unit: '', includeInJst: false, isRequired: l.isRequired !== false, costTreatment: str(l.costTreatment) || 'include' });
         continue;
       }
       const bc = await em.findOne(ResourceRecord, { where: { id: Number(l.baseCodeId), companyId: user.companyId, type: 'finance-base-codes' } });
@@ -197,8 +197,11 @@ export class BundleToolsService {
       const w = num(bc.data.weightG), c = num(bc.data.cost);
       totalWeight += (w ?? 0) * l.qty;
       totalCost += (c ?? 0) * l.qty;
-      components.push({ role: l.role, code: str(bc.data.code), name: str(bc.data.name) || bc.title, qty: l.qty, weightG: w, cost: cost ? c : undefined });
+      components.push({ role: l.role, code: str(bc.data.code), name: str(bc.data.name) || bc.title, qty: l.qty, weightG: w, cost: cost ? c : undefined, unit: str(l.unit), includeInJst: l.includeInJst === true, isRequired: l.isRequired !== false, lossRate: l.lossRate ?? 0, costBucket: str(l.costBucket), costTreatment: str(l.costTreatment) || 'include' });
     }
+    // 旧系统验证问题清单：分类、必填文本、单位、成本、重量、进聚水潭行等一次列全
+    const platform = await em.findOne(ResourceRecord, { where: { id: Number(b.data.platformId), companyId: user.companyId, type: 'finance-platforms' } });
+    for (const m of await bundleIssues(em, user.companyId, b.data, lines as never, platform?.status)) if (!issues.includes(m)) issues.push(m);
     const snapJson = await bundleSnapshotJson(em, user.companyId, b.data, lines as never);
     const stored = this.parse(b.data.snapshot);
     const now = JSON.parse(snapJson) as BundleSnap;

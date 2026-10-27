@@ -756,6 +756,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'code',
     uniqueField: 'code',
     sortField: 'updatedAtKey',
+    filterBy: 'bundleCategoryId',
     children: ['finance-bundle-lines'],
     statuses: [
       { value: 'pending', label: '待验证', tone: 'warn' },

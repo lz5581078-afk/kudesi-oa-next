@@ -14,14 +14,17 @@ export interface DeleteExecResult { results: Array<{ code: string; ok: boolean; 
 
 export interface BundleReport {
   id: number; code: string; name: string; styleCode: string; shortName: string; status: string;
-  components: Array<{ role: string; code: string; name: string; qty: number; weightG: number | null; cost?: number | null }>;
+  components: Array<{ role: string; code: string; name: string; qty: number; weightG: number | null; cost?: number | null; unit?: string; includeInJst?: boolean; isRequired?: boolean; lossRate?: number; costBucket?: string; costTreatment?: string }>;
   totalWeightG: number; totalCost?: number; pendingRevision: { id: number; reason: string } | null; signature: string; issues: string[];
   secondVerification: boolean; baselineMissing: boolean; changes: Change[];
   outbound: { sku_id: string; i_id: string; name: string; short_name: string; weight: number; cost_price?: number };
   uploadSignature: string; uploadedCode: string | null; replacing: boolean; jstStatus: string;
 }
-export interface LineInput { role: string; baseCodeId?: number; laborId?: number; qty: number }
-export interface TargetInput { platformId: number; scenarioId: number; configNo?: string }
+export interface LineInput {
+  role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean;
+  costBucket?: string; costTreatment?: string; sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; note?: string;
+}
+export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number }
 export interface PreviewTarget {
   platformId: number; platformName: string; scenarioId: number; scenarioName: string; configNo: string; code: string; name: string; styleCode: string; shortName: string;
   reuse: { id: number; code: string; status: string } | null; duplicates: Array<{ layer: string; label: string; hit: string }>; ok: boolean;

@@ -2,60 +2,14 @@ import { useEffect, useState } from 'react';
 import { ApiError } from '../../../api/client';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { ChangeTable } from './BaseCodeDialogs';
+import { BundleCategorySelect, LineEditor, ROLE_LABEL, toLineInput, type LineRow } from './BundleLineEditor';
 import { jstApi, type BundleReport, type LineInput, type PreviewTarget } from './jstApi';
 
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
-const ROLES: Array<[string, string]> = [['main', '主品'], ['gift', '赠品'], ['package', '包装'], ['label', '标签'], ['instruction', '说明书'], ['other', '其他']];
 const NAMING_FIELDS: Array<[string, string]> = [
   ['category', '分类'], ['platform', '销售平台'], ['scenario', '销售场景'], ['brand', '品牌'], ['variety', '品种'], ['packageType', '包装形态'], ['supplyMode', '供货方式'],
   ['name', '商品名称'], ['shortName', '简称'], ['style', '款式编码'], ['baseCode', '基础编码'], ['spec', '规格'], ['quantity', '数量'], ['totalSpec', '总规格'], ['custom', '自定义'],
 ];
-
-/** 搜已验证的基础编码 */
-function CodePick({ value, label, onPick }: { value?: number; label: string; onPick: (id: number, label: string) => void }) {
-  const [text, setText] = useState(label);
-  const [items, setItems] = useState<ResourceDto[]>([]);
-  const [open, setOpen] = useState(false);
-  const search = (kw: string) => resourceApi.list('finance-base-codes', { keyword: kw, status: 'verified', pageSize: 15 }).then((r) => setItems(r.items)).catch(() => setItems([]));
-  return (
-    <div className="pick">
-      <input aria-label="基础编码" value={text} placeholder="搜已验证的基础编码" onFocus={() => { setOpen(true); void search(text); }} onBlur={() => setTimeout(() => setOpen(false), 150)} onChange={(e) => { setText(e.target.value); setOpen(true); void search(e.target.value); }} />
-      {open && (
-        <ul className="pick-list" role="listbox">
-          {items.length === 0 && <li className="muted">没有找到已验证的基础编码</li>}
-          {items.map((i) => <li key={i.id}><button type="button" role="option" aria-selected={i.id === value} onMouseDown={(e) => e.preventDefault()} onClick={() => { setText(i.title); onPick(i.id, i.title); setOpen(false); }}>{i.title} <span className="muted">{String(i.data.name ?? '')}</span></button></li>)}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-export interface LineRow extends LineInput { label: string }
-
-function LineEditor({ rows, onChange, lockGifts }: { rows: LineRow[]; onChange: (r: LineRow[]) => void; lockGifts?: boolean }) {
-  const set = (i: number, patch: Partial<LineRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
-  return (
-    <div>
-      <table className="data-table">
-        <thead><tr><th>用途</th><th>基础编码</th><th>数量</th><th /></tr></thead>
-        <tbody>
-          {rows.map((r, i) => {
-            const locked = lockGifts && r.role === 'gift';
-            return (
-              <tr key={i}>
-                <td><select aria-label="用途" disabled={locked} value={r.role} onChange={(e) => set(i, { role: e.target.value })}>{ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></td>
-                <td>{locked || r.role === 'labor' ? r.label : <CodePick value={r.baseCodeId} label={r.label} onPick={(id, label) => set(i, { baseCodeId: id, label })} />}</td>
-                <td><input aria-label="数量" type="number" min={1} step={1} style={{ width: 80 }} disabled={locked} value={r.qty} onChange={(e) => set(i, { qty: Number(e.target.value) })} /></td>
-                <td>{!locked && <button type="button" className="link-button" onClick={() => onChange(rows.filter((_, k) => k !== i))}>去掉</button>}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <button type="button" className="secondary-button small" onClick={() => onChange([...rows, { role: rows.length ? 'gift' : 'main', qty: 1, label: '' }])}>＋ 加一行</button>
-    </div>
-  );
-}
 
 /** 批量生成：选构成 + 多个销售平台，先检查（复用、四层重复），全部没问题才一起生成。 */
 export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
@@ -72,9 +26,13 @@ export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDon
     resourceApi.list('finance-platforms', { pageSize: 100 }).then((r) => setPlatforms(r.items)).catch(() => undefined);
     resourceApi.list('finance-scenarios', { pageSize: 100 }).then((r) => { setScenarios(r.items); if (r.items[0]) setScenarioId(r.items[0].id); }).catch(() => undefined);
   }, []);
-  const lines = (): LineInput[] => rows.filter((r) => r.baseCodeId).map(({ role, baseCodeId, qty }) => ({ role, baseCodeId, qty }));
-  const targets = () => picked.map((p) => ({ platformId: p, scenarioId: Number(scenarioId) }));
-  const invalid = lines().length === 0 || picked.length === 0 || !scenarioId;
+  const [categoryId, setCategoryId] = useState<number | ''>('');
+  const [brandId, setBrandId] = useState<number | ''>('');
+  const [brands, setBrands] = useState<ResourceDto[]>([]);
+  useEffect(() => { resourceApi.list('finance-brands', { pageSize: 200, status: 'active' }).then((r) => setBrands(r.items)).catch(() => undefined); }, []);
+  const lines = (): LineInput[] => rows.filter((r) => r.baseCodeId || r.laborId).map(toLineInput);
+  const targets = () => picked.map((p) => ({ platformId: p, scenarioId: Number(scenarioId), bundleCategoryId: categoryId || undefined, brandId: brandId || undefined }));
+  const invalid = lines().length === 0 || picked.length === 0 || !scenarioId || !categoryId;
   async function check() {
     setBusy(true); setError(''); setPreview(null);
     try { setPreview((await jstApi.bundlePreview(lines(), targets())).targets); } catch (e) { setError(msg(e)); }
@@ -96,10 +54,12 @@ export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDon
         <div className="modal-body">
           <p className="muted">选好构成和销售平台，每个平台生成一个组合；编码按“命名中心”的规则拼。同样构成、同平台同场景已经有的会直接复用；编码和本地组合、本地基础编码、聚水潭商品、聚水潭组合装重复的会拦住。</p>
           <h4>1. 组合构成</h4>
-          <LineEditor rows={rows} onChange={(r) => { setRows(r); setPreview(null); }} />
+          <LineEditor rows={rows} allowLabor onChange={(r) => { setRows(r); setPreview(null); }} />
           <h4>2. 销售平台和场景</h4>
           <div className="pill-row">{platforms.map((p) => <label key={p.id} className="check"><input type="checkbox" checked={picked.includes(p.id)} onChange={(e) => { setPicked(e.target.checked ? [...picked, p.id] : picked.filter((x) => x !== p.id)); setPreview(null); }} /> {p.title}</label>)}</div>
           <label>销售场景<select value={scenarioId} onChange={(e) => { setScenarioId(Number(e.target.value)); setPreview(null); }}>{scenarios.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label>
+          <label>组合分类<b className="req"> *</b><BundleCategorySelect value={categoryId} onChange={(v) => { setCategoryId(v); setPreview(null); }} /><small className="muted">组合分类树里的最末级分类，成本表分类利润率按它汇总</small></label>
+          <label>品牌（选填）<select aria-label="品牌" value={brandId} onChange={(e) => { setBrandId(e.target.value ? Number(e.target.value) : ''); setPreview(null); }}><option value="">不选（取第一个主品的品牌）</option>{brands.map((b) => <option key={b.id} value={b.id}>{b.title}</option>)}</select></label>
           {error && <div role="alert" className="notice error">{error}</div>}
           {done && <div role="status" className="notice ok">{done}</div>}
           {preview && (
@@ -209,7 +169,7 @@ export function BundleVerifyDialog({ ids, isAdmin, onClose, onDone }: { ids: num
   const ready = list.filter((r) => r.issues.length === 0 && ['pending', 'reverify'].includes(r.status));
   const cur = reports[ids[index]];
   const anyReplace = sync && ready.some((r) => r.replacing);
-  const role = (r: string) => ROLES.find(([v]) => v === r)?.[1] ?? (r === 'labor' ? '人工' : r);
+  const role = (r: string) => ROLE_LABEL[r] ?? r;
   async function submit() {
     setBusy(true); setError('');
     try {
@@ -238,11 +198,11 @@ export function BundleVerifyDialog({ ids, isAdmin, onClose, onDone }: { ids: num
           {cur && (
             <div>
               <h3>{cur.code} <span className="muted">{cur.name}</span></h3>
-              {cur.issues.length > 0 && <div className="notice error"><strong>需要先处理</strong><ul>{cur.issues.map((i, k) => <li key={k}>{i}</li>)}</ul></div>}
+              {cur.issues.length > 0 && <div className="notice error" role="alert"><strong>验证前需要先处理这 {cur.issues.length} 个问题</strong><ul>{cur.issues.map((i, k) => <li key={k}>{i}</li>)}</ul></div>}
               {cur.pendingRevision && <div className="notice warn">有一份待发布的构成修订（原因：{cur.pendingRevision.reason}）。下面是修订后的构成，验证通过后随之生效。</div>}
               <table className="data-table">
-                <thead><tr><th>用途</th><th>基础编码</th><th>名称</th><th className="num">数量</th><th className="num">重量(克)</th>{cur.totalCost !== undefined && <th className="num">成本(分)</th>}</tr></thead>
-                <tbody>{cur.components.map((c, i) => <tr key={i}><td>{role(c.role)}</td><td>{c.code}</td><td>{c.name}</td><td className="num">{c.qty}</td><td className="num">{c.weightG ?? '—'}</td>{cur.totalCost !== undefined && <td className="num">{c.cost ?? '—'}</td>}</tr>)}</tbody>
+                <thead><tr><th>用途</th><th>基础编码</th><th>名称</th><th className="num">数量</th><th>单位</th><th>进聚水潭</th><th className="num">损耗率%</th><th className="num">重量(克)</th>{cur.totalCost !== undefined && <th className="num">成本(分)</th>}</tr></thead>
+                <tbody>{cur.components.map((c, i) => <tr key={i}><td>{role(c.role)}</td><td>{c.code}</td><td>{c.name}</td><td className="num">{c.qty}</td><td>{c.unit || '—'}</td><td>{c.includeInJst ? '是' : '否'}</td><td className="num">{c.lossRate ?? 0}</td><td className="num">{c.weightG ?? '—'}</td>{cur.totalCost !== undefined && <td className="num">{c.cost ?? '—'}</td>}</tr>)}</tbody>
               </table>
               <p>合计重量 {cur.totalWeightG} 克{cur.totalCost !== undefined ? `，合计成本 ${(cur.totalCost / 100).toFixed(2)} 元` : ''}</p>
               {cur.secondVerification && (<><h4>二次验证：和上次相比改了什么</h4><ChangeTable changes={cur.changes} baselineMissing={cur.baselineMissing} /></>)}
@@ -278,16 +238,19 @@ export function RevisionDialog({ bundle, onClose, onDone }: { bundle: ResourceDt
   const pendingId = typeof bundle.data.pendingRevisionId === 'number' ? bundle.data.pendingRevisionId : null;
   const [pending, setPending] = useState<ResourceDto | null>(null);
   useEffect(() => {
-    resourceApi.list('finance-bundle-lines', { fieldKey: 'bundleId', fieldValue: bundle.id, pageSize: 100 }).then(async (r) => {
-      const labels: Record<number, string> = {};
-      for (const l of r.items) if (typeof l.data.baseCodeId === 'number') labels[l.id] = l.refLabels.baseCodeId ?? '';
-      setRows(r.items.filter((l) => l.data.role !== 'labor').map((l) => ({ role: String(l.data.role), baseCodeId: Number(l.data.baseCodeId), qty: Number(l.data.qty), label: labels[l.id] })));
+    resourceApi.list('finance-bundle-lines', { fieldKey: 'bundleId', fieldValue: bundle.id, pageSize: 100 }).then((r) => {
+      const keys = ['unit', 'lossRate', 'isRequired', 'includeInJst', 'costBucket', 'costTreatment', 'sortOrder', 'effectiveFrom', 'effectiveTo', 'note'];
+      setRows(r.items.map((l) => ({
+        role: String(l.data.role), baseCodeId: typeof l.data.baseCodeId === 'number' ? l.data.baseCodeId : undefined, laborId: typeof l.data.laborId === 'number' ? l.data.laborId : undefined, qty: Number(l.data.qty),
+        label: String(l.refLabels.baseCodeId ?? l.refLabels.laborId ?? ''),
+        ...Object.fromEntries(keys.filter((k) => l.data[k] !== undefined && l.data[k] !== null && l.data[k] !== '').map((k) => [k, l.data[k]])),
+      })));
     }).catch((e) => setError(msg(e)));
     if (pendingId) resourceApi.get('finance-bundle-revisions', pendingId).then(setPending).catch(() => undefined);
   }, [bundle.id, pendingId]);
   async function submit() {
     setBusy(true); setError('');
-    try { await jstApi.bundleRevise(bundle.id, reason.trim(), (rows ?? []).filter((r) => r.baseCodeId).map(({ role, baseCodeId, qty }) => ({ role, baseCodeId, qty }))); onDone(); onClose(); } catch (e) { setError(msg(e)); }
+    try { await jstApi.bundleRevise(bundle.id, reason.trim(), (rows ?? []).filter((r) => r.baseCodeId || r.laborId).map(toLineInput)); onDone(); onClose(); } catch (e) { setError(msg(e)); }
     setBusy(false);
   }
   async function cancel() {
@@ -309,7 +272,7 @@ export function RevisionDialog({ bundle, onClose, onDone }: { bundle: ResourceDt
           ) : (
             <>
               <p className="muted">赠品必须原样保留（商品和数量都不能改），主品等可以改；至少保留一个主品。提交后组合会进入“需重新验证”，验证通过时新构成才生效，聚水潭上的编码按验证结果更新。</p>
-              {rows ? <LineEditor rows={rows} onChange={setRows} lockGifts /> : <p className="muted">加载中…</p>}
+              {rows ? <LineEditor rows={rows} onChange={setRows} lockGifts allowLabor /> : <p className="muted">加载中…</p>}
               <label>修订原因（必填）<textarea rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
             </>
           )}

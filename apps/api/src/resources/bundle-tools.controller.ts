@@ -5,15 +5,28 @@ import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorat
 import { BundleToolsService } from './bundle-tools.service';
 
 class LineDto {
-  @IsIn(['main', 'gift', 'package', 'label', 'instruction', 'other', 'labor']) role!: string;
+  @IsIn(['main', 'gift', 'auxiliary', 'package', 'label', 'instruction', 'other', 'labor']) role!: string;
   @IsOptional() @IsInt() @Min(1) baseCodeId?: number;
   @IsOptional() @IsInt() @Min(1) laborId?: number;
   @IsNumber() @Min(0.001) qty!: number;
+  // 旧系统 BOM 行字段（单位、损耗率、必需、进聚水潭、成本归集/处理、排序、生效失效日、备注）；取值和范围由 normalizeLineExtras 再检查
+  @IsOptional() @IsString() @MaxLength(20) unit?: string;
+  @IsOptional() @IsNumber() @Min(0) lossRate?: number;
+  @IsOptional() @IsBoolean() isRequired?: boolean;
+  @IsOptional() @IsBoolean() includeInJst?: boolean;
+  @IsOptional() @IsString() @MaxLength(30) costBucket?: string;
+  @IsOptional() @IsString() @MaxLength(30) costTreatment?: string;
+  @IsOptional() @IsInt() @Min(0) sortOrder?: number;
+  @IsOptional() @IsString() @MaxLength(10) effectiveFrom?: string;
+  @IsOptional() @IsString() @MaxLength(10) effectiveTo?: string;
+  @IsOptional() @IsString() @MaxLength(200) note?: string;
 }
 class TargetDto {
   @IsInt() @Min(1) platformId!: number;
   @IsInt() @Min(1) scenarioId!: number;
   @IsOptional() @IsString() @MaxLength(8) configNo?: string;
+  @IsOptional() @IsInt() @Min(1) bundleCategoryId?: number;
+  @IsOptional() @IsInt() @Min(1) brandId?: number;
 }
 class PlanDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => LineDto) lines!: LineDto[];
