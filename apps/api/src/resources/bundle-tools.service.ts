@@ -149,6 +149,7 @@ export class BundleToolsService {
   // ---------- 构成修订 ----------
 
   async createRevision(user: AuthUser, bundleId: number, reason: string, lines: LineInput[]) {
+    if (await this.pendingJobs(user, bundleId)) throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请等它发完再改构成');
     return this.ds.transaction(async (em) => {
       await this.load(em, user, bundleId);
       const r = await this.resources.createRecord(em, user, 'finance-bundle-revisions', { bundleId, reason, payload: JSON.stringify(lines) }, '提交构成修订');
@@ -291,10 +292,18 @@ export class BundleToolsService {
   }
 
   /** 失效归档：组合不再使用。上传过聚水潭的，同时把“停用旧编码”加入出站队列（需要确认，且只有管理员能做）。 */
+  /** 还在队列里（待发送/发送中）的上传任务：这时改构成、归档都会和队列里的内容打架 */
+  private async pendingJobs(user: AuthUser, id: number) {
+    const [{ n }] = await this.ds.query("SELECT COUNT(*) AS n FROM outbox_jobs WHERE company_id = ? AND resource_type = ? AND resource_id = ? AND status IN ('pending', 'sending')", [user.companyId, TYPE, id]);
+    return Number(n);
+  }
+
   async archive(user: AuthUser, id: number, reason: string, disableConfirmed: boolean) {
     if (reason.trim().length < 2) throw new BadRequestException('必须写明归档原因');
     const b = await this.load(this.ds.manager, user, id);
     if (b.status === 'archived') throw new BadRequestException('已经归档了');
+    if (await this.pendingJobs(user, id)) throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请先等它发完或在同步队列里取消');
+    if (num(b.data.pendingRevisionId)) throw new ConflictException('这个组合有待发布的构成修订，请先发布或取消修订');
     const synced = !!str(b.data.jstUploadedCode);
     if (synced && !disableConfirmed) throw new BadRequestException('这个组合上传过聚水潭，需要确认“同时在聚水潭停用它”');
     if (synced && !user.permissions.isCompanyAdmin) throw new ForbiddenException('上传过聚水潭的组合，只有公司管理员能归档');

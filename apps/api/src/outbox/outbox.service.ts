@@ -16,7 +16,11 @@ type Syncable = (typeof SYNCABLE)[number];
 export interface OutboxSender {
   /** 没有接入真实接口时为 false：worker 不会发送任何东西 */
   readonly configured: boolean;
+  /** 发送器连着哪个聚水潭账号（有值时：入队时写进任务，发送前核对；换了账号的旧任务不会发错地方） */
+  readonly targetKey?: string;
   send(job: { kind: string; idempotencyKey: string; payload: Record<string, unknown> }): Promise<void>;
+  /** 回读：按款式/商品编码读出聚水潭上现在的内容（组合装含 childList），用来确认写入结果；读不到返回 null */
+  read?(skuId: string): Promise<Record<string, unknown> | null>;
 }
 
 /** 默认发送器：没有接入聚水潭，也没有人授权对外写入，所以什么都发不出去。 */
@@ -76,11 +80,47 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       const out = await baseCodeOutbound(this.dataSource.manager, rec.companyId, rec);
       return { ...out, code: out.sku_id, productId: rec.data.productId ?? null };
     }
-    const lines = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: rec.companyId, type: 'finance-bundle-lines' } });
-    const mine = lines.filter((l) => l.data.bundleId === rec.id);
-    const bcs = mine.length ? await this.dataSource.manager.find(ResourceRecord, { where: { companyId: rec.companyId, type: 'finance-base-codes', id: In(mine.map((l) => Number(l.data.baseCodeId) || 0)) } }) : [];
-    const code = new Map(bcs.map((b) => [b.id, str(b.data.code)]));
-    return { code: str(rec.data.code), name: str(rec.data.name), lines: mine.map((l) => ({ role: str(l.data.role), baseCode: code.get(Number(l.data.baseCodeId)) ?? null, qty: l.data.qty })) };
+    const em = this.dataSource.manager;
+    const mine = (await em.find(ResourceRecord, { where: { companyId: rec.companyId, type: 'finance-bundle-lines' } })).filter((l) => l.data.bundleId === rec.id).sort((a, b) => Number(a.data.sortOrder ?? 0) - Number(b.data.sortOrder ?? 0) || a.id - b.id);
+    const bcs = mine.length ? await em.find(ResourceRecord, { where: { companyId: rec.companyId, type: 'finance-base-codes', id: In(mine.map((l) => Number(l.data.baseCodeId) || 0)) } }) : [];
+    const byId = new Map(bcs.map((b) => [b.id, b]));
+    // 子商品用真实编码（马甲指向的那个）；只有「进聚水潭」的行；同一个子商品数量合并
+    const child = new Map<string, number>();
+    const childRefs: { code: string; baseCodeId: number }[] = [];
+    for (const l of mine) {
+      if (l.data.role === 'labor' || l.data.includeInJst === false) continue;
+      const bc = byId.get(Number(l.data.baseCodeId));
+      if (!bc) continue;
+      const real = typeof bc.data.canonicalId === 'number' ? (await em.findOne(ResourceRecord, { where: { id: bc.data.canonicalId, companyId: rec.companyId, type: 'finance-base-codes' } })) ?? bc : bc;
+      const c = str(real.data.code);
+      child.set(c, (child.get(c) ?? 0) + Number(l.data.qty || 0));
+      if (!childRefs.some((x) => x.code === c)) childRefs.push({ code: c, baseCodeId: real.id });
+    }
+    const out: Record<string, unknown> = {
+      sku_id: str(rec.data.code), code: str(rec.data.code), i_id: str(rec.data.styleCode), name: str(rec.data.name), short_name: str(rec.data.shortName),
+      properties_value: str(rec.data.propertiesValue), unit: str(rec.data.baseUnit),
+      childList: [...child].map(([src_sku_id, qty]) => ({ src_sku_id, qty })),
+      lines: mine.map((l) => ({ role: str(l.data.role), baseCode: byId.get(Number(l.data.baseCodeId))?.data.code ?? null, qty: l.data.qty })),
+    };
+    if (typeof rec.data.jstPriceCents === 'number') out.compose_sale_price = rec.data.jstPriceCents / 100;
+    return out;
+  }
+
+  /** 组合装上传前的依赖检查：子商品必须已经在聚水潭上（上传成功过），否则聚水潭会拒绝 */
+  private async childProblems(rec: ResourceRecord): Promise<string[]> {
+    const em = this.dataSource.manager;
+    const out: string[] = [];
+    const payload = await this.payloadFor('finance-bundles', rec);
+    if (!str(payload.i_id)) out.push('款式编码为空');
+    if (!str(payload.properties_value)) out.push('规格值为空');
+    const kids = payload.childList as { src_sku_id: string; qty: number }[];
+    if (!kids.length) out.push('没有可上传的子商品');
+    for (const k of kids) {
+      const bc = await em.findOne(ResourceRecord, { where: { companyId: rec.companyId, type: 'finance-base-codes', uniqueKey: k.src_sku_id.toLowerCase() } });
+      if (!bc || !str(bc.data.jstUploadedCode)) out.push(`子商品「${k.src_sku_id}」还没有上传到聚水潭`);
+      if (!(Number.isSafeInteger(k.qty) && k.qty > 0)) out.push(`子商品「${k.src_sku_id}」数量不是正整数`);
+    }
+    return out;
   }
 
   /** 对外上传内容的指纹：核对时看到的内容和真正入队的内容必须一致 */
@@ -99,6 +139,15 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     for (const r of recs) {
       if (!ids?.length && r.data.jstStatus === 'synced') { skipped++; continue; }
       const payload = await this.payloadFor(t, r);
+      if (t === 'finance-bundles') {
+        const problems = await this.childProblems(r);
+        if (problems.length) {
+          await this.dataSource.transaction((tx) => this.resources.patchData(tx, user, t, r.id, { jstMessage: problems.join('；').slice(0, 500) }, '上传前检查未通过'));
+          if (ids?.length) throw new BadRequestException(`「${str(r.data.code)}」不能上传：${problems.join('；')}`);
+          skipped++;
+          continue;
+        }
+      }
       // 幂等键 = 记录 + 上传内容指纹：只看内容，不看更新时间（入队后回写状态会改更新时间，跨秒会让同一内容重复入队）。
       // 内容和最近一条非停用任务相同 → 跳过；内容改回以前的版本（A→B→A）→ 键后加序号，允许重发。
       const baseKey = `${t}:${r.id}:${sigOf(JSON.stringify(payload)).slice(0, 16)}`;
@@ -116,6 +165,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
       if (replacing) payload.oldCode = old;
+      if (this.sender.targetKey) payload.targetKey = this.sender.targetKey;
       const kind = t === 'finance-base-codes' ? (replacing ? 'base_code_replace' : 'base_code_upsert') : replacing ? 'bundle_replace' : 'bundle_upsert';
       const res = await em.query(
         'INSERT IGNORE INTO outbox_jobs (company_id, channel, kind, resource_type, resource_id, idempotency_key, payload_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -233,6 +283,17 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     return (await this.getSwitch(companyId)).enabled;
   }
 
+  /** 发送后回读确认：组合装的子商品列表要和上传的一致 */
+  private async confirm(job: OutboxJob): Promise<void> {
+    if (!this.sender.read || job.kind.endsWith('_disable') || job.resourceType !== 'finance-bundles') return;
+    const p = job.payloadJson as Record<string, unknown>;
+    let got: Record<string, unknown> | null;
+    try { got = await this.sender.read(str(p.sku_id)); } catch (e) { throw new Error(`回读失败，结果未知，请先到聚水潭确认再决定是否重传：${(e as Error).message}`); }
+    if (!got) throw new Error('回读不到刚上传的组合装，结果未知，请先到聚水潭确认');
+    const norm = (v: unknown) => JSON.stringify(((v as { src_sku_id: string; qty: number }[]) ?? []).map((c) => [c.src_sku_id, Number(c.qty)]).sort());
+    if (norm(got.childList) !== norm(p.childList)) throw new Error('回读的子商品和上传的不一致，请到聚水潭确认');
+  }
+
   /** 处理所有公司的队列（定时调用） */
   async processAll() {
     if (this.running) return;
@@ -257,8 +318,17 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       if (!(await this.enabled(companyId))) return { sent, failed, blocked: true }; // 中途被关掉：立刻停
       const claimed = await em.update(OutboxJob, { id: job.id, status: 'pending' }, { status: 'sending' });
       if (!claimed.affected) continue;
+      const target = str((job.payloadJson as Record<string, unknown>).targetKey);
+      if (target && this.sender.targetKey && target !== this.sender.targetKey) {
+        await em.update(OutboxJob, { id: job.id }, { status: 'cancelled', lastError: '入队时的聚水潭账号和现在连接的账号不一致，已取消，请重新加入队列' });
+        failed++;
+        continue;
+      }
+      let sendOk = false;
       try {
         await this.sender.send({ kind: job.kind, idempotencyKey: job.idempotencyKey, payload: job.payloadJson });
+        sendOk = true;
+        await this.confirm(job);
         await em.update(OutboxJob, { id: job.id }, { status: 'done', doneAt: new Date(), attempts: job.attempts + 1, lastError: null });
         if (job.resourceType === 'finance-jst-uploads') {
           await this.dataSource.transaction((tx) => this.resources.setStatusDirect(tx, sys, job.resourceType, job.resourceId, 'success', '已上传到聚水潭'));
@@ -270,8 +340,11 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
         await this.dataSource.transaction((tx) => this.resources.patchData(tx, sys, job.resourceType, job.resourceId, patch, job.kind.endsWith('_disable') ? '聚水潭已停用旧编码' : '已同步到聚水潭'));
         sent++;
       } catch (e) {
+        // 已经发出去、但回读确认失败/对不上：结果未知，绝不自动重发
+        const unknown = sendOk;
         const attempts = job.attempts + 1;
-        const dead = attempts >= MAX_ATTEMPTS;
+        const dead = unknown || attempts >= MAX_ATTEMPTS;
+        if (unknown && job.resourceType !== 'finance-jst-uploads') await this.dataSource.transaction((tx) => this.resources.patchData(tx, sys, job.resourceType, job.resourceId, { jstMessage: `结果未知：${(e as Error).message}`.slice(0, 500) }, '回读确认未通过'));
         await em.update(OutboxJob, { id: job.id }, { status: dead ? 'failed' : 'pending', attempts, lastError: (e as Error).message.slice(0, 500), nextAttemptAt: new Date(Date.now() + 2 ** attempts * 60_000) });
         if (dead && job.resourceType === 'finance-jst-uploads') await this.dataSource.transaction(async (tx) => {
           await this.resources.patchData(tx, sys, job.resourceType, job.resourceId, { message: (e as Error).message.slice(0, 300) }, '上传聚水潭失败');
