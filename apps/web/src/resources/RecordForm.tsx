@@ -204,16 +204,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
     case 'ref':
       return <RefSelect field={field} value={value} onChange={onChange} labelNow={labelNow} />;
     case 'secret':
-      return (
-        <input
-          type="password"
-          autoComplete="new-password"
-          value={str}
-          maxLength={field.maxLength}
-          placeholder={configured ? '已设置，留空表示不修改' : ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      );
+      return <SecretInput value={str} maxLength={field.maxLength} placeholder={configured ? '已设置，留空表示不修改' : ''} onChange={onChange} />;
     default: {
       // 系统规格这类“可以选公司维护的，也可以手填”的文本
       const hints = field.optionsFrom ? fieldOptions(field, values ?? {}, units).map((o) => o.label) : [];
@@ -226,6 +217,24 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
       );
     }
   }
+}
+
+/** 密码输入：默认遮住，点“显示输入”才看到自己输入的内容（核对有没有输错）。 */
+function SecretInput({ value, maxLength, placeholder, onChange }: { value: string; maxLength?: number; placeholder: string; onChange: (v: string) => void }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <span className="secret-input-row">
+      <input type={shown ? 'text' : 'password'} autoComplete="new-password" value={value} maxLength={maxLength} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <button type="button" className="link-button" aria-pressed={shown} onClick={() => setShown((v) => !v)}>{shown ? '隐藏输入' : '显示输入'}</button>
+    </span>
+  );
+}
+
+function isEmptyValue(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  if (typeof v === 'string') return v.trim() === '';
+  if (Array.isArray(v)) return v.length === 0;
+  return false;
 }
 
 type SaveMode = 'close' | 'blank' | 'keep';
@@ -244,14 +253,34 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...(record?.data ?? {}), ...(initial ?? {}) }));
   const [status, setStatus] = useState(record?.status ?? def.defaultStatus);
   const [error, setError] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [known, setKnown] = useState<Record<number, FileInfo>>(record?.files ?? {});
   // 新建时填了内容就关闭，先确认，免得点错丢内容（旧系统同款）
   const startValues = useRef(JSON.stringify(values));
+  const dirty = JSON.stringify(values) !== startValues.current;
   const requestClose = () => {
-    if (!record && JSON.stringify(values) !== startValues.current && !window.confirm('新增的资料还没有保存，关闭后填写的内容会丢失。确定直接关闭吗？')) return;
+    if (busy) return;
+    if (dirty && !window.confirm(record ? '修改的内容还没有保存，关闭后会丢失。确定直接关闭吗？' : '新增的资料还没有保存，关闭后填写的内容会丢失。确定直接关闭吗？')) return;
     onClose();
   };
+  const closeRef = useRef(requestClose);
+  closeRef.current = requestClose;
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelectorAll('[role="dialog"]').length > 1) return; // 上面还有别的弹窗，让它先处理
+      closeRef.current();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
 
   const { user: me } = useAuth();
   const canField = (f: FieldDef) => !f.permission || (me ? createChecker(me.permissions)(f.permission) : false);
@@ -323,6 +352,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
   }
 
   async function prepare(mode: SaveMode) {
+    if (!validate()) return;
     setBusy(true);
     setError('');
     try {
@@ -368,6 +398,22 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
     }
   }
 
+  /** 必填没填、金额格式不对，先在表单里标出来，不用等服务器退回 */
+  function validate(): boolean {
+    const next: Record<string, string> = {};
+    for (const f of visible) {
+      if (locked.includes(f.key) || f.type === 'bool') continue;
+      const v = values[f.key];
+      if (f.type === 'money' && typeof v === 'number' && Number.isNaN(v)) next[f.key] = `${f.label}请填写数字`;
+      else if (f.required && f.type !== 'secret' && isEmptyValue(v)) next[f.key] = `请填写${f.label}`;
+      else if (f.required && f.type === 'secret' && !record?.secretConfigured[f.key] && isEmptyValue(v)) next[f.key] = `请填写${f.label}`;
+    }
+    setErrors(next);
+    const first = visible.find((f) => next[f.key]);
+    if (first) setTimeout(() => document.querySelector<HTMLElement>(`[data-field="${first.key}"] input, [data-field="${first.key}"] select, [data-field="${first.key}"] textarea`)?.focus(), 0);
+    return !first;
+  }
+
   function submit(e: FormEvent) {
     e.preventDefault();
     void prepare('close');
@@ -394,12 +440,13 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
               </select>
             </label>
           )}
+          {visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项{!record ? '，保存后可以继续补充关联资料。' : '。'}</p>}
           {groups.map(([group, fields]) => (
             <fieldset key={group}>
               <legend>{group}</legend>
               <div className="form-grid">
                 {fields.map((f) => (
-                  <label key={f.key} className={f.type === 'textarea' || f.type === 'attrs' ? 'wide' : undefined}>
+                  <label key={f.key} data-field={f.key} className={[f.type === 'textarea' || f.type === 'attrs' ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
                     <span>{f.label}{f.required && <b className="req"> *</b>}</span>
                     {f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
                       field={f}
@@ -410,9 +457,9 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
                       values={values}
                       known={known}
                       onKnown={(info) => setKnown((cur) => ({ ...cur, [info.id]: info }))}
-                      onChange={(v) => !locked.includes(f.key) && setValues((cur) => ({ ...cur, [f.key]: v }))}
+                      onChange={(v) => { if (locked.includes(f.key)) return; setValues((cur) => ({ ...cur, [f.key]: v })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
                     />}
-                    {f.help && <small className="muted">{f.help}</small>}
+                    {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : f.help && <small className="muted">{f.help}</small>}
                   </label>
                 ))}
               </div>
@@ -420,9 +467,18 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
           ))}
           {isProduct && <TotalCostPreview values={values} />}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
+          {Object.values(errors).some(Boolean) && (
+            <div role="alert" className="notice error error-summary">
+              <strong>还有 {Object.values(errors).filter(Boolean).length} 项需要补充或修改：</strong>{' '}
+              {visible.filter((f) => errors[f.key]).map((f) => (
+                <button key={f.key} type="button" className="link-button" onClick={() => document.querySelector<HTMLElement>(`[data-field="${f.key}"] input, [data-field="${f.key}"] select, [data-field="${f.key}"] textarea`)?.focus()}>{f.label}</button>
+              ))}
+            </div>
+          )}
           {error && <div role="alert" className="notice error">{error}</div>}
         </div>
         <div className="modal-foot">
+          {dirty && <span className="muted dirty-hint">{record ? '有未保存的修改' : '已填写内容尚未保存'}</span>}
           <button type="button" className="secondary-button" onClick={requestClose}>取消</button>
           {draftEnabled && <button type="button" className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>存为草稿</button>}
           {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新建</button>}
@@ -474,13 +530,20 @@ async function compositionCounts(productId: number | undefined, values: Record<s
 }
 
 /** 停用/删除等需要填写原因的确认框。 */
-export function ReasonDialog({ title, hint, confirmLabel, danger, onClose, onConfirm }: {
-  title: string; hint?: string; confirmLabel: string; danger?: boolean;
+export function ReasonDialog({ title, hint, confirmLabel, danger, suggestions = ['重复录入', '录入错误', '不再使用', '信息有误'], onClose, onConfirm }: {
+  title: string; hint?: string; confirmLabel: string; danger?: boolean; suggestions?: string[];
   onClose: () => void; onConfirm: (reason: string) => Promise<void>;
 }) {
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !e.defaultPrevented && !busy) { e.preventDefault(); onClose(); }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
   return (
     <div className="modal-backdrop" role="presentation">
       <form
@@ -502,7 +565,12 @@ export function ReasonDialog({ title, hint, confirmLabel, danger, onClose, onCon
         <div className="modal-head"><strong>{title}</strong></div>
         <div className="modal-body">
           {hint && <p className="muted">{hint}</p>}
-          <label>原因<textarea rows={3} autoFocus value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></label>
+          <label>原因<textarea rows={3} autoFocus value={reason} maxLength={500} onChange={(e) => { setReason(e.target.value); setError(''); }} /></label>
+          {suggestions.length > 0 && (
+            <div className="pill-row" role="group" aria-label="常用原因">
+              {suggestions.map((t) => <button key={t} type="button" className={reason.trim() === t ? 'chip active' : 'chip'} onClick={() => { setReason(t); setError(''); }}>{t}</button>)}
+            </div>
+          )}
           {error && <div role="alert" className="notice error">{error}</div>}
         </div>
         <div className="modal-foot">

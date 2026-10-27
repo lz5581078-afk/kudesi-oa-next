@@ -85,6 +85,8 @@ export interface LogEntry {
   action: string;
   actor: string;
   note: string | null;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
   createdAt: string;
 }
 

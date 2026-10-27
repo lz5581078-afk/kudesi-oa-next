@@ -13,6 +13,7 @@ export function FileThumb({ file, onRemove }: { file: FileInfo; onRemove?: () =>
   const isImage = file.mime.startsWith('image/');
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  const [zoom, setZoom] = useState(false);
   useEffect(() => {
     if (!isImage) return;
     let alive = true;
@@ -23,6 +24,7 @@ export function FileThumb({ file, onRemove }: { file: FileInfo; onRemove?: () =>
   }, [file.id, isImage]);
 
   async function open() {
+    if (isImage && src) { setZoom(true); return; } // 图片在页面里放大核对，不跳新标签
     try {
       const r = await resourceApi.fileUrl(file.id);
       window.open(r.url, '_blank', 'noopener');
@@ -37,6 +39,20 @@ export function FileThumb({ file, onRemove }: { file: FileInfo; onRemove?: () =>
         {isImage && src ? <img src={src} alt={file.name} loading="lazy" /> : <span className="file-icon">{isImage ? (error ? '无法加载' : '…') : 'PDF'}</span>}
       </button>
       <span className="file-name">{file.name}</span>
+      {zoom && src && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setZoom(false)}>
+          <div className="modal card image-zoom" role="dialog" aria-label={`查看图片 ${file.name}`} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Escape') setZoom(false); }}>
+            <div className="modal-head between">
+              <strong>{file.name}</strong>
+              <span className="pill-row">
+                <a className="secondary-button" href={src} download={file.name} target="_blank" rel="noopener noreferrer">另存为</a>
+                <button type="button" className="secondary-button" autoFocus onClick={() => setZoom(false)}>关闭</button>
+              </span>
+            </div>
+            <div className="modal-body"><img src={src} alt={file.name} style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }} /></div>
+          </div>
+        </div>
+      )}
       {onRemove && <button type="button" className="icon-button file-remove" aria-label={`移除 ${file.name}`} onClick={onRemove}>✕</button>}
     </div>
   );

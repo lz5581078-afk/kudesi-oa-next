@@ -23,6 +23,24 @@ import { InventoryDialog } from './AssetPanels';
 const PAGE_SIZES = [20, 50, 100] as const;
 const SORTABLE = new Set(['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select']);
 
+type ListPrefs = { pageSize?: number; status?: string; filters?: Record<string, string> };
+const prefsKey = (type: string) => `kudesi.list.${type}`;
+function readPrefs(type: string): ListPrefs {
+  try {
+    const v = JSON.parse(localStorage.getItem(prefsKey(type)) ?? 'null') as ListPrefs | null;
+    return v && typeof v === 'object' ? v : {};
+  } catch {
+    return {};
+  }
+}
+function writePrefs(type: string, patch: ListPrefs) {
+  try {
+    localStorage.setItem(prefsKey(type), JSON.stringify({ ...readPrefs(type), ...patch }));
+  } catch {
+    /* 存储不可用时只是不记住 */
+  }
+}
+
 function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
   const key = `kudesi.cols.${type}`;
   const [keys, setKeys] = useState<string[]>(() => {
@@ -52,13 +70,13 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   useUnitOptions(); // 单位列表读到后，列表里的单位编码才能换成名称
   const [keyword, setKeyword] = useState('');
   const [tab, setTab] = useState(lockedTab ?? '');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState(() => readPrefs(type).status ?? '');
   const [showHidden, setShowHidden] = useState(false);
   const [archived, setArchived] = useState(false);
   const [expiring, setExpiring] = useState(false);
-  const [pageSize, setPageSize] = useState<number>(20);
+  const [pageSize, setPageSize] = useState<number>(() => { const n = readPrefs(type).pageSize; return n && (PAGE_SIZES as readonly number[]).includes(n) ? n : 20; });
   const [sort, setSort] = useState<{ by: string; dir: 'asc' | 'desc' } | null>(null);
-  const [filterVals, setFilterVals] = useState<Record<string, string>>({});
+  const [filterVals, setFilterVals] = useState<Record<string, string>>(() => readPrefs(type).filters ?? {});
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
   const treeField = useMemo(() => treeFilterField(def), [def]);
   const viewFilters = useMemo(() => viewFiltersOf(type), [type]);
@@ -68,7 +86,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
     [def],
   );
   useEffect(() => {
-    setFilterVals({});
+    setFilterVals(readPrefs(type).filters ?? {});
     setFilterOpts({});
     for (const f of filterFields) {
       if (f.ref === 'user') {
@@ -79,7 +97,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         setFilterOpts((o) => ({ ...o, [f.key]: f.options!.map((x) => ({ id: x.value, label: x.label })) }));
       }
     }
-  }, [filterFields]);
+  }, [filterFields]); // eslint-disable-line react-hooks/exhaustive-deps
   const [catPath, setCatPath] = useState('');
   const [page, setPage] = useState(1);
   const [checked, setChecked] = useState<number[]>([]);
@@ -113,12 +131,32 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   useEffect(() => {
     setKeyword('');
     setTab(lockedTab ?? '');
-    setStatus('');
+    setStatus(readPrefs(type).status ?? '');
+    const n = readPrefs(type).pageSize;
+    setPageSize(n && (PAGE_SIZES as readonly number[]).includes(n) ? n : 20);
     setShowHidden(false);
     setPage(1);
     setSelected(null);
     setData(null);
   }, [type, lockedTab]);
+
+  // 记住筛选、状态和每页条数（按资料类型）；分类目录的选择不记
+  useEffect(() => {
+    const keep = Object.fromEntries(Object.entries(filterVals).filter(([k, v]) => v && k !== treeField?.key));
+    writePrefs(type, { pageSize, status, filters: keep });
+  }, [filterVals, status, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 记住的筛选项如果已经不存在（选项被删/改名），会让列表莫名其妙是空的，加载到选项后清掉它
+  useEffect(() => {
+    setFilterVals((cur) => {
+      const stale = Object.entries(cur).filter(([k, v]) => {
+        if (!v || k === treeField?.key) return false;
+        const opts = filterOpts[k] ?? viewFilters.find((x) => x.key === k)?.options?.map((o) => ({ id: o.value }));
+        return Boolean(opts && opts.length && !opts.some((o) => String(o.id) === String(v)));
+      }).map(([k]) => k);
+      if (!stale.length) return cur;
+      return Object.fromEntries(Object.entries(cur).filter(([k]) => !stale.includes(k)));
+    });
+  }, [filterOpts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 从别处（关联、到期提醒）带 ?open=id 跳来时，直接打开这条记录
   const [searchParams, setSearchParams] = useSearchParams();
@@ -196,6 +234,8 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   }
 
   const filtered = Boolean(keyword.trim() || tab || status || archived || expiring || Object.values(filterVals).some(Boolean));
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilterCount = Object.entries(filterVals).filter(([k, v]) => v && k !== treeField?.key).length + (status ? 1 : 0);
   function clearFilters() {
     setKeyword(''); setStatus(''); setArchived(false); setExpiring(false); setFilterVals({}); setTab(lockedTab ?? ''); setPage(1);
   }
@@ -270,7 +310,20 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             </div>
           )}
           <div className="toolbar">
-            <input className="grow" placeholder="搜索（多个词用空格隔开）" aria-label="搜索" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
+            <span className="list-search grow">
+              <input type="search" placeholder="搜索（多个词用空格隔开）" aria-label="搜索" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
+              {keyword && <button type="button" className="icon-button search-clear" aria-label="清空搜索" onClick={() => { setKeyword(''); setPage(1); }}>✕</button>}
+            </span>
+            {(filterFields.length > 0 || viewFilters.length > 0) && (
+              <button type="button" className={`secondary-button filter-toggle${activeFilterCount ? ' active' : ''}`} aria-expanded={filtersOpen} onClick={() => setFiltersOpen((v) => !v)}>
+                筛选{activeFilterCount ? ` ${activeFilterCount}` : ''}
+              </button>
+            )}
+            <select className="sort-mobile" aria-label="排序方式" value={sort ? `${sort.by}:${sort.dir}` : ''} onChange={(e) => { const [by, dir] = e.target.value.split(':'); setSort(by ? { by, dir: dir as 'asc' | 'desc' } : null); setPage(1); }}>
+              <option value="">默认排序</option>
+              {columns.filter((f) => SORTABLE.has(f.type)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
+            </select>
+            <div className={`filter-group${filtersOpen ? ' open' : ''}`}>
             {filterFields.filter((ff) => ff.key !== treeField?.key).map((ff) => (
               <select key={ff.key} aria-label={ff.label} value={filterVals[ff.key] ?? ''} onChange={(e) => { setFilterVals((v) => ({ ...v, [ff.key]: e.target.value })); setPage(1); }}>
                 <option value="">{ff.label}：全部</option>
@@ -287,6 +340,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               <option value="">状态：全部</option>
               {def.statuses.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
+            </div>
             {expirySources().some((x) => x.resource === type) && (
               <button type="button" className={expiring ? 'secondary-button active' : 'secondary-button'} aria-pressed={expiring} onClick={() => { setExpiring((v) => !v); setPage(1); }}>
                 即将到期
@@ -319,12 +373,18 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               )}
             </div>
           </div>
+          {filtered && data && (
+            <div className="result-bar" role="status" aria-live="polite">
+              <span>{data.total ? `找到 ${data.total} 条符合条件的${def.label}` : `没有符合条件的${def.label}`}</span>
+              <button type="button" className="link-button" onClick={clearFilters}>清除搜索和筛选</button>
+            </div>
+          )}
           {catPath && <div className="muted" style={{ padding: '6px 12px' }}>当前分类：{catPath}（含下级分类）</div>}
           {error && <div role="alert" className="notice error m">{error}</div>}
-          {def.batch && checked.length > 0 && (
+          {checked.length > 0 && (
             <div className="toolbar" role="group" aria-label="批量操作">
               <span>已勾选 {checked.length} 条</span>
-              {can('edit') && batchFields.length > 0 && (
+              {def.batch && can('edit') && batchFields.length > 0 && (
                 <>
                   <select aria-label="批量修改字段" value={batchField} onChange={(e) => { setBatchField(e.target.value); setBatchValue(''); }}>
                     <option value="">批量修改…</option>
@@ -346,7 +406,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                   }}>应用</button>
                 </>
               )}
-              {can('disable') && def.batch.includes('status') && def.statuses.filter((s) => s.value !== 'deleted').slice(0, 4).map((s) => (
+              {can('disable') && def.batch?.includes('status') && def.statuses.filter((s) => s.value !== 'deleted').slice(0, 4).map((s) => (
                 <button key={s.value} type="button" className="secondary-button" onClick={async () => {
                   const reason = s.requiresReason ? window.prompt(`批量改为“${s.label}”的原因`) : undefined;
                   if (s.requiresReason && !reason) return;
@@ -357,18 +417,19 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                   } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '批量改状态失败'); }
                 }}>批量{s.label}</button>
               ))}
+              {can('export') && <button type="button" className="secondary-button" onClick={() => void doExport('picked')}>导出所选</button>}
               <button type="button" className="secondary-button" onClick={() => setChecked([])}>取消勾选</button>
             </div>
           )}
-          {batchMsg && <div role="status" className="notice m">{batchMsg}</div>}
+          {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
           <div className="table-scroll">
             <table className="data-table cards-narrow">
               <thead>
                 <tr>
-                  {def.batch && <th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={!!data?.items.length && data.items.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...(data?.items.map((r) => r.id) ?? [])])] : checked.filter((id) => !data?.items.some((r) => r.id === id)))} /></th>}
+                  {<th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={!!data?.items.length && data.items.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...(data?.items.map((r) => r.id) ?? [])])] : checked.filter((id) => !data?.items.some((r) => r.id === id)))} /></th>}
                   {columns.map((f) => SORTABLE.has(f.type) ? (
                     <th key={f.key} aria-sort={sort?.by === f.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                      <button type="button" className="link-button" title="点击排序" onClick={() => { setSort(sort?.by === f.key ? (sort.dir === 'desc' ? { by: f.key, dir: 'asc' } : null) : { by: f.key, dir: 'desc' }); setPage(1); }}>
+                      <button type="button" className="link-button" title="点击排序" onClick={() => { setSort(sort?.by === f.key ? (sort.dir === 'asc' ? { by: f.key, dir: 'desc' } : null) : { by: f.key, dir: 'asc' }); setPage(1); }}>
                         {f.label}{sort?.by === f.key ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
                       </button>
                     </th>
@@ -393,7 +454,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                         }
                       }}
                     >
-                      {def.batch && <td className="card-skip" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>}
+                      {<td className="card-skip" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>}
                       {columns.map((f) => {
                         const due = dueBadgeFor(type, f.key, row.data, row.status, today);
                         return (
@@ -459,8 +520,9 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         <ImportDialog
           def={def}
           onClose={() => setImporting(false)}
-          onDone={() => {
+          onDone={(m) => {
             setImporting(false);
+            if (m) setBatchMsg(m);
             void load();
           }}
         />

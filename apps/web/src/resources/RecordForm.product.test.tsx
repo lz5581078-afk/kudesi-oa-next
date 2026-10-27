@@ -21,6 +21,8 @@ import { RecordForm } from './RecordForm';
 
 const def = FINANCE_RESOURCE_DEFS.find((d) => d.key === 'finance-products')!;
 const saved = { id: 9, type: 'finance-products', title: '苹果', status: 'active', statusReason: null, data: {}, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '', updatedAt: '' };
+/** 必填的分类、规格数量、规格单位（客户端会先拦住没填的必填项） */
+const REQ = { archiveType: 'raw', categoryId: 1, specQty: 1, specUnit: 'kg' };
 const fill = (label: string, value: string) => fireEvent.change(screen.getAllByLabelText(new RegExp(`^${label}`))[0], { target: { value } });
 /** 原料的必填核算资料都填上，核算资料确认没有未完成项 */
 const fillRaw = (name: string) => { fill('商品名称', name); fill('系统规格', '千克'); fill('运费', '1'); fill('装卸费', '1'); };
@@ -58,7 +60,7 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
   it('保存并继续新建：不关弹窗，只留档案类型，列表由 onContinued 刷新；成功后清掉草稿', async () => {
     const onSaved = vi.fn();
     const onContinued = vi.fn();
-    render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw' }} onClose={() => undefined} onSaved={onSaved} onContinued={onContinued} />);
+    render(<RecordForm def={def} record={null} initial={REQ} onClose={() => undefined} onSaved={onSaved} onContinued={onContinued} />);
     fillRaw('苹果');
     fireEvent.click(screen.getByRole('button', { name: '保存并继续新建' }));
     await confirmQuality();
@@ -72,7 +74,7 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
   it('相似商品要确认才保存；选“取消”就不保存', async () => {
     similar.mockResolvedValue({ blocked: [], warnings: [{ text: '“苹果”：名称完全相同' }] });
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw' }} onClose={() => undefined} onSaved={() => undefined} />);
+    render(<RecordForm def={def} record={null} initial={REQ} onClose={() => undefined} onSaved={() => undefined} />);
     fillRaw('苹果');
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     await waitFor(() => expect(confirm).toHaveBeenCalled());
@@ -87,7 +89,7 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
 
   it('运费、装卸费填 0 没写原因：先弹核算资料确认，原因写进零值说明再保存', async () => {
     const onSaved = vi.fn();
-    render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw' }} onClose={() => undefined} onSaved={onSaved} />);
+    render(<RecordForm def={def} record={null} initial={REQ} onClose={() => undefined} onSaved={onSaved} />);
     fill('商品名称', '苹果');
     fill('系统规格', '千克');
     fill('运费', '0');

@@ -16,7 +16,7 @@ async function readCsvText(file: File): Promise<string> {
 }
 
 /** 导入：先选文件 → 预览（逐行校验，不落库）→ 无错误才允许确认导入；有错整体不导入。 */
-export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClose: () => void; onDone: () => void }) {
+export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClose: () => void; onDone: (message?: string) => void }) {
   const [rows, setRows] = useState<Array<Record<string, string>>>([]);
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
@@ -65,7 +65,7 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
         setBusy(false);
         return;
       }
-      onDone();
+      onDone(`导入完成：新建 ${res.created} 条，更新 ${res.updated} 条${res.failed ? `，跳过有问题的 ${res.failed} 行` : ''}。`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '导入失败');
       setBusy(false);

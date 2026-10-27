@@ -635,3 +635,31 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
 }
 .pricing-guide { text-align: left; margin: 8px auto 0; padding-left: 20px; max-width: 360px; font-weight: normal; }
 .import-step-next { border-color: var(--accent, #2f6fed); box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.15); }
+
+/* 资料页通用壳（u1）：搜索清除、结果条、筛选折叠、手机详情全屏、表单校验、变更对比 */
+.list-search { position: relative; display: inline-flex; min-width: 180px; }
+.list-search input { width: 100%; padding-right: 28px; }
+.search-clear { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); }
+.result-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 6px 12px; background: var(--accent-soft); font-size: 13px; }
+.filter-group { display: contents; }
+.filter-toggle, .sort-mobile, .drawer-back { display: none; }
+.log-changes { margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.pre-wrap { white-space: pre-wrap; }
+.field-error { color: var(--bad-ink); }
+label.invalid input, label.invalid select, label.invalid textarea { border-color: var(--bad-ink); }
+.error-summary { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.dirty-hint { margin-right: auto; }
+.secret-input-row { display: flex; gap: 8px; align-items: center; }
+.secret-input-row input { flex: 1; }
+.cat-fold { display: none; width: 100%; text-align: left; border: 0; background: transparent; font-weight: 600; padding: 8px 4px; }
+@media (max-width: 720px) {
+  .filter-toggle, .sort-mobile { display: inline-flex; }
+  .filter-group { display: none; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .filter-group.open { display: flex; }
+  .drawer { position: fixed; inset: 0; z-index: 40; max-width: none; border-radius: 0; overflow-y: auto; }
+  .drawer-back { display: inline-flex; }
+  .drawer-head .icon-button[aria-label="关闭详情"] { display: none; }
+  .cat-fold { display: block; }
+  .cat-body { display: none; }
+  .cat-body.open { display: block; }
+}
