@@ -3,6 +3,7 @@ import { DOC_DIRECTION_LABEL, DOC_STATUS_LABEL, DOC_TYPES, DOC_TYPE_MAP, type Do
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { DocDetail } from './DocDetail';
+import { CopyButton, DateChips, activePreset, DATE_PRESETS, downloadCsv, plainYuan, useIsMobile, usePersisted } from './fin-ui';
 import { DocForm } from './DocForm';
 import { DOC_STATUS_TONE, Pager, money } from './common';
 import { financeApi, type BatchResult, type DocList } from './financeApi';
@@ -13,30 +14,44 @@ const PAGE_SIZE = 20;
  * 单据列表：草稿中心（对应管家婆〖业务草稿〗）、经营历程、以及制单页下面“最近的某种单据”共用。
  * 草稿中心：批量过账 / 批量复制 / 批量删除；经营历程：批量复制为草稿、财务审核状态；都能按制单人、单据类型、状态筛选。
  */
-export function DocumentsPage({ scope, embedded }: { scope: 'drafts' | 'history' | DocType; embedded?: boolean }) {
+export function DocumentsPage(props: { scope: 'drafts' | 'history' | DocType; embedded?: boolean }) {
+  return <DocumentsInner key={props.scope} {...props} />;
+}
+
+const FILTER_DEFAULTS = { datePreset: 'all', from: '', to: '', status: '', docType: '', direction: '', mine: false, audited: '' };
+
+function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | DocType; embedded?: boolean }) {
   const { can, user } = useAuth();
+  const isMobile = useIsMobile();
+  const persistKey = scope === 'drafts' || scope === 'history' ? `oa.finance.${scope}.filters.v1` : null;
+  const [saved, setSaved] = usePersisted(persistKey, FILTER_DEFAULTS);
+  const fresh = (() => { const p = DATE_PRESETS.find((x) => x.key === saved.datePreset); if (!p) return saved; const [from, to] = p.range(); return { ...saved, from, to }; })();
+  const { from, to, status, docType, direction, mine, audited } = fresh;
+  const setStatus = (v: string) => setSaved({ status: v });
+  const setDocType = (v: string) => setSaved({ docType: v });
+  const setDirection = (v: string) => setSaved({ direction: v });
+  const setMine = (v: boolean) => setSaved({ mine: v });
+  const setAudited = (v: string) => setSaved({ audited: v });
+  const setFrom = (v: string) => setSaved({ from: v, datePreset: activePreset(v, to) || 'custom' });
+  const setTo = (v: string) => setSaved({ to: v, datePreset: activePreset(from, v) || 'custom' });
+  const setDates = (a: string, b: string) => setSaved({ from: a, to: b, datePreset: activePreset(a, b) || 'custom' });
   const def = DOC_TYPE_MAP.get(scope as DocType);
   const [keyword, setKeyword] = useState('');
-  const [status, setStatus] = useState('');
-  const [docType, setDocType] = useState('');
-  const [direction, setDirection] = useState('');
-  const [mine, setMine] = useState(false);
-  const [audited, setAudited] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<DocList | null>(null);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ title: string; r: BatchResult } | null>(null);
 
-  useEffect(() => { setKeyword(''); setStatus(''); setDocType(''); setDirection(''); setMine(false); setAudited(''); setFrom(''); setTo(''); setPage(1); setSelected(null); setData(null); setChecked(new Set()); }, [scope]);
+  const filtersActive = Boolean(keyword.trim() || status || docType || direction || mine || audited || from || to);
+  const resetFilters = () => { setKeyword(''); setSaved({ ...FILTER_DEFAULTS }); setPage(1); };
   const load = useCallback(() => {
-    setError('');
-    financeApi.docs({ scope, status, from, to, keyword, docType: docType || undefined, direction: direction || undefined, creatorId: mine ? user?.id : undefined, audited: audited || undefined, page }).then((d) => { setData(d); setChecked(new Set()); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
+    setError(''); setLoading(true);
+    financeApi.docs({ scope, status, from, to, keyword, docType: docType || undefined, direction: direction || undefined, creatorId: mine ? user?.id : undefined, audited: audited || undefined, page }).then((d) => { setData(d); setChecked(new Set()); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')).finally(() => setLoading(false));
   }, [scope, status, from, to, keyword, docType, direction, mine, audited, page, user?.id]);
   useEffect(() => { load(); }, [load]);
 
@@ -70,15 +85,15 @@ export function DocumentsPage({ scope, embedded }: { scope: 'drafts' | 'history'
         {scope === 'history' && data && (
           <div className="metric-row" aria-label="汇总">
             <div className="metric"><span className="muted">单据数量</span><strong>{data.total} 条</strong></div>
-            <div className="metric"><span className="muted">收入合计</span><strong>{money(data.incomeCents ?? 0)}</strong></div>
-            <div className="metric"><span className="muted">支出合计</span><strong>{money(data.expenseCents ?? 0)}</strong></div>
+            <button type="button" className={`metric clickable${direction === 'in' ? ' active' : ''}`} aria-pressed={direction === 'in'} onClick={() => { setDirection(direction === 'in' ? '' : 'in'); setPage(1); }}><span className="muted">收入合计</span><strong>{money(data.incomeCents ?? 0)}</strong><small className="muted">点一下只看收入</small></button>
+            <button type="button" className={`metric clickable${direction === 'out' ? ' active' : ''}`} aria-pressed={direction === 'out'} onClick={() => { setDirection(direction === 'out' ? '' : 'out'); setPage(1); }}><span className="muted">支出合计</span><strong>{money(data.expenseCents ?? 0)}</strong><small className="muted">点一下只看支出</small></button>
             <div className="metric"><span className="muted">净额</span><strong className={(data.incomeCents ?? 0) - (data.expenseCents ?? 0) < 0 ? 'neg' : ''}>{money((data.incomeCents ?? 0) - (data.expenseCents ?? 0))}</strong></div>
           </div>
         )}
         {scope === 'drafts' && data && (
           <div className="metric-row" aria-label="汇总">
             <div className="metric"><span className="muted">{scope === 'drafts' ? '待处理单据' : '已过账单据'}</span><strong>{data.total} 张</strong></div>
-            <div className="metric"><span className="muted">单据金额合计</span><strong>{money(data.amountCents)}</strong></div>
+            <div className="metric"><span className="muted">单据金额合计</span><strong>{money(data.amountCents)}</strong><small className="muted">草稿尚未过账，仅供参考</small></div>
             <div className="metric"><span className="muted">当场收付合计</span><strong>{money(data.paidCents)}</strong></div>
           </div>
         )}
@@ -106,9 +121,13 @@ export function DocumentsPage({ scope, embedded }: { scope: 'drafts' | 'history'
             </select>
           )}
           {isCenter && <label className="check-line"><input type="checkbox" checked={mine} onChange={(e) => { setMine(e.target.checked); setPage(1); }} />只看我制的单</label>}
+          {isCenter && <DateChips from={from} to={to} onChange={(a, b) => { setDates(a, b); setPage(1); }} />}
           <input type="date" aria-label="开始日期" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} />
           <span className="muted">至</span>
           <input type="date" aria-label="结束日期" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} />
+          {isCenter && <button type="button" className="secondary-button small" disabled={loading} onClick={load}>{loading ? '加载中…' : '刷新'}</button>}
+          {isCenter && filtersActive && <button type="button" className="ghost-button" onClick={resetFilters}>重置筛选</button>}
+          {isCenter && <button type="button" className="secondary-button small" disabled={rows.length === 0} onClick={() => downloadCsv(`${title}-${from || '全部'}.csv`, ['单号', '类型', '日期', '往来对象', '金额', '收付款账户', '收付款金额', '状态', '经办人', '制单人', '备注'], rows.map((r) => [r.docNo, r.typeLabel, r.docDate, r.partyName ?? '', plainYuan(r.amountCents), r.bankName ?? '', plainYuan(r.paidCents), DOC_STATUS_LABEL[r.status], r.handler ?? '', r.createdByName, r.memo ?? '']))}>导出本页</button>}
         </div>
         {isCenter && (
           <div className="toolbar" aria-label="批量操作">
@@ -118,13 +137,26 @@ export function DocumentsPage({ scope, embedded }: { scope: 'drafts' | 'history'
             {scope === 'drafts' && can('finance.docs.delete') && <button type="button" className="ghost-button danger-text" disabled={busy || checked.size === 0} onClick={() => batch('delete', '批量删除')}>批量删除</button>}
           </div>
         )}
-        {error && <div role="alert" className="notice error">{error}</div>}
+        {error && <div role="alert" className="notice error">{error} <button type="button" className="link-button" onClick={load}>重试</button></div>}
         {result && (
           <div role="status" className={`notice ${result.r.failCount ? 'warn' : 'ok'}`}>
             <div className="between"><strong>{result.title}</strong><button type="button" className="link-button" onClick={() => setResult(null)}>知道了</button></div>
             {result.r.results.filter((x) => !x.ok).map((x) => <div key={x.id}>{x.docNo}：{x.error}</div>)}
           </div>
         )}
+        {isMobile ? (
+          <div className="bill-cards">
+            {loading && !data && <p className="muted">正在加载单据…</p>}
+            {data?.rows.length === 0 && <div className="empty-state muted">{filtersActive ? '当前条件下没有单据：可以放宽日期范围，或重置筛选条件' : '没有单据'}</div>}
+            {rows.map((r) => (
+              <button type="button" key={r.id} className="bill-card" aria-label={`查看${r.typeLabel} ${r.docNo}`} onClick={() => setSelected(r.id)}>
+                <span className="bill-head"><b>{r.typeLabel}</b><em>{r.docDate}</em></span>
+                <span className="bill-main"><span>{r.partyName || r.memo || '—'}</span><strong className={r.amountCents < 0 ? 'neg' : ''}>{money(r.amountCents)}</strong></span>
+                <span className="bill-meta"><code>{r.docNo}</code><span className={`pill ${DOC_STATUS_TONE[r.status]}`}>{DOC_STATUS_LABEL[r.status]}</span></span>
+              </button>
+            ))}
+          </div>
+        ) : (
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -134,11 +166,12 @@ export function DocumentsPage({ scope, embedded }: { scope: 'drafts' | 'history'
               </tr>
             </thead>
             <tbody>
-              {data?.rows.length === 0 && <tr><td colSpan={cols + 2} className="empty-state muted">没有单据</td></tr>}
+              {loading && !data && <tr><td colSpan={cols + 2} className="muted">正在加载单据…</td></tr>}
+              {data?.rows.length === 0 && <tr><td colSpan={cols + 2} className="empty-state muted">{filtersActive ? <>当前条件下没有单据<small className="muted">：可以放宽日期范围，或点“重置筛选”</small></> : '没有单据'}</td></tr>}
               {rows.map((r) => (
                 <tr key={r.id} className={selected === r.id ? 'selected' : undefined} onClick={() => setSelected(r.id)} style={{ cursor: 'pointer' }}>
                   {isCenter && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${r.docNo}`} checked={checked.has(r.id)} onChange={() => toggle(r.id)} /></td>}
-                  <td className="mono"><button type="button" className="link-button" onClick={() => setSelected(r.id)}>{r.docNo}</button></td>
+                  <td className="mono"><button type="button" className="link-button" onClick={() => setSelected(r.id)}>{r.docNo}</button> <CopyButton text={r.docNo} label={`单号 ${r.docNo}`} /></td>
                   {!def && <td>{r.typeLabel}</td>}
                   <td>{r.docDate}</td>{scope === 'history' && <td>{DOC_DIRECTION_LABEL[r.direction ?? 'internal']}</td>}<td>{r.partyName ?? ''}</td>
                   <td className={`num ${r.amountCents < 0 ? 'neg' : ''}`}>{money(r.amountCents)}</td>
@@ -151,6 +184,7 @@ export function DocumentsPage({ scope, embedded }: { scope: 'drafts' | 'history'
             </tbody>
           </table>
         </div>
+        )}
         {data && <Pager page={page} total={data.total} pageSize={PAGE_SIZE} onPage={setPage} />}
       </div>
       {selected && <DocDetail key={selected} id={selected} onClose={() => setSelected(null)} onChanged={load} />}

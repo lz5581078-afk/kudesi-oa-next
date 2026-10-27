@@ -550,4 +550,34 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
   .data-table.cards-narrow td { max-width: none; white-space: normal; border: 0; padding: 3px 0; display: flex; justify-content: space-between; gap: 12px; text-align: right; }
   .data-table.cards-narrow td[data-label]::before { content: attr(data-label); color: var(--muted); text-align: left; flex: none; }
   .data-table.cards-narrow td.card-skip { display: none; }
+/* 财务单据与查询：日期快捷、可点汇总、手机卡片、开单细节（u3） */
+.chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 4px 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: #fff; cursor: pointer; font: inherit; }
+.chip.active { background: var(--primary, #1f6feb); border-color: var(--primary, #1f6feb); color: #fff; }
+.metric.clickable, .stat.clickable { text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.metric.clickable:hover, .stat.clickable:hover { border-color: var(--primary, #1f6feb); }
+.metric.clickable.active { border-color: var(--primary, #1f6feb); box-shadow: inset 0 0 0 1px var(--primary, #1f6feb); }
+.stat.clickable { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; }
+.neg { color: #c0392b; }
+.step { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-right: 8px; border-radius: 50%; background: var(--primary, #1f6feb); color: #fff; font-size: 12px; }
+.slip-foot { position: sticky; bottom: 0; align-items: center; }
+.slip-foot-total { margin-right: auto; font-size: 15px; }
+.slip-foot-total b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.copy-button { font-size: 12px; padding: 0 4px; }
+.bill-cards { display: flex; flex-direction: column; gap: 8px; }
+.bill-card { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; font: inherit; color: inherit; cursor: pointer; }
+.bill-head, .bill-main, .bill-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.bill-head em { font-style: normal; color: var(--muted); }
+.bill-main strong { font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) {
+  .doc-lines thead { display: none; }
+  .doc-lines, .doc-lines tbody, .doc-lines tr, .doc-lines tfoot { display: block; width: 100%; }
+  .doc-lines tr { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; margin-bottom: 8px; }
+  .doc-lines td { display: flex; justify-content: space-between; align-items: center; gap: 8px; border: 0; padding: 3px 0; }
+  .doc-lines td[data-cell]::before { content: attr(data-cell); color: var(--muted); font-size: 12px; flex: none; }
+  .doc-lines td input { flex: 1; min-width: 0; }
+  .doc-lines td .pick { flex: 1; }
+  .slip-body, .slip-foot { padding-left: 12px; padding-right: 12px; }
+  .slip-foot { flex-wrap: wrap; }
+  .slip-party { grid-column: span 1; }
 }

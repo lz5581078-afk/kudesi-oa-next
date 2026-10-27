@@ -3,6 +3,7 @@ import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { fmtTime } from '../flow/flowApi';
 import { Pager } from './common';
+import { CopyButton } from './fin-ui';
 import { DocumentsPage } from './DocumentsPage';
 import { DocForm } from './DocForm';
 import { AgentReleasePanel } from './AgentReleasePanel';
@@ -88,6 +89,8 @@ export function Shops({ client = sessionApi, maintenance = false }: { client?: S
         <span className="muted">已加入 {data?.total ?? 0} 家店铺</span>
         {manage && <button type="button" className="primary-button" onClick={() => setAdding(true)}>添加店铺</button>}<button type="button" className="secondary-button" onClick={load}>刷新</button>
       </div>
+      {devices.length > 0 && <p className="muted" role="status">{devices.filter((d) => d.status === 'active' && d.online).length} 台在线 / {devices.filter((d) => d.status === 'active').length} 台授权：店铺任务会发到各自负责的电脑。</p>}
+      {devices.length === 0 && data && <p className="muted" role="status">还没有授权电脑：先到“授权电脑”生成绑定码，在助手里输入后再添加店铺。</p>}
       {devices.length > 0 && !devices.some((d) => d.online) && <div className="notice warn">暂无在线授权电脑：已分配的店铺仍会保留，电脑上的助手上线后才能下发登录任务。</div>}
       {error && <div role="alert" className="notice error">{error}</div>}
       <div className="table-scroll"><table className="data-table">
@@ -98,16 +101,16 @@ export function Shops({ client = sessionApi, maintenance = false }: { client?: S
             const busy = !!s.activeRequest;
             return (
               <tr key={s.id}>
-                <td>{s.platformLabel ?? PLATFORM[s.platform] ?? s.platform}</td><td><strong>{s.storeName}</strong><div className="muted">{s.storeNo || '未设置店铺编码'}</div></td><td>{s.platformStoreId || '-'}</td>{maintenance && <td><span className={`pill ${s.storeStatus === 'normal' ? 'ok' : s.storeStatus === 'abnormal' ? 'warn' : 'bad'}`}>{STORE_STATUS[s.storeStatus ?? ''] ?? s.storeStatus}</span>{s.abnormalReason && <div className="muted">{s.abnormalReason}</div>}</td>}
+                <td>{s.platformLabel ?? PLATFORM[s.platform] ?? s.platform}</td><td><strong>{s.storeName}</strong><div className="muted">{s.storeNo || '未设置店铺编码'}</div></td><td>{s.platformStoreId ? <>{s.platformStoreId} <CopyButton text={s.platformStoreId} label="店铺ID" /></> : '-'}</td>{maintenance && <td><span className={`pill ${s.storeStatus === 'normal' ? 'ok' : s.storeStatus === 'abnormal' ? 'warn' : 'bad'}`}>{STORE_STATUS[s.storeStatus ?? ''] ?? s.storeStatus}</span>{s.abnormalReason && <div className="muted">{s.abnormalReason}</div>}</td>}
                 <td>{s.operatorName || '-'}</td>
-                <td>{s.loginAccount || <span className="muted">未填</span>}{s.hasPassword && <span className="muted"> · 已存密码{s.autoLogin ? ' · 自动登录' : ''}</span>}</td>
+                <td>{s.loginAccount ? <>{s.loginAccount} <CopyButton text={s.loginAccount} label={`登录账号 ${s.loginAccount}`} /></> : <span className="muted">未填</span>}{s.hasPassword && <span className="muted"> · 已存密码{s.autoLogin ? ' · 自动登录' : ''}</span>}</td>
                 <td><span className={`pill ${STATE[s.loginState][1]}`}>{STATE[s.loginState][0]}</span>{s.activeRequest && <div className="muted">{REQ[s.activeRequest.status]}</div>}</td>
                 <td>{s.deviceName || '—'} <span className={`pill ${s.deviceStatus === 'online' ? 'ok' : 'warn'}`}>{DEVICE[s.deviceStatus]}</span></td>
                 <td>{s.lastOpenedAt ? fmtTime(s.lastOpenedAt) : '-'}</td>
                 <td><Progress shop={s} /></td>
                 <td className="row-actions">
                   {manage && (busy
-                    ? <button type="button" className="link-button" onClick={() => run(() => client.cancel(s.activeRequest!.id))}>取消登录</button>
+                    ? <button type="button" className="link-button" onClick={() => { if (window.confirm(`停止「${s.storeName}」当前的登录任务吗？\n停止后可以重新登录，不会删除本机登录态或电脑授权。`)) run(() => client.cancel(s.activeRequest!.id)); }}>取消登录</button>
                     : <button type="button" className="link-button" disabled={s.deviceStatus !== 'online'} onClick={() => run(() => client.open(s.id))}>{s.loginState === 'valid' ? '立即登录' : s.loginState === 'none' ? '首次登录' : '重新登录'}</button>)}
                   {!maintenance && can('finance.docs.create') && <button type="button" className="link-button" onClick={() => setRegister(s)}>登记提现</button>}
                   {canRemote && remoteMap.get(s.id)?.remoteEnabled && (() => { const r = remoteMap.get(s.id)!; return <button type="button" className="link-button" disabled={!r.deviceOnline || (!!r.live && !r.live.mine)} title={r.live && !r.live.mine ? `${r.live.requestedByName} 正在协助` : '让这台电脑上的助手把店铺窗口画面传给你'} onClick={() => setRemoteFor(s)}>{r.live?.mine ? '返回协助' : '远程协助'}</button>; })()}
@@ -208,7 +211,7 @@ function CredDialog({ client, shop, shown, onReveal, devices, onClose, onSaved }
       <div className="modal-body">
         <label>登录账号<input value={account} maxLength={100} onChange={(e) => setAccount(e.target.value)} /></label>
         <label>登录密码<input type="password" autoComplete="new-password" value={password} placeholder={shop.hasPassword ? '已保存，留空表示不修改' : ''} onChange={(e) => setPassword(e.target.value)} /></label>
-        {shop.hasPassword && <div>{shown ? <span>账号 <b>{shown.account}</b>　密码 <b className="mono">{shown.password}</b></span> : <button type="button" className="link-button" onClick={onReveal}>查看已保存的密码（会记入操作日志）</button>}</div>}
+        {shop.hasPassword && <div>{shown ? <span>账号 <b>{shown.account}</b> <CopyButton text={shown.account} label="账号" />　密码 <b className="mono">{shown.password}</b> <CopyButton text={shown.password} label="密码" /></span> : <button type="button" className="link-button" onClick={onReveal}>查看已保存的密码（会记入操作日志）</button>}</div>}
         <label className="check-line"><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />自动登录（助手领取请求时由服务器交付账号密码）</label>
         <label>负责电脑<select value={dev} onChange={(e) => setDev(e.target.value ? Number(e.target.value) : '')}><option value="">（未分配）</option>{devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
         {shop.hasPassword && <button type="button" className="link-button" onClick={() => { if (window.confirm('清除已保存的密码？自动登录会同时关闭。')) client.updateShop(shop.id, { clearPassword: true }).then(onSaved).catch((er) => setError(er instanceof ApiError ? er.message : '操作失败')); }}>清除密码</button>}

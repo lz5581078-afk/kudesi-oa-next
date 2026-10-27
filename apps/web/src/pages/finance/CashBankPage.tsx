@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../api/client';
+import { resourceApi } from '../../resources/api';
+import { CopyButton } from './fin-ui';
 import { DocDetail } from './DocDetail';
 import { money } from './common';
 import { financeApi, type BankBalance, type Ledger, type StoreFund } from './financeApi';
@@ -68,8 +70,9 @@ export function CashBankPage() {
   return (
     <div className={docId ? 'split' : undefined}>
       <div className="split-main">
-        <div className="page-head between"><h1>现金银行查询</h1><input className="search-box" type="search" aria-label="搜索账户" placeholder="搜索银行、户名、主体或店铺" value={keyword} onChange={(e) => setKeyword(e.target.value)} /></div>
+        <div className="page-head between"> <h1>现金银行查询</h1><button type="button" className="secondary-button small" onClick={() => { setRows(null); setError(''); financeApi.banks().then(setRows).catch(fail); financeApi.storeFunds().then(setFunds).catch(() => undefined); }}>刷新</button><input className="search-box" type="search" aria-label="搜索账户" placeholder="搜索银行、户名、主体或店铺" value={keyword} onChange={(e) => setKeyword(e.target.value)} /></div>
         {error && <div role="alert" className="notice error">{error}</div>}
+        {rows === null && !error && <p className="muted" role="status">正在读取账户余额…</p>}
         <div className="metric-row">
           <div className="metric"><span className="muted">重点账户</span><strong>{keyAccounts.length} 个</strong></div>
           <div className="metric"><span className="muted">店铺可提现余额</span><strong>{money(withdrawable)}</strong></div>
@@ -79,7 +82,7 @@ export function CashBankPage() {
         <p className="muted">余额旁的时间是“最后更新”：24 小时内绿色，3 天内黄色，更久红色。期初取自“银行账户”资料里登记的余额，之后每张已过账的单据都会自动计入。</p>
 
         <h2 className="section-title">重点账户</h2>
-        <AccountTable rows={keyAccounts} now={now} empty="还没有标记重点账户。在下面的账户列表里点“设为重点”，这里就会一直显示（只对你自己生效）。" cols={['type', 'name', 'bank', 'link', 'balance', 'fresh']} sel={sel} onSel={setSel} action={(r) => <KeyBtn r={r} />} name={(r) => <Name r={r} />} />
+        <AccountTable rows={keyAccounts} now={now} empty="还没有标记重点账户。在下面的账户列表里点“设为重点”，这里就会一直显示（只对你自己生效）。" cols={['type', 'name', 'no', 'bank', 'link', 'balance', 'fresh']} sel={sel} onSel={setSel} action={(r) => <KeyBtn r={r} />} name={(r) => <Name r={r} />} />
 
         <h2 className="section-title between"><span>店铺资金</span><Toggle k="funds" count={stores.length} label="店铺" /></h2>
         <div className="tabs" role="tablist" aria-label="平台">
@@ -103,12 +106,12 @@ export function CashBankPage() {
         ) : <p className="muted">已折叠 {stores.length} 家店铺的资金，可提现余额合计 {money(withdrawable)}。选好平台后点右上角“展开”。</p>}
 
         <h2 className="section-title between"><span>店铺公户与店铺个人银行卡</span><Toggle k="store" count={storeAccounts.length} label="账户" /></h2>
-        {open.store ? <AccountTable rows={storeAccounts} now={now} empty="没有店铺收款账户" cols={['type', 'name', 'bank', 'license', 'balance', 'fresh', 'status', 'stores']} sel={sel} onSel={setSel} action={(r) => <KeyBtn r={r} />} name={(r) => <Name r={r} />}
+        {open.store ? <AccountTable rows={storeAccounts} now={now} empty="没有店铺收款账户" cols={['type', 'name', 'no', 'bank', 'license', 'balance', 'fresh', 'status', 'stores']} sel={sel} onSel={setSel} action={(r) => <KeyBtn r={r} />} name={(r) => <Name r={r} />}
           onStores={(r) => setRel({ title: `${r.title} · 关联店铺`, stores: (r.storeIds ?? []).map((id, i) => ({ id, name: r.storeNames?.[i] ?? `店铺#${id}`, fund: funds.find((f) => f.storeId === id) })) })} />
           : <p className="muted">已折叠 {storeAccounts.length} 个店铺收款账户，当前余额合计 {money(sumBal(storeAccounts))}。</p>}
 
         <h2 className="section-title between"><span>公司账户</span><Toggle k="company" count={companyAccounts.length} label="账户" /></h2>
-        {open.company ? <AccountTable rows={companyAccounts} now={now} empty="没有公司账户" cols={['type', 'name', 'bank', 'keeper', 'balance', 'fresh', 'status']} sel={sel} onSel={setSel} action={(r) => <KeyBtn r={r} />} name={(r) => <Name r={r} />} />
+        {open.company ? <AccountTable rows={companyAccounts} now={now} empty="没有公司账户" cols={['type', 'name', 'no', 'bank', 'keeper', 'balance', 'fresh', 'status']} sel={sel} onSel={setSel} action={(r) => <KeyBtn r={r} />} name={(r) => <Name r={r} />} />
           : <p className="muted">已折叠 {companyAccounts.length} 个公司账户，当前余额合计 {money(sumBal(companyAccounts))}。</p>}
 
         {sel && (
@@ -160,8 +163,8 @@ export function CashBankPage() {
   );
 }
 
-type Col = 'type' | 'name' | 'bank' | 'license' | 'keeper' | 'link' | 'balance' | 'fresh' | 'status' | 'stores';
-const HEAD: Record<Col, string> = { type: '账户类型', name: '账户', bank: '开户行', license: '所属主体', keeper: '保管人', link: '关联主体/店铺', balance: '当前余额', fresh: '余额最后更新', status: '状态', stores: '关联店铺' };
+type Col = 'type' | 'name' | 'no' | 'bank' | 'license' | 'keeper' | 'link' | 'balance' | 'fresh' | 'status' | 'stores';
+const HEAD: Record<Col, string> = { type: '账户类型', name: '账户', no: '账号', bank: '开户行', license: '所属主体', keeper: '保管人', link: '关联主体/店铺', balance: '当前余额', fresh: '余额最后更新', status: '状态', stores: '关联店铺' };
 
 function AccountTable({ rows, cols, empty, now, sel, onSel, action, name, onStores }: {
   rows: BankBalance[]; cols: Col[]; empty: string; now: number; sel: BankBalance | null; onSel: (r: BankBalance) => void;
@@ -172,6 +175,7 @@ function AccountTable({ rows, cols, empty, now, sel, onSel, action, name, onStor
       case 'type': return KIND_LABEL[r.kind] ?? r.kind;
       case 'name': return name(r);
       case 'bank': return r.bank || '-';
+      case 'no': return <AccountNo id={r.id} />;
       case 'license': return r.licenseName || '-';
       case 'keeper': return r.keeperName || '-';
       case 'link': return (r.storeNames?.length ? r.storeNames.join('、') : r.licenseName) || '-';
@@ -196,4 +200,13 @@ function AccountTable({ rows, cols, empty, now, sel, onSel, action, name, onStor
       {rows.length > 0 && <tfoot><tr><th>合计（{rows.length} 个）</th>{cols.slice(1).map((c) => <th key={c} className={c === 'balance' ? 'num' : undefined}>{c === 'balance' ? money(rows.reduce((s, r) => s + r.balanceCents, 0)) : ''}</th>)}<th /></tr></tfoot>}
     </table></div>
   );
+}
+
+/** 账号/卡号：平时不显示；点“显示”才向服务器取明文（要有查看明文权限，并会留下查看记录），取到后可以一键复制 */
+function AccountNo({ id }: { id: number }) {
+  const [value, setValue] = useState<string | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (value !== null) return <span className="mono">{value} <CopyButton text={value} label="账号" /> <button type="button" className="link-button" onClick={() => setValue(null)}>隐藏</button></span>;
+  return <span><button type="button" className="link-button" disabled={busy} aria-label="显示账号" onClick={() => { setBusy(true); setErr(''); resourceApi.reveal('bank-accounts', id, 'accountNo').then((r) => setValue(r.value)).catch((e) => setErr(e instanceof ApiError ? e.message : '无法查看')).finally(() => setBusy(false)); }}>{busy ? '读取中…' : '显示账号'}</button>{err && <small className="neg"> {err}</small>}</span>;
 }
