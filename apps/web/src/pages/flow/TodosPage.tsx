@@ -81,7 +81,7 @@ export function MyTodosPage() {
               <tr key={r.id} className={late ? 'late' : undefined}>
                 <td className="cell-title">{r.runId
                   ? <button type="button" className="link-button" onClick={() => setParams({ run: String(r.runId) })}>{r.enteredVia === 'return' && <span className="pill warn">被退回</span>} {r.runTitle}</button>
-                  : <><strong>{r.runTitle}</strong>{r.description && <span className="sub-line">{r.description}</span>}{r.completionStandard && <span className="sub-line">完成标准：{r.completionStandard}</span>}{r.reviewComment && r.status === 'open' && <span className="sub-line late-text">被退回：{r.reviewComment}</span>}</>}</td>
+                  : <><strong>{r.runTitle}</strong>{r.description && <span className="sub-line">{r.description}</span>}{r.completionStandard && <span className="sub-line">完成标准：{r.completionStandard}</span>}{r.reviewNote && <span className="sub-line late-text">复核意见：{r.reviewNote}</span>}</>}</td>
                 <td data-label="类型">{r.templateLabel}</td>
                 <td data-label="当前步骤">{r.stepName ?? ''}</td>
                 <td data-label="发起人">{r.requesterName}</td>

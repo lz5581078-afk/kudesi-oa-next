@@ -198,7 +198,7 @@ describe('任务中心', () => {
     expect(f.createTask).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: 7, supervisorId: 7, requiresReview: true, feedbackPreset: 'operation_daily' }));
   });
   it('我监督的任务：能通过/退回待复核的，处理延期申请', async () => {
-    const row = { id: 4, title: '运营日报', description: null, status: 'reviewing', dueAt: null, createdAt: '', finishedAt: null, doneNote: null, assigneeName: '小李', overdue: false, feedbackPreset: 'operation_daily', submitPayload: { salesAmount: '100' }, delayId: 8, delayDueAt: '2099-02-01T00:00:00Z', delayReason: '没货' };
+    const row = { id: 4, title: '运营日报', description: null, status: 'open', stage: 'reviewing', dueAt: null, createdAt: '', finishedAt: null, doneNote: null, assigneeName: '小李', overdue: false, feedbackPreset: 'operation_daily', submitPayload: { salesAmount: '100' }, delayId: 8, delayDueAt: '2099-02-01T00:00:00Z', delayReason: '没货' };
     f.supervised.mockResolvedValue({ total: 1, page: 1, pageSize: 20, rows: [row] });
     f.reviewCounts.mockResolvedValue({ review: 1, delay: 1 });
     f.reviewTask.mockResolvedValue({ ok: true });

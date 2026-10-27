@@ -92,13 +92,13 @@ d('任务中心（真实数据库）', () => {
     await expect(tasks.complete(worker, t.id, '好了')).rejects.toThrow(/至少填写/);
     await expect(tasks.complete(worker, t.id, '', { payload: { salesAmount: 'abc' } })).rejects.toThrow(/数字/);
     expect(await tasks.complete(worker, t.id, '', { payload: { salesAmount: '100.5', todayActions: '上新' } })).toMatchObject({ status: 'reviewing' });
-    await expect(tasks.complete(worker, t.id, '再交')).rejects.toThrow(/等复核/);
+    await expect(tasks.complete(worker, t.id, '再交')).rejects.toThrow(/等监督人处理/);
     const todo = await flow.todos(other, { tab: 'pending', page: 1, pageSize: 20 });
     expect(todo.counts.taskReview).toBe(1);
-    await expect(tasks.review(boss, t.id, { action: 'approve' })).rejects.toThrow(/监督人/);
+    await expect(tasks.review(worker, t.id, { action: 'approve' })).rejects.toThrow(/监督人或指派人/);
     await expect(tasks.review(other, t.id, { action: 'return' })).rejects.toThrow(/原因/);
     await tasks.review(other, t.id, { action: 'return', comment: '推广费没填' });
-    expect((await tasks.supervised(other, { status: 'open', page: 1, pageSize: 20 })).rows[0]).toMatchObject({ title: '日报', reviewComment: '推广费没填', supervisorName: '别人' });
+    expect((await tasks.supervised(other, { status: 'open', page: 1, pageSize: 20 })).rows[0]).toMatchObject({ title: '日报', reviewNote: '推广费没填', supervisorName: '别人' });
     await tasks.complete(worker, t.id, '', { payload: { salesAmount: '100', promotionFee: '10' } });
     await tasks.review(other, t.id, { action: 'approve' });
     expect((await tasks.assigned(boss, { status: 'done', page: 1, pageSize: 50 })).rows.find((r: { id: number }) => r.id === t.id)).toMatchObject({ submitPayload: { salesAmount: '100', promotionFee: '10' } });

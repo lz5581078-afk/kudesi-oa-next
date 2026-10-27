@@ -167,6 +167,7 @@ export class WorkspaceService {
       if (t.assigneeId !== user.id) throw new ForbiddenException('只有负责人能提交复核');
       if (!t.createdBy || t.createdBy === user.id) throw new BadRequestException('自己建的任务直接点“完成”即可，不需要复核');
       if (t.submittedAt) throw new BadRequestException('已经提交复核了');
+      if (t.feedbackPreset) throw new BadRequestException('这条任务要按反馈模板填写，请到“我的待办”里提交');
       const now = new Date();
       t.startedAt = t.startedAt ?? now; t.submittedAt = now; t.doneNote = note?.trim().slice(0, 500) || null; t.reviewNote = null;
       await em.save(WorkItem, t);

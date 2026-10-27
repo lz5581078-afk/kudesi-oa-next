@@ -32,6 +32,8 @@ export function TasksPage() {
   );
 }
 
+/** 任务当前阶段：接口给的 stage（进行中/待复核/异常/已完成/已取消）；旧数据没有时按 status 退回。 */
+const stage = (r: AssignedRow) => r.stage ?? r.status;
 const STATUS_CHIPS: Array<[string, string]> = [['', '全部'], ['open', '进行中'], ['reviewing', '待复核'], ['abnormal', '异常'], ['done', '已完成'], ['cancelled', '已取消']];
 
 function Assigned({ users, canAssign, supervised }: { users: Opt[]; canAssign: boolean; supervised: boolean }) {
@@ -77,18 +79,18 @@ function Assigned({ users, canAssign, supervised }: { users: Opt[]; canAssign: b
           {data?.rows.map((r) => {
             const hint = dueHint(r.dueAt, now);
             return (
-              <tr key={r.id} className={r.overdue && r.status === 'open' ? 'late' : undefined}>
+              <tr key={r.id} className={r.overdue && stage(r) === 'open' ? 'late' : undefined}>
                 <td className="cell-title"><strong>{r.title}</strong>{r.description && <span className="sub-line">{r.description}</span>}</td>
                 <td data-label="负责人">{r.assigneeName}{r.supervisorName && <span className="sub-line">监督：{r.supervisorName}</span>}</td>
-                <td data-label="状态"><span className={`pill ${STATUS[r.status]?.[1] ?? ''}`}>{STATUS[r.status]?.[0] ?? r.status}</span></td>
-                <td data-label="截止">{r.dueAt ? <span>{fmtTime(r.dueAt)}{r.status === 'open' && <span className={`sub-line${hint.late ? ' late-text' : ''}`}>{hint.text}</span>}</span> : '不限时'}</td>
+                <td data-label="状态"><span className={`pill ${STATUS[stage(r)]?.[1] ?? ''}`}>{STATUS[stage(r)]?.[0] ?? r.status}</span></td>
+                <td data-label="截止">{r.dueAt ? <span>{fmtTime(r.dueAt)}{stage(r) === 'open' && <span className={`sub-line${hint.late ? ' late-text' : ''}`}>{hint.text}</span>}</span> : '不限时'}</td>
                 <td data-label="反馈与复核"><Feedback row={r} /></td>
                 <td className="row-actions">
-                  {(r.status === 'reviewing' || r.status === 'abnormal') && (
+                  {(stage(r) === 'reviewing' || stage(r) === 'abnormal') && (
                     <><button type="button" className="secondary-button small" onClick={() => setReviewing({ row: r, action: 'approve' })}>通过</button><button type="button" className="link-button" onClick={() => setReviewing({ row: r, action: 'return' })}>退回</button></>
                   )}
                   {r.delayId && <><button type="button" className="secondary-button small" onClick={() => setDeciding({ row: r, approve: true })}>同意延期</button><button type="button" className="link-button" onClick={() => setDeciding({ row: r, approve: false })}>拒绝延期</button></>}
-                  {r.status === 'open' && !supervised && <button type="button" className="link-button" onClick={() => setCancelling(r)}>取消</button>}
+                  {stage(r) === 'open' && !supervised && <button type="button" className="link-button" onClick={() => setCancelling(r)}>取消</button>}
                 </td>
               </tr>
             );
@@ -182,7 +184,7 @@ function Feedback({ row }: { row: AssignedRow }) {
       {preset && row.submitPayload && Object.keys(row.submitPayload).length > 0 && (
         <ul className="plain-list">{preset.fields.filter((f) => row.submitPayload?.[f.key] !== undefined).map((f) => <li key={f.key}>{f.label}：{String(row.submitPayload?.[f.key])}</li>)}</ul>
       )}
-      {row.reviewComment && <span className="sub-line">复核意见：{row.reviewComment}</span>}
+      {row.reviewNote && <span className="sub-line">复核意见：{row.reviewNote}</span>}
       {row.delayId && <span className="sub-line late-text">申请延期到 {fmtTime(row.delayDueAt ?? null).slice(0, 10)}：{row.delayReason}</span>}
     </div>
   );

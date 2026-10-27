@@ -7,7 +7,7 @@ export interface RunRow {
   dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; stepEnteredAt?: string | null;
 }
 export interface RunList { total: number; page: number; pageSize: number; rows: RunRow[] }
-export interface TodoRow { id: number; kind: string; description: string | null; runId: number | null; title: string; stepName: string; enteredVia: string; templateLabel: string; runTitle: string; requesterName: string; dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; feedbackPreset?: string | null; completionStandard?: string | null; requiresReview?: number | boolean; reviewComment?: string | null; status?: string }
+export interface TodoRow { id: number; kind: string; description: string | null; runId: number | null; title: string; stepName: string; enteredVia: string; templateLabel: string; runTitle: string; requesterName: string; dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; feedbackPreset?: string | null; completionStandard?: string | null; requiresReview?: number | boolean; reviewNote?: string | null; status?: string }
 export interface TodoList { total: number; counts: { pending: number; overdue: number; returned: number; cc: number; taskReview?: number }; rows: TodoRow[] }
 export interface RunStep {
   id: number; seq: number; key: string; name: string; type: string; status: string; action: FlowAction | null; comment: string | null; form: Record<string, unknown> | null;
@@ -23,7 +23,7 @@ export interface RunDetailDto {
 }
 export interface AssignedRow { id: number; title: string; description: string | null; status: string; dueAt: string | null; createdAt: string; finishedAt: string | null; doneNote: string | null; assigneeName: string; overdue: boolean;
   assigneeId?: number; supervisorId?: number | null; supervisorName?: string | null; creatorName?: string | null; requiresReview?: boolean; feedbackPreset?: string | null; completionStandard?: string | null;
-  submitPayload?: Record<string, unknown> | null; submittedAt?: string | null; reviewComment?: string | null; delayId?: number | null; delayDueAt?: string | null; delayReason?: string | null }
+  submitPayload?: Record<string, unknown> | null; submittedAt?: string | null; reviewNote?: string | null; stage?: string; isAbnormal?: boolean; delayId?: number | null; delayDueAt?: string | null; delayReason?: string | null }
 export interface TaskBody { title: string; description?: string; assigneeId?: number; dueDate?: string; supervisorId?: number; requiresReview?: boolean; feedbackPreset?: string; completionStandard?: string }
 export interface RoutineDto { supervisorId?: number | null; requiresReview?: boolean; feedbackPreset?: string | null; completionStandard?: string | null; id: number; title: string; description: string | null; assigneeId: number; assigneeName: string; frequency: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthDay: number | null; dueDays: number; active: boolean }
 export type RoutineBody = { supervisorId?: number | null; requiresReview?: boolean; feedbackPreset?: string | null; completionStandard?: string | null; title: string; description?: string; assigneeId: number; frequency: string; weekday?: number | null; monthDay?: number | null; dueDays: number; active?: boolean };

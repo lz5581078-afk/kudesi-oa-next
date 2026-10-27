@@ -64,7 +64,7 @@ export class TaskService {
     const t = await em.findOne(WorkItem, { where: { id, companyId: user.companyId, kind: 'task' }, lock: { mode: 'pessimistic_write' } });
     if (!t) throw new NotFoundException('任务不存在');
     if (t.status !== 'open') throw new BadRequestException('这条任务已经结束了');
-    if (submitted === false && t.submittedAt) throw new BadRequestException('已提交，正在等监督人处理');
+    if (submitted === false && t.submittedAt) throw new BadRequestException('已提交复核，等监督人处理');
     if (submitted === true && !t.submittedAt) throw new BadRequestException('负责人还没有提交');
     return t;
   }
@@ -73,7 +73,6 @@ export class TaskService {
   private reviewerOf(t: WorkItem) { return t.supervisorId ?? t.createdBy; }
   /** 监督人、指派人、公司管理员都可以复核（指派人也能在“个人任务”页复核，两边是同一份数据）。 */
   private canReview(user: AuthUser, t: WorkItem) { return t.supervisorId === user.id || t.createdBy === user.id || user.permissions.isCompanyAdmin; }
-  private canReview(user: AuthUser, t: WorkItem) { return this.reviewerOf(t) === user.id || user.permissions.isCompanyAdmin; }
 
   /**
    * 负责人提交任务。
