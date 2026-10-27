@@ -2,7 +2,8 @@ import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { ASSET_ACTIONS, createChecker, resourcePermission, type AssetAction } from '@kudesi/shared';
-import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
+import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
+import { DataIssuesService } from './data-issues.service';
 import { AssetsService } from './assets.service';
 
 class TransitionDto {
@@ -28,7 +29,14 @@ class InventoryDto {
 /** 固定资产的流转/盘点/卷宗，和位置的“存放内容”。公司与操作人只取自令牌。 */
 @Controller('resources')
 export class AssetsController {
-  constructor(private readonly assets: AssetsService) {}
+  constructor(private readonly assets: AssetsService, private readonly dataIssues: DataIssuesService) {}
+
+  /** 资料总览的“数据问题”：每一类只在有对应资料查看权限时才返回。 */
+  @AuthenticatedOnly()
+  @Get('data-issues')
+  issues(@CurrentUser() user: AuthUser) {
+    return this.dataIssues.check(user);
+  }
 
   @RequirePermission(resourcePermission('fixed-assets', 'edit'))
   @Post('fixed-assets/inventory')

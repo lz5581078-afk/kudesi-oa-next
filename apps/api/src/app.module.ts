@@ -76,6 +76,7 @@ import { FinanceDocumentsService } from './resources/finance-documents.service';
 import { ResourcesController } from './resources/resources.controller';
 import { AssetsController } from './resources/assets.controller';
 import { AssetsService } from './resources/assets.service';
+import { DataIssuesService } from './resources/data-issues.service';
 import { ResourcesService } from './resources/resources.service';
 import { OrgController } from './org/org.controller';
 import { OrgAdminController } from './org/org-admin.controller';
@@ -132,6 +133,7 @@ const env = loadEnv();
     OrgAdminService,
     ResourcesService,
     AssetsService,
+    DataIssuesService,
     RevenueService,
     FeeArchiveService,
     LaborCopyService,

@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { recordLink } from './recordLink';
-import { resourceApi, type ExpiringResult, type OverviewResult } from './api';
+import { resourceApi, type DataIssuesResult, type ExpiringResult, type OverviewResult } from './api';
 
 export function ResourceOverviewPage() {
   const [data, setData] = useState<OverviewResult | null>(null);
   const [exp, setExp] = useState<ExpiringResult | null>(null);
+  const [issues, setIssues] = useState<DataIssuesResult | null>(null);
   const [days, setDays] = useState(30);
   const [error, setError] = useState('');
   useEffect(() => {
     resourceApi.overview().then(setData).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
+  }, []);
+  useEffect(() => {
+    resourceApi.dataIssues().then(setIssues).catch(() => setIssues(null));
   }, []);
   useEffect(() => {
     resourceApi.expiring(days).then(setExp).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
@@ -51,6 +55,24 @@ export function ResourceOverviewPage() {
           </tbody>
         </table>
       </section>
+      {issues && (
+        <section className="card" aria-label="数据问题">
+          <div className="card-foot"><strong>数据问题</strong><span className="muted">（共 {issues.total} 处，只读检查，改好资料后自动消失）</span></div>
+          {issues.groups.filter((g) => g.count > 0).length === 0 && <p className="muted pad">没有发现数据问题</p>}
+          {issues.groups.filter((g) => g.count > 0).map((g) => (
+            <details key={g.key} className="pad">
+              <summary><strong>{g.label}</strong> <span className="pill warn">{g.count}</span></summary>
+              <p className="muted">{g.description}</p>
+              <ul>
+                {g.rows.map((r, i) => (
+                  <li key={`${r.id}-${i}`}>{recordLink(r.type, r.id) ? <Link to={recordLink(r.type, r.id)!}>{r.name}</Link> : r.name}{r.detail ? <span className="muted">　{r.detail}</span> : null}</li>
+                ))}
+              </ul>
+              {g.count > g.rows.length && <p className="muted">只显示前 {g.rows.length} 条</p>}
+            </details>
+          ))}
+        </section>
+      )}
     </div>
   );
 }

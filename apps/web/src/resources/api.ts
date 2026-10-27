@@ -151,6 +151,7 @@ export const resourceApi = {
   removeLink: (type: string, id: number, linkId: number) => api<{ ok: true }>(`/resources/${type}/${id}/links/${linkId}`, { method: 'DELETE' }),
   relations: (type: string, id: number) => api<Relation[]>(`/resources/${type}/${id}/relations`),
   overview: () => api<OverviewResult>('/resources/overview'),
+  dataIssues: () => api<DataIssuesResult>('/resources/data-issues'),
   expiring: (days: number) => api<ExpiringResult>(`/resources/expiring?days=${days}`),
   /** scope：不传=全部；传筛选条件=当前筛选结果；ids=所选 */
   export: (type: string, includeHidden: boolean, scope: ListParams & { ids?: number[] } = {}) => {
@@ -223,3 +224,8 @@ export const settingsApi = {
 
 export interface RevenueTotals { sales: number; refund: number; adCost: number; platformFee: number; purchaseCost: number; otherCost: number; profit: number; orders: number; days: number }
 export interface RevenueResult { licenseId: number; licenseTitle: string; from: string; to: string; stores: Array<{ storeId: number; name: string } & RevenueTotals>; total: RevenueTotals }
+
+export interface DataIssuesResult {
+  total: number;
+  groups: Array<{ key: string; label: string; description: string; resourceType: string; count: number; rows: Array<{ id: number; type: string; name: string; detail: string }> }>;
+}

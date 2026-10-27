@@ -8,6 +8,7 @@ import { Company, User } from '../entities';
 import { buildServices } from '../test-support';
 import { OrgAdminService } from '../org/org-admin.service';
 import { AssetsService } from './assets.service';
+import { DataIssuesService } from './data-issues.service';
 import { ResourcesService } from './resources.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
@@ -189,5 +190,24 @@ d('固定资产、位置、档案（真实数据库）', () => {
     await expect(svc.update(boss, 'duty-group-members', m.id, { startedAt: '2099-01-01', endedAt: '2098-01-01' })).rejects.toThrow(/不能早于/);
     const rec = await new OrgAdminService(ds).staffRecords(boss, alice);
     expect(rec.dutyGroups).toEqual([expect.objectContaining({ groupName: '运营一组', status: 'exited' })]);
+  });
+
+  it('数据问题检查：缺执照的店铺、没人用的手机号、没归属的银行账户、缺照片的执照；没有查看权限的类型不返回；别家看不到', async () => {
+    const lic = await svc.create(boss, 'licenses', { category: 'operation', companyName: '问题公司', creditCode: '91ISSUE0001', legalPerson: '张' });
+    await svc.create(boss, 'stores', { platform: 'taobao', name: '无执照店' });
+    await svc.create(boss, 'stores', { platform: 'taobao', name: '有执照店', licenseId: lic.id });
+    await svc.create(boss, 'phones', { number: '13800001111', carrier: '中国移动', usageType: 'company_kept' });
+    await svc.create(boss, 'bank-accounts', { kind: 'company_public', accountName: '问题公司', bank: '工行', accountNo: '6222000011112222' });
+    const issues = new DataIssuesService(ds);
+    const r = await issues.check(boss);
+    const by = Object.fromEntries(r.groups.map((g) => [g.key, g]));
+    expect(by.stores_without_license.rows.map((x) => x.name)).toEqual(['无执照店']);
+    expect(by.phones_without_binding.count).toBeGreaterThanOrEqual(1);
+    expect(by.bank_accounts_without_owner.count).toBe(1);
+    expect(by.licenses_missing_photos.rows[0].detail).toBe('缺正本照片、缺副本照片');
+    const viewer = { ...boss, permissions: { isCompanyAdmin: false, allow: ['resource.stores.view'], deny: [] } };
+    expect((await issues.check(viewer)).groups.map((g) => g.key)).toEqual(['stores_without_license', 'stores_phone_text_unlinked']);
+    const otherUser = { ...boss, id: 1, companyId: boss.companyId + 99999 };
+    expect((await issues.check(otherUser)).total).toBe(0);
   });
 });
