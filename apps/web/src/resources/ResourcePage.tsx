@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PARTY_SEED_CATEGORIES, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, todayShanghai, treeFilterField, viewFiltersOf, type FieldDef } from '@kudesi/shared';
-import { useSearchParams } from 'react-router-dom';
+import { PARTY_SEED_CATEGORIES, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, type FieldDef } from '@kudesi/shared';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
 import { resourceApi, type ListResult } from './api';
@@ -93,6 +93,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [taxPending, setTaxPending] = useState(false);
   const libType = type === 'stores' ? 'store-abnormal-reasons' : type === 'phones' ? 'phone-abnormal-reasons' : '';
   const libCan = useResourceCan(libType || type);
+  const catCan = useResourceCan('asset-categories');
 
   const shownFields = useMemo(() => def.fields.filter((f) => f.type !== 'secret'), [def]);
   const defaults = useMemo(() => def.fields.filter((f) => f.list), [def]);
@@ -198,6 +199,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                 } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '导入失败'); }
               }}>导入默认分类</button>
             )}
+            {type === 'fixed-assets' && catCan('view') && resourcePagePath('asset-categories') && <Link className="secondary-button" to={resourcePagePath('asset-categories')!}>分类管理</Link>}
             {type === 'fixed-assets' && can('edit') && <button type="button" className="secondary-button" onClick={() => setInventory(true)}>盘点</button>}
             {type === 'tax-profiles' && can('create') && <button type="button" className="secondary-button" onClick={() => setTaxPending(true)}>待生成</button>}
             {libType && libCan('view') && <button type="button" className="secondary-button" onClick={() => setReasonLib(true)}>异常原因库</button>}
