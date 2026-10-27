@@ -11,6 +11,7 @@ import { resourceApi, type ListResult, type ResourceDto } from '../../../resourc
 import { Pager } from '../common';
 import { CategoryTree } from '../../../resources/CategoryTree';
 import { BundleManualDialog } from './BundleManualDialog';
+import { BundleRegenDialog } from './BundleRegenDialog';
 import { BundleVerifyDialog, GenerateDialog, NamingCenterDialog, RemoveDialog, RevisionDialog } from './BundleDialogs';
 import { jstApi } from './jstApi';
 
@@ -31,7 +32,7 @@ export function BundlesPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
   const [checked, setChecked] = useState<number[]>([]);
-  const [dialog, setDialog] = useState<'generate' | 'naming' | 'create' | 'import' | null>(null);
+  const [dialog, setDialog] = useState<'generate' | 'naming' | 'create' | 'import' | 'regen' | null>(null);
   const [verifyIds, setVerifyIds] = useState<number[] | null>(null);
   const [revise, setRevise] = useState<ResourceDto | null>(null);
   const [remove, setRemove] = useState<ResourceDto | null>(null);
@@ -62,6 +63,7 @@ export function BundlesPage() {
           {can('edit') && <button type="button" className="secondary-button" disabled={checked.length !== 1 || one?.status === 'archived'} onClick={() => one && setManual(one)}>改码 / 改名</button>}
           {can('delete') && <button type="button" className="secondary-button" disabled={checked.length !== 1} onClick={() => one && setRemove(one)}>删除 / 归档</button>}
           <button type="button" className="secondary-button" onClick={() => setDialog('naming')}>命名中心</button>
+          {can('edit') && <button type="button" className="secondary-button" onClick={() => setDialog('regen')}>按新规则重生成编码</button>}
           {can('import') && <button type="button" className="secondary-button" onClick={() => setDialog('import')}>导入</button>}
           {can('export') && <button type="button" className="secondary-button" onClick={async () => { try { const o = await resourceApi.export(TYPE, true); downloadText(o.filename, o.csv); } catch (e) { setError(e instanceof ApiError ? e.message : '导出失败'); } }}>导出</button>}
           {can('create') && <button type="button" className="secondary-button" onClick={() => setDialog('create')}>＋ 单个新增</button>}
@@ -108,6 +110,7 @@ export function BundlesPage() {
       {dialog === 'create' && <RecordForm def={def} record={null} onClose={() => setDialog(null)} onSaved={(dto) => { setDialog(null); setSelected(dto.id); void reload(); }} />}
       {dialog === 'import' && <ImportDialog def={def} onClose={() => setDialog(null)} onDone={() => { setDialog(null); void reload(); }} />}
       {dialog === 'generate' && <GenerateDialog onClose={() => setDialog(null)} onDone={() => void reload()} />}
+      {dialog === 'regen' && <BundleRegenDialog onClose={() => setDialog(null)} onDone={() => void reload()} />}
       {dialog === 'naming' && <NamingCenterDialog isAdmin={isAdmin} onClose={() => setDialog(null)} />}
       {verifyIds && <BundleVerifyDialog ids={verifyIds} isAdmin={isAdmin} onClose={() => setVerifyIds(null)} onDone={() => { setChecked([]); void reload(); }} />}
       {revise && <RevisionDialog bundle={revise} onClose={() => setRevise(null)} onDone={() => { setChecked([]); void reload(); }} />}

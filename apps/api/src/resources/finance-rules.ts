@@ -1153,11 +1153,9 @@ export async function namingInputFor(em: EntityManager, companyId: number, mains
   };
 }
 
-/** 按构成重新生成组合编码和名称；已验证的组合构成一变就要重新验证。 */
-export async function refreshBundle(host: RuleHost, em: EntityManager, user: AuthUser, bundleId: number): Promise<void> {
-  if (deferred.has(bundleId)) return;
-  const bundle = await rec(em, user.companyId, 'finance-bundles', bundleId);
-  if (!bundle) return;
+/** 按现在的构成和命名规则算出组合的编码、名称等（只算，不写）；还没有主品返回 null */
+export async function composeBundleFor(host: RuleHost, em: EntityManager, user: AuthUser, bundle: ResourceRecord): Promise<{ patch: Data } | null> {
+  const bundleId = bundle.id;
   const platform = await rec(em, user.companyId, 'finance-platforms', bundle.data.platformId);
   const scenario = await rec(em, user.companyId, 'finance-scenarios', bundle.data.scenarioId);
   const lines = (await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'bundleId', bundleId)).sort((a, b) => a.id - b.id);
@@ -1175,7 +1173,7 @@ export async function refreshBundle(host: RuleHost, em: EntityManager, user: Aut
   };
   const mains = await merge(['main']);
   const gifts = await merge(['gift']);
-  if (mains.length === 0) return; // 还没有主品：保持占位编码
+  if (mains.length === 0) return null; // 还没有主品：保持占位编码
   const input = await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, str(bundle.data.configNo), bundle.data.brandId);
   const rule = await findNamingRule(host, em, user.companyId, mains[0].bc.data.origin === 'composed' ? mains[0].bc.data.codeCategoryId : (await rec(em, user.companyId, 'finance-products', mains[0].bc.data.productId))?.data.categoryId);
   const composed = composeBundle(rule, input);
@@ -1189,14 +1187,25 @@ export async function refreshBundle(host: RuleHost, em: EntityManager, user: Aut
     throw new BadRequestException(`组合编码「${code}」和某个基础编码重复`);
   }
   const first = input.mains[0];
-  await host.patchData(em, user, 'finance-bundles', bundleId, {
-    code, name, styleCode: str(bundle.data.manualStyleCode).trim() || composed.styleCode || undefined, shortName: str(bundle.data.manualShortName).trim() || composed.shortName,
-    propertiesValue: str(bundle.data.manualPropertiesValue).trim() || composed.propertiesValue,
-    // 品牌、品种、计量单位没填时取第一个主品的
-    varietyName: str(bundle.data.varietyName).trim() || first.varietyName || undefined,
-    baseUnit: str(bundle.data.baseUnit).trim() || first.unitName || undefined,
-    updatedAtKey: new Date().toISOString(),
-  }, '按构成重新生成编码');
+  return {
+    patch: {
+      code, name, styleCode: str(bundle.data.manualStyleCode).trim() || composed.styleCode || undefined, shortName: str(bundle.data.manualShortName).trim() || composed.shortName,
+      propertiesValue: str(bundle.data.manualPropertiesValue).trim() || composed.propertiesValue,
+      // 品牌、品种、计量单位没填时取第一个主品的
+      varietyName: str(bundle.data.varietyName).trim() || first.varietyName || undefined,
+      baseUnit: str(bundle.data.baseUnit).trim() || first.unitName || undefined,
+    },
+  };
+}
+
+/** 按构成重新生成组合编码和名称；已验证的组合构成一变就要重新验证。 */
+export async function refreshBundle(host: RuleHost, em: EntityManager, user: AuthUser, bundleId: number, note = '按构成重新生成编码'): Promise<void> {
+  if (deferred.has(bundleId)) return;
+  const bundle = await rec(em, user.companyId, 'finance-bundles', bundleId);
+  if (!bundle) return;
+  const out = await composeBundleFor(host, em, user, bundle);
+  if (!out) return;
+  await host.patchData(em, user, 'finance-bundles', bundleId, { ...out.patch, updatedAtKey: new Date().toISOString() }, note);
   if (bundle.status === 'verified' && !publishing.has(bundleId)) await host.setStatusDirect(em, user, 'finance-bundles', bundleId, 'reverify', '构成变了，需要重新验证');
 }
 

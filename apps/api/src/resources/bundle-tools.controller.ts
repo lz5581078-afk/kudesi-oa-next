@@ -58,6 +58,13 @@ class ArchiveDto {
   @IsOptional() @IsBoolean() disableConfirmed?: boolean;
 }
 
+class RegenerateItemDto { @IsInt() @Min(1) id!: number; @IsString() @MaxLength(80) token!: string }
+class RegenerateDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => RegenerateItemDto) items!: RegenerateItemDto[];
+  @IsString() @MaxLength(300) reason!: string;
+  @IsBoolean() confirmed!: boolean;
+}
+
 @Controller('finance/bundles')
 export class BundleToolsController {
   constructor(private readonly tools: BundleToolsService) {}
@@ -80,6 +87,16 @@ export class BundleToolsController {
   @Post('verify')
   @HttpCode(200)
   verify(@CurrentUser() u: AuthUser, @Body() b: VerifyDto) { return this.tools.verify(u, b.items, { confirmed: b.confirmed, syncToJst: b.syncToJst, replaceConfirmed: b.replaceConfirmed }); }
+
+  // 注意：regenerate 要排在 :id 之前
+  @RequirePermission('resource.finance-bundles.edit')
+  @Get('regenerate/preview')
+  regeneratePreview(@CurrentUser() u: AuthUser) { return this.tools.regeneratePreview(u); }
+
+  @RequirePermission('resource.finance-bundles.edit')
+  @Post('regenerate')
+  @HttpCode(200)
+  regenerate(@CurrentUser() u: AuthUser, @Body() b: RegenerateDto) { return this.tools.regenerateExecute(u, b.items, b.reason, b.confirmed); }
 
   @RequirePermission('resource.finance-bundles.view')
   @Get(':id/report')

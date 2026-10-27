@@ -10,7 +10,7 @@ import { composeBundle } from './bundle-naming';
 import { bundleIssues, pickLine } from './bundle-checks';
 import { registerCostSnapshots } from './cost-snapshot';
 import { unfinishedApplications } from './bundle-guards';
-import { buildBundleLines, bundleSnapshotJson, findNamingRule, namingInputFor } from './finance-rules';
+import { buildBundleLines, bundleSnapshotJson, composeBundleFor, findNamingRule, namingInputFor, refreshBundle } from './finance-rules';
 import { ResourcesService } from './resources.service';
 
 const TYPE = 'finance-bundles';
@@ -330,5 +330,45 @@ export class BundleToolsService {
     await this.resources.changeStatus(user, TYPE, id, 'archived', reason.trim());
     if (synced && disable) await this.outbox.recordArchiveJob(user, { id, code: str(b.data.code), name: str(b.data.name) }, reason.trim(), { jobId: disable.jobId, targetKey: disable.targetKey });
     return { ok: true, disableQueued: queued };
+  }
+
+  // ---------- 改了命名规则后：按新规则批量重生成编码（要预览、要写原因、要确认，不会自动改） ----------
+
+  /** 现在的命名规则下，哪些组合的编码/名称和已有的不一样（只算，不写） */
+  async regeneratePreview(user: AuthUser) {
+    const em = this.ds.manager;
+    const all = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE } });
+    const rows: Array<{ id: number; status: string; oldCode: string; newCode: string; oldName: string; newName: string; uploadedCode: string | null; token: string; error: string | null; blocked: string | null }> = [];
+    for (const b of all.filter((x) => ['pending', 'verified', 'reverify'].includes(x.status)).sort((a, c) => a.id - c.id)) {
+      let out: Awaited<ReturnType<typeof composeBundleFor>> = null;
+      let error: string | null = null;
+      try { out = await composeBundleFor(this.resources, em, user, b); } catch (e) { error = (e as Error).message; }
+      if (!error && !out) continue;
+      const oldCode = str(b.data.code), oldName = str(b.data.name);
+      const newCode = out ? str(out.patch.code) : oldCode, newName = out ? str(out.patch.name) : oldName;
+      if (!error && newCode === oldCode && newName === oldName) continue;
+      const blocked = (await this.pendingJobs(user, b.id)) ? '还有没发送完的聚水潭同步任务' : num(b.data.pendingRevisionId) ? '有待发布的构成修订' : (await unfinishedApplications(em, user.companyId, b, await this.lineRecords(em, user, b.id))) ? '有还没办完的 SKU 批量申请用到它' : null;
+      rows.push({ id: b.id, status: b.status, oldCode, newCode, oldName, newName, uploadedCode: str(b.data.jstUploadedCode) || null, token: sigOf('bundle-regen', b.id, oldCode, newCode, oldName, newName), error, blocked });
+    }
+    return { rows };
+  }
+
+  async regenerateExecute(user: AuthUser, items: { id: number; token: string }[], reason: string, confirmed: boolean) {
+    if (reason.trim().length < 2) throw new BadRequestException('批量重生成编码必须写明原因');
+    if (confirmed !== true) throw new BadRequestException('请先确认要按新规则重新生成这些组合的编码');
+    const current = new Map((await this.regeneratePreview(user)).rows.map((r) => [r.id, r]));
+    const results: { id: number; ok: boolean; error?: string; code?: string }[] = [];
+    for (const it of items) {
+      const row = current.get(it.id);
+      try {
+        if (!row) throw new ConflictException('这个组合的编码已经和新规则一致，或不在可重生成的范围里');
+        if (row.token !== it.token) throw new ConflictException('预览之后命名规则或构成又变了，请重新预览');
+        if (row.error) throw new BadRequestException(row.error);
+        if (row.blocked) throw new ConflictException(row.blocked);
+        await this.ds.transaction((em) => refreshBundle(this.resources, em, user, it.id, `按新命名规则批量重生成编码：${reason.trim()}`));
+        results.push({ id: it.id, ok: true, code: row.newCode });
+      } catch (e) { results.push({ id: it.id, ok: false, error: (e as Error).message }); }
+    }
+    return { results, done: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
   }
 }

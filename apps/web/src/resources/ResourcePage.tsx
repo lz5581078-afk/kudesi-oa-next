@@ -11,6 +11,7 @@ import { PackagingExcelDialog } from './PackagingExcelDialog';
 import { ImportDialog } from './ImportDialog';
 import { TaxPendingDialog } from './TaxPendingDialog';
 import { ReasonLibraryDialog } from './ReasonLibraryDialog';
+import { CategorySortDialog } from './CategorySortDialog';
 import { RecordDetail, useResourceCan } from './RecordDetail';
 import { RecordForm } from './RecordForm';
 import { InventoryDialog } from './AssetPanels';
@@ -89,6 +90,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [importing, setImporting] = useState(false);
   const [columnMenu, setColumnMenu] = useState(false);
   const [reasonLib, setReasonLib] = useState(false);
+  const [sorting, setSorting] = useState(false);
   const [inventory, setInventory] = useState(false);
   const [taxPending, setTaxPending] = useState(false);
   const libType = type === 'stores' ? 'store-abnormal-reasons' : type === 'phones' ? 'phone-abnormal-reasons' : '';
@@ -205,6 +207,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             {type === 'fixed-assets' && can('edit') && <button type="button" className="secondary-button" onClick={() => setInventory(true)}>盘点</button>}
             {type === 'tax-profiles' && can('create') && <button type="button" className="secondary-button" onClick={() => setTaxPending(true)}>待生成</button>}
             {libType && libCan('view') && <button type="button" className="secondary-button" onClick={() => setReasonLib(true)}>异常原因库</button>}
+            {type === 'finance-categories' && tab && can('edit') && <button type="button" className="secondary-button" onClick={() => setSorting(true)}>调整顺序</button>}
             {can('import') && <button type="button" className="secondary-button" onClick={() => setImporting(true)}>导入</button>}
             {can('export') && <button type="button" className="secondary-button" onClick={() => void doExport('filtered')}>{filtered ? '导出当前筛选' : '导出'}</button>}
             {can('export') && filtered && <button type="button" className="secondary-button" onClick={() => void doExport('all')}>导出全部</button>}
@@ -417,6 +420,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
       )}
       {inventory && <InventoryDialog onClose={() => setInventory(false)} onDone={(m) => { setInventory(false); setBatchMsg(m); void load(); }} />}
       {taxPending && <TaxPendingDialog onClose={() => setTaxPending(false)} onCreated={() => void load()} />}
+      {sorting && tab && <CategorySortDialog archiveType={tab} onClose={() => setSorting(false)} onDone={() => void load()} />}
       {reasonLib && libType && <ReasonLibraryDialog libType={libType} title={type === 'stores' ? '店铺异常原因库' : '手机号异常原因库'} onClose={() => setReasonLib(false)} />}
       {importing && (
         <ImportDialog

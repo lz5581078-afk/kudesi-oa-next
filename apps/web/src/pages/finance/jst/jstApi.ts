@@ -38,7 +38,16 @@ export interface CategoryChange { localId: string; path: string; action: string;
 export interface CategoryPreview { scope: CategoryScope; targetKey: string; signature: string; conflicts: number; remoteOnly: number; changes: CategoryChange[]; note: string }
 export interface CategoryRun { id: number; scope: string; status: string; message: string; createdAt: string; changes: Array<{ localId: string; path: string; action: string; status: string; error: string | null }> }
 
+export interface RegenRow { id: number; status: string; oldCode: string; newCode: string; oldName: string; newName: string; uploadedCode: string | null; token: string; error: string | null; blocked: string | null }
+export interface CategoryNode { id: number; name: string; code: string; parentId: number; sort: number; status: string }
+
 export const jstApi = {
+  regenPreview: () => api<{ rows: RegenRow[] }>('/finance/bundles/regenerate/preview'),
+  regenExecute: (items: Array<{ id: number; token: string }>, reason: string) =>
+    api<{ results: Array<{ id: number; ok: boolean; error?: string; code?: string }>; done: number; failed: number }>('/finance/bundles/regenerate', { method: 'POST', body: { items, reason, confirmed: true } }),
+  categoryTree: (archiveType: string) => api<{ nodes: CategoryNode[] }>(`/finance/categories/tree?archiveType=${encodeURIComponent(archiveType)}`),
+  categoryReorder: (orderedIds: number[]) => api<{ ok: true; changed: number }>('/finance/categories/reorder', { method: 'POST', body: { orderedIds } }),
+
   enqueue: (type: string, items: Array<{ id: number; signature: string }>, replaceConfirmed: boolean) =>
     api<{ queued: number; skipped: number }>('/finance/jst-sync/enqueue', { method: 'POST', body: { type, items, confirmed: true, replaceConfirmed } }),
   priceSwitch: () => api<{ enabled: boolean; senderConfigured: boolean }>('/finance/jst-sync/price/switch'),
