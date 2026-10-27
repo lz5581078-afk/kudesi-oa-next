@@ -94,6 +94,12 @@ async function beforeCategory(ctx: BeforeSaveContext) {
       throw new BadRequestException(`「${parent.title}」下已经挂了商品，不能再建下级分类`);
     }
   }
+  // 原装采购 / 供应商 OEM 两棵外购成品分类树各自独立：不同树里可以同名，同一棵树里不能重名（库里的唯一键按树分开，这里连旧数据的老键一起查）
+  if (data.archiveType === 'original_purchase' || data.archiveType === 'supplier_oem') {
+    const same = (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' }, select: ['id', 'title', 'data'] }))
+      .find((r) => r.id !== existing?.id && r.data.archiveType === data.archiveType && str(r.data.name).normalize('NFKC').toLowerCase() === str(data.name).toLowerCase());
+    if (same) throw new ConflictException(`分类名称「${str(data.name)}」在这棵分类树里已存在`);
+  }
   if (parent && data.archiveType === 'bundle' && (await host.findWhere(em, user.companyId, 'finance-bundles', 'bundleCategoryId', parent.id)).length > 0) {
     throw new BadRequestException(`「${parent.title}」下已经挂了组合，不能再建下级分类`);
   }

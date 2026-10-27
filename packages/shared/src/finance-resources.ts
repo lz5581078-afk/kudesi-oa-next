@@ -85,8 +85,10 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     related: [{ type: 'finance-base-codes', field: 'productId' }],
     statuses: [ACTIVE, STOPPED, { value: 'deleted', label: '已删除', tone: 'bad', requiresReason: true, hidden: true }],
     defaultStatus: 'active',
-    filterBy: ['categoryId', 'supplyMode'],
-    treeTabMap: { purchased: ['original_purchase', 'supplier_oem'] },
+    // 旧系统外购成品是两个入口（原装采购成品档案 / 供应商 OEM 成品档案）：同一张档案表，按“采购方式”分开，各有各的分类树；不再用采购方式下拉筛选
+    filterBy: ['categoryId'],
+    tabSplit: { tab: 'purchased', field: 'supplyMode', default: 'original_purchase', options: o('original_purchase:原装采购成品档案', 'supplier_oem:供应商 OEM 成品档案') },
+    treeTabMap: { purchased: ['original_purchase', 'supplier_oem'], original_purchase: ['original_purchase'], supplier_oem: ['supplier_oem'] },
     batch: ['status', 'categoryId'],
     fields: [
       select('archiveType', '档案类型', '基础', ARCHIVE_TYPES, { required: true, list: true }),

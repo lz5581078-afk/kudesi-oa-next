@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadUnitOptions, useUnitOptions } from './unitOptions';
-import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
+import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -189,7 +189,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
 
   function newInitial(): Record<string, unknown> | undefined {
     const init: Record<string, unknown> = {};
-    if (tab && def.tabsBy) init[def.tabsBy] = tab;
+    if (tab && def.tabsBy) Object.assign(init, resourceTabInitial(def, tab));
     const cat = treeField ? Number(filterVals[treeField.key]) : 0;
     if (treeField && cat) init[treeField.key] = treeField.type === 'refs' ? [cat] : cat;
     return Object.keys(init).length ? init : undefined;
@@ -259,7 +259,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           {tabField && !lockedTab && (
             <div className="tab-group page-tabs" role="tablist" aria-label="分类">
               <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'chip active' : 'chip'} onClick={() => { setTab(''); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>全部</button>
-              {tabField.options?.map((o) => (
+              {resourceTabOptions(def).map((o) => (
                 <button key={o.value} type="button" role="tab" aria-selected={tab === o.value} className={tab === o.value ? 'chip active' : 'chip'} onClick={() => { setTab(o.value); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>
                   {o.label}{data?.tabCounts ? ` ${data.tabCounts[o.value] ?? 0}` : ''}
                 </button>

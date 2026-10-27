@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, IsNull, Not } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Not, SelectQueryBuilder } from 'typeorm';
 import {
   unitYuanText, yuanToPreciseCents, createChecker,
   addDaysText, daysBetweenDates, dueDateFor, expirySources, EXPIRY_SKIP_STATUSES, todayShanghai,
@@ -23,6 +23,7 @@ import {
   readOnlyFieldKeys,
   restrictedFieldKeys,
   validateResourceInput,
+  resourceTabCondition,
   validateStatusChange,
   normalizePhoneImportText,
 } from '@kudesi/shared';
@@ -96,6 +97,26 @@ function toUniqueKey(def: ResourceDef, value: unknown): string | null {
   return field?.type === 'phone' ? normalizePhone(s) : s.toLowerCase();
 }
 
+/** 页签条件（别名 r）：拆出的页签（如外购成品的原装采购 / 供应商 OEM）还要按拆分字段筛，default 页签把没填的也算上 */
+function applyTabFilter(qb: SelectQueryBuilder<ResourceRecord>, def: ResourceDef, tab: string | undefined) {
+  const c = resourceTabCondition(def, tab ?? '');
+  if (!c) return;
+  qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${c.field}')) = :tab`, { tab: c.value });
+  if (!c.split) return;
+  const x = `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${c.split.field}'))`;
+  qb.andWhere(c.split.orMissing ? `(${x} = :splitTab OR ${x} IS NULL OR ${x} = '' OR ${x} NOT IN (:...splitOthers))` : `${x} = :splitTab`, { splitTab: c.split.value, splitOthers: (def.tabSplit?.options ?? []).filter((o) => o.value !== c.split!.value).map((o) => o.value) });
+}
+
+/** 页签统计用的分组表达式：和 applyTabFilter 同一口径 */
+function tabExpression(def: ResourceDef): string {
+  const base = `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.tabsBy}'))`;
+  const split = def.tabSplit;
+  if (!split) return base;
+  const x = `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${split.field}'))`;
+  const list = split.options.map((o) => `'${o.value.replace(/'/g, '')}'`).join(',');
+  return `CASE WHEN ${base} = '${split.tab.replace(/'/g, '')}' THEN IF(${x} IN (${list}), ${x}, '${split.default.replace(/'/g, '')}') ELSE ${base} END`;
+}
+
 function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
@@ -116,8 +137,10 @@ export class ResourcesService implements RuleHost {
     return def;
   }
 
-  private uniqueKeyOf(def: ResourceDef, value: unknown): string | null {
+  private uniqueKeyOf(def: ResourceDef, value: unknown, data?: Record<string, unknown>): string | null {
     const key = toUniqueKey(def, value);
+    // 外购成品的两棵分类树（原装采购 / 供应商 OEM）是各自独立的名称域，不同树里可以有同名分类（旧系统同样不算冲突）；同一棵树里的重名由分类规则检查
+    if (key && def.key === 'finance-categories' && (data?.archiveType === 'original_purchase' || data?.archiveType === 'supplier_oem')) return `${data.archiveType}:${key}`;
     return key && def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(key)[0] : key;
   }
 
@@ -490,7 +513,7 @@ export class ResourcesService implements RuleHost {
       ? null
       : ufDef?.type === 'sensitive'
         ? (input[def.uniqueField] === undefined ? existing?.uniqueKey ?? null : this.uniqueKeyOf(def, input[def.uniqueField]))
-        : this.uniqueKeyOf(def, data[def.uniqueField]);
+        : this.uniqueKeyOf(def, data[def.uniqueField], data);
     if (uniqueKey) {
       const clash = ufDef?.type === 'sensitive' && input[def.uniqueField!] !== undefined
         ? await this.findByUnique(em, user.companyId, def.key, String(input[def.uniqueField!]))
@@ -627,7 +650,7 @@ export class ResourcesService implements RuleHost {
     if (JSON.stringify(data) === JSON.stringify(record.data) && title === record.title) return;
     let uniqueKey = record.uniqueKey;
     if (def.uniqueField && patch[def.uniqueField] !== undefined) {
-      uniqueKey = this.uniqueKeyOf(def, data[def.uniqueField]);
+      uniqueKey = this.uniqueKeyOf(def, data[def.uniqueField], data);
       if (uniqueKey) {
         const clash = await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type, uniqueKey } });
         if (clash && clash.id !== id) throw new ConflictException(`「${String(data[def.uniqueField])}」已存在，请先处理重复的编码`);
@@ -763,9 +786,7 @@ export class ResourcesService implements RuleHost {
     for (const [i, [k, v]] of viewPairs.entries()) {
       if (!(await applyViewFilter(listQb, em, user.companyId, type, k, v, todayShanghai(), i))) throw new BadRequestException('筛选条件不合法');
     }
-    if (q.tab && def.tabsBy) {
-      listQb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.tabsBy}')) = :tab`, { tab: q.tab });
-    }
+    applyTabFilter(listQb, def, q.tab);
     const sortF = q.sortBy ? def.fields.find((f) => f.key === q.sortBy) : undefined;
     if (q.sortBy && (!sortF || !['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
     if (sortF) {
@@ -789,7 +810,7 @@ export class ResourcesService implements RuleHost {
       const countQb = base();
       for (const [i, [k, v]] of viewPairs.entries()) await applyViewFilter(countQb, em, user.companyId, type, k, v, todayShanghai(), i);
       const rows = await countQb
-        .select(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.tabsBy}'))`, 'tab')
+        .select(tabExpression(def), 'tab')
         .addSelect('COUNT(*)', 'n')
         .groupBy('tab')
         .getRawMany<{ tab: string | null; n: string }>();
@@ -833,7 +854,7 @@ export class ResourcesService implements RuleHost {
     const qb = em.createQueryBuilder(ResourceRecord, 'r').select(['r.id', 'r.data']).where('r.companyId = :companyId AND r.type = :type', { companyId: user.companyId, type });
     if (q.status) qb.andWhere('r.status = :status', { status: q.status });
     else if (!q.showHidden && hiddenStatuses.length) qb.andWhere('r.status NOT IN (:...hiddenStatuses)', { hiddenStatuses });
-    if (q.tab && def.tabsBy) qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.tabsBy}')) = :tab`, { tab: q.tab });
+    applyTabFilter(qb, def, q.tab);
     const records = await qb.getMany();
     const members = new Map<number, Set<number>>(); // 分类 -> 其下（含下级）的资料 id
     let uncategorized = 0;

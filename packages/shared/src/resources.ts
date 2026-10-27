@@ -116,6 +116,8 @@ export interface ResourceDef {
   filterBy?: string | readonly string[];
   /** 分类目录随页签显示哪些“所属类型”的分类（页签值与分类的所属类型不一一对应时用，如外购成品含原装采购和供应商 OEM 两棵树） */
   treeTabMap?: Record<string, readonly string[]>;
+  /** 页签再拆开：tabsBy 的某个取值（如外购成品 purchased）按另一个字段拆成几个页签（旧系统“原装采购成品 / 供应商 OEM 成品”两个入口）。拆出的页签值就是 options 的 value；字段没填的记录算 default */
+  tabSplit?: { tab: string; field: string; default: string; options: readonly Option[] };
   /** 列表勾选后可批量做的事：status=批量停用/启用（要填原因），其余是批量修改这个字段（如移动分类） */
   batch?: readonly string[];
   /** 预警：状态异常，或某日期字段在 N 天内到期 */
@@ -1063,6 +1065,41 @@ const BY_KEY = new Map(RESOURCE_DEFS.map((d) => [d.key, d]));
 
 export function getResourceDef(key: string): ResourceDef | undefined {
   return BY_KEY.get(key);
+}
+
+/** 列表上方的页签：tabsBy 字段的选项，其中被 tabSplit 拆开的那一项换成拆出的几个页签 */
+export function resourceTabOptions(def: ResourceDef): readonly Option[] {
+  const field = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
+  const options = field?.options ?? [];
+  const split = def.tabSplit;
+  if (!split) return options;
+  return options.flatMap((o) => (o.value === split.tab ? split.options : [o]));
+}
+
+/** 页签值 → 查询条件：tabsBy 字段等于 value；拆出的页签还要求拆分字段等于某值（default 页签把没填的也算上） */
+export function resourceTabCondition(def: ResourceDef, tab: string): { field: string; value: string; split?: { field: string; value: string; orMissing: boolean } } | null {
+  if (!tab || !def.tabsBy) return null;
+  const split = def.tabSplit;
+  if (split && split.options.some((o) => o.value === tab)) return { field: def.tabsBy, value: split.tab, split: { field: split.field, value: tab, orMissing: tab === split.default } };
+  return { field: def.tabsBy, value: tab };
+}
+
+/** 在某个页签下新建时，表单里要预先填好的值（拆出的页签同时带上 tabsBy 字段和拆分字段） */
+export function resourceTabInitial(def: ResourceDef, tab: string): Record<string, unknown> {
+  const c = resourceTabCondition(def, tab);
+  if (!c) return {};
+  return { [c.field]: c.value, ...(c.split ? { [c.split.field]: c.split.value } : {}) };
+}
+
+/** 一条记录属于哪个页签（拆出的页签按拆分字段，没填算 default） */
+export function resourceTabOf(def: ResourceDef, data: Record<string, unknown>): string {
+  const v = String(data[def.tabsBy ?? ''] ?? '');
+  const split = def.tabSplit;
+  if (split && v === split.tab) {
+    const m = String(data[split.field] ?? '');
+    return split.options.some((o) => o.value === m) ? m : split.default;
+  }
+  return v;
 }
 
 /** 这种资料自己是一棵树（有指向自己的“上级”字段），如商品分类、供应商分类 */

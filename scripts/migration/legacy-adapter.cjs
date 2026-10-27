@@ -65,7 +65,9 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
     if(defs.has('finance-product-units'))for(const r of unitCatalog.records)add('finance-product-units',r.id,r.data,'active');
     const scenarioMap=new Map();
     for(const b of tables.finance_product_bundle_codes||[]){const name=String(b.sales_scenario||'').trim();if(!name||scenarioMap.has(name))continue;const direct=(tables.finance_bundle_sales_scenarios||[]).find(x=>x.scenario_name===name||x.name===name);const id=direct?.id||'scenario:'+name;scenarioMap.set(name,id);add('finance-scenarios',id,{name:({standard:'标准',supply_chain:'供应链'})[name]||name,code:direct?.scenario_code||direct?.code||name,segment:({standard:'',supply_chain:'GYL'})[name]??direct?.scenario_code??direct?.code??name},'active');}
-    const productFamily=p=>p.archive_key==='purchased'?p.supply_mode:p.archive_key;
+    // 旧系统外购成品：供货方式不是供应商 OEM 的（含空）都算原装采购（旧 normalizePurchasedSupplyMode）；分类树按 supplyModeScope / productCodeCategoryScope 分两棵（旧 purchasedCategoryScope）
+    const productFamily=p=>p.archive_key==='purchased'?(p.supply_mode==='supplier_oem'?'supplier_oem':'original_purchase'):p.archive_key;
+    const purchasedCategoryScope=c=>{const pl=json(c.payload_json||{})||{};return pl.supplyModeScope==='supplier_oem'||pl.productCodeCategoryScope==='supplier_oem'?'supplier_oem':'original_purchase';};
     const categoryFamilies=new Map();
     for(const p of tables.finance_products||[]){let id=p.category_id;const seen=new Set();while(id&&!seen.has(String(id))){seen.add(String(id));if(!categoryFamilies.has(String(id)))categoryFamilies.set(String(id),new Set());categoryFamilies.get(String(id)).add(productFamily(p));id=byId('finance_product_categories',id)?.parent_id;}}
     const categoryKey=(id,family)=>id===null||id===undefined||id===''?undefined:String(id)+':'+family;
@@ -122,7 +124,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
         if(rule.json){if(rule.json.kind&&row.archive_type!==rule.json.kind)continue;const value=json(row[rule.json.column]);for(const x of itemsAt(value,rule.json.path))entries.push({row:rule.json.path==='$'?row:x.value,payload:x.value,ancestors:x.ancestors,container:row});}
         else entries.push({row,payload:{},ancestors:[],container:row});
       }
-      if(type==='finance-categories')entries=entries.flatMap(x=>[...(categoryFamilies.get(String(x.row.id))||new Set([x.row.archive_key==='purchased'?(json(x.row.payload_json||{}).supplyModeScope||x.row.archive_key):x.row.archive_key]))].map(family=>({...x,row:{...x.row,__family:family,__sourceId:x.row.id,id:categoryKey(x.row.id,family)}})));
+      if(type==='finance-categories')entries=entries.flatMap(x=>[...(categoryFamilies.get(String(x.row.id))||new Set([x.row.archive_key==='purchased'?purchasedCategoryScope(x.row):x.row.archive_key]))].map(family=>({...x,row:{...x.row,__family:family,__sourceId:x.row.id,id:categoryKey(x.row.id,family)}})));
       for(const {row,payload,ancestors,container} of entries){
         const id=row.id??row.category_id??container.id??'default';
         const archivedRow=Boolean(row.archived_at)&&row.status!=='deleted';
@@ -151,7 +153,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
 
           if(type==='finance-categories'){data.archiveType=row.__family;data.code=row.category_code;if(data.archiveType==='original_purchase'&&String(data.code).length>8&&String(data.code).startsWith('YZCG')){data.code=String(data.code).slice(4);excluded(type+'.code',id,'旧分类码'+row.category_code+'去掉已由采购方式表示的YZCG前缀，转换为'+data.code+'；基础/组合原码仍保留');}data.parentId=ref('finance-categories',categoryKey(row.parent_id,row.__family));}
           if(type==='finance-products'){
-            data.archiveType=archiveTypes[row.archive_key];data.categoryId=ref('finance-categories',categoryKey(row.category_id,productFamily(row)));data.brandId=ref('finance-brands',brandMap.get(String(row.brand||'').trim()));
+            data.archiveType=archiveTypes[row.archive_key];if(row.archive_key==='purchased')data.supplyMode=productFamily(row);data.categoryId=ref('finance-categories',categoryKey(row.category_id,productFamily(row)));data.brandId=ref('finance-brands',brandMap.get(String(row.brand||'').trim()));
             data.specQty=Number(row.amount);data.code=row.product_code;data.name=row.product_name;data.weightG=kgToG(row.weighing_weight);data.weightManual=Boolean(payload.weightManualCorrected);data.purchaseSpec=payload.purchaseSpecification;data.productPackagingSpec=payload.productPackagingSpecification;
             // 旧档案存的是单位/类别名称，新档案存编码：按旧单位表和用到的名称建成的列表转换（对不上的不猜）
             const unitFields=productMapping.productUnitFields({row,payload,catalog:unitCatalog});
