@@ -817,7 +817,13 @@ export class ResourcesService implements RuleHost {
       if (existing.status === status) return;
       const needsReason = def.statuses.find((s) => s.value === status)?.requiresReason;
       // 走统一保存流程，这样状态相关字段的清理、规则校验、日志都一致
-      await this.saveRecord(em, user, def, existing, {}, { status, note: `状态：${existing.status} → ${status}${reason ? `（${reason.trim()}）` : ''}` });
+      // 改为异常：原因同时写进异常原因字段（有“新的异常原因”输入的资料会自动记入原因库）
+      const abnormalInput: Record<string, unknown> = {};
+      if (status === 'abnormal' && reason?.trim()) {
+        if (def.fields.some((f) => f.key === 'abnormalReasonText')) abnormalInput.abnormalReasonText = reason.trim().slice(0, 100);
+        else if (def.fields.some((f) => f.key === 'abnormalReason' && f.type !== 'ref')) abnormalInput.abnormalReason = reason.trim().slice(0, 2000);
+      }
+      await this.saveRecord(em, user, def, existing, abnormalInput, { status, note: `状态：${existing.status} → ${status}${reason ? `（${reason.trim()}）` : ''}` });
       const fresh = await this.load(em, user, type, id);
       fresh.statusReason = needsReason ? reason!.trim().slice(0, 500) : null;
       await em.save(ResourceRecord, fresh);
@@ -1179,9 +1185,15 @@ export class ResourcesService implements RuleHost {
           }
           try {
             const uniqueKey = def.uniqueField ? this.uniqueKeyOf(def, converted.input[def.uniqueField]) : null;
-            const existing = uniqueKey
+            let existing = uniqueKey
               ? await this.findByUnique(em, user.companyId, type, String(converted.input[def.uniqueField!]))
               : null;
+            // 没有唯一字段的资料，按 importMatch 指定的字段组合匹配已有记录
+            if (!existing && !def.uniqueField && def.importMatch?.length && def.importMatch.every((k) => converted.input[k] !== undefined && converted.input[k] !== '')) {
+              const qb = em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :c AND r.type = :t', { c: user.companyId, t: type });
+              def.importMatch.forEach((k, idx) => qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${k}')) = :im${idx}`, { [`im${idx}`]: String(converted.input[k]) }));
+              existing = (await qb.getOne()) ?? null;
+            }
             const saved = await em.transaction((inner) =>
               this.saveRecord(inner, user, def, existing, converted.input, { status: converted.status, note: '批量导入', cleanup }),
             );

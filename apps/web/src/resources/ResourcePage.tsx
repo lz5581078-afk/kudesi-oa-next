@@ -55,7 +55,9 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
     setFilterVals({});
     setFilterOpts({});
     for (const f of filterFields) {
-      if (f.ref) {
+      if (f.ref === 'user') {
+        resourceApi.users().then((list) => setFilterOpts((o) => ({ ...o, [f.key]: list.map((u) => ({ id: u.id, label: u.name })) }))).catch(() => undefined);
+      } else if (f.ref) {
         resourceApi.list(f.ref, { pageSize: 200, showHidden: true }).then((r) => setFilterOpts((o) => ({ ...o, [f.key]: r.items.map((i) => ({ id: i.id, label: i.title })) }))).catch(() => undefined);
       } else if (f.options) {
         setFilterOpts((o) => ({ ...o, [f.key]: f.options!.map((x) => ({ id: x.value, label: x.label })) }));

@@ -45,14 +45,44 @@ export interface AfterCreateContext {
   plain: Record<string, unknown>;
 }
 
-/** 按手机号档案匹配：strict=找不到就报错（店铺），否则只是不关联。 */
+/**
+ * 手机号绑定（店铺严格、微信/自媒体宽松）：号码文本和手机号档案选择器两种填法都要认。
+ * - 填了号码文本：按文本匹配档案（店铺找不到就报错）；
+ * - 只选了档案：号码文本取档案的号码，不能把绑定清掉；
+ * - 同时改了档案选择器、没改文本：以新选的档案为准；
+ * - 只清空了档案选择器：视为取消绑定，文本一并清掉。
+ */
 async function matchPhone(ctx: BeforeSaveContext, strict: boolean) {
   const raw = ctx.data.phoneNumber;
-  if (raw === undefined || raw === null || raw === '') {
+  const hasText = !(raw === undefined || raw === null || raw === '');
+  const oldText = ctx.existing?.data.phoneNumber;
+  const oldId = ctx.existing?.data.phoneId;
+  const pickedId = typeof ctx.data.phoneId === 'number' ? (ctx.data.phoneId as number) : null;
+  const textUnchanged = hasText && ctx.existing != null && normalizePhone(String(raw)) === normalizePhone(String(oldText ?? ''));
+  const pickerChanged = ctx.existing != null && pickedId !== (typeof oldId === 'number' ? oldId : null);
+
+  if (hasText && textUnchanged && pickerChanged) {
+    if (pickedId === null) {
+      ctx.data.phoneNumber = null;
+      ctx.data.phoneId = null;
+      return;
+    }
+    // 换了档案：号码跟着档案走（下面按“只选了档案”处理）
+    ctx.data.phoneNumber = null;
+  }
+  const text = ctx.data.phoneNumber;
+  if (text === undefined || text === null || text === '') {
+    if (pickedId !== null) {
+      const number = await ctx.host.titleOf(ctx.em, ctx.user.companyId, 'phones', pickedId);
+      if (!number) throw new BadRequestException('手机号档案不存在');
+      ctx.data.phoneNumber = number;
+      ctx.data.phoneId = pickedId;
+      return;
+    }
     ctx.data.phoneId = null;
     return;
   }
-  const number = normalizePhone(String(raw));
+  const number = normalizePhone(String(text));
   ctx.data.phoneNumber = number;
   const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number);
   if (!phone) {
@@ -61,6 +91,67 @@ async function matchPhone(ctx: BeforeSaveContext, strict: boolean) {
     return;
   }
   ctx.data.phoneId = phone.id;
+}
+
+function uniqueIds(...lists: unknown[]): number[] {
+  const out: number[] = [];
+  for (const l of lists) for (const v of Array.isArray(l) ? l : [l]) if (typeof v === 'number' && !out.includes(v)) out.push(v);
+  return out;
+}
+
+/** 店铺可绑多个手机号：主号（phoneId）+ 更多（phoneIds）；同一手机号在同一平台只能绑一个店铺。 */
+async function storePhones(ctx: BeforeSaveContext) {
+  const ids = uniqueIds(ctx.data.phoneId, ctx.data.phoneIds);
+  ctx.data.phoneId = ids[0] ?? null;
+  ctx.data.phoneIds = ids.length > 1 ? ids.slice(1) : null;
+  if (!ids.length || !ctx.data.platform) return;
+  const stores = await ctx.em.find(ResourceRecord, { where: { companyId: ctx.user.companyId, type: 'stores' }, select: ['id', 'data'] });
+  for (const st of stores) {
+    if (st.id === ctx.existing?.id || st.data.platform !== ctx.data.platform) continue;
+    const theirs = uniqueIds(st.data.phoneId, st.data.phoneIds);
+    const hit = ids.find((id) => theirs.includes(id));
+    if (hit !== undefined) throw new BadRequestException('该手机号在这个平台已绑定了其他店铺');
+  }
+}
+
+/** 一个自媒体账号可关联多个店铺：主店铺（storeId）+ 更多（storeIds）。 */
+function selfMediaStores(ctx: BeforeSaveContext) {
+  const ids = uniqueIds(ctx.data.storeId, ctx.data.storeIds);
+  ctx.data.storeId = ids[0] ?? null;
+  ctx.data.storeIds = ids.length > 1 ? ids.slice(1) : null;
+}
+
+/**
+ * 异常原因：可以直接输入新原因，库里没有就自动记入原因库；库里有同名的直接引用。
+ * 刚改为异常状态时必须有原因。
+ */
+async function abnormalReason(ctx: BeforeSaveContext, lib: string) {
+  const typed = typeof ctx.data.abnormalReasonText === 'string' ? ctx.data.abnormalReasonText.trim() : '';
+  ctx.data.abnormalReasonText = null;
+  if (ctx.status !== 'abnormal') return;
+  if (typed) {
+    const hit = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, lib, typed);
+    const rec = hit ?? (await ctx.host.createRecord(ctx.em, ctx.user, lib, { reason: typed.slice(0, 100) }, '异常原因自动记入库'));
+    ctx.data.abnormalReason = rec.id;
+  }
+  if (ctx.existing?.status !== 'abnormal' && !ctx.data.abnormalReason) throw new BadRequestException('改为异常必须填写异常原因');
+}
+
+/** 店铺领取：预留/已领取/推广限制必须有运营人；推广限制必须有解除日；批量只给运营人时，公共店铺自动变已领取。 */
+function storeClaim(ctx: BeforeSaveContext) {
+  const d = ctx.data;
+  const old = ctx.existing?.data ?? {};
+  if (!d.claimStatus) d.claimStatus = d.operatorUserId ? 'claimed' : 'public';
+  if (d.claimStatus === 'public' && old.claimStatus === 'public' && d.operatorUserId && d.operatorUserId !== old.operatorUserId) d.claimStatus = 'claimed';
+  if (d.claimStatus === 'public') {
+    delete d.operatorUserId;
+    delete d.promotionReleaseAt;
+    return;
+  }
+  const changed = !ctx.existing || d.claimStatus !== old.claimStatus || d.operatorUserId !== old.operatorUserId;
+  if (!changed) return;
+  if (!d.operatorUserId) throw new BadRequestException('指派店铺必须选择运营人');
+  if (d.claimStatus === 'promotion_limited' && !d.promotionReleaseAt) throw new BadRequestException('推广限制店铺必须填写解除日期');
 }
 
 function checkReconcileDay(data: Record<string, unknown>) {
@@ -125,15 +216,21 @@ export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Prom
   switch (type) {
     case 'stores':
       await matchPhone(ctx, true);
-      // 领取状态：没填时有运营人就是已领取，没有就是公共店铺；公共店铺没有运营人和推广限制日期
-      if (!ctx.data.claimStatus) ctx.data.claimStatus = ctx.data.operatorUserId ? 'claimed' : 'public';
-      if (ctx.data.claimStatus === 'public') { delete ctx.data.operatorUserId; delete ctx.data.promotionReleaseAt; }
+      await storePhones(ctx);
+      storeClaim(ctx);
+      await abnormalReason(ctx, 'store-abnormal-reasons');
       return;
     case 'wechat':
-    case 'self-media':
       await matchPhone(ctx, false);
       return;
+    case 'self-media':
+      await matchPhone(ctx, false);
+      selfMediaStores(ctx);
+      return;
     case 'phones': {
+      await abnormalReason(ctx, 'phone-abnormal-reasons');
+      // 新建时的默认值（旧系统）：运营商中国移动
+      if (!ctx.existing && !ctx.data.carrier) ctx.data.carrier = '中国移动';
       // 保管人：选了员工就以员工为准，手填姓名只在没选员工时保留
       if (ctx.data.keeperUserId) ctx.data.keeperName = null;
       const last = ctx.data.lastRechargeAt as string | undefined;
