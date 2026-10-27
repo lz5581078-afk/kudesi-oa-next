@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ASSIGNEE_SOURCE_LABEL, STEP_TYPE_LABEL, type AssigneeSource, type StepDef } from '@kudesi/shared';
+import { useEffect, useMemo, useState } from 'react';
+import { ASSIGNEE_SOURCE_LABEL, STEP_TYPE_LABEL, getFlowTemplate, validateSteps, type AssigneeSource, type StepDef } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { loadRefOptions } from '../../resources/RecordForm';
@@ -35,6 +35,24 @@ export function TemplatesPage() {
   const setStep = (i: number, patch: Partial<StepDef>) => setSteps((cur) => cur.map((s, j) => (j === i ? { ...s, ...patch } : s)));
   const optsFor = (src: AssigneeSource) => (src === 'employee' ? users : src === 'position' ? positions : depts);
   const handlers = steps.filter((s) => s.type !== 'submit' && s.type !== 'end');
+  const dirty = !!def && (JSON.stringify(steps) !== JSON.stringify(def.draft.steps) || JSON.stringify([...esc].sort()) !== JSON.stringify([...def.draft.escalateUserIds].sort()));
+  // 发布前检查：和服务端同一套规则，办理人没选、时限不合法等在这里就能看到
+  const issues = useMemo(() => {
+    const tpl = getFlowTemplate(key);
+    return tpl && steps.length ? validateSteps(tpl, steps, esc) : [];
+  }, [key, steps, esc]);
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, [dirty]);
+  const switchTo = (k: string) => {
+    if (k === key) return;
+    if (dirty && !window.confirm('当前流程有尚未保存的修改，切换会丢弃。确定切换吗？')) return;
+    setMsg(null);
+    setKey(k);
+  };
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     setBusy(true); setMsg(null);
@@ -48,7 +66,7 @@ export function TemplatesPage() {
     <div>
       <div className="page-head"><h1>流程配置</h1></div>
       <div className="tabs">
-        {templates.map((t) => <button key={t.key} type="button" className={key === t.key ? 'tab active' : 'tab'} onClick={() => setKey(t.key)}>{t.label}{t.active ? '' : '（未启用）'}</button>)}
+        {templates.map((t) => <button key={t.key} type="button" className={key === t.key ? 'tab active' : 'tab'} onClick={() => switchTo(t.key)}>{t.label}{t.active ? '' : '（未启用）'}</button>)}
       </div>
       {msg && <div role={msg.kind === 'error' ? 'alert' : 'status'} className={`notice ${msg.kind}`}>{msg.text}</div>}
       {def && (
@@ -91,12 +109,30 @@ export function TemplatesPage() {
               {users.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
+          {issues.length > 0 && (
+            <div className="notice warn" role="status"><strong>发布前还要处理 {issues.length} 项：</strong><ul>{issues.map((t) => <li key={t}>{t}</li>)}</ul></div>
+          )}
           {canManage ? (
             <div className="row-actions">
-              <button type="button" className="secondary-button" disabled={busy} onClick={() => run(save, '草稿已保存')}>保存草稿</button>
-              <button type="button" className="primary-button" disabled={busy} onClick={() => run(async () => { await save(); await flowApi.publish(key); }, '已发布，新发起的流程按新配置办理')}>保存并发布</button>
+              {dirty && <span className="muted">有未保存的修改</span>}
+              <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => { setSteps(def.draft.steps); setEsc(def.draft.escalateUserIds); setMsg(null); }}>放弃修改</button>
+              <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => run(save, '草稿已保存')}>保存草稿</button>
+              <button type="button" className="primary-button" disabled={busy || issues.length > 0} title={issues.length ? '先处理上面的检查项' : undefined} onClick={() => run(async () => { await save(); await flowApi.publish(key); }, '已发布，新发起的流程按新配置办理')}>保存并发布</button>
             </div>
           ) : <p className="muted">你没有“保存并发布流程配置”的权限，只能查看。</p>}
+          <h3 className="section-title">流转一览</h3>
+          <div className="table-scroll"><table className="data-table compact">
+            <thead><tr><th>步骤</th><th>类型</th><th>办理人</th><th>时限</th><th>抄送</th></tr></thead>
+            <tbody>{steps.map((s, i) => (
+              <tr key={s.key}>
+                <td>{i + 1}. {s.name}</td><td>{STEP_TYPE_LABEL[s.type]}</td>
+                <td>{s.type === 'submit' ? '发起人' : s.type === 'end' ? '—' : s.assignee?.id ? (optsFor(s.assignee.source).find((o) => o.value === s.assignee!.id)?.label ?? `${ASSIGNEE_SOURCE_LABEL[s.assignee.source]} #${s.assignee.id}`) : <span className="late-text">未选择</span>}</td>
+                <td>{s.dueMinutes ? `${s.dueMinutes / 60} 小时` : '不限'}</td>
+                <td>{(s.ccUserIds ?? []).map((id) => users.find((u) => u.value === id)?.label ?? `#${id}`).join('、') || '—'}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+          <p className="muted">办理中遇到问题时，办理人可以“退回上一步”；发起人可撤回；管理员可转交他人。</p>
           <h3 className="section-title">版本记录</h3>
           <ul>{def.history.map((h) => <li key={h.version}>v{h.version} · {h.status === 'active' ? '启用中' : h.status === 'draft' ? '草稿' : '已停用'}{h.publishedAt && ` · ${fmtTime(h.publishedAt)}`}</li>)}</ul>
         </section>

@@ -60,7 +60,7 @@ export class FlowService {
     const defs = await this.dataSource.manager.find(FlowDefinition, { where: { companyId: user.companyId, status: 'active' } });
     return FLOW_TEMPLATES.map((t) => {
       const active = defs.find((d) => d.templateKey === t.key);
-      return { key: t.key, label: t.label, description: t.description, fields: t.fields, stepFields: t.stepFields, active: Boolean(active), version: active?.version ?? null };
+      return { key: t.key, label: t.label, description: t.description, fields: t.fields, stepFields: t.stepFields, active: Boolean(active), version: active?.version ?? null, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
     });
   }
 
@@ -545,7 +545,7 @@ export class FlowService {
   }
 
   /** 我的待办：待办（含逾期、被退回）和最近办完的 */
-  async todos(user: AuthUser, q: { tab: 'pending' | 'overdue' | 'returned' | 'done'; page: number; pageSize: number }) {
+  async todos(user: AuthUser, q: { tab: 'pending' | 'overdue' | 'returned' | 'done'; keyword?: string; page: number; pageSize: number }) {
     const now = new Date();
     const base = 'w.company_id = ? AND w.assignee_id = ?';
     const args: unknown[] = [user.companyId, user.id];
@@ -553,6 +553,8 @@ export class FlowService {
     if (q.tab === 'overdue') { cond += ' AND w.due_at IS NOT NULL AND w.due_at < ?'; args.push(now); }
     if (q.tab === 'returned') cond += " AND s.entered_via = 'return'";
     if (q.tab === 'done') { cond = "w.status = 'done'"; }
+    const kw = q.keyword?.trim();
+    if (kw) { cond += ' AND (w.title LIKE ? OR r.title LIKE ? OR w.description LIKE ?)'; const like = `%${kw.replace(/[\\%_]/g, '\\$&')}%`; args.push(like, like, like); }
     const from = `FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id LEFT JOIN flow_runs r ON r.id = w.run_id LEFT JOIN users u ON u.id = r.requester_id LEFT JOIN users cu ON cu.id = w.created_by WHERE ${base} AND ${cond}`;
     const [{ n }] = await this.dataSource.query(`SELECT COUNT(*) AS n ${from}`, args);
     const rows = await this.dataSource.query(

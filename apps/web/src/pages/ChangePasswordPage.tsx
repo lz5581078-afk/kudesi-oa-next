@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { SecretInput } from './system/SecretInput';
 
 export function ChangePasswordPage() {
   const { refresh } = useAuth();
@@ -16,6 +17,7 @@ export function ChangePasswordPage() {
     event.preventDefault();
     setError(null);
     if (newPassword.length < 10) return setError('新密码至少 10 位');
+    if (newPassword === oldPassword) return setError('新密码不能和当前密码相同');
     if (newPassword !== confirm) return setError('两次输入的新密码不一致');
     setBusy(true);
     try {
@@ -34,20 +36,24 @@ export function ChangePasswordPage() {
       <h1>修改密码</h1>
       <label>
         当前密码
-        <input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} autoComplete="current-password" required />
+        <SecretInput value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} autoComplete="current-password" required />
       </label>
       <label>
         新密码（至少 10 位）
-        <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" required />
+        <SecretInput value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" required />
       </label>
       <label>
         再输入一次新密码
-        <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required />
+        <SecretInput value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required />
+        {confirm && newPassword !== confirm && <small className="field-error-text">两次输入的新密码不一致</small>}
       </label>
       {error && <div role="alert" className="notice error">{error}</div>}
-      <button type="submit" className="primary-button" disabled={busy}>
-        {busy ? '保存中…' : '保存新密码'}
-      </button>
+      <div className="row-actions">
+        <button type="submit" className="primary-button" disabled={busy}>
+          {busy ? '保存中…' : '保存新密码'}
+        </button>
+        <button type="button" className="secondary-button" disabled={busy} onClick={() => navigate(-1)}>取消</button>
+      </div>
     </form>
   );
 }

@@ -5,6 +5,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { loadRefOptions } from '../../resources/RecordForm';
 import { Pager } from '../finance/common';
 import { flowApi, fmtTime, type AssignedRow, type RoutineBody, type RoutineDto } from './flowApi';
+import { dueHint, remember } from './flowUi';
 
 type Opt = { value: number; label: string; disabled?: boolean };
 const STATUS: Record<string, [string, string]> = { open: ['进行中', 'warn'], done: ['已完成', 'ok'], cancelled: ['已取消', ''] };
@@ -28,46 +29,80 @@ export function TasksPage() {
   );
 }
 
+const STATUS_CHIPS: Array<[string, string]> = [['', '全部'], ['open', '进行中'], ['done', '已完成'], ['cancelled', '已取消']];
+
 function Assigned({ users, canAssign }: { users: Opt[]; canAssign: boolean }) {
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState(() => remember.get('kudesi.tasks.status', 'open') === 'all' ? '' : remember.get('kudesi.tasks.status', 'open'));
   const [page, setPage] = useState(1);
   const [data, setData] = useState<{ total: number; rows: AssignedRow[] } | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [creating, setCreating] = useState(false);
-  const load = useCallback(() => { flowApi.assigned({ status, page }).then(setData).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')); }, [status, page]);
+  const [cancelling, setCancelling] = useState<AssignedRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(() => {
+    setLoading(true);
+    flowApi.assigned({ status, page }).then((d) => { setData(d); setError(''); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')).finally(() => setLoading(false));
+  }, [status, page]);
   useEffect(load, [load]);
+  const pick = (v: string) => { setStatus(v); setPage(1); remember.set('kudesi.tasks.status', v || 'all'); };
+  const now = Date.now();
   return (
     <div>
       <div className="toolbar">
-        <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
-          <option value="">全部状态</option><option value="open">进行中</option><option value="done">已完成</option><option value="cancelled">已取消</option>
-        </select>
+        <div className="chip-row" role="group" aria-label="任务状态">
+          {STATUS_CHIPS.map(([v, label]) => <button key={v || 'all'} type="button" aria-pressed={status === v} className={status === v ? 'chip active' : 'chip'} onClick={() => pick(v)}>{label}</button>)}
+        </div>
+        <button type="button" className="secondary-button" disabled={loading} onClick={load}>刷新</button>
         <button type="button" className="primary-button" onClick={() => setCreating(true)}>新建任务</button>
       </div>
-      {error && <div role="alert" className="notice error">{error}</div>}
-      <div className="table-scroll"><table className="data-table">
+      {notice && <div role="status" className="notice ok-notice toast-line"><span>{notice}</span><button type="button" aria-label="关闭提示" onClick={() => setNotice('')}>✕</button></div>}
+      {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
+      <div className="table-scroll"><table className="data-table stack-mobile">
         <thead><tr><th>任务</th><th>负责人</th><th>状态</th><th>截止</th><th>完成情况</th><th /></tr></thead>
         <tbody>
-          {data?.rows.length === 0 && <tr><td colSpan={6} className="empty-state muted">还没有任务</td></tr>}
-          {data?.rows.map((r) => (
-            <tr key={r.id}>
-              <td><strong>{r.title}</strong>{r.description && <div className="muted">{r.description}</div>}</td>
-              <td>{r.assigneeName}</td>
-              <td><span className={`pill ${STATUS[r.status]?.[1] ?? ''}`}>{STATUS[r.status]?.[0] ?? r.status}</span></td>
-              <td>{r.dueAt ? <span className={r.overdue ? 'pill bad' : ''}>{fmtTime(r.dueAt)}{r.overdue && ' 已逾期'}</span> : '不限时'}</td>
-              <td>{r.doneNote ?? ''}</td>
-              <td>{r.status === 'open' && <button type="button" className="link-button" onClick={() => flowApi.cancelTask(r.id).then(load).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败'))}>取消</button>}</td>
-            </tr>
-          ))}
+          {loading && !data && <tr><td colSpan={6} className="empty-state muted">正在加载…</td></tr>}
+          {data?.rows.length === 0 && (
+            <tr><td colSpan={6} className="empty-state muted">
+              <strong>{status ? `没有${STATUS_CHIPS.find(([v]) => v === status)?.[1]}的任务` : '还没有任务'}</strong>
+              <span>点右上角“新建任务”，给自己或同事安排一件事；到期前负责人会收到提醒。</span>
+              {status && <button type="button" className="secondary-button" onClick={() => pick('')}>查看全部任务</button>}
+            </td></tr>
+          )}
+          {data?.rows.map((r) => {
+            const hint = dueHint(r.dueAt, now);
+            return (
+              <tr key={r.id} className={r.overdue && r.status === 'open' ? 'late' : undefined}>
+                <td className="cell-title"><strong>{r.title}</strong>{r.description && <span className="sub-line">{r.description}</span>}</td>
+                <td data-label="负责人">{r.assigneeName}</td>
+                <td data-label="状态"><span className={`pill ${STATUS[r.status]?.[1] ?? ''}`}>{STATUS[r.status]?.[0] ?? r.status}</span></td>
+                <td data-label="截止">{r.dueAt ? <span>{fmtTime(r.dueAt)}{r.status === 'open' && <span className={`sub-line${hint.late ? ' late-text' : ''}`}>{hint.text}</span>}</span> : '不限时'}</td>
+                <td data-label="完成情况">{r.doneNote ?? ''}</td>
+                <td>{r.status === 'open' && <button type="button" className="link-button" onClick={() => setCancelling(r)}>取消</button>}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table></div>
       {data && <Pager page={page} pageSize={20} total={data.total} onPage={setPage} />}
-      {creating && <NewTask users={users} canAssign={canAssign} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); load(); }} />}
+      {creating && <NewTask users={users} canAssign={canAssign} onClose={() => setCreating(false)} onSaved={(who) => { setCreating(false); setNotice(who ? `已分派给 ${who}，对方会在“我的待办”里看到。` : '已创建，在“我的待办”里办理。'); load(); }} />}
+      {cancelling && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal card small" role="alertdialog" aria-label="取消任务">
+            <div className="modal-head"><strong>取消任务</strong></div>
+            <div className="modal-body"><p>确定取消「{cancelling.title}」吗？负责人（{cancelling.assigneeName}）的待办会一并消失。</p></div>
+            <div className="modal-foot">
+              <button type="button" className="secondary-button" onClick={() => setCancelling(null)}>先不取消</button>
+              <button type="button" className="primary-button" onClick={() => { const id = cancelling.id; setCancelling(null); flowApi.cancelTask(id).then(() => { setNotice('任务已取消'); load(); }).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败')); }}>确认取消</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function NewTask({ users, canAssign, onClose, onSaved }: { users: Opt[]; canAssign: boolean; onClose: () => void; onSaved: () => void }) {
+function NewTask({ users, canAssign, onClose, onSaved }: { users: Opt[]; canAssign: boolean; onClose: () => void; onSaved: (assignee?: string) => void }) {
   const [v, setV] = useState({ title: '', description: '', assigneeId: '' as number | '', dueDate: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -75,7 +110,8 @@ function NewTask({ users, canAssign, onClose, onSaved }: { users: Opt[]; canAssi
     <div className="modal-backdrop" role="presentation">
       <form className="modal card small" role="dialog" aria-label="新建任务" onSubmit={async (e) => {
         e.preventDefault(); setBusy(true); setError('');
-        try { await flowApi.createTask({ title: v.title, description: v.description || undefined, assigneeId: v.assigneeId || undefined, dueDate: v.dueDate || undefined }); onSaved(); }
+        if (!v.title.trim()) { setBusy(false); return setError('请填写任务标题'); }
+        try { await flowApi.createTask({ title: v.title.trim(), description: v.description || undefined, assigneeId: v.assigneeId || undefined, dueDate: v.dueDate || undefined }); onSaved(v.assigneeId ? users.find((u) => u.value === v.assigneeId)?.label : undefined); }
         catch (err) { setError(err instanceof ApiError ? err.message : '保存失败'); setBusy(false); }
       }}>
         <div className="modal-head"><strong>新建任务</strong></div>
@@ -88,7 +124,7 @@ function NewTask({ users, canAssign, onClose, onSaved }: { users: Opt[]; canAssi
               {canAssign && users.filter((u) => !u.disabled).map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
             </select>
           </label>
-          <label>截止日期（选填）<input type="date" value={v.dueDate} onChange={(e) => setV({ ...v, dueDate: e.target.value })} /></label>
+          <label>截止日期（选填，不填则不限时）<input type="date" min={new Date().toISOString().slice(0, 10)} value={v.dueDate} onChange={(e) => setV({ ...v, dueDate: e.target.value })} /></label>
           {error && <div role="alert" className="notice error">{error}</div>}
         </div>
         <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy}>创建</button></div>
@@ -111,15 +147,15 @@ function Routines({ users }: { users: Opt[] }) {
       <p className="muted">到点（北京时间当天）自动给负责人生成一条任务；服务当天没运行就错过当天，不补发过期的。负责人停用后不再生成，请改负责人。</p>
       <div className="toolbar"><button type="button" className="primary-button" onClick={() => setEdit({ id: null, body: blank() })}>新建周期任务</button></div>
       {error && <div role="alert" className="notice error">{error}</div>}
-      <div className="table-scroll"><table className="data-table">
+      <div className="table-scroll"><table className="data-table stack-mobile">
         <thead><tr><th>任务</th><th>频率</th><th>负责人</th><th>完成期限</th><th>状态</th><th /></tr></thead>
         <tbody>
           {rows?.length === 0 && <tr><td colSpan={6} className="empty-state muted">还没有周期任务</td></tr>}
           {rows?.map((r) => (
             <tr key={r.id}>
-              <td><strong>{r.title}</strong>{r.description && <div className="muted">{r.description}</div>}</td>
-              <td>{when(r)}</td><td>{r.assigneeName}</td><td>{r.dueDays} 天</td>
-              <td><span className={`pill ${r.active ? 'ok' : ''}`}>{r.active ? '启用' : '已停用'}</span></td>
+              <td className="cell-title"><strong>{r.title}</strong>{r.description && <div className="muted">{r.description}</div>}</td>
+              <td data-label="频率">{when(r)}</td><td data-label="负责人">{r.assigneeName}</td><td data-label="完成期限">{r.dueDays} 天</td>
+              <td data-label="状态"><span className={`pill ${r.active ? 'ok' : ''}`}>{r.active ? '启用' : '已停用'}</span></td>
               <td className="row-actions">
                 <button type="button" className="link-button" onClick={() => setEdit({ id: r.id, body: { title: r.title, description: r.description ?? '', assigneeId: r.assigneeId, frequency: r.frequency, weekday: r.weekday, monthDay: r.monthDay, dueDays: r.dueDays, active: r.active } })}>修改</button>
                 <button type="button" className="link-button" onClick={() => flowApi.setRoutineActive(r.id, !r.active).then(load).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败'))}>{r.active ? '停用' : '启用'}</button>

@@ -1,10 +1,10 @@
 import type { FieldDef, FlowAction, StepDef } from '@kudesi/shared';
 import { api } from '../../api/client';
 
-export interface TemplateInfo { key: string; label: string; description: string; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; active: boolean; version: number | null }
+export interface TemplateInfo { key: string; label: string; description: string; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; active: boolean; version: number | null; steps?: Array<{ name: string; type: string }> }
 export interface RunRow {
   id: number; templateKey: string; templateLabel: string; title: string; status: string; requesterName: string; stepName: string | null; handlers: string[];
-  dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean;
+  dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; stepEnteredAt?: string | null;
 }
 export interface RunList { total: number; page: number; pageSize: number; rows: RunRow[] }
 export interface TodoRow { id: number; kind: string; description: string | null; runId: number | null; title: string; stepName: string; enteredVia: string; templateLabel: string; runTitle: string; requesterName: string; dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean }
@@ -47,7 +47,7 @@ export const flowApi = {
   saveDraft: (key: string, steps: StepDef[], escalateUserIds: number[]) => api<{ ok: true }>(`/flow/definitions/${key}/draft`, { method: 'PUT', body: { steps, escalateUserIds } }),
   publish: (key: string) => post<{ ok: true; version: number }>(`/flow/definitions/${key}/publish`, {}),
   start: (templateKey: string, payload: Record<string, unknown>, requestKey: string) => post<RunDetailDto>('/flow/runs', { templateKey, payload, requestKey }),
-  runs: (p: { view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; page?: number }) => api<RunList>(`/flow/runs${qs(p)}`),
+  runs: (p: { view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; page?: number; pageSize?: number }) => api<RunList>(`/flow/runs${qs(p)}`),
   run: (id: number) => api<RunDetailDto>(`/flow/runs/${id}`),
   pass: (id: number, b: { revision: number; stepId: number; form?: Record<string, unknown>; comment?: string }) => post<RunDetailDto>(`/flow/runs/${id}/pass`, b),
   back: (id: number, b: { revision: number; stepId: number; reason: string }) => post<RunDetailDto>(`/flow/runs/${id}/return`, b),
@@ -56,7 +56,7 @@ export const flowApi = {
   withdraw: (id: number, b: { revision: number; reason?: string }) => post<RunDetailDto>(`/flow/runs/${id}/withdraw`, b),
   resubmit: (id: number, b: { revision: number; payload: Record<string, unknown> }) => post<RunDetailDto>(`/flow/runs/${id}/resubmit`, b),
   transfer: (id: number, b: { revision: number; toUserId: number; reason: string }) => post<RunDetailDto>(`/flow/runs/${id}/transfer`, b),
-  todos: (p: { tab: string; page?: number }) => api<TodoList>(`/flow/todos${qs(p)}`),
+  todos: (p: { tab: string; keyword?: string; page?: number }) => api<TodoList>(`/flow/todos${qs(p)}`),
   notifications: (unread?: boolean) => api<NotificationDto>(`/flow/notifications${unread ? '?unread=1' : ''}`),
   createTask: (b: { title: string; description?: string; assigneeId?: number; dueDate?: string }) => post<{ id: number }>('/tasks', b),
   completeTask: (id: number, note?: string) => post<{ ok: true }>(`/tasks/${id}/complete`, { note }),
