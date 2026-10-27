@@ -198,7 +198,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
   const canField = (f: FieldDef) => !f.permission || (me ? createChecker(me.permissions)(f.permission) : false);
   const visible = useMemo(() => {
     const ctx: Record<string, unknown> = { ...values, status };
-    return def.fields.filter((f) => !f.readonly && canField(f)).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? '')));
+    return def.fields.filter((f) => !f.readonly && canField(f)).filter((f) => !(def.key === 'fixed-assets' && record && f.key === 'userId')).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? '')));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def, values, status, me]);
   const groups = useMemo(() => {
@@ -245,7 +245,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
               onApply={(fields) => setValues((cur) => ({ ...cur, ...fields }))}
             />
           )}
-          {!record && def.statuses.length > 1 && (
+          {!record && def.statuses.length > 1 && def.key !== 'fixed-assets' && (
             <label>初始状态
               <select value={status} onChange={(e) => setStatus(e.target.value)}>
                 {def.statuses.filter((s) => !s.requiresReason).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RESOURCE_DEFS, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
+import { ASSET_LOG_LABELS, RESOURCE_DEFS, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
 import { useAuth } from '../auth/AuthContext';
@@ -10,6 +10,7 @@ import { displayValue, statusOf } from './format';
 import { ReasonDialog, RecordForm, clearRefCache, loadRefOptions } from './RecordForm';
 import { StatusControl, typeLabel } from './StatusControl';
 import { RevenuePanel } from './RevenuePanel';
+import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
 
 export function useResourceCan(type: string) {
   const { user } = useAuth();
@@ -19,6 +20,7 @@ export function useResourceCan(type: string) {
 
 const ACTION_LABEL: Record<string, string> = {
   create: '新建', update: '修改', status: '改状态', delete: '删除', reveal: '查看明文', archived: '归档', restored: '恢复',
+  ...ASSET_LOG_LABELS,
 };
 
 /** 归档确认框里的“关联摘要”：告诉操作人这条资料现在还关联着什么（归档不会动它们）。 */
@@ -138,7 +140,7 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
   );
 }
 
-type Tab = 'info' | 'relations' | 'logs' | 'revenue' | `child:${string}`;
+type Tab = 'info' | 'relations' | 'logs' | 'revenue' | 'flow' | 'storage' | 'contents' | `child:${string}`;
 
 export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: ResourceDef; id: number; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const can = useResourceCan(def.key);
@@ -185,6 +187,8 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   }
   const tabs: Array<[Tab, string]> = [
     ['info', '详情'],
+    ...(def.key === 'locations' ? ([['contents' as Tab, '存放内容']] as Array<[Tab, string]>) : []),
+    ...(def.key === 'fixed-assets' ? ([['flow' as Tab, '流转记录'], ['storage' as Tab, '储物空间']] as Array<[Tab, string]>) : []),
     ['relations', '关联'],
     ...((def.children ?? []).map((c) => [`child:${c}|${getResourceDef(c)?.parent?.field}` as Tab, getResourceDef(c)?.label ?? c]) as Array<[Tab, string]>),
     ...((def.related ?? []).filter((r) => canView(r.type)).map((r) => [`child:${r.type}|${r.field}` as Tab, getResourceDef(r.type)?.label ?? r.type]) as Array<[Tab, string]>),
@@ -255,6 +259,9 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         )}
         {tab.startsWith('child:') && <ChildPanel key={tab} parentDef={def} parent={record} childType={tab.slice(6).split('|')[0]} field={tab.split('|')[1]} />}
         {tab === 'revenue' && <RevenuePanel licenseId={record.id} />}
+        {tab === 'contents' && <LocationContentsPanel id={record.id} />}
+        {tab === 'flow' && <AssetFlowPanel record={record} version={record.updatedAt} />}
+        {tab === 'storage' && <AssetStoragePanel record={record} />}
         {tab === 'logs' && (
           <section>
             <h2 className="section-title">操作记录</h2>
@@ -283,7 +290,9 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
             onCopy(values);
           }}>复制新建</button>
         )}
-        {!record.archived && can('disable') && (
+        {def.key === 'fixed-assets' ? (
+          !record.archived && can('edit') && <AssetActionBar record={record} onDone={() => { void load(); onChanged(); }} />
+        ) : !record.archived && can('disable') && (
           <StatusControl def={def} id={record.id} current={record.status} onChanged={() => { void load(); onChanged(); }} onError={setError} />
         )}
         {!record.archived && can('delete') && <button type="button" className="secondary-button danger" onClick={() => setDeleting(true)}>{archivable ? '归档…' : '删除…'}</button>}

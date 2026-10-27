@@ -69,6 +69,8 @@ import { PricingDebugService } from './resources/pricing-debug.service';
 import { FinanceDocumentsController } from './resources/finance-documents.controller';
 import { FinanceDocumentsService } from './resources/finance-documents.service';
 import { ResourcesController } from './resources/resources.controller';
+import { AssetsController } from './resources/assets.controller';
+import { AssetsService } from './resources/assets.service';
 import { ResourcesService } from './resources/resources.service';
 import { OrgController } from './org/org.controller';
 import { OrgAdminController } from './org/org-admin.controller';
@@ -117,13 +119,14 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, OutboxController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, OutboxController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController],
   providers: [
     AuthService,
     PlatformService,
     OrgService,
     OrgAdminService,
     ResourcesService,
+    AssetsService,
     RevenueService,
     FeeArchiveService,
     DataToolsService,

@@ -26,7 +26,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
 import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
-import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeSaveRule, RuleHost } from './resource-rules';
+import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
 
 export interface ResourceDto {
   id: number;
@@ -377,9 +377,9 @@ export class ResourcesService implements RuleHost {
     def: ResourceDef,
     existing: ResourceRecord | null,
     input: Record<string, unknown>,
-    options: { status?: string; note?: string; cleanup?: string[] } = {},
+    options: { status?: string; note?: string; cleanup?: string[]; logAction?: string } = {},
   ): Promise<ResourceRecord> {
-    const status = options.status ?? existing?.status ?? def.defaultStatus;
+    let status = options.status ?? existing?.status ?? def.defaultStatus;
     if (!def.statuses.some((s) => s.value === status)) throw new BadRequestException('状态不合法');
 
     // 没有权限的字段，提交的值直接丢弃（保留原值）
@@ -434,7 +434,9 @@ export class ResourcesService implements RuleHost {
       if (f.showWhen && f.showWhen.field === 'status' && !f.showWhen.in.includes(status)) delete data[f.key];
     }
 
-    await beforeSaveRule(def.key, { em, host: this, user, data, existing, status });
+    const ruleCtx = { em, host: this, user, data, existing, status };
+    await beforeSaveRule(def.key, ruleCtx);
+    status = ruleCtx.status; // 规则可以改状态（如固定资产新建时有使用人就是使用中）
     for (const k of Object.keys(data)) if (data[k] === null || data[k] === undefined) delete data[k];
 
     for (const f of def.fields) {
@@ -497,7 +499,7 @@ export class ResourcesService implements RuleHost {
       options.cleanup?.push(...removed);
     }
     const note = [options.note, secretChanged ? '修改了密码/证件号/卡号类字段' : null].filter(Boolean).join('；') || undefined;
-    await this.writeLog(em, user, def, record.id, existing ? 'update' : 'create', before, record, note);
+    await this.writeLog(em, user, def, record.id, options.logAction ?? (existing ? 'update' : 'create'), before, record, note);
     if (!existing) await afterCreateRule(def.key, { em, host: this, user, record, plain: values });
     await afterSaveRule(def.key, { em, host: this, user, record, existing: before });
     return record;
@@ -827,6 +829,23 @@ export class ResourcesService implements RuleHost {
     await this.saveRecord(em, user, this.def(type), existing, {}, { status, note: note ?? `状态：${existing.status} → ${status}` });
   }
 
+  /** 在调用方的事务里按统一保存流程改字段并（可选）改状态，日志动作可自定（如固定资产的“领用”）。 */
+  async saveChecked(em: EntityManager, user: AuthUser, type: string, id: number, values: Record<string, unknown>, options: { status?: string; note?: string; logAction?: string; statusReason?: string | null } = {}) {
+    const existing = await this.load(em, user, type, id);
+    await this.saveRecord(em, user, this.def(type), existing, values, { status: options.status, note: options.note, logAction: options.logAction });
+    if (options.statusReason !== undefined) {
+      const fresh = await this.load(em, user, type, id);
+      fresh.statusReason = options.statusReason ? options.statusReason.trim().slice(0, 500) : null;
+      await em.save(ResourceRecord, fresh);
+    }
+  }
+
+  /** 只记一条操作日志（如盘点“在位”，记录本身没有变化）。 */
+  async logAction(em: EntityManager, user: AuthUser, type: string, id: number, action: string, note: string) {
+    const record = await this.load(em, user, type, id);
+    await this.writeLog(em, user, this.def(type), id, action, record, record, note);
+  }
+
   async changeStatus(user: AuthUser, type: string, id: number, status: string, reason?: string) {
     const def = this.def(type);
     const problem = validateStatusChange(def, status, reason);
@@ -910,6 +929,7 @@ export class ResourcesService implements RuleHost {
     const cleanup: string[] = [];
     await this.dataSource.transaction(async (em) => {
       const existing = await this.load(em, user, type, id);
+      await beforeDeleteRule(def.key, { em, host: this, user, record: existing });
       const incoming = await em.find(ResourceLink, { where: { companyId: user.companyId, targetType: type, targetId: id, relation: Not('manual') } });
       if (incoming.length > 0) {
         const sources = await em

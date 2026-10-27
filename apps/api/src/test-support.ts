@@ -6,6 +6,7 @@ import { FilesService } from './integrations/files.service';
 import { IntegrationSettingsService } from './integrations/integration-settings.service';
 import { OcrService } from './integrations/ocr.service';
 import type { ObjectStorage } from './integrations/qiniu.client';
+import { AssetsService } from './resources/assets.service';
 import { ResourcesService } from './resources/resources.service';
 import { RevenueService } from './resources/revenue.service';
 
@@ -37,5 +38,6 @@ export function buildServices(ds: DataSource) {
   const ocr = new OcrService(settings);
   const resources = new ResourcesService(ds, cryptoService, files);
   const revenue = new RevenueService(ds);
-  return { resources, revenue, files, settings, ocr, storage, crypto: cryptoService };
+  const assets = new AssetsService(ds, resources);
+  return { resources, assets, revenue, files, settings, ocr, storage, crypto: cryptoService };
 }

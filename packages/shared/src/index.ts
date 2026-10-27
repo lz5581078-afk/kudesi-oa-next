@@ -21,3 +21,4 @@ export * from './platform';
 
 export * from './unit-price';
 export * from './archive-similarity';
+export * from './asset-flow';

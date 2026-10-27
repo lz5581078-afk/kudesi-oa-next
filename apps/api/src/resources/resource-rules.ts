@@ -4,6 +4,7 @@ import { addDays, normalizePhone } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE } from './finance-rules';
+import { ASSET_BEFORE_DELETE, ASSET_BEFORE_SAVE } from './asset-rules';
 
 /**
  * 各类资料的专属业务规则。通用的校验（必填、枚举、唯一、引用、停用原因）在 ResourcesService，
@@ -33,6 +34,7 @@ export interface BeforeSaveContext {
   /** 将要保存的字段值（可修改） */
   data: Record<string, unknown>;
   existing: ResourceRecord | null;
+  /** 将要保存的状态；规则可以修改（如固定资产新建时有使用人就是使用中） */
   status: string;
 }
 
@@ -213,6 +215,8 @@ function syncLocations(data: Record<string, unknown>, existing: ResourceRecord |
 export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Promise<void> {
   const financeRule = FINANCE_BEFORE_SAVE[type];
   if (financeRule) return financeRule(ctx);
+  const assetRule = ASSET_BEFORE_SAVE[type];
+  if (assetRule) return assetRule(ctx);
   switch (type) {
     case 'stores':
       await matchPhone(ctx, true);
@@ -307,6 +311,12 @@ export interface AfterSaveContext {
   record: ResourceRecord;
   /** 保存前的记录（新建为 null） */
   existing: ResourceRecord | null;
+}
+
+/** 删除记录之前（在“还被引用就不能删”的检查之前）：如删除位置时把各处对它的引用置空。 */
+export async function beforeDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
+  const rule = ASSET_BEFORE_DELETE[type];
+  if (rule) await rule(ctx);
 }
 
 /** 删除记录之后（记录已不存在，record 是删除前的内容）。 */

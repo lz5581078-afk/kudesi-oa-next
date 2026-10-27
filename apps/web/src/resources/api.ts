@@ -175,6 +175,27 @@ export interface IntegrationOverview {
   vision: { configured: boolean; baseUrl: string; apiKeyConfigured: boolean; model: string; enabled: boolean };
 }
 
+export interface AssetDetails {
+  operationLogs: Array<{ id: string; action: string; label: string | null; actor: string; note: string | null; createdAt: string }>;
+  storageSpaces: Array<{ id: number; title: string; parentId: number | null; status: string; locationType: string | null }>;
+  archiveItems: Array<{ id: number; title: string; archiveNo: string | null; status: string; locationId: number }>;
+}
+export interface LocationContentGroup {
+  type: string;
+  typeLabel: string;
+  items: Array<{ id: number; title: string; status: string; statusLabel: string; slots: string[] }>;
+}
+
+/** 固定资产流转/盘点、位置存放内容 */
+export const assetApi = {
+  transition: (id: number, body: { action: string; userId?: number | null; locationId?: number | null; reason?: string; note?: string }) =>
+    api<ResourceDto>(`/resources/fixed-assets/${id}/transition`, { method: 'POST', body }),
+  inventory: (items: Array<{ id: number; result: string; locationId?: number | null }>, note: string) =>
+    api<{ ok: true; present: number; moved: number; missing: number; skipped: number[] }>('/resources/fixed-assets/inventory', { method: 'POST', body: { items, note } }),
+  details: (id: number) => api<AssetDetails>(`/resources/fixed-assets/${id}/asset-details`),
+  locationContents: (id: number) => api<LocationContentGroup[]>(`/resources/locations/${id}/contents`),
+};
+
 export const settingsApi = {
   overview: () => api<IntegrationOverview>('/settings/integrations'),
   saveQiniu: (body: { accessKey: string; secretKey?: string; bucket: string; zone: string; domain: string; isPrivate: boolean }) =>

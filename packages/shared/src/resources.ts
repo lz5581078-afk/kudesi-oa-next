@@ -129,6 +129,8 @@ const RECONCILE = o('monthly:按月', 'quarterly:按季', 'yearly:按年');
 const SEAL_STATE = o('kept:在位', 'ordinary_kept:普通章在位', 'missing:缺失');
 const SEAL_KIND = o('anti_fake:防伪章', 'self_carved:自刻章');
 const MATERIAL = o('kept:在位', 'missing:缺失');
+/** 档案可以挂接的资料类型（旧系统 8 种）；选了类型，就只出现对应的那个关联字段 */
+const ARCHIVE_RELATED_TYPES = o('license:营业执照', 'store:店铺', 'bank_account:银行开户档案', 'fixed_asset:固定资产', 'partner_profile:合作人档案', 'trademark:商标', 'qualification:资质', 'tax_profile:税务档案');
 
 function sealFields(prefix: string, label: string): FieldDef[] {
   return [
@@ -851,11 +853,12 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       { value: 'in_use', label: '使用中', tone: 'ok' },
       { value: 'repairing', label: '维修中', tone: 'warn' },
       { value: 'retired', label: '已报废', tone: 'muted', requiresReason: true, hidden: true },
-      { value: 'lost', label: '遗失', tone: 'bad', requiresReason: true, hidden: true },
+      { value: 'lost', label: '丢失', tone: 'bad', requiresReason: true },
     ],
     defaultStatus: 'idle',
+    alerts: [{ field: 'warrantyUntil', withinDays: 30, label: '保修即将到期' }],
     fields: [
-      text('assetNo', '系统编号', '基础', { required: true, list: true, search: true, maxLength: 64 }),
+      text('assetNo', '系统编号', '基础', { list: true, search: true, maxLength: 64, help: '不填则自动生成 ASSET-xxxxxx' }),
       text('customAssetNo', '自定义编号', '基础', { list: true, search: true, maxLength: 64 }),
       text('name', '名称', '基础', { required: true, list: true, search: true }),
       ref('categoryId', '分类', '基础', 'asset-categories', { list: true }),
@@ -869,10 +872,10 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       money('purchasePrice', '购入金额', '购入'),
       text('supplier', '供应商', '购入'),
       date('warrantyUntil', '保修至', '购入'),
-      ref('userId', '使用人', '使用', 'user', { list: true }),
+      ref('userId', '使用人', '使用', 'user', { list: true, help: '新建时选了使用人就直接记为使用中；之后通过「领用、转交、归还」变更' }),
       ref('keeperUserId', '保管人', '使用', 'user'),
       ref('departmentId', '所属部门', '使用', 'department', { list: true }),
-      ref('locationId', '位置', '使用', 'locations', { list: true }),
+      ref('locationId', '位置', '使用', 'locations', { list: true, help: '点位置可以看这个位置还存放了什么' }),
       NOTE(),
     ],
   },
@@ -917,19 +920,25 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'name',
     uniqueField: 'archiveNo',
     statuses: [
-      { value: 'stored', label: '已存放', tone: 'ok' },
-      { value: 'borrowed', label: '借出', tone: 'warn' },
-      { value: 'missing', label: '缺失', tone: 'bad' },
+      { value: 'stored', label: '在库', tone: 'ok' },
+      { value: 'borrowed', label: '借出', tone: 'warn', requiresReason: true },
+      { value: 'missing', label: '遗失', tone: 'bad', requiresReason: true },
       { value: 'archived', label: '已归档', tone: 'muted' },
     ],
     defaultStatus: 'stored',
     fields: [
-      text('archiveNo', '档案编号', '基础', { required: true, list: true, search: true }),
+      text('archiveNo', '档案编号', '基础', { list: true, search: true, help: '不填则自动生成 ARCH-xxxxxx' }),
       text('name', '档案名称', '基础', { required: true, list: true, search: true }),
       text('archiveType', '类型', '基础', { list: true }),
-      select('relatedType', '关联对象', '基础', o('license:营业执照', 'store:店铺')),
-      ref('licenseId', '关联执照', '基础', 'licenses', { list: true, showWhen: { field: 'relatedType', in: ['license'] } }),
+      select('relatedType', '关联资料类型', '基础', ARCHIVE_RELATED_TYPES, { help: '这份档案属于哪类资料；不选则不关联' }),
+      ref('licenseId', '关联营业执照', '基础', 'licenses', { list: true, showWhen: { field: 'relatedType', in: ['license'] } }),
       ref('storeId', '关联店铺', '基础', 'stores', { list: true, showWhen: { field: 'relatedType', in: ['store'] } }),
+      ref('bankAccountId', '关联银行账户', '基础', 'bank-accounts', { list: true, showWhen: { field: 'relatedType', in: ['bank_account'] } }),
+      ref('fixedAssetId', '关联固定资产', '基础', 'fixed-assets', { list: true, showWhen: { field: 'relatedType', in: ['fixed_asset'] } }),
+      ref('partnerId', '关联合作人', '基础', 'partners', { list: true, showWhen: { field: 'relatedType', in: ['partner_profile'] } }),
+      ref('trademarkId', '关联商标', '基础', 'trademarks', { list: true, showWhen: { field: 'relatedType', in: ['trademark'] } }),
+      ref('qualificationId', '关联资质', '基础', 'qualifications', { list: true, showWhen: { field: 'relatedType', in: ['qualification'] } }),
+      ref('taxProfileId', '关联税务档案', '基础', 'tax-profiles', { list: true, showWhen: { field: 'relatedType', in: ['tax_profile'] } }),
       ref('locationId', '存放位置', '基础', 'locations', { list: true }),
       ref('keeperUserId', '保管人', '基础', 'user', { list: true }),
       files('photos', '档案照片', '照片', { maxFiles: 6 }),

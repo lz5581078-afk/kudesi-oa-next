@@ -11,6 +11,7 @@ import { TaxPendingDialog } from './TaxPendingDialog';
 import { ReasonLibraryDialog } from './ReasonLibraryDialog';
 import { RecordDetail, useResourceCan } from './RecordDetail';
 import { RecordForm } from './RecordForm';
+import { InventoryDialog } from './AssetPanels';
 
 const PAGE_SIZE = 20;
 
@@ -81,6 +82,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [importing, setImporting] = useState(false);
   const [columnMenu, setColumnMenu] = useState(false);
   const [reasonLib, setReasonLib] = useState(false);
+  const [inventory, setInventory] = useState(false);
   const [taxPending, setTaxPending] = useState(false);
   const libType = type === 'stores' ? 'store-abnormal-reasons' : type === 'phones' ? 'phone-abnormal-reasons' : '';
   const libCan = useResourceCan(libType || type);
@@ -182,6 +184,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                 } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '导入失败'); }
               }}>导入默认分类</button>
             )}
+            {type === 'fixed-assets' && can('edit') && <button type="button" className="secondary-button" onClick={() => setInventory(true)}>盘点</button>}
             {type === 'tax-profiles' && can('create') && <button type="button" className="secondary-button" onClick={() => setTaxPending(true)}>待生成</button>}
             {libType && libCan('view') && <button type="button" className="secondary-button" onClick={() => setReasonLib(true)}>异常原因库</button>}
             {can('import') && <button type="button" className="secondary-button" onClick={() => setImporting(true)}>导入</button>}
@@ -366,6 +369,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           }}
         />
       )}
+      {inventory && <InventoryDialog onClose={() => setInventory(false)} onDone={(m) => { setInventory(false); setBatchMsg(m); void load(); }} />}
       {taxPending && <TaxPendingDialog onClose={() => setTaxPending(false)} onCreated={() => void load()} />}
       {reasonLib && libType && <ReasonLibraryDialog libType={libType} title={type === 'stores' ? '店铺异常原因库' : '手机号异常原因库'} onClose={() => setReasonLib(false)} />}
       {importing && (

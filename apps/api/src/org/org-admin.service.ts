@@ -5,7 +5,7 @@ import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { allGrantableKeys, createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, Department, PlatformAdmin, FlowStep, Position, PositionDuty, PositionPermission, TaskRoutine, User, UserPermissionOverride, WorkItem, WorkspaceType } from '../entities';
+import { AuditLog, Department, PlatformAdmin, FlowStep, Position, PositionDuty, PositionPermission, ResourceChangeLog, ResourceRecord, TaskRoutine, User, UserPermissionOverride, WorkItem, WorkspaceType } from '../entities';
 
 export const DUTY_CATEGORIES = ['岗位职责', '入职培训', '绩效考核', '监督规则', '流程节点说明'] as const;
 export const POSITION_LEVELS = ['boss', 'manager', 'staff'] as const;
@@ -112,9 +112,15 @@ export class OrgAdminService {
         em.count(Position, { where: { companyId: actor.companyId, departmentId: id } }),
         em.count(User, { where: { companyId: actor.companyId, departmentId: id } }),
       ]);
-      const moved = { kids, positions: pos, users };
-      if (kids + pos + users > 0) {
-        if (!transferToId) throw new ConflictException('部门下还有下级部门、岗位或员工，请选择一个接收部门后再删除');
+      // 固定资产的“所属部门”存在资料数据里，也要跟着转移（旧系统同样处理并写日志）
+      const assets = await em
+        .createQueryBuilder(ResourceRecord, 'r')
+        .where('r.companyId = :c AND r.type = :t', { c: actor.companyId, t: 'fixed-assets' })
+        .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.departmentId')) = :d", { d: String(id) })
+        .getMany();
+      const moved = { kids, positions: pos, users, assets: assets.length };
+      if (kids + pos + users + assets.length > 0) {
+        if (!transferToId) throw new ConflictException('部门下还有下级部门、岗位、员工或固定资产，请选择一个接收部门后再删除');
         if (transferToId === id) throw new BadRequestException('接收部门不能是被删除的部门');
         await this.mustDepartment(em, actor.companyId, transferToId);
         // 接收部门不能是被删除部门的下级，否则下级部门会挂到自己下面
@@ -127,6 +133,17 @@ export class OrgAdminService {
         await em.update(Department, { companyId: actor.companyId, parentId: id }, { parentId: transferToId });
         await em.update(Position, { companyId: actor.companyId, departmentId: id }, { departmentId: transferToId });
         await em.update(User, { companyId: actor.companyId, departmentId: id }, { departmentId: transferToId });
+        const target = await em.findOne(Department, { where: { id: transferToId, companyId: actor.companyId } });
+        for (const a of assets) {
+          const before = { title: a.title, status: a.status, ...a.data };
+          a.data = { ...a.data, departmentId: transferToId };
+          await em.save(ResourceRecord, a);
+          await em.insert(ResourceChangeLog, {
+            companyId: actor.companyId, resourceType: 'fixed-assets', resourceId: a.id, action: 'department_transferred', actorId: actor.id,
+            beforeJson: before as never, afterJson: { title: a.title, status: a.status, ...a.data } as never,
+            note: `部门「${d.name}」已删除，资产转到「${target?.name ?? transferToId}」`,
+          });
+        }
       }
       await em.delete(Department, { id, companyId: actor.companyId });
       await this.audit(em, actor, 'department.delete', 'department', id, { name: d.name, transferToId: transferToId ?? null, moved });
