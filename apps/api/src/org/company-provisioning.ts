@@ -22,6 +22,7 @@ export const DEFAULT_POSITIONS: Array<{ name: string; workspaceType: WorkspaceTy
     permissions: [
       'workbench.todos.view',
       'flow.apply.view',
+      'flow.exclusive.view',
       'workbench.tasks.view',
       'workbench.started.view',
       'workbench.cc.view',

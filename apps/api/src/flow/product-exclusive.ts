@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord, User } from '../entities';
-import { assertFamilyFree, EXCLUSIVE_TEMPLATE, EXCLUSIVE_TYPE, grantExclusive, parsePeriodDays } from '../resources/product-exclusive';
+import { assertFamilyFree, EXCLUSIVE_TEMPLATE, EXCLUSIVE_TYPE, grantExclusive, parsePeriod } from '../resources/product-exclusive';
 import type { FlowAdapter } from './flow-adapters';
 
 /**
@@ -25,7 +25,7 @@ export const productExclusive: FlowAdapter = {
   },
   async beforePass({ em, run, stepKey, form }) {
     if (stepKey !== 'approve') return;
-    parsePeriodDays(form.periodDays);
+    parsePeriod(form);
     await assertFamilyFree(em, run.companyId, run.payload.baseCodeId, run.id);
   },
   async onPass({ em, user, run, payload, stepKey, form, resources }) {
@@ -33,7 +33,7 @@ export const productExclusive: FlowAdapter = {
     const actor = asEngine(user);
     const grant = await grantExclusive(em, (values) => resources.createRecord(em, actor, EXCLUSIVE_TYPE, values, `流程 #${run.id} 审批通过`), {
       companyId: run.companyId, runId: run.id, baseCodeId: Number(payload.baseCodeId), ownerId: run.requesterId, ownerName: await nameOf(em, run.companyId, run.requesterId),
-      approverId: user.id, approverName: await nameOf(em, run.companyId, user.id), days: parsePeriodDays(form.periodDays),
+      approverId: user.id, approverName: await nameOf(em, run.companyId, user.id), ...parsePeriod(form),
     });
     payload._grantId = grant.id;
   },

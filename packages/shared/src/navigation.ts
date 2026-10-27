@@ -156,6 +156,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     label: '流程',
     pages: [
       page('flow', 'apply', '申请中心', true),
+      page('flow', 'exclusive', '专属品领取', true),
       page('flow', 'overview', '流程总览', true),
       page('flow', 'templates', '流程配置', true),
     ],

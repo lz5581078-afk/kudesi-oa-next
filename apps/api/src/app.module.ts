@@ -78,6 +78,8 @@ import { FlowScheduler } from './flow/flow.scheduler';
 import { FlowService } from './flow/flow.service';
 import { SkuApplyController } from './flow/sku-apply.controller';
 import { SkuApplyService } from './flow/sku-apply.service';
+import { ExclusiveController } from './flow/exclusive.controller';
+import { ExclusiveService } from './flow/exclusive.service';
 import { CostController } from './resources/cost.controller';
 import { CostService } from './resources/cost.service';
 import { ExpressController } from './resources/express.controller';
@@ -139,7 +141,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, JstCenterController, CategoryToolsController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, JstCenterController, CategoryToolsController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, ExclusiveController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController],
   providers: [
     AuthService,
     PlatformService,
@@ -171,6 +173,7 @@ const env = loadEnv();
     PricingDebugService,
     FlowService,
     SkuApplyService,
+    ExclusiveService,
     TaskService,
     FormDraftsService,
     PhoneUploadService,

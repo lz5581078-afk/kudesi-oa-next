@@ -172,7 +172,8 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     ],
     stepFields: {
       approve: [
-        { key: 'periodDays', label: '专属有效期（天）', type: 'number', group: '审批', required: true, help: '1 到 3650 天，从审批通过时起算' },
+        { key: 'periodDays', label: '专属有效期（天）', type: 'number', group: '审批', help: '1 到 3650 天，从审批通过时起算；和“指定到期日”二选一' },
+        { key: 'endsAt', label: '指定到期日', type: 'date', group: '审批', help: '填了就到这一天 23:59:59（北京时间）为止；和“有效期（天）”二选一' },
       ],
     },
     steps: [
