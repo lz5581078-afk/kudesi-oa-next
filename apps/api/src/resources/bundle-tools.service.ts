@@ -18,7 +18,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v ==
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export interface LineInput { sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean; costBucket?: string; costTreatment?: string; note?: string }
-export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number }
+export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number; manualCode?: string; manualName?: string; manualShortName?: string; manualReason?: string }
 interface SnapLine { role: string; ref: string; qty: number; weightG: number | null; cost: number | null }
 interface BundleSnap { profile: Record<string, string>; lines: SnapLine[] }
 
@@ -99,7 +99,11 @@ export class BundleToolsService {
       const scenario = await em.findOne(ResourceRecord, { where: { id: t.scenarioId, companyId: user.companyId, type: 'finance-scenarios' } });
       if (!platform || !scenario) throw new BadRequestException('销售平台或销售场景不存在');
       const configNo = t.configNo || '01';
-      const composed = composeBundle(rule, await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, configNo, t.brandId));
+      const auto = composeBundle(rule, await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, configNo, t.brandId));
+      // 新建时手填的编码/名称/简称覆盖自动生成的值（和“改码/改名”同一套规则：必须写原因）
+      const manualCode = (t.manualCode ?? '').trim().toUpperCase(), manualName = (t.manualName ?? '').trim(), manualShort = (t.manualShortName ?? '').trim();
+      const manualErrors = (manualCode || manualName || manualShort) && (t.manualReason ?? '').trim().length < 2 ? ['手填编码、名称或简称必须写明原因'] : [];
+      const composed = { ...auto, code: manualCode || auto.code, name: manualName || auto.name, shortName: manualShort || auto.shortName, errors: [...auto.errors, ...manualErrors] };
       const reuse = allBundles.find((b) => b.status !== 'archived' && b.data.platformId === platform.id && b.data.scenarioId === scenario.id && str(b.data.configNo || '01') === configNo
         && sigOf(...(linesOf.get(b.id) ?? []).map(lineKey).sort()) === mySig);
       const layers: { layer: string; label: string; hit: string }[] = [];
@@ -137,7 +141,11 @@ export class BundleToolsService {
       const created: { id: number; code: string; reused: boolean }[] = [];
       for (const t of pre.targets) {
         if (t.reuse) { created.push({ id: t.reuse.id, code: t.reuse.code, reused: true }); continue; }
-        const b = await this.resources.createRecord(em, user, TYPE, { platformId: t.platformId, scenarioId: t.scenarioId, configNo: t.configNo, bundleCategoryId: targets.find((x) => x.platformId === t.platformId && x.scenarioId === t.scenarioId)?.bundleCategoryId, brandId: targets.find((x) => x.platformId === t.platformId && x.scenarioId === t.scenarioId)?.brandId }, '批量生成组合');
+        const src = targets.find((x) => x.platformId === t.platformId && x.scenarioId === t.scenarioId);
+        const manual = src && (src.manualCode?.trim() || src.manualName?.trim() || src.manualShortName?.trim())
+          ? { manualCode: src.manualCode?.trim().toUpperCase() || undefined, manualName: src.manualName?.trim() || undefined, manualShortName: src.manualShortName?.trim() || undefined, manualReason: src.manualReason?.trim() }
+          : {};
+        const b = await this.resources.createRecord(em, user, TYPE, { platformId: t.platformId, scenarioId: t.scenarioId, configNo: t.configNo, bundleCategoryId: src?.bundleCategoryId, brandId: src?.brandId, ...manual }, '批量生成组合');
         await buildBundleLines(this.resources as never, em, user, b.id, async () => {
           for (const l of lines) await this.resources.createRecord(em, user, 'finance-bundle-lines', { bundleId: b.id, ...pickLine(l as never), sortOrder: undefined }, '批量生成组合');
         });

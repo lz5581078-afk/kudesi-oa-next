@@ -24,7 +24,7 @@ export interface LineInput {
   role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean;
   costBucket?: string; costTreatment?: string; sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; note?: string;
 }
-export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number }
+export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number; manualCode?: string; manualName?: string; manualShortName?: string; manualReason?: string }
 export interface PreviewTarget {
   platformId: number; platformName: string; scenarioId: number; scenarioName: string; configNo: string; code: string; name: string; styleCode: string; shortName: string;
   reuse: { id: number; code: string; status: string } | null; duplicates: Array<{ layer: string; label: string; hit: string }>; ok: boolean;

@@ -41,8 +41,16 @@ function LaborPick({ value, onPick }: { value?: number; onPick: (id: number, lab
 }
 
 const NO_JST_ROLES = ['labor'];
+const sectionOf = (role: string) => Math.max(0, SECTIONS.findIndex((x) => x.roles.includes(role)));
 
-export function LineEditor({ rows, onChange, lockGifts, allowLabor }: { rows: LineRow[]; onChange: (r: LineRow[]) => void; lockGifts?: boolean; allowLabor?: boolean }) {
+/** 新建组合时的分组（老系统顺序）：主商品、包装、标签说明书贴纸、打包材料、人工、赠品 */
+export const SECTIONS: Array<{ key: string; label: string; roles: string[]; add: string }> = [
+  { key: 'main', label: '主商品', roles: ['main'], add: 'main' }, { key: 'package', label: '包装', roles: ['package'], add: 'package' },
+  { key: 'label', label: '标签 / 说明书 / 贴纸', roles: ['label', 'instruction'], add: 'label' }, { key: 'pack', label: '打包材料', roles: ['auxiliary', 'other'], add: 'auxiliary' },
+  { key: 'labor', label: '人工', roles: ['labor'], add: 'labor' }, { key: 'gift', label: '赠品', roles: ['gift'], add: 'gift' },
+];
+
+export function LineEditor({ rows, onChange, lockGifts, allowLabor, grouped }: { rows: LineRow[]; onChange: (r: LineRow[]) => void; lockGifts?: boolean; allowLabor?: boolean; grouped?: boolean }) {
   const [more, setMore] = useState<number | null>(null);
   const set = (i: number, patch: Partial<LineRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
   const roles = allowLabor ? BUNDLE_ROLES : SELECTABLE_ROLES;
@@ -51,11 +59,14 @@ export function LineEditor({ rows, onChange, lockGifts, allowLabor }: { rows: Li
       <table className="data-table">
         <thead><tr><th>用途</th><th>基础编码 / 人工</th><th>数量</th><th>单位</th><th /></tr></thead>
         <tbody>
-          {rows.map((r, i) => {
+          {(grouped ? rows.map((_, i) => i).sort((a, b) => sectionOf(rows[a].role) - sectionOf(rows[b].role) || a - b) : rows.map((_, i) => i)).map((i, pos, order) => {
+            const r = rows[i];
+            const head = grouped && (pos === 0 || sectionOf(rows[order[pos - 1]].role) !== sectionOf(r.role));
             const locked = lockGifts && r.role === 'gift';
             const labor = r.role === 'labor';
             return (
               <Fragment key={i}>
+                {head && <tr className="section-row"><th colSpan={5} scope="colgroup">{SECTIONS[sectionOf(r.role)].label}</th></tr>}
                 <tr>
                   <td><select aria-label="用途" disabled={locked} value={r.role} onChange={(e) => set(i, { role: e.target.value, ...(e.target.value === 'labor' ? { baseCodeId: undefined, label: '' } : { laborId: undefined }) })}>{roles.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></td>
                   <td>{locked ? r.label : labor ? <LaborPick value={r.laborId} onPick={(id, label) => set(i, { laborId: id, label })} /> : <CodePick value={r.baseCodeId} label={r.label} onPick={(id, label) => set(i, { baseCodeId: id, label })} />}</td>
@@ -86,8 +97,14 @@ export function LineEditor({ rows, onChange, lockGifts, allowLabor }: { rows: Li
           })}
         </tbody>
       </table>
-      <button type="button" className="secondary-button small" onClick={() => onChange([...rows, { role: rows.length ? 'gift' : 'main', qty: 1, label: '' }])}>＋ 加一行</button>
-      {allowLabor && <> <button type="button" className="secondary-button small" onClick={() => onChange([...rows, { role: 'labor', qty: 1, label: '' }])}>＋ 加人工</button></>}
+      {grouped ? (
+        <div className="pill-row">{SECTIONS.map((sec) => <button key={sec.key} type="button" className="secondary-button small" onClick={() => onChange([...rows, { role: sec.add, qty: 1, label: '' }])}>＋ {sec.label}</button>)}</div>
+      ) : (
+        <>
+          <button type="button" className="secondary-button small" onClick={() => onChange([...rows, { role: rows.length ? 'gift' : 'main', qty: 1, label: '' }])}>＋ 加一行</button>
+          {allowLabor && <> <button type="button" className="secondary-button small" onClick={() => onChange([...rows, { role: 'labor', qty: 1, label: '' }])}>＋ 加人工</button></>}
+        </>
+      )}
     </div>
   );
 }
