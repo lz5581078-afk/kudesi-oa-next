@@ -930,7 +930,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
   },
   {
     key: 'software',
-    label: '软件账号',
+    label: '软件订阅',
     nav: { group: '账号与资质', hidden: true },
     titleField: 'name',
     statuses: [NORMAL, { value: 'renewing', label: '续费中', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, INACTIVE],

@@ -151,7 +151,7 @@ export function ResourceOverviewPage() {
               {rows.length > 0 && (
                 <ul className="plain-list">
                   {rows.map((r, i) => (
-                    <li key={`${r.id}-${i}`}>{recordLink(r.type, r.id) ? <Link to={recordLink(r.type, r.id)!}>{r.name}</Link> : r.name}{r.detail ? <span className="muted">　{r.detail}</span> : null}</li>
+                    <li key={`${r.id}-${i}`}>{recordLink(r.type, r.id) ? <Link to={recordLink(r.type, r.id)!}>{r.name}</Link> : r.name}{r.detail ? <span className="muted">　{r.detail}</span> : null}{g.key.endsWith('_phone_text_unlinked') && <> <CreatePhoneButton type={r.type} id={r.id} onDone={issues.reload} /></>}</li>
                   ))}
                 </ul>
               )}
@@ -166,5 +166,24 @@ export function ResourceOverviewPage() {
         {(recent.data ?? []).length === 0 ? <p className="muted pad">还没有变更记录。新增、修改、停用、归档资料后会显示在这里。</p> : <ol className="plain-list pad">{recent.data!.map((c) => <ChangeRow key={c.id} c={c} />)}</ol>}
       </Block>
     </div>
+  );
+}
+
+/** 数据问题里的“未建档手机号”：一键建立手机号档案并绑定（同号码已有档案就只绑定）。 */
+export function CreatePhoneButton({ type, id, onDone }: { type: string; id: number; onDone: () => void }) {
+  const [state, setState] = useState<{ busy: boolean; error: string; done: string }>({ busy: false, error: '', done: '' });
+  if (state.done) return <span className="muted">{state.done}</span>;
+  return (
+    <>
+      <button type="button" className="link-button" disabled={state.busy} onClick={async () => {
+        setState({ busy: true, error: '', done: '' });
+        try {
+          const r = await resourceApi.createPhone(type, id);
+          setState({ busy: false, error: '', done: r.created ? `已建立 ${r.number} 并绑定` : `已绑定 ${r.number}` });
+          onDone();
+        } catch (e) { setState({ busy: false, error: e instanceof ApiError ? e.message : '建档失败', done: '' }); }
+      }}>{state.busy ? '正在建立…' : '建立手机号档案并绑定'}</button>
+      {state.error && <span role="alert" className="bad-text"> {state.error}</span>}
+    </>
   );
 }

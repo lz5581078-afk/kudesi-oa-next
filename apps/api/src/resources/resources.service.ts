@@ -121,6 +121,15 @@ function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
+/** 哪些资料带“手机号文字 + 手机号档案”这一对字段（总览数据问题里的“未建档手机号”）。 */
+const PHONE_FACT_FIELDS: Record<string, { numberKey: string; idKey: string; holderKey?: string }> = {
+  stores: { numberKey: 'phoneNumber', idKey: 'phoneId' },
+  'bank-accounts': { numberKey: 'reservedPhoneNumber', idKey: 'phoneId', holderKey: 'reservedPhoneHolder' },
+  wechat: { numberKey: 'phoneNumber', idKey: 'phoneId' },
+  'self-media': { numberKey: 'phoneNumber', idKey: 'phoneId' },
+  partners: { numberKey: 'cardPhone', idKey: 'cardPhoneId', holderKey: 'cardPhoneHolder' },
+};
+
 @Injectable()
 export class ResourcesService implements RuleHost {
   constructor(
@@ -1298,6 +1307,33 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 资料总览的“最近变更”：本公司最近的资料修改（只含用户有查看权限的资料类型；不含查看明文的记录）。 */
+  /** 资料里只填了手机号文字、没有手机号档案时，一键建档并绑定（旧系统“建立手机号档案并绑定”）。同号码已有档案就直接绑定。同一事务，公司取自令牌。 */
+  async createPhoneFor(user: AuthUser, type: string, id: number) {
+    const spec = PHONE_FACT_FIELDS[type];
+    if (!spec) throw new BadRequestException('这类资料没有可建档的手机号');
+    const can = createChecker(user.permissions);
+    if (!can(resourcePermission(permissionOwner(type), 'edit')) || !can(resourcePermission('phones', 'create'))) throw new ForbiddenException('需要该资料的修改权限和手机号档案的新增权限');
+    const cleanup: string[] = [];
+    const out = await this.dataSource.transaction(async (em) => {
+      const rec = await this.load(em, user, type, id);
+      if (rec.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再修改');
+      const number = String(rec.data[spec.numberKey] ?? '').trim();
+      if (!number) throw new BadRequestException('这条资料没有填手机号');
+      if (rec.data[spec.idKey]) throw new ConflictException('已经绑定了手机号档案');
+      let phone = await this.findByUnique(em, user.companyId, 'phones', number);
+      let created = false;
+      if (!phone) {
+        const holder = spec.holderKey ? String(rec.data[spec.holderKey] ?? '').trim() : '';
+        phone = await this.saveRecord(em, user, this.def('phones'), null, { number, usageType: 'external_used', ...(holder ? { externalUser: holder } : {}) }, { note: `由${getResourceDef(type)?.label ?? type}「${rec.title}」一键建档` });
+        created = true;
+      }
+      await this.saveRecord(em, user, this.def(type), rec, { [spec.idKey]: phone.id }, { cleanup });
+      return { created, number, phoneId: phone.id };
+    });
+    await this.files.deleteObjects(user.companyId, cleanup);
+    return out;
+  }
+
   async recentChanges(user: AuthUser, limit = 40) {
     const can = createChecker(user.permissions);
     const em = this.dataSource.manager;

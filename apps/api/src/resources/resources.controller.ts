@@ -229,6 +229,13 @@ export class ResourcesController {
     return this.resources.update(user, type, id, dto.values);
   }
 
+  /** 一键建立手机号档案并绑定（权限在服务里按该资料的修改 + 手机号档案的新增校验） */
+  @AuthenticatedOnly()
+  @Post(':type/:id/create-phone')
+  createPhone(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number) {
+    return this.resources.createPhoneFor(user, type, id);
+  }
+
   @RequireResourceAction('disable')
   @Post(':type/:id/status')
   async status(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {

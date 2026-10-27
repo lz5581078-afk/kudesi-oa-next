@@ -50,4 +50,14 @@ describe('资料总览', () => {
     fireEvent.click(screen.getByText('重新读取'));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   });
+
+  it('未建档手机号：每行有「建立手机号档案并绑定」，点后显示结果并刷新', async () => {
+    const issues = vi.spyOn(resourceApi, 'dataIssues').mockResolvedValue({ total: 1, groups: [{ key: 'bank_phone_text_unlinked', label: '银行预留手机没有关联手机号档案', description: 'd', resourceType: 'bank-accounts', count: 1, rows: [{ id: 7, type: 'bank-accounts', name: '工行公户', detail: '预留手机 13800138000：未关联档案' }] }] });
+    const create = vi.spyOn(resourceApi, 'createPhone').mockResolvedValue({ created: true, number: '13800138000', phoneId: 3 });
+    renderPage();
+    const g = await screen.findByLabelText('数据问题：银行预留手机没有关联手机号档案');
+    fireEvent.click(within(g).getByText('建立手机号档案并绑定'));
+    await waitFor(() => expect(create).toHaveBeenCalledWith('bank-accounts', 7));
+    await waitFor(() => expect(issues).toHaveBeenCalledTimes(2));
+  });
 });

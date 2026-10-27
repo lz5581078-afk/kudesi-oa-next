@@ -232,6 +232,30 @@ d('资料引擎（真实数据库）', () => {
     expect((await svc.recentChanges(other)).some((c) => c.resourceId === q.id && c.type === 'qualifications')).toBe(false);
   });
 
+  it('未建档手机号：一键建档并绑定；同号码已有档案则只绑定；没权限、跨公司、重复绑定都拒绝', async () => {
+    const bank = await svc.create(boss, 'bank-accounts', { kind: 'cashier_account', accountName: '建档用', bank: '测试银行', accountNo: '6222000000000077', reservedPhoneNumber: '13800138077', reservedPhoneHolder: '张三' });
+    const r1 = await svc.createPhoneFor(boss, 'bank-accounts', bank.id);
+    expect(r1.created).toBe(true);
+    const after = await svc.get(boss, 'bank-accounts', bank.id);
+    expect(after.data.phoneId).toBe(r1.phoneId);
+    const phone = await svc.get(boss, 'phones', r1.phoneId);
+    expect(phone.data.number).toBe('13800138077');
+    expect(phone.data.externalUser).toBe('张三');
+    await expect(svc.createPhoneFor(boss, 'bank-accounts', bank.id)).rejects.toThrow(/已经绑定/);
+    const bank2 = await svc.create(boss, 'bank-accounts', { kind: 'cashier_account', accountName: '建档用2', bank: '测试银行', accountNo: '6222000000000078', reservedPhoneNumber: '13700137078' });
+    const existingPhone = await svc.create(boss, 'phones', { number: '13700137078', usageType: 'external_used' });
+    const bank2Now = await svc.get(boss, 'bank-accounts', bank2.id);
+    if (bank2Now.data.phoneId) await svc.update(boss, 'bank-accounts', bank2.id, { phoneId: null });
+    const r2 = await svc.createPhoneFor(boss, 'bank-accounts', bank2.id);
+    expect(r2.created).toBe(false);
+    expect(r2.phoneId).toBe(existingPhone.id);
+    const limited: AuthUser = { ...boss, permissions: { isCompanyAdmin: false, allow: ['resource.bank-accounts.edit'], deny: [] } };
+    const bank3 = await svc.create(boss, 'bank-accounts', { kind: 'cashier_account', accountName: '建档用3', bank: '测试银行', accountNo: '6222000000000079', reservedPhoneNumber: '13900139079' });
+    await expect(svc.createPhoneFor(limited, 'bank-accounts', bank3.id)).rejects.toThrow(/权限/);
+    await expect(svc.createPhoneFor(other, 'bank-accounts', bank3.id)).rejects.toThrow();
+    await expect(svc.createPhoneFor(boss, 'licenses', 1)).rejects.toThrow(/没有可建档/);
+  });
+
   it('证件号：可明文编辑和清除，没改时不会重复记日志，必填的卡号不能清空', async () => {
     const p = await svc.create(boss, 'partners', { name: '赵六', idNumber: '110101199001011234' });
     expect(p.data.idNumber).toBe('110101199001011234');

@@ -156,6 +156,7 @@ export const resourceApi = {
   warehousePhotos: (id: number, fileIds: number[]) => api<ResourceDto>(`/resources/finance-products/${id}/warehouse-photos`, { method: 'POST', body: { fileIds } }),
   relations: (type: string, id: number) => api<Relation[]>(`/resources/${type}/${id}/relations`),
   overview: () => api<OverviewResult>('/resources/overview'),
+  createPhone: (type: string, id: number) => api<{ created: boolean; number: string; phoneId: number }>(`/resources/${type}/${id}/create-phone`, { method: 'POST', body: {} }),
   dataIssues: () => api<DataIssuesResult>('/resources/data-issues'),
   recentChanges: () => api<RecentChange[]>('/resources/recent-changes'),
   expiring: (days: number) => api<ExpiringResult>(`/resources/expiring?days=${days}`),
