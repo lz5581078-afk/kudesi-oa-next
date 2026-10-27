@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '../api/client';
 import { resourceApi, type Relation, type ResourceDto } from './api';
+import { ReasonDialog } from './RecordForm';
 
 const norm = (v: unknown) => String(v ?? '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 const msg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
@@ -155,5 +156,39 @@ export function PhoneArchiveButton({ type, record, numberKey, idKey, holder, onD
         onDone();
       } catch (e) { onError(msg(e, '建档失败')); }
     }}>{number} 还没有手机号档案，一键建档并绑定</button>
+  );
+}
+
+/** 收回为公共店铺：清空运营人并写一条退店记录保留原因（旧系统的“收回为公共店铺”）。 */
+export function StoreReleaseButton({ record, onDone, onError }: {
+  record: ResourceDto; onDone: () => void; onError: (m: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if ((record.data.claimStatus ?? 'public') === 'public' && !record.data.operatorUserId) return null;
+  return (
+    <>
+      <button type="button" className="link-button" onClick={() => setOpen(true)}>收回为公共店铺</button>
+      {open && (
+        <ReasonDialog
+          title="收回为公共店铺"
+          hint="收回后清空当前运营，店铺进入公共待领取；原因会记在领退店记录里。"
+          confirmLabel="收回"
+          danger
+          onClose={() => setOpen(false)}
+          onConfirm={async (reason) => {
+            try {
+              const prev = record.data.operatorUserId;
+              await resourceApi.update('stores', record.id, { claimStatus: 'public', operatorUserId: null });
+              await resourceApi.create('store-claims', {
+                storeId: record.id, action: 'return', happenedAt: new Date().toISOString().slice(0, 10),
+                ...(prev ? { userId: prev } : {}), note: `收回为公共店铺：${reason}`,
+              });
+              setOpen(false);
+              onDone();
+            } catch (e) { onError(msg(e, '收回失败')); throw e; }
+          }}
+        />
+      )}
+    </>
   );
 }

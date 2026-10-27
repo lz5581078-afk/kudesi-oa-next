@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resourceApi } from './api';
-import { DerivedStoresPanel, PhoneArchiveButton, ReturnBorrowButton } from './CertPanels';
+import { DerivedStoresPanel, PhoneArchiveButton, ReturnBorrowButton, StoreReleaseButton } from './CertPanels';
 
 describe('证照与主体面板', () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -42,6 +42,24 @@ describe('证照与主体面板', () => {
     cleanup();
     const bound = { id: 3, title: 'x', data: { reservedPhoneNumber: '13800000000', phoneId: 5 } } as never;
     const { container } = render(<PhoneArchiveButton type="bank-accounts" record={bound} numberKey="reservedPhoneNumber" idKey="phoneId" holder="" onDone={done} onError={() => undefined} />);
+    expect(container.textContent).toBe('');
+  });
+
+  it('收回为公共店铺：清空运营人并留一条退店记录；公共店铺不显示按钮', async () => {
+    const update = vi.spyOn(resourceApi, 'update').mockResolvedValue({} as never);
+    const create = vi.spyOn(resourceApi, 'create').mockResolvedValue({} as never);
+    const done = vi.fn();
+    const rec = { id: 3, title: '甲店', status: 'normal', data: { claimStatus: 'claimed', operatorUserId: 9 } } as never;
+    render(<StoreReleaseButton record={rec} onDone={done} onError={() => undefined} />);
+    fireEvent.click(screen.getByText('收回为公共店铺'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '运营离职' } });
+    fireEvent.click(screen.getByText('收回'));
+    await waitFor(() => expect(done).toHaveBeenCalled());
+    expect(update).toHaveBeenCalledWith('stores', 3, { claimStatus: 'public', operatorUserId: null });
+    expect(create).toHaveBeenCalledWith('store-claims', expect.objectContaining({ storeId: 3, action: 'return', userId: 9, note: '收回为公共店铺：运营离职' }));
+    cleanup();
+    const pub = { id: 4, title: '乙店', status: 'normal', data: { claimStatus: 'public' } } as never;
+    const { container } = render(<StoreReleaseButton record={pub} onDone={done} onError={() => undefined} />);
     expect(container.textContent).toBe('');
   });
 });
