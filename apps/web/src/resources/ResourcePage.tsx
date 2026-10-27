@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, type FieldDef } from '@kudesi/shared';
+import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
 import { resourceApi, type ListResult } from './api';
@@ -8,6 +9,7 @@ import { displayValue, statusOf } from './format';
 import { CategoryTree } from './CategoryTree';
 import { FeeSnapshotsDialog } from './FeeSnapshotsDialog';
 import { PackagingExcelDialog } from './PackagingExcelDialog';
+import { ProductCostExcelDialog } from './ProductCostExcelDialog';
 import { ImportDialog } from './ImportDialog';
 import { TaxPendingDialog } from './TaxPendingDialog';
 import { ReasonLibraryDialog } from './ReasonLibraryDialog';
@@ -148,6 +150,9 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [seeding, setSeeding] = useState(false);
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [packagingXlOpen, setPackagingXlOpen] = useState(false);
+  const [costXlOpen, setCostXlOpen] = useState(false);
+  const { user: me } = useAuth();
+  const costCan = createChecker(me?.permissions ?? { isCompanyAdmin: false, allow: [], deny: [] });
   async function seedFees() {
     if (!window.confirm('把旧程序里的费用类别树和费用项目（约 380 项）导入进来？已经有的编号不会重复，也不会被覆盖。')) return;
     setSeeding(true);
@@ -189,6 +194,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         <div className="page-head">
           <h1>{title ?? def.label}</h1>
           <div className="pill-row">
+            {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="secondary-button" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
             {type === 'finance-packaging-schemes' && <button type="button" className="secondary-button" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
             {type === 'finance-fee-items' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
             {type === 'finance-fee-items' && <button type="button" className="secondary-button" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
@@ -399,6 +405,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         </div>
       </section>
 
+      {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}
       {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}
       {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}

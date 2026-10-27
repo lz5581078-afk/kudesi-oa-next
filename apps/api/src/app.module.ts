@@ -58,6 +58,8 @@ import { FeeArchiveService } from './resources/fee-archive.service';
 import { LaborController } from './resources/labor.controller';
 import { PackagingImportController } from './resources/packaging-import.controller';
 import { PackagingImportService } from './resources/packaging-import.service';
+import { ProductCostExcelController } from './resources/product-cost-excel.controller';
+import { ProductCostExcelService } from './resources/product-cost-excel.service';
 import { FeeSnapshotService } from './resources/fee-snapshot.service';
 import { EmployeePartyController } from './resources/employee-party.controller';
 import { EmployeePartyService } from './resources/employee-party.service';
@@ -136,7 +138,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, CategoryToolsController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, CategoryToolsController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController],
   providers: [
     AuthService,
     PlatformService,
@@ -150,6 +152,7 @@ const env = loadEnv();
     FeeArchiveService,
     LaborCopyService,
     PackagingImportService,
+    ProductCostExcelService,
     EmployeePartyService,
     FeeSnapshotService,
     DataToolsService,
