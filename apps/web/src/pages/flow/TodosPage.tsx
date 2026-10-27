@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import { Pager } from '../finance/common';
-import { ReasonDialog } from '../../resources/RecordForm';
 import { RunDetail } from './RunDetail';
-import { flowApi, fmtTime, type TodoList } from './flowApi';
+import { DelayDialog, SubmitTaskDialog } from './TaskDialogs';
+import { flowApi, fmtTime, type TodoList, type TodoRow } from './flowApi';
 import { dueHint, remember, useDebounced } from './flowUi';
 
 type Tab = 'pending' | 'overdue' | 'returned' | 'done';
@@ -28,7 +28,8 @@ export function MyTodosPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [finish, setFinish] = useState<number | null>(null);
+  const [finish, setFinish] = useState<TodoRow | null>(null);
+  const [delay, setDelay] = useState<TodoRow | null>(null);
   const open = Number(params.get('run')) || null;
 
   const load = useCallback(() => {
@@ -48,6 +49,7 @@ export function MyTodosPage() {
       <div className="page-head">
         <h1>我的待办</h1>
         <div className="row-actions">
+          {data && (data.counts.taskReview ?? 0) > 0 && <Link to="/workbench/tasks" className="pill warn">任务待我复核/处理 {data.counts.taskReview} 条</Link>}
           {data && data.counts.cc > 0 && <Link to="/workbench/cc" className="muted">抄送我的 {data.counts.cc} 条</Link>}
           <button type="button" className="secondary-button" disabled={loading} onClick={load}>{loading ? '刷新中…' : '刷新'}</button>
         </div>
@@ -79,7 +81,7 @@ export function MyTodosPage() {
               <tr key={r.id} className={late ? 'late' : undefined}>
                 <td className="cell-title">{r.runId
                   ? <button type="button" className="link-button" onClick={() => setParams({ run: String(r.runId) })}>{r.enteredVia === 'return' && <span className="pill warn">被退回</span>} {r.runTitle}</button>
-                  : <><strong>{r.runTitle}</strong>{r.description && <span className="sub-line">{r.description}</span>}</>}</td>
+                  : <><strong>{r.runTitle}</strong>{r.description && <span className="sub-line">{r.description}</span>}{r.completionStandard && <span className="sub-line">完成标准：{r.completionStandard}</span>}{r.reviewComment && r.status === 'open' && <span className="sub-line late-text">被退回：{r.reviewComment}</span>}</>}</td>
                 <td data-label="类型">{r.templateLabel}</td>
                 <td data-label="当前步骤">{r.stepName ?? ''}</td>
                 <td data-label="发起人">{r.requesterName}</td>
@@ -91,7 +93,10 @@ export function MyTodosPage() {
                 <td className="row-actions">
                   {r.runId
                     ? <button type="button" className={tab === 'done' ? 'secondary-button small' : 'primary-button'} onClick={() => setParams({ run: String(r.runId) })}>{tab === 'done' ? '查看' : '去办理'}</button>
-                    : tab !== 'done' && <button type="button" className="secondary-button small" onClick={() => setFinish(r.id)}>完成</button>}
+                    : tab !== 'done' && <>
+                      <button type="button" className="secondary-button small" onClick={() => setFinish(r)}>{r.requiresReview ? '提交' : '完成'}</button>
+                      {r.dueAt && <button type="button" className="link-button" onClick={() => setDelay(r)}>申请延期</button>}
+                    </>}
                 </td>
               </tr>
             );
@@ -99,7 +104,8 @@ export function MyTodosPage() {
         </tbody>
       </table></div>
       {data && <Pager page={page} pageSize={20} total={data.total} onPage={setPage} />}
-      {finish && <ReasonDialog title="完成任务" hint="写一句完成情况。" confirmLabel="完成" onClose={() => setFinish(null)} onConfirm={async (note) => { await flowApi.completeTask(finish, note); setFinish(null); setNotice('任务已完成'); load(); }} />}
+      {finish && <SubmitTaskDialog task={{ id: finish.id, title: finish.runTitle, feedbackPreset: finish.feedbackPreset, completionStandard: finish.completionStandard, requiresReview: finish.requiresReview }} onClose={() => setFinish(null)} onDone={(st) => { setFinish(null); setNotice(st === 'reviewing' ? '已提交，等监督人复核' : st === 'abnormal' ? '已异常提交，等监督人处理' : '任务已完成'); load(); }} />}
+      {delay && <DelayDialog task={{ id: delay.id, title: delay.runTitle }} onClose={() => setDelay(null)} onDone={() => { setDelay(null); setNotice('延期申请已提交，等监督人处理'); load(); }} />}
       {open && <RunDetail id={open} onClose={() => setParams({})} onChanged={load} />}
     </div>
   );

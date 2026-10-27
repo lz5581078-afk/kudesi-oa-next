@@ -10,7 +10,7 @@ import { TasksPage } from './TasksPage';
 
 vi.mock('./flowApi', async (orig) => {
   const mod = await orig<typeof import('./flowApi')>();
-  return { ...mod, flowApi: { todos: vi.fn(), runs: vi.fn(), templates: vi.fn(), run: vi.fn(), start: vi.fn(), assigned: vi.fn(), cancelTask: vi.fn(), createTask: vi.fn(), completeTask: vi.fn(), routines: vi.fn() } };
+  return { ...mod, flowApi: { todos: vi.fn(), runs: vi.fn(), templates: vi.fn(), run: vi.fn(), start: vi.fn(), assigned: vi.fn(), cancelTask: vi.fn(), createTask: vi.fn(), completeTask: vi.fn(), routines: vi.fn(), supervised: vi.fn(), reviewCounts: vi.fn(), reviewTask: vi.fn(), delayTask: vi.fn(), decideDelay: vi.fn() } };
 });
 vi.mock('../org/orgApi', async (orig) => ({ ...(await orig<typeof import('../org/orgApi')>()), orgApi: { departments: vi.fn().mockResolvedValue([{ id: 4, name: '运营部', children: [{ id: 5, name: '直播组', children: [] }] }]) } }));
 vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ can: () => true }) }));
@@ -34,7 +34,7 @@ const runDetail = (over: Record<string, unknown> = {}) => ({
 });
 const wrap = (ui: JSX.Element, url = '/') => render(<MemoryRouter initialEntries={[url]}>{ui}</MemoryRouter>);
 
-beforeEach(() => { window.localStorage.clear(); f.templates.mockResolvedValue([]); });
+beforeEach(() => { window.localStorage.clear(); f.templates.mockResolvedValue([]); f.reviewCounts.mockResolvedValue({ review: 0, delay: 0 }); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('我的待办', () => {
@@ -189,8 +189,69 @@ describe('任务中心', () => {
     fireEvent.click(within(dlg).getByText('创建'));
     expect(await within(dlg).findByText('请填写任务标题')).toBeTruthy();
     fireEvent.change(within(dlg).getAllByRole('textbox')[0], { target: { value: '补货' } });
-    fireEvent.change(within(dlg).getByRole('combobox'), { target: { value: '7' } });
+    fireEvent.change(within(dlg).getByLabelText(/^负责人/), { target: { value: '7' } });
+    fireEvent.change(within(dlg).getByLabelText(/^监督人/), { target: { value: '7' } });
+    fireEvent.click(within(dlg).getByLabelText(/需要监督人复核/));
+    fireEvent.change(within(dlg).getByLabelText(/反馈模板/), { target: { value: 'operation_daily' } });
     fireEvent.click(within(dlg).getByText('创建'));
     expect(await screen.findByText(/已分派给 小李/)).toBeTruthy();
+    expect(f.createTask).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: 7, supervisorId: 7, requiresReview: true, feedbackPreset: 'operation_daily' }));
+  });
+  it('我监督的任务：能通过/退回待复核的，处理延期申请', async () => {
+    const row = { id: 4, title: '运营日报', description: null, status: 'reviewing', dueAt: null, createdAt: '', finishedAt: null, doneNote: null, assigneeName: '小李', overdue: false, feedbackPreset: 'operation_daily', submitPayload: { salesAmount: '100' }, delayId: 8, delayDueAt: '2099-02-01T00:00:00Z', delayReason: '没货' };
+    f.supervised.mockResolvedValue({ total: 1, page: 1, pageSize: 20, rows: [row] });
+    f.reviewCounts.mockResolvedValue({ review: 1, delay: 1 });
+    f.reviewTask.mockResolvedValue({ ok: true });
+    f.decideDelay.mockResolvedValue({ ok: true });
+    wrap(<TasksPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /我监督的任务 \(2\)/ }));
+    expect(await screen.findByText('销售额：100')).toBeTruthy();
+    fireEvent.click(screen.getByText('退回'));
+    const dlg = await screen.findByRole('dialog', { name: '退回重做' });
+    fireEvent.change(within(dlg).getByRole('textbox'), { target: { value: '推广费没填' } });
+    fireEvent.click(within(dlg).getByText('退回'));
+    await waitFor(() => expect(f.reviewTask).toHaveBeenCalledWith(4, 'return', '推广费没填'));
+    fireEvent.click(await screen.findByText('同意延期'));
+    const d2 = await screen.findByRole('dialog', { name: '同意延期' });
+    fireEvent.change(within(d2).getByRole('textbox'), { target: { value: '同意啊' } });
+    fireEvent.click(within(d2).getByText('同意'));
+    await waitFor(() => expect(f.decideDelay).toHaveBeenCalledWith(8, true, '同意啊'));
+  });
+});
+
+describe('待办里的任务：提交与延期', () => {
+  const task = (over = {}) => todo({ id: 21, kind: 'task', runId: null, runTitle: '运营日报', templateLabel: '任务', feedbackPreset: 'phone_check', requiresReview: 1, completionStandard: '三个号都要查', ...over });
+  it('按反馈模板填写；必填校验；异常提交要写说明', async () => {
+    f.todos.mockResolvedValue(todoList([task()]));
+    f.completeTask.mockResolvedValue({ ok: true, status: 'reviewing' });
+    wrap(<MyTodosPage />);
+    expect(await screen.findByText('完成标准：三个号都要查')).toBeTruthy();
+    fireEvent.click(screen.getByText('提交'));
+    const dlg = await screen.findByRole('dialog', { name: '提交任务' });
+    fireEvent.click(within(dlg).getByText('提交复核'));
+    expect(await within(dlg).findByText(/至少填写/)).toBeTruthy();
+    fireEvent.change(within(dlg).getByLabelText('手机号'), { target: { value: '13800000000' } });
+    fireEvent.change(within(dlg).getByLabelText('是否畅通'), { target: { value: '畅通' } });
+    fireEvent.click(within(dlg).getByText('提交复核'));
+    await waitFor(() => expect(f.completeTask).toHaveBeenCalledWith(21, undefined, { payload: { phoneNumber: '13800000000', isConnected: '畅通' }, abnormal: undefined }));
+    expect(await screen.findByText('已提交，等监督人复核')).toBeTruthy();
+    fireEvent.click(screen.getByText('提交'));
+    const d2 = await screen.findByRole('dialog', { name: '提交任务' });
+    fireEvent.click(within(d2).getByLabelText(/异常提交/));
+    fireEvent.click(within(d2).getByText('异常提交', { selector: 'button' }));
+    expect(await within(d2).findByText('异常提交要写清楚是什么问题')).toBeTruthy();
+  });
+  it('申请延期要选日期并写原因', async () => {
+    f.todos.mockResolvedValue(todoList([task()]));
+    f.delayTask.mockResolvedValue({ id: 1 });
+    wrap(<MyTodosPage />);
+    fireEvent.click(await screen.findByText('申请延期'));
+    const dlg = await screen.findByRole('dialog', { name: '申请延期' });
+    fireEvent.click(within(dlg).getByText('提交申请'));
+    expect(await within(dlg).findByText('请选择新的截止日期')).toBeTruthy();
+    fireEvent.change(within(dlg).getByLabelText(/新的截止日期/), { target: { value: '2099-02-01' } });
+    fireEvent.change(within(dlg).getByLabelText(/延期原因/), { target: { value: '供应商没发货' } });
+    fireEvent.click(within(dlg).getByText('提交申请'));
+    await waitFor(() => expect(f.delayTask).toHaveBeenCalledWith(21, '2099-02-01', '供应商没发货'));
   });
 });

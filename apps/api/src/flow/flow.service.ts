@@ -690,7 +690,7 @@ export class FlowService {
     const now = new Date();
     const base = 'w.company_id = ? AND w.assignee_id = ?';
     const args: unknown[] = [user.companyId, user.id];
-    let cond = "w.status = 'open'";
+    let cond = "w.status = 'open' AND (w.kind <> 'task' OR w.submitted_at IS NULL)"; // 已提交等复核的任务不再算负责人的待办
     if (q.tab === 'overdue') { cond += ' AND w.due_at IS NOT NULL AND w.due_at < ?'; args.push(now); }
     if (q.tab === 'returned') cond += " AND s.entered_via = 'return'";
     if (q.tab === 'done') { cond = "w.status = 'done'"; }
@@ -700,19 +700,21 @@ export class FlowService {
     const [{ n }] = await this.dataSource.query(`SELECT COUNT(*) AS n ${from}`, args);
     const rows = await this.dataSource.query(
       `SELECT w.id, w.kind, w.routine_id AS routineId, w.run_id AS runId, w.title, w.description, w.status, w.due_at AS dueAt, w.created_at AS createdAt, w.finished_at AS finishedAt,
-              s.step_name AS stepName, s.entered_via AS enteredVia, r.template_key AS templateKey, COALESCE(r.title, w.title) AS runTitle, COALESCE(u.name, cu.name) AS requesterName
+              w.feedback_preset AS feedbackPreset, w.completion_standard AS completionStandard, w.requires_review AS requiresReview, w.review_note AS reviewNote, w.supervisor_id AS supervisorId, s.step_name AS stepName, s.entered_via AS enteredVia, r.template_key AS templateKey, COALESCE(r.title, w.title) AS runTitle, COALESCE(u.name, cu.name) AS requesterName
        ${from} ORDER BY ${q.tab === 'done' ? 'w.finished_at DESC' : 'w.due_at IS NULL, w.due_at ASC, w.id DESC'} LIMIT ? OFFSET ?`,
       [...args, q.pageSize, (q.page - 1) * q.pageSize],
     );
     const [counts] = await this.dataSource.query(
-      `SELECT SUM(w.status = 'open') AS pending, SUM(w.status = 'open' AND w.due_at IS NOT NULL AND w.due_at < ?) AS overdue,
+      `SELECT SUM(w.status = 'open' AND (w.kind <> 'task' OR w.submitted_at IS NULL)) AS pending, SUM(w.status = 'open' AND (w.kind <> 'task' OR w.submitted_at IS NULL) AND w.due_at IS NOT NULL AND w.due_at < ?) AS overdue,
               SUM(w.status = 'open' AND s.entered_via = 'return') AS returned
        FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id WHERE w.company_id = ? AND w.assignee_id = ?`, [now, user.companyId, user.id]);
     const [cc] = await this.dataSource.query('SELECT COUNT(*) AS n FROM flow_ccs WHERE company_id = ? AND user_id = ?', [user.companyId, user.id]);
     const labels = await this.labelMap(user.companyId);
+    const [rv] = await this.dataSource.query("SELECT COUNT(*) AS n FROM work_items WHERE company_id = ? AND kind = 'task' AND status = 'open' AND submitted_at IS NOT NULL AND COALESCE(supervisor_id, created_by) = ?", [user.companyId, user.id]);
+    const [dl] = await this.dataSource.query("SELECT COUNT(*) AS n FROM task_delay_requests WHERE company_id = ? AND approver_id = ? AND status = 'pending'", [user.companyId, user.id]);
     return {
       total: Number(n), page: q.page, pageSize: q.pageSize,
-      counts: { pending: Number(counts.pending ?? 0), overdue: Number(counts.overdue ?? 0), returned: Number(counts.returned ?? 0), cc: Number(cc.n) },
+      counts: { pending: Number(counts.pending ?? 0), overdue: Number(counts.overdue ?? 0), returned: Number(counts.returned ?? 0), cc: Number(cc.n), taskReview: Number(rv.n) + Number(dl.n) },
       rows: rows.map((r: Record<string, unknown>) => ({ ...r, templateLabel: r.kind === 'task' ? (r.routineId ? '周期任务' : '任务') : labels.get(String(r.templateKey)) ?? '', overdue: r.status === 'open' && r.dueAt ? new Date(String(r.dueAt)) < now : false })),
     };
   }

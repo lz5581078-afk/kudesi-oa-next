@@ -923,6 +923,13 @@ export class WorkItem {
   @Column({ type: 'varchar', length: 200 }) title!: string;
   @Column({ type: 'varchar', length: 1000, nullable: true }) description!: string | null;
   @Column({ type: 'varchar', length: 10, default: 'open' }) status!: 'open' | 'done' | 'cancelled';
+  @Column({ name: 'supervisor_id', type: 'int', unsigned: true, nullable: true }) supervisorId!: number | null;
+  @Column({ name: 'requires_review', type: 'tinyint', width: 1, default: 0, transformer: { to: (v: boolean) => (v ? 1 : 0), from: (v: number) => v === 1 } }) requiresReview!: boolean;
+  @Column({ name: 'feedback_preset', type: 'varchar', length: 30, nullable: true }) feedbackPreset!: string | null;
+  @Column({ name: 'completion_standard', type: 'varchar', length: 500, nullable: true }) completionStandard!: string | null;
+  @Column({ name: 'submit_payload', type: 'json', nullable: true }) submitPayload!: Record<string, unknown> | null;
+  /** 异常提交：负责人没办成/发现问题提交，等监督人处理（和“已提交待复核”一样靠 submitted_at 表示已提交） */
+  @Column({ name: 'is_abnormal', type: 'tinyint', width: 1, default: 0, transformer: { to: (v: boolean) => (v ? 1 : 0), from: (v: number) => v === 1 } }) isAbnormal!: boolean;
   @Column({ name: 'due_at', ...dt, nullable: true }) dueAt!: Date | null;
   @Column({ name: 'overdue_notified_at', ...dt, nullable: true }) overdueNotifiedAt!: Date | null;
   @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
@@ -943,12 +950,33 @@ export class TaskRoutine {
   @Column({ type: 'varchar', length: 150 }) title!: string;
   @Column({ type: 'varchar', length: 1000, nullable: true }) description!: string | null;
   @Column({ name: 'assignee_id', type: 'int', unsigned: true }) assigneeId!: number;
+  @Column({ name: 'supervisor_id', type: 'int', unsigned: true, nullable: true }) supervisorId!: number | null;
+  @Column({ name: 'requires_review', type: 'tinyint', width: 1, default: 0, transformer: { to: (v: boolean) => (v ? 1 : 0), from: (v: number) => v === 1 } }) requiresReview!: boolean;
+  @Column({ name: 'feedback_preset', type: 'varchar', length: 30, nullable: true }) feedbackPreset!: string | null;
+  @Column({ name: 'completion_standard', type: 'varchar', length: 500, nullable: true }) completionStandard!: string | null;
   @Column({ type: 'varchar', length: 8 }) frequency!: 'daily' | 'weekly' | 'monthly';
   @Column({ type: 'tinyint', unsigned: true, nullable: true }) weekday!: number | null;
   @Column({ name: 'month_day', type: 'tinyint', unsigned: true, nullable: true }) monthDay!: number | null;
   @Column({ name: 'due_days', type: 'tinyint', unsigned: true, default: 1 }) dueDays!: number;
   @Column({ type: 'tinyint', width: 1, transformer: { to: (v: boolean) => (v ? 1 : 0), from: (v: number) => v === 1 } }) active!: boolean;
   @Column({ name: 'created_by', type: 'int', unsigned: true }) createdBy!: number;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+}
+
+/** 任务延期申请：负责人申请，监督人（没有监督人时是指派人）同意后任务截止时间改成新的。 */
+@Entity('task_delay_requests')
+export class TaskDelayRequest {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'work_item_id', type: 'int', unsigned: true }) workItemId!: number;
+  @Column({ name: 'requester_id', type: 'int', unsigned: true }) requesterId!: number;
+  @Column({ name: 'approver_id', type: 'int', unsigned: true }) approverId!: number;
+  @Column({ name: 'old_due_at', ...dt, nullable: true }) oldDueAt!: Date | null;
+  @Column({ name: 'requested_due_at', ...dt }) requestedDueAt!: Date;
+  @Column({ type: 'varchar', length: 500 }) reason!: string;
+  @Column({ type: 'varchar', length: 10, default: 'pending' }) status!: 'pending' | 'approved' | 'rejected';
+  @Column({ name: 'approval_comment', type: 'varchar', length: 500, nullable: true }) approvalComment!: string | null;
+  @Column({ name: 'decided_at', ...dt, nullable: true }) decidedAt!: Date | null;
   @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
 }
 
@@ -1274,6 +1302,7 @@ export const ALL_ENTITIES = [
   FlowRun,
   FlowStep,
   WorkItem,
+  TaskDelayRequest,
   FlowCc,
   FlowEvent,
   Notification,

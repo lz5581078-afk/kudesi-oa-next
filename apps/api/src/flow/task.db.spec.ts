@@ -85,5 +85,57 @@ d('任务中心（真实数据库）', () => {
     await tasks.cancel(admin, w.id);
   });
 
+  it('监督与复核：按反馈模板提交，待复核，监督人通过或退回；周期任务把监督设置带到生成的任务', async () => {
+    const t = await tasks.create(boss, { title: '日报', assigneeId: worker.id, supervisorId: other.id, requiresReview: true, feedbackPreset: 'operation_daily', completionStandard: '填完整' });
+    await expect(tasks.create(boss, { title: 'x', feedbackPreset: 'nope' })).rejects.toThrow(/反馈模板/);
+    await expect(tasks.create(boss, { title: 'x', supervisorId: 999999 })).rejects.toThrow(/监督人/);
+    await expect(tasks.complete(worker, t.id, '好了')).rejects.toThrow(/至少填写/);
+    await expect(tasks.complete(worker, t.id, '', { payload: { salesAmount: 'abc' } })).rejects.toThrow(/数字/);
+    expect(await tasks.complete(worker, t.id, '', { payload: { salesAmount: '100.5', todayActions: '上新' } })).toMatchObject({ status: 'reviewing' });
+    await expect(tasks.complete(worker, t.id, '再交')).rejects.toThrow(/等复核/);
+    const todo = await flow.todos(other, { tab: 'pending', page: 1, pageSize: 20 });
+    expect(todo.counts.taskReview).toBe(1);
+    await expect(tasks.review(boss, t.id, { action: 'approve' })).rejects.toThrow(/监督人/);
+    await expect(tasks.review(other, t.id, { action: 'return' })).rejects.toThrow(/原因/);
+    await tasks.review(other, t.id, { action: 'return', comment: '推广费没填' });
+    expect((await tasks.supervised(other, { status: 'open', page: 1, pageSize: 20 })).rows[0]).toMatchObject({ title: '日报', reviewComment: '推广费没填', supervisorName: '别人' });
+    await tasks.complete(worker, t.id, '', { payload: { salesAmount: '100', promotionFee: '10' } });
+    await tasks.review(other, t.id, { action: 'approve' });
+    expect((await tasks.assigned(boss, { status: 'done', page: 1, pageSize: 50 })).rows.find((r: { id: number }) => r.id === t.id)).toMatchObject({ submitPayload: { salesAmount: '100', promotionFee: '10' } });
+
+    // 异常提交：必须写说明，监督人（没有时是指派人）处理
+    const a = await tasks.create(boss, { title: '查手机号', assigneeId: worker.id });
+    await expect(tasks.complete(worker, a.id, '', { abnormal: true })).rejects.toThrow(/异常提交要写/);
+    expect(await tasks.complete(worker, a.id, '号码停机', { abnormal: true })).toMatchObject({ status: 'abnormal' });
+    expect((await tasks.reviewCounts(admin.companyId, boss.id)).review).toBe(1);
+    await tasks.review(boss, a.id, { action: 'approve', comment: '已知晓' });
+
+    const r = await tasks.saveRoutine(boss, null, { title: '周期复核', assigneeId: worker.id, frequency: 'daily', dueDays: 1, supervisorId: other.id, requiresReview: true, feedbackPreset: 'simple' });
+    await expect(tasks.saveRoutine(boss, null, { title: '没监督', assigneeId: worker.id, frequency: 'daily', dueDays: 1, requiresReview: true })).rejects.toThrow(/监督人/);
+    await tasks.generateRoutines('2026-11-03');
+    const w = await ds.manager.findOneByOrFail(WorkItem, { routineId: r.id, companyId: admin.companyId });
+    expect(w).toMatchObject({ supervisorId: other.id, requiresReview: true, feedbackPreset: 'simple' });
+  });
+
+  it('延期申请：负责人申请，监督人同意后截止时间改变；不同意要写原因；同时只能有一条', async () => {
+    const t = await tasks.create(boss, { title: '要延期', assigneeId: worker.id, dueDate: '2099-01-01' });
+    await expect(tasks.requestDelay(other, t.id, { dueDate: '2099-02-01', reason: '忙' })).rejects.toThrow(/负责人/);
+    await expect(tasks.requestDelay(worker, t.id, { dueDate: '2099-02-01', reason: '' })).rejects.toThrow(/原因/);
+    await expect(tasks.requestDelay(worker, t.id, { dueDate: '2098-12-01', reason: '忙' })).rejects.toThrow(/晚于/);
+    const d = await tasks.requestDelay(worker, t.id, { dueDate: '2099-02-01', reason: '供应商没发货' });
+    await expect(tasks.requestDelay(worker, t.id, { dueDate: '2099-03-01', reason: '再来' })).rejects.toThrow(/已经有一条/);
+    expect((await tasks.assigned(boss, { page: 1, pageSize: 50 })).rows.find((r: { id: number }) => r.id === t.id)).toMatchObject({ delayId: d.id, delayReason: '供应商没发货' });
+    await expect(tasks.decideDelay(other, d.id, { approve: true })).rejects.toThrow(/监督人或指派人/);
+    await expect(tasks.decideDelay(boss, d.id, { approve: false })).rejects.toThrow(/原因/);
+    await tasks.decideDelay(boss, d.id, { approve: true });
+    await expect(tasks.decideDelay(boss, d.id, { approve: true })).rejects.toThrow(/处理过/);
+    expect((await ds.manager.findOneByOrFail(WorkItem, { id: t.id })).dueAt?.toISOString()).toBe('2099-02-01T15:59:59.000Z');
+    // 没有指派人也没有监督人的周期任务不能申请延期
+    const x = await tasks.saveRoutine(boss, null, { title: '无监督周期', assigneeId: worker.id, frequency: 'daily', dueDays: 1 });
+    await tasks.generateRoutines('2026-11-04');
+    const w = await ds.manager.findOneByOrFail(WorkItem, { routineId: x.id, companyId: admin.companyId });
+    await expect(tasks.requestDelay(worker, w.id, { dueDate: '2099-01-01', reason: '忙' })).rejects.toThrow(/没有监督人/);
+  });
+
   async function mkGone() { return mk(admin.companyId, `gone${crypto.randomBytes(3).toString('hex')}`, '离职员工'); }
 });
