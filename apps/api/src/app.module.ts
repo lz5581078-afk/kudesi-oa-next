@@ -157,7 +157,6 @@ const env = loadEnv();
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
   controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController],
->>>>>>> 4008eea (系统：新增 AI API 接口、OCR 设置菜单页（多服务商与模型同步默认关）；平台后台新增接口应用配置；更新审计文档)
   providers: [
     AuthService,
     PlatformService,
