@@ -75,8 +75,8 @@ d('商品与成本目录接口（真实数据库）', () => {
     expect(one.items).toHaveLength(1);
     expect(one.items[0]).toMatchObject({ platformCode: 'TB' });
     const cats = await catalog.bundleCategories(boss.companyId, {});
-    expect(cats.items.map((c) => c.name).sort()).toEqual(['水果', '苹果类']);
-    expect(cats.items.find((c) => c.name === '水果')?.bundleCount).toBe(2);
+    expect(cats.items.map((c) => c.name).sort()).toEqual(['组合']); // 组合自己的分类树（不是主商品的分类）
+    expect(cats.items.find((c) => c.name === '组合')?.bundleCount).toBe(2);
     expect((await catalog.costCategories(boss.companyId, {})).items.length).toBeGreaterThan(0);
   });
 });

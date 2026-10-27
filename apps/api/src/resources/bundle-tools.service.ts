@@ -8,6 +8,8 @@ import { OutboxService } from '../outbox/outbox.service';
 import { COST_FIELDS, sigOf } from './base-code-support';
 import { composeBundle } from './bundle-naming';
 import { bundleIssues, pickLine } from './bundle-checks';
+import { registerCostSnapshots } from './cost-snapshot';
+import { unfinishedApplications } from './bundle-guards';
 import { buildBundleLines, bundleSnapshotJson, findNamingRule, namingInputFor } from './finance-rules';
 import { ResourcesService } from './resources.service';
 
@@ -257,6 +259,7 @@ export class BundleToolsService {
         if (rep.issues.length) throw new BadRequestException(rep.issues[0]);
         if (opts.syncToJst && rep.uploadSignature !== it.uploadSignature) throw new ConflictException('要上传的内容在核对之后变了，请重新核对');
         await this.resources.changeStatus(user, TYPE, it.id, 'verified');
+        await registerCostSnapshots(this.ds.manager, user.companyId, user.id, [it.id], '验证通过', 'workflow_publish');
         let queued = false;
         if (opts.syncToJst) queued = (await this.outbox.enqueue(user, TYPE, [it.id], { replaceConfirmed: opts.replaceConfirmed })).queued > 0;
         results.push({ id: it.id, ok: true, queued });
@@ -309,10 +312,13 @@ export class BundleToolsService {
     if (num(b.data.pendingRevisionId)) throw new ConflictException('这个组合有待发布的构成修订，请先发布或取消修订');
     const synced = !!str(b.data.jstUploadedCode);
     if (synced && !disableConfirmed) throw new BadRequestException('这个组合上传过聚水潭，需要确认“同时在聚水潭停用它”');
-    if (synced && !user.permissions.isCompanyAdmin) throw new ForbiddenException('上传过聚水潭的组合，只有公司管理员能归档');
+    if (synced && !this.outbox.canBundles(user)) throw new ForbiddenException('上传过聚水潭的组合，只有公司管理员或有「组合装同步维护」权限的人能归档');
+    if (await unfinishedApplications(this.ds.manager, user.companyId, b, await this.lineRecords(this.ds.manager, user, id))) throw new ConflictException('有还没办完的 SKU 批量申请用到了这个组合，请等申请办完或撤销后再归档');
     let queued = false;
-    if (synced) queued = (await this.outbox.enqueueDisable(user, TYPE, id, reason.trim())).queued;
+    let disable: Awaited<ReturnType<OutboxService['enqueueDisable']>> | null = null;
+    if (synced) { disable = await this.outbox.enqueueDisable(user, TYPE, id, reason.trim()); queued = disable.queued; }
     await this.resources.changeStatus(user, TYPE, id, 'archived', reason.trim());
+    if (synced && disable) await this.outbox.recordArchiveJob(user, { id, code: str(b.data.code), name: str(b.data.name) }, reason.trim(), { jobId: disable.jobId, targetKey: disable.targetKey });
     return { ok: true, disableQueued: queued };
   }
 }

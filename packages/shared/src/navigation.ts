@@ -198,6 +198,8 @@ export const SPECIAL_PERMISSIONS = {
   flowTemplatesManage: 'flow.templates.manage',
   /** 查看商品价格 */
   productPriceView: 'product.price.view',
+  /** 组合装同步维护：把组合编码加入聚水潭同步队列（上传、改码、归档停用、基本售价同步）、重试/取消组合装任务；旧系统 finance-product-bundles.sync。总开关仍只有公司管理员能动 */
+  financeBundleSync: 'finance.bundle-sync.manage',
 } as const;
 
 export interface VisibleSection extends NavSection {

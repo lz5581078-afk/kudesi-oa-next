@@ -13,6 +13,10 @@ class TableDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) pageSize?: number;
 }
+class ExportTableDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) categoryId?: number;
+  @IsOptional() @IsString() @MaxLength(100) keyword?: string;
+}
 class FreightDto { @Type(() => Number) @Min(0.01) weightG!: number }
 class PageDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
@@ -80,7 +84,13 @@ export class CostController {
     return this.cost.table(user, { categoryId: q.categoryId, keyword: q.keyword, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
   }
 
-  // 注意：category-margins 要排在 :bundleId 之前
+  // 注意：export、category-margins 要排在 :bundleId 之前
+  @RequirePermission('finance.cost-table.view', 'product.cost.view')
+  @Get('cost-table/export')
+  exportTable(@CurrentUser() user: AuthUser, @Query() q: ExportTableDto) {
+    return this.cost.exportXlsx(user, { categoryId: q.categoryId, keyword: q.keyword });
+  }
+
   @RequirePermission('finance.cost-table.view', 'product.cost.view', 'product.cost.edit')
   @Put('cost-table/category-margins/:categoryId')
   categoryMargin(@CurrentUser() user: AuthUser, @Param('categoryId', ParseIntPipe) id: number, @Body() b: CategoryMarginDto) {

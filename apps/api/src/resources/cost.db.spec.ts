@@ -50,7 +50,9 @@ d('成本表与定价调试表（真实数据库）', () => {
     await svc.changeStatus(boss, 'finance-base-codes', bc.id, 'verified');
     const plat = await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' });
     const scen = await svc.create(boss, 'finance-scenarios', { code: 'retail', name: '零售', segment: 'LS' });
-    const bcat = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '水果组合', code: 'SGZH' })).id;
+    ids.broot = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '组合总类', code: 'ZH' })).id;
+    const bcat = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '水果组合', code: 'SGZH', parentId: ids.broot })).id;
+    ids.bcat = bcat;
     ids.bundle = (await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, bundleCategoryId: bcat })).id;
     await svc.create(boss, 'finance-bundle-lines', { bundleId: ids.bundle, role: 'main', baseCodeId: bc.id, qty: 1 });
     await svc.changeStatus(boss, 'finance-bundles', ids.bundle, 'verified');
@@ -68,7 +70,7 @@ d('成本表与定价调试表（真实数据库）', () => {
     const before = await bundleRow();
     expect(before.marginPercent).toBeNull();
     expect(before.minPriceCents).toBeNull();
-    const r = await maintain.saveCategoryMargin(boss, ids.leaf, { revision: 'none', profitPercent: 12.345678, reason: '精度测试' });
+    const r = await maintain.saveCategoryMargin(boss, ids.bcat, { revision: 'none', profitPercent: 12.345678, reason: '精度测试' });
     expect(r.changed).toBe(true);
     const row = await bundleRow();
     expect(row.marginPercent).toBe(12.345678);
@@ -81,14 +83,14 @@ d('成本表与定价调试表（真实数据库）', () => {
 
   it('分类利润率的乐观锁：令牌过期（别人先改了）保存失败；“全部默认”也一样；恢复继承', async () => {
     const t1 = await cost.table(boss, { page: 1, pageSize: 20 });
-    const leaf = t1.categories.find((c) => c.id === ids.leaf)!;
+    const leaf = t1.categories.find((c) => c.id === ids.bcat)!;
     expect(leaf.ownPercent).toBe(12.345678);
     expect(leaf.count).toBe(2);
     // 上级分类（没自己设利润率）也在目录里，数量包含下级；没有组合也没设利润率的分类不显示
-    expect(t1.categories.find((c) => c.id === ids.rootCat)).toMatchObject({ count: 2, ownPercent: null, percent: null, source: '未设置' });
+    expect(t1.categories.find((c) => c.id === ids.broot)).toMatchObject({ count: 2, ownPercent: null, percent: null, source: '未设置' });
     // 两个人同时打开同一份令牌，第二个人保存时被拒绝
-    await maintain.saveCategoryMargin(boss, ids.leaf, { revision: leaf.revision, profitPercent: 20, reason: 'A 改成 20' });
-    await expect(maintain.saveCategoryMargin(boss, ids.leaf, { revision: leaf.revision, profitPercent: 30, reason: 'B 改成 30' })).rejects.toThrow(/已被别人更新/);
+    await maintain.saveCategoryMargin(boss, ids.bcat, { revision: leaf.revision, profitPercent: 20, reason: 'A 改成 20' });
+    await expect(maintain.saveCategoryMargin(boss, ids.bcat, { revision: leaf.revision, profitPercent: 30, reason: 'B 改成 30' })).rejects.toThrow(/已被别人更新/);
     expect((await bundleRow()).marginPercent).toBe(20);
     // 全部默认：第一次保存令牌是 none；再用 none 保存会冲突
     await maintain.saveCategoryMargin(boss, 0, { revision: 'none', profitPercent: 15, reason: '默认' });
@@ -96,18 +98,18 @@ d('成本表与定价调试表（真实数据库）', () => {
     const t2 = await cost.table(boss, { page: 1, pageSize: 20 });
     expect(t2.defaultMargin.percent).toBe(15);
     // 恢复继承：本分类清空 → 沿用全部默认
-    const leaf2 = t2.categories.find((c) => c.id === ids.leaf)!;
-    await maintain.saveCategoryMargin(boss, ids.leaf, { revision: leaf2.revision, profitPercent: null, reason: '恢复继承' });
+    const leaf2 = t2.categories.find((c) => c.id === ids.bcat)!;
+    await maintain.saveCategoryMargin(boss, ids.bcat, { revision: leaf2.revision, profitPercent: null, reason: '恢复继承' });
     const row = await bundleRow();
     expect(row.marginPercent).toBe(15);
     expect(row.marginSource).toBe('全部默认');
     const t3 = await cost.table(boss, { page: 1, pageSize: 20 });
-    expect(t3.categories.find((c) => c.id === ids.leaf)).toMatchObject({ ownPercent: null, percent: 15, source: '全部默认' });
+    expect(t3.categories.find((c) => c.id === ids.bcat)).toMatchObject({ ownPercent: null, percent: 15, source: '全部默认' });
     // 校验：超过 6 位小数、100%、负数、没写原因
     for (const bad of [12.3456789, 100, -1]) {
-      await expect(maintain.saveCategoryMargin(boss, ids.leaf, { revision: t3.categories.find((c) => c.id === ids.leaf)!.revision, profitPercent: bad, reason: 'x' })).rejects.toThrow(/利润率必须/);
+      await expect(maintain.saveCategoryMargin(boss, ids.bcat, { revision: t3.categories.find((c) => c.id === ids.bcat)!.revision, profitPercent: bad, reason: 'x' })).rejects.toThrow(/利润率必须/);
     }
-    await expect(maintain.saveCategoryMargin(boss, ids.leaf, { revision: 'none', profitPercent: 10, reason: '  ' })).rejects.toThrow(/修改原因/);
+    await expect(maintain.saveCategoryMargin(boss, ids.bcat, { revision: 'none', profitPercent: 10, reason: '  ' })).rejects.toThrow(/修改原因/);
     await expect(maintain.saveCategoryMargin(boss, 999999, { revision: 'none', profitPercent: 10, reason: 'x' })).rejects.toThrow(/分类不存在/);
     // 分类利润率记录：谁、什么时候、从多少到多少、为什么
     const hist = await maintain.marginHistory(boss, { page: 1, pageSize: 20 });
@@ -198,7 +200,7 @@ d('成本表与定价调试表（真实数据库）', () => {
     expect(r2.lines[0]).toMatchObject({ qty: 2, unitWeightG: ids.unitWeight, weightG: ids.unitWeight * 2 });
     const viewOnly: AuthUser = { ...boss, permissions: { isCompanyAdmin: false, allow: ['product.cost.view'], deny: [] } };
     expect((await cost.table(viewOnly, { page: 1, pageSize: 20 })).canEdit).toBe(false);
-    const byCat = await cost.table(boss, { categoryId: ids.rootCat, page: 1, pageSize: 20 });
+    const byCat = await cost.table(boss, { categoryId: ids.broot, page: 1, pageSize: 20 });
     expect(byCat.total).toBe(2); // 选上级分类包含下级
   });
 

@@ -15,6 +15,7 @@ import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, 
 import { composedFacts } from './base-code-support';
 import { asAdmin, afterFreightHistoryDelete, beforeFreightHistory, beforeProductCost, recordFreightHistory, refreshLatestCost, syncAutoCost } from './product-costs';
 import { bundleIssues, hasChildren, normalizeLineExtras, pickLine } from './bundle-checks';
+import { recordSourceChange } from './cost-snapshot';
 import { assertLaborUsable, LABOR_AFTER_SAVE, LABOR_BEFORE_SAVE } from './labor-rules';
 
 /**
@@ -1000,6 +1001,8 @@ async function markBundlesOfBaseCode(host: RuleHost, em: EntityManager, user: Au
     const b = await rec(em, user.companyId, 'finance-bundles', bid);
     if (b?.status === 'verified') await host.setStatusDirect(em, user, 'finance-bundles', bid, 'reverify', '构成里的基础编码需要重新验证');
   }
+  // 成本是实时现算的：来源变了要在成本历史里留一笔“来源值变化”
+  await recordSourceChange(em, user.companyId, user.id || null, [...seen], '来源商品（基础编码）的成本或重量变化');
 }
 
 /**
@@ -1240,6 +1243,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
       seenBundles.add(bid);
       await refreshBundle(host, em, user, bid);
     }
+    await recordSourceChange(em, user.companyId, user.id || null, [...seenBundles], '人工单价变化');
   },
   'finance-product-sources': async ({ em, host, user, record, existing }) => {
     if (em.queryRunner?.data.legacyImport) return;

@@ -92,6 +92,11 @@ export function permissionCatalog(): CatalogGroup[] {
     })(),
   });
   groups.push({
+    id: 'finance-jst-actions',
+    label: '财务 · 聚水潭同步',
+    items: [{ key: SPECIAL_PERMISSIONS.financeBundleSync, label: '组合装同步维护（加入同步队列、改码、归档停用、基本售价同步）' }],
+  });
+  groups.push({
     id: 'finance-doc-actions',
     label: '财务 · 单据操作',
     items: FINANCE_DOC_ACTIONS.map((a) => ({ key: a.key, label: a.label })),

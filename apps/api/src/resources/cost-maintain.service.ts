@@ -4,7 +4,7 @@ import { DataSource } from 'typeorm';
 import { percentToMicro } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceChangeLog, ResourceRecord } from '../entities';
-import { bundleRevision, marginRevision } from './cost.service';
+import { bundleRevision, COST_TABLE_STATUSES, marginRevision } from './cost.service';
 import { DataToolsService } from './data-tools.service';
 import { ResourcesService } from './resources.service';
 
@@ -50,7 +50,7 @@ export class CostMaintainService {
     await this.dataSource.transaction(async (em) => {
       const b = await em.findOne(ResourceRecord, { where: { id: bundleId, companyId: user.companyId, type: 'finance-bundles' }, lock: { mode: 'pessimistic_write' } });
       if (!b) throw new NotFoundException('组合不存在');
-      if (b.status === 'archived') throw new ConflictException('组合已失效归档，不能再修改售价设置');
+      if (!COST_TABLE_STATUSES.includes(b.status)) throw new ConflictException('成本表只维护已验证的组合；这个组合还没验证或已失效归档');
       if (input.revision !== bundleRevision(b)) throw new ConflictException(STALE_MESSAGE);
       const sameCarrier = String(b.data.carrierName ?? '') === carrier;
       const samePercent = (num(b.data.marginOverridePercent) ?? null) === percent;
@@ -61,7 +61,7 @@ export class CostMaintainService {
       await this.resources.patchData(em, user, 'finance-bundles', bundleId, { carrierName: carrier || null, marginOverridePercent: percent, overrideReason: reason }, `${PRICING_NOTE}${reason}（${notes.join('；')}）`.slice(0, 500));
       changed = true;
       // 成本历史：新的最低售价和上一版不同，就登记一版（和保存在同一个事务里）
-      await this.tools.registerCost(user, bundleId, reason, em);
+      await this.tools.registerCost(user, bundleId, reason, em, 'pricing_update');
     });
     return { ok: true, changed };
   }
@@ -75,6 +75,7 @@ export class CostMaintainService {
       if (categoryId > 0) {
         const cat = await em.findOne(ResourceRecord, { where: { id: categoryId, companyId: user.companyId, type: 'finance-categories' } });
         if (!cat || cat.status !== 'active') throw new NotFoundException('分类不存在或已停用');
+        if (cat.data.archiveType !== 'bundle') throw new BadRequestException('分类利润率只能设在组合分类上');
       }
       const scopeKey = categoryId > 0 ? `cat:${categoryId}` : 'all';
       const existing = await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-margins', uniqueKey: scopeKey }, lock: { mode: 'pessimistic_write' } });

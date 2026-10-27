@@ -203,7 +203,7 @@ export class ResourcesController {
   async status(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
     const out = await this.resources.changeStatus(user, type, id, dto.status, dto.reason);
     // 组合验证通过时顺手登记一次成本快照（成本历史）；登记失败不影响验证本身
-    if (type === 'finance-bundles' && dto.status === 'verified') await this.tools.registerCost(user, id, '验证通过').catch(() => undefined);
+    if (type === 'finance-bundles' && dto.status === 'verified') await this.tools.registerCost(user, id, '验证通过', undefined, 'workflow_publish').catch(() => undefined);
     return out;
   }
 

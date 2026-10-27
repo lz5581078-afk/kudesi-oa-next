@@ -4,6 +4,7 @@ import { createChecker, normalizeSpecs, normalizeWarehouse, type SkuSpec, type W
 import { AuthUser } from '../common/auth.decorators';
 import { FlowRun, Notification, ResourceRecord } from '../entities';
 import { sigOf } from '../resources/base-code-support';
+import { registerCostSnapshots } from '../resources/cost-snapshot';
 import type { BundleToolsService, LineInput, TargetInput } from '../resources/bundle-tools.service';
 import type { FlowAdapter } from './flow-adapters';
 
@@ -204,7 +205,10 @@ export const skuBatchApply: FlowAdapter = {
         if (!rec) continue;
         if (!c.reused) await resources.patchData(em, actor, 'finance-bundles', c.id, { sourceRunId: run.id }, `SKU 批量申请 #${run.id} 生成`);
         // 财务审核通过就是验证：新建的和“待验证/需重新验证”的一并验证；已验证的沿用
-        if (rec.status === 'pending' || rec.status === 'reverify') await resources.setStatusChecked(em, actor, 'finance-bundles', c.id, 'verified', `SKU 批量申请 #${run.id} 财务审核通过`);
+        if (rec.status === 'pending' || rec.status === 'reverify') {
+          await resources.setStatusChecked(em, actor, 'finance-bundles', c.id, 'verified', `SKU 批量申请 #${run.id} 财务审核通过`);
+          await registerCostSnapshots(em, user.companyId, user.id, [c.id], `SKU 批量申请 #${run.id} 财务审核通过`, 'workflow_publish');
+        }
         created.push({ spec: spec.name, bundleId: c.id, code: c.code, reused: c.reused });
       }
     }

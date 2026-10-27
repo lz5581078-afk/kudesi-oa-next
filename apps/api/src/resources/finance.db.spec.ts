@@ -181,9 +181,9 @@ d('财务资料（真实数据库）', () => {
     const all = await svc.create(boss, 'finance-margins', { profitPercent: 20, reason: '默认' });
     expect(all.title).toBe('全部默认利润率');
     await expect(svc.create(boss, 'finance-margins', { profitPercent: 25, reason: '重复' })).rejects.toThrow(/已存在/);
-    await expect(svc.create(boss, 'finance-margins', { categoryId: ids.leaf, profitPercent: 100, reason: 'x' })).rejects.toThrow(/不含 100/);
-    const cat = await svc.create(boss, 'finance-margins', { categoryId: ids.leaf, profitPercent: 30.5, reason: '水果利润高' });
-    expect(cat.data.scopeKey).toBe(`cat:${ids.leaf}`);
+    await expect(svc.create(boss, 'finance-margins', { categoryId: ids.bcat, profitPercent: 100, reason: 'x' })).rejects.toThrow(/不含 100/);
+    const cat = await svc.create(boss, 'finance-margins', { categoryId: ids.bcat, profitPercent: 30.5, reason: '水果利润高' });
+    expect(cat.data.scopeKey).toBe(`cat:${ids.bcat}`);
   });
   it('成本表：现算成本、重量、运费、利润率来源和最低售价；成本一变立刻跟着变', async () => {
     const cost = new CostService(ds);

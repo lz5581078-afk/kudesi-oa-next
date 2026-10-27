@@ -5,7 +5,8 @@ import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { packagingRuleMatches, parseDiscreteWeights, type PackagingRule } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { FinanceApiKey, FinanceCostSnapshot, FinanceMasterSnapshot, ResourceChangeLog, ResourceLink, ResourceRecord } from '../entities';
-import { CostService } from './cost.service';
+import { COST_TABLE_STATUSES, CostService } from './cost.service';
+import { COST_EVENT_LABEL, registerCostSnapshots, type CostEvent } from './cost-snapshot';
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -47,29 +48,14 @@ export class DataToolsService {
 
   // ---------- 成本历史 ----------
   /** 登记成本快照：和上一次相比没变就不记。bundleId 不传 = 所有已验证的组合。 */
-  async registerCost(user: AuthUser, bundleId: number | undefined, reason: string, outer?: EntityManager) {
+  async registerCost(user: AuthUser, bundleId: number | undefined, reason: string, outer?: EntityManager, eventType: CostEvent = 'manual') {
     const em = outer ?? this.dataSource.manager;
     const ids = bundleId
       ? [bundleId]
-      : (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-bundles', status: 'verified' } })).map((b) => b.id);
-    let recorded = 0, unchanged = 0;
-    const { rows: costRows } = await this.cost.allRows(user, em);
-    const costById = new Map(costRows.map((r) => [r.bundleId, r]));
-    for (const id of ids) {
-      const row = costById.get(id);
-      if (!row) throw new NotFoundException('组合不存在');
-      const last = await em.findOne(FinanceCostSnapshot, { where: { companyId: user.companyId, bundleId: id }, order: { id: 'DESC' } });
-      const same = last && last.preShipCostCents === row.preShipCostCents && last.weightG === row.weightG && last.freightCents === row.freightCents
-        && last.minPriceCents === row.minPriceCents && (last.marginPercent === row.marginPercent);
-      if (same) { unchanged++; continue; }
-      await em.insert(FinanceCostSnapshot, {
-        companyId: user.companyId, bundleId: id, code: row.code, name: row.name, revision: (last?.revision ?? 0) + 1,
-        preShipCostCents: row.preShipCostCents, weightG: row.weightG, freightCents: row.freightCents, marginPercent: row.marginPercent, minPriceCents: row.minPriceCents,
-        reason: reason.slice(0, 200), actorId: user.id,
-      });
-      recorded++;
-    }
-    return { recorded, unchanged };
+      : (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-bundles', status: In(COST_TABLE_STATUSES) } })).map((b) => b.id);
+    const r = await registerCostSnapshots(em, user.companyId, user.id, ids, reason, eventType);
+    if (bundleId && r.missing) throw new NotFoundException('组合不存在');
+    return { recorded: r.recorded, unchanged: r.unchanged };
   }
 
   async costHistory(user: AuthUser, q: { bundleId?: number; keyword?: string; page: number; pageSize: number }) {
@@ -94,7 +80,7 @@ export class DataToolsService {
         const p = r.prevId ? pm.get(Number(r.prevId)) : undefined;
         const cur = Object.fromEntries(FIELDS.map(([c, k]) => [k, n_(r[c])]));
         const before = p ? Object.fromEntries(FIELDS.map(([c, k]) => [k, n_(p[c])])) : null;
-        return { id: r.id, bundleId: r.bundle_id, code: r.code, name: r.name, revision: r.revision, reason: r.reason, actorName: r.actorName ?? '系统', createdAt: r.created_at, ...cur,
+        return { id: r.id, bundleId: r.bundle_id, code: r.code, name: r.name, revision: r.revision, reason: r.reason, eventType: r.event_type, eventLabel: COST_EVENT_LABEL[r.event_type as CostEvent] ?? '手动登记', actorName: r.actorName ?? '系统', createdAt: r.created_at, ...cur,
           before, changes: before ? FIELDS.filter(([, k]) => cur[k] !== before[k]).map(([, k, label]) => ({ field: k, label, before: before[k], after: cur[k] })) : [] };
       }),
     };
