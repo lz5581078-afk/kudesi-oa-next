@@ -29,6 +29,7 @@ export function useUnitOptions(): UnitOptionsPayload {
 export function fieldOptions(field: FieldDef, values: Record<string, unknown>, units: UnitOptionsPayload) {
   const kind = optionsKindOf(field, values);
   const own = kind ? units[kind] : undefined;
+  if (kind === 'archive_type') return [...(field.options ?? []), ...(own ?? [])]; // 自定义档案类型接在内置类型后面
   return own && own.length > 0 ? own : field.options ?? [];
 }
 

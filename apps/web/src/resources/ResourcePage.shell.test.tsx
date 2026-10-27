@@ -74,7 +74,7 @@ describe('资料列表通用壳', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: /勾选 13800138000/ }));
     fireEvent.click(screen.getAllByRole('button', { name: /导出所选/ })[0]);
     await waitFor(() => expect(resourceApi.export).toHaveBeenCalled());
-    expect(vi.mocked(resourceApi.export).mock.calls[0][2]).toEqual({ ids: [7] });
+    expect(vi.mocked(resourceApi.export).mock.calls[0][2]).toEqual({ ids: [7], cols: [] });
   });
 
   it('表头第一次点是升序，再点降序，再点取消；手机上有排序下拉', async () => {

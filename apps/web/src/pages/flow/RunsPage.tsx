@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { RUN_STATUS_LABEL } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
+import { useAuth } from '../../auth/AuthContext';
 import { Pager } from '../finance/common';
 import { RunDetail } from './RunDetail';
 import { RUN_TONE, flowApi, fmtTime, type RunList, type TemplateInfo } from './flowApi';
@@ -19,6 +20,7 @@ const EMPTY_HINT: Record<View, string> = {
 /** 我发起的 / 抄送我的 / 流程总览：同一张列表，只是范围不同（总览要流程总览权限，服务端把关）。 */
 export function RunsPage({ view }: { view: View }) {
   const [params, setParams] = useSearchParams();
+  const { can } = useAuth();
   const [status, setStatus] = useState('');
   const [templateKey, setTemplateKey] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -71,6 +73,8 @@ export function RunsPage({ view }: { view: View }) {
       <div className="page-head">
         <h1>{TITLE[view]}</h1>
         <div className="row-actions">
+          {view === 'all' && can('flow.templates.view') && <Link className="secondary-button" to="/flow/templates">流程配置</Link>}
+          {view === 'all' && can('flow.timeouts.view') && <Link className="secondary-button" to="/flow/timeouts">超时与处罚</Link>}
           {updatedAt && <span className="muted">{loading ? '更新中…' : `更新于 ${new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false })}${view === 'all' ? ' · 每分钟自动刷新' : ''}`}</span>}
           <button type="button" className="secondary-button" disabled={loading} onClick={load}>刷新</button>
         </div>

@@ -508,6 +508,10 @@ export class ResourceLink {
   @Column({ type: 'varchar', length: 200, nullable: true })
   purpose!: string | null;
 
+  /** 关系类型：使用/授权/保管/其他（旧数据为空） */
+  @Column({ name: 'relation_kind', type: 'varchar', length: 16, nullable: true })
+  relationKind!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
 }
@@ -820,10 +824,46 @@ export class FlowDefinition {
   @Column({ type: 'int', unsigned: true }) version!: number;
   @Column({ type: 'varchar', length: 10, default: 'draft' }) status!: 'draft' | 'active' | 'retired';
   @Column({ type: 'json' }) steps!: unknown[];
+  /** 自建模板的表单结构（fields/stepFields/posting）；内置模板为空 */
+  @Column({ name: 'schema_json', type: 'json', nullable: true }) schemaJson!: Record<string, unknown> | null;
   @Column({ name: 'escalate_user_ids', type: 'json' }) escalateUserIds!: number[];
   @Column({ name: 'created_by', type: 'int', unsigned: true }) createdBy!: number;
   @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
   @Column({ name: 'published_at', ...dt, nullable: true }) publishedAt!: Date | null;
+}
+
+/** 公司自建流程模板的身份与目录属性（步骤和表单结构在 flow_definitions 的版本里） */
+@Entity('flow_templates')
+export class FlowTemplateRow {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'template_key', type: 'varchar', length: 40 }) templateKey!: string;
+  @Column({ type: 'varchar', length: 100 }) name!: string;
+  @Column({ type: 'varchar', length: 500, nullable: true }) description!: string | null;
+  @Column({ name: 'department_id', type: 'int', unsigned: true, nullable: true }) departmentId!: number | null;
+  @Column({ name: 'source_key', type: 'varchar', length: 40, nullable: true }) sourceKey!: string | null;
+  @Column({ name: 'created_by', type: 'int', unsigned: true }) createdBy!: number;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+  @Column({ name: 'updated_at', ...dt, insert: false, update: false }) updatedAt!: Date;
+}
+
+/** 公司自定义的节点模板（内置节点模板在 shared 代码里） */
+@Entity('flow_node_templates')
+export class FlowNodeTemplate {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'node_key', type: 'varchar', length: 40 }) nodeKey!: string;
+  @Column({ type: 'varchar', length: 40 }) name!: string;
+  @Column({ type: 'varchar', length: 500, nullable: true }) description!: string | null;
+  @Column({ type: 'varchar', length: 20 }) category!: string;
+  @Column({ name: 'step_type', type: 'varchar', length: 12 }) stepType!: string;
+  @Column({ name: 'due_minutes', type: 'int', unsigned: true, nullable: true }) dueMinutes!: number | null;
+  @Column({ type: 'json' }) fields!: unknown[];
+  @Column({ name: 'source_key', type: 'varchar', length: 40, nullable: true }) sourceKey!: string | null;
+  @Column({ type: 'int', unsigned: true, default: 1 }) revision!: number;
+  @Column({ name: 'created_by', type: 'int', unsigned: true }) createdBy!: number;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+  @Column({ name: 'updated_at', ...dt, insert: false, update: false }) updatedAt!: Date;
 }
 
 @Entity('flow_runs')
@@ -856,7 +896,7 @@ export class FlowStep {
   @Column({ name: 'step_key', type: 'varchar', length: 32 }) stepKey!: string;
   @Column({ name: 'step_name', type: 'varchar', length: 40 }) stepName!: string;
   @Column({ name: 'step_type', type: 'varchar', length: 12 }) stepType!: string;
-  @Column({ type: 'varchar', length: 12, default: 'active' }) status!: 'active' | 'done' | 'returned' | 'cancelled' | 'rejected' | 'transferred';
+  @Column({ type: 'varchar', length: 12, default: 'active' }) status!: 'active' | 'done' | 'returned' | 'cancelled' | 'rejected' | 'transferred' | 'skipped';
   @Column({ name: 'entered_via', type: 'varchar', length: 12, default: 'normal' }) enteredVia!: string;
   @Column({ type: 'json' }) recipients!: number[];
   @Column({ name: 'handled_by', type: 'int', unsigned: true, nullable: true }) handledBy!: number | null;
@@ -1274,4 +1314,6 @@ export const ALL_ENTITIES = [
   CaseLog,
   SupervisionException,
   SupervisionRuleRow,
+  FlowTemplateRow,
+  FlowNodeTemplate,
 ];

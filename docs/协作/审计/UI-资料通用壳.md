@@ -46,7 +46,7 @@
 - ✓(本轮) 原因框 Esc 关闭、常用原因快捷选项（旧 suggestions）
 - ✓ 复制为新建（排除唯一字段/文件/密码）
 - ✓(第二轮) 逐区就地编辑（每个分区“编辑本区”，表单就地展开，只改本区字段）、分区导航（多分区时顶部按钮定位）、面包屑（资料 › 类型 › 标题，可点回列表）、展开到全宽（桌面）；保留页签结构
-- ✓(第二轮) 关联“添加/改属性”换成正规对话框（`RelationDialog.tsx`）：关系类型单选（使用/授权/保管/其他，存在用途文字开头，不改表）、授权起止、用途；结束早于开始前端+服务端都拒绝；去掉 window.prompt
+- ✓(第二轮) 关联“添加/改属性”换成正规对话框（`RelationDialog.tsx`）：关系类型单选（使用/授权/保管/其他，独立列 relation_kind，迁移 1751000000000；旧“【授权】…”前缀写法读取时仍还原）、授权起止、用途；结束早于开始前端+服务端都拒绝；去掉 window.prompt
 
 ## 3. 新建/编辑表单 RecordForm（旧 Dossier 新增/分区编辑 + fields.jsx + ui.Dialog）
 
@@ -93,3 +93,8 @@
 | 资料总览 OverviewPage | 是 | 齐（停用/归档小计、一键建档） |
 | 导入 ImportDialog | 是 | 齐（只看问题行、填写规则） |
 | CategoryTree / StatusControl / FilesField | 是 | 齐（含 10 MB 提示） |
+
+## 给其他组的提醒
+- 资料详情现在在面包屑和标题处各显示一次记录名：测试里按标题找元素要加 `{ selector: '.drawer-title' }`（或用 findAllByText），否则会报“找到多个元素”。
+- 派生列（derivedColumns）：可点表头排序（服务端先算再排，最多 5000 条）、导出 CSV 时随列表当前列设置带上（`cols` 参数）。
+- 条件语言新增：日期（`dateWithin` 未来 N 天内、`expired` 已过期，沿用 `empty` 判空，按上海时区算今天）、`viaUserDept`（员工字段所在部门，可含下级）；computedFilters 支持 `optionsFrom:'departments'`（选项由服务端按公司部门生成，`when` 里用 `dept:'$value'`，别家公司部门不认）。

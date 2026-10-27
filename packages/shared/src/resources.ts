@@ -104,6 +104,11 @@ export type Cond =
   | { field: string; op: 'eq' | 'ne'; value: string | number | boolean }
   | { field: string; op: 'in' | 'notIn'; value: ReadonlyArray<string | number> }
   | { field: string; op: 'empty' | 'notEmpty' }
+  /** 日期字段（YYYY-MM-DD）：今天（北京时间）起 days 天内（含今天、含第 days 天）；已过期 = 早于今天（没填的不算） */
+  | { field: string; op: 'dateWithin'; days: number }
+  | { field: string; op: 'expired' }
+  /** 本记录的员工字段 viaUserDept 指向的员工，所在部门等于 dept（'$value' = 计算筛选下拉选中的部门）；includeChildren 连下级部门 */
+  | { viaUserDept: string; dept: number | '$value'; includeChildren?: boolean }
   | { rel: { type: string; field: string; where?: Cond }; op: 'exists' | 'none' }
   | { viaRef: string; where: Cond }
   | { all: readonly Cond[] }
@@ -123,7 +128,10 @@ export interface QuickTab {
 export interface ComputedFilter {
   key: string;
   label: string;
-  options: ReadonlyArray<{ value: string; label: string; when: Cond }>;
+  options?: ReadonlyArray<{ value: string; label: string; when: Cond }>;
+  /** 选项由服务端按公司现有数据生成（departments=部门），选中的值代入 when 里的 '$value' */
+  optionsFrom?: 'departments';
+  when?: Cond;
 }
 
 /**
@@ -929,6 +937,9 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL_R, INACTIVE],
     filterBy: 'operatorUserId',
     importMatch: ['platform', 'name'],
+    computedFilters: [
+      { key: 'operatorDept', label: '运营部门', optionsFrom: 'departments', when: { viaUserDept: 'operatorUserId', dept: '$value', includeChildren: true } },
+    ],
     defaultStatus: 'normal',
     fields: [
       select('platform', '平台', '基础', o('douyin:抖音', 'kuaishou:快手', 'channels:视频号', 'xhs:小红书', 'other:其他'), { required: true, list: true }),
@@ -1021,6 +1032,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     filterBy: ['ownerUserId'],
     importMatch: ['provider', 'title'],
     quickTabs: [
+      { key: 'due-soon', label: '即将到期', when: { all: [{ field: '$status', op: 'notIn', value: ['inactive'] }, { field: 'endAt', op: 'dateWithin', days: 30 }] } },
+      { key: 'expired', label: '已过期', when: { all: [{ field: '$status', op: 'notIn', value: ['inactive'] }, { field: 'endAt', op: 'expired' }] } },
       { key: 'domain', label: '域名', when: { all: [{ field: 'kind', op: 'eq', value: 'service' }, { any: [{ field: 'serviceType', op: 'in', value: ['域名', 'domain', 'Domain'] }] }] } },
     ],
     defaultStatus: 'normal',

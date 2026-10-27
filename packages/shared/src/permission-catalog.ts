@@ -59,7 +59,8 @@ export function permissionCatalog(): CatalogGroup[] {
   }
   groups.push(ORG_ACTIONS);
   groups.push({ id: 'flow-actions', label: '流程与任务', items: [
-    { key: SPECIAL_PERMISSIONS.flowTemplatesManage, label: '保存并发布流程配置' },
+    { key: SPECIAL_PERMISSIONS.flowTemplatesManage, label: '保存并发布流程配置（含自建流程、节点模板、超时规则）' },
+    { key: SPECIAL_PERMISSIONS.flowPenaltiesManage, label: '确认或免除流程超时处罚' },
     { key: SPECIAL_PERMISSIONS.financeSessionManage, label: '店铺提现：管理店铺登录、查看密码' },
     { key: SPECIAL_PERMISSIONS.financeSessionRemote, label: '店铺提现：发起远程协助（看/操作授权电脑上的店铺窗口）' },
     { key: SPECIAL_PERMISSIONS.companyStoreMaintenanceManage, label: '公司店铺维护：管理店铺登录、查看密码、改店铺状态' },

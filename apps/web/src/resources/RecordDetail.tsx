@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useUnitOptions } from './unitOptions';
-import { ASSET_LOG_LABELS, RESOURCE_DEFS, addDaysText, dueBadgeFor, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
+import { ASSET_LOG_LABELS, RESOURCE_DEFS, relationKindLabel, addDaysText, dueBadgeFor, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
 import { useAuth } from '../auth/AuthContext';
@@ -398,11 +398,11 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
                   <small className="muted">{r.relation === 'manual' ? '手动关联' : r.direction === 'out' ? '指向' : '被引用于'} · {typeLabel(r.type)}</small>{' '}
                   {recordLink(r.type, r.id) && canView(r.type) ? <Link to={recordLink(r.type, r.id)!}>{r.title}</Link> : r.title}
                 </span>
-                {r.relation === 'manual' && (r.purpose || r.validFrom || r.validTo) && (
-                  <small className="muted">{r.purpose ? `${(() => { const p = parsePurpose(r.purpose); return `${p.kind}${p.text ? `：${p.text}` : ''}`; })()} ` : ''}{r.validFrom || r.validTo ? `有效期 ${r.validFrom ?? '…'} ~ ${r.validTo ?? '长期'}` : ''}</small>
+                {r.relation === 'manual' && (r.purpose || r.relationKind || r.validFrom || r.validTo) && (
+                  <small className="muted">{r.purpose || r.relationKind ? `${(() => { const p = parsePurpose(r.purpose, r.relationKind); return `${relationKindLabel(p.kind, def.key, r.type)}${p.text ? `：${p.text}` : ''}`; })()} ` : ''}{r.validFrom || r.validTo ? `有效期 ${r.validFrom ?? '…'} ~ ${r.validTo ?? '长期'}` : ''}</small>
                 )}
                 {r.relation === 'manual' && r.linkId && can('edit') && (
-                  <button type="button" className="link-button" onClick={() => setLinkDialog({ linkId: r.linkId!, title: r.title, purpose: r.purpose, validFrom: r.validFrom, validTo: r.validTo })}>改属性</button>
+                  <button type="button" className="link-button" onClick={() => setLinkDialog({ linkId: r.linkId!, targetType: r.type, title: r.title, purpose: r.purpose, relationKind: r.relationKind, validFrom: r.validFrom, validTo: r.validTo })}>改属性</button>
                 )}
                 {r.relation === 'manual' && r.linkId && can('edit') && (
                   <button type="button" className="link-button" onClick={() => { if (window.confirm(`取消和「${r.title}」的关联？`)) resourceApi.removeLink(def.key, id, r.linkId!).then(() => setRelations(null)).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败')); }}>取消关联</button>

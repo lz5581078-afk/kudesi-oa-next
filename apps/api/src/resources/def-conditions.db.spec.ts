@@ -8,7 +8,7 @@ import { DataSource } from 'typeorm';
 import { getResourceDef, todayShanghai, type ResourceDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, Department, User } from '../entities';
 import { buildServices } from '../test-support';
 import { ResourcesService } from './resources.service';
 
@@ -105,6 +105,14 @@ d('资料配置：快捷页签 / 计算筛选 / 派生列 / 批量动作（真�
     expect(closed).toContain(t2.id);
     expect(closed).not.toContain(t1.id);
     await expect(f('bogus')).rejects.toThrow();
+    // 派生列可排序、可导出
+    const asc = (await svc.list(boss, 'tax-profiles', { sortBy: 'storeCount', sortDir: 'asc', pageSize: 50, showHidden: true })).items.map((i) => i.data.storeCount);
+    expect(asc).toEqual([...asc].sort((a, b) => Number(a) - Number(b)));
+    const desc = (await svc.list(boss, 'tax-profiles', { sortBy: 'storeCount', sortDir: 'desc', pageSize: 50, showHidden: true })).items[0];
+    expect(desc.data.storeCount).toBe(2);
+    const csv = await svc.exportCsv(boss, 'tax-profiles', true, { derivedKeys: ['storeCount', 'monthSales'] });
+    expect(csv.csv).toContain('店铺数');
+    expect(csv.csv).toContain('123.45');
   });
 
   it('按关联存在/不存在：有经营数据的店铺 / 没有经营数据的店铺', async () => {
@@ -183,5 +191,81 @@ d('资料配置：快捷页签 / 计算筛选 / 派生列 / 批量动作（真�
     const r = await svc.list(boss, 'licenses', { expiring: true, pageSize: 50 });
     const order = r.items.map((i) => i.id).filter((id) => [late.id, early.id, mid.id].includes(id));
     expect(order).toEqual([early.id, mid.id, late.id]);
+  });
+
+  it('手动关联的关系类型：独立列保存、修改、读取；未知类型忽略', async () => {
+    const a = await svc.create(boss, 'phones', { number: '13500000001', usageType: 'company_kept' });
+    const b = await svc.create(boss, 'phones', { number: '13500000002', usageType: 'company_kept' });
+    const can = () => true;
+    await svc.addManualLink(boss, 'phones', a.id, 'phones', b.id, can, { purpose: '备用', relationKind: '授权' });
+    const rel = (await svc.relations(boss, 'phones', a.id, can)).find((r) => r.relation === 'manual')!;
+    expect(rel.relationKind).toBe('授权');
+    expect(rel.purpose).toBe('备用');
+    await svc.updateManualLink(boss, 'phones', a.id, rel.linkId!, { relationKind: '保管', purpose: '备用' });
+    expect((await svc.relations(boss, 'phones', a.id, can)).find((r) => r.relation === 'manual')!.relationKind).toBe('保管');
+    await svc.updateManualLink(boss, 'phones', a.id, rel.linkId!, { relationKind: '乱写', purpose: '备用' });
+    expect((await svc.relations(boss, 'phones', a.id, can)).find((r) => r.relation === 'manual')!.relationKind).toBeNull();
+  });
+
+  it('日期条件：未来 N 天内 / 已过期 / 为空（按上海时区算今天）', async () => {
+    const t = todayShanghai();
+    const day = (n: number) => { const d = new Date(`${t}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+    stores.quickTabs = [
+      { key: 'soon', label: '即将到期', when: { all: [{ field: 'jushuitanExpireAt', op: 'dateWithin', days: 30 }, { field: '$status', op: 'ne', value: 'inactive' }] } },
+      { key: 'gone', label: '已过期', when: { field: 'jushuitanExpireAt', op: 'expired' } },
+      { key: 'blank', label: '没填', when: { field: 'jushuitanExpireAt', op: 'empty' } },
+    ];
+    const mk = (name: string, d?: string) => svc.create(boss, 'stores', { platform: 'pdd', name, ...(d ? { jushuitan: 'connected', jushuitanExpireAt: d } : {}) });
+    const today = await mk('今天到期D', day(0));
+    const in30 = await mk('三十天D', day(30));
+    const in31 = await mk('三十一天D', day(31));
+    const past = await mk('过期D', day(-1));
+    const none = await mk('没填D');
+    const ids = async (tab: string) => (await svc.list(boss, 'stores', { tab, pageSize: 200 })).items.map((i) => i.id);
+    const soon = await ids('q:soon');
+    expect(soon).toEqual(expect.arrayContaining([today.id, in30.id]));
+    expect(soon).not.toContain(in31.id);
+    expect(soon).not.toContain(past.id);
+    expect(await ids('q:gone')).toContain(past.id);
+    expect(await ids('q:gone')).not.toContain(today.id);
+    expect(await ids('q:blank')).toContain(none.id);
+    expect(await ids('q:blank')).not.toContain(today.id);
+  });
+
+  it('员工所在部门条件 + 部门动态下拉：含下级、别家部门不认', async () => {
+    const mkDept = (c: AuthUser, name: string, parentId: number | null) => ds.manager.save(Department, ds.manager.create(Department, { companyId: c.companyId, name, parentId, sortOrder: 0, status: 'active' }));
+    const top = await mkDept(boss, '运营中心', null);
+    const sub = await mkDept(boss, '运营一部', top.id);
+    const other1 = await mkDept(boss, '财务部', null);
+    const foreign = await mkDept(other, '外公司部门', null);
+    const mkUser = (account: string, departmentId: number) => ds.manager.save(User, ds.manager.create(User, { companyId: boss.companyId, account, passwordHash: 'x', name: account, departmentId, status: 'active', mustChangePassword: false }));
+    const uSub = await mkUser('u-sub', sub.id);
+    const uFin = await mkUser('u-fin', other1.id);
+    stores.computedFilters = [{ key: 'opDept', label: '运营部门', optionsFrom: 'departments', when: { viaUserDept: 'operatorUserId', dept: '$value', includeChildren: true } }];
+    const a = await svc.create(boss, 'stores', { platform: 'pdd', name: '部门店A', operatorUserId: uSub.id });
+    const b = await svc.create(boss, 'stores', { platform: 'pdd', name: '部门店B', operatorUserId: uFin.id });
+    const c = await svc.create(boss, 'stores', { platform: 'pdd', name: '部门店C' });
+    const by = async (dept: number) => (await svc.list(boss, 'stores', { filters: JSON.stringify({ opDept: String(dept) }), pageSize: 200, showHidden: true })).items.map((i) => i.id);
+    const underTop = await by(top.id);
+    expect(underTop).toContain(a.id);
+    expect(underTop).not.toContain(b.id);
+    expect(underTop).not.toContain(c.id);
+    expect(await by(other1.id)).toEqual(expect.arrayContaining([b.id]));
+    await expect(by(foreign.id)).rejects.toThrow();
+    // 固定条件写法（不含下级）
+    stores.quickTabs = [{ key: 'exact', label: '精确', when: { viaUserDept: 'operatorUserId', dept: top.id } }];
+    expect(await (async () => (await svc.list(boss, 'stores', { tab: 'q:exact', pageSize: 200 })).items.map((i) => i.id))()).not.toContain(a.id);
+    stores.quickTabs = [{ key: 'bad', label: '坏', when: { viaUserDept: 'name', dept: top.id } }];
+    await expect(svc.list(boss, 'stores', { tab: 'q:bad' })).rejects.toThrow();
+  });
+
+  it('关系类型按资料类型：这一对有的才能选，没有的拒绝', async () => {
+    const can = () => true;
+    const phone = await svc.create(boss, 'phones', { number: '13500135001', usageType: 'company_kept' });
+    const store = await svc.create(boss, 'stores', { platform: 'pdd', name: '关系店' });
+    await expect(svc.addManualLink(boss, 'phones', phone.id, 'stores', store.id, can, { relationKind: '关联营业执照' })).rejects.toThrow(/没有这种关系类型/);
+    await svc.addManualLink(boss, 'phones', phone.id, 'stores', store.id, can, { relationKind: '绑定店铺' });
+    const rel = (await svc.relations(boss, 'phones', phone.id, can)).find((r) => r.relation === 'manual')!;
+    expect(rel.relationKind).toBe('绑定店铺');
   });
 });

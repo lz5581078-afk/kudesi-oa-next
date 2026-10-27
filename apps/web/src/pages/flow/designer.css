@@ -1,0 +1,68 @@
+/* 流程配置：目录与设计器 */
+.fd-directory { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+.fd-deptnav { padding: 12px; }
+.fd-deptnav h2 { font-size: 14px; margin: 0 0 8px; }
+.fd-tree { list-style: none; margin: 0; padding-left: 12px; }
+.fd-deptnav > .fd-tree { padding-left: 0; }
+.fd-tree > li > div { display: flex; align-items: center; }
+.fd-toggle { width: 20px; height: 20px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0; flex: none; }
+.fd-catalog { min-width: 0; }
+.fd-table td .plain-list { margin: 0; padding: 0; list-style: none; }
+
+.fd-crumb { margin-bottom: 8px; }
+.fd-steps { display: flex; gap: 4px; flex-wrap: wrap; margin: 12px 0; }
+.fd-stepno { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 6px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; }
+.fd-design-layout { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 16px; margin-top: 12px; align-items: start; }
+.fd-canvas-wrap { min-width: 0; }
+.fd-panel { padding: 12px; min-width: 0; }
+.fd-save-bar { justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; }
+.fd-nt { width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; cursor: pointer; color: var(--ink); }
+.fd-nt:hover { border-color: var(--accent); }
+.fd-node-templates { display: grid; gap: 8px; max-height: 50vh; overflow: auto; margin: 8px 0 0; padding: 0; list-style: none; }
+
+/* 画布 */
+.fd-flow { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: stretch; }
+.fd-flow > li { display: flex; flex-direction: column; align-items: stretch; }
+.fd-node { position: relative; display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border-strong); border-left-width: 4px; border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
+.fd-node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.fd-node.drop { outline: 2px dashed var(--accent); }
+.fd-node.conditional { border-style: dashed; border-left-style: solid; }
+.fd-submit, .fd-end { background: var(--bg); }
+.fd-approval { border-left-color: var(--accent); }
+.fd-finance, .fd-execute { border-left-color: var(--border-strong); }
+.fd-num { flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; }
+.fd-node-main { flex: 1; min-width: 0; display: grid; gap: 2px; text-align: left; background: none; border: 0; padding: 0; color: inherit; cursor: inherit; font: inherit; }
+.fd-node-body { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); }
+.fd-tag { display: inline-block; padding: 0 6px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; }
+.fd-tag.cond { background: var(--bg); border: 1px dashed var(--border-strong); color: var(--ink); }
+.fd-node-actions { display: flex; flex-wrap: wrap; gap: 4px; flex: none; }
+.fd-link { display: flex; flex-direction: column; align-items: center; }
+.fd-arrow { width: 2px; height: 14px; background: var(--border-strong); }
+.fd-add { align-self: center; border: 1px dashed var(--border-strong); background: none; border-radius: 12px; padding: 0 10px; font-size: 12px; color: var(--accent); cursor: pointer; }
+.fd-row-selected { background: var(--accent-soft); }
+
+/* 节点与表单编辑器 */
+.fd-node-editor { display: grid; gap: 10px; }
+.fd-node-editor label { display: grid; gap: 4px; font-size: 13px; }
+.fd-section { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; margin: 0; display: grid; gap: 8px; min-width: 0; }
+.fd-section legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
+.fd-presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.fd-fields { display: grid; gap: 8px; }
+.fd-field { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.fd-wide, .fd-field .fd-actions { grid-column: 1 / -1; }
+.fd-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.fd-policy { display: grid; gap: 12px; margin-top: 8px; }
+.fd-tiers { display: grid; gap: 6px; }
+
+@media (max-width: 860px) {
+  .fd-directory, .fd-design-layout { grid-template-columns: minmax(0, 1fr); }
+  .fd-deptnav { padding: 8px; }
+  .fd-node { flex-wrap: wrap; }
+  .fd-node-actions { width: 100%; }
+  /* 目录表格在手机上变成卡片 */
+  .fd-table, .fd-table tbody, .fd-table tr, .fd-table td { display: block; width: 100%; }
+  .fd-table thead { position: absolute; left: -9999px; }
+  .fd-table tr { border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 8px 12px; width: auto; padding: 4px 0; }
+  .fd-table td { border: 0; padding: 4px 12px; display: flex; gap: 8px; justify-content: space-between; text-align: right; }
+  .fd-table td::before { content: attr(data-label); color: var(--muted); font-size: 12px; text-align: left; flex: none; }
+}

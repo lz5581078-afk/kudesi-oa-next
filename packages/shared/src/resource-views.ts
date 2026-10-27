@@ -54,6 +54,8 @@ export interface ViewFilterDef {
   key: string;
   label: string;
   options: readonly Option[];
+  /** 选项要向服务端取（如 departments：本公司的部门） */
+  optionsFrom?: 'departments';
 }
 
 const storePlatformOptions = (): Option[] => {
@@ -63,7 +65,7 @@ const storePlatformOptions = (): Option[] => {
 
 /** 虚拟筛选：列表上方的下拉，条件在服务端实时计算（见 api 的 view-filters.ts） */
 export function viewFiltersOf(type: string): ViewFilterDef[] {
-  const computed = (RESOURCE_DEFS.find((d) => d.key === type)?.computedFilters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options.map((o) => ({ value: o.value, label: o.label })) }));
+  const computed = (RESOURCE_DEFS.find((d) => d.key === type)?.computedFilters ?? []).map((f) => ({ key: f.key, label: f.label, options: (f.options ?? []).map((o) => ({ value: o.value, label: o.label })), optionsFrom: f.optionsFrom }));
   return [...hardViewFilters(type), ...computed];
 }
 

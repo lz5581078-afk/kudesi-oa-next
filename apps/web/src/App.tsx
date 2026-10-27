@@ -48,6 +48,8 @@ import { ApplyPage } from './pages/flow/ApplyPage';
 import { TasksPage } from './pages/flow/TasksPage';
 import { RunsPage } from './pages/flow/RunsPage';
 import { TemplatesPage } from './pages/flow/TemplatesPage';
+import { NodeCenterPage } from './pages/flow/NodeCenterPage';
+import { TimeoutsPage } from './pages/flow/TimeoutsPage';
 import { MyTodosPage } from './pages/flow/TodosPage';
 import { HomePage } from './pages/workspace/HomePage';
 import { BossPage } from './pages/workspace/BossPage';
@@ -70,6 +72,8 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
   'flow.apply': ApplyPage,
   'flow.overview': () => <RunsPage view="all" />,
   'flow.templates': TemplatesPage,
+  'flow.node-templates': NodeCenterPage,
+  'flow.timeouts': TimeoutsPage,
   'finance.overview': FinanceOverviewPage,
   'finance.cost-table': CostTablePage,
   'finance.pricing-debug': PricingDebugPage,

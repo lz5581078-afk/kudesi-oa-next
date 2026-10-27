@@ -31,3 +31,5 @@ export * from './jst-capabilities';
 export * from './purchase';
 export * from './workspace';
 export * from './service-cases';
+export * from './relation-kinds';
+export * from './flow-custom';

@@ -78,6 +78,7 @@ export interface Relation {
   validFrom?: string | null;
   validTo?: string | null;
   purpose?: string | null;
+  relationKind?: string | null;
 }
 
 export interface LogEntry {
@@ -150,9 +151,9 @@ export const resourceApi = {
     api<ResourceDto>(`/resources/${type}/${id}/restore`, { method: 'POST', body: { reason } }),
   reveal: (type: string, id: number, field: string) => api<{ field: string; value: string }>(`/resources/${type}/${id}/secret/${field}`),
   logs: (type: string, id: number) => api<LogEntry[]>(`/resources/${type}/${id}/logs`),
-  addLink: (type: string, id: number, targetType: string, targetId: number, props: { purpose?: string; validFrom?: string; validTo?: string } = {}) =>
+  addLink: (type: string, id: number, targetType: string, targetId: number, props: { purpose?: string; validFrom?: string; validTo?: string; relationKind?: string } = {}) =>
     api<{ ok: true }>(`/resources/${type}/${id}/links`, { method: 'POST', body: { targetType, targetId, ...props } }),
-  updateLink: (type: string, id: number, linkId: number, props: { purpose?: string; validFrom?: string; validTo?: string }) =>
+  updateLink: (type: string, id: number, linkId: number, props: { purpose?: string; validFrom?: string; validTo?: string; relationKind?: string }) =>
     api<{ ok: true }>(`/resources/${type}/${id}/links/${linkId}`, { method: 'PATCH', body: props }),
   removeLink: (type: string, id: number, linkId: number) => api<{ ok: true }>(`/resources/${type}/${id}/links/${linkId}`, { method: 'DELETE' }),
   warehousePhotos: (id: number, fileIds: number[]) => api<ResourceDto>(`/resources/finance-products/${id}/warehouse-photos`, { method: 'POST', body: { fileIds } }),
@@ -163,10 +164,11 @@ export const resourceApi = {
   recentChanges: () => api<RecentChange[]>('/resources/recent-changes'),
   expiring: (days: number) => api<ExpiringResult>(`/resources/expiring?days=${days}`),
   /** scope：不传=全部；传筛选条件=当前筛选结果；ids=所选 */
-  export: (type: string, includeHidden: boolean, scope: ListParams & { ids?: number[] } = {}) => {
+  export: (type: string, includeHidden: boolean, scope: ListParams & { ids?: number[]; cols?: string[] } = {}) => {
     const q = new URLSearchParams(query({ ...scope, page: undefined, pageSize: undefined, showHidden: undefined }).replace(/^\?/, ''));
     if (includeHidden) q.set('includeHidden', '1');
     if (scope.ids?.length) q.set('ids', scope.ids.join(','));
+    if (scope.cols?.length) q.set('cols', scope.cols.join(','));
     const qs = q.toString();
     return api<{ filename: string; csv: string; count: number }>(`/resources/${type}/export${qs ? `?${qs}` : ''}`);
   },

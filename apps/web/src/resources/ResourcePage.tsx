@@ -19,6 +19,7 @@ import { ReasonLibraryDialog } from './ReasonLibraryDialog';
 import { CategorySortDialog } from './CategorySortDialog';
 import { RecordDetail, useResourceCan } from './RecordDetail';
 import { RecordForm } from './RecordForm';
+import { ArchiveTypeDialog } from './ArchiveTypeDialog';
 import { InventoryDialog } from './AssetPanels';
 
 const PAGE_SIZES = [20, 50, 100] as const;
@@ -68,7 +69,7 @@ function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
 export function ResourcePage({ type, lockedTab, title }: { type: string; lockedTab?: string; title?: string }) {
   const def = getResourceDef(type)!;
   const can = useResourceCan(type);
-  useUnitOptions(); // 单位列表读到后，列表里的单位编码才能换成名称
+  const unitOpts = useUnitOptions(); // 单位列表读到后，列表里的单位编码才能换成名称
   const [keyword, setKeyword] = useState('');
   const [tab, setTab] = useState(lockedTab ?? '');
   const [status, setStatus] = useState(() => readPrefs(type).status ?? '');
@@ -81,6 +82,12 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
   const treeField = useMemo(() => treeFilterField(def), [def]);
   const viewFilters = useMemo(() => viewFiltersOf(type), [type]);
+  // 选项由服务端按公司生成的筛选（如 部门）
+  const [deptOpts, setDeptOpts] = useState<Array<{ value: string; label: string }>>([]);
+  useEffect(() => {
+    if (!viewFilters.some((v) => v.optionsFrom === 'departments')) return;
+    resourceApi.departments().then((l) => setDeptOpts(l.map((d) => ({ value: String(d.id), label: d.name })))).catch(() => setDeptOpts([]));
+  }, [viewFilters]);
   const today = useMemo(() => todayShanghai(), []);
   const filterFields = useMemo(
     () => (def.filterBy ? ([] as string[]).concat(def.filterBy as string | string[]) : []).map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f)),
@@ -117,7 +124,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const libCan = useResourceCan(libType || type);
   const catCan = useResourceCan('asset-categories');
 
-  // 派生列（配置 derivedColumns）：按页现算的数字，当作只读列显示，不能排序
+  // 派生列（配置 derivedColumns）：按页现算的数字，当作只读列显示，服务端可排序、可导出
   const derivedFields = useMemo<FieldDef[]>(() => (def.derivedColumns ?? []).map((d) => ({ key: d.key, label: d.label, type: d.kind === 'sum' && d.format === 'money' ? 'money' : 'number', group: '统计', readonly: true, list: d.list !== false })), [def]);
   const derivedKeys = useMemo(() => new Set(derivedFields.map((f) => f.key)), [derivedFields]);
   const shownFields = useMemo(() => [...def.fields.filter((f) => f.type !== 'secret'), ...derivedFields], [def, derivedFields]);
@@ -193,6 +200,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [packagingXlOpen, setPackagingXlOpen] = useState(false);
   const [costXlOpen, setCostXlOpen] = useState(false);
+  const [archiveTypesOpen, setArchiveTypesOpen] = useState(false);
   const { user: me } = useAuth();
   const costCan = createChecker(me?.permissions ?? { isCompanyAdmin: false, allow: [], deny: [] });
   async function seedFees() {
@@ -242,9 +250,10 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   }
   async function doExport(scope: 'filtered' | 'all' | 'picked') {
     try {
-      const out = await resourceApi.export(type, showHidden || archived, scope === 'all' ? {} : scope === 'picked'
-        ? { ids: checked }
-        : { keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, archived, expiring, filters: filterVals, sortBy: sort?.by, sortDir: sort?.dir });
+      const cols = colKeys.filter((k) => derivedKeys.has(k));
+      const out = await resourceApi.export(type, showHidden || archived, scope === 'all' ? { cols } : scope === 'picked'
+        ? { ids: checked, cols }
+        : { cols, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, archived, expiring, filters: filterVals, sortBy: sort?.by, sortDir: sort?.dir });
       downloadText(out.filename, out.csv);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '导出失败');
@@ -259,6 +268,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           <div className="pill-row">
             {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="secondary-button" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
             {type === 'finance-packaging-schemes' && <button type="button" className="secondary-button" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
+            {type === 'finance-products' && can('edit') && <button type="button" className="secondary-button" onClick={() => setArchiveTypesOpen(true)}>管理档案类型</button>}
             {type === 'finance-product-units' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedUnits}>{seeding ? '导入中…' : '导入默认项'}</button>}
             {type === 'finance-fee-items' && can('create') && hasFeeDefaults(me?.companyName) && <button type="button" className="secondary-button" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
             {type === 'finance-fee-items' && <button type="button" className="secondary-button" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
@@ -303,7 +313,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           {(tabField || def.quickTabs?.length) && !lockedTab && (
             <div className="tab-group page-tabs" role="tablist" aria-label="分类">
               <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'chip active' : 'chip'} onClick={() => { setTab(''); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>全部</button>
-              {[...resourceTabOptions(def), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)].map((o) => (
+              {[...resourceTabOptions(def), ...(def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || [], ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)].map((o) => (
                 <button key={o.value} type="button" role="tab" aria-selected={tab === o.value} className={tab === o.value ? 'chip active' : 'chip'} onClick={() => { setTab(o.value); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>
                   {o.label}{data?.tabCounts ? ` ${data.tabCounts[o.value] ?? 0}` : ''}
                 </button>
@@ -322,7 +332,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             )}
             <select className="sort-mobile" aria-label="排序方式" value={sort ? `${sort.by}:${sort.dir}` : ''} onChange={(e) => { const [by, dir] = e.target.value.split(':'); setSort(by ? { by, dir: dir as 'asc' | 'desc' } : null); setPage(1); }}>
               <option value="">默认排序</option>
-              {columns.filter((f) => SORTABLE.has(f.type) && !derivedKeys.has(f.key)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
+              {columns.filter((f) => SORTABLE.has(f.type)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
             </select>
             <div className={`filter-group${filtersOpen ? ' open' : ''}`}>
             {filterFields.filter((ff) => ff.key !== treeField?.key).map((ff) => (
@@ -334,7 +344,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             {viewFilters.map((vf) => (
               <select key={vf.key} aria-label={vf.label} value={filterVals[vf.key] ?? ''} onChange={(e) => { setFilterVals((v) => ({ ...v, [vf.key]: e.target.value })); setPage(1); }}>
                 <option value="">{vf.label}：全部</option>
-                {vf.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {(vf.optionsFrom === 'departments' ? deptOpts : vf.options).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             ))}
             <select aria-label="状态" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
@@ -393,7 +403,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               <thead>
                 <tr>
                   {<th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={!!data?.items.length && data.items.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...(data?.items.map((r) => r.id) ?? [])])] : checked.filter((id) => !data?.items.some((r) => r.id === id)))} /></th>}
-                  {columns.map((f) => SORTABLE.has(f.type) && !derivedKeys.has(f.key) ? (
+                  {columns.map((f) => SORTABLE.has(f.type) ? (
                     <th key={f.key} aria-sort={sort?.by === f.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button type="button" className="link-button" title="点击排序" onClick={() => { setSort(sort?.by === f.key ? (sort.dir === 'asc' ? { by: f.key, dir: 'desc' } : null) : { by: f.key, dir: 'asc' }); setPage(1); }}>
                         {f.label}{sort?.by === f.key ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
@@ -459,6 +469,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         </div>
       </section>
 
+      {archiveTypesOpen && <ArchiveTypeDialog counts={data?.tabCounts} onClose={() => setArchiveTypesOpen(false)} onChanged={() => void load()} />}
       {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}
       {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}

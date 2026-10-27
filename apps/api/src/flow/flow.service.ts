@@ -1,18 +1,19 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager, In, Not } from 'typeorm';
 import {
-  FLOW_TEMPLATES, createChecker, getFlowTemplate, validateResourceInput, validateSteps,
-  type FlowAction, type FlowTemplate, type StepDef,
+  FLOW_TEMPLATES, ASSIGNEE_NO_TARGET, createChecker, evalCondition, validateCustomTemplate, validateResourceInput, validateSteps,
+  type CustomSchema, type FlowAction, type FlowTemplate, type StepDef,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { FlowCc, FlowDefinition, FlowEvent, FlowRun, FlowStep, Notification, ResourceRecord, User, WorkItem } from '../entities';
+import { Department, FlowCc, FlowDefinition, FlowEvent, FlowRun, FlowStep, FlowTemplateRow, Notification, ResourceRecord, User, WorkItem } from '../entities';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { ResourcesService } from '../resources/resources.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { FeishuNoticeService } from '../outbox/feishu-notice.service';
-import { FLOW_ADAPTERS, StepContext, postDeclared } from './flow-adapters';
+import { StepContext, postDeclared } from './flow-adapters';
+import { adapterFor, customFrom, loadTemplate } from './flow-templates';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
@@ -44,11 +45,9 @@ export class FlowService {
 
   private can(user: AuthUser, key: string) { return createChecker(user.permissions)(key); }
   private need(user: AuthUser, key: string, msg: string) { if (!this.can(user, key)) throw new ForbiddenException(msg); }
-  private tpl(key: string) {
-    const t = getFlowTemplate(key);
-    if (!t) throw new NotFoundException('没有这种流程');
-    return t;
-  }
+  /** 解析模板（内置或自建）；在办流程传 run 以使用启动时的版本 */
+  private tpl(em: EntityManager, companyId: number, key: string, definitionId?: number | null) { return loadTemplate(em, companyId, key, definitionId); }
+  private runTpl(em: EntityManager, run: FlowRun) { return loadTemplate(em, run.companyId, run.templateKey, run.definitionId); }
   private svc() { return { resources: this.resources, docs: this.docs, bundles: this.bundles, outbox: this.outbox }; }
 
   // ================= 流程定义 =================
@@ -59,45 +58,78 @@ export class FlowService {
 
   /** 模板列表：每个模板当前启用的版本和是否能发起 */
   async templates(user: AuthUser) {
-    const defs = await this.dataSource.manager.find(FlowDefinition, { where: { companyId: user.companyId, status: 'active' } });
-    return FLOW_TEMPLATES.map((t) => {
+    const em = this.dataSource.manager;
+    const defs = await em.find(FlowDefinition, { where: { companyId: user.companyId, status: 'active' } });
+    const builtin = FLOW_TEMPLATES.map((t) => {
       const active = defs.find((d) => d.templateKey === t.key);
-      return { key: t.key, label: t.label, description: t.description, entry: t.entry ?? null, fields: t.fields, stepFields: t.stepFields, active: Boolean(active), version: active?.version ?? null, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
+      return { key: t.key, label: t.label, description: t.description, entry: t.entry ?? null, fields: t.fields, stepFields: t.stepFields, active: Boolean(active), version: active?.version ?? null, custom: false, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
     });
+    // 自建模板：只有启用中的才出现在申请中心
+    const rows = await em.find(FlowTemplateRow, { where: { companyId: user.companyId }, order: { id: 'ASC' } });
+    const custom = rows.flatMap((r) => {
+      const active = defs.find((d) => d.templateKey === r.templateKey);
+      if (!active) return [];
+      const t = customFrom(r, active);
+      return [{ key: t.key, label: t.label, description: t.description, entry: null, fields: t.fields, stepFields: t.stepFields, active: true, version: active.version, custom: true, steps: (active.steps as StepDef[]).map((x) => ({ name: x.name, type: x.type })) }];
+    });
+    return [...builtin, ...custom];
   }
 
   async definition(user: AuthUser, key: string) {
-    const t = this.tpl(key);
+    const row = FLOW_TEMPLATES.some((x) => x.key === key) ? null : await this.dataSource.manager.findOne(FlowTemplateRow, { where: { companyId: user.companyId, templateKey: key } });
+    const t = await this.tpl(this.dataSource.manager, user.companyId, key);
     const rows = await this.dataSource.manager.find(FlowDefinition, { where: { companyId: user.companyId, templateKey: key }, order: { version: 'DESC' } });
     const active = rows.find((r) => r.status === 'active');
     const draft = rows.find((r) => r.status === 'draft');
     const names = await this.userNames(this.dataSource.manager, user.companyId, [...(draft ?? active)?.steps.flatMap((s) => (s as StepDef).ccUserIds ?? []) ?? [], ...(draft ?? active)?.escalateUserIds ?? []]);
+    const base = draft ?? active ?? rows[0] ?? null;
+    const schemaOf = (d: FlowDefinition | null) => (t.custom ? { fields: ((d?.schemaJson as Partial<CustomSchema> | null)?.fields ?? t.fields), stepFields: (d?.schemaJson as Partial<CustomSchema> | null)?.stepFields ?? t.stepFields, posting: (d?.schemaJson as Partial<CustomSchema> | null)?.posting ?? null } : null);
     return {
-      template: { key: t.key, label: t.label, description: t.description, steps: t.steps },
-      active: active ? this.toDef(active) : null,
+      template: { key: t.key, label: t.label, description: t.description, steps: t.custom ? [] : t.steps, custom: !!t.custom, departmentId: row?.departmentId ?? null, fields: t.fields, stepFields: t.stepFields, posting: t.posting ?? null },
+      active: active ? { ...this.toDef(active), schema: schemaOf(active) } : null,
       // 没有草稿时给一份“默认草稿”（不入库），保存后才成为真正的草稿
-      draft: draft ? this.toDef(draft) : { id: null, version: (rows[0]?.version ?? 0) + 1, status: 'draft' as const, steps: (active?.steps as StepDef[]) ?? [...t.steps], escalateUserIds: active?.escalateUserIds ?? [], publishedAt: null, createdAt: null },
-      history: rows.map((r) => ({ version: r.version, status: r.status, publishedAt: r.publishedAt })),
+      draft: draft ? { ...this.toDef(draft), schema: schemaOf(draft) } : { id: null, version: (rows[0]?.version ?? 0) + 1, status: 'draft' as const, steps: (active?.steps as StepDef[]) ?? (t.custom ? ((base?.steps as StepDef[]) ?? []) : [...t.steps]), escalateUserIds: active?.escalateUserIds ?? [], publishedAt: null, createdAt: null, schema: schemaOf(active ?? base) },
+      history: rows.map((r) => ({ version: r.version, status: r.status, publishedAt: r.publishedAt, stepCount: (r.steps as StepDef[]).length })),
       names: Object.fromEntries(names),
     };
   }
 
-  async saveDraft(user: AuthUser, key: string, steps: StepDef[], escalateUserIds: number[]) {
+  /** 把管理员提交的步骤整理成要保存的样子（只留认识的字段） */
+  private cleanSteps(t: FlowTemplate, steps: StepDef[]): StepDef[] {
+    return steps.map((s) => {
+      const out: StepDef = { key: s.key, name: s.name.trim(), type: s.type, assignee: s.assignee, dueMinutes: s.dueMinutes ?? null, ccUserIds: s.ccUserIds ?? [] };
+      if (!t.custom && t.steps.some((x) => x.key === s.key && x.locked)) out.locked = true;
+      if (s.when) out.when = { field: s.when.field, op: s.when.op, ...(s.when.value !== undefined ? { value: s.when.value } : {}) };
+      if (s.returnToKey) out.returnToKey = s.returnToKey;
+      if (s.mode === 'all') out.mode = 'all';
+      if (s.remind && (s.remind.beforeMinutes.length > 0 || s.remind.overdueEveryMinutes)) out.remind = { beforeMinutes: [...s.remind.beforeMinutes].sort((x, y) => y - x), overdueEveryMinutes: s.remind.overdueEveryMinutes ?? null };
+      if (s.hiddenFields?.length) out.hiddenFields = [...new Set(s.hiddenFields)];
+      if (s.nodeTemplateKey) out.nodeTemplateKey = s.nodeTemplateKey;
+      return out;
+    });
+  }
+
+  async saveDraft(user: AuthUser, key: string, steps: StepDef[], escalateUserIds: number[], schema?: CustomSchema | null) {
     this.need(user, 'flow.templates.manage', '没有配置流程的权限');
-    const t = this.tpl(key);
-    const errors = validateSteps(t, steps, escalateUserIds);
+    const em0 = this.dataSource.manager;
+    const t = await this.tpl(em0, user.companyId, key);
+    const check = t.custom ? { ...t, fields: schema?.fields ?? t.fields, stepFields: schema?.stepFields ?? t.stepFields, posting: schema ? (schema.posting ?? undefined) : t.posting } : t;
+    const errors = t.custom ? validateCustomTemplate(check, steps, escalateUserIds) : validateSteps(t, steps, escalateUserIds);
     if (errors.length) throw new BadRequestException(errors.join('；'));
-    await this.checkUsersExist(this.dataSource.manager, user.companyId, [...steps.flatMap((s) => s.ccUserIds ?? []), ...escalateUserIds, ...steps.flatMap((s) => (s.assignee?.source === 'employee' && s.assignee.id ? [s.assignee.id] : []))]);
-    const clean = steps.map((s) => ({ key: s.key, name: s.name.trim(), type: s.type, assignee: s.assignee, dueMinutes: s.dueMinutes ?? null, ccUserIds: s.ccUserIds ?? [], locked: t.steps.some((x) => x.key === s.key && x.locked) || undefined }));
+    await this.checkUsersExist(em0, user.companyId, [...steps.flatMap((s) => s.ccUserIds ?? []), ...escalateUserIds, ...steps.flatMap((s) => (s.assignee?.source === 'employee' && s.assignee.id ? [s.assignee.id] : []))]);
+    const clean = this.cleanSteps(t, steps);
+    const schemaJson = t.custom && schema ? { fields: schema.fields, stepFields: schema.stepFields, posting: schema.posting ?? null } : undefined;
     return this.dataSource.transaction(async (em) => {
       const rows = await em.find(FlowDefinition, { where: { companyId: user.companyId, templateKey: key }, order: { version: 'DESC' }, lock: { mode: 'pessimistic_write' } });
       const draft = rows.find((r) => r.status === 'draft');
       if (draft) {
         draft.steps = clean;
         draft.escalateUserIds = escalateUserIds;
+        if (schemaJson) draft.schemaJson = schemaJson;
         await em.save(FlowDefinition, draft);
       } else {
-        await em.insert(FlowDefinition, { companyId: user.companyId, templateKey: key, version: (rows[0]?.version ?? 0) + 1, status: 'draft', steps: clean, escalateUserIds, createdBy: user.id });
+        const inherit = rows.find((r) => r.status === 'active') ?? rows[0];
+        await em.insert(FlowDefinition, { companyId: user.companyId, templateKey: key, version: (rows[0]?.version ?? 0) + 1, status: 'draft', steps: clean, escalateUserIds, createdBy: user.id, schemaJson: (schemaJson ?? (t.custom ? inherit?.schemaJson : null) ?? null) } as never);
       }
       return { ok: true };
     });
@@ -106,15 +138,16 @@ export class FlowService {
   /** 发布：每一步的办理人现在都要能解析到人，否则不让发布（和旧系统一致） */
   async publish(user: AuthUser, key: string) {
     this.need(user, 'flow.templates.manage', '没有配置流程的权限');
-    const t = this.tpl(key);
     return this.dataSource.transaction(async (em) => {
       const rows = await em.find(FlowDefinition, { where: { companyId: user.companyId, templateKey: key }, order: { version: 'DESC' }, lock: { mode: 'pessimistic_write' } });
       const draft = rows.find((r) => r.status === 'draft');
       if (!draft) throw new BadRequestException('没有可发布的草稿，请先保存配置');
       const steps = draft.steps as StepDef[];
-      const errors = validateSteps(t, steps, draft.escalateUserIds);
+      const builtin = await this.tpl(em, user.companyId, key, draft.id);
+      const t = builtin.custom ? customFrom((await em.findOne(FlowTemplateRow, { where: { companyId: user.companyId, templateKey: key } }))!, draft) : builtin;
+      const errors = t.custom ? validateCustomTemplate(t, steps, draft.escalateUserIds) : validateSteps(t, steps, draft.escalateUserIds);
       if (errors.length) throw new BadRequestException(errors.join('；'));
-      for (const s of steps.filter((x) => x.type !== 'submit' && x.type !== 'end')) await this.resolveRecipients(em, user.companyId, s, user.id); // 失败会抛出带步骤名的提示
+      for (const s of steps.filter((x) => x.type !== 'submit' && x.type !== 'end' && !ASSIGNEE_NO_TARGET.includes(x.assignee?.source ?? 'employee'))) await this.resolveRecipients(em, user.companyId, s, user.id); // 失败会抛出带步骤名的提示
       for (const r of rows.filter((x) => x.status === 'active')) { r.status = 'retired'; await em.save(FlowDefinition, r); }
       draft.status = 'active';
       draft.publishedAt = new Date();
@@ -132,12 +165,26 @@ export class FlowService {
 
   // ================= 办理人解析 =================
 
-  async resolveRecipients(em: EntityManager, companyId: number, step: StepDef, requesterId: number): Promise<number[]> {
+  async resolveRecipients(em: EntityManager, companyId: number, step: StepDef, requesterId: number, previousHandlerId?: number | null): Promise<number[]> {
     const a = step.assignee;
     if (!a) throw new BadRequestException(`步骤「${step.name}」没有指定办理人，请管理员在流程配置里设置`);
     if (a.source === 'requester') {
       const u = await em.findOne(User, { where: { id: requesterId, companyId, status: 'active' } });
       if (!u) throw new BadRequestException('发起人已停用');
+      return [u.id];
+    }
+    if (a.source === 'requester_manager') {
+      const me = await em.findOne(User, { where: { id: requesterId, companyId } });
+      let mid = me?.managerId ?? null;
+      if (!mid && me?.departmentId) mid = (await em.findOne(Department, { where: { id: me.departmentId, companyId } }))?.managerId ?? null;
+      if (mid === requesterId) mid = null;
+      const m = mid ? await em.findOne(User, { where: { id: mid, companyId, status: 'active' } }) : null;
+      if (!m) throw new BadRequestException(`步骤「${step.name}」要找发起人的上级，但发起人没有设置上级或部门主管（或已停用），请先到员工资料里设置`);
+      return [m.id];
+    }
+    if (a.source === 'previous_handler') {
+      const u = previousHandlerId ? await em.findOne(User, { where: { id: previousHandlerId, companyId, status: 'active' } }) : null;
+      if (!u) throw new BadRequestException(`步骤「${step.name}」要找上一步办理人，但找不到在职的办理人`);
       return [u.id];
     }
     if (!a.id) throw new BadRequestException(`步骤「${step.name}」没有选择具体的办理人`);
@@ -201,22 +248,28 @@ export class FlowService {
   // ================= 发起 =================
 
   async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string, opts: { internal?: boolean } = {}) {
-    const t = this.tpl(templateKey);
-    // 有专门业务页面的流程（售后、申诉）：权限由业务模块自己判断，申请中心/接口不能绕过业务页面直接发起
-    if (t.entry && !opts.internal) throw new BadRequestException(`这条流程要${t.entry.label}`);
-    if (!opts.internal) this.need(user, 'flow.apply.view', '没有发起流程的权限');
-    const adapter = FLOW_ADAPTERS[t.key];
-    const checked = validateResourceInput(pseudoDef(t.key, t.fields), payloadIn ?? {}, { status: '' });
-    if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
-    const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
+    if (!opts.internal) {
+      // 有专门业务页面的流程（售后、申诉）：权限由业务模块自己判断，申请中心/接口不能绕过业务页面直接发起
+      const t0 = await this.tpl(this.dataSource.manager, user.companyId, templateKey);
+      if (t0.entry) throw new BadRequestException(`这条流程要${t0.entry.label}`);
+      this.need(user, 'flow.apply.view', '没有发起流程的权限');
+    }
     if (requestKey !== undefined && !/^[A-Za-z0-9_-]{12,80}$/.test(requestKey)) throw new BadRequestException('requestKey 要 12 到 80 位字母数字');
     return this.dataSource.transaction(async (em) => {
       if (requestKey) {
         const dup = await em.findOne(FlowRun, { where: { companyId: user.companyId, requestKey } });
         if (dup) return this.detailIn(em, user, dup.id);
       }
-      const def = await em.findOne(FlowDefinition, { where: { companyId: user.companyId, templateKey: t.key, status: 'active' } });
-      if (!def) throw new BadRequestException('这条流程还没有启用，请管理员先在“流程配置”里配置办理人并发布');
+      const def = await em.findOne(FlowDefinition, { where: { companyId: user.companyId, templateKey: templateKey, status: 'active' } });
+      if (!def) {
+        await this.tpl(em, user.companyId, templateKey); // 不存在的流程给“没有这种流程”
+        throw new BadRequestException('这条流程还没有启用，请管理员先在“流程配置”里配置办理人并发布');
+      }
+      const t = await this.tpl(em, user.companyId, templateKey, def.id);
+      const adapter = adapterFor(t);
+      const checked = validateResourceInput(pseudoDef(t.key, t.fields), payloadIn ?? {}, { status: '' });
+      if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
+      const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
       await adapter.validateStart?.({ em, user, payload, ...this.svc() });
       const title = await adapter.title(em, user.companyId, payload);
       const steps = def.steps as StepDef[];
@@ -237,17 +290,20 @@ export class FlowService {
   }
 
   /** 进入第 idx 步：解析办理人、建步骤记录和待办、抄送、通知；end 步直接完成流程 */
-  private async enter(em: EntityManager, actor: AuthUser, run: FlowRun, steps: StepDef[], idx: number, via: 'normal' | 'return' | 'transfer', keepDue?: Date | null, recipientsOverride?: number[]) {
+  private async enter(em: EntityManager, actor: AuthUser, run: FlowRun, steps: StepDef[], idx0: number, via: 'normal' | 'return' | 'transfer', keepDue?: Date | null, recipientsOverride?: number[]) {
+    let idx = idx0;
+    if (via === 'normal') idx = await this.skipUnmet(em, run, steps, idx);
     const def = steps[idx];
-    const t = this.tpl(run.templateKey);
-    const adapter = FLOW_ADAPTERS[t.key];
+    const t = await this.runTpl(em, run);
+    const adapter = adapterFor(t);
     if (def.type === 'end') {
       const last = await em.findOne(FlowStep, { where: { runId: run.id }, order: { seq: 'DESC' } });
       await em.insert(FlowStep, { companyId: run.companyId, runId: run.id, seq: (last?.seq ?? 0) + 1, stepKey: def.key, stepName: def.name, stepType: 'end', status: 'done', recipients: [], finishedAt: new Date() });
       await this.finish(em, actor, run, 'completed');
       return;
     }
-    const recipients = recipientsOverride ?? await this.resolveRecipients(em, run.companyId, def, run.requesterId);
+    const prev = def.assignee?.source === 'previous_handler' ? await em.findOne(FlowStep, { where: { runId: run.id, status: 'done', handledBy: Not(0) }, order: { seq: 'DESC' } }) : null;
+    const recipients = recipientsOverride ?? await this.resolveRecipients(em, run.companyId, def, run.requesterId, prev?.handledBy);
     const last = await em.findOne(FlowStep, { where: { runId: run.id }, order: { seq: 'DESC' } });
     const now = new Date();
     const bizDue = adapter.stepDueAt?.(def.key, run.payload) ?? null;
@@ -283,10 +339,10 @@ export class FlowService {
     run.revision += 1;
     await em.save(FlowRun, run);
     await em.update(WorkItem, { runId: run.id, status: 'open' }, { status: 'cancelled', finishedAt: new Date() });
-    const adapter = FLOW_ADAPTERS[run.templateKey];
+    const decl = await this.runTpl(em, run);
+    const adapter = adapterFor(decl);
     const lastStep = step ?? (await em.findOne(FlowStep, { where: { runId: run.id }, order: { seq: 'DESC' } }));
     if (adapter.onFinish && lastStep) await adapter.onFinish(this.stepCtx(em, actor, run, lastStep, {}), status);
-    const decl = getFlowTemplate(run.templateKey);
     if (status === 'completed' && decl?.posting?.at === 'complete' && lastStep) {
       await postDeclared(this.stepCtx(em, actor, run, lastStep, {}), decl);
       await em.update(FlowRun, { id: run.id }, { payload: run.payload } as never);
@@ -319,12 +375,22 @@ export class FlowService {
       if (step.id !== p.stepId) throw new ConflictException('这一步已经被处理过了，请刷新后再看');
       if (step.stepType === 'submit') throw new BadRequestException('这条流程被退回到发起人，请修改后“重新提交”');
       if (!(await this.myOpenItem(em, user, step))) throw new ForbiddenException('这一步不是你办理的');
-      const t = this.tpl(run.templateKey);
+      const t = await this.runTpl(em, run);
       const fields = t.stepFields[step.stepKey] ?? [];
       const checked = validateResourceInput(pseudoDef(`${t.key}.${step.stepKey}`, fields), p.form ?? {}, { status: '' });
       if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
       const form = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
-      const adapter = FLOW_ADAPTERS[t.key];
+      const adapter = adapterFor(t);
+      const stepDef = (run.stepsSnapshot as StepDef[]).find((x) => x.key === step.stepKey);
+      if (stepDef?.mode === 'all') {
+        // 全员会签：我办完了，但还有别人没办 → 只关我的待办，流程停在这一步
+        const others = await em.count(WorkItem, { where: { stepId: step.id, status: 'open', assigneeId: Not(user.id) } });
+        if (others > 0) {
+          await em.update(WorkItem, { stepId: step.id, assigneeId: user.id, status: 'open' }, { status: 'done', finishedAt: new Date() });
+          await this.event(em, run, user.id, 'pass', step.id, `会签通过${p.comment ? `：${p.comment}` : ''}`);
+          return this.detailIn(em, user, run.id);
+        }
+      }
       const ctx = this.stepCtx(em, user, run, step, form);
       await adapter.beforePass?.(ctx);
       await adapter.onPass?.(ctx);
@@ -359,11 +425,13 @@ export class FlowService {
       if (!(await this.myOpenItem(em, user, step))) throw new ForbiddenException('这一步不是你办理的');
       const steps = run.stepsSnapshot as StepDef[];
       const idx = steps.findIndex((s) => s.key === step.stepKey);
-      const blocked = FLOW_ADAPTERS[run.templateKey].returnBlocked?.(this.stepCtx(em, user, run, step, {}));
+      const blocked = adapterFor(await this.runTpl(em, run)).returnBlocked?.(this.stepCtx(em, user, run, step, {}));
       if (blocked) throw new BadRequestException(blocked);
+      const target = await this.returnTarget(em, run, steps, idx);
       await this.closeStep(em, run, step, user, 'returned', 'return', p.reason);
-      const back = FLOW_ADAPTERS[run.templateKey].returnTarget?.(this.stepCtx(em, user, run, step, {}), steps);
-      const to = back === undefined ? idx - 1 : steps.findIndex((s) => s.key === back);
+      // 适配器声明了退回目标（采购申请）就用它，否则用引擎算出的上一个实际办理的步骤
+      const back = adapterFor(await this.runTpl(em, run)).returnTarget?.(this.stepCtx(em, user, run, step, {}), steps);
+      const to = back === undefined ? target : steps.findIndex((s) => s.key === back);
       if (to < 0) throw new ConflictException(`流程里找不到步骤「${back}」，请管理员检查流程配置`);
       await this.enter(em, user, run, steps, to, 'return');
       return this.detailIn(em, user, run.id);
@@ -379,7 +447,7 @@ export class FlowService {
       const step = await this.activeStep(em, run);
       if (step.id !== p.stepId) throw new ConflictException('这一步已经被处理过了，请刷新后再看');
       if (!(await this.myOpenItem(em, user, step))) throw new ForbiddenException('这一步不是你办理的');
-      const blocked = FLOW_ADAPTERS[run.templateKey].cancelBlocked?.(this.stepCtx(em, user, run, step, {}));
+      const blocked = adapterFor(await this.runTpl(em, run)).cancelBlocked?.(this.stepCtx(em, user, run, step, {}));
       if (blocked) throw new BadRequestException(blocked);
       await this.closeStep(em, run, step, user, kind === 'cancel' ? 'cancelled' : 'rejected', kind, p.reason);
       await this.finish(em, user, run, kind === 'cancel' ? 'cancelled' : 'rejected', step);
@@ -396,7 +464,7 @@ export class FlowService {
       const step = await this.activeStep(em, run);
       const handledBefore = await em.count(FlowStep, { where: { runId: run.id, action: 'pass' } });
       if (step.stepType !== 'submit' && handledBefore > 0) throw new BadRequestException('已经有人办理过了，不能撤回；请联系当前办理人退回或废除');
-      const blocked = FLOW_ADAPTERS[run.templateKey].cancelBlocked?.(this.stepCtx(em, user, run, step, {}));
+      const blocked = adapterFor(await this.runTpl(em, run)).cancelBlocked?.(this.stepCtx(em, user, run, step, {}));
       if (blocked) throw new BadRequestException(blocked);
       await this.closeStep(em, run, step, user, 'cancelled', 'withdraw', p.reason);
       await this.finish(em, user, run, 'cancelled', step);
@@ -411,11 +479,11 @@ export class FlowService {
       if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
       const step = await this.activeStep(em, run);
       if (step.stepType !== 'submit') throw new BadRequestException('现在不在退回给你修改的状态');
-      const t = this.tpl(run.templateKey);
+      const t = await this.runTpl(em, run);
       const checked = validateResourceInput(pseudoDef(t.key, t.fields), p.payload ?? {}, { status: '' });
       if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
       const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
-      const adapter = FLOW_ADAPTERS[t.key];
+      const adapter = adapterFor(t);
       // 重新提交时，自己这条在办的流程不算“重复申请”：临时把它标成非 running 做检查
       await em.update(FlowRun, { id: run.id }, { status: 'cancelled' });
       try { await adapter.validateStart?.({ em, user, payload, run, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
@@ -478,6 +546,51 @@ export class FlowService {
     });
   }
 
+  // ================= 条件分支 / 退回目标 =================
+
+  private async stepForms(em: EntityManager, runId: number) {
+    const rows = await em.find(FlowStep, { where: { runId }, order: { seq: 'ASC' } });
+    const forms: Record<string, Record<string, unknown>> = {};
+    for (const r of rows) if (r.form) forms[r.stepKey] = r.form;
+    return forms;
+  }
+
+  /** 从第 idx 步开始，跳过条件不满足的步骤（每个跳过的步骤留一条“已跳过”记录）；结束步不会被跳过 */
+  private async skipUnmet(em: EntityManager, run: FlowRun, steps: StepDef[], idx: number) {
+    let i = idx;
+    let forms: Record<string, Record<string, unknown>> | null = null;
+    while (steps[i] && steps[i].when && steps[i].type !== 'end') {
+      forms ??= await this.stepForms(em, run.id);
+      if (evalCondition(steps[i].when!, { payload: run.payload, forms })) break;
+      const last = await em.findOne(FlowStep, { where: { runId: run.id }, order: { seq: 'DESC' } });
+      const d = steps[i];
+      await em.insert(FlowStep, { companyId: run.companyId, runId: run.id, seq: (last?.seq ?? 0) + 1, stepKey: d.key, stepName: d.name, stepType: d.type, status: 'skipped', recipients: [], finishedAt: new Date(), comment: '条件不满足，已跳过' });
+      i += 1;
+    }
+    return i;
+  }
+
+  /** 退回到哪一步：步骤声明了退回目标就用它，否则回到上一个实际会办理的步骤（跳过条件不满足的） */
+  private async returnTarget(em: EntityManager, run: FlowRun, steps: StepDef[], idx: number) {
+    const to = steps[idx].returnToKey ? steps.findIndex((x) => x.key === steps[idx].returnToKey) : -1;
+    if (to >= 0 && to < idx) return to;
+    let j = idx - 1;
+    let forms: Record<string, Record<string, unknown>> | null = null;
+    while (j > 0 && steps[j].when) {
+      forms ??= await this.stepForms(em, run.id);
+      if (evalCondition(steps[j].when!, { payload: run.payload, forms })) break;
+      j -= 1;
+    }
+    return j;
+  }
+
+  /** 流程类型名：内置 + 本公司自建 */
+  private async labelMap(companyId: number) {
+    const map = new Map<string, string>(FLOW_TEMPLATES.map((t) => [t.key, t.label]));
+    for (const r of await this.dataSource.manager.find(FlowTemplateRow, { where: { companyId }, select: ['templateKey', 'name'] })) map.set(r.templateKey, r.name);
+    return map;
+  }
+
   // ================= 查看 =================
 
   private async canSeeRun(em: EntityManager, user: AuthUser, run: FlowRun) {
@@ -496,14 +609,22 @@ export class FlowService {
     const run = await em.findOne(FlowRun, { where: { id, companyId: user.companyId } });
     if (!run) throw new NotFoundException('流程不存在');
     if (!(await this.canSeeRun(em, user, run))) throw new ForbiddenException('没有查看这条流程的权限');
-    const t = this.tpl(run.templateKey);
+    const t = await this.runTpl(em, run);
     const steps = await em.find(FlowStep, { where: { runId: id }, order: { seq: 'ASC' } });
     const events = await em.find(FlowEvent, { where: { runId: id }, order: { id: 'ASC' } });
     const ccs = await em.find(FlowCc, { where: { runId: id } });
     const active = steps.find((s) => s.status === 'active') ?? null;
     const names = await this.userNames(em, run.companyId, [run.requesterId, ...steps.flatMap((s) => [...s.recipients, ...(s.handledBy ? [s.handledBy] : [])]), ...events.map((e) => e.actorId), ...ccs.map((c) => c.userId)]);
+    // 字段权限：这一步办理人看不到的发起字段（发起人、有总览权限的人、管理员不受限）
+    const hidden = new Set<string>();
+    if (!(run.requesterId === user.id || this.can(user, 'flow.overview.view') || user.permissions.isCompanyAdmin)) {
+      for (const d of run.stepsSnapshot as StepDef[]) {
+        if (d.hiddenFields?.length && steps.some((st) => st.stepKey === d.key && (st.recipients.includes(user.id) || st.handledBy === user.id))) d.hiddenFields.forEach((k) => hidden.add(k));
+      }
+    }
     const refLabels: Record<string, string> = {};
     for (const f of t.fields) {
+      if (hidden.has(f.key)) continue;
       const v = run.payload[f.key];
       if (f.type === 'ref' && typeof v === 'number') {
         if (f.ref === 'user') refLabels[f.key] = (await this.userNames(em, run.companyId, [v])).get(v) ?? '';
@@ -520,14 +641,14 @@ export class FlowService {
     const mine = active ? await this.myOpenItem(em, user, active) : null;
     const isRequester = run.requesterId === user.id;
     const running = run.status === 'running';
-    const adapter = FLOW_ADAPTERS[run.templateKey];
+    const adapter = adapterFor(t);
     const ctx = active ? this.stepCtx(em, user, run, active, {}) : null;
     const handledBefore = steps.filter((s) => s.action === 'pass').length;
     return {
       id: run.id, templateKey: run.templateKey, templateLabel: t.label, title: run.title, status: run.status, revision: run.revision,
       requesterId: run.requesterId, requesterName: names.get(run.requesterId) ?? '', createdAt: run.createdAt, finishedAt: run.finishedAt, dueAt: run.dueAt,
-      payload: Object.fromEntries(Object.entries(run.payload).filter(([k]) => !k.startsWith('_'))), refLabels,
-      fields: t.fields, stepFields: t.stepFields,
+      payload: Object.fromEntries(Object.entries(run.payload).filter(([k]) => !k.startsWith('_') && !hidden.has(k))), refLabels,
+      fields: t.fields.filter((f) => !hidden.has(f.key)), stepFields: t.stepFields,
       activeStep: active ? { id: active.id, key: active.stepKey, name: active.stepName, type: active.stepType, enteredVia: active.enteredVia, dueAt: active.dueAt, recipients: active.recipients.map((u) => ({ id: u, name: names.get(u) ?? '' })) } : null,
       steps: steps.map((s) => ({ id: s.id, seq: s.seq, key: s.stepKey, name: s.stepName, type: s.stepType, status: s.status, action: s.action, comment: s.comment, form: s.form, formRefLabels: stepRefLabels[s.id] ?? {}, enteredVia: s.enteredVia, enteredAt: s.enteredAt, finishedAt: s.finishedAt, dueAt: s.dueAt, handledByName: s.handledBy ? names.get(s.handledBy) ?? '' : null, recipients: s.recipients.map((u) => names.get(u) ?? '') })),
       events: events.map((e) => ({ id: e.id, action: e.action, note: e.note, actorName: names.get(e.actorId) ?? '', createdAt: e.createdAt })),
@@ -584,11 +705,12 @@ export class FlowService {
       [...args, q.pageSize, (q.page - 1) * q.pageSize],
     );
     const names = await this.userNames(this.dataSource.manager, user.companyId, rows.flatMap((r: { recipients: number[] | string | null }) => (typeof r.recipients === 'string' ? JSON.parse(r.recipients) : r.recipients ?? [])));
+    const labels = await this.labelMap(user.companyId);
     return {
       total: Number(n), page: q.page, pageSize: q.pageSize,
       rows: rows.map((r: Record<string, unknown>) => {
         const rec: number[] = typeof r.recipients === 'string' ? JSON.parse(r.recipients) : (r.recipients as number[] | null) ?? [];
-        return { ...r, templateLabel: getFlowTemplate(String(r.templateKey))?.label ?? r.templateKey, handlers: rec.map((u) => names.get(u) ?? ''), recipients: undefined, overdue: r.status === 'running' && r.dueAt ? new Date(String(r.dueAt)) < new Date() : false };
+        return { ...r, templateLabel: labels.get(String(r.templateKey)) ?? r.templateKey, handlers: rec.map((u) => names.get(u) ?? ''), recipients: undefined, overdue: r.status === 'running' && r.dueAt ? new Date(String(r.dueAt)) < new Date() : false };
       }),
     };
   }
@@ -617,10 +739,11 @@ export class FlowService {
               SUM(w.status = 'open' AND s.entered_via = 'return') AS returned
        FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id WHERE w.company_id = ? AND w.assignee_id = ?`, [now, user.companyId, user.id]);
     const [cc] = await this.dataSource.query('SELECT COUNT(*) AS n FROM flow_ccs WHERE company_id = ? AND user_id = ?', [user.companyId, user.id]);
+    const labels = await this.labelMap(user.companyId);
     return {
       total: Number(n), page: q.page, pageSize: q.pageSize,
       counts: { pending: Number(counts.pending ?? 0), overdue: Number(counts.overdue ?? 0), returned: Number(counts.returned ?? 0), cc: Number(cc.n) },
-      rows: rows.map((r: Record<string, unknown>) => ({ ...r, templateLabel: r.kind === 'task' ? (r.routineId ? '周期任务' : '任务') : getFlowTemplate(String(r.templateKey))?.label ?? '', overdue: r.status === 'open' && r.dueAt ? new Date(String(r.dueAt)) < now : false })),
+      rows: rows.map((r: Record<string, unknown>) => ({ ...r, templateLabel: r.kind === 'task' ? (r.routineId ? '周期任务' : '任务') : labels.get(String(r.templateKey)) ?? '', overdue: r.status === 'open' && r.dueAt ? new Date(String(r.dueAt)) < now : false })),
     };
   }
 

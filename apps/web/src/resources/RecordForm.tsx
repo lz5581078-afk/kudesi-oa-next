@@ -4,6 +4,8 @@ import { SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanT
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
+import { ManageLink } from './ManageLink';
+import { BomDraft, saveBomRows, validBomRows, type BomDraftRow } from './BomDraft';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
@@ -64,7 +66,7 @@ export function loadRefOptions(target: string) {
   return p;
 }
 
-function RefSelect({ field, value, onChange, labelNow }: { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string }) {
+export function RefSelect({ field, value, onChange, labelNow }: { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string }) {
   const [options, setOptions] = useState<RefOptions | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -258,6 +260,7 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...(record?.data ?? {}), ...(initial ?? {}) }));
   const [status, setStatus] = useState(record?.status ?? def.defaultStatus);
   const [error, setError] = useState('');
+  const [bomRows, setBomRows] = useState<BomDraftRow[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [known, setKnown] = useState<Record<number, FileInfo>>(record?.files ?? {});
@@ -403,6 +406,11 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     try {
       const saved = record ? await resourceApi.update(def.key, record.id, body) : await resourceApi.create(def.key, body, status);
       clearRefCache(def.key);
+      if (!record && def.key === 'finance-products' && validBomRows(bomRows).length) {
+        const failed = await saveBomRows(saved.id, bomRows);
+        if (failed.length) window.alert(`档案已保存，但这些生产组成没保存成功，请到详情的“构成（BOM）”页签补录：\n${failed.join('\n')}`);
+        setBomRows([]);
+      }
       if (draftEnabled) await clearDraft();
       if (mode === 'close' || !onContinued) { onSaved(saved); return; }
       // 继续新建：“保存并继续新建”留空重填（只留档案类型、分类、采购方式），“不清除保存”带着内容，只清掉每个商品独有的编码和赠品简称
@@ -489,12 +497,14 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
                       onChange={(v) => { if (locked.includes(f.key)) return; setValues((cur) => ({ ...cur, [f.key]: v })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
                     />}
                     {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : f.help && <small className="muted">{f.help}</small>}
+                    {def.key === 'finance-products' && <ManageLink field={f} />}
                   </label>
                 ))}
               </div>
             </fieldset>
           ))}
           {isProduct && <TotalCostPreview values={values} />}
+          {isProduct && !record && isComposedArchive(values) && <BomDraft rows={bomRows} onChange={setBomRows} />}
           {isProduct && <CodePreview values={values} excludeId={record?.id} />}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
           {Object.values(errors).some(Boolean) && (

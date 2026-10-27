@@ -11,7 +11,7 @@ const NAMING_FIELDS: Array<[string, string]> = [
   ['name', '商品名称'], ['shortName', '简称'], ['style', '款式编码'], ['baseCode', '基础编码'], ['spec', '规格'], ['quantity', '数量'], ['totalSpec', '总规格'], ['custom', '自定义'],
 ];
 
-/** 批量生成：选构成 + 多个销售平台，先检查（复用、四层重复），全部没问题才一起生成。 */
+/** 新建组合编码：选构成（按主商品/包装/标签/打包材料/人工/赠品分组）+ 多个销售平台，先检查（复用、四层重复），每个平台的编码/名称/简称可手填覆盖，全部没问题才一起生成，生成后是“待验证”。 */
 export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [rows, setRows] = useState<LineRow[]>([{ role: 'main', qty: 1, label: '' }]);
   const [platforms, setPlatforms] = useState<ResourceDto[]>([]);
@@ -19,6 +19,9 @@ export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDon
   const [picked, setPicked] = useState<number[]>([]);
   const [scenarioId, setScenarioId] = useState<number | ''>('');
   const [preview, setPreview] = useState<PreviewTarget[] | null>(null);
+  const [manual, setManual] = useState<Record<number, { code: string; name: string; shortName: string }>>({});
+  const [reason, setReason] = useState('');
+  const [stale, setStale] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState('');
@@ -31,11 +34,17 @@ export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDon
   const [brands, setBrands] = useState<ResourceDto[]>([]);
   useEffect(() => { resourceApi.list('finance-brands', { pageSize: 200, status: 'active' }).then((r) => setBrands(r.items)).catch(() => undefined); }, []);
   const lines = (): LineInput[] => rows.filter((r) => r.baseCodeId || r.laborId).map(toLineInput);
-  const targets = () => picked.map((p) => ({ platformId: p, scenarioId: Number(scenarioId), bundleCategoryId: categoryId || undefined, brandId: brandId || undefined }));
+  const targets = () => picked.map((p) => {
+    const m = manual[p];
+    return { platformId: p, scenarioId: Number(scenarioId), bundleCategoryId: categoryId || undefined, brandId: brandId || undefined,
+      manualCode: m?.code.trim() || undefined, manualName: m?.name.trim() || undefined, manualShortName: m?.shortName.trim() || undefined, manualReason: m && (m.code || m.name || m.shortName).trim() ? reason.trim() : undefined };
+  });
+  const anyManual = Object.entries(manual).some(([k, m]) => picked.includes(Number(k)) && (m.code || m.name || m.shortName).trim());
+  const setM = (p: number, patch: Partial<{ code: string; name: string; shortName: string }>) => { setManual({ ...manual, [p]: { ...(manual[p] ?? { code: '', name: '', shortName: '' }), ...patch } }); setStale(true); };
   const invalid = lines().length === 0 || picked.length === 0 || !scenarioId || !categoryId;
   async function check() {
-    setBusy(true); setError(''); setPreview(null);
-    try { setPreview((await jstApi.bundlePreview(lines(), targets())).targets); } catch (e) { setError(msg(e)); }
+    setBusy(true); setError('');
+    try { setPreview((await jstApi.bundlePreview(lines(), targets())).targets); setStale(false); } catch (e) { setError(msg(e)); }
     setBusy(false);
   }
   async function generate() {
@@ -49,35 +58,44 @@ export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDon
   }
   return (
     <div className="modal-backdrop" role="presentation">
-      <div className="modal card wide" role="dialog" aria-label="批量生成商品组合编码">
-        <div className="modal-head between"><strong>批量生成组合编码</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
+      <div className="modal card wide" role="dialog" aria-label="新建组合编码">
+        <div className="modal-head between"><strong>新建组合编码</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
         <div className="modal-body">
           <p className="muted">选好构成和销售平台，每个平台生成一个组合；编码按“命名中心”的规则拼。同样构成、同平台同场景已经有的会直接复用；编码和本地组合、本地基础编码、聚水潭商品、聚水潭组合装重复的会拦住。</p>
           <h4>1. 组合构成</h4>
-          <LineEditor rows={rows} allowLabor onChange={(r) => { setRows(r); setPreview(null); }} />
+          <LineEditor rows={rows} allowLabor grouped onChange={(r) => { setRows(r); setPreview(null); }} />
           <h4>2. 销售平台和场景</h4>
           <div className="pill-row">{platforms.map((p) => <label key={p.id} className="check"><input type="checkbox" checked={picked.includes(p.id)} onChange={(e) => { setPicked(e.target.checked ? [...picked, p.id] : picked.filter((x) => x !== p.id)); setPreview(null); }} /> {p.title}</label>)}</div>
-          <label>销售场景<select value={scenarioId} onChange={(e) => { setScenarioId(Number(e.target.value)); setPreview(null); }}>{scenarios.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label>
+          <label>销售场景<select aria-label="销售场景" value={scenarioId} onChange={(e) => { setScenarioId(Number(e.target.value)); setPreview(null); }}>{scenarios.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select><small className="muted">销售场景在本页的“销售场景”页签里增删</small></label>
           <label>组合分类<b className="req"> *</b><BundleCategorySelect value={categoryId} onChange={(v) => { setCategoryId(v); setPreview(null); }} /><small className="muted">组合分类树里的最末级分类，成本表分类利润率按它汇总</small></label>
           <label>品牌（选填）<select aria-label="品牌" value={brandId} onChange={(e) => { setBrandId(e.target.value ? Number(e.target.value) : ''); setPreview(null); }}><option value="">不选（取第一个主品的品牌）</option>{brands.map((b) => <option key={b.id} value={b.id}>{b.title}</option>)}</select></label>
           {error && <div role="alert" className="notice error">{error}</div>}
           {done && <div role="status" className="notice ok">{done}</div>}
           {preview && (
-            <table className="data-table">
-              <thead><tr><th>平台</th><th>编码</th><th>名称</th><th>检查结果</th></tr></thead>
-              <tbody>{preview.map((t) => (
-                <tr key={`${t.platformId}-${t.scenarioId}`}>
-                  <td>{t.platformName}</td><td>{t.code}</td><td>{t.name}</td>
-                  <td className={t.ok ? undefined : 'bad-text'}>{t.reuse ? `已有相同组合，直接复用（${t.reuse.code}）` : t.duplicates.length ? t.duplicates.map((d) => `和${d.label}「${d.hit}」重复`).join('；') : '没有重复'}</td>
-                </tr>))}
-              </tbody>
-            </table>
+            <>
+              <h4>3. 组合品生成资料</h4>
+              <p className="muted">下面是按命名规则自动生成的编码、名称和简称；想改哪个直接填（留空就用自动值），改了必须写原因，改完要重新“保存前检查”。生成后的组合是“待验证”状态，核对后才能验证并同步聚水潭。</p>
+              <table className="data-table cards-narrow">
+                <thead><tr><th>平台</th><th>编码</th><th>名称</th><th>简称</th><th>检查结果</th></tr></thead>
+                <tbody>{preview.map((t) => (
+                  <tr key={`${t.platformId}-${t.scenarioId}`}>
+                    <td data-label="平台">{t.platformName}</td>
+                    <td data-label="编码"><input aria-label={`${t.platformName}编码`} maxLength={120} placeholder={`自动：${t.code}`} value={manual[t.platformId]?.code ?? ''} onChange={(e) => setM(t.platformId, { code: e.target.value.toUpperCase() })} /></td>
+                    <td data-label="名称"><input aria-label={`${t.platformName}名称`} maxLength={300} placeholder={`自动：${t.name}`} value={manual[t.platformId]?.name ?? ''} onChange={(e) => setM(t.platformId, { name: e.target.value })} /></td>
+                    <td data-label="简称"><input aria-label={`${t.platformName}简称`} maxLength={160} placeholder={`自动：${t.shortName}`} value={manual[t.platformId]?.shortName ?? ''} onChange={(e) => setM(t.platformId, { shortName: e.target.value })} /></td>
+                    <td data-label="检查结果" className={t.ok ? undefined : 'bad-text'}>{t.reuse ? `已有相同组合，直接复用（${t.reuse.code}）` : t.duplicates.length ? t.duplicates.map((d) => `和${d.label}「${d.hit}」重复`).join('；') : '没有重复'}</td>
+                  </tr>))}
+                </tbody>
+              </table>
+              {anyManual && <label>改码/改名原因<b className="req"> *</b><textarea aria-label="改码改名原因" rows={2} maxLength={500} value={reason} onChange={(e) => { setReason(e.target.value); setStale(true); }} /></label>}
+              {stale && <p className="muted" role="status">填写内容有变化，请重新点“保存前检查”。</p>}
+            </>
           )}
         </div>
         <div className="modal-foot">
           <button type="button" className="secondary-button" onClick={onClose}>关闭</button>
           <button type="button" className="secondary-button" disabled={busy || invalid} onClick={() => void check()}>保存前检查</button>
-          <button type="button" className="primary-button" disabled={busy || invalid || !preview || preview.some((t) => !t.ok) || !!done} onClick={() => void generate()}>生成 {picked.length} 个</button>
+          <button type="button" className="primary-button" disabled={busy || invalid || !preview || stale || preview.some((t) => !t.ok) || !!done || (anyManual && reason.trim().length < 2)} onClick={() => void generate()}>生成 {picked.length} 个</button>
         </div>
       </div>
     </div>

@@ -27,6 +27,10 @@ class TargetDto {
   @IsOptional() @IsString() @MaxLength(8) configNo?: string;
   @IsOptional() @IsInt() @Min(1) bundleCategoryId?: number;
   @IsOptional() @IsInt() @Min(1) brandId?: number;
+  @IsOptional() @IsString() @MaxLength(120) manualCode?: string;
+  @IsOptional() @IsString() @MaxLength(300) manualName?: string;
+  @IsOptional() @IsString() @MaxLength(160) manualShortName?: string;
+  @IsOptional() @IsString() @MaxLength(500) manualReason?: string;
 }
 class PlanDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => LineDto) lines!: LineDto[];

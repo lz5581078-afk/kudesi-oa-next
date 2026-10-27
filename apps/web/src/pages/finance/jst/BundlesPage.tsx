@@ -7,7 +7,6 @@ import { downloadText } from '../../../resources/csv';
 import { displayValue, statusOf } from '../../../resources/format';
 import { ImportDialog } from '../../../resources/ImportDialog';
 import { RecordDetail, useResourceCan } from '../../../resources/RecordDetail';
-import { RecordForm } from '../../../resources/RecordForm';
 import { resourceApi, type ListResult, type ResourceDto } from '../../../resources/api';
 import { Pager } from '../common';
 import { CategoryTree } from '../../../resources/CategoryTree';
@@ -35,7 +34,7 @@ export function BundlesPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
   const [checked, setChecked] = useState<number[]>([]);
-  const [dialog, setDialog] = useState<'generate' | 'naming' | 'create' | 'import' | 'regen' | null>(null);
+  const [dialog, setDialog] = useState<'generate' | 'naming' | 'import' | 'regen' | null>(null);
   const [verifyIds, setVerifyIds] = useState<number[] | null>(null);
   const [revise, setRevise] = useState<ResourceDto | null>(null);
   const [remove, setRemove] = useState<ResourceDto | null>(null);
@@ -76,8 +75,7 @@ export function BundlesPage() {
           {can('edit') && <button type="button" className="secondary-button" onClick={() => setDialog('regen')}>按新规则重生成编码</button>}
           {can('import') && <button type="button" className="secondary-button" onClick={() => setDialog('import')}>导入</button>}
           {can('export') && <button type="button" className="secondary-button" onClick={async () => { try { const o = await resourceApi.export(TYPE, true); downloadText(o.filename, o.csv); } catch (e) { setError(e instanceof ApiError ? e.message : '导出失败'); } }}>导出</button>}
-          {can('create') && <button type="button" className="secondary-button" onClick={() => setDialog('create')}>＋ 单个新增</button>}
-          {can('create') && <button type="button" className="primary-button" onClick={() => setDialog('generate')}>批量生成</button>}
+          {can('create') && <button type="button" className="primary-button" onClick={() => setDialog('generate')}>＋ 新建组合编码</button>}
         </div>
       </div>
       <div className="tab-group page-tabs" role="tablist" aria-label="验证状态">
@@ -127,7 +125,6 @@ export function BundlesPage() {
       </section>
       </div>
       {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void reload()} />}
-      {dialog === 'create' && <RecordForm def={def} record={null} onClose={() => setDialog(null)} onSaved={(dto) => { setDialog(null); setSelected(dto.id); void reload(); }} />}
       {dialog === 'import' && <ImportDialog def={def} onClose={() => setDialog(null)} onDone={() => { setDialog(null); void reload(); }} />}
       {dialog === 'generate' && <GenerateDialog onClose={() => setDialog(null)} onDone={() => void reload()} />}
       {dialog === 'regen' && <BundleRegenDialog onClose={() => setDialog(null)} onDone={() => void reload()} />}

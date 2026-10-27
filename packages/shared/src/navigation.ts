@@ -164,6 +164,8 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       page('flow', 'purchase', '采购申请中心', true),
       page('flow', 'overview', '流程总览', true),
       page('flow', 'templates', '流程配置', true),
+      page('flow', 'node-templates', '节点中心', true),
+      page('flow', 'timeouts', '超时与处罚', true),
     ],
   },
   {
@@ -227,6 +229,8 @@ export const SPECIAL_PERMISSIONS = {
   tasksRoutinesManage: 'tasks.routines.manage',
   /** 保存并发布流程配置（办理人、时限、抄送）；看配置页另需 flow.templates.view */
   flowTemplatesManage: 'flow.templates.manage',
+  /** 确认或免除流程超时处罚（涉及金额，单独授权）；看台账另需 flow.timeouts.view */
+  flowPenaltiesManage: 'flow.penalties.manage',
   /** 查看商品价格 */
   productPriceView: 'product.price.view',
   /** 组合装同步维护：把组合编码加入聚水潭同步队列（上传、改码、归档停用、基本售价同步）、重试/取消组合装任务；旧系统 finance-product-bundles.sync。总开关仍只有公司管理员能动 */

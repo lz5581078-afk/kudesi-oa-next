@@ -1,7 +1,7 @@
-import type { FieldDef, FlowAction, StepDef } from '@kudesi/shared';
+import type { FieldDef, FlowAction } from '@kudesi/shared';
 import { api } from '../../api/client';
 
-export interface TemplateInfo { key: string; label: string; description: string; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; active: boolean; version: number | null; steps?: Array<{ name: string; type: string }> }
+export interface TemplateInfo { key: string; label: string; description: string; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; active: boolean; version: number | null; custom?: boolean; steps?: Array<{ name: string; type: string }> }
 export interface RunRow {
   id: number; templateKey: string; templateLabel: string; title: string; status: string; requesterName: string; stepName: string | null; handlers: string[];
   dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; stepEnteredAt?: string | null;
@@ -21,13 +21,6 @@ export interface RunDetailDto {
   links: { docId: number | null; docNo: string | null; borrowRecordId: number | null };
   me: { canPass: boolean; canReturn: boolean; canCancel: boolean; canReject: boolean; returnBlockedReason: string | null; cancelBlockedReason: string | null; canResubmit: boolean; canWithdraw: boolean; canTransfer: boolean; stepFields: FieldDef[] };
 }
-export interface DefinitionDto {
-  template: { key: string; label: string; description: string; steps: StepDef[] };
-  active: { version: number; steps: StepDef[]; escalateUserIds: number[] } | null;
-  draft: { id: number | null; version: number; steps: StepDef[]; escalateUserIds: number[] };
-  history: Array<{ version: number; status: string; publishedAt: string | null }>;
-  names: Record<string, string>;
-}
 export interface AssignedRow { id: number; title: string; description: string | null; status: string; dueAt: string | null; createdAt: string; finishedAt: string | null; doneNote: string | null; assigneeName: string; overdue: boolean }
 export interface RoutineDto { id: number; title: string; description: string | null; assigneeId: number; assigneeName: string; frequency: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthDay: number | null; dueDays: number; active: boolean }
 export type RoutineBody = { title: string; description?: string; assigneeId: number; frequency: string; weekday?: number | null; monthDay?: number | null; dueDays: number; active?: boolean };
@@ -43,9 +36,6 @@ const post = <T,>(path: string, body: unknown) => api<T>(path, { method: 'POST',
 
 export const flowApi = {
   templates: () => api<TemplateInfo[]>('/flow/templates'),
-  definition: (key: string) => api<DefinitionDto>(`/flow/definitions/${key}`),
-  saveDraft: (key: string, steps: StepDef[], escalateUserIds: number[]) => api<{ ok: true }>(`/flow/definitions/${key}/draft`, { method: 'PUT', body: { steps, escalateUserIds } }),
-  publish: (key: string) => post<{ ok: true; version: number }>(`/flow/definitions/${key}/publish`, {}),
   start: (templateKey: string, payload: Record<string, unknown>, requestKey: string) => post<RunDetailDto>('/flow/runs', { templateKey, payload, requestKey }),
   runs: (p: { view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page?: number; pageSize?: number }) => api<RunList>(`/flow/runs${qs(p)}`),
   run: (id: number) => api<RunDetailDto>(`/flow/runs/${id}`),
