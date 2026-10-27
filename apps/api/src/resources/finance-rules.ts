@@ -804,6 +804,26 @@ const beforePartyCategory = (type: string) => async (ctx: BeforeSaveContext) => 
   for (let n = 2; used.has(suggestion); n++) suggestion = `${stem}${n}`;
   if (want && used.has(want)) throw new BadRequestException(`分类码 ${want} 已被“${used.get(want)}”使用，建议改为 ${suggestion}`);
   data.categoryCode = want || suggestion;
+  // 移动分类（旧系统 contactCategoryMoveParents）：只能在本分类所在的这一棵一级分类树里挪，不能挪到自己或自己的下级里，一级分类本身不能挪、也不能把别的分类变成一级
+  const oldParent = ctx.existing && typeof ctx.existing.data.parentId === 'number' ? ctx.existing.data.parentId : null;
+  const newParent = typeof data.parentId === 'number' ? data.parentId : null;
+  if (ctx.existing && !em.queryRunner?.data.legacyImport && oldParent !== newParent) {
+    if (oldParent === null) throw new BadRequestException('一级分类不能挪到别的分类下面');
+    if (newParent === null) throw new BadRequestException('分类不能挪成一级分类，请在本分类所属的一级分类下面选新的上级');
+    const topOf = async (id: number): Promise<{ top: number; ids: number[] }> => {
+      const ids: number[] = [];
+      let c = await rec(em, user.companyId, type, id);
+      while (c && ids.length < 10) {
+        ids.push(c.id);
+        c = await rec(em, user.companyId, type, c.data.parentId);
+      }
+      return { top: ids[ids.length - 1], ids };
+    };
+    const from = await topOf(ctx.existing.id);
+    const to = await topOf(newParent);
+    if (to.ids.includes(ctx.existing.id)) throw new BadRequestException('不能挪到自己或自己的下级分类里');
+    if (from.top !== to.top) throw new BadRequestException('不能挪到别的一级分类下面，只能在本分类所属的一级分类里调整');
+  }
   let depth = 1;
   let cur = await rec(em, user.companyId, type, data.parentId);
   while (cur && depth < 10) {

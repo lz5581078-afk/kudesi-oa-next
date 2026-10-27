@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadUnitOptions, useUnitOptions } from './unitOptions';
-import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
+import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -216,7 +216,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="secondary-button" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
             {type === 'finance-packaging-schemes' && <button type="button" className="secondary-button" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
             {type === 'finance-product-units' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedUnits}>{seeding ? '导入中…' : '导入默认项'}</button>}
-            {type === 'finance-fee-items' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
+            {type === 'finance-fee-items' && can('create') && hasFeeDefaults(me?.companyName) && <button type="button" className="secondary-button" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
             {type === 'finance-fee-items' && <button type="button" className="secondary-button" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
             {(type === 'finance-supplier-categories' || type === 'finance-customer-categories') && can('create') && (
               <button type="button" className="secondary-button" onClick={async () => {

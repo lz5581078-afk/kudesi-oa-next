@@ -1,9 +1,9 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { normalizeFeeBookingNodes, FEE_SEED_CATEGORIES, FEE_SEED_ITEMS, createChecker } from '@kudesi/shared';
+import { normalizeFeeBookingNodes, FEE_SEED_CATEGORIES, FEE_SEED_ITEMS, createChecker, hasFeeDefaults } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceRecord } from '../entities';
+import { Company, ResourceRecord } from '../entities';
 import { ResourcesService } from './resources.service';
 
 const YES = (v: string) => (v === '是' ? 'yes' : 'no');
@@ -19,6 +19,9 @@ export class FeeArchiveService {
     const can = createChecker(user.permissions);
     if (!can('resource.finance-fee-items.create') || !can('resource.finance-fee-categories.create')) throw new ForbiddenException('没有新建费用档案的权限');
     const em = this.dataSource.manager;
+    // 旧系统只给“山东优冠种业”这家公司带出默认费用档案，其他公司从空白开始
+    const company = await em.findOne(Company, { where: { id: user.companyId }, select: ['id', 'name'] });
+    if (!hasFeeDefaults(company?.name)) throw new BadRequestException('默认费用档案只提供给山东优冠种业，其他公司请自己新建费用类别和费用项目');
     const cats = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-fee-categories' } });
     const catBySeed = new Map<string, number>();
     for (const c of cats) if (typeof c.data.seedKey === 'string' && c.data.seedKey) catBySeed.set(c.data.seedKey, c.id);

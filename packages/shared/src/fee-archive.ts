@@ -3,6 +3,12 @@
  * 导入是按编号幂等的：重复导入只补缺，不覆盖已有改动。
  */
 
+/** 默认费用档案（类别 + 费用项目）只提供给这家公司：旧系统按公司名称判断，名称里含“山东优冠种业”才带出默认数据，其他公司的费用档案从空白开始自己建 */
+export const FEE_DEFAULTS_TENANT = '山东优冠种业';
+export function hasFeeDefaults(companyName: string | null | undefined): boolean {
+  return String(companyName ?? '').includes(FEE_DEFAULTS_TENANT);
+}
+
 /** 挂账节点：一笔费用“记在谁头上”。有对应资料表的可以选具体对象，没有的只写名字。 */
 export const FEE_BOOKING_NODES: ReadonlyArray<{ node: string; resource: string | null; kind?: string }> = [
   { node: '公司', resource: null },

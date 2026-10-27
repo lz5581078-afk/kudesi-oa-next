@@ -7,6 +7,7 @@ import { Company, User } from '../entities';
 import { buildServices } from '../test-support';
 import { FeeArchiveService } from './fee-archive.service';
 import { FeeSnapshotService } from './fee-snapshot.service';
+import { hasFeeDefaults } from '@kudesi/shared';
 import { applyFeeBookingFix, planFeeBookingFix } from './fee-booking-fix';
 import { ResourcesService } from './resources.service';
 
@@ -21,7 +22,7 @@ d('费用档案：仓库/公户挂账节点（真实数据库）', () => {
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
     await ds.initialize();
     svc = buildServices(ds).resources;
-    const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `f${crypto.randomBytes(5).toString('hex')}`, name: '费用测试', status: 'active' }));
+    const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `f${crypto.randomBytes(5).toString('hex')}`, name: '山东优冠种业费用测试', status: 'active' }));
     const u = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: `ff${crypto.randomBytes(4).toString('hex')}`, passwordHash: 'x', name: '老板', isCompanyAdmin: true, status: 'active', mustChangePassword: false } as never));
     boss = { id: u.id, companyId: c.id, name: '老板', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
   });
@@ -89,4 +90,55 @@ d('费用档案：仓库/公户挂账节点（真实数据库）', () => {
     await snaps.remove(boss, s.id);
     await expect(snaps.view(boss, s.id)).rejects.toThrow(/不存在/);
   }, 120000);
+});
+
+d('默认费用档案只给山东优冠种业（真实数据库）', () => {
+  it('名称里不含“山东优冠种业”的公司导入默认费用档案被拒绝，什么都不建；含的可以', async () => {
+    const ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
+    await ds.initialize();
+    try {
+      const svc = buildServices(ds).resources;
+      const mk = async (name: string) => {
+        const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `g${crypto.randomBytes(5).toString('hex')}`, name, status: 'active' }));
+        const u = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: `fg${crypto.randomBytes(4).toString('hex')}`, passwordHash: 'x', name: '老板', isCompanyAdmin: true, status: 'active', mustChangePassword: false } as never));
+        return { id: u.id, companyId: c.id, name: '老板', permissions: { isCompanyAdmin: true, allow: [], deny: [] } } as AuthUser;
+      };
+      const other = await mk('别家公司');
+      await expect(new FeeArchiveService(ds, svc).seed(other)).rejects.toThrow(/只提供给山东优冠种业/);
+      expect((await svc.list(other, 'finance-fee-categories', { pageSize: 5 } as never)).total).toBe(0);
+      expect(hasFeeDefaults('山东优冠种业有限公司')).toBe(true);
+      expect(hasFeeDefaults('别家公司')).toBe(false);
+      expect(hasFeeDefaults(undefined)).toBe(false);
+    } finally { await ds.destroy(); }
+  });
+});
+
+d('往来分类移动：只能在本一级分类树里挪（旧 contactCategoryMoveParents）（真实数据库）', () => {
+  it('不能跨一级分类、不能挪成一级、一级不能挪走、不能挪进自己的下级；同一棵树里可以换上级且名下的往来对象保留', async () => {
+    const ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
+    await ds.initialize();
+    try {
+      const svc = buildServices(ds).resources;
+      const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `m${crypto.randomBytes(5).toString('hex')}`, name: '分类移动测试', status: 'active' }));
+      const u = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: `fm${crypto.randomBytes(4).toString('hex')}`, passwordHash: 'x', name: '老板', isCompanyAdmin: true, status: 'active', mustChangePassword: false } as never));
+      const boss = { id: u.id, companyId: c.id, name: '老板', permissions: { isCompanyAdmin: true, allow: [], deny: [] } } as AuthUser;
+      for (const type of ['finance-supplier-categories', 'finance-customer-categories']) {
+        const a = await svc.create(boss, type, { name: '甲类' });
+        const b = await svc.create(boss, type, { name: '乙类' });
+        const a1 = await svc.create(boss, type, { name: '甲一', parentId: a.id });
+        const a2 = await svc.create(boss, type, { name: '甲二', parentId: a.id });
+        const a11 = await svc.create(boss, type, { name: '甲一一', parentId: a1.id });
+        const b1 = await svc.create(boss, type, { name: '乙一', parentId: b.id });
+        await expect(svc.update(boss, type, a1.id, { parentId: b.id })).rejects.toThrow(/别的一级分类/);
+        await expect(svc.update(boss, type, a1.id, { parentId: b1.id })).rejects.toThrow(/别的一级分类/);
+        await expect(svc.update(boss, type, a1.id, { parentId: null })).rejects.toThrow(/不能挪成一级/);
+        await expect(svc.update(boss, type, a.id, { parentId: b.id })).rejects.toThrow(/一级分类不能挪/);
+        await expect(svc.update(boss, type, a1.id, { parentId: a11.id })).rejects.toThrow(/自己的下级/);
+        await expect(svc.update(boss, type, a1.id, { parentId: a1.id })).rejects.toThrow(/自己的下级/);
+        const moved = await svc.update(boss, type, a11.id, { parentId: a2.id });
+        expect(moved.refLabels.parentId).toBe('甲类 / 甲二');
+        expect((await svc.update(boss, type, a11.id, { name: '甲一一改名' })).title).toBe('甲一一改名'); // 不换上级的修改不受影响
+      }
+    } finally { await ds.destroy(); }
+  });
 });

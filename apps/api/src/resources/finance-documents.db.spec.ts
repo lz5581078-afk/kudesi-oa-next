@@ -34,7 +34,7 @@ d('财务单据（真实数据库）', () => {
     await ds.initialize();
     svc = buildServices(ds).resources;
     docs = new FinanceDocumentsService(ds);
-    const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `d${crypto.randomBytes(5).toString('hex')}`, name: '单据测试', status: 'active' }));
+    const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `d${crypto.randomBytes(5).toString('hex')}`, name: '山东优冠种业单据测试', status: 'active' }));
     const u = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: 'admin', passwordHash: 'x', name: '老板', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
     boss = { id: u.id, companyId: c.id, name: '老板', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
     clerk = { id: u.id, companyId: c.id, name: '文员', permissions: { isCompanyAdmin: false, allow: ['finance.docs.create', 'finance.doc-sale.view', 'finance.history.view', 'finance.drafts.view', 'finance.doc-purchase-in.view'], deny: [] } };
