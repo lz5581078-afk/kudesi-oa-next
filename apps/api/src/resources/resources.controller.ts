@@ -63,12 +63,14 @@ class LinkDto {
   @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
   @IsOptional() @IsString() @MaxLength(10) validTo?: string;
   @IsOptional() @IsString() @MaxLength(200) purpose?: string;
+  @IsOptional() @IsIn(['使用', '授权', '保管', '其他', '']) relationKind?: string;
 }
 
 class LinkPropsDto {
   @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
   @IsOptional() @IsString() @MaxLength(10) validTo?: string;
   @IsOptional() @IsString() @MaxLength(200) purpose?: string;
+  @IsOptional() @IsIn(['使用', '授权', '保管', '其他', '']) relationKind?: string;
 }
 
 class PhotoIdsDto {
@@ -103,6 +105,7 @@ class ExportQueryDto {
   @IsOptional() @IsString() @MaxLength(48) sortBy?: string;
   @IsOptional() @IsIn(['asc', 'desc']) sortDir?: 'asc' | 'desc';
   @IsOptional() @IsString() @MaxLength(20000) ids?: string;
+  @IsOptional() @IsString() @MaxLength(400) cols?: string;
 }
 
 /**
@@ -158,6 +161,7 @@ export class ResourcesController {
     return this.resources.exportCsv(user, type, q.includeHidden === '1', {
       keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, archived: q.archived === '1', expiring: q.expiring === '1',
       sortBy: q.sortBy, sortDir: q.sortDir, ids: ids.length ? ids : undefined,
+      derivedKeys: (q.cols ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20),
     });
   }
 
@@ -286,7 +290,7 @@ export class ResourcesController {
   @RequireResourceAction('edit')
   @Post(':type/:id/links')
   addLink(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: LinkDto) {
-    return this.resources.addManualLink(user, type, id, dto.targetType, dto.targetId, createChecker(user.permissions), { validFrom: dto.validFrom, validTo: dto.validTo, purpose: dto.purpose });
+    return this.resources.addManualLink(user, type, id, dto.targetType, dto.targetId, createChecker(user.permissions), { validFrom: dto.validFrom, validTo: dto.validTo, purpose: dto.purpose, relationKind: dto.relationKind });
   }
 
   @RequireResourceAction('edit')

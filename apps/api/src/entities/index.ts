@@ -508,6 +508,10 @@ export class ResourceLink {
   @Column({ type: 'varchar', length: 200, nullable: true })
   purpose!: string | null;
 
+  /** 关系类型：使用/授权/保管/其他（旧数据为空） */
+  @Column({ name: 'relation_kind', type: 'varchar', length: 16, nullable: true })
+  relationKind!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
 }

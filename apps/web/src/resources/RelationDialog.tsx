@@ -3,26 +3,21 @@ import { RESOURCE_DEFS } from '@kudesi/shared';
 import { ApiError } from '../api/client';
 import { resourceApi } from './api';
 
-/** 关联的“关系类型”：存在用途文字开头，如“【授权】给拼多多店使用”（不需要改表） */
+/** 关联的“关系类型”：独立列 relation_kind；旧数据曾写在用途开头“【授权】…”，读取时仍还原（只读兼容，新写入不再拼前缀） */
 export const LINK_KINDS = ['使用', '授权', '保管', '其他'] as const;
 
-export function parsePurpose(purpose: string | null | undefined): { kind: string; text: string } {
+export function parsePurpose(purpose: string | null | undefined, relationKind?: string | null): { kind: string; text: string } {
+  if (relationKind) return { kind: relationKind, text: purpose ?? '' };
   const m = /^【(使用|授权|保管|其他)】(.*)$/.exec(purpose ?? '');
   return m ? { kind: m[1], text: m[2] } : { kind: '其他', text: purpose ?? '' };
 }
-export function composePurpose(kind: string, text: string): string | undefined {
-  const t = text.trim();
-  if (kind === '其他' && !t) return undefined;
-  return `【${kind}】${t}`.slice(0, 200);
-}
-
-export interface EditableLink { linkId: number; title: string; purpose?: string | null; validFrom?: string | null; validTo?: string | null }
+export interface EditableLink { linkId: number; title: string; purpose?: string | null; relationKind?: string | null; validFrom?: string | null; validTo?: string | null }
 
 /** 添加/修改手动关联：关系类型单选、对象、授权起止、用途；结束不能早于开始 */
 export function RelationDialog({ type, id, link, canView, onClose, onSaved }: {
   type: string; id: number; link?: EditableLink; canView: (t: string) => boolean; onClose: () => void; onSaved: () => void;
 }) {
-  const first = parsePurpose(link?.purpose);
+  const first = parsePurpose(link?.purpose, link?.relationKind);
   const [kind, setKind] = useState(first.kind);
   const [text, setText] = useState(first.text);
   const [validFrom, setValidFrom] = useState(link?.validFrom ?? '');
@@ -61,10 +56,10 @@ export function RelationDialog({ type, id, link, canView, onClose, onSaved }: {
     if (!link && !pick) return setError('请选择要关联的资料');
     if (dateProblem) return setError(dateProblem);
     setBusy(true);
-    const props = { purpose: composePurpose(kind, text) ?? '', validFrom, validTo };
+    const props = { purpose: text.trim(), validFrom, validTo, relationKind: kind };
     try {
       if (link) await resourceApi.updateLink(type, id, link.linkId, props);
-      else await resourceApi.addLink(type, id, target, Number(pick), { purpose: props.purpose || undefined, validFrom: validFrom || undefined, validTo: validTo || undefined });
+      else await resourceApi.addLink(type, id, target, Number(pick), { purpose: props.purpose || undefined, validFrom: validFrom || undefined, validTo: validTo || undefined, relationKind: kind });
       onSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存失败');

@@ -1,7 +1,7 @@
 import { EntityManager, SelectQueryBuilder } from 'typeorm';
 import { addDaysText, getResourceDef, phoneStoreImportColumns, viewFiltersOf, PHONE_RECHARGE_DAYS, MEMO_DUE_DAYS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceRecord } from '../entities';
+import { Department, ResourceRecord } from '../entities';
 import { applyCond } from './def-conditions';
 
 /**
@@ -37,8 +37,16 @@ export async function applyViewFilter(
     return true;
   }
   const def = viewFiltersOf(type).find((f) => f.key === key);
+  const cf = getResourceDef(type)?.computedFilters?.find((f) => f.key === key);
+  if (cf?.optionsFrom === 'departments' && cf.when) {
+    // 部门由服务端按公司现有部门校验（别家公司的部门不认）
+    const dept = /^\d+$/.test(value) ? await em.getRepository(Department).findOne({ where: { id: Number(value), companyId } }) : null;
+    if (!dept) return false;
+    applyCond(qb, getResourceDef(type)!, cf.when, `cf${idx}x`, value);
+    return true;
+  }
   if (!def || !def.options.some((o) => o.value === value)) return false;
-  const computed = getResourceDef(type)?.computedFilters?.find((f) => f.key === key)?.options.find((o) => o.value === value);
+  const computed = cf?.options?.find((o) => o.value === value);
   if (computed) {
     applyCond(qb, getResourceDef(type)!, computed.when, `cf${idx}x`);
     return true;

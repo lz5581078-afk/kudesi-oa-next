@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { getResourceDef, todayShanghai, type Cond, type DerivedColumn, type ResourceDef } from '@kudesi/shared';
+import { addDaysText, getResourceDef, todayShanghai, type Cond, type DerivedColumn, type ResourceDef } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 
 /**
@@ -11,6 +11,8 @@ import { ResourceRecord } from '../entities';
 export interface CondCtx {
   params: Record<string, unknown>;
   n: number;
+  /** 计算筛选下拉选中的值，代入条件里的 '$value' */
+  dyn?: string;
 }
 
 export const newCondCtx = (prefix = 'c'): CondCtx & { prefix: string } => ({ params: {}, n: 0, prefix });
@@ -53,6 +55,18 @@ export function condSql(def: ResourceDef, cond: Cond, alias: string, ctx: CondCt
     const sql = `EXISTS (SELECT 1 FROM resource_records ${x} WHERE ${x}.company_id = ${alias}.company_id AND ${x}.type = ${put(ctx, other.key)} AND ${x}.archived_at IS NULL AND ${link}${where})`;
     return cond.op === 'exists' ? sql : `NOT ${sql}`;
   }
+  if ('viaUserDept' in cond) {
+    const f = def.fields.find((x) => x.key === cond.viaUserDept);
+    if (!f || f.type !== 'ref' || f.ref !== 'user') throw new BadRequestException('条件里的员工字段不存在');
+    const raw = cond.dept === '$value' ? ctx.dyn : cond.dept;
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0) throw new BadRequestException('部门不合法');
+    const u = `u${depth + 1}`;
+    const dept = cond.includeChildren
+      ? `(WITH RECURSIVE dt AS (SELECT id FROM departments WHERE id = ${put(ctx, id)} UNION ALL SELECT c.id FROM departments c JOIN dt ON c.parent_id = dt.id) SELECT id FROM dt)`
+      : `(${put(ctx, id)})`;
+    return `EXISTS (SELECT 1 FROM users ${u} WHERE ${u}.company_id = ${alias}.company_id AND CAST(${u}.id AS CHAR) = ${jx(alias, f.key)} AND ${u}.department_id IN ${dept})`;
+  }
   if ('viaRef' in cond) {
     const f = def.fields.find((x) => x.key === cond.viaRef);
     const target = f?.type === 'ref' && f.ref ? getResourceDef(f.ref) : undefined;
@@ -65,6 +79,15 @@ export function condSql(def: ResourceDef, cond: Cond, alias: string, ctx: CondCt
     case 'ne': return `(${fieldExpr(def, alias, cond.field)} IS NULL OR ${fieldExpr(def, alias, cond.field)} <> ${put(ctx, String(cond.value))})`;
     case 'in': return cond.value.length ? `${fieldExpr(def, alias, cond.field)} IN (${cond.value.map((v) => put(ctx, String(v))).join(',')})` : '1=0';
     case 'notIn': return cond.value.length ? `(${fieldExpr(def, alias, cond.field)} IS NULL OR ${fieldExpr(def, alias, cond.field)} NOT IN (${cond.value.map((v) => put(ctx, String(v))).join(',')}))` : '1=1';
+    case 'dateWithin': {
+      const x = fieldExpr(def, alias, cond.field);
+      const days = Math.max(0, Math.min(3660, Math.floor(Number(cond.days))));
+      return `(${x} IS NOT NULL AND ${x} <> '' AND ${x} >= ${put(ctx, todayShanghai())} AND ${x} <= ${put(ctx, addDaysText(todayShanghai(), days))})`;
+    }
+    case 'expired': {
+      const x = fieldExpr(def, alias, cond.field);
+      return `(${x} IS NOT NULL AND ${x} <> '' AND ${x} < ${put(ctx, todayShanghai())})`;
+    }
     case 'empty': return emptyExpr(def, alias, cond.field);
     case 'notEmpty': return `NOT ${emptyExpr(def, alias, cond.field)}`;
     default: throw new BadRequestException('条件不合法');
@@ -77,8 +100,9 @@ export function assertCondValid(def: ResourceDef, cond: Cond) {
 }
 
 /** 给一个查询加上条件（别名 r） */
-export function applyCond(qb: { andWhere(sql: string, params?: Record<string, unknown>): unknown }, def: ResourceDef, cond: Cond, prefix: string) {
+export function applyCond(qb: { andWhere(sql: string, params?: Record<string, unknown>): unknown }, def: ResourceDef, cond: Cond, prefix: string, dyn?: string) {
   const ctx = newCondCtx(prefix);
+  ctx.dyn = dyn;
   const sql = condSql(def, cond, 'r', ctx);
   qb.andWhere(sql, ctx.params);
 }

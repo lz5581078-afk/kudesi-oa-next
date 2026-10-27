@@ -82,6 +82,8 @@ export interface ListQuery {
   sortDir?: 'asc' | 'desc';
   /** 只要这些记录（导出所选等） */
   ids?: number[];
+  /** 导出时额外带上的派生列 key（按列表当前列设置） */
+  derivedKeys?: string[];
 }
 
 const MAX_IMPORT_ROWS = 2000;
@@ -808,8 +810,9 @@ export class ResourcesService implements RuleHost {
       if (!(await applyViewFilter(listQb, em, user.companyId, type, k, v, todayShanghai(), i))) throw new BadRequestException('筛选条件不合法');
     }
     applyTabFilter(listQb, def, q.tab);
-    const sortF = q.sortBy ? def.fields.find((f) => f.key === q.sortBy) : undefined;
-    if (q.sortBy && (!sortF || !['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
+    const derivedSort = q.sortBy ? def.derivedColumns?.find((d) => d.key === q.sortBy) : undefined;
+    const sortF = q.sortBy && !derivedSort ? def.fields.find((f) => f.key === q.sortBy) : undefined;
+    if (q.sortBy && !derivedSort && (!sortF || !['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
     if (sortF) {
       const dir = q.sortDir === 'asc' ? 'ASC' : 'DESC';
       const numeric = sortF.type === 'number' || sortF.type === 'money';
@@ -823,10 +826,22 @@ export class ResourcesService implements RuleHost {
     } else {
       listQb.orderBy('r.id', 'DESC');
     }
-    const [records, total] = await Promise.all([
-      listQb.offset((page - 1) * pageSize).limit(pageSize).getMany(),
-      listQb.getCount(),
-    ]);
+    let records: ResourceRecord[];
+    let total: number;
+    if (derivedSort) {
+      // 派生列排序：先算出全部符合条件记录的统计值再排（最多 5000 条），再取这一页
+      const all = await listQb.orderBy('r.id', 'DESC').limit(5000).getMany();
+      const vals = await deriveColumns(em, user.companyId, def, all);
+      const dir = q.sortDir === 'asc' ? 1 : -1;
+      all.sort((a, b) => dir * ((vals.get(a.id)?.[derivedSort.key] ?? 0) - (vals.get(b.id)?.[derivedSort.key] ?? 0)) || b.id - a.id);
+      total = all.length;
+      records = all.slice((page - 1) * pageSize, page * pageSize);
+    } else {
+      [records, total] = await Promise.all([
+        listQb.offset((page - 1) * pageSize).limit(pageSize).getMany(),
+        listQb.getCount(),
+      ]);
+    }
 
     let tabCounts: Record<string, number> | undefined;
     if (def.quickTabs?.length) {
@@ -1209,10 +1224,10 @@ export class ResourcesService implements RuleHost {
   }
 
   private linkProps(l: ResourceLink) {
-    return l.relation === 'manual' ? { validFrom: l.validFrom, validTo: l.validTo, purpose: l.purpose } : {};
+    return l.relation === 'manual' ? { validFrom: l.validFrom, validTo: l.validTo, purpose: l.purpose, relationKind: l.relationKind } : {};
   }
 
-  private cleanLinkProps(p: { validFrom?: string | null; validTo?: string | null; purpose?: string | null }) {
+  private cleanLinkProps(p: { validFrom?: string | null; validTo?: string | null; purpose?: string | null; relationKind?: string | null }) {
     const date = (v: unknown, label: string) => {
       if (v === undefined || v === null || v === '') return null;
       if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(`${v}T00:00:00Z`))) throw new BadRequestException(`${label}格式应为 YYYY-MM-DD`);
@@ -1222,7 +1237,8 @@ export class ResourcesService implements RuleHost {
     const validTo = date(p.validTo, '结束日期');
     if (validFrom && validTo && validTo < validFrom) throw new BadRequestException('结束日期不能早于开始日期');
     const purpose = typeof p.purpose === 'string' && p.purpose.trim() ? p.purpose.trim().slice(0, 200) : null;
-    return { validFrom, validTo, purpose };
+    const relationKind = typeof p.relationKind === 'string' && ['使用', '授权', '保管', '其他'].includes(p.relationKind) ? p.relationKind : null;
+    return { validFrom, validTo, purpose, relationKind };
   }
 
   /** 这条记录指向了谁、又被谁引用。 */
@@ -1239,7 +1255,7 @@ export class ResourcesService implements RuleHost {
         id,
       })
       .getMany();
-    const out: Array<{ direction: 'out' | 'in'; relation: string; type: string; id: number; title: string; linkId?: number; validFrom?: string | null; validTo?: string | null; purpose?: string | null }> = [];
+    const out: Array<{ direction: 'out' | 'in'; relation: string; type: string; id: number; title: string; linkId?: number; validFrom?: string | null; validTo?: string | null; purpose?: string | null; relationKind?: string | null }> = [];
     const wantUsers = new Set<number>();
     const wantRecords = new Set<number>();
     for (const l of links) {
@@ -1272,7 +1288,7 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 手动关联员工（如营业执照的关联运营人员）：只能关联本公司员工，同一个人不重复关联。 */
-  private async addUserLink(user: AuthUser, type: string, id: number, targetId: number, clean: { validFrom?: string | null; validTo?: string | null; purpose?: string | null }) {
+  private async addUserLink(user: AuthUser, type: string, id: number, targetId: number, clean: { validFrom?: string | null; validTo?: string | null; purpose?: string | null; relationKind?: string | null }) {
     await this.dataSource.transaction(async (em) => {
       const src = await this.load(em, user, type, id);
       const target = await em.findOne(User, { where: { id: targetId, companyId: user.companyId } });
@@ -1286,7 +1302,7 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 手动关联：把另一条资料关联到这条上（一条可以关联多条，如合作人对应多个执照/店铺）。 */
-  async addManualLink(user: AuthUser, type: string, id: number, targetType: string, targetId: number, can: (permission: string) => boolean, props: { validFrom?: string | null; validTo?: string | null; purpose?: string | null } = {}) {
+  async addManualLink(user: AuthUser, type: string, id: number, targetType: string, targetId: number, can: (permission: string) => boolean, props: { validFrom?: string | null; validTo?: string | null; purpose?: string | null; relationKind?: string | null } = {}) {
     this.def(type);
     const clean = this.cleanLinkProps(props);
     if (targetType === 'user') return this.addUserLink(user, type, id, targetId, clean);
@@ -1310,7 +1326,7 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 修改手动关联的属性（用途、有效期） */
-  async updateManualLink(user: AuthUser, type: string, id: number, linkId: number, props: { validFrom?: string | null; validTo?: string | null; purpose?: string | null }) {
+  async updateManualLink(user: AuthUser, type: string, id: number, linkId: number, props: { validFrom?: string | null; validTo?: string | null; purpose?: string | null; relationKind?: string | null }) {
     const def = this.def(type);
     const clean = this.cleanLinkProps(props);
     await this.dataSource.transaction(async (em) => {
@@ -1486,11 +1502,14 @@ export class ResourcesService implements RuleHost {
       if (items.length >= res.total) break;
     }
     const units = fields.some((f) => f.optionsFrom) ? await loadUnitLists(this.dataSource.manager, user.companyId) : undefined;
-    const header = ['状态', ...fields.map((f) => f.label)];
+    // 列表当前显示的派生列（店铺数、本月营业额等）一并导出
+    const extra = (def.derivedColumns ?? []).filter((d) => (scope.derivedKeys ?? []).includes(d.key));
+    const header = ['状态', ...fields.map((f) => f.label), ...extra.map((d) => d.label)];
     const lines = [header.map((h) => this.csvCell(h)).join(',')];
     for (const dto of items) {
       const status = def.statuses.find((s) => s.value === dto.status)?.label ?? dto.status;
-      lines.push([status, ...fields.map((f) => this.displayValue(f, dto, units))].map((c) => this.csvCell(c)).join(','));
+      const extraCells = extra.map((d) => { const n = Number(dto.data[d.key] ?? 0); return d.kind === 'sum' && d.format === 'money' ? (n / 100).toFixed(2) : String(n); });
+      lines.push([status, ...fields.map((f) => this.displayValue(f, dto, units)), ...extraCells].map((c) => this.csvCell(c)).join(','));
     }
     return { filename: `${def.label}.csv`, csv: `﻿${lines.join('\r\n')}`, count: items.length };
   }

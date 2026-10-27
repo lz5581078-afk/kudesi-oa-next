@@ -11,12 +11,12 @@ vi.mock('./RecordDetail', () => ({ RecordDetail: ({ id }: { id: number }) => <di
 vi.mock('./CategoryTree', () => ({ CategoryTree: () => null }));
 vi.mock('./api', async (orig) => {
   const mod = await orig<typeof import('./api')>();
-  return { ...mod, resourceApi: { ...mod.resourceApi, list: vi.fn(), users: vi.fn().mockResolvedValue([]), batchAction: vi.fn(), batchStatus: vi.fn() } };
+  return { ...mod, resourceApi: { ...mod.resourceApi, list: vi.fn(), users: vi.fn().mockResolvedValue([]), departments: vi.fn().mockResolvedValue([{ id: 4, name: '运营中心' }]), batchAction: vi.fn(), batchStatus: vi.fn() } };
 });
 import { ResourcePage } from './ResourcePage';
 
 const def = getResourceDef('phones') as ResourceDef & Record<string, unknown>;
-const orig = { quickTabs: def.quickTabs, derivedColumns: def.derivedColumns, batchActions: def.batchActions };
+const orig = { computedFilters: def.computedFilters, quickTabs: def.quickTabs, derivedColumns: def.derivedColumns, batchActions: def.batchActions };
 const row = (id: number, status = 'normal') => ({ id, type: 'phones', title: `1380013800${id}`, status, statusReason: null, archived: null, data: { number: `1380013800${id}`, usageType: 'company_kept', storeCount: id }, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '', updatedAt: '' });
 const list = (items: unknown[], tabCounts: Record<string, number> = {}) => ({ items, total: items.length, page: 1, pageSize: 20, tabCounts }) as never;
 const page = () => render(<MemoryRouter><ResourcePage type="phones" /></MemoryRouter>);
@@ -38,10 +38,15 @@ describe('列表壳：配置驱动的能力入口', () => {
     await waitFor(() => expect(vi.mocked(resourceApi.list).mock.calls.at(-1)?.[1]).toMatchObject({ tab: 'q:free' }));
   });
 
-  it('派生列：显示数字列，不出现在排序里', async () => {
+  it('派生列：显示数字列，可点表头排序（交服务端），导出带上这一列', async () => {
+    vi.mocked(resourceApi).export = vi.fn().mockResolvedValue({ filename: 'x.csv', csv: 'a', count: 1 }) as never;
     page();
-    expect(await screen.findByRole('columnheader', { name: /店铺数/ })).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: /店铺数/}).querySelector('button')).toBeNull();
+    const head = await screen.findByRole('columnheader', { name: /店铺数/ });
+    fireEvent.click(head.querySelector('button')!);
+    await waitFor(() => expect(vi.mocked(resourceApi.list).mock.calls.at(-1)?.[1]).toMatchObject({ sortBy: 'storeCount' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^导出/ }));
+    await waitFor(() => expect(resourceApi.export).toHaveBeenCalled());
+    expect(vi.mocked(resourceApi.export).mock.calls[0][2]).toMatchObject({ cols: ['storeCount'] });
   });
 
   it('带原因的批量动作：必须选值并填原因才能提交，提交后带 action/value/reason', async () => {
@@ -71,5 +76,14 @@ describe('列表壳：配置驱动的能力入口', () => {
     fireEvent.change(within(dlg).getByRole('textbox'), { target: { value: '恢复使用' } });
     fireEvent.click(within(dlg).getByRole('button', { name: '确定' }));
     await waitFor(() => expect(resourceApi.batchStatus).toHaveBeenCalledWith('phones', [2], 'normal', '恢复使用'));
+  });
+
+  it('计算筛选的动态选项：部门下拉由服务端部门生成，选中后以值查询', async () => {
+    def.computedFilters = [{ key: 'opDept', label: '运营部门', optionsFrom: 'departments', when: { viaUserDept: 'x', dept: '$value' } }];
+    page();
+    const sel = await screen.findByLabelText('运营部门');
+    await screen.findByRole('option', { name: '运营中心' });
+    fireEvent.change(sel, { target: { value: '4' } });
+    await waitFor(() => expect(vi.mocked(resourceApi.list).mock.calls.at(-1)?.[1]).toMatchObject({ filters: { opDept: '4' } }));
   });
 });

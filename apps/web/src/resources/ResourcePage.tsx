@@ -81,6 +81,12 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
   const treeField = useMemo(() => treeFilterField(def), [def]);
   const viewFilters = useMemo(() => viewFiltersOf(type), [type]);
+  // 选项由服务端按公司生成的筛选（如 部门）
+  const [deptOpts, setDeptOpts] = useState<Array<{ value: string; label: string }>>([]);
+  useEffect(() => {
+    if (!viewFilters.some((v) => v.optionsFrom === 'departments')) return;
+    resourceApi.departments().then((l) => setDeptOpts(l.map((d) => ({ value: String(d.id), label: d.name })))).catch(() => setDeptOpts([]));
+  }, [viewFilters]);
   const today = useMemo(() => todayShanghai(), []);
   const filterFields = useMemo(
     () => (def.filterBy ? ([] as string[]).concat(def.filterBy as string | string[]) : []).map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f)),
@@ -117,7 +123,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const libCan = useResourceCan(libType || type);
   const catCan = useResourceCan('asset-categories');
 
-  // 派生列（配置 derivedColumns）：按页现算的数字，当作只读列显示，不能排序
+  // 派生列（配置 derivedColumns）：按页现算的数字，当作只读列显示，服务端可排序、可导出
   const derivedFields = useMemo<FieldDef[]>(() => (def.derivedColumns ?? []).map((d) => ({ key: d.key, label: d.label, type: d.kind === 'sum' && d.format === 'money' ? 'money' : 'number', group: '统计', readonly: true, list: d.list !== false })), [def]);
   const derivedKeys = useMemo(() => new Set(derivedFields.map((f) => f.key)), [derivedFields]);
   const shownFields = useMemo(() => [...def.fields.filter((f) => f.type !== 'secret'), ...derivedFields], [def, derivedFields]);
@@ -242,9 +248,10 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   }
   async function doExport(scope: 'filtered' | 'all' | 'picked') {
     try {
-      const out = await resourceApi.export(type, showHidden || archived, scope === 'all' ? {} : scope === 'picked'
-        ? { ids: checked }
-        : { keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, archived, expiring, filters: filterVals, sortBy: sort?.by, sortDir: sort?.dir });
+      const cols = colKeys.filter((k) => derivedKeys.has(k));
+      const out = await resourceApi.export(type, showHidden || archived, scope === 'all' ? { cols } : scope === 'picked'
+        ? { ids: checked, cols }
+        : { cols, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, archived, expiring, filters: filterVals, sortBy: sort?.by, sortDir: sort?.dir });
       downloadText(out.filename, out.csv);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '导出失败');
@@ -322,7 +329,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             )}
             <select className="sort-mobile" aria-label="排序方式" value={sort ? `${sort.by}:${sort.dir}` : ''} onChange={(e) => { const [by, dir] = e.target.value.split(':'); setSort(by ? { by, dir: dir as 'asc' | 'desc' } : null); setPage(1); }}>
               <option value="">默认排序</option>
-              {columns.filter((f) => SORTABLE.has(f.type) && !derivedKeys.has(f.key)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
+              {columns.filter((f) => SORTABLE.has(f.type)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
             </select>
             <div className={`filter-group${filtersOpen ? ' open' : ''}`}>
             {filterFields.filter((ff) => ff.key !== treeField?.key).map((ff) => (
@@ -334,7 +341,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             {viewFilters.map((vf) => (
               <select key={vf.key} aria-label={vf.label} value={filterVals[vf.key] ?? ''} onChange={(e) => { setFilterVals((v) => ({ ...v, [vf.key]: e.target.value })); setPage(1); }}>
                 <option value="">{vf.label}：全部</option>
-                {vf.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {(vf.optionsFrom === 'departments' ? deptOpts : vf.options).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             ))}
             <select aria-label="状态" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
@@ -393,7 +400,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               <thead>
                 <tr>
                   {<th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={!!data?.items.length && data.items.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...(data?.items.map((r) => r.id) ?? [])])] : checked.filter((id) => !data?.items.some((r) => r.id === id)))} /></th>}
-                  {columns.map((f) => SORTABLE.has(f.type) && !derivedKeys.has(f.key) ? (
+                  {columns.map((f) => SORTABLE.has(f.type) ? (
                     <th key={f.key} aria-sort={sort?.by === f.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button type="button" className="link-button" title="点击排序" onClick={() => { setSort(sort?.by === f.key ? (sort.dir === 'asc' ? { by: f.key, dir: 'desc' } : null) : { by: f.key, dir: 'asc' }); setPage(1); }}>
                         {f.label}{sort?.by === f.key ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
