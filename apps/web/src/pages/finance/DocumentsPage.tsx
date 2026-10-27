@@ -18,13 +18,14 @@ export function DocumentsPage(props: { scope: 'drafts' | 'history' | DocType; em
   return <DocumentsInner key={props.scope} {...props} />;
 }
 
-const FILTER_DEFAULTS = { datePreset: 'all', from: '', to: '', status: '', docType: '', direction: '', mine: false, audited: '' };
+const FILTER_DEFAULTS = { datePreset: 'month', from: '', to: '', status: '', docType: '', direction: '', mine: false, audited: '' };
 
 function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | DocType; embedded?: boolean }) {
   const { can, user } = useAuth();
   const isMobile = useIsMobile();
   const persistKey = scope === 'drafts' || scope === 'history' ? `oa.finance.${scope}.filters.v1` : null;
-  const [saved, setSaved] = usePersisted(persistKey, FILTER_DEFAULTS);
+  const defaults = scope === 'history' ? FILTER_DEFAULTS : { ...FILTER_DEFAULTS, datePreset: 'all' }; // 经营历程默认本月（旧系统同款），草稿中心不限日期
+  const [saved, setSaved] = usePersisted(persistKey, defaults);
   const fresh = (() => { const p = DATE_PRESETS.find((x) => x.key === saved.datePreset); if (!p) return saved; const [from, to] = p.range(); return { ...saved, from, to }; })();
   const { from, to, status, docType, direction, mine, audited } = fresh;
   const setStatus = (v: string) => setSaved({ status: v });
@@ -47,8 +48,8 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ title: string; r: BatchResult } | null>(null);
 
-  const filtersActive = Boolean(keyword.trim() || status || docType || direction || mine || audited || from || to);
-  const resetFilters = () => { setKeyword(''); setSaved({ ...FILTER_DEFAULTS }); setPage(1); };
+  const filtersActive = Boolean(keyword.trim() || status || docType || direction || mine || audited || saved.datePreset !== defaults.datePreset);
+  const resetFilters = () => { setKeyword(''); setSaved({ ...defaults }); setPage(1); };
   const load = useCallback(() => {
     setError(''); setLoading(true);
     financeApi.docs({ scope, status, from, to, keyword, docType: docType || undefined, direction: direction || undefined, creatorId: mine ? user?.id : undefined, audited: audited || undefined, page }).then((d) => { setData(d); setChecked(new Set()); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')).finally(() => setLoading(false));
@@ -92,7 +93,8 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
         )}
         {scope === 'drafts' && data && (
           <div className="metric-row" aria-label="汇总">
-            <div className="metric"><span className="muted">{scope === 'drafts' ? '待处理单据' : '已过账单据'}</span><strong>{data.total} 张</strong></div>
+            <div className="metric"><span className="muted">待处理单据</span><strong>{data.total} 张</strong></div>
+            <div className="metric"><span className="muted">今日新增草稿</span><strong>{data.todayCount ?? 0} 张</strong></div>
             <div className="metric"><span className="muted">单据金额合计</span><strong>{money(data.amountCents)}</strong><small className="muted">草稿尚未过账，仅供参考</small></div>
             <div className="metric"><span className="muted">当场收付合计</span><strong>{money(data.paidCents)}</strong></div>
           </div>

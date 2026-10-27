@@ -115,9 +115,9 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
           <>
             <h3 className="section-title">明细</h3>
             <div className="table-scroll"><table className="data-table">
-              <thead><tr><th>#</th><th>{def.lines === 'fee' ? '费用项目' : '商品'}</th><th>数量</th><th>单价</th><th>金额</th>{def.lines === 'fee' && <th>挂账</th>}{doc.lines.some((l) => l.unitCostCents != null) && <th>成本单价</th>}</tr></thead>
+              <thead><tr><th>#</th><th>{def.lines === 'fee' ? '费用项目' : def.lines ? '商品' : '项目'}</th>{def.lines === 'product' && <th>单位</th>}{def.lines ? <><th>数量</th><th>单价</th></> : null}<th>金额</th>{def.lines === 'fee' && <th>挂账</th>}{doc.lines.some((l) => l.unitCostCents != null) && <th>成本单价</th>}</tr></thead>
               <tbody>{doc.lines.map((l) => (
-                <tr key={l.id}><td>{l.lineNo}</td><td>{l.productName || l.feeItemName}{l.memo && <span className="muted">（{l.memo}）</span>}</td><td className="num">{l.qty}</td><td className="num">{money(l.unitPriceCents)}</td><td className="num">{money(Math.round(l.qty * l.unitPriceCents))}</td>{def.lines === 'fee' && <td>{l.relatedNode ? `${l.relatedNode}${l.relatedName ? `：${l.relatedName}` : l.relatedId ? ` #${l.relatedId}` : ''}` : ''}</td>}{doc.lines.some((x) => x.unitCostCents != null) && <td className="num">{money(l.unitCostCents)}</td>}</tr>
+                <tr key={l.id}><td>{l.lineNo}</td><td>{l.productName || l.feeItemName || l.itemName}{l.memo && <span className="muted">（{l.memo}）</span>}</td>{def.lines === 'product' && <td>{l.unit ?? ''}</td>}{def.lines ? <><td className="num">{l.qty}</td><td className="num">{money(l.unitPriceCents)}</td></> : null}<td className="num">{money(Math.round(l.qty * l.unitPriceCents))}</td>{def.lines === 'fee' && <td>{l.relatedNode ? `${l.relatedNode}${l.relatedName ? `：${l.relatedName}` : l.relatedId ? ` #${l.relatedId}` : ''}` : ''}</td>}{doc.lines.some((x) => x.unitCostCents != null) && <td className="num">{money(l.unitCostCents)}</td>}</tr>
               ))}</tbody>
             </table></div>
           </>

@@ -6,7 +6,7 @@ import { DOC_TYPE_MAP } from '@kudesi/shared';
 import { money } from './common';
 import { DocDetail } from './DocDetail';
 import { financeApi, type Overview } from './financeApi';
-import { writeStored } from './fin-ui';
+import { DATE_PRESETS, activePreset, writeStored } from './fin-ui';
 
 const month0 = () => todayInChina().slice(0, 7);
 const monthBefore = () => { const [y, m] = month0().split('-').map(Number); const t = new Date(Date.UTC(y, m - 2, 1)); return t.toISOString().slice(0, 7); };
@@ -16,7 +16,8 @@ const rate = (num: number | null, den: number) => (num === null || den <= 0 ? '�
 /** 财务经营：本月（或全部时间）收入、成本、费用、利润，往来余额，待处理单据。没有成本权限的人看不到成本和利润。 */
 export function FinanceOverviewPage() {
   const [month, setMonth] = useState(month0());
-  const all = month === 'all';
+  const [range, setRange] = useState<{ from: string; to: string } | null>(null); // 任意起止日期；设了就按日期查
+  const all = !range && month === 'all';
   const [d, setD] = useState<Overview | null>(null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
@@ -24,12 +25,12 @@ export function FinanceOverviewPage() {
   const navigate = useNavigate();
   useEffect(() => {
     setError('');
-    financeApi.overview(month).then(setD).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
-  }, [month, tick]);
+    (range ? financeApi.overview(undefined, range) : financeApi.overview(month)).then(setD).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
+  }, [month, range, tick]);
   /** 把当前期间和收支方向写进经营历程的筛选条件，再跳过去 */
   const openJourney = (direction: '' | 'in' | 'out') => {
-    const [from, to] = monthRange(month);
-    writeStored('oa.finance.history.filters.v1', { datePreset: 'custom', from, to, status: '', docType: '', direction, mine: false, audited: '' });
+    const [from, to] = range ? [range.from, range.to] : monthRange(month);
+    writeStored('oa.finance.history.filters.v1', { datePreset: activePreset(from, to) || 'custom', from, to, status: '', docType: '', direction, mine: false, audited: '' });
     navigate('/finance/history');
   };
   const Stat = ({ label, value, tone, hint, onClick }: { label: string; value: string; tone?: string; hint?: string; onClick?: () => void }) => {
@@ -41,18 +42,22 @@ export function FinanceOverviewPage() {
     <div>
       <div className="page-head between"><h1>财务经营</h1>
         <div className="toolbar">
-          <label className="check-line"><input type="checkbox" aria-label="全部时间" checked={all} onChange={(e) => setMonth(e.target.checked ? 'all' : month0())} />全部时间</label>
+          <label className="check-line"><input type="checkbox" aria-label="全部时间" checked={all} onChange={(e) => { setRange(null); setMonth(e.target.checked ? 'all' : month0()); }} />全部时间</label>
           <div className="chips" role="group" aria-label="期间快捷选择">
-            <button type="button" className={`chip${!all && month === month0() ? ' active' : ''}`} onClick={() => setMonth(month0())}>本月</button>
-            <button type="button" className={`chip${!all && month === monthBefore() ? ' active' : ''}`} onClick={() => setMonth(monthBefore())}>上月</button>
+            <button type="button" className={`chip${!range && !all && month === month0() ? ' active' : ''}`} onClick={() => { setRange(null); setMonth(month0()); }}>本月</button>
+            <button type="button" className={`chip${!range && !all && month === monthBefore() ? ' active' : ''}`} onClick={() => { setRange(null); setMonth(monthBefore()); }}>上月</button>
           </div>
           <button type="button" className="secondary-button small" onClick={() => setTick((t) => t + 1)}>刷新数据</button>
-          {!all && <input type="month" aria-label="月份" value={month} onChange={(e) => setMonth(e.target.value || month0())} />}
+          {!all && !range && <input type="month" aria-label="月份" value={month} onChange={(e) => setMonth(e.target.value || month0())} />}
+          <button type="button" className={`chip${range && activePreset(range.from, range.to) === '7d' ? ' active' : ''}`} onClick={() => { const [a, b] = DATE_PRESETS.find((p) => p.key === '7d')!.range(); setRange({ from: a, to: b }); }}>近7天</button>
+          <label className="check-line">开始日期<input type="date" aria-label="开始日期" value={range?.from ?? ''} max={range?.to || undefined} onChange={(e) => setRange({ from: e.target.value, to: range?.to ?? '' })} /></label>
+          <label className="check-line">结束日期<input type="date" aria-label="结束日期" value={range?.to ?? ''} min={range?.from || undefined} onChange={(e) => setRange({ from: range?.from ?? '', to: e.target.value })} /></label>
+          {range && <button type="button" className="ghost-button" onClick={() => setRange(null)}>清除日期</button>}
         </div></div>
       {error && <div role="alert" className="notice error">{error}</div>}
       {d && (
         <>
-          <h2 className="section-title">{all ? '全部时间' : d.month} 经营情况（按已过账单据）</h2>
+          <h2 className="section-title">{all ? '全部时间' : range ? `${range.from || '起始'} 至 ${range.to || '今天'}` : d.month} 经营情况（按已过账单据）</h2>
           {noData && <div className="empty-state muted">这个期间还没有已过账的经营数据。<button type="button" className="link-button" onClick={() => openJourney('')}>去经营历程看单据</button>，或到「资料」里完善店铺和账户档案。</div>}
           <div className="stats">
             <Stat label="销售收入" value={money(d.revenueCents)} hint="点击查看收入单据" onClick={() => openJourney('in')} />

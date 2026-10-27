@@ -11,12 +11,20 @@ import { VoucherPanel } from './VoucherPanel';
 
 const unitPriceOf=(v:string)=>{if(!v.trim())return null;try{return yuanToPreciseCents(v);}catch{return NaN;}};
 interface LineState {
+  unit: string;
   productId: number | null; productName: string; feeItemId: number | null; feeItemName: string; qty: string; price: string; memo: string;
   /** 费用/收入行的挂账节点和对象 */
   node: string; relatedId: number | null; relatedName: string; needObject: boolean;
 }
 interface AcctState { id: number; name: string; amount: string }
-const emptyLine = (): LineState => ({ productId: null, productName: '', feeItemId: null, feeItemName: '', qty: '1', price: '', memo: '', node: '', relatedId: null, relatedName: '', needObject: false });
+interface MoneyLine { item: string; amount: string; memo: string }
+const emptyMoney = (): MoneyLine => ({ item: '', amount: '', memo: '' });
+/** 金额类单据明细行的“项目”常用词（旧系统同款，输入时可直接选） */
+const MONEY_SUGGEST: Record<string, string[]> = {
+  'advance-receipt': ['预收货款', '预收定金', '预收订单款'], receipt: ['客户回款', '补收货款', '补差价', '其他应收款'],
+  payment: ['货款', '运费', '加工费', '预付货款', '退款', '其他'], prepayment: ['预付货款', '定金', '锁定商品预付'], transfer: ['资金调拨', '店铺提现转入', '备用金划转', '还款划转'],
+};
+const emptyLine = (): LineState => ({ unit: '', productId: null, productName: '', feeItemId: null, feeItemName: '', qty: '1', price: '', memo: '', node: '', relatedId: null, relatedName: '', needObject: false });
 const emptyLines = (n: number) => Array.from({ length: n }, emptyLine);
 
 interface Props {
@@ -51,14 +59,21 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
   const [refNo, setRefNo] = useState(doc?.refNo ?? '');
   const [handler, setHandler] = useState(doc?.handler ?? user?.name ?? '');
   const [department, setDepartment] = useState(doc?.department ?? (def.warehouse ? '' : '财务部'));
-  const [amount, setAmount] = useState(def.lines ? '' : centsToYuan(doc?.amountCents));
+  const [moneyLines, setMoneyLines] = useState<MoneyLine[]>(() => {
+    if (def.lines) return [];
+    if (doc?.lines.length) return doc.lines.map((l) => ({ item: l.itemName ?? '', amount: centsToYuan(Math.round(l.unitPriceCents * l.qty)), memo: l.memo ?? '' }));
+    if (doc && doc.amountCents) return [{ item: '', amount: centsToYuan(doc.amountCents), memo: '' }];
+    return inline ? [emptyMoney()] : [emptyMoney()];
+  });
+  const moneyCents = moneyLines.reduce((sum, l) => { const c = yuanToCents(l.amount); return sum + (c && !Number.isNaN(c) ? c : 0); }, 0);
+  const amount = moneyCents ? centsToYuan(moneyCents) : '';
   const [offset, setOffset] = useState(doc?.offsetCents ? centsToYuan(doc.offsetCents) : '');
   const [paid, setPaid] = useState(doc?.paidCents ? centsToYuan(doc.paidCents) : '');
   const [payMode, setPayMode] = useState<PayMode | ''>(doc ? (doc.paidCents || doc.offsetCents ? 'part' : 'credit') : '');
   const [memo, setMemo] = useState(doc?.memo ?? '');
   const [lines, setLines] = useState<LineState[]>(
     doc?.lines.length
-      ? doc.lines.map((l) => ({ productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents), memo: l.memo ?? '', node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
+      ? doc.lines.map((l) => ({ unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents), memo: l.memo ?? '', node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
       : def.lines ? emptyLines(inline ? 3 : 1) : [],
   );
   const toAccts = (role: 'out' | 'in'): AcctState[] => (doc?.accounts ?? []).filter((a) => a.role === role).map((a) => ({ id: a.bankAccountId, name: a.bankName, amount: centsToYuan(a.amountCents) }));
@@ -100,7 +115,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
       if (!goods.length) { setOrigNote('该销售单没有商品明细，无法带入'); return; }
       if (lines.some((l) => l.productId || l.price) && !window.confirm('当前已填写的退货商品会被原销售单的商品替换，数量默认为原单全部数量，可再修改。')) return;
       setOrigQty(goods.map((l) => ({ productId: l.productId as number, name: l.productName, qty: l.qty })));
-      setLines(goods.map((l) => ({ ...emptyLine(), productId: l.productId ?? null, productName: l.productName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents) })));
+      setLines(goods.map((l) => ({ ...emptyLine(), unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents) })));
       setOrigNote(`已带入 ${goods.length} 种商品，数量默认为原单全部数量，请改成实际退回数量`);
     } catch { setOrigNote('原销售单明细加载失败，请稍后重试'); }
   }
@@ -130,15 +145,15 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
   const body = () => {
     const parsedLines = lines
       .filter((l) => !(inline && !doc && !l.productId && !l.feeItemId && !l.price)) // 开单页预留的空行不算
-      .map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: Number(l.qty), unitPriceCents: (()=>{const v=unitPriceOf(l.price);if(Number.isNaN(v))throw new Error('单价格式不对（最多六位小数）');return v??0;})(), memo: l.memo || undefined, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
+      .map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: Number(l.qty), unitPriceCents: (()=>{const v=unitPriceOf(l.price);if(Number.isNaN(v))throw new Error('单价格式不对（最多六位小数）');return v??0;})(), memo: l.memo || undefined, unit: l.unit.trim() || null, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
     const accounts = def.bank === 'transfer'
       ? [...outs.map((a) => ({ role: 'out' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })), ...ins.map((a) => ({ role: 'in' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 }))]
       : null;
     return {
       accounts, type, date, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: bank.id, toBankAccountId: toBank.id, warehouseId: wh.id,
-      storeId: def.store ? store.id : null, refNo: hasBankRef(def) ? refNo : null, amountCents: def.lines || def.bank === 'transfer' ? null : parse(amount), offsetCents: parse(offset) ?? 0,
+      storeId: def.store ? store.id : null, refNo: hasBankRef(def) ? refNo : null, amountCents: null, offsetCents: parse(offset) ?? 0,
       paidCents: def.settle ? (parse(paid) ?? (def.lines === 'fee' ? null : 0)) : 0, handler: handler.trim() || null, department: department.trim() || null,
-      lines: def.lines ? parsedLines : [], memo: memo || undefined,
+      lines: def.lines ? parsedLines : moneyLines.filter((l) => l.item.trim() || l.amount.trim() || l.memo.trim()).map((l) => ({ qty: 1, unitPriceCents: parse(l.amount) ?? 0, itemName: l.item.trim(), memo: l.memo.trim() || undefined })), memo: memo || undefined,
       settleBy: canSettle ? settleBy : null,
       settlements: canSettle && settleBy !== 'amount'
         ? Object.entries(alloc).filter(([, v]) => v.trim() !== '' && (parse(v) ?? 0) > 0).map(([k, v]) => { const [d, pr] = k.split(':'); return { sourceDocId: Number(d), productId: pr ? Number(pr) : null, amountCents: parse(v) ?? 0 }; })
@@ -146,7 +161,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
     };
   };
   let total = 0;
-  try { total = docTotal(def, body()); } catch { total = 0; }
+  try { total = def.bank === 'transfer' && moneyCents > 0 ? moneyCents : docTotal(def, body()); } catch { total = 0; }
   const sumAcct = (l: AcctState[]) => l.reduce((s, a) => s + (yuanToCents(a.amount) || 0), 0);
   const paidC = (() => { try { return def.settle ? parse(paid) ?? 0 : 0; } catch { return 0; } })();
   const offsetC = (() => { try { return parse(offset) ?? 0; } catch { return 0; } })();
@@ -164,7 +179,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
     }
     setAlloc(next);
   };
-  const dirty = !doc && !!(party.id || memo || paid || amount || docNo || lines.some((l) => l.productId || l.feeItemId || l.price) || outs.length || ins.length);
+  const dirty = !doc && !!(party.id || memo || paid || moneyLines.some((l) => l.item || l.amount) || docNo || lines.some((l) => l.productId || l.feeItemId || l.price) || outs.length || ins.length);
   useUnsavedWarning(!!inline && dirty);
   const goodsLines = lines.filter((l) => l.productId);
   const qtyTotal = goodsLines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
@@ -188,7 +203,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
 
   const reset = () => {
     setDocNo(''); setParty({ id: null, name: '' }); setWh({ id: null, name: '' }); setBank({ id: null, name: '' }); setToBank({ id: null, name: '' }); setRefNo('');
-    setOuts([]); setIns([]); setAmount(''); setOffset(''); setPaid(''); setPayMode(''); setMemo(''); setLines(def.lines ? emptyLines(3) : []); setVouchers([]); setVouchersDirty(false); setError('');
+    setOuts([]); setIns([]); setMoneyLines([emptyMoney()]); setOffset(''); setPaid(''); setPayMode(''); setMemo(''); setLines(def.lines ? emptyLines(3) : []); setVouchers([]); setVouchersDirty(false); setError('');
   };
 
   const save = async (e: FormEvent | null, then?: 'issue' | 'post') => {
@@ -231,10 +246,20 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
       setLines((ls) => ls.map((l, k) => (k === i && l.feeItemId === id ? { ...l, needObject: r.data.requiredObject === 'yes', node: l.node || first || '' } : l)));
     } catch { /* 取不到默认值不影响开单 */ }
   };
-  const moneyItem = ui.moneyItemLabel ?? '备注';
+  /** 选了商品：单位按商品档案的规格单位带出（可再改） */
+  const pickUnit = async (i: number, id: number) => {
+    try {
+      const r = await resourceApi.get('finance-products', id);
+      const u = String(r?.data?.specUnit ?? '').trim();
+      if (u) setLines((ls) => ls.map((l, k) => (k === i && l.productId === id && !l.unit ? { ...l, unit: u } : l)));
+    } catch { /* 取不到单位不影响开单 */ }
+  };
+  const moneyItem = ui.moneyItemLabel ?? '项目';
+  const parsedCount = lines.filter((l) => l.productId || l.feeItemId || l.price).length;
 
   const content = (
-    <>
+    <div className="slip-cols">
+      <div className="slip-main">
       <p className="muted slip-hint">过账结果：{def.posting}</p>
       <h3 className="section-title"><span className="step">1</span>单据信息</h3>
       <section className="slip-head">
@@ -308,16 +333,17 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
           <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
           <div className="table-scroll">
             <table className="data-table doc-lines">
-              <thead><tr><th>#</th><th>{def.lines === 'product' ? '商品' : '费用项目'}</th>{def.lines === 'fee' && <><th>挂账节点</th><th>挂账对象</th></>}<th>数量</th><th>单价（元）</th><th>金额</th><th>备注</th><th /></tr></thead>
+              <thead><tr><th>#</th><th>{def.lines === 'product' ? '商品' : '费用项目'}</th>{def.lines === 'product' && <th>单位</th>}{def.lines === 'fee' && <><th>挂账节点</th><th>挂账对象</th></>}<th>数量</th><th>单价（元）</th><th>金额</th><th>备注</th><th /></tr></thead>
               <tbody>
                 {lines.map((l, i) => (
                   <tr key={i} ref={(el) => { lineRefs.current[i] = el as unknown as HTMLDivElement | null; }}>
                     <td data-cell="#">{i + 1}</td>
                     <td>
                       {def.lines === 'product'
-                        ? <SearchPick ariaLabel={`第${i + 1}行商品`} type="finance-products" value={l.productId} label={l.productName} onChange={(id, name) => setLine(i, { productId: id, productName: name })} />
+                        ? <SearchPick ariaLabel={`第${i + 1}行商品`} type="finance-products" value={l.productId} label={l.productName} onChange={(id, name) => { setLine(i, { productId: id, productName: name, ...(id ? {} : { unit: '' }) }); if (id) void pickUnit(i, id); }} />
                         : <SearchPick ariaLabel={`第${i + 1}行费用项目`} type="finance-fee-items" fieldKey="direction" fieldValue={def.feeDirection} value={l.feeItemId} label={l.feeItemName} onChange={(id, name) => pickFee(i, id, name)} />}
                     </td>
+                    {def.lines === 'product' && <td data-cell="单位"><input aria-label={`第${i + 1}行单位`} maxLength={20} value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} placeholder="单位" /></td>}
                     {def.lines === 'fee' && (
                       <>
                         <td>
@@ -342,13 +368,41 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
                   </tr>
                 ))}
               </tbody>
-              <tfoot><tr><th colSpan={def.lines === 'fee' ? 6 : 4}>{ui.totalLabel}</th><th className="num">{money(total)}</th><th colSpan={2} /></tr></tfoot>
+              <tfoot><tr><th colSpan={def.lines === 'fee' ? 6 : 5}>{ui.totalLabel}</th><th className="num">{money(total)}</th><th colSpan={2} /></tr></tfoot>
             </table>
             <div className="between"><button type="button" className="secondary-button small" onClick={addLineFocus}>+ 加一行</button><span className="muted">{def.lines === 'product' ? `共 ${goodsLines.length} 种商品 · 数量合计 ${Number(qtyTotal.toFixed(4))}　` : ''}最后一行按回车可以接着加行</span></div>
           </div>
         </section>
       )}
 
+      {!def.lines && (
+        <section>
+          <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
+          <div className="table-scroll">
+            <table className="data-table doc-lines money-lines">
+              <thead><tr><th>#</th><th>{moneyItem} *</th><th>金额（元）*</th><th>备注</th><th /></tr></thead>
+              <tbody>
+                {moneyLines.map((l, i) => (
+                  <tr key={i}>
+                    <td data-cell="#">{i + 1}</td>
+                    <td data-cell={moneyItem}><input aria-label={`第${i + 1}行${moneyItem}`} list={`money-items-${type}`} autoComplete="off" maxLength={100} value={l.item} onChange={(e) => setMoneyLines((ls) => ls.map((x, k) => (k === i ? { ...x, item: e.target.value } : x)))} placeholder={moneyItem} /></td>
+                    <td data-cell="金额（元）"><input inputMode="decimal" aria-label={`第${i + 1}行金额`} value={l.amount} onChange={(e) => setMoneyLines((ls) => ls.map((x, k) => (k === i ? { ...x, amount: e.target.value } : x)))} placeholder="0.00" /></td>
+                    <td data-cell="备注"><input aria-label={`第${i + 1}行备注`} maxLength={200} value={l.memo} onKeyDown={(e) => { if (e.key === 'Enter' && i === moneyLines.length - 1) { e.preventDefault(); setMoneyLines((ls) => [...ls, emptyMoney()]); } }} onChange={(e) => setMoneyLines((ls) => ls.map((x, k) => (k === i ? { ...x, memo: e.target.value } : x)))} placeholder="备注" /></td>
+                    <td><button type="button" className="link-button" aria-label={`删除第${i + 1}行`} onClick={() => setMoneyLines((ls) => (ls.length <= 1 ? [emptyMoney()] : ls.filter((_, k) => k !== i)))}>{moneyLines.length <= 1 ? '清空' : '删除'}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr><th colSpan={2}>{ui.totalLabel}</th><th className="num">{money(moneyCents)}</th><th colSpan={2} /></tr></tfoot>
+            </table>
+            {MONEY_SUGGEST[type] && <datalist id={`money-items-${type}`}>{MONEY_SUGGEST[type].map((t) => <option key={t} value={t} />)}</datalist>}
+            <div className="between"><button type="button" className="secondary-button small" onClick={() => setMoneyLines((ls) => [...ls, emptyMoney()])}>+ 加一行</button><span className="muted">最后一行备注里按回车可以接着加行</span></div>
+          </div>
+        </section>
+      )}
+
+      </div>
+      <aside className="slip-side" aria-label="单据功能区">
+      <div className="slip-total-card"><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{def.lines && <span className="muted">共 {parsedCount} 行</span>}</div>
       <section className="slip-settle">
         <h3 className="section-title"><span className="step">3</span>{def.settle === 'in' && type !== 'purchase-return' ? '收款情况' : def.settle === 'out' && type !== 'sale-return' ? '付款情况' : def.settle ? '退款情况' : def.bank === 'in' ? '收款情况' : def.bank === 'out' ? '付款情况' : '转款情况'}</h3>
         {def.settle && (
@@ -357,7 +411,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
           </div>
         )}
         <div className="form-grid">
-          {!def.lines && def.bank !== 'transfer' && <label>{ui.amountLabel}（元） *<input inputMode="decimal" aria-label={ui.amountLabel} value={amount} onChange={(e) => setAmount(e.target.value)} /></label>}
+          {!def.lines && def.bank !== 'transfer' && <p className="muted" aria-label="金额汇总">{ui.amountLabel}：<b>{money(moneyCents)}</b>（等于上面明细合计）</p>}
           {def.settle && <label>{ui.amountLabel}（元）<input inputMode="decimal" aria-label={ui.amountLabel} value={paid} onChange={(e) => { setPaid(e.target.value); setPayMode('part'); }} placeholder={def.lines === 'fee' ? '不填 = 当场付清/收齐' : '0.00'} /></label>}
           {(def.bank === 'in' || def.bank === 'out' || def.settle) && def.bank !== 'transfer' && <label>{ui.accountLabel} *<SearchPick ariaLabel={ui.accountLabel} type="bank-accounts" value={bank.id} label={bank.name} onChange={(id, name) => setBank({ id, name })} /></label>}
           {type === 'online-sale' && <label>平台佣金率（%，仅估算，不入账）<input inputMode="decimal" aria-label="平台佣金率" value={feeRate} onChange={(e) => setFeeRate(e.target.value)} placeholder="如 0.6" /></label>}
@@ -416,7 +470,8 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
         {notice && <div role="status" className="notice ok">{notice}</div>}
         {error && <div role="alert" className="notice error">{error}</div>}
       </div>
-    </>
+      </aside>
+    </div>
   );
 
   const buttons = (

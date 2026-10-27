@@ -668,3 +668,22 @@ label.invalid input, label.invalid select, label.invalid textarea { border-color
 .org-node.drop-before { box-shadow: inset 0 2px 0 var(--accent, #2563eb); }
 .org-node.drop-after { box-shadow: inset 0 -2px 0 var(--accent, #2563eb); }
 .org-node.drop-inside { outline: 2px dashed var(--accent, #2563eb); outline-offset: -2px; }
+
+/* 制单页：左侧录入、右侧功能区（收付款、凭证、备注）。弹窗内保持单列 */
+.slip-cols { display: block; }
+.slip-body .slip-cols { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.slip-side { display: grid; gap: 12px; }
+.slip-body .slip-side { position: sticky; top: 8px; }
+.slip-total-card { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.slip-total-card b { font-size: 22px; }
+@media (max-width: 1100px) { .slip-body .slip-cols { grid-template-columns: minmax(0, 1fr); } .slip-body .slip-side { position: static; } }
+
+/* 店铺提现：行内账号密码与详情抽屉 */
+.inline-cred { display: grid; gap: 4px; min-width: 200px; }
+.inline-cred-row { display: flex; align-items: center; gap: 6px; }
+.inline-cred-row input { min-width: 0; flex: 1; }
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.3); z-index: 60; display: flex; justify-content: flex-end; }
+.drawer { width: min(640px, 100vw); height: 100%; overflow: auto; border-radius: 0; }
+.kv-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0 0 12px; }
+.kv-list dt { color: var(--muted); font-size: 12px; }
+.kv-list dd { margin: 0; }

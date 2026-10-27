@@ -6,6 +6,7 @@ import { Pager } from './common';
 import { CopyButton } from './fin-ui';
 import { DocumentsPage } from './DocumentsPage';
 import { DocForm } from './DocForm';
+import { InlineCred, InlineDevice, ShopDrawer } from './ShopInline';
 import { AgentReleasePanel } from './AgentReleasePanel';
 import { RemoteAssistDialog } from './remote/RemoteAssistDialog';
 import { RemoteDeviceSettings, RemoteHistory } from './remote/RemotePanels';
@@ -59,8 +60,7 @@ export function Shops({ client = sessionApi, maintenance = false }: { client?: S
   const [adding, setAdding] = useState(false);
   const [register, setRegister] = useState<ShopRow | null>(null);
   const [hist, setHist] = useState<{ shop: ShopRow; rows: HistoryRow[] } | null>(null);
-  const [cred, setCred] = useState<ShopRow | null>(null);
-  const [shown, setShown] = useState<{ account: string; password: string } | null>(null);
+  const [detail, setDetail] = useState<ShopRow | null>(null);
   const [statusFor, setStatusFor] = useState<ShopRow | null>(null);
   const [remoteFor, setRemoteFor] = useState<ShopRow | null>(null);
   const [remoteMap, setRemoteMap] = useState<Map<number, RemoteShopState>>(new Map());
@@ -103,9 +103,9 @@ export function Shops({ client = sessionApi, maintenance = false }: { client?: S
               <tr key={s.id}>
                 <td>{s.platformLabel ?? PLATFORM[s.platform] ?? s.platform}</td><td><strong>{s.storeName}</strong><div className="muted">{s.storeNo || '未设置店铺编码'}</div></td><td>{s.platformStoreId ? <>{s.platformStoreId} <CopyButton text={s.platformStoreId} label="店铺ID" /></> : '-'}</td>{maintenance && <td><span className={`pill ${s.storeStatus === 'normal' ? 'ok' : s.storeStatus === 'abnormal' ? 'warn' : 'bad'}`}>{STORE_STATUS[s.storeStatus ?? ''] ?? s.storeStatus}</span>{s.abnormalReason && <div className="muted">{s.abnormalReason}</div>}</td>}
                 <td>{s.operatorName || '-'}</td>
-                <td>{s.loginAccount ? <>{s.loginAccount} <CopyButton text={s.loginAccount} label={`登录账号 ${s.loginAccount}`} /></> : <span className="muted">未填</span>}{s.hasPassword && <span className="muted"> · 已存密码{s.autoLogin ? ' · 自动登录' : ''}</span>}</td>
+                <td>{manage ? <InlineCred client={client} shop={s} onChanged={load} onError={setError} /> : <>{s.loginAccount ? <>{s.loginAccount} <CopyButton text={s.loginAccount} label={`登录账号 ${s.loginAccount}`} /></> : <span className="muted">未填</span>}{s.hasPassword && <span className="muted"> · 已存密码{s.autoLogin ? ' · 自动登录' : ''}</span>}</>}</td>
                 <td><span className={`pill ${STATE[s.loginState][1]}`}>{STATE[s.loginState][0]}</span>{s.activeRequest && <div className="muted">{REQ[s.activeRequest.status]}</div>}</td>
-                <td>{s.deviceName || '—'} <span className={`pill ${s.deviceStatus === 'online' ? 'ok' : 'warn'}`}>{DEVICE[s.deviceStatus]}</span></td>
+                <td>{manage ? <InlineDevice client={client} shop={s} devices={devices.filter((d) => d.status === 'active')} onChanged={load} onError={setError} /> : s.deviceName || '—'} <span className={`pill ${s.deviceStatus === 'online' ? 'ok' : 'warn'}`}>{DEVICE[s.deviceStatus]}</span></td>
                 <td>{s.lastOpenedAt ? fmtTime(s.lastOpenedAt) : '-'}</td>
                 <td><Progress shop={s} /></td>
                 <td className="row-actions">
@@ -116,7 +116,7 @@ export function Shops({ client = sessionApi, maintenance = false }: { client?: S
                   {canRemote && remoteMap.get(s.id)?.remoteEnabled && (() => { const r = remoteMap.get(s.id)!; return <button type="button" className="link-button" disabled={!r.deviceOnline || (!!r.live && !r.live.mine)} title={r.live && !r.live.mine ? `${r.live.requestedByName} 正在协助` : '让这台电脑上的助手把店铺窗口画面传给你'} onClick={() => setRemoteFor(s)}>{r.live?.mine ? '返回协助' : '远程协助'}</button>; })()}
                   <button type="button" className="link-button" onClick={() => client.history(s.id).then((rows) => setHist({ shop: s, rows })).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'))}>登录记录</button>
                   {maintenance && manage && <button type="button" className="link-button" onClick={() => setStatusFor(s)}>改店铺状态</button>}
-                  {manage && <button type="button" className="link-button" onClick={() => { setShown(null); setCred(s); }}>账号密码</button>}
+                  <button type="button" className="link-button" onClick={() => setDetail(s)}>店铺详情</button>
                   {manage && <button type="button" className="link-button" disabled={busy} onClick={() => { if (window.confirm(`移除店铺「${s.storeName}」？历史记录会保留。`)) run(() => client.removeShop(s.id)); }}>移除</button>}
                 </td>
               </tr>
@@ -139,7 +139,7 @@ export function Shops({ client = sessionApi, maintenance = false }: { client?: S
       )}
       {remoteFor && remoteMap.get(remoteFor.id) && <RemoteAssistDialog shopId={remoteFor.id} storeName={remoteFor.storeName} deviceName={remoteFor.deviceName} state={remoteMap.get(remoteFor.id)!} onClose={() => { setRemoteFor(null); load(); }} />}
       {statusFor && <StoreStatusDialog client={client} shop={statusFor} onClose={() => setStatusFor(null)} onDone={() => { setStatusFor(null); load(); }} />}
-      {cred && <CredDialog client={client} shop={cred} shown={shown} onReveal={() => client.reveal(cred.id).then(setShown).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败'))} devices={devices.filter((d) => d.status === 'active')} onClose={() => { setCred(null); setShown(null); }} onSaved={() => { setCred(null); setShown(null); load(); }} />}
+      {detail && <ShopDrawer client={client} shop={data?.shops.find((x) => x.id === detail.id) ?? detail} canManage={!!manage} onClose={() => setDetail(null)} onChanged={load} />}
     </div>
   );
 }
@@ -193,32 +193,6 @@ function AddShops({ client, maintenance, devices, onClose, onDone }: { client: S
       <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>取消</button>
         <button type="button" className="primary-button" disabled={!sel.length || !dev} onClick={() => client.addShops(sel, Number(dev)).then(onDone).catch((e) => setError(e instanceof ApiError ? e.message : '添加失败'))}>添加 {sel.length || ''} 家</button></div>
     </div></div>
-  );
-}
-
-function CredDialog({ client, shop, shown, onReveal, devices, onClose, onSaved }: { client: SessionClient; shop: ShopRow; shown: { account: string; password: string } | null; onReveal: () => void; devices: DeviceRow[]; onClose: () => void; onSaved: () => void }) {
-  const [account, setAccount] = useState(shop.loginAccount);
-  const [password, setPassword] = useState('');
-  const [auto, setAuto] = useState(shop.hasPassword ? shop.autoLogin : true); // 第一次填全账号密码，默认开启自动登录
-  const [dev, setDev] = useState<number | ''>(shop.deviceId ?? '');
-  const [error, setError] = useState('');
-  return (
-    <div className="modal-backdrop" role="presentation"><form className="modal card small" role="dialog" aria-label="账号密码" onSubmit={(e) => {
-      e.preventDefault();
-      client.updateShop(shop.id, { loginAccount: account, ...(password ? { loginPassword: password } : {}), ...((shop.hasPassword || password) && auto !== shop.autoLogin && shop.hasPassword ? { autoLogin: auto } : {}), ...(dev !== (shop.deviceId ?? '') ? { deviceId: dev === '' ? null : dev } : {}) }).then(onSaved).catch((er) => setError(er instanceof ApiError ? er.message : '保存失败'));
-    }}>
-      <div className="modal-head"><strong>{shop.storeName} · 登录账号密码</strong></div>
-      <div className="modal-body">
-        <label>登录账号<input value={account} maxLength={100} onChange={(e) => setAccount(e.target.value)} /></label>
-        <label>登录密码<input type="password" autoComplete="new-password" value={password} placeholder={shop.hasPassword ? '已保存，留空表示不修改' : ''} onChange={(e) => setPassword(e.target.value)} /></label>
-        {shop.hasPassword && <div>{shown ? <span>账号 <b>{shown.account}</b> <CopyButton text={shown.account} label="账号" />　密码 <b className="mono">{shown.password}</b> <CopyButton text={shown.password} label="密码" /></span> : <button type="button" className="link-button" onClick={onReveal}>查看已保存的密码（会记入操作日志）</button>}</div>}
-        <label className="check-line"><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />自动登录（助手领取请求时由服务器交付账号密码）</label>
-        <label>负责电脑<select value={dev} onChange={(e) => setDev(e.target.value ? Number(e.target.value) : '')}><option value="">（未分配）</option>{devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
-        {shop.hasPassword && <button type="button" className="link-button" onClick={() => { if (window.confirm('清除已保存的密码？自动登录会同时关闭。')) client.updateShop(shop.id, { clearPassword: true }).then(onSaved).catch((er) => setError(er instanceof ApiError ? er.message : '操作失败')); }}>清除密码</button>}
-        {error && <div role="alert" className="notice error">{error}</div>}
-      </div>
-      <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="submit" className="primary-button">保存</button></div>
-    </form></div>
   );
 }
 

@@ -98,7 +98,8 @@ describe('开单页细节', () => {
     render(<DocForm type="payment" inline onSaved={vi.fn()} />);
     fireEvent.focus(screen.getByLabelText('付款账户'));
     fireEvent.click(await screen.findByRole('option', { name: '现金户' }));
-    fireEvent.change(screen.getByLabelText('付款金额', { selector: 'input' }), { target: { value: '50' } });
+    fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '50' } });
+    fireEvent.change(screen.getByLabelText(/^第1行(?!金额|备注)/), { target: { value: '货款' } });
     const hint = await screen.findByLabelText('账户余额预览');
     expect(hint.textContent).toContain('¥10.00');
     expect(hint.textContent).toContain('¥-40.00');
