@@ -5,6 +5,9 @@ import { useAuth } from './auth/AuthContext';
 import { Shell } from './layout/Shell';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { LoginPage } from './pages/LoginPage';
+import { AfterSalesPage } from './pages/service/AfterSalesPage';
+import { AppealsPage } from './pages/service/AppealsPage';
+import { SupervisionPage } from './pages/service/SupervisionPage';
 import { PhoneUploadPage } from './resources/PhoneUploadPage';
 import { PlatformApp } from './pages/platform/PlatformApp';
 import { AuditPage } from './pages/system/AuditPage';
@@ -45,12 +48,20 @@ import { TasksPage } from './pages/flow/TasksPage';
 import { RunsPage } from './pages/flow/RunsPage';
 import { TemplatesPage } from './pages/flow/TemplatesPage';
 import { MyTodosPage } from './pages/flow/TodosPage';
+import { HomePage } from './pages/workspace/HomePage';
+import { BossPage } from './pages/workspace/BossPage';
+import { DeskPage } from './pages/workspace/DeskPage';
+import { PersonalPage } from './pages/workspace/PersonalPage';
 
 /**
  * 页面组件登记：键是导航注册表里的“分区.页面id”。
  * 新做一个页面 = 在这里登记组件 + 把注册表里该页面的 ready 改成 true。
  */
 const PAGE_COMPONENTS: Record<string, ComponentType> = {
+  'workbench.home': HomePage,
+  'workbench.boss': BossPage,
+  'workbench.desk': DeskPage,
+  'workbench.personal': PersonalPage,
   'workbench.todos': MyTodosPage,
   'workbench.tasks': TasksPage,
   'workbench.started': () => <RunsPage view="started" />,
@@ -112,6 +123,11 @@ PAGE_COMPONENTS['finance.zone-suggestion'] = ZoneRunsPage;
 PAGE_COMPONENTS['finance.finance-base-codes'] = BaseCodesPage;
 PAGE_COMPONENTS['finance.finance-bundles'] = BundlesPage;
 PAGE_COMPONENTS['finance.jst-upload'] = JstUploadPage;
+
+// 售后、订单申诉、兜底监督
+PAGE_COMPONENTS['after-sales.table'] = AfterSalesPage;
+PAGE_COMPONENTS['after-sales.appeals'] = AppealsPage;
+PAGE_COMPONENTS['supervision.center'] = SupervisionPage;
 
 // 宿主页：旧程序里的页面内 Tab/面板，合并为标签页（不再单独占菜单）
 for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {

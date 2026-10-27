@@ -5,6 +5,7 @@ import { JstSyncItems } from './jst/JstSyncItems';
 import { JstSyncExtras } from './jst/JstSyncExtras';
 import { api } from '../../api/client';
 import { CopyButton } from '../../resources/CopyValue';
+import { FeishuSwitchCard } from './jst/FeishuSwitchCard';
 import { financeApi, type MarginHistoryRow, type PricingHistoryRow, type OutboxJobRow, type ApiKeyRow, type CostSnapshotRow, type PackagingMatch, type ResetPreview, type SnapshotRow } from './financeApi';
 
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
@@ -297,6 +298,7 @@ export function JstSyncPage() {
           </div>
         </div>
       )}
+      <FeishuSwitchCard />
       {notice && <div role="status" className="notice ok">{notice}</div>}
       {error && <div role="alert" className="notice error">{error}</div>}
       <div className="pill-row">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadUnitOptions, useUnitOptions } from './unitOptions';
 import { BatchBar } from './BatchBar';
-import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
+import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -255,7 +255,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
     <div className="split">
       <section className="split-main">
         <div className="page-head">
-          <h1>{title ?? def.label}</h1>
+          <div><h1>{title ?? def.label}</h1>{resourceDescription(type) && !lockedTab && <p className="muted page-desc">{resourceDescription(type)}</p>}</div>
           <div className="pill-row">
             {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="secondary-button" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
             {type === 'finance-packaging-schemes' && <button type="button" className="secondary-button" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
@@ -303,7 +303,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           {(tabField || def.quickTabs?.length) && !lockedTab && (
             <div className="tab-group page-tabs" role="tablist" aria-label="分类">
               <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'chip active' : 'chip'} onClick={() => { setTab(''); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>全部</button>
-              {[...resourceTabOptions(def), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label }))].map((o) => (
+              {[...resourceTabOptions(def), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)].map((o) => (
                 <button key={o.value} type="button" role="tab" aria-selected={tab === o.value} className={tab === o.value ? 'chip active' : 'chip'} onClick={() => { setTab(o.value); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>
                   {o.label}{data?.tabCounts ? ` ${data.tabCounts[o.value] ?? 0}` : ''}
                 </button>

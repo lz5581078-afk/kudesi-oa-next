@@ -6,6 +6,7 @@ import type { StepDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
 import { Company, Notification, ResourceRecord, User } from '../entities';
+import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
@@ -19,6 +20,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
   let ds: DataSource;
   let flow: FlowService;
   let sku: SkuApplyService;
+  let feishu: FeishuNoticeService;
   let resources: ReturnType<typeof buildServices>['resources'];
   let admin: AuthUser, ops: AuthUser, wh: AuthUser, fin: AuthUser, finNoPerm: AuthUser, stranger: AuthUser, noApply: AuthUser;
   const ids: Record<string, number> = {};
@@ -50,7 +52,8 @@ d('SKU 批量申请流程（真实数据库）', () => {
     resources = s.resources;
     const outbox = new OutboxService(ds, resources);
     const bundles = new BundleToolsService(ds, resources, outbox);
-    flow = new FlowService(ds, resources, new FinanceDocumentsService(ds), bundles, outbox);
+    feishu = new FeishuNoticeService(ds);
+    flow = new FlowService(ds, resources, new FinanceDocumentsService(ds), bundles, outbox, feishu);
     sku = new SkuApplyService(ds, flow, bundles);
     const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `k${crypto.randomBytes(5).toString('hex')}`, name: 'SKU申请测试', status: 'active' }));
     admin = { id: await mkUser(c.id, 'admin', '管理员', { isCompanyAdmin: true }), companyId: c.id, name: '管理员', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
@@ -287,5 +290,63 @@ d('SKU 批量申请流程（真实数据库）', () => {
     const ou = au(await mkUser(other.id, 'x', '外人'), other.id, '外人', ['flow.apply.view']);
     expect((await sku.options(ou, 'main')).items).toEqual([]);
     await expect(sku.preview(ou, ids.doneRun)).rejects.toThrow(/不存在/);
+  });
+
+  const qspec = (name: string, base: number, qty: number) => ({ name, main: [{ baseCodeId: base, qty }], gift: [] });
+
+  it('复用历史仓库配置：按主商品找以前规格填过的包装、标签、人工；只看本公司；带名称不带成本', async () => {
+    const run = await toWarehouse([qspec('历史规格', ids.mangoBc, 11)]);
+    await whPass(wh, run, [whLines()]);
+    const r = await sku.historyConfigs(ops, [ids.mangoBc]);
+    const hit = r.items.find((x) => x.runId === run.id)!;
+    expect(hit.exact).toBe(true);
+    expect(hit.config.lines.map((l) => l.role).sort()).toEqual(['label', 'labor', 'package']);
+    expect(r.names[`b${ids.boxBc}`]).toContain('BOX-A');
+    expect(r.names[`l${ids.labor}`]).toContain('装箱');
+    expect(JSON.stringify(r)).not.toMatch(/cost|成本/);
+    expect((await sku.historyConfigs(ops, [ids.appleBc])).items.some((x) => x.runId === run.id)).toBe(false);
+    expect((await sku.historyConfigs({ ...ops, companyId: 99999999 }, [ids.mangoBc])).items).toEqual([]);
+    expect((await sku.historyConfigs(ops, [], '历史规格')).items.some((x) => x.runId === run.id)).toBe(true);
+  });
+
+  it('规格独立流转：一次填写拆成一规格一条流程，各自办理；同批可查；只有一个规格不拆', async () => {
+    await expect(sku.startSplit(ops, payload([qspec('单', ids.pearBc, 20)]), key())).rejects.toThrow(/不用拆开/);
+    const out = await sku.startSplit(ops, payload([qspec('拆一', ids.pearBc, 21), qspec('拆二', ids.pearBc, 22)]), key());
+    expect(out.failed).toEqual([]);
+    expect(out.runs).toHaveLength(2);
+    const [a, b] = await Promise.all(out.runs.map((x) => flow.detail(ops, x.id)));
+    expect((a.payload.specs as unknown[]).length).toBe(1);
+    expect(a.title).toContain('1 个规格');
+    // 第一个规格先办完仓库，第二个还在仓库
+    await whPass(wh, a as never, [whLines()]);
+    const list = await sku.batch(ops, out.batchKey);
+    expect(list.total).toBe(2);
+    expect(list.items.map((i) => i.currentStep)).toEqual(['财务审核', '仓库完善']);
+    expect((await flow.detail(ops, b.id)).activeStep!.key).toBe('warehouse');
+    expect((await sku.batch(noApply, out.batchKey)).items).toEqual([]); // 看不到别人的流程
+    // 整体检查不通过时一条都不发起
+    await expect(sku.startSplit(ops, payload([qspec('坏一', ids.pearBc, 31), qspec('坏二', ids.boxBc, 32)]), key())).rejects.toThrow(/不能当作主商品/);
+  });
+
+  it('飞书通知：开关默认关不入队；管理员打开后每个新待办入队；没有发送器不发送，接上发送器才发', async () => {
+    const jobs = async () => (await ds.query("SELECT * FROM outbox_jobs WHERE company_id = ? AND channel = 'feishu'", [admin.companyId])) as Array<{ status: string; payload_json: string | Record<string, unknown> }>;
+    expect((await feishu.getSwitch(admin.companyId)).enabled).toBe(false);
+    await toWarehouse([qspec('飞书关', ids.mangoBc, 41)]);
+    expect(await jobs()).toHaveLength(0);
+    await expect(feishu.setSwitch(ops, true)).rejects.toThrow(/公司管理员/);
+    await feishu.setSwitch(admin, true, '测试');
+    const run = await toWarehouse([qspec('飞书开', ids.mangoBc, 42)]);
+    const queued = await jobs();
+    expect(queued.length).toBeGreaterThanOrEqual(1);
+    const notice = typeof queued[0].payload_json === 'string' ? JSON.parse(queued[0].payload_json) : queued[0].payload_json;
+    expect(notice).toMatchObject({ userId: wh.id, runId: run.id });
+    expect(await feishu.processCompany(admin.companyId)).toMatchObject({ sent: 0, blocked: true });
+    const sentTo: number[] = [];
+    feishu.setSender({ configured: true, send: async (j) => { sentTo.push(j.notice.userId); } });
+    const r = await feishu.processCompany(admin.companyId);
+    expect(r.sent).toBeGreaterThanOrEqual(1);
+    expect(sentTo).toContain(wh.id);
+    await feishu.setSwitch(admin, false);
+    expect(await feishu.processCompany(admin.companyId)).toMatchObject({ blocked: true });
   });
 });

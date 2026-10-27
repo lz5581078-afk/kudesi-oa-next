@@ -11,6 +11,7 @@ import { FinanceDocumentsService } from '../resources/finance-documents.service'
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { ResourcesService } from '../resources/resources.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { FLOW_ADAPTERS, StepContext, postDeclared } from './flow-adapters';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -37,6 +38,7 @@ export class FlowService {
     private readonly docs: FinanceDocumentsService,
     @Optional() private readonly bundles?: BundleToolsService,
     @Optional() private readonly outbox?: OutboxService,
+    @Optional() private readonly feishu?: FeishuNoticeService,
   ) {}
   private readonly log = new Logger('Flow');
 
@@ -60,7 +62,7 @@ export class FlowService {
     const defs = await this.dataSource.manager.find(FlowDefinition, { where: { companyId: user.companyId, status: 'active' } });
     return FLOW_TEMPLATES.map((t) => {
       const active = defs.find((d) => d.templateKey === t.key);
-      return { key: t.key, label: t.label, description: t.description, fields: t.fields, stepFields: t.stepFields, active: Boolean(active), version: active?.version ?? null, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
+      return { key: t.key, label: t.label, description: t.description, entry: t.entry ?? null, fields: t.fields, stepFields: t.stepFields, active: Boolean(active), version: active?.version ?? null, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
     });
   }
 
@@ -163,9 +165,11 @@ export class FlowService {
     return new Map(rows.map((r) => [r.id, r.name]));
   }
 
-  private async notify(em: EntityManager, companyId: number, userIds: number[], n: { kind: string; title: string; body?: string; link?: string }) {
+  private async notify(em: EntityManager, companyId: number, userIds: number[], n: { kind: string; title: string; body?: string; link?: string }, run?: FlowRun) {
     for (const uid of [...new Set(userIds)]) {
       await em.insert(Notification, { companyId, userId: uid, kind: n.kind, title: n.title.slice(0, 200), body: n.body?.slice(0, 500) ?? null, link: n.link ?? null });
+      // 飞书通知（出站队列，独立开关默认关；只有 SKU 批量申请会发）：和站内通知同一个事务入队，幂等键带步骤编号
+      if (run && this.feishu) await this.feishu.enqueue(em, companyId, run.templateKey, `${run.id}:${n.kind}:${run.currentStepKey ?? ''}:${run.revision}`, { userId: uid, title: n.title, body: n.body, link: n.link, runId: run.id });
     }
   }
 
@@ -196,9 +200,11 @@ export class FlowService {
 
   // ================= 发起 =================
 
-  async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string) {
-    this.need(user, 'flow.apply.view', '没有发起流程的权限');
+  async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string, opts: { internal?: boolean } = {}) {
     const t = this.tpl(templateKey);
+    // 有专门业务页面的流程（售后、申诉）：权限由业务模块自己判断，申请中心/接口不能绕过业务页面直接发起
+    if (t.entry && !opts.internal) throw new BadRequestException(`这条流程要${t.entry.label}`);
+    if (!opts.internal) this.need(user, 'flow.apply.view', '没有发起流程的权限');
     const adapter = FLOW_ADAPTERS[t.key];
     const checked = validateResourceInput(pseudoDef(t.key, t.fields), payloadIn ?? {}, { status: '' });
     if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
@@ -224,6 +230,7 @@ export class FlowService {
         status: 'done', recipients: [user.id], handledBy: user.id, action: 'submit', finishedAt: new Date(),
       });
       await this.event(em, run, user.id, 'submit', Number(first.identifiers[0].id));
+      await adapter.onStart?.({ em, user, payload, run, ...this.svc() });
       await this.enter(em, user, run, steps, 1, 'normal');
       return this.detailIn(em, user, run.id);
     });
@@ -254,7 +261,7 @@ export class FlowService {
     for (const uid of recipients) {
       await em.insert(WorkItem, { companyId: run.companyId, kind: 'flow', runId: run.id, stepId, assigneeId: uid, title: `${def.name} · ${label}`.slice(0, 200), status: 'open', dueAt: due });
     }
-    await this.notify(em, run.companyId, recipients, { kind: via === 'return' ? 'returned' : 'todo', title: via === 'return' ? `被退回：${run.title}` : `新待办：${run.title}`, body: `步骤：${def.name}`, link: `/workbench/todos?run=${run.id}` });
+    await this.notify(em, run.companyId, recipients, { kind: via === 'return' ? 'returned' : 'todo', title: via === 'return' ? `被退回：${run.title}` : `新待办：${run.title}`, body: `步骤：${def.name}`, link: `/workbench/todos?run=${run.id}` }, run);
     for (const uid of def.ccUserIds ?? []) {
       const exists = await em.findOne(FlowCc, { where: { runId: run.id, userId: uid } });
       if (!exists && uid !== run.requesterId) {
@@ -285,7 +292,7 @@ export class FlowService {
       await em.update(FlowRun, { id: run.id }, { payload: run.payload } as never);
     }
     const word = status === 'completed' ? '已完成' : status === 'cancelled' ? '已废除' : '被拒绝';
-    await this.notify(em, run.companyId, [run.requesterId], { kind: 'result', title: `${run.title} ${word}`, link: `/workbench/started?run=${run.id}` });
+    await this.notify(em, run.companyId, [run.requesterId], { kind: 'result', title: `${run.title} ${word}`, link: `/workbench/started?run=${run.id}` }, run);
   }
 
   // ================= 办理动作 =================
@@ -417,6 +424,7 @@ export class FlowService {
       run.title = await adapter.title(em, run.companyId, payload);
       await adapter.onResubmit?.(this.stepCtx(em, user, run, step, {}));
       await em.save(FlowRun, run);
+      await adapter.onResubmit?.({ em, user, payload, run, ...this.svc() });
       await this.closeStep(em, run, step, user, 'done', 'resubmit');
       const steps = run.stepsSnapshot as StepDef[];
       const idx = steps.findIndex((s) => s.key === step.stepKey);

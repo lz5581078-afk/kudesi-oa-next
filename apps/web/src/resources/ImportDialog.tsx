@@ -117,6 +117,14 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
             用 Excel（.xlsx）或 CSV 文件，第一行是表头（字段中文名，可加“状态”列）。{def.uniqueField ? '编号相同的会更新已有记录，其余新建。' : '都会按新记录创建。'}
             密码不支持导入（证件号、卡号可以）。选择文件后会先预览，全部通过才能确认。
           </p>
+          <details className="import-rules">
+            <summary>填写规则（哪些列必填、选项怎么写）</summary>
+            <ul>
+              {importable.map((f) => (
+                <li key={f.key}><strong>{f.label}</strong>{f.required ? '（必填）' : ''}{f.type === 'select' && f.options?.length ? `：${f.options.map((o) => o.label).join(' / ')}` : f.type === 'date' ? '：日期，如 2026-01-31' : f.type === 'money' ? '：金额，单位元' : f.type === 'ref' || f.type === 'refs' ? '：填对方的名称' : ''}{f.help ? `。${f.help}` : ''}</li>
+              ))}
+            </ul>
+          </details>
           <div className="toolbar-inline">
             <button type="button" className="secondary-button" onClick={() => downloadText(`${def.label}-导入模板.csv`, toCsv([['状态', ...importable.map((f) => f.label), ...extraHeaders]]))}>
               下载模板

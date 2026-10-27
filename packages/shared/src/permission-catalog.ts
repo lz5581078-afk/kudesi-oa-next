@@ -65,6 +65,7 @@ export function permissionCatalog(): CatalogGroup[] {
     { key: SPECIAL_PERMISSIONS.companyStoreMaintenanceManage, label: '公司店铺维护：管理店铺登录、查看密码、改店铺状态' },
     { key: SPECIAL_PERMISSIONS.tasksAssign, label: '给别人指派任务' },
     { key: SPECIAL_PERMISSIONS.tasksRoutinesManage, label: '管理周期任务' },
+    { key: SPECIAL_PERMISSIONS.supervisionManage, label: '兜底监督：关闭异常、改监督规则、立即扫描' },
   ] });
   groups.push({
     id: 'product-sensitive',

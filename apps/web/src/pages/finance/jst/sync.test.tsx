@@ -127,3 +127,24 @@ describe('同步清单：状态汇总、筛选与全选本页', () => {
     await screen.findByText('ZH-1', { exact: false });
   });
 });
+
+describe('飞书通知开关', () => {
+  it('默认关；没接入飞书时提示只积压；管理员打开前要确认，非管理员看不到按钮', async () => {
+    const { FeishuSwitchCard } = await import('./FeishuSwitchCard');
+    apiMock.mockImplementation(async (path: string, opts?: { method?: string }) => (opts?.method === 'PUT' ? { enabled: true, senderConfigured: false } : { enabled: false, senderConfigured: false, counts: {} }) as never);
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<FeishuSwitchCard />);
+    await screen.findByText(/已关闭（默认）/);
+    expect(screen.getByText(/不会发送/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '打开飞书通知' }));
+    await screen.findByText(/已打开/);
+    expect(apiMock).toHaveBeenCalledWith('/finance/feishu-notice/switch', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ enabled: true }) }));
+    expect(ask).toHaveBeenCalled();
+    cleanup();
+    auth.admin = false;
+    render(<FeishuSwitchCard />);
+    await screen.findByText(/飞书通知：/);
+    expect(screen.queryByRole('button', { name: /飞书通知/ })).toBeNull();
+    ask.mockRestore();
+  });
+});

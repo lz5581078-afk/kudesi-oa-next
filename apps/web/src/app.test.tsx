@@ -144,7 +144,7 @@ describe('登录与菜单', () => {
     const tabbar = screen.getByRole('navigation', { name: '手机底部导航' });
     for (const label of ['工作台', '流程', '财务', '资料', '更多']) expect(within(tabbar).getByText(label)).toBeTruthy();
     fireEvent.click(within(tabbar).getByText('更多'));
-    expect(screen.getByRole('dialog', { name: '系统菜单' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '售后菜单' })).toBeTruthy();
   });
 
   it('账号菜单：能去修改密码、能退出', () => {

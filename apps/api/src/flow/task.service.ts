@@ -53,6 +53,7 @@ export class TaskService {
     return this.dataSource.transaction(async (em) => {
       const t = await this.lockTask(em, user, id);
       if (t.assigneeId !== user.id) throw new ForbiddenException('只有负责人能完成任务');
+      if (t.submittedAt) throw new BadRequestException('已提交复核，等指派人处理');
       t.status = 'done'; t.finishedAt = new Date(); t.doneNote = note?.trim().slice(0, 500) || null;
       await em.save(WorkItem, t);
       if (t.createdBy && t.createdBy !== user.id) await this.notify(em, user.companyId, t.createdBy, `${user.name} 完成了任务：${t.title}`, 'result');

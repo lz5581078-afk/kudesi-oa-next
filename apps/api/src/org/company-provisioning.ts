@@ -21,6 +21,9 @@ export const DEFAULT_POSITIONS: Array<{ name: string; workspaceType: WorkspaceTy
     // 运营不含 product.cost.view / product.price.view：看不到成本和价格（服务端按字段隐藏）
     permissions: [
       'workbench.todos.view',
+      'workbench.home.view',
+      'workbench.desk.view',
+      'workbench.personal.view',
       'flow.apply.view',
       'flow.exclusive.view',
       'workbench.tasks.view',
@@ -42,6 +45,9 @@ export const DEFAULT_POSITIONS: Array<{ name: string; workspaceType: WorkspaceTy
     workspaceType: 'finance',
     permissions: [
       'workbench.todos.view',
+      'workbench.home.view',
+      'workbench.desk.view',
+      'workbench.personal.view',
       'flow.apply.view',
       'workbench.tasks.view',
       'workbench.started.view',
@@ -63,6 +69,9 @@ export const DEFAULT_POSITIONS: Array<{ name: string; workspaceType: WorkspaceTy
     workspaceType: 'warehouse',
     permissions: [
       'workbench.todos.view',
+      'workbench.home.view',
+      'workbench.desk.view',
+      'workbench.personal.view',
       'flow.apply.view',
       'workbench.tasks.view',
       'workbench.cc.view',

@@ -2,6 +2,13 @@ import { PhoneUploadController } from './integrations/phone-upload.controller';
 import { PhoneUploadService } from './integrations/phone-upload.service';
 import { FormDraftsController } from './resources/form-drafts.controller';
 import { FormDraftsService } from './resources/form-drafts.service';
+import { AfterSalesService } from './service/after-sales.service';
+import { AppealsService } from './service/appeals.service';
+import { CaseSupport } from './service/case-support';
+import { AfterSalesController, AppealsController, SupervisionController } from './service/service.controller';
+import { ServiceWorkspaceProvider } from './service/service-workspace.provider';
+import { SupervisionScheduler } from './service/supervision.scheduler';
+import { SupervisionService } from './service/supervision.service';
 import { LocalFilesController } from './integrations/local-files.controller';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
@@ -41,7 +48,9 @@ import { RevenueController } from './resources/revenue.controller';
 import { OutboxController } from './outbox/outbox.controller';
 import { JstCenterController } from './outbox/jst-center.controller';
 import { OutboxService } from './outbox/outbox.service';
-import { CategoryToolsController } from './resources/category-tools.controller';
+import { FeishuNoticeController } from './outbox/feishu-notice.controller';
+import { FeishuNoticeService } from './outbox/feishu-notice.service';
+import { CategoryToolsController, ProductCodePreviewController } from './resources/category-tools.controller';
 import { CategoryToolsService } from './resources/category-tools.service';
 import { PriceSyncService } from './outbox/price-sync.service';
 import { CategorySyncService } from './outbox/category-sync.service';
@@ -104,6 +113,10 @@ import { OrgService } from './org/org.service';
 import { CompanyApplyController, PlatformController } from './platform/platform.controller';
 import { PlatformService } from './platform/platform.service';
 
+import { WorkspaceController } from './workspace/workspace.controller';
+import { WorkspaceService } from './workspace/workspace.service';
+import { WorkspaceModuleRegistry } from './workspace/module-registry';
+
 const env = loadEnv();
 
 @Module({
@@ -143,7 +156,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, JstCenterController, CategoryToolsController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, ExclusiveController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, JstCenterController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, ExclusiveController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController],
   providers: [
     AuthService,
     PlatformService,
@@ -166,6 +179,7 @@ const env = loadEnv();
     JstMaintenanceService,
     BundleToolsService,
     OutboxService,
+    FeishuNoticeService,
     CategoryToolsService,
     PriceSyncService,
     CategorySyncService,
@@ -184,6 +198,14 @@ const env = loadEnv();
     MaintenanceService,
     RemoteAssistService,
     FlowScheduler,
+    WorkspaceService,
+    WorkspaceModuleRegistry,
+    CaseSupport,
+    AfterSalesService,
+    AppealsService,
+    SupervisionService,
+    SupervisionScheduler,
+    ServiceWorkspaceProvider,
     FinanceDocumentsService,
     IntegrationSettingsService,
     FilesService,

@@ -3,6 +3,7 @@ import { fieldOptions, useUnitOptions } from './unitOptions';
 import { SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
+import { CodePreview } from './CodePreview';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
@@ -240,11 +241,15 @@ function isEmptyValue(v: unknown): boolean {
 type SaveMode = 'close' | 'blank' | 'keep';
 
 /** 新建/编辑弹窗：按字段定义生成，按字段分组；showWhen 不满足的字段不显示。 */
-export function RecordForm({ def, record, initial, lockedFields, onClose, onSaved, onContinued }: {
+export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inline, onClose, onSaved, onContinued }: {
   def: ResourceDef;
   record: ResourceDto | null;
   initial?: Record<string, unknown>;
   lockedFields?: string[];
+  /** 只编辑这一个分区的字段（详情页“编辑本区”） */
+  onlyGroup?: string;
+  /** 就地编辑：不弹窗，直接在详情页该分区的位置显示表单 */
+  inline?: boolean;
   onClose: () => void;
   onSaved: (dto: ResourceDto) => void;
   /** 提供了它，新建时就多出“保存并继续新建”：保存后不关弹窗，列表由它刷新 */
@@ -296,9 +301,9 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
   const locked = useMemo(() => [...(lockedFields ?? []), ...(refLock?.fields ?? [])], [lockedFields, refLock]);
   const visible = useMemo(() => {
     const ctx: Record<string, unknown> = { ...values, status };
-    return def.fields.filter((f) => !f.readonly && canField(f)).filter((f) => !(def.key === 'fixed-assets' && record && f.key === 'userId')).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? '')));
+    return def.fields.filter((f) => !f.readonly && canField(f)).filter((f) => !(def.key === 'fixed-assets' && record && f.key === 'userId')).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? ''))).filter((f) => !onlyGroup || f.group === onlyGroup);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def, values, status, me]);
+  }, [def, values, status, me, onlyGroup]);
   const groups = useMemo(() => {
     const map = new Map<string, FieldDef[]>();
     for (const f of visible) map.set(f.group, [...(map.get(f.group) ?? []), f]);
@@ -444,12 +449,12 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <form className="modal card" role="dialog" aria-label={record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
-        <div className="modal-head between">
+    <div className={inline ? 'inline-edit' : 'modal-backdrop'} role="presentation">
+      <form className={inline ? 'inline-form' : 'modal card'} role={inline ? 'group' : 'dialog'} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
+        {!inline && <div className="modal-head between">
           <strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>
           <button type="button" className="icon-button" aria-label="关闭" onClick={requestClose}>✕</button>
-        </div>
+        </div>}
         <div className="modal-body">
           {def.key === 'licenses' && (
             <LicenseRecognizeButton
@@ -490,6 +495,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
             </fieldset>
           ))}
           {isProduct && <TotalCostPreview values={values} />}
+          {isProduct && <CodePreview values={values} excludeId={record?.id} />}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
           {Object.values(errors).some(Boolean) && (
             <div role="alert" className="notice error error-summary">

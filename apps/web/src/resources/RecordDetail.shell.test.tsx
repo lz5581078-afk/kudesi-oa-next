@@ -61,4 +61,25 @@ describe('资料详情通用壳', () => {
     show();
     expect(await screen.findByText(/已经不存在/)).toBeTruthy();
   });
+
+  it('面包屑、展开全宽、分区导航：有面包屑；展开按钮切换全宽；有多个分区时出现分区导航', async () => {
+    show();
+    await screen.findByText('工行 5678', { selector: '.drawer-title' });
+    expect(screen.getByRole('navigation', { name: '位置' }).textContent).toContain('银行账户');
+    const btn = screen.getByRole('button', { name: '展开到全宽' });
+    fireEvent.click(btn);
+    expect(document.querySelector('.drawer-wide')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '还原宽度' })).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: '分区导航' })).toBeTruthy();
+  });
+
+  it('逐区就地编辑：点“编辑本区”只把这一区变成表单（不弹窗），取消后回到只读', async () => {
+    show();
+    const edit = (await screen.findAllByRole('button', { name: /^编辑/ }).then((l) => l.find((b) => b.textContent === '编辑本区')))!;
+    fireEvent.click(edit);
+    expect(document.querySelector('.inline-form')).toBeTruthy();
+    expect(document.querySelector('.modal-backdrop')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(document.querySelector('.inline-form')).toBeNull());
+  });
 });

@@ -287,6 +287,39 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   data.basicInfoFullName = basicInfoFullName(data, (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '', await loadUnitLists(em, user.companyId));
 }
 
+/**
+ * 商品编码实时预览（旧系统填写时实时显示“将生成的编码”）：和保存时用同一套规则，
+ * 手填编码只校验格式和是否被占用；不写任何数据。
+ */
+export async function previewProductCode(em: EntityManager, host: Pick<RuleHost, 'findByUnique'>, user: AuthUser, input: Data, excludeId: number | null) {
+  const data: Data = { ...input };
+  const type = str(data.archiveType);
+  if (!ARCHIVE_TYPE_CODE[type]) throw new BadRequestException('请先选择档案类型');
+  const cat = await rec(em, user.companyId, 'finance-categories', data.categoryId);
+  const chain = cat ? await categoryChain(em, user.companyId, cat.id) : [];
+  const notes: string[] = [];
+  if (!cat) notes.push('选了分类后，编码里才会带分类码');
+  if (['self_made', 'purchased', 'oem_package'].includes(type) && typeof data.brandId !== 'number') notes.push('请选择品牌，品牌码会参与编码');
+  let code = str(data.code).toUpperCase();
+  if (code) {
+    checkCode(code, '商品编码');
+    const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
+    if (clash && clash.id !== excludeId) throw new ConflictException(`商品编码 ${code} 已被“${clash.title}”使用`);
+    return { code, manual: true, notes, basicInfoFullName: '' };
+  }
+  const base = await productCode({ em, user, data } as BeforeSaveContext, chain);
+  code = base;
+  for (let i = 2; i < 50; i++) {
+    const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
+    if (!clash || clash.id === excludeId) break;
+    code = `${base}-${i}`;
+  }
+  checkCode(code, '自动生成的商品编码');
+  const brandTitle = (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '';
+  const full = basicInfoFullName({ ...data, code }, brandTitle, await loadUnitLists(em, user.companyId));
+  return { code, manual: false, notes, basicInfoFullName: full };
+}
+
 async function beforeBom(ctx: BeforeSaveContext) {
   const { em, host, user, data } = ctx;
   const parent = await rec(em, user.companyId, 'finance-products', data.productId);

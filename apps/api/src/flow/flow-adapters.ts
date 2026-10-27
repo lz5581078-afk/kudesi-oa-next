@@ -10,6 +10,7 @@ import type { OutboxService } from '../outbox/outbox.service';
 import { skuBatchApply } from './sku-apply';
 import { productExclusive } from './product-exclusive';
 import { purchase } from './purchase';
+import { afterSalesAdapter, appealAdapter } from '../service/service-adapters';
 
 /**
  * 业务适配器：流程引擎只管流转，业务规则（能不能发起、办理时要做什么、能不能退回废除）由适配器声明。
@@ -59,6 +60,10 @@ export interface FlowAdapter {
   key: string;
   title(em: EntityManager, companyId: number, payload: Record<string, unknown>): Promise<string>;
   validateStart?(ctx: StartContext): Promise<void>;
+  /** 流程刚发起、发起步骤已记录、还没进入下一步时调用：业务适配器在这里建自己的业务记录（run 已有编号）；和流转同一个事务 */
+  onStart?(ctx: StartContext & { run: FlowRun }): Promise<void>;
+  /** 被退回的发起人修改后重新提交时调用：把新的表单同步到业务记录 */
+  onResubmit?(ctx: StartContext & { run: FlowRun }): Promise<void>;
   /** 业务日期型截止（如预计归还日）；返回 null 表示按定义里的时限 */
   stepDueAt?(stepKey: string, payload: Record<string, unknown>): Date | null;
   beforePass?(ctx: StepContext): Promise<void>;
@@ -205,4 +210,4 @@ export async function postDeclared(ctx: StepContext, t: FlowTemplate): Promise<v
   payload._docNo = finalDoc.docNo;
 }
 
-export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [purchase.key]: purchase };
+export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [purchase.key]: purchase, [afterSalesAdapter.key]: afterSalesAdapter, [appealAdapter.key]: appealAdapter };

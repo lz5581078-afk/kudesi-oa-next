@@ -160,4 +160,28 @@ d('资料配置：快捷页签 / 计算筛选 / 派生列 / 批量动作（真�
     await expect(svc.batchUpdate(boss, 'phones', [p1.id], {}, 'abnormal', '乱改')).rejects.toThrow(/只能批量停用或启用/);
     await expect(svc.batchUpdate(boss, 'phones', [p1.id], { remark: 'x' }, undefined, undefined)).rejects.toThrow();
   });
+
+  it('资料总览：停用/注销、已归档小计，只算本公司', async () => {
+    const x = await svc.create(boss, 'phones', { number: '13700000001', usageType: 'company_kept' });
+    const y = await svc.create(boss, 'phones', { number: '13700000002', usageType: 'company_kept' });
+    await svc.changeStatus(boss, 'phones', x.id, 'inactive', '不用了');
+    await svc.archive(boss, 'phones', y.id, '测试归档');
+    const mine = (await svc.overview(boss)).items.find((i) => i.type === 'phones')!;
+    expect(mine.inactive).toBeGreaterThanOrEqual(1);
+    expect(mine.archived).toBeGreaterThanOrEqual(1);
+    const foreign = (await svc.overview(other)).items.find((i) => i.type === 'phones')!;
+    expect(foreign.archived).toBe(0);
+  });
+
+  it('“即将到期”列表：到期最早的排最前', async () => {
+    const t = todayShanghai();
+    const day = (n: number) => { const d = new Date(`${t}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+    const mk = (n: string, due: number) => svc.create(boss, 'licenses', { category: 'operation', companyName: `到期${n}`, creditCode: `E${n}`, legalPerson: '张', expiresAt: day(due) });
+    const late = await mk('3', 20);
+    const early = await mk('1', -2);
+    const mid = await mk('2', 5);
+    const r = await svc.list(boss, 'licenses', { expiring: true, pageSize: 50 });
+    const order = r.items.map((i) => i.id).filter((id) => [late.id, early.id, mid.id].includes(id));
+    expect(order).toEqual([early.id, mid.id, late.id]);
+  });
 });

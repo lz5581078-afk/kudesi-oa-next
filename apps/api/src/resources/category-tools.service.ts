@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
+import { previewProductCode } from './finance-rules';
 import { ResourcesService } from './resources.service';
 
 const TYPE = 'finance-categories';
@@ -12,6 +13,11 @@ const num = (v: unknown): number => (typeof v === 'number' && v > 0 ? v : 0);
 @Injectable()
 export class CategoryToolsService {
   constructor(@InjectDataSource() private readonly ds: DataSource, private readonly resources: ResourcesService) {}
+
+  /** 商品编码实时预览：和保存用同一套规则，不写数据 */
+  previewProductCode(user: AuthUser, input: Record<string, unknown>, excludeId: number | null) {
+    return previewProductCode(this.ds.manager, this.resources, user, input, excludeId);
+  }
 
   /** 某一类（如原料档案）的整棵分类树，按现在的顺序，给“调整顺序”用；含停用的 */
   async tree(user: AuthUser, archiveType: string) {

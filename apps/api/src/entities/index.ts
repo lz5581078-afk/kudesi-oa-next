@@ -888,6 +888,11 @@ export class WorkItem {
   @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
   @Column({ name: 'finished_at', ...dt, nullable: true }) finishedAt!: Date | null;
   @Column({ name: 'done_note', type: 'varchar', length: 500, nullable: true }) doneNote!: string | null;
+  /** 个人任务：负责人点“开始处理”的时间 */
+  @Column({ name: 'started_at', ...dt, nullable: true }) startedAt!: Date | null;
+  /** 个人任务：负责人提交给指派人复核的时间；复核退回后清空 */
+  @Column({ name: 'submitted_at', ...dt, nullable: true }) submittedAt!: Date | null;
+  @Column({ name: 'review_note', type: 'varchar', length: 500, nullable: true }) reviewNote!: string | null;
 }
 
 /** 周期任务：到点自动给负责人生成一条待办。 */
@@ -1111,6 +1116,110 @@ export class ProductVerificationEvent {
   @Column({ name: 'snapshot_json', type: 'json', nullable: true }) snapshotJson!: Record<string, unknown> | null;
 }
 
+/** 售后工单：内容与凭证在这里，流转在 flow_runs（run_id）。 */
+@Entity('after_sales_cases')
+export class AfterSalesCase {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'case_no', type: 'varchar', length: 32, nullable: true }) caseNo!: string | null;
+  @Column({ name: 'run_id', type: 'int', unsigned: true }) runId!: number;
+  @Column({ name: 'store_id', type: 'int', unsigned: true }) storeId!: number;
+  @Column({ name: 'order_no', type: 'varchar', length: 80 }) orderNo!: string;
+  @Column({ name: 'buyer_name', type: 'varchar', length: 80, nullable: true }) buyerName!: string | null;
+  @Column({ name: 'case_type', type: 'varchar', length: 24 }) caseType!: string;
+  @Column({ name: 'amount_cents', type: 'bigint', transformer: { to: (v: number) => v, from: (v: string) => Number(v) } }) amountCents!: number;
+  @Column({ name: 'refund_cents', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) refundCents!: number | null;
+  @Column({ type: 'varchar', length: 500 }) reason!: string;
+  @Column({ type: 'varchar', length: 500, nullable: true }) resolution!: string | null;
+  @Column({ name: 'due_date', type: 'date', nullable: true }) dueDate!: string | null;
+  @Column({ type: 'varchar', length: 16, default: 'manual' }) source!: string;
+  @Column({ name: 'source_key', type: 'varchar', length: 100, nullable: true }) sourceKey!: string | null;
+  @Column({ type: 'json', nullable: true }) attachments!: number[] | null;
+  @Column({ name: 'created_by', type: 'int', unsigned: true }) createdBy!: number;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+  @Column({ name: 'finished_at', ...dt, nullable: true }) finishedAt!: Date | null;
+}
+
+/** 订单申诉：申诉内容、凭证、平台单号与结果；流转在 flow_runs。 */
+@Entity('order_appeals')
+export class OrderAppeal {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'appeal_no', type: 'varchar', length: 32, nullable: true }) appealNo!: string | null;
+  @Column({ name: 'run_id', type: 'int', unsigned: true }) runId!: number;
+  @Column({ name: 'store_id', type: 'int', unsigned: true }) storeId!: number;
+  @Column({ name: 'appeal_type', type: 'varchar', length: 24 }) appealType!: string;
+  @Column({ name: 'order_no', type: 'varchar', length: 80 }) orderNo!: string;
+  @Column({ name: 'amount_cents', type: 'bigint', transformer: { to: (v: number) => v, from: (v: string) => Number(v) } }) amountCents!: number;
+  @Column({ type: 'varchar', length: 1000 }) reason!: string;
+  @Column({ name: 'deadline_at', ...dt, nullable: true }) deadlineAt!: Date | null;
+  @Column({ name: 'platform_appeal_no', type: 'varchar', length: 80, nullable: true }) platformAppealNo!: string | null;
+  @Column({ name: 'submitted_at', type: 'date', nullable: true }) submittedAt!: string | null;
+  @Column({ type: 'varchar', length: 12, nullable: true }) result!: 'approved' | 'rejected' | null;
+  @Column({ name: 'result_note', type: 'varchar', length: 500, nullable: true }) resultNote!: string | null;
+  @Column({ name: 'parent_id', type: 'int', unsigned: true, nullable: true }) parentId!: number | null;
+  @Column({ type: 'varchar', length: 16, default: 'manual' }) source!: string;
+  @Column({ name: 'source_key', type: 'varchar', length: 100, nullable: true }) sourceKey!: string | null;
+  @Column({ type: 'json', nullable: true }) evidence!: number[] | null;
+  @Column({ name: 'created_by', type: 'int', unsigned: true }) createdBy!: number;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+  @Column({ name: 'finished_at', ...dt, nullable: true }) finishedAt!: Date | null;
+}
+
+/** 跟进记录（售后工单、申诉、监督异常共用）。 */
+@Entity('case_logs')
+export class CaseLog {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'target_type', type: 'varchar', length: 16 }) targetType!: string;
+  @Column({ name: 'target_id', type: 'int', unsigned: true }) targetId!: number;
+  @Column({ name: 'user_id', type: 'int', unsigned: true, nullable: true }) userId!: number | null;
+  @Column({ type: 'varchar', length: 12, default: 'note' }) kind!: string;
+  @Column({ type: 'varchar', length: 1000 }) content!: string;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+}
+
+/** 兜底监督里的异常：逾期自动登记（source_key 幂等），也可手工登记；按逾期时长逐级升级。 */
+@Entity('supervision_exceptions')
+export class SupervisionException {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'source_type', type: 'varchar', length: 16 }) sourceType!: string;
+  @Column({ name: 'source_id', type: 'int', unsigned: true, nullable: true }) sourceId!: number | null;
+  @Column({ name: 'source_key', type: 'varchar', length: 80 }) sourceKey!: string;
+  @Column({ name: 'run_id', type: 'int', unsigned: true, nullable: true }) runId!: number | null;
+  @Column({ type: 'varchar', length: 200 }) title!: string;
+  @Column({ type: 'varchar', length: 1000, nullable: true }) detail!: string | null;
+  @Column({ type: 'varchar', length: 12, default: 'normal' }) severity!: 'urgent' | 'important' | 'normal';
+  @Column({ type: 'varchar', length: 12, default: 'open' }) status!: 'open' | 'closed' | 'auto';
+  @Column({ type: 'tinyint', unsigned: true, default: 1 }) level!: number;
+  @Column({ name: 'owner_id', type: 'int', unsigned: true, nullable: true }) ownerId!: number | null;
+  @Column({ name: 'store_id', type: 'int', unsigned: true, nullable: true }) storeId!: number | null;
+  @Column({ name: 'due_at', ...dt, nullable: true }) dueAt!: Date | null;
+  @Column({ name: 'close_reason', type: 'varchar', length: 500, nullable: true }) closeReason!: string | null;
+  @Column({ name: 'closed_by', type: 'int', unsigned: true, nullable: true }) closedBy!: number | null;
+  @Column({ name: 'closed_at', ...dt, nullable: true }) closedAt!: Date | null;
+  @Column({ name: 'created_by', type: 'int', unsigned: true, nullable: true }) createdBy!: number | null;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+  @Column({ name: 'escalated_at', ...dt, nullable: true }) escalatedAt!: Date | null;
+}
+
+@Entity('supervision_rules')
+export class SupervisionRuleRow {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'target_type', type: 'varchar', length: 16 }) targetType!: string;
+  @Column({ type: 'varchar', length: 100 }) name!: string;
+  @Column({ name: 'overdue_minutes', type: 'int', unsigned: true, default: 0 }) overdueMinutes!: number;
+  @Column({ name: 'supervisor_visible_minutes', type: 'int', unsigned: true, default: 0 }) supervisorVisibleMinutes!: number;
+  @Column({ name: 'boss_visible_minutes', type: 'int', unsigned: true, default: 1440 }) bossVisibleMinutes!: number;
+  @Column({ name: 'abnormal_condition', type: 'varchar', length: 240, default: '' }) abnormalCondition!: string;
+  @Column({ name: 'close_requires_reason', type: 'tinyint', width: 1, default: 1, transformer: boolTransformer() }) closeRequiresReason!: boolean;
+  @Column({ type: 'varchar', length: 12, default: 'active' }) status!: 'active' | 'inactive';
+  @Column({ name: 'updated_by', type: 'int', unsigned: true, nullable: true }) updatedBy!: number | null;
+  @Column({ name: 'updated_at', ...dt, default: () => 'CURRENT_TIMESTAMP' }) updatedAt!: Date;
+}
+
 export const ALL_ENTITIES = [
   SessionDevice,
   SessionBindCode,
@@ -1160,4 +1269,9 @@ export const ALL_ENTITIES = [
   FormDraft,
   PhoneUploadSession,
   ProductVerificationEvent,
+  AfterSalesCase,
+  OrderAppeal,
+  CaseLog,
+  SupervisionException,
+  SupervisionRuleRow,
 ];
