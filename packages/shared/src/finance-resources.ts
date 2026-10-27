@@ -8,7 +8,7 @@ import { NOTE, date, files, money as baseMoney, o, ref, refs, select, sensitive,
 import { FEE_BOOKING_NODES } from './fee-archive';
 
 // 此文件里的采购/单位成本保留六位元小数；结算金额不在这些资料字段中。
-const UNIT_PRICE_KEYS = new Set(['purchasePrice','freight','handlingFee','totalCost','unitPrice','cost','firstPrice','extraPrice','fixedPrice','amount']);
+const UNIT_PRICE_KEYS = new Set(['purchasePrice','freight','handlingFee','totalCost','unitPrice','unitCost','latestUnitCost','cost','firstPrice','extraPrice','fixedPrice','amount']);
 const money = (key: string, label: string, group: string, extra: Parameters<typeof baseMoney>[3] = {}) => baseMoney(key,label,group,{ ...(UNIT_PRICE_KEYS.has(key) ? {scale:4} : {}), ...extra });
 const F = { section: 'finance' } as const;
 const COST_VIEW = 'product.cost.view';
@@ -21,11 +21,48 @@ const EXPRESS_STOPPED: StatusDef = { value: 'inactive', label: '停用', tone: '
 
 export const UNIT_OPTIONS = o('G:克', 'KG:千克', 'J:斤', 'T:吨', 'ML:毫升', 'LTR:升', 'L:粒', 'K:棵', 'B:包', 'D:袋', 'BOX:盒', 'CTN:箱', 'BTL:瓶', 'CAN:罐', 'PCS:件', 'EA:个', 'SHEET:张', 'M:米', 'CM:厘米', 'MM:毫米');
 
+export const PACKAGING_CATEGORY_OPTIONS = o('bag:袋', 'bottle:瓶', 'box:盒', 'carton:箱', 'can:罐', 'label:标签', 'other:其他');
+export const DIMENSION_UNIT_OPTIONS = o('mm:毫米', 'cm:厘米', 'm:米');
+
+/** 商品单位与规格列表的种类（旧系统：名称单位/规格单位、产品包装单位、发货物料规格单位、系统规格、包装类别、尺寸单位） */
+export const PRODUCT_UNIT_KINDS = o('spec_unit:规格单位', 'packaging_unit:产品包装单位', 'shipping_unit:发货物料规格单位', 'system_spec:系统规格', 'packaging_category:包装类别', 'dimension_unit:尺寸单位');
+/** 这几种有“编码”（商品里存编码、显示名称）；系统规格只有名称，商品里存名称 */
+export const PRODUCT_UNIT_CODED_KINDS = ['spec_unit', 'packaging_unit', 'shipping_unit', 'packaging_category', 'dimension_unit'] as const;
+/** 新公司和“导入默认项”用的预置：[种类, 名称, 编码] */
+export const PRODUCT_UNIT_SEEDS: ReadonlyArray<readonly [string, string, string]> = [
+  ...(['spec_unit', 'packaging_unit', 'shipping_unit'] as const).flatMap((k) => UNIT_OPTIONS.map((u) => [k, u.label, u.value] as const)),
+  ...PACKAGING_CATEGORY_OPTIONS.map((u) => ['packaging_category', u.label, u.value] as const),
+  ...DIMENSION_UNIT_OPTIONS.map((u) => ['dimension_unit', u.label, u.value] as const),
+  ...['斤', '千克', '克'].map((n) => ['system_spec', n, ''] as const),
+];
+
 export const ARCHIVE_TYPES = o('raw:原料档案', 'self_made:自产成品档案', 'purchased:外购成品档案', 'package:产品包装档案', 'shipping_material:发货物料档案', 'oem_package:OEM包装档案');
 export const ARCHIVE_TYPE_CODE: Record<string, string> = { raw: 'YL', self_made: 'ZC', purchased: 'WG', package: 'BZ', shipping_material: 'FH', oem_package: 'OEM' };
-export const CATEGORY_ROOTS = o('raw:原料档案', 'self_made:自产成品档案', 'original_purchase:原装采购成品', 'supplier_oem:供应商OEM成品', 'package:产品包装档案', 'oem_package:OEM包装档案', 'shipping_material:发货物料档案');
+export const CATEGORY_ROOTS = o('raw:原料档案', 'self_made:自产成品档案', 'original_purchase:原装采购成品', 'supplier_oem:供应商OEM成品', 'package:产品包装档案', 'oem_package:OEM包装档案', 'shipping_material:发货物料档案', 'bundle:组合分类');
 
-export const BUNDLE_ROLES = o('main:主品', 'gift:赠品', 'package:包装', 'label:标签', 'instruction:说明书', 'other:其他物料', 'labor:人工');
+/** 旧系统的单位是自由文字字典：导入时常见写法对到固定单位（数据里写“公斤”“只”也能进来） */
+const UNIT_SYNONYMS: Record<string, string> = { 公斤: 'KG', 千克: 'KG', kg: 'KG', 克: 'G', g: 'G', 斤: 'J', 市斤: 'J', 吨: 'T', 毫升: 'ML', ml: 'ML', 升: 'LTR', 公升: 'LTR', 粒: 'L', 颗: 'L', 棵: 'K', 包: 'B', 袋: 'D', 盒: 'BOX', 箱: 'CTN', 瓶: 'BTL', 罐: 'CAN', 件: 'PCS', 个: 'EA', 只: 'EA', 枚: 'EA', 张: 'SHEET', 米: 'M', 厘米: 'CM', cm: 'CM', 毫米: 'MM', mm: 'MM' };
+/** 把导入文件里的单位文字对到单位选项；对不上返回 undefined（由调用方报“不在可选项里”） */
+export function unitOptionFromText(raw: string) {
+  const t = raw.trim();
+  const value = UNIT_OPTIONS.find((o) => o.value === t || o.label === t)?.value ?? UNIT_SYNONYMS[t] ?? UNIT_SYNONYMS[t.toLowerCase()];
+  return UNIT_OPTIONS.find((o) => o.value === value);
+}
+
+/** 档案成本归集科目（旧系统 COST_BUCKETS） */
+export const COST_BUCKETS = o('purchase:采购成本', 'transfer:调运成本', 'pre_ship_package:发货前包装成本', 'production:生产成本', 'shipping_package:发货包装成本', 'express:快递成本');
+/** 档案成本来源类型（旧系统 ARCHIVE_COST_SOURCE_TYPES，另加档案采购价自动同步） */
+export const COST_SOURCE_TYPES = o('manual:人工录入', 'purchase_order:采购单', 'raw_supply_source:原料供货来源', 'finance_document:财务单据', 'seasonal_cost_table:本季成本表', 'seasonal_cost_inference:本季成本推导', 'archive_cost_repair:档案成本修复', 'historical_packaging:历史包装构成表', 'production_bom:生产BOM自动计算', 'system_calculation:系统自动计算', 'excel_import:Excel导入', 'archive_purchase_price:商品档案采购价同步');
+
+/** 仓库角色模式下商品档案能看到的字段（旧 WarehouseProductArchives 精简列，不含成本/价格/备注/供应商）；照片可上传 */
+export const WAREHOUSE_PRODUCT_FIELDS: readonly string[] = [
+  'archiveType', 'supplyMode', 'code', 'name', 'basicInfoFullName', 'brandId', 'categoryId', 'shape',
+  'purchaseSpec', 'productPackagingSpec', 'specQty', 'specUnit', 'weightG',
+  'packagingCategory', 'dimensions', 'dimensionUnit', 'capacities', 'rawFinishedNames', 'photos',
+];
+
+export const BUNDLE_ROLES = o('main:主品', 'gift:赠品', 'auxiliary:辅料', 'package:包装', 'label:标签', 'instruction:说明书', 'other:其他物料', 'labor:人工');
+export const COST_TREATMENTS = o('include:计入', 'included_in_parent:已含上级', 'reference_only:仅参考');
 
 export const PROVINCES = [
   '北京', '天津', '河北', '山西', '内蒙古', '辽宁', '吉林', '黑龙江', '上海', '江苏', '浙江', '安徽', '福建', '江西', '山东', '河南', '湖北', '湖南',
@@ -44,12 +81,14 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'name',
     uniqueField: 'code',
     tabsBy: 'archiveType',
-    children: ['finance-product-sources', 'finance-product-boms'],
+    children: ['finance-product-sources', 'finance-product-boms', 'finance-product-costs', 'finance-product-freight-history'],
     related: [{ type: 'finance-base-codes', field: 'productId' }],
     statuses: [ACTIVE, STOPPED, { value: 'deleted', label: '已删除', tone: 'bad', requiresReason: true, hidden: true }],
     defaultStatus: 'active',
-    filterBy: ['categoryId', 'supplyMode'],
-    treeTabMap: { purchased: ['original_purchase', 'supplier_oem'] },
+    // 旧系统外购成品是两个入口（原装采购成品档案 / 供应商 OEM 成品档案）：同一张档案表，按“采购方式”分开，各有各的分类树；不再用采购方式下拉筛选
+    filterBy: ['categoryId'],
+    tabSplit: { tab: 'purchased', field: 'supplyMode', default: 'original_purchase', options: o('original_purchase:原装采购成品档案', 'supplier_oem:供应商 OEM 成品档案') },
+    treeTabMap: { purchased: ['original_purchase', 'supplier_oem'], original_purchase: ['original_purchase'], supplier_oem: ['supplier_oem'] },
     batch: ['status', 'categoryId'],
     fields: [
       select('archiveType', '档案类型', '基础', ARCHIVE_TYPES, { required: true, list: true }),
@@ -59,16 +98,21 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       ref('brandId', '品牌', '基础', 'finance-brands', { help: '自制品、采购成品、OEM 包装必填；原料、发货物料可不填' }),
       ref('categoryId', '分类', '基础', 'finance-categories', { required: true, list: true, help: '必须选最末级分类' }),
       text('shape', '形态/款式', '基础', { maxLength: 160 }),
-      text('purchaseSpec', '系统规格', '规格', { maxLength: 30, showWhen: { field: 'archiveType', in: ['raw'] }, help: '原料必填，如“斤”“500克”“千克”；采购价按它计价，重量按它自动换算' }),
+      text('materialCode', '生产编码', '基础', { maxLength: 80, showWhen: { field: 'archiveType', in: ['raw', 'shipping_material'] }, help: '选填：原料写原料生产编码，发货物料写物料生产编码；会进入基础信息全称和原料成品名（马甲）名称' }),
+      text('giftShortName', '赠品简称', '基础', { maxLength: 40, showWhen: { field: 'archiveType', in: ['raw', 'purchased', 'shipping_material'] }, help: '作赠品时组合名称里用，最多 40 字，不能含 + × * ；全公司商品之间不能重复' }),
+      text('giftCodeShortName', '赠品编码简称', '基础', { maxLength: 20, showWhen: { field: 'archiveType', in: ['raw', 'purchased', 'shipping_material'] }, help: '作赠品时组合编码里用，1～20 位英文字母或数字（自动转大写）；全公司商品之间不能重复' }),
+      { key: 'basicInfoFullName', label: '基础信息全称', type: 'text', group: '基础', readonly: true, list: true, maxLength: 400, help: '按档案类型把名称、品牌、规格等拼成，自动生成' },
+      text('purchaseSpec', '系统规格', '规格', { maxLength: 30, optionsFrom: { resource: 'finance-product-units', kind: 'system_spec' }, showWhen: { field: 'archiveType', in: ['raw'] }, help: '原料必填，如“斤”“500克”“千克”；采购价按它计价，重量按它自动换算' }),
       text('productPackagingSpec', '产品包装规格', '规格', { maxLength: 30, showWhen: { field: 'archiveType', in: ['self_made'] }, help: '参与编码，如“500G袋”' }),
+      select('productPackagingUnit', '产品包装单位', '规格', UNIT_OPTIONS, { optionsFrom: { resource: 'finance-product-units', kind: 'packaging_unit' }, showWhen: { field: 'archiveType', in: ['self_made'] }, help: '选填；在“单位与规格”里维护，仅用于产品包装规格，不影响规格单位' }),
       { key: 'specQty', label: '规格数量', type: 'decimal', group: '规格', required: true, scale: 3, list: true },
-      select('specUnit', '规格单位', '规格', UNIT_OPTIONS, { required: true, list: true }),
+      select('specUnit', '规格单位', '规格', UNIT_OPTIONS, { required: true, list: true, optionsFrom: { resource: 'finance-product-units', kind: 'spec_unit', kindBy: { field: 'archiveType', map: { shipping_material: 'shipping_unit' } } } }),
       { key: 'weightG', label: '重量(克)', type: 'decimal', group: '规格', scale: 6, list: true, help: '自动换算：原料按系统规格，其它按规格数量和单位，自制品/OEM 按构成汇总；换算不了或要人工修正时勾选下面的“人工修正重量”' },
       { key: 'weightManual', label: '人工修正重量', type: 'bool', group: '规格', help: '勾选后重量不再自动换算，按你填的为准' },
       { key: 'oemPackageWeightG', label: 'OEM 包装重量(克)', type: 'decimal', group: '规格', scale: 2, showWhen: { field: 'supplyMode', in: ['supplier_oem'] } },
-      select('packagingCategory', '包装类别', '包装', o('bag:袋', 'bottle:瓶', 'box:盒', 'carton:箱', 'can:罐', 'label:标签', 'other:其他'), { showWhen: { field: 'archiveType', in: ['package', 'oem_package'] } }),
+      select('packagingCategory', '包装类别', '包装', PACKAGING_CATEGORY_OPTIONS, { optionsFrom: { resource: 'finance-product-units', kind: 'packaging_category' }, showWhen: { field: 'archiveType', in: ['package', 'oem_package'] } }),
       text('dimensions', '尺寸', '包装', { maxLength: 60, showWhen: { field: 'archiveType', in: ['package', 'oem_package'] }, help: '如 20×15×8' }),
-      select('dimensionUnit', '尺寸单位', '包装', o('mm:毫米', 'cm:厘米', 'm:米'), { showWhen: { field: 'archiveType', in: ['package', 'oem_package'] }, help: '填了尺寸必须选单位' }),
+      select('dimensionUnit', '尺寸单位', '包装', DIMENSION_UNIT_OPTIONS, { optionsFrom: { resource: 'finance-product-units', kind: 'dimension_unit' }, showWhen: { field: 'archiveType', in: ['package', 'oem_package'] }, help: '填了尺寸必须选单位' }),
       textarea('capacities', '容量', '包装', { showWhen: { field: 'archiveType', in: ['package', 'oem_package'] }, help: '一行一个，如 500ML、1KG；产品包装和 OEM 包装至少一行' }),
       text('printingCompany', '印刷公司', '包装', { maxLength: 80, showWhen: { field: 'archiveType', in: ['package', 'oem_package'] } }),
       { key: 'orderStock', label: '订单库存', type: 'number', group: '包装', showWhen: { field: 'archiveType', in: ['package', 'oem_package'] } },
@@ -78,10 +122,13 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       { ...money('freight', '运费', '成本', { help: '必填，没有就填 0 并写零值说明' }), permission: COST_VIEW, writePermission: COST_EDIT },
       { ...money('handlingFee', '装卸费', '成本', { help: '必填，没有就填 0 并写零值说明' }), permission: COST_VIEW, writePermission: COST_EDIT },
       { ...money('totalCost', '总成本', '成本', { list: true, readonly: true, help: '采购价 + 运费 + 装卸费；自制品/OEM 为构成成本合计，自动计算' }), permission: COST_VIEW },
+      { ...money('latestUnitCost', '最新档案成本', '成本', { readonly: true, help: '“成本明细”里生效日期最新的一条（按成本类型显示在下面）' }), permission: COST_VIEW },
+      { key: 'latestCostType', label: '最新成本类型', type: 'select', group: '成本', options: COST_BUCKETS, readonly: true, permission: COST_VIEW },
+      { key: 'latestCostFrom', label: '最新成本生效日', type: 'date', group: '成本', readonly: true, permission: COST_VIEW },
       textarea('zeroValueReason', '零值说明', '成本', { help: '采购价/运费/装卸费明确填 0 时，逐项写明原因（每项一行，如“运费：自提”）' }),
       { key: 'migrationNotice', label: '迁移待核对', type: 'textarea', group: '成本', readonly: true, permission: COST_VIEW, maxLength: 1000 },
       textarea('rawFinishedNames', '成品名（马甲）', '原料', { help: '原料可对应的成品名，一行一个，最多 100 个，每个不超过 160 字，不能重复', showWhen: { field: 'archiveType', in: ['raw'] } }),
-      files('photos', '商品照片', '照片', { maxFiles: 20, accept: 'image' }),
+      files('photos', '商品照片', '照片', { maxFiles: 20, accept: 'image', phoneUpload: true }),
       NOTE(),
     ],
   },
@@ -120,6 +167,51 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
   },
   {
+    key: 'finance-product-costs',
+    label: '档案成本记录',
+    parent: { type: 'finance-products', field: 'productId' },
+    titleField: 'label',
+    sortField: 'effectiveFrom',
+    statuses: [ACTIVE, { value: 'inactive', label: '停用', tone: 'muted' }],
+    defaultStatus: 'active',
+    fields: [
+      { key: 'label', label: '标题', type: 'text', group: '基础', readonly: true, maxLength: 200 },
+      ref('productId', '商品档案', '基础', 'finance-products', { required: true }),
+      select('costType', '成本类型', '基础', COST_BUCKETS, { required: true, list: true }),
+      { ...money('unitCost', '单位成本', '基础', { required: true, list: true, help: '按计价单位的单价，元；同一档案同一成本类型的启用记录，生效日期不能重叠' }), permission: COST_VIEW, writePermission: COST_EDIT },
+      text('unitName', '计价单位', '基础', { list: true, maxLength: 60, help: '不填取档案的系统规格/规格单位' }),
+      date('effectiveFrom', '生效开始', '基础', { required: true, list: true }),
+      date('effectiveTo', '生效结束', '基础', { list: true, help: '留空 = 长期有效' }),
+      select('sourceType', '来源类型', '来源', COST_SOURCE_TYPES, { list: true }),
+      text('sourceRef', '来源单号/说明', '来源', { maxLength: 300 }),
+      { ...textarea('calculationMethod', '计算方式', '来源', { maxLength: 300 }), permission: COST_VIEW },
+      { key: 'manualOverride', label: '手工锁定', type: 'bool', group: '来源', list: true, help: '锁定后系统自动同步（采购价、供货来源、生产 BOM）不会覆盖它，必须写锁定原因' },
+      text('manualLockReason', '锁定原因', '来源', { maxLength: 500 }),
+      NOTE(),
+    ],
+  },
+  {
+    key: 'finance-product-freight-history',
+    label: '运费历史',
+    parent: { type: 'finance-products', field: 'productId' },
+    titleField: 'label',
+    sortField: 'recordedAtKey',
+    statuses: [ACTIVE],
+    defaultStatus: 'active',
+    fields: [
+      { key: 'label', label: '标题', type: 'text', group: '基础', readonly: true, maxLength: 200 },
+      ref('productId', '商品档案', '基础', 'finance-products', { required: true }),
+      { ...money('freight', '运费', '基础', { list: true }), permission: COST_VIEW },
+      { ...money('handlingFee', '装卸费', '基础', { list: true }), permission: COST_VIEW },
+      { ...money('purchasePrice', '当时采购价', '基础', { list: true }), permission: COST_VIEW },
+      text('systemSpec', '当时系统规格', '基础', { list: true, maxLength: 60 }),
+      text('sourceType', '来源', '基础', { list: true, maxLength: 40 }),
+      text('sourceRef', '来源单号', '基础', { maxLength: 180 }),
+      text('recordedAtKey', '记录时间', '基础', { list: true, maxLength: 40 }),
+      text('operatorName', '操作人', '基础', { list: true, maxLength: 60 }),
+    ],
+  },
+  {
     key: 'finance-supplier-categories',
     label: '供应商分类',
     nav: { group: '资料维护', ...F },
@@ -130,6 +222,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       text('name', '分类名称', '基础', { required: true, list: true, search: true }),
       ref('parentId', '上级分类', '基础', 'finance-supplier-categories', { list: true, help: '不选 = 一级分类；最多 4 级' }),
+      text('categoryCode', '分类码', '基础', { list: true, maxLength: 12, help: '用于生成编号（如 GYS-主类码-分类码-名称首字母）；不填取名称拼音首字母，不能重复' }),
       text('subtitle', '说明', '基础', { maxLength: 200 }),
       { key: 'sort', label: '排序', type: 'number', group: '基础' },
     ],
@@ -145,6 +238,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       text('name', '分类名称', '基础', { required: true, list: true, search: true }),
       ref('parentId', '上级分类', '基础', 'finance-customer-categories', { list: true, help: '不选 = 一级分类；最多 4 级' }),
+      text('categoryCode', '分类码', '基础', { list: true, maxLength: 12, help: '用于生成编号（如 GYS-主类码-分类码-名称首字母）；不填取名称拼音首字母，不能重复' }),
       text('subtitle', '说明', '基础', { maxLength: 200 }),
       { key: 'sort', label: '排序', type: 'number', group: '基础' },
     ],
@@ -158,6 +252,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     filterBy: 'categoryIds',
+    batch: ['status', 'categoryIds'],
     fields: [
       text('code', '供应商编号', '基础', { list: true, search: true, maxLength: 64, help: '不填自动生成 GYS-001 这样的编号' }),
       text('name', '供应商名称', '基础', { required: true, list: true, search: true }),
@@ -171,7 +266,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('bankAccountName', '账户名称', '结算', { maxLength: 80 }),
       text('bank', '开户行', '结算'),
       sensitive('bankAccountNo', '收款账号', '结算'),
-      files('paymentQr', '收款码', '结算', { maxFiles: 2, help: '收款二维码图片，付款时对着扫' }),
+      files('paymentQr', '收款码', '结算', { maxFiles: 2, phoneUpload: true, help: '收款二维码图片，付款时对着扫；可以点“手机上传”用手机拍照' }),
       text('taxNo', '税号', '结算'),
       NOTE(),
     ],
@@ -185,6 +280,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     filterBy: 'categoryIds',
+    batch: ['status', 'categoryIds'],
     fields: [
       text('code', '客户编号', '基础', { list: true, search: true, maxLength: 64, help: '不填自动生成 KH-001 这样的编号' }),
       text('name', '客户名称', '基础', { required: true, list: true, search: true }),
@@ -207,6 +303,8 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'name',
     uniqueField: 'code',
     tabsBy: 'direction',
+    filterBy: 'categoryId',
+    batch: ['status', 'categoryId'],
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     fields: [
@@ -224,6 +322,20 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       select('isCommon', '常用', '基础', o('yes:是', 'no:否'), { list: true }),
       select('needFlow', '是否走流程', '基础', o('by_amount:按金额判断', 'yes:是', 'no:否'), { help: '后续流程引擎按它决定费用单要不要先走审批' }),
       NOTE(),
+    ],
+  },
+  // 员工作为往来对象（付款、费用、其他收入）：每个在职员工一条，由开单页同步生成；权限沿用供应商档案
+  {
+    key: 'finance-employee-parties',
+    label: '员工往来',
+    parent: { type: 'finance-suppliers', field: 'name' },
+    titleField: 'name',
+    uniqueField: 'userId',
+    statuses: [ACTIVE, STOPPED],
+    defaultStatus: 'active',
+    fields: [
+      text('name', '员工姓名', '基础', { required: true, list: true, search: true, maxLength: 50 }),
+      ref('userId', '员工', '基础', 'user', { required: true, list: true }),
     ],
   },
   {
@@ -450,6 +562,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       select('source', '来源', '基础', o('ai:AI 识别', 'manual:手工新增'), { list: true }),
       text('fileName', '原始文件', '基础', { list: true, maxLength: 200 }),
       text('modelName', '识别模型', '基础', { maxLength: 120 }),
+      files('evidence', '原始凭据', '基础', { accept: 'image', maxFiles: 1, help: '加收通知的原图，方便以后核对' }),
       NOTE(),
     ],
   },
@@ -564,6 +677,8 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       ref('brandId', '适用品牌', '基础', 'finance-brands'),
       date('effectiveFrom', '生效日期', '有效期'),
       date('effectiveTo', '失效日期', '有效期'),
+      text('sourceType', '来源类型', '来源', { maxLength: 40, help: '如手工、Excel 导入、旧系统迁入' }),
+      text('sourceRef', '来源说明', '来源', { maxLength: 200 }),
       NOTE(),
     ],
   },
@@ -580,9 +695,12 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       ref('componentId', '包装档案', '基础', 'finance-products', { required: true, list: true, help: '只能选“产品包装档案”或“OEM 包装档案”' }),
       select('role', '用途', '基础', o('package:包装', 'label:标签', 'instruction:说明书', 'other:其他'), { required: true, list: true }),
       { key: 'qty', label: '数量', type: 'decimal', group: '基础', required: true, scale: 3, list: true },
+      text('unitName', '单位', '基础', { maxLength: 20 }),
       { key: 'lossRate', label: '损耗率(%)', type: 'decimal', group: '基础', scale: 2 },
       select('costBucket', '成本归类', '基础', o('pre_ship_package:发货前包装成本', 'shipping_package:发货包装成本'), { list: true }),
       select('costTreatment', '计价处理', '基础', o('include:计入成本', 'included_in_parent:含在上级内', 'reference_only:仅参考'), { required: true, list: true }),
+      { key: 'sortOrder', label: '排序', type: 'number', group: '基础' },
+      text('sourceRowRef', '来源行', '来源', { maxLength: 80, help: '导入时来源表格里的行号或标识' }),
       NOTE(),
     ],
   },
@@ -596,7 +714,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       { key: 'label', label: '标题', type: 'text', group: '基础', readonly: true, maxLength: 200 },
       ref('schemeId', '包装方案', '基础', 'finance-packaging-schemes', { required: true }),
-      select('targetType', '适用对象', '基础', o('general:通用', 'base_code:基础编码', 'bundle:商品组合'), { required: true, list: true }),
+      select('targetType', '适用对象', '基础', o('general:通用', 'base_code:基础编码', 'bundle:商品组合', 'product_archive:商品档案'), { required: true, list: true }),
       text('targetCode', '指定编码', '基础', { list: true, help: '留空 = 不限；填了就只匹配这个编码（不分大小写）' }),
       ref('categoryId', '限定分类', '基础', 'finance-categories', { list: true }),
       ref('brandId', '限定品牌', '基础', 'finance-brands'),
@@ -624,8 +742,14 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
     defaultStatus: 'pending',
     related: [{ type: 'finance-bundle-lines', field: 'baseCodeId' }],
+    children: ['finance-base-code-lines'],
     fields: [
-      ref('productId', '来源商品档案', '基础', 'finance-products', { required: true, list: true }),
+      select('origin', '编码来源', '基础', o('archive_sync:档案保存自动同步', 'composed:多构成（手工聚合）'), { list: true, help: '多构成：一个基础编码由几个商品档案按数量组成（如礼盒），在详情的“基础编码构成”里加商品；不选 = 手工为单个商品档案建立。自动同步的编码，名称跟着商品档案走（手改过就不再跟）' }),
+      ref('productId', '来源商品档案', '基础', 'finance-products', { required: true, list: true, help: '多构成编码里填“主要商品档案”，保存时自动把它加为构成第一行' }),
+      ref('codeCategoryId', '编码分类', '多构成', 'finance-categories', { showWhen: { field: 'origin', in: ['composed'] }, help: '多构成编码自己的分类（必须最末级），参与编码生成' }),
+      ref('codeBrandId', '编码品牌', '多构成', 'finance-brands', { showWhen: { field: 'origin', in: ['composed'] } }),
+      { key: 'codeSpecQty', label: '编码规格数量', type: 'decimal', group: '多构成', scale: 3, showWhen: { field: 'origin', in: ['composed'] }, help: '必须大于 0，参与编码生成' },
+      select('codeSpecUnit', '编码规格单位', '多构成', UNIT_OPTIONS, { showWhen: { field: 'origin', in: ['composed'] } }),
       text('code', '基础编码', '基础', { list: true, search: true, maxLength: 64, help: '不填则自动生成：分类-品牌-品名首字母-规格数量+单位；手改须写原因' }),
       text('name', '名称', '基础', { list: true, search: true }),
       text('styleCode', '款式编码', '基础', { list: true, search: true, maxLength: 64, help: '不填则自动生成：分类码-品牌码-品种首字母' }),
@@ -635,6 +759,8 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       { key: 'categoryId', label: '分类', type: 'ref', ref: 'finance-categories', group: '基础', readonly: true, list: true },
       { key: 'weightG', label: '重量(克)', type: 'decimal', group: '基础', readonly: true, scale: 2, list: true },
       { ...money('cost', '成本', '基础', { readonly: true, list: true }), permission: COST_VIEW },
+      { ...money('purchasePrice', '采购价', '基础', { readonly: true }), permission: COST_VIEW },
+      { key: 'profileManual', label: '专属资料已手改', type: 'bool', group: '基础', readonly: true, help: '手改过名称、简称、颜色及规格或编码后，商品档案变化不再覆盖它们，也不再被手工新建的编码取代' },
       ref('canonicalId', '真实编码（马甲用）', '基础', 'finance-base-codes', { help: '这是别名（马甲）时，指向它对应的真实基础编码' }),
       textarea('codeChangeReason', '手改编码原因', '基础'),
       select('jstStatus', '聚水潭状态', '聚水潭', SYNC, { list: true }),
@@ -647,17 +773,59 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
   },
   {
+    key: 'finance-base-code-lines',
+    label: '基础编码构成',
+    parent: { type: 'finance-base-codes', field: 'baseCodeId' },
+    titleField: 'label',
+    statuses: [ACTIVE],
+    defaultStatus: 'active',
+    fields: [
+      { key: 'label', label: '标题', type: 'text', group: '基础', readonly: true, maxLength: 200 },
+      ref('baseCodeId', '基础编码', '基础', 'finance-base-codes', { required: true }),
+      ref('productId', '商品档案', '基础', 'finance-products', { required: true, list: true }),
+      { key: 'qty', label: '数量', type: 'decimal', group: '基础', required: true, scale: 3, list: true },
+      select('role', '角色', '基础', o('main:主要商品', 'auxiliary:辅助商品'), { list: true, help: '不选 = 辅助商品' }),
+      text('remark', '备注', '基础', { maxLength: 200 }),
+    ],
+  },
+  {
+    key: 'finance-product-exclusives',
+    label: '专属品',
+    nav: { group: '资料维护', ...F },
+    titleField: 'label',
+    sortField: 'startsAt',
+    statuses: [ACTIVE, { value: 'cancelled', label: '已取消', tone: 'muted', requiresReason: true }],
+    defaultStatus: 'active',
+    fields: [
+      { key: 'label', label: '标题', type: 'text', group: '基础', readonly: true, maxLength: 200 },
+      { key: 'baseCodeId', label: '基础商品', type: 'ref', ref: 'finance-base-codes', group: '基础', readonly: true, list: true },
+      { key: 'productName', label: '商品名称', type: 'text', group: '基础', readonly: true, list: true, search: true, maxLength: 180 },
+      { key: 'ownerName', label: '专属人', type: 'text', group: '基础', readonly: true, list: true, search: true, maxLength: 60 },
+      { key: 'ownerId', label: '专属人编号', type: 'number', group: '基础', readonly: true },
+      { key: 'approverName', label: '审批人', type: 'text', group: '基础', readonly: true, list: true, maxLength: 60 },
+      { key: 'approverId', label: '审批人编号', type: 'number', group: '基础', readonly: true },
+      { key: 'startsAt', label: '生效时间', type: 'text', group: '基础', readonly: true, list: true, maxLength: 40 },
+      { key: 'endsAt', label: '到期时间', type: 'text', group: '基础', readonly: true, list: true, maxLength: 40, help: '到期后自动解除，该基础商品恢复为可领取；历史保留' },
+      { key: 'runId', label: '申请流程编号', type: 'number', group: '来源', readonly: true },
+      { key: 'familyKey', label: '商品归属标识', type: 'text', group: '来源', readonly: true, maxLength: 64, help: '分类、品牌、品种相同的基础商品共用一个归属（规格、平台、赠品组合不影响）' },
+      { key: 'memberIds', label: '同一归属的基础编码', type: 'json', group: '来源', readonly: true },
+      { key: 'cancelledAt', label: '取消时间', type: 'text', group: '取消', readonly: true, maxLength: 40 },
+    ],
+  },
+  {
     key: 'finance-bundles',
     label: '商品组合编码',
     nav: { group: '聚水潭分类', ...F },
     titleField: 'code',
     uniqueField: 'code',
     sortField: 'updatedAtKey',
+    filterBy: 'bundleCategoryId',
     children: ['finance-bundle-lines'],
     statuses: [
       { value: 'pending', label: '待验证', tone: 'warn' },
       { value: 'verified', label: '已验证', tone: 'ok' },
       { value: 'reverify', label: '需重新验证', tone: 'bad' },
+      { value: 'inactive', label: '已停用', tone: 'muted', requiresReason: true, hidden: true },
       { value: 'archived', label: '失效归档', tone: 'muted', requiresReason: true, hidden: true },
     ],
     defaultStatus: 'pending',
@@ -669,12 +837,23 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('manualCode', '手改组合编码', '手改', { maxLength: 120, help: '填了就覆盖自动生成的编码，必须写原因' }),
       text('manualStyleCode', '手改款式编码', '手改', { maxLength: 120 }),
       text('manualName', '手改组合名称', '手改', { maxLength: 300 }),
-      text('manualShortName', '手改简称', '手改', { maxLength: 120 }),
+      text('manualShortName', '手改简称', '手改', { maxLength: 160 }),
+      text('manualPropertiesValue', '手改规格值', '手改', { maxLength: 255, help: '聚水潭「颜色及规格」；不填则按构成自动合成（如 5斤×2 合成 10斤）' }),
       textarea('manualReason', '手改原因', '手改'),
+      { key: 'propertiesValue', label: '规格值', type: 'text', group: '基础', readonly: true, search: true, maxLength: 255, help: '聚水潭「颜色及规格」，由构成自动合成（同类可加总单位合并，如 5斤×2 合成 10斤）' },
+      ref('bundleCategoryId', '组合分类', '基础', 'finance-categories', { list: true, help: '组合自己的分类树（所属类型“组合分类”），必须选最末级；成本表分类利润率按它汇总' }),
+      ref('brandId', '品牌', '基础', 'finance-brands', { help: '不选则取第一个主品的品牌；原料、发货物料类可以没有品牌' }),
+      text('varietyName', '品种（马甲品名）', '基础', { maxLength: 80, help: '不填则取第一个主品的品种；用它的拼音首字母生成编码' }),
+      text('baseUnit', '计量单位', '基础', { maxLength: 60, help: '验证必填；不填则取第一个主品的单位' }),
+      text('bomVersion', '构成版本号', '基础', { maxLength: 16, help: '构成修订发布后自动加一（V01、V02…）' }),
+      { key: 'bomEffectiveFrom', label: '构成生效日', type: 'date', group: '基础' },
+      { key: 'bomEffectiveTo', label: '构成失效日', type: 'date', group: '基础' },
+      { key: 'recordOrigin', label: '记录来源', type: 'text', group: '基础', readonly: true, maxLength: 40, help: '手工、批量生成、SKU 批量申请、历史导入' },
+      { key: 'sourceImportId', label: '导入批次', type: 'text', group: '基础', readonly: true, maxLength: 64 },
       ref('platformId', '销售平台', '基础', 'finance-platforms', { required: true, list: true }),
       { key: 'platformCode', label: '平台码', type: 'text', group: '基础', readonly: true, maxLength: 20 },
       ref('scenarioId', '销售场景', '基础', 'finance-scenarios', { required: true, list: true }),
-      text('configNo', '配置号', '基础', { maxLength: 8, help: '同一构成的不同配置用它区分；默认 01，不写进编码' }),
+      text('configNo', '配置号', '基础', { maxLength: 16, help: '同一构成的不同配置用它区分；默认 01（旧系统 V01），01 不写进编码' }),
       { key: 'weightMode', label: '重量方式', type: 'select', group: '重量与运费', options: o('auto:按组件自动汇总', 'manual:手工填写'), list: false },
       { key: 'manualWeightG', label: '手工重量(克)', type: 'decimal', group: '重量与运费', scale: 2, permission: COST_VIEW, writePermission: COST_EDIT, showWhen: { field: 'weightMode', in: ['manual'] } },
       { ...money('manualFreight', '手工运费', '重量与运费', { help: '填了就不再按快递价格表估算' }), permission: COST_VIEW, writePermission: COST_EDIT },
@@ -682,6 +861,9 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       { key: 'carrierName', label: '使用快递', type: 'text', group: '重量与运费', maxLength: 80, permission: COST_VIEW, writePermission: COST_EDIT, help: '只是备注这个组合平时用哪家快递，不改变运费预估（运费按重量段价格表估）' },
       textarea('overrideReason', '覆盖原因', '重量与运费', { permission: COST_VIEW, writePermission: COST_EDIT, help: '手工重量/运费/利润率覆盖必须说明原因' } as never),
       select('jstStatus', '聚水潭状态', '聚水潭', SYNC, { list: true }),
+      { key: 'jstMessage', label: '同步说明', type: 'text', group: '聚水潭', readonly: true, maxLength: 500, help: '最近一次同步失败或被拦截的原因' },
+      { key: 'jstPriceStatus', label: '基本售价同步', type: 'select', group: '聚水潭', readonly: true, options: o('none:未同步', 'success:已同步', 'confirming:待回查', 'blocked:被拦截', 'failed:失败') },
+      { key: 'jstPriceCents', label: '聚水潭基本售价（分）', type: 'number', group: '聚水潭', readonly: true, permission: COST_VIEW },
       { key: 'signature', label: '验证快照', type: 'text', group: '验证', readonly: true, maxLength: 500 },
       { key: 'verifiedAt', label: '验证日期', type: 'date', group: '验证', readonly: true },
       { key: 'updatedAtKey', label: '更新时间', type: 'text', group: '验证', readonly: true, maxLength: 40 },
@@ -783,6 +965,15 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       ref('baseCodeId', '基础编码', '基础', 'finance-base-codes', { list: true, showWhen: { field: 'role', in: ['main', 'gift', 'package', 'label', 'instruction', 'other'] }, help: '只能选“已验证”的基础编码' }),
       ref('laborId', '人工项目', '基础', 'finance-labor-costs', { list: true, showWhen: { field: 'role', in: ['labor'] } }),
       { key: 'qty', label: '数量', type: 'decimal', group: '基础', required: true, scale: 3, list: true },
+      select('unit', '单位', '基础', UNIT_OPTIONS, { list: true, help: '不填则取基础编码的规格单位；验证时必须有单位' }),
+      { key: 'lossRate', label: '损耗率(%)', type: 'decimal', group: '成本', scale: 4, help: '只做记录与展示，不改变成本和重量合计（与旧系统一致）' },
+      { key: 'isRequired', label: '必需', type: 'bool', group: '基础' },
+      { key: 'includeInJst', label: '进入聚水潭组合装', type: 'bool', group: '聚水潭', help: '默认主品、赠品进入；包装、标签等不进。进入的行必须是基础编码且数量为正整数' },
+      select('costBucket', '成本归集', '成本', COST_BUCKETS),
+      select('costTreatment', '成本处理', '成本', COST_TREATMENTS, { help: '默认“计入”；与旧系统一致，成本合计仍按全部行累加' }),
+      { key: 'sortOrder', label: '排序', type: 'number', group: '基础' },
+      { key: 'effectiveFrom', label: '生效日', type: 'date', group: '基础' },
+      { key: 'effectiveTo', label: '失效日', type: 'date', group: '基础' },
       NOTE(),
     ],
   },
@@ -818,6 +1009,34 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
   },
   {
+    key: 'finance-product-units',
+    label: '单位与规格',
+    nav: { group: '资料维护', ...F },
+    titleField: 'name',
+    tabsBy: 'kind',
+    statuses: [ACTIVE, STOPPED],
+    defaultStatus: 'active',
+    uniqueTogether: [{ fields: ['kind', 'name'], message: '这一类里已经有同名的了' }, { fields: ['kind', 'code'], message: '这一类里已经有相同编码的了' }],
+    fields: [
+      select('kind', '种类', '基础', PRODUCT_UNIT_KINDS, { required: true, list: true }),
+      text('name', '名称', '基础', { required: true, list: true, search: true, maxLength: 80, help: '如 箱、毫米、无版印刷胶版；商品档案的下拉里显示它' }),
+      text('code', '编码', '基础', { list: true, search: true, maxLength: 32, help: '英文字母和数字；不填按常用单位或拼音首字母自动生成。商品里存的是编码，已被商品用到就不能再改；系统规格不用编码' }),
+      { key: 'sortOrder', label: '排序', type: 'number', group: '基础', list: true },
+    ],
+  },
+  {
+    key: 'finance-zero-reasons',
+    label: '零值原因',
+    nav: { group: '资料维护', ...F },
+    titleField: 'reason',
+    uniqueField: 'reason',
+    statuses: [ACTIVE],
+    defaultStatus: 'active',
+    fields: [
+      text('reason', '常用原因', '基础', { required: true, list: true, search: true, maxLength: 180, help: '商品档案里采购价、运费、装卸费填 0 时，“零值说明”可以从这里选；保存商品时写过的新原因会自动加进来' }),
+    ],
+  },
+  {
     key: 'finance-platforms',
     label: '销售平台',
     nav: { group: '资料维护', ...F },
@@ -826,8 +1045,9 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     fields: [
-      text('code', '平台码', '基础', { required: true, list: true, maxLength: 12, help: '如 TB、DY、KS、PDD；GENERAL 表示通用，不写进编码' }),
-      text('name', '平台名称', '基础', { required: true, list: true, search: true }),
+      text('code', '平台码', '基础', { required: true, list: true, maxLength: 16, help: '如 TB、DY、KS、PDD；GENERAL 表示通用，不写进编码；被组合引用后不能改' }),
+      text('name', '平台名称', '基础', { required: true, list: true, search: true, maxLength: 80 }),
+      { key: 'sortOrder', label: '排序', type: 'number', group: '基础', help: '数字小的排前面（平台下拉顺序）' },
     ],
   },
   {
@@ -839,9 +1059,9 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     fields: [
-      text('code', '场景码', '基础', { required: true, list: true, maxLength: 20, help: '如 standard、supply_chain' }),
-      text('name', '场景名称', '基础', { required: true, list: true, search: true }),
-      text('segment', '写进编码的段', '基础', { list: true, maxLength: 8, help: '如供应链写 GYL；标准场景留空' }),
+      text('code', '场景码', '基础', { required: true, list: true, maxLength: 32, help: '字母、数字、下划线，如 standard、supply_chain；standard（公司自销）、supply_chain（供应链产品，段 GYL）为内置场景，不能改码或停用；被组合引用后不能改' }),
+      text('name', '场景名称', '基础', { required: true, list: true, search: true, maxLength: 80 }),
+      text('segment', '写进编码的段', '基础', { list: true, maxLength: 16, help: '大写字母或数字，如供应链写 GYL；标准场景留空；被组合引用后不能改' }),
     ],
   },
   {

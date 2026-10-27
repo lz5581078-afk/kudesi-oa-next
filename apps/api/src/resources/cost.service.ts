@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { bundleOwnership } from './product-exclusive';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
@@ -9,11 +10,12 @@ import {
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import { buildPriceGroups, DEFAULT_PARCEL_LIMIT } from './express.service';
+import { buildXlsx } from './xlsx-lite';
 
 type Data = Record<string, unknown>;
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
-const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
+const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
 const EXPRESS_TYPES = ['finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-express-prices'];
 
 export interface CostLine { role: string; code: string; name: string; qty: number; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
@@ -44,6 +46,8 @@ export interface CategoryNode {
   count: number;
 }
 export type CostData = Awaited<ReturnType<CostService['load']>>;
+/** 成本表只列已验证（含需重新验证）的组合：旧系统的成本登记表在验证发布时才有这一行 */
+export const COST_TABLE_STATUSES = ['verified', 'reverify'];
 
 const sha = (v: unknown) => crypto.createHash('sha1').update(JSON.stringify(v)).digest('hex').slice(0, 12);
 /** 售价设置的乐观锁令牌：随这些字段内容而变，所以从资料页直接改也能被发现 */
@@ -55,6 +59,11 @@ export const marginRevision = (m: Pick<ResourceRecord, 'data'> | undefined) => (
 @Injectable()
 export class CostService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+
+  /** 组合的专属归属（定价调试表里显示“某某的专属品”、按“我的专属品”筛选） */
+  bundleOwnership(companyId: number, lines: ResourceRecord[]) {
+    return bundleOwnership(this.dataSource.manager, companyId, lines);
+  }
 
   async load(companyId: number, em: EntityManager = this.dataSource.manager) {
     const rows = await em.find(ResourceRecord, { where: { companyId, type: In(TYPES) } });
@@ -72,7 +81,7 @@ export class CostService {
       if (row && amount !== null) row.manualAmount = amount;
     }
     return {
-      bundles: by('finance-bundles'), lines: by('finance-bundle-lines'), baseCodes: map('finance-base-codes'), products: map('finance-products'),
+      bundles: by('finance-bundles'), lines: by('finance-bundle-lines'), baseCodeLines: by('finance-base-code-lines'), baseCodes: map('finance-base-codes'), products: map('finance-products'),
       labor: map('finance-labor-costs'), margins: by('finance-margins'), categories: map('finance-categories'),
       groups, freight: { rows: estimateRows, parcelLimit },
     };
@@ -110,7 +119,9 @@ export class CostService {
   row(d: CostData, b: ResourceRecord): CostRow {
     const issues: string[] = [];
     const lines: CostLine[] = [];
-    let cost: number | null = 0, weight = 0, categoryId: number | null = null;
+    let cost: number | null = 0, weight = 0;
+    // 组合自己的分类树（旧系统 bundle_category）：成本表分类、分类利润率都按它汇总
+    const categoryId = num(b.data.bundleCategoryId);
     for (const l of d.lines.filter((x) => num(x.data.bundleId) === b.id).sort((x, y) => x.id - y.id)) {
       const qty = num(l.data.qty) ?? 0, role = str(l.data.role);
       let unit: number | null = null, w = 0, code = '', name = '';
@@ -123,12 +134,25 @@ export class CostService {
       } else {
         const bc = d.baseCodes.get(num(l.data.baseCodeId) ?? -1);
         const p = bc ? d.products.get(num(bc.data.productId) ?? -1) : undefined;
-        unit = p ? num(p.data.totalCost) : null;
-        w = p ? (num(p.data.weightG) ?? 0) : 0;
+        if (bc?.data.origin === 'composed') {
+          // 多构成基础编码：成本、重量 = 构成行 数量×商品档案 汇总
+          const parts = d.baseCodeLines.filter((x) => num(x.data.baseCodeId) === bc.id);
+          let c: number | null = parts.length ? 0 : null;
+          for (const part of parts) {
+            const pp = d.products.get(num(part.data.productId) ?? -1);
+            const pc = pp ? num(pp.data.totalCost) : null;
+            const q = num(part.data.qty) ?? 0;
+            c = c === null || pc === null ? null : sumUnitCents([c, multiplyUnitCents(pc, q)]);
+            w += q * (pp ? (num(pp.data.weightG) ?? 0) : 0);
+          }
+          unit = c;
+        } else {
+          unit = p ? num(p.data.totalCost) : null;
+          w = p ? (num(p.data.weightG) ?? 0) : 0;
+        }
         hasWeight = true;
         code = str(bc?.data.code);
         name = str(bc?.data.name) || bc?.title || '';
-        if (role === 'main' && categoryId === null && bc) categoryId = num(bc.data.categoryId);
       }
       const sub = unit === null ? null : multiplyUnitCents(unit, qty);
       if (sub === null) { issues.push(`「${name || code}」还没有成本`); cost = null; } else if (cost !== null) cost = sumUnitCents([cost,sub]);
@@ -182,7 +206,7 @@ export class CostService {
     const mine = new Map(d.margins.map((m) => [str(m.data.scopeKey), m]));
     const categories: CategoryNode[] = [];
     for (const c of d.categories.values()) {
-      if (c.status !== 'active') continue;
+      if (c.status !== 'active' || c.data.archiveType !== 'bundle') continue; // 只列组合分类树
       const own = mine.get(`cat:${c.id}`);
       const ownPercent = own ? num(own.data.profitPercent) : null;
       const count = total(c.id);
@@ -204,8 +228,10 @@ export class CostService {
     return { d, rows: d.bundles.filter((b) => b.status !== 'archived').map((b) => this.row(d, b)) };
   }
 
-  async table(user: AuthUser, q: { categoryId?: number; keyword?: string; page: number; pageSize: number }) {
-    const { d, rows: every } = await this.allRows(user);
+  /** 成本表的行：只含已验证（含需重新验证）的组合；按关键字、分类（含下级）筛选，最近修改的在前 */
+  private async tableRows(user: AuthUser, q: { categoryId?: number; keyword?: string }) {
+    const { d, rows: all0 } = await this.allRows(user);
+    const every = all0.filter((r) => COST_TABLE_STATUSES.includes(r.status));
     const kw = (q.keyword ?? '').trim().toLowerCase();
     // 分类筛选包含下级
     const inCat = (cid: number | null) => {
@@ -216,6 +242,25 @@ export class CostService {
     };
     const all = every.filter((r) => !kw || `${r.code} ${r.name}`.toLowerCase().includes(kw)).filter((r) => inCat(r.categoryId))
       .sort((a, b) => b.updatedAtMs - a.updatedAtMs || b.bundleId - a.bundleId);
+    return { d, every, all };
+  }
+
+  /** 导出成本表（Excel）：和页面同样的筛选，金额是元；调用方必须有成本查看权限 */
+  async exportXlsx(user: AuthUser, q: { categoryId?: number; keyword?: string }) {
+    const { all } = await this.tableRows(user, q);
+    if (all.length > 20000) throw new BadRequestException('一次最多导出 20000 条，请先按分类或关键字筛选');
+    const yuan = (c: number | null) => (c === null ? null : c / 100);
+    const rows = all.map((r) => [r.code, r.name, r.categoryName || '未分类', r.status === 'reverify' ? '需重新验证' : '已验证', yuan(r.preShipCostCents), r.weightG === null ? null : r.weightG / 1000, r.carrierName, yuan(r.freightCents), yuan(r.costIncludingFreightCents), r.marginPercent === null ? null : r.marginPercent / 100, yuan(r.minPriceCents), r.issues.join('；')]);
+    const buffer = buildXlsx('SKU成本表', [
+      { header: 'SKU组合编码', width: 34 }, { header: 'SKU名称', width: 42 }, { header: '组合分类', width: 24 }, { header: '状态', width: 12 },
+      { header: '发货前成本', width: 14, format: 'money' }, { header: '重量(kg)', width: 12 }, { header: '使用快递', width: 16 }, { header: '预估运费', width: 12, format: 'money' },
+      { header: '含快递成本', width: 14, format: 'money' }, { header: '利润率', width: 10, format: 'percent' }, { header: '最低售价', width: 12, format: 'money' }, { header: '待补事项', width: 40 },
+    ], rows);
+    return { fileName: `SKU成本表-${new Date().toISOString().slice(0, 10)}.xlsx`, fileBase64: buffer.toString('base64'), rowCount: rows.length };
+  }
+
+  async table(user: AuthUser, q: { categoryId?: number; keyword?: string; page: number; pageSize: number }) {
+    const { d, every, all } = await this.tableRows(user, q);
     const start = (q.page - 1) * q.pageSize;
     const tree = this.categoryTree(d, every);
     return {
@@ -248,7 +293,7 @@ export class CostService {
   async one(user: AuthUser, bundleId: number, em?: EntityManager) {
     const d = await this.load(user.companyId, em);
     const b = d.bundles.find((x) => x.id === bundleId);
-    if (!b) throw new NotFoundException('组合不存在');
+    if (!b || !COST_TABLE_STATUSES.includes(b.status)) throw new NotFoundException('成本表里没有这个组合（只列已验证的组合）');
     return this.row(d, b);
   }
 }

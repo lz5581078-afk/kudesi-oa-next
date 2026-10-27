@@ -71,8 +71,9 @@ d('聚水潭同步队列（真实数据库）', () => {
     expect(sentKeys).toHaveLength(1);
     expect((await svc.get(boss, 'finance-base-codes', ids.bc)).data.jstStatus).toBe('synced');
     // 再发一次改动：编码名称变了 → 新版本入队 → 发送失败
-    await svc.update(boss, 'finance-base-codes', ids.bc, { remark: '改一下' }).catch(() => undefined);
-    await ds.query("UPDATE resource_records SET updated_at = DATE_ADD(updated_at, INTERVAL 5 SECOND) WHERE id = ?", [ids.bc]);
+    expect((await outbox.enqueue(boss, 'finance-base-codes', [ids.bc])).queued).toBe(0); // 内容没变，不重复入队
+    await svc.update(boss, 'finance-base-codes', ids.bc, { shortName: '改一下' });
+    await svc.changeStatus(boss, 'finance-base-codes', ids.bc, 'verified').catch(() => undefined);
     expect((await outbox.enqueue(boss, 'finance-base-codes', [ids.bc])).queued).toBe(1);
     outbox.setSender(sender({ send: async () => { throw new Error('接口超时'); } }));
     expect(await outbox.processCompany(boss.companyId)).toEqual({ sent: 0, failed: 1, blocked: false });

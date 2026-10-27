@@ -9,14 +9,16 @@ export interface DepartmentNode {
   name: string;
   sortOrder: number;
   status: 'active' | 'inactive';
+  /** 部门主管（员工 id） */
+  managerId: number | null;
   children: DepartmentNode[];
 }
 
 /** 把平铺的部门列表组装成树；父节点不在列表里的当作根（防御脏数据）。 */
-export function buildDepartmentTree(rows: (Pick<Department, 'id' | 'parentId' | 'name' | 'sortOrder'> & { status?: 'active' | 'inactive' })[]): DepartmentNode[] {
+export function buildDepartmentTree(rows: (Pick<Department, 'id' | 'parentId' | 'name' | 'sortOrder'> & { status?: 'active' | 'inactive'; managerId?: number | null })[]): DepartmentNode[] {
   const nodes = new Map<number, DepartmentNode>();
   for (const row of rows) {
-    nodes.set(row.id, { id: row.id, name: row.name, sortOrder: row.sortOrder, status: row.status ?? 'active', children: [] });
+    nodes.set(row.id, { id: row.id, name: row.name, sortOrder: row.sortOrder, status: row.status ?? 'active', managerId: row.managerId ?? null, children: [] });
   }
   const roots: DepartmentNode[] = [];
   for (const row of rows) {
@@ -48,13 +50,13 @@ export class OrgService {
 
   /** 部门通讯录（只含 id/名称），资料页的“选择部门”要用 */
   async departmentDirectory(user: AuthUser): Promise<Array<{ id: number; name: string }>> {
-    const rows = await this.departments.find({ where: { companyId: user.companyId }, select: ['id', 'name'], order: { sortOrder: 'ASC', id: 'ASC' } });
+    const rows = await this.departments.find({ where: { companyId: user.companyId, isSystem: false }, select: ['id', 'name'], order: { sortOrder: 'ASC', id: 'ASC' } });
     return rows.map((d) => ({ id: d.id, name: d.name }));
   }
 
   /** 所有查询都带 companyId，且 companyId 只取自登录人，不取自请求参数。 */
   async departmentTree(actor: AuthUser): Promise<DepartmentNode[]> {
-    const rows = await this.departments.find({ where: { companyId: actor.companyId } });
+    const rows = await this.departments.find({ where: { companyId: actor.companyId, isSystem: false } });
     return buildDepartmentTree(rows);
   }
 

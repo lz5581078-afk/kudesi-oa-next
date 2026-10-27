@@ -166,6 +166,12 @@
         ],
         "invoiceLocationId": [
           "invoice_seal_location_id"
+        ],
+        "originalPhotoMissing": [
+          "original_photo_missing"
+        ],
+        "copyPhotoMissing": [
+          "duplicate_photo_missing"
         ]
       }
     },
@@ -229,6 +235,9 @@
         "promotionBalance": [
           "promotion_fee_balance"
         ],
+        "fundNote": [
+          "fund_remark"
+        ],
         "qualificationFiles": [
           "@resource_media:stores"
         ]
@@ -290,6 +299,9 @@
         ],
         "lastFiledAt": [
           "last_tax_filed_at"
+        ],
+        "taxCategory": [
+          "tax_category"
         ]
       }
     },
@@ -330,7 +342,28 @@
         ],
         "cardPhone": [
           "bank_reserved_phone"
+        ],
+        "partnerNo": [
+          "partner_no"
+        ],
+        "cooperationScope": [
+          "cooperation_scope"
+        ],
+        "startedAt": [
+          "started_at"
+        ],
+        "endedAt": [
+          "ended_at"
+        ],
+        "cardPhoneHolder": [
+          "bank_reserved_phone_owner_name"
+        ],
+        "cardPhoneId": [
+          "bank_phone_number_id"
         ]
+      },
+      "statusMap": {
+        "inactive": "terminated"
       }
     },
     "bank-accounts": {
@@ -380,6 +413,9 @@
       "aliases": {
         "name": [
           "shield_name"
+        ],
+        "shieldNo": [
+          "shield_no"
         ]
       }
     },
@@ -409,6 +445,10 @@
         "attachments": [
           "attachment_data_url"
         ]
+      },
+      "statusMap": {
+        "valid": "normal",
+        "expiring": "normal"
       }
     },
     "trademarks": {
@@ -452,6 +492,10 @@
         "certificate": [
           "certificate_photo_data_url"
         ]
+      },
+      "statusMap": {
+        "normal": "registered",
+        "active": "registered"
       }
     },
     "self-media": {
@@ -690,12 +734,20 @@
         "item": [
           "item_type"
         ],
-        "borrower": [
+        "borrowerUserId": [
           "borrower_employee_id"
         ]
       },
-      "policy": "review-history",
-      "reason": "资料下挂借用记录：未归还关系建议保留；已归还历史范围需确认"
+      "valueMaps": {
+        "item": {
+          "license_original": "original",
+          "license_duplicate": "copy",
+          "official_seal": "official",
+          "finance_seal": "finance",
+          "legal_person_seal": "legal",
+          "invoice_seal": "invoice"
+        }
+      }
     },
     "license-usages": {
       "tables": [
@@ -707,10 +759,28 @@
         ],
         "userId": [
           "used_by_employee_id"
+        ],
+        "usageType": [
+          "usage_type"
+        ],
+        "relatedObject": [
+          "related_object"
         ]
       },
-      "policy": "review-history",
-      "reason": "资料下挂使用历史，非档案必填项，先报告数量再确认"
+      "valueMaps": {
+        "item": {
+          "license_original": "original",
+          "license_duplicate": "copy",
+          "official_seal": "official",
+          "finance_seal": "finance",
+          "legal_person_seal": "legal",
+          "invoice_seal": "invoice",
+          "other": "other"
+        }
+      },
+      "statusMap": {
+        "completed": "done"
+      }
     },
     "store-claims": {
       "tables": [
@@ -840,6 +910,28 @@
       "policy": "review-balance",
       "reason": "余额快照须确认时点和口径，本轮不自动生成经营余额或分录"
     },
+    "finance-product-units": {
+      "tables": [
+        "finance_product_units",
+        "finance_product_packaging_units",
+        "finance_shipping_material_units"
+      ],
+      "aliases": {
+        "name": [
+          "unit_name"
+        ],
+        "code": [
+          "unit_code"
+        ],
+        "sortOrder": [
+          "sort_order"
+        ],
+        "kind": [
+          "@derive:来源表决定：规格单位/产品包装单位/发货物料规格单位"
+        ]
+      },
+      "reason": "旧单位表按名称+编码迁成公司级“单位与规格”；档案里用过的包装类别、尺寸单位名称也建成列表项。系统规格旧系统没有列表，只是档案文字，不迁成列表"
+    },
     "finance-products": {
       "tables": [
         "finance_products",
@@ -868,7 +960,8 @@
           "amount"
         ],
         "specUnit": [
-          "unit"
+          "unit",
+          "@derive:旧档案存单位名称，新档案存编码，按单位列表转换"
         ],
         "weightG": [
           "@transform:weighing_weight+payload_json.weightUnit"
@@ -903,6 +996,27 @@
         ],
         "supplierId": [
           "@json:$.supplierId"
+        ],
+        "giftShortName": [
+          "@json:$.giftShortName"
+        ],
+        "giftCodeShortName": [
+          "@json:$.giftCodeShortName"
+        ],
+        "materialCode": [
+          "@json:$.materialCode"
+        ],
+        "productPackagingUnit": [
+          "@json:$.productPackagingUnit"
+        ],
+        "packagingCategory": [
+          "@json:$.packagingCategory"
+        ],
+        "dimensionUnit": [
+          "@json:$.dimensionUnit"
+        ],
+        "dimensions": [
+          "@json:$.dimensions"
         ]
       },
       "json": {
@@ -922,6 +1036,95 @@
           "remark"
         ]
       }
+    },
+    "finance-product-costs": {
+      "tables": [
+        "finance_product_archive_costs"
+      ],
+      "aliases": {
+        "productId": [
+          "product_id"
+        ],
+        "costType": [
+          "cost_type"
+        ],
+        "unitCost": [
+          "unit_cost"
+        ],
+        "unitName": [
+          "unit_name"
+        ],
+        "effectiveFrom": [
+          "effective_from"
+        ],
+        "effectiveTo": [
+          "effective_to"
+        ],
+        "sourceType": [
+          "source_type"
+        ],
+        "sourceRef": [
+          "source_ref"
+        ],
+        "calculationMethod": [
+          "calculation_method"
+        ],
+        "manualOverride": [
+          "manual_override"
+        ],
+        "manualLockReason": [
+          "manual_lock_reason"
+        ],
+        "note": [
+          "remark"
+        ]
+      },
+      "valueMaps": {
+        "costType": {
+          "采购": "purchase",
+          "采购成本": "purchase",
+          "transport": "transfer",
+          "调运": "transfer",
+          "调运成本": "transfer",
+          "调拨": "transfer",
+          "调拨成本": "transfer",
+          "inner_package": "pre_ship_package",
+          "package": "pre_ship_package",
+          "包装": "pre_ship_package",
+          "包装成本": "pre_ship_package",
+          "发货前包装": "pre_ship_package",
+          "发货前包装成本": "pre_ship_package",
+          "processing": "production",
+          "加工": "production",
+          "加工成本": "production",
+          "生产": "production",
+          "生产成本": "production",
+          "shipping_material": "shipping_package",
+          "发货包装": "shipping_package",
+          "发货包装成本": "shipping_package",
+          "shipping": "express",
+          "快递": "express",
+          "快递成本": "express",
+          "预计快递成本": "express"
+        },
+        "sourceType": {
+          "人工录入": "manual",
+          "采购单": "purchase_order",
+          "原料供货来源": "raw_supply_source",
+          "财务单据": "finance_document",
+          "本季成本表": "seasonal_cost_table",
+          "seasonal_cost": "seasonal_cost_table",
+          "采购成本表": "seasonal_cost_table",
+          "本季成本推导": "seasonal_cost_inference",
+          "档案成本修复": "archive_cost_repair",
+          "历史包装构成表": "historical_packaging",
+          "生产BOM自动计算": "production_bom",
+          "系统自动计算": "system_calculation",
+          "自动计算": "system_calculation",
+          "Excel导入": "excel_import"
+        }
+      },
+      "reason": "六类成本归集科目与来源类型旧新同码；自动同步在迁移事务里关闭，按旧记录原样迁入，不重新计算"
     },
     "finance-product-boms": {
       "tables": [
@@ -1511,9 +1714,71 @@
         ],
         "codeChangeReason": [
           "@review:保留旧编码须来源说明"
+        ],
+        "origin": [
+          "@derive:关联多个商品（finance_product_code_links 多行）= composed"
+        ],
+        "codeSpecQty": [
+          "spec_quantity"
+        ],
+        "codeSpecUnit": [
+          "@derive:spec_unit_dictionary_id → 单位列表编码"
+        ],
+        "codeCategoryId": [
+          "@derive:按主要商品的分类，待核对"
+        ],
+        "codeBrandId": [
+          "@derive:按主要商品的品牌，待核对"
+        ],
+        "varietyName": [
+          "variety_name"
         ]
       },
       "reason": "新基础编码必填单一productId，旧聚合多商品/无来源编码须专项处理；不能重新生成旧代码"
+    },
+    "finance-base-code-lines": {
+      "tables": [
+        "finance_product_code_links"
+      ],
+      "aliases": {
+        "baseCodeId": [
+          "base_code_id"
+        ],
+        "productId": [
+          "product_id"
+        ],
+        "qty": [
+          "quantity"
+        ],
+        "role": [
+          "@derive:is_primary=1 → main，其余 auxiliary"
+        ],
+        "remark": [
+          "remark"
+        ]
+      },
+      "reason": "只迁多构成基础编码的构成行；单商品编码的主要商品行由新系统保存时自动生成"
+    },
+    "finance-product-exclusives": {
+      "tables": [
+        "product_exclusive_grants"
+      ],
+      "aliases": {
+        "baseCodeId": [
+          "base_code_id"
+        ],
+        "startsAt": [
+          "starts_at"
+        ],
+        "endsAt": [
+          "ends_at"
+        ],
+        "cancelledAt": [
+          "cancelled_at"
+        ]
+      },
+      "policy": "review-exclusive",
+      "reason": "专属品授予依赖旧审批流程运行编号和专属人账号对应，两者本轮都不迁；不凭空补出授权，需确认后再按人工清单录入"
     },
     "finance-bundles": {
       "tables": [
@@ -1637,6 +1902,59 @@
       "aliases": {},
       "policy": "exclude-derived",
       "reason": "历史上传日志不迁，不重放外部写入"
+    },
+    "trademark-authorizations": {
+      "tables": [
+        "resource_links"
+      ],
+      "filter": {
+        "relation_type": "trademark_store_authorization",
+        "status": "active",
+        "source_type": "trademark",
+        "target_type": "store"
+      },
+      "aliases": {
+        "trademarkId": [
+          "source_id"
+        ],
+        "storeId": [
+          "target_id"
+        ],
+        "validFrom": [
+          "valid_from"
+        ],
+        "validTo": [
+          "valid_to"
+        ],
+        "note": [
+          "note"
+        ]
+      }
+    },
+    "bank-store-links": {
+      "tables": [
+        "resource_links"
+      ],
+      "filter": {
+        "relation_type": "bank_store",
+        "status": "active",
+        "source_type": "bank_account",
+        "target_type": "store"
+      },
+      "aliases": {
+        "bankAccountId": [
+          "source_id"
+        ],
+        "storeId": [
+          "target_id"
+        ],
+        "purpose": [
+          "purpose"
+        ],
+        "note": [
+          "note"
+        ]
+      }
     }
   }
 }

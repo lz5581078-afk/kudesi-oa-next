@@ -1,12 +1,12 @@
 import { mapLegacyPermission } from './permissions';
 import { createHash } from 'node:crypto';
 import { DataSource } from 'typeorm';
-import { Company, Department, Position, User, PlatformAdmin, PositionPermission, UserPermissionOverride, ResourceRecord, ResourceFile, AuditLog } from '../entities';
+import { Company, Department, Position, User, PlatformAdmin, PositionPermission, UserPermissionOverride, ResourceRecord, ResourceFile, ResourceLink, AuditLog } from '../entities';
 import { refreshFromSources, recomputeProduct } from '../resources/finance-rules';
 import { ResourcesService } from '../resources/resources.service';
 import { FilesService } from '../integrations/files.service';
 import { AuthUser } from '../common/auth.decorators';
-import { yuanToPreciseCents, normalizePhone, getResourceDef } from '@kudesi/shared';
+import { ARCHIVE_POLICY, yuanToPreciseCents, normalizePhone, getResourceDef, workspaceTypeFromLegacyTemplate } from '@kudesi/shared';
 import { encodeLegacyPassword } from '../auth/password';
 import { aliasCode } from '../resources/base-code-support';
 import { LegacyArchive, LegacyRecord, LegacyRef } from './protocol';
@@ -17,7 +17,7 @@ function stable(v: unknown): unknown {
   if(v && typeof v === 'object') return Object.fromEntries(Object.entries(v).filter(([k])=>k!=='locator').sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,stable(x)]));
   return v;
 }
-export interface ImportResult { sourceFingerprint: string; phase: string; companyId: number; created: Record<string, number>; reused: Record<string, number>; excluded: Array<{ type: string; id: string; reason: string }>; failures: Array<{ type: string; id: string; reason: string }>; mappings: Array<{ type: string; sourceId: string; targetId: number }> }
+export interface ImportResult { sourceFingerprint: string; phase: string; companyId: number; created: Record<string, number>; reused: Record<string, number>; excluded: Array<{ type: string; id: string; reason: string }>; failures: Array<{ type: string; id: string; reason: string }>; mappings: Array<{ type: string; sourceId: string; targetId: number }>; archived: { total: number; byType: Record<string, number>; skipped: Array<{ type: string; id: string; reason: string }> }; links: { created: number; reused: number; skipped: number; skippedReasons: Record<string, number>; byRelation: Record<string, { created: number; skipped: number }> } }
 class MissingRef extends Error {}
 export class MigrationError extends Error {}
 export function safeFailure(e: unknown): string {
@@ -37,13 +37,13 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   const q = ds.createQueryRunner(); await q.connect(); await q.startTransaction();
   q.data.legacyImport = true;
   const em = q.manager;
-  const out: ImportResult = { sourceFingerprint:'', phase: opts.apply ? 'apply' : 'dry-run-rollback', companyId: opts.companyId, created: {}, reused: {}, excluded: [...source.exclusions], failures: [], mappings: [] };
+  const out: ImportResult = { sourceFingerprint:'', phase: opts.apply ? 'apply' : 'dry-run-rollback', companyId: opts.companyId, created: {}, reused: {}, excluded: [...source.exclusions], failures: [], mappings: [], archived: { total: 0, byType: {}, skipped: [] }, links: { created: 0, reused: 0, skipped: 0, skippedReasons: {}, byRelation: {} } };
   const ids = new Map<string, number>();
   const hashes = new Map<string,string>();
   const orgCreated=new Set<string>();
   const resourceCreated=new Set<number>();
   const key = (type: string, id: unknown) => `${type}:${String(id)}`;
-  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],...['resource'].map(t=>[t,source.records])] as Array<[string,Array<Record<string,any>>]>) {
+  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],...['resource'].map(t=>[t,source.records]),['link',source.links??[]]] as Array<[string,Array<Record<string,any>>]>) {
     for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
   }
   out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[]}))).digest('hex');
@@ -81,8 +81,9 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     const oldLinks: Array<{ source_key: string; target_type: string; target_id: number; source_hash: string }> = await em.query('SELECT source_key,target_type,target_id,source_hash FROM legacy_import_links WHERE source_system=? AND source_company_id=? AND company_id=?', [SOURCE, source.company.id, company.id]);
     for (const l of oldLinks) {
       if(hashes.has(l.source_key) && hashes.get(l.source_key)!==l.source_hash) throw new MigrationError('来源资料已变化，禁止复跑静默复用或覆盖；请先核对增量');
-      const entity = l.target_type === 'user' ? User : l.target_type === 'department' ? Department : l.target_type === 'position' ? Position : l.target_type === 'file' ? ResourceFile : ResourceRecord;
+      const entity = l.target_type === 'user' ? User : l.target_type === 'department' ? Department : l.target_type === 'position' ? Position : l.target_type === 'file' ? ResourceFile : l.target_type === 'link' ? ResourceLink : ResourceRecord;
       const exists = await em.findOne(entity as typeof User, { where: { id: l.target_id, companyId: company.id } });
+      if (!exists && l.target_type === 'link') { ids.set(l.source_key, Number(l.target_id)); continue; } // 手动关联被人工取消后，复跑不重建
       if (!exists) throw new MigrationError('迁移账本引用已失效，必须先核对，不能自动补造');
       ids.set(l.source_key, Number(l.target_id));
     }
@@ -96,7 +97,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     for (const d of source.departments) if (orgCreated.has(key('department',d.id)) && d.parent_department_id) await em.update(Department, { id: required('department', d.id), companyId: company.id }, { parentId: required('department', d.parent_department_id) });
     for (const p of source.positions) {
       if (reuse('position', p.id)) continue;
-      const workspace = ['boss','general','operations','finance','cashier','warehouse','purchasing','support','blank'].includes(p.workspace_template_key) ? p.workspace_template_key : 'blank';
+      const workspace = workspaceTypeFromLegacyTemplate(p.workspace_template_key) ?? 'blank';
       if (!p.name || String(p.name).length > 100 || !['boss','manager','staff'].includes(p.level)) throw new MigrationError('岗位名称或显式层级待核定');
       let positionName = String(p.name);
       if (await em.findOneBy(Position, { companyId: company.id, name: positionName })) {
@@ -106,7 +107,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
         if (positionName.length > 100) throw new MigrationError('同名岗位区分名称超长');
         out.excluded.push({ type: 'position.name', id: String(p.id), reason: '旧岗位名与目标公司岗位重名，使用来源部门名加岗位名区分；保留旧新ID对照' });
       }
-      const r = await em.save(Position, em.create(Position, { companyId: company.id, departmentId: required('department', p.department_id), name: positionName, workspaceType: workspace, level: p.level, supervisorPositionId: null, description: p.description, status: p.status === 'active' ? 'active' : 'inactive' }));
+      const r = await em.save(Position, em.create(Position, { companyId: company.id, departmentId: required('department', p.department_id), name: positionName, positionKey: p.position_key ? String(p.position_key).slice(0, 64) : null, workspaceType: workspace, level: p.level, supervisorPositionId: null, description: p.description, status: p.status === 'active' ? 'active' : 'inactive' }));
       await register('position', p.id, r.id); count('created', 'position'); orgCreated.add(key('position', p.id));
       if (workspace === 'blank') out.excluded.push({ type: 'position.workspaceType', id: String(p.id), reason: '旧岗位未提供新系统支持的显式工作台类型，保留空白，不按名称猜测' });
     }
@@ -118,7 +119,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       if (account && (await em.findOneBy(User, { account }) || await em.findOneBy(PlatformAdmin, { account }))) throw new MigrationError('员工账号与目标系统已有账号冲突，禁止覆盖');
       const positions = source.employeePositions.filter((x) => String(x.employee_id) === String(e.id));
       const primary = positions.find((x) => x.is_primary) ?? positions[0];
-      const r = await em.save(User, em.create(User, { companyId: company.id, account, passwordHash: account ? encodeLegacyPassword(String(e.password_salt), String(e.password_hash)) : '!no-login', name: e.name, departmentId: required('department', e.department_id), positionId: primary ? required('position', primary.position_id) : null, extraPositionIds: positions.filter((x) => x !== primary).map((x) => required('position', x.position_id)), managerId: null, title: e.title || null, baseSalary: e.base_salary===null||e.base_salary===undefined?null:yuanToPreciseCents(String(e.base_salary),0), isCompanyAdmin: ['admin','company_admin','boss'].includes(e.role_key), status: e.status === 'active' ? 'active' : 'disabled', mustChangePassword: false }));
+      const r = await em.save(User, em.create(User, { companyId: company.id, account, passwordHash: account ? encodeLegacyPassword(String(e.password_salt), String(e.password_hash)) : '!no-login', name: e.name, departmentId: required('department', e.department_id), positionId: primary ? required('position', primary.position_id) : null, extraPositionIds: positions.filter((x) => x !== primary).map((x) => required('position', x.position_id)), managerId: null, title: e.title || null, baseSalary: e.base_salary===null||e.base_salary===undefined?null:yuanToPreciseCents(String(e.base_salary),0), payType: e.pay_type==='hourly'?'hourly':'monthly', hourlyRate: e.hourly_rate===null||e.hourly_rate===undefined?null:yuanToPreciseCents(String(e.hourly_rate),0), employmentType: ['part_time','temp'].includes(e.employment_type)?e.employment_type:'regular', isCompanyAdmin: ['admin','company_admin','boss'].includes(e.role_key), status: e.status === 'active' ? 'active' : 'disabled', mustChangePassword: false }));
       await register('user', e.id, r.id); count('created', 'user'); orgCreated.add(key('user', e.id));
     }
     for (const e of source.employees) if (orgCreated.has(key('user',e.id)) && e.manager_id) await em.update(User, { id: required('user', e.id), companyId: company.id }, { managerId: required('user', e.manager_id) });
@@ -241,6 +242,55 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
           });
         } catch (e) { out.failures.push({ type: `${r.type}.${field}`, id: r.id, reason: safeFailure(e) }); }
       }
+    }
+
+    // 旧库手动关联（合作人⇄执照/店铺/银行、执照关联运营、手机号关联等）迁成新系统的手动关联，带用途与有效期。
+    const skipLink = (l: { id: string; relation: string }, reason: string) => {
+      const L = out.links; L.skipped++; L.skippedReasons[reason] = (L.skippedReasons[reason] ?? 0) + 1;
+      (L.byRelation[l.relation] ??= { created: 0, skipped: 0 }).skipped++;
+    };
+    const carries = (rec: ResourceRecord, otherType: string, otherId: number) => {
+      const def = getResourceDef(rec.type);
+      return !!def?.fields.some((f) => (f.type === 'ref' && f.ref === otherType && rec.data[f.key] === otherId) || (f.type === 'refs' && f.ref === otherType && Array.isArray(rec.data[f.key]) && (rec.data[f.key] as unknown[]).includes(otherId)));
+    };
+    for (const l of source.links ?? []) {
+      if (reuse('link', l.id)) { out.links.reused++; continue; }
+      const sourceId = lookup(l.sourceType, l.sourceId), targetId = lookup(l.targetType, l.targetId);
+      if (!sourceId || !targetId) { skipLink(l, '关联一端的资料未迁入（旧库已删除、失败或不在迁入范围）'); continue; }
+      const toUser = l.targetType === 'user';
+      if (!toUser && l.sourceType === l.targetType && sourceId === targetId) { skipLink(l, '关联指向自己'); continue; }
+      const dup = await em.findOne(ResourceLink, { where: [
+        { companyId: company.id, sourceType: l.sourceType, sourceId, targetType: l.targetType, targetId },
+        ...(toUser ? [] : [{ companyId: company.id, sourceType: l.targetType, sourceId: targetId, targetType: l.sourceType, targetId: sourceId }]),
+      ] });
+      if (dup) { skipLink(l, '新系统已存在同一对象的关联（重复，保留先迁入的一条）'); continue; }
+      const src = await em.findOne(ResourceRecord, { where: { id: sourceId, companyId: company.id, type: l.sourceType } });
+      const tgt = toUser ? null : await em.findOne(ResourceRecord, { where: { id: targetId, companyId: company.id, type: l.targetType } });
+      if (!src || (!toUser && !tgt)) { skipLink(l, '关联对象不属于目标公司或类型不符'); continue; }
+      if (carries(src, l.targetType, targetId) || (tgt && carries(tgt, l.sourceType, sourceId))) { skipLink(l, '已由资料字段承载同一关联，不重复建手动关联'); continue; }
+      const row = await em.save(ResourceLink, em.create(ResourceLink, { companyId: company.id, sourceType: l.sourceType, sourceId, relation: 'manual', targetType: l.targetType, targetId, validFrom: l.validFrom ?? null, validTo: l.validTo ?? null, purpose: l.purpose ? l.purpose.slice(0, 200) : null }));
+      await register('link', l.id, row.id); count('created', 'link'); out.links.created++;
+      (out.links.byRelation[l.relation] ??= { created: 0, skipped: 0 }).created++;
+    }
+    // 旧库已归档的行：最后落成新系统的“已归档”（放在所有引用和文件写入之后，避免被“引用已归档”校验挡住）。
+    for (const r of source.records) {
+      if (!r.archive) continue;
+      const id = lookup(r.type, r.id); if (!id || !resourceCreated.has(id)) continue;
+      const policy = ARCHIVE_POLICY[r.type];
+      if (!policy) { out.archived.skipped.push({ type: r.type, id: r.id, reason: '该资料类型在新系统没有归档策略，按普通记录迁入' }); continue; }
+      try {
+        await savepoint(async () => {
+          const def = getResourceDef(r.type)!;
+          const at = r.archive!.at ? new Date(r.archive!.at.replace(' ', 'T') + '+08:00') : new Date();
+          if (!Number.isFinite(at.getTime())) throw new MigrationError('旧归档时间无效');
+          const from = r.archive!.fromStatus && def.statuses.some((x) => x.value === r.archive!.fromStatus) ? r.archive!.fromStatus : null;
+          const by = r.archive!.by ? lookup('user', r.archive!.by) ?? null : null;
+          const changed = await em.update(ResourceRecord, { id, companyId: company.id, type: r.type }, { archivedAt: at, archivedBy: by, archiveReason: (r.archive!.reason?.trim() || '旧系统归档（原因未记录）').slice(0, 500), archivedFromStatus: from, status: policy.archivedStatus });
+          if (!changed.affected) throw new MigrationError('归档写入未命中记录');
+        });
+        out.archived.total++; out.archived.byType[r.type] = (out.archived.byType[r.type] ?? 0) + 1;
+        if (!r.archive.fromStatus || !getResourceDef(r.type)!.statuses.some((x) => x.value === r.archive!.fromStatus)) out.excluded.push({ type: r.type + '.archivedFromStatus', id: r.id, reason: '旧归档前状态缺失或在新系统无对应值，恢复时将使用该资料的默认状态' });
+      } catch (e) { out.failures.push({ type: r.type + '.archive', id: r.id, reason: safeFailure(e) }); }
     }
     await em.update(Company, { id: company.id }, { name: source.company.name });
     await em.insert(AuditLog, { companyId: company.id, actorId: actor.id, action: 'legacy.import', resourceType: 'company', resourceId: String(company.id), detail: { sourceCompanyId: source.company.id, created: out.created, reused: out.reused, failedCount: out.failures.length, excludedCount: out.excluded.length } });

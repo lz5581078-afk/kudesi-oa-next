@@ -4,6 +4,7 @@ import { ApiError } from '../../../api/client';
 import { sortRecommendationRules } from '@kudesi/shared';
 import { Pager, money } from '../common';
 import { expressApi, type ZoneRule, type ZoneRunSummary } from './expressApi';
+import { zoneCsvLines } from './zoneCsv';
 
 const err = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
 const when = (s: string) => new Date(s).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
@@ -52,8 +53,7 @@ export function ZoneRunsPage() {
   }
   function exportCsv() {
     if (!active) return;
-    const lines = [['建议规则名称', '快递公司', '网点', '聚水潭快递公司', '重量范围', '最低标准运费(元)', '限定到达省份'],
-      ...sortRecommendationRules(active.rules).map((r) => [r.suggestedRuleName, r.carrierName, r.branchName, r.jstLogisticsName, weightText(r), r.amount !== null ? (r.amount / 100).toFixed(2) : r.priceLabel, r.provinceScope])];
+    const lines = zoneCsvLines(active.rules);
     const blob = new Blob(['﻿' + lines.map((l) => l.map(csvCell).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `聚水潭快递分区建议-第${active.sequence}次.csv`; a.click(); URL.revokeObjectURL(a.href);
   }

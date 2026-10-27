@@ -1,9 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { addDays, normalizePhone } from '@kudesi/shared';
+import { addDays, normalizePhone, normalizeReconcileDay } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceRecord } from '../entities';
+import { ResourceLink, ResourceRecord } from '../entities';
+import { CERT_AFTER_DELETE, CERT_AFTER_SAVE, CERT_BEFORE_SAVE, custodyRules, licenseFlags } from './entity-rules';
 import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE } from './finance-rules';
+import { beforeUnitDelete } from './unit-rules';
+import { ASSET_BEFORE_DELETE, ASSET_BEFORE_SAVE } from './asset-rules';
 
 /**
  * 各类资料的专属业务规则。通用的校验（必填、枚举、唯一、引用、停用原因）在 ResourcesService，
@@ -23,7 +26,12 @@ export interface RuleHost {
   countWhere(em: EntityManager, companyId: number, type: string, field: string, value: unknown): Promise<number>;
   findWhere(em: EntityManager, companyId: number, type: string, field: string, value: string | number): Promise<ResourceRecord[]>;
   setStatusDirect(em: EntityManager, user: AuthUser, type: string, id: number, status: string, note?: string): Promise<void>;
-  patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string): Promise<void>;
+  /** syncRefs：改了引用字段时同步关联表（默认不同步） */
+  patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs?: boolean): Promise<void>;
+  /** 读加密字段明文（仅服务端内部） */
+  sensitiveOf(record: ResourceRecord, field: string): string | undefined;
+  /** 改别的记录的加密字段；value 为空即清除 */
+  setSensitive(em: EntityManager, user: AuthUser, type: string, id: number, field: string, value: string | null, note?: string): Promise<void>;
 }
 
 export interface BeforeSaveContext {
@@ -33,7 +41,10 @@ export interface BeforeSaveContext {
   /** 将要保存的字段值（可修改） */
   data: Record<string, unknown>;
   existing: ResourceRecord | null;
+  /** 将要保存的状态；规则可以修改（如固定资产新建时有使用人就是使用中） */
   status: string;
+  /** 加密字段（证件号/卡号）在保存后是否有值 */
+  hasSensitive: (key: string) => boolean;
 }
 
 export interface AfterCreateContext {
@@ -45,14 +56,44 @@ export interface AfterCreateContext {
   plain: Record<string, unknown>;
 }
 
-/** 按手机号档案匹配：strict=找不到就报错（店铺），否则只是不关联。 */
+/**
+ * 手机号绑定（店铺严格、微信/自媒体宽松）：号码文本和手机号档案选择器两种填法都要认。
+ * - 填了号码文本：按文本匹配档案（店铺找不到就报错）；
+ * - 只选了档案：号码文本取档案的号码，不能把绑定清掉；
+ * - 同时改了档案选择器、没改文本：以新选的档案为准；
+ * - 只清空了档案选择器：视为取消绑定，文本一并清掉。
+ */
 async function matchPhone(ctx: BeforeSaveContext, strict: boolean) {
   const raw = ctx.data.phoneNumber;
-  if (raw === undefined || raw === null || raw === '') {
+  const hasText = !(raw === undefined || raw === null || raw === '');
+  const oldText = ctx.existing?.data.phoneNumber;
+  const oldId = ctx.existing?.data.phoneId;
+  const pickedId = typeof ctx.data.phoneId === 'number' ? (ctx.data.phoneId as number) : null;
+  const textUnchanged = hasText && ctx.existing != null && normalizePhone(String(raw)) === normalizePhone(String(oldText ?? ''));
+  const pickerChanged = ctx.existing != null && pickedId !== (typeof oldId === 'number' ? oldId : null);
+
+  if (hasText && textUnchanged && pickerChanged) {
+    if (pickedId === null) {
+      ctx.data.phoneNumber = null;
+      ctx.data.phoneId = null;
+      return;
+    }
+    // 换了档案：号码跟着档案走（下面按“只选了档案”处理）
+    ctx.data.phoneNumber = null;
+  }
+  const text = ctx.data.phoneNumber;
+  if (text === undefined || text === null || text === '') {
+    if (pickedId !== null) {
+      const number = await ctx.host.titleOf(ctx.em, ctx.user.companyId, 'phones', pickedId);
+      if (!number) throw new BadRequestException('手机号档案不存在');
+      ctx.data.phoneNumber = number;
+      ctx.data.phoneId = pickedId;
+      return;
+    }
     ctx.data.phoneId = null;
     return;
   }
-  const number = normalizePhone(String(raw));
+  const number = normalizePhone(String(text));
   ctx.data.phoneNumber = number;
   const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number);
   if (!phone) {
@@ -63,16 +104,71 @@ async function matchPhone(ctx: BeforeSaveContext, strict: boolean) {
   ctx.data.phoneId = phone.id;
 }
 
-function checkReconcileDay(data: Record<string, unknown>) {
-  const cycle = data.reconcileCycle as string | undefined;
-  const day = data.reconcileDay as string | undefined;
-  if (!day) return;
-  if (cycle === 'monthly') {
-    const n = Number(day);
-    if (!Number.isInteger(n) || n < 1 || n > 31) throw new BadRequestException('按月对账的提醒日应填 1 到 31');
-  } else if (cycle === 'quarterly' || cycle === 'yearly') {
-    if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(day)) throw new BadRequestException('按季/按年对账的提醒日应填 MM-DD');
+function uniqueIds(...lists: unknown[]): number[] {
+  const out: number[] = [];
+  for (const l of lists) for (const v of Array.isArray(l) ? l : [l]) if (typeof v === 'number' && !out.includes(v)) out.push(v);
+  return out;
+}
+
+/** 店铺可绑多个手机号：主号（phoneId）+ 更多（phoneIds）；同一手机号在同一平台只能绑一个店铺。 */
+async function storePhones(ctx: BeforeSaveContext) {
+  const ids = uniqueIds(ctx.data.phoneId, ctx.data.phoneIds);
+  ctx.data.phoneId = ids[0] ?? null;
+  ctx.data.phoneIds = ids.length > 1 ? ids.slice(1) : null;
+  if (!ids.length || !ctx.data.platform) return;
+  const stores = await ctx.em.find(ResourceRecord, { where: { companyId: ctx.user.companyId, type: 'stores' }, select: ['id', 'data'] });
+  for (const st of stores) {
+    if (st.id === ctx.existing?.id || st.data.platform !== ctx.data.platform) continue;
+    const theirs = uniqueIds(st.data.phoneId, st.data.phoneIds);
+    const hit = ids.find((id) => theirs.includes(id));
+    if (hit !== undefined) throw new BadRequestException('该手机号在这个平台已绑定了其他店铺');
   }
+}
+
+/** 一个自媒体账号可关联多个店铺：主店铺（storeId）+ 更多（storeIds）。 */
+function selfMediaStores(ctx: BeforeSaveContext) {
+  const ids = uniqueIds(ctx.data.storeId, ctx.data.storeIds);
+  ctx.data.storeId = ids[0] ?? null;
+  ctx.data.storeIds = ids.length > 1 ? ids.slice(1) : null;
+}
+
+/**
+ * 异常原因：可以直接输入新原因，库里没有就自动记入原因库；库里有同名的直接引用。
+ * 刚改为异常状态时必须有原因。
+ */
+async function abnormalReason(ctx: BeforeSaveContext, lib: string) {
+  const typed = typeof ctx.data.abnormalReasonText === 'string' ? ctx.data.abnormalReasonText.trim() : '';
+  ctx.data.abnormalReasonText = null;
+  if (ctx.status !== 'abnormal') return;
+  if (typed) {
+    const hit = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, lib, typed);
+    const rec = hit ?? (await ctx.host.createRecord(ctx.em, ctx.user, lib, { reason: typed.slice(0, 100) }, '异常原因自动记入库'));
+    ctx.data.abnormalReason = rec.id;
+  }
+  if (ctx.existing?.status !== 'abnormal' && !ctx.data.abnormalReason) throw new BadRequestException('改为异常必须填写异常原因');
+}
+
+/** 店铺领取：预留/已领取/推广限制必须有运营人；推广限制必须有解除日；批量只给运营人时，公共店铺自动变已领取。 */
+function storeClaim(ctx: BeforeSaveContext) {
+  const d = ctx.data;
+  const old = ctx.existing?.data ?? {};
+  if (!d.claimStatus) d.claimStatus = d.operatorUserId ? 'claimed' : 'public';
+  if (d.claimStatus === 'public' && old.claimStatus === 'public' && d.operatorUserId && d.operatorUserId !== old.operatorUserId) d.claimStatus = 'claimed';
+  if (d.claimStatus === 'public') {
+    delete d.operatorUserId;
+    delete d.promotionReleaseAt;
+    return;
+  }
+  const changed = !ctx.existing || d.claimStatus !== old.claimStatus || d.operatorUserId !== old.operatorUserId;
+  if (!changed) return;
+  if (!d.operatorUserId) throw new BadRequestException('指派店铺必须选择运营人');
+  if (d.claimStatus === 'promotion_limited' && !d.promotionReleaseAt) throw new BadRequestException('推广限制店铺必须填写解除日期');
+}
+
+function checkReconcileDay(data: Record<string, unknown>) {
+  const r = normalizeReconcileDay(data.reconcileCycle as string | undefined, data.reconcileDay as string | undefined);
+  if (r.error) throw new BadRequestException(r.error);
+  if (r.value) data.reconcileDay = r.value;
 }
 
 async function storeTitle(ctx: BeforeSaveContext): Promise<string> {
@@ -82,22 +178,26 @@ async function storeTitle(ctx: BeforeSaveContext): Promise<string> {
 }
 
 /**
- * 印章联动：缺失就清空种类和位置；普通章在位只能是自刻章，自刻章必然是普通章在位；
- * 防伪章不可能是“普通章在位”，退回“在位”。
+ * 印章联动（照旧页面）：缺失就清空种类和位置；普通章在位只能是自刻章，自刻章必然是普通章在位；
+ * 普通章在位时只把种类改回防伪章（状态没动）= 取消普通章，回到“在位”；没缺失又没种类的补成防伪章。
  */
-function applySealRules(data: Record<string, unknown>) {
+function applySealRules(data: Record<string, unknown>, existing: ResourceRecord | null) {
   for (const prefix of ['official', 'finance', 'legal', 'invoice']) {
     const state = `${prefix}State`;
     const kind = `${prefix}Kind`;
     const loc = `${prefix}LocationId`;
-    if (data[state] === 'missing') {
+    const status = data[state];
+    if (status === 'missing') {
       data[kind] = null;
       data[loc] = null;
       continue;
     }
-    if (data[state] === 'ordinary_kept') data[kind] = 'self_carved';
-    else if (data[kind] === 'self_carved' && data[state]) data[state] = 'ordinary_kept';
-    else if (data[kind] === 'anti_fake' && data[state] === 'ordinary_kept') data[state] = 'kept';
+    const kindChanged = existing ? (data[kind] ?? null) !== (existing.data[kind] ?? null) : false;
+    const statusChanged = existing ? (status ?? null) !== (existing.data[state] ?? null) : false;
+    if (status === 'ordinary_kept' && data[kind] === 'anti_fake' && kindChanged && !statusChanged) data[state] = 'kept';
+    else if (status === 'ordinary_kept') data[kind] = 'self_carved';
+    else if (data[kind] === 'self_carved' && (status === 'kept' || status === undefined || status === null)) data[state] = 'ordinary_kept';
+    if (status && !data[kind]) data[kind] = 'anti_fake';
   }
 }
 
@@ -122,18 +222,26 @@ function syncLocations(data: Record<string, unknown>, existing: ResourceRecord |
 export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Promise<void> {
   const financeRule = FINANCE_BEFORE_SAVE[type];
   if (financeRule) return financeRule(ctx);
+  const assetRule = ASSET_BEFORE_SAVE[type];
+  if (assetRule) return assetRule(ctx);
   switch (type) {
     case 'stores':
       await matchPhone(ctx, true);
-      // 领取状态：没填时有运营人就是已领取，没有就是公共店铺；公共店铺没有运营人和推广限制日期
-      if (!ctx.data.claimStatus) ctx.data.claimStatus = ctx.data.operatorUserId ? 'claimed' : 'public';
-      if (ctx.data.claimStatus === 'public') { delete ctx.data.operatorUserId; delete ctx.data.promotionReleaseAt; }
+      await storePhones(ctx);
+      storeClaim(ctx);
+      await abnormalReason(ctx, 'store-abnormal-reasons');
       return;
     case 'wechat':
-    case 'self-media':
       await matchPhone(ctx, false);
       return;
+    case 'self-media':
+      await matchPhone(ctx, false);
+      selfMediaStores(ctx);
+      return;
     case 'phones': {
+      await abnormalReason(ctx, 'phone-abnormal-reasons');
+      // 新建时的默认值（旧系统）：运营商中国移动
+      if (!ctx.existing && !ctx.data.carrier) ctx.data.carrier = '中国移动';
       // 保管人：选了员工就以员工为准，手填姓名只在没选员工时保留
       if (ctx.data.keeperUserId) ctx.data.keeperName = null;
       const last = ctx.data.lastRechargeAt as string | undefined;
@@ -149,20 +257,11 @@ export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Prom
     }
     case 'licenses':
       checkReconcileDay(ctx.data);
-      applySealRules(ctx.data);
+      applySealRules(ctx.data, ctx.existing);
       syncLocations(ctx.data, ctx.existing);
+      custodyRules(ctx.data);
+      licenseFlags(ctx);
       return;
-    case 'bank-accounts': {
-      checkReconcileDay(ctx.data);
-      // 银行预留手机号能在手机号档案里找到，就自动关联；找不到不阻断，保留手选的档案
-      const reserved = ctx.data.reservedPhoneNumber;
-      if (reserved) {
-        const number = normalizePhone(String(reserved));
-        const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number);
-        if (phone) ctx.data.phoneId = phone.id;
-      }
-      return;
-    }
     case 'store-daily-metrics': {
       const d = ctx.data as Record<string, unknown>;
       const n = (k: string) => (typeof d[k] === 'number' ? (d[k] as number) : 0);
@@ -192,14 +291,8 @@ export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Prom
       d.label = `${await storeTitle(ctx)} ${d.snapshotDate} ${d.metric}`;
       return;
     }
-    case 'license-borrows': {
-      const { borrowedAt, expectedReturnAt, returnedAt } = ctx.data as Record<string, string | undefined>;
-      if (expectedReturnAt && borrowedAt && expectedReturnAt < borrowedAt) throw new BadRequestException('预计归还日期不能早于借用日期');
-      if (returnedAt && borrowedAt && returnedAt < borrowedAt) throw new BadRequestException('归还日期不能早于借用日期');
-      return;
-    }
     default:
-      return;
+      return CERT_BEFORE_SAVE[type]?.(ctx);
   }
 }
 
@@ -210,76 +303,127 @@ export interface AfterSaveContext {
   record: ResourceRecord;
   /** 保存前的记录（新建为 null） */
   existing: ResourceRecord | null;
+  /** 本次提交校验后的值（含加密字段明文，仅内存使用） */
+  plain?: Record<string, unknown>;
+}
+
+/** 删除记录之前（在“还被引用就不能删”的检查之前）：如删除位置时把各处对它的引用置空。 */
+export async function beforeDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
+  const rule = ASSET_BEFORE_DELETE[type];
+  if (rule) await rule(ctx);
+  if (type === 'finance-product-units') await beforeUnitDelete(ctx);
 }
 
 /** 删除记录之后（记录已不存在，record 是删除前的内容）。 */
 export async function afterDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
   const rule = FINANCE_AFTER_DELETE[type];
   if (rule) await rule(ctx);
+  await CERT_AFTER_DELETE[type]?.(ctx);
 }
 
 /** 每次保存（新建、修改、改状态）之后：用于同步别的记录，如组合行变化后刷新组合编码。 */
 export async function afterSaveRule(type: string, ctx: AfterSaveContext): Promise<void> {
   const rule = FINANCE_AFTER_SAVE[type];
   if (rule) await rule(ctx);
+  await CERT_AFTER_SAVE[type]?.(ctx);
 }
 
-/** 营业执照建好后，自动补齐法人手机号、合作人、税务资料、对公账户和法人卡档案。 */
+/** 找到手机号档案，没有就建（外部使用）；返回档案 id。 */
+async function ensurePhone(ctx: AfterCreateContext, raw: unknown, holder: string, note: string): Promise<number | null> {
+  const number = raw ? normalizePhone(String(raw)) : '';
+  if (!number) return null;
+  const { em, host, user } = ctx;
+  const hit = await host.findByUnique(em, user.companyId, 'phones', number);
+  if (hit) return hit.id;
+  return (await host.createRecord(em, user, 'phones', { number, usageType: 'external_used', externalUser: holder }, note)).id;
+}
+
+/**
+ * 营业执照建好后（照旧系统），自动补齐：法人手机号档案、法人合作人、税务资料、对公账户和法人银行卡。
+ * 已经存在的档案复用并补上关联，不重复建。
+ */
 export async function afterCreateRule(type: string, ctx: AfterCreateContext): Promise<void> {
   if (type !== 'licenses' || ctx.em.queryRunner?.data.legacyImport) return;
   const { em, host, user, record, plain } = ctx;
   const note = `由营业执照「${record.title}」自动生成`;
+  const legalPerson = String(plain.legalPerson ?? '');
   const legalPhone = plain.legalPhone ? normalizePhone(String(plain.legalPhone)) : '';
+  const cardPhone = plain.legalCardPhone ? normalizePhone(String(plain.legalCardPhone)) : '';
 
-  let phoneId: number | null = null;
-  if (legalPhone) {
-    const existing = await host.findByUnique(em, user.companyId, 'phones', legalPhone);
-    phoneId = existing
-      ? existing.id
-      : (
-          await host.createRecord(
-            em,
-            user,
-            'phones',
-            { number: legalPhone, usageType: 'external_used', externalUser: String(plain.legalPerson ?? '') },
-            note,
-          )
-        ).id;
-  }
+  // 法人手机号：法人预留手机、法人银行卡预留手机，都建手机号档案
+  await ensurePhone(ctx, legalPhone, legalPerson, note);
+  const cardPhoneId = await ensurePhone(ctx, cardPhone, legalPerson, note);
 
-  if (plain.legalPerson) {
-    // 同名法人已经建过合作人档案就复用，只补上执照关联，不再重复建
+  if (legalPerson) {
     const exists = await em
       .createQueryBuilder(ResourceRecord, 'r')
-      .where('r.company_id = :c AND r.type = :t AND r.title = :n', { c: user.companyId, t: 'partners', n: String(plain.legalPerson) })
+      .where('r.company_id = :c AND r.type = :t AND r.title = :n', { c: user.companyId, t: 'partners', n: legalPerson })
       .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.partnerType')) = 'legal'")
       .getOne();
+    const card = {
+      cardHolder: plain.legalCardName || legalPerson,
+      cardBank: plain.legalCardBank,
+      cardPhone: cardPhone || undefined,
+      cardPhoneId: cardPhoneId ?? undefined,
+    };
     if (!exists) {
       await host.createRecord(
         em,
         user,
         'partners',
-        { partnerType: 'legal', name: plain.legalPerson, phone: legalPhone || undefined, licenseId: record.id, contactNote: '法人' },
+        {
+          partnerType: 'legal',
+          name: legalPerson,
+          phone: legalPhone || cardPhone || undefined,
+          licenseId: record.id,
+          contactName: legalPerson,
+          contactNote: '营业执照法人自动关联',
+          cooperationScope: '营业执照法人',
+          ...(plain.legalCardNo ? { cardNo: plain.legalCardNo, ...card } : {}),
+        },
         note,
       );
+    } else {
+      // 同名法人已有档案：没挂执照就补上，已挂别的执照就多关联一张；银行卡信息空着的补上
+      const own = exists.data.licenseId;
+      if (own === undefined || own === null) await host.patchData(em, user, 'partners', exists.id, { licenseId: record.id }, note, true);
+      else if (own !== record.id) {
+        await em.insert(ResourceLink, { companyId: user.companyId, sourceType: 'partners', sourceId: exists.id, relation: 'manual', targetType: 'licenses', targetId: record.id });
+      }
+      const fill: Record<string, unknown> = {};
+      if (plain.legalCardNo) {
+        for (const [k, v] of Object.entries(card)) if (v !== undefined && !exists.data[k]) fill[k] = v;
+        if (Object.keys(fill).length) await host.patchData(em, user, 'partners', exists.id, fill, note);
+        if (!host.sensitiveOf(exists, 'cardNo')) await host.setSensitive(em, user, 'partners', exists.id, 'cardNo', String(plain.legalCardNo), note);
+      }
     }
   }
 
-  await host.createRecord(
-    em,
-    user,
-    'tax-profiles',
-    {
-      taxCategory: plain.category,
-      licenseId: record.id,
-      taxpayerName: plain.companyName,
-      taxpayerNo: plain.creditCode,
-      taxType: 'pending',
-    },
-    note,
-  );
+  // 税务资料：按“识别号+类别”找已有的复用（没挂执照就挂上），没有才新建
+  const taxCategory = plain.category === 'ecommerce' ? 'ecommerce' : 'operation';
+  const taxes = await host.findWhere(em, user.companyId, 'tax-profiles', 'taxpayerNo', String(plain.creditCode));
+  const sameTax = taxes.find((t) => (t.data.taxCategory ?? 'operation') === taxCategory);
+  if (sameTax) {
+    if (sameTax.data.licenseId === undefined || sameTax.data.licenseId === null) await host.patchData(em, user, 'tax-profiles', sameTax.id, { licenseId: record.id }, note, true);
+  } else {
+    await host.createRecord(
+      em,
+      user,
+      'tax-profiles',
+      {
+        taxCategory,
+        licenseId: record.id,
+        taxpayerName: plain.companyName,
+        taxpayerNo: plain.creditCode,
+        taxType: 'pending',
+        bankName: plain.publicAccountBank || undefined,
+        bankAccountNo: plain.publicAccountNo || undefined,
+      },
+      note,
+    );
+  }
 
-  // 电商执照建店铺公户 / 店铺个人银行卡，经营执照建公司公户 / 公司银行卡；已有同账号的不重复建
+  // 电商执照建店铺公户 / 店铺个人银行卡，经营执照建公司公户 / 公司银行卡；已有同账号的不重复建，无归属的挂到本执照
   const ecommerce = plain.category === 'ecommerce';
   const accounts = [
     plain.publicAccountNo && {
@@ -296,12 +440,15 @@ export async function afterCreateRule(type: string, ctx: AfterCreateContext): Pr
       bank: plain.legalCardBank || '待补充',
       accountNo: plain.legalCardNo,
       reservedPhoneNumber: plain.legalCardPhone,
-      phoneId: phoneId ?? undefined,
+      phoneId: cardPhoneId ?? undefined,
     },
   ].filter(Boolean) as Array<Record<string, unknown>>;
   for (const acc of accounts) {
     const hit = await host.findByUnique(em, user.companyId, 'bank-accounts', String(acc.accountNo));
-    if (hit) continue;
+    if (hit) {
+      if (hit.data.licenseId === undefined || hit.data.licenseId === null) await host.patchData(em, user, 'bank-accounts', hit.id, { licenseId: record.id }, note, true);
+      continue;
+    }
     await host.createRecord(em, user, 'bank-accounts', { ...acc, licenseId: record.id }, note);
   }
 }

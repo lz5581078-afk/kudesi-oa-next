@@ -10,6 +10,7 @@ import { normalizeExpressRows } from '../integrations/ocr.service';
 import { buildServices } from '../test-support';
 import { CostService } from './cost.service';
 import { DataToolsService } from './data-tools.service';
+import { PackagingImportService } from './packaging-import.service';
 import { ResourcesService } from './resources.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
@@ -45,7 +46,8 @@ d('数据板块工具（真实数据库）', () => {
     const plat = await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' });
     const scen = await svc.create(boss, 'finance-scenarios', { code: 'supply_chain', name: '供应链', segment: 'GYL' });
     ids.scen = scen.id;
-    ids.bundle = (await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id })).id;
+    const bcat = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '组合类', code: 'ZHL' })).id;
+    ids.bundle = (await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, bundleCategoryId: bcat })).id;
     await svc.create(boss, 'finance-bundle-lines', { bundleId: ids.bundle, role: 'main', baseCodeId: ids.bc, qty: 1 });
     await svc.create(boss, 'finance-margins', { profitPercent: 20, reason: '默认' });
   });
@@ -141,5 +143,37 @@ d('数据板块工具（真实数据库）', () => {
     expect(out.rows[1]).toMatchObject({ province: 'ALL', fixedPrice: 800 });
     expect(out.rows[2].warnings.join()).toMatch(/不在省份清单|没有固定价/);
     expect(normalizeExpressRows({ rows: [] }, PROVINCES).warnings.join()).toMatch(/快递公司/);
+  });
+  it('包装方案 Excel：预检不落库，确认码一致才导入；同编码整套替换；整批同成同败', async () => {
+    const pk = new PackagingImportService(ds, svc);
+    const rows = {
+      schemes: [{ '方案编码': 'xl-1', '方案名称': 'Excel 方案', '使用场景': '发货包装', '状态': '启用' }],
+      lines: [{ '方案编码': 'XL-1', '包装档案编号': '', '角色': '包装', '数量': '2' }],
+      rules: [{ '方案编码': 'XL-1', '目标类型': '商品档案', '目标编码': 'APPLE', '优先级': '5' }],
+    };
+    const bad = await pk.preflight(boss, rows);
+    expect(bad.confirm).toBeNull();
+    expect(bad.errors.some((e) => e.sheet === '包装方案明细' && e.field === '包装档案编号')).toBe(true);
+    const boxCode = String((await svc.get(boss, 'finance-products', ids.box)).data.code);
+    rows.lines[0]['包装档案编号'] = boxCode;
+    const ok = await pk.preflight(boss, rows);
+    expect(ok.errors).toEqual([]);
+    expect(ok.summary).toMatchObject({ schemesCreated: 1, lines: 1, rules: 1 });
+    expect(await ds.manager.count('resource_records', { where: { companyId: boss.companyId, type: 'finance-packaging-schemes', title: 'Excel 方案' } as never })).toBe(0);
+    await expect(pk.execute(boss, rows, 'IMPORT-PACKAGING-WRONG')).rejects.toThrow(/确认码/);
+    await pk.execute(boss, rows, ok.confirm!);
+    const exp = await pk.exportRows(boss);
+    expect(exp.schemes.some((r) => r[0] === 'XL-1' && r[2] === '发货包装')).toBe(true);
+    expect(exp.lines.some((r) => r[0] === 'XL-1' && r[1] === boxCode && r[3] === '2')).toBe(true);
+    expect(exp.rules.some((r) => r[0] === 'XL-1' && r[1] === '商品档案' && r[2] === 'APPLE')).toBe(true);
+    // 再导一次同编码：整套替换，不叠加明细
+    rows.lines[0]['数量'] = '3';
+    const again = await pk.preflight(boss, rows);
+    expect(again.summary).toMatchObject({ schemesUpdated: 1, lines: 1 });
+    await pk.execute(boss, rows, again.confirm!);
+    const exp2 = await pk.exportRows(boss);
+    expect(exp2.lines.filter((r) => r[0] === 'XL-1').map((r) => r[3])).toEqual(['3']);
+    // 没权限
+    await expect(pk.preflight(staff, rows)).rejects.toThrow(/权限/);
   });
 });

@@ -781,6 +781,10 @@ export class FinanceDocumentsService {
     const addLink = (acc: number, st: number) => { if (st > 0) storesOf.set(acc, (storesOf.get(acc) ?? new Set()).add(st)); };
     for (const a of shown) addLink(a.id, Number(a.data.storeId));
     for (const l of links) { if (l.sourceType === 'bank-accounts') addLink(l.sourceId, l.targetId); else addLink(l.targetId, l.sourceId); }
+    // 账户资料里登记的“账户店铺”（多店铺 + 用途）
+    for (const r of await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'bank-store-links' }, select: ['id', 'status', 'data'] })) {
+      if (r.status !== 'inactive') addLink(Number(r.data.bankAccountId), Number(r.data.storeId));
+    }
     const refIds = new Set<number>();
     for (const a of shown) { if (Number(a.data.licenseId) > 0) refIds.add(Number(a.data.licenseId)); if (Number(a.data.keeperUserId) > 0) refIds.add(-Number(a.data.keeperUserId)); }
     const titleIds = [...refIds].filter((x) => x > 0);
@@ -828,7 +832,7 @@ export class FinanceDocumentsService {
       const base = { storeId: st.id, name: st.title, storeNo: String(st.data.storeNo ?? st.data.platformStoreId ?? ''), platform, platformLabel: platformOpts.get(platform) ?? (platform || '其他') };
       return snap
         ? { ...base, snapshotDate: String(snap.data.snapshotDate), updatedAt: new Date(snap.updatedAt).toISOString(), withdrawableCents: n(snap.data.withdrawable), depositCents: n(snap.data.deposit), frozenCents: n(snap.data.frozen), promotionCents: n(snap.data.promotion) }
-        : { ...base, snapshotDate: '', updatedAt: st.updatedAt && (n(st.data.goodsFund) || n(st.data.deposit) || n(st.data.frozen) || n(st.data.promotionBalance)) ? new Date(st.updatedAt).toISOString() : null, withdrawableCents: n(st.data.goodsFund), depositCents: n(st.data.deposit), frozenCents: n(st.data.frozen), promotionCents: n(st.data.promotionBalance) };
+        : { ...base, snapshotDate: '', updatedAt: null, withdrawableCents: 0, depositCents: 0, frozenCents: 0, promotionCents: 0 };
     });
     return out.sort((a, b) => b.withdrawableCents - a.withdrawableCents || a.name.localeCompare(b.name, 'zh-CN'));
   }

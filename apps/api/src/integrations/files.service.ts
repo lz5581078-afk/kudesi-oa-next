@@ -6,6 +6,7 @@ import { DataSource, EntityManager, In } from 'typeorm';
 import { createChecker, getResourceDef, permissionOwner, resourcePermission, ResourceAction } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceFile } from '../entities';
+import { canWarehouseUploadPhotos } from '../resources/warehouse-mode';
 import { IntegrationSettingsService } from './integration-settings.service';
 import { ObjectStorage, QiniuClient, QiniuConfig } from './qiniu.client';
 
@@ -77,7 +78,8 @@ export class FilesService {
     const def = getResourceDef(type);
     const field = def?.fields.find((f) => f.key === fieldKey && f.type === 'files');
     if (!def || !field) throw new BadRequestException('这个字段不支持上传文件');
-    this.assertCan(user, type, 'create', 'edit');
+    // 仓库角色只读商品档案，但可以上传商品照片（旧仓库档案视图）
+    if (!(await canWarehouseUploadPhotos(this.dataSource.manager, user, type, fieldKey))) this.assertCan(user, type, 'create', 'edit');
     if (!file || file.size === 0) throw new BadRequestException('没有收到文件');
     if (file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('文件不能超过 10MB');
     const kind = sniffFile(file.buffer);

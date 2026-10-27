@@ -287,11 +287,11 @@ export class ExpressService {
     return res;
   }
 
-  async confirmSurchargeRecognition(user: AuthUser, versionId: number, p: { batchName: string; rows: SurchargeInput[]; fileName?: string; modelName?: string }) {
+  async confirmSurchargeRecognition(user: AuthUser, versionId: number, p: { batchName: string; rows: SurchargeInput[]; fileName?: string; modelName?: string; evidenceFileId?: number }) {
     if (!p.rows.length) throw new BadRequestException('没有可保存的加收规则');
     return this.dataSource.transaction(async (em) => {
       await this.load(em, user, 'finance-express-versions', versionId);
-      const batch = await this.resources.createRecord(em, user, 'finance-express-fee-batches', { versionId, batchName: p.batchName.trim() || `加收通知 ${todayInChina()}`, source: 'ai', fileName: p.fileName, modelName: p.modelName });
+      const batch = await this.resources.createRecord(em, user, 'finance-express-fee-batches', { versionId, batchName: p.batchName.trim() || `加收通知 ${todayInChina()}`, source: 'ai', fileName: p.fileName, modelName: p.modelName, ...(p.evidenceFileId ? { evidence: [p.evidenceFileId] } : {}) });
       let created = 0;
       for (const [i, r] of p.rows.entries()) {
         try {

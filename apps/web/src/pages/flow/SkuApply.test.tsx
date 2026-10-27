@@ -20,7 +20,7 @@ function Harness({ initial }: { initial: Record<string, unknown> }) {
 
 beforeEach(() => {
   apiMock.mockImplementation(async (path: string) => {
-    if (path.includes('kind=meta')) return { scenarios: [{ id: 5, name: '标准' }], platforms: [{ id: 1, name: '淘宝' }, { id: 2, name: '抖音' }] };
+    if (path.includes('kind=meta')) return { scenarios: [{ id: 5, name: '标准' }], platforms: [{ id: 1, name: '淘宝' }, { id: 2, name: '抖音' }], bundleCategories: [{ id: 9, name: '礼盒 / 水果礼盒' }] };
     if (path.includes('kind=main')) return { items: [{ id: 11, code: 'APPLE-A', name: '苹果', spec: '5斤' }] };
     if (path.includes('kind=names')) return { items: [{ id: 11, code: 'APPLE-A', name: '苹果' }] };
     return { items: [] };
@@ -33,7 +33,8 @@ describe('SKU 批量申请表单', () => {
     render(<Harness initial={{ specs: [] }} />);
     await screen.findByText('淘宝');
     fireEvent.click(screen.getByLabelText('淘宝'));
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '5' } });
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText('组合分类'), { target: { value: '9' } });
     fireEvent.click(screen.getByText('＋ 添加规格'));
     fireEvent.change(screen.getByLabelText('规格 1 名称'), { target: { value: '苹果礼盒' } });
     fireEvent.click(screen.getByText('＋ 添加主商品'));
@@ -42,6 +43,7 @@ describe('SKU 批量申请表单', () => {
       const out = JSON.parse(screen.getByTestId('out').textContent!);
       expect(out.platformIds).toEqual([1]);
       expect(out.scenarioId).toBe(5);
+      expect(out.bundleCategoryId).toBe(9);
       expect(out.specs[0]).toMatchObject({ name: '苹果礼盒', main: [{ baseCodeId: 11, qty: 1 }], gift: [] });
     });
   });

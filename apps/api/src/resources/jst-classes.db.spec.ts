@@ -46,11 +46,12 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     ids.tb = (await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' })).id;
     ids.dy = (await svc.create(boss, 'finance-platforms', { code: 'DY', name: '抖音' })).id;
     ids.std = (await svc.create(boss, 'finance-scenarios', { code: 'standard', name: '标准' })).id;
+    ids.bcat = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '梨组合', code: 'LZH' })).id;
   });
   afterAll(async () => { await ds?.destroy(); });
 
   it('基础编码：款式编码和编码用横线连接，相邻重复的分类码去掉；旧格式的编码自动换成新格式', async () => {
-    const p = await mkProduct({ name: '红富士', rawFinishedNames: '精品红富士\n礼盒红富士' });
+    const p = await mkProduct({ name: '红富士', rawFinishedNames: '精品红富士\n礼盒红富士', materialCode: 'SC01' });
     ids.p1 = p.id;
     const c1 = await svc.create(boss, 'finance-base-codes', { productId: p.id });
     ids.c1 = c1.id;
@@ -67,7 +68,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     const aliases = (await svc.list(boss, 'finance-base-codes', { pageSize: 50 } as never)).items.filter((r: { data: Record<string, unknown> }) => r.data.canonicalId === ids.c1);
     expect(aliases).toHaveLength(2);
     expect(String(aliases[0].data.code)).toMatch(/^YL-[0-9A-F]{20}$/);
-    expect(aliases.map((a: { data: Record<string, unknown> }) => String(a.data.name)).some((n: string) => n.startsWith('精品红富士-1KG-YL-'))).toBe(true);
+    expect(aliases.map((a: { data: Record<string, unknown> }) => String(a.data.name)).some((n: string) => n === '精品红富士-1KG-SC01')).toBe(true);
     await expect(svc.create(boss, 'finance-base-codes', { productId: ids.p1, code: 'YL-AAAAAAAAAAAAAAAAAAAA', canonicalId: ids.c1 })).rejects.toThrow(/自动生成/);
     // 去掉一个成品名：对应马甲删除
     await svc.update(boss, 'finance-products', ids.p1, { rawFinishedNames: '精品红富士' });
@@ -178,46 +179,47 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     const main = await svc.create(boss, 'finance-base-codes', { productId: p.id });
     await svc.changeStatus(boss, 'finance-base-codes', main.id, 'verified');
     const lines = [{ role: 'main', baseCodeId: main.id, qty: 2 }];
-    const first = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.dy, scenarioId: ids.std }]);
-    expect(first.targets.map((t) => t.code)).toEqual([`ZH-TB-${main.data.code}*2`, `ZH-DY-${main.data.code}*2`]);
-    await expect(bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.tb, scenarioId: ids.std }])).rejects.toThrow(/不能重复/);
+    const first = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.dy, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
+    expect(first.targets.map((t) => t.code)).toEqual(['ZH-TB-HXL-2KG', 'ZH-DY-HXL-2KG']);
+    await expect(bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }])).rejects.toThrow(/不能重复/);
 
     // 命名规则挂在上级分类，下级沿用；非管理员不能改
     await expect(svc.create(ops, 'finance-bundle-naming-rules', { categoryId: ids.root, prefix: 'ZZ-', codeFields: 'category,platform,baseCode' })).rejects.toThrow();
     await expect(svc.create(boss, 'finance-bundle-naming-rules', { categoryId: ids.root, prefix: 'bad', codeFields: 'platform' })).rejects.toThrow(/前缀/);
     await svc.create(boss, 'finance-bundle-naming-rules', { categoryId: ids.root, prefix: 'ZZ-', namePrefix: '套-', codeFields: 'category,platform,quantity', nameFields: 'name,quantity' });
-    const named = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }]);
-    expect(named.targets[0].code).toBe('ZZ-SG-PG-TB-2');
-    expect(named.targets[0].name).toBe('套-红肖梨×2-×2');
+    const named = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
+    expect(named.targets[0].code).toBe('ZZ-TB-PG-2');
+    expect(named.targets[0].name).toBe('套-红肖梨×2-2');
 
     // 聚水潭镜像撞码
-    await svc.create(boss, 'finance-jst-skus', { skuId: 'ZZ-SG-PG-DY-2', goodsType: 'combine' });
-    const jst = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.dy, scenarioId: ids.std }]);
+    await svc.create(boss, 'finance-jst-skus', { skuId: 'ZZ-DY-PG-2', goodsType: 'combine' });
+    const jst = await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.dy, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
     expect(jst.targets[1].duplicates[0].layer).toBe('jstCombine');
-    await expect(bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.dy, scenarioId: ids.std }])).rejects.toThrow(/重复/);
+    await expect(bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.dy, scenarioId: ids.std, bundleCategoryId: ids.bcat }])).rejects.toThrow(/重复/);
     // 全部失败：一个组合都没有生成
     expect((await svc.list(boss, 'finance-bundles', { pageSize: 50 } as never)).items).toHaveLength(0);
-    await svc.create(boss, 'finance-jst-skus', { skuId: 'ZZ-SG-PG-TB-2', goodsType: 'normal' });
-    expect((await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }])).targets[0].duplicates[0].layer).toBe('jstNormal');
+    await svc.create(boss, 'finance-jst-skus', { skuId: 'ZZ-TB-PG-2', goodsType: 'normal' });
+    expect((await bt.preview(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }])).targets[0].duplicates[0].layer).toBe('jstNormal');
     await ds.manager.query("DELETE FROM resource_records WHERE company_id = ? AND type = 'finance-jst-skus'", [boss.companyId]);
 
-    const made = await bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }, { platformId: ids.dy, scenarioId: ids.std }]);
-    expect(made.created.map((c) => c.code)).toEqual(['ZZ-SG-PG-TB-2', 'ZZ-SG-PG-DY-2']);
+    const made = await bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }, { platformId: ids.dy, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
+    expect(made.created.map((c) => c.code)).toEqual(['ZZ-TB-PG-2', 'ZZ-DY-PG-2']);
     ids.b1 = made.created[0].id;
     ids.b2 = made.created[1].id;
     // 同构成同平台同场景：复用
-    const again = await bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std }]);
+    const again = await bt.generate(boss, lines, [{ platformId: ids.tb, scenarioId: ids.std, bundleCategoryId: ids.bcat }]);
     expect(again.created[0]).toMatchObject({ id: ids.b1, reused: true });
 
     await expect(svc.update(boss, 'finance-bundles', ids.b1, { manualCode: 'MY-CODE' })).rejects.toThrow(/原因/);
     const manual = await svc.update(boss, 'finance-bundles', ids.b1, { manualCode: 'MY-CODE', manualReason: '客户指定' });
     expect(manual.data.code).toBe('MY-CODE');
     await svc.update(boss, 'finance-bundles', ids.b1, { manualCode: '', manualReason: '' });
-    expect((await svc.get(boss, 'finance-bundles', ids.b1)).data.code).toBe('ZZ-SG-PG-TB-2');
+    expect((await svc.get(boss, 'finance-bundles', ids.b1)).data.code).toBe('ZZ-TB-PG-2');
     ids.main = main.id;
   });
 
   it('组合验证：核对报告、验证入队；构成修订只能改主品、需原因、随验证发布，过期的修订要拒绝', async () => {
+    await ds.query("UPDATE resource_records SET data = JSON_SET(data, '$.jstUploadedCode', JSON_UNQUOTE(JSON_EXTRACT(data, '$.code'))) WHERE company_id = ? AND type = 'finance-base-codes' AND JSON_EXTRACT(data, '$.jstUploadedCode') IS NULL", [boss.companyId]);
     const rep = await bt.report(boss, ids.b1);
     expect(rep.components[0]).toMatchObject({ qty: 2 });
     const v = await bt.verify(boss, [{ id: ids.b1, signature: rep.signature, uploadSignature: rep.uploadSignature }], { confirmed: true, syncToJst: true });
@@ -232,6 +234,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
 
     const newLines = [{ role: 'main', baseCodeId: ids.main, qty: 3 }];
     await expect(bt.createRevision(boss, ids.b1, '', newLines)).rejects.toThrow();
+    await ds.query("UPDATE outbox_jobs SET status = 'done' WHERE company_id = ? AND resource_type = 'finance-bundles' AND status IN ('pending', 'sending')", [boss.companyId]);
     await expect(bt.createRevision(boss, ids.b1, '加量', [...newLines, { role: 'gift', baseCodeId: gift.id, qty: 1 }])).rejects.toThrow(/赠品/);
     const r = await bt.createRevision(boss, ids.b1, '主品加到 3 件', newLines);
     expect(r.id).toBeGreaterThan(0);
@@ -243,6 +246,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     await expect(bt.cancelRevision(boss, ids.b1, '')).rejects.toThrow(/原因/);
     await bt.cancelRevision(boss, ids.b1, '写错了');
     expect((await svc.get(boss, 'finance-bundles', ids.b1)).data.pendingRevisionId).toBeUndefined();
+    await ds.query("UPDATE outbox_jobs SET status = 'done' WHERE company_id = ? AND resource_type = 'finance-bundles' AND status IN ('pending', 'sending')", [boss.companyId]);
     const r2 = await bt.createRevision(boss, ids.b1, '主品加到 3 件', newLines);
     // 修订发布前，直接改构成会让修订过期
     const line = (await svc.list(boss, 'finance-bundle-lines', { pageSize: 50 } as never)).items.find((x: { data: Record<string, unknown> }) => x.data.bundleId === ids.b1);
@@ -252,6 +256,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     expect(stale.results[0].error).toMatch(/又被改过/);
     await bt.cancelRevision(boss, ids.b1, '作废');
     void r2;
+    await ds.query("UPDATE outbox_jobs SET status = 'done' WHERE company_id = ? AND resource_type = 'finance-bundles' AND status IN ('pending', 'sending')", [boss.companyId]);
     const r3 = await bt.createRevision(boss, ids.b1, '主品改 3 件', newLines);
     const rep3 = await bt.report(boss, ids.b1);
     expect(rep3.pendingRevision?.id).toBe(r3.id);
@@ -260,7 +265,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     const after = await svc.get(boss, 'finance-bundles', ids.b1);
     expect(after.status).toBe('verified');
     expect(after.data.pendingRevisionId).toBeUndefined();
-    expect(after.data.code).toBe('ZZ-SG-PG-TB-3');
+    expect(after.data.code).toBe('ZZ-TB-PG-3');
     expect((await svc.get(boss, 'finance-bundle-revisions', r3.id)).status).toBe('published');
   });
 
@@ -273,6 +278,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     expect((await bt.deletionPreview(boss, ids.b1)).canDelete).toBe(false);
     await expect(bt.archive(boss, ids.b1, '', false)).rejects.toThrow(/原因/);
     await ds.manager.query("UPDATE resource_records SET data = JSON_SET(data, '$.jstUploadedCode', 'OLD-B') WHERE id = ?", [ids.b1]);
+    await ds.query("UPDATE outbox_jobs SET status = 'done' WHERE company_id = ? AND resource_type = 'finance-bundles' AND status IN ('pending', 'sending')", [boss.companyId]);
     await expect(bt.archive(boss, ids.b1, '停售', false)).rejects.toThrow(/停用/);
     await expect(bt.archive(ops, ids.b1, '停售', true)).rejects.toThrow(/管理员/);
     const r = await bt.archive(boss, ids.b1, '停售', true);

@@ -9,7 +9,7 @@ interface Opt { id: number; code: string; name: string; spec?: string }
 type Kind = 'main' | 'gift' | 'package' | 'label' | 'other' | 'labor';
 
 export const skuApi = {
-  meta: () => api<{ scenarios: Array<{ id: number; name: string }>; platforms: Array<{ id: number; name: string }> }>('/flow/sku-apply/options?kind=meta'),
+  meta: () => api<{ scenarios: Array<{ id: number; name: string }>; platforms: Array<{ id: number; name: string }>; bundleCategories?: Array<{ id: number; name: string }> }>('/flow/sku-apply/options?kind=meta'),
   options: (kind: Kind, keyword: string) => api<{ items: Opt[] }>(`/flow/sku-apply/options?kind=${kind}&keyword=${encodeURIComponent(keyword)}`),
   names: (ids: number[]) => api<{ items: Opt[] }>(`/flow/sku-apply/options?kind=names&ids=${ids.join(',')}`),
   preview: (runId: number) => api<SkuPreviewDto>(`/flow/sku-apply/runs/${runId}/preview`),
@@ -65,7 +65,7 @@ export function SkuApplyFields({ values, onChange }: { values: Record<string, un
   const [names, setNames] = useState<Names>({});
   const specs = (Array.isArray(values.specs) ? values.specs : []) as SkuSpec[];
   const platformIds = (Array.isArray(values.platformIds) ? values.platformIds : []) as number[];
-  useEffect(() => { skuApi.meta().then(setMeta).catch(() => setMeta({ scenarios: [], platforms: [] })); }, []);
+  useEffect(() => { skuApi.meta().then(setMeta).catch(() => setMeta({ scenarios: [], platforms: [], bundleCategories: [] })); }, []);
   // 重新提交时，已有的商品要显示名称
   useEffect(() => {
     const need = [...new Set(specs.flatMap((s) => [...s.main, ...s.gift].map((l) => l.baseCodeId)))].filter((id) => !names[id]);
@@ -89,6 +89,13 @@ export function SkuApplyFields({ values, onChange }: { values: Record<string, un
             {meta?.scenarios.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <small className="muted">整张申请的所有规格都用这个场景</small>
+        </label>
+        <label className="wide"><span>组合分类<b className="req"> *</b></span>
+          <select aria-label="组合分类" value={String(values.bundleCategoryId ?? '')} onChange={(e) => onChange('bundleCategoryId', e.target.value ? Number(e.target.value) : '')}>
+            <option value="">（请选择最末级分类）</option>
+            {meta?.bundleCategories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <small className="muted">组合分类树里的最末级分类；生成的组合都归到这个分类，成本表分类利润率按它汇总</small>
         </label>
         <div className="wide"><span>销售平台<b className="req"> *</b></span>
           <div className="check-list" role="group" aria-label="销售平台">

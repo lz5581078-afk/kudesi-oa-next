@@ -1,6 +1,8 @@
 export interface LegacyRef { legacyRef: { type: string; id: string } }
 export interface LegacyFile { field: string; id: string; name: string; locator: string; contentHash?: string }
-export interface LegacyRecord { id: string; type: string; data: Record<string, unknown>; status?: string; sourceUpdatedAt?: string; aliasName?: string; notices?: string[]; files?: LegacyFile[] }
+export interface LegacyArchiveInfo { at?: string; by?: string; reason?: string; fromStatus?: string }
+export interface LegacyLink { id: string; relation: string; sourceType: string; sourceId: string; targetType: string; targetId: string; validFrom?: string; validTo?: string; purpose?: string }
+export interface LegacyRecord { id: string; type: string; archive?: LegacyArchiveInfo; data: Record<string, unknown>; status?: string; sourceUpdatedAt?: string; aliasName?: string; notices?: string[]; files?: LegacyFile[] }
 export interface LegacyArchive {
   company: { id: number; name: string };
   departments: Array<Record<string, any>>;
@@ -10,6 +12,8 @@ export interface LegacyArchive {
   positionPermissions: Array<Record<string, any>>;
   employeePositions: Array<Record<string, any>>;
   records: LegacyRecord[];
+  /** 旧 resource_links 里没有落成字段/子资源的关联（合作人⇄执照/店铺/银行、执照关联运营、手机号关联等），新系统以手动关联迁入 */
+  links?: LegacyLink[];
   exclusions: Array<{ type: string; id: string; reason: string }>;
   loadFile(locator: string): Promise<Buffer>;
 }

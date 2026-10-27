@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
 import { SearchPick, money, pct } from './common';
 import { JstSyncItems } from './jst/JstSyncItems';
+import { JstSyncExtras } from './jst/JstSyncExtras';
 import { api } from '../../api/client';
 import { financeApi, type MarginHistoryRow, type PricingHistoryRow, type OutboxJobRow, type ApiKeyRow, type CostSnapshotRow, type PackagingMatch, type ResetPreview, type SnapshotRow, type ZoneRow } from './financeApi';
 
@@ -135,7 +136,7 @@ const TREAT: Record<string, string> = { include: '计入成本', included_in_par
 /** 包装方案匹配试算：输入对象和重量，看会命中哪个包装方案；同优先级命中多条会提示冲突。 */
 export function PackagingMatchPage() {
   const [scene, setScene] = useState('');
-  const [targetType, setTargetType] = useState<'bundle' | 'base_code'>('bundle');
+  const [targetType, setTargetType] = useState<'bundle' | 'base_code' | 'product_archive'>('bundle');
   const [code, setCode] = useState('');
   const [weight, setWeight] = useState('');
   const [cat, setCat] = useState<{ id: number | null; name: string }>({ id: null, name: '' });
@@ -155,7 +156,7 @@ export function PackagingMatchPage() {
       <p className="muted">方案和匹配规则在“包装方案”里维护。这里只试算，不会改任何数据；没有命中时按业务规则保持无包装，不会自动补行。</p>
       <form className="form-grid" onSubmit={run}>
         <label>使用场景<select aria-label="使用场景" value={scene} onChange={(e) => setScene(e.target.value)}>{SCENES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-        <label>对象类型<select aria-label="对象类型" value={targetType} onChange={(e) => setTargetType(e.target.value as 'bundle')}><option value="bundle">商品组合</option><option value="base_code">基础编码</option></select></label>
+        <label>对象类型<select aria-label="对象类型" value={targetType} onChange={(e) => setTargetType(e.target.value as 'bundle')}><option value="bundle">商品组合</option><option value="base_code">基础编码</option><option value="product_archive">商品档案</option></select></label>
         <label>编码<input aria-label="编码" value={code} onChange={(e) => setCode(e.target.value)} /></label>
         <label>重量（kg）<input aria-label="重量" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} /></label>
         <label>分类<SearchPick ariaLabel="分类" type="finance-categories" value={cat.id} label={cat.name} onChange={(id, name) => setCat({ id, name })} /></label>
@@ -278,7 +279,7 @@ export function MasterResetPage() {
   );
 }
 
-const JOB_KIND: Record<string, string> = { base_code_upsert: '上传基础编码', base_code_replace: '改码上传', base_code_disable: '停用基础编码', bundle_upsert: '上传组合', bundle_replace: '组合改码上传', bundle_disable: '停用组合', normal_product_upload: '商品资料上传' };
+const JOB_KIND: Record<string, string> = { base_code_upsert: '上传基础编码', base_code_replace: '改码上传', base_code_disable: '停用基础编码', bundle_upsert: '上传组合', bundle_replace: '组合改码上传', bundle_disable: '停用组合', normal_product_upload: '商品资料上传', bundle_price_update: '同步基本售价', category_sync: '同步分类' };
 const JOB_STATUS: Record<string, [string, string]> = { pending: ['待发送', 'warn'], sending: ['发送中', 'warn'], done: ['已同步', 'ok'], failed: ['失败', 'bad'], cancelled: ['已取消', 'muted'] };
 
 /** 聚水潭同步队列：所有对外写入先排队；总开关默认关，关着时只积压不发送，随时可以一键停止。 */
@@ -297,10 +298,6 @@ export function JstSyncPage() {
     if (on && !window.confirm('打开后，队列里的内容会被发送到聚水潭（需要已接入接口）。确定打开吗？')) return;
     try { setSw(await financeApi.setJstSwitch(on, on ? '管理员打开' : '管理员一键停止')); } catch (e) { setError(msg(e)); }
   }
-  async function enqueue(type: string, label: string) {
-    setError(''); setNotice('');
-    try { const r = await financeApi.jstEnqueue(type); setNotice(`${label}：加入队列 ${r.queued} 条，跳过 ${r.skipped} 条（已同步或已在队列）。只是排队，不会立刻发送。`); await load(); } catch (e) { setError(msg(e)); }
-  }
   async function act(fn: () => Promise<unknown>) { try { await fn(); await load(); } catch (e) { setError(msg(e)); } }
   return (
     <div>
@@ -314,10 +311,6 @@ export function JstSyncPage() {
           </div>
         </div>
       )}
-      <div className="toolbar">
-        <button type="button" className="secondary-button" onClick={() => void enqueue('finance-base-codes', '基础编码')}>把已验证未同步的基础编码加入队列</button>
-        <button type="button" className="secondary-button" onClick={() => void enqueue('finance-bundles', '商品组合')}>把已验证未同步的商品组合加入队列</button>
-      </div>
       {notice && <div role="status" className="notice ok">{notice}</div>}
       {error && <div role="alert" className="notice error">{error}</div>}
       <div className="pill-row">
@@ -336,6 +329,7 @@ export function JstSyncPage() {
       </table></div>
       <div className="toolbar"><button type="button" className="secondary-button small" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span className="muted">共 {data?.total ?? 0} 条 · 第 {page} 页</span><button type="button" className="secondary-button small" disabled={page * 20 >= (data?.total ?? 0)} onClick={() => setPage(page + 1)}>下一页</button></div>
       <JstSyncItems onQueued={() => void load()} />
+      <JstSyncExtras onQueued={() => void load()} />
     </div>
   );
 }

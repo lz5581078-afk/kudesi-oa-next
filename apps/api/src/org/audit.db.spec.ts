@@ -30,7 +30,7 @@ d('审计日志与资金概况', () => {
     await svc.create(boss, 'bank-accounts', { kind: 'company_public', accountName: '公户B', bank: '测试银行', accountNo: '6200000000000002', balance: 50000 });
     const off = await svc.create(boss, 'bank-accounts', { kind: 'company_card', accountName: '卡C', bank: '测试银行', accountNo: '6200000000000003', balance: 9900 });
     await svc.changeStatus(boss, 'bank-accounts', off.id, 'inactive', '不用了');
-    const r = await new BankFundController(ds).summary(boss);
+    const r = await new BankFundController(ds, buildServices(ds).crypto).summary(boss);
     expect(r.kinds.find((k) => k.kind === 'company_public')!.balanceCents).toBe(150000);
     expect(r.kinds.find((k) => k.kind === 'company_card')!.count).toBe(1);
     expect(r.kinds.find((k) => k.kind === 'company_card')!.balanceCents).toBe(0);

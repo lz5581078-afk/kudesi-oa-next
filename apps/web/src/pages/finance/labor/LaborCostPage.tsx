@@ -7,6 +7,7 @@ import { useResourceCan } from '../../../resources/RecordDetail';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { Pager, money } from '../common';
 import { CategoryTree, buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
+import { CopyVersionDialog } from './CopyVersionDialog';
 import { DictionaryDialog } from './DictionaryDialog';
 
 const PAGE_SIZE = 20;
@@ -28,6 +29,7 @@ export function LaborCostPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [dialog, setDialog] = useState<'workTypes' | 'units' | null>(null);
+  const [copying, setCopying] = useState(false);
   const [versionForm, setVersionForm] = useState<{ record: ResourceDto | null } | null>(null);
   const [itemForm, setItemForm] = useState<{ record: ResourceDto | null } | null>(null);
   const [reason, setReason] = useState<{ title: string; hint?: string; confirm: string; run: (reason: string) => Promise<void> } | null>(null);
@@ -101,6 +103,7 @@ export function LaborCostPage() {
           {can('edit') && (
             <div className="toolbar">
               <button type="button" className="secondary-button small" onClick={() => setVersionForm({ record: version })}>修改版本信息</button>
+              {can('create') && <button type="button" className="secondary-button small" onClick={() => setCopying(true)}>复制版本</button>}
               {version.status !== 'active' && <button type="button" className="secondary-button small" onClick={() => void run(() => resourceApi.changeStatus('finance-labor-versions', version.id, 'active'), '版本已启用，现在可以被成品构成、组合使用')}>{version.status === 'draft' ? '启用版本' : '重新启用'}</button>}
               {version.status === 'active' && version.data.isDefault !== true && <button type="button" className="secondary-button small" onClick={() => void run(() => resourceApi.update('finance-labor-versions', version.id, { isDefault: true }), '已设为默认版本')}>设为默认版本</button>}
               {version.status === 'active' && <button type="button" className="secondary-button small danger" onClick={() => setReason({ title: `停用成本版本「${version.title}」`, hint: '停用后不能再新增项目、改价，也不能被新的构成选用；已在用的构成不受影响。', confirm: '确认停用', run: async (r) => { await resourceApi.changeStatus('finance-labor-versions', version.id, 'inactive', r); } })}>停用版本</button>}
@@ -148,6 +151,7 @@ export function LaborCostPage() {
 
       {dialog === 'workTypes' && <DictionaryDialog type="finance-labor-work-types" title="维护工作分类" hint="工作分类如“包装、分拣、生产加工”，会参与工作编号。已经被工作项目使用的不能删除。" onClose={() => { setDialog(null); void loadVersionData(); }} />}
       {dialog === 'units' && <DictionaryDialog type="finance-labor-units" title="维护计价单位" hint="计价单位如“元/袋、元/小时”。已经被工作项目使用的不能删除。" onClose={() => { setDialog(null); void loadVersionData(); }} />}
+      {copying && version && <CopyVersionDialog source={version} onClose={() => setCopying(false)} onCopied={(id) => { setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
       {versionForm && <RecordForm def={getResourceDef('finance-labor-versions')!} record={versionForm.record} onClose={() => setVersionForm(null)} onSaved={(dto) => { clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} />}
       {itemForm && version && <RecordForm def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...(node && isLeaf && !itemForm.record ? { archiveCategoryId: node.id } : {}) }} lockedFields={itemForm.record ? undefined : ['versionId']}
         onClose={() => setItemForm(null)} onSaved={() => { clearRefCache('finance-labor-costs'); setItemForm(null); void loadVersionData(); }} />}

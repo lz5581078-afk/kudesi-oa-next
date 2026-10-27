@@ -67,6 +67,40 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
   const [settleBy, setSettleBy] = useState<SettleBy>((doc?.settleBy as SettleBy | null) ?? 'amount');
   const [alloc, setAlloc] = useState<Record<string, string>>(() => Object.fromEntries((doc?.settlements ?? []).map((x) => [x.productId ? `${x.sourceDocId}:${x.productId}` : `${x.sourceDocId}`, centsToYuan(x.amountCents)])));
   const [open, setOpen] = useState<OpenItem[]>([]);
+  // 网店销售：往来对象是店铺时，店铺只有一个收款账户就自动填上；平台佣金率只用来估算净到账，不入账
+  const [feeRate, setFeeRate] = useState('');
+  useEffect(() => {
+    if (type !== 'online-sale' || partyKind !== 'store' || !party.id || doc) return;
+    let alive = true;
+    resourceApi.list('bank-accounts', { fieldKey: 'storeId', fieldValue: String(party.id), pageSize: 5 })
+      .then((r) => { const act = r.items.filter((x) => x.status !== 'inactive' && x.status !== 'deleted'); if (alive && act.length === 1) setBank((b) => (b.id ? b : { id: act[0].id, name: act[0].title })); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [type, partyKind, party.id, doc]);
+  // 销售退货：选了客户后列出他已过账的销售单，可关联原单并带入明细（旧系统同款）
+  const [origSales, setOrigSales] = useState<Array<{ id: number; docNo: string; docDate: string; amountCents: number }>>([]);
+  const [origId, setOrigId] = useState('');
+  const [origNote, setOrigNote] = useState('');
+  useEffect(() => {
+    setOrigId(''); setOrigNote(''); setOrigSales([]);
+    if (type !== 'sale-return' || partyKind !== 'customer' || !party.id || !party.name) return;
+    let alive = true;
+    financeApi.docs({ scope: 'sale', status: 'posted', keyword: party.name })
+      .then((r) => alive && setOrigSales(r.rows.filter((x) => x.partyName === party.name).map((x) => ({ id: x.id, docNo: x.docNo, docDate: x.docDate, amountCents: x.amountCents }))))
+      .catch(() => alive && setOrigNote('没有权限查看销售单，不能关联原单'));
+    return () => { alive = false; };
+  }, [type, partyKind, party.id, party.name]);
+  async function importOriginal() {
+    if (!origId) return;
+    try {
+      const d = await financeApi.doc(Number(origId));
+      const goods = d.lines.filter((l) => l.productId && l.qty > 0);
+      if (!goods.length) { setOrigNote('该销售单没有商品明细，无法带入'); return; }
+      if (lines.some((l) => l.productId || l.price) && !window.confirm('当前已填写的退货商品会被原销售单的商品替换，数量默认为原单全部数量，可再修改。')) return;
+      setLines(goods.map((l) => ({ ...emptyLine(), productId: l.productId ?? null, productName: l.productName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents) })));
+      setOrigNote(`已带入 ${goods.length} 种商品，数量默认为原单全部数量，请改成实际退回数量`);
+    } catch { setOrigNote('原销售单明细加载失败，请稍后重试'); }
+  }
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -181,13 +215,25 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
           <label className="slip-party">{ui.partyLabel}{def.partyRequired ? ' *' : ''}
             <div className="slip-party-row">
               {kinds.length > 1 && (
-                <select aria-label="往来对象来源" value={partyKind} onChange={(e) => { setPartyKind(e.target.value as PartyKind); setParty({ id: null, name: '' }); }}>
+                <select aria-label="往来对象来源" value={partyKind} onChange={(e) => { if (e.target.value === 'employee') void financeApi.syncEmployees().catch(() => undefined); setPartyKind(e.target.value as PartyKind); setParty({ id: null, name: '' }); }}>
                   {kinds.map((k) => <option key={k} value={k}>来自{PARTY_KIND_LABEL[k]}档案</option>)}
                 </select>
               )}
               <SearchPick ariaLabel={ui.partyLabel} type={PARTY_KIND_RESOURCE[partyKind]} value={party.id} label={party.name} placeholder={`搜索${PARTY_KIND_LABEL[partyKind]}`} onChange={(id, name) => setParty({ id, name })} />
             </div>
           </label>
+        )}
+        {type === 'sale-return' && partyKind === 'customer' && (
+          <div className="slip-orig">
+            <label>关联原销售单（选填，用于对照退货数量）
+              <select aria-label="关联原销售单" value={origId} disabled={!party.id} onChange={(e) => setOrigId(e.target.value)}>
+                <option value="">{party.id ? (origSales.length ? '不关联原单' : '该客户暂无已过账的销售单') : '请先选择客户'}</option>
+                {origSales.map((o) => <option key={o.id} value={o.id}>{o.docNo} · {o.docDate} · {money(o.amountCents)}</option>)}
+              </select>
+            </label>
+            <button type="button" className="secondary-button" disabled={!origId} onClick={() => void importOriginal()}>带入原单明细</button>
+            {origNote && <span className="muted">{origNote}</span>}
+          </div>
         )}
         {def.store && <label>店铺 *<SearchPick ariaLabel="店铺" type="stores" value={store.id} label={store.name} onChange={(id, name) => setStore({ id, name })} /></label>}
         {def.store && <label>平台提现流水号 *<input aria-label="平台提现流水号" value={refNo} maxLength={80} onChange={(e) => setRefNo(e.target.value)} placeholder="平台后台提现记录里的流水号，不能重复" /></label>}
@@ -281,8 +327,10 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
           {!def.lines && def.bank !== 'transfer' && <label>{ui.amountLabel}（元） *<input inputMode="decimal" aria-label={ui.amountLabel} value={amount} onChange={(e) => setAmount(e.target.value)} /></label>}
           {def.settle && <label>{ui.amountLabel}（元）<input inputMode="decimal" aria-label={ui.amountLabel} value={paid} onChange={(e) => { setPaid(e.target.value); setPayMode('part'); }} placeholder={def.lines === 'fee' ? '不填 = 当场付清/收齐' : '0.00'} /></label>}
           {(def.bank === 'in' || def.bank === 'out' || def.settle) && def.bank !== 'transfer' && <label>{ui.accountLabel} *<SearchPick ariaLabel={ui.accountLabel} type="bank-accounts" value={bank.id} label={bank.name} onChange={(id, name) => setBank({ id, name })} /></label>}
+          {type === 'online-sale' && <label>平台佣金率（%，仅估算，不入账）<input inputMode="decimal" aria-label="平台佣金率" value={feeRate} onChange={(e) => setFeeRate(e.target.value)} placeholder="如 0.6" /></label>}
           {def.offset && <label>冲抵{ACCOUNT_LABEL[def.offset]}（元）<input inputMode="decimal" aria-label="冲抵金额" value={offset} onChange={(e) => setOffset(e.target.value)} placeholder="不冲抵就留空" /></label>}
         </div>
+        {type === 'online-sale' && Number(feeRate) > 0 && total > 0 && <p className="muted">预估平台费 <b>{money(Math.round(total * Number(feeRate) / 100))}</b>，预计净到账 <b>{money(total - Math.round(total * Number(feeRate) / 100))}</b></p>}
         {canSettle && (
           <div className="settle-by">
             <div className="pay-modes" role="group" aria-label="结算方式选择">

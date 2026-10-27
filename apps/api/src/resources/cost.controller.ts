@@ -13,6 +13,10 @@ class TableDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) pageSize?: number;
 }
+class ExportTableDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) categoryId?: number;
+  @IsOptional() @IsString() @MaxLength(100) keyword?: string;
+}
 class FreightDto { @Type(() => Number) @Min(0.01) weightG!: number }
 class PageDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
@@ -38,6 +42,7 @@ class ComponentsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
 }
 class DebugListDto extends ComponentsDto {
+  @IsOptional() @IsIn(['mine']) exclusive?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) baseCodeId?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
@@ -80,7 +85,13 @@ export class CostController {
     return this.cost.table(user, { categoryId: q.categoryId, keyword: q.keyword, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
   }
 
-  // 注意：category-margins 要排在 :bundleId 之前
+  // 注意：export、category-margins 要排在 :bundleId 之前
+  @RequirePermission('finance.cost-table.view', 'product.cost.view')
+  @Get('cost-table/export')
+  exportTable(@CurrentUser() user: AuthUser, @Query() q: ExportTableDto) {
+    return this.cost.exportXlsx(user, { categoryId: q.categoryId, keyword: q.keyword });
+  }
+
   @RequirePermission('finance.cost-table.view', 'product.cost.view', 'product.cost.edit')
   @Put('cost-table/category-margins/:categoryId')
   categoryMargin(@CurrentUser() user: AuthUser, @Param('categoryId', ParseIntPipe) id: number, @Body() b: CategoryMarginDto) {
@@ -140,7 +151,7 @@ export class CostController {
   @RequirePermission('finance.pricing-debug.view')
   @Get('pricing-debug')
   debugList(@CurrentUser() user: AuthUser, @Query() q: DebugListDto) {
-    return this.debug.list(user, { keyword: q.keyword, categoryId: q.categoryId, baseCodeId: q.baseCodeId, page: q.page ?? 1, pageSize: q.pageSize ?? 30 });
+    return this.debug.list(user, { keyword: q.keyword, categoryId: q.categoryId, baseCodeId: q.baseCodeId, exclusive: q.exclusive, page: q.page ?? 1, pageSize: q.pageSize ?? 30 });
   }
 
   @RequirePermission('finance.pricing-debug.view')

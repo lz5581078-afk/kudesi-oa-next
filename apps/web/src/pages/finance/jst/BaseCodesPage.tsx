@@ -75,7 +75,7 @@ export function BaseCodesPage() {
 
   const reload = useCallback(async () => {
     try {
-      setData(await resourceApi.list(TYPE, { page, pageSize: 20, keyword: keyword.trim() || undefined, status: tab || undefined, fieldKey: cat ? 'categoryId' : undefined, fieldValue: cat ?? undefined }));
+      setData(await resourceApi.list(TYPE, { page, pageSize: 20, keyword: keyword.trim() || undefined, status: tab || undefined, fieldKey: cat ? 'categoryId' : undefined, fieldValue: cat ?? undefined, filters: { realView: 'foldVerified' } }));
       setOverview(await jstApi.baseOverview());
       setError('');
     } catch (e) { setError(e instanceof ApiError ? e.message : '加载失败'); }

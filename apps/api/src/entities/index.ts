@@ -125,6 +125,14 @@ export class Department {
   @Column({ type: 'varchar', length: 12, default: 'active' })
   status!: 'active' | 'inactive';
 
+  /** 部门主管（显式字段；不再像旧系统那样按层级或名称猜） */
+  @Column({ name: 'manager_id', type: 'int', unsigned: true, nullable: true })
+  managerId!: number | null;
+
+  /** 系统归档部门（如“离职员工”）：不出现在组织架构和部门选择里，不能编辑、删除 */
+  @Column({ name: 'is_system', type: 'tinyint', width: 1, default: 0, transformer: boolTransformer() })
+  isSystem!: boolean;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
 }
@@ -177,6 +185,10 @@ export class Position {
 
   @Column({ type: 'varchar', length: 12, default: 'active' })
   status!: 'active' | 'inactive';
+
+  /** 岗位编码，同一部门内唯一（可空） */
+  @Column({ name: 'position_key', type: 'varchar', length: 64, nullable: true })
+  positionKey!: string | null;
 }
 
 /** 岗位档案条目：岗位职责 / 入职培训 / 绩效考核 / 监督规则 / 流程节点说明，同一张表按分类区分。 */
@@ -286,8 +298,65 @@ export class User {
   @Column({ name: 'base_salary', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } })
   baseSalary!: number | null;
 
+  /** 计薪方式：月薪（用底薪）/ 时薪（用 hourly_rate） */
+  @Column({ name: 'pay_type', type: 'varchar', length: 12, default: 'monthly' })
+  payType!: 'monthly' | 'hourly';
+
+  /** 时薪，分/小时；要 org.staff.salary 权限才能看、改 */
+  @Column({ name: 'hourly_rate', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } })
+  hourlyRate!: number | null;
+
+  /** 用工类型：正式 / 兼职 / 临时工 */
+  @Column({ name: 'employment_type', type: 'varchar', length: 16, default: 'regular' })
+  employmentType!: 'regular' | 'part_time' | 'temp';
+
   @Column({ name: 'last_login_at', type: 'datetime', nullable: true })
   lastLoginAt!: Date | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'datetime' })
+  createdAt!: Date;
+}
+
+/** 员工薪酬记录：薪资变更（改月薪/时薪/计薪方式时自动写）、工资发放、奖励、处罚。金额为分。 */
+@Entity('employee_compensation_records')
+@Index('idx_comp_user_type', ['companyId', 'userId', 'recordType', 'createdAt'])
+export class EmployeeCompensationRecord {
+  @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
+  id!: string;
+
+  @Column({ name: 'company_id', type: 'int', unsigned: true })
+  companyId!: number;
+
+  @Column({ name: 'user_id', type: 'int', unsigned: true })
+  userId!: number;
+
+  /** salary_change / payroll / reward / penalty */
+  @Column({ name: 'record_type', type: 'varchar', length: 40 })
+  recordType!: string;
+
+  @Column({ type: 'varchar', length: 160 })
+  title!: string;
+
+  @Column({ type: 'bigint', default: 0, transformer: { to: (v: number) => v, from: (v: string) => Number(v) } })
+  amount!: number;
+
+  @Column({ name: 'effective_date', type: 'date', nullable: true })
+  effectiveDate!: string | null;
+
+  @Column({ name: 'pay_period', type: 'varchar', length: 40, nullable: true })
+  payPeriod!: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  reason!: string | null;
+
+  @Column({ name: 'source_type', type: 'varchar', length: 80, nullable: true })
+  sourceType!: string | null;
+
+  @Column({ name: 'source_id', type: 'bigint', unsigned: true, nullable: true })
+  sourceId!: string | null;
+
+  @Column({ name: 'actor_id', type: 'int', unsigned: true, nullable: true })
+  actorId!: number | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
@@ -386,6 +455,19 @@ export class ResourceRecord {
   @Column({ name: 'updated_by', type: 'int', unsigned: true, nullable: true })
   updatedBy!: number | null;
 
+  /** 软归档（见 shared/archive-policy.ts）：归档后不出现在默认列表，可恢复 */
+  @Column({ name: 'archived_at', type: 'datetime', nullable: true })
+  archivedAt!: Date | null;
+
+  @Column({ name: 'archived_by', type: 'int', unsigned: true, nullable: true })
+  archivedBy!: number | null;
+
+  @Column({ name: 'archive_reason', type: 'varchar', length: 500, nullable: true })
+  archiveReason!: string | null;
+
+  @Column({ name: 'archived_from_status', type: 'varchar', length: 24, nullable: true })
+  archivedFromStatus!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
 
@@ -415,6 +497,16 @@ export class ResourceLink {
 
   @Column({ name: 'target_id', type: 'int', unsigned: true })
   targetId!: number;
+
+  /** 手动关联的属性：有效期起止（YYYY-MM-DD）与用途 */
+  @Column({ name: 'valid_from', type: 'date', nullable: true })
+  validFrom!: string | null;
+
+  @Column({ name: 'valid_to', type: 'date', nullable: true })
+  validTo!: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  purpose!: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
@@ -600,6 +692,8 @@ export class FinanceCostSnapshot {
   @Column({ name: 'margin_percent', type: 'decimal', precision: 10, scale: 6, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) marginPercent!: number | null;
   @Column({ name: 'min_price_cents', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) minPriceCents!: number | null;
   @Column({ type: 'varchar', length: 200, default: '' }) reason!: string;
+  /** 事件类型：workflow_publish 验证发布 / pricing_update 维护售价 / source_values_update 来源值变化 / manual 手动登记 */
+  @Column({ name: 'event_type', type: 'varchar', length: 24, default: 'manual' }) eventType!: string;
   @Column({ name: 'actor_id', type: 'int', unsigned: true, nullable: true }) actorId!: number | null;
   @CreateDateColumn({ name: 'created_at', type: 'datetime' }) createdAt!: Date;
 }
@@ -657,6 +751,21 @@ export class ResourceImportBackup {
   @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
   @Column({ name: 'resource_type', type: 'varchar', length: 32 }) resourceType!: string;
   @Column({ name: 'record_count', type: 'int', unsigned: true, default: 0 }) recordCount!: number;
+  @Column({ name: 'snapshot_json', type: 'longtext' }) snapshotJson!: string;
+  @Column({ name: 'created_by', type: 'int', unsigned: true, nullable: true }) createdBy!: number | null;
+  @CreateDateColumn({ name: 'created_at', type: 'datetime' }) createdAt!: Date;
+  @Column({ name: 'restored_at', type: 'datetime', nullable: true }) restoredAt!: Date | null;
+}
+
+@Entity('finance_fee_snapshots')
+export class FeeArchiveSnapshot {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ type: 'varchar', length: 120 }) name!: string;
+  @Column({ type: 'varchar', length: 500, nullable: true }) remark!: string | null;
+  @Column({ type: 'tinyint', width: 1, default: 0, transformer: { to: (v: boolean) => (v ? 1 : 0), from: (v: number | boolean) => v === 1 || v === true } }) auto!: boolean;
+  @Column({ name: 'category_count', type: 'int', unsigned: true, default: 0 }) categoryCount!: number;
+  @Column({ name: 'item_count', type: 'int', unsigned: true, default: 0 }) itemCount!: number;
   @Column({ name: 'snapshot_json', type: 'longtext' }) snapshotJson!: string;
   @Column({ name: 'created_by', type: 'int', unsigned: true, nullable: true }) createdBy!: number | null;
   @CreateDateColumn({ name: 'created_at', type: 'datetime' }) createdAt!: Date;
@@ -956,6 +1065,50 @@ export class SessionRemoteSignal {
   @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
 }
 
+/** 表单草稿：每人每个草稿标识一份（草稿只给本人看，内容就是还没保存的表单值）。 */
+@Entity('form_drafts')
+export class FormDraft {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'user_id', type: 'int', unsigned: true }) userId!: number;
+  @Column({ name: 'draft_key', type: 'varchar', length: 190 }) draftKey!: string;
+  @Column({ name: 'module_key', type: 'varchar', length: 80 }) moduleKey!: string;
+  @Column({ type: 'varchar', length: 200, default: '' }) title!: string;
+  @Column({ name: 'source_record_id', type: 'varchar', length: 40, nullable: true }) sourceRecordId!: string | null;
+  @Column({ type: 'json' }) payload!: Record<string, unknown>;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+  @Column({ name: 'updated_at', ...dt, insert: false, update: false }) updatedAt!: Date;
+}
+
+/** 手机扫码上传会话：令牌只存哈希；绑定公司、发起人、资料类型和字段；短期有效、限次数。 */
+@Entity('phone_upload_sessions')
+export class PhoneUploadSession {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'token_hash', type: 'char', length: 64 }) tokenHash!: string;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'user_id', type: 'int', unsigned: true }) userId!: number;
+  @Column({ name: 'resource_type', type: 'varchar', length: 40 }) resourceType!: string;
+  @Column({ name: 'field_key', type: 'varchar', length: 48 }) fieldKey!: string;
+  @Column({ name: 'max_uploads', type: 'tinyint', unsigned: true }) maxUploads!: number;
+  @Column({ name: 'upload_count', type: 'tinyint', unsigned: true, default: 0 }) uploadCount!: number;
+  @Column({ name: 'file_ids', type: 'json' }) fileIds!: number[];
+  @Column({ name: 'expires_at', ...dt }) expiresAt!: Date;
+  @Column({ name: 'scanned_at', ...dt, nullable: true }) scannedAt!: Date | null;
+  @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
+}
+
+/** 基础编码验证事件：每次验证通过追加一行（旧 finance_product_data_verification_events），只增不改。 */
+@Entity('finance_product_data_verification_events')
+export class ProductVerificationEvent {
+  @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true }) id!: string;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'base_code_id', type: 'int', unsigned: true }) baseCodeId!: number;
+  @Column({ name: 'composition_signature', type: 'varchar', length: 64 }) compositionSignature!: string;
+  @Column({ name: 'verified_by', type: 'int', unsigned: true, nullable: true }) verifiedBy!: number | null;
+  @CreateDateColumn({ name: 'verified_at', ...dt }) verifiedAt!: Date;
+  @Column({ name: 'snapshot_json', type: 'json', nullable: true }) snapshotJson!: Record<string, unknown> | null;
+}
+
 export const ALL_ENTITIES = [
   SessionDevice,
   SessionBindCode,
@@ -982,6 +1135,7 @@ export const ALL_ENTITIES = [
   FinanceMasterSnapshot,
   OutboxJob,
   ResourceImportBackup,
+  FeeArchiveSnapshot,
   OutboxSwitch,
   FinanceEntry,
   FinanceDocumentEvent,
@@ -994,10 +1148,14 @@ export const ALL_ENTITIES = [
   PositionPermission,
   User,
   UserPermissionOverride,
+  EmployeeCompensationRecord,
   AuditLog,
   ResourceRecord,
   ResourceLink,
   ResourceChangeLog,
   IntegrationSetting,
   ResourceFile,
+  FormDraft,
+  PhoneUploadSession,
+  ProductVerificationEvent,
 ];

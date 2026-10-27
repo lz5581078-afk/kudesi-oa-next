@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query, Headers } from '@nestjs/common';
+import { BadRequestException, Body, Controller, NotFoundException, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query, Headers } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthUser, CurrentUser, Public, RequirePermission } from '../common/auth.decorators';
@@ -20,7 +20,7 @@ class RegisterDto {
 class ZoneDto { @Type(() => Number) @IsNumber() @Min(0.01) @Max(1000) maxWeightKg!: number }
 class MatchDto {
   @IsOptional() @IsIn(['production', 'supplier_oem', 'dispatch']) usageScene?: string;
-  @IsIn(['base_code', 'bundle']) targetType!: 'base_code' | 'bundle';
+  @IsIn(['base_code', 'bundle', 'product_archive']) targetType!: 'base_code' | 'bundle' | 'product_archive';
   @IsOptional() @IsString() @MaxLength(120) targetCode?: string;
   @IsOptional() @IsInt() @Min(1) categoryId?: number;
   @IsOptional() @IsInt() @Min(1) brandId?: number;
@@ -133,6 +133,41 @@ export class ExternalFeedController {
   async feed(@Headers('x-api-key') key: string | undefined) {
     const companyId = await this.tools.authenticateKey(key);
     return this.tools.externalFeed(companyId);
+  }
+}
+
+class LegacyFeedDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) afterId?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+}
+
+/**
+ * 旧系统 /api/external/verified-bundles 的兼容路径（外部程序不用改地址和字段）：
+ * 旧形状 { rows, nextCursor, total }；路径 /、/all、/categories、/:code。只读，X-API-Key。
+ */
+@Controller('external/verified-bundles')
+export class LegacyVerifiedFeedController {
+  constructor(private readonly tools: DataToolsService, private readonly catalog: CatalogApiService) {}
+
+  @Public()
+  @Get('categories')
+  async categories(@Headers('x-api-key') key: string | undefined) { return this.catalog.legacyCategories(await this.tools.authenticateKey(key)); }
+
+  @Public()
+  @Get('all')
+  async all(@Headers('x-api-key') key: string | undefined) { return this.catalog.legacyAll(await this.tools.authenticateKey(key)); }
+
+  @Public()
+  @Get()
+  async page(@Headers('x-api-key') key: string | undefined, @Query() q: LegacyFeedDto) { return this.catalog.legacyFeed(await this.tools.authenticateKey(key), q); }
+
+  @Public()
+  @Get(':code')
+  async one(@Headers('x-api-key') key: string | undefined, @Param('code') code: string) {
+    if (!code.trim() || code.length > 160) throw new BadRequestException('组合品编码无效');
+    const found = await this.catalog.legacyByCode(await this.tools.authenticateKey(key), code.trim());
+    if (!found) throw new NotFoundException('未找到当前已验证的组合品编码');
+    return found;
   }
 }
 

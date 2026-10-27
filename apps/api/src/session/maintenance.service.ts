@@ -37,12 +37,14 @@ export class MaintenanceService extends SessionService {
     if (!STATUS_LABELS[p.status]) throw new BadRequestException('店铺状态无效');
     const shop = await this.dataSource.manager.findOne(SessionShop, { where: { id: shopId, companyId: user.companyId, workspace: this.ws, status: 'active' } });
     if (!shop) throw new NotFoundException('店铺不在公司店铺维护清单里');
+    let reasonText = p.reason;
     if (p.status === 'abnormal') {
       if (!p.abnormalReasonId) throw new BadRequestException('店铺状态选择异常时，必须选择异常原因');
       const r = await this.dataSource.manager.findOne(ResourceRecord, { where: { id: p.abnormalReasonId, companyId: user.companyId, type: 'store-abnormal-reasons', status: 'normal' } });
       if (!r) throw new BadRequestException('请选择店铺档案中已有的异常原因');
+      reasonText = r.title;
     }
-    await this.resources.changeStatus(user, 'stores', shop.storeId, p.status, p.reason);
+    await this.resources.changeStatus(user, 'stores', shop.storeId, p.status, reasonText);
     if (p.status === 'abnormal') await this.resources.update(user, 'stores', shop.storeId, { abnormalReason: p.abnormalReasonId });
     await this.dataSource.transaction(async (em) => this.log(em, user.companyId, 'store_status_changed', `店铺档案状态改为「${STATUS_LABELS[p.status]}」`, { actorId: user.id, storeId: shop.storeId }));
     return { ok: true, status: p.status, statusLabel: STATUS_LABELS[p.status] };

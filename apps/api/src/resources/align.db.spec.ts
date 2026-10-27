@@ -120,9 +120,12 @@ d('资料规则（对齐旧程序）', () => {
     expect((await svc.relations(boss, 'partners', p.id, all)).filter((r) => r.relation === 'manual')).toHaveLength(1);
     // 被手动关联的资料可以删除（不算引用），删除后关联消失
     const keep = (await svc.relations(boss, 'partners', p.id, all)).find((r) => r.relation === 'manual')!;
-    for (const t of ['partners', 'tax-profiles']) for (const dep of (await svc.list(boss, t, { fieldKey: 'licenseId', fieldValue: String(keep.id), showHidden: true })).items) await svc.remove(boss, t, dep.id, '清理');
+    // 删除=归档：先归档执照，税务资料要等执照不在了才能归档
+    for (const dep of (await svc.list(boss, 'partners', { fieldKey: 'licenseId', fieldValue: String(keep.id), showHidden: true })).items) await svc.remove(boss, 'partners', dep.id, '清理');
     await svc.remove(boss, 'licenses', keep.id, '测试');
-    expect((await svc.relations(boss, 'partners', p.id, all)).filter((r) => r.relation === 'manual')).toHaveLength(0);
+    for (const dep of (await svc.list(boss, 'tax-profiles', { fieldKey: 'licenseId', fieldValue: String(keep.id), showHidden: true })).items) await svc.remove(boss, 'tax-profiles', dep.id, '清理');
+    // 归档不动关联（可无损恢复）
+    expect((await svc.relations(boss, 'partners', p.id, all)).filter((r) => r.relation === 'manual')).toHaveLength(1);
   });
 
   it('固定资产：分类自定义属性、所属部门；店铺领取状态联动；自媒体按平台带属性', async () => {

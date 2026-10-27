@@ -7,6 +7,7 @@ import { buildDataSourceOptions } from '../database/data-source';
 import { Company, User } from '../entities';
 import { buildServices } from '../test-support';
 import { FeeArchiveService } from './fee-archive.service';
+import { EmployeePartyService } from './employee-party.service';
 import { FinanceDocumentsService } from './finance-documents.service';
 import { ResourcesService } from './resources.service';
 
@@ -33,7 +34,7 @@ d('财务单据（真实数据库）', () => {
     await ds.initialize();
     svc = buildServices(ds).resources;
     docs = new FinanceDocumentsService(ds);
-    const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `d${crypto.randomBytes(5).toString('hex')}`, name: '单据测试', status: 'active' }));
+    const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `d${crypto.randomBytes(5).toString('hex')}`, name: '山东优冠种业单据测试', status: 'active' }));
     const u = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: 'admin', passwordHash: 'x', name: '老板', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
     boss = { id: u.id, companyId: c.id, name: '老板', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
     clerk = { id: u.id, companyId: c.id, name: '文员', permissions: { isCompanyAdmin: false, allow: ['finance.docs.create', 'finance.doc-sale.view', 'finance.history.view', 'finance.drafts.view', 'finance.doc-purchase-in.view'], deny: [] } };
@@ -255,6 +256,22 @@ d('财务单据（真实数据库）', () => {
     const withObj = await docs.createDraft(boss, { type: 'expense', date: day, bankAccountId: ids.bank, lines: [{ feeItemId: must, qty: 1, unitPriceCents: 3000, relatedNode: phone ? '手机号' : '公司', relatedId: phone?.id ?? null, relatedName: phone ? null : '总公司' }] });
     expect((await docs.issue(boss, withObj.id)).status).toBe('issued');
     await expect(docs.createDraft(boss, { type: 'expense', date: day, lines: [{ feeItemId: must, qty: 1, unitPriceCents: 1, relatedNode: '乱写' }] })).rejects.toThrow(/不认识/);
+  });
+
+  it('员工作为往来对象：同步员工名单（不重复）；费用单挂员工，没付的部分记在员工名下', async () => {
+    const ep = new EmployeePartyService(ds, svc);
+    const r1 = await ep.sync(boss);
+    expect(r1.created).toBeGreaterThanOrEqual(1);
+    expect((await ep.sync(boss)).created).toBe(0);
+    const party = (await svc.list(boss, 'finance-employee-parties', { pageSize: 5 } as never)).items[0] as { id: number };
+    const d = await docs.createDraft(boss, { type: 'expense', date: day, partyKind: 'employee', partyId: party.id, bankAccountId: ids.bank, paidCents: 0, lines: [{ feeItemId: ids.feeOut, qty: 1, unitPriceCents: 800 }] } as never);
+    expect(d.partyName).toBeTruthy();
+    await docs.issue(boss, d.id);
+    const posted = await docs.post(boss, d.id);
+    expect(posted.status).toBe('posted');
+    expect(posted.partyKind).toBe('employee');
+    // 收款单不允许选员工
+    await expect(docs.createDraft(boss, { type: 'receipt', date: day, partyKind: 'employee', partyId: party.id, bankAccountId: ids.bank, amountCents: 100 } as never)).rejects.toThrow(/不能选/);
   });
 
   it('导入默认费用档案：类别树和费用项目，重复导入不重复', async () => {

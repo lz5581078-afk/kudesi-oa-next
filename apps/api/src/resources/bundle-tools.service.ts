@@ -7,15 +7,18 @@ import { ResourceRecord } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
 import { COST_FIELDS, sigOf } from './base-code-support';
 import { composeBundle } from './bundle-naming';
-import { buildBundleLines, bundleSnapshotJson, findNamingRule, namingInputFor } from './finance-rules';
+import { bundleIssues, pickLine } from './bundle-checks';
+import { registerCostSnapshots } from './cost-snapshot';
+import { unfinishedApplications } from './bundle-guards';
+import { buildBundleLines, bundleSnapshotJson, composeBundleFor, findNamingRule, namingInputFor, refreshBundle } from './finance-rules';
 import { ResourcesService } from './resources.service';
 
 const TYPE = 'finance-bundles';
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-export interface LineInput { role: string; baseCodeId?: number; laborId?: number; qty: number }
-export interface TargetInput { platformId: number; scenarioId: number; configNo?: string }
+export interface LineInput { sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean; costBucket?: string; costTreatment?: string; note?: string }
+export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number }
 interface SnapLine { role: string; ref: string; qty: number; weightG: number | null; cost: number | null }
 interface BundleSnap { profile: Record<string, string>; lines: SnapLine[] }
 
@@ -96,7 +99,7 @@ export class BundleToolsService {
       const scenario = await em.findOne(ResourceRecord, { where: { id: t.scenarioId, companyId: user.companyId, type: 'finance-scenarios' } });
       if (!platform || !scenario) throw new BadRequestException('销售平台或销售场景不存在');
       const configNo = t.configNo || '01';
-      const composed = composeBundle(rule, await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, configNo));
+      const composed = composeBundle(rule, await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, configNo, t.brandId));
       const reuse = allBundles.find((b) => b.status !== 'archived' && b.data.platformId === platform.id && b.data.scenarioId === scenario.id && str(b.data.configNo || '01') === configNo
         && sigOf(...(linesOf.get(b.id) ?? []).map(lineKey).sort()) === mySig);
       const layers: { layer: string; label: string; hit: string }[] = [];
@@ -115,7 +118,8 @@ export class BundleToolsService {
         code: composed.code, name: composed.name, styleCode: composed.styleCode, shortName: composed.shortName,
         reuse: reuse ? { id: reuse.id, code: str(reuse.data.code), status: reuse.status } : null,
         duplicates: layers,
-        ok: !!reuse || layers.length === 0,
+        errors: composed.errors,
+        ok: (!!reuse || layers.length === 0) && composed.errors.length === 0,
       });
     }
     return { targets: out, namingRule: !!rule };
@@ -128,13 +132,14 @@ export class BundleToolsService {
     return run(async (em) => {
       const pre = await this.preview(user, lines, targets, em);
       const bad = pre.targets.find((t) => !t.ok);
+      if (bad?.errors.length) throw new BadRequestException(bad.errors.join('；'));
       if (bad) throw new ConflictException(`「${bad.code}」重复：${bad.duplicates.map((d) => `${d.label}「${d.hit}」`).join('、')}`);
       const created: { id: number; code: string; reused: boolean }[] = [];
       for (const t of pre.targets) {
         if (t.reuse) { created.push({ id: t.reuse.id, code: t.reuse.code, reused: true }); continue; }
-        const b = await this.resources.createRecord(em, user, TYPE, { platformId: t.platformId, scenarioId: t.scenarioId, configNo: t.configNo }, '批量生成组合');
+        const b = await this.resources.createRecord(em, user, TYPE, { platformId: t.platformId, scenarioId: t.scenarioId, configNo: t.configNo, bundleCategoryId: targets.find((x) => x.platformId === t.platformId && x.scenarioId === t.scenarioId)?.bundleCategoryId, brandId: targets.find((x) => x.platformId === t.platformId && x.scenarioId === t.scenarioId)?.brandId }, '批量生成组合');
         await buildBundleLines(this.resources as never, em, user, b.id, async () => {
-          for (const l of lines) await this.resources.createRecord(em, user, 'finance-bundle-lines', { bundleId: b.id, role: l.role, baseCodeId: l.baseCodeId, laborId: l.laborId, qty: l.qty }, '批量生成组合');
+          for (const l of lines) await this.resources.createRecord(em, user, 'finance-bundle-lines', { bundleId: b.id, ...pickLine(l as never), sortOrder: undefined }, '批量生成组合');
         });
         const fresh = await this.load(em, user, b.id);
         created.push({ id: b.id, code: str(fresh.data.code), reused: false });
@@ -146,6 +151,10 @@ export class BundleToolsService {
   // ---------- 构成修订 ----------
 
   async createRevision(user: AuthUser, bundleId: number, reason: string, lines: LineInput[]) {
+    if (await this.pendingJobs(user, bundleId)) throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请等它发完再改构成');
+    const cur = await this.load(this.ds.manager, user, bundleId);
+    const app = await unfinishedApplications(this.ds.manager, user.companyId, cur, await this.lineRecords(this.ds.manager, user, bundleId));
+    if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再改构成`);
     return this.ds.transaction(async (em) => {
       await this.load(em, user, bundleId);
       const r = await this.resources.createRecord(em, user, 'finance-bundle-revisions', { bundleId, reason, payload: JSON.stringify(lines) }, '提交构成修订');
@@ -168,7 +177,7 @@ export class BundleToolsService {
     const revId = num(b.data.pendingRevisionId);
     const revision = revId ? await em.findOne(ResourceRecord, { where: { id: revId, companyId: user.companyId, type: 'finance-bundle-revisions' } }) : null;
     if (revision && revision.status === 'pending') return { lines: JSON.parse(str(revision.data.payload)) as LineInput[], revision };
-    const lines = (await this.lineRecords(em, user, b.id)).map((l) => ({ role: str(l.data.role), baseCodeId: num(l.data.baseCodeId) ?? undefined, laborId: num(l.data.laborId) ?? undefined, qty: Number(l.data.qty) }));
+    const lines = (await this.lineRecords(em, user, b.id)).map((l) => pickLine(l.data) as unknown as LineInput);
     return { lines, revision: null };
   }
 
@@ -179,12 +188,12 @@ export class BundleToolsService {
     const { lines, revision } = await this.currentLines(em, user, b);
     const issues: string[] = [];
     if (!lines.some((l) => l.role === 'main')) issues.push('还没有主品');
-    const components = [];
+    const components: Array<Record<string, unknown>> = [];
     let totalWeight = 0, totalCost = 0;
     for (const l of lines) {
       if (l.role === 'labor') {
         const lab = await em.findOne(ResourceRecord, { where: { id: Number(l.laborId), companyId: user.companyId, type: 'finance-labor-costs' } });
-        components.push({ role: l.role, code: '', name: lab?.title ?? '已删除的人工项目', qty: l.qty, weightG: null, cost: null });
+        components.push({ role: l.role, code: '', name: lab?.title ?? '已删除的人工项目', qty: l.qty, weightG: null, cost: null, unit: '', includeInJst: false, isRequired: l.isRequired !== false, costTreatment: str(l.costTreatment) || 'include' });
         continue;
       }
       const bc = await em.findOne(ResourceRecord, { where: { id: Number(l.baseCodeId), companyId: user.companyId, type: 'finance-base-codes' } });
@@ -193,8 +202,11 @@ export class BundleToolsService {
       const w = num(bc.data.weightG), c = num(bc.data.cost);
       totalWeight += (w ?? 0) * l.qty;
       totalCost += (c ?? 0) * l.qty;
-      components.push({ role: l.role, code: str(bc.data.code), name: str(bc.data.name) || bc.title, qty: l.qty, weightG: w, cost: cost ? c : undefined });
+      components.push({ role: l.role, code: str(bc.data.code), name: str(bc.data.name) || bc.title, qty: l.qty, weightG: w, cost: cost ? c : undefined, unit: str(l.unit), includeInJst: l.includeInJst === true, isRequired: l.isRequired !== false, lossRate: l.lossRate ?? 0, costBucket: str(l.costBucket), costTreatment: str(l.costTreatment) || 'include' });
     }
+    // 旧系统验证问题清单：分类、必填文本、单位、成本、重量、进聚水潭行等一次列全
+    const platform = await em.findOne(ResourceRecord, { where: { id: Number(b.data.platformId), companyId: user.companyId, type: 'finance-platforms' } });
+    for (const m of await bundleIssues(em, user.companyId, b.data, lines as never, platform?.status)) if (!issues.includes(m)) issues.push(m);
     const snapJson = await bundleSnapshotJson(em, user.companyId, b.data, lines as never);
     const stored = this.parse(b.data.snapshot);
     const now = JSON.parse(snapJson) as BundleSnap;
@@ -240,7 +252,7 @@ export class BundleToolsService {
   async verify(user: AuthUser, items: { id: number; signature: string; uploadSignature?: string }[], opts: { confirmed: boolean; syncToJst: boolean; replaceConfirmed?: boolean }) {
     if (!opts.confirmed) throw new BadRequestException('请先勾选“已核对”');
     if (!items.length) throw new BadRequestException('没有要验证的组合');
-    if (opts.syncToJst && !user.permissions.isCompanyAdmin) throw new ForbiddenException('只有公司管理员能把验证结果同步到聚水潭');
+    if (opts.syncToJst) this.outbox.needBundles(user);
     const results: { id: number; ok: boolean; error?: string; queued?: boolean }[] = [];
     for (const it of items) {
       try {
@@ -248,8 +260,15 @@ export class BundleToolsService {
         if (!['pending', 'reverify'].includes(rep.status)) throw new BadRequestException('这条已经验证过了');
         if (rep.signature !== it.signature) throw new ConflictException('核对之后资料又变了，请重新核对');
         if (rep.issues.length) throw new BadRequestException(rep.issues[0]);
+        if (rep.pendingRevision) {
+          // 发布构成修订：有还没办完的 SKU 申请用到旧构成时拦住，避免申请办到一半构成变了
+          const cur = await this.load(this.ds.manager, user, it.id);
+          const app = await unfinishedApplications(this.ds.manager, user.companyId, cur, await this.lineRecords(this.ds.manager, user, it.id));
+          if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再发布修订`);
+        }
         if (opts.syncToJst && rep.uploadSignature !== it.uploadSignature) throw new ConflictException('要上传的内容在核对之后变了，请重新核对');
         await this.resources.changeStatus(user, TYPE, it.id, 'verified');
+        await registerCostSnapshots(this.ds.manager, user.companyId, user.id, [it.id], '验证通过', 'workflow_publish');
         let queued = false;
         if (opts.syncToJst) queued = (await this.outbox.enqueue(user, TYPE, [it.id], { replaceConfirmed: opts.replaceConfirmed })).queued > 0;
         results.push({ id: it.id, ok: true, queued });
@@ -288,16 +307,68 @@ export class BundleToolsService {
   }
 
   /** 失效归档：组合不再使用。上传过聚水潭的，同时把“停用旧编码”加入出站队列（需要确认，且只有管理员能做）。 */
+  /** 还在队列里（待发送/发送中）的上传任务：这时改构成、归档都会和队列里的内容打架 */
+  private async pendingJobs(user: AuthUser, id: number) {
+    const [{ n }] = await this.ds.query("SELECT COUNT(*) AS n FROM outbox_jobs WHERE company_id = ? AND resource_type = ? AND resource_id = ? AND status IN ('pending', 'sending')", [user.companyId, TYPE, id]);
+    return Number(n);
+  }
+
   async archive(user: AuthUser, id: number, reason: string, disableConfirmed: boolean) {
     if (reason.trim().length < 2) throw new BadRequestException('必须写明归档原因');
     const b = await this.load(this.ds.manager, user, id);
     if (b.status === 'archived') throw new BadRequestException('已经归档了');
+    if (await this.pendingJobs(user, id)) throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请先等它发完或在同步队列里取消');
+    if (num(b.data.pendingRevisionId)) throw new ConflictException('这个组合有待发布的构成修订，请先发布或取消修订');
     const synced = !!str(b.data.jstUploadedCode);
     if (synced && !disableConfirmed) throw new BadRequestException('这个组合上传过聚水潭，需要确认“同时在聚水潭停用它”');
-    if (synced && !user.permissions.isCompanyAdmin) throw new ForbiddenException('上传过聚水潭的组合，只有公司管理员能归档');
+    if (synced && !this.outbox.canBundles(user)) throw new ForbiddenException('上传过聚水潭的组合，只有公司管理员或有「组合装同步维护」权限的人能归档');
+    const app = await unfinishedApplications(this.ds.manager, user.companyId, b, await this.lineRecords(this.ds.manager, user, id));
+    if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再归档`);
     let queued = false;
-    if (synced) queued = (await this.outbox.enqueueDisable(user, TYPE, id, reason.trim())).queued;
+    let disable: Awaited<ReturnType<OutboxService['enqueueDisable']>> | null = null;
+    if (synced) { disable = await this.outbox.enqueueDisable(user, TYPE, id, reason.trim()); queued = disable.queued; }
     await this.resources.changeStatus(user, TYPE, id, 'archived', reason.trim());
+    if (synced && disable) await this.outbox.recordArchiveJob(user, { id, code: str(b.data.code), name: str(b.data.name) }, reason.trim(), { jobId: disable.jobId, targetKey: disable.targetKey });
     return { ok: true, disableQueued: queued };
+  }
+
+  // ---------- 改了命名规则后：按新规则批量重生成编码（要预览、要写原因、要确认，不会自动改） ----------
+
+  /** 现在的命名规则下，哪些组合的编码/名称和已有的不一样（只算，不写） */
+  async regeneratePreview(user: AuthUser) {
+    const em = this.ds.manager;
+    const all = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE } });
+    const rows: Array<{ id: number; status: string; oldCode: string; newCode: string; oldName: string; newName: string; uploadedCode: string | null; token: string; error: string | null; blocked: string | null }> = [];
+    for (const b of all.filter((x) => ['pending', 'verified', 'reverify'].includes(x.status)).sort((a, c) => a.id - c.id)) {
+      let out: Awaited<ReturnType<typeof composeBundleFor>> = null;
+      let error: string | null = null;
+      try { out = await composeBundleFor(this.resources, em, user, b); } catch (e) { error = (e as Error).message; }
+      if (!error && !out) continue;
+      const oldCode = str(b.data.code), oldName = str(b.data.name);
+      const newCode = out ? str(out.patch.code) : oldCode, newName = out ? str(out.patch.name) : oldName;
+      if (!error && newCode === oldCode && newName === oldName) continue;
+      const blocked = (await this.pendingJobs(user, b.id)) ? '还有没发送完的聚水潭同步任务' : num(b.data.pendingRevisionId) ? '有待发布的构成修订' : (await unfinishedApplications(em, user.companyId, b, await this.lineRecords(em, user, b.id))) ? '有还没办完的 SKU 批量申请用到它' : null;
+      rows.push({ id: b.id, status: b.status, oldCode, newCode, oldName, newName, uploadedCode: str(b.data.jstUploadedCode) || null, token: sigOf('bundle-regen', b.id, oldCode, newCode, oldName, newName), error, blocked });
+    }
+    return { rows };
+  }
+
+  async regenerateExecute(user: AuthUser, items: { id: number; token: string }[], reason: string, confirmed: boolean) {
+    if (reason.trim().length < 2) throw new BadRequestException('批量重生成编码必须写明原因');
+    if (confirmed !== true) throw new BadRequestException('请先确认要按新规则重新生成这些组合的编码');
+    const current = new Map((await this.regeneratePreview(user)).rows.map((r) => [r.id, r]));
+    const results: { id: number; ok: boolean; error?: string; code?: string }[] = [];
+    for (const it of items) {
+      const row = current.get(it.id);
+      try {
+        if (!row) throw new ConflictException('这个组合的编码已经和新规则一致，或不在可重生成的范围里');
+        if (row.token !== it.token) throw new ConflictException('预览之后命名规则或构成又变了，请重新预览');
+        if (row.error) throw new BadRequestException(row.error);
+        if (row.blocked) throw new ConflictException(row.blocked);
+        await this.ds.transaction((em) => refreshBundle(this.resources, em, user, it.id, `按新命名规则批量重生成编码：${reason.trim()}`));
+        results.push({ id: it.id, ok: true, code: row.newCode });
+      } catch (e) { results.push({ id: it.id, ok: false, error: (e as Error).message }); }
+    }
+    return { results, done: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
   }
 }

@@ -91,21 +91,21 @@ describe('后端整体链路（内存假仓库）', () => {
       { id: 2, code: 'other', name: '另一家公司', status: 'active', createdAt: new Date() },
     ]);
     const users = new FakeRepo<User>([
-      { id: 1, companyId: 1, account: 'admin', passwordHash: hash, name: '管理员', positionId: null, extraPositionIds: null, departmentId: null, isCompanyAdmin: true, status: 'active', mustChangePassword: false, lastLoginAt: null, managerId: null, title: null, baseSalary: null, createdAt: new Date() },
-      { id: 2, companyId: 1, account: 'ops', passwordHash: hash, name: '运营', positionId: 10, extraPositionIds: null, departmentId: null, isCompanyAdmin: false, status: 'active', mustChangePassword: false, lastLoginAt: null, managerId: null, title: null, baseSalary: null, createdAt: new Date() },
-      { id: 3, companyId: 1, account: 'gone', passwordHash: hash, name: '已停用', positionId: null, extraPositionIds: null, departmentId: null, isCompanyAdmin: true, status: 'disabled', mustChangePassword: false, lastLoginAt: null, managerId: null, title: null, baseSalary: null, createdAt: new Date() },
-      { id: 4, companyId: 2, account: 'boss2', passwordHash: hash, name: '二号老板', positionId: null, extraPositionIds: null, departmentId: null, isCompanyAdmin: true, status: 'active', mustChangePassword: false, lastLoginAt: null, managerId: null, title: null, baseSalary: null, createdAt: new Date() },
+      { id: 1, companyId: 1, account: 'admin', passwordHash: hash, name: '管理员', positionId: null, extraPositionIds: null, departmentId: null, isCompanyAdmin: true, status: 'active', mustChangePassword: false, lastLoginAt: null, managerId: null, title: null, baseSalary: null, payType: 'monthly', hourlyRate: null, employmentType: 'regular', createdAt: new Date() },
+      { id: 2, companyId: 1, account: 'ops', passwordHash: hash, name: '运营', positionId: 10, extraPositionIds: null, departmentId: null, isCompanyAdmin: false, status: 'active', mustChangePassword: false, lastLoginAt: null, managerId: null, title: null, baseSalary: null, payType: 'monthly', hourlyRate: null, employmentType: 'regular', createdAt: new Date() },
+      { id: 3, companyId: 1, account: 'gone', passwordHash: hash, name: '已停用', positionId: null, extraPositionIds: null, departmentId: null, isCompanyAdmin: true, status: 'disabled', mustChangePassword: false, lastLoginAt: null, managerId: null, title: null, baseSalary: null, payType: 'monthly', hourlyRate: null, employmentType: 'regular', createdAt: new Date() },
+      { id: 4, companyId: 2, account: 'boss2', passwordHash: hash, name: '二号老板', positionId: null, extraPositionIds: null, departmentId: null, isCompanyAdmin: true, status: 'active', mustChangePassword: false, lastLoginAt: null, managerId: null, title: null, baseSalary: null, payType: 'monthly', hourlyRate: null, employmentType: 'regular', createdAt: new Date() },
     ]);
     const positions = new FakeRepo<Position>([
-      { id: 10, companyId: 1, departmentId: null, name: '运营专员', workspaceType: 'operations', sortOrder: 0, level: 'staff', supervisorPositionId: null, description: null, status: 'active' },
+      { id: 10, companyId: 1, departmentId: null, name: '运营专员', workspaceType: 'operations', sortOrder: 0, level: 'staff', supervisorPositionId: null, description: null, status: 'active', positionKey: null },
     ]);
     const positionPermissions = new FakeRepo<PositionPermission>([
       { id: 1, positionId: 10, permission: 'workbench.todos.view' },
     ]);
     const overrides = new FakeRepo<UserPermissionOverride>([]);
     deps = new FakeRepo<Department>([
-      { id: 1, companyId: 1, parentId: null, name: '公司1-运营', sortOrder: 0, status: 'active', createdAt: new Date() },
-      { id: 2, companyId: 2, parentId: null, name: '公司2-财务', sortOrder: 0, status: 'active', createdAt: new Date() },
+      { id: 1, companyId: 1, parentId: null, name: '公司1-运营', sortOrder: 0, status: 'active', managerId: null, isSystem: false, createdAt: new Date() },
+      { id: 2, companyId: 2, parentId: null, name: '公司2-财务', sortOrder: 0, status: 'active', managerId: null, isSystem: false, createdAt: new Date() },
     ]);
     audits = new FakeRepo<AuditLog>([]);
     platformAdmins = new FakeRepo<PlatformAdmin>([

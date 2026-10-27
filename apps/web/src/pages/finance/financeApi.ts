@@ -10,7 +10,7 @@ export interface DocLineView extends DocLineInput { id: number; productName: str
 export interface DocDetailDto {
   id: number; docNo: string; docType: DocType; typeLabel: string; status: DocRow['status']; docDate: string; partyId: number | null; partyName: string;
   storeId: number | null; storeName: string; refNo: string | null; bankAccountId: number | null; bankName: string; toBankAccountId: number | null; toBankName: string; warehouseId: number | null; warehouseName: string;
-  amountCents: number; offsetCents: number; paidCents: number; partyKind: 'customer' | 'store' | 'supplier' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
+  amountCents: number; offsetCents: number; paidCents: number; partyKind: 'customer' | 'store' | 'supplier' | 'employee' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
   sourceKey?: string | null; openingVouchers?: FileInfo[];
   settleBy?: 'doc' | 'product' | null; settleByLabel?: string | null;
   settlements?: Array<{ id: number; sourceDocId: number; sourceDocNo: string; sourceTypeLabel: string; productId: number | null; productName: string; amountCents: number }>;
@@ -34,7 +34,7 @@ export interface MarginHistoryRow { id: string; createdAt: string; actorName: st
 export interface PricingHistoryRow { id: string; createdAt: string; actorName: string; bundleId: number; code: string; name: string; beforeCarrier: string; afterCarrier: string; beforePercent: number | null; afterPercent: number | null; reason: string }
 export interface Paged<T> { total: number; page: number; pageSize: number; rows: T[] }
 
-export interface DebugRow { id: number; skuCode: string; skuName: string; categoryId: number | null; categoryName: string; ready: boolean; weightG: number | null; minPriceCents: number | null; preShipCostCents?: number | null }
+export interface DebugRow { id: number; skuCode: string; skuName: string; categoryId: number | null; categoryName: string; ready: boolean; weightG: number | null; minPriceCents: number | null; preShipCostCents?: number | null; exclusiveOwners?: Array<{ id: number; ownerName: string; endsAt: string; mine: boolean }> }
 export interface DebugList { rows: DebugRow[]; total: number; page: number; pageSize: number; canViewInternals: boolean }
 export interface DebugComponents { categories: Array<{ id: number; name: string; parentId: number | null }>; rows: Array<{ id: number; code: string; name: string; categoryId: number | null }>; total: number; page: number; pageSize: number }
 export interface DebugProfit { id: number; amountCents: number }
@@ -61,7 +61,7 @@ export interface Overview {
   receivableCents: number; payableCents: number; advanceReceiptCents: number; prepaymentCents: number; bankCents: number | null; drafts: number; issued: number;
 }
 
-export interface CostSnapshotRow { id: number; bundleId: number; code: string; name: string; revision: number; reason: string; actorName: string; createdAt: string; preShipCostCents: number | null; weightG: number | null; freightCents: number | null; marginPercent: number | null; minPriceCents: number | null; changes: Array<{ field: string; label: string; before: number | null; after: number | null }> }
+export interface CostSnapshotRow { eventType?: string; eventLabel?: string; id: number; bundleId: number; code: string; name: string; revision: number; reason: string; actorName: string; createdAt: string; preShipCostCents: number | null; weightG: number | null; freightCents: number | null; marginPercent: number | null; minPriceCents: number | null; changes: Array<{ field: string; label: string; before: number | null; after: number | null }> }
 export interface ZoneRow { carrier: string; branch: string; weightStart: number; weightEnd: number; cents: number; provinces: string[]; suggestedName: string }
 export interface PackagingMatch {
   selected: { scheme: { id: number; code: string; name: string; usageScene: string }; lines: Array<{ componentName: string; qty: number; lossRate: number | null; costTreatment: string; costBucket: string }> } | null;
@@ -99,13 +99,14 @@ export const financeApi = {
   openingVoucherUrl: (id: number, fileId: number) => api<{ url: string }>(`/finance/docs/${id}/opening-vouchers/${fileId}/url`),
   reverse: (id: number, reason: string) => api<DocDetailDto>(`/finance/docs/${id}/reverse`, { method: 'POST', body: { reason } }),
   costTable: (p: { categoryId?: number; keyword?: string; page?: number }) => api<CostTableData>(`/finance/cost-table${qs({ ...p, pageSize: 20 })}`),
+  exportCostTable: (p: { categoryId?: number; keyword?: string }) => api<{ fileName: string; fileBase64: string; rowCount: number }>(`/finance/cost-table/export${qs(p)}`),
   saveCostPricing: (bundleId: number, b: CostPricingSave) => api<{ ok: true; changed: boolean }>(`/finance/cost-table/${bundleId}/pricing`, { method: 'PUT', body: b }),
   saveCategoryMargin: (categoryId: number, b: { revision: string; profitPercent: number | null; reason: string }) => api<{ ok: true; changed: boolean }>(`/finance/cost-table/category-margins/${categoryId}`, { method: 'PUT', body: b }),
   skuCostHistory: (bundleId: number, page = 1) => api<{ changes: { total: number; rows: CostSnapshotRow[] }; pricing: { total: number; rows: PricingHistoryRow[] } }>(`/finance/cost-table/${bundleId}/history${qs({ page })}`),
   marginHistory: (p: { keyword?: string; page?: number }) => api<Paged<MarginHistoryRow>>(`/finance/cost-history/margins${qs(p)}`),
   pricingHistory: (p: { keyword?: string; page?: number }) => api<Paged<PricingHistoryRow>>(`/finance/cost-history/pricing${qs(p)}`),
   debugComponents: (p: { categoryId?: number; keyword?: string; page?: number }) => api<DebugComponents>(`/finance/pricing-debug/components${qs(p)}`),
-  debugList: (p: { categoryId?: number; baseCodeId?: number; keyword?: string; page?: number; pageSize?: number }) => api<DebugList>(`/finance/pricing-debug${qs(p)}`),
+  debugList: (p: { categoryId?: number; baseCodeId?: number; keyword?: string; exclusive?: 'mine'; page?: number; pageSize?: number }) => api<DebugList>(`/finance/pricing-debug${qs(p)}`),
   debugSlider: (b: { id: number; step: number; profit?: DebugProfit }) => api<DebugSlider>('/finance/pricing-debug/slider-price', { method: 'POST', body: b }),
   debugQuote: (b: { mode: 'roiToPrice' | 'priceToRoi'; inputs: Array<{ id: number; step: number; value: number; profit?: DebugProfit }> }) => api<{ rows: DebugQuote[] }>('/finance/pricing-debug/quote', { method: 'POST', body: b }),
   debugExport: (inputs: DebugExportInput[]) => api<{ fileName: string; fileBase64: string; rowCount: number }>('/finance/pricing-debug/export', { method: 'POST', body: { inputs } }),
@@ -116,6 +117,7 @@ export const financeApi = {
   banks: () => api<BankBalance[]>('/finance/bank-balances'),
   ledger: (id: number, p: { from?: string; to?: string } = {}) => api<Ledger>(`/finance/bank-ledger/${id}${qs(p)}`),
   inventory: (p: { warehouseId?: number; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
+  syncEmployees: () => api<{ created: number }>('/finance/employee-parties/sync', { method: 'POST', body: {} }),
   openItems: (p: { dir: 'in' | 'out'; partyKind: string; partyId: number }) => api<OpenItem[]>(`/finance/open-items${qs(p)}`),
   settlementDetail: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<SettlementRow[]>(`/finance/settlement-detail${qs(p)}`),
   unsettledReceipts: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<UnsettledRow[]>(`/finance/unsettled-receipts${qs(p)}`),
@@ -135,7 +137,6 @@ export const financeApi = {
   jstSwitch: () => api<{ enabled: boolean; note: string | null; senderConfigured: boolean }>('/finance/jst-sync/switch'),
   setJstSwitch: (enabled: boolean, note?: string) => api<{ enabled: boolean; note: string | null; senderConfigured: boolean }>('/finance/jst-sync/switch', { method: 'PUT', body: { enabled, note } }),
   jstJobs: (p: { status?: string; page?: number }) => api<{ total: number; counts: Record<string, number>; rows: OutboxJobRow[] }>(`/finance/jst-sync/jobs${qs({ ...p, pageSize: 20 })}`),
-  jstEnqueue: (type: string) => api<{ queued: number; skipped: number }>('/finance/jst-sync/enqueue', { method: 'POST', body: { type } }),
   jstRetry: (id: number) => api<{ ok: true }>(`/finance/jst-sync/jobs/${id}/retry`, { method: 'POST', body: {} }),
   jstCancel: (id: number) => api<{ ok: true }>(`/finance/jst-sync/jobs/${id}/cancel`, { method: 'POST', body: {} }),
   overview: (month?: string) => api<Overview>(`/finance/overview${qs({ month })}`),

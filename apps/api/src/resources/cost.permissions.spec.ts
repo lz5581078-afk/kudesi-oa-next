@@ -18,10 +18,11 @@ describe('成本表 / 定价调试表的接口权限', () => {
   const ops = user(['finance.pricing-debug.view']);
 
   it('没有 product.cost.view：成本表、成本历史一律拒绝（不是前端隐藏）', () => {
-    for (const h of ['table', 'one', 'skuHistory', 'marginHistory', 'pricingHistory'] as const) expect(can(h, pageOnly)).toBe(false);
+    for (const h of ['table', 'one', 'skuHistory', 'marginHistory', 'pricingHistory', 'exportTable'] as const) expect(can(h, pageOnly)).toBe(false);
   });
   it('有成本查看权限但没有 product.cost.edit：不能维护售价、不能改分类利润率', () => {
     expect(can('table', viewer)).toBe(true);
+    expect(can('exportTable', viewer)).toBe(true);
     expect(can('marginHistory', viewer)).toBe(true);
     expect(can('pricing', viewer)).toBe(false);
     expect(can('categoryMargin', viewer)).toBe(false);

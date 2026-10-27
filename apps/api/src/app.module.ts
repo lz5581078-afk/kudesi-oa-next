@@ -1,3 +1,7 @@
+import { PhoneUploadController } from './integrations/phone-upload.controller';
+import { PhoneUploadService } from './integrations/phone-upload.service';
+import { FormDraftsController } from './resources/form-drafts.controller';
+import { FormDraftsService } from './resources/form-drafts.service';
 import { LocalFilesController } from './integrations/local-files.controller';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
@@ -36,7 +40,11 @@ import { OcrService } from './integrations/ocr.service';
 import { RevenueController } from './resources/revenue.controller';
 import { OutboxController } from './outbox/outbox.controller';
 import { OutboxService } from './outbox/outbox.service';
-import { CatalogApiController, DataToolsController, ExternalFeedController } from './resources/data-tools.controller';
+import { CategoryToolsController } from './resources/category-tools.controller';
+import { CategoryToolsService } from './resources/category-tools.service';
+import { PriceSyncService } from './outbox/price-sync.service';
+import { CategorySyncService } from './outbox/category-sync.service';
+import { CatalogApiController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController } from './resources/data-tools.controller';
 import { CatalogApiService } from './resources/catalog-api.service';
 import { JstMaintenanceController } from './resources/jst-maintenance.controller';
 import { JstMaintenanceService } from './resources/jst-maintenance.service';
@@ -47,6 +55,15 @@ import { BundleToolsService } from './resources/bundle-tools.service';
 import { DataToolsService } from './resources/data-tools.service';
 import { FeeArchiveController } from './resources/fee-archive.controller';
 import { FeeArchiveService } from './resources/fee-archive.service';
+import { LaborController } from './resources/labor.controller';
+import { PackagingImportController } from './resources/packaging-import.controller';
+import { PackagingImportService } from './resources/packaging-import.service';
+import { ProductCostExcelController } from './resources/product-cost-excel.controller';
+import { ProductCostExcelService } from './resources/product-cost-excel.service';
+import { FeeSnapshotService } from './resources/fee-snapshot.service';
+import { EmployeePartyController } from './resources/employee-party.controller';
+import { EmployeePartyService } from './resources/employee-party.service';
+import { LaborCopyService } from './resources/labor-copy.service';
 import { RevenueService } from './resources/revenue.service';
 import { AgentController, MaintenanceController, SessionController } from './session/session.controller';
 import { MaintenanceService } from './session/maintenance.service';
@@ -69,11 +86,15 @@ import { PricingDebugService } from './resources/pricing-debug.service';
 import { FinanceDocumentsController } from './resources/finance-documents.controller';
 import { FinanceDocumentsService } from './resources/finance-documents.service';
 import { ResourcesController } from './resources/resources.controller';
+import { AssetsController } from './resources/assets.controller';
+import { AssetsService } from './resources/assets.service';
+import { DataIssuesService } from './resources/data-issues.service';
 import { ResourcesService } from './resources/resources.service';
 import { OrgController } from './org/org.controller';
 import { OrgAdminController } from './org/org-admin.controller';
 import { AuditController, BankFundController } from './org/audit.controller';
 import { OrgAdminService } from './org/org-admin.service';
+import { StaffImportService } from './org/staff-import.service';
 import { OrgService } from './org/org.service';
 import { CompanyApplyController, PlatformController } from './platform/platform.controller';
 import { PlatformService } from './platform/platform.service';
@@ -117,21 +138,32 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, OutboxController, DataToolsController, ExternalFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, ResourcesController, IntegrationSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, CategoryToolsController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController],
   providers: [
     AuthService,
     PlatformService,
     OrgService,
     OrgAdminService,
+    StaffImportService,
     ResourcesService,
+    AssetsService,
+    DataIssuesService,
     RevenueService,
     FeeArchiveService,
+    LaborCopyService,
+    PackagingImportService,
+    ProductCostExcelService,
+    EmployeePartyService,
+    FeeSnapshotService,
     DataToolsService,
     BaseCodeToolsService,
     CatalogApiService,
     JstMaintenanceService,
     BundleToolsService,
     OutboxService,
+    CategoryToolsService,
+    PriceSyncService,
+    CategorySyncService,
     CostService,
     ExpressService,
     CostMaintainService,
@@ -139,6 +171,8 @@ const env = loadEnv();
     FlowService,
     SkuApplyService,
     TaskService,
+    FormDraftsService,
+    PhoneUploadService,
     SessionService,
     MaintenanceService,
     RemoteAssistService,

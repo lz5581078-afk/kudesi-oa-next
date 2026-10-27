@@ -118,11 +118,11 @@ const ptab = (id: string, label: string): PageTab => ({ id, label, ref: id, perm
 export const PAGE_TABS: Record<string, readonly PageTab[]> = {
   'finance/cost-table': [ptab('cost-table', 'SKU成本表'), ptab('cost-history', '成本历史'), rtab('finance-margins', '分类利润率')],
   'finance/finance-express-prices': [rtab('finance-express-prices', '快递价格'), rtab('finance-freight-overrides', '成本表预估快递费'), ptab('zone-suggestion', '分区建议')],
-  'finance/finance-products': [rtab('finance-products', '商品档案'), rtab('finance-packaging-schemes', '包装方案'), ptab('packaging-match', '包装方案匹配')],
+  'finance/finance-products': [rtab('finance-products', '商品档案'), rtab('finance-packaging-schemes', '包装方案'), ptab('packaging-match', '包装方案匹配'), rtab('finance-zero-reasons', '零值原因'), rtab('finance-product-units', '单位与规格')],
   'finance/finance-suppliers': [rtab('finance-suppliers', '供应商档案'), rtab('finance-supplier-categories', '供应商分类')],
   'finance/finance-customers': [rtab('finance-customers', '客户档案'), rtab('finance-customer-categories', '客户分类')],
   'finance/finance-fee-items': [rtab('finance-fee-items', '费用档案'), rtab('finance-fee-categories', '费用类别')],
-  'finance/finance-base-codes': [rtab('finance-base-codes', '商品基础编码'), rtab('finance-categories', '商品分类'), rtab('finance-brands', '品牌')],
+  'finance/finance-base-codes': [rtab('finance-base-codes', '商品基础编码'), rtab('finance-categories', '商品分类'), rtab('finance-brands', '品牌'), rtab('finance-product-exclusives', '专属品')],
   'finance/finance-bundles': [rtab('finance-bundles', '商品组合编码'), rtab('finance-platforms', '销售平台'), rtab('finance-scenarios', '销售场景')],
   'finance/inventory': [ptab('inventory', '库存查询'), rtab('finance-warehouses', '仓库')],
   'finance/master-import': [ptab('master-import', '导入'), ptab('master-reset', '主数据重置')],
@@ -198,6 +198,8 @@ export const SPECIAL_PERMISSIONS = {
   flowTemplatesManage: 'flow.templates.manage',
   /** 查看商品价格 */
   productPriceView: 'product.price.view',
+  /** 组合装同步维护：把组合编码加入聚水潭同步队列（上传、改码、归档停用、基本售价同步）、重试/取消组合装任务；旧系统 finance-product-bundles.sync。总开关仍只有公司管理员能动 */
+  financeBundleSync: 'finance.bundle-sync.manage',
 } as const;
 
 export interface VisibleSection extends NavSection {
@@ -235,3 +237,23 @@ export const PLATFORM_PAGES = [
   { id: 'companies', title: '企业管理' },
 ] as const;
 export type PlatformPageId = (typeof PLATFORM_PAGES)[number]['id'];
+
+/**
+ * 资料记录的页面路径（用于“关联”“到期提醒”等处跳转并打开这条记录）。
+ * 优先找以资料类型为页面的菜单项；银行卡这类按类型拆成多个入口的，取第一个入口；找不到（只在别的页面里作为页签/子资料出现）返回 null。
+ */
+export function resourcePagePath(type: string): string | null {
+  for (const section of NAV_SECTIONS) {
+    if (section.id !== 'resource' && section.id !== 'finance') continue;
+    const direct = section.pages.find((p) => p.id === type && p.ready);
+    if (direct) return direct.path;
+  }
+  const view = RESOURCE_VIEWS.find((v) => v.type === type);
+  if (view) {
+    for (const section of NAV_SECTIONS) {
+      const p = section.pages.find((x) => x.id === view.id && x.ready);
+      if (p) return p.path;
+    }
+  }
+  return null;
+}

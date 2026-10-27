@@ -14,20 +14,53 @@ export interface DeleteExecResult { results: Array<{ code: string; ok: boolean; 
 
 export interface BundleReport {
   id: number; code: string; name: string; styleCode: string; shortName: string; status: string;
-  components: Array<{ role: string; code: string; name: string; qty: number; weightG: number | null; cost?: number | null }>;
+  components: Array<{ role: string; code: string; name: string; qty: number; weightG: number | null; cost?: number | null; unit?: string; includeInJst?: boolean; isRequired?: boolean; lossRate?: number; costBucket?: string; costTreatment?: string }>;
   totalWeightG: number; totalCost?: number; pendingRevision: { id: number; reason: string } | null; signature: string; issues: string[];
   secondVerification: boolean; baselineMissing: boolean; changes: Change[];
   outbound: { sku_id: string; i_id: string; name: string; short_name: string; weight: number; cost_price?: number };
   uploadSignature: string; uploadedCode: string | null; replacing: boolean; jstStatus: string;
 }
-export interface LineInput { role: string; baseCodeId?: number; laborId?: number; qty: number }
-export interface TargetInput { platformId: number; scenarioId: number; configNo?: string }
+export interface LineInput {
+  role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean;
+  costBucket?: string; costTreatment?: string; sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; note?: string;
+}
+export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number }
 export interface PreviewTarget {
   platformId: number; platformName: string; scenarioId: number; scenarioName: string; configNo: string; code: string; name: string; styleCode: string; shortName: string;
   reuse: { id: number; code: string; status: string } | null; duplicates: Array<{ layer: string; label: string; hit: string }>; ok: boolean;
 }
 
+export interface PriceRow { bundleId: number; code: string; name: string; action: 'enqueue' | 'blocked' | 'same'; priceCents: number | null; currentCents: number | null; reason: string | null }
+export interface PriceLog { id: number; bundleId: number; bundleName: string | null; status: string; priceCents: number | null; message: string | null; createdAt: string }
+export interface ArchiveJob { id: number; bundleId: number; code: string; name: string; status: string; message: string | null; reason: string; actorName: string | null; createdAt: string }
+export type CategoryScope = 'product' | 'bundle';
+export interface CategoryChange { localId: string; path: string; action: string; message: string; before: { name?: string; enable?: boolean | null } | null; after: { name?: string; enable?: boolean | null } | null }
+export interface CategoryPreview { scope: CategoryScope; targetKey: string; signature: string; conflicts: number; remoteOnly: number; changes: CategoryChange[]; note: string }
+export interface CategoryRun { id: number; scope: string; status: string; message: string; createdAt: string; changes: Array<{ localId: string; path: string; action: string; status: string; error: string | null }> }
+
+export interface RegenRow { id: number; status: string; oldCode: string; newCode: string; oldName: string; newName: string; uploadedCode: string | null; token: string; error: string | null; blocked: string | null }
+export interface CategoryNode { id: number; name: string; code: string; parentId: number; sort: number; status: string }
+
 export const jstApi = {
+  regenPreview: () => api<{ rows: RegenRow[] }>('/finance/bundles/regenerate/preview'),
+  regenExecute: (items: Array<{ id: number; token: string }>, reason: string) =>
+    api<{ results: Array<{ id: number; ok: boolean; error?: string; code?: string }>; done: number; failed: number }>('/finance/bundles/regenerate', { method: 'POST', body: { items, reason, confirmed: true } }),
+  categoryTree: (archiveType: string) => api<{ nodes: CategoryNode[] }>(`/finance/categories/tree?archiveType=${encodeURIComponent(archiveType)}`),
+  categoryReorder: (orderedIds: number[]) => api<{ ok: true; changed: number }>('/finance/categories/reorder', { method: 'POST', body: { orderedIds } }),
+
+  enqueue: (type: string, items: Array<{ id: number; signature: string }>, replaceConfirmed: boolean) =>
+    api<{ queued: number; skipped: number }>('/finance/jst-sync/enqueue', { method: 'POST', body: { type, items, confirmed: true, replaceConfirmed } }),
+  priceSwitch: () => api<{ enabled: boolean; senderConfigured: boolean }>('/finance/jst-sync/price/switch'),
+  setPriceSwitch: (enabled: boolean) => api<{ enabled: boolean; senderConfigured: boolean }>('/finance/jst-sync/price/switch', { method: 'PUT', body: { enabled, note: enabled ? '管理员打开基本售价同步' : '管理员关闭基本售价同步' } }),
+  pricePreview: () => api<{ rows: PriceRow[] }>('/finance/jst-sync/price/preview'),
+  priceRun: () => api<{ queued: number; blocked: number; same: number }>('/finance/jst-sync/price/run', { method: 'POST', body: {} }),
+  priceLogs: (page: number) => api<{ total: number; rows: PriceLog[] }>(`/finance/jst-sync/price/logs?page=${page}&pageSize=20`),
+  archiveJobs: () => api<{ rows: ArchiveJob[] }>('/finance/jst-sync/archive-jobs'),
+  recheckArchive: (id: number) => api<{ ok: true; status: string; message: string }>(`/finance/jst-sync/archive-jobs/${id}/recheck`, { method: 'POST', body: {} }),
+  categoryPreview: (scope: CategoryScope) => api<CategoryPreview>('/finance/jst-sync/category/preview', { method: 'POST', body: { scope } }),
+  categoryExecute: (scope: CategoryScope, signature: string) => api<{ runId: number; queued: number; retired: number }>('/finance/jst-sync/category/execute', { method: 'POST', body: { scope, signature, confirmed: true } }),
+  categoryRuns: (page: number) => api<{ page: number; rows: CategoryRun[] }>(`/finance/jst-sync/category/runs?page=${page}`),
+
   baseOverview: () => api<{ status: Record<string, number>; byCategory: Record<string, Record<string, number>> }>('/finance/base-codes/overview'),
   baseReport: (id: number) => api<BaseCodeReport>(`/finance/base-codes/${id}/report`),
   baseVerify: (items: Array<{ id: number; signature: string; uploadSignature?: string }>, confirmed: boolean, syncToJst: boolean, replaceConfirmed: boolean) =>

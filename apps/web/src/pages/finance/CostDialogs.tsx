@@ -145,11 +145,11 @@ export function SkuHistoryDialog({ row, onClose }: { row: CostRow; onClose: () =
         {error && <div role="alert" className="notice error">{error}</div>}
         {tab === 'changes' && data && (
           <div className="table-scroll"><table className="data-table">
-            <thead><tr><th>时间</th><th>版本</th><th className="num">发货前成本</th><th className="num">运费</th><th className="num">最低售价</th><th>相比上一版</th><th>操作人 / 原因</th></tr></thead>
+            <thead><tr><th>时间</th><th>版本 / 事件</th><th className="num">发货前成本</th><th className="num">运费</th><th className="num">最低售价</th><th>相比上一版</th><th>操作人 / 原因</th></tr></thead>
             <tbody>
               {data.changes.rows.length === 0 && <tr><td colSpan={7} className="empty-state muted">暂无成本变更记录</td></tr>}
               {data.changes.rows.map((r) => (
-                <tr key={r.id}><td>{when(r.createdAt)}</td><td>v{r.revision}</td><td className="num">{fmt('p', r.preShipCostCents)}</td><td className="num">{fmt('f', r.freightCents)}</td><td className="num">{fmt('m', r.minPriceCents)}</td>
+                <tr key={r.id}><td>{when(r.createdAt)}</td><td>v{r.revision}{r.eventLabel && <div className="muted">{r.eventLabel}</div>}</td><td className="num">{fmt('p', r.preShipCostCents)}</td><td className="num">{fmt('f', r.freightCents)}</td><td className="num">{fmt('m', r.minPriceCents)}</td>
                   <td>{r.revision === 1 ? <span className="muted">首版</span> : r.changes.map((c) => <div key={c.field}>{c.label}：{fmt(c.field, c.before)} → <strong>{fmt(c.field, c.after)}</strong></div>)}</td>
                   <td>{r.actorName}<div className="muted">{r.reason}</div></td></tr>
               ))}

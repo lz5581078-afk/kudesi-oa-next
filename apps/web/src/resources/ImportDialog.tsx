@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ResourceDef } from '@kudesi/shared';
+import { phoneStoreImportColumns, type ResourceDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
 import { csvToObjects, downloadText, parseCsv, toCsv } from './csv';
 import { resourceApi, type ImportBackupInfo, type ImportResult } from './api';
@@ -26,7 +26,9 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
   const loadBackups = () => resourceApi.importBackups(def.key).then(setBackups).catch(() => setBackups([]));
   useEffect(() => { void loadBackups(); }, [def.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const importable = def.fields.filter((f) => f.type !== 'secret' && f.type !== 'attrs' && !f.readonly);
+  const importable = def.fields.filter((f) => (f.type !== 'secret' || f.importable) && f.type !== 'attrs' && !f.readonly);
+  // 手机号导入：各平台“编号 / 店铺”列，把号码绑到对应平台的店铺
+  const extraHeaders = def.key === 'phones' ? phoneStoreImportColumns().flatMap((c) => [c.noHeader, c.nameHeader]) : [];
 
   async function onFile(file: File | undefined) {
     if (!file) return;
@@ -50,10 +52,10 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
     setBusy(false);
   }
 
-  async function commit() {
+  async function commit(partial = false) {
     setBusy(true);
     try {
-      const res = await resourceApi.import(def.key, rows, false);
+      const res = await resourceApi.import(def.key, rows, false, partial);
       if (!res.committed) {
         setPreview(res);
         setBusy(false);
@@ -97,10 +99,10 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
             密码不支持导入（证件号、卡号可以）。选择文件后会先预览，全部通过才能确认。
           </p>
           <div className="toolbar-inline">
-            <button type="button" className="secondary-button" onClick={() => downloadText(`${def.label}-导入模板.csv`, toCsv([['状态', ...importable.map((f) => f.label)]]))}>
+            <button type="button" className="secondary-button" onClick={() => downloadText(`${def.label}-导入模板.csv`, toCsv([['状态', ...importable.map((f) => f.label), ...extraHeaders]]))}>
               下载模板
             </button>
-            <button type="button" className="secondary-button" onClick={() => void downloadXlsx(`${def.label}-导入模板.xlsx`, [['状态', ...importable.map((f) => f.label)]])}>下载 Excel 模板</button>
+            <button type="button" className="secondary-button" onClick={() => void downloadXlsx(`${def.label}-导入模板.xlsx`, [['状态', ...importable.map((f) => f.label), ...extraHeaders]])}>下载 Excel 模板</button>
             <button type="button" className="secondary-button" onClick={instructions}>下载填写说明</button>
             <button type="button" className="secondary-button" onClick={() => void downloadXlsx(`${def.label}-填写说明.xlsx`, instructionRows())}>下载填写说明（Excel）</button>
             <input type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="选择 Excel 或 CSV 文件" onChange={(e) => onFile(e.target.files?.[0])} />
@@ -139,7 +141,7 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
                       <tr key={r.line}>
                         <td>{r.line}</td>
                         <td>{r.action === 'error' ? <span className="pill bad">有问题</span> : r.action === 'create' ? <span className="pill ok">新建</span> : <span className="pill warn">更新</span>}</td>
-                        <td>{r.errors.length ? r.errors.join('；') : r.title}</td>
+                        <td>{r.errors.length ? r.errors.join('；') : r.title}{r.warnings?.length ? <small className="muted"> 提示：{r.warnings.join('；')}</small> : null}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -150,7 +152,12 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
         </div>
         <div className="modal-foot">
           <button type="button" className="secondary-button" onClick={onClose}>取消</button>
-          <button type="button" className="primary-button" disabled={busy || !preview || preview.failed > 0} onClick={commit}>
+          {preview && preview.failed > 0 && preview.failed < preview.results.length && (
+            <button type="button" className="secondary-button" disabled={busy} title="有问题的行跳过，其余照常导入" onClick={() => void commit(true)}>
+              只导入没问题的 {preview.results.length - preview.failed} 行
+            </button>
+          )}
+          <button type="button" className="primary-button" disabled={busy || !preview || preview.failed > 0} onClick={() => void commit()}>
             确认导入
           </button>
         </div>

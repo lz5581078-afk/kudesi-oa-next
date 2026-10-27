@@ -30,7 +30,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
     ({ key: k, name, type, ...(type === 'submit' ? { assignee: { source: 'requester' } } : assigneeId ? { assignee: { source: 'employee', id: assigneeId } } : {}) }) as StepDef;
 
   const spec = (name: string, main: number, over: Record<string, unknown> = {}) => ({ name, main: [{ baseCodeId: main, qty: 2 }], gift: [], ...over });
-  const payload = (specs: unknown[], over: Record<string, unknown> = {}) => ({ batchName: '10 月新品', scenarioId: ids.scen, platformIds: [ids.tb, ids.dy], specs, ...over });
+  const payload = (specs: unknown[], over: Record<string, unknown> = {}) => ({ batchName: '10 月新品', scenarioId: ids.scen, platformIds: [ids.tb, ids.dy], specs, bundleCategoryId: ids.bcat, ...over });
   const whLines = (over: Record<string, unknown> = {}) => ({
     lines: [{ role: 'package', baseCodeId: ids.boxBc, qty: 1 }, { role: 'label', baseCodeId: ids.labelBc, qty: 1 }, { role: 'labor', laborId: ids.labor, qty: 1 }],
     notRequired: { other: '没有其他物料' }, ...over,
@@ -56,7 +56,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
     admin = { id: await mkUser(c.id, 'admin', '管理员', { isCompanyAdmin: true }), companyId: c.id, name: '管理员', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
     ops = au(await mkUser(c.id, 'ops', '运营'), c.id, '运营', ['flow.apply.view']);
     wh = au(await mkUser(c.id, 'wh', '仓库'), c.id, '仓库');
-    fin = au(await mkUser(c.id, 'fin', '财务'), c.id, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit', 'finance.jst-sync.view', 'product.cost.view']);
+    fin = au(await mkUser(c.id, 'fin', '财务'), c.id, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit', 'finance.jst-sync.view', 'finance.bundle-sync.manage', 'product.cost.view']);
     finNoPerm = au(await mkUser(c.id, 'fin2', '财务二'), c.id, '财务二');
     stranger = au(await mkUser(c.id, 'str', '路人'), c.id, '路人', ['flow.apply.view']);
     noApply = au(await mkUser(c.id, 'na', '无权限'), c.id, '无权限');
@@ -88,10 +88,15 @@ d('SKU 批量申请流程（真实数据库）', () => {
     const wt = await resources.create(admin, 'finance-labor-work-types', { name: '包装' });
     const unit = await resources.create(admin, 'finance-labor-units', { name: '元/个' });
     ids.labor = (await resources.create(admin, 'finance-labor-costs', { versionId: v.id, workTypeId: wt.id, unitId: unit.id, workName: '装箱', unitPrice: 150, archiveCategoryId: lc.id })).id;
+    ids.bcat = (await resources.create(admin, 'finance-categories', { archiveType: 'bundle', name: '水果组合', code: 'SGZH' })).id;
+    const giftProductId = (await resources.get(admin, 'finance-base-codes', ids.giftBc)).data.productId as number;
+    await resources.update(admin, 'finance-products', giftProductId, { giftShortName: '小赠品', giftCodeShortName: 'XZP' });
     ids.tb = (await resources.create(admin, 'finance-platforms', { code: 'TB', name: '淘宝' })).id;
     ids.dy = (await resources.create(admin, 'finance-platforms', { code: 'DY', name: '抖音' })).id;
     ids.scen = (await resources.create(admin, 'finance-scenarios', { code: 'standard', name: '标准', segment: '' })).id;
 
+    // 子商品已在聚水潭上（组合装上传前的依赖检查）
+    await ds.query("UPDATE resource_records SET data = JSON_SET(data, '$.jstUploadedCode', JSON_UNQUOTE(JSON_EXTRACT(data, '$.code'))) WHERE company_id = ? AND type = 'finance-base-codes'", [admin.companyId]);
     // ---- 流程配置并发布 ----
     await flow.saveDraft(admin, 'sku-batch-apply', [step('apply', '运营申请', 'submit'), step('warehouse', '仓库完善', 'execute', wh.id), step('review', '财务审核', 'finance', fin.id), step('end', '结束', 'end')], []);
     await flow.publish(admin, 'sku-batch-apply');
@@ -174,7 +179,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
   it('没有同步权限不能勾选加入同步队列；没勾选就不入队', async () => {
     const run = await toReview([spec('丙', ids.pearBc)]);
     const noSync = au(fin.id, fin.companyId, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit']);
-    await expect(finPass(noSync, run, { confirmed: true, syncToJst: true })).rejects.toThrow(/同步的权限/);
+    await expect(finPass(noSync, run, { confirmed: true, syncToJst: true })).rejects.toThrow(/同步维护/);
     const before = (await ds.query("SELECT COUNT(*) AS n FROM outbox_jobs WHERE company_id = ?", [admin.companyId]))[0].n;
     const done = await finPass(noSync, run, { confirmed: true });
     expect(done.status).toBe('completed');
@@ -271,6 +276,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
   it('申请选项接口不需要财务资料权限，也不带成本；预览只对相关的人开放', async () => {
     const meta = await sku.options(ops, 'meta');
     expect(meta.platforms!.map((p) => p.name)).toEqual(expect.arrayContaining(['淘宝', '抖音']));
+    expect(meta.bundleCategories!.map((c) => c.id)).toContain(ids.bcat);
     const mains = await sku.options(ops, 'main', '苹果');
     expect(mains.items!.map((i) => i.code)).toEqual(['APPLE-A']);
     expect(JSON.stringify(mains)).not.toMatch(/cost|price/i);

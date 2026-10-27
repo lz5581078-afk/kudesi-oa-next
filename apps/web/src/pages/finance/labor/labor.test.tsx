@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
 import { LaborCostPage } from './LaborCostPage';
+import { api } from '../../../api/client';
 
+vi.mock('../../../api/client', async (orig) => ({ ...(await orig<typeof import('../../../api/client')>()), api: vi.fn() }));
 vi.mock('../../../auth/AuthContext', () => ({ useAuth: () => ({ can: () => true, user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } }) }));
 vi.mock('../../../resources/api', async (orig) => {
   const real = await orig<typeof import('../../../resources/api')>();
@@ -47,5 +49,22 @@ describe('人力成本表页面', () => {
     fireEvent.change(screen.getByLabelText('成本版本'), { target: { value: '2' } });
     fireEvent.click(await screen.findByRole('button', { name: '启用版本' }));
     await waitFor(() => expect(m.changeStatus).toHaveBeenCalledWith('finance-labor-versions', 2, 'active'));
+  });
+});
+
+describe('复制版本', () => {
+  it('填新编号后调用复制接口，并切到新版本', async () => {
+    const versions = [dto(1, 'v', '2026春', { versionCode: 'A', isDefault: true }, 'active')];
+    m.list.mockImplementation(async (type) => {
+      const pick = type === 'finance-labor-versions' ? versions : [];
+      return { items: pick, total: pick.length, page: 1, pageSize: 200 };
+    });
+    vi.mocked(api).mockResolvedValue({ id: 9 } as never);
+    render(<LaborCostPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '复制版本' }));
+    fireEvent.change(screen.getByLabelText('新版本编号'), { target: { value: 'B2' } });
+    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith('/finance/labor/versions/1/copy', expect.objectContaining({ method: 'POST', body: expect.objectContaining({ versionCode: 'B2' }) })));
+    await screen.findByText(/已复制/);
   });
 });

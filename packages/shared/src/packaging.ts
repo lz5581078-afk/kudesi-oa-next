@@ -1,6 +1,6 @@
 /** 包装方案匹配规则（沿用旧系统口径）：通用规则适用所有对象；指定编码/分类/品牌/场景则必须一致；指定重量或重量区间则必须落在其中。 */
 export interface PackagingRule {
-  targetType: 'general' | 'base_code' | 'bundle';
+  targetType: 'general' | 'base_code' | 'bundle' | 'product_archive';
   targetCode?: string | null;
   categoryId?: number | null;
   brandId?: number | null;
@@ -12,7 +12,7 @@ export interface PackagingRule {
 }
 
 export interface PackagingTarget {
-  targetType: 'base_code' | 'bundle';
+  targetType: 'base_code' | 'bundle' | 'product_archive';
   targetCode?: string | null;
   categoryId?: number | null;
   brandId?: number | null;

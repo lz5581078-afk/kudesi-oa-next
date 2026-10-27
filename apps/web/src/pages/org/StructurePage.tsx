@@ -66,6 +66,7 @@ function PositionDialog({ position, departments, catalog, canEditPerms, onClose,
   onClose: () => void; onSaved: () => void;
 }) {
   const [name, setName] = useState(position?.name ?? '');
+  const [positionKey, setPositionKey] = useState(position?.positionKey ?? '');
   const [departmentId, setDepartmentId] = useState<number | null>(position?.departmentId ?? null);
   const [workspaceType, setWorkspaceType] = useState(position?.workspaceType ?? 'blank');
   const [perms, setPerms] = useState<string[]>(position?.permissions ?? []);
@@ -82,10 +83,10 @@ function PositionDialog({ position, departments, catalog, canEditPerms, onClose,
     setBusy(true);
     try {
       if (position) {
-        await orgApi.updatePosition(position.id, { name: name.trim(), departmentId, workspaceType, level, supervisorPositionId: supervisor, description: description.trim() || null });
+        await orgApi.updatePosition(position.id, { name: name.trim(), positionKey: positionKey.trim() || null, departmentId, workspaceType, level, supervisorPositionId: supervisor, description: description.trim() || null });
         if (canEditPerms) await orgApi.setPositionPermissions(position.id, perms);
       } else {
-        await orgApi.addPosition({ name: name.trim(), departmentId, workspaceType, level, supervisorPositionId: supervisor, description: description.trim() || undefined });
+        await orgApi.addPosition({ name: name.trim(), positionKey: positionKey.trim() || null, departmentId, workspaceType, level, supervisorPositionId: supervisor, description: description.trim() || undefined });
         if (perms.length > 0) {
           const created = (await orgApi.positions()).find((p) => p.name === name.trim());
           if (created) await orgApi.setPositionPermissions(created.id, perms);
@@ -104,6 +105,7 @@ function PositionDialog({ position, departments, catalog, canEditPerms, onClose,
         <div className="modal-body">
           <div className="form-grid">
             <label>岗位名称<input value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label>
+            <label>岗位编码<input value={positionKey} maxLength={64} placeholder="选填，同一部门内不重复" onChange={(e) => setPositionKey(e.target.value)} /></label>
             <label>所属部门
               <select value={departmentId ?? ''} onChange={(e) => setDepartmentId(e.target.value ? Number(e.target.value) : null)}>
                 <option value="">（不属于任何部门）</option>
@@ -145,8 +147,11 @@ function PositionDialog({ position, departments, catalog, canEditPerms, onClose,
   );
 }
 
-function DeptEditDialog({ node, tree, onClose, onSubmit }: { node: DepartmentNode; tree: DepartmentNode[]; onClose: () => void; onSubmit: (v: { name: string; parentId: number | null; sortOrder: number }) => Promise<void> }) {
+function DeptEditDialog({ node, tree, onClose, onSubmit }: { node: DepartmentNode; tree: DepartmentNode[]; onClose: () => void; onSubmit: (v: { name: string; parentId: number | null; managerId: number | null; sortOrder: number }) => Promise<void> }) {
   const [name, setName] = useState(node.name);
+  const [managerId, setManagerId] = useState<number | null>(node.managerId ?? null);
+  const [people, setPeople] = useState<Array<{ id: number; name: string }>>([]);
+  useEffect(() => { orgApi.staff().then((l) => setPeople(l.filter((x) => x.status === 'active').map((x) => ({ id: x.id, name: x.name })))).catch(() => undefined); }, []);
   const [sortOrder, setSortOrder] = useState(String(node.sortOrder));
   const findParent = (nodes: DepartmentNode[], parent: number | null): number | null | undefined => {
     for (const n of nodes) {
@@ -166,7 +171,7 @@ function DeptEditDialog({ node, tree, onClose, onSubmit }: { node: DepartmentNod
     e.preventDefault();
     if (!name.trim()) return setError('请填写名称');
     setBusy(true);
-    try { await onSubmit({ name: name.trim(), parentId, sortOrder: Number(sortOrder) || 0 }); } catch (err) { setError(errText(err)); setBusy(false); }
+    try { await onSubmit({ name: name.trim(), parentId, managerId, sortOrder: Number(sortOrder) || 0 }); } catch (err) { setError(errText(err)); setBusy(false); }
   }
   return (
     <div className="modal-backdrop" role="presentation">
@@ -174,6 +179,13 @@ function DeptEditDialog({ node, tree, onClose, onSubmit }: { node: DepartmentNod
         <div className="modal-head"><strong>编辑部门：{node.name}</strong></div>
         <div className="modal-body">
           <label>名称<input autoFocus value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label>
+          <label>部门主管
+            <select value={managerId ?? ''} onChange={(e) => setManagerId(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">（未设置）</option>
+              {managerId && !people.some((x) => x.id === managerId) && <option value={managerId}>当前主管</option>}
+              {people.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+          </label>
           <label>上级部门
             <select value={parentId ?? ''} onChange={(e) => setParentId(e.target.value ? Number(e.target.value) : null)}>
               <option value="">无（顶级部门）</option>
@@ -206,7 +218,7 @@ function DeptDeleteDialog({ node, tree, onClose, onConfirm }: { node: Department
       }}>
         <div className="modal-head"><strong>删除部门「{node.name}」</strong></div>
         <div className="modal-body">
-          <p>如果部门下有下级部门、岗位或员工，请选择接收部门，它们会整体转过去；空部门可以不选直接删除。</p>
+          <p>如果部门下有下级部门、岗位、员工或固定资产，请选择接收部门，它们会整体转过去；已停用的员工会归入“离职员工”，不再出现在组织架构里；空部门可以不选直接删除。</p>
           <label>接收部门
             <select value={to} onChange={(e) => setTo(e.target.value)}>
               <option value="">（不转移，仅空部门可删）</option>

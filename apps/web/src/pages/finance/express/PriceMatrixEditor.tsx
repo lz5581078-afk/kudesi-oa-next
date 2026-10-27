@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../../api/client';
 import { expressApi, type RuleRow } from './expressApi';
+import { downloadText } from '../../../resources/csv';
+import { parseRulesCsv, priceTemplateCsv, rulesToCsv } from './priceCsv';
 import { MATRIX_ROWS, cellKey, columnId, columnLabel, matrixToRules, rulesToMatrix, standardColumns, type MatrixCells, type MatrixColumn } from './matrix';
 
 /** 价格矩阵编辑：省份 × 重量段。保存时整表替换这一套（AI 识别 / 手工）价格。 */
@@ -41,6 +43,17 @@ export function PriceMatrixEditor({ versionId, source, rules, canEdit, onSaved }
     setColumns((cs) => [...cs, ...more.filter((m) => !cs.some((c) => c.id === m.id))].sort((x, y) => x.start - y.start || (x.end ?? Infinity) - (y.end ?? Infinity)));
   };
 
+  async function importCsv(file: File | undefined) {
+    if (!file) return;
+    const text = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result ?? '')); r.onerror = () => reject(new Error('文件读取失败')); r.readAsText(file, 'utf-8'); });
+    const out = parseRulesCsv(text);
+    setErrors(out.errors);
+    if (out.errors.length) return;
+    const m = rulesToMatrix(out.rules);
+    setColumns(m.columns); setCells(m.cells); setDirty(true);
+    setNotice(`已读入 ${out.rules.length} 条价格，检查后点“保存价格”才会生效`);
+  }
+
   async function save() {
     const out = matrixToRules(columns, cells);
     setErrors(out.errors);
@@ -65,6 +78,13 @@ export function PriceMatrixEditor({ versionId, source, rules, canEdit, onSaved }
           <button type="button" className="secondary-button" onClick={() => addColumns(standardColumns())}>加入常用档位（0.5/1/2/3/4/5/6kg）</button>
           <button type="button" className="primary-button" disabled={busy || !dirty} onClick={() => void save()}>{busy ? '保存中…' : '保存价格'}</button>
           {dirty && <span className="muted">有未保存的修改</span>}
+        </div>
+      )}
+      {source === 'manual' && (
+        <div className="toolbar">
+          <button type="button" className="secondary-button" onClick={() => downloadText('快递价格表手工创建模板.csv', priceTemplateCsv())}>下载 CSV 模板</button>
+          <button type="button" className="secondary-button" disabled={!rules.length} onClick={() => downloadText('当前快递价格表.csv', rulesToCsv(matrixToRules(columns, cells).rules))}>导出当前价格 CSV</button>
+          {canEdit && <label className="secondary-button file-button">导入 CSV<input aria-label="导入价格表CSV" type="file" accept=".csv,.txt" style={{ display: 'none' }} onChange={(e) => { void importCsv(e.target.files?.[0]); e.target.value = ''; }} /></label>}
         </div>
       )}
       {notice && <div role="status" className="notice ok">{notice}</div>}

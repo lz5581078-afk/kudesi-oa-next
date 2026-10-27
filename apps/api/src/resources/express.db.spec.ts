@@ -169,6 +169,8 @@ d('快递价格表（真实数据库）', () => {
     expect(d2.batches).toHaveLength(1);
     expect(d2.surcharges).toHaveLength(2);
     await expect(ex.confirmSurchargeRecognition(boss, v.id, { batchName: 'x', rows: [{ name: '坏', chargeType: 'fixed' }] })).rejects.toThrow(/第 1 条加收/);
+    // 原始凭据：只能挂上传到这个字段的文件，随便写个文件号会被拒绝
+    await expect(ex.confirmSurchargeRecognition(boss, v.id, { batchName: 'y', rows: [{ name: '好', chargeType: 'fixed', amount: 100 }], evidenceFileId: 999999 })).rejects.toThrow();
     expect((await ex.versionDetail(boss, v.id)).batches).toHaveLength(1); // 失败整体回滚
   });
 

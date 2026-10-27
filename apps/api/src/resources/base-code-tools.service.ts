@@ -3,13 +3,15 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceRecord } from '../entities';
+import { ProductVerificationEvent, ResourceRecord, User } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
+import { BASE_CODE_IDENTITY_FIELDS, inspectBaseCodeReferences } from './base-code-composed';
 import {
   OUTBOUND_LABELS, baseCodeOutbound, buildSnapshot, diffSnapshots, groupIssues, parseSnapshot, sigOf, stripCostChanges, stripOutboundCost,
 } from './base-code-support';
 import { ResourcesService } from './resources.service';
 
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const TYPE = 'finance-base-codes';
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 
@@ -38,7 +40,10 @@ export class BaseCodeToolsService {
     const rows = await this.ds.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE }, select: ['id', 'status', 'data'] });
     const status: Record<string, number> = {};
     const byCategory: Record<string, Record<string, number>> = {};
+    // 有马甲的真实编码，验证通过后列表里隐藏，计数也不算（旧系统 display_hidden）
+    const realWithAlias = new Set(rows.map((r) => num(r.data.canonicalId)).filter((x): x is number => x !== null));
     for (const r of rows) {
+      if (r.status === 'verified' && realWithAlias.has(r.id)) continue;
       status[r.status] = (status[r.status] ?? 0) + 1;
       const c = String(r.data.categoryId ?? 0);
       byCategory[c] ??= {};
@@ -111,6 +116,31 @@ export class BaseCodeToolsService {
     return { results, verified: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
   }
 
+  /** 引用信息（旧 /:id/references）：被哪些组合、聚水潭商品用着；前端据此提示“已有生效引用，只能改名称简称规格”并锁定身份字段 */
+  async references(user: AuthUser, id: number) {
+    const em = this.ds.manager;
+    const bc = await this.load(em, user, id);
+    const refs = await inspectBaseCodeReferences(em, user.companyId, bc);
+    return { ...refs, lockedFields: refs.permissions.editIdentityFields ? [] : [...BASE_CODE_IDENTITY_FIELDS] };
+  }
+
+  /** 验证历史：每次验证通过一行，带和上一次验证相比改了什么（成本类差异按权限去掉） */
+  async verificationHistory(user: AuthUser, id: number) {
+    const em = this.ds.manager;
+    await this.load(em, user, id);
+    const rows = await em.find(ProductVerificationEvent, { where: { companyId: user.companyId, baseCodeId: id }, order: { id: 'ASC' } });
+    const names = new Map((await em.find(User, { where: { companyId: user.companyId }, select: ['id', 'name'] })).map((u) => [u.id, u.name]));
+    const cost = this.canCost(user);
+    let prev: ReturnType<typeof parseSnapshot> = null;
+    const out = rows.map((r) => {
+      const snap = parseSnapshot(typeof r.snapshotJson === 'string' ? r.snapshotJson : JSON.stringify(r.snapshotJson ?? null));
+      const changes = prev && snap ? diffSnapshots(prev, snap) : [];
+      prev = snap ?? prev;
+      return { id: Number(r.id), verifiedAt: r.verifiedAt, verifiedBy: r.verifiedBy ? names.get(r.verifiedBy) ?? `#${r.verifiedBy}` : '系统', signature: r.compositionSignature.slice(0, 12), first: r.id === rows[0].id, changes: cost ? changes : stripCostChanges(changes) };
+    });
+    return { rows: out.reverse() };
+  }
+
   // ---------- 删除 ----------
 
   private async groupsFor(em: EntityManager, user: AuthUser, mode: 'pending' | 'source', ids?: number[]) {
@@ -118,6 +148,8 @@ export class BaseCodeToolsService {
     const byId = new Map(all.map((r) => [r.id, r]));
     const lines = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-bundle-lines' }, select: ['id', 'data'] });
     const used = new Set(lines.map((l) => Number(l.data.baseCodeId)));
+    const eventRows = await em.createQueryBuilder(ProductVerificationEvent, 'e').select('e.baseCodeId', 'id').addSelect('COUNT(*)', 'n').where('e.companyId = :c', { c: user.companyId }).groupBy('e.baseCodeId').getRawMany<{ id: number; n: string }>();
+    const withHistory = new Set(eventRows.map((e) => Number(e.id)));
     const products = new Map((await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-products' }, select: ['id', 'status'] })).map((p) => [p.id, p.status]));
     const realOf = (r: ResourceRecord) => (typeof r.data.canonicalId === 'number' ? byId.get(r.data.canonicalId) ?? r : r);
     const roots = new Map<number, ResourceRecord>();
@@ -135,6 +167,7 @@ export class BaseCodeToolsService {
       if (mode === 'pending') {
         const touched = members.find((m) => m.data.verifiedAt || m.data.snapshot || m.data.jstUploadedCode || ['synced', 'pending', 'failed'].includes(str(m.data.jstStatus)) || m.status === 'verified' || m.status === 'reverify');
         if (touched) reason = `「${touched.title}」验证过或同步过聚水潭，不能直接删除`;
+        else if (members.some((m) => withHistory.has(m.id))) reason = '存在验证历史，不能直接删除';
       } else {
         if (products.get(Number(root.data.productId)) !== 'deleted') reason = '来源商品档案还在，不能按“来源已删除”处理';
         else if (root.status === 'deleted') reason = '已经处理过了';

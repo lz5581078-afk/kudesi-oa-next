@@ -4,6 +4,7 @@ import { FreightEstimatePage } from './FreightEstimatePage';
 import { PriceMatrixEditor } from './PriceMatrixEditor';
 import { RecognizeDialog } from './RecognizeDialog';
 import { ZoneRunsPage } from './ZoneRunsPage';
+import { zoneCsvLines } from './zoneCsv';
 import { expressApi, type EstimateRow, type Estimates } from './expressApi';
 
 vi.mock('../../../auth/AuthContext', () => ({ useAuth: () => ({ can: () => true }) }));
@@ -112,5 +113,24 @@ describe('分区建议生成记录', () => {
     await screen.findByText('淘宝-极兔-0至1kg');
     expect(screen.getByText('¥3.00')).toBeTruthy();
     expect(m.generateZone).toHaveBeenCalledWith(30);
+  });
+});
+
+describe('分区建议 CSV 与手工价格 CSV 导入', () => {
+  it('分区建议导出 14 列，缺聚水潭名称给占位', () => {
+    const lines = zoneCsvLines([{ provinces: ['广东'], provinceScope: '广东', carrierName: '极兔', branchName: '兰山', jstLogisticsName: '', versionName: '春', suggestedRuleName: 'x', weightStart: 0, weightEnd: '', weightStartOperator: '>=', weightEndOperator: '<=', amount: null, priceLabel: '首重1kg 3.00元+续重0.50元/kg', rule: 'r' }]);
+    expect(lines[0]).toHaveLength(14);
+    expect(lines[1]).toHaveLength(14);
+    expect(lines[1][1]).toBe('待在网点维护聚水潭快递名称');
+    expect(lines[1][5]).toBe('');
+  });
+  it('手工价格表导入 CSV 读进矩阵，点保存才提交', async () => {
+    m.saveRules.mockResolvedValue({ created: 1, removed: 0 });
+    render(<PriceMatrixEditor versionId={4} source="manual" canEdit rules={[]} onSaved={vi.fn()} />);
+    const file = new File(['省份,起始重量,结束重量,统一价\n广东,0,1,2.5'], 'p.csv', { type: 'text/csv' });
+    fireEvent.change(screen.getByLabelText('导入价格表CSV'), { target: { files: [file] } });
+    await screen.findByText(/已读入 1 条价格/);
+    fireEvent.click(screen.getByRole('button', { name: '保存价格' }));
+    await waitFor(() => expect(m.saveRules).toHaveBeenCalledWith(4, 'manual', [expect.objectContaining({ province: '广东', fixedPrice: 250 })]));
   });
 });

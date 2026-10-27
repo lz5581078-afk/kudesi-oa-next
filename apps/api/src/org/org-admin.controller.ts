@@ -2,7 +2,8 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Po
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, ValidateIf } from 'class-validator';
 import { permissionCatalog } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
-import { DUTY_CATEGORIES, OrgAdminService, POSITION_LEVELS, WORKSPACE_TYPES } from './org-admin.service';
+import { StaffImportService } from './staff-import.service';
+import { DUTY_CATEGORIES, EMPLOYMENT_TYPES, OrgAdminService, PAY_TYPES, POSITION_LEVELS, WORKSPACE_TYPES } from './org-admin.service';
 
 const WS = WORKSPACE_TYPES as string[];
 
@@ -11,6 +12,7 @@ class NameDto {
 }
 class CreatePositionDto {
   @IsString() @IsNotEmpty() @MaxLength(100) name!: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(64) positionKey?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) departmentId?: number | null;
   @IsIn(WS) workspaceType!: string;
   @IsOptional() @IsIn([...POSITION_LEVELS]) level?: 'boss' | 'manager' | 'staff';
@@ -18,6 +20,7 @@ class CreatePositionDto {
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
 }
 class UpdatePositionDto {
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(64) positionKey?: string | null;
   @IsOptional() @IsIn([...POSITION_LEVELS]) level?: 'boss' | 'manager' | 'staff';
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) supervisorPositionId?: number | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(1000) description?: string | null;
@@ -26,6 +29,10 @@ class UpdatePositionDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(100) name?: string;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) departmentId?: number | null;
   @IsOptional() @IsIn(WS) workspaceType?: string;
+}
+class StaffImportDto {
+  @IsString() @MaxLength(2_000_000) csv!: string;
+  @IsOptional() @IsIn([true, false]) dryRun?: boolean;
 }
 class PermissionsDto {
   @IsArray() @IsString({ each: true }) permissions!: string[];
@@ -39,8 +46,14 @@ class CreateStaffDto {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) managerId?: number | null;
   @IsOptional() @IsString() @MaxLength(60) title?: string;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) baseSalary?: number | null;
+  @IsOptional() @IsIn([...PAY_TYPES]) payType?: 'monthly' | 'hourly';
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) hourlyRate?: number | null;
+  @IsOptional() @IsIn([...EMPLOYMENT_TYPES]) employmentType?: 'regular' | 'part_time' | 'temp';
 }
 class UpdateStaffDto {
+  @IsOptional() @IsIn([...PAY_TYPES]) payType?: 'monthly' | 'hourly';
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) hourlyRate?: number | null;
+  @IsOptional() @IsIn([...EMPLOYMENT_TYPES]) employmentType?: 'regular' | 'part_time' | 'temp';
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) managerId?: number | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(60) title?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) baseSalary?: number | null;
@@ -58,6 +71,11 @@ class UpdateDepartmentDto {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) parentId?: number | null;
   @IsOptional() @IsInt() @Min(0) sortOrder?: number;
   @IsOptional() @IsIn(['active', 'inactive']) status?: 'active' | 'inactive';
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) managerId?: number | null;
+  @IsOptional() @IsString() @MaxLength(200) reason?: string;
+}
+class HandoverDto {
+  @IsOptional() @IsInt() @Min(1) targetUserId?: number;
   @IsOptional() @IsString() @MaxLength(200) reason?: string;
 }
 class StatusDto {
@@ -91,7 +109,7 @@ class UpdateDutyDto {
 
 @Controller('org')
 export class OrgAdminController {
-  constructor(private readonly admin: OrgAdminService) {}
+  constructor(private readonly admin: OrgAdminService, private readonly staffImport: StaffImportService) {}
 
   /** 权限清单本身不含敏感信息，岗位/员工页都要用 */
   @AuthenticatedOnly()
@@ -113,6 +131,12 @@ export class OrgAdminController {
   }
 
   @RequirePermission('org.structure.view')
+  @Get('departments/:id/profile')
+  departmentProfile(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.admin.departmentProfile(u, id);
+  }
+
+  @RequirePermission('org.structure.view')
   @Get('positions')
   positions(@CurrentUser() u: AuthUser) {
     return this.admin.listPositions(u);
@@ -121,7 +145,7 @@ export class OrgAdminController {
   @RequirePermission('org.structure.create')
   @Post('positions')
   createPosition(@CurrentUser() u: AuthUser, @Body() dto: CreatePositionDto) {
-    return this.admin.createPosition(u, { name: dto.name, departmentId: dto.departmentId, workspaceType: dto.workspaceType as never, level: dto.level, supervisorPositionId: dto.supervisorPositionId, description: dto.description });
+    return this.admin.createPosition(u, { name: dto.name, positionKey: dto.positionKey, departmentId: dto.departmentId, workspaceType: dto.workspaceType as never, level: dto.level, supervisorPositionId: dto.supervisorPositionId, description: dto.description });
   }
 
   @RequirePermission('org.structure.edit')
@@ -169,6 +193,20 @@ export class OrgAdminController {
   }
 
   @RequirePermission('org.staff.view')
+  @Get('staff/export')
+  async exportStaff(@CurrentUser() u: AuthUser) {
+    return { csv: await this.staffImport.exportCsv(u) };
+  }
+
+  /** 员工 CSV 导入：先 dryRun 预检，再正式导入。新增靠 org.staff.create，修改已有员工还要 org.staff.edit。 */
+  @RequirePermission('org.staff.create')
+  @Post('staff/import')
+  @HttpCode(200)
+  importStaff(@CurrentUser() u: AuthUser, @Body() dto: StaffImportDto) {
+    return this.staffImport.importCsv(u, dto.csv, dto.dryRun !== false);
+  }
+
+  @RequirePermission('org.staff.view')
   @Get('staff')
   staff(@CurrentUser() u: AuthUser) {
     return this.admin.listStaff(u);
@@ -196,6 +234,18 @@ export class OrgAdminController {
   @Put('staff/:id/overrides')
   overrides(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: OverridesDto) {
     return this.admin.setOverrides(u, id, dto.allow, dto.deny);
+  }
+
+  @RequirePermission('org.staff.view')
+  @Get('staff/:id/records')
+  records(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.admin.staffRecords(u, id);
+  }
+
+  @RequirePermission('org.staff.disable')
+  @Post('staff/:id/handover')
+  handover(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: HandoverDto) {
+    return this.admin.handover(u, id, dto);
   }
 
   @RequirePermission('org.staff.disable')

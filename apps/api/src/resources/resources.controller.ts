@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsString, MaxLength, Max, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, Max, Min } from 'class-validator';
 import { createChecker } from '@kudesi/shared';
-import { AuthenticatedOnly, AuthUser, CurrentUser, RequireResourceAction } from '../common/auth.decorators';
+import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission, RequireResourceAction } from '../common/auth.decorators';
 import { DataToolsService } from './data-tools.service';
 import { ResourcesService } from './resources.service';
 
@@ -16,6 +16,15 @@ class ListQueryDto {
   @IsOptional() @IsString() @MaxLength(100) fieldValue?: string;
   @IsOptional() @IsString() @MaxLength(400) filters?: string;
   @IsOptional() @IsString() showHidden?: string;
+  @IsOptional() @IsString() archived?: string;
+  @IsOptional() @IsString() expiring?: string;
+  @IsOptional() @IsString() @MaxLength(48) sortBy?: string;
+  @IsOptional() @IsIn(['asc', 'desc']) sortDir?: 'asc' | 'desc';
+}
+
+class ExpiringQueryDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(366) days?: number;
+  @IsOptional() @IsString() includeExpired?: string;
 }
 
 class CategoryTreeQueryDto {
@@ -49,6 +58,19 @@ class BatchDto {
 class LinkDto {
   @IsString() @MaxLength(40) targetType!: string;
   @IsInt() @Min(1) targetId!: number;
+  @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
+  @IsOptional() @IsString() @MaxLength(10) validTo?: string;
+  @IsOptional() @IsString() @MaxLength(200) purpose?: string;
+}
+
+class LinkPropsDto {
+  @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
+  @IsOptional() @IsString() @MaxLength(10) validTo?: string;
+  @IsOptional() @IsString() @MaxLength(200) purpose?: string;
+}
+
+class PhotoIdsDto {
+  @IsArray() @ArrayMaxSize(20) @IsInt({ each: true }) fileIds!: number[];
 }
 
 class DeleteDto {
@@ -58,10 +80,27 @@ class DeleteDto {
 class ImportDto {
   @IsArray() @ArrayMaxSize(2000) rows!: Array<Record<string, string>>;
   @IsBoolean() dryRun!: boolean;
+  /** true=有问题的行跳过，其余照常导入 */
+  @IsOptional() @IsBoolean() partial?: boolean;
+}
+
+class SimilarDto {
+  @IsObject() values!: Record<string, unknown>;
+  @IsOptional() @IsInt() excludeId?: number;
 }
 
 class ExportQueryDto {
   @IsOptional() @IsString() includeHidden?: string;
+  // 导出范围：带上列表当前的筛选条件=导出当前筛选结果；带 ids=导出所选；都不带=全部
+  @IsOptional() @IsString() @MaxLength(100) keyword?: string;
+  @IsOptional() @IsString() @MaxLength(24) status?: string;
+  @IsOptional() @IsString() @MaxLength(64) tab?: string;
+  @IsOptional() @IsString() @MaxLength(400) filters?: string;
+  @IsOptional() @IsString() archived?: string;
+  @IsOptional() @IsString() expiring?: string;
+  @IsOptional() @IsString() @MaxLength(48) sortBy?: string;
+  @IsOptional() @IsIn(['asc', 'desc']) sortDir?: 'asc' | 'desc';
+  @IsOptional() @IsString() @MaxLength(20000) ids?: string;
 }
 
 /**
@@ -73,10 +112,23 @@ export class ResourcesController {
   constructor(private readonly resources: ResourcesService, private readonly tools: DataToolsService) {}
 
   // 总览按每种资料的查看权限过滤，所以只要求登录
+  // 商品档案下拉用：公司维护的单位与规格（名称+取值），不含敏感信息
+  @AuthenticatedOnly()
+  @Get('unit-options')
+  unitOptions(@CurrentUser() user: AuthUser) {
+    return this.resources.unitOptions(user);
+  }
+
   @AuthenticatedOnly()
   @Get('overview')
   overview(@CurrentUser() user: AuthUser) {
     return this.resources.overview(user);
+  }
+
+  @AuthenticatedOnly()
+  @Get('expiring')
+  expiring(@CurrentUser() user: AuthUser, @Query() q: ExpiringQueryDto) {
+    return this.resources.expiring(user, q.days, q.includeExpired !== '0');
   }
 
   @RequireResourceAction('view')
@@ -88,13 +140,17 @@ export class ResourcesController {
   @RequireResourceAction('view')
   @Get(':type')
   list(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ListQueryDto) {
-    return this.resources.list(user, type, { ...q, showHidden: q.showHidden === '1' });
+    return this.resources.list(user, type, { ...q, showHidden: q.showHidden === '1', archived: q.archived === '1', expiring: q.expiring === '1' });
   }
 
   @RequireResourceAction('export')
   @Get(':type/export')
   export(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ExportQueryDto) {
-    return this.resources.exportCsv(user, type, q.includeHidden === '1');
+    const ids = (q.ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    return this.resources.exportCsv(user, type, q.includeHidden === '1', {
+      keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, archived: q.archived === '1', expiring: q.expiring === '1',
+      sortBy: q.sortBy, sortDir: q.sortDir, ids: ids.length ? ids : undefined,
+    });
   }
 
   @RequireResourceAction('import')
@@ -112,7 +168,14 @@ export class ResourcesController {
   @RequireResourceAction('import')
   @Post(':type/import')
   import(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: ImportDto) {
-    return this.resources.importRows(user, type, dto.rows, dto.dryRun);
+    return this.resources.importRows(user, type, dto.rows, dto.dryRun, dto.partial === true);
+  }
+
+  // 往来档案保存前的相似/重复提示：返回阻止项和提示项
+  @RequireResourceAction('view')
+  @Post(':type/similar-check')
+  similarCheck(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: SimilarDto) {
+    return this.resources.similarCheck(user, type, dto.values, dto.excludeId);
   }
 
   @RequireResourceAction('edit')
@@ -126,6 +189,20 @@ export class ResourcesController {
   @Post(':type/batch-status')
   batchStatus(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: BatchDto) {
     return this.resources.batchUpdate(user, type, dto.ids, {}, dto.status, dto.reason);
+  }
+
+  // 把预置的常用单位补进公司的“单位与规格”（已有同名/同编码的跳过）
+  @RequirePermission('resource.finance-product-units.create')
+  @Post('finance-product-units/seed-defaults')
+  seedUnitDefaults(@CurrentUser() user: AuthUser) {
+    return this.resources.seedUnitDefaults(user);
+  }
+
+  // 仓库岗位只读商品档案，但可以上传照片（只加不删）
+  @RequirePermission('resource.finance-products.view')
+  @Post('finance-products/:id/warehouse-photos')
+  warehousePhotos(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: PhotoIdsDto) {
+    return this.resources.addWarehousePhotos(user, id, dto.fileIds);
   }
 
   @RequireResourceAction('create')
@@ -151,7 +228,7 @@ export class ResourcesController {
   async status(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
     const out = await this.resources.changeStatus(user, type, id, dto.status, dto.reason);
     // 组合验证通过时顺手登记一次成本快照（成本历史）；登记失败不影响验证本身
-    if (type === 'finance-bundles' && dto.status === 'verified') await this.tools.registerCost(user, id, '验证通过').catch(() => undefined);
+    if (type === 'finance-bundles' && dto.status === 'verified') await this.tools.registerCost(user, id, '验证通过', undefined, 'workflow_publish').catch(() => undefined);
     return out;
   }
 
@@ -159,6 +236,12 @@ export class ResourcesController {
   @Delete(':type/:id')
   remove(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: DeleteDto) {
     return this.resources.remove(user, type, id, dto.reason);
+  }
+
+  @RequireResourceAction('delete')
+  @Post(':type/:id/restore')
+  restore(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: DeleteDto) {
+    return this.resources.restore(user, type, id, dto.reason);
   }
 
   @RequireResourceAction('secret')
@@ -187,7 +270,13 @@ export class ResourcesController {
   @RequireResourceAction('edit')
   @Post(':type/:id/links')
   addLink(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: LinkDto) {
-    return this.resources.addManualLink(user, type, id, dto.targetType, dto.targetId, createChecker(user.permissions));
+    return this.resources.addManualLink(user, type, id, dto.targetType, dto.targetId, createChecker(user.permissions), { validFrom: dto.validFrom, validTo: dto.validTo, purpose: dto.purpose });
+  }
+
+  @RequireResourceAction('edit')
+  @Patch(':type/:id/links/:linkId')
+  updateLink(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Param('linkId', ParseIntPipe) linkId: number, @Body() dto: LinkPropsDto) {
+    return this.resources.updateManualLink(user, type, id, linkId, dto);
   }
 
   @RequireResourceAction('edit')

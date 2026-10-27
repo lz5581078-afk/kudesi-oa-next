@@ -37,12 +37,18 @@ async function usageCount(host: RuleHost, em: EntityManager, companyId: number, 
 
 // ---------- 版本 ----------
 
-async function beforeVersion({ existing, data, status }: BeforeSaveContext) {
+async function beforeVersion({ existing, data, status, em, host, user }: BeforeSaveContext) {
   const code = str(data.versionCode).trim();
   if (!code) throw new BadRequestException('请填写版本编号');
   data.versionCode = code;
   const from = str(data.effectiveFrom), to = str(data.effectiveTo);
   if (from && to && to < from) throw new BadRequestException('生效结束不能早于生效开始');
+  if (status === 'active' && existing && existing.status !== 'active') {
+    // 启用版本：至少要有一条启用的项目；启用后自动成为默认版本（原默认版本由保存后规则取消）
+    const items = await host.findWhere(em, user.companyId, 'finance-labor-costs', 'versionId', existing.id);
+    if (!items.some((i) => i.status === 'active')) throw new BadRequestException('至少维护一条启用的人力成本项目后才能启用版本');
+    data.isDefault = true;
+  }
   if (data.isDefault === true && status !== 'active') {
     if (existing?.data.isDefault !== true) throw new BadRequestException('只有已启用的版本才能设为默认版本，请先启用');
     data.isDefault = false; // 默认版本被停用/退回草稿后，不再是默认版本
@@ -138,8 +144,8 @@ export async function laborWorkCode(em: EntityManager, companyId: number, data: 
   const version = await rec(em, companyId, 'finance-labor-versions', data.versionId);
   const wt = await rec(em, companyId, 'finance-labor-work-types', data.workTypeId);
   const path = await categoryPath(em, companyId, data.archiveCategoryId);
-  const parts = ['RL', cleanCode(str(version?.data.versionCode)) || 'V', ...path.map((c) => cleanCode(str(c.data.code)) || 'X'), cleanCode(str(wt?.data.code)) || 'W', initials(str(data.workName)) || 'X'];
-  return parts.join('-');
+  const parts = ['RL', initials(str(version?.data.versionCode).trim().replace(/^RL[-_]?/i, '')) || 'V', ...path.map((c) => cleanCode(str(c.data.code)) || 'X'), cleanCode(str(wt?.data.code)) || 'W', initials(str(data.workName)) || 'X'];
+  return parts.join('-').slice(0, 80);
 }
 
 async function refreshItemCodes(host: RuleHost, em: EntityManager, user: AuthUser, items: ResourceRecord[]) {

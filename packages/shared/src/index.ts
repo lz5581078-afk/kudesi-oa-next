@@ -8,6 +8,9 @@ export * from './pricing';
 export * from './pricing-debug';
 export * from './auth';
 export * from './resources';
+export * from './expiry';
+export * from './resource-views';
+export * from './archive-policy';
 export * from './freight';
 export * from './flow';
 export * from './tasks';
@@ -18,3 +21,8 @@ export * from './remote-assist';
 export * from './platform';
 
 export * from './unit-price';
+export * from './archive-similarity';
+export * from './asset-flow';
+export * from './reminders';
+export * from './position-templates';
+export * from './archive-quality';

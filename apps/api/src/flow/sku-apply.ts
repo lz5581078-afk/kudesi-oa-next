@@ -1,9 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { createChecker, normalizeSpecs, normalizeWarehouse, type SkuSpec, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
+import { createChecker, SPECIAL_PERMISSIONS, normalizeSpecs, normalizeWarehouse, type SkuSpec, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { FlowRun, Notification, ResourceRecord } from '../entities';
 import { sigOf } from '../resources/base-code-support';
+import { registerCostSnapshots } from '../resources/cost-snapshot';
 import type { BundleToolsService, LineInput, TargetInput } from '../resources/bundle-tools.service';
 import type { FlowAdapter } from './flow-adapters';
 
@@ -157,6 +158,7 @@ export const skuBatchApply: FlowAdapter = {
     if (!bundles) throw new BadRequestException('服务没有准备好');
     const name = str(payload.batchName).trim();
     if (!name) throw new BadRequestException('请填写申请名称');
+    if (!num(payload.bundleCategoryId)) throw new BadRequestException('请选择组合分类');
     await checkApplication(em, user, bundles, payload, { strict: true });
   },
   async beforePass({ em, user, run, payload, stepKey, form, bundles }) {
@@ -173,7 +175,7 @@ export const skuBatchApply: FlowAdapter = {
       // 生成并验证组合编码相当于改「商品组合编码」资料，办理人自己必须有这个权限
       if (!can('resource.finance-bundles.create') || !can('resource.finance-bundles.edit')) throw new BadRequestException('财务审核会生成并验证商品组合编码，你没有「商品组合编码」的新增和修改权限，请联系管理员');
       if (form.confirmed !== true) throw new BadRequestException('请先勾选“我已核对规格、成本和编码”');
-      if (form.syncToJst === true && !can('finance.jst-sync.view')) throw new BadRequestException('你没有聚水潭同步的权限，不能勾选“加入聚水潭同步队列”');
+      if (form.syncToJst === true && !can(SPECIAL_PERMISSIONS.financeBundleSync)) throw new BadRequestException('你没有「组合装同步维护」的权限，不能勾选“加入聚水潭同步队列”');
       const wh = payload._warehouse as WarehouseSpec[] | undefined;
       if (!wh || !payload._reviewSig) throw new BadRequestException('仓库还没有提交配置，不能审核');
       const now = await reviewSignature(em, user, bundles, payload, wh, run.id);
@@ -197,13 +199,16 @@ export const skuBatchApply: FlowAdapter = {
     const actor = asEngine(user);
     const created: CreatedBundle[] = [];
     for (const [i, spec] of specs.entries()) {
-      const res = await bundles.generate(actor, specLines(spec, wh[i]), platformIds.map((platformId) => ({ platformId, scenarioId })), em);
+      const res = await bundles.generate(actor, specLines(spec, wh[i]), platformIds.map((platformId) => ({ platformId, scenarioId, bundleCategoryId: num(payload.bundleCategoryId) ?? undefined })), em);
       for (const c of res.created) {
         const rec = await em.findOne(ResourceRecord, { where: { id: c.id, companyId: user.companyId, type: 'finance-bundles' } });
         if (!rec) continue;
         if (!c.reused) await resources.patchData(em, actor, 'finance-bundles', c.id, { sourceRunId: run.id }, `SKU 批量申请 #${run.id} 生成`);
         // 财务审核通过就是验证：新建的和“待验证/需重新验证”的一并验证；已验证的沿用
-        if (rec.status === 'pending' || rec.status === 'reverify') await resources.setStatusChecked(em, actor, 'finance-bundles', c.id, 'verified', `SKU 批量申请 #${run.id} 财务审核通过`);
+        if (rec.status === 'pending' || rec.status === 'reverify') {
+          await resources.setStatusChecked(em, actor, 'finance-bundles', c.id, 'verified', `SKU 批量申请 #${run.id} 财务审核通过`);
+          await registerCostSnapshots(em, user.companyId, user.id, [c.id], `SKU 批量申请 #${run.id} 财务审核通过`, 'workflow_publish');
+        }
         created.push({ spec: spec.name, bundleId: c.id, code: c.code, reused: c.reused });
       }
     }

@@ -68,9 +68,21 @@ export interface FieldDef {
   maxFiles?: number;
   /** type=files：只收图片，还是图片和 PDF 都收（默认都收） */
   accept?: 'image' | 'any';
+  /** type=files：电脑上可以点“手机上传”，扫码用手机拍照/选图传到这个字段（只收图片） */
+  phoneUpload?: boolean;
+  /**
+   * 选项（select）或建议（text）来自公司自己维护的“商品单位与规格”列表（旧系统的单位、包装分类、尺寸单位管理）：
+   * 下拉的值是列表项的编码，显示名称。kindBy：列表种类随另一个字段的值变（如发货物料用自己的单位表）。
+   * 公司还没有维护该种类时，退回 options 里的默认选项。
+   */
+  optionsFrom?: { resource: string; kind: string; kindBy?: { field: string; map: Record<string, string> } };
   /** 仅当另一个字段（或 status）取这些值时才显示/保存，不满足时服务端清空 */
   showWhen?: { field: string; in: readonly string[] };
   help?: string;
+  /** secret：允许从导入表格写入（旧系统资质导入可带平台登录密码）；导出始终不含密码 */
+  importable?: boolean;
+  /** text/sensitive：格式校验（正则源码 + 不通过时的提示） */
+  pattern?: { source: string; message: string };
 }
 
 export interface StatusDef extends Option {
@@ -104,26 +116,39 @@ export interface ResourceDef {
   filterBy?: string | readonly string[];
   /** 分类目录随页签显示哪些“所属类型”的分类（页签值与分类的所属类型不一一对应时用，如外购成品含原装采购和供应商 OEM 两棵树） */
   treeTabMap?: Record<string, readonly string[]>;
+  /** 页签再拆开：tabsBy 的某个取值（如外购成品 purchased）按另一个字段拆成几个页签（旧系统“原装采购成品 / 供应商 OEM 成品”两个入口）。拆出的页签值就是 options 的 value；字段没填的记录算 default */
+  tabSplit?: { tab: string; field: string; default: string; options: readonly Option[] };
   /** 列表勾选后可批量做的事：status=批量停用/启用（要填原因），其余是批量修改这个字段（如移动分类） */
   batch?: readonly string[];
   /** 预警：状态异常，或某日期字段在 N 天内到期 */
   alerts?: Array<{ field: string; withinDays: number; label: string }>;
+  /** 详情里多一个只读“适用店铺”页签：按本记录的这个执照字段，列出该执照下的店铺 */
+  derivedStores?: string;
+  /** 复制新建时不带过去的字段（旧页面的“复制”规则：编号、名称、照片等） */
+  copyOmit?: readonly string[];
   /** 详情页展示这些子资源 */
   children?: readonly string[];
   /** 详情页额外展示的相关资料页签：别的资料里指向本资料的记录（按它自己的权限显示） */
   related?: ReadonlyArray<{ type: string; field: string }>;
   /** 列表按这个日期字段倒序（不设则按新建先后） */
   sortField?: string;
+  /** 导入时没有唯一字段的资料，这些字段值都相同就视为同一条（有则更新，无则新建），如店铺按 店铺编号+店铺名 */
+  importMatch?: readonly string[];
 }
 
 import { FINANCE_RESOURCE_DEFS } from './finance-resources';
-import { ABNORMAL, CANCELLED, INACTIVE, NORMAL, NOTE, attrs, date, files, money, o, ref, secret, select, sensitive, text, textarea } from './resource-kit';
+import { ABNORMAL, CANCELLED, INACTIVE, NORMAL, NOTE, attrs, date, files, money, o, ref, refs, secret, select, sensitive, text, textarea } from './resource-kit';
+
+/** 改为异常必须说明原因（旧系统的“标记异常”对话框必填） */
+const ABNORMAL_R = { ...ABNORMAL, requiresReason: true };
 
 const PLATFORMS = o('pdd:拼多多', 'taobao:淘宝', 'tmall:天猫', 'douyin:抖音', 'jd:京东', 'kuaishou:快手', 'xhs:小红书', 'other:其他');
 const RECONCILE = o('monthly:按月', 'quarterly:按季', 'yearly:按年');
 const SEAL_STATE = o('kept:在位', 'ordinary_kept:普通章在位', 'missing:缺失');
 const SEAL_KIND = o('anti_fake:防伪章', 'self_carved:自刻章');
 const MATERIAL = o('kept:在位', 'missing:缺失');
+/** 档案可以挂接的资料类型（旧系统 8 种）；选了类型，就只出现对应的那个关联字段 */
+const ARCHIVE_RELATED_TYPES = o('license:营业执照', 'store:店铺', 'bank_account:银行开户档案', 'fixed_asset:固定资产', 'partner_profile:合作人档案', 'trademark:商标', 'qualification:资质', 'tax_profile:税务档案');
 
 function sealFields(prefix: string, label: string): FieldDef[] {
   return [
@@ -145,12 +170,16 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL, CANCELLED, INACTIVE],
     defaultStatus: 'normal',
     children: ['license-borrows', 'license-usages'],
+    batch: ['status'],
+    copyOmit: ['licenseNo', 'companyName', 'creditCode', 'originalPhoto', 'copyPhoto'],
+    filterBy: ['annualAuditMonth', 'publicAccountFlag', 'sealFlag', 'locationFlag', 'photoFlag'],
     related: [
       { type: 'stores', field: 'licenseId' },
       { type: 'bank-accounts', field: 'licenseId' },
       { type: 'qualifications', field: 'licenseId' },
       { type: 'tax-profiles', field: 'licenseId' },
       { type: 'partners', field: 'licenseId' },
+      { type: 'trademarks', field: 'licenseId' },
       { type: 'archives', field: 'licenseId' },
     ],
     fields: [
@@ -165,13 +194,22 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       textarea('businessScope', '经营范围', '基础'),
       date('foundedAt', '成立日期', '基础'),
       date('approvedAt', '核准日期', '基础'),
+      date('expiresAt', '营业期限至', '基础', { list: true, help: '长期经营的不用填；到期前会在资料总览的“即将到期”里提醒' }),
       text('registrar', '登记机关', '基础'),
-      { key: 'annualAuditDay', label: '年审日期(月-日)', type: 'monthday', group: '基础', list: true },
+      { key: 'annualAuditDay', label: '年审日期(月-日)', type: 'monthday', group: '基础', list: true, help: '每年这一天前 30 天起出现在“资料总览”的需要关注里' },
+      select('annualAuditMonth', '年审月份', '基础', o('01:1 月', '02:2 月', '03:3 月', '04:4 月', '05:5 月', '06:6 月', '07:7 月', '08:8 月', '09:9 月', '10:10 月', '11:11 月', '12:12 月'), { readonly: true }),
+      select('publicAccountFlag', '公户情况', '银行', o('yes:有公户', 'no:未开通'), { readonly: true }),
+      select('sealFlag', '印章情况', '印章', o('lost:有印章遗失', 'ok:印章齐全'), { readonly: true }),
+      select('locationFlag', '存放位置情况', '实物', o('none:没有存放位置'), { readonly: true }),
+      select('photoFlag', '照片情况', '照片', o('gap:照片缺项'), { readonly: true }),
       textarea('abnormalReason', '异常原因', '基础', { showWhen: { field: 'status', in: ['abnormal'] } }),
       text('legalPhone', '法人预留手机', '基础', { search: true }),
       ref('locationId', '存放总位置', '实物', 'locations', { list: true, help: '改总位置时，位置为空或和旧总位置相同的正本、副本位置会跟着改' }),
       files('originalPhoto', '正本照片', '照片', { accept: 'image', maxFiles: 1 }),
+      { key: 'originalPhotoMissing', label: '正本照片缺失', type: 'bool', group: '照片', help: '只表示没有照片，不代表实物缺失' },
       files('copyPhoto', '副本照片', '照片', { accept: 'image', maxFiles: 1 }),
+      { key: 'copyPhotoMissing', label: '副本照片缺失', type: 'bool', group: '照片', help: '只表示没有照片，不代表实物缺失' },
+      text('borrowedSummary', '借出情况', '实物', { readonly: true, list: true, maxLength: 500 }),
       select('originalState', '正本', '实物', MATERIAL),
       ref('originalLocationId', '正本位置', '实物', 'locations'),
       select('copyState', '副本', '实物', MATERIAL),
@@ -193,7 +231,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       sensitive('legalCardNo', '法人银行卡号', '银行'),
       text('legalCardPhone', '法人卡预留手机', '银行'),
       select('reconcileCycle', '对账周期', '银行', RECONCILE),
-      text('reconcileDay', '对账提醒日', '银行', { help: '月：几号；季/年：MM-DD', maxLength: 8 }),
+      text('reconcileDay', '对账提醒日', '银行', { help: '月：几号；季：季度末月（3/6/9/12 月）的第几天；年：MM-DD', maxLength: 8 }),
       NOTE(),
     ],
   },
@@ -211,7 +249,9 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       ref('licenseId', '营业执照', '基础', 'licenses', { required: true }),
       select('item', '借用物品', '基础', o('original:正本', 'copy:副本', 'official:公章', 'finance:财务章', 'legal:法人章', 'invoice:发票章'), { required: true, list: true }),
-      text('borrower', '借用人', '基础', { required: true, list: true }),
+      ref('borrowerUserId', '借用人（员工）', '基础', 'user', { help: '公司员工选这里；外部人员填下面的姓名，二选一' }),
+      text('borrowerName', '借用人（外部人员）', '基础'),
+      text('borrower', '借用人', '基础', { readonly: true, list: true }),
       text('purpose', '用途', '基础', { required: true, list: true }),
       date('borrowedAt', '借用日期', '基础', { required: true, list: true }),
       date('expectedReturnAt', '预计归还', '基础', { list: true }),
@@ -226,17 +266,18 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'item',
     sortField: 'usedAt',
     statuses: [
-      { value: 'done', label: '完成', tone: 'ok' },
-      { value: 'pending', label: '待处理', tone: 'warn' },
+      { value: 'done', label: '已完成', tone: 'ok' },
+      { value: 'pending', label: '处理中', tone: 'warn' },
       { value: 'abnormal', label: '异常', tone: 'bad' },
     ],
     defaultStatus: 'done',
     fields: [
       ref('licenseId', '营业执照', '基础', 'licenses', { required: true }),
       select('item', '使用物品', '基础', o('original:正本', 'copy:副本', 'official:公章', 'finance:财务章', 'legal:法人章', 'invoice:发票章', 'other:其他'), { required: true, list: true }),
-      ref('userId', '使用人', '基础', 'user', { required: true, list: true }),
-      select('usageType', '使用类型', '基础', o('bank:银行业务', 'tax:税务', 'platform:平台入驻', 'contract:合同', 'other:其他'), { list: true }),
+      ref('userId', '使用人', '基础', 'user', { list: true }),
+      text('usageType', '使用类型', '基础', { list: true, help: '不填按“业务办理”' }),
       text('purpose', '用途', '基础', { required: true, list: true }),
+      text('relatedObject', '关联对象', '基础', { list: true, maxLength: 160, help: '如某店铺入驻、某份合同' }),
       date('usedAt', '使用日期', '基础', { required: true, list: true }),
       NOTE(),
     ],
@@ -247,7 +288,10 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '经营资料' },
     titleField: 'name',
     tabsBy: 'platform',
-    statuses: [NORMAL, ABNORMAL, CANCELLED, INACTIVE],
+    statuses: [NORMAL, ABNORMAL_R, CANCELLED, INACTIVE],
+    filterBy: ['claimStatus', 'operatorUserId', 'jushuitan', 'operatingStatus'],
+    batch: ['operatorUserId', 'claimStatus', 'status'],
+    importMatch: ['storeNo', 'name'],
     defaultStatus: 'normal',
     children: ['store-claims'],
     related: [
@@ -273,25 +317,30 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       date('lastOrderAt', '最后出单日期', '基础'),
       text('url', '店铺网址', '基础'),
       ref('abnormalReason', '异常原因', '基础', 'store-abnormal-reasons', { showWhen: { field: 'status', in: ['abnormal'] } }),
-      select('claimStatus', '领取状态', '领取', o('public:公共店铺', 'claimed:已领取', 'reserved:预留店铺', 'promotion_limited:推广限制店铺'), { list: true }),
-      ref('operatorUserId', '运营人', '领取', 'user', { list: true, showWhen: { field: 'claimStatus', in: ['claimed', 'reserved', 'promotion_limited'] }, help: '只能选在职员工' }),
+      text('abnormalReasonText', '新的异常原因', '基础', { maxLength: 100, showWhen: { field: 'status', in: ['abnormal'] }, help: '库里没有合适的就直接填，保存后自动记入异常原因库' }),
+      select('claimStatus', '领取状态', '领取', o('public:公共店铺', 'claimed:已领取', 'reserved:预留店铺', 'promotion_limited:推广限制店铺'), { list: true, help: '领用规则（提示）：主营平台每人 3 个、其他平台各 1 个；预留店铺每人 5 个，3 个月未启用收回公共库；推广限制店铺解除日后第 3 天释放到公共库' }),
+      text('legacyOwnerName', '历史负责人（未指派）', '领取', { maxLength: 100, help: '旧资料里记着的负责人，不算当前运营；没有运营人时在列表里提示“未指派”，确认后用“指派运营”处理' }),
+      ref('operatorUserId', '运营人', '领取', 'user', { list: true, help: '只能选在职员工；选了运营人的公共店铺自动变为已领取，预留/领取/推广限制必须有运营人' }),
       date('promotionReleaseAt', '推广限制解除日', '领取', { showWhen: { field: 'claimStatus', in: ['promotion_limited'] } }),
       text('account', '店铺账号', '账号', { search: true }),
       secret('storePassword', '店铺密码', '账号'),
       secret('withdrawPassword', '提现支付密码', '账号'),
       text('phoneNumber', '绑定手机号', '账号', { help: '必须是已建档的手机号', search: true }),
-      ref('phoneId', '手机号档案', '账号', 'phones'),
+      ref('phoneId', '手机号档案', '账号', 'phones', { help: '只选档案也可以，号码文本会自动带出' }),
+      refs('phoneIds', '更多绑定手机号', '账号', 'phones', { help: '一店可绑多个手机号，同一手机号在同一平台只能绑一个店铺' }),
       select('jushuitan', '聚水潭', '授权与资质', o('connected:已连接', 'not_connected:未连接')),
       date('jushuitanExpireAt', '聚水潭到期日', '授权与资质'),
+      refs('trademarkIds', '授权商标档案', '授权与资质', 'trademarks', { help: '关联商标档案；到期日仍以下面“商标授权到期日”为准' }),
       text('trademark', '授权商标', '授权与资质'),
       date('trademarkExpireAt', '商标授权到期日', '授权与资质'),
       select('qualification', '资质上传', '授权与资质', o('not_uploaded:未上传', 'uploaded:已上传', 'reviewing:审核中', 'approved:已通过', 'rejected:被驳回', 'not_required:无需上传')),
       text('qualificationNote', '资质备注', '授权与资质'),
       files('qualificationFiles', '资质文件', '授权与资质', { maxFiles: 9 }),
-      money('deposit', '保证金', '资金'),
-      money('frozen', '冻结资金', '资金'),
-      money('goodsFund', '货款', '资金'),
-      money('promotionBalance', '推广费余额', '资金'),
+      // 资金口径以“店铺资金”快照为准：这四项只读，由服务端取最新一条快照派生，不存在手填
+      money('deposit', '保证金', '资金', { readonly: true, help: '最新店铺资金快照的值（在“店铺经营数据 > 店铺资金”里录入）' }),
+      money('frozen', '冻结资金', '资金', { readonly: true, help: '最新店铺资金快照的值' }),
+      money('goodsFund', '货款', '资金', { readonly: true, help: '最新店铺资金快照的“可提现”' }),
+      money('promotionBalance', '推广费余额', '资金', { readonly: true, help: '最新店铺资金快照的值' }),
       text('fundNote', '资金备注', '资金'),
       NOTE(),
     ],
@@ -348,6 +397,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       date('day', '日期', '基础', { required: true, list: true }),
       { key: 'orders', label: '订单数', type: 'number', group: '经营', list: true },
       { key: 'visitors', label: '访客数', type: 'number', group: '经营' },
+      { key: 'productViews', label: '商品浏览量', type: 'number', group: '经营' },
+      { key: 'productReviews', label: '商品评价数', type: 'number', group: '经营' },
       money('sales', '销售额', '金额', { list: true }),
       money('refund', '退款', '金额', { list: true }),
       money('adCost', '推广费', '金额', { list: true }),
@@ -378,6 +429,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       { key: 'orders', label: '成交订单', type: 'number', group: '数据', list: true },
       { key: 'clicks', label: '点击', type: 'number', group: '数据' },
       { key: 'impressions', label: '展现', type: 'number', group: '数据' },
+      { key: 'conversionRate', label: '转化率(%)', type: 'decimal', scale: 2, group: '数据' },
+      text('itemUrl', '推广商品链接', '数据'),
       { key: 'roiPercent', label: '投产比(%)', type: 'number', group: '数据', list: true, readonly: true, help: '成交额 ÷ 花费 × 100，自动计算' },
       select('source', '数据来源', '基础', o('manual:手工录入', 'import:导入', 'api:接口同步')),
       NOTE(),
@@ -421,7 +474,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       money('deposit', '保证金', '金额', { list: true }),
       money('frozen', '冻结资金', '金额', { list: true }),
       money('promotion', '推广费余额', '金额', { list: true }),
-      select('source', '数据来源', '基础', o('manual:手工录入', 'import:导入', 'api:接口同步')),
+      select('source', '数据来源', '基础', o('manual:手工录入', 'import:导入', 'api:接口同步', 'legacy:旧系统档案登记')),
       NOTE(),
     ],
   },
@@ -432,7 +485,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'number',
     uniqueField: 'number',
     tabsBy: 'usageType',
-    statuses: [NORMAL, ABNORMAL, { ...INACTIVE, label: '停止使用' }],
+    filterBy: ['feeCycle'],
+    statuses: [NORMAL, ABNORMAL_R, { ...INACTIVE, label: '停止使用' }],
     defaultStatus: 'normal',
     alerts: [{ field: 'nextRechargeAt', withinDays: 7, label: '7 天内需充值' }],
     related: [
@@ -445,7 +499,10 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       { key: 'number', label: '号码', type: 'phone', group: '基础', required: true, list: true, search: true },
       select('usageType', '使用类型', '基础', o('company_kept:公司保存', 'personal_used:公司在使用', 'external_used:公司外人员使用', 'partner_used:合作手机号'), { required: true, list: true }),
-      text('carrier', '运营商', '基础', { list: true }),
+      text('carrier', '运营商', '基础', { list: true, help: '新建时默认中国移动' }),
+      { key: 'cardKind', label: '主子卡', type: 'text', group: '基础', readonly: true, list: true, help: '由“主卡”字段决定：没有主卡就是主卡，选了主卡就是子卡' },
+      { key: 'boundStores', label: '绑定店铺', type: 'text', group: '基础', readonly: true, list: true, help: '店铺档案里绑了这个手机号的店铺，在店铺里维护' },
+      { key: 'boundStoreNos', label: '店铺编号', type: 'text', group: '基础', readonly: true },
       text('plan', '套餐名', '基础'),
       text('region', '归属地', '基础'),
       text('certifiedName', '号码认证人', '基础'),
@@ -457,7 +514,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       text('externalUser', '外部使用人', '使用', { list: true, showWhen: { field: 'usageType', in: ['external_used'] } }),
       text('deviceType', '手机设备类型', '使用', { showWhen: { field: 'usageType', in: ['external_used'] } }),
       select('forwardApp', '是否转发 App', '使用', o('yes:是', 'no:否'), { showWhen: { field: 'usageType', in: ['external_used'] } }),
-      text('forwardAppName', '转发 App 名称', '使用', { showWhen: { field: 'usageType', in: ['external_used'] } }),
+      text('forwardAppName', '转发 App 名称', '使用', { showWhen: { field: 'forwardApp', in: ['yes'] } }),
       ref('partnerId', '合作人', '使用', 'partners', { showWhen: { field: 'usageType', in: ['partner_used'] } }),
       ref('keeperUserId', '保管人', '使用', 'user'),
       text('keeperName', '保管人(手填)', '使用'),
@@ -467,6 +524,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       { key: 'rechargeCycleDays', label: '充值周期(天)', type: 'number', group: '费用' },
       date('nextRechargeAt', '下次充值日', '费用', { list: true, help: '由最近充值日 + 充值周期自动计算' }),
       ref('abnormalReason', '异常原因', '状态', 'phone-abnormal-reasons', { showWhen: { field: 'status', in: ['abnormal'] } }),
+      text('abnormalReasonText', '新的异常原因', '状态', { maxLength: 100, showWhen: { field: 'status', in: ['abnormal'] }, help: '库里没有合适的就直接填，保存后自动记入异常原因库' }),
       NOTE(),
     ],
   },
@@ -476,15 +534,19 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '经营资料' },
     titleField: 'taxpayerName',
     tabsBy: 'taxCategory',
-    uniqueTogether: [{ fields: ['licenseId'], message: '这个营业执照已经有税务资料了' }],
+    // 一张执照可以同时有经营、电商两份税务资料，同类别只能一份
+    uniqueTogether: [{ fields: ['licenseId', 'taxCategory'], message: '这个营业执照已经有同类别的税务资料了' }],
+    derivedStores: 'licenseId',
+    batch: ['status'],
+    filterBy: ['taxType', 'licenseId'],
     statuses: [NORMAL, ABNORMAL, INACTIVE],
     defaultStatus: 'normal',
     fields: [
-      select('taxCategory', '类别', '基础', o('operation:经营税务', 'ecommerce:电商税务'), { required: true, list: true }),
+      select('taxCategory', '类别', '基础', o('operation:经营税务', 'ecommerce:电商税务'), { list: true, help: '不选时跟随所属执照的类别' }),
       ref('licenseId', '所属执照', '基础', 'licenses', { required: true, list: true }),
-      text('taxpayerName', '纳税人名称', '基础', { required: true, list: true, search: true }),
+      text('taxpayerName', '纳税人名称', '基础', { list: true, search: true, help: '不填时取所属执照的主体名称' }),
       text('taxpayerNo', '纳税人识别号', '基础', { list: true, search: true, maxLength: 32 }),
-      select('taxType', '税种类型', '基础', o('pending:待确认', 'general:一般纳税人', 'small:小规模纳税人'), { list: true }),
+      select('taxType', '税种类型', '基础', o('pending:待确认', 'general:一般纳税人', 'small:小规模纳税人', 'ordinary:普通纳税人'), { list: true }),
       text('taxAuthority', '主管税务机关', '基础'),
       text('invoiceType', '发票类型', '基础'),
       text('taxDiskNo', '税盘号', '基础'),
@@ -502,19 +564,26 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '经营资料' },
     titleField: 'name',
     tabsBy: 'partnerType',
+    batch: ['status'],
+    copyOmit: ['partnerNo', 'name', 'phone'],
+    filterBy: ['cardFlag'],
     statuses: [
       { value: 'active', label: '合作中', tone: 'ok' },
+      { value: 'abnormal', label: '异常', tone: 'warn' },
       { value: 'terminated', label: '解除合作', tone: 'muted', requiresReason: true, hidden: true },
     ],
     defaultStatus: 'active',
     fields: [
-      select('partnerType', '类型', '基础', o('partner:合作人', 'legal:法人'), { list: true, help: '不选按合作人处理；执照自动建的法人档案是“法人”' }),
+      select('partnerType', '类型', '基础', o('partner:合作人', 'legal:法人', 'business:合作商', 'other:其他'), { list: true, help: '不选按合作人处理；执照自动建的法人档案是“法人”' }),
       text('partnerNo', '编号', '基础', { list: true, search: true }),
       text('name', '姓名', '基础', { required: true, list: true, search: true }),
       { key: 'phone', label: '联系电话', type: 'phone', group: '基础', list: true, search: true },
       sensitive('idNumber', '身份证号', '基础'),
       ref('licenseId', '所属执照', '关联', 'licenses', { list: true }),
       ref('storeId', '店铺', '关联', 'stores'),
+      text('cooperationScope', '合作范围', '合作', { list: true, maxLength: 240 }),
+      date('startedAt', '开始时间', '合作', { list: true }),
+      date('endedAt', '结束时间', '合作'),
       text('contactName', '关系负责人', '关系负责人'),
       text('contactPhone', '负责人电话', '关系负责人'),
       ref('contactUserId', '负责员工', '关系负责人', 'user'),
@@ -525,6 +594,10 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       text('cardBank', '开户行', '银行卡'),
       sensitive('cardNo', '银行卡号', '银行卡'),
       text('cardPhone', '预留手机', '银行卡'),
+      text('cardPhoneHolder', '预留手机号姓名', '银行卡'),
+      ref('cardPhoneId', '预留手机号档案', '银行卡', 'phones', { help: '填了预留手机且档案里有这个号码时自动关联' }),
+      select('cardFlag', '银行卡登记', '银行卡', o('yes:已登记', 'no:未登记'), { readonly: true }),
+      textarea('abnormalReason', '异常原因', '状态', { showWhen: { field: 'status', in: ['abnormal'] } }),
       NOTE(),
     ],
   },
@@ -537,15 +610,22 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     tabsBy: 'kind',
     statuses: [NORMAL, ABNORMAL, INACTIVE],
     defaultStatus: 'normal',
-    children: ['u-shields'],
+    children: ['u-shields', 'bank-store-links'],
+    batch: ['status'],
+    copyOmit: ['reservedPhoneNumber', 'phoneId', 'customerNo'],
+    filterBy: ['licenseId', 'storeId', 'storeFlag', 'phoneFlag', 'shieldFlag'],
     fields: [
       select('kind', '账户类型', '基础', o('company_public:公司公户', 'company_card:公司银行卡', 'cashier_account:出纳账户', 'store_public:店铺公户', 'store_personal_card:店铺个人银行卡'), { required: true, list: true }),
       text('accountName', '户名', '基础', { required: true, list: true, search: true }),
       text('bank', '开户行', '基础', { required: true, list: true, search: true }),
-      sensitive('accountNo', '账号/卡号', '基础', { required: true, list: true }),
+      sensitive('accountNo', '账号/卡号', '基础', { required: true, list: true, pattern: { source: '^[0-9 \\-]{6,40}$', message: '账号只能是数字、空格、横线，6 到 40 位' } }),
       text('ownerName', '所属人', '基础', { list: true }),
       ref('licenseId', '所属执照', '关联', 'licenses', { list: true }),
-      ref('storeId', '关联店铺', '关联', 'stores'),
+      ref('storeId', '关联店铺', '关联', 'stores', { help: '主要关联的店铺；一个账户对应多个店铺、区分用途的，在详情的“账户店铺”里登记' }),
+      select('storeFlag', '店铺关联', '关联', o('yes:已关联店铺', 'no:未关联店铺'), { readonly: true }),
+      select('phoneFlag', '预留手机号', '关联', o('linked:已关联档案', 'unlinked:有号码未关联', 'none:未填写'), { readonly: true }),
+      { key: 'shieldCount', label: 'U 盾个数', type: 'number', group: '关联', list: true, readonly: true },
+      select('shieldFlag', 'U 盾', '关联', o('has:有 U 盾', 'none:没有 U 盾'), { readonly: true }),
       ref('keeperUserId', '保管人', '关联', 'user'),
       text('reservedPhoneNumber', '预留手机', '关联'),
       text('reservedPhoneHolder', '预留手机持有人', '关联'),
@@ -553,9 +633,9 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       text('customerNo', '客户号', '公户信息', { showWhen: { field: 'kind', in: ['company_public', 'store_public'] } }),
       ref('openingArchiveLocationId', '开户档案位置', '公户信息', 'locations', { showWhen: { field: 'kind', in: ['company_public', 'store_public'] } }),
       files('attachments', '开户附件', '公户信息', { maxFiles: 4, showWhen: { field: 'kind', in: ['company_public', 'store_public'] } }),
-      money('balance', '当前余额', '对账', { help: '手工登记；后续接入流水后改为自动' }),
+      money('balance', '期初余额', '对账', { help: '建账时登记的期初金额；当前余额由财务“现金银行”按单据过账实时计算' }),
       select('reconcileCycle', '对账周期', '对账', RECONCILE),
-      text('reconcileDay', '对账提醒日', '对账', { maxLength: 8 }),
+      text('reconcileDay', '对账提醒日', '对账', { maxLength: 8, help: '月：几号；季：季度末月（3/6/9/12 月）的第几天；年：MM-DD' }),
       textarea('abnormalReason', '异常原因', '状态', { showWhen: { field: 'status', in: ['abnormal'] } }),
       NOTE(),
     ],
@@ -570,7 +650,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     defaultStatus: 'normal',
     children: ['duty-group-items', 'duty-group-members'],
     fields: [
-      text('groupKey', '职责组编码', '基础', { required: true, list: true, search: true, help: '流程和任务按编码引用，建好后不要改' }),
+      text('groupKey', '职责组编码', '基础', { required: true, list: true, search: true, help: '流程和任务按编码引用，建好后不能修改' }),
       text('name', '职责组名称', '基础', { required: true, list: true, search: true }),
       select('scope', '范围', '基础', o('company:公司级', 'department:部门级'), { list: true }),
       textarea('description', '说明', '基础'),
@@ -599,13 +679,16 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     label: '职责组成员',
     parent: { type: 'duty-groups', field: 'groupId' },
     titleField: 'userId',
-    uniqueTogether: [{ fields: ['groupId', 'userId'], message: '这个员工已经在该职责组里了' }],
-    statuses: [NORMAL],
+    uniqueTogether: [{ fields: ['groupId', 'userId'], message: '这个员工已经在该职责组里了；退出过的请直接改回“在组”' }],
+    statuses: [NORMAL, { value: 'exited', label: '已退出', tone: 'muted', requiresReason: true }],
     defaultStatus: 'normal',
     fields: [
       ref('groupId', '职责组', '基础', 'duty-groups', { required: true }),
       ref('userId', '成员', '基础', 'user', { required: true, list: true }),
       text('role', '组内角色', '基础', { list: true }),
+      select('source', '来源', '基础', o('manual:手动加入', 'position:岗位自动', 'import:导入'), { list: true, help: '默认手动加入' }),
+      date('startedAt', '加入日期', '基础', { list: true }),
+      date('endedAt', '退出日期', '基础', { help: '退出时填写；晚于加入日期' }),
     ],
   },
   {
@@ -613,15 +696,33 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     label: 'U 盾',
     parent: { type: 'bank-accounts', field: 'bankAccountId' },
     titleField: 'name',
-    statuses: [NORMAL, ABNORMAL, INACTIVE],
+    statuses: [NORMAL, { value: 'borrowed', label: '借出', tone: 'warn' }, { value: 'lost', label: '遗失', tone: 'bad' }, ABNORMAL, INACTIVE],
     defaultStatus: 'normal',
     fields: [
       ref('bankAccountId', '银行账户', '基础', 'bank-accounts', { required: true }),
-      text('name', '名称/编号', '基础', { required: true, list: true, search: true }),
+      text('name', '名称', '基础', { required: true, list: true, search: true }),
+      text('shieldNo', 'U 盾编号', '基础', { list: true, search: true, maxLength: 120 }),
       ref('keeperUserId', '保管人', '基础', 'user', { list: true }),
       ref('locationId', '存放位置', '基础', 'locations', { list: true }),
       secret('loginPassword', '登录密码', '密码'),
       secret('tradePassword', '交易密码', '密码'),
+      NOTE(),
+    ],
+  },
+  {
+    // 银行账户 ⇄ 店铺（一个账户可对应多个店铺，并区分用途）
+    key: 'bank-store-links',
+    label: '账户店铺',
+    parent: { type: 'bank-accounts', field: 'bankAccountId' },
+    titleField: 'label',
+    uniqueTogether: [{ fields: ['bankAccountId', 'storeId', 'purpose'], message: '这个账户已经登记过该店铺的同一用途' }],
+    statuses: [NORMAL, INACTIVE],
+    defaultStatus: 'normal',
+    fields: [
+      ref('bankAccountId', '银行账户', '基础', 'bank-accounts', { required: true }),
+      ref('storeId', '店铺', '基础', 'stores', { required: true, list: true }),
+      text('purpose', '用途', '基础', { required: true, list: true, maxLength: 120, help: '如：店铺收款、提现、保证金、推广充值' }),
+      text('label', '名称', '基础', { readonly: true, maxLength: 200 }),
       NOTE(),
     ],
   },
@@ -632,11 +733,14 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     uniqueField: 'certNo',
     titleField: 'name',
     tabsBy: 'type',
-    statuses: [NORMAL, ABNORMAL, { value: 'expired', label: '已过期', tone: 'bad' }, INACTIVE],
+    statuses: [NORMAL, ABNORMAL, { value: 'renewing', label: '续期中', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, INACTIVE],
     defaultStatus: 'normal',
+    derivedStores: 'licenseId',
+    batch: ['status'],
+    filterBy: ['licenseId'],
     alerts: [{ field: 'expiresAt', withinDays: 30, label: '30 天内到期' }],
     fields: [
-      select('type', '类型', '基础', o('seed_business_filing:种子经营备案', 'brand_authorization:品牌授权', 'platform_operation:平台运营资质', 'general:通用'), { required: true, list: true }),
+      select('type', '类型', '基础', o('seed_business_filing:种子生产经营备案', 'brand_authorization:品牌授权', 'platform_operation:平台经营资质', 'general:其他资质'), { list: true, help: '不选按“其他资质”' }),
       text('name', '名称', '基础', { required: true, list: true, search: true }),
       text('certNo', '证书号', '基础', { list: true, search: true }),
       ref('licenseId', '所属执照', '基础', 'licenses', { list: true }),
@@ -645,7 +749,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       text('filedProducts', '备案商品', '基础'),
       text('reviewContact', '审核联系人', '基础'),
       text('platformAccount', '平台登录账号', '平台账号'),
-      secret('platformPassword', '平台登录密码', '平台账号'),
+      { ...secret('platformPassword', '平台登录密码', '平台账号'), importable: true },
       files('attachments', '证照附件', '附件', { maxFiles: 9 }),
       textarea('abnormalReason', '异常原因', '状态', { showWhen: { field: 'status', in: ['abnormal'] } }),
       NOTE(),
@@ -667,6 +771,9 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       INACTIVE,
     ],
     defaultStatus: 'applying',
+    children: ['trademark-authorizations'],
+    batch: ['status'],
+    copyOmit: ['name', 'applicationNo', 'registrationNo'],
     alerts: [{ field: 'validUntil', withinDays: 90, label: '90 天内到期' }],
     fields: [
       select('source', '来源', '基础', o('owned:自有', 'cooperative:合作'), { required: true, list: true }),
@@ -674,7 +781,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       text('classNo', '类别', '基础', { list: true }),
       text('applicant', '申请人', '基础', { list: true }),
       ref('licenseId', '申请人执照', '基础', 'licenses'),
-      text('cooperativeContact', '合作负责人', '基础', { showWhen: { field: 'source', in: ['cooperative'] } }),
+      text('cooperativeContact', '合作商标所属方（授权方）', '基础', { showWhen: { field: 'source', in: ['cooperative'] } }),
       text('applicationNo', '申请号', '日期与编号', { search: true }),
       text('registrationNo', '注册号', '日期与编号', { list: true, search: true }),
       date('appliedAt', '申请日期', '日期与编号'),
@@ -688,12 +795,34 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
   },
   {
+    // 商标 → 店铺授权（多对多，带授权期）；保存后回写店铺的“授权商标/授权商标到期”
+    key: 'trademark-authorizations',
+    label: '店铺授权',
+    parent: { type: 'trademarks', field: 'trademarkId' },
+    titleField: 'label',
+    uniqueTogether: [{ fields: ['trademarkId', 'storeId'], message: '这个商标已经授权给该店铺了' }],
+    sortField: 'validTo',
+    alerts: [{ field: 'validTo', withinDays: 90, label: '商标授权到期' }],
+    statuses: [NORMAL, INACTIVE],
+    defaultStatus: 'normal',
+    fields: [
+      ref('trademarkId', '商标', '基础', 'trademarks', { required: true }),
+      ref('storeId', '店铺', '基础', 'stores', { required: true, list: true }),
+      date('validFrom', '授权开始', '基础', { list: true }),
+      date('validTo', '授权到期', '基础', { list: true }),
+      text('label', '名称', '基础', { readonly: true, maxLength: 200 }),
+      NOTE(),
+    ],
+  },
+  {
     key: 'self-media',
     label: '自媒体账号',
     nav: { group: '经营资料' },
     titleField: 'name',
     tabsBy: 'platform',
-    statuses: [NORMAL, ABNORMAL, INACTIVE],
+    statuses: [NORMAL, ABNORMAL_R, INACTIVE],
+    filterBy: 'operatorUserId',
+    importMatch: ['platform', 'name'],
     defaultStatus: 'normal',
     fields: [
       select('platform', '平台', '基础', o('douyin:抖音', 'kuaishou:快手', 'channels:视频号', 'xhs:小红书', 'other:其他'), { required: true, list: true }),
@@ -707,6 +836,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       money('deposit', '保证金', '运营'),
       ref('licenseId', '主体执照', '关联', 'licenses'),
       ref('storeId', '关联店铺', '关联', 'stores'),
+      refs('storeIds', '更多关联店铺', '关联', 'stores', { help: '一个自媒体账号可关联多个店铺' }),
       ref('operatorUserId', '运营人', '关联', 'user', { list: true }),
       text('certifiedName', '认证人', '关联'),
       money('promotionFeeBalance', '推广费余额', '运营'),
@@ -732,11 +862,12 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '经营资料' },
     titleField: 'name',
     uniqueField: 'wechatNo',
-    statuses: [NORMAL, ABNORMAL, INACTIVE],
+    statuses: [NORMAL, ABNORMAL_R, INACTIVE],
+    filterBy: 'userId',
     defaultStatus: 'normal',
     fields: [
       text('name', '名称', '基础', { required: true, list: true, search: true }),
-      text('wechatNo', '微信号', '基础', { list: true, search: true, maxLength: 64 }),
+      text('wechatNo', '微信号', '基础', { required: true, list: true, search: true, maxLength: 64 }),
       secret('password', '密码', '基础'),
       ref('userId', '使用员工', '使用', 'user', { list: true }),
       text('purpose', '用途', '使用', { list: true }),
@@ -752,11 +883,13 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '账号与资质' },
     titleField: 'account',
     uniqueField: 'account',
-    statuses: [NORMAL, { value: 'suspended', label: '停机', tone: 'warn' }, CANCELLED],
+    statuses: [NORMAL, { value: 'suspended', label: '停机', tone: 'warn', requiresReason: true }, CANCELLED],
+    filterBy: ['locationId'],
     defaultStatus: 'normal',
     fields: [
       text('account', '宽带账号', '基础', { required: true, list: true, search: true }),
       ref('locationId', '安装位置', '基础', 'locations', { list: true }),
+      text('locationNote', '位置说明', '基础', { help: '位置档案里没有的地点可在这里写明' }),
       text('bandwidth', '带宽', '基础', { list: true }),
       select('cycle', '套餐周期', '费用', o('monthly:月付', 'yearly:年付')),
       money('amount', '金额', '费用', { list: true }),
@@ -772,13 +905,15 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '账号与资质' },
     titleField: 'title',
     tabsBy: 'kind',
-    statuses: [NORMAL, ABNORMAL, { value: 'expiring', label: '即将到期', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, INACTIVE],
+    statuses: [NORMAL, ABNORMAL, { value: 'expiring', label: '即将到期', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, { value: 'renewing', label: '续费中', tone: 'warn' }, { value: 'needs_recharge', label: '需充值', tone: 'warn' }, { value: 'paused', label: '暂停', tone: 'muted' }, INACTIVE],
+    filterBy: ['ownerUserId'],
+    importMatch: ['provider', 'title'],
     defaultStatus: 'normal',
     alerts: [{ field: 'endAt', withinDays: 30, label: '30 天内到期' }],
     fields: [
       select('kind', '类型', '基础', o('account:账号', 'service:服务'), { required: true, list: true }),
       text('title', '名称', '基础', { required: true, list: true, search: true }),
-      text('provider', '服务商', '基础', { list: true, search: true }),
+      text('provider', '服务商', '基础', { required: true, list: true, search: true }),
       text('loginName', '登录名', '基础', { search: true }),
       secret('password', '密码', '基础'),
       text('accountNo', '账号编号', '基础'),
@@ -800,11 +935,13 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'name',
     statuses: [NORMAL, { value: 'renewing', label: '续费中', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, INACTIVE],
     defaultStatus: 'normal',
+    uniqueTogether: [{ fields: ['name', 'account'], message: '同名软件的这个账号已经登记过了' }],
+    importMatch: ['name', 'account'],
     alerts: [{ field: 'renewAt', withinDays: 30, label: '30 天内需续费' }],
     fields: [
       text('name', '软件名称', '基础', { required: true, list: true, search: true }),
       ref('storeId', '关联店铺', '基础', 'stores', { list: true }),
-      text('account', '账号', '基础', { list: true, search: true }),
+      text('account', '账号', '基础', { required: true, list: true, search: true }),
       secret('password', '密码', '基础'),
       date('renewAt', '续费日期', '费用', { list: true }),
       money('annualFee', '年费', '费用'),
@@ -823,11 +960,12 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       { value: 'in_use', label: '使用中', tone: 'ok' },
       { value: 'repairing', label: '维修中', tone: 'warn' },
       { value: 'retired', label: '已报废', tone: 'muted', requiresReason: true, hidden: true },
-      { value: 'lost', label: '遗失', tone: 'bad', requiresReason: true, hidden: true },
+      { value: 'lost', label: '丢失', tone: 'bad', requiresReason: true },
     ],
     defaultStatus: 'idle',
+    alerts: [{ field: 'warrantyUntil', withinDays: 30, label: '保修即将到期' }],
     fields: [
-      text('assetNo', '系统编号', '基础', { required: true, list: true, search: true, maxLength: 64 }),
+      text('assetNo', '系统编号', '基础', { list: true, search: true, maxLength: 64, help: '不填则自动生成 ASSET-xxxxxx' }),
       text('customAssetNo', '自定义编号', '基础', { list: true, search: true, maxLength: 64 }),
       text('name', '名称', '基础', { required: true, list: true, search: true }),
       ref('categoryId', '分类', '基础', 'asset-categories', { list: true }),
@@ -841,10 +979,10 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       money('purchasePrice', '购入金额', '购入'),
       text('supplier', '供应商', '购入'),
       date('warrantyUntil', '保修至', '购入'),
-      ref('userId', '使用人', '使用', 'user', { list: true }),
+      ref('userId', '使用人', '使用', 'user', { list: true, help: '新建时选了使用人就直接记为使用中；之后通过「领用、转交、归还」变更' }),
       ref('keeperUserId', '保管人', '使用', 'user'),
       ref('departmentId', '所属部门', '使用', 'department', { list: true }),
-      ref('locationId', '位置', '使用', 'locations', { list: true }),
+      ref('locationId', '位置', '使用', 'locations', { list: true, help: '点位置可以看这个位置还存放了什么' }),
       NOTE(),
     ],
   },
@@ -889,19 +1027,25 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'name',
     uniqueField: 'archiveNo',
     statuses: [
-      { value: 'stored', label: '已存放', tone: 'ok' },
-      { value: 'borrowed', label: '借出', tone: 'warn' },
-      { value: 'missing', label: '缺失', tone: 'bad' },
+      { value: 'stored', label: '在库', tone: 'ok' },
+      { value: 'borrowed', label: '借出', tone: 'warn', requiresReason: true },
+      { value: 'missing', label: '遗失', tone: 'bad', requiresReason: true },
       { value: 'archived', label: '已归档', tone: 'muted' },
     ],
     defaultStatus: 'stored',
     fields: [
-      text('archiveNo', '档案编号', '基础', { required: true, list: true, search: true }),
+      text('archiveNo', '档案编号', '基础', { list: true, search: true, help: '不填则自动生成 ARCH-xxxxxx' }),
       text('name', '档案名称', '基础', { required: true, list: true, search: true }),
       text('archiveType', '类型', '基础', { list: true }),
-      select('relatedType', '关联对象', '基础', o('license:营业执照', 'store:店铺')),
-      ref('licenseId', '关联执照', '基础', 'licenses', { list: true, showWhen: { field: 'relatedType', in: ['license'] } }),
+      select('relatedType', '关联资料类型', '基础', ARCHIVE_RELATED_TYPES, { help: '这份档案属于哪类资料；不选则不关联' }),
+      ref('licenseId', '关联营业执照', '基础', 'licenses', { list: true, showWhen: { field: 'relatedType', in: ['license'] } }),
       ref('storeId', '关联店铺', '基础', 'stores', { list: true, showWhen: { field: 'relatedType', in: ['store'] } }),
+      ref('bankAccountId', '关联银行账户', '基础', 'bank-accounts', { list: true, showWhen: { field: 'relatedType', in: ['bank_account'] } }),
+      ref('fixedAssetId', '关联固定资产', '基础', 'fixed-assets', { list: true, showWhen: { field: 'relatedType', in: ['fixed_asset'] } }),
+      ref('partnerId', '关联合作人', '基础', 'partners', { list: true, showWhen: { field: 'relatedType', in: ['partner_profile'] } }),
+      ref('trademarkId', '关联商标', '基础', 'trademarks', { list: true, showWhen: { field: 'relatedType', in: ['trademark'] } }),
+      ref('qualificationId', '关联资质', '基础', 'qualifications', { list: true, showWhen: { field: 'relatedType', in: ['qualification'] } }),
+      ref('taxProfileId', '关联税务档案', '基础', 'tax-profiles', { list: true, showWhen: { field: 'relatedType', in: ['tax_profile'] } }),
       ref('locationId', '存放位置', '基础', 'locations', { list: true }),
       ref('keeperUserId', '保管人', '基础', 'user', { list: true }),
       files('photos', '档案照片', '照片', { maxFiles: 6 }),
@@ -923,6 +1067,41 @@ export function getResourceDef(key: string): ResourceDef | undefined {
   return BY_KEY.get(key);
 }
 
+/** 列表上方的页签：tabsBy 字段的选项，其中被 tabSplit 拆开的那一项换成拆出的几个页签 */
+export function resourceTabOptions(def: ResourceDef): readonly Option[] {
+  const field = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
+  const options = field?.options ?? [];
+  const split = def.tabSplit;
+  if (!split) return options;
+  return options.flatMap((o) => (o.value === split.tab ? split.options : [o]));
+}
+
+/** 页签值 → 查询条件：tabsBy 字段等于 value；拆出的页签还要求拆分字段等于某值（default 页签把没填的也算上） */
+export function resourceTabCondition(def: ResourceDef, tab: string): { field: string; value: string; split?: { field: string; value: string; orMissing: boolean } } | null {
+  if (!tab || !def.tabsBy) return null;
+  const split = def.tabSplit;
+  if (split && split.options.some((o) => o.value === tab)) return { field: def.tabsBy, value: split.tab, split: { field: split.field, value: tab, orMissing: tab === split.default } };
+  return { field: def.tabsBy, value: tab };
+}
+
+/** 在某个页签下新建时，表单里要预先填好的值（拆出的页签同时带上 tabsBy 字段和拆分字段） */
+export function resourceTabInitial(def: ResourceDef, tab: string): Record<string, unknown> {
+  const c = resourceTabCondition(def, tab);
+  if (!c) return {};
+  return { [c.field]: c.value, ...(c.split ? { [c.split.field]: c.split.value } : {}) };
+}
+
+/** 一条记录属于哪个页签（拆出的页签按拆分字段，没填算 default） */
+export function resourceTabOf(def: ResourceDef, data: Record<string, unknown>): string {
+  const v = String(data[def.tabsBy ?? ''] ?? '');
+  const split = def.tabSplit;
+  if (split && v === split.tab) {
+    const m = String(data[split.field] ?? '');
+    return split.options.some((o) => o.value === m) ? m : split.default;
+  }
+  return v;
+}
+
 /** 这种资料自己是一棵树（有指向自己的“上级”字段），如商品分类、供应商分类 */
 export function isTreeResource(key: string): boolean {
   return !!BY_KEY.get(key)?.fields.some((f) => f.key === 'parentId' && f.type === 'ref' && f.ref === key);
@@ -932,6 +1111,14 @@ export function isTreeResource(key: string): boolean {
 export function treeFilterField(def: ResourceDef): FieldDef | undefined {
   const keys = def.filterBy ? ([] as string[]).concat(def.filterBy as string | string[]) : [];
   return keys.map((k) => def.fields.find((f) => f.key === k)).find((f) => !!f && (f.type === 'ref' || f.type === 'refs') && !!f.ref && isTreeResource(f.ref));
+}
+
+/** optionsFrom 字段当前要用哪一种列表（kindBy 按另一个字段的值切换） */
+export function optionsKindOf(field: FieldDef, values: Record<string, unknown>): string | null {
+  const from = field.optionsFrom;
+  if (!from) return null;
+  if (from.kindBy) return from.kindBy.map[String(values[from.kindBy.field] ?? '')] ?? from.kind;
+  return from.kind;
 }
 
 /** 资源动作权限键：resource.<key>.<action> */
@@ -997,7 +1184,7 @@ function isShown(field: FieldDef, current: Record<string, unknown>): boolean {
 export function validateResourceInput(
   def: ResourceDef,
   input: Record<string, unknown>,
-  context: { status: string; existing?: Record<string, unknown> },
+  context: { status: string; existing?: Record<string, unknown>; /** optionsFrom 字段当前允许的取值（公司维护的列表）；没有列出的字段退回静态 options */ dynamicOptions?: Record<string, readonly string[]> },
 ): ValidationResult {
   const values: Record<string, unknown> = {};
   const errors: string[] = [];
@@ -1035,6 +1222,7 @@ export function validateResourceInput(
       case 'sensitive': {
         const s = String(raw).trim();
         if (s.length > (field.maxLength ?? 200)) errors.push(`${label}不能超过 ${field.maxLength ?? 200} 个字`);
+        else if (field.pattern && !new RegExp(field.pattern.source).test(s)) errors.push(field.pattern.message);
         else values[field.key] = s;
         break;
       }
@@ -1082,8 +1270,13 @@ export function validateResourceInput(
           else values[field.key] = (field.options ?? []).map((o) => o.value).filter((v) => picked.has(v)).join('、');
           break;
         }
-        if (!field.options?.some((opt) => opt.value === raw)) errors.push(`${label}的取值不合法`);
-        else values[field.key] = raw;
+        {
+          const dyn = context.dynamicOptions?.[field.key];
+          // 公司维护了列表：只能选列表里的；记录原来的值不动也算合法（历史数据、已停用的项）
+          const ok = dyn ? dyn.includes(String(raw)) || context.existing?.[field.key] === raw : field.options?.some((opt) => opt.value === raw);
+          if (!ok) errors.push(`${label}的取值不合法`);
+          else values[field.key] = raw;
+        }
         break;
       case 'files': {
         const max = field.maxFiles ?? 9;

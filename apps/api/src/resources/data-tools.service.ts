@@ -1,11 +1,12 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { packagingRuleMatches, parseDiscreteWeights, type PackagingRule } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { FinanceApiKey, FinanceCostSnapshot, FinanceMasterSnapshot, ResourceChangeLog, ResourceLink, ResourceRecord } from '../entities';
-import { CostService } from './cost.service';
+import { COST_TABLE_STATUSES, CostService } from './cost.service';
+import { COST_EVENT_LABEL, registerCostSnapshots, type CostEvent } from './cost-snapshot';
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -47,29 +48,14 @@ export class DataToolsService {
 
   // ---------- 成本历史 ----------
   /** 登记成本快照：和上一次相比没变就不记。bundleId 不传 = 所有已验证的组合。 */
-  async registerCost(user: AuthUser, bundleId: number | undefined, reason: string, outer?: EntityManager) {
+  async registerCost(user: AuthUser, bundleId: number | undefined, reason: string, outer?: EntityManager, eventType: CostEvent = 'manual') {
     const em = outer ?? this.dataSource.manager;
     const ids = bundleId
       ? [bundleId]
-      : (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-bundles', status: 'verified' } })).map((b) => b.id);
-    let recorded = 0, unchanged = 0;
-    const { rows: costRows } = await this.cost.allRows(user, em);
-    const costById = new Map(costRows.map((r) => [r.bundleId, r]));
-    for (const id of ids) {
-      const row = costById.get(id);
-      if (!row) throw new NotFoundException('组合不存在');
-      const last = await em.findOne(FinanceCostSnapshot, { where: { companyId: user.companyId, bundleId: id }, order: { id: 'DESC' } });
-      const same = last && last.preShipCostCents === row.preShipCostCents && last.weightG === row.weightG && last.freightCents === row.freightCents
-        && last.minPriceCents === row.minPriceCents && (last.marginPercent === row.marginPercent);
-      if (same) { unchanged++; continue; }
-      await em.insert(FinanceCostSnapshot, {
-        companyId: user.companyId, bundleId: id, code: row.code, name: row.name, revision: (last?.revision ?? 0) + 1,
-        preShipCostCents: row.preShipCostCents, weightG: row.weightG, freightCents: row.freightCents, marginPercent: row.marginPercent, minPriceCents: row.minPriceCents,
-        reason: reason.slice(0, 200), actorId: user.id,
-      });
-      recorded++;
-    }
-    return { recorded, unchanged };
+      : (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-bundles', status: In(COST_TABLE_STATUSES) } })).map((b) => b.id);
+    const r = await registerCostSnapshots(em, user.companyId, user.id, ids, reason, eventType);
+    if (bundleId && r.missing) throw new NotFoundException('组合不存在');
+    return { recorded: r.recorded, unchanged: r.unchanged };
   }
 
   async costHistory(user: AuthUser, q: { bundleId?: number; keyword?: string; page: number; pageSize: number }) {
@@ -94,14 +80,14 @@ export class DataToolsService {
         const p = r.prevId ? pm.get(Number(r.prevId)) : undefined;
         const cur = Object.fromEntries(FIELDS.map(([c, k]) => [k, n_(r[c])]));
         const before = p ? Object.fromEntries(FIELDS.map(([c, k]) => [k, n_(p[c])])) : null;
-        return { id: r.id, bundleId: r.bundle_id, code: r.code, name: r.name, revision: r.revision, reason: r.reason, actorName: r.actorName ?? '系统', createdAt: r.created_at, ...cur,
+        return { id: r.id, bundleId: r.bundle_id, code: r.code, name: r.name, revision: r.revision, reason: r.reason, eventType: r.event_type, eventLabel: COST_EVENT_LABEL[r.event_type as CostEvent] ?? '手动登记', actorName: r.actorName ?? '系统', createdAt: r.created_at, ...cur,
           before, changes: before ? FIELDS.filter(([, k]) => cur[k] !== before[k]).map(([, k, label]) => ({ field: k, label, before: before[k], after: cur[k] })) : [] };
       }),
     };
   }
 
   // ---------- 包装方案匹配试算 ----------
-  async packagingMatch(user: AuthUser, t: { usageScene?: string; targetType: 'base_code' | 'bundle'; targetCode?: string; categoryId?: number; brandId?: number; scenarioId?: number; weightKg?: number }) {
+  async packagingMatch(user: AuthUser, t: { usageScene?: string; targetType: 'base_code' | 'bundle' | 'product_archive'; targetCode?: string; categoryId?: number; brandId?: number; scenarioId?: number; weightKg?: number }) {
     const em = this.dataSource.manager;
     const schemes = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-packaging-schemes', status: 'active' } });
     const day = new Date().toISOString().slice(0, 10);
@@ -159,15 +145,16 @@ export class DataToolsService {
   /** 外部程序用 X-API-Key 读已验证组合；密钥只存哈希，常数时间比较 */
   async authenticateKey(raw: string | undefined, scope: string = API_SCOPE): Promise<number> {
     const m = KEY_RE.exec(raw ?? '');
-    if (!m) throw new ForbiddenException('请提供有效的 X-API-Key');
+    if (!m) throw new UnauthorizedException('请提供有效的 X-API-Key。');
     const row = await this.dataSource.manager.findOne(FinanceApiKey, { where: { id: m[1], scope } });
     const expected = Buffer.from(row?.keyHash ?? '0'.repeat(64), 'hex'), actual = Buffer.from(sha(raw as string), 'hex');
-    if (!row || row.revokedAt || expected.length !== actual.length || !crypto.timingSafeEqual(actual, expected)) throw new ForbiddenException('API 密钥无效或已撤销');
+    if (!row || row.revokedAt || expected.length !== actual.length || !crypto.timingSafeEqual(actual, expected)) throw new UnauthorizedException('API 密钥无效或已撤销。');
     await this.dataSource.manager.update(FinanceApiKey, { id: row.id }, { lastUsedAt: new Date() });
     return row.companyId;
   }
 
-  async externalFeed(companyId: number) { return { rows: await this.cost.verifiedFeed(companyId) }; }
+  /** 金额一律是整数分（amountUnit: 'cent'）；旧系统的 /api/external/verified-bundles 兼容路径见 LegacyVerifiedFeedController（旧字段名和单位） */
+  async externalFeed(companyId: number) { return { amountUnit: 'cent', rows: await this.cost.verifiedFeed(companyId) }; }
 
   // ---------- 主数据重置 ----------
   private scope(includePlatforms: boolean) { return RESET_TYPES.filter((t) => !t.optional || includePlatforms); }

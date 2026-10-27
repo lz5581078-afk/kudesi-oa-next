@@ -33,7 +33,7 @@ class SettlementDto {
 }
 class OpenItemsDto {
   @IsIn(['in', 'out']) dir!: 'in' | 'out';
-  @IsIn(['customer', 'store', 'supplier']) partyKind!: string;
+  @IsIn(['customer', 'store', 'supplier', 'employee']) partyKind!: string;
   @Type(() => Number) @IsInt() @Min(1) partyId!: number;
 }
 class SettlementQueryDto {
@@ -48,7 +48,7 @@ class DocDto {
   @IsIn(TYPES) type!: DocType;
   @Matches(DATE) date!: string;
   @IsOptional() @IsInt() @Min(1) partyId?: number | null;
-  @IsOptional() @IsIn(['customer', 'store', 'supplier']) partyKind?: 'customer' | 'store' | 'supplier' | null;
+  @IsOptional() @IsIn(['customer', 'store', 'supplier', 'employee']) partyKind?: 'customer' | 'store' | 'supplier' | 'employee' | null;
   @IsOptional() @IsInt() @Min(0) paidCents?: number | null;
   @IsOptional() @IsString() @MaxLength(60) handler?: string | null;
   @IsOptional() @IsString() @MaxLength(60) department?: string | null;

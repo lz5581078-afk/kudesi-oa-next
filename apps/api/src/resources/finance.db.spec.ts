@@ -147,25 +147,29 @@ d('财务资料（真实数据库）', () => {
     await svc.changeStatus(boss, 'finance-base-codes', ids.bc, 'verified');
     const plat = await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' });
     const scen = await svc.create(boss, 'finance-scenarios', { code: 'supply_chain', name: '供应链', segment: 'GYL' });
-    const bundle = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id });
+    const bcat = await svc.create(boss, 'finance-categories', { name: '水果组合', code: 'SGZH', archiveType: 'bundle' });
+    ids.bcat = bcat.id;
+    const bundle = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, bundleCategoryId: bcat.id });
     expect(String(bundle.data.code)).toMatch(/^ZH-待配置-/);
     const apple2Bc = await svc.create(boss, 'finance-base-codes', { productId: ids.apple2, code: 'APPLE-B', codeChangeReason: '历史编码' });
     await expect(svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'main', baseCodeId: apple2Bc.id, qty: 1 })).rejects.toThrow(/还没验证/);
     await svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'main', baseCodeId: ids.bc, qty: 2 });
     const mid = await svc.get(boss, 'finance-bundles', bundle.id);
-    expect(mid.data.code).toBe('ZH-TB-SG-PG-HFSPGG-2D5KG*2-GYL');
-    expect(mid.data.name).toBe('组合-红富士苹果（改）×2');
+    expect(mid.data.code).toBe('ZH-TB-HFSPGG-5KG-GYL');
+    expect(mid.data.name).toBe('组合-苹果类-红富士苹果（改）-5千克');
     await svc.update(boss, 'finance-products', ids.apple2, { weightG: 100 });
     await svc.changeStatus(boss, 'finance-base-codes', apple2Bc.id, 'verified');
+    await expect(svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'gift', baseCodeId: apple2Bc.id, qty: 1 })).rejects.toThrow(/赠品简称/);
+    await svc.update(boss, 'finance-products', ids.apple2, { giftShortName: '苹果赠', giftCodeShortName: 'apple' });
     const gift = await svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'gift', baseCodeId: apple2Bc.id, qty: 1 });
-    expect((await svc.get(boss, 'finance-bundles', bundle.id)).data.code).toBe('ZH-TB-SG-PG-HFSPGG-2D5KG*2+ZP-APPLE-B-GYL');
+    expect((await svc.get(boss, 'finance-bundles', bundle.id)).data.code).toBe('ZH-TB-HFSPGG-5KG-GYL+ZP-APPLE*1');
     const verified = await svc.changeStatus(boss, 'finance-bundles', bundle.id, 'verified');
     expect(verified.status).toBe('verified');
     // 构成一变，就要重新验证；删除赠品后编码回到只有主品
     await svc.remove(boss, 'finance-bundle-lines', gift.id, '不要赠品了');
     const back = await svc.get(boss, 'finance-bundles', bundle.id);
     expect(back.status).toBe('reverify');
-    expect(back.data.code).toBe('ZH-TB-SG-PG-HFSPGG-2D5KG*2-GYL');
+    expect(back.data.code).toBe('ZH-TB-HFSPGG-5KG-GYL');
     // 手工重量/运费/利润率覆盖必须写原因
     await expect(svc.update(boss, 'finance-bundles', bundle.id, { manualFreight: 800 })).rejects.toThrow(/原因/);
     await svc.update(boss, 'finance-bundles', bundle.id, { manualFreight: 800, overrideReason: '特殊线路' });
@@ -177,9 +181,9 @@ d('财务资料（真实数据库）', () => {
     const all = await svc.create(boss, 'finance-margins', { profitPercent: 20, reason: '默认' });
     expect(all.title).toBe('全部默认利润率');
     await expect(svc.create(boss, 'finance-margins', { profitPercent: 25, reason: '重复' })).rejects.toThrow(/已存在/);
-    await expect(svc.create(boss, 'finance-margins', { categoryId: ids.leaf, profitPercent: 100, reason: 'x' })).rejects.toThrow(/不含 100/);
-    const cat = await svc.create(boss, 'finance-margins', { categoryId: ids.leaf, profitPercent: 30.5, reason: '水果利润高' });
-    expect(cat.data.scopeKey).toBe(`cat:${ids.leaf}`);
+    await expect(svc.create(boss, 'finance-margins', { categoryId: ids.bcat, profitPercent: 100, reason: 'x' })).rejects.toThrow(/不含 100/);
+    const cat = await svc.create(boss, 'finance-margins', { categoryId: ids.bcat, profitPercent: 30.5, reason: '水果利润高' });
+    expect(cat.data.scopeKey).toBe(`cat:${ids.bcat}`);
   });
   it('成本表：现算成本、重量、运费、利润率来源和最低售价；成本一变立刻跟着变', async () => {
     const cost = new CostService(ds);
@@ -232,12 +236,13 @@ d('财务资料（真实数据库）', () => {
     const c3 = await svc.create(boss, 'finance-supplier-categories', { name: '甜玉米', parentId: c2.id });
     const c4 = await svc.create(boss, 'finance-supplier-categories', { name: '四级', parentId: c3.id });
     await expect(svc.create(boss, 'finance-supplier-categories', { name: '太深', parentId: c4.id })).rejects.toThrow(/最多 4 级/);
-    const s1 = await svc.create(boss, 'finance-suppliers', { name: '润农种业', shortName: '润农', categoryIds: [c1.id, c3.id] });
-    expect(s1.data.code).toBe('GYS-001');
+    const s1 = await svc.create(boss, 'finance-suppliers', { name: '润农种业', shortName: '润农', categoryIds: [c1.id, c4.id] });
+    expect(s1.data.code).toBe('GYS-ZZGYS-SJ-RNZY');
     expect(s1.data.shortCode).toBe('RN');
-    expect(s1.refLabels.categoryIds).toBe('种子供应商、种子供应商 / 玉米 / 甜玉米');
-    const s2 = await svc.create(boss, 'finance-suppliers', { name: '另一家' });
-    expect(s2.data.code).toBe('GYS-002');
+    expect(s1.refLabels.categoryIds).toBe('种子供应商、种子供应商 / 玉米 / 甜玉米 / 四级');
+    const s2 = await svc.create(boss, 'finance-suppliers', { name: '另一家', categoryIds: [c4.id] });
+    expect(s2.data.code).toBe('GYS-ZZGYS-SJ-LYJ');
+    await expect(svc.create(boss, 'finance-suppliers', { name: '没选分类' })).rejects.toThrow(/分类/);
     await expect(svc.create(boss, 'finance-suppliers', { name: '坏分类', categoryIds: [999999] })).rejects.toThrow(/不存在/);
     const k = await svc.create(boss, 'finance-customers', { name: '老客户' });
     expect(k.data.code).toBe('KH-001');
