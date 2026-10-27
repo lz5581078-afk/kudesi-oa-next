@@ -444,9 +444,9 @@ export class ResourcesService implements RuleHost {
       if (f.showWhen && f.showWhen.field === 'status' && !f.showWhen.in.includes(status)) delete data[f.key];
     }
 
-    const ruleCtx = { em, host: this, user, data, existing, status };
-    await beforeSaveRule(def.key, ruleCtx);
-    status = ruleCtx.status; // 规则可以改状态（如固定资产新建时有使用人就是使用中）
+    const rule = { em, host: this, user, data, existing, status, hasSensitive: (key: string) => Boolean(secrets[key]) };
+    await beforeSaveRule(def.key, rule);
+    status = rule.status;
     for (const k of Object.keys(data)) if (data[k] === null || data[k] === undefined) delete data[k];
 
     for (const f of def.fields) {
@@ -511,7 +511,7 @@ export class ResourcesService implements RuleHost {
     const note = [options.note, secretChanged ? '修改了密码/证件号/卡号类字段' : null].filter(Boolean).join('；') || undefined;
     await this.writeLog(em, user, def, record.id, options.logAction ?? (existing ? 'update' : 'create'), before, record, note);
     if (!existing) await afterCreateRule(def.key, { em, host: this, user, record, plain: values });
-    await afterSaveRule(def.key, { em, host: this, user, record, existing: before });
+    await afterSaveRule(def.key, { em, host: this, user, record, existing: before, plain: values });
     return record;
   }
 
@@ -592,7 +592,31 @@ export class ResourcesService implements RuleHost {
     }
     Object.assign(record, { data, title, uniqueKey, searchText: this.buildSearchText(def, data, title), updatedBy: user.id });
     await em.save(ResourceRecord, record);
+    if (def.fields.some((f) => f.type === 'ref' && f.key in patch)) await this.syncLinks(em, user, def, record);
     await this.writeLog(em, user, def, id, 'update', before, record, note);
+  }
+
+  /** 读一条记录里加密字段（证件号/卡号）的明文，只给规则在服务端内部用。 */
+  sensitiveOf(record: ResourceRecord, field: string): string | undefined {
+    const token = this.readSecrets(record)[field];
+    if (!token) return undefined;
+    try { return this.crypto.decrypt(token); } catch { return undefined; }
+  }
+
+  /** 规则里改别的记录的加密字段（如银行账户为准，回写执照上登记的公户号）；value 为空即清除。 */
+  async setSensitive(em: EntityManager, user: AuthUser, type: string, id: number, field: string, value: string | null, note?: string) {
+    const def = this.def(type);
+    const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type } });
+    if (!record) return;
+    const secrets = this.readSecrets(record);
+    const old = this.sensitiveOf(record, field);
+    if ((value || undefined) === old) return;
+    if (value) secrets[field] = this.crypto.encrypt(value); else delete secrets[field];
+    const before = { ...record, data: { ...record.data } } as ResourceRecord;
+    record.secrets = Object.keys(secrets).length ? JSON.stringify(secrets) : null;
+    record.updatedBy = user.id;
+    await em.save(ResourceRecord, record);
+    await this.writeLog(em, user, def, id, 'update', before, record, note ?? '同步了证件号/卡号类字段');
   }
 
   /** 规则里直接改别的记录的状态（如商品变了，已验证的基础编码要“需重新验证”）。 */
