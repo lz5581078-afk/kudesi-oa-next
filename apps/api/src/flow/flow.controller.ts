@@ -12,6 +12,8 @@ class StartDto {
 class DraftDto {
   @IsArray() steps!: never[];
   @IsArray() @IsInt({ each: true }) escalateUserIds!: number[];
+  /** 自建模板的表单结构；内置模板不传 */
+  @IsOptional() @IsObject() schema?: Record<string, unknown>;
 }
 class PassDto {
   @IsInt() revision!: number;
@@ -75,7 +77,7 @@ export class FlowController {
 
   @RequirePermission('flow.templates.view')
   @Put('definitions/:key/draft')
-  saveDraft(@CurrentUser() user: AuthUser, @Param('key') key: string, @Body() b: DraftDto) { return this.flow.saveDraft(user, key, b.steps as never, b.escalateUserIds); }
+  saveDraft(@CurrentUser() user: AuthUser, @Param('key') key: string, @Body() b: DraftDto) { return this.flow.saveDraft(user, key, b.steps as never, b.escalateUserIds, (b.schema as never) ?? null); }
 
   @RequirePermission('flow.templates.view')
   @Post('definitions/:key/publish')
