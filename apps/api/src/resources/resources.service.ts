@@ -28,6 +28,7 @@ import { CryptoService } from '../common/crypto.service';
 import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
 import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
+import { certImportMatch } from './entity-rules';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
 
 export interface ResourceDto {
@@ -1120,10 +1121,25 @@ export class ResourcesService implements RuleHost {
     return out.filter((x) => x.type === 'user' || can(resourcePermission(permissionOwner(x.type), 'view')));
   }
 
+  /** 手动关联员工（如营业执照的关联运营人员）：只能关联本公司员工，同一个人不重复关联。 */
+  private async addUserLink(user: AuthUser, type: string, id: number, targetId: number, clean: { validFrom?: string | null; validTo?: string | null; purpose?: string | null }) {
+    await this.dataSource.transaction(async (em) => {
+      const src = await this.load(em, user, type, id);
+      const target = await em.findOne(User, { where: { id: targetId, companyId: user.companyId } });
+      if (!target) throw new BadRequestException('要关联的员工不存在');
+      const dup = await em.findOne(ResourceLink, { where: { companyId: user.companyId, sourceType: type, sourceId: id, targetType: 'user', targetId } });
+      if (dup) throw new ConflictException('已经关联过了');
+      await em.insert(ResourceLink, { companyId: user.companyId, sourceType: type, sourceId: id, relation: 'manual', targetType: 'user', targetId, ...clean });
+      await this.writeLog(em, user, this.def(type), src.id, 'update', src, src, `手动关联员工「${target.name}」${clean.purpose ? `（${clean.purpose}）` : ''}`);
+    });
+    return { ok: true };
+  }
+
   /** 手动关联：把另一条资料关联到这条上（一条可以关联多条，如合作人对应多个执照/店铺）。 */
   async addManualLink(user: AuthUser, type: string, id: number, targetType: string, targetId: number, can: (permission: string) => boolean, props: { validFrom?: string | null; validTo?: string | null; purpose?: string | null } = {}) {
     this.def(type);
     const clean = this.cleanLinkProps(props);
+    if (targetType === 'user') return this.addUserLink(user, type, id, targetId, clean);
     const tdef = getResourceDef(targetType);
     if (!tdef) throw new BadRequestException('要关联的资料类型不存在');
     if (!can(resourcePermission(permissionOwner(targetType), 'view'))) throw new ForbiddenException('没有权限查看要关联的资料');
@@ -1294,12 +1310,12 @@ export class ResourcesService implements RuleHost {
       if (!status) errors.push(`状态“${statusText}”不认识`);
     }
     for (const f of def.fields) {
-      if (f.type === 'secret' || f.type === 'files' || f.type === 'attrs' || f.readonly) continue; // 密码、文件、系统计算的字段不走导入
+      if ((f.type === 'secret' && !f.importable) || f.type === 'files' || f.type === 'attrs' || f.readonly) continue; // 密码、文件、系统计算的字段不走导入（资质的平台登录密码除外）
       let raw = (row[f.label] ?? '').trim();
       // Excel 弄坏的手机号（="138…"、138….0、科学计数法）先还原
       if (raw && (f.type === 'phone' || (def.key === 'stores' && f.key === 'phoneNumber'))) raw = normalizePhoneImportText(raw);
       // 店铺的“所属执照”可填统一社会信用代码
-      if (raw && def.key === 'stores' && f.key === 'licenseId') raw = await mapLicenseByCreditCode(em, user.companyId, raw);
+      if (raw && f.type === 'ref' && f.ref === 'licenses') raw = await mapLicenseByCreditCode(em, user.companyId, raw);
       if (!raw) continue;
       if (f.type === 'select') {
         const opt = f.options?.find((o) => o.label === raw || o.value === raw);
@@ -1369,6 +1385,7 @@ export class ResourcesService implements RuleHost {
               def.importMatch.forEach((k, idx) => qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${k}')) = :im${idx}`, { [`im${idx}`]: String(converted.input[k]) }));
               existing = (await qb.getOne()) ?? null;
             }
+            if (!existing) existing = await certImportMatch(type, { em, host: this, user, input: converted.input });
             const saved = await em.transaction((inner) =>
               this.saveRecord(inner, user, def, existing, converted.input, { status: converted.status, note: '批量导入', cleanup }),
             );

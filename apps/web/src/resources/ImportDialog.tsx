@@ -26,7 +26,7 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
   const loadBackups = () => resourceApi.importBackups(def.key).then(setBackups).catch(() => setBackups([]));
   useEffect(() => { void loadBackups(); }, [def.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const importable = def.fields.filter((f) => f.type !== 'secret' && f.type !== 'attrs' && !f.readonly);
+  const importable = def.fields.filter((f) => (f.type !== 'secret' || f.importable) && f.type !== 'attrs' && !f.readonly);
   // 手机号导入：各平台“编号 / 店铺”列，把号码绑到对应平台的店铺
   const extraHeaders = def.key === 'phones' ? phoneStoreImportColumns().flatMap((c) => [c.noHeader, c.nameHeader]) : [];
 

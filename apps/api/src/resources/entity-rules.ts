@@ -178,6 +178,10 @@ type Before = (ctx: BeforeSaveContext) => Promise<void> | void;
 type After = (ctx: AfterSaveContext) => Promise<void>;
 
 export const CERT_BEFORE_SAVE: Record<string, Before> = {
+  qualifications: (ctx) => {
+    if (!ctx.data.type) ctx.data.type = 'general';
+  },
+
   'license-borrows': licenseBorrowBefore,
 
   'license-usages': (ctx) => {
@@ -310,6 +314,16 @@ export const CERT_AFTER_SAVE: Record<string, After> = {
     if (existing && existing.data.storeId !== record.data.storeId) await syncStoreTrademark(em, host, user, existing.data.storeId);
   },
   stores: storeAfterSave,
+  // 手机号档案改了号码：银行账户、合作人上按档案关联的预留手机号文字同步
+  phones: async ({ em, host, user, record, existing }) => {
+    const number = str(record.data.number);
+    if (!existing || !number || str(existing.data.number) === number) return;
+    for (const [type, idKey, textKey] of [['bank-accounts', 'phoneId', 'reservedPhoneNumber'], ['partners', 'cardPhoneId', 'cardPhone']] as const) {
+      for (const r of await findLive(host, em, user.companyId, type, idKey, record.id)) {
+        if (str(r.data[textKey]) !== number) await host.patchData(em, user, type, r.id, { [textKey]: number }, '预留手机号随手机号档案同步');
+      }
+    }
+  },
   'bank-accounts': async ({ em, host, user, record, existing }) => {
     await writeBackLicenseBank(em, host, user, record.data.licenseId);
     if (existing && existing.data.licenseId !== record.data.licenseId) await writeBackLicenseBank(em, host, user, existing.data.licenseId);
@@ -325,3 +339,44 @@ export const CERT_AFTER_DELETE: Record<string, (ctx: { em: EntityManager; host: 
   'bank-store-links': async (ctx) => refreshStoreFlag(ctx),
   'u-shields': async (ctx) => recountShields(ctx),
 };
+
+// ---------- 导入时匹配已有记录（旧系统的导入口径：有则更新非空栏目，没有才新增） ----------
+
+/** 按这些字段值都相同找已有记录（空值不参与）；找到唯一一条才算匹配。 */
+async function matchBy(host: RuleHost, em: EntityManager, user: AuthUser, type: string, input: Record<string, unknown>, keys: string[]) {
+  if (keys.some((k) => input[k] === undefined || input[k] === null || input[k] === '')) return null;
+  const [first, ...rest] = keys;
+  const rows = (await findLive(host, em, user.companyId, type, first, String(input[first]))).filter((r) => rest.every((k) => String(r.data[k] ?? '') === String(input[k])));
+  return rows.length === 1 ? rows[0] : null;
+}
+
+export async function certImportMatch(
+  type: string,
+  ctx: { em: EntityManager; host: RuleHost; user: AuthUser; input: Record<string, unknown> },
+): Promise<ResourceRecord | null> {
+  const { em, host, user, input } = ctx;
+  switch (type) {
+    // 商标：按注册号，没有注册号按申请号
+    case 'trademarks':
+      return (await matchBy(host, em, user, type, input, ['registrationNo'])) ?? (input.registrationNo ? null : await matchBy(host, em, user, type, input, ['applicationNo']));
+    // 合作人：按编号，没有编号按“姓名+联系电话”
+    case 'partners':
+      return (await matchBy(host, em, user, type, input, ['partnerNo'])) ?? (input.partnerNo ? null : await matchBy(host, em, user, type, input, ['name', 'phone']));
+    // 税务资料：按“执照+类别”，类别空白跟随执照
+    case 'tax-profiles': {
+      const lic = typeof input.licenseId === 'number' ? await em.findOne(ResourceRecord, { where: { id: input.licenseId, companyId: user.companyId, type: 'licenses' } }) : null;
+      const category = input.taxCategory ?? (lic?.data.category === 'ecommerce' ? 'ecommerce' : 'operation');
+      return matchBy(host, em, user, type, { licenseId: input.licenseId, taxCategory: category }, ['licenseId', 'taxCategory']);
+    }
+    // 资质：没有证书号时按“名称+类型+营业执照”
+    case 'qualifications':
+      return input.certNo ? null : matchBy(host, em, user, type, { name: input.name, type: input.type ?? 'general', licenseId: input.licenseId }, ['name', 'type', 'licenseId']);
+    // 执照：统一社会信用代码没对上时按执照编号
+    case 'licenses':
+      return matchBy(host, em, user, type, input, ['licenseNo']);
+    case 'u-shields':
+      return (await matchBy(host, em, user, type, input, ['bankAccountId', 'shieldNo'])) ?? (input.shieldNo ? null : await matchBy(host, em, user, type, input, ['bankAccountId', 'name']));
+    default:
+      return null;
+  }
+}

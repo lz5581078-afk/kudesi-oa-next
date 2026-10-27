@@ -71,6 +71,8 @@ export interface FieldDef {
   /** 仅当另一个字段（或 status）取这些值时才显示/保存，不满足时服务端清空 */
   showWhen?: { field: string; in: readonly string[] };
   help?: string;
+  /** secret：允许从导入表格写入（旧系统资质导入可带平台登录密码）；导出始终不含密码 */
+  importable?: boolean;
   /** text/sensitive：格式校验（正则源码 + 不通过时的提示） */
   pattern?: { source: string; message: string };
 }
@@ -112,6 +114,8 @@ export interface ResourceDef {
   alerts?: Array<{ field: string; withinDays: number; label: string }>;
   /** 详情里多一个只读“适用店铺”页签：按本记录的这个执照字段，列出该执照下的店铺 */
   derivedStores?: string;
+  /** 复制新建时不带过去的字段（旧页面的“复制”规则：编号、名称、照片等） */
+  copyOmit?: readonly string[];
   /** 详情页展示这些子资源 */
   children?: readonly string[];
   /** 详情页额外展示的相关资料页签：别的资料里指向本资料的记录（按它自己的权限显示） */
@@ -156,6 +160,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL, CANCELLED, INACTIVE],
     defaultStatus: 'normal',
     children: ['license-borrows', 'license-usages'],
+    batch: ['status'],
+    copyOmit: ['licenseNo', 'companyName', 'creditCode', 'originalPhoto', 'copyPhoto'],
     filterBy: ['annualAuditMonth', 'publicAccountFlag', 'sealFlag', 'locationFlag', 'photoFlag'],
     related: [
       { type: 'stores', field: 'licenseId' },
@@ -163,6 +169,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       { type: 'qualifications', field: 'licenseId' },
       { type: 'tax-profiles', field: 'licenseId' },
       { type: 'partners', field: 'licenseId' },
+      { type: 'trademarks', field: 'licenseId' },
       { type: 'archives', field: 'licenseId' },
     ],
     fields: [
@@ -519,6 +526,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     // 一张执照可以同时有经营、电商两份税务资料，同类别只能一份
     uniqueTogether: [{ fields: ['licenseId', 'taxCategory'], message: '这个营业执照已经有同类别的税务资料了' }],
     derivedStores: 'licenseId',
+    batch: ['status'],
     filterBy: ['taxType', 'licenseId'],
     statuses: [NORMAL, ABNORMAL, INACTIVE],
     defaultStatus: 'normal',
@@ -545,6 +553,9 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '经营资料' },
     titleField: 'name',
     tabsBy: 'partnerType',
+    batch: ['status'],
+    copyOmit: ['partnerNo', 'name', 'phone'],
+    filterBy: ['cardFlag'],
     statuses: [
       { value: 'active', label: '合作中', tone: 'ok' },
       { value: 'abnormal', label: '异常', tone: 'warn' },
@@ -589,6 +600,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL, INACTIVE],
     defaultStatus: 'normal',
     children: ['u-shields', 'bank-store-links'],
+    batch: ['status'],
+    copyOmit: ['reservedPhoneNumber', 'phoneId', 'customerNo'],
     filterBy: ['licenseId', 'storeId', 'storeFlag', 'phoneFlag', 'shieldFlag'],
     fields: [
       select('kind', '账户类型', '基础', o('company_public:公司公户', 'company_card:公司银行卡', 'cashier_account:出纳账户', 'store_public:店铺公户', 'store_personal_card:店铺个人银行卡'), { required: true, list: true }),
@@ -709,10 +722,11 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL, { value: 'renewing', label: '续期中', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, INACTIVE],
     defaultStatus: 'normal',
     derivedStores: 'licenseId',
+    batch: ['status'],
     filterBy: ['licenseId'],
     alerts: [{ field: 'expiresAt', withinDays: 30, label: '30 天内到期' }],
     fields: [
-      select('type', '类型', '基础', o('seed_business_filing:种子经营备案', 'brand_authorization:品牌授权', 'platform_operation:平台运营资质', 'general:通用'), { required: true, list: true }),
+      select('type', '类型', '基础', o('seed_business_filing:种子生产经营备案', 'brand_authorization:品牌授权', 'platform_operation:平台经营资质', 'general:其他资质'), { list: true, help: '不选按“其他资质”' }),
       text('name', '名称', '基础', { required: true, list: true, search: true }),
       text('certNo', '证书号', '基础', { list: true, search: true }),
       ref('licenseId', '所属执照', '基础', 'licenses', { list: true }),
@@ -721,7 +735,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       text('filedProducts', '备案商品', '基础'),
       text('reviewContact', '审核联系人', '基础'),
       text('platformAccount', '平台登录账号', '平台账号'),
-      secret('platformPassword', '平台登录密码', '平台账号'),
+      { ...secret('platformPassword', '平台登录密码', '平台账号'), importable: true },
       files('attachments', '证照附件', '附件', { maxFiles: 9 }),
       textarea('abnormalReason', '异常原因', '状态', { showWhen: { field: 'status', in: ['abnormal'] } }),
       NOTE(),
@@ -744,6 +758,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
     defaultStatus: 'applying',
     children: ['trademark-authorizations'],
+    batch: ['status'],
+    copyOmit: ['name', 'applicationNo', 'registrationNo'],
     alerts: [{ field: 'validUntil', withinDays: 90, label: '90 天内到期' }],
     fields: [
       select('source', '来源', '基础', o('owned:自有', 'cooperative:合作'), { required: true, list: true }),

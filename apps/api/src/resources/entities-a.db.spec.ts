@@ -172,4 +172,48 @@ d('证照与主体（真实数据库）', () => {
     expect(rels.some((r) => r.relation === 'manual' && r.id === b.id)).toBe(true);
     expect(a.id).not.toBe(b.id);
   });
+
+  it('导入：按注册号/编号/执照+类别/名称+类型+执照匹配已有记录，只更新非空栏目；执照可填编号；资质可带平台密码', async () => {
+    const l = await svc.create(boss, 'licenses', lic({ licenseNo: 'YZ-001', companyName: '导入执照公司' }));
+    const dry = await svc.importRows(boss, 'trademarks', [{ 商标名称: '导入牌', 来源: '自有', 注册号: 'R-1', 类别: '25' }], false);
+    expect(dry.created).toBe(1);
+    const again = await svc.importRows(boss, 'trademarks', [{ 商标名称: '导入牌', 来源: '自有', 注册号: 'R-1', 有效期至: '2030-01-01' }], false);
+    expect(again.updated).toBe(1);
+    const tms = await svc.list(boss, 'trademarks', { keyword: 'R-1' });
+    expect(tms.total).toBe(1);
+    expect(tms.items[0].data.classNo).toBe('25');
+    expect(tms.items[0].data.validUntil).toBe('2030-01-01');
+    // 税务：按执照+类别
+    const t = await svc.importRows(boss, 'tax-profiles', [{ 所属执照: 'YZ-001', 纳税人识别号: 'TAX-NEW', 类别: '经营税务' }], false);
+    expect(t.updated).toBe(1);
+    const taxes = await svc.list(boss, 'tax-profiles', { fieldKey: 'licenseId', fieldValue: String(l.id) });
+    expect(taxes.total).toBe(1);
+    expect(taxes.items[0].data.taxpayerNo).toBe('TAX-NEW');
+    // 资质：无证书号时按名称+类型+执照；带密码导入
+    const q1 = await svc.importRows(boss, 'qualifications', [{ 名称: '种子备案', 类型: '品牌授权', 所属执照: l.data.companyName as string, 平台登录密码: 'pw-1' }], false);
+    expect(q1.created).toBe(1);
+    const q2 = await svc.importRows(boss, 'qualifications', [{ 名称: '种子备案', 类型: '品牌授权', 所属执照: 'YZ-001', 平台登录账号: 'acc' }], false);
+    expect(q2.updated).toBe(1);
+    const q = (await svc.list(boss, 'qualifications', { keyword: '种子备案' })).items[0];
+    expect(q.data.platformAccount).toBe('acc');
+    expect(q.secretConfigured.platformPassword).toBe(true);
+    expect((await svc.reveal(boss, 'qualifications', q.id, 'platformPassword')).value).toBe('pw-1');
+    // 合作人：编号匹配
+    await svc.importRows(boss, 'partners', [{ 姓名: '导入合作人', 编号: 'P-9', 联系电话: '13800009999' }], false);
+    const p2 = await svc.importRows(boss, 'partners', [{ 姓名: '导入合作人', 编号: 'P-9', 合作范围: '代运营' }], false);
+    expect(p2.updated).toBe(1);
+  });
+
+  it('员工可以手动关联到执照；手机号档案改号码后银行账户预留手机号文字同步', async () => {
+    const l = await svc.create(boss, 'licenses', lic());
+    await svc.addManualLink(boss, 'licenses', l.id, 'user', staffId, () => true);
+    await expect(svc.addManualLink(boss, 'licenses', l.id, 'user', staffId, () => true)).rejects.toThrow(/已经关联/);
+    const rels = await svc.relations(boss, 'licenses', l.id, () => true);
+    expect(rels.some((r) => r.type === 'user' && r.title === '小借')).toBe(true);
+    const ph = await svc.create(boss, 'phones', { number: '13911112222', usageType: 'company_kept' });
+    const ba = await svc.create(boss, 'bank-accounts', { kind: 'company_card', accountName: '同步卡', bank: '工行', accountNo: '6222000011110000', reservedPhoneNumber: '13911112222' });
+    expect(ba.data.phoneId).toBe(ph.id);
+    await svc.update(boss, 'phones', ph.id, { number: '13933334444' });
+    expect((await svc.get(boss, 'bank-accounts', ba.id)).data.reservedPhoneNumber).toBe('13933334444');
+  });
 });

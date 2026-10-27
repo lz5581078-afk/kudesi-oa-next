@@ -161,5 +161,7 @@ export async function mapLicenseByCreditCode(em: EntityManager, companyId: numbe
   const licenses = await em.find(ResourceRecord, { where: { companyId, type: 'licenses' }, select: ['id', 'title', 'data'] });
   if (licenses.some((l) => l.title === v)) return v;
   const hit = licenses.filter((l) => String(l.data.creditCode ?? '').toUpperCase() === v.toUpperCase());
-  return hit.length === 1 ? hit[0].title : v;
+  if (hit.length === 1) return hit[0].title;
+  const byNo = licenses.filter((l) => String(l.data.licenseNo ?? '') === v);
+  return byNo.length === 1 ? byNo[0].title : v;
 }

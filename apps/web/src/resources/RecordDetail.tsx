@@ -119,7 +119,7 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
         <RecordForm
           def={def}
           record={editing === 'new' ? null : editing}
-          initial={{ [field]: parent.id }}
+          initial={{ [field]: parent.id, ...(childType === 'bank-accounts' && parent.data.category ? { kind: parent.data.category === 'ecommerce' ? 'store_public' : 'company_public' } : {}) }}
           lockedFields={[field]}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -324,7 +324,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
           <button type="button" className="secondary-button" title="按这条的内容新建一条，编码、图片不带过去" onClick={() => {
             const values: Record<string, unknown> = {};
             for (const f of def.fields) {
-              if (f.readonly || f.type === 'files' || f.type === 'secret' || f.type === 'sensitive' || f.key === 'code' || f.key === def.uniqueField) continue;
+              if (f.readonly || f.type === 'files' || f.type === 'secret' || f.type === 'sensitive' || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key)) continue;
               const v = record.data[f.key];
               if (v !== undefined && v !== null && v !== '') values[f.key] = v;
             }
@@ -413,6 +413,12 @@ function ManualLinkAdder({ type, id, canView, onAdded, onError }: { type: string
     if (!target) { setOptions([]); return; }
     let alive = true;
     const t = setTimeout(() => {
+      if (target === 'user') {
+        resourceApi.users()
+          .then((r) => alive && setOptions(r.filter((u) => u.active && (!keyword.trim() || u.name.includes(keyword.trim()))).slice(0, 50).map((u) => ({ value: u.id, label: u.name }))))
+          .catch(() => alive && setOptions([]));
+        return;
+      }
       resourceApi.list(target, { pageSize: 50, showHidden: true, keyword: keyword.trim() || undefined })
         .then((r) => alive && setOptions(r.items.map((i) => ({ value: i.id, label: i.title }))))
         .catch(() => alive && setOptions([]));
@@ -423,6 +429,7 @@ function ManualLinkAdder({ type, id, canView, onAdded, onError }: { type: string
     <div className="toolbar" style={{ marginTop: 12, flexWrap: 'wrap' }}>
       <select value={target} onChange={(e) => { setTarget(e.target.value); setKeyword(''); }}>
         <option value="">关联其他资料：选类型</option>
+        <option value="user">员工</option>
         {types.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
       </select>
       {target && <input type="search" aria-label="搜索要关联的资料" placeholder="输入关键字搜索…" value={keyword} onChange={(e) => setKeyword(e.target.value)} />}
