@@ -6,6 +6,7 @@ import { ApiError } from '../../api/client';
 import { PermissionPicker } from './PermissionPicker';
 import { orgApi, flattenDepartments, WORKSPACE_LABELS, LEVEL_LABELS, type DepartmentNode, type PositionDto, type PositionLevel, type StaffDto } from './orgApi';
 import { DepartmentDossier, ancestorsOf } from './DepartmentDossier';
+import { planMove, type Placement } from './deptMove';
 
 function findNode(nodes: DepartmentNode[], id: number): DepartmentNode | null {
   for (const n of nodes) { if (n.id === id) return n; const r = findNode(n.children, id); if (r) return r; }
@@ -17,10 +18,15 @@ function errText(e: unknown, fallback = '操作失败') {
 }
 
 /** 左侧部门树：人数、展开/收起（记住上次的展开状态）、点击选中；搜索命中时祖先自动展开。 */
-function DepartmentTree({ nodes, depth, selectedId, expanded, forceOpen, headcount, hits, onToggleOpen, onSelect }: {
+function DepartmentTree({ nodes, depth, selectedId, expanded, forceOpen, headcount, hits, onToggleOpen, onSelect, onDropMove }: {
   nodes: DepartmentNode[]; depth: number; selectedId: number | null; expanded: Set<number>; forceOpen: Set<number> | null; headcount: Map<number, number>; hits: Map<number, string[]>;
   onToggleOpen: (id: number) => void; onSelect: (id: number) => void;
+  /** 有值才允许拖拽调整顺序/层级 */
+  onDropMove?: (sourceId: number, targetId: number, placement: Placement) => void;
 }) {
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [hint, setHint] = useState<{ id: number; placement: Placement } | null>(null);
+  const place = (e: React.DragEvent<HTMLElement>): Placement => { const r = e.currentTarget.getBoundingClientRect(); const y = e.clientY - r.top; return y < r.height * 0.25 ? 'before' : y > r.height * 0.75 ? 'after' : 'inside'; };
   return (
     <ul className="tree" role={depth === 0 ? 'tree' : 'group'} aria-label={depth === 0 ? '部门' : undefined}>
       {nodes.filter((n) => !forceOpen || forceOpen.has(n.id)).map((n) => {
@@ -29,7 +35,16 @@ function DepartmentTree({ nodes, depth, selectedId, expanded, forceOpen, headcou
         const hit = hits.get(n.id);
         return (
           <li key={n.id} role="treeitem" aria-expanded={n.children.length ? open : undefined} aria-selected={selectedId === n.id}>
-            <div className={`line-item org-node${selectedId === n.id ? ' active' : ''}`} style={{ paddingLeft: 8 + depth * 16 }}>
+            <div
+              className={`line-item org-node${selectedId === n.id ? ' active' : ''}${dragId === n.id ? ' dragging' : ''}${hint?.id === n.id ? ` drop-${hint.placement}` : ''}`}
+              style={{ paddingLeft: 8 + depth * 16 }}
+              draggable={!!onDropMove}
+              aria-label={onDropMove ? `${n.name}，可拖动调整顺序或层级` : undefined}
+              onDragStart={onDropMove ? (e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(n.id)); setDragId(n.id); } : undefined}
+              onDragEnd={onDropMove ? () => { setDragId(null); setHint(null); } : undefined}
+              onDragOver={onDropMove ? (e) => { if (dragId === null || dragId === n.id) return; e.preventDefault(); setHint({ id: n.id, placement: place(e) }); } : undefined}
+              onDrop={onDropMove ? (e) => { if (dragId === null || dragId === n.id) return; e.preventDefault(); const pl = place(e); const src = dragId; setDragId(null); setHint(null); onDropMove(src, n.id, pl); } : undefined}
+            >
               {n.children.length > 0
                 ? <button type="button" className="link-button org-toggle" aria-label={`${open ? '收起' : '展开'}${n.name}`} onClick={() => onToggleOpen(n.id)}>{open ? '▾' : '▸'}</button>
                 : <span className="org-toggle" />}
@@ -39,7 +54,7 @@ function DepartmentTree({ nodes, depth, selectedId, expanded, forceOpen, headcou
               </button>
               <span className="muted" title="在职人数">{headcount.get(n.id) ?? 0}</span>
             </div>
-            {kids.length > 0 && open && <DepartmentTree nodes={kids} depth={depth + 1} selectedId={selectedId} expanded={expanded} forceOpen={forceOpen} headcount={headcount} hits={hits} onToggleOpen={onToggleOpen} onSelect={onSelect} />}
+            {kids.length > 0 && open && <DepartmentTree nodes={kids} depth={depth + 1} selectedId={selectedId} expanded={expanded} forceOpen={forceOpen} headcount={headcount} hits={hits} onToggleOpen={onToggleOpen} onSelect={onSelect} onDropMove={onDropMove} />}
           </li>
         );
       })}
@@ -313,6 +328,17 @@ export function StructurePage() {
     const next = [...sib]; [next[i], next[j]] = [next[j], next[i]];
     try { await Promise.all(next.map((x, k) => (x.sortOrder === (k + 1) * 10 ? Promise.resolve() : orgApi.updateDepartment(x.id, { sortOrder: (k + 1) * 10 })))); await reload(); } catch (e) { setError(errText(e)); }
   }
+  async function dropMove(sourceId: number, targetId: number, placement: Placement) {
+    const plan = planMove(tree, sourceId, targetId, placement);
+    if ('error' in plan) return setError(plan.error);
+    if (!plan.updates.length) return;
+    setError('');
+    try {
+      for (const u of plan.updates) await orgApi.updateDepartment(u.id, { parentId: u.parentId, sortOrder: u.sortOrder });
+      if (placement === 'inside') setExpanded((cur) => new Set([...cur, targetId]));
+      await reload();
+    } catch (e) { setError(errText(e)); await reload(); }
+  }
   const deptName = (id: number | null) => flattenDepartments(tree).find((d) => d.id === id)?.name ?? '—';
   const done = async () => { setDialog(null); await reload(); };
 
@@ -340,7 +366,7 @@ export function StructurePage() {
           {search && search.ids.size === 0 && <p className="muted">换个关键词再找。</p>}
           <DepartmentTree nodes={tree} depth={0} selectedId={selectedId} expanded={expanded} forceOpen={search ? search.ids : null} headcount={headcount} hits={search?.hits ?? new Map()}
             onToggleOpen={(id) => setExpanded((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
-            onSelect={(id) => { setSelectedId(id); setMobileDetail(true); }} />
+            onDropMove={can('org.structure.edit') && !search ? dropMove : undefined} onSelect={(id) => { setSelectedId(id); setMobileDetail(true); }} />
         </section>
         <div className={`org-detail-pane${mobileDetail ? ' has-selection' : ''}`}>
           {selected ? (

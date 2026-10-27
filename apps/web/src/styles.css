@@ -663,3 +663,8 @@ label.invalid input, label.invalid select, label.invalid textarea { border-color
   .cat-body { display: none; }
   .cat-body.open { display: block; }
 }
+.org-node[draggable="true"] { cursor: grab; }
+.org-node.dragging { opacity: .5; }
+.org-node.drop-before { box-shadow: inset 0 2px 0 var(--accent, #2563eb); }
+.org-node.drop-after { box-shadow: inset 0 -2px 0 var(--accent, #2563eb); }
+.org-node.drop-inside { outline: 2px dashed var(--accent, #2563eb); outline-offset: -2px; }

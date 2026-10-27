@@ -69,4 +69,21 @@ describe('部门与岗位：左树右卷宗', () => {
     expect(upd).toHaveBeenCalledWith(3, { sortOrder: 10 });
     expect(upd).toHaveBeenCalledWith(2, { sortOrder: 20 });
   });
+
+  it('拖动部门到另一个部门“里面”，写回新的父部门和排序', async () => {
+    const upd = vi.spyOn(orgApi, 'updateDepartment').mockResolvedValue({} as never);
+    render(<StructurePage />);
+    await screen.findByText('总部');
+    fireEvent.click(screen.getByLabelText('展开总部'));
+    const tree = within(screen.getByRole('tree'));
+    const src = (await tree.findByText('财务部')).closest('.org-node') as HTMLElement;
+    const dst = tree.getByText('运营部').closest('.org-node') as HTMLElement;
+    expect(src.getAttribute('draggable')).toBe('true');
+    dst.getBoundingClientRect = () => ({ top: 0, height: 40, left: 0, right: 100, bottom: 40, width: 100, x: 0, y: 0, toJSON: () => ({}) });
+    const dt = { setData: () => undefined, effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(src, { dataTransfer: dt });
+    fireEvent.dragOver(dst, { dataTransfer: dt, clientY: 20 });
+    fireEvent.drop(dst, { dataTransfer: dt, clientY: 20 });
+    await waitFor(() => expect(upd).toHaveBeenCalledWith(3, { parentId: 2, sortOrder: 10 }));
+  });
 });
