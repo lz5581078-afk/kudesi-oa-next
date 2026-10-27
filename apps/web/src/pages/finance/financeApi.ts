@@ -136,7 +136,6 @@ export const financeApi = {
   jstSwitch: () => api<{ enabled: boolean; note: string | null; senderConfigured: boolean }>('/finance/jst-sync/switch'),
   setJstSwitch: (enabled: boolean, note?: string) => api<{ enabled: boolean; note: string | null; senderConfigured: boolean }>('/finance/jst-sync/switch', { method: 'PUT', body: { enabled, note } }),
   jstJobs: (p: { status?: string; page?: number }) => api<{ total: number; counts: Record<string, number>; rows: OutboxJobRow[] }>(`/finance/jst-sync/jobs${qs({ ...p, pageSize: 20 })}`),
-  jstEnqueue: (type: string) => api<{ queued: number; skipped: number }>('/finance/jst-sync/enqueue', { method: 'POST', body: { type } }),
   jstRetry: (id: number) => api<{ ok: true }>(`/finance/jst-sync/jobs/${id}/retry`, { method: 'POST', body: {} }),
   jstCancel: (id: number) => api<{ ok: true }>(`/finance/jst-sync/jobs/${id}/cancel`, { method: 'POST', body: {} }),
   overview: (month?: string) => api<Overview>(`/finance/overview${qs({ month })}`),

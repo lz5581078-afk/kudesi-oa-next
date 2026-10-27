@@ -30,7 +30,28 @@ export interface PreviewTarget {
   reuse: { id: number; code: string; status: string } | null; duplicates: Array<{ layer: string; label: string; hit: string }>; ok: boolean;
 }
 
+export interface PriceRow { bundleId: number; code: string; name: string; action: 'enqueue' | 'blocked' | 'same'; priceCents: number | null; currentCents: number | null; reason: string | null }
+export interface PriceLog { id: number; bundleId: number; bundleName: string | null; status: string; priceCents: number | null; message: string | null; createdAt: string }
+export interface ArchiveJob { id: number; bundleId: number; code: string; name: string; status: string; message: string | null; reason: string; actorName: string | null; createdAt: string }
+export type CategoryScope = 'product' | 'bundle';
+export interface CategoryChange { localId: string; path: string; action: string; message: string; before: { name?: string; enable?: boolean | null } | null; after: { name?: string; enable?: boolean | null } | null }
+export interface CategoryPreview { scope: CategoryScope; targetKey: string; signature: string; conflicts: number; remoteOnly: number; changes: CategoryChange[]; note: string }
+export interface CategoryRun { id: number; scope: string; status: string; message: string; createdAt: string; changes: Array<{ localId: string; path: string; action: string; status: string; error: string | null }> }
+
 export const jstApi = {
+  enqueue: (type: string, items: Array<{ id: number; signature: string }>, replaceConfirmed: boolean) =>
+    api<{ queued: number; skipped: number }>('/finance/jst-sync/enqueue', { method: 'POST', body: { type, items, confirmed: true, replaceConfirmed } }),
+  priceSwitch: () => api<{ enabled: boolean; senderConfigured: boolean }>('/finance/jst-sync/price/switch'),
+  setPriceSwitch: (enabled: boolean) => api<{ enabled: boolean; senderConfigured: boolean }>('/finance/jst-sync/price/switch', { method: 'PUT', body: { enabled, note: enabled ? '管理员打开基本售价同步' : '管理员关闭基本售价同步' } }),
+  pricePreview: () => api<{ rows: PriceRow[] }>('/finance/jst-sync/price/preview'),
+  priceRun: () => api<{ queued: number; blocked: number; same: number }>('/finance/jst-sync/price/run', { method: 'POST', body: {} }),
+  priceLogs: (page: number) => api<{ total: number; rows: PriceLog[] }>(`/finance/jst-sync/price/logs?page=${page}&pageSize=20`),
+  archiveJobs: () => api<{ rows: ArchiveJob[] }>('/finance/jst-sync/archive-jobs'),
+  recheckArchive: (id: number) => api<{ ok: true; status: string; message: string }>(`/finance/jst-sync/archive-jobs/${id}/recheck`, { method: 'POST', body: {} }),
+  categoryPreview: (scope: CategoryScope) => api<CategoryPreview>('/finance/jst-sync/category/preview', { method: 'POST', body: { scope } }),
+  categoryExecute: (scope: CategoryScope, signature: string) => api<{ runId: number; queued: number; retired: number }>('/finance/jst-sync/category/execute', { method: 'POST', body: { scope, signature, confirmed: true } }),
+  categoryRuns: (page: number) => api<{ page: number; rows: CategoryRun[] }>(`/finance/jst-sync/category/runs?page=${page}`),
+
   baseOverview: () => api<{ status: Record<string, number>; byCategory: Record<string, Record<string, number>> }>('/finance/base-codes/overview'),
   baseReport: (id: number) => api<BaseCodeReport>(`/finance/base-codes/${id}/report`),
   baseVerify: (items: Array<{ id: number; signature: string; uploadSignature?: string }>, confirmed: boolean, syncToJst: boolean, replaceConfirmed: boolean) =>
