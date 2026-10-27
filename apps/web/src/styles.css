@@ -425,3 +425,10 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
   .tree-layout { grid-template-columns: 1fr; }
   .cat-tree { position: static; max-height: 240px; }
 }
+
+/* 手机扫码上传 */
+.phone-upload-body { display: grid; gap: 12px; justify-items: center; }
+.phone-upload-qr { width: 240px; height: 240px; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.phone-upload-page { max-width: 420px; margin: 0 auto; padding: 24px 16px; display: grid; gap: 16px; }
+.phone-upload-actions { display: grid; gap: 12px; }
+.phone-upload-actions button { min-height: 48px; font-size: 16px; }

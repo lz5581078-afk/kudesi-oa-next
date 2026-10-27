@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FieldDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
 import { resourceApi, type FileInfo } from './api';
+import { PhoneUploadDialog } from './PhoneUploadDialog';
 
 function size(n: number): string {
   return n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
@@ -55,7 +56,22 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [phone, setPhone] = useState(false);
   const max = field.maxFiles ?? 9;
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
+  /** 手机传上来的图：加进字段，超过上限的不要 */
+  function addFromPhone(list: FileInfo[]) {
+    let ids = valueRef.current;
+    for (const f of list) {
+      if (ids.length >= max || ids.includes(f.id)) continue;
+      onKnown(f);
+      ids = [...ids, f.id];
+    }
+    valueRef.current = ids;
+    onChange(ids);
+  }
 
   async function pick(list: FileList | null) {
     if (!list || list.length === 0) return;
@@ -100,9 +116,11 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
           <button type="button" className="secondary-button" disabled={busy} onClick={() => input.current?.click()}>
             {busy ? '上传中…' : `＋ 上传${field.accept === 'image' ? '图片' : '图片/PDF'}（${value.length}/${max}）`}
           </button>
+          {field.phoneUpload && <button type="button" className="secondary-button" onClick={() => setPhone(true)}>手机上传</button>}
         </>
       )}
       {error && <div role="alert" className="notice error">{error}</div>}
+      {phone && <PhoneUploadDialog type={type} field={field.key} label={field.label} onFiles={addFromPhone} onClose={() => setPhone(false)} />}
     </div>
   );
 }

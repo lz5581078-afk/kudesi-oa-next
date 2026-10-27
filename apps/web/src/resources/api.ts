@@ -183,6 +183,21 @@ export const resourceApi = {
   users: () => api<Array<{ id: number; name: string; active: boolean }>>('/org/users'),
 };
 
+/** 手机扫码上传：电脑端发起并轮询；手机端（免登录）只认令牌 */
+export interface PhoneSession { id: number; token: string; expiresAt: string; minutes: number; maxUploads: number }
+export interface PhoneStatus { scanned: boolean; uploaded: number; expired: boolean; expiresAt: string; files: FileInfo[] }
+export const phoneUploadApi = {
+  create: (type: string, field: string) => api<PhoneSession>('/phone-uploads', { method: 'POST', body: { type, field } }),
+  status: (id: number) => api<PhoneStatus>(`/phone-uploads/${id}`),
+  inspect: (token: string) => api<{ label: string; resource: string; remaining: number; expiresAt: string }>('/phone-uploads/public/inspect', { method: 'POST', body: { token } }),
+  upload: (token: string, file: File) => {
+    const form = new FormData();
+    form.append('token', token);
+    form.append('file', file);
+    return api<{ ok: true; remaining: number }>('/phone-uploads/public/upload', { form });
+  },
+};
+
 /** 表单草稿（每人每个标识一份，存在服务器上，换电脑也能接着填） */
 export const draftApi = {
   key: (moduleKey: string, parts: string[] = []) =>
