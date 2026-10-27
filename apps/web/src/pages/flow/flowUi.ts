@@ -35,15 +35,8 @@ export const remember = {
   },
 };
 
-/** 复制文字；失败（非 https、权限）返回 false，由调用方提示手动复制。 */
-export async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
+/** 复制文字：统一用资源模块的实现（含非 https 退回办法）。 */
+export { copyText } from '../../resources/CopyValue';
 
 /** 防抖：输入框停手 delay 毫秒后才触发。 */
 import { useEffect, useState } from 'react';
