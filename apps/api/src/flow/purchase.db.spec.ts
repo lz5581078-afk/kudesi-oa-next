@@ -14,6 +14,7 @@ import { FlowService } from './flow.service';
 import { PurchaseService } from './purchase.service';
 import { earmarkedPrepay, stateOf } from './purchase';
 
+jest.setTimeout(60_000);
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 type Run = Awaited<ReturnType<FlowService['start']>>;
 
@@ -155,6 +156,7 @@ d('采购申请流程（真实数据库）', () => {
     const run = await toDispatch(3000, 2000);
     const opsView = (await svc.state(ops, run.id)) as unknown as Record<string, unknown>;
     expect(opsView.money).toBe(false);
+    expect(opsView.paid).toBe(true); // 是否已付款不是金额信息，运营要据此决定能不能申请变更
     const text = JSON.stringify(opsView);
     for (const k of ['unitPriceCents', 'payments', 'approvedCents', 'payeeAccount', 'prepay"', 'goodsCents']) expect(text).not.toContain(k);
     expect((opsView.lines as Array<{ name: string; qty: number }>).map((l) => l.name)).toEqual(['红富士', '采购梨']);

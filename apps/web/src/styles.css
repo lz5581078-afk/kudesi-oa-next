@@ -793,3 +793,22 @@ div.ws-task { cursor: default; }
   .svc-cols { grid-template-columns: 1fr; }
   .appeal-card-grid { grid-template-columns: 1fr; }
 }
+
+/* 采购申请中心 */
+.purchase-card { border: 1px solid var(--line, #d9dde3); border-radius: 8px; padding: 10px; margin: 8px 0; display: grid; gap: 8px; }
+.purchase-lines { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.purchase-lines li { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; border: 1px solid var(--line, #d9dde3); border-radius: 8px; padding: 8px 10px; }
+.purchase-lines input[type="number"], .purchase-qty input { width: 110px; }
+.purchase-evidence { display: grid; gap: 4px; }
+.purchase-files { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.purchase-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.purchase-row { width: 100%; text-align: left; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line, #d9dde3); border-radius: 8px; background: var(--card, #fff); }
+.purchase-progress { position: relative; flex: 1 1 100%; height: 18px; border-radius: 9px; background: var(--line, #e5e7eb); overflow: hidden; }
+.purchase-progress i { position: absolute; inset: 0 auto 0 0; background: var(--accent-soft, #bfdbfe); }
+.purchase-progress em { position: relative; font-style: normal; font-size: 12px; padding: 0 8px; line-height: 18px; }
+.purchase-panel table { width: 100%; }
+@media (max-width: 640px) {
+  .purchase-lines li { flex-direction: column; align-items: stretch; }
+  .purchase-lines input[type="number"], .purchase-qty input { width: 100%; }
+  .purchase-panel { overflow-x: auto; }
+}

@@ -97,7 +97,7 @@ export class PurchaseService {
     });
     return {
       id: run.id, status: run.status, requesterId: run.requesterId, requestedArrivalAt: str(run.payload.requestedArrivalAt), note: str(run.payload.note), money, myStep,
-      supplierName: s.supplierName ?? '', warehouseName: s.warehouseName ?? '', paymentMode: s.paymentMode ?? null, planReady: !!s.planReady, approved: !!s.approved, amendOpen: !!s.amendOpen,
+      supplierName: s.supplierName ?? '', warehouseName: s.warehouseName ?? '', paymentMode: s.paymentMode ?? null, planReady: !!s.planReady, approved: !!s.approved, paid: s.payments.length > 0 || s.prepayClaimCents > 0, amendOpen: !!s.amendOpen,
       cancelRequested: !!s.cancelRequested, cancelApproved: !!s.cancelApproved, cancelledRemaining: !!s.cancelledRemaining, cancelRequestComment: s.cancelRequestComment ?? '',
       lines: lines.map((l) => ({
         productId: l.productId, name: l.name, code: l.code, unit: l.unit, aliasName: l.aliasName ?? null, qty: l.qty, received: receivedQty(s, l.productId), cancelled: s.cancelledQty[pkey(l.productId)] ?? 0,

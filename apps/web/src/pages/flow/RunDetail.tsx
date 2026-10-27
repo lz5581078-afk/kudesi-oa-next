@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FLOW_ACTION_LABEL, RUN_STATUS_LABEL, STEP_TYPE_LABEL } from '@kudesi/shared';
+import { FLOW_ACTION_LABEL, PURCHASE_TEMPLATE, RUN_STATUS_LABEL, STEP_TYPE_LABEL } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { ReasonDialog, loadRefOptions } from '../../resources/RecordForm';
 import { FlowFieldsForm, FlowValues } from './FlowFields';
 import { RUN_TONE, flowApi, fmtTime, type RunDetailDto } from './flowApi';
 import { copyText, dwell } from './flowUi';
+import { PurchasePanel } from './PurchasePanel';
 import { SKU_TEMPLATE, SkuPreview } from './SkuApply';
 
 type Dialog = null | 'return' | 'cancel' | 'reject' | 'withdraw' | 'transfer';
@@ -101,6 +102,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
               </>
             ) : <FlowValues fields={run.fields} values={run.payload} labels={run.refLabels} />}
             {run.templateKey === SKU_TEMPLATE && !editing && <SkuPreview runId={run.id} refreshKey={run.revision} />}
+            {run.templateKey === PURCHASE_TEMPLATE && !editing && <PurchasePanel runId={run.id} refreshKey={run.revision} onChanged={() => { reload(); onChanged(); }} />}
             {(run.links.docNo || run.links.borrowRecordId) && (
               <p className="muted">
                 {run.links.docNo && <>已生成并过账单据 <span className="mono">{run.links.docNo}</span>（在“财务 → 经营历程”查看）。 </>}
@@ -121,8 +123,8 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
               </p>
               {run.me.canPass && (
                 <>
-                  {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={run.payload} values={form} onChange={(k, v) => setForm({ ...form, [k]: v })} />}
-                  <label>意见（选填）<textarea rows={2} value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} /></label>
+                  {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={run.payload} stepKey={run.activeStep.key} runId={run.id} refreshKey={run.revision} values={form} onChange={(k, v) => setForm((cur) => ({ ...cur, [k]: v }))} />}
+                  {run.templateKey !== PURCHASE_TEMPLATE && <label>意见（选填）<textarea rows={2} value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} /></label>}
                 </>
               )}
               <div className="row-actions">
