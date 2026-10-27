@@ -109,6 +109,7 @@ export function VersionPanel({ carrier, branch, version, onChanged, onDeleted }:
               <div className="between"><strong>{b.batchName}</strong>
                 <span className="row-actions">
                   <span className={b.status === 'active' ? 'chip ok' : 'chip muted'}>{b.status === 'active' ? '已生效' : '已停用'}</span>
+                  {b.evidence?.[0] ? <button type="button" className="secondary-button small" onClick={() => void resourceApi.fileUrl(b.evidence![0]).then((r) => window.open(r.url, '_blank', 'noopener')).catch(() => undefined)}>查看原始凭据</button> : null}
                   {canPrice('edit') && <button type="button" className="secondary-button small" onClick={() => void run(() => b.status === 'active' ? resourceApi.changeStatus('finance-express-fee-batches', b.id, 'stopped', '通知已过期或作废') : resourceApi.changeStatus('finance-express-fee-batches', b.id, 'active'))}>{b.status === 'active' ? '停用整批' : '恢复整批'}</button>}
                   {canPrice('delete') && <button type="button" className="secondary-button small danger" onClick={() => setBatchDelete(b.id)}>删除整批</button>}
                 </span></div>

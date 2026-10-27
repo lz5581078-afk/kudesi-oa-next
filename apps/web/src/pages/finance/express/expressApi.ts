@@ -19,7 +19,7 @@ export interface SurchargeRow {
   id: number; status: string; versionId: number; batchId?: number; name: string; effectiveStart?: string; effectiveEnd?: string; areaScope?: string;
   chargeType: 'fixed' | 'percent' | 'per_kg'; amount?: number; percent?: number; weightMode?: string; weightStart?: number; weightEnd?: number;
 }
-export interface BatchRow { id: number; status: string; batchName: string; source?: string; fileName?: string; modelName?: string }
+export interface BatchRow { id: number; status: string; batchName: string; source?: string; fileName?: string; modelName?: string; evidence?: number[] }
 export interface VersionDetail {
   version: { id: number; name: string; status: string; data: Record<string, unknown> };
   branch: { id: number; name: string; jstLogisticsName: string };
@@ -65,7 +65,7 @@ export const expressApi = {
   },
   confirmPrice: (id: number, body: { rules: RuleRow[]; fileName?: string; modelName?: string; effectiveStart?: string; effectiveEnd?: string; extraRemark?: string }) =>
     api<{ created: number }>(`${base}/versions/${id}/recognize-price/confirm`, { body }),
-  confirmSurcharge: (id: number, body: { batchName: string; rows: Array<Omit<SurchargeDraft, 'warnings'>>; fileName?: string; modelName?: string }) =>
+  confirmSurcharge: (id: number, body: { batchName: string; rows: Array<Omit<SurchargeDraft, 'warnings'>>; fileName?: string; modelName?: string; evidenceFileId?: number }) =>
     api<{ created: number }>(`${base}/versions/${id}/recognize-surcharge/confirm`, { body }),
   remove: (kind: 'versions' | 'branches' | 'carriers' | 'surcharge-batches', id: number, reason: string) => api<{ ok: true }>(`${base}/${kind}/${id}/delete`, { body: { reason } }),
   estimates: () => api<Estimates>(`${base}/estimates`),

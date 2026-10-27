@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { ApiError } from '../../../api/client';
 import { money } from '../common';
+import { resourceApi } from '../../../resources/api';
 import { expressApi, type PriceRecognition, type RuleRow, type SurchargeRecognition } from './expressApi';
 
 const CHARGE: Record<string, string> = { fixed: '固定金额', percent: '按比例', per_kg: '按公斤' };
@@ -16,6 +17,7 @@ const priceText = (r: RuleRow) => (r.fixedPrice != null ? money(r.fixedPrice) : 
  */
 export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionId: number; kind: 'price' | 'surcharge'; onClose: () => void; onDone: (message: string) => void }) {
   const input = useRef<HTMLInputElement>(null);
+  const [picked, setPicked] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<PriceRecognition | SurchargeRecognition | null>(null);
@@ -31,6 +33,7 @@ export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionI
     try {
       const r = await expressApi.recognize(versionId, kind, file);
       setResult(r);
+      setPicked(file);
       setSkip(new Set(r.rows.flatMap((x, i) => (x.warnings.length ? [i] : []))));
       if (r.kind === 'surcharge_notice') setBatchName(r.batchName || file.name.replace(/\.[^.]+$/, ''));
       else { setStart(r.effectiveStart); setEnd(r.effectiveEnd); setRemark(r.extraRemark); }
@@ -51,7 +54,10 @@ export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionI
       } else {
         const rows = result.rows.filter((_, i) => !skip.has(i)).map(({ warnings: _w, ...r }) => r);
         if (!rows.length) throw new Error('没有勾选任何加收规则');
-        const r = await expressApi.confirmSurcharge(versionId, { batchName, rows, fileName: result.fileName, modelName: result.modelName });
+        // 图片类通知把原图留作凭据（Excel/CSV 没有图，不留）
+        let evidenceFileId: number | undefined;
+        if (picked && picked.type.startsWith('image/')) evidenceFileId = (await resourceApi.uploadFile('finance-express-fee-batches', 'evidence', picked)).id;
+        const r = await expressApi.confirmSurcharge(versionId, { batchName, rows, fileName: result.fileName, modelName: result.modelName, evidenceFileId });
         onDone(`已保存加收通知「${batchName}」，共 ${r.created} 条规则`);
       }
     } catch (e) { setError(err(e)); setBusy(false); }

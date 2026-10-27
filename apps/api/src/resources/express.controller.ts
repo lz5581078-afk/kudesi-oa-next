@@ -49,6 +49,8 @@ class SurchargeConfirmDto {
   @IsArray() @ArrayMaxSize(500) @ValidateNested({ each: true }) @Type(() => SurchargeDto) rows!: SurchargeDto[];
   @IsOptional() @IsString() @MaxLength(200) fileName?: string;
   @IsOptional() @IsString() @MaxLength(120) modelName?: string;
+  /** 先用上传接口（资料 finance-express-fee-batches 的 evidence 字段）传好的原图 */
+  @IsOptional() @IsInt() @Min(1) evidenceFileId?: number;
 }
 class ReasonDto { @IsString() @MaxLength(200) reason!: string }
 class ParcelLimitDto { @IsInt() @Min(1) @Max(100) parcelLimit!: number }

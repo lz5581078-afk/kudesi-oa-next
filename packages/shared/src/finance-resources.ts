@@ -456,6 +456,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       select('source', '来源', '基础', o('ai:AI 识别', 'manual:手工新增'), { list: true }),
       text('fileName', '原始文件', '基础', { list: true, maxLength: 200 }),
       text('modelName', '识别模型', '基础', { maxLength: 120 }),
+      files('evidence', '原始凭据', '基础', { accept: 'image', maxFiles: 1, help: '加收通知的原图，方便以后核对' }),
       NOTE(),
     ],
   },
