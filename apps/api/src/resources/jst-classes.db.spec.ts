@@ -50,7 +50,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
   afterAll(async () => { await ds?.destroy(); });
 
   it('基础编码：款式编码和编码用横线连接，相邻重复的分类码去掉；旧格式的编码自动换成新格式', async () => {
-    const p = await mkProduct({ name: '红富士', rawFinishedNames: '精品红富士\n礼盒红富士' });
+    const p = await mkProduct({ name: '红富士', rawFinishedNames: '精品红富士\n礼盒红富士', materialCode: 'SC01' });
     ids.p1 = p.id;
     const c1 = await svc.create(boss, 'finance-base-codes', { productId: p.id });
     ids.c1 = c1.id;
@@ -67,7 +67,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     const aliases = (await svc.list(boss, 'finance-base-codes', { pageSize: 50 } as never)).items.filter((r: { data: Record<string, unknown> }) => r.data.canonicalId === ids.c1);
     expect(aliases).toHaveLength(2);
     expect(String(aliases[0].data.code)).toMatch(/^YL-[0-9A-F]{20}$/);
-    expect(aliases.map((a: { data: Record<string, unknown> }) => String(a.data.name)).some((n: string) => n.startsWith('精品红富士-1KG-YL-'))).toBe(true);
+    expect(aliases.map((a: { data: Record<string, unknown> }) => String(a.data.name)).some((n: string) => n === '精品红富士-1KG-SC01')).toBe(true);
     await expect(svc.create(boss, 'finance-base-codes', { productId: ids.p1, code: 'YL-AAAAAAAAAAAAAAAAAAAA', canonicalId: ids.c1 })).rejects.toThrow(/自动生成/);
     // 去掉一个成品名：对应马甲删除
     await svc.update(boss, 'finance-products', ids.p1, { rawFinishedNames: '精品红富士' });

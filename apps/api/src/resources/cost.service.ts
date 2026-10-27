@@ -13,7 +13,7 @@ import { buildPriceGroups, DEFAULT_PARCEL_LIMIT } from './express.service';
 type Data = Record<string, unknown>;
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
-const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
+const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
 const EXPRESS_TYPES = ['finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-express-prices'];
 
 export interface CostLine { role: string; code: string; name: string; qty: number; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
@@ -72,7 +72,7 @@ export class CostService {
       if (row && amount !== null) row.manualAmount = amount;
     }
     return {
-      bundles: by('finance-bundles'), lines: by('finance-bundle-lines'), baseCodes: map('finance-base-codes'), products: map('finance-products'),
+      bundles: by('finance-bundles'), lines: by('finance-bundle-lines'), baseCodeLines: by('finance-base-code-lines'), baseCodes: map('finance-base-codes'), products: map('finance-products'),
       labor: map('finance-labor-costs'), margins: by('finance-margins'), categories: map('finance-categories'),
       groups, freight: { rows: estimateRows, parcelLimit },
     };
@@ -123,8 +123,22 @@ export class CostService {
       } else {
         const bc = d.baseCodes.get(num(l.data.baseCodeId) ?? -1);
         const p = bc ? d.products.get(num(bc.data.productId) ?? -1) : undefined;
-        unit = p ? num(p.data.totalCost) : null;
-        w = p ? (num(p.data.weightG) ?? 0) : 0;
+        if (bc?.data.origin === 'composed') {
+          // 多构成基础编码：成本、重量 = 构成行 数量×商品档案 汇总
+          const parts = d.baseCodeLines.filter((x) => num(x.data.baseCodeId) === bc.id);
+          let c: number | null = parts.length ? 0 : null;
+          for (const part of parts) {
+            const pp = d.products.get(num(part.data.productId) ?? -1);
+            const pc = pp ? num(pp.data.totalCost) : null;
+            const q = num(part.data.qty) ?? 0;
+            c = c === null || pc === null ? null : sumUnitCents([c, multiplyUnitCents(pc, q)]);
+            w += q * (pp ? (num(pp.data.weightG) ?? 0) : 0);
+          }
+          unit = c;
+        } else {
+          unit = p ? num(p.data.totalCost) : null;
+          w = p ? (num(p.data.weightG) ?? 0) : 0;
+        }
         hasWeight = true;
         code = str(bc?.data.code);
         name = str(bc?.data.name) || bc?.title || '';

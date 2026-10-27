@@ -1,14 +1,18 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { pinyin } from 'pinyin-pro';
 import { EntityManager } from 'typeorm';
-import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, FEE_BOOKING_NODE_MAP, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS } from '@kudesi/shared';
+import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, FEE_BOOKING_NODE_MAP, FINANCE_RESOURCE_DEFS, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceLink, ResourceRecord } from '../entities';
 import { buildSnapshot, aliasCode, rawNames } from './base-code-support';
 import { NamingInput, NamingItem, NamingRule, composeBundle, parseFieldList, parseOverrides, validateRule } from './bundle-naming';
 import type { AfterSaveContext, BeforeSaveContext, RuleHost } from './resource-rules';
 import { EXPRESS_AFTER_SAVE, EXPRESS_BEFORE_SAVE } from './express-rules';
+import { applyGiftAliases, basicInfoFullName } from './product-extras';
+import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, beforeBaseCodeLine, guardReferenced, isComposed, refreshComposedTotals, seedMainLine } from './base-code-composed';
+import { composedFacts } from './base-code-support';
+import { afterFreightHistoryDelete, beforeFreightHistory, beforeProductCost, recordFreightHistory, refreshLatestCost, syncAutoCost } from './product-costs';
 import { assertLaborUsable, LABOR_AFTER_SAVE, LABOR_BEFORE_SAVE } from './labor-rules';
 
 /**
@@ -232,6 +236,14 @@ async function beforeProduct(ctx: BeforeSaveContext) {
     checkCode(code, '自动生成的商品编码');
   }
   data.code = code;
+
+  // 生产编码只有原料、发货物料有；赠品简称跨档案排重；基础信息全称自动拼
+  if (type === 'raw' || type === 'shipping_material') {
+    const mc = str(data.materialCode).normalize('NFKC').trim();
+    data.materialCode = mc || undefined;
+  } else delete data.materialCode;
+  await applyGiftAliases(em, user.companyId, data, existing?.id ?? null);
+  data.basicInfoFullName = basicInfoFullName(data, (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '');
 }
 
 async function beforeBom(ctx: BeforeSaveContext) {
@@ -293,6 +305,17 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
   const product = await rec(em, user.companyId, 'finance-products', data.productId);
   if (!product) throw new BadRequestException('请选择来源商品档案');
   if (product.status !== 'active' && !(existing && ['deleted', 'disabled'].includes(status))) throw new BadRequestException('来源商品档案已删除');
+  const composed = data.origin === 'composed' && !(data.canonicalId !== undefined && data.canonicalId !== null);
+  if (composed) {
+    if (existing && !isComposed(existing)) throw new BadRequestException('已有的基础编码不能改成多构成');
+    if (!str(data.name).trim() || !str(data.shortName).trim()) throw new BadRequestException('多构成基础编码的名称和简称必填');
+    if (!str(data.varietyName).trim()) throw new BadRequestException('多构成基础编码的品种必填');
+  } else {
+    if (existing && isComposed(existing)) throw new BadRequestException('多构成基础编码不能改回由商品档案生成');
+    for (const k of ['codeCategoryId', 'codeBrandId', 'codeSpecQty', 'codeSpecUnit']) delete data[k];
+    // “档案自动同步”只能由系统在商品档案保存时设置
+    if (data.origin !== 'archive_sync' || !(existing?.data.origin === 'archive_sync' || em.queryRunner?.data.baseCodeSync === true)) delete data.origin;
+  }
   if (!str(data.name)) data.name = product.title;
 
   // 马甲（别名）：由原料档案的“成品名”自动生成，指向真实编码，编码固定，只能改资料和状态
@@ -316,19 +339,40 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     }
   } else {
     delete data.canonicalId;
-    const dup = (await host.findWhere(em, user.companyId, 'finance-base-codes', 'productId', product.id)).find((r) => r.id !== existing?.id && !r.data.canonicalId && !['disabled', 'deleted'].includes(r.status));
+    // 多构成编码可以和别的编码共用来源商品；由商品档案生成的，一个商品只能有一个
+    let dup = composed ? undefined : (await host.findWhere(em, user.companyId, 'finance-base-codes', 'productId', product.id)).find((r) => r.id !== existing?.id && !r.data.canonicalId && !isComposed(r) && !['disabled', 'deleted'].includes(r.status));
+    // 档案保存时自动建的、没人动过的待验证编码只是占位：手工新建会取代它
+    if (dup && !existing && dup.data.origin === 'archive_sync' && dup.data.profileManual !== true && dup.status === 'pending' && (await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'baseCodeId', dup.id)).length === 0) {
+      for (const a of await host.findWhere(em, user.companyId, 'finance-base-codes', 'canonicalId', dup.id)) await removeRecordRaw(em, user.companyId, a.id);
+      await removeRecordRaw(em, user.companyId, dup.id);
+      dup = undefined;
+    }
     if (dup) throw new BadRequestException(`这个商品已经有基础编码「${dup.title}」了`);
 
     // 款式编码 = 分类码链（相邻重复去掉）- 品牌码 - 品种首字母；编码 = 款式编码 - 规格数量+单位
-    const chain = await categoryChain(em, user.companyId, Number(product.data.categoryId));
-    const brand = product.data.archiveType === 'raw' ? '' : await brandCode(em, user.companyId, product.data.brandId);
+    // 多构成编码用自己选的分类、品牌、规格；其余取来源商品档案
+    let srcCategoryId = Number(product.data.categoryId);
+    let srcBrandId: unknown = product.data.brandId;
+    let srcQty = num(product.data.specQty);
+    let srcUnit = str(product.data.specUnit);
+    if (composed) {
+      const cat = await rec(em, user.companyId, 'finance-categories', data.codeCategoryId);
+      if (!cat) throw new BadRequestException('多构成基础编码请选择编码分类');
+      if (cat.status !== 'active') throw new BadRequestException('这个分类已停用');
+      if ((await host.findWhere(em, user.companyId, 'finance-categories', 'parentId', cat.id)).length > 0) throw new BadRequestException('编码分类必须选最末级分类');
+      srcCategoryId = cat.id; srcBrandId = data.codeBrandId; srcQty = num(data.codeSpecQty); srcUnit = str(data.codeSpecUnit);
+      if (srcQty === null || !(srcQty > 0)) throw new BadRequestException('编码规格数量必须大于 0');
+      if (!srcUnit) throw new BadRequestException('请选择编码规格单位');
+    }
+    const chain = await categoryChain(em, user.companyId, srcCategoryId);
+    const brand = !composed && product.data.archiveType === 'raw' ? '' : await brandCode(em, user.companyId, srcBrandId);
     const variety = str(data.varietyName).trim() || str(product.data.name);
     const chainCodes = chain.map((c) => str(c.data.code)).filter((c, i, a) => c && c !== a[i - 1]);
     const generatedStyle = [...chainCodes, brand, initials(variety)].filter(Boolean).join('-');
-    const qty = num(product.data.specQty);
-    const suffix = qty !== null ? `-${dstr(qty)}${str(product.data.specUnit)}` : '';
+    const qty = srcQty;
+    const suffix = qty !== null ? `-${dstr(qty)}${srcUnit}` : '';
     // 旧版把分类码、品牌码、首字母连在一起；碰到旧格式的已存编码，当作自动生成的重新生成
-    const legacyStyle = `${chain.map((c) => str(c.data.code)).join('')}${brand}${initials(str(product.data.name))}`;
+    const legacyStyle = `${chain.map((c) => str(c.data.code)).join('')}${brand}${initials(composed ? variety : str(product.data.name))}`;
     const legacyCode = legacyStyle + suffix;
     const reasoned = !!str(data.codeChangeReason).trim();
     const manualStyle = str(data.styleCode).toUpperCase();
@@ -349,18 +393,27 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
       if (!keepStyle) delete data.codeChangeReason;
     }
     data.varietyName = str(data.varietyName).trim() || undefined;
-    if (!str(data.spec).trim() && qty !== null) data.spec = `${dstr(qty).replace('D', '.')}${str(product.data.specUnit)}`;
+    if (!str(data.spec).trim() && qty !== null) data.spec = `${dstr(qty).replace('D', '.')}${srcUnit}`;
   }
 
+  // 名称、简称、颜色及规格、编码被人手改过：之后商品档案变化不再覆盖它们，也不再算可被取代的占位（旧系统 profile_manual_override）
+  if (existing && !composed && ['name', 'shortName', 'spec', 'code', 'styleCode', 'varietyName'].some((k) => str(existing.data[k]) !== str(data[k]))) data.profileManual = true;
+
+  // 多构成：重量、成本按构成行汇总；其余取来源商品档案
+  const facts = composed && existing ? await composedFacts(em, user.companyId, existing.id) : null;
+  const srcWeight = composed ? (facts && facts.count ? facts.weightG : undefined) : product.data.weightG;
+  const srcCost = composed ? facts?.cost ?? undefined : product.data.totalCost;
   if (status !== 'verified' || existing?.status !== 'verified') {
-    data.categoryId = product.data.categoryId;
-    data.weightG = product.data.weightG;
-    if (product.data.totalCost !== undefined) data.cost = product.data.totalCost;
+    data.categoryId = composed ? data.codeCategoryId : product.data.categoryId;
+    data.weightG = srcWeight;
+    if (srcCost !== undefined) data.cost = srcCost;
     else delete data.cost;
+    if (composed && facts?.purchasePrice != null) data.purchasePrice = facts.purchasePrice;
+    else delete data.purchasePrice;
   }
   if (status === 'verified' && existing?.status !== 'verified') {
-    if (!((num(product.data.weightG) ?? 0) > 0)) throw new BadRequestException('验证前商品档案要填重量（克）');
-    if (num(product.data.totalCost) === null) throw new BadRequestException('验证前商品档案要有完整成本（采购价、运费、装卸费）');
+    if (!((num(srcWeight) ?? 0) > 0)) throw new BadRequestException(composed ? '验证前多构成基础编码的组成商品要有重量（克）' : '验证前商品档案要填重量（克）');
+    if (num(srcCost) === null) throw new BadRequestException(composed ? '验证前多构成基础编码的每个组成商品都要有完整成本' : '验证前商品档案要有完整成本（采购价、运费、装卸费）');
     const probe = { id: existing?.id ?? 0, data: { ...data } } as ResourceRecord;
     const { snapshot, issues, signature } = await buildSnapshot(em, user.companyId, probe);
     if (issues.length) {
@@ -370,15 +423,16 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     data.snapshot = JSON.stringify(snapshot);
     data.signature = signature;
     data.verifiedAt = today();
-    data.categoryId = product.data.categoryId;
-    data.weightG = product.data.weightG;
-    data.cost = product.data.totalCost;
+    data.categoryId = composed ? data.codeCategoryId : product.data.categoryId;
+    data.weightG = srcWeight;
+    data.cost = srcCost;
   }
   if (status !== 'verified') {
     delete data.signature;
     delete data.verifiedAt;
     if (status === 'pending') delete data.snapshot;
   }
+  await guardReferenced(em, user, existing, data, status);
 }
 
 async function beforeBundle(ctx: BeforeSaveContext) {
@@ -714,6 +768,9 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
   'finance-product-boms': beforeBom,
   'finance-product-sources': beforeSource,
   'finance-base-codes': beforeBaseCode,
+  'finance-base-code-lines': beforeBaseCodeLine,
+  'finance-product-costs': beforeProductCost,
+  'finance-product-freight-history': beforeFreightHistory,
   'finance-bundles': beforeBundle,
   'finance-bundle-lines': beforeBundleLine,
   'finance-bundle-naming-rules': beforeNamingRule,
@@ -731,7 +788,8 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
 
 /** 商品成本/重量变了：已验证的基础编码要重新验证，用到它们的已验证组合也要重新验证。 */
 async function markReverify(host: RuleHost, em: EntityManager, user: AuthUser, productId: number) {
-  for (const bc of await host.findWhere(em, user.companyId, 'finance-base-codes', 'productId', productId)) {
+  for (const bc of await baseCodesUsingProduct(host, em, user.companyId, productId)) {
+    if (isComposed(bc)) await refreshComposedTotals(host, em, user, bc.id);
     if (bc.status !== 'verified') continue;
     await host.setStatusDirect(em, user, 'finance-base-codes', bc.id, 'reverify', '来源商品的重量或成本变了，需要重新验证');
     await markBundlesOfBaseCode(host, em, user, bc.id);
@@ -748,7 +806,8 @@ async function recheckBaseCodes(host: RuleHost, em: EntityManager, user: AuthUse
   };
   await walk(productId, 0);
   for (const id of ids) {
-    for (const bc of await host.findWhere(em, user.companyId, 'finance-base-codes', 'productId', id)) {
+    for (const bc of await baseCodesUsingProduct(host, em, user.companyId, id)) {
+      if (isComposed(bc)) await refreshComposedTotals(host, em, user, bc.id);
       if (bc.status !== 'verified' || !bc.data.snapshot) continue;
       const { signature } = await buildSnapshot(em, user.companyId, bc);
       if (signature === bc.data.signature) continue;
@@ -771,7 +830,7 @@ async function syncAliases(host: RuleHost, em: EntityManager, user: AuthUser, pr
   for (const n of names) {
     const code = aliasCode(user.companyId, productId, n);
     keep.add(code);
-    const full = [n, qty !== null ? `${dstr(qty).replace('D', '.')}${str(p.data.specUnit)}` : '', str(p.data.code)].filter(Boolean).join('-').slice(0, 200);
+    const full = [n, qty !== null ? `${dstr(qty).replace('D', '.')}${str(p.data.specUnit)}` : '', str(p.data.materialCode)].filter(Boolean).join('-').slice(0, 200);
     const cur = have.get(code);
     if (!cur) {
       await host.createRecord(em, user, 'finance-base-codes', { productId, code, name: full, canonicalId: real.id }, '由成品名（马甲）自动生成');
@@ -789,6 +848,64 @@ async function syncAliases(host: RuleHost, em: EntityManager, user: AuthUser, pr
     if ((await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'baseCodeId', a.id)).length) throw new BadRequestException(`马甲「${a.title}」已被组合引用，不能去掉`);
     await em.delete(ResourceLink, { companyId: user.companyId, sourceId: a.id });
     await em.delete(ResourceRecord, { id: a.id, companyId: user.companyId });
+  }
+}
+
+async function removeRecordRaw(em: EntityManager, companyId: number, id: number) {
+  await em.delete(ResourceLink, { companyId, sourceId: id });
+  await em.delete(ResourceRecord, { id, companyId });
+}
+
+/** 旧系统“档案保存自动同步基础编码”管理的档案类型（自产成品、OEM 包装的编码由人手工建，多为多构成） */
+const SYNC_ARCHIVE_TYPES = ['raw', 'package', 'shipping_material', 'purchased'];
+
+/**
+ * 商品档案保存后同步它的基础编码（旧系统 syncArchiveProductsToBaseCodes）：
+ * 没有基础编码就按规则自动建一个（待验证）；已有且名称、简称、规格没被人手改过的，名称跟着档案走。
+ * 档案没删除才同步；已经建过又被禁用/删除的编码不会自动再建。
+ */
+async function createSynced(host: RuleHost, em: EntityManager, user: AuthUser, values: Data) {
+  const flags = em.queryRunner?.data;
+  if (flags) flags.baseCodeSync = true;
+  try {
+    await host.createRecord(em, user, 'finance-base-codes', { ...values, origin: 'archive_sync' }, '商品档案保存，自动同步基础编码');
+  } finally {
+    if (flags) delete flags.baseCodeSync;
+  }
+}
+
+async function syncProductBaseCode(host: RuleHost, em: EntityManager, user: AuthUser, productId: number): Promise<void> {
+  if (em.queryRunner?.data.legacyImport) return;
+  const p = await rec(em, user.companyId, 'finance-products', productId);
+  if (!p || p.status !== 'active' || !SYNC_ARCHIVE_TYPES.includes(str(p.data.archiveType))) return;
+  const full = str(p.data.basicInfoFullName) || p.title;
+  const reals = (await host.findWhere(em, user.companyId, 'finance-base-codes', 'productId', productId)).filter((r) => !r.data.canonicalId && !isComposed(r));
+  if (reals.length === 0) {
+    const values = { productId, name: full, shortName: full, varietyName: str(p.data.name) };
+    try {
+      await createSynced(host, em, user, values);
+    } catch (e) {
+      if (!(e instanceof ConflictException)) throw e;
+      // 生成的编码和别的编码撞了：加序号避开，并写明原因
+      const chain = await categoryChain(em, user.companyId, Number(p.data.categoryId));
+      const brand = p.data.archiveType === 'raw' ? '' : await brandCode(em, user.companyId, p.data.brandId);
+      const style = [...chain.map((c) => str(c.data.code)).filter((c, i, a) => c && c !== a[i - 1]), brand, initials(str(p.data.name))].filter(Boolean).join('-');
+      const qty = num(p.data.specQty);
+      const base = style + (qty !== null ? `-${dstr(qty)}${str(p.data.specUnit)}` : '');
+      for (let i = 2; i < 50; i++) {
+        const code = `${base}-${i}`;
+        if (await host.findByUnique(em, user.companyId, 'finance-base-codes', code.toLowerCase())) continue;
+        await createSynced(host, em, user, { ...values, styleCode: style, code, codeChangeReason: '自动同步：生成的编码重复，加序号' });
+        return;
+      }
+    }
+    return;
+  }
+  for (const bc of reals) {
+    if (bc.data.origin !== 'archive_sync' || bc.data.profileManual === true || ['disabled', 'deleted'].includes(bc.status)) continue;
+    if (str(bc.data.name) !== full || str(bc.data.shortName) !== full) {
+      await host.patchData(em, user, 'finance-base-codes', bc.id, { name: full, shortName: full }, '商品档案变化，同步基础编码名称');
+    }
   }
 }
 
@@ -842,6 +959,7 @@ export async function recomputeProduct(host: RuleHost, em: EntityManager, user: 
     const patch: Data = { totalCost: cost, weightG };
     const changed = patch.totalCost !== (p.data.totalCost ?? null) || patch.weightG !== p.data.weightG;
     await host.patchData(em, user, 'finance-products', productId, patch, '构成变化，自动汇总成本和重量');
+    if (cost !== null) await syncAutoCost(host, em, user, productId, { sourceType: 'production_bom', unitCost: cost, unitName: specUnitText(p.data) || '件', calculationMethod: '按构成汇总：组成档案成本 + 人工 + 运费 + 装卸费' });
     if (changed) await markReverify(host, em, user, productId);
   }
   for (const parentBom of await host.findWhere(em, user.companyId, 'finance-product-boms', 'componentId', productId)) {
@@ -860,6 +978,12 @@ export async function refreshFromSources(host: RuleHost, em: EntityManager, user
   const f = num(p.data.freight), h = num(p.data.handlingFee);
   const patch: Data = { purchasePrice: price, supplierId: cur ? cur.data.supplierId : null, totalCost: price !== null && f !== null && h !== null ? sumUnitCents([price,f,h]) : null };
   await host.patchData(em, user, 'finance-products', productId, patch, '供货来源变化，更新当前采购价');
+  if (cur && price !== null) await syncAutoCost(host, em, user, productId, { sourceType: 'raw_supply_source', unitCost: price, unitName: str(cur.data.systemSpec) || str(p.data.purchaseSpec) || specUnitText(p.data), sourceRef: cur.title, calculationMethod: '取最新启用的供货来源采购价' });
+}
+
+/** 规格单位的中文名（档案成本记录的计价单位默认值） */
+function specUnitText(d: Data): string {
+  return str(d.purchaseSpec) || FINANCE_RESOURCE_DEFS.find((x) => x.key === 'finance-products')!.fields.find((f) => f.key === 'specUnit')!.options!.find((o) => o.value === d.specUnit)?.label || '';
 }
 
 /** 正在发布构成修订的组合：这期间构成变化不再把它打回“需重新验证” */
@@ -876,8 +1000,9 @@ export async function buildBundleLines(host: RuleHost, em: EntityManager, user: 
 
 async function namingItem(em: EntityManager, companyId: number, bc: ResourceRecord, qty: number): Promise<NamingItem> {
   const p = await rec(em, companyId, 'finance-products', bc.data.productId);
-  const chain = await categoryChain(em, companyId, Number(p?.data.categoryId));
-  const brand = await rec(em, companyId, 'finance-brands', p?.data.brandId);
+  const multi = bc.data.origin === 'composed';
+  const chain = await categoryChain(em, companyId, Number(multi ? bc.data.codeCategoryId : p?.data.categoryId));
+  const brand = await rec(em, companyId, 'finance-brands', multi ? bc.data.codeBrandId : p?.data.brandId);
   const variety = str(bc.data.varietyName) || str(p?.data.name);
   return {
     code: str(bc.data.code), name: str(bc.data.name) || bc.title, shortName: str(bc.data.shortName), styleCode: str(bc.data.styleCode), spec: str(bc.data.spec), qty,
@@ -936,7 +1061,7 @@ export async function refreshBundle(host: RuleHost, em: EntityManager, user: Aut
   const gifts = await merge(['gift']);
   if (mains.length === 0) return; // 还没有主品：保持占位编码
   const input = await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, str(bundle.data.configNo));
-  const rule = await findNamingRule(host, em, user.companyId, (await rec(em, user.companyId, 'finance-products', mains[0].bc.data.productId))?.data.categoryId);
+  const rule = await findNamingRule(host, em, user.companyId, mains[0].bc.data.origin === 'composed' ? mains[0].bc.data.codeCategoryId : (await rec(em, user.companyId, 'finance-products', mains[0].bc.data.productId))?.data.categoryId);
   const composed = composeBundle(rule, input);
   const code = str(bundle.data.manualCode).trim().toUpperCase() || composed.code;
   if (code.length > 120) throw new BadRequestException('组合编码太长了（超过 120 位），请减少主品或赠品');
@@ -1018,10 +1143,26 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
         if (typeof b.data.productId === 'number') await recomputeProduct(host, em, user, b.data.productId);
       }
     }
+    await syncProductBaseCode(host, em, user, record.id);
+    if (!em.queryRunner?.data.legacyImport) {
+      const fresh = (await rec(em, user.companyId, 'finance-products', record.id)) ?? record;
+      await recordFreightHistory(host, em, user, fresh);
+      // 直接采购的档案：采购价同步成“采购成本”记录（自产、OEM 由构成汇总，原料、物料取供货来源）
+      const d = fresh.data;
+      if (fresh.status === 'active' && ['package', 'oem_package', 'purchased'].includes(str(d.archiveType)) && d.supplyMode !== 'supplier_oem' && num(d.purchasePrice) !== null) {
+        await syncAutoCost(host, em, user, fresh.id, { sourceType: 'archive_purchase_price', unitCost: num(d.purchasePrice)!, unitName: specUnitText(d), calculationMethod: '由商品档案采购价自动同步' });
+      }
+    }
     if (existing) await recheckBaseCodes(host, em, user, record.id);
   },
+  'finance-product-costs': async ({ em, host, user, record, existing }) => {
+    if (typeof record.data.productId === 'number') await refreshLatestCost(host, em, user, record.data.productId);
+    if (existing && typeof existing.data.productId === 'number' && existing.data.productId !== record.data.productId) await refreshLatestCost(host, em, user, existing.data.productId);
+  },
+  'finance-base-code-lines': async (ctx) => afterBaseCodeLineSave(ctx, (id) => markBundlesOfBaseCode(ctx.host, ctx.em, ctx.user, id)),
   'finance-base-codes': async ({ em, host, user, record, existing }) => {
     if (!existing) {
+      if (!em.queryRunner?.data.legacyImport) await seedMainLine(host, em, user, record);
       if (!em.queryRunner?.data.legacyImport && !record.data.canonicalId && typeof record.data.productId === 'number') await syncAliases(host, em, user, record.data.productId);
       return;
     }
@@ -1075,6 +1216,11 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
 };
 
 export const FINANCE_AFTER_DELETE: Record<string, (ctx: DeleteCtx) => Promise<void>> = {
+  'finance-product-costs': async ({ em, host, user, record }) => {
+    if (typeof record.data.productId === 'number') await refreshLatestCost(host, em, user, record.data.productId);
+  },
+  'finance-product-freight-history': afterFreightHistoryDelete,
+  'finance-base-code-lines': async (ctx) => afterBaseCodeLineDelete(ctx, (id) => markBundlesOfBaseCode(ctx.host, ctx.em, ctx.user, id)),
   'finance-product-sources': async ({ em, host, user, record }) => {
     if (typeof record.data.productId === 'number') await refreshFromSources(host, em, user, record.data.productId);
   },

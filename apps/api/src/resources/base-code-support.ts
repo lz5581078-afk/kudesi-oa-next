@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 import { EntityManager } from 'typeorm';
+import { sumUnitCents, multiplyUnitCents } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 
 /**
@@ -18,7 +19,7 @@ export const sigOf = (...parts: unknown[]) => crypto.createHash('sha256').update
 export const COST_FIELDS = new Set(['totalCost', 'purchasePrice', 'freight', 'handlingFee', 'cost', 'cost_price', 'purchase_price']);
 
 export const FIELD_LABELS: Record<string, string> = {
-  code: '编码', styleCode: '款式编码', name: '名称', shortName: '简称', spec: '颜色及规格', varietyName: '品种',
+  code: '编码', styleCode: '款式编码', components: '商品组成', name: '名称', shortName: '简称', spec: '颜色及规格', varietyName: '品种',
   weightG: '重量(克)', totalCost: '总成本', purchasePrice: '采购价', freight: '运费', handlingFee: '装卸费',
   specQty: '规格数量', specUnit: '规格单位', categoryName: '分类', archiveType: '档案类型', bom: '配方构成', brandName: '品牌',
 };
@@ -57,7 +58,7 @@ export interface Snapshot {
   archives: ArchiveSnap[];
 }
 
-async function byField(em: EntityManager, companyId: number, type: string, field: string, value: number) {
+export async function byField(em: EntityManager, companyId: number, type: string, field: string, value: number) {
   return em
     .createQueryBuilder(ResourceRecord, 'r')
     .where('r.companyId = :companyId AND r.type = :type', { companyId, type })
@@ -126,11 +127,18 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
   };
 
   const productId = num(bc.data.productId);
-  if (productId !== null) await visit(productId, [], []);
+  const composed = bc.data.origin === 'composed';
+  const lines = composed && bc.id ? (await byField(em, companyId, 'finance-base-code-lines', 'baseCodeId', bc.id)).sort((a, b) => a.id - b.id) : [];
+  if (composed) {
+    // 多构成：每个组成商品档案都按自己的配方链收集快照
+    if (lines.length === 0) issues.push({ archiveKey: 'base-code', productId: productId ?? 0, archiveName: str(bc.data.name) || bc.title || '', parentPath: [], message: '尚未添加商品组成' });
+    for (const l of lines) if (typeof l.data.productId === 'number') await visit(l.data.productId, [], []);
+  } else if (productId !== null) await visit(productId, [], []);
   const snapshot: Snapshot = {
     profile: {
       code: str(bc.data.code), styleCode: str(bc.data.styleCode), name: str(bc.data.name), shortName: str(bc.data.shortName),
       spec: str(bc.data.spec), varietyName: str(bc.data.varietyName),
+      ...(composed ? { components: lines.map((l) => `${l.data.productId}x${l.data.qty}:${l.data.role}`).join(';') } : {}),
     },
     archives,
   };
@@ -197,26 +205,47 @@ export interface BaseCodeOutbound {
 }
 
 export async function baseCodeOutbound(em: EntityManager, companyId: number, bc: ResourceRecord): Promise<BaseCodeOutbound> {
+  const composed = bc.data.origin === 'composed';
   const p = await one(em, companyId, 'finance-products', bc.data.productId);
-  const cat = await categoryPath(em, companyId, p?.data.categoryId ?? bc.data.categoryId);
-  const brand = await one(em, companyId, 'finance-brands', p?.data.brandId);
-  const w = num(p?.data.weightG) ?? num(bc.data.weightG);
-  const cost = num(p?.data.totalCost) ?? num(bc.data.cost);
-  const buy = num(p?.data.purchasePrice) ?? cost;
-  const qty = num(p?.data.specQty);
+  const cat = await categoryPath(em, companyId, composed ? bc.data.codeCategoryId : p?.data.categoryId ?? bc.data.categoryId);
+  const brand = await one(em, companyId, 'finance-brands', composed ? bc.data.codeBrandId : p?.data.brandId);
+  const facts = composed ? await composedFacts(em, companyId, bc.id) : null;
+  const w = composed ? facts!.weightG : num(p?.data.weightG) ?? num(bc.data.weightG);
+  const cost = composed ? facts!.cost : num(p?.data.totalCost) ?? num(bc.data.cost);
+  const buy = composed ? facts!.purchasePrice ?? cost : num(p?.data.purchasePrice) ?? cost;
+  const qty = composed ? num(bc.data.codeSpecQty) : num(p?.data.specQty);
+  const unit = composed ? str(bc.data.codeSpecUnit) : str(p?.data.specUnit);
   return {
     sku_id: str(bc.data.code),
     i_id: str(bc.data.styleCode),
     name: str(bc.data.name) || bc.title,
     short_name: str(bc.data.shortName),
-    properties_value: str(bc.data.spec) || (qty !== null ? `${qty}${str(p?.data.specUnit)}` : ''),
+    properties_value: str(bc.data.spec) || (qty !== null ? `${qty}${unit}` : ''),
     c_name: cat.map((c) => c.title).join('/'),
     brand: brand?.title ?? '',
-    unit: str(p?.data.specUnit),
+    unit,
     weight: w === null ? null : Math.round(w) / 1000,
     cost_price: cost === null ? null : cost / 100,
     purchase_price: buy === null ? null : buy / 100,
   };
+}
+
+/** 多构成基础编码的重量、成本、采购价：按构成行 数量×商品档案 汇总；有一个组成缺成本，成本就是空。 */
+export async function composedFacts(em: EntityManager, companyId: number, baseCodeId: number): Promise<{ weightG: number; cost: number | null; purchasePrice: number | null; count: number }> {
+  const lines = baseCodeId ? await byField(em, companyId, 'finance-base-code-lines', 'baseCodeId', baseCodeId) : [];
+  let weight = 0;
+  let cost: number | null = 0;
+  let buy: number | null = 0;
+  for (const l of lines) {
+    const p = await one(em, companyId, 'finance-products', l.data.productId);
+    const qty = num(l.data.qty) ?? 0;
+    weight += qty * (num(p?.data.weightG) ?? 0);
+    const c = num(p?.data.totalCost);
+    cost = cost === null || c === null ? null : sumUnitCents([cost, multiplyUnitCents(c, qty)]);
+    const pp = num(p?.data.purchasePrice) ?? c;
+    buy = buy === null || pp === null ? null : sumUnitCents([buy, multiplyUnitCents(pp, qty)]);
+  }
+  return { weightG: Math.round(weight * 100) / 100, cost: lines.length ? cost : null, purchasePrice: lines.length ? buy : null, count: lines.length };
 }
 
 export const OUTBOUND_LABELS: Record<keyof BaseCodeOutbound, string> = {
