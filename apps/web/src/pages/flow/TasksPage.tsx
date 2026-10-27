@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ROUTINE_FREQUENCY_LABEL, WEEKDAY_LABEL } from '@kudesi/shared';
+import { ROUTINE_FREQUENCY_LABEL, TASK_FEEDBACK_PRESETS, WEEKDAY_LABEL } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
-import { loadRefOptions } from '../../resources/RecordForm';
+import { loadRefOptions, ReasonDialog } from '../../resources/RecordForm';
 import { Pager } from '../finance/common';
 import { flowApi, fmtTime, type AssignedRow, type RoutineBody, type RoutineDto } from './flowApi';
+import { dueHint, remember } from './flowUi';
 
 type Opt = { value: number; label: string; disabled?: boolean };
-const STATUS: Record<string, [string, string]> = { open: ['进行中', 'warn'], done: ['已完成', 'ok'], cancelled: ['已取消', ''] };
+const STATUS: Record<string, [string, string]> = { open: ['进行中', 'warn'], reviewing: ['待复核', 'warn'], abnormal: ['异常', 'bad'], done: ['已完成', 'ok'], cancelled: ['已取消', ''] };
 
 /** 任务中心：新建任务（自己或指派别人）、看我指派的任务进度、管理周期任务。 */
 export function TasksPage() {
   const { can } = useAuth();
-  const [tab, setTab] = useState<'assigned' | 'routines'>('assigned');
+  const [tab, setTab] = useState<'assigned' | 'supervised' | 'routines'>('assigned');
+  const [pending, setPending] = useState(0);
+  useEffect(() => { flowApi.reviewCounts().then((c) => setPending(c.review + c.delay)).catch(() => undefined); }, [tab]);
   const [users, setUsers] = useState<Opt[]>([]);
   useEffect(() => { loadRefOptions('user').then(setUsers).catch(() => undefined); }, []);
   return (
@@ -21,61 +24,115 @@ export function TasksPage() {
       <p className="muted">分给你的任务和流程待办都在“我的待办”里办理；这里新建任务、看你指派出去的任务进度{can('tasks.routines.manage') ? '、管理周期任务' : ''}。</p>
       <div className="tabs">
         <button type="button" className={tab === 'assigned' ? 'tab active' : 'tab'} onClick={() => setTab('assigned')}>我指派的任务</button>
+        <button type="button" className={tab === 'supervised' ? 'tab active' : 'tab'} onClick={() => setTab('supervised')}>我监督的任务{pending > 0 ? ` (${pending})` : ''}</button>
         {can('tasks.routines.manage') && <button type="button" className={tab === 'routines' ? 'tab active' : 'tab'} onClick={() => setTab('routines')}>周期任务</button>}
       </div>
-      {tab === 'assigned' ? <Assigned users={users} canAssign={can('tasks.assign')} /> : <Routines users={users} />}
+      {tab === 'routines' ? <Routines users={users} /> : <Assigned users={users} canAssign={can('tasks.assign')} supervised={tab === 'supervised'} />}
     </div>
   );
 }
 
-function Assigned({ users, canAssign }: { users: Opt[]; canAssign: boolean }) {
-  const [status, setStatus] = useState('');
+/** 任务当前阶段：接口给的 stage（进行中/待复核/异常/已完成/已取消）；旧数据没有时按 status 退回。 */
+const stage = (r: AssignedRow) => r.stage ?? r.status;
+const STATUS_CHIPS: Array<[string, string]> = [['', '全部'], ['open', '进行中'], ['reviewing', '待复核'], ['abnormal', '异常'], ['done', '已完成'], ['cancelled', '已取消']];
+
+function Assigned({ users, canAssign, supervised }: { users: Opt[]; canAssign: boolean; supervised: boolean }) {
+  const [status, setStatus] = useState(() => supervised ? '' : remember.get('kudesi.tasks.status', 'open') === 'all' ? '' : remember.get('kudesi.tasks.status', 'open'));
+  const [reviewing, setReviewing] = useState<{ row: AssignedRow; action: 'approve' | 'return' } | null>(null);
+  const [deciding, setDeciding] = useState<{ row: AssignedRow; approve: boolean } | null>(null);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<{ total: number; rows: AssignedRow[] } | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [creating, setCreating] = useState(false);
-  const load = useCallback(() => { flowApi.assigned({ status, page }).then(setData).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')); }, [status, page]);
+  const [cancelling, setCancelling] = useState<AssignedRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(() => {
+    setLoading(true);
+    (supervised ? flowApi.supervised : flowApi.assigned)({ status, page }).then((d) => { setData(d); setError(''); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')).finally(() => setLoading(false));
+  }, [status, page, supervised]);
   useEffect(load, [load]);
+  const pick = (v: string) => { setStatus(v); setPage(1); if (!supervised) remember.set('kudesi.tasks.status', v || 'all'); };
+  const now = Date.now();
   return (
     <div>
       <div className="toolbar">
-        <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
-          <option value="">全部状态</option><option value="open">进行中</option><option value="done">已完成</option><option value="cancelled">已取消</option>
-        </select>
-        <button type="button" className="primary-button" onClick={() => setCreating(true)}>新建任务</button>
+        <div className="chip-row" role="group" aria-label="任务状态">
+          {STATUS_CHIPS.map(([v, label]) => <button key={v || 'all'} type="button" aria-pressed={status === v} className={status === v ? 'chip active' : 'chip'} onClick={() => pick(v)}>{label}</button>)}
+        </div>
+        <button type="button" className="secondary-button" disabled={loading} onClick={load}>刷新</button>
+        {!supervised && <button type="button" className="primary-button" onClick={() => setCreating(true)}>新建任务</button>}
       </div>
-      {error && <div role="alert" className="notice error">{error}</div>}
-      <div className="table-scroll"><table className="data-table">
-        <thead><tr><th>任务</th><th>负责人</th><th>状态</th><th>截止</th><th>完成情况</th><th /></tr></thead>
+      {notice && <div role="status" className="notice ok-notice toast-line"><span>{notice}</span><button type="button" aria-label="关闭提示" onClick={() => setNotice('')}>✕</button></div>}
+      {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
+      <div className="table-scroll"><table className="data-table stack-mobile">
+        <thead><tr><th>任务</th><th>负责人</th><th>状态</th><th>截止</th><th>反馈与复核</th><th /></tr></thead>
         <tbody>
-          {data?.rows.length === 0 && <tr><td colSpan={6} className="empty-state muted">还没有任务</td></tr>}
-          {data?.rows.map((r) => (
-            <tr key={r.id}>
-              <td><strong>{r.title}</strong>{r.description && <div className="muted">{r.description}</div>}</td>
-              <td>{r.assigneeName}</td>
-              <td><span className={`pill ${STATUS[r.status]?.[1] ?? ''}`}>{STATUS[r.status]?.[0] ?? r.status}</span></td>
-              <td>{r.dueAt ? <span className={r.overdue ? 'pill bad' : ''}>{fmtTime(r.dueAt)}{r.overdue && ' 已逾期'}</span> : '不限时'}</td>
-              <td>{r.doneNote ?? ''}</td>
-              <td>{r.status === 'open' && <button type="button" className="link-button" onClick={() => flowApi.cancelTask(r.id).then(load).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败'))}>取消</button>}</td>
-            </tr>
-          ))}
+          {loading && !data && <tr><td colSpan={6} className="empty-state muted">正在加载…</td></tr>}
+          {data?.rows.length === 0 && (
+            <tr><td colSpan={6} className="empty-state muted">
+              <strong>{status ? `没有${STATUS_CHIPS.find(([v]) => v === status)?.[1]}的任务` : '还没有任务'}</strong>
+              <span>点右上角“新建任务”，给自己或同事安排一件事；到期前负责人会收到提醒。</span>
+              {status && <button type="button" className="secondary-button" onClick={() => pick('')}>查看全部任务</button>}
+            </td></tr>
+          )}
+          {data?.rows.map((r) => {
+            const hint = dueHint(r.dueAt, now);
+            return (
+              <tr key={r.id} className={r.overdue && stage(r) === 'open' ? 'late' : undefined}>
+                <td className="cell-title"><strong>{r.title}</strong>{r.description && <span className="sub-line">{r.description}</span>}</td>
+                <td data-label="负责人">{r.assigneeName}{r.supervisorName && <span className="sub-line">监督：{r.supervisorName}</span>}</td>
+                <td data-label="状态"><span className={`pill ${STATUS[stage(r)]?.[1] ?? ''}`}>{STATUS[stage(r)]?.[0] ?? r.status}</span></td>
+                <td data-label="截止">{r.dueAt ? <span>{fmtTime(r.dueAt)}{stage(r) === 'open' && <span className={`sub-line${hint.late ? ' late-text' : ''}`}>{hint.text}</span>}</span> : '不限时'}</td>
+                <td data-label="反馈与复核"><Feedback row={r} /></td>
+                <td className="row-actions">
+                  {(stage(r) === 'reviewing' || stage(r) === 'abnormal') && (
+                    <><button type="button" className="secondary-button small" onClick={() => setReviewing({ row: r, action: 'approve' })}>通过</button><button type="button" className="link-button" onClick={() => setReviewing({ row: r, action: 'return' })}>退回</button></>
+                  )}
+                  {r.delayId && <><button type="button" className="secondary-button small" onClick={() => setDeciding({ row: r, approve: true })}>同意延期</button><button type="button" className="link-button" onClick={() => setDeciding({ row: r, approve: false })}>拒绝延期</button></>}
+                  {stage(r) === 'open' && !supervised && <button type="button" className="link-button" onClick={() => setCancelling(r)}>取消</button>}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table></div>
       {data && <Pager page={page} pageSize={20} total={data.total} onPage={setPage} />}
-      {creating && <NewTask users={users} canAssign={canAssign} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); load(); }} />}
+      {reviewing && (
+        <ReasonDialog title={reviewing.action === 'approve' ? '复核通过' : '退回重做'} hint={reviewing.action === 'approve' ? '可以写一句评语。' : '写明哪里要改，负责人会看到。'} confirmLabel={reviewing.action === 'approve' ? '通过' : '退回'} suggestions={[]}
+          onClose={() => setReviewing(null)} onConfirm={async (c) => { await flowApi.reviewTask(reviewing.row.id, reviewing.action, c); setReviewing(null); setNotice(reviewing.action === 'approve' ? '已通过，任务完成' : '已退回给负责人'); load(); }} />
+      )}
+      {deciding && (
+        <ReasonDialog title={deciding.approve ? '同意延期' : '拒绝延期'} hint={`新的截止日期：${fmtTime(deciding.row.delayDueAt ?? null).slice(0, 10)}；原因：${deciding.row.delayReason ?? ''}`} confirmLabel={deciding.approve ? '同意' : '拒绝'} suggestions={[]}
+          onClose={() => setDeciding(null)} onConfirm={async (c) => { await flowApi.decideDelay(deciding.row.delayId!, deciding.approve, c); setDeciding(null); setNotice(deciding.approve ? '已同意延期' : '已拒绝延期'); load(); }} />
+      )}
+      {creating && <NewTask users={users} canAssign={canAssign} onClose={() => setCreating(false)} onSaved={(who) => { setCreating(false); setNotice(who ? `已分派给 ${who}，对方会在“我的待办”里看到。` : '已创建，在“我的待办”里办理。'); load(); }} />}
+      {cancelling && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal card small" role="alertdialog" aria-label="取消任务">
+            <div className="modal-head"><strong>取消任务</strong></div>
+            <div className="modal-body"><p>确定取消「{cancelling.title}」吗？负责人（{cancelling.assigneeName}）的待办会一并消失。</p></div>
+            <div className="modal-foot">
+              <button type="button" className="secondary-button" onClick={() => setCancelling(null)}>先不取消</button>
+              <button type="button" className="primary-button" onClick={() => { const id = cancelling.id; setCancelling(null); flowApi.cancelTask(id).then(() => { setNotice('任务已取消'); load(); }).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败')); }}>确认取消</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function NewTask({ users, canAssign, onClose, onSaved }: { users: Opt[]; canAssign: boolean; onClose: () => void; onSaved: () => void }) {
-  const [v, setV] = useState({ title: '', description: '', assigneeId: '' as number | '', dueDate: '' });
+function NewTask({ users, canAssign, onClose, onSaved }: { users: Opt[]; canAssign: boolean; onClose: () => void; onSaved: (assignee?: string) => void }) {
+  const [v, setV] = useState({ title: '', description: '', assigneeId: '' as number | '', dueDate: '', supervisorId: '' as number | '', requiresReview: false, feedbackPreset: '', completionStandard: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   return (
     <div className="modal-backdrop" role="presentation">
       <form className="modal card small" role="dialog" aria-label="新建任务" onSubmit={async (e) => {
         e.preventDefault(); setBusy(true); setError('');
-        try { await flowApi.createTask({ title: v.title, description: v.description || undefined, assigneeId: v.assigneeId || undefined, dueDate: v.dueDate || undefined }); onSaved(); }
+        if (!v.title.trim()) { setBusy(false); return setError('请填写任务标题'); }
+        try { await flowApi.createTask({ title: v.title.trim(), description: v.description || undefined, assigneeId: v.assigneeId || undefined, dueDate: v.dueDate || undefined, supervisorId: v.supervisorId || undefined, requiresReview: v.requiresReview || undefined, feedbackPreset: v.feedbackPreset || undefined, completionStandard: v.completionStandard.trim() || undefined }); onSaved(v.assigneeId ? users.find((u) => u.value === v.assigneeId)?.label : undefined); }
         catch (err) { setError(err instanceof ApiError ? err.message : '保存失败'); setBusy(false); }
       }}>
         <div className="modal-head"><strong>新建任务</strong></div>
@@ -88,11 +145,47 @@ function NewTask({ users, canAssign, onClose, onSaved }: { users: Opt[]; canAssi
               {canAssign && users.filter((u) => !u.disabled).map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
             </select>
           </label>
-          <label>截止日期（选填）<input type="date" value={v.dueDate} onChange={(e) => setV({ ...v, dueDate: e.target.value })} /></label>
+          <label>截止日期（选填，不填则不限时）<input type="date" min={new Date().toISOString().slice(0, 10)} value={v.dueDate} onChange={(e) => setV({ ...v, dueDate: e.target.value })} /></label>
+          <SupervisionFields users={users} v={v} set={(p) => setV({ ...v, ...p })} />
           {error && <div role="alert" className="notice error">{error}</div>}
         </div>
         <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy}>创建</button></div>
       </form>
+    </div>
+  );
+}
+
+type SupV = { supervisorId: number | ''; requiresReview: boolean; feedbackPreset: string; completionStandard: string };
+/** 监督人、是否复核、反馈模板、完成标准：新建任务和周期任务共用。 */
+function SupervisionFields({ users, v, set }: { users: Opt[]; v: SupV; set: (p: Partial<SupV>) => void }) {
+  return (
+    <>
+      <label>监督人（选填）
+        <select value={v.supervisorId} onChange={(e) => set({ supervisorId: e.target.value ? Number(e.target.value) : '' })}>
+          <option value="">不指定{'（延期和异常由指派人处理）'}</option>{users.filter((u) => !u.disabled).map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
+        </select>
+      </label>
+      <label className="check-line"><input type="checkbox" checked={v.requiresReview} onChange={(e) => set({ requiresReview: e.target.checked })} /> 提交后需要监督人复核</label>
+      <label>反馈模板（选填，不选则写一句完成情况）
+        <select value={v.feedbackPreset} onChange={(e) => set({ feedbackPreset: e.target.value })}>
+          <option value="">不使用模板</option>{Object.entries(TASK_FEEDBACK_PRESETS).map(([k, d]) => <option key={k} value={k}>{d.name}</option>)}
+        </select>
+      </label>
+      <label>完成标准（选填）<input value={v.completionStandard} maxLength={500} onChange={(e) => set({ completionStandard: e.target.value })} /></label>
+    </>
+  );
+}
+
+function Feedback({ row }: { row: AssignedRow }) {
+  const preset = row.feedbackPreset ? TASK_FEEDBACK_PRESETS[row.feedbackPreset] : null;
+  return (
+    <div>
+      {row.doneNote && <span>{row.doneNote}</span>}
+      {preset && row.submitPayload && Object.keys(row.submitPayload).length > 0 && (
+        <ul className="plain-list">{preset.fields.filter((f) => row.submitPayload?.[f.key] !== undefined).map((f) => <li key={f.key}>{f.label}：{String(row.submitPayload?.[f.key])}</li>)}</ul>
+      )}
+      {row.reviewNote && <span className="sub-line">复核意见：{row.reviewNote}</span>}
+      {row.delayId && <span className="sub-line late-text">申请延期到 {fmtTime(row.delayDueAt ?? null).slice(0, 10)}：{row.delayReason}</span>}
     </div>
   );
 }
@@ -111,17 +204,17 @@ function Routines({ users }: { users: Opt[] }) {
       <p className="muted">到点（北京时间当天）自动给负责人生成一条任务；服务当天没运行就错过当天，不补发过期的。负责人停用后不再生成，请改负责人。</p>
       <div className="toolbar"><button type="button" className="primary-button" onClick={() => setEdit({ id: null, body: blank() })}>新建周期任务</button></div>
       {error && <div role="alert" className="notice error">{error}</div>}
-      <div className="table-scroll"><table className="data-table">
+      <div className="table-scroll"><table className="data-table stack-mobile">
         <thead><tr><th>任务</th><th>频率</th><th>负责人</th><th>完成期限</th><th>状态</th><th /></tr></thead>
         <tbody>
           {rows?.length === 0 && <tr><td colSpan={6} className="empty-state muted">还没有周期任务</td></tr>}
           {rows?.map((r) => (
             <tr key={r.id}>
-              <td><strong>{r.title}</strong>{r.description && <div className="muted">{r.description}</div>}</td>
-              <td>{when(r)}</td><td>{r.assigneeName}</td><td>{r.dueDays} 天</td>
-              <td><span className={`pill ${r.active ? 'ok' : ''}`}>{r.active ? '启用' : '已停用'}</span></td>
+              <td className="cell-title"><strong>{r.title}</strong>{r.description && <div className="muted">{r.description}</div>}</td>
+              <td data-label="频率">{when(r)}</td><td data-label="负责人">{r.assigneeName}</td><td data-label="完成期限">{r.dueDays} 天</td>
+              <td data-label="状态"><span className={`pill ${r.active ? 'ok' : ''}`}>{r.active ? '启用' : '已停用'}</span></td>
               <td className="row-actions">
-                <button type="button" className="link-button" onClick={() => setEdit({ id: r.id, body: { title: r.title, description: r.description ?? '', assigneeId: r.assigneeId, frequency: r.frequency, weekday: r.weekday, monthDay: r.monthDay, dueDays: r.dueDays, active: r.active } })}>修改</button>
+                <button type="button" className="link-button" onClick={() => setEdit({ id: r.id, body: { title: r.title, description: r.description ?? '', assigneeId: r.assigneeId, frequency: r.frequency, weekday: r.weekday, monthDay: r.monthDay, dueDays: r.dueDays, active: r.active, supervisorId: r.supervisorId ?? null, requiresReview: !!r.requiresReview, feedbackPreset: r.feedbackPreset ?? null, completionStandard: r.completionStandard ?? null } })}>修改</button>
                 <button type="button" className="link-button" onClick={() => flowApi.setRoutineActive(r.id, !r.active).then(load).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败'))}>{r.active ? '停用' : '启用'}</button>
               </td>
             </tr>
@@ -151,6 +244,8 @@ function Routines({ users }: { users: Opt[] }) {
               {edit.body.frequency === 'weekly' && <label>周几<select value={edit.body.weekday ?? 1} onChange={(e) => setEdit({ ...edit, body: { ...edit.body, weekday: Number(e.target.value) } })}>{[1, 2, 3, 4, 5, 6, 7].map((n) => <option key={n} value={n}>{WEEKDAY_LABEL[n]}</option>)}</select></label>}
               {edit.body.frequency === 'monthly' && <label>每月几号（1–28）<input type="number" min={1} max={28} value={edit.body.monthDay ?? 1} onChange={(e) => setEdit({ ...edit, body: { ...edit.body, monthDay: Number(e.target.value) } })} /></label>}
               <label>完成期限（天，1–30）<input type="number" min={1} max={30} value={edit.body.dueDays} onChange={(e) => setEdit({ ...edit, body: { ...edit.body, dueDays: Number(e.target.value) } })} /></label>
+              <SupervisionFields users={users} v={{ supervisorId: edit.body.supervisorId ?? '', requiresReview: !!edit.body.requiresReview, feedbackPreset: edit.body.feedbackPreset ?? '', completionStandard: edit.body.completionStandard ?? '' }}
+                set={(p) => setEdit({ ...edit, body: { ...edit.body, ...('supervisorId' in p ? { supervisorId: p.supervisorId || null } : {}), ...('requiresReview' in p ? { requiresReview: p.requiresReview } : {}), ...('feedbackPreset' in p ? { feedbackPreset: p.feedbackPreset || null } : {}), ...('completionStandard' in p ? { completionStandard: p.completionStandard } : {}) } })} />
             </div>
             <div className="modal-foot"><button type="button" className="secondary-button" onClick={() => setEdit(null)}>取消</button><button type="submit" className="primary-button">保存</button></div>
           </form>

@@ -53,6 +53,8 @@ class BatchDto {
   @IsOptional() @IsObject() values?: Record<string, unknown>;
   @IsOptional() @IsString() @MaxLength(24) status?: string;
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
+  @IsOptional() @IsString() @MaxLength(40) action?: string;
+  @IsOptional() value?: unknown;
 }
 
 class LinkDto {
@@ -61,12 +63,14 @@ class LinkDto {
   @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
   @IsOptional() @IsString() @MaxLength(10) validTo?: string;
   @IsOptional() @IsString() @MaxLength(200) purpose?: string;
+  @IsOptional() @IsString() @MaxLength(16) relationKind?: string;
 }
 
 class LinkPropsDto {
   @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
   @IsOptional() @IsString() @MaxLength(10) validTo?: string;
   @IsOptional() @IsString() @MaxLength(200) purpose?: string;
+  @IsOptional() @IsString() @MaxLength(16) relationKind?: string;
 }
 
 class PhotoIdsDto {
@@ -101,6 +105,7 @@ class ExportQueryDto {
   @IsOptional() @IsString() @MaxLength(48) sortBy?: string;
   @IsOptional() @IsIn(['asc', 'desc']) sortDir?: 'asc' | 'desc';
   @IsOptional() @IsString() @MaxLength(20000) ids?: string;
+  @IsOptional() @IsString() @MaxLength(400) cols?: string;
 }
 
 /**
@@ -123,6 +128,12 @@ export class ResourcesController {
   @Get('overview')
   overview(@CurrentUser() user: AuthUser) {
     return this.resources.overview(user);
+  }
+
+  @AuthenticatedOnly()
+  @Get('recent-changes')
+  recentChanges(@CurrentUser() user: AuthUser) {
+    return this.resources.recentChanges(user, 40);
   }
 
   @AuthenticatedOnly()
@@ -150,6 +161,7 @@ export class ResourcesController {
     return this.resources.exportCsv(user, type, q.includeHidden === '1', {
       keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, archived: q.archived === '1', expiring: q.expiring === '1',
       sortBy: q.sortBy, sortDir: q.sortDir, ids: ids.length ? ids : undefined,
+      derivedKeys: (q.cols ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20),
     });
   }
 
@@ -181,6 +193,7 @@ export class ResourcesController {
   @RequireResourceAction('edit')
   @Post(':type/batch')
   batch(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: BatchDto) {
+    if (dto.action) return this.resources.batchAction(user, type, dto.ids, dto.action, dto.value, dto.reason);
     return this.resources.batchUpdate(user, type, dto.ids, dto.values ?? {}, undefined, undefined);
   }
 
@@ -221,6 +234,13 @@ export class ResourcesController {
   @Patch(':type/:id')
   update(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateDto) {
     return this.resources.update(user, type, id, dto.values);
+  }
+
+  /** 一键建立手机号档案并绑定（权限在服务里按该资料的修改 + 手机号档案的新增校验） */
+  @AuthenticatedOnly()
+  @Post(':type/:id/create-phone')
+  createPhone(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number) {
+    return this.resources.createPhoneFor(user, type, id);
   }
 
   @RequireResourceAction('disable')
@@ -270,7 +290,7 @@ export class ResourcesController {
   @RequireResourceAction('edit')
   @Post(':type/:id/links')
   addLink(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: LinkDto) {
-    return this.resources.addManualLink(user, type, id, dto.targetType, dto.targetId, createChecker(user.permissions), { validFrom: dto.validFrom, validTo: dto.validTo, purpose: dto.purpose });
+    return this.resources.addManualLink(user, type, id, dto.targetType, dto.targetId, createChecker(user.permissions), { validFrom: dto.validFrom, validTo: dto.validTo, purpose: dto.purpose, relationKind: dto.relationKind });
   }
 
   @RequireResourceAction('edit')

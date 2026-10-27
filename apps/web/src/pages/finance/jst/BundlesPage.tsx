@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { getResourceDef } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
+import { CopyButton } from '../../../resources/CopyValue';
 import { downloadText } from '../../../resources/csv';
 import { displayValue, statusOf } from '../../../resources/format';
 import { ImportDialog } from '../../../resources/ImportDialog';
 import { RecordDetail, useResourceCan } from '../../../resources/RecordDetail';
-import { RecordForm } from '../../../resources/RecordForm';
 import { resourceApi, type ListResult, type ResourceDto } from '../../../resources/api';
 import { Pager } from '../common';
 import { CategoryTree } from '../../../resources/CategoryTree';
@@ -16,6 +16,8 @@ import { BundleVerifyDialog, GenerateDialog, NamingCenterDialog, RemoveDialog, R
 import { jstApi } from './jstApi';
 
 const TYPE = 'finance-bundles';
+const ROLE_OPTIONS = getResourceDef('finance-bundle-lines')?.fields.find((f) => f.key === 'role')?.options ?? [];
+const roleLabel = (v: string) => ROLE_OPTIONS.find((o) => o.value === v)?.label ?? v;
 const TABS: Array<[string, string]> = [['', '全部'], ['pending', '待验证'], ['reverify', '需重新验证'], ['verified', '已验证'], ['archived', '失效归档']];
 
 /** 商品组合编码：状态页签带数量；批量生成（多平台）、命名中心、核对验证、构成修订、删除/归档。普通增删改查沿用通用资料接口。 */
@@ -32,12 +34,19 @@ export function BundlesPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
   const [checked, setChecked] = useState<number[]>([]);
-  const [dialog, setDialog] = useState<'generate' | 'naming' | 'create' | 'import' | 'regen' | null>(null);
+  const [dialog, setDialog] = useState<'generate' | 'naming' | 'import' | 'regen' | null>(null);
   const [verifyIds, setVerifyIds] = useState<number[] | null>(null);
   const [revise, setRevise] = useState<ResourceDto | null>(null);
   const [remove, setRemove] = useState<ResourceDto | null>(null);
   const [manual, setManual] = useState<ResourceDto | null>(null);
   const [categoryId, setCategoryId] = useState('');
+  const [open, setOpen] = useState<Record<number, ResourceDto[] | 'loading' | 'error'>>({});
+  async function toggleLines(id: number) {
+    if (open[id]) { setOpen(({ [id]: _, ...rest }) => rest); return; }
+    setOpen((o) => ({ ...o, [id]: 'loading' }));
+    try { const r = await resourceApi.list('finance-bundle-lines', { fieldKey: 'bundleId', fieldValue: id, pageSize: 100 }); setOpen((o) => (o[id] ? { ...o, [id]: r.items } : o)); } catch { setOpen((o) => ({ ...o, [id]: 'error' })); }
+  }
+  const filtered = Boolean(keyword.trim() || categoryId);
 
   const reload = useCallback(async () => {
     try {
@@ -48,7 +57,7 @@ export function BundlesPage() {
   }, [page, keyword, tab, categoryId]);
   useEffect(() => { const t = setTimeout(() => void reload(), 200); return () => clearTimeout(t); }, [reload]);
 
-  const columns = ['code', 'name', 'bundleCategoryId', 'platformId', 'scenarioId', 'jstStatus'].map((k) => def.fields.find((f) => f.key === k)!);
+  const columns = ['code', 'styleCode', 'name', 'bundleCategoryId', 'platformId', 'scenarioId', 'jstStatus'].map((k) => def.fields.find((f) => f.key === k)!);
   const rows = data?.items ?? [];
   const verifiable = rows.filter((r) => checked.includes(r.id) && ['pending', 'reverify'].includes(r.status));
   const one = rows.find((r) => r.id === checked[0]);
@@ -66,8 +75,7 @@ export function BundlesPage() {
           {can('edit') && <button type="button" className="secondary-button" onClick={() => setDialog('regen')}>按新规则重生成编码</button>}
           {can('import') && <button type="button" className="secondary-button" onClick={() => setDialog('import')}>导入</button>}
           {can('export') && <button type="button" className="secondary-button" onClick={async () => { try { const o = await resourceApi.export(TYPE, true); downloadText(o.filename, o.csv); } catch (e) { setError(e instanceof ApiError ? e.message : '导出失败'); } }}>导出</button>}
-          {can('create') && <button type="button" className="secondary-button" onClick={() => setDialog('create')}>＋ 单个新增</button>}
-          {can('create') && <button type="button" className="primary-button" onClick={() => setDialog('generate')}>批量生成</button>}
+          {can('create') && <button type="button" className="primary-button" onClick={() => setDialog('generate')}>＋ 新建组合编码</button>}
         </div>
       </div>
       <div className="tab-group page-tabs" role="tablist" aria-label="验证状态">
@@ -82,7 +90,7 @@ export function BundlesPage() {
       <section className="card">
         <div className="toolbar"><input className="grow" aria-label="搜索" placeholder="搜索组合编码、名称" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} /></div>
         {error && <div role="alert" className="notice error">{error}</div>}
-        <div className="table-scroll"><table className="data-table">
+        <div className="table-scroll"><table className="data-table cards-narrow">
           <thead><tr>
             <th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={rows.length > 0 && rows.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...rows.map((r) => r.id)])] : checked.filter((id) => !rows.some((r) => r.id === id)))} /></th>
             {columns.map((f) => <th key={f.key}>{f.label}</th>)}<th>状态</th><th />
@@ -90,16 +98,26 @@ export function BundlesPage() {
           <tbody>
             {rows.map((row) => {
               const st = statusOf(def, row.status);
+              const lines = open[row.id];
               return (
-                <tr key={row.id} className={row.id === selected ? 'selected' : undefined} onClick={() => setSelected(row.id)}>
+                <Fragment key={row.id}>
+                <tr className={row.id === selected ? 'selected' : undefined} onClick={() => setSelected(row.id)}>
                   <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>
-                  {columns.map((f) => <td key={f.key}>{displayValue(f, row)}</td>)}
-                  <td><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>{typeof row.data.pendingRevisionId === 'number' && <span className="pill warn">有待发布修订</span>}</td>
-                  <td onClick={(e) => e.stopPropagation()}>{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}</td>
+                  {columns.map((f) => <td key={f.key} data-label={f.label}>{displayValue(f, row)}{f.key === 'code' && <CopyButton value={String(row.data.code ?? '')} label="组合编码" />}</td>)}
+                  <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>{typeof row.data.pendingRevisionId === 'number' && <span className="pill warn">有待发布修订</span>}</td>
+                  <td onClick={(e) => e.stopPropagation()}><button type="button" className="link-button" aria-expanded={Boolean(lines)} onClick={() => void toggleLines(row.id)}>{lines ? '收起构成' : '展开构成'}</button>{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}</td>
                 </tr>
+                {lines && (
+                  <tr className="bundle-lines-row"><td colSpan={columns.length + 3}>
+                    {lines === 'loading' ? <span className="muted" role="status">正在加载构成…</span> : lines === 'error' ? <span className="muted">构成加载失败，请重试</span> : lines.length === 0 ? <span className="muted">这个组合还没有构成行</span> : (
+                      <ul className="plain-list">{lines.map((l) => <li key={l.id}>{l.refLabels.baseCodeId || l.refLabels.laborId || l.title} × {String(l.data.qty ?? '')}{l.data.unit ? ` ${String(l.data.unit)}` : ''} <span className="muted">{roleLabel(String(l.data.role ?? ''))}</span></li>)}</ul>
+                    )}
+                  </td></tr>
+                )}
+                </Fragment>
               );
             })}
-            {data && rows.length === 0 && <tr><td colSpan={columns.length + 3} className="muted center">没有匹配的组合</td></tr>}
+            {data && rows.length === 0 && <tr><td colSpan={columns.length + 3} className="muted center">没有匹配的组合{filtered && <> <button type="button" className="link-button" onClick={() => { setKeyword(''); setCategoryId(''); setPage(1); }}>清除搜索和分类</button></>}</td></tr>}
             {!data && !error && <tr><td colSpan={columns.length + 3} className="muted center">加载中…</td></tr>}
           </tbody>
         </table></div>
@@ -107,7 +125,6 @@ export function BundlesPage() {
       </section>
       </div>
       {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void reload()} />}
-      {dialog === 'create' && <RecordForm def={def} record={null} onClose={() => setDialog(null)} onSaved={(dto) => { setDialog(null); setSelected(dto.id); void reload(); }} />}
       {dialog === 'import' && <ImportDialog def={def} onClose={() => setDialog(null)} onDone={() => { setDialog(null); void reload(); }} />}
       {dialog === 'generate' && <GenerateDialog onClose={() => setDialog(null)} onDone={() => void reload()} />}
       {dialog === 'regen' && <BundleRegenDialog onClose={() => setDialog(null)} onDone={() => void reload()} />}

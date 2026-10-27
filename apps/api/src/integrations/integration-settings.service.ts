@@ -27,7 +27,7 @@ export interface VisionInput {
   enabled: boolean;
 }
 
-function checkHttpUrl(value: string, label: string): string {
+export function checkHttpUrl(value: string, label: string): string {
   let url: URL;
   try {
     url = new URL(value.trim());

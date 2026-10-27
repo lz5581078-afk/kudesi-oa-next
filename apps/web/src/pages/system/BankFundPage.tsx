@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { RESOURCE_VIEWS } from '@kudesi/shared';
 import { api, ApiError } from '../../api/client';
 import { money } from '../finance/common';
+import { CopyButton } from '../../resources/CopyValue';
 
 interface Summary {
   totalCents: number; companyCents: number; storeCents: number; abnormalCount: number;
@@ -22,14 +23,15 @@ export function BankFundPage() {
   return (
     <section className="page">
       <h1>资金概况</h1>
+      <p className="muted">汇总公司公户、公司银行卡、出纳账户、店铺公户和店铺个人银行卡。余额不含已停用和已归档账户。</p>
       {error && <div role="alert" className="notice error">{error}</div>}
       {data && (
         <>
           <div className="metric-row">
-            <div className="metric"><span className="muted">账户总余额</span><strong>{money(data.totalCents)}</strong></div>
-            <div className="metric"><span className="muted">公司账户余额</span><strong>{money(data.companyCents)}</strong></div>
-            <div className="metric"><span className="muted">店铺账户余额</span><strong>{money(data.storeCents)}</strong></div>
-            <div className="metric"><span className="muted">异常账户</span><strong>{data.abnormalCount}</strong></div>
+            <div className="metric"><span className="muted">账户总余额</span><strong>{money(data.totalCents)}</strong><small className="muted">{data.kinds.reduce((n, k) => n + k.count - k.inactiveCount, 0)} 个在用账户</small></div>
+            <div className="metric"><span className="muted">公司账户余额</span><strong>{money(data.companyCents)}</strong><small className="muted">公户、银行卡、出纳账户</small></div>
+            <div className="metric"><span className="muted">店铺账户余额</span><strong>{money(data.storeCents)}</strong><small className="muted">店铺公户、店铺个人卡</small></div>
+            <div className="metric"><span className="muted">异常账户</span><strong className={data.abnormalCount ? 'bad-text' : undefined}>{data.abnormalCount}</strong><small className="muted">{data.abnormalCount ? '点下方类型查看' : '没有异常账户'}</small></div>
           </div>
           <div className="card">
             <h2>账户分类</h2>
@@ -51,7 +53,7 @@ export function BankFundPage() {
                 {data.recent.map((a) => (
                   <tr key={a.id}>
                     <td><Link to={`${viewPath(a.kind)}?open=${a.id}`}>{a.title}</Link></td>
-                    <td>{KIND_LABEL[a.kind ?? ''] ?? '-'}</td><td>{a.bank ?? '-'}</td><td className="mono">{a.accountNo ?? '-'}</td><td>{a.owner ?? '-'}</td>
+                    <td>{KIND_LABEL[a.kind ?? ''] ?? '-'}</td><td>{a.bank ?? '-'}</td><td className="mono">{a.accountNo ?? '-'}{a.accountNo && <> <CopyButton value={a.accountNo} label="账号" /></>}</td><td>{a.owner ?? '-'}</td>
                     <td className="num">{money(a.balanceCents)}</td><td>{STATUS_LABEL[a.status] ?? a.status}</td>
                   </tr>
                 ))}

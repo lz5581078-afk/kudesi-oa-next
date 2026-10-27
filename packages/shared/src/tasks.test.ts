@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dueEndOfDay, routineMatches, validateRoutine, weekdayOf } from './tasks';
+import { dueEndOfDay, routineMatches, validateFeedback, validateRoutine, weekdayOf } from './tasks';
 
 describe('周期任务', () => {
   it('周几按日历日期算', () => {
@@ -22,5 +22,16 @@ describe('周期任务', () => {
   it('截止时间是北京时间当天（或第 N 天）的 23:59:59', () => {
     expect(dueEndOfDay('2026-10-25', 1).toISOString()).toBe('2026-10-25T15:59:59.000Z');
     expect(dueEndOfDay('2026-10-25', 3).toISOString()).toBe('2026-10-27T15:59:59.000Z');
+  });
+});
+
+describe('任务反馈校验', () => {
+  it('至少填一项；数字、选项、未知字段都要拦住', () => {
+    expect(validateFeedback('simple', {})).toEqual(['请至少填写一项反馈内容']);
+    expect(validateFeedback('simple', { result: '已处理' })).toEqual([]);
+    expect(validateFeedback('operation_daily', { salesAmount: 'abc' })).toEqual(['销售额要填数字']);
+    expect(validateFeedback('phone_check', { isConnected: '不知道' })).toEqual(['是否畅通请从选项里选']);
+    expect(validateFeedback('simple', { result: 'x', evil: '1' })).toEqual(['没有“evil”这个反馈项']);
+    expect(validateFeedback('nope', { a: 1 })).toEqual(['反馈模板不存在']);
   });
 });

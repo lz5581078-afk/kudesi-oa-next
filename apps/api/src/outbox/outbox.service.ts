@@ -270,17 +270,33 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
    * 同步清单：已验证的基础编码/组合，对照上次真正上传的内容列出差异，
    * 状态：未同步 / 排队中 / 等待回查确认 / 已同步 / 同步失败 / 资料待补齐；每条带自己的同步记录。
    */
-  async items(user: AuthUser, q: { type: string; keyword?: string; page: number; pageSize: number }) {
+  async items(user: AuthUser, q: { type: string; keyword?: string; state?: string; page: number; pageSize: number }) {
     if (!SYNCABLE.includes(q.type as Syncable)) throw new BadRequestException('这种资料不支持同步到聚水潭');
     const t = q.type as Syncable;
     const em = this.dataSource.manager;
     const canCost = createChecker(user.permissions)('product.cost.view');
     const qb = em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :c AND r.type = :t AND r.status = :s', { c: user.companyId, t, s: 'verified' });
     if (q.keyword?.trim()) qb.andWhere('r.searchText LIKE :k', { k: `%${q.keyword.trim().replace(/[%_\\]/g, '\\$&')}%` });
+    if (q.state) {
+      // 按状态筛选要对全部已验证的资料算一遍状态，再分页（状态由上传记录和差异决定，不能只靠 SQL）
+      const all = await qb.clone().orderBy('r.id', 'DESC').getMany();
+      const hit: ResourceRecord[] = [];
+      for (const r of all) if ((await this.describeItem(user, t, r, canCost, false)).state === q.state) hit.push(r);
+      const slice = hit.slice((q.page - 1) * q.pageSize, q.page * q.pageSize);
+      const rows = [];
+      for (const r of slice) rows.push(await this.describeItem(user, t, r, canCost, true));
+      return { total: hit.length, page: q.page, pageSize: q.pageSize, rows };
+    }
     const total = await qb.getCount();
     const recs = await qb.orderBy('r.id', 'DESC').skip((q.page - 1) * q.pageSize).take(q.pageSize).getMany();
     const out = [];
-    for (const r of recs) {
+    for (const r of recs) out.push(await this.describeItem(user, t, r, canCost, true));
+    return { total, page: q.page, pageSize: q.pageSize, rows: out };
+  }
+
+  /** 一条已验证资料的同步状态；light=true 时只要状态（不带差异内容和记录），用于全量统计 */
+  private async describeItem(user: AuthUser, t: Syncable, r: ResourceRecord, canCost: boolean, _full: boolean) {
+    const em = this.dataSource.manager;
       const current = await this.payloadFor(t, r);
       const jobs: Array<{ id: number; kind: string; status: string; attempts: number; last_error: string | null; created_at: string; done_at: string | null; payload_json: Record<string, unknown> | string }> = await em.query(
         'SELECT id, kind, status, attempts, last_error, created_at, done_at, payload_json FROM outbox_jobs WHERE company_id = ? AND resource_type = ? AND resource_id = ? ORDER BY id DESC LIMIT 10', [user.companyId, t, r.id]);
@@ -299,14 +315,28 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       else if (uploaded && diff.length === 0 && r.data.jstStatus === 'synced') state = 'synced';
       else state = 'not_synced';
       const oldCode = str(r.data.jstUploadedCode);
-      out.push({
+      return {
         id: r.id, type: t, code: str(r.data.code), name: str(r.data.name) || r.title, state, signature: sigOf(JSON.stringify(current)), uploadedCode: oldCode || null,
         replacing: !!oldCode && oldCode !== str(r.data.code),
         current: canCost ? current : stripOutboundCost(current), uploaded: uploaded ? (canCost ? uploaded : stripOutboundCost(uploaded)) : null, diff,
         records: jobs.map((j) => ({ id: j.id, kind: j.kind, status: j.status, attempts: j.attempts, lastError: j.last_error, createdAt: j.created_at, doneAt: j.done_at })),
-      });
+      };
+  }
+
+  /** 同步清单状态汇总：对全部已验证资料统计（不是当前页） */
+  async itemsSummary(user: AuthUser, type: string, keyword?: string) {
+    if (!SYNCABLE.includes(type as Syncable)) throw new BadRequestException('这种资料不支持同步到聚水潭');
+    const t = type as Syncable;
+    const canCost = createChecker(user.permissions)('product.cost.view');
+    const qb = this.dataSource.manager.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :c AND r.type = :t AND r.status = :s', { c: user.companyId, t, s: 'verified' });
+    if (keyword?.trim()) qb.andWhere('r.searchText LIKE :k', { k: `%${keyword.trim().replace(/[%_\\]/g, '\\$&')}%` });
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const r of await qb.orderBy('r.id', 'DESC').getMany()) {
+      const { state } = await this.describeItem(user, t, r, canCost, false);
+      counts[state] = (counts[state] ?? 0) + 1; total++;
     }
-    return { total, page: q.page, pageSize: q.pageSize, rows: out };
+    return { total, counts };
   }
 
   async jobs(user: AuthUser, q: { status?: string; kind?: string; page: number; pageSize: number }) {

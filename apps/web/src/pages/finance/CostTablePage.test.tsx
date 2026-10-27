@@ -138,3 +138,19 @@ describe('SKU成本表', () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe('SKU成本表：使用细节', () => {
+  it('SKU组合编码可一键复制；有搜索条件时出现“清除筛选”', async () => {
+    m.costTable.mockResolvedValue(table(true));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderPage();
+    await screen.findByText('ZH-TB-001');
+    fireEvent.click(screen.getByRole('button', { name: '复制SKU组合编码' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('ZH-TB-001'));
+    expect(screen.queryByRole('button', { name: '清除筛选' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('搜索SKU成本'), { target: { value: '苹果' } });
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
+    expect((screen.getByLabelText('搜索SKU成本') as HTMLInputElement).value).toBe('');
+  });
+});

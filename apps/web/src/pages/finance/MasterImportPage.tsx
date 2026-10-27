@@ -33,14 +33,17 @@ export function MasterImportPage() {
   }, [tick]);
 
   const def = importing ? getResourceDef(importing) : undefined;
+  const loaded = STEPS.every((s) => s.types.every((t) => counts[t] !== undefined));
+  const done = (s: (typeof STEPS)[number]) => s.types.every((t) => (counts[t] ?? 0) > 0);
+  const nextStep = loaded ? STEPS.find((s) => !done(s))?.title : undefined;
   return (
     <div>
       <div className="page-head"><h1>商品数据导入</h1></div>
       <p className="muted">按下面的顺序一类一类导入。每次先预览，逐行校验，有错整体不导入；同一个编码再次导入会更新而不是重复。</p>
       <ol className="stack">
         {STEPS.map((s) => (
-          <li key={s.title} className="card">
-            <strong>{s.title}</strong>
+          <li key={s.title} className={s.title === nextStep ? 'card import-step-next' : 'card'} aria-current={s.title === nextStep ? 'step' : undefined}>
+            <strong>{s.title}</strong> {done(s) ? <span className="pill ok">已导入</span> : s.title === nextStep ? <span className="pill warn">下一步</span> : null}
             <p className="muted">{s.hint}</p>
             <div className="table-scroll"><table className="data-table">
               <thead><tr><th>资料</th><th>现有</th><th /></tr></thead>

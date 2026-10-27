@@ -106,3 +106,45 @@ describe('基本售价、归档任务、分类同步', () => {
     await waitFor(() => expect(m.categoryExecute).toHaveBeenCalledWith('bundle', 's2'));
   });
 });
+
+describe('同步清单：状态汇总、筛选与全选本页', () => {
+  it('汇总来自服务端全量统计；状态筛选交给服务端；全选只选可同步的', async () => {
+    const rows = [item(1), item(2, { state: 'synced', uploaded: {} }), item(3, { state: 'failed' })];
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.includes('/items/summary')) return { total: 120, counts: { not_synced: 80, synced: 30, failed: 10 } };
+      if (path.includes('state=synced')) return { total: 30, rows: [rows[1]] };
+      return { total: 120, rows };
+    });
+    render(<JstSyncItems onQueued={() => undefined} />);
+    fireEvent.change(await screen.findByLabelText('资料类型'), { target: { value: 'finance-bundles' } });
+    await screen.findByText(/共 120 条已验证：未同步 80 · 已同步 30 · 同步失败 10/);
+    fireEvent.click(await screen.findByLabelText('全选本页可同步的'));
+    expect(screen.getByText(/已选 2 条/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('同步状态'), { target: { value: 'synced' } });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('state=synced')));
+    await waitFor(() => expect(screen.queryByText('ZH-1', { exact: false })).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
+    await screen.findByText('ZH-1', { exact: false });
+  });
+});
+
+describe('飞书通知开关', () => {
+  it('默认关；没接入飞书时提示只积压；管理员打开前要确认，非管理员看不到按钮', async () => {
+    const { FeishuSwitchCard } = await import('./FeishuSwitchCard');
+    apiMock.mockImplementation(async (path: string, opts?: { method?: string }) => (opts?.method === 'PUT' ? { enabled: true, senderConfigured: false } : { enabled: false, senderConfigured: false, counts: {} }) as never);
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<FeishuSwitchCard />);
+    await screen.findByText(/已关闭（默认）/);
+    expect(screen.getByText(/不会发送/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '打开飞书通知' }));
+    await screen.findByText(/已打开/);
+    expect(apiMock).toHaveBeenCalledWith('/finance/feishu-notice/switch', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ enabled: true }) }));
+    expect(ask).toHaveBeenCalled();
+    cleanup();
+    auth.admin = false;
+    render(<FeishuSwitchCard />);
+    await screen.findByText(/飞书通知：/);
+    expect(screen.queryByRole('button', { name: /飞书通知/ })).toBeNull();
+    ask.mockRestore();
+  });
+});

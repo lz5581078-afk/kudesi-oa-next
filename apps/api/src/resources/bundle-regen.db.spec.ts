@@ -95,6 +95,18 @@ d('分类排序与批量重生成编码（真实数据库）', () => {
     expect((await tools.regeneratePreview(boss)).rows).toHaveLength(0);
   });
 
+  it('新建组合时手填编码/名称/简称：必须写原因；手填值进组合并参与重复检查', async () => {
+    const plat = await svc.create(boss, 'finance-platforms', { code: 'PDD', name: '拼多多' });
+    const lines = [{ role: 'main', baseCodeId: ids.bc, qty: 3 }];
+    const base = { platformId: plat.id, scenarioId: ids.scen, bundleCategoryId: ids.bcat };
+    await expect(tools.generate(boss, lines, [{ ...base, manualCode: 'my-own-1' }])).rejects.toThrow(/原因/);
+    const gen = await tools.generate(boss, lines, [{ ...base, manualCode: 'my-own-1', manualName: '手填名', manualReason: '平台要求' }]);
+    const b = await svc.get(boss, 'finance-bundles', gen.created[0].id);
+    expect(b.data).toMatchObject({ code: 'MY-OWN-1', name: '手填名', manualCode: 'MY-OWN-1', manualReason: '平台要求' });
+    // 同编码再来一次（不同构成）被重复检查拦住
+    await expect(tools.generate(boss, [{ role: 'main', baseCodeId: ids.bc, qty: 4 }], [{ ...base, manualCode: 'MY-OWN-1', manualReason: '平台要求' }])).rejects.toThrow(/重复/);
+  });
+
   it('真实编码有马甲：验证通过后列表里隐藏（马甲代表它），没验证的仍然显示；计数一致', async () => {
     const p = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '红富士', categoryId: ids.leaf, purchaseSpec: '千克', specQty: 1, specUnit: 'KG', purchasePrice: 1000, freight: 0, handlingFee: 0, zeroValueReason: '运费：无\n装卸费：无', rawFinishedNames: '精品红富士' });
     const real = await svc.create(boss, 'finance-base-codes', { productId: p.id });

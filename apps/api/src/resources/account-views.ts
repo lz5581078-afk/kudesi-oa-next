@@ -1,7 +1,8 @@
 import { EntityManager, SelectQueryBuilder } from 'typeorm';
 import { addDaysText, getResourceDef, phoneStoreImportColumns, viewFiltersOf, PHONE_RECHARGE_DAYS, MEMO_DUE_DAYS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceRecord } from '../entities';
+import { Department, ResourceRecord } from '../entities';
+import { applyCond } from './def-conditions';
 
 /**
  * 店铺与账号类资料的“按日期实时算”的筛选，以及手机号 <-> 店铺 的派生信息与导入绑定（旧系统行为）。
@@ -14,7 +15,7 @@ export const HAS_ALIAS = `EXISTS (SELECT 1 FROM resource_records a WHERE a.compa
 const J = (k: string) => `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${k}'))`;
 
 export function isViewFilter(type: string, key: string): boolean {
-  return viewFiltersOf(type).some((f) => f.key === key);
+  return viewFiltersOf(type).some((f) => f.key === key) || (type === 'finance-base-codes' && key === 'brandId');
 }
 
 /** 给列表查询加上一个虚拟筛选；值不在选项里就报不合法由调用方处理（这里返回 false） */
@@ -28,8 +29,28 @@ export async function applyViewFilter(
   today: string,
   idx: number,
 ): Promise<boolean> {
+  // 基础编码按品牌筛选：品牌取自来源商品档案（多构成编码取自己的编码品牌）；选项是公司的品牌清单，不是固定值
+  if (type === 'finance-base-codes' && key === 'brandId') {
+    if (!/^\d{1,12}$/.test(value)) return false;
+    const pid = `brand${idx}`;
+    qb.andWhere(`(JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.codeBrandId')) = :${pid} OR (JSON_EXTRACT(r.data, '$.codeBrandId') IS NULL AND JSON_EXTRACT(r.data, '$.productId') IN (SELECT p.id FROM resource_records p WHERE p.company_id = r.company_id AND p.type = 'finance-products' AND JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.brandId')) = :${pid})))`, { [pid]: value });
+    return true;
+  }
   const def = viewFiltersOf(type).find((f) => f.key === key);
+  const cf = getResourceDef(type)?.computedFilters?.find((f) => f.key === key);
+  if (cf?.optionsFrom === 'departments' && cf.when) {
+    // 部门由服务端按公司现有部门校验（别家公司的部门不认）
+    const dept = /^\d+$/.test(value) ? await em.getRepository(Department).findOne({ where: { id: Number(value), companyId } }) : null;
+    if (!dept) return false;
+    applyCond(qb, getResourceDef(type)!, cf.when, `cf${idx}x`, value);
+    return true;
+  }
   if (!def || !def.options.some((o) => o.value === value)) return false;
+  const computed = cf?.options?.find((o) => o.value === value);
+  if (computed) {
+    applyCond(qb, getResourceDef(type)!, computed.when, `cf${idx}x`);
+    return true;
+  }
   const p = (name: string) => `${name}${idx}`;
   if (type === 'stores' && key === 'jstExpiry') {
     qb.andWhere(`${J('jushuitan')} = 'connected' AND ${J('jushuitanExpireAt')} IS NOT NULL AND ${J('jushuitanExpireAt')} <> ''`);

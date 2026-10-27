@@ -83,6 +83,7 @@ describe('登录与菜单', () => {
     expect(screen.getByRole('navigation', { name: '平台导航' })).toBeTruthy();
     expect(await screen.findByText('新公司')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '通过并开通' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: '确认开通' })).getByRole('button', { name: '确认开通' }));
     expect(await screen.findByText(/已开通：新公司，企业管理员账号：13900000001/)).toBeTruthy();
   });
 
@@ -141,9 +142,9 @@ describe('登录与菜单', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: /菜单/ })).toBeNull();
     const tabbar = screen.getByRole('navigation', { name: '手机底部导航' });
-    for (const label of ['工作台', '流程', '财务', '资料', '更多']) expect(within(tabbar).getByText(label)).toBeTruthy();
+    for (const label of ['工作台', '流程', '财务', '资料', '功能', '更多']) expect(within(tabbar).getByText(label)).toBeTruthy();
     fireEvent.click(within(tabbar).getByText('更多'));
-    expect(screen.getByRole('dialog', { name: '系统菜单' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '售后菜单' })).toBeTruthy();
   });
 
   it('账号菜单：能去修改密码、能退出', () => {
@@ -284,8 +285,8 @@ describe('我的待办', () => {
     renderAt('/workbench/todos');
     expect(await screen.findByText(/借用甲公司执照/)).toBeTruthy();
     expect(screen.getByText('被退回')).toBeTruthy();
-    expect(screen.getByText(/已逾期$/)).toBeTruthy();
+    expect(screen.getByText(/已超时/)).toBeTruthy();
     expect(screen.getByText('不限时')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /待办理 \(2\)/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /待办理 \(2\)/ })).toBeTruthy();
   });
 });

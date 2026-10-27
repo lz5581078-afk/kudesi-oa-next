@@ -72,4 +72,21 @@ d('单位与规格（真实数据库）', () => {
     const res = await svc.importRows(boss, 'finance-products', rows, true);
     expect(JSON.stringify(res.results[0].errors)).not.toContain('规格单位');
   });
+
+  it('自定义档案类型：编码不能和内置类型重名；建好后能建分类和商品，停用后不能再用；被商品用到的编码不能改', async () => {
+    await expect(svc.create(boss, 'finance-product-units', { kind: 'archive_type', name: '假原料', code: 'RAW' })).rejects.toThrow('重名');
+    const t = await svc.create(boss, 'finance-product-units', { kind: 'archive_type', name: '食品添加剂', subtitle: '辅料类', accent: 'blue' });
+    const code = String(t.data.code);
+    expect(code).toBe('SPTJJ');
+    expect((await svc.unitOptions(boss)).archive_type).toEqual([{ value: code, label: '食品添加剂' }]);
+    const cat = await svc.create(boss, 'finance-categories', { archiveType: code, name: '防腐剂', code: 'FFJ' });
+    const p = await svc.create(boss, 'finance-products', { archiveType: code, name: '山梨酸钾', categoryId: cat.id, specQty: 1, specUnit: 'KG', purchasePrice: 1000, freight: 0, handlingFee: 0, zeroValueReason: '运费：无\n装卸费：无' });
+    expect(p.data.archiveType).toBe(code);
+    // 内置类型照常可用
+    await svc.create(boss, 'finance-products', product({}));
+    await expect(svc.update(boss, 'finance-product-units', t.id, { kind: 'archive_type', name: '食品添加剂', code: 'XYZ' })).rejects.toThrow('已被商品档案使用');
+    await svc.changeStatus(boss, 'finance-product-units', t.id, 'inactive', '不用了');
+    await expect(svc.create(boss, 'finance-products', { archiveType: code, name: '另一个', categoryId: cat.id, specQty: 1, specUnit: 'KG' })).rejects.toThrow('档案类型的取值不合法');
+    expect((await svc.unitOptions(boss)).archive_type).toBeUndefined();
+  });
 });

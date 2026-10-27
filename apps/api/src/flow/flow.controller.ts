@@ -12,6 +12,8 @@ class StartDto {
 class DraftDto {
   @IsArray() steps!: never[];
   @IsArray() @IsInt({ each: true }) escalateUserIds!: number[];
+  /** 自建模板的表单结构；内置模板不传 */
+  @IsOptional() @IsObject() schema?: Record<string, unknown>;
 }
 class PassDto {
   @IsInt() revision!: number;
@@ -34,6 +36,7 @@ class ResubmitDto {
 }
 class TransferDto {
   @IsInt() revision!: number;
+  @IsOptional() @IsInt() stepId?: number;
   @IsInt() toUserId!: number;
   @IsString() @MaxLength(500) reason!: string;
 }
@@ -43,11 +46,18 @@ class RunsQuery {
   @IsOptional() @IsString() templateKey?: string;
   @IsOptional() @IsString() @MaxLength(100) keyword?: string;
   @IsOptional() @Type(() => Boolean) @IsBoolean() overdue?: boolean;
+  /** 发起人所在部门（含下级部门） */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) departmentId?: number;
+  /** 当前办理人姓名（模糊） */
+  @IsOptional() @IsString() @MaxLength(50) handler?: string;
+  /** 只看被退回、等待补充的 */
+  @IsOptional() @Type(() => Boolean) @IsBoolean() returned?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
 class TodosQuery {
   @IsOptional() @IsIn(['pending', 'overdue', 'returned', 'done']) tab?: 'pending' | 'overdue' | 'returned' | 'done';
+  @IsOptional() @IsString() @MaxLength(100) keyword?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
@@ -68,7 +78,7 @@ export class FlowController {
 
   @RequirePermission('flow.templates.view')
   @Put('definitions/:key/draft')
-  saveDraft(@CurrentUser() user: AuthUser, @Param('key') key: string, @Body() b: DraftDto) { return this.flow.saveDraft(user, key, b.steps as never, b.escalateUserIds); }
+  saveDraft(@CurrentUser() user: AuthUser, @Param('key') key: string, @Body() b: DraftDto) { return this.flow.saveDraft(user, key, b.steps as never, b.escalateUserIds, (b.schema as never) ?? null); }
 
   @RequirePermission('flow.templates.view')
   @Post('definitions/:key/publish')
@@ -105,6 +115,10 @@ export class FlowController {
   reject(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReasonDto) { return this.flow.stop(user, id, 'reject', b); }
 
   @AuthenticatedOnly()
+  @Post('runs/:id/abnormal')
+  abnormal(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReasonDto) { return this.flow.reportAbnormal(user, id, b); }
+
+  @AuthenticatedOnly()
   @Post('runs/:id/withdraw')
   withdraw(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: WithdrawDto) { return this.flow.withdraw(user, id, b); }
 
@@ -118,7 +132,7 @@ export class FlowController {
 
   @AuthenticatedOnly()
   @Get('todos')
-  todos(@CurrentUser() user: AuthUser, @Query() q: TodosQuery) { return this.flow.todos(user, { tab: q.tab ?? 'pending', page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
+  todos(@CurrentUser() user: AuthUser, @Query() q: TodosQuery) { return this.flow.todos(user, { tab: q.tab ?? 'pending', keyword: q.keyword, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
 
   @AuthenticatedOnly()
   @Get('notifications')

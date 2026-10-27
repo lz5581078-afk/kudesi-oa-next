@@ -371,4 +371,37 @@ d('财务单据（真实数据库）', () => {
     const drafts = await docs.list(clerk, { scope: 'drafts', page: 1, pageSize: 50 });
     expect(drafts.rows.every((r: { status: string }) => r.status === 'draft' || r.status === 'issued')).toBe(true);
   });
+
+  it('金额类单据多行金额明细：合计=单据金额，照常过账和红冲；明细与老写法（只填金额）都行；草稿中心带今日新增数；财务经营支持任意起止日期', async () => {
+    const before = (await docs.bankBalances(boss)).find((b) => b.id === ids.bank)!.balanceCents;
+    const rec = await docs.createDraft(boss, { type: 'receipt', date: day, partyId: ids.cust, bankAccountId: ids.bank, lines: [
+      { qty: 1, unitPriceCents: 1500, itemName: '客户回款', memo: '第一笔' }, { qty: 1, unitPriceCents: 500, itemName: '补差价' }] });
+    expect(rec.amountCents).toBe(2000);
+    expect(rec.lines.map((l) => l.itemName)).toEqual(['客户回款', '补差价']);
+    const posted = await docs.post(boss, rec.id);
+    expect((await docs.bankBalances(boss)).find((b) => b.id === ids.bank)!.balanceCents).toBe(before + 2000);
+    expect(posted.lines[0].memo).toBe('第一笔');
+    const blank = await docs.createDraft(boss, { type: 'receipt', date: day, partyId: ids.cust, bankAccountId: ids.bank, lines: [{ qty: 1, unitPriceCents: 100, itemName: '' }] });
+    await expect(docs.issue(boss, blank.id)).rejects.toThrow(/请填写/);
+    const old = await docs.post(boss, (await docs.createDraft(boss, { type: 'receipt', date: day, partyId: ids.cust, bankAccountId: ids.bank, amountCents: 700 })).id);
+    expect(old.amountCents).toBe(700);
+    await docs.reverse(boss, posted.id, '多行红冲');
+    expect((await docs.bankBalances(boss)).find((b) => b.id === ids.bank)!.balanceCents).toBe(before + 700);
+    // 转款：明细合计必须等于账户分配
+    const bad = await docs.createDraft(boss, { type: 'transfer', date: day, accounts: [{ role: 'out', bankAccountId: ids.bank, amountCents: 1000 }, { role: 'in', bankAccountId: ids.bank2, amountCents: 1000 }], lines: [{ qty: 1, unitPriceCents: 900, itemName: '资金调拨' }] });
+    await expect(docs.issue(boss, bad.id)).rejects.toThrow(/要等于明细合计/);
+    // 草稿中心今日新增
+    const dr = await docs.list(boss, { scope: 'drafts', page: 1, pageSize: 10 });
+    expect(dr.todayCount).toBeGreaterThanOrEqual(2);
+    const hist = await docs.list(boss, { scope: 'history', page: 1, pageSize: 10 });
+    expect(hist.todayCount).toBeUndefined();
+    // 财务经营：任意起止日期；按月仍兼容
+    const range = await docs.overview(boss, undefined, day, day);
+    expect(range.from).toBe(day);
+    expect(range.trendBy).toBe('day');
+    const none = await docs.overview(boss, undefined, '2001-01-01', '2001-01-31');
+    expect(none.revenueCents).toBe(0);
+    expect((await docs.overview(boss, '2026-03')).month).toBe('2026-03');
+    await expect(docs.overview(boss, undefined, '2026-04-01', '2026-03-01')).rejects.toThrow(/不能晚于/);
+  });
 });

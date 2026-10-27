@@ -3,10 +3,12 @@ import { PLATFORM_PAGES, type PlatformPageId } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { ApplicationsPage } from './ApplicationsPage';
 import { CompaniesPage } from './CompaniesPage';
+import { IntegrationAppsPage } from './IntegrationAppsPage';
 
 const PAGES: Record<PlatformPageId, () => JSX.Element> = {
   applications: ApplicationsPage,
   companies: CompaniesPage,
+  integrations: IntegrationAppsPage,
 };
 
 /** 平台管理员后台：独立于公司界面，只管企业申请和公司。 */

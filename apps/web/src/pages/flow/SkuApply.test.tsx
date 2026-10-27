@@ -77,3 +77,81 @@ describe('仓库配置与规格明细', () => {
     expect(screen.getByText('新建')).toBeTruthy();
   });
 });
+
+describe('SKU 批量申请：复制与套用', () => {
+  it('复制规格带出商品；删除有内容的规格要先确认；仓库配置可套用到其他规格', async () => {
+    const specs: SkuSpec[] = [{ name: '苹果礼盒', main: [{ baseCodeId: 11, qty: 2 }], gift: [] }];
+    render(<Harness initial={{ specs }} />);
+    await screen.findByText('淘宝');
+    fireEvent.click(screen.getByText('复制这个规格'));
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('out').textContent!).specs).toHaveLength(2));
+    const copy = JSON.parse(screen.getByTestId('out').textContent!).specs[1];
+    expect(copy).toMatchObject({ name: '苹果礼盒（副本）', main: [{ baseCodeId: 11, qty: 2 }] });
+    const ask = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fireEvent.click(screen.getAllByText('删除这个规格')[1]);
+    expect(JSON.parse(screen.getByTestId('out').textContent!).specs).toHaveLength(2);
+    fireEvent.click(screen.getAllByText('删除这个规格')[1]);
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('out').textContent!).specs).toHaveLength(1));
+    expect(ask).toHaveBeenCalledTimes(2);
+    ask.mockRestore();
+  });
+
+  it('仓库配置：把一个规格的包装等套用到其他规格', async () => {
+    const specs: SkuSpec[] = [{ name: 'A', main: [], gift: [] }, { name: 'B', main: [], gift: [] }];
+    const first: WarehouseSpec = { lines: [{ role: 'package', baseCodeId: 31, qty: 1 }], notRequired: { label: '无' } };
+    function WH() {
+      const [v, setV] = useState<Record<string, unknown>>({ config: [first, { lines: [], notRequired: {} }] });
+      return <><SkuWarehouseFields specs={specs} values={v} onChange={(k, x) => setV((c) => ({ ...c, [k]: x }))} /><pre data-testid="wh">{JSON.stringify(v)}</pre></>;
+    }
+    render(<WH />);
+    fireEvent.click(screen.getByLabelText('把规格 A 的配置套用到其他规格'));
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('wh').textContent!).config[1]).toEqual(first));
+  });
+});
+
+
+describe('SKU 批量申请：数量系列、独立办理、历史配置', () => {
+  it('数量系列：按 1,2,5 生成三个规格（主商品数量不同，赠品照旧）；输入不合法会提示', async () => {
+    const specs: SkuSpec[] = [{ name: '苹果礼盒', main: [{ baseCodeId: 11, qty: 1 }], gift: [{ baseCodeId: 12, qty: 1 }] }];
+    render(<Harness initial={{ specs }} />);
+    await screen.findByText('淘宝');
+    fireEvent.change(screen.getByLabelText('规格 1 数量系列'), { target: { value: '1, 1' } });
+    fireEvent.click(screen.getByText('按数量生成规格'));
+    expect(screen.getByRole('alert').textContent).toContain('不重复的正整数');
+    fireEvent.change(screen.getByLabelText('规格 1 数量系列'), { target: { value: '1, 2，5' } });
+    fireEvent.click(screen.getByText('按数量生成规格'));
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('out').textContent!).specs).toHaveLength(4));
+    const out = JSON.parse(screen.getByTestId('out').textContent!).specs;
+    expect(out.slice(1).map((x: SkuSpec) => [x.name, x.main[0].qty, x.gift.length])).toEqual([['苹果礼盒 · 1件', 1, 1], ['苹果礼盒 · 2件', 2, 1], ['苹果礼盒 · 5件', 5, 1]]);
+  });
+
+  it('两个以上规格才出现“独立办理”，勾选写进表单值', async () => {
+    const specs: SkuSpec[] = [{ name: 'A', main: [{ baseCodeId: 11, qty: 1 }], gift: [] }];
+    render(<Harness initial={{ specs }} />);
+    await screen.findByText('淘宝');
+    expect(screen.queryByLabelText(/每个规格独立办理/)).toBeNull();
+    fireEvent.click(screen.getByText('＋ 添加规格'));
+    fireEvent.click(screen.getByLabelText(/每个规格独立办理/));
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('out').textContent!).splitSpecs).toBe(true));
+  });
+
+  it('仓库：复用历史配置（按主商品列出，填入后带出物料名称，已有内容先确认）', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.includes('history-config')) return { items: [{ runId: 7, title: 't', specName: '旧规格', exact: true, status: 'completed', config: { lines: [{ role: 'package', baseCodeId: 31, qty: 2 }], notRequired: { label: '没有标签' } } }], names: { b31: 'BOX-A 纸箱' } };
+      return { items: [] };
+    });
+    const specs: SkuSpec[] = [{ name: 'A', main: [{ baseCodeId: 11, qty: 1 }], gift: [] }];
+    function WH() {
+      const [v, setV] = useState<Record<string, unknown>>({});
+      return <><SkuWarehouseFields specs={specs} values={v} onChange={(k, x) => setV((c) => ({ ...c, [k]: x }))} /><pre data-testid="wh">{JSON.stringify(v)}</pre></>;
+    }
+    render(<WH />);
+    fireEvent.click(screen.getByLabelText('复用规格 A 的历史仓库配置'));
+    await screen.findByText(/申请 #7 · 主商品相同/);
+    expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('mainIds=11'));
+    fireEvent.click(screen.getByLabelText('填入申请 #7 的配置'));
+    await screen.findByText(/已复用历史配置/);
+    expect(screen.getByText('BOX-A 纸箱')).toBeTruthy();
+    expect(JSON.parse(screen.getByTestId('wh').textContent!).config[0]).toEqual({ lines: [{ role: 'package', baseCodeId: 31, qty: 2 }], notRequired: { label: '没有标签' } });
+  });
+});

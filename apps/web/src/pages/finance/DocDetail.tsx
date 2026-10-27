@@ -7,6 +7,7 @@ import { OpeningPrepaymentDialog } from './OpeningPrepaymentDialog';
 import { DocForm } from './DocForm';
 import { DOC_STATUS_TONE, money } from './common';
 import { financeApi, type DocDetailDto } from './financeApi';
+import { CopyButton, plainYuan } from './fin-ui';
 import { sessionApi, type VoucherFile } from './sessionApi';
 import { VoucherPanel } from './VoucherPanel';
 
@@ -55,7 +56,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
   return (
     <aside className="drawer card" aria-label={`${doc.typeLabel}详情`}>
       <div className="drawer-head between">
-        <div><strong className="drawer-title">{doc.docNo}</strong> <span className={`pill ${DOC_STATUS_TONE[doc.status]}`}>{DOC_STATUS_LABEL[doc.status]}</span></div>
+        <div><strong className="drawer-title">{doc.docNo}</strong> <CopyButton text={doc.docNo} label={`单号 ${doc.docNo}`} /> <span className={`pill ${DOC_STATUS_TONE[doc.status]}`}>{DOC_STATUS_LABEL[doc.status]}</span></div>
         <button type="button" className="icon-button" aria-label="关闭详情" onClick={onClose}>×</button>
       </div>
       <div className="drawer-body">
@@ -66,13 +67,13 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
         <dl className="kv">
           <div className="kv-row"><dt>类型</dt><dd>{doc.typeLabel}</dd></div>
           <div className="kv-row"><dt>日期</dt><dd>{doc.docDate}</dd></div>
-          {doc.partyName && <div className="kv-row"><dt>{def.ui.partyLabel.replace('（选填）', '')}</dt><dd>{doc.partyName}{doc.partyKind && <span className="muted">（{PARTY_KIND_LABEL[doc.partyKind]}档案）</span>}</dd></div>}
+          {doc.partyName && <div className="kv-row"><dt>{def.ui.partyLabel.replace('（选填）', '')}</dt><dd>{doc.partyName} <CopyButton text={doc.partyName} label="往来对象" />{doc.partyKind && <span className="muted">（{PARTY_KIND_LABEL[doc.partyKind]}档案）</span>}</dd></div>}
           {doc.storeName && <div className="kv-row"><dt>店铺</dt><dd>{doc.storeName}</dd></div>}
-          {doc.refNo && <div className="kv-row"><dt>{def.store ? '平台提现流水号' : '银行流水号'}</dt><dd className="mono">{doc.refNo}</dd></div>}
+          {doc.refNo && <div className="kv-row"><dt>{def.store ? '平台提现流水号' : '银行流水号'}</dt><dd className="mono">{doc.refNo} <CopyButton text={doc.refNo} label="流水号" /></dd></div>}
           {doc.warehouseName && <div className="kv-row"><dt>仓库</dt><dd>{doc.warehouseName}</dd></div>}
           {doc.bankName && <div className="kv-row"><dt>{def.bank === 'transfer' ? '转出账户' : '银行账户'}</dt><dd>{doc.bankName}</dd></div>}
           {doc.toBankName && <div className="kv-row"><dt>转入账户</dt><dd>{doc.toBankName}</dd></div>}
-          <div className="kv-row"><dt>金额</dt><dd className={doc.amountCents < 0 ? 'neg' : ''}>{money(doc.amountCents)}</dd></div>
+          <div className="kv-row"><dt>金额</dt><dd className={doc.amountCents < 0 ? 'neg' : ''}>{money(doc.amountCents)} <CopyButton text={plainYuan(doc.amountCents)} label="金额" /></dd></div>
           {doc.paidCents !== 0 && <div className="kv-row"><dt>{def.ui.amountLabel}</dt><dd>{money(doc.paidCents)}</dd></div>}
           {def.settle && def.lines && <div className="kv-row"><dt>挂{def.settle === 'in' && def.type !== 'purchase-return' || def.type === 'sale-return' ? '应收' : '应付'}余额</dt><dd>{money(doc.amountCents - doc.paidCents - doc.offsetCents)}</dd></div>}
           {doc.offsetCents !== 0 && <div className="kv-row"><dt>冲抵{def.offset ? ACCOUNT_LABEL[def.offset] : ''}</dt><dd>{money(doc.offsetCents)}</dd></div>}
@@ -114,9 +115,9 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
           <>
             <h3 className="section-title">明细</h3>
             <div className="table-scroll"><table className="data-table">
-              <thead><tr><th>#</th><th>{def.lines === 'fee' ? '费用项目' : '商品'}</th><th>数量</th><th>单价</th><th>金额</th>{def.lines === 'fee' && <th>挂账</th>}{doc.lines.some((l) => l.unitCostCents != null) && <th>成本单价</th>}</tr></thead>
+              <thead><tr><th>#</th><th>{def.lines === 'fee' ? '费用项目' : def.lines ? '商品' : '项目'}</th>{def.lines === 'product' && <th>单位</th>}{def.lines ? <><th>数量</th><th>单价</th></> : null}<th>金额</th>{def.lines === 'fee' && <th>挂账</th>}{doc.lines.some((l) => l.unitCostCents != null) && <th>成本单价</th>}</tr></thead>
               <tbody>{doc.lines.map((l) => (
-                <tr key={l.id}><td>{l.lineNo}</td><td>{l.productName || l.feeItemName}{l.memo && <span className="muted">（{l.memo}）</span>}</td><td className="num">{l.qty}</td><td className="num">{money(l.unitPriceCents)}</td><td className="num">{money(Math.round(l.qty * l.unitPriceCents))}</td>{def.lines === 'fee' && <td>{l.relatedNode ? `${l.relatedNode}${l.relatedName ? `：${l.relatedName}` : l.relatedId ? ` #${l.relatedId}` : ''}` : ''}</td>}{doc.lines.some((x) => x.unitCostCents != null) && <td className="num">{money(l.unitCostCents)}</td>}</tr>
+                <tr key={l.id}><td>{l.lineNo}</td><td>{l.productName || l.feeItemName || l.itemName}{l.memo && <span className="muted">（{l.memo}）</span>}</td>{def.lines === 'product' && <td>{l.unit ?? ''}</td>}{def.lines ? <><td className="num">{l.qty}</td><td className="num">{money(l.unitPriceCents)}</td></> : null}<td className="num">{money(Math.round(l.qty * l.unitPriceCents))}</td>{def.lines === 'fee' && <td>{l.relatedNode ? `${l.relatedNode}${l.relatedName ? `：${l.relatedName}` : l.relatedId ? ` #${l.relatedId}` : ''}` : ''}</td>}{doc.lines.some((x) => x.unitCostCents != null) && <td className="num">{money(l.unitCostCents)}</td>}</tr>
               ))}</tbody>
             </table></div>
           </>
@@ -151,6 +152,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
         {isDraft && can('finance.docs.delete') && <button type="button" className="ghost-button danger-text" disabled={busy} onClick={() => run(() => financeApi.remove(doc.id), true)}>删除草稿</button>}
         {isPosted && !doc.auditedAt && can('finance.docs.edit-header') && <button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog('header')}>修改单据</button>}
         {isPosted && can('finance.docs.audit') && <button type="button" className="secondary-button" disabled={busy} onClick={() => run(() => financeApi.audit(doc.id, !doc.auditedAt))}>{doc.auditedAt ? '取消财务审核' : '财务审核'}</button>}
+        <button type="button" className="secondary-button" onClick={() => window.print()}>打印</button>
         {!doc.reversesId && can('finance.docs.create') && <button type="button" className="secondary-button" disabled={busy} onClick={() => run(async () => { const c = await financeApi.copy(doc.id); setCopied(c.docNo); return doc; })}>复制为草稿</button>}
         {canReverse && <button type="button" className="ghost-button danger-text" disabled={busy} onClick={() => setDialog('reverse')}>红冲</button>}
       </div>

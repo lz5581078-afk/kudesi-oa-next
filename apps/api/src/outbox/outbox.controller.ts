@@ -27,8 +27,13 @@ class PageDto { @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number
 class ItemsDto {
   @IsIn(['finance-base-codes', 'finance-bundles']) type!: string;
   @IsOptional() @IsString() @MaxLength(60) keyword?: string;
+  @IsOptional() @IsIn(['not_synced', 'queued', 'confirming', 'synced', 'failed', 'incomplete']) state?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
+}
+class SummaryDto {
+  @IsIn(['finance-base-codes', 'finance-bundles']) type!: string;
+  @IsOptional() @IsString() @MaxLength(60) keyword?: string;
 }
 class JobsDto {
   @IsOptional() @IsIn(['pending', 'sending', 'done', 'failed', 'cancelled']) status?: string;
@@ -56,7 +61,11 @@ export class OutboxController {
 
   @RequirePermission('finance.jst-sync.view')
   @Get('items')
-  items(@CurrentUser() u: AuthUser, @Query() q: ItemsDto) { return this.outbox.items(u, { type: q.type, keyword: q.keyword, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
+  items(@CurrentUser() u: AuthUser, @Query() q: ItemsDto) { return this.outbox.items(u, { type: q.type, keyword: q.keyword, state: q.state, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
+
+  @RequirePermission('finance.jst-sync.view')
+  @Get('items/summary')
+  itemsSummary(@CurrentUser() u: AuthUser, @Query() q: SummaryDto) { return this.outbox.itemsSummary(u, q.type, q.keyword); }
 
   @RequirePermission('finance.jst-sync.view')
   @Post('enqueue')

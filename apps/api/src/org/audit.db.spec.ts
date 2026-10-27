@@ -47,5 +47,12 @@ d('审计日志与资金概况', () => {
     expect(all.items.every((i: { source: string }) => i.source === 'resource')).toBe(true);
     const none = await ctl.list(boss, undefined, '不存在的关键词xyz', undefined, '1');
     expect(none.total).toBe(0);
+    // 时间范围：今天在范围内，遥远的过去不在；格式不对的日期被忽略
+    const today = new Date().toISOString().slice(0, 10);
+    const inRange = await ctl.list(boss, 'resource', undefined, undefined, '1', '2000-01-01', '2999-12-31');
+    expect(inRange.total).toBe(all.total);
+    expect((await ctl.list(boss, 'resource', undefined, undefined, '1', '2000-01-01', '2000-01-02')).total).toBe(0);
+    expect((await ctl.list(boss, 'resource', undefined, undefined, '1', 'bad', undefined)).total).toBe(all.total);
+    expect(today).toMatch(/^\d{4}-/);
   });
 });

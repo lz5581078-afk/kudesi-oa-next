@@ -6,6 +6,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
 import { Company, User } from '../entities';
 import { buildServices } from '../test-support';
+import { previewProductCode } from './finance-rules';
 import { ResourcesService } from './resources.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
@@ -241,5 +242,34 @@ d('商品档案与基础编码（真实数据库）', () => {
     await svc.create(boss, 'finance-zero-reasons', { reason: ' 客户  自备 ' });
     await expect(svc.create(boss, 'finance-zero-reasons', { reason: '客户 自备' })).rejects.toThrow(/已存在|重复/);
     await expect(svc.create(boss, 'finance-zero-reasons', { reason: '   ' })).rejects.toThrow();
+  });
+
+  it('基础编码按品牌筛选：品牌取自来源商品档案；品牌值只接受数字', async () => {
+    const other = await svc.create(boss, 'finance-brands', { name: '另一个牌子' });
+    const a = await mkRaw({ name: '品牌筛选苹果', brandId: ids.brand });
+    const b = await mkRaw({ name: '品牌筛选梨', brandId: other.id });
+    const ca = (await baseCodesOf(a.id))[0];
+    const cb = (await baseCodesOf(b.id))[0];
+    const list = async (brandId: number | string) => (await svc.list(boss, 'finance-base-codes', { pageSize: 100, filters: JSON.stringify({ brandId }) } as never)).items.map((i: { id: number }) => i.id);
+    const mine = await list(ids.brand);
+    expect(mine).toContain(ca.id);
+    expect(mine).not.toContain(cb.id);
+    expect(await list(other.id)).toEqual([cb.id]);
+    await expect(list('1 OR 1=1')).rejects.toThrow(/筛选条件不合法/);
+  });
+
+  it('编码实时预览：和保存用同一套规则；重名自动加序号；手填编码只校验格式和占用；不写数据', async () => {
+    const input = { archiveType: 'raw', name: '预览苹果', categoryId: ids.leaf, specQty: 1, specUnit: 'KG' };
+    const p1 = await previewProductCode(ds.manager, svc as never, boss, input, null);
+    expect(p1.manual).toBe(false);
+    const saved = await mkRaw({ name: '预览苹果' });
+    expect(saved.data.code).toBe(p1.code);
+    const p2 = await previewProductCode(ds.manager, svc as never, boss, input, null);
+    expect(p2.code).toBe(`${p1.code}-2`);
+    expect((await previewProductCode(ds.manager, svc as never, boss, input, saved.id)).code).toBe(p1.code);
+    await expect(previewProductCode(ds.manager, svc as never, boss, { ...input, code: String(saved.data.code) }, null)).rejects.toThrow(/已被/);
+    await expect(previewProductCode(ds.manager, svc as never, boss, { ...input, code: 'bad code!' }, null)).rejects.toThrow(/只能用/);
+    await expect(previewProductCode(ds.manager, svc as never, boss, { name: 'x' }, null)).rejects.toThrow(/档案类型/);
+    expect((await svc.list(boss, 'finance-products', { keyword: '预览苹果', pageSize: 50 } as never)).total).toBe(1);
   });
 });

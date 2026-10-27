@@ -9,6 +9,8 @@ import { ResourcesService } from '../resources/resources.service';
 import type { OutboxService } from '../outbox/outbox.service';
 import { skuBatchApply } from './sku-apply';
 import { productExclusive } from './product-exclusive';
+import { afterSalesAdapter, appealAdapter } from '../service/service-adapters';
+import { liveSessionReview, liveSettlement } from '../live/live-flow-adapters';
 
 /**
  * 业务适配器：流程引擎只管流转，业务规则（能不能发起、办理时要做什么、能不能退回废除）由适配器声明。
@@ -39,6 +41,8 @@ export interface StepContext extends FlowServices {
   stepKey: string;
   /** 本步办理时填的表单 */
   form: Record<string, unknown>;
+  /** 本步办理时写的意见（退回/拒绝/废除的原因），结束和退回钩子里用 */
+  reason?: string;
 }
 
 /** 事务提交之后的上下文：用于必须等数据真正提交才能做的事（如加入出站队列，它用独立连接读已提交的数据） */
@@ -56,12 +60,20 @@ export interface FlowAdapter {
   key: string;
   title(em: EntityManager, companyId: number, payload: Record<string, unknown>): Promise<string>;
   validateStart?(ctx: StartContext): Promise<void>;
+  /** 流程刚发起、发起步骤已记录、还没进入下一步时调用：业务适配器在这里建自己的业务记录（run 已有编号）；和流转同一个事务 */
+  onStart?(ctx: StartContext & { run: FlowRun }): Promise<void>;
+  /** 被退回的发起人修改后重新提交时调用：把新的表单同步到业务记录 */
+  onResubmit?(ctx: StartContext & { run: FlowRun }): Promise<void>;
   /** 业务日期型截止（如预计归还日）；返回 null 表示按定义里的时限 */
   stepDueAt?(stepKey: string, payload: Record<string, unknown>): Date | null;
   beforePass?(ctx: StepContext): Promise<void>;
   onPass?(ctx: StepContext): Promise<void>;
   /** 返回不能退回的原因；null 表示可以退回 */
   returnBlocked?(ctx: StepContext): string | null;
+  /** 流程被退回之后调用；toSubmit=true 表示退回到了发起人 */
+  onReturn?(ctx: StepContext, info: { reason: string; toSubmit: boolean }): Promise<void>;
+  /** 退回给发起人后，除发起人外谁还能重新提交（如本场主播/中控任一人） */
+  canResubmit?(ctx: { em: EntityManager; user: AuthUser; run: FlowRun }): Promise<boolean>;
   /** 返回不能废除/拒绝/撤回的原因；null 表示可以 */
   cancelBlocked?(ctx: StepContext): string | null;
   onFinish?(ctx: StepContext, outcome: 'completed' | 'cancelled' | 'rejected'): Promise<void>;
@@ -191,4 +203,4 @@ export async function postDeclared(ctx: StepContext, t: FlowTemplate): Promise<v
   payload._docNo = finalDoc.docNo;
 }
 
-export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive };
+export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [afterSalesAdapter.key]: afterSalesAdapter, [appealAdapter.key]: appealAdapter, [liveSessionReview.key]: liveSessionReview, [liveSettlement.key]: liveSettlement };

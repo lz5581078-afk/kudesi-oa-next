@@ -63,6 +63,11 @@ d('流程引擎（真实数据库）', () => {
 
   it('没发布前不能发起；配置要有人、岗位必须恰好一人；没有配置权限不能改', async () => {
     await expect(flow.start(req, 'license-borrow', borrowPayload())).rejects.toThrow(/还没有启用/);
+    // 申请中心要展示流程环节：只给步骤名称和类型，不带办理人
+    const tpls = await flow.templates(req);
+    const borrow = tpls.find((t: { key: string }) => t.key === 'license-borrow')!;
+    expect(borrow.steps.map((x: { name: string }) => x.name)).toEqual(['提交申请', '审批', '交接执照', '确认归还', '结束']);
+    expect(JSON.stringify(borrow.steps)).not.toContain('assignee');
     await expect(flow.saveDraft(req, 'license-borrow', [], [])).rejects.toThrow(/权限/);
     await expect(flow.saveDraft(admin, 'license-borrow', [
       step('apply', '提交申请', 'submit', undefined, { assignee: { source: 'requester' } }), step('approve', '审批', 'approval'), step('handover', '交接执照', 'execute', keeper.id), step('receive_back', '确认归还', 'execute', keeper.id), step('end', '结束', 'end'),
@@ -101,6 +106,17 @@ d('流程引擎（真实数据库）', () => {
     await expect(flow.pass(admin, run.id, { revision: run.revision, stepId: run.activeStep!.id })).rejects.toThrow(/不是你办理/);
     const todo = await flow.todos(boss1, { tab: 'pending', page: 1, pageSize: 20 });
     expect(todo.rows.some((r: { runId: number }) => r.runId === run.id)).toBe(true);
+    // 待办按关键字搜索（标题）：搜得到自己的，搜不存在的词为空；通配符按字面处理
+    const hit = await flow.todos(boss1, { tab: 'pending', keyword: run.title.slice(0, 3), page: 1, pageSize: 20 });
+    expect(hit.rows.some((r: { runId: number }) => r.runId === run.id)).toBe(true);
+    expect((await flow.todos(boss1, { tab: 'pending', keyword: '不存在的词语xyz', page: 1, pageSize: 20 })).total).toBe(0);
+    expect((await flow.todos(boss1, { tab: 'pending', keyword: '%', page: 1, pageSize: 20 })).total).toBe(0);
+    // 总览筛选：按当前办理人姓名、发起人部门；被退回筛选
+    const byHandler = await flow.listRuns(admin, { view: 'all', handler: boss1.name.slice(0, 1), page: 1, pageSize: 20 });
+    expect(byHandler.rows.some((r: { id: number }) => r.id === run.id)).toBe(true);
+    expect((await flow.listRuns(admin, { view: 'all', handler: '没有这个人zzz', page: 1, pageSize: 20 })).total).toBe(0);
+    expect((await flow.listRuns(admin, { view: 'all', returned: true, page: 1, pageSize: 20 })).rows.some((r: { id: number }) => r.id === run.id)).toBe(false);
+    expect((await flow.listRuns(admin, { view: 'all', departmentId: 999999, page: 1, pageSize: 20 })).total).toBe(0);
     // 版本号过期
     await expect(flow.pass(boss1, run.id, { revision: run.revision - 1, stepId: run.activeStep!.id })).rejects.toThrow(/刷新/);
 

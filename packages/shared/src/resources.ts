@@ -93,6 +93,84 @@ export interface StatusDef extends Option {
   hidden?: boolean;
 }
 
+/**
+ * 声明式条件（快捷页签、计算筛选、派生列共用；服务端翻译成带公司隔离的 SQL，字段和资料类型都按配置白名单校验）。
+ * field 写字段 key；写 '$status' 表示记录状态。
+ * - eq/ne/in/notIn：字段值等于/不等于/属于；empty/notEmpty：字段没填/已填（引用、多选为空数组也算没填）
+ * - rel：别的资料里有（exists）/没有（none）指向本记录的记录（rel.field 是对方的引用字段；可再加 where 限定对方的条件）
+ * - viaRef：本记录的引用字段 viaRef 指向的那条记录满足 where（没填引用则不满足）
+ */
+export type Cond =
+  | { field: string; op: 'eq' | 'ne'; value: string | number | boolean }
+  | { field: string; op: 'in' | 'notIn'; value: ReadonlyArray<string | number> }
+  | { field: string; op: 'empty' | 'notEmpty' }
+  /** 日期字段（YYYY-MM-DD）：今天（北京时间）起 days 天内（含今天、含第 days 天）；已过期 = 早于今天（没填的不算） */
+  | { field: string; op: 'dateWithin'; days: number }
+  | { field: string; op: 'expired' }
+  /** 本记录的员工字段 viaUserDept 指向的员工，所在部门等于 dept（'$value' = 计算筛选下拉选中的部门）；includeChildren 连下级部门 */
+  | { viaUserDept: string; dept: number | '$value'; includeChildren?: boolean }
+  | { rel: { type: string; field: string; where?: Cond }; op: 'exists' | 'none' }
+  | { viaRef: string; where: Cond }
+  | { all: readonly Cond[] }
+  | { any: readonly Cond[] }
+  | { not: Cond };
+
+/** 列表快捷页签：和 tabsBy 页签放在同一排，条件满足的记录才算；各自带数量 */
+export interface QuickTab {
+  key: string;
+  label: string;
+  when: Cond;
+  /** 条件里要看停用/注销的记录（如“已注销”）：这个页签下不套“默认隐藏停用状态” */
+  includeHidden?: boolean;
+}
+
+/** 计算筛选：列表上方的下拉，每个选项是一个条件（如 执照情况：没有绑定 / 已停用） */
+export interface ComputedFilter {
+  key: string;
+  label: string;
+  options?: ReadonlyArray<{ value: string; label: string; when: Cond }>;
+  /** 选项由服务端按公司现有数据生成（departments=部门），选中的值代入 when 里的 '$value' */
+  optionsFrom?: 'departments';
+  when?: Cond;
+}
+
+/**
+ * 派生列：列表里按页现算的数字（不存库），如“店铺数”“本月营业额”“成员数”。
+ * 统计 type 资料里 field 等于“本记录 match 字段值（默认本记录 id）”的记录：count=条数，sum=sumField 求和（money 为分）。
+ * via：先找 via.type 里 via.field 等于本记录值的记录，再统计 type 里 field 指向这些记录的记录（两跳，如 执照→店铺→经营数据）。
+ * month：只统计这个日期字段落在本月（按北京时间）的记录。where 限定被统计的记录（如只算正常状态的）。
+ */
+export interface DerivedColumn {
+  key: string;
+  label: string;
+  kind: 'count' | 'sum';
+  type: string;
+  field: string;
+  match?: string;
+  via?: { type: string; field: string };
+  sumField?: string;
+  month?: string;
+  where?: Cond;
+  /** sum 的显示：money（元）或 number；count 总是 number */
+  format?: 'money' | 'number';
+  /** 默认在列表里显示（否则只在“列”菜单里可选） */
+  list?: boolean;
+}
+
+/** 带原因的批量动作：勾选后让用户选一个值（pick）、填原因，然后对每条走一遍正常的保存流程 */
+export interface BatchAction {
+  key: string;
+  label: string;
+  /** 要用户选的字段（ref/select），选到的值写进这个字段 */
+  pick?: string;
+  /** 固定写入的字段值 */
+  set?: Record<string, unknown>;
+  /** 原因写进这个字段（如 assignReason）；不填则只进操作日志 */
+  reasonField?: string;
+  reasonRequired?: boolean;
+  reasonLabel?: string;
+}
+
 export interface ResourceDef {
   key: string;
   label: string;
@@ -120,6 +198,14 @@ export interface ResourceDef {
   tabSplit?: { tab: string; field: string; default: string; options: readonly Option[] };
   /** 列表勾选后可批量做的事：status=批量停用/启用（要填原因），其余是批量修改这个字段（如移动分类） */
   batch?: readonly string[];
+  /** 快捷页签（条件页签，不依赖 tabsBy）；页签值为 q:<key> */
+  quickTabs?: readonly QuickTab[];
+  /** 计算筛选下拉（条件在服务端按今天实时算） */
+  computedFilters?: readonly ComputedFilter[];
+  /** 派生列（按页现算的统计数字） */
+  derivedColumns?: readonly DerivedColumn[];
+  /** 带原因的批量动作（如批量指派运营并写指派原因） */
+  batchActions?: readonly BatchAction[];
   /** 预警：状态异常，或某日期字段在 N 天内到期 */
   alerts?: Array<{ field: string; withinDays: number; label: string }>;
   /** 详情里多一个只读“适用店铺”页签：按本记录的这个执照字段，列出该执照下的店铺 */
@@ -290,6 +376,17 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     tabsBy: 'platform',
     statuses: [NORMAL, ABNORMAL_R, CANCELLED, INACTIVE],
     filterBy: ['claimStatus', 'operatorUserId', 'jushuitan', 'operatingStatus'],
+    quickTabs: [
+      { key: 'operating', label: '在运营', when: { all: [{ field: 'operatorUserId', op: 'notEmpty' }, { field: '$status', op: 'in', value: ['normal', 'abnormal'] }] } },
+      { key: 'legacy-owner', label: '历史负责人未指派', when: { all: [{ field: 'legacyOwnerName', op: 'notEmpty' }, { field: 'operatorUserId', op: 'empty' }, { field: '$status', op: 'notIn', value: ['inactive', 'cancelled'] }] } },
+      { key: 'public', label: '公共待领取', when: { all: [{ field: 'claimStatus', op: 'eq', value: 'public' }, { field: 'operatorUserId', op: 'empty' }, { field: '$status', op: 'notIn', value: ['inactive', 'cancelled'] }] } },
+      { key: 'abnormal', label: '异常', when: { field: '$status', op: 'eq', value: 'abnormal' } },
+      { key: 'cancelled', label: '已注销', includeHidden: true, when: { field: '$status', op: 'eq', value: 'cancelled' } },
+    ],
+    batchActions: [
+      { key: 'assign', label: '批量指派运营', pick: 'operatorUserId', set: { claimStatus: 'claimed' }, reasonRequired: true, reasonLabel: '指派原因' },
+      { key: 'release', label: '批量收回为公共店铺', set: { claimStatus: 'public', operatorUserId: null }, reasonRequired: true, reasonLabel: '收回原因' },
+    ],
     batch: ['operatorUserId', 'claimStatus', 'status'],
     importMatch: ['storeNo', 'name'],
     defaultStatus: 'normal',
@@ -330,6 +427,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       refs('phoneIds', '更多绑定手机号', '账号', 'phones', { help: '一店可绑多个手机号，同一手机号在同一平台只能绑一个店铺' }),
       select('jushuitan', '聚水潭', '授权与资质', o('connected:已连接', 'not_connected:未连接')),
       date('jushuitanExpireAt', '聚水潭到期日', '授权与资质'),
+      text('jushuitanShopId', '聚水潭店铺编号', '授权与资质', { maxLength: 64, search: true, help: '聚水潭里这个店铺的编号；直播管理按它只读核对本场订单和退款，没有就不能报下播' }),
       refs('trademarkIds', '授权商标档案', '授权与资质', 'trademarks', { help: '关联商标档案；到期日仍以下面“商标授权到期日”为准' }),
       text('trademark', '授权商标', '授权与资质'),
       date('trademarkExpireAt', '商标授权到期日', '授权与资质'),
@@ -537,6 +635,16 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     // 一张执照可以同时有经营、电商两份税务资料，同类别只能一份
     uniqueTogether: [{ fields: ['licenseId', 'taxCategory'], message: '这个营业执照已经有同类别的税务资料了' }],
     derivedStores: 'licenseId',
+    computedFilters: [
+      { key: 'licenseState', label: '执照情况', options: [
+        { value: 'none', label: '没有绑定营业执照', when: { field: 'licenseId', op: 'empty' } },
+        { value: 'closed', label: '执照已停用或注销', when: { viaRef: 'licenseId', where: { field: '$status', op: 'in', value: ['inactive', 'cancelled'] } } },
+      ] },
+    ],
+    derivedColumns: [
+      { key: 'storeCount', label: '店铺数', kind: 'count', type: 'stores', field: 'licenseId', match: 'licenseId', list: true },
+      { key: 'monthSales', label: '执照本月营业额', kind: 'sum', type: 'store-daily-metrics', field: 'storeId', via: { type: 'stores', field: 'licenseId' }, match: 'licenseId', sumField: 'sales', month: 'day', format: 'money', list: true },
+    ],
     batch: ['status'],
     filterBy: ['taxType', 'licenseId'],
     statuses: [NORMAL, ABNORMAL, INACTIVE],
@@ -649,6 +757,13 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, INACTIVE],
     defaultStatus: 'normal',
     children: ['duty-group-items', 'duty-group-members'],
+    quickTabs: [
+      { key: 'empty', label: '没有成员', when: { all: [{ field: '$status', op: 'ne', value: 'inactive' }, { rel: { type: 'duty-group-members', field: 'groupId', where: { field: '$status', op: 'eq', value: 'normal' } }, op: 'none' }] } },
+    ],
+    derivedColumns: [
+      { key: 'memberCount', label: '成员数', kind: 'count', type: 'duty-group-members', field: 'groupId', where: { field: '$status', op: 'eq', value: 'normal' }, list: true },
+      { key: 'itemCount', label: '职责数', kind: 'count', type: 'duty-group-items', field: 'groupId', where: { field: '$status', op: 'ne', value: 'inactive' }, list: true },
+    ],
     fields: [
       text('groupKey', '职责组编码', '基础', { required: true, list: true, search: true, help: '流程和任务按编码引用，建好后不能修改' }),
       text('name', '职责组名称', '基础', { required: true, list: true, search: true }),
@@ -823,6 +938,9 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL_R, INACTIVE],
     filterBy: 'operatorUserId',
     importMatch: ['platform', 'name'],
+    computedFilters: [
+      { key: 'operatorDept', label: '运营部门', optionsFrom: 'departments', when: { viaUserDept: 'operatorUserId', dept: '$value', includeChildren: true } },
+    ],
     defaultStatus: 'normal',
     fields: [
       select('platform', '平台', '基础', o('douyin:抖音', 'kuaishou:快手', 'channels:视频号', 'xhs:小红书', 'other:其他'), { required: true, list: true }),
@@ -862,6 +980,12 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '经营资料' },
     titleField: 'name',
     uniqueField: 'wechatNo',
+    computedFilters: [
+      { key: 'phoneArchive', label: '手机号档案', options: [
+        { value: 'linked', label: '已关联手机号档案', when: { field: 'phoneId', op: 'notEmpty' } },
+        { value: 'unlinked', label: '未关联手机号档案', when: { field: 'phoneId', op: 'empty' } },
+      ] },
+    ],
     statuses: [NORMAL, ABNORMAL_R, INACTIVE],
     filterBy: 'userId',
     defaultStatus: 'normal',
@@ -908,6 +1032,11 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL, { value: 'expiring', label: '即将到期', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, { value: 'renewing', label: '续费中', tone: 'warn' }, { value: 'needs_recharge', label: '需充值', tone: 'warn' }, { value: 'paused', label: '暂停', tone: 'muted' }, INACTIVE],
     filterBy: ['ownerUserId'],
     importMatch: ['provider', 'title'],
+    quickTabs: [
+      { key: 'due-soon', label: '即将到期', when: { all: [{ field: '$status', op: 'notIn', value: ['inactive'] }, { field: 'endAt', op: 'dateWithin', days: 30 }] } },
+      { key: 'expired', label: '已过期', when: { all: [{ field: '$status', op: 'notIn', value: ['inactive'] }, { field: 'endAt', op: 'expired' }] } },
+      { key: 'domain', label: '域名', when: { all: [{ field: 'kind', op: 'eq', value: 'service' }, { any: [{ field: 'serviceType', op: 'in', value: ['域名', 'domain', 'Domain'] }] }] } },
+    ],
     defaultStatus: 'normal',
     alerts: [{ field: 'endAt', withinDays: 30, label: '30 天内到期' }],
     fields: [
@@ -930,7 +1059,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
   },
   {
     key: 'software',
-    label: '软件账号',
+    label: '软件订阅',
     nav: { group: '账号与资质', hidden: true },
     titleField: 'name',
     statuses: [NORMAL, { value: 'renewing', label: '续费中', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, INACTIVE],
@@ -1078,7 +1207,7 @@ export function resourceTabOptions(def: ResourceDef): readonly Option[] {
 
 /** 页签值 → 查询条件：tabsBy 字段等于 value；拆出的页签还要求拆分字段等于某值（default 页签把没填的也算上） */
 export function resourceTabCondition(def: ResourceDef, tab: string): { field: string; value: string; split?: { field: string; value: string; orMissing: boolean } } | null {
-  if (!tab || !def.tabsBy) return null;
+  if (!tab || !def.tabsBy || tab.startsWith('q:')) return null;
   const split = def.tabSplit;
   if (split && split.options.some((o) => o.value === tab)) return { field: def.tabsBy, value: split.tab, split: { field: split.field, value: tab, orMissing: tab === split.default } };
   return { field: def.tabsBy, value: tab };

@@ -44,6 +44,13 @@ export class DataIssuesService {
         stores.filter((s) => has(s.data, 'phoneNumber') && !has(s.data, 'phoneId')).map((s) => row(s, `绑定手机号 ${s.data.phoneNumber}：未关联档案`)));
     }
 
+    for (const [type, label, numberKey, idKey] of [['wechat', '微信号', 'phoneNumber', 'phoneId'], ['self-media', '自媒体账号', 'phoneNumber', 'phoneId'], ['partners', '合作人收款手机', 'cardPhone', 'cardPhoneId']] as const) {
+      if (!canView(type)) continue;
+      const list = await this.load(user.companyId, type);
+      add(`${type.replace('-', '_')}_phone_text_unlinked`, `${label}手机号没有关联手机号档案`, `${label}填了手机号码，但没有对应的手机号档案。`, type,
+        list.filter((r) => has(r.data, numberKey) && !has(r.data, idKey)).map((r) => row(r, `手机号 ${r.data[numberKey]}：未关联档案`)));
+    }
+
     if (canView('phones')) {
       const phones = await this.load(user.companyId, 'phones');
       const incoming = phones.length

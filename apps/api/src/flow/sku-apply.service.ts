@@ -1,12 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { createChecker, normalizeSpecs, WAREHOUSE_ROLE_LABEL, type WarehouseSpec } from '@kudesi/shared';
+import { createChecker, normalizeSpecs, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { FlowRun, ResourceRecord } from '../entities';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { FlowService } from './flow.service';
 import { CreatedBundle, SKU_TEMPLATE, checkApplication, platformIdsOf } from './sku-apply';
+import { randomBytes } from 'crypto';
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
@@ -109,8 +110,85 @@ export class SkuApplyService {
       });
     }
     return {
+      batch: run.payload._batchKey ? { key: str(run.payload._batchKey), index: num(run.payload._splitIndex), total: num(run.payload._splitTotal) } : null,
       runId, status: run.status, batchName: str(run.payload.batchName), scenario: await label('finance-scenarios', num(run.payload.scenarioId)), platforms,
       warehouseDone: !!wh, canCost, planError, specs: rows, costNote: '物料成本含人工，不含运费',
     };
+  }
+
+  /**
+   * 复用历史仓库配置（旧系统“复用仓库配置”）：按主商品找以前办过的申请里，同样主商品的规格填过的包装、标签、打包材料、人工。
+   * 只返回配置本身和商品名称，不带成本；用的时候由办理人逐项核对，提交时仍按现在的规则完整校验。
+   */
+  async historyConfigs(user: AuthUser, mainIds: number[], keyword = '') {
+    const em = this.ds.manager;
+    const want = new Set(mainIds);
+    const kw = keyword.trim().toLowerCase().slice(0, 50);
+    const runs = await em.find(FlowRun, { where: { companyId: user.companyId, templateKey: SKU_TEMPLATE }, order: { id: 'DESC' }, take: 300 });
+    const hits: Array<{ runId: number; title: string; specName: string; main: Array<{ baseCodeId: number; qty: number }>; config: WarehouseSpec; score: number; status: string }> = [];
+    for (const r of runs) {
+      const wh = r.payload._warehouse as WarehouseSpec[] | undefined;
+      if (!Array.isArray(wh)) continue;
+      const specs: SkuSpec[] = normalizeSpecs(r.payload.specs).specs;
+      specs.forEach((sp, i) => {
+        const cfg = wh[i];
+        if (!cfg || (!cfg.lines.length && !Object.keys(cfg.notRequired ?? {}).length)) return;
+        const ids = sp.main.map((l) => l.baseCodeId);
+        const same = want.size > 0 && ids.length === want.size && ids.every((x) => want.has(x));
+        const overlap = ids.some((x) => want.has(x));
+        if (want.size > 0 && !overlap) return;
+        if (kw && !`${sp.name} ${str(r.payload.batchName)}`.toLowerCase().includes(kw)) return;
+        hits.push({ runId: r.id, title: r.title, specName: sp.name, main: sp.main, config: cfg, score: same ? 2 : overlap ? 1 : 0, status: r.status });
+      });
+    }
+    hits.sort((a, b) => b.score - a.score || b.runId - a.runId);
+    const top = hits.slice(0, 20);
+    const baseIds = [...new Set(top.flatMap((h) => [...h.main.map((m) => m.baseCodeId), ...h.config.lines.filter((l) => l.role !== 'labor').map((l) => l.baseCodeId!)]))];
+    const laborIds = [...new Set(top.flatMap((h) => h.config.lines.filter((l) => l.role === 'labor').map((l) => l.laborId!)))];
+    const find = async (type: string, ids: number[]) => (ids.length ? em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :c AND r.type = :t AND r.id IN (:...ids)', { c: user.companyId, t: type, ids }).getMany() : []);
+    const names: Record<string, string> = {};
+    for (const b of await find('finance-base-codes', baseIds)) names[`b${b.id}`] = `${b.title} ${str(b.data.name)}`.trim();
+    for (const l of await find('finance-labor-costs', laborIds)) names[`l${l.id}`] = `${str(l.data.workCode)} ${str(l.data.workName) || l.title}`.trim();
+    return { items: top.map(({ score, ...h }) => ({ ...h, exact: score === 2 })), names };
+  }
+
+  /** 每个规格独立办理：一次填完，拆成一个规格一条流程（各自走仓库、财务），同一批用 batchKey 关联；先整体检查，再逐条发起 */
+  async startSplit(user: AuthUser, payloadIn: Record<string, unknown>, requestKey: string) {
+    const payload = { ...payloadIn };
+    delete payload.splitSpecs;
+    const specs = normalizeSpecs(payload.specs).specs;
+    if (specs.length < 2) throw new BadRequestException('只有一个规格不用拆开办理，直接发起即可');
+    if (specs.length > 100) throw new BadRequestException('一次最多 100 个规格');
+    // 整体检查一遍（和不拆开时一样的规则）：有问题就整体不发起，免得发起了一半
+    await checkApplication(this.ds.manager, user, this.bundles, { ...payload }, { strict: true });
+    const batchKey = `B${Date.now().toString(36)}${randomBytes(3).toString('hex')}`.slice(0, 20);
+    const runs: Array<{ id: number; specName: string }> = [];
+    const failed: Array<{ specName: string; message: string }> = [];
+    for (const [i, spec] of specs.entries()) {
+      try {
+        const run = await this.flow.start(user, SKU_TEMPLATE, { ...payload, specs: [spec] }, `${requestKey}-${i}`.slice(0, 80));
+        // 引擎只保存模板里声明的字段；批次标记是业务痕迹（下划线开头，页面上不显示），发起后补写
+        await this.ds.query("UPDATE flow_runs SET payload = JSON_SET(payload, '$._batchKey', ?, '$._splitIndex', ?, '$._splitTotal', ?) WHERE id = ? AND company_id = ?", [batchKey, i + 1, specs.length, run.id, user.companyId]);
+        runs.push({ id: run.id, specName: spec.name });
+      } catch (e) { failed.push({ specName: spec.name, message: (e as Error).message }); }
+    }
+    return { batchKey, runs, failed };
+  }
+
+  /** 同一批拆开办理的申请：每个规格现在到哪一步了（只列你能看到的） */
+  async batch(user: AuthUser, batchKey: string) {
+    const em = this.ds.manager;
+    const runs = await em.createQueryBuilder(FlowRun, 'r')
+      .where('r.companyId = :c AND r.templateKey = :t AND JSON_UNQUOTE(JSON_EXTRACT(r.payload, :p)) = :k', { c: user.companyId, t: SKU_TEMPLATE, p: '$._batchKey', k: batchKey })
+      .orderBy('r.id', 'ASC').limit(100).getMany();
+    const out = [];
+    for (const r of runs) {
+      try {
+        const d = await this.flow.detail(user, r.id);
+        const spec = normalizeSpecs(r.payload.specs).specs[0];
+        out.push({ id: r.id, specName: spec?.name ?? '', status: r.status, currentStep: d.activeStep?.name ?? '' });
+      } catch { /* 看不到的不列 */ }
+    }
+    return { batchKey, total: runs.length, items: out };
   }
 }

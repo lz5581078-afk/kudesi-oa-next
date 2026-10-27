@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FLOW_ACTION_LABEL, RUN_STATUS_LABEL, STEP_TYPE_LABEL } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { ReasonDialog, loadRefOptions } from '../../resources/RecordForm';
 import { FlowFieldsForm, FlowValues } from './FlowFields';
 import { RUN_TONE, flowApi, fmtTime, type RunDetailDto } from './flowApi';
+import { copyText, dwell } from './flowUi';
 import { SKU_TEMPLATE, SkuPreview } from './SkuApply';
 
-type Dialog = null | 'return' | 'cancel' | 'reject' | 'withdraw' | 'transfer';
+type Dialog = null | 'abnormal' | 'return' | 'cancel' | 'reject' | 'withdraw' | 'transfer';
 
 /** 流程详情：表单内容、办理时间线、当前能做的操作。操作按钮完全由服务端返回的 me 决定。 */
 export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged: () => void }) {
@@ -21,9 +22,23 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
   const [toUser, setToUser] = useState<number | ''>('');
   const [toReason, setToReason] = useState('');
 
-  useEffect(() => {
-    flowApi.run(id).then(setRun).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
+  const [msg, setMsg] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const reload = useCallback(() => {
+    setRefreshing(true);
+    flowApi.run(id).then((r) => { setRun(r); setError(''); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')).finally(() => setRefreshing(false));
   }, [id]);
+  useEffect(reload, [reload]);
+  // 按 Esc 关闭（有子弹窗时先关子弹窗）
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !dialog && !editing) onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [dialog, editing, onClose]);
+  async function copyLink() {
+    const url = `${window.location.origin}${window.location.pathname}?run=${id}`;
+    setMsg((await copyText(url)) ? '链接已复制，发给同事即可打开（对方要有权限查看）' : `复制失败，请手动复制：${url}`);
+  }
   useEffect(() => { if (dialog === 'transfer') loadRefOptions('user').then(setUsers).catch(() => undefined); }, [dialog]);
 
   async function act(fn: () => Promise<RunDetailDto>) {
@@ -55,12 +70,25 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
           <div>
             <strong>{run.title}</strong>{' '}
             <span className={`pill ${RUN_TONE[run.status] ?? ''}`}>{RUN_STATUS_LABEL[run.status as keyof typeof RUN_STATUS_LABEL]}</span>
-            <div className="muted">{run.templateLabel} · 发起人 {run.requesterName} · {fmtTime(run.createdAt)}</div>
+            <div className="muted">{run.templateLabel} · 发起人 {run.requesterName} · {fmtTime(run.createdAt)} · 编号 #{run.id}</div>
           </div>
-          <button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button>
+          <div className="row-actions">
+            <button type="button" className="secondary-button small" onClick={() => void copyLink()}>复制链接</button>
+            <button type="button" className="secondary-button small" disabled={refreshing} onClick={reload}>刷新</button>
+            <button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button>
+          </div>
         </div>
         <div className="modal-body">
           {error && <div role="alert" className="notice error">{error}</div>}
+          {msg && <div role="status" className="notice ok-notice toast-line"><span>{msg}</span><button type="button" aria-label="关闭提示" onClick={() => setMsg('')}>✕</button></div>}
+          {run.status !== 'running' && (
+            <div className={`result-banner ${run.status === 'completed' ? 'ok' : run.status === 'rejected' ? 'bad' : 'muted'}`} role="status">
+              流程{RUN_STATUS_LABEL[run.status as keyof typeof RUN_STATUS_LABEL]}{run.finishedAt && ` · ${fmtTime(run.finishedAt)}`}
+            </div>
+          )}
+          <ol className="step-progress" aria-label="办理进度">
+            {run.steps.map((s) => <li key={s.id} className={s.status === 'active' ? 'active' : s.status === 'done' ? 'done' : s.status === 'transferred' ? 'done' : 'bad'}>{s.name}</li>)}
+          </ol>
           <section>
             <h3 className="section-title">申请内容</h3>
             {editing ? (
@@ -89,7 +117,11 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                 {run.activeStep.recipients.length > 1 && '（任一人办理即可）'}
                 {run.activeStep.dueAt && <> · 截止 {fmtTime(run.activeStep.dueAt)}</>}
                 {run.activeStep.enteredVia === 'return' && ' · 被退回'}
+                {run.steps.find((x) => x.id === run.activeStep!.id)?.enteredAt && <> · 已停留 {dwell(run.steps.find((x) => x.id === run.activeStep!.id)!.enteredAt)}</>}
               </p>
+              {(run.activeSteps?.length ?? 0) > 1 && (
+                <p className="muted">并行办理中：{run.activeSteps!.map((a) => `${a.name}（${a.recipients.map((r) => r.name).join('、')}）`).join('；')}</p>
+              )}
               {run.me.canPass && (
                 <>
                   {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={run.payload} values={form} onChange={(k, v) => setForm({ ...form, [k]: v })} />}
@@ -100,11 +132,15 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                 {run.me.canPass && <button type="button" className="primary-button" disabled={busy} onClick={() => act(() => flowApi.pass(run.id, { revision: rev, stepId, form, comment: comment || undefined }))}>办理通过</button>}
                 {run.me.canResubmit && <button type="button" className="primary-button" onClick={() => setEditing({ ...run.payload })}>修改后重新提交</button>}
                 {run.me.canReturn && <button type="button" className="secondary-button" onClick={() => setDialog('return')}>退回上一步</button>}
+                {run.me.canAbnormal && <button type="button" className="secondary-button" onClick={() => setDialog('abnormal')}>上报异常</button>}
                 {run.me.canReject && <button type="button" className="secondary-button" onClick={() => setDialog('reject')}>拒绝</button>}
                 {run.me.canCancel && <button type="button" className="secondary-button" onClick={() => setDialog('cancel')}>废除</button>}
                 {run.me.canWithdraw && <button type="button" className="secondary-button" onClick={() => setDialog('withdraw')}>撤回申请</button>}
                 {run.me.canTransfer && <button type="button" className="secondary-button" onClick={() => setDialog('transfer')}>转交他人</button>}
               </div>
+              {!run.me.canPass && !run.me.canReturn && !run.me.canCancel && !run.me.canReject && !run.me.canWithdraw && !run.me.canTransfer && !run.me.canResubmit && (
+                <p className="muted">现在轮到上面的办理人处理，你暂时没有可办理的操作。</p>
+              )}
               {run.me.cancelBlockedReason && <p className="muted">不能废除/拒绝：{run.me.cancelBlockedReason}</p>}
               {run.me.returnBlockedReason && <p className="muted">不能退回：{run.me.returnBlockedReason}</p>}
             </section>
@@ -129,10 +165,22 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
             </ol>
             {run.ccs.length > 0 && <p className="muted">抄送：{run.ccs.map((c) => c.name).join('、')}</p>}
           </section>
+
+          {run.events.length > 0 && (
+            <details>
+              <summary>全部操作记录（{run.events.length}）</summary>
+              <ul className="event-list">
+                {run.events.map((ev) => (
+                  <li key={ev.id} className="log-item"><strong>{FLOW_ACTION_LABEL[ev.action]}</strong> · {ev.actorName} · <span className="muted">{fmtTime(ev.createdAt)}</span>{ev.note && <div>“{ev.note}”</div>}</li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
         <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>关闭</button></div>
       </div>
 
+      {dialog === 'abnormal' && <ReasonDialog title="上报异常" hint="流程会转到异常处理步骤，由对应办理人处理。" confirmLabel="上报" onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.abnormal(run.id, { revision: rev, stepId, reason }))} />}
       {dialog === 'return' && <ReasonDialog title="退回上一步" confirmLabel="退回" onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.back(run.id, { revision: rev, stepId, reason }))} />}
       {dialog === 'reject' && <ReasonDialog title="拒绝申请" hint="拒绝后流程结束。" confirmLabel="拒绝" danger onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.reject(run.id, { revision: rev, stepId, reason }))} />}
       {dialog === 'cancel' && <ReasonDialog title="废除流程" hint="废除后流程结束。" confirmLabel="废除" danger onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.cancel(run.id, { revision: rev, stepId, reason }))} />}

@@ -5,6 +5,9 @@ import { useAuth } from './auth/AuthContext';
 import { Shell } from './layout/Shell';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { LoginPage } from './pages/LoginPage';
+import { AfterSalesPage } from './pages/service/AfterSalesPage';
+import { AppealsPage } from './pages/service/AppealsPage';
+import { SupervisionPage } from './pages/service/SupervisionPage';
 import { PhoneUploadPage } from './resources/PhoneUploadPage';
 import { PlatformApp } from './pages/platform/PlatformApp';
 import { AuditPage } from './pages/system/AuditPage';
@@ -20,7 +23,7 @@ import { DocumentsPage } from './pages/finance/DocumentsPage';
 import { VoucherPage } from './pages/finance/VoucherPage';
 import { FinanceOverviewPage } from './pages/finance/FinanceOverviewPage';
 import { SettlementDetailPage, UnsettledReceiptsPage } from './pages/finance/SettlementPages';
-import { ApiKeysPage, CostHistoryPage, JstSyncPage, MasterResetPage, PackagingMatchPage, ZoneSuggestionPage } from './pages/finance/DataToolPages';
+import { ApiKeysPage, CostHistoryPage, JstSyncPage, MasterResetPage, PackagingMatchPage } from './pages/finance/DataToolPages';
 import { TabHost, type HostTab } from './layout/TabHost';
 import { ExpressPricesPage } from './pages/finance/express/ExpressPricesPage';
 import { FreightEstimatePage } from './pages/finance/express/FreightEstimatePage';
@@ -35,6 +38,8 @@ import { PricingDebugPage } from './pages/finance/PricingDebugPage';
 import { ResourceOverviewPage } from './resources/OverviewPage';
 import { ResourcePage } from './resources/ResourcePage';
 import { IntegrationsPage } from './pages/system/IntegrationsPage';
+import { AiApiPage } from './pages/system/AiApiPage';
+import { OcrSettingsPage } from './pages/system/OcrSettingsPage';
 import { StaffPage } from './pages/org/StaffPage';
 import { StructurePage } from './pages/org/StructurePage';
 import { PositionProfilesPage } from './pages/org/PositionProfilesPage';
@@ -42,13 +47,27 @@ import { ApplyPage } from './pages/flow/ApplyPage';
 import { TasksPage } from './pages/flow/TasksPage';
 import { RunsPage } from './pages/flow/RunsPage';
 import { TemplatesPage } from './pages/flow/TemplatesPage';
+import { NodeCenterPage } from './pages/flow/NodeCenterPage';
+import { TimeoutsPage } from './pages/flow/TimeoutsPage';
 import { MyTodosPage } from './pages/flow/TodosPage';
+import { HomePage } from './pages/workspace/HomePage';
+import { BossPage } from './pages/workspace/BossPage';
+import { DeskPage } from './pages/workspace/DeskPage';
+import { PersonalPage } from './pages/workspace/PersonalPage';
+import { LiveDeskPage } from './pages/live/LiveDeskPage';
+import { LiveManagePage } from './pages/live/LiveManagePage';
 
 /**
  * 页面组件登记：键是导航注册表里的“分区.页面id”。
  * 新做一个页面 = 在这里登记组件 + 把注册表里该页面的 ready 改成 true。
  */
 const PAGE_COMPONENTS: Record<string, ComponentType> = {
+  'features.live-desk': LiveDeskPage,
+  'features.live': LiveManagePage,
+  'workbench.home': HomePage,
+  'workbench.boss': BossPage,
+  'workbench.desk': DeskPage,
+  'workbench.personal': PersonalPage,
   'workbench.todos': MyTodosPage,
   'workbench.tasks': TasksPage,
   'workbench.started': () => <RunsPage view="started" />,
@@ -56,6 +75,8 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
   'flow.apply': ApplyPage,
   'flow.overview': () => <RunsPage view="all" />,
   'flow.templates': TemplatesPage,
+  'flow.node-templates': NodeCenterPage,
+  'flow.timeouts': TimeoutsPage,
   'finance.overview': FinanceOverviewPage,
   'finance.cost-table': CostTablePage,
   'finance.pricing-debug': PricingDebugPage,
@@ -65,7 +86,6 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
   'finance.unsettled-receipts': UnsettledReceiptsPage,
   'finance.master-import': MasterImportPage,
   'finance.cost-history': CostHistoryPage,
-  'finance.zone-suggestion': ZoneSuggestionPage,
   'finance.packaging-match': PackagingMatchPage,
   'finance.api-keys': ApiKeysPage,
   'finance.jst-sync': JstSyncPage,
@@ -73,6 +93,8 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
   'resource.overview': ResourceOverviewPage,
   'system.integrations': IntegrationsPage,
   'system.audit': AuditPage,
+  'system.ai-api': AiApiPage,
+  'system.ocr': OcrSettingsPage,
   'resource.bank-fund': BankFundPage,
   'resource.fee-settings': FeeSettingsPage,
   'resource.company-store-maintenance': MaintenancePage,
@@ -109,6 +131,11 @@ PAGE_COMPONENTS['finance.zone-suggestion'] = ZoneRunsPage;
 PAGE_COMPONENTS['finance.finance-base-codes'] = BaseCodesPage;
 PAGE_COMPONENTS['finance.finance-bundles'] = BundlesPage;
 PAGE_COMPONENTS['finance.jst-upload'] = JstUploadPage;
+
+// 售后、订单申诉、兜底监督
+PAGE_COMPONENTS['after-sales.table'] = AfterSalesPage;
+PAGE_COMPONENTS['after-sales.appeals'] = AppealsPage;
+PAGE_COMPONENTS['supervision.center'] = SupervisionPage;
 
 // 宿主页：旧程序里的页面内 Tab/面板，合并为标签页（不再单独占菜单）
 for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {

@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { PRODUCT_UNIT_CODED_KINDS, PRODUCT_UNIT_SEEDS } from '@kudesi/shared';
+import { CATEGORY_ROOTS, PRODUCT_UNIT_CODED_KINDS, PRODUCT_UNIT_SEEDS } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 import type { BeforeSaveContext } from './resource-rules';
 import { UNIT_RESOURCE } from './unit-options';
@@ -17,6 +17,7 @@ export async function productsUsingUnit(em: EntityManager, companyId: number, ki
     system_spec: { field: 'purchaseSpec' },
     packaging_category: { field: 'packagingCategory' },
     dimension_unit: { field: 'dimensionUnit' },
+    archive_type: { field: 'archiveType' },
   };
   const c = col[kind];
   if (!c || !value) return 0;
@@ -49,6 +50,8 @@ export async function beforeUnit(ctx: BeforeSaveContext) {
     const raw = (str(data.code) || suggestCode(name, kind)).replace(/[^A-Za-z0-9]/g, '');
     const code = KEEP_CASE.includes(kind) ? raw : raw.toUpperCase();
     if (!code) throw new BadRequestException('编码只能是英文字母和数字，请手动填写');
+    // 自定义档案类型的编码就是商品里存的“档案类型”取值，不能和内置类型（raw、package…）重名（比较不分大小写）
+    if (kind === 'archive_type' && CATEGORY_ROOTS.some((r) => r.value.toLowerCase() === code.toLowerCase())) throw new BadRequestException(`编码「${code}」和内置档案类型重名，请换一个`);
     data.code = code;
   } else {
     delete data.code; // 系统规格没有编码

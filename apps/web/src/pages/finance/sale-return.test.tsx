@@ -5,7 +5,7 @@ import { financeApi, type DocDetailDto } from './financeApi';
 import { resourceApi } from '../../resources/api';
 
 vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ can: () => true, user: { name: '老板' } }) }));
-vi.mock('./financeApi', async (orig) => ({ ...(await orig<typeof import('./financeApi')>()), financeApi: { docs: vi.fn(), doc: vi.fn(), openItems: vi.fn(), syncEmployees: vi.fn() } }));
+vi.mock('./financeApi', async (orig) => ({ ...(await orig<typeof import('./financeApi')>()), financeApi: { docs: vi.fn(), doc: vi.fn(), openItems: vi.fn(), syncEmployees: vi.fn(), banks: vi.fn().mockResolvedValue([]) } }));
 vi.mock('../../resources/api', async (orig) => ({ ...(await orig<typeof import('../../resources/api')>()), resourceApi: { list: vi.fn() } }));
 beforeEach(() => {
   vi.mocked(resourceApi.list).mockResolvedValue({ items: [{ id: 7, title: '老客户', status: 'active', data: {}, type: 'finance-customers' }], total: 1, page: 1, pageSize: 15 } as never);

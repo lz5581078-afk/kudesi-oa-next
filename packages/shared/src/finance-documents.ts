@@ -137,6 +137,10 @@ export interface DocLineInput {
   relatedNode?: string | null;
   relatedId?: number | null;
   relatedName?: string | null;
+  /** 没有商品/费用项目的金额类单据（收款、付款、预收、预付、转款）的明细行：项目名称，金额放 unitPriceCents（数量固定 1） */
+  itemName?: string | null;
+  /** 商品行的单位（文字，开单时从商品档案带出，可改） */
+  unit?: string | null;
 }
 
 /** 转款单的账户分配：可以多个账户转出、多个账户转入，两边金额合计必须相等 */
@@ -204,6 +208,8 @@ export function effectivePaid(def: DocTypeDef, input: Pick<DocInput, 'paidCents'
 export function docTotal(def: DocTypeDef, input: Pick<DocInput, 'amountCents' | 'lines' | 'accounts'>): number {
   if (def.bank === 'transfer' && input.accounts?.length) return input.accounts.filter((a) => a.role === 'out').reduce((s, a) => s + a.amountCents, 0);
   if (def.lines) return (input.lines ?? []).reduce((sum, l) => sum + lineAmount(l), 0);
+  // 金额类单据可以写多行金额明细（旧系统同款），合计就是单据金额；不写明细则直接用 amountCents
+  if (input.lines?.length) return input.lines.reduce((sum, l) => sum + lineAmount(l), 0);
   return input.amountCents ?? 0;
 }
 
@@ -246,6 +252,16 @@ export function validateDoc(input: DocInput): string[] {
       if (!(l.qty > 0) || Math.round(l.qty * 10000) / 10000 !== l.qty) errors.push(`第 ${n} 行数量必须大于 0（最多 4 位小数）`);
       if (!validUnitCents(l.unitPriceCents) || l.unitPriceCents < 0) errors.push(`第 ${n} 行单价不合法`);
     });
+  } else if (input.lines?.length) {
+    input.lines.forEach((l, i) => {
+      const n = i + 1;
+      if (!l.itemName?.trim()) errors.push(`第 ${n} 行请填写${def.ui.moneyItemLabel ?? '项目'}`);
+      if (!Number.isInteger(l.unitPriceCents) || l.unitPriceCents <= 0) errors.push(`第 ${n} 行金额必须大于 0（最多两位小数）`);
+    });
+    if (def.bank === 'transfer' && input.accounts?.length) {
+      const so = input.accounts.filter((a) => a.role === 'out').reduce((s, a) => s + a.amountCents, 0), want = docTotal({ ...def, bank: 'none' }, input);
+      if (so !== want) errors.push(`转出账户分配合计 ${(so / 100).toFixed(2)} 元要等于明细合计 ${(want / 100).toFixed(2)} 元`);
+    }
   } else if (!(def.bank === 'transfer' && input.accounts?.length) && (!Number.isInteger(input.amountCents) || (input.amountCents as number) <= 0)) {
     errors.push('金额必须大于 0');
   }

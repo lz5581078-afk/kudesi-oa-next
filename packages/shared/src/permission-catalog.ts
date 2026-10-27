@@ -59,13 +59,23 @@ export function permissionCatalog(): CatalogGroup[] {
   }
   groups.push(ORG_ACTIONS);
   groups.push({ id: 'flow-actions', label: '流程与任务', items: [
-    { key: SPECIAL_PERMISSIONS.flowTemplatesManage, label: '保存并发布流程配置' },
+    { key: SPECIAL_PERMISSIONS.flowTemplatesManage, label: '保存并发布流程配置（含自建流程、节点模板、超时规则）' },
+    { key: SPECIAL_PERMISSIONS.flowPenaltiesManage, label: '确认或免除流程超时处罚' },
     { key: SPECIAL_PERMISSIONS.financeSessionManage, label: '店铺提现：管理店铺登录、查看密码' },
     { key: SPECIAL_PERMISSIONS.financeSessionRemote, label: '店铺提现：发起远程协助（看/操作授权电脑上的店铺窗口）' },
     { key: SPECIAL_PERMISSIONS.companyStoreMaintenanceManage, label: '公司店铺维护：管理店铺登录、查看密码、改店铺状态' },
     { key: SPECIAL_PERMISSIONS.tasksAssign, label: '给别人指派任务' },
     { key: SPECIAL_PERMISSIONS.tasksRoutinesManage, label: '管理周期任务' },
+    { key: SPECIAL_PERMISSIONS.supervisionManage, label: '兜底监督：关闭异常、改监督规则、立即扫描' },
   ] });
+  groups.push({
+    id: 'live-actions',
+    label: '直播管理',
+    items: [
+      { key: SPECIAL_PERMISSIONS.liveManage, label: '排场、修改提成规则、生成月结单并提交审批' },
+      { key: SPECIAL_PERMISSIONS.liveCommissionsView, label: '查看全员提成、主播工资和月结（没有则只看本人）' },
+    ],
+  });
   groups.push({
     id: 'product-sensitive',
     label: '商品敏感数据',

@@ -88,6 +88,18 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     await upload(ids.b1);
   });
 
+  it('同步清单状态汇总是全量统计，也能按状态筛选（服务端分页）', async () => {
+    ids.b2 = await makeBundle(3, 'TB2');
+    const sum = await outbox.itemsSummary(boss, 'finance-bundles');
+    expect(sum.total).toBeGreaterThanOrEqual(2);
+    expect(Object.values(sum.counts).reduce((a, b) => a + b, 0)).toBe(sum.total);
+    const notSynced = await outbox.items(boss, { type: 'finance-bundles', state: 'not_synced', page: 1, pageSize: 1 });
+    expect(notSynced.total).toBe(sum.counts.not_synced ?? 0);
+    expect(notSynced.rows.every((r) => r.state === 'not_synced')).toBe(true);
+    expect(notSynced.rows.length).toBeLessThanOrEqual(1);
+    await expect(outbox.itemsSummary(boss, 'finance-products')).rejects.toThrow(/不支持/);
+  });
+
   it('基本售价：开关默认关；不齐全的被拦截并写日志；齐全后入队，价格开关关着不发送，打开后发送并回读', async () => {
     expect((await price.getSwitch(boss)).enabled).toBe(false);
     await expect(price.run(helper, {})).rejects.toThrow(/开关还没开/);

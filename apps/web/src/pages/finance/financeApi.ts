@@ -3,7 +3,7 @@ import type { FileInfo } from '../../resources/api';
 import { api } from '../../api/client';
 
 export interface DocRow { id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null }
-export interface DocList { total: number; amountCents: number; paidCents: number; incomeCents?: number; expenseCents?: number; page: number; pageSize: number; rows: DocRow[] }
+export interface DocList { todayCount?: number; total: number; amountCents: number; paidCents: number; incomeCents?: number; expenseCents?: number; page: number; pageSize: number; rows: DocRow[] }
 export interface BatchResult { okCount: number; failCount: number; results: Array<{ id: number; ok: boolean; docNo?: string; error?: string }> }
 export interface DocEntry { id: string; kind: string; accountId: number; accountName: string; subId: number; amountCents: number | null; qty: number | null }
 export interface DocLineView extends DocLineInput { id: number; productName: string; feeItemName: string; lineNo: number; relatedNode: string | null; relatedId: number | null; relatedName: string | null }
@@ -139,5 +139,5 @@ export const financeApi = {
   jstJobs: (p: { status?: string; page?: number }) => api<{ total: number; counts: Record<string, number>; rows: OutboxJobRow[] }>(`/finance/jst-sync/jobs${qs({ ...p, pageSize: 20 })}`),
   jstRetry: (id: number) => api<{ ok: true }>(`/finance/jst-sync/jobs/${id}/retry`, { method: 'POST', body: {} }),
   jstCancel: (id: number) => api<{ ok: true }>(`/finance/jst-sync/jobs/${id}/cancel`, { method: 'POST', body: {} }),
-  overview: (month?: string) => api<Overview>(`/finance/overview${qs({ month })}`),
+  overview: (month?: string, range?: { from?: string; to?: string }) => api<Overview>(`/finance/overview${qs({ month, from: range?.from, to: range?.to })}`),
 };

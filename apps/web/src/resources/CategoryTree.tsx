@@ -19,6 +19,7 @@ export function CategoryTree({ type, field, tab, status, showHidden, value, relo
   const [error, setError] = useState('');
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [kw, setKw] = useState('');
+  const [mOpen, setMOpen] = useState(false); // 手机上目录折叠成一行，点开再选
 
   useEffect(() => {
     let alive = true;
@@ -89,6 +90,10 @@ export function CategoryTree({ type, field, tab, status, showHidden, value, relo
 
   return (
     <aside className="cat-tree" aria-label="分类目录">
+      <button type="button" className="cat-fold" aria-expanded={mOpen} onClick={() => setMOpen((v) => !v)}>
+        分类目录{value ? '（已选）' : ''} {mOpen ? '▴' : '▾'}
+      </button>
+      <div className={`cat-body${mOpen ? ' open' : ''}`} onClick={(e) => { if ((e.target as HTMLElement).closest('.cat-name, .cat-all')) setMOpen(false); }}>
       <div className="cat-head">
         <strong>分类目录</strong>
         {allParents.length > 0 && (
@@ -106,6 +111,7 @@ export function CategoryTree({ type, field, tab, status, showHidden, value, relo
       {tree && tree.nodes.length === 0 && <div className="muted">还没有分类，先到“资料维护”里建分类</div>}
       <ul role="tree">{rows(0, 0)}</ul>
       {tree && tree.uncategorized > 0 && <div className="muted cat-un">未归类 {tree.uncategorized} 条</div>}
+      </div>
     </aside>
   );
 }

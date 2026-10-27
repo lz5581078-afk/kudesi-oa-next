@@ -25,9 +25,9 @@ export const PACKAGING_CATEGORY_OPTIONS = o('bag:袋', 'bottle:瓶', 'box:盒', 
 export const DIMENSION_UNIT_OPTIONS = o('mm:毫米', 'cm:厘米', 'm:米');
 
 /** 商品单位与规格列表的种类（旧系统：名称单位/规格单位、产品包装单位、发货物料规格单位、系统规格、包装类别、尺寸单位） */
-export const PRODUCT_UNIT_KINDS = o('spec_unit:规格单位', 'packaging_unit:产品包装单位', 'shipping_unit:发货物料规格单位', 'system_spec:系统规格', 'packaging_category:包装类别', 'dimension_unit:尺寸单位');
+export const PRODUCT_UNIT_KINDS = o('spec_unit:规格单位', 'packaging_unit:产品包装单位', 'shipping_unit:发货物料规格单位', 'system_spec:系统规格', 'packaging_category:包装类别', 'dimension_unit:尺寸单位', 'archive_type:自定义档案类型');
 /** 这几种有“编码”（商品里存编码、显示名称）；系统规格只有名称，商品里存名称 */
-export const PRODUCT_UNIT_CODED_KINDS = ['spec_unit', 'packaging_unit', 'shipping_unit', 'packaging_category', 'dimension_unit'] as const;
+export const PRODUCT_UNIT_CODED_KINDS = ['spec_unit', 'packaging_unit', 'shipping_unit', 'packaging_category', 'dimension_unit', 'archive_type'] as const;
 /** 新公司和“导入默认项”用的预置：[种类, 名称, 编码] */
 export const PRODUCT_UNIT_SEEDS: ReadonlyArray<readonly [string, string, string]> = [
   ...(['spec_unit', 'packaging_unit', 'shipping_unit'] as const).flatMap((k) => UNIT_OPTIONS.map((u) => [k, u.label, u.value] as const)),
@@ -91,7 +91,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     treeTabMap: { purchased: ['original_purchase', 'supplier_oem'], original_purchase: ['original_purchase'], supplier_oem: ['supplier_oem'] },
     batch: ['status', 'categoryId'],
     fields: [
-      select('archiveType', '档案类型', '基础', ARCHIVE_TYPES, { required: true, list: true }),
+      select('archiveType', '档案类型', '基础', ARCHIVE_TYPES, { required: true, list: true, optionsFrom: { resource: 'finance-product-units', kind: 'archive_type' }, help: '内置六种之外，还能在档案页“管理档案类型”里加自定义类型' }),
       select('supplyMode', '采购方式', '基础', o('original_purchase:原装采购', 'supplier_oem:供应商 OEM'), { list: true, showWhen: { field: 'archiveType', in: ['purchased'] } }),
       text('code', '商品编码', '基础', { list: true, search: true, maxLength: 64, help: '不填则按规则自动生成：类型-分类-品牌-名称首字母-规格；也可手改' }),
       text('name', '商品名称', '基础', { required: true, list: true, search: true }),
@@ -988,7 +988,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     fields: [
-      select('archiveType', '所属类型', '基础', CATEGORY_ROOTS, { required: true, list: true, help: '下级分类自动沿用上级的类型' }),
+      select('archiveType', '所属类型', '基础', CATEGORY_ROOTS, { required: true, list: true, optionsFrom: { resource: 'finance-product-units', kind: 'archive_type' }, help: '下级分类自动沿用上级的类型' }),
       text('name', '分类名称', '基础', { required: true, list: true, search: true, help: '全公司唯一' }),
       text('code', '分类码', '基础', { required: true, list: true, maxLength: 8, help: '大写字母或数字，用于生成商品编码' }),
       ref('parentId', '上级分类', '基础', 'finance-categories', { list: true, help: '最多 4 级；只有最末级才能挂商品' }),
@@ -1022,6 +1022,8 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('name', '名称', '基础', { required: true, list: true, search: true, maxLength: 80, help: '如 箱、毫米、无版印刷胶版；商品档案的下拉里显示它' }),
       text('code', '编码', '基础', { list: true, search: true, maxLength: 32, help: '英文字母和数字；不填按常用单位或拼音首字母自动生成。商品里存的是编码，已被商品用到就不能再改；系统规格不用编码' }),
       { key: 'sortOrder', label: '排序', type: 'number', group: '基础', list: true },
+      text('subtitle', '说明', '基础', { maxLength: 60, showWhen: { field: 'kind', in: ['archive_type'] }, help: '自定义档案类型的页签说明' }),
+      select('accent', '页签颜色', '基础', o('green:绿色', 'blue:蓝色', 'orange:橙色', 'purple:紫色', 'red:红色'), { showWhen: { field: 'kind', in: ['archive_type'] } }),
     ],
   },
   {

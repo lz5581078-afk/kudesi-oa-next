@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { api, ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
+import { CopyButton } from '../../../resources/CopyValue';
 import { Pager } from '../common';
 import { jstApi } from './jstApi';
 
@@ -31,13 +32,22 @@ export function JstSyncItems({ onQueued }: { onQueued: () => void }) {
   const [ack, setAck] = useState<number[]>([]);
   const [picked, setPicked] = useState<number[]>([]);
   const [checked, setChecked] = useState(false);
+  const [stateFilter, setStateFilter] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const load = () => api<{ total: number; rows: Item[] }>(`/finance/jst-sync/items?type=${type}&page=${page}&pageSize=20${keyword ? `&keyword=${encodeURIComponent(keyword)}` : ''}`).then(setData).catch((e) => setError(msg(e)));
-  useEffect(() => { void load(); }, [type, page, keyword]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [summary, setSummary] = useState<{ total: number; counts: Record<string, number> } | null>(null);
+  const kwq = keyword ? `&keyword=${encodeURIComponent(keyword)}` : '';
+  const load = () => {
+    void api<{ total: number; counts: Record<string, number> }>(`/finance/jst-sync/items/summary?type=${type}${kwq}`).then((r) => setSummary(r && r.counts ? r : null)).catch(() => setSummary(null));
+    return api<{ total: number; rows: Item[] }>(`/finance/jst-sync/items?type=${type}&page=${page}&pageSize=20${kwq}${stateFilter ? `&state=${stateFilter}` : ''}`).then(setData).catch((e) => setError(msg(e)));
+  };
+  useEffect(() => { void load(); }, [type, page, keyword, stateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   // 基础编码的同步只有公司管理员；组合装的同步维护是独立权限
   const canSync = type === 'finance-bundles' ? can('finance.bundle-sync.manage') : isAdmin;
   const eligible = (it: Item) => ['not_synced', 'failed'].includes(it.state) || it.diff.length > 0;
+  const rows = data?.rows ?? [];
+  const selectable = rows.filter(eligible).slice(0, 50);
+  const allPicked = selectable.length > 0 && selectable.every((it) => picked.includes(it.id));
   const chosen = (data?.rows ?? []).filter((it) => picked.includes(it.id));
   const needAck = chosen.some((it) => it.replacing && !ack.includes(it.id));
   async function enqueue() {
@@ -55,7 +65,13 @@ export function JstSyncItems({ onQueued }: { onQueued: () => void }) {
       <div className="toolbar">
         <select aria-label="资料类型" value={type} onChange={(e) => { setType(e.target.value); setPage(1); setOpen(null); setPicked([]); setChecked(false); }}><option value="finance-base-codes">基础编码</option><option value="finance-bundles">商品组合</option></select>
         <input aria-label="搜索清单" placeholder="搜索编码或名称" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
+        <select aria-label="同步状态" value={stateFilter} onChange={(e) => { setStateFilter(e.target.value); setPage(1); }}>
+          <option value="">全部状态</option>
+          {Object.entries(STATE).map(([k, [label]]) => <option key={k} value={k}>{label}{summary?.counts[k] ? `（${summary.counts[k]}）` : ''}</option>)}
+        </select>
+        {(keyword || stateFilter) && <button type="button" className="secondary-button small" onClick={() => { setKeyword(''); setStateFilter(''); setPage(1); }}>清除筛选</button>}
       </div>
+      {summary && summary.total > 0 && <p className="muted" aria-label="状态汇总">共 {summary.total} 条已验证：{Object.entries(summary.counts).map(([k, n]) => `${STATE[k]?.[0] ?? k} ${n}`).join(' · ')}</p>}
       {error && <div role="alert" className="notice error">{error}</div>}
       {notice && <div role="status" className="notice ok">{notice}</div>}
       {canSync && picked.length > 0 && (
@@ -68,14 +84,14 @@ export function JstSyncItems({ onQueued }: { onQueued: () => void }) {
         </div>
       )}
       <div className="table-scroll"><table className="data-table">
-        <thead><tr><th style={{ width: 28 }} /><th>编码</th><th>名称</th><th>状态</th><th>和上次上传的差异</th><th>改码确认</th></tr></thead>
+        <thead><tr><th style={{ width: 28 }}>{canSync && selectable.length > 0 && <input type="checkbox" aria-label="全选本页可同步的" checked={allPicked} onChange={(e) => { setChecked(false); setPicked(e.target.checked ? [...new Set([...picked, ...selectable.map((it) => it.id)])].slice(0, 50) : picked.filter((id) => !selectable.some((it) => it.id === id))); }} />}</th><th>编码</th><th>名称</th><th>状态</th><th>和上次上传的差异</th><th>改码确认</th></tr></thead>
         <tbody>
-          {data?.rows.length === 0 && <tr><td colSpan={6} className="muted center">没有已验证的资料</td></tr>}
-          {data?.rows.map((it) => (
+          {data && rows.length === 0 && <tr><td colSpan={6} className="muted center">{stateFilter ? '没有这个状态的资料' : '没有已验证的资料'}</td></tr>}
+          {rows.map((it) => (
             <Fragment key={it.id}>
               <tr>
                 <td>{canSync && eligible(it) && <input type="checkbox" aria-label={`选择 ${it.code}`} checked={picked.includes(it.id)} disabled={!picked.includes(it.id) && picked.length >= 50} onChange={(e) => { setChecked(false); setPicked(e.target.checked ? [...picked, it.id] : picked.filter((x) => x !== it.id)); }} />}</td>
-                <td><button type="button" className="link-button" onClick={() => setOpen(open === it.id ? null : it.id)}>{open === it.id ? '▾' : '▸'} {it.code}</button></td>
+                <td><button type="button" className="link-button" onClick={() => setOpen(open === it.id ? null : it.id)}>{open === it.id ? '▾' : '▸'} {it.code}</button><CopyButton value={it.code} label="编码" /></td>
                 <td>{it.name}</td>
                 <td><span className={`pill ${STATE[it.state]?.[1] ?? 'warn'}`}>{STATE[it.state]?.[0] ?? it.state}</span></td>
                 <td>{it.diff.length ? it.diff.map((d) => FIELD[d.field] ?? d.field).join('、') : it.uploaded ? '没有差异' : '还没上传过'}</td>

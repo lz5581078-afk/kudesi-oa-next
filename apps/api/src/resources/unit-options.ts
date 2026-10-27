@@ -31,6 +31,7 @@ export function allowedValues(lists: UnitLists, field: FieldDef, values: Record<
   const kind = optionsKindOf(field, values);
   if (!kind) return undefined;
   const items = (lists.get(kind) ?? []).filter((i) => i.active);
+  if (kind === 'archive_type') return items.length > 0 ? [...(field.options ?? []).map((o) => o.value), ...items.map((i) => valueOf(kind, i)).filter(Boolean)] : undefined; // 自定义档案类型是在内置类型之外追加的
   return items.length > 0 ? items.map((i) => valueOf(kind, i)).filter(Boolean) : undefined;
 }
 

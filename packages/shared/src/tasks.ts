@@ -42,3 +42,41 @@ export function dueEndOfDay(ymd: string, days: number): Date {
   const [y, m, d] = ymd.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + days - 1, 23, 59, 59) - 8 * 3600_000);
 }
+
+// ---------- 监督、复核、延期、反馈模板（旧任务系统的逻辑） ----------
+
+/** 任务状态：open 办理中；reviewing 已提交等监督人复核；abnormal 负责人按异常提交，等监督人处理；done / cancelled 已结束。 */
+export type TaskStatus = 'open' | 'reviewing' | 'abnormal' | 'done' | 'cancelled';
+export const TASK_STATUS_LABEL: Record<TaskStatus, string> = { open: '办理中', reviewing: '待复核', abnormal: '异常待处理', done: '已完成', cancelled: '已取消' };
+
+export interface FeedbackField { key: string; label: string; type: 'text' | 'number' | 'amount' | 'select' | 'date'; options?: string[] }
+/** 反馈模板：负责人提交任务时要填的内容。旧系统四种；“截图”类字段在旧系统只是占位文本框，这里改成“截图说明”文本。 */
+export const TASK_FEEDBACK_PRESETS: Record<string, { name: string; fields: FeedbackField[] }> = {
+  simple: { name: '通用反馈', fields: [{ key: 'result', label: '处理结果', type: 'text' }, { key: 'note', label: '补充说明', type: 'text' }] },
+  customer_store_check: { name: '客服店铺数量检查', fields: [{ key: 'storeCount', label: '店铺数量', type: 'number' }, { key: 'screenshot', label: '检查截图说明', type: 'text' }, { key: 'abnormalNote', label: '异常说明', type: 'text' }] },
+  operation_daily: { name: '运营日报', fields: [{ key: 'salesAmount', label: '销售额', type: 'amount' }, { key: 'promotionFee', label: '推广费', type: 'amount' }, { key: 'todayActions', label: '今日动作', type: 'text' }, { key: 'problemNote', label: '问题反馈', type: 'text' }, { key: 'screenshot', label: '截图说明', type: 'text' }] },
+  phone_check: { name: '手机号畅通检查', fields: [{ key: 'phoneNumber', label: '手机号', type: 'text' }, { key: 'isConnected', label: '是否畅通', type: 'select', options: ['畅通', '不畅通'] }, { key: 'rechargeStatus', label: '充值状态', type: 'select', options: ['正常', '待充值', '已停机'] }, { key: 'abnormalNote', label: '异常说明', type: 'text' }] },
+};
+export const DEFAULT_FEEDBACK_PRESET = 'simple';
+
+/** 校验负责人提交的反馈：至少填一项；数字/金额要是数字；下拉要在选项里；只认模板里的字段。 */
+export function validateFeedback(preset: string | null | undefined, payload: Record<string, unknown>): string[] {
+  const def = TASK_FEEDBACK_PRESETS[preset ?? DEFAULT_FEEDBACK_PRESET];
+  if (!def) return ['反馈模板不存在'];
+  const errors: string[] = [];
+  const known = new Set(def.fields.map((f) => f.key));
+  for (const k of Object.keys(payload)) if (!known.has(k)) errors.push(`没有“${k}”这个反馈项`);
+  let filled = 0;
+  for (const f of def.fields) {
+    const raw = payload[f.key];
+    const v = raw === undefined || raw === null ? '' : String(raw).trim();
+    if (!v) continue;
+    filled += 1;
+    if (v.length > 500) errors.push(`${f.label}不超过 500 字`);
+    if ((f.type === 'number' || f.type === 'amount') && !/^-?\d+(\.\d+)?$/.test(v)) errors.push(`${f.label}要填数字`);
+    if (f.type === 'select' && !(f.options ?? []).includes(v)) errors.push(`${f.label}请从选项里选`);
+    if (f.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) errors.push(`${f.label}日期格式不对`);
+  }
+  if (filled === 0) errors.push('请至少填写一项反馈内容');
+  return errors;
+}

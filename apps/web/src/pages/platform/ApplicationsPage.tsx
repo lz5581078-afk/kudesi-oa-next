@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CompanyApplicationDto } from '@kudesi/shared';
 import { api } from '../../api/client';
 import { fmtDateTime } from './format';
@@ -55,7 +55,15 @@ export function ApplicationsPage() {
     });
   };
 
-  const pending = rows.filter((r) => r.status === 'pending').length;
+  const [filter, setFilter] = useState<'all' | CompanyApplicationDto['status']>('all');
+  const [approving, setApproving] = useState<CompanyApplicationDto | null>(null);
+  const count = useMemo(() => ({
+    pending: rows.filter((r) => r.status === 'pending').length,
+    approved: rows.filter((r) => r.status === 'approved').length,
+    rejected: rows.filter((r) => r.status === 'rejected').length,
+  }), [rows]);
+  const pending = count.pending;
+  const shown = filter === 'all' ? rows : rows.filter((r) => r.status === filter);
   return (
     <>
       <div className="page-head">
@@ -65,6 +73,12 @@ export function ApplicationsPage() {
           <button type="button" className="secondary-button" onClick={() => void load()}>刷新</button>
         </div>
       </div>
+      <div className="stat-tiles" aria-label="申请统计">
+        <button type="button" className={`stat-tile warn${filter === 'pending' ? ' on' : ''}`} onClick={() => setFilter(filter === 'pending' ? 'all' : 'pending')}><span>待审核申请</span><strong>{count.pending}</strong></button>
+        <button type="button" className={`stat-tile${filter === 'approved' ? ' on' : ''}`} onClick={() => setFilter(filter === 'approved' ? 'all' : 'approved')}><span>已开通企业</span><strong>{count.approved}</strong></button>
+        <button type="button" className={`stat-tile${filter === 'rejected' ? ' on' : ''}`} onClick={() => setFilter(filter === 'rejected' ? 'all' : 'rejected')}><span>已驳回</span><strong>{count.rejected}</strong></button>
+        <button type="button" className={`stat-tile${filter === 'all' ? ' on' : ''}`} onClick={() => setFilter('all')}><span>申请总数</span><strong>{rows.length}</strong></button>
+      </div>
       {message && <div role={message.kind === 'error' ? 'alert' : 'status'} className={message.kind === 'error' ? 'notice error' : 'notice'}>{message.text}</div>}
       <div className="card table-scroll">
         <table className="data-table">
@@ -72,7 +86,7 @@ export function ApplicationsPage() {
             <tr><th>申请公司</th><th>联系人</th><th>管理员账号</th><th>申请说明</th><th>申请时间</th><th>状态</th><th>处理结果</th><th>操作</th></tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {shown.map((r) => (
               <tr key={r.id}>
                 <td>{r.companyName}</td>
                 <td>{r.contactName}{r.contactTitle ? `（${r.contactTitle}）` : ''}</td>
@@ -88,18 +102,30 @@ export function ApplicationsPage() {
                 <td>
                   {r.status === 'pending' ? (
                     <span className="toolbar-inline">
-                      <button type="button" className="primary-button" disabled={busyId === r.id} onClick={() => void approve(r)}>通过并开通</button>
+                      <button type="button" className="primary-button" disabled={busyId === r.id} onClick={() => setApproving(r)}>通过并开通</button>
                       <button type="button" className="secondary-button danger" disabled={busyId === r.id} onClick={() => { setRejecting(r); setReason(''); }}>驳回</button>
                     </span>
                   ) : <span className="muted-text">已处理</span>}
                 </td>
               </tr>
             ))}
-            {!loading && rows.length === 0 && <tr><td colSpan={8} className="muted-text">还没有企业申请</td></tr>}
+            {!loading && shown.length === 0 && <tr><td colSpan={8} className="muted-text">{rows.length === 0 ? '还没有企业申请' : '这个分类下没有申请'}</td></tr>}
             {loading && <tr><td colSpan={8} className="muted-text">正在读取…</td></tr>}
           </tbody>
         </table>
       </div>
+      {approving && (
+        <div className="modal-backdrop">
+          <div className="card modal small" role="alertdialog" aria-modal="true" aria-label="确认开通">
+            <div className="modal-head"><strong>开通：{approving.companyName}</strong></div>
+            <div className="modal-body"><p>将为该公司建立账套，并用联系人手机号 <span className="mono">{approving.contactPhone}</span> 作为企业管理员账号（密码是申请时设置的）。确认开通吗？</p></div>
+            <div className="modal-foot">
+              <button type="button" className="secondary-button" onClick={() => setApproving(null)}>取消</button>
+              <button type="button" className="primary-button" disabled={busyId === approving.id} onClick={() => { const row = approving; setApproving(null); void approve(row); }}>确认开通</button>
+            </div>
+          </div>
+        </div>
+      )}
       {rejecting && (
         <div className="modal-backdrop">
           <div className="card modal small" role="dialog" aria-modal="true" aria-label="驳回申请">
