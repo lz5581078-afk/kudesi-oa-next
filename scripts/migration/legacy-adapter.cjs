@@ -221,6 +221,14 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           const translatedStatus=def.statuses.find(s=>s.value===status||s.label===status);if(translatedStatus)status=translatedStatus.value;
           const archive=archivedRow?{at:String(row.archived_at),by:row.archived_by?String(row.archived_by):undefined,reason:row.archive_reason?String(row.archive_reason):undefined,fromStatus:row.archived_from_status?translateStatus(row.archived_from_status):undefined}:undefined;
           add(type,id,data,status,{archive,sourceUpdatedAt:type==='finance-product-sources'?row.updated_at:undefined,aliasName,notices,files:filesFor(type,id,row,rule)});
+          // 店铺档案上的保证金/冻结/货款/推广余额在新系统不是可编辑字段（以资金快照为准）：旧值迁成一条“旧系统档案登记”快照
+          if(type==='stores'){
+            const fund={deposit:money('deposit',row.deposit_amount),frozen:money('frozen',row.frozen_amount),withdrawable:money('goodsFund',row.goods_payment_amount),promotion:money('promotionBalance',row.promotion_fee_balance)};
+            if(Object.values(fund).some(v=>v)&&defs.has('store-funds')){
+              const stamp=String(row.updated_at||'').slice(0,10);
+              add('store-funds','legacy-store:'+id,{storeId:ref('stores',id),snapshotDate:/^\d{4}-\d{2}-\d{2}$/.test(stamp)?stamp:businessDay,...fund,source:'legacy',note:'旧系统档案登记'},'recorded');
+            }
+          }
         }catch(e){excluded(type,id,'字段转换待核对：'+(e instanceof SyntaxError?'来源结构不是合法JSON':/^(金额|马甲|旧地区|旧公式|重量|布尔|复杂)/.test(e.message)?e.message:e.name));}
       }
     }

@@ -118,7 +118,7 @@ d('财务查询页面（真实数据库）', () => {
     await expect(docs.inventory({ ...noCost, permissions: { isCompanyAdmin: false, allow: [], deny: [] } }, { stockStatus: 'out' })).rejects.toThrow(/权限/);
   });
 
-  it('现金银行：账户带主体、关联店铺（资料里选的 + 手动关联）和最后更新时间；店铺资金带平台，没有快照用店铺档案里的资金', async () => {
+  it('现金银行：账户带主体、关联店铺（资料里选的 + 手动关联）和最后更新时间；店铺资金带平台，只看资金快照（没有快照就是 0）', async () => {
     const banks = await docs.bankBalances(boss);
     const st = banks.find((b) => b.id === ids.bankStore)!;
     expect(st).toMatchObject({ kind: 'store_public', licenseName: '主体甲公司', storeIds: [ids.store], storeNames: ['查询店A'], balanceCents: 1000 });
@@ -126,14 +126,14 @@ d('财务查询页面（真实数据库）', () => {
     // 手动关联：公司公户 ↔ 店铺B
     await svc.addManualLink(boss, 'bank-accounts', ids.bankCo, 'stores', ids.store2, () => true);
     expect((await docs.bankBalances(boss)).find((b) => b.id === ids.bankCo)!.storeNames).toEqual(['查询店B']);
-    await svc.update(boss, 'stores', ids.store2, { goodsFund: 12345, deposit: 500 });
+    await svc.update(boss, 'stores', ids.store2, { goodsFund: 12345, deposit: 500 }); // 只读字段，提交的值被忽略
     await svc.create(boss, 'store-funds', { storeId: ids.store, snapshotDate: day, withdrawable: 7777, deposit: 100, frozen: 0, promotion: 50 });
     const funds = await docs.storeFunds(boss);
     const a = funds.find((f) => f.storeId === ids.store)!, b = funds.find((f) => f.storeId === ids.store2)!;
     expect(a).toMatchObject({ platformLabel: '拼多多', withdrawableCents: 7777, snapshotDate: day });
-    expect(b).toMatchObject({ platformLabel: '淘宝', withdrawableCents: 12345, depositCents: 500, snapshotDate: '' });
-    expect(b.updatedAt).not.toBeNull();
-    expect(funds[0].storeId).toBe(ids.store2); // 可提现从多到少
+    expect(b).toMatchObject({ platformLabel: '淘宝', withdrawableCents: 0, depositCents: 0, snapshotDate: '' });
+    expect(b.updatedAt).toBeNull();
+    expect(funds[0].storeId).toBe(ids.store); // 可提现从多到少
   });
 
   it('重点账户：每个人自己标记，互不影响；只能标本公司的银行账户；没有权限被拒', async () => {

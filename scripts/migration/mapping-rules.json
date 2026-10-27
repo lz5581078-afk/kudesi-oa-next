@@ -235,6 +235,9 @@
         "promotionBalance": [
           "promotion_fee_balance"
         ],
+        "fundNote": [
+          "fund_remark"
+        ],
         "qualificationFiles": [
           "@resource_media:stores"
         ]

@@ -94,13 +94,11 @@ export function StoreMetricsPanel({ store }: { store: ResourceDto }) {
       <section>
         <h2 className="section-title">店铺资金 {fund && <small className="muted">快照 {String(fund.data.snapshotDate)}</small>}</h2>
         <Grid items={[
-          ['档案登记·保证金', store.data.deposit !== undefined ? formatYuan(Number(store.data.deposit)) : '—'],
-          ['档案登记·冻结资金', store.data.frozen !== undefined ? formatYuan(Number(store.data.frozen)) : '—'],
-          ['档案登记·货款', store.data.goodsFund !== undefined ? formatYuan(Number(store.data.goodsFund)) : '—'],
-          ['档案登记·推广费余额', store.data.promotionBalance !== undefined ? formatYuan(Number(store.data.promotionBalance)) : '—'],
-          ...(fund ? ([['快照·可提现', show(fund.data.withdrawable, formatYuan)], ['快照·保证金', show(fund.data.deposit, formatYuan)], ['快照·冻结资金', show(fund.data.frozen, formatYuan)], ['快照·推广费余额', show(fund.data.promotion, formatYuan)]] as Array<[string, string]>) : []),
+          ['保证金', show(fund?.data.deposit, formatYuan)],
+          ['冻结资金', show(fund?.data.frozen, formatYuan)],
+          ['货款（可提现）', show(fund?.data.withdrawable, formatYuan)],
+          ['推广费余额', show(fund?.data.promotion, formatYuan)],
         ]} />
-        <small className="muted">“档案登记”是店铺档案里手工填的数（旧系统只有这一份）；“快照”是按日录入的资金记录，两者各自独立。</small>
       </section>
     </div>
   );

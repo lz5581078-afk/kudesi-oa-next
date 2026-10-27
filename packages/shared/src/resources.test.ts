@@ -101,8 +101,13 @@ describe('字段校验', () => {
 
   it('金额必须是整数分，数字字段不能为负或小数', () => {
     const stores = getResourceDef('stores')!;
-    const r = validateResourceInput(stores, { platform: 'pdd', name: 'x', deposit: 12.5 }, { status: 'normal' });
+    const r = validateResourceInput(getResourceDef('store-funds')!, { storeId: 1, snapshotDate: '2026-01-01', deposit: 12.5 }, { status: 'recorded' });
     expect(r.errors.join('|')).toContain('保证金必须是以分为单位的整数');
+    // 店铺档案上的资金四项是只读（以最新资金快照为准）：提交的值一律忽略，不报错也不保存
+    const ro = validateResourceInput(stores, { platform: 'pdd', name: 'x', deposit: 12.5, goodsFund: 100 }, { status: 'normal' });
+    expect(ro.errors.join('|')).not.toContain('保证金');
+    expect(ro.values.deposit).toBeUndefined();
+    expect(ro.values.goodsFund).toBeUndefined();
     const n = validateResourceInput(getResourceDef('self-media')!, { platform: 'douyin', name: 'x', followers: -1 }, { status: 'normal' });
     expect(n.errors.join('|')).toContain('粉丝数必须是非负整数');
   });

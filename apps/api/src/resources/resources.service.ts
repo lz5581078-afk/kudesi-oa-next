@@ -31,6 +31,7 @@ import { WAREHOUSE_PRODUCT_FIELDS, isWarehouseMode } from './warehouse-mode';
 import { CryptoService } from '../common/crypto.service';
 import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
+import { deriveStoreFunds } from './store-funds';
 import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
 import { certImportMatch } from './entity-rules';
 import { optionsKindOf } from '@kudesi/shared';
@@ -270,10 +271,10 @@ export class ResourcesService implements RuleHost {
     );
     const fileMap = await this.files.info(companyId, fileIds);
     // 手机号的“绑定店铺 / 主子卡”：读时从店铺档案和主卡字段算，不存库
-    const derived = def.key === 'phones' ? await derivePhoneFields(em, companyId, records, (r) => labels.get(r.id)?.parentPhoneId) : null;
+    const derived = def.key === 'phones' ? await derivePhoneFields(em, companyId, records, (r) => labels.get(r.id)?.parentPhoneId) : def.key === 'stores' ? await deriveStoreFunds(em, companyId, records) : null;
     return records.map((r) => {
       const dto = this.toDto(def, r, labels.get(r.id) ?? {}, fileMap);
-      if (derived) for (const [k, v] of Object.entries(derived.get(r.id) ?? {})) if (v !== undefined) dto.data[k] = v;
+      if (derived) for (const [k, v] of Object.entries(derived.get(r.id) ?? {})) { if (v !== undefined) dto.data[k] = v; else if (def.key === 'stores') delete dto.data[k]; }
       // 成本等受限字段：没有权限的人，接口里就没有（不是前端隐藏）
       for (const k of restricted) {
         delete dto.data[k];
