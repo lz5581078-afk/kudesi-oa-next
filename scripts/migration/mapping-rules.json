@@ -166,6 +166,12 @@
         ],
         "invoiceLocationId": [
           "invoice_seal_location_id"
+        ],
+        "originalPhotoMissing": [
+          "original_photo_missing"
+        ],
+        "copyPhotoMissing": [
+          "duplicate_photo_missing"
         ]
       }
     },
@@ -290,6 +296,9 @@
         ],
         "lastFiledAt": [
           "last_tax_filed_at"
+        ],
+        "taxCategory": [
+          "tax_category"
         ]
       }
     },
@@ -330,7 +339,28 @@
         ],
         "cardPhone": [
           "bank_reserved_phone"
+        ],
+        "partnerNo": [
+          "partner_no"
+        ],
+        "cooperationScope": [
+          "cooperation_scope"
+        ],
+        "startedAt": [
+          "started_at"
+        ],
+        "endedAt": [
+          "ended_at"
+        ],
+        "cardPhoneHolder": [
+          "bank_reserved_phone_owner_name"
+        ],
+        "cardPhoneId": [
+          "bank_phone_number_id"
         ]
+      },
+      "statusMap": {
+        "inactive": "terminated"
       }
     },
     "bank-accounts": {
@@ -380,6 +410,9 @@
       "aliases": {
         "name": [
           "shield_name"
+        ],
+        "shieldNo": [
+          "shield_no"
         ]
       }
     },
@@ -409,6 +442,10 @@
         "attachments": [
           "attachment_data_url"
         ]
+      },
+      "statusMap": {
+        "valid": "normal",
+        "expiring": "normal"
       }
     },
     "trademarks": {
@@ -452,6 +489,10 @@
         "certificate": [
           "certificate_photo_data_url"
         ]
+      },
+      "statusMap": {
+        "normal": "registered",
+        "active": "registered"
       }
     },
     "self-media": {
@@ -690,12 +731,20 @@
         "item": [
           "item_type"
         ],
-        "borrower": [
+        "borrowerUserId": [
           "borrower_employee_id"
         ]
       },
-      "policy": "review-history",
-      "reason": "资料下挂借用记录：未归还关系建议保留；已归还历史范围需确认"
+      "valueMaps": {
+        "item": {
+          "license_original": "original",
+          "license_duplicate": "copy",
+          "official_seal": "official",
+          "finance_seal": "finance",
+          "legal_person_seal": "legal",
+          "invoice_seal": "invoice"
+        }
+      }
     },
     "license-usages": {
       "tables": [
@@ -707,10 +756,28 @@
         ],
         "userId": [
           "used_by_employee_id"
+        ],
+        "usageType": [
+          "usage_type"
+        ],
+        "relatedObject": [
+          "related_object"
         ]
       },
-      "policy": "review-history",
-      "reason": "资料下挂使用历史，非档案必填项，先报告数量再确认"
+      "valueMaps": {
+        "item": {
+          "license_original": "original",
+          "license_duplicate": "copy",
+          "official_seal": "official",
+          "finance_seal": "finance",
+          "legal_person_seal": "legal",
+          "invoice_seal": "invoice",
+          "other": "other"
+        }
+      },
+      "statusMap": {
+        "completed": "done"
+      }
     },
     "store-claims": {
       "tables": [
@@ -1637,6 +1704,59 @@
       "aliases": {},
       "policy": "exclude-derived",
       "reason": "历史上传日志不迁，不重放外部写入"
+    },
+    "trademark-authorizations": {
+      "tables": [
+        "resource_links"
+      ],
+      "filter": {
+        "relation_type": "trademark_store_authorization",
+        "status": "active",
+        "source_type": "trademark",
+        "target_type": "store"
+      },
+      "aliases": {
+        "trademarkId": [
+          "source_id"
+        ],
+        "storeId": [
+          "target_id"
+        ],
+        "validFrom": [
+          "valid_from"
+        ],
+        "validTo": [
+          "valid_to"
+        ],
+        "note": [
+          "note"
+        ]
+      }
+    },
+    "bank-store-links": {
+      "tables": [
+        "resource_links"
+      ],
+      "filter": {
+        "relation_type": "bank_store",
+        "status": "active",
+        "source_type": "bank_account",
+        "target_type": "store"
+      },
+      "aliases": {
+        "bankAccountId": [
+          "source_id"
+        ],
+        "storeId": [
+          "target_id"
+        ],
+        "purpose": [
+          "purpose"
+        ],
+        "note": [
+          "note"
+        ]
+      }
     }
   }
 }

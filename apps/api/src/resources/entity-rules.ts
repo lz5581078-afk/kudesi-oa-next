@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { normalizePhone, normalizeReconcileDay, todayInShanghai } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -13,6 +13,11 @@ import type { AfterSaveContext, BeforeSaveContext, RuleHost } from './resource-r
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const norm = (v: unknown) => String(v ?? '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 const digits = (v: unknown) => String(v ?? '').replace(/[\s-]/g, '');
+
+/** 按字段值找记录，不含已归档的。 */
+async function findLive(host: RuleHost, em: EntityManager, companyId: number, type: string, field: string, value: string | number) {
+  return (await host.findWhere(em, companyId, type, field, value)).filter((r) => !r.archivedAt);
+}
 
 const ITEM_LABEL: Record<string, string> = { original: '正本', copy: '副本', official: '公章', finance: '财务章', legal: '法人章', invoice: '发票章' };
 
@@ -42,7 +47,7 @@ export function licenseFlags(ctx: BeforeSaveContext) {
 /** 借出的正本/副本/印章显示在执照的“借出情况”上（借出中、逾期都算借出）。 */
 async function refreshBorrowedSummary(em: EntityManager, host: RuleHost, user: AuthUser, licenseId: unknown) {
   if (typeof licenseId !== 'number') return;
-  const rows = (await host.findWhere(em, user.companyId, 'license-borrows', 'licenseId', licenseId)).filter((r) => ['borrowed', 'overdue'].includes(r.status));
+  const rows = (await findLive(host, em, user.companyId, 'license-borrows', 'licenseId', licenseId)).filter((r) => ['borrowed', 'overdue'].includes(r.status));
   rows.sort((a, b) => a.id - b.id);
   const text = rows
     .map((r) => `${ITEM_LABEL[str(r.data.item)] ?? str(r.data.item)}：${str(r.data.borrower)}借走${r.data.expectedReturnAt ? `，预计 ${str(r.data.expectedReturnAt)} 归还` : ''}`)
@@ -89,7 +94,7 @@ export async function writeBackLicenseBank(em: EntityManager, host: RuleHost, us
   if (typeof licenseId !== 'number') return;
   const license = await em.findOne(ResourceRecord, { where: { id: licenseId, companyId: user.companyId, type: 'licenses' } });
   if (!license) return;
-  const accounts = (await host.findWhere(em, user.companyId, 'bank-accounts', 'licenseId', licenseId)).map((rec) => ({ rec, no: host.sensitiveOf(rec, 'accountNo') ?? '' }));
+  const accounts = (await findLive(host, em, user.companyId, 'bank-accounts', 'licenseId', licenseId)).map((rec) => ({ rec, no: host.sensitiveOf(rec, 'accountNo') ?? '' }));
   const pubs = accounts.filter((a) => PUBLIC_KINDS.includes(str(a.rec.data.kind)));
   const cards = accounts.filter((a) => CARD_KINDS.includes(str(a.rec.data.kind)));
   const legal = norm(license.data.legalPerson);
@@ -127,7 +132,7 @@ export async function syncStoreTrademark(em: EntityManager, host: RuleHost, user
   if (typeof storeId !== 'number') return;
   const store = await em.findOne(ResourceRecord, { where: { id: storeId, companyId: user.companyId, type: 'stores' } });
   if (!store) return;
-  const auths = (await host.findWhere(em, user.companyId, 'trademark-authorizations', 'storeId', storeId)).filter((a) => a.status === 'normal');
+  const auths = (await findLive(host, em, user.companyId, 'trademark-authorizations', 'storeId', storeId)).filter((a) => a.status === 'normal');
   auths.sort((a, b) => {
     const av = str(a.data.validTo);
     const bv = str(b.data.validTo);
@@ -156,7 +161,7 @@ async function storeAfterSave(ctx: AfterSaveContext) {
   if (!name) return syncStoreTrademark(em, host, user, record.id);
   const matches = await trademarksByName(em, user.companyId, name);
   if (matches.length !== 1) return; // 对不上档案的商标名称，保留为店铺上的手写文字
-  const auths = (await host.findWhere(em, user.companyId, 'trademark-authorizations', 'storeId', record.id)).filter((a) => Number(a.data.trademarkId) === matches[0].id);
+  const auths = (await findLive(host, em, user.companyId, 'trademark-authorizations', 'storeId', record.id)).filter((a) => Number(a.data.trademarkId) === matches[0].id);
   if (auths.length === 0) {
     await host.createRecord(em, user, 'trademark-authorizations', { trademarkId: matches[0].id, storeId: record.id, validTo: expire || undefined }, '店铺授权商标');
   } else if (str(auths[0].data.validTo) !== expire) {
@@ -272,7 +277,7 @@ async function recountShields(ctx: AfterSaveContext | { em: EntityManager; host:
   const { em, host, user, record } = ctx;
   const bankId = record.data.bankAccountId;
   if (typeof bankId !== 'number') return;
-  const n = (await host.findWhere(em, user.companyId, 'u-shields', 'bankAccountId', bankId)).filter((s) => s.status !== 'inactive').length;
+  const n = (await findLive(host, em, user.companyId, 'u-shields', 'bankAccountId', bankId)).filter((s) => s.status !== 'inactive').length;
   await host.patchData(em, user, 'bank-accounts', bankId, { shieldCount: n, shieldFlag: n > 0 ? 'has' : 'none' }, 'U 盾个数更新');
 }
 
@@ -282,7 +287,7 @@ async function refreshStoreFlag(ctx: { em: EntityManager; host: RuleHost; user: 
   if (typeof bankId !== 'number') return;
   const bank = await em.findOne(ResourceRecord, { where: { id: bankId, companyId: user.companyId, type: 'bank-accounts' } });
   if (!bank) return;
-  const links = (await host.findWhere(em, user.companyId, 'bank-store-links', 'bankAccountId', bankId)).filter((l) => l.status !== 'inactive').length;
+  const links = (await findLive(host, em, user.companyId, 'bank-store-links', 'bankAccountId', bankId)).filter((l) => l.status !== 'inactive').length;
   await host.patchData(em, user, 'bank-accounts', bankId, { storeFlag: typeof bank.data.storeId === 'number' || links > 0 ? 'yes' : 'no' });
 }
 
@@ -294,7 +299,7 @@ export const CERT_AFTER_SAVE: Record<string, After> = {
   trademarks: async ({ em, host, user, record, existing }) => {
     if (!existing || existing.title === record.title) return;
     // 商标改名：授权名称、被授权店铺上的授权商标一并更新
-    for (const a of await host.findWhere(em, user.companyId, 'trademark-authorizations', 'trademarkId', record.id)) {
+    for (const a of await findLive(host, em, user.companyId, 'trademark-authorizations', 'trademarkId', record.id)) {
       const store = await host.titleOf(em, user.companyId, 'stores', Number(a.data.storeId));
       await host.patchData(em, user, 'trademark-authorizations', a.id, { label: `${record.title} → ${store ?? ''}` });
       await syncStoreTrademark(em, host, user, Number(a.data.storeId));
@@ -319,11 +324,4 @@ export const CERT_AFTER_DELETE: Record<string, (ctx: { em: EntityManager; host: 
   'bank-accounts': async ({ em, host, user, record }) => writeBackLicenseBank(em, host, user, record.data.licenseId),
   'bank-store-links': async (ctx) => refreshStoreFlag(ctx),
   'u-shields': async (ctx) => recountShields(ctx),
-  // 对应的营业执照还在，就不能删税务资料（旧系统同样不允许归档）；不用了请停用
-  'tax-profiles': async ({ em, user, record }) => {
-    const id = record.data.licenseId;
-    if (typeof id !== 'number') return;
-    const lic = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type: 'licenses' }, select: ['id'] });
-    if (lic) throw new ConflictException('对应的营业执照仍然存在，不能删除税务资料；不再使用请改为停用');
-  },
 };

@@ -111,8 +111,10 @@ const licenseBorrow: FlowAdapter = {
   },
   async onPass({ em, user, run, payload, stepKey, form, resources }) {
     if (stepKey === 'handover') {
+      // 借用人填的是名字：公司里有唯一同名在职员工就记成员工，否则当外部人员
+      const named = await em.query("SELECT id FROM users WHERE company_id = ? AND status = 'active' AND name = ?", [user.companyId, str(payload.borrower)]);
       const rec = await resources.createRecord(em, asEngine(user), 'license-borrows', {
-        licenseId: payload.licenseId, item: payload.item, borrower: payload.borrower, purpose: payload.purpose,
+        licenseId: payload.licenseId, item: payload.item, ...(named.length === 1 ? { borrowerUserId: Number(named[0].id) } : { borrowerName: payload.borrower }), purpose: payload.purpose,
         borrowedAt: payload.borrowedAt, expectedReturnAt: payload.expectedReturnAt, note: str(form.note) || undefined,
       }, `流程 #${run.id} 交接登记`);
       payload._borrowRecordId = rec.id;
@@ -121,7 +123,7 @@ const licenseBorrow: FlowAdapter = {
       const id = num(payload._borrowRecordId);
       if (id === null) throw new BadRequestException('找不到这次借用的登记记录');
       await resources.patchData(em, asEngine(user), 'license-borrows', id, { returnedAt: form.returnedAt }, `流程 #${run.id} 归还确认`);
-      await resources.setStatusDirect(em, asEngine(user), 'license-borrows', id, 'returned', `流程 #${run.id} 归还确认`);
+      await resources.setStatusChecked(em, asEngine(user), 'license-borrows', id, 'returned', `流程 #${run.id} 归还确认`);
     }
   },
   returnBlocked({ stepKey }) {

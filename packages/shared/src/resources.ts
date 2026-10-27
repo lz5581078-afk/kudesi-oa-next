@@ -525,7 +525,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       select('taxCategory', '类别', '基础', o('operation:经营税务', 'ecommerce:电商税务'), { list: true, help: '不选时跟随所属执照的类别' }),
       ref('licenseId', '所属执照', '基础', 'licenses', { required: true, list: true }),
-      text('taxpayerName', '纳税人名称', '基础', { required: true, list: true, search: true }),
+      text('taxpayerName', '纳税人名称', '基础', { list: true, search: true, help: '不填时取所属执照的主体名称' }),
       text('taxpayerNo', '纳税人识别号', '基础', { list: true, search: true, maxLength: 32 }),
       select('taxType', '税种类型', '基础', o('pending:待确认', 'general:一般纳税人', 'small:小规模纳税人', 'ordinary:普通纳税人'), { list: true }),
       text('taxAuthority', '主管税务机关', '基础'),
@@ -694,7 +694,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       ref('bankAccountId', '银行账户', '基础', 'bank-accounts', { required: true }),
       ref('storeId', '店铺', '基础', 'stores', { required: true, list: true }),
-      select('purpose', '用途', '基础', o('collection:店铺收款', 'withdraw:提现', 'deposit:保证金', 'promotion:推广充值'), { required: true, list: true }),
+      text('purpose', '用途', '基础', { required: true, list: true, maxLength: 120, help: '如：店铺收款、提现、保证金、推广充值' }),
       text('label', '名称', '基础', { readonly: true, maxLength: 200 }),
       NOTE(),
     ],

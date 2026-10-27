@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
+import { CryptoService } from '../common/crypto.service';
 
 /** 审计日志：系统操作记录（AuditLog）与资料变更记录（ResourceChangeLog）合并只读查看。 */
 @Controller('audit')
@@ -57,37 +58,57 @@ function safeJson(s: string) {
   try { return JSON.parse(s); } catch { return s; }
 }
 
-/** 银行卡资金概况：按账户类型汇总手工登记余额（资料里的“当前余额”）。 */
+/** 银行卡资金概况：按账户类型汇总余额（期初余额 + 财务现金银行已过账流水），不含已停用、已归档的账户。 */
 @Controller('bank-fund')
 export class BankFundController {
-  constructor(private readonly ds: DataSource) {}
+  constructor(private readonly ds: DataSource, private readonly crypto: CryptoService) {}
 
   @RequirePermission('resource.bank-accounts.view')
   @Get()
   async summary(@CurrentUser() u: AuthUser) {
-    const rows: Array<{ id: number; title: string; status: string; kind: string | null; balance: string | null; bank: string | null; owner: string | null; reconcileCycle: string | null }> = await this.ds.query(
+    const rows: Array<{ id: number; title: string; status: string; kind: string | null; balance: string | null; bank: string | null; owner: string | null; secrets: string | null; archived: Date | null }> = await this.ds.query(
       `SELECT id, title, status, JSON_UNQUOTE(JSON_EXTRACT(data,'$.kind')) AS kind, JSON_UNQUOTE(JSON_EXTRACT(data,'$.balance')) AS balance,
               JSON_UNQUOTE(JSON_EXTRACT(data,'$.bank')) AS bank, JSON_UNQUOTE(JSON_EXTRACT(data,'$.ownerName')) AS owner,
-              JSON_UNQUOTE(JSON_EXTRACT(data,'$.reconcileCycle')) AS reconcileCycle
+              secrets, archived_at AS archived
        FROM resource_records WHERE company_id = ? AND type = 'bank-accounts' ORDER BY id`,
       [u.companyId],
     );
+    const moves: Array<{ id: number; s: string }> = await this.ds.query(
+      "SELECT account_id AS id, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND kind = 'bank' GROUP BY account_id",
+      [u.companyId],
+    );
+    const move = new Map(moves.map((m) => [Number(m.id), Number(m.s)]));
+    const all = rows.filter((r) => !r.archived);
     const COMPANY = new Set(['company_public', 'company_card', 'cashier_account']);
     const STORE = new Set(['store_public', 'store_personal_card']);
     const KINDS = ['company_public', 'company_card', 'cashier_account', 'store_public', 'store_personal_card'];
-    const cents = (r: { balance: string | null }) => Math.round(Number(r.balance ?? 0)) || 0;
-    const live = rows.filter((r) => r.status !== 'inactive');
+    const cents = (r: { id: number; balance: string | null }) => (Math.round(Number(r.balance ?? 0)) || 0) + (move.get(Number(r.id)) ?? 0);
+    const live = all.filter((r) => r.status !== 'inactive');
     const sum = (list: typeof rows) => list.reduce((a, r) => a + cents(r), 0);
+    const accountNo = (r: { secrets: string | null }) => {
+      try {
+        const token = r.secrets ? (JSON.parse(r.secrets) as Record<string, string>).accountNo : '';
+        return token ? this.crypto.decrypt(token) : null;
+      } catch {
+        return null;
+      }
+    };
     return {
       totalCents: sum(live),
       companyCents: sum(live.filter((r) => COMPANY.has(r.kind ?? ''))),
       storeCents: sum(live.filter((r) => STORE.has(r.kind ?? ''))),
-      abnormalCount: rows.filter((r) => r.status === 'abnormal').length,
+      abnormalCount: live.filter((r) => r.status === 'abnormal').length,
       kinds: KINDS.map((kind) => {
-        const list = rows.filter((r) => r.kind === kind);
-        return { kind, count: list.length, balanceCents: sum(list.filter((r) => r.status !== 'inactive')) };
+        const list = all.filter((r) => r.kind === kind);
+        return {
+          kind,
+          count: list.length,
+          abnormalCount: list.filter((r) => r.status === 'abnormal').length,
+          inactiveCount: list.filter((r) => r.status === 'inactive').length,
+          balanceCents: sum(list.filter((r) => r.status !== 'inactive')),
+        };
       }),
-      recent: [...rows].reverse().slice(0, 20).map((r) => ({ id: r.id, kind: r.kind, title: r.title, status: r.status, bank: r.bank, owner: r.owner, balanceCents: cents(r) })),
+      recent: [...all].reverse().slice(0, 12).map((r) => ({ id: r.id, kind: r.kind, title: r.title, status: r.status, bank: r.bank, owner: r.owner, accountNo: accountNo(r), balanceCents: cents(r) })),
     };
   }
 }

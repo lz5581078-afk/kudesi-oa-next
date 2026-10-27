@@ -25,7 +25,8 @@ export interface RuleHost {
   countWhere(em: EntityManager, companyId: number, type: string, field: string, value: unknown): Promise<number>;
   findWhere(em: EntityManager, companyId: number, type: string, field: string, value: string | number): Promise<ResourceRecord[]>;
   setStatusDirect(em: EntityManager, user: AuthUser, type: string, id: number, status: string, note?: string): Promise<void>;
-  patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string): Promise<void>;
+  /** syncRefs：改了引用字段时同步关联表（默认不同步） */
+  patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs?: boolean): Promise<void>;
   /** 读加密字段明文（仅服务端内部） */
   sensitiveOf(record: ResourceRecord, field: string): string | undefined;
   /** 改别的记录的加密字段；value 为空即清除 */
@@ -383,7 +384,7 @@ export async function afterCreateRule(type: string, ctx: AfterCreateContext): Pr
     } else {
       // 同名法人已有档案：没挂执照就补上，已挂别的执照就多关联一张；银行卡信息空着的补上
       const own = exists.data.licenseId;
-      if (own === undefined || own === null) await host.patchData(em, user, 'partners', exists.id, { licenseId: record.id }, note);
+      if (own === undefined || own === null) await host.patchData(em, user, 'partners', exists.id, { licenseId: record.id }, note, true);
       else if (own !== record.id) {
         await em.insert(ResourceLink, { companyId: user.companyId, sourceType: 'partners', sourceId: exists.id, relation: 'manual', targetType: 'licenses', targetId: record.id });
       }
@@ -401,7 +402,7 @@ export async function afterCreateRule(type: string, ctx: AfterCreateContext): Pr
   const taxes = await host.findWhere(em, user.companyId, 'tax-profiles', 'taxpayerNo', String(plain.creditCode));
   const sameTax = taxes.find((t) => (t.data.taxCategory ?? 'operation') === taxCategory);
   if (sameTax) {
-    if (sameTax.data.licenseId === undefined || sameTax.data.licenseId === null) await host.patchData(em, user, 'tax-profiles', sameTax.id, { licenseId: record.id }, note);
+    if (sameTax.data.licenseId === undefined || sameTax.data.licenseId === null) await host.patchData(em, user, 'tax-profiles', sameTax.id, { licenseId: record.id }, note, true);
   } else {
     await host.createRecord(
       em,
@@ -443,7 +444,7 @@ export async function afterCreateRule(type: string, ctx: AfterCreateContext): Pr
   for (const acc of accounts) {
     const hit = await host.findByUnique(em, user.companyId, 'bank-accounts', String(acc.accountNo));
     if (hit) {
-      if (hit.data.licenseId === undefined || hit.data.licenseId === null) await host.patchData(em, user, 'bank-accounts', hit.id, { licenseId: record.id }, note);
+      if (hit.data.licenseId === undefined || hit.data.licenseId === null) await host.patchData(em, user, 'bank-accounts', hit.id, { licenseId: record.id }, note, true);
       continue;
     }
     await host.createRecord(em, user, 'bank-accounts', { ...acc, licenseId: record.id }, note);

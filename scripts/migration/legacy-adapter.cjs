@@ -76,7 +76,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
       }
       return undefined;
     }
-    function convert(field,value){
+    function convert(field,value,rule){
       if(value===undefined||value===null||value==='')return undefined;
       if(field.type==='secret'||field.type==='sensitive')return codec.decrypt(String(value));
       if(field.type==='money')return exactCents(value,field.scale??0);
@@ -87,7 +87,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
       if(['number','decimal'].includes(field.type))return Number(value);
       if(field.type==='bool'){if([true,1,'1','true','是','启用'].includes(value))return true;if([false,0,'0','false','否','停用'].includes(value))return false;throw Error('布尔值口径不明');}
       if(field.type==='select'){
-        const aliases={};const v=aliases[value]||value;
+        const aliases=rule?.valueMaps?.[field.key]||{};const v=aliases[value]||value;
         const option=field.options?.find(x=>x.value===v||x.label===value);return option?option.value:String(value);
       }
       if(field.type==='attrs')return typeof value==='string'?json(value):value;
@@ -113,7 +113,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
       const def=defs.get(type);
       if(rule.policy){for(const r of tables[rule.tables[0]]||[])excluded(type,r.id||'snapshot',rule.reason||rule.policy);continue;}
       let entries=[];
-      for(const row of tables[rule.tables[0]]||[]){
+      for(const row of (tables[rule.tables[0]]||[]).filter(x=>!rule.filter||Object.entries(rule.filter).every(([k,v])=>String(x[k])===String(v)))){
         if(rule.json){if(rule.json.kind&&row.archive_type!==rule.json.kind)continue;const value=json(row[rule.json.column]);for(const x of itemsAt(value,rule.json.path))entries.push({row:rule.json.path==='$'?row:x.value,payload:x.value,ancestors:x.ancestors,container:row});}
         else entries.push({row,payload:{},ancestors:[],container:row});
       }
@@ -124,14 +124,16 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
         const data={};let aliasName;const notices=[];
         const money=(field,value)=>{try{return exactCents(value,def.fields.find(f=>f.key===field)?.scale??0);}catch{const msg=field+'：旧金额精度超出新字段允许范围，未舍入，待核对';notices.push(msg);excluded(type+'.'+field,id,msg);return undefined;}};
         try{
-          for(const field of def.fields){if(field.readonly||field.type==='files'||(type==='asset-categories'&&field.key==='customFields')||(type==='fixed-assets'&&['config','attrs'].includes(field.key))||(type==='finance-products'&&['rawFinishedNames','zeroValueReason','capacities','purchasePrice','freight','handlingFee','brandId','supplierId','weightG','categoryId'].includes(field.key)))continue;data[field.key]=convert(field,sourceValue(row,payload,field,rule));}
-          let status=row.status;
+          for(const field of def.fields){if(field.readonly||field.type==='files'||(type==='asset-categories'&&field.key==='customFields')||(type==='fixed-assets'&&['config','attrs'].includes(field.key))||(type==='finance-products'&&['rawFinishedNames','zeroValueReason','capacities','purchasePrice','freight','handlingFee','brandId','supplierId','weightG','categoryId'].includes(field.key)))continue;data[field.key]=convert(field,sourceValue(row,payload,field,rule),rule);}
+          let status=rule.statusMap?.[row.status]??row.status;
           if(['finance-base-codes','finance-bundles'].includes(type))status='pending';
           else if(['normal','active',undefined,null,''].includes(status))status=def.statuses.find(x=>x.value==='active')?'active':def.defaultStatus;
           else if(status==='inactive')status=def.statuses.find(x=>x.value==='inactive')?'inactive':def.statuses.find(x=>x.value==='disabled')?'disabled':status;
           if(['stores','phones'].includes(type)&&row.abnormal_reason){const table=type==='stores'?'store_abnormal_reasons':'phone_abnormal_reasons';const matches=(tables[table]||[]).filter(x=>x.reason===row.abnormal_reason);if(matches.length===1)data.abnormalReason=ref(type==='stores'?'store-abnormal-reasons':'phone-abnormal-reasons',matches[0].id);else{delete data.abnormalReason;data.note=[data.note,'旧异常说明：'+row.abnormal_reason].filter(Boolean).join('\n');excluded(type+'.abnormalReason',id,'旧异常原因未唯一对应新原因目录，原文已保留在备注');}}
           if(type==='tax-profiles'&&!row.license_id&&row.taxpayer_no){const licenses=(tables.business_licenses||[]).filter(x=>x.credit_code===row.taxpayer_no);if(licenses.length===1)data.licenseId=ref('licenses',licenses[0].id);}
           if(type==='licenses')data.category=row.license_category;
+          if(type==='license-borrows'&&!data.borrowerUserId)data.borrowerName='未登记（旧数据无借用人）';
+          if(type==='bank-store-links'&&!data.purpose)data.purpose='店铺收款';
           if(type==='phones'){data.feeCycle=({'30':'monthly','90':'quarterly','365':'yearly'})[row.fee_cycle]||row.fee_cycle;data.forwardApp=row.has_forwarding_app===1?'yes':'no';}
           if(type==='stores'){if([false,0,'0','no','未连接'].includes(row.jushuitan_connected))data.jushuitan='not_connected';if([true,1,'1','yes','已连接'].includes(row.jushuitan_connected))data.jushuitan='connected';}
           if(type==='locations'&&row.location_scope==='archive')data.scope='asset_space';

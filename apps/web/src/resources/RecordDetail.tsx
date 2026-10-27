@@ -12,6 +12,7 @@ import { StatusControl, typeLabel } from './StatusControl';
 import { RevenuePanel } from './RevenuePanel';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
 import { StoreMetricsPanel } from './StoreMetricsPanel';
+import { DerivedStoresPanel, PartnerSubjectPanel, PhoneArchiveButton, ReturnBorrowButton } from './CertPanels';
 
 export function useResourceCan(type: string) {
   const { user } = useAuth();
@@ -108,6 +109,7 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
           <small className="muted">{cols.map((f) => displayValue(f, it)).filter(Boolean).join(' · ')}</small>
           <div className="row-actions">
             {can('edit') && <button type="button" className="link-button" onClick={() => setEditing(it)}>编辑</button>}
+            {childType === 'license-borrows' && can('edit') && it.status !== 'returned' && <ReturnBorrowButton id={it.id} onDone={reload} onError={setError} />}
             {can('disable') && <StatusControl def={def} id={it.id} current={it.status} onChanged={reload} onError={setError} />}
             {can('delete') && <button type="button" className="link-button danger-text" onClick={() => setDeleting(it)}>删除…</button>}
           </div>
@@ -145,7 +147,7 @@ function ChildPanel({ parentDef, parent, childType, field }: { parentDef: Resour
   );
 }
 
-type Tab = 'info' | 'relations' | 'logs' | 'revenue' | 'flow' | 'storage' | 'contents' | 'metrics' | `child:${string}`;
+type Tab = 'info' | 'relations' | 'logs' | 'revenue' | 'flow' | 'storage' | 'contents' | 'metrics' | 'derived' | 'partner' | `child:${string}`;
 
 export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: ResourceDef; id: number; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const can = useResourceCan(def.key);
@@ -197,6 +199,8 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
     ['relations', '关联'],
     ...((def.children ?? []).map((c) => [`child:${c}|${getResourceDef(c)?.parent?.field}` as Tab, getResourceDef(c)?.label ?? c]) as Array<[Tab, string]>),
     ...((def.related ?? []).filter((r) => canView(r.type)).map((r) => [`child:${r.type}|${r.field}` as Tab, getResourceDef(r.type)?.label ?? r.type]) as Array<[Tab, string]>),
+    ...(def.derivedStores && canView('stores') ? ([['derived' as Tab, '适用店铺']] as Array<[Tab, string]>) : []),
+    ...(def.key === 'partners' ? ([['partner' as Tab, '法人主体与银行卡']] as Array<[Tab, string]>) : []),
     ...(def.key === 'licenses' && canView('store-daily-metrics') ? ([['revenue' as Tab, '营收']] as Array<[Tab, string]>) : []),
     ...(def.key === 'stores' ? ([['metrics' as Tab, '经营数据']] as Array<[Tab, string]>) : []),
     ['logs', '操作记录'],
@@ -244,6 +248,12 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
               </dl>
             </section>
           ))}
+        {tab === 'info' && def.key === 'bank-accounts' && (
+          <PhoneArchiveButton type="bank-accounts" record={record} numberKey="reservedPhoneNumber" idKey="phoneId" holder={String(record.data.reservedPhoneHolder ?? '')} onDone={() => { void load(); onChanged(); }} onError={setError} />
+        )}
+        {tab === 'info' && def.key === 'partners' && (
+          <PhoneArchiveButton type="partners" record={record} numberKey="cardPhone" idKey="cardPhoneId" holder={String(record.data.cardPhoneHolder ?? record.title)} onDone={() => { void load(); onChanged(); }} onError={setError} />
+        )}
         {tab === 'relations' && (
           <section>
             <h2 className="section-title">关联关系</h2>
@@ -283,6 +293,8 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         {tab === 'flow' && <AssetFlowPanel record={record} version={record.updatedAt} />}
         {tab === 'storage' && <AssetStoragePanel record={record} />}
         {tab === 'metrics' && <StoreMetricsPanel store={record} />}
+        {tab === 'derived' && def.derivedStores && <DerivedStoresPanel licenseId={typeof record.data[def.derivedStores] === 'number' ? (record.data[def.derivedStores] as number) : null} />}
+        {tab === 'partner' && <PartnerSubjectPanel partner={record} onChanged={() => { void load(); onChanged(); }} />}
         {tab === 'logs' && (
           <section>
             <h2 className="section-title">操作记录</h2>

@@ -573,7 +573,7 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 规则里改别的记录（如组合行变化后刷新组合的编码）：直接改数据并记日志，不重新走完整校验。 */
-  async patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string) {
+  async patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs = false) {
     const def = this.def(type);
     const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type } });
     if (!record) return;
@@ -592,7 +592,7 @@ export class ResourcesService implements RuleHost {
     }
     Object.assign(record, { data, title, uniqueKey, searchText: this.buildSearchText(def, data, title), updatedBy: user.id });
     await em.save(ResourceRecord, record);
-    if (def.fields.some((f) => f.type === 'ref' && f.key in patch)) await this.syncLinks(em, user, def, record);
+    if (syncRefs && def.fields.some((f) => f.type === 'ref' && f.key in patch)) await this.syncLinks(em, user, def, record);
     await this.writeLog(em, user, def, id, 'update', before, record, note);
   }
 

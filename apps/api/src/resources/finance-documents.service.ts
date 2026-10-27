@@ -781,6 +781,10 @@ export class FinanceDocumentsService {
     const addLink = (acc: number, st: number) => { if (st > 0) storesOf.set(acc, (storesOf.get(acc) ?? new Set()).add(st)); };
     for (const a of shown) addLink(a.id, Number(a.data.storeId));
     for (const l of links) { if (l.sourceType === 'bank-accounts') addLink(l.sourceId, l.targetId); else addLink(l.targetId, l.sourceId); }
+    // 账户资料里登记的“账户店铺”（多店铺 + 用途）
+    for (const r of await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'bank-store-links' }, select: ['id', 'status', 'data'] })) {
+      if (r.status !== 'inactive') addLink(Number(r.data.bankAccountId), Number(r.data.storeId));
+    }
     const refIds = new Set<number>();
     for (const a of shown) { if (Number(a.data.licenseId) > 0) refIds.add(Number(a.data.licenseId)); if (Number(a.data.keeperUserId) > 0) refIds.add(-Number(a.data.keeperUserId)); }
     const titleIds = [...refIds].filter((x) => x > 0);
