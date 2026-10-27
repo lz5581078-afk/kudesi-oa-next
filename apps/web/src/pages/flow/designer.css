@@ -26,6 +26,7 @@
 .fd-node { position: relative; display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border-strong); border-left-width: 4px; border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
 .fd-node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .fd-node.drop { outline: 2px dashed var(--accent); }
+.fd-node.parallel { margin-left: 18px; border-left-color: #7c5cff; }
 .fd-node.conditional { border-style: dashed; border-left-style: solid; }
 .fd-submit, .fd-end { background: var(--bg); }
 .fd-approval { border-left-color: var(--accent); }

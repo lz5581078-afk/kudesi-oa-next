@@ -2,10 +2,10 @@
 import 'reflect-metadata';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
-import { defaultTimeoutPolicy, type CustomSchema, type StepDef } from '@kudesi/shared';
+import { LEGACY_NODE_TEMPLATES, defaultTimeoutPolicy, type CustomSchema, type StepDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, Department, User } from '../entities';
+import { Company, Department, Position, ResourceRecord, User } from '../entities';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { buildServices } from '../test-support';
 import { FlowDesignerService } from './flow-designer.service';
@@ -213,6 +213,113 @@ d('流程目录、自建模板与超时处罚（真实数据库）', () => {
     await expect(flow.saveDraft(req, key, steps(), [], schema())).rejects.toThrow(/权限/);
   });
 
+  it('并行分支：同时办理、全部办完才汇合；退回会作废其余分支', async () => {
+    const st: StepDef[] = [
+      { key: 'apply', name: '提交申请', type: 'submit', assignee: { source: 'requester' } },
+      { key: 'a', name: '老板审', type: 'approval', assignee: emp(boss.id), parallel: 'g1' },
+      { key: 'b', name: '出纳核', type: 'finance', assignee: emp(fin.id), parallel: 'g1' },
+      { key: 'c', name: '汇合后复核', type: 'approval', assignee: { source: 'requester_manager' } },
+      { key: 'end', name: '结束', type: 'end' },
+    ];
+    const key = await make(`并行${rid()}`, st);
+    const run = await flow.start(req, key, { title: '并', amount: 1 });
+    expect(run.activeSteps.map((x) => x.key).sort()).toEqual(['a', 'b']);
+    const bStep = run.activeSteps.find((x) => x.key === 'b')!;
+    const afterB = await flow.pass(fin, run.id, { revision: run.revision, stepId: bStep.id });
+    expect(afterB.status).toBe('running');
+    expect(afterB.activeStep?.key).toBe('a'); // 还在等老板，没有汇合
+    await expect(flow.pass(fin, run.id, { revision: afterB.revision, stepId: bStep.id })).rejects.toThrow(/已经被处理/);
+    const afterA = await flow.pass(boss, run.id, { revision: afterB.revision, stepId: afterB.activeStep!.id });
+    expect(afterA.activeStep?.key).toBe('c'); // 汇合
+    const done = await flow.pass(lead, run.id, { revision: afterA.revision, stepId: afterA.activeStep!.id });
+    expect(done.status).toBe('completed');
+
+    const run2 = await flow.start(req, key, { title: '并2', amount: 1 });
+    const a2 = run2.activeSteps.find((x) => x.key === 'a')!;
+    const back = await flow.returnBack(boss, run2.id, { revision: run2.revision, stepId: a2.id, reason: '重来' });
+    expect(back.activeStep?.key).toBe('apply'); // 退回到分支之前
+    expect(back.steps.filter((x) => x.status === 'active').length).toBe(1);
+    expect(back.steps.some((x) => x.key === 'b' && x.status === 'cancelled')).toBe(true);
+    // 结构不合法：分支不相邻 / 只有一个步骤
+    const bad = steps(); bad.splice(1, 0, { key: 'p1', name: '并一', type: 'approval', assignee: emp(boss.id), parallel: 'x' });
+    await expect(make(`坏并行${rid()}`, bad)).rejects.toThrow(/至少要有 2 个/);
+  });
+
+  it('异常连线：上报异常转到仅异常步骤，正常流转自动略过它', async () => {
+    const st: StepDef[] = [
+      { key: 'apply', name: '提交申请', type: 'submit', assignee: { source: 'requester' } },
+      { key: 'qc', name: '质检', type: 'approval', assignee: emp(boss.id), exceptionToKey: 'fix' },
+      { key: 'ship', name: '发货', type: 'execute', assignee: emp(fin.id) },
+      { key: 'fix', name: '异常处置', type: 'approval', assignee: emp(lead.id), onlyOnException: true },
+      { key: 'end', name: '结束', type: 'end' },
+    ];
+    const key = await make(`异常${rid()}`, st);
+    const ok = await flow.start(req, key, { title: '好', amount: 1 });
+    const r1 = await flow.pass(boss, ok.id, { revision: ok.revision, stepId: ok.activeStep!.id });
+    expect(r1.activeStep?.key).toBe('ship');
+    const r2 = await flow.pass(fin, ok.id, { revision: r1.revision, stepId: r1.activeStep!.id });
+    expect(r2.status).toBe('completed'); // 异常步骤被略过
+    const run = await flow.start(req, key, { title: '坏', amount: 1 });
+    await expect(flow.reportAbnormal(boss, run.id, { revision: run.revision, stepId: run.activeStep!.id, reason: '' })).rejects.toThrow(/原因/);
+    await expect(flow.reportAbnormal(other, run.id, { revision: run.revision, stepId: run.activeStep!.id, reason: '坏了' })).rejects.toThrow(/不是你办理/);
+    const ab = await flow.reportAbnormal(boss, run.id, { revision: run.revision, stepId: run.activeStep!.id, reason: '货损' });
+    expect(ab.activeStep?.key).toBe('fix');
+    expect(ab.activeStep?.enteredVia).toBe('exception');
+    const fixed = await flow.pass(lead, run.id, { revision: ab.revision, stepId: ab.activeStep!.id });
+    expect(fixed.status).toBe('completed');
+    // 没设异常连线的步骤不能上报
+    const run3 = await flow.start(req, key, { title: '再', amount: 1 });
+    const t3 = await flow.pass(boss, run3.id, { revision: run3.revision, stepId: run3.activeStep!.id });
+    await expect(flow.reportAbnormal(fin, run3.id, { revision: t3.revision, stepId: t3.activeStep!.id, reason: 'x' })).rejects.toThrow(/没有设置异常/);
+    // 异常连线必须指向仅异常步骤
+    const wrong = st.map((x) => (x.key === 'qc' ? { ...x, exceptionToKey: 'ship' } : x));
+    await expect(make(`坏异常${rid()}`, wrong)).rejects.toThrow(/仅异常/);
+  });
+
+  it('办理人来源：按岗位类型、按职责组、关联资料负责人；都必须恰好找到 1 个在职员工且不跨公司', async () => {
+    const cid = admin.companyId;
+    const pos = await ds.manager.save(Position, ds.manager.create(Position, { companyId: cid, name: `财务岗${rid()}`, workspaceType: 'finance', status: 'active' } as never));
+    const fid = await mk(cid, `f${rid()}`, '财务甲', { positionId: pos.id });
+    const mkRec = (type: string, title: string, data: Record<string, unknown>, companyId = cid) => ds.manager.save(ResourceRecord, ds.manager.create(ResourceRecord, { companyId, type, title, status: type === 'duty-group-members' ? 'normal' : 'normal', searchText: title, data } as never));
+    const grp = await mkRec('duty-groups', '审核组', { groupKey: `g${rid()}`, name: '审核组' });
+    const store = await mkRec('stores', '甲店', { operatorUserId: boss.id });
+    const sc: CustomSchema = { ...schema(), stepFields: {}, fields: [...schema().fields, { key: 'storeId', label: '店铺', type: 'ref', ref: 'stores', group: '申请' }] };
+    const st = (assignee: StepDef['assignee']): StepDef[] => [
+      { key: 'apply', name: '提交申请', type: 'submit', assignee: { source: 'requester' } },
+      { key: 'x', name: '办理', type: 'approval', assignee },
+      { key: 'end', name: '结束', type: 'end' },
+    ];
+    // 岗位类型：只有一个财务岗员工
+    const k1 = await make(`类型${rid()}`, st({ source: 'position_type', key: 'finance' }), sc);
+    const r1 = await flow.start(req, k1, { title: 't', amount: 1 });
+    expect(r1.activeStep?.recipients.map((r) => r.id)).toEqual([fid]);
+    // 职责组：没有成员发布失败；一个成员可以；两个成员不行
+    const k2 = `${rid()}`;
+    const { key: dk } = await designer.create(admin, { name: `职责${k2}` });
+    await flow.saveDraft(admin, dk, st({ source: 'duty_group', id: grp.id }), [], sc);
+    await expect(flow.publish(admin, dk)).rejects.toThrow(/匹配到 0/);
+    await mkRec('duty-group-members', '成员一', { groupId: grp.id, userId: lead.id });
+    await flow.publish(admin, dk);
+    expect((await flow.start(req, dk, { title: 'g', amount: 1 })).activeStep?.recipients.map((r) => r.id)).toEqual([lead.id]);
+    await mkRec('duty-group-members', '成员二', { groupId: grp.id, userId: wh1.id });
+    await expect(flow.start(req, dk, { title: 'g2', amount: 1 })).rejects.toThrow(/匹配到 2/);
+    // 别的公司的职责组不能用
+    const c2 = otherCompanyAdmin.companyId;
+    const foreign = await mkRec('duty-groups', '别家组', { groupKey: `x${rid()}`, name: '别家组' }, c2);
+    await flow.saveDraft(admin, dk, st({ source: 'duty_group', id: foreign.id }), [], sc);
+    await expect(flow.publish(admin, dk)).rejects.toThrow(/不存在/);
+    // 关联资料负责人：取申请里选的店铺的运营人
+    const k3 = await make(`关联${rid()}`, st({ source: 'related_owner', key: 'store_owner', field: 'storeId' }), sc);
+    const r3 = await flow.start(req, k3, { title: 's', amount: 1, storeId: store.id });
+    expect(r3.activeStep?.recipients.map((r) => r.id)).toEqual([boss.id]);
+    await expect(flow.start(req, k3, { title: 's', amount: 1 })).rejects.toThrow(/没有选择/);
+    // 别的公司的店铺取不到负责人
+    const fstore = await mkRec('stores', '别家店', { operatorUserId: otherCompanyAdmin.id }, c2);
+    await expect(flow.start(req, k3, { title: 's', amount: 1, storeId: fstore.id })).rejects.toThrow(/没有设置在职的负责员工/);
+    // 字段没指向对应资料：保存就被拒
+    await expect(make(`坏关联${rid()}`, st({ source: 'related_owner', key: 'store_owner', field: 'title' }), sc)).rejects.toThrow(/字段/);
+  });
+
   it('督促时效：到期前提醒、超时后按间隔提醒，每条只发一次', async () => {
     const st = steps();
     st[1] = { ...st[1], when: null, dueMinutes: 60, remind: { beforeMinutes: [20, 10], overdueEveryMinutes: 5 } } as StepDef;
@@ -304,6 +411,16 @@ d('流程目录、自建模板与超时处罚（真实数据库）', () => {
   it('节点模板：内置只读可复制；自己的模板改动带版本号；重名/非法字段被拒', async () => {
     const list = await designer.nodeTemplates(admin);
     expect(list.templates.some((t) => t.builtin && t.key === 'approval')).toBe(true);
+    // 旧系统 52 个节点模板：11 个已是通用内置，其余 41 个迁入；业务专用/发起/汇合/结束只读
+    expect(list.templates.filter((t) => t.builtin && LEGACY_NODE_TEMPLATES.some((l) => l.key === t.key)).length).toBe(41);
+    expect(list.categories).toContain('业务专用');
+    const sub = list.templates.find((t) => t.key === 'purchase_submit')!;
+    expect(sub.insertable).toBe(false);
+    await expect(designer.saveNodeTemplate(admin, { sourceKey: 'purchase_submit', name: `复制采购${rid()}`, category: '通用节点', type: 'approval', fields: [] })).rejects.toThrow(/只能查看/);
+    const inb = list.templates.find((t) => t.key === 'return_inbound')!;
+    expect(inb.insertable).toBe(true);
+    expect(inb.fields.length).toBeGreaterThan(3);
+    expect(list.business.find((b) => b.key === 'sku-batch-apply:warehouse')?.legacy).toContain('仓库完善发货组成');
     expect(list.business.some((b) => b.flowLabel === '借用营业执照/印章' && b.name === '交接执照')).toBe(true);
     const input = { name: `加急审批${rid()}`, description: '大额', category: '通用节点', type: 'approval', dueMinutes: 120, fields: [{ key: 'note', label: '意见', type: 'text', group: '审批' }] };
     const a = await designer.saveNodeTemplate(admin, { ...input, sourceKey: 'approval' } as never);

@@ -41,7 +41,7 @@ export function DesignerCanvas({ steps, selected, tpl, lookup, canEdit, mode, on
         return (
           <li key={s.key}>
             <div
-              className={`fd-node fd-${s.type} ${i === selected ? 'selected' : ''} ${over === i && dragFrom !== null && dragFrom !== i ? 'drop' : ''} ${s.when ? 'conditional' : ''}`}
+              className={`fd-node fd-${s.type} ${s.parallel ? 'parallel' : ''} ${s.onlyOnException ? 'conditional' : ''} ${i === selected ? 'selected' : ''} ${over === i && dragFrom !== null && dragFrom !== i ? 'drop' : ''} ${s.when ? 'conditional' : ''}`}
               draggable={movable}
               onDragStart={(e) => { setDragFrom(i); e.dataTransfer?.setData('text/plain', String(i)); }}
               onDragOver={(e) => { if (dragFrom !== null && canMove(dragFrom, i)) { e.preventDefault(); setOver(i); } }}
@@ -58,6 +58,9 @@ export function DesignerCanvas({ steps, selected, tpl, lookup, canEdit, mode, on
                   {s.mode === 'all' && <span className="pill warn">全员会签</span>}
                   <span className="muted small">{handler ? `办理人：${assignee}${s.dueMinutes ? ` · 时限 ${formatMinutes(s.dueMinutes)}` : ''}` : s.type === 'submit' ? '由发起人填写并提交' : '自动完结归档'}</span>
                   {cond && <span className="fd-tag cond">条件：{cond}</span>}
+                  {s.parallel && <span className="fd-tag">并行 {s.parallel}</span>}
+                  {s.onlyOnException && <span className="fd-tag cond">仅异常步骤</span>}
+                  {s.exceptionToKey && <span className="fd-tag">异常 → {steps.find((x) => x.key === s.exceptionToKey)?.name ?? '?'}</span>}
                   {s.returnToKey && <span className="fd-tag">退回到：{steps.find((x) => x.key === s.returnToKey)?.name ?? '?'}</span>}
                   {remind && <span className="fd-tag">督促：{remind}</span>}
                   {(s.ccUserIds?.length ?? 0) > 0 && <span className="fd-tag">抄送 {s.ccUserIds!.length} 人</span>}

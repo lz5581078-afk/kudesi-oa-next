@@ -54,6 +54,18 @@ describe('节点中心', () => {
   });
 });
 
+describe('节点中心：旧系统节点', () => {
+  it('业务专用节点只读：显示说明与对应业务流程，没有复制按钮', async () => {
+    vi.mocked(designerApi.nodeCenter).mockResolvedValue({ canManage: true, categories: ['通用节点', '业务专用'], business: [{ key: 'sku-batch-apply:warehouse', name: '仓库', flowLabel: 'SKU 批量申请', type: 'execute', dueMinutes: null, fields: [], legacy: ['仓库完善发货组成'] }],
+      templates: [node({ key: 'bundle_fulfillment', name: '仓库完善发货组成', category: '业务专用', type: 'execute', insertable: false, note: '业务专用表单节点，由对应业务页面办理，此处只读。', binding: { flowKey: 'sku-batch-apply', stepKey: 'warehouse' }, context: ['SKU申请明细'], fields: [] })] as never });
+    render(<NodeCenterPage />);
+    fireEvent.click(await screen.findByText('仓库完善发货组成'));
+    expect(screen.getByText(/此处只读/)).toBeTruthy();
+    expect(screen.getByText(/对应业务流程：SKU 批量申请 · 仓库/)).toBeTruthy();
+    expect(screen.queryByText('复制为我的模板')).toBeNull();
+  });
+});
+
 describe('超时与处罚', () => {
   const ledgerRow = (o: Partial<LedgerRow>): LedgerRow => ({ id: 1, runId: 9, templateKey: 'k', templateLabel: '费用申请', stepKey: 'pay', assigneeId: 2, assigneeName: '出纳', soleOwner: true, title: '差旅费', dueAt: '2026-01-01T00:00:00Z', endedAt: null, overdueMinutes: 35, status: 'open', penaltyId: 5, calculatedCents: 800, confirmedCents: null, penaltyStatus: 'pending', penaltyReason: null, penaltyRevision: 1, notifications: [], ...o });
   beforeEach(() => {

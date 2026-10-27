@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import {
-  ASSIGNEE_NO_TARGET, BUILTIN_NODE_TEMPLATES, CUSTOM_FIELD_TYPES, FLOW_TEMPLATES, NODE_TEMPLATE_CATEGORIES, createChecker, validateCustomTemplate, validateNodeTemplate, validateSteps,
+  ASSIGNEE_RUNTIME_ONLY, BUILTIN_NODE_TEMPLATES, LEGACY_NODE_TEMPLATES, NODE_CENTER_CATEGORIES, CUSTOM_FIELD_TYPES, FLOW_TEMPLATES, NODE_TEMPLATE_CATEGORIES, createChecker, validateCustomTemplate, validateNodeTemplate, validateSteps,
   type CustomSchema, type FieldDef, type FlowTemplate, type NodeTemplate, type StepDef,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -76,7 +76,7 @@ export class FlowDesignerService {
     const errors = t.custom ? validateCustomTemplate(t, steps, escalate) : validateSteps(t, steps, escalate);
     out.push(...errors.slice(0, 3));
     if (errors.length === 0) {
-      for (const s of steps.filter((x) => x.type !== 'submit' && x.type !== 'end' && !ASSIGNEE_NO_TARGET.includes(x.assignee?.source ?? 'employee'))) {
+      for (const s of steps.filter((x) => x.type !== 'submit' && x.type !== 'end' && !ASSIGNEE_RUNTIME_ONLY.includes(x.assignee?.source ?? 'employee'))) {
         try { await this.flow.resolveRecipients(this.ds.manager, user.companyId, s, user.id); } catch (e) { out.push((e as Error).message); }
       }
       if (t.custom && steps.every((s) => s.type === 'submit' || s.type === 'end')) out.push('没有可办理的步骤');
@@ -176,7 +176,7 @@ export class FlowDesignerService {
       const steps = target.steps as StepDef[];
       const errors = t.custom ? validateCustomTemplate(t, steps, target.escalateUserIds) : validateSteps(t, steps, target.escalateUserIds);
       if (errors.length) throw new BadRequestException(errors.join('；'));
-      for (const s of steps.filter((x) => x.type !== 'submit' && x.type !== 'end' && !ASSIGNEE_NO_TARGET.includes(x.assignee?.source ?? 'employee'))) await this.flow.resolveRecipients(em, user.companyId, s, user.id);
+      for (const s of steps.filter((x) => x.type !== 'submit' && x.type !== 'end' && !ASSIGNEE_RUNTIME_ONLY.includes(x.assignee?.source ?? 'employee'))) await this.flow.resolveRecipients(em, user.companyId, s, user.id);
       for (const r of rows.filter((x) => x.status === 'active')) { r.status = 'retired'; await em.save(FlowDefinition, r); }
       target.status = 'active';
       target.publishedAt = new Date();
@@ -226,16 +226,18 @@ export class FlowDesignerService {
     const rows = await this.ds.manager.find(FlowNodeTemplate, { where: { companyId: user.companyId }, order: { id: 'ASC' } });
     const business = FLOW_TEMPLATES.flatMap((t) => t.steps.filter((s) => s.type !== 'submit' && s.type !== 'end').map((s) => ({
       key: `${t.key}:${s.key}`, name: s.name, flowLabel: t.label, type: s.type, dueMinutes: s.dueMinutes ?? null, fields: t.stepFields[s.key] ?? [],
+      legacy: LEGACY_NODE_TEMPLATES.filter((n) => n.binding?.flowKey === t.key && n.binding.stepKey === s.key).map((n) => n.name),
     })));
     return {
-      templates: [...BUILTIN_NODE_TEMPLATES.map((t) => ({ ...t, revision: 0 })), ...rows.map((r) => this.nodeDto(r))],
-      business, categories: NODE_TEMPLATE_CATEGORIES, canManage: createChecker(user.permissions)(MANAGE),
+      templates: [...BUILTIN_NODE_TEMPLATES.map((t) => ({ ...t, revision: 0 })), ...LEGACY_NODE_TEMPLATES.map((t) => ({ ...t, revision: 0 })), ...rows.map((r) => this.nodeDto(r))],
+      business, categories: NODE_CENTER_CATEGORIES, canManage: createChecker(user.permissions)(MANAGE),
     };
   }
 
   /** 保存节点模板：sourceKey 是它基于的模板；key 给了就是修改自己公司的模板（带版本号防覆盖），没给就是复制新建 */
   async saveNodeTemplate(user: AuthUser, b: { key?: string | null; sourceKey?: string | null; revision?: number; name: string; description?: string; category: string; type: string; dueMinutes?: number | null; fields: FieldDef[] }) {
     this.need(user);
+    if (b.sourceKey && LEGACY_NODE_TEMPLATES.some((t) => t.key === b.sourceKey && t.insertable === false)) throw new BadRequestException('这是业务专用或系统节点，只能查看，不能复制');
     const input = { name: b.name?.trim() ?? '', description: b.description ?? '', category: b.category, type: b.type as NodeTemplate['type'], dueMinutes: b.dueMinutes ?? null, fields: b.fields ?? [] };
     const errors = validateNodeTemplate(input);
     if (errors.length) throw new BadRequestException(errors.join('；'));
@@ -250,7 +252,7 @@ export class FlowDesignerService {
         return { key: r.nodeKey, revision: r.revision };
       }
       const dup = await em.findOne(FlowNodeTemplate, { where: { companyId: user.companyId, name: input.name } });
-      if (dup || BUILTIN_NODE_TEMPLATES.some((t) => t.name === input.name)) throw new ConflictException(`已经有叫“${input.name}”的节点模板，请换个名字`);
+      if (dup || [...BUILTIN_NODE_TEMPLATES, ...LEGACY_NODE_TEMPLATES].some((t) => t.name === input.name)) throw new ConflictException(`已经有叫“${input.name}”的节点模板，请换个名字`);
       const key = `n${crypto.randomBytes(5).toString('hex')}`;
       await em.insert(FlowNodeTemplate, { companyId: user.companyId, nodeKey: key, name: input.name, description: input.description || null, category: input.category, stepType: input.type, dueMinutes: input.dueMinutes, fields: input.fields, sourceKey: b.sourceKey ?? null, createdBy: user.id } as never);
       await this.audit(em, user, 'flow.node-template.create', key, { name: input.name, sourceKey: b.sourceKey ?? null });

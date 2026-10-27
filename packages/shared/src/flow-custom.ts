@@ -21,7 +21,7 @@ export const CUSTOM_FIELD_TYPE_LABEL: Record<(typeof CUSTOM_FIELD_TYPES)[number]
 export const CUSTOM_REF_TARGETS: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'user', label: '员工' }, { value: 'bank-accounts', label: '银行账户' }, { value: 'finance-fee-items', label: '费用项目' },
   { value: 'finance-suppliers', label: '供应商' }, { value: 'finance-customers', label: '客户' }, { value: 'finance-base-codes', label: '基础商品' },
-  { value: 'licenses', label: '营业执照' }, { value: 'stores', label: '店铺' },
+  { value: 'licenses', label: '营业执照' }, { value: 'stores', label: '店铺' }, { value: 'phones', label: '手机号' }, { value: 'fixed-assets', label: '固定资产' },
 ];
 
 /** 字段目录（旧系统“业务字段”的通用部分）：设计器里一键加入，也可以自己建字段 */
@@ -95,6 +95,13 @@ export interface NodeTemplate {
   /** 节点默认页面：办理这一步时要填的字段 */
   fields: FieldDef[];
   builtin?: boolean;
+  /** false=只能查看，不能加入自建流程（发起/汇合/结束/业务专用表单节点） */
+  insertable?: boolean;
+  /** 办理这一步时能看到、但不用填的内容（字段名称） */
+  context?: string[];
+  /** 对应的新系统业务流程步骤 */
+  binding?: { flowKey: string; stepKey: string };
+  note?: string;
 }
 export const NODE_TEMPLATE_CATEGORIES = ['通用节点', '财务与费用', '采购与仓库', '店铺与资料'] as const;
 const cat = (key: string) => FLOW_FIELD_CATALOG.find((f) => f.key === key)!;

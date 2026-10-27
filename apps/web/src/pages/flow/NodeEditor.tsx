@@ -1,11 +1,11 @@
-import { ASSIGNEE_NO_TARGET, ASSIGNEE_SOURCE_LABEL, CONDITION_OP_LABEL, STEP_TYPE_LABEL, type AssigneeSource, type ConditionOp, type FieldDef, type FlowTemplate, type StepDef, type StepType } from '@kudesi/shared';
+import { ASSIGNEE_NO_TARGET, ASSIGNEE_OWN_SETTINGS, POSITION_TYPE_LABEL, RELATED_OWNER_KINDS, ASSIGNEE_SOURCE_LABEL, CONDITION_OP_LABEL, STEP_TYPE_LABEL, type AssigneeSource, type ConditionOp, type FieldDef, type FlowTemplate, type StepDef, type StepType } from '@kudesi/shared';
 import { DUE_PRESETS, conditionSources, conditionValueToDisplay, conditionValueToStored, describeCondition } from './designerUi';
 import { FormFieldsEditor } from './FormFieldsEditor';
 
 export type Opt = { value: number; label: string };
-export interface Lookups { users: Opt[]; positions: Opt[]; depts: Opt[] }
+export interface Lookups { users: Opt[]; positions: Opt[]; depts: Opt[]; groups: Opt[] }
 
-const SOURCES: AssigneeSource[] = ['employee', 'position', 'department', 'requester_manager', 'previous_handler'];
+const SOURCES: AssigneeSource[] = ['employee', 'position', 'position_type', 'duty_group', 'department', 'requester_manager', 'previous_handler', 'related_owner'];
 
 /** 单个节点的属性面板：办理人、时限、条件、退回目标、督促时效、字段权限、办理页面。 */
 export function NodeEditor({ step, index, steps, tpl, custom, canEdit, lookups, stepFields, onChange, onFields }: {
@@ -15,7 +15,8 @@ export function NodeEditor({ step, index, steps, tpl, custom, canEdit, lookups, 
   const locked = !!step.locked;
   const handler = step.type !== 'submit' && step.type !== 'end';
   const src = (step.assignee?.source ?? 'employee') as AssigneeSource;
-  const opts = src === 'employee' ? lookups.users : src === 'position' ? lookups.positions : lookups.depts;
+  const opts = src === 'employee' ? lookups.users : src === 'position' ? lookups.positions : src === 'duty_group' ? lookups.groups : lookups.depts;
+  const inGroup = !!step.parallel;
   const sources = conditionSources(tpl, steps, index);
   const cond = step.when ?? null;
   const condSrc = cond ? sources.find((x) => x.value === cond.field) : undefined;
@@ -53,13 +54,37 @@ export function NodeEditor({ step, index, steps, tpl, custom, canEdit, lookups, 
               {SOURCES.map((k) => <option key={k} value={k}>{ASSIGNEE_SOURCE_LABEL[k]}</option>)}
             </select>
           </label>
-          {!ASSIGNEE_NO_TARGET.includes(src) && (
+          {!ASSIGNEE_NO_TARGET.includes(src) && !ASSIGNEE_OWN_SETTINGS.includes(src) && (
             <label>具体对象
               <select aria-label="具体对象" disabled={dis} value={step.assignee?.id ?? ''} onChange={(e) => onChange({ assignee: { source: src, id: e.target.value ? Number(e.target.value) : undefined } })}>
                 <option value="">（请选择）</option>
                 {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </label>
+          )}
+          {src === 'position_type' && (
+            <label>岗位类型
+              <select aria-label="岗位类型" disabled={dis} value={step.assignee?.key ?? ''} onChange={(e) => onChange({ assignee: { source: src, key: e.target.value || undefined } })}>
+                <option value="">（请选择）</option>
+                {Object.entries(POSITION_TYPE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            </label>
+          )}
+          {src === 'related_owner' && (
+            <>
+              <label>负责人种类
+                <select aria-label="负责人种类" disabled={dis} value={step.assignee?.key ?? ''} onChange={(e) => onChange({ assignee: { source: src, key: e.target.value || undefined } })}>
+                  <option value="">（请选择）</option>
+                  {Object.entries(RELATED_OWNER_KINDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </label>
+              <label>申请表单里的资料字段
+                <select aria-label="关联资料字段" disabled={dis} value={step.assignee?.field ?? ''} onChange={(e) => onChange({ assignee: { source: src, key: step.assignee?.key, field: e.target.value || undefined } })}>
+                  <option value="">（请选择）</option>
+                  {tpl.fields.filter((f) => f.type === 'ref' && f.ref === (step.assignee?.key ? RELATED_OWNER_KINDS[step.assignee.key]?.type : '')).map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                </select>
+              </label>
+            </>
           )}
           {src === 'department' && (
             <label>办理方式
@@ -125,6 +150,28 @@ export function NodeEditor({ step, index, steps, tpl, custom, canEdit, lookups, 
                 <p className="muted small wide">效果：{describeCondition(cond, tpl, steps) || '请补全条件'} 时才办理“{step.name}”。想表达“金额小于 X 走主管、大于等于 X 走老板”，建两个相反条件的节点即可。</p>
               </div>
             )
+          )}
+        </fieldset>
+      )}
+
+      {!locked && (
+        <fieldset className="fd-section">
+          <legend>并行与异常</legend>
+          <label>并行分支编号（相邻、编号相同的步骤同时办理，全部办完才往下走；空=不并行）
+            <input aria-label="并行分支" disabled={dis} maxLength={30} placeholder="例如 g1" value={step.parallel ?? ''} onChange={(e) => onChange({ parallel: e.target.value.trim() || null })} />
+          </label>
+          {!inGroup && (
+            <>
+              <label className="check-line"><input type="checkbox" disabled={dis} checked={!!step.onlyOnException} onChange={(e) => onChange({ onlyOnException: e.target.checked || undefined })} />仅异常步骤（正常流转自动略过，只有别的步骤“上报异常”时才办理）</label>
+              {!step.onlyOnException && (
+                <label>办理人可“上报异常”转到
+                  <select aria-label="异常处理步骤" disabled={dis} value={step.exceptionToKey ?? ''} onChange={(e) => onChange({ exceptionToKey: e.target.value || null })}>
+                    <option value="">不能上报异常</option>
+                    {steps.filter((s) => s.onlyOnException).map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
+                  </select>
+                </label>
+              )}
+            </>
           )}
         </fieldset>
       )}

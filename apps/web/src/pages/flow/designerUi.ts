@@ -1,6 +1,6 @@
-import { ASSIGNEE_NO_TARGET, ASSIGNEE_SOURCE_LABEL, CONDITION_OP_LABEL, formatMinutes, type FieldDef, type FlowTemplate, type NodeTemplate, type StepCondition, type StepDef } from '@kudesi/shared';
+import { ASSIGNEE_NO_TARGET, ASSIGNEE_SOURCE_LABEL, CONDITION_OP_LABEL, formatMinutes, type FieldDef, type FlowTemplate, type NodeTemplate, type StepCondition, type StepDef, POSITION_TYPE_LABEL, RELATED_OWNER_KINDS } from '@kudesi/shared';
 
-export type NameLookup = (source: 'employee' | 'position' | 'department', id: number) => string | undefined;
+export type NameLookup = (source: 'employee' | 'position' | 'department' | 'duty_group', id: number) => string | undefined;
 
 /** 办理人一句话：发起人 / 张三 / 岗位 采购 / 部门 仓库（任一人）/ 发起人的上级… */
 export function describeAssignee(s: StepDef, lookup: NameLookup): string {
@@ -9,8 +9,11 @@ export function describeAssignee(s: StepDef, lookup: NameLookup): string {
   const a = s.assignee;
   if (!a) return '未选择';
   if (ASSIGNEE_NO_TARGET.includes(a.source)) return ASSIGNEE_SOURCE_LABEL[a.source];
+  if (a.source === 'position_type') return a.key && POSITION_TYPE_LABEL[a.key] ? `岗位类型 ${POSITION_TYPE_LABEL[a.key]}` : '未选择';
+  if (a.source === 'related_owner') { const k = a.key ? RELATED_OWNER_KINDS[a.key] : undefined; return k && a.field ? k.label : '未选择'; }
   if (!a.id) return '未选择';
-  const name = lookup(a.source as 'employee' | 'position' | 'department', a.id) ?? `#${a.id}`;
+  const name = lookup(a.source as 'employee' | 'position' | 'department' | 'duty_group', a.id) ?? `#${a.id}`;
+  if (a.source === 'duty_group') return `职责组 ${name}`;
   if (a.source === 'department') return `${name}（${s.mode === 'all' ? '全员会签' : '任一人办理'}）`;
   return a.source === 'position' ? `岗位 ${name}` : name;
 }

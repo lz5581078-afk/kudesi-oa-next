@@ -16,10 +16,11 @@ export interface RunStep {
 export interface RunDetailDto {
   id: number; templateKey: string; templateLabel: string; title: string; status: string; revision: number; requesterId: number; requesterName: string; createdAt: string; finishedAt: string | null; dueAt: string | null;
   payload: Record<string, unknown>; refLabels: Record<string, string>; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>;
+  activeSteps?: Array<{ id: number; key: string; name: string; recipients: Array<{ id: number; name: string }>; dueAt: string | null }>;
   activeStep: { id: number; key: string; name: string; type: string; enteredVia: string; dueAt: string | null; recipients: Array<{ id: number; name: string }> } | null;
   steps: RunStep[]; events: Array<{ id: number; action: FlowAction; note: string | null; actorName: string; createdAt: string }>; ccs: Array<{ userId: number; name: string }>;
   links: { docId: number | null; docNo: string | null; borrowRecordId: number | null };
-  me: { canPass: boolean; canReturn: boolean; canCancel: boolean; canReject: boolean; returnBlockedReason: string | null; cancelBlockedReason: string | null; canResubmit: boolean; canWithdraw: boolean; canTransfer: boolean; stepFields: FieldDef[] };
+  me: { canPass: boolean; canReturn: boolean; canCancel: boolean; canReject: boolean; returnBlockedReason: string | null; cancelBlockedReason: string | null; canResubmit: boolean; canWithdraw: boolean; canTransfer: boolean; canAbnormal?: boolean; stepFields: FieldDef[] };
 }
 export interface AssignedRow { id: number; title: string; description: string | null; status: string; dueAt: string | null; createdAt: string; finishedAt: string | null; doneNote: string | null; assigneeName: string; overdue: boolean;
   assigneeId?: number; supervisorId?: number | null; supervisorName?: string | null; creatorName?: string | null; requiresReview?: boolean; feedbackPreset?: string | null; completionStandard?: string | null;
@@ -44,6 +45,7 @@ export const flowApi = {
   run: (id: number) => api<RunDetailDto>(`/flow/runs/${id}`),
   pass: (id: number, b: { revision: number; stepId: number; form?: Record<string, unknown>; comment?: string }) => post<RunDetailDto>(`/flow/runs/${id}/pass`, b),
   back: (id: number, b: { revision: number; stepId: number; reason: string }) => post<RunDetailDto>(`/flow/runs/${id}/return`, b),
+  abnormal: (id: number, b: { revision: number; stepId: number; reason: string }) => post<RunDetailDto>(`/flow/runs/${id}/abnormal`, b),
   cancel: (id: number, b: { revision: number; stepId: number; reason: string }) => post<RunDetailDto>(`/flow/runs/${id}/cancel`, b),
   reject: (id: number, b: { revision: number; stepId: number; reason: string }) => post<RunDetailDto>(`/flow/runs/${id}/reject`, b),
   withdraw: (id: number, b: { revision: number; reason?: string }) => post<RunDetailDto>(`/flow/runs/${id}/withdraw`, b),

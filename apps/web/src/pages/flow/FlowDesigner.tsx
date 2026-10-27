@@ -35,7 +35,7 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
   const [mode, setMode] = useState<'canvas' | 'list'>(() => { try { return localStorage.getItem('flow.designer.mode') === 'list' ? 'list' : 'canvas'; } catch { return 'canvas'; } });
   const [msg, setMsg] = useState<Msg>(null);
   const [busy, setBusy] = useState(false);
-  const [lookups, setLookups] = useState<Lookups>({ users: [], positions: [], depts: [] });
+  const [lookups, setLookups] = useState<Lookups>({ users: [], positions: [], depts: [], groups: [] });
   const [dialog, setDialog] = useState<'copy' | 'stop' | 'delete' | 'meta' | 'discard' | { activate: number } | { remove: number } | { pick: number } | null>(null);
   const [nodes, setNodes] = useState<NodeTemplateDto[]>([]);
   const [timeoutDirty, setTimeoutDirty] = useState(false);
@@ -50,19 +50,20 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
   useEffect(() => { setDef(null); setMsg(null); setTab('design'); void load(); }, [flowKey]);
   useEffect(() => {
     loadRefOptions('user').then((users) => setLookups((l) => ({ ...l, users }))).catch(() => undefined);
+    loadRefOptions('duty-groups').then((groups) => setLookups((l) => ({ ...l, groups }))).catch(() => undefined);
     orgApi.positions().then((p) => setLookups((l) => ({ ...l, positions: p.map((x) => ({ value: x.id, label: x.name })) }))).catch(() => undefined);
     orgApi.departments().then((d) => setLookups((l) => ({ ...l, depts: flattenDepartments(d).map((x) => ({ value: x.id, label: `${'　'.repeat(x.depth)}${x.name}` })) }))).catch(() => undefined);
     designerApi.nodesForDesigner().then((n) => setNodes(n.templates)).catch(() => undefined);
   }, []);
 
-  const lookup = (s: 'employee' | 'position' | 'department', id: number) => (s === 'employee' ? lookups.users : s === 'position' ? lookups.positions : lookups.depts).find((o) => o.value === id)?.label.trim();
+  const lookup = (s: 'employee' | 'position' | 'department' | 'duty_group', id: number) => (s === 'employee' ? lookups.users : s === 'position' ? lookups.positions : s === 'duty_group' ? lookups.groups : lookups.depts).find((o) => o.value === id)?.label.trim();
   const tpl: FlowTemplate | null = useMemo(() => {
     if (!def) return null;
     if (!def.template.custom) { const b = getFlowTemplate(flowKey); return b ?? null; }
     return { key: flowKey, label: def.template.label, description: def.template.description, custom: true, fields: schema?.fields ?? [], stepFields: schema?.stepFields ?? {}, steps: [], ...(schema?.posting ? { posting: schema.posting } : {}) };
   }, [def, schema, flowKey]);
   const issues = useMemo(() => (tpl && steps.length ? (tpl.custom ? validateCustomTemplate(tpl, steps, esc) : validateSteps(tpl, steps, esc)) : []), [tpl, steps, esc]);
-  const unresolved = steps.filter((s) => s.type !== 'submit' && s.type !== 'end' && ['employee', 'position', 'department'].includes(s.assignee?.source ?? '') && !s.assignee?.id);
+  const unresolved = steps.filter((s) => s.type !== 'submit' && s.type !== 'end' && ['employee', 'position', 'department', 'duty_group'].includes(s.assignee?.source ?? '') && !s.assignee?.id);
   const dirty = !!def && (JSON.stringify(steps) !== JSON.stringify(def.draft.steps) || JSON.stringify([...esc].sort()) !== JSON.stringify([...def.draft.escalateUserIds].sort()) || (custom && JSON.stringify(schema) !== JSON.stringify(def.draft.schema)));
   useEffect(() => {
     if (!dirty && !timeoutDirty) return undefined;
@@ -320,7 +321,7 @@ function MetaDialog({ def, depts, flowKey, onClose, onDone }: { def: DesignerDef
 /** 添加节点：空白审批节点，或从节点模板里选（套用后互不影响）。 */
 function NodePicker({ nodes, custom, onClose, onBlank, onPick }: { nodes: NodeTemplateDto[]; custom: boolean; onClose: () => void; onBlank: () => void; onPick: (n: NodeTemplateDto) => void }) {
   const [q, setQ] = useState('');
-  const list = nodes.filter((n) => (custom || n.type === 'approval') && `${n.name}${n.description}${n.category}`.includes(q.trim()));
+  const list = nodes.filter((n) => n.insertable !== false && (custom || n.type === 'approval') && `${n.name}${n.description}${n.category}`.includes(q.trim()));
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="modal card" role="dialog" aria-label="添加节点">

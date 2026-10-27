@@ -14,12 +14,25 @@ import { AFTER_SALES_TYPES, APPEAL_TYPES } from './service-cases';
 export type StepType = 'submit' | 'approval' | 'execute' | 'finance' | 'end';
 export const STEP_TYPE_LABEL: Record<StepType, string> = { submit: '发起', approval: '审批', execute: '办理', finance: '财务', end: '结束' };
 
-export type AssigneeSource = 'requester' | 'employee' | 'position' | 'department' | 'requester_manager' | 'previous_handler';
+export type AssigneeSource = 'requester' | 'employee' | 'position' | 'department' | 'requester_manager' | 'previous_handler' | 'position_type' | 'duty_group' | 'related_owner';
 export const ASSIGNEE_SOURCE_LABEL: Record<AssigneeSource, string> = {
   requester: '发起人', employee: '指定员工', position: '指定岗位', department: '指定部门', requester_manager: '发起人的上级', previous_handler: '上一步办理人',
+  position_type: '按岗位类型', duty_group: '按职责组', related_owner: '关联资料负责人',
+};
+/** 岗位类型（positions.workspace_type，旧系统的“角色”） */
+export const POSITION_TYPE_LABEL: Record<string, string> = { boss: '老板', general: '综合', operations: '运营', finance: '财务', cashier: '出纳', warehouse: '仓库', purchasing: '采购', support: '客服', blank: '空白' };
+/** 关联资料负责人：从发起表单里选中的资料，取它上面的负责员工 */
+export const RELATED_OWNER_KINDS: Readonly<Record<string, { label: string; type: string; userField: string }>> = {
+  store_owner: { label: '关联店铺运营人', type: 'stores', userField: 'operatorUserId' },
+  phone_user: { label: '手机号使用人', type: 'phones', userField: 'userId' },
+  asset_keeper: { label: '资产保管人', type: 'fixed-assets', userField: 'keeperUserId' },
 };
 /** 不需要再选具体对象的办理人来源 */
 export const ASSIGNEE_NO_TARGET: readonly AssigneeSource[] = ['requester', 'requester_manager', 'previous_handler'];
+/** 只能在流程发起后才能找到人的来源（发布时不检查能不能找到） */
+export const ASSIGNEE_RUNTIME_ONLY: readonly AssigneeSource[] = ['requester', 'requester_manager', 'previous_handler', 'related_owner'];
+/** 办理人来源不需要在“具体对象”里选的（含按岗位类型/关联资料负责人，它们有自己的设置项） */
+export const ASSIGNEE_OWN_SETTINGS: readonly AssigneeSource[] = ['position_type', 'related_owner'];
 
 /** 条件：取值来源 'payload.字段' 或 'form.步骤编号.字段'；用于“满足条件才办理这一步”（条件分支） */
 export type ConditionOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'empty' | 'notempty';
@@ -31,7 +44,12 @@ export interface StepRemind { beforeMinutes: number[]; overdueEveryMinutes?: num
 
 export interface Assignee {
   source: AssigneeSource;
+  /** 员工/岗位/部门/职责组的编号 */
   id?: number;
+  /** position_type 的岗位类型；related_owner 的负责人种类（RELATED_OWNER_KINDS 的键） */
+  key?: string;
+  /** related_owner：发起表单里哪个资料字段（引用资料）指向关联资料 */
+  field?: string;
 }
 
 export interface StepDef {
@@ -57,6 +75,12 @@ export interface StepDef {
   hiddenFields?: string[];
   /** 套用的节点模板（仅记录来源，套用后互不影响） */
   nodeTemplateKey?: string | null;
+  /** 并行分支：相邻、分支编号相同的步骤同时办理，全部办完（汇合）才进入后面的步骤 */
+  parallel?: string | null;
+  /** 异常连线：办理人可以“上报异常”，流程转到这个步骤（必须是仅异常步骤）；不写则不能上报异常 */
+  exceptionToKey?: string | null;
+  /** 仅异常步骤：正常流转时自动跳过，只有被异常连线指到才办理 */
+  onlyOnException?: boolean;
 }
 
 /** 取值来源：'payload.xxx' = 发起表单里的字段，'form.xxx' = 办理该步时填的字段 */
@@ -129,9 +153,9 @@ export function validatePostingDecl(t: FlowTemplate): string[] {
 export type RunStatus = 'running' | 'completed' | 'cancelled' | 'rejected';
 export const RUN_STATUS_LABEL: Record<RunStatus, string> = { running: '办理中', completed: '已完成', cancelled: '已废除', rejected: '已拒绝' };
 export type StepStatus = 'active' | 'done' | 'returned' | 'cancelled' | 'rejected' | 'transferred' | 'skipped';
-export type FlowAction = 'submit' | 'pass' | 'return' | 'cancel' | 'reject' | 'withdraw' | 'resubmit' | 'transfer';
+export type FlowAction = 'submit' | 'pass' | 'return' | 'cancel' | 'reject' | 'withdraw' | 'resubmit' | 'transfer' | 'abnormal';
 export const FLOW_ACTION_LABEL: Record<FlowAction, string> = {
-  submit: '发起', pass: '通过', return: '退回', cancel: '废除', reject: '拒绝', withdraw: '撤回', resubmit: '重新提交', transfer: '转交',
+  submit: '发起', pass: '通过', return: '退回', cancel: '废除', reject: '拒绝', withdraw: '撤回', resubmit: '重新提交', transfer: '转交', abnormal: '上报异常',
 };
 
 const LICENSE_ITEMS = o('original:正本', 'copy:副本', 'official:公章', 'finance:财务章', 'legal:法人章', 'invoice:发票章');
@@ -325,7 +349,14 @@ export function validateSteps(template: FlowTemplate, steps: readonly StepDef[],
       const a = s.assignee;
       if (!a || a.source === 'requester') errors.push(`${label}要指定办理人`);
       else if (!ASSIGNEE_SOURCE_LABEL[a.source]) errors.push(`${label}的办理人类型不支持`);
-      else if (!ASSIGNEE_NO_TARGET.includes(a.source) && !(Number.isInteger(a.id) && (a.id as number) > 0)) errors.push(`${label}要选择具体的${ASSIGNEE_SOURCE_LABEL[a.source].replace('指定', '')}`);
+      else if (a.source === 'position_type') { if (!a.key || !POSITION_TYPE_LABEL[a.key]) errors.push(`${label}要选择岗位类型`); }
+      else if (a.source === 'related_owner') {
+        const kind = a.key ? RELATED_OWNER_KINDS[a.key] : undefined;
+        const f = template.fields.find((x) => x.key === a.field);
+        if (!kind) errors.push(`${label}要选择关联资料负责人的种类`);
+        else if (!f || f.type !== 'ref' || f.ref !== kind.type) errors.push(`${label}要选择发起表单里指向${kind.label.replace('关联', '').replace('负责人', '')}资料的字段`);
+      }
+      else if (!ASSIGNEE_NO_TARGET.includes(a.source) && !(Number.isInteger(a.id) && (a.id as number) > 0)) errors.push(`${label}要选择具体的${ASSIGNEE_SOURCE_LABEL[a.source].replace('指定', '').replace('按', '')}`);
       if (s.mode === 'all' && a?.source !== 'department') errors.push(`${label}只有指定部门才能设置全员会签`);
       if (a?.source === 'previous_handler' && i === 1) errors.push(`${label}不能选“上一步办理人”（上一步是发起人）`);
     }
@@ -338,6 +369,7 @@ export function validateSteps(template: FlowTemplate, steps: readonly StepDef[],
       const target = steps.findIndex((x) => x.key === s.returnToKey);
       if (target < 0 || target >= i || steps[target].type === 'end') errors.push(`${label}的退回目标必须是前面的步骤`);
     }
+    if (s.parallel != null && s.parallel !== '' && !/^[a-z][a-z0-9_]{0,30}$/.test(s.parallel)) errors.push(`${label}的并行分支编号不合法`);
     if (s.remind) errors.push(...validateRemind(s.remind, s.dueMinutes).map((m) => `${label}${m}`));
     if (s.hiddenFields && (!Array.isArray(s.hiddenFields) || s.hiddenFields.some((k) => !template.fields.some((f) => f.key === k)))) errors.push(`${label}的隐藏字段不存在`);
   });
@@ -356,7 +388,46 @@ export function validateSteps(template: FlowTemplate, steps: readonly StepDef[],
       if (s.type !== 'submit' && s.type !== 'end' && !['approval', 'execute', 'finance'].includes(s.type)) errors.push(`步骤「${s.name}」的类型不支持`);
     } else if (!locked.some((l) => l.key === s.key) && s.type !== 'approval') errors.push(`新增的步骤「${s.name}」只能是审批类型`);
   }
+  errors.push(...validateGraph(steps));
   if (escalateUserIds.length > 5) errors.push('超时升级最多通知 5 人');
+  return errors;
+}
+
+/** 并行分支与异常连线的结构校验 */
+export function validateGraph(steps: readonly StepDef[]): string[] {
+  const errors: string[] = [];
+  const groups = new Map<string, number[]>();
+  steps.forEach((s, i) => { if (s.parallel) groups.set(s.parallel, [...(groups.get(s.parallel) ?? []), i]); });
+  for (const [g, idx] of groups) {
+    const name = `并行分支「${g}」`;
+    if (idx.length < 2) errors.push(`${name}至少要有 2 个步骤`);
+    else if (idx[idx.length - 1] - idx[0] !== idx.length - 1) errors.push(`${name}的步骤必须相邻`);
+    for (const i of idx) {
+      const s = steps[i];
+      if (s.type === 'submit' || s.type === 'end') errors.push(`${name}里不能放${STEP_TYPE_LABEL[s.type]}步骤`);
+      if (s.locked) errors.push(`业务必须的步骤「${s.name}」不能放进并行分支`);
+      if (s.onlyOnException) errors.push(`仅异常步骤「${s.name}」不能放进并行分支`);
+      if (s.exceptionToKey) errors.push(`并行分支里的步骤「${s.name}」不能设置异常连线`);
+      if (s.returnToKey) {
+        const t = steps.findIndex((x) => x.key === s.returnToKey);
+        if (t >= idx[0] && t <= idx[idx.length - 1]) errors.push(`步骤「${s.name}」的退回目标不能是同一并行分支里的步骤`);
+      }
+      if (s.assignee?.source === 'previous_handler') errors.push(`并行分支里的步骤「${s.name}」不能选“上一步办理人”`);
+    }
+  }
+  steps.forEach((s, i) => {
+    if (s.exceptionToKey) {
+      const t = steps.findIndex((x) => x.key === s.exceptionToKey);
+      if (t < 0 || !steps[t].onlyOnException) errors.push(`步骤「${s.name}」的异常连线必须指向一个“仅异常”步骤`);
+      if (s.onlyOnException) errors.push(`仅异常步骤「${s.name}」不能再设置异常连线`);
+    }
+    if (s.onlyOnException) {
+      if (s.type === 'submit' || s.type === 'end') errors.push(`${STEP_TYPE_LABEL[s.type]}步骤不能设为仅异常`);
+      else if (!steps.some((x) => x.exceptionToKey === s.key)) errors.push(`仅异常步骤「${s.name}」没有任何步骤的异常连线指向它`);
+      if (s.when) errors.push(`仅异常步骤「${s.name}」不能带条件`);
+    }
+    void i;
+  });
   return errors;
 }
 

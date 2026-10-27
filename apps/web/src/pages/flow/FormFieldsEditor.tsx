@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CUSTOM_FIELD_TYPES, CUSTOM_FIELD_TYPE_LABEL, CUSTOM_REF_TARGETS, FLOW_FIELD_CATALOG, type FieldDef } from '@kudesi/shared';
+import { CUSTOM_FIELD_TYPES, CUSTOM_FIELD_TYPE_LABEL, CUSTOM_REF_TARGETS, FLOW_FIELD_CATALOG, LEGACY_FIELD_CATALOG, type FieldDef } from '@kudesi/shared';
 import { newFieldKey } from './designerUi';
 
 type CustomType = (typeof CUSTOM_FIELD_TYPES)[number];
@@ -19,7 +19,7 @@ export function FormFieldsEditor({ fields, onChange, group, disabled, catalog = 
     onChange(next);
   };
   const add = (f?: FieldDef) => onChange([...fields, f ? { ...f, group } : { key: newFieldKey(fields.map((x) => x.key)), label: '', type: 'text', group }]);
-  const available = FLOW_FIELD_CATALOG.filter((c) => !fields.some((f) => f.key === c.key));
+  const available = [...FLOW_FIELD_CATALOG, ...LEGACY_FIELD_CATALOG].filter((c) => !fields.some((f) => f.key === c.key));
   return (
     <div className="fd-fields">
       {fields.length === 0 && <p className="muted">还没有字段。点“添加字段”，或从常用字段里选。</p>}

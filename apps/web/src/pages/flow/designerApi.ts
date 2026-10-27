@@ -22,7 +22,7 @@ export interface DesignerDefinition {
 export type NodeTemplateDto = NodeTemplate & { revision: number };
 export interface NodeCenterDto {
   templates: NodeTemplateDto[];
-  business: Array<{ key: string; name: string; flowLabel: string; type: string; dueMinutes: number | null; fields: FieldDef[] }>;
+  business: Array<{ key: string; name: string; flowLabel: string; type: string; dueMinutes: number | null; fields: FieldDef[]; legacy?: string[] }>;
   categories: string[]; canManage: boolean;
 }
 

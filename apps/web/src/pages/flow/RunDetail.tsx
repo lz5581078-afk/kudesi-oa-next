@@ -7,7 +7,7 @@ import { RUN_TONE, flowApi, fmtTime, type RunDetailDto } from './flowApi';
 import { copyText, dwell } from './flowUi';
 import { SKU_TEMPLATE, SkuPreview } from './SkuApply';
 
-type Dialog = null | 'return' | 'cancel' | 'reject' | 'withdraw' | 'transfer';
+type Dialog = null | 'abnormal' | 'return' | 'cancel' | 'reject' | 'withdraw' | 'transfer';
 
 /** 流程详情：表单内容、办理时间线、当前能做的操作。操作按钮完全由服务端返回的 me 决定。 */
 export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged: () => void }) {
@@ -119,6 +119,9 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                 {run.activeStep.enteredVia === 'return' && ' · 被退回'}
                 {run.steps.find((x) => x.id === run.activeStep!.id)?.enteredAt && <> · 已停留 {dwell(run.steps.find((x) => x.id === run.activeStep!.id)!.enteredAt)}</>}
               </p>
+              {(run.activeSteps?.length ?? 0) > 1 && (
+                <p className="muted">并行办理中：{run.activeSteps!.map((a) => `${a.name}（${a.recipients.map((r) => r.name).join('、')}）`).join('；')}</p>
+              )}
               {run.me.canPass && (
                 <>
                   {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={run.payload} values={form} onChange={(k, v) => setForm({ ...form, [k]: v })} />}
@@ -129,6 +132,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                 {run.me.canPass && <button type="button" className="primary-button" disabled={busy} onClick={() => act(() => flowApi.pass(run.id, { revision: rev, stepId, form, comment: comment || undefined }))}>办理通过</button>}
                 {run.me.canResubmit && <button type="button" className="primary-button" onClick={() => setEditing({ ...run.payload })}>修改后重新提交</button>}
                 {run.me.canReturn && <button type="button" className="secondary-button" onClick={() => setDialog('return')}>退回上一步</button>}
+                {run.me.canAbnormal && <button type="button" className="secondary-button" onClick={() => setDialog('abnormal')}>上报异常</button>}
                 {run.me.canReject && <button type="button" className="secondary-button" onClick={() => setDialog('reject')}>拒绝</button>}
                 {run.me.canCancel && <button type="button" className="secondary-button" onClick={() => setDialog('cancel')}>废除</button>}
                 {run.me.canWithdraw && <button type="button" className="secondary-button" onClick={() => setDialog('withdraw')}>撤回申请</button>}
@@ -176,6 +180,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
         <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>关闭</button></div>
       </div>
 
+      {dialog === 'abnormal' && <ReasonDialog title="上报异常" hint="流程会转到异常处理步骤，由对应办理人处理。" confirmLabel="上报" onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.abnormal(run.id, { revision: rev, stepId, reason }))} />}
       {dialog === 'return' && <ReasonDialog title="退回上一步" confirmLabel="退回" onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.back(run.id, { revision: rev, stepId, reason }))} />}
       {dialog === 'reject' && <ReasonDialog title="拒绝申请" hint="拒绝后流程结束。" confirmLabel="拒绝" danger onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.reject(run.id, { revision: rev, stepId, reason }))} />}
       {dialog === 'cancel' && <ReasonDialog title="废除流程" hint="废除后流程结束。" confirmLabel="废除" danger onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.cancel(run.id, { revision: rev, stepId, reason }))} />}

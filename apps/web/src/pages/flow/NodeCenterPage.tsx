@@ -52,7 +52,7 @@ export function NodeCenterPage() {
     <div>
       <div className="page-head">
         <h1>节点中心</h1>
-        {canManage && <button type="button" className="primary-button" onClick={() => { setSel(null); setMsg(''); setDraft(blank(categories[0] ?? '通用节点')); }}>新建节点模板</button>}
+        {canManage && <button type="button" className="primary-button" onClick={() => { setSel(null); setMsg(''); setDraft(blank(categories.find((c) => c !== '业务专用') ?? '通用节点')); }}>新建节点模板</button>}
       </div>
       <p className="muted">节点模板是设计流程时可以直接套用的“一步”：自带办理人来源、时限和办理页面（要填的字段）。套用到流程后互相独立，改模板不会改动已有流程。</p>
       {err && <div role="alert" className="notice error">{err}</div>}
@@ -78,7 +78,7 @@ export function NodeCenterPage() {
           {(data?.business.length ?? 0) > 0 && (
             <details style={{ marginTop: 12 }}>
               <summary>业务流程里固定的节点（只读，{data!.business.length} 个）</summary>
-              <ul className="plain-list small">{data!.business.filter((b) => `${b.name}${b.flowLabel}`.includes(q.trim())).map((b) => <li key={b.key}>{b.flowLabel} · {b.name}（{STEP_TYPE_LABEL[b.type as StepType] ?? b.type}，{b.fields.length} 项办理字段）</li>)}</ul>
+              <ul className="plain-list small">{data!.business.filter((b) => `${b.name}${b.flowLabel}`.includes(q.trim())).map((b) => <li key={b.key}>{b.flowLabel} · {b.name}（{STEP_TYPE_LABEL[b.type as StepType] ?? b.type}，{b.fields.length} 项办理字段{b.legacy?.length ? `；对应旧节点：${b.legacy.join('、')}` : ''}）</li>)}</ul>
             </details>
           )}
         </section>
@@ -89,7 +89,7 @@ export function NodeCenterPage() {
               <h2>{draft.key ? '编辑节点模板' : draft.sourceKey ? '复制为我的节点模板' : '新建节点模板'}</h2>
               <label>名称<input required maxLength={40} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
               <label>用途说明<textarea rows={2} maxLength={200} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></label>
-              <label>分类<select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>{categories.map((c) => <option key={c}>{c}</option>)}</select></label>
+              <label>分类<select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>{categories.filter((c) => c !== '业务专用').map((c) => <option key={c}>{c}</option>)}</select></label>
               <label>节点类型<select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value as StepType })}>{EDITABLE_TYPES.map((t) => <option key={t} value={t}>{STEP_TYPE_LABEL[t]}</option>)}</select></label>
               <label>默认时限<select value={draft.dueMinutes ?? ''} onChange={(e) => setDraft({ ...draft, dueMinutes: e.target.value ? Number(e.target.value) : null })}><option value="">不限</option>{DUE_PRESETS.map((p) => <option key={p.minutes} value={p.minutes}>{p.label}</option>)}</select></label>
               <fieldset className="fd-section"><legend>节点默认页面（办理这一步要填的内容）</legend><FormFieldsEditor fields={draft.fields} group={draft.name || '办理'} onChange={(fields) => setDraft({ ...draft, fields })} /></fieldset>
@@ -100,11 +100,15 @@ export function NodeCenterPage() {
               <h2>{current.name}</h2>
               <p className="muted">{current.description || '（没有说明）'}</p>
               <p>分类：{current.category}　类型：{STEP_TYPE_LABEL[current.type]}　默认时限：{current.dueMinutes ? formatMinutes(current.dueMinutes) : '不限'}　{current.builtin ? '内置模板（只读）' : `版本 ${current.revision}`}</p>
-              <h3 className="section-title">节点默认页面</h3>
+              {current.note && <p className="notice warn">{current.note}</p>}
+              {current.binding && <p className="muted">对应业务流程：{data?.business.find((b) => b.key === `${current.binding!.flowKey}:${current.binding!.stepKey}`)?.flowLabel ?? current.binding.flowKey} · {data?.business.find((b) => b.key === `${current.binding!.flowKey}:${current.binding!.stepKey}`)?.name ?? current.binding.stepKey}</p>}
+              {current.insertable === false && <p className="muted">只能查看，不能加入自建流程。</p>}
+              {(current.context?.length ?? 0) > 0 && <p className="muted small">办理时还能看到：{current.context!.join('、')}</p>}
+              <h3 className="section-title">节点默认页面（办理时要填的内容）</h3>
               {current.fields.length === 0 ? <p className="muted">这个节点办理时没有额外要填的内容。</p> : <ul className="plain-list">{current.fields.map((f) => <li key={f.key}>{f.label}{f.required ? '（必填）' : ''} <span className="muted small">{f.type}</span></li>)}</ul>}
               {canManage && (
                 <div className="row-actions">
-                  <button type="button" className="secondary-button" onClick={() => copy(current)}>复制为我的模板</button>
+                  {current.insertable !== false && <button type="button" className="secondary-button" onClick={() => copy(current)}>复制为我的模板</button>}
                   {!current.builtin && <button type="button" className="secondary-button" onClick={() => edit(current)}>编辑</button>}
                   {!current.builtin && <button type="button" className="link-button danger" onClick={() => setDel(current)}>删除</button>}
                 </div>

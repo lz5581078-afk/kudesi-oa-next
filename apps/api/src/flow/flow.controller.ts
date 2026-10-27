@@ -36,6 +36,7 @@ class ResubmitDto {
 }
 class TransferDto {
   @IsInt() revision!: number;
+  @IsOptional() @IsInt() stepId?: number;
   @IsInt() toUserId!: number;
   @IsString() @MaxLength(500) reason!: string;
 }
@@ -112,6 +113,10 @@ export class FlowController {
   @AuthenticatedOnly()
   @Post('runs/:id/reject')
   reject(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReasonDto) { return this.flow.stop(user, id, 'reject', b); }
+
+  @AuthenticatedOnly()
+  @Post('runs/:id/abnormal')
+  abnormal(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReasonDto) { return this.flow.reportAbnormal(user, id, b); }
 
   @AuthenticatedOnly()
   @Post('runs/:id/withdraw')
