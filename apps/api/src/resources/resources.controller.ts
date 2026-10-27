@@ -61,6 +61,11 @@ class ImportDto {
   @IsBoolean() dryRun!: boolean;
 }
 
+class SimilarDto {
+  @IsObject() values!: Record<string, unknown>;
+  @IsOptional() @IsInt() excludeId?: number;
+}
+
 class ExportQueryDto {
   @IsOptional() @IsString() includeHidden?: string;
 }
@@ -114,6 +119,13 @@ export class ResourcesController {
   @Post(':type/import')
   import(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: ImportDto) {
     return this.resources.importRows(user, type, dto.rows, dto.dryRun);
+  }
+
+  // 往来档案保存前的相似/重复提示：返回阻止项和提示项
+  @RequireResourceAction('view')
+  @Post(':type/similar-check')
+  similarCheck(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: SimilarDto) {
+    return this.resources.similarCheck(user, type, dto.values, dto.excludeId);
   }
 
   @RequireResourceAction('edit')

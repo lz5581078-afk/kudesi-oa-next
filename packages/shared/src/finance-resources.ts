@@ -130,6 +130,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       text('name', '分类名称', '基础', { required: true, list: true, search: true }),
       ref('parentId', '上级分类', '基础', 'finance-supplier-categories', { list: true, help: '不选 = 一级分类；最多 4 级' }),
+      text('categoryCode', '分类码', '基础', { list: true, maxLength: 12, help: '用于生成编号（如 GYS-主类码-分类码-名称首字母）；不填取名称拼音首字母，不能重复' }),
       text('subtitle', '说明', '基础', { maxLength: 200 }),
       { key: 'sort', label: '排序', type: 'number', group: '基础' },
     ],
@@ -145,6 +146,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       text('name', '分类名称', '基础', { required: true, list: true, search: true }),
       ref('parentId', '上级分类', '基础', 'finance-customer-categories', { list: true, help: '不选 = 一级分类；最多 4 级' }),
+      text('categoryCode', '分类码', '基础', { list: true, maxLength: 12, help: '用于生成编号（如 GYS-主类码-分类码-名称首字母）；不填取名称拼音首字母，不能重复' }),
       text('subtitle', '说明', '基础', { maxLength: 200 }),
       { key: 'sort', label: '排序', type: 'number', group: '基础' },
     ],
@@ -158,6 +160,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     filterBy: 'categoryIds',
+    batch: ['status', 'categoryIds'],
     fields: [
       text('code', '供应商编号', '基础', { list: true, search: true, maxLength: 64, help: '不填自动生成 GYS-001 这样的编号' }),
       text('name', '供应商名称', '基础', { required: true, list: true, search: true }),
@@ -185,6 +188,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     filterBy: 'categoryIds',
+    batch: ['status', 'categoryIds'],
     fields: [
       text('code', '客户编号', '基础', { list: true, search: true, maxLength: 64, help: '不填自动生成 KH-001 这样的编号' }),
       text('name', '客户名称', '基础', { required: true, list: true, search: true }),
@@ -208,6 +212,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     uniqueField: 'code',
     tabsBy: 'direction',
     filterBy: 'categoryId',
+    batch: ['status', 'categoryId'],
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     fields: [

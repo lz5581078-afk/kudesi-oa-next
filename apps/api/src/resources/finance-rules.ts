@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { pinyin } from 'pinyin-pro';
 import { EntityManager } from 'typeorm';
-import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, FEE_BOOKING_NODE_MAP, createChecker } from '@kudesi/shared';
+import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, FEE_BOOKING_NODE_MAP, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceLink, ResourceRecord } from '../entities';
 import { buildSnapshot, aliasCode, rawNames } from './base-code-support';
@@ -603,18 +603,68 @@ async function nextSeqCode(em: EntityManager, companyId: number, type: string, p
   return `${prefix}-${String(max + 1).padStart(3, '0')}`;
 }
 
-/** 供应商/客户：编号自动生成；简称编号默认取拼音首字母。 */
+/** 供应商/客户分类树上，一个分类的“分类码”：没填取名称拼音首字母（旧系统的 categoryCode） */
+const catToken = (c: ResourceRecord) => (str(c.data.categoryCode) || initials(c.title) || 'X').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'X';
+
+/**
+ * 供应商/客户：
+ * - 编号没填：有分类时按旧系统生成 前缀-主类码-类码-名称首字母（重名加序号 2、3…），没有分类按 前缀-三位序号；
+ * - 公司已建了分类的，新建时必须选分类，且至少选一个最末级分类；
+ * - 编号相同、税号相同、已填字段全部相同的拒绝保存（相似提示由页面保存前询问）；
+ * - 简称编号默认取拼音首字母。
+ */
 const beforeParty = (prefix: string, type: string) => async (ctx: BeforeSaveContext) => {
   const { data, em, user, existing } = ctx;
-  if (!str(data.code).trim()) data.code = existing && str(existing.data.code) ? str(existing.data.code) : await nextSeqCode(em, user.companyId, type, prefix);
-  data.code = str(data.code).trim();
+  const typed = { code: str(data.code), shortCode: str(data.shortCode) }; // 用户自己填的；自动生成的编号不参与查重
+  const catType = type === 'finance-suppliers' ? 'finance-supplier-categories' : 'finance-customer-categories';
+  const catIds = Array.isArray(data.categoryIds) ? (data.categoryIds as unknown[]).filter((x): x is number => typeof x === 'number') : [];
+  const catsChanged = !existing || JSON.stringify(catIds) !== JSON.stringify(existing.data.categoryIds ?? []);
+  if (catsChanged) {
+    const total = await em.count(ResourceRecord, { where: { companyId: user.companyId, type: catType } });
+    if (total > 0 && !existing && !catIds.length) throw new BadRequestException('请选择至少一个分类');
+    if (total > 0 && catIds.length) {
+      let anyLeaf = false;
+      for (const id of catIds) if ((await ctx.host.countWhere(em, user.companyId, catType, 'parentId', id)) === 0) anyLeaf = true;
+      if (!anyLeaf) throw new BadRequestException('请至少选一个最末级分类（下面没有子分类的）');
+    }
+  }
   if (!str(data.shortCode).trim()) data.shortCode = initials(str(data.shortName) || str(data.name)).slice(0, 16) || undefined;
   else data.shortCode = str(data.shortCode).trim().toUpperCase();
+  if (!str(data.code).trim()) {
+    if (existing && str(existing.data.code)) data.code = str(existing.data.code);
+    else if (catIds.length) {
+      let leaf: ResourceRecord | null = null; // 取选中的第一个最末级分类来生成
+      for (const id of catIds) {
+        if ((await ctx.host.countWhere(em, user.companyId, catType, 'parentId', id)) === 0) { leaf = await rec(em, user.companyId, catType, id); break; }
+      }
+      leaf = leaf ?? (await rec(em, user.companyId, catType, catIds[0]));
+      const chain: ResourceRecord[] = [];
+      for (let cur = leaf, i = 0; cur && i < 6; i++) { chain.unshift(cur); cur = await rec(em, user.companyId, catType, cur.data.parentId); }
+      const base = [prefix, chain.length ? catToken(chain[0]) : 'X', leaf ? catToken(leaf) : 'X', initials(str(data.name)).slice(0, 16) || 'X'].join('-');
+      let code = base;
+      for (let n = 2; await ctx.host.findByUnique(em, user.companyId, type, code); n++) code = `${base}${n}`;
+      data.code = code;
+    } else data.code = await nextSeqCode(em, user.companyId, type, prefix);
+  }
+  data.code = str(data.code).trim();
+  if (existing && Object.keys(SIMILARITY_FIELDS).every((k) => str(data[k]) === str(existing.data[k]))) return; // 没改这些字段（如只是停用）不查重
+  const others = await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'data'] });
+  const { blocked } = inspectArchiveSimilarity({ ...data, ...typed }, others.map((o) => ({ id: o.id, data: o.data })), existing?.id);
+  if (blocked.length) throw new BadRequestException(`与已有资料重复：${formatSimilarityMatch(blocked[0])}`);
 };
 
 /** 供应商/客户分类树：最多 4 级（和旧系统一致）。 */
 const beforePartyCategory = (type: string) => async (ctx: BeforeSaveContext) => {
   const { data, em, user } = ctx;
+  // 分类码：生成往来编号用，同一类分类里不能重复；没填自动取名称首字母（重复加序号）
+  const all = await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'title', 'data'] });
+  const used = new Map(all.filter((r) => r.id !== ctx.existing?.id && str(r.data.categoryCode)).map((r) => [str(r.data.categoryCode), r.title] as const));
+  const want = str(data.categoryCode).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const stem = initials(str(data.name)).slice(0, 10) || 'X';
+  let suggestion = stem;
+  for (let n = 2; used.has(suggestion); n++) suggestion = `${stem}${n}`;
+  if (want && used.has(want)) throw new BadRequestException(`分类码 ${want} 已被“${used.get(want)}”使用，建议改为 ${suggestion}`);
+  data.categoryCode = want || suggestion;
   let depth = 1;
   let cur = await rec(em, user.companyId, type, data.parentId);
   while (cur && depth < 10) {

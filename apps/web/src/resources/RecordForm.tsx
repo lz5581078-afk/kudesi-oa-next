@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { SIMILARITY_RESOURCES, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
 import { resourceApi, type FileInfo, type ResourceDto } from './api';
@@ -218,6 +218,10 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
         const v = values[f.key];
         if (f.type === 'secret' && (v === undefined || v === '')) continue;
         body[f.key] = v === undefined ? (f.type === 'files' ? [] : f.type === 'attrs' ? {} : '') : v;
+      }
+      if (SIMILARITY_RESOURCES.includes(def.key)) {
+        const sim = await resourceApi.similarCheck(def.key, { ...(record?.data ?? {}), ...body }, record?.id).catch(() => null);
+        if (sim?.warnings.length && !window.confirm(`发现相似的资料，确定仍要保存吗？\n\n${sim.warnings.slice(0, 3).map((w) => w.text).join('\n')}`)) { setBusy(false); return; }
       }
       const saved = record ? await resourceApi.update(def.key, record.id, body) : await resourceApi.create(def.key, body, status);
       clearRefCache(def.key);

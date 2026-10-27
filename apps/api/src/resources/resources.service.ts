@@ -8,6 +8,9 @@ import {
   getResourceDef,
   isTreeResource,
   treeFilterField,
+  SIMILARITY_RESOURCES,
+  inspectArchiveSimilarity,
+  formatSimilarityMatch,
   normalizePhone,
   permissionOwner,
   RESOURCE_DEFS,
@@ -773,6 +776,14 @@ export class ResourcesService implements RuleHost {
     });
     await this.files.deleteObjects(user.companyId, cleanup);
     return this.get(user, type, id);
+  }
+
+  /** 往来档案（供应商、客户）保存前的相似/重复检测 */
+  async similarCheck(user: AuthUser, type: string, values: Record<string, unknown>, excludeId?: number) {
+    if (!SIMILARITY_RESOURCES.includes(type)) throw new BadRequestException('这类资料不做相似检测');
+    const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'data'] });
+    const r = inspectArchiveSimilarity(values, rows.map((x) => ({ id: x.id, data: x.data })), excludeId);
+    return { blocked: r.blocked.slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })), warnings: r.warnings.slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })) };
   }
 
   /** 批量改字段（仅限资料定义里声明的 batch 字段）或批量改状态；逐条走统一保存流程，失败的单独返回 */

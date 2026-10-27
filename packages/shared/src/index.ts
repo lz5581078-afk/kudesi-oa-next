@@ -19,3 +19,4 @@ export * from './remote-assist';
 export * from './platform';
 
 export * from './unit-price';
+export * from './archive-similarity';

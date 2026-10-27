@@ -260,7 +260,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                   <button type="button" className="secondary-button" disabled={!batchField || !batchValue} onClick={async () => {
                     const f = def.fields.find((x) => x.key === batchField);
                     try {
-                      const r = await resourceApi.batch(type, checked, { [batchField]: f?.ref ? Number(batchValue) : batchValue });
+                      const r = await resourceApi.batch(type, checked, { [batchField]: f?.type === 'refs' ? [Number(batchValue)] : f?.ref ? Number(batchValue) : batchValue });
                       setBatchMsg(`已修改 ${r.done} 条${r.failed.length ? `，${r.failed.length} 条失败：${r.failed.slice(0, 3).map((x) => `#${x.id} ${x.message}`).join('；')}` : ''}`);
                       setChecked([]); void load();
                     } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '批量修改失败'); }

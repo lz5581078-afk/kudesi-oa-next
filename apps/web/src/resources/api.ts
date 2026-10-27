@@ -102,6 +102,8 @@ export function query(params: ListParams): string {
 }
 
 export const resourceApi = {
+  similarCheck: (type: string, values: Record<string, unknown>, excludeId?: number) =>
+    api<{ blocked: Array<{ text: string }>; warnings: Array<{ text: string }> }>(`/resources/${type}/similar-check`, { method: 'POST', body: { values, excludeId } }),
   batch: (type: string, ids: number[], values: Record<string, unknown>) =>
     api<{ done: number; failed: Array<{ id: number; message: string }> }>(`/resources/${type}/batch`, { method: 'POST', body: { ids, values } }),
   batchStatus: (type: string, ids: number[], status: string, reason?: string) =>

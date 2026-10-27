@@ -232,12 +232,13 @@ d('财务资料（真实数据库）', () => {
     const c3 = await svc.create(boss, 'finance-supplier-categories', { name: '甜玉米', parentId: c2.id });
     const c4 = await svc.create(boss, 'finance-supplier-categories', { name: '四级', parentId: c3.id });
     await expect(svc.create(boss, 'finance-supplier-categories', { name: '太深', parentId: c4.id })).rejects.toThrow(/最多 4 级/);
-    const s1 = await svc.create(boss, 'finance-suppliers', { name: '润农种业', shortName: '润农', categoryIds: [c1.id, c3.id] });
-    expect(s1.data.code).toBe('GYS-001');
+    const s1 = await svc.create(boss, 'finance-suppliers', { name: '润农种业', shortName: '润农', categoryIds: [c1.id, c4.id] });
+    expect(s1.data.code).toBe('GYS-ZZGYS-SJ-RNZY');
     expect(s1.data.shortCode).toBe('RN');
-    expect(s1.refLabels.categoryIds).toBe('种子供应商、种子供应商 / 玉米 / 甜玉米');
-    const s2 = await svc.create(boss, 'finance-suppliers', { name: '另一家' });
-    expect(s2.data.code).toBe('GYS-002');
+    expect(s1.refLabels.categoryIds).toBe('种子供应商、种子供应商 / 玉米 / 甜玉米 / 四级');
+    const s2 = await svc.create(boss, 'finance-suppliers', { name: '另一家', categoryIds: [c4.id] });
+    expect(s2.data.code).toBe('GYS-ZZGYS-SJ-LYJ');
+    await expect(svc.create(boss, 'finance-suppliers', { name: '没选分类' })).rejects.toThrow(/分类/);
     await expect(svc.create(boss, 'finance-suppliers', { name: '坏分类', categoryIds: [999999] })).rejects.toThrow(/不存在/);
     const k = await svc.create(boss, 'finance-customers', { name: '老客户' });
     expect(k.data.code).toBe('KH-001');
