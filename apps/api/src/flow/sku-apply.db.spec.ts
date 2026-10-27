@@ -276,6 +276,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
   it('申请选项接口不需要财务资料权限，也不带成本；预览只对相关的人开放', async () => {
     const meta = await sku.options(ops, 'meta');
     expect(meta.platforms!.map((p) => p.name)).toEqual(expect.arrayContaining(['淘宝', '抖音']));
+    expect(meta.bundleCategories!.map((c) => c.id)).toContain(ids.bcat);
     const mains = await sku.options(ops, 'main', '苹果');
     expect(mains.items!.map((i) => i.code)).toEqual(['APPLE-A']);
     expect(JSON.stringify(mains)).not.toMatch(/cost|price/i);

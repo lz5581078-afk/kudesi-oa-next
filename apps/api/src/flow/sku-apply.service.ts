@@ -26,7 +26,7 @@ export class SkuApplyService {
     const em = this.ds.manager;
     if (kind === 'meta') {
       const rows = async (type: string) => (await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, order: { title: 'ASC' } })).filter((r) => r.status === 'active').map((r) => ({ id: r.id, name: r.title }));
-      return { scenarios: await rows('finance-scenarios'), platforms: await rows('finance-platforms') };
+      return { scenarios: await rows('finance-scenarios'), platforms: await rows('finance-platforms'), bundleCategories: await this.bundleCategoryLeaves(user.companyId) };
     }
     if (kind === 'names') {
       // 重新提交时按编号回填商品名称（只给编码、名称、规格）
@@ -55,6 +55,15 @@ export class SkuApplyService {
       if (ARCHIVE_BY_KIND[kind].includes(prods.get(pid)!)) out.push({ id: bc.id, code: bc.title, name: str(bc.data.name), spec: str(bc.data.spec) });
     }
     return { items: out };
+  }
+
+  /** 组合分类树里的最末级分类（带路径名），申请表单里必选一个 */
+  private async bundleCategoryLeaves(companyId: number) {
+    const all = (await this.ds.manager.find(ResourceRecord, { where: { companyId, type: 'finance-categories' } })).filter((r) => r.status === 'active' && r.data.archiveType === 'bundle');
+    const byId = new Map(all.map((r) => [r.id, r]));
+    const parents = new Set(all.map((r) => Number(r.data.parentId)).filter((n) => n > 0));
+    const pathOf = (r: ResourceRecord): string => { const names: string[] = []; let cur: ResourceRecord | undefined = r; for (let i = 0; cur && i < 8; i += 1) { names.unshift(cur.title); cur = byId.get(Number(cur.data.parentId)); } return names.join(' / '); };
+    return all.filter((r) => !parents.has(r.id)).map((r) => ({ id: r.id, name: pathOf(r) })).sort((a, b) => a.name.localeCompare(b.name, 'zh'));
   }
 
   /** 这张申请会生成（或已经生成）哪些编码：每个规格 × 平台一行，带重复提示；成本只给有 product.cost.view 的人。 */
