@@ -102,6 +102,8 @@ export interface ResourceDef {
   tabsBy?: string;
   /** 列表上方的下拉筛选：关联字段（按所选节点及其所有下级筛）或选项字段（如固定资产按分类、商品按分类和采购方式） */
   filterBy?: string | readonly string[];
+  /** 分类目录随页签显示哪些“所属类型”的分类（页签值与分类的所属类型不一一对应时用，如外购成品含原装采购和供应商 OEM 两棵树） */
+  treeTabMap?: Record<string, readonly string[]>;
   /** 列表勾选后可批量做的事：status=批量停用/启用（要填原因），其余是批量修改这个字段（如移动分类） */
   batch?: readonly string[];
   /** 预警：状态异常，或某日期字段在 N 天内到期 */

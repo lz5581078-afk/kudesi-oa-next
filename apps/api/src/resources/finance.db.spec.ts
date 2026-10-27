@@ -58,6 +58,8 @@ d('财务资料（真实数据库）', () => {
     expect(parent.count).toBeGreaterThanOrEqual(1);
     expect(parent.count).toBeGreaterThanOrEqual(leaf.count);
     expect(tree.nodes.some((n) => n.id === ids.smCat)).toBe(false); // 别的板块的分类不出现
+    const tabPurchased = await svc.categoryTree(boss, 'finance-products', 'categoryId', { tab: 'purchased' });
+    expect(tabPurchased.nodes.some((n) => n.id === ids.rawCat)).toBe(false);
   });
 
   it('商品档案：必须挂最末级分类、类型匹配、自动生成编码、零值要说明、总成本自动算', async () => {

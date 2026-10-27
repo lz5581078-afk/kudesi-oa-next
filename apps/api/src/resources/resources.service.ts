@@ -694,7 +694,10 @@ export class ResourcesService implements RuleHost {
       tab: def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy) ? String((c.data as Record<string, unknown>)[def.tabsBy] ?? '') : '',
     }));
     // 页签切换时，只显示属于这个页签的分类
-    if (q.tab && def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy)) nodes = nodes.filter((n) => n.tab === q.tab);
+    if (q.tab && def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy)) {
+      const roots = def.treeTabMap?.[q.tab] ?? [q.tab];
+      nodes = nodes.filter((n) => roots.includes(n.tab));
+    }
     const ids = new Set(nodes.map((n) => n.id));
     const parentOf = new Map(cats.map((c) => [c.id, num((c.data as Record<string, unknown>).parentId)]));
 
