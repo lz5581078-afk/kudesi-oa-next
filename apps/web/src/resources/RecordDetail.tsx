@@ -13,6 +13,7 @@ import { ReasonDialog, RecordForm, clearRefCache, loadRefOptions } from './Recor
 import { StatusControl, typeLabel } from './StatusControl';
 import { RevenuePanel } from './RevenuePanel';
 import { CopyButton, copyText, isCopyable, urlOf } from './CopyValue';
+import { LinkExistingStoresButton } from './LicenseActions';
 import { DutyGroupSummary } from './DutyGroupSummary';
 import { KeyFacts } from './KeyFacts';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
@@ -344,6 +345,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         {tab === 'info' && def.key === 'bank-accounts' && (
           <PhoneArchiveButton type="bank-accounts" record={record} numberKey="reservedPhoneNumber" idKey="phoneId" holder={String(record.data.reservedPhoneHolder ?? '')} onDone={() => { void load(); onChanged(); }} onError={setError} />
         )}
+        {tab === 'info' && def.key === 'licenses' && can('edit') && <LinkExistingStoresButton license={record} onDone={() => { void load(); onChanged(); }} onError={setError} />}
         {tab === 'info' && def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} />}
         {tab === 'info' && def.key === 'stores' && can('edit') && (
           <StoreReleaseButton record={record} onDone={() => { void load(); onChanged(); }} onError={setError} />
