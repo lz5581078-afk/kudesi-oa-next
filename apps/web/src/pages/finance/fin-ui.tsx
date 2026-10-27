@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { todayInChina } from '@kudesi/shared';
+import { CopyButton as SharedCopyButton } from '../../resources/CopyValue';
 
 /** 财务页面共用的小工具：日期快捷区间、记住筛选条件、一键复制、导出 CSV、手机端判断。只做展示，不参与金额计算。 */
 
@@ -52,33 +53,10 @@ export function usePersisted<T extends object>(key: string | null, initial: T): 
   return [value, update];
 }
 
-/** 复制文字：优先用剪贴板接口，不行就退回旧办法（选中后执行复制命令） */
-export async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; }
-  } catch { /* 用下面的备用办法 */ }
-  try {
-    const box = document.createElement('textarea');
-    box.value = text; box.style.position = 'fixed'; box.style.opacity = '0';
-    document.body.appendChild(box); box.select();
-    const ok = document.execCommand?.('copy') ?? false;
-    document.body.removeChild(box);
-    return ok;
-  } catch { return false; }
-}
-
-/** 一键复制按钮：点一下复制，按钮上短暂显示“已复制”；失败显示“复制失败” */
-export function CopyButton({ text, label, className = 'link-button copy-button' }: { text: string; label: string; className?: string }) {
-  const [state, setState] = useState<'' | 'ok' | 'fail'>('');
-  const timer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => () => clearTimeout(timer.current), []);
-  if (!text) return null;
-  return (
-    <button type="button" className={className} aria-label={`复制${label}`} title={`复制${label}`} onClick={(e) => {
-      e.stopPropagation();
-      void copyText(text).then((ok) => { setState(ok ? 'ok' : 'fail'); clearTimeout(timer.current); timer.current = setTimeout(() => setState(''), 1500); });
-    }}>{state === 'ok' ? '已复制' : state === 'fail' ? '复制失败' : '复制'}</button>
-  );
+/** 复制统一用 resources/CopyValue；财务页保留 text 属性写法，内部直接转给它。 */
+export { copyText } from '../../resources/CopyValue';
+export function CopyButton({ text, label }: { text: string; label: string }) {
+  return <SharedCopyButton value={text} label={label} />;
 }
 
 /** 手机端判断（窄屏换成卡片列表） */
