@@ -198,7 +198,7 @@ export class OrgAdminService {
     const parent = d.parentId ? await em.findOne(Department, { where: { id: d.parentId, companyId: actor.companyId } }) : null;
     // 职责组：职责组成员是资料（duty-group-members），按成员找所属组
     const memberRows = users.length
-      ? (await em.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'duty-group-members' }, select: ['id', 'data'] })).filter((r) => users.some((u) => u.id === Number(r.data.userId)))
+      ? (await em.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'duty-group-members' }, select: ['id', 'data', 'status'] })).filter((r) => r.status !== 'exited' && users.some((u) => u.id === Number(r.data.userId)))
       : [];
     const groupIds = [...new Set(memberRows.map((r) => Number(r.data.groupId)))];
     const groups = groupIds.length ? await em.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'duty-groups', id: In(groupIds) }, select: ['id', 'title'] }) : [];
@@ -708,10 +708,16 @@ export class OrgAdminService {
        WHERE a.company_id = ? AND a.action = 'user.handover' AND (a.resource_id = ? OR JSON_EXTRACT(a.detail, '$.toUserId') = ?) ORDER BY a.id DESC LIMIT 50`,
       [actor.companyId, String(id), id],
     );
+    // 职责组：在组和退出过的都列出来（来源、起止日期）
+    const memberRows = (await em.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'duty-group-members' }, select: ['id', 'data', 'status'] })).filter((r) => Number(r.data.userId) === id);
+    const gids = [...new Set(memberRows.map((r) => Number(r.data.groupId)))];
+    const gRows = gids.length ? await em.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'duty-groups', id: In(gids) }, select: ['id', 'title'] }) : [];
+    const gName = new Map(gRows.map((g) => [g.id, g.title]));
+    const dutyGroups = memberRows.map((r) => ({ id: r.id, groupId: Number(r.data.groupId), groupName: gName.get(Number(r.data.groupId)) ?? '', role: (r.data.role as string | undefined) ?? null, source: (r.data.source as string | undefined) ?? 'manual', startedAt: (r.data.startedAt as string | undefined) ?? null, endedAt: (r.data.endedAt as string | undefined) ?? null, status: r.status }));
     const hn = await nameOf(handovers.flatMap((h) => [Number(h.fromUserId), Number(h.detail?.toUserId)]));
     return {
       hrLogs,
-      salaryChanges, payrollRecords, rewardRecords, penaltyRecords,
+      salaryChanges, payrollRecords, rewardRecords, penaltyRecords, dutyGroups,
       tasks: items.map((i) => ({ id: i.id, title: i.title, status: i.status, assigneeName: itemNames.get(i.assigneeId) ?? null, createdByName: i.createdBy ? itemNames.get(i.createdBy) ?? null : null, dueAt: i.dueAt, createdAt: i.createdAt })),
       flows: [
         ...runs.map((r) => ({ id: `run-${r.id}`, title: r.title, kind: '发起的流程', status: r.status, action: null as string | null, createdAt: r.createdAt })),

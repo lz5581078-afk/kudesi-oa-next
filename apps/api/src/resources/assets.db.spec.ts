@@ -174,4 +174,20 @@ d('固定资产、位置、档案（真实数据库）', () => {
     const flow = (await assets.details(boss, a.id)).operationLogs.find((l) => l.action === 'department_transferred');
     expect(flow?.note).toContain('综合部');
   });
+
+  it('职责组：编码建好后不能改；成员默认手动加入并记加入日期，退出要原因并补退出日期，起止顺序要对', async () => {
+    const g = await svc.create(boss, 'duty-groups', { groupKey: 'ops_team', name: '运营组' });
+    await expect(svc.update(boss, 'duty-groups', g.id, { groupKey: 'other' })).rejects.toThrow(/不能修改/);
+    expect((await svc.update(boss, 'duty-groups', g.id, { name: '运营一组' })).data.name).toBe('运营一组');
+    const m = await svc.create(boss, 'duty-group-members', { groupId: g.id, userId: alice });
+    expect(m.data.source).toBe('manual');
+    expect(String(m.data.startedAt)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    await expect(svc.changeStatus(boss, 'duty-group-members', m.id, 'exited')).rejects.toThrow(/原因/);
+    const out = await svc.changeStatus(boss, 'duty-group-members', m.id, 'exited', '调岗');
+    expect(out.status).toBe('exited');
+    expect(String(out.data.endedAt)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    await expect(svc.update(boss, 'duty-group-members', m.id, { startedAt: '2099-01-01', endedAt: '2098-01-01' })).rejects.toThrow(/不能早于/);
+    const rec = await new OrgAdminService(ds).staffRecords(boss, alice);
+    expect(rec.dutyGroups).toEqual([expect.objectContaining({ groupName: '运营一组', status: 'exited' })]);
+  });
 });

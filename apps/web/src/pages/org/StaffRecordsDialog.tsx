@@ -6,8 +6,9 @@ const errText = (e: unknown) => (e instanceof ApiError ? e.message : '操作失�
 const yuan = (cents: number) => (cents / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const when = (v: string | null) => (v ? new Date(v).toLocaleString('zh-CN') : '—');
 
-type TabKey = 'hr' | 'salary' | 'payroll' | 'reward' | 'penalty' | 'tasks' | 'flows' | 'handover';
+type TabKey = 'hr' | 'groups' | 'salary' | 'payroll' | 'reward' | 'penalty' | 'tasks' | 'flows' | 'handover';
 
+const SOURCE: Record<string, string> = { manual: '手动加入', position: '岗位自动', import: '导入' };
 const HR_ACTION: Record<string, string> = {
   'user.create': '创建账号', 'user.update': '修改档案', 'user.disable': '停用', 'user.enable': '启用', 'user.handover': '工作交接',
   'user.reset_password': '重置密码', 'user.overrides': '调整个人权限',
@@ -47,7 +48,7 @@ export function StaffRecordsDialog({ staff, all, canHandover, canSalary, onClose
   }
 
   const tabs: Array<[TabKey, string]> = [
-    ['hr', '人事记录'], ...(canSalary ? ([['salary', '薪资变更'], ['payroll', '工资发放'], ['reward', '奖励'], ['penalty', '处罚']] as Array<[TabKey, string]>) : []),
+    ['hr', '人事记录'], ['groups', '职责组'], ...(canSalary ? ([['salary', '薪资变更'], ['payroll', '工资发放'], ['reward', '奖励'], ['penalty', '处罚']] as Array<[TabKey, string]>) : []),
     ['tasks', '任务'], ['flows', '流程'], ['handover', '交接'],
   ];
   return (
@@ -63,6 +64,10 @@ export function StaffRecordsDialog({ staff, all, canHandover, canSalary, onClose
           {data && tab === 'hr' && (data.hrLogs.length === 0 ? <p className="muted pad">暂无人事记录</p> : (
             <table className="data-table"><thead><tr><th>时间</th><th>事项</th><th>操作人</th></tr></thead>
               <tbody>{data.hrLogs.map((l) => <tr key={l.id}><td>{when(l.createdAt)}</td><td>{HR_ACTION[l.action] ?? l.action}</td><td>{l.actorName ?? '—'}</td></tr>)}</tbody></table>
+          ))}
+          {data && tab === 'groups' && (data.dutyGroups.length === 0 ? <p className="muted pad">还没有加入任何职责组（在“资料 → 职责组 → 成员”里维护）</p> : (
+            <table className="data-table"><thead><tr><th>职责组</th><th>组内角色</th><th>来源</th><th>加入</th><th>退出</th><th>状态</th></tr></thead>
+              <tbody>{data.dutyGroups.map((g) => <tr key={g.id}><td>{g.groupName}</td><td>{g.role ?? '—'}</td><td>{SOURCE[g.source] ?? g.source}</td><td>{g.startedAt ?? '—'}</td><td>{g.endedAt ?? '—'}</td><td>{g.status === 'exited' ? '已退出' : '在组'}</td></tr>)}</tbody></table>
           ))}
           {data && tab === 'salary' && <CompTable rows={data.salaryChanges} empty="暂无薪资变更" />}
           {data && tab === 'payroll' && <CompTable rows={data.payrollRecords} empty="暂无工资发放记录" />}

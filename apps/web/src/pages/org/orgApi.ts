@@ -35,6 +35,7 @@ export interface CompRecord { id: number; title: string; amount: number; effecti
 export interface StaffRecords {
   hrLogs: Array<{ id: string; action: string; actorName: string | null; detail: unknown; createdAt: string }>;
   salaryChanges: CompRecord[]; payrollRecords: CompRecord[]; rewardRecords: CompRecord[]; penaltyRecords: CompRecord[];
+  dutyGroups: Array<{ id: number; groupId: number; groupName: string; role: string | null; source: string; startedAt: string | null; endedAt: string | null; status: string }>;
   tasks: Array<{ id: number; title: string; status: string; assigneeName: string | null; createdByName: string | null; dueAt: string | null; createdAt: string }>;
   flows: Array<{ id: string; title: string; kind: string; status: string; action: string | null; createdAt: string }>;
   handovers: Array<{ id: string; fromName: string | null; toName: string | null; actorName: string | null; reason: string | null; workItems: number; flowSteps: number; routines: number; createdAt: string }>;

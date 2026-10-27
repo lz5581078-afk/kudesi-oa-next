@@ -71,7 +71,26 @@ async function beforeAssetCategory(ctx: BeforeSaveContext) {
   }
 }
 
+/** 职责组：编码建好后不能改（旧系统同样不让改）。 */
+async function beforeDutyGroup(ctx: BeforeSaveContext) {
+  if (ctx.existing && String(ctx.data.groupKey ?? '') !== String(ctx.existing.data.groupKey ?? '')) {
+    throw new BadRequestException('职责组编码建好后不能修改');
+  }
+}
+
+/** 职责组成员：来源默认手动加入、加入日期默认今天；退出时补退出日期，并检查起止顺序。 */
+async function beforeDutyMember(ctx: BeforeSaveContext) {
+  const d = ctx.data;
+  if (!d.source) d.source = 'manual';
+  if (!d.startedAt) d.startedAt = new Date().toISOString().slice(0, 10);
+  if (ctx.status === 'exited' && !d.endedAt) d.endedAt = new Date().toISOString().slice(0, 10);
+  if (ctx.status !== 'exited') d.endedAt = null;
+  if (d.endedAt && String(d.endedAt) < String(d.startedAt)) throw new BadRequestException('退出日期不能早于加入日期');
+}
+
 export const ASSET_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Promise<void>> = {
+  'duty-groups': beforeDutyGroup,
+  'duty-group-members': beforeDutyMember,
   'fixed-assets': beforeFixedAsset,
   archives: beforeArchive,
   'asset-categories': beforeAssetCategory,

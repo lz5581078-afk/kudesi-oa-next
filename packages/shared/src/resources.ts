@@ -639,7 +639,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     defaultStatus: 'normal',
     children: ['duty-group-items', 'duty-group-members'],
     fields: [
-      text('groupKey', '职责组编码', '基础', { required: true, list: true, search: true, help: '流程和任务按编码引用，建好后不要改' }),
+      text('groupKey', '职责组编码', '基础', { required: true, list: true, search: true, help: '流程和任务按编码引用，建好后不能修改' }),
       text('name', '职责组名称', '基础', { required: true, list: true, search: true }),
       select('scope', '范围', '基础', o('company:公司级', 'department:部门级'), { list: true }),
       textarea('description', '说明', '基础'),
@@ -668,13 +668,16 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     label: '职责组成员',
     parent: { type: 'duty-groups', field: 'groupId' },
     titleField: 'userId',
-    uniqueTogether: [{ fields: ['groupId', 'userId'], message: '这个员工已经在该职责组里了' }],
-    statuses: [NORMAL],
+    uniqueTogether: [{ fields: ['groupId', 'userId'], message: '这个员工已经在该职责组里了；退出过的请直接改回“在组”' }],
+    statuses: [NORMAL, { value: 'exited', label: '已退出', tone: 'muted', requiresReason: true }],
     defaultStatus: 'normal',
     fields: [
       ref('groupId', '职责组', '基础', 'duty-groups', { required: true }),
       ref('userId', '成员', '基础', 'user', { required: true, list: true }),
       text('role', '组内角色', '基础', { list: true }),
+      select('source', '来源', '基础', o('manual:手动加入', 'position:岗位自动', 'import:导入'), { list: true, help: '默认手动加入' }),
+      date('startedAt', '加入日期', '基础', { list: true }),
+      date('endedAt', '退出日期', '基础', { help: '退出时填写；晚于加入日期' }),
     ],
   },
   {
