@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { normalizePhone, normalizeReconcileDay, todayInShanghai } from '@kudesi/shared';
+import { normalizePhone, normalizeReconcileDay, todayShanghai } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord, User } from '../entities';
 import type { AfterSaveContext, BeforeSaveContext, RuleHost } from './resource-rules';
@@ -70,7 +70,7 @@ async function licenseBorrowBefore(ctx: BeforeSaveContext) {
   d.borrower = name;
   // 登记归还：状态变成已归还就补上今天的归还日期；填了归还日期就是已归还；改回借出则清掉归还日期
   const wasReturned = ctx.existing?.status === 'returned';
-  if (ctx.status === 'returned' && !d.returnedAt) d.returnedAt = todayInShanghai();
+  if (ctx.status === 'returned' && !d.returnedAt) d.returnedAt = todayShanghai();
   else if (d.returnedAt && ctx.status !== 'returned' && !wasReturned) ctx.status = 'returned';
   else if (d.returnedAt && ctx.status !== 'returned') d.returnedAt = null;
 }

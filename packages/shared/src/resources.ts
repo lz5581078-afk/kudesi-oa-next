@@ -108,8 +108,8 @@ export interface ResourceDef {
   treeTabMap?: Record<string, readonly string[]>;
   /** 列表勾选后可批量做的事：status=批量停用/启用（要填原因），其余是批量修改这个字段（如移动分类） */
   batch?: readonly string[];
-  /** 预警：状态异常，或某日期字段在 N 天内到期（statuses：只对这些状态的记录预警） */
-  alerts?: Array<{ field: string; withinDays: number; label: string; statuses?: readonly string[] }>;
+  /** 预警：状态异常，或某日期字段在 N 天内到期 */
+  alerts?: Array<{ field: string; withinDays: number; label: string }>;
   /** 详情里多一个只读“适用店铺”页签：按本记录的这个执照字段，列出该执照下的店铺 */
   derivedStores?: string;
   /** 详情页展示这些子资源 */
@@ -710,7 +710,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     defaultStatus: 'normal',
     derivedStores: 'licenseId',
     filterBy: ['licenseId'],
-    alerts: [{ field: 'expiresAt', withinDays: 30, label: '30 天内到期', statuses: ['normal', 'abnormal'] }],
+    alerts: [{ field: 'expiresAt', withinDays: 30, label: '30 天内到期' }],
     fields: [
       select('type', '类型', '基础', o('seed_business_filing:种子经营备案', 'brand_authorization:品牌授权', 'platform_operation:平台运营资质', 'general:通用'), { required: true, list: true }),
       text('name', '名称', '基础', { required: true, list: true, search: true }),
@@ -744,7 +744,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
     defaultStatus: 'applying',
     children: ['trademark-authorizations'],
-    alerts: [{ field: 'validUntil', withinDays: 90, label: '90 天内到期', statuses: ['registered'] }],
+    alerts: [{ field: 'validUntil', withinDays: 90, label: '90 天内到期' }],
     fields: [
       select('source', '来源', '基础', o('owned:自有', 'cooperative:合作'), { required: true, list: true }),
       text('name', '商标名称', '基础', { required: true, list: true, search: true }),
@@ -772,6 +772,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'label',
     uniqueTogether: [{ fields: ['trademarkId', 'storeId'], message: '这个商标已经授权给该店铺了' }],
     sortField: 'validTo',
+    alerts: [{ field: 'validTo', withinDays: 90, label: '商标授权到期' }],
     statuses: [NORMAL, INACTIVE],
     defaultStatus: 'normal',
     fields: [

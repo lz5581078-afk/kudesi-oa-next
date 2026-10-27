@@ -131,6 +131,8 @@ d('证照与主体（真实数据库）', () => {
     await svc.remove(boss, 'trademark-authorizations', (await svc.list(boss, 'trademark-authorizations', { fieldKey: 'trademarkId', fieldValue: String(t2.id) })).items[0].id, '取消授权');
     s = await svc.get(boss, 'stores', store.id);
     expect(s.data.trademark).toBe('好运牌');
+    const due = await svc.expiring(boss, 366, true, '2026-12-20');
+    expect(due.rows.some((r) => r.type === 'trademark-authorizations' && r.dueDate === '2027-01-01')).toBe(true);
     // 店铺上手写档案里的商标名 -> 自动建授权
     const s2 = await svc.create(boss, 'stores', { platform: 'pdd', name: '手写店', trademark: '好运牌', trademarkExpireAt: '2026-12-31' });
     const auths = await svc.list(boss, 'trademark-authorizations', { fieldKey: 'storeId', fieldValue: String(s2.id) });

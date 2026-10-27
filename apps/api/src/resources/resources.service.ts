@@ -1186,7 +1186,7 @@ export class ResourcesService implements RuleHost {
     const window = Math.min(366, Math.max(0, Math.floor(Number.isFinite(days) ? days : 30)));
     const limit = addDaysText(today, window);
     const em = this.dataSource.manager;
-    const sources = expirySources().filter((src) => can(resourcePermission(src.resource, 'view')));
+    const sources = expirySources().filter((src) => can(resourcePermission(permissionOwner(src.resource), 'view')));
     const types = [...new Set(sources.map((x) => x.resource))];
     const rows: Array<{ type: string; typeLabel: string; id: number; name: string; field: string; fieldLabel: string; dueDate: string; daysLeft: number; status: 'expired' | 'due_soon'; resourceStatus: string }> = [];
     for (const type of types) {
