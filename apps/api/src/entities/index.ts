@@ -429,6 +429,16 @@ export class ResourceLink {
   @Column({ name: 'target_id', type: 'int', unsigned: true })
   targetId!: number;
 
+  /** 手动关联的属性：有效期起止（YYYY-MM-DD）与用途 */
+  @Column({ name: 'valid_from', type: 'date', nullable: true })
+  validFrom!: string | null;
+
+  @Column({ name: 'valid_to', type: 'date', nullable: true })
+  validTo!: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  purpose!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt!: Date;
 }

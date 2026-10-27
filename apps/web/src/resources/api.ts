@@ -71,6 +71,9 @@ export interface Relation {
   id: number;
   title: string;
   linkId?: number;
+  validFrom?: string | null;
+  validTo?: string | null;
+  purpose?: string | null;
 }
 
 export interface LogEntry {
@@ -138,7 +141,10 @@ export const resourceApi = {
     api<ResourceDto>(`/resources/${type}/${id}/restore`, { method: 'POST', body: { reason } }),
   reveal: (type: string, id: number, field: string) => api<{ field: string; value: string }>(`/resources/${type}/${id}/secret/${field}`),
   logs: (type: string, id: number) => api<LogEntry[]>(`/resources/${type}/${id}/logs`),
-  addLink: (type: string, id: number, targetType: string, targetId: number) => api<{ ok: true }>(`/resources/${type}/${id}/links`, { method: 'POST', body: { targetType, targetId } }),
+  addLink: (type: string, id: number, targetType: string, targetId: number, props: { purpose?: string; validFrom?: string; validTo?: string } = {}) =>
+    api<{ ok: true }>(`/resources/${type}/${id}/links`, { method: 'POST', body: { targetType, targetId, ...props } }),
+  updateLink: (type: string, id: number, linkId: number, props: { purpose?: string; validFrom?: string; validTo?: string }) =>
+    api<{ ok: true }>(`/resources/${type}/${id}/links/${linkId}`, { method: 'PATCH', body: props }),
   removeLink: (type: string, id: number, linkId: number) => api<{ ok: true }>(`/resources/${type}/${id}/links/${linkId}`, { method: 'DELETE' }),
   relations: (type: string, id: number) => api<Relation[]>(`/resources/${type}/${id}/relations`),
   overview: () => api<OverviewResult>('/resources/overview'),

@@ -56,6 +56,15 @@ class BatchDto {
 class LinkDto {
   @IsString() @MaxLength(40) targetType!: string;
   @IsInt() @Min(1) targetId!: number;
+  @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
+  @IsOptional() @IsString() @MaxLength(10) validTo?: string;
+  @IsOptional() @IsString() @MaxLength(200) purpose?: string;
+}
+
+class LinkPropsDto {
+  @IsOptional() @IsString() @MaxLength(10) validFrom?: string;
+  @IsOptional() @IsString() @MaxLength(10) validTo?: string;
+  @IsOptional() @IsString() @MaxLength(200) purpose?: string;
 }
 
 class DeleteDto {
@@ -218,7 +227,13 @@ export class ResourcesController {
   @RequireResourceAction('edit')
   @Post(':type/:id/links')
   addLink(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: LinkDto) {
-    return this.resources.addManualLink(user, type, id, dto.targetType, dto.targetId, createChecker(user.permissions));
+    return this.resources.addManualLink(user, type, id, dto.targetType, dto.targetId, createChecker(user.permissions), { validFrom: dto.validFrom, validTo: dto.validTo, purpose: dto.purpose });
+  }
+
+  @RequireResourceAction('edit')
+  @Patch(':type/:id/links/:linkId')
+  updateLink(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Param('linkId', ParseIntPipe) linkId: number, @Body() dto: LinkPropsDto) {
+    return this.resources.updateManualLink(user, type, id, linkId, dto);
   }
 
   @RequireResourceAction('edit')

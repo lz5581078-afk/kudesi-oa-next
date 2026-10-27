@@ -1002,6 +1002,23 @@ export class ResourcesService implements RuleHost {
     }));
   }
 
+  private linkProps(l: ResourceLink) {
+    return l.relation === 'manual' ? { validFrom: l.validFrom, validTo: l.validTo, purpose: l.purpose } : {};
+  }
+
+  private cleanLinkProps(p: { validFrom?: string | null; validTo?: string | null; purpose?: string | null }) {
+    const date = (v: unknown, label: string) => {
+      if (v === undefined || v === null || v === '') return null;
+      if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(`${v}T00:00:00Z`))) throw new BadRequestException(`${label}格式应为 YYYY-MM-DD`);
+      return v;
+    };
+    const validFrom = date(p.validFrom, '开始日期');
+    const validTo = date(p.validTo, '结束日期');
+    if (validFrom && validTo && validTo < validFrom) throw new BadRequestException('结束日期不能早于开始日期');
+    const purpose = typeof p.purpose === 'string' && p.purpose.trim() ? p.purpose.trim().slice(0, 200) : null;
+    return { validFrom, validTo, purpose };
+  }
+
   /** 这条记录指向了谁、又被谁引用。 */
   async relations(user: AuthUser, type: string, id: number, can: (permission: string) => boolean) {
     this.def(type);
@@ -1015,7 +1032,7 @@ export class ResourcesService implements RuleHost {
         id,
       })
       .getMany();
-    const out: Array<{ direction: 'out' | 'in'; relation: string; type: string; id: number; title: string; linkId?: number }> = [];
+    const out: Array<{ direction: 'out' | 'in'; relation: string; type: string; id: number; title: string; linkId?: number; validFrom?: string | null; validTo?: string | null; purpose?: string | null }> = [];
     const wantUsers = new Set<number>();
     const wantRecords = new Set<number>();
     for (const l of links) {
@@ -1033,14 +1050,14 @@ export class ResourcesService implements RuleHost {
       : [];
     for (const l of links) {
       if (l.sourceType === type && l.sourceId === id) {
-        if (l.targetType === 'user') out.push({ direction: 'out', relation: l.relation, type: 'user', id: l.targetId, title: users.find((u) => u.id === l.targetId)?.name ?? `#${l.targetId}`, linkId: l.id });
+        if (l.targetType === 'user') out.push({ direction: 'out', relation: l.relation, type: 'user', id: l.targetId, title: users.find((u) => u.id === l.targetId)?.name ?? `#${l.targetId}`, linkId: l.id, ...this.linkProps(l) });
         else {
           const r = records.find((x) => x.id === l.targetId && x.type === l.targetType);
-          if (r) out.push({ direction: 'out', relation: l.relation, type: r.type, id: r.id, title: r.title, linkId: l.id });
+          if (r) out.push({ direction: 'out', relation: l.relation, type: r.type, id: r.id, title: r.title, linkId: l.id, ...this.linkProps(l) });
         }
       } else {
         const r = records.find((x) => x.id === l.sourceId && x.type === l.sourceType);
-        if (r) out.push({ direction: 'in', relation: l.relation, type: r.type, id: r.id, title: r.title, linkId: l.id });
+        if (r) out.push({ direction: 'in', relation: l.relation, type: r.type, id: r.id, title: r.title, linkId: l.id, ...this.linkProps(l) });
       }
     }
     // 只给出调用者有权查看的资料类型，避免通过关联“窥探”无权限的资料
@@ -1048,8 +1065,9 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 手动关联：把另一条资料关联到这条上（一条可以关联多条，如合作人对应多个执照/店铺）。 */
-  async addManualLink(user: AuthUser, type: string, id: number, targetType: string, targetId: number, can: (permission: string) => boolean) {
+  async addManualLink(user: AuthUser, type: string, id: number, targetType: string, targetId: number, can: (permission: string) => boolean, props: { validFrom?: string | null; validTo?: string | null; purpose?: string | null } = {}) {
     this.def(type);
+    const clean = this.cleanLinkProps(props);
     const tdef = getResourceDef(targetType);
     if (!tdef) throw new BadRequestException('要关联的资料类型不存在');
     if (!can(resourcePermission(permissionOwner(targetType), 'view'))) throw new ForbiddenException('没有权限查看要关联的资料');
@@ -1063,8 +1081,23 @@ export class ResourcesService implements RuleHost {
         { companyId: user.companyId, sourceType: targetType, sourceId: targetId, targetType: type, targetId: id },
       ] });
       if (dup) throw new ConflictException('已经关联过了');
-      await em.insert(ResourceLink, { companyId: user.companyId, sourceType: type, sourceId: id, relation: 'manual', targetType, targetId });
-      await this.writeLog(em, user, this.def(type), src.id, 'update', src, src, `手动关联${tdef.label}「${target.title}」`);
+      await em.insert(ResourceLink, { companyId: user.companyId, sourceType: type, sourceId: id, relation: 'manual', targetType, targetId, ...clean });
+      await this.writeLog(em, user, this.def(type), src.id, 'update', src, src, `手动关联${tdef.label}「${target.title}」${clean.purpose ? `（${clean.purpose}）` : ''}${clean.validTo ? `，有效期至 ${clean.validTo}` : ''}`);
+    });
+    return { ok: true };
+  }
+
+  /** 修改手动关联的属性（用途、有效期） */
+  async updateManualLink(user: AuthUser, type: string, id: number, linkId: number, props: { validFrom?: string | null; validTo?: string | null; purpose?: string | null }) {
+    const def = this.def(type);
+    const clean = this.cleanLinkProps(props);
+    await this.dataSource.transaction(async (em) => {
+      const src = await this.load(em, user, type, id);
+      const link = await em.findOne(ResourceLink, { where: { id: linkId, companyId: user.companyId, relation: 'manual' } });
+      const ok = link && ((link.sourceType === type && link.sourceId === id) || (link.targetType === type && link.targetId === id));
+      if (!link || !ok) throw new NotFoundException('关联不存在');
+      await em.update(ResourceLink, { id: linkId }, clean);
+      await this.writeLog(em, user, def, src.id, 'update', src, src, `修改关联属性${clean.purpose ? `：${clean.purpose}` : ''}${clean.validTo ? `，有效期至 ${clean.validTo}` : ''}`);
     });
     return { ok: true };
   }
@@ -1121,6 +1154,22 @@ export class ResourcesService implements RuleHost {
           if (daysLeft < 0 && !includeExpired) continue;
           rows.push({ type, typeLabel: def.label, id: r.id, name: r.title, field: src.field, fieldLabel: src.label, dueDate: due, daysLeft, status: daysLeft < 0 ? 'expired' : 'due_soon', resourceStatus: r.status });
         }
+      }
+    }
+    // 带有效期的手动关联（如商标授权给某店铺的结束日期）：算在关联的两端中“被授权”的一方——这里统一算在来源这条资料上
+    const links = await em.find(ResourceLink, { where: { companyId: user.companyId, relation: 'manual', validTo: Not(IsNull()) } });
+    if (links.length) {
+      const ids = [...new Set(links.flatMap((l) => [l.sourceId, l.targetId]))];
+      const recs = await em.find(ResourceRecord, { where: { companyId: user.companyId, id: In(ids), archivedAt: IsNull(), status: Not(In([...EXPIRY_SKIP_STATUSES])) }, select: ['id', 'type', 'title', 'status'] });
+      const byId = new Map(recs.map((r) => [r.id, r]));
+      for (const l of links) {
+        const owner = byId.get(l.sourceId);
+        const other = byId.get(l.targetId);
+        if (!owner || !other || !l.validTo || l.validTo > limit) continue;
+        if (!can(resourcePermission(owner.type, 'view'))) continue;
+        const daysLeft = daysBetweenDates(today, l.validTo);
+        if (daysLeft < 0 && !includeExpired) continue;
+        rows.push({ type: owner.type, typeLabel: getResourceDef(owner.type)?.label ?? owner.type, id: owner.id, name: owner.title, field: `link:${l.id}`, fieldLabel: `关联到期（${other.title}${l.purpose ? `·${l.purpose}` : ''}）`, dueDate: l.validTo, daysLeft, status: daysLeft < 0 ? 'expired' : 'due_soon', resourceStatus: owner.status });
       }
     }
     rows.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : a.type.localeCompare(b.type) || a.id - b.id));

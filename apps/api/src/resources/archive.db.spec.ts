@@ -64,11 +64,28 @@ d('软归档/恢复（真实数据库）', () => {
 
   it('不能把已归档的资料选作新的引用对象；已有引用不受影响', async () => {
     const st = await svc.create(boss, 'stores', { platform: 'taobao', name: '归档引用店' });
-    const sw = await svc.create(boss, 'software', { name: '引用店的软件', storeId: st.id });
+    const sw = await svc.create(boss, 'software', { name: '引用店的软件', account: 'ref1', storeId: st.id });
     await svc.archive(boss, 'stores', st.id, '关店');
-    await expect(svc.create(boss, 'software', { name: '新软件', storeId: st.id })).rejects.toThrow('已归档');
+    await expect(svc.create(boss, 'software', { name: '新软件', account: 'ref2', storeId: st.id })).rejects.toThrow('已归档');
     // 已存在的引用保持原样，别的字段可改
     await svc.update(boss, 'software', sw.id, { account: 'ok' });
     expect((await svc.get(boss, 'software', sw.id)).data.storeId).toBe(st.id);
+  });
+
+  it('手动关联带用途和有效期；到期的关联出现在“即将到期”里', async () => {
+    const st = await svc.create(boss, 'stores', { platform: 'taobao', name: '授权店' });
+    const tm = await svc.create(boss, 'trademarks', { name: '授权商标', source: 'owned' } as never).catch(() => null);
+    const target = tm ?? (await svc.create(boss, 'wechat', { name: '关联微信', wechatNo: 'wx_link_t' }));
+    const can = () => true;
+    const soon = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+    await expect(svc.addManualLink(boss, 'stores', st.id, target.type, target.id, can, { validTo: '2026-13-40' })).rejects.toThrow('格式');
+    await svc.addManualLink(boss, 'stores', st.id, target.type, target.id, can, { purpose: '授权使用', validTo: soon });
+    const rel = (await svc.relations(boss, 'stores', st.id, can)).find((r) => r.relation === 'manual')!;
+    expect(rel.purpose).toBe('授权使用');
+    expect(rel.validTo).toBe(soon);
+    expect((await svc.expiring(boss, 30)).rows.some((r) => r.type === 'stores' && r.id === st.id && r.fieldLabel.includes('关联到期'))).toBe(true);
+    await svc.updateManualLink(boss, 'stores', st.id, rel.linkId!, { validTo: '' });
+    expect((await svc.relations(boss, 'stores', st.id, can)).find((r) => r.relation === 'manual')!.validTo).toBeNull();
+    await expect(svc.addManualLink(boss, 'stores', st.id, target.type, target.id, can)).rejects.toThrow('已经关联过');
   });
 });
