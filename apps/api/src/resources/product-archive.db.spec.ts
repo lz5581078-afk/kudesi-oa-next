@@ -242,4 +242,18 @@ d('商品档案与基础编码（真实数据库）', () => {
     await expect(svc.create(boss, 'finance-zero-reasons', { reason: '客户 自备' })).rejects.toThrow(/已存在|重复/);
     await expect(svc.create(boss, 'finance-zero-reasons', { reason: '   ' })).rejects.toThrow();
   });
+
+  it('基础编码按品牌筛选：品牌取自来源商品档案；品牌值只接受数字', async () => {
+    const other = await svc.create(boss, 'finance-brands', { name: '另一个牌子' });
+    const a = await mkRaw({ name: '品牌筛选苹果', brandId: ids.brand });
+    const b = await mkRaw({ name: '品牌筛选梨', brandId: other.id });
+    const ca = (await baseCodesOf(a.id))[0];
+    const cb = (await baseCodesOf(b.id))[0];
+    const list = async (brandId: number | string) => (await svc.list(boss, 'finance-base-codes', { pageSize: 100, filters: JSON.stringify({ brandId }) } as never)).items.map((i: { id: number }) => i.id);
+    const mine = await list(ids.brand);
+    expect(mine).toContain(ca.id);
+    expect(mine).not.toContain(cb.id);
+    expect(await list(other.id)).toEqual([cb.id]);
+    await expect(list('1 OR 1=1')).rejects.toThrow(/筛选条件不合法/);
+  });
 });

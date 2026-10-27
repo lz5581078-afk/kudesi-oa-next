@@ -85,22 +85,22 @@ export function CostTablePage() {
             {(keyword || categoryId !== null) && <button type="button" className="secondary-button small" onClick={() => { setKeyword(''); setCategoryId(null); setPage(1); }}>清除筛选</button>}
           </div>
           <div className="table-scroll">
-            <table className="data-table">
+            <table className="data-table cards-narrow">
               <thead><tr><th>SKU组合编码</th><th>SKU名称</th><th className="num">成本</th><th className="num">重量(g)</th><th>使用快递</th><th className="num">预估运费</th><th className="num">含快递成本</th><th className="num">利润率</th><th className="num">最低售价</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 {data.rows.length === 0 && <tr><td colSpan={11} className="empty-state muted">{busy ? '正在加载成本资料…' : '暂无符合条件的SKU成本。先去“商品组合编码”建组合并验证。'}</td></tr>}
                 {data.rows.map((r) => (
                   <tr key={r.bundleId}>
                     <td className="mono" data-label="SKU组合编码">{r.code}<CopyButton value={r.code} label="SKU组合编码" /></td>
-                    <td>{r.name}</td>
-                    <td className="num"><button type="button" className="link-button" aria-label={`查看${r.name}成本组成`} onClick={() => setBreakdown({ row: r, kind: 'cost' })}>{money(r.preShipCostCents)}</button></td>
-                    <td className="num"><button type="button" className="link-button" aria-label={`查看${r.name}重量组成`} onClick={() => setBreakdown({ row: r, kind: 'weight' })}>{r.weightG ?? '未设置'}</button></td>
-                    <td>{r.carrierName || <span className="muted">未指定</span>}</td>
-                    <td className="num">{money(r.freightCents)}<div className="muted">{r.freightMethod ? (METHOD[r.freightMethod] ?? r.freightMethod) : '缺少运费预估'}</div></td>
-                    <td className="num">{r.costIncludingFreightCents === null ? '待估价' : money(r.costIncludingFreightCents)}</td>
-                    <td className="num"><strong>{pct(r.marginPercent)}</strong><div className="muted">{r.marginOverride ? '单品设置' : `继承：${r.marginSource}`}</div></td>
-                    <td className="num strong">{money(r.minPriceCents)}</td>
-                    <td>{r.issues.length ? <span className="pill warn" title={r.issues.join('；')}>{r.issues.length} 项待补</span> : <span className="pill ok">完整</span>}</td>
+                    <td data-label="SKU名称">{r.name}</td>
+                    <td className="num" data-label="成本"><button type="button" className="link-button" aria-label={`查看${r.name}成本组成`} onClick={() => setBreakdown({ row: r, kind: 'cost' })}>{money(r.preShipCostCents)}</button></td>
+                    <td className="num" data-label="重量(g)"><button type="button" className="link-button" aria-label={`查看${r.name}重量组成`} onClick={() => setBreakdown({ row: r, kind: 'weight' })}>{r.weightG ?? '未设置'}</button></td>
+                    <td data-label="使用快递">{r.carrierName || <span className="muted">未指定</span>}</td>
+                    <td className="num" data-label="预估运费">{money(r.freightCents)}<div className="muted">{r.freightMethod ? (METHOD[r.freightMethod] ?? r.freightMethod) : '缺少运费预估'}</div></td>
+                    <td className="num" data-label="含快递成本">{r.costIncludingFreightCents === null ? '待估价' : money(r.costIncludingFreightCents)}</td>
+                    <td className="num" data-label="利润率"><strong>{pct(r.marginPercent)}</strong><div className="muted">{r.marginOverride ? '单品设置' : `继承：${r.marginSource}`}</div></td>
+                    <td className="num strong" data-label="最低售价">{money(r.minPriceCents)}</td>
+                    <td data-label="状态">{r.issues.length ? <span className="pill warn" title={r.issues.join('；')}>{r.issues.length} 项待补</span> : <span className="pill ok">完整</span>}</td>
                     <td>
                       <div className="row-actions">
                         {data.canEdit && <button type="button" className="link-button" aria-label={`维护${r.name}售价`} onClick={() => { setError(''); setEditing({ kind: 'sku', row: r }); }}>维护售价</button>}

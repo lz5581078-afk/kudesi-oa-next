@@ -125,14 +125,14 @@ export function LaborCostPage() {
               {can('create') && <button type="button" className="primary-button" disabled={locked || (node !== null && !isLeaf)} title={node && !isLeaf ? '请选最末级分类' : undefined} onClick={() => setItemForm({ record: null })}>新增工作项目</button>}
               {node && !isLeaf && <span className="muted">「{node.name}」还有下级分类，工作项目要放在最末级</span>}
             </div>
-            <div className="table-scroll"><table className="data-table">
+            <div className="table-scroll"><table className="data-table cards-narrow">
               <thead><tr><th>工作编号</th><th>归档分类</th><th>工作分类</th><th>工作名称</th><th>计价单位</th><th className="num">单位人力成本</th><th>零值原因</th><th>状态</th><th /></tr></thead>
               <tbody>
                 {shown.length === 0 && <tr><td colSpan={9} className="empty-state muted">{items.length === 0 ? '这个版本还没有工作项目。' : <>没有符合条件的工作项目。<button type="button" className="link-button" onClick={() => { setKeyword(''); setSelectedCat(null); setPage(1); }}>清除搜索和分类</button></>}</td></tr>}
                 {shown.map((i) => (
-                  <tr key={i.id}><td>{String(i.data.workCode ?? '')}</td><td>{i.refLabels.archiveCategoryId}</td><td>{i.refLabels.workTypeId}</td><td>{String(i.data.workName ?? '')}</td><td>{i.refLabels.unitId}</td>
-                    <td className="num">{canSeeCost ? money(i.data.unitPrice as number | undefined) : '无权限'}</td><td>{String(i.data.zeroReason ?? '')}</td>
-                    <td>{i.status === 'active' ? '启用' : '停用'}</td>
+                  <tr key={i.id}><td data-label="工作编号">{String(i.data.workCode ?? '')}</td><td data-label="归档分类">{i.refLabels.archiveCategoryId}</td><td data-label="工作分类">{i.refLabels.workTypeId}</td><td data-label="工作名称">{String(i.data.workName ?? '')}</td><td data-label="计价单位">{i.refLabels.unitId}</td>
+                    <td className="num" data-label="单位人力成本">{canSeeCost ? money(i.data.unitPrice as number | undefined) : '无权限'}</td><td data-label="零值原因">{String(i.data.zeroReason ?? '')}</td>
+                    <td data-label="状态">{i.status === 'active' ? '启用' : '停用'}</td>
                     <td className="row-actions">
                       {can('edit') && <button type="button" className="link-button" onClick={() => setItemForm({ record: i })}>修改</button>}
                       {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'zeroReason'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) })}>复制新增</button>}

@@ -15,7 +15,7 @@ export const HAS_ALIAS = `EXISTS (SELECT 1 FROM resource_records a WHERE a.compa
 const J = (k: string) => `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${k}'))`;
 
 export function isViewFilter(type: string, key: string): boolean {
-  return viewFiltersOf(type).some((f) => f.key === key);
+  return viewFiltersOf(type).some((f) => f.key === key) || (type === 'finance-base-codes' && key === 'brandId');
 }
 
 /** 给列表查询加上一个虚拟筛选；值不在选项里就报不合法由调用方处理（这里返回 false） */
@@ -29,6 +29,13 @@ export async function applyViewFilter(
   today: string,
   idx: number,
 ): Promise<boolean> {
+  // 基础编码按品牌筛选：品牌取自来源商品档案（多构成编码取自己的编码品牌）；选项是公司的品牌清单，不是固定值
+  if (type === 'finance-base-codes' && key === 'brandId') {
+    if (!/^\d{1,12}$/.test(value)) return false;
+    const pid = `brand${idx}`;
+    qb.andWhere(`(JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.codeBrandId')) = :${pid} OR (JSON_EXTRACT(r.data, '$.codeBrandId') IS NULL AND JSON_EXTRACT(r.data, '$.productId') IN (SELECT p.id FROM resource_records p WHERE p.company_id = r.company_id AND p.type = 'finance-products' AND JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.brandId')) = :${pid})))`, { [pid]: value });
+    return true;
+  }
   const def = viewFiltersOf(type).find((f) => f.key === key);
   if (!def || !def.options.some((o) => o.value === value)) return false;
   const computed = getResourceDef(type)?.computedFilters?.find((f) => f.key === key)?.options.find((o) => o.value === value);

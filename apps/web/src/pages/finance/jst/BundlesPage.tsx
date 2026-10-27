@@ -92,7 +92,7 @@ export function BundlesPage() {
       <section className="card">
         <div className="toolbar"><input className="grow" aria-label="搜索" placeholder="搜索组合编码、名称" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} /></div>
         {error && <div role="alert" className="notice error">{error}</div>}
-        <div className="table-scroll"><table className="data-table">
+        <div className="table-scroll"><table className="data-table cards-narrow">
           <thead><tr>
             <th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={rows.length > 0 && rows.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...rows.map((r) => r.id)])] : checked.filter((id) => !rows.some((r) => r.id === id)))} /></th>
             {columns.map((f) => <th key={f.key}>{f.label}</th>)}<th>状态</th><th />
@@ -106,7 +106,7 @@ export function BundlesPage() {
                 <tr className={row.id === selected ? 'selected' : undefined} onClick={() => setSelected(row.id)}>
                   <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>
                   {columns.map((f) => <td key={f.key} data-label={f.label}>{displayValue(f, row)}{f.key === 'code' && <CopyButton value={String(row.data.code ?? '')} label="组合编码" />}</td>)}
-                  <td><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>{typeof row.data.pendingRevisionId === 'number' && <span className="pill warn">有待发布修订</span>}</td>
+                  <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>{typeof row.data.pendingRevisionId === 'number' && <span className="pill warn">有待发布修订</span>}</td>
                   <td onClick={(e) => e.stopPropagation()}><button type="button" className="link-button" aria-expanded={Boolean(lines)} onClick={() => void toggleLines(row.id)}>{lines ? '收起构成' : '展开构成'}</button>{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}</td>
                 </tr>
                 {lines && (

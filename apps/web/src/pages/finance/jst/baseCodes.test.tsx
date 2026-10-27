@@ -47,4 +47,14 @@ describe('商品基础编码页', () => {
     fireEvent.click(head().querySelector('button')!);
     await waitFor(() => expect(resourceApi.list).toHaveBeenLastCalledWith('finance-base-codes', expect.objectContaining({ sortBy: undefined })));
   });
+
+  it('品牌下拉：选了品牌就带 brandId 给服务端；清除筛选一并清掉', async () => {
+    vi.mocked(resourceApi.list).mockImplementation(async (type) => (type === 'finance-base-codes' ? { items: [row], total: 1, page: 1, pageSize: 20 } : type === 'finance-brands' ? { items: [{ id: 8, title: '果园先生' }], total: 1, page: 1, pageSize: 200 } : { items: [], total: 0, page: 1, pageSize: 200 }) as never);
+    vi.mocked(jstApi.baseOverview).mockResolvedValue({ status: { pending: 1 }, byCategory: {} } as never);
+    render(<BaseCodesPage />);
+    await screen.findByText('SG-PG-HFS-1KG');
+    await screen.findByRole('option', { name: '果园先生' });
+    fireEvent.change(screen.getByLabelText('品牌'), { target: { value: '8' } });
+    await waitFor(() => expect(resourceApi.list).toHaveBeenLastCalledWith('finance-base-codes', expect.objectContaining({ filters: { realView: 'foldVerified', brandId: '8' } })));
+  });
 });
