@@ -207,6 +207,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'name',
     uniqueField: 'code',
     tabsBy: 'direction',
+    filterBy: 'categoryId',
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
     fields: [

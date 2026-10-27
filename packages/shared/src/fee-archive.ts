@@ -23,6 +23,7 @@ export const FEE_BOOKING_NODES: ReadonlyArray<{ node: string; resource: string |
   { node: '店铺个人银行卡', resource: 'bank-accounts', kind: 'store_personal_card' },
   { node: '固定资产', resource: 'fixed-assets' },
   { node: '房间与档案位置', resource: 'locations' },
+  { node: '仓库', resource: 'finance-warehouses' },
   { node: '商品', resource: 'finance-products' },
   { node: '供应商', resource: 'finance-suppliers' },
   { node: '客户', resource: 'finance-customers' },
@@ -31,6 +32,19 @@ export const FEE_BOOKING_NODES: ReadonlyArray<{ node: string; resource: string |
   { node: '不固定', resource: null },
 ];
 export const FEE_BOOKING_NODE_MAP = new Map(FEE_BOOKING_NODES.map((n) => [n.node, n]));
+
+/** 旧默认费用项里的老写法 → 现在的挂账节点（旧程序里“公户”指公司银行公户） */
+export const FEE_BOOKING_NODE_ALIASES: Readonly<Record<string, string>> = { 公户: '公司公户' };
+
+/** 把“a、b”形式的挂账节点文字规范成合法节点列表：老写法转换、去重、丢掉不认识的 */
+export function normalizeFeeBookingNodes(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/[、,，]/)) {
+    const n = FEE_BOOKING_NODE_ALIASES[raw.trim()] ?? raw.trim();
+    if (n && FEE_BOOKING_NODE_MAP.has(n) && n !== '不固定' && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
 
 /** [编号, 名称, 上级编号('' 为一级), 排序, 说明] */
 export type FeeSeedCategory = [string, string, string, number, string];

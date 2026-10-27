@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { FEE_BOOKING_NODE_MAP, FEE_SEED_CATEGORIES, FEE_SEED_ITEMS, createChecker } from '@kudesi/shared';
+import { normalizeFeeBookingNodes, FEE_SEED_CATEGORIES, FEE_SEED_ITEMS, createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import { ResourcesService } from './resources.service';
@@ -45,7 +45,7 @@ export class FeeArchiveService {
     for (const [code, name, cat, subject, object, platform, common, required, flow, remark] of FEE_SEED_ITEMS) {
       if (have.has(code)) continue;
       await this.resources.create(user, 'finance-fee-items', {
-        code, name, direction: 'expense', categoryId: catBySeed.get(cat), accountingSubject: subject || undefined, defaultObject: object.split(/[、,，]/).map((x) => x.trim()).filter((x) => FEE_BOOKING_NODE_MAP.has(x) && x !== '不固定').join('、') || undefined,
+        code, name, direction: 'expense', categoryId: catBySeed.get(cat), accountingSubject: subject || undefined, defaultObject: normalizeFeeBookingNodes(object).join('、') || undefined,
         platform: PLATFORM[platform] ?? 'any', isCommon: YES(common), requiredObject: YES(required), needFlow: FLOW[flow] ?? undefined, remark: remark || undefined,
       });
       itemCreated++;
