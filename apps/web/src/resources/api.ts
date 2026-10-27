@@ -42,6 +42,13 @@ export interface ListParams {
   filters?: Record<string, string>;
 }
 
+export interface CategoryTreeResult {
+  field: string;
+  total: number;
+  uncategorized: number;
+  nodes: Array<{ id: number; title: string; status: string; parentId: number; sort: number; count: number }>;
+}
+
 export interface ImportBackupInfo { id: number; recordCount: number; createdAt: string; restoredAt: string | null }
 
 export interface ImportResult {
@@ -95,6 +102,13 @@ export const resourceApi = {
     api<{ done: number; failed: Array<{ id: number; message: string }> }>(`/resources/${type}/batch`, { method: 'POST', body: { ids, values } }),
   batchStatus: (type: string, ids: number[], status: string, reason?: string) =>
     api<{ done: number; failed: Array<{ id: number; message: string }> }>(`/resources/${type}/batch-status`, { method: 'POST', body: { ids, status, reason } }),
+  categoryTree: (type: string, p: { field: string; tab?: string; status?: string; showHidden?: boolean }) => {
+    const q = new URLSearchParams({ field: p.field });
+    if (p.tab) q.set('tab', p.tab);
+    if (p.status) q.set('status', p.status);
+    if (p.showHidden) q.set('showHidden', '1');
+    return api<CategoryTreeResult>(`/resources/${type}/category-tree?${q}`);
+  },
   list: (type: string, params: ListParams) => api<ListResult>(`/resources/${type}${query(params)}`),
   get: (type: string, id: number) => api<ResourceDto>(`/resources/${type}/${id}`),
   create: (type: string, values: Record<string, unknown>, status?: string) =>

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PARTY_SEED_CATEGORIES, getResourceDef, type FieldDef } from '@kudesi/shared';
+import { PARTY_SEED_CATEGORIES, getResourceDef, treeFilterField, type FieldDef } from '@kudesi/shared';
 import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
 import { resourceApi, type ListResult } from './api';
 import { displayValue, statusOf } from './format';
+import { CategoryTree } from './CategoryTree';
 import { ImportDialog } from './ImportDialog';
 import { TaxPendingDialog } from './TaxPendingDialog';
 import { ReasonLibraryDialog } from './ReasonLibraryDialog';
@@ -44,6 +45,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [showHidden, setShowHidden] = useState(false);
   const [filterVals, setFilterVals] = useState<Record<string, string>>({});
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
+  const treeField = useMemo(() => treeFilterField(def), [def]);
   const filterFields = useMemo(
     () => (def.filterBy ? ([] as string[]).concat(def.filterBy as string | string[]) : []).map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f)),
     [def],
@@ -59,6 +61,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
       }
     }
   }, [filterFields]);
+  const [catPath, setCatPath] = useState('');
   const [page, setPage] = useState(1);
   const [checked, setChecked] = useState<number[]>([]);
   const [batchMsg, setBatchMsg] = useState('');
@@ -127,6 +130,14 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
     }
   }
 
+  function newInitial(): Record<string, unknown> | undefined {
+    const init: Record<string, unknown> = {};
+    if (tab && def.tabsBy) init[def.tabsBy] = tab;
+    const cat = treeField ? Number(filterVals[treeField.key]) : 0;
+    if (treeField && cat) init[treeField.key] = treeField.type === 'refs' ? [cat] : cat;
+    return Object.keys(init).length ? init : undefined;
+  }
+
   async function doExport() {
     try {
       const out = await resourceApi.export(type, showHidden);
@@ -161,12 +172,26 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             {can('create') && <button type="button" className="primary-button" onClick={() => setCreating(true)}>＋ 新增</button>}
           </div>
         </div>
+        <div className={treeField ? 'tree-layout' : undefined}>
+        {treeField && (
+          <CategoryTree
+            type={type}
+            field={treeField.key}
+            tab={tab}
+            status={status}
+            showHidden={showHidden}
+            value={filterVals[treeField.key] ?? ''}
+            reloadKey={data?.total}
+            onPath={setCatPath}
+            onSelect={(id) => { setFilterVals((v) => ({ ...v, [treeField.key]: id })); setPage(1); }}
+          />
+        )}
         <div className="card">
           {tabField && !lockedTab && (
             <div className="tab-group page-tabs" role="tablist" aria-label="分类">
-              <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'chip active' : 'chip'} onClick={() => { setTab(''); setPage(1); }}>全部</button>
+              <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'chip active' : 'chip'} onClick={() => { setTab(''); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>全部</button>
               {tabField.options?.map((o) => (
-                <button key={o.value} type="button" role="tab" aria-selected={tab === o.value} className={tab === o.value ? 'chip active' : 'chip'} onClick={() => { setTab(o.value); setPage(1); }}>
+                <button key={o.value} type="button" role="tab" aria-selected={tab === o.value} className={tab === o.value ? 'chip active' : 'chip'} onClick={() => { setTab(o.value); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>
                   {o.label}{data?.tabCounts ? ` ${data.tabCounts[o.value] ?? 0}` : ''}
                 </button>
               ))}
@@ -174,7 +199,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           )}
           <div className="toolbar">
             <input className="grow" placeholder="搜索（多个词用空格隔开）" aria-label="搜索" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
-            {filterFields.map((ff) => (
+            {filterFields.filter((ff) => ff.key !== treeField?.key).map((ff) => (
               <select key={ff.key} aria-label={ff.label} value={filterVals[ff.key] ?? ''} onChange={(e) => { setFilterVals((v) => ({ ...v, [ff.key]: e.target.value })); setPage(1); }}>
                 <option value="">{ff.label}：全部</option>
                 {(filterOpts[ff.key] ?? []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -205,6 +230,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               )}
             </div>
           </div>
+          {catPath && <div className="muted" style={{ padding: '6px 12px' }}>当前分类：{catPath}（含下级分类）</div>}
           {error && <div role="alert" className="notice error m">{error}</div>}
           {def.batch && checked.length > 0 && (
             <div className="toolbar" role="group" aria-label="批量操作">
@@ -294,6 +320,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             </span>
           </div>
         </div>
+        </div>
       </section>
 
       {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void load()} onCopy={def.batch ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
@@ -302,7 +329,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
         <RecordForm
           def={def}
           record={null}
-          initial={copyInit ?? (tab && def.tabsBy ? { [def.tabsBy]: tab } : undefined)}
+          initial={copyInit ?? newInitial()}
           onClose={() => { setCreating(false); setCopyInit(null); }}
           onSaved={(dto) => {
             setCreating(false);

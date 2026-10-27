@@ -6,6 +6,8 @@ import {
   daysUntil,
   FieldDef,
   getResourceDef,
+  isTreeResource,
+  treeFilterField,
   normalizePhone,
   permissionOwner,
   RESOURCE_DEFS,
@@ -140,12 +142,18 @@ export class ResourcesService implements RuleHost {
       } else if (target === 'department') {
         (await em.find(Department, { where: { companyId, id: In(list) } })).forEach((d) => map.set(d.id, d.name));
       } else {
-        const rows = await em
-          .createQueryBuilder(ResourceRecord, 'r')
-          .select(['r.id', 'r.title'])
-          .where('r.companyId = :companyId AND r.type = :target AND r.id IN (:...list)', { companyId, target, list })
-          .getMany();
-        rows.forEach((r) => map.set(r.id, r.title));
+        if (isTreeResource(target)) {
+          // 树形资料（各种分类）显示完整路径：一级 / 二级 / 三级
+          const paths = await this.treePaths(em, companyId, target);
+          list.forEach((id) => { const p = paths.get(id); if (p) map.set(id, p); });
+        } else {
+          const rows = await em
+            .createQueryBuilder(ResourceRecord, 'r')
+            .select(['r.id', 'r.title'])
+            .where('r.companyId = :companyId AND r.type = :target AND r.id IN (:...list)', { companyId, target, list })
+            .getMany();
+          rows.forEach((r) => map.set(r.id, r.title));
+        }
       }
       names.set(target, map);
     }
@@ -159,6 +167,26 @@ export class ResourcesService implements RuleHost {
         } else if (typeof v === 'number') labels[f.key] = names.get(f.ref!)?.get(v) ?? `#${v}（已不存在）`;
       }
       out.set(r.id, labels);
+    }
+    return out;
+  }
+
+  /** 树形资料每个节点的完整路径（顶层到本级，用 “ / ” 连接）。 */
+  private async treePaths(em: EntityManager, companyId: number, target: string): Promise<Map<number, string>> {
+    const rows = await em.find(ResourceRecord, { where: { companyId, type: target }, select: ['id', 'title', 'data'] });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const out = new Map<number, string>();
+    for (const r of rows) {
+      const names = [r.title];
+      let cur = r;
+      for (let i = 0; i < 8; i++) {
+        const pid = Number((cur.data as Record<string, unknown>)?.parentId);
+        const up = pid ? byId.get(pid) : undefined;
+        if (!up || up === r) break;
+        names.unshift(up.title);
+        cur = up;
+      }
+      out.set(r.id, names.join(' / '));
     }
     return out;
   }
@@ -576,12 +604,12 @@ export class ResourcesService implements RuleHost {
         if (v !== '' && v !== null && v !== undefined) filterPairs.push([k, String(v)]);
       }
     }
-    // 分类字段：选上级分类时，下级分类的商品一并列出
+    // 分类字段：选上级分类时，下级分类的资料一并列出（商品分类、供应商分类等所有树形资料通用）
     const catIds = new Map<string, number[]>();
     for (const [key, val] of filterPairs) {
       const f = def.fields.find((x) => x.key === key);
-      if (f?.ref === 'finance-categories' && /^\d+$/.test(val)) {
-        const cats = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' }, select: ['id', 'data'] });
+      if (f?.ref && isTreeResource(f.ref) && /^\d+$/.test(val)) {
+        const cats = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: f.ref }, select: ['id', 'data'] });
         const kids = new Map<number, number[]>();
         for (const c of cats) {
           const pid = Number((c.data as Record<string, unknown>)?.parentId);
@@ -614,7 +642,8 @@ export class ResourcesService implements RuleHost {
         const f = def.fields.find((x) => x.key === key);
         if (!f) throw new BadRequestException('筛选字段不存在');
         const ids = catIds.get(key);
-        if (ids) qb.andWhere(`CAST(JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${f.key}')) AS UNSIGNED) IN (:...fi${i})`, { [`fi${i}`]: ids });
+        if (ids && f.type === 'refs') qb.andWhere(`JSON_OVERLAPS(JSON_EXTRACT(r.data, '$.${f.key}'), CAST(:fi${i} AS JSON))`, { [`fi${i}`]: JSON.stringify(ids) });
+        else if (ids) qb.andWhere(`CAST(JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${f.key}')) AS UNSIGNED) IN (:...fi${i})`, { [`fi${i}`]: ids });
         else qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${f.key}')) = :fv${i}`, { [`fv${i}`]: val });
       });
       return qb;
@@ -647,6 +676,55 @@ export class ResourcesService implements RuleHost {
     }
 
     return { items: await this.toDtos(em, user, def, records), total, page, pageSize, tabCounts };
+  }
+
+  /** 列表左侧的分类目录：该字段所指分类树的全部节点，带各节点（含下级）下的资料数。 */
+  async categoryTree(user: AuthUser, type: string, fieldKey: string, q: { tab?: string; status?: string; showHidden?: boolean }) {
+    const def = this.def(type);
+    const field = treeFilterField(def);
+    if (!field || field.key !== fieldKey) throw new BadRequestException('这个字段没有分类目录');
+    const em = this.dataSource.manager;
+    const target = field.ref!;
+    const tdef = this.def(target);
+    const cats = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: target }, select: ['id', 'title', 'status', 'data'] });
+    const hidden = new Set(tdef.statuses.filter((s) => s.hidden).map((s) => s.value));
+    const num = (v: unknown) => (typeof v === 'number' && v > 0 ? v : 0);
+    let nodes = cats.filter((c) => !hidden.has(c.status) || q.showHidden).map((c) => ({
+      id: c.id, title: c.title, status: c.status, parentId: num((c.data as Record<string, unknown>).parentId), sort: Number((c.data as Record<string, unknown>).sort) || 0,
+      tab: def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy) ? String((c.data as Record<string, unknown>)[def.tabsBy] ?? '') : '',
+    }));
+    // 页签切换时，只显示属于这个页签的分类
+    if (q.tab && def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy)) nodes = nodes.filter((n) => n.tab === q.tab);
+    const ids = new Set(nodes.map((n) => n.id));
+    const parentOf = new Map(cats.map((c) => [c.id, num((c.data as Record<string, unknown>).parentId)]));
+
+    const hiddenStatuses = def.statuses.filter((s) => s.hidden).map((s) => s.value);
+    const qb = em.createQueryBuilder(ResourceRecord, 'r').select(['r.id', 'r.data']).where('r.companyId = :companyId AND r.type = :type', { companyId: user.companyId, type });
+    if (q.status) qb.andWhere('r.status = :status', { status: q.status });
+    else if (!q.showHidden && hiddenStatuses.length) qb.andWhere('r.status NOT IN (:...hiddenStatuses)', { hiddenStatuses });
+    if (q.tab && def.tabsBy) qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.tabsBy}')) = :tab`, { tab: q.tab });
+    const records = await qb.getMany();
+    const members = new Map<number, Set<number>>(); // 分类 -> 其下（含下级）的资料 id
+    let uncategorized = 0;
+    for (const r of records) {
+      const v = (r.data as Record<string, unknown>)[field.key];
+      const direct = (field.type === 'refs' ? (Array.isArray(v) ? v : []) : [v]).filter((x): x is number => typeof x === 'number');
+      if (!direct.length) { uncategorized++; continue; }
+      for (const d of direct) {
+        for (let cur = d, i = 0; cur && i < 8; cur = parentOf.get(cur) ?? 0, i++) {
+          if (!members.has(cur)) members.set(cur, new Set());
+          members.get(cur)!.add(r.id);
+        }
+      }
+    }
+    return {
+      field: field.key,
+      total: records.length,
+      uncategorized,
+      nodes: nodes
+        .map((n) => ({ id: n.id, title: n.title, status: n.status, parentId: ids.has(n.parentId) ? n.parentId : 0, sort: n.sort, count: members.get(n.id)?.size ?? 0 }))
+        .sort((a, b) => a.sort - b.sort || a.id - b.id),
+    };
   }
 
   async get(user: AuthUser, type: string, id: number) {

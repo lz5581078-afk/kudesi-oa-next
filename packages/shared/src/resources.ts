@@ -921,6 +921,17 @@ export function getResourceDef(key: string): ResourceDef | undefined {
   return BY_KEY.get(key);
 }
 
+/** 这种资料自己是一棵树（有指向自己的“上级”字段），如商品分类、供应商分类 */
+export function isTreeResource(key: string): boolean {
+  return !!BY_KEY.get(key)?.fields.some((f) => f.key === 'parentId' && f.type === 'ref' && f.ref === key);
+}
+
+/** 列表左侧要显示分类目录的字段：filterBy 里第一个指向“树形资料”的关联字段 */
+export function treeFilterField(def: ResourceDef): FieldDef | undefined {
+  const keys = def.filterBy ? ([] as string[]).concat(def.filterBy as string | string[]) : [];
+  return keys.map((k) => def.fields.find((f) => f.key === k)).find((f) => !!f && (f.type === 'ref' || f.type === 'refs') && !!f.ref && isTreeResource(f.ref));
+}
+
 /** 资源动作权限键：resource.<key>.<action> */
 export const RESOURCE_ACTIONS = ['view', 'create', 'edit', 'disable', 'delete', 'import', 'export', 'secret'] as const;
 export type ResourceAction = (typeof RESOURCE_ACTIONS)[number];

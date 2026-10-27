@@ -46,6 +46,20 @@ d('财务资料（真实数据库）', () => {
     await expect(svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '苹果类', code: 'XX' })).rejects.toThrow(/已存在/);
   });
 
+  it('分类目录：列表显示完整路径、点上级含下级、目录带数量', async () => {
+    const p = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '路径测试苹果', purchaseSpec: '千克', specQty: 3, specUnit: 'KG', categoryId: ids.leaf, purchasePrice: 100, freight: 1, handlingFee: 1 });
+    expect(p.refLabels.categoryId).toBe('水果原料 / 苹果类');
+    const byParent = await svc.list(boss, 'finance-products', { filters: JSON.stringify({ categoryId: String(ids.rawCat) }) });
+    expect(byParent.items.some((i) => i.id === p.id)).toBe(true);
+    const tree = await svc.categoryTree(boss, 'finance-products', 'categoryId', { tab: 'raw' });
+    const parent = tree.nodes.find((n) => n.id === ids.rawCat)!;
+    const leaf = tree.nodes.find((n) => n.id === ids.leaf)!;
+    expect(leaf.parentId).toBe(ids.rawCat);
+    expect(parent.count).toBeGreaterThanOrEqual(1);
+    expect(parent.count).toBeGreaterThanOrEqual(leaf.count);
+    expect(tree.nodes.some((n) => n.id === ids.smCat)).toBe(false); // 别的板块的分类不出现
+  });
+
   it('商品档案：必须挂最末级分类、类型匹配、自动生成编码、零值要说明、总成本自动算', async () => {
     const base = { archiveType: 'raw', name: '红富士苹果', purchaseSpec: '千克', specQty: 2.5, specUnit: 'KG', freight: 100, handlingFee: 50, supplierId: undefined };
     await expect(svc.create(boss, 'finance-products', { ...base, categoryId: ids.rawCat })).rejects.toThrow(/最末级/);
@@ -206,7 +220,7 @@ d('财务资料（真实数据库）', () => {
     const s1 = await svc.create(boss, 'finance-suppliers', { name: '润农种业', shortName: '润农', categoryIds: [c1.id, c3.id] });
     expect(s1.data.code).toBe('GYS-001');
     expect(s1.data.shortCode).toBe('RN');
-    expect(s1.refLabels.categoryIds).toBe('种子供应商、甜玉米');
+    expect(s1.refLabels.categoryIds).toBe('种子供应商、种子供应商 / 玉米 / 甜玉米');
     const s2 = await svc.create(boss, 'finance-suppliers', { name: '另一家' });
     expect(s2.data.code).toBe('GYS-002');
     await expect(svc.create(boss, 'finance-suppliers', { name: '坏分类', categoryIds: [999999] })).rejects.toThrow(/不存在/);
