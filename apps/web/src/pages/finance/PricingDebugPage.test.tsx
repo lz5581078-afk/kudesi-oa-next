@@ -10,7 +10,7 @@ vi.mock('./financeApi', async (orig) => {
   return { ...real, financeApi: { debugList: vi.fn(), debugSlider: vi.fn(), debugQuote: vi.fn(), debugExport: vi.fn(), debugComponents: vi.fn() } };
 });
 const m = vi.mocked(financeApi);
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); sessionStorage.clear(); vi.restoreAllMocks(); });
 
 const r = (id: number, name: string, weightG: number | null, min: number | null = 2000): DebugRow => ({ id, skuCode: `C${id}`, skuName: name, categoryId: 1, categoryName: '水果', ready: min !== null, weightG, minPriceCents: min });
 
@@ -96,5 +96,46 @@ describe('定价调试表页面', () => {
       await vi.advanceTimersByTimeAsync(30100);
       expect(m.debugList.mock.calls.length).toBeGreaterThan(n);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('定价调试表：使用细节', () => {
+  const setup = () => {
+    m.debugList.mockResolvedValue({ rows: [r(1, '苹果礼盒', 2000), r(2, '梨礼盒', 1000)], total: 2, page: 1, pageSize: 30, canViewInternals: true });
+    m.debugSlider.mockImplementation(async ({ step }) => ({ available: true, reservedProfitCents: step * 20, reservedProfitPercent: step, priceCents: 2000 + step * 20, step }));
+    return render(<PricingDebugPage />);
+  };
+
+  it('空态给出四步引导；筛选条件刷新后还在，可一键清除', async () => {
+    const view = setup();
+    await screen.findByText('苹果礼盒');
+    expect(screen.getByText(/拖动“预留利润”档位/)).toBeTruthy();
+    expect(screen.queryByText('清除筛选')).toBeNull();
+    fireEvent.change(screen.getByLabelText('搜索组合编码或名称'), { target: { value: '苹果' } });
+    await waitFor(() => expect(m.debugList).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: '苹果' })));
+    view.unmount();
+    render(<PricingDebugPage />);
+    expect((screen.getByLabelText('搜索组合编码或名称') as HTMLInputElement).value).toBe('苹果');
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
+    expect((screen.getByLabelText('搜索组合编码或名称') as HTMLInputElement).value).toBe('');
+  });
+
+  it('有已选商品时拦截关闭页面；清空多项前先确认，取消则保留', async () => {
+    setup();
+    await screen.findByText('苹果礼盒');
+    const ev = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    fireEvent.click(screen.getByLabelText('全选当前页商品'));
+    await screen.findByLabelText('梨礼盒 预留利润');
+    const ev2 = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(ev2);
+    expect(ev2.defaultPrevented).toBe(true);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fireEvent.click(screen.getByRole('button', { name: '清空' }));
+    expect(screen.getByLabelText('梨礼盒 预留利润')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '清空' }));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(screen.queryByLabelText('梨礼盒 预留利润')).toBeNull();
   });
 });

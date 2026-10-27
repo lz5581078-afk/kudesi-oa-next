@@ -4,7 +4,7 @@ import { SearchPick, money, pct } from './common';
 import { JstSyncItems } from './jst/JstSyncItems';
 import { JstSyncExtras } from './jst/JstSyncExtras';
 import { api } from '../../api/client';
-import { financeApi, type MarginHistoryRow, type PricingHistoryRow, type OutboxJobRow, type ApiKeyRow, type CostSnapshotRow, type PackagingMatch, type ResetPreview, type SnapshotRow, type ZoneRow } from './financeApi';
+import { financeApi, type MarginHistoryRow, type PricingHistoryRow, type OutboxJobRow, type ApiKeyRow, type CostSnapshotRow, type PackagingMatch, type ResetPreview, type SnapshotRow } from './financeApi';
 
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
 const when = (s: string) => new Date(s).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
@@ -78,54 +78,6 @@ export function CostHistoryPage() {
         </tbody>
       </table></div>}
       <div className="toolbar"><button type="button" className="secondary-button small" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span className="muted">共 {total} 条 · 第 {page} 页</span><button type="button" className="secondary-button small" disabled={page * 20 >= total} onClick={() => setPage(page + 1)}>下一页</button></div>
-    </div>
-  );
-}
-
-const csvCell = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
-
-/** 快递分区建议：每省每重量段取最低价，相同的合并；只是录入聚水潭的参考清单，不会自动写入。 */
-export function ZoneSuggestionPage() {
-  const [maxW, setMaxW] = useState('30');
-  const [data, setData] = useState<{ generatedAt: string; ruleCount: number; rows: ZoneRow[] } | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  async function run() {
-    setBusy(true); setError('');
-    try { setData(await financeApi.zone(Number(maxW))); } catch (e) { setError(msg(e)); }
-    setBusy(false);
-  }
-  function exportCsv() {
-    if (!data) return;
-    const lines = [['建议规则名称', '快递公司', '网点', '重量起(kg)', '重量止(kg)', '最低标准运费(元)', '限定到达省份'], ...data.rows.map((r) => [r.suggestedName, r.carrier, r.branch, r.weightStart, r.weightEnd, (r.cents / 100).toFixed(2), r.provinces.join('、')])];
-    const blob = new Blob(['﻿' + lines.map((l) => l.map(csvCell).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '聚水潭快递分区建议.csv'; a.click(); URL.revokeObjectURL(a.href);
-  }
-  return (
-    <div>
-      <div className="page-head between"><h1>快递分区建议</h1>
-        <div className="toolbar"><label>最高重量（kg）<input type="number" min="0.01" step="any" aria-label="最高重量" value={maxW} onChange={(e) => setMaxW(e.target.value)} /></label>
-          <button type="button" className="primary-button" disabled={busy} onClick={run}>{busy ? '生成中…' : '生成分区建议'}</button>
-          <button type="button" className="secondary-button" disabled={!data?.rows.length} onClick={exportCsv}>导出清单</button></div></div>
-      <div className="notice">
-        <strong>这份分区建议怎么来的</strong>
-        <ol>
-          <li>只看今天生效、日期有效、允许该重量发货的价格；按各价格的重量边界切成重量段，每个省、每段选报价最低的快递和网点。</li>
-          <li>快递网点、重量段和报价都相同的省份合并成一条建议。排序：快递网点 → 重量从轻到重 → 省份。</li>
-          <li>这是人工录入聚水潭的参考清单，不会自动写入。首重续重报价按段上限重量算，实际按真实重量计费；临时加收未计入；平台/店铺、优先级、禁发地区仍需在聚水潭里确认。</li>
-        </ol>
-      </div>
-      {error && <div role="alert" className="notice error">{error}</div>}
-      {data && <p className="muted">共用 {data.ruleCount} 条价格规则，生成 {data.rows.length} 条建议（{when(data.generatedAt)}）</p>}
-      {data && (
-        <div className="table-scroll"><table className="data-table">
-          <thead><tr><th>建议规则名称</th><th>快递 / 网点</th><th>重量段</th><th className="num">最低标准运费</th><th>限定到达省份</th></tr></thead>
-          <tbody>
-            {data.rows.length === 0 && <tr><td colSpan={5} className="empty-state muted">没有可用的价格。请先在“快递价格表”里维护生效中的价格。</td></tr>}
-            {data.rows.map((r) => <tr key={`${r.suggestedName}-${r.cents}`}><td>{r.suggestedName}</td><td>{r.carrier}{r.branch ? ` / ${r.branch}` : ''}</td><td>{r.weightStart} ~ {r.weightEnd} kg</td><td className="num">{money(r.cents)}</td><td>{r.provinces.join('、')}</td></tr>)}
-          </tbody>
-        </table></div>
-      )}
     </div>
   );
 }

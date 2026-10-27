@@ -31,7 +31,7 @@ export function LaborCostPage() {
   const [dialog, setDialog] = useState<'workTypes' | 'units' | null>(null);
   const [copying, setCopying] = useState(false);
   const [versionForm, setVersionForm] = useState<{ record: ResourceDto | null } | null>(null);
-  const [itemForm, setItemForm] = useState<{ record: ResourceDto | null } | null>(null);
+  const [itemForm, setItemForm] = useState<{ record: ResourceDto | null; initial?: Record<string, unknown> } | null>(null);
   const [reason, setReason] = useState<{ title: string; hint?: string; confirm: string; run: (reason: string) => Promise<void> } | null>(null);
 
   const loadVersions = useCallback(async () => {
@@ -128,13 +128,14 @@ export function LaborCostPage() {
             <div className="table-scroll"><table className="data-table">
               <thead><tr><th>工作编号</th><th>归档分类</th><th>工作分类</th><th>工作名称</th><th>计价单位</th><th className="num">单位人力成本</th><th>零值原因</th><th>状态</th><th /></tr></thead>
               <tbody>
-                {shown.length === 0 && <tr><td colSpan={9} className="empty-state muted">{items.length === 0 ? '这个版本还没有工作项目。' : '没有符合条件的工作项目。'}</td></tr>}
+                {shown.length === 0 && <tr><td colSpan={9} className="empty-state muted">{items.length === 0 ? '这个版本还没有工作项目。' : <>没有符合条件的工作项目。<button type="button" className="link-button" onClick={() => { setKeyword(''); setSelectedCat(null); setPage(1); }}>清除搜索和分类</button></>}</td></tr>}
                 {shown.map((i) => (
                   <tr key={i.id}><td>{String(i.data.workCode ?? '')}</td><td>{i.refLabels.archiveCategoryId}</td><td>{i.refLabels.workTypeId}</td><td>{String(i.data.workName ?? '')}</td><td>{i.refLabels.unitId}</td>
                     <td className="num">{canSeeCost ? money(i.data.unitPrice as number | undefined) : '无权限'}</td><td>{String(i.data.zeroReason ?? '')}</td>
                     <td>{i.status === 'active' ? '启用' : '停用'}</td>
                     <td className="row-actions">
                       {can('edit') && <button type="button" className="link-button" onClick={() => setItemForm({ record: i })}>修改</button>}
+                      {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'zeroReason'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) })}>复制新增</button>}
                       {can('disable') && (i.status === 'active'
                         ? <button type="button" className="link-button" onClick={() => setReason({ title: `停用「${i.title}」`, hint: '被成品构成或组合用着的项目不能停用。', confirm: '确认停用', run: async (r) => { await resourceApi.changeStatus('finance-labor-costs', i.id, 'inactive', r); } })}>停用</button>
                         : <button type="button" className="link-button" onClick={() => void run(() => resourceApi.changeStatus('finance-labor-costs', i.id, 'active'))}>启用</button>)}
@@ -153,7 +154,7 @@ export function LaborCostPage() {
       {dialog === 'units' && <DictionaryDialog type="finance-labor-units" title="维护计价单位" hint="计价单位如“元/袋、元/小时”。已经被工作项目使用的不能删除。" onClose={() => { setDialog(null); void loadVersionData(); }} />}
       {copying && version && <CopyVersionDialog source={version} onClose={() => setCopying(false)} onCopied={(id) => { setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
       {versionForm && <RecordForm def={getResourceDef('finance-labor-versions')!} record={versionForm.record} onClose={() => setVersionForm(null)} onSaved={(dto) => { clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} />}
-      {itemForm && version && <RecordForm def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...(node && isLeaf && !itemForm.record ? { archiveCategoryId: node.id } : {}) }} lockedFields={itemForm.record ? undefined : ['versionId']}
+      {itemForm && version && <RecordForm def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...itemForm.initial, ...(node && isLeaf && !itemForm.record && !itemForm.initial ? { archiveCategoryId: node.id } : {}) }} lockedFields={itemForm.record ? undefined : ['versionId']}
         onClose={() => setItemForm(null)} onSaved={() => { clearRefCache('finance-labor-costs'); setItemForm(null); void loadVersionData(); }} />}
       {reason && <ReasonDialog title={reason.title} hint={reason.hint} confirmLabel={reason.confirm} danger onClose={() => setReason(null)} onConfirm={async (r) => { await reason.run(r); setReason(null); await loadVersions(); await loadVersionData(); }} />}
     </div>

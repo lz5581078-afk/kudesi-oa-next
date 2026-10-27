@@ -68,3 +68,23 @@ describe('复制版本', () => {
     await screen.findByText(/已复制/);
   });
 });
+
+describe('复制新增工作项目', () => {
+  it('带出原项目的分类、单位和名称，但不带工作编号；没有结果时可清除搜索', async () => {
+    const versions = [dto(1, 'v', '2026春', { versionCode: 'A', isDefault: true }, 'active')];
+    const items = [dto(100, 'i', '包装/装盒', { workCode: 'RL-A-BZ-BZ-ZH', workName: '装盒', unitPrice: 150, archiveCategoryId: 10 }, 'active', { archiveCategoryId: '包装', workTypeId: '包装', unitId: '元/个' })];
+    m.list.mockImplementation(async (type) => {
+      const pick = type === 'finance-labor-versions' ? versions : type === 'finance-labor-costs' ? items : [];
+      return { items: pick, total: pick.length, page: 1, pageSize: 200 };
+    });
+    render(<LaborCostPage />);
+    await screen.findByText('RL-A-BZ-BZ-ZH');
+    fireEvent.click(screen.getByRole('button', { name: '复制新增' }));
+    await screen.findByDisplayValue('装盒');
+    expect(screen.queryByDisplayValue('RL-A-BZ-BZ-ZH')).toBeNull();
+    fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: '不存在' } });
+    fireEvent.click(screen.getByRole('button', { name: '清除搜索和分类' }));
+    expect((screen.getByLabelText('搜索工作项目') as HTMLInputElement).value).toBe('');
+    await screen.findByText('RL-A-BZ-BZ-ZH');
+  });
+});

@@ -20,7 +20,7 @@ import { DocumentsPage } from './pages/finance/DocumentsPage';
 import { VoucherPage } from './pages/finance/VoucherPage';
 import { FinanceOverviewPage } from './pages/finance/FinanceOverviewPage';
 import { SettlementDetailPage, UnsettledReceiptsPage } from './pages/finance/SettlementPages';
-import { ApiKeysPage, CostHistoryPage, JstSyncPage, MasterResetPage, PackagingMatchPage, ZoneSuggestionPage } from './pages/finance/DataToolPages';
+import { ApiKeysPage, CostHistoryPage, JstSyncPage, MasterResetPage, PackagingMatchPage } from './pages/finance/DataToolPages';
 import { TabHost, type HostTab } from './layout/TabHost';
 import { ExpressPricesPage } from './pages/finance/express/ExpressPricesPage';
 import { FreightEstimatePage } from './pages/finance/express/FreightEstimatePage';
@@ -65,7 +65,6 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
   'finance.unsettled-receipts': UnsettledReceiptsPage,
   'finance.master-import': MasterImportPage,
   'finance.cost-history': CostHistoryPage,
-  'finance.zone-suggestion': ZoneSuggestionPage,
   'finance.packaging-match': PackagingMatchPage,
   'finance.api-keys': ApiKeysPage,
   'finance.jst-sync': JstSyncPage,
