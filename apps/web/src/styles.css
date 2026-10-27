@@ -687,3 +687,19 @@ label.invalid input, label.invalid select, label.invalid textarea { border-color
 .kv-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0 0 12px; }
 .kv-list dt { color: var(--muted); font-size: 12px; }
 .kv-list dd { margin: 0; }
+
+/* u1 第二轮 */
+.page-desc { margin: 4px 0 0; max-width: 60ch; }
+.breadcrumb { font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.breadcrumb .link-button { padding: 0; }
+.section-nav { margin-bottom: 8px; flex-wrap: wrap; }
+.inline-edit { border: 1px solid var(--border, #d8dde6); border-radius: 8px; padding: 8px; margin-bottom: 8px; }
+.inline-form .modal-body { padding: 0; max-height: none; overflow: visible; }
+.inline-form .modal-foot { padding: 8px 0 0; }
+@media (min-width: 721px) {
+  .drawer-wide { position: fixed; inset: 0; z-index: 50; width: auto; max-width: none; border-radius: 0; overflow: auto; }
+  .drawer-wide .kv { grid-template-columns: 120px 1fr 120px 1fr; }
+}
+@media (max-width: 720px) { .drawer-expand { display: none; } }
+.import-rules { margin: 8px 0; }
+.import-rules ul { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; }

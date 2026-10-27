@@ -91,7 +91,7 @@ export interface LogEntry {
 }
 
 export interface OverviewResult {
-  items: Array<{ type: string; label: string; total: number; abnormal: number }>;
+  items: Array<{ type: string; label: string; total: number; abnormal: number; inactive?: number; archived?: number }>;
 }
 
 export interface ExpiringResult {

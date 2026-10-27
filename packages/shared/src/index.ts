@@ -10,6 +10,7 @@ export * from './auth';
 export * from './resources';
 export * from './expiry';
 export * from './resource-views';
+export * from './resource-descriptions';
 export * from './archive-policy';
 export * from './freight';
 export * from './flow';

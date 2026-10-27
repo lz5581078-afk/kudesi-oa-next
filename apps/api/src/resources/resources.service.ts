@@ -762,7 +762,9 @@ export class ResourcesService implements RuleHost {
 
     let expiringIds: number[] | null = null;
     if (q.expiring) {
-      expiringIds = [...new Set((await this.expiring(user, 30, true)).rows.filter((r) => r.type === type).map((r) => r.id))];
+      // 最紧急（到期最早、已过期的在最前）排在前面
+      const due = (await this.expiring(user, 30, true)).rows.filter((r) => r.type === type).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+      expiringIds = [...new Set(due.map((r) => r.id))];
       if (!expiringIds.length) expiringIds = [0];
     }
 
@@ -816,6 +818,8 @@ export class ResourcesService implements RuleHost {
     } else if (def.sortField) {
       // 经营数据这类按日期倒序；日期是 YYYY-MM-DD，按文本排序即可
       listQb.addSelect(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.sortField}'))`, 'sortv').orderBy('sortv', 'DESC').addOrderBy('r.id', 'DESC');
+    } else if (expiringIds && expiringIds.length > 1) {
+      listQb.addSelect(`FIELD(r.id, ${expiringIds.map((n) => Math.floor(Number(n))).join(',')})`, 'ordv').orderBy('ordv', 'ASC').addOrderBy('r.id', 'DESC');
     } else {
       listQb.orderBy('r.id', 'DESC');
     }
@@ -1337,13 +1341,15 @@ export class ResourcesService implements RuleHost {
   async overview(user: AuthUser) {
     const can = createChecker(user.permissions);
     const em = this.dataSource.manager;
-    const items: Array<{ type: string; label: string; total: number; abnormal: number }> = [];
+    const items: Array<{ type: string; label: string; total: number; abnormal: number; inactive: number; archived: number }> = [];
     for (const def of RESOURCE_DEFS) {
       if (!def.nav || def.nav.section || !can(resourcePermission(def.key, 'view'))) continue;
       const hidden = def.statuses.filter((s) => s.hidden).map((s) => s.value);
-      const rows = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: def.key, archivedAt: IsNull() }, select: ['id', 'status'] });
+      const all = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: def.key }, select: ['id', 'status', 'archivedAt'] });
+      const rows = all.filter((r) => !r.archivedAt);
       const active = rows.filter((r) => !hidden.includes(r.status));
-      items.push({ type: def.key, label: def.label, total: active.length, abnormal: active.filter((r) => r.status === 'abnormal').length });
+      // 停用/注销 = 没归档、但处在“默认隐藏”的状态；已归档单独数
+      items.push({ type: def.key, label: def.label, total: active.length, abnormal: active.filter((r) => r.status === 'abnormal').length, inactive: rows.length - active.length, archived: all.length - rows.length });
     }
     return { items };
   }

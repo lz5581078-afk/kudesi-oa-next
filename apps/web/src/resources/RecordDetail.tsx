@@ -226,6 +226,8 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   const canView = (t: string) => (me ? createChecker(me.permissions)(resourcePermission(permissionOwner(t), 'view')) : false);
   const [record, setRecord] = useState<ResourceDto | null>(null);
   const [tab, setTab] = useState<Tab>('info');
+  const [wide, setWide] = useState(false);
+  const [editGroup, setEditGroup] = useState<string | null>(null);
   const [linkDialog, setLinkDialog] = useState<'new' | EditableLink | null>(null);
   const [relations, setRelations] = useState<Relation[] | null>(null);
   const [logs, setLogs] = useState<LogEntry[] | null>(null);
@@ -257,7 +259,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"], [role="menu"]')) return;
+      if (document.querySelector('[role="dialog"], [role="menu"], .inline-form')) return;
       onClose();
     }
     document.addEventListener('keydown', onKey);
@@ -304,11 +306,12 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   ].filter(([key]) => !record.warehouseMode || key === 'info') as Array<[Tab, string]>;
 
   return (
-    <aside className="drawer card" aria-label={`${def.label}详情`}>
+    <aside className={wide ? 'drawer card drawer-wide' : 'drawer card'} aria-label={`${def.label}详情`}>
       <div className="drawer-head">
         <div className="between">
-          <span className="muted">{def.label}</span>
+          <nav aria-label="位置" className="muted breadcrumb"><button type="button" className="link-button" onClick={onClose}>资料</button> › <button type="button" className="link-button" onClick={onClose}>{def.label}</button> › <span>{record.title}</span></nav>
           <button type="button" className="drawer-back secondary-button" onClick={onClose}>← 返回列表</button>
+          <button type="button" className="icon-button drawer-expand" aria-pressed={wide} aria-label={wide ? '还原宽度' : '展开到全宽'} title={wide ? '还原宽度' : '展开到全宽'} onClick={() => setWide((v) => !v)}>{wide ? '⤡' : '⤢'}</button>
           <button type="button" className="icon-button" aria-label="关闭详情" onClick={onClose}>✕</button>
         </div>
         <div className="drawer-title">{record.title}</div>
@@ -331,10 +334,32 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         {record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}
         {tab === 'info' && def.key === 'finance-products' && <ProductCostSummary def={def} record={record} />}
         {tab === 'info' && <BankCopyAll def={def} record={record} />}
+        {tab === 'info' && groups.size > 1 && (
+          <nav aria-label="分区导航" className="section-nav pill-row">
+            {[...groups.keys()].map((g) => (
+              <button key={g} type="button" className="chip" onClick={() => document.getElementById(`sec-${def.key}-${id}-${g}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })}>{g}</button>
+            ))}
+          </nav>
+        )}
         {tab === 'info' &&
           [...groups.entries()].map(([group, fields]) => (
-            <section key={group}>
-              <h2 className="section-title">{group}</h2>
+            <section key={group} id={`sec-${def.key}-${id}-${group}`}>
+              <h2 className="section-title between">
+                <span>{group}</span>
+                {can('edit') && !record.archived && editGroup !== group && fields.some((f) => !f.readonly) && (
+                  <button type="button" className="link-button" aria-label={`编辑${group}`} onClick={() => setEditGroup(group)}>编辑本区</button>
+                )}
+              </h2>
+              {editGroup === group ? (
+                <RecordForm
+                  def={def}
+                  record={record}
+                  onlyGroup={group}
+                  inline
+                  onClose={() => setEditGroup(null)}
+                  onSaved={(dto) => { setEditGroup(null); setRecord(dto); setLogs(null); setRelations(null); onChanged(); }}
+                />
+              ) : (
               <dl className="kv">
                 {fields.map((f) => (
                   <FragmentRow key={f.key} label={f.label}>
@@ -348,6 +373,7 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
                   </FragmentRow>
                 ))}
               </dl>
+              )}
             </section>
           ))}
         {tab === 'info' && def.key === 'bank-accounts' && (

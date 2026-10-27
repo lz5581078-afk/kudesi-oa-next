@@ -85,7 +85,7 @@ export function ResourceOverviewPage() {
         <h1>资料总览</h1>
         <button type="button" className="secondary-button" disabled={busy} onClick={() => { counts.reload(); exp.reload(); issues.reload(); recent.reload(); }}>{busy ? '读取中…' : '刷新'}</button>
       </div>
-      <p className="muted">各类资料数量（不含已归档）、到期提醒、需要补充或核对的数据，以及最近的修改。点任意一项直达对应资料。</p>
+      <p className="muted">各类资料数量（大数字不含停用和已归档，下方小字单列）、到期提醒、需要补充或核对的数据，以及最近的修改。点任意一项直达对应资料。</p>
 
       <Block title="资料数量" state={counts}>
         {groups.map(([group, items]) => (
@@ -97,6 +97,7 @@ export function ResourceOverviewPage() {
                   <span className="muted">{i.label}</span>
                   <strong>{i.total}</strong>
                   {i.abnormal > 0 ? <span className="pill warn">异常 {i.abnormal}</span> : <span className="muted">无异常</span>}
+                  {((i.inactive ?? 0) > 0 || (i.archived ?? 0) > 0) && <small className="muted">{[(i.inactive ?? 0) > 0 ? `停用/注销 ${i.inactive}` : '', (i.archived ?? 0) > 0 ? `已归档 ${i.archived}` : ''].filter(Boolean).join(' · ')}</small>}
                 </Link>
               ))}
             </div>

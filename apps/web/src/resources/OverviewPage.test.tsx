@@ -7,7 +7,7 @@ import { ResourceOverviewPage } from './OverviewPage';
 const exp = (n: number, type = 'qualifications', typeLabel = '资质证照') => Array.from({ length: n }, (_, i) => ({ type, typeLabel, id: i + 1, name: `${typeLabel}${i + 1}`, field: 'expiresAt', fieldLabel: '到期日', dueDate: '2026-11-01', daysLeft: i - 1, status: i < 1 ? 'expired' : 'due_soon', resourceStatus: 'normal' }));
 
 beforeEach(() => {
-  vi.spyOn(resourceApi, 'overview').mockResolvedValue({ items: [{ type: 'stores', label: '店铺档案', total: 5, abnormal: 1 }, { type: 'phones', label: '手机号', total: 9, abnormal: 0 }, { type: 'licenses', label: '营业执照', total: 3, abnormal: 0 }] });
+  vi.spyOn(resourceApi, 'overview').mockResolvedValue({ items: [{ type: 'stores', label: '店铺档案', total: 5, abnormal: 1, inactive: 2, archived: 3 }, { type: 'phones', label: '手机号', total: 9, abnormal: 0 }, { type: 'licenses', label: '营业执照', total: 3, abnormal: 0 }] });
   vi.spyOn(resourceApi, 'expiring').mockResolvedValue({ today: '2026-10-27', days: 30, total: 7, counts: { expired: 1, dueSoon: 6 }, rows: exp(7) } as never);
   vi.spyOn(resourceApi, 'dataIssues').mockResolvedValue({ total: 8, groups: [{ key: 'a', label: '手机号未建档', description: '预留手机号没有档案', resourceType: 'bank-accounts', count: 8, rows: Array.from({ length: 8 }, (_, i) => ({ id: i + 1, type: 'bank-accounts', name: `账户${i + 1}`, detail: '' })) }, { key: 'b', label: '关联冲突', description: '', resourceType: 'stores', count: 0, rows: [] }] });
   vi.spyOn(resourceApi, 'recentChanges').mockResolvedValue([{ id: '1', type: 'stores', typeLabel: '店铺档案', resourceId: 3, name: '甲店', action: 'update', note: '改了运营', actor: '小王', createdAt: '2026-10-27T01:00:00Z' }]);
@@ -17,6 +17,11 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const renderPage = () => render(<MemoryRouter><ResourceOverviewPage /></MemoryRouter>);
 
 describe('资料总览', () => {
+  it('数量卡有停用/注销、已归档小计', async () => {
+    renderPage();
+    expect(await screen.findByText('停用/注销 2 · 已归档 3')).toBeTruthy();
+  });
+
   it('数量按菜单分组；到期提醒按资料类型分组、默认只列前 5 条，可展开，可只看已过期', async () => {
     renderPage();
     expect(await screen.findByText('经营资料')).toBeTruthy();

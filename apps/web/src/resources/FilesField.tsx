@@ -99,6 +99,10 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
         setError(`最多 ${max} 个文件`);
         break;
       }
+      if (file.size > 10 * 1024 * 1024) {
+        setError(`「${file.name}」超过 10 MB，请压缩后再传`);
+        continue;
+      }
       try {
         const info = await resourceApi.uploadFile(type, field.key, file);
         onKnown(info);
@@ -133,6 +137,7 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
             {busy ? '上传中…' : `＋ 上传${field.accept === 'image' ? '图片' : '图片/PDF'}（${value.length}/${max}）`}
           </button>
           {field.phoneUpload && <button type="button" className="secondary-button" onClick={() => setPhone(true)}>手机上传</button>}
+          <small className="muted"> 单个文件不超过 10 MB</small>
         </>
       )}
       {error && <div role="alert" className="notice error">{error}</div>}
