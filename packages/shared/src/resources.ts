@@ -368,6 +368,17 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     tabsBy: 'platform',
     statuses: [NORMAL, ABNORMAL_R, CANCELLED, INACTIVE],
     filterBy: ['claimStatus', 'operatorUserId', 'jushuitan', 'operatingStatus'],
+    quickTabs: [
+      { key: 'operating', label: '在运营', when: { all: [{ field: 'operatorUserId', op: 'notEmpty' }, { field: '$status', op: 'in', value: ['normal', 'abnormal'] }] } },
+      { key: 'legacy-owner', label: '历史负责人未指派', when: { all: [{ field: 'legacyOwnerName', op: 'notEmpty' }, { field: 'operatorUserId', op: 'empty' }, { field: '$status', op: 'notIn', value: ['inactive', 'cancelled'] }] } },
+      { key: 'public', label: '公共待领取', when: { all: [{ field: 'claimStatus', op: 'eq', value: 'public' }, { field: 'operatorUserId', op: 'empty' }, { field: '$status', op: 'notIn', value: ['inactive', 'cancelled'] }] } },
+      { key: 'abnormal', label: '异常', when: { field: '$status', op: 'eq', value: 'abnormal' } },
+      { key: 'cancelled', label: '已注销', includeHidden: true, when: { field: '$status', op: 'eq', value: 'cancelled' } },
+    ],
+    batchActions: [
+      { key: 'assign', label: '批量指派运营', pick: 'operatorUserId', set: { claimStatus: 'claimed' }, reasonRequired: true, reasonLabel: '指派原因' },
+      { key: 'release', label: '批量收回为公共店铺', set: { claimStatus: 'public', operatorUserId: null }, reasonRequired: true, reasonLabel: '收回原因' },
+    ],
     batch: ['operatorUserId', 'claimStatus', 'status'],
     importMatch: ['storeNo', 'name'],
     defaultStatus: 'normal',
@@ -615,6 +626,16 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     // 一张执照可以同时有经营、电商两份税务资料，同类别只能一份
     uniqueTogether: [{ fields: ['licenseId', 'taxCategory'], message: '这个营业执照已经有同类别的税务资料了' }],
     derivedStores: 'licenseId',
+    computedFilters: [
+      { key: 'licenseState', label: '执照情况', options: [
+        { value: 'none', label: '没有绑定营业执照', when: { field: 'licenseId', op: 'empty' } },
+        { value: 'closed', label: '执照已停用或注销', when: { viaRef: 'licenseId', where: { field: '$status', op: 'in', value: ['inactive', 'cancelled'] } } },
+      ] },
+    ],
+    derivedColumns: [
+      { key: 'storeCount', label: '店铺数', kind: 'count', type: 'stores', field: 'licenseId', match: 'licenseId', list: true },
+      { key: 'monthSales', label: '执照本月营业额', kind: 'sum', type: 'store-daily-metrics', field: 'storeId', via: { type: 'stores', field: 'licenseId' }, match: 'licenseId', sumField: 'sales', month: 'day', format: 'money', list: true },
+    ],
     batch: ['status'],
     filterBy: ['taxType', 'licenseId'],
     statuses: [NORMAL, ABNORMAL, INACTIVE],
@@ -727,6 +748,13 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, INACTIVE],
     defaultStatus: 'normal',
     children: ['duty-group-items', 'duty-group-members'],
+    quickTabs: [
+      { key: 'empty', label: '没有成员', when: { all: [{ field: '$status', op: 'ne', value: 'inactive' }, { rel: { type: 'duty-group-members', field: 'groupId', where: { field: '$status', op: 'eq', value: 'normal' } }, op: 'none' }] } },
+    ],
+    derivedColumns: [
+      { key: 'memberCount', label: '成员数', kind: 'count', type: 'duty-group-members', field: 'groupId', where: { field: '$status', op: 'eq', value: 'normal' }, list: true },
+      { key: 'itemCount', label: '职责数', kind: 'count', type: 'duty-group-items', field: 'groupId', where: { field: '$status', op: 'ne', value: 'inactive' }, list: true },
+    ],
     fields: [
       text('groupKey', '职责组编码', '基础', { required: true, list: true, search: true, help: '流程和任务按编码引用，建好后不能修改' }),
       text('name', '职责组名称', '基础', { required: true, list: true, search: true }),
@@ -940,6 +968,12 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     nav: { group: '经营资料' },
     titleField: 'name',
     uniqueField: 'wechatNo',
+    computedFilters: [
+      { key: 'phoneArchive', label: '手机号档案', options: [
+        { value: 'linked', label: '已关联手机号档案', when: { field: 'phoneId', op: 'notEmpty' } },
+        { value: 'unlinked', label: '未关联手机号档案', when: { field: 'phoneId', op: 'empty' } },
+      ] },
+    ],
     statuses: [NORMAL, ABNORMAL_R, INACTIVE],
     filterBy: 'userId',
     defaultStatus: 'normal',
@@ -986,6 +1020,9 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL, { value: 'expiring', label: '即将到期', tone: 'warn' }, { value: 'expired', label: '已过期', tone: 'bad' }, { value: 'renewing', label: '续费中', tone: 'warn' }, { value: 'needs_recharge', label: '需充值', tone: 'warn' }, { value: 'paused', label: '暂停', tone: 'muted' }, INACTIVE],
     filterBy: ['ownerUserId'],
     importMatch: ['provider', 'title'],
+    quickTabs: [
+      { key: 'domain', label: '域名', when: { all: [{ field: 'kind', op: 'eq', value: 'service' }, { any: [{ field: 'serviceType', op: 'in', value: ['域名', 'domain', 'Domain'] }] }] } },
+    ],
     defaultStatus: 'normal',
     alerts: [{ field: 'endAt', withinDays: 30, label: '30 天内到期' }],
     fields: [
