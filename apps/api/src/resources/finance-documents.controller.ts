@@ -20,6 +20,8 @@ class LineDto {
   @IsOptional() @IsString() @MaxLength(20) relatedNode?: string | null;
   @IsOptional() @IsInt() @Min(1) relatedId?: number | null;
   @IsOptional() @IsString() @MaxLength(100) relatedName?: string | null;
+  @IsOptional() @IsString() @MaxLength(100) itemName?: string | null;
+  @IsOptional() @IsString() @MaxLength(20) unit?: string | null;
 }
 class AccountDto {
   @IsIn(['out', 'in']) role!: 'out' | 'in';
@@ -103,7 +105,7 @@ class LedgerDto {
   @IsOptional() @Matches(DATE) from?: string;
   @IsOptional() @Matches(DATE) to?: string;
 }
-class MonthDto { @IsOptional() @Matches(/^(\d{4}-\d{2}|all)$/) month?: string }
+class MonthDto { @IsOptional() @Matches(/^(\d{4}-\d{2}|all)$/) month?: string; @IsOptional() @Matches(DATE) from?: string; @IsOptional() @Matches(DATE) to?: string }
 class KeyAccountDto { @IsIn([true, false]) on!: boolean }
 
 // 单据按“单据类型”分权限，类型不固定，所以权限在服务里按类型检查（页面查看权限 + finance.docs.* 操作权限）
@@ -195,5 +197,5 @@ export class FinanceDocumentsController {
   inventory(@CurrentUser() u: AuthUser, @Query() q: InvDto) { return this.docs.inventory(u, q); }
 
   @AuthenticatedOnly() @Get('overview')
-  overview(@CurrentUser() u: AuthUser, @Query() q: MonthDto) { return this.docs.overview(u, q.month); }
+  overview(@CurrentUser() u: AuthUser, @Query() q: MonthDto) { return this.docs.overview(u, q.month, q.from, q.to); }
 }

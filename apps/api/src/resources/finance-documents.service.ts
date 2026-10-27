@@ -121,7 +121,7 @@ export class FinanceDocumentsService {
       settleBy: (doc.settleBy as SettleBy | null) ?? null,
       settlements: settlements.length ? settlements.map((x) => ({ sourceDocId: x.sourceDocumentId, productId: x.productId, amountCents: x.amountCents })) : null,
       accounts: accounts.length ? accounts.map((a) => ({ role: a.role, bankAccountId: a.bankAccountId, amountCents: a.amountCents })) : null,
-      lines: lines.map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: l.unitCostCents, memo: l.memo ?? undefined, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName })),
+      lines: lines.map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: l.unitCostCents, memo: l.memo ?? undefined, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName, itemName: l.itemName, unit: l.unit })),
     };
   }
 
@@ -132,7 +132,7 @@ export class FinanceDocumentsService {
       await em.insert(FinanceDocumentLine, {
         companyId: user.companyId, documentId, lineNo: ++n, productId: l.productId ?? null, feeItemId: l.feeItemId ?? null, qty: l.qty,
         unitPriceCents: l.unitPriceCents, unitCostCents: l.unitCostCents ?? null, memo: l.memo ?? null,
-        relatedNode: l.relatedNode ?? null, relatedId: l.relatedId ?? null, relatedName: l.relatedName?.trim() || null,
+        relatedNode: l.relatedNode ?? null, relatedId: l.relatedId ?? null, relatedName: l.relatedName?.trim() || null, itemName: l.itemName?.trim() || null, unit: l.unit?.trim() || null,
       });
     }
   }
@@ -500,7 +500,7 @@ export class FinanceDocumentsService {
       const rid = Number(res.identifiers[0].id);
       let n = 0;
       for (const l of lines) {
-        await em.insert(FinanceDocumentLine, { companyId: user.companyId, documentId: rid, lineNo: ++n, productId: l.productId, feeItemId: l.feeItemId, qty: -l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: l.unitCostCents, memo: l.memo, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName });
+        await em.insert(FinanceDocumentLine, { companyId: user.companyId, documentId: rid, lineNo: ++n, productId: l.productId, feeItemId: l.feeItemId, qty: -l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: l.unitCostCents, memo: l.memo, itemName: l.itemName, unit: l.unit, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName });
       }
       for (const a of accounts) await em.insert(FinanceDocumentAccount, { companyId: user.companyId, documentId: rid, role: a.role, bankAccountId: a.bankAccountId, amountCents: -a.amountCents });
       await this.writeEntries(em, user, rid, today(), neg);
@@ -564,7 +564,7 @@ export class FinanceDocumentsService {
         storeId: doc.storeId, refNo: null, amountCents: doc.amountCents, offsetCents: doc.offsetCents, settleBy: doc.settleBy, memo: doc.memo, createdBy: user.id,
       });
       const nid = Number(res.identifiers[0].id);
-      await this.writeLines(em, user, nid, lines.map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: null, memo: l.memo ?? undefined, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName })));
+      await this.writeLines(em, user, nid, lines.map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: null, memo: l.memo ?? undefined, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName, itemName: l.itemName, unit: l.unit })));
       await this.writeAccounts(em, user, nid, input);
       await this.writeSettlements(em, user, nid, input);
       await this.event(em, user, nid, 'create', `复制自 ${doc.docNo}`);
@@ -745,6 +745,11 @@ export class FinanceDocumentsService {
               COALESCE(SUM(CASE WHEN d.doc_type IN (${inTypes.map(() => '?').join(',')}) THEN d.amount_cents ELSE 0 END),0) AS inc,
               COALESCE(SUM(CASE WHEN d.doc_type IN (${outTypes.map(() => '?').join(',')}) THEN d.amount_cents ELSE 0 END),0) AS exp
        FROM finance_documents d WHERE ${w}`, [...inTypes, ...outTypes, ...args]);
+    let todayCount: number | undefined;
+    if (q.scope === 'drafts') {
+      const [{ c }] = await this.dataSource.query(`SELECT COUNT(*) AS c FROM finance_documents d WHERE ${w} AND DATE(d.created_at) = ?`, [...args, today()]);
+      todayCount = Number(c);
+    }
     const rows = await this.dataSource.query(
       `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.status, DATE_FORMAT(d.doc_date, '%Y-%m-%d') AS docDate, d.amount_cents AS amountCents, d.memo, d.reverses_id AS reversesId,
               p.title AS partyName, u.name AS createdByName, d.handler, d.paid_cents AS paidCents, d.audited_at AS auditedAt, d.created_by AS createdBy, b.title AS bankName,
@@ -754,7 +759,7 @@ export class FinanceDocumentsService {
       [...args, q.pageSize, (q.page - 1) * q.pageSize],
     );
     return {
-      total: Number(n), amountCents: Number(amt), paidCents: Number(paid), incomeCents: Number(inc), expenseCents: Number(exp), page: q.page, pageSize: q.pageSize,
+      total: Number(n), amountCents: Number(amt), paidCents: Number(paid), incomeCents: Number(inc), expenseCents: Number(exp), ...(todayCount === undefined ? {} : { todayCount }), page: q.page, pageSize: q.pageSize,
       rows: rows.map(({ sourceKey, ...r }: Record<string, unknown>) => ({
         ...r, amountCents: Number(r.amountCents), paidCents: Number(r.paidCents), typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType,
         direction: DOC_DIRECTION[r.docType as DocType] ?? 'internal', source: sourceLabel(sourceKey as string | null),
@@ -903,14 +908,20 @@ export class FinanceDocumentsService {
   }
 
   /** 财务经营：month 传 YYYY-MM 看当月，传 'all' 看全部时间（趋势按月汇总，其余合计全部） */
-  async overview(user: AuthUser, month?: string) {
+  async overview(user: AuthUser, month?: string, fromQ?: string, toQ?: string) {
     this.need(user, 'finance.overview.view', '没有查看财务经营的权限');
-    const all = month === 'all';
-    const m = all ? 'all' : month && /^\d{4}-\d{2}$/.test(month) ? month : today().slice(0, 7);
-    const like = all ? '%' : `${m}-%`;
+    const isDay = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+    const custom = isDay(fromQ) || isDay(toQ);
+    const all = !custom && month === 'all';
+    const m = custom ? 'range' : all ? 'all' : month && /^\d{4}-\d{2}$/.test(month) ? month : today().slice(0, 7);
+    let lo = '0000-01-01', hi = '9999-12-31';
+    if (custom) { if (isDay(fromQ)) lo = fromQ as string; if (isDay(toQ)) hi = toQ as string; if (lo > hi) throw new BadRequestException('开始日期不能晚于结束日期'); }
+    else if (!all) { const [y, mo] = m.split('-').map(Number); lo = `${m}-01`; hi = new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10); }
+    const spanDays = lo === '0000-01-01' || hi === '9999-12-31' ? Infinity : (Date.parse(hi) - Date.parse(lo)) / 86400000;
+    const byMonth = spanDays > 92;
     const canCost = this.can(user, COST_VIEW);
     const sums = await this.dataSource.query(
-      "SELECT kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND entry_date LIKE ? AND kind IN ('revenue','cogs','expense','other_income') GROUP BY kind", [user.companyId, like]);
+      "SELECT kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND entry_date >= ? AND entry_date <= ? AND kind IN ('revenue','cogs','expense','other_income') GROUP BY kind", [user.companyId, lo, hi]);
     const get = (k: string) => Number(sums.find((x: { kind: string }) => x.kind === k)?.s ?? 0);
     const balances = await this.dataSource.query("SELECT kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND kind IN ('receivable','payable','advance_receipt','prepayment') GROUP BY kind", [user.companyId]);
     const bal = (k: string) => Number(balances.find((x: { kind: string }) => x.kind === k)?.s ?? 0);
@@ -920,9 +931,9 @@ export class FinanceDocumentsService {
     let bank: number | null = null;
     if (this.can(user, 'finance.cash-bank.view')) bank = (await this.bankBalances(user)).reduce((s, a) => s + a.balanceCents, 0);
     // 利润趋势：当月按天，全部时间按月
-    const bucket = all ? "DATE_FORMAT(entry_date, '%Y-%m')" : "DATE_FORMAT(entry_date, '%Y-%m-%d')";
+    const bucket = byMonth ? "DATE_FORMAT(entry_date, '%Y-%m')" : "DATE_FORMAT(entry_date, '%Y-%m-%d')";
     const daily = await this.dataSource.query(
-      `SELECT ${bucket} AS d, kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND entry_date LIKE ? AND kind IN ('revenue','cogs','expense','other_income') GROUP BY d, kind ORDER BY d`, [user.companyId, like]);
+      `SELECT ${bucket} AS d, kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND entry_date >= ? AND entry_date <= ? AND kind IN ('revenue','cogs','expense','other_income') GROUP BY d, kind ORDER BY d`, [user.companyId, lo, hi]);
     const byDay = new Map<string, { date: string; revenueCents: number; cogsCents: number; expenseCents: number; otherIncomeCents: number }>();
     for (const r of daily as { d: string; kind: string; s: string }[]) {
       const row = byDay.get(r.d) ?? { date: r.d, revenueCents: 0, cogsCents: 0, expenseCents: 0, otherIncomeCents: 0 };
@@ -936,8 +947,8 @@ export class FinanceDocumentsService {
     }));
     // 店铺利润：取「店铺经营数据」按店铺汇总，带店铺所属主体（营业执照）
     const metrics = await this.dataSource.query(
-      "SELECT JSON_UNQUOTE(JSON_EXTRACT(data,'$.storeId')) AS sid, SUM(CAST(JSON_EXTRACT(data,'$.sales') AS SIGNED)) AS sales, SUM(CAST(JSON_EXTRACT(data,'$.refund') AS SIGNED)) AS refund, SUM(CAST(JSON_EXTRACT(data,'$.adCost') AS SIGNED)) AS ad, SUM(CAST(JSON_EXTRACT(data,'$.platformFee') AS SIGNED)) AS fee, SUM(CAST(JSON_EXTRACT(data,'$.purchaseCost') AS SIGNED)) AS pc, SUM(CAST(JSON_EXTRACT(data,'$.otherCost') AS SIGNED)) AS oc FROM resource_records WHERE company_id = ? AND type = 'store-daily-metrics' AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) LIKE ? GROUP BY sid",
-      [user.companyId, like]);
+      "SELECT JSON_UNQUOTE(JSON_EXTRACT(data,'$.storeId')) AS sid, SUM(CAST(JSON_EXTRACT(data,'$.sales') AS SIGNED)) AS sales, SUM(CAST(JSON_EXTRACT(data,'$.refund') AS SIGNED)) AS refund, SUM(CAST(JSON_EXTRACT(data,'$.adCost') AS SIGNED)) AS ad, SUM(CAST(JSON_EXTRACT(data,'$.platformFee') AS SIGNED)) AS fee, SUM(CAST(JSON_EXTRACT(data,'$.purchaseCost') AS SIGNED)) AS pc, SUM(CAST(JSON_EXTRACT(data,'$.otherCost') AS SIGNED)) AS oc FROM resource_records WHERE company_id = ? AND type = 'store-daily-metrics' AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) >= ? AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) <= ? GROUP BY sid",
+      [user.companyId, lo, hi]);
     const storeIds = (metrics as { sid: string }[]).map((x) => Number(x.sid)).filter((n) => n > 0);
     const storeRows = storeIds.length ? await this.dataSource.query(`SELECT id, title, JSON_UNQUOTE(JSON_EXTRACT(data,'$.licenseId')) AS lid, JSON_UNQUOTE(JSON_EXTRACT(data,'$.platform')) AS platform FROM resource_records WHERE company_id = ? AND type = 'stores' AND id IN (${storeIds.map(() => '?').join(',')})`, [user.companyId, ...storeIds]) : [];
     const lids = [...new Set((storeRows as { lid: string | null }[]).map((x) => Number(x.lid)).filter((n) => n > 0))];
@@ -954,11 +965,11 @@ export class FinanceDocumentsService {
       `SELECT e.entry_date AS d, e.kind, e.amount_cents AS a, e.document_id AS did, d.doc_no AS no, d.doc_type AS dt, d.source_key AS sk, s.title AS storeName
        FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id
        LEFT JOIN resource_records s ON s.company_id = e.company_id AND s.type = 'stores' AND s.id = COALESCE(d.store_id, CASE WHEN d.party_kind = 'store' THEN d.party_id END)
-       WHERE e.company_id = ? AND e.entry_date LIKE ? AND e.kind IN ('revenue','expense','other_income') ORDER BY e.entry_date DESC, e.id DESC LIMIT 60`, [user.companyId, like]);
+       WHERE e.company_id = ? AND e.entry_date >= ? AND entry_date <= ? AND e.kind IN ('revenue','expense','other_income') ORDER BY e.entry_date DESC, e.id DESC LIMIT 60`, [user.companyId, lo, hi]);
     const ledger = (led as { d: string; kind: string; a: string; did: number; no: string; dt: string; sk: string | null; storeName: string | null }[]).map((x) => ({
       date: x.d, direction: x.kind === 'expense' ? 'out' : 'in', kind: x.kind, amountCents: Math.abs(Number(x.a)), documentId: x.did, docNo: x.no, docType: x.dt, storeName: x.storeName ?? '', source: sourceLabel(x.sk) }));
     return {
-      trend, trendBy: all ? 'month' : 'day', stores, ledger,
+      trend, trendBy: byMonth ? 'month' : 'day', from: lo === '0000-01-01' ? '' : lo, to: hi === '9999-12-31' ? '' : hi, stores, ledger,
       month: m, revenueCents: revenue, cogsCents: canCost ? cogs : null, grossProfitCents: canCost ? revenue - cogs : null,
       expenseCents: expense, otherIncomeCents: otherIncome, netProfitCents: canCost ? revenue - cogs - expense + otherIncome : null,
       receivableCents: bal('receivable'), payableCents: -bal('payable') || 0, advanceReceiptCents: -bal('advance_receipt') || 0, prepaymentCents: bal('prepayment'),
