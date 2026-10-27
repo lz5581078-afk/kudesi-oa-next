@@ -135,7 +135,8 @@ d('商品档案与基础编码（真实数据库）', () => {
     await svc.changeStatus(boss, 'finance-base-codes', ids.composed, 'verified');
     const plat = await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' });
     const scen = await svc.create(boss, 'finance-scenarios', { code: 'standard', name: '标准' });
-    const bundle = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id });
+    const bcat = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '组合类', code: 'ZHL' })).id;
+    const bundle = await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, bundleCategoryId: bcat });
     await svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'main', baseCodeId: ids.composed, qty: 1 });
     // 草稿引用：还可以改
     await svc.update(boss, 'finance-base-codes', ids.composed, { name: '甲乙礼盒改名' });

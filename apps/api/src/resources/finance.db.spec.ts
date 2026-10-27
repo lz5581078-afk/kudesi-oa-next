@@ -159,7 +159,7 @@ d('财务资料（真实数据库）', () => {
     expect(mid.data.name).toBe('组合-苹果类-红富士苹果（改）-5千克');
     await svc.update(boss, 'finance-products', ids.apple2, { weightG: 100 });
     await svc.changeStatus(boss, 'finance-base-codes', apple2Bc.id, 'verified');
-    await expect(svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'gift', baseCodeId: apple2Bc.id, qty: 1 })).rejects.toThrow(/别名/);
+    await expect(svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'gift', baseCodeId: apple2Bc.id, qty: 1 })).rejects.toThrow(/赠品简称/);
     await svc.update(boss, 'finance-products', ids.apple2, { giftShortName: '苹果赠', giftCodeShortName: 'apple' });
     const gift = await svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, role: 'gift', baseCodeId: apple2Bc.id, qty: 1 });
     expect((await svc.get(boss, 'finance-bundles', bundle.id)).data.code).toBe('ZH-TB-HFSPGG-5KG-GYL+ZP-APPLE*1');
