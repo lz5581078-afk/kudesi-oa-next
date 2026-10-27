@@ -33,6 +33,8 @@ import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, Resource
 import { FileInfo, FilesService } from '../integrations/files.service';
 import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
 import { certImportMatch } from './entity-rules';
+import { optionsKindOf } from '@kudesi/shared';
+import { dynamicOptionsFor, loadUnitLists, seedUnitDefaults, unitLabel, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
 
 export interface ResourceDto {
@@ -419,7 +421,10 @@ export class ResourcesService implements RuleHost {
     if (existingForValidation) {
       for (const f of def.fields) if (f.type === 'sensitive' && secrets[f.key]) existingForValidation[f.key] = true;
     }
-    const { values, errors } = validateResourceInput(def, input, { status, existing: existingForValidation });
+    const dynamicOptions = def.fields.some((f) => f.optionsFrom)
+      ? dynamicOptionsFor(def, await loadUnitLists(em, user.companyId), { ...(existing?.data ?? {}), ...input })
+      : undefined;
+    const { values, errors } = validateResourceInput(def, input, { status, existing: existingForValidation, dynamicOptions });
     if (errors.length > 0) throw new BadRequestException(errors.join('；'));
 
     const data: Record<string, unknown> = { ...(existing?.data ?? {}) };
@@ -565,6 +570,15 @@ export class ResourcesService implements RuleHost {
   async createRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, note?: string) {
     const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined && v !== null && v !== ''));
     return this.saveRecord(em, user, this.def(type), null, clean, { note });
+  }
+
+  async unitOptions(user: AuthUser) {
+    return optionsPayload(await loadUnitLists(this.dataSource.manager, user.companyId));
+  }
+
+  async seedUnitDefaults(user: AuthUser) {
+    const added = await this.dataSource.transaction((em) => seedUnitDefaults(em, user.companyId, (values) => this.createRecord(em, user, 'finance-product-units', values, '导入默认项')));
+    return { added };
   }
 
   /** 在调用方的事务里修改一条记录，走与手工修改完全相同的校验、日志、关联流程（批量导入用，权限由调用方检查） */
@@ -1322,9 +1336,10 @@ export class ResourcesService implements RuleHost {
     return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
   }
 
-  private displayValue(f: FieldDef, dto: ResourceDto): string {
+  private displayValue(f: FieldDef, dto: ResourceDto, units?: UnitLists): string {
     const v = dto.data[f.key];
     if (v === undefined || v === null) return '';
+    if (f.type === 'select' && f.optionsFrom && units) return unitLabel(units, optionsKindOf(f, dto.data) ?? f.optionsFrom.kind, v);
     if (f.type === 'select') return f.options?.find((o) => o.value === v)?.label ?? String(v);
     if (f.type === 'money') return f.scale ? unitYuanText(Number(v)) : (Number(v) / 100).toFixed(2);
     if (f.type === 'bool') return v ? '是' : '否';
@@ -1344,11 +1359,12 @@ export class ResourcesService implements RuleHost {
       items.push(...res.items);
       if (items.length >= res.total) break;
     }
+    const units = fields.some((f) => f.optionsFrom) ? await loadUnitLists(this.dataSource.manager, user.companyId) : undefined;
     const header = ['状态', ...fields.map((f) => f.label)];
     const lines = [header.map((h) => this.csvCell(h)).join(',')];
     for (const dto of items) {
       const status = def.statuses.find((s) => s.value === dto.status)?.label ?? dto.status;
-      lines.push([status, ...fields.map((f) => this.displayValue(f, dto))].map((c) => this.csvCell(c)).join(','));
+      lines.push([status, ...fields.map((f) => this.displayValue(f, dto, units))].map((c) => this.csvCell(c)).join(','));
     }
     return { filename: `${def.label}.csv`, csv: `﻿${lines.join('\r\n')}`, count: items.length };
   }
@@ -1381,6 +1397,7 @@ export class ResourcesService implements RuleHost {
     const input: Record<string, unknown> = {};
     const errors: string[] = [];
     let status: string | undefined;
+    let unitLists: UnitLists | undefined;
     const statusText = (row['状态'] ?? '').trim();
     if (statusText) {
       status = def.statuses.find((s) => s.label === statusText || s.value === statusText)?.value;
@@ -1394,7 +1411,15 @@ export class ResourcesService implements RuleHost {
       // 店铺的“所属执照”可填统一社会信用代码
       if (raw && f.type === 'ref' && f.ref === 'licenses') raw = await mapLicenseByCreditCode(em, user.companyId, raw);
       if (!raw) continue;
-      if (f.type === 'select') {
+      const unitKind = f.type === 'select' && f.optionsFrom ? optionsKindOf(f, input) : null;
+      if (unitKind && (unitLists ??= await loadUnitLists(em, user.companyId)).get(unitKind)?.some((i) => i.active)) {
+        // 公司维护了这一类单位：按名称或编码对应（如“箱”“CTN”），常见写法（公斤、只…）先对到内置单位再找
+        let v = unitValueFromText(unitLists, unitKind, raw);
+        const common = v === undefined && f.options === UNIT_OPTIONS ? unitOptionFromText(raw) : undefined;
+        if (common) v = unitValueFromText(unitLists, unitKind, common.label) ?? unitValueFromText(unitLists, unitKind, common.value);
+        if (v === undefined) errors.push(`${f.label}“${raw}”不在“单位与规格”里`);
+        else input[f.key] = v;
+      } else if (f.type === 'select') {
         const opt = f.options?.find((o) => o.label === raw || o.value === raw) ?? (f.options === UNIT_OPTIONS ? unitOptionFromText(raw) : undefined);
         if (!opt) errors.push(`${f.label}“${raw}”不在可选项里`);
         else input[f.key] = opt.value;

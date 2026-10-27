@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useUnitOptions } from './unitOptions';
 import { ASSET_LOG_LABELS, RESOURCE_DEFS, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
@@ -181,6 +182,7 @@ function WarehousePhotoUpload({ record, onDone }: { record: ResourceDto; onDone:
 
 export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: ResourceDef; id: number; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const can = useResourceCan(def.key);
+  useUnitOptions();
   const { user: me } = useAuth();
   const canView = (t: string) => (me ? createChecker(me.permissions)(resourcePermission(permissionOwner(t), 'view')) : false);
   const [record, setRecord] = useState<ResourceDto | null>(null);

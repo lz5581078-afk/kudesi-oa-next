@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { fieldOptions, useUnitOptions } from './unitOptions';
 import { SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -151,10 +152,13 @@ function AttrsInput({ field, def, values, value, onChange }: { field: FieldDef; 
   );
 }
 
-export function FieldInput({ field, value, onChange, configured, labelNow, type, known, onKnown }: {
+export function FieldInput({ field, value, onChange, configured, labelNow, type, known, onKnown, values }: {
   field: FieldDef; value: unknown; onChange: (v: unknown) => void; configured?: boolean; labelNow?: string;
   type: string; known: Record<number, FileInfo>; onKnown: (f: FileInfo) => void;
+  /** 整张表单当前的值（“规格单位”这类按档案类型换列表的字段要看它） */
+  values?: Record<string, unknown>;
 }) {
+  const units = useUnitOptions();
   const str = value === undefined || value === null ? '' : String(value);
   switch (field.type) {
     case 'textarea':
@@ -176,7 +180,9 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
       return (
         <select value={str} onChange={(e) => onChange(e.target.value)}>
           <option value="">（不选）</option>
-          {field.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {(field.optionsFrom ? fieldOptions(field, values ?? {}, units) : field.options)?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {/* 记录里原来的值不在现在的列表里（历史数据、已停用的项）也要能看到 */}
+          {field.optionsFrom && str && !fieldOptions(field, values ?? {}, units).some((o) => o.value === str) && <option value={str}>{str}</option>}
         </select>
       );
     case 'bool':
@@ -208,8 +214,17 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
           onChange={(e) => onChange(e.target.value)}
         />
       );
-    default:
-      return <input value={str} maxLength={field.maxLength} onChange={(e) => onChange(e.target.value)} />;
+    default: {
+      // 系统规格这类“可以选公司维护的，也可以手填”的文本
+      const hints = field.optionsFrom ? fieldOptions(field, values ?? {}, units).map((o) => o.label) : [];
+      const listId = hints.length ? `hints-${field.key}` : undefined;
+      return (
+        <>
+          <input value={str} maxLength={field.maxLength} list={listId} onChange={(e) => onChange(e.target.value)} />
+          {listId && <datalist id={listId}>{hints.map((h) => <option key={h} value={h} />)}</datalist>}
+        </>
+      );
+    }
   }
 }
 
@@ -386,6 +401,7 @@ export function RecordForm({ def, record, initial, lockedFields, onClose, onSave
                       configured={record?.secretConfigured[f.key]}
                       labelNow={record?.refLabels[f.key]}
                       type={def.key}
+                      values={values}
                       known={known}
                       onKnown={(info) => setKnown((cur) => ({ ...cur, [info.id]: info }))}
                       onChange={(v) => !locked.includes(f.key) && setValues((cur) => ({ ...cur, [f.key]: v }))}

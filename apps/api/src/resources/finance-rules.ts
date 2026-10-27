@@ -11,6 +11,8 @@ import { beforeExclusive } from './product-exclusive';
 import { buildSnapshot, aliasCode, rawNames } from './base-code-support';
 import { NamingInput, NamingItem, NamingRule, composeBundle, parseFieldList, parseOverrides, validateRule } from './bundle-naming';
 import type { AfterSaveContext, BeforeSaveContext, RuleHost } from './resource-rules';
+import { beforeUnit } from './unit-rules';
+import { loadUnitLists } from './unit-options';
 import { EXPRESS_AFTER_SAVE, EXPRESS_BEFORE_SAVE } from './express-rules';
 import { applyGiftAliases, basicInfoFullName } from './product-extras';
 import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, beforeBaseCodeLine, guardReferenced, isComposed, refreshComposedTotals, seedMainLine } from './base-code-composed';
@@ -276,7 +278,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
     data.materialCode = mc || undefined;
   } else delete data.materialCode;
   await applyGiftAliases(em, user.companyId, data, existing?.id ?? null);
-  data.basicInfoFullName = basicInfoFullName(data, (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '');
+  data.basicInfoFullName = basicInfoFullName(data, (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '', await loadUnitLists(em, user.companyId));
 }
 
 async function beforeBom(ctx: BeforeSaveContext) {
@@ -836,6 +838,7 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
   'finance-packaging-rules': beforePackagingRule,
   'finance-categories': beforeCategory,
   'finance-brands': beforeBrand,
+  'finance-product-units': (c) => beforeUnit(c),
   'finance-zero-reasons': async ({ data }) => {
     const reason = str(data.reason).normalize('NFKC').trim().replace(/\s+/g, ' ');
     if (!reason || reason.length > 180) throw new BadRequestException('原因必填，最多 180 个字符');

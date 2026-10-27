@@ -70,6 +70,12 @@ export interface FieldDef {
   accept?: 'image' | 'any';
   /** type=files：电脑上可以点“手机上传”，扫码用手机拍照/选图传到这个字段（只收图片） */
   phoneUpload?: boolean;
+  /**
+   * 选项（select）或建议（text）来自公司自己维护的“商品单位与规格”列表（旧系统的单位、包装分类、尺寸单位管理）：
+   * 下拉的值是列表项的编码，显示名称。kindBy：列表种类随另一个字段的值变（如发货物料用自己的单位表）。
+   * 公司还没有维护该种类时，退回 options 里的默认选项。
+   */
+  optionsFrom?: { resource: string; kind: string; kindBy?: { field: string; map: Record<string, string> } };
   /** 仅当另一个字段（或 status）取这些值时才显示/保存，不满足时服务端清空 */
   showWhen?: { field: string; in: readonly string[] };
   help?: string;
@@ -1069,6 +1075,14 @@ export function treeFilterField(def: ResourceDef): FieldDef | undefined {
   return keys.map((k) => def.fields.find((f) => f.key === k)).find((f) => !!f && (f.type === 'ref' || f.type === 'refs') && !!f.ref && isTreeResource(f.ref));
 }
 
+/** optionsFrom 字段当前要用哪一种列表（kindBy 按另一个字段的值切换） */
+export function optionsKindOf(field: FieldDef, values: Record<string, unknown>): string | null {
+  const from = field.optionsFrom;
+  if (!from) return null;
+  if (from.kindBy) return from.kindBy.map[String(values[from.kindBy.field] ?? '')] ?? from.kind;
+  return from.kind;
+}
+
 /** 资源动作权限键：resource.<key>.<action> */
 export const RESOURCE_ACTIONS = ['view', 'create', 'edit', 'disable', 'delete', 'import', 'export', 'secret'] as const;
 export type ResourceAction = (typeof RESOURCE_ACTIONS)[number];
@@ -1132,7 +1146,7 @@ function isShown(field: FieldDef, current: Record<string, unknown>): boolean {
 export function validateResourceInput(
   def: ResourceDef,
   input: Record<string, unknown>,
-  context: { status: string; existing?: Record<string, unknown> },
+  context: { status: string; existing?: Record<string, unknown>; /** optionsFrom 字段当前允许的取值（公司维护的列表）；没有列出的字段退回静态 options */ dynamicOptions?: Record<string, readonly string[]> },
 ): ValidationResult {
   const values: Record<string, unknown> = {};
   const errors: string[] = [];
@@ -1218,8 +1232,13 @@ export function validateResourceInput(
           else values[field.key] = (field.options ?? []).map((o) => o.value).filter((v) => picked.has(v)).join('、');
           break;
         }
-        if (!field.options?.some((opt) => opt.value === raw)) errors.push(`${label}的取值不合法`);
-        else values[field.key] = raw;
+        {
+          const dyn = context.dynamicOptions?.[field.key];
+          // 公司维护了列表：只能选列表里的；记录原来的值不动也算合法（历史数据、已停用的项）
+          const ok = dyn ? dyn.includes(String(raw)) || context.existing?.[field.key] === raw : field.options?.some((opt) => opt.value === raw);
+          if (!ok) errors.push(`${label}的取值不合法`);
+          else values[field.key] = raw;
+        }
         break;
       case 'files': {
         const max = field.maxFiles ?? 9;

@@ -21,6 +21,21 @@ const EXPRESS_STOPPED: StatusDef = { value: 'inactive', label: '停用', tone: '
 
 export const UNIT_OPTIONS = o('G:克', 'KG:千克', 'J:斤', 'T:吨', 'ML:毫升', 'LTR:升', 'L:粒', 'K:棵', 'B:包', 'D:袋', 'BOX:盒', 'CTN:箱', 'BTL:瓶', 'CAN:罐', 'PCS:件', 'EA:个', 'SHEET:张', 'M:米', 'CM:厘米', 'MM:毫米');
 
+export const PACKAGING_CATEGORY_OPTIONS = o('bag:袋', 'bottle:瓶', 'box:盒', 'carton:箱', 'can:罐', 'label:标签', 'other:其他');
+export const DIMENSION_UNIT_OPTIONS = o('mm:毫米', 'cm:厘米', 'm:米');
+
+/** 商品单位与规格列表的种类（旧系统：名称单位/规格单位、产品包装单位、发货物料规格单位、系统规格、包装类别、尺寸单位） */
+export const PRODUCT_UNIT_KINDS = o('spec_unit:规格单位', 'packaging_unit:产品包装单位', 'shipping_unit:发货物料规格单位', 'system_spec:系统规格', 'packaging_category:包装类别', 'dimension_unit:尺寸单位');
+/** 这几种有“编码”（商品里存编码、显示名称）；系统规格只有名称，商品里存名称 */
+export const PRODUCT_UNIT_CODED_KINDS = ['spec_unit', 'packaging_unit', 'shipping_unit', 'packaging_category', 'dimension_unit'] as const;
+/** 新公司和“导入默认项”用的预置：[种类, 名称, 编码] */
+export const PRODUCT_UNIT_SEEDS: ReadonlyArray<readonly [string, string, string]> = [
+  ...(['spec_unit', 'packaging_unit', 'shipping_unit'] as const).flatMap((k) => UNIT_OPTIONS.map((u) => [k, u.label, u.value] as const)),
+  ...PACKAGING_CATEGORY_OPTIONS.map((u) => ['packaging_category', u.label, u.value] as const),
+  ...DIMENSION_UNIT_OPTIONS.map((u) => ['dimension_unit', u.label, u.value] as const),
+  ...['斤', '千克', '克'].map((n) => ['system_spec', n, ''] as const),
+];
+
 export const ARCHIVE_TYPES = o('raw:原料档案', 'self_made:自产成品档案', 'purchased:外购成品档案', 'package:产品包装档案', 'shipping_material:发货物料档案', 'oem_package:OEM包装档案');
 export const ARCHIVE_TYPE_CODE: Record<string, string> = { raw: 'YL', self_made: 'ZC', purchased: 'WG', package: 'BZ', shipping_material: 'FH', oem_package: 'OEM' };
 export const CATEGORY_ROOTS = o('raw:原料档案', 'self_made:自产成品档案', 'original_purchase:原装采购成品', 'supplier_oem:供应商OEM成品', 'package:产品包装档案', 'oem_package:OEM包装档案', 'shipping_material:发货物料档案', 'bundle:组合分类');
@@ -85,16 +100,17 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('giftShortName', '赠品简称', '基础', { maxLength: 40, showWhen: { field: 'archiveType', in: ['raw', 'purchased', 'shipping_material'] }, help: '作赠品时组合名称里用，最多 40 字，不能含 + × * ；全公司商品之间不能重复' }),
       text('giftCodeShortName', '赠品编码简称', '基础', { maxLength: 20, showWhen: { field: 'archiveType', in: ['raw', 'purchased', 'shipping_material'] }, help: '作赠品时组合编码里用，1～20 位英文字母或数字（自动转大写）；全公司商品之间不能重复' }),
       { key: 'basicInfoFullName', label: '基础信息全称', type: 'text', group: '基础', readonly: true, list: true, maxLength: 400, help: '按档案类型把名称、品牌、规格等拼成，自动生成' },
-      text('purchaseSpec', '系统规格', '规格', { maxLength: 30, showWhen: { field: 'archiveType', in: ['raw'] }, help: '原料必填，如“斤”“500克”“千克”；采购价按它计价，重量按它自动换算' }),
+      text('purchaseSpec', '系统规格', '规格', { maxLength: 30, optionsFrom: { resource: 'finance-product-units', kind: 'system_spec' }, showWhen: { field: 'archiveType', in: ['raw'] }, help: '原料必填，如“斤”“500克”“千克”；采购价按它计价，重量按它自动换算' }),
       text('productPackagingSpec', '产品包装规格', '规格', { maxLength: 30, showWhen: { field: 'archiveType', in: ['self_made'] }, help: '参与编码，如“500G袋”' }),
+      select('productPackagingUnit', '产品包装单位', '规格', UNIT_OPTIONS, { optionsFrom: { resource: 'finance-product-units', kind: 'packaging_unit' }, showWhen: { field: 'archiveType', in: ['self_made'] }, help: '选填；在“单位与规格”里维护，仅用于产品包装规格，不影响规格单位' }),
       { key: 'specQty', label: '规格数量', type: 'decimal', group: '规格', required: true, scale: 3, list: true },
-      select('specUnit', '规格单位', '规格', UNIT_OPTIONS, { required: true, list: true }),
+      select('specUnit', '规格单位', '规格', UNIT_OPTIONS, { required: true, list: true, optionsFrom: { resource: 'finance-product-units', kind: 'spec_unit', kindBy: { field: 'archiveType', map: { shipping_material: 'shipping_unit' } } } }),
       { key: 'weightG', label: '重量(克)', type: 'decimal', group: '规格', scale: 6, list: true, help: '自动换算：原料按系统规格，其它按规格数量和单位，自制品/OEM 按构成汇总；换算不了或要人工修正时勾选下面的“人工修正重量”' },
       { key: 'weightManual', label: '人工修正重量', type: 'bool', group: '规格', help: '勾选后重量不再自动换算，按你填的为准' },
       { key: 'oemPackageWeightG', label: 'OEM 包装重量(克)', type: 'decimal', group: '规格', scale: 2, showWhen: { field: 'supplyMode', in: ['supplier_oem'] } },
-      select('packagingCategory', '包装类别', '包装', o('bag:袋', 'bottle:瓶', 'box:盒', 'carton:箱', 'can:罐', 'label:标签', 'other:其他'), { showWhen: { field: 'archiveType', in: ['package', 'oem_package'] } }),
+      select('packagingCategory', '包装类别', '包装', PACKAGING_CATEGORY_OPTIONS, { optionsFrom: { resource: 'finance-product-units', kind: 'packaging_category' }, showWhen: { field: 'archiveType', in: ['package', 'oem_package'] } }),
       text('dimensions', '尺寸', '包装', { maxLength: 60, showWhen: { field: 'archiveType', in: ['package', 'oem_package'] }, help: '如 20×15×8' }),
-      select('dimensionUnit', '尺寸单位', '包装', o('mm:毫米', 'cm:厘米', 'm:米'), { showWhen: { field: 'archiveType', in: ['package', 'oem_package'] }, help: '填了尺寸必须选单位' }),
+      select('dimensionUnit', '尺寸单位', '包装', DIMENSION_UNIT_OPTIONS, { optionsFrom: { resource: 'finance-product-units', kind: 'dimension_unit' }, showWhen: { field: 'archiveType', in: ['package', 'oem_package'] }, help: '填了尺寸必须选单位' }),
       textarea('capacities', '容量', '包装', { showWhen: { field: 'archiveType', in: ['package', 'oem_package'] }, help: '一行一个，如 500ML、1KG；产品包装和 OEM 包装至少一行' }),
       text('printingCompany', '印刷公司', '包装', { maxLength: 80, showWhen: { field: 'archiveType', in: ['package', 'oem_package'] } }),
       { key: 'orderStock', label: '订单库存', type: 'number', group: '包装', showWhen: { field: 'archiveType', in: ['package', 'oem_package'] } },
@@ -988,6 +1004,22 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       text('name', '品牌名称', '基础', { required: true, list: true, search: true }),
       text('code', '品牌码', '基础', { list: true, maxLength: 8, help: '不填则取名称拼音首字母' }),
+    ],
+  },
+  {
+    key: 'finance-product-units',
+    label: '单位与规格',
+    nav: { group: '资料维护', ...F },
+    titleField: 'name',
+    tabsBy: 'kind',
+    statuses: [ACTIVE, STOPPED],
+    defaultStatus: 'active',
+    uniqueTogether: [{ fields: ['kind', 'name'], message: '这一类里已经有同名的了' }, { fields: ['kind', 'code'], message: '这一类里已经有相同编码的了' }],
+    fields: [
+      select('kind', '种类', '基础', PRODUCT_UNIT_KINDS, { required: true, list: true }),
+      text('name', '名称', '基础', { required: true, list: true, search: true, maxLength: 80, help: '如 箱、毫米、无版印刷胶版；商品档案的下拉里显示它' }),
+      text('code', '编码', '基础', { list: true, search: true, maxLength: 32, help: '英文字母和数字；不填按常用单位或拼音首字母自动生成。商品里存的是编码，已被商品用到就不能再改；系统规格不用编码' }),
+      { key: 'sortOrder', label: '排序', type: 'number', group: '基础', list: true },
     ],
   },
   {

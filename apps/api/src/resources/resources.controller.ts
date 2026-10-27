@@ -112,6 +112,13 @@ export class ResourcesController {
   constructor(private readonly resources: ResourcesService, private readonly tools: DataToolsService) {}
 
   // 总览按每种资料的查看权限过滤，所以只要求登录
+  // 商品档案下拉用：公司维护的单位与规格（名称+取值），不含敏感信息
+  @AuthenticatedOnly()
+  @Get('unit-options')
+  unitOptions(@CurrentUser() user: AuthUser) {
+    return this.resources.unitOptions(user);
+  }
+
   @AuthenticatedOnly()
   @Get('overview')
   overview(@CurrentUser() user: AuthUser) {
@@ -182,6 +189,13 @@ export class ResourcesController {
   @Post(':type/batch-status')
   batchStatus(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: BatchDto) {
     return this.resources.batchUpdate(user, type, dto.ids, {}, dto.status, dto.reason);
+  }
+
+  // 把预置的常用单位补进公司的“单位与规格”（已有同名/同编码的跳过）
+  @RequirePermission('resource.finance-product-units.create')
+  @Post('finance-product-units/seed-defaults')
+  seedUnitDefaults(@CurrentUser() user: AuthUser) {
+    return this.resources.seedUnitDefaults(user);
   }
 
   // 仓库岗位只读商品档案，但可以上传照片（只加不删）

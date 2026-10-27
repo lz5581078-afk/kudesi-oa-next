@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { FINANCE_RESOURCE_DEFS } from '@kudesi/shared';
+import { FINANCE_RESOURCE_DEFS, optionsKindOf } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 
 /**
@@ -46,12 +46,14 @@ export async function applyGiftAliases(em: EntityManager, companyId: number, dat
   }
 }
 
+import { unitLabel, type UnitLists } from './unit-options';
 const PRODUCT_DEF = FINANCE_RESOURCE_DEFS.find((d) => d.key === 'finance-products')!;
-const optLabel = (key: string, value: unknown) => PRODUCT_DEF.fields.find((f) => f.key === key)?.options?.find((o) => o.value === value)?.label ?? str(value);
+const optLabelStatic = (key: string, value: unknown) => PRODUCT_DEF.fields.find((f) => f.key === key)?.options?.find((o) => o.value === value)?.label ?? str(value);
 const join = (parts: unknown[]) => parts.map((p) => str(p).trim()).filter(Boolean).join('-');
 
 /** 基础信息全称：按档案类型把名称、品牌、规格拼起来（对照旧系统 buildProductBasicInfoFullName）。 */
-export function basicInfoFullName(data: Data, brandName: string): string {
+export function basicInfoFullName(data: Data, brandName: string, units?: UnitLists): string {
+  const optLabel = (key: string, value: unknown) => (units ? unitLabel(units, optionsKindOf(PRODUCT_DEF.fields.find((f) => f.key === key)!, data) ?? '', value) || optLabelStatic(key, value) : optLabelStatic(key, value));
   const type = str(data.archiveType);
   const name = str(data.name);
   const qty = typeof data.specQty === 'number' ? String(data.specQty) : '';

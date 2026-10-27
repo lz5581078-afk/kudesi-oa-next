@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { loadUnitOptions, useUnitOptions } from './unitOptions';
 import { PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -47,6 +48,7 @@ function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
 export function ResourcePage({ type, lockedTab, title }: { type: string; lockedTab?: string; title?: string }) {
   const def = getResourceDef(type)!;
   const can = useResourceCan(type);
+  useUnitOptions(); // 单位列表读到后，列表里的单位编码才能换成名称
   const [keyword, setKeyword] = useState('');
   const [tab, setTab] = useState(lockedTab ?? '');
   const [status, setStatus] = useState('');
@@ -132,6 +134,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
     try {
       setData(await resourceApi.list(type, { page, pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals }));
       setError('');
+      if (type === 'finance-product-units') void loadUnitOptions(true); // 单位列表变了，商品档案的下拉也要跟着变
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
@@ -168,6 +171,22 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
     }
   }
 
+  async function seedUnits() {
+    if (!window.confirm('把常用的单位、包装类别、尺寸单位、系统规格补进来？已经有的不会重复，也不会被覆盖。')) return;
+    setSeeding(true);
+    setError('');
+    try {
+      const r = await api<{ added: number }>('/resources/finance-product-units/seed-defaults', { method: 'POST', body: {} });
+      window.alert(`导入完成：新增 ${r.added} 项。`);
+      void loadUnitOptions(true);
+      void load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '导入失败');
+    } finally {
+      setSeeding(false);
+    }
+  }
+
   function newInitial(): Record<string, unknown> | undefined {
     const init: Record<string, unknown> = {};
     if (tab && def.tabsBy) init[def.tabsBy] = tab;
@@ -196,6 +215,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           <div className="pill-row">
             {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="secondary-button" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
             {type === 'finance-packaging-schemes' && <button type="button" className="secondary-button" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
+            {type === 'finance-product-units' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedUnits}>{seeding ? '导入中…' : '导入默认项'}</button>}
             {type === 'finance-fee-items' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
             {type === 'finance-fee-items' && <button type="button" className="secondary-button" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
             {(type === 'finance-supplier-categories' || type === 'finance-customer-categories') && can('create') && (

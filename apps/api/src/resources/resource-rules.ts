@@ -5,6 +5,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { ResourceLink, ResourceRecord } from '../entities';
 import { CERT_AFTER_DELETE, CERT_AFTER_SAVE, CERT_BEFORE_SAVE, custodyRules, licenseFlags } from './entity-rules';
 import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE } from './finance-rules';
+import { beforeUnitDelete } from './unit-rules';
 import { ASSET_BEFORE_DELETE, ASSET_BEFORE_SAVE } from './asset-rules';
 
 /**
@@ -310,6 +311,7 @@ export interface AfterSaveContext {
 export async function beforeDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
   const rule = ASSET_BEFORE_DELETE[type];
   if (rule) await rule(ctx);
+  if (type === 'finance-product-units') await beforeUnitDelete(ctx);
 }
 
 /** 删除记录之后（记录已不存在，record 是删除前的内容）。 */

@@ -1,5 +1,6 @@
 import { unitYuanText, formatYuan, type FieldDef, type ResourceDef, type StatusDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
+import { unitOptionLabel } from './unitOptions';
 
 export function statusOf(def: ResourceDef, value: string): StatusDef {
   return def.statuses.find((s) => s.value === value) ?? { value, label: value, tone: 'muted' };
@@ -12,6 +13,7 @@ export function displayValue(f: FieldDef, dto: ResourceDto): string {
   if (v === undefined || v === null || v === '') return '';
   switch (f.type) {
     case 'select':
+      if (f.optionsFrom) { const n = unitOptionLabel(f, dto.data, String(v)); if (n) return n; }
       return f.options?.find((o) => o.value === v)?.label ?? String(v);
     case 'money':
       return f.scale ? `¥${unitYuanText(Number(v))}` : formatYuan(Number(v));
