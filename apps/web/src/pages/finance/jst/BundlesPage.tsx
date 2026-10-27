@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { getResourceDef } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
+import { CopyButton } from '../../../resources/CopyValue';
 import { downloadText } from '../../../resources/csv';
 import { displayValue, statusOf } from '../../../resources/format';
 import { ImportDialog } from '../../../resources/ImportDialog';
@@ -16,6 +17,8 @@ import { BundleVerifyDialog, GenerateDialog, NamingCenterDialog, RemoveDialog, R
 import { jstApi } from './jstApi';
 
 const TYPE = 'finance-bundles';
+const ROLE_OPTIONS = getResourceDef('finance-bundle-lines')?.fields.find((f) => f.key === 'role')?.options ?? [];
+const roleLabel = (v: string) => ROLE_OPTIONS.find((o) => o.value === v)?.label ?? v;
 const TABS: Array<[string, string]> = [['', '全部'], ['pending', '待验证'], ['reverify', '需重新验证'], ['verified', '已验证'], ['archived', '失效归档']];
 
 /** 商品组合编码：状态页签带数量；批量生成（多平台）、命名中心、核对验证、构成修订、删除/归档。普通增删改查沿用通用资料接口。 */
@@ -38,6 +41,13 @@ export function BundlesPage() {
   const [remove, setRemove] = useState<ResourceDto | null>(null);
   const [manual, setManual] = useState<ResourceDto | null>(null);
   const [categoryId, setCategoryId] = useState('');
+  const [open, setOpen] = useState<Record<number, ResourceDto[] | 'loading' | 'error'>>({});
+  async function toggleLines(id: number) {
+    if (open[id]) { setOpen(({ [id]: _, ...rest }) => rest); return; }
+    setOpen((o) => ({ ...o, [id]: 'loading' }));
+    try { const r = await resourceApi.list('finance-bundle-lines', { fieldKey: 'bundleId', fieldValue: id, pageSize: 100 }); setOpen((o) => (o[id] ? { ...o, [id]: r.items } : o)); } catch { setOpen((o) => ({ ...o, [id]: 'error' })); }
+  }
+  const filtered = Boolean(keyword.trim() || categoryId);
 
   const reload = useCallback(async () => {
     try {
@@ -90,16 +100,26 @@ export function BundlesPage() {
           <tbody>
             {rows.map((row) => {
               const st = statusOf(def, row.status);
+              const lines = open[row.id];
               return (
-                <tr key={row.id} className={row.id === selected ? 'selected' : undefined} onClick={() => setSelected(row.id)}>
+                <Fragment key={row.id}>
+                <tr className={row.id === selected ? 'selected' : undefined} onClick={() => setSelected(row.id)}>
                   <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>
-                  {columns.map((f) => <td key={f.key}>{displayValue(f, row)}</td>)}
+                  {columns.map((f) => <td key={f.key} data-label={f.label}>{displayValue(f, row)}{f.key === 'code' && <CopyButton value={String(row.data.code ?? '')} label="组合编码" />}</td>)}
                   <td><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>{typeof row.data.pendingRevisionId === 'number' && <span className="pill warn">有待发布修订</span>}</td>
-                  <td onClick={(e) => e.stopPropagation()}>{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}</td>
+                  <td onClick={(e) => e.stopPropagation()}><button type="button" className="link-button" aria-expanded={Boolean(lines)} onClick={() => void toggleLines(row.id)}>{lines ? '收起构成' : '展开构成'}</button>{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}</td>
                 </tr>
+                {lines && (
+                  <tr className="bundle-lines-row"><td colSpan={columns.length + 3}>
+                    {lines === 'loading' ? <span className="muted" role="status">正在加载构成…</span> : lines === 'error' ? <span className="muted">构成加载失败，请重试</span> : lines.length === 0 ? <span className="muted">这个组合还没有构成行</span> : (
+                      <ul className="plain-list">{lines.map((l) => <li key={l.id}>{l.refLabels.baseCodeId || l.refLabels.laborId || l.title} × {String(l.data.qty ?? '')}{l.data.unit ? ` ${String(l.data.unit)}` : ''} <span className="muted">{roleLabel(String(l.data.role ?? ''))}</span></li>)}</ul>
+                    )}
+                  </td></tr>
+                )}
+                </Fragment>
               );
             })}
-            {data && rows.length === 0 && <tr><td colSpan={columns.length + 3} className="muted center">没有匹配的组合</td></tr>}
+            {data && rows.length === 0 && <tr><td colSpan={columns.length + 3} className="muted center">没有匹配的组合{filtered && <> <button type="button" className="link-button" onClick={() => { setKeyword(''); setCategoryId(''); setPage(1); }}>清除搜索和分类</button></>}</td></tr>}
             {!data && !error && <tr><td colSpan={columns.length + 3} className="muted center">加载中…</td></tr>}
           </tbody>
         </table></div>

@@ -634,3 +634,4 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
   .stat-tile { flex: 1 1 100px; }
 }
 .pricing-guide { text-align: left; margin: 8px auto 0; padding-left: 20px; max-width: 360px; font-weight: normal; }
+.import-step-next { border-color: var(--accent, #2f6fed); box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.15); }

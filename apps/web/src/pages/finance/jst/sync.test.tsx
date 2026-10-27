@@ -106,3 +106,18 @@ describe('基本售价、归档任务、分类同步', () => {
     await waitFor(() => expect(m.categoryExecute).toHaveBeenCalledWith('bundle', 's2'));
   });
 });
+
+describe('同步清单：状态汇总、筛选与全选本页', () => {
+  it('显示本页状态汇总；按状态筛选；全选只选可同步的，且最多 50 条', async () => {
+    apiMock.mockResolvedValue({ total: 3, rows: [item(1), item(2, { state: 'synced', uploaded: {} }), item(3, { state: 'failed' })] });
+    render(<JstSyncItems onQueued={() => undefined} />);
+    fireEvent.change(await screen.findByLabelText('资料类型'), { target: { value: 'finance-bundles' } });
+    await screen.findByText(/本页 3 条：未同步 1 · 已同步 1 · 同步失败 1/);
+    fireEvent.click(screen.getByLabelText('全选本页可同步的'));
+    expect(screen.getByText(/已选 2 条/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('同步状态'), { target: { value: 'synced' } });
+    expect(screen.queryByText('ZH-1', { exact: false })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
+    expect(screen.getByText('ZH-1', { exact: false })).toBeTruthy();
+  });
+});

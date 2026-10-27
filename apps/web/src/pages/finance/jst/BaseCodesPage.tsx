@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getResourceDef } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
+import { CopyButton } from '../../../resources/CopyValue';
 import { downloadText } from '../../../resources/csv';
 import { displayValue, statusOf } from '../../../resources/format';
 import { ImportDialog } from '../../../resources/ImportDialog';
@@ -14,6 +15,10 @@ import { jstApi } from './jstApi';
 
 const TYPE = 'finance-base-codes';
 const TABS: Array<[string, string]> = [['', '全部'], ['pending', '待验证'], ['reverify', '需重新验证'], ['verified', '已验证']];
+
+/** 复制新建：带出分类、重量等，编码、款式编码和同步状态必须重新填。 */
+const NOT_COPIED = new Set(['code', 'styleCode', 'canonicalId', 'jstStatus', 'jstUploadedCode', 'verifiedSignature']);
+const copyInitial = (r: ResourceDto) => Object.fromEntries(Object.entries(r.data).filter(([k, v]) => !NOT_COPIED.has(k) && v !== null && v !== undefined && v !== ''));
 
 interface CatNode { id: number; name: string; parentId: number | null }
 
@@ -66,7 +71,7 @@ export function BaseCodesPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
   const [checked, setChecked] = useState<number[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<{ initial?: Record<string, unknown> } | null>(null);
   const [importing, setImporting] = useState(false);
   const [verifyIds, setVerifyIds] = useState<number[] | null>(null);
   const [deleteMode, setDeleteMode] = useState<'pending' | 'source' | null>(null);
@@ -96,6 +101,8 @@ export function BaseCodesPage() {
 
   const columns = [def.fields.find((f) => f.key === 'code')!, def.fields.find((f) => f.key === 'styleCode')!, def.fields.find((f) => f.key === 'name')!, def.fields.find((f) => f.key === 'categoryId')!, def.fields.find((f) => f.key === 'weightG')!, ...(canCost ? [def.fields.find((f) => f.key === 'cost')!] : [])];
   const verifiable = (data?.items ?? []).filter((r) => checked.includes(r.id) && ['pending', 'reverify'].includes(r.status));
+  const filtered = Boolean(keyword.trim() || cat);
+  const clearFilters = () => { setKeyword(''); setCat(null); setPage(1); };
   const isAlias = (r: ResourceDto) => typeof r.data.canonicalId === 'number';
 
   return (
@@ -108,7 +115,7 @@ export function BaseCodesPage() {
           {can('delete') && <button type="button" className="secondary-button" onClick={() => setDeleteMode('source')}>处理来源已删除的</button>}
           {can('import') && <button type="button" className="secondary-button" onClick={() => setImporting(true)}>导入</button>}
           {can('export') && <button type="button" className="secondary-button" onClick={async () => { try { const o = await resourceApi.export(TYPE, false); downloadText(o.filename, o.csv); } catch (e) { setError(e instanceof ApiError ? e.message : '导出失败'); } }}>导出</button>}
-          {can('create') && <button type="button" className="primary-button" onClick={() => setCreating(true)}>＋ 新增</button>}
+          {can('create') && <button type="button" className="primary-button" onClick={() => setCreating({})}>＋ 新增</button>}
         </div>
       </div>
       <div className="tab-group page-tabs" role="tablist" aria-label="验证状态">
@@ -135,14 +142,14 @@ export function BaseCodesPage() {
                   return (
                     <tr key={row.id} className={row.id === selected ? 'selected' : undefined} onClick={() => setSelected(row.id)}>
                       <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>
-                      {columns.map((f) => <td key={f.key} className={f.type === 'money' ? 'num' : undefined}>{displayValue(f, row)}{f.key === 'code' && isAlias(row) ? <span className="pill warn">马甲</span> : null}</td>)}
+                      {columns.map((f) => <td key={f.key} className={f.type === 'money' ? 'num' : undefined}>{displayValue(f, row)}{f.key === 'code' && isAlias(row) ? <span className="pill warn">马甲</span> : null}{f.key === 'code' || f.key === 'styleCode' ? <CopyButton value={String(row.data[f.key] ?? '')} label={f.label} /> : null}</td>)}
                       <td>{({ not_synced: '未同步', pending: '排队中', synced: '已同步', failed: '同步失败' } as Record<string, string>)[String(row.data.jstStatus ?? 'not_synced')] ?? '未同步'}</td>
                       <td><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
-                      <td onClick={(e) => e.stopPropagation()}>{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}</td>
+                      <td onClick={(e) => e.stopPropagation()}>{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}{can('create') && <button type="button" className="link-button" onClick={() => setCreating({ initial: copyInitial(row) })}>复制新建</button>}</td>
                     </tr>
                   );
                 })}
-                {data && data.items.length === 0 && <tr><td colSpan={columns.length + 4} className="muted center">没有匹配的基础编码</td></tr>}
+                {data && data.items.length === 0 && <tr><td colSpan={columns.length + 4} className="muted center">没有匹配的基础编码{filtered && <> <button type="button" className="link-button" onClick={clearFilters}>清除搜索和分类</button></>}</td></tr>}
                 {!data && !error && <tr><td colSpan={columns.length + 4} className="muted center">加载中…</td></tr>}
               </tbody>
             </table>
@@ -151,7 +158,7 @@ export function BaseCodesPage() {
         </section>
       </div>
       {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void reload()} />}
-      {creating && <RecordForm def={def} record={null} onClose={() => setCreating(false)} onSaved={(dto) => { setCreating(false); setSelected(dto.id); void reload(); }} />}
+      {creating && <RecordForm def={def} record={null} initial={creating.initial} onClose={() => setCreating(null)} onSaved={(dto) => { setCreating(null); setSelected(dto.id); void reload(); }} />}
       {importing && <ImportDialog def={def} onClose={() => setImporting(false)} onDone={() => { setImporting(false); void reload(); }} />}
       {verifyIds && <VerifyDialog ids={verifyIds} isAdmin={isAdmin} onClose={() => setVerifyIds(null)} onDone={() => { setChecked([]); void reload(); }} />}
       {deleteMode && <DeleteDialog mode={deleteMode} ids={deleteMode === 'pending' ? checked : undefined} onClose={() => setDeleteMode(null)} onDone={() => { setChecked([]); void reload(); }} />}
