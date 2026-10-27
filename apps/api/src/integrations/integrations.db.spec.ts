@@ -70,7 +70,7 @@ d('接口设置 / 文件 / 识别（真实数据库）', () => {
     storage.failUpload = false;
   });
 
-  it('文件跟记录绑定：显示文件信息、不能被别家或别的记录/字段借用、去掉后和删除记录时清理七牛对象', async () => {
+  it('文件跟记录绑定：显示文件信息、不能被别家或别的记录/字段借用、去掉后清理七牛对象、归档时保留', async () => {
     const f1 = await s.files.upload(boss, 'fixed-assets', 'photos', { originalname: '正面.png', buffer: PNG, size: PNG.length });
     const f2 = await s.files.upload(boss, 'fixed-assets', 'photos', { originalname: '背面.png', buffer: PNG, size: PNG.length });
     const lic = await s.resources.create(boss, 'fixed-assets', { assetNo: 'PH-001', name: '带照片资产', photos: [f1.id, f2.id] });
@@ -91,15 +91,11 @@ d('接口设置 / 文件 / 识别（真实数据库）', () => {
     const edited = await s.resources.update(boss, 'fixed-assets', lic.id, { photos: [f1.id] });
     expect(Object.keys(edited.files)).toEqual([String(f1.id)]);
     expect(storage.removed).toEqual([k2]);
-    const k1 = await keyOf(f1.id);
     storage.removed = [];
-    // 删除记录前要先清掉自动生成的附属记录
-    for (const type of ['partners', 'tax-profiles']) {
-      for (const dep of (await s.resources.list(boss, type, { fieldKey: 'licenseId', fieldValue: String(lic.id), showHidden: true })).items) await s.resources.remove(boss, type, dep.id, '清理');
-    }
-    await s.resources.remove(boss, 'fixed-assets', lic.id, '测试删除');
-    expect(storage.removed).toContain(k1);
-    expect((await ds.query('SELECT COUNT(*) n FROM resource_files WHERE id = ?', [f1.id]))[0].n).toBe('0');
+    // 删除=归档：文件原样保留，恢复后还在（不清理七牛对象）
+    await s.resources.remove(boss, 'fixed-assets', lic.id, '测试归档');
+    expect(storage.removed).toEqual([]);
+    expect((await ds.query('SELECT COUNT(*) n FROM resource_files WHERE id = ?', [f1.id]))[0].n).toBe('1');
   });
 
   it('下载链接：要有该资料的查看权限，别家拿不到', async () => {
