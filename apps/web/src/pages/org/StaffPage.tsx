@@ -4,7 +4,8 @@ import { useAuth } from '../../auth/AuthContext';
 import { ApiError } from '../../api/client';
 import { ConfirmDialog } from './StructurePage';
 import { PermissionPicker } from './PermissionPicker';
-import { orgApi, flattenDepartments, type DepartmentNode, type PositionDto, type StaffDetail, type StaffDto, type HandoverPreview } from './orgApi';
+import { orgApi, flattenDepartments, type DepartmentNode, type PositionDto, type StaffDetail, type StaffDto, type HandoverPreview, type PayType, type EmploymentType, PAY_TYPE_LABELS, EMPLOYMENT_LABELS } from './orgApi';
+import { StaffRecordsDialog } from './StaffRecordsDialog';
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : '操作失败');
 
@@ -38,21 +39,28 @@ function StaffDialog({ staff, all, canSalary, departments, positions, onClose, o
   const [managerId, setManagerId] = useState<number | null>(staff?.managerId ?? null);
   const [title, setTitle] = useState(staff?.title ?? '');
   const [salary, setSalary] = useState(staff?.baseSalary != null ? String(staff.baseSalary / 100) : '');
+  const [payType, setPayType] = useState<PayType>(staff?.payType ?? 'monthly');
+  const [hourly, setHourly] = useState(staff?.hourlyRate != null ? String(staff.hourlyRate / 100) : '');
+  const [employmentType, setEmploymentType] = useState<EmploymentType>(staff?.employmentType ?? 'regular');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) return setError('请填写姓名');
     if (canSalary && salary.trim() && !/^\d+(\.\d{1,2})?$/.test(salary.trim())) return setError('底薪请填写金额，最多两位小数');
+    if (canSalary && hourly.trim() && !/^\d+(\.\d{1,2})?$/.test(hourly.trim())) return setError('时薪请填写金额，最多两位小数');
+    if (canSalary && payType === 'hourly' && !hourly.trim()) return setError('计薪方式是时薪，请填写时薪');
+    const hourlyCents = canSalary ? (hourly.trim() ? Math.round(Number(hourly) * 100) : null) : undefined;
+    const payFields = { employmentType, ...(canSalary ? { payType } : {}), ...(hourlyCents !== undefined ? { hourlyRate: hourlyCents } : {}) };
     const salaryCents = canSalary ? (salary.trim() ? Math.round(Number(salary) * 100) : null) : undefined;
     if (!staff && !/^[A-Za-z0-9_.-]{2,64}$/.test(account.trim())) return setError('账号只能用字母、数字、下划线、点和横线，2 到 64 位');
     setBusy(true);
     try {
       if (staff) {
-        await orgApi.updateStaff(staff.id, { name: name.trim(), departmentId, positionId, extraPositionIds: positionId ? extra.filter((x) => x !== positionId) : [], managerId, title: title.trim() || null, ...(salaryCents !== undefined ? { baseSalary: salaryCents } : {}) });
+        await orgApi.updateStaff(staff.id, { name: name.trim(), departmentId, positionId, extraPositionIds: positionId ? extra.filter((x) => x !== positionId) : [], managerId, title: title.trim() || null, ...payFields, ...(salaryCents !== undefined ? { baseSalary: salaryCents } : {}) });
         onSaved();
       } else {
-        const r = await orgApi.addStaff({ account: account.trim(), name: name.trim(), departmentId, positionId, extraPositionIds: positionId ? extra.filter((x) => x !== positionId) : [], managerId, title: title.trim() || undefined, ...(salaryCents ? { baseSalary: salaryCents } : {}) });
+        const r = await orgApi.addStaff({ account: account.trim(), name: name.trim(), departmentId, positionId, extraPositionIds: positionId ? extra.filter((x) => x !== positionId) : [], managerId, title: title.trim() || undefined, ...payFields, ...(salaryCents ? { baseSalary: salaryCents } : {}) });
         onSaved({ account: r.staff.account, password: r.initialPassword });
       }
     } catch (err) { setError(errText(err)); setBusy(false); }
@@ -93,7 +101,23 @@ function StaffDialog({ staff, all, canSalary, departments, positions, onClose, o
             </select>
           </label>
           <label>职称<input value={title} maxLength={60} onChange={(e) => setTitle(e.target.value)} /></label>
-          {canSalary && <label>底薪（元/月）<input inputMode="decimal" value={salary} onChange={(e) => setSalary(e.target.value)} /></label>}
+          <label>用工类型
+            <select value={employmentType} onChange={(e) => setEmploymentType(e.target.value as EmploymentType)}>
+              {(Object.keys(EMPLOYMENT_LABELS) as EmploymentType[]).map((k) => <option key={k} value={k}>{EMPLOYMENT_LABELS[k]}</option>)}
+            </select>
+          </label>
+          {canSalary && (
+            <>
+              <label>计薪方式
+                <select value={payType} onChange={(e) => setPayType(e.target.value as PayType)}>
+                  {(Object.keys(PAY_TYPE_LABELS) as PayType[]).map((k) => <option key={k} value={k}>{PAY_TYPE_LABELS[k]}</option>)}
+                </select>
+              </label>
+              {payType === 'monthly'
+                ? <label>底薪（元/月）<input inputMode="decimal" value={salary} onChange={(e) => setSalary(e.target.value)} /></label>
+                : <label>时薪（元/小时）<input inputMode="decimal" value={hourly} onChange={(e) => setHourly(e.target.value)} /></label>}
+            </>
+          )}
           {!staff && <p className="muted">初始密码由系统随机生成，保存后显示一次。</p>}
           {error && <div role="alert" className="notice error">{error}</div>}
         </div>
@@ -212,10 +236,11 @@ export function StaffPage() {
   const [catalog, setCatalog] = useState<CatalogGroup[]>([]);
   const [keyword, setKeyword] = useState('');
   const [showDisabled, setShowDisabled] = useState(false);
+  const [onlyNoPosition, setOnlyNoPosition] = useState(false);
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState<
     { kind: 'edit'; staff: StaffDto | null } | { kind: 'perm'; staff: StaffDto } | { kind: 'reset'; staff: StaffDto }
-    | { kind: 'disable'; staff: StaffDto } | { kind: 'password'; title: string; account: string; password: string } | null
+    | { kind: 'disable'; staff: StaffDto } | { kind: 'records'; staff: StaffDto } | { kind: 'password'; title: string; account: string; password: string } | null
   >(null);
 
   const reload = useCallback(async () => {
@@ -227,7 +252,7 @@ export function StaffPage() {
   useEffect(() => { void reload(); }, [reload]);
 
   const deptName = useMemo(() => new Map(flattenDepartments(tree).map((d) => [d.id, d.name])), [tree]);
-  const shown = staff.filter((s) => (showDisabled || s.status === 'active') && (!keyword.trim() || `${s.name}${s.account}`.toLowerCase().includes(keyword.trim().toLowerCase())));
+  const shown = staff.filter((s) => (showDisabled || s.status === 'active') && (!onlyNoPosition || !s.positionId) && (!keyword.trim() || `${s.name}${s.account}`.toLowerCase().includes(keyword.trim().toLowerCase())));
   const done = async () => { setDialog(null); await reload(); };
 
   async function toggle(s: StaffDto) {
@@ -245,10 +270,11 @@ export function StaffPage() {
         <div className="toolbar">
           <input type="search" aria-label="搜索员工" placeholder="按姓名或账号搜索" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
           <label className="check-line"><input type="checkbox" checked={showDisabled} onChange={(e) => setShowDisabled(e.target.checked)} />显示已停用</label>
+          <label className="check-line"><input type="checkbox" checked={onlyNoPosition} onChange={(e) => setOnlyNoPosition(e.target.checked)} />只看没有岗位的</label>
         </div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>姓名</th><th>账号</th><th>部门</th><th>岗位</th><th>职称</th><th>直属上级</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
+            <thead><tr><th>姓名</th><th>账号</th><th>部门</th><th>岗位</th><th>职称</th><th>用工/计薪</th><th>直属上级</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
             <tbody>
               {shown.map((s) => (
                 <tr key={s.id}>
@@ -257,12 +283,14 @@ export function StaffPage() {
                   <td>{s.departmentId ? deptName.get(s.departmentId) ?? '—' : '—'}</td>
                   <td>{s.positionName ?? '—'}{s.extraPositionIds.length > 0 && <small className="muted"> 兼 {s.extraPositionIds.map((id) => positions.find((p) => p.id === id)?.name).filter(Boolean).join('、')}</small>}</td>
                   <td>{s.title ?? '—'}</td>
+                  <td>{EMPLOYMENT_LABELS[s.employmentType ?? 'regular']}{s.payType === 'hourly' ? ' · 时薪' : ''}</td>
                   <td>{staff.find((x) => x.id === s.managerId)?.name ?? '—'}</td>
                   <td><span className={s.status === 'active' ? 'pill ok' : 'pill warn'}>{s.status === 'active' ? '在职' : '已停用'}</span></td>
                   <td>{s.lastLoginAt ? new Date(s.lastLoginAt).toLocaleString('zh-CN') : '从未登录'}</td>
                   <td>
                     <span className="row-actions">
                       {can('org.staff.edit') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'edit', staff: s })}>编辑</button>}
+                      {can('org.staff.view') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'records', staff: s })}>人员记录</button>}
                       {can('org.staff.edit') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'perm', staff: s })}>个人权限</button>}
                       {can('org.staff.reset') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'reset', staff: s })}>重置密码</button>}
                       {can('org.staff.disable') && (s.status === 'active'
@@ -289,6 +317,7 @@ export function StaffPage() {
         <ConfirmDialog title={`重置「${dialog.staff.name}」的密码`} text="会生成新的临时密码，原密码立即失效，对方下次登录必须改密码。" confirmLabel="重置" onClose={() => setDialog(null)}
           onConfirm={async () => { const r = await orgApi.resetPassword(dialog.staff.id); setDialog({ kind: 'password', title: '密码已重置', account: dialog.staff.account, password: r.password }); }} />
       )}
+      {dialog?.kind === 'records' && <StaffRecordsDialog staff={dialog.staff} all={staff} canHandover={can('org.staff.disable')} canSalary={can('org.staff.salary')} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'disable' && <DisableDialog staff={dialog.staff} onClose={() => setDialog(null)} onDone={() => void done()} />}
       {dialog?.kind === 'password' && <PasswordNotice title={dialog.title} account={dialog.account} password={dialog.password} onClose={() => setDialog(null)} />}
     </div>

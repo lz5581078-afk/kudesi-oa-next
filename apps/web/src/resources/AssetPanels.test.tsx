@@ -24,7 +24,7 @@ describe('固定资产流转按钮', () => {
     expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['领用', '送修', '标记丢失', '报废']);
     unmount();
     render(<AssetActionBar record={asset('repairing')} onDone={() => undefined} />);
-    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['维修完成', '报废']);
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['维修完成', '标记丢失', '报废']);
   });
 
   it('报废是终态，没有按钮', () => {
