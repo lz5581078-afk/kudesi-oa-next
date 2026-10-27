@@ -8,6 +8,7 @@ import { orgApi, flattenDepartments, type DepartmentNode, type PositionDto, type
 import { StaffRecordsDialog } from './StaffRecordsDialog';
 import { StaffImportDialog } from './StaffImportDialog';
 import { CopyButton } from '../../resources/CopyValue';
+import { resourceApi } from '../../resources/api';
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : '操作失败');
 
@@ -241,6 +242,9 @@ export function StaffPage() {
   const [onlyNoPosition, setOnlyNoPosition] = useState(false);
   const [deptFilter, setDeptFilter] = useState('');
   const [posFilter, setPosFilter] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
+  const [groups, setGroups] = useState<Array<{ id: number; name: string }>>([]);
+  const [memberOf, setMemberOf] = useState<Map<number, Set<number>>>(new Map());
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState<
     { kind: 'edit'; staff: StaffDto | null } | { kind: 'perm'; staff: StaffDto } | { kind: 'reset'; staff: StaffDto }
@@ -254,6 +258,15 @@ export function StaffPage() {
     } catch (e) { setError(errText(e)); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
+  // 职责组筛选（旧员工页有）：没有职责组查看权限时静默不显示
+  useEffect(() => {
+    Promise.all([resourceApi.list('duty-groups', { pageSize: 200 }), resourceApi.list('duty-group-members', { pageSize: 200, showHidden: true })]).then(([g, m]) => {
+      setGroups(g.items.map((x) => ({ id: x.id, name: x.title })));
+      const map = new Map<number, Set<number>>();
+      for (const r of m.items) { if (r.status !== 'active' && r.status !== 'normal') continue; const gid = Number(r.data.groupId); const uid = Number(r.data.userId); if (!map.has(gid)) map.set(gid, new Set()); map.get(gid)!.add(uid); }
+      setMemberOf(map);
+    }).catch(() => undefined);
+  }, []);
 
   const deptName = useMemo(() => new Map(flattenDepartments(tree).map((d) => [d.id, d.name])), [tree]);
   // 选了上级部门，也包含它的下级部门里的人
@@ -264,7 +277,7 @@ export function StaffPage() {
     walk(tree, false);
     return ids;
   }, [deptFilter, tree]);
-  const shown = staff.filter((s) => (showDisabled || s.status === 'active') && (!onlyNoPosition || !s.positionId) && (!deptScope || (s.departmentId != null && deptScope.has(s.departmentId))) && (!posFilter || String(s.positionId) === posFilter || s.extraPositionIds.includes(Number(posFilter))) && (!keyword.trim() || `${s.name}${s.account}`.toLowerCase().includes(keyword.trim().toLowerCase())));
+  const shown = staff.filter((s) => (showDisabled || s.status === 'active') && (!onlyNoPosition || !s.positionId) && (!deptScope || (s.departmentId != null && deptScope.has(s.departmentId))) && (!groupFilter || memberOf.get(Number(groupFilter))?.has(s.id)) && (!posFilter || String(s.positionId) === posFilter || s.extraPositionIds.includes(Number(posFilter))) && (!keyword.trim() || `${s.name}${s.account}`.toLowerCase().includes(keyword.trim().toLowerCase())));
   const done = async () => { setDialog(null); await reload(); };
 
   async function exportCsv() {
@@ -300,6 +313,12 @@ export function StaffPage() {
             <option value="">部门：全部</option>
             {flattenDepartments(tree).map((d) => <option key={d.id} value={d.id}>{'　'.repeat(d.depth)}{d.name}</option>)}
           </select>
+          {groups.length > 0 && (
+            <select aria-label="职责组" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+              <option value="">职责组：全部</option>
+              {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          )}
           <select aria-label="岗位" value={posFilter} onChange={(e) => setPosFilter(e.target.value)}>
             <option value="">岗位：全部</option>
             {positions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

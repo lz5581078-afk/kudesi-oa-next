@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } };
 vi.mock('../../auth/AuthContext', () => ({ useAuth: () => auth }));
 import { orgApi } from './orgApi';
+import { resourceApi } from '../../resources/api';
 import { StaffPage } from './StaffPage';
 import { PositionProfilesPage } from './PositionProfilesPage';
 
@@ -33,6 +34,19 @@ describe('员工与权限', () => {
     fireEvent.click(screen.getByLabelText('复制小王的登录账号'));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith('acc11'));
     expect(screen.getByText(/共 1 人/)).toBeTruthy();
+  });
+});
+
+describe('员工与权限：职责组筛选', () => {
+  it('按职责组只看在组成员，已退出的不算', async () => {
+    vi.spyOn(resourceApi, 'list').mockImplementation(async (type: string) => (type === 'duty-groups'
+      ? { items: [{ id: 50, title: '售后审核组', status: 'normal', data: {} }], total: 1, page: 1, pageSize: 200 }
+      : { items: [{ id: 1, title: 'm1', status: 'normal', data: { groupId: 50, userId: 11 } }, { id: 2, title: 'm2', status: 'exited', data: { groupId: 50, userId: 12 } }], total: 2, page: 1, pageSize: 200 }) as never);
+    render(<StaffPage />);
+    await screen.findByText('小李');
+    fireEvent.change(await screen.findByLabelText('职责组'), { target: { value: '50' } });
+    await waitFor(() => expect(screen.queryByText('小李')).toBeNull());
+    expect(screen.getByText('小王')).toBeTruthy();
   });
 });
 
