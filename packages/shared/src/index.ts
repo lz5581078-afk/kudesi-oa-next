@@ -33,3 +33,4 @@ export * from './relation-kinds';
 export * from './flow-custom';
 export * from './flow-node-catalog';
 export * from './live';
+export * from './grid-edit';

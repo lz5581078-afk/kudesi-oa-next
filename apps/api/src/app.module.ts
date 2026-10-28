@@ -110,6 +110,7 @@ import { ResourcesController } from './resources/resources.controller';
 import { AssetsController } from './resources/assets.controller';
 import { AssetsService } from './resources/assets.service';
 import { DataIssuesService } from './resources/data-issues.service';
+import { GridSaveService } from './resources/grid-save.service';
 import { ResourcesService } from './resources/resources.service';
 import { OrgController } from './org/org.controller';
 import { OrgAdminController } from './org/org-admin.controller';
@@ -173,6 +174,7 @@ const env = loadEnv();
     OrgAdminService,
     StaffImportService,
     ResourcesService,
+    GridSaveService,
     AssetsService,
     DataIssuesService,
     RevenueService,
