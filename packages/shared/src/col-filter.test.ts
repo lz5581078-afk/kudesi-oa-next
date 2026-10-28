@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RESOURCE_DEFS, type FieldDef, type FieldType } from './resources';
-import { COL_FILTER_MAX, COL_FILTER_OPS, colFilterKindFor, colFilterKindOf, datePresetRange, describeColFilter, parseColFilters, validateColFilters, type ColFilterOp } from './col-filter';
+import { READ_TIME_FIELDS, COL_FILTER_MAX, COL_FILTER_OPS, colFilterKindFor, colFilterKindOf, datePresetRange, describeColFilter, parseColFilters, validateColFilters, type ColFilterOp } from './col-filter';
 
 const f = (type: FieldType, key = 'k'): FieldDef => ({ key, label: '列', type, group: 'g' });
 const ok = (fields: FieldDef[], raw: unknown, restricted?: Set<string>) => validateColFilters(raw, { fields, restricted });
@@ -100,6 +100,18 @@ describe('列筛选：校验', () => {
   it('文本值去掉首尾空格', () => {
     const r = ok([f('text')], [{ key: 'k', op: 'contains', value: '  甲  ' }]);
     expect(r).toMatchObject({ ok: true, filters: [{ value: '甲' }] });
+  });
+});
+
+describe('列筛选：读时才算出来的字段不支持', () => {
+  it('手机号的绑定店铺等没有入口，传来也拒绝', () => {
+    const computed = new Set(['boundStores']);
+    expect(colFilterKindFor(f('text', 'boundStores'), new Set(), computed)).toBeNull();
+    expect(validateColFilters([{ key: 'boundStores', op: 'contains', value: 'a' }], { fields: [f('text', 'boundStores')], computed })).toMatchObject({ ok: false });
+    for (const [res, keys] of Object.entries(READ_TIME_FIELDS)) {
+      const def = RESOURCE_DEFS.find((d) => d.key === res)!;
+      for (const k of keys) expect(def.fields.some((x) => x.key === k), `${res}.${k}`).toBe(true);
+    }
   });
 });
 

@@ -37,7 +37,7 @@ import { deriveStoreFunds } from './store-funds';
 import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
 import { applyCond, deriveColumns } from './def-conditions';
 import { certImportMatch } from './entity-rules';
-import { optionsKindOf, parseColFilters, STATUS_COL, type ColFilter } from '@kudesi/shared';
+import { optionsKindOf, parseColFilters, readTimeKeys, STATUS_COL, type ColFilter } from '@kudesi/shared';
 import { applyColFilters } from './col-filter.sql';
 import { dynamicOptionsFor, loadUnitLists, seedUnitDefaults, unitLabel, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
@@ -896,7 +896,7 @@ export class ResourcesService implements RuleHost {
     if (!text) return [];
     const restricted = restrictedFieldKeys(def, createChecker(user.permissions));
     const allowedKeys = def.key === 'finance-products' && (await isWarehouseMode(this.dataSource.manager, user)) ? new Set(WAREHOUSE_PRODUCT_FIELDS) : undefined;
-    const r = parseColFilters(text, { fields: def.fields, restricted, statuses: def.statuses.map((s) => s.value), allowedKeys });
+    const r = parseColFilters(text, { fields: def.fields, restricted, computed: readTimeKeys(def.key), statuses: def.statuses.map((s) => s.value), allowedKeys });
     if (!r.ok) throw new BadRequestException(r.error);
     return r.filters;
   }

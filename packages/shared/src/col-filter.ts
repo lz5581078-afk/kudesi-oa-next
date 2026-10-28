@@ -71,9 +71,19 @@ export function colFilterKindOf(type: FieldType): ColFilterKind | null {
   }
 }
 
+/**
+ * 读列表时才算出来、并没有存进记录里的字段（手机号的绑定店铺 / 主子卡，店铺的资金余额等）：
+ * 数据库里没有这个值，没法在服务端筛选，所以列头不给入口，传来也拒绝。
+ */
+export const READ_TIME_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  phones: ['cardKind', 'boundStores', 'boundStoreNos'],
+  stores: ['deposit', 'frozen', 'goodsFund', 'promotionBalance'],
+};
+export const readTimeKeys = (resourceKey: string): ReadonlySet<string> => new Set(READ_TIME_FIELDS[resourceKey] ?? []);
+
 /** 这一列是否能筛选：字段自身类型支持，且当前用户看得见（没有字段权限的列不出现筛选入口，服务端同样拒绝） */
-export function colFilterKindFor(field: FieldDef, restricted: ReadonlySet<string>): ColFilterKind | null {
-  if (restricted.has(field.key)) return null;
+export function colFilterKindFor(field: FieldDef, restricted: ReadonlySet<string>, computed: ReadonlySet<string> = new Set()): ColFilterKind | null {
+  if (restricted.has(field.key) || computed.has(field.key)) return null;
   return colFilterKindOf(field.type);
 }
 
@@ -139,7 +149,7 @@ function checkValues(kind: ColFilterKind, f: ColFilter, statuses?: ReadonlySet<s
  * 字段必须属于资料定义且当前用户看得见，操作符必须在该字段类型的允许集合里，值的类型/长度合法，条件数有上限。
  * 只保留白名单字段 key / op / value / value2 / values，别的属性一概拒绝。
  */
-export function validateColFilters(raw: unknown, ctx: { fields: readonly FieldDef[]; restricted?: ReadonlySet<string>; statuses?: readonly string[]; allowedKeys?: ReadonlySet<string> }): ColFilterCheck {
+export function validateColFilters(raw: unknown, ctx: { fields: readonly FieldDef[]; restricted?: ReadonlySet<string>; computed?: ReadonlySet<string>; statuses?: readonly string[]; allowedKeys?: ReadonlySet<string> }): ColFilterCheck {
   if (!Array.isArray(raw)) return { ok: false, error: '列筛选条件不合法' };
   if (raw.length > COL_FILTER_MAX) return { ok: false, error: `列筛选最多 ${COL_FILTER_MAX} 个条件` };
   const restricted = ctx.restricted ?? new Set<string>();
@@ -157,6 +167,7 @@ export function validateColFilters(raw: unknown, ctx: { fields: readonly FieldDe
       const field = ctx.fields.find((x) => x.key === o.key);
       if (!field) return { ok: false, error: '列筛选的字段不存在' };
       if (restricted.has(field.key) || (ctx.allowedKeys && !ctx.allowedKeys.has(field.key))) return { ok: false, error: `没有权限按“${field.label}”筛选` };
+      if (ctx.computed?.has(field.key)) return { ok: false, error: `“${field.label}”是系统算出来的，不支持列筛选` };
       kind = colFilterKindOf(field.type);
       if (!kind) return { ok: false, error: `“${field.label}”不支持列筛选` };
     }

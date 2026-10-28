@@ -158,6 +158,7 @@ d('列筛选（真实数据库）', () => {
         cf({ key: 'lastRechargeAt', op: 'before', value: '2030-13-45' }),
         cf({ key: 'usageType', op: 'in', values: [] }),
         cf({ key: '$status', op: 'in', values: ['bogus'] }),
+        cf({ key: 'boundStores', op: 'contains', value: 'a' }), // 读时才算出来的列，库里没有
         '{"a":1}', 'not json',
         JSON.stringify(Array.from({ length: 13 }, (_, i) => ({ key: 'carrier', op: 'empty', i }))),
         JSON.stringify(Array.from({ length: 13 }, () => ({ key: 'carrier', op: 'empty' }))),
