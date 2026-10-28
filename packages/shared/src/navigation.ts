@@ -21,6 +21,8 @@ export interface NavPage {
   ready: boolean;
   /** 左侧菜单里的分组小标题（可选） */
   group?: string;
+  /** 菜单条目下方的一行说明（可选，照旧程序二级导航） */
+  description?: string;
 }
 
 export interface NavSection {
@@ -38,13 +40,43 @@ export type NavIconName = 'inbox' | 'flow' | 'wallet' | 'database' | 'settings' 
  * 资料首页 / 组织与人员 / 经营资料 / 账号与资质 / 银行卡 / 公司资产 / 公司店铺维护。
  * 条目可以是资源 key、银行卡「视图」（同一份银行账户资料按类型分页）或专门页面。
  */
-const RESOURCE_MENU: Array<{ group: string; items: string[] }> = [
-  { group: '组织与人员', items: ['org-tree', 'employees', 'position-profiles', 'duty-groups'] },
-  { group: '经营资料', items: ['licenses', 'tax-profiles', 'trademarks', 'partners', 'stores', 'self-media', 'wechat'] },
-  { group: '账号与资质', items: ['phones', 'broadband', 'fee-settings', 'qualifications', 'memos'] },
-  { group: '银行卡', items: ['bank-fund', ...RESOURCE_VIEWS.map((v) => v.id)] },
-  { group: '公司资产', items: ['fixed-assets', 'locations'] },
-  { group: '公司店铺维护', items: ['company-store-maintenance'] },
+const RESOURCE_MENU: Array<{ group: string; items: Array<{ id: string; label?: string; description: string }> }> = [
+  { group: '资料首页', items: [{ id: 'overview', description: '基础资料数量和最近变更' }] },
+  { group: '组织与人员', items: [
+    { id: 'org-tree', label: '组织架构', description: '公司、部门、岗位、人员' },
+    { id: 'employees', label: '人员档案', description: '员工、岗位、角色绑定' },
+    { id: 'position-profiles', description: '岗位、职责、培训和考核' },
+    { id: 'duty-groups', description: '流程任务可引用的职责组' },
+  ] },
+  { group: '经营资料', items: [
+    { id: 'licenses', description: '经营/电商主体执照资料' },
+    { id: 'tax-profiles', description: '经营/电商税务资料' },
+    { id: 'trademarks', description: '商标申请、证书、类别和到期' },
+    { id: 'partners', description: '合作人、联系方式、关联主体' },
+    { id: 'stores', description: '平台店铺、领取归属、状态' },
+    { id: 'self-media', label: '自媒体账号档案', description: '抖音、快手等内容账号资料' },
+    { id: 'wechat', description: '公司微信号、账号密码和绑定手机号' },
+  ] },
+  { group: '账号与资质', items: [
+    { id: 'phones', description: '号码、套餐、充值提醒' },
+    { id: 'broadband', description: '宽带账号、位置、带宽和绑定手机号' },
+    { id: 'fee-settings', description: '手机号套餐、子卡费用、宽带费用' },
+    { id: 'qualifications', description: '到期、续期、状态' },
+    { id: 'memos', description: '平台账号、云服务、域名和到期提醒' },
+  ] },
+  { group: '银行卡', items: [
+    { id: 'bank-fund', description: '公司和店铺账户余额总览' },
+    { id: 'company-public-accounts', description: '公司主体公户和对账提醒' },
+    { id: 'company-bank-cards', description: '公司银行卡资料' },
+    { id: 'cashier-accounts', description: '出纳账户和保管人' },
+    { id: 'store-public-accounts', description: '店铺绑定公户' },
+    { id: 'store-personal-cards', description: '店铺个人卡和预留手机号' },
+  ] },
+  { group: '公司资产', items: [
+    { id: 'fixed-assets', description: '电脑、手机、打印机、办公用品' },
+    { id: 'locations', description: '房间、柜子、层位、档案定位' },
+  ] },
+  { group: '公司店铺维护', items: [{ id: 'company-store-maintenance', description: '维护公司店铺独立登录环境和授权电脑' }] },
 ];
 
 /** 不是资源、而是专门页面的资料菜单项：权限跟着它背后的资料走。 */
@@ -60,13 +92,16 @@ const RESOURCE_SPECIAL: Record<string, { label: string; permission: string }> = 
 function resourcePages(): NavPage[] {
   const pages: NavPage[] = [];
   for (const g of RESOURCE_MENU) {
-    for (const id of g.items) {
+    for (const item of g.items) {
+      const id = item.id;
       const def = RESOURCE_DEFS.find((d) => d.key === id);
       const view = RESOURCE_VIEWS.find((v) => v.id === id);
       const special = RESOURCE_SPECIAL[id];
-      if (def) pages.push({ ...page('resource', def.key, def.label, true), group: g.group });
-      else if (view) pages.push({ ...page('resource', view.id, view.label, true), permission: `resource.${view.type}.view`, group: g.group });
-      else if (special) pages.push({ ...page('resource', id, special.label, true), permission: special.permission, group: g.group });
+      const extra = { group: g.group, description: item.description };
+      if (id === 'overview') continue;
+      if (def) pages.push({ ...page('resource', def.key, item.label ?? def.label, true), ...extra });
+      else if (view) pages.push({ ...page('resource', view.id, item.label ?? view.label, true), permission: `resource.${view.type}.view`, ...extra });
+      else if (special) pages.push({ ...page('resource', id, item.label ?? special.label, true), permission: special.permission, ...extra });
     }
   }
   return pages;
@@ -192,7 +227,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     icon: 'database',
     label: '资料',
     pages: [
-      { ...page('resource', 'overview', '资料总览', true) },
+      { ...page('resource', 'overview', '资料总览', true), group: '资料首页', description: '基础资料数量和最近变更' },
       ...resourcePages(),
     ],
   },

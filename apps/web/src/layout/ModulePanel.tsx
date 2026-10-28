@@ -80,8 +80,9 @@ export function ModulePanel(props: {
                   <ul>
                     {g.pages.map((p) => (
                       <li key={p.path}>
-                        <NavLink to={p.path} className={isCurrent(p.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(p.path) ? 'page' : undefined} onClick={() => props.onPick(p.path)}>
-                          {p.label}
+                        <NavLink to={p.path} className={isCurrent(p.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(p.path) ? 'page' : undefined} onClick={() => props.onPick(p.path)} title={p.description}>
+                          <span className="mp-link-label">{p.label}</span>
+                          {p.description && <small className="mp-link-desc">{p.description}</small>}
                         </NavLink>
                       </li>
                     ))}

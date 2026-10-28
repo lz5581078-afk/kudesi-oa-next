@@ -490,6 +490,9 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
 .mp-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 8px; color: var(--ink); text-decoration: none; font-size: 14px; }
 .mp-link small { color: var(--muted); font-size: 12px; }
 .mp-link:hover { background: var(--surface); }
+.mp-link:has(.mp-link-desc) { flex-direction: column; align-items: flex-start; gap: 2px; }
+.mp-link-label { line-height: 1.3; }
+.mp-link .mp-link-desc { display: block; font-weight: 400; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .mp-link.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .mp-hits .mp-link { background: var(--bg); margin-bottom: 4px; }
 .mp-empty { color: var(--muted); padding: 24px 4px; margin: 0; }
