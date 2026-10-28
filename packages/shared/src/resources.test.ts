@@ -6,10 +6,12 @@ import {
   daysUntil,
   findPageByPath,
   getResourceDef,
+  groupTitle,
   maskSensitive,
   NAV_SECTIONS,
   normalizePhone,
   permissionOwner,
+  READ_TIME_FIELDS,
   RESOURCE_DEFS,
   RESOURCE_VIEWS,
   resourceNavGroups,
@@ -156,5 +158,51 @@ describe('权限清单', () => {
         if (i > 0) expect(menuIds.has(`/${host.split('/')[0]}/${t.id}`)).toBe(false); // 子标签不另占菜单
       });
     }
+  });
+});
+
+describe('店铺与账号：字段找回（B 组）', () => {
+  const def = (k: string) => RESOURCE_DEFS.find((d) => d.key === k)!;
+  it('分区标题随取值变：自媒体“平台专属属性”显示成“抖音专属属性”，取不到值时用原名', () => {
+    const sm = def('self-media');
+    expect(groupTitle(sm, '平台专属属性', { platform: 'douyin' })).toBe('抖音专属属性');
+    expect(groupTitle(sm, '平台专属属性', { platform: 'xhs' })).toBe('小红书专属属性');
+    expect(groupTitle(sm, '平台专属属性', {})).toBe('平台专属属性');
+    expect(groupTitle(sm, '账号基础资料', { platform: 'douyin' })).toBe('账号基础资料');
+  });
+  it('自媒体分区顺序与旧页面一致，每个平台专属字段只属于它自己的平台', () => {
+    const groups = [...new Set(def('self-media').fields.map((f) => f.group))];
+    expect(groups).toEqual(['账号基础资料', '运营人员', '认证人', '关联信息', '平台专属属性', '状态与备注']);
+    const only = (key: string) => def('self-media').fields.find((f) => f.key === key)!.showWhen?.in;
+    expect(only('douyinShopId')).toEqual(['douyin']);
+    expect(only('kuaishouShopId')).toEqual(['kuaishou']);
+    expect(only('videoChannelId')).toEqual(['channels']);
+    expect(only('redBookId')).toEqual(['xhs']);
+    expect(def('self-media').fields.find((f) => f.key === 'bindPhone')!.showWhen).toBeUndefined(); // 每个平台都有“绑定手机号”
+  });
+  it('读时才算出来的字段（部门、摘要、按平台的店铺列…）都是只读的，并登记在 READ_TIME_FIELDS 里', () => {
+    for (const [type, keys] of Object.entries(READ_TIME_FIELDS)) {
+      if (!['phones', 'self-media', 'memos', 'wechat'].includes(type)) continue;
+      for (const key of keys) {
+        const f = def(type).fields.find((x) => x.key === key);
+        expect(f, `${type}.${key}`).toBeTruthy();
+        expect(f!.readonly, `${type}.${key}`).toBe(true);
+      }
+    }
+    expect(def('phones').fields.filter((f) => f.key.startsWith('stores')).map((f) => f.label)).toEqual(['拼多多店铺', '淘宝店铺', '天猫店铺', '抖音店铺', '京东店铺', '快手店铺', '小红书店铺', '其他店铺']);
+  });
+  it('字段旧叫法（aliases）不和同一资料里别的字段现名冲突，导入旧模板才不会串列', () => {
+    for (const d of RESOURCE_DEFS) {
+      const labels = new Map(d.fields.map((f) => [f.label, f.key]));
+      for (const f of d.fields) for (const a of f.aliases ?? []) {
+        expect(labels.has(a) && labels.get(a) !== f.key, `${d.key}.${f.key} 的旧叫法“${a}”撞了 ${labels.get(a)}`).toBe(false);
+      }
+    }
+  });
+  it('店铺最后订单时刻的格式：14:35 或 14:35:20 合法，25:00 不合法', () => {
+    const p = def('stores').fields.find((f) => f.key === 'lastOrderClock')!.pattern!;
+    const re = new RegExp(p.source);
+    expect(['14:35', '14:35:20', '00:00'].every((t) => re.test(t))).toBe(true);
+    expect(['25:00', '9:5', '14:61'].some((t) => re.test(t))).toBe(false);
   });
 });

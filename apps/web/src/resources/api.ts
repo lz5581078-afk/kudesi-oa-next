@@ -75,6 +75,10 @@ export interface ImportResult {
 export interface Relation {
   direction: 'out' | 'in';
   relation: string;
+  /** 这条关联由哪个字段产生（如“手机号档案”），手动关联没有 */
+  relationLabel?: string;
+  /** 对方的关键信息（平台·编号·状态等） */
+  summary?: string;
   type: string;
   id: number;
   title: string;

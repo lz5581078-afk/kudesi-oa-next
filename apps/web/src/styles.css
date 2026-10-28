@@ -1393,3 +1393,9 @@ div.ws-task { cursor: default; }
 .res-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12.5px; border-bottom: 1px solid var(--border); }
 .res-tag { height: 24px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--ink); }
 .res-tag.active { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+
+/* 关联页签：按对方资料类型分块，每个对象带关键信息（字段找回 B 组） */
+.rd-rel-group { margin-top: 10px; }
+.rd-rel-title { display: flex; align-items: center; gap: 6px; margin: 0 0 2px; font-size: 12.5px; font-weight: 700; color: var(--ink-soft, var(--ink)); }
+.rd-rel-title i { font-style: normal; font-weight: 400; font-size: 11.5px; color: var(--muted, #6b7280); background: var(--surface-2, rgba(0,0,0,.05)); border-radius: 9px; padding: 0 6px; }
+.rd-rel-sum { margin-left: 4px; }

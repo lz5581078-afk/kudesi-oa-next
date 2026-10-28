@@ -243,6 +243,9 @@
         ],
         "qualificationFiles": [
           "@resource_media:stores"
+        ],
+        "legacyOwnerName": [
+          "operator_name"
         ]
       }
     },
@@ -283,6 +286,9 @@
         ],
         "rechargeCycleDays": [
           "@transform:recharge_cycle,recharge_day"
+        ],
+        "rechargeDay": [
+          "recharge_day"
         ]
       }
     },
@@ -580,6 +586,9 @@
         ],
         "phoneId": [
           "phone_number_id"
+        ],
+        "locationNote": [
+          "broadband_location"
         ]
       }
     },
@@ -804,10 +813,11 @@
         ],
         "product": [
           "last_order_product"
+        ],
+        "lastOrderAt": [
+          "last_order_at"
         ]
-      },
-      "policy": "review-history",
-      "reason": "领退店历史；当前运营/领用关系从店铺主档映射，不用历史反复执行领店动作"
+      }
     },
     "store-abnormal-reasons": {
       "tables": [

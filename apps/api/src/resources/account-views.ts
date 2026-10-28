@@ -119,13 +119,28 @@ export async function derivePhoneFields(em: EntityManager, companyId: number, re
     if (s.archivedAt) continue;
     for (const id of storePhoneIds(s.data)) byPhone.set(id, [...(byPhone.get(id) ?? []), s]);
   }
+  // 自媒体账号、微信号档案里绑了这个手机号的（按手机号档案 id 或号码文本）
+  const [medias, wechats] = await Promise.all(['self-media', 'wechat'].map((type) => em.find(ResourceRecord, { where: { companyId, type }, select: ['id', 'title', 'data', 'archivedAt'] })));
+  const mediaPlatform = new Map((getResourceDef('self-media')?.fields.find((f) => f.key === 'platform')?.options ?? []).map((o) => [o.value, o.label]));
+  const accountsOf = (phone: ResourceRecord): string => {
+    const hit = (x: ResourceRecord) => !x.archivedAt && (Number(x.data.phoneId) === phone.id || (!x.data.phoneId && x.data.phoneNumber && String(x.data.phoneNumber) === String(phone.data.number)));
+    const m = medias.filter(hit).map((x) => `${mediaPlatform.get(String(x.data.platform)) ?? ''}·${x.title}`);
+    const w = wechats.filter(hit).map((x) => `微信·${x.title}`);
+    return [...m, ...w].join('、');
+  };
   for (const r of records) {
     const list = byPhone.get(r.id) ?? [];
     const parent = typeof r.data.parentPhoneId === 'number';
+    const perPlatform: Record<string, string | undefined> = {};
+    for (const [value] of platformLabel) {
+      perPlatform[`stores${value[0].toUpperCase()}${value.slice(1)}`] = list.filter((s) => String(s.data.platform) === value).map((s) => s.title).join('、') || undefined;
+    }
     out.set(r.id, {
       cardKind: parent ? `子卡（主卡 ${parentLabels(r) ?? ''}）`.replace('（主卡 ）', '') : '主卡',
       boundStores: list.map((s) => `${platformLabel.get(String(s.data.platform)) ?? ''}·${s.title}`).join('、') || undefined,
       boundStoreNos: list.map((s) => String(s.data.storeNo ?? s.data.platformStoreId ?? '')).filter(Boolean).join('、') || undefined,
+      boundAccounts: accountsOf(r) || undefined,
+      ...perPlatform,
     });
   }
   return out;

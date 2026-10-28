@@ -7,7 +7,7 @@ export interface DeptRef { id: number; name: string; parentId?: number | null }
  * 列表按引用字段分组（配置 listGroupBy，如职责组按所属部门）：
  * 分组顺序按部门树（同级按部门排序），下级部门缩进；没填的归 emptyLabel，排在最后；部门已被删（目录里找不到）的用记录自带的名称。
  */
-export function groupRowsByDept(rows: ResourceDto[], field: string, emptyLabel: string, depts: DeptRef[]): RowGroup[] {
+export function groupRowsByDept(rows: ResourceDto[], field: string, emptyLabel: string, depts: DeptRef[], thenBy?: string): RowGroup[] {
   const byId = new Map(depts.map((d) => [d.id, d]));
   const path = (id: number): string[] => {
     const out: string[] = [];
@@ -32,7 +32,15 @@ export function groupRowsByDept(rows: ResourceDto[], field: string, emptyLabel: 
   }
   const known = order.filter((id) => groups.has(String(id))).map((id) => groups.get(String(id))!);
   const orphan = [...groups.values()].filter((g) => !known.includes(g));
-  return [...known, ...orphan, ...(none.rows.length ? [none] : [])];
+  const ordered = [...known, ...orphan, ...(none.rows.length ? [none] : [])];
+  return thenBy ? ordered.flatMap((g) => splitByText(g, thenBy)) : ordered;
+}
+
+/** 部门分组里再按一个文字字段（如服务商）分小组：小组名“部门 · 服务商”，缩进比部门多一级，没填的归“未设置”；只有一个小组也照样分，保持每个部门结构一致 */
+function splitByText(g: RowGroup, field: string): RowGroup[] {
+  const by = new Map<string, ResourceDto[]>();
+  for (const r of g.rows) { const v = String(r.data[field] ?? '').trim() || '未设置'; by.set(v, [...(by.get(v) ?? []), r]); }
+  return [...by.entries()].map(([v, rows]) => ({ key: `${g.key}|${v}`, label: `${g.label} · ${v}`, depth: g.depth, refId: g.refId, rows }));
 }
 
 /** 取值里第一个数字（“第31类 饲料种籽” → 31），用来让类别按数字而不是按字符排序 */
