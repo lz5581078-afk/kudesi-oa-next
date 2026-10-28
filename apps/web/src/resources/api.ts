@@ -1,4 +1,4 @@
-import type { ResourceDef } from '@kudesi/shared';
+import type { GridSaveRequest, GridSaveResponse, ResourceDef } from '@kudesi/shared';
 import { api } from '../api/client';
 
 export interface FileInfo {
@@ -23,6 +23,8 @@ export interface ResourceDto {
   warehouseMode?: boolean;
   createdAt: string;
   updatedAt: string;
+  /** 内容版本，表格编辑保存时用来发现别人改过 */
+  version?: string;
 }
 
 export interface ListResult {
@@ -137,6 +139,7 @@ export const resourceApi = {
     if (p.showHidden) q.set('showHidden', '1');
     return api<CategoryTreeResult>(`/resources/${type}/category-tree?${q}`);
   },
+  gridSave: (type: string, body: GridSaveRequest) => api<GridSaveResponse<ResourceDto>>(`/resources/${type}/grid-save`, { method: 'POST', body }),
   list: (type: string, params: ListParams) => api<ListResult>(`/resources/${type}${query(params)}`),
   get: (type: string, id: number) => api<ResourceDto>(`/resources/${type}/${id}`),
   create: (type: string, values: Record<string, unknown>, status?: string) =>

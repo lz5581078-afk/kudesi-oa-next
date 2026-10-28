@@ -1,9 +1,10 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, Max, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, Max, Min, ValidateNested } from 'class-validator';
 import { createChecker } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission, RequireResourceAction } from '../common/auth.decorators';
 import { DataToolsService } from './data-tools.service';
+import { GridSaveService } from './grid-save.service';
 import { ResourcesService } from './resources.service';
 
 class ListQueryDto {
@@ -55,6 +56,30 @@ class BatchDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
   @IsOptional() @IsString() @MaxLength(40) action?: string;
   @IsOptional() value?: unknown;
+}
+
+class GridUpdateDto {
+  @IsInt() @Min(1) id!: number;
+  @IsOptional() @IsString() @MaxLength(64) version?: string;
+  @IsObject() data!: Record<string, unknown>;
+}
+
+class GridCreateDto {
+  @IsString() @MaxLength(64) clientId!: string;
+  @IsObject() data!: Record<string, unknown>;
+}
+
+class GridArchiveDto {
+  @IsInt() @Min(1) id!: number;
+  @IsOptional() @IsString() @MaxLength(64) version?: string;
+  @IsString() @MaxLength(500) reason!: string;
+}
+
+/** 表格编辑批量保存：只有这三类行；公司、操作人不在请求体里 */
+class GridSaveDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => GridUpdateDto) updates?: GridUpdateDto[];
+  @IsOptional() @IsArray() @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => GridCreateDto) creates?: GridCreateDto[];
+  @IsOptional() @IsArray() @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => GridArchiveDto) archives?: GridArchiveDto[];
 }
 
 class LinkDto {
@@ -114,7 +139,7 @@ class ExportQueryDto {
  */
 @Controller('resources')
 export class ResourcesController {
-  constructor(private readonly resources: ResourcesService, private readonly tools: DataToolsService) {}
+  constructor(private readonly resources: ResourcesService, private readonly tools: DataToolsService, private readonly grid: GridSaveService) {}
 
   // 总览按每种资料的查看权限过滤，所以只要求登录
   // 商品档案下拉用：公司维护的单位与规格（名称+取值），不含敏感信息
@@ -188,6 +213,13 @@ export class ResourcesController {
   @Post(':type/similar-check')
   similarCheck(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: SimilarDto) {
     return this.resources.similarCheck(user, type, dto.values, dto.excludeId);
+  }
+
+  // 表格编辑：逐行走与单条新建/修改相同的规则；新增、归档的权限在服务里逐项检查
+  @RequireResourceAction('edit')
+  @Post(':type/grid-save')
+  gridSave(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: GridSaveDto) {
+    return this.grid.save(user, type, dto);
   }
 
   @RequireResourceAction('edit')

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, IsNull, Not, SelectQueryBuilder } from 'typeorm';
@@ -60,6 +61,7 @@ export interface ResourceDto {
   warehouseMode?: boolean;
   createdAt: Date;
   updatedAt: Date;
+  version?: string;
 }
 
 export interface ListQuery {
@@ -138,6 +140,11 @@ const PHONE_FACT_FIELDS: Record<string, { numberKey: string; idKey: string; hold
   'self-media': { numberKey: 'phoneNumber', idKey: 'phoneId' },
   partners: { numberKey: 'cardPhone', idKey: 'cardPhoneId', holderKey: 'cardPhoneHolder' },
 };
+
+/** 记录版本：内容一变就变（不靠只有秒精度的 updatedAt），表格编辑保存时用来发现别人改过 */
+export function recordVersion(r: ResourceRecord): string {
+  return createHash('sha1').update(JSON.stringify([r.title, r.status, r.data, r.secrets, r.archivedAt ? 1 : 0, r.updatedAt ? new Date(r.updatedAt).getTime() : 0])).digest('hex').slice(0, 16);
+}
 
 @Injectable()
 export class ResourcesService implements RuleHost {
@@ -298,6 +305,7 @@ export class ResourcesService implements RuleHost {
       ),
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
+      version: recordVersion(r),
     };
   }
 
@@ -970,6 +978,40 @@ export class ResourcesService implements RuleHost {
     });
     await this.files.deleteObjects(user.companyId, cleanup);
     return this.get(user, type, id);
+  }
+
+  /**
+   * 表格编辑的单行保存（独立事务）：与单条新建/修改走同一个 saveRecord（字段校验、唯一性、特殊规则、引用、审计日志）。
+   * 修改时带 version：记录已被别人改过则返回 409，不覆盖。
+   */
+  async saveGridRow(user: AuthUser, type: string, row: { id?: number; version?: string; values: Record<string, unknown> }, note: string) {
+    const def = this.def(type);
+    const cleanup: string[] = [];
+    const record = await this.dataSource.transaction(async (em) => {
+      if (row.id === undefined) return this.saveRecord(em, user, def, null, row.values, { cleanup, note });
+      const existing = await em.findOne(ResourceRecord, { where: { id: row.id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
+      if (!existing) throw new NotFoundException('记录不存在');
+      if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再修改');
+      if (row.version && row.version !== recordVersion(existing)) throw new ConflictException('这条资料刚被别人修改过，请刷新后再改');
+      return this.saveRecord(em, user, def, existing, row.values, { cleanup, note });
+    });
+    await this.files.deleteObjects(user.companyId, cleanup);
+    return record.id;
+  }
+
+  /** 表格编辑：按列表同样的口径把若干条记录转成返回给前端的行 */
+  async gridRows(user: AuthUser, type: string, ids: number[]) {
+    if (!ids.length) return [];
+    const def = this.def(type);
+    const records = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type, id: In(ids) } });
+    return this.toDtos(this.dataSource.manager, user, def, records);
+  }
+
+  /** 表格编辑归档前核对版本（归档本身仍走 archive） */
+  async gridVersionOf(user: AuthUser, type: string, id: number) {
+    const r = await this.dataSource.manager.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type } });
+    if (!r) throw new NotFoundException('记录不存在');
+    return recordVersion(r);
   }
 
   /** 往来档案（供应商、客户）保存前的相似/重复检测 */
