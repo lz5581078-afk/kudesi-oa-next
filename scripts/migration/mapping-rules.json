@@ -71,6 +71,9 @@
         "foundedAt": [
           "established_at"
         ],
+        "termStartAt": [
+          "business_term_start"
+        ],
         "approvedAt": [
           "approved_at"
         ],
