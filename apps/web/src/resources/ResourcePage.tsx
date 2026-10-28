@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadUnitOptions, useUnitOptions } from './unitOptions';
 import { BatchBar } from './BatchBar';
-import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, type FieldDef } from '@kudesi/shared';
+import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, gridPolicyOf, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -21,8 +21,10 @@ import { RecordDetail, useResourceCan } from './RecordDetail';
 import { RecordForm } from './RecordForm';
 import { ArchiveTypeDialog } from './ArchiveTypeDialog';
 import { InventoryDialog } from './AssetPanels';
+import { ResourceGrid } from './grid/ResourceGrid';
+import { useWideScreen } from './grid/useWideScreen';
 
-const PAGE_SIZES = [20, 50, 100] as const;
+const PAGE_SIZES = [20, 50, 100, 200] as const;
 const SORTABLE = new Set(['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select']);
 
 type ListPrefs = { pageSize?: number; status?: string; filters?: Record<string, string> };
@@ -196,6 +198,30 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
   const hiddenExists = def.statuses.some((s) => s.hidden);
 
+  // 表格编辑模式（电脑宽屏、有编辑权限、该资料适合网格时才有）；有未保存改动时锁住筛选/翻页，免得换了数据丢改动
+  const wide = useWideScreen();
+  const [gridMode, setGridMode] = useState(false);
+  const [gridDirty, setGridDirty] = useState(false);
+  const prevPageSize = useRef(pageSize);
+  const gridAllowed = wide && can('edit') && gridPolicyOf(type).enabled && !warehouseMode && !archived;
+  const gridOn = gridMode && gridAllowed;
+  useEffect(() => { setGridMode(false); setGridDirty(false); }, [type]);
+  function enterGrid() {
+    prevPageSize.current = pageSize;
+    setPageSize(200);
+    setPage(1);
+    setSelected(null);
+    setChecked([]);
+    setGridMode(true);
+  }
+  function leaveGrid() {
+    setGridMode(false);
+    setGridDirty(false);
+    setPageSize(prevPageSize.current);
+    setPage(1);
+  }
+  const gridLocked = gridOn && gridDirty;
+
   const [seeding, setSeeding] = useState(false);
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [packagingXlOpen, setPackagingXlOpen] = useState(false);
@@ -288,11 +314,12 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             {type === 'tax-profiles' && can('create') && <TaxPendingButton refreshKey={data?.total} onCreated={() => void load()} />}
             {libType && libCan('view') && <button type="button" className="secondary-button" onClick={() => setReasonLib(true)}>异常原因库</button>}
             {type === 'finance-categories' && tab && can('edit') && <button type="button" className="secondary-button" onClick={() => setSorting(true)}>调整顺序</button>}
-            {can('import') && <button type="button" className="secondary-button" onClick={() => setImporting(true)}>导入</button>}
+            {gridAllowed && !gridOn && <button type="button" className="secondary-button" onClick={enterGrid} title="整页变成像飞书表格一样的编辑表格，适合批量管理">表格编辑</button>}
+            {can('import') && <button type="button" className="secondary-button" disabled={gridLocked} onClick={() => setImporting(true)}>导入</button>}
             {can('export') && <button type="button" className="secondary-button" onClick={() => void doExport('filtered')}>{filtered ? '导出当前筛选' : '导出'}</button>}
             {can('export') && filtered && <button type="button" className="secondary-button" onClick={() => void doExport('all')}>导出全部</button>}
             {can('export') && checked.length > 0 && <button type="button" className="secondary-button" onClick={() => void doExport('picked')}>导出所选 {checked.length}</button>}
-            {can('create') && <button type="button" className="primary-button" onClick={() => setCreating(true)}>＋ 新增</button>}
+            {can('create') && <button type="button" className="primary-button" disabled={gridLocked} onClick={() => setCreating(true)}>＋ 新增</button>}
           </div>
         </div>
         <div className={treeField ? 'tree-layout' : undefined}>
@@ -306,10 +333,11 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             value={filterVals[treeField.key] ?? ''}
             reloadKey={data?.total}
             onPath={setCatPath}
-            onSelect={(id) => { setFilterVals((v) => ({ ...v, [treeField.key]: id })); setPage(1); }}
+            onSelect={(id) => { if (gridLocked) return; setFilterVals((v) => ({ ...v, [treeField.key]: id })); setPage(1); }}
           />
         )}
         <div className="card">
+          <fieldset className="grid-lock" disabled={gridLocked} title={gridLocked ? '有没保存的修改：请先保存或放弃，再换筛选或翻页' : undefined}>
           {(tabField || def.quickTabs?.length) && !lockedTab && (
             <div className="tab-group page-tabs" role="tablist" aria-label="分类">
               <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'chip active' : 'chip'} onClick={() => { setTab(''); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>全部</button>
@@ -388,6 +416,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               )}
             </div>
           </div>
+          </fieldset>
           {filtered && data && (
             <div className="result-bar" role="status" aria-live="polite">
               <span>{data.total ? `找到 ${data.total} 条符合条件的${def.label}` : `没有符合条件的${def.label}`}</span>
@@ -396,8 +425,26 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
           )}
           {catPath && <div className="muted" style={{ padding: '6px 12px' }}>当前分类：{catPath}（含下级分类）</div>}
           {error && <div role="alert" className="notice error m">{error}</div>}
-          {checked.length > 0 && <BatchBar def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
+          {!gridOn && checked.length > 0 && <BatchBar def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
+          {gridOn ? (
+            data ? (
+              <ResourceGrid
+                key={type}
+                def={def}
+                items={data.items}
+                fields={columns}
+                sort={sort}
+                newDefaults={newInitial()}
+                newLabels={treeField && catPath && filterVals[treeField.key] ? { [treeField.key]: catPath } : undefined}
+                onSort={(key) => { setSort(sort?.by === key ? (sort.dir === 'asc' ? { by: key, dir: 'desc' } : null) : { by: key, dir: 'asc' }); setPage(1); }}
+                onDirtyChange={setGridDirty}
+                onOpen={setSelected}
+                onSaved={(ok) => { if (ok) void load(); }}
+                onExit={leaveGrid}
+              />
+            ) : <div className="muted center m">加载中…</div>
+          ) : (
           <div className="table-scroll">
             <table className="data-table cards-narrow">
               <thead>
@@ -454,15 +501,16 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
               </tbody>
             </table>
           </div>
+          )}
           <div className="card-foot between">
             <span>共 {data?.total ?? 0} 条 · 点击一行在右侧查看，不跳转页面</span>
             <span className="pill-row">
-              <select aria-label="每页条数" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
+              <select aria-label="每页条数" disabled={gridLocked} value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
                 {PAGE_SIZES.map((n) => <option key={n} value={n}>每页 {n} 条</option>)}
               </select>
-              <button type="button" className="secondary-button" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button>
+              <button type="button" className="secondary-button" disabled={page <= 1 || gridLocked} onClick={() => setPage(page - 1)}>上一页</button>
               <span>{page} / {totalPages}</span>
-              <button type="button" className="secondary-button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>下一页</button>
+              <button type="button" className="secondary-button" disabled={page >= totalPages || gridLocked} onClick={() => setPage(page + 1)}>下一页</button>
             </span>
           </div>
         </div>
