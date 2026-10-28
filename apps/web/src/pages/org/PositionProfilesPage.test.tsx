@@ -40,8 +40,7 @@ describe('岗位档案：按部门分组的岗位表', () => {
   });
   it('默认工作台来自显式的岗位类型字段，不按名称猜：blank 显示“无”', async () => {
     page();
-    await screen.findByText('老板');
-    const row = screen.getByRole('button', { name: '老板' }).closest('tr') as HTMLElement;
+    const row = (await screen.findByRole('button', { name: '老板' })).closest('tr') as HTMLElement;
     expect(row.textContent).toContain('无');
     const acc = screen.getByRole('button', { name: '会计' }).closest('tr') as HTMLElement;
     expect(acc.textContent).toContain('财务工作台');
