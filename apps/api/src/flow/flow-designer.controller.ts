@@ -56,6 +56,10 @@ export class FlowDesignerController {
   constructor(private readonly designer: FlowDesignerService, private readonly timeout: FlowTimeoutService) {}
 
   @RequirePermission('flow.templates.view')
+  @Get('duty-group-usage/:id')
+  dutyGroupUsage(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.designer.dutyGroupUsage(user, id); }
+
+  @RequirePermission('flow.templates.view')
   @Get('directory')
   directory(@CurrentUser() user: AuthUser) { return this.designer.directory(user); }
 

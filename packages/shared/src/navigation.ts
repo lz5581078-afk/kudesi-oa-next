@@ -82,7 +82,7 @@ const RESOURCE_MENU: Array<{ group: string; items: Array<{ id: string; label?: s
 
 /** 不是资源、而是专门页面的资料菜单项：权限跟着它背后的资料走。 */
 const RESOURCE_SPECIAL: Record<string, { label: string; permission: string }> = {
-  'org-tree': { label: '部门与岗位', permission: 'org.structure.view' },
+  'org-tree': { label: '组织架构', permission: 'org.structure.view' },
   'employees': { label: '员工与权限', permission: 'org.staff.view' },
   'position-profiles': { label: '岗位档案', permission: 'org.structure.view' },
   'bank-fund': { label: '资金概况', permission: 'resource.bank-accounts.view' },

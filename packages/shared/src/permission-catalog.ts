@@ -36,7 +36,7 @@ const ORG_ACTIONS: CatalogGroup = {
   id: 'org-actions',
   label: '组织与权限管理',
   items: [
-    { key: 'org.structure.view', label: '查看「部门与岗位」「岗位档案」' },
+    { key: 'org.structure.view', label: '查看「组织架构」「岗位档案」' },
     { key: 'org.staff.view', label: '查看「员工与权限」' },
     { key: 'org.structure.create', label: '新增部门/岗位' },
     { key: 'org.structure.edit', label: '修改部门/岗位及岗位权限' },

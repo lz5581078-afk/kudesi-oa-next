@@ -204,7 +204,7 @@ export const resourceApi = {
     return api<{ fields: Record<string, string>; warnings: string[]; rawText: string }>('/ocr/license', { form });
   },
   licenseRevenue: (id: number, from: string, to: string) => api<RevenueResult>(`/revenue/licenses/${id}?from=${from}&to=${to}`),
-  departments: () => api<Array<{ id: number; name: string }>>('/org/department-directory'),
+  departments: () => api<Array<{ id: number; name: string; parentId?: number | null }>>('/org/department-directory'),
   users: () => api<Array<{ id: number; name: string; active: boolean }>>('/org/users'),
 };
 

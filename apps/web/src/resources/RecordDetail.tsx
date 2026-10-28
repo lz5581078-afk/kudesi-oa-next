@@ -363,7 +363,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def
               {def.key === 'partners' && (
                 <PhoneArchiveButton type="partners" record={record} numberKey="cardPhone" idKey="cardPhoneId" holder={String(record.data.cardPhoneHolder ?? record.title)} onDone={reloadAll} onError={setError} />
               )}
-              {def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} />}
+              {def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} departmentLabel={record.refLabels.departmentId ?? ''} />}
               {def.key === 'workforce' && <WorkforceAccountNote />}
               {sectionList.map(({ group, fields, shown }) => (
                 <section key={group} id={secId(group)} className="rd-sec">

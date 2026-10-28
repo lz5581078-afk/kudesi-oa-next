@@ -31,6 +31,7 @@ import { AddAccountDialog, UnfiledBanner } from './WorkforcePanels';
 import { CloseIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
 import { useIsMobile } from './useMedia';
+import { groupRowsByDept, type DeptRef, type RowGroup } from './groupRows';
 
 const PAGE_SIZES = [20, 50, 100, 200] as const;
 
@@ -150,6 +151,17 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const libCan = useResourceCan(libType || type);
   const catCan = useResourceCan('asset-categories');
 
+  // 列表按引用字段分组（配置 listGroupBy，如职责组按所属部门）：分组可折叠，分组方式和折叠状态按资料类型记在本机
+  const groupCfg = def.listGroupBy;
+  const [groupOn, setGroupOn] = useState(() => { try { return localStorage.getItem(`kudesi.group.${type}`) !== 'flat'; } catch { return true; } });
+  const [foldedGroups, setFoldedGroups] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem(`kudesi.folded.${type}`) ?? '[]') as string[]); } catch { return new Set(); } });
+  const wantGroup = Boolean(groupCfg) && groupOn;
+  const [groupDepts, setGroupDepts] = useState<DeptRef[]>([]);
+  useEffect(() => {
+    if (!groupCfg) return;
+    resourceApi.departments().then(setGroupDepts).catch(() => setGroupDepts([]));
+  }, [groupCfg]);
+
   // 派生列（配置 derivedColumns）：按页现算的数字，当作只读列显示，服务端可排序、可导出
   const derivedFields = useMemo<FieldDef[]>(() => (def.derivedColumns ?? []).map((d) => ({ key: d.key, label: d.label, type: d.kind === 'sum' && d.format === 'money' ? 'money' : 'number', group: '统计', readonly: true, list: d.list !== false })), [def]);
   const derivedKeys = useMemo(() => new Set(derivedFields.map((f) => f.key)), [derivedFields]);
@@ -158,7 +170,8 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const [colKeys, setColKeys] = useColumns(type, shownFields, defaults);
   const warehouseMode = Boolean(data?.items.some((i) => i.warehouseMode));
   const columns = colKeys.map((k) => shownFields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
-    .filter((f) => !warehouseMode || WAREHOUSE_PRODUCT_FIELDS.includes(f.key));
+    .filter((f) => !warehouseMode || WAREHOUSE_PRODUCT_FIELDS.includes(f.key))
+    .filter((f) => !(wantGroup && f.key === groupCfg?.field)); // 按这个字段分组时，列里不再重复显示
   const tabField = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
 
   // 切换资料类型时重置筛选
@@ -204,13 +217,13 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   const load = useCallback(async () => {
     try {
-      setData(await resourceApi.list(type, { page, pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters }));
+      setData(await resourceApi.list(type, { page: wantGroup ? 1 : page, pageSize: wantGroup ? 200 : pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters }));
       setError('');
       if (type === 'finance-product-units') void loadUnitOptions(true); // 单位列表变了，商品档案的下拉也要跟着变
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
-  }, [type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals, colFilters]);
+  }, [type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals, colFilters, wantGroup]);
 
   useEffect(() => { setArchived(false); setExpiring(false); setSort(null); }, [type]);
 
@@ -229,6 +242,10 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const prevPageSize = useRef(pageSize);
   const gridAllowed = wide && can('edit') && gridPolicyOf(type).enabled && !warehouseMode && !archived;
   const gridOn = gridMode && gridAllowed;
+  const grouping = wantGroup && !gridOn;
+  const rowGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts) : undefined), [grouping, data, groupCfg, groupDepts]);
+  const setGroupMode = (on: boolean) => { setGroupOn(on); setPage(1); try { localStorage.setItem(`kudesi.group.${type}`, on ? 'group' : 'flat'); } catch { /* 存储不可用时只是不记住 */ } };
+  const toggleGroup = (key: string) => setFoldedGroups((cur) => { const n = new Set(cur); if (n.has(key)) n.delete(key); else n.add(key); try { localStorage.setItem(`kudesi.folded.${type}`, JSON.stringify([...n])); } catch { /* 忽略 */ } return n; });
   useEffect(() => { setGridMode(false); setGridDirty(false); }, [type]);
   function enterGrid() {
     prevPageSize.current = pageSize;
@@ -359,7 +376,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const tabsOwnRow = tabList.length > 3 || isMobile; // 分类多的资料（商品档案等）页签单独一行，工具条仍是一行
   const desc = !lockedTab ? resourceDescription(type) : '';
   const hint = desc ? <PageHint text={desc} /> : null;
-  const items = data?.items ?? [];
+  const items = rowGroups ? rowGroups.flatMap((g) => g.rows) : data?.items ?? [];
   const selIdx = selected !== null ? items.findIndex((r) => r.id === selected) : -1;
   const detailNav = selIdx >= 0 ? { index: selIdx + 1, total: items.length, onPrev: selIdx > 0 ? () => setSelected(items[selIdx - 1].id) : undefined, onNext: selIdx < items.length - 1 ? () => setSelected(items[selIdx + 1].id) : undefined } : undefined;
   useEffect(() => {
@@ -379,6 +396,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   const extras = (
     <>
+      {groupCfg && <button type="button" className={wantGroup ? 'res-btn on' : 'res-btn'} aria-pressed={wantGroup} title="列表按所属部门分组，可折叠" onClick={() => setGroupMode(!wantGroup)}>按部门分组</button>}
       {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="res-btn" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
       {type === 'finance-packaging-schemes' && <button type="button" className="res-btn" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
       {type === 'finance-products' && can('edit') && <button type="button" className="res-btn" onClick={() => setArchiveTypesOpen(true)}>管理档案类型</button>}
@@ -419,6 +437,8 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
       {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} onClick={() => setCreating(true)}>＋ 新增</button>}
     </>
   );
+
+  const addInGroup = groupCfg && can('create') ? (g: RowGroup) => { setCopyInit(g.refId ? { [groupCfg.field]: g.refId } : {}); setCreating(true); } : undefined;
 
   const empty = filtered
     ? <div className="res-empty"><p>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。</p><button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></div>
@@ -530,7 +550,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
               />
             ) : <div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />加载中…</div>
           ) : isMobile ? (
-            <ResourceCards def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} />
+            <ResourceCards def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} />
           ) : (
             <ResourceTable
               def={def}
@@ -550,18 +570,26 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
               onOpen={setSelected}
               today={today}
               empty={empty}
+              groups={rowGroups}
+              folded={foldedGroups}
+              onToggleGroup={toggleGroup}
+              onAddInGroup={addInGroup}
             />
           )}
           <div className="res-foot">
             <span className="res-foot-sum">共 {data?.total ?? 0} 条{checked.length > 0 && !gridOn ? <> · 已勾选 {checked.length} 条</> : null}</span>
-            <span className="res-pager">
-              <select aria-label="每页条数" disabled={gridLocked} value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
-                {PAGE_SIZES.map((n) => <option key={n} value={n}>每页 {n} 条</option>)}
-              </select>
-              <button type="button" className="res-btn sm" disabled={page <= 1 || gridLocked} onClick={() => setPage(page - 1)}>上一页</button>
-              <span className="res-page-no">{page} / {totalPages}</span>
-              <button type="button" className="res-btn sm" disabled={page >= totalPages || gridLocked} onClick={() => setPage(page + 1)}>下一页</button>
-            </span>
+            {grouping
+              ? <span className="res-foot-sum">{rowGroups?.length ?? 0} 个分组{data && data.total > data.items.length ? ` · 只显示前 ${data.items.length} 条，请用筛选缩小范围` : ''}</span>
+              : (
+                <span className="res-pager">
+                  <select aria-label="每页条数" disabled={gridLocked} value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
+                    {PAGE_SIZES.map((n) => <option key={n} value={n}>每页 {n} 条</option>)}
+                  </select>
+                  <button type="button" className="res-btn sm" disabled={page <= 1 || gridLocked} onClick={() => setPage(page - 1)}>上一页</button>
+                  <span className="res-page-no">{page} / {totalPages}</span>
+                  <button type="button" className="res-btn sm" disabled={page >= totalPages || gridLocked} onClick={() => setPage(page + 1)}>下一页</button>
+                </span>
+              )}
           </div>
         </section>
       </div>
