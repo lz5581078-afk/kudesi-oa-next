@@ -32,7 +32,8 @@ import { AddAccountDialog, UnfiledBanner } from './WorkforcePanels';
 import { CloseIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
 import { useIsMobile } from './useMedia';
-import { groupRowsByDept, type DeptRef, type RowGroup } from './groupRows';
+import { displayValue } from './format';
+import { groupRowsByDept, groupRowsByValue, type DeptRef, type RowGroup } from './groupRows';
 
 const PAGE_SIZES = [20, 50, 100, 200] as const;
 
@@ -163,7 +164,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const wantGroup = Boolean(groupCfg) && groupOn;
   const [groupDepts, setGroupDepts] = useState<DeptRef[]>([]);
   useEffect(() => {
-    if (!groupCfg) return;
+    if (!groupCfg || groupCfg.order !== 'department') return;
     resourceApi.departments().then(setGroupDepts).catch(() => setGroupDepts([]));
   }, [groupCfg]);
 
@@ -248,7 +249,11 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const gridAllowed = wide && can('edit') && gridPolicyOf(type).enabled && !warehouseMode && !archived;
   const gridOn = gridMode && gridAllowed;
   const grouping = wantGroup && !gridOn;
-  const rowGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts) : undefined), [grouping, data, groupCfg, groupDepts]);
+  const groupField = groupCfg ? def.fields.find((f) => f.key === groupCfg.field) : undefined;
+  const [chip, setChip] = useState('');
+  useEffect(() => setChip(''), [type, tab, status]);
+  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(data.items, groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts)) : undefined), [grouping, data, groupCfg, groupField, groupDepts]);
+  const rowGroups = useMemo<RowGroup[] | undefined>(() => (allGroups && chip ? allGroups.filter((g) => g.key === chip) : allGroups), [allGroups, chip]);
   const setGroupMode = (on: boolean) => { setGroupOn(on); setPage(1); try { localStorage.setItem(`kudesi.group.${type}`, on ? 'group' : 'flat'); } catch { /* 存储不可用时只是不记住 */ } };
   const toggleGroup = (key: string) => setFoldedGroups((cur) => { const n = new Set(cur); if (n.has(key)) n.delete(key); else n.add(key); try { localStorage.setItem(`kudesi.folded.${type}`, JSON.stringify([...n])); } catch { /* 忽略 */ } return n; });
   useEffect(() => { setGridMode(false); setGridDirty(false); }, [type]);
@@ -403,7 +408,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   const extras = (
     <>
-      {groupCfg && <button type="button" className={wantGroup ? 'res-btn on' : 'res-btn'} aria-pressed={wantGroup} title="列表按所属部门分组，可折叠" onClick={() => setGroupMode(!wantGroup)}>按部门分组</button>}
+      {groupCfg && <button type="button" className={wantGroup ? 'res-btn on' : 'res-btn'} aria-pressed={wantGroup} title={`列表按${groupField?.label ?? '所属部门'}分组，可折叠`} onClick={() => setGroupMode(!wantGroup)}>{groupCfg.order === 'value' ? `按${groupField?.label ?? ''}分组` : '按部门分组'}</button>}
       {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="res-btn" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
       {type === 'finance-packaging-schemes' && <button type="button" className="res-btn" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
       {type === 'finance-products' && can('edit') && <button type="button" className="res-btn" onClick={() => setArchiveTypesOpen(true)}>管理档案类型</button>}
@@ -445,7 +450,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     </>
   );
 
-  const addInGroup = groupCfg && can('create') ? (g: RowGroup) => { setCopyInit(g.refId ? { [groupCfg.field]: g.refId } : {}); setCreating(true); } : undefined;
+  const addInGroup = groupCfg && can('create') ? (g: RowGroup) => { setCopyInit(g.refId ? { [groupCfg.field]: g.refId } : g.value ? { [groupCfg.field]: g.value } : {}); setCreating(true); } : undefined;
   const rowActions = useMemo(() => rowActionsFor(type, (a) => can(a), (m) => { if (m) setBatchMsg(m); void load(); }), [type, can, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const empty = filtered
@@ -536,6 +541,12 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
           {error && <div role="alert" className="notice error m">{error}</div>}
           {!gridOn && checked.length > 0 && <BatchBar def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
+          {grouping && groupCfg?.chips && allGroups && allGroups.length > 1 && (
+            <div className="res-tags" role="group" aria-label={`按${groupField?.label ?? ''}看`}>
+              <span className="muted">{groupField?.label}</span>
+              {[{ key: '', label: '全部' }, ...allGroups].map((g) => <button key={g.key || 'all'} type="button" className={`res-tag${chip === g.key ? ' active' : ''}`} aria-pressed={chip === g.key} onClick={() => setChip(g.key)}>{g.label}</button>)}
+            </div>
+          )}
           {gridOn ? (
             data ? (
               <ResourceGrid
@@ -585,6 +596,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
               onToggleGroup={toggleGroup}
               onAddInGroup={addInGroup}
               rowActions={rowActions}
+              rowActionsLabel={['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
             />
           )}
           <div className="res-foot">

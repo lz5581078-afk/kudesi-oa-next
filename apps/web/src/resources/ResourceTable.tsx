@@ -40,6 +40,8 @@ interface Props {
   onAddInGroup?: (group: RowGroup) => void;
   /** 每行末尾的“办理”列（固定资产领用/归还、档案借出等）；不传就没有这一列 */
   rowActions?: (row: ResourceDto) => ReactNode;
+  /** “办理”列的表头叫什么（只读弹窗那类叫“查看”） */
+  rowActionsLabel?: string;
 }
 
 /**
@@ -105,7 +107,7 @@ export function ResourceTable(p: Props) {
           );
         })}
         <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
-        {p.rowActions && <td data-label="办理" className="c-acts">{p.rowActions(row)}</td>}
+        {p.rowActions && <td data-label={p.rowActionsLabel ?? '办理'} className="c-acts">{p.rowActions(row)}</td>}
       </tr>
     );
   };
@@ -135,7 +137,7 @@ export function ResourceTable(p: Props) {
               );
             })}
             <th scope="col">状态</th>
-            {p.rowActions && <th scope="col">办理</th>}
+            {p.rowActions && <th scope="col">{p.rowActionsLabel ?? '办理'}</th>}
           </tr>
         </thead>
         <tbody>

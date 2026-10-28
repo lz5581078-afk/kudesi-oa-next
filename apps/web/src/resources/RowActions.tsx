@@ -4,6 +4,7 @@ import { ApiError } from '../api/client';
 import { ActionDialog, assetState } from './AssetPanels';
 import { resourceApi, type ResourceDto } from './api';
 import { ReasonDialog } from './TreeManage';
+import { viewPopsFor } from './RowPops';
 
 /** 列表每行末尾的“办理”：固定资产的领用/转交/归还/送修/报废等，档案的在库/借出/遗失。点按钮不会打开详情。 */
 
@@ -74,5 +75,5 @@ export function ArchiveStatusButtons({ row, onDone }: { row: Pick<ResourceDto, '
 export function rowActionsFor(type: string, can: (a: 'edit' | 'disable') => boolean, onDone: (message?: string) => void): ((row: ResourceDto) => React.ReactNode) | undefined {
   if (type === 'fixed-assets' && can('edit')) return (row) => <AssetRowActions row={row} onDone={onDone} />;
   if (type === 'archives' && can('disable')) return (row) => <ArchiveStatusButtons row={row} onDone={onDone} />;
-  return undefined;
+  return viewPopsFor(type);
 }
