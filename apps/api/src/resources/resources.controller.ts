@@ -16,11 +16,19 @@ class ListQueryDto {
   @IsOptional() @IsString() @MaxLength(48) fieldKey?: string;
   @IsOptional() @IsString() @MaxLength(100) fieldValue?: string;
   @IsOptional() @IsString() @MaxLength(400) filters?: string;
+  @IsOptional() @IsString() @MaxLength(6000) colFilters?: string;
   @IsOptional() @IsString() showHidden?: string;
   @IsOptional() @IsString() archived?: string;
   @IsOptional() @IsString() expiring?: string;
   @IsOptional() @IsString() @MaxLength(48) sortBy?: string;
   @IsOptional() @IsIn(['asc', 'desc']) sortDir?: 'asc' | 'desc';
+}
+
+class FacetQueryDto {
+  @IsString() @MaxLength(48) key!: string;
+  @IsOptional() @IsString() @MaxLength(6000) colFilters?: string;
+  @IsOptional() @IsString() showHidden?: string;
+  @IsOptional() @IsString() archived?: string;
 }
 
 class ExpiringQueryDto {
@@ -127,6 +135,7 @@ class ExportQueryDto {
   @IsOptional() @IsString() @MaxLength(24) status?: string;
   @IsOptional() @IsString() @MaxLength(64) tab?: string;
   @IsOptional() @IsString() @MaxLength(400) filters?: string;
+  @IsOptional() @IsString() @MaxLength(6000) colFilters?: string;
   @IsOptional() @IsString() archived?: string;
   @IsOptional() @IsString() expiring?: string;
   @IsOptional() @IsString() @MaxLength(48) sortBy?: string;
@@ -176,6 +185,12 @@ export class ResourcesController {
   }
 
   @RequireResourceAction('view')
+  @Get(':type/column-facets')
+  columnFacets(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: FacetQueryDto) {
+    return this.resources.columnFacets(user, type, { key: q.key, colFilters: q.colFilters, showHidden: q.showHidden === '1', archived: q.archived === '1' });
+  }
+
+  @RequireResourceAction('view')
   @Get(':type')
   list(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ListQueryDto) {
     return this.resources.list(user, type, { ...q, showHidden: q.showHidden === '1', archived: q.archived === '1', expiring: q.expiring === '1' });
@@ -186,7 +201,7 @@ export class ResourcesController {
   export(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ExportQueryDto) {
     const ids = (q.ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
     return this.resources.exportCsv(user, type, q.includeHidden === '1', {
-      keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, archived: q.archived === '1', expiring: q.expiring === '1',
+      keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, colFilters: q.colFilters, archived: q.archived === '1', expiring: q.expiring === '1',
       sortBy: q.sortBy, sortDir: q.sortDir, ids: ids.length ? ids : undefined,
       derivedKeys: (q.cols ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20),
     });
