@@ -16,21 +16,17 @@ export const GRID_SAVE_MAX_ROWS = 200;
  * 在详情页里改。后端同样拒绝，不只是前端隐藏。
  */
 const GRID_DISABLED: Record<string, string> = {
-  'finance-bundles': '组合有构成、命名、验证和聚水潭同步等专属面板，请在详情页编辑',
-  'finance-bundle-lines': '组合构成行请在组合详情里编辑',
-  'finance-bundle-revisions': '组合修订由系统生成',
-  'finance-base-code-lines': '基础编码的构成行请在详情里编辑',
-  'finance-product-boms': '商品构成请在商品详情里编辑',
-  'finance-product-sources': '商品来源请在商品详情里编辑',
-  'finance-product-costs': '成本记录由成本流程生成',
-  'finance-product-freight-history': '运费历史由系统生成',
-  'finance-product-exclusives': '专属归属走流程申请',
-  'finance-jst-skus': '聚水潭商品由同步生成',
-  'finance-jst-uploads': '聚水潭上传记录由同步生成',
-  'finance-freight-estimates': '运费估算由系统生成',
-  'finance-zone-runs': '分区运行记录由系统生成',
-  'finance-express-recognitions': '快递识别记录由系统生成',
-  'finance-express-fee-batches': '快递费用批次由导入生成',
+  'finance-bundles': '组合的构成、命名、验证、同步聚水潭走专属页面和专属接口，不能绕过它们直接改字段',
+  'finance-bundle-lines': '组合构成行随组合的专属编辑页一起保存（会重算组合名称），不能单独批量改',
+  'finance-bundle-revisions': '组合修订由系统生成，没有可手工修改的字段',
+  'finance-base-code-lines': '基础编码的构成行随基础编码的专属表单保存（会重算编码名称），不能单独批量改',
+  'finance-product-costs': '成本记录由成本流程生成，没有可手工修改的字段',
+  'finance-product-freight-history': '运费历史由系统生成，没有可手工修改的字段',
+  'finance-jst-skus': '聚水潭商品镜像由同步生成，没有可手工修改的字段',
+  'finance-jst-uploads': '聚水潭上传记录由同步生成，没有可手工修改的字段',
+  'finance-freight-estimates': '运费估算快照由系统生成，没有可手工修改的字段',
+  'finance-zone-runs': '分区运行记录由系统生成，没有可手工修改的字段',
+  'finance-express-recognitions': '快递识别记录由系统生成，没有可手工修改的字段',
 };
 
 /** 只能改、不能在网格里新增的资料（新增要走专属表单：编码规则、构成录入等） */
@@ -53,48 +49,60 @@ export function gridPolicyOf(type: string): GridPolicy {
   return { enabled: true, canCreate: !GRID_NO_CREATE[type], canArchive: Boolean(archivePolicyOf(type)), reason: GRID_NO_CREATE[type] };
 }
 
-export type GridCellKind = 'text' | 'integer' | 'decimal' | 'money' | 'date' | 'monthday' | 'bool' | 'select' | 'phone' | 'ref' | 'secret' | 'sensitive';
+/**
+ * 新增时可以填、保存后就不能在表格里改的字段（和详情表单一致，服务端也强制）：
+ * 固定资产的“使用人”只能通过领用/归还流转改，不能直接改。
+ */
+const GRID_LOCKED_AFTER_CREATE: Record<string, Record<string, string>> = {
+  'fixed-assets': { userId: '使用人要通过“领用/归还”流转修改' },
+};
+export function gridLockedAfterCreate(type: string, key: string): string | null {
+  return GRID_LOCKED_AFTER_CREATE[type]?.[key] ?? null;
+}
+
+export type GridCellKind =
+  | 'text' | 'textarea' | 'integer' | 'decimal' | 'money' | 'date' | 'monthday' | 'bool' | 'select' | 'phone' | 'ref'
+  | 'refs' | 'files' | 'attrs' | 'json' | 'secret' | 'sensitive';
 
 export type GridFieldAccess = { editable: true; kind: GridCellKind } | { editable: false; reason: string };
 
 /**
- * 字段在网格里能不能改。
- * - 系统计算（readonly）、文件/属性/清单/多选引用：只读，去详情页改
- * - 没有字段权限（成本价格）：服务端本来就不返回，这里也当只读
- * - 证件号/银行卡/密钥：只有有“查看明文”(secret) 权限的人才能改；密码类永不回显，网格里只能输入新值
+ * 字段在网格里能不能改：标准 = 详情页/编辑表单里能改的字段，表格里都能改（同一份字段定义、同一套服务端校验）。
+ * 只读的只有：系统计算（readonly）、没有字段权限/修改权限的字段。
+ * 证件号/银行卡/密钥（sensitive/secret）需要“查看明文”(secret) 权限才能改；密码类永不回显，格子里只能输入新值。
+ * 文件、多引用、属性、清单没法在一个格子里敲字，由单元格弹出的编辑浮层完成（见 web 的 CellEditor）。
  */
 export function gridFieldAccess(field: FieldDef, can: (permission: string) => boolean, canSecret: boolean): GridFieldAccess {
   if (field.readonly) return { editable: false, reason: '系统计算，不能修改' };
   if (field.permission && !can(field.permission)) return { editable: false, reason: '没有查看权限' };
   if (field.writePermission && !can(field.writePermission)) return { editable: false, reason: '没有修改权限' };
   switch (field.type) {
-    case 'text':
-    case 'textarea':
-      return { editable: true, kind: 'text' };
-    case 'number':
-      return { editable: true, kind: 'integer' };
-    case 'decimal':
-      return { editable: true, kind: 'decimal' };
-    case 'money':
-      return { editable: true, kind: 'money' };
-    case 'date':
-      return { editable: true, kind: 'date' };
-    case 'monthday':
-      return { editable: true, kind: 'monthday' };
-    case 'bool':
-      return { editable: true, kind: 'bool' };
-    case 'select':
-      return { editable: true, kind: 'select' };
-    case 'phone':
-      return { editable: true, kind: 'phone' };
-    case 'ref':
-      return { editable: true, kind: 'ref' };
+    case 'text': return { editable: true, kind: 'text' };
+    case 'textarea': return { editable: true, kind: 'textarea' };
+    case 'number': return { editable: true, kind: 'integer' };
+    case 'decimal': return { editable: true, kind: 'decimal' };
+    case 'money': return { editable: true, kind: 'money' };
+    case 'date': return { editable: true, kind: 'date' };
+    case 'monthday': return { editable: true, kind: 'monthday' };
+    case 'bool': return { editable: true, kind: 'bool' };
+    case 'select': return { editable: true, kind: 'select' };
+    case 'phone': return { editable: true, kind: 'phone' };
+    case 'ref': return { editable: true, kind: 'ref' };
+    case 'refs': return { editable: true, kind: 'refs' };
+    case 'files': return { editable: true, kind: 'files' };
+    case 'attrs': return { editable: true, kind: 'attrs' };
+    case 'json': return { editable: true, kind: 'json' };
     case 'secret':
     case 'sensitive':
       return canSecret ? { editable: true, kind: field.type } : { editable: false, reason: '需要“查看明文”权限才能修改' };
-    default:
-      return { editable: false, reason: '请在详情页编辑' };
   }
+}
+
+/** 状态列：和详情页的状态下拉同一规则——要有“停用”权限；归档的资料不能改；只有一个状态的资料没有可改的 */
+export function gridStatusAccess(def: ResourceDef, canDisable: boolean): GridFieldAccess {
+  if (def.statuses.length < 2) return { editable: false, reason: '这类资料只有一个状态' };
+  if (!canDisable) return { editable: false, reason: '没有改状态（停用/启用）的权限' };
+  return { editable: true, kind: 'select' };
 }
 
 export type CellParse = { ok: true; value: unknown } | { ok: false; error: string };
@@ -125,6 +133,7 @@ export function parseGridCell(field: FieldDef, kind: GridCellKind, raw: string, 
   const label = field.label;
   switch (kind) {
     case 'text':
+    case 'textarea':
     case 'secret':
     case 'sensitive': {
       if (text.length > (field.maxLength ?? 200)) return { ok: false, error: `${label}不能超过 ${field.maxLength ?? 200} 个字` };
@@ -185,9 +194,52 @@ export function parseGridCell(field: FieldDef, kind: GridCellKind, raw: string, 
       const hit = find(text);
       return hit ? { ok: true, value: hit.value } : { ok: false, error: `${label}的取值不合法` };
     }
+    case 'attrs': {
+      const obj = parseAttrsText(text);
+      if (!obj) return { ok: false, error: `${label}格式应为“名称：内容；名称：内容”` };
+      const keys = Object.keys(obj);
+      if (keys.length > 30) return { ok: false, error: `${label}最多 30 项` };
+      for (const k of keys) if (k.length > 40 || obj[k].length > 200) return { ok: false, error: `${label}里「${k.slice(0, 10)}」太长` };
+      return { ok: true, value: obj };
+    }
+    case 'json': {
+      try {
+        const v = JSON.parse(text) as unknown;
+        if (typeof v !== 'object' || v === null) throw new Error('bad');
+        if (JSON.stringify(v).length > 200_000) return { ok: false, error: `${label}内容太大` };
+        return { ok: true, value: v };
+      } catch {
+        return { ok: false, error: `${label}不是合法的 JSON（应为 {…} 或 […]）` };
+      }
+    }
+    case 'files':
+    case 'refs':
+      return { ok: false, error: `${label}请在格子的编辑浮层里选择` };
     default:
-      return { ok: false, error: `${label}请在详情页编辑` };
+      return { ok: false, error: `${label}的内容不合法` };
   }
+}
+
+/** 属性文本：JSON 对象，或“名称：内容；名称：内容”（换行也可分隔）。空内容的名称丢掉，和服务端一致 */
+export function parseAttrsText(text: string): Record<string, string> | null {
+  const t = text.trim();
+  if (t.startsWith('{')) {
+    try {
+      const o = JSON.parse(t) as unknown;
+      if (typeof o !== 'object' || o === null || Array.isArray(o)) return null;
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(o as Record<string, unknown>)) { const x = String(v ?? '').trim(); if (x) out[k] = x; }
+      return out;
+    } catch { return null; }
+  }
+  const out: Record<string, string> = {};
+  for (const part of t.split(/[;；\n]/).map((x) => x.trim()).filter(Boolean)) {
+    const m = /^([^:：]+)[:：](.*)$/.exec(part);
+    if (!m) return null;
+    const v = m[2].trim();
+    if (v) out[m[1].trim()] = v;
+  }
+  return out;
 }
 
 /** 字段值 → 单元格文本（复制、编辑初始值用）：金额按元，选项按名称；引用名称由调用方给 */
@@ -203,6 +255,14 @@ export function formatGridCell(field: FieldDef, kind: GridCellKind, value: unkno
       if (field.multi) return String(value).split('、').filter(Boolean).map((v) => opts.find((o) => o.value === v)?.label ?? v).join('、');
       return opts.find((o) => o.value === value)?.label ?? String(value);
     }
+    case 'attrs':
+      return typeof value === 'object' && value ? Object.entries(value as Record<string, unknown>).map(([k, v]) => `${k}：${String(v)}`).join('；') : '';
+    case 'json':
+      return typeof value === 'string' ? value : JSON.stringify(value);
+    case 'files':
+      return Array.isArray(value) && value.length ? `${value.length} 个文件` : '';
+    case 'refs':
+      return '';
     default:
       return String(value);
   }
@@ -216,6 +276,9 @@ export interface GridUpdateRow {
   version?: string;
   /** 只含被改动的字段 */
   data: Record<string, unknown>;
+  /** 同时改状态（走与详情页状态下拉相同的规则：要“停用”权限，需要原因的状态必须带原因） */
+  status?: string;
+  statusReason?: string;
 }
 
 export interface GridCreateRow {

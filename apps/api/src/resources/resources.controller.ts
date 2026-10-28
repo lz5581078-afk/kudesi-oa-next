@@ -62,6 +62,8 @@ class GridUpdateDto {
   @IsInt() @Min(1) id!: number;
   @IsOptional() @IsString() @MaxLength(64) version?: string;
   @IsObject() data!: Record<string, unknown>;
+  @IsOptional() @IsString() @MaxLength(24) status?: string;
+  @IsOptional() @IsString() @MaxLength(500) statusReason?: string;
 }
 
 class GridCreateDto {

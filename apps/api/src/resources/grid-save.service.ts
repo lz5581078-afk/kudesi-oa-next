@@ -74,7 +74,8 @@ export class GridSaveService {
       const r: GridRowResult<ResourceDto> = { kind: 'update', id: row.id, ok: false };
       const bad = this.checkFields(def, row.data, can, canSecret);
       if (bad) { results.push({ ...r, code: 'forbidden', message: bad }); continue; }
-      await run(r, () => this.resources.saveGridRow(user, type, { id: row.id, version: row.version, values: row.data }, NOTE));
+      if (row.status !== undefined && !can(resourcePermission(owner, 'disable'))) { results.push({ ...r, code: 'forbidden', message: '没有改状态（停用/启用）的权限' }); continue; }
+      await run(r, () => this.resources.saveGridRow(user, type, { id: row.id, version: row.version, values: row.data, status: row.status, statusReason: row.statusReason }, NOTE));
     }
     for (const row of creates) {
       const r: GridRowResult<ResourceDto> = { kind: 'create', clientId: row.clientId, ok: false };

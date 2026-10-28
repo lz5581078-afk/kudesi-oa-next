@@ -100,8 +100,9 @@ export function RefSelect({ field, value, onChange, labelNow }: { field: FieldDe
 }
 
 /** 多选引用：勾选若干条记录（如供应商同时属于多个分类） */
-function RefsSelect({ field, value, onChange, labelNow }: { field: FieldDef; value: number[]; onChange: (v: number[]) => void; labelNow?: string }) {
+export function RefsSelect({ field, value, onChange, labelNow, onLabels }: { field: FieldDef; value: number[]; onChange: (v: number[]) => void; labelNow?: string; onLabels?: (labels: Record<number, string>) => void }) {
   const [options, setOptions] = useState<RefOptions | null>(null);
+  const seen = useRef<Record<number, string>>({});
   useEffect(() => {
     let alive = true;
     loadRefOptions(field.ref!).then((o) => alive && setOptions(o)).catch(() => alive && setOptions(Object.assign([], { total: 0 })));
@@ -110,16 +111,18 @@ function RefsSelect({ field, value, onChange, labelNow }: { field: FieldDef; val
   const search = useRefSearch(field.ref!, options);
   if (!options) return <span className="muted">加载中…</span>;
   const shown = search.shown ?? options;
+  for (const o of shown) seen.current[o.value] = o.label;
+  const pick = (next: number[]) => { onChange(next); onLabels?.(seen.current); };
   const labels = (labelNow ?? '').split('、');
   // 已选但不在当前列出范围内的（分页/搜索之外），固定显示在最上面，保证能取消
   const extra = value.filter((v) => !shown.some((o) => o.value === v));
   return (
     <div className="check-list" role="group" aria-label={field.label}>
       {search.searchable && <input type="search" className="ref-search" aria-label={`搜索${field.label}`} placeholder="输入关键字搜索…" value={search.keyword} onChange={(e) => search.setKeyword(e.target.value)} />}
-      {extra.map((v, i) => <label key={v} className="check"><input type="checkbox" checked onChange={() => onChange(value.filter((x) => x !== v))} /> {labels[i] ?? `#${v}`}</label>)}
+      {extra.map((v, i) => <label key={v} className="check"><input type="checkbox" checked onChange={() => pick(value.filter((x) => x !== v))} /> {labels[i] ?? `#${v}`}</label>)}
       {shown.map((o) => (
         <label key={o.value} className="check">
-          <input type="checkbox" checked={value.includes(o.value)} onChange={(e) => onChange(e.target.checked ? [...value, o.value] : value.filter((x) => x !== o.value))} />
+          <input type="checkbox" checked={value.includes(o.value)} onChange={(e) => pick(e.target.checked ? [...value, o.value] : value.filter((x) => x !== o.value))} />
           {o.label}
         </label>
       ))}
@@ -130,7 +133,7 @@ function RefsSelect({ field, value, onChange, labelNow }: { field: FieldDef; val
 }
 
 /** 分类自定义属性：属性名来自所选分类（逗号分隔的 customFields），值写在本记录里。 */
-function AttrsInput({ field, def, values, value, onChange }: { field: FieldDef; def: ResourceDef; values: Record<string, unknown>; value: unknown; onChange: (v: unknown) => void }) {
+export function AttrsInput({ field, def, values, value, onChange }: { field: FieldDef; def: ResourceDef; values: Record<string, unknown>; value: unknown; onChange: (v: unknown) => void }) {
   const refField = def.fields.find((f) => f.key === field.attrsFrom);
   const catId = typeof values[field.attrsFrom!] === 'number' ? (values[field.attrsFrom!] as number) : null;
   const [names, setNames] = useState<string[]>([]);
