@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { allGrantableKeys, createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
+import { doHandover, handoverCounts, suggestHandoverTarget } from './handover';
 import { AuditLog, Department, EmployeeCompensationRecord, FlowRun, PlatformAdmin, FlowStep, Position, PositionDuty, PositionPermission, ResourceChangeLog, ResourceRecord, TaskRoutine, User, UserPermissionOverride, WorkItem, WorkspaceType } from '../entities';
 
 /** 岗位条目分类：前 5 类是岗位档案的主要分区，后 5 类对应旧系统的“其他条目” */
@@ -138,9 +139,15 @@ export class OrgAdminService {
         .where('r.companyId = :c AND r.type = :t', { c: actor.companyId, t: 'fixed-assets' })
         .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.departmentId')) = :d", { d: String(id) })
         .getMany();
-      const moved = { kids, positions: positions.length, users: activeUsers.length, assets: assets.length, archivedUsers: inactiveUsers.length };
-      if (kids + positions.length + activeUsers.length + assets.length > 0) {
-        if (!transferToId) throw new ConflictException('部门下还有下级部门、岗位、在职员工或固定资产，请选择一个接收部门后再删除');
+      // 职责组按部门分类，所属部门也存在资料数据里，同样要转走，不能留下指向已删部门的引用
+      const groups = await em
+        .createQueryBuilder(ResourceRecord, 'r')
+        .where('r.companyId = :c AND r.type = :t', { c: actor.companyId, t: 'duty-groups' })
+        .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.departmentId')) = :d", { d: String(id) })
+        .getMany();
+      const moved = { kids, positions: positions.length, users: activeUsers.length, assets: assets.length, dutyGroups: groups.length, archivedUsers: inactiveUsers.length };
+      if (kids + positions.length + activeUsers.length + assets.length + groups.length > 0) {
+        if (!transferToId) throw new ConflictException('部门下还有下级部门、岗位、在职员工、固定资产或职责组，请选择一个接收部门后再删除');
         if (transferToId === id) throw new BadRequestException('接收部门不能是被删除的部门');
         const target = await this.mustDepartment(em, actor.companyId, transferToId);
         // 接收部门不能是被删除部门的下级，否则下级部门会挂到自己下面
@@ -167,6 +174,19 @@ export class OrgAdminService {
             companyId: actor.companyId, resourceType: 'fixed-assets', resourceId: a.id, action: 'department_transferred', actorId: actor.id,
             beforeJson: before as never, afterJson: { title: a.title, status: a.status, ...a.data } as never,
             note: `部门「${d.name}」已删除，资产转到「${target!.name}」`,
+          });
+        }
+      }
+      if (groups.length && transferToId) {
+        const target = await this.mustDepartment(em, actor.companyId, transferToId);
+        for (const g of groups) {
+          const before = { title: g.title, status: g.status, ...g.data };
+          g.data = { ...g.data, departmentId: transferToId };
+          await em.save(ResourceRecord, g);
+          await em.insert(ResourceChangeLog, {
+            companyId: actor.companyId, resourceType: 'duty-groups', resourceId: g.id, action: 'department_transferred', actorId: actor.id,
+            beforeJson: before as never, afterJson: { title: g.title, status: g.status, ...g.data } as never,
+            note: `部门「${d.name}」已删除，职责组转到「${target!.name}」`,
           });
         }
       }
@@ -205,11 +225,21 @@ export class OrgAdminService {
     const groupName = new Map(groups.map((g) => [g.id, g.title]));
     const posName = new Map(positions.map((p) => [p.id, p.name]));
     const posAll = await this.positionMap(em, actor.companyId);
+    // 归在本部门的职责组（职责组的“所属部门”）及在组人数
+    const deptGroups = (await em.createQueryBuilder(ResourceRecord, 'r')
+      .where('r.companyId = :c AND r.type = :t AND r.archivedAt IS NULL', { c: actor.companyId, t: 'duty-groups' })
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.departmentId')) = :d", { d: String(id) })
+      .orderBy('r.id', 'ASC').getMany());
+    const deptGroupMembers = deptGroups.length
+      ? (await em.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'duty-group-members' }, select: ['id', 'data', 'status'] })).filter((r) => r.status === 'normal' && deptGroups.some((g) => g.id === Number(r.data.groupId)))
+      : [];
+    const posDuties = positions.length ? await em.find(PositionDuty, { where: { companyId: actor.companyId, positionId: In(positions.map((p) => p.id)), status: 'active' }, select: ['id', 'positionId'] }) : [];
     const headcount = async (deptId: number) => allUsers.filter((u) => u.departmentId === deptId && u.status === 'active').length;
     return {
       department: { id: d.id, name: d.name, parentId: d.parentId, parentName: parent?.name ?? null, status: d.status, managerId: d.managerId, managerName: d.managerId ? nameOf.get(d.managerId) ?? null : null },
       headcount: users.filter((u) => u.status === 'active').length,
-      positions: positions.map((p) => ({ id: p.id, name: p.name, level: p.level, status: p.status, userCount: users.filter((u) => u.status === 'active' && (u.positionId === p.id || (u.extraPositionIds ?? []).includes(p.id))).length })),
+      dutyGroups: deptGroups.map((g) => ({ id: g.id, title: g.title, status: g.status, memberCount: deptGroupMembers.filter((m) => Number(m.data.groupId) === g.id).length })),
+      positions: positions.map((p) => ({ id: p.id, name: p.name, level: p.level, status: p.status, workspaceType: p.workspaceType, dutyCount: posDuties.filter((x) => x.positionId === p.id).length, userCount: users.filter((u) => u.status === 'active' && (u.positionId === p.id || (u.extraPositionIds ?? []).includes(p.id))).length })),
       staff: users.map((u) => ({
         id: u.id, name: u.name, account: u.account ?? '', status: u.status, positionName: u.positionId ? posName.get(u.positionId) ?? posAll.get(u.positionId) ?? null : null,
         managerName: u.managerId ? nameOf.get(u.managerId) ?? null : null,
@@ -226,7 +256,9 @@ export class OrgAdminService {
     const perms = ids.length ? await this.ds.manager.find(PositionPermission, { where: { positionId: In(ids) } }) : [];
     const people = await this.ds.manager.find(User, { where: { companyId: actor.companyId }, select: ['id', 'positionId', 'extraPositionIds'] });
     const countOf = (pid: number) => people.filter((u) => u.positionId === pid || (u.extraPositionIds ?? []).includes(pid)).length;
+    const dutyRows = ids.length ? await this.ds.manager.find(PositionDuty, { where: { companyId: actor.companyId, positionId: In(ids), status: 'active' }, select: ['id', 'positionId'] }) : [];
     return rows.map((r) => ({
+      dutyCount: dutyRows.filter((d) => d.positionId === r.id).length,
       id: r.id, name: r.name, positionKey: r.positionKey, departmentId: r.departmentId, workspaceType: r.workspaceType,
       level: r.level, supervisorPositionId: r.supervisorPositionId, description: r.description, status: r.status,
       permissions: perms.filter((p) => p.positionId === r.id).map((p) => p.permission).sort(),
@@ -599,28 +631,10 @@ export class OrgAdminService {
   }
 
   // ---------- 停用交接 ----------
-  /** 建议的接收人：同岗位（优先同部门）在职同事 → 直属上级 → 公司管理员。 */
-  private async suggestHandoverTarget(em: EntityManager, u: User): Promise<{ id: number; name: string; via: string } | null> {
-    const others = (id: number) => id !== u.id;
-    if (u.positionId) {
-      const mates = (await em.find(User, { where: { companyId: u.companyId, positionId: u.positionId, status: 'active' }, order: { id: 'ASC' } })).filter((x) => others(x.id));
-      const m = mates.find((x) => u.departmentId && x.departmentId === u.departmentId) ?? mates[0];
-      if (m) return { id: m.id, name: m.name, via: '同岗位同事' };
-    }
-    if (u.managerId) {
-      const m = await em.findOne(User, { where: { id: u.managerId, companyId: u.companyId, status: 'active' } });
-      if (m && others(m.id)) return { id: m.id, name: m.name, via: '直属上级' };
-    }
-    const admin = (await em.find(User, { where: { companyId: u.companyId, isCompanyAdmin: true, status: 'active' }, order: { id: 'ASC' } })).find((x) => others(x.id));
-    return admin ? { id: admin.id, name: admin.name, via: '公司管理员' } : null;
-  }
+  /** 建议的接收人：同岗位（优先同部门）在职同事 → 直属上级 → 公司管理员。（实现见 handover.ts，兼职与临时工停用共用） */
+  private suggestHandoverTarget(em: EntityManager, u: User) { return suggestHandoverTarget(em, u); }
 
-  private async handoverCounts(em: EntityManager, u: User) {
-    const workItems = await em.count(WorkItem, { where: { companyId: u.companyId, assigneeId: u.id, status: 'open' } });
-    const steps = (await em.find(FlowStep, { where: { companyId: u.companyId, status: 'active' }, select: ['id', 'recipients'] })).filter((x) => (x.recipients ?? []).includes(u.id)).length;
-    const routines = await em.count(TaskRoutine, { where: { companyId: u.companyId, assigneeId: u.id, active: true } });
-    return { workItems, flowSteps: steps, routines, total: workItems + routines };
-  }
+  private handoverCounts(em: EntityManager, u: User) { return handoverCounts(em, u); }
 
   /** 停用前预览：有多少待办/流程步骤/周期任务要交接，建议交给谁。 */
   async handoverPreview(actor: AuthUser, id: number) {
@@ -636,27 +650,7 @@ export class OrgAdminService {
   }
 
   /** 把停用员工手上的待办、流程步骤、周期任务交给接收人，并留下交接记录。 */
-  private async doHandover(em: EntityManager, actor: AuthUser, u: User, target: { id: number; name: string }, reason: string) {
-    const items = await em.find(WorkItem, { where: { companyId: u.companyId, assigneeId: u.id, status: 'open' } });
-    let moved = 0, merged = 0;
-    for (const it of items) {
-      const dup = it.stepId ? await em.findOne(WorkItem, { where: { companyId: u.companyId, stepId: it.stepId, assigneeId: target.id, status: 'open' } }) : null;
-      if (dup) { it.status = 'cancelled'; it.doneNote = `员工停用，已合并到 ${target.name} 的待办`; it.finishedAt = new Date(); merged += 1; }
-      else { it.assigneeId = target.id; moved += 1; }
-      await em.save(it);
-    }
-    let steps = 0;
-    for (const st of await em.find(FlowStep, { where: { companyId: u.companyId, status: 'active' } })) {
-      if (!(st.recipients ?? []).includes(u.id)) continue;
-      st.recipients = [...new Set(st.recipients.map((r) => (r === u.id ? target.id : r)))];
-      await em.save(st);
-      steps += 1;
-    }
-    const routines = await em.update(TaskRoutine, { companyId: u.companyId, assigneeId: u.id, active: true }, { assigneeId: target.id });
-    const result = { toUserId: target.id, toUserName: target.name, workItems: moved, mergedWorkItems: merged, flowSteps: steps, routines: routines.affected ?? 0 };
-    await this.audit(em, actor, 'user.handover', 'user', u.id, { ...result, reason });
-    return result;
-  }
+  private doHandover(em: EntityManager, actor: AuthUser, u: User, target: { id: number; name: string }, reason: string) { return doHandover(em, actor, u, target, reason); }
 
   /** 调岗、请假时手动交接：把员工手上未完成的待办、流程步骤、周期任务交给接收人（不停用）。 */
   async handover(actor: AuthUser, id: number, input: { targetUserId?: number; reason?: string }) {

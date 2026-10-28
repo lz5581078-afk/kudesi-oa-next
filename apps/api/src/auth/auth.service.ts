@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { isLegacyPassword, verifyPassword } from './password';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
 import { CurrentUserDto, LoginResponse, resolvePermissions } from '@kudesi/shared';
+import { workforceBlockFor } from '../workforce/workforce-contract';
 import { AuditLog, Company, PlatformAdmin, Position, PositionPermission, User, UserPermissionOverride } from '../entities';
 
 // 用户不存在时也做一次哈希比较，避免通过响应时间判断账号是否存在
@@ -47,6 +48,9 @@ export class AuthService {
     if (!company || !user || !passwordOk || user.status !== 'active' || company.status !== 'active') {
       throw new UnauthorizedException(LOGIN_FAILED);
     }
+    // 兼职/临时工合作期外不能登录（密码正确之后才说明原因，不泄露账号是否存在）
+    const contractBlock = await workforceBlockFor(this.users.manager, user);
+    if (contractBlock) throw new ForbiddenException(contractBlock);
     const upgrade = isLegacyPassword(user.passwordHash);
     const result = await this.users.update({ id: user.id, companyId: user.companyId, passwordHash: user.passwordHash }, { lastLoginAt: new Date(), ...(upgrade ? { passwordHash: await bcrypt.hash(password, 10) } : {}) });
     if (result && result.affected === 0) throw new UnauthorizedException(LOGIN_FAILED);

@@ -75,6 +75,10 @@ export interface ImportResult {
 export interface Relation {
   direction: 'out' | 'in';
   relation: string;
+  /** 这条关联由哪个字段产生（如“手机号档案”），手动关联没有 */
+  relationLabel?: string;
+  /** 对方的关键信息（平台·编号·状态等） */
+  summary?: string;
   type: string;
   id: number;
   title: string;
@@ -204,7 +208,7 @@ export const resourceApi = {
     return api<{ fields: Record<string, string>; warnings: string[]; rawText: string }>('/ocr/license', { form });
   },
   licenseRevenue: (id: number, from: string, to: string) => api<RevenueResult>(`/revenue/licenses/${id}?from=${from}&to=${to}`),
-  departments: () => api<Array<{ id: number; name: string }>>('/org/department-directory'),
+  departments: () => api<Array<{ id: number; name: string; parentId?: number | null }>>('/org/department-directory'),
   users: () => api<Array<{ id: number; name: string; active: boolean }>>('/org/users'),
 };
 

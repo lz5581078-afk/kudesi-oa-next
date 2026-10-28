@@ -175,24 +175,24 @@ d('证照与主体（真实数据库）', () => {
 
   it('导入：按注册号/编号/执照+类别/名称+类型+执照匹配已有记录，只更新非空栏目；执照可填编号；资质可带平台密码', async () => {
     const l = await svc.create(boss, 'licenses', lic({ licenseNo: 'YZ-001', companyName: '导入执照公司' }));
-    const dry = await svc.importRows(boss, 'trademarks', [{ 商标名称: '导入牌', 来源: '自有', 注册号: 'R-1', 类别: '25' }], false);
+    const dry = await svc.importRows(boss, 'trademarks', [{ 商标名称: '导入牌', 商标来源: '自有商标', 注册号: 'R-1', 商标类别: '25' }], false);
     expect(dry.created).toBe(1);
-    const again = await svc.importRows(boss, 'trademarks', [{ 商标名称: '导入牌', 来源: '自有', 注册号: 'R-1', 有效期至: '2030-01-01' }], false);
+    const again = await svc.importRows(boss, 'trademarks', [{ 商标名称: '导入牌', 商标来源: '自有商标', 注册号: 'R-1', 商标到期日: '2030-01-01' }], false);
     expect(again.updated).toBe(1);
     const tms = await svc.list(boss, 'trademarks', { keyword: 'R-1' });
     expect(tms.total).toBe(1);
     expect(tms.items[0].data.classNo).toBe('25');
     expect(tms.items[0].data.validUntil).toBe('2030-01-01');
     // 税务：按执照+类别
-    const t = await svc.importRows(boss, 'tax-profiles', [{ 所属执照: 'YZ-001', 纳税人识别号: 'TAX-NEW', 类别: '经营税务' }], false);
+    const t = await svc.importRows(boss, 'tax-profiles', [{ 营业执照: 'YZ-001', 纳税人识别号: 'TAX-NEW', 税务分类: '经营税务' }], false);
     expect(t.updated).toBe(1);
     const taxes = await svc.list(boss, 'tax-profiles', { fieldKey: 'licenseId', fieldValue: String(l.id) });
     expect(taxes.total).toBe(1);
     expect(taxes.items[0].data.taxpayerNo).toBe('TAX-NEW');
     // 资质：无证书号时按名称+类型+执照；带密码导入
-    const q1 = await svc.importRows(boss, 'qualifications', [{ 名称: '种子备案', 类型: '品牌授权', 所属执照: l.data.companyName as string, 平台登录密码: 'pw-1' }], false);
+    const q1 = await svc.importRows(boss, 'qualifications', [{ 名称: '种子备案', 类型: '品牌授权', 关联营业执照: l.data.companyName as string, 平台登录密码: 'pw-1' }], false);
     expect(q1.created).toBe(1);
-    const q2 = await svc.importRows(boss, 'qualifications', [{ 名称: '种子备案', 类型: '品牌授权', 所属执照: 'YZ-001', 平台登录账号: 'acc' }], false);
+    const q2 = await svc.importRows(boss, 'qualifications', [{ 名称: '种子备案', 类型: '品牌授权', 关联营业执照: 'YZ-001', 平台登录账号: 'acc' }], false);
     expect(q2.updated).toBe(1);
     const q = (await svc.list(boss, 'qualifications', { keyword: '种子备案' })).items[0];
     expect(q.data.platformAccount).toBe('acc');

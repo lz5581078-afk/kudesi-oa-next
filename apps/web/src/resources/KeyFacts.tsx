@@ -1,9 +1,9 @@
-import { dueBadgeFor, dueWithin, todayShanghai, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { dueBadgeFor, dueWithin, todayShanghai, workforcePayText, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 import { CopyButton, isCopyable } from './CopyValue';
 import { displayValue } from './format';
 
-type Fact = string | { label: string; text: (r: ResourceDto) => string; copy?: boolean };
+type Fact = string | { label: string; text: (r: ResourceDto) => string; copy?: boolean; hideEmpty?: boolean };
 
 /** 详情顶部的“关键信息”：旧系统卷宗每类资料头部放 3~4 项最常看的内容（号码、归属、负责人、到期日），不用翻分区。字段 key 即该字段，对象是组合值。 */
 export const KEY_FACTS: Record<string, Fact[]> = {
@@ -12,23 +12,26 @@ export const KEY_FACTS: Record<string, Fact[]> = {
   trademarks: ['classNo', 'registrationNo', 'licenseId', 'validUntil'],
   'tax-profiles': ['licenseId', 'taxpayerNo', 'taxType', 'taxAuthority'],
   partners: ['phone', 'contactName', 'contactUserId', 'partnerType'],
-  'bank-accounts': ['accountNo', 'keeperUserId', 'balance', 'licenseId'],
+  'bank-accounts': ['accountNo', 'keeperUserId', 'currentBalance', 'licenseId', { label: '关联店铺', hideEmpty: true, text: (r) => r.refLabels.storeId ?? '' }],
   phones: [
     'usageType',
     { label: '保管 / 使用', text: (r) => r.refLabels.userId || String(r.data.externalUser ?? '') || r.refLabels.partnerId || r.refLabels.keeperUserId || String(r.data.keeperName ?? '') },
     'carrier',
+    { label: '绑定店铺', text: (r) => String(r.data.boundStores ?? ''), hideEmpty: true },
     'nextRechargeAt',
   ],
-  stores: ['platform', 'storeNo', { label: '当前运营', text: (r) => r.refLabels.operatorUserId || (r.data.legacyOwnerName ? `未指派（历史负责人：${String(r.data.legacyOwnerName)}）` : r.data.claimStatus === 'public' ? '公共店铺' : '未指派') }, 'licenseId'],
+  stores: ['platform', 'storeNo', { label: '当前运营', text: (r) => r.refLabels.operatorUserId || (r.data.legacyOwnerName ? `未指派（历史负责人：${String(r.data.legacyOwnerName)}）` : r.data.claimStatus === 'public' ? '公共店铺' : '未指派') }, 'licenseId', { label: '绑定手机号', text: (r) => String(r.data.phoneNumber ?? ''), copy: true, hideEmpty: true }, { label: '最后订单', text: (r) => [r.data.lastOrderAt, r.data.lastOrderClock].filter(Boolean).join(' '), hideEmpty: true }],
   wechat: ['wechatNo', 'userId', 'purpose', 'phoneId'],
   broadband: ['locationId', 'bandwidth', 'amount', 'phoneId'],
-  'self-media': ['accountNo', 'operatorUserId', 'phoneId', 'platform'],
-  memos: ['kind', 'loginName', 'ownerUserId', 'endAt'],
+  // 旧自媒体详情头：平台账号、运营人员（及部门）、手机号、关联店铺
+  'self-media': ['platform', 'accountNo', { label: '运营人员', text: (r) => [r.refLabels.operatorUserId, r.refLabels.operatorDeptId].filter(Boolean).join(' · ') }, { label: '手机号', text: (r) => String(r.data.phoneNumber ?? ''), copy: true, hideEmpty: true }, 'storeId'],
+  memos: ['kind', 'loginName', { label: '负责人', text: (r) => [r.refLabels.ownerUserId, r.refLabels.ownerDeptId].filter(Boolean).join(' · ') }, 'endAt'],
   software: ['account', 'storeId', 'renewAt', 'annualFee'],
   'fixed-assets': ['assetNo', 'userId', 'locationId', 'categoryId'],
   locations: ['locationType', 'code', 'scope'],
   archives: ['archiveNo', 'locationId', 'keeperUserId', 'archiveType'],
   'duty-groups': ['scope', 'leaderUserId'],
+  workforce: ['employmentType', 'cooperation', 'positionName', 'contractStartDate', 'contractEndDate', { label: '计薪', hideEmpty: true, text: (r) => workforcePayText(r.data.payMethod, r.data.payRate) }], // 没有薪资权限的人，服务端不返回计薪，这一项不显示
 };
 
 const DATE_EXPIRY = new Set(['expiresAt', 'validUntil', 'endAt', 'renewAt', 'nextRechargeAt']);
@@ -45,7 +48,7 @@ export function KeyFacts({ def, record, canSee }: { def: ResourceDef; record: Re
   const specs = KEY_FACTS[def.key];
   if (!specs) return null;
   const today = todayShanghai();
-  const items = specs.map((spec) => {
+  const items = specs.filter((spec) => typeof spec === 'string' || !spec.hideEmpty || spec.text(record)).map((spec) => {
     if (typeof spec !== 'string') return { key: spec.label, label: spec.label, text: spec.text(record), copy: spec.copy ?? false, due: null as ReturnType<typeof dueText> };
     const f = def.fields.find((x) => x.key === spec);
     if (!f || (canSee && !canSee(f))) return null;

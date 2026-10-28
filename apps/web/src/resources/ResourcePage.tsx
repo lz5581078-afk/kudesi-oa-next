@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fieldOptions, loadUnitOptions, useUnitOptions } from './unitOptions';
 import { BatchBar } from './BatchBar';
-import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, gridPolicyOf, type ColFilter, type FieldDef } from '@kudesi/shared';
+import { rowActionsFor } from './RowActions';
+import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, browseFilterFields, permissionOwner, resourcePermission, viewFiltersOf, createChecker, gridPolicyOf, type ColFilter, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -27,9 +28,12 @@ import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../layout/AppbarSlo
 import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
 import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
 import { PageHint } from './PageHint';
+import { AddAccountDialog, UnfiledBanner } from './WorkforcePanels';
 import { CloseIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
 import { useIsMobile } from './useMedia';
+import { displayValue } from './format';
+import { groupRowsByDept, groupRowsByValue, type DeptRef, type RowGroup } from './groupRows';
 
 const PAGE_SIZES = [20, 50, 100, 200] as const;
 
@@ -106,6 +110,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const [filterVals, setFilterVals] = useState<Record<string, string>>(() => readPrefs(type).filters ?? {});
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
   const treeField = useMemo(() => treeFilterField(def), [def]);
+  // 左侧目录的浏览维度：分类、位置、使用人、部门…（配置在 filterBy 里）
+  const browseFields = useMemo(() => browseFilterFields(def), [def]);
+  const browseKeys = useMemo(() => new Set(browseFields.map((f) => f.key)), [browseFields]);
   const viewFilters = useMemo(() => viewFiltersOf(type), [type]);
   // 选项由服务端按公司生成的筛选（如 部门）
   const [deptOpts, setDeptOpts] = useState<Array<{ value: string; label: string }>>([]);
@@ -131,7 +138,8 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
       }
     }
   }, [filterFields]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [catPath, setCatPath] = useState('');
+  const [paths, setPaths] = useState<Record<string, string>>({});
+  const setPath = useCallback((key: string, path: string) => setPaths((cur) => (cur[key] === path ? cur : { ...cur, [key]: path })), []);
   const [page, setPage] = useState(1);
   const [checked, setChecked] = useState<number[]>([]);
   const [batchMsg, setBatchMsg] = useState('');
@@ -139,6 +147,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  const [addingAccount, setAddingAccount] = useState(false);
   const [copyInit, setCopyInit] = useState<Record<string, unknown> | null>(null);
   const [importing, setImporting] = useState(false);
   const [reasonLib, setReasonLib] = useState(false);
@@ -148,6 +157,17 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const libCan = useResourceCan(libType || type);
   const catCan = useResourceCan('asset-categories');
 
+  // 列表按引用字段分组（配置 listGroupBy，如职责组按所属部门）：分组可折叠，分组方式和折叠状态按资料类型记在本机
+  const groupCfg = def.listGroupBy;
+  const [groupOn, setGroupOn] = useState(() => { try { return localStorage.getItem(`kudesi.group.${type}`) !== 'flat'; } catch { return true; } });
+  const [foldedGroups, setFoldedGroups] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem(`kudesi.folded.${type}`) ?? '[]') as string[]); } catch { return new Set(); } });
+  const wantGroup = Boolean(groupCfg) && groupOn;
+  const [groupDepts, setGroupDepts] = useState<DeptRef[]>([]);
+  useEffect(() => {
+    if (!groupCfg || groupCfg.order !== 'department') return;
+    resourceApi.departments().then(setGroupDepts).catch(() => setGroupDepts([]));
+  }, [groupCfg]);
+
   // 派生列（配置 derivedColumns）：按页现算的数字，当作只读列显示，服务端可排序、可导出
   const derivedFields = useMemo<FieldDef[]>(() => (def.derivedColumns ?? []).map((d) => ({ key: d.key, label: d.label, type: d.kind === 'sum' && d.format === 'money' ? 'money' : 'number', group: '统计', readonly: true, list: d.list !== false })), [def]);
   const derivedKeys = useMemo(() => new Set(derivedFields.map((f) => f.key)), [derivedFields]);
@@ -156,7 +176,8 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const [colKeys, setColKeys] = useColumns(type, shownFields, defaults);
   const warehouseMode = Boolean(data?.items.some((i) => i.warehouseMode));
   const columns = colKeys.map((k) => shownFields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
-    .filter((f) => !warehouseMode || WAREHOUSE_PRODUCT_FIELDS.includes(f.key));
+    .filter((f) => !warehouseMode || WAREHOUSE_PRODUCT_FIELDS.includes(f.key))
+    .filter((f) => !(wantGroup && f.key === groupCfg?.field)); // 按这个字段分组时，列里不再重复显示
   const tabField = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
 
   // 切换资料类型时重置筛选
@@ -174,14 +195,14 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   // 记住筛选、状态和每页条数（按资料类型）；分类目录的选择不记
   useEffect(() => {
-    const keep = Object.fromEntries(Object.entries(filterVals).filter(([k, v]) => v && k !== treeField?.key));
+    const keep = Object.fromEntries(Object.entries(filterVals).filter(([k, v]) => v && !browseKeys.has(k)));
     writePrefs(type, { pageSize, status, filters: keep });
   }, [filterVals, status, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
   // 记住的筛选项如果已经不存在（选项被删/改名），会让列表莫名其妙是空的，加载到选项后清掉它
   useEffect(() => {
     setFilterVals((cur) => {
       const stale = Object.entries(cur).filter(([k, v]) => {
-        if (!v || k === treeField?.key) return false;
+        if (!v || browseKeys.has(k)) return false;
         const opts = filterOpts[k] ?? viewFilters.find((x) => x.key === k)?.options?.map((o) => ({ id: o.value }));
         return Boolean(opts && opts.length && !opts.some((o) => String(o.id) === String(v)));
       }).map(([k]) => k);
@@ -202,13 +223,13 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   const load = useCallback(async () => {
     try {
-      setData(await resourceApi.list(type, { page, pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters }));
+      setData(await resourceApi.list(type, { page: wantGroup ? 1 : page, pageSize: wantGroup ? 200 : pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters }));
       setError('');
       if (type === 'finance-product-units') void loadUnitOptions(true); // 单位列表变了，商品档案的下拉也要跟着变
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
-  }, [type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals, colFilters]);
+  }, [type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals, colFilters, wantGroup]);
 
   useEffect(() => { setArchived(false); setExpiring(false); setSort(null); }, [type]);
 
@@ -227,6 +248,14 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const prevPageSize = useRef(pageSize);
   const gridAllowed = wide && can('edit') && gridPolicyOf(type).enabled && !warehouseMode && !archived;
   const gridOn = gridMode && gridAllowed;
+  const grouping = wantGroup && !gridOn;
+  const groupField = groupCfg ? def.fields.find((f) => f.key === groupCfg.field) : undefined;
+  const [chip, setChip] = useState('');
+  useEffect(() => setChip(''), [type, tab, status]);
+  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(data.items, groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts, groupCfg.thenBy)) : undefined), [grouping, data, groupCfg, groupField, groupDepts]);
+  const rowGroups = useMemo<RowGroup[] | undefined>(() => (allGroups && chip ? allGroups.filter((g) => g.key === chip) : allGroups), [allGroups, chip]);
+  const setGroupMode = (on: boolean) => { setGroupOn(on); setPage(1); try { localStorage.setItem(`kudesi.group.${type}`, on ? 'group' : 'flat'); } catch { /* 存储不可用时只是不记住 */ } };
+  const toggleGroup = (key: string) => setFoldedGroups((cur) => { const n = new Set(cur); if (n.has(key)) n.delete(key); else n.add(key); try { localStorage.setItem(`kudesi.folded.${type}`, JSON.stringify([...n])); } catch { /* 忽略 */ } return n; });
   useEffect(() => { setGridMode(false); setGridDirty(false); }, [type]);
   function enterGrid() {
     prevPageSize.current = pageSize;
@@ -301,8 +330,10 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   function newInitial(): Record<string, unknown> | undefined {
     const init: Record<string, unknown> = {};
     if (tab && def.tabsBy) Object.assign(init, resourceTabInitial(def, tab));
-    const cat = treeField ? Number(filterVals[treeField.key]) : 0;
-    if (treeField && cat) init[treeField.key] = treeField.type === 'refs' ? [cat] : cat;
+    for (const bf of browseFields) {
+      const picked = Number(filterVals[bf.key]);
+      if (picked) init[bf.key] = bf.type === 'refs' ? [picked] : picked;
+    }
     return Object.keys(init).length ? init : undefined;
   }
 
@@ -326,7 +357,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   // —— 工具条派生数据 ——
   const treeKey = treeField?.key;
-  const shownFilterFields = filterFields.filter((ff) => ff.key !== treeKey);
+  const shownFilterFields = filterFields.filter((ff) => !browseKeys.has(ff.key));
   const optLabel = (key: string, value: string) => (filterOpts[key] ?? []).find((o) => String(o.id) === value)?.label ?? value;
   const chips: Chip[] = [];
   const dropVal = (k: string) => () => { setFilterVals((v) => ({ ...v, [k]: '' })); setPage(1); };
@@ -336,7 +367,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   if (expiring) chips.push({ key: 'expiring', text: '即将到期', clear: () => { setExpiring(false); setPage(1); } });
   if (archived) chips.push({ key: 'archived', text: '已归档', clear: () => { setArchived(false); setPage(1); } });
   if (showHidden && hiddenExists && !status && !archived) chips.push({ key: 'hidden', text: `含${def.statuses.filter((x) => x.hidden).map((x) => x.label).join('/')}`, clear: () => { setShowHidden(false); setPage(1); } });
-  if (treeKey && filterVals[treeKey] && catPath) chips.push({ key: 'category', text: `分类：${catPath}`, clear: () => { setFilterVals((v) => ({ ...v, [treeKey]: '' })); setPage(1); } });
+  for (const bf of browseFields) if (filterVals[bf.key] && paths[bf.key]) chips.push({ key: `browse:${bf.key}`, text: `${browseFields.length > 1 || bf.key !== treeKey ? bf.label : '分类'}：${paths[bf.key]}`, clear: () => { setFilterVals((v) => ({ ...v, [bf.key]: '' })); setPage(1); } });
   const colFieldLabel = (key: string) => (key === STATUS_COL ? '状态' : def.fields.find((f) => f.key === key)?.label ?? key);
   const colValueLabel = (f: ColFilter) => (v: string) => {
     if (f.key === STATUS_COL) return def.statuses.find((x) => x.value === v)?.label ?? v;
@@ -350,14 +381,14 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     chips.push({ key: `col:${i}`, text: describeColFilter(shown, colFieldLabel(f.key), colValueLabel(f)), clear: () => commitCol({ ...colSaved, filters: colFilters.filter((_, j) => j !== i) }) });
   });
   const hasFilterPop = true;
-  const popCount = chips.filter((c) => c.key !== 'category' && !c.key.startsWith('col:')).length;
+  const popCount = chips.filter((c) => !c.key.startsWith('browse:') && !c.key.startsWith('col:')).length;
   const tabList = (tabField || def.quickTabs?.length) && !lockedTab
     ? [...resourceTabOptions(def), ...((def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || []), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)]
     : [];
   const tabsOwnRow = tabList.length > 3 || isMobile; // 分类多的资料（商品档案等）页签单独一行，工具条仍是一行
   const desc = !lockedTab ? resourceDescription(type) : '';
   const hint = desc ? <PageHint text={desc} /> : null;
-  const items = data?.items ?? [];
+  const items = rowGroups ? rowGroups.flatMap((g) => g.rows) : data?.items ?? [];
   const selIdx = selected !== null ? items.findIndex((r) => r.id === selected) : -1;
   const detailNav = selIdx >= 0 ? { index: selIdx + 1, total: items.length, onPrev: selIdx > 0 ? () => setSelected(items[selIdx - 1].id) : undefined, onNext: selIdx < items.length - 1 ? () => setSelected(items[selIdx + 1].id) : undefined } : undefined;
   useEffect(() => {
@@ -377,6 +408,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   const extras = (
     <>
+      {groupCfg && <button type="button" className={wantGroup ? 'res-btn on' : 'res-btn'} aria-pressed={wantGroup} title={`列表按${groupField?.label ?? '所属部门'}分组，可折叠`} onClick={() => setGroupMode(!wantGroup)}>{groupCfg.order === 'value' ? `按${groupField?.label ?? ''}分组` : '按部门分组'}</button>}
       {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="res-btn" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
       {type === 'finance-packaging-schemes' && <button type="button" className="res-btn" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
       {type === 'finance-products' && can('edit') && <button type="button" className="res-btn" onClick={() => setArchiveTypesOpen(true)}>管理档案类型</button>}
@@ -394,6 +426,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
           } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '导入失败'); }
         }}>导入默认分类</button>
       )}
+      {type === 'workforce' && can('create') && <button type="button" className="res-btn" onClick={() => setAddingAccount(true)}>新增账号并建档</button>}
       {type === 'fixed-assets' && catCan('view') && resourcePagePath('asset-categories') && <Link className="res-btn" to={resourcePagePath('asset-categories')!}>分类管理</Link>}
       {type === 'fixed-assets' && can('edit') && <button type="button" className="res-btn" onClick={() => setInventory(true)}>盘点</button>}
       {type === 'tax-profiles' && can('create') && <TaxPendingButton refreshKey={data?.total} onCreated={() => void load()} />}
@@ -416,6 +449,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
       {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} onClick={() => setCreating(true)}>＋ 新增</button>}
     </>
   );
+
+  const addInGroup = groupCfg && can('create') ? (g: RowGroup) => { setCopyInit(def.fields.find((f) => f.key === groupCfg.field)?.readonly ? {} : g.refId ? { [groupCfg.field]: g.refId } : g.value ? { [groupCfg.field]: g.value } : {}); setCreating(true); } : undefined;
+  const rowActions = useMemo(() => rowActionsFor(type, (a) => can(a), (m) => { if (m) setBatchMsg(m); void load(); }), [type, can, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const empty = filtered
     ? <div className="res-empty"><p>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。</p><button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></div>
@@ -483,25 +519,34 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   return (
     <div className={`res-page${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}`}>
       {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
-      <div className={treeField ? 'res-body with-tree' : 'res-body'}>
-        {treeField && (
+      <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
+        {browseFields.length > 0 && (
           <CategoryTree
             type={type}
-            field={treeField.key}
+            fields={browseFields}
             tab={tab}
             status={status}
             showHidden={showHidden}
-            value={filterVals[treeField.key] ?? ''}
+            values={filterVals}
             reloadKey={data?.total}
-            onPath={setCatPath}
-            onSelect={(id) => { if (gridLocked) return; setFilterVals((v) => ({ ...v, [treeField.key]: id })); setPage(1); }}
+            onPath={setPath}
+            canManage={(f) => Boolean(def.treeManage?.includes(f.key) && f.ref && me && createChecker(me.permissions)(resourcePermission(permissionOwner(f.ref), 'edit')))}
+            onChanged={() => void load()}
+            onSelect={(key, id) => { if (gridLocked) return; setFilterVals((v) => ({ ...v, [key]: id })); setPage(1); }}
           />
         )}
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
           {toolbar}
+          {type === 'workforce' && <UnfiledBanner refreshKey={data?.total} canCreate={can('create')} onFile={(userId) => { setCopyInit({ userId }); setCreating(true); }} />}
           {error && <div role="alert" className="notice error m">{error}</div>}
           {!gridOn && checked.length > 0 && <BatchBar def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
+          {grouping && groupCfg?.chips && allGroups && allGroups.length > 1 && (
+            <div className="res-tags" role="group" aria-label={`按${groupField?.label ?? ''}看`}>
+              <span className="muted">{groupField?.label}</span>
+              {[{ key: '', label: '全部' }, ...allGroups].map((g) => <button key={g.key || 'all'} type="button" className={`res-tag${chip === g.key ? ' active' : ''}`} aria-pressed={chip === g.key} onClick={() => setChip(g.key)}>{g.label}</button>)}
+            </div>
+          )}
           {gridOn ? (
             data ? (
               <ResourceGrid
@@ -511,7 +556,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
                 derived={derivedFields}
                 sort={sort}
                 newDefaults={newInitial()}
-                newLabels={treeField && catPath && filterVals[treeField.key] ? { [treeField.key]: catPath } : undefined}
+                newLabels={Object.fromEntries(browseFields.filter((bf) => paths[bf.key] && filterVals[bf.key]).map((bf) => [bf.key, paths[bf.key]]))}
                 onSort={(key) => { setSort(sort?.by === key ? (sort.dir === 'asc' ? { by: key, dir: 'desc' } : null) : { by: key, dir: 'asc' }); setPage(1); }}
                 onSortTo={(key, dir) => { setSort(dir ? { by: key, dir } : null); setPage(1); }}
                 colFilters={colFilters}
@@ -526,7 +571,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
               />
             ) : <div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />加载中…</div>
           ) : isMobile ? (
-            <ResourceCards def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} />
+            <ResourceCards def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} />
           ) : (
             <ResourceTable
               def={def}
@@ -546,18 +591,28 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
               onOpen={setSelected}
               today={today}
               empty={empty}
+              groups={rowGroups}
+              folded={foldedGroups}
+              onToggleGroup={toggleGroup}
+              onAddInGroup={addInGroup}
+              rowActions={rowActions}
+              rowActionsLabel={['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
             />
           )}
           <div className="res-foot">
             <span className="res-foot-sum">共 {data?.total ?? 0} 条{checked.length > 0 && !gridOn ? <> · 已勾选 {checked.length} 条</> : null}</span>
-            <span className="res-pager">
-              <select aria-label="每页条数" disabled={gridLocked} value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
-                {PAGE_SIZES.map((n) => <option key={n} value={n}>每页 {n} 条</option>)}
-              </select>
-              <button type="button" className="res-btn sm" disabled={page <= 1 || gridLocked} onClick={() => setPage(page - 1)}>上一页</button>
-              <span className="res-page-no">{page} / {totalPages}</span>
-              <button type="button" className="res-btn sm" disabled={page >= totalPages || gridLocked} onClick={() => setPage(page + 1)}>下一页</button>
-            </span>
+            {grouping
+              ? <span className="res-foot-sum">{rowGroups?.length ?? 0} 个分组{data && data.total > data.items.length ? ` · 只显示前 ${data.items.length} 条，请用筛选缩小范围` : ''}</span>
+              : (
+                <span className="res-pager">
+                  <select aria-label="每页条数" disabled={gridLocked} value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
+                    {PAGE_SIZES.map((n) => <option key={n} value={n}>每页 {n} 条</option>)}
+                  </select>
+                  <button type="button" className="res-btn sm" disabled={page <= 1 || gridLocked} onClick={() => setPage(page - 1)}>上一页</button>
+                  <span className="res-page-no">{page} / {totalPages}</span>
+                  <button type="button" className="res-btn sm" disabled={page >= totalPages || gridLocked} onClick={() => setPage(page + 1)}>下一页</button>
+                </span>
+              )}
           </div>
         </section>
       </div>
@@ -585,6 +640,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
           }}
         />
       )}
+      {addingAccount && <AddAccountDialog onClose={() => setAddingAccount(false)} onCreated={(userId) => { setAddingAccount(false); setCopyInit({ userId }); setCreating(true); }} />}
       {inventory && <InventoryDialog onClose={() => setInventory(false)} onDone={(m) => { setInventory(false); setBatchMsg(m); void load(); }} />}
       {sorting && tab && <CategorySortDialog archiveType={tab} onClose={() => setSorting(false)} onDone={() => void load()} />}
       {reasonLib && libType && <ReasonLibraryDialog libType={libType} title={type === 'stores' ? '店铺异常原因库' : '手机号异常原因库'} onClose={() => setReasonLib(false)} />}

@@ -113,7 +113,7 @@ d('组织与权限管理（真实数据库）', () => {
     await expect(svc.deleteDepartment(boss, a, kid)).rejects.toThrow(/下级部门/);
     await expect(svc.deleteDepartment(boss, a, a)).rejects.toThrow(/不能是被删除/);
     const r = await svc.deleteDepartment(boss, a, to);
-    expect(r.moved).toEqual({ kids: 1, positions: 1, users: 1, assets: 0, archivedUsers: 0 });
+    expect(r.moved).toEqual({ kids: 1, positions: 1, users: 1, assets: 0, dutyGroups: 0, archivedUsers: 0 });
     expect((await svc.getStaff(boss, st.staff.id)).departmentId).toBe(to);
     expect((await svc.listPositions(boss)).find((x) => x.id === pos.id)!.departmentId).toBe(to);
     expect((await ds.manager.query('SELECT parent_id p FROM departments WHERE id = ?', [kid]))[0].p).toBe(to);

@@ -67,6 +67,23 @@ export function condSql(def: ResourceDef, cond: Cond, alias: string, ctx: CondCt
       : `(${put(ctx, id)})`;
     return `EXISTS (SELECT 1 FROM users ${u} WHERE ${u}.company_id = ${alias}.company_id AND CAST(${u}.id AS CHAR) = ${jx(alias, f.key)} AND ${u}.department_id IN ${dept})`;
   }
+  if ('viaUserNoPosition' in cond) {
+    const f = def.fields.find((x) => x.key === cond.viaUserNoPosition);
+    if (!f || f.type !== 'ref' || f.ref !== 'user') throw new BadRequestException('条件里的员工字段不存在');
+    const u = `u${depth + 1}`;
+    return `EXISTS (SELECT 1 FROM users ${u} WHERE ${u}.company_id = ${alias}.company_id AND CAST(${u}.id AS CHAR) = ${jx(alias, f.key)} AND ${u}.position_id IS NULL)`;
+  }
+  if ('deptField' in cond) {
+    const f = def.fields.find((x) => x.key === cond.deptField);
+    if (!f || f.type !== 'ref' || f.ref !== 'department') throw new BadRequestException('条件里的部门字段不存在');
+    const raw = cond.dept === '$value' ? ctx.dyn : cond.dept;
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0) throw new BadRequestException('部门不合法');
+    const dept = cond.includeChildren
+      ? `(WITH RECURSIVE dt AS (SELECT id FROM departments WHERE id = ${put(ctx, id)} AND company_id = ${alias}.company_id UNION ALL SELECT c.id FROM departments c JOIN dt ON c.parent_id = dt.id WHERE c.company_id = ${alias}.company_id) SELECT CAST(id AS CHAR) FROM dt)`
+      : `(${put(ctx, String(id))})`;
+    return `${jx(alias, f.key)} IN ${dept}`;
+  }
   if ('viaRef' in cond) {
     const f = def.fields.find((x) => x.key === cond.viaRef);
     const target = f?.type === 'ref' && f.ref ? getResourceDef(f.ref) : undefined;
@@ -83,6 +100,10 @@ export function condSql(def: ResourceDef, cond: Cond, alias: string, ctx: CondCt
       const x = fieldExpr(def, alias, cond.field);
       const days = Math.max(0, Math.min(3660, Math.floor(Number(cond.days))));
       return `(${x} IS NOT NULL AND ${x} <> '' AND ${x} >= ${put(ctx, todayShanghai())} AND ${x} <= ${put(ctx, addDaysText(todayShanghai(), days))})`;
+    }
+    case 'future': {
+      const x = fieldExpr(def, alias, cond.field);
+      return `(${x} IS NOT NULL AND ${x} <> '' AND ${x} > ${put(ctx, todayShanghai())})`;
     }
     case 'expired': {
       const x = fieldExpr(def, alias, cond.field);

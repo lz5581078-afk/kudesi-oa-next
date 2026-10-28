@@ -49,9 +49,9 @@ export class OrgService {
   }
 
   /** 部门通讯录（只含 id/名称），资料页的“选择部门”要用 */
-  async departmentDirectory(user: AuthUser): Promise<Array<{ id: number; name: string }>> {
-    const rows = await this.departments.find({ where: { companyId: user.companyId, isSystem: false }, select: ['id', 'name'], order: { sortOrder: 'ASC', id: 'ASC' } });
-    return rows.map((d) => ({ id: d.id, name: d.name }));
+  async departmentDirectory(user: AuthUser): Promise<Array<{ id: number; name: string; parentId: number | null }>> {
+    const rows = await this.departments.find({ where: { companyId: user.companyId, isSystem: false }, select: ['id', 'name', 'parentId'], order: { sortOrder: 'ASC', id: 'ASC' } });
+    return rows.map((d) => ({ id: d.id, name: d.name, parentId: d.parentId }));
   }
 
   /** 所有查询都带 companyId，且 companyId 只取自登录人，不取自请求参数。 */

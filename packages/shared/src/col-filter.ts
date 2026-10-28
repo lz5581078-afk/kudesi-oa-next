@@ -76,8 +76,17 @@ export function colFilterKindOf(type: FieldType): ColFilterKind | null {
  * 数据库里没有这个值，没法在服务端筛选，所以列头不给入口，传来也拒绝。
  */
 export const READ_TIME_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  phones: ['cardKind', 'boundStores', 'boundStoreNos'],
+  phones: ['cardKind', 'boundStores', 'boundStoreNos', 'boundAccounts', 'storesPdd', 'storesTaobao', 'storesTmall', 'storesDouyin', 'storesJd', 'storesKuaishou', 'storesXhs', 'storesOther'],
+  // 自媒体：运营部门取自运营人员当前部门，账号属性是平台专属字段的摘要
+  'self-media': ['operatorDeptId', 'propSummary'],
+  // 备忘：负责人部门取自负责人；密码只显示“已维护/未设置”
+  memos: ['ownerDeptId', 'passwordState'],
+  wechat: ['passwordState'],
   stores: ['deposit', 'frozen', 'goodsFund', 'promotionBalance'],
+  // 银行账户的当前余额 = 期初余额 + 现金银行已过账流水；公户详情是否维护过：都是读时现算
+  'bank-accounts': ['currentBalance', 'publicInfoFlag'],
+  // 兼职与临时工：合作状态按日期实时算，账号/部门/岗位/上级/登录时间取自员工当前资料
+  workforce: ['cooperation', 'account', 'departmentName', 'positionName', 'managerName', 'accountStatus', 'lastLoginAt'],
 };
 export const readTimeKeys = (resourceKey: string): ReadonlySet<string> => new Set(READ_TIME_FIELDS[resourceKey] ?? []);
 

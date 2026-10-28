@@ -36,6 +36,21 @@ export class FlowDesignerService {
     return d.id;
   }
 
+  /** 职责组被哪些流程引用：看启用中和草稿版本里“按职责组办理”的步骤（只读，用于职责组详情里提示删改影响）。 */
+  async dutyGroupUsage(user: AuthUser, groupId: number) {
+    const em = this.ds.manager;
+    const defs = (await em.find(FlowDefinition, { where: { companyId: user.companyId } })).filter((d) => d.status === 'active' || d.status === 'draft');
+    const rows = await em.find(FlowTemplateRow, { where: { companyId: user.companyId } });
+    const label = (key: string) => rows.find((r) => r.templateKey === key)?.name ?? FLOW_TEMPLATES.find((t) => t.key === key)?.label ?? key;
+    const out: Array<{ templateKey: string; label: string; version: number; draft: boolean; stepName: string }> = [];
+    for (const d of defs) {
+      for (const st of d.steps as StepDef[]) {
+        if (st.assignee?.source === 'duty_group' && Number(st.assignee.id) === groupId) out.push({ templateKey: d.templateKey, label: label(d.templateKey), version: d.version, draft: d.status === 'draft', stepName: st.name });
+      }
+    }
+    return out;
+  }
+
   // ================= 目录 =================
 
   async directory(user: AuthUser) {

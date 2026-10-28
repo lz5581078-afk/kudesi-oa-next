@@ -30,9 +30,11 @@ function itemsAt(value,expression) {
 }
 function scope(table,cols,company) {
   if(table==='companies')return {sql:'t.id=?',args:[company]};
+  // 旧岗位条目的 company_id 与所属岗位的公司不一致（真实库里全是 1，岗位却在公司 3），归属以岗位所在部门的公司为准
+  if(table==='position_duties')return {sql:'EXISTS(SELECT 1 FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.id=t.position_id AND d.company_id=?)',args:[company]};
   if(cols.includes('company_id'))return {sql:'t.company_id=?',args:[company]};
   if(['employees','positions'].includes(table))return {sql:'EXISTS(SELECT 1 FROM departments d WHERE d.id=t.department_id AND d.company_id=?)',args:[company]};
-  if(['employee_positions','employee_roles','employee_permission_overrides','employee_responsibility_groups'].includes(table))return {sql:'EXISTS(SELECT 1 FROM employees e JOIN departments d ON d.id=e.department_id WHERE e.id=t.employee_id AND d.company_id=?)',args:[company]};
+  if(['employee_positions','employee_roles','employee_permission_overrides','employee_responsibility_groups','employee_workforce_profiles'].includes(table))return {sql:'EXISTS(SELECT 1 FROM employees e JOIN departments d ON d.id=e.department_id WHERE e.id=t.employee_id AND d.company_id=?)',args:[company]};
   if(['position_permissions','position_responsibilities'].includes(table))return {sql:'EXISTS(SELECT 1 FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.id=t.position_id AND d.company_id=?)',args:[company]};
   if(table==='responsibility_group_items')return {sql:'EXISTS(SELECT 1 FROM responsibility_groups p WHERE p.id=t.group_id AND p.company_id=?)',args:[company]};
   return null;
@@ -42,7 +44,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
   const req=createRequire(path.join(app,'package.json'));const env=req('dotenv').parse(fs.readFileSync(path.join(app,'.env')));
   const codec=req(path.join(app,'server/core/business-secrets.js')).createBusinessSecretCodec({primarySecret:env.SECRET_KEY||env.SESSION_SECRET||env.JWT_SECRET});
   const c=await req('mysql2/promise').createConnection({host:env.MYSQL_HOST||'127.0.0.1',port:Number(env.MYSQL_PORT||3307),user:env.MYSQL_USER||'oa_user',password:env.MYSQL_PASSWORD,database:env.MYSQL_DATABASE||'ecommerce_oa',dateStrings:true});
-  const out={company:null,departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],employeeOverrides:[],records:[],links:[],exclusions:[]};
+  const out={company:null,departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],employeeOverrides:[],positionDuties:[],compensationRecords:[],records:[],links:[],exclusions:[]};
   const businessDay=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const tables={};const locators=new Map();let locatorN=0;
   const excluded=(type,id,reason)=>out.exclusions.push({type,id:String(id),reason});
@@ -50,10 +52,10 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
   try{
     await c.query('SET SESSION TRANSACTION READ ONLY');await c.beginTransaction();
     const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
-    const selected=new Set(['companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
+    const selected=new Set(['companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
     for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
     out.company=(tables.companies||[])[0];if(!out.company)throw Error('Company not found');out.company={id:Number(out.company.id),name:out.company.name};
-    for(const [k,t] of [['departments','departments'],['positions','positions'],['employees','employees'],['employeePositions','employee_positions'],['positionPermissions','position_permissions'],['employeeOverrides','employee_permission_overrides']])out[k]=tables[t]||[];
+    for(const [k,t] of [['departments','departments'],['positions','positions'],['employees','employees'],['employeePositions','employee_positions'],['positionPermissions','position_permissions'],['employeeOverrides','employee_permission_overrides'],['positionDuties','position_duties'],['compensationRecords','employee_compensation_records']])out[k]=tables[t]||[];
     out.employeePositions=out.employeePositions.filter(x=>!x.ended_at&&(!x.status||x.status==='active'));
     const neededFeeCategories=new Set();for(const shared of tables.finance_shared_archives||[]){if(shared.archive_type!=='expenses')continue;const data=json(shared.data_json);for(const item of data.items||[]){if(item.status==='deleted')continue;for(let id of [item.categoryId,...(item.categoryIds||[])]){const seen=new Set();while(id&&!seen.has(String(id))){seen.add(String(id));neededFeeCategories.add(String(id));id=(data.categories||[]).find(x=>String(x.id)===String(id))?.parentId;}}}}
     const defs=new Map(definitions.map(d=>[d.key,d]));
@@ -107,6 +109,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
         const candidates=[];const columns=(rule.aliases?.[f.key]||[]).filter(x=>!x.startsWith('@'));columns.push(snake(f.key),f.key);
         for(const col of columns)if(typeof row[col]==='string'&&row[col])candidates.push({value:row[col],name:row.attachment_name||`${f.label}.bin`,id:col});
         for(const m of tables.resource_media||[]){if(mediaMap[m.resource_type]===type&&String(m.resource_id)===String(id)&&columns.some(col=>col===m.field_key||col===snake(String(m.field_key)))){const target=f.key.toLowerCase();if(target.includes('attachment')||target.includes('photo')||target.includes('image'))candidates.push({value:m.storage_path,name:m.original_name||`${f.label}.bin`,id:'media:'+m.id,sha:m.sha256});}}
+        if(type==='workforce'){const cat=({contractFiles:'contract',identityFiles:'identity',paymentFiles:'payment',qualificationFiles:'qualification',otherFiles:'other'})[f.key];for(const a of tables.employee_workforce_attachments||[])if(String(a.employee_id)===String(id)&&a.category===cat)candidates.push({value:a.storage_path,name:a.file_name,id:'wfatt:'+a.id,sha:a.sha256});}
         if(type==='finance-products'&&f.key==='photos')for(const p of tables.finance_product_archive_photos||[])if(String(p.product_id)===String(id))candidates.push({value:p.data_url,name:p.file_name||'商品照片.bin',id:'photo:'+p.id});
         const chosen=candidates.some(x=>String(x.id).startsWith('media:'))?candidates.filter(x=>String(x.id).startsWith('media:')):candidates;
         for(const item of chosen){const locator=String(++locatorN);locators.set(locator,item);fspec.push({field:f.key,id:item.id,name:item.name,locator});}
@@ -126,7 +129,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
       }
       if(type==='finance-categories')entries=entries.flatMap(x=>[...(categoryFamilies.get(String(x.row.id))||new Set([x.row.archive_key==='purchased'?purchasedCategoryScope(x.row):x.row.archive_key]))].map(family=>({...x,row:{...x.row,__family:family,__sourceId:x.row.id,id:categoryKey(x.row.id,family)}})));
       for(const {row,payload,ancestors,container} of entries){
-        const id=row.id??row.category_id??container.id??'default';
+        const id=row.id??(type==='workforce'?row.employee_id:undefined)??row.category_id??container.id??'default';
         const archivedRow=Boolean(row.archived_at)&&row.status!=='deleted';
         if((row.status==='deleted'||(row.status==='archived'&&!archivedRow))&&!(type==='finance-fee-categories'&&neededFeeCategories.has(String(id)))){excluded(type,id,'旧系统已删除或归档，不作为在用资料迁入');continue;}
         const data={};let aliasName;const notices=[];
@@ -141,14 +144,37 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(['stores','phones'].includes(type)&&row.abnormal_reason){const table=type==='stores'?'store_abnormal_reasons':'phone_abnormal_reasons';const matches=(tables[table]||[]).filter(x=>x.reason===row.abnormal_reason);if(matches.length===1)data.abnormalReason=ref(type==='stores'?'store-abnormal-reasons':'phone-abnormal-reasons',matches[0].id);else{delete data.abnormalReason;data.note=[data.note,'旧异常说明：'+row.abnormal_reason].filter(Boolean).join('\n');excluded(type+'.abnormalReason',id,'旧异常原因未唯一对应新原因目录，原文已保留在备注');}}
           if(type==='tax-profiles'&&!row.license_id&&row.taxpayer_no){const licenses=(tables.business_licenses||[]).filter(x=>x.credit_code===row.taxpayer_no);if(licenses.length===1)data.licenseId=ref('licenses',licenses[0].id);}
           if(type==='licenses')data.category=row.license_category;
+          if(type==='workforce'){
+            // 旧兼职档案没有自己的状态/姓名/用工类型：取自员工表；附件按分类放进五个附件字段
+            const emp=byId('employees',row.employee_id);
+            if(!emp)throw Error('复杂来源需专项转换：兼职档案对应的员工不在迁入范围');
+            data.userId=ref('user',row.employee_id);data.name=emp.name;
+            data.employmentType=emp.employment_type==='temp'?'temp':'part_time';
+            if(['inactive','disabled'].includes(emp.status))status='inactive';
+            if(!data.contractStartDate){delete data.contractStartDate;notices.push('旧档案没有合作开始日期，待补');}
+          }
           if(type==='license-borrows'&&!data.borrowerUserId)data.borrowerName='未登记（旧数据无借用人）';
           if(type==='bank-store-links'&&!data.purpose)data.purpose='店铺收款';
           if(type==='phones'){data.feeCycle=({'30':'monthly','90':'quarterly','365':'yearly'})[row.fee_cycle]||row.fee_cycle;data.forwardApp=row.has_forwarding_app===1?'yes':'no';}
           if(type==='stores'){if([false,0,'0','no','未连接'].includes(row.jushuitan_connected))data.jushuitan='not_connected';if([true,1,'1','yes','已连接'].includes(row.jushuitan_connected))data.jushuitan='connected';}
+          if(type==='stores'){
+            // 绑定手机号：旧库是 手机号.store_id + 有效的“手机号-店铺”关联（一店可多号）。新系统由店铺的手机号档案字段承载：第一个进“手机号档案”，其余进“更多绑定手机号”，号码文本由保存规则按档案带出
+            const phoneIds=[];const addPhone=v=>{if(v!==undefined&&v!==null&&!phoneIds.includes(String(v)))phoneIds.push(String(v));};
+            for(const p of tables.phone_numbers||[])if(String(p.store_id)===String(row.id))addPhone(p.id);
+            for(const l of tables.resource_links||[])if(l.relation_type==='phone_store'&&l.status==='active'&&!l.ended_at&&l.source_type==='phone_number'&&l.target_type==='store'&&String(l.target_id)===String(row.id))addPhone(l.source_id);
+            if(phoneIds.length){data.phoneId=ref('phones',phoneIds[0]);if(phoneIds.length>1)data.phoneIds=phoneIds.slice(1).map(x=>ref('phones',x));}
+            // 最后订单时间：新档案是“日期 + 时刻”两格，旧库精确到秒
+            const clock=/^\d{4}-\d{2}-\d{2}[ T](\d{2}:\d{2}(:\d{2})?)/.exec(String(row.last_order_at||''));
+            if(clock&&!/^00:00(:00)?$/.test(clock[1]))data.lastOrderClock=clock[1];
+          }
+          if(type==='self-media'){
+            // 手机号档案：账号上的手机号对不上档案时，用旧库“手机号-自媒体”关联补上
+            if(!data.phoneId){const l=(tables.resource_links||[]).find(x=>x.relation_type==='phone_self_media'&&x.status==='active'&&!x.ended_at&&x.source_type==='phone_number'&&x.target_type==='self_media_account'&&String(x.target_id)===String(row.id));if(l){data.phoneId=ref('phones',l.source_id);const ph=byId('phone_numbers',l.source_id);if(ph&&ph.number&&!data.phoneNumber)data.phoneNumber=String(ph.number);}}
+          }
           if(type==='locations'&&row.location_scope==='archive')data.scope='asset_space';
           if(type==='asset-categories'){const value=typeof row.custom_fields==='string'?json(row.custom_fields):row.custom_fields;data.customFields=Array.isArray(value)?value.map(x=>typeof x==='string'?x:x.label||x.name||x.key).join(','):undefined;}
-          if(type==='fixed-assets'){const config=typeof row.configuration==='string'?json(row.configuration):row.configuration;if(config&&typeof config==='object'){data.config=Object.entries(config).map(([k,v])=>k+'：'+(typeof v==='object'?JSON.stringify(v):String(v))).join('\n');}}
-          if(type==='memos'){data.title=row.account_name||row.service_name||row.provider_name;if(row.status==='active')status='normal';}
+          if(type==='fixed-assets'){const config=typeof row.configuration==='string'?json(row.configuration):row.configuration;if(config&&typeof config==='object'&&!Array.isArray(config)){/* 旧“配置”是按分类参数名存的 {CPU:'i5',内存:'16GB'}：对应新“分类自定义属性”，名称→内容；值不是文字的（对象/数组）保留成 JSON 文本，不丢 */const attrs={};for(const [k,v] of Object.entries(config)){if(v===null||v===undefined||v==='')continue;attrs[k]=typeof v==='object'?JSON.stringify(v):String(v);}if(Object.keys(attrs).length)data.attrs=attrs;}else if(config&&typeof config==='object'){data.config=JSON.stringify(config);}}
+          if(type==='memos'){const isService=row.memo_type==='service';data.title=isService?(row.service_name||row.account_name||row.provider_name):(row.account_name||row.service_name||row.provider_name);if(!(isService&&row.service_name&&row.account_name))delete data.accountName;if(row.status==='active')status='normal';}
           if(type==='finance-fee-items'){if(row.direction==='支出'||!row.direction){data.direction='expense';if(!row.direction)notices.push('旧费用项目未显式记方向，按旧页面的默认支出规则转换');}if(row.direction==='冲减')data.direction='offset';if(row.direction==='往来')data.direction='current';if(['不限','不固定'].includes(row.defaultObject))delete data.defaultObject;else{const allowed=def.fields.find(f=>f.key==='defaultObject')?.options?.map(x=>x.value)||[];const raw=String(row.defaultObject||'').split(/[、,，]/).filter(Boolean);const mapped=raw.flatMap(x=>x==='公户'?['公司公户','店铺公户']:[x]);const missing=mapped.filter(x=>!allowed.includes(x));if(missing.length)excluded(type+'.defaultObject',id,'新系统不支持这些默认挂账节点，费用项目保留、这些节点未写入：'+missing.join('、'));data.defaultObject=mapped.filter(x=>allowed.includes(x)).join('、')||undefined;}}
 
           if(type==='finance-categories'){data.archiveType=row.__family;data.code=row.category_code;if(data.archiveType==='original_purchase'&&String(data.code).length>8&&String(data.code).startsWith('YZCG')){data.code=String(data.code).slice(4);excluded(type+'.code',id,'旧分类码'+row.category_code+'去掉已由采购方式表示的YZCG前缀，转换为'+data.code+'；基础/组合原码仍保留');}data.parentId=ref('finance-categories',categoryKey(row.parent_id,row.__family));}

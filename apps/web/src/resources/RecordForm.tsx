@@ -1,6 +1,7 @@
+import { CascadePicker } from './CascadePicker';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { fieldOptions, useUnitOptions } from './unitOptions';
-import { SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { groupTitle, SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
@@ -208,6 +209,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
     case 'refs':
       return <RefsSelect field={field} value={Array.isArray(value) ? (value as number[]) : []} onChange={onChange} labelNow={labelNow} />;
     case 'ref':
+      if (field.cascade && field.ref) return <CascadePicker target={field.ref} label={field.label} value={typeof value === 'number' ? value : null} onChange={onChange} labelNow={labelNow} />;
       return <RefSelect field={field} value={value} onChange={onChange} labelNow={labelNow} />;
     case 'secret':
       return <SecretInput value={str} maxLength={field.maxLength} placeholder={configured ? '已设置，留空表示不修改' : ''} onChange={onChange} />;
@@ -496,7 +498,7 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
                 const n = errorsByGroup(g);
                 return (
                   <button key={g} type="button" className={`rf-anchor${(activeGroup || groups[0][0]) === g ? ' active' : ''}${n ? ' has-error' : ''}`} onClick={() => jump(g)}>
-                    <span>{g}</span>
+                    <span>{groupTitle(def, g, values)}</span>
                     {n > 0 ? <b className="rf-err-n" aria-label={`${n} 项有问题`}>{n}</b> : <i>{fields.length}</i>}
                   </button>
                 );
@@ -521,10 +523,10 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           {!inline && !record && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
           {groups.map(([group, fields]) => (
             <section key={group} id={secId(group)} className="rf-sec" aria-label={group}>
-              {!inline && <h3 className="rf-sec-title">{group}</h3>}
+              {!inline && <h3 className="rf-sec-title">{groupTitle(def, group, values)}</h3>}
               <div className="form-grid">
                 {fields.map((f) => (
-                  <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
+                  <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || (f.type === 'ref' && f.cascade) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
                     <span className="rf-label">{f.label}{f.required && <b className="req" title="必填"> *</b>}</span>
                     {f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
                       field={f}

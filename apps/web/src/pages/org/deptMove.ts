@@ -33,3 +33,18 @@ export function planMove(tree: DepartmentNode[], sourceId: number, targetId: num
   const samePlace = (oldParent?.id ?? null) === parentId && updates.length === 1 && source.sortOrder === updates[0].sortOrder;
   return samePlace ? { updates: [] } : { updates };
 }
+
+/** 找出一个部门的所有祖先 id（从最上级到直接上级）；找不到返回 null。 */
+export function ancestorsOf(nodes: DepartmentNode[], targetId: number, path: number[] = []): number[] | null {
+  for (const n of nodes) {
+    if (n.id === targetId) return path;
+    const r = ancestorsOf(n.children, targetId, [...path, n.id]);
+    if (r) return r;
+  }
+  return null;
+}
+
+export function findNode(nodes: DepartmentNode[], id: number): DepartmentNode | null {
+  for (const n of nodes) { if (n.id === id) return n; const r = findNode(n.children, id); if (r) return r; }
+  return null;
+}

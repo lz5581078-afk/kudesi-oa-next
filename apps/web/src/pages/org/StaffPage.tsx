@@ -30,13 +30,13 @@ function PasswordNotice({ title, account, password, onClose }: { title: string; 
   );
 }
 
-function StaffDialog({ staff, all, canSalary, departments, positions, onClose, onSaved }: {
-  staff: StaffDto | null; all: StaffDto[]; canSalary: boolean; departments: DepartmentNode[]; positions: PositionDto[];
+function StaffDialog({ staff, all, canSalary, departments, positions, defaultDepartmentId, onClose, onSaved }: {
+  staff: StaffDto | null; defaultDepartmentId?: number | null; all: StaffDto[]; canSalary: boolean; departments: DepartmentNode[]; positions: PositionDto[];
   onClose: () => void; onSaved: (created?: { account: string; password: string }) => void;
 }) {
   const [account, setAccount] = useState(staff?.account ?? '');
   const [name, setName] = useState(staff?.name ?? '');
-  const [departmentId, setDepartmentId] = useState<number | null>(staff?.departmentId ?? null);
+  const [departmentId, setDepartmentId] = useState<number | null>(staff ? staff.departmentId ?? null : defaultDepartmentId ?? null);
   const [positionId, setPositionId] = useState<number | null>(staff?.positionId ?? null);
   const [extra, setExtra] = useState<number[]>(staff?.extraPositionIds ?? []);
   const [managerId, setManagerId] = useState<number | null>(staff?.managerId ?? null);
@@ -240,7 +240,9 @@ export function StaffPage() {
   const [keyword, setKeyword] = useState('');
   const [showDisabled, setShowDisabled] = useState(false);
   const [onlyNoPosition, setOnlyNoPosition] = useState(false);
-  const [deptFilter, setDeptFilter] = useState('');
+  // 从组织架构页“新增成员”跳来时带 ?dept=部门&new=1：按该部门筛选并直接打开新增表单
+  const [entry] = useState(() => { try { const q = new URLSearchParams(window.location.search); return { dept: q.get('dept') ?? '', add: q.get('new') === '1' }; } catch { return { dept: '', add: false }; } });
+  const [deptFilter, setDeptFilter] = useState(entry.dept);
   const [posFilter, setPosFilter] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
   const [groups, setGroups] = useState<Array<{ id: number; name: string }>>([]);
@@ -258,6 +260,7 @@ export function StaffPage() {
     } catch (e) { setError(errText(e)); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => { if (entry.add && can('org.staff.create')) setDialog({ kind: 'edit', staff: null }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // 职责组筛选（旧员工页有）：没有职责组查看权限时静默不显示
   useEffect(() => {
     Promise.all([resourceApi.list('duty-groups', { pageSize: 200 }), resourceApi.list('duty-group-members', { pageSize: 200, showHidden: true })]).then(([g, m]) => {
@@ -328,7 +331,7 @@ export function StaffPage() {
         </div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>姓名</th><th>账号</th><th>部门</th><th>岗位</th><th>职称</th><th>用工/计薪</th><th>直属上级</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
+            <thead><tr><th>姓名</th><th>账号</th><th>部门</th><th>岗位</th><th>职称</th><th>用工/计薪</th><th>职责组</th><th>直属上级</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
             <tbody>
               {shown.map((s) => (
                 <tr key={s.id}>
@@ -338,6 +341,7 @@ export function StaffPage() {
                   <td>{s.positionName ?? '—'}{s.extraPositionIds.length > 0 && <small className="muted"> 兼 {s.extraPositionIds.map((id) => positions.find((p) => p.id === id)?.name).filter(Boolean).join('、')}</small>}</td>
                   <td>{s.title ?? '—'}</td>
                   <td>{EMPLOYMENT_LABELS[s.employmentType ?? 'regular']}{s.payType === 'hourly' ? ' · 时薪' : ''}</td>
+                  <td>{groups.filter((g) => memberOf.get(g.id)?.has(s.id)).map((g) => g.name).join('、') || '—'}</td>
                   <td>{staff.find((x) => x.id === s.managerId)?.name ?? '—'}</td>
                   <td><span className={s.status === 'active' ? 'pill ok' : 'pill warn'}>{s.status === 'active' ? '在职' : '已停用'}</span></td>
                   <td>{s.lastLoginAt ? new Date(s.lastLoginAt).toLocaleString('zh-CN') : '从未登录'}</td>
@@ -362,7 +366,7 @@ export function StaffPage() {
       </div>
 
       {dialog?.kind === 'edit' && (
-        <StaffDialog staff={dialog.staff} all={staff} canSalary={can('org.staff.salary')} departments={tree} positions={positions} onClose={() => setDialog(null)}
+        <StaffDialog staff={dialog.staff} defaultDepartmentId={entry.dept ? Number(entry.dept) : null} all={staff} canSalary={can('org.staff.salary')} departments={tree} positions={positions} onClose={() => setDialog(null)}
           onSaved={async (created) => { await reload(); setDialog(created ? { kind: 'password', title: '员工已创建', account: created.account, password: created.password } : null); }} />
       )}
       {dialog?.kind === 'perm' && (
