@@ -20,7 +20,7 @@ function useOptions(target: string) {
   return options;
 }
 
-function ActionDialog({ action, record, onClose, onDone }: { action: AssetAction; record: ResourceDto; onClose: () => void; onDone: () => void }) {
+export function ActionDialog({ action, record, onClose, onDone }: { action: AssetAction; record: ResourceDto; onClose: () => void; onDone: () => void }) {
   const rule = ASSET_ACTIONS[action];
   const users = useOptions('user');
   const locations = useOptions('locations');

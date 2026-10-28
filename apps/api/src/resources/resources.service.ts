@@ -8,7 +8,7 @@ import {
   FieldDef,
   getResourceDef, isKnownRelationKind,
   isTreeResource,
-  treeFilterField,
+  browseFilterFields,
   SIMILARITY_RESOURCES,
   PRODUCT_SIMILARITY_FIELDS,
   UNIT_OPTIONS,
@@ -931,10 +931,11 @@ export class ResourcesService implements RuleHost {
   /** 列表左侧的分类目录：该字段所指分类树的全部节点，带各节点（含下级）下的资料数。 */
   async categoryTree(user: AuthUser, type: string, fieldKey: string, q: { tab?: string; status?: string; showHidden?: boolean }) {
     const def = this.def(type);
-    const field = treeFilterField(def);
-    if (!field || field.key !== fieldKey) throw new BadRequestException('这个字段没有分类目录');
+    const field = browseFilterFields(def).find((f) => f.key === fieldKey);
+    if (!field) throw new BadRequestException('这个字段没有分类目录');
     const em = this.dataSource.manager;
     const target = field.ref!;
+    if (target === 'user' || target === 'department') return this.peopleTree(user, def, field, q);
     const tdef = this.def(target);
     // 没有页签的资料（如商品组合编码）也可以按所属类型只看某一棵分类树
     const tabBy = def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy) ? def.tabsBy : (!def.tabsBy && target === 'finance-categories' ? 'archiveType' : '');
@@ -945,6 +946,12 @@ export class ResourcesService implements RuleHost {
       id: c.id, title: c.title, status: c.status, parentId: num((c.data as Record<string, unknown>).parentId), sort: Number((c.data as Record<string, unknown>).sort) || 0,
       tab: tabBy ? String((c.data as Record<string, unknown>)[tabBy] ?? '') : '',
     }));
+    // 配置里声明不显示的节点（如位置目录不列“储物空间”）：只是不列出来，它们下面的资料仍沿上级链算进上级
+    const exclude = def.treeExclude?.[field.key];
+    if (exclude) {
+      const out = new Set(cats.filter((c) => exclude.values.includes(String((c.data as Record<string, unknown>)[exclude.field] ?? ''))).map((c) => c.id));
+      nodes = nodes.filter((n) => !out.has(n.id));
+    }
     // 页签切换时，只显示属于这个页签的分类
     if (q.tab && tabBy) {
       const roots = def.treeTabMap?.[q.tab] ?? [q.tab];
@@ -979,6 +986,39 @@ export class ResourcesService implements RuleHost {
       nodes: nodes
         .map((n) => ({ id: n.id, title: n.title, status: n.status, parentId: ids.has(n.parentId) ? n.parentId : 0, sort: n.sort, count: members.get(n.id)?.size ?? 0 }))
         .sort((a, b) => a.sort - b.sort || a.id - b.id),
+    };
+  }
+
+  /** 列表左侧按“使用人 / 所属部门”浏览：每个有资料的人或部门一行（不分级），带数量。 */
+  private async peopleTree(user: AuthUser, def: ResourceDef, field: FieldDef, q: { tab?: string; status?: string; showHidden?: boolean }) {
+    const em = this.dataSource.manager;
+    const hiddenStatuses = def.statuses.filter((s) => s.hidden).map((s) => s.value);
+    const qb = em.createQueryBuilder(ResourceRecord, 'r').select(['r.id', 'r.data']).where('r.companyId = :companyId AND r.type = :type AND r.archivedAt IS NULL', { companyId: user.companyId, type: def.key });
+    if (q.status) qb.andWhere('r.status = :status', { status: q.status });
+    else if (!q.showHidden && hiddenStatuses.length) qb.andWhere('r.status NOT IN (:...hiddenStatuses)', { hiddenStatuses });
+    applyTabFilter(qb, def, q.tab);
+    const records = await qb.getMany();
+    const counts = new Map<number, number>();
+    let uncategorized = 0;
+    for (const r of records) {
+      const v = (r.data as Record<string, unknown>)[field.key];
+      if (typeof v !== 'number') { uncategorized++; continue; }
+      counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+    const ids = [...counts.keys()];
+    const named = new Map<number, { title: string; status: string }>();
+    if (ids.length) {
+      if (field.ref === 'user') (await em.find(User, { where: { companyId: user.companyId, id: In(ids) } })).forEach((u) => named.set(u.id, { title: u.name, status: u.status === 'active' ? 'active' : 'inactive' }));
+      else (await em.find(Department, { where: { companyId: user.companyId, id: In(ids) } })).forEach((d) => named.set(d.id, { title: d.name, status: 'active' }));
+    }
+    return {
+      field: field.key,
+      total: records.length,
+      uncategorized,
+      nodes: ids
+        .filter((id) => named.has(id))
+        .map((id) => ({ id, title: named.get(id)!.title, status: named.get(id)!.status, parentId: 0, sort: 0, count: counts.get(id) ?? 0 }))
+        .sort((a, b) => b.count - a.count || a.id - b.id),
     };
   }
 

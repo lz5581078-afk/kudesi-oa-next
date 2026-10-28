@@ -1,3 +1,4 @@
+import { CascadePicker } from './CascadePicker';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { fieldOptions, useUnitOptions } from './unitOptions';
 import { SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
@@ -208,6 +209,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
     case 'refs':
       return <RefsSelect field={field} value={Array.isArray(value) ? (value as number[]) : []} onChange={onChange} labelNow={labelNow} />;
     case 'ref':
+      if (field.cascade && field.ref) return <CascadePicker target={field.ref} label={field.label} value={typeof value === 'number' ? value : null} onChange={onChange} labelNow={labelNow} />;
       return <RefSelect field={field} value={value} onChange={onChange} labelNow={labelNow} />;
     case 'secret':
       return <SecretInput value={str} maxLength={field.maxLength} placeholder={configured ? '已设置，留空表示不修改' : ''} onChange={onChange} />;
@@ -524,7 +526,7 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
               {!inline && <h3 className="rf-sec-title">{group}</h3>}
               <div className="form-grid">
                 {fields.map((f) => (
-                  <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
+                  <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || (f.type === 'ref' && f.cascade) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
                     <span className="rf-label">{f.label}{f.required && <b className="req" title="必填"> *</b>}</span>
                     {f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
                       field={f}
