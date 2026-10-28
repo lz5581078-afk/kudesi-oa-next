@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { loadUnitOptions, useUnitOptions } from './unitOptions';
+import { fieldOptions, loadUnitOptions, useUnitOptions } from './unitOptions';
 import { BatchBar } from './BatchBar';
-import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, gridPolicyOf, type FieldDef } from '@kudesi/shared';
+import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, gridPolicyOf, type ColFilter, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -20,6 +20,8 @@ import { RecordForm } from './RecordForm';
 import { ArchiveTypeDialog } from './ArchiveTypeDialog';
 import { InventoryDialog } from './AssetPanels';
 import { ResourceGrid } from './grid/ResourceGrid';
+import { LeaveDialog, RouterLeaveBlocker, type GridControl, type LeaveRequest } from './grid/LeaveGuard';
+import { labelKey, readColFilters, writeColFilters, type SavedColFilters } from './colFilterPrefs';
 import { useWideScreen } from './grid/useWideScreen';
 import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../layout/AppbarSlot';
 import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
@@ -81,6 +83,18 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   useAppbarBare(!embedded);
   const can = useResourceCan(type);
   const unitOpts = useUnitOptions(); // 单位列表读到后，列表里的单位编码才能换成名称
+  const { user: me } = useAuth();
+  const colCan = useMemo(() => createChecker(me?.permissions ?? { isCompanyAdmin: false, allow: [], deny: [] }), [me]);
+  // 列筛选（表格列头设置，服务端筛，分页总数是筛选后的）；条件按资料类型记在本机
+  const [colSaved, setColSaved] = useState<SavedColFilters>(() => readColFilters(def, colCan));
+  const colFilters = colSaved.filters;
+  const colType = useRef(type);
+  useEffect(() => {
+    if (colType.current === type) return;
+    colType.current = type;
+    setColSaved(readColFilters(def, colCan));
+  }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
+  const commitCol = (next: SavedColFilters) => { setColSaved(next); writeColFilters(type, next); setPage(1); };
   const [keyword, setKeyword] = useState('');
   const [tab, setTab] = useState(lockedTab ?? '');
   const [status, setStatus] = useState(() => readPrefs(type).status ?? '');
@@ -188,13 +202,13 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   const load = useCallback(async () => {
     try {
-      setData(await resourceApi.list(type, { page, pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals }));
+      setData(await resourceApi.list(type, { page, pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters }));
       setError('');
       if (type === 'finance-product-units') void loadUnitOptions(true); // 单位列表变了，商品档案的下拉也要跟着变
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
-  }, [type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals]);
+  }, [type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals, colFilters]);
 
   useEffect(() => { setArchived(false); setExpiring(false); setSort(null); }, [type]);
 
@@ -229,14 +243,30 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     setPage(1);
   }
   const gridLocked = gridOn && gridDirty;
+  // 有没保存的修改时，任何会丢掉修改的离开动作（退出表格、站内跳转、后退前进、切换资料）都先弹确认
+  const gridCtl = useRef<GridControl | null>(null);
+  const [leave, setLeave] = useState<LeaveRequest | null>(null);
+  const [leaveBusy, setLeaveBusy] = useState(false);
+  const leaveCounts = leave ? gridCtl.current?.counts() ?? { changes: 0, errors: 0 } : { changes: 0, errors: 0 };
+  async function leaveSave() {
+    const req = leave;
+    if (!req || !gridCtl.current) return;
+    setLeaveBusy(true);
+    let ok = false;
+    try { ok = await gridCtl.current.save(); } finally { setLeaveBusy(false); }
+    setLeave(null);
+    if (ok) req.go();
+    else { req.cancel?.(); setError('有行保存失败或格式不对，没有退出：请在表格里修改后再保存（失败原因在最右一列）。'); }
+  }
+  function leaveDiscard() { const req = leave; setLeave(null); req?.go(); }
+  function leaveStay() { const req = leave; setLeave(null); req?.cancel?.(); }
 
   const [seeding, setSeeding] = useState(false);
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [packagingXlOpen, setPackagingXlOpen] = useState(false);
   const [costXlOpen, setCostXlOpen] = useState(false);
   const [archiveTypesOpen, setArchiveTypesOpen] = useState(false);
-  const { user: me } = useAuth();
-  const costCan = createChecker(me?.permissions ?? { isCompanyAdmin: false, allow: [], deny: [] });
+  const costCan = colCan;
   async function seedFees() {
     if (!window.confirm('把旧程序里的费用类别树和费用项目（约 380 项）导入进来？已经有的编号不会重复，也不会被覆盖。')) return;
     setSeeding(true);
@@ -276,9 +306,10 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     return Object.keys(init).length ? init : undefined;
   }
 
-  const filtered = Boolean(keyword.trim() || tab || status || archived || expiring || Object.values(filterVals).some(Boolean));
+  const filtered = Boolean(colFilters.length || keyword.trim() || tab || status || archived || expiring || Object.values(filterVals).some(Boolean));
   const onCheck = (ids: number[], on: boolean) => setChecked((cur) => (on ? [...new Set([...cur, ...ids])] : cur.filter((id) => !ids.includes(id))));
   function clearFilters() {
+    if (colFilters.length) commitCol({ filters: [], labels: {} });
     setKeyword(''); setStatus(''); setArchived(false); setExpiring(false); setFilterVals({}); setTab(lockedTab ?? ''); setPage(1);
   }
   async function doExport(scope: 'filtered' | 'all' | 'picked') {
@@ -286,7 +317,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
       const cols = colKeys.filter((k) => derivedKeys.has(k));
       const out = await resourceApi.export(type, showHidden || archived, scope === 'all' ? { cols } : scope === 'picked'
         ? { ids: checked, cols }
-        : { cols, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, archived, expiring, filters: filterVals, sortBy: sort?.by, sortDir: sort?.dir });
+        : { cols, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, archived, expiring, filters: filterVals, colFilters, sortBy: sort?.by, sortDir: sort?.dir });
       downloadText(out.filename, out.csv);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '导出失败');
@@ -306,8 +337,20 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   if (archived) chips.push({ key: 'archived', text: '已归档', clear: () => { setArchived(false); setPage(1); } });
   if (showHidden && hiddenExists && !status && !archived) chips.push({ key: 'hidden', text: `含${def.statuses.filter((x) => x.hidden).map((x) => x.label).join('/')}`, clear: () => { setShowHidden(false); setPage(1); } });
   if (treeKey && filterVals[treeKey] && catPath) chips.push({ key: 'category', text: `分类：${catPath}`, clear: () => { setFilterVals((v) => ({ ...v, [treeKey]: '' })); setPage(1); } });
+  const colFieldLabel = (key: string) => (key === STATUS_COL ? '状态' : def.fields.find((f) => f.key === key)?.label ?? key);
+  const colValueLabel = (f: ColFilter) => (v: string) => {
+    if (f.key === STATUS_COL) return def.statuses.find((x) => x.value === v)?.label ?? v;
+    const field = def.fields.find((x) => x.key === f.key);
+    if (field?.type === 'select') return fieldOptions(field, {}, unitOpts).find((o) => o.value === v)?.label ?? v;
+    return colSaved.labels[labelKey(f.key, v)] ?? v;
+  };
+  colFilters.forEach((f, i) => {
+    const money = def.fields.find((x) => x.key === f.key)?.type === 'money';
+    const shown = money ? { ...f, value: f.value !== undefined ? unitYuanText(Number(f.value)) : undefined, value2: f.value2 !== undefined ? unitYuanText(Number(f.value2)) : undefined } : f;
+    chips.push({ key: `col:${i}`, text: describeColFilter(shown, colFieldLabel(f.key), colValueLabel(f)), clear: () => commitCol({ ...colSaved, filters: colFilters.filter((_, j) => j !== i) }) });
+  });
   const hasFilterPop = true;
-  const popCount = chips.filter((c) => c.key !== 'category').length;
+  const popCount = chips.filter((c) => c.key !== 'category' && !c.key.startsWith('col:')).length;
   const tabList = (tabField || def.quickTabs?.length) && !lockedTab
     ? [...resourceTabOptions(def), ...((def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || []), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)]
     : [];
@@ -470,10 +513,16 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
                 newDefaults={newInitial()}
                 newLabels={treeField && catPath && filterVals[treeField.key] ? { [treeField.key]: catPath } : undefined}
                 onSort={(key) => { setSort(sort?.by === key ? (sort.dir === 'asc' ? { by: key, dir: 'desc' } : null) : { by: key, dir: 'asc' }); setPage(1); }}
+                onSortTo={(key, dir) => { setSort(dir ? { by: key, dir } : null); setPage(1); }}
+                colFilters={colFilters}
+                colLabels={colSaved.labels}
+                onColFilter={(key, f, labels) => commitCol({ filters: [...colFilters.filter((x) => x.key !== key), ...(f ? [f] : [])], labels: { ...colSaved.labels, ...Object.fromEntries(Object.entries(labels).map(([v, l]) => [labelKey(key, v), l])) } })}
+                today={today}
+                controlRef={gridCtl}
                 onDirtyChange={setGridDirty}
                 onOpen={setSelected}
                 onSaved={(ok) => { if (ok) void load(); }}
-                onExit={leaveGrid}
+                onExit={() => (gridLocked ? setLeave({ go: leaveGrid }) : leaveGrid())}
               />
             ) : <div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />加载中…</div>
           ) : isMobile ? (
@@ -513,6 +562,8 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
         </section>
       </div>
 
+      {gridOn && <RouterLeaveBlocker when={gridDirty} onBlocked={setLeave} />}
+      {leave && <LeaveDialog changes={leaveCounts.changes} errors={leaveCounts.errors} busy={leaveBusy} onSave={() => void leaveSave()} onDiscard={leaveDiscard} onStay={leaveStay} />}
       {archiveTypesOpen && <ArchiveTypeDialog counts={data?.tabCounts} onClose={() => setArchiveTypesOpen(false)} onChanged={() => void load()} />}
       {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}

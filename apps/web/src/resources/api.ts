@@ -1,4 +1,4 @@
-import type { GridSaveRequest, GridSaveResponse, ResourceDef } from '@kudesi/shared';
+import type { ColFilter, GridSaveRequest, GridSaveResponse, ResourceDef } from '@kudesi/shared';
 import { api } from '../api/client';
 
 export interface FileInfo {
@@ -50,6 +50,8 @@ export interface ListParams {
   fieldKey?: string;
   fieldValue?: string | number;
   filters?: Record<string, string>;
+  /** 列筛选（服务端筛，分页总数是筛选后的） */
+  colFilters?: ColFilter[];
 }
 
 export interface CategoryTreeResult {
@@ -119,6 +121,7 @@ export function query(params: ListParams): string {
   if (params.fieldKey) q.set('fieldKey', params.fieldKey);
   if (params.fieldValue !== undefined) q.set('fieldValue', String(params.fieldValue));
   if (params.filters && Object.keys(params.filters).length) q.set('filters', JSON.stringify(params.filters));
+  if (params.colFilters?.length) q.set('colFilters', JSON.stringify(params.colFilters));
   const s = q.toString();
   return s ? `?${s}` : '';
 }
@@ -138,6 +141,14 @@ export const resourceApi = {
     if (p.status) q.set('status', p.status);
     if (p.showHidden) q.set('showHidden', '1');
     return api<CategoryTreeResult>(`/resources/${type}/category-tree?${q}`);
+  },
+  /** 单选列 / 状态列筛选浮层里各值的数量（按其它列的条件） */
+  columnFacets: (type: string, key: string, colFilters: ColFilter[], opts: { showHidden?: boolean; archived?: boolean } = {}) => {
+    const q = new URLSearchParams({ key });
+    if (colFilters.length) q.set('colFilters', JSON.stringify(colFilters));
+    if (opts.showHidden) q.set('showHidden', '1');
+    if (opts.archived) q.set('archived', '1');
+    return api<{ items: Array<{ value: string; count: number }> }>(`/resources/${type}/column-facets?${q.toString()}`);
   },
   gridSave: (type: string, body: GridSaveRequest) => api<GridSaveResponse<ResourceDto>>(`/resources/${type}/grid-save`, { method: 'POST', body }),
   list: (type: string, params: ListParams) => api<ListResult>(`/resources/${type}${query(params)}`),

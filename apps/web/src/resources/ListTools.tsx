@@ -95,6 +95,7 @@ export interface Chip { key: string; text: string; clear: () => void }
 export function ActiveChips({ chips, summary, onClearAll }: { chips: Chip[]; summary: string; onClearAll: () => void }) {
   return (
     <div className="res-chips" role="status" aria-live="polite">
+      {chips.length > 0 && <span className="res-chips-lead">已筛选</span>}
       {chips.map((c) => (
         <span key={c.key} className="res-chip">{c.text}<button type="button" aria-label={`清除${c.text}`} onClick={c.clear}><CloseIcon size={11} /></button></span>
       ))}

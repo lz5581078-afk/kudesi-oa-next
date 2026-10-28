@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 interface Props {
   columns?: ReactNode;
   onRecognize?: () => void;
+  /** 有没保存的修改：筛选、排序、翻页已锁定 */
+  locked?: boolean;
   total: number;
   invalid: number;
   deleted: number;
@@ -33,6 +35,7 @@ export function GridBar(p: Props) {
     <div className="grid-bar" role="toolbar" aria-label="表格编辑工具栏">
       <span className="pill ok">表格编辑中</span>
       <span className={dirty ? 'grid-count dirty' : 'grid-count'} role="status" aria-live="polite">{dirty ? `${p.total} 处修改` : '没有修改'}</span>
+      {p.locked && <span className="pill" role="note">筛选、排序、翻页已锁定：先保存或放弃</span>}
       {p.invalid > 0 && <span className="pill bad">{p.invalid} 个格子格式不对</span>}
       {p.errors > 0 && <span className="pill bad">{p.errors} 行保存失败</span>}
       <button type="button" className="secondary-button" disabled={!p.canUndo} onClick={p.onUndo} title="撤销（Ctrl+Z）">撤销</button>

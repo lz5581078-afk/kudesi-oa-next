@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GRID_SAVE_MAX_ROWS, createChecker, gridPolicyOf, permissionOwner, resourcePermission, type FieldDef, type Option, type ResourceDef } from '@kudesi/shared';
+import { GRID_SAVE_MAX_ROWS, STATUS_COL, todayShanghai, colFilterKindFor, readTimeKeys, createChecker, gridPolicyOf, permissionOwner, resourcePermission, restrictedFieldKeys, type ColFilter, type ColFilterKind, type FieldDef, type Option, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { ApiError } from '../../api/client';
 import { resourceApi, type ResourceDto } from '../api';
@@ -9,8 +9,10 @@ import { ChildPanel } from '../RecordDetail';
 import { LicenseRecognizeButton } from '../LicenseRecognize';
 import { CellEditor, GridDialog, type EditResult, type Move } from './CellEditor';
 import { ColumnPicker } from './ColumnPicker';
+import { ColumnMenu, type MenuOption } from './ColumnMenu';
 import { loadPicked, pickCandidates, savePicked } from './columnPick';
 import { GridBar } from './GridBar';
+import type { GridControl } from './LeaveGuard';
 import { parseTsv, toTsv } from './clipboard';
 import {
   applyChanges, applyResponse, buildRequest, newRow, cellEditText, chunkRequest, fillChanges, fillDownChanges, historyInit, historyPush, historyRedo, historyUndo,
@@ -18,6 +20,7 @@ import {
   type CellChange, type GridCol, type GridRow, type History, type Selection,
 } from './gridModel';
 import { resolveRefLabel } from './refResolve';
+import { labelKey } from '../colFilterPrefs';
 
 const ROW_H = 34;
 const OVERSCAN = 8;
@@ -54,6 +57,15 @@ interface Props {
   newDefaults?: Record<string, unknown>;
   newLabels?: Record<string, string>;
   onSort: (key: string) => void;
+  /** 列头菜单里直接选升序 / 降序 / 取消排序 */
+  onSortTo?: (key: string, dir: 'asc' | 'desc' | null) => void;
+  /** 当前生效的列筛选（服务端筛，分页总数是筛选后的）；改动由页面保存和请求 */
+  colFilters?: ColFilter[];
+  colLabels?: Record<string, string>;
+  onColFilter?: (key: string, filter: ColFilter | null, labels: Record<string, string>) => void;
+  today?: string;
+  /** 页面用它在离开前触发“保存并退出” */
+  controlRef?: React.MutableRefObject<GridControl | null>;
   onDirtyChange: (dirty: boolean) => void;
   onOpen: (id: number) => void;
   onSaved: (allOk: boolean) => void;
@@ -68,6 +80,8 @@ interface Props {
  */
 export function ResourceGrid(props: Props) {
   const { def, items, derived, sort, newDefaults, newLabels } = props;
+  const colFilters = useMemo(() => props.colFilters ?? [], [props.colFilters]);
+  const colLabels = props.colLabels ?? {};
   const { user: me } = useAuth();
   const perms = useMemo(() => createChecker(me?.permissions ?? { isCompanyAdmin: false, allow: [], deny: [] }), [me]);
   const owner = permissionOwner(def.key);
@@ -77,6 +91,9 @@ export function ResourceGrid(props: Props) {
   const canSecret = perms(resourcePermission(owner, 'secret'));
   const units = useUnitOptions();
   const canDisable = perms(resourcePermission(owner, 'disable'));
+  const restricted = useMemo(() => restrictedFieldKeys(def, perms), [def, perms]);
+  const computedKeys = useMemo(() => readTimeKeys(def.key), [def.key]);
+  const derivedKeys = useMemo(() => new Set(derived.map((x) => x.key)), [derived]);
   const pickItems = useMemo(
     () => pickCandidates(def, derived, { can: perms, canSecret, canDisable, canView: (t) => perms(resourcePermission(permissionOwner(t), 'view')) }),
     [def, derived, perms, canSecret, canDisable],
@@ -144,6 +161,23 @@ export function ResourceGrid(props: Props) {
     if (el && el.clientHeight > 0) setViewH(el.clientHeight);
   }, [total]);
 
+  /** 这一列的列筛选类型；null = 不提供筛选入口（统计列、子表列、没有权限的列、清单类） */
+  const filterKindOf = (c: GridCol): ColFilterKind | null => {
+    if (c.special === 'status') return 'status';
+    if (c.special || !c.field || derivedKeys.has(c.key)) return null;
+    return colFilterKindFor(c.field, restricted, computedKeys);
+  };
+  const menuOptions = (c: GridCol, kind: ColFilterKind): MenuOption[] | undefined => {
+    if (kind === 'status') return def.statuses.map((x) => ({ value: x.value, label: x.label }));
+    if (kind === 'select' && c.field) return fieldOptions(c.field, {}, units).map((o) => ({ value: o.value, label: o.label }));
+    return undefined;
+  };
+  const searchRef = (c: GridCol) => async (kw: string): Promise<MenuOption[]> => {
+    const target = c.field?.ref;
+    if (!target) return [];
+    if (target === 'user') return (await resourceApi.users()).filter((u) => u.active && (!kw || u.name.includes(kw))).slice(0, 30).map((u) => ({ value: String(u.id), label: u.name }));
+    return (await resourceApi.list(target, { keyword: kw || undefined, pageSize: 20, showHidden: true })).items.map((i) => ({ value: String(i.id), label: i.title }));
+  };
   const colWidth = (c: GridCol) => Math.max(MIN_W, widths[c.key] ?? defaultWidth(c));
   const optionsOf = useCallback((field: FieldDef, row: GridRow): readonly Option[] | undefined => (field.type === 'select' ? (field.optionsFrom ? fieldOptions(field, { ...row.data, status: row.status }, units) : field.options) : undefined), [units]);
 
@@ -316,11 +350,11 @@ export function ResourceGrid(props: Props) {
   };
 
   // ---------- 保存 ----------
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     const live = rowsRef.current;
     const s = summarize(live, allCols, defaults);
-    if (s.invalid > 0) return setMessage(`有 ${s.invalid} 个格子的内容格式不对（标红），请先修改。`);
-    if (s.deleted > 0 && !reason.trim()) return setMessage('有待归档的行，请先填写归档原因。');
+    if (s.invalid > 0) { setMessage(`有 ${s.invalid} 个格子的内容格式不对（标红），请先修改。`); return false; }
+    if (s.deleted > 0 && !reason.trim()) { setMessage('有待归档的行，请先填写归档原因。'); return false; }
     const req = buildRequest(live, allCols, reason.trim(), defaults);
     setSaving(true);
     setMessage('');
@@ -334,8 +368,10 @@ export function ResourceGrid(props: Props) {
       setMessage(failed ? `已保存 ${saved} 行，${failed} 行没有保存成功（标红，原因见最右一列）。` : `已保存 ${saved} 行。`);
       if (!failed) setReason('');
       props.onSaved(failed === 0);
+      return failed === 0;
     } catch (e) {
       setMessage(`${e instanceof ApiError ? e.message : '保存失败'}。已保存 ${saved} 行，其余修改还在表格里。`);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -346,10 +382,13 @@ export function ResourceGrid(props: Props) {
     setReason('');
     setMessage('');
   };
-  const exit = () => {
-    if (dirty && !window.confirm('还有没保存的修改，退出后会丢失。确定退出吗？')) return;
-    props.onExit();
-  };
+  // 退出前的确认由页面统一处理（保存并退出 / 放弃并退出 / 继续编辑），这里只通知
+  const exit = () => props.onExit();
+  useEffect(() => {
+    if (!props.controlRef) return;
+    props.controlRef.current = { save, counts: () => ({ changes: summary.total, errors: summary.errors }) };
+  });
+  useEffect(() => () => { if (props.controlRef) props.controlRef.current = null; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const refreshRow = async (row: GridRow) => {
     if (row.id === undefined) return;
     try { const dto = await resourceApi.get(def.key, row.id); setHist((h) => historyInit(replaceRow(h.rows, row.key, dto))); } catch (e) { setMessage(e instanceof ApiError ? e.message : '刷新失败'); }
@@ -434,6 +473,7 @@ export function ResourceGrid(props: Props) {
   return (
     <div className="grid-wrap">
       <GridBar
+        locked={dirty}
         columns={<ColumnPicker items={pickItems} picked={pickedNow} onChange={pickColumns} />}
         onRecognize={recognizeIdx !== null && canCreate || recognizeIdx !== null && recognizeIdx < rows.length ? () => setRecognizeRow(recognizeIdx) : undefined}
         total={summary.total} invalid={summary.invalid} deleted={summary.deleted} errors={summary.errors} saving={saving}
@@ -457,11 +497,26 @@ export function ResourceGrid(props: Props) {
               <tr>
                 <th className="grid-corner" scope="col">#</th>
                 {cols.map((c, ci) => {
-                  const sortable = c.field && ['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select'].includes(c.field.type);
+                  const sortable = Boolean(c.field && ['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select'].includes(c.field.type));
                   const dir = sort?.by === c.key ? sort.dir : null;
+                  const fkind = filterKindOf(c);
+                  const mine = colFilters.filter((f) => f.key === (c.special === 'status' ? STATUS_COL : c.key));
                   return (
-                    <th key={c.key} scope="col" className={`${freeze && ci === 0 ? 'frozen' : ''}${c.editable ? '' : ' ro'}`} style={freeze && ci === 0 ? { left: 64 } : undefined} aria-sort={dir ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'} title={c.editable ? undefined : c.reason}>
-                      {sortable && !dirty ? <button type="button" className="link-button" title="点击排序" onClick={() => props.onSort(c.key)}>{c.label}{dir ? (dir === 'asc' ? ' ↑' : ' ↓') : ''}</button> : <span>{c.label}</span>}
+                    <th key={c.key} scope="col" className={`${freeze && ci === 0 ? 'frozen' : ''}${c.editable ? '' : ' ro'}${mine.length ? ' filtered' : ''}`} style={freeze && ci === 0 ? { left: 64 } : undefined} aria-sort={dir ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'} title={c.editable ? undefined : c.reason}>
+                      <div className="grid-th">
+                        <span className="grid-th-label">{sortable && !dirty ? <button type="button" className="link-button" title="点击排序" onClick={() => props.onSort(c.key)}>{c.label}{dir ? (dir === 'asc' ? ' ↑' : ' ↓') : ''}</button> : <span>{c.label}</span>}</span>
+                        {fkind && props.onColFilter && (
+                          <ColumnMenu
+                            label={c.label} field={c.special === 'status' ? null : c.field} kind={fkind} current={mine} labels={Object.fromEntries(mine.flatMap((f) => (f.values ?? []).map((v) => [v, colLabels[labelKey(f.key, v)]] as const).filter(([, l]) => Boolean(l))))}
+                            sortable={sortable} sortDir={dir} locked={dirty} today={props.today ?? todayShanghai()}
+                            options={menuOptions(c, fkind)}
+                            loadFacets={fkind === 'select' && !c.field?.multi || fkind === 'status' ? async () => (await resourceApi.columnFacets(def.key, c.special === 'status' ? STATUS_COL : c.key, colFilters)).items : undefined}
+                            searchRef={fkind === 'ref' ? searchRef(c) : undefined}
+                            onSort={(d) => props.onSortTo?.(c.key, d)}
+                            onApply={(f, labels) => props.onColFilter?.(c.special === 'status' ? STATUS_COL : c.key, f, labels)}
+                          />
+                        )}
+                      </div>
                       <span className="col-resizer" role="separator" aria-label={`调整${c.label}列宽`} onMouseDown={(e) => resizeStart(e, c)} />
                     </th>
                   );
