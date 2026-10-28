@@ -240,6 +240,10 @@ export const draftApi = {
 export type { ResourceDef };
 
 export interface IntegrationOverview {
+  connections?: {
+    jushuitan: { configured: boolean; accounts: Array<{ name: string; status: string; tokenConfigured: boolean; refreshTokenConfigured: boolean; expiresAt: string | null }> };
+    feishu: { configured: boolean; channels: Array<{ key: string; credentialConfigured: boolean; recipientCount: number }> };
+  };
   zones: Array<{ value: string; label: string }>;
   qiniu: { configured: boolean; accessKey: string; secretKeyConfigured: boolean; bucket: string; zone: string; domain: string; isPrivate: boolean };
   vision: { configured: boolean; baseUrl: string; apiKeyConfigured: boolean; model: string; enabled: boolean };
