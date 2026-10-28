@@ -532,6 +532,7 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
   .org-tree-pane.has-selection { display: none; }
   .org-detail-pane:not(.has-selection) { display: none; }
   .dept-back { display: inline-block; }
+}
 /* ===== u4：商品档案详情成本汇总、复制按钮、手机卡片表、定价调试浮条 ===== */
 .cost-summary { padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
 .cost-summary-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 6px 0; }
@@ -550,6 +551,7 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
   .data-table.cards-narrow td { max-width: none; white-space: normal; border: 0; padding: 3px 0; display: flex; justify-content: space-between; gap: 12px; text-align: right; }
   .data-table.cards-narrow td[data-label]::before { content: attr(data-label); color: var(--muted); text-align: left; flex: none; }
   .data-table.cards-narrow td.card-skip { display: none; }
+}
 /* 财务单据与查询：日期快捷、可点汇总、手机卡片、开单细节（u3） */
 .chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .chip { padding: 4px 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: #fff; cursor: pointer; font: inherit; }
@@ -581,6 +583,7 @@ button.topnav-link { background: transparent; border-top: 0; border-left: 0; bor
   .slip-foot { flex-wrap: wrap; }
   .slip-party { grid-column: span 1; }
 
+}
 /* ===== 工作台/流程/系统页面（u5 补齐）：追加段 ===== */
 .search-input { height: 34px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); min-width: 220px; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -759,6 +762,7 @@ div.ws-task { cursor: default; }
   .ws-layout, .ws-two { grid-template-columns: 1fr; }
   .ws-picker select { min-width: 0; width: 100%; }
 
+}
 /* 售后、订单申诉、兜底监督 */
 .svc-section { margin-bottom: 16px; }
 .svc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
