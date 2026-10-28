@@ -8,13 +8,15 @@ export const DUTY_CATEGORIES = ['岗位职责', '入职培训', '绩效考核', 
 export interface PositionDto {
   id: number; name: string; departmentId: number | null; workspaceType: string; permissions: string[]; userCount: number;
   level: PositionLevel; supervisorPositionId: number | null; description: string | null; status: 'active' | 'inactive'; positionKey?: string | null;
+  /** 启用中的岗位条目（职责、培训、考核等）数量 */
+  dutyCount?: number;
 }
 export interface DutyDto {
   id: number; category: string; title: string; description: string | null; frequency: string | null; relatedModule: string | null;
   completionStandard: string | null; isKey: boolean; status: 'active' | 'inactive';
 }
 export interface PositionProfile {
-  position: { id: number; name: string; departmentId: number | null; departmentName: string | null; workspaceType: string; level: PositionLevel; supervisorPositionId: number | null; supervisorPositionName: string | null; description: string | null; status: 'active' | 'inactive' };
+  position: { id: number; name: string; positionKey?: string | null; departmentId: number | null; departmentName: string | null; workspaceType: string; level: PositionLevel; supervisorPositionId: number | null; supervisorPositionName: string | null; description: string | null; status: 'active' | 'inactive' };
   duties: DutyDto[];
   staff: Array<{ id: number; name: string; status: string; concurrent: boolean }>;
   permissions: string[];
@@ -45,8 +47,11 @@ export interface StaffDetail extends StaffDto { allow: string[]; deny: string[] 
 export interface DepartmentProfile {
   department: { id: number; name: string; parentId: number | null; parentName: string | null; status: string; managerId: number | null; managerName: string | null };
   headcount: number;
-  positions: Array<{ id: number; name: string; level: PositionLevel; status: string; userCount: number }>;
-  staff: Array<{ id: number; name: string; account: string; status: string; positionName: string | null; managerName: string | null }>;
+  positions: Array<{ id: number; name: string; level: PositionLevel; status: string; userCount: number; workspaceType?: string; dutyCount?: number }>;
+  staff: Array<{ id: number; name: string; account: string; status: string; positionName: string | null; managerName: string | null; groups?: string[] }>;
+  children?: Array<{ id: number; name: string; status: string; headcount: number }>;
+  /** 归在本部门的职责组（职责组的“所属部门”） */
+  dutyGroups?: Array<{ id: number; title: string; status: string; memberCount: number }>;
   [k: string]: unknown;
 }
 

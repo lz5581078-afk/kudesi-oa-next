@@ -113,6 +113,8 @@ export type Cond =
   | { viaUserNoPosition: string }
   /** 本记录的员工字段 viaUserDept 指向的员工，所在部门等于 dept（'$value' = 计算筛选下拉选中的部门）；includeChildren 连下级部门 */
   | { viaUserDept: string; dept: number | '$value'; includeChildren?: boolean }
+  /** 本记录的部门字段 deptField（ref 到 department）等于 dept（'$value' = 计算筛选下拉选中的部门）；includeChildren 连下级部门 */
+  | { deptField: string; dept: number | '$value'; includeChildren?: boolean }
   | { rel: { type: string; field: string; where?: Cond }; op: 'exists' | 'none' }
   | { viaRef: string; where: Cond }
   | { all: readonly Cond[] }
@@ -202,6 +204,8 @@ export interface ResourceDef {
   tabSplit?: { tab: string; field: string; default: string; options: readonly Option[] };
   /** 列表勾选后可批量做的事：status=批量停用/启用（要填原因），其余是批量修改这个字段（如移动分类） */
   batch?: readonly string[];
+  /** 列表按这个字段的取值分组显示（可折叠的分组条，没填的归“未分类”）；字段必须是引用字段，分组顺序由 groupOrder 决定 */
+  listGroupBy?: { field: string; emptyLabel: string; order: 'department' };
   /** 快捷页签（条件页签，不依赖 tabsBy）；页签值为 q:<key> */
   quickTabs?: readonly QuickTab[];
   /** 计算筛选下拉（条件在服务端按今天实时算） */
@@ -816,6 +820,12 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     children: ['duty-group-items', 'duty-group-members'],
     quickTabs: [
       { key: 'empty', label: '没有成员', when: { all: [{ field: '$status', op: 'ne', value: 'inactive' }, { rel: { type: 'duty-group-members', field: 'groupId', where: { field: '$status', op: 'eq', value: 'normal' } }, op: 'none' }] } },
+      { key: 'uncat', label: '未分类', when: { all: [{ field: '$status', op: 'ne', value: 'inactive' }, { field: 'departmentId', op: 'empty' }] } },
+    ],
+    // 按部门分类：列表按部门分组（可折叠），可按部门（含下级）筛选；没有部门的归“未分类”
+    listGroupBy: { field: 'departmentId', emptyLabel: '未分类', order: 'department' },
+    computedFilters: [
+      { key: 'dutyDept', label: '所属部门', optionsFrom: 'departments', when: { deptField: 'departmentId', dept: '$value', includeChildren: true } },
     ],
     derivedColumns: [
       { key: 'memberCount', label: '成员数', kind: 'count', type: 'duty-group-members', field: 'groupId', where: { field: '$status', op: 'eq', value: 'normal' }, list: true },
@@ -824,6 +834,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       text('groupKey', '职责组编码', '基础', { required: true, list: true, search: true, help: '流程和任务按编码引用，建好后不能修改' }),
       text('name', '职责组名称', '基础', { required: true, list: true, search: true }),
+      ref('departmentId', '所属部门', '基础', 'department', { list: true, help: '职责组按部门分类；不选则归“未分类”' }),
       select('scope', '范围', '基础', o('company:公司级', 'department:部门级'), { list: true }),
       textarea('description', '说明', '基础'),
       ref('leaderUserId', '负责人', '基础', 'user', { list: true }),

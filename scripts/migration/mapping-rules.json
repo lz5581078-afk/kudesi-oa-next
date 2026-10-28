@@ -700,6 +700,9 @@
         ],
         "description": [
           "description"
+        ],
+        "departmentId": [
+          "@review:旧职责组表没有部门归属列；迁入后进入“未分类”，由管理员在职责组页按部门归类"
         ]
       }
     },

@@ -139,9 +139,15 @@ export class OrgAdminService {
         .where('r.companyId = :c AND r.type = :t', { c: actor.companyId, t: 'fixed-assets' })
         .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.departmentId')) = :d", { d: String(id) })
         .getMany();
-      const moved = { kids, positions: positions.length, users: activeUsers.length, assets: assets.length, archivedUsers: inactiveUsers.length };
-      if (kids + positions.length + activeUsers.length + assets.length > 0) {
-        if (!transferToId) throw new ConflictException('部门下还有下级部门、岗位、在职员工或固定资产，请选择一个接收部门后再删除');
+      // 职责组按部门分类，所属部门也存在资料数据里，同样要转走，不能留下指向已删部门的引用
+      const groups = await em
+        .createQueryBuilder(ResourceRecord, 'r')
+        .where('r.companyId = :c AND r.type = :t', { c: actor.companyId, t: 'duty-groups' })
+        .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.departmentId')) = :d", { d: String(id) })
+        .getMany();
+      const moved = { kids, positions: positions.length, users: activeUsers.length, assets: assets.length, dutyGroups: groups.length, archivedUsers: inactiveUsers.length };
+      if (kids + positions.length + activeUsers.length + assets.length + groups.length > 0) {
+        if (!transferToId) throw new ConflictException('部门下还有下级部门、岗位、在职员工、固定资产或职责组，请选择一个接收部门后再删除');
         if (transferToId === id) throw new BadRequestException('接收部门不能是被删除的部门');
         const target = await this.mustDepartment(em, actor.companyId, transferToId);
         // 接收部门不能是被删除部门的下级，否则下级部门会挂到自己下面
@@ -168,6 +174,19 @@ export class OrgAdminService {
             companyId: actor.companyId, resourceType: 'fixed-assets', resourceId: a.id, action: 'department_transferred', actorId: actor.id,
             beforeJson: before as never, afterJson: { title: a.title, status: a.status, ...a.data } as never,
             note: `部门「${d.name}」已删除，资产转到「${target!.name}」`,
+          });
+        }
+      }
+      if (groups.length && transferToId) {
+        const target = await this.mustDepartment(em, actor.companyId, transferToId);
+        for (const g of groups) {
+          const before = { title: g.title, status: g.status, ...g.data };
+          g.data = { ...g.data, departmentId: transferToId };
+          await em.save(ResourceRecord, g);
+          await em.insert(ResourceChangeLog, {
+            companyId: actor.companyId, resourceType: 'duty-groups', resourceId: g.id, action: 'department_transferred', actorId: actor.id,
+            beforeJson: before as never, afterJson: { title: g.title, status: g.status, ...g.data } as never,
+            note: `部门「${d.name}」已删除，职责组转到「${target!.name}」`,
           });
         }
       }
@@ -206,11 +225,21 @@ export class OrgAdminService {
     const groupName = new Map(groups.map((g) => [g.id, g.title]));
     const posName = new Map(positions.map((p) => [p.id, p.name]));
     const posAll = await this.positionMap(em, actor.companyId);
+    // 归在本部门的职责组（职责组的“所属部门”）及在组人数
+    const deptGroups = (await em.createQueryBuilder(ResourceRecord, 'r')
+      .where('r.companyId = :c AND r.type = :t AND r.archivedAt IS NULL', { c: actor.companyId, t: 'duty-groups' })
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.departmentId')) = :d", { d: String(id) })
+      .orderBy('r.id', 'ASC').getMany());
+    const deptGroupMembers = deptGroups.length
+      ? (await em.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'duty-group-members' }, select: ['id', 'data', 'status'] })).filter((r) => r.status === 'normal' && deptGroups.some((g) => g.id === Number(r.data.groupId)))
+      : [];
+    const posDuties = positions.length ? await em.find(PositionDuty, { where: { companyId: actor.companyId, positionId: In(positions.map((p) => p.id)), status: 'active' }, select: ['id', 'positionId'] }) : [];
     const headcount = async (deptId: number) => allUsers.filter((u) => u.departmentId === deptId && u.status === 'active').length;
     return {
       department: { id: d.id, name: d.name, parentId: d.parentId, parentName: parent?.name ?? null, status: d.status, managerId: d.managerId, managerName: d.managerId ? nameOf.get(d.managerId) ?? null : null },
       headcount: users.filter((u) => u.status === 'active').length,
-      positions: positions.map((p) => ({ id: p.id, name: p.name, level: p.level, status: p.status, userCount: users.filter((u) => u.status === 'active' && (u.positionId === p.id || (u.extraPositionIds ?? []).includes(p.id))).length })),
+      dutyGroups: deptGroups.map((g) => ({ id: g.id, title: g.title, status: g.status, memberCount: deptGroupMembers.filter((m) => Number(m.data.groupId) === g.id).length })),
+      positions: positions.map((p) => ({ id: p.id, name: p.name, level: p.level, status: p.status, workspaceType: p.workspaceType, dutyCount: posDuties.filter((x) => x.positionId === p.id).length, userCount: users.filter((u) => u.status === 'active' && (u.positionId === p.id || (u.extraPositionIds ?? []).includes(p.id))).length })),
       staff: users.map((u) => ({
         id: u.id, name: u.name, account: u.account ?? '', status: u.status, positionName: u.positionId ? posName.get(u.positionId) ?? posAll.get(u.positionId) ?? null : null,
         managerName: u.managerId ? nameOf.get(u.managerId) ?? null : null,
@@ -227,7 +256,9 @@ export class OrgAdminService {
     const perms = ids.length ? await this.ds.manager.find(PositionPermission, { where: { positionId: In(ids) } }) : [];
     const people = await this.ds.manager.find(User, { where: { companyId: actor.companyId }, select: ['id', 'positionId', 'extraPositionIds'] });
     const countOf = (pid: number) => people.filter((u) => u.positionId === pid || (u.extraPositionIds ?? []).includes(pid)).length;
+    const dutyRows = ids.length ? await this.ds.manager.find(PositionDuty, { where: { companyId: actor.companyId, positionId: In(ids), status: 'active' }, select: ['id', 'positionId'] }) : [];
     return rows.map((r) => ({
+      dutyCount: dutyRows.filter((d) => d.positionId === r.id).length,
       id: r.id, name: r.name, positionKey: r.positionKey, departmentId: r.departmentId, workspaceType: r.workspaceType,
       level: r.level, supervisorPositionId: r.supervisorPositionId, description: r.description, status: r.status,
       permissions: perms.filter((p) => p.positionId === r.id).map((p) => p.permission).sort(),
