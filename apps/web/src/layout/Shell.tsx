@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { directPage, findPageByPath, splitMobileSections, visibleSections, type VisibleSection } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
+import { AppbarContext, useAppbarState } from './AppbarSlot';
 import { CommandPalette } from './CommandPalette';
 import { ModulePanel } from './ModulePanel';
 import { MoreIcon, NavIcon, SearchIcon } from './NavIcons';
@@ -18,6 +19,7 @@ export function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [panelId, setPanelId] = useState<string | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const appbar = useAppbarState();
 
   const sections = useMemo(() => visibleSections(can), [can]);
   const current = findPageByPath(location.pathname);
@@ -58,6 +60,7 @@ export function Shell() {
   };
 
   return (
+    <AppbarContext.Provider value={appbar.value}>
     <div className="app-shell">
       <aside className="rail">
         <Link to="/" className="rail-brand" title="小白全流程系统" aria-label="回到首页"><span aria-hidden="true">白</span></Link>
@@ -78,9 +81,12 @@ export function Shell() {
       <div className="app-main">
         <header className="appbar">
           <Link to="/" className="appbar-brand" aria-label="回到首页"><span aria-hidden="true">白</span></Link>
-          <div className="appbar-title" aria-label="当前位置">
-            {activeSection && <small>{activeSection.label}</small>}
-            <span className="appbar-page">{pageTitle || '小白全流程系统'}</span>
+          <div className="appbar-lead">
+            <div className="appbar-title" aria-label="当前位置">
+              {activeSection && !appbar.bare && <small>{activeSection.label}</small>}
+              <span className="appbar-page">{pageTitle || '小白全流程系统'}</span>
+            </div>
+            <span className="appbar-slot" ref={appbar.setSlot} />
           </div>
           <button type="button" className="appbar-search" onClick={() => setPaletteOpen(true)} aria-label="搜索页面">
             <SearchIcon />
@@ -147,5 +153,6 @@ export function Shell() {
         />
       )}
     </div>
+    </AppbarContext.Provider>
   );
 }

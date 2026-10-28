@@ -1,95 +1,31 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUnitOptions } from './unitOptions';
-import { ASSET_LOG_LABELS, RESOURCE_DEFS, relationKindLabel, addDaysText, dueBadgeFor, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceAction, type ResourceDef } from '@kudesi/shared';
+import { RESOURCE_DEFS, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
 import { VerificationHistoryPanel } from './VerificationHistoryPanel';
-import { FileList } from './FilesField';
 import { resourceApi, type LogEntry, type Relation, type ResourceDto } from './api';
 import { displayValue, statusOf } from './format';
 import { RelationDialog, parsePurpose, type EditableLink } from './RelationDialog';
-import { ReasonDialog, RecordForm, clearRefCache, loadRefOptions } from './RecordForm';
+import { ReasonDialog, RecordForm, clearRefCache } from './RecordForm';
 import { StatusControl, typeLabel } from './StatusControl';
 import { RevenuePanel } from './RevenuePanel';
-import { CopyButton, copyText, isCopyable, urlOf } from './CopyValue';
 import { LinkExistingStoresButton } from './LicenseActions';
 import { DutyGroupSummary } from './DutyGroupSummary';
-import { KeyFacts } from './KeyFacts';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
 import { StoreMetricsPanel } from './StoreMetricsPanel';
 import { ProductCostSummary } from './ProductCostSummary';
 import { DerivedStoresPanel, PartnerSubjectPanel, PhoneArchiveButton, ReturnBorrowButton, StoreAssignButton, StoreReleaseButton } from './CertPanels';
+import { useResourceCan } from './useResourceCan';
+import { BankCopyAll, InfoValue, SecretCell } from './DetailFields';
+import { ACTION_LABEL, LogChanges } from './DetailLogs';
+import { DetailHead, type DetailNav } from './DetailHead';
+import { FileList } from './FilesField';
+import { ChevronDown } from './ResIcons';
 
-export function useResourceCan(type: string) {
-  const { user } = useAuth();
-  const check = user ? createChecker(user.permissions) : () => false;
-  return (action: ResourceAction) => check(resourcePermission(permissionOwner(type), action));
-}
-
-const ACTION_LABEL: Record<string, string> = {
-  import: '导入', link: '绑定关联', unlink: '解除关联', link_update: '修改关联信息',
-  create: '新建', update: '修改', status: '改状态', delete: '删除', reveal: '查看明文', archived: '归档', restored: '恢复',
-  ...ASSET_LOG_LABELS,
-};
-
-/** 归档确认框里的“关联摘要”：告诉操作人这条资料现在还关联着什么（归档不会动它们）。 */
-function relationHint(relations: Relation[] | null): string {
-  if (!relations || relations.length === 0) return '';
-  const by = new Map<string, number>();
-  for (const r of relations) by.set(typeLabel(r.type), (by.get(typeLabel(r.type)) ?? 0) + 1);
-  return `现在关联着：${[...by].map(([k, n]) => `${k} ${n} 条`).join('、')}。`;
-}
-
-function SecretCell({ def, record, fieldKey }: { def: ResourceDef; record: ResourceDto; fieldKey: string }) {
-  const can = useResourceCan(def.key);
-  const [value, setValue] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [left, setLeft] = useState(0);
-  const shown = record.secretConfigured[fieldKey] ? '••••••' : '';
-  useEffect(() => {
-    if (value === null) return;
-    setLeft(30); // 明文只显示 30 秒（旧系统同款），倒计时给人看
-    const t = setInterval(() => setLeft((n) => {
-      if (n <= 1) { setValue(null); setCopied(false); return 0; }
-      return n - 1;
-    }), 1000);
-    return () => clearInterval(t);
-  }, [value]);
-  // 换了一条记录，上一条的明文立刻收起
-  useEffect(() => { setValue(null); setCopied(false); setError(''); }, [record.id]);
-  if (!record.secretConfigured[fieldKey]) return <span className="muted">未设置</span>;
-  return (
-    <span className="secret-cell">
-      <span className="mono">{value ?? shown}</span>{' '}
-      {value !== null && <small className="muted">{left} 秒后隐藏 </small>}
-      {can('secret') &&
-        (value === null ? (
-          <button
-            type="button"
-            className="link-button"
-            onClick={async () => {
-              try {
-                setValue((await resourceApi.reveal(def.key, record.id, fieldKey)).value);
-              } catch (e) {
-                setError(e instanceof ApiError ? (e.message || '没有查看这项敏感信息的权限，请联系管理员开通。') : '读取失败，请稍后重试。');
-              }
-            }}
-          >
-            查看（会留记录）
-          </button>
-        ) : (
-          <>
-            <button type="button" className="link-button" onClick={() => { void copyText(value).then((ok) => (ok ? setCopied(true) : setError('浏览器不允许复制，请手动选中后复制。'))); }}>{copied ? '已复制' : '复制'}</button>{' '}
-            <button type="button" className="link-button" onClick={() => { setValue(null); setCopied(false); }}>隐藏</button>
-          </>
-        ))}
-      {error && <small className="bad-text"> {error}</small>}
-    </span>
-  );
-}
+export { useResourceCan };
 
 /** 新增子记录时的默认值：成本明细行默认采购成本、商品规格单位、今天生效、手工锁定（旧系统同款）。 */
 export function childDefaults(childType: string, isNew: boolean, parent: ResourceDto): Record<string, unknown> {
@@ -219,7 +155,24 @@ function WarehousePhotoUpload({ record, onDone }: { record: ResourceDto; onDone:
   );
 }
 
-export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: ResourceDef; id: number; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
+/** 归档确认框里的“关联摘要”：告诉操作人这条资料现在还关联着什么（归档不会动它们）。 */
+function relationHint(relations: Relation[] | null): string {
+  if (!relations || relations.length === 0) return '';
+  const by = new Map<string, number>();
+  for (const r of relations) by.set(typeLabel(r.type), (by.get(typeLabel(r.type)) ?? 0) + 1);
+  return `现在关联着：${[...by].map(([k, n]) => `${k} ${n} 条`).join('、')}。`;
+}
+
+/** 输入框里敲字时，上下键不能抢走：只有焦点在空白处、表格行或详情本身时才切换记录。 */
+function typingTarget(el: EventTarget | null): boolean {
+  const n = el as HTMLElement | null;
+  if (!n || !n.tagName) return false;
+  return /^(INPUT|TEXTAREA|SELECT)$/.test(n.tagName) || n.isContentEditable;
+}
+
+const HIDE_EMPTY_KEY = 'kudesi.detail.hideEmpty';
+
+export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def: ResourceDef; id: number; nav?: DetailNav; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const can = useResourceCan(def.key);
   useUnitOptions();
   const { user: me } = useAuth();
@@ -237,6 +190,10 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   const archivable = Boolean(archivePolicyOf(def.key));
   const [error, setError] = useState('');
   const [logLimit, setLogLimit] = useState(15);
+  const [activeGroup, setActiveGroup] = useState('');
+  const [hideEmpty, setHideEmptyState] = useState(() => { try { return localStorage.getItem(HIDE_EMPTY_KEY) === '1'; } catch { return false; } });
+  const setHideEmpty = (v: boolean) => { setHideEmptyState(v); try { localStorage.setItem(HIDE_EMPTY_KEY, v ? '1' : '0'); } catch { /* 不记住而已 */ } };
+  const body = useRef<HTMLDivElement>(null);
   const today = todayShanghai();
 
   const load = useCallback(async () => {
@@ -252,19 +209,24 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   useEffect(() => {
     setTab('info');
     setLogLimit(15);
+    setEditGroup(null);
     void load();
   }, [load]);
 
-  // Esc 关闭详情（有弹窗、下拉在前面时先让它们处理）
+  // 快捷键：Esc 关闭；↑ / ↓ 切换上一条、下一条（有弹窗、下拉、输入框在前面时让它们先处理）
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key !== 'Escape' && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
       if (document.querySelector('[role="dialog"], [role="menu"], .inline-form')) return;
-      onClose();
+      if (e.key === 'Escape') { onClose(); return; }
+      if (typingTarget(e.target) || !nav) return;
+      const go = e.key === 'ArrowUp' ? nav.onPrev : nav.onNext;
+      if (go) { e.preventDefault(); go(); }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, nav]);
 
   useEffect(() => {
     if (record && relations === null) resourceApi.relations(def.key, id).then(setRelations).catch(() => setRelations([]));
@@ -274,22 +236,25 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   if (!record) {
     const missing = /不存在|404|not found/i.test(error);
     return (
-      <aside className="drawer card" aria-label={`${def.label}详情`}>
-        <div className="drawer-head between"><span className="muted">{def.label}</span><button type="button" className="icon-button" aria-label="关闭详情" onClick={onClose}>✕</button></div>
+      <aside className="rd" aria-label={`${def.label}详情`}>
+        <header className="rd-head"><div className="rd-line"><button type="button" className="rd-back res-btn" onClick={onClose}>← 返回列表</button><span className="muted">{def.label}</span><span className="rd-gap" /><button type="button" className="res-btn icon" aria-label="关闭详情" onClick={onClose}>✕</button></div></header>
         {error
-          ? <div className="drawer-body"><div className="notice error" role="alert">{missing ? '这条资料已经不存在，可能已被删除。返回列表查看其他资料。' : `资料没有加载成功：${error}`}</div>{!missing && <button type="button" className="secondary-button" onClick={() => void load()}>重新加载</button>}</div>
-          : <div className="empty-state muted">加载中…</div>}
+          ? <div className="rd-body"><div className="notice error" role="alert">{missing ? '这条资料已经不存在，可能已被删除。返回列表查看其他资料。' : `资料没有加载成功：${error}`}</div>{!missing && <button type="button" className="res-btn" onClick={() => void load()}>重新加载</button>}</div>
+          : <div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />加载中…</div>}
       </aside>
     );
   }
 
-  const st = statusOf(def, record.status);
   const groups = new Map<string, typeof def.fields[number][]>();
   for (const f of def.fields) {
     if (f.permission && !(me && createChecker(me.permissions)(f.permission))) continue;
     if (f.showWhen && !f.showWhen.in.includes(String(f.showWhen.field === 'status' ? record.status : (record.data[f.showWhen.field] ?? '')))) continue;
     groups.set(f.group, [...(groups.get(f.group) ?? []), f]);
   }
+  const filled = (f: typeof def.fields[number]) => (f.type === 'secret' ? Boolean(record.secretConfigured[f.key]) : displayValue(f, record) !== '');
+  const sectionList = [...groups.entries()]
+    .map(([group, fields]) => ({ group, fields, shown: hideEmpty ? fields.filter(filled) : fields }))
+    .filter((s) => s.shown.length > 0 || editGroup === s.group);
   const tabs: Array<[Tab, string]> = [
     ['info', '详情'],
     ...(def.key === 'locations' ? ([['contents' as Tab, '存放内容']] as Array<[Tab, string]>) : []),
@@ -305,91 +270,143 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
     ['logs', '操作记录'],
   ].filter(([key]) => !record.warehouseMode || key === 'info') as Array<[Tab, string]>;
 
+  const secId = (g: string) => `sec-${def.key}-${id}-${g}`;
+  const jump = (g: string) => { setActiveGroup(g); document.getElementById(secId(g))?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); };
+  const onBodyScroll = () => {
+    const box = body.current;
+    if (!box || tab !== 'info') return;
+    const top = box.getBoundingClientRect().top + 24;
+    let current = sectionList[0]?.group ?? '';
+    for (const s of sectionList) { const el = document.getElementById(secId(s.group)); if (el && el.getBoundingClientRect().top <= top) current = s.group; }
+    if (current !== activeGroup) setActiveGroup(current);
+  };
+  const reloadAll = () => { void load(); onChanged(); };
+  const live = !record.archived;
+
+  const statusSlot = live && def.key !== 'fixed-assets' && can('disable')
+    ? <span className={`rd-status ${statusOf(def, record.status).tone === 'muted' ? 'warn' : statusOf(def, record.status).tone}`}><StatusControl def={def} id={record.id} current={record.status} onChanged={reloadAll} onError={setError} /></span>
+    : undefined;
+
+  const moreItems: Array<{ key: string; label: string; danger?: boolean; title?: string; run: () => void }> = [];
+  if (record.archived && can('delete')) moreItems.push({ key: 'restore', label: '恢复…', run: () => setRestoring(true) });
+  if (live && onCopy && can('create')) {
+    moreItems.push({ key: 'copy', label: '复制新建', title: '按这条的内容新建一条，编码、图片不带过去', run: () => {
+      const values: Record<string, unknown> = {};
+      for (const f of def.fields) {
+        if (f.readonly || f.type === 'files' || f.type === 'secret' || f.type === 'sensitive' || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key)) continue;
+        const v = record.data[f.key];
+        if (v !== undefined && v !== null && v !== '') values[f.key] = v;
+      }
+      onCopy(values);
+    } });
+  }
+  if (live && can('delete')) moreItems.push({ key: 'delete', label: archivable ? '归档…' : '删除…', danger: true, run: () => setDeleting(true) });
+
+  const phoneRecharge = live && def.key === 'phones' && can('edit') ? (
+    <button type="button" className="res-btn" title="把最近充值日记为今天，下次充值日按充值周期自动更新" onClick={async () => {
+      const t = todayShanghai();
+      const cycle = Number(record.data.rechargeCycleDays) || 30;
+      if (!window.confirm(`最近充值日记为 ${t}，下次充值日更新为 ${addDaysText(t, cycle)}。`)) return;
+      try { setRecord(await resourceApi.update('phones', record.id, { lastRechargeAt: t })); setLogs(null); onChanged(); } catch (e) { setError(e instanceof ApiError ? e.message : '记录失败'); }
+    }}>记录今天已充值</button>
+  ) : null;
+  const assetBar = def.key === 'fixed-assets' && live && can('edit') ? <AssetActionBar record={record} onDone={reloadAll} /> : null;
+  const quick = phoneRecharge || assetBar || record.warehouseMode ? <>{phoneRecharge}{assetBar}{record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}</> : undefined;
+
   return (
-    <aside className={wide ? 'drawer card drawer-wide' : 'drawer card'} aria-label={`${def.label}详情`}>
-      <div className="drawer-head">
-        <div className="between">
-          <nav aria-label="位置" className="muted breadcrumb"><button type="button" className="link-button" onClick={onClose}>资料</button> › <button type="button" className="link-button" onClick={onClose}>{def.label}</button> › <span>{record.title}</span></nav>
-          <button type="button" className="drawer-back secondary-button" onClick={onClose}>← 返回列表</button>
-          <button type="button" className="icon-button drawer-expand" aria-pressed={wide} aria-label={wide ? '还原宽度' : '展开到全宽'} title={wide ? '还原宽度' : '展开到全宽'} onClick={() => setWide((v) => !v)}>{wide ? '⤡' : '⤢'}</button>
-          <button type="button" className="icon-button" aria-label="关闭详情" onClick={onClose}>✕</button>
-        </div>
-        <div className="drawer-title">{record.title}</div>
-        <div className="pill-row">
-          <span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>
-          {record.statusReason && <span className="muted">原因：{record.statusReason}</span>}
-          {record.archived && <span className="muted">已归档{record.archived.reason ? `：${record.archived.reason}` : ''}（{new Date(record.archived.at).toLocaleDateString('zh-CN')}）</span>}
-        </div>
-        <KeyFacts def={def} record={record} canSee={(f) => !f.permission || Boolean(me && createChecker(me.permissions)(f.permission))} />
-      </div>
-      <div role="tablist" aria-label="详情分区" className="tabs">
+    <aside className={wide ? 'rd rd-wide' : 'rd'} aria-label={`${def.label}详情`}>
+      <DetailHead
+        def={def}
+        record={record}
+        nav={nav}
+        wide={wide}
+        onToggleWide={() => setWide((v) => !v)}
+        onClose={onClose}
+        statusSlot={statusSlot}
+        primary={live && can('edit') ? <button type="button" className="res-btn primary" onClick={() => setEditing(true)}>编辑</button> : undefined}
+        more={moreItems.length > 0 ? (
+          <MoreMenu items={moreItems} />
+        ) : undefined}
+        quick={quick}
+        canSee={(f) => !f.permission || Boolean(me && createChecker(me.permissions)(f.permission))}
+      />
+      <div role="tablist" aria-label="详情分区" className="rd-tabs">
         {tabs.map(([key, label]) => (
-          <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? 'tab active' : 'tab'} onClick={() => setTab(key)}>
+          <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? 'rd-tab active' : 'rd-tab'} onClick={() => setTab(key)}>
             {label}
           </button>
         ))}
       </div>
-      <div className="drawer-body">
+      <div className="rd-body" ref={body} onScroll={onBodyScroll}>
         {error && <div role="alert" className="notice error">{error}</div>}
-        {record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}
-        {tab === 'info' && def.key === 'finance-products' && <ProductCostSummary def={def} record={record} />}
-        {tab === 'info' && <BankCopyAll def={def} record={record} />}
-        {tab === 'info' && groups.size > 1 && (
-          <nav aria-label="分区导航" className="section-nav pill-row">
-            {[...groups.keys()].map((g) => (
-              <button key={g} type="button" className="chip" onClick={() => document.getElementById(`sec-${def.key}-${id}-${g}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })}>{g}</button>
-            ))}
-          </nav>
-        )}
-        {tab === 'info' &&
-          [...groups.entries()].map(([group, fields]) => (
-            <section key={group} id={`sec-${def.key}-${id}-${group}`}>
-              <h2 className="section-title between">
-                <span>{group}</span>
-                {can('edit') && !record.archived && editGroup !== group && fields.some((f) => !f.readonly) && (
-                  <button type="button" className="link-button" aria-label={`编辑${group}`} onClick={() => setEditGroup(group)}>编辑本区</button>
-                )}
-              </h2>
-              {editGroup === group ? (
-                <RecordForm
-                  def={def}
-                  record={record}
-                  onlyGroup={group}
-                  inline
-                  onClose={() => setEditGroup(null)}
-                  onSaved={(dto) => { setEditGroup(null); setRecord(dto); setLogs(null); setRelations(null); onChanged(); }}
-                />
-              ) : (
-              <dl className="kv">
-                {fields.map((f) => (
-                  <FragmentRow key={f.key} label={f.label}>
-                    {f.type === 'secret' ? (
-                      <SecretCell def={def} record={record} fieldKey={f.key} />
-                    ) : f.type === 'files' ? (
-                      <FileList ids={Array.isArray(record.data[f.key]) ? (record.data[f.key] as number[]) : []} files={record.files} />
-                    ) : (
-                      <InfoValue def={def} f={f} record={record} canView={canView} today={today} />
-                    )}
-                  </FragmentRow>
+        {tab === 'info' && (
+          <div className="rd-info">
+            {sectionList.length > 1 && (
+              <nav aria-label="分区导航" className="rd-anchors">
+                {sectionList.map((s) => (
+                  <button key={s.group} type="button" className={`rd-anchor${(activeGroup || sectionList[0].group) === s.group ? ' active' : ''}`} onClick={() => jump(s.group)}>{s.group}<i>{s.shown.length}</i></button>
                 ))}
-              </dl>
+                <label className="rd-hide-empty check"><input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} /> 隐藏空字段</label>
+              </nav>
+            )}
+            <div className="rd-sections">
+              {def.key === 'finance-products' && <ProductCostSummary def={def} record={record} />}
+              <BankCopyAll def={def} record={record} />
+              {def.key === 'licenses' && can('edit') && <LinkExistingStoresButton license={record} onDone={reloadAll} onError={setError} />}
+              {def.key === 'stores' && can('edit') && (
+                <div className="rd-actions"><StoreAssignButton record={record} onDone={reloadAll} onError={setError} /> <StoreReleaseButton record={record} onDone={reloadAll} onError={setError} /></div>
               )}
-            </section>
-          ))}
-        {tab === 'info' && def.key === 'bank-accounts' && (
-          <PhoneArchiveButton type="bank-accounts" record={record} numberKey="reservedPhoneNumber" idKey="phoneId" holder={String(record.data.reservedPhoneHolder ?? '')} onDone={() => { void load(); onChanged(); }} onError={setError} />
-        )}
-        {tab === 'info' && def.key === 'licenses' && can('edit') && <LinkExistingStoresButton license={record} onDone={() => { void load(); onChanged(); }} onError={setError} />}
-        {tab === 'info' && def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} />}
-        {tab === 'info' && def.key === 'stores' && can('edit') && (
-          <><StoreAssignButton record={record} onDone={() => { void load(); onChanged(); }} onError={setError} /> <StoreReleaseButton record={record} onDone={() => { void load(); onChanged(); }} onError={setError} /></>
-        )}
-        {tab === 'info' && def.key === 'partners' && (
-          <PhoneArchiveButton type="partners" record={record} numberKey="cardPhone" idKey="cardPhoneId" holder={String(record.data.cardPhoneHolder ?? record.title)} onDone={() => { void load(); onChanged(); }} onError={setError} />
+              {def.key === 'bank-accounts' && (
+                <PhoneArchiveButton type="bank-accounts" record={record} numberKey="reservedPhoneNumber" idKey="phoneId" holder={String(record.data.reservedPhoneHolder ?? '')} onDone={reloadAll} onError={setError} />
+              )}
+              {def.key === 'partners' && (
+                <PhoneArchiveButton type="partners" record={record} numberKey="cardPhone" idKey="cardPhoneId" holder={String(record.data.cardPhoneHolder ?? record.title)} onDone={reloadAll} onError={setError} />
+              )}
+              {def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} />}
+              {sectionList.map(({ group, fields, shown }) => (
+                <section key={group} id={secId(group)} className="rd-sec">
+                  <h3 className="rd-sec-title">
+                    <span>{group}</span>
+                    {can('edit') && !record.archived && editGroup !== group && fields.some((f) => !f.readonly) && (
+                      <button type="button" className="link-button" aria-label={`编辑${group}`} onClick={() => setEditGroup(group)}>编辑本区</button>
+                    )}
+                  </h3>
+                  {editGroup === group ? (
+                    <RecordForm
+                      def={def}
+                      record={record}
+                      onlyGroup={group}
+                      inline
+                      onClose={() => setEditGroup(null)}
+                      onSaved={(dto) => { setEditGroup(null); setRecord(dto); setLogs(null); setRelations(null); onChanged(); }}
+                    />
+                  ) : (
+                    <dl className="rd-grid">
+                      {shown.map((f) => (
+                        <div key={f.key} className={`rd-item${['textarea', 'files', 'attrs', 'json'].includes(f.type) ? ' wide' : ''}`}>
+                          <dt>{f.label}</dt>
+                          <dd>
+                            {f.type === 'secret' ? (
+                              <SecretCell def={def} record={record} fieldKey={f.key} />
+                            ) : f.type === 'files' ? (
+                              <FileList ids={Array.isArray(record.data[f.key]) ? (record.data[f.key] as number[]) : []} files={record.files} />
+                            ) : (
+                              <InfoValue def={def} f={f} record={record} canView={canView} today={today} />
+                            )}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </section>
+              ))}
+              {sectionList.length === 0 && <p className="muted">这条资料还没有填写任何内容。</p>}
+            </div>
+          </div>
         )}
         {tab === 'relations' && (
-          <section>
-            <h2 className="section-title">关联关系</h2>
+          <section className="rd-panel">
+            <h3 className="rd-sec-title"><span>关联关系</span>{can('edit') && <button type="button" className="res-btn sm" onClick={() => setLinkDialog('new')}>添加关联</button>}</h3>
             {relations === null && <p className="muted">加载中…</p>}
             {relations?.length === 0 && <p className="muted">没有关联</p>}
             {relations?.map((r) => (
@@ -409,7 +426,6 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
                 )}
               </div>
             ))}
-            {can('edit') && <button type="button" className="secondary-button" style={{ marginTop: 12 }} onClick={() => setLinkDialog('new')}>添加关联</button>}
             {linkDialog && <RelationDialog type={def.key} id={id} link={linkDialog === 'new' ? undefined : linkDialog} canView={canView} onClose={() => setLinkDialog(null)} onSaved={() => { setLinkDialog(null); setRelations(null); }} />}
           </section>
         )}
@@ -420,11 +436,11 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
         {tab === 'storage' && <AssetStoragePanel record={record} />}
         {tab === 'metrics' && <StoreMetricsPanel store={record} />}
         {tab === 'derived' && def.derivedStores && <DerivedStoresPanel licenseId={typeof record.data[def.derivedStores] === 'number' ? (record.data[def.derivedStores] as number) : null} />}
-        {tab === 'partner' && <PartnerSubjectPanel partner={record} onChanged={() => { void load(); onChanged(); }} />}
+        {tab === 'partner' && <PartnerSubjectPanel partner={record} onChanged={reloadAll} />}
         {tab === 'verify-history' && <VerificationHistoryPanel id={record.id} />}
         {tab === 'logs' && (
-          <section>
-            <h2 className="section-title">操作记录</h2>
+          <section className="rd-panel">
+            <h3 className="rd-sec-title"><span>操作记录</span></h3>
             {logs === null && <p className="muted">加载中…</p>}
             {logs?.length === 0 && <p className="muted">暂无记录</p>}
             {logs?.slice(0, logLimit).map((l) => (
@@ -437,35 +453,6 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
             {logs && logs.length > logLimit && <button type="button" className="link-button" onClick={() => setLogLimit((n) => n + 15)}>显示更早的 {Math.min(15, logs.length - logLimit)} 条</button>}
           </section>
         )}
-      </div>
-      <div className="drawer-foot">
-        {record.archived && can('delete') && <button type="button" className="secondary-button" onClick={() => setRestoring(true)}>恢复…</button>}
-        {!record.archived && def.key === 'phones' && can('edit') && (
-          <button type="button" className="secondary-button" title="把最近充值日记为今天，下次充值日按充值周期自动更新" onClick={async () => {
-            const today = todayShanghai();
-            const cycle = Number(record.data.rechargeCycleDays) || 30;
-            if (!window.confirm(`最近充值日记为 ${today}，下次充值日更新为 ${addDaysText(today, cycle)}。`)) return;
-            try { setRecord(await resourceApi.update('phones', record.id, { lastRechargeAt: today })); setLogs(null); onChanged(); } catch (e) { setError(e instanceof ApiError ? e.message : '记录失败'); }
-          }}>记录今天已充值</button>
-        )}
-        {!record.archived && can('edit') && <button type="button" className="secondary-button" onClick={() => setEditing(true)}>编辑</button>}
-        {!record.archived && onCopy && can('create') && (
-          <button type="button" className="secondary-button" title="按这条的内容新建一条，编码、图片不带过去" onClick={() => {
-            const values: Record<string, unknown> = {};
-            for (const f of def.fields) {
-              if (f.readonly || f.type === 'files' || f.type === 'secret' || f.type === 'sensitive' || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key)) continue;
-              const v = record.data[f.key];
-              if (v !== undefined && v !== null && v !== '') values[f.key] = v;
-            }
-            onCopy(values);
-          }}>复制新建</button>
-        )}
-        {def.key === 'fixed-assets' ? (
-          !record.archived && can('edit') && <AssetActionBar record={record} onDone={() => { void load(); onChanged(); }} />
-        ) : !record.archived && can('disable') && (
-          <StatusControl def={def} id={record.id} current={record.status} onChanged={() => { void load(); onChanged(); }} onError={setError} />
-        )}
-        {!record.archived && can('delete') && <button type="button" className="secondary-button danger" onClick={() => setDeleting(true)}>{archivable ? '归档…' : '删除…'}</button>}
       </div>
       {restoring && (
         <ReasonDialog
@@ -518,67 +505,29 @@ export function RecordDetail({ def, id, onClose, onChanged, onCopy }: { def: Res
   );
 }
 
-/** 供应商等有开户名/开户行/账号的资料：一键复制整组银行信息，付款对账时直接粘贴。 */
-function BankCopyAll({ def, record }: { def: ResourceDef; record: ResourceDto }) {
-  const d = record.data;
-  if (!def.fields.some((f) => f.key === 'bankAccountNo') || !d.bankAccountNo) return null;
-  const text = [`户名：${String(d.bankAccountName ?? record.title)}`, `开户行：${String(d.bank ?? '')}`, `账号：${String(d.bankAccountNo)}`].join('\n');
-  return <div className="pill-row"><span className="muted">银行信息</span><CopyButton value={text} label="全部银行信息" /></div>;
-}
-
-/** 详情里一个字段的值：编号/账号/手机号类带“复制”，引用的资料可点进去，到期日期带提醒角标。 */
-function InfoValue({ def, f, record, canView, today }: { def: ResourceDef; f: ResourceDef['fields'][number]; record: ResourceDto; canView: (t: string) => boolean; today: string }) {
-  const text = displayValue(f, record);
-  if (!text) return <span className="muted">—</span>;
-  const url = urlOf(f, text);
-  if ((f.type === 'ref' || f.type === 'refs') && f.ref && f.ref !== 'user' && canView(f.ref)) {
-    const raw = record.data[f.key];
-    const ids = (Array.isArray(raw) ? raw : [raw]).filter((x): x is number => typeof x === 'number');
-    const labels = text.split('、');
-    if (ids.length === labels.length) {
-      return <>{ids.map((id, i) => {
-        const to = recordLink(f.ref!, id);
-        return <span key={id}>{i > 0 && '、'}{to ? <Link to={to}>{labels[i]}</Link> : labels[i]}</span>;
-      })}</>;
-    }
-  }
-  const due = dueBadgeFor(def.key, f.key, record.data, record.status, today);
+/** “更多”菜单：复制新建、归档/删除、恢复这类不常点的操作收在这里。 */
+function MoreMenu({ items }: { items: Array<{ key: string; label: string; danger?: boolean; title?: string; run: () => void }> }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(false); } };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
   return (
-    <>
-      {url ? <a href={url} target="_blank" rel="noopener noreferrer">{text}</a> : f.type === 'textarea' ? <span className="pre-wrap">{text}</span> : text}
-      {isCopyable(def, f) && <> <CopyButton value={text} label={f.label} /></>}
-      {due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`}>{due.text}</span></>}
-    </>
+    <div className="res-pop-wrap" ref={wrap}>
+      <button type="button" className="res-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>更多<ChevronDown /></button>
+      {open && (
+        <div className="res-pop right res-more" role="menu" aria-label="更多操作">
+          {items.map((it) => (
+            <button key={it.key} type="button" role="menuitem" className={it.danger ? 'danger' : undefined} title={it.title} onClick={() => { setOpen(false); it.run(); }}>{it.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
-const SKIP_DIFF_TYPES = new Set(['secret', 'sensitive', 'files', 'attrs', 'json']);
-/** 变更记录里“哪些字段从什么改成什么”：只列普通字段；密码/证件号/文件等不显示具体值。 */
-function LogChanges({ def, log }: { def: ResourceDef; log: LogEntry }) {
-  if (log.action !== 'update' || !log.before || !log.after) return null;
-  const rows: Array<{ label: string; from: string; to: string | null }> = [];
-  for (const f of def.fields) {
-    const a = log.before[f.key];
-    const b = log.after[f.key];
-    if (JSON.stringify(a ?? null) === JSON.stringify(b ?? null)) continue;
-    if (!(f.key in log.before) && !(f.key in log.after)) continue;
-    if (SKIP_DIFF_TYPES.has(f.type) || f.type === 'ref' || f.type === 'refs' || f.type === 'money') { rows.push({ label: f.label, from: '', to: null }); continue; }
-    const show = (v: unknown) => (v === undefined || v === null || v === '' ? '（空）' : f.type === 'select' ? (f.options?.find((o) => o.value === v)?.label ?? String(v)) : f.type === 'bool' ? (v ? '是' : '否') : String(v));
-    rows.push({ label: f.label, from: show(a), to: show(b) });
-  }
-  if (!rows.length) return null;
-  return (
-    <ul className="log-changes">
-      {rows.map((r) => <li key={r.label}>{r.to === null ? <>{r.label}：已修改</> : <>{r.label}：{r.from} → {r.to}</>}</li>)}
-    </ul>
-  );
-}
-
-function FragmentRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{children}</dd>
-    </>
-  );
-}

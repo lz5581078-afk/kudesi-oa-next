@@ -110,6 +110,14 @@ export function ResourceGrid(props: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(560);
+  // 表格撑满页面后高度不固定：跟着容器变化重新算该渲染多少行
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setViewH(el.clientHeight || 560));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const drag = useRef<'select' | 'fill' | null>(null);
 
   // 隐藏列后选区可能落在已经不存在的列上：收回到最后一列
@@ -516,7 +524,7 @@ export function ResourceGrid(props: Props) {
           <LicenseRecognizeButton onApply={(f) => void applyRecognized(f)} />
         </GridDialog>
       )}
-      <p className="muted grid-help">单击选中、双击或回车编辑；Tab / 方向键移动；Ctrl+C / V 复制粘贴（可从 Excel、飞书整块粘贴）；Delete 清空；Ctrl+D 或拖右下角小方块向下填充；Ctrl+Z 撤销。灰色列不能在这里改。</p>
+      <p className="muted grid-help" title="单击选中、双击或回车编辑；Tab / 方向键移动；Ctrl+C / V 复制粘贴；Delete 清空；Ctrl+D 或拖右下角小方块向下填充；Ctrl+Z 撤销。灰色列不能在这里改。">单击选中、双击或回车编辑；Tab / 方向键移动；Ctrl+C / V 复制粘贴（可从 Excel、飞书整块粘贴）；Delete 清空；Ctrl+D 或拖右下角小方块向下填充；Ctrl+Z 撤销。灰色列不能在这里改。</p>
     </div>
   );
 }

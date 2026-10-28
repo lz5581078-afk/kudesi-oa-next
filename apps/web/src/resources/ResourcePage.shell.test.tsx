@@ -61,11 +61,13 @@ describe('资料列表通用壳', () => {
     const first = page();
     await screen.findByRole('button', { name: '复制号码' });
     fireEvent.change(screen.getByLabelText('每页条数'), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: /^筛选/ }));
     fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'normal' } });
     first.unmount();
     page();
     await screen.findByRole('button', { name: '复制号码' });
     expect((screen.getByLabelText('每页条数') as HTMLSelectElement).value).toBe('50');
+    fireEvent.click(screen.getByRole('button', { name: /^筛选/ }));
     expect((screen.getByLabelText('状态') as HTMLSelectElement).value).toBe('normal');
   });
 
@@ -84,7 +86,16 @@ describe('资料列表通用壳', () => {
     await waitFor(() => expect(vi.mocked(resourceApi.list).mock.calls.some((c) => c[1]?.sortBy === 'carrier' && c[1]?.sortDir === 'asc')).toBe(true));
     fireEvent.click(screen.getByRole('button', { name: /运营商/ }));
     await waitFor(() => expect(vi.mocked(resourceApi.list).mock.calls.some((c) => c[1]?.sortDir === 'desc')).toBe(true));
-    expect(screen.getByLabelText('排序方式')).toBeTruthy();
+    // 手机上排序下拉收进筛选面板
+    cleanup();
+    const mm = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false })) as never;
+    try {
+      page();
+      await screen.findByRole('button', { name: /^筛选/ });
+      fireEvent.click(screen.getByRole('button', { name: /^筛选/ }));
+      expect(screen.getByLabelText('排序方式')).toBeTruthy();
+    } finally { window.matchMedia = mm; }
   });
 
   it('显示列菜单有“全部显示 / 恢复默认”', async () => {
