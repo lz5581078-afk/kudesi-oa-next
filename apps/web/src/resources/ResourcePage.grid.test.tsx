@@ -73,7 +73,7 @@ describe('资料页：表格编辑入口', () => {
     fireEvent.change(input, { target: { value: '电信' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(await screen.findByText('1 处修改')).toBeTruthy();
-    expect((screen.getByLabelText('状态') as HTMLSelectElement).closest('fieldset')!.disabled).toBe(true);
+    expect((screen.getByRole('button', { name: /^筛选/ }).closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: '下一页' }) as HTMLButtonElement).disabled).toBe(true);
     const before = vi.mocked(resourceApi.list).mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: '保存全部' }));

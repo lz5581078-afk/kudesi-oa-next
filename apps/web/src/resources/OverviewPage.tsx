@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ASSET_LOG_LABELS, getResourceDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
 import { recordLink } from './recordLink';
+import { useAppbarBare } from '../layout/AppbarSlot';
 import { resourceApi, type DataIssuesResult, type ExpiringResult, type OverviewResult, type RecentChange } from './api';
 
 const PREVIEW = 5;
@@ -47,6 +48,7 @@ function ChangeRow({ c }: { c: RecentChange }) {
 }
 
 export function ResourceOverviewPage() {
+  useAppbarBare();
   const [days, setDays] = useState(30);
   const [expFilter, setExpFilter] = useState<'all' | 'expired' | 'due_soon'>('all');
   const [openExp, setOpenExp] = useState<Record<string, boolean>>({});
@@ -81,11 +83,10 @@ export function ResourceOverviewPage() {
 
   return (
     <div className="stack">
-      <div className="page-head">
-        <h1>资料总览</h1>
-        <button type="button" className="secondary-button" disabled={busy} onClick={() => { counts.reload(); exp.reload(); issues.reload(); recent.reload(); }}>{busy ? '读取中…' : '刷新'}</button>
+      <div className="res-ov-bar">
+        <span className="muted">各类资料数量、到期提醒、需要补充或核对的数据和最近的修改；点任意一项直达对应资料。</span>
+        <button type="button" className="res-btn" disabled={busy} onClick={() => { counts.reload(); exp.reload(); issues.reload(); recent.reload(); }}>{busy ? '读取中…' : '刷新'}</button>
       </div>
-      <p className="muted">各类资料数量（大数字不含停用和已归档，下方小字单列）、到期提醒、需要补充或核对的数据，以及最近的修改。点任意一项直达对应资料。</p>
 
       <Block title="资料数量" state={counts}>
         {groups.map(([group, items]) => (

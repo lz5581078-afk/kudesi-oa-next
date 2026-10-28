@@ -51,7 +51,7 @@ export function ExpressPricesPage() {
     return (
       <div>
         <div className="toolbar"><button type="button" className="secondary-button" onClick={() => setView('tree')}>← 返回按公司 / 网点 / 版本查看</button></div>
-        <ResourcePage type="finance-express-prices" title="全部价格规则（平铺明细）" />
+        <ResourcePage type="finance-express-prices" title="全部价格规则（平铺明细）" embedded />
       </div>
     );
   }

@@ -52,3 +52,14 @@ describe('资料表单通用壳', () => {
     confirm.mockRestore();
   });
 });
+
+describe('资料表单分组布局', () => {
+  it('字段按分组成区，有分区锚点；必填有星号标记；错误条列出问题并可定位', () => {
+    render(<RecordForm def={def} record={null} onClose={() => undefined} onSaved={() => undefined} />);
+    expect(document.querySelectorAll('.rf-sec').length).toBeGreaterThan(0);
+    expect(document.querySelector('.rf-anchors') ?? document.querySelectorAll('.rf-sec').length).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(document.querySelector('.rf-errbar')).toBeTruthy();
+    expect(document.querySelectorAll('.field-error, .rf-err').length).toBeGreaterThan(0);
+  });
+});

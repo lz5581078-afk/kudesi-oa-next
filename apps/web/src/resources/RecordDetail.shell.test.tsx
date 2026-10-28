@@ -62,13 +62,12 @@ describe('资料详情通用壳', () => {
     expect(await screen.findByText(/已经不存在/)).toBeTruthy();
   });
 
-  it('面包屑、展开全宽、分区导航：有面包屑；展开按钮切换全宽；有多个分区时出现分区导航', async () => {
+  it('展开全宽、分区导航：展开按钮切换全宽；有多个分区时出现分区导航', async () => {
     show();
-    await screen.findByText('工行 5678', { selector: '.drawer-title' });
-    expect(screen.getByRole('navigation', { name: '位置' }).textContent).toContain('银行账户');
+    await screen.findByText('工行 5678', { selector: '.rd-title' });
     const btn = screen.getByRole('button', { name: '展开到全宽' });
     fireEvent.click(btn);
-    expect(document.querySelector('.drawer-wide')).toBeTruthy();
+    expect(document.querySelector('.rd-wide')).toBeTruthy();
     expect(screen.getByRole('button', { name: '还原宽度' })).toBeTruthy();
     expect(screen.getByRole('navigation', { name: '分区导航' })).toBeTruthy();
   });

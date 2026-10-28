@@ -81,6 +81,7 @@ describe('列表壳：配置驱动的能力入口', () => {
   it('计算筛选的动态选项：部门下拉由服务端部门生成，选中后以值查询', async () => {
     def.computedFilters = [{ key: 'opDept', label: '运营部门', optionsFrom: 'departments', when: { viaUserDept: 'x', dept: '$value' } }];
     page();
+    fireEvent.click(await screen.findByRole('button', { name: /^筛选/ }));
     const sel = await screen.findByLabelText('运营部门');
     await screen.findByRole('option', { name: '运营中心' });
     fireEvent.change(sel, { target: { value: '4' } });
