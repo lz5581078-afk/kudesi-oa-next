@@ -45,6 +45,7 @@ const RESOURCE_MENU: Array<{ group: string; items: Array<{ id: string; label?: s
   { group: '组织与人员', items: [
     { id: 'org-tree', label: '组织架构', description: '公司、部门、岗位、人员' },
     { id: 'employees', label: '人员档案', description: '员工、岗位、角色绑定' },
+    { id: 'workforce', label: '兼职与临时工', description: '期限与计薪' },
     { id: 'position-profiles', description: '岗位、职责、培训和考核' },
     { id: 'duty-groups', description: '流程任务可引用的职责组' },
   ] },

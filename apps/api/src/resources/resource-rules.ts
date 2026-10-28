@@ -7,6 +7,7 @@ import { CERT_AFTER_DELETE, CERT_AFTER_SAVE, CERT_BEFORE_SAVE, custodyRules, lic
 import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE } from './finance-rules';
 import { beforeUnitDelete } from './unit-rules';
 import { ASSET_BEFORE_DELETE, ASSET_BEFORE_SAVE } from './asset-rules';
+import { workforceAfterSave, workforceBeforeDelete, workforceBeforeSave } from './workforce-rules';
 
 /**
  * 各类资料的专属业务规则。通用的校验（必填、枚举、唯一、引用、停用原因）在 ResourcesService，
@@ -220,6 +221,7 @@ function syncLocations(data: Record<string, unknown>, existing: ResourceRecord |
 }
 
 export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Promise<void> {
+  if (type === 'workforce') return workforceBeforeSave(ctx);
   const financeRule = FINANCE_BEFORE_SAVE[type];
   if (financeRule) return financeRule(ctx);
   const assetRule = ASSET_BEFORE_SAVE[type];
@@ -303,12 +305,15 @@ export interface AfterSaveContext {
   record: ResourceRecord;
   /** 保存前的记录（新建为 null） */
   existing: ResourceRecord | null;
+  /** 改状态时填写的原因（停用等） */
+  reason?: string;
   /** 本次提交校验后的值（含加密字段明文，仅内存使用） */
   plain?: Record<string, unknown>;
 }
 
 /** 删除记录之前（在“还被引用就不能删”的检查之前）：如删除位置时把各处对它的引用置空。 */
 export async function beforeDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
+  if (type === 'workforce') workforceBeforeDelete();
   const rule = ASSET_BEFORE_DELETE[type];
   if (rule) await rule(ctx);
   if (type === 'finance-product-units') await beforeUnitDelete(ctx);
@@ -326,6 +331,7 @@ export async function afterSaveRule(type: string, ctx: AfterSaveContext): Promis
   const rule = FINANCE_AFTER_SAVE[type];
   if (rule) await rule(ctx);
   await CERT_AFTER_SAVE[type]?.(ctx);
+  if (type === 'workforce') await workforceAfterSave(ctx);
 }
 
 /** 找到手机号档案，没有就建（外部使用）；返回档案 id。 */

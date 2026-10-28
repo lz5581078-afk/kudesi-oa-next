@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { resolvePermissions } from '@kudesi/shared';
 import { Company, PlatformAdmin, PositionPermission, User, UserPermissionOverride } from '../entities';
+import { workforceBlockFor } from '../workforce/workforce-contract';
 import { AuthUser, IS_PUBLIC, PLATFORM_ONLY } from './auth.decorators';
 
 interface TokenPayload {
@@ -63,6 +64,9 @@ export class JwtAuthGuard implements CanActivate {
     if (!user || user.status !== 'active') throw new UnauthorizedException('账号不可用');
     const company = await this.companies.findOne({ where: { id: user.companyId } });
     if (!company || company.status !== 'active') throw new UnauthorizedException('公司已停用');
+    // 兼职/临时工合作期外：已登录的令牌也不再放行
+    const contractBlock = await workforceBlockFor(this.users.manager, user);
+    if (contractBlock) throw new UnauthorizedException(contractBlock);
 
     const positionRows = (
       await Promise.all([user.positionId, ...(user.extraPositionIds ?? [])].filter((x): x is number => !!x).map((positionId) => this.positionPermissions.find({ where: { positionId } })))

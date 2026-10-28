@@ -34,6 +34,7 @@ import { CryptoService } from '../common/crypto.service';
 import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
 import { deriveStoreFunds } from './store-funds';
+import { deriveWorkforce } from './workforce-rules';
 import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
 import { applyCond, deriveColumns } from './def-conditions';
 import { certImportMatch } from './entity-rules';
@@ -325,8 +326,10 @@ export class ResourcesService implements RuleHost {
     // 手机号的“绑定店铺 / 主子卡”：读时从店铺档案和主卡字段算，不存库
     const derived = def.key === 'phones' ? await derivePhoneFields(em, companyId, records, (r) => labels.get(r.id)?.parentPhoneId) : def.key === 'stores' ? await deriveStoreFunds(em, companyId, records) : null;
     const derivedCols = def.derivedColumns?.length ? await deriveColumns(em, companyId, def, records) : null;
+    const workforce = def.key === 'workforce' ? await deriveWorkforce(em, companyId, records) : null;
     return records.map((r) => {
       const dto = this.toDto(def, r, labels.get(r.id) ?? {}, fileMap);
+      if (workforce) Object.assign(dto.data, workforce.get(r.id) ?? {});
       if (derivedCols) Object.assign(dto.data, derivedCols.get(r.id) ?? {});
       if (derived) for (const [k, v] of Object.entries(derived.get(r.id) ?? {})) { if (v !== undefined) dto.data[k] = v; else if (def.key === 'stores') delete dto.data[k]; }
       // 成本等受限字段：没有权限的人，接口里就没有（不是前端隐藏）
@@ -459,7 +462,7 @@ export class ResourcesService implements RuleHost {
     def: ResourceDef,
     existing: ResourceRecord | null,
     input: Record<string, unknown>,
-    options: { status?: string; note?: string; cleanup?: string[]; logAction?: string } = {},
+    options: { status?: string; note?: string; cleanup?: string[]; logAction?: string; reason?: string } = {},
   ): Promise<ResourceRecord> {
     let status = options.status ?? existing?.status ?? def.defaultStatus;
     if (!def.statuses.some((s) => s.value === status)) throw new BadRequestException('状态不合法');
@@ -586,7 +589,7 @@ export class ResourcesService implements RuleHost {
     const note = [options.note, secretChanged ? '修改了密码/证件号/卡号类字段' : null].filter(Boolean).join('；') || undefined;
     await this.writeLog(em, user, def, record.id, options.logAction ?? (existing ? 'update' : 'create'), before, record, note);
     if (!existing) await afterCreateRule(def.key, { em, host: this, user, record, plain: values });
-    await afterSaveRule(def.key, { em, host: this, user, record, existing: before, plain: values });
+    await afterSaveRule(def.key, { em, host: this, user, record, existing: before, plain: values, reason: options.reason });
     return record;
   }
 
@@ -1048,7 +1051,7 @@ export class ResourcesService implements RuleHost {
         if (def.fields.some((f) => f.key === 'abnormalReasonText')) abnormalInput.abnormalReasonText = reason.slice(0, 100);
         else if (def.fields.some((f) => f.key === 'abnormalReason' && f.type !== 'ref')) abnormalInput.abnormalReason = reason.slice(0, 2000);
       }
-      const saved = await this.saveRecord(em, user, def, existing, { ...abnormalInput, ...row.values }, { cleanup, note: `${note}；状态：${existing.status} → ${row.status}${reason ? `（${reason}）` : ''}`, status: row.status });
+      const saved = await this.saveRecord(em, user, def, existing, { ...abnormalInput, ...row.values }, { cleanup, note: `${note}；状态：${existing.status} → ${row.status}${reason ? `（${reason}）` : ''}`, status: row.status, reason });
       const fresh = await this.load(em, user, type, saved.id);
       fresh.statusReason = def.statuses.find((s) => s.value === row.status)?.requiresReason ? reason!.slice(0, 500) : null;
       await em.save(ResourceRecord, fresh);
@@ -1183,7 +1186,7 @@ export class ResourcesService implements RuleHost {
         if (def.fields.some((f) => f.key === 'abnormalReasonText')) abnormalInput.abnormalReasonText = reason.trim().slice(0, 100);
         else if (def.fields.some((f) => f.key === 'abnormalReason' && f.type !== 'ref')) abnormalInput.abnormalReason = reason.trim().slice(0, 2000);
       }
-      await this.saveRecord(em, user, def, existing, abnormalInput, { status, note: `状态：${existing.status} → ${status}${reason ? `（${reason.trim()}）` : ''}` });
+      await this.saveRecord(em, user, def, existing, abnormalInput, { status, note: `状态：${existing.status} → ${status}${reason ? `（${reason.trim()}）` : ''}`, reason });
       const fresh = await this.load(em, user, type, id);
       fresh.statusReason = needsReason ? reason!.trim().slice(0, 500) : null;
       await em.save(ResourceRecord, fresh);

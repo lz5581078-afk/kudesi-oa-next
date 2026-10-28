@@ -107,6 +107,10 @@ export type Cond =
   /** 日期字段（YYYY-MM-DD）：今天（北京时间）起 days 天内（含今天、含第 days 天）；已过期 = 早于今天（没填的不算） */
   | { field: string; op: 'dateWithin'; days: number }
   | { field: string; op: 'expired' }
+  /** 日期字段（YYYY-MM-DD）晚于今天（北京时间）：还没到的开始日期（没填的不算） */
+  | { field: string; op: 'future' }
+  /** 本记录的员工字段指向的员工没有主岗位（用于“没有岗位”页签） */
+  | { viaUserNoPosition: string }
   /** 本记录的员工字段 viaUserDept 指向的员工，所在部门等于 dept（'$value' = 计算筛选下拉选中的部门）；includeChildren 连下级部门 */
   | { viaUserDept: string; dept: number | '$value'; includeChildren?: boolean }
   | { rel: { type: string; field: string; where?: Cond }; op: 'exists' | 'none' }
@@ -745,6 +749,59 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       select('reconcileCycle', '对账周期', '对账', RECONCILE),
       text('reconcileDay', '对账提醒日', '对账', { maxLength: 8, help: '月：几号；季：季度末月（3/6/9/12 月）的第几天；年：MM-DD' }),
       textarea('abnormalReason', '异常原因', '状态', { showWhen: { field: 'status', in: ['abnormal'] } }),
+      NOTE(),
+    ],
+  },
+  {
+    // 兼职与临时工（旧系统资料导航“组织与人员”里的“兼职与临时工 / 期限与计薪”）：
+    // 每人一条档案，登录账号、岗位、直属上级仍在“人员档案”里维护，这里管合作期限、计薪、联系人和附件；
+    // 合作期外账号自动不能登录，计时工资同步给直播主播工资。
+    key: 'workforce',
+    label: '兼职与临时工',
+    nav: { group: '组织与人员' },
+    titleField: 'name',
+    uniqueField: 'userId',
+    statuses: [{ value: 'active', label: '合作中', tone: 'ok' }, { value: 'inactive', label: '已停用', tone: 'muted', requiresReason: true, hidden: true }],
+    defaultStatus: 'active',
+    batch: ['status'],
+    filterBy: ['employmentType', 'payMethod'],
+    sortField: 'contractStartDate',
+    quickTabs: [
+      { key: 'working', label: '合作中', when: { all: [{ field: '$status', op: 'eq', value: 'active' }, { not: { field: 'contractStartDate', op: 'future' } }, { not: { field: 'contractEndDate', op: 'expired' } }] } },
+      { key: 'pending', label: '待开始', when: { all: [{ field: '$status', op: 'eq', value: 'active' }, { field: 'contractStartDate', op: 'future' }] } },
+      { key: 'ended', label: '已到期', when: { all: [{ field: '$status', op: 'eq', value: 'active' }, { field: 'contractEndDate', op: 'expired' }] } },
+      { key: 'no-position', label: '没有岗位', when: { all: [{ field: '$status', op: 'eq', value: 'active' }, { viaUserNoPosition: 'userId' }] } },
+      { key: 'ending', label: '7 天内结束', when: { all: [{ field: '$status', op: 'eq', value: 'active' }, { field: 'contractEndDate', op: 'dateWithin', days: 7 }] } },
+    ],
+    computedFilters: [
+      { key: 'dept', label: '部门', optionsFrom: 'departments', when: { viaUserDept: 'userId', dept: '$value', includeChildren: true } },
+    ],
+    alerts: [{ field: 'contractEndDate', withinDays: 7, label: '7 天内合作结束' }],
+    fields: [
+      ref('userId', '登录账号（员工）', '基本信息', 'user', { required: true, list: true, help: '先在“人员档案”新增账号（用工类型选兼职/临时工），或点页头“新增账号并建档”一步完成；保存后该员工的用工类型自动变为这里选的类型' }),
+      text('name', '姓名', '基本信息', { readonly: true, list: true, search: true, maxLength: 80 }),
+      select('employmentType', '用工类型', '基本信息', o('part_time:兼职', 'temp:临时工'), { required: true, list: true, help: '临时工必须填写合作结束日期；兼职可以不限期' }),
+      select('cooperation', '合作状态', '基本信息', o('working:合作中', 'pending:待开始', 'ended:合作已到期', 'inactive:已停用'), { readonly: true, list: true }),
+      text('account', '登录账号', '账号与岗位', { readonly: true, search: true, maxLength: 64 }),
+      text('departmentName', '部门', '账号与岗位', { readonly: true, list: true, search: true, maxLength: 100 }),
+      text('positionName', '岗位', '账号与岗位', { readonly: true, list: true, search: true, maxLength: 100 }),
+      text('managerName', '直属上级', '账号与岗位', { readonly: true, maxLength: 100 }),
+      select('accountStatus', '账号状态', '账号与岗位', o('active:启用', 'disabled:已停用'), { readonly: true }),
+      text('lastLoginAt', '最近登录', '账号与岗位', { readonly: true, maxLength: 32 }),
+      date('contractStartDate', '合作开始日期', '合作与计薪', { required: true, list: true }),
+      date('contractEndDate', '合作结束日期', '合作与计薪', { list: true, help: '到这一天（含）之后的第二天起，账号自动不能登录；临时工必填，兼职可不限期' }),
+      select('payMethod', '计薪方式', '合作与计薪', o('hourly:计时', 'daily:计天', 'monthly:计月', 'piece:计件'), { list: true, permission: 'org.staff.salary', help: '计时且单价大于 0 时，同步为该员工的时薪（直播主播工资默认取它）' }),
+      money('payRate', '单价（元）', '合作与计薪', { list: true, permission: 'org.staff.salary', help: '按所选计薪方式的单价，如计天 200 元/天；0 表示还没定价' }),
+      text('workLocation', '工作地点', '合作与计薪', { maxLength: 160, search: true, help: '例如：仓库A区' }),
+      textarea('shiftNote', '班次 / 排班说明', '合作与计薪', { maxLength: 255, help: '例如：周一至周五 9:00-18:00' }),
+      { key: 'phone', label: '手机号', type: 'phone', group: '联系方式', search: true, list: true },
+      text('emergencyContactName', '紧急联系人', '联系方式', { maxLength: 80 }),
+      { key: 'emergencyContactPhone', label: '紧急联系人电话', type: 'phone', group: '联系方式' },
+      files('contractFiles', '合同', '附件材料', { accept: 'any', maxFiles: 20 }),
+      files('identityFiles', '身份证明', '附件材料', { accept: 'any', maxFiles: 20 }),
+      files('paymentFiles', '银行卡/收款码', '附件材料', { accept: 'any', maxFiles: 20 }),
+      files('qualificationFiles', '体检/资质', '附件材料', { accept: 'any', maxFiles: 20 }),
+      files('otherFiles', '其他附件', '附件材料', { accept: 'any', maxFiles: 20, help: '五类附件合计每人最多 20 个，支持图片和 PDF' }),
       NOTE(),
     ],
   },

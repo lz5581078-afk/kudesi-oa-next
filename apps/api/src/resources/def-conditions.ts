@@ -67,6 +67,12 @@ export function condSql(def: ResourceDef, cond: Cond, alias: string, ctx: CondCt
       : `(${put(ctx, id)})`;
     return `EXISTS (SELECT 1 FROM users ${u} WHERE ${u}.company_id = ${alias}.company_id AND CAST(${u}.id AS CHAR) = ${jx(alias, f.key)} AND ${u}.department_id IN ${dept})`;
   }
+  if ('viaUserNoPosition' in cond) {
+    const f = def.fields.find((x) => x.key === cond.viaUserNoPosition);
+    if (!f || f.type !== 'ref' || f.ref !== 'user') throw new BadRequestException('条件里的员工字段不存在');
+    const u = `u${depth + 1}`;
+    return `EXISTS (SELECT 1 FROM users ${u} WHERE ${u}.company_id = ${alias}.company_id AND CAST(${u}.id AS CHAR) = ${jx(alias, f.key)} AND ${u}.position_id IS NULL)`;
+  }
   if ('viaRef' in cond) {
     const f = def.fields.find((x) => x.key === cond.viaRef);
     const target = f?.type === 'ref' && f.ref ? getResourceDef(f.ref) : undefined;
@@ -83,6 +89,10 @@ export function condSql(def: ResourceDef, cond: Cond, alias: string, ctx: CondCt
       const x = fieldExpr(def, alias, cond.field);
       const days = Math.max(0, Math.min(3660, Math.floor(Number(cond.days))));
       return `(${x} IS NOT NULL AND ${x} <> '' AND ${x} >= ${put(ctx, todayShanghai())} AND ${x} <= ${put(ctx, addDaysText(todayShanghai(), days))})`;
+    }
+    case 'future': {
+      const x = fieldExpr(def, alias, cond.field);
+      return `(${x} IS NOT NULL AND ${x} <> '' AND ${x} > ${put(ctx, todayShanghai())})`;
     }
     case 'expired': {
       const x = fieldExpr(def, alias, cond.field);

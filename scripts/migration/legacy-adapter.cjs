@@ -32,7 +32,7 @@ function scope(table,cols,company) {
   if(table==='companies')return {sql:'t.id=?',args:[company]};
   if(cols.includes('company_id'))return {sql:'t.company_id=?',args:[company]};
   if(['employees','positions'].includes(table))return {sql:'EXISTS(SELECT 1 FROM departments d WHERE d.id=t.department_id AND d.company_id=?)',args:[company]};
-  if(['employee_positions','employee_roles','employee_permission_overrides','employee_responsibility_groups'].includes(table))return {sql:'EXISTS(SELECT 1 FROM employees e JOIN departments d ON d.id=e.department_id WHERE e.id=t.employee_id AND d.company_id=?)',args:[company]};
+  if(['employee_positions','employee_roles','employee_permission_overrides','employee_responsibility_groups','employee_workforce_profiles'].includes(table))return {sql:'EXISTS(SELECT 1 FROM employees e JOIN departments d ON d.id=e.department_id WHERE e.id=t.employee_id AND d.company_id=?)',args:[company]};
   if(['position_permissions','position_responsibilities'].includes(table))return {sql:'EXISTS(SELECT 1 FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.id=t.position_id AND d.company_id=?)',args:[company]};
   if(table==='responsibility_group_items')return {sql:'EXISTS(SELECT 1 FROM responsibility_groups p WHERE p.id=t.group_id AND p.company_id=?)',args:[company]};
   return null;
@@ -107,6 +107,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
         const candidates=[];const columns=(rule.aliases?.[f.key]||[]).filter(x=>!x.startsWith('@'));columns.push(snake(f.key),f.key);
         for(const col of columns)if(typeof row[col]==='string'&&row[col])candidates.push({value:row[col],name:row.attachment_name||`${f.label}.bin`,id:col});
         for(const m of tables.resource_media||[]){if(mediaMap[m.resource_type]===type&&String(m.resource_id)===String(id)&&columns.some(col=>col===m.field_key||col===snake(String(m.field_key)))){const target=f.key.toLowerCase();if(target.includes('attachment')||target.includes('photo')||target.includes('image'))candidates.push({value:m.storage_path,name:m.original_name||`${f.label}.bin`,id:'media:'+m.id,sha:m.sha256});}}
+        if(type==='workforce'){const cat=({contractFiles:'contract',identityFiles:'identity',paymentFiles:'payment',qualificationFiles:'qualification',otherFiles:'other'})[f.key];for(const a of tables.employee_workforce_attachments||[])if(String(a.employee_id)===String(id)&&a.category===cat)candidates.push({value:a.storage_path,name:a.file_name,id:'wfatt:'+a.id,sha:a.sha256});}
         if(type==='finance-products'&&f.key==='photos')for(const p of tables.finance_product_archive_photos||[])if(String(p.product_id)===String(id))candidates.push({value:p.data_url,name:p.file_name||'商品照片.bin',id:'photo:'+p.id});
         const chosen=candidates.some(x=>String(x.id).startsWith('media:'))?candidates.filter(x=>String(x.id).startsWith('media:')):candidates;
         for(const item of chosen){const locator=String(++locatorN);locators.set(locator,item);fspec.push({field:f.key,id:item.id,name:item.name,locator});}
@@ -126,7 +127,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
       }
       if(type==='finance-categories')entries=entries.flatMap(x=>[...(categoryFamilies.get(String(x.row.id))||new Set([x.row.archive_key==='purchased'?purchasedCategoryScope(x.row):x.row.archive_key]))].map(family=>({...x,row:{...x.row,__family:family,__sourceId:x.row.id,id:categoryKey(x.row.id,family)}})));
       for(const {row,payload,ancestors,container} of entries){
-        const id=row.id??row.category_id??container.id??'default';
+        const id=row.id??(type==='workforce'?row.employee_id:undefined)??row.category_id??container.id??'default';
         const archivedRow=Boolean(row.archived_at)&&row.status!=='deleted';
         if((row.status==='deleted'||(row.status==='archived'&&!archivedRow))&&!(type==='finance-fee-categories'&&neededFeeCategories.has(String(id)))){excluded(type,id,'旧系统已删除或归档，不作为在用资料迁入');continue;}
         const data={};let aliasName;const notices=[];
@@ -141,6 +142,15 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(['stores','phones'].includes(type)&&row.abnormal_reason){const table=type==='stores'?'store_abnormal_reasons':'phone_abnormal_reasons';const matches=(tables[table]||[]).filter(x=>x.reason===row.abnormal_reason);if(matches.length===1)data.abnormalReason=ref(type==='stores'?'store-abnormal-reasons':'phone-abnormal-reasons',matches[0].id);else{delete data.abnormalReason;data.note=[data.note,'旧异常说明：'+row.abnormal_reason].filter(Boolean).join('\n');excluded(type+'.abnormalReason',id,'旧异常原因未唯一对应新原因目录，原文已保留在备注');}}
           if(type==='tax-profiles'&&!row.license_id&&row.taxpayer_no){const licenses=(tables.business_licenses||[]).filter(x=>x.credit_code===row.taxpayer_no);if(licenses.length===1)data.licenseId=ref('licenses',licenses[0].id);}
           if(type==='licenses')data.category=row.license_category;
+          if(type==='workforce'){
+            // 旧兼职档案没有自己的状态/姓名/用工类型：取自员工表；附件按分类放进五个附件字段
+            const emp=byId('employees',row.employee_id);
+            if(!emp)throw Error('复杂来源需专项转换：兼职档案对应的员工不在迁入范围');
+            data.userId=ref('user',row.employee_id);data.name=emp.name;
+            data.employmentType=emp.employment_type==='temp'?'temp':'part_time';
+            if(['inactive','disabled'].includes(emp.status))status='inactive';
+            if(!data.contractStartDate){delete data.contractStartDate;notices.push('旧档案没有合作开始日期，待补');}
+          }
           if(type==='license-borrows'&&!data.borrowerUserId)data.borrowerName='未登记（旧数据无借用人）';
           if(type==='bank-store-links'&&!data.purpose)data.purpose='店铺收款';
           if(type==='phones'){data.feeCycle=({'30':'monthly','90':'quarterly','365':'yearly'})[row.fee_cycle]||row.fee_cycle;data.forwardApp=row.has_forwarding_app===1?'yes':'no';}

@@ -35,3 +35,4 @@ export * from './flow-node-catalog';
 export * from './live';
 export * from './grid-edit';
 export * from './col-filter';
+export * from './workforce';

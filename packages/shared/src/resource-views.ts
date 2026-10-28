@@ -40,6 +40,7 @@ export function dueWithin(date: unknown, days: number, today: string, status?: s
 
 export const PHONE_RECHARGE_DAYS = 7;
 export const MEMO_DUE_DAYS = 30;
+export const WORKFORCE_DUE_DAYS = 7;
 
 /** 列表里日期列旁边的到期提示（只对旧系统有提示的几个日期列） */
 export function dueBadgeFor(type: string, fieldKey: string, data: Record<string, unknown>, status: string, today: string): DueState | null {
@@ -47,6 +48,7 @@ export function dueBadgeFor(type: string, fieldKey: string, data: Record<string,
   if (type === 'memos' && fieldKey === 'endAt') return dueWithin(data.endAt, MEMO_DUE_DAYS, today, status);
   if (type === 'software' && fieldKey === 'renewAt') return dueWithin(data.renewAt, MEMO_DUE_DAYS, today, status);
   if (type === 'phones' && fieldKey === 'nextRechargeAt') return dueWithin(data.nextRechargeAt, PHONE_RECHARGE_DAYS, today, status);
+  if (type === 'workforce' && fieldKey === 'contractEndDate') return dueWithin(data.contractEndDate, WORKFORCE_DUE_DAYS, today, status);
   return null;
 }
 
