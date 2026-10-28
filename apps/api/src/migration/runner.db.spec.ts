@@ -37,6 +37,7 @@ d('迁入账本与马甲（隔离MySQL）', () => {
       {type:'finance-suppliers',id:'vendor-old',data:{name:'旧来源供应商'}},
       {type:'finance-suppliers',id:'vendor-new',data:{name:'新来源供应商'}},
       {type:'finance-product-sources',id:'2',sourceUpdatedAt:'2026-10-02 10:00:00',data:{productId:ref('finance-products','prod'),supplierId:ref('finance-suppliers','vendor-new'),originArea:'测试产区',purchasePrice:0.75}},
+      {type:'finance-product-sources',id:'3',sourceUpdatedAt:'2026-09-30 10:00:00',data:{productId:ref('finance-products','prod'),supplierId:ref('finance-suppliers','vendor-old'),originArea:'测试产区',purchasePrice:0.1}},
       {type:'finance-product-sources',id:'1',sourceUpdatedAt:'2026-10-01 10:00:00',data:{productId:ref('finance-products','prod'),supplierId:ref('finance-suppliers','vendor-old'),originArea:'测试产区',purchasePrice:0.5}},
       { type: 'finance-categories', id: 'cat', data: { archiveType: 'raw', name: '来源原料分类', code: 'YL' } },
       { type: 'finance-products', id: 'prod', data: { archiveType:'raw', name:'真实原料', code:'LEGACY-RAW', categoryId:ref('finance-categories','cat'), specQty:1, specUnit:'J', purchaseSpec:'斤', purchasePrice:100, freight:100, handlingFee:100, rawFinishedNames:'原料马甲' } },
@@ -77,6 +78,9 @@ d('迁入账本与马甲（隔离MySQL）', () => {
     expect(people.find(p=>p.name==='无账号人员')!.isCompanyAdmin).toBe(false);
     expect(await verifyPassword('original-pass-123',people.find(p=>p.name==='有账号人员')!.passwordHash)).toBe(true);
     const second = await run(true); expect(second.failures).toEqual([]); expect(second.created).toEqual({});
+    // 回归：旧库更新时间必须落库（updated_at 是只读列，曾被“现在”覆盖，同秒并列时靠 id 兜底，跨秒就选错）
+    const stamps=await ds.query("select json_unquote(json_extract(data,'$.legacySourceId')) l, updated_at u from resource_records where company_id=? and type='finance-product-sources' order by l",[company.id]);
+    expect(stamps.map((x:{l:string;u:Date})=>[x.l,x.u.toISOString()])).toEqual([['1','2026-10-01T02:00:00.000Z'],['2','2026-10-02T02:00:00.000Z'],['3','2026-09-30T02:00:00.000Z']]);
     const prod = await ds.manager.findOneByOrFail(ResourceRecord,{companyId:company.id,type:'finance-products'});
     expect(prod.data.purchasePrice).toBe(0.75);
     expect(prod.data.totalCost).toBe(200.75);

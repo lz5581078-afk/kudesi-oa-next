@@ -167,6 +167,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       await register('comp_record', c.id, Number(r.id)); count('created', 'comp_record');
     }
     const backfills: Array<{r:LegacyRecord; patch:Record<string,unknown>}> = [];
+    const sourceStamps: Array<{id:number;stamp:Date}> = [];
     let pending = source.records.slice();
     // 按引用依赖排序；依赖失败的记录不会写坏引用。每条失败回滚它产生的全部联动。
     for (let pass = 0; pending.length && pass < 100; pass++) {
@@ -213,7 +214,8 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
             if(r.type==='finance-product-sources'&&r.sourceUpdatedAt){
               const stamp=new Date(r.sourceUpdatedAt.replace(' ','T')+'+08:00');
               if(!Number.isFinite(stamp.getTime()))throw new MigrationError('供货来源更新时间无效，不能判断当前来源');
-              await em.update(ResourceRecord,{id:record.id,companyId:company.id},{updatedAt:stamp,data:{...record.data,legacySourceId:r.id}});
+              await em.update(ResourceRecord,{id:record.id,companyId:company.id},{data:{...record.data,legacySourceId:r.id}});
+              sourceStamps.push({id:record.id,stamp});
             }
             await register(r.type, r.id, record.id);
           });
@@ -232,6 +234,9 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       try { await savepoint(async()=>resources.importPatch(em,user,r.type,required(r.type,r.id),resolve({[field]:value}))); }
       catch(e) { out.failures.push({type:r.type+'.'+field,id:r.id,reason:e instanceof MissingRef?'关联对象未迁入，主资料保留；该关联未写入':safeFailure(e)}); }
     }
+    // updatedAt 是只读列（insert/update:false，由库的 ON UPDATE 维护），不能走 ORM 更新；
+    // 必须在所有补字段之后用原生 SQL 写回旧库时间，否则会被“现在”覆盖，当前来源排序依据就丢了。
+    for(const {id,stamp} of sourceStamps)await em.query('UPDATE resource_records SET updated_at=? WHERE id=? AND company_id=? AND type=?',[stamp,id,company.id,'finance-product-sources']);
     const createdProducts=out.mappings.filter(m=>m.type==='finance-products' && resourceCreated.has(m.targetId));
     for(const m of createdProducts){
       if(await resources.countWhere(em,company.id,'finance-product-sources','productId',m.targetId))await refreshFromSources(resources,em,user,m.targetId);
