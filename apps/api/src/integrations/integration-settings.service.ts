@@ -6,8 +6,9 @@ import { CryptoService } from '../common/crypto.service';
 import { IntegrationSetting, ResourceChangeLog } from '../entities';
 import { QINIU_ZONES, QiniuConfig, QiniuZone } from './qiniu.client';
 import { VisionConfig } from './vision.client';
+import { companyConnectionsSummary } from './company-connections';
 
-export type SettingKey = 'qiniu' | 'vision';
+export type SettingKey = 'qiniu' | 'vision' | 'jushuitan' | 'feishu';
 
 export interface QiniuInput {
   accessKey: string;
@@ -78,7 +79,9 @@ export class IntegrationSettingsService {
   async overview(companyId: number) {
     const q = await this.getQiniu(companyId);
     const v = await this.getVision(companyId);
+    const connections = companyConnectionsSummary(await this.read(companyId, 'jushuitan'), await this.read(companyId, 'feishu'));
     return {
+      connections,
       zones: Object.entries(QINIU_ZONES).map(([value, z]) => ({ value, label: z.label })),
       qiniu: {
         configured: Boolean(q),
