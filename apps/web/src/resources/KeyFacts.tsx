@@ -12,7 +12,7 @@ export const KEY_FACTS: Record<string, Fact[]> = {
   trademarks: ['classNo', 'registrationNo', 'licenseId', 'validUntil'],
   'tax-profiles': ['licenseId', 'taxpayerNo', 'taxType', 'taxAuthority'],
   partners: ['phone', 'contactName', 'contactUserId', 'partnerType'],
-  'bank-accounts': ['accountNo', 'keeperUserId', 'balance', 'licenseId'],
+  'bank-accounts': ['accountNo', 'keeperUserId', 'currentBalance', 'licenseId', { label: '关联店铺', hideEmpty: true, text: (r) => r.refLabels.storeId ?? '' }],
   phones: [
     'usageType',
     { label: '保管 / 使用', text: (r) => r.refLabels.userId || String(r.data.externalUser ?? '') || r.refLabels.partnerId || r.refLabels.keeperUserId || String(r.data.keeperName ?? '') },

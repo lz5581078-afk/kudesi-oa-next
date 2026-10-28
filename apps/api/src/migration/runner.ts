@@ -1,7 +1,7 @@
 import { mapLegacyPermission } from './permissions';
 import { createHash } from 'node:crypto';
 import { DataSource } from 'typeorm';
-import { Company, Department, Position, User, PlatformAdmin, PositionPermission, UserPermissionOverride, ResourceRecord, ResourceFile, ResourceLink, AuditLog } from '../entities';
+import { Company, Department, Position, PositionDuty, EmployeeCompensationRecord, User, PlatformAdmin, PositionPermission, UserPermissionOverride, ResourceRecord, ResourceFile, ResourceLink, AuditLog } from '../entities';
 import { refreshFromSources, recomputeProduct } from '../resources/finance-rules';
 import { ResourcesService } from '../resources/resources.service';
 import { FilesService } from '../integrations/files.service';
@@ -43,7 +43,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   const orgCreated=new Set<string>();
   const resourceCreated=new Set<number>();
   const key = (type: string, id: unknown) => `${type}:${String(id)}`;
-  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],...['resource'].map(t=>[t,source.records]),['link',source.links??[]]] as Array<[string,Array<Record<string,any>>]>) {
+  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],['position_duty',source.positionDuties??[]],['comp_record',source.compensationRecords??[]],...['resource'].map(t=>[t,source.records]),['link',source.links??[]]] as Array<[string,Array<Record<string,any>>]>) {
     for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
   }
   out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[]}))).digest('hex');
@@ -81,7 +81,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     const oldLinks: Array<{ source_key: string; target_type: string; target_id: number; source_hash: string }> = await em.query('SELECT source_key,target_type,target_id,source_hash FROM legacy_import_links WHERE source_system=? AND source_company_id=? AND company_id=?', [SOURCE, source.company.id, company.id]);
     for (const l of oldLinks) {
       if(hashes.has(l.source_key) && hashes.get(l.source_key)!==l.source_hash) throw new MigrationError('来源资料已变化，禁止复跑静默复用或覆盖；请先核对增量');
-      const entity = l.target_type === 'user' ? User : l.target_type === 'department' ? Department : l.target_type === 'position' ? Position : l.target_type === 'file' ? ResourceFile : l.target_type === 'link' ? ResourceLink : ResourceRecord;
+      const entity = l.target_type === 'user' ? User : l.target_type === 'department' ? Department : l.target_type === 'position' ? Position : l.target_type === 'position_duty' ? PositionDuty : l.target_type === 'comp_record' ? EmployeeCompensationRecord : l.target_type === 'file' ? ResourceFile : l.target_type === 'link' ? ResourceLink : ResourceRecord;
       const exists = await em.findOne(entity as typeof User, { where: { id: l.target_id, companyId: company.id } });
       if (!exists && l.target_type === 'link') { ids.set(l.source_key, Number(l.target_id)); continue; } // 手动关联被人工取消后，复跑不重建
       if (!exists) throw new MigrationError('迁移账本引用已失效，必须先核对，不能自动补造');
@@ -138,6 +138,33 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       const userId=required('user',override.employee_id);
       if(!['allow','deny'].includes(override.effect))throw new MigrationError('旧个人权限效果不合法');
       if(!await em.findOneBy(UserPermissionOverride,{userId,permission})) await em.insert(UserPermissionOverride,{userId,permission,effect:override.effect});
+    }
+    // 岗位档案条目（旧 position_duties）：旧分类是业务领域（财务/仓储…），新分类是五类档案；不在新分类里的归“岗位职责”，旧分类名写进说明，不丢
+    const DUTY_CATEGORIES = ['岗位职责', '入职培训', '绩效考核', '监督规则', '流程节点说明', '日常工作', '周期工作', '审批职责', '资料维护', '其他'];
+    for (const d of source.positionDuties ?? []) {
+      if (reuse('position_duty', d.id)) continue;
+      const positionId = lookup('position', d.position_id);
+      if (!positionId) { out.excluded.push({ type: 'position_duty', id: String(d.id), reason: '旧岗位条目所属岗位不在迁入范围' }); continue; }
+      const title = String(d.title ?? '').trim();
+      if (!title || title.length > 150) { out.excluded.push({ type: 'position_duty', id: String(d.id), reason: '旧岗位条目标题为空或过长，待核对' }); continue; }
+      const oldCategory = String(d.duty_category ?? '').trim();
+      const known = DUTY_CATEGORIES.includes(oldCategory);
+      const note = !known && oldCategory ? `（旧分类：${oldCategory}）` : '';
+      const description = `${String(d.description ?? '')}${note}`.slice(0, 1000) || null;
+      const r = await em.save(PositionDuty, em.create(PositionDuty, { companyId: company.id, positionId, category: known ? oldCategory : '岗位职责', title, description, frequency: d.frequency ? String(d.frequency).slice(0, 60) : null, relatedModule: d.related_module ? String(d.related_module).slice(0, 60) : null, completionStandard: d.completion_standard ? String(d.completion_standard).slice(0, 1000) : null, isKey: Number(d.is_key_duty) === 1, status: d.status === 'inactive' ? 'inactive' : 'active' }));
+      await register('position_duty', d.id, r.id); count('created', 'position_duty');
+    }
+    // 员工薪酬记录（旧 employee_compensation_records：调薪、工资、奖励、处罚）
+    for (const c of source.compensationRecords ?? []) {
+      if (reuse('comp_record', c.id)) continue;
+      const userId = lookup('user', c.employee_id);
+      if (!userId) { out.excluded.push({ type: 'comp_record', id: String(c.id), reason: '旧薪酬记录所属员工不在迁入范围' }); continue; }
+      if (!['salary_change', 'payroll', 'reward', 'penalty'].includes(String(c.record_type))) { out.excluded.push({ type: 'comp_record', id: String(c.id), reason: '旧薪酬记录类型没有新系统对应，待核对' }); continue; }
+      let amount: number;
+      try { amount = yuanToPreciseCents(String(c.amount ?? 0), 0); } catch { out.excluded.push({ type: 'comp_record', id: String(c.id), reason: '旧金额精度超出整数分，未舍入，待核对' }); continue; }
+      const created = c.created_at ? new Date(String(c.created_at).replace(' ', 'T') + '+08:00') : undefined;
+      const r = await em.save(EmployeeCompensationRecord, em.create(EmployeeCompensationRecord, { companyId: company.id, userId, recordType: String(c.record_type), title: String(c.title ?? '').slice(0, 160) || '旧系统薪酬记录', amount, effectiveDate: c.effective_date ? String(c.effective_date).slice(0, 10) : null, payPeriod: c.pay_period ? String(c.pay_period).slice(0, 40) : null, reason: c.reason ? String(c.reason).slice(0, 500) : null, sourceType: c.source_type ? String(c.source_type).slice(0, 80) : 'legacy', sourceId: c.source_id ? String(c.source_id) : null, actorId: c.actor_id ? lookup('user', c.actor_id) ?? null : null, ...(created && !Number.isNaN(created.getTime()) ? { createdAt: created } : {}) }));
+      await register('comp_record', c.id, Number(r.id)); count('created', 'comp_record');
     }
     const backfills: Array<{r:LegacyRecord; patch:Record<string,unknown>}> = [];
     let pending = source.records.slice();

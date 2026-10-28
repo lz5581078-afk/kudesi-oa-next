@@ -34,6 +34,7 @@ import { CryptoService } from '../common/crypto.service';
 import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
 import { deriveStoreFunds } from './store-funds';
+import { deriveBankBalances } from './bank-balance';
 import { deriveWorkforce } from './workforce-rules';
 import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
 import { applyCond, deriveColumns } from './def-conditions';
@@ -324,7 +325,7 @@ export class ResourcesService implements RuleHost {
     );
     const fileMap = await this.files.info(companyId, fileIds);
     // 手机号的“绑定店铺 / 主子卡”：读时从店铺档案和主卡字段算，不存库
-    const derived = def.key === 'phones' ? await derivePhoneFields(em, companyId, records, (r) => labels.get(r.id)?.parentPhoneId) : def.key === 'stores' ? await deriveStoreFunds(em, companyId, records) : null;
+    const derived = def.key === 'phones' ? await derivePhoneFields(em, companyId, records, (r) => labels.get(r.id)?.parentPhoneId) : def.key === 'stores' ? await deriveStoreFunds(em, companyId, records) : def.key === 'bank-accounts' ? await deriveBankBalances(em, companyId, records) : null;
     const derivedCols = def.derivedColumns?.length ? await deriveColumns(em, companyId, def, records) : null;
     const workforce = def.key === 'workforce' ? await deriveWorkforce(em, companyId, records) : null;
     return records.map((r) => {

@@ -9,6 +9,9 @@ export interface LegacyArchive {
   positions: Array<Record<string, any>>;
   employees: Array<Record<string, any>>;
   employeeOverrides?: Array<Record<string, any>>;
+  /** 旧岗位档案条目（position_duties：职责/培训/考核…）和员工薪酬记录（employee_compensation_records：调薪/工资/奖惩） */
+  positionDuties?: Array<Record<string, any>>;
+  compensationRecords?: Array<Record<string, any>>;
   positionPermissions: Array<Record<string, any>>;
   employeePositions: Array<Record<string, any>>;
   records: LegacyRecord[];
