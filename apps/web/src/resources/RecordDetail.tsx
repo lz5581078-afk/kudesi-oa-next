@@ -16,6 +16,7 @@ import { LinkExistingStoresButton } from './LicenseActions';
 import { DutyGroupSummary } from './DutyGroupSummary';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
 import { StoreMetricsPanel } from './StoreMetricsPanel';
+import { WorkforceAccountNote } from './WorkforcePanels';
 import { ProductCostSummary } from './ProductCostSummary';
 import { DerivedStoresPanel, PartnerSubjectPanel, PhoneArchiveButton, ReturnBorrowButton, StoreAssignButton, StoreReleaseButton } from './CertPanels';
 import { useResourceCan } from './useResourceCan';
@@ -363,6 +364,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def
                 <PhoneArchiveButton type="partners" record={record} numberKey="cardPhone" idKey="cardPhoneId" holder={String(record.data.cardPhoneHolder ?? record.title)} onDone={reloadAll} onError={setError} />
               )}
               {def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} />}
+              {def.key === 'workforce' && <WorkforceAccountNote />}
               {sectionList.map(({ group, fields, shown }) => (
                 <section key={group} id={secId(group)} className="rd-sec">
                   <h3 className="rd-sec-title">

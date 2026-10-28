@@ -1955,6 +1955,20 @@
           "note"
         ]
       }
+    },
+    "workforce": {
+      "tables": [
+        "employee_workforce_profiles",
+        "employee_workforce_attachments"
+      ],
+      "aliases": {
+        "userId": [
+          "employee_id"
+        ],
+        "note": [
+          "remark"
+        ]
+      }
     }
   }
 }

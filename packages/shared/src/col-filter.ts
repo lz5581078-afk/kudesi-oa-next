@@ -78,6 +78,8 @@ export function colFilterKindOf(type: FieldType): ColFilterKind | null {
 export const READ_TIME_FIELDS: Readonly<Record<string, readonly string[]>> = {
   phones: ['cardKind', 'boundStores', 'boundStoreNos'],
   stores: ['deposit', 'frozen', 'goodsFund', 'promotionBalance'],
+  // 兼职与临时工：合作状态按日期实时算，账号/部门/岗位/上级/登录时间取自员工当前资料
+  workforce: ['cooperation', 'account', 'departmentName', 'positionName', 'managerName', 'accountStatus', 'lastLoginAt'],
 };
 export const readTimeKeys = (resourceKey: string): ReadonlySet<string> => new Set(READ_TIME_FIELDS[resourceKey] ?? []);
 

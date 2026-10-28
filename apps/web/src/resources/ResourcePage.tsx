@@ -27,6 +27,7 @@ import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../layout/AppbarSlo
 import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
 import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
 import { PageHint } from './PageHint';
+import { AddAccountDialog, UnfiledBanner } from './WorkforcePanels';
 import { CloseIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
 import { useIsMobile } from './useMedia';
@@ -139,6 +140,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  const [addingAccount, setAddingAccount] = useState(false);
   const [copyInit, setCopyInit] = useState<Record<string, unknown> | null>(null);
   const [importing, setImporting] = useState(false);
   const [reasonLib, setReasonLib] = useState(false);
@@ -394,6 +396,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
           } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '导入失败'); }
         }}>导入默认分类</button>
       )}
+      {type === 'workforce' && can('create') && <button type="button" className="res-btn" onClick={() => setAddingAccount(true)}>新增账号并建档</button>}
       {type === 'fixed-assets' && catCan('view') && resourcePagePath('asset-categories') && <Link className="res-btn" to={resourcePagePath('asset-categories')!}>分类管理</Link>}
       {type === 'fixed-assets' && can('edit') && <button type="button" className="res-btn" onClick={() => setInventory(true)}>盘点</button>}
       {type === 'tax-profiles' && can('create') && <TaxPendingButton refreshKey={data?.total} onCreated={() => void load()} />}
@@ -499,6 +502,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
         )}
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
           {toolbar}
+          {type === 'workforce' && <UnfiledBanner refreshKey={data?.total} canCreate={can('create')} onFile={(userId) => { setCopyInit({ userId }); setCreating(true); }} />}
           {error && <div role="alert" className="notice error m">{error}</div>}
           {!gridOn && checked.length > 0 && <BatchBar def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
@@ -585,6 +589,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
           }}
         />
       )}
+      {addingAccount && <AddAccountDialog onClose={() => setAddingAccount(false)} onCreated={(userId) => { setAddingAccount(false); setCopyInit({ userId }); setCreating(true); }} />}
       {inventory && <InventoryDialog onClose={() => setInventory(false)} onDone={(m) => { setInventory(false); setBatchMsg(m); void load(); }} />}
       {sorting && tab && <CategorySortDialog archiveType={tab} onClose={() => setSorting(false)} onDone={() => void load()} />}
       {reasonLib && libType && <ReasonLibraryDialog libType={libType} title={type === 'stores' ? '店铺异常原因库' : '手机号异常原因库'} onClose={() => setReasonLib(false)} />}

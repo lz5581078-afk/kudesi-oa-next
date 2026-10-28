@@ -28,6 +28,7 @@ export const EXPIRY_SOURCES: readonly ExpirySource[] = [
   { resource: 'phones', field: 'nextRechargeAt', label: '下次充值', kind: 'date' },
   { resource: 'stores', field: 'jushuitanExpireAt', label: '聚水潭授权到期', kind: 'date' },
   { resource: 'stores', field: 'trademarkExpireAt', label: '授权商标到期', kind: 'date' },
+  { resource: 'workforce', field: 'contractEndDate', label: '兼职/临时工合作结束', kind: 'date' },
   { resource: 'bank-accounts', field: 'reconcileDay', label: '对账日', kind: 'reconciliation', cycleField: 'reconcileCycle' },
 ];
 

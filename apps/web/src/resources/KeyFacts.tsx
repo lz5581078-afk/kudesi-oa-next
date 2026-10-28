@@ -1,9 +1,9 @@
-import { dueBadgeFor, dueWithin, todayShanghai, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { dueBadgeFor, dueWithin, todayShanghai, workforcePayText, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 import { CopyButton, isCopyable } from './CopyValue';
 import { displayValue } from './format';
 
-type Fact = string | { label: string; text: (r: ResourceDto) => string; copy?: boolean };
+type Fact = string | { label: string; text: (r: ResourceDto) => string; copy?: boolean; hideEmpty?: boolean };
 
 /** 详情顶部的“关键信息”：旧系统卷宗每类资料头部放 3~4 项最常看的内容（号码、归属、负责人、到期日），不用翻分区。字段 key 即该字段，对象是组合值。 */
 export const KEY_FACTS: Record<string, Fact[]> = {
@@ -29,6 +29,7 @@ export const KEY_FACTS: Record<string, Fact[]> = {
   locations: ['locationType', 'code', 'scope'],
   archives: ['archiveNo', 'locationId', 'keeperUserId', 'archiveType'],
   'duty-groups': ['scope', 'leaderUserId'],
+  workforce: ['employmentType', 'cooperation', 'positionName', 'contractStartDate', 'contractEndDate', { label: '计薪', hideEmpty: true, text: (r) => workforcePayText(r.data.payMethod, r.data.payRate) }], // 没有薪资权限的人，服务端不返回计薪，这一项不显示
 };
 
 const DATE_EXPIRY = new Set(['expiresAt', 'validUntil', 'endAt', 'renewAt', 'nextRechargeAt']);
@@ -45,7 +46,7 @@ export function KeyFacts({ def, record, canSee }: { def: ResourceDef; record: Re
   const specs = KEY_FACTS[def.key];
   if (!specs) return null;
   const today = todayShanghai();
-  const items = specs.map((spec) => {
+  const items = specs.filter((spec) => typeof spec === 'string' || !spec.hideEmpty || spec.text(record)).map((spec) => {
     if (typeof spec !== 'string') return { key: spec.label, label: spec.label, text: spec.text(record), copy: spec.copy ?? false, due: null as ReturnType<typeof dueText> };
     const f = def.fields.find((x) => x.key === spec);
     if (!f || (canSee && !canSee(f))) return null;
