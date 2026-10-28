@@ -252,7 +252,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const groupField = groupCfg ? def.fields.find((f) => f.key === groupCfg.field) : undefined;
   const [chip, setChip] = useState('');
   useEffect(() => setChip(''), [type, tab, status]);
-  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(data.items, groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts)) : undefined), [grouping, data, groupCfg, groupField, groupDepts]);
+  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(data.items, groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts, groupCfg.thenBy)) : undefined), [grouping, data, groupCfg, groupField, groupDepts]);
   const rowGroups = useMemo<RowGroup[] | undefined>(() => (allGroups && chip ? allGroups.filter((g) => g.key === chip) : allGroups), [allGroups, chip]);
   const setGroupMode = (on: boolean) => { setGroupOn(on); setPage(1); try { localStorage.setItem(`kudesi.group.${type}`, on ? 'group' : 'flat'); } catch { /* 存储不可用时只是不记住 */ } };
   const toggleGroup = (key: string) => setFoldedGroups((cur) => { const n = new Set(cur); if (n.has(key)) n.delete(key); else n.add(key); try { localStorage.setItem(`kudesi.folded.${type}`, JSON.stringify([...n])); } catch { /* 忽略 */ } return n; });
@@ -450,7 +450,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     </>
   );
 
-  const addInGroup = groupCfg && can('create') ? (g: RowGroup) => { setCopyInit(g.refId ? { [groupCfg.field]: g.refId } : g.value ? { [groupCfg.field]: g.value } : {}); setCreating(true); } : undefined;
+  const addInGroup = groupCfg && can('create') ? (g: RowGroup) => { setCopyInit(def.fields.find((f) => f.key === groupCfg.field)?.readonly ? {} : g.refId ? { [groupCfg.field]: g.refId } : g.value ? { [groupCfg.field]: g.value } : {}); setCreating(true); } : undefined;
   const rowActions = useMemo(() => rowActionsFor(type, (a) => can(a), (m) => { if (m) setBatchMsg(m); void load(); }), [type, can, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const empty = filtered

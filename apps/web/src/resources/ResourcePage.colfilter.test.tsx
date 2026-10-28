@@ -63,7 +63,7 @@ describe('资料页：表格列筛选', () => {
   it('多列条件并存（并且）；标签可单独清除，也可一键清空', async () => {
     await openGrid();
     await filterCarrier('联通');
-    fireEvent.click(colButton('使用类型'));
+    fireEvent.click(colButton('手机号分类'));
     expect(await screen.findByText('12')).toBeTruthy(); // 数量
     fireEvent.click(screen.getByRole('checkbox', { name: /公司保存/ }));
     fireEvent.click(screen.getByRole('button', { name: '应用' }));

@@ -231,6 +231,8 @@ export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Prom
       await matchPhone(ctx, true);
       await storePhones(ctx);
       storeClaim(ctx);
+      // 最后订单时刻只在有最后订单日期时才有意义
+      if (!ctx.data.lastOrderAt) ctx.data.lastOrderClock = null;
       await abnormalReason(ctx, 'store-abnormal-reasons');
       return;
     case 'wechat':

@@ -56,7 +56,7 @@ describe('列表壳：配置驱动的能力入口', () => {
     fireEvent.click(screen.getByRole('button', { name: '批量指派' }));
     const dlg = await screen.findByRole('dialog', { name: /批量指派/ });
     fireEvent.click(within(dlg).getByRole('button', { name: '确定' }));
-    expect(await within(dlg).findByText(/请选择使用类型/)).toBeTruthy();
+    expect(await within(dlg).findByText(/请选择手机号分类/)).toBeTruthy();
     fireEvent.change(within(dlg).getByRole('combobox'), { target: { value: 'personal_used' } });
     fireEvent.click(within(dlg).getByRole('button', { name: '确定' }));
     expect(await within(dlg).findByText(/请填写指派原因/)).toBeTruthy();

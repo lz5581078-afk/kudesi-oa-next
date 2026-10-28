@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUnitOptions } from './unitOptions';
-import { RESOURCE_DEFS, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
+import { RESOURCE_DEFS, groupTitle, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
 import { useAuth } from '../auth/AuthContext';
@@ -168,6 +168,13 @@ function WarehousePhotoUpload({ record, onDone }: { record: ResourceDto; onDone:
 }
 
 /** 归档确认框里的“关联摘要”：告诉操作人这条资料现在还关联着什么（归档不会动它们）。 */
+/** 关联按对方资料类型分组（旧关联面板：店铺、自媒体、微信…各一块），同类型内保持原顺序 */
+function groupRelations(relations: Relation[]): Array<[string, Relation[]]> {
+  const by = new Map<string, Relation[]>();
+  for (const r of relations) by.set(r.type, [...(by.get(r.type) ?? []), r]);
+  return [...by.entries()];
+}
+
 function relationHint(relations: Relation[] | null): string {
   if (!relations || relations.length === 0) return '';
   const by = new Map<string, number>();
@@ -260,6 +267,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def
   const groups = new Map<string, typeof def.fields[number][]>();
   for (const f of def.fields) {
     if (f.permission && !(me && createChecker(me.permissions)(f.permission))) continue;
+    if (f.listOnly) continue;
     if (f.showWhen && !f.showWhen.in.includes(String(f.showWhen.field === 'status' ? record.status : (record.data[f.showWhen.field] ?? '')))) continue;
     groups.set(f.group, [...(groups.get(f.group) ?? []), f]);
   }
@@ -362,7 +370,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def
             {sectionList.length > 1 && (
               <nav aria-label="分区导航" className="rd-anchors">
                 {sectionList.map((s) => (
-                  <button key={s.group} type="button" className={`rd-anchor${(activeGroup || sectionList[0].group) === s.group ? ' active' : ''}`} onClick={() => jump(s.group)}>{s.group}<i>{s.shown.length}</i></button>
+                  <button key={s.group} type="button" className={`rd-anchor${(activeGroup || sectionList[0].group) === s.group ? ' active' : ''}`} onClick={() => jump(s.group)}>{groupTitle(def, s.group, record.data)}<i>{s.shown.length}</i></button>
                 ))}
                 <label className="rd-hide-empty check"><input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} /> 隐藏空字段</label>
               </nav>
@@ -385,7 +393,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def
               {sectionList.map(({ group, fields, shown }) => (
                 <section key={group} id={secId(group)} className="rd-sec">
                   <h3 className="rd-sec-title">
-                    <span>{group}</span>
+                    <span>{groupTitle(def, group, record.data)}</span>
                     {can('edit') && !record.archived && editGroup !== group && fields.some((f) => !f.readonly) && (
                       <button type="button" className="link-button" aria-label={`编辑${group}`} onClick={() => setEditGroup(group)}>编辑本区</button>
                     )}
@@ -430,21 +438,27 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def
             <h3 className="rd-sec-title"><span>关联关系</span>{can('edit') && <button type="button" className="res-btn sm" onClick={() => setLinkDialog('new')}>添加关联</button>}</h3>
             {relations === null && <p className="muted">加载中…</p>}
             {relations?.length === 0 && <p className="muted">没有关联</p>}
-            {relations?.map((r) => (
-              <div key={`${r.direction}-${r.relation}-${r.type}-${r.id}-${r.linkId ?? ''}`} className="line-item between">
-                <span>
-                  <small className="muted">{r.relation === 'manual' ? '手动关联' : r.direction === 'out' ? '指向' : '被引用于'} · {typeLabel(r.type)}</small>{' '}
-                  {recordLink(r.type, r.id) && canView(r.type) ? <Link to={recordLink(r.type, r.id)!}>{r.title}</Link> : r.title}
-                </span>
-                {r.relation === 'manual' && (r.purpose || r.relationKind || r.validFrom || r.validTo) && (
-                  <small className="muted">{r.purpose || r.relationKind ? `${(() => { const p = parsePurpose(r.purpose, r.relationKind); return `${relationKindLabel(p.kind, def.key, r.type)}${p.text ? `：${p.text}` : ''}`; })()} ` : ''}{r.validFrom || r.validTo ? `有效期 ${r.validFrom ?? '…'} ~ ${r.validTo ?? '长期'}` : ''}</small>
-                )}
-                {r.relation === 'manual' && r.linkId && can('edit') && (
-                  <button type="button" className="link-button" onClick={() => setLinkDialog({ linkId: r.linkId!, targetType: r.type, title: r.title, purpose: r.purpose, relationKind: r.relationKind, validFrom: r.validFrom, validTo: r.validTo })}>改属性</button>
-                )}
-                {r.relation === 'manual' && r.linkId && can('edit') && (
-                  <button type="button" className="link-button" onClick={() => { if (window.confirm(`取消和「${r.title}」的关联？`)) resourceApi.removeLink(def.key, id, r.linkId!).then(() => setRelations(null)).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败')); }}>取消关联</button>
-                )}
+            {relations && relations.length > 0 && groupRelations(relations).map(([t, list]) => (
+              <div key={t} className="rd-rel-group">
+                <h4 className="rd-rel-title">{typeLabel(t)}<i>{list.length}</i></h4>
+                {list.map((r) => (
+                  <div key={`${r.direction}-${r.relation}-${r.type}-${r.id}-${r.linkId ?? ''}`} className="line-item between">
+                    <span>
+                      <small className="muted">{r.relation === 'manual' ? '手动关联' : r.relationLabel ?? (r.direction === 'out' ? '指向' : '被引用于')}{r.relation !== 'manual' && r.direction === 'in' && r.relationLabel ? '（由对方维护）' : ''}</small>{' '}
+                      {recordLink(r.type, r.id) && canView(r.type) ? <Link to={recordLink(r.type, r.id)!}>{r.title}</Link> : r.title}
+                      {r.summary && <small className="muted rd-rel-sum"> {r.summary}</small>}
+                    </span>
+                    {r.relation === 'manual' && (r.purpose || r.relationKind || r.validFrom || r.validTo) && (
+                      <small className="muted">{r.purpose || r.relationKind ? `${(() => { const p = parsePurpose(r.purpose, r.relationKind); return `${relationKindLabel(p.kind, def.key, r.type)}${p.text ? `：${p.text}` : ''}`; })()} ` : ''}{r.validFrom || r.validTo ? `有效期 ${r.validFrom ?? '…'} ~ ${r.validTo ?? '长期'}` : ''}</small>
+                    )}
+                    {r.relation === 'manual' && r.linkId && can('edit') && (
+                      <button type="button" className="link-button" onClick={() => setLinkDialog({ linkId: r.linkId!, targetType: r.type, title: r.title, purpose: r.purpose, relationKind: r.relationKind, validFrom: r.validFrom, validTo: r.validTo })}>改属性</button>
+                    )}
+                    {r.relation === 'manual' && r.linkId && can('edit') && (
+                      <button type="button" className="link-button" onClick={() => { if (window.confirm(`取消和「${r.title}」的关联？`)) resourceApi.removeLink(def.key, id, r.linkId!).then(() => setRelations(null)).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败')); }}>取消关联</button>
+                    )}
+                  </div>
+                ))}
               </div>
             ))}
             {linkDialog && <RelationDialog type={def.key} id={id} link={linkDialog === 'new' ? undefined : linkDialog} canView={canView} onClose={() => setLinkDialog(null)} onSaved={() => { setLinkDialog(null); setRelations(null); }} />}

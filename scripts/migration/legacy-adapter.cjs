@@ -157,10 +157,24 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(type==='bank-store-links'&&!data.purpose)data.purpose='店铺收款';
           if(type==='phones'){data.feeCycle=({'30':'monthly','90':'quarterly','365':'yearly'})[row.fee_cycle]||row.fee_cycle;data.forwardApp=row.has_forwarding_app===1?'yes':'no';}
           if(type==='stores'){if([false,0,'0','no','未连接'].includes(row.jushuitan_connected))data.jushuitan='not_connected';if([true,1,'1','yes','已连接'].includes(row.jushuitan_connected))data.jushuitan='connected';}
+          if(type==='stores'){
+            // 绑定手机号：旧库是 手机号.store_id + 有效的“手机号-店铺”关联（一店可多号）。新系统由店铺的手机号档案字段承载：第一个进“手机号档案”，其余进“更多绑定手机号”，号码文本由保存规则按档案带出
+            const phoneIds=[];const addPhone=v=>{if(v!==undefined&&v!==null&&!phoneIds.includes(String(v)))phoneIds.push(String(v));};
+            for(const p of tables.phone_numbers||[])if(String(p.store_id)===String(row.id))addPhone(p.id);
+            for(const l of tables.resource_links||[])if(l.relation_type==='phone_store'&&l.status==='active'&&!l.ended_at&&l.source_type==='phone_number'&&l.target_type==='store'&&String(l.target_id)===String(row.id))addPhone(l.source_id);
+            if(phoneIds.length){data.phoneId=ref('phones',phoneIds[0]);if(phoneIds.length>1)data.phoneIds=phoneIds.slice(1).map(x=>ref('phones',x));}
+            // 最后订单时间：新档案是“日期 + 时刻”两格，旧库精确到秒
+            const clock=/^\d{4}-\d{2}-\d{2}[ T](\d{2}:\d{2}(:\d{2})?)/.exec(String(row.last_order_at||''));
+            if(clock&&!/^00:00(:00)?$/.test(clock[1]))data.lastOrderClock=clock[1];
+          }
+          if(type==='self-media'){
+            // 手机号档案：账号上的手机号对不上档案时，用旧库“手机号-自媒体”关联补上
+            if(!data.phoneId){const l=(tables.resource_links||[]).find(x=>x.relation_type==='phone_self_media'&&x.status==='active'&&!x.ended_at&&x.source_type==='phone_number'&&x.target_type==='self_media_account'&&String(x.target_id)===String(row.id));if(l){data.phoneId=ref('phones',l.source_id);const ph=byId('phone_numbers',l.source_id);if(ph&&ph.number&&!data.phoneNumber)data.phoneNumber=String(ph.number);}}
+          }
           if(type==='locations'&&row.location_scope==='archive')data.scope='asset_space';
           if(type==='asset-categories'){const value=typeof row.custom_fields==='string'?json(row.custom_fields):row.custom_fields;data.customFields=Array.isArray(value)?value.map(x=>typeof x==='string'?x:x.label||x.name||x.key).join(','):undefined;}
           if(type==='fixed-assets'){const config=typeof row.configuration==='string'?json(row.configuration):row.configuration;if(config&&typeof config==='object'&&!Array.isArray(config)){/* 旧“配置”是按分类参数名存的 {CPU:'i5',内存:'16GB'}：对应新“分类自定义属性”，名称→内容；值不是文字的（对象/数组）保留成 JSON 文本，不丢 */const attrs={};for(const [k,v] of Object.entries(config)){if(v===null||v===undefined||v==='')continue;attrs[k]=typeof v==='object'?JSON.stringify(v):String(v);}if(Object.keys(attrs).length)data.attrs=attrs;}else if(config&&typeof config==='object'){data.config=JSON.stringify(config);}}
-          if(type==='memos'){data.title=row.account_name||row.service_name||row.provider_name;if(row.status==='active')status='normal';}
+          if(type==='memos'){const isService=row.memo_type==='service';data.title=isService?(row.service_name||row.account_name||row.provider_name):(row.account_name||row.service_name||row.provider_name);if(!(isService&&row.service_name&&row.account_name))delete data.accountName;if(row.status==='active')status='normal';}
           if(type==='finance-fee-items'){if(row.direction==='支出'||!row.direction){data.direction='expense';if(!row.direction)notices.push('旧费用项目未显式记方向，按旧页面的默认支出规则转换');}if(row.direction==='冲减')data.direction='offset';if(row.direction==='往来')data.direction='current';if(['不限','不固定'].includes(row.defaultObject))delete data.defaultObject;else{const allowed=def.fields.find(f=>f.key==='defaultObject')?.options?.map(x=>x.value)||[];const raw=String(row.defaultObject||'').split(/[、,，]/).filter(Boolean);const mapped=raw.flatMap(x=>x==='公户'?['公司公户','店铺公户']:[x]);const missing=mapped.filter(x=>!allowed.includes(x));if(missing.length)excluded(type+'.defaultObject',id,'新系统不支持这些默认挂账节点，费用项目保留、这些节点未写入：'+missing.join('、'));data.defaultObject=mapped.filter(x=>allowed.includes(x)).join('、')||undefined;}}
 
           if(type==='finance-categories'){data.archiveType=row.__family;data.code=row.category_code;if(data.archiveType==='original_purchase'&&String(data.code).length>8&&String(data.code).startsWith('YZCG')){data.code=String(data.code).slice(4);excluded(type+'.code',id,'旧分类码'+row.category_code+'去掉已由采购方式表示的YZCG前缀，转换为'+data.code+'；基础/组合原码仍保留');}data.parentId=ref('finance-categories',categoryKey(row.parent_id,row.__family));}

@@ -34,3 +34,13 @@ describe('按文本字段分组（商标类别）', () => {
     expect(g[1].value).toBe('第31类 饲料');
   });
 });
+
+describe('部门下再按服务商分小组（账号与服务备忘）', () => {
+  const memo = (id: number, dept: number | undefined, provider: string) => ({ id, title: `备忘${id}`, data: { ...(dept === undefined ? {} : { ownerDeptId: dept }), provider }, refLabels: {} }) as unknown as ResourceDto;
+  it('每个部门里按服务商拆成小组，组名“部门 · 服务商”，没填服务商的归“未设置”；没有部门的整体排最后', () => {
+    const g = groupRowsByDept([memo(1, 2, '阿里云'), memo(2, 2, '腾讯云'), memo(3, 2, '阿里云'), memo(4, undefined, '七牛'), memo(5, 3, '')], 'ownerDeptId', '未分配部门', depts, 'provider');
+    expect(g.map((x) => x.label)).toEqual(['总部 / 运营部 · 阿里云', '总部 / 运营部 · 腾讯云', '总部 / 财务部 · 未设置', '未分配部门 · 七牛']);
+    expect(g[0].rows.map((r) => r.id)).toEqual([1, 3]);
+    expect(new Set(g.map((x) => x.key)).size).toBe(4);
+  });
+});
