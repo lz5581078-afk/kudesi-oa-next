@@ -1388,3 +1388,8 @@ div.ws-task { cursor: default; }
   .lb-table td::before { content: attr(data-label) '：'; color: var(--muted); font-size: 12px; }
   .cascade-col { flex-basis: 140px; }
 }
+
+/* 列表分组标签条（按文本/单选字段分组，如商标类别） */
+.res-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+.res-tag { height: 24px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--ink); }
+.res-tag.active { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; font-weight: 600; }

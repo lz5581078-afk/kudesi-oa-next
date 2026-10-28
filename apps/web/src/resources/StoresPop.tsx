@@ -6,7 +6,7 @@ import { resourceApi, type ResourceDto } from './api';
 const STATUS: Record<string, string> = { normal: '正常', abnormal: '异常', inactive: '停用', cancelled: '注销' };
 
 /** “关联店铺 N 家 · 点击查看”：弹出该营业执照下的店铺（平台、店铺、当前运营、状态），24 号旧版税务/执照/合作人列表同款。 */
-export function StoresPopButton({ licenseId, count, title = '关联店铺' }: { licenseId: number | null; count: number; title?: string }) {
+export function StoresPopButton({ licenseId, count, title = '关联店铺', compact = false }: { licenseId: number | null; count: number; title?: string; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ResourceDto[] | null>(null);
   const [error, setError] = useState('');
@@ -17,8 +17,8 @@ export function StoresPopButton({ licenseId, count, title = '关联店铺' }: { 
   }
   return (
     <>
-      <span>{count} 家 </span>
-      <button type="button" className="link-button" onClick={() => void show()}>点击查看</button>
+      {!compact && <span>{count} 家 </span>}
+      <button type="button" className={compact ? 'row-act' : 'link-button'} onClick={(e) => { e.stopPropagation(); void show(); }}>{compact ? '关联店铺' : '点击查看'}</button>
       {open && (
         <div className="modal-backdrop" role="presentation">
           <div className="modal card" role="dialog" aria-label={title}>

@@ -23,3 +23,14 @@ describe('职责组按部门分组', () => {
     expect(groupRowsByDept([row(1, 2)], 'departmentId', '未分类', depts).map((x) => x.label)).toEqual(['总部 / 运营部']);
   });
 });
+
+import { groupRowsByValue } from './groupRows';
+describe('按文本字段分组（商标类别）', () => {
+  const mk = (id: number, v?: string) => ({ id, type: 'trademarks', title: 't' + id, status: 'registered', data: v ? { classNo: v } : {}, refLabels: {} }) as never;
+  it('类别按数字排，没填的排最后，同类别归一组', () => {
+    const g = groupRowsByValue([mk(1, '第31类 饲料'), mk(2), mk(3, '第5类'), mk(4, '第31类 饲料')], 'classNo', '未分类', (r) => String((r as { data: { classNo?: string } }).data.classNo ?? ''));
+    expect(g.map((x) => x.label)).toEqual(['第5类', '第31类 饲料', '未分类']);
+    expect(g[1].rows.length).toBe(2);
+    expect(g[1].value).toBe('第31类 饲料');
+  });
+});

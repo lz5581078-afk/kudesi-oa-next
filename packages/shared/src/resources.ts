@@ -209,7 +209,7 @@ export interface ResourceDef {
   /** 列表勾选后可批量做的事：status=批量停用/启用（要填原因），其余是批量修改这个字段（如移动分类） */
   batch?: readonly string[];
   /** 列表按这个字段的取值分组显示（可折叠的分组条，没填的归“未分类”）；字段必须是引用字段，分组顺序由 groupOrder 决定 */
-  listGroupBy?: { field: string; emptyLabel: string; order: 'department' };
+  listGroupBy?: { field: string; emptyLabel: string; order: 'department' | 'value'; /** order=value 时：分组上方出现“全部 / 各取值”标签条，点标签只看这一组（24 号商标按类别） */ chips?: boolean };
   /** 快捷页签（条件页签，不依赖 tabsBy）；页签值为 q:<key> */
   quickTabs?: readonly QuickTab[];
   /** 左侧目录里可以就地管理（新增下级、改名、排序、删除）的树形字段 key；需要对方资料的编辑/删除权限 */
@@ -312,10 +312,10 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       textarea('abnormalReason', '异常原因', '营业执照信息', { showWhen: { field: 'status', in: ['abnormal'] } }),
       text('legalPhone', '法人预留手机', '营业执照信息', { search: true }),
       ref('locationId', '存放总位置', '营业执照实物存放', 'locations', { list: true, help: '改总位置时，位置为空或和旧总位置相同的正本、副本位置会跟着改' }),
-      files('originalPhoto', '正本照片', '照片资料', { accept: 'image', maxFiles: 1 }),
-      { key: 'originalPhotoMissing', label: '正本照片缺失', type: 'bool', group: '照片资料', help: '只表示没有照片，不代表实物缺失' },
-      files('copyPhoto', '副本照片', '照片资料', { accept: 'image', maxFiles: 1 }),
-      { key: 'copyPhotoMissing', label: '副本照片缺失', type: 'bool', group: '照片资料', help: '只表示没有照片，不代表实物缺失' },
+      files('originalPhoto', '正本照片', '照片资料', { accept: 'image', maxFiles: 1, list: true }),
+      { key: 'originalPhotoMissing', label: '正本照片缺失', type: 'bool', group: '照片资料', list: true, help: '只表示没有照片，不代表实物缺失' },
+      files('copyPhoto', '副本照片', '照片资料', { accept: 'image', maxFiles: 1, list: true }),
+      { key: 'copyPhotoMissing', label: '副本照片缺失', type: 'bool', group: '照片资料', list: true, help: '只表示没有照片，不代表实物缺失' },
       text('borrowedSummary', '借出情况', '营业执照实物存放', { readonly: true, list: true, maxLength: 500 }),
       select('originalState', '正本', '营业执照实物存放', MATERIAL),
       ref('originalLocationId', '正本位置', '营业执照实物存放', 'locations'),
@@ -969,6 +969,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     defaultStatus: 'applying',
     children: ['trademark-authorizations'],
     batch: ['status'],
+    listGroupBy: { field: 'classNo', emptyLabel: '未分类', order: 'value', chips: true },
     copyOmit: ['name', 'applicationNo', 'registrationNo'],
     alerts: [{ field: 'validUntil', withinDays: 90, label: '90 天内到期' }],
     // 24 号旧版把商标分成四块：申请中 / 已申请（已注册）/ 不可用 / 合作商标
