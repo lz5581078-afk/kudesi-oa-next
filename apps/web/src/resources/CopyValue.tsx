@@ -28,7 +28,7 @@ export async function copyText(text: string): Promise<boolean> {
 }
 
 /** 值后面的“复制”小按钮：点了变成“已复制”，1.5 秒后恢复；失败时提示手动复制。不触发所在行/卡片的点击。 */
-export function CopyButton({ value, label }: { value: string; label: string }) {
+export function CopyButton({ value, label, className }: { value: string; label: string; className?: string }) {
   const [state, setState] = useState<'idle' | 'ok' | 'fail'>('idle');
   const timer = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -36,7 +36,7 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
   return (
     <button
       type="button"
-      className="link-button copy-btn"
+      className={`link-button copy-btn${className ? ` ${className}` : ''}`}
       aria-label={`复制${label}`}
       onKeyDown={(e) => e.stopPropagation()}
       title={state === 'fail' ? '浏览器不允许复制，请手动选中后复制' : `复制${label}`}

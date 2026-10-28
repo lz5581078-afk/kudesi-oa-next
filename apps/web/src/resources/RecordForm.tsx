@@ -450,7 +450,11 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     }
     setErrors(next);
     const first = visible.find((f) => next[f.key]);
-    if (first) setTimeout(() => document.querySelector<HTMLElement>(`[data-field="${first.key}"] input, [data-field="${first.key}"] select, [data-field="${first.key}"] textarea`)?.focus(), 0);
+    if (first) setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-field="${first.key}"] input, [data-field="${first.key}"] select, [data-field="${first.key}"] textarea`);
+      el?.focus();
+      el?.scrollIntoView?.({ block: 'center' });
+    }, 0);
     return !first;
   }
 
@@ -459,14 +463,47 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     void prepare('close');
   }
 
+  const secId = (g: string) => `rf-sec-${g}`;
+  const errorsByGroup = (g: string) => groups.find(([name]) => name === g)?.[1].filter((f) => errors[f.key]).length ?? 0;
+  const showAnchors = !inline && groups.length > 1;
+  const scrollBox = useRef<HTMLDivElement>(null);
+  const [activeGroup, setActiveGroup] = useState('');
+  const jump = (g: string) => { setActiveGroup(g); document.getElementById(secId(g))?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); };
+  const onScroll = () => {
+    const box = scrollBox.current;
+    if (!box || !showAnchors) return;
+    const top = box.getBoundingClientRect().top + 24;
+    let current = groups[0]?.[0] ?? '';
+    for (const [g] of groups) { const el = document.getElementById(secId(g)); if (el && el.getBoundingClientRect().top <= top) current = g; }
+    if (current !== activeGroup) setActiveGroup(current);
+  };
+  const errorCount = Object.values(errors).filter(Boolean).length;
+
   return (
     <div className={inline ? 'inline-edit' : 'modal-backdrop'} role="presentation">
-      <form className={inline ? 'inline-form' : 'modal card'} role={inline ? 'group' : 'dialog'} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
-        {!inline && <div className="modal-head between">
+      <form className={inline ? 'inline-form' : 'modal card rf'} role={inline ? 'group' : 'dialog'} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
+        {!inline && <div className="modal-head rf-head">
           <strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>
+          {record && <span className="rf-sub" title={record.title}>{record.title}</span>}
+          <span className="rf-gap" />
+          {visible.some((f) => f.required) && <span className="muted rf-req-hint"><b className="req">*</b> 必填</span>}
           <button type="button" className="icon-button" aria-label="关闭" onClick={requestClose}>✕</button>
         </div>}
-        <div className="modal-body">
+        <div className={showAnchors ? 'rf-main with-anchors' : 'rf-main'}>
+          {showAnchors && (
+            <nav className="rf-anchors" aria-label="表单分区">
+              {groups.map(([g, fields]) => {
+                const n = errorsByGroup(g);
+                return (
+                  <button key={g} type="button" className={`rf-anchor${(activeGroup || groups[0][0]) === g ? ' active' : ''}${n ? ' has-error' : ''}`} onClick={() => jump(g)}>
+                    <span>{g}</span>
+                    {n > 0 ? <b className="rf-err-n" aria-label={`${n} 项有问题`}>{n}</b> : <i>{fields.length}</i>}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+          <div className="modal-body rf-scroll" ref={scrollBox} onScroll={onScroll}>
           {def.key === 'licenses' && (
             <LicenseRecognizeButton
               onApply={(fields) => setValues((cur) => ({ ...cur, ...fields }))}
@@ -474,20 +511,21 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           )}
           {draftNote && <div className="notice">{draftNote}{draftEnabled && draftNote.startsWith('已恢复') && <> <button type="button" className="link-button" onClick={() => void clearDraft()}>清除草稿</button></>}</div>}
           {!record && def.statuses.length > 1 && def.key !== 'fixed-assets' && (
-            <label>初始状态
+            <label className="rf-status">初始状态
               <select value={status} onChange={(e) => setStatus(e.target.value)}>
                 {def.statuses.filter((s) => !s.requiresReason).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </label>
           )}
-          {visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项{!record ? '，保存后可以继续补充关联资料。' : '。'}</p>}
+          {inline && visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项。</p>}
+          {!inline && !record && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
           {groups.map(([group, fields]) => (
-            <fieldset key={group}>
-              <legend>{group}</legend>
+            <section key={group} id={secId(group)} className="rf-sec" aria-label={group}>
+              {!inline && <h3 className="rf-sec-title">{group}</h3>}
               <div className="form-grid">
                 {fields.map((f) => (
-                  <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[f.type === 'textarea' || f.type === 'attrs' ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
-                    <span>{f.label}{f.required && <b className="req"> *</b>}</span>
+                  <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
+                    <span className="rf-label">{f.label}{f.required && <b className="req" title="必填"> *</b>}</span>
                     {f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
                       field={f}
                       value={lockedFields?.includes(f.key) ? initial?.[f.key] : values[f.key]}
@@ -504,23 +542,24 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
                   </label>
                 ))}
               </div>
-            </fieldset>
+            </section>
           ))}
           {isProduct && <TotalCostPreview values={values} />}
           {isProduct && !record && isComposedArchive(values) && <BomDraft rows={bomRows} onChange={setBomRows} />}
           {isProduct && <CodePreview values={values} excludeId={record?.id} />}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
-          {Object.values(errors).some(Boolean) && (
-            <div role="alert" className="notice error error-summary">
-              <strong>还有 {Object.values(errors).filter(Boolean).length} 项需要补充或修改：</strong>{' '}
-              {visible.filter((f) => errors[f.key]).map((f) => (
-                <button key={f.key} type="button" className="link-button" onClick={() => document.querySelector<HTMLElement>(`[data-field="${f.key}"] input, [data-field="${f.key}"] select, [data-field="${f.key}"] textarea`)?.focus()}>{f.label}</button>
-              ))}
-            </div>
-          )}
           {error && <div role="alert" className="notice error">{error}</div>}
+          </div>
         </div>
-        <div className="modal-foot">
+        {errorCount > 0 && (
+          <div role="alert" className="rf-errbar error-summary">
+            <strong>还有 {errorCount} 项需要补充或修改：</strong>
+            {visible.filter((f) => errors[f.key]).map((f) => (
+              <button key={f.key} type="button" className="link-button" onClick={() => document.querySelector<HTMLElement>(`[data-field="${f.key}"] input, [data-field="${f.key}"] select, [data-field="${f.key}"] textarea`)?.focus()}>{f.label}</button>
+            ))}
+          </div>
+        )}
+        <div className="modal-foot rf-foot">
           {dirty && <span className="muted dirty-hint">{record ? '有未保存的修改' : '已填写内容尚未保存'}</span>}
           <button type="button" className="secondary-button" onClick={requestClose}>取消</button>
           {draftEnabled && <button type="button" className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>存为草稿</button>}

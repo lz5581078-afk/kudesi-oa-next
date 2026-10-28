@@ -7,8 +7,6 @@ import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
 import { resourceApi, type ListResult } from './api';
-import { displayValue, statusOf } from './format';
-import { CopyButton, isCopyable } from './CopyValue';
 import { CategoryTree } from './CategoryTree';
 import { FeeSnapshotsDialog } from './FeeSnapshotsDialog';
 import { PackagingExcelDialog } from './PackagingExcelDialog';
@@ -23,9 +21,15 @@ import { ArchiveTypeDialog } from './ArchiveTypeDialog';
 import { InventoryDialog } from './AssetPanels';
 import { ResourceGrid } from './grid/ResourceGrid';
 import { useWideScreen } from './grid/useWideScreen';
+import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../layout/AppbarSlot';
+import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
+import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
+import { PageHint } from './PageHint';
+import { CloseIcon, SearchGlyph } from './ResIcons';
+import { useColumnWidths, useDensity } from './listPrefs';
+import { useIsMobile } from './useMedia';
 
 const PAGE_SIZES = [20, 50, 100, 200] as const;
-const SORTABLE = new Set(['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select']);
 
 type ListPrefs = { pageSize?: number; status?: string; filters?: Record<string, string> };
 const prefsKey = (type: string) => `kudesi.list.${type}`;
@@ -68,8 +72,13 @@ function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
 }
 
 /** 通用资料页：列表（搜索/分类页签/状态/分页/列设置）+ 右侧详情抽屉 + 新增/导入/导出，全部由资源定义生成。 */
-export function ResourcePage({ type, lockedTab, title }: { type: string; lockedTab?: string; title?: string }) {
+export function ResourcePage({ type, lockedTab, title, embedded }: { type: string; lockedTab?: string; title?: string; embedded?: boolean }) {
   const def = getResourceDef(type)!;
+  const isMobile = useIsMobile();
+  const [density, setDensity] = useDensity();
+  const colWidths = useColumnWidths(type);
+  const hasAppbar = useHasAppbarSlot();
+  useAppbarBare(!embedded);
   const can = useResourceCan(type);
   const unitOpts = useUnitOptions(); // 单位列表读到后，列表里的单位编码才能换成名称
   const [keyword, setKeyword] = useState('');
@@ -118,7 +127,6 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   const [creating, setCreating] = useState(false);
   const [copyInit, setCopyInit] = useState<Record<string, unknown> | null>(null);
   const [importing, setImporting] = useState(false);
-  const [columnMenu, setColumnMenu] = useState(false);
   const [reasonLib, setReasonLib] = useState(false);
   const [sorting, setSorting] = useState(false);
   const [inventory, setInventory] = useState(false);
@@ -269,8 +277,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
   }
 
   const filtered = Boolean(keyword.trim() || tab || status || archived || expiring || Object.values(filterVals).some(Boolean));
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const activeFilterCount = Object.entries(filterVals).filter(([k, v]) => v && k !== treeField?.key).length + (status ? 1 : 0);
+  const onCheck = (ids: number[], on: boolean) => setChecked((cur) => (on ? [...new Set([...cur, ...ids])] : cur.filter((id) => !ids.includes(id))));
   function clearFilters() {
     setKeyword(''); setStatus(''); setArchived(false); setExpiring(false); setFilterVals({}); setTab(lockedTab ?? ''); setPage(1);
   }
@@ -286,43 +293,154 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
     }
   }
 
+  // —— 工具条派生数据 ——
+  const treeKey = treeField?.key;
+  const shownFilterFields = filterFields.filter((ff) => ff.key !== treeKey);
+  const optLabel = (key: string, value: string) => (filterOpts[key] ?? []).find((o) => String(o.id) === value)?.label ?? value;
+  const chips: Chip[] = [];
+  const dropVal = (k: string) => () => { setFilterVals((v) => ({ ...v, [k]: '' })); setPage(1); };
+  for (const ff of shownFilterFields) if (filterVals[ff.key]) chips.push({ key: ff.key, text: `${ff.label}：${optLabel(ff.key, filterVals[ff.key])}`, clear: dropVal(ff.key) });
+  for (const vf of viewFilters) if (filterVals[vf.key]) chips.push({ key: vf.key, text: `${vf.label}：${(vf.optionsFrom === 'departments' ? deptOpts : vf.options).find((o) => o.value === filterVals[vf.key])?.label ?? filterVals[vf.key]}`, clear: dropVal(vf.key) });
+  if (status) chips.push({ key: 'status', text: `状态：${def.statuses.find((x) => x.value === status)?.label ?? status}`, clear: () => { setStatus(''); setPage(1); } });
+  if (expiring) chips.push({ key: 'expiring', text: '即将到期', clear: () => { setExpiring(false); setPage(1); } });
+  if (archived) chips.push({ key: 'archived', text: '已归档', clear: () => { setArchived(false); setPage(1); } });
+  if (showHidden && hiddenExists && !status && !archived) chips.push({ key: 'hidden', text: `含${def.statuses.filter((x) => x.hidden).map((x) => x.label).join('/')}`, clear: () => { setShowHidden(false); setPage(1); } });
+  if (treeKey && filterVals[treeKey] && catPath) chips.push({ key: 'category', text: `分类：${catPath}`, clear: () => { setFilterVals((v) => ({ ...v, [treeKey]: '' })); setPage(1); } });
+  const hasFilterPop = true;
+  const popCount = chips.filter((c) => c.key !== 'category').length;
+  const tabList = (tabField || def.quickTabs?.length) && !lockedTab
+    ? [...resourceTabOptions(def), ...((def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || []), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)]
+    : [];
+  const tabsOwnRow = tabList.length > 3 || isMobile; // 分类多的资料（商品档案等）页签单独一行，工具条仍是一行
+  const desc = !lockedTab ? resourceDescription(type) : '';
+  const hint = desc ? <PageHint text={desc} /> : null;
+  const items = data?.items ?? [];
+  const selIdx = selected !== null ? items.findIndex((r) => r.id === selected) : -1;
+  const detailNav = selIdx >= 0 ? { index: selIdx + 1, total: items.length, onPrev: selIdx > 0 ? () => setSelected(items[selIdx - 1].id) : undefined, onNext: selIdx < items.length - 1 ? () => setSelected(items[selIdx + 1].id) : undefined } : undefined;
+  useEffect(() => {
+    if (selected !== null) document.querySelector('.res-table tr.selected, .res-card.selected')?.scrollIntoView?.({ block: 'nearest' });
+  }, [selected]);
+
+  const tabsEl = tabList.length > 0 && (
+    <div className="res-tabs" role="tablist" aria-label="分类">
+      <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'res-tab active' : 'res-tab'} onClick={() => { setTab(''); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>全部</button>
+      {tabList.map((o) => (
+        <button key={o.value} type="button" role="tab" aria-selected={tab === o.value} className={tab === o.value ? 'res-tab active' : 'res-tab'} onClick={() => { setTab(o.value); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>
+          {o.label}{data?.tabCounts ? <i>{data.tabCounts[o.value] ?? 0}</i> : null}
+        </button>
+      ))}
+    </div>
+  );
+
+  const extras = (
+    <>
+      {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="res-btn" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
+      {type === 'finance-packaging-schemes' && <button type="button" className="res-btn" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
+      {type === 'finance-products' && can('edit') && <button type="button" className="res-btn" onClick={() => setArchiveTypesOpen(true)}>管理档案类型</button>}
+      {type === 'finance-product-units' && can('create') && <button type="button" className="res-btn" disabled={seeding} onClick={seedUnits}>{seeding ? '导入中…' : '导入默认项'}</button>}
+      {type === 'finance-fee-items' && can('create') && hasFeeDefaults(me?.companyName) && <button type="button" className="res-btn" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
+      {type === 'finance-fee-items' && <button type="button" className="res-btn" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
+      {(type === 'finance-supplier-categories' || type === 'finance-customer-categories') && can('create') && (
+        <button type="button" className="res-btn" onClick={async () => {
+          try {
+            const have = new Set((await resourceApi.list(type, { pageSize: 200, showHidden: true })).items.map((i) => i.title));
+            let n = 0;
+            for (const [name, subtitle] of PARTY_SEED_CATEGORIES[type]) if (!have.has(name)) { await resourceApi.create(type, { name, subtitle }); n++; }
+            setBatchMsg(n ? `已导入 ${n} 个默认分类` : '默认分类都已经有了');
+            void load();
+          } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '导入失败'); }
+        }}>导入默认分类</button>
+      )}
+      {type === 'fixed-assets' && catCan('view') && resourcePagePath('asset-categories') && <Link className="res-btn" to={resourcePagePath('asset-categories')!}>分类管理</Link>}
+      {type === 'fixed-assets' && can('edit') && <button type="button" className="res-btn" onClick={() => setInventory(true)}>盘点</button>}
+      {type === 'tax-profiles' && can('create') && <TaxPendingButton refreshKey={data?.total} onCreated={() => void load()} />}
+      {libType && libCan('view') && <button type="button" className="res-btn" onClick={() => setReasonLib(true)}>异常原因库</button>}
+      {type === 'finance-categories' && tab && can('edit') && <button type="button" className="res-btn" onClick={() => setSorting(true)}>调整顺序</button>}
+    </>
+  );
+
+  const actions = (
+    <>
+      {extras}
+      {gridAllowed && !gridOn && <button type="button" className="res-btn" onClick={enterGrid} title="整页变成像飞书表格一样的编辑表格，适合批量管理">表格编辑</button>}
+      {can('import') && <button type="button" className="res-btn" disabled={gridLocked} onClick={() => setImporting(true)}>导入</button>}
+      {can('export') && (filtered
+        ? <MorePop label="导出"><>
+            <button type="button" role="menuitem" onClick={() => void doExport('filtered')}>导出当前筛选</button>
+            <button type="button" role="menuitem" onClick={() => void doExport('all')}>导出全部</button>
+          </></MorePop>
+        : <button type="button" className="res-btn" onClick={() => void doExport('filtered')}>导出</button>)}
+      {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} onClick={() => setCreating(true)}>＋ 新增</button>}
+    </>
+  );
+
+  const empty = filtered
+    ? <div className="res-empty"><p>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。</p><button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></div>
+    : <div className="res-empty"><p>还没有{def.label}</p>{can('create') && <button type="button" className="res-btn primary sm" onClick={() => setCreating(true)}>＋ 新增{def.label}</button>}</div>;
+
+  const toolbar = (
+    <fieldset className="grid-lock res-tools" disabled={gridLocked} title={gridLocked ? '有没保存的修改：请先保存或放弃，再换筛选或翻页' : undefined}>
+      {tabsOwnRow && tabsEl}
+      <div className="res-bar">
+        {!tabsOwnRow && tabsEl}
+        <span className="res-search">
+          <SearchGlyph />
+          <input type="search" placeholder="搜索，多个词用空格隔开" aria-label="搜索" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
+          {keyword && <button type="button" className="icon-button search-clear" aria-label="清空搜索" onClick={() => { setKeyword(''); setPage(1); }}><CloseIcon size={12} /></button>}
+        </span>
+        {hasFilterPop && (
+          <FilterPop
+            count={popCount}
+            filtered={filtered}
+            extra={isMobile ? (
+              <label className="res-filter-wide"><span>排序</span>
+                <select aria-label="排序方式" value={sort ? `${sort.by}:${sort.dir}` : ''} onChange={(e) => { const [by, dir] = e.target.value.split(':'); setSort(by ? { by, dir: dir as 'asc' | 'desc' } : null); setPage(1); }}>
+                  <option value="">默认排序</option>
+                  {columns.filter((f) => SORTABLE.has(f.type)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
+                </select>
+              </label>
+            ) : undefined}
+            state={{ fields: shownFilterFields, viewFilters, vals: filterVals, opts: filterOpts, deptOpts, status, statuses: def.statuses, hasExpiry: expirySources().some((x) => x.resource === type), expiring, archivable: Boolean(archivePolicyOf(type)), archived, archivedCount: data?.archivedCount, hiddenLabels: def.statuses.filter((x) => x.hidden).map((x) => x.label), showHidden, canShowHidden: hiddenExists }}
+            actions={{
+              setVal: (k, v) => { setFilterVals((cur) => ({ ...cur, [k]: v })); setPage(1); },
+              setStatus: (v) => { setStatus(v); setPage(1); },
+              setExpiring: (v) => { setExpiring(v); setPage(1); },
+              setArchived: (v) => { setArchived(v); setPage(1); },
+              setShowHidden: (v) => { setShowHidden(v); setPage(1); },
+              clearAll: clearFilters,
+            }}
+          />
+        )}
+        {!isMobile && <ColumnsPop fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} />}
+        {!isMobile && <DensityButton density={density} onChange={setDensity} />}
+        {!hasAppbar && hint}
+        <span className="res-bar-gap" />
+        <div className="res-actions">{isMobile ? (
+          <>
+            {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} onClick={() => setCreating(true)}>＋ 新增</button>}
+            <MorePop label="更多"><>
+              {extras}
+              {can('import') && <button type="button" role="menuitem" onClick={() => setImporting(true)}>导入</button>}
+              {can('export') && <button type="button" role="menuitem" onClick={() => void doExport('filtered')}>{filtered ? '导出当前筛选' : '导出'}</button>}
+              {can('export') && filtered && <button type="button" role="menuitem" onClick={() => void doExport('all')}>导出全部</button>}
+            </></MorePop>
+          </>
+        ) : actions}</div>
+      </div>
+      {(filtered || chips.length > 0) && data && (
+        <ActiveChips
+          chips={chips}
+          summary={filtered ? (data.total ? `找到 ${data.total} 条符合条件的${def.label}` : `没有符合条件的${def.label}`) : ''}
+          onClearAll={clearFilters}
+        />
+      )}
+    </fieldset>
+  );
+
   return (
-    <div className="split">
-      <section className="split-main">
-        <div className="page-head">
-          <div><h1>{title ?? def.label}</h1>{resourceDescription(type) && !lockedTab && <p className="muted page-desc">{resourceDescription(type)}</p>}</div>
-          <div className="pill-row">
-            {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="secondary-button" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
-            {type === 'finance-packaging-schemes' && <button type="button" className="secondary-button" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
-            {type === 'finance-products' && can('edit') && <button type="button" className="secondary-button" onClick={() => setArchiveTypesOpen(true)}>管理档案类型</button>}
-            {type === 'finance-product-units' && can('create') && <button type="button" className="secondary-button" disabled={seeding} onClick={seedUnits}>{seeding ? '导入中…' : '导入默认项'}</button>}
-            {type === 'finance-fee-items' && can('create') && hasFeeDefaults(me?.companyName) && <button type="button" className="secondary-button" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
-            {type === 'finance-fee-items' && <button type="button" className="secondary-button" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
-            {(type === 'finance-supplier-categories' || type === 'finance-customer-categories') && can('create') && (
-              <button type="button" className="secondary-button" onClick={async () => {
-                try {
-                  const have = new Set((await resourceApi.list(type, { pageSize: 200, showHidden: true })).items.map((i) => i.title));
-                  let n = 0;
-                  for (const [name, subtitle] of PARTY_SEED_CATEGORIES[type]) if (!have.has(name)) { await resourceApi.create(type, { name, subtitle }); n++; }
-                  setBatchMsg(n ? `已导入 ${n} 个默认分类` : '默认分类都已经有了');
-                  void load();
-                } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '导入失败'); }
-              }}>导入默认分类</button>
-            )}
-            {type === 'fixed-assets' && catCan('view') && resourcePagePath('asset-categories') && <Link className="secondary-button" to={resourcePagePath('asset-categories')!}>分类管理</Link>}
-            {type === 'fixed-assets' && can('edit') && <button type="button" className="secondary-button" onClick={() => setInventory(true)}>盘点</button>}
-            {type === 'tax-profiles' && can('create') && <TaxPendingButton refreshKey={data?.total} onCreated={() => void load()} />}
-            {libType && libCan('view') && <button type="button" className="secondary-button" onClick={() => setReasonLib(true)}>异常原因库</button>}
-            {type === 'finance-categories' && tab && can('edit') && <button type="button" className="secondary-button" onClick={() => setSorting(true)}>调整顺序</button>}
-            {gridAllowed && !gridOn && <button type="button" className="secondary-button" onClick={enterGrid} title="整页变成像飞书表格一样的编辑表格，适合批量管理">表格编辑</button>}
-            {can('import') && <button type="button" className="secondary-button" disabled={gridLocked} onClick={() => setImporting(true)}>导入</button>}
-            {can('export') && <button type="button" className="secondary-button" onClick={() => void doExport('filtered')}>{filtered ? '导出当前筛选' : '导出'}</button>}
-            {can('export') && filtered && <button type="button" className="secondary-button" onClick={() => void doExport('all')}>导出全部</button>}
-            {can('export') && checked.length > 0 && <button type="button" className="secondary-button" onClick={() => void doExport('picked')}>导出所选 {checked.length}</button>}
-            {can('create') && <button type="button" className="primary-button" disabled={gridLocked} onClick={() => setCreating(true)}>＋ 新增</button>}
-          </div>
-        </div>
-        <div className={treeField ? 'tree-layout' : undefined}>
+    <div className={`res-page${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}`}>
+      {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
+      <div className={treeField ? 'res-body with-tree' : 'res-body'}>
         {treeField && (
           <CategoryTree
             type={type}
@@ -336,94 +454,8 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
             onSelect={(id) => { if (gridLocked) return; setFilterVals((v) => ({ ...v, [treeField.key]: id })); setPage(1); }}
           />
         )}
-        <div className="card">
-          <fieldset className="grid-lock" disabled={gridLocked} title={gridLocked ? '有没保存的修改：请先保存或放弃，再换筛选或翻页' : undefined}>
-          {(tabField || def.quickTabs?.length) && !lockedTab && (
-            <div className="tab-group page-tabs" role="tablist" aria-label="分类">
-              <button type="button" role="tab" aria-selected={tab === ''} className={tab === '' ? 'chip active' : 'chip'} onClick={() => { setTab(''); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>全部</button>
-              {[...resourceTabOptions(def), ...(def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || [], ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)].map((o) => (
-                <button key={o.value} type="button" role="tab" aria-selected={tab === o.value} className={tab === o.value ? 'chip active' : 'chip'} onClick={() => { setTab(o.value); setPage(1); if (treeField) setFilterVals((v) => ({ ...v, [treeField.key]: '' })); }}>
-                  {o.label}{data?.tabCounts ? ` ${data.tabCounts[o.value] ?? 0}` : ''}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="toolbar">
-            <span className="list-search grow">
-              <input type="search" placeholder="搜索（多个词用空格隔开）" aria-label="搜索" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
-              {keyword && <button type="button" className="icon-button search-clear" aria-label="清空搜索" onClick={() => { setKeyword(''); setPage(1); }}>✕</button>}
-            </span>
-            {(filterFields.length > 0 || viewFilters.length > 0) && (
-              <button type="button" className={`secondary-button filter-toggle${activeFilterCount ? ' active' : ''}`} aria-expanded={filtersOpen} onClick={() => setFiltersOpen((v) => !v)}>
-                筛选{activeFilterCount ? ` ${activeFilterCount}` : ''}
-              </button>
-            )}
-            <select className="sort-mobile" aria-label="排序方式" value={sort ? `${sort.by}:${sort.dir}` : ''} onChange={(e) => { const [by, dir] = e.target.value.split(':'); setSort(by ? { by, dir: dir as 'asc' | 'desc' } : null); setPage(1); }}>
-              <option value="">默认排序</option>
-              {columns.filter((f) => SORTABLE.has(f.type)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
-            </select>
-            <div className={`filter-group${filtersOpen ? ' open' : ''}`}>
-            {filterFields.filter((ff) => ff.key !== treeField?.key).map((ff) => (
-              <select key={ff.key} aria-label={ff.label} value={filterVals[ff.key] ?? ''} onChange={(e) => { setFilterVals((v) => ({ ...v, [ff.key]: e.target.value })); setPage(1); }}>
-                <option value="">{ff.label}：全部</option>
-                {(filterOpts[ff.key] ?? []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-              </select>
-            ))}
-            {viewFilters.map((vf) => (
-              <select key={vf.key} aria-label={vf.label} value={filterVals[vf.key] ?? ''} onChange={(e) => { setFilterVals((v) => ({ ...v, [vf.key]: e.target.value })); setPage(1); }}>
-                <option value="">{vf.label}：全部</option>
-                {(vf.optionsFrom === 'departments' ? deptOpts : vf.options).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            ))}
-            <select aria-label="状态" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
-              <option value="">状态：全部</option>
-              {def.statuses.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-            </div>
-            {expirySources().some((x) => x.resource === type) && (
-              <button type="button" className={expiring ? 'secondary-button active' : 'secondary-button'} aria-pressed={expiring} onClick={() => { setExpiring((v) => !v); setPage(1); }}>
-                即将到期
-              </button>
-            )}
-            {archivePolicyOf(type) && (
-              <button type="button" className={archived ? 'secondary-button active' : 'secondary-button'} aria-pressed={archived} onClick={() => { setArchived((v) => !v); setPage(1); }}>
-                已归档{data?.archivedCount !== undefined ? ` ${data.archivedCount}` : ''}
-              </button>
-            )}
-            {hiddenExists && !status && !archived && (
-              <label className="check"><input type="checkbox" checked={showHidden} onChange={(e) => { setShowHidden(e.target.checked); setPage(1); }} /> 显示{def.statuses.filter((s) => s.hidden).map((s) => s.label).join('/')}</label>
-            )}
-            {filtered && <button type="button" className="secondary-button" onClick={clearFilters}>清除筛选</button>}
-            <div className="menu-wrap">
-              <button type="button" className="secondary-button" aria-expanded={columnMenu} onClick={() => setColumnMenu((v) => !v)}>显示列</button>
-              {columnMenu && (
-                <div className="menu card" role="menu">
-                  {shownFields.map((f) => (
-                    <label key={f.key} className="check">
-                      <input
-                        type="checkbox"
-                        checked={colKeys.includes(f.key)}
-                        onChange={(e) => setColKeys(e.target.checked ? [...colKeys, f.key] : colKeys.filter((k) => k !== f.key))}
-                      />
-                      {f.label}
-                    </label>
-                  ))}
-                  <div className="pill-row">
-                    <button type="button" className="link-button" onClick={() => setColKeys(shownFields.map((f) => f.key))}>全部显示</button>
-                    <button type="button" className="link-button" onClick={() => setColKeys(defaults.map((f) => f.key))}>恢复默认</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          </fieldset>
-          {filtered && data && (
-            <div className="result-bar" role="status" aria-live="polite">
-              <span>{data.total ? `找到 ${data.total} 条符合条件的${def.label}` : `没有符合条件的${def.label}`}</span>
-              <button type="button" className="link-button" onClick={clearFilters}>清除搜索和筛选</button>
-            </div>
-          )}
-          {catPath && <div className="muted" style={{ padding: '6px 12px' }}>当前分类：{catPath}（含下级分类）</div>}
+        <section className="res-main" aria-label={`${title ?? def.label}列表`}>
+          {toolbar}
           {error && <div role="alert" className="notice error m">{error}</div>}
           {!gridOn && checked.length > 0 && <BatchBar def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
@@ -443,85 +475,49 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                 onSaved={(ok) => { if (ok) void load(); }}
                 onExit={leaveGrid}
               />
-            ) : <div className="muted center m">加载中…</div>
+            ) : <div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />加载中…</div>
+          ) : isMobile ? (
+            <ResourceCards def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} />
           ) : (
-          <div className="table-scroll">
-            <table className="data-table cards-narrow">
-              <thead>
-                <tr>
-                  {<th style={{ width: 32 }}><input type="checkbox" aria-label="本页全选" checked={!!data?.items.length && data.items.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...(data?.items.map((r) => r.id) ?? [])])] : checked.filter((id) => !data?.items.some((r) => r.id === id)))} /></th>}
-                  {columns.map((f) => SORTABLE.has(f.type) ? (
-                    <th key={f.key} aria-sort={sort?.by === f.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                      <button type="button" className="link-button" title="点击排序" onClick={() => { setSort(sort?.by === f.key ? (sort.dir === 'asc' ? { by: f.key, dir: 'desc' } : null) : { by: f.key, dir: 'asc' }); setPage(1); }}>
-                        {f.label}{sort?.by === f.key ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
-                      </button>
-                    </th>
-                  ) : <th key={f.key}>{f.label}</th>)}
-                  <th>状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.items.map((row) => {
-                  const st = statusOf(def, row.status);
-                  return (
-                    <tr
-                      key={row.id}
-                      className={row.id === selected ? 'selected' : undefined}
-                      tabIndex={0}
-                      aria-selected={row.id === selected}
-                      onClick={() => setSelected(row.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setSelected(row.id);
-                        }
-                      }}
-                    >
-                      {<td className="card-skip" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>}
-                      {columns.map((f) => {
-                        const due = dueBadgeFor(type, f.key, row.data, row.status, today);
-                        return (
-                          <td key={f.key} data-label={f.label} className={f.type === 'money' ? 'num' : undefined}>
-                            {displayValue(f, row)}
-                            {isCopyable(def, f) && f.type !== 'number' && displayValue(f, row) && <> <CopyButton value={displayValue(f, row)} label={f.label} /></>}
-                            {due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`} title="到期提醒按今天的日期实时计算">{due.text}</span></>}
-                          </td>
-                        );
-                      })}
-                      <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
-                    </tr>
-                  );
-                })}
-                {data && data.items.length === 0 && (
-                  <tr><td colSpan={columns.length + 2} className="muted center">
-                    {filtered ? <>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。 <button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></> : `还没有${def.label}`}
-                  </td></tr>
-                )}
-                {!data && !error && <tr><td colSpan={columns.length + 2} className="muted center">加载中…</td></tr>}
-              </tbody>
-            </table>
-          </div>
+            <ResourceTable
+              def={def}
+              type={type}
+              rows={data ? data.items : null}
+              columns={columns}
+              widths={colWidths.widths}
+              onWidth={colWidths.preview}
+              onWidthCommit={colWidths.commit}
+              onWidthReset={colWidths.reset}
+              density={density}
+              sort={sort}
+              onSort={(key) => { setSort(sort?.by === key ? (sort.dir === 'asc' ? { by: key, dir: 'desc' } : null) : { by: key, dir: 'asc' }); setPage(1); }}
+              checked={checked}
+              onCheck={onCheck}
+              selected={selected}
+              onOpen={setSelected}
+              today={today}
+              empty={empty}
+            />
           )}
-          <div className="card-foot between">
-            <span>共 {data?.total ?? 0} 条 · 点击一行在右侧查看，不跳转页面</span>
-            <span className="pill-row">
+          <div className="res-foot">
+            <span className="res-foot-sum">共 {data?.total ?? 0} 条{checked.length > 0 && !gridOn ? <> · 已勾选 {checked.length} 条</> : null}</span>
+            <span className="res-pager">
               <select aria-label="每页条数" disabled={gridLocked} value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
                 {PAGE_SIZES.map((n) => <option key={n} value={n}>每页 {n} 条</option>)}
               </select>
-              <button type="button" className="secondary-button" disabled={page <= 1 || gridLocked} onClick={() => setPage(page - 1)}>上一页</button>
-              <span>{page} / {totalPages}</span>
-              <button type="button" className="secondary-button" disabled={page >= totalPages || gridLocked} onClick={() => setPage(page + 1)}>下一页</button>
+              <button type="button" className="res-btn sm" disabled={page <= 1 || gridLocked} onClick={() => setPage(page - 1)}>上一页</button>
+              <span className="res-page-no">{page} / {totalPages}</span>
+              <button type="button" className="res-btn sm" disabled={page >= totalPages || gridLocked} onClick={() => setPage(page + 1)}>下一页</button>
             </span>
           </div>
-        </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
       {archiveTypesOpen && <ArchiveTypeDialog counts={data?.tabCounts} onClose={() => setArchiveTypesOpen(false)} onChanged={() => void load()} />}
       {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}
       {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}
-      {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
+      {selected !== null && <RecordDetail def={def} id={selected} nav={detailNav} onClose={() => setSelected(null)} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
 
       {creating && (
         <RecordForm

@@ -37,7 +37,7 @@ describe('商品档案详情：成本汇总', () => {
     const def = getResourceDef('finance-products')!;
     vi.mocked(resourceApi.get).mockResolvedValue(dto({ type: 'finance-products', title: '黄瓜种', data: { archiveType: 'raw' } }));
     render(<MemoryRouter><RecordDetail def={def} id={1} onClose={() => undefined} onChanged={() => undefined} /></MemoryRouter>);
-    await screen.findByText('黄瓜种', { selector: '.drawer-title' });
+    await screen.findByText('黄瓜种', { selector: '.rd-title' });
     expect(screen.queryByLabelText('成本汇总')).toBeNull();
   });
 });

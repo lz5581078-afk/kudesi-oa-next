@@ -32,6 +32,6 @@ describe('列表筛选：清除全部条件', () => {
     render(<MemoryRouter><ResourcePage type="finance-suppliers" /></MemoryRouter>);
     const cell = await screen.findByText('GYS-001');
     expect(cell.closest('td')?.getAttribute('data-label')).toBe('供应商编号');
-    expect(cell.closest('table')?.className).toContain('cards-narrow');
+    expect(cell.closest('table')).toBeTruthy(); // 电脑是表格；手机卡片见 ResourcePage.layout.test
   });
 });

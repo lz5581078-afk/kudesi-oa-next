@@ -92,8 +92,8 @@ export function BatchBar({ def, type, rows, checked, can, filterOpts, onMessage,
   };
 
   return (
-    <div className="toolbar" role="group" aria-label="批量操作">
-      <span>已勾选 {checked.length} 条</span>
+    <div className="res-batch" role="group" aria-label="批量操作">
+      <strong className="res-batch-n">已勾选 {checked.length} 条</strong>
       {def.batch && can('edit') && batchFields.length > 0 && (
         <>
           <select aria-label="批量修改字段" value={batchField} onChange={(e) => { setBatchField(e.target.value); setBatchValue(''); }}>
