@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { getResourceDef, type FieldDef } from './resources';
-import { formatGridCell, gridFieldAccess, gridPolicyOf, normalizeDateText, parseGridCell } from './grid-edit';
+import { RESOURCE_DEFS, getResourceDef, type FieldDef, type FieldType } from './resources';
+import { formatGridCell, gridFieldAccess, gridPolicyOf, gridStatusAccess, normalizeDateText, parseAttrsText, parseGridCell } from './grid-edit';
 
 const f = (over: Partial<FieldDef>): FieldDef => ({ key: 'k', label: '字段', type: 'text', group: 'g', ...over });
 const all = () => true;
 
 describe('表格编辑：可编辑性', () => {
-  it('系统计算、文件、清单、多选引用只读；无字段权限只读', () => {
+  it('只有系统计算和没有字段权限的才只读；文件、属性、清单、多引用、多行文本都可以改', () => {
     expect(gridFieldAccess(f({ readonly: true }), all, true).editable).toBe(false);
-    for (const t of ['files', 'attrs', 'json', 'refs'] as const) expect(gridFieldAccess(f({ type: t }), all, true).editable).toBe(false);
+    const kinds: Record<string, string> = { files: 'files', attrs: 'attrs', json: 'json', refs: 'refs', textarea: 'textarea', date: 'date' };
+    for (const [t, k] of Object.entries(kinds)) expect(gridFieldAccess(f({ type: t as FieldType }), all, true)).toEqual({ editable: true, kind: k });
     expect(gridFieldAccess(f({ type: 'money', permission: 'product.cost.view' }), () => false, true).editable).toBe(false);
     expect(gridFieldAccess(f({ type: 'money', writePermission: 'x' }), (p) => p !== 'x', true).editable).toBe(false);
     expect(gridFieldAccess(f({ type: 'money' }), all, false)).toEqual({ editable: true, kind: 'money' });
@@ -18,8 +19,31 @@ describe('表格编辑：可编辑性', () => {
     expect(gridFieldAccess(f({ type: 'secret' }), all, false).editable).toBe(false);
     expect(gridFieldAccess(f({ type: 'sensitive' }), all, true).editable).toBe(true);
   });
-  it('不适合网格的资料被禁用，商品档案不能网格新增', () => {
+  it('矩阵：所有资料的所有字段——详情表单里能改的（非 readonly、有权限），表格里都能改；每种字段类型都有编辑器', () => {
+    const types = new Set<string>();
+    let editable = 0, readonly = 0;
+    for (const d of RESOURCE_DEFS) {
+      for (const fd of d.fields) {
+        types.add(fd.type);
+        const a = gridFieldAccess(fd, all, true);
+        if (fd.readonly) { expect(a.editable, `${d.key}.${fd.key}`).toBe(false); readonly++; }
+        else { expect(a.editable, `${d.key}.${fd.key}`).toBe(true); editable++; }
+      }
+    }
+    // 配置里出现过的每种类型都至少被覆盖到
+    expect([...types].sort()).toEqual(expect.arrayContaining(['text', 'textarea', 'files', 'refs', 'attrs', 'money', 'date', 'select', 'secret', 'sensitive']));
+    expect(editable).toBeGreaterThan(readonly);
+  });
+  it('状态列：要有“停用”权限，只有一个状态的资料没有可改的', () => {
+    expect(gridStatusAccess(getResourceDef('stores')!, true).editable).toBe(true);
+    expect(gridStatusAccess(getResourceDef('stores')!, false)).toMatchObject({ editable: false });
+    expect(gridStatusAccess({ ...getResourceDef('stores')!, statuses: [getResourceDef('stores')!.statuses[0]] }, true).editable).toBe(false);
+  });
+  it('不适合网格的资料（全是系统生成字段，或走专属接口）被禁用；专属品等只剩状态可改的资料可进入', () => {
     expect(gridPolicyOf('finance-bundles').enabled).toBe(false);
+    expect(gridPolicyOf('finance-product-exclusives').enabled).toBe(true);
+    expect(gridPolicyOf('finance-product-boms').enabled).toBe(true);
+    expect(gridPolicyOf('finance-express-fee-batches').enabled).toBe(true);
     expect(gridPolicyOf('finance-products')).toMatchObject({ enabled: true, canCreate: false });
     expect(gridPolicyOf('stores')).toMatchObject({ enabled: true, canCreate: true, canArchive: true });
     for (const k of ['finance-bundles', 'finance-products']) expect(getResourceDef(k)).toBeTruthy();
@@ -56,7 +80,24 @@ describe('表格编辑：单元格解析', () => {
     expect(parseGridCell(f({}), 'text', '  ')).toEqual({ ok: true, value: null });
     expect(parseGridCell(f({ maxLength: 3 }), 'text', '四个字啊').ok).toBe(false);
   });
+  it('多行文本保留换行；属性接受“名称：内容；…”或 JSON；清单必须是合法 JSON 对象/数组', () => {
+    expect(parseGridCell(f({ type: 'textarea', maxLength: 50 }), 'textarea', '第一行\n第二行 ')).toEqual({ ok: true, value: '第一行\n第二行' });
+    expect(parseGridCell(f({ type: 'textarea' }), 'textarea', 'x'.repeat(201)).ok).toBe(false);
+    expect(parseGridCell(f({ type: 'attrs' }), 'attrs', '颜色：黑；尺寸：大')).toEqual({ ok: true, value: { 颜色: '黑', 尺寸: '大' } });
+    expect(parseGridCell(f({ type: 'attrs' }), 'attrs', '{"颜色":"黑","空":""}')).toEqual({ ok: true, value: { 颜色: '黑' } });
+    expect(parseGridCell(f({ type: 'attrs' }), 'attrs', '没有冒号').ok).toBe(false);
+    expect(parseAttrsText('a:1\nb：2')).toEqual({ a: '1', b: '2' });
+    expect(parseGridCell(f({ type: 'attrs' }), 'attrs', Array.from({ length: 31 }, (_, i) => `k${i}：v`).join('；')).ok).toBe(false);
+    expect(parseGridCell(f({ type: 'json' }), 'json', '[{"a":1}]')).toEqual({ ok: true, value: [{ a: 1 }] });
+    expect(parseGridCell(f({ type: 'json' }), 'json', '123').ok).toBe(false);
+    expect(parseGridCell(f({ type: 'json' }), 'json', '{坏').ok).toBe(false);
+    expect(parseGridCell(f({ type: 'files' }), 'files', 'a.png').ok).toBe(false); // 文件、多引用不能靠打字
+    expect(parseGridCell(f({ type: 'refs' }), 'refs', '甲').ok).toBe(false);
+  });
   it('格式化与解析互逆', () => {
+    expect(formatGridCell(f({ type: 'attrs' }), 'attrs', { 颜色: '黑', 尺寸: '大' })).toBe('颜色：黑；尺寸：大');
+    expect(formatGridCell(f({ type: 'files' }), 'files', [1, 2])).toBe('2 个文件');
+    expect(formatGridCell(f({ type: 'json' }), 'json', [{ a: 1 }])).toBe('[{"a":1}]');
     expect(formatGridCell(f({ type: 'money' }), 'money', 1234)).toBe('12.34');
     expect(formatGridCell(f({ type: 'money', scale: 4 }), 'money', 12.3456)).toBe('0.123456');
     expect(formatGridCell(f({}), 'bool', true)).toBe('是');

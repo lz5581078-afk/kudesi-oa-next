@@ -1,6 +1,5 @@
 import {
   formatGridCell,
-  gridFieldAccess,
   parseGridCell,
   type FieldDef,
   type GridCellKind,
@@ -9,9 +8,9 @@ import {
   type GridSaveResponse,
   type GridUpdateRow,
   type Option,
-  type ResourceDef,
+  type StatusDef,
 } from '@kudesi/shared';
-import type { ResourceDto } from '../api';
+import type { FileInfo, ResourceDto } from '../api';
 import type { RefChoice } from './refResolve';
 
 /** 网格的纯逻辑（无界面）：列、行、改动、撤销、粘贴、向下填充、保存请求与结果合并。界面在 ResourceGrid.tsx。 */
@@ -19,20 +18,16 @@ import type { RefChoice } from './refResolve';
 export interface GridCol {
   key: string;
   label: string;
-  field: FieldDef | null; // null = 状态列
+  field: FieldDef | null; // null = 状态列、子表列
   kind: GridCellKind | null;
   editable: boolean;
   reason?: string;
-}
-
-export function buildColumns(def: ResourceDef, fields: readonly FieldDef[], can: (p: string) => boolean, canSecret: boolean): GridCol[] {
-  const cols: GridCol[] = fields.map((f) => {
-    const derived = !def.fields.some((x) => x.key === f.key);
-    const a = derived ? ({ editable: false, reason: '统计数字，不能修改' } as const) : gridFieldAccess(f, can, canSecret);
-    return { key: f.key, label: f.label, field: f, kind: a.editable ? a.kind : null, editable: a.editable, reason: a.editable ? undefined : a.reason };
-  });
-  cols.push({ key: '$status', label: '状态', field: null, kind: null, editable: false, reason: '状态请在详情页或批量栏修改（停用要填原因）' });
-  return cols;
+  /** status = 状态列（按详情页同一规则改状态）；child = 子表列（点开弹出完整的子表编辑浮层，如构成/BOM） */
+  special?: 'status' | 'child';
+  statuses?: readonly StatusDef[];
+  child?: { type: string; field: string };
+  /** 保存后不能再在表格里改（新增行可以填），原因见 lockedReason */
+  lockedAfterCreate?: string;
 }
 
 export interface CellInvalid { raw: string; error: string }
@@ -49,6 +44,11 @@ export interface GridRow {
   data: Record<string, unknown>;
   refLabels: Record<string, string>;
   secretConfigured: Record<string, boolean>;
+  /** 这行用到的文件信息（文件列显示/弹窗缩略图用） */
+  files: Record<number, FileInfo>;
+  /** 待改成的状态（还没保存）；需要原因的状态带 statusReason */
+  statusTo?: string;
+  statusReason?: string;
   invalid: Record<string, CellInvalid>;
   deleted: boolean;
   error?: { code: string; message: string };
@@ -57,13 +57,13 @@ export interface GridRow {
 export function rowFromDto(dto: ResourceDto): GridRow {
   return {
     key: String(dto.id), id: dto.id, version: dto.version, isNew: false, title: dto.title, status: dto.status,
-    base: { ...dto.data }, data: { ...dto.data }, refLabels: { ...dto.refLabels }, secretConfigured: { ...dto.secretConfigured },
+    base: { ...dto.data }, data: { ...dto.data }, refLabels: { ...dto.refLabels }, secretConfigured: { ...dto.secretConfigured }, files: { ...dto.files },
     invalid: {}, deleted: false,
   };
 }
 
 export function newRow(seq: number, defaults: Record<string, unknown> = {}, labels: Record<string, string> = {}): GridRow {
-  return { key: `new-${seq}`, isNew: true, title: '', status: '', base: {}, data: { ...defaults }, refLabels: { ...labels }, secretConfigured: {}, invalid: {}, deleted: false };
+  return { key: `new-${seq}`, isNew: true, title: '', status: '', base: {}, data: { ...defaults }, refLabels: { ...labels }, secretConfigured: {}, files: {}, invalid: {}, deleted: false };
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -71,6 +71,8 @@ const empty = (v: unknown) => v === undefined || v === null || v === '' || (Arra
 
 /** 该单元格被改过（含填了格式不对的内容） */
 export function isChanged(row: GridRow, col: GridCol): boolean {
+  if (col.special === 'status') return row.statusTo !== undefined;
+  if (col.special) return false;
   if (row.invalid[col.key]) return true;
   if (col.field?.type === 'secret') return !empty(row.data[col.key]);
   if (row.isNew) return !empty(row.data[col.key]);
@@ -84,9 +86,10 @@ export function isBlankNew(row: GridRow, cols: GridCol[], defaults: Record<strin
 
 /** showWhen 不满足的字段，这一行不显示也不能改 */
 export function applicable(row: GridRow, col: GridCol): boolean {
+  if (col.lockedAfterCreate && !row.isNew) return false;
   const sw = col.field?.showWhen;
   if (!sw) return true;
-  const cur = sw.field === 'status' ? row.status : String(row.data[sw.field] ?? '');
+  const cur = sw.field === 'status' ? (row.statusTo ?? row.status) : String(row.data[sw.field] ?? '');
   return sw.in.includes(cur);
 }
 
@@ -96,7 +99,7 @@ export function summarize(rows: GridRow[], cols: GridCol[], defaults: Record<str
     if (r.error) errors++;
     if (r.deleted) { if (!r.isNew) deleted++; continue; }
     if (r.isNew) { if (!isBlankNew(r, cols, defaults)) created++; }
-    else cells += cols.filter((c) => c.field && isChanged(r, c) && !r.invalid[c.key]).length;
+    else cells += cols.filter((c) => (c.field || c.special === 'status') && isChanged(r, c) && !r.invalid[c.key]).length;
     invalid += Object.keys(r.invalid).length;
   }
   return { cells, created, deleted, invalid, errors, total: cells + created + deleted + invalid };
@@ -107,6 +110,10 @@ export interface CellChange {
   key: string;
   value?: unknown;
   label?: string;
+  /** 状态列：需要原因的状态带原因 */
+  reason?: string;
+  /** 文件列：新上传/选中的文件信息 */
+  files?: Record<number, FileInfo>;
   invalid?: CellInvalid;
 }
 
@@ -118,6 +125,23 @@ export function applyChanges(rows: GridRow[], cols: GridCol[], changes: CellChan
     const row = out[ch.row];
     const col = cols.find((c) => c.key === ch.key);
     if (!col?.editable || row.deleted || !applicable(row, col)) continue;
+    if (col.special === 'status') {
+      if (row.isNew) continue;
+      if (ch.invalid) { out[ch.row] = { ...row, invalid: { ...row.invalid, [ch.key]: ch.invalid }, error: undefined }; continue; }
+      const to = ch.value === null || ch.value === undefined ? undefined : String(ch.value);
+      const def = to ? col.statuses?.find((x) => x.value === to) : undefined;
+      if (to && !def) continue;
+      if (def?.requiresReason && (ch.reason ?? '').trim().length < 2) continue; // 需要原因的状态没有原因：不接受
+      const back = to === undefined || to === row.status;
+      const { [ch.key]: _drop, ...restInvalid } = row.invalid;
+      const next: GridRow = { ...row, invalid: restInvalid, statusTo: back ? undefined : to, statusReason: back ? undefined : def?.requiresReason ? ch.reason!.trim() : undefined, error: undefined };
+      const data2 = { ...row.data };
+      // 状态变了，只在这个状态下才有的字段（showWhen 依赖 status）会被服务端清空，这里同步
+      for (const c of cols) if (c.field?.showWhen?.field === 'status' && !applicable(next, c)) delete data2[c.key];
+      out[ch.row] = { ...next, data: data2 };
+      continue;
+    }
+    if (col.special) continue;
     const data = { ...row.data };
     const labels = { ...row.refLabels };
     const invalid = { ...row.invalid };
@@ -127,9 +151,10 @@ export function applyChanges(rows: GridRow[], cols: GridCol[], changes: CellChan
       if (ch.value === null || ch.value === undefined) { delete data[ch.key]; delete labels[ch.key]; }
       else { data[ch.key] = ch.value; if (ch.label !== undefined) labels[ch.key] = ch.label; }
     }
+    const files = ch.files ? { ...row.files, ...ch.files } : row.files;
     // 改了会让别的字段不再适用（showWhen）：那些字段清空，和服务端一致
     for (const c of cols) if (c.field?.showWhen && c.field.showWhen.field === ch.key && !applicable({ ...row, data }, c)) { delete data[c.key]; delete invalid[c.key]; }
-    out[ch.row] = { ...row, data, refLabels: labels, invalid, error: undefined };
+    out[ch.row] = { ...row, data, refLabels: labels, files, invalid, error: undefined };
   }
   return out;
 }
@@ -139,10 +164,11 @@ export const normSel = (a: { r: number; c: number }, f: { r: number; c: number }
 
 /** 取单元格的文本（复制、编辑初始值）。密码类永不复制。 */
 export function cellEditText(col: GridCol, row: GridRow, options?: readonly Option[]): string {
+  if (col.special === 'status') return col.statuses?.find((x) => x.value === (row.statusTo ?? row.status))?.label ?? row.status;
   if (!col.field || !col.kind || col.kind === 'secret') return '';
   const inv = row.invalid[col.key];
   if (inv) return inv.raw;
-  if (col.kind === 'ref') return row.refLabels[col.key] ?? '';
+  if (col.kind === 'ref' || col.kind === 'refs') return row.refLabels[col.key] ?? '';
   return formatGridCell(col.field, col.kind, row.data[col.key], options);
 }
 
@@ -153,8 +179,25 @@ export interface TextCtx {
 
 /** 文本 → 单元格改动（粘贴、键入、填充共用）。格式不对的不丢，标红留在格子里等人修改 */
 export async function textToChange(col: GridCol, row: GridRow, rowIndex: number, text: string, ctx: TextCtx): Promise<CellChange> {
-  const field = col.field!;
   const base: CellChange = { row: rowIndex, key: col.key };
+  if (col.special === 'status') {
+    const t = text.trim();
+    if (t === '') return { ...base, value: null };
+    const hit = col.statuses?.find((x) => x.label === t || x.value === t);
+    if (!hit) return { ...base, invalid: { raw: text, error: `没有「${t}」这个状态` } };
+    if (hit.requiresReason) return { ...base, invalid: { raw: text, error: `改为“${hit.label}”要填原因，请在状态格里用下拉选择` } };
+    return { ...base, value: hit.value };
+  }
+  const field = col.field!;
+  if (col.kind === 'refs') {
+    if (text.trim() === '') return { ...base, value: null };
+    const names = text.split(/[、,，;；]/).map((x) => x.trim()).filter(Boolean);
+    const hits = await Promise.all(names.map((n) => ctx.resolveRef?.(field, n) ?? Promise.resolve(null)));
+    const bad = names.filter((_, i) => !hits[i]);
+    if (bad.length) return { ...base, invalid: { raw: text, error: `${field.label}里找不到「${bad[0]}」，请在格子里点开选择` } };
+    const ids = [...new Set(hits.map((h) => h!.id))];
+    return { ...base, value: ids, label: ids.map((id) => hits.find((h) => h!.id === id)!.label).join('、') };
+  }
   if (col.kind === 'ref') {
     if (text.trim() === '') return { ...base, value: null };
     const hit = await ctx.resolveRef?.(field, text);
@@ -172,7 +215,7 @@ export function fillChanges(rows: GridRow[], cols: GridCol[], sel: Selection, to
   for (let r = sel.r2 + 1; r <= toRow; r++) {
     const src = rows[sel.r1 + ((r - sel.r2 - 1) % height)];
     if (!src) continue;
-    for (let c = sel.c1; c <= sel.c2; c++) out.push(copyCell(cols[c], src, r));
+    for (let c = sel.c1; c <= sel.c2; c++) { const x = copyCell(cols[c], src, r); if (x) out.push(x); }
   }
   return out;
 }
@@ -182,11 +225,13 @@ export function fillDownChanges(rows: GridRow[], cols: GridCol[], sel: Selection
   const src = rows[sel.r1];
   if (!src) return [];
   const out: CellChange[] = [];
-  for (let r = sel.r1 + 1; r <= sel.r2; r++) for (let c = sel.c1; c <= sel.c2; c++) out.push(copyCell(cols[c], src, r));
+  for (let r = sel.r1 + 1; r <= sel.r2; r++) for (let c = sel.c1; c <= sel.c2; c++) { const x = copyCell(cols[c], src, r); if (x) out.push(x); }
   return out;
 }
 
-function copyCell(col: GridCol, src: GridRow, row: number): CellChange {
+function copyCell(col: GridCol, src: GridRow, row: number): CellChange | null {
+  if (col.special === 'status') return { row, key: col.key, value: src.statusTo ?? src.status, reason: src.statusReason };
+  if (col.special || col.kind === 'files') return null; // 子表、文件属于这一行本身，不能抄给别的行
   if (src.invalid[col.key]) return { row, key: col.key, invalid: src.invalid[col.key] };
   if (col.kind === 'secret') return { row, key: col.key, value: src.data[col.key] ?? null };
   return { row, key: col.key, value: src.data[col.key] ?? null, label: src.refLabels[col.key] };
@@ -212,7 +257,7 @@ export function buildRequest(rows: GridRow[], cols: GridCol[], archiveReason: st
     }
     const data: Record<string, unknown> = {};
     for (const c of cols) if (c.field && c.editable && isChanged(r, c)) data[c.key] = empty(r.data[c.key]) ? null : r.data[c.key];
-    if (Object.keys(data).length && r.id !== undefined) updates.push({ id: r.id, version: r.version, data });
+    if ((Object.keys(data).length || r.statusTo !== undefined) && r.id !== undefined) updates.push({ id: r.id, version: r.version, data, ...(r.statusTo !== undefined ? { status: r.statusTo, ...(r.statusReason ? { statusReason: r.statusReason } : {}) } : {}) });
   }
   return { updates, creates, archives };
 }

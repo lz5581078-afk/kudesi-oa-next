@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getResourceDef } from '@kudesi/shared';
 import { resourceApi } from './api';
 
 let perms: { isCompanyAdmin: boolean; allow: string[]; deny: string[] } = { isCompanyAdmin: true, allow: [], deny: [] };
@@ -63,9 +64,10 @@ describe('资料页：表格编辑入口', () => {
     expect(screen.queryByRole('checkbox', { name: /勾选/ })).toBeNull();
     // 每页条数切到 200，请求带着
     await waitFor(() => expect(vi.mocked(resourceApi.list).mock.calls.some((c) => c[1]?.pageSize === 200)).toBe(true));
-    const carrierCol = 'td[data-c="2"]';
-    const td = document.querySelector(`tr:nth-child(1) ${carrierCol}`) ?? document.querySelector('td[data-r="0"][data-c="2"]');
-    fireEvent.mouseDown(td!);
+    const label = getResourceDef('phones')!.fields.find((f) => f.key === 'carrier')!.label;
+    const idx = Array.from(document.querySelectorAll('thead th')).findIndex((th) => th.querySelector('button,span')?.textContent === label) - 1;
+    expect(idx).toBeGreaterThanOrEqual(0);
+    fireEvent.mouseDown(document.querySelector(`td[data-r="0"][data-c="${idx}"]`)!);
     fireEvent.keyDown(screen.getByRole('application'), { key: 'Enter' });
     const input = screen.getByLabelText(/^编辑/) as HTMLInputElement;
     fireEvent.change(input, { target: { value: '电信' } });

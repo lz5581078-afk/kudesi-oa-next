@@ -108,8 +108,13 @@ d('表格编辑批量保存（真实数据库）', () => {
     expect(r3.results[0].ok).toBe(true);
     expect((await svc.get(boss, 'partners', p.id)).data.idNumber).toBe('110101199001015678');
 
-    const r4 = await grid.save(boss, 'partners', { updates: [{ id: p.id, data: { cardFlag: 'yes' } }, { id: p.id, data: { idFront: [1] } }, { id: p.id, data: { nope: 1 } }] });
+    const r4 = await grid.save(boss, 'partners', { updates: [{ id: p.id, data: { cardFlag: 'yes' } }, { id: p.id, data: { nope: 1 } }] });
     expect(r4.results.every((r) => !r.ok && r.code === 'forbidden')).toBe(true);
+    // 文件字段现在可以在网格里改，但文件必须真实存在且属于本公司，由同一套保存流程校验
+    const r5 = await grid.save(boss, 'partners', { updates: [{ id: p.id, data: { idFront: [999999] } }] });
+    expect(r5.results[0].ok).toBe(false);
+    expect(r5.results[0].code).not.toBe('forbidden');
+    expect((await svc.get(boss, 'partners', p.id)).data.idFront).toBeUndefined();
   });
 
   it('密码类字段：网格里只能写新值，响应不回显', async () => {
@@ -140,6 +145,110 @@ d('表格编辑批量保存（真实数据库）', () => {
 
   it('商品档案不能在网格里新增（要走专属表单）', async () => {
     const res = await grid.save(boss, 'finance-products', { creates: [{ clientId: 'p', data: { name: 'x' } }] });
+    expect(res.results[0]).toMatchObject({ ok: false, code: 'forbidden' });
+  });
+
+  it('多行文本、多引用、敏感字段：与详情表单同一套校验（长度、数量上限、跨公司引用、需要“查看明文”权限）', async () => {
+    const cat1 = await svc.create(boss, 'finance-supplier-categories', { name: '分类一' });
+    const cat2 = await svc.create(boss, 'finance-supplier-categories', { name: '分类二' });
+    const foreign = await svc.create(other, 'finance-supplier-categories', { name: '别家的分类' });
+    const sup = await svc.create(boss, 'finance-suppliers', { name: '供应商甲', categoryIds: [cat1.id] });
+    const ok = await grid.save(boss, 'finance-suppliers', { updates: [{ id: sup.id, version: sup.version, data: { note: '第一行\n第二行', categoryIds: [cat1.id, cat2.id] } }] });
+    expect(ok.results[0].ok).toBe(true);
+    const got = await svc.get(boss, 'finance-suppliers', sup.id);
+    expect(got.data.note).toBe('第一行\n第二行');
+    expect(got.data.categoryIds).toEqual([cat1.id, cat2.id]);
+    expect(got.refLabels.categoryIds).toBe('分类一、分类二');
+    // 别的公司的记录不能引用
+    const cross = await grid.save(boss, 'finance-suppliers', { updates: [{ id: sup.id, data: { categoryIds: [foreign.id] } }] });
+    expect(cross.results[0]).toMatchObject({ ok: false, code: 'invalid' });
+    // 多引用最多 10 项；多行文本超长
+    const many = await grid.save(boss, 'finance-suppliers', { updates: [{ id: sup.id, data: { categoryIds: Array.from({ length: 11 }, (_, i) => cat1.id + i) } }] });
+    expect(many.results[0]).toMatchObject({ ok: false, code: 'invalid' });
+    const long = await grid.save(boss, 'finance-suppliers', { updates: [{ id: sup.id, data: { note: 'x'.repeat(5000) } }] });
+    expect(long.results[0]).toMatchObject({ ok: false, code: 'invalid' });
+    // 清空 = null
+    const clear = await grid.save(boss, 'finance-suppliers', { updates: [{ id: sup.id, data: { categoryIds: null, note: null } }] });
+    expect(clear.results[0].ok).toBe(true);
+    expect((await svc.get(boss, 'finance-suppliers', sup.id)).data.categoryIds).toBeUndefined();
+    // 银行卡号（敏感）：没有“查看明文”权限的人不能改，有的可以
+    const noSecret = asUser(boss.companyId, boss.id, ['resource.finance-suppliers.view', 'resource.finance-suppliers.edit']);
+    const denied = await grid.save(noSecret, 'finance-suppliers', { updates: [{ id: sup.id, data: { bankAccountNo: '6222020200112233445' } }] });
+    expect(denied.results[0]).toMatchObject({ ok: false, code: 'forbidden' });
+    const withSecret = asUser(boss.companyId, boss.id, ['resource.finance-suppliers.view', 'resource.finance-suppliers.edit', 'resource.finance-suppliers.secret']);
+    const done = await grid.save(withSecret, 'finance-suppliers', { updates: [{ id: sup.id, data: { bankAccountNo: '6222020200112233445' } }] });
+    expect(done.results[0].ok).toBe(true);
+    expect((await ds.manager.findOneOrFail(ResourceRecord, { where: { id: sup.id } })).secrets).not.toContain('6222020200112233445'); // 库里是加密的
+  });
+
+  it('分类属性（attrs）：值被规整，名称/内容过长或超过 30 项被拒绝', async () => {
+    const cat = await svc.create(boss, 'asset-categories', { name: '电脑类', customFields: '颜色,尺寸' });
+    const asset = await svc.create(boss, 'fixed-assets', { name: '笔记本', categoryId: cat.id });
+    const ok = await grid.save(boss, 'fixed-assets', { updates: [{ id: asset.id, data: { attrs: { 颜色: ' 黑 ', 尺寸: '' } } }] });
+    expect(ok.results[0].ok).toBe(true);
+    expect((await svc.get(boss, 'fixed-assets', asset.id)).data.attrs).toEqual({ 颜色: '黑' });
+    const tooLong = await grid.save(boss, 'fixed-assets', { updates: [{ id: asset.id, data: { attrs: { 颜色: 'x'.repeat(201) } } }] });
+    expect(tooLong.results[0]).toMatchObject({ ok: false, code: 'invalid' });
+    const tooMany = await grid.save(boss, 'fixed-assets', { updates: [{ id: asset.id, data: { attrs: Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`k${i}`, 'v'])) } }] });
+    expect(tooMany.results[0]).toMatchObject({ ok: false, code: 'invalid' });
+    const notObject = await grid.save(boss, 'fixed-assets', { updates: [{ id: asset.id, data: { attrs: ['a'] } }] });
+    expect(notObject.results[0]).toMatchObject({ ok: false, code: 'invalid' });
+  });
+
+  it('状态：和字段一起在同一事务保存；需要原因的必须带原因；要“停用”权限；失败时字段和状态都不动', async () => {
+    const lic = await svc.create(boss, 'licenses', { category: 'operation', companyName: '状态测试公司', creditCode: '91110000MA01ABCDE1', legalPerson: '张三' });
+    const noDisable = asUser(boss.companyId, boss.id, ['resource.licenses.view', 'resource.licenses.edit']);
+    const denied = await grid.save(noDisable, 'licenses', { updates: [{ id: lic.id, data: { legalPerson: '改名' }, status: 'abnormal' }] });
+    expect(denied.results[0]).toMatchObject({ ok: false, code: 'forbidden', message: expect.stringContaining('状态') });
+    // 需要原因的状态没带原因：整行不保存（字段也不动）
+    const noReason = await grid.save(boss, 'licenses', { updates: [{ id: lic.id, data: { legalPerson: '李四' }, status: 'cancelled' }] });
+    expect(noReason.results[0]).toMatchObject({ ok: false, code: 'invalid' });
+    const still = await svc.get(boss, 'licenses', lic.id);
+    expect(still.status).toBe('normal');
+    expect(still.data.legalPerson).toBe('张三');
+    // 非法状态
+    const bad = await grid.save(boss, 'licenses', { updates: [{ id: lic.id, data: {}, status: 'no-such' }] });
+    expect(bad.results[0]).toMatchObject({ ok: false, code: 'invalid' });
+    // 普通状态 + 字段一起改
+    const a = await grid.save(boss, 'licenses', { updates: [{ id: lic.id, version: still.version, data: { legalPerson: '李四' }, status: 'abnormal' }] });
+    expect(a.results[0].ok).toBe(true);
+    expect(a.results[0].row).toMatchObject({ status: 'abnormal' });
+    expect((await svc.get(boss, 'licenses', lic.id)).data.legalPerson).toBe('李四');
+    // 带原因的状态：原因记在记录上，日志里有状态变化
+    const fresh = await svc.get(boss, 'licenses', lic.id);
+    const b = await grid.save(boss, 'licenses', { updates: [{ id: lic.id, version: fresh.version, data: {}, status: 'cancelled', statusReason: '主体已注销' }] });
+    expect(b.results[0].ok).toBe(true);
+    const after = await svc.get(boss, 'licenses', lic.id);
+    expect(after.status).toBe('cancelled');
+    expect(after.statusReason).toBe('主体已注销');
+    const logs = await ds.manager.find(ResourceChangeLog, { where: { companyId: boss.companyId, resourceType: 'licenses', resourceId: lic.id } });
+    expect(logs.some((l) => (l.note ?? '').includes('表格编辑') && (l.note ?? '').includes('主体已注销'))).toBe(true);
+    // 版本冲突同样适用于改状态
+    const stale = await grid.save(boss, 'licenses', { updates: [{ id: lic.id, version: fresh.version, data: {}, status: 'normal' }] });
+    expect(stale.results[0]).toMatchObject({ ok: false, code: 'conflict' });
+  });
+
+  it('列表接口返回资料的全部字段（含列表里不显示的），没有字段权限的列服务端不返回', async () => {
+    const cat = await svc.create(boss, 'finance-supplier-categories', { name: '分类三' });
+    const sup = await svc.create(boss, 'finance-suppliers', { name: '全字段供应商', note: '备注内容', categoryIds: [cat.id] });
+    const hidden = require('@kudesi/shared').getResourceDef('finance-suppliers').fields.find((f: { key: string }) => f.key === 'note');
+    expect(hidden.list).toBeFalsy(); // note 不是列表默认列
+    const list = await svc.list(boss, 'finance-suppliers', { pageSize: 200 });
+    expect(list.items.find((i) => i.id === sup.id)?.data.note).toBe('备注内容');
+    // 成本字段：没有 product.cost.view 的人，接口里就没有
+    const m = await svc.create(boss, 'finance-margins', { profitPercent: 12, reason: '测试' });
+    const viewer = asUser(boss.companyId, boss.id, ['resource.finance-margins.view', 'resource.finance-margins.edit']);
+    const seen = (await svc.list(viewer, 'finance-margins', { pageSize: 200 })).items.find((i) => i.id === m.id)!;
+    expect('profitPercent' in seen.data).toBe(false);
+    const full = (await svc.list(boss, 'finance-margins', { pageSize: 200 })).items.find((i) => i.id === m.id)!;
+    expect('profitPercent' in full.data).toBe(true);
+    // 没有字段权限的人在网格里也不能写这个字段
+    const w = await grid.save(viewer, 'finance-margins', { updates: [{ id: m.id, data: { profitPercent: 1 } }] });
+    expect(w.results[0]).toMatchObject({ ok: false, code: 'forbidden' });
+  });
+
+  it('只剩状态可改的资料（专属品）也能进网格：字段全是系统生成，网格同样不让改', async () => {
+    const res = await grid.save(boss, 'finance-product-exclusives', { updates: [{ id: 1, data: { ownerName: '偷改' } }] });
     expect(res.results[0]).toMatchObject({ ok: false, code: 'forbidden' });
   });
 });

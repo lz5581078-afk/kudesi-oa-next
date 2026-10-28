@@ -2,15 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { getResourceDef } from '@kudesi/shared';
 import type { ResourceDto } from '../api';
 import { parseTsv, toTsv } from './clipboard';
+import { pickCandidates } from './columnPick';
 import {
-  applyChanges, applyResponse, buildColumns, buildRequest, chunkRequest, fillChanges, fillDownChanges, historyInit, historyPush, historyRedo, historyUndo,
+  applyChanges, applyResponse, buildRequest, chunkRequest, fillChanges, fillDownChanges, historyInit, historyPush, historyRedo, historyUndo,
   isChanged, rowFromDto, summarize, textToChange, toggleDelete,
 } from './gridModel';
 
 const def = getResourceDef('software')!;
-const fields = ['name', 'account', 'renewAt', 'annualFee', 'storeId', 'password'].map((k) => def.fields.find((f) => f.key === k)!);
 const all = () => true;
-const cols = buildColumns(def, fields, all, true);
+const pick = (canSecret: boolean, canDisable = true) => pickCandidates(def, [], { can: all, canSecret, canDisable, canView: all });
+const cols = pick(true).map((i) => i.col);
 const dto = (id: number, data: Record<string, unknown>): ResourceDto => ({ id, type: 'software', title: String(data.name), status: 'normal', statusReason: null, data, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '', updatedAt: '', version: `v${id}` });
 const rows0 = () => [rowFromDto(dto(1, { name: 'A', account: 'a' })), rowFromDto(dto(2, { name: 'B', account: 'b' }))];
 
@@ -24,10 +25,11 @@ describe('剪贴板（Excel/飞书 TSV）', () => {
 });
 
 describe('网格模型', () => {
-  it('列：统计/系统列、密码按权限；状态列只读', () => {
+  it('列：密码按权限出现；状态列按“停用”权限可改', () => {
     expect(cols.find((c) => c.key === 'password')?.editable).toBe(true);
-    expect(buildColumns(def, fields, all, false).find((c) => c.key === 'password')?.editable).toBe(false);
-    expect(cols.find((c) => c.key === '$status')?.editable).toBe(false);
+    expect(pick(false).find((i) => i.key === 'password')).toBeUndefined();
+    expect(cols.find((c) => c.key === '$status')?.editable).toBe(true);
+    expect(pick(true, false).find((i) => i.key === '$status')?.editable).toBe(false);
   });
 
   it('改单元格只产生差异；改回原值就不算改动', () => {

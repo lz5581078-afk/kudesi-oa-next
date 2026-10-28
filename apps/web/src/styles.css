@@ -841,3 +841,25 @@ div.ws-task { cursor: default; }
 .grid-table th.grid-result-head, .grid-table td.grid-result { position: sticky; right: 0; z-index: 2; box-shadow: -2px 0 0 var(--border-strong); }
 .grid-table thead th.grid-result-head { z-index: 5; }
 .grid-table td.grid-cell.editing { z-index: 10; }
+/* ---- 表格编辑：列选择、日期、多行文本、弹出浮层 ---- */
+.grid-colpicker { position: relative; }
+.grid-colpanel { position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; width: min(460px, 90vw); max-height: 70vh; display: flex; flex-direction: column; padding: 10px; box-shadow: 0 8px 24px rgba(20, 33, 43, 0.22); }
+.grid-colpanel-head { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.grid-colpanel-head input[type="search"] { height: 30px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.grid-colpanel-body { overflow: auto; padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.grid-colpanel-body fieldset { border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 0; padding: 4px 10px 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; }
+.grid-colpanel-body legend { padding: 0 6px; font-weight: 600; }
+.grid-date { display: flex; align-items: center; width: 100%; height: 100%; background: var(--surface); }
+.grid-date .grid-input { flex: 1; min-width: 0; }
+.grid-datepick { width: 26px; flex: none; border: 0; background: transparent; padding: 0; cursor: pointer; color-scheme: light; }
+.grid-pop.wide { min-width: 300px; max-width: 420px; max-height: 340px; }
+.grid-pop-foot { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 6px; position: sticky; bottom: 0; background: var(--surface); padding-top: 4px; }
+.grid-pop-foot small { margin-right: auto; }
+.grid-textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 4px; font: inherit; resize: vertical; }
+.grid-textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.grid-pop .check-list { max-height: 220px; overflow: auto; }
+.grid-table thead th.grid-corner { z-index: 6; }
+.grid-datepick::-webkit-datetime-edit { display: none; }
+.grid-datepick::-webkit-calendar-picker-indicator { margin: 0; padding: 0; cursor: pointer; }
+.grid-pop-foot button { flex: none; white-space: nowrap; }
+.grid-pop-foot small { min-width: 0; }
