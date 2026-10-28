@@ -71,6 +71,26 @@ async function beforeAssetCategory(ctx: BeforeSaveContext) {
   }
 }
 
+/**
+ * 位置：储物空间挂在储物空间下面时，固定资产跟随上级（一个柜子的层位、抽屉都属于这个柜子）；
+ * 区域位置不能放进储物空间里（房间不会在柜子里面）。旧数据迁入时不套这两条，原样保留。
+ */
+async function beforeLocation(ctx: BeforeSaveContext) {
+  const { em, user, data } = ctx;
+  if (em.queryRunner?.data.legacyImport) return;
+  const parentId = typeof data.parentId === 'number' ? data.parentId : null;
+  const parent = parentId ? await em.findOne(ResourceRecord, { where: { id: parentId, companyId: user.companyId, type: 'locations' } }) : null;
+  const space = data.scope === 'asset_space';
+  if (parent && parent.data.scope === 'asset_space') {
+    if (!space) throw new BadRequestException('区域位置不能放在储物空间里，请把位置板块改成「固定资产储物空间」');
+    const owner = typeof parent.data.fixedAssetId === 'number' ? parent.data.fixedAssetId : null;
+    if (owner) {
+      if (typeof data.fixedAssetId === 'number' && data.fixedAssetId !== owner) throw new BadRequestException('和上级储物空间不是同一项固定资产：层位、抽屉的固定资产要和上级一致');
+      data.fixedAssetId = owner;
+    }
+  }
+}
+
 /** 职责组：编码建好后不能改（旧系统同样不让改）。 */
 async function beforeDutyGroup(ctx: BeforeSaveContext) {
   if (ctx.existing && String(ctx.data.groupKey ?? '') !== String(ctx.existing.data.groupKey ?? '')) {
@@ -94,6 +114,7 @@ export const ASSET_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Promi
   'fixed-assets': beforeFixedAsset,
   archives: beforeArchive,
   'asset-categories': beforeAssetCategory,
+  locations: beforeLocation,
 };
 
 interface DeleteCtx { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }

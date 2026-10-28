@@ -79,6 +79,8 @@ export interface FieldDef {
   /** 仅当另一个字段（或 status）取这些值时才显示/保存，不满足时服务端清空 */
   showWhen?: { field: string; in: readonly string[] };
   help?: string;
+  /** type=ref 且目标是树形资料：表单里用“一级一级点选”的分栏选择器（资产分类、位置），而不是平铺下拉 */
+  cascade?: boolean;
   /** secret：允许从导入表格写入（旧系统资质导入可带平台登录密码）；导出始终不含密码 */
   importable?: boolean;
   /** text/sensitive：格式校验（正则源码 + 不通过时的提示） */
@@ -208,6 +210,10 @@ export interface ResourceDef {
   listGroupBy?: { field: string; emptyLabel: string; order: 'department' };
   /** 快捷页签（条件页签，不依赖 tabsBy）；页签值为 q:<key> */
   quickTabs?: readonly QuickTab[];
+  /** 左侧目录里可以就地管理（新增下级、改名、排序、删除）的树形字段 key；需要对方资料的编辑/删除权限 */
+  treeManage?: readonly string[];
+  /** 左侧目录里不显示的节点：树形字段 key → 对方资料某字段取这些值的节点（如固定资产的位置目录不列“储物空间”，只列房间和柜子所在位置）；这些节点下的资料仍归到上级里算 */
+  treeExclude?: Record<string, { field: string; values: readonly string[] }>;
   /** 计算筛选下拉（条件在服务端按今天实时算） */
   computedFilters?: readonly ComputedFilter[];
   /** 派生列（按页现算的统计数字） */
@@ -1148,7 +1154,17 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
   {
     key: 'fixed-assets',
     label: '固定资产',
-    filterBy: 'categoryId',
+    filterBy: ['categoryId', 'locationId', 'userId', 'departmentId'],
+    treeManage: ['categoryId'],
+    treeExclude: { locationId: { field: 'scope', values: ['asset_space'] } },
+    quickTabs: [
+      { key: 'in-use', label: '使用中', when: { field: '$status', op: 'eq', value: 'in_use' } },
+      { key: 'idle', label: '闲置', when: { field: '$status', op: 'eq', value: 'idle' } },
+      { key: 'repairing', label: '维修中', when: { field: '$status', op: 'eq', value: 'repairing' } },
+      { key: 'lost', label: '丢失', when: { field: '$status', op: 'eq', value: 'lost' } },
+      { key: 'warranty', label: '保修将到期', when: { all: [{ field: '$status', op: 'notIn', value: ['retired', 'lost'] }, { field: 'warrantyUntil', op: 'dateWithin', days: 30 }] } },
+      { key: 'no-location', label: '没填位置', when: { all: [{ field: '$status', op: 'ne', value: 'retired' }, { field: 'locationId', op: 'empty' }] } },
+    ],
     nav: { group: '公司资产' },
     titleField: 'name',
     uniqueField: 'assetNo',
@@ -1165,7 +1181,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       text('assetNo', '系统编号', '基础', { list: true, search: true, maxLength: 64, help: '不填则自动生成 ASSET-xxxxxx' }),
       text('customAssetNo', '自定义编号', '基础', { list: true, search: true, maxLength: 64 }),
       text('name', '名称', '基础', { required: true, list: true, search: true }),
-      ref('categoryId', '分类', '基础', 'asset-categories', { list: true }),
+      ref('categoryId', '分类', '基础', 'asset-categories', { list: true, cascade: true }),
       attrs('attrs', '分类自定义属性', '基础', 'categoryId'),
       text('brand', '品牌', '基础'),
       text('model', '型号', '基础'),
@@ -1177,9 +1193,9 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       text('supplier', '供应商', '购入'),
       date('warrantyUntil', '保修至', '购入'),
       ref('userId', '使用人', '使用', 'user', { list: true, help: '新建时选了使用人就直接记为使用中；之后通过「领用、转交、归还」变更' }),
-      ref('keeperUserId', '保管人', '使用', 'user'),
+      ref('keeperUserId', '保管人', '使用', 'user', { list: true }),
       ref('departmentId', '所属部门', '使用', 'department', { list: true }),
-      ref('locationId', '位置', '使用', 'locations', { list: true, help: '点位置可以看这个位置还存放了什么' }),
+      ref('locationId', '位置', '使用', 'locations', { list: true, cascade: true, help: '按房间一级一级选；点位置可以看这个位置还存放了什么' }),
       NOTE(),
     ],
   },
@@ -1203,13 +1219,14 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     label: '房间与档案位置',
     nav: { group: '公司资产' },
     titleField: 'name',
+    tabsBy: 'scope',
     statuses: [NORMAL, INACTIVE],
     defaultStatus: 'normal',
     fields: [
       text('name', '位置名称', '基础', { required: true, list: true, search: true }),
       select('scope', '位置板块', '基础', o('area:区域位置', 'asset_space:固定资产储物空间'), { required: true, list: true }),
-      select('locationType', '类型', '基础', o('building:办公楼/区域', 'floor:楼层', 'room:房间', 'asset_slot:资产内部位置', 'shelf:层', 'drawer:抽屉', 'box:格/盒'), { list: true }),
-      ref('parentId', '上级位置', '基础', 'locations', { list: true }),
+      select('locationType', '类型', '基础', o('building:办公楼/区域', 'floor:楼层', 'room:房间', 'cabinet:柜子', 'asset_slot:资产内部位置', 'shelf:层', 'drawer:抽屉', 'box:格/盒'), { list: true }),
+      ref('parentId', '上级位置', '基础', 'locations', { list: true, cascade: true, help: '按楼、层、房间、柜子一级一级选' }),
       ref('fixedAssetId', '对应固定资产', '基础', 'fixed-assets', { showWhen: { field: 'scope', in: ['asset_space'] } }),
       text('code', '位置编号', '基础', { list: true }),
       textarea('description', '说明', '基础'),
@@ -1230,10 +1247,17 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       { value: 'archived', label: '已归档', tone: 'muted' },
     ],
     defaultStatus: 'stored',
+    filterBy: ['locationId', 'keeperUserId'],
+    quickTabs: [
+      { key: 'stored', label: '在库', when: { field: '$status', op: 'eq', value: 'stored' } },
+      { key: 'borrowed', label: '借出', when: { field: '$status', op: 'eq', value: 'borrowed' } },
+      { key: 'missing', label: '遗失', when: { field: '$status', op: 'eq', value: 'missing' } },
+      { key: 'no-location', label: '没填位置', when: { all: [{ field: '$status', op: 'ne', value: 'archived' }, { field: 'locationId', op: 'empty' }] } },
+    ],
     fields: [
       text('archiveNo', '档案编号', '基础', { list: true, search: true, help: '不填则自动生成 ARCH-xxxxxx' }),
       text('name', '档案名称', '基础', { required: true, list: true, search: true }),
-      text('archiveType', '类型', '基础', { list: true }),
+      text('archiveType', '类型', '基础', { list: true, search: true }),
       select('relatedType', '关联资料类型', '基础', ARCHIVE_RELATED_TYPES, { help: '这份档案属于哪类资料；不选则不关联' }),
       ref('licenseId', '关联营业执照', '基础', 'licenses', { list: true, showWhen: { field: 'relatedType', in: ['license'] } }),
       ref('storeId', '关联店铺', '基础', 'stores', { list: true, showWhen: { field: 'relatedType', in: ['store'] } }),
@@ -1243,7 +1267,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       ref('trademarkId', '关联商标', '基础', 'trademarks', { list: true, showWhen: { field: 'relatedType', in: ['trademark'] } }),
       ref('qualificationId', '关联资质', '基础', 'qualifications', { list: true, showWhen: { field: 'relatedType', in: ['qualification'] } }),
       ref('taxProfileId', '关联税务档案', '基础', 'tax-profiles', { list: true, showWhen: { field: 'relatedType', in: ['tax_profile'] } }),
-      ref('locationId', '存放位置', '基础', 'locations', { list: true }),
+      ref('locationId', '存放位置', '基础', 'locations', { list: true, cascade: true, help: '房间、柜子、层位一级一级选，档案的位置就是它所在的柜层' }),
       ref('keeperUserId', '保管人', '基础', 'user', { list: true }),
       files('photos', '档案照片', '照片', { maxFiles: 6 }),
       NOTE(),
@@ -1302,6 +1326,14 @@ export function resourceTabOf(def: ResourceDef, data: Record<string, unknown>): 
 /** 这种资料自己是一棵树（有指向自己的“上级”字段），如商品分类、供应商分类 */
 export function isTreeResource(key: string): boolean {
   return !!BY_KEY.get(key)?.fields.some((f) => f.key === 'parentId' && f.type === 'ref' && f.ref === key);
+}
+
+/** 列表左侧目录可以按哪些维度浏览：filterBy 里指向“树形资料”的字段（分类、位置），以及指向员工/部门的字段（使用人、所属部门） */
+export function browseFilterFields(def: ResourceDef): FieldDef[] {
+  const keys = def.filterBy ? ([] as string[]).concat(def.filterBy as string | string[]) : [];
+  return keys
+    .map((k) => def.fields.find((f) => f.key === k))
+    .filter((f): f is FieldDef => !!f && (f.type === 'ref' || f.type === 'refs') && !!f.ref && (isTreeResource(f.ref) || ((f.ref === 'user' || f.ref === 'department') && f.type === 'ref')));
 }
 
 /** 列表左侧要显示分类目录的字段：filterBy 里第一个指向“树形资料”的关联字段 */

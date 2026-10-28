@@ -393,7 +393,7 @@ export function liveMissingReporter(reports: readonly { role: string; reporterId
 
 export const LIVE_CORRIDOR_NAME = '西走廊办公室';
 export const LIVE_ROOM_KEYWORD = '直播间';
-const STORAGE_TYPES = new Set(['asset_slot', 'shelf', 'drawer', 'box']);
+const STORAGE_TYPES = new Set(['cabinet', 'asset_slot', 'shelf', 'drawer', 'box']);
 // 办公楼/区域、楼层只是分区：不作为直播间，但继续查找其下的房间。
 const AREA_TYPES = new Set(['building', 'floor']);
 const BIG_ROOM_PATTERN = /大房间|[（(]\s*大\s*[）)]/;

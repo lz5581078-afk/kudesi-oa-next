@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fieldOptions, loadUnitOptions, useUnitOptions } from './unitOptions';
 import { BatchBar } from './BatchBar';
-import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, viewFiltersOf, createChecker, gridPolicyOf, type ColFilter, type FieldDef } from '@kudesi/shared';
+import { rowActionsFor } from './RowActions';
+import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, browseFilterFields, permissionOwner, resourcePermission, viewFiltersOf, createChecker, gridPolicyOf, type ColFilter, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -108,6 +109,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const [filterVals, setFilterVals] = useState<Record<string, string>>(() => readPrefs(type).filters ?? {});
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
   const treeField = useMemo(() => treeFilterField(def), [def]);
+  // 左侧目录的浏览维度：分类、位置、使用人、部门…（配置在 filterBy 里）
+  const browseFields = useMemo(() => browseFilterFields(def), [def]);
+  const browseKeys = useMemo(() => new Set(browseFields.map((f) => f.key)), [browseFields]);
   const viewFilters = useMemo(() => viewFiltersOf(type), [type]);
   // 选项由服务端按公司生成的筛选（如 部门）
   const [deptOpts, setDeptOpts] = useState<Array<{ value: string; label: string }>>([]);
@@ -133,7 +137,8 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
       }
     }
   }, [filterFields]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [catPath, setCatPath] = useState('');
+  const [paths, setPaths] = useState<Record<string, string>>({});
+  const setPath = useCallback((key: string, path: string) => setPaths((cur) => (cur[key] === path ? cur : { ...cur, [key]: path })), []);
   const [page, setPage] = useState(1);
   const [checked, setChecked] = useState<number[]>([]);
   const [batchMsg, setBatchMsg] = useState('');
@@ -189,14 +194,14 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   // 记住筛选、状态和每页条数（按资料类型）；分类目录的选择不记
   useEffect(() => {
-    const keep = Object.fromEntries(Object.entries(filterVals).filter(([k, v]) => v && k !== treeField?.key));
+    const keep = Object.fromEntries(Object.entries(filterVals).filter(([k, v]) => v && !browseKeys.has(k)));
     writePrefs(type, { pageSize, status, filters: keep });
   }, [filterVals, status, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
   // 记住的筛选项如果已经不存在（选项被删/改名），会让列表莫名其妙是空的，加载到选项后清掉它
   useEffect(() => {
     setFilterVals((cur) => {
       const stale = Object.entries(cur).filter(([k, v]) => {
-        if (!v || k === treeField?.key) return false;
+        if (!v || browseKeys.has(k)) return false;
         const opts = filterOpts[k] ?? viewFilters.find((x) => x.key === k)?.options?.map((o) => ({ id: o.value }));
         return Boolean(opts && opts.length && !opts.some((o) => String(o.id) === String(v)));
       }).map(([k]) => k);
@@ -320,8 +325,10 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   function newInitial(): Record<string, unknown> | undefined {
     const init: Record<string, unknown> = {};
     if (tab && def.tabsBy) Object.assign(init, resourceTabInitial(def, tab));
-    const cat = treeField ? Number(filterVals[treeField.key]) : 0;
-    if (treeField && cat) init[treeField.key] = treeField.type === 'refs' ? [cat] : cat;
+    for (const bf of browseFields) {
+      const picked = Number(filterVals[bf.key]);
+      if (picked) init[bf.key] = bf.type === 'refs' ? [picked] : picked;
+    }
     return Object.keys(init).length ? init : undefined;
   }
 
@@ -345,7 +352,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   // —— 工具条派生数据 ——
   const treeKey = treeField?.key;
-  const shownFilterFields = filterFields.filter((ff) => ff.key !== treeKey);
+  const shownFilterFields = filterFields.filter((ff) => !browseKeys.has(ff.key));
   const optLabel = (key: string, value: string) => (filterOpts[key] ?? []).find((o) => String(o.id) === value)?.label ?? value;
   const chips: Chip[] = [];
   const dropVal = (k: string) => () => { setFilterVals((v) => ({ ...v, [k]: '' })); setPage(1); };
@@ -355,7 +362,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   if (expiring) chips.push({ key: 'expiring', text: '即将到期', clear: () => { setExpiring(false); setPage(1); } });
   if (archived) chips.push({ key: 'archived', text: '已归档', clear: () => { setArchived(false); setPage(1); } });
   if (showHidden && hiddenExists && !status && !archived) chips.push({ key: 'hidden', text: `含${def.statuses.filter((x) => x.hidden).map((x) => x.label).join('/')}`, clear: () => { setShowHidden(false); setPage(1); } });
-  if (treeKey && filterVals[treeKey] && catPath) chips.push({ key: 'category', text: `分类：${catPath}`, clear: () => { setFilterVals((v) => ({ ...v, [treeKey]: '' })); setPage(1); } });
+  for (const bf of browseFields) if (filterVals[bf.key] && paths[bf.key]) chips.push({ key: `browse:${bf.key}`, text: `${browseFields.length > 1 || bf.key !== treeKey ? bf.label : '分类'}：${paths[bf.key]}`, clear: () => { setFilterVals((v) => ({ ...v, [bf.key]: '' })); setPage(1); } });
   const colFieldLabel = (key: string) => (key === STATUS_COL ? '状态' : def.fields.find((f) => f.key === key)?.label ?? key);
   const colValueLabel = (f: ColFilter) => (v: string) => {
     if (f.key === STATUS_COL) return def.statuses.find((x) => x.value === v)?.label ?? v;
@@ -369,7 +376,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     chips.push({ key: `col:${i}`, text: describeColFilter(shown, colFieldLabel(f.key), colValueLabel(f)), clear: () => commitCol({ ...colSaved, filters: colFilters.filter((_, j) => j !== i) }) });
   });
   const hasFilterPop = true;
-  const popCount = chips.filter((c) => c.key !== 'category' && !c.key.startsWith('col:')).length;
+  const popCount = chips.filter((c) => !c.key.startsWith('browse:') && !c.key.startsWith('col:')).length;
   const tabList = (tabField || def.quickTabs?.length) && !lockedTab
     ? [...resourceTabOptions(def), ...((def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || []), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)]
     : [];
@@ -439,6 +446,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   );
 
   const addInGroup = groupCfg && can('create') ? (g: RowGroup) => { setCopyInit(g.refId ? { [groupCfg.field]: g.refId } : {}); setCreating(true); } : undefined;
+  const rowActions = useMemo(() => rowActionsFor(type, (a) => can(a), (m) => { if (m) setBatchMsg(m); void load(); }), [type, can, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const empty = filtered
     ? <div className="res-empty"><p>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。</p><button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></div>
@@ -506,18 +514,20 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   return (
     <div className={`res-page${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}`}>
       {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
-      <div className={treeField ? 'res-body with-tree' : 'res-body'}>
-        {treeField && (
+      <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
+        {browseFields.length > 0 && (
           <CategoryTree
             type={type}
-            field={treeField.key}
+            fields={browseFields}
             tab={tab}
             status={status}
             showHidden={showHidden}
-            value={filterVals[treeField.key] ?? ''}
+            values={filterVals}
             reloadKey={data?.total}
-            onPath={setCatPath}
-            onSelect={(id) => { if (gridLocked) return; setFilterVals((v) => ({ ...v, [treeField.key]: id })); setPage(1); }}
+            onPath={setPath}
+            canManage={(f) => Boolean(def.treeManage?.includes(f.key) && f.ref && me && createChecker(me.permissions)(resourcePermission(permissionOwner(f.ref), 'edit')))}
+            onChanged={() => void load()}
+            onSelect={(key, id) => { if (gridLocked) return; setFilterVals((v) => ({ ...v, [key]: id })); setPage(1); }}
           />
         )}
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
@@ -535,7 +545,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
                 derived={derivedFields}
                 sort={sort}
                 newDefaults={newInitial()}
-                newLabels={treeField && catPath && filterVals[treeField.key] ? { [treeField.key]: catPath } : undefined}
+                newLabels={Object.fromEntries(browseFields.filter((bf) => paths[bf.key] && filterVals[bf.key]).map((bf) => [bf.key, paths[bf.key]]))}
                 onSort={(key) => { setSort(sort?.by === key ? (sort.dir === 'asc' ? { by: key, dir: 'desc' } : null) : { by: key, dir: 'asc' }); setPage(1); }}
                 onSortTo={(key, dir) => { setSort(dir ? { by: key, dir } : null); setPage(1); }}
                 colFilters={colFilters}
@@ -574,6 +584,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
               folded={foldedGroups}
               onToggleGroup={toggleGroup}
               onAddInGroup={addInGroup}
+              rowActions={rowActions}
             />
           )}
           <div className="res-foot">

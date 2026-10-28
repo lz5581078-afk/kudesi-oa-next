@@ -9,6 +9,7 @@ import type { RowGroup } from './groupRows';
 export const SORTABLE = new Set(['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select']);
 const CHECK_W = 40;
 const STATUS_MIN = 92;
+const ACT_W = 196;
 
 type Sort = { by: string; dir: 'asc' | 'desc' } | null;
 
@@ -37,6 +38,8 @@ interface Props {
   onToggleGroup?: (key: string) => void;
   /** 在某个分组里新增（预填分组值）；没有新增权限时不传 */
   onAddInGroup?: (group: RowGroup) => void;
+  /** 每行末尾的“办理”列（固定资产领用/归还、档案借出等）；不传就没有这一列 */
+  rowActions?: (row: ResourceDto) => ReactNode;
 }
 
 /**
@@ -50,7 +53,7 @@ export function ResourceTable(p: Props) {
   if (auto.current.type !== p.type) auto.current = { type: p.type, w: {} };
   if (rows && rows.length) for (const f of columns) if (auto.current.w[f.key] === undefined) auto.current.w[f.key] = autoColWidth(f, rows.map((r) => displayValue(f, r)), isCopyable(def, f) ? 44 : 0);
   const widthOf = (f: FieldDef) => p.widths[f.key] ?? auto.current.w[f.key] ?? defaultColWidth(f);
-  const total = CHECK_W + columns.reduce((n, f) => n + widthOf(f), 0) + STATUS_MIN;
+  const total = CHECK_W + columns.reduce((n, f) => n + widthOf(f), 0) + STATUS_MIN + (p.rowActions ? ACT_W : 0);
   const allChecked = !!rows?.length && rows.every((r) => p.checked.includes(r.id));
 
   const drag = useRef<{ key: string; x: number; w: number } | null>(null);
@@ -69,7 +72,7 @@ export function ResourceTable(p: Props) {
     window.addEventListener('pointerup', up);
   };
 
-  const colSpan = columns.length + 2;
+  const colSpan = columns.length + 2 + (p.rowActions ? 1 : 0);
   const renderRow = (row: ResourceDto) => {
     const st = statusOf(def, row.status);
     const isSel = row.id === p.selected;
@@ -102,6 +105,7 @@ export function ResourceTable(p: Props) {
           );
         })}
         <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
+        {p.rowActions && <td data-label="办理" className="c-acts">{p.rowActions(row)}</td>}
       </tr>
     );
   };
@@ -112,6 +116,7 @@ export function ResourceTable(p: Props) {
           <col style={{ width: CHECK_W }} />
           {columns.map((f) => <col key={f.key} style={{ width: widthOf(f) }} />)}
           <col style={{ minWidth: STATUS_MIN }} />
+          {p.rowActions && <col style={{ width: ACT_W }} />}
         </colgroup>
         <thead>
           <tr>
@@ -130,6 +135,7 @@ export function ResourceTable(p: Props) {
               );
             })}
             <th scope="col">状态</th>
+            {p.rowActions && <th scope="col">办理</th>}
           </tr>
         </thead>
         <tbody>
