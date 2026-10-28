@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '../api/client';
+import { BankMini } from './BankMini';
 import { resourceApi, type Relation, type ResourceDto } from './api';
 import { ReasonDialog } from './RecordForm';
 
@@ -121,8 +122,7 @@ export function PartnerSubjectPanel({ partner, onChanged }: { partner: ResourceD
         </div>
       ))}
       <h2 className="section-title">银行账户</h2>
-      {banks.length === 0 && <p className="muted">没有关联银行账户</p>}
-      {banks.map((b) => <div key={b.id} className="line-item"><span>{b.title}</span></div>)}
+      <BankMini ids={[...new Set(banks.map((b) => b.id))]} />
       {cardNo && banks.length === 0 && (
         <div className="toolbar">
           <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="账户类型">

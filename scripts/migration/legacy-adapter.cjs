@@ -30,6 +30,8 @@ function itemsAt(value,expression) {
 }
 function scope(table,cols,company) {
   if(table==='companies')return {sql:'t.id=?',args:[company]};
+  // 旧岗位条目的 company_id 与所属岗位的公司不一致（真实库里全是 1，岗位却在公司 3），归属以岗位所在部门的公司为准
+  if(table==='position_duties')return {sql:'EXISTS(SELECT 1 FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.id=t.position_id AND d.company_id=?)',args:[company]};
   if(cols.includes('company_id'))return {sql:'t.company_id=?',args:[company]};
   if(['employees','positions'].includes(table))return {sql:'EXISTS(SELECT 1 FROM departments d WHERE d.id=t.department_id AND d.company_id=?)',args:[company]};
   if(['employee_positions','employee_roles','employee_permission_overrides','employee_responsibility_groups','employee_workforce_profiles'].includes(table))return {sql:'EXISTS(SELECT 1 FROM employees e JOIN departments d ON d.id=e.department_id WHERE e.id=t.employee_id AND d.company_id=?)',args:[company]};
@@ -42,7 +44,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
   const req=createRequire(path.join(app,'package.json'));const env=req('dotenv').parse(fs.readFileSync(path.join(app,'.env')));
   const codec=req(path.join(app,'server/core/business-secrets.js')).createBusinessSecretCodec({primarySecret:env.SECRET_KEY||env.SESSION_SECRET||env.JWT_SECRET});
   const c=await req('mysql2/promise').createConnection({host:env.MYSQL_HOST||'127.0.0.1',port:Number(env.MYSQL_PORT||3307),user:env.MYSQL_USER||'oa_user',password:env.MYSQL_PASSWORD,database:env.MYSQL_DATABASE||'ecommerce_oa',dateStrings:true});
-  const out={company:null,departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],employeeOverrides:[],records:[],links:[],exclusions:[]};
+  const out={company:null,departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],employeeOverrides:[],positionDuties:[],compensationRecords:[],records:[],links:[],exclusions:[]};
   const businessDay=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const tables={};const locators=new Map();let locatorN=0;
   const excluded=(type,id,reason)=>out.exclusions.push({type,id:String(id),reason});
@@ -50,10 +52,10 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
   try{
     await c.query('SET SESSION TRANSACTION READ ONLY');await c.beginTransaction();
     const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
-    const selected=new Set(['companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
+    const selected=new Set(['companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
     for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
     out.company=(tables.companies||[])[0];if(!out.company)throw Error('Company not found');out.company={id:Number(out.company.id),name:out.company.name};
-    for(const [k,t] of [['departments','departments'],['positions','positions'],['employees','employees'],['employeePositions','employee_positions'],['positionPermissions','position_permissions'],['employeeOverrides','employee_permission_overrides']])out[k]=tables[t]||[];
+    for(const [k,t] of [['departments','departments'],['positions','positions'],['employees','employees'],['employeePositions','employee_positions'],['positionPermissions','position_permissions'],['employeeOverrides','employee_permission_overrides'],['positionDuties','position_duties'],['compensationRecords','employee_compensation_records']])out[k]=tables[t]||[];
     out.employeePositions=out.employeePositions.filter(x=>!x.ended_at&&(!x.status||x.status==='active'));
     const neededFeeCategories=new Set();for(const shared of tables.finance_shared_archives||[]){if(shared.archive_type!=='expenses')continue;const data=json(shared.data_json);for(const item of data.items||[]){if(item.status==='deleted')continue;for(let id of [item.categoryId,...(item.categoryIds||[])]){const seen=new Set();while(id&&!seen.has(String(id))){seen.add(String(id));neededFeeCategories.add(String(id));id=(data.categories||[]).find(x=>String(x.id)===String(id))?.parentId;}}}}
     const defs=new Map(definitions.map(d=>[d.key,d]));

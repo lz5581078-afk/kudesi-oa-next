@@ -331,7 +331,7 @@ export function StaffPage() {
         </div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>姓名</th><th>账号</th><th>部门</th><th>岗位</th><th>职称</th><th>用工/计薪</th><th>直属上级</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
+            <thead><tr><th>姓名</th><th>账号</th><th>部门</th><th>岗位</th><th>职称</th><th>用工/计薪</th><th>职责组</th><th>直属上级</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
             <tbody>
               {shown.map((s) => (
                 <tr key={s.id}>
@@ -341,6 +341,7 @@ export function StaffPage() {
                   <td>{s.positionName ?? '—'}{s.extraPositionIds.length > 0 && <small className="muted"> 兼 {s.extraPositionIds.map((id) => positions.find((p) => p.id === id)?.name).filter(Boolean).join('、')}</small>}</td>
                   <td>{s.title ?? '—'}</td>
                   <td>{EMPLOYMENT_LABELS[s.employmentType ?? 'regular']}{s.payType === 'hourly' ? ' · 时薪' : ''}</td>
+                  <td>{groups.filter((g) => memberOf.get(g.id)?.has(s.id)).map((g) => g.name).join('、') || '—'}</td>
                   <td>{staff.find((x) => x.id === s.managerId)?.name ?? '—'}</td>
                   <td><span className={s.status === 'active' ? 'pill ok' : 'pill warn'}>{s.status === 'active' ? '在职' : '已停用'}</span></td>
                   <td>{s.lastLoginAt ? new Date(s.lastLoginAt).toLocaleString('zh-CN') : '从未登录'}</td>

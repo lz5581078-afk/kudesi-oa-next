@@ -78,6 +78,8 @@ export function colFilterKindOf(type: FieldType): ColFilterKind | null {
 export const READ_TIME_FIELDS: Readonly<Record<string, readonly string[]>> = {
   phones: ['cardKind', 'boundStores', 'boundStoreNos'],
   stores: ['deposit', 'frozen', 'goodsFund', 'promotionBalance'],
+  // 银行账户的当前余额 = 期初余额 + 现金银行已过账流水；公户详情是否维护过：都是读时现算
+  'bank-accounts': ['currentBalance', 'publicInfoFlag'],
   // 兼职与临时工：合作状态按日期实时算，账号/部门/岗位/上级/登录时间取自员工当前资料
   workforce: ['cooperation', 'account', 'departmentName', 'positionName', 'managerName', 'accountStatus', 'lastLoginAt'],
 };

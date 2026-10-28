@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
+import { bankMovements } from '../resources/bank-balance';
 
 /** 审计日志：系统操作记录（AuditLog）与资料变更记录（ResourceChangeLog）合并只读查看。 */
 @Controller('audit')
@@ -87,11 +88,7 @@ export class BankFundController {
        FROM resource_records WHERE company_id = ? AND type = 'bank-accounts' ORDER BY id`,
       [u.companyId],
     );
-    const moves: Array<{ id: number; s: string }> = await this.ds.query(
-      "SELECT account_id AS id, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND kind = 'bank' GROUP BY account_id",
-      [u.companyId],
-    );
-    const move = new Map(moves.map((m) => [Number(m.id), Number(m.s)]));
+    const move = await bankMovements(this.ds.manager, u.companyId);
     const all = rows.filter((r) => !r.archived);
     const COMPANY = new Set(['company_public', 'company_card', 'cashier_account']);
     const STORE = new Set(['store_public', 'store_personal_card']);

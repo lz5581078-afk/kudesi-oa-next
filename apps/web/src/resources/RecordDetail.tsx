@@ -52,6 +52,13 @@ export function isCurrentCost(it: ResourceDto, all: ResourceDto[]): boolean {
   return !all.some((x) => x.id !== it.id && x.data.costType === it.data.costType && ok(x) && String(x.data.effectiveFrom) > String(it.data.effectiveFrom));
 }
 
+/** 子资源/相关资料卡片里要显示的列（不写就用字段配置里的 list 列） */
+const CHILD_COLS: Record<string, readonly string[]> = {
+  'bank-accounts': ['kind', 'bank', 'accountNo', 'keeperUserId', 'currentBalance'],
+};
+/** 这些卡片的每一项带字段名（保管人、存放位置…），并显示密码类字段“已维护/未设置”和备注（旧 U 盾表、银行卡列表的信息） */
+const LABELED_CHILDREN = new Set(['u-shields', 'bank-store-links', 'bank-accounts', 'duty-group-members']);
+
 export function ChildPanel({ parentDef, parent, childType, field }: { parentDef: ResourceDef; parent: ResourceDto; childType: string; field: string }) {
   const def = getResourceDef(childType)!;
   const can = useResourceCan(childType);
@@ -70,7 +77,9 @@ export function ChildPanel({ parentDef, parent, childType, field }: { parentDef:
   useEffect(() => {
     void reload();
   }, [reload]);
-  const cols = def.fields.filter((f) => f.list && f.key !== field);
+  const cols = (CHILD_COLS[childType] ? CHILD_COLS[childType].map((k) => def.fields.find((f) => f.key === k)).filter((f): f is NonNullable<typeof f> => !!f) : def.fields.filter((f) => f.list && f.key !== field));
+  const labeled = LABELED_CHILDREN.has(childType);
+  const secrets = labeled ? def.fields.filter((f) => f.type === 'secret') : [];
   return (
     <section>
       <div className="between">
@@ -85,7 +94,8 @@ export function ChildPanel({ parentDef, parent, childType, field }: { parentDef:
             <strong>{it.title}{childType === 'finance-product-costs' && isCurrentCost(it, items) && <span className="pill ok"> 当前生效</span>}{childType === 'finance-product-sources' && isLatestSource(it, items) && <span className="pill ok"> 当前最新成本</span>}</strong>
             <span className={`pill ${statusOf(def, it.status).tone === 'muted' ? 'warn' : statusOf(def, it.status).tone}`}>{statusOf(def, it.status).label}</span>
           </div>
-          <small className="muted">{cols.map((f) => displayValue(f, it)).filter(Boolean).join(' · ')}</small>
+          <small className="muted">{[...cols.map((f) => { const v = displayValue(f, it); return v && labeled ? `${f.label} ${v}` : v; }), ...secrets.map((f) => `${f.label}${it.secretConfigured[f.key] ? '已维护' : '未设置'}`)].filter(Boolean).join(' · ')}</small>
+          {labeled && typeof it.data.note === 'string' && it.data.note && <small className="muted">备注：{it.data.note}</small>}
           <div className="row-actions">
             {can('edit') && <button type="button" className="link-button" onClick={() => setEditing(it)}>编辑</button>}
             {childType === 'license-borrows' && can('edit') && it.status !== 'returned' && <ReturnBorrowButton id={it.id} onDone={reload} onError={setError} />}
