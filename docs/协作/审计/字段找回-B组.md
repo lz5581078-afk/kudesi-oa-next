@@ -124,7 +124,7 @@
 
 ## 9. 测试
 
-shared vitest 241 通过；web vitest 94 文件 489 通过；API jest 串行 85 套 567 通过；shared/api/web 三端 tsc 无错。
+shared vitest 241 通过；web vitest 94 文件 489 通过；API jest 串行全量 85 套 567 通过（变基后 resources 目录 40 套 312 通过）；变基后 shared 244、web 95 文件 493 通过；shared/api/web 三端 tsc 无错。
 
 ## 10. 截图（1440 宽）
 
