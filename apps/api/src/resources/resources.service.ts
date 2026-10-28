@@ -37,7 +37,8 @@ import { deriveStoreFunds } from './store-funds';
 import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
 import { applyCond, deriveColumns } from './def-conditions';
 import { certImportMatch } from './entity-rules';
-import { optionsKindOf } from '@kudesi/shared';
+import { optionsKindOf, parseColFilters, STATUS_COL, type ColFilter } from '@kudesi/shared';
+import { applyColFilters } from './col-filter.sql';
 import { dynamicOptionsFor, loadUnitLists, seedUnitDefaults, unitLabel, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
 
@@ -79,6 +80,8 @@ export interface ListQuery {
   fieldValue?: string;
   /** 多个字段筛选：JSON 对象 {字段: 值}；分类字段会包含下级分类 */
   filters?: string;
+  /** 列筛选：JSON 数组 [{key, op, value?, value2?, values?}]，多列之间“并且”；规则见 shared/col-filter.ts */
+  colFilters?: string;
   /** 按这个字段排序（文本/数字/金额/日期/选项字段）；不传用默认顺序 */
   sortBy?: string;
   sortDir?: 'asc' | 'desc';
@@ -739,6 +742,8 @@ export class ResourcesService implements RuleHost {
     const page = Math.max(1, Math.floor(q.page ?? 1));
     const pageSize = Math.min(200, Math.max(1, Math.floor(q.pageSize ?? 20)));
     const hiddenStatuses = def.statuses.filter((s) => s.hidden).map((s) => s.value);
+    const colFilters = await this.parseColFilterParam(user, def, q.colFilters);
+    const restricted = restrictedFieldKeys(def, createChecker(user.permissions));
 
     const filterPairs: Array<[string, string]> = [];
     const viewPairs: Array<[string, string]> = [];
@@ -804,11 +809,13 @@ export class ResourcesService implements RuleHost {
       filterPairs.forEach(([key, val], i) => {
         const f = def.fields.find((x) => x.key === key);
         if (!f) throw new BadRequestException('筛选字段不存在');
+        if (restricted.has(f.key)) throw new ForbiddenException(`没有权限按“${f.label}”筛选`);
         const ids = catIds.get(key);
         if (ids && f.type === 'refs') qb.andWhere(`JSON_OVERLAPS(JSON_EXTRACT(r.data, '$.${f.key}'), CAST(:fi${i} AS JSON))`, { [`fi${i}`]: JSON.stringify(ids) });
         else if (ids) qb.andWhere(`CAST(JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${f.key}')) AS UNSIGNED) IN (:...fi${i})`, { [`fi${i}`]: ids });
         else qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${f.key}')) = :fv${i}`, { [`fv${i}`]: val });
       });
+      applyColFilters(qb, def, colFilters);
       return qb;
     };
 
@@ -820,6 +827,7 @@ export class ResourcesService implements RuleHost {
     applyTabFilter(listQb, def, q.tab);
     const derivedSort = q.sortBy ? def.derivedColumns?.find((d) => d.key === q.sortBy) : undefined;
     const sortF = q.sortBy && !derivedSort ? def.fields.find((f) => f.key === q.sortBy) : undefined;
+    if (sortF && restricted.has(sortF.key)) throw new ForbiddenException(`没有权限按“${sortF.label}”排序`);
     if (q.sortBy && !derivedSort && (!sortF || !['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
     if (sortF) {
       const dir = q.sortDir === 'asc' ? 'ASC' : 'DESC';
@@ -878,6 +886,43 @@ export class ResourcesService implements RuleHost {
       archivedCount = await em.count(ResourceRecord, { where: { companyId: user.companyId, type, archivedAt: Not(IsNull()) } });
     }
     return { items: await this.toDtos(em, user, def, records), total, page, pageSize, tabCounts, archivedCount };
+  }
+
+  /**
+   * 列筛选参数 → 校验过的条件。字段必须属于该资料、当前用户看得见（成本等受限字段、仓库精简视图之外的字段一律拒绝，
+   * 免得用筛选结果去猜看不到的值）；操作符、值的规则见 shared/col-filter.ts。
+   */
+  private async parseColFilterParam(user: AuthUser, def: ResourceDef, text: string | undefined): Promise<ColFilter[]> {
+    if (!text) return [];
+    const restricted = restrictedFieldKeys(def, createChecker(user.permissions));
+    const allowedKeys = def.key === 'finance-products' && (await isWarehouseMode(this.dataSource.manager, user)) ? new Set(WAREHOUSE_PRODUCT_FIELDS) : undefined;
+    const r = parseColFilters(text, { fields: def.fields, restricted, statuses: def.statuses.map((s) => s.value), allowedKeys });
+    if (!r.ok) throw new BadRequestException(r.error);
+    return r.filters;
+  }
+
+  /**
+   * 单选列/状态列筛选浮层里的“值 + 数量”：数量按其它列的筛选条件算（本列自己的条件不算，这样能看到还可以勾选什么）。
+   * 只统计到公司、资料类型、是否归档、是否含停用，不含页签/状态/搜索词，所以是“这一列各值一共多少条”的参考数。
+   */
+  async columnFacets(user: AuthUser, type: string, q: { key: string; colFilters?: string; showHidden?: boolean; archived?: boolean }) {
+    const def = this.def(type);
+    const restricted = restrictedFieldKeys(def, createChecker(user.permissions));
+    let expr = 'r.status';
+    if (q.key !== STATUS_COL) {
+      const f = def.fields.find((x) => x.key === q.key);
+      if (!f || f.type !== 'select' || f.multi || !/^[A-Za-z0-9_]+$/.test(f.key)) throw new BadRequestException('这一列没有可统计的值');
+      if (restricted.has(f.key)) throw new ForbiddenException(`没有权限按“${f.label}”筛选`);
+      expr = `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${f.key}'))`;
+    }
+    const filters = (await this.parseColFilterParam(user, def, q.colFilters)).filter((f) => f.key !== q.key);
+    const qb = this.dataSource.manager.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type', { companyId: user.companyId, type });
+    qb.andWhere(q.archived ? 'r.archivedAt IS NOT NULL' : 'r.archivedAt IS NULL');
+    const hidden = def.statuses.filter((s) => s.hidden).map((s) => s.value);
+    if (!q.archived && !q.showHidden && hidden.length) qb.andWhere('r.status NOT IN (:...hiddenStatuses)', { hiddenStatuses: hidden });
+    applyColFilters(qb, def, filters);
+    const rows = await qb.select(expr, 'v').addSelect('COUNT(*)', 'n').groupBy('v').orderBy('n', 'DESC').limit(100).getRawMany<{ v: string | null; n: string }>();
+    return { items: rows.filter((r) => r.v !== null && r.v !== '' && r.v !== 'null').map((r) => ({ value: String(r.v), count: Number(r.n) })) };
   }
 
   /** 列表左侧的分类目录：该字段所指分类树的全部节点，带各节点（含下级）下的资料数。 */
