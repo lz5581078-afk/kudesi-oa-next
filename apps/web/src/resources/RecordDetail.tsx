@@ -18,6 +18,7 @@ import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPane
 import { StoreMetricsPanel } from './StoreMetricsPanel';
 import { WorkforceAccountNote } from './WorkforcePanels';
 import { ProductCostSummary } from './ProductCostSummary';
+import { StoresPopButton } from './StoresPop';
 import { DerivedStoresPanel, PartnerSubjectPanel, PhoneArchiveButton, ReturnBorrowButton, StoreAssignButton, StoreReleaseButton } from './CertPanels';
 import { useResourceCan } from './useResourceCan';
 import { BankCopyAll, InfoValue, SecretCell } from './DetailFields';
@@ -252,6 +253,12 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def
     if (f.showWhen && !f.showWhen.in.includes(String(f.showWhen.field === 'status' ? record.status : (record.data[f.showWhen.field] ?? '')))) continue;
     groups.set(f.group, [...(groups.get(f.group) ?? []), f]);
   }
+  // 派生统计（配置 derivedColumns）：并进详情对应分区，只读（如税务的“月营业额 / 关联店铺数”）
+  for (const d of def.derivedColumns ?? []) {
+    if (record.data[d.key] === undefined) continue;
+    const g = d.group ?? '统计';
+    groups.set(g, [...(groups.get(g) ?? []), { key: d.key, label: d.label, type: d.kind === 'sum' && d.format === 'money' ? 'money' : 'number', group: g, readonly: true }]);
+  }
   const filled = (f: typeof def.fields[number]) => (f.type === 'secret' ? Boolean(record.secretConfigured[f.key]) : displayValue(f, record) !== '');
   const sectionList = [...groups.entries()]
     .map(([group, fields]) => ({ group, fields, shown: hideEmpty ? fields.filter(filled) : fields }))
@@ -392,6 +399,8 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def
                               <SecretCell def={def} record={record} fieldKey={f.key} />
                             ) : f.type === 'files' ? (
                               <FileList ids={Array.isArray(record.data[f.key]) ? (record.data[f.key] as number[]) : []} files={record.files} />
+                            ) : f.key === 'storeCount' ? (
+                              <StoresPopButton licenseId={def.key === 'licenses' ? record.id : (typeof record.data.licenseId === 'number' ? record.data.licenseId : null)} count={Number(record.data.storeCount ?? 0)} />
                             ) : (
                               <InfoValue def={def} f={f} record={record} canView={canView} today={today} />
                             )}
