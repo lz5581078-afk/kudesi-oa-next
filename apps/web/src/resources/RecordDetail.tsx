@@ -114,7 +114,7 @@ export function isCurrentCost(it: ResourceDto, all: ResourceDto[]): boolean {
   return !all.some((x) => x.id !== it.id && x.data.costType === it.data.costType && ok(x) && String(x.data.effectiveFrom) > String(it.data.effectiveFrom));
 }
 
-function ChildPanel({ parentDef, parent, childType, field }: { parentDef: ResourceDef; parent: ResourceDto; childType: string; field: string }) {
+export function ChildPanel({ parentDef, parent, childType, field }: { parentDef: ResourceDef; parent: ResourceDto; childType: string; field: string }) {
   const def = getResourceDef(childType)!;
   const can = useResourceCan(childType);
   const [items, setItems] = useState<ResourceDto[]>([]);

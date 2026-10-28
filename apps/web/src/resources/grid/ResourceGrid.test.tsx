@@ -14,12 +14,13 @@ import { ResourceGrid } from './ResourceGrid';
 import { clearRefChoices } from './refResolve';
 
 const def = getResourceDef('software')!;
-const fields = ['name', 'account', 'renewAt', 'annualFee', 'storeId', 'password'].map((k) => def.fields.find((f) => f.key === k)!);
+const SHOWN = ['name', 'account', 'renewAt', 'annualFee', 'storeId', 'password'];
 const dto = (id: number, data: Record<string, unknown>): ResourceDto => ({ id, type: 'software', title: String(data.name), status: 'normal', statusReason: null, data, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '', updatedAt: '', version: `v${id}` });
 const items = [dto(1, { name: 'A', account: 'a' }), dto(2, { name: 'B', account: 'b' }), dto(3, { name: 'C', account: 'c' })];
-const colIdx = (k: string) => fields.findIndex((f) => f.key === k);
+/** 列的位置按表头文字现查：显示哪些列由表格自己的列选择决定 */
+const colIdx = (k: string) => Array.from(document.querySelectorAll('thead th')).findIndex((th) => th.querySelector('button,span')?.textContent === def.fields.find((f) => f.key === k)!.label) - 1;
 
-const props = () => ({ def, items, fields, sort: null, onSort: vi.fn(), onDirtyChange: vi.fn(), onOpen: vi.fn(), onSaved: vi.fn(), onExit: vi.fn() });
+const props = () => ({ def, items, derived: [], sort: null, onSort: vi.fn(), onDirtyChange: vi.fn(), onOpen: vi.fn(), onSaved: vi.fn(), onExit: vi.fn() });
 const cell = (r: number, k: string) => document.querySelector(`td[data-r="${r}"][data-c="${colIdx(k)}"]`) as HTMLElement;
 const scope = () => screen.getByRole('application');
 const select = (r: number, k: string) => { fireEvent.mouseDown(cell(r, k)); fireEvent.mouseUp(window); };
@@ -34,7 +35,7 @@ const pasteText = async (text: string) => { await act(async () => { fireEvent.pa
 const confirmMock = vi.fn((_msg?: string) => true);
 const realConfirm = window.confirm;
 
-beforeEach(() => { window.confirm = confirmMock as never; confirmMock.mockReturnValue(true); perms = { isCompanyAdmin: true, allow: [], deny: [] }; clearRefChoices(); });
+beforeEach(() => { localStorage.setItem('kudesi.grid.cols.software', JSON.stringify(SHOWN)); window.confirm = confirmMock as never; confirmMock.mockReturnValue(true); perms = { isCompanyAdmin: true, allow: [], deny: [] }; clearRefChoices(); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); window.confirm = realConfirm; });
 
 describe('资料表格编辑网格', () => {
@@ -85,15 +86,15 @@ describe('资料表格编辑网格', () => {
   it('粘贴 Excel 多行多列；超出现有行数先询问，同意才新增行', async () => {
     const confirm = confirmMock;
     render(<ResourceGrid {...props()} />);
-    select(2, 'name');
-    await pasteText('甲\t账号甲\n乙\t账号乙\n');
-    await waitFor(() => expect(cell(3, 'name')?.textContent).toBe('乙'));
+    select(2, 'renewAt');
+    await pasteText('2030-01-02\t12\n2031/2/3\t13.5\n');
+    await waitFor(() => expect(cell(3, 'renewAt')?.textContent).toBe('2031-02-03'));
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(confirm.mock.calls[0][0]).toContain('超出现有行数 1 行');
-    expect(cell(2, 'name').textContent).toBe('甲');
-    expect(cell(2, 'account').textContent).toBe('账号甲');
-    expect(cell(3, 'name').closest('tr')!.className).toContain('new');
-    expect(await screen.findByText('3 处修改')).toBeTruthy(); // 2 个改动格 + 1 个新增行... 以服务端口径：改 1 行 2 格 + 新增 1 行 + 1 行
+    expect(cell(2, 'renewAt').textContent).toBe('2030-01-02');
+    expect(cell(2, 'annualFee').textContent).toContain('12');
+    expect(cell(3, 'renewAt').closest('tr')!.className).toContain('new');
+    expect(await screen.findByText('3 处修改')).toBeTruthy(); // 现有行改了 2 格 + 新增 1 行
   });
 
   it('粘贴超出行数时选“取消”：只粘贴到现有的行', async () => {
@@ -151,7 +152,7 @@ describe('资料表格编辑网格', () => {
     fireEvent.mouseUp(window);
     const setData = vi.fn();
     fireEvent.copy(scope(), { clipboardData: { setData } });
-    expect(setData).toHaveBeenCalledWith('text/plain', 'A\ta\nB\tb');
+    expect(setData).toHaveBeenCalledWith('text/plain', 'A\t\ta\nB\t\tb');
   });
 
   it('底部空行直接输入=新增；保存失败的行留在表格里标红并写明原因，成功的行落定', async () => {
@@ -212,14 +213,13 @@ describe('资料表格编辑网格', () => {
     expect(vi.mocked(resourceApi.gridSave).mock.calls[0][1].archives).toEqual([{ id: 2, version: 'v2', reason: '不用了' }]);
   });
 
-  it('只读列（统计/系统列、没有“查看明文”权限的密码列）不能编辑，并说明原因', () => {
+  it('没有“查看明文”权限：密码列不出现在列里（也不在列选择器里）；其他列照常可改', () => {
     perms = { isCompanyAdmin: false, allow: ['resource.software.view', 'resource.software.edit', 'resource.software.create'], deny: [] };
     render(<ResourceGrid {...props()} />);
-    select(0, 'password');
-    fireEvent.keyDown(scope(), { key: 'Enter' });
-    expect(screen.queryByLabelText(/^编辑/)).toBeNull();
-    expect(cell(0, 'password').title).toContain('查看明文');
-    expect(cell(0, 'password').getAttribute('aria-readonly')).toBe('true');
+    expect(colIdx('password')).toBe(-2);
+    fireEvent.click(screen.getByRole('button', { name: /^列（/ }));
+    expect(screen.queryByLabelText('密码')).toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
     select(0, 'name');
     fireEvent.keyDown(scope(), { key: 'Enter' });
     expect(screen.getByLabelText('编辑软件名称')).toBeTruthy();

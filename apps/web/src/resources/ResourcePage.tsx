@@ -433,7 +433,7 @@ export function ResourcePage({ type, lockedTab, title }: { type: string; lockedT
                 key={type}
                 def={def}
                 items={data.items}
-                fields={columns}
+                derived={derivedFields}
                 sort={sort}
                 newDefaults={newInitial()}
                 newLabels={treeField && catPath && filterVals[treeField.key] ? { [treeField.key]: catPath } : undefined}

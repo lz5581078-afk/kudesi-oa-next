@@ -984,7 +984,7 @@ export class ResourcesService implements RuleHost {
    * 表格编辑的单行保存（独立事务）：与单条新建/修改走同一个 saveRecord（字段校验、唯一性、特殊规则、引用、审计日志）。
    * 修改时带 version：记录已被别人改过则返回 409，不覆盖。
    */
-  async saveGridRow(user: AuthUser, type: string, row: { id?: number; version?: string; values: Record<string, unknown> }, note: string) {
+  async saveGridRow(user: AuthUser, type: string, row: { id?: number; version?: string; values: Record<string, unknown>; status?: string; statusReason?: string }, note: string) {
     const def = this.def(type);
     const cleanup: string[] = [];
     const record = await this.dataSource.transaction(async (em) => {
@@ -993,7 +993,21 @@ export class ResourcesService implements RuleHost {
       if (!existing) throw new NotFoundException('记录不存在');
       if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再修改');
       if (row.version && row.version !== recordVersion(existing)) throw new ConflictException('这条资料刚被别人修改过，请刷新后再改');
-      return this.saveRecord(em, user, def, existing, row.values, { cleanup, note });
+      if (!row.status || row.status === existing.status) return this.saveRecord(em, user, def, existing, row.values, { cleanup, note });
+      // 字段和状态在同一个事务里一起保存：状态校验、状态相关字段的清理、原因记录和日志与单条“改状态”一致
+      const problem = validateStatusChange(def, row.status, row.statusReason);
+      if (problem) throw new BadRequestException(problem);
+      const reason = row.statusReason?.trim();
+      const abnormalInput: Record<string, unknown> = {};
+      if (row.status === 'abnormal' && reason) {
+        if (def.fields.some((f) => f.key === 'abnormalReasonText')) abnormalInput.abnormalReasonText = reason.slice(0, 100);
+        else if (def.fields.some((f) => f.key === 'abnormalReason' && f.type !== 'ref')) abnormalInput.abnormalReason = reason.slice(0, 2000);
+      }
+      const saved = await this.saveRecord(em, user, def, existing, { ...abnormalInput, ...row.values }, { cleanup, note: `${note}；状态：${existing.status} → ${row.status}${reason ? `（${reason}）` : ''}`, status: row.status });
+      const fresh = await this.load(em, user, type, saved.id);
+      fresh.statusReason = def.statuses.find((s) => s.value === row.status)?.requiresReason ? reason!.slice(0, 500) : null;
+      await em.save(ResourceRecord, fresh);
+      return fresh;
     });
     await this.files.deleteObjects(user.companyId, cleanup);
     return record.id;

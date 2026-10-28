@@ -5,11 +5,15 @@ import { ApiError } from '../../api/client';
 import { resourceApi, type ResourceDto } from '../api';
 import { displayValue, statusOf } from '../format';
 import { fieldOptions, useUnitOptions } from '../unitOptions';
-import { CellEditor, type EditResult, type Move } from './CellEditor';
+import { ChildPanel } from '../RecordDetail';
+import { LicenseRecognizeButton } from '../LicenseRecognize';
+import { CellEditor, GridDialog, type EditResult, type Move } from './CellEditor';
+import { ColumnPicker } from './ColumnPicker';
+import { loadPicked, pickCandidates, savePicked } from './columnPick';
 import { GridBar } from './GridBar';
 import { parseTsv, toTsv } from './clipboard';
 import {
-  applyChanges, applyResponse, buildColumns, buildRequest, cellEditText, chunkRequest, fillChanges, fillDownChanges, historyInit, historyPush, historyRedo, historyUndo,
+  applyChanges, applyResponse, buildRequest, newRow, cellEditText, chunkRequest, fillChanges, fillDownChanges, historyInit, historyPush, historyRedo, historyUndo,
   isChanged, normSel, replaceRow, rowFromDto, summarize, textToChange, toggleDelete, applicable,
   type CellChange, type GridCol, type GridRow, type History, type Selection,
 } from './gridModel';
@@ -21,7 +25,10 @@ const MIN_W = 70;
 const widthsKey = (type: string) => `kudesi.grid.widths.${type}`;
 
 function defaultWidth(c: GridCol): number {
+  if (c.special === 'child') return 110;
   switch (c.kind) {
+    case 'files': return 110;
+    case 'textarea': case 'attrs': case 'json': case 'refs': return 200;
     case 'bool': return 80;
     case 'money': case 'integer': case 'decimal': return 110;
     case 'date': case 'monthday': return 120;
@@ -30,12 +37,18 @@ function defaultWidth(c: GridCol): number {
   }
 }
 
+/** 格子里显示的文字：在列表的显示规则上补上清单（JSON）；文件显示个数 */
+function cellDisplay(field: FieldDef, dto: ResourceDto): string {
+  if (field.type === 'json') { const v = dto.data[field.key]; return v === undefined || v === null ? '' : JSON.stringify(v); }
+  return displayValue(field, dto);
+}
+
 interface Props {
   def: ResourceDef;
   /** 当前页的记录（服务端按现有筛选/排序/分页给的） */
   items: ResourceDto[];
-  /** 要显示的列（沿用列表的“显示列”设置，含统计列） */
-  fields: FieldDef[];
+  /** 列表页的统计列（派生列，只读）；其余列由表格自己的列选择器按资料的全部字段生成 */
+  derived: FieldDef[];
   sort: { by: string; dir: 'asc' | 'desc' } | null;
   /** 新增行预先带的值（当前页签/分类） */
   newDefaults?: Record<string, unknown>;
@@ -54,7 +67,7 @@ interface Props {
  * 只在电脑宽屏提供（见 ResourcePage 的 useWideScreen）：手机上没有键盘和宽度，网格编辑没有意义。
  */
 export function ResourceGrid(props: Props) {
-  const { def, items, fields, sort, newDefaults, newLabels } = props;
+  const { def, items, derived, sort, newDefaults, newLabels } = props;
   const { user: me } = useAuth();
   const perms = useMemo(() => createChecker(me?.permissions ?? { isCompanyAdmin: false, allow: [], deny: [] }), [me]);
   const owner = permissionOwner(def.key);
@@ -63,7 +76,18 @@ export function ResourceGrid(props: Props) {
   const canArchive = policy.canArchive && perms(resourcePermission(owner, 'delete'));
   const canSecret = perms(resourcePermission(owner, 'secret'));
   const units = useUnitOptions();
-  const cols = useMemo(() => buildColumns(def, fields, perms, canSecret), [def, fields, perms, canSecret]);
+  const canDisable = perms(resourcePermission(owner, 'disable'));
+  const pickItems = useMemo(
+    () => pickCandidates(def, derived, { can: perms, canSecret, canDisable, canView: (t) => perms(resourcePermission(permissionOwner(t), 'view')) }),
+    [def, derived, perms, canSecret, canDisable],
+  );
+  const [picked, setPicked] = useState<string[]>(() => loadPicked(def.key, pickItems));
+  const pickedNow = useMemo(() => picked.filter((k) => pickItems.some((i) => i.key === k)), [picked, pickItems]);
+  /** 全部可用列：保存、统计改动、联动清空都看它，隐藏某列不会丢掉那一列里没保存的修改 */
+  const allCols = useMemo(() => pickItems.map((i) => i.col), [pickItems]);
+  /** 当前显示的列（按候选顺序） */
+  const cols = useMemo(() => pickItems.filter((i) => pickedNow.includes(i.key)).map((i) => i.col), [pickItems, pickedNow]);
+  const pickColumns = (keys: string[]) => { setPicked(keys); savePicked(def.key, keys); };
   const defaults = useMemo(() => newDefaults ?? {}, [newDefaults]);
 
   const [hist, setHist] = useState<History>(() => historyInit(items.map(rowFromDto)));
@@ -88,9 +112,17 @@ export function ResourceGrid(props: Props) {
   const [viewH, setViewH] = useState(560);
   const drag = useRef<'select' | 'fill' | null>(null);
 
+  // 隐藏列后选区可能落在已经不存在的列上：收回到最后一列
+  useEffect(() => {
+    const last = Math.max(0, cols.length - 1);
+    setAnchor((a) => (a.c > last ? { ...a, c: last } : a));
+    setFocus((f) => (f.c > last ? { ...f, c: last } : f));
+    setEditing((e) => (e && e.c > last ? null : e));
+  }, [cols.length]);
+
   const total = rows.length + (canCreate ? 1 : 0); // 底部多一个空行，直接输入就是新增
   const sel: Selection = normSel(anchor, focus);
-  const summary = useMemo(() => summarize(rows, cols, defaults), [rows, cols, defaults]);
+  const summary = useMemo(() => summarize(rows, allCols, defaults), [rows, allCols, defaults]);
   const dirty = summary.total > 0 || summary.errors > 0;
   useEffect(() => { props.onDirtyChange(dirty); }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -110,8 +142,8 @@ export function ResourceGrid(props: Props) {
   // ---------- 改动 ----------
   const edit = useCallback((changes: CellChange[]) => {
     if (!changes.length) return;
-    setHist((h) => historyPush(h, applyChanges(h.rows, cols, changes, seq.current, defaults, newLabels)));
-  }, [cols, defaults, newLabels]);
+    setHist((h) => historyPush(h, applyChanges(h.rows, allCols, changes, seq.current, defaults, newLabels)));
+  }, [allCols, defaults, newLabels]);
 
   const focusGrid = () => wrap.current?.focus({ preventScroll: true });
   const scrollInto = (r: number) => {
@@ -129,17 +161,25 @@ export function ResourceGrid(props: Props) {
   };
   const cur = { r: focus.r, c: focus.c };
 
+  const [childOf, setChildOf] = useState<{ row: GridRow; col: GridCol } | null>(null);
+  const [recognizeRow, setRecognizeRow] = useState<number | null>(null);
+
   const startEdit = (r: number, c: number, text?: string) => {
     const col = cols[c];
     const row = rows[r];
+    if (col?.special === 'child') {
+      if (!row || row.isNew) return setMessage('先保存这一行，再编辑它的子表。');
+      return setChildOf({ row, col });
+    }
     if (!col?.editable) return;
+    if (col.special === 'status' && (!row || row.isNew || row.deleted)) return;
     if (row && (row.deleted || !applicable(row, col))) return;
     if (col.kind === 'bool') {
       const now = row?.data[col.key] === true;
       edit([{ row: r, key: col.key, value: !now }]);
       return;
     }
-    const initial = text !== undefined ? text : row ? cellEditText(col, row, optionsOf(col.field!, row)) : '';
+    const initial = text !== undefined ? text : row ? cellEditText(col, row, col.field ? optionsOf(col.field, row) : undefined) : '';
     setEditing({ r, c, initial });
   };
 
@@ -148,9 +188,12 @@ export function ResourceGrid(props: Props) {
     const col = cols[c];
     const row = rowsRef.current[r] ?? { ...rowFromDto({ id: 0, type: def.key, title: '', status: '', statusReason: null, data: {}, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '', updatedAt: '' }), key: 'ghost', isNew: true };
     let ch: CellChange;
+    const direct = 'ref' in res || 'value' in res || 'status' in res;
     if ('ref' in res) ch = { row: r, key: col.key, value: res.ref ? res.ref.id : null, label: res.ref?.label };
+    else if ('value' in res) ch = { row: r, key: col.key, value: res.value, label: res.label, files: res.files };
+    else if ('status' in res) ch = { row: r, key: col.key, value: res.status, reason: res.reason };
     else ch = await textToChange(col, row, r, res.text, { options: optionsOf, resolveRef: resolveRefLabel });
-    const same = !('ref' in res) && !ch.invalid && JSON.stringify(ch.value ?? null) === JSON.stringify(row.data[col.key] ?? null) && !row.invalid[col.key];
+    const same = !direct && !ch.invalid && JSON.stringify(ch.value ?? null) === JSON.stringify(row.data[col.key] ?? null) && !row.invalid[col.key];
     if (!same && !(r >= rowsRef.current.length && (ch.value === null || ch.value === undefined) && !ch.invalid)) edit([ch]);
     if (move === 'down') moveTo(r + 1, c);
     else if (move === 'right') moveTo(r, c + 1);
@@ -160,14 +203,14 @@ export function ResourceGrid(props: Props) {
 
   const clearSelection = () => {
     const ch: CellChange[] = [];
-    for (let r = sel.r1; r <= Math.min(sel.r2, rows.length - 1); r++) for (let c = sel.c1; c <= sel.c2; c++) if (cols[c].editable && cols[c].kind !== 'secret') ch.push({ row: r, key: cols[c].key, value: null });
+    for (let r = sel.r1; r <= Math.min(sel.r2, rows.length - 1); r++) for (let c = sel.c1; c <= sel.c2; c++) if (cols[c].editable && cols[c].kind !== 'secret' && !cols[c].special) ch.push({ row: r, key: cols[c].key, value: null });
     edit(ch);
   };
 
   const copyText = (): string => {
     const out: string[][] = [];
     for (let r = sel.r1; r <= Math.min(sel.r2, rows.length - 1); r++) {
-      out.push(cols.slice(sel.c1, sel.c2 + 1).map((col) => (col.field ? cellEditText(col, rows[r], optionsOf(col.field, rows[r])) : statusOf(def, rows[r].status).label)));
+      out.push(cols.slice(sel.c1, sel.c2 + 1).map((col) => (col.field || col.special === 'status' ? cellEditText(col, rows[r], col.field ? optionsOf(col.field, rows[r]) : undefined) : '')));
     }
     return toTsv(out);
   };
@@ -198,7 +241,7 @@ export function ResourceGrid(props: Props) {
       line.forEach((cell, j) => {
         const c = startC + j;
         const col = cols[c];
-        if (!col?.editable || col.kind === 'secret' && cell === '' || (rows[r] && (rows[r].deleted || !applicable(rows[r], col)))) return;
+        if (!col?.editable || col.kind === 'files' || col.special === 'child' || col.special === 'status' && !rows[r] || col.kind === 'secret' && cell === '' || (rows[r] && (rows[r].deleted || !applicable(rows[r], col)))) return;
         jobs.push(textToChange(col, row, r, cell, ctx));
       });
     });
@@ -235,15 +278,15 @@ export function ResourceGrid(props: Props) {
       case 'Home': e.preventDefault(); return moveTo(r, 0);
       case 'End': e.preventDefault(); return moveTo(r, cols.length - 1);
       case 'Enter': case 'F2': e.preventDefault(); return startEdit(r, c);
-      case ' ': if (cols[c]?.kind === 'bool') { e.preventDefault(); startEdit(r, c); } else if (cols[c]?.editable) { e.preventDefault(); startEdit(r, c, ' '); } return;
+      case ' ': if (cols[c]?.kind === 'bool' || cols[c]?.special === 'child') { e.preventDefault(); startEdit(r, c); } else if (cols[c]?.editable && !cols[c]?.special && !['refs', 'files', 'attrs', 'json'].includes(cols[c]?.kind ?? '')) { e.preventDefault(); startEdit(r, c, ' '); } return;
       case 'Delete': case 'Backspace': e.preventDefault(); return clearSelection();
       case 'Escape': return setAnchor(focus);
       default:
         if ((e.key.length === 1 || e.key === 'Process') && !e.altKey) {
-          if (cols[c]?.kind === 'select' || cols[c]?.kind === 'ref') { e.preventDefault(); return startEdit(r, c); }
+          if (['select', 'ref', 'refs', 'files', 'attrs', 'json'].includes(cols[c]?.kind ?? '') || cols[c]?.special) { e.preventDefault(); return startEdit(r, c); }
           if (cols[c]?.kind === 'bool') return;
           // 直接键入：替换原内容（输入法打字时从空开始，字符由输入框接收）
-          if (cols[c]?.editable) { if (e.key === 'Process') startEdit(r, c, ''); else { e.preventDefault(); startEdit(r, c, e.key); } }
+          if (cols[c]?.editable && !cols[c]?.special) { if (e.key === 'Process') startEdit(r, c, ''); else { e.preventDefault(); startEdit(r, c, e.key); } }
         }
     }
   };
@@ -267,10 +310,10 @@ export function ResourceGrid(props: Props) {
   // ---------- 保存 ----------
   const save = async () => {
     const live = rowsRef.current;
-    const s = summarize(live, cols, defaults);
+    const s = summarize(live, allCols, defaults);
     if (s.invalid > 0) return setMessage(`有 ${s.invalid} 个格子的内容格式不对（标红），请先修改。`);
     if (s.deleted > 0 && !reason.trim()) return setMessage('有待归档的行，请先填写归档原因。');
-    const req = buildRequest(live, cols, reason.trim(), defaults);
+    const req = buildRequest(live, allCols, reason.trim(), defaults);
     setSaving(true);
     setMessage('');
     let saved = 0, failed = 0;
@@ -328,26 +371,35 @@ export function ResourceGrid(props: Props) {
     const active = r === focus.r && c === focus.c;
     const isEditing = editing?.r === r && editing.c === c;
     const bad = row?.invalid[col.key];
-    const changed = row ? isChanged(row, col) && !bad && Boolean(col.field) : false;
+    const changed = row ? isChanged(row, col) && !bad && Boolean(col.field || col.special === 'status') : false;
     const na = row ? !applicable(row, col) : false;
-    const cls = ['grid-cell', col.editable && !na ? '' : 'ro', active ? 'active' : '', isEditing ? 'editing' : '', inSel(r, c) ? 'in-sel' : '', changed ? 'changed' : '', bad ? 'invalid' : '', na ? 'na' : '', freeze && c === 0 ? 'frozen' : '', col.kind === 'money' || col.kind === 'integer' || col.kind === 'decimal' ? 'num' : '', fillSel && c >= sel.c1 && c <= sel.c2 && r > sel.r2 && r <= fillTo! ? 'fill-preview' : ''].filter(Boolean).join(' ');
+    const cls = ['grid-cell', (col.editable && !na && !(col.special === 'status' && (!row || row.isNew))) || col.special === 'child' ? '' : 'ro', active ? 'active' : '', isEditing ? 'editing' : '', inSel(r, c) ? 'in-sel' : '', changed ? 'changed' : '', bad ? 'invalid' : '', na ? 'na' : '', freeze && c === 0 ? 'frozen' : '', col.kind === 'money' || col.kind === 'integer' || col.kind === 'decimal' ? 'num' : '', fillSel && c >= sel.c1 && c <= sel.c2 && r > sel.r2 && r <= fillTo! ? 'fill-preview' : ''].filter(Boolean).join(' ');
     let text = '';
     if (row) {
-      if (!col.field) text = row.isNew ? '新增' : statusOf(def, row.status).label;
+      if (col.special === 'status') text = row.isNew ? '新增' : statusOf(def, row.statusTo ?? row.status).label;
+      else if (col.special === 'child') text = '';
       else if (bad) text = bad.raw;
       else if (col.kind === 'secret') text = row.data[col.key] ? '••••••' : row.secretConfigured[col.key] ? '已设置' : '';
-      else if (na) text = '';
-      else text = displayValue(col.field, { data: row.data, refLabels: row.refLabels, secretConfigured: row.secretConfigured } as ResourceDto);
+      else if (na && !col.lockedAfterCreate) text = '';
+      else text = cellDisplay(col.field!, { data: row.data, refLabels: row.refLabels, secretConfigured: row.secretConfigured } as ResourceDto);
     }
-    const tip = bad ? bad.error : changed && row && !row.isNew ? `原值：${displayValue(col.field!, { data: row.base, refLabels: {}, secretConfigured: row.secretConfigured } as ResourceDto) || '（空）'}` : !col.editable ? col.reason : undefined;
+    const statusChanged = col.special === 'status' && row?.statusTo !== undefined;
+    const tip = bad ? bad.error
+      : statusChanged ? `原状态：${statusOf(def, row!.status).label}${row!.statusReason ? `；原因：${row!.statusReason}` : ''}`
+      : changed && row && !row.isNew ? `原值：${cellDisplay(col.field!, { data: row.base, refLabels: {}, secretConfigured: row.secretConfigured } as ResourceDto) || '（空）'}`
+      : col.special === 'child' ? '点开后在浮层里编辑，改动立即保存'
+      : na && col.lockedAfterCreate ? col.lockedAfterCreate
+      : !col.editable ? col.reason : undefined;
     return (
       <td key={col.key} role="gridcell" data-r={r} data-c={c} aria-selected={inSel(r, c)} aria-readonly={!col.editable || na} aria-invalid={Boolean(bad)} className={cls} title={tip}
         style={freeze && c === 0 ? { left: 64 } : undefined}>
         {isEditing ? (
-          <CellEditor col={col} initial={editing!.initial} options={(row ? optionsOf(col.field!, row) : col.field?.options) ?? []}
+          <CellEditor col={col} def={def} row={row} initial={editing!.initial} options={(row && col.field ? optionsOf(col.field, row) : col.field?.options) ?? []}
             onCommit={(res, move) => void commit(r, c, res, move)} onCancel={() => { setEditing(null); focusGrid(); }} />
         ) : col.kind === 'bool' && row && !na ? (
           <span className="grid-bool" aria-label={`${col.label}：${row.data[col.key] === true ? '是' : '否'}`}>{row.data[col.key] === true ? '是' : row.data[col.key] === false ? '否' : ''}</span>
+        ) : col.special === 'child' ? (
+          row && !row.isNew ? <button type="button" className="link-button" aria-label={`打开${col.label}（${row.title}）`} onClick={() => setChildOf({ row, col })}>编辑…</button> : null
         ) : <span className="grid-text">{text}{ghost && c === 0 && !isEditing ? <span className="muted">＋ 在这里输入，新增一行</span> : null}</span>}
         {active && !isEditing && r === sel.r2 && c === sel.c2 && r < rows.length && cols.some((x) => x.editable) && (
           <span className="fill-handle" role="presentation" title="向下拖动填充（Ctrl+D 填满选区）" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); drag.current = 'fill'; setFillTo(r); }} />
@@ -356,9 +408,26 @@ export function ResourceGrid(props: Props) {
     );
   };
 
+  const recognizeIdx = (def.key === 'licenses' && sel.r1 === sel.r2 && sel.r1 <= rows.length) ? sel.r1 : null;
+  const applyRecognized = async (fields: Record<string, string>) => {
+    const r = recognizeRow;
+    if (r === null) return;
+    const row = rowsRef.current[r] ?? newRow(0, defaults);
+    const jobs: Array<Promise<CellChange>> = [];
+    for (const [k, v] of Object.entries(fields)) {
+      const col = allCols.find((x) => x.key === k);
+      if (col?.editable && col.field && v) jobs.push(textToChange(col, row, r, v, { options: optionsOf, resolveRef: resolveRefLabel }));
+    }
+    edit(await Promise.all(jobs));
+    setRecognizeRow(null);
+    setMessage(`已把识别结果填进第 ${r + 1} 行，请核对后点“保存全部”。`);
+  };
+
   return (
     <div className="grid-wrap">
       <GridBar
+        columns={<ColumnPicker items={pickItems} picked={pickedNow} onChange={pickColumns} />}
+        onRecognize={recognizeIdx !== null && canCreate || recognizeIdx !== null && recognizeIdx < rows.length ? () => setRecognizeRow(recognizeIdx) : undefined}
         total={summary.total} invalid={summary.invalid} deleted={summary.deleted} errors={summary.errors} saving={saving}
         canUndo={hist.past.length > 0} canRedo={hist.future.length > 0} canArchive={canArchive} freeze={freeze} reason={reason} selectedRows={selRows.length}
         message={message}
@@ -431,6 +500,22 @@ export function ResourceGrid(props: Props) {
           </table>
         </div>
       </div>
+      {childOf && (
+        <GridDialog title={`${childOf.col.label}（${def.label}「${childOf.row.title}」）`} hideOk onCancel={() => setChildOf(null)}>
+          <ChildPanel
+            parentDef={def}
+            parent={{ id: childOf.row.id!, type: def.key, title: childOf.row.title, status: childOf.row.status, statusReason: null, data: childOf.row.base, secretConfigured: {}, refLabels: childOf.row.refLabels, files: childOf.row.files, createdAt: '', updatedAt: '' }}
+            childType={childOf.col.child!.type}
+            field={childOf.col.child!.field}
+          />
+          <p className="muted">在这里的新增、修改、删除会立即保存（和详情页的子表一样），不经过“保存全部”。</p>
+        </GridDialog>
+      )}
+      {recognizeRow !== null && (
+        <GridDialog title={`识别营业执照，填入第 ${recognizeRow + 1} 行`} hideOk onCancel={() => setRecognizeRow(null)}>
+          <LicenseRecognizeButton onApply={(f) => void applyRecognized(f)} />
+        </GridDialog>
+      )}
       <p className="muted grid-help">单击选中、双击或回车编辑；Tab / 方向键移动；Ctrl+C / V 复制粘贴（可从 Excel、飞书整块粘贴）；Delete 清空；Ctrl+D 或拖右下角小方块向下填充；Ctrl+Z 撤销。灰色列不能在这里改。</p>
     </div>
   );
