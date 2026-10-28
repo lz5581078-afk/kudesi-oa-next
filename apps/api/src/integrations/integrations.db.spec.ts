@@ -148,4 +148,14 @@ d('接口设置 / 文件 / 识别（真实数据库）', () => {
     s.ocr.visionFactory = (cfg) => new VisionClient(cfg, (async () => new Response(JSON.stringify({ choices: [{ message: { content: '我看不清' } }] }), { status: 200 })) as unknown as typeof fetch);
     await expect(s.ocr.recognizeLicense(boss, { originalname: 'a.png', buffer: PNG, size: PNG.length })).rejects.toThrow(/无法解析/);
   });
+  it('company authorization overview is isolated and never returns imported secrets', async () => {
+    const cfg = s.crypto.encrypt(JSON.stringify({ accounts: [{ name: 'ERP', accessToken: 'TEST-TOKEN-PRIVATE', refreshToken: 'TEST-REFRESH-PRIVATE' }] }));
+    await ds.query('INSERT INTO integration_settings(company_id,setting_key,config_enc) VALUES(?,?,?)', [boss.companyId, 'jushuitan', cfg]);
+    const view = await s.settings.overview(boss.companyId);
+    expect(view.connections.jushuitan.accounts[0].tokenConfigured).toBe(true);
+    expect(JSON.stringify(view)).not.toContain('TEST-TOKEN-PRIVATE');
+    expect(JSON.stringify(view)).not.toContain('TEST-REFRESH-PRIVATE');
+    expect((await s.settings.overview(other.companyId)).connections.jushuitan.configured).toBe(false);
+  });
+
 });

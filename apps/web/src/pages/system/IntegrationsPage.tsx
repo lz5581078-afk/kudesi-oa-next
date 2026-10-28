@@ -158,6 +158,16 @@ export function IntegrationsPage() {
         <div className="settings-grid">
           <QiniuCard data={data} canEdit={canEdit} onSaved={setData} />
           <VisionCard data={data} canEdit={canEdit} onSaved={setData} />
+          {data.connections && (data.connections.jushuitan.configured || data.connections.feishu.configured) && (
+            <section className="card settings-card" aria-label="公司 API 授权配置">
+              <h2 className="section-title">公司 API 授权配置</h2>
+              <p>聚水潭：{data.connections.jushuitan.configured ? '授权配置已保存' : '未配置'}</p>
+              {data.connections.jushuitan.accounts.map((a, i) => <p key={i}>{a.name} · 授权令牌{a.tokenConfigured ? '已保存' : '未设置'} · 续期令牌{a.refreshTokenConfigured ? '已保存' : '未设置'}{a.expiresAt ? ` · 到期时间 ${a.expiresAt}` : ''}</p>)}
+              <p>飞书：{data.connections.feishu.configured ? '应用配置已保存' : '未配置'}</p>
+              {data.connections.feishu.channels.map(c => <p key={c.key}>{({ flow: '流程', business: '业务', notice: '通知', supervision: '监督', system: '系统', task: '任务' } as Record<string, string>)[c.key] ?? c.key} · 应用密钥{c.credentialConfigured ? '已保存' : '未设置'} · 接收人 {c.recipientCount} 名</p>)}
+              <p className="muted">新项目尚未接通聚水潭同步与飞书发送、登录；保存凭据不会启动这些功能。平台应用密钥在平台后台的“接口应用”中管理。</p>
+            </section>
+          )}
         </div>
       )}
       <p className="muted">密钥保存后加密存放，页面和接口都不会再返回；要修改密钥，直接重新填写即可。</p>
