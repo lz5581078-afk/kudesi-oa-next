@@ -1595,3 +1595,18 @@ div.ws-task { cursor: default; }
   .vc-grid { border: 0; background: transparent; }
   .vc-grid-total { margin-left: 0; width: 100%; }
 }
+
+/* 制单中心第二批：分账户收付款、转款手续费与在途 */
+.pay-accts { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fbfdfe; }
+.pay-accts .transfer-list li { flex-wrap: wrap; }
+.pay-accts .transfer-list li span { min-width: 140px; }
+.pay-accts .transfer-diff { grid-column: auto; font-size: 13px; }
+.pay-toggle { justify-self: start; }
+.transfer-fee { display: grid; gap: 8px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.transfer-fee label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.transfer-fee .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; }
+.transfer-fee input:not([type='checkbox']), .transfer-fee select { padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; font: inherit; color: var(--ink); }
+.transfer-fee .transit-check { flex-direction: row; align-items: flex-start; gap: 8px; color: var(--ink); }
+.vc-disc-hint { margin: 0; font-size: 12px; }
+.transit-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+@media (max-width: 720px) { .pay-accts .transfer-list input { width: 100%; } }

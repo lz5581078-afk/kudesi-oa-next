@@ -65,6 +65,7 @@ export function FinanceOverviewPage() {
             <Stat label="毛利" value={money(d.grossProfitCents)} hint={`毛利率 ${rate(d.grossProfitCents, d.revenueCents)}`} />
             <Stat label="费用" value={money(d.expenseCents)} hint="点击查看支出单据" onClick={() => openJourney('out')} />
             <Stat label="其他收入" value={money(d.otherIncomeCents)} />
+            <Stat label="财务费用" value={money(d.financeCostCents ?? 0)} hint="收款优惠、转款手续费（借）减去付款优惠（贷）；负数表示得到的折扣更多" />
             <Stat label="净利润" value={money(d.netProfitCents)} hint={`利润率 ${rate(d.netProfitCents, d.revenueCents)}`} tone={d.netProfitCents !== null && d.netProfitCents < 0 ? 'neg' : ''} />
           </div>
           <h2 className="section-title">往来与资金（截至现在）</h2>
@@ -85,7 +86,7 @@ export function FinanceOverviewPage() {
           <h2 className="section-title between"><span>财务台账（{all ? '最近' : '本月最近'} 60 笔）</span><button type="button" className="secondary-button small" onClick={() => openJourney('')}>全部单据 · 经营历程</button></h2>
           {d.ledger.length === 0 ? <p className="muted">{all ? '还没有已过账的收支。' : '本月还没有已过账的收支。'}</p> : (
             <div className="table-scroll"><table className="data-table"><thead><tr><th>日期</th><th>方向</th><th>分类</th><th>店铺</th><th>单据</th><th className="num">金额</th><th>来源</th></tr></thead>
-              <tbody>{d.ledger.map((l, i) => <tr key={i}><td>{l.date}</td><td>{l.direction === 'in' ? '收入' : '支出'}</td><td>{l.kind === 'revenue' ? '销售收入' : l.kind === 'expense' ? '费用' : '其他收入'}</td><td>{l.storeName || '-'}</td>
+              <tbody>{d.ledger.map((l, i) => <tr key={i}><td>{l.date}</td><td>{l.direction === 'in' ? '收入' : '支出'}</td><td>{l.kind === 'revenue' ? '销售收入' : l.kind === 'expense' ? '费用' : l.kind === 'finance_cost' ? '财务费用' : '其他收入'}</td><td>{l.storeName || '-'}</td>
                 <td><button type="button" className="link-button" onClick={() => setSelected(l.documentId)}>{DOC_TYPE_MAP.get(l.docType as never)?.label ?? l.docType} {l.docNo}</button></td><td className="num">{money(l.amountCents)}</td><td>{l.source ?? '-'}</td></tr>)}</tbody></table></div>
           )}
           <h2 className="section-title">待处理</h2>

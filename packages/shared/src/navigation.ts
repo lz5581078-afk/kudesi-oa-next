@@ -10,6 +10,8 @@ import { DOC_TYPES } from './finance-documents';
 import { RESOURCE_DEFS, RESOURCE_VIEWS } from './resources';
 
 export const OPENING_PREPAYMENT_PERMISSION = 'finance.docs.opening-prepayment';
+/** 转款单“确认入账”：在途转款对方确认到账后，记入转入账户（单独授权并写审计） */
+export const CONFIRM_TRANSFER_PERMISSION = 'finance.docs.confirm-transfer';
 
 export interface NavPage {
   id: string;

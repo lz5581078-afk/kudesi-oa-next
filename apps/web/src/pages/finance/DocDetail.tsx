@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
-import { OPENING_PREPAYMENT_PERMISSION, ACCOUNT_LABEL, DOC_STATUS_LABEL, DOC_TYPE_MAP, PARTY_KIND_LABEL, type AccountKind } from '@kudesi/shared';
+import { OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, ACCOUNT_LABEL, DOC_STATUS_LABEL, DOC_TYPE_MAP, PARTY_KIND_LABEL, hasMoneyDiscount, todayInChina, type AccountKind } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { ReasonDialog } from '../../resources/RecordForm';
 import { OpeningPrepaymentDialog } from './OpeningPrepaymentDialog';
 import { DocForm } from './DocForm';
+import { HandlerSelect } from './voucher/HandlerSelect';
 import { DOC_STATUS_TONE, money } from './common';
 import { financeApi, type DocDetailDto } from './financeApi';
 import { CopyButton, plainYuan } from './fin-ui';
 import { sessionApi, type VoucherFile } from './sessionApi';
 import { VoucherPanel } from './VoucherPanel';
 
-const ACTION_LABEL: Record<string, string> = { create: '新建草稿', update: '修改草稿', issue: '开立', unissue: '退回草稿', post: '过账', reverse: '红冲', 'edit-header': '修改单据', 'opening-prepay': '登记已有预付款余额', audit: '财务审核', unaudit: '取消财务审核' };
+const ACTION_LABEL: Record<string, string> = { create: '新建草稿', update: '修改草稿', issue: '开立', unissue: '退回草稿', post: '过账', reverse: '红冲', 'edit-header': '修改单据', 'opening-prepay': '登记已有预付款余额', audit: '财务审核', unaudit: '取消财务审核', 'confirm-transfer': '确认转款入账' };
 
 /** 单据详情抽屉：头信息、明细、分录（借/贷）、操作记录，以及按状态和权限出现的操作按钮。 */
 export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged: () => void }) {
@@ -20,7 +21,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [dialog, setDialog] = useState<'reverse' | 'unissue' | 'header' | 'opening' | null>(null);
+  const [dialog, setDialog] = useState<'reverse' | 'unissue' | 'header' | 'opening' | 'confirm' | null>(null);
   const [copied, setCopied] = useState('');
   const [vouchers, setVouchers] = useState<VoucherFile[]>([]);
 
@@ -64,6 +65,13 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
         {copied && <div role="status" className="notice ok">已复制为草稿 {copied}，到草稿中心调出修改后再过账</div>}
         {doc.entries.some((e) => e.kind === 'opening') && <div className="notice">此单登记的是已有预付款余额，未扣银行或现金余额。</div>}
         {doc.auditedAt && <div className="notice">已财务审核，不能再红冲和修改</div>}
+        {doc.docType === 'transfer' && doc.status === 'posted' && doc.transitStatus === 'pending' && (
+          <div className="notice warn transit-banner" role="status">
+            <span>在途待确认：已从转出账户扣款，转入账户还没有入账（{money(doc.amountCents)}）。对方确认到账后点“确认入账”。</span>
+            {can(CONFIRM_TRANSFER_PERMISSION) && <button type="button" className="primary-button small" disabled={busy} onClick={() => setDialog('confirm')}>确认入账</button>}
+          </div>
+        )}
+        {doc.docType === 'transfer' && doc.transitStatus === 'confirmed' && <div className="notice ok" role="status">已确认入账{doc.confirmedAt ? `（${new Date(doc.confirmedAt).toLocaleString('zh-CN')}${doc.confirmedByName ? `，${doc.confirmedByName}` : ''}）` : ''}</div>}
         <dl className="kv">
           <div className="kv-row"><dt>类型</dt><dd>{doc.typeLabel}</dd></div>
           <div className="kv-row"><dt>日期</dt><dd>{doc.docDate}</dd></div>
@@ -77,6 +85,9 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
           {doc.paidCents !== 0 && <div className="kv-row"><dt>{def.ui.amountLabel}</dt><dd>{money(doc.paidCents)}</dd></div>}
           {def.settle && def.lines && <div className="kv-row"><dt>挂{def.settle === 'in' && def.type !== 'purchase-return' || def.type === 'sale-return' ? '应收' : '应付'}余额</dt><dd>{money(doc.amountCents - doc.paidCents - doc.offsetCents)}</dd></div>}
           {doc.offsetCents !== 0 && <div className="kv-row"><dt>冲抵{def.offset ? ACCOUNT_LABEL[def.offset] : ''}</dt><dd>{money(doc.offsetCents)}</dd></div>}
+          {!!doc.discountCents && hasMoneyDiscount(doc.docType) && <div className="kv-row"><dt>优惠金额</dt><dd>{money(doc.discountCents)} <span className="muted">（冲减{doc.docType === 'receipt' ? '应收' : '应付'}，{doc.discountCents > 0 === (doc.docType === 'receipt') ? '计入' : '冲减'}财务费用）</span></dd></div>}
+          {!!doc.discountCents && def.lines === 'product' && <div className="kv-row"><dt>整单优惠</dt><dd>{money(doc.discountCents)}</dd></div>}
+          {!!doc.feeCents && doc.docType === 'transfer' && <div className="kv-row"><dt>手续费</dt><dd>{money(doc.feeCents)} <span className="muted">（{doc.feeBearer === 'in' ? '转入方' : '转出方'}承担，计入财务费用）</span></dd></div>}
           {doc.memo && <div className="kv-row"><dt>备注</dt><dd>{doc.memo}</dd></div>}
           {doc.handler && <div className="kv-row"><dt>经办人</dt><dd>{doc.handler}</dd></div>}
           {doc.department && <div className="kv-row"><dt>归属部门</dt><dd>{doc.department}</dd></div>}
@@ -101,10 +112,10 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
         )}
         {doc.accounts.length > 0 && (
           <>
-            <h3 className="section-title">转款账户</h3>
+            <h3 className="section-title">{doc.docType === 'transfer' ? '转款账户' : `分账户${doc.accounts[0].role === 'in' ? '收' : '付'}款`}</h3>
             <div className="table-scroll"><table className="data-table">
               <thead><tr><th>方向</th><th>账户</th><th>金额</th></tr></thead>
-              <tbody>{doc.accounts.map((a) => <tr key={a.id}><td>{a.role === 'out' ? '转出' : '转入'}</td><td>{a.bankName}</td><td className="num">{money(a.amountCents)}</td></tr>)}</tbody>
+              <tbody>{doc.accounts.map((a) => <tr key={a.id}><td>{doc.docType === 'transfer' ? (a.role === 'out' ? '转出' : '转入') : a.role === 'in' ? '收入' : '支出'}</td><td>{a.bankName}</td><td className="num">{money(a.amountCents)}</td></tr>)}</tbody>
             </table></div>
           </>
         )}
@@ -158,6 +169,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
       </div>
       {editing && <DocForm type={doc.docType} doc={doc} onClose={() => setEditing(false)} onSaved={(d) => { setDoc(d); setEditing(false); onChanged(); }} />}
       {dialog === 'reverse' && <ReasonDialog title={`红冲 ${doc.docNo}`} hint="会生成一张金额取反的红冲单，原单变为“已红冲”。库存、往来、银行都会随之冲回。" confirmLabel="确认红冲" danger onClose={() => setDialog(null)} onConfirm={async (reason) => { const r = await financeApi.reverse(doc.id, reason); setDialog(null); onChanged(); setDoc(await financeApi.doc(doc.id)); void r; }} />}
+      {dialog === 'confirm' && <ConfirmTransferDialog doc={doc} onClose={() => setDialog(null)} onConfirm={async (b) => { setDoc(await financeApi.confirmTransfer(doc.id, b)); setDialog(null); onChanged(); }} />}
       {dialog === 'opening' && <OpeningPrepaymentDialog doc={doc} onClose={() => setDialog(null)} onSaved={(d) => { setDoc(d); setDialog(null); onChanged(); }} />}
       {dialog === 'header' && <HeaderDialog doc={doc} onClose={() => setDialog(null)} onSave={async (b) => { setDoc(await financeApi.editHeader(doc.id, b)); setDialog(null); onChanged(); }} />}
       {dialog === 'unissue' && <ReasonDialog title={`退回草稿 ${doc.docNo}`} confirmLabel="退回" onClose={() => setDialog(null)} onConfirm={async (reason) => { setDoc(await financeApi.unissue(doc.id, reason)); setDialog(null); onChanged(); }} />}
@@ -166,23 +178,47 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
 }
 
 /** 修改已过账单据：只能改日期、经办人、说明，不动账（和管家婆“修改单据”一致） */
-function HeaderDialog({ doc, onClose, onSave }: { doc: DocDetailDto; onClose: () => void; onSave: (b: { date: string; handler: string; memo: string }) => Promise<void> }) {
+function HeaderDialog({ doc, onClose, onSave }: { doc: DocDetailDto; onClose: () => void; onSave: (b: { date: string; handlerId: number | null; handler?: string; memo: string }) => Promise<void> }) {
   const [date, setDate] = useState(doc.docDate);
-  const [handler, setHandler] = useState(doc.handler ?? '');
+  const [handlerId, setHandlerId] = useState<number | null>(doc.handlerId ?? null);
+  const legacy = doc.handlerId ? '' : doc.handler ?? '';
   const [memo, setMemo] = useState(doc.memo ?? '');
   const [err, setErr] = useState('');
   return (
     <div className="modal-backdrop" role="presentation">
-      <form className="modal card small" role="dialog" aria-label="修改单据" onSubmit={async (e) => { e.preventDefault(); try { await onSave({ date, handler, memo }); } catch (x) { setErr(x instanceof ApiError ? x.message : '保存失败'); } }}>
+      <form className="modal card small" role="dialog" aria-label="修改单据" onSubmit={async (e) => { e.preventDefault(); try { await onSave({ date, handlerId, ...(handlerId ? {} : { handler: legacy }), memo }); } catch (x) { setErr(x instanceof ApiError ? x.message : '保存失败'); } }}>
         <div className="modal-head between"><strong>修改单据 {doc.docNo}</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>×</button></div>
         <div className="modal-body">
           <p className="muted">已过账的单据只能改日期、经办人和说明；金额、往来对象要改请红冲后重开。</p>
-          <label>单据日期<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
-          <label>经办人<input value={handler} maxLength={60} onChange={(e) => setHandler(e.target.value)} /></label>
+          <label>单据日期<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required disabled={doc.transitStatus === 'confirmed'} /></label>
+          <HandlerSelect value={handlerId} valueName={doc.handler ?? ''} legacy={legacy} onChange={(id) => setHandlerId(id)} />
           <label>说明<textarea rows={2} maxLength={500} value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
           {err && <div role="alert" className="notice error">{err}</div>}
         </div>
         <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="submit" className="primary-button">保存</button></div>
+      </form>
+    </div>
+  );
+}
+
+/** 确认转款入账：对方确认到账后，在途资金记入转入账户；需要单独的权限，会写操作记录和审计 */
+function ConfirmTransferDialog({ doc, onClose, onConfirm }: { doc: DocDetailDto; onClose: () => void; onConfirm: (b: { date: string; note?: string }) => Promise<void> }) {
+  const [date, setDate] = useState(todayInChina());
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const ins = doc.accounts.filter((a) => a.role === 'in');
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="modal card small" role="dialog" aria-label="确认入账" onSubmit={async (e) => { e.preventDefault(); setBusy(true); setErr(''); try { await onConfirm({ date, ...(note.trim() ? { note: note.trim() } : {}) }); } catch (x) { setErr(x instanceof ApiError ? x.message : '确认失败'); setBusy(false); } }}>
+        <div className="modal-head between"><strong>确认入账 {doc.docNo}</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>×</button></div>
+        <div className="modal-body">
+          <p className="muted">确认对方已经收到这笔转款后，{money(doc.amountCents)} 会记入转入账户：{(ins.length ? ins.map((a) => `${a.bankName} ${money(a.amountCents)}`) : [`${doc.toBankName} ${money(doc.amountCents)}`]).join('；')}。{!!doc.feeCents && doc.feeBearer === 'in' && `转入方承担的手续费 ${money(doc.feeCents)} 这时才从转入账户扣。`}确认后不能撤销，只能红冲整张单据。</p>
+          <label>到账日期<input type="date" aria-label="到账日期" value={date} min={doc.docDate} onChange={(e) => setDate(e.target.value)} required /></label>
+          <label>备注（选填）<input aria-label="确认备注" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="如：银行回单已核对" /></label>
+          {err && <div role="alert" className="notice error">{err}</div>}
+        </div>
+        <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy}>确认入账</button></div>
       </form>
     </div>
   );
