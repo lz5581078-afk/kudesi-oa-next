@@ -182,6 +182,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const tabField = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
 
   // 切换资料类型时重置筛选
+  const resetType = useRef<string | null>(null);
   useEffect(() => {
     setKeyword('');
     setTab(lockedTab ?? '');
@@ -190,7 +191,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     setPageSize(n && (PAGE_SIZES as readonly number[]).includes(n) ? n : 20);
     setShowHidden(false);
     setPage(1);
-    setSelected(null);
+    // 同一资料内 lockedTab 变化不关掉刚由 ?open 打开的详情
+    if (resetType.current !== type) setSelected(null);
+    resetType.current = type;
     setData(null);
   }, [type, lockedTab]);
 
