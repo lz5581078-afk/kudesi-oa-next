@@ -193,6 +193,7 @@ const HIDE_EMPTY_KEY = 'kudesi.detail.hideEmpty';
 
 export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def: ResourceDef; id: number; nav?: DetailNav; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const can = useResourceCan(def.key);
+  const canFeeView = useResourceCan('phones')('view');
   useUnitOptions();
   const { user: me } = useAuth();
   const canView = (t: string) => (me ? createChecker(me.permissions)(resourcePermission(permissionOwner(t), 'view')) : false);
@@ -337,7 +338,11 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def
     }}>记录今天已充值</button>
   ) : null;
   const assetBar = def.key === 'fixed-assets' && live && can('edit') ? <AssetActionBar record={record} onDone={reloadAll} /> : null;
-  const quick = phoneRecharge || assetBar || record.warehouseMode ? <>{phoneRecharge}{assetBar}{record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}</> : undefined;
+  // 手机号 / 宽带的费用都汇总在“费用模块”里；这里给一个反向入口（搜这个号码 / 这条宽带）
+  const feeLink = (def.key === 'phones' || def.key === 'broadband') && canFeeView ? (
+    <Link className="res-btn" to={`/resource/fee-settings?tab=${def.key === 'phones' ? 'all' : 'broadband'}&q=${encodeURIComponent(record.title)}`} title="在费用模块里查看这条的费用、主子卡和绑定关系">在费用模块查看</Link>
+  ) : null;
+  const quick = phoneRecharge || assetBar || feeLink || record.warehouseMode ? <>{phoneRecharge}{feeLink}{assetBar}{record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}</> : undefined;
 
   return (
     <aside className={wide ? 'rd rd-wide' : 'rd'} aria-label={`${def.label}详情`}>

@@ -11,6 +11,7 @@ import { ReasonDialog } from './TreeManage';
 import { LevelColumns, LevelCrumbs, type ColumnOps } from './LevelColumns';
 import { StoragePicker } from './StoragePicker';
 import { LocationArchives } from './LocationArchives';
+import { AreaBroadband } from './AreaBroadband';
 import { buildColumns, buildIndex, defaultChildType, locationPathText, pathRows, type ArchiveRow, type AssetRow, type LocRow } from './locationColumns';
 import { useResourceCan } from './useResourceCan';
 
@@ -207,6 +208,7 @@ export function LocationBoard() {
             })}
           </div>
         )}
+        {areaId > 0 && <AreaBroadband areaIds={idx.subtree(areaId)} version={version} />}
       </section>
 
       <section className="lb-panel" aria-label="固定资产储物空间" ref={storageRef}>

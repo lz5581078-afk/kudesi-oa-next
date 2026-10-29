@@ -156,6 +156,10 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(type==='license-borrows'&&!data.borrowerUserId)data.borrowerName='未登记（旧数据无借用人）';
           if(type==='bank-store-links'&&!data.purpose)data.purpose='店铺收款';
           if(type==='phones'){data.feeCycle=({'30':'monthly','90':'quarterly','365':'yearly'})[row.fee_cycle]||row.fee_cycle;data.forwardApp=row.has_forwarding_app===1?'yes':'no';}
+          // 充值周期(天)：旧库 recharge_cycle 是 '30'/'90'/'365' 天数文字或 monthly/quarterly/yearly；新字段是天数。不认识的不猜，记入待核对
+          if(type==='phones'&&data.rechargeCycleDays===undefined&&row.recharge_cycle!==undefined&&row.recharge_cycle!==null&&row.recharge_cycle!==''){const days=/^\d+$/.test(String(row.recharge_cycle))?Number(row.recharge_cycle):({monthly:30,quarterly:90,yearly:365})[String(row.recharge_cycle)];if(days>=1&&days<=3650)data.rechargeCycleDays=days;else notices.push('旧充值周期“'+row.recharge_cycle+'”不是天数，未迁入，待核对');}
+          // 宽带使用区域：旧宽带只有位置文字时，文字与唯一一个区域位置同名才自动对上，否则文字保留在“位置说明”，不猜
+          if(type==='broadband'&&!data.locationId&&data.locationNote){const hits=(tables.company_locations||[]).filter(x=>String(x.name).trim()===String(data.locationNote).trim()&&x.location_scope!=='archive');if(hits.length===1){data.locationId=ref('locations',hits[0].id);delete data.locationNote;}}
           if(type==='stores'){if([false,0,'0','no','未连接'].includes(row.jushuitan_connected))data.jushuitan='not_connected';if([true,1,'1','yes','已连接'].includes(row.jushuitan_connected))data.jushuitan='connected';}
           if(type==='stores'){
             // 绑定手机号：旧库是 手机号.store_id + 有效的“手机号-店铺”关联（一店可多号）。新系统由店铺的手机号档案字段承载：第一个进“手机号档案”，其余进“更多绑定手机号”，号码文本由保存规则按档案带出

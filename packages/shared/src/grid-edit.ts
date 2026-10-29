@@ -298,6 +298,8 @@ export interface GridSaveRequest {
   creates?: GridCreateRow[];
   /** 待删除行：沿用归档语义（要原因，可恢复），没有归档配置的资料不支持 */
   archives?: GridArchiveRow[];
+  /** 操作记录里的来源说明（如“费用模块”），缺省“表格编辑” */
+  note?: string;
 }
 
 export type GridFailCode = 'invalid' | 'conflict' | 'forbidden' | 'not_found' | 'error';

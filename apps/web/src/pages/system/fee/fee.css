@@ -1,0 +1,152 @@
+/* 费用模块（通信费用台账）：沿用资料页的主题变量，只增加台账自己的版式 */
+.fee-page { gap: 10px; }
+.fee-page > .notice { margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fee-x { border: 0; background: transparent; font-size: 18px; line-height: 1; color: inherit; cursor: pointer; }
+
+/* 顶部汇总：一行，每格可点 */
+.fee-sum { flex: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 8px; }
+.fee-sum-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; padding: 8px 12px 9px; text-align: left; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); cursor: pointer; }
+.fee-sum-cell:hover { border-color: var(--border-strong); background: var(--hover-bg, var(--bg)); }
+.fee-sum-cell.on { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.fee-sum-label { font-size: 12px; color: var(--muted); }
+.fee-sum-value { font-size: 20px; line-height: 1.25; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.fee-sum-sub { font-size: 11.5px; color: var(--muted); max-width: 100%; line-height: 1.35; }
+.fee-sum-cell.warn .fee-sum-value { color: var(--warn-ink); }
+.fee-sum-cell.bad .fee-sum-value { color: var(--bad-ink); }
+
+.fee-main-card { flex: 1 1 auto; min-height: 320px; }
+.fee-tabrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 8px; border-bottom: 1px solid var(--border); }
+.fee-tabrow .res-tabs { padding: 4px 12px 0; border-bottom: 0; }
+.fee-tabs .res-tab.on { color: var(--accent-ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.fee-bar select { height: 30px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface); color: var(--ink); font-size: 13px; padding: 0 8px; max-width: 220px; }
+.fee-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.fee-chip { height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--muted); font-size: 12.5px; cursor: pointer; }
+.fee-chip:hover { color: var(--ink); border-color: var(--border-strong); }
+.fee-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.fee-all { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.fee-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; background: var(--accent-soft); border-bottom: 1px solid var(--border); font-size: 13px; }
+.fee-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+.fee-foot .row-actions { margin: 0; }
+
+/* 表格 */
+.fee-scroll { border-top: 0; }
+.fee-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.fee-table th { position: sticky; top: 0; z-index: 3; height: 32px; padding: 0 10px; background: var(--head-bg, var(--bg)); border-bottom: 1px solid var(--border-strong); color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; white-space: nowrap; }
+.fee-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface); vertical-align: middle; }
+.fee-table tbody tr:hover td { background: var(--hover-bg, var(--bg)); }
+.fee-sort { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.fee-sort:hover { color: var(--ink); }
+.c-check { width: 34px; padding-right: 0 !important; }
+.c-num { white-space: nowrap; }
+.c-plan { min-width: 130px; }
+.c-ops { text-align: right; white-space: nowrap; }
+.c-area { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fee-num { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--accent-ink); text-decoration: none; letter-spacing: .01em; }
+.fee-num:hover { text-decoration: underline; }
+.fee-money { display: inline-flex; flex-direction: column; line-height: 1.25; }
+.fee-money b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.fee-money em { font-style: normal; font-size: 11.5px; color: var(--muted); }
+.fee-due { display: inline-flex; align-items: baseline; gap: 6px; }
+.fee-date { font-variant-numeric: tabular-nums; }
+.fee-kind { font-style: normal; font-size: 11px; color: var(--muted); margin-left: 4px; }
+.fee-actions { display: inline-flex; gap: 6px; }
+.fee-empty { text-align: center; color: var(--muted); padding: 28px 12px !important; }
+
+/* 状态小标：颜色之外都带文字 */
+.fee-flag { display: inline-block; padding: 0 7px; border-radius: 10px; font-size: 12px; line-height: 20px; white-space: nowrap; }
+.fee-flag.bad { background: var(--bad-bg); color: var(--bad-ink); }
+.fee-flag.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.fee-flag.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.fee-flag.muted { color: var(--muted); padding: 0; }
+.fee-tag { display: inline-block; margin-left: 8px; padding: 0 6px; border-radius: 4px; font-size: 11.5px; line-height: 18px; font-weight: 500; text-decoration: none; }
+.fee-tag.main { background: var(--accent); color: #fff; }
+.fee-tag.sub { background: var(--bg); color: var(--muted); border: 1px solid var(--border-strong); }
+.fee-tag.bb { background: var(--accent-soft); color: var(--accent-ink); }
+
+/* 按主卡：主卡一行，子卡缩进并在左侧拉一条线，表示“这一家” */
+.fee-family .fee-main td { background: var(--surface); border-bottom-color: transparent; padding-top: 9px; }
+.fee-family .fee-main .c-num { font-size: 14px; }
+.fee-fold td { padding-top: 0; padding-bottom: 7px; font-size: 12.5px; }
+.fee-fold-btn { display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 2px 4px 2px 0; background: transparent; color: var(--accent-ink); font: inherit; cursor: pointer; }
+.fee-fold-btn em { font-style: normal; color: var(--muted); }
+.fee-sub td { background: var(--bg); }
+.fee-sub td.c-num { position: relative; padding-left: 28px; }
+.fee-sub td.c-num::before { content: ''; position: absolute; left: 17px; top: 0; bottom: 0; border-left: 2px solid var(--border-strong); }
+.fee-family.open .fee-fold td { border-bottom-color: transparent; }
+.fee-subtotal td { background: var(--bg); font-size: 12.5px; color: var(--muted); }
+.fee-subtotal b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.fee-subtotal .fee-flag { margin-left: 8px; }
+.fee-flat.overdue td:first-child { box-shadow: inset 3px 0 0 var(--bad-ink); }
+.fee-flat.unbound td:first-child { box-shadow: inset 3px 0 0 var(--bad-ink); }
+
+/* 孤立子卡 */
+.fee-orphans { margin: 12px; padding: 10px 14px; border: 1px solid var(--bad-ink); border-radius: var(--radius-sm); background: var(--bad-bg); color: var(--ink); }
+.fee-orphans h3 { margin: 0 0 2px; font-size: 14px; color: var(--bad-ink); }
+.fee-orphans p { margin: 0 0 8px; font-size: 12.5px; color: var(--muted); }
+.fee-orphans ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fee-orphans li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 6px; background: var(--surface); }
+.fee-orphan-bind { display: inline-flex; align-items: center; gap: 6px; }
+.fee-orphan-bind .fee-pick input { width: 240px; height: 30px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: #fff; font-size: 13px; }
+
+/* 修改弹窗 */
+.fee-form { display: flex; flex-direction: column; gap: 10px; }
+.fee-field { display: flex; flex-direction: column; gap: 4px; }
+.fee-field.off > :not(label) { opacity: .45; }
+.fee-field input:not([type="checkbox"]), .fee-field select { height: 34px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink); font: inherit; }
+.fee-field-label { font-size: 12.5px; color: var(--muted); }
+.fee-hint { margin: 0; font-size: 12.5px; }
+.fee-preview { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; }
+.fee-preview li { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.fee-preview li span { color: var(--muted); }
+
+/* 手机：汇总改成一行可横滑；筛选条换行；表格变成一张张卡片（号码一行、套餐费用一行、充值情况一行、操作一行） */
+@media (max-width: 720px) {
+  .fee-page { gap: 8px; }
+  .fee-sum { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 138px; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 2px; scrollbar-width: none; }
+  .fee-sum::-webkit-scrollbar { display: none; }
+  .fee-sum-cell { scroll-snap-align: start; padding: 7px 10px 8px; }
+  .fee-sum-value { font-size: 17px; }
+  .fee-sum-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fee-main-card { min-height: 0; }
+  .fee-bar.res-bar { gap: 6px; padding: 8px; flex-wrap: wrap; }
+  .fee-bar .res-search { flex: 1 1 100%; max-width: none; min-width: 0; }
+  .fee-chips { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .fee-chips::-webkit-scrollbar { display: none; }
+  .fee-chip { flex: none; }
+  .fee-bar select { flex: 1 1 30%; max-width: none; min-width: 0; }
+  .fee-all-t { display: none; }
+  .res-bar-gap { display: none; }
+  .fee-foot { flex-direction: column; align-items: flex-start; }
+
+  .fee-table, .fee-table tbody { display: block; }
+  .fee-table thead { display: none; }
+  .fee-table tbody tr.fee-main, .fee-table tbody tr.fee-sub, .fee-table tbody tr.fee-flat {
+    display: grid; grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr); column-gap: 8px; row-gap: 3px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .fee-table tbody tr.fee-sub { background: var(--bg); padding-left: 24px; }
+  .fee-table td { display: block; padding: 0; border: 0; background: transparent !important; height: auto; min-width: 0; }
+  .fee-table td.c-check { grid-column: 1; grid-row: 1; width: auto; }
+  .fee-table td.c-num { grid-column: 2 / 4; grid-row: 1; white-space: normal; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
+  .fee-sub td.c-num { padding-left: 0; } .fee-sub td.c-num::before { display: none; }
+  .fee-table td:nth-child(3) { grid-column: 2 / 4; grid-row: 2; }
+  .fee-table td:nth-child(4) { grid-column: 2; grid-row: 3; }
+  .fee-table td:nth-child(5) { grid-column: 3; grid-row: 3; text-align: right; }
+  .fee-table td:nth-child(6) { grid-column: 2; grid-row: 4; color: var(--muted); font-size: 12.5px; }
+  .fee-table td:nth-child(7) { grid-column: 3; grid-row: 4; text-align: right; }
+  .fee-table td:nth-child(8) { grid-column: 2 / 4; grid-row: 5; font-size: 12.5px; }
+  .fee-table td.c-ops { grid-column: 2 / 4; grid-row: 6; text-align: left; margin-top: 4px; }
+  .fee-table td.c-ops .res-btn { height: 32px; }
+  /* 宽带卡片：账号 / 区域 / 带宽·周期 / 金额·到期 / 绑定手机号 / 操作 */
+  .fee-t-bb tbody tr.fee-flat td:nth-child(4) { grid-column: 2; grid-row: 3; }
+  .fee-t-bb tbody tr.fee-flat td:nth-child(5) { grid-column: 3; grid-row: 3; text-align: right; }
+  .fee-t-bb tbody tr.fee-flat td:nth-child(6) { grid-column: 2; grid-row: 4; color: inherit; font-size: inherit; }
+  .fee-t-bb tbody tr.fee-flat td:nth-child(7) { grid-column: 3; grid-row: 4; text-align: right; }
+  .fee-t-bb tbody tr.fee-flat td:nth-child(8) { grid-column: 2 / 4; grid-row: 5; font-size: inherit; }
+  .fee-family .fee-main { border-bottom-color: transparent; }
+  .fee-table tbody tr.fee-fold, .fee-table tbody tr.fee-subtotal { display: block; padding: 0 12px 8px 54px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .fee-table tbody tr.fee-fold td, .fee-table tbody tr.fee-subtotal td { display: block; }
+  .fee-table tbody tr.fee-fold td:first-child, .fee-table tbody tr.fee-subtotal td:first-child { display: none; }
+  .fee-table tr.fee-fold td, .fee-table tr.fee-subtotal td { grid-column: auto; grid-row: auto; text-align: left; }
+  .fee-table tr:not(.fee-main):not(.fee-sub):not(.fee-flat) td[colspan] { padding: 0; }
+  .fee-empty { padding: 24px 12px !important; }
+}

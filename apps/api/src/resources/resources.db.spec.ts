@@ -155,7 +155,8 @@ d('资料引擎（真实数据库）', () => {
     await expect(svc.update(other, 'wechat', mine.id, { name: 'x' })).rejects.toThrow(/不存在/);
     expect((await svc.list(other, 'wechat', {})).total).toBe(0);
     await svc.create(other, 'wechat', { name: '微信B', wechatNo: 'wx_iso_1' }); // 不同公司可同号
-    await expect(svc.create(other, 'broadband', { account: 'bb1', locationId: mine.id })).rejects.toThrow(/引用的记录不存在/);
+    const theirPhone = await svc.create(other, 'phones', { number: '13600000077', usageType: 'company_kept' });
+    await expect(svc.create(other, 'broadband', { account: 'bb1', phoneId: theirPhone.id, locationId: mine.id })).rejects.toThrow(/引用的记录不存在/);
   });
 
   it('手机号：规范化去重，计算下次充值日，子卡不能指向自己', async () => {

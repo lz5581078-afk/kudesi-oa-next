@@ -33,6 +33,7 @@ import { CloseIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
 import { useIsMobile } from './useMedia';
 import { displayValue } from './format';
+import { groupNote } from './groupNote';
 import { groupRowsByDept, groupRowsByValue, type DeptRef, type RowGroup } from './groupRows';
 
 const PAGE_SIZES = [20, 50, 100, 200] as const;
@@ -181,6 +182,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const tabField = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
 
   // 切换资料类型时重置筛选
+  const resetType = useRef<string | null>(null);
   useEffect(() => {
     setKeyword('');
     setTab(lockedTab ?? '');
@@ -189,7 +191,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     setPageSize(n && (PAGE_SIZES as readonly number[]).includes(n) ? n : 20);
     setShowHidden(false);
     setPage(1);
-    setSelected(null);
+    // 同一资料内 lockedTab 变化不关掉刚由 ?open 打开的详情
+    if (resetType.current !== type) setSelected(null);
+    resetType.current = type;
     setData(null);
   }, [type, lockedTab]);
 
@@ -252,7 +256,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const groupField = groupCfg ? def.fields.find((f) => f.key === groupCfg.field) : undefined;
   const [chip, setChip] = useState('');
   useEffect(() => setChip(''), [type, tab, status]);
-  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(data.items, groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts, groupCfg.thenBy)) : undefined), [grouping, data, groupCfg, groupField, groupDepts]);
+  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(data.items, groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts, groupCfg.thenBy)).map((g) => ({ ...g, note: groupNote(type, g.rows) })) : undefined), [grouping, data, groupCfg, groupField, groupDepts, type]);
   const rowGroups = useMemo<RowGroup[] | undefined>(() => (allGroups && chip ? allGroups.filter((g) => g.key === chip) : allGroups), [allGroups, chip]);
   const setGroupMode = (on: boolean) => { setGroupOn(on); setPage(1); try { localStorage.setItem(`kudesi.group.${type}`, on ? 'group' : 'flat'); } catch { /* 存储不可用时只是不记住 */ } };
   const toggleGroup = (key: string) => setFoldedGroups((cur) => { const n = new Set(cur); if (n.has(key)) n.delete(key); else n.add(key); try { localStorage.setItem(`kudesi.folded.${type}`, JSON.stringify([...n])); } catch { /* 忽略 */ } return n; });
