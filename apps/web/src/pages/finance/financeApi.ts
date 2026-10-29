@@ -10,13 +10,15 @@ export interface DocLineView extends DocLineInput { id: number; productName: str
 export interface DocDetailDto {
   id: number; docNo: string; docType: DocType; typeLabel: string; status: DocRow['status']; docDate: string; partyId: number | null; partyName: string;
   storeId: number | null; storeName: string; refNo: string | null; bankAccountId: number | null; bankName: string; toBankAccountId: number | null; toBankName: string; warehouseId: number | null; warehouseName: string;
-  amountCents: number; offsetCents: number; paidCents: number; partyKind: 'customer' | 'store' | 'supplier' | 'employee' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
+  amountCents: number; offsetCents: number; paidCents: number; discountCents?: number; partyKind: 'customer' | 'store' | 'supplier' | 'employee' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
   sourceKey?: string | null; openingVouchers?: FileInfo[];
   settleBy?: 'doc' | 'product' | null; settleByLabel?: string | null;
   settlements?: Array<{ id: number; sourceDocId: number; sourceDocNo: string; sourceTypeLabel: string; productId: number | null; productName: string; amountCents: number }>;
   settledBy?: Array<{ id: number; docNo: string; docType: string; status: string; amountCents: number }>;
   accounts: Array<{ id: number; role: 'out' | 'in'; bankAccountId: number; amountCents: number; bankName: string }>; lines: DocLineView[]; entries: DocEntry[]; events: Array<{ id: number; action: string; note: string | null; actorName: string; createdAt: string }>;
 }
+export interface PartyBalance { partyId: number; partyKind: string; name: string; receivableCents: number; payableCents: number; advanceReceiptCents: number; prepaymentCents: number; creditLimitCents: number | null; overLimit: boolean }
+export interface LineHint { productId: number; stockQty: number; lastPurchaseCents?: number | null; lastPurchaseDocNo?: string | null; lastPurchaseDate?: string | null; lastSaleCents?: number | null; lastSaleDocNo?: string | null; lastSaleDate?: string | null }
 export type DocBody = DocInput & { memo?: string };
 
 export interface CostLine { role: string; code: string; name: string; qty: number; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
@@ -120,6 +122,8 @@ export const financeApi = {
   ledger: (id: number, p: { from?: string; to?: string } = {}) => api<Ledger>(`/finance/bank-ledger/${id}${qs(p)}`),
   inventory: (p: { warehouseId?: number; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
   inventoryLedger: (p: { productId: number; warehouseId: number; asOf?: string }) => api<StockLedger>(`/finance/inventory-ledger${qs(p)}`),
+  partyBalance: (p: { partyKind: string; partyId: number }) => api<PartyBalance>(`/finance/party-balance${qs(p)}`),
+  lineHints: (productIds: number[], warehouseId?: number) => api<LineHint[]>(`/finance/line-hints${qs({ productIds: productIds.join(','), warehouseId })}`),
   syncEmployees: () => api<{ created: number }>('/finance/employee-parties/sync', { method: 'POST', body: {} }),
   openItems: (p: { dir: 'in' | 'out'; partyKind: string; partyId: number }) => api<OpenItem[]>(`/finance/open-items${qs(p)}`),
   settlementDetail: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<SettlementRow[]>(`/finance/settlement-detail${qs(p)}`),
