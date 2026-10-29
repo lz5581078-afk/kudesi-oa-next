@@ -20,7 +20,7 @@ const tables: Record<string, Array<Record<string, unknown>>> = {
   finance_shipping_material_units: [],
   finance_products: [
     { id: 'raw-1', company_id: 7, archive_key: 'raw', category_id: 1, product_code: 'YL-SG-1', product_name: '苹果', brand: '', amount: '1', unit: '千克', status: 'normal', payload_json: payload({ giftShortName: '苹', giftCodeShortName: 'pg', materialCode: 'SC001', purchaseSpecification: '千克', freightAmount: '1.5', handlingAmount: '0.5', purchasePrice: '8.5' }) },
-    { id: 'pkg-1', company_id: 7, archive_key: 'package', category_id: 2, product_code: 'BZ-DL-1', product_name: '蛇皮袋', brand: '', amount: '1', unit: '千克', status: 'normal', payload_json: payload({ packagingCategory: '蛇皮袋', dimensionUnit: '厘米', dimensions: '20×15', capacities: ['500ML'] }) },
+    { id: 'pkg-1', company_id: 7, archive_key: 'package', category_id: 2, product_code: 'BZ-DL-1', product_name: '蛇皮袋', brand: '', amount: '1', unit: '千克', weighing_weight: '14', status: 'normal', payload_json: payload({ packagingCategory: '蛇皮袋', dimensionUnit: '厘米', dimensions: '20×15', capacities: ['500ML'], weightUnit: 'g' }) },
   ],
   finance_product_archive_costs: [
     { id: 1, company_id: 7, product_id: 'raw-1', cost_type: 'transport', unit_cost: '0.1234', unit_name: '千克', effective_from: '2026-01-01', effective_to: null, source_type: '本季成本表', manual_override: 0, status: 'active', remark: '调运' },
@@ -65,6 +65,13 @@ exports.createConnection=async()=>({
 afterAll(() => { delete process.env.LEGACY_APP_DIR; fs.rmSync(appDir, { recursive: true, force: true }); });
 
 describe('迁移适配器：商品档案（假旧库）', () => {
+  it('包装类重量按“重量输入单位”换算（14 克不是 14 千克），并带上重量输入单位', async () => {
+    const o = await adapter.read({ sourceCompanyId: 7, definitions: RESOURCE_DEFS, parseWeightScope: () => null });
+    const pkg = o.records.find((r: { type: string; id: string }) => r.type === 'finance-products' && r.id === 'pkg-1');
+    expect(pkg.data.weightG).toBe(14);
+    expect(pkg.data.weightUnit).toBe('g');
+  });
+
   let out: { records: Array<{ type: string; id: string; data: Record<string, unknown>; status: string; notices?: string[] }>; exclusions: Array<{ type: string; id: string; reason: string }> };
   const of = (type: string) => out.records.filter((r) => r.type === type);
   beforeAll(async () => { out = await adapter.read({ sourceCompanyId: 7, definitions: RESOURCE_DEFS, parseWeightScope: () => null }); });

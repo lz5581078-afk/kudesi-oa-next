@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { archivePolicyOf, type ResourceDef } from '@kudesi/shared';
+import { archivePolicyOf, COPY_OMIT_FIELDS, type ResourceDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
 import { resourceApi, type ResourceDto } from './api';
 import { ReasonDialog, clearRefCache } from './RecordForm';
@@ -8,7 +8,7 @@ import { ReasonDialog, clearRefCache } from './RecordForm';
 export function copyValuesOf(def: ResourceDef, data: Record<string, unknown>): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const f of def.fields) {
-    if (f.readonly || f.type === 'files' || f.type === 'secret' || f.type === 'sensitive' || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key)) continue;
+    if (f.readonly || f.type === 'files' || f.type === 'secret' || f.type === 'sensitive' || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key) || (def.key === 'finance-products' && COPY_OMIT_FIELDS.includes(f.key))) continue;
     const v = data[f.key];
     if (v !== undefined && v !== null && v !== '') values[f.key] = v;
   }
@@ -42,7 +42,7 @@ export function HierRowActions({ def, row, can, onOpen, onEdit, onCopy, onCost, 
     <span className="row-acts hier-acts" onClick={(e) => e.stopPropagation()}>
       <button type="button" className="row-act" aria-label={`查看：${row.title}`} onClick={act(() => onOpen(row.id))}>查看</button>
       {live && can('edit') && <button type="button" className="row-act" aria-label={`编辑：${row.title}`} onClick={act(() => onEdit(row))}>编辑</button>}
-      {live && can('create') && <button type="button" className="row-act" aria-label={`复制新增：${row.title}`} title="按这条的内容新增一条，编号、图片不带过去" onClick={act(() => onCopy(copyValuesOf(def, row.data)))}>复制新增</button>}
+      {live && can('create') && <button type="button" className="row-act" aria-label={`复制新增：${row.title}`} title="按这条的内容新增一条，编号、图片不带过去" onClick={act(() => onCopy({ ...copyValuesOf(def, row.data), ...(def.key === 'finance-products' ? { __copyOf: row.id } : {}) }))}>复制新增</button>}
       {onCost && <button type="button" className="row-act" aria-label={`成本明细：${row.title}`} onClick={act(() => onCost(row.id))}>成本明细</button>}
       {live && can('disable') && off && on && (
         <button type="button" className="row-act" aria-label={`${stopped ? '启用' : '停用'}：${row.title}`} onClick={act(() => setAsking(stopped ? 'on' : 'off'))}>{stopped ? '启用' : '停用'}</button>

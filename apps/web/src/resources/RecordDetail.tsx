@@ -1,6 +1,7 @@
+import { copyValuesOf } from './HierRowActions';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUnitOptions } from './unitOptions';
-import { RESOURCE_DEFS, groupTitle, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
+import { RESOURCE_DEFS, resolveProductSections, groupTitle, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
 import { useAuth } from '../auth/AuthContext';
@@ -266,7 +267,15 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   }
 
   const groups = new Map<string, typeof def.fields[number][]>();
-  for (const f of def.fields) {
+  if (def.key === 'finance-products') {
+    // 商品档案：详情的分区、顺序、叫法和新增/编辑表单读同一份布局（product-layout）
+    const canUse = (p: string) => Boolean(me && createChecker(me.permissions)(p));
+    for (const sec of resolveProductSections(record.data, { canUse })) {
+      const fields = sec.nodes.flatMap((n) => (n.kind === 'field' ? [n.field] : n.block === 'costSummary' ? [] : n.fields)).filter((f) => !f.listOnly);
+      if (fields.length) groups.set(sec.title, fields);
+    }
+  }
+  for (const f of def.key === 'finance-products' ? [] : def.fields) {
     if (f.permission && !(me && createChecker(me.permissions)(f.permission))) continue;
     if (f.listOnly) continue;
     if (f.showWhen && !f.showWhen.in.includes(String(f.showWhen.field === 'status' ? record.status : (record.data[f.showWhen.field] ?? '')))) continue;
@@ -318,12 +327,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   if (record.archived && can('delete')) moreItems.push({ key: 'restore', label: '恢复…', run: () => setRestoring(true) });
   if (live && onCopy && can('create')) {
     moreItems.push({ key: 'copy', label: '复制新建', title: '按这条的内容新建一条，编码、图片不带过去', run: () => {
-      const values: Record<string, unknown> = {};
-      for (const f of def.fields) {
-        if (f.readonly || f.type === 'files' || f.type === 'secret' || f.type === 'sensitive' || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key)) continue;
-        const v = record.data[f.key];
-        if (v !== undefined && v !== null && v !== '') values[f.key] = v;
-      }
+      const values = { ...copyValuesOf(def, record.data), ...(def.key === 'finance-products' ? { __copyOf: record.id } : {}) };
       onCopy(values);
     } });
   }

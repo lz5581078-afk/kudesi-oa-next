@@ -1616,3 +1616,34 @@ div.ws-task { cursor: default; }
 .starter-scope-row { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .file-links a { word-break: break-all; }
 @media (max-width: 720px) { .batch-bar > button { flex: 1 1 auto; } .starter-scope .form-grid { grid-template-columns: 1fr; } }
+
+/* 商品档案表单：按布局分区（步骤号、分区说明）、功能块（来源行、构成行、重量） */
+.rf-step { font-style: normal; font-weight: 700; color: var(--accent, #0f766e); margin-right: 8px; font-variant-numeric: tabular-nums; }
+.rf-sec-hint { margin: -4px 0 10px; font-size: 12px; line-height: 1.5; }
+.rf-rows { display: grid; gap: 10px; }
+.rf-rowgroup { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; display: flex !important; flex-direction: column; align-items: stretch; gap: 8px; }
+.rf-rowgroup > button { align-self: flex-start; }
+.rf-rowgroup legend { font-weight: 700; font-size: 13px; padding: 0 6px; }
+.rf-rows .data-table input, .rf-rows .data-table select { width: 100%; min-width: 0; }
+.rf-rows .ref-search { margin-bottom: 4px; }
+.rf-weight { display: grid; gap: 6px; }
+.rf-weight-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rf-weight-row input { width: 160px; }
+.rf-weight-row select { width: 110px; }
+.rf-check { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rf-check input[type="checkbox"] { width: 16px; height: 16px; margin: 0; flex: none; }
+.rf-block { display: grid; gap: 6px; }
+@media (max-width: 640px) {
+  .rf-weight-row input, .rf-weight-row select { width: 100%; }
+  .rf-rowgroup { padding: 8px; }
+}
+
+.rf-weight .rf-check { display: flex !important; flex-direction: row !important; align-items: center; justify-content: flex-start; text-align: left; }
+@media (max-width: 640px) {
+  .rf-foot { flex-wrap: wrap; gap: 6px; }
+  .rf-foot > button { flex: 1 1 calc(50% - 6px); white-space: normal; min-height: 38px; }
+  .rf-foot > .primary-button { flex-basis: 100%; }
+  .rf-foot .dirty-hint { flex-basis: 100%; }
+}
+.rf-rows td .ref-search, .rf-rows td select { display: block; width: 100%; max-width: none; box-sizing: border-box; }
+.rf-rows td .ref-search + select { margin-top: 4px; }
