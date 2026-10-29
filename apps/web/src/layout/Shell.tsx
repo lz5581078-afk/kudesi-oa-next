@@ -72,7 +72,6 @@ export function Shell() {
           sections={sections}
           sectionId={panelId}
           currentPath={location.pathname}
-          onSwitch={setPanelId}
           onPick={() => setPanelId(null)}
           onClose={() => setPanelId(null)}
         />

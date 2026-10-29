@@ -1,5 +1,6 @@
 import { ASSET_LOG_LABELS, type ResourceDef } from '@kudesi/shared';
 import type { LogEntry } from './api';
+import { categoryLabel } from './categoryOptions';
 
 export const ACTION_LABEL: Record<string, string> = {
   import: '导入', link: '绑定关联', unlink: '解除关联', link_update: '修改关联信息',
@@ -18,7 +19,7 @@ export function LogChanges({ def, log }: { def: ResourceDef; log: LogEntry }) {
     if (JSON.stringify(a ?? null) === JSON.stringify(b ?? null)) continue;
     if (!(f.key in log.before) && !(f.key in log.after)) continue;
     if (SKIP_DIFF_TYPES.has(f.type) || f.type === 'ref' || f.type === 'refs' || f.type === 'money') { rows.push({ label: f.label, from: '', to: null }); continue; }
-    const show = (v: unknown) => (v === undefined || v === null || v === '' ? '（空）' : f.type === 'select' ? (f.options?.find((o) => o.value === v)?.label ?? String(v)) : f.type === 'bool' ? (v ? '是' : '否') : String(v));
+    const show = (v: unknown) => (v === undefined || v === null || v === '' ? '（空）' : f.type === 'select' ? (categoryLabel(def.key, f.key, v) ?? f.options?.find((o) => o.value === v)?.label ?? String(v)) : f.type === 'bool' ? (v ? '是' : '否') : String(v));
     rows.push({ label: f.label, from: show(a), to: show(b) });
   }
   if (!rows.length) return null;

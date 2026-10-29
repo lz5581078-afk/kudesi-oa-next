@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fieldOptions, loadUnitOptions, useUnitOptions } from './unitOptions';
+import { selectChoices, useCategoryOptions } from './categoryOptions';
+import { CategoryManageDialog } from './CategoryManageDialog';
 import { BatchBar } from './BatchBar';
 import { rowActionsFor } from './RowActions';
-import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, browseFilterFields, permissionOwner, resourcePermission, viewFiltersOf, createChecker, gridPolicyOf, type ColFilter, type FieldDef } from '@kudesi/shared';
+import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, browseFilterFields, permissionOwner, resourcePermission, viewFiltersOf, createChecker, gridPolicyOf, SPECIAL_PERMISSIONS, type ColFilter, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -29,10 +31,11 @@ import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
 import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
 import { PageHint } from './PageHint';
 import { AddAccountDialog, UnfiledBanner } from './WorkforcePanels';
-import { CloseIcon, SearchGlyph } from './ResIcons';
+import { CloseIcon, GearIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
 import { useIsMobile } from './useMedia';
 import { displayValue } from './format';
+import { groupNote } from './groupNote';
 import { groupRowsByDept, groupRowsByValue, type DeptRef, type RowGroup } from './groupRows';
 
 const PAGE_SIZES = [20, 50, 100, 200] as const;
@@ -181,6 +184,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const tabField = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
 
   // 切换资料类型时重置筛选
+  const resetType = useRef<string | null>(null);
   useEffect(() => {
     setKeyword('');
     setTab(lockedTab ?? '');
@@ -189,7 +193,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     setPageSize(n && (PAGE_SIZES as readonly number[]).includes(n) ? n : 20);
     setShowHidden(false);
     setPage(1);
-    setSelected(null);
+    // 同一资料内 lockedTab 变化不关掉刚由 ?open 打开的详情
+    if (resetType.current !== type) setSelected(null);
+    resetType.current = type;
     setData(null);
   }, [type, lockedTab]);
 
@@ -252,7 +258,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const groupField = groupCfg ? def.fields.find((f) => f.key === groupCfg.field) : undefined;
   const [chip, setChip] = useState('');
   useEffect(() => setChip(''), [type, tab, status]);
-  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(data.items, groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts, groupCfg.thenBy)) : undefined), [grouping, data, groupCfg, groupField, groupDepts]);
+  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(data.items, groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts, groupCfg.thenBy)).map((g) => ({ ...g, note: groupNote(type, g.rows) })) : undefined), [grouping, data, groupCfg, groupField, groupDepts, type]);
   const rowGroups = useMemo<RowGroup[] | undefined>(() => (allGroups && chip ? allGroups.filter((g) => g.key === chip) : allGroups), [allGroups, chip]);
   const setGroupMode = (on: boolean) => { setGroupOn(on); setPage(1); try { localStorage.setItem(`kudesi.group.${type}`, on ? 'group' : 'flat'); } catch { /* 存储不可用时只是不记住 */ } };
   const toggleGroup = (key: string) => setFoldedGroups((cur) => { const n = new Set(cur); if (n.has(key)) n.delete(key); else n.add(key); try { localStorage.setItem(`kudesi.folded.${type}`, JSON.stringify([...n])); } catch { /* 忽略 */ } return n; });
@@ -295,6 +301,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const [packagingXlOpen, setPackagingXlOpen] = useState(false);
   const [costXlOpen, setCostXlOpen] = useState(false);
   const [archiveTypesOpen, setArchiveTypesOpen] = useState(false);
+  const catOptions = useCategoryOptions(type); // 页签分类：本公司的名称、顺序、自建、隐藏
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const canManageCategories = !!catOptions && can('view') && !!me && createChecker(me.permissions)(SPECIAL_PERMISSIONS.resourceCategoriesManage);
   const costCan = colCan;
   async function seedFees() {
     if (!window.confirm('把旧程序里的费用类别树和费用项目（约 380 项）导入进来？已经有的编号不会重复，也不会被覆盖。')) return;
@@ -372,7 +381,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const colValueLabel = (f: ColFilter) => (v: string) => {
     if (f.key === STATUS_COL) return def.statuses.find((x) => x.value === v)?.label ?? v;
     const field = def.fields.find((x) => x.key === f.key);
-    if (field?.type === 'select') return fieldOptions(field, {}, unitOpts).find((o) => o.value === v)?.label ?? v;
+    if (field?.type === 'select') return selectChoices(type, field, (x) => fieldOptions(x, {}, unitOpts), { mode: 'display' }).find((o) => o.value === v)?.label ?? v;
     return colSaved.labels[labelKey(f.key, v)] ?? v;
   };
   colFilters.forEach((f, i) => {
@@ -383,8 +392,11 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const hasFilterPop = true;
   const popCount = chips.filter((c) => !c.key.startsWith('browse:') && !c.key.startsWith('col:')).length;
   const tabList = (tabField || def.quickTabs?.length) && !lockedTab
-    ? [...resourceTabOptions(def), ...((def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || []), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)]
+    ? [...resourceTabOptions(def, catOptions?.filter((o) => !o.hidden)), ...((def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || []), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)]
     : [];
+  useEffect(() => { // 当前页签的分类被隐藏/删除后回到“全部”
+    if (tab && catOptions && !tab.startsWith('q:') && !def.tabSplit && !tabList.some((t) => t.value === tab)) setTab('');
+  }, [catOptions]); // eslint-disable-line react-hooks/exhaustive-deps
   const tabsOwnRow = tabList.length > 3 || isMobile; // 分类多的资料（商品档案等）页签单独一行，工具条仍是一行
   const desc = !lockedTab ? resourceDescription(type) : '';
   const hint = desc ? <PageHint text={desc} /> : null;
@@ -403,6 +415,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
           {o.label}{data?.tabCounts ? <i>{data.tabCounts[o.value] ?? 0}</i> : null}
         </button>
       ))}
+      {canManageCategories && (
+        <button type="button" className="res-tab-gear" aria-label="管理分类" title="管理分类：改名、排序、隐藏、新增" onClick={() => setCategoriesOpen(true)}><GearIcon /></button>
+      )}
     </div>
   );
 
@@ -619,6 +634,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
       {gridOn && <RouterLeaveBlocker when={gridDirty} onBlocked={setLeave} />}
       {leave && <LeaveDialog changes={leaveCounts.changes} errors={leaveCounts.errors} busy={leaveBusy} onSave={() => void leaveSave()} onDiscard={leaveDiscard} onStay={leaveStay} />}
+      {categoriesOpen && <CategoryManageDialog type={type} def={def} onClose={() => setCategoriesOpen(false)} onChanged={() => void load()} />}
       {archiveTypesOpen && <ArchiveTypeDialog counts={data?.tabCounts} onClose={() => setArchiveTypesOpen(false)} onChanged={() => void load()} />}
       {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}

@@ -1,3 +1,4 @@
+import { categoryLabelMap } from './category-options';
 import { EntityManager, SelectQueryBuilder } from 'typeorm';
 import { addDaysText, getResourceDef, phoneStoreImportColumns, viewFiltersOf, PHONE_RECHARGE_DAYS, MEMO_DUE_DAYS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -113,6 +114,7 @@ export async function derivePhoneFields(em: EntityManager, companyId: number, re
   const out = new Map<number, Record<string, unknown>>();
   if (!records.length) return out;
   const platformLabel = new Map((getResourceDef('stores')?.fields.find((f) => f.key === 'platform')?.options ?? []).map((o) => [o.value, o.label]));
+  const storePlatformNames = await categoryLabelMap(em, companyId, 'stores', getResourceDef('stores')!); // 本公司的平台名称（改名、自建平台）
   const stores = await em.find(ResourceRecord, { where: { companyId, type: 'stores' }, select: ['id', 'title', 'data', 'archivedAt'] });
   const byPhone = new Map<number, ResourceRecord[]>();
   for (const s of stores) {
@@ -121,7 +123,7 @@ export async function derivePhoneFields(em: EntityManager, companyId: number, re
   }
   // 自媒体账号、微信号档案里绑了这个手机号的（按手机号档案 id 或号码文本）
   const [medias, wechats] = await Promise.all(['self-media', 'wechat'].map((type) => em.find(ResourceRecord, { where: { companyId, type }, select: ['id', 'title', 'data', 'archivedAt'] })));
-  const mediaPlatform = new Map((getResourceDef('self-media')?.fields.find((f) => f.key === 'platform')?.options ?? []).map((o) => [o.value, o.label]));
+  const mediaPlatform = await categoryLabelMap(em, companyId, 'self-media', getResourceDef('self-media')!);
   const accountsOf = (phone: ResourceRecord): string => {
     const hit = (x: ResourceRecord) => !x.archivedAt && (Number(x.data.phoneId) === phone.id || (!x.data.phoneId && x.data.phoneNumber && String(x.data.phoneNumber) === String(phone.data.number)));
     const m = medias.filter(hit).map((x) => `${mediaPlatform.get(String(x.data.platform)) ?? ''}·${x.title}`);
@@ -137,7 +139,7 @@ export async function derivePhoneFields(em: EntityManager, companyId: number, re
     }
     out.set(r.id, {
       cardKind: parent ? `子卡（主卡 ${parentLabels(r) ?? ''}）`.replace('（主卡 ）', '') : '主卡',
-      boundStores: list.map((s) => `${platformLabel.get(String(s.data.platform)) ?? ''}·${s.title}`).join('、') || undefined,
+      boundStores: list.map((s) => `${storePlatformNames.get(String(s.data.platform)) ?? platformLabel.get(String(s.data.platform)) ?? ''}·${s.title}`).join('、') || undefined,
       boundStoreNos: list.map((s) => String(s.data.storeNo ?? s.data.platformStoreId ?? '')).filter(Boolean).join('、') || undefined,
       boundAccounts: accountsOf(r) || undefined,
       ...perPlatform,

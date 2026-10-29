@@ -85,6 +85,7 @@ export function permissionCatalog(): CatalogGroup[] {
       { key: SPECIAL_PERMISSIONS.productPriceView, label: '查看商品价格' },
     ],
   });
+  groups.push({ id: 'resource-categories', label: '资料 · 页签分类', items: [{ key: SPECIAL_PERMISSIONS.resourceCategoriesManage, label: '管理分类：改名、排序、隐藏、新增自建分类、删除（需同时有该资料的查看权限）' }] });
   groups.push({ id: 'resource-overview', label: '资料总览', items: [{ key: 'resource.overview.view', label: '查看「资料总览」' }] });
   // 财务：专门页面 + 单据操作
   groups.push({

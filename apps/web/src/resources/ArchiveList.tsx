@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { getResourceDef } from '@kudesi/shared';
 import { ArchiveStatusButtons } from './RowActions';
-import type { ArchiveRow } from './locationModel';
+import type { ArchiveRow } from './locationColumns';
 
 const def = getResourceDef('archives');
 const tone = (s: string) => def?.statuses.find((x) => x.value === s)?.tone ?? 'muted';

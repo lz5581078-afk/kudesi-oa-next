@@ -16,7 +16,7 @@ import {
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceDto, ResourcesService } from './resources.service';
 
-const NOTE = '表格编辑';
+const DEFAULT_NOTE = '表格编辑';
 
 function failure(e: unknown): { code: GridFailCode; message: string } {
   if (e instanceof ConflictException) {
@@ -59,6 +59,7 @@ export class GridSaveService {
     const canArchive = can(resourcePermission(owner, 'delete'));
     const canSecret = can(resourcePermission(owner, 'secret'));
     const results: GridRowResult<ResourceDto>[] = [];
+    const NOTE = body.note?.trim().slice(0, 40) || DEFAULT_NOTE;
 
     const run = async (r: GridRowResult<ResourceDto>, fn: () => Promise<number>) => {
       try {

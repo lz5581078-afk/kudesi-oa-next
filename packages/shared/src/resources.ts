@@ -1141,16 +1141,18 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     uniqueField: 'account',
     statuses: [NORMAL, { value: 'suspended', label: '停机', tone: 'warn', requiresReason: true }, CANCELLED],
     filterBy: ['locationId'],
+    // 默认按使用区域分组（组头显示这个区域的宽带数和月均费用）
+    listGroupBy: { field: 'locationId', emptyLabel: '未指定区域', order: 'value' },
     defaultStatus: 'normal',
     fields: [
       text('account', '宽带账号', '基础', { required: true, list: true, search: true }),
-      ref('locationId', '宽带位置', '基础', 'locations', { aliases: ['安装位置'], list: true }),
+      ref('locationId', '使用区域', '基础', 'locations', { aliases: ['宽带位置', '安装位置'], list: true, help: '这条宽带在哪个区域使用（办公楼/楼层/房间），费用模块和房间详情都按它显示' }),
       text('locationNote', '位置说明', '基础', { help: '位置档案里没有的地点可在这里写明' }),
       text('bandwidth', '宽带带宽', '基础', { aliases: ['带宽'], list: true }),
       select('cycle', '套餐周期', '费用', o('monthly:月付', 'yearly:年付'), { list: true }),
       money('amount', '套餐金额', '费用', { aliases: ['金额'], list: true }),
       date('expiresAt', '到期日', '费用', { list: true }),
-      ref('phoneId', '绑定手机号', '基础', 'phones', { list: true }),
+      ref('phoneId', '绑定手机号', '基础', 'phones', { list: true, help: '新建宽带必须绑定手机号（宽带费用要能追到是哪个号在用）' }),
       NOTE(),
     ],
     alerts: [{ field: 'expiresAt', withinDays: 30, label: '30 天内到期' }],
@@ -1285,6 +1287,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     tabsBy: 'scope',
     statuses: [NORMAL, INACTIVE],
     defaultStatus: 'normal',
+    // 该区域使用的宽带（反向关联，在详情“关联”里显示）
+    related: [{ type: 'broadband', field: 'locationId' }],
     fields: [
       text('name', '位置名称', '基础', { required: true, list: true, search: true }),
       select('scope', '位置板块', '基础', o('area:区域位置', 'asset_space:固定资产储物空间'), { required: true, list: true }),
@@ -1352,9 +1356,9 @@ export function getResourceDef(key: string): ResourceDef | undefined {
 }
 
 /** 列表上方的页签：tabsBy 字段的选项，其中被 tabSplit 拆开的那一项换成拆出的几个页签 */
-export function resourceTabOptions(def: ResourceDef): readonly Option[] {
+export function resourceTabOptions(def: ResourceDef, categoryOptions?: readonly Option[]): readonly Option[] {
   const field = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
-  const options = field?.options ?? [];
+  const options = categoryOptions ?? field?.options ?? []; // categoryOptions：本公司的页签分类（改名、排序、自建、隐藏后的有效选项）
   const split = def.tabSplit;
   if (!split) return options;
   return options.flatMap((o) => (o.value === split.tab ? split.options : [o]));

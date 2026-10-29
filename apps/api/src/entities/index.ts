@@ -1290,6 +1290,25 @@ export class SupervisionRuleRow {
   @Column({ name: 'updated_at', ...dt, default: () => 'CURRENT_TIMESTAMP' }) updatedAt!: Date;
 }
 
+/** 公司级资料分类选项：改名/排序（系统分类）、自建分类、隐藏。系统分类的行只在被改名或排序后才有。 */
+@Entity('resource_category_options')
+@Index('uq_resource_category', ['companyId', 'resourceType', 'fieldKey', 'value'], { unique: true })
+export class ResourceCategoryOption {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'resource_type', type: 'varchar', length: 64 }) resourceType!: string;
+  @Column({ name: 'field_key', type: 'varchar', length: 48 }) fieldKey!: string;
+  @Column({ type: 'varchar', length: 64 }) value!: string;
+  @Column({ type: 'varchar', length: 60 }) label!: string;
+  @Column({ name: 'sort_order', type: 'int', default: 0 }) sortOrder!: number;
+  @Column({ type: 'tinyint', width: 1, default: 0, transformer: boolTransformer() }) hidden!: boolean;
+  @Column({ type: 'tinyint', width: 1, default: 0, transformer: boolTransformer() }) custom!: boolean;
+  @Column({ name: 'created_by', type: 'int', unsigned: true, nullable: true }) createdBy!: number | null;
+  @Column({ name: 'created_at', ...dt, default: () => 'CURRENT_TIMESTAMP' }) createdAt!: Date;
+  @Column({ name: 'updated_by', type: 'int', unsigned: true, nullable: true }) updatedBy!: number | null;
+  @Column({ name: 'updated_at', ...dt, default: () => 'CURRENT_TIMESTAMP' }) updatedAt!: Date;
+}
+
 export const ALL_ENTITIES = [
   SessionDevice,
   SessionBindCode,
@@ -1346,5 +1365,5 @@ export const ALL_ENTITIES = [
   SupervisionException,
   SupervisionRuleRow,
   FlowTemplateRow,
-  FlowNodeTemplate,
+  FlowNodeTemplate,  ResourceCategoryOption,
 ];

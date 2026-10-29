@@ -40,6 +40,7 @@ import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapL
 import { applyCond, deriveColumns } from './def-conditions';
 import { deriveAccountFields, hasAccountDerive } from './account-derive';
 import { relationFieldLabel, relationSummary } from './relation-summary';
+import { categoryAllowedForSave, categoryFromText, categoryLabels, categoryOptionsFor } from './category-options';
 import { certImportMatch } from './entity-rules';
 import { optionsKindOf, parseColFilters, readTimeKeys, STATUS_COL, type ColFilter } from '@kudesi/shared';
 import { applyColFilters } from './col-filter.sql';
@@ -486,9 +487,12 @@ export class ResourcesService implements RuleHost {
     if (existingForValidation) {
       for (const f of def.fields) if (f.type === 'sensitive' && secrets[f.key]) existingForValidation[f.key] = true;
     }
-    const dynamicOptions = def.fields.some((f) => f.optionsFrom)
+    const unitOptions = def.fields.some((f) => f.optionsFrom)
       ? dynamicOptionsFor(def, await loadUnitLists(em, user.companyId), { ...(existing?.data ?? {}), ...input })
       : undefined;
+    // 页签分类：代码选项 + 本公司自建分类（按公司隔离）
+    const categoryOptions = await categoryAllowedForSave(em, user.companyId, def, input[def.tabsBy ?? '']);
+    const dynamicOptions = unitOptions || categoryOptions ? { ...unitOptions, ...categoryOptions } : undefined;
     const { values, errors } = validateResourceInput(def, input, { status, existing: existingForValidation, dynamicOptions });
     if (errors.length > 0) throw new BadRequestException(errors.join('；'));
 
@@ -1424,16 +1428,19 @@ export class ResourcesService implements RuleHost {
           .where('r.companyId = :c AND r.id IN (:...ids)', { c: user.companyId, ids: [...wantRecords] })
           .getMany()
       : [];
+    // 页签分类的本公司名称（自建分类、改名）：关联摘要里的分类也按本公司名称显示
+    const catByType = new Map<string, Awaited<ReturnType<typeof categoryLabels>>>();
+    for (const t of new Set(records.map((r) => r.type))) catByType.set(t, await categoryLabels(em, user.companyId, this.def(t)));
     for (const l of links) {
       if (l.sourceType === type && l.sourceId === id) {
         if (l.targetType === 'user') out.push({ direction: 'out', relation: l.relation, type: 'user', id: l.targetId, title: users.find((u) => u.id === l.targetId)?.name ?? `#${l.targetId}`, linkId: l.id, ...this.linkProps(l) });
         else {
           const r = records.find((x) => x.id === l.targetId && x.type === l.targetType);
-          if (r) out.push({ direction: 'out', relation: l.relation, relationLabel: relationFieldLabel(type, l.relation, 'out'), summary: relationSummary(r), type: r.type, id: r.id, title: r.title, linkId: l.id, ...this.linkProps(l) });
+          if (r) out.push({ direction: 'out', relation: l.relation, relationLabel: relationFieldLabel(type, l.relation, 'out'), summary: relationSummary(r, catByType.get(r.type)), type: r.type, id: r.id, title: r.title, linkId: l.id, ...this.linkProps(l) });
         }
       } else {
         const r = records.find((x) => x.id === l.sourceId && x.type === l.sourceType);
-        if (r) out.push({ direction: 'in', relation: l.relation, relationLabel: relationFieldLabel(r.type, l.relation, 'in'), summary: relationSummary(r), type: r.type, id: r.id, title: r.title, linkId: l.id, ...this.linkProps(l) });
+        if (r) out.push({ direction: 'in', relation: l.relation, relationLabel: relationFieldLabel(r.type, l.relation, 'in'), summary: relationSummary(r, catByType.get(r.type)), type: r.type, id: r.id, title: r.title, linkId: l.id, ...this.linkProps(l) });
       }
     }
     // 只给出调用者有权查看的资料类型，避免通过关联“窥探”无权限的资料
@@ -1631,10 +1638,11 @@ export class ResourcesService implements RuleHost {
     return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
   }
 
-  private displayValue(f: FieldDef, dto: ResourceDto, units?: UnitLists): string {
+  private displayValue(f: FieldDef, dto: ResourceDto, units?: UnitLists, cat?: { field: string; labels: Map<string, string> }): string {
     const v = dto.data[f.key];
     if (v === undefined || v === null) return '';
     if (f.type === 'select' && f.optionsFrom && units) return unitLabel(units, optionsKindOf(f, dto.data) ?? f.optionsFrom.kind, v);
+    if (f.type === 'select' && cat?.field === f.key && cat.labels.has(String(v))) return cat.labels.get(String(v))!;
     if (f.type === 'select') return f.options?.find((o) => o.value === v)?.label ?? String(v);
     if (f.type === 'money') return f.scale ? unitYuanText(Number(v)) : (Number(v) / 100).toFixed(2);
     if (f.type === 'bool') return v ? '是' : '否';
@@ -1655,6 +1663,7 @@ export class ResourcesService implements RuleHost {
       if (items.length >= res.total) break;
     }
     const units = fields.some((f) => f.optionsFrom) ? await loadUnitLists(this.dataSource.manager, user.companyId) : undefined;
+    const cat = await categoryLabels(this.dataSource.manager, user.companyId, def);
     // 列表当前显示的派生列（店铺数、本月营业额等）一并导出
     const extra = (def.derivedColumns ?? []).filter((d) => (scope.derivedKeys ?? []).includes(d.key));
     const header = ['状态', ...fields.map((f) => f.label), ...extra.map((d) => d.label)];
@@ -1662,7 +1671,7 @@ export class ResourcesService implements RuleHost {
     for (const dto of items) {
       const status = def.statuses.find((s) => s.value === dto.status)?.label ?? dto.status;
       const extraCells = extra.map((d) => { const n = Number(dto.data[d.key] ?? 0); return d.kind === 'sum' && d.format === 'money' ? (n / 100).toFixed(2) : String(n); });
-      lines.push([status, ...fields.map((f) => this.displayValue(f, dto, units)), ...extraCells].map((c) => this.csvCell(c)).join(','));
+      lines.push([status, ...fields.map((f) => this.displayValue(f, dto, units, cat)), ...extraCells].map((c) => this.csvCell(c)).join(','));
     }
     return { filename: `${def.label}.csv`, csv: `﻿${lines.join('\r\n')}`, count: items.length };
   }
@@ -1696,6 +1705,7 @@ export class ResourcesService implements RuleHost {
     const errors: string[] = [];
     let status: string | undefined;
     let unitLists: UnitLists | undefined;
+    let catOpts: Awaited<ReturnType<typeof categoryOptionsFor>>;
     const statusText = (row['状态'] ?? '').trim();
     if (statusText) {
       status = def.statuses.find((s) => s.label === statusText || s.value === statusText)?.value;
@@ -1717,6 +1727,11 @@ export class ResourcesService implements RuleHost {
         if (common) v = unitValueFromText(unitLists, unitKind, common.label) ?? unitValueFromText(unitLists, unitKind, common.value);
         if (v === undefined) errors.push(`${f.label}“${raw}”不在“单位与规格”里`);
         else input[f.key] = v;
+      } else if (f.type === 'select' && f.key === def.tabsBy && (catOpts ??= await categoryOptionsFor(em, user.companyId, def))) {
+        // 页签分类：按本公司的名称或值识别（含自建分类、改名后的名称；也认代码里的原名）
+        const hit = categoryFromText(catOpts.options, raw);
+        if (hit.value === undefined) errors.push(hit.hiddenHit ? `${f.label}“${raw}”已隐藏，不能再选用` : `${f.label}“${raw}”不在可选项里`);
+        else input[f.key] = hit.value;
       } else if (f.type === 'select') {
         const opt = f.options?.find((o) => o.label === raw || o.value === raw) ?? (f.options === UNIT_OPTIONS ? unitOptionFromText(raw) : undefined);
         if (!opt) errors.push(`${f.label}“${raw}”不在可选项里`);

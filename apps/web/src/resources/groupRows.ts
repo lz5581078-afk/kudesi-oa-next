@@ -1,6 +1,6 @@
 import type { ResourceDto } from './api';
 
-export interface RowGroup { key: string; label: string; depth: number; rows: ResourceDto[]; /** 按文本/单选字段分组时，这个分组的字段取值（新增时预填） */ value?: string; /** 归在这个分组下新增时要预填的引用值（部门 id）；“未分类”没有 */ refId?: number }
+export interface RowGroup { key: string; label: string; depth: number; rows: ResourceDto[]; /** 按文本/单选字段分组时，这个分组的字段取值（新增时预填） */ value?: string; /** 归在这个分组下新增时要预填的引用值（部门 id）；“未分类”没有 */ refId?: number; /** 分组条上的补充说明（如宽带按区域分组的月均费用） */ note?: string }
 export interface DeptRef { id: number; name: string; parentId?: number | null }
 
 /**

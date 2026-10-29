@@ -90,6 +90,8 @@ class GridSaveDto {
   @IsOptional() @IsArray() @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => GridUpdateDto) updates?: GridUpdateDto[];
   @IsOptional() @IsArray() @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => GridCreateDto) creates?: GridCreateDto[];
   @IsOptional() @IsArray() @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => GridArchiveDto) archives?: GridArchiveDto[];
+  /** 操作记录里的来源说明（如“费用模块”），缺省“表格编辑” */
+  @IsOptional() @IsString() @MaxLength(40) note?: string;
 }
 
 class LinkDto {

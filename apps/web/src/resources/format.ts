@@ -1,6 +1,7 @@
 import { unitYuanText, formatYuan, type FieldDef, type ResourceDef, type StatusDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 import { unitOptionLabel } from './unitOptions';
+import { categoryLabel } from './categoryOptions';
 
 export function statusOf(def: ResourceDef, value: string): StatusDef {
   return def.statuses.find((s) => s.value === value) ?? { value, label: value, tone: 'muted' };
@@ -13,6 +14,7 @@ export function displayValue(f: FieldDef, dto: ResourceDto): string {
   if (v === undefined || v === null || v === '') return '';
   switch (f.type) {
     case 'select':
+      { const c = categoryLabel(dto.type, f.key, v); if (c) return c; } // 页签分类：本公司名称（自建、改名、已隐藏）
       if (f.optionsFrom) { const n = unitOptionLabel(f, dto.data, String(v)); if (n) return n; }
       return f.options?.find((o) => o.value === v)?.label ?? String(v);
     case 'money':
