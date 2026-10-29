@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import { Pager } from '../finance/common';
 import { RunDetail } from './RunDetail';
+import { SkuBatchPanel } from './SkuBatchPanel';
 import { DelayDialog, SubmitTaskDialog } from './TaskDialogs';
 import { flowApi, fmtTime, type TodoList, type TodoRow } from './flowApi';
 import { dueHint, remember, useDebounced } from './flowUi';
@@ -31,6 +32,7 @@ export function MyTodosPage() {
   const [finish, setFinish] = useState<TodoRow | null>(null);
   const [delay, setDelay] = useState<TodoRow | null>(null);
   const open = Number(params.get('run')) || null;
+  const batchOpen = params.get('batch');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -79,7 +81,9 @@ export function MyTodosPage() {
             const late = r.overdue && tab !== 'done';
             return (
               <tr key={r.id} className={late ? 'late' : undefined}>
-                <td className="cell-title">{r.runId
+                <td className="cell-title">{r.batchKey && (r.batchCount ?? 0) > 0
+                  ? <button type="button" className="link-button" onClick={() => setParams({ batch: r.batchKey! })}>{r.enteredVia === 'return' && <span className="pill warn">被退回</span>} {r.batchName || r.runTitle}<span className="sub-line">{r.batchCount} 个规格待{r.enteredVia === 'return' ? '修改' : '办理'}，点开可批量处理</span></button>
+                  : r.runId
                   ? <button type="button" className="link-button" onClick={() => setParams({ run: String(r.runId) })}>{r.enteredVia === 'return' && <span className="pill warn">被退回</span>} {r.runTitle}</button>
                   : <><strong>{r.runTitle}</strong>{r.description && <span className="sub-line">{r.description}</span>}{r.completionStandard && <span className="sub-line">完成标准：{r.completionStandard}</span>}{r.reviewNote && <span className="sub-line late-text">复核意见：{r.reviewNote}</span>}</>}</td>
                 <td data-label="类型">{r.templateLabel}</td>
@@ -91,7 +95,9 @@ export function MyTodosPage() {
                     : '不限时'}
                 </td>
                 <td className="row-actions">
-                  {r.runId
+                  {r.batchKey && (r.batchCount ?? 0) > 0
+                    ? <button type="button" className={tab === 'done' ? 'secondary-button small' : 'primary-button'} onClick={() => setParams({ batch: r.batchKey! })}>{tab === 'done' ? '查看' : '批量办理'}</button>
+                    : r.runId
                     ? <button type="button" className={tab === 'done' ? 'secondary-button small' : 'primary-button'} onClick={() => setParams({ run: String(r.runId) })}>{tab === 'done' ? '查看' : '去办理'}</button>
                     : tab !== 'done' && <>
                       <button type="button" className="secondary-button small" onClick={() => setFinish(r)}>{r.requiresReview ? '提交' : '完成'}</button>
@@ -106,6 +112,7 @@ export function MyTodosPage() {
       {data && <Pager page={page} pageSize={20} total={data.total} onPage={setPage} />}
       {finish && <SubmitTaskDialog task={{ id: finish.id, title: finish.runTitle, feedbackPreset: finish.feedbackPreset, completionStandard: finish.completionStandard, requiresReview: finish.requiresReview }} onClose={() => setFinish(null)} onDone={(st) => { setFinish(null); setNotice(st === 'reviewing' ? '已提交，等监督人复核' : st === 'abnormal' ? '已异常提交，等监督人处理' : '任务已完成'); load(); }} />}
       {delay && <DelayDialog task={{ id: delay.id, title: delay.runTitle }} onClose={() => setDelay(null)} onDone={() => { setDelay(null); setNotice('延期申请已提交，等监督人处理'); load(); }} />}
+      {batchOpen && <SkuBatchPanel batchKey={batchOpen} onClose={() => setParams({})} onChanged={load} />}
       {open && <RunDetail id={open} onClose={() => setParams({})} onChanged={load} />}
     </div>
   );

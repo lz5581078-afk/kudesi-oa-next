@@ -1,4 +1,4 @@
-import type { CustomSchema, FieldDef, NodeTemplate, StepDef, TimeoutPolicy, TimeoutNotifications, TimeoutPenalty } from '@kudesi/shared';
+import type { CustomSchema, FieldDef, NodeTemplate, StarterScope, StepDef, TimeoutPolicy, TimeoutNotifications, TimeoutPenalty } from '@kudesi/shared';
 import { api } from '../../api/client';
 
 export interface DirectoryRow {
@@ -10,12 +10,12 @@ export interface DirectoryRow {
 export interface DirectoryDto { templates: DirectoryRow[]; canManage: boolean }
 
 export interface DesignerSchema { fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; posting: CustomSchema['posting'] }
-export interface DesignerVersion { id: number | null; version: number; status: string; steps: StepDef[]; escalateUserIds: number[]; publishedAt: string | null; createdAt: string | null; schema: DesignerSchema | null }
+export interface DesignerVersion { id: number | null; version: number; status: string; steps: StepDef[]; escalateUserIds: number[]; publishedAt: string | null; createdAt: string | null; schema: DesignerSchema | null; starterScope?: StarterScope | null; publishedBy?: number | null }
 export interface DesignerDefinition {
   template: { key: string; label: string; description: string; steps: StepDef[]; custom: boolean; departmentId: number | null; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; posting: CustomSchema['posting'] | null };
   active: DesignerVersion | null;
   draft: DesignerVersion;
-  history: Array<{ version: number; status: string; publishedAt: string | null; stepCount: number }>;
+  history: Array<{ version: number; status: string; publishedAt: string | null; stepCount: number; publishedByName?: string | null }>;
   names: Record<string, string>;
 }
 
@@ -54,7 +54,7 @@ export const designerApi = {
   updateMeta: (key: string, b: { name?: string; description?: string; departmentId?: number | null }) => api<{ ok: true }>(`/flow/templates/${key}/meta`, { method: 'PUT', body: b }),
   remove: (key: string) => api<{ ok: true }>(`/flow/templates/${key}`, { method: 'DELETE' }),
   definition: (key: string) => api<DesignerDefinition>(`/flow/definitions/${key}`),
-  saveDraft: (key: string, steps: StepDef[], escalateUserIds: number[], schema?: DesignerSchema | null) => api<{ ok: true }>(`/flow/definitions/${key}/draft`, { method: 'PUT', body: { steps, escalateUserIds, ...(schema ? { schema } : {}) } }),
+  saveDraft: (key: string, steps: StepDef[], escalateUserIds: number[], schema?: DesignerSchema | null, starterScope?: StarterScope | null) => api<{ ok: true }>(`/flow/definitions/${key}/draft`, { method: 'PUT', body: { steps, escalateUserIds, ...(schema ? { schema } : {}), ...(starterScope !== undefined ? { starterScope } : {}) } }),
   publish: (key: string) => post<{ ok: true; version: number }>(`/flow/definitions/${key}/publish`),
   deactivate: (key: string) => post<{ ok: true }>(`/flow/definitions/${key}/deactivate`),
   activate: (key: string, version: number) => post<{ ok: true }>(`/flow/definitions/${key}/activate`, { version }),
