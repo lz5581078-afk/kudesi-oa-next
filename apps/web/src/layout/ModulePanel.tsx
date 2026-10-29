@@ -6,13 +6,12 @@ import { SearchIcon } from './NavIcons';
 /**
  * 二级菜单面板：点左侧图标栏（或手机底栏）弹出。
  * 桌面是贴着图标栏的浮层，手机是从底部升起的抽屉。
- * 面板里：搜索框（搜全部一级菜单下的页面）、一级菜单切换标签、按分组排开的页面链接。
+ * 面板里：搜索框（搜全部一级菜单下的页面）、按分组排开的页面链接。
  */
 export function ModulePanel(props: {
   sections: VisibleSection[];
   sectionId: string;
   currentPath: string;
-  onSwitch: (sectionId: string) => void;
   onPick: (path: string) => void;
   onClose: () => void;
 }) {
@@ -49,15 +48,6 @@ export function ModulePanel(props: {
           <SearchIcon />
           <input ref={searchRef} type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索菜单，如：成本表、制单" aria-label="搜索菜单" />
         </label>
-        {!searching && sections.length > 1 && (
-          <div className="mp-chips" role="tablist" aria-label="切换一级菜单">
-            {sections.map((s) => (
-              <button key={s.id} type="button" role="tab" aria-selected={s.id === section.id} className={s.id === section.id ? 'mp-chip active' : 'mp-chip'} onClick={() => props.onSwitch(s.id)}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-        )}
         <nav aria-label="二级导航" className="mp-body">
           {searching ? (
             hits.length === 0 ? <p className="mp-empty">没有找到匹配的菜单，换个关键词试试。</p> : (
