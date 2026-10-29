@@ -100,9 +100,9 @@ export const DOC_TYPES: readonly DocTypeDef[] = [
   { type: 'other-income', label: '其他收入单', prefix: 'QTSR', party: 'customer', partyKinds: ['customer', 'store', 'supplier', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'in', offset: null, feeDirection: 'income',
     posting: '借：银行 贷：其他收入；没收齐的部分挂应收（要选往来对象）',
     ui: { partyLabel: '来源对象（选填）', warehouseLabel: '', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单收入合计', saveText: '保存其他收入单', detailTitle: '收入明细', moneyItemLabel: '收入项目', payModes: [{ mode: 'full', label: '已收全款' }, { mode: 'part', label: '收了部分' }, { mode: 'credit', label: '暂未收款' }] } },
-  { type: 'expense', label: '费用单', prefix: 'FY', party: 'supplier', partyKinds: ['supplier', 'customer', 'store', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'out', offset: null, feeDirection: 'expense',
-    posting: '借：费用 贷：银行；没付清的部分挂应付（要选往来对象）。不选往来对象就是现金费用单，必须当场付清',
-    ui: { partyLabel: '收费单位（选填）', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '暂未付款（挂应付）' }] } },
+  { type: 'expense', label: '费用单', prefix: 'FY', party: 'supplier', partyKinds: ['supplier', 'customer', 'store', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'out', offset: 'prepayment', feeDirection: 'expense',
+    posting: '借：费用 贷：银行（及预付冲抵）；没付清的部分挂应付（要选往来对象）。不选往来对象就是现金费用单，必须当场付清',
+    ui: { partyLabel: '收费单位（选填）', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '暂未付款（挂应付）' }, { mode: 'offset', label: '用预付款结算' }] } },
 ];
 
 export const DOC_TYPE_MAP = new Map(DOC_TYPES.map((d) => [d.type, d]));
@@ -164,6 +164,8 @@ export interface DocInput {
   amountCents?: number | null;
   /** 冲抵的预收/预付金额，分 */
   offsetCents?: number | null;
+  /** 整单优惠/抹零金额，分（管家婆“优惠金额/抹零”）：只用于商品类单据，单据金额 = 明细合计 − 优惠，销售收入/应收/采购成本都按优惠后计 */
+  discountCents?: number | null;
   /** 开单时当场结算的金额（实收/实付），分；其余挂应收/应付。只有 settle 类单据用 */
   paidCents?: number | null;
   /** 经办人、归属部门（文字，管家婆开单页上的“经办人/部门”） */
@@ -205,9 +207,22 @@ export function effectivePaid(def: DocTypeDef, input: Pick<DocInput, 'paidCents'
   return input.paidCents;
 }
 
-export function docTotal(def: DocTypeDef, input: Pick<DocInput, 'amountCents' | 'lines' | 'accounts'>): number {
+/** 明细合计（未扣优惠） */
+export const grossTotal = (input: Pick<DocInput, 'lines'>): number => (input.lines ?? []).reduce((sum, l) => sum + lineAmount(l), 0);
+
+/** 把整单优惠按各行金额比例摊到每一行（分），最后一个有金额的行补尾差；用于采购入库/退货把优惠摊进库存成本 */
+export function allocateDiscount(amounts: number[], discount: number): number[] {
+  const sum = amounts.reduce((a, b) => a + b, 0);
+  if (!discount || sum <= 0) return amounts.map(() => 0);
+  const out = amounts.map((a) => Math.floor((a * discount) / sum));
+  let left = discount - out.reduce((a, b) => a + b, 0);
+  for (let i = amounts.length - 1; i >= 0 && left > 0; i--) if (amounts[i] > 0) { out[i] += left; left = 0; }
+  return out;
+}
+
+export function docTotal(def: DocTypeDef, input: Pick<DocInput, 'amountCents' | 'lines' | 'accounts' | 'discountCents'>): number {
   if (def.bank === 'transfer' && input.accounts?.length) return input.accounts.filter((a) => a.role === 'out').reduce((s, a) => s + a.amountCents, 0);
-  if (def.lines) return (input.lines ?? []).reduce((sum, l) => sum + lineAmount(l), 0);
+  if (def.lines) return grossTotal(input) - (def.lines === 'product' ? input.discountCents ?? 0 : 0);
   // 金额类单据可以写多行金额明细（旧系统同款），合计就是单据金额；不写明细则直接用 amountCents
   if (input.lines?.length) return input.lines.reduce((sum, l) => sum + lineAmount(l), 0);
   return input.amountCents ?? 0;
@@ -266,6 +281,12 @@ export function validateDoc(input: DocInput): string[] {
     errors.push('金额必须大于 0');
   }
   const total = docTotal(def, input);
+  const discount = input.discountCents ?? 0;
+  if (discount) {
+    if (def.lines !== 'product') errors.push('只有商品类单据能填优惠金额');
+    else if (!Number.isInteger(discount) || discount < 0) errors.push('优惠金额不合法');
+    else if (discount >= grossTotal(input)) errors.push('优惠金额必须小于明细合计');
+  }
   if (def.lines && total <= 0) errors.push('单据金额必须大于 0');
   const offset = input.offsetCents ?? 0;
   if (offset) {
@@ -289,7 +310,8 @@ export function validateDoc(input: DocInput): string[] {
     }
   }
   const paid = effectivePaid(def, input, total);
-  if (def.lines === 'fee' && def.settle && paid < total && !input.partyId) errors.push(`没${def.settle === 'in' ? '收齐' : '付清'}的部分要挂账，请选择${def.ui.partyLabel.replace('（选填）', '')}（不挂账就必须当场${def.settle === 'in' ? '收齐' : '付清'}）`);
+  if (def.lines === 'fee' && def.settle && paid + offset < total && !input.partyId) errors.push(`没${def.settle === 'in' ? '收齐' : '付清'}的部分要挂账，请选择${def.ui.partyLabel.replace('（选填）', '')}（不挂账就必须当场${def.settle === 'in' ? '收齐' : '付清'}）`);
+  if (offset && def.lines === 'fee' && !input.partyId) errors.push(`冲抵${ACCOUNT_LABEL[def.offset as AccountKind] ?? '预付款'}要先选择${def.ui.partyLabel.replace('（选填）', '')}`);
   if (paid) {
     if (!def.settle) errors.push('这种单据不能当场结算');
     else if (!Number.isInteger(paid) || paid < 0) errors.push(`${def.ui.amountLabel}不合法`);
@@ -361,17 +383,22 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
     case 'prepayment':
       out.push(e('prepayment', partyId, total), e('bank', bank, -total));
       break;
-    case 'purchase-in':
-      for (const l of input.lines ?? []) out.push(e('inventory', l.productId as number, lineAmount(l), l.qty, wh));
+    case 'purchase-in': {
+      // 整单优惠摊进每行入库成本
+      const cut = allocateDiscount((input.lines ?? []).map(lineAmount), input.discountCents ?? 0);
+      (input.lines ?? []).forEach((l, i) => out.push(e('inventory', l.productId as number, lineAmount(l) - cut[i], l.qty, wh)));
       out.push(e('payable', partyId, -(total - offset)));
       if (offset) out.push(e('prepayment', partyId, -offset));
       if (paid) out.push(e('payable', partyId, paid), e('bank', bank, -paid));
       break;
-    case 'purchase-return':
+    }
+    case 'purchase-return': {
       out.push(e('payable', partyId, total));
-      for (const l of input.lines ?? []) out.push(e('inventory', l.productId as number, -lineAmount(l), -l.qty, wh));
+      const cut = allocateDiscount((input.lines ?? []).map(lineAmount), input.discountCents ?? 0);
+      (input.lines ?? []).forEach((l, i) => out.push(e('inventory', l.productId as number, -(lineAmount(l) - cut[i]), -l.qty, wh)));
       if (paid) out.push(e('bank', bank, paid), e('payable', partyId, -paid));
       break;
+    }
     case 'other-income':
       for (const l of input.lines ?? []) out.push(e('other_income', l.feeItemId as number, -lineAmount(l)));
       if (paid) out.push(e('bank', bank, paid));
@@ -380,7 +407,8 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
     case 'expense':
       for (const l of input.lines ?? []) out.push(e('expense', l.feeItemId as number, lineAmount(l)));
       if (paid) out.push(e('bank', bank, -paid));
-      if (total - paid) out.push(e('payable', partyId, -(total - paid)));
+      if (offset) out.push(e('prepayment', partyId, -offset));
+      if (total - paid - offset) out.push(e('payable', partyId, -(total - paid - offset)));
       break;
   }
   const sum = out.reduce((s, x) => s + x.amount, 0);

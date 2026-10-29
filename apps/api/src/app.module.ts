@@ -107,6 +107,7 @@ import { CostMaintainService } from './resources/cost-maintain.service';
 import { PricingDebugService } from './resources/pricing-debug.service';
 import { FinanceDocumentsController } from './resources/finance-documents.controller';
 import { FinanceDocumentsService } from './resources/finance-documents.service';
+import { FinanceVoucherHintsService } from './resources/finance-voucher-hints.service';
 import { ResourcesController } from './resources/resources.controller';
 import { ResourceCategoriesController } from './resources/resource-categories.controller';
 import { ResourceCategoriesService } from './resources/resource-categories.service';
@@ -227,6 +228,7 @@ const env = loadEnv();
     LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
     { provide: LiveOrderSource, useClass: UnconfiguredLiveOrderSource },
     FinanceDocumentsService,
+    FinanceVoucherHintsService,
     IntegrationSettingsService,
     AiProviderService,
     FilesService,
