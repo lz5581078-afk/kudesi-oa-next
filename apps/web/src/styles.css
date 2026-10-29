@@ -1468,7 +1468,6 @@ div.ws-task { cursor: default; }
 .hier-home-head h1 { margin: 2px 0 4px; font-size: 22px; }
 .hier-home-head p { margin: 0; max-width: 640px; }
 .hier-home-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.hier-guide { font-size: 13px; }
 .hier-draft { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; }
 .hier-draft input { flex: 1 1 180px; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
 .hier-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }

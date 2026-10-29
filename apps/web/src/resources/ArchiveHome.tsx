@@ -91,6 +91,16 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
     return tree.nodes.filter((n) => n.parentId === 0).map((n) => ({ node: n, rec: byId.get(n.id) }));
   }, [cfg.kind, tree, cats]);
 
+  // 供应商/客户的默认一级分类（旧程序自带）：空库首次进入自动建好，不用手点“导入默认分类”。每家公司每种档案只自动导入一次。
+  useEffect(() => {
+    if (cfg.kind !== 'category' || type === 'finance-fee-items' || !tree || !PARTY_SEED_CATEGORIES[catType as 'finance-supplier-categories']) return;
+    if (roots.length > 0 || !catCan('create')) return;
+    const flag = `kudesi.hier.autoseed.${me?.companyName ?? ""}.${catType}`;
+    try { if (localStorage.getItem(flag)) return; localStorage.setItem(flag, '1'); } catch { /* 无本地存储时只做一次内存级尝试 */ }
+    void seed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree, roots.length]);
+
   const canManageRoots = cfg.kind === 'category' && catCan('edit');
   const move = async (idx: number, dir: -1 | 1) => {
     const j = idx + dir;
@@ -140,9 +150,7 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
     <div className="res-page hier-home">
       <header className="hier-home-head">
         <div>
-          <span className="muted">财务基础资料</span>
           <h1>{def.label}</h1>
-          <p className="muted">{cfg.subtitle}</p>
         </div>
         <div className="hier-home-actions">
           {desc && <PageHint text={desc} />}
@@ -153,7 +161,6 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
           {managing && catCan('create') && <button type="button" className="res-btn primary" onClick={() => setDraft({ name: '', subtitle: '' })}>＋ 新增顶级分类</button>}
         </div>
       </header>
-      <div className="hier-guide muted">选择{def.label.replace('档案', '')}分类：点击卡片进入分类；分类维护操作仅在“管理顶级分类”状态下显示。</div>
       {error && <div role="alert" className="notice error m">{error}</div>}
       {msg && <div role="status" className="notice m between"><span>{msg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setMsg('')}>✕</button></div>}
       {draft && (
