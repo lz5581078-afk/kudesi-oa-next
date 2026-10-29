@@ -118,7 +118,7 @@ export class FinanceDocumentsService {
   private toInput(doc: FinanceDocument, lines: FinanceDocumentLine[], accounts: FinanceDocumentAccount[] = [], settlements: FinanceDocumentSettlement[] = []): DocInput {
     return {
       type: doc.docType as DocType, date: doc.docDate, partyId: doc.partyId, partyKind: doc.partyKind as never, paidCents: doc.paidCents, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId,
-      warehouseId: doc.warehouseId, storeId: doc.storeId, refNo: doc.refNo, amountCents: DOC_TYPE_MAP.get(doc.docType as DocType)?.lines ? null : doc.amountCents, offsetCents: doc.offsetCents,
+      warehouseId: doc.warehouseId, storeId: doc.storeId, refNo: doc.refNo, amountCents: DOC_TYPE_MAP.get(doc.docType as DocType)?.lines ? null : doc.amountCents, offsetCents: doc.offsetCents, discountCents: doc.discountCents,
       settleBy: (doc.settleBy as SettleBy | null) ?? null,
       settlements: settlements.length ? settlements.map((x) => ({ sourceDocId: x.sourceDocumentId, productId: x.productId, amountCents: x.amountCents })) : null,
       accounts: accounts.length ? accounts.map((a) => ({ role: a.role, bankAccountId: a.bankAccountId, amountCents: a.amountCents })) : null,
@@ -235,7 +235,7 @@ export class FinanceDocumentsService {
     // 草稿允许没填完，但数字本身必须合法
     if (!DOC_TYPE_MAP.get(input.type)) throw new BadRequestException('单据类型不认识');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date ?? '') || Number.isNaN(Date.parse(input.date))) throw new BadRequestException('单据日期格式应为 YYYY-MM-DD');
-    for (const v of [input.amountCents, input.offsetCents, input.paidCents, ...(input.accounts ?? []).map((a) => a.amountCents), ...(input.settlements ?? []).map((x) => x.amountCents)]) {
+    for (const v of [input.amountCents, input.offsetCents, input.paidCents, input.discountCents, ...(input.accounts ?? []).map((a) => a.amountCents), ...(input.settlements ?? []).map((x) => x.amountCents)]) {
       if (v !== null && v !== undefined && (!Number.isInteger(v) || Math.abs(v) > 99_999_999_999)) throw new BadRequestException('金额必须是以分为单位的整数');
     }
     for (const l of input.lines ?? []) for(const v of [l.unitPriceCents,l.unitCostCents]) if(v!==undefined && v!==null && !validUnitCents(v)) throw new BadRequestException('单价最多支持六位元小数');
@@ -261,7 +261,7 @@ export class FinanceDocumentsService {
         handler: input.handler?.trim() || null, department: input.department?.trim() || null, settleBy: this.settleByOf(input),
         bankAccountId: input.bankAccountId ?? null, toBankAccountId: input.toBankAccountId ?? null, warehouseId: input.warehouseId ?? null,
         storeId: def.store ? input.storeId ?? null : null, refNo: hasBankRef(def) ? input.refNo?.trim() || null : null,
-        amountCents: docTotal(def, input), offsetCents: input.offsetCents ?? 0, memo: opts.memo ?? null, sourceKey: opts.sourceKey ?? null, createdBy: user.id,
+        amountCents: docTotal(def, input), offsetCents: input.offsetCents ?? 0, discountCents: def.lines === 'product' ? input.discountCents ?? 0 : 0, memo: opts.memo ?? null, sourceKey: opts.sourceKey ?? null, createdBy: user.id,
       });
       const id = Number(res.identifiers[0].id);
       if (def.bank === 'transfer') await em.update(FinanceDocument, { id }, this.transferHeads(input));
@@ -288,7 +288,7 @@ export class FinanceDocumentsService {
         ...(input.docNo?.trim() ? { docNo: input.docNo.trim() } : {}),
         docDate: input.date, partyId: input.partyId ?? null, bankAccountId: input.bankAccountId ?? null, toBankAccountId: input.toBankAccountId ?? null,
         warehouseId: input.warehouseId ?? null, storeId: def.store ? input.storeId ?? null : null, refNo: hasBankRef(def) ? input.refNo?.trim() || null : null,
-        amountCents: docTotal(def, input), offsetCents: input.offsetCents ?? 0, memo: memo ?? doc.memo,
+        amountCents: docTotal(def, input), offsetCents: input.offsetCents ?? 0, discountCents: def.lines === 'product' ? input.discountCents ?? 0 : 0, memo: memo ?? doc.memo,
         ...(def.bank === 'transfer' ? this.transferHeads(input) : {}),
       });
       await this.writeLines(em, user, id, input.lines ?? []);
@@ -495,7 +495,7 @@ export class FinanceDocumentsService {
       const docNo = await this.nextDocNo(em, user, def.prefix, today());
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: doc.docType, status: 'posted', docDate: today(), partyId: doc.partyId, bankAccountId: doc.bankAccountId,
-        toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId, amountCents: -doc.amountCents, offsetCents: -doc.offsetCents, paidCents: -doc.paidCents, partyKind: doc.partyKind, handler: doc.handler, department: doc.department,
+        toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId, amountCents: -doc.amountCents, offsetCents: -doc.offsetCents, paidCents: -doc.paidCents, discountCents: -doc.discountCents, partyKind: doc.partyKind, handler: doc.handler, department: doc.department,
         memo: `红冲 ${doc.docNo}：${reason.trim()}`, reversesId: id, createdBy: user.id, issuedAt: new Date(), postedAt: new Date(),
       });
       const rid = Number(res.identifiers[0].id);
@@ -562,7 +562,7 @@ export class FinanceDocumentsService {
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: doc.docType, status: 'draft', docDate: input.date, partyId: doc.partyId, partyKind: doc.partyKind, paidCents: doc.paidCents,
         handler: doc.handler, department: doc.department, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId,
-        storeId: doc.storeId, refNo: null, amountCents: doc.amountCents, offsetCents: doc.offsetCents, settleBy: doc.settleBy, memo: doc.memo, createdBy: user.id,
+        storeId: doc.storeId, refNo: null, amountCents: doc.amountCents, offsetCents: doc.offsetCents, discountCents: doc.discountCents, settleBy: doc.settleBy, memo: doc.memo, createdBy: user.id,
       });
       const nid = Number(res.identifiers[0].id);
       await this.writeLines(em, user, nid, lines.map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: null, memo: l.memo ?? undefined, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName, itemName: l.itemName, unit: l.unit })));

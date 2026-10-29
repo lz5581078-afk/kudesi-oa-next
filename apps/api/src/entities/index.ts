@@ -631,6 +631,7 @@ export class FinanceDocument {
   @Column({ name: 'amount_cents', type: 'bigint', transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) amountCents!: number;
   @Column({ name: 'offset_cents', type: 'bigint', transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) offsetCents!: number;
   @Column({ name: 'paid_cents', type: 'bigint', default: 0, transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) paidCents!: number;
+  @Column({ name: 'discount_cents', type: 'bigint', default: 0, transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) discountCents!: number;
   @Column({ name: 'settle_by', type: 'varchar', length: 8, nullable: true }) settleBy!: string | null;
   @Column({ type: 'varchar', length: 500, nullable: true }) memo!: string | null;
   @Column({ type: 'varchar', length: 60, nullable: true }) handler!: string | null;
