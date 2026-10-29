@@ -308,7 +308,7 @@ export class FlowService {
 
   // ================= 通用小工具 =================
 
-  private async userNames(em: EntityManager, companyId: number, ids: number[]) {
+  async userNames(em: EntityManager, companyId: number, ids: number[]) {
     const uniq = [...new Set(ids.filter((x) => Number.isInteger(x)))];
     if (!uniq.length) return new Map<number, string>();
     const rows = await em.find(User, { where: { companyId, id: In(uniq) }, select: ['id', 'name'] });
@@ -323,11 +323,11 @@ export class FlowService {
     }
   }
 
-  private async event(em: EntityManager, run: FlowRun, actorId: number, action: string, stepId: number | null, note?: string | null) {
+  async event(em: EntityManager, run: FlowRun, actorId: number, action: string, stepId: number | null, note?: string | null) {
     await em.insert(FlowEvent, { companyId: run.companyId, runId: run.id, stepId, actorId, action, note: note?.slice(0, 500) ?? null });
   }
 
-  private async lockRun(em: EntityManager, user: AuthUser, id: number, revision?: number) {
+  async lockRun(em: EntityManager, user: AuthUser, id: number, revision?: number) {
     const run = await em.findOne(FlowRun, { where: { id, companyId: user.companyId }, lock: { mode: 'pessimistic_write' } });
     if (!run) throw new NotFoundException('流程不存在');
     if (revision !== undefined && run.revision !== revision) throw new ConflictException('这张单已经被别人处理过了，请刷新后再看');
@@ -335,7 +335,7 @@ export class FlowService {
   }
 
   /** 进行中的步骤；并行分支时有多个，传 stepId 指定要办的那个 */
-  private async activeStep(em: EntityManager, run: FlowRun, stepId?: number) {
+  async activeStep(em: EntityManager, run: FlowRun, stepId?: number) {
     if (stepId !== undefined) {
       const one = await em.findOne(FlowStep, { where: { id: stepId, runId: run.id, status: 'active' } });
       if (!one) throw new ConflictException('这一步已经被处理过了，请刷新后再看');
@@ -724,6 +724,58 @@ export class FlowService {
     });
   }
 
+  /**
+   * 批量改派（旧版 10-08 靠脚本把 31 个 SKU 财务待办重派给新人，没有界面）：公司管理员把某人名下在办的流程待办批量改给另一个人。
+   * 只改办理人，不改截止时间和步骤；必须写原因；每条流程留一条“转交”记录，整批写一条审计；通知新办理人和原办理人。
+   * 部门共享的步骤只换掉这个人的那一份待办；发起人名下“被退回待修改”的待办不在此列（那是发起人自己的申请）。
+   * dryRun = 只看会改派哪些，不改。
+   */
+  async reassignOpen(user: AuthUser, p: { fromUserId: number; toUserId: number; templateKey?: string; stepKey?: string; reason?: string; dryRun?: boolean }) {
+    if (!user.permissions.isCompanyAdmin) throw new ForbiddenException('只有公司管理员能批量改派');
+    if (p.fromUserId === p.toUserId) throw new BadRequestException('原办理人和新办理人不能是同一个人');
+    const reason = (p.reason ?? '').trim();
+    if (!p.dryRun && (reason.length < 2 || reason.length > 500)) throw new BadRequestException('批量改派要写原因（2 到 500 字）');
+    const em0 = this.dataSource.manager;
+    if (!(await em0.findOne(User, { where: { id: p.fromUserId, companyId: user.companyId } }))) throw new BadRequestException('原办理人不存在');
+    await this.checkUsersExist(em0, user.companyId, [p.toUserId]);
+    const where = ["w.company_id = ?", "w.assignee_id = ?", "w.kind = 'flow'", "w.status = 'open'", "r.status = 'running'", "s.status = 'active'", "s.step_type <> 'submit'"];
+    const args: unknown[] = [user.companyId, p.fromUserId];
+    if (p.templateKey) { where.push('r.template_key = ?'); args.push(p.templateKey); }
+    if (p.stepKey) { where.push('s.step_key = ?'); args.push(p.stepKey); }
+    const rows: Array<{ id: number; runId: number; stepId: number; title: string; stepName: string; templateKey: string }> = await em0.query(
+      `SELECT w.id, w.run_id AS runId, w.step_id AS stepId, r.title, s.step_name AS stepName, r.template_key AS templateKey FROM work_items w JOIN flow_steps s ON s.id = w.step_id JOIN flow_runs r ON r.id = w.run_id
+       WHERE ${where.join(' AND ')} ORDER BY w.id LIMIT 501`, args);
+    if (rows.length > 500) throw new BadRequestException('一次最多改派 500 条，请按流程或步骤缩小范围后分几次改派');
+    const labels = await this.labelMap(user.companyId);
+    if (p.dryRun) return { count: rows.length, items: rows.slice(0, 100).map((r) => ({ runId: r.runId, title: r.title, stepName: r.stepName, templateLabel: labels.get(r.templateKey) ?? r.templateKey })) };
+    const names = await this.userNames(em0, user.companyId, [p.fromUserId, p.toUserId]);
+    const moved: number[] = [];
+    const skipped: Array<{ runId: number; reason: string }> = [];
+    for (const row of rows) {
+      try {
+        await this.dataSource.transaction(async (em) => {
+          const run = await em.findOne(FlowRun, { where: { id: row.runId, companyId: user.companyId }, lock: { mode: 'pessimistic_write' } });
+          const item = await em.findOne(WorkItem, { where: { id: row.id, companyId: user.companyId }, lock: { mode: 'pessimistic_write' } });
+          const step = await em.findOne(FlowStep, { where: { id: row.stepId, runId: row.runId } });
+          if (!run || run.status !== 'running' || !item || item.status !== 'open' || item.assigneeId !== p.fromUserId || !step || step.status !== 'active') throw new ConflictException('这条待办刚被处理过');
+          const dup = await em.findOne(WorkItem, { where: { stepId: step.id, assigneeId: p.toUserId, status: 'open' } });
+          if (dup) { item.status = 'cancelled'; item.finishedAt = new Date(); } else item.assigneeId = p.toUserId;
+          await em.save(WorkItem, item);
+          step.recipients = [...new Set(step.recipients.map((u) => (u === p.fromUserId ? p.toUserId : u)))];
+          await em.save(FlowStep, step);
+          run.revision += 1;
+          await em.save(FlowRun, run);
+          await this.event(em, run, user.id, 'transfer', step.id, `批量改派：${names.get(p.fromUserId) ?? p.fromUserId} → ${names.get(p.toUserId) ?? p.toUserId}。${reason}`);
+          await this.notify(em, run.companyId, [p.toUserId], { kind: 'todo', title: `改派给你：${run.title}`, body: `步骤：${step.stepName}。${reason}`, link: `/workbench/todos?run=${run.id}` }, run);
+          await this.notify(em, run.companyId, [p.fromUserId], { kind: 'transfer', title: `已改派给 ${names.get(p.toUserId) ?? ''}：${run.title}`, body: reason, link: `/workbench/started?run=${run.id}` });
+        });
+        moved.push(row.runId);
+      } catch (e) { skipped.push({ runId: row.runId, reason: e instanceof Error ? e.message : '失败' }); }
+    }
+    await em0.save(AuditLog, em0.create(AuditLog, { companyId: user.companyId, actorId: user.id, action: 'flow.reassign', resourceType: 'work_item', resourceId: `${p.fromUserId}->${p.toUserId}`, detail: { fromUserId: p.fromUserId, toUserId: p.toUserId, templateKey: p.templateKey ?? null, stepKey: p.stepKey ?? null, reason, movedRunIds: moved, skipped } }));
+    return { moved: moved.length, skipped };
+  }
+
   // ================= 条件分支 / 退回目标 =================
 
   private async stepForms(em: EntityManager, runId: number) {
@@ -774,7 +826,7 @@ export class FlowService {
 
   // ================= 查看 =================
 
-  private async canSeeRun(em: EntityManager, user: AuthUser, run: FlowRun) {
+  async canSeeRun(em: EntityManager, user: AuthUser, run: FlowRun) {
     if (run.requesterId === user.id || this.can(user, 'flow.overview.view')) return true;
     const [row] = await em.query(
       `SELECT (SELECT COUNT(*) FROM flow_steps WHERE run_id = ? AND (JSON_CONTAINS(recipients, CAST(? AS JSON)) OR handled_by = ?)) +

@@ -101,6 +101,7 @@ import { SkuApplyController } from './flow/sku-apply.controller';
 import { PurchaseController } from './flow/purchase.controller';
 import { PurchaseService } from './flow/purchase.service';
 import { SkuApplyService } from './flow/sku-apply.service';
+import { SkuBatchService } from './flow/sku-batch.service';
 import { CostController } from './resources/cost.controller';
 import { CostService } from './resources/cost.service';
 import { ExpressController } from './resources/express.controller';
@@ -213,6 +214,7 @@ const env = loadEnv();
     FlowTimeoutService,
     SkuApplyService,
     PurchaseService,
+    SkuBatchService,
     TaskService,
     FormDraftsService,
     PhoneUploadService,
