@@ -895,7 +895,8 @@ export class FinanceDocumentsService {
     const args: unknown[] = [user.companyId];
     if (q.warehouseId) { where.push('e.sub_id = ?'); args.push(q.warehouseId); }
     if (q.asOf) { where.push('e.entry_date <= ?'); args.push(q.asOf); } // 历史库存：截止某天
-    if (q.keyword?.trim()) { where.push('(p.title LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(p.data, \'$.code\')) LIKE ?)'); args.push(`%${q.keyword.trim()}%`, `%${q.keyword.trim()}%`); }
+    // 商品关键词支持多个词（空格分隔，每个词都要命中商品名称或编码），对齐旧版的多词搜索
+    for (const term of (q.keyword ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 6)) { where.push('(p.title LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(p.data, \'$.code\')) LIKE ?)'); args.push(`%${term}%`, `%${term}%`); }
     // 库存状态：正常 = 数量大于 0；缺货 = 数量等于 0（卖空了）或欠着（<=0）；不筛选时不显示数量和金额都是 0 的空行
     const having = q.stockStatus === 'normal' ? 'SUM(e.qty) > 0.00005' : q.stockStatus === 'out' ? 'SUM(e.qty) <= 0.00005' : 'ABS(SUM(e.qty)) > 0.00005 OR SUM(e.amount_cents) <> 0';
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
@@ -906,6 +907,36 @@ export class FinanceDocumentsService {
       const qty = Number(r.qty), amount = Number(r.amount);
       return { productId: r.productId, warehouseId: r.warehouseId, productName: r.productName, code: r.code ?? '', unit: r.unit ?? '', warehouseName: r.warehouseName, qty, avgCostCents: canCost && qty ? Math.round(amount / qty) : null, amountCents: canCost ? amount : null };
     });
+  }
+
+  /**
+   * 库存流水：某商品在某仓库的每一笔库存变动（来自已过账单据），带单号、类型、往来对象和滚动结存数量。
+   * 对应旧版“采购分批入库可追溯”。没有成本权限的人看不到金额列（服务端置空）。
+   */
+  async inventoryLedger(user: AuthUser, q: { productId: number; warehouseId: number; asOf?: string }) {
+    this.need(user, 'finance.inventory.view', '没有查看库存的权限');
+    const canCost = this.can(user, COST_VIEW);
+    const args: unknown[] = [user.companyId, q.productId, q.warehouseId];
+    let dateCond = '';
+    if (q.asOf) { dateCond = ' AND e.entry_date <= ?'; args.push(q.asOf); }
+    const rows: Array<Record<string, unknown>> = await this.dataSource.query(
+      `SELECT e.id, DATE_FORMAT(e.entry_date, '%Y-%m-%d') AS entryDate, e.qty AS qty, e.amount_cents AS amountCents, d.id AS documentId, d.doc_no AS docNo, d.doc_type AS docType, d.status AS status, d.party_id AS partyId, d.memo AS memo
+         FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id AND d.company_id = e.company_id
+        WHERE e.company_id = ? AND e.kind = 'inventory' AND e.account_id = ? AND e.sub_id = ?${dateCond}
+        ORDER BY e.entry_date ASC, e.id ASC LIMIT 1000`, args);
+    const names = await this.names(this.dataSource.manager, user.companyId, rows.map((r) => r.partyId as number | null));
+    let run = 0, runAmount = 0, inQty = 0, outQty = 0;
+    const list = rows.map((r) => {
+      const qty = Number(r.qty ?? 0), amt = Number(r.amountCents);
+      run = Math.round((run + qty) * 10000) / 10000; runAmount += amt;
+      if (qty > 0) inQty += qty; else outQty += -qty;
+      return {
+        id: Number(r.id), entryDate: r.entryDate, documentId: Number(r.documentId), docNo: r.docNo, typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType,
+        partyName: r.partyId ? names.get(Number(r.partyId)) ?? '' : '', memo: r.memo ?? null, qty, balanceQty: run,
+        amountCents: canCost ? amt : null, balanceAmountCents: canCost ? runAmount : null,
+      };
+    });
+    return { rows: list, inQty: Math.round(inQty * 10000) / 10000, outQty: Math.round(outQty * 10000) / 10000, closingQty: run, closingAmountCents: canCost ? runAmount : null };
   }
 
   /** 财务经营：month 传 YYYY-MM 看当月，传 'all' 看全部时间（趋势按月汇总，其余合计全部） */
