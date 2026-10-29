@@ -191,14 +191,14 @@ function typingTarget(el: EventTarget | null): boolean {
 
 const HIDE_EMPTY_KEY = 'kudesi.detail.hideEmpty';
 
-export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy }: { def: ResourceDef; id: number; nav?: DetailNav; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
+export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initialTab }: { def: ResourceDef; id: number; /** 打开时直接显示的页签（如列表里的“成本明细”） */ initialTab?: string; nav?: DetailNav; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const can = useResourceCan(def.key);
   const canFeeView = useResourceCan('phones')('view');
   useUnitOptions();
   const { user: me } = useAuth();
   const canView = (t: string) => (me ? createChecker(me.permissions)(resourcePermission(permissionOwner(t), 'view')) : false);
   const [record, setRecord] = useState<ResourceDto | null>(null);
-  const [tab, setTab] = useState<Tab>('info');
+  const [tab, setTab] = useState<Tab>((initialTab as Tab | undefined) ?? 'info');
   const [wide, setWide] = useState(false);
   const [editGroup, setEditGroup] = useState<string | null>(null);
   const [linkDialog, setLinkDialog] = useState<'new' | EditableLink | null>(null);

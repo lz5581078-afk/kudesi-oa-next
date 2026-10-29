@@ -14,7 +14,7 @@ const FLAT_UNSET: Record<string, string> = { user: '没有使用人', department
  * 列表左侧的目录：一眼看到该板块下所有分类（或位置、使用人、部门）和各自的数量，点一下就筛选（含下级）。
  * 资料有几种浏览维度时（固定资产：分类 / 位置 / 使用人 / 部门），上面一排切换；配置了 treeManage 的维度可以点“管理”就地增删改排序。
  */
-function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, onSelect, onPath, canManage, onChanged }: {
+function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, onSelect, onPath, canManage, onChanged, rootId, createExtra, hint, onLeaf }: {
   type: string;
   fields: FieldDef[];
   tab: string;
@@ -28,7 +28,16 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   canManage?: (field: FieldDef) => boolean;
   /** 管理动作改了目录（分类名、参数、排序、删除）后，让列表重新加载 */
   onChanged?: () => void;
+  /** 分级布局：只显示这个顶级分类和它的下级；“全部”就是这个顶级分类本身（选中它 = 筛整个顶级分类） */
+  rootId?: number;
+  /** 就地新增分类时一并提交的字段（如商品分类的所属档案类型） */
+  createExtra?: Record<string, unknown>;
+  /** 目录上方的一行提示（如“请选择最末级分类后新增”） */
+  hint?: string;
+  /** 当前选中的分类是不是最末级（没有下级）；分级布局里新增资料要先选最末级 */
+  onLeaf?: (leaf: boolean) => void;
 }) {
+  const top = rootId ?? 0;
   const [activeKey, setActiveKey] = useState(() => fields.find((f) => values[f.key])?.key ?? fields[0].key);
   const field = fields.find((f) => f.key === activeKey) ?? fields[0];
   const value = values[field.key] ?? '';
@@ -69,11 +78,17 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   useEffect(() => {
     if (!tree) return;
     setOpen((cur) => {
-      const next = new Set(cur.size ? cur : (kids.get(0) ?? []).map((n) => n.id));
+      const next = new Set(cur.size ? cur : (kids.get(top) ?? []).map((n) => n.id));
       for (let n = byId.get(Number(value)), i = 0; n && n.parentId && i < 8; n = byId.get(n.parentId), i++) next.add(n.parentId);
       return next;
     });
   }, [tree, value, kids, byId]);
+
+  useEffect(() => {
+    if (!onLeaf || !tree) return;
+    const cur = Number(value) || top;
+    onLeaf((kids.get(cur) ?? []).length === 0);
+  }, [onLeaf, tree, value, kids, top]);
 
   // 把每个维度当前选中的路径告诉外面（筛选标签条、新建时预填用）
   useEffect(() => {
@@ -106,8 +121,8 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   async function addNode(e: React.FormEvent) {
     e.preventDefault();
     if (!adding || !adding.name.trim()) return;
-    const parent = adding.parent;
-    await run(() => resourceApi.create(target, { name: adding.name.trim(), ...(parent ? { parentId: parent } : {}) }));
+    const parent = adding.parent || top;
+    await run(() => resourceApi.create(target, { ...(createExtra ?? {}), name: adding.name.trim(), ...(parent ? { parentId: parent } : {}) }));
     setAdding(null);
     if (parent) setOpen((cur) => new Set(cur).add(parent));
   }
@@ -221,16 +236,17 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
         </span>
       </div>
       <input className="cat-search" placeholder={flat ? `找${field.label}` : multi ? `找${field.label}` : '找分类'} aria-label={flat ? `找${field.label}` : multi ? `找${field.label}` : '找分类'} value={kw} onChange={(e) => setKw(e.target.value)} />
-      <button type="button" className={`cat-all${value === '' ? ' active' : ''}`} onClick={() => onSelect(field.key, '')}>
-        <span>全部</span><span className="cat-count">{tree?.total ?? ''}</span>
+      <button type="button" className={`cat-all${value === '' || (rootId && value === String(rootId)) ? ' active' : ''}`} onClick={() => onSelect(field.key, '')}>
+        <span>{rootId ? `全部${byId.get(rootId)?.title ?? ''}` : '全部'}</span><span className="cat-count">{rootId ? (byId.get(rootId)?.count ?? '') : (tree?.total ?? '')}</span>
       </button>
+      {hint && <div className="cat-hint muted">{hint}</div>}
       {notice && <div role="status" className="muted cat-note">{notice}</div>}
       {error && <div className="muted">{error}</div>}
-      {tree && tree.nodes.length === 0 && !manage && <div className="muted">{flat ? `还没有资料填了${field.label}` : '还没有分类，先到“资料维护”里建分类'}</div>}
+      {tree && (kids.get(top) ?? []).length === 0 && !manage && <div className="muted">{flat ? `还没有资料填了${field.label}` : '还没有分类，先到“资料维护”里建分类'}</div>}
       {manage && <div className="cat-acts-hint">点一个{flat ? '' : '分类'}，下面会出现 加下级 / 改名 / 参数 / 排序 / 删除；也可以拖动同级的分类排序。</div>}
-      {manage && <button type="button" className="cat-addtop" onClick={() => setAdding({ parent: 0, name: '' })}>＋ 新增一级</button>}
-      <ul role="tree">{addForm(0, 0)}{rows(0, 0)}</ul>
-      {tree && tree.uncategorized > 0 && <div className="muted cat-un">{unsetText} {tree.uncategorized} 条</div>}
+      {manage && <button type="button" className="cat-addtop" onClick={() => setAdding({ parent: 0, name: '' })}>{rootId ? '＋ 新增下级分类' : '＋ 新增一级'}</button>}
+      <ul role="tree">{addForm(0, 0)}{rows(top, 0)}</ul>
+      {tree && !rootId && tree.uncategorized > 0 && <div className="muted cat-un">{unsetText} {tree.uncategorized} 条</div>}
       </div>
       {deleting && (
         <ReasonDialog
