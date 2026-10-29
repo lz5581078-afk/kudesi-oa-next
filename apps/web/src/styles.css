@@ -1461,3 +1461,38 @@ div.ws-task { cursor: default; }
   .cat-table td.cat-actions::before { content: none; }
   .cat-rename { flex-wrap: wrap; }
 }
+
+/* ---------- 财务基础资料分级布局：顶级分类卡片 + 进入后的页头（hier-*） ---------- */
+.hier-home { display: flex; flex-direction: column; gap: 14px; padding: 4px 4px 24px; }
+.hier-home-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.hier-home-head h1 { margin: 2px 0 4px; font-size: 22px; }
+.hier-home-head p { margin: 0; max-width: 640px; }
+.hier-home-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.hier-guide { font-size: 13px; }
+.hier-draft { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; }
+.hier-draft input { flex: 1 1 180px; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.hier-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.hier-card { --hc: var(--accent); position: relative; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px 12px; background: var(--surface, #fff); border: 1px solid var(--border); border-top: 4px solid var(--hc); border-radius: var(--radius, 10px); cursor: pointer; min-height: 138px; text-align: left; }
+.hier-card:hover, .hier-card:focus-visible { box-shadow: 0 4px 14px rgba(0, 0, 0, .08); outline: none; border-color: var(--hc); }
+.hier-card.green { --hc: #2f8f5b; } .hier-card.blue { --hc: #3b7dd8; } .hier-card.orange { --hc: #d9822b; } .hier-card.purple { --hc: #8a5cc7; } .hier-card.teal { --hc: #1f9aa6; }
+.hier-card-name { font-weight: 600; font-size: 15px; }
+.hier-card > strong { font-size: 28px; line-height: 1.1; color: var(--hc); font-variant-numeric: tabular-nums; }
+.hier-card small { color: var(--muted); font-size: 12.5px; line-height: 1.4; flex: 1; }
+.hier-card em { font-style: normal; font-size: 12px; color: var(--muted); }
+.hier-card-acts { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.hier-bar { display: flex; align-items: center; gap: 14px; padding: 0 2px 10px; flex-wrap: wrap; }
+.hier-bar h2 { margin: 0; font-size: 18px; }
+.hier-bar p { margin: 2px 0 0; font-size: 12.5px; }
+.cat-hint { padding: 2px 10px 6px; font-size: 12px; }
+.hier-acts { display: inline-flex; flex-wrap: nowrap; gap: 4px; }
+@media (max-width: 720px) {
+  .hier-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .hier-card { min-height: 120px; padding: 10px 12px; }
+  .hier-home-head h1 { font-size: 19px; }
+  .hier-bar { flex-wrap: nowrap; }
+}
+@media (max-width: 420px) { .hier-grid { grid-template-columns: 1fr; } }
+/* 分级布局：行内操作列贴右，列再多也一直看得到 */
+.res-page.hier .res-table td.c-acts, .res-page.hier .res-table th:last-child { position: sticky; right: 0; background: var(--surface, #fff); box-shadow: -6px 0 6px -6px rgba(0, 0, 0, .12); z-index: 2; }
+.res-page.hier .res-table th:last-child { background: var(--head-bg); z-index: 4; }
+.res-page.hier .res-table tr.selected td.c-acts { background: var(--accent-soft); }

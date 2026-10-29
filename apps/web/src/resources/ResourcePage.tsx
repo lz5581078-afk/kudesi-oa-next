@@ -4,12 +4,14 @@ import { selectChoices, useCategoryOptions } from './categoryOptions';
 import { CategoryManageDialog } from './CategoryManageDialog';
 import { BatchBar } from './BatchBar';
 import { rowActionsFor } from './RowActions';
+import { HierRowActions } from './HierRowActions';
+import { HierBar } from './HierBar';
 import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, browseFilterFields, permissionOwner, resourcePermission, viewFiltersOf, createChecker, gridPolicyOf, SPECIAL_PERMISSIONS, type ColFilter, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { downloadText } from './csv';
-import { resourceApi, type ListResult } from './api';
+import { resourceApi, type ListResult, type ResourceDto } from './api';
 import { CategoryTree } from './CategoryTree';
 import { FeeSnapshotsDialog } from './FeeSnapshotsDialog';
 import { PackagingExcelDialog } from './PackagingExcelDialog';
@@ -39,6 +41,9 @@ import { groupNote } from './groupNote';
 import { groupRowsByDept, groupRowsByValue, type DeptRef, type RowGroup } from './groupRows';
 
 const PAGE_SIZES = [20, 50, 100, 200] as const;
+
+/** 分级布局里“进到某个顶级分类之后”的上下文：返回上一级、顶级分类名、顶级分类的资料 id（kind=category）、说明 */
+export interface HierContext { title: string; subtitle: string; rootId?: number; onBack: () => void }
 
 type ListPrefs = { pageSize?: number; status?: string; filters?: Record<string, string> };
 const prefsKey = (type: string) => `kudesi.list.${type}`;
@@ -81,7 +86,7 @@ function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
 }
 
 /** 通用资料页：列表（搜索/分类页签/状态/分页/列设置）+ 右侧详情抽屉 + 新增/导入/导出，全部由资源定义生成。 */
-export function ResourcePage({ type, lockedTab, title, embedded }: { type: string; lockedTab?: string; title?: string; embedded?: boolean }) {
+export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type: string; lockedTab?: string; title?: string; embedded?: boolean; hier?: HierContext }) {
   const def = getResourceDef(type)!;
   const isMobile = useIsMobile();
   const [density, setDensity] = useDensity();
@@ -141,6 +146,12 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
       }
     }
   }, [filterFields]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 分级布局：进入某个顶级分类后，目录只显示它和它的下级，“全部”= 整个顶级分类
+  const rootVal = hier?.rootId ? String(hier.rootId) : '';
+  useEffect(() => {
+    if (rootVal && treeField) setFilterVals((cur) => (cur[treeField.key] ? cur : { ...cur, [treeField.key]: rootVal }));
+  }, [rootVal, treeField, filterFields]);
+  const [leaf, setLeaf] = useState(true);
   const [paths, setPaths] = useState<Record<string, string>>({});
   const setPath = useCallback((key: string, path: string) => setPaths((cur) => (cur[key] === path ? cur : { ...cur, [key]: path })), []);
   const [page, setPage] = useState(1);
@@ -150,6 +161,8 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editRow, setEditRow] = useState<ResourceDto | null>(null);
+  const [detailTab, setDetailTab] = useState<string | undefined>(undefined);
   const [addingAccount, setAddingAccount] = useState(false);
   const [copyInit, setCopyInit] = useState<Record<string, unknown> | null>(null);
   const [importing, setImporting] = useState(false);
@@ -336,6 +349,12 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     }
   }
 
+  // 旧版：供应商、客户、费用档案只能在最末级分类下新增
+  function startCreate() {
+    if (hier && def.hierarchy?.leafHint && !leaf) { setBatchMsg(def.hierarchy.leafHint); return; }
+    setCreating(true);
+  }
+
   function newInitial(): Record<string, unknown> | undefined {
     const init: Record<string, unknown> = {};
     if (tab && def.tabsBy) Object.assign(init, resourceTabInitial(def, tab));
@@ -346,11 +365,11 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
     return Object.keys(init).length ? init : undefined;
   }
 
-  const filtered = Boolean(colFilters.length || keyword.trim() || tab || status || archived || expiring || Object.values(filterVals).some(Boolean));
+  const filtered = Boolean(colFilters.length || keyword.trim() || (tab && !lockedTab) || status || archived || expiring || Object.entries(filterVals).some(([k, v]) => v && !(rootVal && k === treeField?.key && v === rootVal)));
   const onCheck = (ids: number[], on: boolean) => setChecked((cur) => (on ? [...new Set([...cur, ...ids])] : cur.filter((id) => !ids.includes(id))));
   function clearFilters() {
     if (colFilters.length) commitCol({ filters: [], labels: {} });
-    setKeyword(''); setStatus(''); setArchived(false); setExpiring(false); setFilterVals({}); setTab(lockedTab ?? ''); setPage(1);
+    setKeyword(''); setStatus(''); setArchived(false); setExpiring(false); setFilterVals(rootVal && treeField ? { [treeField.key]: rootVal } : {}); setTab(lockedTab ?? ''); setPage(1);
   }
   async function doExport(scope: 'filtered' | 'all' | 'picked') {
     try {
@@ -376,7 +395,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   if (expiring) chips.push({ key: 'expiring', text: '即将到期', clear: () => { setExpiring(false); setPage(1); } });
   if (archived) chips.push({ key: 'archived', text: '已归档', clear: () => { setArchived(false); setPage(1); } });
   if (showHidden && hiddenExists && !status && !archived) chips.push({ key: 'hidden', text: `含${def.statuses.filter((x) => x.hidden).map((x) => x.label).join('/')}`, clear: () => { setShowHidden(false); setPage(1); } });
-  for (const bf of browseFields) if (filterVals[bf.key] && paths[bf.key]) chips.push({ key: `browse:${bf.key}`, text: `${browseFields.length > 1 || bf.key !== treeKey ? bf.label : '分类'}：${paths[bf.key]}`, clear: () => { setFilterVals((v) => ({ ...v, [bf.key]: '' })); setPage(1); } });
+  for (const bf of browseFields) if (filterVals[bf.key] && paths[bf.key] && !(rootVal && filterVals[bf.key] === rootVal)) chips.push({ key: `browse:${bf.key}`, text: `${browseFields.length > 1 || bf.key !== treeKey ? bf.label : '分类'}：${paths[bf.key]}`, clear: () => { setFilterVals((v) => ({ ...v, [bf.key]: '' })); setPage(1); } });
   const colFieldLabel = (key: string) => (key === STATUS_COL ? '状态' : def.fields.find((f) => f.key === key)?.label ?? key);
   const colValueLabel = (f: ColFilter) => (v: string) => {
     if (f.key === STATUS_COL) return def.statuses.find((x) => x.value === v)?.label ?? v;
@@ -391,6 +410,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   });
   const hasFilterPop = true;
   const popCount = chips.filter((c) => !c.key.startsWith('browse:') && !c.key.startsWith('col:')).length;
+  const canDel = can('delete');
   const tabList = (tabField || def.quickTabs?.length) && !lockedTab
     ? [...resourceTabOptions(def, catOptions?.filter((o) => !o.hidden)), ...((def.tabsBy === 'archiveType' && (unitOpts.archive_type ?? []).filter((o) => !resourceTabOptions(def).some((b) => b.value === o.value))) || []), ...(def.quickTabs ?? []).map((t) => ({ value: `q:${t.key}`, label: t.label })).filter((t) => tab === t.value || !data?.tabCounts || (data.tabCounts[t.value] ?? 0) > 0)]
     : [];
@@ -423,10 +443,11 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
 
   const extras = (
     <>
+      {hier && hiddenExists && <button type="button" className={showHidden ? 'res-btn on' : 'res-btn'} aria-pressed={showHidden} onClick={() => { setShowHidden(!showHidden); setPage(1); }}>{showHidden ? '隐藏停用' : '显示停用'}</button>}
       {groupCfg && <button type="button" className={wantGroup ? 'res-btn on' : 'res-btn'} aria-pressed={wantGroup} title={`列表按${groupField?.label ?? '所属部门'}分组，可折叠`} onClick={() => setGroupMode(!wantGroup)}>{groupCfg.order === 'value' ? `按${groupField?.label ?? ''}分组` : '按部门分组'}</button>}
       {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="res-btn" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
       {type === 'finance-packaging-schemes' && <button type="button" className="res-btn" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
-      {type === 'finance-products' && can('edit') && <button type="button" className="res-btn" onClick={() => setArchiveTypesOpen(true)}>管理档案类型</button>}
+      {type === 'finance-products' && !hier && can('edit') && <button type="button" className="res-btn" onClick={() => setArchiveTypesOpen(true)}>管理档案类型</button>}
       {type === 'finance-product-units' && can('create') && <button type="button" className="res-btn" disabled={seeding} onClick={seedUnits}>{seeding ? '导入中…' : '导入默认项'}</button>}
       {type === 'finance-fee-items' && can('create') && hasFeeDefaults(me?.companyName) && <button type="button" className="res-btn" disabled={seeding} onClick={seedFees}>{seeding ? '导入中…' : '导入默认费用档案'}</button>}
       {type === 'finance-fee-items' && <button type="button" className="res-btn" onClick={() => setSnapshotsOpen(true)}>费用存档表</button>}
@@ -461,16 +482,26 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
             <button type="button" role="menuitem" onClick={() => void doExport('all')}>导出全部</button>
           </></MorePop>
         : <button type="button" className="res-btn" onClick={() => void doExport('filtered')}>导出</button>)}
-      {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} onClick={() => setCreating(true)}>＋ 新增</button>}
+      {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
     </>
   );
 
   const addInGroup = groupCfg && can('create') ? (g: RowGroup) => { setCopyInit(def.fields.find((f) => f.key === groupCfg.field)?.readonly ? {} : g.refId ? { [groupCfg.field]: g.refId } : g.value ? { [groupCfg.field]: g.value } : {}); setCreating(true); } : undefined;
-  const rowActions = useMemo(() => rowActionsFor(type, (a) => can(a), (m) => { if (m) setBatchMsg(m); void load(); }), [type, can, load]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rowActions = useMemo(() => {
+    if (hier) {
+      return (row: ResourceDto) => (
+        <HierRowActions def={def} row={row} can={can} onOpen={(id) => { setDetailTab(undefined); setSelected(id); }} onEdit={setEditRow}
+          onCopy={(v) => { setCopyInit(v); setCreating(true); }}
+          onCost={type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') ? (id) => { setDetailTab('child:finance-product-costs'); setSelected(id); } : undefined}
+          onDone={(m) => { if (m) setBatchMsg(m); void load(); }} />
+      );
+    }
+    return rowActionsFor(type, (a) => can(a), (m) => { if (m) setBatchMsg(m); void load(); });
+  }, [type, can, load, hier, def]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const empty = filtered
     ? <div className="res-empty"><p>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。</p><button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></div>
-    : <div className="res-empty"><p>还没有{def.label}</p>{can('create') && <button type="button" className="res-btn primary sm" onClick={() => setCreating(true)}>＋ 新增{def.label}</button>}</div>;
+    : <div className="res-empty"><p>还没有{def.label}</p>{can('create') && <button type="button" className="res-btn primary sm" onClick={startCreate}>＋ 新增{def.label}</button>}</div>;
 
   const toolbar = (
     <fieldset className="grid-lock res-tools" disabled={gridLocked} title={gridLocked ? '有没保存的修改：请先保存或放弃，再换筛选或翻页' : undefined}>
@@ -511,7 +542,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
         <span className="res-bar-gap" />
         <div className="res-actions">{isMobile ? (
           <>
-            {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} onClick={() => setCreating(true)}>＋ 新增</button>}
+            {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
             <MorePop label="更多"><>
               {extras}
               {can('import') && <button type="button" role="menuitem" onClick={() => setImporting(true)}>导入</button>}
@@ -532,8 +563,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
   );
 
   return (
-    <div className={`res-page${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}`}>
+    <div className={`res-page${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}`}>
       {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
+      {hier && <HierBar title={hier.title} subtitle={hier.subtitle} onBack={hier.onBack} />}
       <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
         {browseFields.length > 0 && (
           <CategoryTree
@@ -545,16 +577,20 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
             values={filterVals}
             reloadKey={data?.total}
             onPath={setPath}
+            rootId={hier?.rootId}
+            createExtra={hier && !hier.rootId && tab ? { archiveType: tab } : undefined}
+            hint={hier ? def.hierarchy?.leafHint : undefined}
+            onLeaf={hier ? setLeaf : undefined}
             canManage={(f) => Boolean(def.treeManage?.includes(f.key) && f.ref && me && createChecker(me.permissions)(resourcePermission(permissionOwner(f.ref), 'edit')))}
             onChanged={() => void load()}
-            onSelect={(key, id) => { if (gridLocked) return; setFilterVals((v) => ({ ...v, [key]: id })); setPage(1); }}
+            onSelect={(key, id) => { if (gridLocked) return; setFilterVals((v) => ({ ...v, [key]: !id && rootVal && key === treeField?.key ? rootVal : id })); setPage(1); }}
           />
         )}
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
           {toolbar}
           {type === 'workforce' && <UnfiledBanner refreshKey={data?.total} canCreate={can('create')} onFile={(userId) => { setCopyInit({ userId }); setCreating(true); }} />}
           {error && <div role="alert" className="notice error m">{error}</div>}
-          {!gridOn && checked.length > 0 && <BatchBar def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
+          {!gridOn && checked.length > 0 && <BatchBar allowDelete={Boolean(hier) && canDel} def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
           {grouping && groupCfg?.chips && allGroups && allGroups.length > 1 && (
             <div className="res-tags" role="group" aria-label={`按${groupField?.label ?? ''}看`}>
@@ -611,7 +647,8 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
               onToggleGroup={toggleGroup}
               onAddInGroup={addInGroup}
               rowActions={rowActions}
-              rowActionsLabel={['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
+              rowActionsLabel={hier ? '操作' : ['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
+              actWidth={hier ? (type === 'finance-products' ? 340 : 270) : undefined}
             />
           )}
           <div className="res-foot">
@@ -639,7 +676,7 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
       {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}
       {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}
-      {selected !== null && <RecordDetail def={def} id={selected} nav={detailNav} onClose={() => setSelected(null)} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
+      {selected !== null && <RecordDetail key={`${selected}:${detailTab ?? ''}`} initialTab={detailTab} def={def} id={selected} nav={detailNav} onClose={() => { setSelected(null); setDetailTab(undefined); }} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
 
       {creating && (
         <RecordForm
@@ -655,6 +692,9 @@ export function ResourcePage({ type, lockedTab, title, embedded }: { type: strin
             void load();
           }}
         />
+      )}
+      {editRow && (
+        <RecordForm def={def} record={editRow} onClose={() => setEditRow(null)} onSaved={() => { setEditRow(null); void load(); }} />
       )}
       {addingAccount && <AddAccountDialog onClose={() => setAddingAccount(false)} onCreated={(userId) => { setAddingAccount(false); setCopyInit({ userId }); setCreating(true); }} />}
       {inventory && <InventoryDialog onClose={() => setInventory(false)} onDone={(m) => { setInventory(false); setBatchMsg(m); void load(); }} />}

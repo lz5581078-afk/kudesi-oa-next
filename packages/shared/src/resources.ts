@@ -185,6 +185,21 @@ export interface BatchAction {
   reasonLabel?: string;
 }
 
+/** 分级布局配置（见 ResourceDef.hierarchy） */
+export interface ArchiveHierarchy {
+  kind: 'tab' | 'category';
+  /** 卡片页标题下的说明、进入后的说明（旧版原文意思） */
+  subtitle: string;
+  /** 卡片上的计数单位，如“个供应商” */
+  unit: string;
+  /** 进入某个顶级后的列表标题后缀，如“供应商列表” */
+  listTitle: string;
+  /** kind=category：顶级分类所在的资料（如 finance-supplier-categories） */
+  categoryType?: string;
+  /** 新增资料时必须落在最末级分类（旧供应商/客户档案如此），提示用 */
+  leafHint?: string;
+}
+
 export interface ResourceDef {
   key: string;
   label: string;
@@ -220,6 +235,8 @@ export interface ResourceDef {
   quickTabs?: readonly QuickTab[];
   /** 左侧目录里可以就地管理（新增下级、改名、排序、删除）的树形字段 key；需要对方资料的编辑/删除权限 */
   treeManage?: readonly string[];
+  /** 分级布局（财务基础资料四档）：先看一排顶级分类卡片，点进去才是“左侧分类树 + 右侧列表”。kind=tab 顶级是 tabsBy 页签（商品档案的档案类型），kind=category 顶级是分类树的一级分类 */
+  hierarchy?: ArchiveHierarchy;
   /** 左侧目录里不显示的节点：树形字段 key → 对方资料某字段取这些值的节点（如固定资产的位置目录不列“储物空间”，只列房间和柜子所在位置）；这些节点下的资料仍归到上级里算 */
   treeExclude?: Record<string, { field: string; values: readonly string[] }>;
   /** 计算筛选下拉（条件在服务端按今天实时算） */
