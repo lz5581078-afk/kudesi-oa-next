@@ -68,7 +68,7 @@ export function CategoryManageDialog({ type, def, onClose, onChanged }: { type: 
   };
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="modal-backdrop cat-backdrop" role="presentation">
       <div className="modal card cat-manage" role="dialog" aria-label="管理分类">
         <div className="modal-head between"><strong>管理分类 · {def.label}{field ? `（${field.label}）` : ''}</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}><CloseIcon /></button></div>
         <div className="modal-body">
@@ -80,15 +80,15 @@ export function CategoryManageDialog({ type, def, onClose, onChanged }: { type: 
           </form>
           {items === null && !error && <p className="muted">加载中…</p>}
           {items && (
-            <table className="data-table cards-narrow cat-table">
-              <thead><tr><th>名称</th><th>值（内部标识）</th><th>在用记录</th><th>类型</th><th>显示</th><th>操作</th></tr></thead>
+            <table className="data-table cat-table">
+              <thead><tr><th>名称</th><th>值（内部标识）</th><th>在用记录</th><th>操作</th></tr></thead>
               <tbody>
                 {items.map((it, i) => {
                   const delBlock = categoryDeleteBlock(it, it.count);
                   const isEditing = editing?.value === it.value;
                   return (
                     <tr key={it.value} className={it.hidden ? 'cat-hidden' : undefined}>
-                      <td data-label="名称">
+                      <td data-label="名称" className="cat-name">
                         {isEditing ? (
                           <form className="cat-rename" onSubmit={(e) => { e.preventDefault(); void rename(); }}>
                             <input aria-label={`「${it.label}」的新名称`} autoFocus maxLength={CATEGORY_LABEL_MAX} value={editing.name} onChange={(e) => setEditing({ value: it.value, name: e.target.value })} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); } }} />
@@ -96,21 +96,19 @@ export function CategoryManageDialog({ type, def, onClose, onChanged }: { type: 
                             <button type="button" className="secondary-button small" onClick={() => setEditing(null)}>取消</button>
                           </form>
                         ) : (
-                          <>{it.label}{it.system && it.defaultLabel && it.defaultLabel !== it.label && <small className="muted"> （原名 {it.defaultLabel}）</small>}</>
+                          <>{it.label} <span className={it.system ? 'cat-badge' : 'cat-badge own'}>{it.system ? '系统自带' : '自建'}</span>{it.hidden && <span className="cat-badge off">已隐藏</span>}{it.system && it.defaultLabel && it.defaultLabel !== it.label && <small className="muted cat-orig"> 原名 {it.defaultLabel}</small>}</>
                         )}
                       </td>
                       <td data-label="值"><code className="cat-key" title={it.system ? '系统分类的值由程序使用，不能修改' : '自动生成，不会改变'}>{it.value}</code>{it.system && <small className="muted"> 只读</small>}</td>
                       <td data-label="在用记录">{it.count}</td>
-                      <td data-label="类型">{it.system ? '系统自带' : '自建'}</td>
-                      <td data-label="显示">{it.hidden ? <span className="cat-badge off">已隐藏</span> : '显示中'}</td>
-                      <td data-label="操作" className="cat-actions">
+                      <td data-label="操作" className="cat-actions"><div className="cat-act">
                         <button type="button" className="secondary-button small" aria-label={`上移「${it.label}」`} disabled={busy || i === 0} onClick={() => move(i, -1)}><UpIcon /></button>
                         <button type="button" className="secondary-button small" aria-label={`下移「${it.label}」`} disabled={busy || i === items.length - 1} onClick={() => move(i, 1)}><DownIcon /></button>
                         <button type="button" className="secondary-button small" disabled={busy} onClick={() => setEditing({ value: it.value, name: it.label })}>改名</button>
                         <button type="button" className="secondary-button small" disabled={busy || it.system} title={it.system ? '系统自带分类不能隐藏' : it.hidden ? '重新显示在页签和下拉里' : it.count > 0 ? `已有 ${it.count} 条记录在用，隐藏后记录保留，只是不能再被新选` : '从页签和下拉里隐藏'} onClick={() => void toggleHidden(it)}>{it.hidden ? '显示' : '隐藏'}</button>
                         <button type="button" className="secondary-button small danger" disabled={busy || !!delBlock} title={delBlock ?? '删除这个自建分类'} onClick={() => void remove(it)}>删除</button>
                         {!it.system && it.count > 0 && <small className="muted cat-note">有 {it.count} 条记录在用，只能隐藏</small>}
-                      </td>
+                      </div></td>
                     </tr>
                   );
                 })}

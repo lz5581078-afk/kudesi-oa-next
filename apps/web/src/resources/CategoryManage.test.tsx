@@ -55,10 +55,10 @@ describe('管理分类弹窗', () => {
     expect(within(brand).getByText('只读')).toBeTruthy();
     expect(within(brand).getByText('3')).toBeTruthy();
     expect(within(brand).getByText('系统自带')).toBeTruthy();
+    expect(within(rowOf('协会证书')).getByText('自建')).toBeTruthy();
     expect((within(brand).getByRole('button', { name: '隐藏' }) as HTMLButtonElement).disabled).toBe(true);
     expect((within(brand).getByRole('button', { name: '删除' }) as HTMLButtonElement).disabled).toBe(true);
     const mine = rowOf('协会证书');
-    expect(within(mine).getByText('自建')).toBeTruthy();
     expect((within(mine).getByRole('button', { name: '删除' }) as HTMLButtonElement).disabled).toBe(false);
   });
 

@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Injectable, Param, Patch, PipeTransform, Post } from '@nestjs/common';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 import { SPECIAL_PERMISSIONS } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { ResourceCategoriesService } from './resource-categories.service';
@@ -12,7 +12,13 @@ class UpdateCategoryDto {
 class ReorderCategoriesDto { @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @IsString({ each: true }) @MaxLength(64, { each: true }) values!: string[] }
 
 const VALUE = /^[A-Za-z0-9_]{1,64}$/;
-class ValueParam { @Matches(VALUE) value!: string }
+@Injectable()
+class CategoryValuePipe implements PipeTransform<string, string> {
+  transform(v: string) {
+    if (!VALUE.test(v)) throw new BadRequestException('分类标识不合法');
+    return v;
+  }
+}
 
 /**
  * 资料页签“管理分类”。注册顺序要排在 ResourcesController 之前（路径 resources/category-options、resources/:type/categories 不能被 :type、:type/:id 抢走）。
@@ -50,13 +56,13 @@ export class ResourceCategoriesController {
 
   @RequirePermission(SPECIAL_PERMISSIONS.resourceCategoriesManage)
   @Patch(':type/categories/:value')
-  update(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param() p: ValueParam, @Body() dto: UpdateCategoryDto) {
-    return this.svc.update(user, type, p.value, { name: dto.name, hidden: dto.hidden });
+  update(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('value', CategoryValuePipe) value: string, @Body() dto: UpdateCategoryDto) {
+    return this.svc.update(user, type, value, { name: dto.name, hidden: dto.hidden });
   }
 
   @RequirePermission(SPECIAL_PERMISSIONS.resourceCategoriesManage)
   @Delete(':type/categories/:value')
-  remove(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param() p: ValueParam) {
-    return this.svc.remove(user, type, p.value);
+  remove(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('value', CategoryValuePipe) value: string) {
+    return this.svc.remove(user, type, value);
   }
 }
