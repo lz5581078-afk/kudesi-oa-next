@@ -122,6 +122,14 @@ describe('现金银行查询', () => {
     expect(within(dlg).getByText('拼店收款户')).toBeTruthy();
     expect(within(dlg).queryByText('招行主户')).toBeNull();
   });
+  it('有在途待确认的转款时：汇总卡片和账户行显示在途金额，不计入余额', async () => {
+    fa.banks.mockResolvedValue([acct(1, '招行主户', 'company_public', { inTransitCents: 250000 }), acct(2, '拼店收款户', 'store_public')]);
+    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
+    expect(await screen.findByText('在途待确认转款')).toBeTruthy();
+    const row = screen.getByText('招行主户').closest('tr')!;
+    expect(within(row).getByTitle(/确认入账后才计入余额/).textContent).toBe('¥2,500.00');
+    expect(within(row).getByText('¥100.00')).toBeTruthy(); // 余额仍是 10000 分
+  });
 });
 
 describe('店铺提现的店铺列表', () => {

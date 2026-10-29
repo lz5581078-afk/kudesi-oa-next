@@ -10,6 +10,7 @@ import { ExportButton, Field, FilterBar, QueryPage, QueryPanel, QueryTable, Summ
 
 type Rel = { title: string; accounts?: BankBalance[]; stores?: Array<{ id: number; name: string; fund?: StoreFund }> };
 const sum = (l: BankBalance[]) => l.reduce((s, r) => s + r.balanceCents, 0);
+const transitSum = (l: BankBalance[]) => l.reduce((s, r) => s + (r.inTransitCents ?? 0), 0);
 
 /**
  * 现金银行查询（按旧版 10-24 的版式）：账户查询条 → 四张汇总卡 → 重点账户 → 店铺资金（按平台分页签，可折叠）
@@ -74,15 +75,16 @@ export function CashBankPage() {
     keeper: { key: 'keeper', head: '保管人', cell: (r) => r.keeperName || '-', csv: (r) => r.keeperName } as Col<BankBalance>,
     link: { key: 'link', head: '关联主体/店铺', cell: (r) => (r.storeNames?.length ? r.storeNames.join('、') : r.licenseName) || '-', csv: (r) => (r.storeNames?.length ? r.storeNames.join('、') : r.licenseName) } as Col<BankBalance>,
     balance: { key: 'balance', head: '当前余额', num: true, cell: (r) => <span className="strong">{money(r.balanceCents)}</span>, sum: (l) => money(sum(l)), csv: (r) => plainYuan(r.balanceCents) } as Col<BankBalance>,
+    transit: { key: 'transit', head: '在途待确认', num: true, cell: (r) => ((r.inTransitCents ?? 0) !== 0 ? <span className="pill warn" title="转款已转出、对方还没确认到账，确认入账后才计入余额">{money(r.inTransitCents)}</span> : <span className="muted">—</span>), sum: (l) => money(transitSum(l)), csv: (r) => plainYuan(r.inTransitCents ?? 0) } as Col<BankBalance>,
     fresh: { key: 'fresh', head: '余额最后更新', cell: (r) => <Fresh at={r.updatedAt} now={now} />, csv: (r) => fmtUpdated(r.updatedAt) } as Col<BankBalance>,
     status: { key: 'status', head: '状态', cell: (r) => <span className={`pill ${r.status === 'normal' ? 'ok' : 'warn'}`}>{r.status === 'normal' ? '正常' : r.status === 'abnormal' ? '异常' : '停用'}</span>, csv: (r) => r.status } as Col<BankBalance>,
     stores: { key: 'stores', head: '关联店铺', action: true, cell: (r) => <button type="button" className="link-button" onClick={() => setRel({ title: `${r.title} · 关联店铺`, stores: (r.storeIds ?? []).map((id, i) => ({ id, name: r.storeNames?.[i] ?? `店铺#${id}`, fund: funds.find((f) => f.storeId === id) })) })}>查看店铺</button> } as Col<BankBalance>,
     key: { key: 'key', head: '重点', action: true, cell: (r) => <button type="button" className="link-button" onClick={() => toggleKey(r.id)}>{keys.includes(r.id) ? '取消重点' : '设为重点'}</button> } as Col<BankBalance>,
   };
-  const keyCols = [A.type, A.name, A.no, A.bank, A.link, A.balance, A.fresh, A.key];
-  const storeCols = [A.type, A.name, A.no, A.bank, A.license, A.balance, A.fresh, A.status, A.stores, A.key];
-  const companyCols = [A.type, A.name, A.no, A.bank, A.keeper, A.balance, A.fresh, A.status, A.key];
-  const exportCols = [A.type, A.name, A.bank, A.license, A.keeper, A.link, A.balance, A.fresh, A.status];
+  const keyCols = [A.type, A.name, A.no, A.bank, A.link, A.balance, A.transit, A.fresh, A.key];
+  const storeCols = [A.type, A.name, A.no, A.bank, A.license, A.balance, A.transit, A.fresh, A.status, A.stores, A.key];
+  const companyCols = [A.type, A.name, A.no, A.bank, A.keeper, A.balance, A.transit, A.fresh, A.status, A.key];
+  const exportCols = [A.type, A.name, A.bank, A.license, A.keeper, A.link, A.balance, A.transit, A.fresh, A.status];
 
   const fundCols: Array<Col<StoreFund>> = [
     { key: 'store', head: '店铺', primary: true, cell: (f) => <>{f.platformLabel} / {f.name}<div className="muted">{f.storeNo || '未填写店铺编号'}</div></>, csv: (f) => `${f.platformLabel} / ${f.name}` },
@@ -114,6 +116,7 @@ export function CashBankPage() {
             { label: '店铺可提现余额', value: money(withdrawable), tone: 'ok' },
             { label: '店铺账户余额', value: money(sum(storeAccounts)) },
             { label: '公司账户余额', value: money(sum(companyAccounts)), tone: 'accent' },
+            ...(transitSum(accounts) !== 0 ? [{ label: '在途待确认转款', value: money(transitSum(accounts)), tone: 'warn' as const }] : []),
           ]} />
           <p className="muted qk-note">余额旁的时间是“最后更新”：24 小时内绿色，3 天内黄色，更久红色。期初取自“银行账户”资料里登记的余额，之后每张已过账的单据都会自动计入。</p>
 

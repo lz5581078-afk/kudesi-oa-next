@@ -2,7 +2,7 @@ import type { DocInput, DocLineInput, DocType } from '@kudesi/shared';
 import type { FileInfo } from '../../resources/api';
 import { api } from '../../api/client';
 
-export interface DocRow { id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null }
+export interface DocRow { id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null; transitStatus?: 'pending' | 'confirmed' | null; feeCents?: number; discountCents?: number; acctCount?: number }
 export interface DocList { todayCount?: number; total: number; amountCents: number; paidCents: number; incomeCents?: number; expenseCents?: number; page: number; pageSize: number; rows: DocRow[] }
 export interface BatchResult { okCount: number; failCount: number; results: Array<{ id: number; ok: boolean; docNo?: string; error?: string }> }
 export interface DocEntry { id: string; kind: string; accountId: number; accountName: string; subId: number; amountCents: number | null; qty: number | null }
@@ -10,7 +10,7 @@ export interface DocLineView extends DocLineInput { id: number; productName: str
 export interface DocDetailDto {
   id: number; docNo: string; docType: DocType; typeLabel: string; status: DocRow['status']; docDate: string; partyId: number | null; partyName: string;
   storeId: number | null; storeName: string; refNo: string | null; bankAccountId: number | null; bankName: string; toBankAccountId: number | null; toBankName: string; warehouseId: number | null; warehouseName: string;
-  amountCents: number; offsetCents: number; paidCents: number; discountCents?: number; partyKind: 'customer' | 'store' | 'supplier' | 'employee' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
+  amountCents: number; offsetCents: number; paidCents: number; discountCents?: number; feeCents?: number; feeBearer?: 'out' | 'in' | null; transitStatus?: 'pending' | 'confirmed' | null; handlerId?: number | null; confirmedAt?: string | null; confirmedByName?: string; partyKind: 'customer' | 'store' | 'supplier' | 'employee' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
   sourceKey?: string | null; openingVouchers?: FileInfo[];
   settleBy?: 'doc' | 'product' | null; settleByLabel?: string | null;
   settlements?: Array<{ id: number; sourceDocId: number; sourceDocNo: string; sourceTypeLabel: string; productId: number | null; productName: string; amountCents: number }>;
@@ -45,9 +45,9 @@ export interface DebugQuote { id: number; available: boolean; message?: string; 
 export interface DebugExportInput { id: number; step: number; profit?: DebugProfit; mode: 'roiToPrice' | 'priceToRoi' | 'sliderPrice'; value?: number; sellingPriceCents?: number; roi?: number; sliderPriceCents?: number }
 export interface OpenItem { id: number; docNo: string; docType: string; typeLabel: string; docDate: string; amountCents: number; paidCents: number; offsetCents: number; outstandingCents: number; products: Array<{ productId: number; productName: string; amountCents: number; outstandingCents: number }> }
 export interface SettlementRow { id: number; docId: number; docNo: string; typeLabel: string; docDate: string; partyName: string; settleByLabel: string; sourceDocId: number; sourceDocNo: string; sourceTypeLabel: string; productName: string; amountCents: number }
-export interface UnsettledRow { id: number; docNo: string; typeLabel: string; docDate: string; partyName: string; settleByLabel: string; totalCents: number; allocatedCents: number; unallocatedCents: number }
+export interface UnsettledRow { discountCents?: number; id: number; docNo: string; typeLabel: string; docDate: string; partyName: string; settleByLabel: string; totalCents: number; allocatedCents: number; unallocatedCents: number }
 export interface BankBalance {
-  id: number; title: string; kind: string; status: string; openingCents: number; movementCents: number; balanceCents: number; entries: number;
+  id: number; title: string; kind: string; status: string; openingCents: number; movementCents: number; balanceCents: number; entries: number; inTransitCents?: number;
   bank?: string; ownerName?: string; licenseName?: string; keeperName?: string; storeIds?: number[]; storeNames?: string[]; updatedAt?: string | null;
 }
 export interface LedgerRow { id: number; entryDate: string; amountCents: number; balanceCents: number; documentId: number; docNo: string; typeLabel: string; memo: string | null; handler: string | null; partyName: string | null }
@@ -57,11 +57,11 @@ export interface StockLedgerRow { id: number; entryDate: string; documentId: num
 export interface StockLedger { rows: StockLedgerRow[]; inQty: number; outQty: number; closingQty: number; closingAmountCents: number | null }
 export interface StoreFund { storeId: number; name: string; storeNo?: string; platform?: string; platformLabel?: string; snapshotDate: string; updatedAt?: string | null; withdrawableCents: number; depositCents: number; frozenCents: number; promotionCents: number }
 export interface Overview {
-  trend: Array<{ date: string; revenueCents: number; expenseCents: number; profitCents: number | null }>;
+  trend: Array<{ date: string; revenueCents: number; expenseCents: number; financeCostCents?: number; profitCents: number | null }>;
   trendBy?: 'day' | 'month';
   stores: Array<{ storeId: number; name: string; licenseName?: string; platform?: string; salesCents: number; adCostCents: number; profitCents: number | null }>;
   ledger: Array<{ date: string; direction: 'in' | 'out'; kind: string; amountCents: number; documentId: number; docNo: string; docType: string; storeName?: string; source?: string }>;
-  month: string; revenueCents: number; cogsCents: number | null; grossProfitCents: number | null; expenseCents: number; otherIncomeCents: number; netProfitCents: number | null;
+  month: string; revenueCents: number; cogsCents: number | null; grossProfitCents: number | null; expenseCents: number; financeCostCents?: number; otherIncomeCents: number; netProfitCents: number | null;
   receivableCents: number; payableCents: number; advanceReceiptCents: number; prepaymentCents: number; bankCents: number | null; drafts: number; issued: number;
 }
 
@@ -86,18 +86,19 @@ const qs = (o: Record<string, string | number | undefined>) => {
 };
 
 export const financeApi = {
-  docs: (p: { scope: string; direction?: string; status?: string; from?: string; to?: string; keyword?: string; creatorId?: number; audited?: string; docType?: string; page?: number }) => api<DocList>(`/finance/docs${qs(p)}`),
+  docs: (p: { scope: string; direction?: string; status?: string; transit?: string; from?: string; to?: string; keyword?: string; creatorId?: number; audited?: string; docType?: string; page?: number }) => api<DocList>(`/finance/docs${qs(p)}`),
   doc: (id: number) => api<DocDetailDto>(`/finance/docs/${id}`),
   create: (b: DocBody) => api<DocDetailDto>('/finance/docs', { method: 'POST', body: b }),
   update: (id: number, b: DocBody) => api<DocDetailDto>(`/finance/docs/${id}`, { method: 'PUT', body: b }),
   remove: (id: number) => api<{ ok: true }>(`/finance/docs/${id}`, { method: 'DELETE', body: {} }),
   issue: (id: number) => api<DocDetailDto>(`/finance/docs/${id}/issue`, { method: 'POST', body: {} }),
   unissue: (id: number, reason: string) => api<DocDetailDto>(`/finance/docs/${id}/unissue`, { method: 'POST', body: { reason } }),
-  editHeader: (id: number, b: { date?: string; handler?: string | null; memo?: string | null }) => api<DocDetailDto>(`/finance/docs/${id}/header`, { method: 'PUT', body: b }),
+  editHeader: (id: number, b: { date?: string; handler?: string | null; handlerId?: number | null; memo?: string | null }) => api<DocDetailDto>(`/finance/docs/${id}/header`, { method: 'PUT', body: b }),
   audit: (id: number, on: boolean) => api<DocDetailDto>(`/finance/docs/${id}/audit`, { method: 'POST', body: { on } }),
   copy: (id: number) => api<DocDetailDto>(`/finance/docs/${id}/copy`, { method: 'POST', body: {} }),
   batch: (action: 'post' | 'delete' | 'copy', ids: number[]) => api<BatchResult>('/finance/docs-batch', { method: 'POST', body: { action, ids } }),
   post: (id: number) => api<DocDetailDto>(`/finance/docs/${id}/post`, { method: 'POST', body: {} }),
+  confirmTransfer: (id: number, b: { date?: string; note?: string } = {}) => api<DocDetailDto>(`/finance/docs/${id}/confirm-transfer`, { method: 'POST', body: b }),
   registerOpeningPrepayment: (id: number, body: { reason: string; fileIds: number[]; confirmed: boolean }) => api<DocDetailDto>(`/finance/docs/${id}/opening-prepayment`, { method: 'POST', body }),
   uploadOpeningVoucher: (id: number, file: File) => { const form = new FormData(); form.append('file', file); return api<FileInfo>(`/finance/docs/${id}/opening-vouchers`, { form }); },
   openingVoucherUrl: (id: number, fileId: number) => api<{ url: string }>(`/finance/docs/${id}/opening-vouchers/${fileId}/url`),

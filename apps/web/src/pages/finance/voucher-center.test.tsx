@@ -69,11 +69,14 @@ describe('赠品与整单优惠', () => {
     expect(b.discountCents).toBe(300);
     expect(b.lines[0].unitPriceCents).toBe(1000);
   });
-  it('退货等商品类单据都有优惠金额，金额类单据没有', () => {
+  it('退货等商品类单据都有优惠金额；收款单、付款单也有（第二批：影响往来）；预收款单这类没有', () => {
     render(<DocForm type="purchase-in" inline onSaved={vi.fn()} />);
     expect(screen.getByLabelText('优惠金额')).toBeTruthy();
     cleanup();
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
+    expect(screen.getByLabelText('优惠金额')).toBeTruthy();
+    cleanup();
+    render(<DocForm type="advance-receipt" inline onSaved={vi.fn()} />);
     expect(screen.queryByLabelText('优惠金额')).toBeNull();
   });
 });
