@@ -2,22 +2,23 @@ import { CascadePicker } from './CascadePicker';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { fieldOptions, useUnitOptions } from './unitOptions';
 import { selectChoices, useCategoryVersion } from './categoryOptions';
-import { groupTitle, SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
 import { ManageLink } from './ManageLink';
-import { BomDraft, saveBomRows, validBomRows, type BomDraftRow } from './BomDraft';
+import { BomDraft, saveBomRows, loadBomRows, validBomRows, type BomDraftRow } from './BomDraft';
+import { SourcesDraft, WeightBlock, loadSourceRows, saveSourceRows, type SourceRow } from './ProductFormParts';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
 import { LicenseRecognizeButton } from './LicenseRecognize';
 
-export function MoneyControl({value,scale,onChange}:{value:unknown;scale:number;onChange:(v:unknown)=>void}) {
+export function MoneyControl({value,scale,onChange,ariaLabel}:{value:unknown;scale:number;onChange:(v:unknown)=>void;ariaLabel?:string}) {
   const textOf=(v:unknown)=>v===undefined||v===null||v===''?'':unitYuanText(Number(v));
   const [text,setText]=useState(()=>textOf(value));
   useEffect(()=>{if(!Number.isNaN(value))setText(textOf(value));},[value]);
-  return <input inputMode="decimal" value={text} placeholder={scale?'元（最多六位小数）':'元'} onChange={e=>{
+  return <input aria-label={ariaLabel} inputMode="decimal" value={text} placeholder={scale?'元（最多六位小数）':'元'} onChange={e=>{
     const raw=e.target.value;setText(raw);
     if(!raw.trim())return onChange('');
     try{onChange(yuanToPreciseCents(raw.trim().replace(/^\./,'0.'),scale));}catch{onChange(NaN);}
@@ -264,16 +265,26 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   /** 提供了它，新建时就多出“保存并继续新建”：保存后不关弹窗，列表由它刷新 */
   onContinued?: (dto: ResourceDto) => void;
 }) {
-  const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...(record?.data ?? {}), ...(initial ?? {}) }));
+  const copyOf = typeof initial?.__copyOf === 'number' ? initial.__copyOf : null;
+  const [values, setValues] = useState<Record<string, unknown>>(() => { const v = { ...(record?.data ?? {}), ...(initial ?? {}) }; delete v.__copyOf; return v; });
   const [status, setStatus] = useState(record?.status ?? def.defaultStatus);
   const [error, setError] = useState('');
   const [bomRows, setBomRows] = useState<BomDraftRow[]>([]);
+  const [bomOrig, setBomOrig] = useState<BomDraftRow[]>([]);
+  const [sourceRows, setSourceRows] = useState<SourceRow[]>([]);
+  const [sourceOrig, setSourceOrig] = useState<SourceRow[]>([]);
+  // 读不出来（没有权限等）时为 null：不在表单里校验，交给服务端
+  const [partsKnown, setPartsKnown] = useState({ sources: true, composition: true });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [known, setKnown] = useState<Record<number, FileInfo>>(record?.files ?? {});
   // 新建时填了内容就关闭，先确认，免得点错丢内容（旧系统同款）
   const startValues = useRef(JSON.stringify(values));
-  const dirty = JSON.stringify(values) !== startValues.current;
+  const rowsKey = JSON.stringify([bomRows, sourceRows]);
+  const startRows = useRef<string | null>(null);
+  if (startRows.current === null && !(record || copyOf)) startRows.current = rowsKey;
+  useEffect(() => { if (startRows.current === null && (record || copyOf) && (bomRows.length || sourceRows.length || bomOrig.length || sourceOrig.length)) startRows.current = rowsKey; }, [rowsKey, record, copyOf, bomRows.length, sourceRows.length, bomOrig.length, sourceOrig.length]);
+  const dirty = JSON.stringify(values) !== startValues.current || (startRows.current !== null && rowsKey !== startRows.current);
   const requestClose = () => {
     if (busy) return;
     if (dirty && !window.confirm(record ? '修改的内容还没有保存，关闭后会丢失。确定直接关闭吗？' : '新增的资料还没有保存，关闭后填写的内容会丢失。确定直接关闭吗？')) return;
@@ -309,16 +320,20 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     return () => { alive = false; };
   }, [def.key, record]);
   const locked = useMemo(() => [...(lockedFields ?? []), ...(refLock?.fields ?? [])], [lockedFields, refLock]);
+  // 商品档案：分区、顺序、叫法、必填、显示条件全部来自 product-layout（详情页读的是同一份）
+  const resolved = useMemo(() => (def.key === 'finance-products' ? resolveProductSections(values, { canUse: (p) => (me ? createChecker(me.permissions)(p) : false) }) : null), [def.key, values, me]);
   const visible = useMemo(() => {
+    if (resolved) return resolved.flatMap((s) => s.nodes.flatMap((n) => (n.kind === 'field' ? [n.field] : n.fields))).filter((f) => !f.readonly && (!onlyGroup || f.group === onlyGroup));
     const ctx: Record<string, unknown> = { ...values, status };
     return def.fields.filter((f) => !f.readonly && canField(f)).filter((f) => !(def.key === 'fixed-assets' && record && f.key === 'userId')).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? ''))).filter((f) => !onlyGroup || f.group === onlyGroup);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def, values, status, me, onlyGroup]);
+  }, [def, values, status, me, onlyGroup, resolved]);
   const groups = useMemo(() => {
+    if (resolved) return resolved.filter((s) => !onlyGroup || s.title === onlyGroup).map((s) => [s.title, visible.filter((f) => f.group === s.title)] as [string, FieldDef[]]);
     const map = new Map<string, FieldDef[]>();
     for (const f of visible) map.set(f.group, [...(map.get(f.group) ?? []), f]);
     return [...map.entries()];
-  }, [visible]);
+  }, [visible, resolved, onlyGroup]);
 
   // 商品档案新建：草稿（每人每个档案类型一份，存在服务器上）、保存并继续新建
   const isProduct = def.key === 'finance-products';
@@ -336,6 +351,20 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       setValues((cur) => ({ ...cur, ...r.draft!.payload }));
       setDraftNote('已恢复上次保存的草稿。');
     }).catch(() => undefined);
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 商品档案的供货来源、生产组成：编辑时读出已有的行；复制新增时带上被复制那条的行（不带行 id）
+  const layoutKey = productLayoutKey(values);
+  const wantSources = isProduct && (layoutKey === 'raw' || layoutKey === 'shipping_material');
+  const wantComposition = isProduct && (layoutKey === 'self_made' || layoutKey === 'purchased_oem');
+  useEffect(() => {
+    const src = record?.id ?? copyOf;
+    if (!src) return;
+    let alive = true;
+    if (wantSources) loadSourceRows(src).then((rows) => { if (!alive) return; const mine = rows.filter((r) => !r.stopped); setSourceRows(record ? mine : mine.map(({ rowId: _r, ...x }) => x)); setSourceOrig(record ? mine : []); }).catch(() => alive && setPartsKnown((c) => ({ ...c, sources: false })));
+    if (wantComposition) loadBomRows(src).then((rows) => { if (!alive) return; setBomRows(record ? rows : rows.map(({ rowId: _r, ...x }) => x)); setBomOrig(record ? rows : []); }).catch(() => alive && setPartsKnown((c) => ({ ...c, composition: false })));
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -394,8 +423,10 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       }
       if (isProduct) {
         // 旧系统每次保存商品档案都先弹“核算资料确认”：逐项核对、零值写原因
-        const merged = { ...(record?.data ?? {}), ...body };
-        const options: QualityOptions = { canCost: Boolean(me && createChecker(me.permissions)('product.cost.edit')), composition: await compositionCounts(record?.id, merged) };
+        // 原料、发货物料的采购价来自供货来源：核算确认里按有价格的来源行显示（保存时仍以来源为准）
+        const sourcePrice = wantSources ? sourceRows.find((r) => r.supplierId && r.purchasePrice !== '' && !Number.isNaN(r.purchasePrice))?.purchasePrice : undefined;
+        const merged = { ...(record?.data ?? {}), ...body, ...(sourcePrice !== undefined ? { purchasePrice: sourcePrice } : {}) };
+        const options: QualityOptions = { canCost: Boolean(me && createChecker(me.permissions)('product.cost.edit')), composition: wantComposition || layoutKey === 'self_made' ? (partsKnown.composition ? { packaging: validBomRows(bomRows).filter((r) => r.group === 'package' || r.group === 'oem_package').length, labor: validBomRows(bomRows).filter((r) => r.group === 'labor').length } : await compositionCounts(record?.id, merged)) : undefined };
         setQuality({ body: merged, mode, options });
         setBusy(false);
         return;
@@ -411,12 +442,17 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     setBusy(true);
     setError('');
     try {
+      if (wantSources) delete body.purchasePrice; // 采购价由供货来源汇出，不直接写档案
       const saved = record ? await resourceApi.update(def.key, record.id, body) : await resourceApi.create(def.key, body, status);
       clearRefCache(def.key);
-      if (!record && def.key === 'finance-products' && validBomRows(bomRows).length) {
-        const failed = await saveBomRows(saved.id, bomRows);
-        if (failed.length) window.alert(`档案已保存，但这些生产组成没保存成功，请到详情的“构成（BOM）”页签补录：\n${failed.join('\n')}`);
-        setBomRows([]);
+      if (isProduct) {
+        const failed: string[] = [];
+        const canCostEdit = Boolean(me && createChecker(me.permissions)('product.cost.edit'));
+        if (wantSources && partsKnown.sources && (!onlyGroup || sectionHas(onlyGroup, 'supplySources'))) failed.push(...await saveSourceRows(saved.id, sourceRows, sourceOrig, canCostEdit));
+        if (wantComposition && partsKnown.composition && (!onlyGroup || sectionHas(onlyGroup, 'composition'))) failed.push(...await saveBomRows(saved.id, bomRows, bomOrig));
+        if (failed.length) window.alert(`档案已保存，但这些明细没保存成功，请到详情的“供货来源 / 构成（BOM）”页签补录：\n${failed.join('\n')}`);
+        if (mode === 'blank') { setBomRows([]); setSourceRows([]); setBomOrig([]); setSourceOrig([]); }
+        else { setBomRows((r) => r.map(({ rowId: _r, ...x }) => x)); setSourceRows((r) => r.map(({ rowId: _r, ...x }) => x)); setBomOrig([]); setSourceOrig([]); }
       }
       if (draftEnabled) await clearDraft();
       if (mode === 'close' || !onContinued) { onSaved(saved); return; }
@@ -426,7 +462,7 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         ? Object.fromEntries(['archiveType', 'supplyMode', 'categoryId', 'purchaseSpec', 'specUnit'].filter((k) => values[k] !== undefined).map((k) => [k, values[k]]))
         : { ...values, code: '', giftShortName: '', giftCodeShortName: '', zeroValueReason: '' });
       setKnown({});
-      setDraftNote(`已保存「${String(saved.title ?? '')}」，可以继续新建。`);
+      setDraftNote(`已保存「${String(saved.title ?? '')}」，可以继续新增。`);
       setBusy(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存失败，请重试');
@@ -452,6 +488,16 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       const p = fieldProblem(f);
       if (p) next[f.key] = p;
     }
+    if (isProduct && !onlyGroup) {
+      // 按旧版 saveProduct 的校验逐项标出来（同一份布局决定哪些必填）；服务端仍是最终裁判
+      const bom = bomRows.map((r) => ({ group: r.group, id: r.id, qty: r.qty }));
+      const probs = productFormProblems(values, {
+        canCost: Boolean(me && createChecker(me.permissions)('product.cost.edit')),
+        sources: partsKnown.sources ? sourceRows : null, composition: partsKnown.composition ? bom : null,
+      });
+      const shown = new Set([...visible.map((f) => f.key), 'supplySources', 'composition']);
+      for (const [k, msg] of Object.entries(probs)) if (shown.has(k) && !(next[k] && /数字|日期格式/.test(next[k]))) next[k] = msg;
+    }
     setErrors(next);
     const first = visible.find((f) => next[f.key]);
     if (first) setTimeout(() => {
@@ -467,7 +513,10 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     void prepare('close');
   }
 
+  const sectionHas = (title: string, block: string) => Boolean(resolved?.some((s) => s.title === title && s.nodes.some((n) => n.kind === 'block' && n.block === block)));
   const secId = (g: string) => `rf-sec-${g}`;
+  const canCostEdit = Boolean(me && createChecker(me.permissions)('product.cost.edit'));
+  const secTitle = (g: string) => (resolved ? g : groupTitle(def, g, values));
   const errorsByGroup = (g: string) => groups.find(([name]) => name === g)?.[1].filter((f) => errors[f.key]).length ?? 0;
   const showAnchors = !inline && groups.length > 1;
   const scrollBox = useRef<HTMLDivElement>(null);
@@ -482,6 +531,46 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     if (current !== activeGroup) setActiveGroup(current);
   };
   const errorCount = Object.values(errors).filter(Boolean).length;
+
+  const renderField = (f: FieldDef, wide?: boolean) => (
+    <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[wide || f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || (f.type === 'ref' && f.cascade) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
+      <span className="rf-label">{f.label}{f.required && <b className="req" title="必填"> *</b>}</span>
+      {f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
+        field={f}
+        value={lockedFields?.includes(f.key) ? initial?.[f.key] : values[f.key]}
+        configured={record?.secretConfigured[f.key]}
+        labelNow={record?.refLabels[f.key]}
+        type={def.key}
+        values={values}
+        known={known}
+        onKnown={(info) => setKnown((cur) => ({ ...cur, [info.id]: info }))}
+        onChange={(v) => { if (locked.includes(f.key)) return; setValues((cur) => ({ ...cur, [f.key]: v })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
+      />}
+      {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : f.help && <small className="muted">{f.help}</small>}
+      {def.key === 'finance-products' && <ManageLink field={f} />}
+    </label>
+  );
+
+  /** 商品档案分区里的一项：普通字段，或联动的功能块（编号预览、供货来源行、生产组成、重量、成本预览） */
+  const renderNode = (n: ResolvedNode, i: number) => {
+    if (n.kind === 'field') return renderField(n.field, n.wide);
+    const editable = n.fields.filter((f) => !f.readonly);
+    switch (n.block) {
+      case 'code': return <div key={`b${i}`} className="wide">{editable.map((f) => renderField(f))}<CodePreview values={values} excludeId={record?.id} /></div>;
+      case 'supplySources': return <div key={`b${i}`} className="wide"><SourcesDraft rows={sourceRows} onChange={setSourceRows} canCost={canCostEdit} needSpec={layoutKey === 'shipping_material'} error={errors.supplySources} />{!partsKnown.sources && <small className="muted">供货来源暂时读取不到，请到详情的“供货来源”页签维护。</small>}</div>;
+      case 'composition': return <div key={`b${i}`} className="wide"><BomDraft rows={bomRows} onChange={(r) => { setBomRows(r); if (errors.composition) setErrors((c) => ({ ...c, composition: '' })); }} groups={n.groups} required={layoutKey === 'self_made'} error={errors.composition} /></div>;
+      case 'weight': return (
+        <div key={`b${i}`} className="wide rf-block" data-field="weightG">
+          <span className="rf-label">{layoutKey === 'shipping_material' ? '物料重量' : '重量'}{n.required && <b className="req" title="必填"> *</b>}</span>
+          <WeightBlock values={values} manualOnly={['package', 'oem_package', 'shipping_material', 'custom'].includes(layoutKey)} required={n.required} error={errors.weightG} defaultUnit={layoutKey === 'shipping_material' ? 'kg' : 'g'}
+            onChange={(patch) => { setValues((cur) => ({ ...cur, ...patch })); if (errors.weightG) setErrors((c) => ({ ...c, weightG: '' })); }} />
+        </div>
+      );
+      case 'costSummary': return <div key={`b${i}`} className="wide"><TotalCostPreview values={values} /></div>;
+      case 'category': case 'capacities': case 'finishedNames': return <div key={`b${i}`} className="form-grid wide">{editable.map((f) => renderField(f))}</div>;
+      default: return null;
+    }
+  };
 
   return (
     <div className={inline ? 'inline-edit' : 'modal-backdrop'} role="presentation">
@@ -500,7 +589,7 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
                 const n = errorsByGroup(g);
                 return (
                   <button key={g} type="button" className={`rf-anchor${(activeGroup || groups[0][0]) === g ? ' active' : ''}${n ? ' has-error' : ''}`} onClick={() => jump(g)}>
-                    <span>{groupTitle(def, g, values)}</span>
+                    <span>{secTitle(g)}</span>
                     {n > 0 ? <b className="rf-err-n" aria-label={`${n} 项有问题`}>{n}</b> : <i>{fields.length}</i>}
                   </button>
                 );
@@ -523,34 +612,20 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           )}
           {inline && visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项。</p>}
           {!inline && !record && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
-          {groups.map(([group, fields]) => (
+          {resolved ? resolved.filter((sec) => !onlyGroup || sec.title === onlyGroup).map((sec) => (
+            <section key={sec.id} id={secId(sec.title)} className="rf-sec" aria-label={sec.title}>
+              {!inline && <h3 className="rf-sec-title">{sec.step && <i className="rf-step">{sec.step}</i>}{sec.title}</h3>}
+              {sec.hint && !inline && <p className="muted rf-sec-hint">{sec.hint}</p>}
+              <div className="form-grid">{sec.nodes.map(renderNode)}</div>
+            </section>
+          )) : groups.map(([group, fields]) => (
             <section key={group} id={secId(group)} className="rf-sec" aria-label={group}>
-              {!inline && <h3 className="rf-sec-title">{groupTitle(def, group, values)}</h3>}
+              {!inline && <h3 className="rf-sec-title">{secTitle(group)}</h3>}
               <div className="form-grid">
-                {fields.map((f) => (
-                  <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || (f.type === 'ref' && f.cascade) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
-                    <span className="rf-label">{f.label}{f.required && <b className="req" title="必填"> *</b>}</span>
-                    {f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
-                      field={f}
-                      value={lockedFields?.includes(f.key) ? initial?.[f.key] : values[f.key]}
-                      configured={record?.secretConfigured[f.key]}
-                      labelNow={record?.refLabels[f.key]}
-                      type={def.key}
-                      values={values}
-                      known={known}
-                      onKnown={(info) => setKnown((cur) => ({ ...cur, [info.id]: info }))}
-                      onChange={(v) => { if (locked.includes(f.key)) return; setValues((cur) => ({ ...cur, [f.key]: v })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
-                    />}
-                    {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : f.help && <small className="muted">{f.help}</small>}
-                    {def.key === 'finance-products' && <ManageLink field={f} />}
-                  </label>
-                ))}
+                {fields.map((f) => renderField(f))}
               </div>
             </section>
           ))}
-          {isProduct && <TotalCostPreview values={values} />}
-          {isProduct && !record && isComposedArchive(values) && <BomDraft rows={bomRows} onChange={setBomRows} />}
-          {isProduct && <CodePreview values={values} excludeId={record?.id} />}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
           {error && <div role="alert" className="notice error">{error}</div>}
           </div>
@@ -561,14 +636,17 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
             {visible.filter((f) => errors[f.key]).map((f) => (
               <button key={f.key} type="button" className="link-button" onClick={() => document.querySelector<HTMLElement>(`[data-field="${f.key}"] input, [data-field="${f.key}"] select, [data-field="${f.key}"] textarea`)?.focus()}>{f.label}</button>
             ))}
+            {([['supplySources', '供货来源'], ['composition', '生产组成']] as const).filter(([k]) => errors[k]).map(([k, label]) => (
+              <button key={k} type="button" className="link-button" onClick={() => document.querySelector<HTMLElement>(`[data-field="${k}"]`)?.scrollIntoView?.({ block: 'center' })}>{label}</button>
+            ))}
           </div>
         )}
         <div className="modal-foot rf-foot">
           {dirty && <span className="muted dirty-hint">{record ? '有未保存的修改' : '已填写内容尚未保存'}</span>}
           <button type="button" className="secondary-button" onClick={requestClose}>取消</button>
-          {draftEnabled && <button type="button" className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>存为草稿</button>}
-          {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新建</button>}
-          {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('blank')}>保存并继续新建</button>}
+          {draftEnabled && <button type="button" className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>保存草稿</button>}
+          {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新增</button>}
+          {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('blank')}>保存并继续新增</button>}
           <button type="submit" className="primary-button" disabled={busy}>{busy ? '保存中…' : '保存'}</button>
         </div>
       </form>

@@ -272,4 +272,34 @@ d('商品档案与基础编码（真实数据库）', () => {
     await expect(previewProductCode(ds.manager, svc as never, boss, { name: 'x' }, null)).rejects.toThrow(/档案类型/);
     expect((await svc.list(boss, 'finance-products', { keyword: '预览苹果', pageSize: 50 } as never)).total).toBe(1);
   });
+  it('表单重做：包装类规格由容量第一行决定；自产成品规格可不填；各类型保留系统规格；重量单位只留在包装类和发货物料', async () => {
+    const pkg = await svc.create(boss, 'finance-products', { archiveType: 'package', name: '容量袋', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'bag', capacities: '250G\n1KG', weightG: 14, weightManual: true, weightUnit: 'g', purchaseSpec: '个', purchasePrice: 300, freight: 10, handlingFee: 5 });
+    expect(pkg.data.specQty).toBe(250);
+    expect(pkg.data.specUnit).toBe('G');
+    expect(pkg.data.purchaseSpec).toBe('个');
+    expect(pkg.data.weightG).toBe(14);
+    expect(pkg.data.weightUnit).toBe('g');
+    // 容量第一行改了，规格跟着变
+    const changed = await svc.update(boss, 'finance-products', pkg.id, { capacities: '2KG' });
+    expect(changed.data.specQty).toBe(2);
+    expect(changed.data.specUnit).toBe('KG');
+    await expect(svc.create(boss, 'finance-products', { archiveType: 'package', name: '坏容量', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'bag', capacities: '一大袋', weightG: 1, weightManual: true, purchaseSpec: '个', purchasePrice: 1, freight: 0, handlingFee: 0, zeroValueReason: '运费：无\n装卸费：无' })).rejects.toThrow(/容量第一行/);
+    // 自产成品：名称规格、名称单位选填
+    const sm = await svc.create(boss, 'finance-categories', { archiveType: 'self_made', name: '无规格类', code: 'ZC9' });
+    const made = await svc.create(boss, 'finance-products', { archiveType: 'self_made', name: '无规格自产', categoryId: sm.id, brandId: ids.brand, purchaseSpec: '袋', productPackagingSpec: '500G袋', productPackagingUnit: 'D', freight: 0, handlingFee: 0, zeroValueReason: '运费：自提\n装卸费：无' });
+    expect(made.data.specQty).toBeUndefined();
+    expect(made.data.purchaseSpec).toBe('袋');
+    // 原料没有重量单位这个字段
+    const raw = await mkRaw({ name: '无重量单位', weightUnit: 'kg' });
+    expect(raw.data.weightUnit).toBeUndefined();
+  });
+
+  it('没有成本/价格查看权限的人，接口不返回成本价格字段（服务端脱敏）', async () => {
+    const pkg = await svc.create(boss, 'finance-products', { archiveType: 'package', name: '脱敏袋', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'bag', capacities: '100G', weightG: 5, weightManual: true, purchaseSpec: '个', purchasePrice: 300, freight: 10, handlingFee: 5 });
+    const full = await svc.get(boss, 'finance-products', pkg.id);
+    expect(full.data.purchasePrice).toBe(300);
+    const blind = await svc.get(ops, 'finance-products', pkg.id);
+    for (const k of ['purchasePrice', 'freight', 'handlingFee', 'totalCost', 'latestUnitCost']) expect(blind.data[k]).toBeUndefined();
+    expect(blind.data.name).toBe('脱敏袋');
+  });
 });
