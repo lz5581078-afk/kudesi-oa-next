@@ -1,6 +1,6 @@
 import { ComponentType } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, visibleSections, type DocType } from '@kudesi/shared';
+import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, getResourceDef, visibleSections, type DocType } from '@kudesi/shared';
 import { useAuth } from './auth/AuthContext';
 import { Shell } from './layout/Shell';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
@@ -37,6 +37,7 @@ import { InventoryPage } from './pages/finance/InventoryPage';
 import { PricingDebugPage } from './pages/finance/PricingDebugPage';
 import { ResourceOverviewPage } from './resources/OverviewPage';
 import { ResourcePage } from './resources/ResourcePage';
+import { HierarchyPage } from './resources/HierarchyPage';
 import { IntegrationsPage } from './pages/system/IntegrationsPage';
 import { AiApiPage } from './pages/system/AiApiPage';
 import { OcrSettingsPage } from './pages/system/OcrSettingsPage';
@@ -112,6 +113,7 @@ for (const section of NAV_SECTIONS) {
     const view = section.id === 'resource' ? RESOURCE_VIEWS.find((v) => v.id === page.id) : undefined;
     if (view) Page = () => <ResourcePage type={view.type} lockedTab={view.tab} title={view.label} />;
     else if (section.id === 'resource' && RESOURCE_COMPANIONS[page.id]) Page = () => <CompanionPage type={page.id} />;
+    else if (getResourceDef(page.id)?.hierarchy) Page = () => <HierarchyPage type={page.id} />;
     else if (section.id === 'resource' || page.id.startsWith('finance-')) Page = () => <ResourcePage type={page.id} />;
     else if (page.id === 'drafts' || page.id === 'history') Page = () => <DocumentsPage scope={page.id as 'drafts' | 'history'} />;
     else if (page.id === 'doc-withdrawal') Page = StoreWithdrawalPage;

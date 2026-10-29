@@ -3,11 +3,11 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
+  lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, ResourceFile, FinanceDocument, FinanceDocumentAccount, FinanceDocumentEvent, FinanceDocumentLine, FinanceDocumentSettlement, FinanceEntry, ResourceRecord } from '../entities';
+import { AuditLog, ResourceFile, User, FinanceDocument, FinanceDocumentAccount, FinanceDocumentEvent, FinanceDocumentLine, FinanceDocumentSettlement, FinanceEntry, ResourceRecord } from '../entities';
 
 const COST_VIEW = 'product.cost.view';
 const today = todayInChina;
@@ -18,7 +18,7 @@ export const sourceLabel = (key: string | null | undefined) => (key?.startsWith(
 export const OPENING_VOUCHER_TYPE = 'opening-prepayment-voucher';
 export interface OpeningPrepaymentInput { reason: string; fileIds: number[]; confirmed: boolean }
 
-export interface ListQuery { scope: 'drafts' | 'history' | DocType; direction?: 'in' | 'out' | 'internal'; status?: string; creatorId?: number; audited?: 'yes' | 'no'; docType?: string; from?: string; to?: string; keyword?: string; page: number; pageSize: number }
+export interface ListQuery { scope: 'drafts' | 'history' | DocType; transit?: 'pending'; direction?: 'in' | 'out' | 'internal'; status?: string; creatorId?: number; audited?: 'yes' | 'no'; docType?: string; from?: string; to?: string; keyword?: string; page: number; pageSize: number }
 
 /**
  * 财务单据引擎：草稿 → 开立 → 过账 → 红冲。
@@ -74,7 +74,8 @@ export class FinanceDocumentsService {
       const dup = await em.findOne(FinanceDocument, { where: { companyId: user.companyId, refNo: ref } });
       if (dup && dup.id !== selfId) throw new BadRequestException(`${def.store ? '平台提现流水号' : '银行流水号'} ${ref} 已经登记过（${dup.docNo}），不能重复登记`);
     }
-    for (const a of input.accounts ?? []) await ensure('bank-accounts', a.bankAccountId, a.role === 'out' ? '转出账户' : '转入账户');
+    for (const a of input.accounts ?? []) await ensure('bank-accounts', a.bankAccountId, def.bank === 'transfer' ? (a.role === 'out' ? '转出账户' : '转入账户') : def.ui.accountLabel);
+    if (input.accounts?.length && def.bank !== 'transfer' && !payRole(def)) throw new BadRequestException(`${def.label}不能分多个账户`);
     for (const l of input.lines ?? []) {
       if (l.relatedNode) {
         const node = FEE_BOOKING_NODE_MAP.get(l.relatedNode);
@@ -87,6 +88,34 @@ export class FinanceDocumentsService {
       await ensure('finance-products', l.productId, '商品');
       await ensure('finance-fee-items', l.feeItemId, '费用项目', (r) => (def.feeDirection && r.data.direction !== def.feeDirection ? `费用项目「${r.title}」的收支方向和这种单据不符` : null));
     }
+  }
+
+  /** 经手人：选了员工就存员工 id 并把姓名记到 handler（老数据只有文字，保持不动）；员工必须是本公司的，停用的员工只有原来就选着他时才保留 */
+  private async resolveHandler(em: EntityManager, user: AuthUser, input: Pick<DocInput, 'handler' | 'handlerId'>, prevId?: number | null) {
+    if (input.handlerId) {
+      const u = await em.findOne(User, { where: { id: input.handlerId, companyId: user.companyId }, select: ['id', 'name', 'status'] });
+      if (!u) throw new BadRequestException('经手人不是本公司的员工');
+      if (u.status !== 'active' && prevId !== u.id) throw new BadRequestException(`经手人「${u.name}」已停用，请换一位员工`);
+      return { handler: u.name.slice(0, 60), handlerId: u.id };
+    }
+    return { handler: input.handler?.trim() || null, handlerId: null as number | null };
+  }
+
+  /** 优惠金额只有商品类单据和收款单/付款单会存，其余单据一律 0 */
+  private discountOf(def: { lines: unknown; type: DocType }, input: DocInput) {
+    return def.lines === 'product' || hasMoneyDiscount(def.type) ? input.discountCents ?? 0 : 0;
+  }
+
+  /** 转款手续费/在途：只有转款单存 */
+  private transferExtras(def: { bank: string }, input: DocInput) {
+    const t = def.bank === 'transfer';
+    const fee = t ? input.feeCents ?? 0 : 0;
+    return { feeCents: fee, feeBearer: fee ? input.feeBearer ?? null : null, transitStatus: t && input.inTransit ? ('pending' as const) : null };
+  }
+
+  /** 分账户收付款：主表的收付款账户记第一个账户，老页面/列表只看主表也对 */
+  private payHeads(def: { bank: string; settle?: string; store?: boolean }, input: DocInput) {
+    return payRole(def as never) && input.accounts?.length ? { bankAccountId: input.accounts[0].bankAccountId } : {};
   }
 
   private async nextDocNo(em: EntityManager, user: AuthUser, prefix: string, date: string) {
@@ -118,7 +147,8 @@ export class FinanceDocumentsService {
   private toInput(doc: FinanceDocument, lines: FinanceDocumentLine[], accounts: FinanceDocumentAccount[] = [], settlements: FinanceDocumentSettlement[] = []): DocInput {
     return {
       type: doc.docType as DocType, date: doc.docDate, partyId: doc.partyId, partyKind: doc.partyKind as never, paidCents: doc.paidCents, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId,
-      warehouseId: doc.warehouseId, storeId: doc.storeId, refNo: doc.refNo, amountCents: DOC_TYPE_MAP.get(doc.docType as DocType)?.lines ? null : doc.amountCents, offsetCents: doc.offsetCents,
+      warehouseId: doc.warehouseId, storeId: doc.storeId, refNo: doc.refNo, amountCents: DOC_TYPE_MAP.get(doc.docType as DocType)?.lines ? null : doc.amountCents, offsetCents: doc.offsetCents, discountCents: doc.discountCents,
+      feeCents: doc.feeCents, feeBearer: doc.feeBearer, inTransit: doc.transitStatus !== null, handler: doc.handler, handlerId: doc.handlerId,
       settleBy: (doc.settleBy as SettleBy | null) ?? null,
       settlements: settlements.length ? settlements.map((x) => ({ sourceDocId: x.sourceDocumentId, productId: x.productId, amountCents: x.amountCents })) : null,
       accounts: accounts.length ? accounts.map((a) => ({ role: a.role, bankAccountId: a.bankAccountId, amountCents: a.amountCents })) : null,
@@ -151,7 +181,8 @@ export class FinanceDocumentsService {
 
   private async writeAccounts(em: EntityManager, user: AuthUser, documentId: number, input: DocInput) {
     await em.delete(FinanceDocumentAccount, { documentId, companyId: user.companyId });
-    if (input.type !== 'transfer') return;
+    const def = DOC_TYPE_MAP.get(input.type);
+    if (!def || (def.bank !== 'transfer' && !payRole(def))) return;
     for (const a of input.accounts ?? []) await em.insert(FinanceDocumentAccount, { companyId: user.companyId, documentId, role: a.role, bankAccountId: a.bankAccountId, amountCents: a.amountCents });
   }
 
@@ -235,12 +266,19 @@ export class FinanceDocumentsService {
     // 草稿允许没填完，但数字本身必须合法
     if (!DOC_TYPE_MAP.get(input.type)) throw new BadRequestException('单据类型不认识');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date ?? '') || Number.isNaN(Date.parse(input.date))) throw new BadRequestException('单据日期格式应为 YYYY-MM-DD');
-    for (const v of [input.amountCents, input.offsetCents, input.paidCents, ...(input.accounts ?? []).map((a) => a.amountCents), ...(input.settlements ?? []).map((x) => x.amountCents)]) {
+    if (input.handlerId !== null && input.handlerId !== undefined && (!Number.isInteger(input.handlerId) || input.handlerId <= 0)) throw new BadRequestException('经手人不对');
+    for (const v of [input.amountCents, input.offsetCents, input.paidCents, input.discountCents, input.feeCents, ...(input.accounts ?? []).map((a) => a.amountCents), ...(input.settlements ?? []).map((x) => x.amountCents)]) {
       if (v !== null && v !== undefined && (!Number.isInteger(v) || Math.abs(v) > 99_999_999_999)) throw new BadRequestException('金额必须是以分为单位的整数');
     }
     for (const l of input.lines ?? []) for(const v of [l.unitPriceCents,l.unitCostCents]) if(v!==undefined && v!==null && !validUnitCents(v)) throw new BadRequestException('单价最多支持六位元小数');
     for (const l of input.lines ?? []) if (!(l.qty > 0) || Math.round(l.qty * 10000) / 10000 !== l.qty) throw new BadRequestException('数量必须大于 0，最多 4 位小数');
     if ((input.lines?.length ?? 0) > 200) throw new BadRequestException('一张单据最多 200 行');
+    // 分了账户的收付款：写明的实收实付必须等于各账户金额之和（草稿也不能存矛盾的数字）
+    const def = DOC_TYPE_MAP.get(input.type)!;
+    if (def.settle && payRole(def) && input.accounts?.length && input.paidCents !== null && input.paidCents !== undefined) {
+      const sum = input.accounts.reduce((x, a) => x + (a.amountCents || 0), 0);
+      if (sum !== input.paidCents) throw new BadRequestException(`各账户金额合计 ${(sum / 100).toFixed(2)} 元，要等于${def.ui.amountLabel} ${(input.paidCents / 100).toFixed(2)} 元`);
+    }
   }
 
   // ---------- 草稿 ----------
@@ -254,17 +292,19 @@ export class FinanceDocumentsService {
       }
       await this.checkRefs(em, user, input);
       const def = DOC_TYPE_MAP.get(input.type)!;
+      const who = await this.resolveHandler(em, user, input);
       const docNo = input.docNo?.trim() || await this.nextDocNo(em, user, def.prefix, input.date);
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: input.type, status: 'draft', docDate: input.date, partyId: input.partyId ?? null,
         partyKind: def.party ? input.partyKind ?? def.partyKinds[0] ?? null : null, paidCents: effectivePaid(def, input, docTotal(def, input)),
-        handler: input.handler?.trim() || null, department: input.department?.trim() || null, settleBy: this.settleByOf(input),
+        handler: who.handler, handlerId: who.handlerId, department: input.department?.trim() || null, settleBy: this.settleByOf(input),
         bankAccountId: input.bankAccountId ?? null, toBankAccountId: input.toBankAccountId ?? null, warehouseId: input.warehouseId ?? null,
         storeId: def.store ? input.storeId ?? null : null, refNo: hasBankRef(def) ? input.refNo?.trim() || null : null,
-        amountCents: docTotal(def, input), offsetCents: input.offsetCents ?? 0, memo: opts.memo ?? null, sourceKey: opts.sourceKey ?? null, createdBy: user.id,
+        amountCents: docTotal(def, input), offsetCents: input.offsetCents ?? 0, discountCents: this.discountOf(def, input), ...this.transferExtras(def, input), memo: opts.memo ?? null, sourceKey: opts.sourceKey ?? null, createdBy: user.id,
       });
       const id = Number(res.identifiers[0].id);
       if (def.bank === 'transfer') await em.update(FinanceDocument, { id }, this.transferHeads(input));
+      else if (Object.keys(this.payHeads(def, input)).length) await em.update(FinanceDocument, { id }, this.payHeads(def, input));
       await this.writeLines(em, user, id, input.lines ?? []);
       await this.writeAccounts(em, user, id, input);
       await this.writeSettlements(em, user, id, input);
@@ -282,14 +322,15 @@ export class FinanceDocumentsService {
       if (doc.docType !== input.type) throw new BadRequestException('不能改单据类型');
       await this.checkRefs(em, user, input, id);
       const def = DOC_TYPE_MAP.get(input.type)!;
+      const who = await this.resolveHandler(em, user, input, doc.handlerId);
       await em.update(FinanceDocument, { id, companyId: user.companyId }, {
         partyKind: def.party ? input.partyKind ?? def.partyKinds[0] ?? null : null, paidCents: effectivePaid(def, input, docTotal(def, input)),
-        handler: input.handler?.trim() || null, department: input.department?.trim() || null, settleBy: this.settleByOf(input),
+        handler: who.handler, handlerId: who.handlerId, department: input.department?.trim() || null, settleBy: this.settleByOf(input),
         ...(input.docNo?.trim() ? { docNo: input.docNo.trim() } : {}),
         docDate: input.date, partyId: input.partyId ?? null, bankAccountId: input.bankAccountId ?? null, toBankAccountId: input.toBankAccountId ?? null,
         warehouseId: input.warehouseId ?? null, storeId: def.store ? input.storeId ?? null : null, refNo: hasBankRef(def) ? input.refNo?.trim() || null : null,
-        amountCents: docTotal(def, input), offsetCents: input.offsetCents ?? 0, memo: memo ?? doc.memo,
-        ...(def.bank === 'transfer' ? this.transferHeads(input) : {}),
+        amountCents: docTotal(def, input), offsetCents: input.offsetCents ?? 0, discountCents: this.discountOf(def, input), ...this.transferExtras(def, input), memo: memo ?? doc.memo,
+        ...(def.bank === 'transfer' ? this.transferHeads(input) : this.payHeads(def, input)),
       });
       await this.writeLines(em, user, id, input.lines ?? []);
       await this.writeAccounts(em, user, id, input);
@@ -476,6 +517,37 @@ export class FinanceDocumentsService {
     void doc;
   }
 
+  // ---------- 转款确认入账 ----------
+  /**
+   * 在途转款确认到账：把“在途资金”转进转入账户（转入方承担的手续费这时才扣），单据变为已确认。
+   * 需要单独的权限 finance.docs.confirm-transfer，写单据事件和审计日志。不写死审批人：想要审批，用统一流程引擎的既有方式在流程里调用本方法（和 post 一样可传 outer 事务）。
+   */
+  async confirmTransfer(user: AuthUser, id: number, opts: { date?: string; note?: string } = {}, outer?: EntityManager) {
+    this.need(user, CONFIRM_TRANSFER_PERMISSION, '没有确认转款入账的权限');
+    if (opts.date !== undefined && (!/^\d{4}-\d{2}-\d{2}$/.test(opts.date) || Number.isNaN(Date.parse(opts.date)))) throw new BadRequestException('到账日期格式应为 YYYY-MM-DD');
+    const note = opts.note?.trim().slice(0, 200) || undefined;
+    return this.tx(outer, async (em) => {
+      await this.lockPosting(em, user);
+      const { doc, lines, accounts, settlements } = await this.load(em, user, id, true);
+      if (!this.canSee(user, doc.docType)) throw new ForbiddenException('没有查看这种单据的权限');
+      if (doc.docType !== 'transfer' || doc.reversesId) throw new BadRequestException('只有转款单能确认入账');
+      if (doc.status === 'reversed') throw new ConflictException('这张转款单已经红冲，不能确认入账');
+      if (doc.status !== 'posted') throw new ConflictException('转款单要先过账（转出）才能确认入账');
+      if (doc.transitStatus === 'confirmed') throw new ConflictException('这张转款单已经确认入账了');
+      if (doc.transitStatus !== 'pending') throw new ConflictException('这张转款单不是在途转款，转入账户已经入账，不需要确认');
+      if (doc.auditedAt) throw new ConflictException('这张单据已经财务审核，请先取消财务审核');
+      const date = opts.date ?? today();
+      if (date < doc.docDate) throw new BadRequestException('到账日期不能早于转款日期');
+      const input = this.toInput(doc, lines, accounts, settlements);
+      const entries = buildTransferConfirmEntries(input);
+      await this.writeEntries(em, user, id, date, entries);
+      await em.update(FinanceDocument, { id, companyId: user.companyId }, { transitStatus: 'confirmed', confirmedBy: user.id, confirmedAt: new Date() });
+      await this.event(em, user, id, 'confirm-transfer', note ? `到账日期 ${date}；${note}` : `到账日期 ${date}`);
+      await em.insert(AuditLog, { companyId: user.companyId, actorId: user.id, action: 'finance.confirm-transfer', resourceType: 'finance-document', resourceId: String(id), detail: { docNo: doc.docNo, date, note: note ?? '', amountCents: doc.amountCents, feeCents: doc.feeCents, toAccountIds: input.accounts?.length ? input.accounts.filter((a) => a.role === 'in').map((a) => a.bankAccountId) : [doc.toBankAccountId ?? 0] } });
+      return this.view(user, em, id);
+    });
+  }
+
   // ---------- 红冲 ----------
   async reverse(user: AuthUser, id: number, reason: string) {
     this.need(user, 'finance.docs.reverse', '没有红冲的权限');
@@ -495,7 +567,7 @@ export class FinanceDocumentsService {
       const docNo = await this.nextDocNo(em, user, def.prefix, today());
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: doc.docType, status: 'posted', docDate: today(), partyId: doc.partyId, bankAccountId: doc.bankAccountId,
-        toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId, amountCents: -doc.amountCents, offsetCents: -doc.offsetCents, paidCents: -doc.paidCents, partyKind: doc.partyKind, handler: doc.handler, department: doc.department,
+        toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId, amountCents: -doc.amountCents, offsetCents: -doc.offsetCents, paidCents: -doc.paidCents, discountCents: -doc.discountCents, feeCents: -doc.feeCents, feeBearer: doc.feeBearer, partyKind: doc.partyKind, handler: doc.handler, handlerId: doc.handlerId, department: doc.department,
         memo: `红冲 ${doc.docNo}：${reason.trim()}`, reversesId: id, createdBy: user.id, issuedAt: new Date(), postedAt: new Date(),
       });
       const rid = Number(res.identifiers[0].id);
@@ -514,7 +586,7 @@ export class FinanceDocumentsService {
 
   // ---------- 经营历程：改表头 / 财务审核 / 复制为草稿 ----------
   /** 已过账单据只允许改日期、经手人、说明（不动账）；财务审核后不能改。日期改了，分录日期跟着改。 */
-  async editHeader(user: AuthUser, id: number, patch: { date?: string; handler?: string | null; memo?: string | null }) {
+  async editHeader(user: AuthUser, id: number, patch: { date?: string; handler?: string | null; handlerId?: number | null; memo?: string | null }) {
     this.need(user, 'finance.docs.edit-header', '没有修改已过账单据表头的权限');
     if (patch.date !== undefined && (!/^\d{4}-\d{2}-\d{2}$/.test(patch.date) || Number.isNaN(Date.parse(patch.date)))) throw new BadRequestException('单据日期格式应为 YYYY-MM-DD');
     return this.dataSource.transaction(async (em) => {
@@ -523,8 +595,13 @@ export class FinanceDocumentsService {
       if (doc.status !== 'posted') throw new ConflictException('只有已过账的单据能这样改；草稿请直接编辑');
       if (doc.auditedAt) throw new ConflictException('这张单据已经财务审核，不能再修改');
       const set: Partial<FinanceDocument> = {};
+      if (patch.date !== undefined && doc.transitStatus === 'confirmed') throw new ConflictException('转款已确认入账，不能再改单据日期（确认入账的分录有自己的日期）');
       if (patch.date !== undefined) set.docDate = patch.date;
-      if (patch.handler !== undefined) set.handler = patch.handler?.trim() || null;
+      if (patch.handlerId) Object.assign(set, await this.resolveHandler(em, user, { handlerId: patch.handlerId }, doc.handlerId));
+      else if (patch.handler !== undefined || patch.handlerId === null) {
+        if (patch.handler !== undefined) set.handler = patch.handler?.trim() || null;
+        set.handlerId = null;
+      }
       if (patch.memo !== undefined) set.memo = patch.memo?.trim() || null;
       await em.update(FinanceDocument, { id, companyId: user.companyId }, set);
       if (set.docDate) await em.update(FinanceEntry, { documentId: id, companyId: user.companyId }, { entryDate: set.docDate });
@@ -539,6 +616,7 @@ export class FinanceDocumentsService {
       const { doc } = await this.load(em, user, id, true);
       if (doc.status !== 'posted') throw new ConflictException('只有已过账的单据能财务审核');
       if (doc.reversesId) throw new ConflictException('红冲单不用财务审核');
+      if (on && doc.transitStatus === 'pending') throw new ConflictException('这张转款单还在途中（对方没确认到账），先确认入账再财务审核');
       if (on === !!doc.auditedAt) throw new ConflictException(on ? '这张单据已经审核过了' : '这张单据还没有财务审核');
       await em.update(FinanceDocument, { id, companyId: user.companyId }, on ? { auditedBy: user.id, auditedAt: new Date() } : { auditedBy: null, auditedAt: null });
       await this.event(em, user, id, on ? 'audit' : 'unaudit');
@@ -561,8 +639,8 @@ export class FinanceDocumentsService {
       const docNo = await this.nextDocNo(em, user, def.prefix, input.date);
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: doc.docType, status: 'draft', docDate: input.date, partyId: doc.partyId, partyKind: doc.partyKind, paidCents: doc.paidCents,
-        handler: doc.handler, department: doc.department, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId,
-        storeId: doc.storeId, refNo: null, amountCents: doc.amountCents, offsetCents: doc.offsetCents, settleBy: doc.settleBy, memo: doc.memo, createdBy: user.id,
+        handler: doc.handler, handlerId: doc.handlerId, department: doc.department, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId,
+        storeId: doc.storeId, refNo: null, amountCents: doc.amountCents, offsetCents: doc.offsetCents, discountCents: doc.discountCents, feeCents: doc.feeCents, feeBearer: doc.feeBearer, transitStatus: doc.transitStatus ? 'pending' : null, settleBy: doc.settleBy, memo: doc.memo, createdBy: user.id,
       });
       const nid = Number(res.identifiers[0].id);
       await this.writeLines(em, user, nid, lines.map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: null, memo: l.memo ?? undefined, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName, itemName: l.itemName, unit: l.unit })));
@@ -606,10 +684,13 @@ export class FinanceDocumentsService {
     const events = await em.find(FinanceDocumentEvent, { where: { documentId: id, companyId: user.companyId }, order: { id: 'ASC' } });
     const names = await this.names(em, user.companyId, [doc.partyId, doc.storeId, doc.bankAccountId, doc.toBankAccountId, doc.warehouseId, ...accounts.map((a) => a.bankAccountId), ...settlements.map((x) => x.productId), ...lines.flatMap((l) => [l.productId, l.feeItemId]), ...entries.map((e) => e.accountId), ...events.map((e) => e.actorId)]);
     const canCost = this.can(user, COST_VIEW);
-    const [actors] = [await em.query('SELECT id, name FROM users WHERE company_id = ? AND id IN (?)', [user.companyId, [...new Set([doc.createdBy, ...events.map((e) => e.actorId)])]])];
+    const [actors] = [await em.query('SELECT id, name FROM users WHERE company_id = ? AND id IN (?)', [user.companyId, [...new Set([doc.createdBy, doc.handlerId, doc.confirmedBy, ...events.map((e) => e.actorId)].filter((x): x is number => !!x))]])];
     const actorName = new Map<number, string>(actors.map((a: { id: number; name: string }) => [a.id, a.name]));
     return {
       ...doc,
+      // 经手人选了员工就显示员工现在的姓名；老数据（只有文字）原样显示
+      handler: doc.handlerId ? actorName.get(doc.handlerId) ?? doc.handler : doc.handler,
+      confirmedByName: doc.confirmedBy ? actorName.get(doc.confirmedBy) ?? '' : '',
       openingVouchers: (await em.find(ResourceFile, { where: { companyId: user.companyId, resourceType: OPENING_VOUCHER_TYPE, resourceId: id, fieldKey: 'voucher' }, order: { id: 'ASC' } })).map((f) => ({ id: f.id, name: f.name, mime: f.mime, size: f.size })),
       typeLabel: DOC_TYPE_MAP.get(doc.docType as DocType)?.label ?? doc.docType,
       partyName: doc.partyId ? names.get(doc.partyId) ?? '' : '', storeName: doc.storeId ? names.get(doc.storeId) ?? '' : '', bankName: doc.bankAccountId ? names.get(doc.bankAccountId) ?? '' : '',
@@ -697,12 +778,12 @@ export class FinanceDocumentsService {
     if (q.partyId) { where.push('d.party_id = ?'); args.push(q.partyId); }
     if (q.docType === 'receipt' || q.docType === 'payment') { where.push('d.doc_type = ?'); args.push(q.docType); }
     const rows = await this.dataSource.query(
-      `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.doc_date AS docDate, d.party_id AS partyId, d.settle_by AS settleBy, d.amount_cents + d.offset_cents AS totalCents,
+      `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.doc_date AS docDate, d.party_id AS partyId, d.settle_by AS settleBy, d.amount_cents + d.offset_cents + d.discount_cents AS totalCents, d.discount_cents AS discountCents,
               COALESCE((SELECT SUM(s.amount_cents) FROM finance_document_settlements s WHERE s.document_id = d.id), 0) AS allocatedCents
          FROM finance_documents d WHERE ${where.join(' AND ')} ORDER BY d.doc_date DESC, d.id DESC LIMIT 1000`, args);
     const names = await this.names(this.dataSource.manager, user.companyId, rows.map((r: { partyId: number | null }) => r.partyId));
-    return (rows as Array<{ id: number; docNo: string; docType: string; docDate: string; partyId: number | null; settleBy: string | null; totalCents: string; allocatedCents: string }>)
-      .map((r) => ({ id: r.id, docNo: r.docNo, docType: r.docType, typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType, docDate: r.docDate, partyName: r.partyId ? names.get(r.partyId) ?? '' : '',
+    return (rows as Array<{ id: number; docNo: string; docType: string; docDate: string; partyId: number | null; settleBy: string | null; totalCents: string; allocatedCents: string; discountCents: string }>)
+      .map((r) => ({ id: r.id, discountCents: Number(r.discountCents), docNo: r.docNo, docType: r.docType, typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType, docDate: r.docDate, partyName: r.partyId ? names.get(r.partyId) ?? '' : '',
         settleByLabel: r.settleBy ? SETTLE_BY_LABEL[r.settleBy as SettleBy] : SETTLE_BY_LABEL.amount, totalCents: Number(r.totalCents), allocatedCents: Number(r.allocatedCents), unallocatedCents: Number(r.totalCents) - Number(r.allocatedCents) }))
       .filter((r) => r.unallocatedCents > 0);
   }
@@ -726,6 +807,7 @@ export class FinanceDocumentsService {
     else if (q.scope === 'history') where.push("d.status IN ('posted','reversed')");
     else { where.push('d.doc_type = ?'); args.push(q.scope); }
     if (q.status) { where.push('d.status = ?'); args.push(q.status); }
+    if (q.transit === 'pending') where.push("d.transit_status = 'pending' AND d.status = 'posted'");
     if (q.creatorId) { where.push('d.created_by = ?'); args.push(q.creatorId); }
     if (q.audited === 'yes') where.push('d.audited_at IS NOT NULL'); else if (q.audited === 'no') where.push('d.audited_at IS NULL');
     if (q.docType && DOC_TYPE_MAP.has(q.docType as DocType) && !isType) {
@@ -753,16 +835,17 @@ export class FinanceDocumentsService {
     }
     const rows = await this.dataSource.query(
       `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.status, DATE_FORMAT(d.doc_date, '%Y-%m-%d') AS docDate, d.amount_cents AS amountCents, d.memo, d.reverses_id AS reversesId,
-              p.title AS partyName, u.name AS createdByName, d.handler, d.paid_cents AS paidCents, d.audited_at AS auditedAt, d.created_by AS createdBy, b.title AS bankName,
+              p.title AS partyName, u.name AS createdByName, COALESCE(hu.name, d.handler) AS handler, d.paid_cents AS paidCents, d.transit_status AS transitStatus, d.fee_cents AS feeCents, d.discount_cents AS discountCents,
+              (SELECT COUNT(*) FROM finance_document_accounts fa WHERE fa.document_id = d.id AND fa.company_id = d.company_id) AS acctCount, d.audited_at AS auditedAt, d.created_by AS createdBy, b.title AS bankName,
               d.source_key AS sourceKey, d.ref_no AS refNo
-       FROM finance_documents d LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id LEFT JOIN resource_records b ON b.id = d.bank_account_id AND b.company_id = d.company_id LEFT JOIN users u ON u.id = d.created_by
+       FROM finance_documents d LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id LEFT JOIN resource_records b ON b.id = d.bank_account_id AND b.company_id = d.company_id LEFT JOIN users u ON u.id = d.created_by LEFT JOIN users hu ON hu.id = d.handler_id AND hu.company_id = d.company_id
        WHERE ${w} ORDER BY d.doc_date DESC, d.id DESC LIMIT ? OFFSET ?`,
       [...args, q.pageSize, (q.page - 1) * q.pageSize],
     );
     return {
       total: Number(n), amountCents: Number(amt), paidCents: Number(paid), incomeCents: Number(inc), expenseCents: Number(exp), ...(todayCount === undefined ? {} : { todayCount }), page: q.page, pageSize: q.pageSize,
       rows: rows.map(({ sourceKey, ...r }: Record<string, unknown>) => ({
-        ...r, amountCents: Number(r.amountCents), paidCents: Number(r.paidCents), typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType,
+        ...r, amountCents: Number(r.amountCents), paidCents: Number(r.paidCents), feeCents: Number(r.feeCents), discountCents: Number(r.discountCents), acctCount: Number(r.acctCount), typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType,
         direction: DOC_DIRECTION[r.docType as DocType] ?? 'internal', source: sourceLabel(sourceKey as string | null),
       })),
     };
@@ -778,8 +861,11 @@ export class FinanceDocumentsService {
     const accounts = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'bank-accounts' } });
     const sums = await this.dataSource.query(
       "SELECT e.account_id AS id, SUM(e.amount_cents) AS s, COUNT(*) AS n, MAX(d.posted_at) AS lastAt FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id WHERE e.company_id = ? AND e.kind = 'bank' GROUP BY e.account_id", [user.companyId]);
+    // 在途资金：转款已转出、对方还没确认到账的金额，记在转入账户名下（不计入账户余额，但要让人看得见）
+    const transit = await this.dataSource.query("SELECT account_id AS id, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND kind = 'in_transit' GROUP BY account_id", [user.companyId]);
+    const inTransit = new Map<number, number>((transit as { id: number; s: string }[]).map((r) => [Number(r.id), Number(r.s)]));
     const m = new Map<number, { s: number; n: number; lastAt: Date | null }>(sums.map((r: { id: number; s: string; n: string; lastAt: Date | null }) => [Number(r.id), { s: Number(r.s), n: Number(r.n), lastAt: r.lastAt }]));
-    const shown = accounts.filter((a) => a.status !== 'inactive' || m.has(a.id));
+    const shown = accounts.filter((a) => a.status !== 'inactive' || m.has(a.id) || (inTransit.get(a.id) ?? 0) !== 0);
     // 关联：账户资料里的“关联店铺”、手动关联（任意方向）
     const links: Array<{ sourceType: string; sourceId: number; targetType: string; targetId: number }> = await this.dataSource.query(
       "SELECT source_type AS sourceType, source_id AS sourceId, target_type AS targetType, target_id AS targetId FROM resource_links WHERE company_id = ? AND ((source_type = 'bank-accounts' AND target_type = 'stores') OR (source_type = 'stores' AND target_type = 'bank-accounts'))", [user.companyId]);
@@ -808,7 +894,7 @@ export class FinanceDocumentsService {
       const last = [a.updatedAt, move.lastAt].filter(Boolean).map((x) => new Date(x as Date).getTime());
       const sids = [...(storesOf.get(a.id) ?? [])];
       return {
-        id: a.id, title: a.title, kind: a.data.kind ?? '', status: a.status, openingCents: opening, movementCents: move.s, balanceCents: opening + move.s, entries: move.n,
+        id: a.id, title: a.title, kind: a.data.kind ?? '', status: a.status, openingCents: opening, movementCents: move.s, balanceCents: opening + move.s, entries: move.n, inTransitCents: inTransit.get(a.id) ?? 0,
         bank: String(a.data.bank ?? ''), ownerName: String(a.data.ownerName ?? ''), licenseName: titles.get(Number(a.data.licenseId)) ?? '', keeperName: userNames.get(Number(a.data.keeperUserId)) ?? '',
         storeIds: sids, storeNames: sids.map((x) => titles.get(x) ?? `店铺#${x}`),
         updatedAt: last.length ? new Date(Math.max(...last)).toISOString() : iso(null),
@@ -875,8 +961,8 @@ export class FinanceDocumentsService {
       opening += Number(r.s);
     }
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
-      `SELECT e.id, DATE_FORMAT(e.entry_date, '%Y-%m-%d') AS entryDate, e.amount_cents AS amountCents, d.id AS documentId, d.doc_no AS docNo, d.doc_type AS docType, d.memo, d.handler, p.title AS partyName
-       FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id
+      `SELECT e.id, DATE_FORMAT(e.entry_date, '%Y-%m-%d') AS entryDate, e.amount_cents AS amountCents, d.id AS documentId, d.doc_no AS docNo, d.doc_type AS docType, d.memo, COALESCE(hu.name, d.handler) AS handler, p.title AS partyName
+       FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id LEFT JOIN users hu ON hu.id = d.handler_id AND hu.company_id = d.company_id
        WHERE ${where.join(' AND ')} ORDER BY e.entry_date ASC, e.id ASC LIMIT 2000`, args);
     let run = opening, income = 0, expense = 0;
     const list = rows.map((r) => {
@@ -895,7 +981,8 @@ export class FinanceDocumentsService {
     const args: unknown[] = [user.companyId];
     if (q.warehouseId) { where.push('e.sub_id = ?'); args.push(q.warehouseId); }
     if (q.asOf) { where.push('e.entry_date <= ?'); args.push(q.asOf); } // 历史库存：截止某天
-    if (q.keyword?.trim()) { where.push('(p.title LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(p.data, \'$.code\')) LIKE ?)'); args.push(`%${q.keyword.trim()}%`, `%${q.keyword.trim()}%`); }
+    // 商品关键词支持多个词（空格分隔，每个词都要命中商品名称或编码），对齐旧版的多词搜索
+    for (const term of (q.keyword ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 6)) { where.push('(p.title LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(p.data, \'$.code\')) LIKE ?)'); args.push(`%${term}%`, `%${term}%`); }
     // 库存状态：正常 = 数量大于 0；缺货 = 数量等于 0（卖空了）或欠着（<=0）；不筛选时不显示数量和金额都是 0 的空行
     const having = q.stockStatus === 'normal' ? 'SUM(e.qty) > 0.00005' : q.stockStatus === 'out' ? 'SUM(e.qty) <= 0.00005' : 'ABS(SUM(e.qty)) > 0.00005 OR SUM(e.amount_cents) <> 0';
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
@@ -906,6 +993,36 @@ export class FinanceDocumentsService {
       const qty = Number(r.qty), amount = Number(r.amount);
       return { productId: r.productId, warehouseId: r.warehouseId, productName: r.productName, code: r.code ?? '', unit: r.unit ?? '', warehouseName: r.warehouseName, qty, avgCostCents: canCost && qty ? Math.round(amount / qty) : null, amountCents: canCost ? amount : null };
     });
+  }
+
+  /**
+   * 库存流水：某商品在某仓库的每一笔库存变动（来自已过账单据），带单号、类型、往来对象和滚动结存数量。
+   * 对应旧版“采购分批入库可追溯”。没有成本权限的人看不到金额列（服务端置空）。
+   */
+  async inventoryLedger(user: AuthUser, q: { productId: number; warehouseId: number; asOf?: string }) {
+    this.need(user, 'finance.inventory.view', '没有查看库存的权限');
+    const canCost = this.can(user, COST_VIEW);
+    const args: unknown[] = [user.companyId, q.productId, q.warehouseId];
+    let dateCond = '';
+    if (q.asOf) { dateCond = ' AND e.entry_date <= ?'; args.push(q.asOf); }
+    const rows: Array<Record<string, unknown>> = await this.dataSource.query(
+      `SELECT e.id, DATE_FORMAT(e.entry_date, '%Y-%m-%d') AS entryDate, e.qty AS qty, e.amount_cents AS amountCents, d.id AS documentId, d.doc_no AS docNo, d.doc_type AS docType, d.status AS status, d.party_id AS partyId, d.memo AS memo
+         FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id AND d.company_id = e.company_id
+        WHERE e.company_id = ? AND e.kind = 'inventory' AND e.account_id = ? AND e.sub_id = ?${dateCond}
+        ORDER BY e.entry_date ASC, e.id ASC LIMIT 1000`, args);
+    const names = await this.names(this.dataSource.manager, user.companyId, rows.map((r) => r.partyId as number | null));
+    let run = 0, runAmount = 0, inQty = 0, outQty = 0;
+    const list = rows.map((r) => {
+      const qty = Number(r.qty ?? 0), amt = Number(r.amountCents);
+      run = Math.round((run + qty) * 10000) / 10000; runAmount += amt;
+      if (qty > 0) inQty += qty; else outQty += -qty;
+      return {
+        id: Number(r.id), entryDate: r.entryDate, documentId: Number(r.documentId), docNo: r.docNo, typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType,
+        partyName: r.partyId ? names.get(Number(r.partyId)) ?? '' : '', memo: r.memo ?? null, qty, balanceQty: run,
+        amountCents: canCost ? amt : null, balanceAmountCents: canCost ? runAmount : null,
+      };
+    });
+    return { rows: list, inQty: Math.round(inQty * 10000) / 10000, outQty: Math.round(outQty * 10000) / 10000, closingQty: run, closingAmountCents: canCost ? runAmount : null };
   }
 
   /** 财务经营：month 传 YYYY-MM 看当月，传 'all' 看全部时间（趋势按月汇总，其余合计全部） */
@@ -922,29 +1039,31 @@ export class FinanceDocumentsService {
     const byMonth = spanDays > 92;
     const canCost = this.can(user, COST_VIEW);
     const sums = await this.dataSource.query(
-      "SELECT kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND entry_date >= ? AND entry_date <= ? AND kind IN ('revenue','cogs','expense','other_income') GROUP BY kind", [user.companyId, lo, hi]);
+      "SELECT kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND entry_date >= ? AND entry_date <= ? AND kind IN ('revenue','cogs','expense','other_income','finance_cost') GROUP BY kind", [user.companyId, lo, hi]);
     const get = (k: string) => Number(sums.find((x: { kind: string }) => x.kind === k)?.s ?? 0);
     const balances = await this.dataSource.query("SELECT kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND kind IN ('receivable','payable','advance_receipt','prepayment') GROUP BY kind", [user.companyId]);
     const bal = (k: string) => Number(balances.find((x: { kind: string }) => x.kind === k)?.s ?? 0);
     const counts = await this.dataSource.query("SELECT status, COUNT(*) AS n FROM finance_documents WHERE company_id = ? AND status IN ('draft','issued') GROUP BY status", [user.companyId]);
     const cnt = (s: string) => Number(counts.find((x: { status: string }) => x.status === s)?.n ?? 0);
-    const revenue = -get('revenue') || 0, cogs = get('cogs'), expense = get('expense'), otherIncome = -get('other_income') || 0;
+    // 财务费用（收款优惠、转款手续费借记；付款优惠贷记）可以为负（得到的折扣比让出的多），单独列示，利润里扣掉
+    const revenue = -get('revenue') || 0, cogs = get('cogs'), expense = get('expense'), otherIncome = -get('other_income') || 0, financeCost = get('finance_cost');
     let bank: number | null = null;
     if (this.can(user, 'finance.cash-bank.view')) bank = (await this.bankBalances(user)).reduce((s, a) => s + a.balanceCents, 0);
     // 利润趋势：当月按天，全部时间按月
     const bucket = byMonth ? "DATE_FORMAT(entry_date, '%Y-%m')" : "DATE_FORMAT(entry_date, '%Y-%m-%d')";
     const daily = await this.dataSource.query(
-      `SELECT ${bucket} AS d, kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND entry_date >= ? AND entry_date <= ? AND kind IN ('revenue','cogs','expense','other_income') GROUP BY d, kind ORDER BY d`, [user.companyId, lo, hi]);
-    const byDay = new Map<string, { date: string; revenueCents: number; cogsCents: number; expenseCents: number; otherIncomeCents: number }>();
+      `SELECT ${bucket} AS d, kind, SUM(amount_cents) AS s FROM finance_entries WHERE company_id = ? AND entry_date >= ? AND entry_date <= ? AND kind IN ('revenue','cogs','expense','other_income','finance_cost') GROUP BY d, kind ORDER BY d`, [user.companyId, lo, hi]);
+    const byDay = new Map<string, { date: string; revenueCents: number; cogsCents: number; expenseCents: number; otherIncomeCents: number; financeCostCents: number }>();
     for (const r of daily as { d: string; kind: string; s: string }[]) {
-      const row = byDay.get(r.d) ?? { date: r.d, revenueCents: 0, cogsCents: 0, expenseCents: 0, otherIncomeCents: 0 };
+      const row = byDay.get(r.d) ?? { date: r.d, revenueCents: 0, cogsCents: 0, expenseCents: 0, otherIncomeCents: 0, financeCostCents: 0 };
       const v = Number(r.s);
-      if (r.kind === 'revenue') row.revenueCents = -v; else if (r.kind === 'cogs') row.cogsCents = v; else if (r.kind === 'expense') row.expenseCents = v; else row.otherIncomeCents = -v;
+      if (r.kind === 'revenue') row.revenueCents = -v; else if (r.kind === 'cogs') row.cogsCents = v; else if (r.kind === 'expense') row.expenseCents = v; else if (r.kind === 'finance_cost') row.financeCostCents = v; else row.otherIncomeCents = -v;
       byDay.set(r.d, row);
     }
     const trend = [...byDay.values()].map((x) => ({
       date: x.date, revenueCents: x.revenueCents, expenseCents: x.expenseCents,
-      profitCents: canCost ? x.revenueCents - x.cogsCents - x.expenseCents + x.otherIncomeCents : null,
+      financeCostCents: x.financeCostCents,
+      profitCents: canCost ? x.revenueCents - x.cogsCents - x.expenseCents - x.financeCostCents + x.otherIncomeCents : null,
     }));
     // 店铺利润：取「店铺经营数据」按店铺汇总，带店铺所属主体（营业执照）
     const metrics = await this.dataSource.query(
@@ -966,13 +1085,13 @@ export class FinanceDocumentsService {
       `SELECT e.entry_date AS d, e.kind, e.amount_cents AS a, e.document_id AS did, d.doc_no AS no, d.doc_type AS dt, d.source_key AS sk, s.title AS storeName
        FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id
        LEFT JOIN resource_records s ON s.company_id = e.company_id AND s.type = 'stores' AND s.id = COALESCE(d.store_id, CASE WHEN d.party_kind = 'store' THEN d.party_id END)
-       WHERE e.company_id = ? AND e.entry_date >= ? AND entry_date <= ? AND e.kind IN ('revenue','expense','other_income') ORDER BY e.entry_date DESC, e.id DESC LIMIT 60`, [user.companyId, lo, hi]);
+       WHERE e.company_id = ? AND e.entry_date >= ? AND entry_date <= ? AND e.kind IN ('revenue','expense','other_income','finance_cost') ORDER BY e.entry_date DESC, e.id DESC LIMIT 60`, [user.companyId, lo, hi]);
     const ledger = (led as { d: string; kind: string; a: string; did: number; no: string; dt: string; sk: string | null; storeName: string | null }[]).map((x) => ({
-      date: x.d, direction: x.kind === 'expense' ? 'out' : 'in', kind: x.kind, amountCents: Math.abs(Number(x.a)), documentId: x.did, docNo: x.no, docType: x.dt, storeName: x.storeName ?? '', source: sourceLabel(x.sk) }));
+      date: x.d, direction: x.kind === 'expense' || (x.kind === 'finance_cost' && Number(x.a) > 0) ? 'out' : 'in', kind: x.kind, amountCents: Math.abs(Number(x.a)), documentId: x.did, docNo: x.no, docType: x.dt, storeName: x.storeName ?? '', source: sourceLabel(x.sk) }));
     return {
       trend, trendBy: byMonth ? 'month' : 'day', from: lo === '0000-01-01' ? '' : lo, to: hi === '9999-12-31' ? '' : hi, stores, ledger,
       month: m, revenueCents: revenue, cogsCents: canCost ? cogs : null, grossProfitCents: canCost ? revenue - cogs : null,
-      expenseCents: expense, otherIncomeCents: otherIncome, netProfitCents: canCost ? revenue - cogs - expense + otherIncome : null,
+      expenseCents: expense, financeCostCents: financeCost, otherIncomeCents: otherIncome, netProfitCents: canCost ? revenue - cogs - expense - financeCost + otherIncome : null,
       receivableCents: bal('receivable'), payableCents: -bal('payable') || 0, advanceReceiptCents: -bal('advance_receipt') || 0, prepaymentCents: bal('prepayment'),
       bankCents: bank, drafts: cnt('draft'), issued: cnt('issued'),
     };

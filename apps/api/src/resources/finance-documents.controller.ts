@@ -2,10 +2,11 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, U
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FilesService, MAX_UPLOAD_BYTES, type UploadedFile as Upload } from '../integrations/files.service';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, ArrayUnique, Equals, IsArray, IsIn, MinLength, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
-import { OPENING_PREPAYMENT_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, Equals, IsBoolean, IsArray, IsIn, MinLength, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
 import { AuthUser, AuthenticatedOnly, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { OPENING_VOUCHER_TYPE, FinanceDocumentsService } from './finance-documents.service';
+import { FinanceVoucherHintsService } from './finance-voucher-hints.service';
 
 const TYPES = DOC_TYPES.map((d) => d.type);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -63,6 +64,11 @@ class DocDto {
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => AccountDto) accounts?: AccountDto[] | null;
   @IsOptional() @IsInt() amountCents?: number | null;
   @IsOptional() @IsInt() offsetCents?: number | null;
+  @IsOptional() @IsInt() @Min(0) discountCents?: number | null;
+  @IsOptional() @IsInt() @Min(0) feeCents?: number | null;
+  @IsOptional() @IsIn(['out', 'in']) feeBearer?: 'out' | 'in' | null;
+  @IsOptional() @IsBoolean() inTransit?: boolean | null;
+  @IsOptional() @IsInt() @Min(1) handlerId?: number | null;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => LineDto) lines?: LineDto[];
   @IsOptional() @IsString() @MaxLength(500) memo?: string;
 }
@@ -73,6 +79,7 @@ class OpeningPrepaymentDto {
 }
 class HeaderDto {
   @IsOptional() @Matches(DATE) date?: string;
+  @IsOptional() @IsInt() @Min(1) handlerId?: number | null;
   @IsOptional() @IsString() @MaxLength(60) handler?: string | null;
   @IsOptional() @IsString() @MaxLength(500) memo?: string | null;
 }
@@ -80,6 +87,10 @@ class AuditDto { @IsIn([true, false]) on!: boolean }
 class BatchDto {
   @IsIn(['post', 'delete', 'copy']) action!: 'post' | 'delete' | 'copy';
   @IsArray() @IsInt({ each: true }) ids!: number[];
+}
+class ConfirmTransferDto {
+  @IsOptional() @Matches(DATE) date?: string;
+  @IsOptional() @IsString() @MaxLength(200) note?: string;
 }
 class ReasonDto { @IsString() @MaxLength(500) reason!: string }
 class ListDto {
@@ -91,6 +102,7 @@ class ListDto {
   @IsOptional() @IsString() @MaxLength(60) keyword?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) creatorId?: number;
   @IsOptional() @IsIn(['yes', 'no']) audited?: 'yes' | 'no';
+  @IsOptional() @IsIn(['pending']) transit?: 'pending';
   @IsOptional() @IsIn(TYPES) docType?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) pageSize?: number;
@@ -100,6 +112,19 @@ class InvDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) warehouseId?: number;
   @IsOptional() @IsString() @MaxLength(60) keyword?: string;
   @IsOptional() @IsIn(['normal', 'out']) stockStatus?: 'normal' | 'out';
+}
+class InvLedgerDto {
+  @Type(() => Number) @IsInt() @Min(1) productId!: number;
+  @Type(() => Number) @IsInt() @Min(1) warehouseId!: number;
+  @IsOptional() @Matches(DATE) asOf?: string;
+}
+class PartyBalanceDto {
+  @IsIn(['customer', 'store', 'supplier', 'employee']) partyKind!: 'customer' | 'store' | 'supplier' | 'employee';
+  @Type(() => Number) @IsInt() @Min(1) partyId!: number;
+}
+class LineHintsDto {
+  @IsString() @Matches(/^\d+(,\d+)*$/) productIds!: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) warehouseId?: number;
 }
 class LedgerDto {
   @IsOptional() @Matches(DATE) from?: string;
@@ -111,11 +136,11 @@ class KeyAccountDto { @IsIn([true, false]) on!: boolean }
 // 单据按“单据类型”分权限，类型不固定，所以权限在服务里按类型检查（页面查看权限 + finance.docs.* 操作权限）
 @Controller('finance')
 export class FinanceDocumentsController {
-  constructor(private readonly docs: FinanceDocumentsService, private readonly files: FilesService) {}
+  constructor(private readonly docs: FinanceDocumentsService, private readonly files: FilesService, private readonly hints: FinanceVoucherHintsService) {}
 
   @AuthenticatedOnly() @Get('docs')
   list(@CurrentUser() u: AuthUser, @Query() q: ListDto) {
-    return this.docs.list(u, { scope: q.scope as never, direction: q.direction, status: q.status, from: q.from, to: q.to, keyword: q.keyword, creatorId: q.creatorId, audited: q.audited, docType: q.docType, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
+    return this.docs.list(u, { scope: q.scope as never, direction: q.direction, status: q.status, from: q.from, to: q.to, keyword: q.keyword, creatorId: q.creatorId, audited: q.audited, transit: q.transit, docType: q.docType, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
   }
   @AuthenticatedOnly() @Get('docs/:id')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.docs.get(u, id); }
@@ -154,6 +179,10 @@ export class FinanceDocumentsController {
     return this.files.urlOf(u.companyId, fileId, OPENING_VOUCHER_TYPE);
   }
 
+  /** 在途转款确认到账：单独权限，写单据事件和审计；流程引擎也可以在自己的事务里调用 docs.confirmTransfer */
+  @RequirePermission(CONFIRM_TRANSFER_PERMISSION) @Post('docs/:id/confirm-transfer')
+  confirmTransfer(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ConfirmTransferDto) { return this.docs.confirmTransfer(u, id, b); }
+
   @AuthenticatedOnly() @Post('docs/:id/reverse')
   reverse(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReasonDto) { return this.docs.reverse(u, id, b.reason); }
 
@@ -175,6 +204,12 @@ export class FinanceDocumentsController {
   @AuthenticatedOnly() @Get('open-items')
   openItems(@CurrentUser() u: AuthUser, @Query() q: OpenItemsDto) { return this.docs.openItems(u, q); }
 
+  @AuthenticatedOnly() @Get('party-balance')
+  partyBalance(@CurrentUser() u: AuthUser, @Query() q: PartyBalanceDto) { return this.hints.partyBalance(u, q.partyKind, q.partyId); }
+
+  @AuthenticatedOnly() @Get('line-hints')
+  lineHints(@CurrentUser() u: AuthUser, @Query() q: LineHintsDto) { return this.hints.lineHints(u, q.productIds.split(',').map(Number), q.warehouseId); }
+
   @AuthenticatedOnly() @Get('settlement-detail')
   settlementDetail(@CurrentUser() u: AuthUser, @Query() q: SettlementQueryDto) { return this.docs.settlementDetail(u, q); }
 
@@ -195,6 +230,9 @@ export class FinanceDocumentsController {
 
   @AuthenticatedOnly() @Get('inventory')
   inventory(@CurrentUser() u: AuthUser, @Query() q: InvDto) { return this.docs.inventory(u, q); }
+
+  @AuthenticatedOnly() @Get('inventory-ledger')
+  inventoryLedger(@CurrentUser() u: AuthUser, @Query() q: InvLedgerDto) { return this.docs.inventoryLedger(u, q); }
 
   @AuthenticatedOnly() @Get('overview')
   overview(@CurrentUser() u: AuthUser, @Query() q: MonthDto) { return this.docs.overview(u, q.month, q.from, q.to); }

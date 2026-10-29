@@ -68,7 +68,9 @@ function ReasonPickDialog({ title, pickField, reasonLabel, reasonRequired, confi
  * 勾选后的批量操作条：批量修改字段（config.batch）、停用/启用所选（所有资料）、带原因的批量动作（config.batchActions）、导出所选。
  * 服务端逐条校验权限、状态联动和归档，这里只负责收集输入。
  */
-export function BatchBar({ def, type, rows, checked, can, filterOpts, onMessage, onDone, onExport, onClear }: {
+export function BatchBar({ allowDelete, def, type, rows, checked, can, filterOpts, onMessage, onDone, onExport, onClear }: {
+  /** 分级布局：多一个“批量删除”（逐条写同一个原因，被引用的会失败并列出） */
+  allowDelete?: boolean;
   def: ResourceDef; type: string; rows: ResourceDto[]; checked: number[];
   can: (action: 'edit' | 'disable' | 'export') => boolean;
   filterOpts: Record<string, Array<{ id: number | string; label: string }>>;
@@ -76,7 +78,7 @@ export function BatchBar({ def, type, rows, checked, can, filterOpts, onMessage,
 }) {
   const [batchField, setBatchField] = useState('');
   const [batchValue, setBatchValue] = useState('');
-  const [dialog, setDialog] = useState<{ kind: 'status'; status: string; label: string; requiresReason: boolean; ids: number[] } | { kind: 'action'; action: BatchAction } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: 'delete' } | { kind: 'status'; status: string; label: string; requiresReason: boolean; ids: number[] } | { kind: 'action'; action: BatchAction } | null>(null);
   const batchFields = (def.batch ?? []).filter((k) => k !== 'status').map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f));
   const picked = rows.filter((r) => checked.includes(r.id));
   // 停用 = 停用状态（没有就取第一个隐藏状态）；启用 = 默认状态。和旧系统一样：已经是目标状态的不重复处理
@@ -127,6 +129,7 @@ export function BatchBar({ def, type, rows, checked, can, filterOpts, onMessage,
         .filter((s) => s.value !== 'deleted' && s.value !== offStatus?.value && s.value !== onStatus?.value).slice(0, 4).map((s) => (
           <button key={s.value} type="button" className="secondary-button" onClick={() => setDialog({ kind: 'status', status: s.value, label: s.label, requiresReason: Boolean(s.requiresReason), ids: checked })}>批量{s.label}</button>
         ))}
+      {allowDelete && <button type="button" className="secondary-button danger-text" onClick={() => setDialog({ kind: 'delete' })}>批量删除（{checked.length}）</button>}
       {can('export') && <button type="button" className="secondary-button" onClick={onExport}>导出所选</button>}
       <button type="button" className="secondary-button" onClick={onClear}>取消勾选</button>
       {dialog?.kind === 'status' && (
@@ -136,6 +139,22 @@ export function BatchBar({ def, type, rows, checked, can, filterOpts, onMessage,
           suggestions={dialog.label === '启用' ? ['恢复使用', '误停用'] : ['不再使用', '重复录入', '信息有误']}
           onClose={() => setDialog(null)}
           onConfirm={async (_v, reason) => { await run(() => resourceApi.batchStatus(type, dialog.ids, dialog.status, reason || undefined), `已${dialog.label === '启用' ? '启用' : `改为${dialog.label}`}`); }}
+        />
+      )}
+      {dialog?.kind === 'delete' && (
+        <ReasonPickDialog
+          title={`批量删除（${checked.length} 条）`}
+          reasonLabel="删除原因" reasonRequired confirmLabel="确认删除"
+          suggestions={['重复录入', '录入错误', '不再使用']}
+          onClose={() => setDialog(null)}
+          onConfirm={async (_v, reason) => {
+            const failed: Array<{ id: number; message: string }> = [];
+            let done = 0;
+            for (const id of checked) {
+              try { await resourceApi.remove(type, id, reason); done++; } catch (e) { failed.push({ id, message: e instanceof ApiError ? e.message : '删除失败' }); }
+            }
+            await run(async () => ({ done, failed }), '已删除');
+          }}
         />
       )}
       {dialog?.kind === 'action' && (

@@ -42,6 +42,8 @@ interface Props {
   rowActions?: (row: ResourceDto) => ReactNode;
   /** “办理”列的表头叫什么（只读弹窗那类叫“查看”） */
   rowActionsLabel?: string;
+  /** 操作列宽（默认 196，分级布局的行内操作多一些） */
+  actWidth?: number;
 }
 
 /**
@@ -55,7 +57,7 @@ export function ResourceTable(p: Props) {
   if (auto.current.type !== p.type) auto.current = { type: p.type, w: {} };
   if (rows && rows.length) for (const f of columns) if (auto.current.w[f.key] === undefined) auto.current.w[f.key] = autoColWidth(f, rows.map((r) => displayValue(f, r)), isCopyable(def, f) ? 44 : 0);
   const widthOf = (f: FieldDef) => p.widths[f.key] ?? auto.current.w[f.key] ?? defaultColWidth(f);
-  const total = CHECK_W + columns.reduce((n, f) => n + widthOf(f), 0) + STATUS_MIN + (p.rowActions ? ACT_W : 0);
+  const total = CHECK_W + columns.reduce((n, f) => n + widthOf(f), 0) + STATUS_MIN + (p.rowActions ? (p.actWidth ?? ACT_W) : 0);
   const allChecked = !!rows?.length && rows.every((r) => p.checked.includes(r.id));
 
   const drag = useRef<{ key: string; x: number; w: number } | null>(null);
@@ -118,7 +120,7 @@ export function ResourceTable(p: Props) {
           <col style={{ width: CHECK_W }} />
           {columns.map((f) => <col key={f.key} style={{ width: widthOf(f) }} />)}
           <col style={{ minWidth: STATUS_MIN }} />
-          {p.rowActions && <col style={{ width: ACT_W }} />}
+          {p.rowActions && <col style={{ width: p.actWidth ?? ACT_W }} />}
         </colgroup>
         <thead>
           <tr>

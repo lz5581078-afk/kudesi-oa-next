@@ -1,5 +1,5 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { unitYuanText, yuanToPreciseCents, ACCOUNT_LABEL, DOC_TYPE_MAP, FEE_BOOKING_NODES, FEE_BOOKING_NODE_MAP, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, SETTLE_BY_LABEL, SETTLEMENT_DOC_TYPES, docTotal, hasBankRef, lineAmount, todayInChina as today, validateDoc, type DocType, type PartyKind, type PayMode, type SettleBy } from '@kudesi/shared';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { unitYuanText, yuanToPreciseCents, ACCOUNT_LABEL, DOC_TYPE_MAP, FEE_BOOKING_NODE_MAP, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, SETTLEMENT_DOC_TYPES, docTotal, grossTotal, hasBankRef, hasMoneyDiscount, lineAmount, payRole, todayInChina as today, validateDoc, type DocType, type PartyKind, type PayMode, type SettleBy } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { resourceApi } from '../../resources/api';
@@ -8,24 +8,20 @@ import { useUnsavedWarning } from './fin-ui';
 import { financeApi, type DocDetailDto, type OpenItem } from './financeApi';
 import { sessionApi, type VoucherFile } from './sessionApi';
 import { VoucherPanel } from './VoucherPanel';
+import { GoodsGrid } from './voucher/GoodsGrid';
+import { HandlerSelect } from './voucher/HandlerSelect';
+import { PayAccounts } from './voucher/PayAccounts';
+import { TransferFee } from './voucher/TransferFee';
+import { MoneyGrid } from './voucher/MoneyGrid';
+import { PartyBalanceBar } from './voucher/PartyBalanceBar';
+import { SettleBySection } from './voucher/SettleBySection';
+import { TransferPanel } from './voucher/TransferPanel';
+import { VoucherToolbar } from './voucher/VoucherToolbar';
+import { printSlip } from './voucher/printSlip';
+import { emptyLine, emptyLines, emptyMoney, type AcctState, type LineState, type MoneyLine } from './voucher/types';
+import { useLineHints, usePartyBalance } from './voucher/useVoucherHints';
 
-const unitPriceOf=(v:string)=>{if(!v.trim())return null;try{return yuanToPreciseCents(v);}catch{return NaN;}};
-interface LineState {
-  unit: string;
-  productId: number | null; productName: string; feeItemId: number | null; feeItemName: string; qty: string; price: string; memo: string;
-  /** 费用/收入行的挂账节点和对象 */
-  node: string; relatedId: number | null; relatedName: string; needObject: boolean;
-}
-interface AcctState { id: number; name: string; amount: string }
-interface MoneyLine { item: string; amount: string; memo: string }
-const emptyMoney = (): MoneyLine => ({ item: '', amount: '', memo: '' });
-/** 金额类单据明细行的“项目”常用词（旧系统同款，输入时可直接选） */
-const MONEY_SUGGEST: Record<string, string[]> = {
-  'advance-receipt': ['预收货款', '预收定金', '预收订单款'], receipt: ['客户回款', '补收货款', '补差价', '其他应收款'],
-  payment: ['货款', '运费', '加工费', '预付货款', '退款', '其他'], prepayment: ['预付货款', '定金', '锁定商品预付'], transfer: ['资金调拨', '店铺提现转入', '备用金划转', '还款划转'],
-};
-const emptyLine = (): LineState => ({ unit: '', productId: null, productName: '', feeItemId: null, feeItemName: '', qty: '1', price: '', memo: '', node: '', relatedId: null, relatedName: '', needObject: false });
-const emptyLines = (n: number) => Array.from({ length: n }, emptyLine);
+const unitPriceOf = (v: string) => { if (!v.trim()) return null; try { return yuanToPreciseCents(v); } catch { return NaN; } };
 
 interface Props {
   type: DocType;
@@ -35,14 +31,24 @@ interface Props {
   inline?: boolean;
   onClose?: () => void;
   onSaved: (d: DocDetailDto, how: 'draft' | 'issued' | 'posted') => void;
+  /** 制单中心：调入草稿（把草稿装进开单页继续改） */
+  onPickDraft?: (id: number) => void;
+  /** 制单中心：单据调阅（滚到下面的单据列表） */
+  onShowList?: () => void;
 }
 
+/** 退货类单据可以关联的原单：销售退货 → 已过账销售单；采购退货 → 已过账采购入库单（管家婆“调原销售单/调原采购单”） */
+const ORIGIN: Partial<Record<DocType, { scope: DocType; kind: PartyKind; label: string }>> = {
+  'sale-return': { scope: 'sale', kind: 'customer', label: '原销售单' },
+  'purchase-return': { scope: 'purchase-in', kind: 'supplier', label: '原采购入库单' },
+};
+
 /**
- * 开单页（管家婆式）：上面是单据头（编号、日期、往来对象及来源、仓库/部门、经办人），
- * 中间是明细表，下面是“收款/付款情况”——选结算方式（全款/部分/欠款/预收预付冲抵）、收付款账户、实收实付金额，
+ * 开单页（管家婆式）：上面是操作条（调入草稿/保存草稿/过账/打印…），然后是单据头（编号、日期、往来对象及余额、仓库/部门、经办人），
+ * 中间是明细网格（回车逐格录入、库存与价格提示、赠品），右侧是“收款/付款情况”——选结算方式（全款/部分/欠款/预收预付冲抵）、收付款账户、实收实付金额，
  * 没结清的部分自动挂应收/应付。保存草稿时允许没填完，开立/过账时严格校验。
  */
-export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) {
+export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft, onShowList }: Props) {
   const def = DOC_TYPE_MAP.get(type)!;
   const { can, user } = useAuth();
   const ui = def.ui;
@@ -57,28 +63,41 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
   const [toBank, setToBank] = useState<{ id: number | null; name: string }>({ id: doc?.toBankAccountId ?? null, name: doc?.toBankName ?? '' });
   const [store, setStore] = useState<{ id: number | null; name: string }>({ id: doc?.storeId ?? preset?.storeId ?? null, name: doc?.storeName ?? preset?.storeName ?? '' });
   const [refNo, setRefNo] = useState(doc?.refNo ?? '');
-  const [handler, setHandler] = useState(doc?.handler ?? user?.name ?? '');
+  // 经手人：员工选择器，保存员工 id；老单据只有文字时作为“原文字”选项保留
+  const [handlerId, setHandlerId] = useState<number | null>(doc ? doc.handlerId ?? null : user?.id ?? null);
+  const [handlerName, setHandlerName] = useState(doc?.handlerId ? doc.handler ?? '' : user?.name ?? '');
+  const handlerLegacy = doc && !doc.handlerId ? doc.handler ?? '' : '';
   const [department, setDepartment] = useState(doc?.department ?? (def.warehouse ? '' : '财务部'));
   const [moneyLines, setMoneyLines] = useState<MoneyLine[]>(() => {
     if (def.lines) return [];
     if (doc?.lines.length) return doc.lines.map((l) => ({ item: l.itemName ?? '', amount: centsToYuan(Math.round(l.unitPriceCents * l.qty)), memo: l.memo ?? '' }));
     if (doc && doc.amountCents) return [{ item: '', amount: centsToYuan(doc.amountCents), memo: '' }];
-    return inline ? [emptyMoney()] : [emptyMoney()];
+    return [emptyMoney()];
   });
   const moneyCents = moneyLines.reduce((sum, l) => { const c = yuanToCents(l.amount); return sum + (c && !Number.isNaN(c) ? c : 0); }, 0);
   const amount = moneyCents ? centsToYuan(moneyCents) : '';
   const [offset, setOffset] = useState(doc?.offsetCents ? centsToYuan(doc.offsetCents) : '');
   const [paid, setPaid] = useState(doc?.paidCents ? centsToYuan(doc.paidCents) : '');
+  const [discount, setDiscount] = useState(doc?.discountCents ? centsToYuan(doc.discountCents) : '');
   const [payMode, setPayMode] = useState<PayMode | ''>(doc ? (doc.paidCents || doc.offsetCents ? 'part' : 'credit') : '');
   const [memo, setMemo] = useState(doc?.memo ?? '');
   const [lines, setLines] = useState<LineState[]>(
     doc?.lines.length
-      ? doc.lines.map((l) => ({ unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents), memo: l.memo ?? '', node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
+      ? doc.lines.map((l) => ({ unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents), memo: l.memo ?? '', gift: !!l.productId && l.unitPriceCents === 0, node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
       : def.lines ? emptyLines(inline ? 3 : 1) : [],
   );
   const toAccts = (role: 'out' | 'in'): AcctState[] => (doc?.accounts ?? []).filter((a) => a.role === role).map((a) => ({ id: a.bankAccountId, name: a.bankName, amount: centsToYuan(a.amountCents) }));
   const [outs, setOuts] = useState<AcctState[]>(() => (doc?.accounts?.length ? toAccts('out') : doc?.bankAccountId && doc.docType === 'transfer' ? [{ id: doc.bankAccountId, name: doc.bankName, amount: centsToYuan(doc.amountCents) }] : []));
   const [ins, setIns] = useState<AcctState[]>(() => (doc?.accounts?.length ? toAccts('in') : doc?.toBankAccountId ? [{ id: doc.toBankAccountId, name: doc.toBankName, amount: centsToYuan(doc.amountCents) }] : []));
+  // 多账户收付款：一笔钱分几个账户收/付（转款单有自己的转出/转入账户）
+  const payDir = def.bank === 'transfer' ? null : payRole(def);
+  const [multiOn, setMultiOn] = useState(!!payDir && !!doc?.accounts?.length);
+  const [multi, setMulti] = useState<AcctState[]>(() => (payDir && doc?.accounts?.length ? doc.accounts.map((a) => ({ id: a.bankAccountId, name: a.bankName, amount: centsToYuan(a.amountCents) })) : []));
+  const multiCents = multi.reduce((s, a) => s + (yuanToCents(a.amount) || 0), 0);
+  // 转款手续费与在途
+  const [fee, setFee] = useState(doc?.feeCents ? centsToYuan(doc.feeCents) : '');
+  const [feeBearer, setFeeBearer] = useState<'out' | 'in'>(doc?.feeBearer ?? 'out');
+  const [inTransit, setInTransit] = useState(!!doc?.transitStatus);
   const canSettle = SETTLEMENT_DOC_TYPES.includes(type);
   const [settleBy, setSettleBy] = useState<SettleBy>((doc?.settleBy as SettleBy | null) ?? 'amount');
   const [alloc, setAlloc] = useState<Record<string, string>>(() => Object.fromEntries((doc?.settlements ?? []).map((x) => [x.productId ? `${x.sourceDocId}:${x.productId}` : `${x.sourceDocId}`, centsToYuan(x.amountCents)])));
@@ -93,36 +112,40 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
       .catch(() => undefined);
     return () => { alive = false; };
   }, [type, partyKind, party.id, doc]);
-  // 销售退货：选了客户后列出他已过账的销售单，可关联原单并带入明细（旧系统同款）
+
+  // 退货关联原单：选了往来对象后列出他已过账的原单，可关联并带入明细、对照退货数量
+  const origin = ORIGIN[type];
   const [origSales, setOrigSales] = useState<Array<{ id: number; docNo: string; docDate: string; amountCents: number }>>([]);
   const [origId, setOrigId] = useState('');
   const [origNote, setOrigNote] = useState('');
   const [origQty, setOrigQty] = useState<Array<{ productId: number; name: string; qty: number }>>([]);
   useEffect(() => {
     setOrigId(''); setOrigNote(''); setOrigSales([]); setOrigQty([]);
-    if (type !== 'sale-return' || partyKind !== 'customer' || !party.id || !party.name) return;
+    if (!origin || partyKind !== origin.kind || !party.id || !party.name) return;
     let alive = true;
-    financeApi.docs({ scope: 'sale', status: 'posted', keyword: party.name })
+    financeApi.docs({ scope: origin.scope, status: 'posted', keyword: party.name })
       .then((r) => alive && setOrigSales(r.rows.filter((x) => x.partyName === party.name).map((x) => ({ id: x.id, docNo: x.docNo, docDate: x.docDate, amountCents: x.amountCents }))))
-      .catch(() => alive && setOrigNote('没有权限查看销售单，不能关联原单'));
+      .catch(() => alive && setOrigNote(`没有权限查看${origin.label}，不能关联`));
     return () => { alive = false; };
-  }, [type, partyKind, party.id, party.name]);
+  }, [origin, partyKind, party.id, party.name]);
   async function importOriginal() {
     if (!origId) return;
     try {
       const d = await financeApi.doc(Number(origId));
       const goods = d.lines.filter((l) => l.productId && l.qty > 0);
-      if (!goods.length) { setOrigNote('该销售单没有商品明细，无法带入'); return; }
-      if (lines.some((l) => l.productId || l.price) && !window.confirm('当前已填写的退货商品会被原销售单的商品替换，数量默认为原单全部数量，可再修改。')) return;
+      if (!goods.length) { setOrigNote('该单据没有商品明细，无法带入'); return; }
+      if (lines.some((l) => l.productId || l.price) && !window.confirm('当前已填写的退货商品会被原单的商品替换，数量默认为原单全部数量，可再修改。')) return;
       setOrigQty(goods.map((l) => ({ productId: l.productId as number, name: l.productName, qty: l.qty })));
       setLines(goods.map((l) => ({ ...emptyLine(), unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents) })));
       setOrigNote(`已带入 ${goods.length} 种商品，数量默认为原单全部数量，请改成实际退回数量`);
-    } catch { setOrigNote('原销售单明细加载失败，请稍后重试'); }
+    } catch { setOrigNote('原单明细加载失败，请稍后重试'); }
   }
+
   const [balances, setBalances] = useState<Map<number, number>>(new Map());
   const needBalance = def.bank !== 'none' || !!def.settle;
   useEffect(() => { if (needBalance) financeApi.banks().then((r) => setBalances(new Map(r.map((b) => [b.id, b.balanceCents])))).catch(() => undefined); }, [needBalance]);
   const noticeRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   useEffect(() => { if (notice || error) noticeRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }); }, [notice, error]);
@@ -141,18 +164,26 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
     financeApi.openItems({ dir: type === 'receipt' ? 'in' : 'out', partyKind, partyId: party.id }).then(setOpen).catch(() => setOpen([]));
   }, [canSettle, settleBy, party.id, partyKind, type]);
 
+  const [balanceTick, setBalanceTick] = useState(0);
+  const partyBalance = usePartyBalance(def.party ? partyKind : null, party.id, balanceTick);
+  const hints = useLineHints(def.lines === 'product' ? lines.map((l) => l.productId).filter((x): x is number => !!x) : [], wh.id);
+
   const parse = (t: string) => { const v = yuanToCents(t); if (Number.isNaN(v)) throw new Error('金额格式不对（最多两位小数）'); return v; };
+  const priceOf = (t: string) => { const v = unitPriceOf(t); return typeof v === 'number' && !Number.isNaN(v) ? v : 0; };
   const body = () => {
     const parsedLines = lines
       .filter((l) => !(inline && !doc && !l.productId && !l.feeItemId && !l.price)) // 开单页预留的空行不算
-      .map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: Number(l.qty), unitPriceCents: (()=>{const v=unitPriceOf(l.price);if(Number.isNaN(v))throw new Error('单价格式不对（最多六位小数）');return v??0;})(), memo: l.memo || undefined, unit: l.unit.trim() || null, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
+      .map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: Number(l.qty), unitPriceCents: l.gift ? 0 : (() => { const v = unitPriceOf(l.price); if (Number.isNaN(v)) throw new Error('单价格式不对（最多六位小数）'); return v ?? 0; })(), memo: l.memo || undefined, unit: l.unit.trim() || null, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
     const accounts = def.bank === 'transfer'
       ? [...outs.map((a) => ({ role: 'out' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })), ...ins.map((a) => ({ role: 'in' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 }))]
-      : null;
+      : multiOn && payDir ? multi.map((a) => ({ role: payDir, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })) : null;
+    const feeC = def.bank === 'transfer' ? parse(fee) ?? 0 : 0;
     return {
-      accounts, type, date, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: bank.id, toBankAccountId: toBank.id, warehouseId: wh.id,
+      accounts, type, date, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: multiOn && multi[0] ? multi[0].id : bank.id, toBankAccountId: toBank.id, warehouseId: wh.id,
+      feeCents: feeC, feeBearer: feeC ? feeBearer : null, inTransit: def.bank === 'transfer' ? inTransit : false,
       storeId: def.store ? store.id : null, refNo: hasBankRef(def) ? refNo : null, amountCents: null, offsetCents: parse(offset) ?? 0,
-      paidCents: def.settle ? (parse(paid) ?? (def.lines === 'fee' ? null : 0)) : 0, handler: handler.trim() || null, department: department.trim() || null,
+      discountCents: def.lines === 'product' || hasMoneyDiscount(type) ? parse(discount) ?? 0 : 0,
+      paidCents: def.settle ? (multiOn && payDir ? multiCents : parse(paid) ?? (def.lines === 'fee' ? null : 0)) : 0, handlerId, handler: handlerId ? null : handlerLegacy.trim() || null, department: department.trim() || null,
       lines: def.lines ? parsedLines : moneyLines.filter((l) => l.item.trim() || l.amount.trim() || l.memo.trim()).map((l) => ({ qty: 1, unitPriceCents: parse(l.amount) ?? 0, itemName: l.item.trim(), memo: l.memo.trim() || undefined })), memo: memo || undefined,
       settleBy: canSettle ? settleBy : null,
       settlements: canSettle && settleBy !== 'amount'
@@ -160,13 +191,15 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
         : null,
     };
   };
-  let total = 0;
-  try { total = def.bank === 'transfer' && moneyCents > 0 ? moneyCents : docTotal(def, body()); } catch { total = 0; }
-  const sumAcct = (l: AcctState[]) => l.reduce((s, a) => s + (yuanToCents(a.amount) || 0), 0);
-  const paidC = (() => { try { return def.settle ? parse(paid) ?? 0 : 0; } catch { return 0; } })();
+  let total = 0, gross = 0;
+  try { const b = body(); total = def.bank === 'transfer' && moneyCents > 0 ? moneyCents : docTotal(def, b); gross = def.lines === 'product' ? grossTotal(b) : total; } catch { total = 0; }
+  const discountC = (() => { try { return def.lines === 'product' ? parse(discount) ?? 0 : 0; } catch { return 0; } })();
+  /** 收款单/付款单的优惠金额：冲减往来余额、计入财务费用，不是单据金额的一部分 */
+  const moneyDiscC = (() => { try { return hasMoneyDiscount(type) ? parse(discount) ?? 0 : 0; } catch { return 0; } })();
+  const paidC = (() => { try { return def.settle ? (multiOn && payDir ? multiCents : parse(paid) ?? 0) : 0; } catch { return 0; } })();
   const offsetC = (() => { try { return parse(offset) ?? 0; } catch { return 0; } })();
   const rest = total - paidC - offsetC;
-  const settleTotal = (() => { try { return (parse(amount) ?? 0) + offsetC; } catch { return 0; } })();
+  const settleTotal = (() => { try { return (parse(amount) ?? 0) + offsetC + moneyDiscC; } catch { return 0; } })();
   const allocated = Object.values(alloc).reduce((a, v) => { const c = yuanToCents(v); return a + (Number.isNaN(c) || !c ? 0 : c); }, 0);
   /** 按业务发生先后自动分配（管家婆“按业务发生顺序自动结算”）；按商品时先分完一张单的商品再下一张 */
   const autoAlloc = () => {
@@ -179,11 +212,11 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
     }
     setAlloc(next);
   };
-  const dirty = !doc && !!(party.id || memo || paid || moneyLines.some((l) => l.item || l.amount) || docNo || lines.some((l) => l.productId || l.feeItemId || l.price) || outs.length || ins.length);
+  const dirty = !doc && !!(party.id || memo || paid || discount || moneyLines.some((l) => l.item || l.amount) || docNo || lines.some((l) => l.productId || l.feeItemId || l.price) || outs.length || ins.length || multi.length || fee || inTransit);
   useUnsavedWarning(!!inline && dirty);
   const goodsLines = lines.filter((l) => l.productId);
   const qtyTotal = goodsLines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
-  const bankBal = bank.id ? balances.get(bank.id) : undefined;
+  const bankBal = bank.id && !multiOn ? balances.get(bank.id) : undefined;
   const bankDelta = def.bank === 'out' || (def.settle === 'out') ? -(def.lines ? paidC : (Number(amount) ? Math.round(Number(amount) * 100) : 0)) : (def.lines ? paidC : (Number(amount) ? Math.round(Number(amount) * 100) : 0));
   const bankAfter = bankBal !== undefined && bankDelta !== 0 ? bankBal + bankDelta : null;
   const origExcess = origQty.map((o) => { const back = lines.filter((l) => l.productId === o.productId).reduce((x, l) => x + (Number(l.qty) || 0), 0); return back - o.qty > 1e-9 ? `${o.name}：退 ${back} > 原单 ${o.qty}` : ''; }).filter(Boolean);
@@ -192,10 +225,16 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
     if (payMode === 'full') setPaid(centsToYuan(total));
     else if (payMode === 'offset') setOffset(centsToYuan(total));
   }, [total, payMode]);
-  const restLabel = def.settle === 'in' ? (type === 'purchase-return' ? '还没退回' : '欠款（挂应收）') : type === 'sale-return' ? '暂未退款（冲客户欠款）' : type === 'purchase-in' ? '欠款（挂应付）' : '未结清';
+  const restLabel = def.settle === 'in' ? (type === 'purchase-return' ? '还没退回' : '欠款（挂应收）') : type === 'sale-return' ? '暂未退款（冲客户欠款）' : type === 'purchase-in' ? '欠款（挂应付）' : type === 'expense' ? '欠款（挂应付）' : '未结清';
 
   const pickMode = (m: PayMode) => {
     setPayMode(m);
+    if (multiOn && payDir) {
+      // 分账户时：全款 = 把差额补进最后一个账户；欠款/用预收预付结算没有收付款账户，改回单账户
+      if (m === 'full') { if (multi.length) { const last = multi[multi.length - 1]; const cur = yuanToCents(last.amount) || 0; setMulti(multi.map((x) => (x === last ? { ...x, amount: centsToYuan(Math.max(0, cur + total - multiCents)) } : x))); } setOffset(''); return; }
+      if (m === 'part') return;
+      setMultiOn(false);
+    }
     if (m === 'full') { setPaid(centsToYuan(total)); setOffset(''); }
     else if (m === 'credit') { setPaid(''); setOffset(''); }
     else if (m === 'offset') { setPaid(''); setOffset(centsToYuan(total)); }
@@ -203,7 +242,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
 
   const reset = () => {
     setDocNo(''); setParty({ id: null, name: '' }); setWh({ id: null, name: '' }); setBank({ id: null, name: '' }); setToBank({ id: null, name: '' }); setRefNo('');
-    setOuts([]); setIns([]); setMoneyLines([emptyMoney()]); setOffset(''); setPaid(''); setPayMode(''); setMemo(''); setLines(def.lines ? emptyLines(3) : []); setVouchers([]); setVouchersDirty(false); setError('');
+    setOuts([]); setIns([]); setMulti([]); setMultiOn(false); setFee(''); setFeeBearer('out'); setInTransit(false); setMoneyLines([emptyMoney()]); setOffset(''); setPaid(''); setDiscount(''); setPayMode(''); setMemo(''); setLines(def.lines ? emptyLines(3) : []); setVouchers([]); setVouchersDirty(false); setError(''); setAlloc({});
   };
 
   const save = async (e: FormEvent | null, then?: 'issue' | 'post') => {
@@ -215,15 +254,15 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
       if (then) {
         const errs = validateDoc(b);
         if (errs.length) throw new Error(errs.join('；'));
-        const warn = [bankAfter !== null && bankAfter < 0 ? `注意：${bank.name} 余额不足，${def.bank === 'in' ? '' : '付后'}余额约 ${money(bankAfter)}。` : '', origExcess.length ? `注意：退货数量超过原销售单（${origExcess.join('；')}）。` : ''].filter(Boolean);
-        const text = `${party.name ? `${ui.partyLabel.replace('（选填）', '')}：${party.name}\n` : ''}${def.lines ? `明细 ${b.lines.length} 行，` : ''}${ui.totalLabel}：${money(total)}\n${warn.length ? `${warn.join('\n')}\n` : ''}${then === 'post' ? '过账后会动账和库存，只能红冲，请核对。' : '开立后可再过账。'}`;
+        const warn = [bankAfter !== null && bankAfter < 0 ? `注意：${bank.name} 余额不足，${def.bank === 'in' ? '' : '付后'}余额约 ${money(bankAfter)}。` : '', origExcess.length ? `注意：退货数量超过原单（${origExcess.join('；')}）。` : '', partyBalance?.creditLimitCents != null && partyBalance.receivableCents + Math.max(rest, 0) > partyBalance.creditLimitCents && def.settle === 'in' && def.lines === 'product' ? `注意：挂账后应收超过赊销额度 ${money(partyBalance.creditLimitCents)}。` : ''].filter(Boolean);
+        const text = `${party.name ? `${ui.partyLabel.replace('（选填）', '')}：${party.name}\n` : ''}${def.lines ? `明细 ${b.lines.length} 行，` : ''}${ui.totalLabel}：${money(total)}${discountC ? `（已优惠 ${money(discountC)}）` : ''}\n${warn.length ? `${warn.join('\n')}\n` : ''}${then === 'post' ? '过账后会动账和库存，只能红冲，请核对。' : '开立后可再过账。'}`;
         if (!window.confirm(`${then === 'post' ? '确认过账？' : '确认开立？'}\n${text}`)) { setBusy(false); return; }
       }
       let saved = doc ? await financeApi.update(doc.id, b) : await financeApi.create(b);
       if (def.store && (vouchersDirty || (vouchers.length > 0 && !doc))) await sessionApi.bindVouchers(saved.id, vouchers.map((v) => v.id));
       if (then === 'issue') saved = await financeApi.issue(saved.id);
       if (then === 'post') saved = await financeApi.post(saved.id);
-      if (inline && !doc) { reset(); setNotice(`已保存 ${saved.docNo}（${then === 'post' ? '已过账' : then === 'issue' ? '已开立' : '草稿'}），可以接着开下一张`); }
+      if (inline && !doc) { reset(); setNotice(`已保存 ${saved.docNo}（${then === 'post' ? '已过账' : then === 'issue' ? '已开立' : '草稿'}），可以接着开下一张`); setBalanceTick((t) => t + 1); }
       setBusy(false);
       onSaved(saved, then === 'post' ? 'posted' : then === 'issue' ? 'issued' : 'draft');
     } catch (err) {
@@ -231,10 +270,8 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
       setBusy(false);
     }
   };
-  const lineRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const addLineFocus = () => { setLines((ls) => [...ls, emptyLine()]); setTimeout(() => lineRefs.current[lineRefs.current.length - 1]?.querySelector('input')?.focus(), 0); };
-  /** 在最后一行按回车：加一行并回到商品输入框，连续录入不用碰鼠标 */
-  const enterAdds = (i: number) => (e: KeyboardEvent) => { if (e.key === 'Enter' && i === lines.length - 1) { e.preventDefault(); addLineFocus(); } };
+
+  const addLine = () => setLines((ls) => [...ls, emptyLine()]);
   const setLine = (i: number, patch: Partial<LineState>) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   /** 选了费用项目：按费用档案里的默认挂账节点预选，并记下是否必须挂对象 */
   const pickFee = async (i: number, id: number | null, name: string) => {
@@ -254,8 +291,40 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
       if (u) setLines((ls) => ls.map((l, k) => (k === i && l.productId === id && !l.unit ? { ...l, unit: u } : l)));
     } catch { /* 取不到单位不影响开单 */ }
   };
+  const pickProduct = (i: number, id: number | null, name: string) => { setLine(i, { productId: id, productName: name, ...(id ? {} : { unit: '' }) }); if (id) void pickUnit(i, id); };
   const moneyItem = ui.moneyItemLabel ?? '项目';
   const parsedCount = lines.filter((l) => l.productId || l.feeItemId || l.price).length;
+  const settleTitle = def.settle === 'in' && type !== 'purchase-return' ? '收款情况' : def.settle === 'out' && type !== 'sale-return' ? '付款情况' : def.settle ? '退款情况' : def.bank === 'in' ? '收款情况' : def.bank === 'out' ? '付款情况' : '转款情况';
+
+  const doPrint = () => {
+    const rowsOut = def.lines
+      ? lines.filter((l) => l.productId || l.feeItemId).map((l, i) => [String(i + 1), l.productName || l.feeItemName, l.unit, l.qty, money(l.gift ? 0 : priceOf(l.price)), money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: l.gift ? 0 : priceOf(l.price) })), l.memo])
+      : moneyLines.filter((l) => l.item || l.amount).map((l, i) => [String(i + 1), l.item, '', '1', l.amount, l.amount, l.memo]);
+    const ok = printSlip({
+      title: `${def.label}${doc ? ` ${doc.docNo}` : '（未保存）'}`,
+      head: [['日期', date], ...(def.party ? [[ui.partyLabel.replace('（选填）', ''), party.name] as [string, string]] : []), ...(def.warehouse ? [['仓库', wh.name] as [string, string]] : []), ['经办人', handlerName || handlerLegacy], [def.bank === 'transfer' ? '转出 → 转入' : '结算账户', def.bank === 'transfer' ? `${outs.map((a) => a.name).join('、')} → ${ins.map((a) => a.name).join('、')}` : multiOn ? multi.map((a) => `${a.name} ${money(yuanToCents(a.amount) || 0)}`).join('；') : bank.name]],
+      columns: ['#', def.lines === 'fee' ? '费用项目' : '商品/项目', '单位', '数量', '单价', '金额', '备注'],
+      rows: rowsOut,
+      totals: [...(discountC ? [['明细合计', money(gross)] as [string, string], ['优惠', money(discountC)] as [string, string]] : []), [ui.totalLabel, money(total)], ...(moneyDiscC ? [['优惠金额（计入财务费用）', money(moneyDiscC)] as [string, string]] : []), ...(def.bank === 'transfer' && parse(fee) ? [[`手续费（${feeBearer === 'out' ? '转出方' : '转入方'}承担）`, money(parse(fee) ?? 0)] as [string, string]] : []), ...(def.settle ? [[ui.amountLabel, money(paidC)] as [string, string]] : [])],
+      memo: memo,
+    });
+    if (!ok) setError('浏览器拦截了打印窗口，请允许弹出窗口后重试');
+  };
+
+  // 快捷键（只在制单中心整页开单时生效）：Ctrl+G 保存草稿 · F8 过账 · Ctrl+F9 打印 · Ctrl+F8 回到明细
+  const act = useRef({ save, doPrint });
+  act.current = { save, doPrint };
+  useEffect(() => {
+    if (!inline) return undefined;
+    const on = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'g') { e.preventDefault(); void act.current.save(null); }
+      else if (e.key === 'F8' && !e.ctrlKey) { e.preventDefault(); if (can('finance.docs.post')) void act.current.save(null, 'post'); }
+      else if (e.key === 'F9' && e.ctrlKey) { e.preventDefault(); act.current.doPrint(); }
+      else if (e.key === 'F8' && e.ctrlKey) { e.preventDefault(); gridRef.current?.querySelector<HTMLElement>('input, select')?.focus(); }
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, [inline, can]);
 
   const content = (
     <div className="slip-cols">
@@ -277,134 +346,65 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
             </div>
           </label>
         )}
-        {type === 'sale-return' && partyKind === 'customer' && (
+        {def.party && party.id && <div className="slip-wide"><PartyBalanceBar balance={partyBalance} extraReceivable={def.settle === 'in' && def.lines === 'product' ? Math.max(rest, 0) : 0} /></div>}
+        {origin && partyKind === origin.kind && (
           <div className="slip-orig">
-            <label>关联原销售单（选填，用于对照退货数量）
-              <select aria-label="关联原销售单" value={origId} disabled={!party.id} onChange={(e) => setOrigId(e.target.value)}>
-                <option value="">{party.id ? (origSales.length ? '不关联原单' : '该客户暂无已过账的销售单') : '请先选择客户'}</option>
+            <label>关联{origin.label}（选填，用于对照退货数量）
+              <select aria-label={`关联${origin.label}`} value={origId} disabled={!party.id} onChange={(e) => setOrigId(e.target.value)}>
+                <option value="">{party.id ? (origSales.length ? '不关联原单' : `该${PARTY_KIND_LABEL[origin.kind]}暂无已过账的${origin.label}`) : `请先选择${PARTY_KIND_LABEL[origin.kind]}`}</option>
                 {origSales.map((o) => <option key={o.id} value={o.id}>{o.docNo} · {o.docDate} · {money(o.amountCents)}</option>)}
               </select>
             </label>
             <button type="button" className="secondary-button" disabled={!origId} onClick={() => void importOriginal()}>带入原单明细</button>
             {origNote && <span className="muted">{origNote}</span>}
-            {origExcess.length > 0 && <p role="alert" className="notice warn">退货数量超过原销售单：{origExcess.join('；')}</p>}
+            {origExcess.length > 0 && <p role="alert" className="notice warn">退货数量超过{origin.label}：{origExcess.join('；')}</p>}
           </div>
         )}
         {def.store && <label>店铺 *<SearchPick ariaLabel="店铺" type="stores" value={store.id} label={store.name} onChange={(id, name) => setStore({ id, name })} /></label>}
         {def.store && <label>平台提现流水号 *<input aria-label="平台提现流水号" value={refNo} maxLength={80} onChange={(e) => setRefNo(e.target.value)} placeholder="平台后台提现记录里的流水号，不能重复" /></label>}
-        {!def.store && hasBankRef(def) && <label>银行流水号<input aria-label="银行流水号" value={refNo} maxLength={80} onChange={(e) => setRefNo(e.target.value)} placeholder="选填；银行回单上的流水号，同一个流水号只能登记一次" /></label>}
         {def.warehouse
           ? <label>{ui.warehouseLabel} *<SearchPick ariaLabel="仓库" type="finance-warehouses" value={wh.id} label={wh.name} onChange={(id, name) => setWh({ id, name })} /></label>
           : <label>归属部门<input aria-label="归属部门" value={department} maxLength={60} onChange={(e) => setDepartment(e.target.value)} /></label>}
-        <label>经办人<input aria-label="经办人" value={handler} maxLength={60} onChange={(e) => setHandler(e.target.value)} /></label>
+        <HandlerSelect value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); }} />
       </section>
 
-      {def.bank === 'transfer' && (
-        <section className="transfer-grid">
-          {([['out', '转出账户', outs, setOuts], ['in', '转入账户', ins, setIns]] as const).map(([role, label, list, setList]) => (
-            <div key={role} className="transfer-side">
-              <h3 className="section-title">{label} *</h3>
-              <SearchPick ariaLabel={`添加${label}`} type="bank-accounts" value={null} label="" placeholder={`搜索并添加${label}`}
-                onChange={(id, name) => { if (id && !list.some((a) => a.id === id)) setList([...list, { id, name, amount: '' }]); }} />
-              <ul className="transfer-list">
-                {list.map((a, k) => (
-                  <li key={a.id}>
-                    <span>{a.name}</span>
-                    <input inputMode="decimal" aria-label={`${label}${a.name}金额`} placeholder="金额（元）" value={a.amount} onChange={(e) => setList(list.map((x, j) => (j === k ? { ...x, amount: e.target.value } : x)))} />
-                    <button type="button" className="link-button" onClick={() => setList(list.filter((_, j) => j !== k))}>移除</button>
-                  </li>
-                ))}
-                {list.length === 0 && <li className="muted">还没有选{label}</li>}
-              </ul>
-              <div className="muted">{label.slice(0, 2)}合计：{money(sumAcct(list))}</div>
-              {list.some((x) => balances.has(x.id)) && <ul className="transfer-list muted">{list.filter((x) => balances.has(x.id)).map((x) => { const bal = balances.get(x.id) ?? 0; const amt = yuanToCents(x.amount) || 0; const after = bal + (role === 'out' ? -amt : amt); return <li key={x.id}><span>{x.name}：余额 {money(bal)}{amt > 0 && <> → {role === 'out' ? '转出' : '转入'}后 <b className={after < 0 ? 'neg' : ''}>{money(after)}</b></>}</span></li>; })}</ul>}
-              {(() => { const other = sumAcct(role === 'out' ? ins : outs); const mine = sumAcct(list); return other > 0 && other !== mine && list.length > 0 ? <button type="button" className="link-button" onClick={() => { const rest = other - mine; const last = list[list.length - 1]; const cur = yuanToCents(last.amount) || 0; setList(list.map((x) => (x === last ? { ...x, amount: centsToYuan(Math.max(0, cur + rest)) } : x))); }}>按另一边填入差额 {money(Math.abs(other - mine))}</button> : null; })()}
-            </div>
-          ))}
-          <button type="button" className="secondary-button small" disabled={!outs.length && !ins.length} title="转出与转入账户互换" onClick={() => { const o = outs; setOuts(ins); setIns(o); }}>⇄ 互换转出/转入</button>
-          <div className={`transfer-diff${sumAcct(outs) === sumAcct(ins) && sumAcct(outs) > 0 ? ' ok' : ' bad'}`}>
-            {sumAcct(outs) === sumAcct(ins) && sumAcct(outs) > 0 ? `转款 ${money(sumAcct(outs))}，两边相等` : `转出与转入相差 ${money(Math.abs(sumAcct(outs) - sumAcct(ins)))}，两边必须相等`}
-          </div>
-        </section>
-      )}
+      {def.bank === 'transfer' && <TransferPanel outs={outs} ins={ins} setOuts={setOuts} setIns={setIns} balances={balances} />}
+      {def.bank === 'transfer' && <TransferFee fee={fee} setFee={setFee} bearer={feeBearer} setBearer={setFeeBearer} inTransit={inTransit} setInTransit={setInTransit} outName={outs[0]?.name ?? ''} inName={ins[0]?.name ?? ''} />}
 
       {def.lines && (
         <section>
           <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
-          <div className="table-scroll">
-            <table className="data-table doc-lines">
-              <thead><tr><th>#</th><th>{def.lines === 'product' ? '商品' : '费用项目'}</th>{def.lines === 'product' && <th>单位</th>}{def.lines === 'fee' && <><th>挂账节点</th><th>挂账对象</th></>}<th>数量</th><th>单价（元）</th><th>金额</th><th>备注</th><th /></tr></thead>
-              <tbody>
-                {lines.map((l, i) => (
-                  <tr key={i} ref={(el) => { lineRefs.current[i] = el as unknown as HTMLDivElement | null; }}>
-                    <td data-cell="#">{i + 1}</td>
-                    <td>
-                      {def.lines === 'product'
-                        ? <SearchPick ariaLabel={`第${i + 1}行商品`} type="finance-products" value={l.productId} label={l.productName} onChange={(id, name) => { setLine(i, { productId: id, productName: name, ...(id ? {} : { unit: '' }) }); if (id) void pickUnit(i, id); }} />
-                        : <SearchPick ariaLabel={`第${i + 1}行费用项目`} type="finance-fee-items" fieldKey="direction" fieldValue={def.feeDirection} value={l.feeItemId} label={l.feeItemName} onChange={(id, name) => pickFee(i, id, name)} />}
-                    </td>
-                    {def.lines === 'product' && <td data-cell="单位"><input aria-label={`第${i + 1}行单位`} maxLength={20} value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} placeholder="单位" /></td>}
-                    {def.lines === 'fee' && (
-                      <>
-                        <td>
-                          <select aria-label={`第${i + 1}行挂账节点`} value={l.node} onChange={(e) => setLine(i, { node: e.target.value, relatedId: null, relatedName: '' })}>
-                            <option value="">不选择</option>
-                            {FEE_BOOKING_NODES.map((n) => <option key={n.node} value={n.node}>{n.node}</option>)}
-                          </select>
-                        </td>
-                        <td>
-                          {l.node && FEE_BOOKING_NODE_MAP.get(l.node)?.resource
-                            ? <SearchPick ariaLabel={`第${i + 1}行挂账对象`} type={FEE_BOOKING_NODE_MAP.get(l.node)!.resource!} fieldKey={FEE_BOOKING_NODE_MAP.get(l.node)!.kind ? 'kind' : undefined} fieldValue={FEE_BOOKING_NODE_MAP.get(l.node)!.kind} value={l.relatedId} label={l.relatedName} placeholder={`搜索${l.node}`} onChange={(id, name) => setLine(i, { relatedId: id, relatedName: name })} />
-                            : <input aria-label={`第${i + 1}行挂账对象`} value={l.relatedName} maxLength={100} placeholder={l.needObject ? '必填：写清挂在哪里' : l.node ? `${l.node}名称` : '先选挂账节点'} disabled={!l.node} onChange={(e) => setLine(i, { relatedName: e.target.value })} />}
-                          {l.needObject && !l.relatedId && !l.relatedName.trim() && <span className="muted" style={{ color: '#c0392b' }}>必须挂对象</span>}
-                        </td>
-                      </>
-                    )}
-                    <td data-cell="数量"><input inputMode="decimal" aria-label={`第${i + 1}行数量`} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} /></td>
-                    <td data-cell="单价（元）"><input inputMode="decimal" aria-label={`第${i + 1}行单价`} value={l.price} onKeyDown={enterAdds(i)} onChange={(e) => setLine(i, { price: e.target.value })} /></td>
-                    <td className="num" data-cell="金额">{money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: unitPriceOf(l.price) || 0 }))}</td>
-                    <td data-cell="备注"><input aria-label={`第${i + 1}行备注`} value={l.memo} maxLength={200} onKeyDown={enterAdds(i)} onChange={(e) => setLine(i, { memo: e.target.value })} /></td>
-                    <td><button type="button" className="link-button" aria-label={`删除第${i + 1}行`} onClick={() => setLines((ls) => (ls.length <= 1 ? [emptyLine()] : ls.filter((_, k) => k !== i)))}>{lines.length <= 1 ? '清空' : '删除'}</button></td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr><th colSpan={def.lines === 'fee' ? 6 : 5}>{ui.totalLabel}</th><th className="num">{money(total)}</th><th colSpan={2} /></tr></tfoot>
-            </table>
-            <div className="between"><button type="button" className="secondary-button small" onClick={addLineFocus}>+ 加一行</button><span className="muted">{def.lines === 'product' ? `共 ${goodsLines.length} 种商品 · 数量合计 ${Number(qtyTotal.toFixed(4))}　` : ''}最后一行按回车可以接着加行</span></div>
+          <GoodsGrid def={def} type={type} lines={lines} setLines={setLines} setLine={setLine} priceOf={priceOf} hints={hints} onPickProduct={pickProduct} onPickFee={pickFee} addRow={addLine} gridRef={gridRef} />
+          <div className="vc-grid-foot">
+            <button type="button" className="secondary-button small" onClick={addLine}>+ 加一行</button>
+            <span className="muted">{def.lines === 'product' ? `共 ${goodsLines.length} 种商品 · 数量合计 ${Number(qtyTotal.toFixed(4))}　` : ''}回车跳到下一格，最后一格回车加行；Shift+Delete 删当前行</span>
+            <span className="vc-grid-total">{def.lines === 'product' && discountC > 0 ? `明细合计 ${money(gross)} − 优惠 ${money(discountC)} = ` : ''}{ui.totalLabel}　<b>{money(total)}</b></span>
           </div>
+          {def.lines === 'product' && (
+            <label className="vc-discount">整单优惠 / 抹零（元）
+              <input inputMode="decimal" aria-label="优惠金额" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="没有就留空；优惠后才是应收/应付金额" />
+            </label>
+          )}
         </section>
       )}
 
       {!def.lines && (
         <section>
           <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
-          <div className="table-scroll">
-            <table className="data-table doc-lines money-lines">
-              <thead><tr><th>#</th><th>{moneyItem} *</th><th>金额（元）*</th><th>备注</th><th /></tr></thead>
-              <tbody>
-                {moneyLines.map((l, i) => (
-                  <tr key={i}>
-                    <td data-cell="#">{i + 1}</td>
-                    <td data-cell={moneyItem}><input aria-label={`第${i + 1}行${moneyItem}`} list={`money-items-${type}`} autoComplete="off" maxLength={100} value={l.item} onChange={(e) => setMoneyLines((ls) => ls.map((x, k) => (k === i ? { ...x, item: e.target.value } : x)))} placeholder={moneyItem} /></td>
-                    <td data-cell="金额（元）"><input inputMode="decimal" aria-label={`第${i + 1}行金额`} value={l.amount} onChange={(e) => setMoneyLines((ls) => ls.map((x, k) => (k === i ? { ...x, amount: e.target.value } : x)))} placeholder="0.00" /></td>
-                    <td data-cell="备注"><input aria-label={`第${i + 1}行备注`} maxLength={200} value={l.memo} onKeyDown={(e) => { if (e.key === 'Enter' && i === moneyLines.length - 1) { e.preventDefault(); setMoneyLines((ls) => [...ls, emptyMoney()]); } }} onChange={(e) => setMoneyLines((ls) => ls.map((x, k) => (k === i ? { ...x, memo: e.target.value } : x)))} placeholder="备注" /></td>
-                    <td><button type="button" className="link-button" aria-label={`删除第${i + 1}行`} onClick={() => setMoneyLines((ls) => (ls.length <= 1 ? [emptyMoney()] : ls.filter((_, k) => k !== i)))}>{moneyLines.length <= 1 ? '清空' : '删除'}</button></td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr><th colSpan={2}>{ui.totalLabel}</th><th className="num">{money(moneyCents)}</th><th colSpan={2} /></tr></tfoot>
-            </table>
-            {MONEY_SUGGEST[type] && <datalist id={`money-items-${type}`}>{MONEY_SUGGEST[type].map((t) => <option key={t} value={t} />)}</datalist>}
-            <div className="between"><button type="button" className="secondary-button small" onClick={() => setMoneyLines((ls) => [...ls, emptyMoney()])}>+ 加一行</button><span className="muted">最后一行备注里按回车可以接着加行</span></div>
+          <MoneyGrid type={type} label={moneyItem} lines={moneyLines} setLines={setMoneyLines} gridRef={gridRef} />
+          <div className="vc-grid-foot">
+            <button type="button" className="secondary-button small" onClick={() => setMoneyLines((ls) => [...ls, emptyMoney()])}>+ 加一行</button>
+            <span className="muted">回车跳到下一格，最后一格回车加行；Shift+Delete 删当前行</span>
+            <span className="vc-grid-total">{ui.totalLabel}　<b>{money(moneyCents)}</b></span>
           </div>
         </section>
       )}
 
       </div>
       <aside className="slip-side" aria-label="单据功能区">
-      <div className="slip-total-card"><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{def.lines && <span className="muted">共 {parsedCount} 行</span>}</div>
+      <div className="slip-total-card"><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{def.lines && <span className="muted">共 {parsedCount} 行{discountC > 0 ? ` · 已优惠 ${money(discountC)}` : ''}</span>}</div>
       <section className="slip-settle">
-        <h3 className="section-title"><span className="step">3</span>{def.settle === 'in' && type !== 'purchase-return' ? '收款情况' : def.settle === 'out' && type !== 'sale-return' ? '付款情况' : def.settle ? '退款情况' : def.bank === 'in' ? '收款情况' : def.bank === 'out' ? '付款情况' : '转款情况'}</h3>
+        <h3 className="section-title"><span className="step">3</span>{settleTitle}</h3>
         {def.settle && (
           <div className="pay-modes" role="group" aria-label="结算方式">
             {ui.payModes.map((m) => <button key={m.mode} type="button" className={`mode-button${payMode === m.mode ? ' active' : ''}`} aria-pressed={payMode === m.mode} onClick={() => pickMode(m.mode)}>{m.label}</button>)}
@@ -412,47 +412,36 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
         )}
         <div className="form-grid">
           {!def.lines && def.bank !== 'transfer' && <p className="muted" aria-label="金额汇总">{ui.amountLabel}：<b>{money(moneyCents)}</b>（等于上面明细合计）</p>}
-          {def.settle && <label>{ui.amountLabel}（元）<input inputMode="decimal" aria-label={ui.amountLabel} value={paid} onChange={(e) => { setPaid(e.target.value); setPayMode('part'); }} placeholder={def.lines === 'fee' ? '不填 = 当场付清/收齐' : '0.00'} /></label>}
-          {(def.bank === 'in' || def.bank === 'out' || def.settle) && def.bank !== 'transfer' && <label>{ui.accountLabel} *<SearchPick ariaLabel={ui.accountLabel} type="bank-accounts" value={bank.id} label={bank.name} onChange={(id, name) => setBank({ id, name })} /></label>}
+          {def.settle && <label>{ui.amountLabel}（元）<input inputMode="decimal" aria-label={ui.amountLabel} value={multiOn ? centsToYuan(multiCents) : paid} readOnly={multiOn} onChange={(e) => { setPaid(e.target.value); setPayMode('part'); }} placeholder={def.lines === 'fee' ? '不填 = 当场付清/收齐' : '0.00'} />{multiOn && <small className="muted">分账户时等于下面各账户金额之和</small>}</label>}
+          {(def.bank === 'in' || def.bank === 'out' || def.settle) && def.bank !== 'transfer' && !multiOn && <label>{ui.accountLabel} *<SearchPick ariaLabel={ui.accountLabel} type="bank-accounts" value={bank.id} label={bank.name} onChange={(id, name) => setBank({ id, name })} /></label>}
+          {!multiOn && payDir && <button type="button" className="link-button pay-toggle" onClick={() => { setMulti(bank.id ? [{ id: bank.id, name: bank.name, amount: (def.settle ? paidC : moneyCents) ? centsToYuan(def.settle ? paidC : moneyCents) : '' }] : []); setMultiOn(true); }}>分多个账户{payDir === 'in' ? '收' : '付'}款</button>}
+          {hasMoneyDiscount(type) && <label>优惠金额（元）<input inputMode="decimal" aria-label="优惠金额" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="没有就留空" /><small className="muted vc-disc-hint">{type === 'receipt' ? '给对方让利：冲减他的应收，但没有收到钱，记入财务费用' : '对方给的折扣：冲减我们的应付，但没有付钱，冲减财务费用'}</small></label>}
           {type === 'online-sale' && <label>平台佣金率（%，仅估算，不入账）<input inputMode="decimal" aria-label="平台佣金率" value={feeRate} onChange={(e) => setFeeRate(e.target.value)} placeholder="如 0.6" /></label>}
+          {!def.store && hasBankRef(def) && <label>银行流水号<input aria-label="银行流水号" value={refNo} maxLength={80} onChange={(e) => setRefNo(e.target.value)} placeholder="选填；银行回单上的流水号" /></label>}
           {def.offset && <label>冲抵{ACCOUNT_LABEL[def.offset]}（元）<input inputMode="decimal" aria-label="冲抵金额" value={offset} onChange={(e) => setOffset(e.target.value)} placeholder="不冲抵就留空" /></label>}
         </div>
+        {multiOn && payDir && (
+          <PayAccounts role={payDir} accounts={multi} setAccounts={setMulti} expected={def.settle ? Math.max(total - offsetC, 0) : moneyCents} strict={!def.settle} balances={balances}
+            onSingle={() => { const first = multi[0]; if (first) setBank({ id: first.id, name: first.name }); if (def.settle) { setPaid(multiCents ? centsToYuan(multiCents) : ''); } setMultiOn(false); }} />
+        )}
+        {def.offset && partyBalance && (() => { const have = def.offset === 'advance_receipt' ? partyBalance.advanceReceiptCents : partyBalance.prepaymentCents; return <p className="muted vc-offset-hint">{party.name} 现有{ACCOUNT_LABEL[def.offset]} <b>{money(have)}</b>{offsetC > have ? <span className="vc-bad">（冲抵 {money(offsetC)} 超过余额，过账会被拒）</span> : ''}</p>; })()}
         {type === 'online-sale' && Number(feeRate) > 0 && total > 0 && <p className="muted">预估平台费 <b>{money(Math.round(total * Number(feeRate) / 100))}</b>，预计净到账 <b>{money(total - Math.round(total * Number(feeRate) / 100))}</b></p>}
         {canSettle && (
-          <div className="settle-by">
-            <div className="pay-modes" role="group" aria-label="结算方式选择">
-              {(['amount', 'doc', 'product'] as SettleBy[]).map((m) => <button key={m} type="button" className={`mode-button${settleBy === m ? ' active' : ''}`} aria-pressed={settleBy === m} onClick={() => { setSettleBy(m); setAlloc({}); }}>{SETTLE_BY_LABEL[m]}</button>)}
-            </div>
-            {settleBy === 'amount' && <p className="muted">按金额结算：直接冲减这个往来对象的{type === 'receipt' ? '应收' : '应付'}余额，不指定单据。</p>}
-            {settleBy !== 'amount' && (
-              <>
-                {!party.id && <p className="muted">先选往来对象，才能列出他名下没结算完的单据。</p>}
-                {party.id && open.length === 0 && <p className="muted">这个往来对象名下没有需要结算的单据。</p>}
-                {open.length > 0 && (
-                  <div className="table-scroll"><table className="data-table" aria-label="结算单据">
-                    <thead><tr><th>单据</th><th>日期</th>{settleBy === 'product' && <th>商品</th>}<th className="num">单据金额</th><th className="num">未结算</th><th className="num">本次结算（元）</th></tr></thead>
-                    <tbody>
-                      {open.flatMap((it) => settleBy === 'doc'
-                        ? [<tr key={it.id}><td className="mono">{it.docNo} <span className="muted">{it.typeLabel}</span></td><td>{it.docDate}</td><td className="num">{money(it.amountCents)}</td><td className="num">{money(it.outstandingCents)}</td>
-                            <td><input inputMode="decimal" aria-label={`结算 ${it.docNo}`} value={alloc[`${it.id}`] ?? ''} onChange={(e) => setAlloc((a) => ({ ...a, [`${it.id}`]: e.target.value }))} /></td></tr>]
-                        : it.products.map((p, i) => <tr key={`${it.id}:${p.productId}`}><td className="mono">{i === 0 ? <>{it.docNo} <span className="muted">{it.typeLabel}</span></> : ''}</td><td>{i === 0 ? it.docDate : ''}</td><td>{p.productName}</td><td className="num">{money(p.amountCents)}</td><td className="num">{money(p.outstandingCents)}</td>
-                            <td><input inputMode="decimal" aria-label={`结算 ${it.docNo} ${p.productName}`} value={alloc[`${it.id}:${p.productId}`] ?? ''} onChange={(e) => setAlloc((a) => ({ ...a, [`${it.id}:${p.productId}`]: e.target.value }))} /></td></tr>))}
-                    </tbody>
-                  </table></div>
-                )}
-                <div className="between">
-                  <span className={allocated === settleTotal && settleTotal > 0 ? 'ok-text' : 'bad-text'}>已分配 {money(allocated)} / 本次结算金额 {money(settleTotal)}（收付款金额加冲抵）</span>
-                  <button type="button" className="secondary-button small" onClick={autoAlloc} disabled={!open.length || settleTotal <= 0}>按业务发生先后自动分配</button>
-                </div>
-              </>
-            )}
-          </div>
+          <SettleBySection type={type} settleBy={settleBy} setSettleBy={setSettleBy} hasParty={!!party.id} open={open} alloc={alloc} setAlloc={setAlloc} clearAlloc={() => setAlloc({})} allocated={allocated} settleTotal={settleTotal} autoAlloc={autoAlloc} />
         )}
         {bankBal !== undefined && bank.id && (
           <p className="muted" aria-label="账户余额预览">账户当前余额 <b className={bankBal < 0 ? 'neg' : ''}>{money(bankBal)}</b>{bankAfter !== null && <> → 本单{def.bank === 'in' || def.settle === 'in' ? '到账' : '支出'}后约 <b className={bankAfter < 0 ? 'neg' : ''}>{money(bankAfter)}</b>{bankAfter < 0 ? '（预计为负，请确认账户或金额）' : ''}</>}　<small>仅供参考，以过账后实际余额为准</small></p>
         )}
         {def.settle && def.lines && total > 0 && paidC > 0 && paidC !== total && (
           <p className={`notice ${paidC > total ? 'warn' : ''}`} role="status">{paidC > total ? `${ui.amountLabel}比本单金额多 ${money(paidC - total)}，请确认` : `本单还差 ${money(total - paidC - offsetC)} 未结清（将挂${def.settle === 'in' ? '应收' : '应付'}）`}</p>
+        )}
+        {hasMoneyDiscount(type) && (
+          <dl className="settle-sum" aria-label="本次冲减往来">
+            <div><dt>{ui.amountLabel}</dt><dd>{money(parse(amount) ?? 0)}</dd></div>
+            {offsetC > 0 && <div><dt>冲抵{def.offset ? ACCOUNT_LABEL[def.offset] : ''}</dt><dd>{money(offsetC)}</dd></div>}
+            {moneyDiscC > 0 && <div><dt>优惠金额</dt><dd>{money(moneyDiscC)}</dd></div>}
+            <div><dt>本次冲减{type === 'receipt' ? '应收' : '应付'}</dt><dd>{money(settleTotal)}</dd></div>
+          </dl>
         )}
         {def.settle && def.lines && (
           <dl className="settle-sum">
@@ -476,7 +465,6 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
 
   const buttons = (
     <>
-      {inline && !doc && <button type="button" className="secondary-button" disabled={busy} onClick={reset}>清空单据</button>}
       {!inline && <button type="button" className="secondary-button" onClick={onClose}>取消</button>}
       <button type="submit" className="secondary-button" disabled={busy}>{inline ? '保存草稿' : '存为草稿'}</button>
       <button type="button" className="secondary-button" disabled={busy} onClick={() => save(null, 'issue')}>保存并开立</button>
@@ -486,8 +474,11 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved }: Props) 
 
   if (inline) {
     return (
-      <form className="card slip" aria-label={`${def.label}开单`} onSubmit={(e) => save(e)}>
-        <div className="slip-title"><strong>{def.label} / 手工开单</strong></div>
+      <form className="card slip vc-slip" aria-label={`${def.label}开单`} onSubmit={(e) => save(e)}>
+        <div className="slip-title"><strong>{def.label} / 手工开单</strong>{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}</div>
+        <div className="slip-toolbar-row"><VoucherToolbar type={type} busy={busy} editing={!!doc}
+          onClear={() => { if (doc) onClose?.(); else reset(); }} onPrint={doPrint} onList={() => onShowList?.()} onPickDraft={(id) => onPickDraft?.(id)} />
+          <span className="vc-keys muted">Ctrl+G 保存草稿 · F8 过账 · Ctrl+F9 打印 · Ctrl+F8 回到明细</span></div>
         <div className="slip-body">{content}</div>
         <div className="slip-foot"><div className="slip-foot-total"><span className="muted">{ui.totalLabel}</span> <b>{money(total)}</b></div>{buttons}</div>
       </form>

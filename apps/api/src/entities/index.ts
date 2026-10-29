@@ -631,9 +631,17 @@ export class FinanceDocument {
   @Column({ name: 'amount_cents', type: 'bigint', transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) amountCents!: number;
   @Column({ name: 'offset_cents', type: 'bigint', transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) offsetCents!: number;
   @Column({ name: 'paid_cents', type: 'bigint', default: 0, transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) paidCents!: number;
+  @Column({ name: 'discount_cents', type: 'bigint', default: 0, transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) discountCents!: number;
+  @Column({ name: 'fee_cents', type: 'bigint', default: 0, transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) feeCents!: number;
+  @Column({ name: 'fee_bearer', type: 'varchar', length: 4, nullable: true }) feeBearer!: 'out' | 'in' | null;
+  /** 转款单在途：null 普通转款 · pending 已转出、对方还没确认到账 · confirmed 已确认入账 */
+  @Column({ name: 'transit_status', type: 'varchar', length: 10, nullable: true }) transitStatus!: 'pending' | 'confirmed' | null;
+  @Column({ name: 'confirmed_by', type: 'int', unsigned: true, nullable: true }) confirmedBy!: number | null;
+  @Column({ name: 'confirmed_at', type: 'datetime', nullable: true }) confirmedAt!: Date | null;
   @Column({ name: 'settle_by', type: 'varchar', length: 8, nullable: true }) settleBy!: string | null;
   @Column({ type: 'varchar', length: 500, nullable: true }) memo!: string | null;
   @Column({ type: 'varchar', length: 60, nullable: true }) handler!: string | null;
+  @Column({ name: 'handler_id', type: 'int', unsigned: true, nullable: true }) handlerId!: number | null;
   @Column({ type: 'varchar', length: 60, nullable: true }) department!: string | null;
   @Column({ name: 'source_key', type: 'varchar', length: 120, nullable: true }) sourceKey!: string | null;
   @Column({ name: 'reverses_id', type: 'int', unsigned: true, nullable: true }) reversesId!: number | null;

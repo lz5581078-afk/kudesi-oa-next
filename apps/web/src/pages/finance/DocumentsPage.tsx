@@ -18,7 +18,7 @@ export function DocumentsPage(props: { scope: 'drafts' | 'history' | DocType; em
   return <DocumentsInner key={props.scope} {...props} />;
 }
 
-const FILTER_DEFAULTS = { datePreset: 'month', from: '', to: '', status: '', docType: '', direction: '', mine: false, audited: '' };
+const FILTER_DEFAULTS = { datePreset: 'month', from: '', to: '', status: '', docType: '', direction: '', mine: false, audited: '', transit: '' };
 
 function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | DocType; embedded?: boolean }) {
   const { can, user } = useAuth();
@@ -28,11 +28,13 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
   const [saved, setSaved] = usePersisted(persistKey, defaults);
   const fresh = (() => { const p = DATE_PRESETS.find((x) => x.key === saved.datePreset); if (!p) return saved; const [from, to] = p.range(); return { ...saved, from, to }; })();
   const { from, to, status, docType, direction, mine, audited } = fresh;
+  const transit = (fresh as { transit?: string }).transit || '';
   const setStatus = (v: string) => setSaved({ status: v });
   const setDocType = (v: string) => setSaved({ docType: v });
   const setDirection = (v: string) => setSaved({ direction: v });
   const setMine = (v: boolean) => setSaved({ mine: v });
   const setAudited = (v: string) => setSaved({ audited: v });
+  const setTransit = (v: string) => setSaved({ transit: v });
   const setFrom = (v: string) => setSaved({ from: v, datePreset: activePreset(v, to) || 'custom' });
   const setTo = (v: string) => setSaved({ to: v, datePreset: activePreset(from, v) || 'custom' });
   const setDates = (a: string, b: string) => setSaved({ from: a, to: b, datePreset: activePreset(a, b) || 'custom' });
@@ -48,12 +50,12 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ title: string; r: BatchResult } | null>(null);
 
-  const filtersActive = Boolean(keyword.trim() || status || docType || direction || mine || audited || saved.datePreset !== defaults.datePreset);
+  const filtersActive = Boolean(keyword.trim() || status || docType || direction || mine || audited || transit || saved.datePreset !== defaults.datePreset);
   const resetFilters = () => { setKeyword(''); setSaved({ ...defaults }); setPage(1); };
   const load = useCallback(() => {
     setError(''); setLoading(true);
-    financeApi.docs({ scope, status, from, to, keyword, docType: docType || undefined, direction: direction || undefined, creatorId: mine ? user?.id : undefined, audited: audited || undefined, page }).then((d) => { setData(d); setChecked(new Set()); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')).finally(() => setLoading(false));
-  }, [scope, status, from, to, keyword, docType, direction, mine, audited, page, user?.id]);
+    financeApi.docs({ scope, status, from, to, keyword, docType: docType || undefined, direction: direction || undefined, creatorId: mine ? user?.id : undefined, audited: audited || undefined, transit: transit || undefined, page }).then((d) => { setData(d); setChecked(new Set()); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')).finally(() => setLoading(false));
+  }, [scope, status, from, to, keyword, docType, direction, mine, audited, transit, page, user?.id]);
   useEffect(() => { load(); }, [load]);
 
   const isCenter = scope === 'drafts' || scope === 'history';
@@ -122,6 +124,11 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
               <option value="">财务审核：全部</option><option value="yes">已审核</option><option value="no">未审核</option>
             </select>
           )}
+          {scope === 'history' && (
+            <select aria-label="转款在途" value={transit} onChange={(e) => { setTransit(e.target.value); setPage(1); }}>
+              <option value="">转款在途：全部</option><option value="pending">只看在途待确认的转款</option>
+            </select>
+          )}
           {isCenter && <label className="check-line"><input type="checkbox" checked={mine} onChange={(e) => { setMine(e.target.checked); setPage(1); }} />只看我制的单</label>}
           {isCenter && <DateChips from={from} to={to} onChange={(a, b) => { setDates(a, b); setPage(1); }} />}
           <input type="date" aria-label="开始日期" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} />
@@ -154,7 +161,7 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
               <button type="button" key={r.id} className="bill-card" aria-label={`查看${r.typeLabel} ${r.docNo}`} onClick={() => setSelected(r.id)}>
                 <span className="bill-head"><b>{r.typeLabel}</b><em>{r.docDate}</em></span>
                 <span className="bill-main"><span>{r.partyName || r.memo || '—'}</span><strong className={r.amountCents < 0 ? 'neg' : ''}>{money(r.amountCents)}</strong></span>
-                <span className="bill-meta"><code>{r.docNo}</code><span className={`pill ${DOC_STATUS_TONE[r.status]}`}>{DOC_STATUS_LABEL[r.status]}</span></span>
+                <span className="bill-meta"><code>{r.docNo}</code><span className={`pill ${DOC_STATUS_TONE[r.status]}`}>{DOC_STATUS_LABEL[r.status]}</span>{r.transitStatus === 'pending' && r.status === 'posted' && <span className="pill warn">在途待确认</span>}</span>
               </button>
             ))}
           </div>
@@ -177,8 +184,8 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
                   {!def && <td>{r.typeLabel}</td>}
                   <td>{r.docDate}</td>{scope === 'history' && <td>{DOC_DIRECTION_LABEL[r.direction ?? 'internal']}</td>}<td>{r.partyName ?? ''}</td>
                   <td className={`num ${r.amountCents < 0 ? 'neg' : ''}`}>{money(r.amountCents)}</td>
-                  <td>{r.bankName ?? ''}</td><td className="num">{r.paidCents ? money(r.paidCents) : ''}</td>
-                  <td><span className={`pill ${DOC_STATUS_TONE[r.status]}`}>{DOC_STATUS_LABEL[r.status]}</span></td>
+                  <td>{(r.acctCount ?? 0) > 1 ? `${r.bankName ?? ''} 等 ${r.acctCount} 个账户` : r.bankName ?? ''}</td><td className="num">{r.paidCents ? money(r.paidCents) : ''}</td>
+                  <td><span className={`pill ${DOC_STATUS_TONE[r.status]}`}>{DOC_STATUS_LABEL[r.status]}</span>{r.transitStatus === 'pending' && r.status === 'posted' && <> <span className="pill warn">在途待确认</span></>}</td>
                   {scope === 'history' && <td>{r.auditedAt ? <span className="pill ok">已审核</span> : <span className="muted">未审核</span>}</td>}
                   <td>{r.handler ?? ''}</td><td>{r.createdByName}</td>{scope === 'history' && <td>{r.source ?? ''}</td>}<td>{r.memo}</td>
                 </tr>

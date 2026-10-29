@@ -9,6 +9,7 @@ import { validUnitCents, settledLineCents } from './unit-price';
  * 科目（account kind）：
  *  bank 银行账户 · receivable 应收（客户）· payable 应付（供应商）· advance_receipt 预收款（客户）· prepayment 预付款（供应商）
  *  inventory 库存（仓库+商品，带数量）· revenue 销售收入 · cogs 销售成本 · expense 费用 · other_income 其他收入
+ *  finance_cost 财务费用（借正贷负：收款优惠/转款手续费是借方=费用，付款优惠是贷方=获得折扣）· in_transit 在途资金（转款已转出、对方未确认到账；账户 id 是转入账户）
  */
 
 /** 公司在国内，“今天”按北京时间算（不能用 UTC，否则凌晨制的单会记到前一天） */
@@ -22,7 +23,7 @@ export type DocStatus = 'draft' | 'issued' | 'posted' | 'reversed';
 
 export type AccountKind =
   | 'bank' | 'receivable' | 'payable' | 'advance_receipt' | 'prepayment'
-  | 'inventory' | 'revenue' | 'cogs' | 'expense' | 'other_income' | 'opening';
+  | 'inventory' | 'revenue' | 'cogs' | 'expense' | 'other_income' | 'opening' | 'finance_cost' | 'in_transit';
 
 /** 往来对象来源：客户档案 / 店铺档案 / 供应商档案（资料里的三份档案，id 在资料表里全局唯一） */
 export type PartyKind = 'customer' | 'store' | 'supplier' | 'employee';
@@ -100,9 +101,9 @@ export const DOC_TYPES: readonly DocTypeDef[] = [
   { type: 'other-income', label: '其他收入单', prefix: 'QTSR', party: 'customer', partyKinds: ['customer', 'store', 'supplier', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'in', offset: null, feeDirection: 'income',
     posting: '借：银行 贷：其他收入；没收齐的部分挂应收（要选往来对象）',
     ui: { partyLabel: '来源对象（选填）', warehouseLabel: '', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单收入合计', saveText: '保存其他收入单', detailTitle: '收入明细', moneyItemLabel: '收入项目', payModes: [{ mode: 'full', label: '已收全款' }, { mode: 'part', label: '收了部分' }, { mode: 'credit', label: '暂未收款' }] } },
-  { type: 'expense', label: '费用单', prefix: 'FY', party: 'supplier', partyKinds: ['supplier', 'customer', 'store', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'out', offset: null, feeDirection: 'expense',
-    posting: '借：费用 贷：银行；没付清的部分挂应付（要选往来对象）。不选往来对象就是现金费用单，必须当场付清',
-    ui: { partyLabel: '收费单位（选填）', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '暂未付款（挂应付）' }] } },
+  { type: 'expense', label: '费用单', prefix: 'FY', party: 'supplier', partyKinds: ['supplier', 'customer', 'store', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'out', offset: 'prepayment', feeDirection: 'expense',
+    posting: '借：费用 贷：银行（及预付冲抵）；没付清的部分挂应付（要选往来对象）。不选往来对象就是现金费用单，必须当场付清',
+    ui: { partyLabel: '收费单位（选填）', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '暂未付款（挂应付）' }, { mode: 'offset', label: '用预付款结算' }] } },
 ];
 
 export const DOC_TYPE_MAP = new Map(DOC_TYPES.map((d) => [d.type, d]));
@@ -122,7 +123,22 @@ export const DOC_STATUS_LABEL: Record<DocStatus, string> = { draft: '草稿', is
 export const ACCOUNT_LABEL: Record<AccountKind, string> = {
   bank: '银行账户', receivable: '应收账款', payable: '应付账款', advance_receipt: '预收款', prepayment: '预付款',
   opening: '期初', inventory: '库存', revenue: '销售收入', cogs: '销售成本', expense: '费用', other_income: '其他收入',
+  finance_cost: '财务费用（现金折扣/手续费）', in_transit: '在途资金',
 };
+
+/** 收款单、付款单可以填“优惠金额”：给/得到对方的优惠，冲减往来余额，同时计入财务费用（管家婆 A8 收付款单“优惠金额”） */
+export const MONEY_DISCOUNT_TYPES: readonly DocType[] = ['receipt', 'payment'];
+export const hasMoneyDiscount = (type: DocType): boolean => MONEY_DISCOUNT_TYPES.includes(type);
+
+/**
+ * 多账户收付款：这种单据的钱进（in）还是出（out）银行账户，null 表示不支持分账户（转款单有自己的转出/转入账户；店铺提现单只有一个到账账户）。
+ * 单据上每个账户一行（账户 + 金额），合计 = 实收/实付（有商品明细的单据）或单据金额（收款单、付款单这类没有挂账的单据）。
+ */
+export function payRole(def: Pick<DocTypeDef, 'bank' | 'settle' | 'store'>): 'in' | 'out' | null {
+  if (def.bank === 'transfer' || def.store) return null;
+  if (def.bank === 'in' || def.bank === 'out') return def.bank;
+  return def.settle === 'in' ? 'in' : def.settle === 'out' ? 'out' : null;
+}
 
 export interface DocLineInput {
   productId?: number | null;
@@ -158,12 +174,27 @@ export interface DocInput {
   /** 店铺提现：店铺档案 id 和平台提现流水号 */
   storeId?: number | null;
   refNo?: string | null;
-  /** 转款单：多账户分配（不填则用 bankAccountId → toBankAccountId 加 amountCents 的单账户写法） */
+  /**
+   * 多账户分配。转款单：多个转出、多个转入账户（不填则用 bankAccountId → toBankAccountId 加 amountCents 的单账户写法）；
+   * 收付款类单据：分几个账户收/付（role 固定为 payRole，不填就是 bankAccountId 单账户，老单据都是这种）。
+   */
   accounts?: TransferAccount[] | null;
   /** 没有明细行的单据：金额，分 */
   amountCents?: number | null;
   /** 冲抵的预收/预付金额，分 */
   offsetCents?: number | null;
+  /**
+   * 优惠金额，分。商品类单据（管家婆“优惠金额/抹零”）：单据金额 = 明细合计 − 优惠，销售收入/应收/采购成本都按优惠后计；
+   * 收款单/付款单（A8 收付款“优惠金额”）：到账/付出金额之外，再冲减往来余额这么多，同时计入财务费用（收款优惠借记、付款优惠贷记）。
+   */
+  discountCents?: number | null;
+  /** 转款手续费，分；由 feeBearer 指定的一方（转出方 out / 转入方 in）的第一个账户扣，计入财务费用 */
+  feeCents?: number | null;
+  feeBearer?: 'out' | 'in' | null;
+  /** 转款先登记为“在途”：只从转出账户扣，转入账户等对方确认到账后（确认入账）才增加 */
+  inTransit?: boolean | null;
+  /** 经手人：员工 id（服务端取员工姓名存到 handler）；老数据只有 handler 文字 */
+  handlerId?: number | null;
   /** 开单时当场结算的金额（实收/实付），分；其余挂应收/应付。只有 settle 类单据用 */
   paidCents?: number | null;
   /** 经办人、归属部门（文字，管家婆开单页上的“经办人/部门”） */
@@ -199,15 +230,30 @@ export interface Entry {
 export const lineAmount = (l: Pick<DocLineInput, 'qty' | 'unitPriceCents'>): number => { try { return settledLineCents(l.unitPriceCents, l.qty); } catch { return NaN; } };
 
 /** 当场结算金额。费用单/其他收入单没填就当“当场付清/收齐”（现金费用）；其他单据没填就是 0（全部挂账）。 */
-export function effectivePaid(def: DocTypeDef, input: Pick<DocInput, 'paidCents' | 'partyId'>, total: number): number {
+export function effectivePaid(def: DocTypeDef, input: Pick<DocInput, 'paidCents' | 'partyId'> & { accounts?: DocInput['accounts'] }, total: number): number {
   if (!def.settle) return 0;
+  // 分了多个账户：实收实付就是各账户金额之和
+  if (payRole(def) && input.accounts?.length) return input.accounts.reduce((s, a) => s + (Number.isFinite(a.amountCents) ? a.amountCents : 0), 0);
   if (input.paidCents === null || input.paidCents === undefined) return def.lines === 'fee' ? total : 0;
   return input.paidCents;
 }
 
-export function docTotal(def: DocTypeDef, input: Pick<DocInput, 'amountCents' | 'lines' | 'accounts'>): number {
+/** 明细合计（未扣优惠） */
+export const grossTotal = (input: Pick<DocInput, 'lines'>): number => (input.lines ?? []).reduce((sum, l) => sum + lineAmount(l), 0);
+
+/** 把整单优惠按各行金额比例摊到每一行（分），最后一个有金额的行补尾差；用于采购入库/退货把优惠摊进库存成本 */
+export function allocateDiscount(amounts: number[], discount: number): number[] {
+  const sum = amounts.reduce((a, b) => a + b, 0);
+  if (!discount || sum <= 0) return amounts.map(() => 0);
+  const out = amounts.map((a) => Math.floor((a * discount) / sum));
+  let left = discount - out.reduce((a, b) => a + b, 0);
+  for (let i = amounts.length - 1; i >= 0 && left > 0; i--) if (amounts[i] > 0) { out[i] += left; left = 0; }
+  return out;
+}
+
+export function docTotal(def: DocTypeDef, input: Pick<DocInput, 'amountCents' | 'lines' | 'accounts' | 'discountCents'>): number {
   if (def.bank === 'transfer' && input.accounts?.length) return input.accounts.filter((a) => a.role === 'out').reduce((s, a) => s + a.amountCents, 0);
-  if (def.lines) return (input.lines ?? []).reduce((sum, l) => sum + lineAmount(l), 0);
+  if (def.lines) return grossTotal(input) - (def.lines === 'product' ? input.discountCents ?? 0 : 0);
   // 金额类单据可以写多行金额明细（旧系统同款），合计就是单据金额；不写明细则直接用 amountCents
   if (input.lines?.length) return input.lines.reduce((sum, l) => sum + lineAmount(l), 0);
   return input.amountCents ?? 0;
@@ -228,7 +274,18 @@ export function validateDoc(input: DocInput): string[] {
     else if (input.refNo.trim().length > 80) errors.push('平台提现流水号不超过 80 字');
   }
   if (!def.store && hasBankRef(def) && (input.refNo?.trim().length ?? 0) > 80) errors.push('银行流水号不超过 80 字');
-  if (def.bank === 'in' || def.bank === 'out') if (!input.bankAccountId) errors.push(def.bank === 'in' ? '请选择收款银行账户' : '请选择付款银行账户');
+  const multiRole = def.bank !== 'transfer' ? payRole(def) : null;
+  const split = multiRole && input.accounts?.length ? input.accounts : null;
+  if (def.bank === 'in' || def.bank === 'out') if (!input.bankAccountId && !split) errors.push(def.bank === 'in' ? '请选择收款银行账户' : '请选择付款银行账户');
+  if (def.bank !== 'transfer' && input.accounts?.length) {
+    if (!multiRole) errors.push('这种单据不能分多个账户');
+    else {
+      const accts = input.accounts;
+      if (accts.some((a) => a.role !== multiRole)) errors.push(`分账户的方向不对（这种单据的钱${multiRole === 'in' ? '收进' : '付出'}账户）`);
+      if (accts.some((a) => !a.bankAccountId || !Number.isInteger(a.amountCents) || a.amountCents <= 0)) errors.push('每个账户都要选好账户，并填大于 0 的金额');
+      if (new Set(accts.map((a) => a.bankAccountId)).size !== accts.length) errors.push('同一个账户不能重复选');
+    }
+  }
   if (def.bank === 'transfer') {
     if (input.accounts?.length) {
       const outs = input.accounts.filter((a) => a.role === 'out'), ins = input.accounts.filter((a) => a.role === 'in');
@@ -242,6 +299,13 @@ export function validateDoc(input: DocInput): string[] {
     } else if (!input.bankAccountId || !input.toBankAccountId) errors.push('请选择转出和转入账户');
     else if (input.bankAccountId === input.toBankAccountId) errors.push('转出和转入不能是同一个账户');
   }
+  const fee = input.feeCents ?? 0;
+  if (fee) {
+    if (def.bank !== 'transfer') errors.push('只有转款单能填手续费');
+    else if (!Number.isInteger(fee) || fee < 0) errors.push('手续费金额不合法');
+    else if (input.feeBearer !== 'out' && input.feeBearer !== 'in') errors.push('请选择手续费由转出方还是转入方承担');
+  }
+  if (input.inTransit && def.bank !== 'transfer') errors.push('只有转款单能登记为在途');
   if (def.lines) {
     const lines = input.lines ?? [];
     if (lines.length === 0) errors.push('至少要有一行明细');
@@ -266,6 +330,22 @@ export function validateDoc(input: DocInput): string[] {
     errors.push('金额必须大于 0');
   }
   const total = docTotal(def, input);
+  const discount = input.discountCents ?? 0;
+  if (discount) {
+    if (hasMoneyDiscount(input.type)) {
+      if (!Number.isInteger(discount) || discount < 0) errors.push('优惠金额不合法');
+      else if (!input.partyId) errors.push('填优惠金额要先选择往来对象（优惠冲减的是他的往来余额）');
+    } else if (def.lines !== 'product') errors.push('只有商品类单据能填优惠金额（收款单、付款单也可以填）');
+    else if (!Number.isInteger(discount) || discount < 0) errors.push('优惠金额不合法');
+    else if (discount >= grossTotal(input)) errors.push('优惠金额必须小于明细合计');
+  }
+  // 分账户：没有挂账概念的收付款单据，各账户合计必须等于单据金额；有商品明细的单据，合计就是实收实付，已写明的实收实付要一致
+  if (split) {
+    const sum = split.reduce((s, a) => s + (Number.isFinite(a.amountCents) ? a.amountCents : 0), 0);
+    if (def.settle) {
+      if (input.paidCents !== null && input.paidCents !== undefined && input.paidCents !== sum) errors.push(`各账户金额合计 ${(sum / 100).toFixed(2)} 元，要等于${def.ui.amountLabel} ${(input.paidCents / 100).toFixed(2)} 元`);
+    } else if (sum !== total) errors.push(`各账户金额合计 ${(sum / 100).toFixed(2)} 元，要等于本单金额 ${(total / 100).toFixed(2)} 元`);
+  }
   if (def.lines && total <= 0) errors.push('单据金额必须大于 0');
   const offset = input.offsetCents ?? 0;
   if (offset) {
@@ -284,18 +364,19 @@ export function validateDoc(input: DocInput): string[] {
         if (input.settleBy === 'product' && !x.productId) errors.push(`结算第 ${i + 1} 行请选择商品`);
       });
       const sum = ss.reduce((a, x) => a + (Number.isInteger(x.amountCents) ? x.amountCents : 0), 0);
-      const want = total + (input.offsetCents ?? 0);
-      if (ss.length && sum !== want) errors.push(`结算单据合计 ${(sum / 100).toFixed(2)} 元，要等于本次结算金额 ${(want / 100).toFixed(2)} 元（收付款金额加预收/预付冲抵）`);
+      const want = total + (input.offsetCents ?? 0) + (hasMoneyDiscount(input.type) ? input.discountCents ?? 0 : 0);
+      if (ss.length && sum !== want) errors.push(`结算单据合计 ${(sum / 100).toFixed(2)} 元，要等于本次结算金额 ${(want / 100).toFixed(2)} 元（收付款金额加预收/预付冲抵、优惠金额）`);
     }
   }
   const paid = effectivePaid(def, input, total);
-  if (def.lines === 'fee' && def.settle && paid < total && !input.partyId) errors.push(`没${def.settle === 'in' ? '收齐' : '付清'}的部分要挂账，请选择${def.ui.partyLabel.replace('（选填）', '')}（不挂账就必须当场${def.settle === 'in' ? '收齐' : '付清'}）`);
+  if (def.lines === 'fee' && def.settle && paid + offset < total && !input.partyId) errors.push(`没${def.settle === 'in' ? '收齐' : '付清'}的部分要挂账，请选择${def.ui.partyLabel.replace('（选填）', '')}（不挂账就必须当场${def.settle === 'in' ? '收齐' : '付清'}）`);
+  if (offset && def.lines === 'fee' && !input.partyId) errors.push(`冲抵${ACCOUNT_LABEL[def.offset as AccountKind] ?? '预付款'}要先选择${def.ui.partyLabel.replace('（选填）', '')}`);
   if (paid) {
     if (!def.settle) errors.push('这种单据不能当场结算');
     else if (!Number.isInteger(paid) || paid < 0) errors.push(`${def.ui.amountLabel}不合法`);
     else {
       if (paid + (offset || 0) > total) errors.push(`${def.ui.amountLabel}加冲抵不能超过本单合计`);
-      if (!input.bankAccountId) errors.push(`请选择${def.ui.accountLabel}`);
+      if (!input.bankAccountId && !split) errors.push(`请选择${def.ui.accountLabel}`);
     }
   }
   return errors;
@@ -316,6 +397,10 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
   const paid = effectivePaid(def, input, total);
   const e = (kind: AccountKind, accountId: number, amount: number, qty: number | null = null, subId = 0): Entry => ({ kind, accountId, subId, amount, qty });
   const out: Entry[] = [];
+  // 分账户收付款：每个账户一条银行分录；没分账户就是单账户（bankAccountId）
+  const split = def.bank !== 'transfer' && payRole(def) && input.accounts?.length ? input.accounts : null;
+  const bankLegs = (sign: 1 | -1, amount: number): Entry[] => (split ? split.map((a) => e('bank', a.bankAccountId, sign * a.amountCents)) : amount ? [e('bank', bank, sign * amount)] : []);
+  const moneyDiscount = hasMoneyDiscount(input.type) ? input.discountCents ?? 0 : 0;
 
   const stockLines = () => (input.lines ?? []).map((l) => {
     const productId = l.productId as number;
@@ -330,61 +415,112 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
       out.push(e('receivable', partyId, total), e('revenue', 0, -total));
       for (const s of stockLines()) out.push(e('cogs', s.productId, s.cost), e('inventory', s.productId, -s.cost, -s.qty, wh));
       // 当场收到的钱、用预收款结算的部分，从应收里减掉；剩下的就是欠款
-      if (paid) out.push(e('bank', bank, paid), e('receivable', partyId, -paid));
+      if (paid) out.push(...bankLegs(1, paid), e('receivable', partyId, -paid));
       if (offset) out.push(e('advance_receipt', partyId, offset), e('receivable', partyId, -offset));
       break;
     case 'sale-return':
       out.push(e('revenue', 0, total), e('receivable', partyId, -total));
       for (const s of stockLines()) out.push(e('inventory', s.productId, s.cost, s.qty, wh), e('cogs', s.productId, -s.cost));
       // 当场退出去的钱：把冲掉的应收再挂回来
-      if (paid) out.push(e('receivable', partyId, paid), e('bank', bank, -paid));
+      if (paid) out.push(e('receivable', partyId, paid), ...bankLegs(-1, paid));
       break;
     case 'advance-receipt':
-      out.push(e('bank', bank, total), e('advance_receipt', partyId, -total));
+      out.push(...bankLegs(1, total), e('advance_receipt', partyId, -total));
       break;
     case 'receipt':
-      out.push(e('bank', bank, total));
+      // 收款优惠：给对方让利，冲减应收但没收到钱，借记财务费用
+      out.push(...bankLegs(1, total));
       if (offset) out.push(e('advance_receipt', partyId, offset));
-      out.push(e('receivable', partyId, -(total + offset)));
+      if (moneyDiscount) out.push(e('finance_cost', 0, moneyDiscount));
+      out.push(e('receivable', partyId, -(total + offset + moneyDiscount)));
       break;
     case 'withdrawal':
       out.push(e('bank', bank, total), e('receivable', partyId, -total));
       break;
     case 'payment':
-      out.push(e('payable', partyId, total + offset), e('bank', bank, -total));
+      // 付款优惠：对方给的折扣，冲减应付但没付钱，贷记财务费用
+      out.push(e('payable', partyId, total + offset + moneyDiscount), ...bankLegs(-1, total));
       if (offset) out.push(e('prepayment', partyId, -offset));
+      if (moneyDiscount) out.push(e('finance_cost', 0, -moneyDiscount));
       break;
     case 'transfer':
-      if (input.accounts?.length) for (const a of input.accounts) out.push(e('bank', a.bankAccountId, a.role === 'in' ? a.amountCents : -a.amountCents));
-      else out.push(e('bank', input.toBankAccountId ?? 0, total), e('bank', bank, -total));
+      out.push(...transferEntries(input, total, false));
       break;
     case 'prepayment':
-      out.push(e('prepayment', partyId, total), e('bank', bank, -total));
+      out.push(e('prepayment', partyId, total), ...bankLegs(-1, total));
       break;
-    case 'purchase-in':
-      for (const l of input.lines ?? []) out.push(e('inventory', l.productId as number, lineAmount(l), l.qty, wh));
+    case 'purchase-in': {
+      // 整单优惠摊进每行入库成本
+      const cut = allocateDiscount((input.lines ?? []).map(lineAmount), input.discountCents ?? 0);
+      (input.lines ?? []).forEach((l, i) => out.push(e('inventory', l.productId as number, lineAmount(l) - cut[i], l.qty, wh)));
       out.push(e('payable', partyId, -(total - offset)));
       if (offset) out.push(e('prepayment', partyId, -offset));
-      if (paid) out.push(e('payable', partyId, paid), e('bank', bank, -paid));
+      if (paid) out.push(e('payable', partyId, paid), ...bankLegs(-1, paid));
       break;
-    case 'purchase-return':
+    }
+    case 'purchase-return': {
       out.push(e('payable', partyId, total));
-      for (const l of input.lines ?? []) out.push(e('inventory', l.productId as number, -lineAmount(l), -l.qty, wh));
-      if (paid) out.push(e('bank', bank, paid), e('payable', partyId, -paid));
+      const cut = allocateDiscount((input.lines ?? []).map(lineAmount), input.discountCents ?? 0);
+      (input.lines ?? []).forEach((l, i) => out.push(e('inventory', l.productId as number, -(lineAmount(l) - cut[i]), -l.qty, wh)));
+      if (paid) out.push(...bankLegs(1, paid), e('payable', partyId, -paid));
       break;
+    }
     case 'other-income':
       for (const l of input.lines ?? []) out.push(e('other_income', l.feeItemId as number, -lineAmount(l)));
-      if (paid) out.push(e('bank', bank, paid));
+      if (paid) out.push(...bankLegs(1, paid));
       if (total - paid) out.push(e('receivable', partyId, total - paid));
       break;
     case 'expense':
       for (const l of input.lines ?? []) out.push(e('expense', l.feeItemId as number, lineAmount(l)));
-      if (paid) out.push(e('bank', bank, -paid));
-      if (total - paid) out.push(e('payable', partyId, -(total - paid)));
+      if (paid) out.push(...bankLegs(-1, paid));
+      if (offset) out.push(e('prepayment', partyId, -offset));
+      if (total - paid - offset) out.push(e('payable', partyId, -(total - paid - offset)));
       break;
   }
   const sum = out.reduce((s, x) => s + x.amount, 0);
   if (sum !== 0) throw new Error(`借贷不平衡（差 ${sum} 分）`);
+  return out;
+}
+
+const entry = (kind: AccountKind, accountId: number, amount: number): Entry => ({ kind, accountId, subId: 0, amount, qty: null });
+
+/** 转款的转出/转入账户（多账户写法或单账户写法统一成列表） */
+function transferLegs(input: DocInput, total: number): TransferAccount[] {
+  if (input.accounts?.length) return input.accounts;
+  return [{ role: 'out', bankAccountId: input.bankAccountId ?? 0, amountCents: total }, { role: 'in', bankAccountId: input.toBankAccountId ?? 0, amountCents: total }];
+}
+
+/**
+ * 转款分录。普通转款：转出账户减、转入账户加。
+ * 在途（inTransit）：转出账户减，转入侧先记“在途资金”（账户 id = 转入账户），等 buildTransferConfirmEntries 才转进银行。
+ * 手续费：由承担方的第一个账户扣（银行减），对方科目是财务费用（借）。转入方承担且在途时，手续费等确认到账那一刻才扣。
+ */
+function transferEntries(input: DocInput, total: number, confirming: boolean): Entry[] {
+  const legs = transferLegs(input, total);
+  const out: Entry[] = [];
+  const fee = input.feeCents ?? 0;
+  const feeAcct = (role: 'out' | 'in') => legs.find((a) => a.role === role)?.bankAccountId ?? 0;
+  const transit = !!input.inTransit;
+  if (!confirming) {
+    for (const a of legs) {
+      if (a.role === 'out') out.push(entry('bank', a.bankAccountId, -a.amountCents));
+      else if (transit) out.push(entry('in_transit', a.bankAccountId, a.amountCents));
+      else out.push(entry('bank', a.bankAccountId, a.amountCents));
+    }
+    if (fee && (input.feeBearer !== 'in' || !transit)) out.push(entry('bank', feeAcct(input.feeBearer === 'in' ? 'in' : 'out'), -fee), entry('finance_cost', 0, fee));
+  } else {
+    for (const a of legs) if (a.role === 'in') out.push(entry('in_transit', a.bankAccountId, -a.amountCents), entry('bank', a.bankAccountId, a.amountCents));
+    if (fee && input.feeBearer === 'in') out.push(entry('bank', feeAcct('in'), -fee), entry('finance_cost', 0, fee));
+  }
+  return out;
+}
+
+/** 确认入账时追加的分录：在途资金转入转入账户；转入方承担的手续费这时才扣。红冲整张单据时和原分录一起取反 */
+export function buildTransferConfirmEntries(input: DocInput): Entry[] {
+  const def = DOC_TYPE_MAP.get(input.type);
+  if (!def || def.bank !== 'transfer') throw new Error('只有转款单能确认入账');
+  const out = transferEntries({ ...input, inTransit: true }, docTotal(def, input), true);
+  if (out.reduce((s, x) => s + x.amount, 0) !== 0) throw new Error('借贷不平衡');
   return out;
 }
 

@@ -76,8 +76,9 @@ describe('库存查询', () => {
     render(<MemoryRouter><InventoryPage /></MemoryRouter>);
     await waitFor(() => expect(fa.inventory).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText('库存状态'), { target: { value: 'out' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' })); // 改条件后点“查询”才发请求（对齐旧版）
     await waitFor(() => expect(fa.inventory).toHaveBeenLastCalledWith(expect.objectContaining({ stockStatus: 'out' })));
-    expect(screen.getByText('没有符合条件的库存，试试清除条件')).toBeTruthy();
+    expect(screen.getByText('没有符合条件的库存，请调整条件后重新查询')).toBeTruthy();
   });
 });
 
@@ -120,6 +121,14 @@ describe('现金银行查询', () => {
     const dlg = await screen.findByRole('dialog');
     expect(within(dlg).getByText('拼店收款户')).toBeTruthy();
     expect(within(dlg).queryByText('招行主户')).toBeNull();
+  });
+  it('有在途待确认的转款时：汇总卡片和账户行显示在途金额，不计入余额', async () => {
+    fa.banks.mockResolvedValue([acct(1, '招行主户', 'company_public', { inTransitCents: 250000 }), acct(2, '拼店收款户', 'store_public')]);
+    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
+    expect(await screen.findByText('在途待确认转款')).toBeTruthy();
+    const row = screen.getByText('招行主户').closest('tr')!;
+    expect(within(row).getByTitle(/确认入账后才计入余额/).textContent).toBe('¥2,500.00');
+    expect(within(row).getByText('¥100.00')).toBeTruthy(); // 余额仍是 10000 分
   });
 });
 

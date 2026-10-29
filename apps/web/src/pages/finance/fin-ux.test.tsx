@@ -114,7 +114,7 @@ describe('开单页细节', () => {
   it('商品明细：最后一行按回车自动加一行；只剩一行时删除变成清空', async () => {
     render(<DocForm type="sale" inline onSaved={vi.fn()} />);
     const before = screen.getAllByLabelText(/行单价$/).length;
-    fireEvent.keyDown(screen.getAllByLabelText(/行单价$/)[before - 1], { key: 'Enter' });
+    fireEvent.keyDown(screen.getAllByLabelText(/行备注$/)[before - 1], { key: 'Enter' });
     await waitFor(() => expect(screen.getAllByLabelText(/行单价$/).length).toBe(before + 1));
     expect(screen.getByText(/共 0 种商品/)).toBeTruthy();
     cleanup();

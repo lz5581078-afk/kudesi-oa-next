@@ -1461,3 +1461,152 @@ div.ws-task { cursor: default; }
   .cat-table td.cat-actions::before { content: none; }
   .cat-rename { flex-wrap: wrap; }
 }
+
+/* ---------- 财务基础资料分级布局：顶级分类卡片 + 进入后的页头（hier-*） ---------- */
+.hier-home { display: flex; flex-direction: column; gap: 14px; padding: 4px 4px 24px; }
+.hier-home-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.hier-home-head h1 { margin: 2px 0 4px; font-size: 22px; }
+.hier-home-head p { margin: 0; max-width: 640px; }
+.hier-home-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.hier-guide { font-size: 13px; }
+.hier-draft { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; }
+.hier-draft input { flex: 1 1 180px; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.hier-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.hier-card { --hc: var(--accent); position: relative; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px 12px; background: var(--surface, #fff); border: 1px solid var(--border); border-top: 4px solid var(--hc); border-radius: var(--radius, 10px); cursor: pointer; min-height: 138px; text-align: left; }
+.hier-card:hover, .hier-card:focus-visible { box-shadow: 0 4px 14px rgba(0, 0, 0, .08); outline: none; border-color: var(--hc); }
+.hier-card.green { --hc: #2f8f5b; } .hier-card.blue { --hc: #3b7dd8; } .hier-card.orange { --hc: #d9822b; } .hier-card.purple { --hc: #8a5cc7; } .hier-card.teal { --hc: #1f9aa6; }
+.hier-card-name { font-weight: 600; font-size: 15px; }
+.hier-card > strong { font-size: 28px; line-height: 1.1; color: var(--hc); font-variant-numeric: tabular-nums; }
+.hier-card small { color: var(--muted); font-size: 12.5px; line-height: 1.4; flex: 1; }
+.hier-card em { font-style: normal; font-size: 12px; color: var(--muted); }
+.hier-card-acts { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.hier-bar { display: flex; align-items: center; gap: 14px; padding: 0 2px 10px; flex-wrap: wrap; }
+.hier-bar h2 { margin: 0; font-size: 18px; }
+.hier-bar p { margin: 2px 0 0; font-size: 12.5px; }
+.cat-hint { padding: 2px 10px 6px; font-size: 12px; }
+.hier-acts { display: inline-flex; flex-wrap: nowrap; gap: 4px; }
+@media (max-width: 720px) {
+  .hier-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .hier-card { min-height: 120px; padding: 10px 12px; }
+  .hier-home-head h1 { font-size: 19px; }
+  .hier-bar { flex-wrap: nowrap; }
+}
+@media (max-width: 420px) { .hier-grid { grid-template-columns: 1fr; } }
+/* 分级布局：行内操作列贴右，列再多也一直看得到 */
+.res-page.hier .res-table td.c-acts, .res-page.hier .res-table th:last-child { position: sticky; right: 0; background: var(--surface, #fff); box-shadow: -6px 0 6px -6px rgba(0, 0, 0, .12); z-index: 2; }
+.res-page.hier .res-table th:last-child { background: var(--head-bg); z-index: 4; }
+.res-page.hier .res-table tr.selected td.c-acts { background: var(--accent-soft); }
+/* ---- 财务·实时查询页共用版式（pages/finance/query/QueryKit） ---- */
+.qk { display: flex; flex-direction: column; gap: 12px; }
+.qk-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; }
+.qk-head h1 { margin: 0 0 4px; font-size: 20px; }
+.qk-head p { margin: 0; max-width: 760px; font-size: 13px; line-height: 1.6; }
+.qk-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.qk-stamp { font-size: 12px; }
+.qk-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; }
+.qk-panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
+.qk-panel-head h2 { margin: 0; font-size: 15px; }
+.qk-hint { font-size: 12px; }
+.qk-panel-actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.qk-panel-actions input[type='date'] { height: 30px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.qk-collapsed { margin: 4px 0 0; font-size: 13px; }
+.qk-filter-grid { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.qk-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 160px; }
+.qk-field.wide { flex: 1 1 260px; }
+.qk-field input, .qk-field select { height: 34px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink); font-size: 14px; width: 100%; }
+.qk-field .pick { width: 100%; }
+.qk-range { display: flex; align-items: center; gap: 6px; }
+.qk-filter-actions { display: flex; gap: 8px; margin-left: auto; }
+.qk-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.qk-card { display: flex; flex-direction: column; gap: 2px; padding: 10px 16px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm); border-left: 3px solid var(--border-strong); }
+.qk-card strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.qk-card.ok { border-left-color: var(--ok-ink); } .qk-card.warn { border-left-color: var(--warn-ink); } .qk-card.bad { border-left-color: var(--bad-ink); } .qk-card.accent { border-left-color: var(--accent); }
+.qk-note { margin: 0; font-size: 12px; }
+.qk-state { padding: 16px 4px; margin: 0; }
+.qk-table .data-table { min-width: 560px; }
+.qk-table .data-table tfoot th { border-top: 2px solid var(--border-strong); font-variant-numeric: tabular-nums; }
+.qk-grow td { background: var(--head-bg); font-variant-numeric: tabular-nums; }
+.qk-ghead { border: 0; background: transparent; padding: 0; font: inherit; color: var(--ink); cursor: pointer; text-align: left; }
+.qk-foot-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
+.qk .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.qk-mlist, .qk-mlist ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.qk-mgroup > .qk-ghead { width: 100%; padding: 8px 10px; background: var(--head-bg); border-radius: var(--radius-sm); margin-bottom: 8px; }
+.qk-mcard { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: #fff; }
+.qk-mcard.selected { border-color: var(--accent); background: var(--accent-soft); }
+.qk-mcard-title { font-weight: 600; margin-bottom: 6px; word-break: break-all; }
+.qk-mcard dl { margin: 0; display: grid; gap: 4px; }
+.qk-mcard dl > div { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.qk-mcard dt { color: var(--muted); flex: none; } .qk-mcard dd { margin: 0; text-align: right; min-width: 0; word-break: break-all; }
+.qk-mcard-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.qk-mtotal { background: var(--head-bg); }
+@media (max-width: 720px) {
+  .qk-filter-grid { flex-direction: column; align-items: stretch; }
+  .qk-field, .qk-field.wide { min-width: 0; flex: none; }
+  .qk-filter-actions { margin-left: 0; } .qk-filter-actions button { flex: 1; }
+  .qk-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qk-panel-actions { margin-left: 0; width: 100%; }
+  .qk-head-actions { width: 100%; }
+}
+/* ===== 制单中心重做（feat/fin-docs）：开单页工具条、往来余额、明细网格、提示 ===== */
+.vc-slip { overflow: visible; box-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 4px 16px rgba(16, 24, 40, .05); }
+.vc-slip .slip-title { display: flex; align-items: center; gap: 12px; background: linear-gradient(180deg, #f8fbfd, #f1f6fa); font-size: 15px; }
+.vc-editing { margin-left: auto; padding: 2px 10px; border-radius: 999px; background: #fff4d6; color: #8a5a00; font-size: 12px; }
+.slip-toolbar-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: #fff; flex-wrap: wrap; }
+.vc-toolbar, .vc-tool-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vc-keys { font-size: 12px; }
+.vc-pop-anchor { position: relative; }
+.vc-pop { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: min(460px, 86vw); max-height: 360px; overflow: auto; padding: 10px 12px; background: #fff; border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 10px 28px rgba(16, 24, 40, .16); }
+.vc-pop-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.vc-pop-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.vc-pop-list button { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 1.4fr 1fr .8fr .8fr; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.vc-pop-list button:hover, .vc-pop-list button:focus-visible { background: #eef6f4; outline: 0; }
+.slip-wide { grid-column: 1 / -1; }
+.vc-balance { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px; border-radius: 8px; background: #f4f8fb; font-size: 12.5px; }
+.vc-balance-name { font-weight: 600; color: var(--ink); }
+.vc-chip { padding: 1px 8px; border-radius: 999px; background: #fff; border: 1px solid var(--border); color: var(--muted); }
+.vc-chip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.vc-warn { flex-basis: 100%; color: #8a5a00; background: #fff4d6; border-radius: 6px; padding: 3px 8px; }
+.vc-bad, .vc-hint .vc-bad { color: #c0392b; }
+.vc-warn-text { color: #b26a00; }
+.vc-hint { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; font-size: 12px; color: var(--muted); }
+.vc-grid { border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.vc-grid .doc-lines { margin: 0; }
+.vc-grid .doc-lines thead th { position: sticky; top: 0; background: #f4f8fb; font-weight: 600; font-size: 12.5px; z-index: 1; }
+.vc-grid .doc-lines tbody tr:nth-child(even) { background: #fbfcfd; }
+.vc-grid .doc-lines tbody tr:focus-within { background: #eef7f5; box-shadow: inset 3px 0 0 var(--accent); }
+.vc-grid .doc-lines input:focus, .vc-grid .doc-lines select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.vc-grid .doc-lines tr.vc-gift td { background: #fff9ec; }
+.vc-no { color: var(--muted); width: 32px; }
+.vc-gift-toggle { display: flex; width: fit-content; flex-direction: row; align-items: center; gap: 4px; margin-top: 3px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.doc-lines .vc-gift-toggle input { width: auto; min-width: 0; margin: 0; }
+.vc-grid .doc-lines td { padding-top: 8px; padding-bottom: 8px; }
+.vc-grid-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
+.vc-grid-total { margin-left: auto; font-size: 14px; }
+.vc-grid-total b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.vc-discount { display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 8px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.vc-discount input { width: 160px; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; }
+.vc-offset-hint { margin: 6px 0 0; }
+.vc-recent { margin-top: 24px; }
+.vc-slip .slip-total-card { background: linear-gradient(180deg, #f3faf8, #fff); border-color: #cfe8e1; }
+@media (max-width: 720px) {
+  .slip-toolbar-row { padding: 8px 12px; }
+  .vc-keys { display: none; }
+  .vc-pop-list button { grid-template-columns: 1fr 1fr; }
+  .vc-grid { border: 0; background: transparent; }
+  .vc-grid-total { margin-left: 0; width: 100%; }
+}
+
+/* 制单中心第二批：分账户收付款、转款手续费与在途 */
+.pay-accts { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fbfdfe; }
+.pay-accts .transfer-list li { flex-wrap: wrap; }
+.pay-accts .transfer-list li span { min-width: 140px; }
+.pay-accts .transfer-diff { grid-column: auto; font-size: 13px; }
+.pay-toggle { justify-self: start; }
+.transfer-fee { display: grid; gap: 8px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.transfer-fee label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.transfer-fee .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; }
+.transfer-fee input:not([type='checkbox']), .transfer-fee select { padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; font: inherit; color: var(--ink); }
+.transfer-fee .transit-check { flex-direction: row; align-items: flex-start; gap: 8px; color: var(--ink); }
+.vc-disc-hint { margin: 0; font-size: 12px; }
+.transit-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+@media (max-width: 720px) { .pay-accts .transfer-list input { width: 100%; } }

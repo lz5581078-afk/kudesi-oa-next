@@ -83,6 +83,14 @@ async function beforeCategory(ctx: BeforeSaveContext) {
   const { em, host, user, data, existing } = ctx;
   data.name = str(data.name).normalize('NFKC').trim().replace(/\s+/g, ' ');
   data.code = str(data.code).toUpperCase();
+  if (!data.code) {
+    // 左侧目录就地新增分类时不填分类码：按名称拼音首字母生成，同一类字典里重复就加数字
+    const used = new Set((await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' }, select: ['id', 'data'] })).filter((r) => r.id !== existing?.id).map((r) => str(r.data.code)));
+    const base = (initials(str(data.name)) || 'X').slice(0, 8);
+    let code = base;
+    for (let n = 2; used.has(code) && n < 1000; n++) code = `${base.slice(0, 8 - String(n).length)}${n}`;
+    data.code = code;
+  }
   if (!/^[A-Z0-9]{1,8}$/.test(str(data.code))) throw new BadRequestException('分类码只能是 1～8 位大写字母或数字');
   await assertCodeFree(ctx, 'finance-categories', str(data.code), '分类码');
   const parent = await rec(em, user.companyId, 'finance-categories', data.parentId);
