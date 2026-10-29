@@ -195,7 +195,15 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   if ((await host.findWhere(em, user.companyId, 'finance-categories', 'parentId', cat.id)).length > 0) throw new BadRequestException('必须选最末级分类');
   const need = type in FAMILY ? FAMILY[type](data) : (type || null); // 自定义档案类型：分类树的类型就是它自己
   if (!need || cat.data.archiveType !== need) throw new BadRequestException('分类和档案类型不匹配');
-  if (!((num(data.specQty) ?? 0) > 0)) throw new BadRequestException('规格数量必须大于 0');
+  // 包装类：规格数量/单位由“容量”第一行决定（如 500ML）；自产成品的规格数量可不填
+  if (type === 'package' || type === 'oem_package') {
+    const first = str(data.capacities).split(/\r?\n/).map((x) => x.trim()).find(Boolean) ?? '';
+    const m = first.match(/^(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/);
+    if (m && UNIT_OPTIONS.some((u) => u.value === m[2].toUpperCase())) { data.specQty = Number(m[1]); data.specUnit = m[2].toUpperCase(); }
+  }
+  if ((type === 'package' || type === 'oem_package') && !((num(data.specQty) ?? 0) > 0) && !(ctx.existing && ctx.status !== ctx.existing.status)) throw new BadRequestException('容量第一行请写成“数量+单位”，如 500ML、1KG');
+  if (type === 'self_made' && num(data.specQty) === null) { delete data.specQty; delete data.specUnit; }
+  else if (!((num(data.specQty) ?? 0) > 0)) throw new BadRequestException('规格数量必须大于 0');
 
   const statusChanging = !!existing && existing.status !== ctx.status;
   const canEditCost = createChecker(user.permissions)('product.cost.edit');
@@ -207,7 +215,8 @@ async function beforeProduct(ctx: BeforeSaveContext) {
 
   // 重量：自动换算，勾选“人工修正重量”后按填写的为准
   const manual = data.weightManual === true;
-  if (type !== 'raw') delete data.purchaseSpec;
+  if (!['raw', 'self_made', 'purchased', 'package', 'oem_package'].includes(type)) delete data.purchaseSpec;
+  if (!['package', 'oem_package', 'shipping_material'].includes(type)) delete data.weightUnit;
   if (type !== 'self_made') delete data.productPackagingSpec;
   if (type === 'raw') {
     const spec = str(data.purchaseSpec).trim();
