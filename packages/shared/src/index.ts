@@ -8,6 +8,7 @@ export * from './pricing';
 export * from './pricing-debug';
 export * from './auth';
 export * from './resources';
+export * from './category-options';
 export * from './expiry';
 export * from './resource-views';
 export * from './resource-descriptions';

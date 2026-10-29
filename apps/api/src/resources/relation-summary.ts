@@ -7,19 +7,20 @@ import type { ResourceRecord } from '../entities';
  */
 const PLAIN = new Set(['text', 'phone', 'select', 'number', 'date', 'monthday']);
 
-function plain(f: FieldDef, v: unknown): string {
+function plain(f: FieldDef, v: unknown, cat?: { field: string; labels: Map<string, string> }): string {
   if (v === undefined || v === null || v === '') return '';
+  if (f.type === 'select' && cat?.field === f.key && cat.labels.has(String(v))) return cat.labels.get(String(v))!;
   if (f.type === 'select') return f.options?.find((o) => o.value === String(v))?.label ?? String(v);
   return String(v);
 }
 
-export function relationSummary(r: Pick<ResourceRecord, 'type' | 'status' | 'data'>): string {
+export function relationSummary(r: Pick<ResourceRecord, 'type' | 'status' | 'data'>, cat?: { field: string; labels: Map<string, string> }): string {
   const def = getResourceDef(r.type);
   if (!def) return '';
   const parts: string[] = [];
   for (const f of def.fields) {
     if (!f.list || f.key === def.titleField || f.readonly || f.permission || !PLAIN.has(f.type)) continue;
-    const t = plain(f, (r.data as Record<string, unknown>)[f.key]);
+    const t = plain(f, (r.data as Record<string, unknown>)[f.key], cat);
     if (t) parts.push(t);
     if (parts.length === 3) break;
   }

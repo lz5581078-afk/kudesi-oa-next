@@ -1427,3 +1427,23 @@ div.ws-task { cursor: default; }
 .rd-rel-title { display: flex; align-items: center; gap: 6px; margin: 0 0 2px; font-size: 12.5px; font-weight: 700; color: var(--ink-soft, var(--ink)); }
 .rd-rel-title i { font-style: normal; font-weight: 400; font-size: 11.5px; color: var(--muted, #6b7280); background: var(--surface-2, rgba(0,0,0,.05)); border-radius: 9px; padding: 0 6px; }
 .rd-rel-sum { margin-left: 4px; }
+
+/* —— 页签“管理分类”（齿轮按钮 + 管理弹窗） —— */
+.res-tab-gear { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-left: auto; flex: none; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.res-tab-gear:hover, .res-tab-gear:focus-visible { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--border); }
+.modal.cat-manage { width: min(900px, 100%); }
+.cat-manage .cat-rule { margin: 0 0 10px; font-size: 13px; }
+.cat-add { display: flex; gap: 8px; margin-bottom: 12px; }
+.cat-add input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; }
+.cat-rename { display: flex; gap: 6px; align-items: center; }
+.cat-rename input { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; }
+.cat-key { font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--hover-bg, rgba(0, 0, 0, 0.05)); color: var(--muted); }
+.cat-actions { white-space: nowrap; }
+.cat-actions > * + * { margin-left: 4px; }
+.cat-actions .cat-note { display: block; margin: 4px 0 0; white-space: normal; }
+.cat-badge.off { padding: 1px 6px; border-radius: 10px; font-size: 12px; background: var(--hover-bg, rgba(0, 0, 0, 0.06)); color: var(--muted); }
+.cat-hidden td:first-child { opacity: 0.65; }
+@media (max-width: 720px) {
+  .cat-actions { white-space: normal; }
+  .cat-actions > * { margin: 0 4px 4px 0; }
+}

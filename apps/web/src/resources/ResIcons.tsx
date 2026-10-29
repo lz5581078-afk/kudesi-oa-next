@@ -17,3 +17,4 @@ export const ShrinkIcon = ({ size = 14 }: P) => <svg {...base(size)}><path d="M1
 export const PlusIcon = ({ size = 14 }: P) => <svg {...base(size)}><path d="M8 3v10M3 8h10" /></svg>;
 export const SearchGlyph = ({ size = 14 }: P) => <svg {...base(size)}><circle cx="7" cy="7" r="4.2" /><path d="M10.3 10.3L14 14" /></svg>;
 export const BackIcon = ({ size = 14 }: P) => <svg {...base(size)}><path d="M10 3L5 8l5 5" /></svg>;
+export const GearIcon = ({ size = 15 }: P) => <svg {...base(size)}><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" /></svg>;

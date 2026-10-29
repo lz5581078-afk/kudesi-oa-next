@@ -287,6 +287,8 @@ export const SPECIAL_PERMISSIONS = {
   liveManage: 'live.manage',
   /** 直播管理：查看全员的提成、主播工资和月结（没有它只能看本人的） */
   liveCommissionsView: 'live.commissions.view',
+  /** 资料列表页签的“管理分类”：改名、排序、隐藏、新增自建分类、删除（统一一个键，所有带分类页签的资料通用；还要有该资料的查看权限） */
+  resourceCategoriesManage: 'resource.categories.manage',
 } as const;
 
 export interface VisibleSection extends NavSection {

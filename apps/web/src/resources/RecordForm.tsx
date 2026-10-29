@@ -1,6 +1,7 @@
 import { CascadePicker } from './CascadePicker';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { fieldOptions, useUnitOptions } from './unitOptions';
+import { selectChoices, useCategoryVersion } from './categoryOptions';
 import { groupTitle, SIMILARITY_RESOURCES, isComposedArchive, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
@@ -166,6 +167,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
   values?: Record<string, unknown>;
 }) {
   const units = useUnitOptions();
+  useCategoryVersion(); // 分类改名/新增后下拉立即刷新
   const str = value === undefined || value === null ? '' : String(value);
   switch (field.type) {
     case 'textarea':
@@ -187,7 +189,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
       return (
         <select value={str} onChange={(e) => onChange(e.target.value)}>
           <option value="">（不选）</option>
-          {(field.optionsFrom ? fieldOptions(field, values ?? {}, units) : field.options)?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {selectChoices(type, field, (f) => (f.optionsFrom ? fieldOptions(f, values ?? {}, units) : f.options ?? []), { mode: 'form', current: str }).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           {/* 记录里原来的值不在现在的列表里（历史数据、已停用的项）也要能看到 */}
           {field.optionsFrom && str && !fieldOptions(field, values ?? {}, units).some((o) => o.value === str) && <option value={str}>{str}</option>}
         </select>
