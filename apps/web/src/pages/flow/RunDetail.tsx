@@ -36,7 +36,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
   useEffect(reload, [reload]);
   // 按 Esc 关闭（有子弹窗时先关子弹窗）
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !dialog && !editing) onClose(); };
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented && !dialog && !editing) onClose(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [dialog, editing, onClose]);

@@ -903,7 +903,7 @@ export class FlowService {
       links: { docId: typeof run.payload._docId === 'number' ? run.payload._docId : null, docNo: str(run.payload._docNo) || null, borrowRecordId: typeof run.payload._borrowRecordId === 'number' ? run.payload._borrowRecordId : null },
       me: {
         canPass: running && !!mine && active!.stepType !== 'submit',
-        canReturn: running && !!mine && active!.stepType !== 'submit' && steps.filter((s) => s.status !== 'active').length > 1 && !adapter.returnBlocked?.(ctx!),
+        canReturn: running && !!mine && active!.stepType !== 'submit' && steps.some((s) => s.status !== 'active') && !adapter.returnBlocked?.(ctx!),
         canCancel: running && !!mine && !adapter.cancelBlocked?.(ctx!),
         canReject: running && !!mine && !adapter.cancelBlocked?.(ctx!),
         returnBlockedReason: running && !!mine && active ? adapter.returnBlocked?.(ctx!) ?? null : null,

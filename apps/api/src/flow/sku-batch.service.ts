@@ -75,7 +75,7 @@ export class SkuBatchService {
     }
     // 你名下待办最多的那个步骤：整单退回、批量办理默认针对它
     const byStep = new Map<string, number>();
-    for (const r of runs) { const st = active.get(r.id); if (st && r.status === 'running' && myStep.has(st.id)) byStep.set(st.stepKey, (byStep.get(st.stepKey) ?? 0) + 1); }
+    for (const r of runs) { const st = active.get(r.id); if (st && st.stepType !== 'submit' && r.status === 'running' && myStep.has(st.id)) byStep.set(st.stepKey, (byStep.get(st.stepKey) ?? 0) + 1); }
     const hold = [...byStep.entries()].sort((a, b) => b[1] - a[1])[0] ?? null;
     const holdKey = hold?.[0] ?? null;
     const atHold = holdKey ? runs.filter((r) => r.status === 'running' && active.get(r.id)?.stepKey === holdKey) : [];

@@ -190,6 +190,8 @@ d('SKU 申请汇总（真实数据库）', () => {
     expect(after[0].body).toContain('赠品不对');
     const board = await batch.board(ops, out.batchKey);
     expect(board.counts.returned).toBe(2);
+    // 申请人在发起步骤上没有“办理”动作（只能修改后重新提交），不能被当成批量办理人
+    expect(board.me).toMatchObject({ isRequester: true, holdStepKey: null, holdCount: 0, canReturnAll: false });
     const ret = board.items.filter((i) => i.enteredVia === 'return');
     expect(ret.every((i) => i.returnReason === '赠品不对' && i.canResubmit)).toBe(true);
     // 申请人原样重新提交：回到仓库，批次标记保留
@@ -221,6 +223,9 @@ d('SKU 申请汇总（真实数据库）', () => {
   it('个别规格退回（没拆开的一张申请）：被退回的拆出成新流程回到申请人，其余规格留在仓库继续办理', async () => {
     const run = await toWarehouse([qspec('留一', ids.pearBc, nextQty()), qspec('退二', ids.pearBc, nextQty()), qspec('留三', ids.pearBc, nextQty())]);
     const st = run.activeStep!;
+    // 第一个办理步骤（仓库）也要能看到“退回”：旧系统仓库退回运营是最常用的操作之一
+    expect((await flow.detail(wh, run.id)).me.canReturn).toBe(true);
+    expect((await flow.detail(ops, run.id)).me.canReturn).toBe(false);
     await expect(batch.returnSpecs(wh, { runId: run.id, revision: run.revision, stepId: st.id, specs: ['退二'], reason: '' })).rejects.toThrow(/原因/);
     await expect(batch.returnSpecs(wh, { runId: run.id, revision: run.revision, stepId: st.id, specs: ['没有'], reason: '错' })).rejects.toThrow(/没有规格/);
     await expect(batch.returnSpecs(stranger, { runId: run.id, revision: run.revision, stepId: st.id, specs: ['退二'], reason: '错' })).rejects.toThrow();

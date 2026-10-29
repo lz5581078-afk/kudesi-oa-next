@@ -82,7 +82,7 @@ export function MyTodosPage() {
             return (
               <tr key={r.id} className={late ? 'late' : undefined}>
                 <td className="cell-title">{r.batchKey && (r.batchCount ?? 0) > 0
-                  ? <button type="button" className="link-button" onClick={() => setParams({ batch: r.batchKey! })}>{r.enteredVia === 'return' && <span className="pill warn">被退回</span>} {r.batchName || r.runTitle}<span className="sub-line">{r.batchCount} 个规格待{r.enteredVia === 'return' ? '修改' : '办理'}，点开可批量处理</span></button>
+                  ? <><button type="button" className="link-button" onClick={() => setParams({ batch: r.batchKey! })}>{r.enteredVia === 'return' && <span className="pill warn">被退回</span>} {r.batchName || r.runTitle}</button><span className="sub-line">{r.batchCount} 个规格待{r.enteredVia === 'return' ? '修改' : '办理'}，点开可批量处理</span></>
                   : r.runId
                   ? <button type="button" className="link-button" onClick={() => setParams({ run: String(r.runId) })}>{r.enteredVia === 'return' && <span className="pill warn">被退回</span>} {r.runTitle}</button>
                   : <><strong>{r.runTitle}</strong>{r.description && <span className="sub-line">{r.description}</span>}{r.completionStandard && <span className="sub-line">完成标准：{r.completionStandard}</span>}{r.reviewNote && <span className="sub-line late-text">复核意见：{r.reviewNote}</span>}</>}</td>

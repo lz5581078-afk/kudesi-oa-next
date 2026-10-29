@@ -45,6 +45,8 @@
 /* 节点与表单编辑器 */
 .fd-node-editor { display: grid; gap: 10px; }
 .fd-node-editor label { display: grid; gap: 4px; font-size: 13px; }
+.fd-node-editor label.check-line, .fd-node-editor label.check { display: flex; flex-direction: row; align-items: center; gap: 6px; }
+.fd-node-editor input[type='checkbox'] { width: auto; height: auto; margin: 0; }
 .fd-section { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; margin: 0; display: grid; gap: 8px; min-width: 0; }
 .fd-section legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
 .fd-presets { display: flex; flex-wrap: wrap; gap: 4px; }

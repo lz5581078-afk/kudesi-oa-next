@@ -31,7 +31,7 @@ export function SkuBatchPanel({ batchKey, onClose, onChanged }: { batchKey: stri
   }, [batchKey]);
   useEffect(load, [load]);
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !dlg && !openRun) onClose(); };
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented && !dlg && !openRun) onClose(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [dlg, openRun, onClose]);
@@ -39,10 +39,10 @@ export function SkuBatchPanel({ batchKey, onClose, onChanged }: { batchKey: stri
   const hold = board?.me.holdStepKey ?? null;
   // 你名下可批量办理的规格：停在你手里的那一步；申请人则是被退回等你修改的规格
   const handleable = useMemo(() => (board?.items ?? []).filter((i) => (i.mine && i.stepKey === hold) || i.canResubmit), [board, hold]);
-  const mineIds = useMemo(() => handleable.filter((i) => i.mine).map((i) => i.runId), [handleable]);
+  const mineIds = useMemo(() => handleable.filter((i) => i.mine && !!hold && i.stepKey === hold).map((i) => i.runId), [handleable, hold]);
   const selected = (board?.items ?? []).filter((i) => sel.has(i.runId));
   const toggle = (id: number) => setSel((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const allMine = mineIds.length > 0 && mineIds.every((id) => sel.has(id));
+  const allMine = handleable.length > 0 && handleable.every((i) => sel.has(i.runId));
   const items = selected.filter((i) => i.mine).map((i) => ({ runId: i.runId, revision: i.revision, stepId: i.stepId ?? undefined }));
 
   async function run(fn: () => Promise<BatchOutcome>, word: string) {
