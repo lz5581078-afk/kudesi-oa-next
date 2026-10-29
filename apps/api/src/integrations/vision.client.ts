@@ -21,7 +21,7 @@ export class VisionClient {
       signal: AbortSignal.timeout(90_000),
     });
     const text = await res.text();
-    if (!res.ok) throw new Error(`识别接口返回 ${res.status}：${text.slice(0, 200)}`);
+    if (!res.ok) throw new Error(`识别接口返回 HTTP ${res.status}，请检查模型权限或服务商状态`);
     let data: { choices?: Array<{ message?: { content?: string } }> };
     try {
       data = JSON.parse(text);

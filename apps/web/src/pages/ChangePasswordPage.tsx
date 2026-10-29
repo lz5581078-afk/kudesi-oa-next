@@ -1,3 +1,4 @@
+import { FeishuBindingCard } from '../auth/FeishuLogin';
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
@@ -32,7 +33,7 @@ export function ChangePasswordPage() {
   };
 
   return (
-    <form className="card narrow-form" onSubmit={submit}>
+    <><FeishuBindingCard /><form className="card narrow-form" onSubmit={submit}>
       <h1>修改密码</h1>
       <label>
         当前密码
@@ -54,6 +55,6 @@ export function ChangePasswordPage() {
         </button>
         <button type="button" className="secondary-button" disabled={busy} onClick={() => navigate(-1)}>取消</button>
       </div>
-    </form>
+    </form></>
   );
 }

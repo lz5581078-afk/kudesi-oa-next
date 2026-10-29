@@ -1,3 +1,4 @@
+import { FeishuLogin } from '../auth/FeishuLogin';
 import { FormEvent, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import mascot from '../assets/xiaobai.jpg';
@@ -62,6 +63,7 @@ export function LoginPage() {
           <button type="submit" className="primary-button" disabled={busy || !account.trim() || !password}>
             {busy ? '正在登录…' : '登录'}
           </button>
+          <FeishuLogin />
           <div className="auth-apply">
             企业尚未开通系统？<button type="button" onClick={() => setApplying(true)}>申请开通公司</button>
           </div>
