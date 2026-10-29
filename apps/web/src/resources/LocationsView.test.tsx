@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } }) }));
 vi.mock('./ResourcePage', () => ({ ResourcePage: ({ type }: { type: string }) => <div data-testid="page">{type}</div> }));
-vi.mock('./LocationBoard', () => ({ LocationBoard: () => <div data-testid="board">层级工作台</div> }));
+vi.mock('./LocationBoard', () => ({ LocationBoard: () => <div data-testid="board">看板</div> }));
 import { CompanionPage } from './CompanionPage';
 
-describe('房间与档案位置：层级工作台和表格', () => {
+describe('房间与档案位置：看板和表格', () => {
   beforeEach(() => { try { localStorage.clear(); } catch { /* */ } });
   afterEach(cleanup);
-  it('默认进层级工作台，可切到表格，选择会记住', () => {
+  it('默认进看板，可切到表格，选择会记住', () => {
     render(<CompanionPage type="locations" />);
     expect(screen.getByTestId('board')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '表格' }));

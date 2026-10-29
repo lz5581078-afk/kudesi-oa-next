@@ -18,7 +18,7 @@ export function CompanionPage({ type }: { type: string }) {
   const [active, setActive] = useState(type);
   const [view, setViewState] = useState<View>(readView);
   const setView = (v: View) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* 浏览器不让存就算了 */ } };
-  // 房间与档案位置默认用层级工作台（房间→柜子→层位→档案），表格视图保留给批量编辑、导入导出
+  // 房间与档案位置默认用看板（区域位置、固定资产储物空间、档案三块），表格视图保留给批量编辑、导入导出
   const board = type === 'locations' && active === 'locations' && view === 'board';
   const switcher = type === 'locations' && active === 'locations';
   return (
@@ -28,7 +28,7 @@ export function CompanionPage({ type }: { type: string }) {
           {tabs.map((t) => <button key={t} type="button" className={active === t ? 'tab active' : 'tab'} onClick={() => setActive(t)}>{getResourceDef(t)?.label ?? t}</button>)}
           {switcher && (
             <span className="seg companion-view" role="group" aria-label="显示方式">
-              <button type="button" aria-pressed={view === 'board'} className={view === 'board' ? 'active' : ''} onClick={() => setView('board')}>层级</button>
+              <button type="button" aria-pressed={view === 'board'} className={view === 'board' ? 'active' : ''} onClick={() => setView('board')}>看板</button>
               <button type="button" aria-pressed={view === 'table'} className={view === 'table' ? 'active' : ''} onClick={() => setView('table')}>表格</button>
             </span>
           )}
