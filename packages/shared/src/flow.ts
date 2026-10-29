@@ -160,6 +160,13 @@ export const FLOW_ACTION_LABEL: Record<FlowAction, string> = {
   submit: '发起', pass: '通过', return: '退回', cancel: '废除', reject: '拒绝', withdraw: '撤回', resubmit: '重新提交', transfer: '转交', abnormal: '上报异常', draft: '生成入库单草稿',
 };
 
+/**
+ * 旧系统真实配置（库字段叫 due_hours，实际单位是分钟）：SKU 仓库、财务和专属品审批的处理时限都是 60 分钟，
+ * 到期前 20、10 分钟各提醒一次，超时后每 5 分钟再提醒。这只是新建流程时的默认值，管理员可在设计器的节点里改时限和提醒。
+ */
+export const SKU_DUE_MINUTES = 60;
+export const SKU_REMIND: StepRemind = { beforeMinutes: [20, 10], overdueEveryMinutes: 5 };
+
 const LICENSE_ITEMS = o('original:正本', 'copy:副本', 'official:公章', 'finance:财务章', 'legal:法人章', 'invoice:发票章');
 
 export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
@@ -232,7 +239,7 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     },
     steps: [
       { key: 'apply', name: '提交申请', type: 'submit', assignee: { source: 'requester' }, locked: true },
-      { key: 'approve', name: '审批', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'approve', name: '审批', type: 'approval', dueMinutes: SKU_DUE_MINUTES, remind: SKU_REMIND, locked: true },
       { key: 'end', name: '结束', type: 'end', locked: true },
     ],
   },
@@ -260,8 +267,8 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     },
     steps: [
       { key: 'apply', name: '运营申请', type: 'submit', assignee: { source: 'requester' }, locked: true },
-      { key: 'warehouse', name: '仓库完善', type: 'execute', dueMinutes: 3600, locked: true },
-      { key: 'review', name: '财务审核', type: 'finance', dueMinutes: 3600, locked: true },
+      { key: 'warehouse', name: '仓库完善', type: 'execute', dueMinutes: SKU_DUE_MINUTES, remind: SKU_REMIND, locked: true },
+      { key: 'review', name: '财务审核', type: 'finance', dueMinutes: SKU_DUE_MINUTES, remind: SKU_REMIND, locked: true },
       { key: 'end', name: '结束', type: 'end', locked: true },
     ],
   },

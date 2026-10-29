@@ -2,11 +2,11 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Not } from 'typeorm';
 import {
-  FLOW_TEMPLATES, ASSIGNEE_RUNTIME_ONLY, RELATED_OWNER_KINDS, POSITION_TYPE_LABEL, createChecker, evalCondition, restrictedFieldKeys, validateCustomTemplate, validateResourceInput, validateSteps,
-  type CustomSchema, type FieldDef, type FlowAction, type FlowTemplate, type StepDef,
+  FLOW_TEMPLATES, ASSIGNEE_RUNTIME_ONLY, RELATED_OWNER_KINDS, POSITION_TYPE_LABEL, createChecker, evalCondition, normalizeStarterScope, restrictedFieldKeys, starterScopeAllows, starterScopeEmpty, validateCustomTemplate, validateResourceInput, validateSteps,
+  type CustomSchema, type FieldDef, type FlowAction, type FlowTemplate, type StarterScope, type StarterWho, type StepDef,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { Department, FlowCc, FlowDefinition, FlowEvent, FlowRun, FlowStep, FlowTemplateRow, Notification, Position, ResourceFile, ResourceRecord, User, WorkItem } from '../entities';
+import { AuditLog, Department, FlowCc, FlowDefinition, FlowEvent, FlowRun, FlowStep, FlowTemplateRow, Notification, Position, ResourceFile, ResourceRecord, User, WorkItem } from '../entities';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { ResourcesService } from '../resources/resources.service';
@@ -14,10 +14,16 @@ import { OutboxService } from '../outbox/outbox.service';
 import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { StepContext, postDeclared } from './flow-adapters';
 import { adapterFor, customFrom, loadTemplate } from './flow-templates';
+import { SELF_OVERDUE_KIND, claimEscalations, claimNotice } from './overdue-notice';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
 type Def = { steps: StepDef[]; escalateUserIds: number[] };
+
+/** 批量办理时不逐条发的站内通知种类（改发一条汇总）；飞书入队不受影响 */
+const QUIET_KINDS = new Set(['todo', 'returned', 'result']);
+/** 同一张申请单拆开办理的规格之间的批次标记（payload 里下划线开头的业务痕迹） */
+export const BATCH_MARKS = ['_batchKey', '_splitIndex', '_splitTotal'];
 
 /** 把模板的字段包成一个“资料定义”，复用资料的字段校验（必填、日期、金额整数分、选项……） */
 const pseudoDef = (key: string, fields: FlowTemplate['fields']) =>
@@ -42,6 +48,9 @@ export class FlowService {
     @Optional() private readonly feishu?: FeishuNoticeService,
   ) {}
   private readonly log = new Logger('Flow');
+  private readonly quietEms = new WeakSet<EntityManager>();
+  /** 这个事务里的待办/退回/结果通知不逐条发（批量办理自己发汇总） */
+  markQuiet(em: EntityManager) { this.quietEms.add(em); }
 
   private can(user: AuthUser, key: string) { return createChecker(user.permissions)(key); }
   private need(user: AuthUser, key: string, msg: string) { if (!this.can(user, key)) throw new ForbiddenException(msg); }
@@ -58,26 +67,68 @@ export class FlowService {
   // ================= 流程定义 =================
 
   private toDef(row: FlowDefinition) {
-    return { id: row.id, version: row.version, status: row.status, steps: row.steps as StepDef[], escalateUserIds: row.escalateUserIds, publishedAt: row.publishedAt, createdAt: row.createdAt };
+    return { id: row.id, version: row.version, status: row.status, steps: row.steps as StepDef[], escalateUserIds: row.escalateUserIds, starterScope: (row.starterScope as StarterScope | null) ?? null, publishedAt: row.publishedAt, publishedBy: row.publishedBy ?? null, createdAt: row.createdAt };
   }
 
   /** 模板列表：每个模板当前启用的版本和是否能发起 */
   async templates(user: AuthUser) {
     const em = this.dataSource.manager;
     const defs = await em.find(FlowDefinition, { where: { companyId: user.companyId, status: 'active' } });
-    const builtin = FLOW_TEMPLATES.map((t) => {
+    // 发起人范围：不在范围内的人，申请中心里看不到这条流程的入口（接口 start 也会拒绝）
+    let who: Promise<StarterWho> | null = null;
+    const startable = async (d?: FlowDefinition) => {
+      const scope = (d?.starterScope as StarterScope | null | undefined) ?? null;
+      if (user.permissions.isCompanyAdmin || starterScopeEmpty(scope)) return true;
+      who ??= this.starterWho(em, user);
+      return starterScopeAllows(scope, await who);
+    };
+    const builtin = await Promise.all(FLOW_TEMPLATES.map(async (t) => {
       const active = defs.find((d) => d.templateKey === t.key);
-      return { key: t.key, label: t.label, description: t.description, entry: t.entry ?? null, fields: this.visibleFields(user, t.fields), stepFields: this.visibleStepFields(user, t.stepFields), active: Boolean(active), version: active?.version ?? null, custom: false, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
-    });
+      return { key: t.key, label: t.label, description: t.description, entry: t.entry ?? null, fields: this.visibleFields(user, t.fields), stepFields: this.visibleStepFields(user, t.stepFields), active: Boolean(active), version: active?.version ?? null, custom: false, startable: await startable(active), steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
+    }));
     // 自建模板：只有启用中的才出现在申请中心
     const rows = await em.find(FlowTemplateRow, { where: { companyId: user.companyId }, order: { id: 'ASC' } });
-    const custom = rows.flatMap((r) => {
+    const custom = (await Promise.all(rows.map(async (r) => {
       const active = defs.find((d) => d.templateKey === r.templateKey);
       if (!active) return [];
       const t = customFrom(r, active);
-      return [{ key: t.key, label: t.label, description: t.description, entry: null, fields: t.fields, stepFields: t.stepFields, active: true, version: active.version, custom: true, steps: (active.steps as StepDef[]).map((x) => ({ name: x.name, type: x.type })) }];
-    });
+      return [{ key: t.key, label: t.label, description: t.description, entry: null, fields: t.fields, stepFields: t.stepFields, active: true, version: active.version, custom: true, startable: await startable(active), steps: (active.steps as StepDef[]).map((x) => ({ name: x.name, type: x.type })) }];
+    }))).flat();
     return [...builtin, ...custom];
+  }
+
+  // ================= 发起人范围 =================
+
+  /** 发起人的身份快照：部门、岗位（含兼任）、岗位类型、职责组。只取数据库，不信请求。 */
+  private async starterWho(em: EntityManager, user: AuthUser): Promise<StarterWho> {
+    const u = await em.findOne(User, { where: { id: user.id, companyId: user.companyId, status: 'active' } });
+    const positionIds = [u?.positionId, ...(u?.extraPositionIds ?? [])].filter((n): n is number => Number.isInteger(n));
+    const positions = positionIds.length ? await em.find(Position, { where: { companyId: user.companyId, id: In(positionIds) }, select: ['id', 'workspaceType'] }) : [];
+    const groups = (await em.query("SELECT JSON_UNQUOTE(JSON_EXTRACT(data,'$.groupId')) AS gid FROM resource_records WHERE company_id = ? AND type = 'duty-group-members' AND status = 'normal' AND JSON_EXTRACT(data,'$.userId') = ?", [user.companyId, user.id])) as Array<{ gid: string | null }>;
+    return {
+      userId: user.id, departmentId: u?.departmentId ?? null, positionIds,
+      positionTypes: [...new Set(positions.map((p) => String(p.workspaceType ?? '')).filter(Boolean))],
+      dutyGroupIds: groups.map((g) => Number(g.gid)).filter((n) => Number.isInteger(n) && n > 0),
+    };
+  }
+
+  /** 能不能发起：公司管理员始终可以（旧版规则）；范围为空 = 不限制；否则必须命中范围 */
+  private async canStartWith(em: EntityManager, user: AuthUser, scope: unknown): Promise<boolean> {
+    const sc = (scope as StarterScope | null | undefined) ?? null;
+    if (user.permissions.isCompanyAdmin || starterScopeEmpty(sc)) return true;
+    return starterScopeAllows(sc, await this.starterWho(em, user));
+  }
+
+  /** 保存发起人范围前：范围里的部门、岗位、职责组、员工必须是本公司真实存在的 */
+  private async checkScopeRefs(em: EntityManager, companyId: number, scope: StarterScope) {
+    if (scope.users?.length) await this.checkUsersExist(em, companyId, scope.users);
+    if (scope.departments?.length && (await em.count(Department, { where: { companyId, id: In(scope.departments) } })) !== scope.departments.length) throw new BadRequestException('发起人范围里有部门不存在');
+    if (scope.positions?.length && (await em.count(Position, { where: { companyId, id: In(scope.positions) } })) !== scope.positions.length) throw new BadRequestException('发起人范围里有岗位不存在');
+    if (scope.dutyGroups?.length && (await em.count(ResourceRecord, { where: { companyId, type: 'duty-groups', id: In(scope.dutyGroups) } })) !== scope.dutyGroups.length) throw new BadRequestException('发起人范围里有职责组不存在');
+  }
+
+  private audit(em: EntityManager, user: AuthUser, action: string, key: string, detail: Record<string, unknown>) {
+    return em.save(AuditLog, em.create(AuditLog, { companyId: user.companyId, actorId: user.id, action, resourceType: 'flow_template', resourceId: key, detail }));
   }
 
   async definition(user: AuthUser, key: string) {
@@ -88,13 +139,14 @@ export class FlowService {
     const draft = rows.find((r) => r.status === 'draft');
     const names = await this.userNames(this.dataSource.manager, user.companyId, [...(draft ?? active)?.steps.flatMap((s) => (s as StepDef).ccUserIds ?? []) ?? [], ...(draft ?? active)?.escalateUserIds ?? []]);
     const base = draft ?? active ?? rows[0] ?? null;
+    const pubNames = await this.userNames(this.dataSource.manager, user.companyId, rows.flatMap((r) => (r.publishedBy ? [r.publishedBy] : [])));
     const schemaOf = (d: FlowDefinition | null) => (t.custom ? { fields: ((d?.schemaJson as Partial<CustomSchema> | null)?.fields ?? t.fields), stepFields: (d?.schemaJson as Partial<CustomSchema> | null)?.stepFields ?? t.stepFields, posting: (d?.schemaJson as Partial<CustomSchema> | null)?.posting ?? null } : null);
     return {
       template: { key: t.key, label: t.label, description: t.description, steps: t.custom ? [] : t.steps, custom: !!t.custom, departmentId: row?.departmentId ?? null, fields: t.fields, stepFields: t.stepFields, posting: t.posting ?? null },
       active: active ? { ...this.toDef(active), schema: schemaOf(active) } : null,
       // 没有草稿时给一份“默认草稿”（不入库），保存后才成为真正的草稿
-      draft: draft ? { ...this.toDef(draft), schema: schemaOf(draft) } : { id: null, version: (rows[0]?.version ?? 0) + 1, status: 'draft' as const, steps: (active?.steps as StepDef[]) ?? (t.custom ? ((base?.steps as StepDef[]) ?? []) : [...t.steps]), escalateUserIds: active?.escalateUserIds ?? [], publishedAt: null, createdAt: null, schema: schemaOf(active ?? base) },
-      history: rows.map((r) => ({ version: r.version, status: r.status, publishedAt: r.publishedAt, stepCount: (r.steps as StepDef[]).length })),
+      draft: draft ? { ...this.toDef(draft), schema: schemaOf(draft) } : { id: null, version: (rows[0]?.version ?? 0) + 1, status: 'draft' as const, steps: (active?.steps as StepDef[]) ?? (t.custom ? ((base?.steps as StepDef[]) ?? []) : [...t.steps]), escalateUserIds: active?.escalateUserIds ?? [], starterScope: (active?.starterScope as StarterScope | null) ?? null, publishedAt: null, publishedBy: null, createdAt: null, schema: schemaOf(active ?? base) },
+      history: rows.map((r) => ({ version: r.version, status: r.status, publishedAt: r.publishedAt, publishedBy: r.publishedBy ?? null, publishedByName: r.publishedBy ? pubNames.get(r.publishedBy) ?? '' : null, stepCount: (r.steps as StepDef[]).length })),
       names: Object.fromEntries(names),
     };
   }
@@ -118,7 +170,8 @@ export class FlowService {
     });
   }
 
-  async saveDraft(user: AuthUser, key: string, steps: StepDef[], escalateUserIds: number[], schema?: CustomSchema | null) {
+  /** starterScope：undefined = 沿用已有的；null / 空 = 不限制；其它 = 发起人范围（随这个版本发布后生效） */
+  async saveDraft(user: AuthUser, key: string, steps: StepDef[], escalateUserIds: number[], schema?: CustomSchema | null, starterScopeIn?: unknown) {
     this.need(user, 'flow.templates.manage', '没有配置流程的权限');
     const em0 = this.dataSource.manager;
     const t = await this.tpl(em0, user.companyId, key);
@@ -126,6 +179,13 @@ export class FlowService {
     const errors = t.custom ? validateCustomTemplate(check, steps, escalateUserIds) : validateSteps(t, steps, escalateUserIds);
     if (errors.length) throw new BadRequestException(errors.join('；'));
     await this.checkUsersExist(em0, user.companyId, [...steps.flatMap((s) => s.ccUserIds ?? []), ...escalateUserIds, ...steps.flatMap((s) => (s.assignee?.source === 'employee' && s.assignee.id ? [s.assignee.id] : []))]);
+    let scopeNew: StarterScope | null | undefined;
+    if (starterScopeIn !== undefined) {
+      const ns = normalizeStarterScope(starterScopeIn);
+      if (ns.errors.length) throw new BadRequestException(ns.errors.join('；'));
+      if (ns.scope) await this.checkScopeRefs(em0, user.companyId, ns.scope);
+      scopeNew = ns.scope;
+    }
     const clean = this.cleanSteps(t, steps);
     const schemaJson = t.custom && schema ? { fields: schema.fields, stepFields: schema.stepFields, posting: schema.posting ?? null } : undefined;
     return this.dataSource.transaction(async (em) => {
@@ -135,10 +195,14 @@ export class FlowService {
         draft.steps = clean;
         draft.escalateUserIds = escalateUserIds;
         if (schemaJson) draft.schemaJson = schemaJson;
+        if (scopeNew !== undefined) draft.starterScope = scopeNew as never;
         await em.save(FlowDefinition, draft);
+        await this.audit(em, user, 'flow.draft.save', key, { version: draft.version, stepCount: clean.length, starterScope: draft.starterScope ?? null });
       } else {
         const inherit = rows.find((r) => r.status === 'active') ?? rows[0];
-        await em.insert(FlowDefinition, { companyId: user.companyId, templateKey: key, version: (rows[0]?.version ?? 0) + 1, status: 'draft', steps: clean, escalateUserIds, createdBy: user.id, schemaJson: (schemaJson ?? (t.custom ? inherit?.schemaJson : null) ?? null) } as never);
+        const version = (rows[0]?.version ?? 0) + 1;
+        await em.insert(FlowDefinition, { companyId: user.companyId, templateKey: key, version, status: 'draft', steps: clean, escalateUserIds, createdBy: user.id, schemaJson: (schemaJson ?? (t.custom ? inherit?.schemaJson : null) ?? null), starterScope: scopeNew !== undefined ? scopeNew : (inherit?.starterScope ?? null) } as never);
+        await this.audit(em, user, 'flow.draft.save', key, { version, stepCount: clean.length, starterScope: scopeNew !== undefined ? scopeNew : (inherit?.starterScope ?? null) });
       }
       return { ok: true };
     });
@@ -157,10 +221,13 @@ export class FlowService {
       const errors = t.custom ? validateCustomTemplate(t, steps, draft.escalateUserIds) : validateSteps(t, steps, draft.escalateUserIds);
       if (errors.length) throw new BadRequestException(errors.join('；'));
       for (const s of steps.filter((x) => x.type !== 'submit' && x.type !== 'end' && !ASSIGNEE_RUNTIME_ONLY.includes(x.assignee?.source ?? 'employee'))) await this.resolveRecipients(em, user.companyId, s, user.id); // 失败会抛出带步骤名的提示
+      const prevVersion = rows.find((x) => x.status === 'active')?.version ?? null;
       for (const r of rows.filter((x) => x.status === 'active')) { r.status = 'retired'; await em.save(FlowDefinition, r); }
       draft.status = 'active';
       draft.publishedAt = new Date();
+      draft.publishedBy = user.id;
       await em.save(FlowDefinition, draft);
+      await this.audit(em, user, 'flow.publish', key, { version: draft.version, previousVersion: prevVersion, stepCount: steps.length, starterScope: draft.starterScope ?? null });
       return { ok: true, version: draft.version };
     });
   }
@@ -250,7 +317,7 @@ export class FlowService {
 
   private async notify(em: EntityManager, companyId: number, userIds: number[], n: { kind: string; title: string; body?: string; link?: string }, run?: FlowRun) {
     for (const uid of [...new Set(userIds)]) {
-      await em.insert(Notification, { companyId, userId: uid, kind: n.kind, title: n.title.slice(0, 200), body: n.body?.slice(0, 500) ?? null, link: n.link ?? null });
+      if (!(this.quietEms.has(em) && QUIET_KINDS.has(n.kind))) await em.insert(Notification, { companyId, userId: uid, kind: n.kind, title: n.title.slice(0, 200), body: n.body?.slice(0, 500) ?? null, link: n.link ?? null });
       // 飞书通知（出站队列，独立开关默认关；只有 SKU 批量申请会发）：和站内通知同一个事务入队，幂等键带步骤编号
       if (run && this.feishu) await this.feishu.enqueue(em, companyId, run.templateKey, `${run.id}:${n.kind}:${run.currentStepKey ?? ''}:${run.revision}`, { userId: uid, title: n.title, body: n.body, link: n.link, runId: run.id });
     }
@@ -329,6 +396,7 @@ export class FlowService {
         await this.tpl(em, user.companyId, templateKey); // 不存在的流程给“没有这种流程”
         throw new BadRequestException('这条流程还没有启用，请管理员先在“流程配置”里配置办理人并发布');
       }
+      if (!(await this.canStartWith(em, user, def.starterScope))) throw new ForbiddenException('你不在这条流程的发起人范围内，不能发起；需要发起请联系管理员调整发起人范围');
       const t = await this.tpl(em, user.companyId, templateKey, def.id);
       const adapter = adapterFor(t);
       const checked = validateResourceInput(pseudoDef(t.key, t.fields), this.without(payloadIn, this.restricted(user, t.fields)), { status: '' });
@@ -454,9 +522,10 @@ export class FlowService {
     await this.event(em, run, user.id, action, step.id, comment);
   }
 
-  async pass(user: AuthUser, runId: number, p: { revision: number; stepId: number; form?: Record<string, unknown>; comment?: string }) {
+  async pass(user: AuthUser, runId: number, p: { revision: number; stepId: number; form?: Record<string, unknown>; comment?: string }, opts: { quiet?: boolean } = {}) {
     let after: (() => Promise<void>) | null = null;
     const result = await this.dataSource.transaction(async (em) => {
+      if (opts.quiet) this.markQuiet(em);
       const run = await this.lockRun(em, user, runId, p.revision);
       if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
       const step = await this.activeStep(em, run, p.stepId);
@@ -511,9 +580,19 @@ export class FlowService {
     return result;
   }
 
-  async returnBack(user: AuthUser, runId: number, p: { revision: number; stepId: number; reason: string }) {
+  async returnBack(user: AuthUser, runId: number, p: { revision: number; stepId: number; reason: string }, opts: { quiet?: boolean } = {}) {
     if (!p.reason?.trim()) throw new BadRequestException('退回要写原因');
     return this.dataSource.transaction(async (em) => {
+      if (opts.quiet) this.markQuiet(em);
+      await this.returnBackIn(em, user, runId, p);
+      return this.detailIn(em, user, runId);
+    });
+  }
+
+  /** 退回的实际动作，在调用者的事务里执行（整单退回要把很多条流程放进同一个事务） */
+  async returnBackIn(em: EntityManager, user: AuthUser, runId: number, p: { revision: number; stepId: number; reason: string }) {
+    if (!p.reason?.trim()) throw new BadRequestException('退回要写原因');
+    {
       const run = await this.lockRun(em, user, runId, p.revision);
       if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
       const step = await this.activeStep(em, run, p.stepId);
@@ -532,14 +611,14 @@ export class FlowService {
         const toSubmit = run.status === 'running' && (await this.activeStep(em, run)).stepType === 'submit';
         await returnAdapter.onReturn({ ...this.stepCtx(em, user, run, step, {}), reason: p.reason }, { reason: p.reason, toSubmit });
       }
-      return this.detailIn(em, user, run.id);
-    });
+    }
   }
 
   /** 办理人废除/拒绝：流程以对应状态结束，原因必填 */
-  async stop(user: AuthUser, runId: number, kind: 'cancel' | 'reject', p: { revision: number; stepId: number; reason: string }) {
+  async stop(user: AuthUser, runId: number, kind: 'cancel' | 'reject', p: { revision: number; stepId: number; reason: string }, opts: { quiet?: boolean } = {}) {
     if (!p.reason?.trim()) throw new BadRequestException(`${kind === 'cancel' ? '废除' : '拒绝'}要写原因`);
     return this.dataSource.transaction(async (em) => {
+      if (opts.quiet) this.markQuiet(em);
       const run = await this.lockRun(em, user, runId, p.revision);
       if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
       const step = await this.activeStep(em, run, p.stepId);
@@ -588,8 +667,9 @@ export class FlowService {
     });
   }
 
-  async resubmit(user: AuthUser, runId: number, p: { revision: number; payload: Record<string, unknown> }) {
+  async resubmit(user: AuthUser, runId: number, p: { revision: number; payload: Record<string, unknown> }, opts: { quiet?: boolean } = {}) {
     return this.dataSource.transaction(async (em) => {
+      if (opts.quiet) this.markQuiet(em);
       const run = await this.lockRun(em, user, runId, p.revision);
       const t = await this.runTpl(em, run);
       if (run.requesterId !== user.id && !(await adapterFor(t).canResubmit?.({ em, user, run }))) throw new ForbiddenException('只有发起人能重新提交');
@@ -606,7 +686,9 @@ export class FlowService {
       // 重新提交时，自己这条在办的流程不算“重复申请”：临时把它标成非 running 做检查
       await em.update(FlowRun, { id: run.id }, { status: 'cancelled' });
       try { await adapter.validateStart?.({ em, user, payload, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
-      run.payload = { ...payload };
+      // 申请单批次标记是业务痕迹（下划线开头），重新提交不能丢，否则退回又提交的规格会从申请单里掉出去
+      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => BATCH_MARKS.includes(k)));
+      run.payload = { ...payload, ...kept };
       run.title = await adapter.title(em, run.companyId, payload);
       await em.save(FlowRun, run);
       await adapter.onResubmit?.({ em, user, payload, run, ...this.svc() });
@@ -829,29 +911,47 @@ export class FlowService {
     };
   }
 
-  /** 我的待办：待办（含逾期、被退回）和最近办完的 */
+  /**
+   * 我的待办：待办（含逾期、被退回）和最近办完的。
+   * SKU 批量申请拆开办理后，同一张申请单、同一个步骤、同一个办理人名下的多个规格折成一行（旧系统一张申请一行）：
+   * 行里带 batchKey 和本行汇总的规格数 batchCount，点开看规格明细并批量办理。
+   */
   async todos(user: AuthUser, q: { tab: 'pending' | 'overdue' | 'returned' | 'done'; keyword?: string; page: number; pageSize: number }) {
     const now = new Date();
+    const BK = (r: string) => `JSON_UNQUOTE(JSON_EXTRACT(${r}.payload, '$._batchKey'))`;
+    // 各分类的条件，w=待办 s=步骤；折叠时在同组里再套一次同样的条件（别名换成 w2/s2）
+    const tabCond = (w: string, st: string, tab: string) => {
+      let c = `${w}.status = 'open' AND (${w}.kind <> 'task' OR ${w}.submitted_at IS NULL)`; // 已提交等复核的任务不再算负责人的待办
+      if (tab === 'overdue') c += ` AND ${w}.due_at IS NOT NULL AND ${w}.due_at < ?`;
+      if (tab === 'returned') c += ` AND ${st}.entered_via = 'return'`;
+      return c;
+    };
+    /** 组内第一条（代表行）：不在批次里的每条自成一组 */
+    const rep = (tab: string) => `(${BK('r')} IS NULL OR w.id = (SELECT MIN(w2.id) FROM work_items w2 JOIN flow_steps s2 ON s2.id = w2.step_id JOIN flow_runs r2 ON r2.id = w2.run_id
+        WHERE w2.company_id = w.company_id AND w2.assignee_id = w.assignee_id AND r2.template_key = r.template_key AND ${BK('r2')} = ${BK('r')} AND s2.step_key = s.step_key AND ${tabCond('w2', 's2', tab)}))`;
+    const nowArg = (tab: string) => (tab === 'overdue' ? [now] : []);
     const base = 'w.company_id = ? AND w.assignee_id = ?';
     const args: unknown[] = [user.companyId, user.id];
-    let cond = "w.status = 'open' AND (w.kind <> 'task' OR w.submitted_at IS NULL)"; // 已提交等复核的任务不再算负责人的待办
-    if (q.tab === 'overdue') { cond += ' AND w.due_at IS NOT NULL AND w.due_at < ?'; args.push(now); }
-    if (q.tab === 'returned') cond += " AND s.entered_via = 'return'";
-    if (q.tab === 'done') { cond = "w.status = 'done'"; }
+    let cond = q.tab === 'done' ? "w.status = 'done'" : `${tabCond('w', 's', q.tab)} AND ${rep(q.tab)}`;
+    if (q.tab !== 'done') args.push(...nowArg(q.tab), ...nowArg(q.tab));
     const kw = q.keyword?.trim();
     if (kw) { cond += ' AND (w.title LIKE ? OR r.title LIKE ? OR w.description LIKE ?)'; const like = `%${kw.replace(/[\\%_]/g, '\\$&')}%`; args.push(like, like, like); }
     const from = `FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id LEFT JOIN flow_runs r ON r.id = w.run_id LEFT JOIN users u ON u.id = r.requester_id LEFT JOIN users cu ON cu.id = w.created_by WHERE ${base} AND ${cond}`;
     const [{ n }] = await this.dataSource.query(`SELECT COUNT(*) AS n ${from}`, args);
+    const groupCount = q.tab === 'done' ? 'NULL' : `(SELECT COUNT(*) FROM work_items w3 JOIN flow_steps s3 ON s3.id = w3.step_id JOIN flow_runs r3 ON r3.id = w3.run_id
+        WHERE ${BK('r')} IS NOT NULL AND w3.company_id = w.company_id AND w3.assignee_id = w.assignee_id AND r3.template_key = r.template_key AND ${BK('r3')} = ${BK('r')} AND s3.step_key = s.step_key AND ${tabCond('w3', 's3', q.tab)})`;
     const rows = await this.dataSource.query(
       `SELECT w.id, w.kind, w.routine_id AS routineId, w.run_id AS runId, w.title, w.description, w.status, w.due_at AS dueAt, w.created_at AS createdAt, w.finished_at AS finishedAt,
-              w.feedback_preset AS feedbackPreset, w.completion_standard AS completionStandard, w.requires_review AS requiresReview, w.review_note AS reviewNote, w.supervisor_id AS supervisorId, s.step_name AS stepName, s.entered_via AS enteredVia, r.template_key AS templateKey, COALESCE(r.title, w.title) AS runTitle, COALESCE(u.name, cu.name) AS requesterName
+              w.feedback_preset AS feedbackPreset, w.completion_standard AS completionStandard, w.requires_review AS requiresReview, w.review_note AS reviewNote, w.supervisor_id AS supervisorId, s.step_name AS stepName, s.entered_via AS enteredVia, r.template_key AS templateKey, COALESCE(r.title, w.title) AS runTitle, COALESCE(u.name, cu.name) AS requesterName,
+              ${BK('r')} AS batchKey, JSON_UNQUOTE(JSON_EXTRACT(r.payload, '$.batchName')) AS batchName, ${groupCount} AS batchCount
        ${from} ORDER BY ${q.tab === 'done' ? 'w.finished_at DESC' : 'w.due_at IS NULL, w.due_at ASC, w.id DESC'} LIMIT ? OFFSET ?`,
-      [...args, q.pageSize, (q.page - 1) * q.pageSize],
+      [...(q.tab === 'done' ? [] : nowArg(q.tab)), ...args, q.pageSize, (q.page - 1) * q.pageSize],
     );
+    const openRep = (tab: 'pending' | 'overdue' | 'returned') => `SUM(${tabCond('w', 's', tab)} AND ${rep(tab)})`;
     const [counts] = await this.dataSource.query(
-      `SELECT SUM(w.status = 'open' AND (w.kind <> 'task' OR w.submitted_at IS NULL)) AS pending, SUM(w.status = 'open' AND (w.kind <> 'task' OR w.submitted_at IS NULL) AND w.due_at IS NOT NULL AND w.due_at < ?) AS overdue,
-              SUM(w.status = 'open' AND s.entered_via = 'return') AS returned
-       FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id WHERE w.company_id = ? AND w.assignee_id = ?`, [now, user.companyId, user.id]);
+      `SELECT ${openRep('pending')} AS pending, ${openRep('overdue')} AS overdue, ${openRep('returned')} AS returned
+       FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id LEFT JOIN flow_runs r ON r.id = w.run_id WHERE w.company_id = ? AND w.assignee_id = ?`,
+      [...nowArg('overdue'), ...nowArg('overdue'), user.companyId, user.id]);
     const [cc] = await this.dataSource.query('SELECT COUNT(*) AS n FROM flow_ccs WHERE company_id = ? AND user_id = ?', [user.companyId, user.id]);
     const labels = await this.labelMap(user.companyId);
     const [rv] = await this.dataSource.query("SELECT COUNT(*) AS n FROM work_items WHERE company_id = ? AND kind = 'task' AND status = 'open' AND submitted_at IS NOT NULL AND COALESCE(supervisor_id, created_by) = ?", [user.companyId, user.id]);
@@ -859,7 +959,7 @@ export class FlowService {
     return {
       total: Number(n), page: q.page, pageSize: q.pageSize,
       counts: { pending: Number(counts.pending ?? 0), overdue: Number(counts.overdue ?? 0), returned: Number(counts.returned ?? 0), cc: Number(cc.n), taskReview: Number(rv.n) + Number(dl.n) },
-      rows: rows.map((r: Record<string, unknown>) => ({ ...r, templateLabel: r.kind === 'task' ? (r.routineId ? '周期任务' : '任务') : labels.get(String(r.templateKey)) ?? '', overdue: r.status === 'open' && r.dueAt ? new Date(String(r.dueAt)) < now : false })),
+      rows: rows.map(({ batchCount, ...r }: Record<string, unknown>) => ({ ...r, batchCount: batchCount == null ? null : Number(batchCount), templateLabel: r.kind === 'task' ? (r.routineId ? '周期任务' : '任务') : labels.get(String(r.templateKey)) ?? '', overdue: r.status === 'open' && r.dueAt ? new Date(String(r.dueAt)) < now : false })),
     };
   }
 
@@ -877,27 +977,47 @@ export class FlowService {
     return { ok: true };
   }
 
-  /** 逾期扫描：待办过了截止时间，通知办理人和定义里配置的升级对象，每个待办只通知一次。定时器每分钟调一次。 */
+  /**
+   * 逾期扫描：待办过了截止时间，通知办理人和定义里配置的升级对象，每个待办只扫一次。定时器每分钟调一次。
+   * 查询直接按“已过截止时间且没扫过”过滤并按编号分批，不会被一大堆没到期/已处理的待办挤掉（旧写法 where 里的 undefined 等于不过滤，只取前 500 条）。
+   * 去重：升级类提醒同一个待办同一个人只发一次（与督促提醒、三级超时升级共用记录）；节点配了“超时后每隔 M 分钟再提醒”时，办理人的逾期提醒交给督促提醒。
+   */
   async scanOverdue(now = new Date()) {
-    const items = await this.dataSource.manager.find(WorkItem, { where: { status: 'open', overdueNotifiedAt: undefined }, take: 500 });
-    const due = items.filter((i) => i.dueAt && i.dueAt < now && !i.overdueNotifiedAt);
     let notified = 0;
-    for (const it of due) {
-      await this.dataSource.transaction(async (em) => {
-        const fresh = await em.findOne(WorkItem, { where: { id: it.id }, lock: { mode: 'pessimistic_write' } });
-        if (!fresh || fresh.status !== 'open' || fresh.overdueNotifiedAt) return;
-        fresh.overdueNotifiedAt = now;
-        await em.save(WorkItem, fresh);
-        const run = fresh.runId ? await em.findOne(FlowRun, { where: { id: fresh.runId } }) : null;
-        await this.notify(em, fresh.companyId, [fresh.assigneeId], { kind: 'overdue', title: `已逾期：${fresh.title}`, link: run ? `/workbench/todos?run=${run.id}` : undefined });
-        const esc = (run?.escalateUserIds ?? []).filter((u) => u !== fresh.assigneeId);
-        if (run && esc.length) {
-          const names = await this.userNames(em, fresh.companyId, [fresh.assigneeId]);
-          await this.notify(em, fresh.companyId, esc, { kind: 'escalate', title: `办理超时：${run.title}`, body: `${names.get(fresh.assigneeId) ?? ''} 办理的“${fresh.title.split(' · ')[0]}”已超过时限`, link: `/flow/overview?run=${run.id}` });
-        }
-        notified += 1;
-      });
+    let last = 0;
+    for (let round = 0; round < 40; round += 1) {
+      const batch: Array<{ id: number }> = await this.dataSource.query(
+        "SELECT id FROM work_items WHERE status = 'open' AND overdue_notified_at IS NULL AND due_at IS NOT NULL AND due_at < ? AND id > ? ORDER BY id LIMIT 500", [now, last]);
+      if (!batch.length) break;
+      for (const { id } of batch) {
+        last = Math.max(last, Number(id));
+        try { if (await this.scanOne(Number(id), now)) notified += 1; }
+        catch (e) { this.log.error(`逾期扫描失败（待办 ${id}）：${(e as Error).message}`); }
+      }
+      if (batch.length < 500) break;
     }
     return notified;
+  }
+
+  private scanOne(id: number, now: Date) {
+    return this.dataSource.transaction(async (em) => {
+      const fresh = await em.findOne(WorkItem, { where: { id }, lock: { mode: 'pessimistic_write' } });
+      if (!fresh || fresh.status !== 'open' || fresh.overdueNotifiedAt || !fresh.dueAt || fresh.dueAt >= now) return false;
+      fresh.overdueNotifiedAt = now;
+      await em.save(WorkItem, fresh);
+      const run = fresh.runId ? await em.findOne(FlowRun, { where: { id: fresh.runId } }) : null;
+      const stepKey = fresh.stepId ? (await em.findOne(FlowStep, { where: { id: fresh.stepId }, select: ['id', 'stepKey'] }))?.stepKey : null;
+      const remind = stepKey ? ((run?.stepsSnapshot ?? []) as StepDef[]).find((x) => x.key === stepKey)?.remind : null;
+      // 督促时效已经配了超时后的重复提醒：办理人那边由它负责，这里不再重复发一条“已逾期”
+      if (!remind?.overdueEveryMinutes && (await claimNotice(em, fresh.companyId, fresh.id, SELF_OVERDUE_KIND))) {
+        await this.notify(em, fresh.companyId, [fresh.assigneeId], { kind: 'overdue', title: `已逾期：${fresh.title}`, link: run ? `/workbench/todos?run=${run.id}` : undefined });
+      }
+      const esc = await claimEscalations(em, fresh.companyId, fresh.id, fresh.assigneeId, run?.escalateUserIds ?? []);
+      if (run && esc.length) {
+        const names = await this.userNames(em, fresh.companyId, [fresh.assigneeId]);
+        await this.notify(em, fresh.companyId, esc, { kind: 'escalate', title: `办理超时：${run.title}`, body: `${names.get(fresh.assigneeId) ?? ''} 办理的“${fresh.title.split(' · ')[0]}”已超过时限`, link: `/flow/overview?run=${run.id}` });
+      }
+      return true;
+    });
   }
 }

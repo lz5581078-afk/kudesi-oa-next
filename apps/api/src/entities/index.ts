@@ -837,9 +837,12 @@ export class FlowDefinition {
   /** 自建模板的表单结构（fields/stepFields/posting）；内置模板为空 */
   @Column({ name: 'schema_json', type: 'json', nullable: true }) schemaJson!: Record<string, unknown> | null;
   @Column({ name: 'escalate_user_ids', type: 'json' }) escalateUserIds!: number[];
+  /** 发起人范围（StarterScope）；空 = 不限制，沿用“有申请权限即可发起” */
+  @Column({ name: 'starter_scope', type: 'json', nullable: true }) starterScope!: Record<string, unknown> | null;
   @Column({ name: 'created_by', type: 'int', unsigned: true }) createdBy!: number;
   @CreateDateColumn({ name: 'created_at', ...dt }) createdAt!: Date;
   @Column({ name: 'published_at', ...dt, nullable: true }) publishedAt!: Date | null;
+  @Column({ name: 'published_by', type: 'int', unsigned: true, nullable: true }) publishedBy!: number | null;
 }
 
 /** 公司自建流程模板的身份与目录属性（步骤和表单结构在 flow_definitions 的版本里） */
