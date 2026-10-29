@@ -5,9 +5,14 @@ import { ReasonDialog, loadRefOptions } from '../../resources/RecordForm';
 import { FlowFieldsForm, FlowValues } from './FlowFields';
 import { RUN_TONE, flowApi, fmtTime, type RunDetailDto } from './flowApi';
 import { copyText, dwell } from './flowUi';
+import { ReturnSpecsDialog } from './ReturnSpecsDialog';
 import { SKU_TEMPLATE, SkuPreview } from './SkuApply';
+import { PurchasePanel } from './PurchasePanel';
+import { PURCHASE_TEMPLATE_KEY } from './purchaseApi';
 
-type Dialog = null | 'abnormal' | 'return' | 'cancel' | 'reject' | 'withdraw' | 'transfer';
+type Dialog = null | 'specs' | 'abnormal' | 'return' | 'cancel' | 'reject' | 'withdraw' | 'transfer';
+
+const skuSpecNames = (run: RunDetailDto): string[] => (Array.isArray(run.payload.specs) ? (run.payload.specs as Array<{ name?: unknown }>).map((x) => String(x?.name ?? '')).filter(Boolean) : []);
 
 /** 流程详情：表单内容、办理时间线、当前能做的操作。操作按钮完全由服务端返回的 me 决定。 */
 export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged: () => void }) {
@@ -31,7 +36,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
   useEffect(reload, [reload]);
   // 按 Esc 关闭（有子弹窗时先关子弹窗）
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !dialog && !editing) onClose(); };
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented && !dialog && !editing) onClose(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [dialog, editing, onClose]);
@@ -93,13 +98,14 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
             <h3 className="section-title">申请内容</h3>
             {editing ? (
               <>
-                <FlowFieldsForm fields={run.fields} templateKey={run.templateKey} values={editing} labels={run.refLabels} onChange={(k, v) => setEditing({ ...editing, [k]: v })} />
+                <FlowFieldsForm fields={run.fields} templateKey={run.templateKey} values={editing} labels={run.refLabels} files={run.files} onChange={(k, v) => setEditing({ ...editing, [k]: v })} />
                 <div className="row-actions">
                   <button type="button" className="primary-button" disabled={busy} onClick={() => act(() => flowApi.resubmit(run.id, { revision: rev, payload: editing }))}>重新提交</button>
                   <button type="button" className="secondary-button" onClick={() => setEditing(null)}>取消修改</button>
                 </div>
               </>
-            ) : <FlowValues fields={run.fields} values={run.payload} labels={run.refLabels} />}
+            ) : <FlowValues fields={run.fields} values={run.payload} labels={run.refLabels} files={run.files} />}
+            {run.templateKey === PURCHASE_TEMPLATE_KEY && !editing && <PurchasePanel runId={run.id} refreshKey={run.revision} onChanged={reload} />}
             {run.templateKey === SKU_TEMPLATE && !editing && <SkuPreview runId={run.id} refreshKey={run.revision} />}
             {(run.links.docNo || run.links.borrowRecordId) && (
               <p className="muted">
@@ -124,7 +130,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
               )}
               {run.me.canPass && (
                 <>
-                  {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={run.payload} values={form} onChange={(k, v) => setForm({ ...form, [k]: v })} />}
+                  {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={{ ...run.payload, _runId: run.id }} files={run.files} values={form} onChange={(k, v) => setForm({ ...form, [k]: v })} />}
                   <label>意见（选填）<textarea rows={2} value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} /></label>
                 </>
               )}
@@ -132,6 +138,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                 {run.me.canPass && <button type="button" className="primary-button" disabled={busy} onClick={() => act(() => flowApi.pass(run.id, { revision: rev, stepId, form, comment: comment || undefined }))}>办理通过</button>}
                 {run.me.canResubmit && <button type="button" className="primary-button" onClick={() => setEditing({ ...run.payload })}>修改后重新提交</button>}
                 {run.me.canReturn && <button type="button" className="secondary-button" onClick={() => setDialog('return')}>退回上一步</button>}
+                {run.me.canReturn && run.templateKey === SKU_TEMPLATE && run.activeStep.type !== 'submit' && skuSpecNames(run).length > 1 && <button type="button" className="secondary-button" onClick={() => setDialog('specs')}>退回部分规格</button>}
                 {run.me.canAbnormal && <button type="button" className="secondary-button" onClick={() => setDialog('abnormal')}>上报异常</button>}
                 {run.me.canReject && <button type="button" className="secondary-button" onClick={() => setDialog('reject')}>拒绝</button>}
                 {run.me.canCancel && <button type="button" className="secondary-button" onClick={() => setDialog('cancel')}>废除</button>}
@@ -158,7 +165,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                   </div>
                   {s.comment && <div>“{s.comment}”</div>}
                   {s.form && Object.keys(s.form).length > 0 && (
-                    <FlowValues fields={(run.stepFields[s.key] ?? []).filter((f) => s.form![f.key] !== undefined)} values={s.form} labels={s.formRefLabels} />
+                    <FlowValues fields={(run.stepFields[s.key] ?? []).filter((f) => s.form![f.key] !== undefined)} values={s.form} labels={s.formRefLabels} files={run.files} />
                   )}
                 </li>
               ))}
@@ -180,6 +187,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
         <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>关闭</button></div>
       </div>
 
+      {dialog === 'specs' && run.activeStep && <ReturnSpecsDialog run={{ id: run.id, revision: rev, stepId }} specNames={skuSpecNames(run)} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); reload(); onChanged(); }} />}
       {dialog === 'abnormal' && <ReasonDialog title="上报异常" hint="流程会转到异常处理步骤，由对应办理人处理。" confirmLabel="上报" onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.abnormal(run.id, { revision: rev, stepId, reason }))} />}
       {dialog === 'return' && <ReasonDialog title="退回上一步" confirmLabel="退回" onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.back(run.id, { revision: rev, stepId, reason }))} />}
       {dialog === 'reject' && <ReasonDialog title="拒绝申请" hint="拒绝后流程结束。" confirmLabel="拒绝" danger onClose={() => setDialog(null)} onConfirm={(reason) => act(() => flowApi.reject(run.id, { revision: rev, stepId, reason }))} />}

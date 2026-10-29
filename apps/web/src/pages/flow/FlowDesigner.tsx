@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getFlowTemplate, validateCustomTemplate, validateSteps, formatMinutes, STEP_TYPE_LABEL, type FieldDef, type FlowPostingDecl, type FlowTemplate, type StepDef } from '@kudesi/shared';
+import { getFlowTemplate, validateCustomTemplate, validateSteps, formatMinutes, STEP_TYPE_LABEL, type FieldDef, type FlowPostingDecl, type FlowTemplate, type StarterScope, type StepDef } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { loadRefOptions } from '../../resources/RecordForm';
@@ -11,6 +11,7 @@ import { Confirm } from './FlowDirectory';
 import { FormFieldsEditor } from './FormFieldsEditor';
 import { NodeEditor, type Lookups } from './NodeEditor';
 import { PostingEditor } from './PostingEditor';
+import { StarterScopeEditor } from './StarterScopeEditor';
 import { fmtTime } from './flowApi';
 import { TimeoutPolicyEditor } from './TimeoutPolicyEditor';
 import './designer.css';
@@ -30,6 +31,7 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
   const [steps, setSteps] = useState<StepDef[]>([]);
   const [esc, setEsc] = useState<number[]>([]);
   const [schema, setSchema] = useState<DesignerSchema | null>(null);
+  const [scope, setScope] = useState<StarterScope | null>(null);
   const [sel, setSel] = useState(1);
   const [tab, setTab] = useState<Tab>('design');
   const [mode, setMode] = useState<'canvas' | 'list'>(() => { try { return localStorage.getItem('flow.designer.mode') === 'list' ? 'list' : 'canvas'; } catch { return 'canvas'; } });
@@ -43,7 +45,7 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
 
   const custom = !!def?.template.custom;
   const load = () => designerApi.definition(flowKey).then((d) => {
-    setDef(d); setSteps(d.draft.steps); setEsc(d.draft.escalateUserIds);
+    setDef(d); setSteps(d.draft.steps); setEsc(d.draft.escalateUserIds); setScope(d.draft.starterScope ?? null);
     setSchema(d.template.custom ? (d.draft.schema ?? { fields: [], stepFields: {}, posting: null }) : null);
     setSel((s) => Math.min(Math.max(1, s), Math.max(0, d.draft.steps.length - 1)));
   }).catch((e) => setMsg({ kind: 'error', text: e instanceof ApiError ? e.message : '加载失败' }));
@@ -64,7 +66,7 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
   }, [def, schema, flowKey]);
   const issues = useMemo(() => (tpl && steps.length ? (tpl.custom ? validateCustomTemplate(tpl, steps, esc) : validateSteps(tpl, steps, esc)) : []), [tpl, steps, esc]);
   const unresolved = steps.filter((s) => s.type !== 'submit' && s.type !== 'end' && ['employee', 'position', 'department', 'duty_group'].includes(s.assignee?.source ?? '') && !s.assignee?.id);
-  const dirty = !!def && (JSON.stringify(steps) !== JSON.stringify(def.draft.steps) || JSON.stringify([...esc].sort()) !== JSON.stringify([...def.draft.escalateUserIds].sort()) || (custom && JSON.stringify(schema) !== JSON.stringify(def.draft.schema)));
+  const dirty = !!def && (JSON.stringify(steps) !== JSON.stringify(def.draft.steps) || JSON.stringify([...esc].sort()) !== JSON.stringify([...def.draft.escalateUserIds].sort()) || JSON.stringify(scope ?? null) !== JSON.stringify(def.draft.starterScope ?? null) || (custom && JSON.stringify(schema) !== JSON.stringify(def.draft.schema)));
   useEffect(() => {
     if (!dirty && !timeoutDirty) return undefined;
     const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
@@ -110,7 +112,7 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
     catch (e) { setMsg({ kind: 'error', text: e instanceof ApiError ? e.message : '操作失败' }); }
     finally { setBusy(false); }
   }
-  const save = () => designerApi.saveDraft(flowKey, steps, esc, custom ? schema : null);
+  const save = () => designerApi.saveDraft(flowKey, steps, esc, custom ? schema : null, scope);
 
   if (!def || !tpl) return <div><button type="button" className="link-button" onClick={onBack}>← 返回流程列表</button>{msg ? <div role="alert" className="notice error">{msg.text}</div> : <p className="muted" role="status">正在加载流程…</p>}</div>;
   const isActive = !!def.active;
@@ -171,13 +173,14 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
               {lookups.users.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
+          <StarterScopeEditor scope={scope} lookups={lookups} disabled={!canManage} onChange={setScope} />
           {fullIssues.length > 0 && (
             <div className="notice warn" role="status"><strong>发布前还要处理 {fullIssues.length} 项：</strong><ul>{fullIssues.map((t) => <li key={t}>{t}</li>)}</ul></div>
           )}
           {canManage ? (
             <div className="row-actions fd-save-bar">
               {dirty && <span className="muted">有未保存的修改</span>}
-              <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => { setSteps(def.draft.steps); setEsc(def.draft.escalateUserIds); setSchema(custom ? def.draft.schema : null); setMsg(null); }}>放弃修改</button>
+              <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => { setSteps(def.draft.steps); setEsc(def.draft.escalateUserIds); setScope(def.draft.starterScope ?? null); setSchema(custom ? def.draft.schema : null); setMsg(null); }}>放弃修改</button>
               <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => run(save, '草稿已保存')}>保存草稿</button>
               <button type="button" className="primary-button" disabled={busy || fullIssues.length > 0} title={fullIssues.length ? '先处理上面的检查项' : undefined} onClick={() => run(async () => { await save(); await designerApi.publish(flowKey); }, '已发布，新发起的流程按新配置办理')}>保存并发布</button>
             </div>
@@ -211,7 +214,7 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
               {canManage && (
                 <div className="row-actions fd-save-bar">
                   {dirty && <span className="muted">有未保存的修改</span>}
-                  <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => { setSteps(def.draft.steps); setEsc(def.draft.escalateUserIds); setSchema(def.draft.schema); }}>放弃修改</button>
+                  <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => { setSteps(def.draft.steps); setEsc(def.draft.escalateUserIds); setScope(def.draft.starterScope ?? null); setSchema(def.draft.schema); }}>放弃修改</button>
                   <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => run(save, '草稿已保存')}>保存草稿</button>
                   <button type="button" className="primary-button" disabled={busy || fullIssues.length > 0} onClick={() => run(async () => { await save(); await designerApi.publish(flowKey); }, '已发布，新发起的流程按新配置办理')}>保存并发布</button>
                 </div>
@@ -235,9 +238,9 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
           {dirty && <p className="muted">当前有未保存的修改，检查结果按未保存的内容计算。</p>}
           <h3 className="section-title">版本记录</h3>
           <div className="table-scroll"><table className="data-table compact">
-            <thead><tr><th>版本</th><th>状态</th><th>步骤数</th><th>发布时间</th><th>操作</th></tr></thead>
+            <thead><tr><th>版本</th><th>状态</th><th>步骤数</th><th>发布时间</th><th>发布人</th><th>操作</th></tr></thead>
             <tbody>{def.history.map((h) => (
-              <tr key={h.version}><td>v{h.version}</td><td>{STATUS_LABEL[h.status] ?? h.status}</td><td>{h.stepCount}</td><td>{h.publishedAt ? fmtTime(h.publishedAt) : '—'}</td>
+              <tr key={h.version}><td>v{h.version}</td><td>{STATUS_LABEL[h.status] ?? h.status}</td><td>{h.stepCount}</td><td>{h.publishedAt ? fmtTime(h.publishedAt) : '—'}</td><td>{h.publishedByName ?? '—'}</td>
                 <td>{canManage && h.status === 'retired' && <button type="button" className="link-button" disabled={busy || dirty} onClick={() => setDialog({ activate: h.version })}>启用此版本</button>}
                   {canManage && h.status === 'draft' && !(custom && def.history.length === 1) && <button type="button" className="link-button danger" disabled={busy} onClick={() => setDialog('discard')}>放弃草稿</button>}</td></tr>
             ))}</tbody>

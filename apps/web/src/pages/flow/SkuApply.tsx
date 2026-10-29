@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { WAREHOUSE_GROUPS, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseGroupKey, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
+import { Link } from 'react-router-dom';
 import { ApiError, api } from '../../api/client';
 
 /** SKU 批量申请的表单与预览。申请从“申请中心”发起，预览显示在流程详情里；这里不是独立页面。 */
@@ -16,6 +17,21 @@ export const skuApi = {
   history: (mainIds: number[], keyword = '') => api<HistoryDto>(`/flow/sku-apply/history-config?mainIds=${mainIds.join(',')}&keyword=${encodeURIComponent(keyword)}`),
   startSplit: (payload: Record<string, unknown>, requestKey: string) => api<{ batchKey: string; runs: Array<{ id: number; specName: string }>; failed: Array<{ specName: string; message: string }> }>('/flow/sku-apply/start-split', { method: 'POST', body: { payload, requestKey } }),
   batch: (key: string) => api<{ batchKey: string; total: number; items: Array<{ id: number; specName: string; status: string; currentStep: string }> }>(`/flow/sku-apply/batches/${encodeURIComponent(key)}`),
+};
+export interface BatchItem { runId: number; revision: number; stepId?: number | null }
+export interface BatchBoard {
+  ref: string; batchKey: string | null; batchName: string; requesterName: string; total: number; runCount: number;
+  counts: { running: number; completed: number; ended: number; returned: number; mine: number };
+  me: { isRequester: boolean; holdStepKey: string | null; holdStepName: string; holdCount: number; canReturnAll: boolean };
+  items: Array<{ runId: number; specIndex: number; specName: string; specCount: number; runStatus: string; revision: number; stepId: number | null; stepKey: string | null; stepName: string; enteredVia: string | null; dueAt: string | null; overdue: boolean; recipients: string[]; mine: boolean; canResubmit: boolean; returnReason: string | null; returnedBy: string | null; returnedAt: string | null }>;
+  history: Array<{ id: number; runId: number; action: string; note: string | null; actorName: string; createdAt: string; specNames: string[] }>;
+}
+export interface BatchOutcome { results: Array<{ runId: number; ok: boolean; message?: string }>; ok: number; failed: number }
+export const skuBatchApi = {
+  board: (ref: string) => api<BatchBoard>(`/flow/sku-apply/applications/${encodeURIComponent(ref)}`),
+  act: (b: { ref: string; action: 'pass' | 'return' | 'reject' | 'cancel' | 'resubmit'; items: Array<{ runId: number; revision: number; stepId?: number }>; comment?: string; form?: Record<string, unknown> }) => api<BatchOutcome>('/flow/sku-apply/applications/act', { method: 'POST', body: b }),
+  returnAll: (b: { ref: string; items: Array<{ runId: number; revision: number; stepId?: number }>; reason: string }) => api<{ ok: true; count: number }>('/flow/sku-apply/applications/return-all', { method: 'POST', body: b }),
+  returnSpecs: (b: { runId: number; revision: number; stepId: number; specs: string[]; reason: string }) => api<{ ok: true; ref: string; newRunId: number; split: boolean }>('/flow/sku-apply/applications/return-specs', { method: 'POST', body: b }),
 };
 export interface HistoryDto { items: Array<{ runId: number; title: string; specName: string; exact: boolean; status: string; config: WarehouseSpec }>; names: Record<string, string> }
 
@@ -323,6 +339,7 @@ function BatchPeers({ batchKey, runId, index, total }: { batchKey: string; runId
   return (
     <div className="notice sku-batch" aria-label="同批申请">
       <strong>独立办理：第 {index ?? '?'} / {total ?? '?'} 个规格</strong>
+      {' '}<Link to={`/workbench/todos?batch=${encodeURIComponent(batchKey)}`} className="link-button">打开申请汇总（批量办理）</Link>
       {list && (
         <ul className="plain-list">
           {list.items.map((it) => <li key={it.id}>#{it.id} {it.specName} · {it.status === 'running' ? `停在「${it.currentStep}」` : STATUS[it.status] ?? it.status}{it.id === runId ? '（当前）' : ''}</li>)}

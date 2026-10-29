@@ -1468,7 +1468,6 @@ div.ws-task { cursor: default; }
 .hier-home-head h1 { margin: 2px 0 4px; font-size: 22px; }
 .hier-home-head p { margin: 0; max-width: 640px; }
 .hier-home-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.hier-guide { font-size: 13px; }
 .hier-draft { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; }
 .hier-draft input { flex: 1 1 180px; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
 .hier-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
@@ -1610,3 +1609,10 @@ div.ws-task { cursor: default; }
 .vc-disc-hint { margin: 0; font-size: 12px; }
 .transit-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 @media (max-width: 720px) { .pay-accts .transfer-list input { width: 100%; } }
+/* 流程缺口：SKU 申请汇总、发起人范围、批量改派 */
+.batch-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; position: sticky; top: 0; background: var(--surface, #fff); z-index: 1; }
+.sku-batch-panel .data-table td input[type='checkbox'] { width: auto; height: auto; }
+.starter-scope { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; margin: 12px 0; min-width: 0; }
+.starter-scope-row { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.file-links a { word-break: break-all; }
+@media (max-width: 720px) { .batch-bar > button { flex: 1 1 auto; } .starter-scope .form-grid { grid-template-columns: 1fr; } }

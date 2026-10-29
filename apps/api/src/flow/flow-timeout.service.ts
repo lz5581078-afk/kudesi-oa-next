@@ -5,6 +5,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { FLOW_TEMPLATES, createChecker, defaultTimeoutPolicy, normalizeTimeoutPolicy, penaltyCents, resolveTimeoutPolicy, type PolicyRow, type StepDef, type TimeoutPolicy } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { FlowTemplateRow } from '../entities';
+import { claimEscalations } from './overdue-notice';
 
 const parse = <T,>(v: unknown, fallback: T): T => (typeof v === 'string' ? (JSON.parse(v) as T) : ((v as T) ?? fallback));
 const PAGE = 20;
@@ -156,10 +157,18 @@ export class FlowTimeoutService {
 
   /** 督促时效：到期前 N 分钟提醒、超时后每隔 M 分钟再提醒；每条提醒只发一次 */
   async reminders(now: Date) {
-    const items: Array<{ id: number; company_id: number; assignee_id: number; title: string; due_at: Date; run_id: number; step_key: string; steps: unknown }> = await this.ds.query(
-      `SELECT w.id, w.company_id, w.assignee_id, w.title, w.due_at, w.run_id, s.step_key, r.steps_snapshot AS steps
-       FROM work_items w JOIN flow_steps s ON s.id = w.step_id JOIN flow_runs r ON r.id = w.run_id
-       WHERE w.kind = 'flow' AND w.status = 'open' AND w.due_at IS NOT NULL AND r.status = 'running' LIMIT 1000`);
+    type Item = { id: number; company_id: number; assignee_id: number; title: string; due_at: Date; run_id: number; step_key: string; steps: unknown };
+    // 按编号分批取完，不会只处理前 N 条而漏掉后面的待办
+    const items: Item[] = [];
+    for (let last = 0; items.length < 20_000;) {
+      const chunk: Item[] = await this.ds.query(
+        `SELECT w.id, w.company_id, w.assignee_id, w.title, w.due_at, w.run_id, s.step_key, r.steps_snapshot AS steps
+         FROM work_items w JOIN flow_steps s ON s.id = w.step_id JOIN flow_runs r ON r.id = w.run_id
+         WHERE w.kind = 'flow' AND w.status = 'open' AND w.due_at IS NOT NULL AND r.status = 'running' AND w.id > ? ORDER BY w.id LIMIT 1000`, [last]);
+      items.push(...chunk);
+      if (chunk.length < 1000) break;
+      last = Number(chunk[chunk.length - 1].id);
+    }
     let sent = 0;
     for (const it of items) {
       const def = parse<StepDef[]>(it.steps, []).find((s) => s.key === it.step_key);
@@ -202,7 +211,13 @@ export class FlowTimeoutService {
     const base = `SELECT w.id, w.company_id, w.run_id, w.step_id, w.assignee_id, w.title, w.due_at, w.status AS item_status, w.finished_at, r.template_key, s.step_key, s.recipients,
                          TIMESTAMPDIFF(SECOND, w.due_at, COALESCE(w.finished_at, ?)) AS secs
                   FROM work_items w JOIN flow_steps s ON s.id = w.step_id JOIN flow_runs r ON r.id = w.run_id`;
-    const open: Array<Record<string, unknown>> = await this.ds.query(`${base} WHERE w.kind = 'flow' AND w.status = 'open' AND w.due_at < ? ORDER BY w.id LIMIT 500`, [now, now]);
+    const open: Array<Record<string, unknown>> = [];
+    for (let last = 0; open.length < 20_000;) {
+      const chunk: Array<Record<string, unknown>> = await this.ds.query(`${base} WHERE w.kind = 'flow' AND w.status = 'open' AND w.due_at < ? AND w.id > ? ORDER BY w.id LIMIT 500`, [now, now, last]);
+      open.push(...chunk);
+      if (chunk.length < 500) break;
+      last = Number(chunk[chunk.length - 1].id);
+    }
     const late: Array<Record<string, unknown>> = await this.ds.query(
       `${base} WHERE w.kind = 'flow' AND w.status = 'done' AND w.finished_at > w.due_at AND w.finished_at > DATE_SUB(?, INTERVAL 3 DAY)
          AND NOT EXISTS (SELECT 1 FROM flow_timeout_incidents i WHERE i.company_id = w.company_id AND i.work_item_id = w.id AND i.due_at = w.due_at) ORDER BY w.id LIMIT 200`, [now, now]);
@@ -244,10 +259,12 @@ export class FlowTimeoutService {
     if (status === 'open' && nt?.enabled) {
       for (const [level, threshold] of [['supervisor', nt.supervisorAfterMinutes], ['boss', nt.bossAfterMinutes]] as const) {
         if (minutes < threshold || !(await this.once(em, companyId, itemId, `${level}:${incidentId}`))) continue;
-        const to = await this.receivers(em, companyId, level, nt, Number(it.assignee_id));
+        const found = await this.receivers(em, companyId, level, nt, Number(it.assignee_id));
+        // 同一个待办同一个人只收一条升级提醒（逾期扫描、主管、老板三路共用记录）；不通知办理人本人
+        const to = await claimEscalations(em, companyId, itemId, Number(it.assignee_id), found);
         if (to.length) await this.notify(em, companyId, to, { kind: 'escalate', title: `${level === 'supervisor' ? '主管提醒' : '老板提醒'}：${String(it.title)} 已超时 ${minutes} 分钟`, link: `/flow/overview?run=${String(it.run_id)}` });
         await em.query('INSERT INTO flow_timeout_events (company_id, kind, ref_id, after_json, actor_id) VALUES (?, ?, ?, ?, ?)',
-          [companyId, 'escalate', incidentId, JSON.stringify({ level, atMinutes: threshold, recipientIds: to, error: to.length ? null : level === 'supervisor' ? '未找到办理人的上级或部门主管' : '未找到老板通知接收人' }), 0]);
+          [companyId, 'escalate', incidentId, JSON.stringify({ level, atMinutes: threshold, recipientIds: to, dedupedIds: found.filter((x) => !to.includes(x)), error: found.length ? null : level === 'supervisor' ? '未找到办理人的上级或部门主管' : '未找到老板通知接收人' }), 0]);
       }
     }
     // 处罚：只对有明确个人办理人的步骤；金额只增不减，确认/免除后不再变
