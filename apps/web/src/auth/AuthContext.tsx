@@ -1,6 +1,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createChecker, CurrentUserDto, LoginRequest, LoginResponse, PermissionChecker, PlatformAdminDto } from '@kudesi/shared';
 import { api, setUnauthorizedHandler, tokenStore } from '../api/client';
+import { resetCategoryOptions } from '../resources/categoryOptions';
 
 interface AuthState {
   user: CurrentUserDto | null;
@@ -33,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     tokenStore.clear();
+    resetCategoryOptions(); // 换账号后不沿用上一家公司的分类缓存
     setUser(null);
     setPlatformAdmin(null);
   }, []);
@@ -54,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (request: LoginRequest) => {
     const result = await api<LoginResponse>('/auth/login', { method: 'POST', body: request });
     tokenStore.set(result.accessToken);
+    resetCategoryOptions();
     if (result.type === 'platform') setPlatformAdmin(result.admin);
     else setUser(result.user);
   }, []);

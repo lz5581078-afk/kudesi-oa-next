@@ -1,3 +1,4 @@
+import { categoryLabelMap } from './category-options';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
@@ -829,7 +830,7 @@ export class FinanceDocumentsService {
       if (!cur || String(r.data.snapshotDate) > String(cur.data.snapshotDate)) latest.set(sid, r);
     }
     const stores = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'stores' }, take: 5000 });
-    const platformOpts = new Map((getResourceDef('stores')?.fields.find((f) => f.key === 'platform')?.options ?? []).map((o) => [o.value, o.label]));
+    const platformOpts = await categoryLabelMap(this.dataSource.manager, user.companyId, 'stores', getResourceDef('stores')!);
     const n = (v: unknown) => (typeof v === 'number' ? v : 0);
     const out = stores.filter((st) => latest.has(st.id) || ['normal', 'abnormal'].includes(st.status)).map((st) => {
       const snap = latest.get(st.id);

@@ -1356,9 +1356,9 @@ export function getResourceDef(key: string): ResourceDef | undefined {
 }
 
 /** 列表上方的页签：tabsBy 字段的选项，其中被 tabSplit 拆开的那一项换成拆出的几个页签 */
-export function resourceTabOptions(def: ResourceDef): readonly Option[] {
+export function resourceTabOptions(def: ResourceDef, categoryOptions?: readonly Option[]): readonly Option[] {
   const field = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
-  const options = field?.options ?? [];
+  const options = categoryOptions ?? field?.options ?? []; // categoryOptions：本公司的页签分类（改名、排序、自建、隐藏后的有效选项）
   const split = def.tabSplit;
   if (!split) return options;
   return options.flatMap((o) => (o.value === split.tab ? split.options : [o]));

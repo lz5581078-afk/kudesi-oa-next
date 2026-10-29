@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client';
 import { resourceApi, type ResourceDto } from '../api';
 import { displayValue, statusOf } from '../format';
 import { fieldOptions, useUnitOptions } from '../unitOptions';
+import { selectChoices, useCategoryVersion } from '../categoryOptions';
 import { ChildPanel } from '../RecordDetail';
 import { LicenseRecognizeButton } from '../LicenseRecognize';
 import { CellEditor, GridDialog, type EditResult, type Move } from './CellEditor';
@@ -169,7 +170,7 @@ export function ResourceGrid(props: Props) {
   };
   const menuOptions = (c: GridCol, kind: ColFilterKind): MenuOption[] | undefined => {
     if (kind === 'status') return def.statuses.map((x) => ({ value: x.value, label: x.label }));
-    if (kind === 'select' && c.field) return fieldOptions(c.field, {}, units).map((o) => ({ value: o.value, label: o.label }));
+    if (kind === 'select' && c.field) return selectChoices(def.key, c.field, (f) => fieldOptions(f, {}, units), { mode: 'display' }).map((o) => ({ value: o.value, label: o.label }));
     return undefined;
   };
   const searchRef = (c: GridCol) => async (kw: string): Promise<MenuOption[]> => {
@@ -179,7 +180,8 @@ export function ResourceGrid(props: Props) {
     return (await resourceApi.list(target, { keyword: kw || undefined, pageSize: 20, showHidden: true })).items.map((i) => ({ value: String(i.id), label: i.title }));
   };
   const colWidth = (c: GridCol) => Math.max(MIN_W, widths[c.key] ?? defaultWidth(c));
-  const optionsOf = useCallback((field: FieldDef, row: GridRow): readonly Option[] | undefined => (field.type === 'select' ? (field.optionsFrom ? fieldOptions(field, { ...row.data, status: row.status }, units) : field.options) : undefined), [units]);
+  const catVersion = useCategoryVersion(); // 分类改名/新增后下拉与解析立即用新名称
+  const optionsOf = useCallback((field: FieldDef, row: GridRow): readonly Option[] | undefined => (field.type === 'select' ? selectChoices(def.key, field, (f) => (f.optionsFrom ? fieldOptions(f, { ...row.data, status: row.status }, units) : f.options ?? []), { mode: 'form', current: String(row.data[field.key] ?? '') }) : undefined), [units, catVersion, def.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- 改动 ----------
   const edit = useCallback((changes: CellChange[]) => {

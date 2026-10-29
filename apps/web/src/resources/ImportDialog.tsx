@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { phoneStoreImportColumns, type ResourceDef } from '@kudesi/shared';
+import { phoneStoreImportColumns, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
 import { csvToObjects, downloadText, parseCsv, toCsv } from './csv';
 import { resourceApi, type ImportBackupInfo, type ImportResult } from './api';
+import { selectChoices, useCategoryVersion } from './categoryOptions';
 import { downloadXlsx, isXlsx, readXlsxRows } from './xlsx';
 
 /** Excel 另存的 CSV 常是 GBK 编码：先按 UTF-8 严格解码，不行就按 GB18030。 */
@@ -18,6 +19,8 @@ async function readCsvText(file: File): Promise<string> {
 /** 导入：先选文件 → 预览（逐行校验，不落库）→ 无错误才允许确认导入；有错整体不导入。 */
 export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClose: () => void; onDone: (message?: string) => void }) {
   const [onlyBad, setOnlyBad] = useState(false);
+  useCategoryVersion();
+  const optsOf = (f: FieldDef) => selectChoices(def.key, f, (x) => x.options ?? [], { mode: 'form' }); // 页签分类用本公司的名称
   const [rows, setRows] = useState<Array<Record<string, string>>>([]);
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
@@ -88,9 +91,9 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
     setBusy(false);
   }
 
-  const instructionRows = (): string[][] => [['列名', '是否必填', '可选值 / 说明'], ['状态', '否', def.statuses.map((s) => s.label).join('、')], ...importable.map((f) => [f.label, f.required ? '是' : '否', f.options ? f.options.map((o) => o.label).join('、') : f.type === 'ref' ? '填对方资料的名称（要先建好，重名无法匹配）' : f.type === 'money' ? '元，最多两位小数' : f.type === 'date' ? 'YYYY-MM-DD' : f.type === 'phone' ? '手机号' : (f.help ?? '')])];
+  const instructionRows = (): string[][] => [['列名', '是否必填', '可选值 / 说明'], ['状态', '否', def.statuses.map((s) => s.label).join('、')], ...importable.map((f) => [f.label, f.required ? '是' : '否', f.options ? optsOf(f).map((o) => o.label).join('、') : f.type === 'ref' ? '填对方资料的名称（要先建好，重名无法匹配）' : f.type === 'money' ? '元，最多两位小数' : f.type === 'date' ? 'YYYY-MM-DD' : f.type === 'phone' ? '手机号' : (f.help ?? '')])];
   /** 填写示例：每列给一个像样的例子，照着改就行 */
-  const exampleRow = (): string[] => ['', ...importable.map((f) => f.options?.[0]?.label ?? (f.type === 'money' ? '12.5' : f.type === 'date' ? '2026-01-01' : f.type === 'phone' ? '13800000000' : f.type === 'number' || f.type === 'decimal' ? '1' : f.type === 'ref' || f.type === 'refs' ? '（对方资料的名称）' : `示例${f.label}`)), ...extraHeaders.map(() => '')];
+  const exampleRow = (): string[] => ['', ...importable.map((f) => (f.options ? optsOf(f)[0]?.label : undefined) ?? (f.type === 'money' ? '12.5' : f.type === 'date' ? '2026-01-01' : f.type === 'phone' ? '13800000000' : f.type === 'number' || f.type === 'decimal' ? '1' : f.type === 'ref' || f.type === 'refs' ? '（对方资料的名称）' : `示例${f.label}`)), ...extraHeaders.map(() => '')];
   function dropped(files: FileList | null) {
     setOver(false);
     if (!files?.length) return;
@@ -121,7 +124,7 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
             <summary>填写规则（哪些列必填、选项怎么写）</summary>
             <ul>
               {importable.map((f) => (
-                <li key={f.key}><strong>{f.label}</strong>{f.required ? '（必填）' : ''}{f.type === 'select' && f.options?.length ? `：${f.options.map((o) => o.label).join(' / ')}` : f.type === 'date' ? '：日期，如 2026-01-31' : f.type === 'money' ? '：金额，单位元' : f.type === 'ref' || f.type === 'refs' ? '：填对方的名称' : ''}{f.help ? `。${f.help}` : ''}</li>
+                <li key={f.key}><strong>{f.label}</strong>{f.required ? '（必填）' : ''}{f.type === 'select' && f.options?.length ? `：${optsOf(f).map((o) => o.label).join(' / ')}` : f.type === 'date' ? '：日期，如 2026-01-31' : f.type === 'money' ? '：金额，单位元' : f.type === 'ref' || f.type === 'refs' ? '：填对方的名称' : ''}{f.help ? `。${f.help}` : ''}</li>
               ))}
             </ul>
           </details>
