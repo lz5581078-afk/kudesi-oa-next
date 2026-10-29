@@ -123,7 +123,7 @@
 
 ## 验证
 
-- 共享层 294、前端 585、API 653（98 个套件）全量测试均通过；API 数据库测试串行跑真实 MySQL，包含 `flow.db.spec`、`flow-designer.db.spec`、`task.db.spec`、`sku-apply.db.spec`、`sku-batch.db.spec`、`flow-gaps.db.spec`、`product-exclusive.db.spec`、`service-cases`。
+- 共享层 294、前端 592、API 664（99 个套件，已并入采购流程后重跑）全量测试均通过；API 数据库测试串行跑真实 MySQL，包含 `flow.db.spec`、`flow-designer.db.spec`、`task.db.spec`、`sku-apply.db.spec`、`sku-batch.db.spec`、`flow-gaps.db.spec`、`product-exclusive.db.spec`、`service-cases`。
 - 三端 `tsc`、`npm run build` 通过。
 - 截图在 `docs/协作/审计/截图-流程缺口/`：`d-` 开头是 1440 宽，`m-` 开头是 390 宽（手机）。
 
