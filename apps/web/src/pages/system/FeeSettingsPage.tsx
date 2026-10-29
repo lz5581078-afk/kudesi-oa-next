@@ -1,221 +1,226 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { nextRechargeDate, todayShanghai, type LedgerBroadbandRow, type LedgerFocus, type LedgerPhoneRow, type LedgerResult, type LedgerSort, type LedgerView } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
-import { resourceApi, type ResourceDto } from '../../resources/api';
-import { Pager, SearchPick, centsToYuan, money, yuanToCents } from '../finance/common';
+import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../../layout/AppbarSlot';
+import { SearchGlyph } from '../../resources/ResIcons';
+import { PageHint } from '../../resources/PageHint';
+import { useResourceCan } from '../../resources/useResourceCan';
+import { Pager } from '../finance/common';
+import { BroadbandView } from './fee/BroadbandView';
+import { EditDialog } from './fee/EditDialog';
+import { MainCardView, AllNumbersView, type PhoneActions } from './fee/PhoneViews';
+import { SummaryBar } from './fee/SummaryBar';
+import { feeApi, type RowEdit, type SaveOutcome } from './fee/feeApi';
+import { yuan } from './fee/format';
+import type { Change } from './fee/batch';
+import './fee/fee.css';
 
-const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
-const errText = (e: unknown) => (e instanceof ApiError ? e.message : '保存失败');
+const HINT = '通信费用台账：哪些号是主卡、各挂哪些子卡；每张卡多少钱、多久充一次、下次什么时候充；宽带多少钱、绑在哪个号上、用在哪个区域。数据就是手机号和宽带账号资料本身，这里改的和资料里改的是同一份，操作记录里会写“费用模块”。';
 const PAGE_SIZE = 20;
-type Tab = 'plan' | 'sub' | 'broadband';
-const TABS: Array<{ key: Tab; label: string }> = [
-  { key: 'plan', label: '手机套餐' },
-  { key: 'sub', label: '主子卡费用' },
-  { key: 'broadband', label: '宽带费用' },
-];
 
-interface Change { id: number; title: string; lines: string[]; values: Record<string, unknown> }
+const TABS: Array<{ key: LedgerView; label: string }> = [
+  { key: 'main', label: '按主卡' },
+  { key: 'all', label: '全部号码' },
+  { key: 'broadband', label: '宽带' },
+];
+const CHIPS: Record<LedgerView, Array<{ key: LedgerFocus | ''; label: string }>> = {
+  main: [{ key: '', label: '全部' }, { key: 'soon', label: '7 天内要充' }, { key: 'overdue', label: '逾期' }, { key: 'nofee', label: '未设费用' }, { key: 'standalone', label: '独立号码' }],
+  all: [{ key: '', label: '全部' }, { key: 'main', label: '主卡' }, { key: 'sub', label: '子卡' }, { key: 'soon', label: '需充值' }, { key: 'overdue', label: '逾期' }, { key: 'nofee', label: '未设费用' }, { key: 'standalone', label: '独立号码' }],
+  broadband: [{ key: '', label: '全部' }, { key: 'unbound', label: '未绑定手机号' }, { key: 'expiring', label: '30 天内到期' }, { key: 'expired', label: '已到期' }, { key: 'nofee', label: '未设费用' }],
+};
+const asView = (v: string | null): LedgerView => (v === 'all' || v === 'broadband' ? v : 'main');
 
 /**
- * 费用模块：集中维护手机号套餐、主子卡费用和宽带费用。
- * 不另存数据：保存时直接写回手机号档案 / 宽带账号档案，变更记录留在各自档案的操作记录里。
- * 列表走服务端搜索和分页（手机号很多）；勾选多条可一起改，保存前先预览改了什么。
+ * 费用模块 = 通信费用台账。不另存数据：手机号费用来自手机号资料，宽带费用来自宽带资料；
+ * 列表和汇总由服务端聚合（手机号很多），这里只负责显示和就地修改——修改走资料自己的保存通道。
  */
 export function FeeSettingsPage() {
-  const [tab, setTab] = useState<Tab>('plan');
-  const [keyword, setKeyword] = useState('');
+  const [params] = useSearchParams();
+  const [view, setView] = useState<LedgerView>(asView(params.get('tab')));
+  const [focus, setFocus] = useState<LedgerFocus | ''>((params.get('focus') as LedgerFocus | null) ?? '');
+  const [q, setQ] = useState(params.get('q') ?? '');
+  const [qLive, setQLive] = useState(params.get('q') ?? '');
+  const [carrier, setCarrier] = useState('');
+  const [who, setWho] = useState('');
+  const [area, setArea] = useState<number | null>(null);
+  const [sort, setSort] = useState<LedgerSort | undefined>(undefined);
+  const [dir, setDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
-  const [items, setItems] = useState<ResourceDto[]>([]);
-  const [total, setTotal] = useState(0);
-  const [checked, setChecked] = useState<number[]>([]);
+  const [data, setData] = useState<LedgerResult | null>(null);
   const [error, setError] = useState('');
-  const [ok, setOk] = useState('');
-  const [preview, setPreview] = useState<Change[] | null>(null);
-  const [mode, setMode] = useState<'all' | 'main' | 'sub'>('all');
-  // 批量修改表单：勾选“改这一项”才会写入
-  const [use, setUse] = useState<Record<string, boolean>>({});
-  const [form, setForm] = useState({ carrier: '', plan: '', fee: '', days: '30', cycle: 'monthly', parentId: null as number | null, parentLabel: '' });
-  const type = tab === 'broadband' ? 'broadband' : 'phones';
+  const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [phonePick, setPhonePick] = useState<Map<number, LedgerPhoneRow>>(new Map());
+  const [bbPick, setBbPick] = useState<Map<number, LedgerBroadbandRow>>(new Map());
+  const [editing, setEditing] = useState<{ kind: 'phones'; rows: LedgerPhoneRow[] } | { kind: 'broadband'; rows: LedgerBroadbandRow[] } | null>(null);
+  const hasAppbar = useHasAppbarSlot();
+  useAppbarBare();
+  const canPhone = useResourceCan('phones');
+  const canBroadband = useResourceCan('broadband');
+  const reqId = useRef(0);
+
+  useEffect(() => { const t = setTimeout(() => { setQLive(q); setPage(1); }, 250); return () => clearTimeout(t); }, [q]);
 
   const load = useCallback(async () => {
+    const id = ++reqId.current;
     try {
-      const r = await resourceApi.list(type, { keyword, page, pageSize: PAGE_SIZE, showHidden: true });
-      setItems(r.items);
-      setTotal(r.total);
+      const r = await feeApi.ledger({ view, q: qLive, focus, carrier, user: who, location: area, sort, dir, page, pageSize: PAGE_SIZE });
+      if (id !== reqId.current) return;
+      setData(r);
       setError('');
-    } catch (e) { setError(e instanceof ApiError ? e.message : '加载失败'); }
-  }, [type, keyword, page]);
+    } catch (e) {
+      if (id === reqId.current) setError(e instanceof ApiError ? e.message : '加载失败');
+    }
+  }, [view, qLive, focus, carrier, who, area, sort, dir, page]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setChecked([]); setPreview(null); setUse({}); }, [tab]);
 
-  const shown = useMemo(
-    () => (tab === 'sub' ? items.filter((p) => (mode === 'all' ? true : mode === 'sub' ? Boolean(p.data.parentPhoneId) : !p.data.parentPhoneId)) : items),
-    [items, tab, mode],
-  );
-  const allChecked = shown.length > 0 && shown.every((p) => checked.includes(p.id));
+  const go = (v: LedgerView, f: LedgerFocus | '' = '') => {
+    setView(v); setFocus(f); setPage(1); setCarrier(''); setWho(''); setArea(null); setSort(undefined); setDir('asc'); setPhonePick(new Map()); setBbPick(new Map());
+  };
+  const onSort = (k: LedgerSort) => { if (sort === k) setDir(dir === 'asc' ? 'desc' : 'asc'); else { setSort(k); setDir('asc'); } setPage(1); };
 
-  function buildChanges(): Change[] | string {
-    const targets = items.filter((p) => checked.includes(p.id));
-    if (!targets.length) return '请先勾选要修改的记录';
-    const out: Change[] = [];
-    let fee: number | null = null;
-    if (use.fee) {
-      fee = yuanToCents(form.fee);
-      if (fee === null || Number.isNaN(fee) || fee < 0) return '费用金额不合法（元，最多两位小数）';
-    }
-    if (use.days && !(Number(form.days) >= 1 && Number(form.days) <= 3650)) return '充值周期应在 1 到 3650 天之间';
-    if (use.plan && !form.plan.trim()) return '套餐名不能为空';
-    for (const p of targets) {
-      const values: Record<string, unknown> = {};
-      const lines: string[] = [];
-      const diff = (key: string, label: string, next: unknown, oldText: string, nextText: string) => {
-        if (String(p.data[key] ?? '') === String(next ?? '')) return;
-        values[key] = next;
-        lines.push(`${label}：${oldText || '空'} → ${nextText || '空'}`);
-      };
-      if (type === 'phones') {
-        if (use.carrier) diff('carrier', '运营商', form.carrier.trim() || null, String(p.data.carrier ?? ''), form.carrier.trim());
-        if (use.plan) diff('plan', '套餐名', form.plan.trim(), String(p.data.plan ?? ''), form.plan.trim());
-        if (use.fee) diff('monthlyFee', '费用', fee, p.data.monthlyFee ? centsToYuan(num(p.data.monthlyFee)) : '', centsToYuan(fee));
-        if (use.days) diff('rechargeCycleDays', '充值周期(天)', Number(form.days), String(p.data.rechargeCycleDays ?? ''), form.days);
-        if (use.parent) {
-          if (form.parentId === p.id) return `${p.title}：不能把自己设为主卡`;
-          diff('parentPhoneId', '主卡', form.parentId, p.refLabels.parentPhoneId ?? '', form.parentLabel || '无（设为主卡）');
-        }
-      } else {
-        if (use.fee) diff('amount', '费用', fee, p.data.amount ? centsToYuan(num(p.data.amount)) : '', centsToYuan(fee));
-        if (use.cycle) diff('cycle', '费用周期', form.cycle, String(p.data.cycle ?? ''), form.cycle === 'yearly' ? '每年' : '每月');
-      }
-      if (lines.length) out.push({ id: p.id, title: p.title, lines, values });
-    }
-    if (!out.length) return '没有需要修改的内容（先勾选“改这一项”并填写新值）';
-    return out;
-  }
-
-  function doPreview() {
-    setError(''); setOk('');
-    const r = buildChanges();
-    if (typeof r === 'string') return setError(r);
-    setPreview(r);
-  }
-
-  async function doSave() {
-    if (!preview) return;
-    let done = 0;
-    const failed: string[] = [];
-    for (const c of preview) {
-      try { await resourceApi.update(type, c.id, c.values); done++; } catch (e) { failed.push(`${c.title}：${errText(e)}`); }
-    }
-    setPreview(null);
-    setOk(`已保存 ${done} 条，已同步到${type === 'phones' ? '手机号' : '宽带账号'}档案${failed.length ? `；${failed.length} 条失败` : ''}`);
-    setError(failed.slice(0, 3).join('；'));
-    setChecked([]);
+  const report = (o: SaveOutcome, noun: string) => {
+    if (o.failed.length) {
+      const first = o.failed.slice(0, 3).map((f) => `${f.title}：${f.conflict ? '刚被别人修改过，请刷新后再改' : f.message}`).join('；');
+      setNotice({ tone: 'error', text: `已保存 ${o.done} 条${noun}，${o.failed.length} 条没保存：${first}` });
+    } else setNotice({ tone: 'ok', text: `已保存 ${o.done} 条，已同步到${noun}档案，操作记录里可以看到。` });
+  };
+  const saveChanges = async (type: 'phones' | 'broadband', changes: Change[]) => {
+    const outcome = await feeApi.save(type, changes.map((c) => c.edit));
+    report(outcome, type === 'phones' ? '手机号' : '宽带账号');
+    if (!outcome.failed.length) { setEditing(null); setPhonePick(new Map()); setBbPick(new Map()); }
     await load();
-  }
+  };
 
-  const toggle = (id: number) => setChecked((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
-  const useBox = (key: string, label: string) => (
-    <label className="inline-check"><input type="checkbox" checked={Boolean(use[key])} onChange={(e) => setUse({ ...use, [key]: e.target.checked })} />改{label}</label>
-  );
+  const today = todayShanghai();
+  const recharge = async (rows: LedgerPhoneRow[]) => {
+    const first = rows[0];
+    const next = nextRechargeDate({ lastRechargeAt: today, rechargeCycleDays: first.cycleDays });
+    const text = rows.length === 1 ? `${first.number}：最后充值日记为 ${today}，下次充值日更新为 ${next}。` : `${rows.length} 张号码的最后充值日都记为 ${today}，下次充值日按各自的充值周期推算。`;
+    if (!window.confirm(text)) return;
+    const edits: RowEdit[] = rows.map((r) => ({ id: r.id, version: r.version, title: r.number, data: { lastRechargeAt: today } }));
+    report(await feeApi.save('phones', edits), '手机号');
+    setPhonePick(new Map());
+    await load();
+  };
+  const bind = async (row: LedgerPhoneRow, parentId: number) => {
+    report(await feeApi.save('phones', [{ id: row.id, version: row.version, title: row.number, data: { parentPhoneId: parentId } }]), '手机号');
+    await load();
+  };
+
+  const phoneActions: PhoneActions = {
+    canEdit: canPhone('edit'),
+    canSeeFees: Boolean(data?.canSeeFees),
+    checked: phonePick,
+    onCheck: (r, on) => setPhonePick((m) => { const n = new Map(m); if (on) n.set(r.id, r); else n.delete(r.id); return n; }),
+    onEdit: (r) => setEditing({ kind: 'phones', rows: [r] }),
+    onRecharge: (r) => void recharge([r]),
+    onBind: bind,
+  };
+  const bbActions = {
+    canEdit: canBroadband('edit'),
+    canSeeFees: Boolean(data?.canSeeFees),
+    checked: bbPick,
+    onCheck: (r: LedgerBroadbandRow, on: boolean) => setBbPick((m) => { const n = new Map(m); if (on) n.set(r.id, r); else n.delete(r.id); return n; }),
+    onEdit: (r: LedgerBroadbandRow) => setEditing({ kind: 'broadband', rows: [r] }),
+  };
+
+  const visiblePhones = useMemo(() => (data?.view === 'main' ? (data.groups ?? []).flatMap((g) => [g.main, ...(expanded.has(g.main.id) ? g.children : [])]) : data?.rows ?? []), [data, expanded]);
+  const picked = view === 'broadband' ? bbPick.size : phonePick.size;
+  const toggleAll = (on: boolean) => {
+    if (view === 'broadband') setBbPick((m) => { const n = new Map(m); for (const r of data?.broadband ?? []) { if (on) n.set(r.id, r); else n.delete(r.id); } return n; });
+    else setPhonePick((m) => { const n = new Map(m); for (const r of visiblePhones) { if (on) n.set(r.id, r); else n.delete(r.id); } return n; });
+  };
+  const allExpanded = data?.groups ? data.groups.filter((g) => g.children.length).every((g) => expanded.has(g.main.id)) : false;
+  const hint = <PageHint text={HINT} />;
+  const filtered = Boolean(qLive || carrier || who || area || focus);
 
   return (
-    <section className="page">
-      <h1>费用模块</h1>
-      <p className="muted">集中维护手机号套餐、主子卡费用和宽带费用；保存后直接写回手机号档案和宽带账号档案。</p>
+    <section className="fee-page res-page">
+      {hasAppbar && <AppbarHint>{hint}</AppbarHint>}
       {error && <div role="alert" className="notice error">{error}</div>}
-      {ok && <div role="status" className="notice ok-notice">{ok}</div>}
+      {notice && <div role={notice.tone === 'error' ? 'alert' : 'status'} className={notice.tone === 'error' ? 'notice error' : 'notice ok-notice'}>{notice.text}<button type="button" className="fee-x" aria-label="关闭提示" onClick={() => setNotice(null)}>×</button></div>}
+      {data && <SummaryBar s={data.summary} canSeeFees={data.canSeeFees} current={{ view, focus }} onPick={(p) => go(p.view, p.focus)} />}
 
-      <div className="tabs" role="tablist">
-        {TABS.map((t) => (
-          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? 'tab active' : 'tab'} onClick={() => { setTab(t.key); setPage(1); setKeyword(''); }}>{t.label}</button>
-        ))}
-      </div>
-
-      <div className="toolbar">
-        <input aria-label="搜索" placeholder={tab === 'broadband' ? '搜索宽带账号' : '搜索号码'} value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
-        {tab === 'sub' && (
-          <select aria-label="主子卡" value={mode} onChange={(e) => setMode(e.target.value as 'all' | 'main' | 'sub')}>
-            <option value="all">主卡和子卡</option><option value="main">只看主卡</option><option value="sub">只看子卡</option>
-          </select>
-        )}
-        <span className="muted">已勾选 {checked.length} 条</span>
-      </div>
-
-      <div className="card">
-        <h2>批量修改{checked.length ? `（${checked.length} 条）` : ''}</h2>
-        <div className="form-grid compact">
-          {type === 'phones' && tab === 'plan' && (
-            <>
-              <div>{useBox('carrier', '运营商')}<input aria-label="运营商" value={form.carrier} onChange={(e) => setForm({ ...form, carrier: e.target.value })} /></div>
-              <div>{useBox('plan', '套餐名')}<input aria-label="套餐名" value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })} /></div>
-              <div>{useBox('fee', '费用')}<input aria-label="费用（元）" type="number" min="0" step="0.01" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })} /></div>
-            </>
-          )}
-          {tab === 'sub' && (
-            <>
-              <div>{useBox('parent', '主卡')}
-                <SearchPick type="phones" value={form.parentId} label={form.parentLabel} placeholder="搜索主卡号码（不选 = 设为主卡）" ariaLabel="主卡" onChange={(id, label) => setForm({ ...form, parentId: id, parentLabel: label })} />
-              </div>
-              <div>{useBox('fee', '子卡费用')}<input aria-label="费用（元）" type="number" min="0" step="0.01" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })} /></div>
-              <div>{useBox('days', '充值周期')}<input aria-label="充值周期（天）" type="number" min="1" step="1" value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} /></div>
-            </>
-          )}
-          {tab === 'broadband' && (
-            <>
-              <div>{useBox('fee', '费用')}<input aria-label="费用（元）" type="number" min="0" step="0.01" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })} /></div>
-              <div>{useBox('cycle', '费用周期')}
-                <select aria-label="费用周期" value={form.cycle} onChange={(e) => setForm({ ...form, cycle: e.target.value })}><option value="monthly">每月</option><option value="yearly">每年</option></select>
-              </div>
-            </>
-          )}
+      <div className="res-main fee-main-card">
+        <div className="fee-tabrow">
+        <div className="res-tabs fee-tabs" role="tablist">
+          {TABS.filter((t) => t.key !== 'broadband' || data?.canSeeBroadband !== false).map((t) => (
+            <button key={t.key} type="button" role="tab" aria-selected={view === t.key} className={view === t.key ? 'res-tab on' : 'res-tab'} onClick={() => go(t.key)}>
+              {t.label}
+              {data && t.key === 'main' && <i>{data.summary.mainCount}</i>}
+              {data && t.key === 'all' && <i>{data.summary.mainCount + data.summary.subCount}</i>}
+              {data && t.key === 'broadband' && data.summary.broadbandCount !== null && <i>{data.summary.broadbandCount}</i>}
+            </button>
+          ))}
         </div>
-        <div className="form-actions"><button type="button" className="primary-button" onClick={doPreview}>预览修改</button></div>
-        {preview && (
-          <div role="region" aria-label="修改预览">
-            <h3>将要修改 {preview.length} 条，请确认</h3>
-            <ul>{preview.map((c) => <li key={c.id}><strong>{c.title}</strong>：{c.lines.join('；')}</li>)}</ul>
-            <div className="form-actions">
-              <button type="button" className="primary-button" onClick={() => void doSave()}>确认保存</button>
-              <button type="button" className="secondary-button" onClick={() => setPreview(null)}>取消</button>
-            </div>
+        {!hasAppbar && <span className="fee-hint-inline">{hint}</span>}
+        </div>
+        <div className="res-bar fee-bar">
+          <label className="res-search">
+            <SearchGlyph />
+            <input aria-label="搜索" placeholder={view === 'broadband' ? '搜索宽带账号、区域、手机号' : '搜索号码、套餐、使用人'} value={q} onChange={(e) => setQ(e.target.value)} />
+          </label>
+          <div className="fee-chips" role="group" aria-label="快捷筛选">
+            {CHIPS[view].map((c) => (
+              <button key={c.key || 'all'} type="button" className={focus === c.key ? 'fee-chip on' : 'fee-chip'} aria-pressed={focus === c.key} onClick={() => { setFocus(c.key); setPage(1); }}>{c.label}</button>
+            ))}
+          </div>
+          {view !== 'broadband' ? (
+            <>
+              <select aria-label="运营商" value={carrier} onChange={(e) => { setCarrier(e.target.value); setPage(1); }}>
+                <option value="">全部运营商</option>
+                {data?.carriers.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select aria-label="使用人" value={who} onChange={(e) => { setWho(e.target.value); setPage(1); }}>
+                <option value="">全部使用人</option>
+                {data?.users.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </>
+          ) : (
+            <select aria-label="使用区域" value={area ?? ''} onChange={(e) => { setArea(e.target.value ? Number(e.target.value) : null); setPage(1); }}>
+              <option value="">全部区域</option>
+              {data?.areas?.map((a) => <option key={a.id} value={a.id}>{a.path}（{a.count}）</option>)}
+            </select>
+          )}
+          <span className="res-bar-gap" />
+          {view === 'main' && <button type="button" className="res-btn" onClick={() => setExpanded(allExpanded ? new Set() : new Set((data?.groups ?? []).map((g) => g.main.id)))}>{allExpanded ? '折叠全部' : '展开全部'}</button>}
+          <label className="check-line fee-all"><input type="checkbox" aria-label="全选本页" onChange={(e) => toggleAll(e.target.checked)} /><span className="fee-all-t">全选本页</span></label>
+        </div>
+
+        {picked > 0 && (
+          <div className="fee-batch" role="region" aria-label="批量操作">
+            <strong>已选 {picked} {view === 'broadband' ? '条宽带' : '张号码'}</strong>
+            {view === 'broadband'
+              ? bbActions.canEdit && <button type="button" className="res-btn" onClick={() => setEditing({ kind: 'broadband', rows: [...bbPick.values()] })}>批量修改…</button>
+              : phoneActions.canEdit && (
+                <>
+                  <button type="button" className="res-btn" onClick={() => setEditing({ kind: 'phones', rows: [...phonePick.values()] })}>批量修改…</button>
+                  <button type="button" className="res-btn" onClick={() => void recharge([...phonePick.values()])}>记录充值</button>
+                </>
+              )}
+            <button type="button" className="res-btn" onClick={() => { setPhonePick(new Map()); setBbPick(new Map()); }}>清除选择</button>
           </div>
         )}
+
+        <div className="res-table-scroll fee-scroll">
+          {!data && !error && <div className="res-loading" role="status">加载中…</div>}
+          {data && view === 'main' && <MainCardView groups={data.groups ?? []} orphans={data.orphans ?? []} a={phoneActions} expanded={expanded} onToggle={(id) => setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; })} onBindOrphan={bind} />}
+          {data && view === 'all' && <AllNumbersView rows={data.rows ?? []} a={phoneActions} sort={sort ?? 'next'} dir={dir} onSort={onSort} />}
+          {data && view === 'broadband' && <BroadbandView rows={data.broadband ?? []} a={bbActions} sort={sort ?? 'carrier'} dir={dir} onSort={onSort} />}
+        </div>
+        <div className="fee-foot">
+          <span className="muted">
+            {data && filtered ? `符合条件 ${data.total} ${view === 'main' ? '张主卡' : view === 'all' ? '张号码' : '条宽带'}` : ''}
+            {data?.filteredMonthlyCents !== undefined ? `${filtered ? ' · ' : ''}折合月均 ${yuan(data.filteredMonthlyCents)}${view === 'broadband' ? '（宽带单独汇总，不含手机）' : ''}` : ''}
+          </span>
+          <Pager page={page} total={data?.total ?? 0} pageSize={PAGE_SIZE} onPage={setPage} />
+        </div>
       </div>
 
-      <div className="card">
-        <table className="data-table">
-          <thead>
-            {tab === 'broadband' ? (
-              <tr><th><input type="checkbox" aria-label="本页全选" checked={allChecked} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...shown.map((p) => p.id)])] : checked.filter((id) => !shown.some((p) => p.id === id)))} /></th><th>宽带账号</th><th>宽带位置</th><th>绑定手机号</th><th className="num">费用</th><th>状态</th></tr>
-            ) : (
-              <tr><th><input type="checkbox" aria-label="本页全选" checked={allChecked} onChange={(e) => setChecked(e.target.checked ? [...new Set([...checked, ...shown.map((p) => p.id)])] : checked.filter((id) => !shown.some((p) => p.id === id)))} /></th><th>号码</th><th>主子卡</th><th>运营商</th><th>套餐</th><th className="num">费用</th><th className="num">充值周期</th></tr>
-            )}
-          </thead>
-          <tbody>
-            {shown.map((p) => (
-              <tr key={p.id}>
-                <td><input type="checkbox" aria-label={`勾选 ${p.title}`} checked={checked.includes(p.id)} onChange={() => toggle(p.id)} /></td>
-                {tab === 'broadband' ? (
-                  <>
-                    <td>{p.title}</td><td>{p.refLabels.locationId ?? String(p.data.locationNote ?? '-')}</td><td>{p.refLabels.phoneId ?? '-'}</td>
-                    <td className="num">{p.data.amount ? `${money(num(p.data.amount))} / ${p.data.cycle === 'yearly' ? '年' : '月'}` : '-'}</td>
-                    <td>{p.status === 'normal' ? '正常' : p.status === 'suspended' ? '停机' : '注销'}</td>
-                  </>
-                ) : (
-                  <>
-                    <td>{p.title}</td>
-                    <td>{p.data.parentPhoneId ? `子卡 / 主卡：${p.refLabels.parentPhoneId ?? p.data.parentPhoneId}` : '主卡'}</td>
-                    <td>{String(p.data.carrier ?? '-')}</td><td>{String(p.data.plan ?? '-')}</td>
-                    <td className="num">{p.data.monthlyFee ? money(num(p.data.monthlyFee)) : '-'}</td>
-                    <td className="num">{p.data.rechargeCycleDays ? `${p.data.rechargeCycleDays} 天` : '-'}</td>
-                  </>
-                )}
-              </tr>
-            ))}
-            {shown.length === 0 && <tr><td colSpan={7} className="muted">没有符合条件的记录。</td></tr>}
-          </tbody>
-        </table>
-        <Pager page={page} total={total} pageSize={PAGE_SIZE} onPage={setPage} />
-      </div>
+      {editing?.kind === 'phones' && <EditDialog kind="phones" rows={editing.rows} canSeeFees={Boolean(data?.canSeeFees)} onClose={() => setEditing(null)} onSave={(c) => saveChanges('phones', c)} />}
+      {editing?.kind === 'broadband' && <EditDialog kind="broadband" rows={editing.rows} canSeeFees={Boolean(data?.canSeeFees)} onClose={() => setEditing(null)} onSave={(c) => saveChanges('broadband', c)} />}
     </section>
   );
 }

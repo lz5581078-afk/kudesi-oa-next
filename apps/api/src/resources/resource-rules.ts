@@ -7,6 +7,7 @@ import { CERT_AFTER_DELETE, CERT_AFTER_SAVE, CERT_BEFORE_SAVE, custodyRules, lic
 import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE } from './finance-rules';
 import { beforeUnitDelete } from './unit-rules';
 import { ASSET_BEFORE_DELETE, ASSET_BEFORE_SAVE } from './asset-rules';
+import { broadbandPhoneRule, isLegacyImport, phoneParentRule } from './fee-rules';
 import { workforceAfterSave, workforceBeforeDelete, workforceBeforeSave } from './workforce-rules';
 
 /**
@@ -242,7 +243,11 @@ export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Prom
       await matchPhone(ctx, false);
       selfMediaStores(ctx);
       return;
+    case 'broadband':
+      broadbandPhoneRule(ctx);
+      return;
     case 'phones': {
+      await phoneParentRule(ctx);
       await abnormalReason(ctx, 'phone-abnormal-reasons');
       // 新建时的默认值（旧系统）：运营商中国移动
       if (!ctx.existing && !ctx.data.carrier) ctx.data.carrier = '中国移动';
@@ -254,7 +259,8 @@ export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Prom
         const cycle = Number(ctx.data.rechargeCycleDays);
         if (cycle < 1 || cycle > 3650) throw new BadRequestException('充值周期应在 1 到 3650 天之间');
         ctx.data.nextRechargeAt = addDays(last, cycle);
-      } else {
+      } else if (!isLegacyImport(ctx)) {
+        // 旧系统只记了“下次充值日”、没有最后充值日的号码：迁入时保留旧的下次充值日，不当成空清掉
         ctx.data.nextRechargeAt = null;
       }
       return;

@@ -149,7 +149,7 @@ export function ResourceTable(p: Props) {
                     <td colSpan={colSpan}>
                       <div className="res-group-bar" style={{ paddingLeft: 12 + g.depth * 16 }}>
                         <button type="button" className="res-group-btn" aria-expanded={open} aria-label={`${g.label}分组`} onClick={() => p.onToggleGroup?.(g.key)}>
-                          <span aria-hidden="true">{open ? '▾' : '▸'}</span><strong>{g.label}</strong><em>{g.rows.length} 条</em>
+                          <span aria-hidden="true">{open ? '▾' : '▸'}</span><strong>{g.label}</strong><em>{g.rows.length} 条</em>{g.note && <em>{g.note}</em>}
                         </button>
                         {p.onAddInGroup && <button type="button" className="link-button grp-add" aria-label={`在${g.label}下新增`} onClick={() => p.onAddInGroup?.(g)}>＋ 新增</button>}
                       </div>
@@ -209,7 +209,7 @@ export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns'
             return [
               <li key={`g:${g.key}`} className="res-group-card">
                 <div className="res-group-bar">
-                  <button type="button" className="res-group-btn" aria-expanded={open} aria-label={`${g.label}分组`} onClick={() => p.onToggleGroup?.(g.key)}><span aria-hidden="true">{open ? '▾' : '▸'}</span><strong>{g.label}</strong><em>{g.rows.length} 条</em></button>
+                  <button type="button" className="res-group-btn" aria-expanded={open} aria-label={`${g.label}分组`} onClick={() => p.onToggleGroup?.(g.key)}><span aria-hidden="true">{open ? '▾' : '▸'}</span><strong>{g.label}</strong><em>{g.rows.length} 条</em>{g.note && <em>{g.note}</em>}</button>
                   {p.onAddInGroup && <button type="button" className="link-button grp-add" aria-label={`在${g.label}下新增`} onClick={() => p.onAddInGroup?.(g)}>＋ 新增</button>}
                 </div>
               </li>,
