@@ -6,6 +6,7 @@ import { PermissionsGuard } from '../common/permissions.guard';
 import { FilesService } from '../integrations/files.service';
 import { FinanceDocumentsController } from './finance-documents.controller';
 import { FinanceDocumentsService } from './finance-documents.service';
+import { FinanceVoucherHintsService } from './finance-voucher-hints.service';
 
 /** 实际 HTTP/DTO/权限守卫；业务事务另用 MySQL 测试。登录人由测试中间件模拟。 */
 describe('期初预付登记 HTTP', () => {
@@ -15,7 +16,7 @@ describe('期初预付登记 HTTP', () => {
   const body = { reason: '回单已核对', fileIds: [3], confirmed: true };
   beforeAll(async () => {
     const module = await Test.createTestingModule({ controllers: [FinanceDocumentsController], providers: [
-      { provide: FinanceDocumentsService, useValue: docs }, { provide: FilesService, useValue: files }, { provide: APP_GUARD, useClass: PermissionsGuard },
+      { provide: FinanceDocumentsService, useValue: docs }, { provide: FilesService, useValue: files }, { provide: FinanceVoucherHintsService, useValue: {} }, { provide: APP_GUARD, useClass: PermissionsGuard },
     ] }).compile();
     app = module.createNestApplication();
     app.use((req: { headers: Record<string, string>; user?: unknown }, _res: unknown, next: () => void) => {
