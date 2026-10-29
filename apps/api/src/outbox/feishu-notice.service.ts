@@ -11,10 +11,11 @@ export const FEISHU_SENDER = 'FEISHU_SENDER';
 export const FEISHU_TEMPLATES = ['sku-batch-apply'];
 const MAX_ATTEMPTS = 5;
 
-export interface FeishuNotice { userId: number; title: string; body?: string; link?: string; runId?: number }
+export interface FeishuNotice { channel?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
 export interface FeishuSender {
   readonly configured: boolean;
-  send(job: { idempotencyKey: string; notice: FeishuNotice }): Promise<void>;
+  available?(companyId: number): Promise<boolean>;
+  send(job: { companyId?: number; idempotencyKey: string; notice: FeishuNotice }): Promise<void>;
 }
 /** 默认发送器：没有接入飞书，也没有人授权对外发送，所以什么都发不出去。 */
 export class UnconfiguredFeishuSender implements FeishuSender {
@@ -40,7 +41,7 @@ export class FeishuNoticeService implements OnModuleInit, OnModuleDestroy {
 
   async getSwitch(companyId: number) {
     const row = await this.ds.manager.findOne(OutboxSwitch, { where: { companyId, channel: FEISHU_CHANNEL } });
-    return { enabled: row?.enabled ?? false, note: row?.note ?? null, senderConfigured: this.sender.configured };
+    return { enabled: row?.enabled ?? false, note: row?.note ?? null, senderConfigured: this.sender.available ? await this.sender.available(companyId) : this.sender.configured };
   }
 
   async setSwitch(user: AuthUser, enabled: boolean, note?: string) {
@@ -91,12 +92,12 @@ export class FeishuNoticeService implements OnModuleInit, OnModuleDestroy {
       const claimed = await em.update(OutboxJob, { id: job.id, status: 'pending' }, { status: 'sending' });
       if (!claimed.affected) continue;
       try {
-        await this.sender.send({ idempotencyKey: job.idempotencyKey, notice: job.payloadJson as unknown as FeishuNotice });
+        await this.sender.send({ companyId, idempotencyKey: job.idempotencyKey, notice: job.payloadJson as unknown as FeishuNotice });
         await em.update(OutboxJob, { id: job.id }, { status: 'done', doneAt: new Date(), attempts: job.attempts + 1, lastError: null });
         sent++;
       } catch (e) {
         const attempts = job.attempts + 1;
-        await em.update(OutboxJob, { id: job.id }, { status: attempts >= MAX_ATTEMPTS ? 'failed' : 'pending', attempts, lastError: (e as Error).message.slice(0, 500), nextAttemptAt: new Date(Date.now() + 2 ** attempts * 60_000) });
+        await em.update(OutboxJob, { id: job.id }, { status: attempts >= MAX_ATTEMPTS || (e as { outcomeUnknown?: boolean }).outcomeUnknown ? 'failed' : 'pending', attempts, lastError: (e as Error).message.slice(0, 500), nextAttemptAt: new Date(Date.now() + 2 ** attempts * 60_000) });
         failed++;
       }
     }
