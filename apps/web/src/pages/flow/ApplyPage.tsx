@@ -63,7 +63,7 @@ export function ApplyPage() {
 
   const shown = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
-    const list = (templates ?? []).filter((t) => !kw || `${t.label} ${t.description}`.toLowerCase().includes(kw));
+    const list = (templates ?? []).filter((t) => t.startable !== false).filter((t) => !kw || `${t.label} ${t.description}`.toLowerCase().includes(kw));
     const rank = (t: TemplateInfo) => (t.active ? 0 : 1000) + (recent.includes(t.key) ? recent.indexOf(t.key) : 100);
     return [...list].sort((a, b) => rank(a) - rank(b));
   }, [templates, keyword, recent]);

@@ -1,13 +1,13 @@
 import type { FieldDef, FlowAction } from '@kudesi/shared';
 import { api } from '../../api/client';
 
-export interface TemplateInfo { key: string; label: string; description: string; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; active: boolean; version: number | null; custom?: boolean; steps?: Array<{ name: string; type: string }> }
+export interface TemplateInfo { key: string; label: string; description: string; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; active: boolean; version: number | null; custom?: boolean; steps?: Array<{ name: string; type: string }>; startable?: boolean }
 export interface RunRow {
   id: number; templateKey: string; templateLabel: string; title: string; status: string; requesterName: string; stepName: string | null; handlers: string[];
   dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; stepEnteredAt?: string | null;
 }
 export interface RunList { total: number; page: number; pageSize: number; rows: RunRow[] }
-export interface TodoRow { id: number; kind: string; description: string | null; runId: number | null; title: string; stepName: string; enteredVia: string; templateLabel: string; runTitle: string; requesterName: string; dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; feedbackPreset?: string | null; completionStandard?: string | null; requiresReview?: number | boolean; reviewNote?: string | null; status?: string }
+export interface TodoRow { id: number; kind: string; description: string | null; runId: number | null; title: string; stepName: string; enteredVia: string; templateLabel: string; runTitle: string; requesterName: string; dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; feedbackPreset?: string | null; completionStandard?: string | null; requiresReview?: number | boolean; reviewNote?: string | null; status?: string; batchKey?: string | null; batchName?: string | null; batchCount?: number }
 export interface TodoList { total: number; counts: { pending: number; overdue: number; returned: number; cc: number; taskReview?: number }; rows: TodoRow[] }
 export interface RunStep {
   id: number; seq: number; key: string; name: string; type: string; status: string; action: FlowAction | null; comment: string | null; form: Record<string, unknown> | null;
@@ -65,8 +65,11 @@ export const flowApi = {
   routines: () => api<RoutineDto[]>('/tasks/routines'),
   saveRoutine: (id: number | null, b: RoutineBody) => (id ? api<{ id: number }>(`/tasks/routines/${id}`, { method: 'PUT', body: b }) : post<{ id: number }>('/tasks/routines', b)),
   setRoutineActive: (id: number, active: boolean) => post<{ ok: true }>(`/tasks/routines/${id}/active`, { active }),
+  reassign: (b: { fromUserId: number; toUserId: number; templateKey?: string; stepKey?: string; reason: string; dryRun?: boolean }) => post<ReassignResult>('/flow/reassign', b),
   markRead: (ids?: number[]) => post<{ ok: true }>('/flow/notifications/read', ids ? { ids } : {}),
 };
+
+export interface ReassignResult { count?: number; items?: Array<{ runId: number; title: string; stepName: string; templateLabel: string }>; moved?: number; skipped?: Array<{ runId: number; message: string }> }
 
 export const RUN_TONE: Record<string, string> = { running: 'warn', completed: 'ok', cancelled: '', rejected: 'bad' };
 export const newRequestKey = () => (crypto.randomUUID?.() ?? `${Date.now()}${Math.random().toString(16).slice(2)}`).replace(/-/g, '').slice(0, 32);

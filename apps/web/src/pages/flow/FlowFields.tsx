@@ -1,8 +1,8 @@
 import type { FieldDef } from '@kudesi/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FieldInput } from '../../resources/RecordForm';
 import { FileList } from '../../resources/FilesField';
-import type { FileInfo } from '../../resources/api';
+import { resourceApi, type FileInfo } from '../../resources/api';
 import { PurchaseJsonField } from './PurchaseFields';
 import { PURCHASE_TEMPLATE_KEY } from './purchaseApi';
 import { SKU_TEMPLATE, SkuApplyFields, SkuWarehouseFields } from './SkuApply';
@@ -51,13 +51,40 @@ function GenericFields({ fields, values, onChange, labels, templateKey, context,
   );
 }
 
+/** 附件字段的只读展示：显示文件名，点开用临时链接下载；没有权限或文件已删除时只显示编号并说明。 */
+export function FlowFiles({ ids }: { ids: number[] }) {
+  const [info, setInfo] = useState<Record<number, { name: string; url: string } | 'fail'>>({});
+  useEffect(() => {
+    let alive = true;
+    for (const id of ids) {
+      resourceApi.fileUrl(id).then((r) => alive && setInfo((c) => ({ ...c, [id]: { name: r.name, url: r.url } }))).catch(() => alive && setInfo((c) => ({ ...c, [id]: 'fail' })));
+    }
+    return () => { alive = false; };
+  }, [ids.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <ul className="plain-list file-links">
+      {ids.map((id) => {
+        const f = info[id];
+        return <li key={id}>{!f ? <span className="muted">正在读取文件 #{id}…</span> : f === 'fail' ? <span className="muted">文件 #{id}（无法打开：没有权限或文件已删除）</span> : <a href={f.url} target="_blank" rel="noopener noreferrer" download={f.name}>{f.name}</a>}</li>;
+      })}
+    </ul>
+  );
+}
+
 /** 只读展示一份流程表单的值。 */
 export function FlowValues({ fields, values, labels, files }: { fields: FieldDef[]; values: Record<string, unknown>; labels?: Record<string, string>; files?: Record<number, FileInfo> }) {
   const show = (f: FieldDef): React.ReactNode => {
     const v = values[f.key];
     if (v === undefined || v === null || v === '') return '—';
+    if (f.type === 'files') {
+      const ids = (Array.isArray(v) ? v : [v]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+      if (!ids.length) return '—';
+      // 服务端已经给了文件信息的（采购等内置流程）显示缩略图；没有的（自建流程）显示文件名 + 下载链接，不再显示编号
+      const known = ids.filter((id) => files?.[id]);
+      const rest = ids.filter((id) => !files?.[id]);
+      return <>{known.length > 0 && <FileList ids={known} files={files ?? {}} />}{rest.length > 0 && <FlowFiles ids={rest} />}</>;
+    }
     if (f.type === 'ref') return labels?.[f.key] || `#${v}`;
-    if (f.type === 'files') return Array.isArray(v) && v.length ? <FileList ids={v as number[]} files={files ?? {}} /> : '—';
     if (f.type === 'json') return '见下方明细';
     if (f.type === 'refs') return labels?.[f.key] || (Array.isArray(v) ? `${v.length} 项` : String(v));
     if (f.type === 'bool') return v ? '是' : '否';

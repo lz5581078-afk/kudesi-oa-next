@@ -14,6 +14,16 @@ class DraftDto {
   @IsArray() @IsInt({ each: true }) escalateUserIds!: number[];
   /** 自建模板的表单结构；内置模板不传 */
   @IsOptional() @IsObject() schema?: Record<string, unknown>;
+  /** 发起人范围：不传 = 沿用已有的；null / 空 = 不限制 */
+  @IsOptional() @IsObject() starterScope?: Record<string, unknown> | null;
+}
+class ReassignDto {
+  @IsInt() @Min(1) fromUserId!: number;
+  @IsInt() @Min(1) toUserId!: number;
+  @IsOptional() @IsString() @MaxLength(40) templateKey?: string;
+  @IsOptional() @IsString() @MaxLength(40) stepKey?: string;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+  @IsOptional() @IsBoolean() dryRun?: boolean;
 }
 class PassDto {
   @IsInt() revision!: number;
@@ -78,7 +88,7 @@ export class FlowController {
 
   @RequirePermission('flow.templates.view')
   @Put('definitions/:key/draft')
-  saveDraft(@CurrentUser() user: AuthUser, @Param('key') key: string, @Body() b: DraftDto) { return this.flow.saveDraft(user, key, b.steps as never, b.escalateUserIds, (b.schema as never) ?? null); }
+  saveDraft(@CurrentUser() user: AuthUser, @Param('key') key: string, @Body() b: DraftDto) { return this.flow.saveDraft(user, key, b.steps as never, b.escalateUserIds, (b.schema as never) ?? null, b.starterScope); }
 
   @RequirePermission('flow.templates.view')
   @Post('definitions/:key/publish')
@@ -91,7 +101,7 @@ export class FlowController {
   @AuthenticatedOnly()
   @Get('runs')
   list(@CurrentUser() user: AuthUser, @Query() q: RunsQuery) {
-    return this.flow.listRuns(user, { view: q.view, status: q.status, templateKey: q.templateKey, keyword: q.keyword, overdue: q.overdue, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
+    return this.flow.listRuns(user, { view: q.view, status: q.status, templateKey: q.templateKey, keyword: q.keyword, overdue: q.overdue, departmentId: q.departmentId, handler: q.handler, returned: q.returned, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
   }
 
   @AuthenticatedOnly()
@@ -133,6 +143,11 @@ export class FlowController {
   @AuthenticatedOnly()
   @Get('todos')
   todos(@CurrentUser() user: AuthUser, @Query() q: TodosQuery) { return this.flow.todos(user, { tab: q.tab ?? 'pending', keyword: q.keyword, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
+
+  /** 批量改派：公司管理员把某人名下在办的待办批量改给别人（服务里判断管理员身份，必须写原因，留痕） */
+  @AuthenticatedOnly()
+  @Post('reassign')
+  reassign(@CurrentUser() user: AuthUser, @Body() b: ReassignDto) { return this.flow.reassignOpen(user, b); }
 
   @AuthenticatedOnly()
   @Get('notifications')

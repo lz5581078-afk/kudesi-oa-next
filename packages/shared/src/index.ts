@@ -32,6 +32,7 @@ export * from './workspace';
 export * from './service-cases';
 export * from './relation-kinds';
 export * from './flow-custom';
+export * from './flow-starter';
 export * from './flow-node-catalog';
 export * from './live';
 export * from './grid-edit';

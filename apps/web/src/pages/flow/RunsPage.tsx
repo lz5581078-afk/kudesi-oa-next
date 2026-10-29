@@ -4,7 +4,9 @@ import { RUN_STATUS_LABEL } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { Pager } from '../finance/common';
+import { ReassignDialog } from './ReassignDialog';
 import { RunDetail } from './RunDetail';
+import { SkuBatchPanel } from './SkuBatchPanel';
 import { RUN_TONE, flowApi, fmtTime, type RunList, type TemplateInfo } from './flowApi';
 import { dueHint, dwell, useDebounced } from './flowUi';
 import { flattenDepartments, orgApi } from '../org/orgApi';
@@ -20,7 +22,7 @@ const EMPTY_HINT: Record<View, string> = {
 /** 我发起的 / 抄送我的 / 流程总览：同一张列表，只是范围不同（总览要流程总览权限，服务端把关）。 */
 export function RunsPage({ view }: { view: View }) {
   const [params, setParams] = useSearchParams();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const [status, setStatus] = useState('');
   const [templateKey, setTemplateKey] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -39,6 +41,9 @@ export function RunsPage({ view }: { view: View }) {
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [error, setError] = useState('');
   const open = Number(params.get('run')) || null;
+  const batchOpen = params.get('batch');
+  const [reassign, setReassign] = useState(false);
+  const [notice, setNotice] = useState('');
 
   // 视图切换时清空筛选，避免把“流程总览”的筛选带到“我发起的”
   useEffect(() => { setStatus(''); setTemplateKey(''); setKeyword(''); setOverdue(false); setDepartmentId(''); setHandler(''); setReturned(false); setPage(1); }, [view]);
@@ -74,6 +79,7 @@ export function RunsPage({ view }: { view: View }) {
         <h1>{TITLE[view]}</h1>
         <div className="row-actions">
           {view === 'all' && can('flow.templates.view') && <Link className="secondary-button" to="/flow/templates">流程配置</Link>}
+          {view === 'all' && user?.permissions.isCompanyAdmin && <button type="button" className="secondary-button" onClick={() => setReassign(true)}>批量改派</button>}
           {view === 'all' && can('flow.timeouts.view') && <Link className="secondary-button" to="/flow/timeouts">超时与处罚</Link>}
           {updatedAt && <span className="muted">{loading ? '更新中…' : `更新于 ${new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false })}${view === 'all' ? ' · 每分钟自动刷新' : ''}`}</span>}
           <button type="button" className="secondary-button" disabled={loading} onClick={load}>刷新</button>
@@ -108,6 +114,7 @@ export function RunsPage({ view }: { view: View }) {
         <label className="check-line"><input type="checkbox" checked={overdue} onChange={(e) => { setOverdue(e.target.checked); setPage(1); }} />只看已逾期</label>
         {filtered && <button type="button" className="secondary-button" onClick={clear}>清除筛选</button>}
       </div>
+      {notice && <div role="status" className="notice ok-notice toast-line"><span>{notice}</span><button type="button" aria-label="关闭提示" onClick={() => setNotice('')}>✕</button></div>}
       {filtered && list && <div className="status-line" role="status">已筛选，找到 {list.total} 条</div>}
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
       <div className="table-scroll"><table className="data-table stack-mobile">
@@ -142,6 +149,8 @@ export function RunsPage({ view }: { view: View }) {
         </tbody>
       </table></div>
       {list && <Pager page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage} />}
+      {reassign && <ReassignDialog templates={templates} onClose={() => setReassign(false)} onDone={(m) => { setReassign(false); setNotice(m); load(); }} />}
+      {batchOpen && <SkuBatchPanel batchKey={batchOpen} onClose={() => setParams({})} onChanged={load} />}
       {open && <RunDetail id={open} onClose={() => setParams({})} onChanged={load} />}
     </div>
   );
