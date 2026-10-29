@@ -76,8 +76,9 @@ describe('库存查询', () => {
     render(<MemoryRouter><InventoryPage /></MemoryRouter>);
     await waitFor(() => expect(fa.inventory).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText('库存状态'), { target: { value: 'out' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' })); // 改条件后点“查询”才发请求（对齐旧版）
     await waitFor(() => expect(fa.inventory).toHaveBeenLastCalledWith(expect.objectContaining({ stockStatus: 'out' })));
-    expect(screen.getByText('没有符合条件的库存，试试清除条件')).toBeTruthy();
+    expect(screen.getByText('没有符合条件的库存，请调整条件后重新查询')).toBeTruthy();
   });
 });
 

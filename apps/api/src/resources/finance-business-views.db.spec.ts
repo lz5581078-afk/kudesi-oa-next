@@ -118,6 +118,22 @@ d('财务查询页面（真实数据库）', () => {
     await expect(docs.inventory({ ...noCost, permissions: { isCompanyAdmin: false, allow: [], deny: [] } }, { stockStatus: 'out' })).rejects.toThrow(/权限/);
   });
 
+  it('库存流水：按商品+仓库列出每笔变动和滚动结存；成本权限控制金额；别家公司和无权限被拒；关键词支持多个词', async () => {
+    const led = await docs.inventoryLedger(boss, { productId: ids.pear, warehouseId: ids.wh });
+    expect(led.rows.map((r) => [r.qty, r.balanceQty])).toEqual([[5, 5], [-5, 0]]);
+    expect(led.rows.map((r) => r.typeLabel).length).toBe(2);
+    expect(led).toMatchObject({ inQty: 5, outQty: 5, closingQty: 0 });
+    expect(led.rows[0].amountCents).toBe(1500);
+    const masked = await docs.inventoryLedger(noCost, { productId: ids.pear, warehouseId: ids.wh });
+    expect(masked.rows.every((r) => r.amountCents === null && r.balanceAmountCents === null)).toBe(true);
+    expect(masked.closingAmountCents).toBeNull();
+    expect((await docs.inventoryLedger(boss, { productId: ids.pear, warehouseId: ids.wh, asOf: '2026-03-09' })).rows).toHaveLength(0);
+    expect((await docs.inventoryLedger(other, { productId: ids.pear, warehouseId: ids.wh })).rows).toHaveLength(0);
+    await expect(docs.inventoryLedger({ ...noCost, permissions: { isCompanyAdmin: false, allow: [], deny: [] } }, { productId: ids.pear, warehouseId: ids.wh })).rejects.toThrow(/权限/);
+    expect((await docs.inventory(boss, { keyword: '苹果 KG' })).map((r) => r.productName)).toEqual(['查询苹果']);
+    expect(await docs.inventory(boss, { keyword: '苹果 梨' })).toHaveLength(0);
+  });
+
   it('现金银行：账户带主体、关联店铺（资料里选的 + 手动关联）和最后更新时间；店铺资金带平台，只看资金快照（没有快照就是 0）', async () => {
     const banks = await docs.bankBalances(boss);
     const st = banks.find((b) => b.id === ids.bankStore)!;

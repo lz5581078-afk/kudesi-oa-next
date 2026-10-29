@@ -51,6 +51,8 @@ export interface BankBalance {
 export interface LedgerRow { id: number; entryDate: string; amountCents: number; balanceCents: number; documentId: number; docNo: string; typeLabel: string; memo: string | null; handler: string | null; partyName: string | null }
 export interface Ledger { openingCents: number; incomeCents: number; expenseCents: number; closingCents: number; rows: LedgerRow[] }
 export interface StockRow { code: string; unit: string; productId: number; warehouseId: number; productName: string; warehouseName: string; qty: number; avgCostCents: number | null; amountCents: number | null }
+export interface StockLedgerRow { id: number; entryDate: string; documentId: number; docNo: string; typeLabel: string; partyName: string; memo: string | null; qty: number; balanceQty: number; amountCents: number | null; balanceAmountCents: number | null }
+export interface StockLedger { rows: StockLedgerRow[]; inQty: number; outQty: number; closingQty: number; closingAmountCents: number | null }
 export interface StoreFund { storeId: number; name: string; storeNo?: string; platform?: string; platformLabel?: string; snapshotDate: string; updatedAt?: string | null; withdrawableCents: number; depositCents: number; frozenCents: number; promotionCents: number }
 export interface Overview {
   trend: Array<{ date: string; revenueCents: number; expenseCents: number; profitCents: number | null }>;
@@ -117,6 +119,7 @@ export const financeApi = {
   banks: () => api<BankBalance[]>('/finance/bank-balances'),
   ledger: (id: number, p: { from?: string; to?: string } = {}) => api<Ledger>(`/finance/bank-ledger/${id}${qs(p)}`),
   inventory: (p: { warehouseId?: number; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
+  inventoryLedger: (p: { productId: number; warehouseId: number; asOf?: string }) => api<StockLedger>(`/finance/inventory-ledger${qs(p)}`),
   syncEmployees: () => api<{ created: number }>('/finance/employee-parties/sync', { method: 'POST', body: {} }),
   openItems: (p: { dir: 'in' | 'out'; partyKind: string; partyId: number }) => api<OpenItem[]>(`/finance/open-items${qs(p)}`),
   settlementDetail: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<SettlementRow[]>(`/finance/settlement-detail${qs(p)}`),

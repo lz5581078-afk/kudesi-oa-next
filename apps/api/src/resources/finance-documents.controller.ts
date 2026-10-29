@@ -101,6 +101,11 @@ class InvDto {
   @IsOptional() @IsString() @MaxLength(60) keyword?: string;
   @IsOptional() @IsIn(['normal', 'out']) stockStatus?: 'normal' | 'out';
 }
+class InvLedgerDto {
+  @Type(() => Number) @IsInt() @Min(1) productId!: number;
+  @Type(() => Number) @IsInt() @Min(1) warehouseId!: number;
+  @IsOptional() @Matches(DATE) asOf?: string;
+}
 class LedgerDto {
   @IsOptional() @Matches(DATE) from?: string;
   @IsOptional() @Matches(DATE) to?: string;
@@ -195,6 +200,9 @@ export class FinanceDocumentsController {
 
   @AuthenticatedOnly() @Get('inventory')
   inventory(@CurrentUser() u: AuthUser, @Query() q: InvDto) { return this.docs.inventory(u, q); }
+
+  @AuthenticatedOnly() @Get('inventory-ledger')
+  inventoryLedger(@CurrentUser() u: AuthUser, @Query() q: InvLedgerDto) { return this.docs.inventoryLedger(u, q); }
 
   @AuthenticatedOnly() @Get('overview')
   overview(@CurrentUser() u: AuthUser, @Query() q: MonthDto) { return this.docs.overview(u, q.month, q.from, q.to); }
