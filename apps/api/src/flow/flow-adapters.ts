@@ -11,6 +11,7 @@ import { skuBatchApply } from './sku-apply';
 import { productExclusive } from './product-exclusive';
 import { afterSalesAdapter, appealAdapter } from '../service/service-adapters';
 import { liveSessionReview, liveSettlement } from '../live/live-flow-adapters';
+import { purchaseRequest } from './purchase';
 
 /**
  * 业务适配器：流程引擎只管流转，业务规则（能不能发起、办理时要做什么、能不能退回废除）由适配器声明。
@@ -86,7 +87,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const endOfDay = (d: string) => new Date(`${d}T23:59:59+08:00`);
 
 /** 引擎替业务办理的动作（登记借用记录、生成并过账费用单）用公司级权限执行：办理人有这一步的办理权，就等于授权了这一步里的业务动作。 */
-const asEngine = (user: AuthUser): AuthUser => ({ ...user, permissions: { isCompanyAdmin: true, allow: [], deny: [] } });
+export const asEngine = (user: AuthUser): AuthUser => ({ ...user, permissions: { isCompanyAdmin: true, allow: [], deny: [] } });
 
 async function record(em: EntityManager, companyId: number, type: string, id: unknown) {
   const n = num(id);
@@ -203,4 +204,4 @@ export async function postDeclared(ctx: StepContext, t: FlowTemplate): Promise<v
   payload._docNo = finalDoc.docNo;
 }
 
-export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [afterSalesAdapter.key]: afterSalesAdapter, [appealAdapter.key]: appealAdapter, [liveSessionReview.key]: liveSessionReview, [liveSettlement.key]: liveSettlement };
+export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [afterSalesAdapter.key]: afterSalesAdapter, [appealAdapter.key]: appealAdapter, [liveSessionReview.key]: liveSessionReview, [liveSettlement.key]: liveSettlement, [purchaseRequest.key]: purchaseRequest };

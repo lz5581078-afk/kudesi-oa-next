@@ -15,7 +15,7 @@ export interface RunStep {
 }
 export interface RunDetailDto {
   id: number; templateKey: string; templateLabel: string; title: string; status: string; revision: number; requesterId: number; requesterName: string; createdAt: string; finishedAt: string | null; dueAt: string | null;
-  payload: Record<string, unknown>; refLabels: Record<string, string>; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>;
+  payload: Record<string, unknown>; refLabels: Record<string, string>; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; files?: Record<number, { id: number; name: string; mime: string; size: number }>;
   activeSteps?: Array<{ id: number; key: string; name: string; recipients: Array<{ id: number; name: string }>; dueAt: string | null }>;
   activeStep: { id: number; key: string; name: string; type: string; enteredVia: string; dueAt: string | null; recipients: Array<{ id: number; name: string }> } | null;
   steps: RunStep[]; events: Array<{ id: number; action: FlowAction; note: string | null; actorName: string; createdAt: string }>; ccs: Array<{ userId: number; name: string }>;

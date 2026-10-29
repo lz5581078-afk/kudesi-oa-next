@@ -6,6 +6,8 @@ import { FlowFieldsForm, FlowValues } from './FlowFields';
 import { RUN_TONE, flowApi, fmtTime, type RunDetailDto } from './flowApi';
 import { copyText, dwell } from './flowUi';
 import { SKU_TEMPLATE, SkuPreview } from './SkuApply';
+import { PurchasePanel } from './PurchasePanel';
+import { PURCHASE_TEMPLATE_KEY } from './purchaseApi';
 
 type Dialog = null | 'abnormal' | 'return' | 'cancel' | 'reject' | 'withdraw' | 'transfer';
 
@@ -93,13 +95,14 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
             <h3 className="section-title">申请内容</h3>
             {editing ? (
               <>
-                <FlowFieldsForm fields={run.fields} templateKey={run.templateKey} values={editing} labels={run.refLabels} onChange={(k, v) => setEditing({ ...editing, [k]: v })} />
+                <FlowFieldsForm fields={run.fields} templateKey={run.templateKey} values={editing} labels={run.refLabels} files={run.files} onChange={(k, v) => setEditing({ ...editing, [k]: v })} />
                 <div className="row-actions">
                   <button type="button" className="primary-button" disabled={busy} onClick={() => act(() => flowApi.resubmit(run.id, { revision: rev, payload: editing }))}>重新提交</button>
                   <button type="button" className="secondary-button" onClick={() => setEditing(null)}>取消修改</button>
                 </div>
               </>
-            ) : <FlowValues fields={run.fields} values={run.payload} labels={run.refLabels} />}
+            ) : <FlowValues fields={run.fields} values={run.payload} labels={run.refLabels} files={run.files} />}
+            {run.templateKey === PURCHASE_TEMPLATE_KEY && !editing && <PurchasePanel runId={run.id} refreshKey={run.revision} onChanged={reload} />}
             {run.templateKey === SKU_TEMPLATE && !editing && <SkuPreview runId={run.id} refreshKey={run.revision} />}
             {(run.links.docNo || run.links.borrowRecordId) && (
               <p className="muted">
@@ -124,7 +127,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
               )}
               {run.me.canPass && (
                 <>
-                  {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={run.payload} values={form} onChange={(k, v) => setForm({ ...form, [k]: v })} />}
+                  {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={{ ...run.payload, _runId: run.id }} files={run.files} values={form} onChange={(k, v) => setForm({ ...form, [k]: v })} />}
                   <label>意见（选填）<textarea rows={2} value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} /></label>
                 </>
               )}
@@ -158,7 +161,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                   </div>
                   {s.comment && <div>“{s.comment}”</div>}
                   {s.form && Object.keys(s.form).length > 0 && (
-                    <FlowValues fields={(run.stepFields[s.key] ?? []).filter((f) => s.form![f.key] !== undefined)} values={s.form} labels={s.formRefLabels} />
+                    <FlowValues fields={(run.stepFields[s.key] ?? []).filter((f) => s.form![f.key] !== undefined)} values={s.form} labels={s.formRefLabels} files={run.files} />
                   )}
                 </li>
               ))}

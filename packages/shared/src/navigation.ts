@@ -279,6 +279,8 @@ export const SPECIAL_PERMISSIONS = {
   flowTemplatesManage: 'flow.templates.manage',
   /** 确认或免除流程超时处罚（涉及金额，单独授权）；看台账另需 flow.timeouts.view */
   flowPenaltiesManage: 'flow.penalties.manage',
+  /** 采购流程里“入库登记”这一步：生成采购入库单草稿（只生成草稿，不过账）；还要是这一步的办理人 */
+  flowPurchaseInboundDraft: 'flow.purchase.inbound-draft',
   /** 查看商品价格 */
   productPriceView: 'product.price.view',
   /** 组合装同步维护：把组合编码加入聚水潭同步队列（上传、改码、归档停用、基本售价同步）、重试/取消组合装任务；旧系统 finance-product-bundles.sync。总开关仍只有公司管理员能动 */

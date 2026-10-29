@@ -2,11 +2,11 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Not } from 'typeorm';
 import {
-  FLOW_TEMPLATES, ASSIGNEE_RUNTIME_ONLY, RELATED_OWNER_KINDS, POSITION_TYPE_LABEL, createChecker, evalCondition, validateCustomTemplate, validateResourceInput, validateSteps,
-  type CustomSchema, type FlowAction, type FlowTemplate, type StepDef,
+  FLOW_TEMPLATES, ASSIGNEE_RUNTIME_ONLY, RELATED_OWNER_KINDS, POSITION_TYPE_LABEL, createChecker, evalCondition, restrictedFieldKeys, validateCustomTemplate, validateResourceInput, validateSteps,
+  type CustomSchema, type FieldDef, type FlowAction, type FlowTemplate, type StepDef,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { Department, FlowCc, FlowDefinition, FlowEvent, FlowRun, FlowStep, FlowTemplateRow, Notification, Position, ResourceRecord, User, WorkItem } from '../entities';
+import { Department, FlowCc, FlowDefinition, FlowEvent, FlowRun, FlowStep, FlowTemplateRow, Notification, Position, ResourceFile, ResourceRecord, User, WorkItem } from '../entities';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { ResourcesService } from '../resources/resources.service';
@@ -49,6 +49,11 @@ export class FlowService {
   private tpl(em: EntityManager, companyId: number, key: string, definitionId?: number | null) { return loadTemplate(em, companyId, key, definitionId); }
   private runTpl(em: EntityManager, run: FlowRun) { return loadTemplate(em, run.companyId, run.templateKey, run.definitionId); }
   private svc() { return { resources: this.resources, docs: this.docs, bundles: this.bundles, outbox: this.outbox }; }
+  /** 字段权限（FieldDef.permission，如成本字段要 product.cost.view）：这个人没有权限的字段。服务端强制，看不到也填不了。 */
+  private restricted(user: AuthUser, fields: readonly FieldDef[]): Set<string> { return restrictedFieldKeys({ fields } as never, createChecker(user.permissions)); }
+  private visibleFields(user: AuthUser, fields: readonly FieldDef[]) { const hide = this.restricted(user, fields); return hide.size ? fields.filter((f) => !hide.has(f.key)) : fields; }
+  private visibleStepFields(user: AuthUser, sf: Readonly<Record<string, readonly FieldDef[]>>) { return Object.fromEntries(Object.entries(sf).map(([k, fs]) => [k, this.visibleFields(user, fs)])); }
+  private without(input: Record<string, unknown> | undefined, hidden: Set<string>): Record<string, unknown> { return hidden.size ? Object.fromEntries(Object.entries(input ?? {}).filter(([k]) => !hidden.has(k))) : (input ?? {}); }
 
   // ================= 流程定义 =================
 
@@ -62,7 +67,7 @@ export class FlowService {
     const defs = await em.find(FlowDefinition, { where: { companyId: user.companyId, status: 'active' } });
     const builtin = FLOW_TEMPLATES.map((t) => {
       const active = defs.find((d) => d.templateKey === t.key);
-      return { key: t.key, label: t.label, description: t.description, entry: t.entry ?? null, fields: t.fields, stepFields: t.stepFields, active: Boolean(active), version: active?.version ?? null, custom: false, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
+      return { key: t.key, label: t.label, description: t.description, entry: t.entry ?? null, fields: this.visibleFields(user, t.fields), stepFields: this.visibleStepFields(user, t.stepFields), active: Boolean(active), version: active?.version ?? null, custom: false, steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
     });
     // 自建模板：只有启用中的才出现在申请中心
     const rows = await em.find(FlowTemplateRow, { where: { companyId: user.companyId }, order: { id: 'ASC' } });
@@ -326,7 +331,7 @@ export class FlowService {
       }
       const t = await this.tpl(em, user.companyId, templateKey, def.id);
       const adapter = adapterFor(t);
-      const checked = validateResourceInput(pseudoDef(t.key, t.fields), payloadIn ?? {}, { status: '' });
+      const checked = validateResourceInput(pseudoDef(t.key, t.fields), this.without(payloadIn, this.restricted(user, t.fields)), { status: '' });
       if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
       const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
       await adapter.validateStart?.({ em, user, payload, ...this.svc() });
@@ -459,7 +464,7 @@ export class FlowService {
       if (!(await this.myOpenItem(em, user, step))) throw new ForbiddenException('这一步不是你办理的');
       const t = await this.runTpl(em, run);
       const fields = t.stepFields[step.stepKey] ?? [];
-      const checked = validateResourceInput(pseudoDef(`${t.key}.${step.stepKey}`, fields), p.form ?? {}, { status: '' });
+      const checked = validateResourceInput(pseudoDef(`${t.key}.${step.stepKey}`, fields), this.without(p.form, this.restricted(user, fields)), { status: '' });
       if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
       const form = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
       const adapter = adapterFor(t);
@@ -591,9 +596,12 @@ export class FlowService {
       if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
       const step = await this.activeStep(em, run);
       if (step.stepType !== 'submit') throw new BadRequestException('现在不在退回给你修改的状态');
-      const checked = validateResourceInput(pseudoDef(t.key, t.fields), p.payload ?? {}, { status: '' });
+      const noSee = this.restricted(user, t.fields);
+      const checked = validateResourceInput(pseudoDef(t.key, t.fields), this.without(p.payload, noSee), { status: '' });
       if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
       const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
+      // 看不到的受限字段（如预计单价）重新提交时保持原值，不能因为这个人看不到就被清掉
+      for (const k of noSee) if (run.payload[k] !== undefined) payload[k] = run.payload[k];
       const adapter = adapterFor(t);
       // 重新提交时，自己这条在办的流程不算“重复申请”：临时把它标成非 running 做检查
       await em.update(FlowRun, { id: run.id }, { status: 'cancelled' });
@@ -715,6 +723,9 @@ export class FlowService {
         if (d.hiddenFields?.length && steps.some((st) => st.stepKey === d.key && (st.recipients.includes(user.id) || st.handledBy === user.id))) d.hiddenFields.forEach((k) => hidden.add(k));
       }
     }
+    for (const k of this.restricted(user, t.fields)) hidden.add(k);
+    const stepHidden = new Map<string, Set<string>>(Object.entries(t.stepFields).map(([k, fs]) => [k, this.restricted(user, fs)]));
+    const visibleStepFields = Object.fromEntries(Object.entries(t.stepFields).map(([k, fs]) => [k, fs.filter((f) => !stepHidden.get(k)?.has(f.key))]));
     const refLabels: Record<string, string> = {};
     for (const f of t.fields) {
       if (hidden.has(f.key)) continue;
@@ -731,6 +742,14 @@ export class FlowService {
         if (f.type === 'ref' && typeof v === 'number' && f.ref) (stepRefLabels[s.id] ??= {})[f.key] = (await this.resources.titleOf(em, run.companyId, f.ref, v)) ?? '';
       }
     }
+    // 附件字段里的文件信息（名称、类型），详情页用来显示缩略图
+    const fileIds = new Set<number>();
+    const collectFiles = (fs: readonly FieldDef[], vals: Record<string, unknown> | null | undefined) => {
+      for (const f of fs) { const v = vals?.[f.key]; if (f.type === 'files' && Array.isArray(v)) for (const n of v) if (typeof n === 'number') fileIds.add(n); }
+    };
+    collectFiles(t.fields.filter((f) => !hidden.has(f.key)), run.payload);
+    for (const s of steps) collectFiles(visibleStepFields[s.stepKey] ?? [], s.form);
+    const fileInfos = fileIds.size ? Object.fromEntries((await em.find(ResourceFile, { where: { companyId: run.companyId, id: In([...fileIds]) } })).map((r) => [r.id, { id: r.id, name: r.name, mime: r.mime, size: r.size }])) : {};
     const mine = active ? await this.myOpenItem(em, user, active) : null;
     const isRequester = run.requesterId === user.id;
     const running = run.status === 'running';
@@ -741,10 +760,10 @@ export class FlowService {
       id: run.id, templateKey: run.templateKey, templateLabel: t.label, title: run.title, status: run.status, revision: run.revision,
       requesterId: run.requesterId, requesterName: names.get(run.requesterId) ?? '', createdAt: run.createdAt, finishedAt: run.finishedAt, dueAt: run.dueAt,
       payload: Object.fromEntries(Object.entries(run.payload).filter(([k]) => !k.startsWith('_') && !hidden.has(k))), refLabels,
-      fields: t.fields.filter((f) => !hidden.has(f.key)), stepFields: t.stepFields,
+      files: fileInfos, fields: t.fields.filter((f) => !hidden.has(f.key)), stepFields: visibleStepFields,
       activeSteps: activeAll.length > 1 ? activeAll.map((a) => ({ id: a.id, key: a.stepKey, name: a.stepName, recipients: a.recipients.map((u) => ({ id: u, name: names.get(u) ?? '' })), dueAt: a.dueAt })) : [],
       activeStep: active ? { id: active.id, key: active.stepKey, name: active.stepName, type: active.stepType, enteredVia: active.enteredVia, dueAt: active.dueAt, recipients: active.recipients.map((u) => ({ id: u, name: names.get(u) ?? '' })) } : null,
-      steps: steps.map((s) => ({ id: s.id, seq: s.seq, key: s.stepKey, name: s.stepName, type: s.stepType, status: s.status, action: s.action, comment: s.comment, form: s.form, formRefLabels: stepRefLabels[s.id] ?? {}, enteredVia: s.enteredVia, enteredAt: s.enteredAt, finishedAt: s.finishedAt, dueAt: s.dueAt, handledByName: s.handledBy ? names.get(s.handledBy) ?? '' : null, recipients: s.recipients.map((u) => names.get(u) ?? '') })),
+      steps: steps.map((s) => ({ id: s.id, seq: s.seq, key: s.stepKey, name: s.stepName, type: s.stepType, status: s.status, action: s.action, comment: s.comment, form: s.form && stepHidden.get(s.stepKey)?.size ? this.without(s.form, stepHidden.get(s.stepKey)!) : s.form, formRefLabels: stepRefLabels[s.id] ?? {}, enteredVia: s.enteredVia, enteredAt: s.enteredAt, finishedAt: s.finishedAt, dueAt: s.dueAt, handledByName: s.handledBy ? names.get(s.handledBy) ?? '' : null, recipients: s.recipients.map((u) => names.get(u) ?? '') })),
       events: events.map((e) => ({ id: e.id, action: e.action, note: e.note, actorName: names.get(e.actorId) ?? '', createdAt: e.createdAt })),
       ccs: ccs.map((c) => ({ userId: c.userId, name: names.get(c.userId) ?? '' })),
       links: { docId: typeof run.payload._docId === 'number' ? run.payload._docId : null, docNo: str(run.payload._docNo) || null, borrowRecordId: typeof run.payload._borrowRecordId === 'number' ? run.payload._borrowRecordId : null },
@@ -759,7 +778,7 @@ export class FlowService {
         canWithdraw: running && isRequester && !!active && (active.stepType === 'submit' || handledBefore === 0) && !adapter.cancelBlocked?.(ctx!),
         canAbnormal: running && !!mine && !!(run.stepsSnapshot as StepDef[]).find((d) => d.key === active?.stepKey)?.exceptionToKey,
         canTransfer: running && !!user.permissions.isCompanyAdmin && !!active && active.stepType !== 'submit',
-        stepFields: active && mine ? t.stepFields[active.stepKey] ?? [] : [],
+        stepFields: active && mine ? visibleStepFields[active.stepKey] ?? [] : [],
       },
     };
   }

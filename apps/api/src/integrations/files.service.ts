@@ -3,7 +3,7 @@ import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundEx
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
-import { createChecker, getResourceDef, permissionOwner, resourcePermission, ResourceAction } from '@kudesi/shared';
+import { createChecker, FLOW_TEMPLATES, getResourceDef, permissionOwner, resourcePermission, ResourceAction, type FieldDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceFile } from '../entities';
 import { canWarehouseUploadPhotos } from '../resources/warehouse-mode';
@@ -52,6 +52,13 @@ export function cleanFileName(original: string): string {
   return (name || '未命名').slice(0, 200);
 }
 
+/** 内置流程模板里的附件字段（发起表单或某一步的办理表单） */
+function flowFileField(type: string, fieldKey: string): FieldDef | null {
+  const t = FLOW_TEMPLATES.find((x) => `flow:${x.key}` === type);
+  if (!t) return null;
+  return [...t.fields, ...Object.values(t.stepFields).flat()].find((f) => f.key === fieldKey && f.type === 'files') ?? null;
+}
+
 @Injectable()
 export class FilesService {
   constructor(
@@ -75,11 +82,13 @@ export class FilesService {
 
   /** 上传到七牛并登记。文件先是“未绑定”状态，保存资料记录时才绑定到记录上。 */
   async upload(user: AuthUser, type: string, fieldKey: string, file: UploadedFile | undefined): Promise<FileInfo> {
-    const def = getResourceDef(type);
-    const field = def?.fields.find((f) => f.key === fieldKey && f.type === 'files');
-    if (!def || !field) throw new BadRequestException('这个字段不支持上传文件');
+    // 内置流程模板（如采购申请）的附件字段：类型写成 flow:<模板编号>；谁办理这条流程谁就要传，所以不要求资料权限，文件在流程里提交时才绑定到流程
+    const flowField = type.startsWith('flow:') ? flowFileField(type, fieldKey) : null;
+    const def = flowField ? null : getResourceDef(type);
+    const field = flowField ?? def?.fields.find((f) => f.key === fieldKey && f.type === 'files');
+    if ((!def && !flowField) || !field) throw new BadRequestException('这个字段不支持上传文件');
     // 仓库角色只读商品档案，但可以上传商品照片（旧仓库档案视图）
-    if (!(await canWarehouseUploadPhotos(this.dataSource.manager, user, type, fieldKey))) this.assertCan(user, type, 'create', 'edit');
+    if (!flowField && !(await canWarehouseUploadPhotos(this.dataSource.manager, user, type, fieldKey))) this.assertCan(user, type, 'create', 'edit');
     if (!file || file.size === 0) throw new BadRequestException('没有收到文件');
     if (file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('文件不能超过 10MB');
     const kind = sniffFile(file.buffer);
@@ -170,10 +179,26 @@ export class FilesService {
   async url(user: AuthUser, id: number) {
     const row = await this.dataSource.manager.findOne(ResourceFile, { where: { id, companyId: user.companyId } });
     if (!row) throw new NotFoundException('文件不存在');
-    this.assertCan(user, row.resourceType, 'view');
+    if (row.resourceType.startsWith('flow:')) await this.assertCanSeeFlowFile(user, row);
+    else this.assertCan(user, row.resourceType, 'view');
     const storage = row.storageKey.startsWith('local:') ? configuredLocalStorage() : await this.storage(user.companyId);
     if (!storage) throw new BadRequestException('本地文件存储尚未挂载');
     return { url: storage.downloadUrl(row.storageKey, 300), expiresIn: 300, name: row.name, mime: row.mime };
+  }
+
+  /** 流程附件：没提交到流程之前只有上传人能看；提交后，能看这条流程的人（发起人、办理过/待办的人、抄送、有流程总览权限的人）能看。 */
+  private async assertCanSeeFlowFile(user: AuthUser, row: ResourceFile) {
+    if (row.resourceId === null) {
+      if (row.uploadedBy !== user.id) throw new ForbiddenException('没有权限查看这个文件');
+      return;
+    }
+    if (createChecker(user.permissions)('flow.overview.view')) return;
+    const [r] = await this.dataSource.query(
+      `SELECT (SELECT COUNT(*) FROM flow_runs WHERE id = ? AND company_id = ? AND requester_id = ?) +
+              (SELECT COUNT(*) FROM flow_steps WHERE run_id = ? AND company_id = ? AND (JSON_CONTAINS(recipients, CAST(? AS JSON)) OR handled_by = ?)) +
+              (SELECT COUNT(*) FROM flow_ccs WHERE run_id = ? AND company_id = ? AND user_id = ?) AS n`,
+      [row.resourceId, user.companyId, user.id, row.resourceId, user.companyId, String(user.id), user.id, row.resourceId, user.companyId, user.id]);
+    if (Number(r.n) === 0) throw new ForbiddenException('没有权限查看这个文件');
   }
 
   async info(companyId: number, ids: number[]): Promise<Map<number, FileInfo>> {
