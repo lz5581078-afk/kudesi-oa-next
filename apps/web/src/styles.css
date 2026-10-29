@@ -1546,7 +1546,7 @@ div.ws-task { cursor: default; }
   .qk-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .qk-panel-actions { margin-left: 0; width: 100%; }
   .qk-head-actions { width: 100%; }
-
+}
 /* ===== 制单中心重做（feat/fin-docs）：开单页工具条、往来余额、明细网格、提示 ===== */
 .vc-slip { overflow: visible; box-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 4px 16px rgba(16, 24, 40, .05); }
 .vc-slip .slip-title { display: flex; align-items: center; gap: 12px; background: linear-gradient(180deg, #f8fbfd, #f1f6fa); font-size: 15px; }
