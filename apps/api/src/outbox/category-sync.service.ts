@@ -23,8 +23,9 @@ export class CategorySyncService {
   private admin(user: AuthUser) { if (!user.permissions.isCompanyAdmin) throw new ForbiddenException('只有公司管理员能同步聚水潭分类'); }
 
   private async snapshot(user: AuthUser, scope: CategoryScope) {
-    const readRemote = this.outbox.senderReadCategories;
-    const targetKey = this.outbox.senderTargetKey;
+    const sender = await this.outbox.senderFor(user.companyId);
+    const readRemote = sender.readCategories ? () => sender.readCategories!() : null;
+    const targetKey = sender.targetKey;
     if (!readRemote || !targetKey) throw new ConflictException('还没有接入聚水潭（或没有配置企业编号），无法读取聚水潭分类，也就不能核对差异');
     const all = await this.ds.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' } });
     const inScope = all.filter((c) => (c.data.archiveType === 'bundle') === (scope === 'bundle'));

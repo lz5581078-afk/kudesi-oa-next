@@ -1,3 +1,4 @@
+import { FeishuBindCallback } from './auth/FeishuLogin';
 import { ComponentType } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, getResourceDef, visibleSections, type DocType } from '@kudesi/shared';
@@ -178,6 +179,7 @@ export function App() {
     <Routes>
       <Route element={<Shell />}>
         <Route index element={landing ? <Navigate to={landing} replace /> : <NoAccessPage />} />
+        <Route path="/feishu-bind" element={<FeishuBindCallback />} />
         <Route path="/account/password" element={<ChangePasswordPage />} />
         {NAV_SECTIONS.flatMap((section) =>
           section.pages

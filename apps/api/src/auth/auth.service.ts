@@ -58,6 +58,18 @@ export class AuthService {
     return { type: 'company', accessToken, user: await this.buildCurrentUser(user, company) };
   }
 
+  /** 仅用于已经过第三方企业身份校验、且已有明确绑定的员工；不改密码。 */
+  async loginBoundUser(userId: number, companyId: number): Promise<LoginResponse> {
+    const user = await this.users.findOne({ where: { id: userId, companyId } });
+    const company = await this.companies.findOne({ where: { id: companyId } });
+    if (!user || !company || !user.account || user.status !== 'active' || company.status !== 'active') throw new UnauthorizedException('员工或公司已停用，或未开通登录账号');
+    const block = await workforceBlockFor(this.users.manager, user);
+    if (block) throw new ForbiddenException(block);
+    await this.users.update({ id: userId, companyId }, { lastLoginAt: new Date() });
+    const accessToken = await this.jwt.signAsync({ sub: userId, cid: companyId });
+    return { type: 'company', accessToken, user: await this.buildCurrentUser(user, company) };
+  }
+
   /** 修改自己的密码：必须验证旧密码；新密码至少 10 位且不能与旧密码相同。 */
   async changePassword(userId: number, companyId: number, oldPassword: string, newPassword: string): Promise<void> {
     const user = await this.users.findOneOrFail({ where: { id: userId, companyId } });

@@ -18,7 +18,7 @@ vi.mock('./flow/flowApi', async (orig) => ({ ...(await orig<typeof import('./flo
 const apiMock = vi.mocked(api);
 const wrap = (ui: JSX.Element) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
-beforeEach(() => { window.localStorage.clear(); });
+beforeEach(() => { window.localStorage.clear(); apiMock.mockReset(); apiMock.mockResolvedValue([] as never); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('登录页', () => {
@@ -31,6 +31,16 @@ describe('登录页', () => {
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(login).toHaveBeenCalledWith({ account: 'boss', password: 'secret-pass' }));
     expect(window.localStorage.length).toBe(0);
+  });
+  it('有企业飞书配置才显示授权入口，开始授权失败会提示', async () => {
+    apiMock.mockImplementation(async (path) => {
+      if (path === '/auth/feishu/companies') return [{ id: 9, name: '测试公司' }] as never;
+      throw new Error('回调地址尚未加入白名单');
+    });
+    wrap(<LoginPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '飞书授权登录' }));
+    expect(await screen.findByText('回调地址尚未加入白名单')).toBeTruthy();
+    expect(apiMock).toHaveBeenCalledWith('/auth/feishu/start', { body: { companyId: 9 } });
   });
   it('密码错误显示服务端提示', async () => {
     login.mockRejectedValueOnce(new Error('账号或密码不对'));
@@ -53,7 +63,7 @@ describe('修改密码', () => {
     fireEvent.change(again, { target: { value: 'abcdefghij1' } });
     fireEvent.click(screen.getByText('保存新密码'));
     expect(await screen.findByText('新密码不能和当前密码相同')).toBeTruthy();
-    expect(apiMock).not.toHaveBeenCalled();
+    expect(apiMock).not.toHaveBeenCalledWith('/auth/change-password', expect.anything());
   });
 });
 

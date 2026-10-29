@@ -1,3 +1,11 @@
+import { ConnectionStatusController } from './integrations/connection-status.controller';
+import { FeishuAuthController } from './auth/feishu-auth.controller';
+import { FeishuAuthService } from './auth/feishu-auth.service';
+import { ExternalConfigService } from './integrations/external-config.service';
+import { FeishuClient } from './integrations/feishu.client';
+import { JushuitanSenderFactory } from './outbox/jushuitan-sender';
+import { ConnectedFeishuSender } from './outbox/feishu-sender';
+import { JushuitanOrderSource } from './live/jushuitan-order-source';
 import { PhoneUploadController } from './integrations/phone-upload.controller';
 import { PhoneUploadService } from './integrations/phone-upload.service';
 import { FormDraftsController } from './resources/form-drafts.controller';
@@ -47,9 +55,9 @@ import { IntegrationSettingsService } from './integrations/integration-settings.
 import { OcrService } from './integrations/ocr.service';
 import { RevenueController } from './resources/revenue.controller';
 import { OutboxController } from './outbox/outbox.controller';
-import { OutboxService } from './outbox/outbox.service';
+import { OUTBOX_SENDER, OutboxService } from './outbox/outbox.service';
 import { FeishuNoticeController } from './outbox/feishu-notice.controller';
-import { FeishuNoticeService } from './outbox/feishu-notice.service';
+import { FEISHU_SENDER, FeishuNoticeService } from './outbox/feishu-notice.service';
 import { CategoryToolsController, ProductCodePreviewController } from './resources/category-tools.controller';
 import { CategoryToolsService } from './resources/category-tools.service';
 import { PriceSyncService } from './outbox/price-sync.service';
@@ -174,9 +182,11 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
+  controllers: [ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
   providers: [
-    AuthService,
+    AuthService, FeishuAuthService, ExternalConfigService, FeishuClient,
+    { provide: OUTBOX_SENDER, useClass: JushuitanSenderFactory },
+    { provide: FEISHU_SENDER, useClass: ConnectedFeishuSender },
     PlatformService,
     PlatformIntegrationService,
     OrgService,
@@ -231,7 +241,7 @@ const env = loadEnv();
     SupervisionScheduler,
     ServiceWorkspaceProvider,
     LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
-    { provide: LiveOrderSource, useClass: UnconfiguredLiveOrderSource },
+    { provide: LiveOrderSource, useClass: JushuitanOrderSource },
     FinanceDocumentsService,
     FinanceVoucherHintsService,
     IntegrationSettingsService,

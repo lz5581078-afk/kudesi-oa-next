@@ -78,7 +78,7 @@ export class PriceSyncService implements OnModuleInit, OnModuleDestroy {
       if (row.minPriceCents === null || row.freightCents === null || row.marginPercent === null || row.preShipCostCents === null) { block(row.issues.join('；') || '运费、利润率或成本不齐，算不出最低售价'); continue; }
       if (row.minPriceCents <= 0) { block('算出的最低售价不是正数'); continue; }
       const lastTarget = await this.lastTarget(user.companyId, b.id);
-      if (lastTarget && this.outbox.senderTargetKey && lastTarget !== this.outbox.senderTargetKey) { block('这个组合上传时的聚水潭账号和现在连接的不一致'); continue; }
+      if (lastTarget && (await this.outbox.senderFor(user.companyId)).targetKey && lastTarget !== (await this.outbox.senderFor(user.companyId)).targetKey) { block('这个组合上传时的聚水潭账号和现在连接的不一致'); continue; }
       if (cur === row.minPriceCents && b.data.jstPriceStatus === 'success') { out.push({ ...base, action: 'same', reason: null }); continue; }
       out.push({ ...base, action: 'enqueue', reason: null });
     }
@@ -132,7 +132,7 @@ export class PriceSyncService implements OnModuleInit, OnModuleDestroy {
       if (prior.some((p) => ['pending', 'sending', 'done'].includes(p.status)) && r.currentCents === cents) { same++; continue; }
       if (prior.some((p) => ['pending', 'sending'].includes(p.status))) { same++; continue; }
       const key = prior.length ? `${baseKey}:${prior.length}` : baseKey;
-      const targetKey = this.outbox.senderTargetKey;
+      const targetKey = (await this.outbox.senderFor(user.companyId)).targetKey;
       const payload = { sku_id: r.code, code: r.code, compose_sale_price: cents / 100, priceCents: cents, preserveChildPrices: true, ...(targetKey ? { targetKey } : {}) };
       const res = await this.ds.query('INSERT IGNORE INTO outbox_jobs (company_id, channel, kind, resource_type, resource_id, idempotency_key, payload_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [user.companyId, JST_CHANNEL, 'bundle_price_update', 'finance-bundles', r.bundleId, key, JSON.stringify(payload), user.id || null]);
