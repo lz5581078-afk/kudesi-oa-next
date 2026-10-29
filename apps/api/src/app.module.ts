@@ -98,6 +98,8 @@ import { FlowDesignerController } from './flow/flow-designer.controller';
 import { FlowDesignerService } from './flow/flow-designer.service';
 import { FlowTimeoutService } from './flow/flow-timeout.service';
 import { SkuApplyController } from './flow/sku-apply.controller';
+import { PurchaseController } from './flow/purchase.controller';
+import { PurchaseService } from './flow/purchase.service';
 import { SkuApplyService } from './flow/sku-apply.service';
 import { CostController } from './resources/cost.controller';
 import { CostService } from './resources/cost.service';
@@ -171,7 +173,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
+  controllers: [LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
   providers: [
     AuthService,
     PlatformService,
@@ -210,6 +212,7 @@ const env = loadEnv();
     FlowDesignerService,
     FlowTimeoutService,
     SkuApplyService,
+    PurchaseService,
     TaskService,
     FormDraftsService,
     PhoneUploadService,
