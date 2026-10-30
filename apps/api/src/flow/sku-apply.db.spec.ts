@@ -1,11 +1,13 @@
 /** SKU 批量申请流程（运营 → 仓库 → 财务）的真实数据库测试。RESOURCE_DB_TEST=1 TEST_DB_NAME=kudesi_oa_test_e npx jest sku-apply */
 import 'reflect-metadata';
 import * as crypto from 'crypto';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import type { StepDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, Notification, ResourceRecord, User } from '../entities';
+import { Company, FinanceCostSnapshot, Notification, ResourceRecord, User } from '../entities';
+import { runSkuVerification } from '../migration/sku-repair';
+import type { LegacyArchive } from '../migration/protocol';
 import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
@@ -181,7 +183,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
 
   it('没有同步权限不能勾选加入同步队列；没勾选就不入队', async () => {
     const run = await toReview([spec('丙', ids.pearBc)]);
-    const noSync = au(fin.id, fin.companyId, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit']);
+    const noSync = au(fin.id, fin.companyId, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit', 'product.cost.view']);
     await expect(finPass(noSync, run, { confirmed: true, syncToJst: true })).rejects.toThrow(/同步维护/);
     const before = (await ds.query("SELECT COUNT(*) AS n FROM outbox_jobs WHERE company_id = ?", [admin.companyId]))[0].n;
     const done = await finPass(noSync, run, { confirmed: true });
@@ -348,5 +350,48 @@ d('SKU 批量申请流程（真实数据库）', () => {
     expect(sentTo).toContain(wh.id);
     await feishu.setSwitch(admin, false);
     expect(await feishu.processCompany(admin.companyId)).toMatchObject({ blocked: true });
+  });
+
+  it('人工单价变化也要求仓库重新确认，不能绕过商品变更签名', async () => {
+    const run = await toReview([qspec('人工变价回归', ids.mangoBc, 61)]);
+    await resources.update(admin, 'finance-labor-costs', ids.labor, { unitPrice: 250 });
+    await expect(finPass(fin, run)).rejects.toThrow(/重新确认/);
+    await resources.update(admin, 'finance-labor-costs', ids.labor, { unitPrice: 150 });
+  });
+
+  it('财务必须能查看成本；错误分类与停用场景在发起即拒绝', async () => {
+    const run = await toReview([qspec('成本权限回归', ids.mangoBc, 62)]);
+    const blind = au(fin.id, fin.companyId, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit']);
+    expect((await sku.preview(blind, run.id)).canCost).toBe(false);
+    await expect(finPass(blind, run)).rejects.toThrow(/成本查看权限/);
+    const product = await resources.get(admin, 'finance-base-codes', ids.mangoBc);
+    await expect(toWarehouse([qspec('错分类', ids.mangoBc, 63)], { bundleCategoryId: product.data.categoryId })).rejects.toThrow(/组合分类/);
+    const scenario = await resources.create(admin, 'finance-scenarios', { code: 'disabled-test', name: '停用测试', segment: 'T' });
+    await resources.changeStatus(admin, 'finance-scenarios', scenario.id, 'inactive', '测试');
+    await expect(toWarehouse([qspec('停用场景', ids.mangoBc, 64)], { scenarioId: scenario.id })).rejects.toThrow(/场景已停用/);
+  });
+
+  it('申请预览保留不足一分的人工成本，与最终成本同口径', async () => {
+    const run = await toReview([qspec('小数人工回归', ids.mangoBc, 65)], [{ lines: [{ role: 'labor', laborId: ids.labor, qty: 0.001 }], notRequired: { package: '无需', label: '无需', other: '无需' } }]);
+    expect((await sku.preview(fin, run.id)).specs[0].totalCost).toBe(65 * 2000 + 0.15);
+  });
+  it('组合品牌穿过申请表单、预览和最终生成；不同销售品牌可分别申请',async()=>{
+    const brand=await resources.create(admin,'finance-brands',{name:'销售品牌甲',code:'XSA'}),other=await resources.create(admin,'finance-brands',{name:'销售品牌乙',code:'XSB'});
+    let run=await toWarehouse([qspec('品牌链路回归',ids.mangoBc,66)],{brandId:brand.id});
+    expect(run.payload.brandId).toBe(brand.id);
+    const independent=await toWarehouse([qspec('另一品牌',ids.mangoBc,66)],{brandId:other.id});expect(independent.status).toBe('running');
+    run=await whPass(wh,run,[whLines()]);
+    expect((await sku.preview(fin,run.id)).specs[0].targets.every(t=>t.code.includes('XSA'))).toBe(true);
+    const done=await finPass(fin,run),after=await sku.preview(fin,done.id);
+    for(const created of after.specs[0].created){const b=await ds.manager.findOneByOrFail(ResourceRecord,{id:created.bundleId,companyId:admin.companyId});expect(b.data.brandId).toBe(brand.id);expect(String(b.data.name)).toContain('销售品牌甲');}
+    const generated=after.specs[0].created;
+    await ds.manager.delete(FinanceCostSnapshot,{companyId:admin.companyId,bundleId:In(generated.map(x=>x.bundleId))});
+    for(const b of generated)await ds.query("INSERT INTO legacy_import_links(source_system,source_company_id,company_id,source_key,target_type,target_id,source_hash) VALUES('legacy-oa',3,?,?,'finance-bundles',?,?)",[admin.companyId,'finance-bundles:history-'+b.bundleId,b.bundleId,'0'.repeat(64)]);
+    const archive:LegacyArchive={company:{id:3,name:'SKU申请测试'},departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],records:generated.map(b=>({type:'finance-bundles',id:'history-'+b.bundleId,data:{}})),exclusions:[],loadFile:async()=>{throw Error('no files');}};
+    const verifyOpts={companyId:admin.companyId,actorId:admin.id,expectedName:'SKU申请测试',apply:false};
+    const checked=await runSkuVerification(ds,resources,archive,verifyOpts);expect(checked.issues).toEqual([]);expect(checked.history?.recorded).toBe(2);
+    expect(await ds.manager.count(FinanceCostSnapshot,{where:{companyId:admin.companyId,bundleId:In(generated.map(b=>b.bundleId))}})).toBe(0);
+    await runSkuVerification(ds,resources,archive,{...verifyOpts,apply:true,expected:checked});
+    expect(await ds.manager.count(FinanceCostSnapshot,{where:{companyId:admin.companyId,bundleId:In(generated.map(b=>b.bundleId))}})).toBe(2);
   });
 });

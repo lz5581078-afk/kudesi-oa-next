@@ -344,4 +344,9 @@ d('成本表与定价调试表（真实数据库）', () => {
     expect(mine.total).toBe(all.total);
     expect(mine.rows[0].exclusiveOwners[0].mine).toBe(true);
   });
+  it('成本历史入库不截断亚克重量及不足一分的自动运费',async()=>{
+    const snapshot=await ds.manager.save(FinanceCostSnapshot,ds.manager.create(FinanceCostSnapshot,{companyId:boss.companyId,bundleId:ids.bundle,code:'PRECISION-TEST',name:'历史精度回归',revision:99999,preShipCostCents:1.603,weightG:0.001,freightCents:112.2,marginPercent:10,minPriceCents:127,reason:'验证数据库边界精度',eventType:'manual',actorId:boss.id}));
+    const saved=await ds.manager.findOneByOrFail(FinanceCostSnapshot,{id:snapshot.id,companyId:boss.companyId});
+    expect(saved.weightG).toBe(0.001);expect(saved.freightCents).toBe(112.2);expect(saved.preShipCostCents).toBe(1.603);
+  });
 });

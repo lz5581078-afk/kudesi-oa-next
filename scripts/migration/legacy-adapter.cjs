@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const { createRequire } = require('node:module');
 const rules = require('./mapping-rules.json');
 const productMapping = require('./product-mapping.cjs');
+const skuMapping = require('./sku-mapping.cjs');
 const legacyError=(message)=>{const error=new Error(message);error.name='LegacyDataError';return error;};
 const snake = (s) => s.replace(/[A-Z]/g, (c) => '_'+c.toLowerCase());
 const ref = (type,id) => id===null||id===undefined||id===''?undefined:{legacyRef:{type,id:String(id)}};
@@ -62,6 +63,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
     const byId=(table,id)=>(tables[table]||[]).find(x=>String(x.id)===String(id));
     const brandMap=new Map();
     for(const p of tables.finance_products||[]){const name=String(p.brand||'').trim();if(!name||brandMap.has(name))continue;const dictionary=(tables.finance_product_code_dictionary||[]).find(x=>x.dictionary_type==='brand'&&x.item_name===name);const id='brand:'+name;brandMap.set(name,id);add('finance-brands',id,{name,code:dictionary?.item_code},'active');}
+    for(const d of tables.finance_product_code_dictionary||[]){if(d.dictionary_type!=='brand'||d.status!=='active'||brandMap.has(String(d.item_name).trim()))continue;const name=String(d.item_name).trim(),id='brand:'+name;brandMap.set(name,id);add('finance-brands',id,{name,code:d.item_code},'active');}
     // 商品档案单位与规格：旧三张单位表 + 档案里用到的包装类别、尺寸单位，建成新的公司级列表（必须排在商品档案前面，商品里存的是编码）
     const unitCatalog=productMapping.buildUnitCatalog({tables,defs:definitions,payloadOf:p=>{try{return json(p.payload_json||{})||{};}catch{return {};}}});
     if(defs.has('finance-product-units'))for(const r of unitCatalog.records)add('finance-product-units',r.id,r.data,'active');
@@ -117,8 +119,9 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
       return fspec;
     }
     const composedLines=[];
+    const giftAliases=skuMapping.giftAliases(tables,text=>req('pinyin-pro').pinyin(text,{pattern:'first',toneType:'none',type:'array',nonZh:'consecutive'}).join('').toUpperCase().replace(/[^A-Z0-9]/g,''));
     for(const [type,rule] of Object.entries(rules.resources)){
-      if(type==='finance-bundle-naming-rules'){for(const row of tables[rule.tables[0]]||[])excluded(type,row.category_id,'旧规则范围是基础编码字典分类，新规则范围是商品档案分类，不能直接等同；现有组合原码与原名已保留，未自动启用这些规则');continue;}
+      if(type==='finance-bundle-naming-rules'){const mapped=skuMapping.namingRules(tables,categoryKey,categoryFamilies);out.records.push(...mapped.records);out.exclusions.push(...mapped.exclusions);continue;}
       if(!defs.has(type)||['finance-brands','finance-scenarios','finance-bundle-lines','finance-product-boms','finance-product-units','finance-base-code-lines'].includes(type))continue;
       const def=defs.get(type);
       if(rule.policy){for(const r of tables[rule.tables[0]]||[])excluded(type,r.id||'snapshot',rule.reason||rule.policy);continue;}
@@ -184,7 +187,9 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(type==='finance-categories'){data.archiveType=row.__family;data.code=row.category_code;if(data.archiveType==='original_purchase'&&String(data.code).length>8&&String(data.code).startsWith('YZCG')){data.code=String(data.code).slice(4);excluded(type+'.code',id,'旧分类码'+row.category_code+'去掉已由采购方式表示的YZCG前缀，转换为'+data.code+'；基础/组合原码仍保留');}data.parentId=ref('finance-categories',categoryKey(row.parent_id,row.__family));}
           if(type==='finance-products'){
             data.archiveType=archiveTypes[row.archive_key];if(row.archive_key==='purchased')data.supplyMode=productFamily(row);data.categoryId=ref('finance-categories',categoryKey(row.category_id,productFamily(row)));data.brandId=ref('finance-brands',brandMap.get(String(row.brand||'').trim()));
-            data.specQty=Number(row.amount);data.code=row.product_code;data.name=row.product_name;data.weightG=kgToG(row.weighing_weight);if(['package','oem_package'].includes(row.archive_key)&&data.weightG!==undefined&&data.weightG!==null){/* 旧包装类重量按“重量输入单位”存数字（14 就是 14 克），不是千克；发货物料才一律是千克 */const wu=String(payload.weightUnit||'g').toLowerCase();const n=Number(row.weighing_weight);const factor={g:1,kg:1000,jin:500}[wu];if(Number.isFinite(n)&&factor){data.weightG=Math.round(n*factor*1e6)/1e6;data.weightUnit=wu;}}if(row.archive_key==='shipping_material'&&['g','kg','jin'].includes(String(payload.weightUnit||'').toLowerCase()))data.weightUnit=String(payload.weightUnit).toLowerCase();data.weightManual=Boolean(payload.weightManualCorrected);data.purchaseSpec=payload.purchaseSpecification;data.productPackagingSpec=payload.productPackagingSpecification;
+            data.specQty=Number(row.amount);data.code=row.product_code;data.name=row.product_name;
+            if(['package','oem_package'].includes(row.archive_key))Object.assign(data,skuMapping.packageWeight(row.weighing_weight,payload.weightUnit));else data.weightG=kgToG(row.weighing_weight);
+            if(row.archive_key==='shipping_material'&&['g','kg','jin'].includes(String(payload.weightUnit||'').toLowerCase()))data.weightUnit=String(payload.weightUnit).toLowerCase();data.weightManual=Boolean(payload.weightManualCorrected);data.purchaseSpec=payload.purchaseSpecification;data.productPackagingSpec=payload.productPackagingSpecification;
             // 旧档案存的是单位/类别名称，新档案存编码：按旧单位表和用到的名称建成的列表转换（对不上的不猜）
             const unitFields=productMapping.productUnitFields({row,payload,catalog:unitCatalog});
             for(const key of ['productPackagingUnit','packagingCategory','dimensionUnit']){delete data[key];if(unitFields[key])data[key]=unitFields[key];else if(String(payload[key]||'').trim())notices.push(key+'：旧值“'+String(payload[key]).trim()+'”不在旧单位列表里，未迁入，待核对');}
@@ -193,9 +198,10 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
             if(!Number.isFinite(data.specQty)){const pricingCode=unitCatalog.codeOf(row.archive_key==='shipping_material'?'shipping_unit':'spec_unit',payload.purchaseSpecification);const pricingUnit=pricingCode?{value:pricingCode}:def.fields.find(f=>f.key==='specUnit').options.find(o=>o.label===payload.purchaseSpecification||o.value===payload.purchaseSpecification);if(pricingUnit){data.specQty=1;data.specUnit=pricingUnit.value;data.shape=[row.shape_style,String(row.amount||'')+String(row.unit||'')].filter(Boolean).join(' / ');notices.push('旧规格为尺寸描述，按原计价单位保留为一单位；尺寸见形态/款式');}}
             data.freight=money('freight',payload.freightAmount);data.handlingFee=money('handlingFee',payload.handlingAmount);
             const costs=(tables.finance_product_archive_costs||[]).filter(x=>String(x.product_id)===String(row.id)&&x.status==='active'&&(!x.effective_from||x.effective_from<=businessDay)&&(!x.effective_to||x.effective_to>=businessDay)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from))||Number(b.id)-Number(a.id));
-            const purchase=costs.find(x=>x.cost_type==='purchase');if(purchase)data.purchasePrice=money('purchasePrice',purchase.unit_cost);
-            else if(payload.purchasePrice!==undefined)data.purchasePrice=money('purchasePrice',payload.purchasePrice);
+            const purchase=skuMapping.purchaseInput(row,payload,costs);if(purchase!==undefined)data.purchasePrice=money('purchasePrice',purchase);
+            if(row.archive_key==='purchased'&&row.supply_mode==='supplier_oem'&&costs.find(x=>x.cost_type==='purchase')?.source_type==='production_bom')notices.push('OEM成本记录来源为生产BOM，汇总时不作为额外采购价重复加入');
             data.rawFinishedNames=Array.isArray(payload.rawFinishedNames)?payload.rawFinishedNames.map(x=>x.name).join('\n'):undefined;
+            if(giftAliases.has(String(row.id))){Object.assign(data,giftAliases.get(String(row.id)));notices.push('旧组合曾用作赠品但缺少简称，按原商品品牌和品名生成赠品简称及编码简称');}
             const zero=payload.zeroConfirmations||{};data.zeroValueReason=[['purchasePrice','采购价'],['freightAmount','运费'],['handlingAmount','装卸费']].filter(([k])=>zero[k]?.confirmed&&zero[k]?.reason).map(([k,label])=>label+'：'+zero[k].reason).join('\n');
             for(const [field,reasonKey] of [['purchasePrice','purchasePrice'],['freight','freightAmount'],['handlingFee','handlingAmount']]){if(data[field]===0&&!(zero[reasonKey]?.confirmed&&zero[reasonKey]?.reason)){delete data[field];notices.push(field+'：旧值为零但缺少确认理由，待核对');excluded(type+'.'+field,id,'旧零金额缺少确认理由，未伪造理由');}}
             for(const f of ['supplierId'])delete data[f];
@@ -223,8 +229,9 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
             if(canonical){const p=byId('finance_products',productId);const names=json(p?.payload_json||{}).rawFinishedNames||[];aliasName=names.find(x=>x.id===row.raw_finished_name_id)?.name;if(!aliasName)throw Error('马甲名称ID未对应到原料成品名');}
           }
           if(type==='finance-bundles'){
+            data.configNo=skuMapping.configNo(data.configNo);
             data.scenarioId=ref('finance-scenarios',scenarioMap.get(String(row.sales_scenario||'').trim()));data.manualReason='迁移保留旧系统已有组合编码、名称及款式编码';
-            const b=byId('finance_product_bundle_definitions',row.bundle_definition_id);if(b?.weight_mode==='manual'){data.weightMode='manual';data.manualWeightG=kgToG(b.weighing_weight);data.overrideReason='迁移保留旧系统手工重量';}
+            const b=byId('finance_product_bundle_definitions',row.bundle_definition_id);const brand=(tables.finance_product_code_dictionary||[]).find(x=>String(x.id)===String(b?.brand_dictionary_id));if(brand)data.brandId=ref('finance-brands',brandMap.get(String(brand.item_name).trim()));if(b?.weight_mode==='manual'){data.weightMode='manual';data.manualWeightG=kgToG(b.weighing_weight);data.overrideReason='迁移保留旧系统手工重量';}
           }
           if(type.startsWith('finance-express-')){
             if(type==='finance-express-branches')data.carrierId=ref('finance-express-carriers',ancestors.at(-1)?.id);

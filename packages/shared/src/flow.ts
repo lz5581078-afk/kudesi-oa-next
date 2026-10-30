@@ -250,6 +250,7 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     fields: [
       text('batchName', '申请名称', '申请', { required: true, maxLength: 140, help: '例如“10 月新品组合”' }),
       ref('scenarioId', '销售场景', '申请', 'finance-scenarios', { required: true, help: '整张申请的所有规格都用这个场景' }),
+      ref('brandId', '组合品牌', '申请', 'finance-brands', { help: '可指定组合销售品牌；不选时沿用主商品品牌' }),
       refs('platformIds', '销售平台', '申请', 'finance-platforms', { required: true, help: '每个规格在每个平台各生成一个组合编码' }),
       ref('bundleCategoryId', '组合分类', '申请', 'finance-categories', { required: true, help: '组合分类树里的最末级分类；生成的组合都归到这个分类' }),
       { key: 'specs', label: '规格清单', type: 'json', group: '规格', required: true, help: '每个规格选主商品和赠品及数量；主商品必填' },

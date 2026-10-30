@@ -1,4 +1,4 @@
-import { NamingItem, composeBundle } from './bundle-naming';
+import { DEFAULT_RULE, NamingItem, composeBundle } from './bundle-naming';
 
 const item = (over: Partial<NamingItem>): NamingItem => ({
   id: 1, code: 'SG-HFS-5J', name: '红富士苹果5斤', shortName: '红富士', styleCode: 'SG-HFS', spec: '5斤', qty: 1,
@@ -10,6 +10,10 @@ const input = (mains: NamingItem[], gifts: NamingItem[] = []) => ({
 });
 
 describe('组合命名（旧系统规则）', () => {
+  it('显式关闭款式前缀与编码前缀分离；采购方式和包装的名称、短码分别取值',()=>{
+    const result=composeBundle({...DEFAULT_RULE,stylePrefix:'',codeFields:['supplyMode','packageType','totalSpec'],nameFields:['supplyMode','packageType','totalSpec']},input([item({supplyMode:'原装采购',supplyModeCode:'YZCG',packageType:'袋',packageTypeCode:'D'})]));
+    expect(result.errors).toEqual([]);expect(result.code).toBe('ZH-TB-YZCG-D-5J');expect(result.styleCode).toBe('YZCG-D');expect(result.name).toBe('组合-原装采购-袋-5斤');
+  });
   it('同一商品按单位累加：5斤×2 合并成 10斤', () => {
     const a = composeBundle(null, input([item({ id: 1, qty: 1 }), item({ id: 2, qty: 1 })]));
     expect(a.name).toContain('10斤');

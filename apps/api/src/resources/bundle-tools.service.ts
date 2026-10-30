@@ -98,6 +98,12 @@ export class BundleToolsService {
       const platform = await em.findOne(ResourceRecord, { where: { id: t.platformId, companyId: user.companyId, type: 'finance-platforms' } });
       const scenario = await em.findOne(ResourceRecord, { where: { id: t.scenarioId, companyId: user.companyId, type: 'finance-scenarios' } });
       if (!platform || !scenario) throw new BadRequestException('销售平台或销售场景不存在');
+      if (platform.status !== 'active') throw new BadRequestException('销售平台已停用');
+      if (scenario.status !== 'active') throw new BadRequestException('销售场景已停用');
+      if (t.brandId !== undefined) {
+        const brand = await em.findOne(ResourceRecord, { where: { id: t.brandId, companyId: user.companyId, type: 'finance-brands' } });
+        if (!brand || brand.status !== 'active') throw new BadRequestException('组合品牌不存在或已停用');
+      }
       const configNo = t.configNo || '01';
       const auto = composeBundle(rule, await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, configNo, t.brandId));
       // 新建时手填的编码/名称/简称覆盖自动生成的值（和“改码/改名”同一套规则：必须写原因）
@@ -105,6 +111,7 @@ export class BundleToolsService {
       const manualErrors = (manualCode || manualName || manualShort) && (t.manualReason ?? '').trim().length < 2 ? ['手填编码、名称或简称必须写明原因'] : [];
       const composed = { ...auto, code: manualCode || auto.code, name: manualName || auto.name, shortName: manualShort || auto.shortName, errors: [...auto.errors, ...manualErrors] };
       const reuse = allBundles.find((b) => b.status !== 'archived' && b.data.platformId === platform.id && b.data.scenarioId === scenario.id && str(b.data.configNo || '01') === configNo
+        && (num(b.data.brandId) ?? null) === (t.brandId ?? null)
         && sigOf(...(linesOf.get(b.id) ?? []).map(lineKey).sort()) === mySig);
       const layers: { layer: string; label: string; hit: string }[] = [];
       if (!reuse) {

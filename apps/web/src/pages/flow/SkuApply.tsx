@@ -10,7 +10,7 @@ interface Opt { id: number; code: string; name: string; spec?: string }
 type Kind = 'main' | 'gift' | 'package' | 'label' | 'other' | 'labor';
 
 export const skuApi = {
-  meta: () => api<{ scenarios: Array<{ id: number; name: string }>; platforms: Array<{ id: number; name: string }>; bundleCategories?: Array<{ id: number; name: string }> }>('/flow/sku-apply/options?kind=meta'),
+  meta: () => api<{ scenarios: Array<{ id: number; name: string }>; platforms: Array<{ id: number; name: string }>; brands?: Array<{ id: number; name: string }>; bundleCategories?: Array<{ id: number; name: string }> }>('/flow/sku-apply/options?kind=meta'),
   options: (kind: Kind, keyword: string) => api<{ items: Opt[] }>(`/flow/sku-apply/options?kind=${kind}&keyword=${encodeURIComponent(keyword)}`),
   names: (ids: number[]) => api<{ items: Opt[] }>(`/flow/sku-apply/options?kind=names&ids=${ids.join(',')}`),
   preview: (runId: number) => api<SkuPreviewDto>(`/flow/sku-apply/runs/${runId}/preview`),
@@ -130,6 +130,12 @@ export function SkuApplyFields({ values, onChange }: { values: Record<string, un
             {meta?.bundleCategories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <small className="muted">组合分类树里的最末级分类；生成的组合都归到这个分类，成本表分类利润率按它汇总</small>
+        </label>
+        <label><span>组合品牌</span>
+          <select aria-label="组合品牌" value={String(values.brandId ?? '')} onChange={(e) => onChange('brandId', e.target.value ? Number(e.target.value) : '')}>
+            <option value="">沿用主商品品牌</option>
+            {meta?.brands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
         </label>
         <div className="wide"><span>销售平台<b className="req"> *</b></span>
           <div className="check-list" role="group" aria-label="销售平台">
