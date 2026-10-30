@@ -1,11 +1,13 @@
 /** SKU 批量申请流程（运营 → 仓库 → 财务）的真实数据库测试。RESOURCE_DB_TEST=1 TEST_DB_NAME=kudesi_oa_test_e npx jest sku-apply */
 import 'reflect-metadata';
 import * as crypto from 'crypto';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import type { StepDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, Notification, ResourceRecord, User } from '../entities';
+import { Company, FinanceCostSnapshot, Notification, ResourceRecord, User } from '../entities';
+import { runSkuVerification } from '../migration/sku-repair';
+import type { LegacyArchive } from '../migration/protocol';
 import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
@@ -382,5 +384,14 @@ d('SKU 批量申请流程（真实数据库）', () => {
     expect((await sku.preview(fin,run.id)).specs[0].targets.every(t=>t.code.includes('XSA'))).toBe(true);
     const done=await finPass(fin,run),after=await sku.preview(fin,done.id);
     for(const created of after.specs[0].created){const b=await ds.manager.findOneByOrFail(ResourceRecord,{id:created.bundleId,companyId:admin.companyId});expect(b.data.brandId).toBe(brand.id);expect(String(b.data.name)).toContain('销售品牌甲');}
+    const generated=after.specs[0].created;
+    await ds.manager.delete(FinanceCostSnapshot,{companyId:admin.companyId,bundleId:In(generated.map(x=>x.bundleId))});
+    for(const b of generated)await ds.query("INSERT INTO legacy_import_links(source_system,source_company_id,company_id,source_key,target_type,target_id,source_hash) VALUES('legacy-oa',3,?,?,'finance-bundles',?,?)",[admin.companyId,'finance-bundles:history-'+b.bundleId,b.bundleId,'0'.repeat(64)]);
+    const archive:LegacyArchive={company:{id:3,name:'SKU申请测试'},departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],records:generated.map(b=>({type:'finance-bundles',id:'history-'+b.bundleId,data:{}})),exclusions:[],loadFile:async()=>{throw Error('no files');}};
+    const verifyOpts={companyId:admin.companyId,actorId:admin.id,expectedName:'SKU申请测试',apply:false};
+    const checked=await runSkuVerification(ds,resources,archive,verifyOpts);expect(checked.issues).toEqual([]);expect(checked.history?.recorded).toBe(2);
+    expect(await ds.manager.count(FinanceCostSnapshot,{where:{companyId:admin.companyId,bundleId:In(generated.map(b=>b.bundleId))}})).toBe(0);
+    await runSkuVerification(ds,resources,archive,{...verifyOpts,apply:true,expected:checked});
+    expect(await ds.manager.count(FinanceCostSnapshot,{where:{companyId:admin.companyId,bundleId:In(generated.map(b=>b.bundleId))}})).toBe(2);
   });
 });
