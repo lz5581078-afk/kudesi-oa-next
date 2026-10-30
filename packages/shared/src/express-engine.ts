@@ -1,11 +1,13 @@
 /**
- * 快递价格引擎（沿用旧系统口径，金额一律整数分、重量 kg）：
+ * 快递价格引擎（沿用旧系统口径，报价按分保留小数，最终售价结算到整数分、重量 kg）：
  *  - 单个版本的价格规则：省份（或全国）+ 重量区间（上下限可以含/不含）+ 固定价或“首重(0/1kg) + 向上取整的续重”
  *  - 每个省取各合作版本里最低的报价 → 典型价估算（相差 15% 内的多数省份均价 ×1.1；6kg 以上凑不成多数时剔除高价尾部）
  *  - 预估运费一览：0~0.5、0.5~1、1~2 … 到单包上限的连续重量段；超过单包上限按拆包求和
  *  - 分区建议：每省每个重量段取最低价，相同来源和价格的省份合并
  * 这里只放纯计算，不碰数据库；上层把“当前版本 + 合作中 + 日期有效”的规则整理成 PriceGroup 再交进来。
  */
+
+import { multiplyUnitCents, sumUnitCents } from './unit-price';
 
 export const ESTIMATE_MAX_WEIGHT_KG = 1000;
 export const DEFAULT_RECOMMENDATION_MAX_WEIGHT = 30;
@@ -47,12 +49,12 @@ export interface PriceGroup {
   rules: PriceRule[];
 }
 
-export const provinceKey = (value: unknown) => String(value ?? '').replace(/省|市|自治区|特别行政区/g, '').trim();
+export const provinceKey = (value: unknown) => String(value ?? '').replace(/壮族自治区|回族自治区|维吾尔自治区|自治区|特别行政区|省|市/g, '').trim();
 const isNational = (province: unknown) => /^(全国|全部|ALL)$/i.test(String(province ?? '').trim());
 const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
 export function ruleQuote(rule: PriceRule, weight: number): number {
-  return rule.amount + (rule.formula ? Math.max(0, Math.ceil(r6(weight - rule.firstWeight))) * rule.continued : 0);
+  return sumUnitCents([rule.amount, rule.formula ? multiplyUnitCents(rule.continued, Math.max(0, Math.ceil(r6(weight - rule.firstWeight)))) : 0]);
 }
 
 export function ruleCoversWeight(rule: PriceRule, weight: number): boolean {
@@ -175,7 +177,7 @@ export function estimateTypicalProvinceFreight(provinceQuotes: Array<{ province:
   }
   const average = selected.reduce((sum, q) => sum + q.amount, 0) / selected.length;
   return {
-    method, amount: Math.round(average * 1.1), baseAverage: Math.round(average * 100) / 100,
+    method, amount: Math.round(average * 1.1 * 100) / 100, baseAverage: Math.round(average * 100) / 100,
     sampleCount: quotes.length, includedCount: selected.length,
     includedProvinces: selected.map((q) => q.province), excludedLowProvinces: low.map((q) => q.province), excludedHighProvinces: high.map((q) => q.province),
   };
@@ -280,7 +282,7 @@ export function splitParcelAmount(rows: EstimateRow[], weight: number, parcelLim
     return { count: part.count, weight: part.weight, amount: q?.amount ?? null, source: q?.source ?? null, key: q?.key ?? null };
   });
   if (parts.some((p) => p.amount === null)) return null;
-  return { amount: parts.reduce((sum, p) => sum + p.count * (p.amount as number), 0), parcels: parts.reduce((sum, p) => sum + p.count, 0), parts };
+  return { amount: sumUnitCents(parts.map(p=>multiplyUnitCents(p.amount as number,p.count))), parcels: parts.reduce((sum, p) => sum + p.count, 0), parts };
 }
 
 /** 展开成 1000kg 以内的完整重量段列表：基础段 + 每个拆包段（拆包段不能单独手工调整） */
@@ -306,7 +308,7 @@ export function expandParcelEstimates(baseRows: EstimateRow[], parcelLimit: numb
     });
     result.push({
       key: `${start}-${end}`, start, end, method: 'split_parcel_sum', manualAmount: null,
-      autoAmount: parcels.every((p) => p.amount !== null) ? parcels.reduce((sum, p) => sum + p.count * (p.amount as number), 0) : null,
+      autoAmount: parcels.every((p) => p.amount !== null) ? sumUnitCents(parcels.map(p=>multiplyUnitCents(p.amount as number,p.count))) : null,
       baseAverage: null, sampleCount: 0, includedCount: 0, includedProvinces: [], excludedLowProvinces: [], excludedHighProvinces: [], provinceQuotes: [], parcels, parcelMaxWeight: parcelLimit,
     });
   }

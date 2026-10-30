@@ -157,10 +157,10 @@ export class CostService {
       const sub = unit === null ? null : multiplyUnitCents(unit, qty);
       if (sub === null) { issues.push(`「${name || code}」还没有成本`); cost = null; } else if (cost !== null) cost = sumUnitCents([cost,sub]);
       weight += w * qty;
-      lines.push({ role, code, name, qty, unitCostCents: unit, subtotalCents: sub, unitWeightG: hasWeight ? w : null, weightG: Math.round(w * qty * 100) / 100 });
+      lines.push({ role, code, name, qty, unitCostCents: unit, subtotalCents: sub, unitWeightG: hasWeight ? w : null, weightG: Math.round(w * qty * 1e6) / 1e6 });
     }
     if (lines.length === 0) { cost = null; issues.push('还没有构成'); }
-    let weightG: number | null = Math.round(weight * 100) / 100;
+    let weightG: number | null = Math.round(weight * 1e6) / 1e6;
     if (str(b.data.weightMode) === 'manual') weightG = num(b.data.manualWeightG);
     if (!weightG) { weightG = null; issues.push('没有重量'); }
 

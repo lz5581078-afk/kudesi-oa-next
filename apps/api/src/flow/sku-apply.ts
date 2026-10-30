@@ -75,6 +75,11 @@ export async function checkApplication(em: EntityManager, user: AuthUser, bundle
   const scenarioId = num(payload.scenarioId);
   if (!scenarioId) throw new BadRequestException('请选择销售场景');
   if (platformIds.length === 0) throw new BadRequestException('请至少选一个销售平台');
+  if (!Number.isInteger(payload.bundleCategoryId) || Number(payload.bundleCategoryId) <= 0) throw new BadRequestException('请选择组合分类');
+  const category = await em.findOne(ResourceRecord, { where: { id: Number(payload.bundleCategoryId), companyId: user.companyId, type: 'finance-categories' } });
+  if (!category || category.status !== 'active' || category.data.archiveType !== 'bundle') throw new BadRequestException('请选择启用的组合分类');
+  const children = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' } });
+  if (children.some((c) => c.data.parentId === category.id)) throw new BadRequestException('组合分类必须选最末级');
   const cache = new Map<number, { bc: ResourceRecord; archive: string }>();
   const seen = new Map<string, string>();
   const plan: { name: string; lines: LineInput[]; targets: PlanTarget[] }[] = [];
@@ -90,7 +95,7 @@ export async function checkApplication(em: EntityManager, user: AuthUser, bundle
     const sig = lineSig(lines);
     if (seen.has(sig)) throw new BadRequestException(`规格「${spec.name}」和「${seen.get(sig)}」的构成完全一样，不用重复申请`);
     seen.set(sig, spec.name);
-    const pre = await bundles.preview(asEngine(user), lines, platformIds.map((platformId): TargetInput => ({ platformId, scenarioId })), em);
+    const pre = await bundles.preview(asEngine(user), lines, platformIds.map((platformId): TargetInput => ({ platformId, scenarioId, brandId: num(payload.brandId) ?? undefined })), em);
     const targets = pre.targets.map((t): PlanTarget => ({ platformId: t.platformId, platformName: t.platformName, code: t.code, name: t.name, reuse: t.reuse, duplicates: t.duplicates, ok: t.ok }));
     // 编码被「本地组合编码」占用 = 系统里已经有主品、赠品相同的组合（编码只由主品、赠品、平台、场景决定）
     const sameBundle = (t: PlanTarget) => !t.reuse && t.duplicates.length > 0 && t.duplicates.every((d) => d.layer === 'bundle');
@@ -108,18 +113,18 @@ export async function checkApplication(em: EntityManager, user: AuthUser, bundle
     }
     plan.push({ name: spec.name, lines, targets });
   }
-  await assertNoInflightOverlap(em, user.companyId, norm.specs, platformIds, scenarioId, opts.selfRunId);
+  await assertNoInflightOverlap(em, user.companyId, norm.specs, platformIds, scenarioId, opts.selfRunId, num(payload.brandId));
   return { specs: norm.specs, platformIds, scenarioId, plan, cache };
 }
 
 /** 其他在办的 SKU 申请里，同样的构成 × 平台 × 场景不能再申请一遍（只比运营填的主品和赠品） */
-async function assertNoInflightOverlap(em: EntityManager, companyId: number, specs: SkuSpec[], platformIds: number[], scenarioId: number, selfRunId?: number) {
+async function assertNoInflightOverlap(em: EntityManager, companyId: number, specs: SkuSpec[], platformIds: number[], scenarioId: number, selfRunId?: number, brandId?: number | null) {
   const runs = await em.find(FlowRun, { where: { companyId, templateKey: SKU_TEMPLATE, status: 'running' } });
   const mine = new Map(specs.map((s) => [lineSig(specLines(s)), s.name]));
   for (const r of runs) {
     if (r.id === selfRunId) continue;
     const otherPlatforms = platformIdsOf(r.payload);
-    if (num(r.payload.scenarioId) !== scenarioId || !otherPlatforms.some((p) => platformIds.includes(p))) continue;
+    if (num(r.payload.scenarioId) !== scenarioId || num(r.payload.brandId) !== (brandId ?? null) || !otherPlatforms.some((p) => platformIds.includes(p))) continue;
     const other = normalizeSpecs(r.payload.specs).specs;
     for (const o of other) {
       const hit = mine.get(lineSig(specLines(o)));
@@ -135,7 +140,11 @@ export async function reviewSignature(em: EntityManager, user: AuthUser, bundles
   for (const p of r.plan) {
     parts.push(p.name, ...p.targets.map((t) => `${t.code}|${t.name}|${t.reuse?.id ?? ''}`));
     for (const l of p.lines) {
-      if (l.role === 'labor') continue;
+      if (l.role === 'labor') {
+        const labor = await em.findOne(ResourceRecord, { where: { id: l.laborId!, companyId: user.companyId, type: 'finance-labor-costs' } });
+        parts.push(`labor:${l.laborId}:${l.qty}:${labor?.status}:${labor?.data.unitPrice}`);
+        continue;
+      }
       const hit = r.cache.get(l.baseCodeId!);
       parts.push(`${l.baseCodeId}:${hit?.bc.data.signature ?? ''}:${hit?.bc.data.cost ?? ''}:${hit?.bc.data.weightG ?? ''}`);
     }
@@ -174,6 +183,7 @@ export const skuBatchApply: FlowAdapter = {
       const can = createChecker(user.permissions);
       // 生成并验证组合编码相当于改「商品组合编码」资料，办理人自己必须有这个权限
       if (!can('resource.finance-bundles.create') || !can('resource.finance-bundles.edit')) throw new BadRequestException('财务审核会生成并验证商品组合编码，你没有「商品组合编码」的新增和修改权限，请联系管理员');
+      if (!can('product.cost.view')) throw new BadRequestException('财务审核需有成本查看权限，才能核对成本');
       if (form.confirmed !== true) throw new BadRequestException('请先勾选“我已核对规格、成本和编码”');
       if (form.syncToJst === true && !can(SPECIAL_PERMISSIONS.financeBundleSync)) throw new BadRequestException('你没有「组合装同步维护」的权限，不能勾选“加入聚水潭同步队列”');
       const wh = payload._warehouse as WarehouseSpec[] | undefined;
@@ -199,7 +209,7 @@ export const skuBatchApply: FlowAdapter = {
     const actor = asEngine(user);
     const created: CreatedBundle[] = [];
     for (const [i, spec] of specs.entries()) {
-      const res = await bundles.generate(actor, specLines(spec, wh[i]), platformIds.map((platformId) => ({ platformId, scenarioId, bundleCategoryId: num(payload.bundleCategoryId) ?? undefined })), em);
+      const res = await bundles.generate(actor, specLines(spec, wh[i]), platformIds.map((platformId) => ({ platformId, scenarioId, brandId: num(payload.brandId) ?? undefined, bundleCategoryId: num(payload.bundleCategoryId) ?? undefined })), em);
       for (const c of res.created) {
         const rec = await em.findOne(ResourceRecord, { where: { id: c.id, companyId: user.companyId, type: 'finance-bundles' } });
         if (!rec) continue;

@@ -214,7 +214,9 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   if (str(data.shape).trim() && !initials(str(data.shape))) throw new BadRequestException('形态/款式里要有字母、数字或汉字，才能参与编码');
 
   // 重量：自动换算，勾选“人工修正重量”后按填写的为准
-  const manual = data.weightManual === true;
+  // 容量是装多少商品，不能当作包装自重；发货物料也直接称重。
+  const directWeight = ['package', 'oem_package', 'shipping_material'].includes(type);
+  const manual = directWeight || data.weightManual === true;
   if (!['raw', 'self_made', 'purchased', 'package', 'oem_package'].includes(type)) delete data.purchaseSpec;
   if (!['package', 'oem_package', 'shipping_material'].includes(type)) delete data.weightUnit;
   if (type !== 'self_made') delete data.productPackagingSpec;
@@ -531,6 +533,7 @@ async function beforeBundle(ctx: BeforeSaveContext) {
   const platform = await rec(em, user.companyId, 'finance-platforms', data.platformId);
   const scenario = await rec(em, user.companyId, 'finance-scenarios', data.scenarioId);
   if (!platform || !scenario) throw new BadRequestException('请选择销售平台和销售场景');
+  if (platform.status !== 'active' || scenario.status !== 'active') throw new BadRequestException('销售平台或销售场景已停用');
   data.platformCode = str(platform.data.code).toUpperCase();
   data.configNo = str(data.configNo) || '01';
   data.weightMode = str(data.weightMode) || 'auto';
@@ -1119,8 +1122,8 @@ export async function recomputeProduct(host: RuleHost, em: EntityManager, user: 
     if (p.data.weightManual !== true) {
       if (isOem) {
         const base = (UNIT_G[str(p.data.specUnit)] ?? 0) * (num(p.data.specQty) ?? 0);
-        weightG = Math.round((base + (num(p.data.oemPackageWeightG) ?? 0) + weight) * 100) / 100;
-      } else if (boms.length) weightG = Math.round(weight * 100) / 100;
+        weightG = Math.round((base + (num(p.data.oemPackageWeightG) ?? 0) + weight) * 1e6) / 1e6;
+      } else if (boms.length) weightG = Math.round(weight * 1e6) / 1e6;
     }
     const patch: Data = { totalCost: cost, weightG };
     const changed = patch.totalCost !== (p.data.totalCost ?? null) || patch.weightG !== p.data.weightG;
@@ -1181,13 +1184,15 @@ async function namingItem(em: EntityManager, companyId: number, bc: ResourceReco
   const chain = await categoryChain(em, companyId, Number(multi ? bc.data.codeCategoryId : p?.data.categoryId));
   const leaf = chain[chain.length - 1];
   const brand = await rec(em, companyId, 'finance-brands', multi ? bc.data.codeBrandId : p?.data.brandId);
-  const variety = str(bc.data.varietyName) || str(p?.data.name);
+  const aliasName = str(bc.data.migratedAliasName) || (typeof bc.data.canonicalId === 'number' && p ? rawNames(p.data.rawFinishedNames).find((n) => aliasCode(companyId, p.id, n) === bc.data.aliasKey) : '');
+  const variety = aliasName || str(bc.data.varietyName) || str(p?.data.name);
   const real = await realBaseCode(em, companyId, bc);
   const unitCode = str(p?.data.specUnit);
   const archiveType = str(p?.data.archiveType);
   const isAlias = typeof bc.data.canonicalId === 'number';
   const amount = num(p?.data.specQty) ?? 0;
-  const supplyMode = p?.data.supplyMode === 'supplier_oem' ? 'OEM' : p?.data.supplyMode === 'original_purchase' ? 'YZ' : '';
+  const supplyMode = p?.data.supplyMode === 'supplier_oem' ? '供应商OEM' : p?.data.supplyMode === 'original_purchase' ? '原装采购' : '';
+  const packageType = str(p?.data.purchaseSpec);
   const identityParts = [p?.data.categoryId, archiveType, p?.data.name, p?.data.brandId, str(p?.data.supplyMode) || archiveType, p?.data.purchaseSpec, unitCode].map((x) => str(x).trim());
   const plainSpec = `${amount}${unitNameOf(unitCode)}`;
   const mergeable = !isAlias && identityParts.every(Boolean) && amount > 0 && (!str(bc.data.spec) || str(bc.data.spec) === plainSpec || str(bc.data.spec) === `${amount}${unitCode}`);
@@ -1195,7 +1200,7 @@ async function namingItem(em: EntityManager, companyId: number, bc: ResourceReco
     id: bc.id, code: str(bc.data.code), name: str(bc.data.name) || bc.title, shortName: str(bc.data.shortName), styleCode: str(bc.data.styleCode), spec: str(bc.data.spec), qty,
     categoryCode: str(leaf?.data.code), categoryName: leaf?.title ?? '',
     brandCode: brand ? str(brand.data.code) || initials(brand.title) : '', brandName: brand?.title ?? '',
-    varietyInitials: initials(variety), varietyName: variety, packageType: str(p?.data.shape), supplyMode,
+    varietyInitials: initials(variety), varietyName: variety, packageType, packageTypeCode: initials(packageType), supplyMode, supplyModeCode: supplyMode === '供应商OEM' ? 'OEM' : supplyMode ? 'YZCG' : '',
     weightG: num(bc.data.weightG) ?? num(p?.data.weightG) ?? 0,
     realCode: str(real.data.code), amount, unitName: unitNameOf(unitCode), unitCode, isAlias,
     identity: mergeable ? JSON.stringify([...identityParts, str(bc.data.varietyName), str(p?.data.shape)]) : undefined,

@@ -30,7 +30,7 @@ export interface NamingRule {
 
 /** 旧系统默认规则：没有给分类配置规则时用它 */
 export const DEFAULT_RULE: NamingRule = {
-  prefix: 'ZH-', namePrefix: '组合-', stylePrefix: '', codeFields: ['brand', 'variety', 'totalSpec'], nameFields: ['category', 'brand', 'variety', 'totalSpec'],
+  prefix: 'ZH-', namePrefix: '组合-', stylePrefix: 'ZH-', codeFields: ['brand', 'variety', 'totalSpec'], nameFields: ['category', 'brand', 'variety', 'totalSpec'],
   customCode: '', customName: '', codeOverrides: {}, nameOverrides: {},
 };
 
@@ -39,7 +39,7 @@ export interface NamingItem {
   id: number;
   code: string; name: string; shortName: string; styleCode: string; spec: string; qty: number;
   categoryCode: string; categoryName: string; brandCode: string; brandName: string; varietyInitials: string; varietyName: string;
-  packageType: string; supplyMode: string; weightG: number;
+  packageType: string; supplyMode: string; packageTypeCode?: string; supplyModeCode?: string; weightG: number;
   /** 真实编码：马甲取它指向的真实基础编码，其余同 code（上传聚水潭子商品用它） */
   realCode?: string;
   /** 规格数量（如 5）与单位（斤）、单位短码（J） */
@@ -175,8 +175,8 @@ function fieldValue(field: string, mode: 'code' | 'name', g: ComposedGroup, i: N
     case 'scenario': return code ? i.scenarioSegment : i.scenarioName;
     case 'brand': return i.bundleBrand && mainIndex >= 0 ? (code ? i.bundleBrand.code : i.bundleBrand.name) : code ? p.brandCode : p.brandName;
     case 'variety': return code ? p.varietyInitials : p.varietyName;
-    case 'packageType': return p.packageType;
-    case 'supplyMode': return p.supplyMode;
+    case 'packageType': return code ? p.packageTypeCode ?? p.packageType : p.packageType;
+    case 'supplyMode': return code ? p.supplyModeCode ?? p.supplyMode : p.supplyMode;
     case 'name': return code ? p.varietyInitials : g.displayName;
     case 'shortName': return code ? p.varietyInitials : p.shortName || p.name;
     case 'style': return p.styleCode;
@@ -231,7 +231,7 @@ export function composeBundle(ruleIn: NamingRule | null, i: NamingInput): Compos
   code += giftCode;
   const cfg = i.configNo;
   if (cfg && cfg !== '01') code += `-${token(cfg)}`;
-  const mainStyle = `${rule.stylePrefix || rule.prefix}${mains.map((m) => m.style).join('+')}`;
+  const mainStyle = `${rule.stylePrefix}${mains.map((m) => m.style).join('+')}`;
   const styleCode = mainStyle + giftCode;
   const bodyName = mains.map((m) => m.name).join('+') + (gifts.length ? `+赠:${gifts.map((g) => g.name).join('+')}` : '');
   const name = `${rule.namePrefix}${bodyName}`;

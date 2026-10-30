@@ -28,6 +28,11 @@ d('单位与规格（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
+  it('沿用旧源码：原料重量和采购成本按系统规格，命名规格不隐式拆价',async()=>{
+    const p=await svc.create(boss,'finance-products',product({purchaseSpec:'斤',specQty:1,specUnit:'G'}));
+    expect(p.data.weightG).toBe(500);expect(p.data.totalCost).toBe(1150);expect(p.data.specQty).toBe(1);expect(p.data.specUnit).toBe('G');
+  });
+
   it('公司没维护时退回内置选项；导入默认项后只能选列表里的', async () => {
     await svc.create(boss, 'finance-products', product({}));
     const r = await svc.seedUnitDefaults(boss);

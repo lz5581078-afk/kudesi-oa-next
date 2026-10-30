@@ -66,8 +66,11 @@ d('商品档案与基础编码（真实数据库）', () => {
     expect(raw.data.basicInfoFullName).toBe('丰花1号-2-斤-SC01');
     const aliases = (await baseCodesOf(raw.id)).filter((r) => r.data.canonicalId);
     expect(aliases.map((a) => a.data.name)).toEqual(['丰花礼盒-2J-SC01']);
-    const pkg = await svc.create(boss, 'finance-products', { archiveType: 'package', name: '礼盒', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'box', dimensions: '20×15×8', dimensionUnit: 'cm', capacities: '500ML\n1KG', specQty: 1, specUnit: 'EA', purchasePrice: 300, freight: 10, handlingFee: 5 });
+    const pkg = await svc.create(boss, 'finance-products', { archiveType: 'package', name: '礼盒', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'box', dimensions: '20×15×8', dimensionUnit: 'cm', capacities: '500ML\n1KG', weightG: 25, specQty: 1, specUnit: 'EA', purchasePrice: 300, freight: 10, handlingFee: 5 });
     expect(pkg.data.basicInfoFullName).toBe('盒-礼盒-果园先生-20×15×8-厘米-500ML-1KG');
+    expect(pkg.data.weightG).toBe(25);
+    const changed = await svc.update(boss, 'finance-products', pkg.id, { capacities: '2KG' });
+    expect(changed.data.weightG).toBe(25); // 容量不是包装自重
   });
 
   it('档案保存自动同步基础编码：没有就建待验证编码，名称跟着档案走，手改过就不再跟；手工新建会取代占位', async () => {
@@ -183,7 +186,7 @@ d('商品档案与基础编码（真实数据库）', () => {
   });
 
   it('档案采购价/供货来源自动同步采购成本记录；手工锁定的不覆盖；运费历史只在变化时自动追加', async () => {
-    const pkg = await svc.create(boss, 'finance-products', { archiveType: 'package', name: '同步包装', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'bag', capacities: '1KG', specQty: 1, specUnit: 'EA', purchasePrice: 300, freight: 10, handlingFee: 5 });
+    const pkg = await svc.create(boss, 'finance-products', { archiveType: 'package', name: '同步包装', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'bag', capacities: '1KG', weightG: 25, specQty: 1, specUnit: 'EA', purchasePrice: 300, freight: 10, handlingFee: 5 });
     const costs = async (id: number, type = 'purchase') => ((await svc.list(boss, 'finance-product-costs', { fieldKey: 'productId', fieldValue: id, pageSize: 50 } as never)).items as Array<{ id: number; status: string; data: Record<string, unknown> }>).filter((r) => r.data.costType === type);
     let rows = await costs(pkg.id);
     expect(rows).toHaveLength(1);

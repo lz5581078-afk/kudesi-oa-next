@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { buildEstimateRows, expandParcelEstimates, freightFromEstimateRows, estimateEdges, groupAutomaticRecommendations, buildAutomaticRecommendations, ruleQuote, type PriceGroup, type PriceRule } from './express-engine';
+import { buildEstimateRows, expandParcelEstimates, freightFromEstimateRows, estimateEdges, groupAutomaticRecommendations, buildAutomaticRecommendations, ruleQuote, estimateTypicalProvinceFreight, provinceKey, type PriceGroup, type PriceRule } from './express-engine';
 
 const rule = (o: Partial<PriceRule>): PriceRule => ({ province: 'ALL', start: 0, end: Infinity, startInclusive: false, endInclusive: true, formula: false, amount: 0, continued: 0, firstWeight: 1, index: 0, ...o });
 const group = (rules: PriceRule[], o: Partial<PriceGroup> = {}): PriceGroup => ({ carrierId: 1, branchId: 1, versionId: 1, carrierName: '甲', branchName: '一网点', versionName: 'v1', limitMin: 0, limitMax: 1000, rules, ...o });
 const PROV = ['北京', '上海', '广东', '浙江', '江苏'];
 
 describe('express-engine', () => {
+  it('自动预估不先取整到分；自治地区全称按同一省份匹配',()=>{
+    expect(estimateTypicalProvinceFreight([{province:'北京',amount:101},{province:'上海',amount:102},{province:'山东',amount:103}])?.amount).toBe(112.2);
+    expect(['广西壮族自治区','宁夏回族自治区','新疆维吾尔自治区'].map(provinceKey)).toEqual(['广西','宁夏','新疆']);
+    expect(ruleQuote(rule({formula:true,amount:0.1,continued:0.2}),2)).toBe(0.3);
+    const bands=buildEstimateRows([group([rule({amount:123.45})])],PROV,30);
+    expect(freightFromEstimateRows(bands,61,30)?.amount).toBe(407.4);
+  });
   it('公式：首重 + 向上取整续重', () => {
     expect(ruleQuote(rule({ formula: true, amount: 800, continued: 200, firstWeight: 1 }), 2.5)).toBe(800 + 2 * 200);
   });

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { createChecker, normalizeSpecs, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
+import { createChecker, normalizeSpecs, sumUnitCents, multiplyUnitCents, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { FlowRun, ResourceRecord } from '../entities';
 import { BundleToolsService } from '../resources/bundle-tools.service';
@@ -27,7 +27,7 @@ export class SkuApplyService {
     const em = this.ds.manager;
     if (kind === 'meta') {
       const rows = async (type: string) => (await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, order: { title: 'ASC' } })).filter((r) => r.status === 'active').map((r) => ({ id: r.id, name: r.title }));
-      return { scenarios: await rows('finance-scenarios'), platforms: await rows('finance-platforms'), bundleCategories: await this.bundleCategoryLeaves(user.companyId) };
+      return { scenarios: await rows('finance-scenarios'), platforms: await rows('finance-platforms'), brands: await rows('finance-brands'), bundleCategories: await this.bundleCategoryLeaves(user.companyId) };
     }
     if (kind === 'names') {
       // 重新提交时按编号回填商品名称（只给编码、名称、规格）
@@ -102,8 +102,8 @@ export class SkuApplyService {
         } else whLines.push(await lineView(l.baseCodeId!, l.qty, l.role));
       }
       const all = [...lines, ...whLines];
-      const totalCost = canCost ? all.reduce((sum, l) => sum + Math.round((l.cost ?? 0) * l.qty), 0) : undefined;
-      const weightG = Math.round(all.reduce((sum, l) => sum + (l.weightG ?? 0) * l.qty, 0) * 100) / 100;
+      const totalCost = canCost ? sumUnitCents(all.map((l) => multiplyUnitCents(l.cost ?? 0, l.qty))) : undefined;
+      const weightG = Math.round(all.reduce((sum, l) => sum + (l.weightG ?? 0) * l.qty, 0) * 1e6) / 1e6;
       rows.push({
         name: s.name, note: s.note ?? '', reuseReason: s.reuseReason ?? '', lines, warehouse: whLines, notRequired: wh?.[i]?.notRequired ?? {}, weightG, totalCost,
         targets: plan ? plan[i].targets : [], created: created ? created.filter((c) => c.spec === s.name) : [],

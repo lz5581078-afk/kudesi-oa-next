@@ -65,7 +65,7 @@ d('财务资料（真实数据库）', () => {
   it('OEM 包装有自己独立的分类树，和产品包装不混用', async () => {
     const pk = await svc.create(boss, 'finance-categories', { archiveType: 'package', name: '独立树测试包装', code: 'DL1' });
     const oem = await svc.create(boss, 'finance-categories', { archiveType: 'oem_package', name: '独立树测试OEM', code: 'DL2' });
-    const base = { archiveType: 'oem_package', name: 'OEM袋子', capacities: '1KG', purchaseSpec: '个', specQty: 1, specUnit: 'EA', purchasePrice: 10, freight: 1, handlingFee: 1, brandId: ids.brand };
+    const base = { archiveType: 'oem_package', name: 'OEM袋子', capacities: '1KG', weightG: 25, purchaseSpec: '个', specQty: 1, specUnit: 'EA', purchasePrice: 10, freight: 1, handlingFee: 1, brandId: ids.brand };
     await expect(svc.create(boss, 'finance-products', { ...base, categoryId: pk.id })).rejects.toThrow(/不匹配/);
     const ok = await svc.create(boss, 'finance-products', { ...base, categoryId: oem.id });
     expect(ok.refLabels.categoryId).toBe('独立树测试OEM');

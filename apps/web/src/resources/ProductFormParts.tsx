@@ -83,9 +83,9 @@ export function WeightBlock({ values, onChange, manualOnly, required, error, def
   const [text, setText] = useState(() => (grams === '' ? '' : String(Math.round((grams / f) * 1e6) / 1e6)));
   const setValue = (raw: string, u: string) => {
     setText(raw);
-    if (!raw.trim()) return onChange({ weightG: '' });
+    if (!raw.trim()) return onChange({ weightG: '', ...(manualOnly ? { weightManual: true } : {}) });
     const n = Number(raw);
-    onChange({ weightG: Number.isFinite(n) ? Math.round(n * (UNIT_G[u] ?? 1) * 1e6) / 1e6 : NaN });
+    onChange({ weightG: Number.isFinite(n) ? Math.round(n * (UNIT_G[u] ?? 1) * 1e6) / 1e6 : NaN, ...(manualOnly ? { weightManual: true } : {}) });
   };
   return (
     <div className="rf-weight" data-field="weightG">
