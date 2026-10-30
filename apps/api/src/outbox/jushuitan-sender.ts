@@ -25,7 +25,16 @@ export class CompanyJstSender implements OutboxSender {
     const extra = await this.client.pages('/open/sku/query', { sku_ids: code, flds: 'sku_id,purchase_price' }, 'datas');
     const price = extra.filter(r => text(r.sku_id) === code);
     if (price.length !== 1) throw new Error('聚水潭采购价查询缺失或重复，请人工核对');
-    return { ...hit, ...price[0], c_name: hit.c_name ?? hit.category };
+    // category 是用「 - 」拼接的显示路径，名称本身也可能含分隔符；按 ID 查末级，不能拆字符串。
+    let categoryName = hit.c_name ?? hit.category;
+    if (hit.c_id != null && String(hit.c_id) !== '0') {
+      const categories = await this.client.pages('/open/category/query', {}, 'datas');
+      const matched = categories.filter(c => text(c.c_id ?? c.category_id ?? c.id) === String(hit.c_id));
+      if (matched.length !== 1) throw new Error('聚水潭商品分类 ID 无法唯一回查，请人工核对');
+      categoryName = matched[0].c_name ?? matched[0].name ?? matched[0].category_name;
+      if (!categoryName) throw new Error('聚水潭分类名称缺失，请人工核对');
+    }
+    return { ...hit, ...price[0], c_name: categoryName };
   }
   async read(code: string, kind?: string) { await this.assertCompany(); if (kind) return this.readAt(code, kind === 'bundle'); return await this.readAt(code, true) ?? await this.readAt(code, false); }
   async readCategories(): Promise<RemoteCategory[]> {
