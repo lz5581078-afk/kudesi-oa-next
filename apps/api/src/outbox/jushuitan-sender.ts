@@ -70,7 +70,8 @@ export class CompanyJstSender implements OutboxSender {
           if (!node || seen.has(parent)) throw new Error('聚水潭分类层级不完整');
           seen.add(parent); names.unshift(node.name); parent = node.parentId;
         }
-        if (names.join('/') !== wanted) throw new Error('聚水潭分类路径与本地不一致');
+        const remotePath = names.join('/');
+        if (remotePath !== wanted && !remotePath.endsWith('/' + wanted)) throw new Error('聚水潭分类路径与本地不一致');
       }
       item.c_name = leaf;
     }
