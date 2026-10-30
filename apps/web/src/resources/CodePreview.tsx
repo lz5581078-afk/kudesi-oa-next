@@ -33,7 +33,6 @@ export function CodePreview({ values, excludeId }: { values: Record<string, unkn
       <div>{res.manual ? '使用你填写的编码' : '保存后将生成编码'}：<strong className="mono">{res.code}</strong> <CopyButton value={res.code} label="预览编码" /></div>
       {res.basicInfoFullName && <div className="muted">基础信息全称：{res.basicInfoFullName}</div>}
       {res.notes.map((n) => <div key={n} className="muted">{n}</div>)}
-      {!res.manual && <div className="muted">编码不对？在“商品编码”里手填即可覆盖；留空则按规则自动生成。</div>}
     </div>
   );
 }

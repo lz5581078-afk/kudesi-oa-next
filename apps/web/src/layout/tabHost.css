@@ -1,0 +1,7 @@
+/* 页面内页签（宿主页）：下划线式页签，贴着内容，不再是一排带边框的方块 */
+.host-tabs, .tab-group.host-tabs { display: flex; flex-wrap: nowrap; gap: 2px; margin: 0 0 10px; padding: 0 4px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.host-tabs::-webkit-scrollbar { display: none; }
+.host-tabs .chip { flex: none; height: 38px; padding: 0 14px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.host-tabs .chip:hover { color: var(--ink); background: transparent; }
+.host-tabs .chip.active { background: transparent; color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 700; }
+@media (max-width: 720px) { .host-tabs .chip { padding: 0 12px; height: 40px; } }

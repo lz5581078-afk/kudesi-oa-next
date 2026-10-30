@@ -2,6 +2,7 @@ import { ComponentType } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { PageTab } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
+import './tabHost.css';
 
 export interface HostTab extends PageTab { Component: ComponentType }
 

@@ -46,12 +46,26 @@ describe('商品档案详情：分区和新增/编辑表单同一份布局', () 
   it('原料详情按布局的分区顺序、旧版叫法显示（原料名称、规格、名称单位）', async () => {
     const def = getResourceDef('finance-products')!;
     vi.mocked(resourceApi.get).mockResolvedValue(dto({ type: 'finance-products', title: '番茄种子', data: { archiveType: 'raw', code: 'YL-1', name: '番茄种子', specQty: 500, specUnit: 'G', purchaseSpec: '斤' } }));
+    localStorage.setItem('kudesi.detail.hideEmpty', '0'); // 这条只看分区顺序：显示空字段
     render(<MemoryRouter><RecordDetail def={def} id={1} onClose={() => undefined} onChanged={() => undefined} /></MemoryRouter>);
     await screen.findByText('番茄种子', { selector: '.rd-title' });
     const titles = [...document.querySelectorAll('.rd-sec-title')].map((e) => (e.textContent ?? '').replace(/编辑本区$/, ''));
     expect(titles.slice(0, 4)).toEqual(['所属分类', '系统自动编号', '赠品简称设置', '原料基础信息']);
     expect(screen.getByText('原料名称', { selector: 'dt' })).toBeTruthy();
     expect(screen.getByText('名称单位', { selector: 'dt' })).toBeTruthy();
+    localStorage.removeItem('kudesi.detail.hideEmpty');
+  });
+  it('没设过偏好时商品详情默认藏起空字段（只剩有内容的分区）；勾掉后才显示', async () => {
+    localStorage.removeItem('kudesi.detail.hideEmpty');
+    const def = getResourceDef('finance-products')!;
+    vi.mocked(resourceApi.get).mockResolvedValue(dto({ type: 'finance-products', title: '番茄种子', data: { archiveType: 'raw', code: 'YL-1', name: '番茄种子', specQty: 500, specUnit: 'G', purchaseSpec: '斤' } }));
+    render(<MemoryRouter><RecordDetail def={def} id={1} onClose={() => undefined} onChanged={() => undefined} /></MemoryRouter>);
+    await screen.findByText('番茄种子', { selector: '.rd-title' });
+    expect(screen.queryByText('赠品简称', { selector: 'dt' })).toBeNull();
+    expect((screen.getByLabelText('隐藏空字段') as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByLabelText('隐藏空字段'));
+    expect(screen.getByText('赠品简称', { selector: 'dt' })).toBeTruthy();
+    localStorage.removeItem('kudesi.detail.hideEmpty');
   });
 });
 

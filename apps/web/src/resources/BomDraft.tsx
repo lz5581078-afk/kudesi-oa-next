@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { COMPOSITION_GROUP_LABEL, type CompositionGroup } from '@kudesi/shared';
 import { resourceApi } from './api';
 import { RefSelect } from './RecordForm';
+import { FieldHint } from './FieldHint';
 
 /**
  * 商品档案表单里的“生产组成”：自产成品（原料 / 产品包装 / OEM 包装 / 人工）和供应商 OEM 成品（OEM 包装）。
@@ -81,8 +82,7 @@ export function BomDraft({ rows, onChange, groups = ['raw', 'package', 'oem_pack
         const mine = rows.map((r, i) => ({ r, i })).filter(({ r }) => r.group === g);
         return (
           <fieldset key={g} className="form-group rf-rowgroup" aria-label={meta.title}>
-            <legend>{meta.title}</legend>
-            <small className="muted">{meta.hint}</small>
+            <div className="rf-rg-head"><strong>{meta.title}</strong><FieldHint text={meta.hint} /><button type="button" className="secondary-button small" onClick={() => onChange([...rows, blankBomRow(g)])}>＋ 添加{meta.title}</button></div>
             {mine.length > 0 && (
               <table className="data-table cards-narrow">
                 <thead><tr><th>{meta.pick}</th><th>数量</th><th>损耗率(%)</th><th /></tr></thead>
@@ -98,12 +98,10 @@ export function BomDraft({ rows, onChange, groups = ['raw', 'package', 'oem_pack
                 </tbody>
               </table>
             )}
-            <button type="button" className="secondary-button small" onClick={() => onChange([...rows, blankBomRow(g)])}>＋ 添加{meta.title}</button>
           </fieldset>
         );
       })}
-      {required && !rows.length && !error && <small className="muted">自产成品至少要有一条原料、包装或人工。</small>}
-      {error && <small className="field-error" role="alert">{error}</small>}
+            {error && <small className="field-error" role="alert">{error}</small>}
     </div>
   );
 }

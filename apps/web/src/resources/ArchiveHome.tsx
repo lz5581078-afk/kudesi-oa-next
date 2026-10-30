@@ -10,6 +10,8 @@ import { FeeSnapshotsDialog } from './FeeSnapshotsDialog';
 import { ReasonDialog, clearRefCache } from './RecordForm';
 import { useResourceCan } from './RecordDetail';
 import { PageHint } from './PageHint';
+import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../layout/AppbarSlot';
+import './archiveHome.css';
 import { resourceDescription } from '@kudesi/shared';
 
 export interface HierEntry { key: string; title: string; subtitle: string; rootId?: number }
@@ -63,6 +65,8 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
   const refresh = () => setReload((n) => n + 1);
+  useAppbarBare(); // 页面名称只在顶部页面栏出现一次，内容区不再重复大标题
+  const hasAppbar = useHasAppbarSlot();
 
   useEffect(() => {
     let alive = true;
@@ -148,12 +152,10 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
 
   return (
     <div className="res-page hier-home">
+      {hasAppbar && desc && <AppbarHint><PageHint text={desc} /></AppbarHint>}
       <header className="hier-home-head">
-        <div>
-          <h1>{def.label}</h1>
-        </div>
         <div className="hier-home-actions">
-          {desc && <PageHint text={desc} />}
+          {!hasAppbar && desc && <PageHint text={desc} />}
           {type === 'finance-fee-items' && <button type="button" className="res-btn" onClick={() => setSnapshots(true)}>费用存档表</button>}
           {cfg.kind === 'category' && <button type="button" className="res-btn" onClick={() => onEnter({ key: 'all', title: `全部${def.label.replace('档案', '')}`, subtitle: cfg.subtitle })}>查看全部{total !== null ? `（${total}）` : ''}</button>}
           {cfg.kind === 'tab' && can('edit') && <button type="button" className="res-btn" onClick={() => setTypesOpen(true)}>管理顶级分类</button>}
@@ -177,10 +179,9 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
           <article key={c.key} className={`hier-card ${ACCENTS[c.idx % ACCENTS.length]}`} role="button" tabIndex={0}
             onClick={() => onEnter({ key: c.key, title: c.title, subtitle: c.subtitle, rootId: c.rootId })}
             onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onEnter({ key: c.key, title: c.title, subtitle: c.subtitle, rootId: c.rootId }); } }}>
-            <span className="hier-card-name">{c.title}</span>
-            <strong>{c.count}</strong>
+            <div className="hier-card-top"><span className="hier-card-name">{c.title}</span><strong>{c.count}<span>{cfg.unit}</span></strong></div>
             <small>{c.subtitle}</small>
-            <em>{c.count} {cfg.unit}{c.foot ? ` · ${c.foot}` : ''}</em>
+            {c.foot && <em>{c.foot}</em>}
             {managing && c.rec && (
               <div className="hier-card-acts" onClick={(e) => e.stopPropagation()}>
                 <button type="button" className="res-btn sm" disabled={busy || c.idx === 0} aria-label={`前移：${c.title}`} onClick={() => void move(c.idx, -1)}>←</button>

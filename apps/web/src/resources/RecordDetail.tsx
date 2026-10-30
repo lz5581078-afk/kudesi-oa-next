@@ -212,7 +212,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const [error, setError] = useState('');
   const [logLimit, setLogLimit] = useState(15);
   const [activeGroup, setActiveGroup] = useState('');
-  const [hideEmpty, setHideEmptyState] = useState(() => { try { return localStorage.getItem(HIDE_EMPTY_KEY) === '1'; } catch { return false; } });
+  const [hideEmpty, setHideEmptyState] = useState(() => { try { const v = localStorage.getItem(HIDE_EMPTY_KEY); return v === null ? def.key === 'finance-products' : v === '1'; } catch { return def.key === 'finance-products'; } }); // 商品档案没设过偏好时默认藏起空字段
   const setHideEmpty = (v: boolean) => { setHideEmptyState(v); try { localStorage.setItem(HIDE_EMPTY_KEY, v ? '1' : '0'); } catch { /* 不记住而已 */ } };
   const body = useRef<HTMLDivElement>(null);
   const today = todayShanghai();
@@ -375,11 +375,11 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
       <div className="rd-body" ref={body} onScroll={onBodyScroll}>
         {error && <div role="alert" className="notice error">{error}</div>}
         {tab === 'info' && (
-          <div className="rd-info">
+          <div className={def.key === 'finance-products' ? 'rd-info rd-p' : 'rd-info'}>
             {sectionList.length > 1 && (
               <nav aria-label="分区导航" className="rd-anchors">
                 {sectionList.map((s) => (
-                  <button key={s.group} type="button" className={`rd-anchor${(activeGroup || sectionList[0].group) === s.group ? ' active' : ''}`} onClick={() => jump(s.group)}>{groupTitle(def, s.group, record.data)}<i>{s.shown.length}</i></button>
+                  <button key={s.group} type="button" className={`rd-anchor${(activeGroup || sectionList[0].group) === s.group ? ' active' : ''}`} onClick={() => jump(s.group)}>{groupTitle(def, s.group, record.data)}</button>
                 ))}
                 <label className="rd-hide-empty check"><input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} /> 隐藏空字段</label>
               </nav>
