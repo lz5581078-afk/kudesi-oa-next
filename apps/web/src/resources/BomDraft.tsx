@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { COMPOSITION_GROUP_LABEL, type CompositionGroup } from '@kudesi/shared';
-import { resourceApi } from './api';
+import { COMPOSITION_GROUP_LABEL, unitYuanText, multiplyUnitCents, type CompositionGroup } from '@kudesi/shared';
+import { resourceApi, type ResourceDto } from './api';
 import { RefSelect } from './RecordForm';
 import { FieldHint } from './FieldHint';
 
@@ -73,8 +73,16 @@ function ComponentSelect({ archiveType, value, onChange }: { archiveType: string
   );
 }
 
-export function BomDraft({ rows, onChange, groups = ['raw', 'package', 'oem_package', 'labor'], required, error }: { rows: BomDraftRow[]; onChange: (r: BomDraftRow[]) => void; groups?: readonly CompositionGroup[]; required?: boolean; error?: string }) {
+export function BomDraft({ rows, onChange, groups = ['raw', 'package', 'oem_package', 'labor'], required, error, reference = false, records, canCost = true }: { rows: BomDraftRow[]; onChange: (r: BomDraftRow[]) => void; groups?: readonly CompositionGroup[]; required?: boolean; error?: string; reference?: boolean; records?: Map<string,ResourceDto>; canCost?: boolean }) {
   const set = (i: number, patch: Partial<BomDraftRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  if (reference) {
+    const visible = groups.filter(g => g !== 'oem_package' || !groups.includes('package'));
+    return <div className="reference-bom" data-field="composition">{visible.map((g,index) => {
+      const combined = g === 'package' && groups.includes('oem_package'), meta=COMPOSITION_GROUP_LABEL[g];
+      const mine=rows.map((r,i)=>({r,i})).filter(({r})=>r.group===g || combined&&r.group==='oem_package');
+      return <section key={g} id={`rf-bom-${g}`} className="reference-bom-group" aria-label={meta.title}><header><div><span>{String(index+1).padStart(2,'0')}</span><strong>{combined?'包装组成':meta.title}</strong><small>{meta.hint}</small></div><div><button type="button" className="secondary-button small" onClick={()=>onChange([...rows,blankBomRow(g)])}>＋ 添加{meta.title}</button>{combined&&<button type="button" className="secondary-button small" onClick={()=>onChange([...rows,blankBomRow('oem_package')])}>＋ 添加OEM 包装</button>}</div></header>{mine.map(({r,i})=>{const record=records?.get(`${r.kind}:${r.id}`),d=record?.data,price=d?.[r.kind==='labor'?'unitPrice':'totalCost'],cost=price==null?null:multiplyUnitCents(Number(price),Number(r.qty||0),r.kind==='labor'?0:Number(r.loss||0));return <div key={r.rowId??i} className="reference-bom-row"><div className="reference-bom-choice"><label>{COMPOSITION_GROUP_LABEL[r.group].pick}{g==='labor'?<RefSelect field={{...LABOR}} value={r.id} onChange={v=>set(i,{id:v})}/>:<ComponentSelect archiveType={COMPOSITION_GROUP_LABEL[r.group].archiveType!} value={r.id} onChange={v=>set(i,{id:v})}/>}</label><small>{record?.refLabels.categoryId??''}{d?.purchaseSpec?` · ${String(d.purchaseSpec)}`:''}</small><button type="button" className="link-button danger" onClick={()=>onChange(rows.filter((_,k)=>k!==i))}>去掉</button></div><div className="reference-bom-facts"><label>使用倍数<input aria-label="组成数量" type="number" min="0" step="any" value={r.qty} onChange={e=>set(i,{qty:e.target.value===''?'':Number(e.target.value)})}/></label>{canCost&&<div><small>{g==='labor'?'单位人工成本':'采购价'}</small><strong>{d?.[g==='labor'?'unitPrice':'purchasePrice']==null?'待补齐':`¥${unitYuanText(Number(d[g==='labor'?'unitPrice':'purchasePrice']))}`}</strong><small>/ {String(d?.purchaseSpec||d?.unitName||'单位')}</small></div>}{g!=='labor'&&<div><small>每倍重量</small><strong>{d?.weightG==null?'待补齐':`${Number(d.weightG)/1000} kg`}</strong></div>}{canCost&&<div className="reference-bom-subtotal"><small>本项成本</small><strong>{cost===null?'待补齐':`¥${unitYuanText(cost)}`}</strong><small>{g==='labor'?'人工不计重量':`重量 ${Number(d?.weightG||0)*Number(r.qty||0)/1000} kg`}</small></div>}</div>{g!=='labor'&&<details className="reference-bom-loss"><summary>损耗设置</summary><label>损耗率（%）<input aria-label="组成损耗率" type="number" min="0" max="99.999999" step="any" value={r.loss} onChange={e=>set(i,{loss:e.target.value===''?'':Number(e.target.value)})}/></label></details>}</div>;})}{!mine.length&&<p className="reference-bom-empty">尚未添加{combined?'包装':meta.title}，可从已维护的档案中选择。</p>}</section>;
+    })}{error&&<small className="field-error" role="alert">{error}</small>}</div>;
+  }
   return (
     <div className="rf-rows" data-field="composition">
       {groups.map((g) => {

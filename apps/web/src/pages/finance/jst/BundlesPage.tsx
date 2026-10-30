@@ -9,6 +9,7 @@ import { ImportDialog } from '../../../resources/ImportDialog';
 import { RecordDetail, useResourceCan } from '../../../resources/RecordDetail';
 import { resourceApi, type ListResult, type ResourceDto } from '../../../resources/api';
 import { Pager } from '../common';
+import { BundleProfileEditor } from '../../../resources/BundleProfileEditor';
 import { CategoryTree } from '../../../resources/CategoryTree';
 import { BundleManualDialog } from './BundleManualDialog';
 import { BundleRegenDialog } from './BundleRegenDialog';
@@ -38,6 +39,7 @@ export function BundlesPage() {
   const [verifyIds, setVerifyIds] = useState<number[] | null>(null);
   const [revise, setRevise] = useState<ResourceDto | null>(null);
   const [remove, setRemove] = useState<ResourceDto | null>(null);
+  const [profile, setProfile] = useState<ResourceDto | null>(null);
   const [manual, setManual] = useState<ResourceDto | null>(null);
   const [categoryId, setCategoryId] = useState('');
   const [open, setOpen] = useState<Record<number, ResourceDto[] | 'loading' | 'error'>>({});
@@ -105,7 +107,7 @@ export function BundlesPage() {
                   <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`勾选 ${row.title}`} checked={checked.includes(row.id)} onChange={(e) => setChecked(e.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></td>
                   {columns.map((f) => <td key={f.key} data-label={f.label}>{displayValue(f, row)}{f.key === 'code' && <CopyButton value={String(row.data.code ?? '')} label="组合编码" />}</td>)}
                   <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>{typeof row.data.pendingRevisionId === 'number' && <span className="pill warn">有待发布修订</span>}</td>
-                  <td onClick={(e) => e.stopPropagation()}><button type="button" className="link-button" aria-expanded={Boolean(lines)} onClick={() => void toggleLines(row.id)}>{lines ? '收起构成' : '展开构成'}</button>{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}</td>
+                  <td onClick={(e) => e.stopPropagation()}><button type="button" className="link-button" aria-expanded={Boolean(lines)} onClick={() => void toggleLines(row.id)}>{lines ? '收起构成' : '展开构成'}</button>{can('edit') && row.status !== 'archived' && <button type="button" className="link-button" onClick={() => setProfile(row)}>编辑</button>}{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}</td>
                 </tr>
                 {lines && (
                   <tr className="bundle-lines-row"><td colSpan={columns.length + 3}>
@@ -124,6 +126,7 @@ export function BundlesPage() {
         <div className="card-foot between"><span>共 {data?.total ?? 0} 条 · 点击一行在右侧查看，组合构成在右侧“组合构成”里加减</span><Pager page={page} total={data?.total ?? 0} pageSize={20} onPage={setPage} /></div>
       </section>
       </div>
+      {profile && <BundleProfileEditor record={profile} onClose={() => setProfile(null)} onSaved={() => { setProfile(null); void reload(); }} />}
       {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void reload()} />}
       {dialog === 'import' && <ImportDialog def={def} onClose={() => setDialog(null)} onDone={() => { setDialog(null); void reload(); }} />}
       {dialog === 'generate' && <GenerateDialog onClose={() => setDialog(null)} onDone={() => void reload()} />}

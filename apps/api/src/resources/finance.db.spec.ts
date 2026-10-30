@@ -43,7 +43,7 @@ d('财务资料（真实数据库）', () => {
     const l3 = await svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '三级', code: 'L3', parentId: l2.id });
     const l4 = await svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '四级', code: 'L4', parentId: l3.id });
     await expect(svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '五级', code: 'L5', parentId: l4.id })).rejects.toThrow(/最多 4 级/);
-    await expect(svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '苹果类', code: 'XX' })).rejects.toThrow(/已存在/);
+    await expect(svc.create(boss, 'finance-categories', { archiveType: 'raw', parentId: ids.rawCat, name: '苹果类', code: 'XX' })).rejects.toThrow(/已存在/);
   });
 
   it('分类目录：列表显示完整路径、点上级含下级、目录带数量', async () => {

@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import { createChecker } from '@kudesi/shared';
+import { ForbiddenException, Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
-import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
+import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { CategoryToolsService } from './category-tools.service';
 
 class ReorderDto { @IsArray() @ArrayMinSize(2) @ArrayMaxSize(500) @IsInt({ each: true }) @Min(1, { each: true }) orderedIds!: number[] }
@@ -32,6 +33,11 @@ class CodePreviewDto {
   @IsOptional() @IsString() @MaxLength(60) shape?: string;
   @IsOptional() @IsString() @MaxLength(60) code?: string;
   @IsOptional() @IsString() @MaxLength(80) materialCode?: string;
+  @IsOptional() @IsString() @MaxLength(10000) capacities?: string;
+  @IsOptional() @IsString() @MaxLength(100) dimensions?: string;
+  @IsOptional() @IsString() @MaxLength(30) dimensionUnit?: string;
+  @IsOptional() @IsString() @MaxLength(30) productPackagingSpec?: string;
+  @IsOptional() @IsString() @MaxLength(30) productPackagingUnit?: string;
   @IsOptional() @IsInt() @Min(1) excludeId?: number;
 }
 
@@ -39,10 +45,12 @@ class CodePreviewDto {
 export class ProductCodePreviewController {
   constructor(private readonly tools: CategoryToolsService) {}
 
-  @RequirePermission('resource.finance-products.create')
+  @AuthenticatedOnly()
   @Post('code-preview')
   @HttpCode(200)
   preview(@CurrentUser() u: AuthUser, @Body() b: CodePreviewDto) {
+    const can = createChecker(u.permissions);
+    if (!can('resource.finance-products.create') && !can('resource.finance-products.edit')) throw new ForbiddenException('没有新建或编辑商品档案的权限');
     const { excludeId, ...data } = b;
     return this.tools.previewProductCode(u, data, excludeId ?? null);
   }

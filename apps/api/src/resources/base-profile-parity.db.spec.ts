@@ -1,0 +1,60 @@
+import 'reflect-metadata';
+import { randomBytes } from 'node:crypto';
+import { DataSource } from 'typeorm';
+import { buildDataSourceOptions } from '../database/data-source';
+import { Company, ResourceRecord, User } from '../entities';
+import { buildServices } from '../test-support';
+import { buildSnapshot } from './base-code-support';
+
+const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
+d('24号基础编码专属资料：重量分类独立维护及生效引用保护', () => {
+  let ds: DataSource;
+  beforeAll(async () => { ds = await new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME }), migrationsRun: true }).initialize(); });
+  afterAll(async () => { await ds?.destroy(); });
+  it('未生效时允许独立修改，后续保存和来源变化不覆盖；生效引用锁定身份字段', async () => {
+    const token = randomBytes(5).toString('hex'), c = await ds.manager.save(Company, ds.manager.create(Company, { code: 'profile' + token, name: '专属资料测试', status: 'active' }));
+    const u = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: 'profile' + token, passwordHash: 'x', name: '管理员', status: 'active', isCompanyAdmin: true, mustChangePassword: false }));
+    const actor = { id: u.id, companyId: c.id, name: u.name, permissions: { isCompanyAdmin: true, allow: [], deny: [] } }, svc = buildServices(ds).resources;
+    const a = await svc.create(actor, 'finance-categories', { archiveType: 'raw', name: '原分类', code: 'A' });
+    const b = await svc.create(actor, 'finance-categories', { archiveType: 'raw', name: '独立分类', code: 'B' });
+    const p = await svc.create(actor, 'finance-products', { archiveType: 'raw', name: '原料甲', categoryId: a.id, specQty: 1, specUnit: 'KG', purchaseSpec: '千克', freight: 1, handlingFee: 1 });
+    const [bc] = (await ds.manager.find(ResourceRecord, { where: { companyId: c.id, type: 'finance-base-codes' } })).filter(x => x.data.productId === p.id);
+    expect(bc).toBeTruthy();
+    const before = await buildSnapshot(ds.manager, c.id, bc);
+    expect((await svc.confirmBaseProfile(actor, 'finance-base-codes', bc.id, {})).data.profileManual).toBe(true);
+    await expect(svc.confirmBaseProfile(actor, 'finance-base-codes', bc.id, { cost: 1 })).rejects.toThrow(/专属资料只能/);
+    let custom = await svc.update(actor, 'finance-base-codes', bc.id, { weightG: 750.123456, categoryId: b.id, shortName: '专属原料' });
+    expect(custom.data.weightG).toBe(750.123456);
+    expect(custom.data.categoryId).toBe(b.id);
+    expect(custom.data.profileManual).toBe(true);
+    expect((await buildSnapshot(ds.manager, c.id, await ds.manager.findOneByOrFail(ResourceRecord, { id: bc.id }))).signature).not.toBe(before.signature);
+    await svc.update(actor, 'finance-products', p.id, { purchaseSpec: '斤' });
+    custom = await svc.update(actor, 'finance-base-codes', bc.id, { shortName: '专属原料甲' });
+    expect(custom.data.weightG).toBe(750.123456);
+    expect(custom.data.categoryId).toBe(b.id);
+    await expect(svc.update(actor, 'finance-base-codes', bc.id, { weightG: -1 })).rejects.toThrow(/重量/);
+    const row = await ds.manager.findOneByOrFail(ResourceRecord, { id: bc.id });
+    await ds.manager.update(ResourceRecord, { id: bc.id }, { data: { ...row.data, jstStatus: 'synced', jstUploadedCode: String(row.data.code) } });
+    await expect(svc.update(actor, 'finance-base-codes', bc.id, { weightG: 900 })).rejects.toThrow(/生效引用/);
+    await expect(svc.update(actor, 'finance-base-codes', bc.id, { categoryId: a.id })).rejects.toThrow(/生效引用/);
+    await expect(svc.update(actor, 'finance-base-codes', bc.id, { shortName: '允许更新简称' })).resolves.toBeDefined();
+  });
+  it('组合名称简称和启停同事务保存，拒绝改编码、跨公司及无启停权限', async () => {
+    const token = randomBytes(5).toString('hex'), c = await ds.manager.save(Company, ds.manager.create(Company, {code:'bp'+token,name:'组合编辑测试',status:'active'}));
+    const u = await ds.manager.save(User, ds.manager.create(User, {companyId:c.id,account:'bp'+token,passwordHash:'x',name:'管理员',status:'active',isCompanyAdmin:true,mustChangePassword:false}));
+    const actor = { id:u.id,companyId:c.id,name:u.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]} }, svc=buildServices(ds).resources;
+    const platform=await svc.create(actor,'finance-platforms',{name:'通用平台',code:'TY'}), scenario=await svc.create(actor,'finance-scenarios',{name:'普通销售',code:'PT'});
+    const b=await svc.create(actor,'finance-bundles',{platformId:platform.id,scenarioId:scenario.id});
+    const changed=await svc.confirmBaseProfile(actor,'finance-bundles',b.id,{name:'新组合名称',shortName:'新简称',status:'active'});
+    expect(changed.data).toMatchObject({name:'新组合名称',shortName:'新简称',code:b.data.code});
+    await expect(svc.confirmBaseProfile(actor,'finance-bundles',b.id,{name:'不应保存',shortName:'测试',status:'inactive'})).rejects.toThrow(/原因/);
+    expect((await svc.get(actor,'finance-bundles',b.id)).data.name).toBe('新组合名称');
+    await expect(svc.confirmBaseProfile({...actor,companyId:c.id+99999},'finance-bundles',b.id,{name:'越权',shortName:'越权',status:'active'})).rejects.toThrow(/不存在/);
+    await expect(svc.confirmBaseProfile({...actor,permissions:{isCompanyAdmin:false,allow:['resource.finance-bundles.edit'],deny:[]}},'finance-bundles',b.id,{name:'不应保存',shortName:'测试',status:'inactive',statusReason:'停止使用'})).rejects.toThrow(/改状态/);
+    const stopped=await svc.confirmBaseProfile(actor,'finance-bundles',b.id,{name:'新组合名称',shortName:'新简称',status:'inactive',statusReason:'停止使用'});
+    expect(stopped.status).toBe('inactive');
+    await expect(svc.confirmBaseProfile(actor,'finance-bundles',b.id,{name:'名称',shortName:'简称',status:'active',code:'BAD'})).rejects.toThrow(/只能修改/);
+    expect((await svc.confirmBaseProfile(actor,'finance-bundles',b.id,{name:'新组合名称',shortName:'新简称',status:'active'})).status).toBe('pending');
+  });
+
+});

@@ -121,7 +121,7 @@ export class BaseCodeToolsService {
     const em = this.ds.manager;
     const bc = await this.load(em, user, id);
     const refs = await inspectBaseCodeReferences(em, user.companyId, bc);
-    return { ...refs, lockedFields: refs.permissions.editIdentityFields ? [] : [...BASE_CODE_IDENTITY_FIELDS] };
+    return { ...refs, lockedFields: refs.permissions.editIdentityFields ? [] : [...BASE_CODE_IDENTITY_FIELDS, 'categoryId', 'weightG'] };
   }
 
   /** 验证历史：每次验证通过一行，带和上一次验证相比改了什么（成本类差异按权限去掉） */

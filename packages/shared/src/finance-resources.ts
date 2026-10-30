@@ -765,8 +765,8 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('shortName', '简称', '基础', { maxLength: 80 }),
       text('spec', '颜色及规格', '基础', { maxLength: 120 }),
       text('varietyName', '品种', '基础', { maxLength: 80, help: '不填则取商品档案的品名；用它的拼音首字母生成编码' }),
-      { key: 'categoryId', label: '分类', type: 'ref', ref: 'finance-categories', group: '基础', readonly: true, list: true },
-      { key: 'weightG', label: '重量(克)', type: 'decimal', group: '基础', readonly: true, scale: 6, list: true },
+      { key: 'categoryId', label: '分类', type: 'ref', ref: 'finance-categories', group: '基础', list: true },
+      { key: 'weightG', label: '重量(克)', type: 'decimal', group: '基础', scale: 6, list: true },
       { ...money('cost', '成本', '基础', { readonly: true, list: true }), permission: COST_VIEW },
       { ...money('purchasePrice', '采购价', '基础', { readonly: true }), permission: COST_VIEW },
       { key: 'profileManual', label: '专属资料已手改', type: 'bool', group: '基础', readonly: true, help: '手改过名称、简称、颜色及规格或编码后，商品档案变化不再覆盖它们，也不再被手工新建的编码取代' },
@@ -987,6 +987,17 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
   },
   // ---------- 资料维护 ----------
+  {
+    key: 'finance-archive-prefixes',
+    label: '档案类型编号',
+    parent: { type: 'finance-categories', field: 'archiveType' },
+    titleField: 'archiveType', uniqueField: 'archiveType',
+    statuses: [ACTIVE], defaultStatus: 'active',
+    fields: [
+      text('archiveType', '档案类型', '基础', { required: true, maxLength: 32 }),
+      text('code', '类型编号', '基础', { required: true, maxLength: 8 }),
+    ],
+  },
   {
     key: 'finance-categories',
     label: '商品分类',

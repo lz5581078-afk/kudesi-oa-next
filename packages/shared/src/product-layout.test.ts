@@ -59,7 +59,7 @@ describe('商品档案布局（详情、新增、编辑共用的一份）', () =
     expect(ids('purchased_oem')).toEqual(['category', 'code', 'gift', 'base', 'production', 'pricing', 'logistics', 'total', 'photos']);
     expect(ids('package')).toEqual(['category', 'code', 'base', 'capacities', 'production', 'stock', 'logistics', 'total', 'photos']);
     expect(ids('oem_package')).toEqual(ids('package'));
-    expect(ids('shipping_material')).toEqual(['category', 'gift', 'base', 'code', 'sources', 'weight', 'logistics', 'total', 'photos']);
+    expect(ids('shipping_material')).toEqual(['category', 'code', 'gift', 'base', 'sources', 'weight', 'logistics', 'total', 'photos', 'extra']);
     expect(ids('custom')).toEqual(['category', 'code', 'base', 'cost', 'total', 'photos']);
   });
 

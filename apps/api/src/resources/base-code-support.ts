@@ -138,6 +138,8 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
     profile: {
       code: str(bc.data.code), styleCode: str(bc.data.styleCode), name: str(bc.data.name), shortName: str(bc.data.shortName),
       spec: str(bc.data.spec), varietyName: str(bc.data.varietyName),
+      ...(bc.data.profileWeightOverride !== undefined ? { profileWeightG: bc.data.profileWeightOverride } : {}),
+      ...(bc.data.profileCategoryOverride !== undefined ? { profileCategoryId: bc.data.profileCategoryOverride } : {}),
       ...(composed ? { components: lines.map((l) => `${l.data.productId}x${l.data.qty}:${l.data.role}`).join(';') } : {}),
     },
     archives,
