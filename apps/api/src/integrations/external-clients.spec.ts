@@ -116,8 +116,8 @@ describe('聚水潭普通商品真实字段与查询延迟', () => {
     expect(await sender.read('A', 'normal')).toMatchObject({ sku_id: 'A', c_name: '原料', purchase_price: 0.012345, autoid: 7, custom: '保留' });
     expect(client.pages).toHaveBeenLastCalledWith('/open/sku/query', { sku_ids: 'A', flds: 'sku_id,purchase_price' }, 'datas');
   });
-  it('上传将完整分类路径核对为末级名称，正确映射尺寸、属性和同步状态', async () => {
-    const client = { pages: jest.fn(async (path: string) => path.includes('category') ? [{ c_id: 1, name: '资料', parent_c_id: 0 }, { c_id: 2, name: '原料', parent_c_id: 1 }] : []), call: jest.fn(async () => ({})) };
+  it('上传允许远端额外档案目录前缀，完整后缀核对为唯一末级名称，并正确映射字段', async () => {
+    const client = { pages: jest.fn(async (path: string) => path.includes('category') ? [{ c_id: 9, name: '档案目录', parent_c_id: 0 }, { c_id: 1, name: '资料', parent_c_id: 9 }, { c_id: 2, name: '原料', parent_c_id: 1 }] : []), call: jest.fn(async () => ({})) };
     const sender = new CompanyJstSender(client as any, 'target');
     await sender.send({ kind: 'normal_product_upload', idempotencyKey: 'fields', payload: { targetKey: 'target', sku_id: 'A', i_id: 'I', name: '测试', c_name: '资料/原料', length: 1, width: 2, height: 3, other1: '属性', salePrice: 2.34, labels: '测试甲，测试乙', stockDisabled: '0', enabled: '0' } });
     expect((client.call.mock.calls[0] as any)[1].items[0]).toMatchObject({ c_name: '原料', l: 1, w: 2, h: 3, other_1: '属性', s_price: 2.34, labels: ['测试甲', '测试乙'], stock_disabled: false, enabled: 0 });
