@@ -111,10 +111,15 @@ describe('聚水潭分类未知结果防重放', () => {
 
 describe('聚水潭普通商品真实字段与查询延迟', () => {
   it('默认分类字段和单独采购价查询合并，不丢失扩展字段', async () => {
-    const client = { pages: jest.fn(async (_path: string, p: any) => p.flds ? [{ sku_id: 'A', purchase_price: 0.012345 }] : [{ sku_id: 'A', category: '原料', autoid: 7, custom: '保留' }]) };
+    const client = { pages: jest.fn(async (path: string, p: any) => path.includes('category') ? [{ c_id: 8, name: '原料 - 子类', parent_c_id: 1 }] : p.flds ? [{ sku_id: 'A', purchase_price: 0.012345 }] : [{ sku_id: 'A', c_id: 8, category: '档案目录 - 原料 - 子类', autoid: 7, custom: '保留' }]) };
     const sender = new CompanyJstSender(client as any, 'target');
-    expect(await sender.read('A', 'normal')).toMatchObject({ sku_id: 'A', c_name: '原料', purchase_price: 0.012345, autoid: 7, custom: '保留' });
-    expect(client.pages).toHaveBeenLastCalledWith('/open/sku/query', { sku_ids: 'A', flds: 'sku_id,purchase_price' }, 'datas');
+    expect(await sender.read('A', 'normal')).toMatchObject({ sku_id: 'A', c_name: '原料 - 子类', purchase_price: 0.012345, autoid: 7, custom: '保留' });
+    expect(client.pages).toHaveBeenCalledWith('/open/sku/query', { sku_ids: 'A', flds: 'sku_id,purchase_price' }, 'datas');
+    expect(client.pages).toHaveBeenLastCalledWith('/open/category/query', {}, 'datas');
+  });
+  it('商品分类 ID 无法唯一回查时拒绝把显示路径当作分类名', async () => {
+    const client = { pages: jest.fn(async (path: string, p: any) => path.includes('category') ? [] : p.flds ? [{ sku_id: 'A', purchase_price: 1 }] : [{ sku_id: 'A', c_id: 8, category: '档案 - 原料' }]) };
+    await expect(new CompanyJstSender(client as any, 'target').read('A', 'normal')).rejects.toThrow(/分类 ID/);
   });
   it('上传允许远端额外档案目录前缀，完整后缀核对为唯一末级名称，并正确映射字段', async () => {
     const client = { pages: jest.fn(async (path: string) => path.includes('category') ? [{ c_id: 9, name: '档案目录', parent_c_id: 0 }, { c_id: 1, name: '资料', parent_c_id: 9 }, { c_id: 2, name: '原料', parent_c_id: 1 }] : []), call: jest.fn(async () => ({})) };
