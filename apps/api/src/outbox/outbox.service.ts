@@ -20,6 +20,8 @@ export interface RemoteCategory { id: string; name: string; parentId: string; so
 export interface OutboxSender {
   /** 没有接入真实接口时为 false：worker 不会发送任何东西 */
   readonly configured: boolean;
+  /** 写入成功后仅重试回查，等待第三方查询索引更新；不会重发写入。 */
+  readonly confirmationDelays?: readonly number[];
   forCompany?(companyId: number): Promise<OutboxSender>;
   /** 发送器连着哪个聚水潭账号（有值时：入队时写进任务，发送前核对；换了账号的旧任务不会发错地方） */
   readonly targetKey?: string;
@@ -394,16 +396,28 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
 
   /** 发送后回读确认：组合装的子商品列表、基本售价、禁用状态要和上传的一致 */
   private async confirm(job: OutboxJob, result?: JobOutcome, sender: OutboxSender = this.sender): Promise<void> {
+    const delays = sender.confirmationDelays ?? [];
+    for (let attempt = 0; ; attempt++) {
+      try { return await this.confirmOnce(job, result, sender); }
+      catch (error) {
+        if (attempt >= delays.length) throw error;
+        await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+      }
+    }
+  }
+
+  private async confirmOnce(job: OutboxJob, result: JobOutcome | undefined, sender: OutboxSender): Promise<void> {
     if (job.kind === 'category_sync') return this.confirmCategory(job, result, sender);
     if (!sender.read) return;
     if (job.resourceType !== 'finance-bundles' && ['base_code_upsert', 'base_code_replace', 'base_code_disable', 'normal_product_upload'].includes(job.kind)) {
-      const p = job.payloadJson;
+      const p = { ...job.payloadJson } as Record<string, unknown>;
+      for (const [camel, key] of Object.entries({ shortName: 'short_name', propertiesValue: 'properties_value', categoryName: 'c_name', costPrice: 'cost_price', purchasePrice: 'purchase_price' })) if (p[key] == null && p[camel] != null) p[key] = p[camel];
       const got = await sender.read(str(p.sku_id), 'normal');
       if (job.kind === 'base_code_disable') { if (got && !['-1', '禁用'].includes(String(got.enabled))) throw new Error('普通商品禁用结果未确认'); return; }
       if (!got) throw new Error('回读不到刚上传的普通商品，请人工核对');
       for (const k of ['sku_id', 'i_id', 'name', 'short_name', 'properties_value', 'c_name', 'brand', 'unit', 'weight', 'cost_price', 'purchase_price']) {
         if (p[k] == null) continue;
-        const same = ['weight', 'cost_price', 'purchase_price'].includes(k) ? Number(got[k]) === Math.round(Number(p[k]) * 10000) / 10000 : String(got[k] ?? '') === String(p[k]);
+        const same = ['weight', 'cost_price', 'purchase_price'].includes(k) ? Number(got[k]) === Math.round(Number(p[k]) * 1000000) / 1000000 : (String(got[k] ?? '') === String(p[k]) || (k === 'c_name' && String(got[k] ?? '') === String(p[k]).split('/').at(-1)));
         if (!same) throw new Error(`普通商品回读字段 ${k} 不一致，请人工核对`);
       }
       return;
