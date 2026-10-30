@@ -224,7 +224,7 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
     c_name: cat.map((c) => c.title).join('/'),
     brand: brand?.title ?? '',
     unit,
-    weight: w === null ? null : Math.round(w) / 1000,
+    weight: w === null ? null : Math.round(w * 1000) / 1_000_000,
     cost_price: cost === null ? null : cost / 100,
     purchase_price: buy === null ? null : buy / 100,
   };

@@ -31,7 +31,7 @@ d('迁入后分类结构修正（真实数据库）', () => {
     const oemLeaf = await svc.create(boss, 'finance-categories', { archiveType: 'package', name: '修正OEM叶', code: 'XO2', parentId: oemRoot.id });
     const pkRoot = await svc.create(boss, 'finance-categories', { archiveType: 'package', name: '修正包装根', code: 'XP1' });
     const brand = await svc.create(boss, 'finance-brands', { name: '修正品牌' });
-    const mk = (cat: number, type: string, name: string) => svc.create(boss, 'finance-products', { archiveType: type, name, capacities: '1KG', purchaseSpec: '个', specQty: 1, specUnit: 'EA', purchasePrice: 10, freight: 1, handlingFee: 1, brandId: brand.id, categoryId: cat });
+    const mk = (cat: number, type: string, name: string) => svc.create(boss, 'finance-products', { archiveType: type, name, capacities: '1KG', weightG: 25, purchaseSpec: '个', specQty: 1, specUnit: 'EA', purchasePrice: 10, freight: 1, handlingFee: 1, brandId: brand.id, categoryId: cat });
     await mk(oemLeaf.id, 'package', '临时产品包装');
     // 模拟旧数据：把这个商品直接改成 oem_package（绕过类型校验，等同迁入时的状态）
     const prod = await ds.manager.findOneByOrFail(ResourceRecord, { companyId: boss.companyId, type: 'finance-products', title: '临时产品包装' });

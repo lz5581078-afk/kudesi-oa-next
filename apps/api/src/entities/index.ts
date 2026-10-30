@@ -703,8 +703,8 @@ export class FinanceCostSnapshot {
   @Column({ type: 'varchar', length: 300 }) name!: string;
   @Column({ type: 'int', unsigned: true }) revision!: number;
   @Column({ name: 'pre_ship_cost_cents', type: 'decimal', precision: 24, scale: 4, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) preShipCostCents!: number | null;
-  @Column({ name: 'weight_g', type: 'decimal', precision: 14, scale: 2, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) weightG!: number | null;
-  @Column({ name: 'freight_cents', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) freightCents!: number | null;
+  @Column({ name: 'weight_g', type: 'decimal', precision: 20, scale: 6, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) weightG!: number | null;
+  @Column({ name: 'freight_cents', type: 'decimal', precision: 24, scale: 4, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) freightCents!: number | null;
   @Column({ name: 'margin_percent', type: 'decimal', precision: 10, scale: 6, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) marginPercent!: number | null;
   @Column({ name: 'min_price_cents', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) minPriceCents!: number | null;
   @Column({ type: 'varchar', length: 200, default: '' }) reason!: string;
