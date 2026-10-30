@@ -141,3 +141,25 @@ describe('聚水潭普通商品真实字段与查询延迟', () => {
     expect(sender.read).toHaveBeenCalledTimes(3); expect(sender.send).not.toHaveBeenCalled();
   });
 });
+
+describe('聚水潭单价精度边界', () => {
+  it('超出上游保存精度，在任何查询或写入之前拒绝，不静默舍入', async () => {
+    const client = { pages: jest.fn(), call: jest.fn() }, sender = new CompanyJstSender(client as any, 'target');
+    for (const field of ['cost_price', 'purchase_price', 'costPrice', 'purchasePrice']) {
+      await expect(sender.send({ kind: 'normal_product_upload', idempotencyKey: 'precision', payload: { targetKey: 'target', sku_id: 'A', [field]: 0.012345 } })).rejects.toMatchObject({ permanentFailure: true });
+    }
+    expect(client.pages).not.toHaveBeenCalled(); expect(client.call).not.toHaveBeenCalled();
+    const { assertJstNormalPricePrecision } = await import('../outbox/jst-price-precision');
+    expect(() => assertJstNormalPricePrecision({ costPrice: 0.0123, purchasePrice: 0.0001 })).not.toThrow();
+    expect(() => assertJstNormalPricePrecision({ costPrice: 0.1 + 0.2 })).not.toThrow();
+  });
+  it('上传表单在创建资料和入队之前明确返回精度错误，原输入不变', async () => {
+    const { JstMaintenanceService } = await import('../resources/jst-maintenance.service');
+    const resources = { createRecord: jest.fn() }, outbox = { enqueueUpload: jest.fn() };
+    const service = new JstMaintenanceService(undefined as any, resources as any, outbox as any);
+    const form = { costPrice: 0.012345, purchasePrice: 0.012345 };
+    await expect(service.upload({ permissions: { isCompanyAdmin: true } } as any, form)).rejects.toThrow(/只保留元后 4 位/);
+    expect(resources.createRecord).not.toHaveBeenCalled(); expect(outbox.enqueueUpload).not.toHaveBeenCalled();
+    expect(form).toEqual({ costPrice: 0.012345, purchasePrice: 0.012345 });
+  });
+});

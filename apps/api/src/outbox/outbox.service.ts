@@ -1,3 +1,4 @@
+import { assertJstNormalPricePrecision } from './jst-price-precision';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Inject, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In } from 'typeorm';
@@ -176,6 +177,14 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
       }
+      if (t === 'finance-base-codes') {
+        try { assertJstNormalPricePrecision(payload); }
+        catch (e) {
+          await this.dataSource.transaction(tx => this.resources.patchData(tx, user, t, r.id, { jstMessage: (e as Error).message }, '上传前单价精度检查未通过'));
+          if (ids?.length) throw new BadRequestException((e as Error).message);
+          skipped++; continue;
+        }
+      }
       // 幂等键 = 记录 + 上传内容指纹：只看内容，不看更新时间（入队后回写状态会改更新时间，跨秒会让同一内容重复入队）。
       // 内容和最近一条非停用任务相同 → 跳过；内容改回以前的版本（A→B→A）→ 键后加序号，允许重发。
       const baseKey = `${t}:${r.id}:${sigOf(JSON.stringify(payload)).slice(0, 16)}`;
@@ -210,6 +219,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
   /** 手工上传的普通商品资料：只加入队列（总开关开着、接入真实接口后才会发送），结果回写上传记录。 */
   async enqueueUpload(user: AuthUser, recordId: number, payload: Record<string, unknown>) {
     this.admin(user);
+    try { assertJstNormalPricePrecision(payload); } catch (e) { throw new BadRequestException((e as Error).message); }
     const sender = await this.senderFor(user.companyId);
     payload = { ...payload, ...(sender.targetKey ? { targetKey: sender.targetKey } : {}) };
     const res = await this.dataSource.manager.query(
@@ -526,7 +536,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
         // 已经发出去、但回读确认失败/对不上：结果未知，绝不自动重发
         const unknown = sendOk || Boolean((e as { outcomeUnknown?: boolean }).outcomeUnknown);
         const attempts = job.attempts + 1;
-        const dead = unknown || attempts >= MAX_ATTEMPTS;
+        const dead = unknown || Boolean((e as { permanentFailure?: boolean }).permanentFailure) || attempts >= MAX_ATTEMPTS;
         // 价格、分类、禁用这几类任务有自己的结果落点，不碰组合的上传状态
         if (['bundle_price_update', 'category_sync'].includes(job.kind) || (job.kind === 'bundle_disable' && unknown)) {
           await em.update(OutboxJob, { id: job.id }, { status: dead ? 'failed' : 'pending', attempts, lastError: (e as Error).message.slice(0, 500), nextAttemptAt: new Date(Date.now() + 2 ** attempts * 60_000) });
