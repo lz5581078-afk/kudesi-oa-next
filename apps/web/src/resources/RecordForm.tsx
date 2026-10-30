@@ -8,6 +8,9 @@ import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
 import { ManageLink } from './ManageLink';
 import { BomDraft, saveBomRows, loadBomRows, validBomRows, type BomDraftRow } from './BomDraft';
+import { FieldHint } from './FieldHint';
+import { fieldSpan, needsZeroReason } from './productFormGrid';
+import './productForm.css';
 import { SourcesDraft, WeightBlock, loadSourceRows, saveSourceRows, type SourceRow } from './ProductFormParts';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
@@ -533,8 +536,8 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const errorCount = Object.values(errors).filter(Boolean).length;
 
   const renderField = (f: FieldDef, wide?: boolean) => (
-    <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[wide || f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || (f.type === 'ref' && f.cascade) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
-      <span className="rf-label">{f.label}{f.required && <b className="req" title="必填"> *</b>}</span>
+    <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[isProduct ? `s${wide ? 12 : fieldSpan(f)}` : '', !isProduct && (wide || f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || (f.type === 'ref' && f.cascade)) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
+      <span className="rf-label">{f.label}{f.required && <b className="req" title="必填"> *</b>}{isProduct && f.help && <FieldHint text={f.help} />}{isProduct && <ManageLink field={f} />}</span>
       {f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
         field={f}
         value={lockedFields?.includes(f.key) ? initial?.[f.key] : values[f.key]}
@@ -546,35 +549,34 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         onKnown={(info) => setKnown((cur) => ({ ...cur, [info.id]: info }))}
         onChange={(v) => { if (locked.includes(f.key)) return; setValues((cur) => ({ ...cur, [f.key]: v })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
       />}
-      {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : f.help && <small className="muted">{f.help}</small>}
-      {def.key === 'finance-products' && <ManageLink field={f} />}
+      {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : !isProduct && f.help && <small className="muted">{f.help}</small>}
     </label>
   );
 
   /** 商品档案分区里的一项：普通字段，或联动的功能块（编号预览、供货来源行、生产组成、重量、成本预览） */
   const renderNode = (n: ResolvedNode, i: number) => {
-    if (n.kind === 'field') return renderField(n.field, n.wide);
+    if (n.kind === 'field') return n.field.key === 'zeroValueReason' && !needsZeroReason(values) && !errors.zeroValueReason ? null : renderField(n.field, n.wide);
     const editable = n.fields.filter((f) => !f.readonly);
     switch (n.block) {
-      case 'code': return <div key={`b${i}`} className="wide">{editable.map((f) => renderField(f))}<CodePreview values={values} excludeId={record?.id} /></div>;
-      case 'supplySources': return <div key={`b${i}`} className="wide"><SourcesDraft rows={sourceRows} onChange={setSourceRows} canCost={canCostEdit} needSpec={layoutKey === 'shipping_material'} error={errors.supplySources} />{!partsKnown.sources && <small className="muted">供货来源暂时读取不到，请到详情的“供货来源”页签维护。</small>}</div>;
-      case 'composition': return <div key={`b${i}`} className="wide"><BomDraft rows={bomRows} onChange={(r) => { setBomRows(r); if (errors.composition) setErrors((c) => ({ ...c, composition: '' })); }} groups={n.groups} required={layoutKey === 'self_made'} error={errors.composition} /></div>;
+      case 'code': return <div key={`b${i}`} className="s12">{editable.map((f) => renderField(f))}<CodePreview values={values} excludeId={record?.id} /></div>;
+      case 'supplySources': return <div key={`b${i}`} className="s12"><SourcesDraft rows={sourceRows} onChange={setSourceRows} canCost={canCostEdit} needSpec={layoutKey === 'shipping_material'} error={errors.supplySources} />{!partsKnown.sources && <small className="muted">供货来源暂时读取不到，请到详情的“供货来源”页签维护。</small>}</div>;
+      case 'composition': return <div key={`b${i}`} className="s12"><BomDraft rows={bomRows} onChange={(r) => { setBomRows(r); if (errors.composition) setErrors((c) => ({ ...c, composition: '' })); }} groups={n.groups} required={layoutKey === 'self_made'} error={errors.composition} /></div>;
       case 'weight': return (
-        <div key={`b${i}`} className="wide rf-block" data-field="weightG">
+        <div key={`b${i}`} className="s6 rf-block" data-field="weightG">
           <span className="rf-label">{layoutKey === 'shipping_material' ? '物料重量' : '重量'}{n.required && <b className="req" title="必填"> *</b>}</span>
           <WeightBlock values={values} manualOnly={['package', 'oem_package', 'shipping_material', 'custom'].includes(layoutKey)} required={n.required} error={errors.weightG} defaultUnit={layoutKey === 'shipping_material' ? 'kg' : 'g'}
             onChange={(patch) => { setValues((cur) => ({ ...cur, ...patch })); if (errors.weightG) setErrors((c) => ({ ...c, weightG: '' })); }} />
         </div>
       );
-      case 'costSummary': return <div key={`b${i}`} className="wide"><TotalCostPreview values={values} /></div>;
-      case 'category': case 'capacities': case 'finishedNames': return <div key={`b${i}`} className="form-grid wide">{editable.map((f) => renderField(f))}</div>;
+      case 'costSummary': return <div key={`b${i}`} className="s12"><TotalCostPreview values={values} idle /></div>;
+      case 'category': case 'capacities': case 'finishedNames': return <div key={`b${i}`} className="form-grid s12">{editable.map((f) => renderField(f))}</div>;
       default: return null;
     }
   };
 
   return (
     <div className={inline ? 'inline-edit' : 'modal-backdrop'} role="presentation">
-      <form className={inline ? 'inline-form' : 'modal card rf'} role={inline ? 'group' : 'dialog'} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
+      <form className={inline ? 'inline-form' : `modal card rf${isProduct ? ' rf-p' : ''}`} role={inline ? 'group' : 'dialog'} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
         {!inline && <div className="modal-head rf-head">
           <strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>
           {record && <span className="rf-sub" title={record.title}>{record.title}</span>}
@@ -585,12 +587,12 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         <div className={showAnchors ? 'rf-main with-anchors' : 'rf-main'}>
           {showAnchors && (
             <nav className="rf-anchors" aria-label="表单分区">
-              {groups.map(([g, fields]) => {
+              {groups.map(([g]) => {
                 const n = errorsByGroup(g);
                 return (
                   <button key={g} type="button" className={`rf-anchor${(activeGroup || groups[0][0]) === g ? ' active' : ''}${n ? ' has-error' : ''}`} onClick={() => jump(g)}>
                     <span>{secTitle(g)}</span>
-                    {n > 0 ? <b className="rf-err-n" aria-label={`${n} 项有问题`}>{n}</b> : <i>{fields.length}</i>}
+                    {n > 0 && <b className="rf-err-n" aria-label={`${n} 项有问题`}>{n}</b>}
                   </button>
                 );
               })}
@@ -611,11 +613,10 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
             </label>
           )}
           {inline && visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项。</p>}
-          {!inline && !record && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
+          {!inline && !record && !isProduct && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
           {resolved ? resolved.filter((sec) => !onlyGroup || sec.title === onlyGroup).map((sec) => (
-            <section key={sec.id} id={secId(sec.title)} className="rf-sec" aria-label={sec.title}>
-              {!inline && <h3 className="rf-sec-title">{sec.step && <i className="rf-step">{sec.step}</i>}{sec.title}</h3>}
-              {sec.hint && !inline && <p className="muted rf-sec-hint">{sec.hint}</p>}
+            <section key={sec.id} id={secId(sec.title)} data-sec={sec.id} className="rf-sec" aria-label={sec.title}>
+              {!inline && <h3 className="rf-sec-title">{sec.step && <i className="rf-step">{sec.step}</i>}{sec.title}{sec.hint && <FieldHint text={sec.hint} />}</h3>}
               <div className="form-grid">{sec.nodes.map(renderNode)}</div>
             </section>
           )) : groups.map(([group, fields]) => (
@@ -667,14 +668,24 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
 }
 
 /** 填写时实时看总成本价：采购价 + 运费 + 装卸费（自制品/OEM 的采购价来自构成，保存后才有，这里只提示）。 */
-export function TotalCostPreview({ values }: { values: Record<string, unknown> }) {
+export function TotalCostPreview({ values, idle }: { values: Record<string, unknown>; /** 表单里还没填时也画出汇总条（用 — 占位） */ idle?: boolean }) {
   const num = (k: string) => (values[k] === '' || values[k] === undefined || values[k] === null ? null : Number(values[k]));
   const p = num('purchasePrice'), f = num('freight'), h = num('handlingFee');
-  if (p === null && f === null && h === null) return null;
+  if (p === null && f === null && h === null && !idle) return null;
   const composed = ['self_made', 'oem_package'].includes(String(values.archiveType)) || values.supplyMode === 'supplier_oem';
-  if (composed && p === null) return <div className="notice" role="status">自制品/OEM 的采购价由构成汇总，保存后在“构成（BOM）”页签里添加原料、包装和人工。</div>;
+  if (composed && p === null) return <div className="notice" role="status">采购价由构成汇总，保存后在“构成（BOM）”页签里维护。</div>;
   const total = (p ?? 0) + (f ?? 0) + (h ?? 0);
-  return <div className="notice" role="status" aria-label="总成本预览">总成本价预览：采购价 ¥{unitYuanText(p ?? 0)} + 运费 ¥{unitYuanText(f ?? 0)} + 装卸费 ¥{unitYuanText(h ?? 0)} = <strong>¥{unitYuanText(total)}</strong></div>;
+  const empty = p === null && f === null && h === null;
+  const part = (label: string, v: number | null) => <span className="rf-total-part"><small>{label}</small><b>{empty ? '—' : `¥${unitYuanText(v ?? 0)}`}</b></span>;
+  return (
+    <div className="rf-total" role="status" aria-label="总成本预览">
+      <span className="rf-total-sr">总成本价预览：采购价 ¥{unitYuanText(p ?? 0)} + 运费 ¥{unitYuanText(f ?? 0)} + 装卸费 ¥{unitYuanText(h ?? 0)} = ¥{unitYuanText(total)}</span>
+      <span aria-hidden="true" className="rf-total-row">
+        {part('采购价', p)}<i>+</i>{part('运费', f)}<i>+</i>{part('装卸费', h)}<i>=</i>
+        <span className="rf-total-sum"><small>总成本</small><strong>{empty ? '—' : `¥${unitYuanText(total)}`}</strong></span>
+      </span>
+    </div>
+  );
 }
 
 /** 已有构成的自制品/OEM 成品：包装组成、人力组成各有几行（新建时没有构成，返回 undefined） */

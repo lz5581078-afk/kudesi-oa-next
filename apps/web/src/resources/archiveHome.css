@@ -1,0 +1,20 @@
+/* 基础资料首页（商品/供应商/客户/费用档案共用）：页面名称只在顶部页面栏，内容区只有工具行 + 分类卡片 */
+.hier-home { gap: 10px; padding: 2px 4px 24px; }
+.hier-home .hier-home-head { justify-content: flex-end; align-items: center; margin: 0; }
+.hier-home .hier-home-head:has(.hier-home-actions:empty) { display: none; }
+.hier-home .hier-grid { grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 10px; }
+.hier-home .hier-card { gap: 6px; min-height: 0; padding: 12px 14px 11px; border-top: 1px solid var(--border); border-left: 3px solid var(--hc); }
+.hier-home .hier-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.hier-home .hier-card-name { font-size: 15px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hier-home .hier-card > .hier-card-top > strong { flex: none; font-size: 22px; line-height: 1.1; color: var(--hc); font-variant-numeric: tabular-nums; }
+.hier-home .hier-card-top strong span { margin-left: 3px; font-size: 11.5px; font-weight: 400; color: var(--muted); }
+.hier-home .hier-card > small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; flex: none; min-height: 2.8em; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+.hier-home .hier-card > em { align-self: flex-start; padding: 0 6px; border-radius: 4px; background: var(--bg); font-size: 11px; line-height: 18px; }
+@media (max-width: 720px) {
+  .hier-home .hier-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .hier-home .hier-card { padding: 10px 11px; }
+  .hier-home .hier-card-name { font-size: 14px; }
+  .hier-home .hier-card > .hier-card-top > strong { font-size: 19px; }
+  .hier-home .hier-card > small { min-height: 0; -webkit-line-clamp: 2; font-size: 12px; }
+}
+@media (max-width: 420px) { .hier-home .hier-grid { grid-template-columns: 1fr; } .hier-home .hier-card > small { min-height: 0; } .hier-home .hier-card > em { display: none; } }

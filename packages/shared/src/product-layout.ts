@@ -98,7 +98,7 @@ const CODE_SELF = '编码顺序：自产档案-分类-品牌-名称-名称规格
 const LOGISTICS_HINT = '两项费用分别维护、统一汇总，并与当前系统规格和采购价一起留存历史；手工修改后保存会生成新的历史记录。';
 
 const LOGISTICS = S('logistics', '运费与装卸费', [F('freight'), F('handlingFee'), F('zeroValueReason')], { hint: LOGISTICS_HINT });
-const TOTAL = S('total', '总成本价（含运费、装卸费）', [B('costSummary')]);
+const TOTAL = S('total', '总成本价', [B('costSummary')], { hint: '采购价 + 运费 + 装卸费' });
 const PHOTOS = S('photos', '商品照片', [F('photos')]);
 const CATEGORY = S('category', '所属分类', [B('category')]);
 const GIFT = S('gift', '赠品简称设置', [F('giftShortName'), F('giftCodeShortName')], { hint: GIFT_HINT });

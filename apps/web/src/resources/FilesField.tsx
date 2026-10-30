@@ -133,7 +133,7 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
             onChange={(e) => void pick(e.target.files)}
             aria-label={`上传${field.label}`}
           />
-          <button type="button" className="secondary-button" disabled={busy} onClick={() => input.current?.click()}>
+          <button type="button" className="secondary-button" title="单个文件不超过 10 MB" disabled={busy} onClick={() => input.current?.click()}>
             {busy ? '上传中…' : `＋ 上传${field.accept === 'image' ? '图片' : '图片/PDF'}（${value.length}/${max}）`}
           </button>
           {field.phoneUpload && <button type="button" className="secondary-button" onClick={() => setPhone(true)}>手机上传</button>}
