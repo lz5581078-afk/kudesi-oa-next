@@ -4,6 +4,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { Company, ResourceChangeLog, ResourceRecord, User } from '../entities';
 import { ResourcesService } from '../resources/resources.service';
 import { planCategoryFix } from '../resources/category-structure-fix';
+import { registerCostSnapshots } from '../resources/cost-snapshot';
 import { LegacyArchive, LegacyRef } from './protocol';
 import { MigrationError, safeFailure } from './runner';
 
@@ -90,7 +91,7 @@ export async function runSkuRepair(ds:DataSource,resources:ResourcesService,sour
   }catch(e){if(q.isTransactionActive)await q.rollbackTransaction();throw e;}finally{await q.release();}
 }
 
-export interface SkuVerification { sourceHash:string;targetHash:string;checked:Array<{type:string;id:number}>;issues:Array<{type:string;id:number;reason:string}> }
+export interface SkuVerification { sourceHash:string;targetHash:string;checked:Array<{type:string;id:number}>;issues:Array<{type:string;id:number;reason:string}>;history?:{recorded:number;unchanged:number;missing:number} }
 /** Re-verify through the ordinary rules after fields and missing records have been reconciled. */
 export async function runSkuVerification(ds:DataSource,resources:ResourcesService,source:LegacyArchive,opts:{companyId:number;actorId:number;expectedName:string;apply:boolean;expected?:SkuVerification;prepare?:(report:SkuVerification)=>void}):Promise<SkuVerification>{
   const q=ds.createQueryRunner();await q.connect();await q.startTransaction();q.data.legacyImport=true;
@@ -112,6 +113,7 @@ export async function runSkuVerification(ds:DataSource,resources:ResourcesServic
       try{await resources.saveChecked(q.manager,user,r.type,r.id,{}, {status:'verified',note:'旧系统SKU专项修复后重新验证'});report.checked.push({type:r.type,id:r.id});await q.query('RELEASE SAVEPOINT sku_verify');}
       catch(e){await q.query('ROLLBACK TO SAVEPOINT sku_verify');await q.query('RELEASE SAVEPOINT sku_verify');report.issues.push({type:r.type,id:r.id,reason:safeFailure(e)});}
     }
+    report.history=await registerCostSnapshots(q.manager,c.id,actor.id,report.checked.filter(r=>r.type==='finance-bundles').map(r=>r.id),'旧系统SKU专项修复后重新验证','workflow_publish');
     opts.prepare?.(report);
     if(opts.apply&&report.issues.length)throw new MigrationError('存在不能验证的资料，整批已回滚');
     if(opts.apply)await q.commitTransaction();else await q.rollbackTransaction();return report;
