@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import { previewProductCode } from './finance-rules';
@@ -21,7 +21,7 @@ export class CategoryToolsService {
 
   /** 某一类（如原料档案）的整棵分类树，按现在的顺序，给“调整顺序”用；含停用的 */
   async tree(user: AuthUser, archiveType: string) {
-    const all = await this.ds.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE } });
+    const all = await this.ds.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE, archivedAt: IsNull() } });
     const nodes = all.filter((c) => String(c.data.archiveType ?? '') === archiveType)
       .map((c) => ({ id: c.id, name: c.title, code: String(c.data.code ?? ''), parentId: num(c.data.parentId), sort: Number(c.data.sort) || 0, status: c.status }))
       .sort((a, b) => a.sort - b.sort || a.id - b.id);
@@ -35,7 +35,7 @@ export class CategoryToolsService {
   async reorder(user: AuthUser, orderedIds: number[]) {
     if (new Set(orderedIds).size !== orderedIds.length) throw new BadRequestException('分类重复了');
     return this.ds.transaction(async (em) => {
-      const all = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE } });
+      const all = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE, archivedAt: IsNull() } });
       const byId = new Map(all.map((c) => [c.id, c]));
       const picked = orderedIds.map((id) => byId.get(id));
       if (picked.some((c) => !c)) throw new BadRequestException('有分类不存在');

@@ -140,7 +140,7 @@ const PURCHASED_BASE = (oem: boolean): ProductSection => S('base', '外购成品
   F('name', { label: '商品名称' }), F('brandId', { required: true }),
   F('specQty', { label: '名称规格', required: true, help: '与名称单位一起参与编码' }), F('specUnit', { label: '名称单位', required: true }),
   F('shape', { whenFilled: true }), F('note'), B('fullName'),
-], { step: oem ? '01' : undefined, hint: '维护名称、品牌、名称规格和名称单位' });
+], { step: '01', hint: '维护名称、品牌、名称规格和名称单位' });
 
 const PURCHASED_ORIGINAL: ProductLayout = {
   key: 'purchased_original',
@@ -191,16 +191,17 @@ const SHIPPING: ProductLayout = {
   header: ['archiveType'],
   sections: [
     CATEGORY,
+    S('code', '系统自动编号', [B('code')], { hint: '由分类、物料名称、规格和规格单位自动生成' }),
     GIFT,
     S('base', '发货物料基础信息', [
-      F('name', { label: '物料名称' }), F('brandId', { required: false }),
-      F('specQty', { label: '规格数量', required: true, help: '与规格单位一起参与编码' }), F('specUnit', { label: '规格单位', required: true }),
+      F('name', { label: '发货物料名称' }),
+      F('specQty', { label: '规格', required: true, help: '与规格单位一起参与编码' }), F('specUnit', { label: '规格单位', required: true }),
       F('materialCode', { label: '物料生产编码', required: false }), F('shape', { whenFilled: true }), F('note'), B('fullName'),
-    ], { hint: '当前档案资料归入已选末级分类，基础字段可在这里维护。' }),
-    S('code', '发货物料编号', [B('code')], { hint: '由分类、物料名称、规格和规格单位自动生成' }),
+    ], { hint: '发货物料是发货环节使用的独立基础资料，不包含商品组成。' }),
     S('sources', '供货来源', [B('supplySources')], { hint: '同一物料可维护多个产区和供应商；每个来源各有自己的系统规格；系统采用最近更新的有效采购价作为最新成本。' }),
     S('weight', '物料重量', [B('weight', { required: true })]),
     LOGISTICS, TOTAL, PHOTOS,
+    S('extra', '更多设置', [F('brandId', { required: false })]),
   ],
 };
 

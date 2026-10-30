@@ -41,3 +41,5 @@ export * from './col-filter';
 export * from './workforce';
 export * from './fees';
 export * from './purchase';
+
+export * from './product-weight';

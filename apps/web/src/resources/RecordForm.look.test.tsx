@@ -32,25 +32,25 @@ afterEach(cleanup);
 
 const open = (initial: Record<string, unknown>) => render(<RecordForm def={def} record={null} initial={initial} onClose={() => undefined} onSaved={() => undefined} />);
 
-describe('商品档案表单外观：少字、分区导航、零值说明', () => {
-  it('分区标题没有说明段落（说明在 ⓘ 悬停里），字段下方没有灰色说明；左侧分区导航不带字段数量', () => {
+describe('24号商品档案表单：上下文、双列字段、零值说明', () => {
+  it('分区提示在标题旁，分类用上下文卡片，不显示侧边分区导航', () => {
     const { container } = open({ archiveType: 'raw' });
     expect(container.querySelector('.rf-sec-hint')).toBeNull();
     expect([...container.querySelectorAll('.rf-sec small.muted')].filter((e) => !e.closest('.files-input'))).toHaveLength(0); // 照片区的“不超过 10 MB”只在 CSS 里收起
-    expect(container.querySelector('.rf-sec-title .rf-hint[data-tip]')).toBeTruthy();
+    expect(container.querySelector('.rf-sec-title small')).toBeTruthy();
     const anchors = [...container.querySelectorAll('.rf-anchors .rf-anchor')];
-    expect(anchors.length).toBeGreaterThan(5); // 手机端这一排横向滑动成分区标签
+    expect(anchors.length).toBe(0); // 手机端这一排横向滑动成分区标签
     expect(container.querySelectorAll('.rf-anchors i').length).toBe(0);
     expect(container.querySelector('.required-hint')).toBeNull();
   });
 
-  it('零值说明默认不出现，运费填 0 后才出现；规格数量和单位同一行（栅格 3 + 3）', () => {
+  it('零值说明默认不出现，运费填 0 后才出现；规格和单位使用双列字段', () => {
     const { container } = open({ archiveType: 'raw', specQty: 500 });
     expect(container.querySelector('[data-field="zeroValueReason"]')).toBeNull();
-    expect(container.querySelector('[data-field="specQty"]')?.className).toContain('s3');
-    expect(container.querySelector('[data-field="specUnit"]')?.className).toContain('s3');
-    expect(container.querySelector('[data-field="freight"]')?.className).toContain('s4');
-    expect(container.querySelector('[data-field="handlingFee"]')?.className).toContain('s4');
+    expect(container.querySelector('[data-field="specQty"]')?.className).toContain('s6');
+    expect(container.querySelector('[data-field="specUnit"]')?.className).toContain('s6');
+    expect(container.querySelector('[data-field="freight"]')?.className).toContain('s6');
+    expect(container.querySelector('[data-field="handlingFee"]')?.className).toContain('s6');
     cleanup();
     const again = open({ archiveType: 'raw', freight: 0 });
     expect(again.container.querySelector('[data-field="zeroValueReason"]')).toBeTruthy();
@@ -60,6 +60,6 @@ describe('商品档案表单外观：少字、分区导航、零值说明', () =
     const { container } = open({ archiveType: 'raw' });
     const link = container.querySelector('[data-field="specUnit"] a.rf-manage') as HTMLAnchorElement;
     expect(link.getAttribute('aria-label')).toBe('管理单位与规格');
-    expect(link.textContent).toBe('管理');
+    expect(link.textContent).toBe('管理名称单位');
   });
 });

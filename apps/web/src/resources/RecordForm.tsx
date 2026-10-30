@@ -1,8 +1,8 @@
 import { CascadePicker } from './CascadePicker';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, FormEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { fieldOptions, useUnitOptions } from './unitOptions';
 import { selectChoices, useCategoryVersion } from './categoryOptions';
-import { groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
@@ -11,6 +11,16 @@ import { BomDraft, saveBomRows, loadBomRows, validBomRows, type BomDraftRow } fr
 import { FieldHint } from './FieldHint';
 import { fieldSpan, needsZeroReason } from './productFormGrid';
 import './productForm.css';
+import './referenceForm.css';
+import { X, Pencil, FolderTree, Database } from 'lucide-react';
+import { referenceRecordLabel, referencePartyGroups, referenceFieldSpan, REFERENCE_PARTIES } from './referenceFormLayout';
+import { ReferenceProductCategoryPicker } from './ReferenceProductCategoryPicker';
+import { ReferenceCategoryContext } from './ReferenceCategoryContext';
+import { useProductDraftFacts } from './useProductDraftFacts';
+import { ReferenceRecordHistory } from './ReferenceRecordHistory';
+import { ReferenceLines, FreightHistory, CompositionResult } from './ReferenceProductFields';
+import { BundleProfileEditor } from './BundleProfileEditor';
+import { BaseCodeProfileEditor } from './BaseCodeProfileEditor';
 import { SourcesDraft, WeightBlock, loadSourceRows, saveSourceRows, type SourceRow } from './ProductFormParts';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
@@ -28,10 +38,13 @@ export function MoneyControl({value,scale,onChange,ariaLabel}:{value:unknown;sca
   }} />;
 }
 
-type RefOption = { value: number; label: string; disabled?: boolean };
+type RefOption = { value: number; label: string; disabled?: boolean; leaf?: boolean };
 type RefOptions = RefOption[] & { total?: number };
 /** 引用选择器一次最多取这么多条；更多的靠搜索框按关键字找（店铺、手机号等可能有几百条） */
 const REF_PAGE = 50;
+let refVersion = 0;
+const refListeners = new Set<() => void>();
+function useRefVersion() { return useSyncExternalStore(cb => { refListeners.add(cb); return () => { refListeners.delete(cb); }; }, () => refVersion); }
 const refCache = new Map<string, Promise<RefOptions>>();
 
 /** 按关键字服务端搜索可选项；员工/部门这类小列表不走这里 */
@@ -55,6 +68,7 @@ function useRefSearch(target: string, initial: RefOptions | null) {
 export function clearRefCache(type?: string) {
   if (type) refCache.delete(type);
   else refCache.clear();
+  refVersion++; refListeners.forEach(listener => listener());
 }
 
 export function loadRefOptions(target: string) {
@@ -65,6 +79,8 @@ export function loadRefOptions(target: string) {
         ? resourceApi.departments().then((list) => list.map((d) => ({ value: d.id, label: d.name })))
         : target === 'user'
         ? resourceApi.users().then((list) => list.map((u) => ({ value: u.id, label: u.active ? u.name : `${u.name}（已停用）`, disabled: !u.active })))
+        : ['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories'].includes(target)
+        ? (async () => { const rows: ResourceDto[] = []; for (let page=1;;page++) { const r=await resourceApi.list(target,{page,pageSize:200,showHidden:true}); rows.push(...r.items); if(rows.length>=r.total||!r.items.length)break; } const byId=new Map(rows.map(r=>[r.id,r])); const path=(row:ResourceDto)=>{const parts:string[]=[],seen=new Set<number>();for(let r:ResourceDto|undefined=row;r&&!seen.has(r.id);r=byId.get(Number(r.data.parentId))){seen.add(r.id);parts.unshift(r.title);}return parts.join(' / ');};return Object.assign(rows.filter(r=>r.status==='active').map(r=>({value:r.id,label:path(r),leaf:!rows.some(c=>c.data.parentId===r.id)})),{total:rows.filter(r=>r.status==='active').length}); })()
         : resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: i.title })), { total: r.total }));
     p.catch(() => refCache.delete(target));
     refCache.set(target, p);
@@ -72,7 +88,8 @@ export function loadRefOptions(target: string) {
   return p;
 }
 
-export function RefSelect({ field, value, onChange, labelNow }: { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string }) {
+export function RefSelect({ field, value, onChange, labelNow, leafOnly = false }: { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string; leafOnly?: boolean }) {
+  const version = useRefVersion();
   const [options, setOptions] = useState<RefOptions | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -81,11 +98,11 @@ export function RefSelect({ field, value, onChange, labelNow }: { field: FieldDe
     return () => {
       alive = false;
     };
-  }, [field.ref]);
+  }, [field.ref, version]);
   const search = useRefSearch(field.ref!, options);
   const current = typeof value === 'number' ? value : '';
   if (failed) return <input disabled value={labelNow ?? ''} placeholder="没有权限查看可选项" />;
-  const list: RefOptions = search.shown ?? Object.assign([], { total: 0 });
+  const list: RefOptions = leafOnly ? (search.shown ?? []).filter(o=>o.leaf!==false) : search.shown ?? Object.assign([], { total: 0 });
   const missing = current !== '' && !list.some((o) => o.value === current);
   return (
     <>
@@ -106,17 +123,18 @@ export function RefSelect({ field, value, onChange, labelNow }: { field: FieldDe
 }
 
 /** 多选引用：勾选若干条记录（如供应商同时属于多个分类） */
-export function RefsSelect({ field, value, onChange, labelNow, onLabels }: { field: FieldDef; value: number[]; onChange: (v: number[]) => void; labelNow?: string; onLabels?: (labels: Record<number, string>) => void }) {
+export function RefsSelect({ field, value, onChange, labelNow, onLabels, leafOnly = false }: { field: FieldDef; value: number[]; onChange: (v: number[]) => void; labelNow?: string; onLabels?: (labels: Record<number, string>) => void; leafOnly?: boolean }) {
+  const version = useRefVersion();
   const [options, setOptions] = useState<RefOptions | null>(null);
   const seen = useRef<Record<number, string>>({});
   useEffect(() => {
     let alive = true;
     loadRefOptions(field.ref!).then((o) => alive && setOptions(o)).catch(() => alive && setOptions(Object.assign([], { total: 0 })));
     return () => { alive = false; };
-  }, [field.ref]);
+  }, [field.ref, version]);
   const search = useRefSearch(field.ref!, options);
   if (!options) return <span className="muted">加载中…</span>;
-  const shown = search.shown ?? options;
+  const shown: RefOptions = leafOnly ? (search.shown ?? options).filter(o=>o.leaf!==false) : search.shown ?? options;
   for (const o of shown) seen.current[o.value] = o.label;
   const pick = (next: number[]) => { onChange(next); onLabels?.(seen.current); };
   const labels = (labelNow ?? '').split('、');
@@ -213,7 +231,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
     case 'files':
       return <FilesInput field={field} type={type} value={Array.isArray(value) ? (value as number[]) : []} known={known} onChange={onChange} onKnown={onKnown} />;
     case 'refs':
-      return <RefsSelect field={field} value={Array.isArray(value) ? (value as number[]) : []} onChange={onChange} labelNow={labelNow} />;
+      return <RefsSelect leafOnly={type === 'finance-suppliers' && field.key === 'categoryIds'} field={field} value={Array.isArray(value) ? (value as number[]) : []} onChange={onChange} labelNow={labelNow} />;
     case 'ref':
       if (field.cascade && field.ref) return <CascadePicker target={field.ref} label={field.label} value={typeof value === 'number' ? value : null} onChange={onChange} labelNow={labelNow} />;
       return <RefSelect field={field} value={value} onChange={onChange} labelNow={labelNow} />;
@@ -254,7 +272,13 @@ function isEmptyValue(v: unknown): boolean {
 type SaveMode = 'close' | 'blank' | 'keep';
 
 /** 新建/编辑弹窗：按字段定义生成，按字段分组；showWhen 不满足的字段不显示。 */
-export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inline, onClose, onSaved, onContinued }: {
+export function RecordForm(props: Parameters<typeof GenericRecordForm>[0]) {
+  if (props.def.key === 'finance-bundles' && props.record && !props.inline) return <BundleProfileEditor record={props.record} onClose={props.onClose} onSaved={props.onSaved} />;
+  if (props.def.key === 'finance-base-codes' && props.record && !props.inline) return <BaseCodeProfileEditor record={props.record} onClose={props.onClose} onSaved={props.onSaved} />;
+  return <GenericRecordForm {...props} />;
+}
+
+function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inline, onClose, onSaved, onContinued }: {
   def: ResourceDef;
   record: ResourceDto | null;
   initial?: Record<string, unknown>;
@@ -269,8 +293,10 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   onContinued?: (dto: ResourceDto) => void;
 }) {
   const copyOf = typeof initial?.__copyOf === 'number' ? initial.__copyOf : null;
-  const [values, setValues] = useState<Record<string, unknown>>(() => { const v = { ...(record?.data ?? {}), ...(initial ?? {}) }; delete v.__copyOf; return v; });
+  const [values, setValues] = useState<Record<string, unknown>>(() => { const v: Record<string, unknown> = { ...(!record && def.key === 'finance-fee-items' ? {direction:'expense'} : {}), ...(record?.data ?? {}), ...(initial ?? {}) }; delete v.__copyOf; return v; });
   const [status, setStatus] = useState(record?.status ?? def.defaultStatus);
+  const [statusReason, setStatusReason] = useState('');
+  const referenceStatus = ['finance-customers','finance-fee-items'].includes(def.key);
   const [error, setError] = useState('');
   const [bomRows, setBomRows] = useState<BomDraftRow[]>([]);
   const [bomOrig, setBomOrig] = useState<BomDraftRow[]>([]);
@@ -287,7 +313,7 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const startRows = useRef<string | null>(null);
   if (startRows.current === null && !(record || copyOf)) startRows.current = rowsKey;
   useEffect(() => { if (startRows.current === null && (record || copyOf) && (bomRows.length || sourceRows.length || bomOrig.length || sourceOrig.length)) startRows.current = rowsKey; }, [rowsKey, record, copyOf, bomRows.length, sourceRows.length, bomOrig.length, sourceOrig.length]);
-  const dirty = JSON.stringify(values) !== startValues.current || (startRows.current !== null && rowsKey !== startRows.current);
+  const dirty = status !== (record?.status ?? def.defaultStatus) || JSON.stringify(values) !== startValues.current || (startRows.current !== null && rowsKey !== startRows.current);
   const requestClose = () => {
     if (busy) return;
     if (dirty && !window.confirm(record ? '修改的内容还没有保存，关闭后会丢失。确定直接关闭吗？' : '新增的资料还没有保存，关闭后填写的内容会丢失。确定直接关闭吗？')) return;
@@ -328,15 +354,20 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const visible = useMemo(() => {
     if (resolved) return resolved.flatMap((s) => s.nodes.flatMap((n) => (n.kind === 'field' ? [n.field] : n.fields))).filter((f) => !f.readonly && (!onlyGroup || f.group === onlyGroup));
     const ctx: Record<string, unknown> = { ...values, status };
-    return def.fields.filter((f) => !f.readonly && canField(f)).filter((f) => !(def.key === 'fixed-assets' && record && f.key === 'userId')).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? ''))).filter((f) => !onlyGroup || f.group === onlyGroup);
+    return def.fields.filter((f) => !f.readonly && canField(f)).filter(f => !(def.key === 'finance-base-codes' && !record && ['categoryId','weightG'].includes(f.key)) && !(def.key === 'finance-categories' && record && f.key === 'archiveType')).filter((f) => !(def.key === 'fixed-assets' && record && f.key === 'userId')).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? ''))).filter((f) => !onlyGroup || f.group === onlyGroup);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def, values, status, me, onlyGroup, resolved]);
+  const isReferenceParty = REFERENCE_PARTIES.includes(def.key);
+  const referenceLabel = referenceRecordLabel(def.key, values) || def.label;
+  const referenceMaintenance = ['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories','finance-brands','finance-product-units','finance-platforms','finance-scenarios'].includes(def.key);
+  const reference = def.key === 'finance-products' || isReferenceParty || referenceMaintenance;
   const groups = useMemo(() => {
+    if (isReferenceParty) return referencePartyGroups(def.key, visible);
     if (resolved) return resolved.filter((s) => !onlyGroup || s.title === onlyGroup).map((s) => [s.title, visible.filter((f) => f.group === s.title)] as [string, FieldDef[]]);
     const map = new Map<string, FieldDef[]>();
     for (const f of visible) map.set(f.group, [...(map.get(f.group) ?? []), f]);
     return [...map.entries()];
-  }, [visible, resolved, onlyGroup]);
+  }, [visible, resolved, onlyGroup, isReferenceParty, def.key]);
 
   // 商品档案新建：草稿（每人每个档案类型一份，存在服务器上）、保存并继续新建
   const isProduct = def.key === 'finance-products';
@@ -446,7 +477,13 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     setError('');
     try {
       if (wantSources) delete body.purchasePrice; // 采购价由供货来源汇出，不直接写档案
-      const saved = record ? await resourceApi.update(def.key, record.id, body) : await resourceApi.create(def.key, body, status);
+      let saved: ResourceDto;
+      if (record && (referenceStatus || isProduct) && status !== record.status) {
+        const result = await resourceApi.gridSave(def.key, { updates: [{ id: record.id, version: record.version, data: body, status, statusReason }], note: '资料编辑' });
+        const item = result.results[0];
+        if (!item?.ok) throw new ApiError(400, item?.message || '保存失败');
+        saved = item.row ?? await resourceApi.get(def.key, record.id);
+      } else saved = record ? await resourceApi.update(def.key, record.id, body) : await resourceApi.create(def.key, body, status);
       clearRefCache(def.key);
       if (isProduct) {
         const failed: string[] = [];
@@ -508,7 +545,7 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       el?.focus();
       el?.scrollIntoView?.({ block: 'center' });
     }, 0);
-    return !first;
+    return !Object.values(next).some(Boolean);
   }
 
   function submit(e: FormEvent) {
@@ -518,10 +555,19 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
 
   const sectionHas = (title: string, block: string) => Boolean(resolved?.some((s) => s.title === title && s.nodes.some((n) => n.kind === 'block' && n.block === block)));
   const secId = (g: string) => `rf-sec-${g}`;
+  const [manualCode, setManualCode] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState('');
+  const [generatedName, setGeneratedName] = useState('');
   const canCostEdit = Boolean(me && createChecker(me.permissions)('product.cost.edit'));
+  const draftFacts = useProductDraftFacts(bomRows, canCostEdit);
+  const compositionPrice = layoutKey === 'purchased_oem' && !bomRows.length ? 0 : draftFacts.cost;
+  const oemRawPrice = Number(values.purchasePrice || 0);
+  const previewValues = { ...values, ...(wantComposition ? { purchasePrice: compositionPrice === null || layoutKey === 'purchased_oem' && !Number.isFinite(oemRawPrice) ? undefined : sumUnitCents([compositionPrice, layoutKey === 'purchased_oem' ? oemRawPrice : 0]) } : {}), ...(wantSources ? { purchasePrice: sourceRows.find(r => r.supplierId && r.purchasePrice !== '')?.purchasePrice ?? values.purchasePrice } : {}) };
+  const automaticWeight = layoutKey === 'raw' ? systemWeightG(String(values.purchaseSpec ?? '')) : layoutKey === 'self_made' ? draftFacts.weightG : layoutKey === 'purchased_oem' ? (specificationWeightG(values.specQty, values.specUnit) ?? 0) + Number(values.oemPackageWeightG || 0) + (draftFacts.weightG ?? 0) : specificationWeightG(values.specQty, values.specUnit);
+  const weightValues = values.weightManual === true || ['package','oem_package','shipping_material','custom'].includes(layoutKey) ? values : { ...values, weightG: automaticWeight };
   const secTitle = (g: string) => (resolved ? g : groupTitle(def, g, values));
   const errorsByGroup = (g: string) => groups.find(([name]) => name === g)?.[1].filter((f) => errors[f.key]).length ?? 0;
-  const showAnchors = !inline && groups.length > 1;
+  const showAnchors = !inline && !reference && groups.length > 1;
   const scrollBox = useRef<HTMLDivElement>(null);
   const [activeGroup, setActiveGroup] = useState('');
   const jump = (g: string) => { setActiveGroup(g); document.getElementById(secId(g))?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); };
@@ -536,9 +582,9 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const errorCount = Object.values(errors).filter(Boolean).length;
 
   const renderField = (f: FieldDef, wide?: boolean) => (
-    <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[isProduct ? `s${wide ? 12 : fieldSpan(f)}` : '', !isProduct && (wide || f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || (f.type === 'ref' && f.cascade)) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
-      <span className="rf-label">{f.label}{f.required && <b className="req" title="必填"> *</b>}{isProduct && f.help && <FieldHint text={f.help} />}{isProduct && <ManageLink field={f} />}</span>
-      {f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
+    <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[reference ? `s${wide ? 12 : referenceFieldSpan(def.key, f)}` : '', !reference && (wide || f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || (f.type === 'ref' && f.cascade)) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
+      <span className="rf-label">{isProduct && f.key === 'name' && ['self_made','purchased_original','purchased_oem','shipping_material'].includes(layoutKey) ? `${referenceLabel}名称` : isProduct && layoutKey === 'custom' && f.key === 'specQty' ? '多少' : isProduct && layoutKey === 'custom' && f.key === 'shape' ? '形态样式' : f.label}{f.required && <b className="req" title="必填">{reference ? '必填' : ' *'}</b>}{isProduct && ['materialCode','note'].includes(f.key) && !f.required && <small className="reference-optional">选填</small>}{!reference && isProduct && f.help && <FieldHint text={f.help} />}{isProduct && <ManageLink field={f} values={values} inPlace={reference} />}</span>
+      {def.key === 'finance-customers' && f.key === 'categoryIds' ? <><RefSelect leafOnly field={{...f,type:'ref'}} value={Array.isArray(values.categoryIds) ? values.categoryIds[0] : null} labelNow={record?.refLabels.categoryIds} onChange={v => setValues(cur => ({...cur,categoryIds:v ? [v] : []}))} />{Array.isArray(values.categoryIds) && values.categoryIds.length > 1 && <small>当前同时归属：{record?.refLabels.categoryIds}；重新选择后归入所选分类。</small>}</> : f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
         field={f}
         value={lockedFields?.includes(f.key) ? initial?.[f.key] : values[f.key]}
         configured={record?.secretConfigured[f.key]}
@@ -549,7 +595,7 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         onKnown={(info) => setKnown((cur) => ({ ...cur, [info.id]: info }))}
         onChange={(v) => { if (locked.includes(f.key)) return; setValues((cur) => ({ ...cur, [f.key]: v })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
       />}
-      {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : !isProduct && f.help && <small className="muted">{f.help}</small>}
+      {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : !reference && f.help && <small className="muted">{f.help}</small>}
     </label>
   );
 
@@ -558,31 +604,34 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     if (n.kind === 'field') return n.field.key === 'zeroValueReason' && !needsZeroReason(values) && !errors.zeroValueReason ? null : renderField(n.field, n.wide);
     const editable = n.fields.filter((f) => !f.readonly);
     switch (n.block) {
-      case 'code': return <div key={`b${i}`} className="s12">{editable.map((f) => renderField(f))}<CodePreview values={values} excludeId={record?.id} /></div>;
-      case 'supplySources': return <div key={`b${i}`} className="s12"><SourcesDraft rows={sourceRows} onChange={setSourceRows} canCost={canCostEdit} needSpec={layoutKey === 'shipping_material'} error={errors.supplySources} />{!partsKnown.sources && <small className="muted">供货来源暂时读取不到，请到详情的“供货来源”页签维护。</small>}</div>;
-      case 'composition': return <div key={`b${i}`} className="s12"><BomDraft rows={bomRows} onChange={(r) => { setBomRows(r); if (errors.composition) setErrors((c) => ({ ...c, composition: '' })); }} groups={n.groups} required={layoutKey === 'self_made'} error={errors.composition} /></div>;
+      case 'code': return <div key={`b${i}`} className="s12 reference-code"><button type="button" className="reference-code-toggle" disabled={locked.includes('code')} onClick={() => { setManualCode(v => !v); if (manualCode) { setValues(v => ({ ...v, code: '' })); setGeneratedCode(''); } }}>{!manualCode && <Pencil size={15} />}{manualCode ? '恢复自动编号' : '人工修正'}</button><input aria-label="系统自动编号" readOnly={!manualCode || locked.includes('code')} value={String(manualCode ? values.code ?? '' : generatedCode || values.code || '')} placeholder="保存后自动生成" onChange={e => setValues(v => ({ ...v, code: e.target.value }))} /><CodePreview values={values} excludeId={record?.id} onPreview={setGeneratedCode} onFullName={setGeneratedName} quiet />{!['raw','shipping_material'].includes(layoutKey) && <p className="reference-code-hint">{resolved?.find(sec => sec.id === 'code')?.hint}</p>}</div>;
+      case 'supplySources': return <div key={`b${i}`} className="s12"><SourcesDraft rows={sourceRows} onChange={setSourceRows} reference canCost={canCostEdit} needSpec={layoutKey === 'shipping_material'} error={errors.supplySources} />{!partsKnown.sources && <small className="muted">供货来源暂时读取不到，请到详情的“供货来源”页签维护。</small>}</div>;
+      case 'composition': return <div key={`b${i}`} className="s12">{layoutKey === 'self_made' && <><nav className="reference-production-summary" aria-label="生产资料组成">{(['raw','package','labor'] as const).map((g,index)=><button type="button" key={g} onClick={()=>document.getElementById(`rf-bom-${g}`)?.scrollIntoView({behavior:'smooth',block:'start'})}><i>{String(index+1).padStart(2,'0')}</i><strong>{g==='raw'?'原料':g==='package'?'包装':'人工'}</strong><span>{bomRows.filter(r=>r.group===g||g==='package'&&r.group==='oem_package').length} 项</span></button>)}</nav><p className="reference-production-hint">选择档案和用量后，采购价、重量及成本会自动汇总。</p></>}<BomDraft reference records={draftFacts.records} canCost={canCostEdit} rows={bomRows} onChange={(r) => { setBomRows(r); if (errors.composition) setErrors((c) => ({ ...c, composition: '' })); }} groups={n.groups} required={layoutKey === 'self_made'} error={errors.composition} /></div>;
       case 'weight': return (
         <div key={`b${i}`} className="s6 rf-block" data-field="weightG">
-          <span className="rf-label">{layoutKey === 'shipping_material' ? '物料重量' : '重量'}{n.required && <b className="req" title="必填"> *</b>}</span>
-          <WeightBlock values={values} manualOnly={['package', 'oem_package', 'shipping_material', 'custom'].includes(layoutKey)} required={n.required} error={errors.weightG} defaultUnit={layoutKey === 'shipping_material' ? 'kg' : 'g'}
+          <span className="rf-label">{layoutKey === 'shipping_material' ? '物料重量' : '重量'}{n.required && <b className="req" title="必填">{reference ? '必填' : ' *'}</b>}</span>
+          <WeightBlock values={weightValues} manualOnly={['package', 'oem_package', 'shipping_material', 'custom'].includes(layoutKey)} required={n.required} error={errors.weightG} defaultUnit={['package','oem_package'].includes(layoutKey) ? 'g' : 'kg'}
             onChange={(patch) => { setValues((cur) => ({ ...cur, ...patch })); if (errors.weightG) setErrors((c) => ({ ...c, weightG: '' })); }} />
         </div>
       );
-      case 'costSummary': return <div key={`b${i}`} className="s12"><TotalCostPreview values={values} idle /></div>;
-      case 'category': case 'capacities': case 'finishedNames': return <div key={`b${i}`} className="form-grid s12">{editable.map((f) => renderField(f))}</div>;
+      case 'costSummary': return <div key={`b${i}`} className="s12"><TotalCostPreview values={previewValues} idle /></div>;
+      case 'category': if (layoutKey === 'custom') return <Fragment key={`b${i}`}><div className="s6"><span className="rf-label">所属分类 <b className="req">必填</b></span><ReferenceProductCategoryPicker values={values} labelNow={record?.refLabels.categoryId} onChange={id => setValues(v => ({...v,categoryId:id}))}/>{errors.categoryId && <small className="field-error">{errors.categoryId}</small>}</div><label className="s6"><span className="rf-label">状态</span><select value={status} disabled={!!record && !(me && createChecker(me.permissions)('resource.finance-products.disable'))} onChange={e => setStatus(e.target.value)}><option value="active">正常</option><option value="inactive">停用</option></select></label>{record && status !== record.status && status === 'inactive' && <label className="s12">停用原因<textarea value={statusReason} onChange={e => setStatusReason(e.target.value)}/></label>}</Fragment>;
+      return <div key={`b${i}`} className="s12"><ReferenceCategoryContext label={referenceLabel} editing={!!record} path={record?.refLabels.categoryId ?? ''}>{record ? editable.map(f => renderField(f)) : <div data-field="categoryId"><ReferenceProductCategoryPicker values={values} onChange={id => { setValues(v => ({...v, categoryId:id})); setErrors(e => ({...e,categoryId:''})); }} />{errors.categoryId && <small className="field-error" role="alert">{errors.categoryId}</small>}</div>}</ReferenceCategoryContext></div>;
+      case 'capacities': case 'finishedNames': return <div key={`b${i}`} className="s12"><ReferenceLines kind={n.block} value={values[n.block === 'capacities' ? 'capacities' : 'rawFinishedNames']} onChange={v => setValues(cur => ({ ...cur, [n.block === 'capacities' ? 'capacities' : 'rawFinishedNames']: v }))} /></div>;
+      case 'breakdown': return <div key={`b${i}`} className="s12"><CompositionResult facts={draftFacts} values={values} canCost={canCostEdit} /></div>;
+      case 'fullName': return <div key={`b${i}`} className="reference-full-name s12"><small>基础信息全名</small><output>{generatedName || String(values.basicInfoFullName ?? '填写基础信息后自动生成')}</output></div>;
       default: return null;
     }
   };
 
   return (
-    <div className={inline ? 'inline-edit' : 'modal-backdrop'} role="presentation">
-      <form className={inline ? 'inline-form' : `modal card rf${isProduct ? ' rf-p' : ''}`} role={inline ? 'group' : 'dialog'} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
+    <div className={inline ? 'inline-edit' : `modal-backdrop${reference ? ' reference-backdrop' : ''}`} role="presentation">
+      <form className={inline ? 'inline-form' : `modal card rf${isProduct ? ' rf-p' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
         {!inline && <div className="modal-head rf-head">
-          <strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>
-          {record && <span className="rf-sub" title={record.title}>{record.title}</span>}
+          {reference ? <div className="reference-title">{def.key === 'finance-suppliers' && <small className="reference-party-kicker"><FolderTree size={20}/>财务基础资料</small>}{isProduct && values.archiveType === 'purchased' && <small>外购成品档案 · {values.supplyMode === 'supplier_oem' ? '供应商 OEM' : '原装采购'}</small>}<h2>{record ? referenceStatus || (isProduct && layoutKey === 'custom') ? String(values.name || referenceLabel) : `编辑${isProduct ? String(values.name || referenceLabel) : referenceLabel}` : `新增${referenceLabel}`}</h2><p>{isProduct && layoutKey === 'custom' ? '先确认分类，再维护基础信息；编号按分类、可选品牌、名称、规格和可选形态样式生成，空白可选段会直接省略。' : referenceStatus ? `${def.label}详情、分类归属和操作记录。` : isReferenceParty ? record ? `在原位编辑${referenceLabel}资料，保存后立即生效。` : `填写${referenceLabel}基础资料，保存后归入当前分类。` : record ? `字段布局与新增${referenceLabel}保持一致，保存后更新当前记录。` : `填写${referenceLabel}基础资料即可保存。`}</p></div> : <><strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>{record && <span className="rf-sub" title={record.title}>{record.title}</span>}</>}
           <span className="rf-gap" />
-          {visible.some((f) => f.required) && <span className="muted rf-req-hint"><b className="req">*</b> 必填</span>}
-          <button type="button" className="icon-button" aria-label="关闭" onClick={requestClose}>✕</button>
+          {!reference && visible.some((f) => f.required) && <span className="muted rf-req-hint"><b className="req">*</b> 必填</span>}
+          <button type="button" className={`icon-button${referenceStatus || isProduct && layoutKey === 'custom' ? ' reference-full-close' : ''}`} aria-label="关闭" onClick={requestClose}>{referenceStatus || isProduct && layoutKey === 'custom' ? '关闭' : reference ? <X size={20} /> : '✕'}</button>
         </div>}
         <div className={showAnchors ? 'rf-main with-anchors' : 'rf-main'}>
           {showAnchors && (
@@ -605,7 +654,7 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
             />
           )}
           {draftNote && <div className="notice">{draftNote}{draftEnabled && draftNote.startsWith('已恢复') && <> <button type="button" className="link-button" onClick={() => void clearDraft()}>清除草稿</button></>}</div>}
-          {!record && def.statuses.length > 1 && def.key !== 'fixed-assets' && (
+          {!reference && !record && def.statuses.length > 1 && def.key !== 'fixed-assets' && (
             <label className="rf-status">初始状态
               <select value={status} onChange={(e) => setStatus(e.target.value)}>
                 {def.statuses.filter((s) => !s.requiresReason).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -613,20 +662,22 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
             </label>
           )}
           {inline && visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项。</p>}
-          {!inline && !record && !isProduct && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
-          {resolved ? resolved.filter((sec) => !onlyGroup || sec.title === onlyGroup).map((sec) => (
-            <section key={sec.id} id={secId(sec.title)} data-sec={sec.id} className="rf-sec" aria-label={sec.title}>
-              {!inline && <h3 className="rf-sec-title">{sec.step && <i className="rf-step">{sec.step}</i>}{sec.title}{sec.hint && <FieldHint text={sec.hint} />}</h3>}
-              <div className="form-grid">{sec.nodes.map(renderNode)}</div>
+          {!inline && !record && !reference && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
+          {resolved ? resolved.filter(sec => (!onlyGroup || sec.title === onlyGroup) && !(record && ['package','oem_package'].includes(layoutKey) && sec.id === 'category') && !(layoutKey === 'custom' && ['cost','total','photos'].includes(sec.id))).sort((a, b) => Number(a.id === 'gift') - Number(b.id === 'gift')).map((sec) => ['gift','extra'].includes(sec.id) ? <details key={sec.id} className="rf-sec reference-section-gift" data-sec={sec.id === 'extra' ? sec.id : undefined}><summary>{sec.id === 'gift' ? '赠品简称设置' : sec.title}</summary><div className="form-grid">{sec.nodes.map(renderNode)}</div></details> : (
+            <section key={sec.id} id={secId(sec.title)} data-sec={sec.id} className={`rf-sec reference-section-${sec.id}`} aria-label={sec.title}>
+              {!inline && (sec.id !== 'category' || layoutKey === 'custom') && <h3 className="rf-sec-title">{sec.step && !(layoutKey === 'self_made' && sec.id !== 'base') && <i className="rf-step">{sec.step}</i>}{sec.id === 'stock' && ['package','oem_package'].includes(layoutKey) ? '库存' : sec.title}{sec.hint && (reference ? <small>{sec.hint}</small> : <FieldHint text={sec.hint} />)}</h3>}
+              <div className="form-grid">{sec.nodes.filter(n => !(layoutKey === 'custom' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).filter(n => !(['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).map(renderNode)}</div>{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && <div className="reference-note">{sec.nodes.filter(n => n.kind === 'field' && n.field.key === 'note').map(renderNode)}</div>}{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && sec.nodes.filter(n => n.kind === 'block' && n.block === 'fullName').map(renderNode)}{sec.id === 'logistics' && canCostEdit && <FreightHistory productId={record?.id} values={previewValues} />}
             </section>
-          )) : groups.map(([group, fields]) => (
-            <section key={group} id={secId(group)} className="rf-sec" aria-label={group}>
-              {!inline && <h3 className="rf-sec-title">{secTitle(group)}</h3>}
-              <div className="form-grid">
-                {fields.map((f) => renderField(f))}
-              </div>
+          )) : groups.map(([group, fields]) => group === '补充资料' && referenceStatus ? null : group === '补充资料' && reference ? <details key={group} className="rf-sec reference-extra"><summary>更多设置</summary><div className="form-grid">{fields.map(f => renderField(f))}</div></details> : (
+            <section key={group} id={secId(group)} className={`rf-sec reference-party-${group === '归入分类' ? 'category' : group === '系统自动编号' ? 'code' : 'fields'}`} aria-label={group}>
+              {group === '归入分类' && isReferenceParty ? <><ReferenceCategoryContext party label={referenceLabel} editing={!!record} path={record?.refLabels.categoryIds ?? ''}>{!record && fields.map(f => renderField(f))}</ReferenceCategoryContext>{record && def.key === 'finance-suppliers' && <div className="reference-supplier-categories"><h3>供应产品分类 <small>可多选</small></h3>{fields.map(f => renderField(f))}</div>}</> : <>
+              {!inline && <h3 className="rf-sec-title">{isReferenceParty && ['基础资料','联系资料','收款与银行资料'].includes(group) && <i className="rf-step">{['基础资料','联系资料','收款与银行资料'].indexOf(group) + 1}</i>}{referenceStatus && group === '基础信息' && <Database size={18}/>} {secTitle(group)}{def.key === 'finance-suppliers' && group === '基础资料' && <small>与新增供应商的字段排列一致</small>}{def.key === 'finance-suppliers' && group === '联系资料' && <small>用于业务联系和后续单据引用</small>}{group === '系统自动编号' && <small>编码按分类和名称生成</small>}</h3>}
+              <div className="form-grid">{fields.map(f => <Fragment key={f.key}>{renderField(f)}{def.key === 'finance-fee-items' && f.key === 'isCommon' && <label className="s6"><span className="rf-label">费用单必须挂归属对象</span><select title="按挂账节点自动判断，修改挂账节点可改变要求" disabled value={String(values.defaultObject || '').split(/[、,，]/).some(n => n && n !== '公司' && n !== '不固定') ? 'yes' : 'no'}><option value="yes">是</option><option value="no">否</option></select><small className="muted">按挂账节点自动判断</small></label>}{referenceStatus && ['categoryId','categoryIds'].includes(f.key) && <label className="s6"><span className="rf-label">状态</span><select value={status} disabled={!!record && !(me && createChecker(me.permissions)(`resource.${def.key}.disable`))} onChange={e => setStatus(e.target.value)}><option value="active">正常</option><option value="inactive">停用</option></select></label>}</Fragment>)}{referenceStatus && status !== record?.status && status === 'inactive' && <label className="s12">停用原因<textarea value={statusReason} maxLength={500} onChange={e => setStatusReason(e.target.value)} /></label>}</div></>}
             </section>
           ))}
+          {isProduct && layoutKey === 'custom' && <details className="reference-extra"><summary>更多设置</summary><div className="form-grid">{resolved?.filter(sec => ['cost','total','photos'].includes(sec.id)).flatMap(sec => sec.nodes).map(renderNode)}{resolved?.find(sec=>sec.id==='base')?.nodes.filter(n => n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName').map(renderNode)}</div></details>}
+          {referenceStatus && record && <ReferenceRecordHistory type={def.key} id={record.id} label={def.label.replace(/档案$/,'')} />}
+          {referenceStatus && groups.find(([g]) => g === '补充资料') && <details className="reference-extra"><summary>更多设置</summary><div className="form-grid">{groups.find(([g]) => g === '补充资料')![1].map(f=>renderField(f))}</div></details>}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
           {error && <div role="alert" className="notice error">{error}</div>}
           </div>
@@ -643,12 +694,12 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           </div>
         )}
         <div className="modal-foot rf-foot">
-          {dirty && <span className="muted dirty-hint">{record ? '有未保存的修改' : '已填写内容尚未保存'}</span>}
-          <button type="button" className="secondary-button" onClick={requestClose}>取消</button>
+          {dirty && !reference && <span className="muted dirty-hint">{record ? '有未保存的修改' : '已填写内容尚未保存'}</span>}
+          <button type="button" className="secondary-button" disabled={busy} onClick={requestClose}>{isReferenceParty && record ? '取消编辑' : '取消'}</button>
           {draftEnabled && <button type="button" className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>保存草稿</button>}
           {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新增</button>}
           {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('blank')}>保存并继续新增</button>}
-          <button type="submit" className="primary-button" disabled={busy}>{busy ? '保存中…' : '保存'}</button>
+          <button type="submit" className="primary-button" disabled={busy}>{busy ? '保存中…' : isProduct && layoutKey === 'custom' ? '保存商品' : isProduct && record ? '保存修改' : '保存'}</button>{isReferenceParty && record && <button type="button" className="secondary-button reference-party-close" disabled={busy} onClick={requestClose}>关闭</button>}
         </div>
       </form>
       {quality && (
@@ -669,12 +720,12 @@ export function RecordForm({ def, record, initial, lockedFields, onlyGroup, inli
 
 /** 填写时实时看总成本价：采购价 + 运费 + 装卸费（自制品/OEM 的采购价来自构成，保存后才有，这里只提示）。 */
 export function TotalCostPreview({ values, idle }: { values: Record<string, unknown>; /** 表单里还没填时也画出汇总条（用 — 占位） */ idle?: boolean }) {
-  const num = (k: string) => (values[k] === '' || values[k] === undefined || values[k] === null ? null : Number(values[k]));
+  const num = (k: string) => (values[k] === '' || values[k] === undefined || values[k] === null || !Number.isFinite(Number(values[k])) ? null : Number(values[k]));
   const p = num('purchasePrice'), f = num('freight'), h = num('handlingFee');
   if (p === null && f === null && h === null && !idle) return null;
   const composed = ['self_made', 'oem_package'].includes(String(values.archiveType)) || values.supplyMode === 'supplier_oem';
   if (composed && p === null) return <div className="notice" role="status">采购价由构成汇总，保存后在“构成（BOM）”页签里维护。</div>;
-  const total = (p ?? 0) + (f ?? 0) + (h ?? 0);
+  const total = sumUnitCents([p ?? 0,f ?? 0,h ?? 0]);
   const empty = p === null && f === null && h === null;
   const part = (label: string, v: number | null) => <span className="rf-total-part"><small>{label}</small><b>{empty ? '—' : `¥${unitYuanText(v ?? 0)}`}</b></span>;
   return (

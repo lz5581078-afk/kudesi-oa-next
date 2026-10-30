@@ -15,4 +15,12 @@ describe('商品表单：总成本预览', () => {
     render(<TotalCostPreview values={{ archiveType: 'self_made', freight: 100 }} />);
     expect(screen.getByRole('status').textContent).toContain('构成（BOM）');
   });
+  it('未完成的非法单价不导致预览崩溃，微额报价按定点规则汇总', () => {
+    const {unmount}=render(<TotalCostPreview values={{archiveType:'raw',purchasePrice:NaN}} idle/>);
+    expect(screen.getByLabelText('总成本预览').textContent).toContain('—');
+    unmount();
+    render(<TotalCostPreview values={{archiveType:'raw',purchasePrice:.0001,freight:.0002,handlingFee:.0003}}/>);
+    expect(screen.getByLabelText('总成本预览').querySelector('.rf-total-sum strong')?.textContent).toBe('¥0.000006');
+  });
+
 });

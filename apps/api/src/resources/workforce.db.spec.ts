@@ -129,7 +129,8 @@ d('兼职与临时工（真实数据库）', () => {
     };
     const working = await mk('tab-w', { contractEndDate: day(30) });
     const pending = await mk('tab-p', { contractStartDate: day(1), employmentType: 'temp', contractEndDate: day(9) });
-    const endedToday = await mk('tab-e0', { contractStartDate: day(-9), contractEndDate: day(0) });
+    // 账号还会拼接随机后缀；搜索词不能是其他样例账号的前缀（旧 tab-e + 0... 会误中 tab-e0）。
+    const endedToday = await mk('tab-ends-today', { contractStartDate: day(-9), contractEndDate: day(0) });
     const ended = await mk('tab-e', { contractStartDate: day(-20), contractEndDate: day(-1) });
     const ending = await mk('tab-g', { contractEndDate: day(5) });
     const nopos = await mk('tab-n', {}, { positionId: null, departmentId: deptB.id });
@@ -150,7 +151,7 @@ d('兼职与临时工（真实数据库）', () => {
     expect(await ids({ filters: JSON.stringify({ dept: deptB.id }) })).not.toContain(working);
     expect(await ids({ filters: JSON.stringify({ employmentType: 'temp' }) })).toEqual(expect.arrayContaining([pending]));
     expect(await ids({ filters: JSON.stringify({ employmentType: 'temp' }) })).not.toContain(working);
-    expect(await ids({ keyword: 'tab-e0' })).toEqual([endedToday]);
+    expect(await ids({ keyword: 'tab-ends-today' })).toEqual([endedToday]);
     // 合作状态是读时算的：已到期的那条读出来是 ended，待开始是 pending
     expect((await svc.get(boss, 'workforce', ended)).data.cooperation).toBe('ended');
     expect((await svc.get(boss, 'workforce', pending)).data.cooperation).toBe('pending');
