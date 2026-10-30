@@ -90,3 +90,54 @@ describe('聚水潭改码阶段持久化', () => {
     await expect(c.call('/open/jushuitan/itemsku/upload', {})).rejects.toThrow(/明确拒绝/);
   });
 });
+
+describe('聚水潭分类未知结果防重放', () => {
+  it('分类已创建但响应超时，人工重试只回查，不能再创建一遍', async () => {
+    const rows: any[] = [];
+    const client = { pages: jest.fn(async () => rows), call: jest.fn(async (_path: string, b: any) => { rows.push({ c_id: 9, name: b.c_name, parent_c_id: b.parent_c_id }); throw new ExternalOutcomeUnknown('超时'); }) };
+    const sender = new CompanyJstSender(client as any, 'target', undefined, async () => {});
+    const job = { kind: 'category_sync', idempotencyKey: 'cat1', payload: { targetKey: 'target', op: 'create', desired: { name: '测试分类', parentRemoteId: '0', sort: 0, enable: true } } };
+    await expect(sender.send(job)).rejects.toBeInstanceOf(ExternalOutcomeUnknown);
+    expect(await sender.send(job)).toEqual({ remoteId: '9' });
+    expect(client.call).toHaveBeenCalledTimes(1);
+  });
+  it('意图已记录但远端仍查不到，重试不能再写入', async () => {
+    const client = { pages: jest.fn(async () => []), call: jest.fn() };
+    const sender = new CompanyJstSender(client as any, 'target', undefined, async () => {});
+    await expect(sender.send({ kind: 'category_sync', idempotencyKey: 'cat2', payload: { targetKey: 'target', op: 'create', desired: { name: '测试分类', parentRemoteId: '0' }, transport: { stage: 'category-write-intent' } } })).rejects.toBeInstanceOf(ExternalOutcomeUnknown);
+    expect(client.call).not.toHaveBeenCalled();
+  });
+});
+
+describe('聚水潭普通商品真实字段与查询延迟', () => {
+  it('默认分类字段和单独采购价查询合并，不丢失扩展字段', async () => {
+    const client = { pages: jest.fn(async (_path: string, p: any) => p.flds ? [{ sku_id: 'A', purchase_price: 0.012345 }] : [{ sku_id: 'A', category: '原料', autoid: 7, custom: '保留' }]) };
+    const sender = new CompanyJstSender(client as any, 'target');
+    expect(await sender.read('A', 'normal')).toMatchObject({ sku_id: 'A', c_name: '原料', purchase_price: 0.012345, autoid: 7, custom: '保留' });
+    expect(client.pages).toHaveBeenLastCalledWith('/open/sku/query', { sku_ids: 'A', flds: 'sku_id,purchase_price' }, 'datas');
+  });
+  it('上传将完整分类路径核对为末级名称，正确映射尺寸、属性和同步状态', async () => {
+    const client = { pages: jest.fn(async (path: string) => path.includes('category') ? [{ c_id: 1, name: '资料', parent_c_id: 0 }, { c_id: 2, name: '原料', parent_c_id: 1 }] : []), call: jest.fn(async () => ({})) };
+    const sender = new CompanyJstSender(client as any, 'target');
+    await sender.send({ kind: 'normal_product_upload', idempotencyKey: 'fields', payload: { targetKey: 'target', sku_id: 'A', i_id: 'I', name: '测试', c_name: '资料/原料', length: 1, width: 2, height: 3, other1: '属性', salePrice: 2.34, labels: '测试甲，测试乙', stockDisabled: '0', enabled: '0' } });
+    expect((client.call.mock.calls[0] as any)[1].items[0]).toMatchObject({ c_name: '原料', l: 1, w: 2, h: 3, other_1: '属性', s_price: 2.34, labels: ['测试甲', '测试乙'], stock_disabled: false, enabled: 0 });
+    await expect(sender.send({ kind: 'normal_product_upload', idempotencyKey: 'wrong-path', payload: { targetKey: 'target', sku_id: 'A', i_id: 'I', name: '测试', c_name: '错误/原料' } })).rejects.toThrow(/路径/);
+    expect(client.call).toHaveBeenCalledTimes(1);
+  });
+  it('停用普通商品仅提交必要标识，不把查询专有字段和字符串标签重新上传', async () => {
+    const client = { pages: jest.fn(async (_path: string, p: any) => p.flds ? [{ sku_id: 'A', purchase_price: 1 }] : [{ sku_id: 'A', i_id: 'I', name: '测试', labels: '只读格式', autoid: 7, category: '原料' }]), call: jest.fn(async () => ({})) };
+    await new CompanyJstSender(client as any, 'target').send({ kind: 'base_code_disable', idempotencyKey: 'disable', payload: { targetKey: 'target', sku_id: 'A' } });
+    expect(client.call).toHaveBeenCalledWith('/open/jushuitan/itemsku/upload', { items: [{ sku_id: 'A', i_id: 'I', name: '测试', enabled: -1 }] });
+  });
+  it('写入后的查询延迟只重试读取，不会再次发送；持续不一致最终报错', async () => {
+    const { OutboxService } = await import('../outbox/outbox.service');
+    const sender = { configured: true, confirmationDelays: [0, 0], send: jest.fn(), read: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ sku_id: 'A', name: '测试', c_name: '原料', purchase_price: 0.012345 }) };
+    const service = new OutboxService(undefined as any, undefined as any, sender);
+    const job = { kind: 'normal_product_upload', resourceType: 'finance-jst-uploads', payloadJson: { sku_id: 'A', name: '测试', c_name: '资料/原料', purchasePrice: 0.012345 } };
+    await (service as any).confirm(job, undefined, sender);
+    expect(sender.read).toHaveBeenCalledTimes(2); expect(sender.send).not.toHaveBeenCalled();
+    sender.read.mockReset().mockResolvedValue(null);
+    await expect((service as any).confirm(job, undefined, sender)).rejects.toThrow(/回读不到/);
+    expect(sender.read).toHaveBeenCalledTimes(3); expect(sender.send).not.toHaveBeenCalled();
+  });
+});
