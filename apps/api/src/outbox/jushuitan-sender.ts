@@ -1,3 +1,4 @@
+import { assertJstNormalPricePrecision } from './jst-price-precision';
 import { Injectable } from '@nestjs/common';
 import { ExternalConfigService } from '../integrations/external-config.service';
 import { ExternalOutcomeUnknown, JushuitanClient, JsonRow } from '../integrations/jushuitan.client';
@@ -34,6 +35,7 @@ export class CompanyJstSender implements OutboxSender {
   }
   async send(job: { kind: string; idempotencyKey: string; payload: JsonRow }): Promise<void | { remoteId?: string }> {
     const p = job.payload;
+    if (['normal_product_upload', 'base_code_upsert', 'base_code_replace'].includes(job.kind)) assertJstNormalPricePrecision(p);
     await this.assertCompany();
     if (p.targetKey !== this.targetKey) throw new Error('聚水潭目标身份不一致，请重新核对后入队');
     if (job.kind === 'category_sync') return this.category(job);
