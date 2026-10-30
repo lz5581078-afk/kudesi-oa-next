@@ -113,4 +113,21 @@ d('聚水潭同步队列（真实数据库）', () => {
     expect(r.blocked).toBe(true);
     expect((await outbox.jobs(boss, { page: 1, pageSize: 10 })).counts).toMatchObject({ pending: 1, cancelled: 1 });
   });
+  it('旧队列中超出聚水潭精度的单价直接停止，不自动重试或执行写入', async () => {
+    const { assertJstNormalPricePrecision } = await import('./jst-price-precision');
+    const pending = (await outbox.jobs(boss, { status: 'pending', page: 1, pageSize: 100 })).rows;
+    for (const job of pending) await outbox.cancel(boss, job.id);
+    const bc = await mkBc('精度测试', 'PRECISION-GUARD');
+    const writes = jest.fn();
+    outbox.setSender(sender({ send: async job => { assertJstNormalPricePrecision(job.payload); writes(); } }));
+    await ds.query("INSERT INTO outbox_jobs(company_id,channel,kind,resource_type,resource_id,idempotency_key,payload_json,created_by) VALUES(?,'jushuitan','base_code_upsert','finance-base-codes',?,'precision-guard',?,?)", [boss.companyId, bc.id, JSON.stringify({ sku_id: 'PRECISION-GUARD', cost_price: 0.012345 }), boss.id]);
+    await outbox.setSwitch(boss, true, '精度测试');
+    expect(await outbox.processCompany(boss.companyId)).toMatchObject({ sent: 0, failed: 1 });
+    const job = (await outbox.jobs(boss, { status: 'failed', page: 1, pageSize: 100 })).rows.find((j: { resourceId: number }) => j.resourceId === bc.id)!;
+    expect(job).toMatchObject({ status: 'failed', attempts: 1 });
+    expect(job.lastError).toMatch(/只保留元后 4 位/);
+    expect(await outbox.processCompany(boss.companyId)).toMatchObject({ sent: 0, failed: 0 });
+    expect(writes).not.toHaveBeenCalled();
+  });
+
 });

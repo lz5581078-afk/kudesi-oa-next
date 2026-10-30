@@ -1,3 +1,4 @@
+import { assertJstNormalPricePrecision } from '../outbox/jst-price-precision';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -71,6 +72,7 @@ export class JstMaintenanceService {
   async upload(user: AuthUser, form: UploadForm) {
     if (!user.permissions.isCompanyAdmin) throw new ForbiddenException('只有公司管理员能把商品资料上传到聚水潭');
     const f = this.clean(form);
+    try { assertJstNormalPricePrecision(f); } catch (e) { throw new BadRequestException((e as Error).message); }
     const missing = JST_REQUIRED.filter(([k]) => f[k] === undefined).map(([, label]) => label);
     if (missing.length) throw new BadRequestException(`请填写：${missing.join('、')}`);
     const dup = await this.checkDuplicate(user, { skuId: str(f.skuId), styleId: str(f.styleId), name: str(f.name) });
