@@ -1,0 +1,120 @@
+/* 商品档案新增/编辑表单外观（只作用于 .rf-p）：灰底 + 白色分区卡片、12 栏栅格、悬停提示、汇总条 */
+.rf.rf-p .rf-scroll { background: var(--bg); padding: 12px 18px 22px; gap: 12px; }
+.rf-p .rf-anchors { flex-basis: 118px; padding: 10px 6px; background: #fff; }
+.rf-p .rf-anchor { padding: 6px 8px; font-size: 12.5px; line-height: 1.3; }
+.rf-p .rf-anchor.active { background: transparent; color: var(--accent-ink); box-shadow: inset 2px 0 0 var(--accent); border-radius: 0 6px 6px 0; }
+.rf-p .rf-sec { padding: 12px 14px 14px; background: #fff; border: 1px solid var(--border); border-radius: 10px; scroll-margin-top: 8px; }
+.rf-p .rf-sec-title { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; padding: 0; border: 0; font-size: 14px; }
+.rf-p .rf-step { display: inline-grid; place-items: center; min-width: 24px; height: 20px; margin: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; }
+.rf.rf-p .form-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 10px 14px; }
+.rf.rf-p .form-grid > .s3 { grid-column: span 3; }
+.rf.rf-p .form-grid > .s4 { grid-column: span 4; }
+.rf.rf-p .form-grid > .s6 { grid-column: span 6; }
+.rf.rf-p .form-grid > .s12 { grid-column: 1 / -1; }
+.rf.rf-p .form-grid label { min-width: 0; gap: 3px; }
+.rf-p .rf-label { display: flex; align-items: center; gap: 2px; min-height: 18px; font-size: 12.5px; color: #4b5767; }
+.rf-p .rf-label .req { color: var(--bad-ink); }
+.rf-p .rf-manage { white-space: nowrap; margin-left: auto; font-size: 12px; font-weight: 400; }
+.rf.rf-p .form-grid input, .rf-p .form-grid select { height: 32px; }
+.rf.rf-p .form-grid textarea { min-height: 54px; }
+.rf.rf-p .form-grid label.invalid { margin: -4px -6px -6px; padding: 4px 6px 6px; }
+.rf-p .rf-status { margin-top: 0; }
+.rf-p .notice { margin: 0; }
+
+/* 悬停提示 ⓘ */
+.rf-hint { position: relative; display: inline-flex; align-items: center; margin-left: 4px; color: #8a96a6; cursor: help; vertical-align: middle; outline: none; }
+.rf-hint:hover, .rf-hint:focus-visible { color: var(--accent); }
+.rf-hint::after { content: attr(data-tip); position: absolute; z-index: 40; left: var(--tip-x, -8px); top: calc(100% + 6px); width: max-content; max-width: var(--tip-w, 260px); padding: 6px 9px; border-radius: 6px; background: #1f2a37; color: #fff; font-size: 12px; font-weight: 400; line-height: 1.5; text-align: left; white-space: normal; box-shadow: 0 6px 18px rgba(15, 23, 42, .25); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .12s; }
+.rf-hint[data-pos='up']::after { top: auto; bottom: calc(100% + 6px); }
+.rf-hint:hover::after, .rf-hint:focus-visible::after { opacity: 1; visibility: visible; }
+.rf-p .rf-sec-title .rf-hint { margin-left: 2px; }
+
+/* 重量：人工修正和输入同一行 */
+.rf-p .rf-weight { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 32px; }
+.rf-p .rf-weight .rf-check { flex-direction: row; gap: 6px; font-size: 12.5px; color: #4b5767; white-space: nowrap; }
+.rf-p .rf-weight .rf-weight-row { flex: 1 1 auto; min-width: 150px; flex-wrap: nowrap; }
+.rf-p .rf-weight .rf-weight-row input { flex: 1 1 80px; width: auto; min-width: 70px; }
+.rf-p .rf-weight .rf-weight-row select { width: 78px; flex: none; }
+.rf-p .rf-auto { color: var(--muted); font-size: 12.5px; }
+.rf-p .rf-weight .field-error { flex-basis: 100%; }
+
+/* 总成本汇总条 */
+.rf-total { padding: 10px 14px; border-radius: 8px; background: linear-gradient(135deg, #f1faf6, #e6f4ef); border: 1px solid #cfe5da; }
+.rf-total-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.rf-total-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+.rf-total-part, .rf-total-sum { display: grid; gap: 1px; }
+.rf-total-part small, .rf-total-sum small { color: var(--muted); font-size: 11.5px; }
+.rf-total-part b { font-size: 15px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.rf-total-row > i { font-style: normal; color: var(--muted); font-size: 16px; margin-top: 12px; }
+.rf-total-sum { text-align: left; }
+.rf-total-sum strong { font-size: 20px; color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+
+/* 供货来源、生产组成：更紧凑 */
+.rf-p .rf-rows { gap: 8px; }
+.rf-p .rf-rows .data-table th { padding: 5px 8px; font-size: 12px; }
+.rf-p .rf-rows .data-table td { padding: 4px 6px; }
+.rf-p .rf-rowgroup { padding: 6px 10px 10px; border-color: var(--border); background: #fbfcfd; }
+.rf-p .rf-rowgroup legend { display: inline-flex; align-items: center; padding: 0 4px; font-size: 12.5px; color: var(--ink); }
+.rf-p .rf-rows .secondary-button.small { align-self: flex-start; }
+.rf-p .rf-rows .ref-search { height: 28px; }
+
+/* 商品照片：一排缩略图 + 上传按钮 */
+.rf-p .files-input { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rf-p .files-input .file-grid { gap: 8px; margin: 0; }
+.rf-p .files-input .file-thumb { width: 56px; }
+.rf-p .files-input .file-thumb img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; }
+.rf-p .files-input .file-name, .rf-p .files-input > small.muted { display: none; }
+.rf-p .files-input .secondary-button { height: 32px; padding: 0 12px; }
+
+@media (max-width: 720px) {
+  .rf-p .rf-scroll { padding: 8px 10px 20px; }
+  .rf-p .rf-anchors { flex-basis: auto; padding: 6px 8px; }
+  .rf-p .rf-anchor.active { box-shadow: inset 0 -2px 0 var(--accent); border-radius: 0; }
+  .rf.rf-p .form-grid > .s3, .rf-p .form-grid > .s4 { grid-column: span 6; }
+  .rf.rf-p .form-grid > .s6 { grid-column: 1 / -1; }
+  .rf-p .rf-sec { padding: 10px 10px 12px; }
+  .rf-total-sum { flex-basis: 100%; grid-auto-flow: column; justify-content: space-between; align-items: baseline; padding-top: 6px; border-top: 1px dashed #bcd9cb; }
+}
+
+/* 分类 + 编号并排；其余分区整行 */
+.rf.rf-p .rf-scroll { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+.rf.rf-p .rf-scroll > * { grid-column: 1 / -1; }
+.rf.rf-p .rf-scroll > .rf-sec[data-sec='category'], .rf.rf-p .rf-scroll > .rf-sec[data-sec='category'] + .rf-sec[data-sec='code'] { grid-column: auto; }
+.rf.rf-p .rf-scroll > .rf-sec[data-sec='category'] + .rf-sec[data-sec='code'] { align-self: stretch; }
+.rf-p .rf-rows > .secondary-button { justify-self: start; }
+.rf.rf-p .form-grid textarea { height: 58px; min-height: 40px; }
+.rf-p .rf-sec[data-sec='photos'] [data-field='photos'] > .rf-label { display: none; }
+@media (max-width: 720px) {
+  .rf.rf-p .rf-scroll { grid-template-columns: 1fr; }
+  .rf.rf-p .rf-scroll > .rf-sec[data-sec='category'], .rf.rf-p .rf-scroll > .rf-sec[data-sec='category'] + .rf-sec[data-sec='code'] { grid-column: 1 / -1; }
+}
+
+/* 生产组成：每组一行表头（名称 ⓘ ＋ 添加按钮），没有明细时只占一行 */
+.rf-p .rf-rowgroup { gap: 6px; padding: 8px 10px; }
+.rf-p .rf-rg-head { display: flex; align-items: center; gap: 4px; }
+.rf-p .rf-rg-head strong { font-size: 12.5px; }
+.rf-p .rf-rg-head .secondary-button { margin-left: auto; height: 26px; padding: 0 10px; font-size: 12.5px; }
+
+/* ---- 商品档案详情：分区卡片 + 紧凑两列，成本汇总一行 ---- */
+.rd-p { background: var(--bg); }
+.rd-p .rd-anchors { padding: 12px 6px 12px 8px; }
+.rd-p .rd-anchor { padding: 6px 8px; font-size: 12.5px; }
+.rd-p .rd-anchor.active { background: transparent; box-shadow: inset 2px 0 0 var(--accent); border-radius: 0 6px 6px 0; }
+.rd-p .rd-sections { display: grid; gap: 10px; align-content: start; padding: 12px 14px 48px 8px; }
+.rd-p .rd-sections > * { min-width: 0; }
+.rd-p .rd-sec { padding: 8px 14px 6px; background: #fff; border: 1px solid var(--border); border-radius: 10px; }
+.rd-p .rd-sec-title { margin: 0 0 4px; padding: 0; border: 0; font-size: 14px; }
+.rd-p .rd-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); column-gap: 20px; }
+.rd-p .rd-item { grid-template-columns: 1fr; gap: 1px; padding: 5px 0 6px; border-bottom: 0; }
+.rd-p .rd-item dt { font-size: 12px; }
+.rd-p .rd-item dd { font-size: 13.5px; }
+.rd-p .cost-summary { margin: 0; padding: 10px 14px; background: #fff; border: 1px solid #cfe5da; border-radius: 10px; }
+.rd-p .cost-summary .section-title { margin: 0 0 6px; font-size: 13px; }
+.rd-p .cost-summary-row { margin: 0 0 8px; gap: 6px; }
+.rd-p .cost-summary-row > div { padding: 6px 10px; min-width: 84px; }
+.rd-p .cost-summary .kv { grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12.5px; }
+.rd-p .cost-summary .kv dt { white-space: nowrap; }
+@media (max-width: 720px) {
+  .rd-p .rd-sections { padding: 8px 10px 64px; }
+  .rd-p .rd-grid { grid-template-columns: 1fr 1fr; column-gap: 12px; }
+}

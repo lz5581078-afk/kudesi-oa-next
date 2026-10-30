@@ -7,5 +7,5 @@ export function ManageLink({ field }: { field: FieldDef }) {
   const host = type ? Object.entries(PAGE_TABS).find(([, tabs]) => tabs.some((t) => t.ref === type))?.[0] : undefined; // 在宿主页的页签里的资料
   const path = type ? resourcePagePath(type) ?? (host ? `/${host}` : null) : null;
   if (!type || !path || !NAMES[type]) return null;
-  return <a className="link-button" href={path} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{NAMES[type]}</a>;
+  return <a className="link-button rf-manage" href={path} target="_blank" rel="noreferrer" aria-label={NAMES[type]} title={NAMES[type]} onClick={(e) => e.stopPropagation()}>管理</a>;
 }

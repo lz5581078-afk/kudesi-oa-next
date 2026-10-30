@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { FieldDef } from '@kudesi/shared';
 import { MoneyControl, RefSelect } from './RecordForm';
 import { resourceApi } from './api';
+import { FieldHint } from './FieldHint';
 
 /** 供货来源行（原料、发货物料）：同一个组件用于新增和编辑，保存档案后按差异落库。 */
 export interface SourceRow { rowId?: number; supplierId: number | null; originArea: string; systemSpec: string; purchasePrice: unknown; note?: string; stopped?: boolean }
@@ -87,11 +88,11 @@ export function WeightBlock({ values, onChange, manualOnly, required, error, def
     const n = Number(raw);
     onChange({ weightG: Number.isFinite(n) ? Math.round(n * (UNIT_G[u] ?? 1) * 1e6) / 1e6 : NaN, ...(manualOnly ? { weightManual: true } : {}) });
   };
+  const autoHint = `不勾选时按${values.archiveType === 'raw' ? '系统规格' : '规格数量和单位'}自动换算${values.archiveType === 'self_made' ? '，自产成品按构成汇总' : ''}`;
   return (
     <div className="rf-weight" data-field="weightG">
       {!manualOnly && (
-        <label className="rf-check"><input type="checkbox" checked={values.weightManual === true} onChange={(e) => onChange({ weightManual: e.target.checked })} /> 人工修正重量
-          <small className="muted"> 不勾选时按{values.archiveType === 'raw' ? '系统规格' : '规格数量和单位'}自动换算{values.archiveType === 'self_made' ? '，自产成品按构成汇总' : ''}</small></label>
+        <label className="rf-check"><input type="checkbox" checked={values.weightManual === true} onChange={(e) => onChange({ weightManual: e.target.checked })} /> 人工修正重量<FieldHint text={autoHint} /></label>
       )}
       {manual ? (
         <div className="rf-weight-row">
@@ -102,7 +103,7 @@ export function WeightBlock({ values, onChange, manualOnly, required, error, def
           {grams !== '' && unit !== 'g' && <small className="muted">= {grams} 克</small>}
         </div>
       ) : (
-        <small className="muted">保存后按规则自动得出重量{grams !== '' ? `（当前 ${grams} 克）` : ''}。</small>
+        <span className="rf-auto">{grams !== '' ? `自动换算：${grams} 克` : '保存后自动换算'}</span>
       )}
       {error && <small className="field-error" role="alert">{error}</small>}
     </div>

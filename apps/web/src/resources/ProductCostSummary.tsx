@@ -47,7 +47,6 @@ export function ProductCostSummary({ def, record }: { def: ResourceDef; record: 
         <dt>3 个月平均采购价</dt>
         <dd>{history === null ? '读取中…' : avg === null ? <span className="muted">暂无</span> : `¥${unitYuanText(avg)}`}</dd>
       </dl>
-      {composed && <p className="muted">自制品/OEM 的构成在“构成（BOM）”页签里增减，保存后这里的数字自动重算。</p>}
       {priced.length > 0 && <button type="button" className="link-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>历史采购价（{priced.length}）</button>}
       {open && (
         <ul className="plain-list">
