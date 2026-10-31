@@ -11,7 +11,8 @@ import { FinanceDocumentsService } from '../resources/finance-documents.service'
 import { buildServices } from '../test-support';
 import { ensureDefaultLiveRules, liveClock } from './live-core';
 import { LiveLedgerService } from './live-ledger.service';
-import { LiveOrder, LiveOrderCandidates, LiveOrderSource, LiveRefund } from './live-order-source';
+import { LiveOrder, LiveOrderCandidates, LiveOrderSource, LiveRefund, type LiveSourceStatus } from './live-order-source';
+import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { WorkspaceModuleRegistry } from '../workspace/module-registry';
 import { LiveWorkspaceModule } from './live-workspace';
 import { LiveScheduleService } from './live-schedule.service';
@@ -25,8 +26,12 @@ class FakeSource extends LiveOrderSource {
   orders: LiveOrder[] = [];
   refundMap = new Map<string, number>();
   down = false;
+  unavailable = ''; truncated = false;
+  state: LiveSourceStatus = { ready: true, code: 'ready', message: '' };
+  async status(_c: number) { return this.state; }
   async candidates(_c: number, _s: unknown, _o: unknown): Promise<LiveOrderCandidates> {
-    return { available: true, reason: '', orders: this.orders, truncated: false, window: null };
+    if (this.unavailable) return { available: false, reason: this.unavailable, orders: [], truncated: false, window: null };
+    return { available: true, reason: this.truncated ? '订单太多' : '', orders: this.orders, truncated: this.truncated, window: null };
   }
   async refunds(_c: number, _shop: string, orders: Array<{ orderId: string; amountCents: number }>) {
     if (this.down) throw new Error('接口超时');
@@ -286,7 +291,11 @@ d('直播管理（真实数据库）', () => {
   it('月结：必须只读核对退款（查不到不生成）；按原比例扣减；提交后锁月；审批通过后锁定', async () => {
     clock('2026-10-05 10:00:00');
     const unconfigured = new LiveSettlementService(ds, flow, new (await import('./live-order-source')).UnconfiguredLiveOrderSource());
-    await expect(unconfigured.generate(manager, '2026-09')).rejects.toThrow(/没有生成结算单/);
+    await expect(unconfigured.generate(manager, '2026-09')).rejects.toThrow(/不能生成结算单.*授权/);
+    // 有要核对退款的订单、但聚水潭读取没就绪（没授权）时，明确提示，不生成残缺结算单
+    source.state = { ready: false, code: 'unauthorized', message: '公司还没有授权聚水潭' };
+    await expect(settlements.generate(manager, '2026-09')).rejects.toThrow(/不能生成结算单.*授权聚水潭/);
+    source.state = { ready: true, code: 'ready', message: '' };
     await expect(settlements.generate(anchor, '2026-09')).rejects.toThrow(/权限/);
     await expect(settlements.generate(manager, '2026-10')).rejects.toThrow(/没有已审核的提成记录/);
     source.down = true;
@@ -341,5 +350,56 @@ d('直播管理（真实数据库）', () => {
     expect(mine.find((c) => c.key === 'live-mine')!.value).toBe(1);
     expect(Number(mine.find((c) => c.key === 'live-commission')!.value)).toBeGreaterThanOrEqual(0);
     expect(await mod.deskCards(manager, 'finance')).toEqual([]);
+  });
+
+  it('对齐旧站：聚水潭没授权不能报下播；本场没订单可以不勾；订单被截断不放行；预估提成按角色过滤', async () => {
+    clock('2026-10-14 10:02:00');
+    const sch = await schedules.create(manager, input({ date: '2026-10-14', startTime: '10:00', endTime: '12:00' }));
+    const s = await sessions.start(anchor, { scheduleId: sch.id, ...baseStart() });
+    clock('2026-10-14 12:05:00');
+    const body = { endAt: '2026-10-14 12:00:00', salesCents: 80000, orderIds: [] as string[] };
+    source.unavailable = '公司还没有授权聚水潭';
+    await expect(sessions.report(anchor, s.id, body)).rejects.toThrow(/不能报下播.*授权聚水潭/);
+    source.unavailable = ''; source.truncated = true; source.orders = [order('T1', 1000)];
+    await expect(sessions.report(anchor, s.id, { ...body, orderIds: ['T1'] })).rejects.toThrow(/订单太多/);
+    source.truncated = false; source.orders = [];
+    await sessions.report(anchor, s.id, body); // 聚水潭查到本场没有订单：允许空勾选
+    expect((await sessions.detail(anchor, s.id)).reports[0]).toMatchObject({ role: 'anchor', ordersTotalCents: 0, orderCount: 0, salesCents: 80000 });
+    // 预估提成：主播只能看到自己的角色；陌生人不能看；格式不对给 400
+    const own = await sessions.previewFor(anchor, s.id, { sales: '800' });
+    expect(own).toMatchObject({ available: true, basisSalesCents: 80000, control: null, operator: null });
+    expect(own!.anchor!.amountCents).toBe(liveComputeCommission({ rules: LIVE_DEFAULT_RULES, finalSalesCents: 80000, adSpendCents: null }).anchor.amountCents);
+    await expect(sessions.previewFor(stranger, s.id, { sales: '800' })).rejects.toThrow();
+    await expect(sessions.previewFor(anchor, s.id, { sales: '8x' })).rejects.toThrow();
+    expect(await sessions.previewFor(anchor, s.id, { sales: '' })).toMatchObject({ available: false });
+    // 授权状态：就绪/未授权都能读到，不会抛错
+    expect(await sessions.integrationStatus(anchor)).toMatchObject({ ready: true });
+    source.state = { ready: false, code: 'unauthorized', message: '公司还没有授权聚水潭' };
+    expect(await sessions.integrationStatus(anchor)).toMatchObject({ ready: false, code: 'unauthorized' });
+    await expect(sessions.integrationStatus(stranger)).rejects.toThrow();
+    source.state = { ready: true, code: 'ready', message: '' };
+  });
+
+  it('对齐旧站：排场通知同步入飞书队列（开关开启时），改排场作废旧的未发通知，取消另发一条', async () => {
+    const feishu = new FeishuNoticeService(ds);
+    const withFeishu = new LiveScheduleService(ds, feishu);
+    await ds.query('INSERT INTO outbox_switches (company_id, channel, enabled) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE enabled = 1', [company, 'feishu']);
+    clock('2026-10-19 09:00:00');
+    const sch = await withFeishu.create(manager, input({ date: '2026-10-20', startTime: '10:00', endTime: '12:00' }));
+    const jobs = () => ds.query("SELECT status, JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.kind')) kind, JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.userId')) uid FROM outbox_jobs WHERE company_id = ? AND channel = 'feishu' AND resource_type = 'live-schedule' AND resource_id = ? ORDER BY id", [company, sch.id]);
+    const first = await jobs();
+    expect(first.length).toBeGreaterThanOrEqual(2); // 主播、中控、运营各一条
+    expect(first.every((j: any) => j.status === 'pending' && j.kind === 'schedule')).toBe(true);
+    await withFeishu.update(manager, sch.id, input({ date: '2026-10-20', startTime: '11:00', endTime: '13:00' }));
+    const after = await jobs();
+    expect(after.filter((j: any) => j.kind === 'schedule' && j.status === 'cancelled').length).toBe(first.length);
+    expect(after.filter((j: any) => j.kind === 'changed' && j.status === 'pending').length).toBeGreaterThan(0);
+    await withFeishu.cancel(manager, sch.id, '主播请假');
+    expect((await jobs()).some((j: any) => j.kind === 'cancelled' && j.status === 'pending')).toBe(true);
+    await ds.query("UPDATE outbox_switches SET enabled = 0 WHERE company_id = ? AND channel = 'feishu'", [company]);
+    const before = (await jobs()).length;
+    const sch2 = await withFeishu.create(manager, input({ date: '2026-10-21', startTime: '10:00', endTime: '12:00' }));
+    expect(sch2.id).toBeGreaterThan(0);
+    expect((await jobs()).length).toBe(before); // 开关关着时不入队
   });
 });

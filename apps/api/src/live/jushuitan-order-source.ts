@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { liveFromText, liveToText } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
 import { JushuitanClient, JsonRow } from '../integrations/jushuitan.client';
-import { LiveOrderCandidates, LiveOrderSource, LiveRefund } from './live-order-source';
+import { LiveOrderCandidates, LiveOrderSource, LiveRefund, LiveSourceStatus } from './live-order-source';
 function cents(v: unknown): number { const n = Math.round(Number(v) * 100); if (!Number.isSafeInteger(n) || n < 0) throw new Error('聚水潭金额不合法，不能结算'); return n; }
 export function refundFor(orderAmount: number, order: JsonRow, rows: JsonRow[]): LiveRefund {
   if (order.status === 'Cancelled') return { cents: orderAmount, source: 'cancelled', details: [{ kind: 'order', status: 'Cancelled' }] };
@@ -23,6 +23,17 @@ export function refundFor(orderAmount: number, order: JsonRow, rows: JsonRow[]):
 @Injectable()
 export class JushuitanOrderSource extends LiveOrderSource {
   constructor(private readonly settings: ExternalConfigService) { super(); }
+  /** 只检查授权配置（不调用聚水潭）：未配置应用/未授权账户/授权过期分别给出明确提示。 */
+  async status(companyId: number): Promise<LiveSourceStatus> {
+    try { await this.settings.jst(companyId); return { ready: true, code: 'ready', message: '' }; }
+    catch (e) {
+      const m = (e as Error).message;
+      if (/过期/.test(m)) return { ready: false, code: 'expired', message: '聚水潭授权已过期。管理员需要在“接口接入”里为本公司续期授权后，才能查询订单和退款。' };
+      if (/正式应用/.test(m)) return { ready: false, code: 'unconfigured', message: '聚水潭正式应用还没有配置。管理员需要先在平台“接口应用”里配置，再为本公司授权。' };
+      if (/唯一的聚水潭公司授权/.test(m)) return { ready: false, code: 'unauthorized', message: '本公司还没有完成聚水潭授权（或授权账户不唯一）。管理员需要在“接口接入”里授权聚水潭后，才能查询订单和退款。' };
+      return { ready: false, code: 'error', message: `聚水潭接口配置读取失败：${m}` };
+    }
+  }
   private async client(companyId: number, shopId: string) {
     if (!/^\d+$/.test(shopId) || !Number.isSafeInteger(Number(shopId))) throw new Error('聚水潭店铺编号不合法');
     const cfg = await this.settings.jst(companyId);

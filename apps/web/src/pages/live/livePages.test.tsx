@@ -10,6 +10,7 @@ import { LiveManagePage } from './LiveManagePage';
 vi.mock('./liveApi', () => ({ liveApi: {
   options: vi.fn(), products: vi.fn(), overview: vi.fn(), roomDay: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), cancelSchedule: vi.fn(), start: vi.fn(), sessions: vi.fn(), session: vi.fn(),
   candidates: vi.fn(), report: vi.fn(), submit: vi.fn(), reviewPreview: vi.fn(), workbench: vi.fn(), history: vi.fn(), commissions: vi.fn(), wages: vi.fn(), people: vi.fn(), rules: vi.fn(), createRule: vi.fn(), trial: vi.fn(),
+  integrationStatus: vi.fn(), commissionPreview: vi.fn(),
   settlements: vi.fn(), settlement: vi.fn(), generateSettlement: vi.fn(), submitSettlement: vi.fn(),
 } }));
 vi.mock('../flow/flowApi', async (orig) => ({ ...(await orig<typeof import('../flow/flowApi')>()), flowApi: { pass: vi.fn(), back: vi.fn(), reject: vi.fn() } }));
@@ -27,9 +28,9 @@ const opts = () => ({
 const sched = (o: Record<string, unknown> = {}) => ({ id: 1, roomId: 10, roomName: '直播间-北1', date: '2026-09-28', start: '2026-09-28 10:00:00', end: '2026-09-28 14:00:00', startTime: '10:00', endTime: '14:00', status: 'scheduled', statusLabel: '未开始', anchor: person(3, '小主播'), control: person(4, '小中控'), operator: null, douyinAccount: person(20, '抖音一号'), store: null, sessionId: null, note: null, cancelReason: null, canStart: true, mineRole: 'anchor', ...o });
 const session = (o: Record<string, unknown> = {}) => ({ id: 7, scheduleId: 1, roomId: 10, roomName: '直播间-北1', date: '2026-09-28', startAt: '2026-09-28 10:02:00', endAt: null, plannedEnd: null, status: 'live', statusLabel: '直播中', anchor: person(3, '小主播'), control: person(4, '小中控'), operator: null, douyinAccount: person(20, '抖音一号'), store: null, finalSalesCents: null, finalSalesSource: null, finalSalesReason: null, returnReason: null, flowRunId: null, submittedAt: null, approvedAt: null, approverName: null, revision: 1, ...o });
 const detail = (o: Record<string, unknown> = {}) => ({ ...session(), products: [{ id: 1, code: 'SKU-A', name: '毛巾', spec: '' }], reports: [], commissions: [], wage: null, preview: null, me: { reportRoles: ['anchor'], canSubmit: false, isManager: false }, flow: null, ...o });
-const bench = (o: Record<string, unknown> = {}) => ({ today: '2026-09-28', month: '2026-09', identity: { isAnchor: true, isControl: false, canManage: false }, active: [], schedules: [sched()], recent: [], monthCommissionCents: 12345, monthWageCents: 20000, monthWageMinutes: 240, ...o });
+const bench = (o: Record<string, unknown> = {}) => ({ today: '2026-09-28', month: '2026-09', identity: { isAnchor: true, isControl: false, canManage: false }, active: [], schedules: [sched()], recent: [], monthCommissionCents: 12345, monthWageCents: 20000, monthWageMinutes: 240, commissionRows: [], wageRows: [], ...o });
 
-beforeEach(() => { window.localStorage.clear(); allow = ['features.live-desk.view']; l.options.mockResolvedValue(opts() as never); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
+beforeEach(() => { window.localStorage.clear(); allow = ['features.live-desk.view']; l.options.mockResolvedValue(opts() as never); l.integrationStatus.mockResolvedValue({ ready: true, code: 'ready', message: '' }); l.commissionPreview.mockResolvedValue(null); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const wrap = (ui: JSX.Element) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
@@ -91,6 +92,25 @@ describe('我的直播', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: '提交下播' }));
     await waitFor(() => expect(l.report).toHaveBeenCalled());
     expect(l.report.mock.calls[0][1]).toMatchObject({ role: 'control', salesCents: 60050, adSpendCents: 5000, orderIds: ['A1'] });
+  });
+
+  it('聚水潭未授权时顶部提示原因；报下播可一键勾选已付款，销售额跟随订单合计并显示预估提成', async () => {
+    l.integrationStatus.mockResolvedValue({ ready: false, code: 'unauthorized', message: '公司还没有授权聚水潭，请管理员授权' });
+    l.workbench.mockResolvedValue(bench({ active: [session()] }) as never);
+    l.session.mockResolvedValue(detail({ me: { reportRoles: ['anchor'], canSubmit: false, isManager: false } }) as never);
+    l.candidates.mockResolvedValue({ available: true, reason: '', orders: [{ orderId: 'A1', innerId: '1', payTime: '2026-09-28 11:00:00', paid: true, amountCents: 60000, status: 'Confirmed', statusLabel: '已确认', cancelled: false }, { orderId: 'A2', innerId: '2', payTime: '2026-09-28 11:10:00', paid: true, amountCents: 12345, status: 'Confirmed', statusLabel: '已确认', cancelled: false }, { orderId: 'U1', innerId: '3', payTime: null, paid: false, amountCents: 999, status: 'WaitPay', statusLabel: '待付款', cancelled: false }], truncated: false, startAt: '', endAt: '' } as never);
+    l.commissionPreview.mockResolvedValue({ available: true, reason: '', basisSalesCents: 72345, anchor: { userId: 1, name: '小王', rateUnits: 300, amountCents: 2170 }, control: null, operator: null } as never);
+    wrap(<LiveDeskPage />);
+    expect((await screen.findAllByTestId('live-source-status'))[0].textContent).toContain('授权');
+    fireEvent.click(await screen.findByRole('button', { name: /报下播/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '报下播' }));
+    const dlg = await screen.findByRole('dialog', { name: '报下播（主播）' });
+    fireEvent.click(await within(dlg).findByRole('button', { name: '勾选全部已付款' }));
+    expect(within(dlg).getByText(/已勾选 2 单，合计 ¥723.45/)).toBeTruthy();
+    expect((within(dlg).getByLabelText('销售额') as HTMLInputElement).value).toBe('723.45');
+    await waitFor(() => expect(l.commissionPreview).toHaveBeenCalled());
+    fireEvent.click(within(dlg).getByRole('button', { name: '清空' }));
+    expect(within(dlg).getByText(/已勾选 0 单/)).toBeTruthy();
   });
 
   it('提交审核：待提交的场次可以提交，失败的原因显示出来', async () => {

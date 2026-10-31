@@ -20,7 +20,9 @@
 .live-amounts li { display: flex; gap: 6px; align-items: baseline; }
 .live-preview { background: var(--accent-soft); border-radius: var(--radius-sm); padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
 .live-orders { max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.live-orders label { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--border); }
+.live-orders label { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--border); color: var(--ink); }
+.live-orders label input[type="checkbox"] { width: 16px; height: 16px; padding: 0; flex: none; }
+.live-orders label small { flex: 1; min-width: 0; }
 .live-orders label:first-child { border-top: 0; }
 .live-orders label.off { opacity: .55; }
 .live-orders .amt { margin-left: auto; font-variant-numeric: tabular-nums; }

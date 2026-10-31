@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import {
@@ -6,6 +6,7 @@ import {
 } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
 import { Notification } from '../entities';
+import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { LiveAccess, liveDouyinAccounts, liveDouyinStores, liveEmployees, livePeople, liveRoomList, loadLiveAccess, requireManage, requireUse, requireView } from './live-access';
 import { Row, SESSION_SELECT, idOf, liveClock, liveFail, lockCompany, text, wallNow } from './live-core';
 
@@ -33,7 +34,7 @@ export function serializeSchedule(s: Row) {
 /** 排场：今天及未来 7 天，同一房间时间段不重叠，同一主播不能同时在两个房间。 */
 @Injectable()
 export class LiveScheduleService {
-  constructor(@InjectDataSource() private readonly ds: DataSource) {}
+  constructor(@InjectDataSource() private readonly ds: DataSource, @Optional() private readonly feishu?: FeishuNoticeService) {}
   private get em() { return this.ds.manager; }
 
   async access(user: AuthUser) { return loadLiveAccess(this.em, user); }
@@ -92,9 +93,16 @@ export class LiveScheduleService {
     return { day, startAt, endAt, room: room!, anchorId: anchorId!, controlId, operatorId, account: account!, store: store ?? null, note: text(input.note) || null };
   }
 
-  private async notify(em: EntityManager, companyId: number, ids: Array<number | null | undefined>, title: string, body: string) {
+  /**
+   * 排班通知：站内通知 + 飞书“直播助手”通道（走现有出站队列，开关和发送器没启用时只积压不发送）。
+   * 同一排班同一版本每人每种消息只入队一次；排班再变更时，旧版本还没发出的消息作废（移除通知保留）。
+   */
+  private async notify(em: EntityManager, companyId: number, ids: Array<number | null | undefined>, title: string, body: string, ref: { scheduleId: number; version: number; kind: 'schedule' | 'changed' | 'removed' | 'cancelled' | 'reminder' }) {
     for (const uid of [...new Set(ids.filter((v): v is number => !!v).map(Number))]) {
       await em.insert(Notification, { companyId, userId: uid, kind: 'live_schedule', title: title.slice(0, 200), body: body.slice(0, 500), link: '/features/live-desk' });
+      await this.feishu?.enqueue(em, companyId, 'live-schedule', `${ref.kind}:${ref.scheduleId}:${ref.version}`, {
+        channel: 'live', userId: uid, title: title.slice(0, 200), body: body.slice(0, 500), link: '/features/live-desk', resourceType: 'live-schedule', resourceId: ref.scheduleId, kind: ref.kind,
+      });
     }
   }
   private summary(r: Row) { return `${r.start_text.slice(0, 16)} 至 ${r.end_text.slice(0, 16)} · ${r.room_name} · 主播 ${r.anchor_name}${r.control_name ? `，中控 ${r.control_name}` : ''}${r.operator_name ? `，运营 ${r.operator_name}` : ''}`; }
@@ -121,7 +129,7 @@ export class LiveScheduleService {
         [a.companyId, v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, a.userId]);
       const id = Number(res.insertId);
       const [row] = await em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.id = ?`, [a.companyId, id]);
-      await this.notify(em, a.companyId, [v.anchorId, v.controlId, v.operatorId], '新排班', this.summary(row));
+      await this.notify(em, a.companyId, [v.anchorId, v.controlId, v.operatorId], '新排班', this.summary(row), { scheduleId: id, version: Number(row.notification_version), kind: 'schedule' });
       return { id };
     });
   }
@@ -140,10 +148,12 @@ export class LiveScheduleService {
         [v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, a.userId, a.companyId, id]);
       const [row] = await em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.id = ?`, [a.companyId, id]);
       const now = new Set([v.anchorId, v.controlId, v.operatorId].filter(Boolean) as number[]);
-      await this.notify(em, a.companyId, [...now], '排班已调整', this.summary(row));
+      await this.feishu?.cancelPending(em, a.companyId, 'live-schedule', id);
+      const version = Number(row.notification_version);
+      await this.notify(em, a.companyId, [...now], '排班已调整', this.summary(row), { scheduleId: id, version, kind: 'changed' });
       // 被移出排场的人：通知“已不再参与”
       const removed = [old.anchor_user_id, old.control_user_id, old.operator_user_id].filter((x) => x && !now.has(Number(x))).map(Number);
-      await this.notify(em, a.companyId, removed, '原排班已调整，您已不再参与', `${old.start_text.slice(0, 16)} 至 ${old.end_text.slice(0, 16)} · ${old.room_name}`);
+      await this.notify(em, a.companyId, removed, '原排班已调整，您已不再参与', `${old.start_text.slice(0, 16)} 至 ${old.end_text.slice(0, 16)} · ${old.room_name}`, { scheduleId: id, version, kind: 'removed' });
     });
     return { ok: true };
   }
@@ -158,7 +168,8 @@ export class LiveScheduleService {
       if (!row) liveFail('排场不存在', 404);
       if (row.status !== 'scheduled') liveFail('已上播或已结束的排场不能取消');
       await em.query("UPDATE live_schedules SET status = 'cancelled', cancel_reason = ?, updated_by = ?, notification_version = notification_version + 1 WHERE company_id = ? AND id = ?", [why, a.userId, a.companyId, id]);
-      await this.notify(em, a.companyId, [row.anchor_user_id, row.control_user_id, row.operator_user_id], '排班已取消', `${this.summary(row)}。原因：${why}`);
+      await this.feishu?.cancelPending(em, a.companyId, 'live-schedule', id);
+      await this.notify(em, a.companyId, [row.anchor_user_id, row.control_user_id, row.operator_user_id], '排班已取消', `${this.summary(row)}。原因：${why}`, { scheduleId: id, version: Number(row.notification_version) + 1, kind: 'cancelled' });
     });
     return { ok: true };
   }
@@ -172,7 +183,7 @@ export class LiveScheduleService {
       await this.ds.transaction(async (em) => {
         const res = await em.query('UPDATE live_schedules SET reminder_version = notification_version WHERE company_id = ? AND id = ? AND reminder_version < notification_version', [r.company_id, r.id]);
         if (!res.affectedRows) return;
-        await this.notify(em, Number(r.company_id), [r.anchor_user_id, r.control_user_id, r.operator_user_id], '开播前30分钟提醒', this.summary(r));
+        await this.notify(em, Number(r.company_id), [r.anchor_user_id, r.control_user_id, r.operator_user_id], '开播前30分钟提醒', this.summary(r), { scheduleId: Number(r.id), version: Number(r.notification_version), kind: 'reminder' });
       });
     }
     return rows.length;

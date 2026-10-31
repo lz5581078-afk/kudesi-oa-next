@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { liveApi, type ScheduleRow, type Workbench } from './liveApi';
 import { errText, hm, money, minutesText } from './liveFormat';
 import { HistoryPanel } from './HistoryPanel';
-import { SchedulePill, SessionPill } from './liveUi';
+import { SchedulePill, SessionPill, SourceStatusNotice } from './liveUi';
 import { SessionDetailDialog } from './SessionDetailDialog';
 import { StartDialog } from './StartDialog';
 
@@ -33,6 +33,7 @@ export function LiveDeskPage() {
         <button type="button" role="tab" aria-selected={tab === 'desk'} className={tab === 'desk' ? 'chip active' : 'chip'} onClick={() => setTab('desk')}>工作台</button>
         <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'chip active' : 'chip'} onClick={() => setTab('history')}>我的场次历史</button>
       </div>
+      <SourceStatusNotice />
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
       {tab === 'history' ? <HistoryPanel onOpen={setOpenId} /> : !d && !error ? <p className="muted" role="status">正在读取…</p> : d && (
         <>
@@ -41,6 +42,7 @@ export function LiveDeskPage() {
             <div className="card live-stat"><span>本月主播工资</span><strong>{money(d.monthWageCents)}</strong><small className="muted">{minutesText(d.monthWageMinutes)}</small></div>
             <div className="card live-stat"><span>进行中 / 待处理场次</span><strong>{d.active.length}</strong></div>
           </div>
+          {(() => { const nx = d.schedules.find((x) => x.status === 'scheduled'); return nx ? <div className="card live-stat" data-testid="next-live"><span>下一场直播</span><strong>{nx.date} {nx.startTime}–{nx.endTime}</strong><small className="muted">{nx.roomName} · 我是{nx.mineRole === 'anchor' ? '主播' : nx.mineRole === 'control' ? '中控' : '运营'}</small></div> : null; })()}
           <section className="card live-section" aria-label="进行中的场次">
             <h2>进行中和待处理</h2>
             {d.active.length === 0 && <p className="muted pad">目前没有进行中的场次。</p>}
@@ -63,6 +65,21 @@ export function LiveDeskPage() {
               </li>
             ))}</ul>
           </section>
+          <section className="card live-section" aria-label="本月提成明细">
+            <h2>本月提成明细（已审核）</h2>
+            {d.commissionRows.length === 0 && <p className="muted pad">本月还没有已审核的提成。</p>}
+            <ul className="live-list">{d.commissionRows.map((r) => (
+              <li key={r.id}><div className="main"><strong>{r.date} · {r.roomName} · {r.roleLabel}</strong><small>销售额 {money(r.finalSalesCents)} · 提成点数 {(r.rateUnits / 100).toFixed(2)}%</small></div><strong>{money(r.amountCents)}</strong>
+                <button type="button" className="secondary-button small" onClick={() => setOpenId(r.sessionId)}>详情</button></li>
+            ))}</ul>
+          </section>
+          {d.wageRows.length > 0 && <section className="card live-section" aria-label="本月工资明细">
+            <h2>本月主播工资明细</h2>
+            <ul className="live-list">{d.wageRows.map((r) => (
+              <li key={r.id}><div className="main"><strong>{r.date} · {r.roomName}</strong><small>{minutesText(r.minutes)} · 时薪 {money(r.hourlyRateCents)}</small></div><strong>{money(r.amountCents)}</strong>
+                <button type="button" className="secondary-button small" onClick={() => setOpenId(r.sessionId)}>详情</button></li>
+            ))}</ul>
+          </section>}
           <section className="card live-section" aria-label="最近场次">
             <h2>最近 20 场</h2>
             {d.recent.length === 0 && <p className="muted pad">还没有直播记录。</p>}
