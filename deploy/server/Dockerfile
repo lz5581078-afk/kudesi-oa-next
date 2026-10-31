@@ -9,6 +9,7 @@ COPY apps/agent/package.json apps/agent/package.json
 RUN npm ci --omit=dev --workspace=@kudesi/api --include-workspace-root --no-audit --no-fund
 COPY packages/shared/dist packages/shared/dist
 COPY apps/api/dist apps/api/dist
+COPY apps/agent/windows apps/agent/windows
 USER node
 EXPOSE 4000
 CMD ["node", "apps/api/dist/main.js"]

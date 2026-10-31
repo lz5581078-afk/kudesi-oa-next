@@ -22,7 +22,7 @@ export class UpdateShopDto {
 export class OverviewQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) storeId?: number;
   @IsOptional() @IsString() @MaxLength(60) keyword?: string;
-  @IsOptional() @IsIn(['none', 'valid', 'expired', 'error']) loginState?: string;
+  @IsOptional() @IsIn(['none', 'synced', 'valid', 'expired', 'error']) loginState?: string;
   @IsOptional() @IsIn(['normal', 'abnormal', 'cancelled', 'inactive']) storeStatus?: string;
   @IsOptional() @IsString() @MaxLength(10) deviceId?: string;
   @IsOptional() @IsIn(['default', 'platform_asc', 'platform_desc', 'operator_asc', 'operator_desc']) sort?: string;
@@ -35,7 +35,8 @@ class RegisterDto { @IsString() @MaxLength(20) code!: string; @IsString() @MaxLe
 class PublishReleaseDto { @IsOptional() @IsString() @MaxLength(64) sha256?: string; @IsOptional() @IsString() @MaxLength(30) version?: string; @IsOptional() @IsString() @MaxLength(300) notes?: string }
 class UpdateReportDto { @IsString() @MaxLength(30) version!: string; @IsString() @MaxLength(12) status!: string; @IsOptional() @IsString() @MaxLength(40) errorCode?: string; @IsOptional() @IsString() @MaxLength(300) errorText?: string }
 class HeartbeatDto { @IsOptional() @IsString() @MaxLength(30) agentVersion?: string }
-class ReportDto { @IsString() status!: string; @IsOptional() @IsString() @MaxLength(40) errorCode?: string; @IsOptional() @IsString() @MaxLength(300) errorText?: string }
+class ReportDto { @IsIn(['progress', 'succeeded', 'failed']) status!: string; @IsOptional() @IsString() @MaxLength(40) errorCode?: string; @IsOptional() @IsString() @MaxLength(300) errorText?: string; @IsOptional() @IsString() @MaxLength(40) step?: string; @IsOptional() @IsInt() @Min(0) @Max(99) progress?: number }
+class RemarkDto { @IsString() @MaxLength(80) remark!: string }
 
 const VIEW = 'finance.doc-withdrawal.view';
 
@@ -56,6 +57,7 @@ export class SessionController {
   @RequirePermission(VIEW) @Get('devices') devices(@CurrentUser() u: AuthUser) { return this.session.devices(u); }
   @RequirePermission(VIEW) @Post('bind-codes') bind(@CurrentUser() u: AuthUser) { return this.session.createBindCode(u); }
   @RequirePermission(VIEW) @Post('devices/:id/name') rename(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: NameDto) { return this.session.renameDevice(u, id, b.name); }
+  @RequirePermission(VIEW) @Post('devices/:id/remark') remark(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: RemarkDto) { return this.session.remarkDevice(u, id, b.remark); }
   @RequirePermission(VIEW) @Post('devices/:id/status') status(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: StatusDto) { return this.session.setDeviceStatus(u, id, b.status); }
   @RequirePermission(VIEW) @Post('devices/update-all') updateAll(@CurrentUser() u: AuthUser) { return this.session.requestUpdateAll(u); }
   @RequirePermission(VIEW) @Post('devices/:id/update') updateDevice(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.session.requestDeviceUpdate(u, id); }
@@ -67,6 +69,11 @@ export class SessionController {
   @RequirePermission(VIEW) @Get('vouchers/:fileId/url') voucherUrl(@CurrentUser() u: AuthUser, @Param('fileId', ParseIntPipe) id: number) { return this.session.voucherUrl(u, id); }
   @RequirePermission(VIEW) @Get('docs/:docId/vouchers') docVouchers(@CurrentUser() u: AuthUser, @Param('docId', ParseIntPipe) id: number) { return this.session.docVouchers(u, id); }
   @RequirePermission(VIEW) @Post('docs/:docId/vouchers') bindVouchers(@CurrentUser() u: AuthUser, @Param('docId', ParseIntPipe) id: number, @Body() b: BindVouchersDto) { return this.session.bindVouchers(u, id, b.fileIds); }
+  @RequirePermission(VIEW) @Get('installer') async installer(@CurrentUser() u: AuthUser, @Res() res: { set(h: Record<string, string>): void; end(b: Buffer): void }) {
+    const r = await this.session.downloadInstaller(u);
+    res.set({ 'Content-Type': 'application/zip', 'Content-Length': String(r.buf.length), 'Content-Disposition': `attachment; filename="kudesi-assistant-${r.version}-windows.zip"`, 'X-Checksum-SHA256': r.sha256, 'Cache-Control': 'private, no-store' });
+    res.end(r.buf);
+  }
   @RequirePermission(VIEW) @Get('agent-releases') releases(@CurrentUser() u: AuthUser) { return this.session.listReleases(u); }
   @RequirePermission(VIEW) @Post('agent-releases') @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_PACKAGE_BYTES, files: 1 } }))
   publishRelease(@CurrentUser() u: AuthUser, @UploadedFile() f: Upload | undefined, @Body() b: PublishReleaseDto) { return this.session.publishRelease(u, f, b); }
@@ -115,6 +122,20 @@ export class MaintenanceController {
   @RequirePermission(M_VIEW) @Post('requests/:id/cancel') cancel(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.m.cancelRequest(u, id); }
   @RequirePermission(M_VIEW) @Get('requests/:id') requestStatus(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.m.requestStatus(u, id); }
   @RequirePermission(M_VIEW) @Get('devices') devices(@CurrentUser() u: AuthUser) { return this.m.devices(u); }
+  @RequirePermission(M_VIEW) @Post('bind-codes') bind(@CurrentUser() u: AuthUser) { return this.m.createBindCode(u); }
+  @RequirePermission(M_VIEW) @Post('devices/:id/name') rename(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: NameDto) { return this.m.renameDevice(u, id, b.name); }
+  @RequirePermission(M_VIEW) @Post('devices/:id/remark') remark(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: RemarkDto) { return this.m.remarkDevice(u, id, b.remark); }
+  @RequirePermission(M_VIEW) @Post('devices/:id/status') status(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: StatusDto) { return this.m.setDeviceStatus(u, id, b.status); }
+  @RequirePermission(M_VIEW) @Get('audit') audit(@CurrentUser() u: AuthUser) { return this.m.audit(u); }
+  @RequirePermission(M_VIEW) @Get('installer') async installer(@CurrentUser() u: AuthUser, @Res() res: { set(h: Record<string, string>): void; end(b: Buffer): void }) {
+    const r = await this.m.downloadInstaller(u);
+    res.set({ 'Content-Type': 'application/zip', 'Content-Length': String(r.buf.length), 'Content-Disposition': `attachment; filename="kudesi-assistant-${r.version}-windows.zip"`, 'X-Checksum-SHA256': r.sha256, 'Cache-Control': 'private, no-store' });
+    res.end(r.buf);
+  }
+  @RequirePermission(M_VIEW) @Get('agent-releases') releases(@CurrentUser() u: AuthUser) { return this.m.listReleases(u); }
+  @RequirePermission(M_VIEW) @Post('agent-releases') @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_PACKAGE_BYTES, files: 1 } }))
+  publishRelease(@CurrentUser() u: AuthUser, @UploadedFile() f: Upload | undefined, @Body() b: PublishReleaseDto) { return this.m.publishRelease(u, f, b); }
+  @RequirePermission(M_VIEW) @Post('agent-releases/:id/withdraw') withdrawRelease(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.m.withdrawRelease(u, id); }
   @RequirePermission(M_VIEW) @Post('devices/update-all') updateAll(@CurrentUser() u: AuthUser) { return this.m.requestUpdateAll(u); }
   @RequirePermission(M_VIEW) @Post('devices/:id/update') updateDevice(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.m.requestDeviceUpdate(u, id); }
   @RequirePermission(M_VIEW) @Post('devices/:id/delete') deleteDevice(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.m.deleteDevice(u, id); }

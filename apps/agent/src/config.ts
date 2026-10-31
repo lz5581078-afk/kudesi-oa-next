@@ -10,7 +10,7 @@ export interface AgentConfig {
   deviceNo: string;
   deviceToken: string;
   name: string;
-  /** storeId → 本机 Profile 目录名（随机，不含店铺信息） */
+  /** 服务器/公司/工作区/店铺标识 → 本机 Profile 目录名（随机，不含店铺信息） */
   profiles: Record<string, string>;
   revokedAt?: string;
 }
@@ -58,7 +58,7 @@ export async function clearAuthorization(c: AgentConfig): Promise<void> {
   await saveConfig({ ...c, deviceToken: '', revokedAt: new Date().toISOString() });
 }
 
-export async function profileDirFor(c: AgentConfig, storeId: number): Promise<string> {
+export async function profileDirFor(c: AgentConfig, storeId: number | string): Promise<string> {
   const key = String(storeId);
   if (!c.profiles[key]) {
     c.profiles[key] = crypto.randomUUID();

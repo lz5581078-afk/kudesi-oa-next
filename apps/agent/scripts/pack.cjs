@@ -38,7 +38,12 @@ fs.writeFileSync(path.join(upd, 'latest.json'), JSON.stringify({ version: pkg.ve
 const out = path.join(root, 'release', 'kudesi-assistant-windows');
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
-fs.cpSync(path.join(root, 'dist'), path.join(out, 'dist'), { recursive: true });
+// Copy files explicitly: recursive cpSync can fail in Windows directories containing Chinese characters.
+for (const file of walk(path.join(root, 'dist'))) {
+  const target = path.join(out, 'dist', file);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(path.join(root, 'dist', file), target);
+}
 fs.writeFileSync(path.join(out, 'package.json'), JSON.stringify({ name: pkg.name, version: pkg.version, private: true, main: pkg.main, dependencies: pkg.dependencies }, null, 2));
 fs.copyFileSync(path.join(root, 'dist', 'launcher.js'), path.join(out, 'launcher.js'));
 for (const f of ['install.ps1', 'uninstall.ps1', 'README.txt']) fs.copyFileSync(path.join(root, 'windows', f), path.join(out, f));
@@ -46,7 +51,12 @@ let zipped = '';
 try {
   const z = path.join(root, 'release', 'kudesi-assistant-windows.zip');
   fs.rmSync(z, { force: true });
-  cp.execFileSync('zip', ['-q', '-r', z, 'kudesi-assistant-windows'], { cwd: path.join(root, 'release') });
+  if (process.platform === 'win32') {
+    const quote = (value) => "'" + value.replace(/'/g, "''") + "'";
+    cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Compress-Archive -LiteralPath ${quote(out)} -DestinationPath ${quote(z)} -Force`], { windowsHide: true });
+  } else {
+    cp.execFileSync('zip', ['-q', '-r', z, 'kudesi-assistant-windows'], { cwd: path.join(root, 'release') });
+  }
   zipped = z;
 } catch { /* 没有 zip 命令就只留目录 */ }
 console.log('已生成', out, zipped);

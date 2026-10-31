@@ -1032,6 +1032,7 @@ export class Notification {
 /** 店铺登录管理：授权电脑（助手）。 */
 @Entity('session_devices')
 export class SessionDevice {
+  @Column({ type: 'varchar', length: 80, nullable: true }) remark!: string | null;
   @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
   @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
   @Column({ name: 'device_no', type: 'char', length: 12 }) deviceNo!: string;
@@ -1069,13 +1070,15 @@ export class SessionShop {
   @Column({ name: 'login_account', type: 'varchar', length: 100, nullable: true }) loginAccount!: string | null;
   @Column({ name: 'login_password_enc', type: 'text', nullable: true }) loginPasswordEnc!: string | null;
   @Column({ name: 'auto_login', type: 'tinyint', width: 1, transformer: { to: (v: boolean) => (v ? 1 : 0), from: (v: number) => v === 1 } }) autoLogin!: boolean;
-  @Column({ name: 'login_state', type: 'varchar', length: 10, default: 'none' }) loginState!: 'none' | 'valid' | 'expired' | 'error';
+  @Column({ name: 'login_state', type: 'varchar', length: 10, default: 'none' }) loginState!: 'none' | 'synced' | 'valid' | 'expired' | 'error';
   @Column({ name: 'last_verified_at', ...dt, nullable: true }) lastVerifiedAt!: Date | null;
   @Column({ type: 'varchar', length: 10, default: 'active' }) status!: 'active' | 'removed';
 }
 
 @Entity('session_open_requests')
 export class SessionOpenRequest {
+  @Column({ name: 'progress_percent', type: 'smallint', unsigned: true, nullable: true }) progressPercent!: number | null;
+  @Column({ name: 'progress_step', type: 'varchar', length: 40, nullable: true }) progressStep!: string | null;
   @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
   @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
   @Column({ name: 'shop_id', type: 'int', unsigned: true }) shopId!: number;
@@ -1093,6 +1096,7 @@ export class SessionOpenRequest {
 
 @Entity('session_audit_logs')
 export class SessionAuditLog {
+  @Column({ type: 'varchar', length: 30, nullable: true }) workspace!: string | null;
   @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
   @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
   @Column({ name: 'event_type', type: 'varchar', length: 50 }) eventType!: string;

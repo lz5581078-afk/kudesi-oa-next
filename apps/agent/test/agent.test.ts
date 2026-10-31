@@ -5,7 +5,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { findBrowserExecutable } from '../src/browser';
 import { normalizeServer } from '../src/cli';
 import { clearAuthorization, loadConfig, profileDirFor, saveConfig } from '../src/config';
-import { scrub } from '../src/jobs';
+import { scrub, profileKeyOf } from '../src/jobs';
+import type { AgentConfig } from '../src/config';
+
+describe('公司维护与提现的本机登录环境隔离', () => {
+  const cfg = { serverUrl: 'https://lc.example.com' } as AgentConfig;
+  it('同一店铺按工作区隔离，并且不同公司或服务器也不共用', () => {
+    const request = (profileKey:string) => ({ profileKey, store:{id:8} });
+    const main = profileKeyOf(cfg,request('1:company_store_maintenance:8'));
+    const cash = profileKeyOf(cfg,request('1:finance_withdrawal:8'));
+    expect(main).not.toBe(cash);
+    expect(profileKeyOf(cfg,request('2:finance_withdrawal:8'))).not.toBe(cash);
+    expect(profileKeyOf({...cfg,serverUrl:'https://other.example.com'},request('1:finance_withdrawal:8'))).not.toBe(cash);
+    expect(profileKeyOf(cfg,{store:{id:8}})).toBe(8);
+    expect(()=>profileKeyOf(cfg,request('../../profile'))).toThrow(/标识无效/);
+  });
+});
 import { getPlatform, isLoginUrl, ownsUrl } from '../src/platforms';
 
 describe('平台识别与域名白名单', () => {

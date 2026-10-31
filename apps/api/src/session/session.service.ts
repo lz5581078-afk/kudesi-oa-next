@@ -7,6 +7,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
 import { FilesService, UploadedFile } from '../integrations/files.service';
 import * as releases from './agent-release';
+import { buildAgentInstaller } from './agent-installer';
 import { FinanceDocument, ResourceRecord, SessionAuditLog, SessionBindCode, SessionDevice, SessionOpenRequest, SessionShop, User } from '../entities';
 
 const WORKSPACE = 'finance_withdrawal';
@@ -21,8 +22,9 @@ const REQ_STEP: Record<string, { percent: number; label: string }> = {
   failed: { percent: 100, label: '打开失败' }, cancelled: { percent: 100, label: '已取消' }, expired: { percent: 100, label: '超时未领取' },
 };
 /** 最近一次登录请求的进度（旧系统的进度条）：服务器只知道请求处在哪个阶段，所以按阶段给百分比 */
-const progressOf = (r: { id: number; kind: string; status: string; errorText: string | null; createdAt: Date; finishedAt: Date | null }) => ({
-  id: r.id, kind: r.kind, status: r.status, percent: REQ_STEP[r.status]?.percent ?? 0, step: REQ_STEP[r.status]?.label ?? r.status, errorText: r.errorText, at: r.finishedAt ?? r.createdAt,
+export const LOGIN_PROGRESS: Record<string, string> = { opening_profile: '打开独立浏览器', checking_local: '检查本机登录态', auto_login: '正在自动输入账号密码', waiting_login: '等待人工完成验证', verifying: '验证登录状态' };
+const progressOf = (r: { id: number; kind: string; status: string; errorText: string | null; createdAt: Date; finishedAt: Date | null; progressPercent?: number | null; progressStep?: string | null }) => ({
+  id: r.id, kind: r.kind, status: r.status, percent: r.status === 'claimed' ? r.progressPercent ?? REQ_STEP.claimed.percent : REQ_STEP[r.status]?.percent ?? 0, step: r.status === 'claimed' && r.progressStep ? LOGIN_PROGRESS[r.progressStep] ?? REQ_STEP.claimed.label : REQ_STEP[r.status]?.label ?? r.status, errorText: r.errorText, at: r.finishedAt ?? r.createdAt,
 });
 /** 助手最新版本号：由部署配置 KUDESI_AGENT_LATEST_VERSION 给出（形如 1.2.0）；没配就是“暂未发布新版”，不能安排升级 */
 export const latestAgentVersion = (): string | null => { const v = process.env.KUDESI_AGENT_LATEST_VERSION?.trim(); return v && /^\d+\.\d+\.\d+$/.test(v) ? v : null; };
@@ -31,6 +33,7 @@ export const compareVersions = (a: string | null | undefined, b: string | null |
   for (let i = 0; i < 3; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x !== y) return x > y ? 1 : -1; }
   return 0;
 };
+export const requiresScopedAgentUpgrade = (workspace: string, version: string | null | undefined) => workspace === 'company_store_maintenance' && compareVersions(version, '1.1.1') < 0;
 /** 升级进行中的状态：心跳继续给助手下发目标版本（助手中途断电/重启后会接着升级）；failed / rolled_back / succeeded 是终态，要管理员重新安排 */
 const UPDATE_IN_PROGRESS = ['queued', 'downloading', 'verifying', 'staged', 'applying', 'restarting'];
 const UPDATE_REPORTABLE = ['downloading', 'verifying', 'staged', 'applying', 'restarting', 'failed', 'rolled_back'];
@@ -40,7 +43,7 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉易混的 I O 0 
 /**
  * 店铺提现的“登录管理”：在授权电脑上的助手里登录店铺，再到平台后台提现；每提现一笔，在提现单里登记一笔。
  * 登录态（Cookie/Profile）只保存在授权电脑本机，服务器只保存：店铺登录账号密码（加密）、打开请求和结果、操作日志。
- * 助手（Windows 程序）通过 /agent/* 接口用设备令牌通信；远程协助（WebRTC）这一版没有做。
+ * 助手（Windows 程序）通过 /agent/* 接口用设备令牌通信；远程协助由独立权限控制，并按工作区隔离。
  */
 @Injectable()
 export class SessionService {
@@ -52,8 +55,8 @@ export class SessionService {
   protected readonly manageDenied: string = '没有管理店铺登录的权限';
   private can(user: AuthUser, key: string) { return createChecker(user.permissions)(key); }
   protected needManage(user: AuthUser) { if (!this.can(user, this.manageKey)) throw new ForbiddenException(this.manageDenied); }
-  protected async log(em: EntityManager, companyId: number, eventType: string, summary: string, o: { actorId?: number | null; deviceId?: number | null; storeId?: number | null } = {}) {
-    await em.insert(SessionAuditLog, { companyId, eventType, summary: summary.slice(0, 500), actorId: o.actorId ?? null, deviceId: o.deviceId ?? null, storeId: o.storeId ?? null });
+  protected async log(em: EntityManager, companyId: number, eventType: string, summary: string, o: { actorId?: number | null; deviceId?: number | null; storeId?: number | null; workspace?: string } = {}) {
+    await em.insert(SessionAuditLog, { companyId, workspace: o.workspace ?? (o.storeId ? this.ws : null), eventType, summary: summary.slice(0, 500), actorId: o.actorId ?? null, deviceId: o.deviceId ?? null, storeId: o.storeId ?? null });
   }
   private online(d: { status: string; lastSeenAt: Date | null }) { return d.status === 'active' && !!d.lastSeenAt && Date.now() - d.lastSeenAt.getTime() < ONLINE_MS; }
   private async expireStale(em: EntityManager, companyId?: number) {
@@ -78,8 +81,8 @@ export class SessionService {
     const devices = await em.find(SessionDevice, { where: { companyId: user.companyId } });
     const dmap = new Map(devices.map((d) => [d.id, d]));
     const ids = shops.map((s) => s.id);
-    const latestRows: Array<{ shopId: number; id: number; kind: string; status: string; errorText: string | null; createdAt: Date; finishedAt: Date | null }> = ids.length ? await em.query(
-      `SELECT r.shop_id AS shopId, r.id, r.kind, r.status, r.error_text AS errorText, r.created_at AS createdAt, r.finished_at AS finishedAt FROM session_open_requests r
+    const latestRows: Array<{ shopId: number; id: number; kind: string; status: string; errorText: string | null; createdAt: Date; finishedAt: Date | null; progressPercent: number | null; progressStep: string | null }> = ids.length ? await em.query(
+      `SELECT r.shop_id AS shopId, r.id, r.kind, r.status, r.error_text AS errorText, r.created_at AS createdAt, r.finished_at AS finishedAt, r.progress_percent AS progressPercent, r.progress_step AS progressStep FROM session_open_requests r
        JOIN (SELECT MAX(id) AS mid FROM session_open_requests WHERE company_id = ? AND kind <> 'capture' AND shop_id IN (?) GROUP BY shop_id) m ON m.mid = r.id`, [user.companyId, ids]) : [];
     const latest = new Map(latestRows.map((r) => [r.shopId, r]));
     const openedRows: Array<{ shopId: number; at: Date }> = ids.length ? await em.query("SELECT shop_id AS shopId, MAX(finished_at) AS at FROM session_open_requests WHERE company_id = ? AND kind <> 'capture' AND status = 'succeeded' AND shop_id IN (?) GROUP BY shop_id", [user.companyId, ids]) : [];
@@ -95,8 +98,8 @@ export class SessionService {
       return {
         id: s.id, storeId: s.storeId, storeName: st?.title ?? '(店铺已删除)', storeNo: String(st?.data.storeNo ?? ''), platformStoreId: String(st?.data.platformStoreId ?? ''),
         platform, platformLabel: platformOpts.get(platform) ?? (platform || '其他'), operatorName: operators.get(Number(st?.data.operatorUserId)) ?? '',
-        storeStatus: st?.status ?? '', abnormalReason: reasons.get(Number(st?.data.abnormalReason)) ?? '', operatorUserId: st?.data.operatorUserId ?? null,
-        deviceId: s.deviceId, deviceName: d?.name ?? '', deviceStatus: d ? (d.status === 'revoked' ? 'revoked' : this.online(d) ? 'online' : 'offline') : 'none',
+        storeStatus: st?.status ?? '', abnormalReasonId: Number(st?.data.abnormalReason) || null, abnormalReason: reasons.get(Number(st?.data.abnormalReason)) ?? '', operatorUserId: st?.data.operatorUserId ?? null,
+        requiresAgentUpgrade: requiresScopedAgentUpgrade(s.workspace, d?.agentVersion), deviceId: s.deviceId, deviceName: d?.name ?? '', deviceRemark: d?.remark ?? '', deviceStatus: d ? (d.status !== 'active' ? 'revoked' : this.online(d) ? 'online' : 'offline') : 'none',
         loginAccount: s.loginAccount ?? '', hasPassword: !!s.loginPasswordEnc, autoLogin: s.autoLogin, loginState: s.loginState, lastVerifiedAt: s.lastVerifiedAt,
         lastOpenedAt: opened.get(s.id) ?? null, activeRequest: active.get(s.id) ?? null,
         request: lr ? progressOf(lr) : null,
@@ -127,9 +130,16 @@ export class SessionService {
   async availableStores(user: AuthUser, keyword?: string) {
     this.needManage(user);
     const taken = new Set((await this.dataSource.manager.find(SessionShop, { where: { companyId: user.companyId, workspace: this.ws, status: 'active' }, select: ['storeId'] })).map((s) => s.storeId));
-    const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'stores', status: In(this.addableStatuses) }, order: { id: 'DESC' }, take: 500 });
-    const k = keyword?.trim();
-    return rows.filter((r) => !taken.has(r.id) && (!k || r.title.includes(k))).slice(0, 100).map((r) => ({ id: r.id, name: r.title, platform: String(r.data.platform ?? '') }));
+    const query = this.dataSource.manager.createQueryBuilder(ResourceRecord, 'r')
+      .where('r.companyId = :companyId AND r.type = :type AND r.status IN (:...statuses) AND r.archivedAt IS NULL', { companyId: user.companyId, type: 'stores', statuses: this.addableStatuses });
+    if (taken.size) query.andWhere('r.id NOT IN (:...taken)', { taken: [...taken] });
+    const rows = await query.orderBy('r.id', 'DESC').getMany();
+    const operatorIds = [...new Set(rows.map(r => Number(r.data.operatorUserId)).filter(id => id > 0))];
+    const operators = new Map((operatorIds.length ? await this.dataSource.manager.find(User, { where: { companyId: user.companyId, id: In(operatorIds) }, select: ['id', 'name'] }) : []).map(u => [u.id, u.name]));
+    const platforms = new Map((getResourceDef('stores')?.fields.find(f => f.key === 'platform')?.options ?? []).map(o => [o.value, o.label]));
+    const candidates = rows.map(r => ({ id: r.id, name: r.title, platform: String(r.data.platform ?? ''), storeNo: String(r.data.storeNo ?? ''), platformStoreId: String(r.data.platformStoreId ?? ''), operatorName: operators.get(Number(r.data.operatorUserId)) ?? '' }));
+    const k = keyword?.trim().toLowerCase().slice(0, 60);
+    return k ? candidates.filter(r => [r.name, r.platform, platforms.get(r.platform) ?? '', r.storeNo, r.platformStoreId, r.operatorName].some(value => value.toLowerCase().includes(k))) : candidates;
   }
 
   async addShops(user: AuthUser, p: { storeIds: number[]; deviceId: number }) {
@@ -140,7 +150,7 @@ export class SessionService {
       if (!dev) throw new BadRequestException('请选择一台可用的授权电脑');
       for (const sid of [...new Set(p.storeIds)]) {
         const st = await em.findOne(ResourceRecord, { where: { id: sid, companyId: user.companyId, type: 'stores' } });
-        if (!st) throw new BadRequestException('店铺不存在');
+        if (!st || st.archivedAt) throw new BadRequestException('店铺不存在或已归档');
         if (!this.addableStatuses.includes(st.status)) throw new BadRequestException(`店铺「${st.title}」状态不是正常，不能加入`);
         const ex = await em.findOne(SessionShop, { where: { companyId: user.companyId, workspace: this.ws, storeId: sid } });
         if (ex?.status === 'active') throw new ConflictException(`店铺「${st.title}」已经在列表里`);
@@ -223,6 +233,7 @@ export class SessionService {
       if (!s.deviceId) throw new BadRequestException('还没有分配负责电脑');
       const dev = await em.findOne(SessionDevice, { where: { id: s.deviceId, companyId: user.companyId } });
       if (!dev || dev.status !== 'active') throw new BadRequestException('负责电脑已撤销，请改绑');
+      if (requiresScopedAgentUpgrade(s.workspace, dev.agentVersion)) throw new ConflictException('公司店铺维护需要 Windows 助手 1.1.1 或以上版本，请先升级负责电脑');
       if (!this.online(dev)) throw new BadRequestException(`电脑「${dev.name}」的助手不在线，请先打开助手`);
       if (await em.count(SessionOpenRequest, { where: { shopId: s.id, status: In(['pending', 'claimed']) } })) throw new ConflictException('已经有进行中的登录请求');
       const kind = s.loginState === 'valid' ? 'now' : 'first';
@@ -333,11 +344,11 @@ export class SessionService {
 
   async devices(user: AuthUser) {
     const rows = (await this.dataSource.manager.find(SessionDevice, { where: { companyId: user.companyId }, order: { id: 'ASC' } })).filter((d) => d.status !== 'deleted');
-    const counts = await this.dataSource.query("SELECT device_id AS id, COUNT(*) AS n FROM session_shops WHERE company_id = ? AND status = 'active' AND device_id IS NOT NULL GROUP BY device_id", [user.companyId]);
+    const counts = await this.dataSource.query("SELECT device_id AS id, COUNT(*) AS n FROM session_shops WHERE company_id = ? AND workspace = ? AND status = 'active' AND device_id IS NOT NULL GROUP BY device_id", [user.companyId, this.ws]);
     const cm = new Map<number, number>(counts.map((c: { id: number; n: string }) => [c.id, Number(c.n)]));
     const latest = await this.latestFor(user.companyId);
     return rows.map((d) => ({
-      id: d.id, name: d.name, deviceNo: d.deviceNo, os: d.os, agentVersion: d.agentVersion, status: d.status as 'active' | 'revoked', online: this.online(d), lastSeenAt: d.lastSeenAt, shopCount: cm.get(d.id) ?? 0,
+      id: d.id, name: d.name, remark: d.remark ?? '', deviceNo: d.deviceNo, os: d.os, agentVersion: d.agentVersion, status: d.status as 'active' | 'revoked', online: this.online(d), lastSeenAt: d.lastSeenAt, shopCount: cm.get(d.id) ?? 0,
       outdated: !!latest && d.status === 'active' && compareVersions(d.agentVersion, latest) < 0, latestVersion: latest,
       update: d.updateStatus ? { target: d.updateTarget, status: d.updateStatus, requestedAt: d.updateRequestedAt, error: d.updateError } : null,
     }));
@@ -408,6 +419,19 @@ export class SessionService {
     return { ok: true };
   }
 
+  async remarkDevice(user: AuthUser, id: number, remark: string) {
+    this.needManage(user);
+    if (typeof remark !== 'string' || remark.trim().length > 80) throw new BadRequestException('电脑备注不能超过 80 字');
+    return this.dataSource.transaction(async em => {
+      const device = await em.findOne(SessionDevice, { where: { id, companyId: user.companyId }, lock: { mode: 'pessimistic_write' } });
+      if (!device || device.status === 'deleted') throw new NotFoundException('电脑不存在');
+      device.remark = remark.trim() || null;
+      await em.save(SessionDevice, device);
+      await this.log(em, user.companyId, 'device_remark_changed', `修改电脑「${device.name}」备注`, { actorId: user.id, deviceId: id });
+      return { ok: true };
+    });
+  }
+
   /** 撤销：立即让这台电脑的令牌失效，进行中的请求全部取消。 */
   async setDeviceStatus(user: AuthUser, id: number, status: 'active' | 'revoked') {
     this.needManage(user);
@@ -425,8 +449,11 @@ export class SessionService {
 
   async audit(user: AuthUser) {
     const rows = await this.dataSource.query(
-      `SELECT a.id, a.event_type AS eventType, a.summary, a.created_at AS createdAt, u.name AS actorName, d.name AS deviceName FROM session_audit_logs a
-       LEFT JOIN users u ON u.id = a.actor_id LEFT JOIN session_devices d ON d.id = a.device_id WHERE a.company_id = ? ORDER BY a.id DESC LIMIT 100`, [user.companyId]);
+      `SELECT a.id, a.event_type AS eventType, a.summary, a.created_at AS createdAt, u.name AS actorName, d.name AS deviceName, s.title AS storeName FROM session_audit_logs a
+       LEFT JOIN users u ON u.id = a.actor_id AND u.company_id = a.company_id
+       LEFT JOIN session_devices d ON d.id = a.device_id AND d.company_id = a.company_id
+       LEFT JOIN resource_records s ON s.id = a.store_id AND s.company_id = a.company_id AND s.type = 'stores'
+       WHERE a.company_id = ? AND (a.workspace = ? OR a.workspace IS NULL) ORDER BY a.id DESC LIMIT 100`, [user.companyId, this.ws]);
     return rows;
   }
 
@@ -483,6 +510,16 @@ export class SessionService {
     return rows.map((r) => ({ ...r, isLatest: r.version === latest }));
   }
 
+  async downloadInstaller(user: AuthUser) {
+    this.needManage(user);
+    const version = await releases.latestReleaseVersion(this.dataSource, user.companyId);
+    if (!version) throw new NotFoundException('暂未发布 Windows 助手，请先发布安装包');
+    const pkg = await releases.loadPackage(this.dataSource, user.companyId, version);
+    const result = buildAgentInstaller(pkg.buf);
+    await this.log(this.dataSource.manager, user.companyId, 'agent_installer_downloaded', `下载 Windows 助手 ${version} 安装包`, { actorId: user.id });
+    return { ...result, sha256: crypto.createHash('sha256').update(result.buf).digest('hex') };
+  }
+
   async publishRelease(user: AuthUser, file: { buffer: Buffer } | undefined, p: { sha256?: string; version?: string; notes?: string }) {
     this.needManage(user);
     const r = await releases.publishRelease(this.dataSource, user.companyId, user.id, file, p);
@@ -523,20 +560,27 @@ export class SessionService {
     return this.dataSource.transaction(async (em) => {
       const d = await this.deviceByToken(em, token);
       await this.expireStale(em);
-      const req = await em.findOne(SessionOpenRequest, { where: { deviceId: d.id, status: 'pending' }, order: { id: 'ASC' }, lock: { mode: 'pessimistic_write' } });
+      const req = await em.findOne(SessionOpenRequest, { where: { companyId: d.companyId, deviceId: d.id, status: 'pending' }, order: { id: 'ASC' }, lock: { mode: 'pessimistic_write' } });
       if (!req) return { request: null };
-      const shop = await em.findOne(SessionShop, { where: { id: req.shopId } });
+      const shop = await em.findOne(SessionShop, { where: { id: req.shopId, companyId: d.companyId } });
       const store = shop ? await em.findOne(ResourceRecord, { where: { id: shop.storeId, companyId: d.companyId, type: 'stores' } }) : null;
+      if (shop && requiresScopedAgentUpgrade(shop.workspace, d.agentVersion)) {
+        req.status = 'failed'; req.finishedAt = new Date(); req.errorCode = 'agent_upgrade_required'; req.errorText = '负责电脑需要升级到 Windows 助手 1.1.1 或以上版本';
+        await em.save(SessionOpenRequest, req);
+        await this.log(em, d.companyId, 'shop_open_failed', req.errorText, { deviceId: d.id, storeId: shop.storeId, workspace: shop.workspace });
+        return { request: null };
+      }
+      const profileKey = `${d.companyId}:${shop?.workspace ?? WORKSPACE}:${shop?.storeId ?? 0}`;
       req.status = 'claimed'; req.claimedAt = new Date();
       await em.save(SessionOpenRequest, req);
       if (req.kind === 'capture') {
-        return { request: { id: req.id, kind: req.kind, store: { id: shop?.storeId ?? 0, name: store?.title ?? '', platform: String(store?.data.platform ?? ''), url: String(store?.data.url ?? '') }, credentials: null } };
+        return { request: { id: req.id, kind: req.kind, profileKey, store: { id: shop?.storeId ?? 0, name: store?.title ?? '', platform: String(store?.data.platform ?? ''), url: String(store?.data.url ?? '') }, credentials: null } };
       }
       const deliver = !!shop?.autoLogin && !!shop.loginAccount && !!shop.loginPasswordEnc;
-      if (deliver) await this.log(em, d.companyId, 'auto_login_credentials_delivered', `向电脑「${d.name}」交付店铺「${store?.title ?? ''}」的自动登录凭据`, { deviceId: d.id, storeId: shop!.storeId });
+      if (deliver) await this.log(em, d.companyId, 'auto_login_credentials_delivered', `向电脑「${d.name}」交付店铺「${store?.title ?? ''}」的自动登录凭据`, { deviceId: d.id, storeId: shop!.storeId, workspace: shop!.workspace });
       return {
         request: {
-          id: req.id, kind: req.kind,
+          id: req.id, kind: req.kind, profileKey,
           store: { id: shop?.storeId ?? 0, name: store?.title ?? '', platform: String(store?.data.platform ?? ''), url: String(store?.data.url ?? '') },
           credentials: deliver ? { account: shop!.loginAccount, password: this.crypto.decrypt(shop!.loginPasswordEnc!) } : null,
         },
@@ -544,14 +588,21 @@ export class SessionService {
     });
   }
 
-  async agentReport(token: string | undefined, id: number, p: { status: string; errorCode?: string; errorText?: string }) {
-    if (!['succeeded', 'failed'].includes(p.status)) throw new BadRequestException('状态不对');
+  async agentReport(token: string | undefined, id: number, p: { status: string; errorCode?: string; errorText?: string; step?: string; progress?: number }) {
+    if (!['succeeded', 'failed', 'progress'].includes(p.status)) throw new BadRequestException('状态不对');
     return this.dataSource.transaction(async (em) => {
       const d = await this.deviceByToken(em, token);
       const req = await em.findOne(SessionOpenRequest, { where: { id, deviceId: d.id }, lock: { mode: 'pessimistic_write' } });
       if (!req) throw new NotFoundException('请求不存在');
       if (req.status !== 'claimed') throw new ConflictException('这条请求不是进行中的');
-      const shop = await em.findOne(SessionShop, { where: { id: req.shopId }, lock: { mode: 'pessimistic_write' } });
+      if (p.status === 'progress') {
+        if (!p.step || !LOGIN_PROGRESS[p.step] || !Number.isInteger(p.progress) || p.progress! < 0 || p.progress! > 99) throw new BadRequestException('登录进度不合法');
+        req.progressStep = p.step;
+        req.progressPercent = Math.max(req.progressPercent ?? 60, p.progress!);
+        await em.save(SessionOpenRequest, req);
+        return { ok: true };
+      }
+      const shop = await em.findOne(SessionShop, { where: { id: req.shopId, companyId: d.companyId }, lock: { mode: 'pessimistic_write' } });
       let text = (p.errorText ?? '').slice(0, 300);
       // 错误文案里不能带出密码
       if (shop?.loginPasswordEnc) { const pw = this.crypto.decrypt(shop.loginPasswordEnc); if (pw.length >= 3) text = text.split(pw).join('******'); }
@@ -563,7 +614,7 @@ export class SessionService {
         if (p.status === 'succeeded') shop.lastVerifiedAt = new Date();
         await em.save(SessionShop, shop);
       }
-      await this.log(em, d.companyId, req.kind === 'capture' ? 'shop_capture_failed' : p.status === 'succeeded' ? 'shop_open_completed' : 'shop_open_failed', `${req.kind === 'capture' ? '截取店铺页面' : '店铺登录'}${p.status === 'succeeded' ? '成功' : '失败'}${text ? `：${text}` : ''}`, { deviceId: d.id, storeId: shop?.storeId });
+      await this.log(em, d.companyId, req.kind === 'capture' ? 'shop_capture_failed' : p.status === 'succeeded' ? 'shop_open_completed' : 'shop_open_failed', `${req.kind === 'capture' ? '截取店铺页面' : '店铺登录'}${p.status === 'succeeded' ? '成功' : '失败'}${text ? `：${text}` : ''}`, { deviceId: d.id, storeId: shop?.storeId, workspace: shop?.workspace });
       return { ok: true };
     });
   }

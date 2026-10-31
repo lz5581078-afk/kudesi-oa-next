@@ -26,18 +26,20 @@ export interface RemoteHistoryRow {
 
 const post = <T,>(path: string, body: unknown = {}) => api<T>(path, { method: 'POST', body });
 
-export const remoteApi = {
-  shops: () => api<{ canRemote: boolean; globalDisabled: boolean; shops: RemoteShopState[] }>('/session/remote/shops'),
-  devices: () => api<RemoteDevicesInfo>('/session/remote/devices'),
-  setDevice: (id: number, b: { enabled: boolean; allowControl?: boolean; maxMinutes?: number }) => post(`/session/remote/devices/${id}`, b),
-  stopAll: () => post<{ ended: number; disabledDevices: number }>('/session/remote/stop-all'),
-  request: (shopId: number, b: { mode: RemoteMode; reason: string }) => post<{ id: number; status: 'requested'; waitSeconds: number }>(`/session/remote/shops/${shopId}/request`, b),
-  get: (id: number) => api<RemoteSession>(`/session/remote/sessions/${id}`),
-  poll: (id: number, after: number) => api<RemoteSession & { signals: RemoteSignal[] }>(`/session/remote/sessions/${id}/poll?after=${after}`),
-  signal: (id: number, kind: string, payload: Record<string, unknown> = {}) => post(`/session/remote/sessions/${id}/signal`, { kind, payload }),
-  extend: (id: number) => post<RemoteSession>(`/session/remote/sessions/${id}/extend`),
-  end: (id: number) => post(`/session/remote/sessions/${id}/end`),
-  history: () => api<RemoteHistoryRow[]>('/session/remote/history'),
-};
+export const makeRemoteApi = (base: string) => ({
+  shops: () => api<{ canRemote: boolean; globalDisabled: boolean; shops: RemoteShopState[] }>(`${base}/shops`),
+  devices: () => api<RemoteDevicesInfo>(`${base}/devices`),
+  setDevice: (id: number, b: { enabled: boolean; allowControl?: boolean; maxMinutes?: number }) => post(`${base}/devices/${id}`, b),
+  stopAll: () => post<{ ended: number; disabledDevices: number }>(`${base}/stop-all`),
+  request: (shopId: number, b: { mode: RemoteMode; reason: string }) => post<{ id: number; status: 'requested'; waitSeconds: number }>(`${base}/shops/${shopId}/request`, b),
+  get: (id: number) => api<RemoteSession>(`${base}/sessions/${id}`),
+  poll: (id: number, after: number) => api<RemoteSession & { signals: RemoteSignal[] }>(`${base}/sessions/${id}/poll?after=${after}`),
+  signal: (id: number, kind: string, payload: Record<string, unknown> = {}) => post(`${base}/sessions/${id}/signal`, { kind, payload }),
+  extend: (id: number) => post<RemoteSession>(`${base}/sessions/${id}/extend`),
+  end: (id: number) => post(`${base}/sessions/${id}/end`),
+  history: () => api<RemoteHistoryRow[]>(`${base}/history`),
+});
+export const remoteApi = makeRemoteApi('/session/remote');
+export const maintenanceRemoteApi = makeRemoteApi('/store-maintenance/remote');
 export type RemoteApi = typeof remoteApi;
 export type { RemoteInput };
