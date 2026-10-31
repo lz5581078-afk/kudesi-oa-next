@@ -9,7 +9,7 @@ import { DataSource } from 'typeorm';
 import { createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, ResourceRecord, User } from '../entities';
 import { buildServices } from '../test-support';
 import { ResourcesService } from './resources.service';
 
@@ -55,6 +55,22 @@ d('资料引擎（真实数据库）', () => {
 
   afterAll(async () => {
     await ds?.destroy();
+  });
+
+  it('编码详情的销售价由服务端按售价权限过滤，成本权限独立且不能跨公司读取', async () => {
+    const base = await ds.manager.save(ResourceRecord, ds.manager.create(ResourceRecord, {
+      companyId: boss.companyId, type: 'finance-base-codes', title: '查看页权限演示编码', status: 'pending',
+      data: { code: 'DETAIL-PERMISSION-DEMO', name: '演示商品', cost: 120.1234, purchasePrice: 100, salePrice: 345.6789 },
+    }));
+    const viewer: AuthUser = { ...boss, id: activeUserId, permissions: { isCompanyAdmin: false, allow: ['resource.finance-base-codes.view'], deny: [] } };
+    expect((await svc.get(viewer, base.type, base.id)).data).not.toHaveProperty('salePrice');
+    expect((await svc.list(viewer, base.type, {})).items.find(r => r.id === base.id)?.data).not.toHaveProperty('salePrice');
+    const priceViewer = { ...viewer, permissions: { ...viewer.permissions, allow: [...viewer.permissions.allow, 'product.price.view'] } };
+    const priced = await svc.get(priceViewer, base.type, base.id);
+    expect(priced.data.salePrice).toBe(345.6789);
+    expect(priced.data).not.toHaveProperty('cost');
+    expect(priced.data).not.toHaveProperty('purchasePrice');
+    await expect(svc.get(other, base.type, base.id)).rejects.toThrow();
   });
 
   const licenseInput = (n: string) => ({
