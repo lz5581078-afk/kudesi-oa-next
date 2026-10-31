@@ -28,7 +28,9 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
     { id: 2, companyId: 20, name: '公司乙管理员', status: 'active', isCompanyAdmin: true, positionId: null, extraPositionIds: [], employmentType: 'regular' },
     { id: 3, companyId: 10, name: '普通员工', status: 'active', isCompanyAdmin: false, positionId: null, extraPositionIds: [], employmentType: 'regular' },
   ]);
-  const settings = { overview: jest.fn(async () => ({ enabled: true, configured: true, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20 })),
+  const limitedCompanies = new Set<number>();
+  const companies = new FakeRepo([{ id: 10, status: 'active' }, { id: 20, status: 'active' }]);
+  const settings = { overview: jest.fn(async (companyId: number) => ({ enabled: true, configured: true, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20, allEmployees: !limitedCompanies.has(companyId) })),
     read: jest.fn(async () => ({ apiKey: 'server-test-key', enabled: true, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20 })), save: jest.fn(async () => ({ configured: true })) };
   const auth = { me: jest.fn(async (id, cid) => ({ id, companyId: cid, companyName: cid === 10 ? '公司甲' : '公司乙', name: '测试员工', mustChangePassword: false })) };
   const file = jest.fn(async () => ({ result: { text: '', utterances: [] } }));
@@ -39,7 +41,7 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
       providers: [CollectorService, CollectorIdentityService, CollectorRealtimeService, JwtAuthGuard,
         { provide: AuthService, useValue: auth }, { provide: SpeechSettingsService, useValue: settings },
         { provide: getRepositoryToken(User), useValue: users },
-        { provide: getRepositoryToken(Company), useValue: new FakeRepo([{ id: 10, status: 'active' }, { id: 20, status: 'active' }]) },
+        { provide: getRepositoryToken(Company), useValue: companies },
         { provide: getRepositoryToken(PlatformAdmin), useValue: new FakeRepo([]) },
         { provide: getRepositoryToken(PositionPermission), useValue: new FakeRepo([]) },
         { provide: getRepositoryToken(UserPermissionOverride), useValue: new FakeRepo([]) },
@@ -52,14 +54,44 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
   });
   afterAll(async () => { await app?.close(); });
   const token = (sub = 1, cid = 10) => jwt.sign({ sub, cid });
-  const request = (path: string, t?: string, body?: unknown) => fetch(base + '/api/' + path, { method: body ? 'POST' : 'GET',
+  const request = (path: string, t?: string, body?: unknown, method = body ? 'POST' : 'GET') => fetch(base + '/api/' + path, { method,
     headers: { ...(t ? { Authorization: 'Bearer ' + t } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
-  it('匿名、平台令牌、未授权员工与伪造公司均拒绝；设置只有有权限的人可看', async () => {
+  it('匿名、平台令牌与伪造公司均拒绝；普通员工默认可用但不能查看语音设置', async () => {
     expect((await request('collector/session')).status).toBe(401);
     expect((await request('collector/session', jwt.sign({ sub: 1, typ: 'platform' }))).status).toBe(403);
-    expect((await request('collector/session', token(3))).status).toBe(403);
+    const employee = await request('collector/session', token(3)); expect(employee.status).toBe(200);
+    expect((await employee.json()).speech.allEmployees).toBe(true);
+    expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [] })).status).toBe(201);
+    expect(file).toHaveBeenLastCalledWith(10, 3, 'xx', []);
     expect((await request('settings/integrations/speech', token(3))).status).toBe(403);
     expect((await request('collector/session', token(1, 20))).status).toBe(401);
+  });
+  it('管理员可切回指定授权，HTTP与WS同时限制；不影响其他公司和管理员', async () => {
+    limitedCompanies.add(10);
+    try {
+      expect((await request('collector/session', token(3))).status).toBe(403);
+      expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [] })).status).toBe(403);
+      const ws = new WebSocket(base.replace('http:', 'ws:') + '/api/collector/realtime', { headers: { Authorization: 'Bearer ' + token(3) } });
+      const [error] = await once(ws, 'error'); expect(String(error)).toContain('403'); ws.terminate();
+      expect((await request('collector/session', token())).status).toBe(200);
+      expect((await request('collector/session', token(2, 20))).status).toBe(200);
+    } finally { limitedCompanies.delete(10); }
+  });
+  it('全员使用不授予设置修改权限；使用范围只能提交布尔值', async () => {
+    const input = { enabled: false, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20, allEmployees: false };
+    expect((await request('settings/integrations/speech', token(3), input, 'PUT')).status).toBe(403);
+    expect(settings.save).not.toHaveBeenCalled();
+    expect((await request('settings/integrations/speech', token(), { ...input, allEmployees: 'false' }, 'PUT')).status).toBe(400);
+    expect((await request('settings/integrations/speech', token(), input, 'PUT')).status).toBe(200);
+    expect(settings.save).toHaveBeenLastCalledWith(expect.objectContaining({ companyId: 10, id: 1 }), input);
+  });
+  it('全员开放仍拒绝停用员工与停用公司', async () => {
+    users.rows[2].status = 'disabled';
+    try { expect((await request('collector/session', token(3))).status).toBe(401); }
+    finally { users.rows[2].status = 'active'; }
+    companies.rows[0].status = 'disabled';
+    try { expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [] })).status).toBe(401); }
+    finally { companies.rows[0].status = 'active'; }
   });
   it('会话只返回对应公司摘要，客户端不能通过 DTO 传入其他公司', async () => {
     const r = await request('collector/session', token(2, 20)); expect(r.status).toBe(200);
@@ -89,13 +121,13 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
       ws.send(encodeFrame(Buffer.from(JSON.stringify({ secret: 'server-test-key', result: { text: '测试原话', utterances: [{ text: '测试原话', start_time: 0, end_time: 200, definite: true, secret: 'server-test-key' }] } })), 9, 3, -1));
     }));
     const connect = jest.spyOn(service as any, 'connectVendor').mockImplementation(() => new WebSocket(`ws://127.0.0.1:${vendorPort}`));
-    const ws = new WebSocket(base.replace('http:', 'ws:') + '/api/collector/realtime', { headers: { Authorization: 'Bearer ' + token() } });
+    const ws = new WebSocket(base.replace('http:', 'ws:') + '/api/collector/realtime', { headers: { Authorization: 'Bearer ' + token(3) } });
     try {
       await once(ws, 'open'); ws.send(encodeFrame(Buffer.from(JSON.stringify({ user: { uid: 'spoofed' }, audio: { rate: 999 }, request: {} })), 1));
       ws.send(encodeFrame(Buffer.alloc(6400), 2, 2));
       const [data] = await once(ws, 'message'), frame = decodeFrame(Buffer.from(data));
       expect(JSON.parse(frame.payload.toString()).result.utterances[0].end_time).toBe(200);
-      expect(frame.payload.toString()).not.toContain('server-test-key'); expect(initial.user.uid).toBe('oa-10-1'); expect(initial.audio.rate).toBe(16000);
+      expect(frame.payload.toString()).not.toContain('server-test-key'); expect(initial.user.uid).toBe('oa-10-3'); expect(initial.audio.rate).toBe(16000);
     } finally { ws.terminate(); connect.mockRestore(); for (const connection of vendor.clients) connection.terminate(); vendor.close(); }
   });
 });
