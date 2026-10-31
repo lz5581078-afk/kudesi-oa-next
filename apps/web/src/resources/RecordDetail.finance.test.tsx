@@ -42,29 +42,27 @@ describe('商品档案详情：成本汇总', () => {
   });
 });
 
-describe('商品档案详情：分区和新增/编辑表单同一份布局', () => {
-  it('原料详情按布局的分区顺序、旧版叫法显示（原料名称、规格、名称单位）', async () => {
+describe('商品档案详情：24号源码的独立查看态', () => {
+  it('原料查看先显示分类和基础资料，再显示编号，不沿用编辑态的顺序', async () => {
     const def = getResourceDef('finance-products')!;
     vi.mocked(resourceApi.get).mockResolvedValue(dto({ type: 'finance-products', title: '番茄种子', data: { archiveType: 'raw', code: 'YL-1', name: '番茄种子', specQty: 500, specUnit: 'G', purchaseSpec: '斤' } }));
-    localStorage.setItem('kudesi.detail.hideEmpty', '0'); // 这条只看分区顺序：显示空字段
     render(<MemoryRouter><RecordDetail def={def} id={1} onClose={() => undefined} onChanged={() => undefined} /></MemoryRouter>);
     await screen.findByText('番茄种子', { selector: '.rd-title' });
-    const titles = [...document.querySelectorAll('.rd-sec-title')].map((e) => (e.textContent ?? '').replace(/编辑本区$/, ''));
-    expect(titles.slice(0, 4)).toEqual(['所属分类', '系统自动编号', '赠品简称设置', '原料基础信息']);
+    const titles = [...document.querySelectorAll('.finance-view-heading h3')].map(e => e.textContent);
+    expect(titles.slice(0, 4)).toEqual(['所属分类', '基础资料', '系统自动编号', '原料成品名']);
     expect(screen.getByText('原料名称', { selector: 'dt' })).toBeTruthy();
     expect(screen.getByText('名称单位', { selector: 'dt' })).toBeTruthy();
-    localStorage.removeItem('kudesi.detail.hideEmpty');
   });
-  it('没设过偏好时商品详情默认藏起空字段（只剩有内容的分区）；勾掉后才显示', async () => {
-    localStorage.removeItem('kudesi.detail.hideEmpty');
+  it('查看态保留源码的空字段和分区，不受旧通用详情的隐藏空字段偏好影响', async () => {
+    localStorage.setItem('kudesi.detail.hideEmpty', '1');
     const def = getResourceDef('finance-products')!;
     vi.mocked(resourceApi.get).mockResolvedValue(dto({ type: 'finance-products', title: '番茄种子', data: { archiveType: 'raw', code: 'YL-1', name: '番茄种子', specQty: 500, specUnit: 'G', purchaseSpec: '斤' } }));
     render(<MemoryRouter><RecordDetail def={def} id={1} onClose={() => undefined} onChanged={() => undefined} /></MemoryRouter>);
     await screen.findByText('番茄种子', { selector: '.rd-title' });
-    expect(screen.queryByText('赠品简称', { selector: 'dt' })).toBeNull();
-    expect((screen.getByLabelText('隐藏空字段') as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(screen.getByLabelText('隐藏空字段'));
-    expect(screen.getByText('赠品简称', { selector: 'dt' })).toBeTruthy();
+    expect(screen.getByText('原料生产编码', { selector: 'dt' })).toBeTruthy();
+    expect(screen.getByText('暂无成品名')).toBeTruthy();
+    expect(screen.queryByLabelText('隐藏空字段')).toBeNull();
+    expect(screen.queryByText('编辑本区')).toBeNull();
     localStorage.removeItem('kudesi.detail.hideEmpty');
   });
 });
@@ -77,7 +75,7 @@ describe('详情里的复制', () => {
     fireEvent.click(await screen.findByRole('button', { name: '复制收款账号' }));
     expect(clip).toHaveBeenCalledWith('6222000011112222');
     fireEvent.click(screen.getByRole('button', { name: '复制全部银行信息' }));
-    expect(clip).toHaveBeenLastCalledWith('户名：润农公司\n开户行：工行\n账号：6222000011112222');
+    expect(clip).toHaveBeenLastCalledWith('供应商名称：润农\n账户名称：润农公司\n开户行：工行\n银行账号：6222000011112222');
     fireEvent.click(screen.getByRole('button', { name: '复制供应商编号' }));
     expect(clip).toHaveBeenLastCalledWith('GYS-001');
   });
