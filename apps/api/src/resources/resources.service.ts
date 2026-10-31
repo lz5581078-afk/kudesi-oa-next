@@ -1307,27 +1307,30 @@ export class ResourcesService implements RuleHost {
   }
 
   async changeStatus(user: AuthUser, type: string, id: number, status: string, reason?: string) {
+    await this.dataSource.transaction(em=>this.changeStatusRecord(em,user,type,id,status,reason));
+    return this.get(user,type,id);
+  }
+
+  /** 事务组合动作使用完整的状态校验与保存流程。 */
+  async changeStatusRecord(em: EntityManager, user: AuthUser, type: string, id: number, status: string, reason?: string) {
     const def = this.def(type);
     const problem = validateStatusChange(def, status, reason);
     if (problem) throw new BadRequestException(problem);
-    await this.dataSource.transaction(async (em) => {
-      const existing = await this.load(em, user, type, id);
-      if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再改状态');
-      if (existing.status === status) return;
-      const needsReason = def.statuses.find((s) => s.value === status)?.requiresReason;
-      // 走统一保存流程，这样状态相关字段的清理、规则校验、日志都一致
-      // 改为异常：原因同时写进异常原因字段（有“新的异常原因”输入的资料会自动记入原因库）
-      const abnormalInput: Record<string, unknown> = {};
-      if (status === 'abnormal' && reason?.trim()) {
-        if (def.fields.some((f) => f.key === 'abnormalReasonText')) abnormalInput.abnormalReasonText = reason.trim().slice(0, 100);
-        else if (def.fields.some((f) => f.key === 'abnormalReason' && f.type !== 'ref')) abnormalInput.abnormalReason = reason.trim().slice(0, 2000);
-      }
-      await this.saveRecord(em, user, def, existing, abnormalInput, { status, note: `状态：${existing.status} → ${status}${reason ? `（${reason.trim()}）` : ''}`, reason });
-      const fresh = await this.load(em, user, type, id);
-      fresh.statusReason = needsReason ? reason!.trim().slice(0, 500) : null;
-      await em.save(ResourceRecord, fresh);
-    });
-    return this.get(user, type, id);
+    const existing = await this.load(em, user, type, id);
+    if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再改状态');
+    if (existing.status === status) return;
+    const needsReason = def.statuses.find((s) => s.value === status)?.requiresReason;
+    // 走统一保存流程，这样状态相关字段的清理、规则校验、日志都一致
+    // 改为异常：原因同时写进异常原因字段（有“新的异常原因”输入的资料会自动记入原因库）
+    const abnormalInput: Record<string, unknown> = {};
+    if (status === 'abnormal' && reason?.trim()) {
+      if (def.fields.some((f) => f.key === 'abnormalReasonText')) abnormalInput.abnormalReasonText = reason.trim().slice(0, 100);
+      else if (def.fields.some((f) => f.key === 'abnormalReason' && f.type !== 'ref')) abnormalInput.abnormalReason = reason.trim().slice(0, 2000);
+    }
+    await this.saveRecord(em, user, def, existing, abnormalInput, { status, note: `状态：${existing.status} → ${status}${reason ? `（${reason.trim()}）` : ''}`, reason });
+    const fresh = await this.load(em, user, type, id);
+    fresh.statusReason = needsReason ? reason!.trim().slice(0, 500) : null;
+    await em.save(ResourceRecord, fresh);
   }
 
   /** 旧系统同款软归档：只标记这条资料本身（状态变为停用/注销等）并写变更记录，关联和业务历史原样保留，可恢复。 */
@@ -1387,29 +1390,35 @@ export class ResourcesService implements RuleHost {
     if (archivePolicyOf(type)) return this.archive(user, type, id, reason);
     if (!reason || reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
     const cleanup: string[] = [];
-    await this.dataSource.transaction(async (em) => {
-      const existing = await this.load(em, user, type, id);
-      await beforeDeleteRule(def.key, { em, host: this, user, record: existing });
-      const incoming = await em.find(ResourceLink, { where: { companyId: user.companyId, targetType: type, targetId: id, relation: Not('manual') } });
-      if (incoming.length > 0) {
-        const sources = await em
-          .createQueryBuilder(ResourceRecord, 'r')
-          .select(['r.id', 'r.type', 'r.title', 'r.status', 'r.data'])
-          .where('r.companyId = :c AND r.id IN (:...ids)', { c: user.companyId, ids: incoming.map((l) => l.sourceId) })
-          .limit(3)
-          .getMany();
-        const names = sources.map((s) => `${getResourceDef(s.type)?.label ?? s.type}「${s.title}」`).join('、');
-        throw new ConflictException(`还被 ${incoming.length} 条记录引用（${names}${incoming.length > 3 ? ' 等' : ''}），请先解除引用，或改为停用`);
-      }
-      await em.delete(ResourceLink, { companyId: user.companyId, sourceId: id });
-      await em.delete(ResourceLink, { companyId: user.companyId, targetType: type, targetId: id, relation: 'manual' });
-      await em.delete(ResourceRecord, { id, companyId: user.companyId });
-      cleanup.push(...(await this.files.deleteAllFor(em, user.companyId, type, id)));
-      await afterDeleteRule(def.key, { em, host: this, user, record: existing });
-      await this.writeLog(em, user, def, id, 'delete', existing, null, reason.trim());
-    });
+    await this.dataSource.transaction(em => this.removeRecord(em,user,type,id,reason,cleanup));
     await this.files.deleteObjects(user.companyId, cleanup);
     return { ok: true };
+  }
+
+  /** 组合操作在同一事务内删除，仍执行统一引用校验和日志。 */
+  async removeRecord(em: EntityManager, user: AuthUser, type: string, id: number, reason: string, cleanup: string[] = []) {
+    const def = this.def(type);
+    if (archivePolicyOf(type)) throw new BadRequestException('该资料应走归档流程');
+    if (reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
+    const existing = await this.load(em, user, type, id);
+    await beforeDeleteRule(def.key, { em, host: this, user, record: existing });
+    const incoming = await em.find(ResourceLink, { where: { companyId: user.companyId, targetType: type, targetId: id, relation: Not('manual') } });
+    if (incoming.length > 0) {
+      const sources = await em
+        .createQueryBuilder(ResourceRecord, 'r')
+        .select(['r.id', 'r.type', 'r.title', 'r.status', 'r.data'])
+        .where('r.companyId = :c AND r.id IN (:...ids)', { c: user.companyId, ids: incoming.map((l) => l.sourceId) })
+        .limit(3)
+        .getMany();
+      const names = sources.map((s) => `${getResourceDef(s.type)?.label ?? s.type}「${s.title}」`).join('、');
+      throw new ConflictException(`还被 ${incoming.length} 条记录引用（${names}${incoming.length > 3 ? ' 等' : ''}），请先解除引用，或改为停用`);
+    }
+    await em.delete(ResourceLink, { companyId: user.companyId, sourceId: id });
+    await em.delete(ResourceLink, { companyId: user.companyId, targetType: type, targetId: id, relation: 'manual' });
+    await em.delete(ResourceRecord, { id, companyId: user.companyId });
+    cleanup.push(...(await this.files.deleteAllFor(em, user.companyId, type, id)));
+    await afterDeleteRule(def.key, { em, host: this, user, record: existing });
+    await this.writeLog(em, user, def, id, 'delete', existing, null, reason.trim());
   }
 
   /** 查看密码/证件号明文：要 secret 权限，并留下查看记录。 */
@@ -1858,8 +1867,10 @@ export class ResourcesService implements RuleHost {
    * 批量导入：先在事务里真正执行一遍，出任何错都整体回滚；预览（dryRun）也一律回滚。
    * 有唯一字段的资料按它“有则更新、无则新建”，没有唯一字段的都是新建。
    */
-  async importRows(user: AuthUser, type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false) {
+  async importRows(user: AuthUser, type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number) {
     const def = this.def(type);
+    const parentField = parentId ? def.fields.find(f => f.key === def.parent?.field && f.type === 'ref' && f.ref === def.parent?.type) : undefined;
+    if (parentId && !parentField) throw new BadRequestException('该资料不支持指定上级导入');
     if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('没有可导入的行');
     if (rows.length > MAX_IMPORT_ROWS) throw new BadRequestException(`一次最多导入 ${MAX_IMPORT_ROWS} 行`);
 
@@ -1871,7 +1882,9 @@ export class ResourcesService implements RuleHost {
       await this.dataSource.transaction(async (em) => {
         for (let i = 0; i < rows.length; i++) {
           const line = i + 2; // 第 1 行是表头
-          const converted = await this.rowToInput(em, user, def, rows[i]);
+          const row = parentField ? Object.fromEntries(Object.entries(rows[i]).filter(([key]) => key !== parentField.key && key !== parentField.label)) : rows[i];
+          const converted = await this.rowToInput(em, user, def, row);
+          if (parentField) converted.input[parentField.key] = parentId;
           if (converted.errors.length > 0) {
             results.push({ line, action: 'error', errors: converted.errors });
             continue;
@@ -1886,6 +1899,16 @@ export class ResourcesService implements RuleHost {
               const qb = em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :c AND r.type = :t', { c: user.companyId, t: type });
               def.importMatch.forEach((k, idx) => qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${k}')) = :im${idx}`, { [`im${idx}`]: String(converted.input[k]) }));
               existing = (await qb.getOne()) ?? null;
+            }
+            if (!existing && !def.uniqueField && def.importMatchChoices?.length) {
+              const keys=def.importMatchChoices.find(choice=>choice.every(k=>converted.input[k]!=null && converted.input[k]!==''));
+              if(keys){
+                const qb=em.createQueryBuilder(ResourceRecord,'r').where('r.companyId = :c AND r.type = :t',{c:user.companyId,t:type});
+                keys.forEach((k,i)=>qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${k}')) = :imc${i}`,{[`imc${i}`]:String(converted.input[k])}));
+                const matches=await qb.take(2).getMany();
+                if(matches.length>1)throw new ConflictException('导入匹配到多条记录，请先处理重复资料');
+                existing=matches[0] ?? null;
+              }
             }
             if (!existing) existing = await certImportMatch(type, { em, host: this, user, input: converted.input });
             const saved = await em.transaction((inner) =>
@@ -1955,6 +1978,7 @@ export class ResourcesService implements RuleHost {
   /** 恢复到备份时的样子：快照里的记录覆盖回来，之后新增的记录删掉（被别处引用删不掉的保留并计数）。 */
   async restoreImportBackup(user: AuthUser, type: string, backupId: number) {
     const def = this.def(type);
+    if (type.startsWith('finance-cost-')) throw new BadRequestException('成本版本不支持整类导入回滚，请复制草稿版本调整，避免覆盖锁定成本');
     const backup = await this.dataSource.getRepository(ResourceImportBackup).findOne({ where: { id: backupId, companyId: user.companyId, resourceType: type } });
     if (!backup) throw new NotFoundException('备份不存在');
     const snapshot = JSON.parse(backup.snapshotJson) as Array<Record<string, unknown>>;

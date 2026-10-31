@@ -3,6 +3,7 @@ import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
 import { Pager } from '../common';
 import { jstApi } from './jstApi';
+import { FinanceModal } from '../FinanceModal';
 
 interface Field { key: string; label: string; required?: boolean; type?: 'number' | 'select' | 'textarea' | 'category'; options?: Array<[string, string]>; placeholder?: string; wide?: boolean }
 const GROUPS: Array<{ title: string; description: string; fields: Field[] }> = [
@@ -45,6 +46,9 @@ export function JstUploadPage() {
   const { user } = useAuth();
   const isAdmin = !!user?.permissions.isCompanyAdmin;
   const [form, setForm] = useState<Record<string, string>>(EMPTY);
+  const [open, setOpen] = useState(false);
+  const [draftKeyword, setDraftKeyword] = useState('');
+  const [brands, setBrands] = useState<string[]>([]);
   const [cats, setCats] = useState<string[]>([]);
   const [check, setCheck] = useState<Awaited<ReturnType<typeof jstApi.uploadCheck>> | null>(null);
   const [error, setError] = useState('');
@@ -53,7 +57,7 @@ export function JstUploadPage() {
   const [logs, setLogs] = useState<Awaited<ReturnType<typeof jstApi.uploadLogs>> | null>(null);
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState('');
-  useEffect(() => { jstApi.uploadOptions().then((o) => setCats(o.categories)).catch(() => undefined); }, []);
+  const loadOptions = () => jstApi.uploadOptions().then((o) => { setCats(o.categories); setBrands(o.brands); }).catch((e) => setError(msg(e)));
   const loadLogs = () => jstApi.uploadLogs({ keyword: keyword || undefined, page }).then(setLogs).catch((e) => setError(msg(e)));
   useEffect(() => { void loadLogs(); }, [page, keyword]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k: string, v: string) => { setForm((f) => ({ ...f, [k]: v })); setCheck(null); };
@@ -65,23 +69,34 @@ export function JstUploadPage() {
   }
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (busy || !isAdmin || missing.length) return;
     setBusy(true); setError(''); setNotice('');
     try {
+      const checked = await jstApi.uploadCheck({ skuId: form.skuId, styleId: form.styleId, name: form.name });
+      setCheck(checked);
+      if (checked.hasHighRisk) { setError('商品编码重复，请返回修改后重新查重。'); return; }
+      if (checked.hasWarning && !window.confirm('发现款式编码或商品名称重复，请核对查重结果。确认将这份资料加入同步队列？')) return;
       const body: Record<string, string | number> = {};
       for (const [k, v] of Object.entries(form)) if (v.trim()) body[k] = GROUPS.flatMap((g) => g.fields).find((f) => f.key === k)?.type === 'number' ? Number(v) : v.trim();
       const r = await jstApi.upload(body);
       setNotice(r.queued ? '已加入同步队列。同步总开关打开并接入聚水潭接口后才会真正发送，结果会回写到下面的上传记录。' : '这条已经在队列里了。');
       setForm(EMPTY); setCheck(null);
       await loadLogs();
-    } catch (er) { setError(msg(er)); }
-    setBusy(false);
+    } catch (er) { setError(msg(er)); } finally { setBusy(false); }
   }
 
   return (
     <div>
       <div className="page-head"><h1>资料维护</h1></div>
-      <p className="muted">在这里补传聚水潭里没有的普通商品资料。成本价、采购价属于敏感信息，只有管理员能上传。{!isAdmin && ' 你不是管理员，只能查看上传记录。'}</p>
+      <section className="card">
+      <div className="between"><div><h2>商品资料上传</h2><p className="muted">记录普通商品资料的上传结果和处理时间。</p></div><div className="row-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void loadLogs()}>刷新记录</button>{isAdmin && <button type="button" className="primary-button" onClick={() => { setForm(EMPTY); setCheck(null); setError(''); setNotice(''); setOpen(true); void loadOptions(); }}>上传普通商品资料</button>}</div></div>
+      {!isAdmin && <p className="muted">当前账号可查看上传记录，上传资料需要管理员权限。</p>}
+      </section>
+      {open && <FinanceModal title="普通商品资料上传" onClose={() => setOpen(false)} busy={busy}>
+      <p className="muted">分组填写商品资料，查重后加入同步队列。</p>
+      <div className="row-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { setForm(EMPTY); setCheck(null); setError(''); setNotice(''); }}>清空</button><button type="button" className="secondary-button" disabled={busy} onClick={() => void loadOptions()}>刷新分类/品牌</button></div>
       <form onSubmit={submit}>
+        <fieldset disabled={busy || !isAdmin}>
         {GROUPS.map((g) => (
           <fieldset key={g.title} className="card">
             <legend>{g.title}</legend>
@@ -91,13 +106,15 @@ export function JstUploadPage() {
                 <label key={f.key} style={f.wide ? { gridColumn: '1 / -1' } : undefined}>{f.label}{f.required && <span className="bad-text">（必填）</span>}
                   {f.type === 'select' ? <select value={form[f.key] ?? ''} onChange={(e) => set(f.key, e.target.value)}>{f.options!.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
                     : f.type === 'textarea' ? <textarea rows={2} value={form[f.key] ?? ''} onChange={(e) => set(f.key, e.target.value)} />
-                    : f.type === 'category' ? <><input list="jst-cats" value={form[f.key] ?? ''} placeholder="选最末级分类" onChange={(e) => set(f.key, e.target.value)} /><datalist id="jst-cats">{cats.map((c) => <option key={c} value={c} />)}</datalist></>
-                    : <input type={f.type === 'number' ? 'number' : 'text'} min={f.type === 'number' ? 0 : undefined} step={f.type === 'number' ? 'any' : undefined} value={form[f.key] ?? ''} placeholder={f.placeholder} maxLength={200} onChange={(e) => set(f.key, e.target.value)} />}
+                    : f.type === 'category' ? <select value={form[f.key] ?? ''} onChange={(e) => set(f.key, e.target.value)}><option value="">请选择最末级分类</option>{cats.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+                    : <input type={f.type === 'number' ? 'number' : 'text'} min={f.type === 'number' ? 0 : undefined} step={f.type === 'number' ? 'any' : undefined} list={f.key === 'brand' ? 'jst-upload-brands' : undefined} value={form[f.key] ?? ''} placeholder={f.placeholder} maxLength={200} onChange={(e) => set(f.key, e.target.value)} />}
                 </label>
               ))}
             </div>
           </fieldset>
         ))}
+        <datalist id="jst-upload-brands">{brands.map(b => <option key={b} value={b} />)}</datalist>
+        </fieldset>
         {error && <div role="alert" className="notice error">{error}</div>}
         {notice && <div role="status" className="notice ok">{notice}</div>}
         {check && (
@@ -109,12 +126,14 @@ export function JstUploadPage() {
         )}
         <div className="row-actions">
           <button type="button" className="secondary-button" disabled={!form.skuId && !form.styleId && !form.name} onClick={() => void runCheck()}>检查是否重复</button>
-          <button type="submit" className="primary-button" disabled={busy || !isAdmin || missing.length > 0 || check?.hasHighRisk}>加入同步队列</button>
+          <button type="submit" className="primary-button" disabled={busy || !isAdmin || missing.length > 0 || check?.hasHighRisk}>{busy ? '处理中…' : '查重并加入同步队列'}</button>
           {missing.length > 0 && <span className="muted">还需填写：{missing.map((f) => f.label).join('、')}</span>}
         </div>
       </form>
+      </FinanceModal>}
+      {!open && error && <div role="alert" className="notice error">{error}</div>}
       <h2>上传记录</h2>
-      <div className="toolbar"><input aria-label="搜索上传记录" placeholder="按商品编码搜索" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} /></div>
+      <form className="toolbar" onSubmit={e => { e.preventDefault(); setKeyword(draftKeyword.trim()); setPage(1); if (keyword === draftKeyword.trim()) void loadLogs(); }}><input aria-label="搜索上传记录" placeholder="搜索商品编码或提示信息" value={draftKeyword} onChange={(e) => setDraftKeyword(e.target.value)} /><button type="submit" className="secondary-button">搜索</button></form>
       <div className="table-scroll"><table className="data-table">
         <thead><tr><th>商品编码</th><th>款式编码</th><th>名称</th><th>状态</th><th>说明</th><th>时间</th></tr></thead>
         <tbody>

@@ -196,8 +196,8 @@ export const resourceApi = {
   },
   importBackups: (type: string) => api<ImportBackupInfo[]>(`/resources/${type}/import-backups`),
   restoreBackup: (type: string, id: number) => api<{ restored: number; removed: number; skippedDelete: number }>(`/resources/${type}/import-backups/${id}/restore`, { method: 'POST' }),
-  import: (type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false) =>
-    api<ImportResult>(`/resources/${type}/import`, { method: 'POST', body: { rows, dryRun, partial } }),
+  import: (type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number) =>
+    api<ImportResult>(`/resources/${type}/import`, { method: 'POST', body: { rows, dryRun, partial, ...(parentId ? { parentId } : {}) } }),
   uploadFile: (type: string, field: string, file: File) => {
     const form = new FormData();
     form.append('type', type);

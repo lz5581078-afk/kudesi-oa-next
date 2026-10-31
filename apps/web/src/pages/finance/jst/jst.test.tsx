@@ -55,7 +55,8 @@ describe('资料维护 · 商品资料上传', () => {
     m.uploadLogs.mockResolvedValue({ total: 0, rows: [] });
     m.uploadCheck.mockResolvedValue({ hasHighRisk: true, hasWarning: false, matches: [{ source: '聚水潭普通商品', field: 'skuId', level: 'high', hit: 'SKU1' }] });
     render(<JstUploadPage />);
-    const submit = await screen.findByRole('button', { name: '加入同步队列' });
+    fireEvent.click(screen.getByRole('button',{name:'上传普通商品资料'}));
+    const submit = await screen.findByRole('button', { name: '查重并加入同步队列' });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/还需填写：商品编码/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/^商品编码（必填）/), { target: { value: 'SKU1' } });

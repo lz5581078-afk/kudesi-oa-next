@@ -48,8 +48,8 @@ export class PricingDebugService {
   private publicRow(r: CostRow, costViewer: boolean) {
     return {
       id: r.bundleId, skuCode: r.code, skuName: r.name, categoryId: r.categoryId, categoryName: r.categoryName || '未分类',
-      ready: r.minPriceCents !== null, weightG: r.weightG, minPriceCents: r.minPriceCents,
-      ...(costViewer ? { preShipCostCents: r.preShipCostCents } : {}),
+      ready: r.minPriceCents !== null, weightG: r.weightG,
+      ...(costViewer ? { minPriceCents: r.minPriceCents, preShipCostCents: r.preShipCostCents } : {}),
     };
   }
 

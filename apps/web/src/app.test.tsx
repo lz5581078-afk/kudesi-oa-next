@@ -51,7 +51,7 @@ beforeEach(() => {
   currentUser = null;
   platformAdmin = null;
   apiMock.mockReset();
-  apiMock.mockImplementation(async () => ({ rows: [], total: 0, counts: { pending: 0, overdue: 0, returned: 0, cc: 0 } }) as never);
+  apiMock.mockImplementation(async () => ({ items: [], rows: [], total: 0, counts: { pending: 0, overdue: 0, returned: 0, cc: 0 } }) as never);
 });
 afterEach(cleanup);
 
@@ -199,7 +199,7 @@ describe('财务 · 成本表与定价调试', () => {
   });
 
   it('缺运费时最低售价显示“—”，并提示还缺什么，不用 0 兜底', async () => {
-    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] });
+    currentUser = userWith({ isCompanyAdmin: false, allow: ['finance.cost-table.view','product.cost.view'], deny: [] });
     apiMock.mockResolvedValue(costTable([{ ...costRow, freightCents: null, freightMethod: null, costIncludingFreightCents: null, minPriceCents: null, issues: ['运费无法预估（重量段报价不足 3 个省）'] }]));
     renderAt('/finance/cost-table');
     const row = (await screen.findByText('ZH-TB-SGPGHFSPGG-2D5KG*2')).closest('tr')!;
