@@ -59,6 +59,7 @@ export function permissionCatalog(): CatalogGroup[] {
     if (items.length > 0) groups.push({ id: section.id, label: section.label, items });
   }
   groups.push(ORG_ACTIONS);
+  groups.push({ id: 'collector', label: '小白抖音采集器', items: [{ key: SPECIAL_PERMISSIONS.collectorUse, label: '登录 Windows 采集器、调用公司语音识别' }] });
   groups.push({ id: 'flow-actions', label: '流程与任务', items: [
     { key: SPECIAL_PERMISSIONS.flowTemplatesManage, label: '保存并发布流程配置（含自建流程、节点模板、超时规则）' },
     { key: SPECIAL_PERMISSIONS.flowPenaltiesManage, label: '确认或免除流程超时处罚' },

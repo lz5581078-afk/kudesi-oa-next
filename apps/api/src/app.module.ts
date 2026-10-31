@@ -1,3 +1,8 @@
+import { CollectorController, SpeechSettingsController } from './collector/collector.controller';
+import { CollectorService } from './collector/collector.service';
+import { CollectorIdentityService } from './collector/collector-identity.service';
+import { SpeechSettingsService } from './collector/speech-settings.service';
+import { CollectorRealtimeService } from './collector/collector-realtime.service';
 import { ConnectionStatusController } from './integrations/connection-status.controller';
 import { FeishuAuthController } from './auth/feishu-auth.controller';
 import { FeishuAuthService } from './auth/feishu-auth.service';
@@ -182,7 +187,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
+  controllers: [CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
   providers: [
     AuthService, FeishuAuthService, ExternalConfigService, FeishuClient,
     { provide: OUTBOX_SENDER, useClass: JushuitanSenderFactory },
@@ -245,6 +250,7 @@ const env = loadEnv();
     FinanceDocumentsService,
     FinanceVoucherHintsService,
     IntegrationSettingsService,
+    CollectorService, CollectorIdentityService, SpeechSettingsService, CollectorRealtimeService, JwtAuthGuard,
     AiProviderService,
     FilesService,
     OcrService,
@@ -252,7 +258,7 @@ const env = loadEnv();
     { provide: CryptoService, useValue: new CryptoService(env.encryptionKeys, env.encryptionActiveKeyId) },
     // 守卫顺序：限流 → 登录 → 权限（默认拒绝）
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useExisting: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })

@@ -261,6 +261,8 @@ export const NAV_SECTIONS: readonly NavSection[] = [
 
 /** 页面之外的、需要单独授权的敏感能力。 */
 export const SPECIAL_PERMISSIONS = {
+  /** Windows 采集器：登录及使用公司语音转写额度 */
+  collectorUse: 'collector.use',
   /** 查看成本金额；运营默认没有 */
   productCostView: 'product.cost.view',
   /** 编辑成本与利润率；财务和管理员才有 */
