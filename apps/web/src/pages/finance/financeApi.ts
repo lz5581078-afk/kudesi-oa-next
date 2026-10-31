@@ -36,7 +36,7 @@ export interface MarginHistoryRow { id: string; createdAt: string; actorName: st
 export interface PricingHistoryRow { id: string; createdAt: string; actorName: string; bundleId: number; code: string; name: string; beforeCarrier: string; afterCarrier: string; beforePercent: number | null; afterPercent: number | null; reason: string }
 export interface Paged<T> { total: number; page: number; pageSize: number; rows: T[] }
 
-export interface DebugRow { id: number; skuCode: string; skuName: string; categoryId: number | null; categoryName: string; ready: boolean; weightG: number | null; minPriceCents: number | null; preShipCostCents?: number | null; exclusiveOwners?: Array<{ id: number; ownerName: string; endsAt: string; mine: boolean }> }
+export interface DebugRow { id: number; skuCode: string; skuName: string; categoryId: number | null; categoryName: string; ready: boolean; weightG: number | null; minPriceCents?: number | null; preShipCostCents?: number | null; exclusiveOwners?: Array<{ id: number; ownerName: string; endsAt: string; mine: boolean }> }
 export interface DebugList { rows: DebugRow[]; total: number; page: number; pageSize: number; canViewInternals: boolean }
 export interface DebugComponents { categories: Array<{ id: number; name: string; parentId: number | null }>; rows: Array<{ id: number; code: string; name: string; categoryId: number | null }>; total: number; page: number; pageSize: number }
 export interface DebugProfit { id: number; amountCents: number }
@@ -72,7 +72,7 @@ export interface PackagingMatch {
   matches: Array<{ ruleId: number; schemeId: number | null; schemeName: string; priority: number }>; ambiguous: boolean; issues: Array<{ level: string; message: string }>;
 }
 export interface ApiKeyRow { id: string; name: string; scope: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null }
-export interface ResetPreview { includePlatforms: boolean; confirmation: string; total: number; tables: Array<{ type: string; label: string; count: number }>; blockedByDocuments: number; exclusions: string[] }
+export interface ResetPreview { includePlatforms: boolean; confirmation: string; total: number; tables: Array<{ type: string; label: string; count: number }>; blockedByDocuments: number; blockedByCostVersions?: number; exclusions: string[] }
 export interface SnapshotRow { id: number; operation: string; label: string; rowCount: number; restoredAt: string | null; createdAt: string; actorName: string | null; confirmation: string }
 export interface ExpressDraft { carrier: string; branch: string; province: string; shipWeightMin: number | null; shipWeightMax: number | null; firstWeight: number | null; firstPrice: number | null; extraPrice: number | null; fixedPrice: number | null; validFrom: string; validTo: string; warnings: string[] }
 

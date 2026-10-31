@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import { getResourceDef, permissionOwner } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
-import { resourceApi } from '../../resources/api';
 import { ImportDialog } from '../../resources/ImportDialog';
+import { MasterResetPage } from './DataToolPages';
 
 /** 导入要有先后：后面的资料会引用前面的（商品引用分类，基础编码引用商品，组合构成引用基础编码）。 */
 const STEPS: Array<{ title: string; hint: string; types: string[] }> = [
@@ -20,55 +19,23 @@ const STEPS: Array<{ title: string; hint: string; types: string[] }> = [
 /** 商品数据导入：按顺序把老数据一类一类导进来。每一类都先预览、逐行校验，有错整体不导入。 */
 export function MasterImportPage() {
   const { can } = useAuth();
-  const [counts, setCounts] = useState<Record<string, number | null>>({});
-  const [importing, setImporting] = useState<string | null>(null);
+  const types = STEPS.flatMap(step => step.types).filter(type => can(`resource.${permissionOwner(type)}.import`));
+  const [type, setType] = useState(types[0] ?? '');
   const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let live = true;
-    for (const t of STEPS.flatMap((s) => s.types)) {
-      resourceApi.list(t, { pageSize: 1, showHidden: true }).then((r) => live && setCounts((c) => ({ ...c, [t]: r.total }))).catch(() => live && setCounts((c) => ({ ...c, [t]: null })));
-    }
-    return () => { live = false; };
-  }, [tick]);
-
-  const def = importing ? getResourceDef(importing) : undefined;
-  const loaded = STEPS.every((s) => s.types.every((t) => counts[t] !== undefined));
-  const done = (s: (typeof STEPS)[number]) => s.types.every((t) => (counts[t] ?? 0) > 0);
-  const nextStep = loaded ? STEPS.find((s) => !done(s))?.title : undefined;
-  return (
-    <div>
-      <div className="page-head"><h1>商品数据导入</h1></div>
-      <p className="muted">按下面的顺序一类一类导入。每次先预览，逐行校验，有错整体不导入；同一个编码再次导入会更新而不是重复。</p>
-      <ol className="stack">
-        {STEPS.map((s) => (
-          <li key={s.title} className={s.title === nextStep ? 'card import-step-next' : 'card'} aria-current={s.title === nextStep ? 'step' : undefined}>
-            <strong>{s.title}</strong> {done(s) ? <span className="pill ok">已导入</span> : s.title === nextStep ? <span className="pill warn">下一步</span> : null}
-            <p className="muted">{s.hint}</p>
-            <div className="table-scroll"><table className="data-table">
-              <thead><tr><th>资料</th><th>现有</th><th /></tr></thead>
-              <tbody>
-                {s.types.map((t) => {
-                  const d = getResourceDef(t)!;
-                  const parent = d.parent ? getResourceDef(d.parent.type) : null;
-                  const viewPath = d.nav ? `/finance/${t}` : parent?.nav ? `/finance/${parent.key}` : null;
-                  return (
-                    <tr key={t}>
-                      <td>{d.label}</td>
-                      <td className="num">{counts[t] === undefined ? '…' : counts[t] === null ? '无权限' : counts[t]}</td>
-                      <td className="row-actions">
-                        {can(`resource.${permissionOwner(t)}.import`) && <button type="button" className="secondary-button small" onClick={() => setImporting(t)}>导入 {d.label}</button>}
-                        {viewPath && <Link to={viewPath}>打开页面</Link>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table></div>
-          </li>
-        ))}
-      </ol>
-      {def && <ImportDialog def={def} onClose={() => setImporting(null)} onDone={() => { setImporting(null); setTick((n) => n + 1); }} />}
-    </div>
-  );
+  const [notice, setNotice] = useState('');
+  const def = type ? getResourceDef(type) : undefined;
+  return <div className="master-data-import-page">
+    <div className="page-head"><h1>商品基础数据导入</h1></div>
+    <p className="muted">Excel 先预检、再写入；仅处理当前公司的本地商品基础资料。</p>
+    <section className="card">
+      <h2>分模块 Excel 导入</h2>
+      <p className="muted">建议按分类、字典/单位/平台、档案、基础编码、组合编码的顺序执行。</p>
+      <label>导入类型<select aria-label="导入类型" value={type} onChange={e => { setType(e.target.value); setNotice(''); }}>
+        {STEPS.map(step => <optgroup key={step.title} label={step.title}>{step.types.filter(t => types.includes(t)).map(t => <option key={t} value={t}>{getResourceDef(t)!.label}</option>)}</optgroup>)}
+      </select></label>
+      {notice && <div role="status" className="notice ok">{notice}</div>}
+      {def ? <ImportDialog key={`${type}-${tick}`} embedded def={def} onClose={() => setTick(n => n + 1)} onDone={message => { setNotice(message || '导入完成'); setTick(n => n + 1); }} /> : <p className="muted">当前账号没有资料导入权限。</p>}
+    </section>
+    {can('finance.master-reset.view') && <section className="card"><MasterResetPage embedded /></section>}
+  </div>;
 }

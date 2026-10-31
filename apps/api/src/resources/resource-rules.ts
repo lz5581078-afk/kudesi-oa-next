@@ -9,6 +9,8 @@ import { beforeUnitDelete } from './unit-rules';
 import { ASSET_BEFORE_DELETE, ASSET_BEFORE_SAVE } from './asset-rules';
 import { broadbandPhoneRule, isLegacyImport, phoneParentRule } from './fee-rules';
 import { workforceAfterSave, workforceBeforeDelete, workforceBeforeSave } from './workforce-rules';
+import { beforeCostVersionDelete, beforeCostVersionSave } from './cost-version-rules';
+import { COST_VERSION_TYPES } from './cost-version-engine';
 
 /**
  * 各类资料的专属业务规则。通用的校验（必填、枚举、唯一、引用、停用原因）在 ResourcesService，
@@ -222,6 +224,7 @@ function syncLocations(data: Record<string, unknown>, existing: ResourceRecord |
 }
 
 export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Promise<void> {
+  if (COST_VERSION_TYPES.includes(type)) return beforeCostVersionSave(ctx,type);
   if (type === 'workforce') return workforceBeforeSave(ctx);
   const financeRule = FINANCE_BEFORE_SAVE[type];
   if (financeRule) return financeRule(ctx);
@@ -321,6 +324,7 @@ export interface AfterSaveContext {
 
 /** 删除记录之前（在“还被引用就不能删”的检查之前）：如删除位置时把各处对它的引用置空。 */
 export async function beforeDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
+  if (COST_VERSION_TYPES.includes(type)) await beforeCostVersionDelete(ctx);
   if (type === 'workforce') workforceBeforeDelete();
   const rule = ASSET_BEFORE_DELETE[type];
   if (rule) await rule(ctx);

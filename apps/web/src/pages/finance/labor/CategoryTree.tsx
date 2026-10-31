@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getResourceDef } from '@kudesi/shared';
 import { ReasonDialog, RecordForm, clearRefCache } from '../../../resources/RecordForm';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
@@ -21,18 +21,22 @@ export const findNode = (roots: CatNode[], id: number | null): CatNode | null =>
 };
 
 /** 项目归档分类树（最多三级）：新增下级、修改（改名/换上级）、删除；工作项目只能放在最末级。 */
-export function CategoryTree({ versionId, versionLocked, cats, tree, selected, canEdit, canDelete, onSelect, onChanged, total }: {
+export function CategoryTree({ versionId, versionLocked, cats, tree, selected, canEdit, canDelete, onSelect, onChanged, total, management = true }: {
   versionId: number; versionLocked: boolean; cats: ResourceDto[]; tree: CatNode[]; selected: number | null; canEdit: boolean; canDelete: boolean; total: number;
   onSelect: (id: number | null) => void; onChanged: () => void;
+  management?: boolean;
 }) {
   const [form, setForm] = useState<{ record: ResourceDto | null; parentId: number | null } | null>(null);
   const [removing, setRemoving] = useState<CatNode | null>(null);
+  const [collapsed,setCollapsed] = useState<Set<number>>(new Set());
+  useEffect(()=>setCollapsed(new Set()),[versionId]);
   const byId = useMemo(() => new Map(cats.map((c) => [c.id, c])), [cats]);
   const render = (n: CatNode, depth: number) => (
     <li key={n.id}>
       <div className="between" style={{ paddingLeft: depth * 14 }}>
+        {!!n.children.length && <button type="button" className="link-button" aria-label={`${collapsed.has(n.id)?'展开':'收起'}${n.name}`} aria-expanded={!collapsed.has(n.id)} onClick={()=>setCollapsed(old=>{const next=new Set(old);if(next.has(n.id))next.delete(n.id);else next.add(n.id);return next;})}>{collapsed.has(n.id)?'▸':'▾'}</button>}
         <button type="button" className={n.id === selected ? 'tree-item active' : 'tree-item'} aria-current={n.id === selected} onClick={() => onSelect(n.id)}>{n.name} <span className="muted">({n.count})</span></button>
-        {canEdit && !versionLocked && (
+        {management && canEdit && !versionLocked && (
           <span className="row-actions">
             {depth < 2 && <button type="button" className="link-button" aria-label={`给${n.name}加下级`} onClick={() => setForm({ record: null, parentId: n.id })}>加下级</button>}
             <button type="button" className="link-button" aria-label={`修改${n.name}`} onClick={() => setForm({ record: byId.get(n.id) ?? null, parentId: n.parentId })}>改</button>
@@ -40,12 +44,12 @@ export function CategoryTree({ versionId, versionLocked, cats, tree, selected, c
           </span>
         )}
       </div>
-      {n.children.length > 0 && <ul className="plain-list">{n.children.map((c) => render(c, depth + 1))}</ul>}
+      {n.children.length > 0 && !collapsed.has(n.id) && <ul className="plain-list">{n.children.map((c) => render(c, depth + 1))}</ul>}
     </li>
   );
   return (
     <nav aria-label="项目归档分类" className="card">
-      <div className="between"><strong>项目归档分类</strong>{canEdit && !versionLocked && <button type="button" className="link-button" onClick={() => setForm({ record: null, parentId: null })}>+ 一级分类</button>}</div>
+      {management && <div className="between"><strong>项目归档分类</strong>{canEdit && !versionLocked && <button type="button" className="link-button" onClick={() => setForm({ record: null, parentId: null })}>+ 一级分类</button>}</div>}
       <ul className="plain-list">
         <li><button type="button" className={selected === null ? 'tree-item active' : 'tree-item'} onClick={() => onSelect(null)}>全部 <span className="muted">({total})</span></button></li>
         {tree.map((n) => render(n, 0))}

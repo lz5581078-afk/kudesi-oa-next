@@ -43,7 +43,7 @@ export function Shell() {
   if (!user) return null;
 
   const pageTitle = current?.page.label ?? (location.pathname === '/account/password' ? '修改密码' : '');
-  const openPanel = (section: VisibleSection) => setPanelId((id) => (id === section.id ? null : section.id));
+  const openPanel = (section: VisibleSection) => setPanelId(section.id);
   const moreActive = Boolean(activeSection && mobile.more.some((s) => s.id === activeSection.id));
 
   const railItem = (section: VisibleSection) => {

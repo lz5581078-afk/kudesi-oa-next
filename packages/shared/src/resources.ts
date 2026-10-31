@@ -259,6 +259,8 @@ export interface ResourceDef {
   sortField?: string;
   /** 导入时没有唯一字段的资料，这些字段值都相同就视为同一条（有则更新，无则新建），如店铺按 店铺编号+店铺名 */
   importMatch?: readonly string[];
+  /** 多种引用目标的资料：按首组填写完整的字段匹配，如版本内基础编码或组合编码。 */
+  importMatchChoices?: readonly (readonly string[])[];
 }
 
 /** 分区标题：配置了 groupTitleBy 的分区，标题随另一个字段的取值变（如自媒体“抖音专属属性”）；取不到值时用原分区名 */
@@ -271,6 +273,7 @@ export function groupTitle(def: Pick<ResourceDef, 'fields' | 'groupTitleBy'>, gr
 }
 
 import { FINANCE_RESOURCE_DEFS } from './finance-resources';
+import { COST_VERSION_RESOURCE_DEFS } from './cost-version-resources';
 import { ABNORMAL, CANCELLED, INACTIVE, NORMAL, NOTE, attrs, date, files, money, o, ref, refs, secret, select, sensitive, text, textarea } from './resource-kit';
 
 /** 改为异常必须说明原因（旧系统的“标记异常”对话框必填） */
@@ -296,6 +299,7 @@ function sealFields(prefix: string, label: string): FieldDef[] {
 
 export const RESOURCE_DEFS: readonly ResourceDef[] = [
   ...FINANCE_RESOURCE_DEFS,
+  ...COST_VERSION_RESOURCE_DEFS,
   {
     key: 'licenses',
     label: '营业执照',

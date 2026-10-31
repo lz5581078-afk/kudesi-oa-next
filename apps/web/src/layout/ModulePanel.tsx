@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
-import { groupPages, searchNav, type VisibleSection } from '@kudesi/shared';
+import { Link } from 'react-router-dom';
+import { findPageByPath, groupPages, searchNav, type VisibleSection } from '@kudesi/shared';
 import { SearchIcon } from './NavIcons';
 
 /**
@@ -17,8 +17,10 @@ export function ModulePanel(props: {
 }) {
   const { sections, sectionId, currentPath } = props;
   const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(sectionId !== 'finance');
   const searchRef = useRef<HTMLInputElement>(null);
   const section = sections.find((s) => s.id === sectionId) ?? sections[0];
+  useEffect(() => { setQuery(''); setSearchOpen(sectionId !== 'finance'); }, [sectionId]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') props.onClose(); };
@@ -32,32 +34,34 @@ export function ModulePanel(props: {
   const hits = useMemo(() => searchNav(sections, query), [sections, query]);
   const searching = query.trim().length > 0;
   const groups = useMemo(() => (section ? groupPages(section) : []), [section]);
-  const isCurrent = (path: string) => currentPath === path || currentPath.startsWith(`${path}/`);
+  const currentPage = findPageByPath(currentPath)?.page;
+  const isCurrent = (path: string) => currentPage?.path === path;
+  const columns = Math.min(5, Math.max(1, Math.ceil((section?.pages.length ?? 0) / 5)));
 
   if (!section) return null;
   return (
     <>
       <button type="button" className="mp-backdrop" aria-label="关闭菜单" tabIndex={-1} onClick={props.onClose} />
-      <div className="mp" role="dialog" aria-modal="false" aria-label={`${section.label}菜单`}>
+      <div className={`mp mp-columns-${columns} mp-section-${section.id}`} role="dialog" aria-modal="false" aria-label={`${section.label}菜单`}>
         <span className="mp-grabber" aria-hidden="true" />
         <div className="mp-head">
-          <strong>{searching ? '搜索结果' : section.label}</strong>
-          <button type="button" className="mp-close" onClick={props.onClose}>收起</button>
+          <div><strong>{searching ? '搜索结果' : section.label}</strong><small>经营流程中台</small></div>
+          <div className="row-actions"><button type="button" className="mp-close" aria-label="展开菜单搜索" onClick={() => { setSearchOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); }}><SearchIcon /></button><button type="button" className="mp-close" onClick={props.onClose}>收起</button></div>
         </div>
-        <label className="mp-search">
+        {searchOpen && <label className="mp-search">
           <SearchIcon />
           <input ref={searchRef} type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索菜单，如：成本表、制单" aria-label="搜索菜单" />
-        </label>
+        </label>}
         <nav aria-label="二级导航" className="mp-body">
           {searching ? (
             hits.length === 0 ? <p className="mp-empty">没有找到匹配的菜单，换个关键词试试。</p> : (
               <ul className="mp-hits">
                 {hits.map((h) => (
                   <li key={h.page.path}>
-                    <NavLink to={h.page.path} className={isCurrent(h.page.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(h.page.path) ? 'page' : undefined} onClick={() => props.onPick(h.page.path)}>
+                    <Link to={h.page.path} aria-label={h.page.label} className={isCurrent(h.page.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(h.page.path) ? 'page' : undefined} onClick={() => props.onPick(h.page.path)}>
                       <span>{h.page.label}</span>
                       <small>{h.sectionLabel}{h.groupTitle !== h.sectionLabel ? ` · ${h.groupTitle}` : ''}</small>
-                    </NavLink>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -70,10 +74,10 @@ export function ModulePanel(props: {
                   <ul>
                     {g.pages.map((p) => (
                       <li key={p.path}>
-                        <NavLink to={p.path} className={isCurrent(p.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(p.path) ? 'page' : undefined} onClick={() => props.onPick(p.path)} title={p.description}>
+                        <Link to={p.path} aria-label={p.label} className={isCurrent(p.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(p.path) ? 'page' : undefined} onClick={() => props.onPick(p.path)} title={p.description}>
                           <span className="mp-link-label">{p.label}</span>
                           {p.description && <small className="mp-link-desc">{p.description}</small>}
-                        </NavLink>
+                        </Link>
                       </li>
                     ))}
                   </ul>

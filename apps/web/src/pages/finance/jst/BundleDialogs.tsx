@@ -12,12 +12,12 @@ const NAMING_FIELDS: Array<[string, string]> = [
 ];
 
 /** 新建组合编码：选构成（按主商品/包装/标签/打包材料/人工/赠品分组）+ 多个销售平台，先检查（复用、四层重复），每个平台的编码/名称/简称可手填覆盖，全部没问题才一起生成，生成后是“待验证”。 */
-export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+export function GenerateDialog({ onClose, onDone, sourceBundle }: { onClose: () => void; onDone: () => void; sourceBundle?: ResourceDto }) {
   const [rows, setRows] = useState<LineRow[]>([{ role: 'main', qty: 1, label: '' }]);
   const [platforms, setPlatforms] = useState<ResourceDto[]>([]);
   const [scenarios, setScenarios] = useState<ResourceDto[]>([]);
   const [picked, setPicked] = useState<number[]>([]);
-  const [scenarioId, setScenarioId] = useState<number | ''>('');
+  const [scenarioId, setScenarioId] = useState<number | ''>(Number(sourceBundle?.data.scenarioId) || '');
   const [preview, setPreview] = useState<PreviewTarget[] | null>(null);
   const [manual, setManual] = useState<Record<number, { code: string; name: string; shortName: string }>>({});
   const [reason, setReason] = useState('');
@@ -27,12 +27,24 @@ export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDon
   const [done, setDone] = useState('');
   useEffect(() => {
     resourceApi.list('finance-platforms', { pageSize: 100 }).then((r) => setPlatforms(r.items)).catch(() => undefined);
-    resourceApi.list('finance-scenarios', { pageSize: 100 }).then((r) => { setScenarios(r.items); if (r.items[0]) setScenarioId(r.items[0].id); }).catch(() => undefined);
+    resourceApi.list('finance-scenarios', { pageSize: 100 }).then((r) => { setScenarios(r.items); if (!sourceBundle && r.items[0]) setScenarioId(r.items[0].id); }).catch(() => undefined);
   }, []);
-  const [categoryId, setCategoryId] = useState<number | ''>('');
-  const [brandId, setBrandId] = useState<number | ''>('');
+  const [categoryId, setCategoryId] = useState<number | ''>(Number(sourceBundle?.data.bundleCategoryId) || '');
+  const [brandId, setBrandId] = useState<number | ''>(Number(sourceBundle?.data.brandId) || '');
   const [brands, setBrands] = useState<ResourceDto[]>([]);
   useEffect(() => { resourceApi.list('finance-brands', { pageSize: 200, status: 'active' }).then((r) => setBrands(r.items)).catch(() => undefined); }, []);
+  const [sourceLoading,setSourceLoading] = useState(!!sourceBundle);
+  const [sourceError,setSourceError] = useState('');
+  useEffect(()=>{
+    if(!sourceBundle)return;
+    let live=true;
+    (async()=>{
+      const items:ResourceDto[]=[];
+      for(let page=1;;page++){const r=await resourceApi.list('finance-bundle-lines',{fieldKey:'bundleId',fieldValue:sourceBundle.id,page,pageSize:200});items.push(...r.items);if(items.length>=r.total || !r.items.length)break;}
+      if(live){setRows(items.map(item=>({...item.data,role:String(item.data.role),qty:Number(item.data.qty),label:item.refLabels.baseCodeId || item.refLabels.laborId || item.title} as LineRow)));setSourceLoading(false);}
+    })().catch(e=>{if(live){setSourceError(msg(e));setSourceLoading(false);}});
+    return()=>{live=false;};
+  },[sourceBundle]);
   const lines = (): LineInput[] => rows.filter((r) => r.baseCodeId || r.laborId).map(toLineInput);
   const targets = () => picked.map((p) => {
     const m = manual[p];
@@ -58,11 +70,12 @@ export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDon
   }
   return (
     <div className="modal-backdrop" role="presentation">
-      <div className="modal card wide" role="dialog" aria-label="新建组合编码">
-        <div className="modal-head between"><strong>新建组合编码</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
+      <div className="modal card wide" role="dialog" aria-label={sourceBundle?'跨平台复用组合编码':'新建组合编码'}>
+        <div className="modal-head between"><strong>{sourceBundle?'跨平台复用组合编码':'新建组合编码'}</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
         <div className="modal-body">
           <p className="muted">选好构成和销售平台，每个平台生成一个组合；编码按“命名中心”的规则拼。同样构成、同平台同场景已经有的会直接复用；编码和本地组合、本地基础编码、聚水潭商品、聚水潭组合装重复的会拦住。</p>
           <h4>1. 组合构成</h4>
+          {sourceLoading && <p role="status">正在读取原组合构成…</p>}{sourceError && <p role="alert" className="notice error">{sourceError}</p>}
           <LineEditor rows={rows} allowLabor grouped onChange={(r) => { setRows(r); setPreview(null); }} />
           <h4>2. 销售平台和场景</h4>
           <div className="pill-row">{platforms.map((p) => <label key={p.id} className="check"><input type="checkbox" checked={picked.includes(p.id)} onChange={(e) => { setPicked(e.target.checked ? [...picked, p.id] : picked.filter((x) => x !== p.id)); setPreview(null); }} /> {p.title}</label>)}</div>
@@ -94,8 +107,8 @@ export function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDon
         </div>
         <div className="modal-foot">
           <button type="button" className="secondary-button" onClick={onClose}>关闭</button>
-          <button type="button" className="secondary-button" disabled={busy || invalid} onClick={() => void check()}>保存前检查</button>
-          <button type="button" className="primary-button" disabled={busy || invalid || !preview || stale || preview.some((t) => !t.ok) || !!done || (anyManual && reason.trim().length < 2)} onClick={() => void generate()}>生成 {picked.length} 个</button>
+          <button type="button" className="secondary-button" disabled={sourceLoading || !!sourceError || busy || invalid} onClick={() => void check()}>保存前检查</button>
+          <button type="button" className="primary-button" disabled={sourceLoading || !!sourceError || busy || invalid || !preview || stale || preview.some((t) => !t.ok) || !!done || (anyManual && reason.trim().length < 2)} onClick={() => void generate()}>生成 {picked.length} 个</button>
         </div>
       </div>
     </div>

@@ -108,16 +108,17 @@ d('数据板块工具（真实数据库）', () => {
     await expect(tools.revokeKey(boss, k.id)).rejects.toThrow(/不存在或已撤销/);
   });
 
-  it('主数据重置：确认文本、管理员限制；先留快照再清空；可从快照恢复（含原 id）', async () => {
+  it('主数据重置：确认文本、管理员限制；保留成本历史；先留快照再清空并可恢复原 id', async () => {
     const pre = await tools.resetPreview(boss, true);
     expect(pre.confirmation).toBe(`RESET-COMPANY-${boss.companyId}`);
     expect(pre.tables.find((t) => t.type === 'finance-products')?.count).toBe(2);
     await expect(tools.resetExecute(staff, { confirm: pre.confirmation })).rejects.toThrow(/管理员/);
     await expect(tools.resetExecute(boss, { confirm: 'nope' })).rejects.toThrow(/确认文本不正确/);
+    const historyBefore=(await tools.costHistory(boss, {page:1,pageSize:10})).total;expect(historyBefore).toBeGreaterThan(0);
     const done = await tools.resetExecute(boss, { confirm: pre.confirmation, includePlatforms: true });
     expect(done.totalDeleted).toBeGreaterThan(5);
     expect(await ds.query("SELECT COUNT(*) AS n FROM resource_records WHERE company_id = ? AND type IN ('finance-products','finance-bundles','finance-categories')", [boss.companyId])).toEqual([{ n: '0' }]);
-    expect((await tools.costHistory(boss, { page: 1, pageSize: 10 })).total).toBe(0);
+    expect((await tools.costHistory(boss, { page: 1, pageSize: 10 })).total).toBe(historyBefore);
     const snaps = await tools.snapshots(boss);
     expect(snaps[0].rowCount).toBeGreaterThan(5);
     await expect(tools.restore(boss, snaps[0].id, 'x')).rejects.toThrow(/确认文本不正确/);

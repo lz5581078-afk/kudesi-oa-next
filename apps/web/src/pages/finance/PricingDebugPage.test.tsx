@@ -106,10 +106,10 @@ describe('定价调试表：使用细节', () => {
     return render(<PricingDebugPage />);
   };
 
-  it('空态给出四步引导；筛选条件刷新后还在，可一键清除', async () => {
+  it('空态与老版一致；筛选条件刷新后还在，可一键清除', async () => {
     const view = setup();
     await screen.findByText('苹果礼盒');
-    expect(screen.getByText(/拖动“预留利润”档位/)).toBeTruthy();
+    expect(screen.getByText('尚未选择商品')).toBeTruthy();
     expect(screen.queryByText('清除筛选')).toBeNull();
     fireEvent.change(screen.getByLabelText('搜索组合编码或名称'), { target: { value: '苹果' } });
     await waitFor(() => expect(m.debugList).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: '苹果' })));

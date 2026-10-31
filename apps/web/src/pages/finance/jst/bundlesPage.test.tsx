@@ -17,7 +17,7 @@ describe('商品组合编码页', () => {
   it('可展开构成行（不打开详情）；编码可复制；没结果时可清除搜索', async () => {
     const bundle = mk(7, 'finance-bundles', { code: 'ZH-APPLE-2' });
     const line = mk(70, 'finance-bundle-lines', { role: 'main', qty: 2, unit: '个' }, { baseCodeId: '红富士1KG' });
-    vi.mocked(resourceApi.list).mockImplementation(async (type) => (type === 'finance-bundle-lines' ? { items: [line], total: 1, page: 1, pageSize: 100 } : { items: [bundle], total: 1, page: 1, pageSize: 20 }) as never);
+    vi.mocked(resourceApi.list).mockImplementation(async (type) => (type === 'finance-platforms' ? {items:[],total:0,page:1,pageSize:200} : type === 'finance-bundle-lines' ? { items: [line], total: 1, page: 1, pageSize: 100 } : { items: [bundle], total: 1, page: 1, pageSize: 20 }) as never);
     vi.mocked(jstApi.bundleOverview).mockResolvedValue({ status: { pending: 1 } } as never);
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });

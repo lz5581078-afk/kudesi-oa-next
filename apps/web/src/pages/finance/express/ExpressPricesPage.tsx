@@ -5,7 +5,7 @@ import { ReasonDialog, RecordForm } from '../../../resources/RecordForm';
 import { useResourceCan } from '../../../resources/RecordDetail';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { ResourcePage } from '../../../resources/ResourcePage';
-import { expressApi, type TreeBranch, type TreeCarrier } from './expressApi';
+import { expressApi, type TreeCarrier } from './expressApi';
 import { VersionPanel } from './VersionPanel';
 
 type FormState =
@@ -24,6 +24,7 @@ export function ExpressPricesPage() {
   const [error, setError] = useState('');
   const [view, setView] = useState<'tree' | 'flat'>('tree');
   const [selected, setSelected] = useState<number | null>(null);
+  const [branchId, setBranchId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [removal, setRemoval] = useState<Removal | null>(null);
 
@@ -40,12 +41,7 @@ export function ExpressPricesPage() {
     for (const c of carriers ?? []) for (const b of c.branches) for (const v of b.versions) if (v.id === selected) return { c, b, v };
     return null;
   }, [carriers, selected]);
-  useEffect(() => {
-    if (carriers && selected === null) {
-      const first = carriers.flatMap((c) => c.branches.flatMap((b) => b.versions.filter((v) => v.isCurrent).map((v) => v.id)))[0] ?? carriers.flatMap((c) => c.branches.flatMap((b) => b.versions.map((v) => v.id)))[0];
-      if (first) setSelected(first);
-    }
-  }, [carriers, selected]);
+  const branch = carriers?.flatMap(c => c.branches.map(b => ({ c, b }))).find(x => x.b.id === branchId);
 
   if (view === 'flat') {
     return (
@@ -68,63 +64,41 @@ export function ExpressPricesPage() {
       <p className="muted">每个网点只有一个“当前版本”；运费预估和分区建议只读取“当前版本 + 合作中 + 日期有效”的价格。</p>
       {error && <div role="alert" className="notice error">{error}</div>}
       {carriers && carriers.length === 0 && <div className="empty-state muted">还没有快递公司。先新增一家快递公司，再给它加经营网点和价格版本。</div>}
-      <div className="split-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 320px) 1fr', gap: 16, alignItems: 'start' }}>
-        <nav aria-label="快递公司网点版本" className="card">
-          {(carriers ?? []).map((c) => (
-            <div key={c.id} className="tree-group">
-              <div className="between">
-                <strong>{c.name}{c.status !== 'normal' ? '（停用）' : ''}</strong>
-                <span className="row-actions">
-                  {can('edit') && <button type="button" className="link-button" onClick={() => setForm({ kind: 'carrier', id: c.id })}>修改</button>}
-                  {can('create') && <button type="button" className="link-button" onClick={() => setForm({ kind: 'branch', id: null, carrierId: c.id })}>加网点</button>}
-                  {can('delete') && <button type="button" className="link-button danger" onClick={() => setRemoval({ kind: 'carriers', id: c.id, name: c.name })}>删除</button>}
-                </span>
-              </div>
-              {c.branches.length === 0 && <p className="muted">还没有网点</p>}
-              {c.branches.map((b) => <BranchNode key={b.id} branch={b} selected={selected} can={can} onSelect={setSelected}
-                onEdit={() => setForm({ kind: 'branch', id: b.id, carrierId: c.id })} onAddVersion={() => setForm({ kind: 'version', branchId: b.id })} onRemove={() => setRemoval({ kind: 'branches', id: b.id, name: b.name })} />)}
-            </div>
-          ))}
-        </nav>
-        <section aria-label="价格版本详情">
-          {found ? <VersionPanel key={found.v.id} carrier={found.c} branch={found.b} version={found.v} onChanged={() => void load()} onDeleted={() => { setSelected(null); void load(); }} />
-            : <div className="empty-state muted">在左边选一个价格版本，查看和修改它的价格。</div>}
-        </section>
-      </div>
+      <nav className="toolbar" aria-label="快递价格层级">
+        <button type="button" className="link-button" onClick={() => { setBranchId(null); setSelected(null); }}>快递公司</button>
+        {branch && <><span>/</span><button type="button" className="link-button" onClick={() => setSelected(null)}>{branch.c.name} / {branch.b.name}</button></>}
+        {found && <><span>/</span><strong>{found.v.name}</strong></>}
+      </nav>
+      {!branch && !found && <div className="express-company-list">{(carriers ?? []).map(c => <section key={c.id} className="card express-company-card">
+        <header className="between"><div><h2>{c.name}</h2><small className="muted">{c.note || '经营网点与价格版本'}</small></div><div className="row-actions">
+          {can('edit') && <button type="button" className="secondary-button small" onClick={() => setForm({ kind: 'carrier', id: c.id })}>编辑快递公司</button>}
+          {can('create') && <button type="button" className="secondary-button small" onClick={() => setForm({ kind: 'branch', id: null, carrierId: c.id })}>新增网点</button>}
+          {can('delete') && <button type="button" className="link-button danger" onClick={() => setRemoval({ kind: 'carriers', id: c.id, name: c.name })}>删除快递公司</button>}
+        </div></header>
+        <div className="table-scroll"><table className="data-table"><thead><tr><th>经营网点</th><th>聚水潭物流公司</th><th>联系人</th><th>价格版本</th><th>操作</th></tr></thead><tbody>
+          {c.branches.map(b => <tr key={b.id}><td><strong>{b.name}</strong>{b.isDefault && <span className="pill ok">默认</span>}{b.status !== 'normal' && <span className="pill warn">停用</span>}</td><td>{b.jstLogisticsName || '—'}</td><td>{b.contactName} {b.contactPhone}</td><td>{b.versions.length} 个</td><td className="row-actions">
+            <button type="button" className="primary-button small" onClick={() => { setBranchId(b.id); setSelected(null); }}>查看价格表</button>
+            {can('edit') && <button type="button" className="link-button" onClick={() => setForm({ kind: 'branch', id: b.id, carrierId: c.id })}>编辑网点</button>}
+            {can('edit') && !b.isDefault && <button type="button" className="link-button" onClick={async () => { try { await resourceApi.update('finance-express-carriers', c.id, { defaultBranchId: b.id }); await load(); } catch (e) { setError(err(e)); } }}>设为默认</button>}
+            {can('delete') && <button type="button" className="link-button danger" onClick={() => setRemoval({ kind: 'branches', id: b.id, name: b.name })}>删除</button>}
+          </td></tr>)}
+          {!c.branches.length && <tr><td colSpan={5} className="empty-state muted">还没有经营网点，请先新增网点。</td></tr>}
+        </tbody></table></div>
+      </section>)}</div>}
+      {branch && !found && <section className="card" aria-label="价格版本列表">
+        <header className="between"><div><h2>{branch.c.name} / {branch.b.name}</h2><p className="muted">选择价格版本查看原始价格、手工价格、临时加收与最终价格。</p></div><div className="row-actions"><button type="button" className="secondary-button" onClick={() => setBranchId(null)}>返回快递公司</button>{can('create') && <button type="button" className="primary-button" onClick={() => setForm({ kind: 'version', branchId: branch.b.id })}>新建价格版本</button>}</div></header>
+        <div className="table-scroll"><table className="data-table"><thead><tr><th>价格版本</th><th>合作状态</th><th>有效期间</th><th>可发货重量</th><th>价格规则</th><th>临时加收</th><th>操作</th></tr></thead><tbody>
+          {branch.b.versions.map(v => <tr key={v.id}><td><strong>{v.name}</strong>{v.isCurrent && <span className="pill ok">当前版本</span>}</td><td>{COOP_TEXT[v.cooperationStatus]}</td><td>{v.effectiveStart || '不限'} ~ {v.effectiveEnd || '长期'}</td><td>{v.shippingWeightMin ?? 0} ~ {v.shippingWeightMax ?? '不限'} kg</td><td>识别 {v.aiRuleCount} / 手工 {v.manualRuleCount}</td><td>{v.surchargeCount}</td><td><button type="button" className="primary-button small" onClick={() => setSelected(v.id)}>查看价格详情</button></td></tr>)}
+          {!branch.b.versions.length && <tr><td colSpan={7} className="empty-state muted">这个网点还没有价格版本。</td></tr>}
+        </tbody></table></div>
+      </section>}
+      {found && <section aria-label="价格版本详情"><button type="button" className="secondary-button" onClick={() => { setBranchId(found.b.id); setSelected(null); }}>返回版本列表</button><VersionPanel key={found.v.id} carrier={found.c} branch={found.b} version={found.v} onChanged={() => void load()} onDeleted={() => { setSelected(null); void load(); }} /></section>}
 
-      {form && <HierarchyForm state={form} onClose={() => setForm(null)} onSaved={(dto) => { setForm(null); if (form.kind === 'version') setSelected(dto.id); void load(); }} />}
+      {form && <HierarchyForm state={form} onClose={() => setForm(null)} onSaved={(dto) => { setForm(null); if (form.kind === 'version') { setBranchId(form.branchId); setSelected(dto.id); } void load(); }} />}
       {removal && (
         <ReasonDialog title={`删除${removal.kind === 'carriers' ? '快递公司' : '经营网点'}「${removal.name}」`} hint="会连同下面所有的网点、价格版本、价格规则、加收和识别记录一起删除，不能恢复。" confirmLabel="确认删除" danger onClose={() => setRemoval(null)}
           onConfirm={async (reason) => { await expressApi.remove(removal.kind, removal.id, reason); setRemoval(null); setSelected(null); await load(); }} />
       )}
-    </div>
-  );
-}
-
-function BranchNode({ branch, selected, can, onSelect, onEdit, onAddVersion, onRemove }: {
-  branch: TreeBranch; selected: number | null; can: (a: 'create' | 'edit' | 'delete') => boolean; onSelect: (id: number) => void; onEdit: () => void; onAddVersion: () => void; onRemove: () => void;
-}) {
-  return (
-    <div className="tree-branch">
-      <div className="between">
-        <span>{branch.name}{branch.isDefault ? ' ·默认' : ''}{branch.status !== 'normal' ? '（停用）' : ''}</span>
-        <span className="row-actions">
-          {can('edit') && <button type="button" className="link-button" onClick={onEdit}>修改</button>}
-          {can('create') && <button type="button" className="link-button" onClick={onAddVersion}>加版本</button>}
-          {can('delete') && <button type="button" className="link-button danger" onClick={onRemove}>删除</button>}
-        </span>
-      </div>
-      {branch.jstLogisticsName && <div className="muted small">聚水潭：{branch.jstLogisticsName}</div>}
-      <ul className="plain-list">
-        {branch.versions.length === 0 && <li className="muted">还没有价格版本</li>}
-        {branch.versions.map((v) => (
-          <li key={v.id}>
-            <button type="button" className={v.id === selected ? 'tree-item active' : 'tree-item'} aria-current={v.id === selected} onClick={() => onSelect(v.id)}>
-              {v.name} <span className="muted">{COOP_TEXT[v.cooperationStatus]}{v.isCurrent ? ' · 当前' : ''}{v.inUse ? ' · 在用' : ''}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

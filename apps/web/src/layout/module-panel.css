@@ -1,0 +1,25 @@
+/* 旧版分组导航的宽度、说明和卡片排布。 */
+.mp { padding:14px; gap:10px; width:min(1120px,calc(100vw - 100px)); border-radius:0 10px 10px 0; }
+.mp-columns-1 { width:min(280px,calc(100vw - 100px)); }
+.mp-columns-2 { width:min(520px,calc(100vw - 100px)); }
+.mp-columns-3 { width:min(740px,calc(100vw - 100px)); }
+.mp-columns-4 { width:min(960px,calc(100vw - 100px)); }
+.mp-head { align-items:flex-start; padding:7px 8px 15px; border-bottom:1px solid var(--border); }
+.mp-head strong { display:block; line-height:1.2; margin-bottom:4px; }
+.mp-head small { color:var(--muted); font-size:13px; }
+.mp-groups { grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+.mp-group.dense { grid-column:auto; }
+.mp-section-finance .mp-group.dense { grid-column:span 2; }
+.mp-section-finance .mp-groups { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.mp-group { background:var(--surface-soft,#f8fbf9); box-shadow:0 4px 14px #0f172a0b; }
+.mp-group h3 { line-height:1.25; padding:11px 13px 11px 19px; }
+.mp-link { display:grid; align-content:center; justify-content:stretch; justify-items:start; min-height:50px; gap:4px; border:1px solid transparent; border-radius:7px; font-size:15px; }
+.mp-link-label { font-size:15px; line-height:1.25; }
+.mp-link .mp-link-desc { display:-webkit-box; font-size:12px; line-height:1.45; white-space:normal; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.mp-link:hover { background:var(--accent-soft); border-color:var(--border-strong); }
+.mp-link.active { border-color:var(--accent); }
+.mp-group.dense .mp-link { min-height:44px; }
+@media(max-width:1180px) and (min-width:721px) { .mp-section-finance .mp-groups { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media(max-width:900px) and (min-width:721px) { .mp-section-finance .mp-groups { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:720px) { .mp { left:0; right:0; width:auto; padding:8px 14px 12px; border-radius:18px 18px 0 0; } .mp-section-finance .mp-groups { grid-template-columns:repeat(2,minmax(0,1fr)); } .mp-head { padding:4px 4px 8px; } .mp-link { padding:6px; } }
+@media(max-width:400px) { .mp-section-finance .mp-group.dense { grid-column:auto; } .mp-section-finance .mp-groups { grid-template-columns:1fr; } .mp-group.dense { grid-column:auto; } .mp-group.dense ul { grid-template-columns:1fr; } }

@@ -3,7 +3,7 @@ import { getResourceDef } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
 import { ReasonDialog, RecordForm } from '../../../resources/RecordForm';
 import { useResourceCan } from '../../../resources/RecordDetail';
-import { resourceApi } from '../../../resources/api';
+import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { money } from '../common';
 import { expressApi, type TreeBranch, type TreeCarrier, type TreeVersion, type VersionDetail } from './expressApi';
 import { PriceMatrixEditor } from './PriceMatrixEditor';
@@ -13,12 +13,12 @@ const COOP = [['pending', '待确认'], ['active', '合作中'], ['paused', '已
 const CHARGE: Record<string, string> = { fixed: '固定金额', percent: '按比例', per_kg: '按公斤' };
 const err = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
 
-type SubTab = 'price' | 'surcharge' | 'info';
+type SubTab = 'final' | 'price' | 'surcharge' | 'info';
 
 /** 一个价格版本的全部内容：合作状态、价格矩阵（AI/手工两套）、临时加收、合作备注。 */
 export function VersionPanel({ carrier, branch, version, onChanged, onDeleted }: { carrier: TreeCarrier; branch: TreeBranch; version: TreeVersion; onChanged: () => void; onDeleted: () => void }) {
   const canPrice = useResourceCan('finance-express-prices');
-  const [tab, setTab] = useState<SubTab>('price');
+  const [tab, setTab] = useState<SubTab>('final');
   const [detail, setDetail] = useState<VersionDetail | null>(null);
   const [source, setSource] = useState<'ai' | 'manual'>('manual');
   const [error, setError] = useState('');
@@ -28,6 +28,8 @@ export function VersionPanel({ carrier, branch, version, onChanged, onDeleted }:
   const [recognize, setRecognize] = useState<'price' | 'surcharge' | null>(null);
   const [surchargeForm, setSurchargeForm] = useState<{ id: number | null } | null>(null);
   const [batchDelete, setBatchDelete] = useState<number | null>(null);
+  const [ruleForm,setRuleForm] = useState<ResourceDto | null>(null);
+  const [ruleDelete,setRuleDelete] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -75,12 +77,22 @@ export function VersionPanel({ carrier, branch, version, onChanged, onDeleted }:
       {error && <div role="alert" className="notice error">{error}</div>}
 
       <div className="tab-group" role="tablist" aria-label="版本内容">
-        {([['price', '价格规则'], ['surcharge', `临时加收（${detail?.surcharges.length ?? version.surchargeCount}）`], ['info', '合作备注与识别记录']] as const).map(([id, label]) => (
+        {([['final', '最终价格'], ['price', '原始 / 手工价格'], ['surcharge', `临时加收（${detail?.surcharges.length ?? version.surchargeCount}）`], ['info', '合作备注与识别记录']] as const).map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? 'chip active' : 'chip'} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
 
       {!detail && !error && <p className="muted">加载中…</p>}
+      {detail && tab === 'final' && <section className="card" aria-label="最终价格表">
+        <div className="toolbar"><label>最终价格依据<select aria-label="最终价格依据" disabled={!canPrice('edit')} value={String(data.priceSource ?? '')} onChange={e=>void run(()=>resourceApi.update('finance-express-versions',version.id,{priceSource:e.target.value || null}),'最终价格依据已更新')}><option value="">自动（有手工用手工）</option><option value="ai">AI 识别价格表</option><option value="manual">手工价格表</option></select></label>
+          <button type="button" className="secondary-button" onClick={()=>{setSource('ai');setTab('price');}}>查看原始价格表</button>
+          {canPrice('edit') && <><button type="button" className="secondary-button" onClick={()=>{setSource('manual');setTab('price');}}>手工维护价格</button><button type="button" className="secondary-button" onClick={()=>setRecognize('price')}>上传价格表识别</button><button type="button" className="secondary-button" onClick={()=>setRecognize('surcharge')}>上传加收通知识别</button></>}
+        </div><p className="muted">当前采用{detail.effectiveSource==='ai'?'AI识别价格表':'手工价格表'}，临时加收在对应页签维护。</p>
+        <div className="table-scroll"><table className="data-table"><thead><tr><th>省份</th><th>重量范围（kg）</th><th>计价方式</th><th>固定价 / 首重价</th><th>续重价</th><th>操作</th></tr></thead><tbody>
+          {detail.rules.filter(r=>r.source===detail.effectiveSource).map(r=><tr key={r.id}><td>{r.province}</td><td>{r.minExclusive?'＞':'≥'}{r.shipWeightMin ?? 0}，{r.shipWeightMax == null?'不限':`${r.maxExclusive?'＜':'≤'}${r.shipWeightMax}`}</td><td>{r.fixedPrice != null?'区间统一价':`首重 ${r.firstWeight ?? 1}kg / 续重`}</td><td>{money(r.fixedPrice ?? r.firstPrice)}</td><td>{r.fixedPrice != null?'—':money(r.extraPrice)}</td><td className="row-actions">{canPrice('edit') && <button type="button" className="link-button" onClick={()=>void run(async()=>setRuleForm(await resourceApi.get('finance-express-prices',r.id)))}>修改</button>}{canPrice('delete') && <button type="button" className="link-button danger" onClick={()=>setRuleDelete(r.id)}>删除</button>}</td></tr>)}
+          {!detail.rules.some(r=>r.source===detail.effectiveSource) && <tr><td colSpan={6} className="empty-state muted">该版本还没有当前采用的价格规则。</td></tr>}
+        </tbody></table></div>
+      </section>}
       {detail && tab === 'price' && (
         <div>
           <div className="toolbar">
@@ -150,6 +162,8 @@ export function VersionPanel({ carrier, branch, version, onChanged, onDeleted }:
         <ReasonDialog title="删除整批加收通知" hint="批次下的所有加收规则会一起删除，不能恢复。" confirmLabel="确认删除" danger onClose={() => setBatchDelete(null)}
           onConfirm={async (reason) => { await expressApi.remove('surcharge-batches', batchDelete, reason); setBatchDelete(null); refresh(); }} />
       )}
+      {ruleForm && <RecordForm def={getResourceDef('finance-express-prices')!} record={ruleForm} initial={ruleForm.data} lockedFields={['versionId','source']} onClose={()=>setRuleForm(null)} onSaved={()=>{setRuleForm(null);refresh();}}/>}
+      {ruleDelete !== null && <ReasonDialog title="删除价格规则" confirmLabel="确认删除" danger onClose={()=>setRuleDelete(null)} onConfirm={async reason=>{await resourceApi.remove('finance-express-prices',ruleDelete,reason);setRuleDelete(null);refresh();}}/>}
     </div>
   );
 }

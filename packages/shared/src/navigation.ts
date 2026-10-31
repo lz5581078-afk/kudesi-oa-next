@@ -118,12 +118,25 @@ const FINANCE_BUILT = new Set<string>([
 
 /** 财务页面：旧系统的分组顺序。资料类页面由资源定义派生，其余是专门页面。 */
 function financePages(): NavPage[] {
+  const descriptions: Record<string, string> = {
+    overview: '收入、费用、利润、账户', 'doc-withdrawal': '维护多平台店铺登录状态，保障提现操作',
+    'finance-products': '商品分类、编码、规格和计量单位', 'finance-suppliers': '供应商分类、结算单位和联系方式',
+    'finance-customers': '客户分类、联系人和业务备注', 'finance-fee-items': '费用分类、科目和归属口径',
+    history: '汇总查询费用、付款、收款、入库和流程生成的财务单据', drafts: '查看尚未提交、待补充或待继续处理的财务草稿',
+    'cost-table': '商品、采购、运费和其他成本数据', 'pricing-debug': '按包含的商品挑选SKU，试算售价与投产',
+    'finance-labor-costs': '按版本维护各种工作的人员计价标准', 'finance-express-prices': '快递网点、价格版本、临时加收和最终价',
+    inventory: '按商品、仓库和库存状态实时查询库存快照', 'cash-bank': '查询公司、店铺和出纳账户的当前余额',
+    'unsettled-receipts': '查询尚未完全结算的收款和付款单据', 'settlement-detail': '查看收付款与业务单据的结算明细',
+    'finance-base-codes': '维护两级分类、品牌、标准商品编码与商品组成',
+    'finance-bundles': '维护组合定义、版本化BOM和平台组合编码',
+    'master-import': '导入商品档案、分类、字典、基础编码、组合编码与BOM', 'jst-maintenance': '商品、库存、仓位等聚水潭基础资料维护',
+  };
   const res = (key: string, group: string): NavPage => {
     const def = RESOURCE_DEFS.find((d) => d.key === key);
     if (!def) throw new Error(`财务导航引用了不存在的资料：${key}`);
-    return { id: key, label: def.label, path: `/finance/${key}`, permission: `resource.${key}.view`, ready: true, group };
+    return { id: key, label: def.label, path: `/finance/${key}`, permission: `resource.${key}.view`, ready: true, group, description: descriptions[key] };
   };
-  const own = (id: string, label: string, group: string): NavPage => ({ ...page('finance', id, label, FINANCE_BUILT.has(id)), group });
+  const own = (id: string, label: string, group: string): NavPage => ({ ...page('finance', id, label, FINANCE_BUILT.has(id)), group, description: descriptions[id] ?? DOC_TYPES.find(d => `doc-${d.type}` === id)?.posting });
   return [
     own('overview', '财务经营', '经营财务'),
     own('doc-withdrawal', '店铺提现', '经营财务'),
@@ -158,7 +171,7 @@ export interface PageTab { id: string; label: string; ref: string; permission: s
 const rtab = (key: string, label: string): PageTab => ({ id: key, label, ref: key, permission: `resource.${key}.view` });
 const ptab = (id: string, label: string): PageTab => ({ id, label, ref: id, permission: `finance.${id}.view` });
 export const PAGE_TABS: Record<string, readonly PageTab[]> = {
-  'finance/cost-table': [ptab('cost-table', 'SKU成本表'), ptab('cost-history', '成本历史'), rtab('finance-margins', '分类利润率')],
+  'finance/cost-table': [ptab('cost-table', 'SKU成本表'), ptab('cost-history', '成本历史'), rtab('finance-margins', '分类利润率'), rtab('finance-cost-versions', '成本版本与辅助成本')],
   'finance/finance-express-prices': [rtab('finance-express-prices', '快递价格'), rtab('finance-freight-overrides', '成本表预估快递费'), ptab('zone-suggestion', '分区建议')],
   'finance/finance-products': [rtab('finance-products', '商品档案'), rtab('finance-packaging-schemes', '包装方案'), ptab('packaging-match', '包装方案匹配'), rtab('finance-zero-reasons', '零值原因'), rtab('finance-product-units', '单位与规格')],
   'finance/finance-suppliers': [rtab('finance-suppliers', '供应商档案'), rtab('finance-supplier-categories', '供应商分类')],
