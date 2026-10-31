@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FieldDef } from '@kudesi/shared';
 import { MoneyControl, RefSelect } from './RecordForm';
 import { resourceApi } from './api';
@@ -40,8 +40,13 @@ export async function saveSourceRows(productId: number, rows: SourceRow[], origi
   return failed;
 }
 
-export function SourcesDraft({ rows, onChange, canCost, needSpec, error }: { rows: SourceRow[]; onChange: (r: SourceRow[]) => void; canCost: boolean; needSpec: boolean; error?: string }) {
+export function SourcesDraft({ rows, onChange, canCost, needSpec, error, reference = false }: { rows: SourceRow[]; onChange: (r: SourceRow[]) => void; canCost: boolean; needSpec: boolean; error?: string; reference?: boolean }) {
   const set = (i: number, patch: Partial<SourceRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  if (reference) {
+    const shown = rows.length ? rows : [blankSource()];
+    const change = (i: number, patch: Partial<SourceRow>) => onChange(shown.map((r,k) => k === i ? {...r,...patch} : r));
+    return <div className="reference-sources" data-field="supplySources"><div className="reference-lines-actions"><button type="button" className="secondary-button small" onClick={() => onChange([...rows,blankSource()])}>＋ 添加供货来源</button></div>{shown.map((r,i) => <section key={r.rowId ?? i} className="reference-source"><header><strong>来源 {String(i + 1).padStart(2,'0')}</strong>{i === 0 && <span>当前最新成本</span>}{rows.length > 1 && <button type="button" className="link-button danger" onClick={() => onChange(rows.filter((_,k)=>k!==i))}>去掉</button>}</header><div className="reference-source-grid"><label>供应商名称 <b className="req">必填</b><RefSelect field={SUPPLIER} value={r.supplierId} onChange={v=>change(i,{supplierId:v})}/></label><label>产区 <b className="req">必填</b><input aria-label="产区" maxLength={80} value={r.originArea} onChange={e=>change(i,{originArea:e.target.value})}/></label>{needSpec && <label>系统规格 <b className="req">必填</b><input aria-label="来源系统规格" maxLength={30} value={r.systemSpec} onChange={e=>change(i,{systemSpec:e.target.value})}/></label>}{canCost && <label>采购价 <b className="req">必填</b><MoneyControl ariaLabel="来源采购价" value={r.purchasePrice} scale={4} onChange={v=>change(i,{purchasePrice:v})}/></label>}</div></section>)}{error && <small className="field-error" role="alert">{error}</small>}</div>;
+  }
   return (
     <div className="rf-rows" data-field="supplySources">
       {rows.length > 0 && (
@@ -82,6 +87,7 @@ export function WeightBlock({ values, onChange, manualOnly, required, error, def
   const manual = manualOnly || values.weightManual === true;
   const grams = values.weightG === undefined || values.weightG === '' || values.weightG === null ? '' : Number(values.weightG);
   const [text, setText] = useState(() => (grams === '' ? '' : String(Math.round((grams / f) * 1e6) / 1e6)));
+  useEffect(() => { setText(grams === '' ? '' : String(Math.round((grams / f) * 1e9) / 1e9)); }, [grams, f]);
   const setValue = (raw: string, u: string) => {
     setText(raw);
     if (!raw.trim()) return onChange({ weightG: '', ...(manualOnly ? { weightManual: true } : {}) });

@@ -57,6 +57,7 @@
         }
       ]
     },
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "maxWorkers": 1
   }
 }

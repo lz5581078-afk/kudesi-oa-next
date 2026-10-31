@@ -52,6 +52,15 @@ class UpdateDto {
   @IsObject() values!: Record<string, unknown>;
 }
 
+class CategoryOrderDto {
+  @IsArray() @ArrayMaxSize(500) @IsInt({ each: true }) @Min(1, { each: true }) orderedIds!: number[];
+}
+
+class ArchivePrefixDto {
+  @IsString() @MaxLength(32) archiveType!: string;
+  @IsString() @MaxLength(8) code!: string;
+}
+
 class StatusDto {
   @IsString() @MaxLength(24) status!: string;
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
@@ -285,6 +294,20 @@ export class ResourcesController {
   @Patch(':type/:id')
   update(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateDto) {
     return this.resources.update(user, type, id, dto.values);
+  }
+
+  @RequireResourceAction('edit')
+  @Post(':type/reorder')
+  reorderCategories(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: CategoryOrderDto) { return this.resources.reorderCategories(user,type,dto.orderedIds); }
+
+  @RequireResourceAction('edit')
+  @Post(':type/archive-prefix')
+  archivePrefix(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: ArchivePrefixDto) { return this.resources.saveArchivePrefix(user,type,dto.archiveType,dto.code); }
+
+  @RequireResourceAction('edit')
+  @Post(':type/:id/profile')
+  profile(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateDto) {
+    return this.resources.confirmBaseProfile(user, type, id, dto.values);
   }
 
   /** 一键建立手机号档案并绑定（权限在服务里按该资料的修改 + 手机号档案的新增校验） */

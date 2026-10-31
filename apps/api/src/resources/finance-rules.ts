@@ -1,3 +1,5 @@
+import { archiveCodePrefix, beforeArchivePrefix } from './archive-prefix';
+import { systemWeightG } from '@kudesi/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { pinyin } from 'pinyin-pro';
@@ -15,7 +17,7 @@ import { beforeUnit } from './unit-rules';
 import { loadUnitLists } from './unit-options';
 import { EXPRESS_AFTER_SAVE, EXPRESS_BEFORE_SAVE } from './express-rules';
 import { applyGiftAliases, basicInfoFullName } from './product-extras';
-import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, beforeBaseCodeLine, guardReferenced, isComposed, refreshComposedTotals, seedMainLine } from './base-code-composed';
+import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, beforeBaseCodeLine, guardReferenced, inspectBaseCodeReferences, isComposed, refreshComposedTotals, seedMainLine } from './base-code-composed';
 import { composedFacts } from './base-code-support';
 import { asAdmin, afterFreightHistoryDelete, beforeFreightHistory, beforeProductCost, recordFreightHistory, refreshLatestCost, syncAutoCost } from './product-costs';
 import { bundleIssues, hasChildren, normalizeLineExtras, pickLine } from './bundle-checks';
@@ -82,18 +84,27 @@ async function brandCode(em: EntityManager, companyId: number, brandId: unknown)
 async function beforeCategory(ctx: BeforeSaveContext) {
   const { em, host, user, data, existing } = ctx;
   data.name = str(data.name).normalize('NFKC').trim().replace(/\s+/g, ' ');
+  const parent = await rec(em, user.companyId, 'finance-categories', data.parentId);
+  if (parent) data.archiveType = parent.data.archiveType;
+  if (existing && existing.data.archiveType !== data.archiveType && await hasChildren(em,user.companyId,existing.id)) throw new BadRequestException('这个分类下还有下级分类，不能改所属类型');
+  const family = (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' }, select: ['id', 'title', 'data'] })).filter(r => r.id !== existing?.id && r.data.archiveType === data.archiveType);
   data.code = str(data.code).toUpperCase();
   if (!data.code) {
     // 左侧目录就地新增分类时不填分类码：按名称拼音首字母生成，同一类字典里重复就加数字
-    const used = new Set((await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' }, select: ['id', 'data'] })).filter((r) => r.id !== existing?.id).map((r) => str(r.data.code)));
+    const used = new Set(family.map(r => str(r.data.code)));
     const base = (initials(str(data.name)) || 'X').slice(0, 8);
     let code = base;
     for (let n = 2; used.has(code) && n < 1000; n++) code = `${base.slice(0, 8 - String(n).length)}${n}`;
     data.code = code;
   }
   if (!/^[A-Z0-9]{1,8}$/.test(str(data.code))) throw new BadRequestException('分类码只能是 1～8 位大写字母或数字');
-  await assertCodeFree(ctx, 'finance-categories', str(data.code), '分类码');
-  const parent = await rec(em, user.companyId, 'finance-categories', data.parentId);
+  const codeClash = family.find(r => str(r.data.code) === data.code);
+  if (codeClash) {
+    const used = new Set(family.map(r => str(r.data.code)));
+    let suggestion = str(data.code);
+    for (let n = 2; used.has(suggestion); n++) suggestion = `${str(data.code).slice(0, 8 - String(n).length)}${n}`;
+    throw new ConflictException(`分类码 ${str(data.code)} 已被“${codeClash.title}”使用，请换一个，例如 ${suggestion}`);
+  }
   if (parent) {
     data.archiveType = parent.data.archiveType;
     const chain = await categoryChain(em, user.companyId, parent.id);
@@ -102,12 +113,9 @@ async function beforeCategory(ctx: BeforeSaveContext) {
       throw new BadRequestException(`「${parent.title}」下已经挂了商品，不能再建下级分类`);
     }
   }
-  // 原装采购 / 供应商 OEM 两棵外购成品分类树各自独立：不同树里可以同名，同一棵树里不能重名（库里的唯一键按树分开，这里连旧数据的老键一起查）
-  if (data.archiveType === 'original_purchase' || data.archiveType === 'supplier_oem') {
-    const same = (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' }, select: ['id', 'title', 'data'] }))
-      .find((r) => r.id !== existing?.id && r.data.archiveType === data.archiveType && str(r.data.name).normalize('NFKC').toLowerCase() === str(data.name).toLowerCase());
-    if (same) throw new ConflictException(`分类名称「${str(data.name)}」在这棵分类树里已存在`);
-  }
+  // 24 号商品档案：同一上级内名称唯一；不同目录可同名。兼容已有的全局旧唯一键。
+  const same = family.find(r => Number(r.data.parentId ?? 0) === Number(data.parentId ?? 0) && str(r.data.name).normalize('NFKC').toLowerCase() === str(data.name).toLowerCase());
+  if (same) throw new ConflictException('同一上级分类下已存在同名分类');
   if (parent && data.archiveType === 'bundle' && (await host.findWhere(em, user.companyId, 'finance-bundles', 'bundleCategoryId', parent.id)).length > 0) {
     throw new BadRequestException(`「${parent.title}」下已经挂了组合，不能再建下级分类`);
   }
@@ -149,7 +157,7 @@ async function beforeBrand(ctx: BeforeSaveContext) {
 async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[]): Promise<string> {
   const { em, user, data } = ctx;
   const type = str(data.archiveType);
-  const parts: string[] = [ARCHIVE_TYPE_CODE[type] ?? (type.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8) || 'XX')]; // 自定义档案类型用自己的编码
+  const parts: string[] = [await archiveCodePrefix(em,user.companyId,type)]; // 自定义档案类型用自己的编码
   if (type === 'purchased') parts.push(data.supplyMode === 'supplier_oem' ? 'OEM' : 'YZ');
   const chainCode = chain.map((c) => str(c.data.code)).join('');
   if (chainCode) parts.push(chainCode);
@@ -169,13 +177,7 @@ async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[]): Pro
 }
 
 
-/** 系统规格换算成克：如“斤”=500、“500克”=500、“2千克”=2000；认不出返回 null。 */
-export function systemWeightG(spec: string): number | null {
-  const m = spec.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)?\s*(千克|公斤|kg|克|g|斤|j|两|毫克|mg|吨|t)(?:\s*\([^)]*\))?$/i);
-  if (!m) return null;
-  const f: Record<string, number> = { 千克: 1000, 公斤: 1000, kg: 1000, 克: 1, g: 1, 斤: 500, j: 500, 两: 50, 毫克: 0.001, mg: 0.001, 吨: 1_000_000, t: 1_000_000 };
-  return Math.round(Number(m[1] ?? 1) * f[m[2]] * 1e6) / 1e6;
-}
+export { systemWeightG } from '@kudesi/shared';
 
 /** 规格单位（G/KG/J/T）换算成克，体积、个数类单位返回 null。 */
 const UNIT_G: Record<string, number> = { G: 1, KG: 1000, J: 500, T: 1_000_000 };
@@ -324,7 +326,8 @@ export async function previewProductCode(em: EntityManager, host: Pick<RuleHost,
     checkCode(code, '商品编码');
     const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
     if (clash && clash.id !== excludeId) throw new ConflictException(`商品编码 ${code} 已被“${clash.title}”使用`);
-    return { code, manual: true, notes, basicInfoFullName: '' };
+    const brandTitle = (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '';
+    return { code, manual: true, notes, basicInfoFullName: basicInfoFullName(data, brandTitle, await loadUnitLists(em, user.companyId)) };
   }
   const base = await productCode({ em, user, data } as BeforeSaveContext, chain);
   code = base;
@@ -395,8 +398,31 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 async function beforeBaseCode(ctx: BeforeSaveContext) {
   const { em, host, user, data, existing, status } = ctx;
+  if (em.queryRunner?.data.confirmBaseProfile) {
+    data.profileManual = true;
+    if (num(data.weightG) !== null && Number(data.weightG) >= 0) data.profileWeightOverride = data.weightG;
+    if (typeof data.categoryId === 'number') data.profileCategoryOverride = data.categoryId;
+  }
   const product = await rec(em, user.companyId, 'finance-products', data.productId);
   if (!product) throw new BadRequestException('请选择来源商品档案');
+  if (existing && !em.queryRunner?.data.legacyImport && !em.queryRunner?.data.baseCodeSync) {
+    const changedWeight = data.weightG !== existing.data.weightG;
+    const changedCategory = data.categoryId !== existing.data.categoryId;
+    if (changedWeight || changedCategory) {
+      const refs = await inspectBaseCodeReferences(em, user.companyId, existing);
+      if (refs.level === 'effective') throw new BadRequestException('该商品编码已有生效引用，分类和重量不能修改');
+      if (changedWeight) {
+        if (num(data.weightG) === null || Number(data.weightG) < 0) throw new BadRequestException('重量不能小于0');
+        data.profileWeightOverride = data.weightG;
+      }
+      if (changedCategory) {
+        const category = await rec(em, user.companyId, 'finance-categories', data.categoryId);
+        if (!category || category.status !== 'active' || category.data.archiveType === 'bundle' || await hasChildren(em, user.companyId, category.id)) throw new BadRequestException('请选择有效的商品末级分类');
+        data.profileCategoryOverride = data.categoryId;
+      }
+      data.profileManual = true;
+    }
+  }
   if (product.status !== 'active' && !(existing && ['deleted', 'disabled'].includes(status))) throw new BadRequestException('来源商品档案已删除');
   const composed = data.origin === 'composed' && !(data.canonicalId !== undefined && data.canonicalId !== null);
   if (composed) {
@@ -494,10 +520,10 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
 
   // 多构成：重量、成本按构成行汇总；其余取来源商品档案
   const facts = composed && existing ? await composedFacts(em, user.companyId, existing.id) : null;
-  const srcWeight = composed ? (facts && facts.count ? facts.weightG : undefined) : product.data.weightG;
+  const srcWeight = data.profileWeightOverride !== undefined ? data.profileWeightOverride : composed ? (facts && facts.count ? facts.weightG : undefined) : product.data.weightG;
   const srcCost = composed ? facts?.cost ?? undefined : product.data.totalCost;
   if (status !== 'verified' || existing?.status !== 'verified') {
-    data.categoryId = composed ? data.codeCategoryId : product.data.categoryId;
+    data.categoryId = data.profileCategoryOverride ?? (composed ? data.codeCategoryId : product.data.categoryId);
     data.weightG = srcWeight;
     if (srcCost !== undefined) data.cost = srcCost;
     else delete data.cost;
@@ -516,7 +542,7 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     data.snapshot = JSON.stringify(snapshot);
     data.signature = signature;
     data.verifiedAt = today();
-    data.categoryId = composed ? data.codeCategoryId : product.data.categoryId;
+    data.categoryId = data.profileCategoryOverride ?? (composed ? data.codeCategoryId : product.data.categoryId);
     data.weightG = srcWeight;
     data.cost = srcCost;
   }
@@ -915,6 +941,7 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
   'finance-packaging-schemes': beforePackagingScheme,
   'finance-packaging-lines': beforePackagingLine,
   'finance-packaging-rules': beforePackagingRule,
+  'finance-archive-prefixes': beforeArchivePrefix,
   'finance-categories': beforeCategory,
   'finance-brands': beforeBrand,
   'finance-product-units': (c) => beforeUnit(c),
@@ -1181,7 +1208,7 @@ export async function realBaseCode(em: EntityManager, companyId: number, bc: Res
 async function namingItem(em: EntityManager, companyId: number, bc: ResourceRecord, qty: number): Promise<NamingItem> {
   const p = await rec(em, companyId, 'finance-products', bc.data.productId);
   const multi = bc.data.origin === 'composed';
-  const chain = await categoryChain(em, companyId, Number(multi ? bc.data.codeCategoryId : p?.data.categoryId));
+  const chain = await categoryChain(em, companyId, Number(bc.data.profileCategoryOverride ?? (multi ? bc.data.codeCategoryId : p?.data.categoryId)));
   const leaf = chain[chain.length - 1];
   const brand = await rec(em, companyId, 'finance-brands', multi ? bc.data.codeBrandId : p?.data.brandId);
   const aliasName = str(bc.data.migratedAliasName) || (typeof bc.data.canonicalId === 'number' && p ? rawNames(p.data.rawFinishedNames).find((n) => aliasCode(companyId, p.id, n) === bc.data.aliasKey) : '');
@@ -1427,6 +1454,11 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
     }
   },
   'finance-bundles': async ({ em, host, user, record, existing }) => {
+    if (em.queryRunner?.data.bundleProfile) {
+      await host.patchData(em, user, 'finance-bundles', record.id, { name: record.data.manualName, shortName: record.data.manualShortName }, '编辑组合名称和简称');
+      if (record.status === 'verified' && existing && (existing.data.name !== record.data.manualName || existing.data.shortName !== record.data.manualShortName)) await host.setStatusDirect(em, user, 'finance-bundles', record.id, 'reverify', '组合基础资料变了，需要重新验证');
+      return;
+    }
     const revId = num(record.data.pendingRevisionId);
     if (existing && existing.status !== 'verified' && record.status === 'verified' && revId) {
       await publishRevision(host, em, user, record.id, revId);

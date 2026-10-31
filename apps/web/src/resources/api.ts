@@ -131,6 +131,10 @@ export function query(params: ListParams): string {
 }
 
 export const resourceApi = {
+  reorderCategories: (type: string, orderedIds: number[]) => api<{ok: boolean; changed: number}>(`/resources/${type}/reorder`,{method:'POST',body:{orderedIds}}),
+  saveArchivePrefix: (archiveType: string, code: string) => api<ResourceDto>('/resources/finance-categories/archive-prefix',{method:'POST',body:{archiveType,code}}),
+  confirmBundleProfile: (id: number, values: Record<string, unknown>) => api<ResourceDto>(`/resources/finance-bundles/${id}/profile`, { method: 'POST', body: { values } }),
+  confirmBaseProfile: (id: number, values: Record<string, unknown>) => api<ResourceDto>(`/resources/finance-base-codes/${id}/profile`, { method: 'POST', body: { values } }),
   similarCheck: (type: string, values: Record<string, unknown>, excludeId?: number) =>
     api<{ blocked: Array<{ text: string }>; warnings: Array<{ text: string }> }>(`/resources/${type}/similar-check`, { method: 'POST', body: { values, excludeId } }),
   batch: (type: string, ids: number[], values: Record<string, unknown>) =>

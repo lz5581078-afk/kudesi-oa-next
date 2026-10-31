@@ -32,13 +32,13 @@ d('外购成品两个页签（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
-  it('同一棵外购分类树里不能重名，不同树里可以同名；原料等别的树仍然全公司不能重名', async () => {
-    await expect(svc.create(boss, 'finance-categories', { archiveType: 'original_purchase', name: ' 干果 ', code: 'GG2' })).rejects.toThrow(/这棵分类树里已存在/);
-    await expect(svc.create(boss, 'finance-categories', { archiveType: 'supplier_oem', name: '干果', code: 'GO2' })).rejects.toThrow(/这棵分类树里已存在/);
+  it('同一上级分类不能重名，不同树或不同目录允许同名', async () => {
+    await expect(svc.create(boss, 'finance-categories', { archiveType: 'original_purchase', name: ' 干果 ', code: 'GG2' })).rejects.toThrow(/同一上级/);
+    await expect(svc.create(boss, 'finance-categories', { archiveType: 'supplier_oem', name: '干果', code: 'GO2' })).rejects.toThrow(/同一上级/);
     await expect(svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '原料树', code: 'YL2' })).rejects.toThrow(/已存在/);
     const other = await svc.create(boss, 'finance-categories', { archiveType: 'original_purchase', name: '零食', code: 'LS' });
     const child = await svc.create(boss, 'finance-categories', { archiveType: 'original_purchase', name: '坚果', code: 'JG', parentId: other.id });
-    await expect(svc.update(boss, 'finance-categories', child.id, { name: '干果' })).rejects.toThrow(/已存在/);
+    await expect(svc.update(boss, 'finance-categories', child.id, { name: '干果' })).resolves.toMatchObject({ data: { name: '干果' } });
   });
 
   it('页签按采购方式拆开：原装采购页签含没填采购方式的老数据，供应商 OEM 页签只含 OEM；页签数量同口径；编码段 YZ / OEM', async () => {

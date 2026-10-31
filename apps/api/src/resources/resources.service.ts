@@ -172,8 +172,8 @@ export class ResourcesService implements RuleHost {
 
   private uniqueKeyOf(def: ResourceDef, value: unknown, data?: Record<string, unknown>): string | null {
     const key = toUniqueKey(def, value);
-    // 外购成品的两棵分类树（原装采购 / 供应商 OEM）是各自独立的名称域，不同树里可以有同名分类（旧系统同样不算冲突）；同一棵树里的重名由分类规则检查
-    if (key && def.key === 'finance-categories' && (data?.archiveType === 'original_purchase' || data?.archiveType === 'supplier_oem')) return `${data.archiveType}:${key}`;
+    // 24 号分类名称按所属档案类型和上级目录区分；旧唯一键由分类规则一并检查。
+    if (key && def.key === 'finance-categories' && data) return `${data.archiveType}:${Number(data.parentId) || 0}:${key}`;
     return key && def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(key)[0] : key;
   }
 
@@ -633,7 +633,18 @@ export class ResourcesService implements RuleHost {
     const def = this.def(type);
     const raw = toUniqueKey(def, uniqueKey)!;
     const keys = def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(raw) : [raw];
-    return em.findOne(ResourceRecord, { where: { companyId, type, uniqueKey: In(keys) } });
+    const direct = await em.findOne(ResourceRecord, { where: { companyId, type, uniqueKey: In(keys) } });
+    if (type !== 'finance-categories') return direct;
+    const rows = await em.find(ResourceRecord, { where: { companyId, type, archivedAt: IsNull() } });
+    const byId = new Map(rows.map(r => [r.id, r]));
+    const path = (row: ResourceRecord) => {
+      const names: string[] = [], seen = new Set<number>();
+      for (let r: ResourceRecord | undefined = row; r && !seen.has(r.id); r = byId.get(Number(r.data.parentId))) { seen.add(r.id); names.unshift(String(r.data.name)); }
+      return names.join(' / ');
+    };
+    const matches = rows.filter(r => [String(r.data.name), path(r), `${r.data.archiveType} / ${path(r)}`].some(v => toUniqueKey(def, v) === raw));
+    if (matches.length > 1) throw new ConflictException('分类名称对应多个目录，请填写完整分类路径');
+    return matches[0] ?? null;
   }
 
   async createRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, note?: string) {
@@ -950,7 +961,7 @@ export class ResourcesService implements RuleHost {
     const tdef = this.def(target);
     // 没有页签的资料（如商品组合编码）也可以按所属类型只看某一棵分类树
     const tabBy = def.tabsBy && tdef.fields.some((f) => f.key === def.tabsBy) ? def.tabsBy : (!def.tabsBy && target === 'finance-categories' ? 'archiveType' : '');
-    const cats = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: target }, select: ['id', 'title', 'status', 'data'] });
+    const cats = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: target, archivedAt: IsNull() }, select: ['id', 'title', 'status', 'data'] });
     const hidden = new Set(tdef.statuses.filter((s) => s.hidden).map((s) => s.value));
     const num = (v: unknown) => (typeof v === 'number' && v > 0 ? v : 0);
     let nodes = cats.filter((c) => !hidden.has(c.status) || q.showHidden).map((c) => ({
@@ -972,7 +983,7 @@ export class ResourcesService implements RuleHost {
     const parentOf = new Map(cats.map((c) => [c.id, num((c.data as Record<string, unknown>).parentId)]));
 
     const hiddenStatuses = def.statuses.filter((s) => s.hidden).map((s) => s.value);
-    const qb = em.createQueryBuilder(ResourceRecord, 'r').select(['r.id', 'r.data']).where('r.companyId = :companyId AND r.type = :type', { companyId: user.companyId, type });
+    const qb = em.createQueryBuilder(ResourceRecord, 'r').select(['r.id', 'r.data']).where('r.companyId = :companyId AND r.type = :type AND r.archivedAt IS NULL', { companyId: user.companyId, type });
     if (q.status) qb.andWhere('r.status = :status', { status: q.status });
     else if (!q.showHidden && hiddenStatuses.length) qb.andWhere('r.status NOT IN (:...hiddenStatuses)', { hiddenStatuses });
     applyTabFilter(qb, def, q.tab);
@@ -1076,6 +1087,80 @@ export class ResourcesService implements RuleHost {
       await this.saveRecord(em, user, def, existing, values, { cleanup, note });
     });
     await this.files.deleteObjects(user.companyId, cleanup);
+    return this.get(user, type, id);
+  }
+
+  /** 同级排序整体提交；锁定本公司目录，同一事务更新，失败不会只保存一半。 */
+  async reorderCategories(user: AuthUser, type: string, orderedIds: number[]) {
+    if (!['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories'].includes(type)) throw new BadRequestException('这类资料不支持分类排序');
+    if (orderedIds.length < 2 || new Set(orderedIds).size !== orderedIds.length) throw new BadRequestException('请选择至少两个不重复的分类');
+    return this.dataSource.transaction(async em => {
+      const all = await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId = :companyId AND r.type = :type AND r.archivedAt IS NULL',{companyId:user.companyId,type}).orderBy('r.id','ASC').setLock('pessimistic_write').getMany();
+      const byId = new Map(all.map(r=>[r.id,r]));
+      const selected = orderedIds.map(id=>byId.get(id));
+      if (selected.some(r=>!r)) throw new BadRequestException('有分类不存在');
+      const first = selected[0]!, parentId=Number(first.data.parentId)||0;
+      const sameScope=(r:ResourceRecord)=> (Number(r.data.parentId)||0)===parentId && (type!=='finance-categories'||r.data.archiveType===first.data.archiveType);
+      if(selected.some(r=>!sameScope(r!)))throw new BadRequestException('只能调整同一个上级下的分类顺序');
+      const siblings=all.filter(sameScope).sort((a,b)=>Number(a.data.sort||0)-Number(b.data.sort||0)||a.id-b.id);
+      const picked=new Set(orderedIds),slots=siblings.map((r,i)=>picked.has(r.id)?i:-1).filter(i=>i>=0),next=siblings.map(r=>r.id);
+      slots.forEach((slot,i)=>{next[slot]=orderedIds[i];});
+      let changed=0;
+      for(const [i,id] of next.entries())if(Number(byId.get(id)!.data.sort)!==(i+1)*10){await this.patchData(em,user,type,id,{sort:(i+1)*10},'调整分类顺序');changed++;}
+      return {ok:true,changed};
+    });
+  }
+
+  async saveArchivePrefix(user: AuthUser, type: string, archiveType: string, code: string) {
+    if (type !== 'finance-categories') throw new BadRequestException('这里只能维护商品档案类型编号');
+    const id = await this.dataSource.transaction(async em => {
+      const existing = await em.findOne(ResourceRecord, {where:{companyId:user.companyId,type:'finance-archive-prefixes',uniqueKey:archiveType.toLowerCase(),archivedAt:IsNull()}});
+      const row = existing ? await this.updateRecord(em,user,'finance-archive-prefixes',existing.id,{code},'调整档案类型编号') : await this.createRecord(em,user,'finance-archive-prefixes',{archiveType,code},'设置档案类型编号');
+      return row.id;
+    });
+    return this.get(user,'finance-archive-prefixes',id);
+  }
+
+  /** 组合基础资料与启停同事务保存，编码和构成继续由专门动作维护。 */
+  async confirmBundleProfile(user: AuthUser, type: string, id: number, values: Record<string, unknown>) {
+    if (Object.keys(values).some(k => !['name', 'shortName', 'status', 'statusReason'].includes(k))) throw new BadRequestException('组合基础资料只能修改名称、简称和状态');
+    if (typeof values.name !== 'string' || !values.name.trim() || typeof values.shortName !== 'string' || !values.shortName.trim()) throw new BadRequestException('商品名称和商品简称必填');
+    if (!['active', 'inactive'].includes(String(values.status))) throw new BadRequestException('请选择启用或停用');
+    await this.dataSource.transaction(async em => {
+      const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
+      if (!record) throw new NotFoundException('记录不存在');
+      if (record.archivedAt || record.status === 'archived') throw new ConflictException('这条资料已归档，请先恢复再修改');
+      const status = values.status === 'inactive' ? 'inactive' : record.status === 'inactive' ? 'pending' : record.status;
+      if (status !== record.status && !createChecker(user.permissions)(resourcePermission(type, 'disable'))) throw new ForbiddenException('没有改状态的权限');
+      const reason = String(values.statusReason ?? '').trim();
+      if (status !== record.status) {
+        const problem = validateStatusChange(this.def(type), status, reason);
+        if (problem) throw new BadRequestException(problem);
+      }
+      if (em.queryRunner) em.queryRunner.data.bundleProfile = true;
+      const input = { manualName: String(values.name).trim(), manualShortName: String(values.shortName).trim(), manualReason: String(record.data.manualReason || '编辑组合基础资料') };
+      const saved = await this.saveRecord(em, user, this.def(type), record, input, { status, reason, note: '编辑商品组合编码基础资料' });
+      if (status !== record.status) {
+        const fresh = await this.load(em, user, type, saved.id);
+        fresh.statusReason = status === 'inactive' ? reason : null;
+        await em.save(ResourceRecord, fresh);
+      }
+    });
+    return this.get(user, type, id);
+  }
+
+  /** 专属编辑界面的明确核对动作；沿用资料保存的全部规则，不接受来源、成本或同步字段。 */
+  async confirmBaseProfile(user: AuthUser, type: string, id: number, values: Record<string, unknown>) {
+    if (type === 'finance-bundles') return this.confirmBundleProfile(user, type, id, values);
+    if (type !== 'finance-base-codes') throw new BadRequestException('这类资料没有基础编码专属资料');
+    const allowed = new Set(['code', 'styleCode', 'name', 'shortName', 'spec', 'categoryId', 'weightG', 'codeChangeReason']);
+    if (Object.keys(values).some(k => !allowed.has(k))) throw new BadRequestException('专属资料只能修改编码、名称、简称、规格、分类和重量');
+    await this.dataSource.transaction(async em => {
+      const record = await this.load(em, user, type, id);
+      if (record.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再修改');
+      if (em.queryRunner) em.queryRunner.data.confirmBaseProfile = true;
+      await this.saveRecord(em, user, this.def(type), record, values, { note: '核对并保存商品基础编码专属资料' });
+    });
     return this.get(user, type, id);
   }
 

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { FieldDef } from '@kudesi/shared';
+import { getResourceDef, createChecker, resourcePermission, permissionOwner, type FieldDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
 import { resourceApi, type CategoryTreeResult } from './api';
 import { clearRefCache } from './RecordForm';
 import { clearTreeNodes } from './treeNodes';
+import { useAuth } from '../auth/AuthContext';
+import { FinanceCategoryManager } from './FinanceCategoryManager';
 import { ParamsDialog, ReasonDialog } from './TreeManage';
 
 type Node = CategoryTreeResult['nodes'][number];
@@ -48,6 +50,7 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   const [kw, setKw] = useState('');
   const [mOpen, setMOpen] = useState(false); // 手机上目录折叠成一行，点开再选
   const [manage, setManage] = useState(false);
+  const [financeManage, setFinanceManage] = useState(false);
   const [reload, setReload] = useState(0);
   const [adding, setAdding] = useState<{ parent: number; name: string } | null>(null);
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
@@ -57,6 +60,7 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   const [notice, setNotice] = useState('');
   const manageable = Boolean(canManage?.(field)) && !flat;
   const target = field.ref!;
+  const financeTree = ['finance-categories', 'finance-supplier-categories', 'finance-customer-categories', 'finance-fee-categories'].includes(target);
 
   useEffect(() => { setTree(null); setKw(''); setAdding(null); setRenaming(null); if (!manageable) setManage(false); }, [field.key, manageable]);
   useEffect(() => {
@@ -232,7 +236,7 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
         <strong>{multi ? `按${field.label}` : '分类目录'}</strong>
         <span className="cat-tools">
           {allParents.length > 0 && <><button type="button" onClick={() => setOpen(new Set(allParents))}>全部展开</button><button type="button" onClick={() => setOpen(new Set())}>收起</button></>}
-          {manageable && <button type="button" className={manage ? 'on' : ''} aria-pressed={manage} onClick={() => { setManage((v) => !v); setAdding(null); setRenaming(null); setNotice(''); }}>{manage ? '退出管理' : '管理'}</button>}
+          {manageable && <button type="button" className={manage ? 'on' : ''} aria-pressed={manage} onClick={() => { if (financeTree) { setFinanceManage(true); return; } setManage((v) => !v); setAdding(null); setRenaming(null); setNotice(''); }}>{manage ? '退出管理' : financeTree ? '管理分类' : '管理'}</button>}
         </span>
       </div>
       <input className="cat-search" placeholder={flat ? `找${field.label}` : multi ? `找${field.label}` : '找分类'} aria-label={flat ? `找${field.label}` : multi ? `找${field.label}` : '找分类'} value={kw} onChange={(e) => setKw(e.target.value)} />
@@ -248,6 +252,7 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
       <ul role="tree">{addForm(0, 0)}{rows(top, 0)}</ul>
       {tree && !rootId && tree.uncategorized > 0 && <div className="muted cat-un">{unsetText} {tree.uncategorized} 条</div>}
       </div>
+      {financeManage && <FinanceCategoryManager target={target} archiveType={target === 'finance-categories' ? String(createExtra?.archiveType ?? (tab || '')) || undefined : undefined} rootId={rootId} selectedId={Number(value) || undefined} maxDepth={['finance-base-codes','finance-bundles'].includes(type) ? 4 : 3} counts={Object.fromEntries((tree?.nodes ?? []).map(n => [n.id, n.count]))} onPick={id => onSelect(field.key, String(id))} onChanged={changed} onClose={() => setFinanceManage(false)} />}
       {deleting && (
         <ReasonDialog
           title={`删除「${deleting.title}」`}
@@ -282,11 +287,16 @@ export function CategoryTree(props: LegacyProps): JSX.Element;
 export function CategoryTree(props: TreeProps): JSX.Element;
 export function CategoryTree(props: TreeProps | LegacyProps): JSX.Element {
   const legacy = 'field' in props ? props : null;
-  const fields = useMemo<FieldDef[]>(() => (legacy ? [{ key: legacy.field, label: '分类', type: 'ref', group: '', ref: 'category' }] : []), [legacy?.field]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fields = useMemo<FieldDef[]>(() => (legacy ? [{ key: legacy.field, label: '分类', type: 'ref', group: '', ref: getResourceDef(legacy.type)?.fields.find(f => f.key === legacy.field)?.ref ?? 'category' }] : []), [legacy?.field]); // eslint-disable-line react-hooks/exhaustive-deps
   const values = useMemo(() => (legacy ? { [legacy.field]: legacy.value } : {}), [legacy?.field, legacy?.value]); // eslint-disable-line react-hooks/exhaustive-deps
   if (legacy) {
     const { onSelect, onPath, ...rest } = legacy;
-    return <BrowseTree {...rest} fields={fields} values={values} onSelect={(_, id) => onSelect(id)} onPath={onPath ? (_, p) => onPath(p) : undefined} />;
+    return <LegacyBrowseTree {...rest} fields={fields} values={values} onSelect={(_, id) => onSelect(id)} onPath={onPath ? (_, p) => onPath(p) : undefined} />;
   }
   return <BrowseTree {...(props as TreeProps)} />;
+}
+
+function LegacyBrowseTree(props: TreeProps) {
+  const { user } = useAuth();
+  return <BrowseTree {...props} canManage={f => !!f.ref && !!user && createChecker(user.permissions)(resourcePermission(permissionOwner(f.ref), 'edit'))} />;
 }

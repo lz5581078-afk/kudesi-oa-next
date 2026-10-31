@@ -91,7 +91,7 @@ export async function refreshComposedTotals(host: RuleHost, em: EntityManager, u
   if (!bc || !isComposed(bc)) return;
   const f = await composedFacts(em, user.companyId, baseCodeId);
   await host.patchData(em, user, 'finance-base-codes', baseCodeId, {
-    categoryId: bc.data.codeCategoryId, weightG: f.count ? f.weightG : undefined, cost: f.cost ?? undefined, purchasePrice: f.purchasePrice ?? undefined,
+    categoryId: bc.data.profileCategoryOverride ?? bc.data.codeCategoryId, weightG: bc.data.profileWeightOverride ?? (f.count ? f.weightG : undefined), cost: f.cost ?? undefined, purchasePrice: f.purchasePrice ?? undefined,
   }, '按构成重新汇总重量和成本');
 }
 
