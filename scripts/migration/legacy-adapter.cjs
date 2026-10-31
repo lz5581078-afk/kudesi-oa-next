@@ -6,6 +6,8 @@ const { createRequire } = require('node:module');
 const rules = require('./mapping-rules.json');
 const productMapping = require('./product-mapping.cjs');
 const skuMapping = require('./sku-mapping.cjs');
+/** 直播管理的旧表（全部带 company_id，由通用公司范围读取；只读） */
+const LIVE_TABLES=['live_commission_rule_versions','live_schedules','live_sessions','live_session_products','live_session_reports','live_session_orders','live_commission_records','live_wage_records','live_settlements','live_settlement_lines','live_settlement_refunds'];
 const legacyError=(message)=>{const error=new Error(message);error.name='LegacyDataError';return error;};
 const snake = (s) => s.replace(/[A-Z]/g, (c) => '_'+c.toLowerCase());
 const ref = (type,id) => id===null||id===undefined||id===''?undefined:{legacyRef:{type,id:String(id)}};
@@ -53,7 +55,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
   try{
     await c.query('SET SESSION TRANSACTION READ ONLY');await c.beginTransaction();
     const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
-    const selected=new Set(['companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
+    const selected=new Set([...LIVE_TABLES,'companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
     for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
     out.company=(tables.companies||[])[0];if(!out.company)throw Error('Company not found');out.company={id:Number(out.company.id),name:out.company.name};
     for(const [k,t] of [['departments','departments'],['positions','positions'],['employees','employees'],['employeePositions','employee_positions'],['positionPermissions','position_permissions'],['employeeOverrides','employee_permission_overrides'],['positionDuties','position_duties'],['compensationRecords','employee_compensation_records']])out[k]=tables[t]||[];
@@ -289,6 +291,8 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
       const day=(v)=>v?String(v).slice(0,10):undefined;
       out.links.push({id:String(l.id),relation:l.relation_type,sourceType:spec[2],sourceId:String(l.source_id),targetType:spec[3],targetId:String(l.target_id),validFrom:day(l.valid_from),validTo:day(l.valid_to),purpose:l.purpose?String(l.purpose):undefined});
     }
+    // 直播管理：原样交出旧行（金额仍是十进制元字符串），由迁移程序按整数分换算并校验引用；没有直播表的旧库得到空数组
+    out.live=Object.fromEntries(LIVE_TABLES.map(t=>[t.replace(/^live_/,''),(tables[t]||[]).map(r=>({...r}))]));
     await c.rollback();
   }finally{await c.end();}
   out.loadFile=async(locator)=>{

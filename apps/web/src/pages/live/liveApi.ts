@@ -55,6 +55,8 @@ export interface RoomDay { room: RoomOpt; date: string; schedules: ScheduleRow[]
 export interface Workbench {
   today: string; month: string; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; active: SessionRow[]; schedules: ScheduleRow[]; recent: SessionRow[];
   monthCommissionCents: number; monthWageCents: number; monthWageMinutes: number;
+  commissionRows: Array<{ id: number; sessionId: number; date: string; roomName: string; role: string; roleLabel: string; finalSalesCents: number; rateUnits: number; amountCents: number }>;
+  wageRows: Array<{ id: number; sessionId: number; date: string; roomName: string; minutes: number; hourlyRateCents: number; amountCents: number }>;
 }
 export interface Period { sessions: number; minutes: number; commissionCents: number; wageCents: number; wageMinutes: number }
 export interface History { mode: string; month: string; total: number; page: number; pageSize: number; rows: Array<SessionRow & { myRoles: string[]; commissionCents: number | null; wageCents: number | null }>; summary: { all: Period; thisMonth: Period; lastMonth: Period } }
@@ -82,7 +84,10 @@ const qs = (p: Record<string, unknown>) => {
 };
 const post = <T>(path: string, body: unknown = {}) => api<T>(path, { method: 'POST', body });
 
+export interface SourceStatus { ready: boolean; code: 'ready' | 'unconfigured' | 'unauthorized' | 'expired' | 'error'; message: string }
 export const liveApi = {
+  integrationStatus: () => api<SourceStatus>('/live/integration-status'),
+  commissionPreview: (id: number, b: { sales: string; adSpend?: string }) => post<Preview | null>(`/live/sessions/${id}/commission-preview`, b),
   options: () => api<Options>('/live/options'),
   products: (keyword: string) => api<Product[]>(`/live/products${qs({ keyword })}`),
   overview: (date?: string) => api<Overview>(`/live/overview${qs({ date })}`),

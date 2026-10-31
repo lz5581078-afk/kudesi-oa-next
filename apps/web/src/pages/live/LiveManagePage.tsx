@@ -6,6 +6,7 @@ import { OverviewTab } from './OverviewTab';
 import { RulesTab } from './RulesTab';
 import { SchedulesTab } from './SchedulesTab';
 import { SessionDetailDialog } from './SessionDetailDialog';
+import { SourceStatusNotice } from './liveUi';
 import { SessionsTab } from './SessionsTab';
 import { SettlementsTab } from './SettlementsTab';
 
@@ -34,6 +35,7 @@ export function LiveManagePage() {
   return (
     <div className="live-page">
       <div className="page-head"><div><h1>直播管理</h1><p className="muted">排场、场次、审核、提成与月结。主播、中控的日常操作在「我的直播」。</p></div></div>
+      {canAll || can('live.manage') ? <SourceStatusNotice /> : null}
       <div className="tab-group host-tabs" role="tablist" aria-label="直播管理分区">
         {visible.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={k === current} className={k === current ? 'chip active' : 'chip'} onClick={() => pick(k)}>{label}</button>)}
       </div>

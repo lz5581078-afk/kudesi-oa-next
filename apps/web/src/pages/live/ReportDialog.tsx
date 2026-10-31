@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { liveApi, type Candidates, type SessionDetail } from './liveApi';
+import { liveApi, type Candidates, type Preview, type SessionDetail } from './liveApi';
 import { errText, money, nowText, roleLabel, yuanCents, hm } from './liveFormat';
-import { Modal } from './liveUi';
+import { Modal, PreviewBox, SourceStatusNotice } from './liveUi';
 
 /** 报下播：只能本人报自己的角色；主播填销售额，中控填销售额和投流费用；主播、中控必须从聚水潭勾选本场订单。 */
 export function ReportDialog({ session, onClose, onDone }: { session: SessionDetail; onClose: () => void; onDone: () => void }) {
@@ -18,6 +18,8 @@ export function ReportDialog({ session, onClose, onDone }: { session: SessionDet
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const needsOrders = role !== 'operator';
+  const [salesEdited, setSalesEdited] = useState(Boolean(mine));
+  const [preview, setPreview] = useState<Preview | null>(null);
 
   const load = useCallback((refresh: boolean) => {
     if (!needsOrders) return;
@@ -28,6 +30,16 @@ export function ReportDialog({ session, onClose, onDone }: { session: SessionDet
 
   const total = useMemo(() => (cand?.orders ?? []).filter((o) => selected.has(o.orderId)).reduce((t, o) => t + o.amountCents, 0), [cand, selected]);
   const flip = (id: string) => setSelected((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const payable = useMemo(() => (cand?.orders ?? []).filter((o) => o.paid && !o.cancelled), [cand]);
+  // 勾选订单后销售额自动取订单合计（本人没手改过才跟随）
+  useEffect(() => { if (needsOrders && !salesEdited && selected.size) setSales((total / 100).toFixed(2)); }, [total, selected.size, needsOrders, salesEdited]);
+  // 预估提成：用服务端同一套公式试算，只显示本人能看到的金额
+  useEffect(() => {
+    const s = yuanCents(sales);
+    if (s === null || Number.isNaN(s)) { setPreview(null); return; }
+    const t = window.setTimeout(() => { liveApi.commissionPreview(session.id, { sales: (s / 100).toFixed(2), adSpend: role === 'control' ? ad || '0' : undefined }).then(setPreview).catch(() => setPreview(null)); }, 300);
+    return () => window.clearTimeout(t);
+  }, [sales, ad, role, session.id]);
 
   async function submit() {
     setError('');
@@ -35,7 +47,8 @@ export function ReportDialog({ session, onClose, onDone }: { session: SessionDet
     if (s === null || Number.isNaN(s)) return setError('请填写销售额（元，最多两位小数）');
     const a = yuanCents(ad);
     if (role === 'control' && (a === null || Number.isNaN(a))) return setError('中控请填写投流费用（没有投流填 0）');
-    if (needsOrders && selected.size === 0) return setError('请从聚水潭勾选本场订单（至少 1 单）');
+    if (needsOrders && !cand?.available) return setError(cand?.reason || '还没有读到聚水潭订单，不能报下播');
+    if (needsOrders && (cand?.orders.length ?? 0) > 0 && selected.size === 0) return setError('请勾选本场订单（聚水潭查到本场时间段内的订单）');
     setBusy(true);
     try {
       await liveApi.report(session.id, { role, endAt: endAt.length === 16 ? `${endAt}:00` : endAt, salesCents: s, adSpendCents: role === 'control' ? a : undefined, orderIds: needsOrders ? [...selected] : undefined, note: note.trim() || undefined });
@@ -49,17 +62,18 @@ export function ReportDialog({ session, onClose, onDone }: { session: SessionDet
       <button type="button" className="primary-button" disabled={busy} onClick={() => void submit()}>{busy ? '提交中…' : mine ? '保存修改' : '提交下播'}</button>
     </>}>
       {error && <div role="alert" className="notice error">{error}</div>}
+      <SourceStatusNotice />
       <p className="muted">{session.roomName} · 上播 {hm(session.startAt)}。只能本人填报自己的角色，管理人员不能代填。</p>
       <div className="live-fields">
         {roles.length > 1 && <label className="live-field">填报角色<select value={role} onChange={(e) => setRole(e.target.value)}>{roles.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></label>}
         <label className="live-field">下播时间<input aria-label="下播时间" value={endAt} onChange={(e) => setEndAt(e.target.value)} placeholder="2026-03-01 23:30" /></label>
-        <label className="live-field">销售额（元）<input aria-label="销售额" inputMode="decimal" value={sales} onChange={(e) => setSales(e.target.value)} /></label>
+        <label className="live-field">销售额（元）<input aria-label="销售额" inputMode="decimal" value={sales} onChange={(e) => { setSalesEdited(true); setSales(e.target.value); }} /></label>
         {role === 'control' && <label className="live-field">投流费用（元）<input aria-label="投流费用" inputMode="decimal" value={ad} onChange={(e) => setAd(e.target.value)} /></label>}
         <label className="live-field wide">备注（可选）<textarea rows={2} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} /></label>
       </div>
       {needsOrders && (
         <div className="live-field">
-          <span className="between"><span>从聚水潭勾选本场订单（金额与付款时间以服务端重查为准）</span><button type="button" className="secondary-button small" disabled={loading} onClick={() => load(true)}>{loading ? '读取中…' : '刷新订单'}</button></span>
+          <span className="between"><span>从聚水潭勾选本场订单（金额与付款时间以服务端重查为准）</span><span><button type="button" className="secondary-button small" disabled={!payable.length} onClick={() => { setSelected(new Set(payable.map((o) => o.orderId))); setSalesEdited(false); }}>勾选全部已付款</button> <button type="button" className="secondary-button small" disabled={!selected.size} onClick={() => setSelected(new Set())}>清空</button> <button type="button" className="secondary-button small" disabled={loading} onClick={() => load(true)}>{loading ? '读取中…' : '刷新订单'}</button></span></span>
           {cand && !cand.available && <div className="notice warn" role="status">{cand.reason}</div>}
           {cand?.available && (
             <>
@@ -75,6 +89,7 @@ export function ReportDialog({ session, onClose, onDone }: { session: SessionDet
           )}
         </div>
       )}
+      {preview && <PreviewBox preview={preview} />}
     </Modal>
   );
 }

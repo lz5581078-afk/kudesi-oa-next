@@ -1,5 +1,5 @@
-import { ReactNode, useEffect } from 'react';
-import type { Person, Preview, RoleAmount } from './liveApi';
+import { ReactNode, useEffect, useState } from 'react';
+import { liveApi, type Person, type Preview, type RoleAmount, type SourceStatus } from './liveApi';
 import { SCHEDULE_TONE, SESSION_TONE, money, ratePct } from './liveFormat';
 import './live.css';
 
@@ -44,4 +44,12 @@ export function PreviewBox({ preview }: { preview: Preview | null }) {
       <RoleAmounts anchor={preview.anchor} control={preview.control} operator={preview.operator} />
     </div>
   );
+}
+
+/** 聚水潭只读授权状态：没授权/没配置/过期时，给出明确提示和管理员要做的事，不等到报下播或月结才失败。 */
+export function SourceStatusNotice() {
+  const [st, setSt] = useState<SourceStatus | null>(null);
+  useEffect(() => { liveApi.integrationStatus().then(setSt).catch(() => setSt(null)); }, []);
+  if (!st || st.ready) return null;
+  return <div role="status" className="notice warn" data-testid="live-source-status"><strong>聚水潭订单暂时不能查询：</strong>{st.message}<span className="muted">（报下播要从聚水潭勾选本场订单，月底结算要核对退款；没有授权前这两项不能进行，其余功能不受影响。）</span></div>;
 }

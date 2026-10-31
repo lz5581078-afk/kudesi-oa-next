@@ -96,6 +96,7 @@ export class LiveSettlementService {
     const byShop = new Map<string, Array<{ orderId: string; amountCents: number }>>();
     for (const o of seen.values()) { const l = byShop.get(o.shopId) ?? []; l.push(o); byShop.set(o.shopId, l); }
     const refunds = new Map<string, LiveRefund>();
+    if (byShop.size) { const st = await this.source.status(c); if (!st.ready) liveFail(`不能生成结算单：${st.message}`, 409); }
     for (const [shopId, list] of byShop) {
       try { for (const [orderId, r] of await this.source.refunds(c, shopId, list)) refunds.set(liveRefundKey(shopId, orderId), r); }
       catch (e) { liveFail(`聚水潭店铺 ${shopId} 的退款暂时查不到，没有生成结算单：${(e as Error).message}`); }

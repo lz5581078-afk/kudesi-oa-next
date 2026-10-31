@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import {
-  LIVE_ROLE_LABEL, LIVE_SESSION_STATUS, LIVE_START_EARLY_MS, LiveRuleError, liveAddDays, liveCanSeeSession, liveComputeCommission, liveFilterPreview, liveFromText, liveIsDay, liveIsMonth,
+  LIVE_ROLE_LABEL, LIVE_SESSION_STATUS, LIVE_START_EARLY_MS, LiveRuleError, liveAddDays, liveCanSeeSession, liveComputeCommission, liveFilterPreview, liveFromText, liveYuanToCents, liveIsDay, liveIsMonth,
   liveMonthBounds, liveReportRoleFor, liveToText, liveToday, liveVersionFor,
 } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
@@ -137,6 +137,12 @@ export class LiveSessionService {
     });
   }
 
+  /** 聚水潭只读授权状态（订单、退款读取是否可用）。 */
+  async integrationStatus(user: AuthUser) {
+    const a = await loadLiveAccess(this.em, user); requireUse(a);
+    return this.orders.status(a.companyId);
+  }
+
   // ---------- 订单候选与报下播 ----------
   async orderCandidates(user: AuthUser, sessionId: number, q: { endAt?: string; refresh?: boolean }) {
     const a = await loadLiveAccess(this.em, user); requireUse(a);
@@ -160,9 +166,11 @@ export class LiveSessionService {
     const orderIds = [...new Set((input.orderIds ?? []).map((v) => String(v)))];
     let picked: Array<{ orderId: string; innerId: string; amountCents: number; payTime: string | null; status: string }> = [];
     if (needsOrders) {
-      if (!orderIds.length) liveFail('请从聚水潭勾选本场订单（至少 1 单）', 400);
       const found = await this.orders.candidates(a.companyId, { id: Number(first.id), shopId: first.jst_shop_id ?? null, startAt: first.start_text, endAt }, { refresh: true });
-      if (!found.available) liveFail(found.reason || '暂时查不到聚水潭订单，不能报下播', 409);
+      if (!found.available) liveFail(`不能报下播：${found.reason || '暂时查不到聚水潭订单'}`, 409);
+      if (found.truncated) liveFail(found.reason || '聚水潭订单过多，只列出了一部分，请联系管理员核对本场订单', 409);
+      // 旧系统规则：聚水潭查到本场订单就必须勾选；本场时间段内确实没有订单时可以直接报
+      if (found.orders.length && !orderIds.length) liveFail('请勾选本场订单（聚水潭查到本场时间段内的订单）', 400);
       const by = new Map(found.orders.map((o) => [o.orderId, o]));
       for (const id of orderIds) {
         const o = by.get(id);
@@ -305,13 +313,34 @@ export class LiveSessionService {
     try { return await previewApproval(this.em, a.companyId, id, form); } catch (e) { if (e instanceof LiveRuleError) liveFail(e.message, 400); throw e; }
   }
 
+  /** 报下播表单里随输入刷新的预估提成（旧版 /commission/preview）：按场次日期适用的规则版本，只向本人展示本人角色。 */
+  async previewFor(user: AuthUser, sessionId: number, input: { sales: string; adSpend?: string }) {
+    const a = await loadLiveAccess(this.em, user); requireUse(a);
+    const s = await sessionRow(this.em, a.companyId, sessionId);
+    if (!(await this.visible(this.em, a, s))) liveFail('没有查看这场直播的权限', 403);
+    if (s.status === 'approved') return null;
+    const version = liveVersionFor(await ruleVersions(this.em, a.companyId), s.session_day);
+    if (!version) return { available: false, reason: `没有适用于 ${s.session_day} 的提成规则版本`, anchor: null, control: null, operator: null };
+    let sales: number | null, ad: number | null;
+    try { sales = liveYuanToCents(input.sales, '销售额'); ad = liveYuanToCents(input.adSpend ?? '', '投流费用'); } catch (e) { if (e instanceof LiveRuleError) liveFail(e.message, 400); throw e; }
+    if (sales === null) return { available: false, reason: '填写销售额后显示预估提成', anchor: null, control: null, operator: null };
+    if (input.adSpend === undefined || input.adSpend === '') {
+      const [c] = await this.em.query("SELECT ad_spend_cents FROM live_session_reports WHERE company_id = ? AND session_id = ? AND role = 'control'", [a.companyId, sessionId]);
+      ad = c?.ad_spend_cents === null || c?.ad_spend_cents === undefined ? null : Number(c.ad_spend_cents);
+    }
+    const r = liveComputeCommission({ rules: version.rules, finalSalesCents: sales, adSpendCents: ad });
+    const p = { available: true, reason: '', basisSalesCents: r.finalSalesCents, adSpendCents: r.adSpendCents, roiScaled: r.roiScaled, belowRoi: r.belowRoi, ruleVersionId: version.id,
+      anchor: r.anchor, control: s.control_user_id ? r.control : null, operator: s.operator_user_id && Number(s.operator_user_id) !== Number(s.control_user_id) ? r.operator : null };
+    return liveFilterPreview(a.canViewAll, a.userId, { ...this.people(s), status: s.status }, p);
+  }
+
   // ---------- 我的直播 ----------
   async workbench(user: AuthUser) {
     const a = await loadLiveAccess(this.em, user);
     if (!a.canDesk && !a.canView) liveFail('无权使用我的直播', 403);
     const em = this.em, c = a.companyId, uid = a.userId, now = liveClock.now();
     const today = liveToday(now), month = today.slice(0, 7), mine = '(s.anchor_user_id = ? OR s.control_user_id = ? OR s.operator_user_id = ?)';
-    const [active, schedules, recent, comm, wage] = await Promise.all([
+    const [active, schedules, recent, comm, wage, commRows, wageRows] = await Promise.all([
       em.query(`${SESSION_SELECT} WHERE s.company_id = ? AND ${mine} AND s.status IN (${ACTIVE.map(() => '?').join(',')}) ORDER BY s.start_at DESC LIMIT 20`, [c, uid, uid, uid, ...ACTIVE]) as Promise<Row[]>,
       em.query(`SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text, a.name anchor_name, cc.name control_name, o.name operator_name
           FROM live_schedules s JOIN users a ON a.id = s.anchor_user_id AND a.company_id = s.company_id LEFT JOIN users cc ON cc.id = s.control_user_id AND cc.company_id = s.company_id LEFT JOIN users o ON o.id = s.operator_user_id AND o.company_id = s.company_id
@@ -319,6 +348,8 @@ export class LiveSessionService {
       em.query(`${SESSION_SELECT} WHERE s.company_id = ? AND ${mine} ORDER BY s.start_at DESC LIMIT 20`, [c, uid, uid, uid]) as Promise<Row[]>,
       em.query("SELECT COALESCE(SUM(amount_cents),0) total FROM live_commission_records WHERE company_id = ? AND user_id = ? AND DATE_FORMAT(session_date,'%Y-%m') = ?", [c, uid, month]),
       em.query("SELECT COALESCE(SUM(amount_cents),0) total, COALESCE(SUM(minutes),0) minutes FROM live_wage_records WHERE company_id = ? AND user_id = ? AND DATE_FORMAT(session_date,'%Y-%m') = ?", [c, uid, month]),
+      em.query("SELECT r.id, r.session_id, DATE_FORMAT(r.session_date,'%Y-%m-%d') d, r.role, r.final_sales_cents, r.rate_units, r.amount_cents, COALESCE(rm.name,'') room_name FROM live_commission_records r JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id LEFT JOIN live_rooms rm ON rm.id = s.room_id AND rm.company_id = s.company_id WHERE r.company_id = ? AND r.user_id = ? AND DATE_FORMAT(r.session_date,'%Y-%m') = ? ORDER BY r.session_date DESC, r.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
+      em.query("SELECT w.id, w.session_id, DATE_FORMAT(w.session_date,'%Y-%m-%d') d, w.minutes, w.hourly_rate_cents, w.amount_cents, COALESCE(rm.name,'') room_name FROM live_wage_records w JOIN live_sessions s ON s.id = w.session_id AND s.company_id = w.company_id LEFT JOIN live_rooms rm ON rm.id = s.room_id AND rm.company_id = s.company_id WHERE w.company_id = ? AND w.user_id = ? AND DATE_FORMAT(w.session_date,'%Y-%m') = ? ORDER BY w.session_date DESC, w.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
     ]);
     const nowText = wallNow(now), nowMs = now.getTime();
     return {
@@ -327,6 +358,8 @@ export class LiveSessionService {
       schedules: schedules.map((r) => ({ ...serializeSchedule(r), canStart: r.status === 'scheduled' && nowMs >= liveFromText(r.start_text)!.getTime() - LIVE_START_EARLY_MS && r.end_text > nowText, mineRole: Number(r.anchor_user_id) === uid ? 'anchor' : Number(r.control_user_id) === uid ? 'control' : 'operator' })),
       recent: recent.map(serializeSession),
       monthCommissionCents: num(comm[0].total), monthWageCents: num(wage[0].total), monthWageMinutes: num(wage[0].minutes),
+      commissionRows: commRows.map((r) => ({ id: Number(r.id), sessionId: Number(r.session_id), date: String(r.d), roomName: String(r.room_name), role: String(r.role), roleLabel: LIVE_ROLE_LABEL[String(r.role)] ?? String(r.role), finalSalesCents: num(r.final_sales_cents), rateUnits: Number(r.rate_units), amountCents: num(r.amount_cents) })),
+      wageRows: wageRows.map((r) => ({ id: Number(r.id), sessionId: Number(r.session_id), date: String(r.d), roomName: String(r.room_name), minutes: Number(r.minutes), hourlyRateCents: num(r.hourly_rate_cents), amountCents: num(r.amount_cents) })),
     };
   }
 
