@@ -1,5 +1,5 @@
 import { copyValuesOf } from './HierRowActions';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useUnitOptions } from './unitOptions';
 import { RESOURCE_DEFS, resolveProductSections, groupTitle, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
@@ -27,6 +27,10 @@ import { ACTION_LABEL, LogChanges } from './DetailLogs';
 import { DetailHead, type DetailNav } from './DetailHead';
 import { FileList } from './FilesField';
 import { ChevronDown } from './ResIcons';
+import { FINANCE_DETAIL_TYPES } from './FinanceDetailFields';
+import { FinanceDetailBackdrop, FinanceDetailBody, FinanceDetailHead } from './FinanceRecordDetail';
+import { referenceRecordLabel } from './referenceFormLayout';
+import { RevisionDialog } from '../pages/finance/jst/BundleDialogs';
 
 export { useResourceCan };
 
@@ -206,6 +210,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const [relations, setRelations] = useState<Relation[] | null>(null);
   const [logs, setLogs] = useState<LogEntry[] | null>(null);
   const [editing, setEditing] = useState(false);
+  const [revising, setRevising] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const archivable = Boolean(archivePolicyOf(def.key));
@@ -215,31 +220,46 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const [hideEmpty, setHideEmptyState] = useState(() => { try { const v = localStorage.getItem(HIDE_EMPTY_KEY); return v === null ? def.key === 'finance-products' : v === '1'; } catch { return def.key === 'finance-products'; } }); // 商品档案没设过偏好时默认藏起空字段
   const setHideEmpty = (v: boolean) => { setHideEmptyState(v); try { localStorage.setItem(HIDE_EMPTY_KEY, v ? '1' : '0'); } catch { /* 不记住而已 */ } };
   const body = useRef<HTMLDivElement>(null);
+  const loadSequence = useRef(0);
   const today = todayShanghai();
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     try {
-      setRecord(await resourceApi.get(def.key, id));
+      const next = await resourceApi.get(def.key, id);
+      if (sequence !== loadSequence.current) return;
+      setRecord(next);
       setRelations(null);
       setLogs(null);
       setError('');
     } catch (e) {
+      if (sequence !== loadSequence.current) return;
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
   }, [def.key, id]);
   useEffect(() => {
-    setTab('info');
+    setRecord(null);
+    setError('');
+    setRelations(null);
+    setLogs(null);
+    setEditing(false);
+    setRevising(false);
+    setDeleting(false);
+    setRestoring(false);
+    setLinkDialog(null);
+    setTab((initialTab as Tab | undefined) ?? 'info');
     setLogLimit(15);
     setEditGroup(null);
     void load();
-  }, [load]);
+    return () => { loadSequence.current++; };
+  }, [load, initialTab]);
 
   // 快捷键：Esc 关闭；↑ / ↓ 切换上一条、下一条（有弹窗、下拉、输入框在前面时让它们先处理）
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key !== 'Escape' && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-      if (document.querySelector('[role="dialog"], [role="menu"], .inline-form')) return;
+      if ([...document.querySelectorAll('[role="dialog"], [role="menu"], .inline-form')].some(el => !el.classList.contains('finance-detail-dialog'))) return;
       if (e.key === 'Escape') { onClose(); return; }
       if (typingTarget(e.target) || !nav) return;
       const go = e.key === 'ArrowUp' ? nav.onPrev : nav.onNext;
@@ -250,11 +270,13 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   }, [onClose, nav]);
 
   useEffect(() => {
-    if (record && relations === null) resourceApi.relations(def.key, id).then(setRelations).catch(() => setRelations([]));
-    if (tab === 'logs' && logs === null) resourceApi.logs(def.key, id).then(setLogs).catch(() => setLogs([]));
+    let alive = true;
+    if (record?.id === id && relations === null) resourceApi.relations(def.key, id).then(r => alive && setRelations(r)).catch(() => alive && setRelations([]));
+    if (record?.id === id && tab === 'logs' && logs === null) resourceApi.logs(def.key, id).then(r => alive && setLogs(r)).catch(() => alive && setLogs([]));
+    return () => { alive = false; };
   }, [tab, deleting, relations, logs, def.key, id, record]);
 
-  if (!record) {
+  if (!record || record.id !== id) {
     const missing = /不存在|404|not found/i.test(error);
     return (
       <aside className="rd" aria-label={`${def.label}详情`}>
@@ -348,9 +370,15 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   ) : null;
   const quick = phoneRecharge || assetBar || feeLink || record.warehouseMode ? <>{phoneRecharge}{feeLink}{assetBar}{record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}</> : undefined;
 
+  const finance = FINANCE_DETAIL_TYPES.has(def.key);
+  const Frame = finance ? FinanceDetailBackdrop : Fragment;
+  const financeLabel = referenceRecordLabel(def.key, record.data);
+  const baseCopy = def.key === 'finance-base-codes' && !record.data.canonicalId ? moreItems.find(item => item.key === 'copy') : undefined;
+  const financeMore = [...moreItems.filter(item => item !== baseCopy), ...tabs.filter(([key]) => key !== 'info').map(([key, label]) => ({ key: `tab-${key}`, label, run: () => setTab(key) }))];
+
   return (
-    <aside className={wide ? 'rd rd-wide' : 'rd'} aria-label={`${def.label}详情`}>
-      <DetailHead
+    <Frame><aside className={finance ? `rd finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}` : wide ? 'rd rd-wide' : 'rd'} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
+      {finance ? <FinanceDetailHead def={def} record={record} nav={nav} onClose={onClose} /> : <DetailHead
         def={def}
         record={record}
         nav={nav}
@@ -364,17 +392,18 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
         ) : undefined}
         quick={quick}
         canSee={(f) => !f.permission || Boolean(me && createChecker(me.permissions)(f.permission))}
-      />
-      <div role="tablist" aria-label="详情分区" className="rd-tabs">
+      />}
+      {(!finance || tab !== 'info') && <div role="tablist" aria-label="详情分区" className="rd-tabs">
         {tabs.map(([key, label]) => (
           <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? 'rd-tab active' : 'rd-tab'} onClick={() => setTab(key)}>
             {label}
           </button>
         ))}
-      </div>
-      <div className="rd-body" ref={body} onScroll={onBodyScroll}>
+      </div>}
+      <div className={finance ? 'rd-body finance-detail-body' : 'rd-body'} ref={body} onScroll={onBodyScroll}>
         {error && <div role="alert" className="notice error">{error}</div>}
-        {tab === 'info' && (
+        {finance && tab === 'info' && <FinanceDetailBody key={`${def.key}:${record.id}`} def={def} record={record} />}
+        {!finance && tab === 'info' && (
           <div className={def.key === 'finance-products' ? 'rd-info rd-p' : 'rd-info'}>
             {sectionList.length > 1 && (
               <nav aria-label="分区导航" className="rd-anchors">
@@ -498,6 +527,20 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
           </section>
         )}
       </div>
+      {finance && <footer className="finance-detail-foot">
+        {['finance-base-codes', 'finance-bundles'].includes(def.key) && <small>{record.updatedAt ? `最后更新：${new Date(record.updatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : ''}</small>}
+        <div className="finance-detail-foot-actions">
+          {baseCopy && <button type="button" className="secondary-button" onClick={baseCopy.run}>复制新建</button>}
+          {def.key === 'finance-base-codes' && statusSlot}
+          {def.key === 'finance-products' && <button type="button" className="secondary-button" onClick={onClose}>关闭</button>}
+          {live && can('edit') && <button type="button" className="primary-button" onClick={() => setEditing(true)}>{def.key === 'finance-products' ? `编辑${financeLabel}` : def.key === 'finance-bundles' ? '修改' : '编辑'}</button>}
+          {live && def.key === 'finance-bundles' && can('edit') && <button type="button" className="secondary-button" onClick={() => setRevising(true)}>修改组成</button>}
+          {quick}
+          {financeMore.length > 0 && <MoreMenu items={financeMore} />}
+          {def.key !== 'finance-products' && <button type="button" className="secondary-button" onClick={onClose}>关闭</button>}
+        </div>
+      </footer>}
+      {revising && <RevisionDialog bundle={record} onClose={() => setRevising(false)} onDone={() => { setRevising(false); reloadAll(); }} />}
       {restoring && (
         <ReasonDialog
           title={`恢复${def.label}`}
@@ -545,7 +588,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
           }}
         />
       )}
-    </aside>
+    </aside></Frame>
   );
 }
 
