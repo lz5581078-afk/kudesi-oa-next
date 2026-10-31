@@ -769,7 +769,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       { key: 'weightG', label: '重量(克)', type: 'decimal', group: '基础', scale: 6, list: true },
       { ...money('cost', '成本', '基础', { readonly: true, list: true }), permission: COST_VIEW },
       { ...money('purchasePrice', '采购价', '基础', { readonly: true }), permission: COST_VIEW },
-      { ...money('salePrice', '销售价', '基础', { readonly: true }), permission: 'product.price.view' },
+      { ...money('salePrice', '销售价', '基础', { readonly: true, scale: 4 }), permission: 'product.price.view' },
       { key: 'profileManual', label: '专属资料已手改', type: 'bool', group: '基础', readonly: true, help: '手改过名称、简称、颜色及规格或编码后，商品档案变化不再覆盖它们，也不再被手工新建的编码取代' },
       ref('canonicalId', '真实编码（马甲用）', '基础', 'finance-base-codes', { help: '这是别名（马甲）时，指向它对应的真实基础编码' }),
       textarea('codeChangeReason', '手改编码原因', '基础'),

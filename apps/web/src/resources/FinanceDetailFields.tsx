@@ -32,7 +32,7 @@ export interface DetailRow { row: ResourceDto; item: ResourceDto | null }
 export async function allDetailRows(type: string, fieldKey: string, fieldValue: number): Promise<ResourceDto[]> {
   const rows: ResourceDto[] = [];
   for (let page = 1; ; page++) {
-    const result = await resourceApi.list(type, { fieldKey, fieldValue, page, pageSize: 200 });
+    const result = await resourceApi.list(type, { fieldKey, fieldValue, page, pageSize: 200, showHidden: true });
     rows.push(...result.items);
     if (!result.items.length || rows.length >= result.total) return rows;
   }

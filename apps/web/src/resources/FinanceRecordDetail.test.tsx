@@ -78,6 +78,7 @@ describe('六类查看入口与源码查看态', () => {
     const badge = await screen.findByText('当前最新成本');
     expect(badge.closest('section')?.textContent).toContain('产区3');
     expect(screen.getAllByText('当前最新成本')).toHaveLength(1);
+    expect(resourceApi.list).toHaveBeenCalledWith('finance-product-sources', expect.objectContaining({ showHidden: true }));
   });
 });
 
@@ -126,6 +127,7 @@ describe('编码查看组成与权限', () => {
     expect(screen.queryByRole('button', { name: '修改组成' })).toBeNull();
     const denied = restrictedFieldKeys(getResourceDef('finance-base-codes')!, createChecker({ isCompanyAdmin: false, allow: ['resource.finance-base-codes.view'], deny: [] }));
     expect(denied).toContain('salePrice');
+    expect(getResourceDef('finance-base-codes')!.fields.find(f => f.key === 'salePrice')?.scale).toBe(4);
   });
 
   it('明细读取失败明确显示错误，不伪装成无组成', async () => {
