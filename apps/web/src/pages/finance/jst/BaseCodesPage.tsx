@@ -18,7 +18,7 @@ const TABS: Array<[string, string]> = [['', '全部'], ['pending', '待验证'],
 
 /** 复制新建：带出分类、重量等，编码、款式编码和同步状态必须重新填。 */
 const NOT_COPIED = new Set(['code', 'styleCode', 'canonicalId', 'jstStatus', 'jstUploadedCode', 'verifiedSignature']);
-const copyInitial = (r: ResourceDto) => Object.fromEntries(Object.entries(r.data).filter(([k, v]) => !NOT_COPIED.has(k) && v !== null && v !== undefined && v !== ''));
+const copyInitial = (r: Pick<ResourceDto, 'data'>) => Object.fromEntries(Object.entries(r.data).filter(([k, v]) => !NOT_COPIED.has(k) && v !== null && v !== undefined && v !== ''));
 
 interface CatNode { id: number; name: string; parentId: number | null }
 
@@ -167,7 +167,7 @@ export function BaseCodesPage() {
           <div className="card-foot between"><span>共 {data?.total ?? 0} 条 · 点击一行在右侧查看</span><Pager page={page} total={data?.total ?? 0} pageSize={20} onPage={setPage} /></div>
         </section>
       </div>
-      {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void reload()} />}
+      {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void reload()} onCopy={values => setCreating({ initial: copyInitial({ data: values }) })} />}
       {creating && <RecordForm def={def} record={null} initial={creating.initial} onClose={() => setCreating(null)} onSaved={(dto) => { setCreating(null); setSelected(dto.id); void reload(); }} />}
       {importing && <ImportDialog def={def} onClose={() => setImporting(false)} onDone={() => { setImporting(false); void reload(); }} />}
       {verifyIds && <VerifyDialog ids={verifyIds} isAdmin={isAdmin} onClose={() => setVerifyIds(null)} onDone={() => { setChecked([]); void reload(); }} />}
