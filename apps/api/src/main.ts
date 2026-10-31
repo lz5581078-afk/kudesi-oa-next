@@ -14,6 +14,8 @@ async function bootstrap() {
 
   const env = loadEnv();
   const app = await NestFactory.create(AppModule);
+  const { json } = await import('express');
+  app.use('/api/collector/file', json({ limit: '6mb' }));
   app.use(helmet());
   app.setGlobalPrefix('api');
   app.enableCors({ origin: env.corsOrigin.split(','), credentials: false });

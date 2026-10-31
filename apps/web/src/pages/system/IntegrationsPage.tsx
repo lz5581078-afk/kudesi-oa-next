@@ -4,6 +4,8 @@ import { useAuth } from '../../auth/AuthContext';
 import { api, ApiError } from '../../api/client';
 import { settingsApi, type IntegrationOverview } from '../../resources/api';
 import { SecretInput } from './SecretInput';
+import { SpeechCollectorCard } from './SpeechCollectorCard';
+import './speechCollector.css';
 
 const HTTPS_URL = /^https?:\/\/[^\s/]+/i;
 
@@ -163,7 +165,8 @@ export function IntegrationsPage() {
       <div className="page-head"><h1>接口设置</h1>{!canEdit && <span className="pill warn">只读：你没有修改接口设置的权限</span>}</div>
       {error && <div role="alert" className="notice error">{error}</div>}
       {data && (
-        <div className="settings-grid">
+        <div className="settings-grid collector-integrations-grid">
+          <SpeechCollectorCard canEdit={canEdit} />
           <QiniuCard data={data} canEdit={canEdit} onSaved={setData} />
           <VisionCard data={data} canEdit={canEdit} onSaved={setData} />
           {data.connections && (data.connections.jushuitan.configured || data.connections.feishu.configured) && (
