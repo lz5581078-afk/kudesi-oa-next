@@ -8,10 +8,10 @@ import { OutboxJob, OutboxSwitch } from '../entities';
 export const FEISHU_CHANNEL = 'feishu';
 export const FEISHU_SENDER = 'FEISHU_SENDER';
 /** 旧系统只有 SKU 批量申请的节点会发飞书通知；别的流程不发 */
-export const FEISHU_TEMPLATES = ['sku-batch-apply'];
+export const FEISHU_TEMPLATES = ['sku-batch-apply', 'live-schedule'];
 const MAX_ATTEMPTS = 5;
 
-export interface FeishuNotice { channel?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
+export interface FeishuNotice { channel?: string; resourceType?: string; resourceId?: number; kind?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
 export interface FeishuSender {
   readonly configured: boolean;
   available?(companyId: number): Promise<boolean>;
@@ -65,8 +65,15 @@ export class FeishuNoticeService implements OnModuleInit, OnModuleDestroy {
     if (!sw?.enabled) return false;
     await em.query(
       'INSERT IGNORE INTO outbox_jobs (company_id, channel, kind, resource_type, resource_id, idempotency_key, payload_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)',
-      [companyId, FEISHU_CHANNEL, 'feishu_notice', 'flow-run', notice.runId ?? 0, `feishu:${key}:${notice.userId}`.slice(0, 120), JSON.stringify({ ...notice, title: notice.title.slice(0, 200), body: notice.body?.slice(0, 500) })]);
+      [companyId, FEISHU_CHANNEL, 'feishu_notice', notice.resourceType ?? 'flow-run', notice.resourceId ?? notice.runId ?? 0, `feishu:${key}:${notice.userId}`.slice(0, 120), JSON.stringify({ ...notice, title: notice.title.slice(0, 200), body: notice.body?.slice(0, 500) })]);
     return true;
+  }
+
+  /** 排班变更后，作废这个排班还没发出的旧通知（移除通知除外），避免员工收到过期的排班消息。 */
+  async cancelPending(em: EntityManager, companyId: number, resourceType: string, resourceId: number): Promise<void> {
+    await em.query(
+      "UPDATE outbox_jobs SET status = 'cancelled' WHERE company_id = ? AND channel = ? AND resource_type = ? AND resource_id = ? AND status = 'pending' AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.kind')) <> 'removed'",
+      [companyId, FEISHU_CHANNEL, resourceType, resourceId]);
   }
 
   async processAll() {

@@ -63,6 +63,10 @@ class TrialDto {
   @IsString() @MaxLength(20) sales!: string;
   @IsOptional() @IsString() @MaxLength(20) adSpend?: string;
 }
+class PreviewDto {
+  @IsString() @MaxLength(20) sales!: string;
+  @IsOptional() @IsString() @MaxLength(20) adSpend?: string;
+}
 class WageTrialDto {
   @IsString() @MaxLength(19) startAt!: string;
   @IsString() @MaxLength(19) endAt!: string;
@@ -118,6 +122,8 @@ export class LiveController {
   @AuthenticatedOnly() @Get('options')
   options(@CurrentUser() u: AuthUser) { return this.schedules.options(u); }
 
+  @AuthenticatedOnly() @Get('integration-status')
+  integrationStatus(@CurrentUser() u: AuthUser) { return this.sessions.integrationStatus(u); }
   @AuthenticatedOnly() @Get('products')
   async products(@CurrentUser() u: AuthUser, @Query() q: ProductQuery) {
     const a = await loadLiveAccess(this.ds.manager, u); requireUse(a);
@@ -155,6 +161,9 @@ export class LiveController {
   submit(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.sessions.submit(u, id); }
   @AuthenticatedOnly() @Post('sessions/:id/review-preview')
   reviewPreview(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReviewFormDto) { return this.sessions.reviewPreview(u, id, b); }
+
+  @AuthenticatedOnly() @Post('sessions/:id/commission-preview')
+  commissionPreview(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: PreviewDto) { return this.sessions.previewFor(u, id, b); }
 
   // ---- 我的直播 ----
   @AuthenticatedOnly() @Get('workbench')

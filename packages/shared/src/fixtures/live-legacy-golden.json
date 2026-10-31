@@ -1,0 +1,10387 @@
+{
+ "commission": [
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": null,
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "0",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "1",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "100",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "500",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "600",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "601",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "999.99",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "1000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "5000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0",
+   "ad": "100000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": null,
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "0",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "1",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "100",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.0001,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "500",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "600",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "601",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "999.99",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "1000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "5000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "0.01",
+   "ad": "100000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": null,
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "0",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "1",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": 999.99,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "100",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 9.9999,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "500",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "600",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1.6667,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "601",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1.6639,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "999.99",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "1000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "5000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.2,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "999.99",
+   "ad": "100000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 1000,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6667,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6639,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 1000.01,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 10.0001,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6667,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6639,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1000.01",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 1999.99,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 19.9999,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3333,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3278,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.4,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "1999.99",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.02,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": null,
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "0",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "1",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": 2000,
+   "anchor": {
+    "rate": 4,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "100",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": 20,
+   "anchor": {
+    "rate": 4,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "500",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2,
+    "amount": "40.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "600",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 3.3333,
+   "anchor": {
+    "rate": 2,
+    "amount": "40.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "601",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 3.3278,
+   "anchor": {
+    "rate": 2,
+    "amount": "40.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "999.99",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 2,
+    "amount": "40.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "1000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 2,
+    "amount": "40.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "5000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 0.4,
+   "anchor": {
+    "rate": 2,
+    "amount": "40.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "2000",
+   "ad": "100000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 0.02,
+   "anchor": {
+    "rate": 2,
+    "amount": "40.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": null,
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "0",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "1",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": 3999.99,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "100",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": 39.9999,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "500",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 8,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "600",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 6.6667,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "601",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 6.6556,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "999.99",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "1000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "5000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 0.8,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "3999.99",
+   "ad": "100000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 0.04,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": null,
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "0",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "1",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 4000,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "100",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 40,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "500",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 8,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "100.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "600",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 6.6667,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "100.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "601",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 6.6556,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "100.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "999.99",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "100.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "1000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "100.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "5000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 0.8,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "100.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "4000",
+   "ad": "100000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 0.04,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "100.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": null,
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "0",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "1",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 5999.99,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "100",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 59.9999,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "500",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 12,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "600",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 10,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "601",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 9.9833,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "999.99",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 6.0001,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "1000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 6,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "5000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 1.2,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "5999.99",
+   "ad": "100000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 0.06,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": null,
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "0",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "1",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 6000,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "100",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 60,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "500",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 12,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "600",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "601",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 9.9834,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "999.99",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 6.0001,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "1000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 6,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "5000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 1.2,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000",
+   "ad": "100000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 0.06,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": null,
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "0",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "1",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 6000.01,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "100",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 60.0001,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "500",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 12,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "600",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "601",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 9.9834,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "999.99",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 6.0001,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "1000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 6,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "5000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 1.2,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "6000.01",
+   "ad": "100000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 0.06,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": null,
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "0",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "1",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 12345.67,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "100",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 123.4567,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "500",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 24.6913,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "600",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 20.5761,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "601",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 20.5419,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "999.99",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 12.3458,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "1000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 12.3457,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "5000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 2.4691,
+   "anchor": {
+    "rate": 3,
+    "amount": "370.37"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "246.91"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "12345.67",
+   "ad": "100000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 0.1235,
+   "anchor": {
+    "rate": 3,
+    "amount": "370.37"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "246.91"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": null,
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "0",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "1",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 33333.33,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "100",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 333.3333,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "500",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 66.6667,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "600",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 55.5556,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "601",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 55.4631,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "999.99",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 33.3337,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "1000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 33.3333,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "5000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 6.6667,
+   "anchor": {
+    "rate": 3,
+    "amount": "1000.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "666.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "33333.33",
+   "ad": "100000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 0.3333,
+   "anchor": {
+    "rate": 3,
+    "amount": "1000.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "666.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": null,
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "0",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "1",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 99999999.99,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "100",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 999999.9999,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "500",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 200000,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "600",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 166666.6667,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "601",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 166389.3511,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "999.99",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 100001,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "1000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 100000,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "5000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 20000,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-min",
+   "sales": "99999999.99",
+   "ad": "100000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 1000,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": null,
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "0",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "1",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "100",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "500",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "600",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "601",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "999.99",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "1000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "5000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0",
+   "ad": "100000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": null,
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "0",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "1",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "100",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.0001,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "500",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "600",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "601",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "999.99",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "1000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "5000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "0.01",
+   "ad": "100000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 1,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": null,
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "0",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "1",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": 999.99,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "100",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 9.9999,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "500",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "600",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1.6667,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "601",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1.6639,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "999.99",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "1000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "5000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.2,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "999.99",
+   "ad": "100000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": null,
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "0",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "1",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": 1000,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "100",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 3,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "500",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "600",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1.6667,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "601",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1.6639,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "999.99",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "1000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "5000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.2,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000",
+   "ad": "100000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "5.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 1000.01,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 10.0001,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "35.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "25.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6667,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6639,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1000.01",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "15.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "10.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "5.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 1999.99,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 19.9999,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3333,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3278,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.4,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "1999.99",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.02,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 2000,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 20,
+   "anchor": {
+    "rate": 3.5,
+    "amount": "70.00"
+   },
+   "control": {
+    "rate": 2.5,
+    "amount": "50.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3333,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3278,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.4,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "2000",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.02,
+   "anchor": {
+    "rate": 1.5,
+    "amount": "30.00"
+   },
+   "control": {
+    "rate": 1,
+    "amount": "20.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "10.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": null,
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "0",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "1",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": 3999.99,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "100",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": 39.9999,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "500",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 8,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "600",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 6.6667,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "601",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 6.6556,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "999.99",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "1000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "5000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 0.8,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "3999.99",
+   "ad": "100000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 0.04,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": null,
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "0",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "1",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": 4000,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "100",
+   "tierIndex": 2,
+   "belowRoi": false,
+   "roi": 40,
+   "anchor": {
+    "rate": 4,
+    "amount": "160.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "500",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 8,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "600",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 6.6667,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "601",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 6.6556,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "999.99",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "1000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "5000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 0.8,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "4000",
+   "ad": "100000",
+   "tierIndex": 2,
+   "belowRoi": true,
+   "roi": 0.04,
+   "anchor": {
+    "rate": 2,
+    "amount": "80.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "60.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "20.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": null,
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "0",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "1",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 5999.99,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "100",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 59.9999,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "500",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 12,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "600",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 10,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "601",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 9.9833,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "999.99",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 6.0001,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "1000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 6,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "5000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 1.2,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "5999.99",
+   "ad": "100000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 0.06,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": null,
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "0",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "1",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 6000,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "100",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 60,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "500",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 12,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "600",
+   "tierIndex": 3,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 4.5,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "601",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 9.9834,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "999.99",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 6.0001,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "1000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 6,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "5000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 1.2,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000",
+   "ad": "100000",
+   "tierIndex": 3,
+   "belowRoi": true,
+   "roi": 0.06,
+   "anchor": {
+    "rate": 2.5,
+    "amount": "150.00"
+   },
+   "control": {
+    "rate": 1.5,
+    "amount": "90.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": null,
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "0",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "1",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 6000.01,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "100",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 60.0001,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "500",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 12,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "600",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 5,
+    "amount": "300.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "210.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "601",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 9.9834,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "999.99",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 6.0001,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "1000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 6,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "5000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 1.2,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "6000.01",
+   "ad": "100000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 0.06,
+   "anchor": {
+    "rate": 3,
+    "amount": "180.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "120.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": null,
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "0",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "1",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 12345.67,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "100",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 123.4567,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "500",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 24.6913,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "600",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 20.5761,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "601",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 20.5419,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "999.99",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 12.3458,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "1000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 12.3457,
+   "anchor": {
+    "rate": 5,
+    "amount": "617.28"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "432.10"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "5000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 2.4691,
+   "anchor": {
+    "rate": 3,
+    "amount": "370.37"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "246.91"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "12345.67",
+   "ad": "100000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 0.1235,
+   "anchor": {
+    "rate": 3,
+    "amount": "370.37"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "246.91"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "61.73"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": null,
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "0",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "1",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 33333.33,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "100",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 333.3333,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "500",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 66.6667,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "600",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 55.5556,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "601",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 55.4631,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "999.99",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 33.3337,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "1000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 33.3333,
+   "anchor": {
+    "rate": 5,
+    "amount": "1666.67"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "1166.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "5000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 6.6667,
+   "anchor": {
+    "rate": 3,
+    "amount": "1000.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "666.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "33333.33",
+   "ad": "100000",
+   "tierIndex": 4,
+   "belowRoi": true,
+   "roi": 0.3333,
+   "anchor": {
+    "rate": 3,
+    "amount": "1000.00"
+   },
+   "control": {
+    "rate": 2,
+    "amount": "666.67"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "166.67"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": null,
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "0",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "1",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 99999999.99,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "100",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 999999.9999,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "500",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 200000,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "600",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 166666.6667,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "601",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 166389.3511,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "999.99",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 100001,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "1000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 100000,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "5000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 20000,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "default-max",
+   "sales": "99999999.99",
+   "ad": "100000",
+   "tierIndex": 4,
+   "belowRoi": false,
+   "roi": 1000,
+   "anchor": {
+    "rate": 5,
+    "amount": "5000000.00"
+   },
+   "control": {
+    "rate": 3.5,
+    "amount": "3500000.00"
+   },
+   "operator": {
+    "rate": 0.5,
+    "amount": "500000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": null,
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 1.25,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "0",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 1.25,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "1",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "100",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "500",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "600",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "601",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "999.99",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "1000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "5000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0",
+   "ad": "100000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": null,
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 1.25,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "0",
+   "tierIndex": 0,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 1.25,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0.5,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "1",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "100",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0.0001,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "500",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "600",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "601",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "999.99",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "1000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "5000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "0.01",
+   "ad": "100000",
+   "tierIndex": 0,
+   "belowRoi": true,
+   "roi": 0,
+   "anchor": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "control": {
+    "rate": 0,
+    "amount": "0.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "0.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 999.99,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 9.9999,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6667,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6639,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "999.99",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 1000,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6667,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6639,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 1000.01,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 10.0001,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "67.50"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "40.10"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6667,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.6639,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1000.01",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.01,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "27.50"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "7.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "7.50"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "135.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "80.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "135.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "80.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 1999.99,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "135.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "80.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 19.9999,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "135.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "80.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3333,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3278,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.4,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "1999.99",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.02,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "135.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "80.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "135.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "80.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 2000,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "135.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "80.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 20,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "135.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "80.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3333,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 3.3278,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.4,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "2000",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.02,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "55.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "15.20"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "15.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 3999.99,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 39.9999,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 8,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6.6667,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6.6556,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.8,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "3999.99",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.04,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 4000,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 40,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 8,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "270.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "160.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6.6667,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6.6556,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 4,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.8,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "4000",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.04,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "110.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "30.40"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "30.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 5999.99,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 59.9999,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 12,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 9.9833,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6.0001,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "5999.99",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.06,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 6000,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 60,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 12,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 9.9834,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6.0001,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.06,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 6000.01,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 60.0001,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 12,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 10,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 9.9834,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "405.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "240.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6.0001,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 1.2,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "6000.01",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.06,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "165.00"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "45.60"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "45.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "833.33"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "495.06"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "833.33"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "495.06"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 12345.67,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "833.33"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "495.06"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 123.4567,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "833.33"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "495.06"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 24.6913,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "833.33"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "495.06"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 20.5761,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "833.33"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "495.06"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 20.5419,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "833.33"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "495.06"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 12.3458,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "833.33"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "495.06"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 12.3457,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "833.33"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "495.06"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 2.4691,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "339.51"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "93.83"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "12345.67",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.1235,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "339.51"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "93.83"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "92.59"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "2250.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "1336.67"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "2250.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "1336.67"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 33333.33,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "2250.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "1336.67"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 333.3333,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "2250.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "1336.67"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 66.6667,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "2250.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "1336.67"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 55.5556,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "2250.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "1336.67"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 55.4631,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "2250.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "1336.67"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 33.3337,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "2250.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "1336.67"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 33.3333,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "2250.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "1336.67"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 6.6667,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "916.67"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "253.33"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "33333.33",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": true,
+   "roi": 0.3333,
+   "anchor": {
+    "rate": 2.75,
+    "amount": "916.67"
+   },
+   "control": {
+    "rate": 0.76,
+    "amount": "253.33"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "250.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": null,
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "0",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": null,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "1",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 99999999.99,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "100",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 999999.9999,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "500",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 200000,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "600",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 166666.6667,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "601",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 166389.3511,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "999.99",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 100001,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "1000",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 100000,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "5000",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 20000,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  },
+  {
+   "rules": "odd",
+   "sales": "99999999.99",
+   "ad": "100000",
+   "tierIndex": 1,
+   "belowRoi": false,
+   "roi": 1000,
+   "anchor": {
+    "rate": 6.75,
+    "amount": "6750000.00"
+   },
+   "control": {
+    "rate": 4.01,
+    "amount": "4010000.00"
+   },
+   "operator": {
+    "rate": 0.75,
+    "amount": "750000.00"
+   }
+  }
+ ],
+ "wage": [
+  {
+   "startAt": "2026-10-01 20:00:00",
+   "endAt": "2026-10-01 23:30:00",
+   "hourlyRate": "35.5",
+   "result": {
+    "minutes": 210,
+    "hourlyRate": "35.50",
+    "amount": "124.25"
+   }
+  },
+  {
+   "startAt": "2026-10-01 20:00:00",
+   "endAt": "2026-10-01 20:00:29",
+   "hourlyRate": "100",
+   "result": {
+    "error": "主播工资的下播时间必须晚于上播时间"
+   }
+  },
+  {
+   "startAt": "2026-10-01 20:00:00",
+   "endAt": "2026-10-01 20:00:31",
+   "hourlyRate": "100",
+   "result": {
+    "minutes": 1,
+    "hourlyRate": "100.00",
+    "amount": "1.67"
+   }
+  },
+  {
+   "startAt": "2026-10-01 20:00:00",
+   "endAt": "2026-10-02 20:00:00",
+   "hourlyRate": "18",
+   "result": {
+    "minutes": 1440,
+    "hourlyRate": "18.00",
+    "amount": "432.00"
+   }
+  },
+  {
+   "startAt": "2026-10-31 23:00:00",
+   "endAt": "2026-11-01 01:15:00",
+   "hourlyRate": "33.33",
+   "result": {
+    "minutes": 135,
+    "hourlyRate": "33.33",
+    "amount": "74.99"
+   }
+  },
+  {
+   "startAt": "2026-10-01 20:00:00",
+   "endAt": "2026-10-01 20:07:00",
+   "hourlyRate": "0.01",
+   "result": {
+    "minutes": 7,
+    "hourlyRate": "0.01",
+    "amount": "0.00"
+   }
+  },
+  {
+   "startAt": "2026-10-01 20:00:00",
+   "endAt": "2026-10-01 21:00:00",
+   "hourlyRate": "999999.99",
+   "result": {
+    "minutes": 60,
+    "hourlyRate": "999999.99",
+    "amount": "999999.99"
+   }
+  }
+ ],
+ "settle": [
+  {
+   "commissionCents": 10000,
+   "rate": 3,
+   "refundCents": 0,
+   "result": {
+    "deductionCents": 0,
+    "payableCents": 10000
+   }
+  },
+  {
+   "commissionCents": 10000,
+   "rate": 3,
+   "refundCents": 50000,
+   "result": {
+    "deductionCents": 1500,
+    "payableCents": 8500
+   }
+  },
+  {
+   "commissionCents": 12345,
+   "rate": 3.5,
+   "refundCents": 99999,
+   "result": {
+    "deductionCents": 3500,
+    "payableCents": 8845
+   }
+  },
+  {
+   "commissionCents": 99,
+   "rate": 2,
+   "refundCents": 1,
+   "result": {
+    "deductionCents": 0,
+    "payableCents": 99
+   }
+  },
+  {
+   "commissionCents": 1,
+   "rate": 0.5,
+   "refundCents": 33,
+   "result": {
+    "deductionCents": 0,
+    "payableCents": 1
+   }
+  },
+  {
+   "commissionCents": 500,
+   "rate": 0.5,
+   "refundCents": 10000000,
+   "result": {
+    "deductionCents": 500,
+    "payableCents": 0
+   }
+  },
+  {
+   "commissionCents": 7777,
+   "rate": 4.5,
+   "refundCents": 123456,
+   "result": {
+    "deductionCents": 5556,
+    "payableCents": 2221
+   }
+  },
+  {
+   "commissionCents": 250,
+   "rate": 1.25,
+   "refundCents": 1999,
+   "result": {
+    "deductionCents": 25,
+    "payableCents": 225
+   }
+  }
+ ],
+ "refund": [
+  {
+   "name": "cancelled",
+   "amountCents": 5000,
+   "order": {
+    "status": "Cancelled"
+   },
+   "rows": [],
+   "cents": 5000,
+   "source": "cancelled",
+   "counted": []
+  },
+  {
+   "name": "none",
+   "amountCents": 5000,
+   "order": {
+    "status": "Sent"
+   },
+   "rows": [],
+   "cents": 0,
+   "source": "none",
+   "counted": []
+  },
+  {
+   "name": "partial",
+   "amountCents": 5000,
+   "order": {
+    "status": "Sent"
+   },
+   "rows": [
+    {
+     "as_id": 1,
+     "so_id": "x",
+     "status": "Confirmed",
+     "type": "普通退款",
+     "refund": "12.34"
+    }
+   ],
+   "cents": 1234,
+   "source": "refund",
+   "counted": [
+    [
+     "1",
+     true
+    ]
+   ]
+  },
+  {
+   "name": "over",
+   "amountCents": 5000,
+   "order": {
+    "status": "Sent"
+   },
+   "rows": [
+    {
+     "as_id": 1,
+     "status": "Confirmed",
+     "type": "普通退款",
+     "refund": "40"
+    },
+    {
+     "as_id": 2,
+     "status": "Confirmed",
+     "type": "普通退款",
+     "refund": "30"
+    }
+   ],
+   "cents": 5000,
+   "source": "refund",
+   "counted": [
+    [
+     "1",
+     true
+    ],
+    [
+     "2",
+     true
+    ]
+   ]
+  },
+  {
+   "name": "exchange",
+   "amountCents": 5000,
+   "order": {
+    "status": "Sent"
+   },
+   "rows": [
+    {
+     "as_id": 1,
+     "status": "Confirmed",
+     "type": "换货",
+     "refund": "10"
+    },
+    {
+     "as_id": 2,
+     "status": "Confirmed",
+     "type": "补发",
+     "refund": "10"
+    }
+   ],
+   "cents": 0,
+   "source": "none",
+   "counted": [
+    [
+     "1",
+     false
+    ],
+    [
+     "2",
+     false
+    ]
+   ]
+  },
+  {
+   "name": "cancelledAs",
+   "amountCents": 5000,
+   "order": {
+    "status": "Sent"
+   },
+   "rows": [
+    {
+     "as_id": 1,
+     "status": "Cancelled",
+     "type": "普通退款",
+     "refund": "10"
+    },
+    {
+     "as_id": 2,
+     "status": "WaitConfirm",
+     "shop_status": "SUCCESS",
+     "type": "普通退款",
+     "refund": "7.5"
+    }
+   ],
+   "cents": 750,
+   "source": "refund",
+   "counted": [
+    [
+     "1",
+     false
+    ],
+    [
+     "2",
+     true
+    ]
+   ]
+  },
+  {
+   "name": "dup",
+   "amountCents": 5000,
+   "order": {
+    "status": "Sent"
+   },
+   "rows": [
+    {
+     "as_id": 1,
+     "status": "Confirmed",
+     "type": "普通退款",
+     "refund": "10"
+    },
+    {
+     "as_id": 1,
+     "status": "Confirmed",
+     "type": "普通退款",
+     "refund": "10"
+    }
+   ],
+   "cents": 1000,
+   "source": "refund",
+   "counted": [
+    [
+     "1",
+     true
+    ]
+   ]
+  },
+  {
+   "name": "shopstatus",
+   "amountCents": 5000,
+   "order": {
+    "status": "Sent"
+   },
+   "rows": [
+    {
+     "as_id": 3,
+     "status": "WaitConfirm",
+     "shop_status": "退款完成",
+     "type": "普通退款",
+     "refund": "5"
+    },
+    {
+     "as_id": 4,
+     "status": "WaitConfirm",
+     "shop_status": "处理中",
+     "type": "普通退款",
+     "refund": "9"
+    }
+   ],
+   "cents": 500,
+   "source": "refund",
+   "counted": [
+    [
+     "3",
+     true
+    ],
+    [
+     "4",
+     false
+    ]
+   ]
+  }
+ ],
+ "versions": [
+  {
+   "day": "2025-12-31",
+   "id": null
+  },
+  {
+   "day": "2026-01-01",
+   "id": 1
+  },
+  {
+   "day": "2026-02-28",
+   "id": 1
+  },
+  {
+   "day": "2026-03-01",
+   "id": 3
+  },
+  {
+   "day": "2026-11-30",
+   "id": 3
+  },
+  {
+   "day": "2026-12-01",
+   "id": 4
+  }
+ ],
+ "rules": {
+  "default-min": {
+   "boundary": "min_inclusive",
+   "roiThreshold": 10,
+   "belowRoiAnchorDeduct": 2,
+   "belowRoiControlDeduct": 1.5,
+   "operatorRate": 0.5,
+   "tiers": [
+    {
+     "min": 0,
+     "max": 1000,
+     "anchorRate": 3,
+     "controlRate": 2
+    },
+    {
+     "min": 1000,
+     "max": 2000,
+     "anchorRate": 3.5,
+     "controlRate": 2.5
+    },
+    {
+     "min": 2000,
+     "max": 4000,
+     "anchorRate": 4,
+     "controlRate": 3
+    },
+    {
+     "min": 4000,
+     "max": 6000,
+     "anchorRate": 4.5,
+     "controlRate": 3
+    },
+    {
+     "min": 6000,
+     "max": null,
+     "anchorRate": 5,
+     "controlRate": 3.5
+    }
+   ]
+  },
+  "default-max": {
+   "boundary": "max_inclusive",
+   "roiThreshold": 10,
+   "belowRoiAnchorDeduct": 2,
+   "belowRoiControlDeduct": 1.5,
+   "operatorRate": 0.5,
+   "tiers": [
+    {
+     "min": 0,
+     "max": 1000,
+     "anchorRate": 3,
+     "controlRate": 2
+    },
+    {
+     "min": 1000,
+     "max": 2000,
+     "anchorRate": 3.5,
+     "controlRate": 2.5
+    },
+    {
+     "min": 2000,
+     "max": 4000,
+     "anchorRate": 4,
+     "controlRate": 3
+    },
+    {
+     "min": 4000,
+     "max": 6000,
+     "anchorRate": 4.5,
+     "controlRate": 3
+    },
+    {
+     "min": 6000,
+     "max": null,
+     "anchorRate": 5,
+     "controlRate": 3.5
+    }
+   ]
+  },
+  "odd": {
+   "boundary": "min_inclusive",
+   "roiThreshold": 7.5,
+   "belowRoiAnchorDeduct": 4,
+   "belowRoiControlDeduct": 3.25,
+   "operatorRate": 0.75,
+   "tiers": [
+    {
+     "min": 0,
+     "max": 500,
+     "anchorRate": 1.25,
+     "controlRate": 0.5
+    },
+    {
+     "min": 500,
+     "max": null,
+     "anchorRate": 6.75,
+     "controlRate": 4.01
+    }
+   ]
+  }
+ }
+}

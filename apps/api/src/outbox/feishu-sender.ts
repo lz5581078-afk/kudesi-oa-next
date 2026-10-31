@@ -14,7 +14,7 @@ export class ConnectedFeishuSender implements FeishuSender {
     const [binding] = await this.config.ds.query("SELECT b.open_id,b.union_id FROM feishu_identities b JOIN users u ON u.id=b.user_id AND u.company_id=b.company_id WHERE b.company_id=? AND b.user_id=? AND b.app_id=? AND b.tenant_key=? AND u.status='active'", [job.companyId, job.notice.userId, cfg.appId, cfg.tenantKey]);
     if (!binding) throw new Error('接收员工尚未绑定本公司飞书身份');
     const key = job.notice.channel ?? 'flow';
-    if (!['flow', 'business', 'notice', 'supervision', 'system', 'task'].includes(key)) throw new Error('飞书通知通道不合法');
+    if (!['flow', 'business', 'notice', 'supervision', 'system', 'task', 'live'].includes(key)) throw new Error('飞书通知通道不合法');
     const channel = cfg.channels?.find(c => c.key === key);
     if (key !== 'flow' && !channel) throw new Error('飞书通道尚未配置');
     if (channel && !channel.enabled) throw new Error('飞书流程通道已关闭');
