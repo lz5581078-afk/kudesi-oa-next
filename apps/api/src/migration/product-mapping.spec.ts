@@ -102,3 +102,32 @@ describe('映射规则表', () => {
     expect(r['finance-product-exclusives'].policy).toBe('review-exclusive');
   });
 });
+
+
+describe('空库全量迁移的历史单位与排序', () => {
+  it('尺寸规格转换所用的计价单位也进入发货物料字典，不混入其他种类', () => {
+    const cat = mapping.buildUnitCatalog({ defs, tables: { finance_products: [
+      { archive_key: 'shipping_material', amount: '80mmx60m', unit: '毫米', payload: { purchaseSpecification: '张' } },
+      { archive_key: 'raw', amount: '1', unit: '克', payload: { purchaseSpecification: '斤' } },
+    ] }, payloadOf: (r: { payload: object }) => r.payload });
+    expect(cat.codeOf('shipping_unit', '张')).toBeTruthy();
+    expect(cat.codeOf('shipping_unit', '毫米')).toBeTruthy();
+    expect(cat.codeOf('spec_unit', '张')).toBeUndefined();
+    expect(cat.codeOf('spec_unit', '斤')).toBeUndefined();
+  });
+  it('档案用到但单位表没有的名称仍建目录，已存编码不重复创建单位', () => {
+    const cat = mapping.buildUnitCatalog({defs,tables:{finance_product_units:[{id:1,unit_name:'克',unit_code:'G'}],finance_products:[{archive_key:'raw',unit:'G'},{archive_key:'raw',unit:'个'},{archive_key:'raw',unit:'历史自定义单位'},{archive_key:'shipping_material',unit:'个',payload:{productPackagingUnit:'盒'}}]},payloadOf:(r:{payload?:object})=>r.payload||{}});
+    expect(cat.codeOf('spec_unit','G')).toBe('G');
+    expect(cat.records.filter((r:{data:{kind:string;code:string}})=>r.data.kind==='spec_unit'&&r.data.code==='G')).toHaveLength(1);
+    expect(cat.codeOf('spec_unit','个')).toBe('EA');
+    expect(cat.codeOf('shipping_unit','个')).toBe('EA');
+    expect(cat.records.some((r:{data:{name:string}})=>r.data.name==='历史自定义单位')).toBe(true);
+    expect(cat.codeOf('packaging_unit','盒')).toBeTruthy();
+  });
+  it('负数排序转换为非负序位，保留先后与并列时的ID顺序，不改原行', () => {
+    const rows=[{id:'10',sort_order:-1},{id:'2',sort_order:-1},{id:'3',sort_order:0},{id:'1',sort_order:100}];
+    expect([...mapping.nonnegativeSortRanks(rows)]).toEqual([['2',0],['10',1],['3',2],['1',3]]);
+    expect(rows[0].sort_order).toBe(-1);
+    expect(()=>mapping.nonnegativeSortRanks([{id:1,sort_order:'invalid'}])).toThrow();
+  });
+});

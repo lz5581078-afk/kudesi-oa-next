@@ -67,6 +67,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
     for(const p of tables.finance_products||[]){const name=String(p.brand||'').trim();if(!name||brandMap.has(name))continue;const dictionary=(tables.finance_product_code_dictionary||[]).find(x=>x.dictionary_type==='brand'&&x.item_name===name);const id='brand:'+name;brandMap.set(name,id);add('finance-brands',id,{name,code:dictionary?.item_code},'active');}
     for(const d of tables.finance_product_code_dictionary||[]){if(d.dictionary_type!=='brand'||d.status!=='active'||brandMap.has(String(d.item_name).trim()))continue;const name=String(d.item_name).trim(),id='brand:'+name;brandMap.set(name,id);add('finance-brands',id,{name,code:d.item_code},'active');}
     // 商品档案单位与规格：旧三张单位表 + 档案里用到的包装类别、尺寸单位，建成新的公司级列表（必须排在商品档案前面，商品里存的是编码）
+    const platformOrder=productMapping.nonnegativeSortRanks(tables.finance_sales_platforms||[]);
     const unitCatalog=productMapping.buildUnitCatalog({tables,defs:definitions,payloadOf:p=>{try{return json(p.payload_json||{})||{};}catch{return {};}}});
     if(defs.has('finance-product-units'))for(const r of unitCatalog.records)add('finance-product-units',r.id,r.data,'active');
     const scenarioMap=new Map();
@@ -148,6 +149,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           else if(status==='inactive')status=def.statuses.find(x=>x.value==='inactive')?'inactive':def.statuses.find(x=>x.value==='disabled')?'disabled':status;
           if(['stores','phones'].includes(type)&&row.abnormal_reason){const table=type==='stores'?'store_abnormal_reasons':'phone_abnormal_reasons';const matches=(tables[table]||[]).filter(x=>x.reason===row.abnormal_reason);if(matches.length===1)data.abnormalReason=ref(type==='stores'?'store-abnormal-reasons':'phone-abnormal-reasons',matches[0].id);else{delete data.abnormalReason;data.note=[data.note,'旧异常说明：'+row.abnormal_reason].filter(Boolean).join('\n');excluded(type+'.abnormalReason',id,'旧异常原因未唯一对应新原因目录，原文已保留在备注');}}
           if(type==='tax-profiles'&&!row.license_id&&row.taxpayer_no){const licenses=(tables.business_licenses||[]).filter(x=>x.credit_code===row.taxpayer_no);if(licenses.length===1)data.licenseId=ref('licenses',licenses[0].id);}
+          if(type==='finance-platforms')data.sortOrder=platformOrder.get(String(id));
           if(type==='licenses')data.category=row.license_category;
           if(type==='workforce'){
             // 旧兼职档案没有自己的状态/姓名/用工类型：取自员工表；附件按分类放进五个附件字段
