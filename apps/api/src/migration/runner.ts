@@ -10,6 +10,7 @@ import { ARCHIVE_POLICY, yuanToPreciseCents, normalizePhone, getResourceDef, wor
 import { encodeLegacyPassword } from '../auth/password';
 import { aliasCode } from '../resources/base-code-support';
 import { LegacyArchive, LegacyRecord, LegacyRef } from './protocol';
+import { importLive, liveHashGroups, LIVE_TARGET_TABLE } from './live-import';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -43,7 +44,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   const orgCreated=new Set<string>();
   const resourceCreated=new Set<number>();
   const key = (type: string, id: unknown) => `${type}:${String(id)}`;
-  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],['position_duty',source.positionDuties??[]],['comp_record',source.compensationRecords??[]],...['resource'].map(t=>[t,source.records]),['link',source.links??[]]] as Array<[string,Array<Record<string,any>>]>) {
+  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],['position_duty',source.positionDuties??[]],['comp_record',source.compensationRecords??[]],...['resource'].map(t=>[t,source.records]),['link',source.links??[]],...liveHashGroups(source.live)] as Array<[string,Array<Record<string,any>>]>) {
     for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
   }
   out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[]}))).digest('hex');
@@ -81,6 +82,11 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     const oldLinks: Array<{ source_key: string; target_type: string; target_id: number; source_hash: string }> = await em.query('SELECT source_key,target_type,target_id,source_hash FROM legacy_import_links WHERE source_system=? AND source_company_id=? AND company_id=?', [SOURCE, source.company.id, company.id]);
     for (const l of oldLinks) {
       if(hashes.has(l.source_key) && hashes.get(l.source_key)!==l.source_hash) throw new MigrationError('来源资料已变化，禁止复跑静默复用或覆盖；请先核对增量');
+      if (LIVE_TARGET_TABLE[l.target_type]) {
+        const [row] = await em.query(`SELECT id FROM ${LIVE_TARGET_TABLE[l.target_type]} WHERE id = ? AND company_id = ?`, [l.target_id, company.id]);
+        if (!row) throw new MigrationError('迁移账本引用已失效，必须先核对，不能自动补造');
+        ids.set(l.source_key, Number(l.target_id)); continue;
+      }
       const entity = l.target_type === 'user' ? User : l.target_type === 'department' ? Department : l.target_type === 'position' ? Position : l.target_type === 'position_duty' ? PositionDuty : l.target_type === 'comp_record' ? EmployeeCompensationRecord : l.target_type === 'file' ? ResourceFile : l.target_type === 'link' ? ResourceLink : ResourceRecord;
       const exists = await em.findOne(entity as typeof User, { where: { id: l.target_id, companyId: company.id } });
       if (!exists && l.target_type === 'link') { ids.set(l.source_key, Number(l.target_id)); continue; } // 手动关联被人工取消后，复跑不重建
@@ -304,6 +310,8 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       await register('link', l.id, row.id); count('created', 'link'); out.links.created++;
       (out.links.byRelation[l.relation] ??= { created: 0, skipped: 0 }).created++;
     }
+    // 旧直播管理数据：依赖员工与位置/自媒体/店铺/基础编码资料，所以放在资料之后；每行一个保存点，失败只影响这一行
+    if (source.live) await importLive({ em, companyId: company.id, actorId: actor.id, lookup, register, count, savepoint, safeFailure, fail: (type, id, reason) => out.failures.push({ type, id, reason }), note: (type, id, reason) => out.excluded.push({ type, id, reason }) }, source.live);
     // 旧库已归档的行：最后落成新系统的“已归档”（放在所有引用和文件写入之后，避免被“引用已归档”校验挡住）。
     for (const r of source.records) {
       if (!r.archive) continue;
