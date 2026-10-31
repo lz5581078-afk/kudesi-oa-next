@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { gunzipSync } from 'zlib';
 import { inspectPackage } from './agent-package';
@@ -33,7 +33,8 @@ export function buildAgentInstaller(packageBuffer: Buffer): { buf: Buffer; versi
   const launcher = files.find(f => f.path === 'dist/launcher.js');
   if (!launcher) throw new BadRequestException('升级包缺少 Windows 启动器，请重新打包发布');
   files.push({ path: 'launcher.js', data: launcher.data });
-  const templates = resolve(__dirname, '../../../agent/windows');
+  const compiledTemplates = resolve(__dirname, 'windows');
+  const templates = existsSync(resolve(compiledTemplates, 'install.ps1')) ? compiledTemplates : resolve(__dirname, '../../../agent/windows');
   for (const path of ['install.ps1', 'uninstall.ps1', 'README.txt']) files.push({ path, data: readFileSync(resolve(templates, path)) });
   return { version, buf: zip(files) };
 }

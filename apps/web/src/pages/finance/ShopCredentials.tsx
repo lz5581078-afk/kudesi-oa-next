@@ -37,6 +37,7 @@ export function ShopCredentials({ client, shop, maintenance, canManage, onChange
   };
   saveRef.current = save;
   const blur = () => { clearTimeout(timer.current); timer.current = setTimeout(() => void saveRef.current(), 800); };
+  const focus = () => clearTimeout(timer.current);
   const keyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); void save(); } };
   const showPassword = async () => {
     if (visible) { setVisible(false); setRevealed(null); return; }
@@ -47,9 +48,9 @@ export function ShopCredentials({ client, shop, maintenance, canManage, onChange
   };
   const ready = !!shop.loginAccount && shop.hasPassword;
   return <>
-    <td className="session-account"><input aria-label={`${shop.storeName}${accountLabel}`} autoComplete="off" disabled={!canManage} maxLength={100} value={fields.account} placeholder={maintenance ? '手动填写主账号' : '手动填写运营账号'} onChange={e => change('account', e.target.value)} onBlur={blur} onKeyDown={keyDown} /></td>
+    <td className="session-account"><input aria-label={`${shop.storeName}${accountLabel}`} autoComplete="off" disabled={!canManage} maxLength={100} value={fields.account} placeholder={maintenance ? '手动填写主账号' : '手动填写运营账号'} onChange={e => change('account', e.target.value)} onFocus={focus} onBlur={blur} onKeyDown={keyDown} /></td>
     <td className="session-password"><div className="session-password-editor">
-      <input aria-label={`${shop.storeName}${passwordLabel}`} autoComplete="new-password" disabled={!canManage} maxLength={200} type={visible ? 'text' : 'password'} value={fields.password || (visible ? revealed ?? '' : '')} placeholder={shop.hasPassword ? '已设置，留空不修改' : maintenance ? '手动填写主账号密码' : '手动填写运营密码'} onChange={e => change('password', e.target.value)} onBlur={blur} onKeyDown={keyDown} />
+      <input aria-label={`${shop.storeName}${passwordLabel}`} autoComplete="new-password" disabled={!canManage} maxLength={200} type={visible ? 'text' : 'password'} value={fields.password || (visible ? revealed ?? '' : '')} placeholder={shop.hasPassword ? '已设置，留空不修改' : maintenance ? '手动填写主账号密码' : '手动填写运营密码'} onChange={e => change('password', e.target.value)} onFocus={focus} onBlur={blur} onKeyDown={keyDown} />
       <button type="button" className="session-eye" aria-label={visible ? '隐藏密码' : '显示已保存密码'} disabled={!canManage || (!shop.hasPassword && !fields.password)} onClick={() => void showPassword()}>{visible ? <EyeOff size={13} /> : <Eye size={13} />}</button>
       {canManage && <button type="button" className="session-save" disabled={phase === 'saving'} onClick={() => void save()}>{phase === 'saving' ? '保存中' : phase === 'saved' ? '已保存' : phase === 'error' ? '重试' : '保存'}</button>}
     </div></td>

@@ -1,5 +1,5 @@
 import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest';
-import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
+import { act,cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { createChecker } from '@kudesi/shared';
 import { MaintenancePage } from './MaintenancePage';
@@ -30,7 +30,7 @@ beforeEach(()=>{
     return [];
   });
 });
-afterEach(()=>{cleanup();vi.restoreAllMocks();});
+afterEach(()=>{cleanup();vi.useRealTimers();vi.restoreAllMocks();});
 const root=(component:React.ReactNode)=>render(<MemoryRouter>{component}</MemoryRouter>);
 
 describe('维护/提现完整页签与权限',()=>{
@@ -71,6 +71,20 @@ describe('维护/提现完整页签与权限',()=>{
 
 describe('行内保存与轮询的竞争',()=>{
   const renderCredentials=(client:SessionClient)=>render(<table><tbody><tr><ShopCredentials client={client} shop={shop} maintenance canManage onChanged={()=>undefined} onError={()=>undefined}/></tr></tbody></table>);
+  it('从账号移到密码继续输入时，不会自动保存尚未输完的密码',async()=>{
+    vi.useFakeTimers();
+    const update=vi.fn().mockResolvedValue({ok:true});
+    renderCredentials({updateShop:update} as unknown as SessionClient);
+    const account=screen.getByLabelText('合成甲店主账号'), password=screen.getByLabelText('合成甲店主账号密码');
+    fireEvent.change(account,{target:{value:'synthetic-new'}});fireEvent.blur(account);fireEvent.focus(password);
+    fireEvent.change(password,{target:{value:'incomplete'}});
+    await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+    expect(update).not.toHaveBeenCalled();
+    fireEvent.change(password,{target:{value:'Synthetic-Complete-Secret'}});fireEvent.blur(password);
+    await act(async()=>{await vi.advanceTimersByTimeAsync(800);});
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith(1,{loginAccount:'synthetic-new',loginPassword:'Synthetic-Complete-Secret'});
+  });
   it('账号、密码一起保存；留空密码不覆盖旧密码',async()=>{
     const update=vi.fn().mockResolvedValue({ok:true}),client={updateShop:update} as unknown as SessionClient;
     renderCredentials(client);
