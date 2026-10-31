@@ -1,0 +1,4 @@
+.settings-grid.collector-integrations-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+}
+.collector-integrations-grid > .settings-card { min-width: 0; }

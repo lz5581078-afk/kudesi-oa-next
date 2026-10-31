@@ -30,6 +30,7 @@ beforeEach(() => { vi.mocked(settingsApi.overview).mockResolvedValue(overview as
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('接口设置', () => {
+  beforeEach(() => { apiMock.mockResolvedValue({ configured: false, enabled: false, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20 }); });
   it('没改东西时保存和测试按钮的状态：保存不可点；改了才出现“有未保存的修改”，并要求先保存再测试', async () => {
     render(<IntegrationsPage />);
     const card = await screen.findByRole('form', { name: '七牛云存储' });
