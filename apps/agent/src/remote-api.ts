@@ -3,6 +3,7 @@ import type { AgentConfig } from './config';
 import type { IceServer } from './remote-rtc';
 
 export interface RemoteOffer {
+  profileKey?: string;
   id: number;
   mode: 'view' | 'control';
   reason: string;

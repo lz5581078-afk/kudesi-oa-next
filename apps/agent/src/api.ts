@@ -22,6 +22,8 @@ export async function call<T>(c: Pick<AgentConfig, 'serverUrl' | 'deviceToken'>,
 }
 
 export interface OpenRequest {
+  /** Server-owned company/workspace/store identity; never a filesystem path. */
+  profileKey?: string;
   id: number;
   kind: 'first' | 'now' | 'capture';
   store: { id: number; name: string; platform: string; url: string };
@@ -31,7 +33,7 @@ export interface OpenRequest {
 export const api = {
   heartbeat: (c: AgentConfig, agentVersion: string) => call<{ ok: boolean; pending: number; update?: { targetVersion: string; sha256?: string; size?: number } | null }>(c, '/api/agent/heartbeat', { json: { agentVersion } }),
   claim: (c: AgentConfig) => call<{ request: OpenRequest | null }>(c, '/api/agent/claim', { json: {} }),
-  report: (c: AgentConfig, id: number, body: { status: 'succeeded' | 'failed'; errorCode?: string; errorText?: string }) => call<{ ok: boolean }>(c, `/api/agent/requests/${id}/report`, { json: body }),
+  report: (c: AgentConfig, id: number, body: { status: 'succeeded' | 'failed' | 'progress'; errorCode?: string; errorText?: string; step?: string; progress?: number }) => call<{ ok: boolean }>(c, `/api/agent/requests/${id}/report`, { json: body }),
   upload: (c: AgentConfig, id: number, png: Buffer, name: string) => {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(png)], { type: 'image/png' }), name);

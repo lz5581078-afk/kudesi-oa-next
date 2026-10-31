@@ -271,6 +271,7 @@ export const SPECIAL_PERMISSIONS = {
   financeSessionRemote: 'finance.session.remote',
   /** 公司店铺维护：添加店铺、填登录账号密码、看密码、请求登录、改店铺状态 */
   companyStoreMaintenanceManage: 'resource.company-store-maintenance.manage',
+  companyStoreMaintenanceRemote: 'resource.company-store-maintenance.remote',
   /** 给别人指派任务（给自己建任务不需要） */
   tasksAssign: 'tasks.assign',
   /** 创建、修改、停用周期任务 */
