@@ -1,3 +1,4 @@
+import { LiveManagementService } from './live/live-management.service';
 import { CollectorTextController } from './collector/collector-text.controller';
 import { CollectorTextService } from './collector/collector-text.service';
 import { CollectorController, SpeechSettingsController } from './collector/collector.controller';
@@ -103,7 +104,7 @@ import { FlowController } from './flow/flow.controller';
 import { FlowScheduler } from './flow/flow.scheduler';
 import { LiveController } from './live/live.controller';
 import { LiveLedgerService } from './live/live-ledger.service';
-import { LiveOrderSource, UnconfiguredLiveOrderSource } from './live/live-order-source';
+import { LiveOrderSource } from './live/live-order-source';
 import { LiveScheduleService } from './live/live-schedule.service';
 import { LiveScheduler } from './live/live.scheduler';
 import { LiveWorkspaceModule } from './live/live-workspace';
@@ -248,7 +249,7 @@ const env = loadEnv();
     SupervisionService,
     SupervisionScheduler,
     ServiceWorkspaceProvider,
-    LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
+    LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
     { provide: LiveOrderSource, useClass: JushuitanOrderSource },
     FinanceDocumentsService,
     FinanceVoucherHintsService,

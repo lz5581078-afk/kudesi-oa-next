@@ -10,6 +10,7 @@ import { LiveManagePage } from './LiveManagePage';
 vi.mock('./liveApi', () => ({ liveApi: {
   options: vi.fn(), products: vi.fn(), overview: vi.fn(), roomDay: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), cancelSchedule: vi.fn(), start: vi.fn(), sessions: vi.fn(), session: vi.fn(),
   candidates: vi.fn(), report: vi.fn(), submit: vi.fn(), reviewPreview: vi.fn(), workbench: vi.fn(), history: vi.fn(), commissions: vi.fn(), wages: vi.fn(), people: vi.fn(), rules: vi.fn(), createRule: vi.fn(), trial: vi.fn(),
+  roomSettings:vi.fn(),trialPerson:vi.fn(),manualReport:vi.fn(),updateRule:vi.fn(),
   integrationStatus: vi.fn(), commissionPreview: vi.fn(),
   settlements: vi.fn(), settlement: vi.fn(), generateSettlement: vi.fn(), submitSettlement: vi.fn(),
 } }));
@@ -30,7 +31,7 @@ const session = (o: Record<string, unknown> = {}) => ({ id: 7, scheduleId: 1, ro
 const detail = (o: Record<string, unknown> = {}) => ({ ...session(), products: [{ id: 1, code: 'SKU-A', name: '毛巾', spec: '' }], reports: [], commissions: [], wage: null, preview: null, me: { reportRoles: ['anchor'], canSubmit: false, isManager: false }, flow: null, ...o });
 const bench = (o: Record<string, unknown> = {}) => ({ today: '2026-09-28', month: '2026-09', identity: { isAnchor: true, isControl: false, canManage: false }, active: [], schedules: [sched()], recent: [], monthCommissionCents: 12345, monthWageCents: 20000, monthWageMinutes: 240, commissionRows: [], wageRows: [], ...o });
 
-beforeEach(() => { window.localStorage.clear(); allow = ['features.live-desk.view']; l.options.mockResolvedValue(opts() as never); l.integrationStatus.mockResolvedValue({ ready: true, code: 'ready', message: '' }); l.commissionPreview.mockResolvedValue(null); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
+beforeEach(() => { window.localStorage.clear(); allow = ['features.live-desk.view']; l.wages.mockResolvedValue({month:'2026-09',scope:'all',totalCents:0,summary:[],rows:[]}); l.options.mockResolvedValue(opts() as never); l.integrationStatus.mockResolvedValue({ ready: true, code: 'ready', message: '' }); l.commissionPreview.mockResolvedValue(null); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const wrap = (ui: JSX.Element) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
@@ -148,11 +149,11 @@ describe('直播管理', () => {
     wrap(<LiveManagePage />);
     expect(await screen.findByText('还没有直播间')).toBeTruthy();
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['全览', '排场', '场次记录', '待审核', '提成记录', '主播工资', '提成规则']);
+    expect(tabs).toEqual(['全览', '排场', '场次记录', '待审核', '主播工资', '中控工资', '运营提成', '提成规则']);
     cleanup();
     allow = ['features.live.view', 'live.commissions.view'];
     wrap(<LiveManagePage />);
-    expect(await screen.findByRole('tab', { name: '提成结算' })).toBeTruthy();
+    expect(await screen.findByRole('tab', { name: '工资结算' })).toBeTruthy();
   });
 
   it('全览：南北两排、大房间、正在直播的信息；筛选只看正在直播', async () => {
@@ -173,7 +174,7 @@ describe('直播管理', () => {
     l.schedules.mockResolvedValue({ from: '', to: '', canManage: true, rows: [sched({ date: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10) })] } as never);
     wrap(<LiveManagePage />);
     fireEvent.click(await screen.findByRole('tab', { name: '排场' }));
-    fireEvent.click(await screen.findByRole('button', { name: '新增排场' }));
+    fireEvent.click(await screen.findAllByRole('button', { name: '新增排场' }).then(b=>b[0]));
     const dlg = await screen.findByRole('dialog', { name: '新增排场' });
     fireEvent.click(within(dlg).getByRole('button', { name: '保存' }));
     expect((await within(dlg).findByRole('alert')).textContent).toContain('请填写');
@@ -239,10 +240,10 @@ describe('直播管理', () => {
     l.people.mockResolvedValue([person(3, '小主播')]);
     l.commissions.mockResolvedValue({ month: '2026-09', scope: 'all', totalCents: 4000, summary: [{ userId: 3, name: '小主播', role: 'anchor', roleLabel: '主播', sessions: 1, salesCents: 100000, amountCents: 4000 }], rows: [{ id: 1, sessionId: 7, userId: 3, userName: '小主播', role: 'anchor', roleLabel: '主播', date: '2026-09-28', roomName: '直播间-北1', startAt: '', douyinName: '', finalSalesCents: 100000, adSpendCents: 5000, roiScaled: 200000, belowRoi: false, rateUnits: 400, amountCents: 4000, ruleVersionId: 1 }] } as never);
     wrap(<LiveManagePage />);
-    fireEvent.click(await screen.findByRole('tab', { name: '提成记录' }));
-    expect(await screen.findByText(/全部人员/)).toBeTruthy();
-    expect(within(screen.getByLabelText('提成明细')).getByText('4%')).toBeTruthy();
-    expect((screen.getByRole('button', { name: '导出 CSV' }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(await screen.findByRole('tab', { name: '主播工资' }));
+    expect(await screen.findByText(/全部人员/,{selector:'p'})).toBeTruthy();
+    expect(screen.getByLabelText('工资提成明细').textContent).toContain('4%');
+    expect((screen.getByRole('button', { name: '导出明细' }) as HTMLButtonElement).disabled).toBe(false);
     const form = { boundary: 'min_inclusive', roiThreshold: '2', belowRoiAnchorDeduct: '1', belowRoiControlDeduct: '1', operatorRate: '0.5', tiers: [{ min: '0', max: '', anchorRate: '4', controlRate: '3' }] };
     l.rules.mockResolvedValue({ canManage: true, currentId: 1, versions: [{ id: 1, effectiveFrom: '2026-01-01', note: null, createdAt: '2026-01-01 00:00:00', creatorName: null, usedCount: 2, form }] });
     l.trial.mockResolvedValue({ tierIndex: 0, roiScaled: 200000, belowRoi: false, anchor: { rateUnits: 400, amountCents: 4000 }, control: { rateUnits: 300, amountCents: 3000 }, operator: { rateUnits: 50, amountCents: 500 } });
@@ -264,7 +265,7 @@ describe('直播管理', () => {
     l.overview.mockResolvedValue(empty() as never);
     l.settlements.mockResolvedValue({ canManage: true, defaultMonth: '2026-09', rows: [] });
     wrap(<LiveManagePage />);
-    fireEvent.click(await screen.findByRole('tab', { name: '提成结算' }));
+    fireEvent.click(await screen.findByRole('tab', { name: '工资结算' }));
     expect(((await screen.findByLabelText('结算月份')) as HTMLInputElement).value).toBe('2026-09');
     l.generateSettlement.mockRejectedValueOnce(new Error('聚水潭店铺 JST1 的退款暂时查不到，没有生成结算单'));
     fireEvent.click(screen.getByRole('button', { name: '生成 / 重新核对' }));
@@ -274,11 +275,66 @@ describe('直播管理', () => {
     l.settlement.mockResolvedValue({ ...head, canManage: true, byPerson: [{ userId: 3, name: '小主播', role: 'anchor', roleLabel: '主播', commissionCents: 4000, deductionCents: 1200, payableCents: 2800, sessions: 1 }], lines: [{ id: 1, sessionId: 7, userId: 3, userName: '小主播', role: 'anchor', roleLabel: '主播', date: '2026-09-28', roomName: '直播间-北1', startTime: '10:02', finalSalesCents: 100000, rateUnits: 400, commissionCents: 4000, orderCount: 1, ordersTotalCents: 60000, refundCents: 30000, deductionCents: 1200, payableCents: 2800 }], refunds: [{ sessionId: 7, orderId: 'A1', orderAmountCents: 60000, refundCents: 30000, source: 'refund', details: [], checkedAt: '' }] } as never);
     l.settlements.mockResolvedValue({ canManage: true, defaultMonth: '2026-09', rows: [head] as never });
     fireEvent.click(screen.getByRole('button', { name: '生成 / 重新核对' }));
-    const dlg = await screen.findByRole('dialog', { name: '2026-09 直播提成月结' });
+    const dlg = await screen.findByRole('dialog', { name: '2026-09 至 2026-09 工资结算' });
     expect(within(dlg).getByLabelText('退款依据').textContent).toContain('A1');
     expect(within(dlg).getByLabelText('结算明细').textContent).toContain('¥12.00');
     l.submitSettlement.mockResolvedValue({ runId: 1 });
     fireEvent.click(within(dlg).getByRole('button', { name: '提交审批' }));
     await waitFor(() => expect(l.submitSettlement).toHaveBeenCalledWith(5));
   });
+  it('排场列出所有空房间，按房间新增会带出当前日期与房间，支持新试播主播',async()=>{
+    allow=['features.live.view','live.manage'];l.overview.mockResolvedValue(empty() as never);
+    const o=opts();l.schedules.mockResolvedValue({from:'',to:'',rows:[],rooms:[...o.rooms,{...o.rooms[0],id:11,name:'直播间-南1',shortName:'南1',side:'south'}],canManage:true} as never);
+    wrap(<LiveManagePage/>);fireEvent.click(await screen.findByRole('tab',{name:'排场'}));
+    const room=await screen.findByRole('region',{name:'直播间-南1'});
+    expect(within(room).getByText('当天暂无排场')).toBeTruthy();
+    fireEvent.click(within(room).getByRole('button',{name:'新增排场'}));
+    const dialog=await screen.findByRole('dialog',{name:'新增排场'});
+    // 下拉选项包含真实服务端房间清单。
+    l.options.mockResolvedValue({...o,rooms:[...o.rooms,{...o.rooms[0],id:11,name:'直播间-南1',shortName:'南1',side:'south'}]} as never);
+    fireEvent.click(within(dialog).getByRole('button',{name:/新增试播主播/}));
+    const trial=await screen.findByRole('dialog',{name:'新增试播主播'});
+    l.trialPerson.mockResolvedValue({id:88,name:'试播乙'});
+    l.options.mockResolvedValue({...o,anchors:[...o.anchors,{id:88,name:'试播乙',detail:'试播主播',trial:true}]} as never);
+    fireEvent.change(within(trial).getByLabelText('试播姓名'),{target:{value:'试播乙'}});
+    fireEvent.change(within(trial).getByLabelText('试播时薪'),{target:{value:'65'}});
+    fireEvent.click(within(trial).getByRole('button',{name:'保存并选择'}));
+    await waitFor(()=>expect(l.trialPerson).toHaveBeenCalledWith({name:'试播乙',hourlyRateCents:6500}));
+    await waitFor(()=>expect((within(dialog).getByLabelText('主播') as HTMLSelectElement).value).toBe('88'));
+  });
+
+  it('全览南在上北在下，显示彩色状态、直播进度与可编辑房间资料',async()=>{
+    allow=['features.live.view','live.manage'];
+    const tile=(id:number,side:string)=>({id,name:`直播间-${side==='south'?'南':'北'}1`,shortName:side==='south'?'南1':'北1',side,big:false,path:'',status:'live',statusLabel:'正在直播',ownerId:5,ownerName:'小运营',products:'毛巾',live:{id:7,startAt:'2026-09-28 10:00:00',plannedEnd:'2026-09-28 14:00:00',anchor:person(3,'小主播'),control:person(4,'小中控'),operator:null,douyinAccount:person(20,'抖音一号')},next:null,timeline:[]});
+    l.overview.mockResolvedValue({...empty(),now:'2026-09-28 12:00:00',corridorFound:true,groups:{south:[tile(11,'south')],north:[tile(10,'north')],none:[]}} as never);
+    l.people.mockResolvedValue([person(5,'小运营')]);l.roomSettings.mockResolvedValue({ok:true});
+    wrap(<LiveManagePage/>);
+    const south=await screen.findByLabelText('南侧直播间'),north=screen.getByLabelText('北侧直播间');
+    expect(!!(south.compareDocumentPosition(north)&Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(within(south).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
+    expect(south.textContent).toContain('小中控');expect(south.textContent).toContain('毛巾');
+    fireEvent.click(within(south).getByRole('button',{name:'编辑房间'}));
+    const dlg=await screen.findByRole('dialog',{name:'直播间-南1 · 房间设置'});
+    fireEvent.change(within(dlg).getByLabelText('房间产品'),{target:{value:'牙刷'}});
+    fireEvent.click(within(dlg).getByRole('button',{name:'保存房间信息'}));
+    await waitFor(()=>expect(l.roomSettings).toHaveBeenCalledWith(11,{ownerId:5,products:'牙刷'}));
+  });
+
+  it('人事补报按分提交并保留原因；区间工资结算提交起止日期',async()=>{
+    allow=['features.live.view','live.manage','live.commissions.view'];l.overview.mockResolvedValue(empty() as never);
+    l.manualReport.mockResolvedValue({id:91});wrap(<LiveManagePage/>);
+    fireEvent.click(await screen.findByRole('tab',{name:'人事补报'}));
+    await screen.findByLabelText('补报销售额');
+    for(const [label,value]of [['直播间','10'],['主播','3'],['抖音号','20'],['店铺','30'],['补报销售额','123.45'],['补报原因','漏报补录']] as const)fireEvent.change(screen.getByLabelText(label),{target:{value}});
+    fireEvent.click(screen.getByRole('button',{name:'保存为待审核场次'}));
+    await waitFor(()=>expect(l.manualReport).toHaveBeenCalledWith(expect.objectContaining({salesCents:12345,reason:'漏报补录',roomId:10,anchorId:3})));
+    l.settlements.mockResolvedValue({canManage:true,defaultMonth:'2026-09',rows:[]});l.generateSettlement.mockRejectedValue(new Error('日期范围重叠'));
+    fireEvent.click(screen.getByRole('tab',{name:'工资结算'}));
+    fireEvent.change(await screen.findByLabelText('结算方式'),{target:{value:'range'}});
+    fireEvent.change(screen.getByLabelText('结算开始日期'),{target:{value:'2026-09-01'}});fireEvent.change(screen.getByLabelText('结算结束日期'),{target:{value:'2026-09-15'}});
+    fireEvent.click(screen.getByRole('button',{name:'生成 / 重新核对'}));
+    await waitFor(()=>expect(l.generateSettlement).toHaveBeenCalledWith('2026-09',undefined,{from:'2026-09-01',to:'2026-09-15'}));
+    expect((await screen.findByRole('alert')).textContent).toContain('重叠');
+  });
+
 });

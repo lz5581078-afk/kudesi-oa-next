@@ -1,3 +1,6 @@
+import { LiveManagementService } from './live-management.service';
+import { liveIsDay } from '@kudesi/shared';
+import { liveFail } from './live-core';
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
@@ -52,6 +55,10 @@ class ReviewFormDto {
   @IsOptional() @IsString() @MaxLength(19) wageEndAt?: string;
   @IsOptional() @IsInt() @Min(1) @Max(100_000_000) wageHourlyRateCents?: number;
   @IsOptional() @IsString() @MaxLength(500) wageNote?: string;
+  @IsOptional() @IsString() @MaxLength(19) controlWageStartAt?:string;
+  @IsOptional() @IsString() @MaxLength(19) controlWageEndAt?:string;
+  @IsOptional() @IsInt() @Min(1) @Max(100_000_000) controlWageHourlyRateCents?:number;
+  @IsOptional() @IsString() @MaxLength(500) controlWageNote?:string;
 }
 class RuleDto {
   @IsString() @MaxLength(10) effectiveFrom!: string;
@@ -73,9 +80,38 @@ class WageTrialDto {
   @IsInt() @Min(1) hourlyRateCents!: number;
 }
 class GenerateDto {
-  @IsString() @MaxLength(7) month!: string;
+  @IsOptional() @IsString() @MaxLength(7) month?: string;
+  @IsOptional() @IsString() @MaxLength(10) from?:string;
+  @IsOptional() @IsString() @MaxLength(10) to?:string;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
+
+class RoomSettingsDto {
+  @IsOptional() @IsInt() @Min(1) ownerId?:number|null;
+  @IsString() @MaxLength(1000) products!:string;
+}
+class TrialPersonDto {
+  @IsString() @MaxLength(50) name!:string;
+  @IsInt() @Min(1) @Max(100_000_000) hourlyRateCents!:number;
+}
+class ManualDto {
+  @IsOptional() @IsInt() @Min(1) sessionId?:number;
+  @IsInt() @Min(1) roomId!:number;
+  @IsInt() @Min(1) anchorId!:number;
+  @IsOptional() @IsInt() @Min(1) controlId?:number|null;
+  @IsOptional() @IsInt() @Min(1) operatorId?:number|null;
+  @IsInt() @Min(1) douyinAccountId!:number;
+  @IsInt() @Min(1) storeId!:number;
+  @IsString() @MaxLength(19) startAt!:string;
+  @IsString() @MaxLength(19) endAt!:string;
+  @IsInt() @Min(0) @Max(10_000_000_000) salesCents!:number;
+  @IsInt() @Min(0) @Max(10_000_000_000) adSpendCents!:number;
+  @IsOptional() @IsInt() @Min(0) @Max(10_000_000_000) controlSalesCents?:number;
+  @IsOptional() @IsInt() @Min(0) @Max(10_000_000_000) operatorSalesCents?:number;
+  @IsString() @MaxLength(500) reason!:string;
+  @IsOptional() @IsArray() @ArrayMaxSize(500) @IsString({each:true}) orderIds?:string[];
+}
+
 class RangeQuery {
   @IsOptional() @IsString() @MaxLength(10) from?: string;
   @IsOptional() @IsString() @MaxLength(10) to?: string;
@@ -116,6 +152,7 @@ class ProductQuery {
 export class LiveController {
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
+    private readonly management: LiveManagementService,
     private readonly schedules: LiveScheduleService, private readonly sessions: LiveSessionService, private readonly ledger: LiveLedgerService, private readonly settlements: LiveSettlementService,
   ) {}
 
@@ -135,6 +172,15 @@ export class LiveController {
 
   @AuthenticatedOnly() @Get('rooms/:id/day')
   roomDay(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Query() q: DayQuery) { return this.schedules.roomDay(u, id, q.date); }
+
+  @RequirePermission('live.manage') @Put('rooms/:id')
+  roomSettings(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:RoomSettingsDto){return this.management.room(u,id,b);}
+  @RequirePermission('live.manage') @Post('trial-people')
+  trialPerson(@CurrentUser() u:AuthUser,@Body() b:TrialPersonDto){return this.management.trial(u,b);}
+  @RequirePermission('live.manage') @Post('manual-reports')
+  manualReport(@CurrentUser() u:AuthUser,@Body() b:ManualDto){return this.management.manual(u,b);}
+  @RequirePermission('live.manage') @Put('rules/:id')
+  editRule(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:RuleDto){if(!liveIsDay(b.effectiveFrom))liveFail('请选择生效日期',400);return this.management.updateRule(u,id,b as never);}
 
   // ---- 排场 ----
   @AuthenticatedOnly() @Get('schedules')
@@ -193,7 +239,7 @@ export class LiveController {
   @AuthenticatedOnly() @Get('settlements/:id')
   settlement(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.settlements.detail(u, id); }
   @RequirePermission('live.manage') @Post('settlements')
-  generate(@CurrentUser() u: AuthUser, @Body() b: GenerateDto) { return this.settlements.generate(u, b.month, b.note); }
+  generate(@CurrentUser() u: AuthUser, @Body() b: GenerateDto) { return this.settlements.generate(u, b.month??'', b.note, {from:b.from,to:b.to}); }
   @RequirePermission('live.manage') @Post('settlements/:id/submit')
   submitSettlement(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.settlements.submit(u, id); }
 }

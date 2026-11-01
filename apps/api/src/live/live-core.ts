@@ -49,12 +49,6 @@ export async function reportsOf(em: EntityManager, companyId: number, sessionId:
   return em.query(`SELECT r.*, DATE_FORMAT(r.end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_session_reports r WHERE r.company_id = ? AND r.session_id = ? ORDER BY r.id`, [companyId, sessionId]);
 }
 
-/** 公司里某月已进入结算审批或已结算：不能再新增场次或提成。 */
-export async function closedMonth(em: EntityManager, companyId: number, month: string, lock = false): Promise<boolean> {
-  const rows = await em.query(`SELECT id FROM live_settlements WHERE company_id = ? AND month = ? AND status IN ('submitted','approved')${lock ? ' FOR UPDATE' : ''}`, [companyId, month]);
-  return rows.length > 0;
-}
-
 /** 规则版本（只读）：按场次日期取当天生效的最新版本。 */
 export async function ruleVersions(em: EntityManager, companyId: number): Promise<Array<{ id: number; effectiveFrom: string; rules: LiveRules; note: string | null; createdAt: string; creatorName: string | null; usedCount: number }>> {
   const rows: Row[] = await em.query(`SELECT v.id, DATE_FORMAT(v.effective_from,'%Y-%m-%d') effective_from, v.rules_json, v.note, DATE_FORMAT(v.created_at,'%Y-%m-%d %H:%i:%s') created_text, e.name creator_name,
@@ -81,4 +75,11 @@ export async function positionTypesOf(em: EntityManager, companyId: number, user
   if (!ids.length) return new Set();
   const rows: Row[] = await em.query(`SELECT DISTINCT workspace_type FROM positions WHERE company_id = ? AND id IN (${ids.map(() => '?').join(',')})`, [companyId, ...ids]);
   return new Set(rows.map((r) => String(r.workspace_type)));
+}
+
+/** 场次按开播日归属工资周期，区间提交后禁止再修改该日业务。 */
+export async function closedDay(em: EntityManager, companyId: number, day: string): Promise<boolean> {
+  const rows = await em.query(`SELECT id FROM live_settlements WHERE company_id=? AND status IN ('submitted','approved') AND
+    COALESCE(period_from,STR_TO_DATE(CONCAT(month,'-01'),'%Y-%m-%d'))<=? AND COALESCE(period_to,LAST_DAY(CONCAT(month,'-01')))>=?`, [companyId,day,day]);
+  return rows.length>0;
 }
