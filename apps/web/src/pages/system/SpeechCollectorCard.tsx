@@ -24,7 +24,8 @@ export function SpeechCollectorCard({ canEdit }: { canEdit: boolean }) {
       <label>豆包语音 API Key<SecretInput value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} disabled={!canEdit || busy} placeholder={saved.configured ? '已设置，留空保留原密钥' : '在火山引擎语音控制台创建'} /></label>
       <p className="muted">请开通录音文件极速版及流式语音识别 2.0。此处填写一份语音 API Key，两种模式分别调用对应接口。<a href="https://console.volcengine.com/speech/app" target="_blank" rel="noreferrer">打开语音控制台</a></p>
       {([['enabled', '启用公司云端语音识别'], ['fileEnabled', '允许分段识别：录好一段再转文字'], ['realtimeEnabled', '允许实时识别：边录边显示文字']] as const).map(([key, title]) => <label className="check" key={key}><input type="checkbox" checked={form[key]} onChange={e => setForm({ ...form, [key]: e.target.checked })} disabled={!canEdit || busy} style={{ width: 'auto', height: 'auto' }} />{title}</label>)}
-      <label>公司语音调用并发上限（1–20，共享额度）<input type="number" min={1} max={20} value={form.maxConcurrent} onChange={e => setForm({ ...form, maxConcurrent: Number(e.target.value) })} disabled={!canEdit || busy} /></label>
+      <label>公司语音调用并发上限（1–2000，全公司共享）<input type="number" min={1} max={2000} step={1} value={form.maxConcurrent} onChange={e => setForm({ ...form, maxConcurrent: Number(e.target.value) })} disabled={!canEdit || busy} /></label>
+      <p className="muted">分段与实时识别共用此上限，实际可用并发还取决于火山引擎账户额度。此处不调整 Windows 单机录制路数。</p>
       <label className="check"><input type="checkbox" checked={form.allEmployees} onChange={e => setForm({ ...form, allEmployees: e.target.checked })} disabled={!canEdit || busy} style={{ width: 'auto', height: 'auto' }} />允许全体已启用员工使用采集器</label>
       <p className="muted">{form.allEmployees ? '当前全体已启用员工可用，无需逐人授权。' : '员工需在“员工与权限”中获授“小白抖音采集器”权限。'}可随时关闭云端调用；录像仍保存在电脑上。</p>
       {success && <div className="notice ok-notice" role="status">{success}</div>}
