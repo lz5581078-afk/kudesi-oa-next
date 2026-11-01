@@ -1,0 +1,5 @@
+.appbar-slot:has(.live-header-summary) { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.live-header-summary { margin-left: 12px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-header-fallback { margin: 0; font-size: 20px; }
+@media (max-width: 1200px) { .live-header-guide { display: none; } }
+@media (max-width: 720px) { .live-header-summary { margin-left: 6px; font-size: 11px; } }
