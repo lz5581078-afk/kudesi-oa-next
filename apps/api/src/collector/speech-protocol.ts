@@ -1,7 +1,6 @@
 import { BadRequestException, BadGatewayException } from '@nestjs/common';
 import { gzipSync, gunzipSync } from 'zlib';
 
-export const FILE_URL = 'https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash';
 export const REALTIME_URL = 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async';
 export const MAX_AUDIO = 120 * 32000 + 4096;
 
