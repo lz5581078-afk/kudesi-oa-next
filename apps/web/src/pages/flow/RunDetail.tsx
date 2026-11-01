@@ -201,7 +201,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
               <summary>全部操作记录（{run.events.length}）</summary>
               <ul className="event-list">
                 {run.events.map((ev) => (
-                  <li key={ev.id} className="log-item"><strong>{FLOW_ACTION_LABEL[ev.action]}</strong> · {ev.actorName} · <span className="muted">{fmtTime(ev.createdAt)}</span>{ev.note && <div>“{ev.note}”</div>}</li>
+                  <li key={ev.id} className="log-item"><strong>{ev.action==='legacy'?'原操作记录':FLOW_ACTION_LABEL[ev.action]}</strong> · {ev.actorName} · <span className="muted">{fmtTime(ev.createdAt)}</span>{ev.note && <div>“{ev.note}”</div>}</li>
                 ))}
               </ul>
             </details>

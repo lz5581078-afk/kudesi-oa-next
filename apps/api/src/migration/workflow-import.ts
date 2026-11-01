@@ -13,10 +13,12 @@ import type { ResourcesService } from '../resources/resources.service';
 import { closedSkuForm, closedSkuPayload } from './closed-sku-forms';
 import { verifyWorkflowView } from './workflow-view-verification';
 import { importClosedTask } from './closed-task-import';
+import { importBusinessEvent } from './business-event-import';
 
 type Row = Record<string, any>;
-export const WORKFLOW_TARGET_TABLE: Record<string, string> = { current_sku_definition:'flow_definitions', linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
+export const WORKFLOW_TARGET_TABLE: Record<string, string> = { flow_event:'flow_events',current_sku_definition:'flow_definitions', linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
 export const workflowHashGroups = (source: LegacyWorkflowSource | undefined): Array<[string, Row[]]> => source ? [
+  ['flow_event',source.tables.workflow_business_events??[]],
   ['current_sku_definition',(source.tables.workflow_templates??[]).filter(t=>t.related_object_type==='bundle_application'&&t.status==='active')],
   ['linear_flow_todo', source.tables.workflow_instances ?? []], ['linear_boundary_step', source.tables.workflow_instances ?? []],
   ['legacy_flow_definition', (source.tables.workflow_instances ?? []).filter(r => r.graph_status === 'linear').map(r => ({ ...r, id: `linear:${r.id}` }))],
@@ -62,7 +64,7 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
       try{
         const result=await ctx.savepoint(()=>importClosedFlow({...ctx,sourceCompanyId:workflow.companyId,register:async(type,id,target)=>{await ctx.register(type,id,target);ctx.count('created',type);}},workflow,run));
         if(result.reused)ctx.count('reused','flow_run');
-        ctx.note('workflow-history',String(run.id),run.graph_status==='batch'?'原状态、节点及SKU申请/核对快照已落地；原业务事件、完整历史任务与结果关联仍待验收，原文已加密保留':'原状态与节点只读时间线已落地；原采购申请/审批表单、结果附件及完整历史任务仍待验收，原文已加密保留');
+        ctx.note('workflow-history',String(run.id),run.graph_status==='batch'?'原状态、节点、SKU申请/核对快照及已结束任务已落地；原业务操作人/标题/时点有原生记录，变更前后快照与结果关联仍待验收，原文已加密保留':'原状态、节点及已结束任务只读记录已落地；原采购申请/审批表单及结果附件仍待验收，原文已加密保留');
       }catch(e){ctx.fail('flow_run',String(run.id),e instanceof Error&&e.message.startsWith('旧历史流程')?e.message:ctx.safeFailure(e));}
       continue;
     }
@@ -128,6 +130,15 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
     }
     ctx.fail('work_item', String(task.id), '原待办已加密保留，但续办或周期规则尚未验收');
   }
+  for(const row of rows('workflow_business_events').slice().sort((a,b)=>BigInt(a.id)<BigInt(b.id)?-1:BigInt(a.id)>BigInt(b.id)?1:0)){
+    try{
+      const run=rows('workflow_instances').find(r=>String(r.id)===String(row.workflow_instance_id));
+      if(!run)throw Error('旧业务事件缺少来源流程');
+      const node=rows('workflow_node_records').find(r=>String(r.id)===String(row.workflow_node_record_id));
+      const result=await ctx.savepoint(()=>importBusinessEvent({...ctx,sourceCompanyId:workflow.companyId},row,run,node));
+      ctx.count(result.reused?'reused':'created','flow_event');ctx.verified('historical-business-event');
+    }catch(e){ctx.fail('flow_event',String(row.id),e instanceof Error&&e.message.startsWith('旧业务事件')?e.message:ctx.safeFailure(e));}
+  }
   for (const run of rows('workflows')) {
     try {
       const result = await ctx.savepoint(() => importEarlyFlow({ em: ctx.em, crypto: ctx.crypto, companyId: ctx.companyId, sourceCompanyId: workflow.companyId, actorId: ctx.actorId, lookup: ctx.lookup, register: async (type, id, target) => { await ctx.register(type, id, target); ctx.count('created', type); } }, run));
@@ -170,6 +181,7 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
       if(result.costRestricted)ctx.verified('workflow-cost-restricted');
       if(result.syncRestricted)ctx.verified('workflow-sync-restricted');
       for(let i=0;i<result.historicalTasks;i++)ctx.verified('historical-task-view');
+      for(let i=0;i<result.historicalEvents;i++)ctx.verified('historical-business-event-view');
     }catch(e){ctx.fail('workflow_view',`${type}:${row.id}`,ctx.safeFailure(e));}
   }
 }

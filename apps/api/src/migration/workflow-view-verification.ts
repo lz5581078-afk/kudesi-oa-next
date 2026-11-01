@@ -32,5 +32,7 @@ export async function verifyWorkflowView(em:EntityManager,resources:ResourcesSer
   const [closedTasks]=await em.query("SELECT COUNT(*) n FROM work_items w JOIN legacy_import_links l ON l.company_id=w.company_id AND l.target_id=w.id AND l.target_type='work_item' AND l.source_system='legacy-oa' AND LEFT(l.source_key,10)='work_item:' WHERE w.company_id=? AND w.run_id=? AND w.kind='flow' AND w.status IN ('done','cancelled')",[companyId,runId]);
   const historicalTasks=detail.historicalTasks?.length??0;
   if(historicalTasks!==Number(closedTasks.n))throw Error('旧流程读取验收发现原发起人缺少历史任务反馈');
-  return {legacySkuHistory:Boolean(detail.legacyHistory),costRestricted:!can('product.cost.view'),syncRestricted:!can('finance.bundle-sync.manage'),historicalTasks};
+  const sourceEvents:Array<{id:number}>=await em.query("SELECT e.id FROM flow_events e JOIN legacy_import_links l ON l.company_id=e.company_id AND l.target_id=e.id AND l.target_type='flow_event' AND l.source_system='legacy-oa' WHERE e.company_id=? AND e.run_id=?",[companyId,runId]);
+  if(sourceEvents.some(e=>!detail.events.some(v=>v.id===Number(e.id)&&v.actorName)))throw Error('旧流程读取验收缺少原业务事件或真实操作人');
+  return {legacySkuHistory:Boolean(detail.legacyHistory),costRestricted:!can('product.cost.view'),syncRestricted:!can('finance.bundle-sync.manage'),historicalTasks,historicalEvents:sourceEvents.length};
 }
