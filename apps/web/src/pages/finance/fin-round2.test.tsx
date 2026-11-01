@@ -5,7 +5,8 @@ import { createChecker } from '@kudesi/shared';
 import { DocForm } from './DocForm';
 import { DocumentsPage } from './DocumentsPage';
 import { FinanceOverviewPage } from './FinanceOverviewPage';
-import { InlineCred, ShopDrawer } from './ShopInline';
+import { ShopDrawer } from './ShopInline';
+import { ShopCredentials } from './ShopCredentials';
 import { financeApi } from './financeApi';
 import type { SessionClient, ShopRow } from './sessionApi';
 import { resourceApi } from '../../resources/api';
@@ -72,17 +73,17 @@ const client = () => ({ updateShop: vi.fn().mockResolvedValue({}), reveal: vi.fn
 describe('店铺提现：行内账号密码与详情', () => {
   it('改账号失去焦点即保存；输入新密码回车保存；密码默认不显示，点查看才取明文', async () => {
     const c = client(); const changed = vi.fn();
-    render(<InlineCred client={c} shop={shop} onChanged={changed} onError={vi.fn()} />);
+    render(<table><tbody><tr><ShopCredentials client={c} shop={shop} maintenance={false} canManage onChanged={changed} onError={vi.fn()} /></tr></tbody></table>);
     expect(screen.queryByText('p@ss')).toBeNull();
-    const acc = screen.getByLabelText('一号店 登录账号');
+    const acc = screen.getByLabelText('一号店提现运营账号');
     fireEvent.change(acc, { target: { value: 'a2' } }); fireEvent.blur(acc);
     await waitFor(() => expect(c.updateShop).toHaveBeenCalledWith(3, { loginAccount: 'a2' }));
-    const pw = screen.getByLabelText('一号店 登录密码') as HTMLInputElement;
+    const pw = screen.getByLabelText('一号店提现运营密码') as HTMLInputElement;
     expect(pw.value).toBe('');
     fireEvent.change(pw, { target: { value: 'newpw' } }); fireEvent.keyDown(pw, { key: 'Enter' });
-    await waitFor(() => expect(c.updateShop).toHaveBeenCalledWith(3, { loginPassword: 'newpw' }));
-    fireEvent.click(screen.getByRole('button', { name: '查看' }));
-    expect(await screen.findByText('p@ss')).toBeTruthy();
+    await waitFor(() => expect(c.updateShop).toHaveBeenCalledWith(3, { loginAccount: 'a2', loginPassword: 'newpw' }));
+    fireEvent.click(screen.getByRole('button', { name: '显示已保存密码' }));
+    expect(await screen.findByDisplayValue('p@ss')).toBeTruthy();
     expect(c.reveal).toHaveBeenCalledWith(3);
   });
   it('店铺详情抽屉：显示信息和登录记录，记录多时可加载更多', async () => {

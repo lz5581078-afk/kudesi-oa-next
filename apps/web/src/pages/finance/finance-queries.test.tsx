@@ -144,9 +144,9 @@ describe('店铺提现的店铺列表', () => {
     expect(screen.getByText('已打开店铺')).toBeTruthy();
     expect(screen.getByText('60%')).toBeTruthy();
     expect(screen.getByText(/已加入 120 家店铺/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('登录状态'), { target: { value: 'expired' } });
+    fireEvent.change(screen.getByLabelText('筛选本机登录态'), { target: { value: 'expired' } });
     await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ loginState: 'expired', page: 1 })));
-    fireEvent.change(screen.getByLabelText('负责电脑'), { target: { value: 'none' } });
+    fireEvent.change(screen.getByLabelText('按负责电脑筛选'), { target: { value: 'none' } });
     await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ deviceId: 'none' })));
     fireEvent.click(screen.getByRole('button', { name: /平台/ }));
     await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'platform_asc' })));

@@ -11,6 +11,8 @@ import {
   ResourceRecord, SessionAuditLog, SessionDevice, SessionRemoteDevice, SessionRemoteSession, SessionRemoteSignal, SessionShop, User,
 } from '../entities';
 
+import { requiresScopedAgentUpgrade } from './session.service';
+
 const WORKSPACE = 'finance_withdrawal';
 const ONLINE_MS = 90_000;
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
@@ -49,6 +51,9 @@ const fmtDuration = (sec: number) => (sec >= 60 ? `${Math.floor(sec / 60)}分${s
  */
 @Injectable()
 export class RemoteAssistService {
+  protected readonly workspace: string = WORKSPACE;
+  protected readonly manageKey: string = SPECIAL_PERMISSIONS.financeSessionManage;
+  protected readonly remoteKey: string = SPECIAL_PERMISSIONS.financeSessionRemote;
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   /** 测试用：可以替换时钟 */
@@ -56,11 +61,12 @@ export class RemoteAssistService {
   private now() { return this.clock(); }
 
   private can(user: AuthUser, key: string) { return createChecker(user.permissions)(key); }
-  private needRemote(user: AuthUser) { if (!this.can(user, SPECIAL_PERMISSIONS.financeSessionRemote)) throw new ForbiddenException('没有发起远程协助的权限'); }
-  private needManage(user: AuthUser) { if (!this.can(user, SPECIAL_PERMISSIONS.financeSessionManage)) throw new ForbiddenException('没有管理店铺登录和授权电脑的权限'); }
+  private needRemote(user: AuthUser) { if (!this.can(user, this.remoteKey)) throw new ForbiddenException('没有发起远程协助的权限'); }
+  private needManage(user: AuthUser) { if (!this.can(user, this.manageKey)) throw new ForbiddenException('没有管理店铺登录和授权电脑的权限'); }
 
-  private async audit(em: EntityManager, companyId: number, eventType: string, summary: string, o: { actorId?: number | null; deviceId?: number | null; storeId?: number | null } = {}) {
-    await em.insert(SessionAuditLog, { companyId, eventType, summary: summary.slice(0, 500), actorId: o.actorId ?? null, deviceId: o.deviceId ?? null, storeId: o.storeId ?? null });
+  private async audit(em: EntityManager, companyId: number, eventType: string, summary: string, o: { actorId?: number | null; deviceId?: number | null; storeId?: number | null; shopId?: number } = {}) {
+    const shop = o.shopId ? await em.findOne(SessionShop, { where: { id: o.shopId, companyId }, select: ['id', 'workspace'] }) : null;
+    await em.insert(SessionAuditLog, { companyId, workspace: shop?.workspace ?? null, eventType, summary: summary.slice(0, 500), actorId: o.actorId ?? null, deviceId: o.deviceId ?? null, storeId: o.storeId ?? null });
   }
 
   private async nameMaps(em: EntityManager, companyId: number, rows: SessionRemoteSession[]) {
@@ -89,7 +95,7 @@ export class RemoteAssistService {
     const n = await this.nameMaps(em, s.companyId, [s]);
     const sec = this.durationSec({ acceptedAt: s.acceptedAt, endedAt: at });
     const started = s.acceptedAt ? `时长 ${fmtDuration(sec)}` : '未开始';
-    await this.audit(em, s.companyId, 'remote_ended', `远程协助结束：${n.user(s.requestedBy)} 在电脑「${n.device(s.deviceId)}」${REMOTE_MODE_LABEL[s.mode]}店铺「${n.store(s.storeId)}」，${started}，结果：${REMOTE_END_REASON_LABEL[reason] ?? reason}${o.note ? `（${o.note.slice(0, 80)}）` : ''}`, { actorId: o.actorId ?? s.requestedBy, deviceId: s.deviceId, storeId: s.storeId });
+    await this.audit(em, s.companyId, 'remote_ended', `远程协助结束：${n.user(s.requestedBy)} 在电脑「${n.device(s.deviceId)}」${REMOTE_MODE_LABEL[s.mode]}店铺「${n.store(s.storeId)}」，${started}，结果：${REMOTE_END_REASON_LABEL[reason] ?? reason}${o.note ? `（${o.note.slice(0, 80)}）` : ''}`, { actorId: o.actorId ?? s.requestedBy, deviceId: s.deviceId, storeId: s.storeId, shopId: s.shopId });
     return true;
   }
 
@@ -109,6 +115,7 @@ export class RemoteAssistService {
       else if (!dev || dev.status !== 'active') why = 'device_revoked';
       else if (!cfg?.enabled || (s.mode === 'control' && !cfg.allowControl)) why = 'device_disabled';
       else if (!shop || shop.status !== 'active' || shop.deviceId !== s.deviceId) why = 'shop_changed';
+      else if (requiresScopedAgentUpgrade(shop.workspace, dev.agentVersion)) why = 'agent_lost';
       else if (s.status === 'requested' && s.deadlineAt.getTime() <= now) why = 'no_response';
       else if (s.status === 'active' && s.expiresAt && s.expiresAt.getTime() <= now) why = 'expired';
       else if (s.status === 'active' && s.agentSeenAt && now - s.agentSeenAt.getTime() > REMOTE_LIMITS.agentLostSeconds * 1000) why = 'agent_lost';
@@ -120,7 +127,12 @@ export class RemoteAssistService {
   private async load(em: EntityManager, companyId: number, id: number) {
     const s = await em.findOne(SessionRemoteSession, { where: { id, companyId } });
     if (!s) throw new NotFoundException('远程协助记录不存在');
+    await this.assertWorkspace(em, s);
     return s;
+  }
+
+  private async assertWorkspace(em: EntityManager, session: SessionRemoteSession) {
+    if (!await em.exists(SessionShop, { where: { id: session.shopId, companyId: session.companyId, workspace: this.workspace } })) throw new NotFoundException('远程协助不在当前工作区');
   }
 
   // ================= 网页端 =================
@@ -133,8 +145,8 @@ export class RemoteAssistService {
     return {
       globalDisabled: remoteGloballyDisabled(),
       iceConfigured: buildIceServers(0, 60).length > 0,
-      canManage: this.can(user, SPECIAL_PERMISSIONS.financeSessionManage),
-      canRemote: this.can(user, SPECIAL_PERMISSIONS.financeSessionRemote),
+      canManage: this.can(user, this.manageKey),
+      canRemote: this.can(user, this.remoteKey),
       limits: { minMinutes: REMOTE_LIMITS.minMinutes, hardCapMinutes: REMOTE_LIMITS.hardCapMinutes },
       devices: devs.map((d) => { const c = cfgs.get(d.id); return { deviceId: d.id, enabled: !!c?.enabled, allowControl: !!c?.enabled && !!c.allowControl, maxMinutes: c?.maxMinutes ?? REMOTE_LIMITS.defaultMinutes }; }),
     };
@@ -177,7 +189,7 @@ export class RemoteAssistService {
   async shopStates(user: AuthUser) {
     const em = this.dataSource.manager;
     await this.sweep(user.companyId);
-    const shops = await em.find(SessionShop, { where: { companyId: user.companyId, workspace: WORKSPACE, status: 'active' } });
+    const shops = await em.find(SessionShop, { where: { companyId: user.companyId, workspace: this.workspace, status: 'active' } });
     const devIds = [...new Set(shops.map((s) => s.deviceId).filter((x): x is number => !!x))];
     const devs = new Map((devIds.length ? await em.find(SessionDevice, { where: { companyId: user.companyId, id: In(devIds) } }) : []).map((d) => [d.id, d]));
     const cfgs = new Map((devIds.length ? await em.find(SessionRemoteDevice, { where: { companyId: user.companyId, deviceId: In(devIds) } }) : []).map((c) => [c.deviceId, c]));
@@ -186,13 +198,13 @@ export class RemoteAssistService {
     const liveByShop = new Map(live.map((s) => [s.shopId, s]));
     const killed = remoteGloballyDisabled();
     return {
-      canRemote: this.can(user, SPECIAL_PERMISSIONS.financeSessionRemote),
+      canRemote: this.can(user, this.remoteKey),
       globalDisabled: killed,
       shops: shops.filter((s) => s.deviceId).map((s) => {
         const d = devs.get(s.deviceId!), c = cfgs.get(s.deviceId!), l = liveByShop.get(s.id);
         return {
           shopId: s.id,
-          remoteEnabled: !killed && !!c?.enabled && d?.status === 'active',
+          remoteEnabled: !killed && !!c?.enabled && d?.status === 'active' && !requiresScopedAgentUpgrade(s.workspace, d.agentVersion),
           allowControl: !!c?.enabled && !!c.allowControl,
           maxMinutes: c?.maxMinutes ?? REMOTE_LIMITS.defaultMinutes,
           deviceOnline: !!d && d.status === 'active' && !!d.lastSeenAt && this.now().getTime() - d.lastSeenAt.getTime() < ONLINE_MS,
@@ -210,12 +222,13 @@ export class RemoteAssistService {
     if (reason.length < REMOTE_LIMITS.reasonMin || reason.length > REMOTE_LIMITS.reasonMax) throw new BadRequestException(`请填写事由（${REMOTE_LIMITS.reasonMin} 到 ${REMOTE_LIMITS.reasonMax} 字），会记入操作日志`);
     if (remoteGloballyDisabled()) throw new ConflictException('管理员已关闭远程协助');
     return this.dataSource.transaction(async (em) => {
-      const shop = await em.findOne(SessionShop, { where: { id: shopId, companyId: user.companyId, workspace: WORKSPACE, status: 'active' }, lock: { mode: 'pessimistic_write' } });
+      const shop = await em.findOne(SessionShop, { where: { id: shopId, companyId: user.companyId, workspace: this.workspace, status: 'active' }, lock: { mode: 'pessimistic_write' } });
       if (!shop) throw new NotFoundException('店铺不在列表里');
       await this.sweep(user.companyId, em);
       if (!shop.deviceId) throw new BadRequestException('这家店铺还没有分配负责电脑');
       const dev = await em.findOne(SessionDevice, { where: { id: shop.deviceId, companyId: user.companyId } });
       if (!dev || dev.status !== 'active') throw new BadRequestException('负责电脑已撤销');
+      if (requiresScopedAgentUpgrade(shop.workspace, dev.agentVersion)) throw new ConflictException('公司店铺维护需要 Windows 助手 1.1.1 或以上版本，请先升级负责电脑');
       const cfg = await em.findOne(SessionRemoteDevice, { where: { deviceId: dev.id, companyId: user.companyId } });
       if (!cfg?.enabled) throw new ForbiddenException(`电脑「${dev.name}」没有开启远程协助，请联系管理员在“授权电脑”里开启`);
       if (mode === 'control' && !cfg.allowControl) throw new ForbiddenException(`电脑「${dev.name}」只允许观看，不允许远程操作`);
@@ -229,7 +242,7 @@ export class RemoteAssistService {
       } as never);
       const id = Number(ins.identifiers[0].id);
       const store = (await em.findOne(ResourceRecord, { where: { id: shop.storeId, companyId: user.companyId, type: 'stores' }, select: ['id', 'title'] }))?.title ?? `#${shop.storeId}`;
-      await this.audit(em, user.companyId, 'remote_requested', `申请远程协助：电脑「${dev.name}」上的店铺「${store}」，${REMOTE_MODE_LABEL[mode]}，事由：${reason}`, { actorId: user.id, deviceId: dev.id, storeId: shop.storeId });
+      await this.audit(em, user.companyId, 'remote_requested', `申请远程协助：电脑「${dev.name}」上的店铺「${store}」，${REMOTE_MODE_LABEL[mode]}，事由：${reason}`, { actorId: user.id, deviceId: dev.id, storeId: shop.storeId, shopId: shop.id });
       return { id, status: 'requested' as const, waitSeconds: REMOTE_LIMITS.requestWaitSeconds };
     });
   }
@@ -253,7 +266,7 @@ export class RemoteAssistService {
     this.needRemoteOrManage(user);
     await this.sweep(user.companyId);
     const s = await this.load(this.dataSource.manager, user.companyId, id);
-    if (s.requestedBy !== user.id && !this.can(user, SPECIAL_PERMISSIONS.financeSessionManage)) throw new ForbiddenException('这不是你发起的远程协助');
+    if (s.requestedBy !== user.id && !this.can(user, this.manageKey)) throw new ForbiddenException('这不是你发起的远程协助');
     const n = await this.nameMaps(this.dataSource.manager, user.companyId, [s]);
     const base = this.view(s, n, user);
     const ice = base.mine && s.status === 'active' && s.expiresAt ? buildIceServers(s.id, Math.ceil((s.expiresAt.getTime() - this.now().getTime()) / 1000)) : undefined;
@@ -261,7 +274,7 @@ export class RemoteAssistService {
   }
 
   private needRemoteOrManage(user: AuthUser) {
-    if (!this.can(user, SPECIAL_PERMISSIONS.financeSessionRemote) && !this.can(user, SPECIAL_PERMISSIONS.financeSessionManage)) throw new ForbiddenException('没有远程协助的权限');
+    if (!this.can(user, this.remoteKey) && !this.can(user, this.manageKey)) throw new ForbiddenException('没有远程协助的权限');
   }
 
   /** 申请人才能收发这场协助的信令 */
@@ -304,6 +317,7 @@ export class RemoteAssistService {
       this.needRemote(user);
       const s = await em.findOne(SessionRemoteSession, { where: { id, companyId: user.companyId }, lock: { mode: 'pessimistic_write' } });
       if (!s) throw new NotFoundException('远程协助记录不存在');
+      await this.assertWorkspace(em, s);
       if (s.requestedBy !== user.id) throw new ForbiddenException('这不是你发起的远程协助');
       if (s.status !== 'active' || !s.acceptedAt || !s.expiresAt) throw new ConflictException('这场远程协助不在进行中');
       const cap = s.acceptedAt.getTime() + REMOTE_LIMITS.hardCapMinutes * MIN;
@@ -312,7 +326,7 @@ export class RemoteAssistService {
       s.extendCount += 1;
       await em.update(SessionRemoteSession, { id }, { expiresAt: s.expiresAt, extendCount: s.extendCount });
       const n = await this.nameMaps(em, user.companyId, [s]);
-      await this.audit(em, user.companyId, 'remote_extended', `延长远程协助：${n.user(s.requestedBy)} 在电脑「${n.device(s.deviceId)}」协助店铺「${n.store(s.storeId)}」，延长 ${REMOTE_LIMITS.extendMinutes} 分钟`, { actorId: user.id, deviceId: s.deviceId, storeId: s.storeId });
+      await this.audit(em, user.companyId, 'remote_extended', `延长远程协助：${n.user(s.requestedBy)} 在电脑「${n.device(s.deviceId)}」协助店铺「${n.store(s.storeId)}」，延长 ${REMOTE_LIMITS.extendMinutes} 分钟`, { actorId: user.id, deviceId: s.deviceId, storeId: s.storeId, shopId: s.shopId });
       return this.view(s, n, user);
     });
   }
@@ -323,8 +337,9 @@ export class RemoteAssistService {
       this.needRemoteOrManage(user);
       const s = await em.findOne(SessionRemoteSession, { where: { id, companyId: user.companyId }, lock: { mode: 'pessimistic_write' } });
       if (!s) throw new NotFoundException('远程协助记录不存在');
+      await this.assertWorkspace(em, s);
       const mine = s.requestedBy === user.id;
-      if (!mine && !this.can(user, SPECIAL_PERMISSIONS.financeSessionManage)) throw new ForbiddenException('这不是你发起的远程协助');
+      if (!mine && !this.can(user, this.manageKey)) throw new ForbiddenException('这不是你发起的远程协助');
       if (mine) this.needRemote(user);
       if (s.status !== 'ended') await this.finish(em, s, mine ? (s.status === 'requested' ? 'cancelled' : 'completed') : 'ended_by_admin', { actorId: user.id });
       return { ok: true };
@@ -335,8 +350,12 @@ export class RemoteAssistService {
   async history(user: AuthUser) {
     this.needRemoteOrManage(user);
     await this.sweep(user.companyId);
-    const all = this.can(user, SPECIAL_PERMISSIONS.financeSessionManage);
-    const rows = await this.dataSource.manager.find(SessionRemoteSession, { where: { companyId: user.companyId, ...(all ? {} : { requestedBy: user.id }) }, order: { id: 'DESC' }, take: 100 });
+    const all = this.can(user, this.manageKey);
+    const query = this.dataSource.manager.createQueryBuilder(SessionRemoteSession, 's')
+      .innerJoin(SessionShop, 'shop', 'shop.id = s.shopId AND shop.companyId = s.companyId AND shop.workspace = :workspace', { workspace: this.workspace })
+      .where('s.companyId = :companyId', { companyId: user.companyId });
+    if (!all) query.andWhere('s.requestedBy = :userId', { userId: user.id });
+    const rows = await query.orderBy('s.id', 'DESC').limit(100).getMany();
     const n = await this.nameMaps(this.dataSource.manager, user.companyId, rows);
     return rows.map((s) => ({
       id: s.id, storeName: n.store(s.storeId), deviceName: n.device(s.deviceId), requestedByName: n.user(s.requestedBy), mode: s.mode, reason: s.reason, status: s.status,
@@ -371,9 +390,10 @@ export class RemoteAssistService {
     if (!s) return { enabled: true, session: null };
     const n = await this.nameMaps(em, d.companyId, [s]);
     const platform = String((await em.findOne(ResourceRecord, { where: { id: s.storeId, companyId: d.companyId, type: 'stores' } }))?.data.platform ?? '');
+    const shop = await em.findOne(SessionShop, { where: { id: s.shopId, companyId: d.companyId } });
     return {
       enabled: true,
-      session: { id: s.id, mode: s.mode, reason: s.reason, requestedByName: n.user(s.requestedBy), store: { id: s.storeId, name: n.store(s.storeId), platform }, maxMinutes: Math.min(cfg.maxMinutes, REMOTE_LIMITS.hardCapMinutes), waitSeconds: Math.max(0, Math.round((s.deadlineAt.getTime() - this.now().getTime()) / 1000)) },
+      session: { id: s.id, profileKey: `${d.companyId}:${shop?.workspace ?? WORKSPACE}:${s.storeId}`, mode: s.mode, reason: s.reason, requestedByName: n.user(s.requestedBy), store: { id: s.storeId, name: n.store(s.storeId), platform }, maxMinutes: Math.min(cfg.maxMinutes, REMOTE_LIMITS.hardCapMinutes), waitSeconds: Math.max(0, Math.round((s.deadlineAt.getTime() - this.now().getTime()) / 1000)) },
     };
   }
 
@@ -391,7 +411,7 @@ export class RemoteAssistService {
       const expiresAt = new Date(now.getTime() + Math.min(cfg.maxMinutes, REMOTE_LIMITS.hardCapMinutes) * MIN);
       await em.update(SessionRemoteSession, { id }, { status: 'active', acceptedAt: now, expiresAt, viewerSeenAt: now, agentSeenAt: now });
       const n = await this.nameMaps(em, d.companyId, [s]);
-      await this.audit(em, d.companyId, 'remote_started', `远程协助开始：${n.user(s.requestedBy)} ${REMOTE_MODE_LABEL[s.mode]}电脑「${d.name}」上的店铺「${n.store(s.storeId)}」，最长 ${Math.min(cfg.maxMinutes, REMOTE_LIMITS.hardCapMinutes)} 分钟，事由：${s.reason}`, { actorId: s.requestedBy, deviceId: d.id, storeId: s.storeId });
+      await this.audit(em, d.companyId, 'remote_started', `远程协助开始：${n.user(s.requestedBy)} ${REMOTE_MODE_LABEL[s.mode]}电脑「${d.name}」上的店铺「${n.store(s.storeId)}」，最长 ${Math.min(cfg.maxMinutes, REMOTE_LIMITS.hardCapMinutes)} 分钟，事由：${s.reason}`, { actorId: s.requestedBy, deviceId: d.id, storeId: s.storeId, shopId: s.shopId });
       return { id, mode: s.mode, expiresAt, iceServers: buildIceServers(id, Math.min(cfg.maxMinutes, REMOTE_LIMITS.hardCapMinutes) * 60) };
     });
   }
@@ -433,4 +453,12 @@ export class RemoteAssistService {
       return { ok: true };
     });
   }
+}
+
+@Injectable()
+export class MaintenanceRemoteAssistService extends RemoteAssistService {
+  protected readonly workspace = 'company_store_maintenance';
+  protected readonly manageKey = SPECIAL_PERMISSIONS.companyStoreMaintenanceManage;
+  protected readonly remoteKey = SPECIAL_PERMISSIONS.companyStoreMaintenanceRemote;
+  constructor(@InjectDataSource() ds: DataSource) { super(ds); }
 }
