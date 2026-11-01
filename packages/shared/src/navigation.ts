@@ -7,6 +7,7 @@
  */
 
 import { DOC_TYPES } from './finance-documents';
+import type { DeskPosition } from './workspace';
 import { RESOURCE_DEFS, RESOURCE_VIEWS } from './resources';
 
 export const OPENING_PREPAYMENT_PERMISSION = 'finance.docs.opening-prepayment';
@@ -317,6 +318,36 @@ export function visibleSections(
     result.push({ ...section, pages, landingPath: pages[0].path });
   }
   return result;
+}
+
+/** 用服务端已授权的岗位目录展开工作台菜单；保留原路由及权限键。null表示目录未加载成功，保留原入口作为恢复路径。 */
+export function withDeskNavigation(sections: VisibleSection[], positions: readonly DeskPosition[] | null): VisibleSection[] {
+  if (positions === null) return sections;
+  return sections.map((section) => {
+    if (section.id !== 'workbench') return section;
+    const desk = section.pages.find((p) => p.id === 'desk');
+    if (!desk) return section; // 没有岗位工作台权限时，不因目录可读而增加入口。
+    const groups = new Map<string, NavPage[]>();
+    for (const position of positions) {
+      const group = position.departmentPath || '未分配部门';
+      const pages = groups.get(group) ?? [];
+      pages.push({ ...desk, id: `desk-${position.id}`, label: `${position.name}工作台`,
+        path: `${desk.path}?position=${position.id}`, group,
+        description: position.assigned ? (position.isPrimary ? '我的主岗位' : '我的岗位') : undefined });
+      groups.set(group, pages);
+    }
+    const common = section.pages.filter((p) => p.id !== 'desk').map((p) => ({ ...p, group: p.group ?? '常用工作台' }));
+    const pages = [...common, ...Array.from(groups.values()).flat()];
+    return { ...section, pages, landingPath: pages[0]?.path ?? section.landingPath };
+  }).filter((section) => section.pages.length > 0);
+}
+
+/** 岗位共用同一路由，必须同时核对查询参数，不能把所有岗位都高亮。 */
+export function isNavPathCurrent(path: string, pathname: string, search = ''): boolean {
+  const [base, query] = path.split('?');
+  if (pathname !== base && !pathname.startsWith(`${base}/`)) return false;
+  const current = new URLSearchParams(search);
+  return !query || Array.from(new URLSearchParams(query)).every(([key, value]) => current.get(key) === value);
 }
 
 export function findPageByPath(pathname: string): { section: NavSection; page: NavPage } | undefined {
