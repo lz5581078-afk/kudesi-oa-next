@@ -17,14 +17,20 @@ vi.mock('./financeApi', () => ({
 }));
 vi.mock('../../resources/api', async (orig) => ({ ...(await orig<typeof import('../../resources/api')>()), resourceApi: { list: vi.fn(), get: vi.fn() } }));
 const fa = vi.mocked(financeApi);
-beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); });
-afterEach(cleanup);
+// 月初“今天”和“本月”的日期区间相同，不能依赖执行当天来验证五个独立区间。
+beforeEach(() => { vi.setSystemTime(new Date('2026-10-15T04:00:00Z')); vi.clearAllMocks(); window.localStorage.clear(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const emptyList = { total: 0, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: [] };
 
 describe('日期快捷区间', () => {
   it('今天/近7天/本月/上月/全部 都能被识别回来', () => {
     for (const p of DATE_PRESETS) { const [a, b] = p.range(); expect(activePreset(a, b)).toBe(p.key); }
+  });
+  it('月初相同区间按现有规则识别为今天', () => {
+    vi.setSystemTime(new Date('2026-11-01T04:00:00Z'));
+    const [from, to] = DATE_PRESETS.find(p => p.key === 'month')!.range();
+    expect(activePreset(from, to)).toBe('today');
   });
 });
 

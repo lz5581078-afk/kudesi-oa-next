@@ -158,6 +158,16 @@ describe('流程详情', () => {
     expect(screen.getByText('全部操作记录（2）')).toBeTruthy();
     expect(screen.getByText(/我出差/)).toBeTruthy();
   });
+  it('续办表单显示服务器保留的原填写值，同节点刷新不覆盖新编辑', async () => {
+    const detail = runDetail({ initialForm: { note: '原仓库备注' }, me: { ...runDetail().me, canPass: true, stepFields: [{ key: 'note', label: '仓库备注', type: 'text', group: '基础' }] } });
+    f.run.mockResolvedValue(detail as never);
+    render(<RunDetail id={5} onClose={() => undefined} onChanged={() => undefined} />);
+    const field = await screen.findByDisplayValue('原仓库备注');
+    fireEvent.change(field, { target: { value: '续办补充备注' } });
+    fireEvent.click(screen.getByText('刷新'));
+    await waitFor(() => expect(f.run).toHaveBeenCalledTimes(2));
+    expect(screen.getByDisplayValue('续办补充备注')).toBeTruthy();
+  });
   it('复制链接；Esc 关闭；办结的流程有结果横幅', async () => {
     f.run.mockResolvedValue(runDetail({ status: 'completed', activeStep: null, finishedAt: '2026-01-03T00:00:00Z' }) as never);
     const writeText = vi.fn().mockResolvedValue(undefined);

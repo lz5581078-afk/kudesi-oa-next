@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { importingMissingLegacyReason } from '../migration/legacy-state-context';
 import { EntityManager } from 'typeorm';
 import { addDays, normalizePhone, normalizeReconcileDay } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -141,13 +142,20 @@ function selfMediaStores(ctx: BeforeSaveContext) {
 async function abnormalReason(ctx: BeforeSaveContext, lib: string) {
   const typed = typeof ctx.data.abnormalReasonText === 'string' ? ctx.data.abnormalReasonText.trim() : '';
   ctx.data.abnormalReasonText = null;
-  if (ctx.status !== 'abnormal') return;
+  if (ctx.status !== 'abnormal') {
+    if (ctx.existing?.status === 'abnormal' && ctx.existing.data.migrationNotice) ctx.data.migrationNotice = null;
+    return;
+  }
   if (typed) {
     const hit = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, lib, typed);
     const rec = hit ?? (await ctx.host.createRecord(ctx.em, ctx.user, lib, { reason: typed.slice(0, 100) }, '异常原因自动记入库'));
     ctx.data.abnormalReason = rec.id;
   }
-  if (ctx.existing?.status !== 'abnormal' && !ctx.data.abnormalReason) throw new BadRequestException('改为异常必须填写异常原因');
+  if (ctx.existing?.status !== 'abnormal' && !ctx.data.abnormalReason) {
+    if (!ctx.existing && importingMissingLegacyReason(ctx.em, ctx.user.companyId, lib)) ctx.data.migrationNotice = '旧系统已标记异常但未填写原因；迁移保留原状态，请补充真实原因。';
+    else throw new BadRequestException('改为异常必须填写异常原因');
+  }
+  if (ctx.data.abnormalReason && ctx.existing?.data.migrationNotice) ctx.data.migrationNotice = null;
 }
 
 /** 店铺领取：预留/已领取/推广限制必须有运营人；推广限制必须有解除日；批量只给运营人时，公共店铺自动变已领取。 */
@@ -266,9 +274,10 @@ export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Prom
       return;
     }
     case 'licenses':
+      if (!ctx.existing && ctx.em.queryRunner?.data.legacyImport && ctx.em.queryRunner.data.legacyLicenseLocationNotice) ctx.data.migrationNotice = ctx.em.queryRunner.data.legacyLicenseLocationNotice;
       checkReconcileDay(ctx.data);
       applySealRules(ctx.data, ctx.existing);
-      syncLocations(ctx.data, ctx.existing);
+      if (!isLegacyImport(ctx)) syncLocations(ctx.data, ctx.existing);
       custodyRules(ctx.data);
       licenseFlags(ctx);
       return;

@@ -120,4 +120,18 @@ function nonnegativeSortRanks(rows) {
   return new Map(sorted.map((row,index) => [String(row.id),index]));
 }
 
-module.exports = { nonnegativeSortRanks, buildUnitCatalog, productUnitFields, composedFromLinks, normCode, UNIT_TABLES };
+/** 组合分类是独立字典，不是商品档案分类；保留它自己的父级和来源身份。 */
+function bundleCategoryRecords(tables) {
+  const rows = (tables.finance_product_code_dictionary || []).filter(r => r.dictionary_type === 'bundle_category');
+  const ids = new Set(rows.map(r => String(r.id))), ranks = nonnegativeSortRanks(rows);
+  return rows.map(r => {
+    if (r.parent_id && !ids.has(String(r.parent_id))) throw new Error('旧组合分类父级不在同类字典中');
+    if (!['active', 'inactive'].includes(r.status)) throw new Error('旧组合分类状态无法无损对应');
+    return { type: 'finance-categories', id: `bundle-dict:${r.id}`, status: r.status, data: {
+      archiveType: 'bundle', name: r.item_name, code: r.item_code, sort: ranks.get(String(r.id)),
+      ...(r.parent_id ? { parentId: { legacyRef: { type: 'finance-categories', id: `bundle-dict:${r.parent_id}` } } } : {}),
+    } };
+  });
+}
+
+module.exports = { bundleCategoryRecords, nonnegativeSortRanks, buildUnitCatalog, productUnitFields, composedFromLinks, normCode, UNIT_TABLES };

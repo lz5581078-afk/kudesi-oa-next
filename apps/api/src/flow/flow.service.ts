@@ -687,7 +687,7 @@ export class FlowService {
       await em.update(FlowRun, { id: run.id }, { status: 'cancelled' });
       try { await adapter.validateStart?.({ em, user, payload, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
       // 申请单批次标记是业务痕迹（下划线开头），重新提交不能丢，否则退回又提交的规格会从申请单里掉出去
-      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => BATCH_MARKS.includes(k)));
+      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => BATCH_MARKS.includes(k) || (run.templateKey === 'sku-batch-apply' && k === '_legacyWarehouseDraft')));
       run.payload = { ...payload, ...kept };
       run.title = await adapter.title(em, run.companyId, payload);
       await em.save(FlowRun, run);
@@ -895,6 +895,9 @@ export class FlowService {
       requesterId: run.requesterId, requesterName: names.get(run.requesterId) ?? '', createdAt: run.createdAt, finishedAt: run.finishedAt, dueAt: run.dueAt,
       payload: Object.fromEntries(Object.entries(run.payload).filter(([k]) => !k.startsWith('_') && !hidden.has(k))), refLabels,
       files: fileInfos, fields: t.fields.filter((f) => !hidden.has(f.key)), stepFields: visibleStepFields,
+      // Unconfirmed migrated warehouse input, scoped to the current handler.
+      // It contains mapped material IDs/quantities only, never old cost snapshots.
+      initialForm: mine && run.templateKey === 'sku-batch-apply' && active?.stepKey === 'warehouse' ? (run.payload._legacyWarehouseDraft as Record<string, unknown> | undefined) : undefined,
       activeSteps: activeAll.length > 1 ? activeAll.map((a) => ({ id: a.id, key: a.stepKey, name: a.stepName, recipients: a.recipients.map((u) => ({ id: u, name: names.get(u) ?? '' })), dueAt: a.dueAt })) : [],
       activeStep: active ? { id: active.id, key: active.stepKey, name: active.stepName, type: active.stepType, enteredVia: active.enteredVia, dueAt: active.dueAt, recipients: active.recipients.map((u) => ({ id: u, name: names.get(u) ?? '' })) } : null,
       steps: steps.map((s) => ({ id: s.id, seq: s.seq, key: s.stepKey, name: s.stepName, type: s.stepType, status: s.status, action: s.action, comment: s.comment, form: s.form && stepHidden.get(s.stepKey)?.size ? this.without(s.form, stepHidden.get(s.stepKey)!) : s.form, formRefLabels: stepRefLabels[s.id] ?? {}, enteredVia: s.enteredVia, enteredAt: s.enteredAt, finishedAt: s.finishedAt, dueAt: s.dueAt, handledByName: s.handledBy ? names.get(s.handledBy) ?? '' : null, recipients: s.recipients.map((u) => names.get(u) ?? '') })),

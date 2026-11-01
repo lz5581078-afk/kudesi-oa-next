@@ -14,6 +14,7 @@ export interface RunStep {
   formRefLabels: Record<string, string>; enteredVia: string; enteredAt: string; finishedAt: string | null; dueAt: string | null; handledByName: string | null; recipients: string[];
 }
 export interface RunDetailDto {
+  initialForm?: Record<string, unknown>;
   id: number; templateKey: string; templateLabel: string; title: string; status: string; revision: number; requesterId: number; requesterName: string; createdAt: string; finishedAt: string | null; dueAt: string | null;
   payload: Record<string, unknown>; refLabels: Record<string, string>; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; files?: Record<number, { id: number; name: string; mime: string; size: number }>;
   activeSteps?: Array<{ id: number; key: string; name: string; recipients: Array<{ id: number; name: string }>; dueAt: string | null }>;

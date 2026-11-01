@@ -11,6 +11,11 @@ import { encodeLegacyPassword } from '../auth/password';
 import { aliasCode } from '../resources/base-code-support';
 import { LegacyArchive, LegacyRecord, LegacyRef } from './protocol';
 import { importLive, liveHashGroups, LIVE_TARGET_TABLE } from './live-import';
+import type { CryptoService } from '../common/crypto.service';
+import { preserveSourceRow } from './source-rows';
+import { withCostHistory } from './cost-history-context';
+import { importWorkflows, workflowHashGroups, WORKFLOW_TARGET_TABLE } from './workflow-import';
+import { withMissingLegacyReason } from './legacy-state-context';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -30,7 +35,7 @@ export function safeFailure(e: unknown): string {
 }
 
 /** 无后台服务/外部worker；整个批次与对照账本同一事务，试跑完整回滚。 */
-export async function runLegacyImport(ds: DataSource, resources: ResourcesService, files: FilesService, source: LegacyArchive, opts: { companyId: number; actorId: number; expectedName: string; apply: boolean; expectedReport?: ImportResult; prepareReport?: (result:ImportResult)=>void }): Promise<ImportResult> {
+export async function runLegacyImport(ds: DataSource, resources: ResourcesService, files: FilesService, source: LegacyArchive, opts: { companyId: number; actorId: number; expectedName: string; apply: boolean; preserveCostHistory?: boolean; preserveLegacyStates?: boolean; sourceRowsCrypto?: CryptoService; expectedReport?: ImportResult; prepareReport?: (result:ImportResult)=>void }): Promise<ImportResult> {
   for(const [rows,parent] of [[source.departments,'parent_department_id'],[source.positions,'supervisor_position_id'],[source.employees,'manager_id']] as Array<[Array<Record<string,any>>,string]>) {
     const parents=new Map(rows.map(r=>[String(r.id),r[parent]?String(r[parent]):null]));
     for(const r of rows){const seen=new Set<string>();let id:string|null=String(r.id);while(id){if(seen.has(id))throw new MigrationError('来源组织引用存在循环，不能直接迁入');seen.add(id);id=parents.get(id)??null;}}
@@ -44,10 +49,10 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   const orgCreated=new Set<string>();
   const resourceCreated=new Set<number>();
   const key = (type: string, id: unknown) => `${type}:${String(id)}`;
-  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],['position_duty',source.positionDuties??[]],['comp_record',source.compensationRecords??[]],...['resource'].map(t=>[t,source.records]),['link',source.links??[]],...liveHashGroups(source.live)] as Array<[string,Array<Record<string,any>>]>) {
+  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],['position_duty',source.positionDuties??[]],['comp_record',source.compensationRecords??[]],...['resource'].map(t=>[t,source.records]),['link',source.links??[]],...liveHashGroups(source.live),...workflowHashGroups(source.workflow)] as Array<[string,Array<Record<string,any>>]>) {
     for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
   }
-  out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[]}))).digest('hex');
+  out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{})}))).digest('hex');
   const count = (which: 'created' | 'reused', type: string) => { out[which][type] = (out[which][type] ?? 0) + 1; };
   const lookup = (type: string, id: unknown) => ids.get(key(type, id));
   const required = (type: string, id: unknown) => { const n = lookup(type, id); if (!n) throw new MissingRef(key(type, id)); return n; };
@@ -82,6 +87,11 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     const oldLinks: Array<{ source_key: string; target_type: string; target_id: number; source_hash: string }> = await em.query('SELECT source_key,target_type,target_id,source_hash FROM legacy_import_links WHERE source_system=? AND source_company_id=? AND company_id=?', [SOURCE, source.company.id, company.id]);
     for (const l of oldLinks) {
       if(hashes.has(l.source_key) && hashes.get(l.source_key)!==l.source_hash) throw new MigrationError('来源资料已变化，禁止复跑静默复用或覆盖；请先核对增量');
+      if (WORKFLOW_TARGET_TABLE[l.target_type]) {
+        const [row] = await em.query(`SELECT id FROM ${WORKFLOW_TARGET_TABLE[l.target_type]} WHERE id=? AND company_id=?`, [l.target_id, company.id]);
+        if (!row) throw new MigrationError('旧流程迁移账本引用失效，禁止自动补造');
+        ids.set(l.source_key, Number(l.target_id)); continue;
+      }
       if (LIVE_TARGET_TABLE[l.target_type]) {
         const [row] = await em.query(`SELECT id FROM ${LIVE_TARGET_TABLE[l.target_type]} WHERE id = ? AND company_id = ?`, [l.target_id, company.id]);
         if (!row) throw new MigrationError('迁移账本引用已失效，必须先核对，不能自动补造');
@@ -214,8 +224,30 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
                 }
               }
             }
+            if (r.sourceLocationOmission) {
+              const { row, location } = r.sourceLocationOmission;
+              if (!opts.preserveLegacyStates || !opts.sourceRowsCrypto || r.type !== 'licenses' || String(row.id) !== r.id || String(row.company_id) !== String(source.company.id) || String(row.location_id) !== String(location.id) || !location.company_id || String(location.company_id) === String(source.company.id) || location.code !== 'A-02' || data.locationId !== undefined || r.data.locationId !== undefined) throw new MigrationError('旧执照总位置核对证据不完整，禁止忽略关联');
+              await preserveSourceRow(em, opts.sourceRowsCrypto, { companyId: company.id, sourceCompanyId: source.company.id, table: 'business_licenses', key: r.id }, row);
+              await preserveSourceRow(em, opts.sourceRowsCrypto, { companyId: company.id, sourceCompanyId: source.company.id, table: 'license_location_omissions', key: r.id }, { id: r.id, company_id: source.company.id, location });
+              q.data.legacyLicenseLocationNotice = '旧总位置为其他公司的 A-02 默认引用，原始记录已留档；请核对空缺位置，已有分项位置按原记录保留。';
+            }
             q.data.legacyAliasName = r.aliasName; q.data.legacyNotices = r.notices;
-            if (!record) { record = await resources.importRecord(em, user, r.type, data, r.status); count('created', r.type); resourceCreated.add(record.id); }
+            if (!record) {
+              if (opts.preserveCostHistory && r.type === 'finance-product-costs') {
+                const raw = r.sourceCostRow;
+                const productRef = (r.data.productId as LegacyRef)?.legacyRef;
+                if (!opts.sourceRowsCrypto || !raw || String(raw.company_id) !== String(source.company.id) || String(raw.id) !== r.id || !productRef || productRef.type !== 'finance-products' || String(raw.product_id) !== productRef.id || !Number.isSafeInteger(data.productId)) throw new MigrationError('成本历史缺少可核对的原始行或商品关联');
+                if (yuanToPreciseCents(String(raw.unit_cost)) !== data.unitCost || String(raw.effective_from) !== data.effectiveFrom || String(raw.effective_to ?? '') !== String(data.effectiveTo ?? '')) throw new MigrationError('成本历史金额或生效日期与原始行不一致');
+                await preserveSourceRow(em, opts.sourceRowsCrypto, { companyId: company.id, sourceCompanyId: source.company.id, table: 'finance_product_archive_costs', key: r.id }, raw);
+                record = await withCostHistory(em, { companyId: company.id, productId: data.productId as number }, () => resources.importRecord(em, user, r.type, data, r.status));
+              } else if (opts.preserveLegacyStates && ['stores', 'phones'].includes(r.type) && r.status === 'abnormal' && !data.abnormalReason) {
+                const raw = r.sourceAbnormalRow;
+                if (!opts.sourceRowsCrypto || !raw || String(raw.company_id) !== String(source.company.id) || String(raw.id) !== r.id || raw.status !== 'abnormal' || String(raw.abnormal_reason ?? '').trim()) throw new MigrationError('旧异常状态缺少原始空原因记录，禁止伪造');
+                await preserveSourceRow(em, opts.sourceRowsCrypto, { companyId: company.id, sourceCompanyId: source.company.id, table: r.type === 'stores' ? 'stores' : 'phone_numbers', key: r.id }, raw);
+                record = await withMissingLegacyReason(em, { companyId: company.id, library: r.type === 'stores' ? 'store-abnormal-reasons' : 'phone-abnormal-reasons' }, () => resources.importRecord(em, user, r.type, data, r.status));
+              } else record = await resources.importRecord(em, user, r.type, data, r.status);
+              count('created', r.type); resourceCreated.add(record.id);
+            }
             else count('reused', r.type);
             if(r.type==='finance-product-sources'&&r.sourceUpdatedAt){
               const stamp=new Date(r.sourceUpdatedAt.replace(' ','T')+'+08:00');
@@ -230,7 +262,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
         } catch (e) {
           if (e instanceof MissingRef) next.push(r);
           else out.failures.push({ type: r.type, id: r.id, reason: safeFailure(e) });
-        } finally { delete q.data.legacyAliasName; delete q.data.legacyNotices; }
+        } finally { delete q.data.legacyAliasName; delete q.data.legacyNotices; delete q.data.legacyLicenseLocationNotice; }
       }
       pending = next;
       if (!progress) break;
@@ -312,6 +344,10 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     }
     // 旧直播管理数据：依赖员工与位置/自媒体/店铺/基础编码资料，所以放在资料之后；每行一个保存点，失败只影响这一行
     if (source.live) await importLive({ em, companyId: company.id, actorId: actor.id, lookup, register, count, savepoint, safeFailure, fail: (type, id, reason) => out.failures.push({ type, id, reason }), note: (type, id, reason) => out.excluded.push({ type, id, reason }) }, source.live);
+    if (source.workflow) {
+      if (!opts.sourceRowsCrypto) throw new MigrationError('流程历史导入必须提供目标库加密服务');
+      await importWorkflows({ em, crypto: opts.sourceRowsCrypto, companyId: company.id, actorId: actor.id, lookup, register, count, savepoint, safeFailure, fail: (type, id, reason) => out.failures.push({ type, id, reason }), note: (type, id, reason) => out.excluded.push({ type, id, reason }) }, source, source.workflow);
+    }
     // 旧库已归档的行：最后落成新系统的“已归档”（放在所有引用和文件写入之后，避免被“引用已归档”校验挡住）。
     for (const r of source.records) {
       if (!r.archive) continue;
@@ -341,6 +377,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       if(prior.sourceFingerprint!==out.sourceFingerprint || JSON.stringify(nonFiles(prior.created))!==JSON.stringify(nonFiles(out.created)) || JSON.stringify(nonFiles(prior.reused))!==JSON.stringify(nonFiles(out.reused)) || JSON.stringify(rowProblems(prior))!==JSON.stringify(rowProblems(out))) throw new MigrationError('本批结果与已核对试迁不一致，整批回滚');
     }
     opts.prepareReport?.(out);
+    if (opts.apply && source.workflow && out.failures.length) throw new MigrationError('流程续办或资料仍有失败，禁止正式写入，整批回滚');
     if (opts.apply) await q.commitTransaction(); else await q.rollbackTransaction();
     return out;
   } catch (e) { if (q.isTransactionActive) await q.rollbackTransaction();

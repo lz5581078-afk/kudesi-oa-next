@@ -303,7 +303,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'companyName',
     uniqueField: 'creditCode',
     tabsBy: 'category',
-    statuses: [NORMAL, ABNORMAL, CANCELLED, INACTIVE],
+    statuses: [NORMAL, { value: 'expiring', label: '即将到期', tone: 'warn' }, ABNORMAL, CANCELLED, INACTIVE],
     defaultStatus: 'normal',
     children: ['license-borrows', 'license-usages'],
     batch: ['status'],
@@ -323,6 +323,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       { type: 'archives', field: 'licenseId' },
     ],
     fields: [
+      text('migrationNotice', '迁移核对提示', '基础', { readonly: true }),
       select('category', '执照类别', '营业执照信息', o('operation:经营执照', 'ecommerce:电商执照'), { required: true, list: true }),
       text('licenseNo', '执照编号', '营业执照信息', { list: true, search: true }),
       text('companyName', '主体名称', '营业执照信息', { required: true, list: true, search: true }),
@@ -465,6 +466,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
     fields: [
       select('platform', '平台', '店铺基础信息', PLATFORMS, { required: true, list: true }),
+      text('migrationNotice', '迁移核对提示', '店铺基础信息', { readonly: true }),
       text('name', '店铺名', '店铺基础信息', { required: true, list: true, search: true }),
       text('storeNo', '店铺编号', '店铺基础信息', { list: true, search: true }),
       text('platformStoreId', '平台店铺 ID', '店铺基础信息', { list: true, search: true, maxLength: 255 }),
@@ -645,7 +647,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     uniqueField: 'number',
     tabsBy: 'usageType',
     filterBy: ['feeCycle'],
-    statuses: [NORMAL, ABNORMAL_R, { ...INACTIVE, label: '停止使用' }],
+    statuses: [NORMAL, { value: 'needs_recharge', label: '需充值', tone: 'warn' }, ABNORMAL_R, { ...INACTIVE, label: '停止使用' }],
     defaultStatus: 'normal',
     alerts: [{ field: 'nextRechargeAt', withinDays: 7, label: '7 天内需充值' }],
     related: [
@@ -659,6 +661,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       { key: 'number', label: '号码', type: 'phone', group: '基础信息', required: true, list: true, search: true },
       select('usageType', '手机号分类', '基础信息', o('company_kept:公司保存', 'personal_used:公司在使用', 'external_used:公司外人员使用', 'partner_used:合作手机号'), { aliases: ['使用类型'], required: true, list: true }),
+      text('migrationNotice', '迁移核对提示', '基础信息', { readonly: true }),
       text('certifiedName', '号码认证人', '基础信息', { list: true }),
       text('carrier', '运营商', '基础信息', { list: true, help: '新建时默认中国移动' }),
       { key: 'cardKind', label: '主子卡', type: 'text', group: '基础信息', readonly: true, list: true, help: '由“主卡”字段决定：没有主卡就是主卡，选了主卡就是子卡' },

@@ -105,6 +105,17 @@ describe('映射规则表', () => {
 
 
 describe('空库全量迁移的历史单位与排序', () => {
+  it('组合分类字典独立迁入，父级及状态保留，不和商品分类的数字ID合并', () => {
+    const records = mapping.bundleCategoryRecords({ finance_product_code_dictionary: [
+      { id: 92, dictionary_type: 'bundle_category', item_name: '组合根', item_code: 'ZH', status: 'active', sort_order: -1 },
+      { id: 102, parent_id: 92, dictionary_type: 'bundle_category', item_name: '组合叶', item_code: 'ZHY', status: 'inactive' },
+      { id: 93, dictionary_type: 'product_category' },
+    ] });
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({ id: 'bundle-dict:92', data: { archiveType: 'bundle', code: 'ZH', sort: 0 } });
+    expect(records[1]).toMatchObject({ status: 'inactive', data: { parentId: { legacyRef: { type: 'finance-categories', id: 'bundle-dict:92' } } } });
+    expect(() => mapping.bundleCategoryRecords({ finance_product_code_dictionary: [{ id: 1, parent_id: 9, dictionary_type: 'bundle_category', status: 'active' }] })).toThrow('父级');
+  });
   it('尺寸规格转换所用的计价单位也进入发货物料字典，不混入其他种类', () => {
     const cat = mapping.buildUnitCatalog({ defs, tables: { finance_products: [
       { archive_key: 'shipping_material', amount: '80mmx60m', unit: '毫米', payload: { purchaseSpecification: '张' } },

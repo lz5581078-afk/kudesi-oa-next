@@ -34,6 +34,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
     flowApi.run(id).then((r) => { setRun(r); setError(''); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')).finally(() => setRefreshing(false));
   }, [id]);
   useEffect(reload, [reload]);
+  useEffect(() => { setForm(run?.initialForm ?? {}); }, [run?.id, run?.activeStep?.id]); // same-step refresh keeps the user's edits
   // 按 Esc 关闭（有子弹窗时先关子弹窗）
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented && !dialog && !editing) onClose(); };

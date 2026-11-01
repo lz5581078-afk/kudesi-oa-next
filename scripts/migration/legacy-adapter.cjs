@@ -6,6 +6,7 @@ const { createRequire } = require('node:module');
 const rules = require('./mapping-rules.json');
 const productMapping = require('./product-mapping.cjs');
 const skuMapping = require('./sku-mapping.cjs');
+const { readWorkflowSource } = require('./workflow-source.cjs');
 /** 直播管理的旧表（全部带 company_id，由通用公司范围读取；只读） */
 const LIVE_TABLES=['live_commission_rule_versions','live_schedules','live_sessions','live_session_products','live_session_reports','live_session_orders','live_commission_records','live_wage_records','live_settlements','live_settlement_lines','live_settlement_refunds'];
 const legacyError=(message)=>{const error=new Error(message);error.name='LegacyDataError';return error;};
@@ -42,7 +43,7 @@ function scope(table,cols,company) {
   if(table==='responsibility_group_items')return {sql:'EXISTS(SELECT 1 FROM responsibility_groups p WHERE p.id=t.group_id AND p.company_id=?)',args:[company]};
   return null;
 }
-exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
+exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHistory=false,preserveLegacyStates=false,includeWorkflowContinuations=false})=>{
   const app=process.env.LEGACY_APP_DIR;if(!app||!path.isAbsolute(app))throw Error('LEGACY_APP_DIR required');
   const req=createRequire(path.join(app,'package.json'));const env=req('dotenv').parse(fs.readFileSync(path.join(app,'.env')));
   const codec=req(path.join(app,'server/core/business-secrets.js')).createBusinessSecretCodec({primarySecret:env.SECRET_KEY||env.SESSION_SECRET||env.JWT_SECRET});
@@ -57,6 +58,12 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
     const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
     const selected=new Set([...LIVE_TABLES,'companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
     for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
+    // 总位置曾由旧启动脚本无公司条件地补为 A-02；只核对所引用的位置，不迁入其他公司的柜位。
+    const foreignLicenseLocations=new Map();
+    if(preserveLegacyStates){
+      const ids=[...new Set((tables.business_licenses||[]).map(r=>r.location_id).filter(id=>id&&!((tables.company_locations||[]).some(l=>String(l.id)===String(id)))) )];
+      if(ids.length){const [rows]=await c.query(`SELECT t.id,t.company_id,t.code FROM ${qi('company_locations')} t WHERE t.id IN (${ids.map(()=>'?').join(',')})`,ids);for(const row of rows)if(String(row.company_id)!==String(sourceCompanyId))foreignLicenseLocations.set(String(row.id),row);}
+    }
     out.company=(tables.companies||[])[0];if(!out.company)throw Error('Company not found');out.company={id:Number(out.company.id),name:out.company.name};
     for(const [k,t] of [['departments','departments'],['positions','positions'],['employees','employees'],['employeePositions','employee_positions'],['positionPermissions','position_permissions'],['employeeOverrides','employee_permission_overrides'],['positionDuties','position_duties'],['compensationRecords','employee_compensation_records']])out[k]=tables[t]||[];
     out.employeePositions=out.employeePositions.filter(x=>!x.ended_at&&(!x.status||x.status==='active'));
@@ -70,6 +77,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
     const platformOrder=productMapping.nonnegativeSortRanks(tables.finance_sales_platforms||[]);
     const unitCatalog=productMapping.buildUnitCatalog({tables,defs:definitions,payloadOf:p=>{try{return json(p.payload_json||{})||{};}catch{return {};}}});
     if(defs.has('finance-product-units'))for(const r of unitCatalog.records)add('finance-product-units',r.id,r.data,'active');
+    if(defs.has('finance-categories'))out.records.push(...productMapping.bundleCategoryRecords(tables));
     const scenarioMap=new Map();
     for(const b of tables.finance_product_bundle_codes||[]){const name=String(b.sales_scenario||'').trim();if(!name||scenarioMap.has(name))continue;const direct=(tables.finance_bundle_sales_scenarios||[]).find(x=>x.scenario_name===name||x.name===name);const id=direct?.id||'scenario:'+name;scenarioMap.set(name,id);add('finance-scenarios',id,{name:({standard:'标准',supply_chain:'供应链'})[name]||name,code:direct?.scenario_code||direct?.code||name,segment:({standard:'',supply_chain:'GYL'})[name]??direct?.scenario_code??direct?.code??name},'active');}
     // 旧系统外购成品：供货方式不是供应商 OEM 的（含空）都算原装采购（旧 normalizePurchasedSupplyMode）；分类树按 supplyModeScope / productCodeCategoryScope 分两棵（旧 purchasedCategoryScope）
@@ -134,11 +142,14 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
         else entries.push({row,payload:{},ancestors:[],container:row});
       }
       if(type==='finance-categories')entries=entries.flatMap(x=>[...(categoryFamilies.get(String(x.row.id))||new Set([x.row.archive_key==='purchased'?purchasedCategoryScope(x.row):x.row.archive_key]))].map(family=>({...x,row:{...x.row,__family:family,__sourceId:x.row.id,id:categoryKey(x.row.id,family)}})));
+      // Native latest-cost ordering uses target IDs as a tie-breaker, so preserve
+      // the source primary-key order explicitly rather than relying on SELECT order.
+      if(type==='finance-product-costs'&&preserveCostHistory)entries.sort((a,b)=>{const x=BigInt(a.row.id),y=BigInt(b.row.id);return x<y?-1:x>y?1:0;});
       for(const {row,payload,ancestors,container} of entries){
         const id=row.id??(type==='workforce'?row.employee_id:undefined)??row.category_id??container.id??'default';
         const archivedRow=Boolean(row.archived_at)&&row.status!=='deleted';
         if((row.status==='deleted'||(row.status==='archived'&&!archivedRow))&&!(type==='finance-fee-categories'&&neededFeeCategories.has(String(id)))){excluded(type,id,'旧系统已删除或归档，不作为在用资料迁入');continue;}
-        const data={};let aliasName;const notices=[];
+        const data={};let aliasName,sourceLocationOmission;const notices=[];
         const translateStatus=(raw)=>{let st=rule.statusMap?.[raw]??raw;if(['normal','active',undefined,null,''].includes(st))st=def.statuses.find(x=>x.value==='active')?'active':def.defaultStatus;else if(st==='inactive')st=def.statuses.find(x=>x.value==='inactive')?'inactive':def.statuses.find(x=>x.value==='disabled')?'disabled':st;const t=def.statuses.find(s=>s.value===st||s.label===st);return t?t.value:st;};
         const money=(field,value)=>{try{return exactCents(value,def.fields.find(f=>f.key===field)?.scale??0);}catch{const msg=field+'：旧金额精度超出新字段允许范围，未舍入，待核对';notices.push(msg);excluded(type+'.'+field,id,msg);return undefined;}};
         try{
@@ -150,7 +161,20 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(['stores','phones'].includes(type)&&row.abnormal_reason){const table=type==='stores'?'store_abnormal_reasons':'phone_abnormal_reasons';const matches=(tables[table]||[]).filter(x=>x.reason===row.abnormal_reason);if(matches.length===1)data.abnormalReason=ref(type==='stores'?'store-abnormal-reasons':'phone-abnormal-reasons',matches[0].id);else{delete data.abnormalReason;data.note=[data.note,'旧异常说明：'+row.abnormal_reason].filter(Boolean).join('\n');excluded(type+'.abnormalReason',id,'旧异常原因未唯一对应新原因目录，原文已保留在备注');}}
           if(type==='tax-profiles'&&!row.license_id&&row.taxpayer_no){const licenses=(tables.business_licenses||[]).filter(x=>x.credit_code===row.taxpayer_no);if(licenses.length===1)data.licenseId=ref('licenses',licenses[0].id);}
           if(type==='finance-platforms')data.sortOrder=platformOrder.get(String(id));
-          if(type==='licenses')data.category=row.license_category;
+          if(type==='licenses'){
+            data.category=row.license_category;
+            const location=foreignLicenseLocations.get(String(row.location_id));
+            if(location?.code==='A-02'){
+              sourceLocationOmission={row,location};delete data.locationId;
+              const notice='旧总位置引用了其他公司的 A-02 默认位置，未作为真实保管位置迁入；原始引用已加密留档，分项位置按原记录保留，空缺位置需核对。';
+              notices.push(notice);excluded('licenses.locationId',id,notice);
+            }
+          }
+          if(type==='stores'&&row.platform==='抖店')data.platform='douyin';
+          if(type==='archives'){
+            const related={business_license:['license','licenseId','licenses'],license:['license','licenseId','licenses'],store:['store','storeId','stores'],bank_account:['bank_account','bankAccountId','bank-accounts'],fixed_asset:['fixed_asset','fixedAssetId','fixed-assets'],partner_profile:['partner_profile','partnerId','partners'],trademark:['trademark','trademarkId','trademarks'],qualification:['qualification','qualificationId','qualifications'],tax_profile:['tax_profile','taxProfileId','tax-profiles']}[row.related_type];
+            if(related){data.relatedType=related[0];if(row.related_id)data[related[1]]=ref(related[2],row.related_id);}
+          }
           if(type==='workforce'){
             // 旧兼职档案没有自己的状态/姓名/用工类型：取自员工表；附件按分类放进五个附件字段
             const emp=byId('employees',row.employee_id);
@@ -235,12 +259,17 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(type==='finance-bundles'){
             data.configNo=skuMapping.configNo(data.configNo);
             data.scenarioId=ref('finance-scenarios',scenarioMap.get(String(row.sales_scenario||'').trim()));data.manualReason='迁移保留旧系统已有组合编码、名称及款式编码';
-            const b=byId('finance_product_bundle_definitions',row.bundle_definition_id);const brand=(tables.finance_product_code_dictionary||[]).find(x=>String(x.id)===String(b?.brand_dictionary_id));if(brand)data.brandId=ref('finance-brands',brandMap.get(String(brand.item_name).trim()));if(b?.weight_mode==='manual'){data.weightMode='manual';data.manualWeightG=kgToG(b.weighing_weight);data.overrideReason='迁移保留旧系统手工重量';}
+            const b=byId('finance_product_bundle_definitions',row.bundle_definition_id);const brand=(tables.finance_product_code_dictionary||[]).find(x=>String(x.id)===String(b?.brand_dictionary_id));if(brand)data.brandId=ref('finance-brands',brandMap.get(String(brand.item_name).trim()));if(b?.product_category_dictionary_id)data.bundleCategoryId=ref('finance-categories',`bundle-dict:${b.product_category_dictionary_id}`);if(b?.weight_mode==='manual'){data.weightMode='manual';data.manualWeightG=kgToG(b.weighing_weight);data.overrideReason='迁移保留旧系统手工重量';}
           }
           if(type.startsWith('finance-express-')){
             if(type==='finance-express-branches')data.carrierId=ref('finance-express-carriers',ancestors.at(-1)?.id);
             if(type==='finance-express-versions')data.branchId=ref('finance-express-branches',ancestors.at(-1)?.id);
             if(['finance-express-prices','finance-express-fee-batches','finance-express-surcharges'].includes(type))data.versionId=ref('finance-express-versions',ancestors.at(-1)?.id);
+            if(type==='finance-express-surcharges'&&data.weightMode==='between'&&data.weightStart===undefined&&String(row.weight_scope||'').trim()){
+              const parsed=parseWeightScope(String(row.weight_scope));
+              if(!parsed||parsed.end!==data.weightEnd||!parsed.startInclusive||!parsed.endInclusive)throw legacyError('重量范围与结构化字段不一致，未猜测加收起点');
+              data.weightStart=parsed.start;notices.push('原起始重量空缺，按原重量范围文字恢复起点；未改变适用范围');
+            }
             if(type==='finance-express-prices'){
               const raw=String(row.province||'');const geographic=raw.replace(/壮族自治区|回族自治区|维吾尔自治区|自治区|特别行政区|省|市/g,'').trim();
               const allowed=def.fields.find(f=>f.key==='province').options;
@@ -263,7 +292,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
           if(type==='finance-fee-categories'&&row.status==='deleted'&&neededFeeCategories.has(String(id)))status='inactive';
           const translatedStatus=def.statuses.find(s=>s.value===status||s.label===status);if(translatedStatus)status=translatedStatus.value;
           const archive=archivedRow?{at:String(row.archived_at),by:row.archived_by?String(row.archived_by):undefined,reason:row.archive_reason?String(row.archive_reason):undefined,fromStatus:row.archived_from_status?translateStatus(row.archived_from_status):undefined}:undefined;
-          add(type,id,data,status,{archive,sourceUpdatedAt:type==='finance-product-sources'?row.updated_at:undefined,aliasName,notices,files:filesFor(type,id,row,rule)});
+          add(type,id,data,status,{archive,sourceLocationOmission,sourceAbnormalRow:preserveLegacyStates&&['stores','phones'].includes(type)&&row.status==='abnormal'&&!String(row.abnormal_reason||'').trim()?row:undefined,sourceCostRow:type==='finance-product-costs'&&preserveCostHistory?row:undefined,sourceUpdatedAt:type==='finance-product-sources'?row.updated_at:undefined,aliasName,notices,files:filesFor(type,id,row,rule)});
           // 店铺档案上的保证金/冻结/货款/推广余额在新系统不是可编辑字段（以资金快照为准）：旧值迁成一条“旧系统档案登记”快照
           if(type==='stores'){
             const fund={deposit:money('deposit',row.deposit_amount),frozen:money('frozen',row.frozen_amount),withdrawable:money('goodsFund',row.goods_payment_amount),promotion:money('promotionBalance',row.promotion_fee_balance)};
@@ -295,6 +324,18 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope})=>{
     }
     // 直播管理：原样交出旧行（金额仍是十进制元字符串），由迁移程序按整数分换算并校验引用；没有直播表的旧库得到空数组
     out.live=Object.fromEntries(LIVE_TABLES.map(t=>[t.replace(/^live_/,''),(tables[t]||[]).map(r=>({...r}))]));
+    if(includeWorkflowContinuations){
+      out.workflow=await readWorkflowSource(c,cols,sourceCompanyId);out.workflow.catalog={dictionaries:tables.finance_product_code_dictionary||[]};
+      // Snapshot the old read-only policy result. The new application's runtime
+      // never infers a workspace or grants cost access from department names.
+      const policyFile=path.join(app,'server/core/employee-profile.js');const before=fs.readFileSync(policyFile);const policy=req(policyFile);
+      if(!before.equals(fs.readFileSync(policyFile)))throw legacyError('旧权限策略读取期间发生变化');
+      out.workflow.access={policyHash:crypto.createHash('sha256').update(before).digest('hex'),employees:[]};
+      for(const employee of out.employees){
+        const active=employee.status==='active';const profile=active?await policy.loadEmployeeProfile({query:async(sql,args)=>(await c.query(sql,args))[0],companyId:sourceCompanyId,employeeId:employee.id,requireActive:true}):null;
+        out.workflow.access.employees.push({employeeId:String(employee.id),canUseWorkflow:active,canViewCosts:active&&profile?.canViewCosts===true});
+      }
+    }
     await c.rollback();
   }finally{await c.end();}
   out.loadFile=async(locator)=>{
