@@ -10,8 +10,8 @@ export class CollectorIdentityService {
   async session(u: AuthUser) {
     const me = await this.auth.me(u.id, u.companyId);
     if (me.mustChangePassword) throw new ForbiddenException('请先在 OA 网页修改初始密码后，再登录采集器');
-    if (!createChecker(u.permissions)(SPECIAL_PERMISSIONS.collectorUse)) throw new ForbiddenException('请管理员授予“小白抖音采集器”使用权限');
     const speech = await this.settings.overview(u.companyId);
+    if (!speech.allEmployees && !createChecker(u.permissions)(SPECIAL_PERMISSIONS.collectorUse)) throw new ForbiddenException('请管理员授予“小白抖音采集器”使用权限');
     return { apiVersion: 1, user: { id: me.id, name: me.name }, company: { id: me.companyId, name: me.companyName }, speech };
   }
 }

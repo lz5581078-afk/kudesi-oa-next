@@ -22,6 +22,18 @@ function setup() {
   return { settings, collector: new CollectorService(settings), rows, logs };
 }
 describe('采集器语音设置与代理', () => {
+  it('默认全员可用；公司范围可恢复指定授权，旧客户端保存时保留此设置', async () => {
+    const { settings, rows } = setup();
+    expect((await settings.overview(1)).allEmployees).toBe(true);
+    const input = { enabled: false, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20 };
+    await settings.save(user, { ...input, allEmployees: false });
+    expect((await settings.overview(1)).allEmployees).toBe(false);
+    expect((await settings.overview(2)).allEmployees).toBe(true);
+    await settings.save(user, input);
+    expect((await settings.overview(1)).allEmployees).toBe(false);
+    rows[0].configEnc = 'invalid-ciphertext';
+    await expect(settings.overview(1)).rejects.toThrow('配置暂时不可用');
+  });
   it('按公司隔离，加密密钥、摘要不返回密钥；留空保留，日志无密钥', async () => {
     const { settings, rows, logs } = setup();
     const result = await settings.save(user, { apiKey: key, enabled: true, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20 });

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpeechCollectorCard } from './SpeechCollectorCard';
 import { api } from '../../api/client';
 vi.mock('../../api/client', () => ({ api: vi.fn() }));
-const state = { configured: true, enabled: true, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20 };
+const state = { configured: true, enabled: true, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20, allEmployees: true };
 describe('OA 采集器语音设置', () => {
   afterEach(cleanup);
   beforeEach(() => { vi.mocked(api).mockReset(); vi.mocked(api).mockResolvedValue(state); });
@@ -18,6 +18,16 @@ describe('OA 采集器语音设置', () => {
   it('无修改权限时所有字段只读且没有保存按钮', async () => {
     render(<SpeechCollectorCard canEdit={false} />); expect((await screen.findByLabelText('豆包语音 API Key') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText(/启用公司云端/) as HTMLInputElement).disabled).toBe(true); expect(screen.queryByText('保存语音设置')).toBeNull();
+    expect((screen.getByLabelText(/允许全体已启用员工/) as HTMLInputElement).disabled).toBe(true);
+  });
+  it('默认全体员工可用，可单独保存使用范围而无需重填密钥', async () => {
+    render(<SpeechCollectorCard canEdit />);
+    const toggle = await screen.findByLabelText(/允许全体已启用员工/);
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText(/无需逐人授权/)).toBeTruthy();
+    fireEvent.click(toggle); expect(screen.getByText(/员工需在/)).toBeTruthy();
+    fireEvent.click(screen.getByText('保存语音设置'));
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith('/settings/integrations/speech', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ allEmployees: false, apiKey: undefined }) })));
   });
   it('加载失败显示错误，不出现可提交的空配置', async () => {
     vi.mocked(api).mockRejectedValue(new Error('没有查看权限')); render(<SpeechCollectorCard canEdit />);

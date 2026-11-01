@@ -4,7 +4,6 @@ import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../
 import { CollectorIdentityService } from './collector-identity.service';
 import { SpeechSettingsService } from './speech-settings.service';
 import { CollectorService } from './collector.service';
-import { SPECIAL_PERMISSIONS } from '@kudesi/shared';
 
 class SpeechSettingsDto {
   @IsOptional() @IsString() @MaxLength(300) apiKey?: string;
@@ -12,6 +11,7 @@ class SpeechSettingsDto {
   @IsBoolean() fileEnabled!: boolean;
   @IsBoolean() realtimeEnabled!: boolean;
   @IsInt() @Min(1) @Max(20) maxConcurrent!: number;
+  @IsOptional() @IsBoolean() allEmployees?: boolean;
 }
 class SpeechFileDto {
   @IsString() @MaxLength(5130000) audio!: string;
@@ -33,7 +33,7 @@ export class CollectorController {
   async session(@CurrentUser() u: AuthUser) {
     return this.identity.session(u);
   }
-  @RequirePermission(SPECIAL_PERMISSIONS.collectorUse) @Post('file')
+  @AuthenticatedOnly() @Post('file')
   async file(@CurrentUser() u: AuthUser, @Body() dto: SpeechFileDto) {
     await this.session(u);
     return this.collector.transcribe(u.companyId, u.id, dto.audio, dto.hotwords);
