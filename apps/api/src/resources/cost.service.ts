@@ -11,6 +11,8 @@ import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import { buildPriceGroups, DEFAULT_PARCEL_LIMIT } from './express-groups';
 import { buildXlsx } from './xlsx-lite';
+import type { CostSeed } from './cost-version-engine';
+import { bundleLaborCost, bundleSeedBuckets, costSeedBuckets } from './cost-seed-buckets';
 
 type Data = Record<string, unknown>;
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -65,12 +67,12 @@ export class CostService {
     return bundleOwnership(this.dataSource.manager, companyId, lines);
   }
 
-  async load(companyId: number, em: EntityManager = this.dataSource.manager) {
+  async load(companyId: number, em: EntityManager = this.dataSource.manager, businessDate=todayInChina()) {
     const rows = await em.find(ResourceRecord, { where: { companyId, type: In(TYPES) } });
     const by = (t: string) => rows.filter((r) => r.type === t);
     const map = (t: string) => new Map(by(t).map((r) => [r.id, r]));
     // 运费和“预估运费一览”页用同一套引擎：合作中的当前版本（含版本的可发货重量范围）→ 按重量段取各省最低价 → 手工金额（拆包时也沿用）
-    const groups = buildPriceGroups(rows.filter((r) => EXPRESS_TYPES.includes(r.type)), todayInChina());
+    const groups = buildPriceGroups(rows.filter((r) => EXPRESS_TYPES.includes(r.type)), businessDate);
     const snap = rows.find((r) => r.type === 'finance-freight-estimates' && r.uniqueKey === 'default');
     const limit = snap ? num(snap.data.parcelLimit) : null;
     const parcelLimit = validParcelLimit(limit) ? limit : DEFAULT_PARCEL_LIMIT;
@@ -222,10 +224,34 @@ export class CostService {
     return { categories, defaultMargin: { percent: all ? num(all.data.profitPercent) : null, revision: marginRevision(all) }, allTotal: rows.length };
   }
 
-  /** 全部未归档组合的成本行（已现算） */
-  async allRows(user: AuthUser, em?: EntityManager) {
-    const d = await this.load(user.companyId, em);
+  /** 草稿成本预检始终读取当前来源，避免把另一个版本的锁定结果当成来源。 */
+  async liveAllRows(user: AuthUser, em?: EntityManager, businessDate=todayInChina()) {
+    const d = await this.load(user.companyId, em,businessDate);
     return { d, rows: d.bundles.filter((b) => b.status !== 'archived').map((b) => this.row(d, b)) };
+  }
+
+  async versionSeeds(user: AuthUser, em?: EntityManager, businessDate = todayInChina()) {
+    const {d,rows} = await this.liveAllRows(user,em,businessDate);
+    const records=await (em ?? this.dataSource.manager).find(ResourceRecord,{where:{companyId:user.companyId,type:In(['finance-product-costs','finance-product-freight-history','finance-labor-versions'])}});
+    const context={...d,laborVersions:records.filter(r=>r.type==='finance-labor-versions'),archiveCosts:records.filter(r=>r.type==='finance-product-costs'),freightHistories:records.filter(r=>r.type==='finance-product-freight-history')};
+    const seeds: CostSeed[] = rows.filter(r => COST_TABLE_STATUSES.includes(r.status)).map(row => {
+      const warnings:string[]=[],issues:string[]=[];
+      const ids = d.lines.filter(l => l.data.bundleId === row.bundleId).map(l => Number(l.data.baseCodeId));
+      return {skuType:'bundle',skuId:row.bundleId,row,buckets:bundleSeedBuckets(context,row.bundleId,businessDate,warnings),warnings,issues,laborCostCents:bundleLaborCost(context,row.bundleId,businessDate,warnings,issues),components:d.lines.filter(l=>l.data.bundleId===row.bundleId && l.data.role!=='labor').map(l=>({baseId:Number(d.baseCodes.get(Number(l.data.baseCodeId))?.data.canonicalId || l.data.baseCodeId),qty:Number(l.data.qty),lossRate:Number(l.data.lossRate || 0),include:!l.data.costTreatment || l.data.costTreatment==='include',effectiveFrom:String(l.data.effectiveFrom || ''),effectiveTo:String(l.data.effectiveTo || '')})),productIds:ids.flatMap(id => {const b=d.baseCodes.get(id);return b?.data.productId ? [Number(b.data.productId)] : d.baseCodeLines.filter(l=>l.data.baseCodeId===id).map(l=>Number(l.data.productId));}),categoryIds:[...(row.categoryId ? [row.categoryId] : [])]};
+    });
+    for (const base of d.baseCodes.values()) {
+      if (!COST_TABLE_STATUSES.includes(base.status) || typeof base.data.canonicalId==='number') continue;
+      const row = this.row({...d,lines:[Object.assign(new ResourceRecord(),{id:base.id,data:{bundleId:base.id,baseCodeId:base.id,role:'main',qty:1}})]}, {...base,data:{...base.data,bundleCategoryId:base.data.categoryId}});
+      const warnings:string[]=[];
+      const productIds = base.data.productId ? [Number(base.data.productId)] : d.baseCodeLines.filter(l=>l.data.baseCodeId===base.id).map(l=>Number(l.data.productId));
+      seeds.push({skuType:'base_code',skuId:base.id,row,buckets:costSeedBuckets(context,base.id,businessDate,warnings),warnings,productIds,categoryIds:row.categoryId ? [row.categoryId] : []});
+    }
+    return {d,seeds};
+  }
+
+  /** 当前SKU成本登记表：与旧版定价调试保持实时联动，期间版本通过日期匹配接口读取。 */
+  async allRows(user: AuthUser, em?: EntityManager) {
+    return this.liveAllRows(user,em);
   }
 
   /** 成本表的行：只含已验证（含需重新验证）的组合；按关键字、分类（含下级）筛选，最近修改的在前 */

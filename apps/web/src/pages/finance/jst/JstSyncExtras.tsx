@@ -89,7 +89,7 @@ function PriceSync({ isAdmin, onQueued }: { isAdmin: boolean; onQueued: () => vo
 
 const ARCHIVE_STATUS: Record<string, [string, string]> = { pending: ['等待禁用', 'warn'], confirming: ['等待回查', 'warn'], success: ['已禁用', 'ok'], failed: ['需要处理', 'bad'] };
 
-function ArchiveJobs() {
+export function ArchiveJobs() {
   const [rows, setRows] = useState<ArchiveJob[] | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
