@@ -10,9 +10,9 @@ const STAFF_STATE: Record<string, string> = { active: '在职', disabled: '已�
  * 部门卷宗（旧版“组织架构”右侧主区）：头部（名称、上级、操作）→ 四个数字（部门人数/在职人员/岗位数量/部门主管）
  * → 本部门岗位卡片（点开编辑）→ 左：成员列表（可搜索）/ 右：下级部门、职责组、派单兜底。数据来自 /org/departments/:id/profile。
  */
-export function DepartmentDossier({ id, version, actions, canCreateStaff, canEditPosition, onSelect, onBack, onAddPosition, onEditPosition }: {
+export function DepartmentDossier({ id, version, actions, canCreateStaff, canEditPosition, onSelect, onBack, onAddPosition, onEditPosition, onEditStaff }: {
   id: number; version: number; actions: React.ReactNode; canCreateStaff?: boolean; canEditPosition?: boolean;
-  onSelect: (id: number) => void; onBack?: () => void; onAddPosition?: () => void; onEditPosition?: (positionId: number) => void;
+  onSelect: (id: number) => void; onBack?: () => void; onAddPosition?: () => void; onEditPosition?: (positionId: number) => void; onEditStaff?: (staffId:number)=>void;
 }) {
   const [profile, setProfile] = useState<DepartmentProfile | null>(null);
   const [error, setError] = useState('');
@@ -83,12 +83,12 @@ export function DepartmentDossier({ id, version, actions, canCreateStaff, canEdi
           </div>
           {shown.length === 0 ? <p className="muted pad">{staff.length ? '没有匹配的人员，换个关键词试试。' : '这个部门还没有人员，请到「员工与权限」新增并选择这个部门。'}</p> : (
             <div className="table-wrap org-members-table"><table className="data-table">
-              <thead><tr><th>姓名</th><th>岗位</th><th>账号</th><th>直属上级</th><th>职责组</th><th>状态</th></tr></thead>
+              <thead><tr><th>姓名</th><th>岗位</th><th>账号</th><th>直属上级</th><th>职责组</th><th>状态</th>{onEditStaff&&<th>操作</th>}</tr></thead>
               <tbody>{shown.map((s) => (
                 <tr key={s.id}>
                   <td><span className="avatar-dot" aria-hidden="true">{s.name.slice(0, 1)}</span>{s.name}</td>
                   <td>{s.positionName ?? '—'}</td><td className="muted">{s.account || '—'}</td><td>{s.managerName ?? '—'}</td>
-                  <td>{(s.groups ?? []).join('、') || '—'}</td><td>{STAFF_STATE[s.status] ?? s.status}</td>
+                  <td>{(s.groups ?? []).join('、') || '—'}</td><td>{STAFF_STATE[s.status] ?? s.status}</td>{onEditStaff&&<td><button type="button" className="link-button" aria-label={`编辑员工 ${s.name}`} onClick={()=>onEditStaff(s.id)}>编辑资料</button></td>}
                 </tr>
               ))}</tbody>
             </table></div>

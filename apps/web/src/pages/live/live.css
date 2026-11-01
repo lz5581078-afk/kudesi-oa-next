@@ -121,7 +121,7 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
   .live-overview .live-room-times > span:last-child { grid-column: 1 / -1; flex-direction: row; align-items: baseline; gap: 6px; }
   .live-overview .live-room > small { overflow-wrap: anywhere; }
   .live-overview .live-room-foot { gap: 6px; }
-  .live-overview .live-room-foot button { font-size: 11px; }
+  .live-overview .live-room-foot button { font-size: 12px; }
   .live-overview .live-room-foot .secondary-button { padding: 4px 7px; }
   .live-overview .live-stat { flex-direction: row; align-items: center; justify-content: space-between; padding: 8px 14px; }
   .live-overview .live-stat strong { font-size: 20px; }
