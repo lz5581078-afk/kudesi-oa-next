@@ -39,7 +39,7 @@ export function requireView(a: LiveAccess) { if (!a.canView) liveFail('没有查
 export function requireManage(a: LiveAccess) { if (!a.canManage) liveFail('没有排场、修改提成规则的权限', 403); }
 export function requireUse(a: LiveAccess) { if (!a.canView && !a.canDesk) liveFail('无权使用直播管理', 403); }
 
-export interface LivePerson { id: number; name: string; detail: string; partTime: boolean }
+export interface LivePerson { id: number; name: string; detail: string; partTime: boolean; trial?: boolean }
 
 /** 主播（岗位类型 live_anchor）、中控（live_control 或 operations）候选人。 */
 export async function livePeople(em: EntityManager, companyId: number): Promise<{ anchors: LivePerson[]; controls: LivePerson[] }> {
@@ -55,6 +55,8 @@ export async function livePeople(em: EntityManager, companyId: number): Promise<
     if (r.workspace_type === 'live_anchor') anchors.set(person.id, person);
     else controls.set(person.id, person);
   }
+  const trials: Row[] = await em.query("SELECT id,name FROM users WHERE company_id=? AND status='active' AND live_trial=1 ORDER BY id", [companyId]);
+  for (const r of trials) anchors.set(Number(r.id), { id:Number(r.id), name:r.name, detail:'试播主播', partTime:true, trial:true });
   return { anchors: [...anchors.values()], controls: [...controls.values()] };
 }
 
@@ -69,13 +71,14 @@ export async function liveEmployees(em: EntityManager, companyId: number): Promi
 const json = (v: unknown): Record<string, any> => (typeof v === 'string' ? JSON.parse(v) : (v as Record<string, any>)) ?? {}; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /** 资料「房间与档案位置」→ 直播间（西走廊办公室下名称含「直播间」的启用房间）。 */
-export async function liveRoomList(em: EntityManager, companyId: number): Promise<LiveRoom[]> {
+export async function liveRoomList(em: EntityManager, companyId: number): Promise<Array<LiveRoom & {ownerId:number|null; ownerName:string; products:string}>> {
   const rows: Row[] = await em.query("SELECT id, title, status, data, archived_at FROM resource_records WHERE company_id = ? AND type = 'locations'", [companyId]);
   const locations: LiveLocation[] = rows.map((r) => {
     const d = json(r.data);
     return { id: Number(r.id), name: String(d.name ?? r.title), parentId: d.parentId ? Number(d.parentId) : null, locationType: d.locationType ?? null, scope: d.scope ?? null, status: r.status, archived: !!r.archived_at };
   });
-  return liveRooms(locations);
+  const settings: Row[] = await em.query(`SELECT r.room_id,r.owner_user_id,r.products,u.name owner_name FROM live_room_settings r LEFT JOIN users u ON u.company_id=r.company_id AND u.id=r.owner_user_id WHERE r.company_id=?`, [companyId]);
+  return liveRooms(locations).map((r) => { const v=settings.find((x)=>Number(x.room_id)===r.id); return {...r, ownerId:v?.owner_user_id ? Number(v.owner_user_id):null, ownerName:v?.owner_name??'', products:v?.products??''}; });
 }
 
 export interface LiveNamed { id: number; name: string; detail: string; jstShopId?: string }

@@ -8,7 +8,7 @@ import {
 import type { AuthUser } from '../common/auth.decorators';
 import { FlowService } from '../flow/flow.service';
 import { LiveAccess, liveDouyinAccounts, liveDouyinStores, liveProducts, liveRoomList, livePeople, loadLiveAccess, requireUse } from './live-access';
-import { Row, SESSION_SELECT, closedMonth, idOf, liveClock, liveFail, lockCompany, num, numOrNull, reportsOf, ruleVersions, sessionRow, text, wallNow } from './live-core';
+import { Row, SESSION_SELECT, closedDay, idOf, liveClock, liveFail, lockCompany, num, numOrNull, reportsOf, ruleVersions, sessionRow, text, wallNow } from './live-core';
 import { LiveOrderSource } from './live-order-source';
 import { ReviewForm, checkSubmittable, previewApproval } from './live-review';
 import { serializeSchedule } from './live-schedule.service';
@@ -33,6 +33,7 @@ export function serializeSession(s: Row) {
     douyinAccount: { id: Number(s.douyin_account_id), name: s.douyin_account_name }, store: s.store_id ? { id: Number(s.store_id), name: s.store_name } : null,
     finalSalesCents: numOrNull(s.final_sales_cents), finalSalesSource: s.final_sales_source ?? null, finalSalesReason: s.final_sales_reason ?? null,
     returnReason: s.return_reason ?? null, flowRunId: s.flow_run_id ? Number(s.flow_run_id) : null, submittedAt: s.submitted_text ?? null, approvedAt: s.approved_text ?? null,
+    reportSource:s.report_source??'normal',manualReason:s.manual_reason??null,manualActorId:s.manual_actor_id?Number(s.manual_actor_id):null,
     approverName: s.approver_name ?? null, revision: Number(s.revision),
   };
 }
@@ -71,7 +72,7 @@ export class LiveSessionService {
       if (startDate.getTime() > now.getTime() + SKEW_MS) liveFail('上播时间不能晚于现在', 400);
       if (startDate.getTime() < now.getTime() - 12 * 3600000) liveFail('上播时间不能早于 12 小时前，请联系管理员处理', 400);
       const day = startAt.slice(0, 10);
-      if (await closedMonth(em, a.companyId, day.slice(0, 7), true)) liveFail('该月份已进入结算审批或已结算，不能新建场次');
+      if (await closedDay(em, a.companyId, day)) liveFail('该日期已进入结算审批或已结算，不能新建场次');
       let sched: Row | null = null;
       let roomId: number | null, anchorId: number | null, controlId: number | null, operatorId: number | null, accountId: number | null, storeId: number | null;
       if (input.scheduleId) {
@@ -170,7 +171,7 @@ export class LiveSessionService {
       if (!found.available) liveFail(`不能报下播：${found.reason || '暂时查不到聚水潭订单'}`, 409);
       if (found.truncated) liveFail(found.reason || '聚水潭订单过多，只列出了一部分，请联系管理员核对本场订单', 409);
       // 旧系统规则：聚水潭查到本场订单就必须勾选；本场时间段内确实没有订单时可以直接报
-      if (found.orders.length && !orderIds.length) liveFail('请勾选本场订单（聚水潭查到本场时间段内的订单）', 400);
+      if (found.orders.some((o) => o.paid && !o.cancelled) && !orderIds.length) liveFail('请勾选本场订单（聚水潭查到本场时间段内的订单）', 400);
       const by = new Map(found.orders.map((o) => [o.orderId, o]));
       for (const id of orderIds) {
         const o = by.get(id);
@@ -279,7 +280,7 @@ export class LiveSessionService {
       reportsOf(em, a.companyId, id),
       em.query("SELECT order_id, report_id, amount_cents, DATE_FORMAT(pay_time,'%Y-%m-%d %H:%i:%s') pay_text, order_status FROM live_session_orders WHERE company_id = ? AND session_id = ? ORDER BY id", [a.companyId, id]) as Promise<Row[]>,
       em.query('SELECT c.user_id, c.role, c.rate_units, c.amount_cents, c.roi_scaled, c.below_roi, c.rule_version_id, e.name FROM live_commission_records c JOIN users e ON e.id = c.user_id AND e.company_id = c.company_id WHERE c.company_id = ? AND c.session_id = ? ORDER BY c.id', [a.companyId, id]) as Promise<Row[]>,
-      em.query("SELECT w.user_id, w.minutes, w.hourly_rate_cents, w.amount_cents, w.rate_source, w.adjust_note, DATE_FORMAT(w.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(w.end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_wage_records w WHERE w.company_id = ? AND w.session_id = ?", [a.companyId, id]) as Promise<Row[]>,
+      em.query("SELECT w.role, w.user_id, w.minutes, w.hourly_rate_cents, w.amount_cents, w.rate_source, w.adjust_note, DATE_FORMAT(w.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(w.end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_wage_records w WHERE w.company_id = ? AND w.session_id = ?", [a.companyId, id]) as Promise<Row[]>,
     ]);
     const names = new Map<number, string>((await em.query(`SELECT id, name FROM users WHERE company_id = ? AND id IN (${[...new Set([...reports.map((r) => r.reporter_user_id), s.anchor_user_id])].map(() => '?').join(',')})`, [a.companyId, ...new Set([...reports.map((r) => r.reporter_user_id), s.anchor_user_id])])).map((r: Row) => [Number(r.id), r.name]));
     const mineAll = a.canViewAll;
@@ -293,12 +294,13 @@ export class LiveSessionService {
       ...serializeSession(s),
       products: products.map((p) => ({ id: Number(p.base_code_id), code: p.code_snapshot, name: p.name_snapshot, spec: p.spec_snapshot ?? '' })),
       reports: reports.map((r) => ({
-        role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], reporter: { id: Number(r.reporter_user_id), name: names.get(Number(r.reporter_user_id)) ?? '' }, endAt: r.end_text, salesCents: num(r.sales_cents),
+        role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], manualActorId:r.manual_actor_id?Number(r.manual_actor_id):null, reporter: { id: Number(r.reporter_user_id), name: names.get(Number(r.reporter_user_id)) ?? '' }, endAt: r.end_text, salesCents: num(r.sales_cents),
         adSpendCents: numOrNull(r.ad_spend_cents), ordersTotalCents: numOrNull(r.orders_total_cents), orderCount: Number(r.order_count), note: r.note ?? '',
         orders: orders.filter((o) => Number(o.report_id) === Number(r.id)).map((o) => ({ orderId: o.order_id, amountCents: num(o.amount_cents), payTime: o.pay_text, status: o.order_status })),
       })),
       commissions: commissions.filter((c) => showMoney(Number(c.user_id))).map((c) => ({ userId: Number(c.user_id), name: c.name, role: c.role, roleLabel: LIVE_ROLE_LABEL[c.role], rateUnits: Number(c.rate_units), amountCents: num(c.amount_cents), roiScaled: numOrNull(c.roi_scaled), belowRoi: !!c.below_roi })),
-      wage: wages.filter((w) => showMoney(Number(w.user_id))).map((w) => ({ userId: Number(w.user_id), minutes: Number(w.minutes), hourlyRateCents: num(w.hourly_rate_cents), amountCents: num(w.amount_cents), rateSource: w.rate_source, note: w.adjust_note, startAt: w.start_text, endAt: w.end_text }))[0] ?? null,
+      wages: wages.filter((w) => showMoney(Number(w.user_id))).map((w) => ({ role:w.role, userId: Number(w.user_id), minutes: Number(w.minutes), hourlyRateCents: num(w.hourly_rate_cents), amountCents: num(w.amount_cents), rateSource: w.rate_source, note: w.adjust_note, startAt: w.start_text, endAt: w.end_text })),
+      wage: wages.filter(w=>w.role==='anchor'&&showMoney(Number(w.user_id))).map(w=>({userId:Number(w.user_id),minutes:Number(w.minutes),hourlyRateCents:num(w.hourly_rate_cents),amountCents:num(w.amount_cents),rateSource:w.rate_source,note:w.adjust_note,startAt:w.start_text,endAt:w.end_text}))[0]??null,
       preview: await this.preview(em, a, s, reports),
       me: { reportRoles: canRoles, canSubmit: ['pending_report', 'returned'].includes(s.status) && ([ppl.anchorId, ppl.controlId].includes(a.userId) || a.canManage), isManager: a.canManage },
       flow,
@@ -348,8 +350,8 @@ export class LiveSessionService {
       em.query(`${SESSION_SELECT} WHERE s.company_id = ? AND ${mine} ORDER BY s.start_at DESC LIMIT 20`, [c, uid, uid, uid]) as Promise<Row[]>,
       em.query("SELECT COALESCE(SUM(amount_cents),0) total FROM live_commission_records WHERE company_id = ? AND user_id = ? AND DATE_FORMAT(session_date,'%Y-%m') = ?", [c, uid, month]),
       em.query("SELECT COALESCE(SUM(amount_cents),0) total, COALESCE(SUM(minutes),0) minutes FROM live_wage_records WHERE company_id = ? AND user_id = ? AND DATE_FORMAT(session_date,'%Y-%m') = ?", [c, uid, month]),
-      em.query("SELECT r.id, r.session_id, DATE_FORMAT(r.session_date,'%Y-%m-%d') d, r.role, r.final_sales_cents, r.rate_units, r.amount_cents, COALESCE(rm.name,'') room_name FROM live_commission_records r JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id LEFT JOIN live_rooms rm ON rm.id = s.room_id AND rm.company_id = s.company_id WHERE r.company_id = ? AND r.user_id = ? AND DATE_FORMAT(r.session_date,'%Y-%m') = ? ORDER BY r.session_date DESC, r.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
-      em.query("SELECT w.id, w.session_id, DATE_FORMAT(w.session_date,'%Y-%m-%d') d, w.minutes, w.hourly_rate_cents, w.amount_cents, COALESCE(rm.name,'') room_name FROM live_wage_records w JOIN live_sessions s ON s.id = w.session_id AND s.company_id = w.company_id LEFT JOIN live_rooms rm ON rm.id = s.room_id AND rm.company_id = s.company_id WHERE w.company_id = ? AND w.user_id = ? AND DATE_FORMAT(w.session_date,'%Y-%m') = ? ORDER BY w.session_date DESC, w.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
+      em.query("SELECT r.id, r.session_id, DATE_FORMAT(r.session_date,'%Y-%m-%d') d, r.role, r.final_sales_cents, r.rate_units, r.amount_cents, s.room_name FROM live_commission_records r JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id WHERE r.company_id = ? AND r.user_id = ? AND DATE_FORMAT(r.session_date,'%Y-%m') = ? ORDER BY r.session_date DESC, r.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
+      em.query("SELECT w.id, w.session_id, DATE_FORMAT(w.session_date,'%Y-%m-%d') d, w.minutes, w.hourly_rate_cents, w.amount_cents, s.room_name FROM live_wage_records w JOIN live_sessions s ON s.id = w.session_id AND s.company_id = w.company_id WHERE w.company_id = ? AND w.user_id = ? AND DATE_FORMAT(w.session_date,'%Y-%m') = ? ORDER BY w.session_date DESC, w.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
     ]);
     const nowText = wallNow(now), nowMs = now.getTime();
     return {

@@ -1,7 +1,6 @@
-/**
- * 聚水潭订单与退款的只读来源。本期没有授权接入真实的聚水潭读取，所以默认实现是“未接入”：
- * 报下播会明确提示原因，月结生成会提示“退款暂时查不到”，绝不放过去当作零退款。测试用假实现。
- * 真实实现只允许调用查询接口（订单查询、售后单查询），不得有任何写入。
+/** 聚水潭订单与退款的只读来源。生产注入 JushuitanOrderSource；
+ * UnconfiguredLiveOrderSource 仅作未接入时的明确拒绝，测试可注入假来源。
+ * 退款查询失败不能当成零退款，不调用聚水潭写入接口。
  */
 export interface LiveOrder { orderId: string; innerId: string; payTime: string | null; paid: boolean; amountCents: number; status: string; statusLabel: string; cancelled: boolean }
 export interface LiveOrderCandidates {

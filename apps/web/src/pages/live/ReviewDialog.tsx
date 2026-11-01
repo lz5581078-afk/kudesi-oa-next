@@ -18,6 +18,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
   const [wEnd, setWEnd] = useState('');
   const [rate, setRate] = useState('');
   const [wNote, setWNote] = useState('');
+  const [controlRate,setControlRate]=useState(''),[controlStart,setControlStart]=useState(''),[controlEnd,setControlEnd]=useState(''),[controlNote,setControlNote]=useState('');
   const [preview, setPreview] = useState<ReviewPreview | null>(null);
   const [previewErr, setPreviewErr] = useState('');
   const [error, setError] = useState('');
@@ -47,8 +48,10 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
     if (wEnd.trim()) f.wageEndAt = wEnd.trim().length === 16 ? `${wEnd.trim()}:00` : wEnd.trim();
     if (rate.trim()) { const c = yuanCents(rate); if (c === null || Number.isNaN(c) || c <= 0) return '主播时薪需要是大于 0 的金额'; f.wageHourlyRateCents = c; }
     if (wNote.trim()) f.wageNote = wNote.trim();
+    if(controlRate.trim()){const c=yuanCents(controlRate);if(!c||!Number.isSafeInteger(c)||c<=0)return '中控时薪需要是大于 0 的金额';f.controlWageHourlyRateCents=c;}
+    if(controlStart.trim())f.controlWageStartAt=controlStart.trim();if(controlEnd.trim())f.controlWageEndAt=controlEnd.trim();if(controlNote.trim())f.controlWageNote=controlNote.trim();
     return f;
-  }, [source, manual, reason, operator, noOperator, wStart, wEnd, rate, wNote]);
+  }, [source, manual, reason, operator, noOperator, wStart, wEnd, rate, wNote,controlRate,controlStart,controlEnd,controlNote]);
 
   // 随输入试算（防抖）；试算失败只提示，不挡住操作
   useEffect(() => {
@@ -116,15 +119,17 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
               <label className="live-field wide">调整说明（可选）<input maxLength={500} value={wNote} onChange={(e) => setWNote(e.target.value)} /></label>
             </div>
           </fieldset>
+            {session.control&&<fieldset><legend>中控计时工资</legend><div className="live-fields"><label className="live-field">计薪开始<input aria-label="中控计薪开始" placeholder={session.startAt.slice(0,16)} value={controlStart} onChange={e=>setControlStart(e.target.value)}/></label><label className="live-field">计薪结束<input aria-label="中控计薪结束" placeholder={session.endAt?.slice(0,16)} value={controlEnd} onChange={e=>setControlEnd(e.target.value)}/></label><label className="live-field">中控时薪（元）<input aria-label="中控时薪" placeholder="默认取计时时薪档案" value={controlRate} onChange={e=>setControlRate(e.target.value)}/></label><label className="live-field">工资调整说明<input aria-label="中控工资说明" value={controlNote} onChange={e=>setControlNote(e.target.value)}/></label></div></fieldset>}
           <div className="live-preview" aria-label="审核试算" role="status">
             <strong>试算结果（服务端按规则计算）</strong>
             {previewErr && <span className="notice warn">{previewErr}</span>}
-            {preview && (
+
+          {preview && (
               <>
                 <span>最终销售额 {money(preview.finalSalesCents)} · 投流 {money(preview.adSpendCents)} · 投产 {roi(preview.roiScaled)}{preview.belowRoi ? '（不足，已扣减点数）' : ''} · 规则版本 {preview.ruleVersion.effectiveFrom} 起</span>
                 <RoleAmounts anchor={preview.anchor} control={preview.control} operator={preview.operator} />
                 {preview.operatorDoubledAsControl && <small className="muted">运营兼任中控，不另算运营提成</small>}
-                <span>主播工资：{minutesText(preview.wage.minutes)} × {money(preview.wage.hourlyRateCents)}/小时 = <strong>{money(preview.wage.amountCents)}</strong>（{preview.wage.rateSource === 'archive' ? '档案时薪' : '手填时薪'}）</span>
+                <span>{preview.controlWage&&<>中控工资：{minutesText(preview.controlWage.minutes)} × {money(preview.controlWage.hourlyRateCents)}/小时 = <strong>{money(preview.controlWage.amountCents)}</strong><br/></>}主播工资：{minutesText(preview.wage.minutes)} × {money(preview.wage.hourlyRateCents)}/小时 = <strong>{money(preview.wage.amountCents)}</strong>（{preview.wage.rateSource === 'archive' ? '档案时薪' : '手填时薪'}）</span>
               </>
             )}
             {!preview && !previewErr && <span className="muted">选择最终销售额来源后显示</span>}

@@ -1,5 +1,6 @@
+import { LIVE_DEFAULT_RULES, liveRulesToInput } from '@kudesi/shared';
 import { useCallback, useEffect, useState } from 'react';
-import { liveApi, type RuleList, type RulesForm, type Trial } from './liveApi';
+import { liveApi, type RuleList, type RulesForm, type RuleVersion, type Trial } from './liveApi';
 import { errText, money, ratePct, roi, todayText } from './liveFormat';
 import { Modal } from './liveUi';
 
@@ -9,16 +10,16 @@ function RuleView({ form }: { form: RulesForm }) {
   return (
     <div className="live-scroll">
       <p className="muted">档位边界：{form.boundary === 'min_inclusive' ? '含下限' : '含上限'} · 投产阈值 {form.roiThreshold} · 投产不足时主播扣 {form.belowRoiAnchorDeduct} 点、中控扣 {form.belowRoiControlDeduct} 点 · 运营固定 {form.operatorRate}%</p>
-      <table className="data-table" aria-label="提成档位"><thead><tr><th>销售额下限（元）</th><th>上限（元）</th><th className="num">主播</th><th className="num">中控</th></tr></thead>
-        <tbody>{form.tiers.map((t, i) => <tr key={i}><td>{t.min}</td><td>{t.max || '及以上'}</td><td className="num">{t.anchorRate}%</td><td className="num">{t.controlRate}%</td></tr>)}</tbody></table>
+      <table className="data-table" aria-label="提成档位"><thead><tr><th>销售额下限（元）</th><th>上限（元）</th><th className="num">主播</th><th className="num">中控</th><th className="num">运营</th></tr></thead>
+        <tbody>{form.tiers.map((t, i) => <tr key={i}><td>{t.min}</td><td>{t.max || '及以上'}</td><td className="num">{t.anchorRate}%</td><td className="num">{t.controlRate}%</td><td className="num">{form.operatorRate}%</td></tr>)}</tbody></table>
     </div>
   );
 }
 
-function Editor({ base, onClose, onDone }: { base: RulesForm; onClose: () => void; onDone: () => void }) {
+function Editor({ base, version, onClose, onDone }: { base: RulesForm;version?:RuleVersion; onClose: () => void; onDone: () => void }) {
   const [form, setForm] = useState<RulesForm>(() => blank(base));
-  const [from, setFrom] = useState(todayText());
-  const [note, setNote] = useState('');
+  const [from, setFrom] = useState(version?.usedCount ? todayText() : version?.effectiveFrom??todayText());
+  const [note, setNote] = useState(version?.note??'');
   const [sales, setSales] = useState('');
   const [ad, setAd] = useState('');
   const [trial, setTrial] = useState<Trial | null>(null);
@@ -33,12 +34,12 @@ function Editor({ base, onClose, onDone }: { base: RulesForm; onClose: () => voi
   }
   async function save() {
     setBusy(true); setError('');
-    try { await liveApi.createRule({ effectiveFrom: from, note: note.trim() || undefined, rules: form }); onDone(); } catch (e) { setError(errText(e)); } finally { setBusy(false); }
+    try { const body={effectiveFrom:from,note:note.trim()||undefined,rules:form}; if(version&&!version.usedCount)await liveApi.updateRule(version.id,body);else await liveApi.createRule(body); onDone(); } catch (e) { setError(errText(e)); } finally { setBusy(false); }
   }
   return (
-    <Modal title="新增规则版本" size="wide" onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={busy} onClick={() => void save()}>{busy ? '保存中…' : '保存为新版本'}</button></>}>
+    <Modal title={version?'编辑提成规则':'新增规则版本'} size="wide" onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={busy} onClick={() => void save()}>{busy ? '保存中…' : version&&!version.usedCount?'保存修改':'保存为新版本'}</button></>}>
       {error && <div role="alert" className="notice error">{error}</div>}
-      <p className="muted">规则只追加：新版本从生效日期当天起适用于场次日期，已有版本不能修改或删除；同一生效日期只能有一个版本。</p>
+      <p className="muted">未用于核算的版本可直接编辑；已用于核算的规则请指定新的生效日期另存版本，历史提成与工资保留原快照。</p>
       <div className="live-fields">
         <label className="live-field">生效日期<input aria-label="生效日期" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label className="live-field">档位边界<select aria-label="档位边界" value={form.boundary} onChange={(e) => setForm({ ...form, boundary: e.target.value })}><option value="min_inclusive">含下限</option><option value="max_inclusive">含上限</option></select></label>
@@ -76,21 +77,21 @@ function Editor({ base, onClose, onDone }: { base: RulesForm; onClose: () => voi
 export function RulesTab() {
   const [d, setD] = useState<RuleList | null>(null);
   const [error, setError] = useState('');
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<RuleVersion|'new'|null>(null);
   const load = useCallback(() => { liveApi.rules().then((x) => { setD(x); setError(''); }).catch((e) => setError(errText(e, '读取失败'))); }, []);
   useEffect(load, [load]);
   return (
     <div className="live-page">
-      <div className="page-head"><p className="muted">提成按场次日期适用的规则版本计算；审核通过时保存当时的规则快照。</p>{d?.canManage && d.versions.length > 0 && <button type="button" className="primary-button" onClick={() => setEditing(true)}>新增规则版本</button>}</div>
+      <div className="page-head"><p className="muted">提成按场次日期适用的规则版本计算；审核通过时保存当时的规则快照。</p>{d?.canManage && <button type="button" className="primary-button" onClick={() => setEditing('new')}>新增规则版本</button>}</div>
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
-      {d && d.versions.length === 0 && <p className="muted card pad" role="status">还没有规则版本，请联系管理员初始化。</p>}
+      {d && d.versions.length === 0 && <p className="muted card pad" role="status">还没有规则版本，请新增规则。</p>}
       {d?.versions.map((v) => (
         <section key={v.id} className="card live-section" aria-label={`规则 ${v.effectiveFrom}`}>
           <h2>{v.effectiveFrom} 起 {v.id === d.currentId && <span className="pill ok">当前生效</span>} <small className="muted">{v.creatorName ? `${v.creatorName} · ` : ''}{v.createdAt}{v.usedCount ? ` · 已用于 ${v.usedCount} 条提成` : ''}{v.note ? ` · ${v.note}` : ''}</small></h2>
-          <div className="pad"><RuleView form={v.form} /></div>
+          <div className="pad"><RuleView form={v.form} />{d.canManage&&<button className="secondary-button" onClick={()=>setEditing(v)}>编辑规则</button>}</div>
         </section>
       ))}
-      {editing && d && <Editor base={(d.versions.find((v) => v.id === d.currentId) ?? d.versions[0]).form} onClose={() => setEditing(false)} onDone={() => { setEditing(false); load(); }} />}
+      {editing && d && <Editor version={editing==='new'?undefined:editing} base={editing!=='new'?editing.form:(d.versions.find((v) => v.id === d.currentId) ?? d.versions[0])?.form??liveRulesToInput(LIVE_DEFAULT_RULES)} onClose={() => setEditing(null)} onDone={() => { setEditing(null); load(); }} />}
     </div>
   );
 }
