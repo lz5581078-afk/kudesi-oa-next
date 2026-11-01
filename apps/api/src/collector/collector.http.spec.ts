@@ -138,7 +138,7 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
     vendor.on('connection', ws => ws.on('message', raw => {
       const p = decodeFrame(Buffer.from(raw as Buffer));
       if (p.kind === 1) { initial = JSON.parse(p.payload.toString()); return; }
-      ws.send(encodeFrame(Buffer.from(JSON.stringify({ secret: 'server-test-key', result: { text: '测试原话', utterances: [{ text: '测试原话', start_time: 0, end_time: 200, definite: true, secret: 'server-test-key' }] } })), 9, 3, -1));
+      ws.send(encodeFrame(Buffer.from(JSON.stringify({ secret: 'server-test-key', result: { text: '测试原话', utterances: [{ text: '测试原话', end_time: 200, definite: true, words: [{ start_time: 40, end_time: 180 }], secret: 'server-test-key' }] } })), 9, 3, -1));
     }));
     const connect = jest.spyOn(service as any, 'connectVendor').mockImplementation(() => new WebSocket(`ws://127.0.0.1:${vendorPort}`));
     const ws = new WebSocket(base.replace('http:', 'ws:') + '/api/collector/realtime', { headers: { Authorization: 'Bearer ' + token(3) } });
@@ -147,6 +147,7 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
       ws.send(encodeFrame(Buffer.alloc(6400), 2, 2));
       const [data] = await once(ws, 'message'), frame = decodeFrame(Buffer.from(data));
       expect(JSON.parse(frame.payload.toString()).result.utterances[0].end_time).toBe(200);
+      expect(JSON.parse(frame.payload.toString()).result.utterances[0].start_time).toBe(40);
       expect(frame.payload.toString()).not.toContain('server-test-key'); expect(initial.user.uid).toBe('oa-10-3'); expect(initial.audio.rate).toBe(16000);
     } finally { ws.terminate(); connect.mockRestore(); for (const connection of vendor.clients) connection.terminate(); vendor.close(); }
   });
