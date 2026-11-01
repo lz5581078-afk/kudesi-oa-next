@@ -43,7 +43,7 @@ async function main() {
     const crypto = new CryptoService(env.encryptionKeys, env.encryptionActiveKeyId);
     const settings = new IntegrationSettingsService(ds.getRepository(IntegrationSetting), ds.getRepository(ResourceChangeLog), crypto);
     const files = new FilesService(ds, settings, defaultStorageFactory);
-    const result = await runLegacyImport(ds, new ResourcesService(ds, crypto, files), files, source, { companyId, actorId, expectedName, apply, preserveCostHistory, preserveLegacyStates, sourceRowsCrypto: crypto, expectedReport, prepareReport:(r)=>writeFileSync(report,JSON.stringify({...r,phase:'prepared; not committed'},null,2),{mode:0o600}) });
+    const result = await runLegacyImport(ds, new ResourcesService(ds, crypto, files), files, source, { companyId, actorId, expectedName, apply, preserveCostHistory, preserveLegacyStates, sourceRowsCrypto: crypto, expectedReport, prepareReport:(r)=>writeFileSync(report,JSON.stringify({...r,phase:'prepared; not committed'},null,2),{mode:0o600}),rollbackReport:(r)=>writeFileSync(report,JSON.stringify(r,null,2),{mode:0o600}) });
     try { writeFileSync(report, JSON.stringify(result, null, 2), { mode: 0o600 }); }
     catch { console.error(apply?'数据事务已提交，但最终报告写入失败；请保留prepared报告并核对迁移审计':'试跑已回滚，最终报告写入失败');process.exitCode=1;return; }
     console.log(JSON.stringify({ phase: result.phase, created: result.created, reused: result.reused, failed: result.failures.length, excluded: result.excluded.length, archived: result.archived, links: result.links }));

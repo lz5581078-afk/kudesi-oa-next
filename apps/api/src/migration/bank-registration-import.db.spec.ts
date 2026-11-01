@@ -72,7 +72,9 @@ suite('重复银行账户原登记保留（MySQL）',()=>{
     expect(report.failures).toEqual([]);expect(report.created[TYPE]).toBe(3);expect(report.verified?.['bank-account-history-view']).toBe(3);
     expect(report.excluded.map(e=>[e.type,e.id])).toEqual([['bank-accounts.duplicate.note','103']]);
     expect(await ds.manager.count(ResourceRecord,{where:{companyId:c.id}})).toBe(0);
-    await expect(runLegacyImport(ds,svc.resources,svc.files,archive,{...opts,apply:true,expectedReport:report})).rejects.toThrow('未验收');
+    const rollbackReport=jest.fn();
+    await expect(runLegacyImport(ds,svc.resources,svc.files,archive,{...opts,apply:true,expectedReport:report,rollbackReport})).rejects.toThrow('未验收');
+    expect(rollbackReport).toHaveBeenCalledTimes(1);expect(rollbackReport.mock.calls[0][0].phase).toBe('apply-rejected-rollback');
     expect(await ds.manager.count(ResourceRecord,{where:{companyId:c.id}})).toBe(0);
   });
 });

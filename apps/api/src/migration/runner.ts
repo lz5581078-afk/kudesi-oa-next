@@ -40,7 +40,7 @@ export function safeFailure(e: unknown): string {
 }
 
 /** 无后台服务/外部worker；整个批次与对照账本同一事务，试跑完整回滚。 */
-export async function runLegacyImport(ds: DataSource, resources: ResourcesService, files: FilesService, source: LegacyArchive, opts: { companyId: number; actorId: number; expectedName: string; apply: boolean; preserveCostHistory?: boolean; preserveLegacyStates?: boolean; sourceRowsCrypto?: CryptoService; expectedReport?: ImportResult; prepareReport?: (result:ImportResult)=>void }): Promise<ImportResult> {
+export async function runLegacyImport(ds: DataSource, resources: ResourcesService, files: FilesService, source: LegacyArchive, opts: { companyId: number; actorId: number; expectedName: string; apply: boolean; preserveCostHistory?: boolean; preserveLegacyStates?: boolean; sourceRowsCrypto?: CryptoService; expectedReport?: ImportResult; prepareReport?: (result:ImportResult)=>void; rollbackReport?: (result:ImportResult)=>void }): Promise<ImportResult> {
   for(const [rows,parent] of [[source.departments,'parent_department_id'],[source.positions,'supervisor_position_id'],[source.employees,'manager_id']] as Array<[Array<Record<string,any>>,string]>) {
     const parents=new Map(rows.map(r=>[String(r.id),r[parent]?String(r[parent]):null]));
     for(const r of rows){const seen=new Set<string>();let id:string|null=String(r.id);while(id){if(seen.has(id))throw new MigrationError('来源组织引用存在循环，不能直接迁入');seen.add(id);id=parents.get(id)??null;}}
@@ -480,6 +480,9 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     return out;
   } catch (e) { if (q.isTransactionActive) await q.rollbackTransaction();
     if (q.data.importUploadedKeys?.length) await files.deleteObjects(opts.companyId, q.data.importUploadedKeys);
+    // SQL rollback is confirmed here. Object deletion is best effort in the
+    // storage service and must be independently checked by the cutover runner.
+    if(out.phase==='apply-rejected-rollback')opts.rollbackReport?.(out);
     throw e; }
   finally { await q.release(); }
 }
