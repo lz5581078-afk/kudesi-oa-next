@@ -198,6 +198,7 @@ export const skuBatchApply: FlowAdapter = {
     if (stepKey === 'warehouse') {
       const wh = form.config as WarehouseSpec[];
       payload._warehouse = wh;
+      delete payload._legacyWarehouseDraft;
       payload._reviewSig = await reviewSignature(em, user, bundles, payload, wh, run.id);
       return;
     }

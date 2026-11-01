@@ -16,6 +16,7 @@ export interface DutyDto {
   completionStandard: string | null; isKey: boolean; status: 'active' | 'inactive';
 }
 export interface PositionProfile {
+  legacyName?:{name:string;departmentName:string}|null;
   position: { id: number; name: string; positionKey?: string | null; departmentId: number | null; departmentName: string | null; workspaceType: string; level: PositionLevel; supervisorPositionId: number | null; supervisorPositionName: string | null; description: string | null; status: 'active' | 'inactive' };
   duties: DutyDto[];
   staff: Array<{ id: number; name: string; status: string; concurrent: boolean }>;
@@ -35,6 +36,7 @@ export const PAY_TYPE_LABELS: Record<PayType, string> = { monthly: '月薪', hou
 export const EMPLOYMENT_LABELS: Record<EmploymentType, string> = { regular: '正式员工', part_time: '兼职', temp: '临时工' };
 export interface CompRecord { id: number; title: string; amount: number; effectiveDate: string | null; payPeriod: string | null; reason: string | null; actorName: string | null; createdAt: string }
 export interface StaffRecords {
+  legacyAssignments?:Array<{sourceId:string;sourceEmployeeId:string;sourcePositionId:string;positionName:string;departmentName:string;status:'active'|'inactive';isPrimary:boolean;startedAt:string|null;endedAt:string|null}>;
   hrLogs: Array<{ id: string; action: string; actorName: string | null; detail: unknown; createdAt: string }>;
   salaryChanges: CompRecord[]; payrollRecords: CompRecord[]; rewardRecords: CompRecord[]; penaltyRecords: CompRecord[];
   dutyGroups: Array<{ id: number; groupId: number; groupName: string; role: string | null; source: string; startedAt: string | null; endedAt: string | null; status: string }>;

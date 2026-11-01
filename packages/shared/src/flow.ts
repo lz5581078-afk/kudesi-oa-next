@@ -109,6 +109,10 @@ export interface FlowPostingDecl {
 }
 
 export interface FlowTemplate {
+  /** Server-derived origin of imported continuations; never accepted in designer input. */
+  legacySource?: 'early' | 'linear';
+  /** 迁入的已结束流程只读投影，不能改配置或再次发起。 */
+  legacyReadOnly?: boolean;
   key: string;
   label: string;
   description: string;

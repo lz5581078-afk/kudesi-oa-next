@@ -20,7 +20,7 @@ import { applyGiftAliases, basicInfoFullName } from './product-extras';
 import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, beforeBaseCodeLine, guardReferenced, inspectBaseCodeReferences, isComposed, refreshComposedTotals, seedMainLine } from './base-code-composed';
 import { composedFacts } from './base-code-support';
 import { asAdmin, afterFreightHistoryDelete, beforeFreightHistory, beforeProductCost, recordFreightHistory, refreshLatestCost, syncAutoCost } from './product-costs';
-import { bundleIssues, hasChildren, normalizeLineExtras, pickLine } from './bundle-checks';
+import { bundleIssues, hasChildren, normalizeLineExtras, pickLine, LINE_EXTRA_KEYS } from './bundle-checks';
 import { recordSourceChange } from './cost-snapshot';
 import { assertLaborUsable, LABOR_AFTER_SAVE, LABOR_BEFORE_SAVE } from './labor-rules';
 
@@ -632,12 +632,16 @@ async function beforeBundle(ctx: BeforeSaveContext) {
 export async function bundleSnapshotJson(em: EntityManager, companyId: number, bundle: Data, lines: Data[]): Promise<string> {
   const out: Data[] = [];
   for (const l of lines) {
-    if (l.role === 'labor') { out.push({ role: 'labor', ref: `L${l.laborId}`, qty: l.qty }); continue; }
+    const extras = Object.fromEntries(LINE_EXTRA_KEYS.filter(k => l[k] !== undefined).map(k => [k, l[k]]));
+    if (l.role === 'labor') {
+      const labor = await rec(em, companyId, 'finance-labor-costs', l.laborId);
+      out.push({ role: 'labor', ref: `L${l.laborId}`, qty: l.qty, cost: labor?.data.unitPrice ?? null, ...extras }); continue;
+    }
     const bc = await rec(em, companyId, 'finance-base-codes', l.baseCodeId);
-    out.push({ role: l.role, ref: str(bc?.data.code), qty: l.qty, weightG: bc?.data.weightG ?? null, cost: bc?.data.cost ?? null, signature: str(bc?.data.signature) });
+    out.push({ role: l.role, ref: str(bc?.data.code), qty: l.qty, weightG: bc?.data.weightG ?? null, cost: bc?.data.cost ?? null, signature: str(bc?.data.signature), ...extras });
   }
   out.sort((a, b) => `${a.role}${a.ref}`.localeCompare(`${b.role}${b.ref}`));
-  return JSON.stringify({ profile: { code: str(bundle.code), name: str(bundle.name), styleCode: str(bundle.styleCode), shortName: str(bundle.shortName) }, lines: out });
+  return JSON.stringify({ profile: { code: str(bundle.code), name: str(bundle.name), styleCode: str(bundle.styleCode), shortName: str(bundle.shortName), ...Object.fromEntries(['weightMode', 'manualWeightG', 'propertiesValue', 'baseUnit', 'bundleCategoryId', 'brandId', 'varietyName', 'configNo', 'bomVersion', 'bomEffectiveFrom', 'bomEffectiveTo'].filter(k => bundle[k] !== undefined).map(k => [k, bundle[k]])) }, lines: out });
 }
 
 const lineKey = (l: Data) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` : l.baseCodeId}:${l.qty}`;

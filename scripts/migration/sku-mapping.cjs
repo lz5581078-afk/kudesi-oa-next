@@ -38,19 +38,3 @@ exports.purchaseInput=(row,payload,costs)=>{
   if(row.archive_key==='purchased'&&row.supply_mode==='supplier_oem'&&c?.source_type==='production_bom')return undefined;
   return c?c.unit_cost:payload.purchasePrice;
 };
-
-/** Only gifts already used by old bundles; derive missing aliases from their real name/brand. */
-exports.giftAliases=(tables,initials)=>{
-  const products=tables.finance_products||[],bases=tables.finance_product_base_codes||[],used=new Set((tables.finance_product_bundle_bom_lines||[]).filter(l=>l.role==='gift'&&l.component_type==='base_code').map(l=>String(l.base_code_id)));
-  const names=new Set(),codes=new Set(),result=new Map();
-  for(const p of products){const d=json(p.payload_json);if(d.giftShortName)names.add(String(d.giftShortName).replace(/\s/g,''));if(d.giftCodeShortName)codes.add(String(d.giftCodeShortName).toUpperCase());}
-  const productIds=new Set(bases.filter(b=>used.has(String(b.id))).map(b=>String(b.source_product_id||bases.find(c=>String(c.id)===String(b.canonical_base_code_id))?.source_product_id||'')));
-  for(const p of products.filter(p=>productIds.has(String(p.id)))){
-    const d=json(p.payload_json);if(d.giftShortName&&d.giftCodeShortName)continue;
-    const label=String(d.giftShortName||`${p.brand||''}${p.product_name||''}`).replace(/[+×*\s]/g,'').slice(0,40);
-    const code=String(d.giftCodeShortName||initials(label)).slice(0,20).toUpperCase();
-    if(!label||!code||(!d.giftShortName&&names.has(label))||(!d.giftCodeShortName&&codes.has(code)))continue;
-    result.set(String(p.id),{giftShortName:label,giftCodeShortName:code});names.add(label);codes.add(code);
-  }
-  return result;
-};

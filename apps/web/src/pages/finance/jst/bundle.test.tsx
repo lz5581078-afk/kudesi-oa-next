@@ -120,6 +120,11 @@ describe('手改编码和名称', () => {
 });
 
 describe('核对验证：问题清单', () => {
+  it('显示不足一分的成本和亚克重量，不先截成两位金额', async () => {
+    j.bundleReport.mockResolvedValue({ id: 1, code: 'ZH-P', name: '精度组合', styleCode: 'P', shortName: 'P', status: 'pending', components: [], totalWeightG: 0.001, totalCost: 1.603, pendingRevision: null, signature: 's', issues: [], secondVerification: false, baselineMissing: false, changes: [], outbound: { sku_id: 'ZH-P', i_id: 'P', name: '精度组合', short_name: 'P', weight: 0.000001, cost_price: 0.01603 }, uploadSignature: 'u', uploadedCode: null, replacing: false, jstStatus: 'not_synced' });
+    render(<BundleVerifyDialog ids={[1]} isAdmin onClose={() => undefined} onDone={() => undefined} />);
+    expect(await screen.findByText(/合计重量 0.001 克，合计成本 0.01603 元/)).toBeTruthy();
+  });
   it('列出全部验证问题，有问题的不能验证', async () => {
     j.bundleReport.mockResolvedValue({
       id: 1, code: 'ZH-A', name: '组合A', styleCode: '', shortName: '', status: 'pending', components: [], totalWeightG: 0, pendingRevision: null, signature: 's', issues: ['组合分类不存在或已停用', '规格值未填写'],

@@ -1,0 +1,45 @@
+const parse = value => typeof value === 'string' ? JSON.parse(value) : value || {};
+const fail = message => { throw Object.assign(new Error(message), {statusCode:409, publicMessage:message}); };
+
+async function resolveNodeRecipients(companyId, node, sql) {
+  const assignment = parse(node.form_schema).assignment || {};
+  const sources = assignment.sources?.length ? assignment.sources : [{type:node.handler_source_type, id:node.handler_source_id}];
+  if (sources.length !== 1 || !sources[0].id) fail(`${node.node_name}需要配置明确的处理人来源`);
+  const source = sources[0], mode = assignment.mode || 'single';
+  if (source.type === 'department') {
+    if (mode !== 'any') fail(`${node.node_name}的部门接收需要使用多人任一处理模式`);
+    const [department] = await sql("SELECT id,name FROM departments WHERE company_id=? AND id=? AND status='active' AND COALESCE(is_system,0)=0", [companyId, source.id]);
+    if (!department) fail(`${node.node_name}的接收部门不存在或已停用`);
+    const members = await sql("SELECT id FROM employees WHERE department_id=? AND status='active' ORDER BY id", [department.id]);
+    if (!members.length) fail(`${node.node_name}的接收部门没有在职人员`);
+    return {ownerId:null, employeeIds:members.map(row => row.id), departmentId:department.id, handlerName:`${department.name} · 全员共享（${members.length}人）`, mode};
+  }
+  if (mode !== 'single') fail(`${node.node_name}需要使用单一处理人模式`);
+  const scope = " JOIN departments d ON d.id=e.department_id WHERE d.company_id=? AND d.status='active' AND e.status='active' ";
+  let rows;
+  if (source.type === 'employee') rows = await sql('SELECT e.id FROM employees e' + scope + 'AND e.id=?', [companyId, source.id]);
+  else if (source.type === 'role') rows = await sql('SELECT e.id FROM employees e' + scope + 'AND e.role_key=?', [companyId, source.id]);
+  else if (source.type === 'position') rows = await sql("SELECT DISTINCT e.id FROM employees e JOIN employee_positions ep ON ep.employee_id=e.id AND ep.status='active' JOIN positions p ON p.id=ep.position_id AND p.status='active' JOIN departments pd ON pd.id=p.department_id AND pd.status='active'" + scope + 'AND pd.company_id=d.company_id AND ep.position_id=?', [companyId, source.id]);
+  else if (source.type === 'responsibility_group') rows = await sql("SELECT DISTINCT e.id FROM employees e JOIN employee_responsibility_groups g ON g.employee_id=e.id AND g.status='active' JOIN responsibility_groups rg ON rg.id=g.group_id AND rg.status='active'" + scope + 'AND rg.company_id=d.company_id AND g.group_id=?', [companyId, source.id]);
+  else fail(`${node.node_name}暂不支持此处理人来源，请选择人员、角色、岗位、职责组或部门`);
+  if (rows.length !== 1) fail(`${node.node_name}匹配到${rows.length}名处理人，请在流程设计器中指定唯一人员`);
+  return {ownerId:rows[0].id, employeeIds:[rows[0].id], departmentId:null, mode};
+}
+
+// Department membership is checked again on every read/action so transfers revoke access.
+function recipientPredicateSql(workflow, employee = '?', activeOnly = true, record = null) {
+  return `EXISTS(SELECT 1 FROM workflow_node_recipients nr
+    JOIN workflow_node_records recipient_record ON recipient_record.id=nr.node_record_id AND recipient_record.workflow_instance_id=nr.workflow_instance_id
+    JOIN employees recipient_employee ON recipient_employee.id=nr.employee_id AND recipient_employee.status='active' AND recipient_employee.department_id=nr.department_id
+    JOIN departments recipient_department ON recipient_department.id=nr.department_id AND recipient_department.company_id=nr.company_id AND recipient_department.status='active'
+    WHERE nr.company_id=${workflow}.company_id AND nr.workflow_instance_id=${workflow}.id AND nr.employee_id=${employee}${record ? ` AND nr.node_record_id=${record}` : ''}${activeOnly ? ' AND recipient_record.is_active=1' : ''})`;
+}
+
+function sharedOwnerNameSql(workflow, owner = 'o') {
+  return `COALESCE(${owner}.name,(SELECT CONCAT(d.name,' · 全员共享') FROM workflow_node_recipients nr
+    JOIN workflow_node_records recipient_record ON recipient_record.id=nr.node_record_id AND recipient_record.is_active=1
+    JOIN departments d ON d.id=nr.department_id AND d.company_id=nr.company_id
+    WHERE nr.company_id=${workflow}.company_id AND nr.workflow_instance_id=${workflow}.id LIMIT 1))`;
+}
+
+module.exports = {resolveNodeRecipients, recipientPredicateSql, sharedOwnerNameSql};

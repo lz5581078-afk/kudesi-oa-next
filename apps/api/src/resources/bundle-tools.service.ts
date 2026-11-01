@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
-import { createChecker } from '@kudesi/shared';
+import { createChecker, getResourceDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
@@ -12,6 +12,8 @@ import { registerCostSnapshots } from './cost-snapshot';
 import { unfinishedApplications } from './bundle-guards';
 import { buildBundleLines, bundleSnapshotJson, composeBundleFor, findNamingRule, namingInputFor, refreshBundle } from './finance-rules';
 import { ResourcesService } from './resources.service';
+import { CostService } from './cost.service';
+import { loadUnitLists, unitLabelFor } from './unit-options';
 
 const TYPE = 'finance-bundles';
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
@@ -19,8 +21,8 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 
 export interface LineInput { sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean; costBucket?: string; costTreatment?: string; note?: string }
 export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number; manualCode?: string; manualName?: string; manualShortName?: string; manualReason?: string }
-interface SnapLine { role: string; ref: string; qty: number; weightG: number | null; cost: number | null }
-interface BundleSnap { profile: Record<string, string>; lines: SnapLine[] }
+interface SnapLine { role: string; ref: string; qty: number; weightG: number | null; cost: number | null; [key: string]: unknown }
+interface BundleSnap { profile: Record<string, unknown>; lines: SnapLine[] }
 
 const lineKey = (l: LineInput) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` : l.baseCodeId}:${l.qty}`;
 
@@ -201,23 +203,26 @@ export class BundleToolsService {
     const b = await this.load(em, user, id);
     const cost = this.canCost(user);
     const { lines, revision } = await this.currentLines(em, user, b);
+    const pricing = new CostService(this.ds);
+    const pricingData = await pricing.load(user.companyId, em);
+    const values = pricing.row({ ...pricingData, lines: lines.map((l, i) => em.create(ResourceRecord, { id: i + 1, companyId: user.companyId, type: 'finance-bundle-lines', data: { ...l, bundleId: b.id } })) }, b);
+    const units = await loadUnitLists(em, user.companyId);
+    const unitField = getResourceDef('finance-bundle-lines')!.fields.find(f => f.key === 'unit')!;
     const issues: string[] = [];
     if (!lines.some((l) => l.role === 'main')) issues.push('还没有主品');
     const components: Array<Record<string, unknown>> = [];
-    let totalWeight = 0, totalCost = 0;
-    for (const l of lines) {
+    const totalWeight = values.weightG ?? 0, totalCost = values.preShipCostCents;
+    for (const [index, l] of lines.entries()) {
+      const priced = values.lines[index];
       if (l.role === 'labor') {
-        const lab = await em.findOne(ResourceRecord, { where: { id: Number(l.laborId), companyId: user.companyId, type: 'finance-labor-costs' } });
-        components.push({ role: l.role, code: '', name: lab?.title ?? '已删除的人工项目', qty: l.qty, weightG: null, cost: null, unit: '', includeInJst: false, isRequired: l.isRequired !== false, costTreatment: str(l.costTreatment) || 'include' });
+        const lab = pricingData.labor.get(Number(l.laborId));
+        components.push({ role: l.role, code: '', name: lab?.title ?? '已删除的人工项目', qty: l.qty, weightG: null, cost: cost ? priced.unitCostCents : undefined, unit: '', includeInJst: false, isRequired: l.isRequired !== false, costTreatment: str(l.costTreatment) || 'include' });
         continue;
       }
       const bc = await em.findOne(ResourceRecord, { where: { id: Number(l.baseCodeId), companyId: user.companyId, type: 'finance-base-codes' } });
       if (!bc) { issues.push('构成里有基础编码已被删除'); continue; }
       if (bc.status !== 'verified') issues.push(`基础编码「${bc.title}」还没验证`);
-      const w = num(bc.data.weightG), c = num(bc.data.cost);
-      totalWeight += (w ?? 0) * l.qty;
-      totalCost += (c ?? 0) * l.qty;
-      components.push({ role: l.role, code: str(bc.data.code), name: str(bc.data.name) || bc.title, qty: l.qty, weightG: w, cost: cost ? c : undefined, unit: str(l.unit), includeInJst: l.includeInJst === true, isRequired: l.isRequired !== false, lossRate: l.lossRate ?? 0, costBucket: str(l.costBucket), costTreatment: str(l.costTreatment) || 'include' });
+      components.push({ role: l.role, code: str(bc.data.code), name: str(bc.data.name) || bc.title, qty: l.qty, weightG: priced.unitWeightG, cost: cost ? priced.unitCostCents : undefined, unit: unitLabelFor(units, unitField, l as unknown as Record<string, unknown>, l.unit), includeInJst: l.includeInJst === true, isRequired: l.isRequired !== false, lossRate: l.lossRate ?? 0, costBucket: str(l.costBucket), costTreatment: str(l.costTreatment) || 'include' });
     }
     // 旧系统验证问题清单：分类、必填文本、单位、成本、重量、进聚水潭行等一次列全
     const platform = await em.findOne(ResourceRecord, { where: { id: Number(b.data.platformId), companyId: user.companyId, type: 'finance-platforms' } });
@@ -228,10 +233,10 @@ export class BundleToolsService {
     let changes = stored ? this.diff(stored, now) : [];
     if (!cost) changes = changes.filter((c) => !COST_FIELDS.has(c.field));
     const uploaded = str(b.data.jstUploadedCode);
-    const outbound = { sku_id: str(b.data.code), i_id: str(b.data.styleCode), name: str(b.data.name), short_name: str(b.data.shortName), weight: Math.round(totalWeight) / 1000, cost_price: cost ? totalCost / 100 : undefined };
+    const outbound = { sku_id: str(b.data.code), i_id: str(b.data.styleCode), name: str(b.data.name), short_name: str(b.data.shortName), weight: Math.round(totalWeight * 1000) / 1_000_000, cost_price: cost ? totalCost == null ? null : totalCost / 100 : undefined };
     return {
       id: b.id, code: str(b.data.code), name: str(b.data.name), styleCode: str(b.data.styleCode), shortName: str(b.data.shortName), status: b.status,
-      components, totalWeightG: Math.round(totalWeight * 100) / 100, totalCost: cost ? totalCost : undefined,
+      components, totalWeightG: Math.round(totalWeight * 1e6) / 1e6, totalCost: cost ? totalCost : undefined,
       pendingRevision: revision ? { id: revision.id, reason: str(revision.data.reason) } : null,
       signature: sigOf(snapJson, b.status),
       issues, secondVerification: b.status === 'reverify', baselineMissing: b.status === 'reverify' && !stored, changes,
@@ -248,7 +253,7 @@ export class BundleToolsService {
   private diff(before: BundleSnap, after: BundleSnap) {
     const out: { source: string; field: string; label: string; before: unknown; after: unknown }[] = [];
     const push = (source: string, field: string, label: string, b: unknown, a: unknown) => { if (JSON.stringify(b ?? null) !== JSON.stringify(a ?? null)) out.push({ source, field, label, before: b ?? null, after: a ?? null }); };
-    const labels: Record<string, string> = { code: '组合编码', name: '组合名称', styleCode: '款式编码', shortName: '简称' };
+    const labels: Record<string, string> = { code: '组合编码', name: '组合名称', styleCode: '款式编码', shortName: '简称', weightMode: '重量方式', manualWeightG: '手工重量(克)', propertiesValue: '规格', baseUnit: '计量单位', bundleCategoryId: '组合分类', brandId: '品牌', varietyName: '品种', configNo: '配置号', bomVersion: '构成版本号', bomEffectiveFrom: '构成生效日', bomEffectiveTo: '构成失效日' };
     for (const k of Object.keys(labels)) push('组合', k, labels[k], before.profile[k], after.profile[k]);
     const key = (l: SnapLine) => `${l.role}|${l.ref}`;
     const was = new Map(before.lines.map((l) => [key(l), l]));
@@ -259,6 +264,7 @@ export class BundleToolsService {
       push(a.ref, 'qty', '数量', b.qty, a.qty);
       push(a.ref, 'weightG', '重量(克)', b.weightG, a.weightG);
       push(a.ref, 'cost', '成本', b.cost, a.cost);
+      for (const [field, label] of Object.entries({ unit: '单位', lossRate: '损耗率', isRequired: '必需', includeInJst: '进入聚水潭组合装', costBucket: '成本归集', costTreatment: '成本处理', sortOrder: '排序', effectiveFrom: '生效日', effectiveTo: '失效日', note: '备注' })) push(a.ref, field, label, b[field], a[field]);
     }
     for (const [k, b] of was) if (!now.has(k)) out.push({ source: b.ref, field: 'line', label: '去掉的构成', before: `${b.ref} ×${b.qty}`, after: null });
     return out;

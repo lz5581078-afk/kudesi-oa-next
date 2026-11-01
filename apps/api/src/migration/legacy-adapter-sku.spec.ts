@@ -9,10 +9,12 @@ describe('SKU 迁移口径', () => {
     expect(mapping.packageWeight('2','斤').weightG).toBe(1000);expect(mapping.packageWeight('5','毫克').weightG).toBe(0.005);
     expect(()=>mapping.packageWeight('13','袋')).toThrow(/禁止猜测/);
   });
-  it('旧V01与新01同义；只给历史上已用作赠品且缺字段的商品生成有来源的简称',()=>{
+  it('旧V01与新01同义；赠品简称缺失时保留缺失，不按品牌/拼音编造',async()=>{
     expect(mapping.configNo('V01')).toBe('01');expect(mapping.configNo('V2')).toBe('02');expect(mapping.configNo('CUSTOM')).toBe('CUSTOM');
-    const aliases=mapping.giftAliases({finance_products:[{id:'gift',brand:'某品牌',product_name:'水溶肥',payload_json:{}},{id:'unused',product_name:'不作赠品',payload_json:{}}],finance_product_base_codes:[{id:9,source_product_id:'gift'}],finance_product_bundle_bom_lines:[{role:'gift',component_type:'base_code',base_code_id:9}]},()=> 'MPP-SRF'.replace(/-/g,''));
-    expect(aliases.get('gift')).toEqual({giftShortName:'某品牌水溶肥',giftCodeShortName:'MPPSRF'});expect(aliases.has('unused')).toBe(false);
+    const out=await readFakeLegacy({companies:[{id:7,name:'测试公司'}],finance_products:[{id:'gift',company_id:7,archive_key:'raw',brand:'某品牌',product_name:'水溶肥',status:'normal',amount:1,unit:'克',payload_json:{}}],finance_product_base_codes:[{id:9,company_id:7,source_product_id:'gift',status:'active'}],finance_product_bundle_bom_lines:[{id:1,company_id:7,role:'gift',component_type:'base_code',base_code_id:9}]});
+    const p=out.records.find(r=>r.type==='finance-products'&&r.id==='gift')!;
+    expect(p.data.giftShortName).toBeUndefined();expect(p.data.giftCodeShortName).toBeUndefined();
+    expect(p.notices?.some(n=>n.includes('生成赠品简称'))).toBeFalsy();
   });
   it('按显式分类关联迁入命名规则，保留旧分类显示名与组合品牌；派生BOM不是额外采购价', async () => {
     const out = await readFakeLegacy({

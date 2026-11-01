@@ -132,6 +132,7 @@ function financePages(): NavPage[] {
     res('finance-customers', '基础资料'),
     res('finance-fee-items', '基础资料'),
     own('history', '经营历程', '单据中心'),
+    res('finance-ledger-history', '单据中心'),
     own('drafts', '草稿中心', '单据中心'),
     ...DOC_TYPES.filter((d) => d.type !== 'withdrawal').map((d) => own(`doc-${d.type}`, d.label, '制单中心')),
     own('cost-table', '成本表', '数据'),

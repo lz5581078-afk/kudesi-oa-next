@@ -51,6 +51,26 @@ function buildUnitCatalog({ tables, defs, payloadOf }) {
     const rows = [...(tables[table] || [])].sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id) - Number(b.id));
     rows.forEach((row, i) => add(kind, text(row.unit_name), row.unit_code, Number(row.sort_order) || i + 1, `${kind}:${row.id}`));
   }
+  // 旧档案可能使用内置单位、历史单位名称或已经存下的单位编码，未必仍在旧单位管理表中。
+  // 将实际使用的名称补入同类字典；已存在的编码作为同一单位引用，不另造重复项。
+  const fixedByCode = Object.fromEntries(Object.entries(fixed.unit).map(([label, code]) => [code, label]));
+  const usedUnits = new Map();
+  const remember = (kind, value) => { const name = text(value); if (name) { if (!usedUnits.has(kind)) usedUnits.set(kind, new Set()); usedUnits.get(kind).add(name); } };
+  for (const row of tables.finance_products || []) {
+    const kind = row.archive_key === 'shipping_material' ? 'shipping_unit' : 'spec_unit';
+    const payload = payloadOf(row);
+    remember(kind, row.unit);
+    // 尺寸型规格在适配器中使用原计价单位；该单位也必须在同类字典中，
+    // 否则一旦公司已有自定义单位，静态下拉的“张/个”等值会被校验拒绝。
+    if (!Number.isFinite(Number(row.amount))) remember(kind, payload.purchaseSpecification);
+    remember('packaging_unit', payload.productPackagingUnit);
+  }
+  for (const [kind, names] of usedUnits) for (const value of [...names].sort()) {
+    const b = bucket(kind);
+    if (b.byName.has(value) || b.codes.has(normCode(value, kind))) continue;
+    const canonicalName = fixedByCode[normCode(value, kind)] || value;
+    if (!b.byName.has(canonicalName)) add(kind, canonicalName, '', records.length + 1, `${kind}:used:${canonicalName}`);
+  }
   // 包装类别、尺寸单位在旧系统没有单独的表，只是档案里的文字：用到的名称都建成列表项，不丢
   const used = { packaging_category: new Set(), dimension_unit: new Set() };
   for (const p of tables.finance_products || []) {
@@ -62,7 +82,7 @@ function buildUnitCatalog({ tables, defs, payloadOf }) {
   return {
     records,
     /** 旧档案里的单位名称 → 新编码；列表里没有返回 undefined */
-    codeOf: (kind, name) => byKind.get(kind)?.byName.get(text(name)),
+    codeOf: (kind, name) => { const b = byKind.get(kind), value = text(name), code = normCode(value, kind); return b?.byName.get(value) || (b?.codes.has(code) ? code : b?.byName.get(fixedByCode[code])); },
   };
 }
 
@@ -93,4 +113,40 @@ function composedFromLinks(links) {
   };
 }
 
-module.exports = { buildUnitCatalog, productUnitFields, composedFromLinks, normCode, UNIT_TABLES };
+function nonnegativeSortRanks(rows) {
+  const value = row => { const n = Number(row.sort_order ?? 0); if (!Number.isFinite(n)) throw new Error('旧排序值不是有效数字'); return n; };
+  for (const row of rows) value(row);
+  const sorted = [...rows].sort((a,b) => value(a)-value(b) || String(a.id).localeCompare(String(b.id), 'en', {numeric:true}));
+  return new Map(sorted.map((row,index) => [String(row.id),index]));
+}
+
+/** 组合分类是独立字典，不是商品档案分类；保留它自己的父级和来源身份。 */
+function bundleCategoryRecords(tables) {
+  const rows = (tables.finance_product_code_dictionary || []).filter(r => r.dictionary_type === 'bundle_category');
+  const ids = new Set(rows.map(r => String(r.id))), ranks = nonnegativeSortRanks(rows);
+  return rows.map(r => {
+    if (r.parent_id && !ids.has(String(r.parent_id))) throw new Error('旧组合分类父级不在同类字典中');
+    if (!['active', 'inactive'].includes(r.status)) throw new Error('旧组合分类状态无法无损对应');
+    return { type: 'finance-categories', id: `bundle-dict:${r.id}`, status: r.status, data: {
+      archiveType: 'bundle', name: r.item_name, code: r.item_code, sort: ranks.get(String(r.id)),
+      ...(r.parent_id ? { parentId: { legacyRef: { type: 'finance-categories', id: `bundle-dict:${r.parent_id}` } } } : {}),
+    } };
+  });
+}
+
+/** Preserve explicit old line settings, particularly opted-in packaging. */
+function bundleLineExtras(row, unit) {
+  if (row.is_required == null || row.include_in_jst_bundle == null || ![0, 1].includes(Number(row.is_required)) || ![0, 1].includes(Number(row.include_in_jst_bundle))) throw Error('旧组合组成的必需或上传选项无法对应');
+  return {
+    ...(unit ? { unit } : {}),
+    lossRate: Number(row.loss_rate ?? 0), isRequired: Number(row.is_required) === 1,
+    includeInJst: Number(row.include_in_jst_bundle) === 1,
+    ...(row.cost_bucket ? { costBucket: row.cost_bucket } : {}),
+    ...(row.cost_treatment ? { costTreatment: row.cost_treatment } : {}),
+    sortOrder: Number(row.sort_order ?? 0),
+    ...(row.effective_from ? { effectiveFrom: row.effective_from } : {}),
+    ...(row.effective_to ? { effectiveTo: row.effective_to } : {}),
+    ...(row.remark ? { note: row.remark } : {}),
+  };
+}
+module.exports = { bundleLineExtras, bundleCategoryRecords, nonnegativeSortRanks, buildUnitCatalog, productUnitFields, composedFromLinks, normCode, UNIT_TABLES };
