@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FLOW_ACTION_LABEL, RUN_STATUS_LABEL, STEP_TYPE_LABEL } from '@kudesi/shared';
+import { FLOW_ACTION_LABEL, RUN_STATUS_LABEL, STEP_TYPE_LABEL, resourcePagePath } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { ReasonDialog, loadRefOptions } from '../../resources/RecordForm';
 import { FlowFieldsForm, FlowValues } from './FlowFields';
@@ -108,8 +108,9 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
             ) : <FlowValues fields={run.fields} values={run.payload} labels={run.refLabels} files={run.files} />}
             {run.templateKey === PURCHASE_TEMPLATE_KEY && !editing && <PurchasePanel runId={run.id} refreshKey={run.revision} onChanged={reload} />}
             {run.templateKey === SKU_TEMPLATE && !editing && <SkuPreview runId={run.id} refreshKey={run.revision} />}
-            {(run.links.docNo || run.links.borrowRecordId) && (
+            {(run.links.docNo || run.links.borrowRecordId || run.links.ledgerHistoryId) && (
               <p className="muted">
+                {run.links.ledgerHistoryId && <a href={`${resourcePagePath('finance-ledger-history')}?open=${run.links.ledgerHistoryId}`}>查看关联收支记录</a>}
                 {run.links.docNo && <>已生成并过账单据 <span className="mono">{run.links.docNo}</span>（在“财务 → 经营历程”查看）。 </>}
                 {run.links.borrowRecordId && <>已登记借用记录（在“资料 → 营业执照”详情里查看）。</>}
               </p>

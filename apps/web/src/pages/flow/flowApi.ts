@@ -20,7 +20,7 @@ export interface RunDetailDto {
   activeSteps?: Array<{ id: number; key: string; name: string; recipients: Array<{ id: number; name: string }>; dueAt: string | null }>;
   activeStep: { id: number; key: string; name: string; type: string; enteredVia: string; dueAt: string | null; recipients: Array<{ id: number; name: string }> } | null;
   steps: RunStep[]; events: Array<{ id: number; action: FlowAction; note: string | null; actorName: string; createdAt: string }>; ccs: Array<{ userId: number; name: string }>;
-  links: { docId: number | null; docNo: string | null; borrowRecordId: number | null };
+  links: { ledgerHistoryId?: number; docId: number | null; docNo: string | null; borrowRecordId: number | null };
   me: { canPass: boolean; canReturn: boolean; canCancel: boolean; canReject: boolean; returnBlockedReason: string | null; cancelBlockedReason: string | null; canResubmit: boolean; canWithdraw: boolean; canTransfer: boolean; canAbnormal?: boolean; stepFields: FieldDef[] };
 }
 export interface AssignedRow { storeId?: number | null; storeName?: string | null; id: number; title: string; description: string | null; status: string; dueAt: string | null; createdAt: string; finishedAt: string | null; doneNote: string | null; assigneeName: string; overdue: boolean;

@@ -1,15 +1,20 @@
+import { importEarlyFlow } from './early-flow-import';
+import { importLinearFlow } from './linear-flow-import';
 import type { EntityManager } from 'typeorm';
 import type { CryptoService } from '../common/crypto.service';
 import { preserveSourceRow } from './source-rows';
 import { importSkuContinuation } from './sku-continuation-import';
 import type { LegacyArchive, LegacyWorkflowSource } from './protocol';
-import { importStandaloneTask, importEarlyTask } from './task-continuation-import';
+import { importStandaloneTask, importEarlyTask, importLinearTask } from './task-continuation-import';
 import { restoreWorkflowAccess } from './workflow-access';
 
 type Row = Record<string, any>;
-export const WORKFLOW_TARGET_TABLE: Record<string, string> = { flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items' };
+export const WORKFLOW_TARGET_TABLE: Record<string, string> = { linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
 export const workflowHashGroups = (source: LegacyWorkflowSource | undefined): Array<[string, Row[]]> => source ? [
-  ['flow_run', source.tables.workflow_instances ?? []], ['flow_step', source.tables.workflow_node_records ?? []], ['flow_definition', source.tables.workflow_batches ?? []], ['work_item', source.tables.task_instances ?? []], ['early_work_item', source.tables.tasks ?? []],
+  ['linear_flow_todo', source.tables.workflow_instances ?? []], ['linear_boundary_step', source.tables.workflow_instances ?? []],
+  ['legacy_flow_definition', (source.tables.workflow_instances ?? []).filter(r => r.graph_status === 'linear').map(r => ({ ...r, id: `linear:${r.id}` }))],
+  ['legacy_flow_template', [{ id: 'linear', model: 'workflow_instances' }]],
+  ['flow_run', source.tables.workflow_instances ?? []], ['flow_step', source.tables.workflow_node_records ?? []], ['flow_definition', source.tables.workflow_batches ?? []], ['work_item', source.tables.task_instances ?? []], ['early_work_item', source.tables.tasks ?? []], ['early_flow_run', source.tables.workflows ?? []], ['early_flow_step', source.tables.workflows ?? []], ['early_flow_todo', source.tables.workflows ?? []], ['legacy_flow_definition', (source.tables.workflows ?? []).map(r => ({ ...r, id: `early:${r.id}` }))], ['legacy_flow_template', [{ id: 'early', model: 'workflows' }]],
 ] : [];
 interface Context {
   em: EntityManager; crypto: CryptoService; companyId: number; actorId: number;
@@ -47,6 +52,13 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
       ctx.note('workflow-history', String(run.id), '原始历史已加密保留，旧流程只读时间线尚需验收');
       continue;
     }
+    if (run.graph_status === 'linear') {
+      try {
+        const result = await ctx.savepoint(() => importLinearFlow({ ...ctx, sourceCompanyId: workflow.companyId, register: async (type, id, target) => { await ctx.register(type, id, target); ctx.count('created', type); } }, workflow, run));
+        if (result.reused) ctx.count('reused', 'flow_run');
+      } catch (e) { ctx.fail('flow_run', String(run.id), e instanceof Error && e.message.startsWith('旧线性流程') ? e.message : ctx.safeFailure(e)); }
+      continue;
+    }
     if (run.graph_status !== 'batch') { ctx.fail('flow_run', String(run.id), '旧线性或业务流程续办尚未验收，禁止按新申请重建'); continue; }
     const items = rows('workflow_batch_items').filter(i => String(i.workflow_instance_id) === String(run.id));
     const item = items.length === 1 ? items[0] : null;
@@ -75,6 +87,14 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
     }
   }
   for (const task of tasks) if (!CLOSED.has(task.status) && !mappedTasks.has(String(task.id))) {
+    const linear = rows('workflow_instances').find(r => String(r.id) === String(task.workflow_instance_id) && r.graph_status === 'linear');
+    if (linear) {
+      try {
+        const result = await ctx.savepoint(() => importLinearTask({ ...ctx, sourceCompanyId: workflow.companyId }, task, linear));
+        ctx.count(result.reused ? 'reused' : 'created', 'work_item'); mappedTasks.add(String(task.id));
+      } catch (e) { ctx.fail('work_item', String(task.id), e instanceof Error && e.message.startsWith('旧任务') ? e.message : ctx.safeFailure(e)); }
+      continue;
+    }
     if (['manual', 'routine'].includes(task.source_type)) {
       try {
         const result = await ctx.savepoint(() => importStandaloneTask({ em: ctx.em, companyId: ctx.companyId, sourceCompanyId: workflow.companyId, lookup: ctx.lookup, register: ctx.register }, task, rows('task_templates').find(t => String(t.id) === String(task.template_id))));
@@ -83,7 +103,12 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
     }
     ctx.fail('work_item', String(task.id), '原待办已加密保留，但续办或周期规则尚未验收');
   }
-  for (const run of rows('workflows')) if (!CLOSED.has(run.status)) ctx.fail('early_flow_run', String(run.id), '早期流程独立保留，尚未验收续办，不与新版同号流程合并');
+  for (const run of rows('workflows')) {
+    try {
+      const result = await ctx.savepoint(() => importEarlyFlow({ em: ctx.em, crypto: ctx.crypto, companyId: ctx.companyId, sourceCompanyId: workflow.companyId, actorId: ctx.actorId, lookup: ctx.lookup, register: async (type, id, target) => { await ctx.register(type, id, target); ctx.count('created', type); } }, run));
+      if (result.reused) ctx.count('reused', 'early_flow_run');
+    } catch (e) { ctx.fail('early_flow_run', String(run.id), e instanceof Error && e.message.startsWith('旧早期流程') ? e.message : ctx.safeFailure(e)); }
+  }
   for (const task of rows('tasks')) if (!CLOSED.has(task.status)) {
     try {
       const result = await ctx.savepoint(() => importEarlyTask({ em: ctx.em, companyId: ctx.companyId, sourceCompanyId: workflow.companyId, lookup: ctx.lookup, register: ctx.register }, task, rows('workflows').find(w => String(w.id) === String(task.workflow_id))));

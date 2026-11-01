@@ -174,6 +174,13 @@ describe('流程详情', () => {
     await waitFor(() => expect(f.run).toHaveBeenCalledTimes(2));
     expect(screen.getByDisplayValue('续办补充备注')).toBeTruthy();
   });
+  it('已完成的旧流程可打开关联历史收支，不误称为已过账银行单据', async () => {
+    f.run.mockResolvedValue(runDetail({ status: 'completed', activeStep: null, links: { docId: null, docNo: null, borrowRecordId: null, ledgerHistoryId: 14 } }) as never);
+    render(<RunDetail id={5} onClose={() => undefined} onChanged={() => undefined} />);
+    const link = await screen.findByRole('link', { name: '查看关联收支记录' });
+    expect(link.getAttribute('href')).toBe('/finance/finance-ledger-history?open=14');
+    expect(screen.queryByText(/已生成并过账单据/)).toBeNull();
+  });
   it('复制链接；Esc 关闭；办结的流程有结果横幅', async () => {
     f.run.mockResolvedValue(runDetail({ status: 'completed', activeStep: null, finishedAt: '2026-01-03T00:00:00Z' }) as never);
     const writeText = vi.fn().mockResolvedValue(undefined);

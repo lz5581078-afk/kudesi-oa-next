@@ -1,5 +1,5 @@
 import type { EntityManager } from 'typeorm';
-import { WorkItem, ResourceRecord, User } from '../entities';
+import { WorkItem, ResourceRecord, User, FlowRun } from '../entities';
 import { legacyWallTime as wall } from './legacy-time';
 import { TASK_FEEDBACK_PRESETS } from '@kudesi/shared';
 import { isDeepStrictEqual } from 'node:util';
@@ -63,4 +63,24 @@ export async function importEarlyTask(ctx: Context, task: Row, workflow?: Row) {
   if (task.workflow_id != null && (!workflow || String(workflow.company_id) !== String(ctx.sourceCompanyId) || String(workflow.id) !== String(task.workflow_id))) throw new Error('旧任务关联早期流程缺失或公司不一致');
   return persist(ctx, task, { ledgerType: 'early_work_item', requiresReview: false, feedbackPreset: null, createdAtUnknown: true,
     description: [workflow ? `关联旧流程：${workflow.title}（原编号 ${workflow.id}）` : '', '旧站未记录任务创建时间；页面创建时间为迁入时间。'].filter(Boolean).join('\n') });
+}
+/** In the old linear model, submit closes only task_instances; it does not
+ * advance workflow_instances. Keep this task independent of the engine todo. */
+export async function importLinearTask(ctx: Context, task: Row, workflow: Row) {
+  controlled(ctx, task);
+  if (workflow.graph_status !== 'linear' || String(workflow.company_id) !== String(ctx.sourceCompanyId) || String(workflow.id) !== String(task.workflow_instance_id) || task.source_type !== 'workflow' || task.template_id != null || task.submitted_at != null) throw new Error('旧任务线性流程关联尚未兼容');
+  const runId = ctx.lookup('flow_run', workflow.id);
+  if (!runId || !await ctx.em.findOneBy(FlowRun, { id: runId, companyId: ctx.companyId, templateKey: 'legacy-linear' })) throw new Error('旧任务关联流程未迁入');
+  const schema = task.feedback_schema == null ? [] : typeof task.feedback_schema === 'string' ? JSON.parse(task.feedback_schema) : task.feedback_schema;
+  const feedbackPreset = Array.isArray(schema) && schema.length === 0 ? 'simple' : Object.entries(TASK_FEEDBACK_PRESETS).find(([, p]) => isDeepStrictEqual(p.fields, schema))?.[0];
+  if (!feedbackPreset) throw new Error('旧任务自定义反馈表单尚未兼容');
+  let feedback = '';
+  if (task.feedback_to_id != null) {
+    const id = ctx.lookup('user', task.feedback_to_id);
+    const person = id && await ctx.em.findOneBy(User, { id, companyId: ctx.companyId });
+    if (!person) throw new Error('旧任务反馈接收人未迁入本公司');
+    feedback = `原反馈接收人：${person.name}`;
+  }
+  return persist(ctx, task, { ledgerType: 'work_item', requiresReview: false, feedbackPreset,
+    description: [`关联流程：${workflow.title}（新编号 ${runId}，旧编号 ${workflow.id}）`, `流程办理：/workbench/started?run=${runId}`, feedback, '按旧站规则，此任务提交完成与流程推进分别办理。'].filter(Boolean).join('\n') });
 }

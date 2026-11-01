@@ -14,7 +14,7 @@ import { aliasCode } from '../resources/base-code-support';
 import { LegacyArchive, LegacyRecord, LegacyRef } from './protocol';
 import { importLive, liveHashGroups, LIVE_TARGET_TABLE } from './live-import';
 import type { CryptoService } from '../common/crypto.service';
-import { preserveSourceRow } from './source-rows';
+import { preserveSourceRow, sourceRowHash } from './source-rows';
 import { withCostHistory } from './cost-history-context';
 import { importWorkflows, workflowHashGroups, WORKFLOW_TARGET_TABLE } from './workflow-import';
 import { withMissingLegacyReason } from './legacy-state-context';
@@ -52,9 +52,9 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   const resourceCreated=new Set<number>();
   const key = (type: string, id: unknown) => `${type}:${String(id)}`;
   for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],['position_duty',source.positionDuties??[]],['comp_record',source.compensationRecords??[]],['finance-ledger-history',(source.sourceRows??[]).filter(r=>r.table==='finance_entries').map(r=>({id:r.key,row:r.row}))],...['resource'].map(t=>[t,source.records]),['link',source.links??[]],...liveHashGroups(source.live),...workflowHashGroups(source.workflow)] as Array<[string,Array<Record<string,any>>]>) {
-    for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
+    for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),WORKFLOW_TARGET_TABLE[type] ? sourceRowHash(r) : createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
   }
-  out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,exclusions:source.exclusions,sourceRows:source.sourceRows??[],employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{})}))).digest('hex');
+  out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,exclusions:source.exclusions,sourceRows:(source.sourceRows??[]).map(r=>({table:r.table,key:r.key,hash:sourceRowHash(r.row)})),employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{})}))).digest('hex');
   const count = (which: 'created' | 'reused', type: string) => { out[which][type] = (out[which][type] ?? 0) + 1; };
   const lookup = (type: string, id: unknown) => ids.get(key(type, id));
   const required = (type: string, id: unknown) => { const n = lookup(type, id); if (!n) throw new MissingRef(key(type, id)); return n; };

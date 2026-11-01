@@ -1,3 +1,4 @@
+import { readSourceRow } from '../migration/source-rows';
 import { canAppendReadonly } from './append-only';
 import { legacyTaxDefinition } from '../migration/legacy-tax-context';
 import { createHash } from 'crypto';
@@ -673,6 +674,11 @@ export class ResourcesService implements RuleHost {
     const existing = await this.load(em, user, type, id);
     if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再修改');
     return this.saveRecord(em, user, this.def(type), existing, values, { note });
+  }
+
+  /** Internal continuation proof reader. There is no raw-source HTTP route. */
+  async legacySourceRow(em: EntityManager, user: AuthUser, sourceCompanyId: number, table: string, key: string) {
+    return readSourceRow(em, this.crypto, { companyId: user.companyId, sourceCompanyId, table, key });
   }
 
   /** 仅服务器迁移CLI调用，无HTTP入口；保留与手工录入相同的字段/引用/加密校验。 */

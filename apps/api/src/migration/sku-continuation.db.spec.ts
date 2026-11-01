@@ -137,7 +137,7 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     const archive: LegacyArchive = { company: { id: 3, name: '旧流程续办测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [], records: [], exclusions: [], loadFile: async () => Buffer.alloc(0), workflow: { companyId: 3, tables: { workflows: [{ id: 'early-1', company_id: 3, status: 'processing', type: 'expense' }] } } };
     const opts = { companyId: admin.companyId, actorId: admin.id, expectedName: archive.company.name, sourceRowsCrypto: svc.crypto };
     const result = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: false });
-    expect(result.failures).toContainEqual({ type: 'early_flow_run', id: 'early-1', reason: '早期流程独立保留，尚未验收续办，不与新版同号流程合并' });
+    expect(result.failures).toContainEqual(expect.objectContaining({ type: 'early_flow_run', id: 'early-1', reason: expect.stringContaining('旧早期流程') }));
     await expect(runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: true, expectedReport: result })).rejects.toThrow('禁止正式写入');
     expect(await readSourceRow(ds.manager, svc.crypto, { companyId: admin.companyId, sourceCompanyId: 3, table: 'workflows', key: 'early-1' })).toBeNull();
   });

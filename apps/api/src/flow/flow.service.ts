@@ -373,7 +373,15 @@ export class FlowService {
   }
 
   private async myOpenItem(em: EntityManager, user: AuthUser, step: FlowStep) {
-    return em.findOne(WorkItem, { where: { companyId: user.companyId, stepId: step.id, assigneeId: user.id, status: 'open' } });
+    const item = await em.findOne(WorkItem, { where: { companyId: user.companyId, stepId: step.id, assigneeId: user.id, status: 'open' } });
+    if (item) return item;
+    // Some original linear nodes deliberately have no task. Only their frozen
+    // recipients may act; a missing todo in an ordinary flow still denies access.
+    if (step.companyId !== user.companyId || step.status !== 'active' || !step.recipients.includes(user.id)) return null;
+    const run = await em.findOneBy(FlowRun, { id: step.runId, companyId: user.companyId, status: 'running' });
+    if (!run) return null;
+    const adapter = adapterFor(await this.runTpl(em, run));
+    return adapter.canHandleWithoutTodo?.({ em, run, stepKey: step.stepKey }) ? true : null;
   }
 
   // ================= 发起 =================
@@ -472,8 +480,9 @@ export class FlowService {
     });
     const stepId = Number(ins.identifiers[0].id);
     const label = via === 'return' ? `【被退回】${run.title}` : via === 'exception' ? `【异常】${run.title}` : run.title;
-    for (const uid of recipients) {
-      await em.insert(WorkItem, { companyId: run.companyId, kind: 'flow', runId: run.id, stepId, assigneeId: uid, title: `${def.name} · ${label}`.slice(0, 200), status: 'open', dueAt: due });
+    const taskContext = await adapter.stepWorkItem?.({ em, run, stepKey: def.key });
+    for (const uid of taskContext === false ? [] : recipients) {
+      await em.insert(WorkItem, { companyId: run.companyId, kind: 'flow', runId: run.id, stepId, assigneeId: uid, title: `${def.name} · ${label}`.slice(0, 200), status: 'open', dueAt: due, ...taskContext });
     }
     await this.notify(em, run.companyId, recipients, { kind: via === 'return' ? 'returned' : 'todo', title: via === 'return' ? `被退回：${run.title}` : via === 'exception' ? `异常待处理：${run.title}` : `新待办：${run.title}`, body: `步骤：${def.name}`, link: `/workbench/todos?run=${run.id}` }, run);
     for (const uid of def.ccUserIds ?? []) {
@@ -903,7 +912,7 @@ export class FlowService {
       steps: steps.map((s) => ({ id: s.id, seq: s.seq, key: s.stepKey, name: s.stepName, type: s.stepType, status: s.status, action: s.action, comment: s.comment, form: s.form && stepHidden.get(s.stepKey)?.size ? this.without(s.form, stepHidden.get(s.stepKey)!) : s.form, formRefLabels: stepRefLabels[s.id] ?? {}, enteredVia: s.enteredVia, enteredAt: s.enteredAt, finishedAt: s.finishedAt, dueAt: s.dueAt, handledByName: s.handledBy ? names.get(s.handledBy) ?? '' : null, recipients: s.recipients.map((u) => names.get(u) ?? '') })),
       events: events.map((e) => ({ id: e.id, action: e.action, note: e.note, actorName: names.get(e.actorId) ?? '', createdAt: e.createdAt })),
       ccs: ccs.map((c) => ({ userId: c.userId, name: names.get(c.userId) ?? '' })),
-      links: { docId: typeof run.payload._docId === 'number' ? run.payload._docId : null, docNo: str(run.payload._docNo) || null, borrowRecordId: typeof run.payload._borrowRecordId === 'number' ? run.payload._borrowRecordId : null },
+      links: { ...(typeof run.payload._ledgerHistoryId === 'number' && this.can(user, 'resource.finance-ledger-history.view') ? { ledgerHistoryId: run.payload._ledgerHistoryId } : {}), docId: typeof run.payload._docId === 'number' ? run.payload._docId : null, docNo: str(run.payload._docNo) || null, borrowRecordId: typeof run.payload._borrowRecordId === 'number' ? run.payload._borrowRecordId : null },
       me: {
         canPass: running && !!mine && active!.stepType !== 'submit',
         canReturn: running && !!mine && active!.stepType !== 'submit' && steps.some((s) => s.status !== 'active') && !adapter.returnBlocked?.(ctx!),

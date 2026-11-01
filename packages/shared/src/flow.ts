@@ -109,6 +109,8 @@ export interface FlowPostingDecl {
 }
 
 export interface FlowTemplate {
+  /** Server-derived origin of imported continuations; never accepted in designer input. */
+  legacySource?: 'early' | 'linear';
   key: string;
   label: string;
   description: string;

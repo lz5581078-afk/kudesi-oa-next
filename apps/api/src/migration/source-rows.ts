@@ -16,6 +16,8 @@ function stable(v: unknown): unknown {
   return v;
 }
 
+export function sourceRowHash(row: Row) { return createHash('sha256').update(JSON.stringify(stable(row))).digest('hex'); }
+
 export interface SourceRowIdentity { companyId: number; sourceCompanyId: number; table: string; key: string }
 function check(identity: SourceRowIdentity) {
   if (![identity.companyId, identity.sourceCompanyId].every(n => Number.isSafeInteger(n) && n > 0) || !/^[a-z][a-z0-9_]{0,79}$/.test(identity.table) || !identity.key || identity.key.length > 200 || /[\u0000-\u001f]/.test(identity.key)) throw new Error('来源记录身份不合法');
