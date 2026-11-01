@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } };
+const auth = { user: { permissions: { isCompanyAdmin: true, allow: [] as string[], deny: [] as string[] } } };
 vi.mock('../../auth/AuthContext', () => ({ useAuth: () => auth }));
 import { orgApi } from './orgApi';
 import { StructurePage } from './StructurePage';
@@ -19,6 +19,7 @@ const staff = [
 
 beforeEach(() => {
   localStorage.clear();
+  auth.user.permissions={isCompanyAdmin:true,allow:[],deny:[]};
   vi.spyOn(orgApi, 'departments').mockResolvedValue(tree);
   vi.spyOn(orgApi, 'positions').mockResolvedValue([]);
   vi.spyOn(orgApi, 'catalog').mockResolvedValue([]);
@@ -86,4 +87,29 @@ describe('部门与岗位：左树右卷宗', () => {
     fireEvent.drop(dst, { dataTransfer: dt, clientY: 20 });
     await waitFor(() => expect(upd).toHaveBeenCalledWith(3, { parentId: 2, sortOrder: 10 }));
   });
+  it('部门成员可直接编辑，无薪资权限不显示或提交薪资字段，保存后刷新成员',async()=>{
+    auth.user.permissions={isCompanyAdmin:false,allow:['org.staff.view','org.staff.edit'],deny:[]};
+    const person={id:11,account:'a',name:'小王',departmentId:2,positionId:5,positionName:'运营',status:'active',isCompanyAdmin:false,lastLoginAt:null,managerId:12,title:'专员',extraPositionIds:[6],employmentType:'regular',payType:'hourly',hourlyRate:5000,baseSalary:200000,allow:[],deny:[]};
+    vi.spyOn(orgApi,'staffOne').mockResolvedValue(person as never);
+    vi.spyOn(orgApi,'positions').mockResolvedValue([{id:5,name:'运营',departmentId:2,workspaceType:'operations',permissions:[],userCount:1,status:'active',level:'staff'},{id:6,name:'会计',departmentId:3,workspaceType:'finance',permissions:[],userCount:1,status:'active',level:'staff'}] as never);
+    const update=vi.spyOn(orgApi,'updateStaff').mockResolvedValue({...person,name:'新小王'} as never);
+    render(<StructurePage/>);await screen.findByText('总部');fireEvent.click(screen.getByLabelText('展开总部'));fireEvent.click(within(screen.getByRole('tree')).getByText('运营部'));
+    fireEvent.click(await screen.findByRole('button',{name:'编辑员工 小王'}));
+    await screen.findByLabelText('姓名');const dlg=screen.getByRole('dialog',{name:'编辑员工'});
+    expect(within(dlg).queryByLabelText('计薪方式')).toBeNull();expect(within(dlg).queryByLabelText('时薪（元/小时）')).toBeNull();
+    fireEvent.change(within(dlg).getByLabelText('姓名'),{target:{value:'新小王'}});
+    vi.mocked(orgApi.departmentProfile).mockResolvedValue({department:{id:2,name:'运营部',parentId:1,parentName:'总部',status:'active',managerId:null,managerName:'老周'},headcount:1,positions:[],staff:[{id:11,name:'新小王',account:'a',status:'active',positionName:'运营',managerName:'小李',groups:[]}],children:[]} as never);
+    fireEvent.click(within(dlg).getByRole('button',{name:'保存'}));
+    await waitFor(()=>expect(update).toHaveBeenCalled());
+    const body=update.mock.calls[0][1];expect(body).toMatchObject({name:'新小王',positionId:5,extraPositionIds:[6],managerId:12,title:'专员'});
+    expect(body).not.toHaveProperty('baseSalary');expect(body).not.toHaveProperty('hourlyRate');expect(body).not.toHaveProperty('payType');
+    expect(await within(screen.getByLabelText('成员')).findByRole('button',{name:'编辑员工 新小王'})).toBeTruthy();
+  });
+
+  it('无员工编辑权限时部门成员表保持只读',async()=>{
+    auth.user.permissions={isCompanyAdmin:false,allow:['org.staff.view'],deny:[]};
+    render(<StructurePage/>);await screen.findByText('总部');fireEvent.click(screen.getByLabelText('展开总部'));fireEvent.click(within(screen.getByRole('tree')).getByText('运营部'));
+    await screen.findByText('小王');expect(screen.queryByRole('button',{name:'编辑员工 小王'})).toBeNull();
+  });
+
 });

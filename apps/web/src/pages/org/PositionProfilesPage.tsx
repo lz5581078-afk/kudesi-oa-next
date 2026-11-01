@@ -1,3 +1,4 @@
+import './positionProfiles.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createChecker, resourceDescription } from '@kudesi/shared';
 import type { CatalogGroup } from '@kudesi/shared';
@@ -12,7 +13,7 @@ import { PositionDetail } from './PositionDetail';
 /** 岗位类型（positions.workspace_type 显式字段）对应的默认工作台名称；空白类型没有默认工作台 */
 const deskLabel = (t: string) => (t === 'blank' ? '无' : `${(WORKSPACE_LABELS[t] ?? t)}工作台`);
 
-/** 岗位档案（旧版）：按部门分组的岗位表（每组一张表，可折叠），筛选行在最上面；点“查看”进入整页详情。 */
+/** 岗位档案（旧版）：左侧部门列表，右侧岗位列表或档案；部门选择包含下级，查看档案保留部门导航。 */
 export function PositionProfilesPage() {
   const { user } = useAuth();
   const can = user ? createChecker(user.permissions) : () => false;
@@ -22,6 +23,7 @@ export function PositionProfilesPage() {
   const [catalog, setCatalog] = useState<CatalogGroup[]>([]);
   const [keyword, setKeyword] = useState('');
   const [dept, setDept] = useState('');
+  const [deptKeyword,setDeptKeyword]=useState('');
   const [level, setLevel] = useState('');
   const [status, setStatus] = useState('active');
   const [vacantOnly, setVacantOnly] = useState(false);
@@ -40,44 +42,50 @@ export function PositionProfilesPage() {
   const posName = useMemo(() => new Map(positions.map((p) => [p.id, p.name])), [positions]);
   // 选了上级部门，也包含它的下级部门里的岗位
   const deptScope = useMemo(() => {
-    if (!dept) return null;
+    if (!dept || dept==='none') return null;
     const ids = new Set<number>();
     const walk = (nodes: DepartmentNode[], inside: boolean) => { for (const n of nodes) { const hit = inside || String(n.id) === dept; if (hit) ids.add(n.id); walk(n.children, hit); } };
     walk(tree, false);
     return ids;
   }, [dept, tree]);
   const kw = keyword.trim().toLowerCase();
-  const shown = positions.filter((p) =>
+  const filtered = positions.filter((p) =>
     (!kw || `${p.name}${p.positionKey ?? ''}${p.description ?? ''}${WORKSPACE_LABELS[p.workspaceType] ?? ''}${flat.find((d) => d.id === p.departmentId)?.name ?? ''}`.toLowerCase().includes(kw))
-    && (!deptScope || (p.departmentId != null && deptScope.has(p.departmentId))) && (!level || p.level === level) && (!status || p.status === status) && (!vacantOnly || (p.status === 'active' && p.userCount === 0)));
+    && (!level || p.level === level) && (!status || p.status === status) && (!vacantOnly || (p.status === 'active' && p.userCount === 0)));
+  const shown=filtered.filter(p=>dept==='none'?p.departmentId===null:!deptScope||(p.departmentId!==null&&deptScope.has(p.departmentId)));
+  const countDepartment=(id:number)=>{const ids=new Set<number>();const walk=(nodes:DepartmentNode[],inside:boolean)=>{for(const n of nodes){const hit=inside||n.id===id;if(hit)ids.add(n.id);walk(n.children,hit);}};walk(tree,false);return filtered.filter(p=>p.departmentId!==null&&ids.has(p.departmentId)).length;};
+  const selectDepartment=(value:string)=>{setDept(value);setSel(null);};
   const groups = [
     ...flat.map((d) => ({ key: String(d.id), name: d.name, depth: d.depth, rows: shown.filter((p) => p.departmentId === d.id) })),
     { key: 'none', name: '未分配部门', depth: 0, rows: shown.filter((p) => p.departmentId == null) },
   ].filter((g) => g.rows.length > 0);
   const toggle = (k: string) => setFolded((cur) => { const n = new Set(cur); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
-  if (sel !== null) {
-    return (
-      <div className="res-page org-page pd-wrap">
-        {hasSlot ? <AppbarHint>{hint}</AppbarHint> : null}
-        <div className="pd-scroll"><PositionDetail id={sel} tree={tree} positions={positions} catalog={catalog} canEdit={canEdit} onBack={() => setSel(null)} onChanged={reload} /></div>
-      </div>
-    );
-  }
+
   return (
-    <div className="res-page org-page">
+    <div className="res-page org-page pp-page">
       {hasSlot ? <AppbarHint>{hint}</AppbarHint> : null}
+      <div className="org-body pp-body">
+        <aside className="org-side pp-departments" aria-label="岗位部门列表">
+          <div className="org-side-head"><strong>部门</strong><small className="muted">{flat.length} 个部门</small></div>
+          <input type="search" aria-label="搜索岗位部门" placeholder="搜索部门" value={deptKeyword} onChange={e=>setDeptKeyword(e.target.value)}/>
+          <nav className="pp-dept-list" aria-label="选择部门">
+            <button type="button" className="pp-dept" aria-pressed={!dept} onClick={()=>selectDepartment('')}><span>全部部门</span><small>{filtered.length}</small></button>
+            {flat.filter(d=>!deptKeyword.trim()||d.name.toLowerCase().includes(deptKeyword.trim().toLowerCase())).map(d=><button type="button" key={d.id} className="pp-dept" style={{paddingLeft:12+d.depth*16}} aria-pressed={dept===String(d.id)} onClick={()=>selectDepartment(String(d.id))}><span>{d.name}</span><small>{countDepartment(d.id)}</small></button>)}
+            {deptKeyword.trim()&&!flat.some(d=>d.name.toLowerCase().includes(deptKeyword.trim().toLowerCase()))&&<p role="status" className="muted pad">没有匹配的部门</p>}
+            <button type="button" className="pp-dept" aria-pressed={dept==='none'} onClick={()=>selectDepartment('none')}><span>未分配部门</span><small>{filtered.filter(p=>p.departmentId===null).length}</small></button>
+          </nav>
+        </aside>
+        <main className="org-main pp-content" aria-label="岗位内容">
+        {sel!==null?<PositionDetail key={sel} id={sel} tree={tree} positions={positions} catalog={catalog} canEdit={canEdit} onBack={()=>setSel(null)} onChanged={reload}/>:<>
       <section className="res-main pp-main" aria-label="岗位档案列表">
+        <div className="pp-content-head"><strong>{dept==='none'?'未分配部门':dept?flat.find(d=>String(d.id)===dept)?.name??'部门岗位':'全部岗位'}</strong><small className="muted">{shown.length} 个岗位{dept&&dept!=='none'?' · 包含下级部门':''}</small></div>
         <fieldset className="res-tools">
           <div className="res-bar">
             <span className="res-search">
               <SearchGlyph />
               <input type="search" aria-label="搜索岗位" placeholder="搜索岗位、部门、岗位类型、说明" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
             </span>
-            <select aria-label="部门" value={dept} onChange={(e) => setDept(e.target.value)}>
-              <option value="">全部部门</option>
-              {flat.map((d) => <option key={d.id} value={d.id}>{'　'.repeat(d.depth)}{d.name}</option>)}
-            </select>
             <select aria-label="层级" value={level} onChange={(e) => setLevel(e.target.value)}>
               <option value="">全部层级</option>
               {Object.entries(LEVEL_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -113,11 +121,11 @@ export function PositionProfilesPage() {
                         <td className="num">{p.userCount}</td>
                         <td className="num">{p.dutyCount ?? 0}</td>
                         <td><span className={p.status === 'active' ? 'pill ok' : 'pill warn'}>{p.status === 'active' ? '启用' : '已停用'}</span></td>
-                        <td className="row-actions">
+                        <td className="pp-actions"><span className="row-actions">
                           <button type="button" className="link-button" onClick={() => setSel(p.id)}>查看档案</button>
                           {canEdit && p.status === 'active' && <button type="button" className="link-button" onClick={() => setDlg({ kind: 'stop', p })}>停用</button>}
                           {can('org.structure.delete') && <button type="button" className="link-button danger-text" onClick={() => setDlg({ kind: 'del', p })}>删除</button>}
-                        </td>
+                        </span></td>
                       </tr>
                     ))}
                   </tbody>
@@ -128,8 +136,10 @@ export function PositionProfilesPage() {
           {shown.length === 0 && <p className="muted pad">没有符合条件的岗位。可以先新增岗位，再维护岗位职责、培训、绩效和监督规则。</p>}
         </div>
         <div className="res-foot"><span className="res-foot-sum">共 {shown.length} 个岗位，分在 {groups.length} 个部门</span></div>
-      </section>
-      {dlg?.kind === 'new' && <PositionDialog position={null} defaultDepartmentId={dept ? Number(dept) : null} departments={tree} catalog={catalog} canEditPerms={canEdit} onClose={() => setDlg(null)} onSaved={() => { setDlg(null); reload(); }} />}
+      </section></>}
+        </main>
+      </div>
+      {dlg?.kind === 'new' && <PositionDialog position={null} defaultDepartmentId={dept&&dept!=='none' ? Number(dept) : null} departments={tree} catalog={catalog} canEditPerms={canEdit} onClose={() => setDlg(null)} onSaved={() => { setDlg(null); reload(); }} />}
       {dlg?.kind === 'stop' && (
         <ConfirmDialog title={`停用岗位「${dlg.p.name}」`} text="停用后不能再分配给新员工；已在岗的人员不受影响。" confirmLabel="确认停用" reasonLabel="停用原因" onClose={() => setDlg(null)}
           onConfirm={async (reason) => { await orgApi.updatePosition(dlg.p.id, { status: 'inactive', reason }); setDlg(null); reload(); }} />
