@@ -101,3 +101,28 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
   .live-modal-backdrop .modal.card.live-modal { height: 100dvh; max-height: 100dvh; border-radius: 0; }
   .live-modal-backdrop .live-modal .modal-body { max-height: none; }
 }
+
+/* 1080p全览：每侧按实际房间占位分配一整行，大房间保留双倍宽度。 */
+.live-overview-toolbar { display: flex; flex-direction: column; gap: 14px; }
+@media (min-width: 1600px) {
+  .live-overview-toolbar { display: grid; grid-template-columns: minmax(650px, 1fr) auto; gap: 12px; }
+  .live-overview-toolbar .live-cards { grid-template-columns: repeat(4, auto); gap: 8px; }
+  .live-overview-toolbar .live-stat { gap: 12px; }
+  .live-overview .live-room-bank { grid-template-columns: repeat(var(--live-room-units, 1), minmax(0, 1fr)); gap: 10px; }
+  .live-overview .live-room { min-width: 0; min-height: 288px; padding: 10px; gap: 6px; }
+  .live-overview .live-room h3 { align-items: flex-start; }
+  .live-overview .live-room h3 .link-button { min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
+  .live-overview .live-status { padding: 3px 6px; font-size: 11px; }
+  .live-overview .live-room-meta { gap: 2px; }
+  .live-overview .live-room-people { gap: 6px; }
+  .live-overview .live-room-people span, .live-overview .live-room-times span { gap: 2px; }
+  .live-overview .live-room-people strong { font-size: 14px; }
+  .live-overview .live-room-times { gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .live-overview .live-room-times > span:last-child { grid-column: 1 / -1; flex-direction: row; align-items: baseline; gap: 6px; }
+  .live-overview .live-room > small { overflow-wrap: anywhere; }
+  .live-overview .live-room-foot { gap: 6px; }
+  .live-overview .live-room-foot button { font-size: 12px; }
+  .live-overview .live-room-foot .secondary-button { padding: 4px 7px; }
+  .live-overview .live-stat { flex-direction: row; align-items: center; justify-content: space-between; padding: 8px 14px; }
+  .live-overview .live-stat strong { font-size: 20px; }
+}
