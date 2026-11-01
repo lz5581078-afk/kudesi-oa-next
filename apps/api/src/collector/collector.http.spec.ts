@@ -1,3 +1,5 @@
+import { CollectorTextController } from './collector-text.controller';
+import { CollectorTextService } from './collector-text.service';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, JwtService } from '@nestjs/jwt';
@@ -38,8 +40,8 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       imports: [JwtModule.register({ secret: 'isolated-test-jwt-secret-at-least-thirty-two', signOptions: { expiresIn: '1h' } })],
-      controllers: [CollectorController, SpeechSettingsController],
-      providers: [CollectorService, CollectorIdentityService, CollectorRealtimeService, JwtAuthGuard,
+      controllers: [CollectorTextController, CollectorController, SpeechSettingsController],
+      providers: [{ provide: CollectorTextService, useValue: { overview: jest.fn(async () => ({ configured: true })), organize: jest.fn(async (...args) => ({ body: '完整话术', identity: args.slice(0, 2) })) } }, CollectorService, CollectorIdentityService, CollectorRealtimeService, JwtAuthGuard,
         { provide: CollectorFileService, useValue: { start: file, query: jest.fn(async () => ({ state: 'processing' })), audio: jest.fn(async () => { throw new Error('invalid'); }) } },
         { provide: AuthService, useValue: auth }, { provide: SpeechSettingsService, useValue: settings },
         { provide: getRepositoryToken(User), useValue: users },
@@ -66,6 +68,17 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
     expect(file).toHaveBeenLastCalledWith(10, 3, 'xx', [], '11111111-1111-4111-8111-111111111111');
     expect((await request('settings/integrations/speech', token(3))).status).toBe(403);
     expect((await request('collector/session', token(1, 20))).status).toBe(401);
+  });
+  it('话术整理复用员工鉴权和公司隔离，不接受客户端指定公司', async () => {
+    expect((await request('collector/text')).status).toBe(401);
+    expect((await request('collector/text', undefined, { mode: 'restore', text: '原始话术' })).status).toBe(401);
+    const good = await request('collector/text', token(3), { mode: 'restore', text: '原始话术' });
+    expect(good.status).toBe(201); expect((await good.json()).identity).toEqual([10, 3]);
+    expect((await request('collector/text', token(3), { mode: 'script', text: '原始话术', companyId: 20 })).status).toBe(400);
+    expect((await request('collector/text', token(1, 20))).status).toBe(401);
+    limitedCompanies.add(10);
+    try { expect((await request('collector/text', token(3), { mode: 'restore', text: '原始话术' })).status).toBe(403); }
+    finally { limitedCompanies.delete(10); }
   });
   it('管理员可切回指定授权，HTTP与WS同时限制；不影响其他公司和管理员', async () => {
     limitedCompanies.add(10);

@@ -1,3 +1,5 @@
+import { CollectorTextController } from './collector/collector-text.controller';
+import { CollectorTextService } from './collector/collector-text.service';
 import { CollectorController, SpeechSettingsController } from './collector/collector.controller';
 import { CollectorFileService } from './collector/collector-file.service';
 import { CollectorService } from './collector/collector.service';
@@ -188,7 +190,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
+  controllers: [CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
   providers: [
     AuthService, FeishuAuthService, ExternalConfigService, FeishuClient,
     { provide: OUTBOX_SENDER, useClass: JushuitanSenderFactory },
@@ -251,7 +253,7 @@ const env = loadEnv();
     FinanceDocumentsService,
     FinanceVoucherHintsService,
     IntegrationSettingsService,
-    CollectorService, CollectorFileService, CollectorIdentityService, SpeechSettingsService, CollectorRealtimeService, JwtAuthGuard,
+    CollectorTextService, CollectorService, CollectorFileService, CollectorIdentityService, SpeechSettingsService, CollectorRealtimeService, JwtAuthGuard,
     AiProviderService,
     FilesService,
     OcrService,
