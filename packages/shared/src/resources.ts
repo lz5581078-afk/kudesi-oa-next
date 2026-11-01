@@ -678,7 +678,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       date('lastRechargeAt', '最后一次充值时间', '费用与充值', { aliases: ['最近充值日'] }),
       { key: 'rechargeCycleDays', label: '充值周期（天）', type: 'number', group: '费用与充值', list: true , aliases: ['充值周期(天)'] },
       text('rechargeDay', '固定充值日', '费用与充值', { maxLength: 5, pattern: { source: '^(([1-9]|[12]\\d|3[01])|(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01]))$', message: '月付填几号（1-31），年付填 月-日（如 03-15）' }, help: '月付填每月几号（1-31）；年付填每年的 月-日（如 03-15）；不固定就不填' }),
-      date('nextRechargeAt', '下次充值日', '费用与充值', { list: true, help: '由最近充值日 + 充值周期自动计算' }),
+      date('nextRechargeAt', '下次充值日', '费用与充值', { list: true, help: '可手工维护；更改最近充值日或周期时，未另改本日期才自动计算' }),
       ref('areaLocationId', '区域', '使用与保管', 'locations', { aliases: ['保存区域'], showWhen: { field: 'usageType', in: ['company_kept'] } }),
       ref('assetId', '固定资产', '使用与保管', 'fixed-assets', { showWhen: { field: 'usageType', in: ['company_kept'] } }),
       ref('assetLocationId', '固定资产内位置', '使用与保管', 'locations', { aliases: ['资产内位置'], showWhen: { field: 'usageType', in: ['company_kept'] } }),

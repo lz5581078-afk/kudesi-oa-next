@@ -7,6 +7,7 @@ import { ResourceRecord } from '../entities';
 import { withReadonlyAppend } from '../resources/append-only';
 import { sourceRowHash } from './source-rows';
 import type { LegacyRecord } from './protocol';
+import { verifyPhoneRechargeView } from './phone-recharge-view';
 
 const TYPE='phone-registration-history';
 const FIELDS:Record<string,string>={certifiedName:'phone_owner_name',plan:'package_name',externalUser:'external_user_name',deviceType:'phone_device_type',forwardApp:'has_forwarding_app',forwardAppName:'forwarding_app_name',rechargeDay:'recharge_day',feeCycle:'fee_cycle',originalRemark:'remark'};
@@ -24,14 +25,17 @@ export async function importPhoneRegistrations(ctx:{em:EntityManager;resources:R
   const parent=await em.findOneBy(ResourceRecord,{id:ctx.parentId,companyId:user.companyId,type:'phones'});
   if(!parent)throw fail('本公司号码档案不存在');
   const first=originals[0];
+  const independent=originals.every(o=>o.parentId!=null)&&new Set(originals.map(o=>o.parentId)).size===originals.length;
+  const rechargeRaw=new Set(['last_recharge_at','next_recharge_at','recharge_cycle']),rechargeData=new Set(['lastRechargeAt','nextRechargeAt','rechargeCycleDays']);
   for(const o of originals){
     const ownParent=o.parentId==null?parent:await em.findOneBy(ResourceRecord,{id:o.parentId,companyId:user.companyId,type:'phones'});
     if(!ownParent||ownParent.data.number!==parent.data.number)throw fail('独立登记与同号组不一致');
     if(String(o.raw.company_id)!==String(ctx.sourceCompanyId)||String(o.raw.id)!==o.record.id||o.record.type!=='phones'||o.record.files?.length||o.record.status!==first.record.status||!isDeepStrictEqual(o.record.archive,first.record.archive))throw fail('公司、身份、状态或归档/附件存在未兼容差异');
     if(typeof o.raw.number!=='string'||normalizePhone(o.raw.number)!==parent.data.number||normalizePhone(String(o.data.number??''))!==parent.data.number)throw fail('原号码与主档案不一致');
     if(o.raw.has_forwarding_app!=null&&![0,1,'0','1'].includes(o.raw.has_forwarding_app as string|number))throw fail('原转发标记尚未兼容');
-    for(const key of new Set([...Object.keys(first.raw),...Object.keys(o.raw)]))if(!ALLOWED_RAW.has(key)&&!isDeepStrictEqual(first.raw[key],o.raw[key]))throw fail('其他原始字段仍有差异');
-    for(const key of new Set([...Object.keys(first.data),...Object.keys(o.data)]))if(!ALLOWED_DATA.has(key)&&!isDeepStrictEqual(first.data[key],o.data[key]))throw fail('其他转换字段仍有差异');
+    if(independent&&[...rechargeRaw].some(k=>Object.hasOwn(o.raw,k))&&!await verifyPhoneRechargeView({...ctx,parentId:o.parentId!},o.record,o.raw))throw fail('独立充值资料未核对');
+    for(const key of new Set([...Object.keys(first.raw),...Object.keys(o.raw)]))if(!ALLOWED_RAW.has(key)&&!(independent&&rechargeRaw.has(key))&&!isDeepStrictEqual(first.raw[key],o.raw[key]))throw fail('其他原始字段仍有差异');
+    for(const key of new Set([...Object.keys(first.data),...Object.keys(o.data)]))if(!ALLOWED_DATA.has(key)&&!(independent&&rechargeData.has(key))&&!isDeepStrictEqual(first.data[key],o.data[key]))throw fail('其他转换字段仍有差异');
   }
   const results:Array<{sourceId:string;id:number;reused:boolean}>=[];
   for(const o of originals){

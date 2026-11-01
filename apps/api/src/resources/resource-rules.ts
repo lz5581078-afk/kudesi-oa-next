@@ -262,14 +262,19 @@ export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Prom
       // 保管人：选了员工就以员工为准，手填姓名只在没选员工时保留
       if (ctx.data.keeperUserId) ctx.data.keeperName = null;
       const last = ctx.data.lastRechargeAt as string | undefined;
-      if (last) {
-        if (!ctx.data.rechargeCycleDays) ctx.data.rechargeCycleDays = 30;
+      const rechargeChanged=!ctx.existing||last!==ctx.existing.data.lastRechargeAt||ctx.data.rechargeCycleDays!==ctx.existing.data.rechargeCycleDays;
+      const nextChanged=ctx.data.nextRechargeAt!==ctx.existing?.data.nextRechargeAt;
+      if (ctx.data.rechargeCycleDays!=null) {
         const cycle = Number(ctx.data.rechargeCycleDays);
-        if (cycle < 1 || cycle > 3650) throw new BadRequestException('充值周期应在 1 到 3650 天之间');
-        ctx.data.nextRechargeAt = addDays(last, cycle);
-      } else if (!isLegacyImport(ctx)) {
-        // 旧系统只记了“下次充值日”、没有最后充值日的号码：迁入时保留旧的下次充值日，不当成空清掉
-        ctx.data.nextRechargeAt = null;
+        if (!Number.isInteger(cycle)||cycle < 1 || cycle > 3650) throw new BadRequestException('充值周期应在 1 到 3650 天之间');
+      }
+      // 原系统的下次充值日可独立维护。迁入不重算、也不为原空周期补30；
+      // 无关编辑保持原日期。普通新建/更改充值依据时，未另改下次日期才推算。
+      if (!isLegacyImport(ctx)&&rechargeChanged&&!nextChanged) {
+        if(last){
+          if(!ctx.data.rechargeCycleDays)ctx.data.rechargeCycleDays=30;
+          ctx.data.nextRechargeAt=addDays(last,Number(ctx.data.rechargeCycleDays));
+        }else ctx.data.nextRechargeAt=null;
       }
       return;
     }

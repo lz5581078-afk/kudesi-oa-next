@@ -26,6 +26,7 @@ import { verifyGiftAliasIndex } from './gift-alias-index';
 import { OrgAdminService } from '../org/org-admin.service';
 import { legacyWallTime } from './legacy-time';
 import { isRegistrationType } from '../resources/legacy-registration';
+import { verifyPhoneRechargeView } from './phone-recharge-view';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -429,6 +430,11 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     }
 
     if(opts.preserveLegacyStates){
+      for(const record of source.records.filter(r=>r.type==='phones')){try{
+        const original=await resources.legacySourceRow(em,user,source.company.id,'phone_numbers',record.id);
+        if(!original)throw new MigrationError('旧号码充值核对缺少原始行');
+        if(await verifyPhoneRechargeView({em,resources,user,sourceCompanyId:source.company.id,parentId:required(record.type,record.id)},record,original))out.verified!['phone-recharge-view']=(out.verified!['phone-recharge-view']??0)+1;
+      }catch(e){out.failures.push({type:'phone-recharge-view',id:record.id,reason:safeFailure(e)});}}
       const groups=new Map<string,LegacyRecord[]>();
       for(const r of source.records.filter(r=>r.type==='phones')){const id=lookup(r.type,r.id),number=normalizePhone(String(r.data.number??''));if(id&&number)groups.set(number,[...(groups.get(number)??[]),r]);}
       for(const records of groups.values())if(records.length>1){
