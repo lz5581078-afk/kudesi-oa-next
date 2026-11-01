@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { groupPages, searchNav, visibleSections, type NavPage } from '@kudesi/shared';
-import { useAuth } from '../../auth/AuthContext';
+import { groupPages, searchNav, type NavPage } from '@kudesi/shared';
+import { useNavigationSections } from '../../layout/NavigationContext';
 
 const RECENT_KEY = 'kudesi.features.recent';
 const RECENT_LIMIT = 6;
@@ -13,11 +13,11 @@ function readRecent(): string[] {
 
 /** 功能首页：当前账号能进的全部功能启动台——搜索、最近使用、按模块分组。入口和权限全部来自导航注册表。 */
 export function HomePage() {
-  const { can } = useAuth();
+  const navigation = useNavigationSections();
   const [query, setQuery] = useState('');
   const [recent, setRecent] = useState(readRecent);
   const compact = useMemo(() => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 720px)').matches, []);
-  const sections = useMemo(() => visibleSections(can).map((s) => ({ ...s, pages: s.pages.filter((p) => p.path !== HOME_PATH) })).filter((s) => s.pages.length > 0), [can]);
+  const sections = useMemo(() => navigation.map((s) => ({ ...s, pages: s.pages.filter((p) => p.path !== HOME_PATH) })).filter((s) => s.pages.length > 0), [navigation]);
   const byPath = useMemo(() => new Map(sections.flatMap((s) => s.pages.map((p) => [p.path, { page: p, section: s.label }] as const))), [sections]);
   const total = byPath.size;
   const hits = useMemo(() => searchNav(sections, query), [sections, query]);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MOBILE_PRIMARY_SECTIONS, NAV_SECTIONS, directPage, groupPages, searchNav, splitMobileSections, visibleSections } from './navigation';
+import { MOBILE_PRIMARY_SECTIONS, NAV_SECTIONS, withDeskNavigation, isNavPathCurrent, directPage, groupPages, searchNav, splitMobileSections, visibleSections } from './navigation';
 
 const all = visibleSections(() => true);
 
@@ -76,5 +76,35 @@ describe('资料二级导航与旧程序一致（不删减、不合并）', () =
     expect(got).toEqual(OLD);
     expect(new Set(section.pages.map((p) => p.path)).size).toBe(section.pages.length);
     expect(section.pages.every((p) => p.ready)).toBe(true);
+  });
+});
+
+
+describe('岗位工作台直达导航', () => {
+  const positions: import('./workspace').DeskPosition[] = [
+    { id: 11, name: '会计', departmentId: 1, departmentPath: '总部 / 财务部', workspaceType: 'finance', level: 'staff', assigned: true, isPrimary: true },
+    { id: 12, name: '运营', departmentId: 2, departmentPath: '运营部', workspaceType: 'operations', level: 'staff', assigned: false, isPrimary: false },
+    { id: 13, name: '出纳', departmentId: 1, departmentPath: '总部 / 财务部', workspaceType: 'cashier', level: 'staff', assigned: false, isPrimary: false },
+  ];
+  it('按实际部门聚合岗位并保留原岗位权限；同路由不同岗位只高亮当前岗位', () => {
+    const sections = withDeskNavigation(visibleSections(() => true), positions);
+    const workbench = sections.find((s) => s.id === 'workbench')!;
+    expect(workbench.pages.some((p) => p.id === 'desk')).toBe(false);
+    const groups = groupPages(workbench);
+    expect(groups.map((g) => g.title)).toEqual(['常用工作台', '总部 / 财务部', '运营部']);
+    expect(groups[1].pages.map((p) => p.label)).toEqual(['会计工作台', '出纳工作台']);
+    expect(groups[1].pages.every((p) => p.permission === 'workbench.desk.view')).toBe(true);
+    expect(searchNav(sections, '财务部 出纳').map((h) => h.page.path)).toEqual(['/workbench/desk?position=13']);
+    expect(isNavPathCurrent('/workbench/desk?position=11', '/workbench/desk', '?position=11&tab=all')).toBe(true);
+    expect(isNavPathCurrent('/workbench/desk?position=12', '/workbench/desk', '?position=11')).toBe(false);
+    expect(isNavPathCurrent('/workbench/desk?position=11', '/workbench/desk', '')).toBe(false);
+    expect(isNavPathCurrent('/finance/drafts', '/finance/drafts/1', '?x=1')).toBe(true);
+  });
+  it('目录可读不增加页面权限；空目录移除汇总入口，失败保留恢复入口', () => {
+    expect(withDeskNavigation(visibleSections((p) => p === 'workbench.personal.view'), positions)[0].pages.map((p) => p.id)).toEqual(['personal']);
+    expect(withDeskNavigation(visibleSections((p) => p === 'workbench.desk.view'), [])).toEqual([]);
+    const sections = visibleSections(() => true);
+    expect(withDeskNavigation(sections, null)).toBe(sections);
+    expect(withDeskNavigation(sections, [{ ...positions[0], departmentPath: '' }]).find((s) => s.id === 'workbench')!.pages.at(-1)!.group).toBe('未分配部门');
   });
 });
