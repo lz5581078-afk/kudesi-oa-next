@@ -58,4 +58,35 @@ suite('税务旧异常资料独立保留，不伪造执照或合并税务内容'
     const dry = await runLegacyImport(ds, svc.resources, svc.files, archive, { companyId: admin.companyId, actorId: admin.id, expectedName: archive.company.name, apply: false, preserveLegacyStates: true, sourceRowsCrypto: svc.crypto });
     expect(dry.failures).toContainEqual(expect.objectContaining({ id: 'forged', reason: expect.stringContaining('证据不一致') }));
   });
+  it('旧收支独立落为可查看的不可变历史，金额精确到分；不生成银行流水或财务单据', async () => {
+    const raw = { id: 44, company_id: 3, license_id: null, store_id: null, workflow_id: 2, entry_date: '2026-10-01', category: '流程费用', direction: 'expense', amount: '12.34', description: '保留原支出说明', source_type: 'workflow', created_at: '2026-10-01 10:00:00' };
+    const archive: LegacyArchive = { company: { id: 3, name: '税务历史测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [], records: [], sourceRows: [{ table: 'finance_entries', key: '44', row: raw }], exclusions: [], loadFile: async () => Buffer.alloc(0) };
+    const opts = { companyId: admin.companyId, actorId: admin.id, expectedName: archive.company.name, sourceRowsCrypto: svc.crypto };
+    const before = Number((await ds.query('SELECT COUNT(*) n FROM finance_entries WHERE company_id=?', [admin.companyId]))[0].n);
+    const dry = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: false }); expect(dry.failures).toEqual([]);
+    expect(await ds.manager.count(ResourceRecord, { where: { companyId: admin.companyId, type: 'finance-ledger-history' } })).toBe(0);
+    const applied = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: true, expectedReport: dry }); expect(applied.failures).toEqual([]);
+    const row = await ds.manager.findOneByOrFail(ResourceRecord, { companyId: admin.companyId, type: 'finance-ledger-history' });
+    const visible = await svc.resources.get(admin, 'finance-ledger-history', row.id);
+    expect(visible.data).toMatchObject({ entryDate: '2026-10-01', direction: 'expense', amountCents: 1234, description: '保留原支出说明', originalCreatedAt: '2026-10-01 10:00:00' });
+    expect(Number((await ds.query('SELECT COUNT(*) n FROM finance_entries WHERE company_id=?', [admin.companyId]))[0].n)).toBe(before);
+    expect(Number((await ds.query('SELECT COUNT(*) n FROM finance_documents WHERE company_id=?', [admin.companyId]))[0].n)).toBe(0);
+    expect(await readSourceRow(ds.manager, svc.crypto, { companyId: admin.companyId, sourceCompanyId: 3, table: 'finance_entries', key: '44' })).toEqual(raw);
+    await expect(svc.resources.create(admin, 'finance-ledger-history', { ...visible.data, _allowAppend: true })).rejects.toThrow('只读');
+    await expect(svc.resources.update(admin, 'finance-ledger-history', row.id, { amountCents: 1 })).rejects.toThrow('只读');
+    await expect(svc.resources.remove(admin, 'finance-ledger-history', row.id, '直接删除')).rejects.toThrow('只读');
+    await expect(svc.resources.get({ ...admin, companyId: admin.companyId + 100000 }, 'finance-ledger-history', row.id)).rejects.toThrow();
+    const repeated = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: true }); expect(repeated.created).toEqual({});
+    expect(await ds.manager.count(ResourceRecord, { where: { companyId: admin.companyId, type: 'finance-ledger-history' } })).toBe(1);
+  });
+
+  it('旧提现记录保留提现方向，不改成费用，也不重复扣银行余额', async () => {
+    const raw = { id: 45, company_id: 3, license_id: null, store_id: null, workflow_id: null, entry_date: '2026-10-01', category: '店铺提现', direction: 'withdrawal', amount: '8.00', description: '原提现记录', source_type: 'import', created_at: '2026-10-01 10:00:00' };
+    const archive: LegacyArchive = { company: { id: 3, name: '税务历史测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [], records: [], sourceRows: [{ table: 'finance_entries', key: '45', row: raw }], exclusions: [], loadFile: async () => Buffer.alloc(0) };
+    const before = Number((await ds.query('SELECT COUNT(*) n FROM finance_entries WHERE company_id=?', [admin.companyId]))[0].n);
+    const dry = await runLegacyImport(ds, svc.resources, svc.files, archive, { companyId: admin.companyId, actorId: admin.id, expectedName: archive.company.name, sourceRowsCrypto: svc.crypto, apply: false });
+    expect(dry.failures).toEqual([]); expect(dry.created['finance-ledger-history']).toBe(1);
+    expect(Number((await ds.query('SELECT COUNT(*) n FROM finance_entries WHERE company_id=?', [admin.companyId]))[0].n)).toBe(before);
+  });
+
 });

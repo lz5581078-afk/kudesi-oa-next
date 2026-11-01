@@ -27,6 +27,15 @@ describe('全公司迁移的旧状态与资料关联', () => {
     const ordinary = await readFakeLegacy(tables);
     expect(ordinary.records.find(r => r.type === 'licenses' && r.id === '2')?.data.locationId).toEqual({ legacyRef: { type: 'locations', id: '3' } });
   });
+  it('全量切换把旧账户现有余额保留为新站期初，不回放旧收支；旧的局部迁移仍不覆盖余额', async () => {
+    const tables = { companies: [{ id: 7, name: '测试公司' }], bank_accounts: [{ id: 1, company_id: 7, current_balance: '1.23', account_kind: 'company_card' }] };
+    const full = await readFakeLegacy(tables, 7, { preserveLegacyStates: true });
+    expect(full.records.find(r => r.type === 'bank-accounts')?.data.balance).toBe(123);
+    expect(full.exclusions.some(r => r.type === 'bank-accounts.balance')).toBe(false);
+    const partial = await readFakeLegacy(tables);
+    expect(partial.records.find(r => r.type === 'bank-accounts')?.data.balance).toBeUndefined();
+    expect(partial.exclusions.some(r => r.type === 'bank-accounts.balance')).toBe(true);
+  });
   it('加收起点空缺仅按明确范围文字补回；与原结束重量冲突时拒绝猜测', async () => {
     const surcharge = (id: string, weight_end: number) => ({ id, surcharge_name: id, weight_mode: 'between', weight_start: '', weight_end, weight_scope: '0-3kg', charge_type: 'fixed', amount: '0.10', status: '启用' });
     const tables = { companies: [{ id: 7, name: '测试公司' }], finance_express_catalogs: [{ id: 1, company_id: 7, carriers_json: [{ id: 'c', name: '快递', branches: [{ id: 'b', name: '网点', versions: [{ id: 'v', name: '原版', surcharges: [surcharge('valid', 3), surcharge('conflict', 4)] }] }] }] }] };

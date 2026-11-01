@@ -1,3 +1,4 @@
+import { canAppendReadonly } from './append-only';
 import { legacyTaxDefinition } from '../migration/legacy-tax-context';
 import { createHash } from 'crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
@@ -473,6 +474,10 @@ export class ResourcesService implements RuleHost {
     input: Record<string, unknown>,
     options: { status?: string; note?: string; cleanup?: string[]; logAction?: string; reason?: string } = {},
   ): Promise<ResourceRecord> {
+    if (def.readOnly) {
+      if (existing || !canAppendReadonly(em, user.companyId, def.key)) throw new ForbiddenException('历史记录只读，不能新增或修改');
+      def = { ...def, fields: def.fields.map(f => ({ ...f, readonly: false })) };
+    }
     def = legacyTaxDefinition(def, em, user.companyId, existing, input);
     let status = options.status ?? existing?.status ?? def.defaultStatus;
     if (!def.statuses.some((s) => s.value === status)) throw new BadRequestException('状态不合法');
@@ -1385,6 +1390,7 @@ export class ResourcesService implements RuleHost {
 
   async remove(user: AuthUser, type: string, id: number, reason: string | undefined) {
     const def = this.def(type);
+    if (def.readOnly) throw new ForbiddenException('历史记录只读，不能删除');
     // 旧系统里这些资料不物理删除：删除 = 归档
     if (archivePolicyOf(type)) return this.archive(user, type, id, reason);
     if (!reason || reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');

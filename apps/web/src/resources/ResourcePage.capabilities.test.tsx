@@ -7,7 +7,7 @@ import { resourceApi } from './api';
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } };
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => auth }));
 vi.mock('./RecordForm', () => ({ RecordForm: () => <div>表单</div>, loadRefOptions: async () => [{ value: 3, label: '小王' }] }));
-vi.mock('./RecordDetail', () => ({ RecordDetail: ({ id }: { id: number }) => <div>详情{id}</div>, useResourceCan: () => () => true }));
+vi.mock('./RecordDetail', async () => ({ RecordDetail: ({ id }: { id: number }) => <div>详情{id}</div>, useResourceCan: (await import('./useResourceCan')).useResourceCan }));
 vi.mock('./CategoryTree', () => ({ CategoryTree: () => null }));
 vi.mock('./api', async (orig) => {
   const mod = await orig<typeof import('./api')>();
@@ -31,6 +31,14 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); Object.assign(def, orig); });
 
 describe('列表壳：配置驱动的能力入口', () => {
+  it('只读历史显示原收支数据；管理员界面也不出现新增、导入或编辑入口', async () => {
+    vi.mocked(resourceApi.list).mockResolvedValue(list([{ ...row(1), type: 'finance-ledger-history', title: '原收支', status: 'recorded', data: { caption: '原收支', entryDate: '2026-10-01', category: '流程费用', direction: 'expense', amountCents: 1234 } }]));
+    render(<MemoryRouter><ResourcePage type="finance-ledger-history" /></MemoryRouter>);
+    expect(await screen.findByText('流程费用')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /新增|导入|表格编辑/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^编辑$|^删除$/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /^导出/ })).toBeTruthy();
+  });
   it('快捷页签：和分类页签同一排，带数量，点击后以 q:<key> 查询', async () => {
     page();
     const tab = await screen.findByRole('tab', { name: /空闲号 5/ });

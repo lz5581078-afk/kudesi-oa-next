@@ -42,7 +42,7 @@ describe('我的待办', () => {
     f.todos.mockResolvedValue(todoList([todo({ kind: 'task', runId: null, storeId: 18, storeName: '原关联店铺', runTitle: '每日售后检查' })]) as never);
     wrap(<MyTodosPage />);
     const link = await screen.findByRole('link', { name: '关联店铺：原关联店铺' });
-    expect(link.getAttribute('href')).toBe('/resources/stores?open=18');
+    expect(link.getAttribute('href')).toBe('/resource/stores?open=18');
   });
   it('逾期的待办标红并说明超了多久，行尾有“去办理”', async () => {
     f.todos.mockResolvedValue(todoList());

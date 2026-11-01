@@ -14,7 +14,7 @@ import { readSourceRow } from './source-rows';
 import type { AuthUser } from '../common/auth.decorators';
 import { runLegacyImport } from './runner';
 import type { LegacyArchive } from './protocol';
-import { importStandaloneTask } from './task-continuation-import';
+import { importStandaloneTask, importEarlyTask } from './task-continuation-import';
 import { TaskService } from '../flow/task.service';
 import { restoreWorkflowAccess } from './workflow-access';
 
@@ -141,6 +141,16 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     await expect(runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: true, expectedReport: result })).rejects.toThrow('禁止正式写入');
     expect(await readSourceRow(ds.manager, svc.crypto, { companyId: admin.companyId, sourceCompanyId: 3, table: 'workflows', key: 'early-1' })).toBeNull();
   });
+  it('全量模式不能把零写入错误当成迁完：只存档的历史和未落地余额仍阻止正式提交', async () => {
+    const archive: LegacyArchive = { company: { id: 3, name: '旧流程续办测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [], records: [], exclusions: [{ type: 'bank-accounts.balance', id: 'b1', reason: '旧余额尚未落地' }], loadFile: async () => Buffer.alloc(0), workflow: { companyId: 3, tables: { workflow_instances: [{ id: 'history-only', company_id: 3, status: 'completed' }] } } };
+    const opts = { companyId: admin.companyId, actorId: admin.id, expectedName: archive.company.name, sourceRowsCrypto: svc.crypto };
+    const dry = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: false });
+    expect(dry.failures).toEqual([]); expect(dry.excluded.some(e => e.type === 'workflow-history')).toBe(true);
+    const phases: string[] = [];
+    await expect(runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: true, expectedReport: dry, prepareReport: report => { phases.push(report.phase); } })).rejects.toThrow('未验收排除项');
+    expect(phases).toEqual(['apply-rejected-rollback']);
+    expect(await readSourceRow(ds.manager, svc.crypto, { companyId: admin.companyId, sourceCompanyId: 3, table: 'workflow_instances', key: 'history-only' })).toBeNull();
+  });
   it('手工任务保留负责人、监督人、原截止时间和完成标准，由原负责人继续提交', async () => {
     const source = { id: 7001, company_id: 3, source_type: 'manual', status: 'overdue', assignee_id: 10, supervisor_id: 30, title: '原手工任务', completion_standard: '保留原完成标准', due_at: '2026-10-01 12:00:00', created_at: '2026-09-30 10:00:00', feedback_schema: [{ key: 'result', label: '处理结果', type: 'text' }, { key: 'note', label: '补充说明', type: 'text' }] };
     const imported = await ds.transaction(async em => {
@@ -183,6 +193,26 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     await expect(service.review(wh, row.id, { action: 'approve' })).rejects.toThrow('监督人');
     await service.review(fin, row.id, { action: 'approve' });
     expect((await ds.manager.findOneByOrFail(WorkItem, { id: row.id })).status).toBe('done');
+  });
+  it('早期任务与新版同号任务保持独立；原负责人可直接完成，不错误等待复核或联动关闭流程', async () => {
+    const source = { id: 1, company_id: 3, workflow_id: 1, assignee_id: 10, supervisor_id: 30, title: '早期待办', status: 'overdue', severity: 'urgent', due_at: '2026-10-01 12:00:00', result_note: null };
+    const oldWorkflow = { id: 1, company_id: 3, title: '关联早期流程' };
+    const imported = await ds.transaction(async em => {
+      em.queryRunner!.data.legacyImport = true;
+      const ids = new Map<string, number>();
+      const ctx = { em, companyId: admin.companyId, sourceCompanyId: 3, lookup: (type: string, id: unknown) => ids.get(`${type}:${id}`) ?? targets.get(`${type}:${id}`), register: async (type: string, id: string, target: number) => { ids.set(`${type}:${id}`, target); } };
+      const modern = await importStandaloneTask(ctx, { id: 1, company_id: 3, source_type: 'manual', assignee_id: 10, title: '新版同号任务', status: 'pending', created_at: '2026-10-01 10:00:00' });
+      await expect(importEarlyTask(ctx, source, { ...oldWorkflow, company_id: 1 })).rejects.toThrow('公司不一致');
+      const early = await importEarlyTask(ctx, source, oldWorkflow);
+      expect(early.id).not.toBe(modern.id); expect((await importEarlyTask(ctx, source, oldWorkflow)).reused).toBe(true);
+      return { modern, early };
+    });
+    const row = await ds.manager.findOneByOrFail(WorkItem, { id: imported.early.id });
+    expect(row).toMatchObject({ runId: null, requiresReview: false, feedbackPreset: null, assigneeId: ops.id, supervisorId: fin.id });
+    expect(row.description).toContain('关联早期流程'); expect(row.description).toContain('迁入时间'); expect(row.description).toContain('紧急');
+    const service = new TaskService(ds);
+    expect((await service.complete(ops, row.id, '保留原办理结果')).status).toBe('done');
+    expect((await ds.manager.findOneByOrFail(WorkItem, { id: imported.modern.id })).status).toBe('open');
   });
   it('按旧权限证据恢复入口与原财务办理资格，保留明确禁止，不给运营成本或外部写入权限', async () => {
     const evidence = { policyHash: 'a'.repeat(64), employees: [10, 20, 30].map(id => ({ employeeId: String(id), canUseWorkflow: true, canViewCosts: id === 30 })) };
@@ -237,6 +267,26 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     const invalid = { ...archive, records: [ { ...records[1], id: 'unproven', sourceLocationOmission: { row: { ...raw, id: 'unproven' }, location: { id: 3, company_id: 1, code: 'OTHER' } } } ] };
     const rejected = await runLegacyImport(ds, svc.resources, svc.files, invalid, { ...opts, apply: false });
     expect(rejected.failures.some(r => r.reason.includes('核对证据'))).toBe(true);
+  });
+
+  it('旧销售快照落到新经营数据，历史原行与已删除资料原值一同加密保留并可回滚', async () => {
+    const raw = { id: 1, company_id: 3, store_id: 8, stat_date: '2026-09-01', sales_amount: '10.00', refund_amount: '1.00', ad_cost: '2.00', platform_fee: '0.30', purchase_cost: '3.00', other_cost: '0.50' };
+    const deleted = { id: 9, company_id: 3, code: 'OLD-DELETED-CODE', status: 'deleted', payload_json: '{"kept":"original"}' };
+    const archive: LegacyArchive = { company: { id: 3, name: '旧流程续办测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [], records: [
+      { type: 'stores', id: 'sales-store', data: { name: '原销售快照店铺', platform: 'pdd' } },
+      { type: 'store-daily-metrics', id: 'sales-snapshot:1', data: { storeId: { legacyRef: { type: 'stores', id: 'sales-store' } }, day: raw.stat_date, sales: 1000, refund: 100, adCost: 200, platformFee: 30, purchaseCost: 300, otherCost: 50, source: 'import' } },
+    ], sourceRows: [{ table: 'sales_snapshots', key: '1', row: raw }, { table: 'finance_product_base_codes', key: '9', row: deleted }], exclusions: [], loadFile: async () => Buffer.alloc(0) };
+    const opts = { companyId: admin.companyId, actorId: admin.id, expectedName: archive.company.name, sourceRowsCrypto: svc.crypto };
+    const dry = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: false }); expect(dry.failures).toEqual([]);
+    expect(await readSourceRow(ds.manager, svc.crypto, { companyId: admin.companyId, sourceCompanyId: 3, table: 'sales_snapshots', key: '1' })).toBeNull();
+    const applied = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: true, expectedReport: dry }); expect(applied.failures).toEqual([]);
+    const metric = await svc.resources.get(admin, 'store-daily-metrics', applied.mappings.find(r => r.type === 'store-daily-metrics')!.targetId);
+    expect(metric.data).toMatchObject({ sales: 1000, refund: 100, adCost: 200, platformFee: 30, purchaseCost: 300, otherCost: 50, profit: 320, day: '2026-09-01' });
+    expect(await readSourceRow(ds.manager, svc.crypto, { companyId: admin.companyId, sourceCompanyId: 3, table: 'sales_snapshots', key: '1' })).toEqual(raw);
+    expect(await readSourceRow(ds.manager, svc.crypto, { companyId: admin.companyId, sourceCompanyId: 3, table: 'finance_product_base_codes', key: '9' })).toEqual(deleted);
+    const [cipher] = await ds.query('SELECT raw_encrypted AS raw FROM legacy_source_rows WHERE company_id=? AND source_table=? AND source_key=?', [admin.companyId, 'finance_product_base_codes', '9']);
+    expect(cipher.raw).not.toContain('OLD-DELETED-CODE');
+    await expect(runLegacyImport(ds, svc.resources, svc.files, { ...archive, sourceRows: [{ table: 'stores', key: 'wrong-company', row: { id: 'wrong-company', company_id: 1 } }] }, { ...opts, apply: false })).rejects.toThrow('不属于');
   });
 
 });

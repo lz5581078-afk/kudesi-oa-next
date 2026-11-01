@@ -19,6 +19,15 @@ class Sample {
   @RequireResourceAction('secret')
   reveal() {}
 
+  @RequireResourceAction('view')
+  resourceView() {}
+
+  @RequireResourceAction('create')
+  resourceCreate() {}
+
+  @RequireResourceAction('delete')
+  resourceDelete() {}
+
   forgotten() {}
 }
 
@@ -40,6 +49,13 @@ const userWith = (allow: string[], deny: string[] = [], admin = false): AuthUser
 describe('PermissionsGuard（默认拒绝）', () => {
   const guard = new PermissionsGuard(new Reflector());
 
+  it('不可变收支历史允许授权查看；管理员也不能通过写接口改写或删除', () => {
+    const admin = userWith([], [], true);
+    expect(guard.canActivate(contextFor('resourceView', admin, 'finance-ledger-history'))).toBe(true);
+    expect(() => guard.canActivate(contextFor('resourceCreate', admin, 'finance-ledger-history'))).toThrow('历史记录只读');
+    expect(() => guard.canActivate(contextFor('resourceDelete', admin, 'finance-ledger-history'))).toThrow('历史记录只读');
+    expect(() => guard.canActivate(contextFor('resourceView', userWith([]), 'finance-ledger-history'))).toThrow('没有权限');
+  });
   it('公开接口无需登录', () => {
     expect(guard.canActivate(contextFor('open'))).toBe(true);
   });

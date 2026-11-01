@@ -3,13 +3,13 @@ import type { CryptoService } from '../common/crypto.service';
 import { preserveSourceRow } from './source-rows';
 import { importSkuContinuation } from './sku-continuation-import';
 import type { LegacyArchive, LegacyWorkflowSource } from './protocol';
-import { importStandaloneTask } from './task-continuation-import';
+import { importStandaloneTask, importEarlyTask } from './task-continuation-import';
 import { restoreWorkflowAccess } from './workflow-access';
 
 type Row = Record<string, any>;
-export const WORKFLOW_TARGET_TABLE: Record<string, string> = { flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items' };
+export const WORKFLOW_TARGET_TABLE: Record<string, string> = { flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items' };
 export const workflowHashGroups = (source: LegacyWorkflowSource | undefined): Array<[string, Row[]]> => source ? [
-  ['flow_run', source.tables.workflow_instances ?? []], ['flow_step', source.tables.workflow_node_records ?? []], ['flow_definition', source.tables.workflow_batches ?? []], ['work_item', source.tables.task_instances ?? []],
+  ['flow_run', source.tables.workflow_instances ?? []], ['flow_step', source.tables.workflow_node_records ?? []], ['flow_definition', source.tables.workflow_batches ?? []], ['work_item', source.tables.task_instances ?? []], ['early_work_item', source.tables.tasks ?? []],
 ] : [];
 interface Context {
   em: EntityManager; crypto: CryptoService; companyId: number; actorId: number;
@@ -84,7 +84,12 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
     ctx.fail('work_item', String(task.id), '原待办已加密保留，但续办或周期规则尚未验收');
   }
   for (const run of rows('workflows')) if (!CLOSED.has(run.status)) ctx.fail('early_flow_run', String(run.id), '早期流程独立保留，尚未验收续办，不与新版同号流程合并');
-  for (const task of rows('tasks')) if (!CLOSED.has(task.status)) ctx.fail('early_work_item', String(task.id), '早期待办独立保留，尚未验收续办，不与新版同号待办合并');
+  for (const task of rows('tasks')) if (!CLOSED.has(task.status)) {
+    try {
+      const result = await ctx.savepoint(() => importEarlyTask({ em: ctx.em, companyId: ctx.companyId, sourceCompanyId: workflow.companyId, lookup: ctx.lookup, register: ctx.register }, task, rows('workflows').find(w => String(w.id) === String(task.workflow_id))));
+      ctx.count(result.reused ? 'reused' : 'created', 'early_work_item');
+    } catch (e) { ctx.fail('early_work_item', String(task.id), e instanceof Error && e.message.startsWith('旧任务') ? e.message : ctx.safeFailure(e)); }
+  }
   if (workflow.access) {
     try {
       const result = await ctx.savepoint(() => restoreWorkflowAccess(ctx.em, { companyId: ctx.companyId, sourceCompanyId: workflow.companyId, actorId: ctx.actorId, source: workflow.access!, lookup: ctx.lookup }));

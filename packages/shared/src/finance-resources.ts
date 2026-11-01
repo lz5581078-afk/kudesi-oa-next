@@ -73,6 +73,23 @@ export const PACKAGING_SCENES = o('production:生产包装', 'supplier_oem:供�
 const SYNC = o('not_synced:未同步', 'pending:待同步', 'synced:已同步', 'failed:同步失败');
 
 export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
+  {
+    key: 'finance-ledger-history', label: '历史收支记录', readOnly: true,
+    nav: { group: '历史数据', ...F }, titleField: 'caption', sortField: 'entryDate',
+    statuses: [{ value: 'recorded', label: '已记录', tone: 'ok' }], defaultStatus: 'recorded', filterBy: ['direction', 'storeId'],
+    fields: [
+      text('caption', '记录', '收支信息', { readonly: true, search: true }),
+      date('entryDate', '日期', '收支信息', { readonly: true, required: true, list: true }),
+      text('category', '类别', '收支信息', { readonly: true, list: true, search: true }),
+      select('direction', '方向', '收支信息', o('income:收入', 'expense:支出', 'withdrawal:提现'), { readonly: true, required: true, list: true }),
+      baseMoney('amountCents', '金额', '收支信息', { readonly: true, required: true, list: true }),
+      ref('storeId', '店铺', '关联资料', 'stores', { readonly: true, list: true }),
+      ref('licenseId', '营业执照', '关联资料', 'licenses', { readonly: true }),
+      textarea('description', '说明', '收支信息', { readonly: true, list: true, search: true }),
+      text('originalCreatedAt', '原记录创建时间', '来源记录', { readonly: true }),
+      text('sourceLabel', '来源', '来源记录', { readonly: true }),
+    ],
+  },
   // ---------- 基础资料 ----------
   {
     key: 'finance-products',

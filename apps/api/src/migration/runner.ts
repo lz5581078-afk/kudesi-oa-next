@@ -1,3 +1,4 @@
+import { importFinanceLedger } from './finance-ledger-import';
 import { withLegacyTax } from './legacy-tax-context';
 import { mapLegacyPermission } from './permissions';
 import { createHash } from 'node:crypto';
@@ -50,10 +51,10 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   const orgCreated=new Set<string>();
   const resourceCreated=new Set<number>();
   const key = (type: string, id: unknown) => `${type}:${String(id)}`;
-  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],['position_duty',source.positionDuties??[]],['comp_record',source.compensationRecords??[]],...['resource'].map(t=>[t,source.records]),['link',source.links??[]],...liveHashGroups(source.live),...workflowHashGroups(source.workflow)] as Array<[string,Array<Record<string,any>>]>) {
+  for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],['position_duty',source.positionDuties??[]],['comp_record',source.compensationRecords??[]],['finance-ledger-history',(source.sourceRows??[]).filter(r=>r.table==='finance_entries').map(r=>({id:r.key,row:r.row}))],...['resource'].map(t=>[t,source.records]),['link',source.links??[]],...liveHashGroups(source.live),...workflowHashGroups(source.workflow)] as Array<[string,Array<Record<string,any>>]>) {
     for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
   }
-  out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{})}))).digest('hex');
+  out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,exclusions:source.exclusions,sourceRows:source.sourceRows??[],employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{})}))).digest('hex');
   const count = (which: 'created' | 'reused', type: string) => { out[which][type] = (out[which][type] ?? 0) + 1; };
   const lookup = (type: string, id: unknown) => ids.get(key(type, id));
   const required = (type: string, id: unknown) => { const n = lookup(type, id); if (!n) throw new MissingRef(key(type, id)); return n; };
@@ -65,11 +66,11 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   let serial = 0;
   const savepoint = async <T>(fn: () => Promise<T>): Promise<T> => {
     const name = `legacy_${++serial}`; await em.query(`SAVEPOINT ${name}`);
-    const prior = { ids: new Map(ids), created: { ...out.created }, reused: { ...out.reused }, mappings: out.mappings.length, uploaded: (q.data.importUploadedKeys ?? []).length };
+    const prior = { ids: new Map(ids), created: { ...out.created }, reused: { ...out.reused }, mappings: out.mappings.length, excluded: out.excluded.length, uploaded: (q.data.importUploadedKeys ?? []).length };
     try { const r = await fn(); await em.query(`RELEASE SAVEPOINT ${name}`); return r; }
     catch (e) { await em.query(`ROLLBACK TO SAVEPOINT ${name}`); await em.query(`RELEASE SAVEPOINT ${name}`);
       ids.clear(); for (const [k,v] of prior.ids) ids.set(k,v);
-      out.created = prior.created; out.reused = prior.reused; out.mappings.length = prior.mappings;
+      out.created = prior.created; out.reused = prior.reused; out.mappings.length = prior.mappings; out.excluded.length = prior.excluded;
       const discarded: string[] = (q.data.importUploadedKeys ?? []).splice(prior.uploaded);
       if (discarded.length) await files.deleteObjects(opts.companyId, discarded);
       throw e; }
@@ -85,6 +86,13 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     if (company.name !== opts.expectedName && company.name !== source.company.name) throw new MigrationError('目标公司名与核对条件不符');
     const actor = await em.findOneByOrFail(User, { id: opts.actorId, companyId: opts.companyId, isCompanyAdmin: true, status: 'active' });
     const user: AuthUser = { id: actor.id, companyId: company.id, name: actor.name, permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
+    if (source.sourceRows?.length) {
+      if (!opts.sourceRowsCrypto) throw new MigrationError('原始资料保留缺少目标加密服务');
+      for (const row of source.sourceRows) {
+        const stored = await preserveSourceRow(em, opts.sourceRowsCrypto, { companyId: company.id, sourceCompanyId: source.company.id, table: row.table, key: row.key }, row.row);
+        count(stored.reused ? 'reused' : 'created', 'legacy-source-row');
+      }
+    }
     const oldLinks: Array<{ source_key: string; target_type: string; target_id: number; source_hash: string }> = await em.query('SELECT source_key,target_type,target_id,source_hash FROM legacy_import_links WHERE source_system=? AND source_company_id=? AND company_id=?', [SOURCE, source.company.id, company.id]);
     for (const l of oldLinks) {
       if(hashes.has(l.source_key) && hashes.get(l.source_key)!==l.source_hash) throw new MigrationError('来源资料已变化，禁止复跑静默复用或覆盖；请先核对增量');
@@ -359,6 +367,17 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     }
     // 旧直播管理数据：依赖员工与位置/自媒体/店铺/基础编码资料，所以放在资料之后；每行一个保存点，失败只影响这一行
     if (source.live) await importLive({ em, companyId: company.id, actorId: actor.id, lookup, register, count, savepoint, safeFailure, fail: (type, id, reason) => out.failures.push({ type, id, reason }), note: (type, id, reason) => out.excluded.push({ type, id, reason }) }, source.live);
+    for (const original of source.sourceRows?.filter(r => r.table === 'finance_entries') ?? []) {
+      if (reuse('finance-ledger-history', original.key)) continue;
+      try {
+        await savepoint(async () => {
+          if (!opts.sourceRowsCrypto) throw new MigrationError('旧收支记录缺少加密服务');
+          const result = await importFinanceLedger({ em, crypto: opts.sourceRowsCrypto, resources, user, sourceCompanyId: source.company.id, lookup }, original.row);
+          await register('finance-ledger-history', original.key, result.id);
+          count(result.reused ? 'reused' : 'created', 'finance-ledger-history');
+        });
+      } catch (e) { out.failures.push({ type: 'finance-ledger-history', id: original.key, reason: safeFailure(e) }); }
+    }
     if (source.workflow) {
       if (!opts.sourceRowsCrypto) throw new MigrationError('流程历史导入必须提供目标库加密服务');
       await importWorkflows({ em, crypto: opts.sourceRowsCrypto, companyId: company.id, actorId: actor.id, lookup, register, count, savepoint, safeFailure, fail: (type, id, reason) => out.failures.push({ type, id, reason }), note: (type, id, reason) => out.excluded.push({ type, id, reason }) }, source, source.workflow);
@@ -391,8 +410,13 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       const rowProblems=(r:ImportResult)=>r.failures.filter(f=>{const i=f.type.lastIndexOf('.');const file=i>0&&getResourceDef(f.type.slice(0,i))?.fields.find(x=>x.key===f.type.slice(i+1))?.type==='files';return !prior.phase.startsWith('dry-run')||!file;}).map(f=>[f.type,f.id,f.reason]).sort();
       if(prior.sourceFingerprint!==out.sourceFingerprint || JSON.stringify(nonFiles(prior.created))!==JSON.stringify(nonFiles(out.created)) || JSON.stringify(nonFiles(prior.reused))!==JSON.stringify(nonFiles(out.reused)) || JSON.stringify(rowProblems(prior))!==JSON.stringify(rowProblems(out))) throw new MigrationError('本批结果与已核对试迁不一致，整批回滚');
     }
+    // Full remigration must account for skipped business data, not merely zero
+    // insertion errors. Only these two notes already retain native data and
+    // encrypted evidence. A rejected apply report must say rollback as well.
+    const rejection = opts.apply && source.workflow ? out.failures.length ? '流程续办或资料仍有失败，禁止正式写入，整批回滚' : out.excluded.some(e => !['licenses.locationId', 'tax-profiles.identity'].includes(e.type)) ? '全量迁移仍有未验收排除项或历史数据，禁止正式写入，整批回滚' : null : null;
+    if (rejection) out.phase = 'apply-rejected-rollback';
     opts.prepareReport?.(out);
-    if (opts.apply && source.workflow && out.failures.length) throw new MigrationError('流程续办或资料仍有失败，禁止正式写入，整批回滚');
+    if (rejection) throw new MigrationError(rejection);
     if (opts.apply) await q.commitTransaction(); else await q.rollbackTransaction();
     return out;
   } catch (e) { if (q.isTransactionActive) await q.rollbackTransaction();

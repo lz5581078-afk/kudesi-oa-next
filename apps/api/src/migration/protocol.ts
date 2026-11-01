@@ -7,6 +7,7 @@ export interface LegacyRecord { id: string; type: string; archive?: LegacyArchiv
 export type LegacyLive = Partial<Record<'commission_rule_versions' | 'schedules' | 'sessions' | 'session_products' | 'session_reports' | 'session_orders' | 'commission_records' | 'wage_records' | 'settlements' | 'settlement_lines' | 'settlement_refunds', Array<Record<string, any>>>>;
 export interface LegacyWorkflowSource { companyId: number; tables: Record<string, Array<Record<string, any>>>; catalog?: { dictionaries: Array<Record<string, any>> }; access?: { policyHash: string; employees: Array<{ employeeId: string; canUseWorkflow: boolean; canViewCosts: boolean }> } }
 export interface LegacyArchive {
+  sourceRows?: Array<{ table: string; key: string; row: Record<string, unknown> }>;
   company: { id: number; name: string };
   departments: Array<Record<string, any>>;
   positions: Array<Record<string, any>>;

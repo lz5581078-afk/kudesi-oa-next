@@ -29,7 +29,7 @@ export async function restoreWorkflowAccess(em: EntityManager, opts: { companyId
     const requested: string[] = [];
     if (fact.canUseWorkflow === true) requested.push('flow.apply.view', 'workbench.todos.view', 'workbench.started.view');
     if (fact.canUseWorkflow === true && taskPeople.has(member.id)) requested.push('workbench.tasks.view');
-    if (fact.canViewCosts === true) requested.push('product.cost.view', 'product.price.view');
+    if (fact.canViewCosts === true) requested.push('product.cost.view', 'product.price.view', 'resource.finance-ledger-history.view');
     if (financeIds.has(member.id)) {
       if (!fact.canUseWorkflow || !fact.canViewCosts) throw new Error('原财务办理人没有旧系统成本查看资格，禁止扩大授权');
       requested.push('resource.finance-bundles.create', 'resource.finance-bundles.edit');

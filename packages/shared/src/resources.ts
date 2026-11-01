@@ -201,6 +201,8 @@ export interface ArchiveHierarchy {
 }
 
 export interface ResourceDef {
+  /** System-appended immutable history: ordinary create/edit/delete/import are unavailable. */
+  readOnly?: boolean;
   key: string;
   label: string;
   /** 资料左侧菜单分组；没有则不出现在菜单（子资源，在父资源详情里管理） */

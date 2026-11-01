@@ -7,6 +7,7 @@ const rules = require('./mapping-rules.json');
 const productMapping = require('./product-mapping.cjs');
 const skuMapping = require('./sku-mapping.cjs');
 const { readWorkflowSource } = require('./workflow-source.cjs');
+const { collectSourceRows } = require('./source-row-catalog.cjs');
 /** 直播管理的旧表（全部带 company_id，由通用公司范围读取；只读） */
 const LIVE_TABLES=['live_commission_rule_versions','live_schedules','live_sessions','live_session_products','live_session_reports','live_session_orders','live_commission_records','live_wage_records','live_settlements','live_settlement_lines','live_settlement_refunds'];
 const legacyError=(message)=>{const error=new Error(message);error.name='LegacyDataError';return error;};
@@ -55,9 +56,9 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
   const add=(type,id,data,status,extra={})=>out.records.push({type,id:String(id),data:Object.fromEntries(Object.entries(data).filter(([,v])=>v!==undefined&&v!==null&&v!=='')),status,...extra});
   try{
     await c.query('SET SESSION TRANSACTION READ ONLY');await c.beginTransaction();
-    const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
-    const selected=new Set([...LIVE_TABLES,'companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
-    for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
+    const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c,COLUMN_KEY pk,ORDINAL_POSITION ordinal FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
+    const selected=new Set([...LIVE_TABLES,...(preserveLegacyStates?['sales_snapshots','finance_entries']:[]),'companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
+    for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=!preserveLegacyStates&&uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
     // 总位置曾由旧启动脚本无公司条件地补为 A-02；只核对所引用的位置，不迁入其他公司的柜位。
     const foreignLicenseLocations=new Map();
     if(preserveLegacyStates){
@@ -287,7 +288,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
             }
           }
           if(type==='finance-margins'){data.categoryId=row.category_id?ref('finance-categories',row.category_id):undefined;data.profitPercent=exactCents(row.profit_rate,6);data.reason='迁移保留旧系统现行利润率口径';}
-          if(type==='bank-accounts'){data.kind=row.account_kind;delete data.balance;excluded(type+'.balance',id,'余额不自动作为期初余额迁入');}
+          if(type==='bank-accounts'){data.kind=row.account_kind;if(!preserveLegacyStates){delete data.balance;excluded(type+'.balance',id,'余额不自动作为期初余额迁入');}else if(row.current_balance==null)excluded(type+'.balance',id,'旧余额未记录，不能当作已核实的零余额；原始行已留档');}
           if(type==='finance-express-fee-batches'&&['已导入','启用','已生效'].includes(row.status))status='active';
           if(type==='finance-fee-categories'&&row.status==='deleted'&&neededFeeCategories.has(String(id)))status='inactive';
           const translatedStatus=def.statuses.find(s=>s.value===status||s.label===status);if(translatedStatus)status=translatedStatus.value;
@@ -334,6 +335,12 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
       for(const employee of out.employees){
         const active=employee.status==='active';const profile=active?await policy.loadEmployeeProfile({query:async(sql,args)=>(await c.query(sql,args))[0],companyId:sourceCompanyId,employeeId:employee.id,requireActive:true}):null;
         out.workflow.access.employees.push({employeeId:String(employee.id),canUseWorkflow:active,canViewCosts:active&&profile?.canViewCosts===true});
+      }
+    }
+    if(preserveLegacyStates){
+      out.sourceRows=collectSourceRows(tables,cols,sourceCompanyId);
+      for(const row of tables.sales_snapshots||[]){
+        add('store-daily-metrics','sales-snapshot:'+row.id,{storeId:ref('stores',row.store_id),day:row.stat_date,sales:exactCents(row.sales_amount),refund:exactCents(row.refund_amount),adCost:exactCents(row.ad_cost),platformFee:exactCents(row.platform_fee),purchaseCost:exactCents(row.purchase_cost),otherCost:exactCents(row.other_cost),source:'import'},'recorded');
       }
     }
     await c.rollback();
