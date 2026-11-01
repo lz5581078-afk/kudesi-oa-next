@@ -142,7 +142,7 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     expect(await readSourceRow(ds.manager, svc.crypto, { companyId: admin.companyId, sourceCompanyId: 3, table: 'workflows', key: 'early-1' })).toBeNull();
   });
   it('全量模式不能把零写入错误当成迁完：只存档的历史和未落地余额仍阻止正式提交', async () => {
-    const archive: LegacyArchive = { company: { id: 3, name: '旧流程续办测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [], records: [], exclusions: [{ type: 'bank-accounts.balance', id: 'b1', reason: '旧余额尚未落地' }], loadFile: async () => Buffer.alloc(0), workflow: { companyId: 3, tables: { workflow_instances: [{ id: 'history-only', company_id: 3, status: 'completed' }] } } };
+    const archive: LegacyArchive = { company: { id: 3, name: '旧流程续办测试' }, departments: [{id:99,name:'历史部门',status:'active'}], positions: [], employees: [{id:99,name:'原历史发起人',login_account:null,department_id:99,status:'active'}], employeePositions: [], positionPermissions: [], records: [], exclusions: [{ type: 'bank-accounts.balance', id: 'b1', reason: '旧余额尚未落地' }], loadFile: async () => Buffer.alloc(0), workflow: { companyId: 3, tables: { workflow_instances: [{ id: 'history-only', company_id: 3, requester_id:99,template_id:9,title:'原已完成流程',status: 'completed',created_at:'2026-09-01 09:00:00',completed_at:'2026-09-02 09:00:00' }] } } };
     const opts = { companyId: admin.companyId, actorId: admin.id, expectedName: archive.company.name, sourceRowsCrypto: svc.crypto };
     const dry = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: false });
     expect(dry.failures).toEqual([]); expect(dry.excluded.some(e => e.type === 'workflow-history')).toBe(true);

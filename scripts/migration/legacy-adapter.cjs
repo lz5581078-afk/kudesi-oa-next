@@ -10,6 +10,7 @@ const { readWorkflowSource } = require('./workflow-source.cjs');
 const { collectSourceRows } = require('./source-row-catalog.cjs');
 const { readLegacyAssignments } = require('./legacy-assignments.cjs');
 const { readLegacyVerification } = require('./legacy-verification.cjs');
+const { readLegacyWorkspaces } = require('./legacy-workspaces.cjs');
 /** 直播管理的旧表（全部带 company_id，由通用公司范围读取；只读） */
 const LIVE_TABLES=['live_commission_rule_versions','live_schedules','live_sessions','live_session_products','live_session_reports','live_session_orders','live_commission_records','live_wage_records','live_settlements','live_settlement_lines','live_settlement_refunds'];
 const legacyError=(message)=>{const error=new Error(message);error.name='LegacyDataError';return error;};
@@ -356,7 +357,8 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
       }
     }
     if(preserveLegacyStates){
-      out.sourceRows=[...collectSourceRows(tables,cols,sourceCompanyId),...await readLegacyVerification(c,app,sourceCompanyId,req,{tables,businessDay})];
+      const workspace=readLegacyWorkspaces(app,out.positions,out.departments);out.positions=workspace.positions;
+      out.sourceRows=[...collectSourceRows(tables,cols,sourceCompanyId),...workspace.sourceRows,...await readLegacyVerification(c,app,sourceCompanyId,req,{tables,businessDay})];
       for(const row of tables.sales_snapshots||[]){
         add('store-daily-metrics','sales-snapshot:'+row.id,{storeId:ref('stores',row.store_id),day:row.stat_date,sales:exactCents(row.sales_amount),refund:exactCents(row.refund_amount),adCost:exactCents(row.ad_cost),platformFee:exactCents(row.platform_fee),purchaseCost:exactCents(row.purchase_cost),otherCost:exactCents(row.other_cost),source:'import'},'recorded');
       }

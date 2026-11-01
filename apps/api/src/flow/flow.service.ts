@@ -175,6 +175,7 @@ export class FlowService {
     this.need(user, 'flow.templates.manage', '没有配置流程的权限');
     const em0 = this.dataSource.manager;
     const t = await this.tpl(em0, user.companyId, key);
+    if (t.legacyReadOnly) throw new BadRequestException('旧流程历史仅供查看，不能改为新流程配置');
     const check = t.custom ? { ...t, fields: schema?.fields ?? t.fields, stepFields: schema?.stepFields ?? t.stepFields, posting: schema ? (schema.posting ?? undefined) : t.posting } : t;
     const errors = t.custom ? validateCustomTemplate(check, steps, escalateUserIds) : validateSteps(t, steps, escalateUserIds);
     if (errors.length) throw new BadRequestException(errors.join('；'));
@@ -217,6 +218,7 @@ export class FlowService {
       if (!draft) throw new BadRequestException('没有可发布的草稿，请先保存配置');
       const steps = draft.steps as StepDef[];
       const builtin = await this.tpl(em, user.companyId, key, draft.id);
+      if (builtin.legacyReadOnly) throw new BadRequestException('旧流程历史仅供查看，不能发布');
       const t = builtin.custom ? customFrom((await em.findOne(FlowTemplateRow, { where: { companyId: user.companyId, templateKey: key } }))!, draft) : builtin;
       const errors = t.custom ? validateCustomTemplate(t, steps, draft.escalateUserIds) : validateSteps(t, steps, draft.escalateUserIds);
       if (errors.length) throw new BadRequestException(errors.join('；'));

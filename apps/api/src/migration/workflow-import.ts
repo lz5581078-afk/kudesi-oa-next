@@ -7,6 +7,7 @@ import { importSkuContinuation } from './sku-continuation-import';
 import type { LegacyArchive, LegacyWorkflowSource } from './protocol';
 import { importStandaloneTask, importEarlyTask, importLinearTask } from './task-continuation-import';
 import { restoreWorkflowAccess } from './workflow-access';
+import { importClosedFlow } from './closed-flow-import';
 
 type Row = Record<string, any>;
 export const WORKFLOW_TARGET_TABLE: Record<string, string> = { linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
@@ -14,6 +15,8 @@ export const workflowHashGroups = (source: LegacyWorkflowSource | undefined): Ar
   ['linear_flow_todo', source.tables.workflow_instances ?? []], ['linear_boundary_step', source.tables.workflow_instances ?? []],
   ['legacy_flow_definition', (source.tables.workflow_instances ?? []).filter(r => r.graph_status === 'linear').map(r => ({ ...r, id: `linear:${r.id}` }))],
   ['legacy_flow_template', [{ id: 'linear', model: 'workflow_instances' }]],
+  ['legacy_flow_definition', (source.tables.workflow_instances ?? []).filter(r=>CLOSED.has(r.status)).map(r=>({...r,id:`history:${r.id}`}))],
+  ['legacy_flow_template', [{id:'history',model:'workflow_instances:closed'}]],
   ['flow_run', source.tables.workflow_instances ?? []], ['flow_step', source.tables.workflow_node_records ?? []], ['flow_definition', source.tables.workflow_batches ?? []], ['work_item', source.tables.task_instances ?? []], ['early_work_item', source.tables.tasks ?? []], ['early_flow_run', source.tables.workflows ?? []], ['early_flow_step', source.tables.workflows ?? []], ['early_flow_todo', source.tables.workflows ?? []], ['legacy_flow_definition', (source.tables.workflows ?? []).map(r => ({ ...r, id: `early:${r.id}` }))], ['legacy_flow_template', [{ id: 'early', model: 'workflows' }]],
 ] : [];
 interface Context {
@@ -49,7 +52,11 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
   const mappedTasks = new Set<string>();
   for (const run of rows('workflow_instances')) {
     if (CLOSED.has(run.status)) {
-      ctx.note('workflow-history', String(run.id), '原始历史已加密保留，旧流程只读时间线尚需验收');
+      try{
+        const result=await ctx.savepoint(()=>importClosedFlow({...ctx,sourceCompanyId:workflow.companyId,register:async(type,id,target)=>{await ctx.register(type,id,target);ctx.count('created',type);}},workflow,run));
+        if(result.reused)ctx.count('reused','flow_run');
+        ctx.note('workflow-history',String(run.id),'原状态与节点只读时间线已落地；原申请/审批表单、结果附件及完整历史任务仍待验收，原文已加密保留');
+      }catch(e){ctx.fail('flow_run',String(run.id),e instanceof Error&&e.message.startsWith('旧历史流程')?e.message:ctx.safeFailure(e));}
       continue;
     }
     if (run.graph_status === 'linear') {

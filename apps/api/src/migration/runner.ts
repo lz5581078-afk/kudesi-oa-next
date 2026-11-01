@@ -123,7 +123,13 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     for (const d of source.departments) if (orgCreated.has(key('department',d.id)) && d.parent_department_id) await em.update(Department, { id: required('department', d.id), companyId: company.id }, { parentId: required('department', d.parent_department_id) });
     for (const p of source.positions) {
       if (reuse('position', p.id)) continue;
-      const workspace = workspaceTypeFromLegacyTemplate(p.workspace_template_key) ?? 'blank';
+      const proof=p.legacyWorkspaceResolution;
+      if(proof){
+        const policy=source.sourceRows?.find(r=>r.table==='legacy_position_workspace_policy'&&r.key==='current')?.row as Record<string,any>|undefined;
+        const recorded=policy?.resolutions?.some((r:Record<string,any>)=>r.positionId===String(p.id)&&r.originalTemplateKey===proof.originalTemplateKey&&r.templateKey===proof.templateKey&&r.via===proof.via);
+        if((p.workspace_template_key??null)!==proof.originalTemplateKey||!/^[a-f0-9]{64}$/.test(proof.policyHash)||!['explicit','legacy-binding','blank-fallback'].includes(proof.via)||!workspaceTypeFromLegacyTemplate(proof.templateKey)||policy?.policyHash!==proof.policyHash||!recorded)throw new MigrationError('旧岗位工作台解析证据与原值不一致');
+      }
+      const workspace = workspaceTypeFromLegacyTemplate(proof?.templateKey??p.workspace_template_key) ?? 'blank';
       if (!p.name || String(p.name).length > 100 || !['boss','manager','staff'].includes(p.level)) throw new MigrationError('岗位名称或显式层级待核定');
       let positionName = String(p.name);
       if (await em.findOneBy(Position, { companyId: company.id, name: positionName })) {
@@ -135,7 +141,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       }
       const r = await em.save(Position, em.create(Position, { companyId: company.id, departmentId: required('department', p.department_id), name: positionName, positionKey: p.position_key ? String(p.position_key).slice(0, 64) : null, workspaceType: workspace, level: p.level, supervisorPositionId: null, description: p.description, status: p.status === 'active' ? 'active' : 'inactive' }));
       await register('position', p.id, r.id); count('created', 'position'); orgCreated.add(key('position', p.id));
-      if (workspace === 'blank') out.excluded.push({ type: 'position.workspaceType', id: String(p.id), reason: '旧岗位未提供新系统支持的显式工作台类型，保留空白，不按名称猜测' });
+      if (workspace === 'blank'&&!proof) out.excluded.push({ type: 'position.workspaceType', id: String(p.id), reason: '旧岗位未提供新系统支持的显式工作台类型，保留空白，不按名称猜测' });
     }
     for (const p of source.positions) if (orgCreated.has(key('position',p.id)) && p.supervisor_position_id) await em.update(Position, { id: required('position', p.id), companyId: company.id }, { supervisorPositionId: required('position', p.supervisor_position_id) });
     for (const e of source.employees) {
@@ -152,18 +158,28 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     for (const p of source.positionPermissions) {
       if(!orgCreated.has(key('position',p.position_id)))continue;
       const oldPermission = p.permission_key ?? p.permission;
-      const permission = mapLegacyPermission(oldPermission);
+      const cohort=source.positionPermissions.filter(x=>String(x.position_id)===String(p.position_id)).map(x=>x.permission_key??x.permission);
+      const permission = mapLegacyPermission(oldPermission,cohort);
       if (!permission) { out.excluded.push({ type: 'position.permission', id: `${p.position_id}:${oldPermission}`, reason: '旧权限没有明确的新功能对应，未扩大授权' }); continue; }
       const positionId = required('position', p.position_id);
       if (!await em.findOneBy(PositionPermission, { positionId, permission })) await em.insert(PositionPermission, { positionId, permission });
     }
     for(const override of source.employeeOverrides ?? []) {
       if(!orgCreated.has(key('user',override.employee_id)))continue;
-      const permission=mapLegacyPermission(override.permission_key);
+      const cohort=(source.employeeOverrides??[]).filter(x=>String(x.employee_id)===String(override.employee_id)&&x.effect===override.effect).map(x=>x.permission_key);
+      const permission=mapLegacyPermission(override.permission_key,cohort);
       if(!permission) {out.excluded.push({type:'user.permission',id:String(override.id),reason:'旧个人权限没有明确的新权限对应，未扩大授权'});continue;}
       const userId=required('user',override.employee_id);
       if(!['allow','deny'].includes(override.effect))throw new MigrationError('旧个人权限效果不合法');
-      if(!await em.findOneBy(UserPermissionOverride,{userId,permission})) await em.insert(UserPermissionOverride,{userId,permission,effect:override.effect});
+      const existing=await em.findOneBy(UserPermissionOverride,{userId,permission});
+      if(!existing) await em.insert(UserPermissionOverride,{userId,permission,effect:override.effect});
+      else if(override.effect==='deny'&&existing.effect!=='deny')await em.update(UserPermissionOverride,{userId,permission},{effect:'deny'});
+      // 旧同步守卫还检查组合编码页面的显式拒绝；新独立能力也要保留此拒绝。
+      if(override.permission_key==='finance-product-bundles.view'&&override.effect==='deny'){
+        const permission='finance.bundle-sync.manage';
+        if(await em.findOneBy(UserPermissionOverride,{userId,permission}))await em.update(UserPermissionOverride,{userId,permission},{effect:'deny'});
+        else await em.insert(UserPermissionOverride,{userId,permission,effect:'deny'});
+      }
     }
     // 岗位档案条目（旧 position_duties）：旧分类是业务领域（财务/仓储…），新分类是五类档案；不在新分类里的归“岗位职责”，旧分类名写进说明，不丢
     const DUTY_CATEGORIES = ['岗位职责', '入职培训', '绩效考核', '监督规则', '流程节点说明', '日常工作', '周期工作', '审批职责', '资料维护', '其他'];

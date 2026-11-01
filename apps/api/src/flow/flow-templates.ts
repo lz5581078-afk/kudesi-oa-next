@@ -1,5 +1,5 @@
 import { legacyContinuationAdapter } from './legacy-continuation';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { getFlowTemplate, type CustomSchema, type FlowTemplate, type StepDef } from '@kudesi/shared';
 import { FlowDefinition, FlowTemplateRow } from '../entities';
@@ -26,6 +26,7 @@ export async function loadTemplate(em: EntityManager, companyId: number, key: st
 export function customFrom(row: FlowTemplateRow, def: FlowDefinition | null, steps?: StepDef[]): FlowTemplate {
   const schema = (def?.schemaJson ?? {}) as Partial<CustomSchema>;
   return {
+    ...(row.sourceKey === 'legacy-oa-history' ? { legacyReadOnly: true } : {}),
     ...(row.sourceKey === 'legacy-oa-early' ? { legacySource: 'early' as const } : row.sourceKey === 'legacy-oa-linear' ? { legacySource: 'linear' as const } : {}),
     key: row.templateKey, label: row.name, description: row.description ?? '', custom: true,
     fields: schema.fields ?? [], stepFields: schema.stepFields ?? {}, steps: steps ?? ((def?.steps ?? []) as StepDef[]),
@@ -35,6 +36,11 @@ export function customFrom(row: FlowTemplateRow, def: FlowDefinition | null, ste
 
 /** 没有专门业务适配器的流程（所有自建模板）用的通用适配器：只有标题，没有业务副作用 */
 export function adapterFor(t: FlowTemplate): FlowAdapter {
+  if (t.legacyReadOnly) return {
+    key: t.key,
+    async title() { return t.label; },
+    async validateStart() { throw new BadRequestException('旧流程历史仅供查看，不能重新发起'); },
+  };
   if (t.legacySource) return legacyContinuationAdapter(t);
   const builtin = FLOW_ADAPTERS[t.key];
   if (builtin) return builtin;
