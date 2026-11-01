@@ -28,6 +28,7 @@ import { legacyWallTime } from './legacy-time';
 import { isRegistrationType } from '../resources/legacy-registration';
 import { verifyPhoneRechargeView } from './phone-recharge-view';
 import { verifyResponsibilityDuplicates } from './responsibility-duplicates';
+import { sourceFieldCoverage,type FieldCoverage } from './field-coverage';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -35,7 +36,7 @@ function stable(v: unknown): unknown {
   if(v && typeof v === 'object') return Object.fromEntries(Object.entries(v).filter(([k])=>k!=='locator').sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,stable(x)]));
   return v;
 }
-export interface ImportResult { softwareFingerprint?:string;targetFingerprint?:string;verified?:Record<string,number>; sourceFingerprint: string; phase: string; companyId: number; created: Record<string, number>; reused: Record<string, number>; excluded: Array<{ type: string; id: string; reason: string }>; failures: Array<{ type: string; id: string; reason: string }>; mappings: Array<{ type: string; sourceId: string; targetId: number }>; archived: { total: number; byType: Record<string, number>; skipped: Array<{ type: string; id: string; reason: string }> }; links: { created: number; reused: number; skipped: number; skippedReasons: Record<string, number>; byRelation: Record<string, { created: number; skipped: number }> } }
+export interface ImportResult { fieldCoverage?:FieldCoverage;softwareFingerprint?:string;targetFingerprint?:string;verified?:Record<string,number>; sourceFingerprint: string; phase: string; companyId: number; created: Record<string, number>; reused: Record<string, number>; excluded: Array<{ type: string; id: string; reason: string }>; failures: Array<{ type: string; id: string; reason: string }>; mappings: Array<{ type: string; sourceId: string; targetId: number }>; archived: { total: number; byType: Record<string, number>; skipped: Array<{ type: string; id: string; reason: string }> }; links: { created: number; reused: number; skipped: number; skippedReasons: Record<string, number>; byRelation: Record<string, { created: number; skipped: number }> } }
 class MissingRef extends Error {}
 export class MigrationError extends Error {}
 export function safeFailure(e: unknown): string {
@@ -536,12 +537,16 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       } catch (e) { out.failures.push({ type: r.type + '.archive', id: r.id, reason: safeFailure(e) }); }
     }
     await em.update(Company, { id: company.id }, { name: source.company.name });
+    if(opts.preserveLegacyStates){
+      out.fieldCoverage=sourceFieldCoverage(source.sourceRows,out.verified??{},source.workflow);
+      if(out.fieldCoverage?.totals.pendingColumns)out.excluded.push({type:'source-fields.pending',id:'all',reason:`本公司范围及未读取表共${out.fieldCoverage.totals.pendingColumns}个来源字段尚待原生/历史逐字段验收；原文已保留的部分详见fieldCoverage，不把保留原文当作原生可用`});
+    }
     await em.insert(AuditLog, { companyId: company.id, actorId: actor.id, action: 'legacy.import', resourceType: 'company', resourceId: String(company.id), detail: { sourceCompanyId: source.company.id, created: out.created, reused: out.reused, failedCount: out.failures.length, excludedCount: out.excluded.length } });
     if(opts.expectedReport){
       const prior=opts.expectedReport;
       const nonFiles=(counts:Record<string,number>)=>Object.fromEntries(Object.entries(counts).filter(([k])=>k!=='file').sort(([a],[b])=>a.localeCompare(b)));
       const rowProblems=(r:ImportResult)=>r.failures.filter(f=>{const i=f.type.lastIndexOf('.');const file=i>0&&getResourceDef(f.type.slice(0,i))?.fields.find(x=>x.key===f.type.slice(i+1))?.type==='files';return !prior.phase.startsWith('dry-run')||!file;}).map(f=>[f.type,f.id,f.reason]).sort();
-      if(prior.sourceFingerprint!==out.sourceFingerprint || JSON.stringify(nonFiles(prior.created))!==JSON.stringify(nonFiles(out.created)) || JSON.stringify(nonFiles(prior.reused))!==JSON.stringify(nonFiles(out.reused)) || JSON.stringify(nonFiles(prior.verified??{}))!==JSON.stringify(nonFiles(out.verified??{})) || JSON.stringify(rowProblems(prior))!==JSON.stringify(rowProblems(out)) || JSON.stringify(prior.excluded.map(x=>[x.type,x.id,x.reason]).sort())!==JSON.stringify(out.excluded.map(x=>[x.type,x.id,x.reason]).sort())) throw new MigrationError('本批结果与已核对试迁不一致，整批回滚');
+      if(prior.sourceFingerprint!==out.sourceFingerprint || JSON.stringify(nonFiles(prior.created))!==JSON.stringify(nonFiles(out.created)) || JSON.stringify(nonFiles(prior.reused))!==JSON.stringify(nonFiles(out.reused)) || JSON.stringify(nonFiles(prior.verified??{}))!==JSON.stringify(nonFiles(out.verified??{})) || JSON.stringify(stable(prior.fieldCoverage??null))!==JSON.stringify(stable(out.fieldCoverage??null)) || JSON.stringify(rowProblems(prior))!==JSON.stringify(rowProblems(out)) || JSON.stringify(prior.excluded.map(x=>[x.type,x.id,x.reason]).sort())!==JSON.stringify(out.excluded.map(x=>[x.type,x.id,x.reason]).sort())){out.phase=opts.apply?'apply-rejected-rollback':'dry-run-rejected-rollback';throw new MigrationError('本批结果与已核对试迁不一致，整批回滚');}
     }
     // Full remigration must account for skipped business data, not merely zero
     // insertion errors. Only these two notes already retain native data and

@@ -15,6 +15,7 @@ import { verifyWorkflowView } from './workflow-view-verification';
 import { importClosedTask } from './closed-task-import';
 import { importBusinessEvent } from './business-event-import';
 import { pendingWorkflowCoverage } from './workflow-coverage';
+import { workflowRowIdentity } from './workflow-row-identity';
 
 type Row = Record<string, any>;
 export const WORKFLOW_TARGET_TABLE: Record<string, string> = { flow_event:'flow_events',current_sku_definition:'flow_definitions', linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
@@ -40,20 +41,13 @@ interface Context {
   safeFailure(e: unknown): string;
 }
 const CLOSED = new Set(['completed', 'cancelled', 'rejected', 'skipped']);
-const KEYS: Record<string, string[]> = { workflow_business_observers: ['company_id', 'run_id', 'employee_id'], workflow_timeout_policies: ['company_id', 'template_id', 'node_key'] };
 
 /** Preserve all supplied workflow rows before projecting supported continuations.
  * Unsupported in-flight models are failures, never silently archived as done. */
 export async function importWorkflows(ctx: Context, archive: LegacyArchive, workflow: LegacyWorkflowSource) {
   if (workflow.companyId !== archive.company.id) throw new Error('流程来源公司不一致');
   for (const [table, rows] of Object.entries(workflow.tables)) for (const row of rows) {
-    let key: string;
-    if (row.id != null) key = String(row.id);
-    else {
-      const fields = KEYS[table];
-      if (!fields || fields.some(field => row[field] == null)) throw new Error('流程来源存在未定义的复合身份');
-      key = JSON.stringify(fields.map(field => row[field]));
-    }
+    const key=workflowRowIdentity(table,row);
     const stored = await preserveSourceRow(ctx.em, ctx.crypto, { companyId: ctx.companyId, sourceCompanyId: workflow.companyId, table, key }, row);
     ctx.count(stored.reused ? 'reused' : 'created', 'legacy-source-row');
   }
