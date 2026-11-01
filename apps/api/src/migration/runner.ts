@@ -27,6 +27,7 @@ import { OrgAdminService } from '../org/org-admin.service';
 import { legacyWallTime } from './legacy-time';
 import { isRegistrationType } from '../resources/legacy-registration';
 import { verifyPhoneRechargeView } from './phone-recharge-view';
+import { verifyResponsibilityDuplicates } from './responsibility-duplicates';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -64,6 +65,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),WORKFLOW_TARGET_TABLE[type] ? sourceRowHash(r) : createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
   }
   for(const row of source.feishuBindings??[])hashes.set(key('feishu_identity',feishuIdentityKey(row)),sourceRowHash(row));
+  if(opts.preserveLegacyStates)for(const row of source.sourceRows??[])if(row.table==='position_responsibilities')hashes.set(key('position_responsibility',row.row.id),sourceRowHash(row.row));
   if(opts.preserveLegacyStates)for(const r of source.records.filter(r=>r.type==='bank-accounts')){
     const raw=source.sourceRows?.find(row=>row.table==='bank_accounts'&&String(row.row.id)===r.id);
     if(raw)hashes.set(key('bank-account-history',r.id),sourceRowHash(raw.row));
@@ -139,7 +141,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
         if (!row) throw new MigrationError('迁移账本引用已失效，必须先核对，不能自动补造');
         ids.set(l.source_key, Number(l.target_id)); continue;
       }
-      const entity = l.target_type === 'user' ? User : l.target_type === 'department' ? Department : l.target_type === 'position' ? Position : l.target_type === 'position_duty' ? PositionDuty : l.target_type === 'comp_record' ? EmployeeCompensationRecord : l.target_type === 'file' ? ResourceFile : l.target_type === 'link' ? ResourceLink : ResourceRecord;
+      const entity = l.target_type === 'user' ? User : l.target_type === 'department' ? Department : l.target_type === 'position' ? Position : ['position_duty','position_responsibility'].includes(l.target_type) ? PositionDuty : l.target_type === 'comp_record' ? EmployeeCompensationRecord : l.target_type === 'file' ? ResourceFile : l.target_type === 'link' ? ResourceLink : ResourceRecord;
       const exists = await em.findOne(entity as typeof User, { where: { id: l.target_id, companyId: company.id } });
       if (!exists && l.target_type === 'link') { ids.set(l.source_key, Number(l.target_id)); continue; } // 手动关联被人工取消后，复跑不重建
       if (!exists) throw new MigrationError('迁移账本引用已失效，必须先核对，不能自动补造');
@@ -244,6 +246,12 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       const r = await em.save(PositionDuty, em.create(PositionDuty, { companyId: company.id, positionId, category: known ? oldCategory : '岗位职责', title, description, frequency: d.frequency ? String(d.frequency).slice(0, 60) : null, relatedModule: d.related_module ? String(d.related_module).slice(0, 60) : null, completionStandard: d.completion_standard ? String(d.completion_standard).slice(0, 1000) : null, isKey: Number(d.is_key_duty) === 1, status: d.status === 'inactive' ? 'inactive' : 'active' }));
       await register('position_duty', d.id, r.id); count('created', 'position_duty');
     }
+    if(opts.preserveLegacyStates){try{
+      const rows=(source.sourceRows??[]).filter(r=>r.table==='position_responsibilities').map(r=>r.row);
+      const mappings=await verifyResponsibilityDuplicates({em,resources,user,sourceCompanyId:source.company.id,duties:source.positionDuties??[],lookup},rows);
+      for(const mapping of mappings){const existing=lookup('position_responsibility',mapping.sourceId);if(existing!=null&&existing!==mapping.targetId)throw new MigrationError('旧岗位职责副本账本引用不一致');if(!existing)await register('position_responsibility',mapping.sourceId,mapping.targetId);count(existing?'reused':'created','position-responsibility-link');}
+      out.verified!['position-responsibility-duplicate-view']=mappings.length;
+    }catch(e){out.failures.push({type:'position-responsibility-duplicate-view',id:'all',reason:safeFailure(e)});}}
     // 员工薪酬记录（旧 employee_compensation_records：调薪、工资、奖励、处罚）
     for (const c of source.compensationRecords ?? []) {
       if (reuse('comp_record', c.id)) continue;
