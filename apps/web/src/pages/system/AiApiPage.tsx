@@ -38,8 +38,8 @@ export function AiApiPage() {
 
   return (
     <div>
-      <div className="page-head"><h1>AI API 接口</h1>{canEdit && <button type="button" className="primary-button" onClick={() => setEdit({ id: null, form: { name: '', baseUrl: '', apiKey: '', modelName: '', status: 'active' } })}>添加服务商</button>}</div>
-      <p className="muted">添加兼容 OpenAI 接口格式的 AI 服务商，同步它的模型清单；营业执照、快递价格表识别用哪个模型，在“OCR 设置”里选。API Key 加密保存，保存后不会再显示。</p>
+      <div className="page-head"><h1>AI API 接口</h1>{canEdit && <button type="button" className="secondary-button" onClick={() => setEdit({ id: null, form: { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', apiKey: '', modelName: 'deepseek-flash', status: 'active' } })}>添加 DeepSeek 话术整理</button>}{canEdit && <button type="button" className="primary-button" onClick={() => setEdit({ id: null, form: { name: '', baseUrl: '', apiKey: '', modelName: '', status: 'active' } })}>添加服务商</button>}</div>
+      <p className="muted">添加兼容 OpenAI 接口格式的 AI 服务商，同步它的模型清单；营业执照、快递价格表识别用哪个模型，在“OCR 设置”里选。小白采集器的 AI 话术纠错与完整话术整理使用此处已启用的官方 DeepSeek 服务商和默认模型；只需在 OA 填写一次 Key。API Key 加密保存，保存后不会再显示。</p>
       <div className="card settings-card">
         <div className="between"><strong>模型同步开关</strong><span className={`pill ${data?.syncEnabled ? 'ok' : ''}`}>{data?.syncEnabled ? '已打开' : '已关闭'}</span></div>
         <p className="muted">同步模型会连接服务商读取模型清单（只读）。开关默认关闭，关闭时点“同步模型”不会连接任何外部服务。</p>
