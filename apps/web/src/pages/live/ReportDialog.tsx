@@ -48,7 +48,7 @@ export function ReportDialog({ session, onClose, onDone }: { session: SessionDet
     const a = yuanCents(ad);
     if (role === 'control' && (a === null || Number.isNaN(a))) return setError('中控请填写投流费用（没有投流填 0）');
     if (needsOrders && !cand?.available) return setError(cand?.reason || '还没有读到聚水潭订单，不能报下播');
-    if (needsOrders && (cand?.orders.length ?? 0) > 0 && selected.size === 0) return setError('请勾选本场订单（聚水潭查到本场时间段内的订单）');
+    if (needsOrders && cand?.orders.some(o=>o.paid&&!o.cancelled) && selected.size === 0) return setError('请勾选本场订单（聚水潭查到本场时间段内的订单）');
     setBusy(true);
     try {
       await liveApi.report(session.id, { role, endAt: endAt.length === 16 ? `${endAt}:00` : endAt, salesCents: s, adSpendCents: role === 'control' ? a : undefined, orderIds: needsOrders ? [...selected] : undefined, note: note.trim() || undefined });

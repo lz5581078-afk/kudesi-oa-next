@@ -1,3 +1,5 @@
+import { useAuth } from '../../auth/AuthContext';
+import { RoomSettingsDialog } from './RoomSettingsDialog';
 import { useCallback, useEffect, useState } from 'react';
 import { liveApi, type Overview, type RoomDay, type RoomTile, type TimelineItem } from './liveApi';
 import { errText, hm, minutesText, money, todayText } from './liveFormat';
@@ -13,27 +15,22 @@ function barPos(t: string, day: string): number {
 }
 const STATE_LABEL: Record<TimelineItem['state'], string> = { live: '直播中', done: '已播', missed: '已过时未上播', due: '已到时间未上播', upcoming: '未开始' };
 
-function Tile({ t, day, now, onOpen }: { t: RoomTile; day: string; now: string; onOpen: () => void }) {
-  const missed = t.timeline.some((i) => i.state === 'missed' || i.state === 'due');
-  return (
-    <button type="button" className={`live-room ${t.big ? 'big' : ''} ${t.status === 'live' ? 'is-live' : t.status === 'finished' ? 'is-finished' : ''}`} onClick={onOpen} aria-label={`${t.name}，${t.statusLabel}`}>
-      <h3><span>{t.shortName || t.name}</span><span className={`pill ${t.status === 'live' ? 'bad' : t.status === 'finished' ? 'ok' : ''}`}>{t.statusLabel}</span></h3>
-      {t.live ? (
-        <>
-          <small>{hm(t.live.startAt)} 开播 · 已播 {minutesText(Math.max(0, Math.round((new Date(now.replace(' ', 'T')).getTime() - new Date(t.live.startAt.replace(' ', 'T')).getTime()) / 60000)))}{t.live.plannedEnd ? ` · 计划 ${hm(t.live.plannedEnd, day)} 结束` : ''}</small>
-          <small>主播 {t.live.anchor.name}{t.live.operator ? ` · 运营 ${t.live.operator.name}` : ''}{t.live.control ? ` · 中控 ${t.live.control.name}` : ''}</small>
-          <small>{t.live.douyinAccount.name}</small>
-        </>
-      ) : t.next ? <small>下一场 {hm(t.next.start)}–{hm(t.next.plannedEnd, day)} · {t.next.anchorName}</small> : <small className="muted">今天没有排场</small>}
-      <div className="live-bar" aria-hidden="true">
-        {t.timeline.map((i) => <i key={`${i.kind}${i.id}`} className={i.state === 'done' ? 'done' : i.state === 'missed' || i.state === 'due' ? 'missed' : ''} style={{ left: `${barPos(i.start, day)}%`, width: `${Math.max(1.5, barPos(i.end, day) - barPos(i.start, day))}%` }} />)}
-        {day === now.slice(0, 10) && <b style={{ left: `${barPos(now, day)}%` }} />}
-      </div>
-      {missed && <small className="notice warn">有排场已到时间还没上播</small>}
-      {t.timeline.slice(0, 3).map((i) => <small key={`${i.kind}${i.id}`} className="muted">{hm(i.start)}–{hm(i.end, day)} {i.anchorName}{i.kind === 'adhoc' ? '（临时）' : ''} · {STATE_LABEL[i.state]}</small>)}
-      {t.timeline.length > 3 && <small className="muted">还有 {t.timeline.length - 3} 场…</small>}
-    </button>
-  );
+function Tile({ t, day, now, onOpen,onEdit }: { t: RoomTile; day: string; now: string; onOpen: () => void;onEdit?:()=>void }) {
+  const missed=t.timeline.some(i=>i.state==='missed'||i.state==='due');
+  const elapsed=t.live?Math.max(0,Math.round((Date.parse(now.replace(' ','T')+'+08:00')-Date.parse(t.live.startAt.replace(' ','T')+'+08:00'))/60000)):0;
+  const planned=t.live?.plannedEnd?Math.max(1,(Date.parse(t.live.plannedEnd.replace(' ','T')+'+08:00')-Date.parse(t.live.startAt.replace(' ','T')+'+08:00'))/60000):null;
+  const progress=planned?Math.min(100,Math.round(elapsed/planned*100)):null;
+  const state=t.status==='live'?'live':missed?'missed':t.status;
+  return <article className={`live-room ${t.big?'big':''} state-${state}`} aria-label={`${t.name}，${t.statusLabel}`}>
+    <h3><button className="link-button" onClick={onOpen}>{t.shortName||t.name}</button><span className={`live-status status-${state}`}>{t.status==='idle'&&missed?'待上播':t.statusLabel}</span></h3>
+    <div className="live-room-meta"><small>负责人 <strong>{t.ownerName||'未设置'}</strong></small><small>房间产品 <strong>{t.products||'未设置'}</strong></small></div>
+    <div className="live-room-people"><span>主播<strong>{t.live?.anchor.name||'—'}</strong></span><span>中控<strong>{t.live?.control?.name||'—'}</strong></span></div>
+    {t.live&&<small className="muted">{t.live.operator?`运营 ${t.live.operator.name} · `:''}{t.live.douyinAccount.name}</small>}
+    <div className="live-room-times"><span>开播<strong>{hm(t.live?.startAt,day)}</strong></span><span>预计下播<strong>{hm(t.live?.plannedEnd,day)}</strong></span><span>已播<strong>{t.live?minutesText(elapsed):'—'}</strong></span></div>
+    {t.live?<div className="live-room-progress"><div role="progressbar" aria-label="本场直播进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress??undefined} className="live-progress-track"><i style={{width:`${progress??0}%`}}/></div><small>{progress===null?'临时场次，未设置预计下播':elapsed>planned!?'已超过预计下播时间':`直播进度 ${progress}%`}</small></div>:<p className="live-next">{t.next?`下一场 ${hm(t.next.start)}–${hm(t.next.plannedEnd,day)} · ${t.next.anchorName}`:'暂无后续排场'}</p>}
+    <div className="live-bar" aria-label="当天排场时间条">{t.timeline.map(i=><i key={`${i.kind}${i.id}`} className={i.state==='done'?'done':i.state==='missed'||i.state==='due'?'missed':''} style={{left:`${barPos(i.start,day)}%`,width:`${Math.max(1.5,barPos(i.end,day)-barPos(i.start,day))}%`}}/>)}{day===now.slice(0,10)&&<b style={{left:`${barPos(now,day)}%`}}/>}</div>
+    <div className="live-actions live-room-foot"><button className="secondary-button small" onClick={onOpen}>查看当天详情</button>{onEdit&&<button className="link-button" onClick={onEdit}>编辑房间</button>}</div>
+  </article>;
 }
 
 function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId: number; date: string; onClose: () => void; onOpenSession: (id: number) => void }) {
@@ -66,6 +63,8 @@ function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId: numbe
 
 /** 全览：西走廊平面（南北两排、走廊居中、大房间双倍宽），页面可见时每 30 秒自动刷新。 */
 export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => void }) {
+  const {can}=useAuth();
+  const [editing,setEditing]=useState<RoomTile|null>(null);
   const [date, setDate] = useState(todayText());
   const [filter, setFilter] = useState<(typeof FILTERS)[number][0]>('all');
   const [d, setD] = useState<Overview | null>(null);
@@ -102,14 +101,15 @@ export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => 
             <div className="card pad" role="status"><strong>还没有直播间</strong><p className="muted">请到「资料 › 房间与档案位置」，在「西走廊办公室」下新建名称含「直播间」的房间（例如「直播间-北1」「直播间-南2（大房间）」），这里就会按南北两排显示。</p></div>
           ) : (
             <div className="live-floor" aria-label="西走廊平面">
-              <div className="live-row">{row(d.groups.north).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} />)}</div>
+              <div className="live-row" aria-label="南侧直播间">{row(d.groups.south).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>
               <div className="live-corridor" aria-hidden="true">走　廊</div>
-              <div className="live-row">{row(d.groups.south).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} />)}</div>
-              {d.groups.none.length > 0 && <div className="live-row">{row(d.groups.none).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} />)}</div>}
+              <div className="live-row" aria-label="北侧直播间">{row(d.groups.north).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>
+              {d.groups.none.length > 0 && <div className="live-row">{row(d.groups.none).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>}
             </div>
           )}
         </>
       )}
+      {editing&&<RoomSettingsDialog room={editing} onClose={()=>setEditing(null)} onDone={()=>{setEditing(null);load();}}/>}
       {room !== null && <RoomDayDialog roomId={room} date={date} onClose={() => setRoom(null)} onOpenSession={(id) => { setRoom(null); onOpenSession(id); }} />}
     </div>
   );

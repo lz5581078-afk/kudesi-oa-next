@@ -92,11 +92,12 @@ export class LiveLedgerService {
     };
   }
 
-  async wages(user: AuthUser, q: { month?: string; from?: string; to?: string; userId?: number }) {
+  async wages(user: AuthUser, q: { month?: string; from?: string; to?: string; userId?: number; role?: string }) {
     const { a, month, where, params } = await this.scope(user, q);
     if (q.userId && a.canViewAll) { where.push('r.user_id = ?'); params.push(q.userId); }
+    if (q.role) { where.push('r.role = ?'); params.push(q.role); }
     const rows: Row[] = await this.em.query(
-      `SELECT r.id, r.session_id, r.user_id, DATE_FORMAT(r.session_date,'%Y-%m-%d') day, DATE_FORMAT(r.start_at,'%Y-%m-%d %H:%i') start_text, DATE_FORMAT(r.end_at,'%Y-%m-%d %H:%i') end_text, r.minutes, r.hourly_rate_cents, r.rate_source, r.amount_cents, r.adjust_note, e.name user_name, s.room_name
+      `SELECT r.role, r.id, r.session_id, r.user_id, DATE_FORMAT(r.session_date,'%Y-%m-%d') day, DATE_FORMAT(r.start_at,'%Y-%m-%d %H:%i') start_text, DATE_FORMAT(r.end_at,'%Y-%m-%d %H:%i') end_text, r.minutes, r.hourly_rate_cents, r.rate_source, r.amount_cents, r.adjust_note, e.name user_name, s.room_name
          FROM live_wage_records r JOIN users e ON e.id = r.user_id AND e.company_id = r.company_id JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id
         WHERE ${where.join(' AND ')} ORDER BY r.session_date DESC, r.id DESC`, params);
     const summary = new Map<number, { userId: number; name: string; sessions: number; minutes: number; amountCents: number }>();
@@ -106,7 +107,7 @@ export class LiveLedgerService {
     }
     return {
       month, scope: a.canViewAll ? 'all' : 'mine', totalCents: rows.reduce((t, r) => t + num(r.amount_cents), 0), summary: [...summary.values()],
-      rows: rows.map((r) => ({ id: Number(r.id), sessionId: Number(r.session_id), userId: Number(r.user_id), userName: r.user_name, date: r.day, roomName: r.room_name, startAt: r.start_text, endAt: r.end_text, minutes: Number(r.minutes), hourlyRateCents: num(r.hourly_rate_cents), rateSource: r.rate_source, amountCents: num(r.amount_cents), note: r.adjust_note ?? '' })),
+      rows: rows.map((r) => ({ role:r.role, id: Number(r.id), sessionId: Number(r.session_id), userId: Number(r.user_id), userName: r.user_name, date: r.day, roomName: r.room_name, startAt: r.start_text, endAt: r.end_text, minutes: Number(r.minutes), hourlyRateCents: num(r.hourly_rate_cents), rateSource: r.rate_source, amountCents: num(r.amount_cents), note: r.adjust_note ?? '' })),
     };
   }
 

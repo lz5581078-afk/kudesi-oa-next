@@ -16,7 +16,7 @@ export function refundFor(orderAmount: number, order: JsonRow, rows: JsonRow[]):
     const amount = cents(r.refund ?? r.refund_amount ?? r.payment ?? 0);
     const counted = !['Cancelled', 'Merged'].includes(r.status) && !/换货|补发|维修/.test(String(r.type ?? '')) && (r.status === 'Confirmed' || /SUCCESS|成功|已退款|退款完成/i.test(String(r.shop_status ?? '')));
     if (counted) sum += amount;
-    details.push({ kind: 'refund', asId: String(r.as_id), status: r.status, counted, cents: amount });
+    details.push({ kind: 'refund', asId: String(r.as_id), status: r.status, shopStatus:r.shop_status??null, type:r.type??null, counted, cents: amount });
   }
   return { cents: Math.min(orderAmount, sum), source: sum > 0 ? 'refund' : 'none', details };
 }
