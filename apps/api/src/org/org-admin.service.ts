@@ -7,6 +7,7 @@ import { allGrantableKeys, createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourcesService } from '../resources/resources.service';
 import { legacyPositionName } from './legacy-position-name';
+import { legacyPositionAssignments } from './legacy-position-assignments';
 import { doHandover, handoverCounts, suggestHandoverTarget } from './handover';
 import { AuditLog, Department, EmployeeCompensationRecord, FlowRun, PlatformAdmin, FlowStep, Position, PositionDuty, PositionPermission, ResourceChangeLog, ResourceRecord, TaskRoutine, User, UserPermissionOverride, WorkItem, WorkspaceType } from '../entities';
 
@@ -714,6 +715,7 @@ export class OrgAdminService {
     const hn = await nameOf(handovers.flatMap((h) => [Number(h.fromUserId), Number(h.detail?.toUserId)]));
     return {
       hrLogs,
+      legacyAssignments:await legacyPositionAssignments(em,this.resources,actor,u),
       salaryChanges, payrollRecords, rewardRecords, penaltyRecords, dutyGroups,
       tasks: items.map((i) => ({ id: i.id, title: i.title, status: i.status, assigneeName: itemNames.get(i.assigneeId) ?? null, createdByName: i.createdBy ? itemNames.get(i.createdBy) ?? null : null, dueAt: i.dueAt, createdAt: i.createdAt })),
       flows: [

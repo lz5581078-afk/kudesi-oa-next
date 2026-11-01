@@ -29,6 +29,8 @@ import { isRegistrationType } from '../resources/legacy-registration';
 import { verifyPhoneRechargeView } from './phone-recharge-view';
 import { verifyResponsibilityDuplicates } from './responsibility-duplicates';
 import { sourceFieldCoverage,type FieldCoverage } from './field-coverage';
+import { employeePositions } from './employee-positions';
+import { verifyEmployeePositionView } from './employee-position-view';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -188,11 +190,10 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       const account = String(e.login_account ?? '').trim() || null;
       if (!e.name || String(e.name).length > 50 || (account && account.length > 64)) throw new MigrationError('员工姓名或账号长度不适配');
       if (account && (await em.findOneBy(User, { account }) || await em.findOneBy(PlatformAdmin, { account }))) throw new MigrationError('员工账号与目标系统已有账号冲突，禁止覆盖');
-      const positions = source.employeePositions.filter((x) => String(x.employee_id) === String(e.id));
-      const primary = positions.find((x) => x.is_primary) ?? positions[0];
+      const {primary,extras} = employeePositions(source,e.id);
       let lastLoginAt:Date|null;
       try{lastLoginAt=legacyWallTime(e.last_login_at);}catch{throw new MigrationError('旧员工最后登录时间无效，禁止改成迁移时间');}
-      const r = await em.save(User, em.create(User, { companyId: company.id, account, passwordHash: account ? encodeLegacyPassword(String(e.password_salt), String(e.password_hash)) : '!no-login', name: e.name, departmentId: required('department', e.department_id), positionId: primary ? required('position', primary.position_id) : null, extraPositionIds: positions.filter((x) => x !== primary).map((x) => required('position', x.position_id)), managerId: null, title: e.title || null, baseSalary: e.base_salary===null||e.base_salary===undefined?null:yuanToPreciseCents(String(e.base_salary),0), payType: e.pay_type==='hourly'?'hourly':'monthly', hourlyRate: e.hourly_rate===null||e.hourly_rate===undefined?null:yuanToPreciseCents(String(e.hourly_rate),0), employmentType: ['part_time','temp'].includes(e.employment_type)?e.employment_type:'regular', isCompanyAdmin: ['admin','company_admin','boss'].includes(e.role_key), status: e.status === 'active' ? 'active' : 'disabled', mustChangePassword: false,lastLoginAt }));
+      const r = await em.save(User, em.create(User, { companyId: company.id, account, passwordHash: account ? encodeLegacyPassword(String(e.password_salt), String(e.password_hash)) : '!no-login', name: e.name, departmentId: required('department', e.department_id), positionId: primary ? required('position', primary.position_id) : null, extraPositionIds: extras.map((x) => required('position', x.position_id)), managerId: null, title: e.title || null, baseSalary: e.base_salary===null||e.base_salary===undefined?null:yuanToPreciseCents(String(e.base_salary),0), payType: e.pay_type==='hourly'?'hourly':'monthly', hourlyRate: e.hourly_rate===null||e.hourly_rate===undefined?null:yuanToPreciseCents(String(e.hourly_rate),0), employmentType: ['part_time','temp'].includes(e.employment_type)?e.employment_type:'regular', isCompanyAdmin: ['admin','company_admin','boss'].includes(e.role_key), status: e.status === 'active' ? 'active' : 'disabled', mustChangePassword: false,lastLoginAt }));
       if(((await em.findOneByOrFail(User,{id:r.id,companyId:company.id})).lastLoginAt?.getTime()??null)!==(lastLoginAt?.getTime()??null))throw new MigrationError('旧员工最后登录时间落库不一致');
       out.verified!['user-last-login']=(out.verified!['user-last-login']??0)+1;
       await register('user', e.id, r.id); count('created', 'user'); orgCreated.add(key('user', e.id));
@@ -503,6 +504,8 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       } catch (e) { out.failures.push({ type: 'finance-ledger-history', id: original.key, reason: safeFailure(e) }); }
     }
     if(opts.preserveLegacyStates){
+      const boundPositions=Object.create(ds) as DataSource;Object.defineProperty(boundPositions,'manager',{value:em});
+      out.verified!['employee-position-history-view']=await verifyEmployeePositionView(boundPositions,resources,user,source,lookup);
       const names=out.excluded.filter(e=>e.type==='position.name'),resolved=new Set<string>();
       const bound=Object.create(ds) as DataSource;Object.defineProperty(bound,'manager',{value:em});const org=new OrgAdminService(bound,resources);
       for(const note of names){try{
