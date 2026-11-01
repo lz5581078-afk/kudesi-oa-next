@@ -23,14 +23,14 @@ export function findBrowserExecutable(env: NodeJS.ProcessEnv = process.env, exis
   return found;
 }
 
-export interface ShopBrowser { storeId: number; context: BrowserContext; closed: boolean }
+export interface ShopBrowser { storeId: number; profileKey?: string; context: BrowserContext; closed: boolean }
 let active: ShopBrowser | null = null;
 
 export const activeShop = (): ShopBrowser | null => (active && !active.closed ? active : null);
 
 /** 同一时间只开一家店铺的窗口；换店铺会先关掉上一家。每家店铺一个独立 Profile，登录状态互不影响。 */
-export async function openShopContext(storeId: number, profileDir: string): Promise<{ shop: ShopBrowser; page: Page }> {
-  if (active && !active.closed && active.storeId !== storeId) await closeActive();
+export async function openShopContext(storeId: number, profileDir: string, profileKey = String(storeId)): Promise<{ shop: ShopBrowser; page: Page }> {
+  if (active && !active.closed && (active.storeId !== storeId || (active.profileKey ?? String(active.storeId)) !== profileKey)) await closeActive();
   if (!active || active.closed) {
     await fsp.mkdir(profileDir, { recursive: true, mode: 0o700 });
     const headless = process.env.KUDESI_AGENT_HEADLESS === '1';
@@ -43,7 +43,7 @@ export async function openShopContext(storeId: number, profileDir: string): Prom
       acceptDownloads: true,
       args: ['--disable-blink-features=AutomationControlled', '--no-first-run', '--no-default-browser-check', ...(headless ? ['--no-sandbox'] : ['--start-maximized'])],
     });
-    const shop: ShopBrowser = { storeId, context, closed: false };
+    const shop: ShopBrowser = { storeId, profileKey, context, closed: false };
     context.once('close', () => { shop.closed = true; if (active === shop) active = null; void log(`店铺 ${storeId} 的浏览器窗口已关闭`); });
     active = shop;
   }

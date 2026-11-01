@@ -1,4 +1,4 @@
-# 酷得斯店铺登录助手 - 安装 / 重新安装（在要登录店铺的那台 Windows 电脑上运行，不需要管理员权限）
+﻿# 酷得斯店铺登录助手 - 安装 / 重新安装（在要登录店铺的那台 Windows 电脑上运行，不需要管理员权限）
 # 用法：右键 PowerShell 运行   .\install.ps1 -Server https://oa.你的域名 -Code 绑定码
 # 目录结构（支持在线自动升级）：
 #   %LOCALAPPDATA%\KudesiAssistant\app\launcher.js          启动器（开机任务运行它，升级不会改它）

@@ -21,12 +21,12 @@ const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).me
  * 同步清单：已验证的编码，对照上次真正上传的内容看差异、状态和同步记录。
  * 改码（现在的编码和聚水潭上已有的不同）必须先确认旧码已处理；所有操作都只是加入队列，不直接发送。
  */
-export function JstSyncItems({ onQueued }: { onQueued: () => void }) {
+export function JstSyncItems({ onQueued, initialType = 'finance-base-codes', initialKeyword = '' }: { onQueued: () => void; initialType?: string; initialKeyword?: string }) {
   const { user, can } = useAuth();
   const isAdmin = !!user?.permissions.isCompanyAdmin;
-  const [type, setType] = useState('finance-base-codes');
+  const [type, setType] = useState(initialType);
   const [page, setPage] = useState(1);
-  const [keyword, setKeyword] = useState('');
+  const [keyword, setKeyword] = useState(initialKeyword);
   const [data, setData] = useState<{ total: number; rows: Item[] } | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [ack, setAck] = useState<number[]>([]);
