@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
-import { groupPages, searchNav, type VisibleSection } from '@kudesi/shared';
+import { Link } from 'react-router-dom';
+import { groupPages, searchNav, isNavPathCurrent, type VisibleSection } from '@kudesi/shared';
 import { SearchIcon } from './NavIcons';
 
 /**
@@ -12,6 +12,7 @@ export function ModulePanel(props: {
   sections: VisibleSection[];
   sectionId: string;
   currentPath: string;
+  currentSearch?: string;
   onPick: (path: string) => void;
   onClose: () => void;
 }) {
@@ -32,7 +33,7 @@ export function ModulePanel(props: {
   const hits = useMemo(() => searchNav(sections, query), [sections, query]);
   const searching = query.trim().length > 0;
   const groups = useMemo(() => (section ? groupPages(section) : []), [section]);
-  const isCurrent = (path: string) => currentPath === path || currentPath.startsWith(`${path}/`);
+  const isCurrent = (path: string) => isNavPathCurrent(path, currentPath, props.currentSearch);
 
   if (!section) return null;
   return (
@@ -54,10 +55,10 @@ export function ModulePanel(props: {
               <ul className="mp-hits">
                 {hits.map((h) => (
                   <li key={h.page.path}>
-                    <NavLink to={h.page.path} className={isCurrent(h.page.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(h.page.path) ? 'page' : undefined} onClick={() => props.onPick(h.page.path)}>
+                    <Link to={h.page.path} className={isCurrent(h.page.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(h.page.path) ? 'page' : undefined} onClick={() => props.onPick(h.page.path)}>
                       <span>{h.page.label}</span>
                       <small>{h.sectionLabel}{h.groupTitle !== h.sectionLabel ? ` · ${h.groupTitle}` : ''}</small>
-                    </NavLink>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -70,10 +71,10 @@ export function ModulePanel(props: {
                   <ul>
                     {g.pages.map((p) => (
                       <li key={p.path}>
-                        <NavLink to={p.path} className={isCurrent(p.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(p.path) ? 'page' : undefined} onClick={() => props.onPick(p.path)} title={p.description}>
+                        <Link to={p.path} className={isCurrent(p.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(p.path) ? 'page' : undefined} onClick={() => props.onPick(p.path)} title={p.description}>
                           <span className="mp-link-label">{p.label}</span>
                           {p.description && <small className="mp-link-desc">{p.description}</small>}
-                        </NavLink>
+                        </Link>
                       </li>
                     ))}
                   </ul>

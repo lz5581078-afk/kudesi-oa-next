@@ -14,7 +14,7 @@ export function CommandPalette(props: {
   const items = useMemo(() => {
     const all = props.sections.flatMap((s) => s.pages.map((p) => ({ ...p, section: s.label })));
     const q = query.trim().toLowerCase();
-    return q ? all.filter((p) => `${p.section}${p.label}`.toLowerCase().includes(q)) : all;
+    return q ? all.filter((p) => `${p.section} ${p.group ?? ''} ${p.label}`.toLowerCase().includes(q)) : all;
   }, [props.sections, query]);
 
   useEffect(() => inputRef.current?.focus(), []);
@@ -59,7 +59,7 @@ export function CommandPalette(props: {
                 onClick={() => props.onPick(item.path)}
               >
                 <span>{item.label}</span>
-                <small>{item.section}</small>
+                <small>{item.section}{item.group ? ` · ${item.group}` : ''}</small>
               </button>
             </li>
           ))}

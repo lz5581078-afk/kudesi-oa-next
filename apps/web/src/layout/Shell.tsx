@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { directPage, findPageByPath, splitMobileSections, visibleSections, type VisibleSection } from '@kudesi/shared';
+import { directPage, findPageByPath, splitMobileSections, visibleSections, withDeskNavigation, isNavPathCurrent, type DeskCatalog, type VisibleSection } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { AppbarContext, useAppbarState } from './AppbarSlot';
 import { CommandPalette } from './CommandPalette';
 import { ModulePanel } from './ModulePanel';
 import { MoreIcon, NavIcon, SearchIcon } from './NavIcons';
 import { NotificationBell } from './NotificationBell';
+import { NavigationContext } from './NavigationContext';
+import { workspaceApi } from '../pages/workspace/workspaceApi';
 
 /**
  * 外壳：左侧窄图标栏（一级菜单）+ 点开后弹出的分组菜单（二级）+ 顶部页面栏 + 手机底部标签栏。
@@ -21,13 +23,23 @@ export function Shell() {
   const [accountOpen, setAccountOpen] = useState(false);
   const appbar = useAppbarState();
 
-  const sections = useMemo(() => visibleSections(can), [can]);
-  const current = findPageByPath(location.pathname);
+  const canViewDesks = can('workbench.desk.view');
+  const [catalog, setCatalog] = useState<{ owner: typeof user; value: DeskCatalog } | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (user && canViewDesks) {
+      workspaceApi.catalog().then((value) => { if (active) setCatalog(Array.isArray(value?.positions) ? { owner: user, value } : null); }).catch(() => { if (active) setCatalog(null); });
+    }
+    return () => { active = false; };
+  }, [user, canViewDesks]);
+  const sections = useMemo(() => withDeskNavigation(visibleSections(can), catalog?.owner === user ? catalog.value.positions : null), [can, catalog, user]);
+  const current = sections.flatMap((section) => section.pages.map((page) => ({ section, page })))
+    .find(({ page }) => isNavPathCurrent(page.path, location.pathname, location.search)) ?? findPageByPath(location.pathname);
   const activeSection = sections.find((s) => s.id === current?.section.id);
   const mobile = useMemo(() => splitMobileSections(sections), [sections]);
 
   // 换了页面就收起菜单
-  useEffect(() => { setPanelId(null); setAccountOpen(false); }, [location.pathname]);
+  useEffect(() => { setPanelId(null); setAccountOpen(false); }, [location.pathname, location.search]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -60,6 +72,7 @@ export function Shell() {
   };
 
   return (
+    <NavigationContext.Provider value={sections}>
     <AppbarContext.Provider value={appbar.value}>
     <div className="app-shell">
       <aside className="rail">
@@ -72,6 +85,7 @@ export function Shell() {
           sections={sections}
           sectionId={panelId}
           currentPath={location.pathname}
+          currentSearch={location.search}
           onPick={() => setPanelId(null)}
           onClose={() => setPanelId(null)}
         />
@@ -153,5 +167,6 @@ export function Shell() {
       )}
     </div>
     </AppbarContext.Provider>
+    </NavigationContext.Provider>
   );
 }
