@@ -1,6 +1,6 @@
 import { EntityManager } from 'typeorm';
 import type { FlowAdapter, StepContext } from '../flow/flow-adapters';
-import { Row, can, closedMonth, liveClock, liveFail, num, sessionRow, wallNow } from './live-core';
+import { Row, can, closedDay, liveClock, liveFail, num, sessionRow, wallNow } from './live-core';
 import { ReviewForm, approveSession, checkSubmittable, detachSession, returnSession } from './live-review';
 import { SETTLEMENT_STATUS, approveSettlement, checkApprovable, detachSettlement, lockedSettlement, markSubmitted, returnSettlement, validateSettlementSources } from './live-settlement-core';
 
@@ -24,7 +24,7 @@ export const liveSessionReview: FlowAdapter = {
     const session = await sessionRow(em, user.companyId, sessionIdOf(payload), true);
     if (!isParticipant(session, user.id) && !can(user, 'live.manage')) liveFail('只有本场主播或中控可以提交审核', 403);
     await checkSubmittable(em, user.companyId, session);
-    if (await closedMonth(em, user.companyId, String(session.session_day).slice(0, 7))) liveFail('该月份已在结算审批或已结算，不能提交审核');
+    if (await closedDay(em, user.companyId, String(session.session_day))) liveFail('该日期已在结算审批或已结算，不能提交审核');
   },
   async onStart({ em, user, payload, run }) {
     await em.query(
@@ -61,7 +61,7 @@ export const liveSettlement: FlowAdapter = {
   async title(em: EntityManager, companyId, payload) {
     const [row] = await em.query('SELECT month, payable_total_cents FROM live_settlements WHERE company_id = ? AND id = ?', [companyId, settlementIdOf(payload)]);
     if (!row) liveFail('结算单不存在', 404);
-    return `${row.month} 直播提成月结（应发 ${(Number(row.payable_total_cents) / 100).toFixed(2)} 元）`.slice(0, 190);
+    return `${row.period_from??row.month} 至 ${row.period_to??row.month} 直播工资结算（应发 ${(Number(row.payable_total_cents) / 100).toFixed(2)} 元）`.slice(0, 190);
   },
   async validateStart({ em, user, payload }) {
     if (!can(user, 'live.manage')) liveFail('没有提交月结审批的权限', 403);

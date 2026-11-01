@@ -3,12 +3,12 @@ import {
   LIVE_FINAL_SOURCES, liveArchiveHourlyRate, liveComputeCommission, liveComputeWage, liveFromText, liveMissingReporter, liveToText, liveVersionFor,
   type LiveRules,
 } from '@kudesi/shared';
-import { Row, closedMonth, liveFail, lockCompany, reportsOf, ruleVersions, sessionRow, wallNow } from './live-core';
+import { Row, closedDay, liveFail, lockCompany, reportsOf, ruleVersions, sessionRow, wallNow } from './live-core';
 
-/** 主播和本场中控必须各自本人报下播；运营选填，不能以缺报说明跳过。 */
+/** 主播和本场中控须有本人报告；有明确经办人和原因的人事补报也可进入审核。运营选填。 */
 export function requireReports(session: Row, reports: Row[]) {
   const missing = liveMissingReporter(
-    reports.map((r) => ({ role: String(r.role), reporterId: Number(r.reporter_user_id) })),
+    reports.map((r) => ({ role: String(r.role), reporterId: Number(r.manual_actor_id ? (r.role==='anchor'?session.anchor_user_id:session.control_user_id):r.reporter_user_id) })),
     { anchorId: Number(session.anchor_user_id), controlId: session.control_user_id ? Number(session.control_user_id) : null },
   );
   if (missing === 'anchor') liveFail('主播还没有报下播（须本人填报），请主播本人填报后再提交', 400);
@@ -25,7 +25,7 @@ export async function checkSubmittable(em: EntityManager, companyId: number, ses
 export interface ReviewForm {
   finalSource?: string; finalSalesCents?: number; finalReason?: string;
   operatorUserId?: number; noOperator?: boolean;
-  wageStartAt?: string; wageEndAt?: string; wageHourlyRateCents?: number; wageNote?: string;
+  wageStartAt?: string; wageEndAt?: string; wageHourlyRateCents?: number; wageNote?: string; controlWageStartAt?:string; controlWageEndAt?:string; controlWageHourlyRateCents?:number; controlWageNote?:string;
 }
 
 /** 审核人选择的最终销售额：选其中一个上报值，或手填并写原因。 */
@@ -70,8 +70,10 @@ export async function resolveOperator(em: EntityManager, companyId: number, sess
  * 主播工资：默认取场次上播、下播时间和员工档案里的计时时薪，审核时都可以修改。
  * 时薪必填：档案里不是计时（或没有时薪）时，审核人必须填写，否则不能通过。
  */
-export async function resolveWage(em: EntityManager, companyId: number, session: Row, form: ReviewForm) {
-  const reportedStart: string = session.start_text, reportedEnd: string = session.end_text;
+export async function resolveWage(em: EntityManager, companyId: number, session: Row, form: ReviewForm, role: 'anchor'|'control' = 'anchor') {
+  const label=role==='anchor'?'主播':'中控';
+  const controlReport=role==='control'?(await reportsOf(em,companyId,Number(session.id))).find(r=>r.role==='control'):null;
+  const reportedStart: string = session.start_text, reportedEnd: string = controlReport?.end_text??session.end_text;
   if (!reportedEnd) liveFail('本场还没有下播时间，不能计算主播工资', 400);
   const pick = (value: unknown, fallback: string, label: string) => {
     if (value === undefined || value === null || String(value).trim() === '') return fallback;
@@ -79,18 +81,19 @@ export async function resolveWage(em: EntityManager, companyId: number, session:
     if (!t) liveFail(`${label}格式不正确`, 400);
     return t as string;
   };
-  const startAt = pick(form.wageStartAt, reportedStart, '主播工资的上播时间');
-  const endAt = pick(form.wageEndAt, reportedEnd, '主播工资的下播时间');
-  const [profile]: Row[] = await em.query('SELECT pay_type, hourly_rate FROM users WHERE company_id = ? AND id = ?', [companyId, session.anchor_user_id]);
+  const startAt = pick((role==='anchor'?form.wageStartAt:form.controlWageStartAt), reportedStart, `${label}工资的上播时间`);
+  const endAt = pick((role==='anchor'?form.wageEndAt:form.controlWageEndAt), reportedEnd, `${label}工资的下播时间`);
+  const [profile]: Row[] = await em.query('SELECT pay_type, hourly_rate FROM users WHERE company_id = ? AND id = ?', [companyId, role==='anchor'?session.anchor_user_id:session.control_user_id]);
   const archiveRate = liveArchiveHourlyRate(profile ? { payType: profile.pay_type, hourlyRate: profile.hourly_rate === null ? null : Number(profile.hourly_rate) } : null);
-  const typed = typeof form.wageHourlyRateCents === 'number' ? form.wageHourlyRateCents : null;
+  const inputRate=role==='anchor'?form.wageHourlyRateCents:form.controlWageHourlyRateCents;
+  const typed = typeof inputRate === 'number' ? inputRate : null;
   const rate = typed ?? archiveRate;
-  if (!rate) liveFail('请填写主播时薪：这位主播的员工档案里没有计时时薪', 400);
+  if (!rate) liveFail(`请填写${label}时薪：员工档案里没有计时时薪`, 400);
   const wage = liveComputeWage({ startAt, endAt, hourlyRateCents: rate });
   return {
     ...wage, startAt, endAt, archiveRate, reportedStart, reportedEnd,
     rateSource: archiveRate !== null && wage.hourlyRateCents === archiveRate ? 'archive' : 'manual',
-    note: String(form.wageNote || '').trim().slice(0, 500) || null,
+    note: String((role==='anchor'?form.wageNote:form.controlWageNote) || '').trim().slice(0, 500) || null,
     timesChanged: startAt !== reportedStart || endAt !== reportedEnd,
   };
 }
@@ -101,7 +104,7 @@ export async function resolveWage(em: EntityManager, companyId: number, session:
 export async function approveSession(em: EntityManager, ctx: { companyId: number; actorId: number; runId: number; now: Date }, sessionId: number, form: ReviewForm) {
   await lockCompany(em, ctx.companyId);
   const session = await sessionRow(em, ctx.companyId, sessionId, true);
-  if (await closedMonth(em, ctx.companyId, session.session_day.slice(0, 7), true)) liveFail('本月已进入结算审批或已结算，不能再新增提成，请先核对月结状态');
+  if (await closedDay(em, ctx.companyId, session.session_day)) liveFail('该日期已进入工资结算审批或已结算，不能再新增收入');
   if (session.status !== 'submitted' || Number(session.flow_run_id) !== ctx.runId) liveFail('场次已不在待审核状态，请刷新后核对');
   const reports = await reportsOf(em, ctx.companyId, sessionId);
   requireReports(session, reports);
@@ -115,6 +118,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   const result = liveComputeCommission({ rules, finalSalesCents: final.cents, adSpendCents: adSpend });
   const operator = await resolveOperator(em, ctx.companyId, session, form);
   const wage = await resolveWage(em, ctx.companyId, session, form);
+  const controlWage=session.control_user_id ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
   const at = wallNow(ctx.now);
   const roles: Array<['anchor' | 'control' | 'operator', number, { rateUnits: number; amountCents: number }]> = [['anchor', Number(session.anchor_user_id), result.anchor]];
   if (session.control_user_id) roles.push(['control', Number(session.control_user_id), result.control]);
@@ -138,6 +142,8 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
       approved_by, approved_at, flow_run_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [ctx.companyId, sessionId, session.anchor_user_id, session.session_day, wage.startAt, wage.endAt, wage.minutes, wage.hourlyRateCents, wage.rateSource, wage.amountCents, wage.note, wageSnapshot, ctx.actorId, at, ctx.runId],
   );
+  if (controlWage) await em.query(`INSERT INTO live_wage_records (company_id,session_id,user_id,role,session_date,start_at,end_at,minutes,hourly_rate_cents,rate_source,amount_cents,adjust_note,review_snapshot,approved_by,approved_at,flow_run_id) VALUES (?,?,?,'control',?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [ctx.companyId,sessionId,session.control_user_id,session.session_day,controlWage.startAt,controlWage.endAt,controlWage.minutes,controlWage.hourlyRateCents,controlWage.rateSource,controlWage.amountCents,controlWage.note,JSON.stringify({role:'control',reportedStartAt:controlWage.reportedStart,reportedEndAt:controlWage.reportedEnd,timesChanged:controlWage.timesChanged,archiveHourlyRateCents:controlWage.archiveRate}),ctx.actorId,at,ctx.runId]);
   await em.query(
     `UPDATE live_sessions SET status = 'approved', final_sales_cents = ?, final_sales_source = ?, final_sales_reason = ?, approved_by = ?, approved_at = ?, operator_user_id = ?,
       return_reason = NULL, revision = revision + 1 WHERE company_id = ? AND id = ?`,
@@ -177,6 +183,7 @@ export async function previewApproval(em: EntityManager, companyId: number, sess
     ruleVersion: { id: version!.id, effectiveFrom: version!.effectiveFrom }, tier: result.tier,
     anchor: result.anchor, control: session.control_user_id ? result.control : null, operator: operator.counted ? result.operator : null,
     operatorUserId: operator.finalId, operatorDoubledAsControl: operator.doubledAsControl,
+    controlWage: session.control_user_id ? await resolveWage(em, companyId, session, form, 'control'):null,
     wage: { startAt: wage.startAt, endAt: wage.endAt, minutes: wage.minutes, hourlyRateCents: wage.hourlyRateCents, amountCents: wage.amountCents, rateSource: wage.rateSource, archiveHourlyRateCents: wage.archiveRate },
   };
 }

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
-import { CommissionsTab, WagesTab } from './LedgerTabs';
+import { PayrollTab } from './PayrollTab';
+import { ManualReportsTab } from './ManualReportsTab';
 import { OverviewTab } from './OverviewTab';
 import { RulesTab } from './RulesTab';
 import { SchedulesTab } from './SchedulesTab';
@@ -12,7 +13,7 @@ import { SettlementsTab } from './SettlementsTab';
 
 const TAB_KEY = 'kudesi.live.tab';
 const TABS = [
-  ['overview', '全览'], ['schedules', '排场'], ['sessions', '场次记录'], ['review', '待审核'], ['commissions', '提成记录'], ['wages', '主播工资'], ['settlements', '提成结算'], ['rules', '提成规则'],
+  ['overview', '全览'], ['schedules', '排场'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -22,9 +23,9 @@ export function LiveManagePage() {
   const [params, setParams] = useSearchParams();
   const canView = can('features.live.view') || can('live.manage');
   const canAll = can('live.commissions.view');
-  const visible = TABS.filter(([k]) => (k === 'commissions' || k === 'wages' ? true : k === 'settlements' ? canAll || can('live.manage') : canView));
+  const visible = TABS.filter(([k]) => (['wages','control','operator'].includes(k) ? true : k==='manual'?can('live.manage'): k === 'settlements' ? canAll || can('live.manage') : canView));
   const remembered = (() => { try { return localStorage.getItem(TAB_KEY); } catch { return null; } })();
-  const wanted = params.get('tab') ?? remembered;
+  const wanted = (params.get('tab')==='commissions'?'wages':params.get('tab')) ?? (remembered==='commissions'?'wages':remembered);
   const current: TabKey = (visible.find(([k]) => k === wanted)?.[0] ?? visible[0]?.[0] ?? 'overview') as TabKey;
   const [openId, setOpenId] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
@@ -34,7 +35,7 @@ export function LiveManagePage() {
   };
   return (
     <div className="live-page">
-      <div className="page-head"><div><h1>直播管理</h1><p className="muted">排场、场次、审核、提成与月结。主播、中控的日常操作在「我的直播」。</p></div></div>
+      <div className="page-head"><div><h1>直播管理</h1><p className="muted">房间排场、业绩审核、人员工资与售后核对结算。主播、中控的日常操作在「我的直播」。</p></div></div>
       {canAll || can('live.manage') ? <SourceStatusNotice /> : null}
       <div className="tab-group host-tabs" role="tablist" aria-label="直播管理分区">
         {visible.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={k === current} className={k === current ? 'chip active' : 'chip'} onClick={() => pick(k)}>{label}</button>)}
@@ -43,8 +44,10 @@ export function LiveManagePage() {
       {current === 'schedules' && <SchedulesTab />}
       {current === 'sessions' && <SessionsTab onOpen={setOpenId} refreshKey={tick} />}
       {current === 'review' && <SessionsTab presetStatus="submitted" onOpen={setOpenId} refreshKey={tick} />}
-      {current === 'commissions' && <CommissionsTab canAll={canAll} onOpen={setOpenId} />}
-      {current === 'wages' && <WagesTab canAll={canAll} onOpen={setOpenId} />}
+      {current === 'wages' && <PayrollTab role="anchor" onOpen={setOpenId} />}
+      {current === 'control' && <PayrollTab role="control" onOpen={setOpenId} />}
+      {current === 'operator' && <PayrollTab role="operator" onOpen={setOpenId} />}
+      {current === 'manual' && <ManualReportsTab onOpen={setOpenId} />}
       {current === 'settlements' && <SettlementsTab onOpenSession={setOpenId} />}
       {current === 'rules' && <RulesTab />}
       {openId !== null && <SessionDetailDialog id={openId} onClose={() => setOpenId(null)} onChanged={() => setTick((t) => t + 1)} />}

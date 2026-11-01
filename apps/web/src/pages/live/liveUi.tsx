@@ -1,23 +1,25 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ReactNode, useEffect, useState, useRef } from 'react';
 import { liveApi, type Person, type Preview, type RoleAmount, type SourceStatus } from './liveApi';
 import { SCHEDULE_TONE, SESSION_TONE, money, ratePct } from './liveFormat';
 import './live.css';
 
 /** 弹窗：点遮罩不关闭（避免误触丢数据），Esc 关闭。 */
 export function Modal({ title, onClose, children, foot, size = '' }: { title: string; onClose: () => void; children: ReactNode; foot?: ReactNode; size?: '' | 'small' | 'wide' }) {
+  const dialogRef=useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const h = (e: KeyboardEvent) => { const dialogs=document.querySelectorAll('[role=dialog]'); if (e.key === 'Escape'&&dialogs[dialogs.length-1]===dialogRef.current) onClose(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
-  return (
-    <div className="modal-backdrop">
-      <div className={`modal card ${size}`} role="dialog" aria-modal="true" aria-label={title}>
+  return createPortal(
+    <div className="modal-backdrop live-modal-backdrop">
+      <div ref={dialogRef} className={`modal card live-modal ${size}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-head between"><h2>{title}</h2><button type="button" className="link-button" onClick={onClose} aria-label="关闭">关闭</button></div>
         <div className="modal-body">{children}</div>
         {foot && <div className="modal-foot">{foot}</div>}
       </div>
-    </div>
+    </div>,document.body
   );
 }
 

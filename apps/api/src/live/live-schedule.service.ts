@@ -115,7 +115,7 @@ export class LiveScheduleService {
     const rows: Row[] = await this.em.query(
       `${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.schedule_date BETWEEN ? AND ?${own ? ' AND (s.anchor_user_id = ? OR s.control_user_id = ? OR s.operator_user_id = ?)' : ''} ORDER BY s.schedule_date, s.start_at, s.id`,
       [a.companyId, from, to, ...(own ? [a.userId, a.userId, a.userId] : [])]);
-    return { from, to, rows: rows.map(serializeSchedule), canManage: a.canManage };
+    return { from, to, rooms: await liveRoomList(this.em, a.companyId), rows: rows.map(serializeSchedule), canManage: a.canManage };
   }
 
   async create(user: AuthUser, input: ScheduleInput) {
@@ -208,7 +208,7 @@ export class LiveScheduleService {
         return { kind: 'schedule', id: Number(s.id), start: s.start_text, end: session?.end_text || s.end_text, plannedEnd: s.end_text, anchorName: s.anchor_name, controlName: s.control_name, operatorName: s.operator_name, douyinName: s.douyin_account_name, state, sessionId: session ? Number(session.id) : null };
       });
       for (const s of roomSessions.filter((x) => !x.schedule_id && x.session_day === day)) {
-        items.push({ kind: 'adhoc', id: Number(s.id), start: s.start_text, end: s.end_text, plannedEnd: s.end_text, anchorName: s.anchor_name, controlName: s.control_name, operatorName: s.operator_name, douyinName: s.douyin_account_name, state: s.status === 'live' ? 'live' : 'done', sessionId: Number(s.id) });
+        items.push({ kind: 'adhoc', id: Number(s.id), start: s.start_text, end: s.end_text??nowText, plannedEnd: s.end_text??nowText, anchorName: s.anchor_name, controlName: s.control_name, operatorName: s.operator_name, douyinName: s.douyin_account_name, state: s.status === 'live' ? 'live' : 'done', sessionId: Number(s.id) });
       }
       items.sort((x, y) => String(x.start).localeCompare(String(y.start)));
       const upcoming = items.find((i) => ['upcoming', 'due'].includes(i.state)) ?? null;

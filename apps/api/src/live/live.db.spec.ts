@@ -1,3 +1,4 @@
+import { LiveManagementService } from './live-management.service';
 /** 直播管理的真实数据库测试。RESOURCE_DB_TEST=1 TEST_DB_NAME=kudesi_oa_test_u9 npx jest --runInBand live */
 import 'reflect-metadata';
 import * as crypto from 'crypto';
@@ -97,7 +98,7 @@ d('直播管理（真实数据库）', () => {
     admin = { id: adminId, companyId: company, name: '管理员', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
     manager = au(await mkUser(company, 'hr', '人事', { positionId: posOther }), company, '人事', ['features.live.view', 'live.manage', 'live.commissions.view', 'flow.apply.view']);
     anchor = au(await mkUser(company, 'anchor', '小主播', { positionId: posAnchor, payType: 'hourly', hourlyRate: 5000 }), company, '小主播', ['features.live-desk.view']);
-    control = au(await mkUser(company, 'control', '小中控', { positionId: posControl }), company, '小中控', ['features.live-desk.view']);
+    control = au(await mkUser(company, 'control', '小中控', { positionId: posControl, payType:'hourly',hourlyRate:3000 }), company, '小中控', ['features.live-desk.view']);
     operator = au(await mkUser(company, 'ops', '小运营', { positionId: posOps }), company, '小运营', ['features.live-desk.view']);
     reviewer = au(await mkUser(company, 'rev', '审核人', { positionId: posOther }), company, '审核人', ['features.live.view']);
     stranger = au(await mkUser(company, 'str', '路人', { positionId: posOther }), company, '路人', []);
@@ -249,6 +250,8 @@ d('直播管理（真实数据库）', () => {
     // 提成金额只给本人看：主播只看到自己那一行
     expect((await sessions.detail(anchor, s.id)).commissions.map((c) => c.role)).toEqual(['anchor']);
     expect((await sessions.detail(operator, s.id)).commissions.map((c) => c.role)).toEqual(['operator']);
+    expect((await sessions.detail(control,s.id)).wages.map(w=>w.role)).toEqual(['control']);
+    expect((await sessions.detail(control,s.id)).wage).toBeNull();
   });
 
   it('拒绝：场次回到已退回并解除流程关联，重新提交会发起新的审核流程', async () => {
@@ -275,7 +278,7 @@ d('直播管理（真实数据库）', () => {
     expect(new Set(mine.rows.map((r) => r.userId))).toEqual(new Set([anchor.id]));
     expect(mine.totalCents).toBe(all.rows.filter((r) => r.userId === anchor.id).reduce((t, r) => t + r.amountCents, 0));
     expect((await ledger.wages(anchor, { month: '2026-09' })).rows).toHaveLength(3);
-    expect((await ledger.wages(control, { month: '2026-09' })).rows).toHaveLength(0);
+    expect((await ledger.wages(control, { month: '2026-09' })).rows).toHaveLength(3);
     await expect(ledger.commissions(stranger, { month: '2026-09' })).rejects.toThrow(/无权/);
     const rules = await ledger.rules(manager);
     expect(rules.versions).toHaveLength(1);
@@ -308,10 +311,10 @@ d('直播管理（真实数据库）', () => {
     for (const line of detail.lines) {
       const refund = line.sessionId === detail.lines.find((l) => l.date === '2026-09-29')!.sessionId ? 30000 : line.date === '2026-09-27' ? 50000 : 0;
       const expected = liveSettleLineFor({ commissionCents: line.commissionCents, rateUnits: line.rateUnits, refundCents: refund });
-      expect([line.refundCents, line.deductionCents, line.payableCents]).toEqual([refund, expected.deductionCents, expected.payableCents]);
+      expect([line.refundCents, line.deductionCents, line.payableCents]).toEqual([refund, expected.deductionCents, expected.payableCents+(line.wageCents??0)]);
     }
-    expect(detail.commissionTotalCents - detail.deductionTotalCents).toBe(detail.payableTotalCents);
-    expect(detail.refunds.map((r) => r.orderId).sort()).toEqual(['A1', 'B1']);
+    expect(detail.commissionTotalCents + detail.wageTotalCents - detail.deductionTotalCents).toBe(detail.payableTotalCents);
+    expect(detail.refunds.filter(r=>r.refundCents>0).map((r) => r.orderId).sort()).toEqual(['A1', 'B1']);
     // 重新核对：同一张单更新，不会多出一张
     const again = await settlements.generate(manager, '2026-09');
     expect(again.id).toBe(id);
@@ -362,7 +365,7 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.report(anchor, s.id, body)).rejects.toThrow(/不能报下播.*授权聚水潭/);
     source.unavailable = ''; source.truncated = true; source.orders = [order('T1', 1000)];
     await expect(sessions.report(anchor, s.id, { ...body, orderIds: ['T1'] })).rejects.toThrow(/订单太多/);
-    source.truncated = false; source.orders = [];
+    source.truncated = false; source.orders = [order('CANCELLED-ONLY',1000,{cancelled:true,status:'Cancelled'})];
     await sessions.report(anchor, s.id, body); // 聚水潭查到本场没有订单：允许空勾选
     expect((await sessions.detail(anchor, s.id)).reports[0]).toMatchObject({ role: 'anchor', ordersTotalCents: 0, orderCount: 0, salesCents: 80000 });
     // 预估提成：主播只能看到自己的角色；陌生人不能看；格式不对给 400
@@ -402,4 +405,75 @@ d('直播管理（真实数据库）', () => {
     expect(sch2.id).toBeGreaterThan(0);
     expect((await jobs()).length).toBe(before); // 开关关着时不入队
   });
+  it('房间设置、试播身份、人事补报：公司隔离、审计与统一审核', async()=>{
+    clock('2026-08-20 18:00:00');
+    const management=new LiveManagementService(ds,source);
+    await expect(management.room(stranger,ids.s1,{products:'毛巾'})).rejects.toThrow(/权限/);
+    await expect(management.room(foreign,ids.s1,{products:'毛巾'})).rejects.toThrow(/不存在/);
+    await management.room(manager,ids.s1,{ownerId:operator.id,products:'毛巾 / 白色'});
+    expect((await schedules.options(manager)).rooms.find(r=>r.id===ids.s1)).toMatchObject({ownerId:operator.id,products:'毛巾 / 白色'});
+    expect((await schedules.list(manager,{})).rooms).toHaveLength(2);
+    const trial=await management.trial(manager,{name:'试播甲',hourlyRateCents:6000});
+    expect((await schedules.options(manager)).anchors.find(p=>p.id===trial.id)).toMatchObject({trial:true,name:'试播甲'});
+    const [person]=await ds.query('SELECT account,password_hash,position_id FROM users WHERE company_id=? AND id=?',[company,trial.id]);
+    expect(person).toMatchObject({account:null,password_hash:'!no-login',position_id:null});
+    await expect(management.trial(manager,{name:'试播甲',hourlyRateCents:6000})).rejects.toThrow(/同名/);
+    const body={roomId:ids.s1,anchorId:trial.id,controlId:control.id,operatorId:operator.id,douyinAccountId:ids.account,storeId:ids.store,startAt:'2026-08-18 10:00:00',endAt:'2026-08-18 12:00:00',salesCents:100000,adSpendCents:5000,reason:'试播漏报，人事核定',controlSalesCents:90000,operatorSalesCents:110000,orderIds:[]};
+    await expect(management.manual(stranger,body)).rejects.toThrow(/权限/);
+    await expect(management.manual(manager,{...body,anchorId:foreign.id})).rejects.toThrow(/有效/);
+    const made=await management.manual(manager,body);
+    await expect(management.manual(manager,body)).rejects.toThrow(/已有/);
+    await expect(sessions.submit(stranger,made.id)).rejects.toThrow();
+    const reported=await sessions.detail(manager,made.id);
+    expect(reported.reports.find(r=>r.role==='control')!.salesCents).toBe(90000);
+    expect(reported.reports.find(r=>r.role==='operator')!.salesCents).toBe(110000);
+    await sessions.submit(manager,made.id);
+    await approve(made.id,reviewForm({controlWageHourlyRateCents:4000}));
+    expect((await ledger.wages(manager,{month:'2026-08',role:'anchor'})).rows).toEqual([expect.objectContaining({userId:trial.id,amountCents:12000,minutes:120})]);
+    expect((await ledger.wages(manager,{month:'2026-08',role:'control'})).rows).toEqual([expect.objectContaining({userId:control.id,amountCents:8000,role:'control'})]);
+    const [audit]=await ds.query("SELECT COUNT(*) n FROM audit_logs WHERE company_id=? AND action='live.manual.report'",[company]);
+    expect(Number(audit.n)).toBe(1);
+  });
+
+  it('区间工资结算：时间工资加提成、特殊核定、重叠与结算日锁定',async()=>{
+    clock('2026-08-20 18:00:00');
+    const made=await settlements.generate(manager,'',undefined,{from:'2026-08-18',to:'2026-08-18'});
+    const detail=await settlements.detail(manager,made.id);
+    expect(detail).toMatchObject({from:'2026-08-18',to:'2026-08-18',wageTotalCents:20000});
+    expect(detail.payableTotalCents).toBe(detail.wageTotalCents+detail.commissionTotalCents-detail.deductionTotalCents);
+    expect(detail.lines.every(l=>l.source==='manual'&&l.manualReason==='试播漏报，人事核定')).toBe(true);
+    expect(detail.lines.reduce((n,l)=>n+l.wageCents,0)).toBe(20000);
+    await expect(settlements.generate(manager,'2026-08')).rejects.toThrow(/重叠/);
+    await expect(settlements.generate(manager,'',undefined,{from:'2026-08-17',to:'2026-08-18'})).rejects.toThrow(/重叠/);
+    expect((await settlements.generate(manager,'',undefined,{from:'2026-08-18',to:'2026-08-18'})).id).toBe(made.id);
+    await settlements.submit(manager,made.id);
+    const sid=detail.lines[0].sessionId;
+    const management=new LiveManagementService(ds,source);
+    const original=await sessions.detail(manager,sid);
+    await expect(management.manual(manager,{sessionId:sid,roomId:ids.s1,anchorId:original.anchor.id,controlId:control.id,operatorId:operator.id,douyinAccountId:ids.account,storeId:ids.store,startAt:'2026-08-18 10:00:00',endAt:'2026-08-18 12:00:00',salesCents:100000,adSpendCents:0,reason:'修改'})).rejects.toThrow(/结算/);
+    const f=await flow.detail(reviewer,(await settlements.detail(manager,made.id)).flowRunId!);
+    clock('2026-08-18 23:00:00');
+    await expect(flow.pass(reviewer,f.id,{revision:f.revision,stepId:f.activeStep!.id})).rejects.toThrow(/日期范围结束后/);
+    clock('2026-08-20 18:00:00');
+    await flow.pass(reviewer,f.id,{revision:f.revision,stepId:f.activeStep!.id});
+    expect((await settlements.detail(manager,made.id)).status).toBe('approved');
+    // 月内其他日期仍能补报，不扩大成整月锁定。
+    const next=await management.manual(manager,{roomId:ids.s1,anchorId:anchor.id,controlId:null,operatorId:null,douyinAccountId:ids.account,storeId:ids.store,startAt:'2026-08-19 10:00:00',endAt:'2026-08-19 11:00:00',salesCents:0,adSpendCents:0,reason:'另一天试播'});
+    expect(next.id).toBeGreaterThan(sid);
+  });
+
+  it('人事订单补报用服务端金额；未使用规则可编辑，已使用快照保留',async()=>{
+    clock('2026-08-22 18:00:00');
+    const management=new LiveManagementService(ds,source);
+    source.orders=[order('MANUAL-1',54321)];
+    const made=await management.manual(manager,{roomId:ids.s1,anchorId:anchor.id,controlId:null,operatorId:null,douyinAccountId:ids.account,storeId:ids.store,startAt:'2026-08-21 10:00:00',endAt:'2026-08-21 11:00:00',salesCents:54321,adSpendCents:0,reason:'接口异常后补单',orderIds:['MANUAL-1']});
+    expect((await sessions.detail(manager,made.id)).reports[0]).toMatchObject({ordersTotalCents:54321,orderCount:1});
+    const rules=await ledger.rules(manager),used=rules.versions.find(r=>r.usedCount>0)!;
+    await expect(management.updateRule(manager,used.id,{effectiveFrom:used.effectiveFrom,rules:used.form})).rejects.toThrow(/另存新版本/);
+    const unused=rules.versions.find(r=>r.usedCount===0)!;
+    await expect(management.updateRule(foreign,unused.id,{effectiveFrom:unused.effectiveFrom,rules:unused.form})).rejects.toThrow(/不存在/);
+    await management.updateRule(manager,unused.id,{effectiveFrom:unused.effectiveFrom,rules:{...unused.form,operatorRate:'2'}});
+    expect((await ledger.rules(manager)).versions.find(r=>r.id===unused.id)!.form.operatorRate).toBe('2');
+  });
+
 });

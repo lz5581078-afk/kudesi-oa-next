@@ -53,3 +53,51 @@
   .live-rule-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .live-list > li { padding: 10px 12px; }
 }
+/* 直播房间与工资管理 */
+.live-room { min-height: 330px; padding: 18px; gap: 14px; cursor: default; border-top-width: 4px; }
+.live-row { grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
+.live-room.state-live { border-color: #2c9872; background: #f4fbf7; }
+.live-room.state-missed { border-color: #dc9c38; background: #fffbf2; }
+.live-room.state-finished { border-color: #8aa1bd; background: #f7f9fc; }
+.live-room.state-idle { border-color: #d7dfe9; }
+.live-room h3 .link-button { font-size: 17px; font-weight: 650; text-align: left; }
+.live-status { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 20px; font-size: 12px; background: #edf0f4; color: #526176; white-space: nowrap; }
+.live-status::before { content: ''; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: currentColor; }
+.status-live { background: #d9f2e5; color: #176a47; }
+.status-missed { background: #ffedc5; color: #916013; }
+.status-finished { background: #e1eaf9; color: #476794; }
+.live-room-meta { display: grid; gap: 5px; color: var(--muted); overflow-wrap: anywhere; }
+.live-room-meta strong { font-weight: 500; color: var(--ink); }
+.live-room-people, .live-room-times { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.live-room-people span,.live-room-times span { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+.live-room-people strong { font-size: 16px; color: var(--ink); }
+.live-room-times { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.live-room-times strong { font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.live-progress-track { height: 7px; border-radius: 6px; background: #dce9e2; overflow: hidden; }
+.live-progress-track i { display: block; height: 100%; background: #2c9872; transition: width .3s; }
+.live-room-progress small { display: block; padding-top: 6px; color: var(--muted); }
+.live-room-foot { margin-top: auto; justify-content: space-between; align-items: center; }
+.live-next { font-size: 12px; color: var(--muted); margin: 0; min-height: 32px; }
+.live-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.live-schedule-form { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px 24px; padding: 8px 0; }
+.live-schedule-form input,.live-schedule-form select { height: 40px; }
+.live-schedule-form .live-field { color: var(--ink); }
+.live-page fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; min-width: 0; }
+.live-page legend { padding: 0 8px; font-size: 14px; font-weight: 600; }
+@media(max-width:640px){
+  .live-row { grid-template-columns: minmax(0,1fr); }
+  .live-room { min-height: 310px; }
+  .live-schedule-form { grid-template-columns: minmax(0,1fr); }
+  .live-filter > .live-field { flex: 1 1 140px; min-width: 0; }
+}
+/* 弹窗挂到 body，避开页面过渡动画对 fixed 定位的影响。 */
+.live-modal-backdrop { z-index: 1000; }
+.live-modal-backdrop .modal.card.live-modal { max-height: calc(100dvh - 32px); min-height: 0; overflow: hidden; }
+.live-modal-backdrop .live-modal .modal-body { flex: 1; min-height: 0; overflow-y: auto; }
+.live-modal-backdrop .live-modal .modal-head, .live-modal-backdrop .live-modal .modal-foot { flex-shrink: 0; }
+body:has(.live-modal-backdrop) { overflow: hidden; }
+@media(max-width:640px){
+  .live-modal-backdrop { padding: 0; }
+  .live-modal-backdrop .modal.card.live-modal { height: 100dvh; max-height: 100dvh; border-radius: 0; }
+  .live-modal-backdrop .live-modal .modal-body { max-height: none; }
+}
