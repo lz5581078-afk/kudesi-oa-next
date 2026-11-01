@@ -14,6 +14,7 @@ export interface RunStep {
   formRefLabels: Record<string, string>; enteredVia: string; enteredAt: string; finishedAt: string | null; dueAt: string | null; handledByName: string | null; recipients: string[];
 }
 export interface RunDetailDto {
+  historicalTasks?:Array<{id:number;sourceTaskId:string;stepId:number;title:string;status:string;createdAt:string;dueAt:string|null;finishedAt:string|null;submittedAt:string|null;doneNote:string|null;completionStandard:string|null;assigneeName:string;supervisorName:string|null}>;
   legacyHistory?:{sourceRunId:string;status:string;itemStatus?:string;createdAt:string|null;request?:{fields:FieldDef[];values:Record<string,unknown>};steps:Array<{stepId:number;sourceRecordId:string;name:string;comment:string|null;enteredAt:string|null;finishedAt:string|null;fields:FieldDef[];values:Record<string,unknown>}>};
   initialForm?: Record<string, unknown>;
   id: number; templateKey: string; templateLabel: string; title: string; status: string; revision: number; requesterId: number; requesterName: string; createdAt: string; finishedAt: string | null; dueAt: string | null;

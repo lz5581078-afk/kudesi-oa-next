@@ -129,6 +129,15 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
             </li>)}</ol>
           </details>}
 
+          {!!run.historicalTasks?.length&&<details>
+            <summary>原任务记录（{run.historicalTasks.length}条，只读）</summary>
+            <ol className="timeline">{run.historicalTasks.map(t=><li key={t.id}>
+              <strong>{t.title}</strong><div>原任务 #{t.sourceTaskId} · {t.status==='done'?'已完成':'已取消'} · 负责人：{t.assigneeName}{t.supervisorName&&<> · 监督人：{t.supervisorName}</>}</div>
+              <div className="muted">创建：{fmtTime(t.createdAt)}{t.dueAt&&<> · 截止：{fmtTime(t.dueAt)}</>}{t.submittedAt&&<> · 提交：{fmtTime(t.submittedAt)}</>}{t.finishedAt&&<> · 结束：{fmtTime(t.finishedAt)}</>}</div>
+              {t.completionStandard&&<p>完成标准：{t.completionStandard}</p>}{t.doneNote&&<p>完成记录：{t.doneNote}</p>}
+            </li>)}</ol>
+          </details>}
+
           {run.activeStep && (
             <section>
               <h3 className="section-title">当前步骤：{run.activeStep.name}（{STEP_TYPE_LABEL[run.activeStep.type as keyof typeof STEP_TYPE_LABEL]}）</h3>

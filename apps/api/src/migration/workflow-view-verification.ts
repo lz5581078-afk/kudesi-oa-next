@@ -29,5 +29,8 @@ export async function verifyWorkflowView(em:EntityManager,resources:ResourcesSer
     if(form.legacyDuplicateConfirmation&&Object.prototype.hasOwnProperty.call(JSON.parse(String(form.legacyDuplicateConfirmation)),'token'))throw Error('旧流程读取验收发现原确认令牌泄露');
   }
   if(run.templateKey==='sku-batch-apply'&&typeof run.payload._legacySkuItemId==='string'&&!detail.legacyHistory?.request)throw Error('旧流程读取验收缺少迁入前申请资料');
-  return {legacySkuHistory:Boolean(detail.legacyHistory),costRestricted:!can('product.cost.view'),syncRestricted:!can('finance.bundle-sync.manage')};
+  const [closedTasks]=await em.query("SELECT COUNT(*) n FROM work_items w JOIN legacy_import_links l ON l.company_id=w.company_id AND l.target_id=w.id AND l.target_type='work_item' AND l.source_system='legacy-oa' AND LEFT(l.source_key,10)='work_item:' WHERE w.company_id=? AND w.run_id=? AND w.kind='flow' AND w.status IN ('done','cancelled')",[companyId,runId]);
+  const historicalTasks=detail.historicalTasks?.length??0;
+  if(historicalTasks!==Number(closedTasks.n))throw Error('旧流程读取验收发现原发起人缺少历史任务反馈');
+  return {legacySkuHistory:Boolean(detail.legacyHistory),costRestricted:!can('product.cost.view'),syncRestricted:!can('finance.bundle-sync.manage'),historicalTasks};
 }

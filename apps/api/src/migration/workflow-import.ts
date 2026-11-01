@@ -12,6 +12,7 @@ import { importCurrentSkuTemplate } from './current-sku-template';
 import type { ResourcesService } from '../resources/resources.service';
 import { closedSkuForm, closedSkuPayload } from './closed-sku-forms';
 import { verifyWorkflowView } from './workflow-view-verification';
+import { importClosedTask } from './closed-task-import';
 
 type Row = Record<string, any>;
 export const WORKFLOW_TARGET_TABLE: Record<string, string> = { current_sku_definition:'flow_definitions', linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
@@ -101,6 +102,15 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
       ctx.fail('flow_run', String(run.id), reason);
     }
   }
+  for(const task of tasks)if(['completed','cancelled'].includes(task.status)){
+    const run=rows('workflow_instances').find(r=>String(r.id)===String(task.workflow_instance_id));
+    const node=rows('workflow_node_records').find(r=>String(r.id)===String(task.workflow_node_record_id));
+    try{
+      if(!run||!node)throw Error('旧历史任务缺少来源流程或节点');
+      const result=await ctx.savepoint(()=>importClosedTask({...ctx,sourceCompanyId:workflow.companyId},task,run,node));
+      ctx.count(result.reused?'reused':'created','historical-work-item');ctx.verified('historical-work-item');
+    }catch(e){ctx.fail('work_item',String(task.id),e instanceof Error&&e.message.startsWith('旧历史任务')?e.message:ctx.safeFailure(e));}
+  }
   for (const task of tasks) if (!CLOSED.has(task.status) && !mappedTasks.has(String(task.id))) {
     const linear = rows('workflow_instances').find(r => String(r.id) === String(task.workflow_instance_id) && r.graph_status === 'linear');
     if (linear) {
@@ -159,6 +169,7 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
       if(result.legacySkuHistory)ctx.verified('legacy-sku-history');
       if(result.costRestricted)ctx.verified('workflow-cost-restricted');
       if(result.syncRestricted)ctx.verified('workflow-sync-restricted');
+      for(let i=0;i<result.historicalTasks;i++)ctx.verified('historical-task-view');
     }catch(e){ctx.fail('workflow_view',`${type}:${row.id}`,ctx.safeFailure(e));}
   }
 }

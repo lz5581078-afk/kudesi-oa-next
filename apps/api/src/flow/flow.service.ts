@@ -16,6 +16,7 @@ import { StepContext, postDeclared } from './flow-adapters';
 import { adapterFor, customFrom, loadTemplate } from './flow-templates';
 import { SELF_OVERDUE_KIND, claimEscalations, claimNotice } from './overdue-notice';
 import { legacySkuHistory } from './legacy-sku-history';
+import { legacyTaskHistory } from './legacy-task-history';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
@@ -903,11 +904,13 @@ export class FlowService {
     const ctx = active ? this.stepCtx(em, user, run, active, {}) : null;
     const handledBefore = steps.filter((s) => s.action === 'pass').length;
     const legacyHistory=await legacySkuHistory(em,this.resources,user,run,steps);
+    const historicalTasks=await legacyTaskHistory(em,user,run);
     return {
       id: run.id, templateKey: run.templateKey, templateLabel: t.label, title: run.title, status: run.status, revision: run.revision,
       requesterId: run.requesterId, requesterName: names.get(run.requesterId) ?? '', createdAt: run.createdAt, finishedAt: run.finishedAt, dueAt: run.dueAt,
       payload: Object.fromEntries(Object.entries(run.payload).filter(([k]) => !k.startsWith('_') && !hidden.has(k))), refLabels,
       ...(legacyHistory?{legacyHistory}:{}),
+      ...(historicalTasks.length?{historicalTasks}:{}),
       files: fileInfos, fields: t.fields.filter((f) => !hidden.has(f.key)), stepFields: visibleStepFields,
       // Unconfirmed migrated warehouse input, scoped to the current handler.
       // It contains mapped material IDs/quantities only, never old cost snapshots.
