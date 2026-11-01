@@ -63,7 +63,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
     await c.query('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await c.query('SET SESSION TRANSACTION READ ONLY');await c.beginTransaction();
     const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c,COLUMN_KEY pk,ORDINAL_POSITION ordinal,COLUMN_TYPE type,IS_NULLABLE nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
-    const selected=new Set([...LIVE_TABLES,...(preserveLegacyStates?['sales_snapshots','finance_entries','finance_product_data_verification_events','finance_bundle_data_verifications','finance_bundle_data_verification_events','finance_product_bundle_boms']:[]),'companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
+    const selected=new Set([...LIVE_TABLES,...(preserveLegacyStates?['sales_snapshots','finance_entries','finance_product_data_verification_events','finance_bundle_data_verifications','finance_bundle_data_verification_events','finance_product_bundle_boms','finance_product_gift_aliases']:[]),'companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
     if(preserveLegacyStates)selected.add('oa_feishu_bindings');
     for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=!preserveLegacyStates&&uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
     // 总位置曾由旧启动脚本无公司条件地补为 A-02；只核对所引用的位置，不迁入其他公司的柜位。
@@ -139,7 +139,6 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
       return fspec;
     }
     const composedLines=[];
-    const giftAliases=skuMapping.giftAliases(tables,text=>req('pinyin-pro').pinyin(text,{pattern:'first',toneType:'none',type:'array',nonZh:'consecutive'}).join('').toUpperCase().replace(/[^A-Z0-9]/g,''));
     for(const [type,rule] of Object.entries(rules.resources)){
       if(type==='finance-bundle-naming-rules'){const mapped=skuMapping.namingRules(tables,categoryKey,categoryFamilies);out.records.push(...mapped.records);out.exclusions.push(...mapped.exclusions);continue;}
       if(!defs.has(type)||['finance-brands','finance-scenarios','finance-bundle-lines','finance-product-boms','finance-product-units','finance-base-code-lines'].includes(type))continue;
@@ -242,7 +241,6 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
             const purchase=skuMapping.purchaseInput(row,payload,costs);if(purchase!==undefined)data.purchasePrice=money('purchasePrice',purchase);
             if(row.archive_key==='purchased'&&row.supply_mode==='supplier_oem'&&costs.find(x=>x.cost_type==='purchase')?.source_type==='production_bom')notices.push('OEM成本记录来源为生产BOM，汇总时不作为额外采购价重复加入');
             data.rawFinishedNames=Array.isArray(payload.rawFinishedNames)?payload.rawFinishedNames.map(x=>x.name).join('\n'):undefined;
-            if(giftAliases.has(String(row.id))){Object.assign(data,giftAliases.get(String(row.id)));notices.push('旧组合曾用作赠品但缺少简称，按原商品品牌和品名生成赠品简称及编码简称');}
             const zero=payload.zeroConfirmations||{};data.zeroValueReason=[['purchasePrice','采购价'],['freightAmount','运费'],['handlingAmount','装卸费']].filter(([k])=>zero[k]?.confirmed&&zero[k]?.reason).map(([k,label])=>label+'：'+zero[k].reason).join('\n');
             for(const [field,reasonKey] of [['purchasePrice','purchasePrice'],['freight','freightAmount'],['handlingFee','handlingAmount']]){if(data[field]===0&&!(zero[reasonKey]?.confirmed&&zero[reasonKey]?.reason)){delete data[field];notices.push(field+'：旧值为零但缺少确认理由，待核对');excluded(type+'.'+field,id,'旧零金额缺少确认理由，未伪造理由');}}
             for(const f of ['supplierId'])delete data[f];

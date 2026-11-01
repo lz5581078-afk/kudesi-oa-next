@@ -22,6 +22,7 @@ import { withMissingLegacyReason } from './legacy-state-context';
 import { importFeishuIdentity,feishuIdentityKey } from './feishu-identities';
 import { importBankRegistration } from './bank-registration-import';
 import { importPhoneRegistrations } from './phone-registration-import';
+import { verifyGiftAliasIndex } from './gift-alias-index';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -355,6 +356,10 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     }
     for(const m of createdProducts)await recomputeProduct(resources,em,user,m.targetId);
     if(createdProducts.length)for(const m of out.mappings.filter(m=>m.type==='finance-base-codes' && resourceCreated.has(m.targetId)))await resources.importPatch(em,user,m.type,m.targetId,{});
+    if(opts.preserveLegacyStates){
+      try{out.verified!['gift-alias-index-view']=await verifyGiftAliasIndex({em,resources,user,sourceCompanyId:source.company.id,lookup},(source.sourceRows??[]).filter(r=>r.table==='finance_product_gift_aliases').map(r=>r.row));}
+      catch(e){out.failures.push({type:'gift-alias-index',id:'company',reason:e instanceof Error&&e.message.startsWith('旧赠品别名索引')?e.message:safeFailure(e)});}
+    }
     if (source.sourceRows?.some(r => r.table === 'legacy_verification_reports')) await restoreBaseVerifications({ em, companyId: company.id, sourceCompanyId: source.company.id, lookup, createdIds: resourceCreated, savepoint, count, fail: (type, id, reason) => out.failures.push({ type, id, reason }) }, source);
     if (source.sourceRows?.some(r => r.table === 'legacy_verification_reports')) await restoreBundleVerifications({ em, companyId: company.id, sourceCompanyId: source.company.id, lookup, createdIds: resourceCreated, savepoint, count, fail: (type, id, reason) => out.failures.push({ type, id, reason }) }, source);
     // 文件上传仅在正式/隔离试迁apply时执行；试跑没有文件系统副作用。
