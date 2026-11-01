@@ -1,4 +1,5 @@
 import { validUnitCents } from './unit-price';
+import { BANK_HISTORY_RESOURCE_DEF } from './bank-history';
 /**
  * 资料（基础资源）定义：前后端共用的唯一来源。
  * 一个资源 = 一份配置（字段、状态、规则），列表/详情/表单/校验/导入导出都从它生成，
@@ -790,7 +791,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     tabsBy: 'kind',
     statuses: [NORMAL, ABNORMAL, INACTIVE],
     defaultStatus: 'normal',
-    children: ['u-shields', 'bank-store-links'],
+    children: ['u-shields', 'bank-store-links','bank-account-history'],
     batch: ['status'],
     copyOmit: ['reservedPhoneNumber', 'phoneId', 'customerNo'],
     filterBy: ['licenseId', 'storeId', 'storeFlag', 'phoneFlag', 'shieldFlag'],
@@ -1363,6 +1364,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       NOTE(),
     ],
   },
+  BANK_HISTORY_RESOURCE_DEF,
 ];
 
 /** 旧程序里一个页面带着几类资料：这些资料不单独占菜单，而是作为该页面的页签（权限仍各自独立）。 */

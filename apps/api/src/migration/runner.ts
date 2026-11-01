@@ -20,6 +20,7 @@ import { importWorkflows, workflowHashGroups, WORKFLOW_TARGET_TABLE } from './wo
 import { restoreBaseVerifications, restoreBundleVerifications } from './verification-restore';
 import { withMissingLegacyReason } from './legacy-state-context';
 import { importFeishuIdentity,feishuIdentityKey } from './feishu-identities';
+import { importBankRegistration } from './bank-registration-import';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -57,6 +58,10 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),WORKFLOW_TARGET_TABLE[type] ? sourceRowHash(r) : createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
   }
   for(const row of source.feishuBindings??[])hashes.set(key('feishu_identity',feishuIdentityKey(row)),sourceRowHash(row));
+  if(opts.preserveLegacyStates)for(const r of source.records.filter(r=>r.type==='bank-accounts')){
+    const raw=source.sourceRows?.find(row=>row.table==='bank_accounts'&&String(row.row.id)===r.id);
+    if(raw)hashes.set(key('bank-account-history',r.id),sourceRowHash(raw.row));
+  }
   out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,exclusions:source.exclusions,sourceRows:(source.sourceRows??[]).map(r=>({table:r.table,key:r.key,hash:sourceRowHash(r.row)})),employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{})}))).digest('hex');
   const count = (which: 'created' | 'reused', type: string) => { out[which][type] = (out[which][type] ?? 0) + 1; };
   const lookup = (type: string, id: unknown) => ids.get(key(type, id));
@@ -369,6 +374,26 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
           });
         } catch (e) { out.failures.push({ type: `${r.type}.${field}`, id: r.id, reason: safeFailure(e) }); }
       }
+    }
+
+    if(opts.preserveLegacyStates){
+      const resolvedDifferences=new Set<string>();
+      for(const r of source.records.filter(r=>r.type==='bank-accounts')){
+        try{
+          const originals=source.sourceRows?.filter(row=>row.table==='bank_accounts'&&String(row.row.id)===r.id)??[];
+          if(!opts.sourceRowsCrypto||originals.length!==1)throw new MigrationError('旧银行登记缺少原始行证据');
+          const result=await savepoint(async()=>{
+            const result=await importBankRegistration({em,resources,crypto:opts.sourceRowsCrypto!,user,sourceCompanyId:source.company.id,parentId:required(r.type,r.id),lookup},r.id,originals[0].row,resolve(r.data),Boolean(r.files?.length));
+            const linked=lookup('bank-account-history',r.id);
+            if(linked!=null&&linked!==result.id)throw new MigrationError('旧银行登记来源账本引用不一致');
+            if(!linked)await register('bank-account-history',r.id,result.id);
+            return result;
+          });
+          count(result.reused?'reused':'created','bank-account-history');out.verified??={};out.verified['bank-account-history-view']=(out.verified['bank-account-history-view']??0)+1;
+          for(const field of ['kind','keeperUserId','reconcileCycle'])resolvedDifferences.add(`${r.id}:${field}`);
+        }catch(e){out.failures.push({type:'bank-account-history',id:r.id,reason:e instanceof Error&&e.message.startsWith('旧银行登记')?e.message:safeFailure(e)});}
+      }
+      out.excluded=out.excluded.filter(e=>!e.type.startsWith('bank-accounts.duplicate.')||!resolvedDifferences.has(`${e.id}:${e.type.slice('bank-accounts.duplicate.'.length)}`));
     }
 
     // 旧库手动关联（合作人⇄执照/店铺/银行、执照关联运营、手机号关联等）迁成新系统的手动关联，带用途与有效期。

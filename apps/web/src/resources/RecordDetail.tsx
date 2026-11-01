@@ -100,6 +100,7 @@ export function ChildPanel({ parentDef, parent, childType, field }: { parentDef:
             <span className={`pill ${statusOf(def, it.status).tone === 'muted' ? 'warn' : statusOf(def, it.status).tone}`}>{statusOf(def, it.status).label}</span>
           </div>
           <small className="muted">{[...cols.map((f) => { const v = displayValue(f, it); return v && labeled ? `${f.label} ${v}` : v; }), ...secrets.map((f) => `${f.label}${it.secretConfigured[f.key] ? '已维护' : '未设置'}`)].filter(Boolean).join(' · ')}</small>
+          {def.readOnly&&<details><summary>查看原登记</summary><dl>{def.fields.filter(f=>f.key!==field&&f.type!=='secret'&&Object.prototype.hasOwnProperty.call(it.data,f.key)).map(f=><Fragment key={f.key}><dt>{f.label}</dt><dd style={{whiteSpace:'pre-wrap'}}>{displayValue(f,it)||'—'}</dd></Fragment>)}</dl></details>}
           {labeled && typeof it.data.note === 'string' && it.data.note && <small className="muted">备注：{it.data.note}</small>}
           <div className="row-actions">
             {can('edit') && <button type="button" className="link-button" onClick={() => setEditing(it)}>编辑</button>}
