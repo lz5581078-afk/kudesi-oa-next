@@ -14,6 +14,7 @@ import { ResourcesService } from '../resources/resources.service';
 import { MigrationError, runLegacyImport, safeFailure } from '../migration/runner';
 import { LegacyArchive } from '../migration/protocol';
 import { RESOURCE_DEFS } from '@kudesi/shared';
+import { migrationSoftwareFingerprint } from '../migration/software-fingerprint';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -35,7 +36,9 @@ async function main() {
   if (apply && arg('--confirm') !== `${env.db.name}:${companyId}:${sourceCompanyId}`) throw new MigrationError('导入确认与目标库/公司不一致');
   const adapterPath = resolve(arg('--adapter'));
   const adapter = createRequire(adapterPath)(adapterPath) as { read: (opts: { sourceCompanyId: number; definitions: typeof RESOURCE_DEFS; parseWeightScope: typeof parseWeightScope; preserveCostHistory: boolean; preserveLegacyStates: boolean; includeWorkflowContinuations: boolean }) => Promise<LegacyArchive> };
+  const softwareFingerprint=migrationSoftwareFingerprint(adapterPath);
   const source = await adapter.read({ sourceCompanyId, definitions: RESOURCE_DEFS, parseWeightScope, preserveCostHistory, preserveLegacyStates, includeWorkflowContinuations });
+  if(migrationSoftwareFingerprint(adapterPath)!==softwareFingerprint)throw new MigrationError('读取来源期间程序或适配器发生变化，必须重新空跑');
   if (source.company.id !== sourceCompanyId) throw new MigrationError('来源公司不一致');
   const ds = await alignSessionTimeZone(await new DataSource(buildDataSourceOptions()).initialize());
   try {
@@ -43,7 +46,7 @@ async function main() {
     const crypto = new CryptoService(env.encryptionKeys, env.encryptionActiveKeyId);
     const settings = new IntegrationSettingsService(ds.getRepository(IntegrationSetting), ds.getRepository(ResourceChangeLog), crypto);
     const files = new FilesService(ds, settings, defaultStorageFactory);
-    const result = await runLegacyImport(ds, new ResourcesService(ds, crypto, files), files, source, { companyId, actorId, expectedName, apply, preserveCostHistory, preserveLegacyStates, sourceRowsCrypto: crypto, expectedReport, prepareReport:(r)=>writeFileSync(report,JSON.stringify({...r,phase:'prepared; not committed'},null,2),{mode:0o600}),rollbackReport:(r)=>writeFileSync(report,JSON.stringify(r,null,2),{mode:0o600}) });
+    const result = await runLegacyImport(ds, new ResourcesService(ds, crypto, files), files, source, { companyId, actorId, expectedName, apply, preserveCostHistory, preserveLegacyStates, sourceRowsCrypto: crypto, expectedReport,softwareFingerprint, prepareReport:(r)=>writeFileSync(report,JSON.stringify({...r,phase:'prepared; not committed'},null,2),{mode:0o600}),rollbackReport:(r)=>writeFileSync(report,JSON.stringify(r,null,2),{mode:0o600}) });
     try { writeFileSync(report, JSON.stringify(result, null, 2), { mode: 0o600 }); }
     catch { console.error(apply?'数据事务已提交，但最终报告写入失败；请保留prepared报告并核对迁移审计':'试跑已回滚，最终报告写入失败');process.exitCode=1;return; }
     console.log(JSON.stringify({ phase: result.phase, created: result.created, reused: result.reused, failed: result.failures.length, excluded: result.excluded.length, archived: result.archived, links: result.links }));

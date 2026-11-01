@@ -67,11 +67,17 @@ suite('重复银行账户原登记保留（MySQL）',()=>{
     const u=await ds.manager.save(User,ds.manager.create(User,{companyId:c.id,name:'管理员',account:null,passwordHash:'!no-login',status:'active',isCompanyAdmin:true,mustChangePassword:false}));
     const originals=[101,102,103].map(id=>({...raw(id,id===102?'store_public':'company_public',10,id===102?'quarterly':'monthly'),company_id:9,keeper_employee_id:null,current_balance:'0.00'}));
     const archive:LegacyArchive={company:{id:9,name:c.name},departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],exclusions:[],loadFile:async()=>Buffer.alloc(0),sourceRows:originals.map(r=>({table:'bank_accounts',key:String(r.id),row:r})),records:originals.map(r=>({id:String(r.id),type:'bank-accounts',status:'normal',data:{kind:r.account_kind,accountName:'整批同号户名',bank:'测试银行',accountNo,balance:0,reconcileCycle:r.reconciliation_cycle,note:r.id===103?'尚待验收的另一说明':'首条说明'}}))};
-    const opts={companyId:c.id,actorId:u.id,expectedName:c.name,preserveLegacyStates:true,sourceRowsCrypto:svc.crypto};
+    const opts={companyId:c.id,actorId:u.id,expectedName:c.name,preserveLegacyStates:true,sourceRowsCrypto:svc.crypto,softwareFingerprint:'a'.repeat(64)};
     const report=await runLegacyImport(ds,svc.resources,svc.files,archive,{...opts,apply:false});
     expect(report.failures).toEqual([]);expect(report.created[TYPE]).toBe(3);expect(report.verified?.['bank-account-history-view']).toBe(3);
     expect(report.excluded.map(e=>[e.type,e.id])).toEqual([['bank-accounts.duplicate.note','103']]);
     expect(await ds.manager.count(ResourceRecord,{where:{companyId:c.id}})).toBe(0);
+    for(const patch of [{targetFingerprint:'0'.repeat(64)},{softwareFingerprint:'b'.repeat(64)},{companyId:c.id+99999}]){
+      const rejected=jest.fn();
+      await expect(runLegacyImport(ds,svc.resources,svc.files,archive,{...opts,apply:true,expectedReport:{...report,...patch},rollbackReport:rejected})).rejects.toThrow('与已核对试迁不一致');
+      expect(rejected.mock.calls[0][0]).toMatchObject({phase:'apply-rejected-rollback',created:{},reused:{}});
+      expect(await ds.manager.count(ResourceRecord,{where:{companyId:c.id}})).toBe(0);
+    }
     const rollbackReport=jest.fn();
     await expect(runLegacyImport(ds,svc.resources,svc.files,archive,{...opts,apply:true,expectedReport:report,rollbackReport})).rejects.toThrow('未验收');
     expect(rollbackReport).toHaveBeenCalledTimes(1);expect(rollbackReport.mock.calls[0][0].phase).toBe('apply-rejected-rollback');

@@ -28,7 +28,7 @@ function stable(v: unknown): unknown {
   if(v && typeof v === 'object') return Object.fromEntries(Object.entries(v).filter(([k])=>k!=='locator').sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,stable(x)]));
   return v;
 }
-export interface ImportResult { verified?:Record<string,number>; sourceFingerprint: string; phase: string; companyId: number; created: Record<string, number>; reused: Record<string, number>; excluded: Array<{ type: string; id: string; reason: string }>; failures: Array<{ type: string; id: string; reason: string }>; mappings: Array<{ type: string; sourceId: string; targetId: number }>; archived: { total: number; byType: Record<string, number>; skipped: Array<{ type: string; id: string; reason: string }> }; links: { created: number; reused: number; skipped: number; skippedReasons: Record<string, number>; byRelation: Record<string, { created: number; skipped: number }> } }
+export interface ImportResult { softwareFingerprint?:string;targetFingerprint?:string;verified?:Record<string,number>; sourceFingerprint: string; phase: string; companyId: number; created: Record<string, number>; reused: Record<string, number>; excluded: Array<{ type: string; id: string; reason: string }>; failures: Array<{ type: string; id: string; reason: string }>; mappings: Array<{ type: string; sourceId: string; targetId: number }>; archived: { total: number; byType: Record<string, number>; skipped: Array<{ type: string; id: string; reason: string }> }; links: { created: number; reused: number; skipped: number; skippedReasons: Record<string, number>; byRelation: Record<string, { created: number; skipped: number }> } }
 class MissingRef extends Error {}
 export class MigrationError extends Error {}
 export function safeFailure(e: unknown): string {
@@ -40,7 +40,7 @@ export function safeFailure(e: unknown): string {
 }
 
 /** 无后台服务/外部worker；整个批次与对照账本同一事务，试跑完整回滚。 */
-export async function runLegacyImport(ds: DataSource, resources: ResourcesService, files: FilesService, source: LegacyArchive, opts: { companyId: number; actorId: number; expectedName: string; apply: boolean; preserveCostHistory?: boolean; preserveLegacyStates?: boolean; sourceRowsCrypto?: CryptoService; expectedReport?: ImportResult; prepareReport?: (result:ImportResult)=>void; rollbackReport?: (result:ImportResult)=>void }): Promise<ImportResult> {
+export async function runLegacyImport(ds: DataSource, resources: ResourcesService, files: FilesService, source: LegacyArchive, opts: { companyId: number; actorId: number; expectedName: string; apply: boolean; preserveCostHistory?: boolean; preserveLegacyStates?: boolean; sourceRowsCrypto?: CryptoService; expectedReport?: ImportResult; prepareReport?: (result:ImportResult)=>void; rollbackReport?: (result:ImportResult)=>void;softwareFingerprint?:string }): Promise<ImportResult> {
   for(const [rows,parent] of [[source.departments,'parent_department_id'],[source.positions,'supervisor_position_id'],[source.employees,'manager_id']] as Array<[Array<Record<string,any>>,string]>) {
     const parents=new Map(rows.map(r=>[String(r.id),r[parent]?String(r[parent]):null]));
     for(const r of rows){const seen=new Set<string>();let id:string|null=String(r.id);while(id){if(seen.has(id))throw new MigrationError('来源组织引用存在循环，不能直接迁入');seen.add(id);id=parents.get(id)??null;}}
@@ -93,6 +93,15 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     const company = await em.findOneByOrFail(Company, { id: opts.companyId });
     if (company.name !== opts.expectedName && company.name !== source.company.name) throw new MigrationError('目标公司名与核对条件不符');
     const actor = await em.findOneByOrFail(User, { id: opts.actorId, companyId: opts.companyId, isCompanyAdmin: true, status: 'active' });
+    const [database]=await em.query('SELECT DATABASE() databaseName,@@server_uuid serverUuid');
+    if(typeof database.databaseName!=='string'||!database.databaseName||typeof database.serverUuid!=='string'||!database.serverUuid)throw new MigrationError('无法核实目标数据库身份');
+    out.targetFingerprint=createHash('sha256').update(JSON.stringify({database:database.databaseName,server:database.serverUuid,companyId:company.id,actorId:actor.id,sourceCompanyId:source.company.id})).digest('hex');
+    if(opts.softwareFingerprint){if(!/^[0-9a-f]{64}$/.test(opts.softwareFingerprint))throw new MigrationError('迁移程序指纹格式不正确');out.softwareFingerprint=opts.softwareFingerprint;}
+    if(opts.expectedReport&&(opts.expectedReport.companyId!==out.companyId||opts.expectedReport.targetFingerprint!==out.targetFingerprint||opts.expectedReport.softwareFingerprint!==out.softwareFingerprint||opts.expectedReport.sourceFingerprint!==out.sourceFingerprint)){
+      out.phase=opts.apply?'apply-rejected-rollback':'dry-run-rejected-rollback';
+      out.failures.push({type:'preflight',id:'report-identity',reason:'目标库/公司/操作人、迁移程序或来源与已核对报告不一致'});
+      throw new MigrationError('本批结果与已核对试迁不一致，整批回滚');
+    }
     const user: AuthUser = { id: actor.id, companyId: company.id, name: actor.name, permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
     if (source.sourceRows?.length) {
       if (!opts.sourceRowsCrypto) throw new MigrationError('原始资料保留缺少目标加密服务');
@@ -482,7 +491,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     if (q.data.importUploadedKeys?.length) await files.deleteObjects(opts.companyId, q.data.importUploadedKeys);
     // SQL rollback is confirmed here. Object deletion is best effort in the
     // storage service and must be independently checked by the cutover runner.
-    if(out.phase==='apply-rejected-rollback')opts.rollbackReport?.(out);
+    if(['apply-rejected-rollback','dry-run-rejected-rollback'].includes(out.phase))opts.rollbackReport?.(out);
     throw e; }
   finally { await q.release(); }
 }
