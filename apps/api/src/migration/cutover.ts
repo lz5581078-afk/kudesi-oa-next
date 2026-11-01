@@ -15,7 +15,7 @@ const qi=(n:string)=>{if(!/^[a-z_]+$/.test(n))throw new MigrationError('切换�
 const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const rowDigest=(rows:any[])=>hash(rows.map(r=>JSON.stringify(r)).sort());
 export interface CompanyPlan {sourceCompanyId:number;companyId:number;actorId:number;name:string}
-export interface CutoverResult {version:1;phase:string;softwareFingerprint:string;backupDigest:string;technicalBefore:string;technicalAfter:string;plans:CompanyPlan[];reports:ImportResult[];deferred:true;cleared:Record<string,number>;counts:Record<string,number>}
+export interface CutoverResult {version:1;phase:string;softwareFingerprint:string;backupDigest:string;technicalBefore:string;technicalAfter:string;plans:CompanyPlan[];reports:ImportResult[];deferred:true;detachedTechnicalOwners:Array<{companyId:number;table:string;key:string;oldUserId:number}>;cleared:Record<string,number>;counts:Record<string,number>}
 export interface CutoverOptions {apply:boolean;softwareFingerprint:string;backupDigest:string;plans:CompanyPlan[];expected?:CutoverResult;writeReport?:(r:CutoverResult)=>void;verify?:(em:EntityManager,r:CutoverResult)=>Promise<void>}
 
 export async function cutoverTables(ds:DataSource){
@@ -39,11 +39,12 @@ export async function runCutover(ds:DataSource,resources:ResourcesService,files:
   if(!/^[a-f0-9]{64}$/.test(opts.backupDigest)||!/^[a-f0-9]{64}$/.test(opts.softwareFingerprint))throw new MigrationError('切换缺少程序/已验证备份摘要');
   if(opts.apply&&!opts.expected)throw new MigrationError('正式切换缺少统一空跑报告');
   const tables=await cutoverTables(ds),q=ds.createQueryRunner();await q.connect();let committed=false;
-  const result:CutoverResult={version:1,phase:'started; not committed',softwareFingerprint:opts.softwareFingerprint,backupDigest:opts.backupDigest,technicalBefore:'',technicalAfter:'',plans:opts.plans,reports:[],deferred:true,cleared:{},counts:{}};
+  const result:CutoverResult={version:1,phase:'started; not committed',softwareFingerprint:opts.softwareFingerprint,backupDigest:opts.backupDigest,technicalBefore:'',technicalAfter:'',plans:opts.plans,reports:[],deferred:true,detachedTechnicalOwners:[],cleared:{},counts:{}};
   try{
     const [lock]=await q.query("SELECT GET_LOCK('kudesi-full-remigration',0) acquired");if(Number(lock.acquired)!==1)throw new MigrationError('已有统一迁移在运行');
     await q.startTransaction();q.data.cutoverPrepareOnly=!opts.apply;const em=q.manager;
     const companies=await em.find(Company),oldUsers=await em.find(User);
+    const oldUserLinks:Array<{companyId:number;sourceCompanyId:number;sourceKey:string;targetId:number}>=await em.query("SELECT company_id companyId,source_company_id sourceCompanyId,source_key sourceKey,target_id targetId FROM legacy_import_links WHERE source_system='legacy-oa' AND target_type='user'");
     if(sources.length!==opts.plans.length||new Set(opts.plans.map(p=>p.companyId)).size!==sources.length||new Set(opts.plans.map(p=>p.actorId)).size!==sources.length||companies.some(c=>!opts.plans.some(p=>p.companyId===c.id&&p.name===c.name)))throw new MigrationError('全部公司切换范围不一致');
     const preserved=new Map<string,any[]>();for(const table of technical)preserved.set(table,await em.query(`SELECT * FROM ${qi(table)}`));
     result.technicalBefore=hash([...preserved].filter(([t])=>t!=='companies').map(([t,rows])=>[t,rowDigest(rows)]));
@@ -65,14 +66,26 @@ export async function runCutover(ds:DataSource,resources:ResourcesService,files:
       result.reports.push(report);
     }
     const freshUsers=await em.find(User);if(freshUsers.length!==sources.reduce((n,s)=>n+s.employees.length,0))throw new MigrationError('人员数量与原始公司不一致');
-    const remapUser=(companyId:number,id:unknown)=>{
+    const remapUser=(companyId:number,id:unknown,nullableAttribution?:{table:string;key:string})=>{
       if(id==null)return null;const original=oldUsers.find(u=>u.companyId===companyId&&u.id===Number(id));
-      if(!original?.account)throw new MigrationError('技术配置人员引用不能按同公司原账号重映射');
-      const matches=freshUsers.filter(u=>u.companyId===companyId&&u.account===original.account);if(matches.length!==1)throw new MigrationError('技术配置原账号在迁入人员中不唯一或缺失');return matches[0].id;
+      const matches=original?.account?freshUsers.filter(u=>u.companyId===companyId&&u.account===original.account):[];
+      const plan=opts.plans.find(p=>p.companyId===companyId),links=oldUserLinks.filter(l=>Number(l.companyId)===companyId&&Number(l.targetId)===Number(id)&&Number(l.sourceCompanyId)===plan?.sourceCompanyId);
+      if(matches.length>1||links.length>1)throw new MigrationError('技术配置原身份映射不唯一');
+      const ledger=links[0];if(ledger&&!/^user:[1-9]\d*$/.test(ledger.sourceKey))throw new MigrationError('原人员来源账本身份无效');
+      const linked=ledger?result.reports.find(r=>r.companyId===companyId)?.mappings.find(m=>m.type==='user'&&m.sourceId===ledger.sourceKey.slice(5))?.targetId:undefined;
+      if(ledger&&!linked)throw new MigrationError('技术配置来源人员账本未迁入');
+      if(matches[0]&&linked&&matches[0].id!==linked)throw new MigrationError('技术配置账号与来源账本身份冲突');
+      if(matches[0]||linked)return matches[0]?.id??linked!;
+      // The removed target-only bootstrap admin is not an old employee. Do
+      // not invent a new employee or credit someone else with their changes.
+      // Nullable attribution is detached with explicit audit + retained backup;
+      // live recipients/authority still require a real, unambiguous identity.
+      if(nullableAttribution&&original){result.detachedTechnicalOwners.push({companyId,...nullableAttribution,oldUserId:original.id});return null;}
+      throw new MigrationError('技术配置原账号在迁入人员中不唯一或缺失');
     };
     for(const table of ['integration_settings','ai_providers','ai_company_settings','outbox_switches']){
       for(const original of preserved.get(table)!){
-        const row={...original};for(const field of ['updated_by','created_by'])if(Object.hasOwn(row,field)&&row[field]!=null)row[field]=remapUser(Number(row.company_id),row[field]);
+        const row={...original};for(const field of ['updated_by','created_by'])if(Object.hasOwn(row,field)&&row[field]!=null)row[field]=remapUser(Number(row.company_id),row[field],{table,key:String(row.id??row.setting_key??row.channel)+':'+field});
         if(table==='integration_settings'&&row.setting_key==='feishu'){
           const value=JSON.parse(crypto.decrypt(row.config_enc));let changed=false;
           for(const channel of value.channels??[])if(Array.isArray(channel.recipientUserIds)&&channel.recipientUserIds.length){channel.recipientUserIds=channel.recipientUserIds.map((id:unknown)=>remapUser(Number(row.company_id),id));changed=true;}
@@ -87,6 +100,8 @@ export async function runCutover(ds:DataSource,resources:ResourcesService,files:
         Object.assign(original,row);
       }
     }
+    if(opts.expected&&JSON.stringify(result.detachedTechnicalOwners)!==JSON.stringify(opts.expected.detachedTechnicalOwners))throw new MigrationError('待保留的技术配置原更新人范围变化');
+    for(const old of result.detachedTechnicalOwners)await em.query('INSERT INTO audit_logs (company_id,actor_id,action,resource_type,resource_id,detail) VALUES (?,?,?,?,?,?)',[old.companyId,opts.plans.find(p=>p.companyId===old.companyId)!.actorId,'legacy.technical-owner-detach','technical-config',old.key,JSON.stringify({...old,reason:'清理前新站专有账号无旧站对应；原更新人保留在完整备份，未冒认其他员工'})]);
     // No migrated historical message or automatic scanner may write externally.
     for(const plan of opts.plans)for(const channel of ['feishu','jushuitan','jst_price'])await em.query('INSERT INTO outbox_switches (company_id,channel,enabled,note,updated_by) VALUES (?,?,0,?,?) ON DUPLICATE KEY UPDATE enabled=0,note=VALUES(note),updated_by=VALUES(updated_by)',[plan.companyId,channel,'迁移后待核对，保留历史不重放',plan.actorId]);
     const after=[];for(const [table,rows]of preserved){if(['companies','outbox_switches'].includes(table))continue;const got=await em.query(`SELECT * FROM ${qi(table)}`);if(rowDigest(got)!==rowDigest(rows))throw new MigrationError('保留技术配置发生未核准变化');after.push([table,rowDigest(got)]);}
@@ -95,6 +110,7 @@ export async function runCutover(ds:DataSource,resources:ResourcesService,files:
     for(const fk of fks){const [r]=await em.query(`SELECT COUNT(*) n FROM ${qi(fk.tableName)} c LEFT JOIN ${qi(fk.parentName)} p ON c.${qi(fk.columnName)}=p.${qi(fk.parentColumn)} WHERE c.${qi(fk.columnName)} IS NOT NULL AND p.${qi(fk.parentColumn)} IS NULL`);if(Number(r.n)!==0)throw new MigrationError('切换后存在无效外键引用');}
     await q.query('SET FOREIGN_KEY_CHECKS=1');
     for(const table of tables){const [r]=await em.query(`SELECT COUNT(*) n FROM ${qi(table)}`);result.counts[table]=Number(r.n);}
+    if(opts.expected&&JSON.stringify(result.counts)!==JSON.stringify(opts.expected.counts))throw new MigrationError('统一切换全部表计数与空跑不一致');
     if(opts.expected&&JSON.stringify(result.cleared)!==JSON.stringify(opts.expected.cleared))throw new MigrationError('清理范围在空跑后变化');
     await opts.verify?.(em,result);
     result.phase='prepared; not committed';opts.writeReport?.(result);
