@@ -28,7 +28,7 @@ suite('结束流程的只读原时间线（MySQL）',()=>{
   afterAll(async()=>{await ds?.destroy();});
   function fixture(){
     const id=++serial;
-    const row={id,company_id:3,requester_id:10,template_id:9,title:'原已结束申请'+id,status:'completed',graph_status:'batch',created_at:'2026-09-01 09:00:00',completed_at:'2026-09-02 15:00:00',due_at:'2026-09-02 18:00:00'};
+    const row={id,company_id:3,requester_id:10,template_id:9,title:'原已结束申请'+id,status:'completed',graph_status:'business',created_at:'2026-09-01 09:00:00',completed_at:'2026-09-02 15:00:00',due_at:'2026-09-02 18:00:00'};
     const records=[
       {id:id*10,workflow_instance_id:id,node_name:'发起',node_type:'submit',owner_id:10,action:'submit',status:'completed',is_active:0,created_at:row.created_at,completed_at:row.created_at,form_payload:{payload:{purchasePrice:12345,password:'never-expose-original-form'}},timing_json:{}},
       {id:id*10+1,workflow_instance_id:id,node_name:'原审批',node_type:'finance',owner_id:20,action:'approve',status:'completed',is_active:0,created_at:'2026-09-02 10:00:00',completed_at:row.completed_at,form_payload:{inspection:{costSnapshot:54321}},timing_json:{}},
@@ -68,5 +68,24 @@ suite('结束流程的只读原时间线（MySQL）',()=>{
     await expect(project(f)).rejects.toThrow('人员未迁入');
     expect(await ds.manager.count(FlowRun,{where:{companyId:admin.companyId,title:f.row.title}})).toBe(0);
     expect(await ds.manager.count(FlowStep,{where:{companyId:admin.companyId,stepName:'原审批'}})).toBe(1);
+  });
+  it('SKU快照成本和同步信息由服务端分别按权限过滤，申请人不能借历史表单读成本',async()=>{
+    const f=fixture();f.row.graph_status='batch';
+    f.source.tables.workflow_batch_items=[{id:f.row.id,workflow_instance_id:f.row.id,payload_json:{specName:'原规格',lines:[{baseCodeId:5,quantity:0.001}]}}];
+    f.records[0].form_payload={payload:{specName:'原规格',lines:[]}} as any;
+    f.records[1].form_payload={payload:{specName:'原规格',lines:[]},inspection:{totalCost:987.654321},result:{id:123,finalCode:'OLD-CODE',sync:[{id:123,status:'done',message:'old-sync-detail'}]}} as any;
+    const {runId}=await project(f);
+    const denied=await flow.detail(requester,runId);
+    expect(denied.payload.legacySkuPayload).toContain('原规格');
+    expect(denied.steps[1].form).toHaveProperty('legacySkuResult');
+    expect(denied.steps[1].form).not.toHaveProperty('legacySkuInspection');
+    expect(denied.steps[1].form).not.toHaveProperty('legacySkuSync');
+    expect(JSON.stringify(denied)).not.toMatch(/987\.654321|old-sync-detail/);
+    const cost=await flow.detail({...requester,permissions:{...requester.permissions,allow:['product.cost.view']}},runId);
+    expect(cost.steps[1].form).toHaveProperty('legacySkuInspection');
+    expect(cost.steps[1].form).not.toHaveProperty('legacySkuSync');
+    const sync=await flow.detail({...requester,permissions:{...requester.permissions,allow:['finance.bundle-sync.manage']}},runId);
+    expect(sync.steps[1].form).toHaveProperty('legacySkuSync');
+    expect(sync.steps[1].form).not.toHaveProperty('legacySkuInspection');
   });
 });

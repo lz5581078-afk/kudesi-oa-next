@@ -8,7 +8,7 @@ import { RESOURCE_DEFS } from '@kudesi/shared';
 const adapter = require('../../../../scripts/migration/legacy-adapter.cjs');
 
 export type FakeTables = Record<string, Array<Record<string, unknown>>>;
-export interface FakeOut { records: Array<{ type: string; id: string; data: Record<string, unknown>; status: string; notices?: string[]; sourceLocationOmission?: { row: Record<string, unknown>; location: Record<string, unknown> } }>; exclusions: Array<{ type: string; id: string; reason: string }> }
+export interface FakeOut { sourceRows?: Array<{table:string;key:string;row:Record<string,unknown>}>; records: Array<{ type: string; id: string; data: Record<string, unknown>; status: string; notices?: string[]; sourceLocationOmission?: { row: Record<string, unknown>; location: Record<string, unknown> } }>; exclusions: Array<{ type: string; id: string; reason: string }> }
 
 export async function readFakeLegacy(tables: FakeTables, companyId = 7, options: { parseWeightScope?: (raw: string) => unknown; preserveLegacyStates?: boolean } = {}): Promise<FakeOut> {
   const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-app-'));

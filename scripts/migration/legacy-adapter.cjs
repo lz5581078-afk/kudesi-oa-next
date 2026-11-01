@@ -38,6 +38,7 @@ function itemsAt(value,expression) {
 }
 function scope(table,cols,company) {
   if(table==='companies')return {sql:'t.id=?',args:[company]};
+  if(['license_borrow_records','license_usage_records'].includes(table)&&cols.includes('license_id'))return {sql:'EXISTS(SELECT 1 FROM business_licenses l WHERE l.id=t.license_id AND l.company_id=?)',args:[company]};
   // 旧岗位条目的 company_id 与所属岗位的公司不一致（真实库里全是 1，岗位却在公司 3），归属以岗位所在部门的公司为准
   if(table==='position_duties')return {sql:'EXISTS(SELECT 1 FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.id=t.position_id AND d.company_id=?)',args:[company]};
   if(cols.includes('company_id'))return {sql:'t.company_id=?',args:[company]};
@@ -139,7 +140,11 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
       if(type==='finance-bundle-naming-rules'){const mapped=skuMapping.namingRules(tables,categoryKey,categoryFamilies);out.records.push(...mapped.records);out.exclusions.push(...mapped.exclusions);continue;}
       if(!defs.has(type)||['finance-brands','finance-scenarios','finance-bundle-lines','finance-product-boms','finance-product-units','finance-base-code-lines'].includes(type))continue;
       const def=defs.get(type);
-      if(rule.policy){for(const r of tables[rule.tables[0]]||[])excluded(type,r.id||'snapshot',rule.reason||rule.policy);continue;}
+      if(rule.policy){
+        // 完整替换模式已由 stores 分支逐字段迁入资金登记，不能仍报整类未迁。
+        if(type==='store-funds'&&preserveLegacyStates)continue;
+        for(const r of tables[rule.tables[0]]||[])excluded(type,r.id||'snapshot',rule.reason||rule.policy);continue;
+      }
       let entries=[];
       for(const row of (tables[rule.tables[0]]||[]).filter(x=>!rule.filter||Object.entries(rule.filter).every(([k,v])=>String(x[k])===String(v)))){
         if(rule.json){if(rule.json.kind&&row.archive_type!==rule.json.kind)continue;const value=json(row[rule.json.column]);for(const x of itemsAt(value,rule.json.path))entries.push({row:rule.json.path==='$'?row:x.value,payload:x.value,ancestors:x.ancestors,container:row});}
@@ -310,9 +315,11 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
           // 店铺档案上的保证金/冻结/货款/推广余额在新系统不是可编辑字段（以资金快照为准）：旧值迁成一条“旧系统档案登记”快照
           if(type==='stores'){
             const fund={deposit:money('deposit',row.deposit_amount),frozen:money('frozen',row.frozen_amount),withdrawable:money('goodsFund',row.goods_payment_amount),promotion:money('promotionBalance',row.promotion_fee_balance)};
-            if(Object.values(fund).some(v=>v)&&defs.has('store-funds')){
+            if(Object.values(fund).some(v=>preserveLegacyStates?v!==undefined:Boolean(v))&&defs.has('store-funds')){
               const stamp=String(row.updated_at||'').slice(0,10);
-              add('store-funds','legacy-store:'+id,{storeId:ref('stores',id),snapshotDate:/^\d{4}-\d{2}-\d{2}$/.test(stamp)?stamp:businessDay,...fund,source:'legacy',note:'旧系统档案登记'},'recorded');
+              const validDate=/^\d{4}-\d{2}-\d{2}$/.test(stamp)&&Number.isFinite(Date.parse(stamp+'T00:00:00Z'))&&new Date(stamp+'T00:00:00Z').toISOString().slice(0,10)===stamp;
+              if(preserveLegacyStates&&!validDate)excluded('store-funds',id,'旧店铺资金缺少有效档案更新时间，不能用迁移日编造统计日期；原始行已保留');
+              else add('store-funds','legacy-store:'+id,{storeId:ref('stores',id),snapshotDate:validDate?stamp:businessDay,...fund,source:'legacy',note:preserveLegacyStates?'旧系统档案登记；原档案更新时间：'+String(row.updated_at):'旧系统档案登记'},'recorded');
             }
           }
         }catch(e){excluded(type,id,'字段转换待核对：'+(e instanceof SyntaxError?'来源结构不是合法JSON':/^(金额|马甲|旧地区|旧公式|重量|布尔|复杂)/.test(e.message)?e.message:e.name));}
