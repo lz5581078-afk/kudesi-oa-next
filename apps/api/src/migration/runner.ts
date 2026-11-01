@@ -21,6 +21,7 @@ import { restoreBaseVerifications, restoreBundleVerifications } from './verifica
 import { withMissingLegacyReason } from './legacy-state-context';
 import { importFeishuIdentity,feishuIdentityKey } from './feishu-identities';
 import { importBankRegistration } from './bank-registration-import';
+import { importPhoneRegistrations } from './phone-registration-import';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -61,6 +62,10 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   if(opts.preserveLegacyStates)for(const r of source.records.filter(r=>r.type==='bank-accounts')){
     const raw=source.sourceRows?.find(row=>row.table==='bank_accounts'&&String(row.row.id)===r.id);
     if(raw)hashes.set(key('bank-account-history',r.id),sourceRowHash(raw.row));
+  }
+  if(opts.preserveLegacyStates)for(const r of source.records.filter(r=>r.type==='phones')){
+    const raw=source.sourceRows?.find(row=>row.table==='phone_numbers'&&String(row.row.id)===r.id);
+    if(raw)hashes.set(key('phone-registration-history',r.id),sourceRowHash(raw.row));
   }
   out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,exclusions:source.exclusions,sourceRows:(source.sourceRows??[]).map(r=>({table:r.table,key:r.key,hash:sourceRowHash(r.row)})),employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{})}))).digest('hex');
   const count = (which: 'created' | 'reused', type: string) => { out[which][type] = (out[which][type] ?? 0) + 1; };
@@ -403,6 +408,24 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
         }catch(e){out.failures.push({type:'bank-account-history',id:r.id,reason:e instanceof Error&&e.message.startsWith('旧银行登记')?e.message:safeFailure(e)});}
       }
       out.excluded=out.excluded.filter(e=>!e.type.startsWith('bank-accounts.duplicate.')||!resolvedDifferences.has(`${e.id}:${e.type.slice('bank-accounts.duplicate.'.length)}`));
+    }
+
+    if(opts.preserveLegacyStates){
+      const groups=new Map<number,LegacyRecord[]>();
+      for(const r of source.records.filter(r=>r.type==='phones')){const id=lookup(r.type,r.id);if(id)groups.set(id,[...(groups.get(id)??[]),r]);}
+      for(const [parentId,records]of groups)if(records.length>1){
+        try{
+          const originals=records.map(record=>{const rows=source.sourceRows?.filter(row=>row.table==='phone_numbers'&&String(row.row.id)===record.id)??[];if(rows.length!==1)throw new MigrationError('旧号码登记缺少完整原始行');return {record,raw:rows[0].row,data:resolve(record.data)};});
+          const result=await savepoint(async()=>{
+            const rows=await importPhoneRegistrations({em,resources,user,sourceCompanyId:source.company.id,parentId},originals);
+            for(const row of rows){const id=lookup('phone-registration-history',row.sourceId);if(id!=null&&id!==row.id)throw new MigrationError('旧号码登记账本不一致');if(!id)await register('phone-registration-history',row.sourceId,row.id);}
+            return rows;
+          });
+          for(const row of result){count(row.reused?'reused':'created','phone-registration-history');out.verified!['phone-registration-history-view']=(out.verified!['phone-registration-history-view']??0)+1;}
+          const ids=new Set(records.map(r=>r.id));
+          out.excluded=out.excluded.filter(e=>!ids.has(e.id)||!['certifiedName','plan','externalUser','deviceType','forwardApp','forwardAppName','rechargeDay','feeCycle','note'].some(field=>e.type==='phones.duplicate.'+field));
+        }catch(e){out.failures.push({type:'phone-registration-history',id:records.map(r=>r.id).join(':'),reason:e instanceof Error&&e.message.startsWith('旧号码登记')?e.message:safeFailure(e)});}
+      }
     }
 
     // 旧库手动关联（合作人⇄执照/店铺/银行、执照关联运营、手机号关联等）迁成新系统的手动关联，带用途与有效期。

@@ -1,5 +1,6 @@
 import { validUnitCents } from './unit-price';
 import { BANK_HISTORY_RESOURCE_DEF } from './bank-history';
+import { PHONE_HISTORY_RESOURCE_DEF } from './phone-history';
 /**
  * 资料（基础资源）定义：前后端共用的唯一来源。
  * 一个资源 = 一份配置（字段、状态、规则），列表/详情/表单/校验/导入导出都从它生成，
@@ -645,6 +646,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
   {
     key: 'phones',
     label: '手机号',
+    children: ['phone-registration-history'],
     nav: { group: '账号与资质' },
     titleField: 'number',
     uniqueField: 'number',
@@ -1365,6 +1367,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
   },
   BANK_HISTORY_RESOURCE_DEF,
+  PHONE_HISTORY_RESOURCE_DEF,
 ];
 
 /** 旧程序里一个页面带着几类资料：这些资料不单独占菜单，而是作为该页面的页签（权限仍各自独立）。 */
