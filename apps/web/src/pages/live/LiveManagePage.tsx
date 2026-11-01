@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
+import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../../layout/AppbarSlot';
+import './liveHeader.css';
 import { PayrollTab } from './PayrollTab';
 import { ManualReportsTab } from './ManualReportsTab';
 import { OverviewTab } from './OverviewTab';
@@ -19,6 +21,8 @@ type TabKey = (typeof TABS)[number][0];
 
 /** 直播管理：全览、排场、场次、审核、提成工资、月结和规则，按权限显示页签（记住上次打开的页签）。 */
 export function LiveManagePage() {
+  useAppbarBare();
+  const hasAppbar = useHasAppbarSlot();
   const { can } = useAuth();
   const [params, setParams] = useSearchParams();
   const canView = can('features.live.view') || can('live.manage');
@@ -35,7 +39,8 @@ export function LiveManagePage() {
   };
   return (
     <div className="live-page">
-      <div className="page-head"><div><h1>直播管理</h1><p className="muted">房间排场、业绩审核、人员工资与售后核对结算。主播、中控的日常操作在「我的直播」。</p></div></div>
+      <AppbarHint><span className="live-header-summary" title="房间排场、业绩审核、工资及售后结算；主播、中控日常操作请到「我的直播」。">排场 · 审核 · 工资结算<span className="live-header-guide">；主播、中控请到「我的直播」</span></span></AppbarHint>
+      {!hasAppbar && <h1 className="live-header-fallback">直播管理</h1>}
       {canAll || can('live.manage') ? <SourceStatusNotice /> : null}
       <div className="tab-group host-tabs" role="tablist" aria-label="直播管理分区">
         {visible.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={k === current} className={k === current ? 'chip active' : 'chip'} onClick={() => pick(k)}>{label}</button>)}
