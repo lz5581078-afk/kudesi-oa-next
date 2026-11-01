@@ -16,7 +16,7 @@ import { BankFundPage } from './pages/system/BankFundPage';
 import { FeeSettingsPage } from './pages/system/FeeSettingsPage';
 import { NoAccessPage, NotFoundPage } from './pages/StatusPages';
 import { CashBankPage } from './pages/finance/CashBankPage';
-import { CostTablePage } from './pages/finance/CostTablePage';
+import { CostTablePage, CostVersionsPage } from './pages/finance/CostTablePage';
 import { StoreWithdrawalPage } from './pages/finance/StoreWithdrawalPage';
 import { CompanionPage } from './resources/CompanionPage';
 import { MaintenancePage } from './pages/finance/MaintenancePage';
@@ -81,6 +81,7 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
   'flow.timeouts': TimeoutsPage,
   'finance.overview': FinanceOverviewPage,
   'finance.cost-table': CostTablePage,
+  'finance.finance-cost-versions': CostVersionsPage,
   'finance.pricing-debug': PricingDebugPage,
   'finance.inventory': InventoryPage,
   'finance.cash-bank': CashBankPage,

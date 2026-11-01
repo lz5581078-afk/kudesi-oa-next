@@ -17,7 +17,7 @@ async function readCsvText(file: File): Promise<string> {
 }
 
 /** 导入：先选文件 → 预览（逐行校验，不落库）→ 无错误才允许确认导入；有错整体不导入。 */
-export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClose: () => void; onDone: (message?: string) => void }) {
+export function ImportDialog({ def, onClose, onDone, embedded = false, parentId }: { def: ResourceDef; onClose: () => void; onDone: (message?: string) => void; embedded?: boolean; parentId?: number }) {
   const [onlyBad, setOnlyBad] = useState(false);
   useCategoryVersion();
   const optsOf = (f: FieldDef) => selectChoices(def.key, f, (x) => x.options ?? [], { mode: 'form' }); // 页签分类用本公司的名称
@@ -29,10 +29,10 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
   const [over, setOver] = useState(false);
   const [backups, setBackups] = useState<ImportBackupInfo[]>([]);
   const [restoreMsg, setRestoreMsg] = useState('');
-  const loadBackups = () => resourceApi.importBackups(def.key).then(setBackups).catch(() => setBackups([]));
+  const loadBackups = () => def.key.startsWith('finance-cost-') ? Promise.resolve() : resourceApi.importBackups(def.key).then(setBackups).catch(() => setBackups([]));
   useEffect(() => { void loadBackups(); }, [def.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const importable = def.fields.filter((f) => (f.type !== 'secret' || f.importable) && f.type !== 'attrs' && !f.readonly);
+  const importable = def.fields.filter((f) => (f.type !== 'secret' || f.importable) && f.type !== 'attrs' && !f.readonly && (!parentId || f.key !== def.parent?.field));
   // 手机号导入：各平台“编号 / 店铺”列，把号码绑到对应平台的店铺
   const extraHeaders = def.key === 'phones' ? phoneStoreImportColumns().flatMap((c) => [c.noHeader, c.nameHeader]) : [];
 
@@ -53,7 +53,7 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
     setRows(objects);
     setBusy(true);
     try {
-      setPreview(await resourceApi.import(def.key, objects, true));
+      setPreview(await resourceApi.import(def.key, objects, true, false, parentId));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '预览失败');
     }
@@ -63,7 +63,7 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
   async function commit(partial = false) {
     setBusy(true);
     try {
-      const res = await resourceApi.import(def.key, rows, false, partial);
+      const res = await resourceApi.import(def.key, rows, false, partial, parentId);
       if (!res.committed) {
         setPreview(res);
         setBusy(false);
@@ -91,7 +91,7 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
     setBusy(false);
   }
 
-  const instructionRows = (): string[][] => [['列名', '是否必填', '可选值 / 说明'], ['状态', '否', def.statuses.map((s) => s.label).join('、')], ...importable.map((f) => [f.label, f.required ? '是' : '否', f.options ? optsOf(f).map((o) => o.label).join('、') : f.type === 'ref' ? '填对方资料的名称（要先建好，重名无法匹配）' : f.type === 'money' ? '元，最多两位小数' : f.type === 'date' ? 'YYYY-MM-DD' : f.type === 'phone' ? '手机号' : (f.help ?? '')])];
+  const instructionRows = (): string[][] => [['列名', '是否必填', '可选值 / 说明'], ['状态', '否', def.statuses.map((s) => s.label).join('、')], ...importable.map((f) => [f.label, f.required ? '是' : '否', f.options ? optsOf(f).map((o) => o.label).join('、') : f.type === 'ref' ? '填对方资料的名称（要先建好，重名无法匹配）' : f.type === 'money' ? `元，最多${2+(f.scale ?? 0)}位小数` : f.type === 'date' ? 'YYYY-MM-DD' : f.type === 'phone' ? '手机号' : (f.help ?? '')])];
   /** 填写示例：每列给一个像样的例子，照着改就行 */
   const exampleRow = (): string[] => ['', ...importable.map((f) => (f.options ? optsOf(f)[0]?.label : undefined) ?? (f.type === 'money' ? '12.5' : f.type === 'date' ? '2026-01-01' : f.type === 'phone' ? '13800000000' : f.type === 'number' || f.type === 'decimal' ? '1' : f.type === 'ref' || f.type === 'refs' ? '（对方资料的名称）' : `示例${f.label}`)), ...extraHeaders.map(() => '')];
   function dropped(files: FileList | null) {
@@ -109,15 +109,15 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
   const instructions = () => downloadText(`${def.label}-填写说明.csv`, toCsv(instructionRows()));
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="modal card" role="dialog" aria-label={`导入${def.label}`}>
+    <div className={embedded ? 'import-inline' : 'modal-backdrop'} role="presentation">
+      <div className={embedded ? 'card' : 'modal card'} role={embedded ? 'region' : 'dialog'} aria-label={`导入${def.label}`}>
         <div className="modal-head between">
           <strong>导入{def.label}</strong>
-          <button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button>
+          {!embedded && <button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button>}
         </div>
         <div className="modal-body">
           <p className="muted">
-            用 Excel（.xlsx）或 CSV 文件，第一行是表头（字段中文名，可加“状态”列）。{def.uniqueField ? '编号相同的会更新已有记录，其余新建。' : '都会按新记录创建。'}
+            用 Excel（.xlsx）或 CSV 文件，第一行是表头（字段中文名，可加“状态”列）。{def.uniqueField ? '编号相同的会更新已有记录，其余新建。' : def.importMatch || def.importMatchChoices ? '匹配字段相同的会更新已有记录，其余新建。' : '都会按新记录创建。'}
             密码不支持导入（证件号、卡号可以）。选择文件后会先预览，全部通过才能确认。
           </p>
           <details className="import-rules">
@@ -188,14 +188,14 @@ export function ImportDialog({ def, onClose, onDone }: { def: ResourceDef; onClo
           )}
         </div>
         <div className="modal-foot">
-          <button type="button" className="secondary-button" onClick={onClose}>取消</button>
-          {preview && preview.failed > 0 && preview.failed < preview.results.length && (
+          <button type="button" className="secondary-button" disabled={busy} onClick={embedded ? discard : onClose}>{embedded ? '清空所选文件' : '取消'}</button>
+          {!embedded && preview && preview.failed > 0 && preview.failed < preview.results.length && (
             <button type="button" className="secondary-button" disabled={busy} title="有问题的行跳过，其余照常导入" onClick={() => void commit(true)}>
               只导入没问题的 {preview.results.length - preview.failed} 行
             </button>
           )}
           <button type="button" className="primary-button" disabled={busy || !preview || preview.failed > 0} onClick={() => void commit()}>
-            确认导入
+            {embedded ? '确认导入本地系统' : '确认导入'}
           </button>
         </div>
       </div>

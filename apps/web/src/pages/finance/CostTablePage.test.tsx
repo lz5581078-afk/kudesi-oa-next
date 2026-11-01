@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
-import { CostTablePage } from './CostTablePage';
+import { CurrentCostTable as CostTablePage } from './CostTablePage';
 import { financeApi, type CostRow, type CostTableData } from './financeApi';
 
 vi.mock('./financeApi', async (orig) => {
@@ -27,7 +27,7 @@ const table = (canEdit: boolean, rows = [row()]): CostTableData => ({
 });
 const renderPage = () => render(<MemoryRouter><CostTablePage /></MemoryRouter>);
 
-describe('SKU成本表', () => {
+describe('当前SKU成本清单', () => {
   it('分类目录显示数量和继承的利润率；列表有成本、使用快递、含快递成本；利润率保留 6 位小数', async () => {
     m.costTable.mockResolvedValue(table(true));
     renderPage();

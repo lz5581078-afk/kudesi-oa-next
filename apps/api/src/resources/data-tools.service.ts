@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { packagingRuleMatches, parseDiscreteWeights, type PackagingRule } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { FinanceApiKey, FinanceCostSnapshot, FinanceMasterSnapshot, ResourceChangeLog, ResourceLink, ResourceRecord } from '../entities';
+import { Company, FinanceApiKey, FinanceCostSnapshot, FinanceMasterSnapshot, ResourceChangeLog, ResourceLink, ResourceRecord } from '../entities';
 import { COST_TABLE_STATUSES, CostService } from './cost.service';
 import { COST_EVENT_LABEL, registerCostSnapshots, type CostEvent } from './cost-snapshot';
 
@@ -165,8 +165,21 @@ export class DataToolsService {
     const rows = await this.dataSource.query(`SELECT type, COUNT(*) AS n FROM resource_records WHERE company_id = ? AND type IN (${this.scope(includePlatforms).map(() => '?').join(',')}) GROUP BY type`, [user.companyId, ...this.scope(includePlatforms).map((t) => t.type)]);
     const m = new Map(rows.map((r: { type: string; n: string }) => [r.type, Number(r.n)]));
     const [{ n: docLines }] = await this.dataSource.query('SELECT COUNT(*) AS n FROM finance_document_lines WHERE company_id = ? AND product_id IS NOT NULL', [user.companyId]);
+    const blockedByCostVersions = await this.costReferences(this.dataSource.manager,user.companyId);
     const tables = this.scope(includePlatforms).map((t) => ({ type: t.type, label: t.label, count: (m.get(t.type) as number) ?? 0 }));
-    return { includePlatforms, confirmation: this.confirmText(user.companyId), total: tables.reduce((s, t) => s + t.count, 0), tables, blockedByDocuments: Number(docLines), exclusions: ['客户、供应商、费用档案、仓库、快递价格表、人工成本', '财务单据和账务', '聚水潭相关外部数据'] };
+    return { includePlatforms, confirmation: this.confirmText(user.companyId), total: tables.reduce((s, t) => s + t.count, 0), tables, blockedByDocuments: Number(docLines), blockedByCostVersions, exclusions: ['客户、供应商、费用档案、仓库、快递价格表、人工成本', '财务单据和账务', '成本版本、锁定成本与成本历史', '聚水潭相关外部数据'] };
+  }
+
+  private async guardCostReferences(em: EntityManager, companyId: number) {
+    await em.findOne(Company,{where:{id:companyId},lock:{mode:'pessimistic_write'}});
+    if(await this.costReferences(em,companyId)) throw new ConflictException('商品资料已被成本版本引用或被生产标准引用，不能整体重置或恢复主数据快照；请先处理成本引用');
+  }
+
+  private async costReferences(em:EntityManager,companyId:number) {
+    // SKU引用始终保护；没有SKU的全局生产标准也可能引用待清理的商品、基础编码或分类。
+    const skus=await em.count(ResourceRecord,{where:{companyId,type:'finance-cost-skus'}});
+    const standards=await em.count(ResourceLink,{where:{companyId,sourceType:'finance-cost-production-rates',targetType:In(this.scope(true).map(r=>r.type))}});
+    return skus+standards;
   }
 
   private async capture(em: EntityManager, companyId: number, includePlatforms: boolean, operation: string, label: string, userId: number) {
@@ -197,13 +210,13 @@ export class DataToolsService {
     if (body.confirm !== this.confirmText(user.companyId)) throw new BadRequestException(`确认文本不正确，应为 ${this.confirmText(user.companyId)}`);
     const includePlatforms = body.includePlatforms !== false;
     return this.dataSource.transaction(async (em) => {
+      await this.guardCostReferences(em,user.companyId);
       await em.query("INSERT IGNORE INTO finance_doc_counters (company_id, counter_key, value) VALUES (?, 'lock:posting', 0)", [user.companyId]);
       await em.query("SELECT value FROM finance_doc_counters WHERE company_id = ? AND counter_key = 'lock:posting' FOR UPDATE", [user.companyId]);
       const [{ n }] = await em.query('SELECT COUNT(*) AS n FROM finance_document_lines WHERE company_id = ? AND product_id IS NOT NULL', [user.companyId]);
       if (Number(n) > 0) throw new ConflictException(`已有 ${n} 行财务单据明细用到了商品档案，重置会让这些单据找不到商品。请先处理单据，或联系管理员单独清理`);
       const snapshot = await this.capture(em, user.companyId, includePlatforms, 'reset', body.label?.trim() || '商品基础资料清空前快照', user.id);
       const deleted = await this.clear(em, user.companyId, includePlatforms);
-      await em.delete(FinanceCostSnapshot, { companyId: user.companyId });
       await em.insert(ResourceChangeLog, { companyId: user.companyId, resourceType: 'finance-products', resourceId: 0, action: 'master-reset', actorId: user.id, beforeJson: null, afterJson: null, note: `主数据整体重置，快照 #${snapshot.id}` });
       return { ok: true, snapshot, deleted, totalDeleted: deleted.reduce((s, d) => s + d.count, 0) };
     });
@@ -219,6 +232,7 @@ export class DataToolsService {
     this.admin(user);
     if (confirm !== `RESTORE-SNAPSHOT-${id}`) throw new BadRequestException(`确认文本不正确，应为 RESTORE-SNAPSHOT-${id}`);
     return this.dataSource.transaction(async (em) => {
+      await this.guardCostReferences(em,user.companyId);
       await em.query("INSERT IGNORE INTO finance_doc_counters (company_id, counter_key, value) VALUES (?, 'lock:posting', 0)", [user.companyId]);
       await em.query("SELECT value FROM finance_doc_counters WHERE company_id = ? AND counter_key = 'lock:posting' FOR UPDATE", [user.companyId]);
       const snap = await em.findOne(FinanceMasterSnapshot, { where: { id, companyId: user.companyId } });
