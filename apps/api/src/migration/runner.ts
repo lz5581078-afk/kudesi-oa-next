@@ -23,6 +23,8 @@ import { importFeishuIdentity,feishuIdentityKey } from './feishu-identities';
 import { importBankRegistration } from './bank-registration-import';
 import { importPhoneRegistrations } from './phone-registration-import';
 import { verifyGiftAliasIndex } from './gift-alias-index';
+import { OrgAdminService } from '../org/org-admin.service';
+import { legacyWallTime } from './legacy-time';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -97,6 +99,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   }));
   try {
     const company = await em.findOneByOrFail(Company, { id: opts.companyId });
+    if(opts.preserveLegacyStates&&(company.name!==opts.expectedName||source.company.name!==opts.expectedName))throw new MigrationError('完整重迁必须匹配来源、目标与核对公司名，禁止将公司混导');
     if (company.name !== opts.expectedName && company.name !== source.company.name) throw new MigrationError('目标公司名与核对条件不符');
     const actor = await em.findOneByOrFail(User, { id: opts.actorId, companyId: opts.companyId, isCompanyAdmin: true, status: 'active' });
     const [database]=await em.query('SELECT DATABASE() databaseName,@@server_uuid serverUuid');
@@ -144,7 +147,11 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     for (const d of source.departments) {
       if (reuse('department', d.id)) continue;
       if (!d.name || String(d.name).length > 100) throw new MigrationError('部门名称不合法');
-      const r = await em.save(Department, em.create(Department, { companyId: company.id, name: d.name, parentId: null, sortOrder: Number(d.sort_order || 0), status: d.status === 'active' ? 'active' : 'inactive' }));
+      if(d.is_system!=null&&![0,1,'0','1',true,false].includes(d.is_system))throw new MigrationError('旧部门系统标志无效，禁止当作普通部门');
+      const isSystem=d.is_system===1||d.is_system==='1'||d.is_system===true;
+      const r = await em.save(Department, em.create(Department, { companyId: company.id, name: d.name, parentId: null, sortOrder: Number(d.sort_order || 0), status: d.status === 'active' ? 'active' : 'inactive',isSystem }));
+      if((await em.findOneByOrFail(Department,{id:r.id,companyId:company.id})).isSystem!==isSystem)throw new MigrationError('旧部门系统标志落库不一致');
+      out.verified!['department-system-flag']=(out.verified!['department-system-flag']??0)+1;
       await register('department', d.id, r.id); count('created', 'department'); orgCreated.add(key('department', d.id));
     }
     for (const d of source.departments) if (orgCreated.has(key('department',d.id)) && d.parent_department_id) await em.update(Department, { id: required('department', d.id), companyId: company.id }, { parentId: required('department', d.parent_department_id) });
@@ -178,7 +185,11 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       if (account && (await em.findOneBy(User, { account }) || await em.findOneBy(PlatformAdmin, { account }))) throw new MigrationError('员工账号与目标系统已有账号冲突，禁止覆盖');
       const positions = source.employeePositions.filter((x) => String(x.employee_id) === String(e.id));
       const primary = positions.find((x) => x.is_primary) ?? positions[0];
-      const r = await em.save(User, em.create(User, { companyId: company.id, account, passwordHash: account ? encodeLegacyPassword(String(e.password_salt), String(e.password_hash)) : '!no-login', name: e.name, departmentId: required('department', e.department_id), positionId: primary ? required('position', primary.position_id) : null, extraPositionIds: positions.filter((x) => x !== primary).map((x) => required('position', x.position_id)), managerId: null, title: e.title || null, baseSalary: e.base_salary===null||e.base_salary===undefined?null:yuanToPreciseCents(String(e.base_salary),0), payType: e.pay_type==='hourly'?'hourly':'monthly', hourlyRate: e.hourly_rate===null||e.hourly_rate===undefined?null:yuanToPreciseCents(String(e.hourly_rate),0), employmentType: ['part_time','temp'].includes(e.employment_type)?e.employment_type:'regular', isCompanyAdmin: ['admin','company_admin','boss'].includes(e.role_key), status: e.status === 'active' ? 'active' : 'disabled', mustChangePassword: false }));
+      let lastLoginAt:Date|null;
+      try{lastLoginAt=legacyWallTime(e.last_login_at);}catch{throw new MigrationError('旧员工最后登录时间无效，禁止改成迁移时间');}
+      const r = await em.save(User, em.create(User, { companyId: company.id, account, passwordHash: account ? encodeLegacyPassword(String(e.password_salt), String(e.password_hash)) : '!no-login', name: e.name, departmentId: required('department', e.department_id), positionId: primary ? required('position', primary.position_id) : null, extraPositionIds: positions.filter((x) => x !== primary).map((x) => required('position', x.position_id)), managerId: null, title: e.title || null, baseSalary: e.base_salary===null||e.base_salary===undefined?null:yuanToPreciseCents(String(e.base_salary),0), payType: e.pay_type==='hourly'?'hourly':'monthly', hourlyRate: e.hourly_rate===null||e.hourly_rate===undefined?null:yuanToPreciseCents(String(e.hourly_rate),0), employmentType: ['part_time','temp'].includes(e.employment_type)?e.employment_type:'regular', isCompanyAdmin: ['admin','company_admin','boss'].includes(e.role_key), status: e.status === 'active' ? 'active' : 'disabled', mustChangePassword: false,lastLoginAt }));
+      if(((await em.findOneByOrFail(User,{id:r.id,companyId:company.id})).lastLoginAt?.getTime()??null)!==(lastLoginAt?.getTime()??null))throw new MigrationError('旧员工最后登录时间落库不一致');
+      out.verified!['user-last-login']=(out.verified!['user-last-login']??0)+1;
       await register('user', e.id, r.id); count('created', 'user'); orgCreated.add(key('user', e.id));
     }
     for (const e of source.employees) if (orgCreated.has(key('user',e.id)) && e.manager_id) await em.update(User, { id: required('user', e.id), companyId: company.id }, { managerId: required('user', e.manager_id) });
@@ -473,6 +484,16 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
           count(result.reused ? 'reused' : 'created', 'finance-ledger-history');
         });
       } catch (e) { out.failures.push({ type: 'finance-ledger-history', id: original.key, reason: safeFailure(e) }); }
+    }
+    if(opts.preserveLegacyStates){
+      const names=out.excluded.filter(e=>e.type==='position.name'),resolved=new Set<string>();
+      const bound=Object.create(ds) as DataSource;Object.defineProperty(bound,'manager',{value:em});const org=new OrgAdminService(bound,resources);
+      for(const note of names){try{
+        const id=required('position',note.id),original=source.positions.find(p=>String(p.id)===note.id),view=await org.positionProfile(user,id);
+        if(!original||view.legacyName?.name!==original.name)throw new MigrationError('原岗位名页面读取与来源不一致');
+        resolved.add(note.id);out.verified!['position-original-name-view']=(out.verified!['position-original-name-view']??0)+1;
+      }catch(e){out.failures.push({type:'position-original-name-view',id:note.id,reason:safeFailure(e)});}}
+      out.excluded=out.excluded.filter(e=>e.type!=='position.name'||!resolved.has(e.id));
     }
     if (source.workflow) {
       if (!opts.sourceRowsCrypto) throw new MigrationError('流程历史导入必须提供目标库加密服务');

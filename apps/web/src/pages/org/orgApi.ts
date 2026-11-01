@@ -16,6 +16,7 @@ export interface DutyDto {
   completionStandard: string | null; isKey: boolean; status: 'active' | 'inactive';
 }
 export interface PositionProfile {
+  legacyName?:{name:string;departmentName:string}|null;
   position: { id: number; name: string; positionKey?: string | null; departmentId: number | null; departmentName: string | null; workspaceType: string; level: PositionLevel; supervisorPositionId: number | null; supervisorPositionName: string | null; description: string | null; status: 'active' | 'inactive' };
   duties: DutyDto[];
   staff: Array<{ id: number; name: string; status: string; concurrent: boolean }>;
