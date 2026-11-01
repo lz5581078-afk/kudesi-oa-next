@@ -1,4 +1,6 @@
 import { validUnitCents } from './unit-price';
+import { BANK_HISTORY_RESOURCE_DEF } from './bank-history';
+import { PHONE_HISTORY_RESOURCE_DEF } from './phone-history';
 /**
  * 资料（基础资源）定义：前后端共用的唯一来源。
  * 一个资源 = 一份配置（字段、状态、规则），列表/详情/表单/校验/导入导出都从它生成，
@@ -75,7 +77,7 @@ export interface FieldDef {
    * 下拉的值是列表项的编码，显示名称。kindBy：列表种类随另一个字段的值变（如发货物料用自己的单位表）。
    * 公司还没有维护该种类时，退回 options 里的默认选项。
    */
-  optionsFrom?: { resource: string; kind: string; kindBy?: { field: string; map: Record<string, string> } };
+  optionsFrom?: { resource: string; kind: string; alsoKinds?: string[]; kindBy?: { field: string; map: Record<string, string> } };
   /** 只在列表里当一列用（读时派生的摘要之类），详情和表单里不显示 */
   listOnly?: boolean;
   /** 旧叫法：导入表格里列标题写旧名称也认（字段改名后，员工手里的旧模板还能用） */
@@ -201,6 +203,8 @@ export interface ArchiveHierarchy {
 }
 
 export interface ResourceDef {
+  /** System-appended immutable history: ordinary create/edit/delete/import are unavailable. */
+  readOnly?: boolean;
   key: string;
   label: string;
   /** 资料左侧菜单分组；没有则不出现在菜单（子资源，在父资源详情里管理） */
@@ -303,7 +307,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'companyName',
     uniqueField: 'creditCode',
     tabsBy: 'category',
-    statuses: [NORMAL, ABNORMAL, CANCELLED, INACTIVE],
+    statuses: [NORMAL, { value: 'expiring', label: '即将到期', tone: 'warn' }, ABNORMAL, CANCELLED, INACTIVE],
     defaultStatus: 'normal',
     children: ['license-borrows', 'license-usages'],
     batch: ['status'],
@@ -323,6 +327,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       { type: 'archives', field: 'licenseId' },
     ],
     fields: [
+      text('migrationNotice', '迁移核对提示', '基础', { readonly: true }),
       select('category', '执照类别', '营业执照信息', o('operation:经营执照', 'ecommerce:电商执照'), { required: true, list: true }),
       text('licenseNo', '执照编号', '营业执照信息', { list: true, search: true }),
       text('companyName', '主体名称', '营业执照信息', { required: true, list: true, search: true }),
@@ -465,6 +470,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
     fields: [
       select('platform', '平台', '店铺基础信息', PLATFORMS, { required: true, list: true }),
+      text('migrationNotice', '迁移核对提示', '店铺基础信息', { readonly: true }),
       text('name', '店铺名', '店铺基础信息', { required: true, list: true, search: true }),
       text('storeNo', '店铺编号', '店铺基础信息', { list: true, search: true }),
       text('platformStoreId', '平台店铺 ID', '店铺基础信息', { list: true, search: true, maxLength: 255 }),
@@ -640,12 +646,13 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
   {
     key: 'phones',
     label: '手机号',
+    children: ['phone-registration-history'],
     nav: { group: '账号与资质' },
     titleField: 'number',
     uniqueField: 'number',
     tabsBy: 'usageType',
     filterBy: ['feeCycle'],
-    statuses: [NORMAL, ABNORMAL_R, { ...INACTIVE, label: '停止使用' }],
+    statuses: [NORMAL, { value: 'needs_recharge', label: '需充值', tone: 'warn' }, ABNORMAL_R, { ...INACTIVE, label: '停止使用' }],
     defaultStatus: 'normal',
     alerts: [{ field: 'nextRechargeAt', withinDays: 7, label: '7 天内需充值' }],
     related: [
@@ -659,6 +666,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       { key: 'number', label: '号码', type: 'phone', group: '基础信息', required: true, list: true, search: true },
       select('usageType', '手机号分类', '基础信息', o('company_kept:公司保存', 'personal_used:公司在使用', 'external_used:公司外人员使用', 'partner_used:合作手机号'), { aliases: ['使用类型'], required: true, list: true }),
+      text('migrationNotice', '迁移核对提示', '基础信息', { readonly: true }),
       text('certifiedName', '号码认证人', '基础信息', { list: true }),
       text('carrier', '运营商', '基础信息', { list: true, help: '新建时默认中国移动' }),
       { key: 'cardKind', label: '主子卡', type: 'text', group: '基础信息', readonly: true, list: true, help: '由“主卡”字段决定：没有主卡就是主卡，选了主卡就是子卡' },
@@ -670,7 +678,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       date('lastRechargeAt', '最后一次充值时间', '费用与充值', { aliases: ['最近充值日'] }),
       { key: 'rechargeCycleDays', label: '充值周期（天）', type: 'number', group: '费用与充值', list: true , aliases: ['充值周期(天)'] },
       text('rechargeDay', '固定充值日', '费用与充值', { maxLength: 5, pattern: { source: '^(([1-9]|[12]\\d|3[01])|(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01]))$', message: '月付填几号（1-31），年付填 月-日（如 03-15）' }, help: '月付填每月几号（1-31）；年付填每年的 月-日（如 03-15）；不固定就不填' }),
-      date('nextRechargeAt', '下次充值日', '费用与充值', { list: true, help: '由最近充值日 + 充值周期自动计算' }),
+      date('nextRechargeAt', '下次充值日', '费用与充值', { list: true, help: '可手工维护；更改最近充值日或周期时，未另改本日期才自动计算' }),
       ref('areaLocationId', '区域', '使用与保管', 'locations', { aliases: ['保存区域'], showWhen: { field: 'usageType', in: ['company_kept'] } }),
       ref('assetId', '固定资产', '使用与保管', 'fixed-assets', { showWhen: { field: 'usageType', in: ['company_kept'] } }),
       ref('assetLocationId', '固定资产内位置', '使用与保管', 'locations', { aliases: ['资产内位置'], showWhen: { field: 'usageType', in: ['company_kept'] } }),
@@ -715,6 +723,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL, INACTIVE],
     defaultStatus: 'normal',
     fields: [
+      text('migrationNotice', '迁移核对提示', '基础税务信息', { readonly: true }),
       // 分区沿用 24 号旧版详情：基础税务信息 / 报税与经营 / 开票与银行 / 联系人与备注
       select('taxCategory', '税务分类', '基础税务信息', o('operation:经营税务', 'ecommerce:电商税务'), { list: true, help: '不选时跟随所属执照的类别' }),
       ref('licenseId', '营业执照', '基础税务信息', 'licenses', { required: true, list: true }),
@@ -784,7 +793,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     tabsBy: 'kind',
     statuses: [NORMAL, ABNORMAL, INACTIVE],
     defaultStatus: 'normal',
-    children: ['u-shields', 'bank-store-links'],
+    children: ['u-shields', 'bank-store-links','bank-account-history'],
     batch: ['status'],
     copyOmit: ['reservedPhoneNumber', 'phoneId', 'customerNo'],
     filterBy: ['licenseId', 'storeId', 'storeFlag', 'phoneFlag', 'shieldFlag'],
@@ -1357,6 +1366,8 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       NOTE(),
     ],
   },
+  BANK_HISTORY_RESOURCE_DEF,
+  PHONE_HISTORY_RESOURCE_DEF,
 ];
 
 /** 旧程序里一个页面带着几类资料：这些资料不单独占菜单，而是作为该页面的页签（权限仍各自独立）。 */
@@ -1432,6 +1443,10 @@ export function optionsKindOf(field: FieldDef, values: Record<string, unknown>):
   if (!from) return null;
   if (from.kindBy) return from.kindBy.map[String(values[from.kindBy.field] ?? '')] ?? from.kind;
   return from.kind;
+}
+export function optionsKindsOf(field: FieldDef, values: Record<string, unknown>): string[] {
+  const primary = optionsKindOf(field, values);
+  return primary ? [...new Set([primary, ...(field.optionsFrom?.alsoKinds ?? [])])] : [];
 }
 
 /** 资源动作权限键：resource.<key>.<action> */

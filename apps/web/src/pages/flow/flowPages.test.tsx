@@ -38,6 +38,12 @@ beforeEach(() => { window.localStorage.clear(); f.templates.mockResolvedValue([]
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('我的待办', () => {
+  it('旧任务在待办列表显示关联店铺，并使用新站店铺资料链接', async () => {
+    f.todos.mockResolvedValue(todoList([todo({ kind: 'task', runId: null, storeId: 18, storeName: '原关联店铺', runTitle: '每日售后检查' })]) as never);
+    wrap(<MyTodosPage />);
+    const link = await screen.findByRole('link', { name: '关联店铺：原关联店铺' });
+    expect(link.getAttribute('href')).toBe('/resource/stores?open=18');
+  });
   it('逾期的待办标红并说明超了多久，行尾有“去办理”', async () => {
     f.todos.mockResolvedValue(todoList());
     wrap(<MyTodosPage />);
@@ -157,6 +163,23 @@ describe('流程详情', () => {
     expect(screen.getByText(/没有可办理的操作/)).toBeTruthy();
     expect(screen.getByText('全部操作记录（2）')).toBeTruthy();
     expect(screen.getByText(/我出差/)).toBeTruthy();
+  });
+  it('续办表单显示服务器保留的原填写值，同节点刷新不覆盖新编辑', async () => {
+    const detail = runDetail({ initialForm: { note: '原仓库备注' }, me: { ...runDetail().me, canPass: true, stepFields: [{ key: 'note', label: '仓库备注', type: 'text', group: '基础' }] } });
+    f.run.mockResolvedValue(detail as never);
+    render(<RunDetail id={5} onClose={() => undefined} onChanged={() => undefined} />);
+    const field = await screen.findByDisplayValue('原仓库备注');
+    fireEvent.change(field, { target: { value: '续办补充备注' } });
+    fireEvent.click(screen.getByText('刷新'));
+    await waitFor(() => expect(f.run).toHaveBeenCalledTimes(2));
+    expect(screen.getByDisplayValue('续办补充备注')).toBeTruthy();
+  });
+  it('已完成的旧流程可打开关联历史收支，不误称为已过账银行单据', async () => {
+    f.run.mockResolvedValue(runDetail({ status: 'completed', activeStep: null, links: { docId: null, docNo: null, borrowRecordId: null, ledgerHistoryId: 14 } }) as never);
+    render(<RunDetail id={5} onClose={() => undefined} onChanged={() => undefined} />);
+    const link = await screen.findByRole('link', { name: '查看关联收支记录' });
+    expect(link.getAttribute('href')).toBe('/finance/finance-ledger-history?open=14');
+    expect(screen.queryByText(/已生成并过账单据/)).toBeNull();
   });
   it('复制链接；Esc 关闭；办结的流程有结果横幅', async () => {
     f.run.mockResolvedValue(runDetail({ status: 'completed', activeStep: null, finishedAt: '2026-01-03T00:00:00Z' }) as never);

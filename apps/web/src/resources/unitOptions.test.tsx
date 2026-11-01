@@ -37,4 +37,12 @@ describe('商品档案的单位下拉读公司维护的列表', () => {
     const dto = { data: { specUnit: 'TP', archiveType: 'raw' }, secretConfigured: {}, refLabels: {} } as never;
     expect(displayValue(field('specUnit'), dto)).toBe('托盘');
   });
+  it('组合构成可选公司的规格单位与发货单位，列表也显示原名称', () => {
+    const unit = FINANCE_RESOURCE_DEFS.find(d => d.key === 'finance-bundle-lines')!.fields.find(f => f.key === 'unit')!;
+    resetUnitOptionsForTest({ spec_unit: [{ value: 'TP', label: '托盘' }], shipping_unit: [{ value: 'BAG', label: '旧包材单位' }] });
+    render(<FieldInput {...base} type="finance-bundle-lines" field={unit} value="BAG" values={{}} />);
+    expect(screen.getByRole('option', { name: '托盘' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: '旧包材单位' })).toBeTruthy();
+    expect(displayValue(unit, { data: { unit: 'BAG' }, secretConfigured: {}, refLabels: {} } as never)).toBe('旧包材单位');
+  });
 });

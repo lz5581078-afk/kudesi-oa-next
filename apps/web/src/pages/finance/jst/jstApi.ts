@@ -15,9 +15,9 @@ export interface DeleteExecResult { results: Array<{ code: string; ok: boolean; 
 export interface BundleReport {
   id: number; code: string; name: string; styleCode: string; shortName: string; status: string;
   components: Array<{ role: string; code: string; name: string; qty: number; weightG: number | null; cost?: number | null; unit?: string; includeInJst?: boolean; isRequired?: boolean; lossRate?: number; costBucket?: string; costTreatment?: string }>;
-  totalWeightG: number; totalCost?: number; pendingRevision: { id: number; reason: string } | null; signature: string; issues: string[];
+  totalWeightG: number; totalCost?: number | null; pendingRevision: { id: number; reason: string } | null; signature: string; issues: string[];
   secondVerification: boolean; baselineMissing: boolean; changes: Change[];
-  outbound: { sku_id: string; i_id: string; name: string; short_name: string; weight: number; cost_price?: number };
+  outbound: { sku_id: string; i_id: string; name: string; short_name: string; weight: number; cost_price?: number | null };
   uploadSignature: string; uploadedCode: string | null; replacing: boolean; jstStatus: string;
 }
 export interface LineInput {

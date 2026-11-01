@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { importingMissingLegacyReason } from '../migration/legacy-state-context';
 import { EntityManager } from 'typeorm';
 import { addDays, normalizePhone, normalizeReconcileDay } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -15,7 +16,7 @@ import { workforceAfterSave, workforceBeforeDelete, workforceBeforeSave } from '
  * 这里只放“只有这一类资料才有”的规则，一条规则一个函数，便于单独测试。
  */
 export interface RuleHost {
-  findByUnique(em: EntityManager, companyId: number, type: string, uniqueKey: string): Promise<ResourceRecord | null>;
+  findByUnique(em: EntityManager, companyId: number, type: string, uniqueKey: string,preferredId?:number): Promise<ResourceRecord | null>;
   /** 走与手工新增完全相同的校验、日志、关联流程 */
   createRecord(
     em: EntityManager,
@@ -97,7 +98,7 @@ async function matchPhone(ctx: BeforeSaveContext, strict: boolean) {
   }
   const number = normalizePhone(String(text));
   ctx.data.phoneNumber = number;
-  const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number);
+  const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number,pickedId??undefined);
   if (!phone) {
     if (strict) throw new BadRequestException(`手机号 ${number} 还没有建档，请先到“手机号”里新增`);
     ctx.data.phoneId = null;
@@ -141,13 +142,20 @@ function selfMediaStores(ctx: BeforeSaveContext) {
 async function abnormalReason(ctx: BeforeSaveContext, lib: string) {
   const typed = typeof ctx.data.abnormalReasonText === 'string' ? ctx.data.abnormalReasonText.trim() : '';
   ctx.data.abnormalReasonText = null;
-  if (ctx.status !== 'abnormal') return;
+  if (ctx.status !== 'abnormal') {
+    if (ctx.existing?.status === 'abnormal' && ctx.existing.data.migrationNotice) ctx.data.migrationNotice = null;
+    return;
+  }
   if (typed) {
     const hit = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, lib, typed);
     const rec = hit ?? (await ctx.host.createRecord(ctx.em, ctx.user, lib, { reason: typed.slice(0, 100) }, '异常原因自动记入库'));
     ctx.data.abnormalReason = rec.id;
   }
-  if (ctx.existing?.status !== 'abnormal' && !ctx.data.abnormalReason) throw new BadRequestException('改为异常必须填写异常原因');
+  if (ctx.existing?.status !== 'abnormal' && !ctx.data.abnormalReason) {
+    if (!ctx.existing && importingMissingLegacyReason(ctx.em, ctx.user.companyId, lib)) ctx.data.migrationNotice = '旧系统已标记异常但未填写原因；迁移保留原状态，请补充真实原因。';
+    else throw new BadRequestException('改为异常必须填写异常原因');
+  }
+  if (ctx.data.abnormalReason && ctx.existing?.data.migrationNotice) ctx.data.migrationNotice = null;
 }
 
 /** 店铺领取：预留/已领取/推广限制必须有运营人；推广限制必须有解除日；批量只给运营人时，公共店铺自动变已领取。 */
@@ -254,21 +262,27 @@ export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Prom
       // 保管人：选了员工就以员工为准，手填姓名只在没选员工时保留
       if (ctx.data.keeperUserId) ctx.data.keeperName = null;
       const last = ctx.data.lastRechargeAt as string | undefined;
-      if (last) {
-        if (!ctx.data.rechargeCycleDays) ctx.data.rechargeCycleDays = 30;
+      const rechargeChanged=!ctx.existing||last!==ctx.existing.data.lastRechargeAt||ctx.data.rechargeCycleDays!==ctx.existing.data.rechargeCycleDays;
+      const nextChanged=ctx.data.nextRechargeAt!==ctx.existing?.data.nextRechargeAt;
+      if (ctx.data.rechargeCycleDays!=null) {
         const cycle = Number(ctx.data.rechargeCycleDays);
-        if (cycle < 1 || cycle > 3650) throw new BadRequestException('充值周期应在 1 到 3650 天之间');
-        ctx.data.nextRechargeAt = addDays(last, cycle);
-      } else if (!isLegacyImport(ctx)) {
-        // 旧系统只记了“下次充值日”、没有最后充值日的号码：迁入时保留旧的下次充值日，不当成空清掉
-        ctx.data.nextRechargeAt = null;
+        if (!Number.isInteger(cycle)||cycle < 1 || cycle > 3650) throw new BadRequestException('充值周期应在 1 到 3650 天之间');
+      }
+      // 原系统的下次充值日可独立维护。迁入不重算、也不为原空周期补30；
+      // 无关编辑保持原日期。普通新建/更改充值依据时，未另改下次日期才推算。
+      if (!isLegacyImport(ctx)&&rechargeChanged&&!nextChanged) {
+        if(last){
+          if(!ctx.data.rechargeCycleDays)ctx.data.rechargeCycleDays=30;
+          ctx.data.nextRechargeAt=addDays(last,Number(ctx.data.rechargeCycleDays));
+        }else ctx.data.nextRechargeAt=null;
       }
       return;
     }
     case 'licenses':
+      if (!ctx.existing && ctx.em.queryRunner?.data.legacyImport && ctx.em.queryRunner.data.legacyLicenseLocationNotice) ctx.data.migrationNotice = ctx.em.queryRunner.data.legacyLicenseLocationNotice;
       checkReconcileDay(ctx.data);
       applySealRules(ctx.data, ctx.existing);
-      syncLocations(ctx.data, ctx.existing);
+      if (!isLegacyImport(ctx)) syncLocations(ctx.data, ctx.existing);
       custodyRules(ctx.data);
       licenseFlags(ctx);
       return;

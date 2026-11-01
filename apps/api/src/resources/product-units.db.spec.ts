@@ -94,4 +94,22 @@ d('单位与规格（真实数据库）', () => {
     await expect(svc.create(boss, 'finance-products', { archiveType: code, name: '另一个', categoryId: cat.id, specQty: 1, specUnit: 'KG' })).rejects.toThrow('档案类型的取值不合法');
     expect((await svc.unitOptions(boss)).archive_type).toBeUndefined();
   });
+  it('组合构成保留发货目录自定义单位，导入导出一致，并阻止删除正在使用的单位', async () => {
+    const unit = await svc.create(boss, 'finance-product-units', { kind: 'shipping_unit', name: '旧包材计量单位', code: 'BAG' });
+    const p = await svc.create(boss, 'finance-products', product({}));
+    const bc = (await svc.list(boss, 'finance-base-codes', { fieldKey: 'productId', fieldValue: p.id } as never)).items[0];
+    await svc.changeStatus(boss, 'finance-base-codes', bc.id, 'verified');
+    const platformId = (await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' })).id;
+    const scenarioId = (await svc.create(boss, 'finance-scenarios', { code: 'standard', name: '标准' })).id;
+    const bundle = await svc.create(boss, 'finance-bundles', { platformId, scenarioId, manualCode: 'TEST-UNIT-BAG', manualName: '保留单位的组合', manualReason: '测试保留原单位' });
+    const line = await svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, baseCodeId: bc.id, role: 'main', qty: 1, unit: 'BAG' });
+    expect(line.data.unit).toBe('BAG');
+    expect((await svc.exportCsv(boss, 'finance-bundle-lines', true)).csv).toContain('旧包材计量单位');
+    const currentBundle = await svc.get(boss, 'finance-bundles', bundle.id);
+    const imported = await svc.importRows(boss, 'finance-bundle-lines', [{ 组合: String(currentBundle.data.code), 基础编码: String(bc.data.code), 用途: '主品', 数量: '1', 单位: '旧包材计量单位' }], true);
+    expect(imported.results[0].errors).toEqual([]);
+    await expect(svc.create(boss, 'finance-bundle-lines', { bundleId: bundle.id, baseCodeId: bc.id, role: 'main', qty: 1, unit: 'UNKNOWN' })).rejects.toThrow('单位的取值不合法');
+    await expect(svc.update(boss, 'finance-product-units', unit.id, { code: 'BAG2' })).rejects.toThrow('组合构成');
+    await expect(svc.remove(boss, 'finance-product-units', unit.id, '停用旧单位')).rejects.toThrow('组合构成');
+  });
 });

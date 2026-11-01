@@ -6,7 +6,7 @@ const errText = (e: unknown) => (e instanceof ApiError ? e.message : '操作失�
 const yuan = (cents: number) => (cents / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const when = (v: string | null) => (v ? new Date(v).toLocaleString('zh-CN') : '—');
 
-type TabKey = 'hr' | 'groups' | 'salary' | 'payroll' | 'reward' | 'penalty' | 'tasks' | 'flows' | 'handover';
+type TabKey = 'hr' | 'assignments' | 'groups' | 'salary' | 'payroll' | 'reward' | 'penalty' | 'tasks' | 'flows' | 'handover';
 
 const SOURCE: Record<string, string> = { manual: '手动加入', position: '岗位自动', import: '导入' };
 const HR_ACTION: Record<string, string> = {
@@ -48,7 +48,7 @@ export function StaffRecordsDialog({ staff, all, canHandover, canSalary, onClose
   }
 
   const tabs: Array<[TabKey, string]> = [
-    ['hr', '人事记录'], ['groups', '职责组'], ...(canSalary ? ([['salary', '薪资变更'], ['payroll', '工资发放'], ['reward', '奖励'], ['penalty', '处罚']] as Array<[TabKey, string]>) : []),
+    ['hr', '人事记录'], ['assignments', '旧站任职履历'], ['groups', '职责组'], ...(canSalary ? ([['salary', '薪资变更'], ['payroll', '工资发放'], ['reward', '奖励'], ['penalty', '处罚']] as Array<[TabKey, string]>) : []),
     ['tasks', '任务'], ['flows', '流程'], ['handover', '交接'],
   ];
   return (
@@ -65,6 +65,13 @@ export function StaffRecordsDialog({ staff, all, canHandover, canSalary, onClose
             <table className="data-table"><thead><tr><th>时间</th><th>事项</th><th>操作人</th></tr></thead>
               <tbody>{data.hrLogs.map((l) => <tr key={l.id}><td>{when(l.createdAt)}</td><td>{HR_ACTION[l.action] ?? l.action}</td><td>{l.actorName ?? '—'}</td></tr>)}</tbody></table>
           ))}
+          {data && tab === 'assignments' && <div>
+            <p className="muted">以下为迁移时旧站的原始任职记录，供查阅；现任岗位在员工档案中维护。</p>
+            {!data.legacyAssignments?.length ? <p className="muted pad">暂无旧站任职记录</p> : <table className="data-table">
+              <thead><tr><th>原登记编号</th><th>原部门</th><th>原岗位</th><th>主/兼任</th><th>开始</th><th>结束</th><th>原状态</th></tr></thead>
+              <tbody>{data.legacyAssignments.map(r=><tr key={r.sourceId}><td>{r.sourceId}</td><td>{r.departmentName}</td><td>{r.positionName}</td><td>{r.isPrimary?'主岗位':'兼任'}</td><td>{r.startedAt??'—'}</td><td>{r.endedAt??'—'}</td><td>{r.status==='active'?'有效':'已停用'}</td></tr>)}</tbody>
+            </table>}
+          </div>}
           {data && tab === 'groups' && (data.dutyGroups.length === 0 ? <p className="muted pad">还没有加入任何职责组（在“资料 → 职责组 → 成员”里维护）</p> : (
             <table className="data-table"><thead><tr><th>职责组</th><th>组内角色</th><th>来源</th><th>加入</th><th>退出</th><th>状态</th></tr></thead>
               <tbody>{data.dutyGroups.map((g) => <tr key={g.id}><td>{g.groupName}</td><td>{g.role ?? '—'}</td><td>{SOURCE[g.source] ?? g.source}</td><td>{g.startedAt ?? '—'}</td><td>{g.endedAt ?? '—'}</td><td>{g.status === 'exited' ? '已退出' : '在组'}</td></tr>)}</tbody></table>

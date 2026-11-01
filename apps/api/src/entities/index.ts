@@ -925,6 +925,7 @@ export class FlowStep {
 @Entity('work_items')
 export class WorkItem {
   @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'store_id', type: 'int', unsigned: true, nullable: true }) storeId!: number | null;
   @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
   @Column({ type: 'varchar', length: 12, default: 'flow' }) kind!: string;
   @Column({ name: 'run_id', type: 'int', unsigned: true, nullable: true }) runId!: number | null;

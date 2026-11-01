@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FLOW_ACTION_LABEL, RUN_STATUS_LABEL, STEP_TYPE_LABEL } from '@kudesi/shared';
+import { FLOW_ACTION_LABEL, RUN_STATUS_LABEL, STEP_TYPE_LABEL, resourcePagePath } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { ReasonDialog, loadRefOptions } from '../../resources/RecordForm';
-import { FlowFieldsForm, FlowValues } from './FlowFields';
+import { FlowFieldsForm } from './FlowFields';
+import { LegacyFlowValues, legacyStatusLabel } from './LegacySkuValues';
 import { RUN_TONE, flowApi, fmtTime, type RunDetailDto } from './flowApi';
 import { copyText, dwell } from './flowUi';
 import { ReturnSpecsDialog } from './ReturnSpecsDialog';
@@ -34,6 +35,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
     flowApi.run(id).then((r) => { setRun(r); setError(''); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')).finally(() => setRefreshing(false));
   }, [id]);
   useEffect(reload, [reload]);
+  useEffect(() => { setForm(run?.initialForm ?? {}); }, [run?.id, run?.activeStep?.id]); // same-step refresh keeps the user's edits
   // 按 Esc 关闭（有子弹窗时先关子弹窗）
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented && !dialog && !editing) onClose(); };
@@ -104,16 +106,37 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                   <button type="button" className="secondary-button" onClick={() => setEditing(null)}>取消修改</button>
                 </div>
               </>
-            ) : <FlowValues fields={run.fields} values={run.payload} labels={run.refLabels} files={run.files} />}
+            ) : <LegacyFlowValues fields={run.fields} values={run.payload} labels={run.refLabels} files={run.files} />}
             {run.templateKey === PURCHASE_TEMPLATE_KEY && !editing && <PurchasePanel runId={run.id} refreshKey={run.revision} onChanged={reload} />}
             {run.templateKey === SKU_TEMPLATE && !editing && <SkuPreview runId={run.id} refreshKey={run.revision} />}
-            {(run.links.docNo || run.links.borrowRecordId) && (
+            {(run.links.docNo || run.links.borrowRecordId || run.links.ledgerHistoryId) && (
               <p className="muted">
+                {run.links.ledgerHistoryId && <a href={`${resourcePagePath('finance-ledger-history')}?open=${run.links.ledgerHistoryId}`}>查看关联收支记录</a>}
                 {run.links.docNo && <>已生成并过账单据 <span className="mono">{run.links.docNo}</span>（在“财务 → 经营历程”查看）。 </>}
                 {run.links.borrowRecordId && <>已登记借用记录（在“资料 → 营业执照”详情里查看）。</>}
               </p>
             )}
           </section>
+
+          {run.legacyHistory&&<details>
+            <summary>迁入前资料（只读）</summary>
+            <p className="muted">旧流程 #{run.legacyHistory.sourceRunId} · 原状态：{legacyStatusLabel(run.legacyHistory.itemStatus??run.legacyHistory.status)} · {fmtTime(run.legacyHistory.createdAt)}</p>
+            {run.legacyHistory.request&&<LegacyFlowValues fields={run.legacyHistory.request.fields} values={run.legacyHistory.request.values}/>}
+            <ol className="timeline">{run.legacyHistory.steps.map(s=><li key={s.stepId}>
+              <strong>{s.name}</strong><div className="muted">进入：{fmtTime(s.enteredAt)}{s.finishedAt&&<> · 办结：{fmtTime(s.finishedAt)}</>}</div>
+              {s.comment&&<p>{s.comment}</p>}
+              <LegacyFlowValues fields={s.fields} values={s.values}/>
+            </li>)}</ol>
+          </details>}
+
+          {!!run.historicalTasks?.length&&<details>
+            <summary>原任务记录（{run.historicalTasks.length}条，只读）</summary>
+            <ol className="timeline">{run.historicalTasks.map(t=><li key={t.id}>
+              <strong>{t.title}</strong><div>原任务 #{t.sourceTaskId} · {t.status==='done'?'已完成':'已取消'} · 负责人：{t.assigneeName}{t.supervisorName&&<> · 监督人：{t.supervisorName}</>}</div>
+              <div className="muted">创建：{fmtTime(t.createdAt)}{t.dueAt&&<> · 截止：{fmtTime(t.dueAt)}</>}{t.submittedAt&&<> · 提交：{fmtTime(t.submittedAt)}</>}{t.finishedAt&&<> · 结束：{fmtTime(t.finishedAt)}</>}</div>
+              {t.completionStandard&&<p>完成标准：{t.completionStandard}</p>}{t.doneNote&&<p>完成记录：{t.doneNote}</p>}
+            </li>)}</ol>
+          </details>}
 
           {run.activeStep && (
             <section>
@@ -165,7 +188,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                   </div>
                   {s.comment && <div>“{s.comment}”</div>}
                   {s.form && Object.keys(s.form).length > 0 && (
-                    <FlowValues fields={(run.stepFields[s.key] ?? []).filter((f) => s.form![f.key] !== undefined)} values={s.form} labels={s.formRefLabels} files={run.files} />
+                    <LegacyFlowValues fields={(run.stepFields[s.key] ?? []).filter((f) => s.form![f.key] !== undefined)} values={s.form} labels={s.formRefLabels} files={run.files} />
                   )}
                 </li>
               ))}
@@ -178,7 +201,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
               <summary>全部操作记录（{run.events.length}）</summary>
               <ul className="event-list">
                 {run.events.map((ev) => (
-                  <li key={ev.id} className="log-item"><strong>{FLOW_ACTION_LABEL[ev.action]}</strong> · {ev.actorName} · <span className="muted">{fmtTime(ev.createdAt)}</span>{ev.note && <div>“{ev.note}”</div>}</li>
+                  <li key={ev.id} className="log-item"><strong>{ev.action==='legacy'?'原操作记录':FLOW_ACTION_LABEL[ev.action]}</strong> · {ev.actorName} · <span className="muted">{fmtTime(ev.createdAt)}</span>{ev.note && <div>“{ev.note}”</div>}</li>
                 ))}
               </ul>
             </details>

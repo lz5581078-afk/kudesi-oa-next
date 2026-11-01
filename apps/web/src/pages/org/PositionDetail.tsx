@@ -75,6 +75,7 @@ export function PositionDetail({ id, tree, positions, catalog, canEdit, onBack, 
       <header className="pd-hero">
         <div>
           <h2>{pos.name}{pos.status === 'inactive' && <span className="pill warn"> 已停用</span>}</h2>
+          {p.legacyName&&<p className="muted" style={{whiteSpace:'pre-wrap'}}>原岗位名：{p.legacyName.name}（原所属部门：{p.legacyName.departmentName}）</p>}
           <small className="muted">{pos.departmentName ?? '未分配部门'} · {LEVEL_LABELS[pos.level]} · {WORKSPACE_LABELS[pos.workspaceType] ?? pos.workspaceType} · 岗位资料、职责和记录</small>
         </div>
         <div className="row-actions">

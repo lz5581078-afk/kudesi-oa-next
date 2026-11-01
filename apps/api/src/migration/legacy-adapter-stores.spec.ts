@@ -35,4 +35,13 @@ describe('迁移适配器：店铺资金', () => {
     expect(of('store-funds').some((r) => r.id === 'legacy-store:3')).toBe(false);
     expect(out.exclusions.some((e) => e.type === 'stores.deposit' && e.id === '3')).toBe(true);
   });
+  it('全量替换保留明确的0与原登记时点；已迁范围不再整类误报，缺时点不编迁移日',async()=>{
+    const full=await readFakeLegacy({companies:[{id:7,name:'测试公司'}],stores:[store(1,{}),store(2,{updated_at:null}),store(3,{updated_at:'2026-02-30 10:00:00'})]},7,{preserveLegacyStates:true});
+    const funds=full.records.filter(r=>r.type==='store-funds');
+    expect(funds).toHaveLength(1);
+    expect(funds[0]).toMatchObject({id:'legacy-store:1',status:'recorded',data:{snapshotDate:'2026-08-15',deposit:0,frozen:0,withdrawable:0,promotion:0,source:'legacy',note:'旧系统档案登记；原档案更新时间：2026-08-15 10:30:00'}});
+    expect(full.exclusions.filter(e=>e.type==='store-funds').map(e=>e.id).sort()).toEqual(['2','3']);
+    expect(full.exclusions.filter(e=>e.type==='store-funds').every(e=>e.reason.includes('不能用迁移日'))).toBe(true);
+    expect(full.sourceRows?.find((r:any)=>r.table==='stores'&&r.key==='1')?.row.updated_at).toBe('2026-08-15 10:30:00');
+  });
 });
