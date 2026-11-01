@@ -1,0 +1,96 @@
+.pp-page .pp-body {
+  gap: 14px;
+}
+.pp-page .pp-departments {
+  flex-basis: 250px;
+}
+.pp-dept-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 0;
+  overflow: auto;
+}
+.pp-dept {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.pp-dept span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pp-dept small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pp-dept:hover {
+  background: var(--hover-bg);
+}
+.pp-dept[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.pp-content {
+  display: flex;
+  flex-direction: column;
+}
+.pp-content > .pd-page {
+  flex: 1;
+}
+.pp-content-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.pp-content .res-bar {
+  flex-wrap: wrap;
+}
+.pp-content .res-search {
+  min-width: 180px;
+  flex: 1 1 240px;
+}
+.pp-content .pp-main {
+  min-width: 0;
+}
+.pp-content .pp-table {
+  min-width: 760px;
+}
+.pp-content .pd-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 28%);
+}
+@media (max-width: 1100px) {
+  .pp-content .pd-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 800px) {
+  .pp-page .pp-body {
+    overflow-y: auto;
+  }
+  .pp-page .pp-departments {
+    flex: none;
+    max-height: 230px;
+  }
+  .pp-page .pp-content {
+    overflow: visible;
+    flex: none;
+  }
+}
+.pp-departments input[type='search'] { border: 1px solid var(--border-strong); border-radius: 6px; padding: 0 10px; background: var(--surface); color: var(--ink); font: inherit; }
+.pp-content .pp-table th:last-child, .pp-content .pp-table td:last-child { width: 180px; }
+.pp-content .pp-actions .row-actions { display: inline-flex; flex-wrap: nowrap; gap: 10px; }

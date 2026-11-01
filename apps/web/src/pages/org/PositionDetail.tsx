@@ -1,3 +1,6 @@
+import { useAuth } from '../../auth/AuthContext';
+import { createChecker } from '@kudesi/shared';
+import { StaffEditorDialog } from './StaffEditorDialog';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import type { CatalogGroup } from '@kudesi/shared';
 import { orgApi, flattenDepartments, LEVEL_LABELS, WORKSPACE_LABELS, DUTY_CATEGORIES, type DepartmentNode, type DutyDto, type PositionDto, type PositionLevel, type PositionProfile } from './orgApi';
@@ -20,6 +23,9 @@ type Dlg = { kind: 'duty'; duty: DutyDto | null; category: string } | { kind: 'o
 export function PositionDetail({ id, tree, positions, catalog, canEdit, onBack, onChanged }: {
   id: number; tree: DepartmentNode[]; positions: PositionDto[]; catalog: CatalogGroup[]; canEdit: boolean; onBack: () => void; onChanged: () => void;
 }) {
+  const {user}=useAuth();
+  const can=user?createChecker(user.permissions):()=>false;
+  const [editingStaff,setEditingStaff]=useState<number|null>(null);
   const [p, setP] = useState<PositionProfile | null>(null);
   const [error, setError] = useState('');
   const [dlg, setDlg] = useState<Dlg>(null);
@@ -123,7 +129,7 @@ export function PositionDetail({ id, tree, positions, catalog, canEdit, onBack, 
           <section className="card pad" aria-label="当前在岗人员">
             <h3 className="section-title">当前在岗人员（{p.staff.filter((s) => s.status === 'active').length}）</h3>
             {p.staff.length === 0 && <p className="muted">暂无在岗人员，到员工页给员工绑定这个岗位。</p>}
-            {p.staff.map((s) => <div key={s.id} className="line-item">{s.name}{s.concurrent && <span className="pill"> 兼任</span>}{s.status !== 'active' && <span className="pill warn"> 已停用</span>}</div>)}
+            {p.staff.map((s) => <div key={s.id} className="line-item"><span>{s.name}{s.concurrent && <span className="pill"> 兼任</span>}{s.status !== 'active' && <span className="pill warn"> 已停用</span>}</span>{can('org.staff.edit')&&can('org.staff.view')&&<button type="button" className="link-button" aria-label={`编辑员工 ${s.name}`} onClick={()=>setEditingStaff(s.id)}>编辑资料</button>}</div>)}
           </section>
           <section className="card pad" aria-label="岗位权限">
             <div className="between"><h3 className="section-title">岗位权限（{p.permissions.length}）</h3>{canEdit && listPos && <button type="button" className="link-button" onClick={() => setDlg({ kind: 'perm' })}>编辑与授权</button>}</div>
@@ -136,6 +142,7 @@ export function PositionDetail({ id, tree, positions, catalog, canEdit, onBack, 
           </section>
         </aside>
       </div>
+      {editingStaff!==null&&<StaffEditorDialog id={editingStaff} onClose={()=>setEditingStaff(null)} onSaved={()=>{setEditingStaff(null);done();}}/>}
       {dlg?.kind === 'duty' && <DutyDialog positionId={id} duty={dlg.duty} category={dlg.category} onClose={() => setDlg(null)} onSaved={done} />}
       {dlg?.kind === 'off' && (
         <ConfirmDialog title={`停用条目「${dlg.duty.title}」`} text="停用后不再显示，变更记录保留，可随时启用。" confirmLabel="确认停用" reasonLabel="停用原因" onClose={() => setDlg(null)}
