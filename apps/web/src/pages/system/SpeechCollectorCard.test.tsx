@@ -33,4 +33,17 @@ describe('OA 采集器语音设置', () => {
     vi.mocked(api).mockRejectedValue(new Error('没有查看权限')); render(<SpeechCollectorCard canEdit />);
     expect((await screen.findByRole('alert')).textContent).toContain('没有查看权限'); expect(screen.queryByText('保存语音设置')).toBeNull();
   });
+  it('可保存2000并发且不重填密钥，重新加载后显示公司已保存的上限', async () => {
+    render(<SpeechCollectorCard canEdit />);
+    const input = await screen.findByLabelText(/公司语音调用并发上限/) as HTMLInputElement;
+    expect(input.max).toBe('2000');
+    fireEvent.change(input, { target: { value: '2000' } });
+    expect(input.checkValidity()).toBe(true);
+    vi.mocked(api).mockResolvedValue({ ...state, maxConcurrent: 2000 });
+    fireEvent.click(screen.getByText('保存语音设置'));
+    await screen.findByRole('status');
+    expect(vi.mocked(api)).toHaveBeenLastCalledWith('/settings/integrations/speech', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ maxConcurrent: 2000, apiKey: undefined, allEmployees: true }) }));
+    cleanup(); render(<SpeechCollectorCard canEdit />);
+    expect((await screen.findByLabelText(/公司语音调用并发上限/) as HTMLInputElement).value).toBe('2000');
+  });
 });
