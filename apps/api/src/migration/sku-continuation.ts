@@ -14,22 +14,17 @@ const processors = ['bundle_sales', 'bundle_fulfillment', 'bundle_review', 'end'
 const keys = ['apply', 'warehouse', 'review', 'end'];
 const types = ['submit', 'execute', 'finance', 'end'] as const;
 
-/** Prepare an existing sales-stage application; never call start(), validate it
- * as a newly submitted application, reset its deadline, or create external work.
- * Invalid historical drafts remain editable with the same validation errors. */
-export function prepareSkuContinuation(c: Context) {
-  for (const r of [c.run, c.batch, c.item]) if (id(r.company_id) !== id(c.sourceCompanyId)) throw new Error('SKU来源公司不一致');
-  if (id(c.item.workflow_instance_id) !== id(c.run.id) || id(c.item.batch_id) !== id(c.batch.id) || id(c.run.template_id) !== id(c.batch.template_id) || id(c.run.requester_id) !== id(c.batch.requester_id)) throw new Error('SKU原申请、规格和流程关联不一致');
-  if (c.run.status !== 'processing' || c.run.graph_status !== 'batch' || !['draft', 'returned'].includes(c.item.status)) throw new Error('此SKU状态尚未验证可续办，不能假设回到申请节点');
-  const nodes: Row[] = json(c.batch.template_snapshot, []);
+/** Map both frozen snapshots and the current source configuration with the
+ * same node/type/path rules. This does not start or advance a business run. */
+export function mapLegacySkuSteps(nodes:Row[],lookup:Context['lookup']):StepDef[]{
   if (!Array.isArray(nodes) || nodes.length !== 4) throw new Error('SKU原节点快照不受支持');
   const need = (type: string, value: unknown): number => {
-    const target = c.lookup(type, value);
+    const target = lookup(type, value);
     if (!Number.isSafeInteger(target) || !target || target < 1) throw new Error(`SKU续办缺少映射：${type}`);
     return target;
   };
   const sourceKeyMap = new Map(nodes.map((node, i) => [node.node_key, keys[i]]));
-  const steps: StepDef[] = nodes.map((node, i) => {
+  return nodes.map((node, i) => {
     const schema = json(node.form_schema, {});
     if ((schema.nodeTemplate || (node.node_type === 'end' ? 'end' : '')) !== processors[i] || node.node_type !== types[i]) throw new Error('SKU原节点业务类型或顺序不同，不能套用新流程');
     const next = json(node.next_node_keys, []);
@@ -48,6 +43,22 @@ export function prepareSkuContinuation(c: Context) {
     if (typeof node.node_name !== 'string' || node.node_name.length > 40) throw new Error('SKU节点名称不能无损写入');
     return { key: keys[i], type: types[i], name: node.node_name, locked: true, ...(assignee ? { assignee } : {}), ...(minutes != null ? { dueMinutes: minutes } : {}), ...(node.reject_to_node_key ? { returnToKey: sourceKeyMap.get(node.reject_to_node_key)! } : {}) };
   });
+}
+
+/** Prepare an existing sales-stage application; never call start(), validate it
+ * as a newly submitted application, reset its deadline, or create external work.
+ * Invalid historical drafts remain editable with the same validation errors. */
+export function prepareSkuContinuation(c: Context) {
+  for (const r of [c.run, c.batch, c.item]) if (id(r.company_id) !== id(c.sourceCompanyId)) throw new Error('SKU来源公司不一致');
+  if (id(c.item.workflow_instance_id) !== id(c.run.id) || id(c.item.batch_id) !== id(c.batch.id) || id(c.run.template_id) !== id(c.batch.template_id) || id(c.run.requester_id) !== id(c.batch.requester_id)) throw new Error('SKU原申请、规格和流程关联不一致');
+  if (c.run.status !== 'processing' || c.run.graph_status !== 'batch' || !['draft', 'returned'].includes(c.item.status)) throw new Error('此SKU状态尚未验证可续办，不能假设回到申请节点');
+  const nodes: Row[] = json(c.batch.template_snapshot, []);
+  const steps=mapLegacySkuSteps(nodes,c.lookup);
+  const need = (type: string, value: unknown): number => {
+    const target = c.lookup(type, value);
+    if (!Number.isSafeInteger(target) || !target || target < 1) throw new Error(`SKU续办缺少映射：${type}`);
+    return target;
+  };
   const active = c.records.filter(r => id(r.workflow_instance_id) === id(c.run.id) && Number(r.is_active) === 1);
   if (active.length !== 1 || active[0].node_key !== nodes[0].node_key || active[0].status !== 'pending' || id(c.run.current_node_id) !== id(nodes[0].id)) throw new Error('SKU实际进度不在原运营节点');
   const declared = json(c.run.active_node_keys, []);

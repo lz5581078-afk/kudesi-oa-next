@@ -54,4 +54,25 @@ async function readLegacyAssignments(connection, workflow, app, requireFromOldAp
   }
   workflow.assignment = { policyHash: crypto.createHash('sha256').update(JSON.stringify(KNOWN)).digest('hex'), functions, picks };
 }
-module.exports = { readLegacyAssignments, resolveLegacyRole };
+async function readCurrentSkuAssignments(connection,workflow,app,requireFromOldApp){
+  const templates=(workflow.tables.workflow_templates||[]).filter(t=>t.related_object_type==='bundle_application'&&t.status==='active');
+  if(!templates.length)return;
+  if(templates.length!==1)throw Error('旧SKU存在多个启用模板，须核对新发起入口');
+  const file=path.join(app,'server/modules/workflows/node-recipients.js'),code=fs.readFileSync(file);
+  const policyHash=crypto.createHash('sha256').update(code).digest('hex');
+  if(policyHash!=='d1423fdd9fe64695155c6484845e478f52f7501dcdf2d10c6e61cb7f2f5d0a54')throw Error('旧SKU选人策略已变化，须重新核对源码');
+  const policy=requireFromOldApp(file),template=templates[0],nodes=(workflow.tables.workflow_template_nodes||[]).filter(n=>String(n.template_id)===String(template.id)).sort((a,b)=>Number(a.node_order)-Number(b.node_order));
+  const query=async(sql,args)=>{
+    if(!/^\s*SELECT\b/i.test(sql)||sql.includes(';'))throw Error('旧SKU权限核对只允许单条只读查询');
+    return (await connection.query(sql,args))[0];
+  };
+  const picks=[];
+  for(const node of nodes){
+    if(['submit','end'].includes(node.node_type))continue;
+    const result=await policy.resolveNodeRecipients(workflow.companyId,node,query);
+    picks.push({nodeId:String(node.id),employeeIds:result.employeeIds.map(String),mode:result.mode,departmentId:result.departmentId==null?null:String(result.departmentId)});
+  }
+  if(!code.equals(fs.readFileSync(file)))throw Error('旧SKU选人策略读取期间发生变化');
+  workflow.currentSku={templateId:String(template.id),policyHash,policyCode:code.toString('utf8'),picks};
+}
+module.exports = { readLegacyAssignments, resolveLegacyRole, readCurrentSkuAssignments };

@@ -399,7 +399,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     }
     if (source.workflow) {
       if (!opts.sourceRowsCrypto) throw new MigrationError('流程历史导入必须提供目标库加密服务');
-      await importWorkflows({ em, crypto: opts.sourceRowsCrypto, companyId: company.id, actorId: actor.id, lookup, register, count, savepoint, safeFailure, fail: (type, id, reason) => out.failures.push({ type, id, reason }), note: (type, id, reason) => out.excluded.push({ type, id, reason }) }, source, source.workflow);
+      await importWorkflows({ em, resources, crypto: opts.sourceRowsCrypto, companyId: company.id, actorId: actor.id, lookup, register, count, savepoint, safeFailure, fail: (type, id, reason) => out.failures.push({ type, id, reason }), note: (type, id, reason) => out.excluded.push({ type, id, reason }) }, source, source.workflow);
     }
     // 旧库已归档的行：最后落成新系统的“已归档”（放在所有引用和文件写入之后，避免被“引用已归档”校验挡住）。
     for (const r of source.records) {

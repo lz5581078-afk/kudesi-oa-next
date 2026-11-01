@@ -8,10 +8,13 @@ import type { LegacyArchive, LegacyWorkflowSource } from './protocol';
 import { importStandaloneTask, importEarlyTask, importLinearTask } from './task-continuation-import';
 import { restoreWorkflowAccess } from './workflow-access';
 import { importClosedFlow } from './closed-flow-import';
+import { importCurrentSkuTemplate } from './current-sku-template';
+import type { ResourcesService } from '../resources/resources.service';
 
 type Row = Record<string, any>;
-export const WORKFLOW_TARGET_TABLE: Record<string, string> = { linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
+export const WORKFLOW_TARGET_TABLE: Record<string, string> = { current_sku_definition:'flow_definitions', linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
 export const workflowHashGroups = (source: LegacyWorkflowSource | undefined): Array<[string, Row[]]> => source ? [
+  ['current_sku_definition',(source.tables.workflow_templates??[]).filter(t=>t.related_object_type==='bundle_application'&&t.status==='active')],
   ['linear_flow_todo', source.tables.workflow_instances ?? []], ['linear_boundary_step', source.tables.workflow_instances ?? []],
   ['legacy_flow_definition', (source.tables.workflow_instances ?? []).filter(r => r.graph_status === 'linear').map(r => ({ ...r, id: `linear:${r.id}` }))],
   ['legacy_flow_template', [{ id: 'linear', model: 'workflow_instances' }]],
@@ -20,7 +23,7 @@ export const workflowHashGroups = (source: LegacyWorkflowSource | undefined): Ar
   ['flow_run', source.tables.workflow_instances ?? []], ['flow_step', source.tables.workflow_node_records ?? []], ['flow_definition', source.tables.workflow_batches ?? []], ['work_item', source.tables.task_instances ?? []], ['early_work_item', source.tables.tasks ?? []], ['early_flow_run', source.tables.workflows ?? []], ['early_flow_step', source.tables.workflows ?? []], ['early_flow_todo', source.tables.workflows ?? []], ['legacy_flow_definition', (source.tables.workflows ?? []).map(r => ({ ...r, id: `early:${r.id}` }))], ['legacy_flow_template', [{ id: 'early', model: 'workflows' }]],
 ] : [];
 interface Context {
-  em: EntityManager; crypto: CryptoService; companyId: number; actorId: number;
+  em: EntityManager; resources:ResourcesService; crypto: CryptoService; companyId: number; actorId: number;
   lookup(type: string, id: unknown): number | undefined;
   register(type: string, sourceId: string, targetId: number): Promise<void>;
   count(which: 'created' | 'reused', type: string): void;
@@ -124,9 +127,24 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
   }
   if (workflow.access) {
     try {
-      const result = await ctx.savepoint(() => restoreWorkflowAccess(ctx.em, { companyId: ctx.companyId, sourceCompanyId: workflow.companyId, actorId: ctx.actorId, source: workflow.access!, lookup: ctx.lookup }));
+      const currentFinanceIds:number[]=[];
+      if(workflow.currentSku){
+        const finance=(workflow.tables.workflow_template_nodes??[]).filter(n=>String(n.template_id)===workflow.currentSku!.templateId&&n.node_type==='finance');
+        for(const node of finance){
+          const pick=workflow.currentSku.picks.find(p=>p.nodeId===String(node.id));
+          if(!pick)throw Error('旧SKU当前财务缺少选人证据');
+          for(const old of pick.employeeIds){const id=ctx.lookup('user',old);if(!id)throw Error('旧SKU当前财务人员未迁入');currentFinanceIds.push(id);}
+        }
+      }
+      const result = await ctx.savepoint(() => restoreWorkflowAccess(ctx.em, { companyId: ctx.companyId, sourceCompanyId: workflow.companyId, actorId: ctx.actorId, source: workflow.access!, currentFinanceIds, lookup: ctx.lookup }));
       for (const _ of result.grants) ctx.count('created', 'workflow-access-grant');
       for (const denied of result.denied) ctx.fail('workflow_access', String(denied.userId), `保留明确禁止项：${denied.permission}；入口或办理资格需核对`);
     } catch (e) { ctx.fail('workflow_access', 'source', e instanceof Error && /^(旧|原)/.test(e.message) ? e.message : ctx.safeFailure(e)); }
-  } else if (rows('workflow_instances').some(r => !CLOSED.has(r.status))) ctx.fail('workflow_access', 'source', '缺少旧系统权限证据，未扩大授权');
+  } else if (workflow.currentSku||rows('workflow_instances').some(r => !CLOSED.has(r.status))) ctx.fail('workflow_access', 'source', '缺少旧系统权限证据，未扩大授权');
+  try{
+    const result=await ctx.savepoint(()=>importCurrentSkuTemplate({...ctx,sourceCompanyId:workflow.companyId},workflow));
+    if(result.created)ctx.count('created','current_sku_definition');
+    if(result.reused)ctx.count('reused','current_sku_definition');
+    if(result.sourceRowReused!==undefined)ctx.count(result.sourceRowReused?'reused':'created','legacy-source-row');
+  }catch(e){ctx.fail('current_sku_definition',workflow.currentSku?.templateId??'current',e instanceof Error&&/^(旧SKU|SKU)/.test(e.message)?e.message:ctx.safeFailure(e));}
 }

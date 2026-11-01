@@ -5,7 +5,7 @@ import type { LegacyWorkflowSource } from './protocol';
 
 /** Restore only capabilities supported by the captured legacy read-only policy.
  * Explicit denies survive. No administrator, cost-edit or external-write grant. */
-export async function restoreWorkflowAccess(em: EntityManager, opts: { companyId: number; sourceCompanyId: number; actorId: number; source: NonNullable<LegacyWorkflowSource['access']>; lookup(type: string, id: unknown): number | undefined }) {
+export async function restoreWorkflowAccess(em: EntityManager, opts: { companyId: number; sourceCompanyId: number; actorId: number; source: NonNullable<LegacyWorkflowSource['access']>; currentFinanceIds?:number[]; lookup(type: string, id: unknown): number | undefined }) {
   if (!em.queryRunner?.isTransactionActive || !em.queryRunner.data.legacyImport || !/^[a-f0-9]{64}$/.test(opts.source.policyHash)) throw new Error('旧权限恢复缺少迁移事务或策略证据');
   const grants: Array<{ userId: number; permission: string }> = [], denied: Array<{ userId: number; permission: string }> = [];
   const members = await em.find(User, { where: { companyId: opts.companyId, status: 'active' } });
@@ -13,7 +13,7 @@ export async function restoreWorkflowAccess(em: EntityManager, opts: { companyId
   for (const task of await em.find(WorkItem, { where: { companyId: opts.companyId, kind: 'task' } })) {
     taskPeople.add(task.assigneeId); if (task.supervisorId) taskPeople.add(task.supervisorId);
   }
-  const financeIds = new Set<number>();
+  const financeIds = new Set<number>(opts.currentFinanceIds??[]);
   for (const run of await em.find(FlowRun, { where: { companyId: opts.companyId, templateKey: 'sku-batch-apply', status: 'running' } })) {
     const review = (run.stepsSnapshot as Array<{ key: string; assignee?: { source: string; id?: number } }>).find(s => s.key === 'review')?.assignee;
     for (const user of members) if ((review?.source === 'employee' && review.id === user.id) || (review?.source === 'department' && review.id === user.departmentId) || (review?.source === 'position' && (review.id === user.positionId || user.extraPositionIds?.includes(review.id!)))) financeIds.add(user.id);

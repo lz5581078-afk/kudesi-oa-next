@@ -8,7 +8,7 @@ const productMapping = require('./product-mapping.cjs');
 const skuMapping = require('./sku-mapping.cjs');
 const { readWorkflowSource } = require('./workflow-source.cjs');
 const { collectSourceRows } = require('./source-row-catalog.cjs');
-const { readLegacyAssignments } = require('./legacy-assignments.cjs');
+const { readLegacyAssignments, readCurrentSkuAssignments } = require('./legacy-assignments.cjs');
 const { readLegacyVerification } = require('./legacy-verification.cjs');
 const { readLegacyWorkspaces } = require('./legacy-workspaces.cjs');
 /** 直播管理的旧表（全部带 company_id，由通用公司范围读取；只读） */
@@ -352,7 +352,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
     // 直播管理：原样交出旧行（金额仍是十进制元字符串），由迁移程序按整数分换算并校验引用；没有直播表的旧库得到空数组
     out.live=Object.fromEntries(LIVE_TABLES.map(t=>[t.replace(/^live_/,''),(tables[t]||[]).map(r=>({...r}))]));
     if(includeWorkflowContinuations){
-      out.workflow=await readWorkflowSource(c,cols,sourceCompanyId);await readLegacyAssignments(c,out.workflow,app,req);out.workflow.catalog={dictionaries:tables.finance_product_code_dictionary||[]};
+      out.workflow=await readWorkflowSource(c,cols,sourceCompanyId);await readLegacyAssignments(c,out.workflow,app,req);await readCurrentSkuAssignments(c,out.workflow,app,req);out.workflow.catalog={dictionaries:tables.finance_product_code_dictionary||[]};
       // Snapshot the old read-only policy result. The new application's runtime
       // never infers a workspace or grants cost access from department names.
       const policyFile=path.join(app,'server/core/employee-profile.js');const before=fs.readFileSync(policyFile);const policy=req(policyFile);
