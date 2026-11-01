@@ -37,3 +37,4 @@
   .finance-code-page .jst-layout { grid-template-columns:minmax(0,1fr); }
   .finance-code-page .card-foot { flex-wrap:wrap; }
 }
+.master-data-import-page section > .data-table { min-width:0; }
