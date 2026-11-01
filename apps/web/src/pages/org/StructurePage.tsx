@@ -1,3 +1,4 @@
+import { StaffEditorDialog } from './StaffEditorDialog';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createChecker, resourceDescription } from '@kudesi/shared';
 import type { CatalogGroup } from '@kudesi/shared';
@@ -35,6 +36,7 @@ export function StructurePage() {
   const [mobileDetail, setMobileDetail] = useState(false);
   const [managing, setManaging] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [editingStaff,setEditingStaff]=useState<number|null>(null);
   useAppbarBare();
   const hasSlot = useHasAppbarSlot();
   const hint = <PageHint text={resourceDescription('org-tree') || '公司、部门、岗位和人员关系；岗位是流程、任务和审批找人的依据。'} />;
@@ -142,7 +144,7 @@ export function StructurePage() {
         </aside>
         <div className={`org-main org-detail-pane${mobileDetail ? ' has-selection' : ''}`}>
           {selected ? (
-            <DepartmentDossier id={selected.id} version={version} canCreateStaff={can('org.staff.create')} canEditPosition={canDo.edit}
+            <DepartmentDossier id={selected.id} version={version} canCreateStaff={can('org.staff.create')} canEditPosition={canDo.edit} onEditStaff={can('org.staff.view')&&can('org.staff.edit')?setEditingStaff:undefined}
               onSelect={(id) => { setSelectedId(id); setExpanded((cur) => new Set([...cur, selected.id])); }} onBack={() => setMobileDetail(false)}
               onAddPosition={canDo.create ? () => setDialog({ kind: 'position', position: null }) : undefined}
               onEditPosition={(pid) => { const p = positions.find((x) => x.id === pid); if (p) setDialog({ kind: 'position', position: p }); }}
@@ -159,6 +161,7 @@ export function StructurePage() {
         </div>
       </div>
 
+      {editingStaff!==null&&<StaffEditorDialog id={editingStaff} onClose={()=>setEditingStaff(null)} onSaved={()=>{setEditingStaff(null);void reload();}}/>}
       {managing && (
         <StructureManager tree={tree} headcount={headcount} posCount={posCount} selectedId={selectedId} can={canDo} message={error} onClose={() => setManaging(false)}
           onSelect={setSelectedId} onAdd={(parent) => setDialog({ kind: 'dept-add', parent })} onEdit={(node) => setDialog({ kind: 'dept-rename', node })}
