@@ -10,6 +10,8 @@ import { restoreWorkflowAccess } from './workflow-access';
 import { importClosedFlow } from './closed-flow-import';
 import { importCurrentSkuTemplate } from './current-sku-template';
 import type { ResourcesService } from '../resources/resources.service';
+import { closedSkuForm, closedSkuPayload } from './closed-sku-forms';
+import { verifyWorkflowView } from './workflow-view-verification';
 
 type Row = Record<string, any>;
 export const WORKFLOW_TARGET_TABLE: Record<string, string> = { current_sku_definition:'flow_definitions', linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
@@ -27,6 +29,7 @@ interface Context {
   lookup(type: string, id: unknown): number | undefined;
   register(type: string, sourceId: string, targetId: number): Promise<void>;
   count(which: 'created' | 'reused', type: string): void;
+  verified(type:string):void;
   savepoint<T>(fn: () => Promise<T>): Promise<T>;
   fail(type: string, id: string, reason: string): void;
   note(type: string, id: string, reason: string): void;
@@ -58,7 +61,7 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
       try{
         const result=await ctx.savepoint(()=>importClosedFlow({...ctx,sourceCompanyId:workflow.companyId,register:async(type,id,target)=>{await ctx.register(type,id,target);ctx.count('created',type);}},workflow,run));
         if(result.reused)ctx.count('reused','flow_run');
-        ctx.note('workflow-history',String(run.id),'原状态与节点只读时间线已落地；原申请/审批表单、结果附件及完整历史任务仍待验收，原文已加密保留');
+        ctx.note('workflow-history',String(run.id),run.graph_status==='batch'?'原状态、节点及SKU申请/核对快照已落地；原业务事件、完整历史任务与结果关联仍待验收，原文已加密保留':'原状态与节点只读时间线已落地；原采购申请/审批表单、结果附件及完整历史任务仍待验收，原文已加密保留');
       }catch(e){ctx.fail('flow_run',String(run.id),e instanceof Error&&e.message.startsWith('旧历史流程')?e.message:ctx.safeFailure(e));}
       continue;
     }
@@ -77,6 +80,8 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
     try {
       await ctx.savepoint(async () => {
         const existed = ctx.lookup('flow_run', run.id);
+        closedSkuPayload(item.payload_json);
+        for(const r of rows('workflow_node_records').filter(r=>String(r.workflow_instance_id)===String(run.id)))closedSkuForm(r.form_payload);
         await importSkuContinuation({ em: ctx.em, crypto: ctx.crypto, companyId: ctx.companyId, lookup: ctx.lookup, register: async (type, id, target) => { await ctx.register(type, id, target); ctx.count('created', type); } }, {
           sourceCompanyId: workflow.companyId, run, item, batch, records: rows('workflow_node_records'), recipients: rows('workflow_node_recipients'), lookup: ctx.lookup,
           scenario: code => {
@@ -147,4 +152,13 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
     if(result.reused)ctx.count('reused','current_sku_definition');
     if(result.sourceRowReused!==undefined)ctx.count(result.sourceRowReused?'reused':'created','legacy-source-row');
   }catch(e){ctx.fail('current_sku_definition',workflow.currentSku?.templateId??'current',e instanceof Error&&/^(旧SKU|SKU)/.test(e.message)?e.message:ctx.safeFailure(e));}
+  for(const [type,sourceRuns] of [['flow_run',rows('workflow_instances')],['early_flow_run',rows('workflows')]] as const)for(const row of sourceRuns){
+    const id=ctx.lookup(type,row.id);if(!id)continue;
+    try{
+      const result=await verifyWorkflowView(ctx.em,ctx.resources,ctx.companyId,id);ctx.verified('workflow-view');
+      if(result.legacySkuHistory)ctx.verified('legacy-sku-history');
+      if(result.costRestricted)ctx.verified('workflow-cost-restricted');
+      if(result.syncRestricted)ctx.verified('workflow-sync-restricted');
+    }catch(e){ctx.fail('workflow_view',`${type}:${row.id}`,ctx.safeFailure(e));}
+  }
 }

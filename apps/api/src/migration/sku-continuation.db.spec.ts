@@ -104,6 +104,7 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     await expect(flow.resubmit(wh, current.id, { revision: current.revision, payload: current.payload })).rejects.toThrow('发起人');
     const visible = await flow.detail(ops, current.id);
     let run = await flow.resubmit(ops, current.id, { revision: current.revision, payload: visible.payload });
+    expect((await ds.manager.findOneByOrFail(FlowRun,{id:run.id,companyId:ops.companyId})).payload._legacySkuItemId).toBe(String(s.item.id));
     expect(run.activeStep?.key).toBe('warehouse');
     expect(run.initialForm).toBeUndefined(); // 运营不能取得仓库办理表单
     const whView = await flow.detail(wh, run.id);
@@ -146,6 +147,9 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     const opts = { companyId: admin.companyId, actorId: admin.id, expectedName: archive.company.name, sourceRowsCrypto: svc.crypto };
     const dry = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: false });
     expect(dry.failures).toEqual([]); expect(dry.excluded.some(e => e.type === 'workflow-history')).toBe(true);
+    expect(dry.verified?.['workflow-view']).toBe(1);
+    const changed=structuredClone(dry);changed.verified!['workflow-view']=2;
+    await expect(runLegacyImport(ds,svc.resources,svc.files,archive,{...opts,apply:true,expectedReport:changed})).rejects.toThrow('本批结果与已核对试迁不一致');
     const phases: string[] = [];
     await expect(runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: true, expectedReport: dry, prepareReport: report => { phases.push(report.phase); } })).rejects.toThrow('未验收排除项');
     expect(phases).toEqual(['apply-rejected-rollback']);

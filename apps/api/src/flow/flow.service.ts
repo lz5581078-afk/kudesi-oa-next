@@ -15,6 +15,7 @@ import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { StepContext, postDeclared } from './flow-adapters';
 import { adapterFor, customFrom, loadTemplate } from './flow-templates';
 import { SELF_OVERDUE_KIND, claimEscalations, claimNotice } from './overdue-notice';
+import { legacySkuHistory } from './legacy-sku-history';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
@@ -698,7 +699,7 @@ export class FlowService {
       await em.update(FlowRun, { id: run.id }, { status: 'cancelled' });
       try { await adapter.validateStart?.({ em, user, payload, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
       // 申请单批次标记是业务痕迹（下划线开头），重新提交不能丢，否则退回又提交的规格会从申请单里掉出去
-      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => BATCH_MARKS.includes(k) || (run.templateKey === 'sku-batch-apply' && k === '_legacyWarehouseDraft')));
+      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => BATCH_MARKS.includes(k) || (run.templateKey === 'sku-batch-apply' && ['_legacyWarehouseDraft','_legacySkuItemId'].includes(k))));
       run.payload = { ...payload, ...kept };
       run.title = await adapter.title(em, run.companyId, payload);
       await em.save(FlowRun, run);
@@ -901,10 +902,12 @@ export class FlowService {
     const adapter = adapterFor(t);
     const ctx = active ? this.stepCtx(em, user, run, active, {}) : null;
     const handledBefore = steps.filter((s) => s.action === 'pass').length;
+    const legacyHistory=await legacySkuHistory(em,this.resources,user,run,steps);
     return {
       id: run.id, templateKey: run.templateKey, templateLabel: t.label, title: run.title, status: run.status, revision: run.revision,
       requesterId: run.requesterId, requesterName: names.get(run.requesterId) ?? '', createdAt: run.createdAt, finishedAt: run.finishedAt, dueAt: run.dueAt,
       payload: Object.fromEntries(Object.entries(run.payload).filter(([k]) => !k.startsWith('_') && !hidden.has(k))), refLabels,
+      ...(legacyHistory?{legacyHistory}:{}),
       files: fileInfos, fields: t.fields.filter((f) => !hidden.has(f.key)), stepFields: visibleStepFields,
       // Unconfirmed migrated warehouse input, scoped to the current handler.
       // It contains mapped material IDs/quantities only, never old cost snapshots.

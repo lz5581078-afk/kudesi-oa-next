@@ -88,7 +88,7 @@ export function prepareSkuContinuation(c: Context) {
   for (const l of raw.laborLines ?? []) warehouse.push({ role: 'labor', laborId: need('finance-labor-costs', l.laborItemId), qty: Number(l.quantity) });
   if (warehouse.some((l: Row) => !Number.isFinite(l.qty))) throw new Error('SKU原仓库草稿数量不合法');
   const legacyWarehouseDraft = warehouse.length || Object.keys(raw.notRequired ?? {}).length || raw.warehouseNote ? { config: [{ lines: warehouse, notRequired: raw.notRequired ?? {} }], ...(raw.warehouseNote ? { note: raw.warehouseNote } : {}) } : undefined;
-  const payload = { batchName: c.batch.title, scenarioId, platformIds, ...(categoryId ? { bundleCategoryId: categoryId } : {}), ...(nativeBrandId ? { brandId: nativeBrandId } : {}), specs: [spec], _batchKey: `legacy-oa:${c.sourceCompanyId}:${c.batch.id}`, ...(legacyWarehouseDraft ? { _legacyWarehouseDraft: legacyWarehouseDraft } : {}) };
+  const payload = { batchName: c.batch.title, scenarioId, platformIds, ...(categoryId ? { bundleCategoryId: categoryId } : {}), ...(nativeBrandId ? { brandId: nativeBrandId } : {}), specs: [spec], _batchKey: `legacy-oa:${c.sourceCompanyId}:${c.batch.id}`, _legacySkuItemId:id(c.item.id), ...(legacyWarehouseDraft ? { _legacyWarehouseDraft: legacyWarehouseDraft } : {}) };
   const recipients = c.recipients.filter(r => id(r.node_record_id) === id(active[0].id)).map(r => need('user', r.employee_id));
   if (!recipients.length && active[0].owner_id) recipients.push(need('user', active[0].owner_id));
   if (!recipients.length) throw new Error('SKU当前冻结办理人缺失');

@@ -26,7 +26,7 @@ function stable(v: unknown): unknown {
   if(v && typeof v === 'object') return Object.fromEntries(Object.entries(v).filter(([k])=>k!=='locator').sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,stable(x)]));
   return v;
 }
-export interface ImportResult { sourceFingerprint: string; phase: string; companyId: number; created: Record<string, number>; reused: Record<string, number>; excluded: Array<{ type: string; id: string; reason: string }>; failures: Array<{ type: string; id: string; reason: string }>; mappings: Array<{ type: string; sourceId: string; targetId: number }>; archived: { total: number; byType: Record<string, number>; skipped: Array<{ type: string; id: string; reason: string }> }; links: { created: number; reused: number; skipped: number; skippedReasons: Record<string, number>; byRelation: Record<string, { created: number; skipped: number }> } }
+export interface ImportResult { verified?:Record<string,number>; sourceFingerprint: string; phase: string; companyId: number; created: Record<string, number>; reused: Record<string, number>; excluded: Array<{ type: string; id: string; reason: string }>; failures: Array<{ type: string; id: string; reason: string }>; mappings: Array<{ type: string; sourceId: string; targetId: number }>; archived: { total: number; byType: Record<string, number>; skipped: Array<{ type: string; id: string; reason: string }> }; links: { created: number; reused: number; skipped: number; skippedReasons: Record<string, number>; byRelation: Record<string, { created: number; skipped: number }> } }
 class MissingRef extends Error {}
 export class MigrationError extends Error {}
 export function safeFailure(e: unknown): string {
@@ -46,7 +46,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   const q = ds.createQueryRunner(); await q.connect(); await q.startTransaction();
   q.data.legacyImport = true;
   const em = q.manager;
-  const out: ImportResult = { sourceFingerprint:'', phase: opts.apply ? 'apply' : 'dry-run-rollback', companyId: opts.companyId, created: {}, reused: {}, excluded: [...source.exclusions], failures: [], mappings: [], archived: { total: 0, byType: {}, skipped: [] }, links: { created: 0, reused: 0, skipped: 0, skippedReasons: {}, byRelation: {} } };
+  const out: ImportResult = { verified:{}, sourceFingerprint:'', phase: opts.apply ? 'apply' : 'dry-run-rollback', companyId: opts.companyId, created: {}, reused: {}, excluded: [...source.exclusions], failures: [], mappings: [], archived: { total: 0, byType: {}, skipped: [] }, links: { created: 0, reused: 0, skipped: 0, skippedReasons: {}, byRelation: {} } };
   const ids = new Map<string, number>();
   const hashes = new Map<string,string>();
   const orgCreated=new Set<string>();
@@ -399,7 +399,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     }
     if (source.workflow) {
       if (!opts.sourceRowsCrypto) throw new MigrationError('流程历史导入必须提供目标库加密服务');
-      await importWorkflows({ em, resources, crypto: opts.sourceRowsCrypto, companyId: company.id, actorId: actor.id, lookup, register, count, savepoint, safeFailure, fail: (type, id, reason) => out.failures.push({ type, id, reason }), note: (type, id, reason) => out.excluded.push({ type, id, reason }) }, source, source.workflow);
+      await importWorkflows({ em, resources, crypto: opts.sourceRowsCrypto, companyId: company.id, actorId: actor.id, lookup, register, count, savepoint, safeFailure, verified:type=>{out.verified![type]=(out.verified![type]??0)+1;}, fail: (type, id, reason) => out.failures.push({ type, id, reason }), note: (type, id, reason) => out.excluded.push({ type, id, reason }) }, source, source.workflow);
     }
     // 旧库已归档的行：最后落成新系统的“已归档”（放在所有引用和文件写入之后，避免被“引用已归档”校验挡住）。
     for (const r of source.records) {
@@ -427,7 +427,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       const prior=opts.expectedReport;
       const nonFiles=(counts:Record<string,number>)=>Object.fromEntries(Object.entries(counts).filter(([k])=>k!=='file').sort(([a],[b])=>a.localeCompare(b)));
       const rowProblems=(r:ImportResult)=>r.failures.filter(f=>{const i=f.type.lastIndexOf('.');const file=i>0&&getResourceDef(f.type.slice(0,i))?.fields.find(x=>x.key===f.type.slice(i+1))?.type==='files';return !prior.phase.startsWith('dry-run')||!file;}).map(f=>[f.type,f.id,f.reason]).sort();
-      if(prior.sourceFingerprint!==out.sourceFingerprint || JSON.stringify(nonFiles(prior.created))!==JSON.stringify(nonFiles(out.created)) || JSON.stringify(nonFiles(prior.reused))!==JSON.stringify(nonFiles(out.reused)) || JSON.stringify(rowProblems(prior))!==JSON.stringify(rowProblems(out))) throw new MigrationError('本批结果与已核对试迁不一致，整批回滚');
+      if(prior.sourceFingerprint!==out.sourceFingerprint || JSON.stringify(nonFiles(prior.created))!==JSON.stringify(nonFiles(out.created)) || JSON.stringify(nonFiles(prior.reused))!==JSON.stringify(nonFiles(out.reused)) || JSON.stringify(nonFiles(prior.verified??{}))!==JSON.stringify(nonFiles(out.verified??{})) || JSON.stringify(rowProblems(prior))!==JSON.stringify(rowProblems(out)) || JSON.stringify(prior.excluded.map(x=>[x.type,x.id,x.reason]).sort())!==JSON.stringify(out.excluded.map(x=>[x.type,x.id,x.reason]).sort())) throw new MigrationError('本批结果与已核对试迁不一致，整批回滚');
     }
     // Full remigration must account for skipped business data, not merely zero
     // insertion errors. Only these two notes already retain native data and

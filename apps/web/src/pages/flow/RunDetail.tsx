@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { FLOW_ACTION_LABEL, RUN_STATUS_LABEL, STEP_TYPE_LABEL, resourcePagePath } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { ReasonDialog, loadRefOptions } from '../../resources/RecordForm';
-import { FlowFieldsForm, FlowValues } from './FlowFields';
+import { FlowFieldsForm } from './FlowFields';
+import { LegacyFlowValues, legacyStatusLabel } from './LegacySkuValues';
 import { RUN_TONE, flowApi, fmtTime, type RunDetailDto } from './flowApi';
 import { copyText, dwell } from './flowUi';
 import { ReturnSpecsDialog } from './ReturnSpecsDialog';
@@ -105,7 +106,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                   <button type="button" className="secondary-button" onClick={() => setEditing(null)}>取消修改</button>
                 </div>
               </>
-            ) : <FlowValues fields={run.fields} values={run.payload} labels={run.refLabels} files={run.files} />}
+            ) : <LegacyFlowValues fields={run.fields} values={run.payload} labels={run.refLabels} files={run.files} />}
             {run.templateKey === PURCHASE_TEMPLATE_KEY && !editing && <PurchasePanel runId={run.id} refreshKey={run.revision} onChanged={reload} />}
             {run.templateKey === SKU_TEMPLATE && !editing && <SkuPreview runId={run.id} refreshKey={run.revision} />}
             {(run.links.docNo || run.links.borrowRecordId || run.links.ledgerHistoryId) && (
@@ -116,6 +117,17 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
               </p>
             )}
           </section>
+
+          {run.legacyHistory&&<details>
+            <summary>迁入前资料（只读）</summary>
+            <p className="muted">旧流程 #{run.legacyHistory.sourceRunId} · 原状态：{legacyStatusLabel(run.legacyHistory.itemStatus??run.legacyHistory.status)} · {fmtTime(run.legacyHistory.createdAt)}</p>
+            {run.legacyHistory.request&&<LegacyFlowValues fields={run.legacyHistory.request.fields} values={run.legacyHistory.request.values}/>}
+            <ol className="timeline">{run.legacyHistory.steps.map(s=><li key={s.stepId}>
+              <strong>{s.name}</strong><div className="muted">进入：{fmtTime(s.enteredAt)}{s.finishedAt&&<> · 办结：{fmtTime(s.finishedAt)}</>}</div>
+              {s.comment&&<p>{s.comment}</p>}
+              <LegacyFlowValues fields={s.fields} values={s.values}/>
+            </li>)}</ol>
+          </details>}
 
           {run.activeStep && (
             <section>
@@ -167,7 +179,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                   </div>
                   {s.comment && <div>“{s.comment}”</div>}
                   {s.form && Object.keys(s.form).length > 0 && (
-                    <FlowValues fields={(run.stepFields[s.key] ?? []).filter((f) => s.form![f.key] !== undefined)} values={s.form} labels={s.formRefLabels} files={run.files} />
+                    <LegacyFlowValues fields={(run.stepFields[s.key] ?? []).filter((f) => s.form![f.key] !== undefined)} values={s.form} labels={s.formRefLabels} files={run.files} />
                   )}
                 </li>
               ))}
