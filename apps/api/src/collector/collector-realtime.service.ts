@@ -91,7 +91,7 @@ export class CollectorRealtimeService implements OnApplicationBootstrap, OnModul
               if (result.kind !== 9) throw new Error('bad vendor kind');
               const body = JSON.parse(result.payload.toString('utf8'));
               if (body.code !== undefined && ![0, 1000, 20000000].includes(body.code)) throw new Error('vendor error');
-              const filtered = safeResult(body);
+              const filtered = safeResult(body, Boolean(result.flags & 2) || (result.sequence ?? 0) < 0);
               if (client.bufferedAmount > 2 * 1024 * 1024) throw new Error('slow client');
               client.send(encodeFrame(Buffer.from(JSON.stringify(filtered)), 9, result.flags, result.sequence));
             } catch { stop(true); }

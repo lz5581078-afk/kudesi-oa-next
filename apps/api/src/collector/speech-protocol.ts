@@ -1,7 +1,6 @@
 import { BadRequestException, BadGatewayException } from '@nestjs/common';
 import { gzipSync, gunzipSync } from 'zlib';
 
-export const FILE_URL = 'https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash';
 export const REALTIME_URL = 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async';
 export const MAX_AUDIO = 120 * 32000 + 4096;
 
@@ -31,13 +30,29 @@ export function pcmWav(encoded: string): Buffer {
   if (!fmt || bytes === 0 || bytes > 120 * 32000 || bytes % 2) throw new BadRequestException('录音须为两分钟以内的 16kHz 单声道 PCM16');
   return b;
 }
+function nativeTime(value: unknown): number | null {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
+  const n = Number(value); return Number.isFinite(n) && n >= 0 ? n : null;
+}
+/** Some realtime first utterances omit their sentence start, while retaining
+ * native word times. Recover from those times; never fabricate a zero or NaN. */
+function utteranceTime(u: any, requireTiming: boolean) {
+  const words = Array.isArray(u?.words) ? u.words : [];
+  const starts = words.map((w: any) => nativeTime(w?.start_time)).filter((n: number | null): n is number => n !== null);
+  const ends = words.map((w: any) => nativeTime(w?.end_time)).filter((n: number | null): n is number => n !== null);
+  const start = nativeTime(u?.start_time) ?? (starts.length ? Math.min(...starts) : null);
+  const end = nativeTime(u?.end_time) ?? (ends.length ? Math.max(...ends) : null);
+  if ((requireTiming || u?.definite === true) && (start === null || end === null || end <= start))
+    throw new BadGatewayException('语音服务未返回有效的原生分句时间');
+  return { start_time: start, end_time: end };
+}
 /** Only recognition text/times pass back; vendor headers, tracebacks and echoes do not. */
-export function safeResult(value: any) {
+export function safeResult(value: any, requireTiming = true) {
   const body = value?.payload_msg ?? value?.body ?? value;
   const r = Array.isArray(body?.result) ? body.result[0] : body?.result;
   if (!r || typeof r !== 'object') throw new BadGatewayException('语音服务返回无效结果');
   const utterances = (Array.isArray(r.utterances) ? r.utterances : []).slice(0, 5000).map((u: any) => ({
-    text: typeof u.text === 'string' ? u.text.slice(0, 10000) : '', start_time: Number(u.start_time), end_time: Number(u.end_time), definite: u.definite === true,
+    text: typeof u?.text === 'string' ? u.text.slice(0, 10000) : '', ...utteranceTime(u, requireTiming), definite: u?.definite === true,
   }));
   return { result: { text: typeof r.text === 'string' ? r.text.slice(0, 100000) : '', utterances } };
 }
