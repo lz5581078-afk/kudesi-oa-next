@@ -185,20 +185,20 @@ export class TaskService {
     const w = where.join(' AND ');
     const [{ n }] = await this.dataSource.query(`SELECT COUNT(*) AS n FROM work_items w WHERE ${w}`, args);
     const rows = await this.dataSource.query(
-      `SELECT w.id, w.title, w.description, w.status, w.due_at AS dueAt, w.created_at AS createdAt, w.finished_at AS finishedAt, w.done_note AS doneNote,
+      `SELECT w.id, w.title, w.description, w.store_id AS storeId, st.title AS storeName, w.status, w.due_at AS dueAt, w.created_at AS createdAt, w.finished_at AS finishedAt, w.done_note AS doneNote,
               w.requires_review AS requiresReview, w.feedback_preset AS feedbackPreset, w.completion_standard AS completionStandard, w.submit_payload AS submitPayload,
               w.submitted_at AS submittedAt, w.review_note AS reviewNote, w.is_abnormal AS isAbnormal, w.assignee_id AS assigneeId, w.supervisor_id AS supervisorId,
               u.name AS assigneeName, sv.name AS supervisorName, cu.name AS creatorName,
               (SELECT d.id FROM task_delay_requests d WHERE d.work_item_id = w.id AND d.status = 'pending' LIMIT 1) AS delayId,
               (SELECT d.requested_due_at FROM task_delay_requests d WHERE d.work_item_id = w.id AND d.status = 'pending' LIMIT 1) AS delayDueAt,
               (SELECT d.reason FROM task_delay_requests d WHERE d.work_item_id = w.id AND d.status = 'pending' LIMIT 1) AS delayReason
-       FROM work_items w JOIN users u ON u.id = w.assignee_id LEFT JOIN users sv ON sv.id = w.supervisor_id LEFT JOIN users cu ON cu.id = w.created_by
+       FROM work_items w JOIN users u ON u.id = w.assignee_id LEFT JOIN users sv ON sv.id = w.supervisor_id LEFT JOIN users cu ON cu.id = w.created_by LEFT JOIN resource_records st ON st.id = w.store_id AND st.company_id = w.company_id AND st.type = 'stores'
        WHERE ${w} ORDER BY w.id DESC LIMIT ? OFFSET ?`, [...args, q.pageSize, (q.page - 1) * q.pageSize]);
     const now = new Date();
     return {
       total: Number(n), page: q.page, pageSize: q.pageSize,
-      rows: rows.map((r: { status: string; dueAt: Date | null; requiresReview: number; isAbnormal: number; submittedAt: Date | null; submitPayload: unknown }) => ({
-        ...r, requiresReview: Number(r.requiresReview) === 1, isAbnormal: Number(r.isAbnormal) === 1,
+      rows: rows.map((r: { status: string; dueAt: Date | null; requiresReview: number; isAbnormal: number; submittedAt: Date | null; submitPayload: unknown; delayId: number | string | null }) => ({
+        ...r, delayId: r.delayId == null ? null : Number(r.delayId), requiresReview: Number(r.requiresReview) === 1, isAbnormal: Number(r.isAbnormal) === 1,
         stage: r.status !== 'open' ? r.status : !r.submittedAt ? 'open' : Number(r.isAbnormal) === 1 ? 'abnormal' : 'reviewing',
         submitPayload: typeof r.submitPayload === 'string' ? JSON.parse(r.submitPayload) : r.submitPayload,
         overdue: r.status === 'open' && !!r.dueAt && r.dueAt < now,

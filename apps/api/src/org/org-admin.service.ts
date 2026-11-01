@@ -1,10 +1,13 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { allGrantableKeys, createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
+import { ResourcesService } from '../resources/resources.service';
+import { legacyPositionName } from './legacy-position-name';
+import { legacyPositionAssignments } from './legacy-position-assignments';
 import { doHandover, handoverCounts, suggestHandoverTarget } from './handover';
 import { AuditLog, Department, EmployeeCompensationRecord, FlowRun, PlatformAdmin, FlowStep, Position, PositionDuty, PositionPermission, ResourceChangeLog, ResourceRecord, TaskRoutine, User, UserPermissionOverride, WorkItem, WorkspaceType } from '../entities';
 
@@ -51,7 +54,7 @@ export interface StaffDto {
 /** 部门、岗位、员工与权限管理。所有查询都带 companyId（取自令牌），所有变更写审计。 */
 @Injectable()
 export class OrgAdminService {
-  constructor(@InjectDataSource() private readonly ds: DataSource) {}
+  constructor(@InjectDataSource() private readonly ds: DataSource,@Optional() private readonly resources?:ResourcesService) {}
 
   private audit(em: EntityManager, actor: AuthUser, action: string, resourceType: string, resourceId: number, detail: Record<string, unknown> | null) {
     return em.save(AuditLog, em.create(AuditLog, { companyId: actor.companyId, actorId: actor.id, action, resourceType, resourceId: String(resourceId), detail }));
@@ -399,6 +402,7 @@ export class OrgAdminService {
       [actor.companyId, String(id), ...dutyIds],
     );
     return {
+      legacyName:await legacyPositionName(em,this.resources,actor,p),
       position: { id: p.id, name: p.name, positionKey: p.positionKey, departmentId: p.departmentId, departmentName: dept?.name ?? null, workspaceType: p.workspaceType, level: p.level, supervisorPositionId: p.supervisorPositionId, supervisorPositionName: sup?.name ?? null, description: p.description, status: p.status },
       duties: duties.map((d) => ({ id: d.id, category: d.category, title: d.title, description: d.description, frequency: d.frequency, relatedModule: d.relatedModule, completionStandard: d.completionStandard, isKey: d.isKey, status: d.status })),
       staff: staff.map((u) => ({ id: u.id, name: u.name, status: u.status, concurrent: u.positionId !== id })),
@@ -711,6 +715,7 @@ export class OrgAdminService {
     const hn = await nameOf(handovers.flatMap((h) => [Number(h.fromUserId), Number(h.detail?.toUserId)]));
     return {
       hrLogs,
+      legacyAssignments:await legacyPositionAssignments(em,this.resources,actor,u),
       salaryChanges, payrollRecords, rewardRecords, penaltyRecords, dutyGroups,
       tasks: items.map((i) => ({ id: i.id, title: i.title, status: i.status, assigneeName: itemNames.get(i.assigneeId) ?? null, createdByName: i.createdBy ? itemNames.get(i.createdBy) ?? null : null, dueAt: i.dueAt, createdAt: i.createdAt })),
       flows: [

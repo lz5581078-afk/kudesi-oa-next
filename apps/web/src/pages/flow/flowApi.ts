@@ -7,22 +7,25 @@ export interface RunRow {
   dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; stepEnteredAt?: string | null;
 }
 export interface RunList { total: number; page: number; pageSize: number; rows: RunRow[] }
-export interface TodoRow { id: number; kind: string; description: string | null; runId: number | null; title: string; stepName: string; enteredVia: string; templateLabel: string; runTitle: string; requesterName: string; dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; feedbackPreset?: string | null; completionStandard?: string | null; requiresReview?: number | boolean; reviewNote?: string | null; status?: string; batchKey?: string | null; batchName?: string | null; batchCount?: number }
+export interface TodoRow { storeId?: number | null; storeName?: string | null; id: number; kind: string; description: string | null; runId: number | null; title: string; stepName: string; enteredVia: string; templateLabel: string; runTitle: string; requesterName: string; dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; feedbackPreset?: string | null; completionStandard?: string | null; requiresReview?: number | boolean; reviewNote?: string | null; status?: string; batchKey?: string | null; batchName?: string | null; batchCount?: number }
 export interface TodoList { total: number; counts: { pending: number; overdue: number; returned: number; cc: number; taskReview?: number }; rows: TodoRow[] }
 export interface RunStep {
   id: number; seq: number; key: string; name: string; type: string; status: string; action: FlowAction | null; comment: string | null; form: Record<string, unknown> | null;
   formRefLabels: Record<string, string>; enteredVia: string; enteredAt: string; finishedAt: string | null; dueAt: string | null; handledByName: string | null; recipients: string[];
 }
 export interface RunDetailDto {
+  historicalTasks?:Array<{id:number;sourceTaskId:string;stepId:number;title:string;status:string;createdAt:string;dueAt:string|null;finishedAt:string|null;submittedAt:string|null;doneNote:string|null;completionStandard:string|null;assigneeName:string;supervisorName:string|null}>;
+  legacyHistory?:{sourceRunId:string;status:string;itemStatus?:string;createdAt:string|null;request?:{fields:FieldDef[];values:Record<string,unknown>};steps:Array<{stepId:number;sourceRecordId:string;name:string;comment:string|null;enteredAt:string|null;finishedAt:string|null;fields:FieldDef[];values:Record<string,unknown>}>};
+  initialForm?: Record<string, unknown>;
   id: number; templateKey: string; templateLabel: string; title: string; status: string; revision: number; requesterId: number; requesterName: string; createdAt: string; finishedAt: string | null; dueAt: string | null;
   payload: Record<string, unknown>; refLabels: Record<string, string>; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; files?: Record<number, { id: number; name: string; mime: string; size: number }>;
   activeSteps?: Array<{ id: number; key: string; name: string; recipients: Array<{ id: number; name: string }>; dueAt: string | null }>;
   activeStep: { id: number; key: string; name: string; type: string; enteredVia: string; dueAt: string | null; recipients: Array<{ id: number; name: string }> } | null;
-  steps: RunStep[]; events: Array<{ id: number; action: FlowAction; note: string | null; actorName: string; createdAt: string }>; ccs: Array<{ userId: number; name: string }>;
-  links: { docId: number | null; docNo: string | null; borrowRecordId: number | null };
+  steps: RunStep[]; events: Array<{ id: number; action: FlowAction|'legacy'; note: string | null; actorName: string; createdAt: string }>; ccs: Array<{ userId: number; name: string }>;
+  links: { ledgerHistoryId?: number; docId: number | null; docNo: string | null; borrowRecordId: number | null };
   me: { canPass: boolean; canReturn: boolean; canCancel: boolean; canReject: boolean; returnBlockedReason: string | null; cancelBlockedReason: string | null; canResubmit: boolean; canWithdraw: boolean; canTransfer: boolean; canAbnormal?: boolean; stepFields: FieldDef[] };
 }
-export interface AssignedRow { id: number; title: string; description: string | null; status: string; dueAt: string | null; createdAt: string; finishedAt: string | null; doneNote: string | null; assigneeName: string; overdue: boolean;
+export interface AssignedRow { storeId?: number | null; storeName?: string | null; id: number; title: string; description: string | null; status: string; dueAt: string | null; createdAt: string; finishedAt: string | null; doneNote: string | null; assigneeName: string; overdue: boolean;
   assigneeId?: number; supervisorId?: number | null; supervisorName?: string | null; creatorName?: string | null; requiresReview?: boolean; feedbackPreset?: string | null; completionStandard?: string | null;
   submitPayload?: Record<string, unknown> | null; submittedAt?: string | null; reviewNote?: string | null; stage?: string; isAbnormal?: boolean; delayId?: number | null; delayDueAt?: string | null; delayReason?: string | null }
 export interface TaskBody { title: string; description?: string; assigneeId?: number; dueDate?: string; supervisorId?: number; requiresReview?: boolean; feedbackPreset?: string; completionStandard?: string }

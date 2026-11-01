@@ -21,10 +21,15 @@ export async function productsUsingUnit(em: EntityManager, companyId: number, ki
   };
   const c = col[kind];
   if (!c || !value) return 0;
-  return em.createQueryBuilder(ResourceRecord, 'r')
+  const products = await em.createQueryBuilder(ResourceRecord, 'r')
     .where("r.companyId = :c AND r.type = 'finance-products'", { c: companyId })
     .andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${c.field}')) = :v ${c.extra ?? ''}`, { v: value })
     .getCount();
+  if (!['spec_unit', 'shipping_unit'].includes(kind)) return products;
+  const lines = await em.createQueryBuilder(ResourceRecord, 'r')
+    .where("r.companyId = :c AND r.type = 'finance-bundle-lines'", { c: companyId })
+    .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.unit')) = :v", { v: value }).getCount();
+  return products + lines;
 }
 
 /** 常用单位用固定编码（克 G、千克 KG…），其它取名称拼音首字母（对照旧系统 suggestUnitCode） */
@@ -61,7 +66,7 @@ export async function beforeUnit(ctx: BeforeSaveContext) {
   const oldValue = coded ? str(existing.data.code) : str(existing.data.name);
   const newValue = coded ? str(data.code) : name;
   if (oldValue !== newValue && (await productsUsingUnit(em, user.companyId, kind, oldValue)) > 0) {
-    throw new BadRequestException(`“${oldValue}”已被商品档案使用，不能改${coded ? '编码' : '名称'}；可以停用后新建一项`);
+    throw new BadRequestException(`“${oldValue}”已被商品档案使用或被组合构成引用，不能改${coded ? '编码' : '名称'}；可以停用后新建一项`);
   }
 }
 
@@ -70,7 +75,7 @@ export async function beforeUnitDelete(ctx: { em: EntityManager; user: { company
   const coded = (PRODUCT_UNIT_CODED_KINDS as readonly string[]).includes(kind);
   const value = coded ? str(ctx.record.data.code) : str(ctx.record.data.name);
   const n = await productsUsingUnit(ctx.em, ctx.user.companyId, kind, value);
-  if (n > 0) throw new BadRequestException(`已被 ${n} 个商品档案使用，不能删除；可以改为停用`);
+  if (n > 0) throw new BadRequestException(`已被 ${n} 条商品档案或组合构成引用，不能删除；可以改为停用`);
 }
 
 export { UNIT_RESOURCE };

@@ -1,5 +1,5 @@
 import { EntityManager } from 'typeorm';
-import { FINANCE_RESOURCE_DEFS, PRODUCT_UNIT_CODED_KINDS, PRODUCT_UNIT_SEEDS, optionsKindOf, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { FINANCE_RESOURCE_DEFS, PRODUCT_UNIT_CODED_KINDS, PRODUCT_UNIT_SEEDS, optionsKindOf, optionsKindsOf, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 
 export const UNIT_RESOURCE = 'finance-product-units';
@@ -30,6 +30,13 @@ const valueOf = (kind: string, i: UnitItem) => (isCoded(kind) ? i.code : i.name)
 export function allowedValues(lists: UnitLists, field: FieldDef, values: Record<string, unknown>): string[] | undefined {
   const kind = optionsKindOf(field, values);
   if (!kind) return undefined;
+  if (field.optionsFrom?.alsoKinds?.length) {
+    const choices = optionsKindsOf(field, values).flatMap((k, i) => {
+      const items = (lists.get(k) ?? []).filter(x => x.active);
+      return i === 0 && !items.length ? (field.options ?? []).map(o => o.value) : items.map(x => valueOf(k, x)).filter(Boolean);
+    });
+    return [...new Set(choices)];
+  }
   const items = (lists.get(kind) ?? []).filter((i) => i.active);
   if (kind === 'archive_type') return items.length > 0 ? [...(field.options ?? []).map((o) => o.value), ...items.map((i) => valueOf(kind, i)).filter(Boolean)] : undefined; // 自定义档案类型是在内置类型之外追加的
   return items.length > 0 ? items.map((i) => valueOf(kind, i)).filter(Boolean) : undefined;
@@ -63,6 +70,14 @@ export function unitValueFromText(lists: UnitLists, kind: string, text: string):
   const items = (lists.get(kind) ?? []).filter((i) => i.active);
   const hit = items.find((i) => i.name === t) ?? items.find((i) => i.code && i.code.toLowerCase() === t.toLowerCase());
   return hit ? valueOf(kind, hit) : undefined;
+}
+export function unitLabelFor(lists: UnitLists, field: FieldDef, values: Record<string, unknown>, value: unknown): string {
+  const v = String(value ?? '');
+  for (const kind of optionsKindsOf(field, values)) {
+    const item = (lists.get(kind) ?? []).find(i => valueOf(kind, i) === v);
+    if (item) return item.name;
+  }
+  return field.options?.find(o => o.value === v)?.label ?? v;
 }
 
 /** 前端下拉用：每个种类的启用项（名称+取值） */

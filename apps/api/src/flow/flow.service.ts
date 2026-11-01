@@ -15,6 +15,8 @@ import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { StepContext, postDeclared } from './flow-adapters';
 import { adapterFor, customFrom, loadTemplate } from './flow-templates';
 import { SELF_OVERDUE_KIND, claimEscalations, claimNotice } from './overdue-notice';
+import { legacySkuHistory } from './legacy-sku-history';
+import { legacyTaskHistory } from './legacy-task-history';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
@@ -175,6 +177,7 @@ export class FlowService {
     this.need(user, 'flow.templates.manage', '没有配置流程的权限');
     const em0 = this.dataSource.manager;
     const t = await this.tpl(em0, user.companyId, key);
+    if (t.legacyReadOnly) throw new BadRequestException('旧流程历史仅供查看，不能改为新流程配置');
     const check = t.custom ? { ...t, fields: schema?.fields ?? t.fields, stepFields: schema?.stepFields ?? t.stepFields, posting: schema ? (schema.posting ?? undefined) : t.posting } : t;
     const errors = t.custom ? validateCustomTemplate(check, steps, escalateUserIds) : validateSteps(t, steps, escalateUserIds);
     if (errors.length) throw new BadRequestException(errors.join('；'));
@@ -217,6 +220,7 @@ export class FlowService {
       if (!draft) throw new BadRequestException('没有可发布的草稿，请先保存配置');
       const steps = draft.steps as StepDef[];
       const builtin = await this.tpl(em, user.companyId, key, draft.id);
+      if (builtin.legacyReadOnly) throw new BadRequestException('旧流程历史仅供查看，不能发布');
       const t = builtin.custom ? customFrom((await em.findOne(FlowTemplateRow, { where: { companyId: user.companyId, templateKey: key } }))!, draft) : builtin;
       const errors = t.custom ? validateCustomTemplate(t, steps, draft.escalateUserIds) : validateSteps(t, steps, draft.escalateUserIds);
       if (errors.length) throw new BadRequestException(errors.join('；'));
@@ -373,7 +377,15 @@ export class FlowService {
   }
 
   private async myOpenItem(em: EntityManager, user: AuthUser, step: FlowStep) {
-    return em.findOne(WorkItem, { where: { companyId: user.companyId, stepId: step.id, assigneeId: user.id, status: 'open' } });
+    const item = await em.findOne(WorkItem, { where: { companyId: user.companyId, stepId: step.id, assigneeId: user.id, status: 'open' } });
+    if (item) return item;
+    // Some original linear nodes deliberately have no task. Only their frozen
+    // recipients may act; a missing todo in an ordinary flow still denies access.
+    if (step.companyId !== user.companyId || step.status !== 'active' || !step.recipients.includes(user.id)) return null;
+    const run = await em.findOneBy(FlowRun, { id: step.runId, companyId: user.companyId, status: 'running' });
+    if (!run) return null;
+    const adapter = adapterFor(await this.runTpl(em, run));
+    return adapter.canHandleWithoutTodo?.({ em, run, stepKey: step.stepKey }) ? true : null;
   }
 
   // ================= 发起 =================
@@ -472,8 +484,9 @@ export class FlowService {
     });
     const stepId = Number(ins.identifiers[0].id);
     const label = via === 'return' ? `【被退回】${run.title}` : via === 'exception' ? `【异常】${run.title}` : run.title;
-    for (const uid of recipients) {
-      await em.insert(WorkItem, { companyId: run.companyId, kind: 'flow', runId: run.id, stepId, assigneeId: uid, title: `${def.name} · ${label}`.slice(0, 200), status: 'open', dueAt: due });
+    const taskContext = await adapter.stepWorkItem?.({ em, run, stepKey: def.key });
+    for (const uid of taskContext === false ? [] : recipients) {
+      await em.insert(WorkItem, { companyId: run.companyId, kind: 'flow', runId: run.id, stepId, assigneeId: uid, title: `${def.name} · ${label}`.slice(0, 200), status: 'open', dueAt: due, ...taskContext });
     }
     await this.notify(em, run.companyId, recipients, { kind: via === 'return' ? 'returned' : 'todo', title: via === 'return' ? `被退回：${run.title}` : via === 'exception' ? `异常待处理：${run.title}` : `新待办：${run.title}`, body: `步骤：${def.name}`, link: `/workbench/todos?run=${run.id}` }, run);
     for (const uid of def.ccUserIds ?? []) {
@@ -687,7 +700,7 @@ export class FlowService {
       await em.update(FlowRun, { id: run.id }, { status: 'cancelled' });
       try { await adapter.validateStart?.({ em, user, payload, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
       // 申请单批次标记是业务痕迹（下划线开头），重新提交不能丢，否则退回又提交的规格会从申请单里掉出去
-      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => BATCH_MARKS.includes(k)));
+      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => BATCH_MARKS.includes(k) || (run.templateKey === 'sku-batch-apply' && ['_legacyWarehouseDraft','_legacySkuItemId'].includes(k))));
       run.payload = { ...payload, ...kept };
       run.title = await adapter.title(em, run.companyId, payload);
       await em.save(FlowRun, run);
@@ -890,17 +903,24 @@ export class FlowService {
     const adapter = adapterFor(t);
     const ctx = active ? this.stepCtx(em, user, run, active, {}) : null;
     const handledBefore = steps.filter((s) => s.action === 'pass').length;
+    const legacyHistory=await legacySkuHistory(em,this.resources,user,run,steps);
+    const historicalTasks=await legacyTaskHistory(em,user,run);
     return {
       id: run.id, templateKey: run.templateKey, templateLabel: t.label, title: run.title, status: run.status, revision: run.revision,
       requesterId: run.requesterId, requesterName: names.get(run.requesterId) ?? '', createdAt: run.createdAt, finishedAt: run.finishedAt, dueAt: run.dueAt,
       payload: Object.fromEntries(Object.entries(run.payload).filter(([k]) => !k.startsWith('_') && !hidden.has(k))), refLabels,
+      ...(legacyHistory?{legacyHistory}:{}),
+      ...(historicalTasks.length?{historicalTasks}:{}),
       files: fileInfos, fields: t.fields.filter((f) => !hidden.has(f.key)), stepFields: visibleStepFields,
+      // Unconfirmed migrated warehouse input, scoped to the current handler.
+      // It contains mapped material IDs/quantities only, never old cost snapshots.
+      initialForm: mine && run.templateKey === 'sku-batch-apply' && active?.stepKey === 'warehouse' ? (run.payload._legacyWarehouseDraft as Record<string, unknown> | undefined) : undefined,
       activeSteps: activeAll.length > 1 ? activeAll.map((a) => ({ id: a.id, key: a.stepKey, name: a.stepName, recipients: a.recipients.map((u) => ({ id: u, name: names.get(u) ?? '' })), dueAt: a.dueAt })) : [],
       activeStep: active ? { id: active.id, key: active.stepKey, name: active.stepName, type: active.stepType, enteredVia: active.enteredVia, dueAt: active.dueAt, recipients: active.recipients.map((u) => ({ id: u, name: names.get(u) ?? '' })) } : null,
       steps: steps.map((s) => ({ id: s.id, seq: s.seq, key: s.stepKey, name: s.stepName, type: s.stepType, status: s.status, action: s.action, comment: s.comment, form: s.form && stepHidden.get(s.stepKey)?.size ? this.without(s.form, stepHidden.get(s.stepKey)!) : s.form, formRefLabels: stepRefLabels[s.id] ?? {}, enteredVia: s.enteredVia, enteredAt: s.enteredAt, finishedAt: s.finishedAt, dueAt: s.dueAt, handledByName: s.handledBy ? names.get(s.handledBy) ?? '' : null, recipients: s.recipients.map((u) => names.get(u) ?? '') })),
       events: events.map((e) => ({ id: e.id, action: e.action, note: e.note, actorName: names.get(e.actorId) ?? '', createdAt: e.createdAt })),
       ccs: ccs.map((c) => ({ userId: c.userId, name: names.get(c.userId) ?? '' })),
-      links: { docId: typeof run.payload._docId === 'number' ? run.payload._docId : null, docNo: str(run.payload._docNo) || null, borrowRecordId: typeof run.payload._borrowRecordId === 'number' ? run.payload._borrowRecordId : null },
+      links: { ...(typeof run.payload._ledgerHistoryId === 'number' && this.can(user, 'resource.finance-ledger-history.view') ? { ledgerHistoryId: run.payload._ledgerHistoryId } : {}), docId: typeof run.payload._docId === 'number' ? run.payload._docId : null, docNo: str(run.payload._docNo) || null, borrowRecordId: typeof run.payload._borrowRecordId === 'number' ? run.payload._borrowRecordId : null },
       me: {
         canPass: running && !!mine && active!.stepType !== 'submit',
         canReturn: running && !!mine && active!.stepType !== 'submit' && steps.some((s) => s.status !== 'active') && !adapter.returnBlocked?.(ctx!),
@@ -988,12 +1008,12 @@ export class FlowService {
     if (q.tab !== 'done') args.push(...nowArg(q.tab), ...nowArg(q.tab));
     const kw = q.keyword?.trim();
     if (kw) { cond += ' AND (w.title LIKE ? OR r.title LIKE ? OR w.description LIKE ?)'; const like = `%${kw.replace(/[\\%_]/g, '\\$&')}%`; args.push(like, like, like); }
-    const from = `FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id LEFT JOIN flow_runs r ON r.id = w.run_id LEFT JOIN users u ON u.id = r.requester_id LEFT JOIN users cu ON cu.id = w.created_by WHERE ${base} AND ${cond}`;
+    const from = `FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id LEFT JOIN flow_runs r ON r.id = w.run_id LEFT JOIN users u ON u.id = r.requester_id LEFT JOIN users cu ON cu.id = w.created_by LEFT JOIN resource_records st ON st.id = w.store_id AND st.company_id = w.company_id AND st.type = 'stores' WHERE ${base} AND ${cond}`;
     const [{ n }] = await this.dataSource.query(`SELECT COUNT(*) AS n ${from}`, args);
     const groupCount = q.tab === 'done' ? 'NULL' : `(SELECT COUNT(*) FROM work_items w3 JOIN flow_steps s3 ON s3.id = w3.step_id JOIN flow_runs r3 ON r3.id = w3.run_id
         WHERE ${BK('r')} IS NOT NULL AND w3.company_id = w.company_id AND w3.assignee_id = w.assignee_id AND r3.template_key = r.template_key AND ${BK('r3')} = ${BK('r')} AND s3.step_key = s.step_key AND ${tabCond('w3', 's3', q.tab)})`;
     const rows = await this.dataSource.query(
-      `SELECT w.id, w.kind, w.routine_id AS routineId, w.run_id AS runId, w.title, w.description, w.status, w.due_at AS dueAt, w.created_at AS createdAt, w.finished_at AS finishedAt,
+      `SELECT w.id, w.kind, w.routine_id AS routineId, w.run_id AS runId, w.title, w.description, w.store_id AS storeId, st.title AS storeName, w.status, w.due_at AS dueAt, w.created_at AS createdAt, w.finished_at AS finishedAt,
               w.feedback_preset AS feedbackPreset, w.completion_standard AS completionStandard, w.requires_review AS requiresReview, w.review_note AS reviewNote, w.supervisor_id AS supervisorId, s.step_name AS stepName, s.entered_via AS enteredVia, r.template_key AS templateKey, COALESCE(r.title, w.title) AS runTitle, COALESCE(u.name, cu.name) AS requesterName,
               ${BK('r')} AS batchKey, JSON_UNQUOTE(JSON_EXTRACT(r.payload, '$.batchName')) AS batchName, ${groupCount} AS batchCount
        ${from} ORDER BY ${q.tab === 'done' ? 'w.finished_at DESC' : 'w.due_at IS NULL, w.due_at ASC, w.id DESC'} LIMIT ? OFFSET ?`,

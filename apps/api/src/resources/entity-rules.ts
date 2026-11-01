@@ -1,3 +1,4 @@
+import { applyLegacyTaxIssue } from '../migration/legacy-tax-context';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { normalizePhone, normalizeReconcileDay, todayShanghai } from '@kudesi/shared';
@@ -236,6 +237,7 @@ export const CERT_BEFORE_SAVE: Record<string, Before> = {
     }
     if (!d.taxCategory) d.taxCategory = 'operation';
     if (!d.taxpayerName) throw new BadRequestException('纳税人名称不能为空');
+    applyLegacyTaxIssue(ctx.em, ctx.user.companyId, ctx.existing, d);
   },
 
   'bank-accounts': async (ctx) => {
@@ -246,7 +248,7 @@ export const CERT_BEFORE_SAVE: Record<string, Before> = {
     const reserved = d.reservedPhoneNumber;
     if (reserved) {
       const number = normalizePhone(String(reserved));
-      const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number);
+      const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number,typeof d.phoneId==='number'?d.phoneId:undefined);
       if (phone) d.phoneId = phone.id;
     }
     // 选了手机号档案、没填文字时，文字按档案回写

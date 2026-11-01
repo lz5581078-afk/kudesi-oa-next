@@ -1,3 +1,4 @@
+import { TaskStoreLink } from './TaskStoreLink';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api/client';
@@ -85,7 +86,7 @@ export function MyTodosPage() {
                   ? <><button type="button" className="link-button" onClick={() => setParams({ batch: r.batchKey! })}>{r.enteredVia === 'return' && <span className="pill warn">被退回</span>} {r.batchName || r.runTitle}</button><span className="sub-line">{r.batchCount} 个规格待{r.enteredVia === 'return' ? '修改' : '办理'}，点开可批量处理</span></>
                   : r.runId
                   ? <button type="button" className="link-button" onClick={() => setParams({ run: String(r.runId) })}>{r.enteredVia === 'return' && <span className="pill warn">被退回</span>} {r.runTitle}</button>
-                  : <><strong>{r.runTitle}</strong>{r.description && <span className="sub-line">{r.description}</span>}{r.completionStandard && <span className="sub-line">完成标准：{r.completionStandard}</span>}{r.reviewNote && <span className="sub-line late-text">复核意见：{r.reviewNote}</span>}</>}</td>
+                  : <><strong>{r.runTitle}</strong><TaskStoreLink storeId={r.storeId} storeName={r.storeName} />{r.description && <span className="sub-line">{r.description}</span>}{r.completionStandard && <span className="sub-line">完成标准：{r.completionStandard}</span>}{r.reviewNote && <span className="sub-line late-text">复核意见：{r.reviewNote}</span>}</>}</td>
                 <td data-label="类型">{r.templateLabel}</td>
                 <td data-label="当前步骤">{r.stepName ?? ''}</td>
                 <td data-label="发起人">{r.requesterName}</td>

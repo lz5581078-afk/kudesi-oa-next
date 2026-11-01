@@ -123,6 +123,7 @@ export function permissionCatalog(): CatalogGroup[] {
     for (const d of defs) {
       const hasSecret = d.fields.some((f) => f.type === 'secret' || f.type === 'sensitive');
       for (const a of RESOURCE_ACTIONS) {
+        if (d.readOnly && !['view', 'export'].includes(a)) continue;
         if (a === 'secret' && !hasSecret) continue;
         items.push({ key: resourcePermission(d.key, a), label: `${d.label}：${ACTION_LABEL[a]}` });
       }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { unitYuanText } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { ChangeTable } from './BaseCodeDialogs';
@@ -222,7 +223,7 @@ export function BundleVerifyDialog({ ids, isAdmin, onClose, onDone }: { ids: num
                 <thead><tr><th>用途</th><th>基础编码</th><th>名称</th><th className="num">数量</th><th>单位</th><th>进聚水潭</th><th className="num">损耗率%</th><th className="num">重量(克)</th>{cur.totalCost !== undefined && <th className="num">成本(分)</th>}</tr></thead>
                 <tbody>{cur.components.map((c, i) => <tr key={i}><td>{role(c.role)}</td><td>{c.code}</td><td>{c.name}</td><td className="num">{c.qty}</td><td>{c.unit || '—'}</td><td>{c.includeInJst ? '是' : '否'}</td><td className="num">{c.lossRate ?? 0}</td><td className="num">{c.weightG ?? '—'}</td>{cur.totalCost !== undefined && <td className="num">{c.cost ?? '—'}</td>}</tr>)}</tbody>
               </table>
-              <p>合计重量 {cur.totalWeightG} 克{cur.totalCost !== undefined ? `，合计成本 ${(cur.totalCost / 100).toFixed(2)} 元` : ''}</p>
+              <p>合计重量 {cur.totalWeightG} 克{cur.totalCost !== undefined ? `，合计成本 ${cur.totalCost === null ? '—' : unitYuanText(cur.totalCost)} 元` : ''}</p>
               {cur.secondVerification && (<><h4>二次验证：和上次相比改了什么</h4><ChangeTable changes={cur.changes} baselineMissing={cur.baselineMissing} /></>)}
               <h4>实际上传到聚水潭的资料</h4>
               <table className="data-table"><tbody>

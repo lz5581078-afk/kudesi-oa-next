@@ -67,6 +67,9 @@ export interface FlowAdapter {
   onResubmit?(ctx: StartContext & { run: FlowRun }): Promise<void>;
   /** 业务日期型截止（如预计归还日）；返回 null 表示按定义里的时限 */
   stepDueAt?(stepKey: string, payload: Record<string, unknown>): Date | null;
+  /** Frozen source task policy for imported steps; ordinary templates use the default todo. */
+  stepWorkItem?(ctx: { em: EntityManager; run: FlowRun; stepKey: string }): Promise<false | { supervisorId?: number; storeId?: number }>;
+  canHandleWithoutTodo?(ctx: { em: EntityManager; run: FlowRun; stepKey: string }): boolean;
   beforePass?(ctx: StepContext): Promise<void>;
   onPass?(ctx: StepContext): Promise<void>;
   /** 返回不能退回的原因；null 表示可以退回 */

@@ -8,6 +8,17 @@ const rules = require('../../../../scripts/migration/mapping-rules.json');
 
 const defs = RESOURCE_DEFS as never;
 
+describe('旧组合构成显式选项', () => {
+  it('保留包装上传、非必需、原单位、损耗、成本处理、次序、有效期和说明', () => {
+    expect(mapping.bundleLineExtras({ role: 'package', is_required: 0, include_in_jst_bundle: 1, loss_rate: '0.1250', cost_bucket: 'shipping_package', cost_treatment: 'reference_only', sort_order: 7, effective_from: '2026-01-01', effective_to: '2026-12-31', remark: '原组成说明' }, 'EA')).toEqual({ unit: 'EA', lossRate: 0.125, isRequired: false, includeInJst: true, costBucket: 'shipping_package', costTreatment: 'reference_only', sortOrder: 7, effectiveFrom: '2026-01-01', effectiveTo: '2026-12-31', note: '原组成说明' });
+    expect(mapping.bundleLineExtras({ role: 'main', is_required: 1, include_in_jst_bundle: 0 }, 'G')).toMatchObject({ isRequired: true, includeInJst: false, unit: 'G' });
+  });
+  it('缺少来源选项时不按用途猜测上传和必需', () => {
+    expect(() => mapping.bundleLineExtras({ is_required: 1 }, 'G')).toThrow('无法对应');
+    expect(() => mapping.bundleLineExtras({ is_required: null, include_in_jst_bundle: 1 }, 'G')).toThrow('无法对应');
+  });
+});
+
 describe('旧单位表 → 新“单位与规格”', () => {
   const tables = {
     finance_product_units: [
@@ -100,5 +111,45 @@ describe('映射规则表', () => {
 
   it('专属品不凭空补授权：按人工核对清单排除', () => {
     expect(r['finance-product-exclusives'].policy).toBe('review-exclusive');
+  });
+});
+
+
+describe('空库全量迁移的历史单位与排序', () => {
+  it('组合分类字典独立迁入，父级及状态保留，不和商品分类的数字ID合并', () => {
+    const records = mapping.bundleCategoryRecords({ finance_product_code_dictionary: [
+      { id: 92, dictionary_type: 'bundle_category', item_name: '组合根', item_code: 'ZH', status: 'active', sort_order: -1 },
+      { id: 102, parent_id: 92, dictionary_type: 'bundle_category', item_name: '组合叶', item_code: 'ZHY', status: 'inactive' },
+      { id: 93, dictionary_type: 'product_category' },
+    ] });
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({ id: 'bundle-dict:92', data: { archiveType: 'bundle', code: 'ZH', sort: 0 } });
+    expect(records[1]).toMatchObject({ status: 'inactive', data: { parentId: { legacyRef: { type: 'finance-categories', id: 'bundle-dict:92' } } } });
+    expect(() => mapping.bundleCategoryRecords({ finance_product_code_dictionary: [{ id: 1, parent_id: 9, dictionary_type: 'bundle_category', status: 'active' }] })).toThrow('父级');
+  });
+  it('尺寸规格转换所用的计价单位也进入发货物料字典，不混入其他种类', () => {
+    const cat = mapping.buildUnitCatalog({ defs, tables: { finance_products: [
+      { archive_key: 'shipping_material', amount: '80mmx60m', unit: '毫米', payload: { purchaseSpecification: '张' } },
+      { archive_key: 'raw', amount: '1', unit: '克', payload: { purchaseSpecification: '斤' } },
+    ] }, payloadOf: (r: { payload: object }) => r.payload });
+    expect(cat.codeOf('shipping_unit', '张')).toBeTruthy();
+    expect(cat.codeOf('shipping_unit', '毫米')).toBeTruthy();
+    expect(cat.codeOf('spec_unit', '张')).toBeUndefined();
+    expect(cat.codeOf('spec_unit', '斤')).toBeUndefined();
+  });
+  it('档案用到但单位表没有的名称仍建目录，已存编码不重复创建单位', () => {
+    const cat = mapping.buildUnitCatalog({defs,tables:{finance_product_units:[{id:1,unit_name:'克',unit_code:'G'}],finance_products:[{archive_key:'raw',unit:'G'},{archive_key:'raw',unit:'个'},{archive_key:'raw',unit:'历史自定义单位'},{archive_key:'shipping_material',unit:'个',payload:{productPackagingUnit:'盒'}}]},payloadOf:(r:{payload?:object})=>r.payload||{}});
+    expect(cat.codeOf('spec_unit','G')).toBe('G');
+    expect(cat.records.filter((r:{data:{kind:string;code:string}})=>r.data.kind==='spec_unit'&&r.data.code==='G')).toHaveLength(1);
+    expect(cat.codeOf('spec_unit','个')).toBe('EA');
+    expect(cat.codeOf('shipping_unit','个')).toBe('EA');
+    expect(cat.records.some((r:{data:{name:string}})=>r.data.name==='历史自定义单位')).toBe(true);
+    expect(cat.codeOf('packaging_unit','盒')).toBeTruthy();
+  });
+  it('负数排序转换为非负序位，保留先后与并列时的ID顺序，不改原行', () => {
+    const rows=[{id:'10',sort_order:-1},{id:'2',sort_order:-1},{id:'3',sort_order:0},{id:'1',sort_order:100}];
+    expect([...mapping.nonnegativeSortRanks(rows)]).toEqual([['2',0],['10',1],['3',2],['1',3]]);
+    expect(rows[0].sort_order).toBe(-1);
+    expect(()=>mapping.nonnegativeSortRanks([{id:1,sort_order:'invalid'}])).toThrow();
   });
 });

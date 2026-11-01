@@ -4,6 +4,7 @@ import { COST_BUCKETS, FINANCE_RESOURCE_DEFS, todayInChina } from '@kudesi/share
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import type { BeforeSaveContext, RuleHost } from './resource-rules';
+import { importingCostHistory } from '../migration/cost-history-context';
 
 /**
  * 档案级成本记录（旧系统 finance_product_archive_costs）与运费历史（finance_product_freight_history）。
@@ -46,6 +47,7 @@ export async function beforeProductCost(ctx: BeforeSaveContext): Promise<void> {
   const { em, host, user, data, existing, status } = ctx;
   const product = await rec(em, user.companyId, 'finance-products', data.productId);
   if (!product) throw new BadRequestException('商品档案不存在');
+  const importingHistory = !existing && importingCostHistory(em, user.companyId, product.id);
   if (existing && existing.data.productId !== data.productId) throw new BadRequestException('成本记录不能换到别的商品档案');
   const cost = num(data.unitCost);
   if (cost === null || cost < 0) throw new BadRequestException('单位成本必须是非负数');
@@ -54,12 +56,12 @@ export async function beforeProductCost(ctx: BeforeSaveContext): Promise<void> {
   if (to && to < from) throw new BadRequestException('生效结束不能早于生效开始');
   if (!str(data.sourceType)) data.sourceType = 'manual';
   // 只有系统自动同步能写“商品档案采购价同步”，手工不能冒充
-  if (data.sourceType === 'archive_purchase_price' && !em.queryRunner?.data.costSync && existing?.data.sourceType !== 'archive_purchase_price') throw new BadRequestException('这个来源只能由系统自动写入');
+  if (data.sourceType === 'archive_purchase_price' && !importingHistory && !em.queryRunner?.data.costSync && existing?.data.sourceType !== 'archive_purchase_price') throw new BadRequestException('这个来源只能由系统自动写入');
   if (data.manualOverride === true) {
     if (!str(data.manualLockReason).trim()) throw new BadRequestException('锁定此成本时必须填写锁定原因');
   } else { delete data.manualOverride; delete data.manualLockReason; }
   if (!str(data.unitName).trim()) data.unitName = str(product.data.purchaseSpec) || specUnitLabel(product.data.specUnit);
-  if (status === 'active') {
+  if (status === 'active' && !importingHistory) {
     for (const r of await host.findWhere(em, user.companyId, 'finance-product-costs', 'productId', product.id)) {
       if (r.id === existing?.id || r.status !== 'active' || r.data.costType !== data.costType) continue;
       if (overlaps(from, to, str(r.data.effectiveFrom), str(r.data.effectiveTo) || null)) throw new BadRequestException('同一档案和成本类型已存在生效日期重叠的记录');

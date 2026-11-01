@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resourceApi } from './api';
@@ -33,7 +33,7 @@ describe('基础资料首页页头：页面名称只出现一处', () => {
     vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 3, page: 1, pageSize: 1, tabCounts: { raw: 2 } } as never);
     render(<MemoryRouter><ArchiveHome type="finance-products" onEnter={() => undefined} /></MemoryRouter>);
     const card = (await screen.findByText('原料档案')).closest('.hier-card') as HTMLElement;
-    expect(card.querySelector('.hier-card-top')?.textContent).toContain('2');
+    await waitFor(() => expect(card.querySelector('.hier-card-top')?.textContent).toContain('2'));
     expect(card.querySelector('em')?.textContent).toBe('标识 YL');
   });
 });

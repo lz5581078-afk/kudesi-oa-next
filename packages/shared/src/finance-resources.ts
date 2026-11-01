@@ -73,6 +73,23 @@ export const PACKAGING_SCENES = o('production:生产包装', 'supplier_oem:供�
 const SYNC = o('not_synced:未同步', 'pending:待同步', 'synced:已同步', 'failed:同步失败');
 
 export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
+  {
+    key: 'finance-ledger-history', label: '历史收支记录', readOnly: true,
+    nav: { group: '历史数据', ...F }, titleField: 'caption', sortField: 'entryDate',
+    statuses: [{ value: 'recorded', label: '已记录', tone: 'ok' }], defaultStatus: 'recorded', filterBy: ['direction', 'storeId'],
+    fields: [
+      text('caption', '记录', '收支信息', { readonly: true, search: true }),
+      date('entryDate', '日期', '收支信息', { readonly: true, required: true, list: true }),
+      text('category', '类别', '收支信息', { readonly: true, list: true, search: true }),
+      select('direction', '方向', '收支信息', o('income:收入', 'expense:支出', 'withdrawal:提现'), { readonly: true, required: true, list: true }),
+      baseMoney('amountCents', '金额', '收支信息', { readonly: true, required: true, list: true }),
+      ref('storeId', '店铺', '关联资料', 'stores', { readonly: true, list: true }),
+      ref('licenseId', '营业执照', '关联资料', 'licenses', { readonly: true }),
+      textarea('description', '说明', '收支信息', { readonly: true, list: true, search: true }),
+      text('originalCreatedAt', '原记录创建时间', '来源记录', { readonly: true }),
+      text('sourceLabel', '来源', '来源记录', { readonly: true }),
+    ],
+  },
   // ---------- 基础资料 ----------
   {
     key: 'finance-products',
@@ -776,6 +793,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       select('jstStatus', '聚水潭状态', '聚水潭', SYNC, { list: true }),
       { key: 'signature', label: '验证快照', type: 'text', group: '验证', readonly: true, maxLength: 500 },
       { key: 'verifiedAt', label: '验证日期', type: 'date', group: '验证', readonly: true },
+      { key: 'migrationCostNote', label: '迁移成本口径说明', type: 'textarea', group: '验证', readonly: true, permission: COST_VIEW, maxLength: 2000 },
       { key: 'jstUploadedCode', label: '聚水潭已上传编码', type: 'text', group: '聚水潭', readonly: true, maxLength: 64 },
       { key: 'snapshot', label: '验证时的资料快照', type: 'textarea', group: '验证', readonly: true, maxLength: 200000, permission: COST_VIEW },
       { key: 'aliasKey', label: '马甲标识', type: 'text', group: '基础', readonly: true, maxLength: 64 },
@@ -876,6 +894,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       { key: 'jstPriceCents', label: '聚水潭基本售价（分）', type: 'number', group: '聚水潭', readonly: true, permission: COST_VIEW },
       { key: 'signature', label: '验证快照', type: 'text', group: '验证', readonly: true, maxLength: 500 },
       { key: 'verifiedAt', label: '验证日期', type: 'date', group: '验证', readonly: true },
+      { key: 'migrationCostNote', label: '迁移成本口径说明', type: 'textarea', group: '验证', readonly: true, permission: COST_VIEW, maxLength: 2000 },
       { key: 'updatedAtKey', label: '更新时间', type: 'text', group: '验证', readonly: true, maxLength: 40 },
       { key: 'sourceRunId', label: '来自申请单', type: 'number', group: '基础', readonly: true, help: 'SKU 批量申请流程生成的组合会记下流程单号' },
       { key: 'pendingRevisionId', label: '待发布的构成修订', type: 'number', group: '验证', readonly: true },
@@ -975,7 +994,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       ref('baseCodeId', '基础编码', '基础', 'finance-base-codes', { list: true, showWhen: { field: 'role', in: ['main', 'gift', 'package', 'label', 'instruction', 'other'] }, help: '只能选“已验证”的基础编码' }),
       ref('laborId', '人工项目', '基础', 'finance-labor-costs', { list: true, showWhen: { field: 'role', in: ['labor'] } }),
       { key: 'qty', label: '数量', type: 'decimal', group: '基础', required: true, scale: 3, list: true },
-      select('unit', '单位', '基础', UNIT_OPTIONS, { list: true, help: '不填则取基础编码的规格单位；验证时必须有单位' }),
+      select('unit', '单位', '基础', UNIT_OPTIONS, { list: true, optionsFrom: { resource: 'finance-product-units', kind: 'spec_unit', alsoKinds: ['shipping_unit'] }, help: '从公司的规格单位、发货物料单位中选择；不填则取基础编码的规格单位' }),
       { key: 'lossRate', label: '损耗率(%)', type: 'decimal', group: '成本', scale: 4, help: '只做记录与展示，不改变成本和重量合计（与旧系统一致）' },
       { key: 'isRequired', label: '必需', type: 'bool', group: '基础' },
       { key: 'includeInJst', label: '进入聚水潭组合装', type: 'bool', group: '聚水潭', help: '默认主品、赠品进入；包装、标签等不进。进入的行必须是基础编码且数量为正整数' },

@@ -37,7 +37,9 @@ export class PermissionsGuard implements CanActivate {
     const resourceAction = this.reflector.getAllAndOverride<ResourceAction | undefined>(RESOURCE_ACTION, targets);
     if (resourceAction) {
       const type = String(context.switchToHttp().getRequest().params?.type ?? '');
-      if (!getResourceDef(type)) throw new NotFoundException('没有这种资料');
+      const def = getResourceDef(type);
+      if (!def) throw new NotFoundException('没有这种资料');
+      if (def.readOnly && !['view', 'export'].includes(resourceAction)) throw new ForbiddenException('历史记录只读');
       if (!createChecker(user.permissions)(resourcePermission(permissionOwner(type), resourceAction))) {
         throw new ForbiddenException('没有权限执行此操作');
       }

@@ -46,10 +46,15 @@ let refVersion = 0;
 const refListeners = new Set<() => void>();
 function useRefVersion() { return useSyncExternalStore(cb => { refListeners.add(cb); return () => { refListeners.delete(cb); }; }, () => refVersion); }
 const refCache = new Map<string, Promise<RefOptions>>();
+function refOptionLabel(target:string,row:ResourceDto){
+  if(target==='phones')return [row.title,row.data.certifiedName,row.data.plan,`登记 #${row.id}`].filter(Boolean).join(' · ');
+  if(target==='bank-accounts')return [row.title,row.data.bank,row.refLabels?.keeperUserId,`登记 #${row.id}`].filter(Boolean).join(' · ');
+  return row.title;
+}
 
 /** 按关键字服务端搜索可选项；员工/部门这类小列表不走这里 */
 function searchRefOptions(target: string, keyword: string): Promise<RefOptions> {
-  return resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true, keyword }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: i.title })), { total: r.total }));
+  return resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true, keyword }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: refOptionLabel(target,i) })), { total: r.total }));
 }
 
 /** 选择器上方的搜索框：输入后（稍作防抖）向服务端搜索；用户/部门是整表加载，不显示 */
@@ -81,7 +86,7 @@ export function loadRefOptions(target: string) {
         ? resourceApi.users().then((list) => list.map((u) => ({ value: u.id, label: u.active ? u.name : `${u.name}（已停用）`, disabled: !u.active })))
         : ['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories'].includes(target)
         ? (async () => { const rows: ResourceDto[] = []; for (let page=1;;page++) { const r=await resourceApi.list(target,{page,pageSize:200,showHidden:true}); rows.push(...r.items); if(rows.length>=r.total||!r.items.length)break; } const byId=new Map(rows.map(r=>[r.id,r])); const path=(row:ResourceDto)=>{const parts:string[]=[],seen=new Set<number>();for(let r:ResourceDto|undefined=row;r&&!seen.has(r.id);r=byId.get(Number(r.data.parentId))){seen.add(r.id);parts.unshift(r.title);}return parts.join(' / ');};return Object.assign(rows.filter(r=>r.status==='active').map(r=>({value:r.id,label:path(r),leaf:!rows.some(c=>c.data.parentId===r.id)})),{total:rows.filter(r=>r.status==='active').length}); })()
-        : resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: i.title })), { total: r.total }));
+        : resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: refOptionLabel(target,i) })), { total: r.total }));
     p.catch(() => refCache.delete(target));
     refCache.set(target, p);
   }
