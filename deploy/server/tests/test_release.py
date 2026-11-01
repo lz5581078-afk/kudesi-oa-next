@@ -272,6 +272,17 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             packager.package(REVISION, NEW, self.archive, self.source)
 
+    def test_installer_templates_survive_the_existing_release_allowlist(self):
+        relative = Path('apps/api/dist/session/windows')
+        templates = self.source / relative
+        templates.mkdir(parents=True)
+        for name in ['install.ps1', 'uninstall.ps1', 'README.txt']:
+            (templates / name).write_bytes(b'\xef\xbb\xbfsynthetic installer template')
+        self.upload()
+        target = self.controller.extract(NEW)
+        for name in ['install.ps1', 'uninstall.ps1', 'README.txt']:
+            self.assertEqual((target / relative / name).read_bytes(), (templates / name).read_bytes())
+
     def test_gateway_rejects_shell_sftp_and_command_injection(self):
         for command in ['', 'bash', 'id', 'internal-sftp', 'deploy 20261027-1;id', 'status\nid', 'upload 20261027-1 x', 'rollback ../../x', 'status extra']:
             result = subprocess.run(['bash', str(HERE / 'ssh-gateway.sh')], env={**os.environ, 'SSH_ORIGINAL_COMMAND': command}, capture_output=True)

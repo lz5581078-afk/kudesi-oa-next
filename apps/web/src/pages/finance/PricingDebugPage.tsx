@@ -301,7 +301,7 @@ export function PricingDebugPage() {
               <label key={row.id} className="pricing-debug-item">
                 <input type="checkbox" checked={Boolean(selected[row.id])} disabled={exporting || addingAll} onChange={() => toggle(row)} />
                 <span><strong>{row.skuName}</strong>{row.exclusiveOwners?.map((g) => <small className="pricing-exclusive-label" key={g.id}>{g.mine ? '我的专属品' : `${g.ownerName}的专属品`} · 至{new Date(g.endsAt).toLocaleDateString('zh-CN')}</small>)}<small className="muted">{row.skuCode} · {row.categoryName} · {weightText(row)}{!row.ready ? ' · 暂不可试算' : ''}</small></span>
-                <em>公司低价 {money(row.minPriceCents)}</em>
+                {data.canViewInternals && <em>公司低价 {money(row.minPriceCents)}</em>}
               </label>
             ))}
             {loading ? <p className="muted" role="status">正在加载…</p> : !error && !data.rows.length && <p className="muted">没有匹配的SKU成本项目{hasFilter && <> <button type="button" className="link-button" onClick={clearFilters}>清除筛选</button></>}</p>}
@@ -310,7 +310,7 @@ export function PricingDebugPage() {
             <span className="row-actions"><button type="button" className="secondary-button small" disabled={page <= 1 || loading || addingAll} onClick={() => setPage(page - 1)}>上一页</button><button type="button" className="secondary-button small" disabled={page >= pageCount || loading || addingAll} onClick={() => setPage(page + 1)}>下一页</button></span></footer>
         </section>
 
-        <section className="card pricing-debug-panel" ref={resultRef}>
+        <section className="card pricing-debug-panel pricing-debug-workspace" ref={resultRef}>
           <header className="between"><h2>联动试算</h2>
             <span className="row-actions"><small className="muted">已选 {chosen.length} 项 · 可导出 {exportable.length} 项</small>
               <button type="button" className="secondary-button small" disabled={exporting || addingAll || !chosen.length} onClick={clearSelection}>清空</button>
@@ -318,7 +318,7 @@ export function PricingDebugPage() {
           {feedback && <div role="status" className="notice ok">{feedback}</div>}
           <div className="table-scroll">
             <table className="data-table pricing-debug-table">
-              <thead><tr><th>商品与分类</th><th>预留利润</th><th>目标投产</th><th>试算售价（元）</th><th>状态</th><th className="num">公司低价</th><th>操作</th></tr></thead>
+              <thead><tr><th>商品与分类</th><th>预留利润</th><th>目标投产</th><th>试算售价（元）</th><th>状态</th>{data.canViewInternals && <th className="num">公司低价</th>}<th>操作</th></tr></thead>
               <tbody>
                 {visibleChosen.map((row) => {
                   const f = forms[row.id] ?? defaultForm(), q = quotes[row.id], s = sliders[row.id];
@@ -348,12 +348,12 @@ export function PricingDebugPage() {
                       <td><input aria-label={`${row.skuName} 目标投产`} type="number" disabled={exporting} min="1.01" step="0.01" placeholder="填投产" value={f.roi} onChange={(e) => update(row.id, 'roi', e.target.value)} /></td>
                       <td><input aria-label={`${row.skuName} 试算售价`} type="number" disabled={exporting} min="0.01" step="0.01" placeholder="填售价" value={f.price} onChange={(e) => update(row.id, 'price', e.target.value)} /></td>
                       <td>{q?.pending ? '试算中…' : q?.available === false ? q.message : q?.available ? '已试算' : sliderOk ? '档位已调试' : '待填写'}</td>
-                      <td className="num">{money(row.minPriceCents)}</td>
+                      {data.canViewInternals && <td className="num">{money(row.minPriceCents)}</td>}
                       <td><button type="button" className="link-button" disabled={exporting} onClick={() => toggle(row)}>移除</button></td>
                     </tr>
                   );
                 })}
-                {!chosen.length && <tr><td colSpan={7} className="empty-state muted"><strong>尚未选择商品</strong><ol className="pricing-guide"><li>在左侧按分类或编码筛选组合商品并勾选</li><li>拖动“预留利润”档位，或手填利润金额</li><li>填目标投产或试算售价，两者自动联动</li><li>点“导出 Excel”，试算不会改正式售价或成本</li></ol></td></tr>}
+                {!chosen.length && <tr><td colSpan={data.canViewInternals ? 7 : 6} className="empty-state muted">尚未选择商品</td></tr>}
               </tbody>
             </table>
           </div>

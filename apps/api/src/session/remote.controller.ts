@@ -3,7 +3,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, ArrayMaxSize, ValidateNested } from 'class-validator';
 import { AuthUser, CurrentUser, Public, RequirePermission } from '../common/auth.decorators';
-import { RemoteAssistService } from './remote.service';
+import { RemoteAssistService, MaintenanceRemoteAssistService } from './remote.service';
 
 class RequestRemoteDto { @IsIn(['view', 'control']) mode!: string; @IsString() @MaxLength(200) reason!: string }
 class SignalDto { @IsString() @MaxLength(10) kind!: string; @IsOptional() @IsObject() payload?: Record<string, unknown> }
@@ -40,6 +40,24 @@ export class RemoteAssistController {
   @RequirePermission(VIEW) @Post('sessions/:id/signal') signal(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: SignalDto) { return this.remote.signal(u, id, b); }
   @RequirePermission(VIEW) @Post('sessions/:id/extend') extend(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.remote.extend(u, id); }
   @RequirePermission(VIEW) @Post('sessions/:id/end') end(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.remote.end(u, id); }
+}
+
+@SkipThrottle()
+@Controller('store-maintenance/remote')
+export class MaintenanceRemoteAssistController {
+  constructor(private readonly remote: MaintenanceRemoteAssistService) {}
+
+  @RequirePermission('resource.company-store-maintenance.view') @Get('devices') devices(@CurrentUser() u: AuthUser) { return this.remote.devices(u); }
+  @RequirePermission('resource.company-store-maintenance.view') @Post('devices/:id') setDevice(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: DeviceRemoteDto) { return this.remote.setDevice(u, id, b); }
+  @RequirePermission('resource.company-store-maintenance.view') @Post('stop-all') stopAll(@CurrentUser() u: AuthUser) { return this.remote.stopAll(u); }
+  @RequirePermission('resource.company-store-maintenance.view') @Get('shops') shops(@CurrentUser() u: AuthUser) { return this.remote.shopStates(u); }
+  @RequirePermission('resource.company-store-maintenance.view') @Post('shops/:id/request') request(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: RequestRemoteDto) { return this.remote.request(u, id, b); }
+  @RequirePermission('resource.company-store-maintenance.view') @Get('history') history(@CurrentUser() u: AuthUser) { return this.remote.history(u); }
+  @RequirePermission('resource.company-store-maintenance.view') @Get('sessions/:id') get(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.remote.get(u, id); }
+  @RequirePermission('resource.company-store-maintenance.view') @Get('sessions/:id/poll') poll(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Query() q: PollQueryDto) { return this.remote.poll(u, id, q.after ?? 0); }
+  @RequirePermission('resource.company-store-maintenance.view') @Post('sessions/:id/signal') signal(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: SignalDto) { return this.remote.signal(u, id, b); }
+  @RequirePermission('resource.company-store-maintenance.view') @Post('sessions/:id/extend') extend(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.remote.extend(u, id); }
+  @RequirePermission('resource.company-store-maintenance.view') @Post('sessions/:id/end') end(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.remote.end(u, id); }
 }
 
 /** 远程协助（助手端）：设备令牌，和 /agent/* 其他接口一样不读员工登录信息。 */

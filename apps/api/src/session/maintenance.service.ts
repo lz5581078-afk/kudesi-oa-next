@@ -1,12 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
 import { FilesService } from '../integrations/files.service';
 import { ResourcesService } from '../resources/resources.service';
 import { ResourceRecord, SessionShop } from '../entities';
 import { SessionService } from './session.service';
+import { getResourceDef, validateStatusChange } from '@kudesi/shared';
 
 export const MAINTENANCE_WORKSPACE = 'company_store_maintenance';
 const STATUS_LABELS: Record<string, string> = { normal: '正常', abnormal: '异常', cancelled: '注销', inactive: '停用' };
@@ -27,7 +28,7 @@ export class MaintenanceService extends SessionService {
   }
 
   async abnormalReasons(user: AuthUser) {
-    const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'store-abnormal-reasons', status: 'normal' }, order: { id: 'DESC' } });
+    const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'store-abnormal-reasons', status: 'normal', archivedAt: IsNull() }, order: { id: 'DESC' } });
     return rows.map((r) => ({ id: r.id, reason: r.title }));
   }
 
@@ -35,18 +36,26 @@ export class MaintenanceService extends SessionService {
   async setStoreStatus(user: AuthUser, shopId: number, p: { status: string; abnormalReasonId?: number; reason?: string }) {
     this.needManage(user);
     if (!STATUS_LABELS[p.status]) throw new BadRequestException('店铺状态无效');
-    const shop = await this.dataSource.manager.findOne(SessionShop, { where: { id: shopId, companyId: user.companyId, workspace: this.ws, status: 'active' } });
-    if (!shop) throw new NotFoundException('店铺不在公司店铺维护清单里');
-    let reasonText = p.reason;
-    if (p.status === 'abnormal') {
-      if (!p.abnormalReasonId) throw new BadRequestException('店铺状态选择异常时，必须选择异常原因');
-      const r = await this.dataSource.manager.findOne(ResourceRecord, { where: { id: p.abnormalReasonId, companyId: user.companyId, type: 'store-abnormal-reasons', status: 'normal' } });
-      if (!r) throw new BadRequestException('请选择店铺档案中已有的异常原因');
-      reasonText = r.title;
-    }
-    await this.resources.changeStatus(user, 'stores', shop.storeId, p.status, reasonText);
-    if (p.status === 'abnormal') await this.resources.update(user, 'stores', shop.storeId, { abnormalReason: p.abnormalReasonId });
-    await this.dataSource.transaction(async (em) => this.log(em, user.companyId, 'store_status_changed', `店铺档案状态改为「${STATUS_LABELS[p.status]}」`, { actorId: user.id, storeId: shop.storeId }));
-    return { ok: true, status: p.status, statusLabel: STATUS_LABELS[p.status] };
+    return this.dataSource.transaction(async em => {
+      const shop = await em.findOne(SessionShop, { where: { id: shopId, companyId: user.companyId, workspace: this.ws, status: 'active' }, lock: { mode: 'pessimistic_write' } });
+      if (!shop) throw new NotFoundException('店铺不在公司店铺维护清单里');
+      const store = await em.findOne(ResourceRecord, { where: { id: shop.storeId, companyId: user.companyId, type: 'stores' }, lock: { mode: 'pessimistic_write' } });
+      if (!store) throw new NotFoundException('店铺档案不存在');
+      if (store.archivedAt) throw new ConflictException('店铺档案已归档，请先恢复');
+      let reasonText = p.reason;
+      if (p.status === 'abnormal') {
+        if (!p.abnormalReasonId) throw new BadRequestException('店铺状态选择异常时，必须选择异常原因');
+        const r = await em.findOne(ResourceRecord, { where: { id: p.abnormalReasonId, companyId: user.companyId, type: 'store-abnormal-reasons', status: 'normal' } });
+        if (!r || r.archivedAt) throw new BadRequestException('请选择店铺档案中已有的异常原因');
+        reasonText = r.title;
+      }
+      const problem = validateStatusChange(getResourceDef('stores')!, p.status, reasonText);
+      if (problem) throw new BadRequestException(problem);
+      await this.resources.saveChecked(em, user, 'stores', shop.storeId,
+        p.status === 'abnormal' ? { abnormalReason: p.abnormalReasonId } : {},
+        { status: p.status, statusReason: reasonText ?? null, note: `店铺维护：状态改为「${STATUS_LABELS[p.status]}」${reasonText ? `（${reasonText}）` : ''}` });
+      await this.log(em, user.companyId, 'store_status_changed', `店铺「${store.title}」档案状态改为「${STATUS_LABELS[p.status]}」`, { actorId: user.id, storeId: shop.storeId });
+      return { ok: true, status: p.status, statusLabel: STATUS_LABELS[p.status] };
+    });
   }
 }
