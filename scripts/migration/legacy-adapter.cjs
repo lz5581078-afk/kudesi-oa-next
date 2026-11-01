@@ -15,6 +15,10 @@ const { readLegacyWorkspaces } = require('./legacy-workspaces.cjs');
 /** 直播管理的旧表（全部带 company_id，由通用公司范围读取；只读） */
 const LIVE_TABLES=['live_commission_rule_versions','live_schedules','live_sessions','live_session_products','live_session_reports','live_session_orders','live_commission_records','live_wage_records','live_settlements','live_settlement_lines','live_settlement_refunds'];
 const legacyError=(message)=>{const error=new Error(message);error.name='LegacyDataError';return error;};
+// Keep JSON as its original database text in the encrypted source catalog.
+// Parsing it in the driver can round large numeric values before we retain
+// any evidence. Safe BIGINTs retain the legacy JS shape; larger ones stay text.
+exports.connectSource=(mysql,env)=>mysql.createConnection({host:env.MYSQL_HOST||'127.0.0.1',port:Number(env.MYSQL_PORT||3307),user:env.MYSQL_USER||'oa_user',password:env.MYSQL_PASSWORD,database:env.MYSQL_DATABASE||'ecommerce_oa',dateStrings:true,supportBigNumbers:true,jsonStrings:true});
 const snake = (s) => s.replace(/[A-Z]/g, (c) => '_'+c.toLowerCase());
 const ref = (type,id) => id===null||id===undefined||id===''?undefined:{legacyRef:{type,id:String(id)}};
 const json = (v) => typeof v==='string'?JSON.parse(v):v;
@@ -53,7 +57,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
   const app=process.env.LEGACY_APP_DIR;if(!app||!path.isAbsolute(app))throw Error('LEGACY_APP_DIR required');
   const req=createRequire(path.join(app,'package.json'));const env=req('dotenv').parse(fs.readFileSync(path.join(app,'.env')));
   const codec=req(path.join(app,'server/core/business-secrets.js')).createBusinessSecretCodec({primarySecret:env.SECRET_KEY||env.SESSION_SECRET||env.JWT_SECRET});
-  const c=await req('mysql2/promise').createConnection({host:env.MYSQL_HOST||'127.0.0.1',port:Number(env.MYSQL_PORT||3307),user:env.MYSQL_USER||'oa_user',password:env.MYSQL_PASSWORD,database:env.MYSQL_DATABASE||'ecommerce_oa',dateStrings:true});
+  const c=await exports.connectSource(req('mysql2/promise'),env);
   const out={company:null,departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],employeeOverrides:[],positionDuties:[],compensationRecords:[],records:[],links:[],exclusions:[]};
   const businessDay=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const tables={};const locators=new Map();let locatorN=0;
