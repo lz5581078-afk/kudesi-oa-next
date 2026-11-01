@@ -19,6 +19,7 @@ import { withCostHistory } from './cost-history-context';
 import { importWorkflows, workflowHashGroups, WORKFLOW_TARGET_TABLE } from './workflow-import';
 import { restoreBaseVerifications, restoreBundleVerifications } from './verification-restore';
 import { withMissingLegacyReason } from './legacy-state-context';
+import { importFeishuIdentity,feishuIdentityKey } from './feishu-identities';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -55,6 +56,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
   for(const [type,rows] of [['department',source.departments],['position',source.positions],['user',source.employees],['position_duty',source.positionDuties??[]],['comp_record',source.compensationRecords??[]],['finance-ledger-history',(source.sourceRows??[]).filter(r=>r.table==='finance_entries').map(r=>({id:r.key,row:r.row}))],...['resource'].map(t=>[t,source.records]),['link',source.links??[]],...liveHashGroups(source.live),...workflowHashGroups(source.workflow)] as Array<[string,Array<Record<string,any>>]>) {
     for(const r of rows) hashes.set(key(type==='resource'?r.type:type,r.id),WORKFLOW_TARGET_TABLE[type] ? sourceRowHash(r) : createHash('sha256').update(JSON.stringify(stable(r))).digest('hex'));
   }
+  for(const row of source.feishuBindings??[])hashes.set(key('feishu_identity',feishuIdentityKey(row)),sourceRowHash(row));
   out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,exclusions:source.exclusions,sourceRows:(source.sourceRows??[]).map(r=>({table:r.table,key:r.key,hash:sourceRowHash(r.row)})),employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{})}))).digest('hex');
   const count = (which: 'created' | 'reused', type: string) => { out[which][type] = (out[which][type] ?? 0) + 1; };
   const lookup = (type: string, id: unknown) => ids.get(key(type, id));
@@ -97,6 +99,11 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     const oldLinks: Array<{ source_key: string; target_type: string; target_id: number; source_hash: string }> = await em.query('SELECT source_key,target_type,target_id,source_hash FROM legacy_import_links WHERE source_system=? AND source_company_id=? AND company_id=?', [SOURCE, source.company.id, company.id]);
     for (const l of oldLinks) {
       if(hashes.has(l.source_key) && hashes.get(l.source_key)!==l.source_hash) throw new MigrationError('来源资料已变化，禁止复跑静默复用或覆盖；请先核对增量');
+      if(l.target_type==='feishu_identity'){
+        const [row]=await em.query('SELECT id FROM feishu_identities WHERE id=? AND company_id=?',[l.target_id,company.id]);
+        if(!row)throw new MigrationError('飞书身份迁移账本引用失效，禁止自动补造');
+        ids.set(l.source_key,Number(l.target_id));continue;
+      }
       if (WORKFLOW_TARGET_TABLE[l.target_type]) {
         const [row] = await em.query(`SELECT id FROM ${WORKFLOW_TARGET_TABLE[l.target_type]} WHERE id=? AND company_id=?`, [l.target_id, company.id]);
         if (!row) throw new MigrationError('旧流程迁移账本引用失效，禁止自动补造');
@@ -155,6 +162,14 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       await register('user', e.id, r.id); count('created', 'user'); orgCreated.add(key('user', e.id));
     }
     for (const e of source.employees) if (orgCreated.has(key('user',e.id)) && e.manager_id) await em.update(User, { id: required('user', e.id), companyId: company.id }, { managerId: required('user', e.manager_id) });
+    for(const row of source.feishuBindings??[]){
+      try{
+        const originals=source.sourceRows?.filter(r=>r.table==='oa_feishu_bindings'&&String(r.row.employee_id)===String(row.employee_id)&&r.row.app_id===row.app_id)??[];
+        if(!opts.preserveLegacyStates||originals.length!==1||sourceRowHash(originals[0].row)!==sourceRowHash(row))throw new MigrationError('飞书身份缺少完整重迁模式的原始归属证据');
+        const result=await savepoint(()=>importFeishuIdentity({em,companyId:company.id,sourceCompanyId:source.company.id,lookup,register},row));
+        count(result.reused?'reused':'created','feishu-identity');out.verified??={};out.verified['feishu-identity']=(out.verified['feishu-identity']??0)+1;
+      }catch(e){out.failures.push({type:'feishu_identity',id:String(row.employee_id),reason:e instanceof Error&&e.message.startsWith('旧飞书')?e.message:safeFailure(e)});}
+    }
     for (const p of source.positionPermissions) {
       if(!orgCreated.has(key('position',p.position_id)))continue;
       const oldPermission = p.permission_key ?? p.permission;
@@ -432,7 +447,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     // Full remigration must account for skipped business data, not merely zero
     // insertion errors. Only these two notes already retain native data and
     // encrypted evidence. A rejected apply report must say rollback as well.
-    const rejection = opts.apply && source.workflow ? out.failures.length ? '流程续办或资料仍有失败，禁止正式写入，整批回滚' : out.excluded.some(e => !['licenses.locationId', 'tax-profiles.identity'].includes(e.type)) ? '全量迁移仍有未验收排除项或历史数据，禁止正式写入，整批回滚' : null : null;
+    const rejection = opts.apply && (source.workflow || opts.preserveLegacyStates) ? out.failures.length ? '流程续办或资料仍有失败，禁止正式写入，整批回滚' : out.excluded.some(e => !['licenses.locationId', 'tax-profiles.identity'].includes(e.type)) ? '全量迁移仍有未验收排除项或历史数据，禁止正式写入，整批回滚' : null : null;
     if (rejection) out.phase = 'apply-rejected-rollback';
     opts.prepareReport?.(out);
     if (rejection) throw new MigrationError(rejection);

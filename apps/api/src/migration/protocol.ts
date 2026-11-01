@@ -8,6 +8,7 @@ export type LegacyLive = Partial<Record<'commission_rule_versions' | 'schedules'
 export interface LegacyCurrentSku { templateId:string;policyHash:string;policyCode:string;picks:Array<{nodeId:string;employeeIds:string[];mode:string;departmentId:string|null}> }
 export interface LegacyWorkflowSource { currentSku?:LegacyCurrentSku; assignment?: { policyHash: string; functions: Record<string, string>; picks: Array<{ runId: string; nodeId: string; owner: { employeeId: string; via: string }; supervisor: { employeeId: string; via: string } }> }; companyId: number; tables: Record<string, Array<Record<string, any>>>; catalog?: { dictionaries: Array<Record<string, any>> }; access?: { policyHash: string; employees: Array<{ employeeId: string; canUseWorkflow: boolean; canViewCosts: boolean }> } }
 export interface LegacyArchive {
+  feishuBindings?:Array<Record<string,unknown>>;
   sourceRows?: Array<{ table: string; key: string; row: Record<string, unknown> }>;
   company: { id: number; name: string };
   departments: Array<Record<string, any>>;

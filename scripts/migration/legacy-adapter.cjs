@@ -62,6 +62,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
     await c.query('SET SESSION TRANSACTION READ ONLY');await c.beginTransaction();
     const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c,COLUMN_KEY pk,ORDINAL_POSITION ordinal FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
     const selected=new Set([...LIVE_TABLES,...(preserveLegacyStates?['sales_snapshots','finance_entries','finance_product_data_verification_events','finance_bundle_data_verifications','finance_bundle_data_verification_events','finance_product_bundle_boms']:[]),'companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
+    if(preserveLegacyStates)selected.add('oa_feishu_bindings');
     for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=!preserveLegacyStates&&uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
     // 总位置曾由旧启动脚本无公司条件地补为 A-02；只核对所引用的位置，不迁入其他公司的柜位。
     const foreignLicenseLocations=new Map();
@@ -72,6 +73,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
     out.company=(tables.companies||[])[0];if(!out.company)throw Error('Company not found');out.company={id:Number(out.company.id),name:out.company.name};
     for(const [k,t] of [['departments','departments'],['positions','positions'],['employees','employees'],['employeePositions','employee_positions'],['positionPermissions','position_permissions'],['employeeOverrides','employee_permission_overrides'],['positionDuties','position_duties'],['compensationRecords','employee_compensation_records']])out[k]=tables[t]||[];
     out.employeePositions=out.employeePositions.filter(x=>!x.ended_at&&(!x.status||x.status==='active'));
+    if(preserveLegacyStates)out.feishuBindings=tables.oa_feishu_bindings||[];
     const neededFeeCategories=new Set();for(const shared of tables.finance_shared_archives||[]){if(shared.archive_type!=='expenses')continue;const data=json(shared.data_json);for(const item of data.items||[]){if(item.status==='deleted')continue;for(let id of [item.categoryId,...(item.categoryIds||[])]){const seen=new Set();while(id&&!seen.has(String(id))){seen.add(String(id));neededFeeCategories.add(String(id));id=(data.categories||[]).find(x=>String(x.id)===String(id))?.parentId;}}}}
     const defs=new Map(definitions.map(d=>[d.key,d]));
     const byId=(table,id)=>(tables[table]||[]).find(x=>String(x.id)===String(id));
