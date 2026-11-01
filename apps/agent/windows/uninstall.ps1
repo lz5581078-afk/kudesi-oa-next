@@ -1,4 +1,4 @@
-# 卸载助手：停止并删除开机任务、删除程序。店铺的浏览器 Profile（登录状态）默认保留，加 -RemoveData 一并删除。
+﻿# 卸载助手：停止并删除开机任务、删除程序。店铺的浏览器 Profile（登录状态）默认保留，加 -RemoveData 一并删除。
 param([switch]$RemoveData)
 $ErrorActionPreference = 'Continue'
 Stop-ScheduledTask -TaskName 'KudesiAssistant' -ErrorAction SilentlyContinue

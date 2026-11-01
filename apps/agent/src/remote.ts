@@ -7,6 +7,7 @@ import { ChromeRtcPeer, type RtcPeer } from './remote-rtc';
 import { loadRemotePolicy, type RemotePolicy } from './remote-settings';
 import { PlaywrightRemoteTarget, type RemoteTarget } from './remote-target';
 import { activeShop } from './browser';
+import { profileKeyOf } from './jobs';
 import { getPlatform } from './platforms';
 
 export interface RemoteDeps {
@@ -175,7 +176,7 @@ export function createRemoteRunner(cfg: AgentConfig, overrides: Partial<RemoteDe
     consent: windowsConsentPrompt(),
     openTarget: (offer) => {
       const shop = activeShop();
-      if (!shop || shop.storeId !== offer.store.id) return null;
+      if (!shop || shop.storeId !== offer.store.id || (offer.profileKey && shop.profileKey !== String(profileKeyOf(cfg, offer)))) return null;
       return new PlaywrightRemoteTarget(shop.context, getPlatform(offer.store.platform));
     },
     createPeer: () => new ChromeRtcPeer(),

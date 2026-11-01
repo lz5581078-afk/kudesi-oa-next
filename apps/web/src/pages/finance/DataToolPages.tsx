@@ -210,7 +210,7 @@ export function ApiKeysPage() {
 }
 
 /** 主数据整体重置：先自动留快照再清空商品基础资料；输入确认文本才执行；可以随时从快照恢复。 */
-export function MasterResetPage() {
+export function MasterResetPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [includePlatforms, setIncludePlatforms] = useState(true);
   const [pre, setPre] = useState<ResetPreview | null>(null);
   const [snaps, setSnaps] = useState<SnapshotRow[]>([]);
@@ -235,8 +235,8 @@ export function MasterResetPage() {
   }
   return (
     <div>
-      <div className="page-head"><h1>主数据重置</h1></div>
-      <div className="notice error"><strong>危险操作。</strong>会清空商品档案、分类、品牌、基础编码、商品组合、包装方案、分类利润率，以及成本历史。执行前自动留一份快照，可以从下面恢复。已经有财务单据用到商品档案时不允许重置。</div>
+      <div className="page-head">{embedded ? <h2>清空待导入商品基础资料</h2> : <h1>主数据重置</h1>}</div>
+      <div className="notice error"><strong>危险操作。</strong>会清空商品档案、分类、品牌、基础编码、商品组合、包装方案、分类利润率。成本版本与成本历史保留。执行前自动留一份快照，可以从下面恢复。已经有财务单据用到商品档案时不允许重置。</div>
       {error && <div role="alert" className="notice error">{error}</div>}
       {notice && <div role="status" className="notice ok">{notice}</div>}
       {pre && (
@@ -246,9 +246,10 @@ export function MasterResetPage() {
             <tbody>{pre.tables.map((t) => <tr key={t.type}><td>{t.label}</td><td className="num">{t.count}</td></tr>)}</tbody>
             <tfoot><tr><th>合计</th><th className="num">{pre.total}</th></tr></tfoot></table>
           <p className="muted">不会动：{pre.exclusions.join('；')}。</p>
+          {(pre.blockedByCostVersions ?? 0) > 0 && <div className="notice error">已有 {pre.blockedByCostVersions} 项成本版本或生产标准引用，不能整体重置主数据。</div>}
           {pre.blockedByDocuments > 0 && <div className="notice error">有 {pre.blockedByDocuments} 行财务单据明细用到了商品档案，目前不能重置。</div>}
           <div className="toolbar"><input aria-label="确认文本" placeholder={`输入 ${pre.confirmation} 确认`} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-            <button type="button" className="primary-button" disabled={busy || confirm !== pre.confirmation || pre.total === 0 || pre.blockedByDocuments > 0} onClick={reset}>清空并留快照</button></div>
+            <button type="button" className="primary-button" disabled={busy || confirm !== pre.confirmation || pre.total === 0 || pre.blockedByDocuments > 0 || (pre.blockedByCostVersions ?? 0) > 0} onClick={reset}>清空并留快照</button></div>
         </section>
       )}
       <h2 className="section-title">备份快照</h2>

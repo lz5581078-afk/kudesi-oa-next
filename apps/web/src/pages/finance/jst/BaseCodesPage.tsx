@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getResourceDef } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
@@ -12,6 +12,8 @@ import { resourceApi, type ListResult, type ResourceDto } from '../../../resourc
 import { Pager } from '../common';
 import { DeleteDialog, VerifyDialog } from './BaseCodeDialogs';
 import { jstApi } from './jstApi';
+import { BaseCodeProfileEditor } from '../../../resources/BaseCodeProfileEditor';
+import { CodeSyncDialog } from './CodeSyncDialog';
 
 const TYPE = 'finance-base-codes';
 const TABS: Array<[string, string]> = [['', '全部'], ['pending', '待验证'], ['reverify', '需重新验证'], ['verified', '已验证']];
@@ -66,6 +68,9 @@ export function BaseCodesPage() {
   const [tab, setTab] = useState('pending');
   const [cat, setCat] = useState<number | null>(null);
   const [keyword, setKeyword] = useState('');
+  const [pageSize, setPageSize] = useState(20);
+  const [profile, setProfile] = useState<ResourceDto | null>(null);
+  const [sync, setSync] = useState<string | null>(null);
   const [brand, setBrand] = useState('');
   const [brands, setBrands] = useState<Array<{ id: number; name: string }>>([]);
   const [sort, setSort] = useState<{ by: string; dir: 'asc' | 'desc' } | null>(null);
@@ -81,14 +86,17 @@ export function BaseCodesPage() {
   const [overview, setOverview] = useState<{ status: Record<string, number>; byCategory: Record<string, Record<string, number>> } | null>(null);
   const [cats, setCats] = useState<CatNode[]>([]);
 
+  const request=useRef(0);
   const reload = useCallback(async () => {
+    const token=++request.current;
     try {
-      setData(await resourceApi.list(TYPE, { page, pageSize: 20, keyword: keyword.trim() || undefined, status: tab || undefined, fieldKey: cat ? 'categoryId' : undefined, fieldValue: cat ?? undefined, sortBy: sort?.by, sortDir: sort?.dir, filters: { realView: 'foldVerified', ...(brand ? { brandId: brand } : {}) } }));
-      setOverview(await jstApi.baseOverview());
-      setError('');
-    } catch (e) { setError(e instanceof ApiError ? e.message : '加载失败'); }
-  }, [page, keyword, tab, cat, sort, brand]);
-  useEffect(() => { const t = setTimeout(() => void reload(), 200); return () => clearTimeout(t); }, [reload]);
+      const result=await resourceApi.list(TYPE, { page, pageSize, keyword: keyword.trim() || undefined, status: tab || undefined, showHidden: ['disabled','deleted'].includes(tab), fieldKey: cat ? 'categoryId' : undefined, fieldValue: cat ?? undefined, sortBy: sort?.by, sortDir: sort?.dir, filters: { realView: 'foldVerified', ...(brand ? { brandId: brand } : {}) } });
+      const overview=await jstApi.baseOverview();
+      if(token!==request.current)return;
+      setData(result);setOverview(overview);setError('');
+    } catch (e) { if(token===request.current)setError(e instanceof ApiError ? e.message : '加载失败'); }
+  }, [page, pageSize, keyword, tab, cat, sort, brand]);
+  useEffect(() => { const t = setTimeout(() => void reload(), 200); return () => {clearTimeout(t);request.current++;}; }, [reload]);
   useEffect(() => { resourceApi.list('finance-brands', { pageSize: 200, showHidden: true }).then((r) => setBrands(r.items.map((b) => ({ id: b.id, name: b.title })))).catch(() => setBrands([])); }, []);
   useEffect(() => {
     resourceApi.list('finance-categories', { pageSize: 200, showHidden: true }).then((r) => setCats(r.items.map((c) => ({ id: c.id, name: c.title, parentId: typeof c.data.parentId === 'number' ? c.data.parentId : null })))).catch(() => setCats([]));
@@ -110,10 +118,11 @@ export function BaseCodesPage() {
   const isAlias = (r: ResourceDto) => typeof r.data.canonicalId === 'number';
 
   return (
-    <div>
+    <div className="finance-code-page">
       <div className="page-head">
         <h1>商品基础编码</h1>
         <div className="pill-row">
+          {canAny('finance.jst-sync.view') && <button type="button" className="secondary-button" onClick={() => setSync('')}>聚水潭同步维护</button>}
           {can('edit') && <button type="button" className="primary-button" disabled={verifiable.length === 0} onClick={() => setVerifyIds(verifiable.map((r) => r.id))}>核对并验证{verifiable.length ? `（${verifiable.length}）` : ''}</button>}
           {can('delete') && <button type="button" className="secondary-button" disabled={checked.length === 0} onClick={() => setDeleteMode('pending')}>删除未验证的（{checked.length}）</button>}
           {can('delete') && <button type="button" className="secondary-button" onClick={() => setDeleteMode('source')}>处理来源已删除的</button>}
@@ -136,7 +145,7 @@ export function BaseCodesPage() {
             <select aria-label="品牌" value={brand} onChange={(e) => { setBrand(e.target.value); setPage(1); }}>
               <option value="">品牌：全部</option>
               {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select></div>
+            </select><label>资料状态<select aria-label="基础编码状态" value={tab} onChange={e=>{setTab(e.target.value);setPage(1);setChecked([]);}}>{[...TABS,['disabled','已停用'],['deleted','已删除']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><button type="button" className="secondary-button" onClick={()=>{setPage(1);void reload();}}>查询</button></div>
           {error && <div role="alert" className="notice error">{error}</div>}
           <div className="table-scroll">
             <table className="data-table cards-narrow">
@@ -155,7 +164,7 @@ export function BaseCodesPage() {
                       {columns.map((f) => <td key={f.key} data-label={f.label} className={f.type === 'money' ? 'num' : undefined}>{displayValue(f, row)}{f.key === 'code' && isAlias(row) ? <span className="pill warn">马甲</span> : null}{f.key === 'code' || f.key === 'styleCode' ? <CopyButton value={String(row.data[f.key] ?? '')} label={f.label} /> : null}</td>)}
                       <td data-label="聚水潭">{({ not_synced: '未同步', pending: '排队中', synced: '已同步', failed: '同步失败' } as Record<string, string>)[String(row.data.jstStatus ?? 'not_synced')] ?? '未同步'}</td>
                       <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
-                      <td onClick={(e) => e.stopPropagation()}>{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}{can('create') && <button type="button" className="link-button" onClick={() => setCreating({ initial: copyInitial(row) })}>复制新建</button>}</td>
+                      <td className="row-actions" onClick={(e) => e.stopPropagation()}><button type="button" className="link-button" onClick={() => setSelected(row.id)}>查看</button>{can('edit') && <button type="button" className="link-button" onClick={() => setProfile(row)}>编辑</button>}{canAny('finance.jst-sync.view') && <button type="button" className="link-button" onClick={() => setSync(String(row.data.code ?? ''))}>同步</button>}{can('edit') && ['pending', 'reverify'].includes(row.status) && <button type="button" className="secondary-button small" onClick={() => setVerifyIds([row.id])}>核对</button>}{can('create') && <button type="button" className="link-button" onClick={() => setCreating({ initial: copyInitial(row) })}>复制新建</button>}</td>
                     </tr>
                   );
                 })}
@@ -164,10 +173,12 @@ export function BaseCodesPage() {
               </tbody>
             </table>
           </div>
-          <div className="card-foot between"><span>共 {data?.total ?? 0} 条 · 点击一行在右侧查看</span><Pager page={page} total={data?.total ?? 0} pageSize={20} onPage={setPage} /></div>
+          <div className="card-foot between"><span>共 {data?.total ?? 0} 条</span><label>每页条数<select aria-label="每页条数" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); setChecked([]); }}>{[10,20,30,50].map(n => <option key={n} value={n}>{n}</option>)}</select></label><Pager page={page} total={data?.total ?? 0} pageSize={pageSize} onPage={setPage} /></div>
         </section>
       </div>
       {selected !== null && <RecordDetail def={def} id={selected} onClose={() => setSelected(null)} onChanged={() => void reload()} onCopy={values => setCreating({ initial: copyInitial({ data: values }) })} />}
+      {profile && <BaseCodeProfileEditor record={profile} onClose={() => setProfile(null)} onSaved={() => { setProfile(null); void reload(); }} />}
+      {sync !== null && <CodeSyncDialog type={TYPE} code={sync} onClose={() => setSync(null)} onChanged={() => void reload()} />}
       {creating && <RecordForm def={def} record={null} initial={creating.initial} onClose={() => setCreating(null)} onSaved={(dto) => { setCreating(null); setSelected(dto.id); void reload(); }} />}
       {importing && <ImportDialog def={def} onClose={() => setImporting(false)} onDone={() => { setImporting(false); void reload(); }} />}
       {verifyIds && <VerifyDialog ids={verifyIds} isAdmin={isAdmin} onClose={() => setVerifyIds(null)} onDone={() => { setChecked([]); void reload(); }} />}

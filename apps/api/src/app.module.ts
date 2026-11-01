@@ -95,8 +95,8 @@ import { LaborCopyService } from './resources/labor-copy.service';
 import { RevenueService } from './resources/revenue.service';
 import { AgentController, MaintenanceController, SessionController } from './session/session.controller';
 import { MaintenanceService } from './session/maintenance.service';
-import { RemoteAssistAgentController, RemoteAssistController } from './session/remote.controller';
-import { RemoteAssistService } from './session/remote.service';
+import { RemoteAssistAgentController, RemoteAssistController, MaintenanceRemoteAssistController } from './session/remote.controller';
+import { RemoteAssistService, MaintenanceRemoteAssistService } from './session/remote.service';
 import { SessionService } from './session/session.service';
 import { TaskController } from './flow/task.controller';
 import { TaskService } from './flow/task.service';
@@ -120,6 +120,7 @@ import { PurchaseService } from './flow/purchase.service';
 import { SkuApplyService } from './flow/sku-apply.service';
 import { SkuBatchService } from './flow/sku-batch.service';
 import { CostController } from './resources/cost.controller';
+import { CostVersionController } from './resources/cost-version.controller';
 import { CostService } from './resources/cost.service';
 import { ExpressController } from './resources/express.controller';
 import { ExpressService } from './resources/express.service';
@@ -191,7 +192,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
+  controllers: [CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, CostVersionController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, MaintenanceRemoteAssistController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
   providers: [
     AuthService, FeishuAuthService, ExternalConfigService, FeishuClient,
     { provide: OUTBOX_SENDER, useClass: JushuitanSenderFactory },
@@ -240,6 +241,7 @@ const env = loadEnv();
     SessionService,
     MaintenanceService,
     RemoteAssistService,
+    MaintenanceRemoteAssistService,
     FlowScheduler,
     WorkspaceService,
     WorkspaceModuleRegistry,

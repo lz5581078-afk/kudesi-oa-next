@@ -6,12 +6,21 @@ import { Pager, money, pct } from './common';
 import { CostCategoryTree } from './CostCategoryTree';
 import { BreakdownDialog, METHOD, PricingEditDialog, SkuHistoryDialog, type EditTarget } from './CostDialogs';
 import { financeApi, type CostRow, type CostTableData } from './financeApi';
+import { CostVersionWorkspace } from './CostVersionWorkspace';
+
+export function CostTablePage() {
+  return <CurrentCostTable />;
+}
+
+export function CostVersionsPage() {
+  return <CostVersionWorkspace />;
+}
 
 const EMPTY: CostTableData = { total: 0, page: 1, pageSize: 20, rows: [], categories: [], defaultMargin: { percent: null, revision: 'none' }, allTotal: 0, canEdit: false };
 const REFRESH_MS = 15000;
 
 /** 成本表：每个商品组合的成本、重量、运费、含运费成本、利润率、最低售价，现算，不存副本；15 秒自动刷新。 */
-export function CostTablePage() {
+export function CurrentCostTable() {
   const [keyword, setKeyword] = useState('');
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
@@ -69,10 +78,7 @@ export function CostTablePage() {
           <button type="button" className="secondary-button" disabled={busy} onClick={() => load()}>刷新</button>
         </div>
       </div>
-      <p className="muted">
-        最低售价 = (发货前成本 + 运费) ÷ (1 − 利润率)，向上取整到分。成本、重量、运费、利润率任何一处改了，这里立刻跟着变（每 15 秒自动刷新）。
-        运费来自 <Link to="/finance/finance-express-prices">快递价格表</Link>；利润率可以在左边的分类目录里设置，也可以在每一行单独设置。
-      </p>
+      <p className="muted">来源成本、重量或利润率变化后自动刷新。最低售价 = (发货前成本 + 运费) ÷ (1 − 利润率)，向上取整到分。运费来自 <Link to="/finance/finance-express-prices">快递价格表</Link>。</p>
       {notice && <div role="status" className="notice ok">{notice} <button type="button" className="link-button" onClick={() => setNotice('')}>关闭</button></div>}
       {error && !editing && <div role="alert" className="notice error">{error}</div>}
       <div className="cost-layout">
