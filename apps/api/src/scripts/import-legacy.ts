@@ -40,6 +40,10 @@ async function main() {
   const source = await adapter.read({ sourceCompanyId, definitions: RESOURCE_DEFS, parseWeightScope, preserveCostHistory, preserveLegacyStates, includeWorkflowContinuations });
   if(migrationSoftwareFingerprint(adapterPath)!==softwareFingerprint)throw new MigrationError('读取来源期间程序或适配器发生变化，必须重新空跑');
   if (source.company.id !== sourceCompanyId) throw new MigrationError('来源公司不一致');
+  if(preserveLegacyStates){
+    const inventories=source.sourceRows?.filter(r=>r.table==='legacy_schema_inventory'&&r.key==='current')??[];
+    if(inventories.length!==1||inventories[0].row.version!==1||!Array.isArray(inventories[0].row.tables)||!inventories[0].row.tables.length)throw new MigrationError('全量迁移缺少同一快照的全部旧表盘点，禁止只按已选择的资料放行');
+  }
   const ds = await alignSessionTimeZone(await new DataSource(buildDataSourceOptions()).initialize());
   try {
     if (await ds.showMigrations()) throw new MigrationError('目标库有未执行的结构迁移；CLI不自动迁移');

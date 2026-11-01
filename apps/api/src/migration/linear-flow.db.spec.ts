@@ -34,9 +34,11 @@ suite('旧线性流程原节点、任务独立性和记账边界（MySQL）', ()
     const nodes = ['submit', 'approval', 'finance', 'archive'].map((type, i) => ({ id: i + 1, template_id: 1, node_order: i + 1, node_type: type, node_name: ['原发起', '原审批', '原财务确认', '原归档'][i], creates_task: i === 1 || i === 2 ? 1 : 0, due_hours: i === 3 ? 4 : 12 }));
     const records = [{ id: id * 10, workflow_instance_id: id, template_node_id: 1, node_order: 1, node_name: '原发起', owner_id: 10, status: 'completed', action: 'submitted', comment: '原意见', created_at: run.created_at, completed_at: run.created_at }, ...(!boundary ? [{ id: id * 10 + 1, workflow_instance_id: id, template_node_id: 2, node_order: 2, node_name: '原审批', owner_id: 20, status: 'pending', action: 'pending', comment: null, created_at: run.created_at, completed_at: null }] : [])];
     const task = { id, company_id: 1, workflow_instance_id: id, workflow_node_record_id: id * 10 + 1, source_type: 'workflow', template_id: null, assignee_id: 20, supervisor_id: 40, feedback_to_id: 10, status: 'pending', title: '原独立流程任务', due_at: run.due_at, created_at: run.created_at, feedback_schema: null, store_id: null, completion_standard: '保留原提交要求' };
-    const archive: LegacyArchive = { company: { id: 1, name: '线性流程测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [], records: [], exclusions: [], loadFile: async () => Buffer.alloc(0), workflow: { companyId: 1, tables: { workflow_instances: [run], workflow_templates: [{ id: 1, flow_mode: 'graph' }], workflow_template_nodes: nodes, workflow_node_records: records, task_instances: boundary ? [] : [task] }, assignment: { policyHash: 'a'.repeat(64), functions: { resolveAssignee: 'read-only source proof' }, picks: nodes.map(n => ({ runId: String(id), nodeId: String(n.id), owner: { employeeId: n.id >= 3 ? '30' : '20', via: 'role' }, supervisor: { employeeId: '40', via: 'role' } })) }, access: { policyHash: 'b'.repeat(64), employees: [] } } };
+    const archive: LegacyArchive = { company: { id: 1, name: '线性流程测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [], records: [], exclusions: [], loadFile: async () => Buffer.alloc(0), workflow: { companyId: 1, tables: { workflow_instances: [run], workflow_templates: [], workflow_template_nodes: nodes, workflow_node_records: records, task_instances: boundary ? [] : [task] }, assignment: { policyHash: 'a'.repeat(64), functions: { resolveAssignee: 'read-only source proof' }, picks: nodes.map(n => ({ runId: String(id), nodeId: String(n.id), owner: { employeeId: n.id >= 3 ? '30' : '20', via: 'role' }, supervisor: { employeeId: '40', via: 'role' } })) }, access: { policyHash: 'b'.repeat(64), employees: [] } } };
     return { archive, id };
   }
+  // This fixture covers frozen in-flight nodes only, not publication of the
+  // source's current templates. Full-source CLI separately requires inventory.
   async function imported(f: ReturnType<typeof fixture>) {
     const opts = { companyId: admin.companyId, actorId: admin.id, expectedName: f.archive.company.name, sourceRowsCrypto: svc.crypto };
     const dry = await runLegacyImport(ds, svc.resources, svc.files, f.archive, { ...opts, apply: false }); expect(dry.failures).toEqual([]);
@@ -79,6 +81,14 @@ suite('旧线性流程原节点、任务独立性和记账边界（MySQL）', ()
     expect(await ds.manager.count(WorkItem, { where: { companyId: admin.companyId, runId: ids.runId } })).toBe(0);
     const next = await pass(requester, ids.runId); expect(next.activeStep?.key).toBe('node_2'); expect(next.status).toBe('running');
     expect((await flow.detail(owner, ids.runId)).me.canPass).toBe(true);
+  });
+  it('在办节点可续办仍不能放行未验收的当前模板配置',async()=>{
+    const f=fixture();f.archive.workflow!.tables.workflow_templates=[{id:1,company_id:1,flow_mode:'graph',status:'active',related_object_type:'budget'}];
+    const opts={companyId:admin.companyId,actorId:admin.id,expectedName:f.archive.company.name,sourceRowsCrypto:svc.crypto};
+    const dry=await runLegacyImport(ds,svc.resources,svc.files,f.archive,{...opts,apply:false});
+    expect(dry.failures).toEqual([]);expect(dry.excluded).toContainEqual(expect.objectContaining({type:'workflow-table.pending',id:'workflow_templates'}));
+    await expect(runLegacyImport(ds,svc.resources,svc.files,f.archive,{...opts,apply:true,expectedReport:dry})).rejects.toThrow('未验收');
+    expect(await ds.manager.count(FlowRun,{where:{companyId:admin.companyId,title:f.archive.workflow!.tables.workflow_instances[0].title}})).toBe(0);
   });
   it('缺少选人证明时禁止正式写入，整个批次保持未导入', async () => {
     const f = fixture(); delete f.archive.workflow!.assignment;

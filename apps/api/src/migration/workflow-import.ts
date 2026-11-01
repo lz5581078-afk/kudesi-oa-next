@@ -14,6 +14,7 @@ import { closedSkuForm, closedSkuPayload } from './closed-sku-forms';
 import { verifyWorkflowView } from './workflow-view-verification';
 import { importClosedTask } from './closed-task-import';
 import { importBusinessEvent } from './business-event-import';
+import { pendingWorkflowCoverage } from './workflow-coverage';
 
 type Row = Record<string, any>;
 export const WORKFLOW_TARGET_TABLE: Record<string, string> = { flow_event:'flow_events',current_sku_definition:'flow_definitions', linear_flow_todo: 'work_items', linear_boundary_step: 'flow_steps', flow_run: 'flow_runs', flow_step: 'flow_steps', flow_definition: 'flow_definitions', work_item: 'work_items', early_work_item: 'work_items', early_flow_run: 'flow_runs', early_flow_step: 'flow_steps', early_flow_todo: 'work_items', legacy_flow_definition: 'flow_definitions', legacy_flow_template: 'flow_templates' };
@@ -167,12 +168,15 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
       for (const denied of result.denied) ctx.fail('workflow_access', String(denied.userId), `保留明确禁止项：${denied.permission}；入口或办理资格需核对`);
     } catch (e) { ctx.fail('workflow_access', 'source', e instanceof Error && /^(旧|原)/.test(e.message) ? e.message : ctx.safeFailure(e)); }
   } else if (workflow.currentSku||rows('workflow_instances').some(r => !CLOSED.has(r.status))) ctx.fail('workflow_access', 'source', '缺少旧系统权限证据，未扩大授权');
+  let currentSkuVerified=false;
   try{
     const result=await ctx.savepoint(()=>importCurrentSkuTemplate({...ctx,sourceCompanyId:workflow.companyId},workflow));
+    currentSkuVerified=result.created||result.reused;
     if(result.created)ctx.count('created','current_sku_definition');
     if(result.reused)ctx.count('reused','current_sku_definition');
     if(result.sourceRowReused!==undefined)ctx.count(result.sourceRowReused?'reused':'created','legacy-source-row');
   }catch(e){ctx.fail('current_sku_definition',workflow.currentSku?.templateId??'current',e instanceof Error&&/^(旧SKU|SKU)/.test(e.message)?e.message:ctx.safeFailure(e));}
+  for(const pending of pendingWorkflowCoverage(workflow,currentSkuVerified))ctx.note(pending.type,pending.id,pending.reason);
   for(const [type,sourceRuns] of [['flow_run',rows('workflow_instances')],['early_flow_run',rows('workflows')]] as const)for(const row of sourceRuns){
     const id=ctx.lookup(type,row.id);if(!id)continue;
     try{

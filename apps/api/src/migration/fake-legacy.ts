@@ -23,7 +23,9 @@ const tables=${JSON.stringify(tables)};
 exports.createConnection=async()=>({
   beginTransaction:async()=>{},rollback:async()=>{},end:async()=>{},
   query:async(sql,args=[])=>{
-    if(/information_schema/.test(sql))return [Object.entries(tables).flatMap(([t,rows])=>Object.keys(rows[0]||{company_id:1}).map(c=>({t,c})))];
+    if(/information_schema.TABLES/.test(sql))return [Object.keys(tables).sort().map(name=>({name}))];
+    if(/information_schema/.test(sql))return [Object.entries(tables).flatMap(([t,rows])=>Object.keys(rows[0]||{company_id:1}).map((c,i)=>({t,c,ordinal:i+1,pk:c==='id'?'PRI':''})))];
+    if(/SELECT CAST\\(COUNT/.test(sql)){const name=sql.split('FROM ')[1].replaceAll(String.fromCharCode(96),'');return [[{n:String((tables[name]||[]).length)}]];}
     const m=/FROM \\\`(\\w+)\\\` t/.exec(sql);
     if(m){let rows=tables[m[1]]||[];if(m[1]==='company_locations'&&sql.includes('t.company_id=?'))rows=rows.filter(r=>String(r.company_id)===String(args[0]));return [rows];}
     return [[]];

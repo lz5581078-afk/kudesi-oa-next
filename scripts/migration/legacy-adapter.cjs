@@ -8,6 +8,7 @@ const productMapping = require('./product-mapping.cjs');
 const skuMapping = require('./sku-mapping.cjs');
 const { readWorkflowSource } = require('./workflow-source.cjs');
 const { collectSourceRows } = require('./source-row-catalog.cjs');
+const { readSourceCoverage, uncoveredSourceTables } = require('./source-coverage.cjs');
 const { readLegacyAssignments, readCurrentSkuAssignments } = require('./legacy-assignments.cjs');
 const { readLegacyVerification } = require('./legacy-verification.cjs');
 const { readLegacyWorkspaces } = require('./legacy-workspaces.cjs');
@@ -59,8 +60,9 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
   const excluded=(type,id,reason)=>out.exclusions.push({type,id:String(id),reason});
   const add=(type,id,data,status,extra={})=>out.records.push({type,id:String(id),data:Object.fromEntries(Object.entries(data).filter(([,v])=>v!==undefined&&v!==null&&v!=='')),status,...extra});
   try{
+    await c.query('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await c.query('SET SESSION TRANSACTION READ ONLY');await c.beginTransaction();
-    const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c,COLUMN_KEY pk,ORDINAL_POSITION ordinal FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
+    const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c,COLUMN_KEY pk,ORDINAL_POSITION ordinal,COLUMN_TYPE type,IS_NULLABLE nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
     const selected=new Set([...LIVE_TABLES,...(preserveLegacyStates?['sales_snapshots','finance_entries','finance_product_data_verification_events','finance_bundle_data_verifications','finance_bundle_data_verification_events','finance_product_bundle_boms']:[]),'companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
     if(preserveLegacyStates)selected.add('oa_feishu_bindings');
     for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=!preserveLegacyStates&&uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
@@ -371,6 +373,11 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
       for(const row of tables.sales_snapshots||[]){
         add('store-daily-metrics','sales-snapshot:'+row.id,{storeId:ref('stores',row.store_id),day:row.stat_date,sales:exactCents(row.sales_amount),refund:exactCents(row.refund_amount),adCost:exactCents(row.ad_cost),platformFee:exactCents(row.platform_fee),purchaseCost:exactCents(row.purchase_cost),otherCost:exactCents(row.other_cost),source:'import'},'recorded');
       }
+    }
+    if(preserveLegacyStates){
+      const inventory=await readSourceCoverage(c,cols,tables,out.workflow);
+      out.sourceRows.push({table:'legacy_schema_inventory',key:'current',row:inventory});
+      out.exclusions.push(...uncoveredSourceTables(inventory));
     }
     await c.rollback();
   }finally{await c.end();}
