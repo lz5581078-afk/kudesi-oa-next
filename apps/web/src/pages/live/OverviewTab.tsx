@@ -1,6 +1,6 @@
 import { useAuth } from '../../auth/AuthContext';
 import { RoomSettingsDialog } from './RoomSettingsDialog';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { liveApi, type Overview, type RoomDay, type RoomTile, type TimelineItem } from './liveApi';
 import { errText, hm, minutesText, money, todayText } from './liveFormat';
 import { Modal, SchedulePill, SessionPill } from './liveUi';
@@ -80,30 +80,35 @@ export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => 
   }, [load]);
   const keep = (t: RoomTile) => filter === 'all' || (filter === 'live' ? t.status === 'live' : t.timeline.some((i) => i.state === 'missed' || i.state === 'due'));
   const row = (list: RoomTile[]) => list.filter(keep);
+  const roomRowStyle = (list: RoomTile[]): CSSProperties => ({ '--live-room-units': Math.max(1, row(list).reduce((n, t) => n + (t.big ? 2 : 1), 0)) } as CSSProperties);
   return (
-    <div className="live-page">
+    <div className="live-page live-overview">
+      <div className="live-overview-toolbar">
       <div className="live-filter card">
         <label className="live-field">日期<input aria-label="全览日期" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
         <div className="tab-group" role="group" aria-label="筛选">{FILTERS.map(([k, label]) => <button key={k} type="button" className={filter === k ? 'chip active' : 'chip'} onClick={() => setFilter(k)}>{label}</button>)}</div>
         <button type="button" className="secondary-button" onClick={load}>刷新</button>
         {d && <span className="muted" role="status">数据截至 {hm(d.now)}</span>}
       </div>
-      {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
       {d && (
-        <>
           <div className="live-cards" aria-label="统计">
             <div className="card live-stat"><span>正在直播</span><strong>{d.totals.live}</strong></div>
             <div className="card live-stat"><span>直播间</span><strong>{d.totals.rooms}</strong></div>
             <div className="card live-stat"><span>当天排场</span><strong>{d.totals.scheduled}</strong></div>
             <div className="card live-stat"><span>待审核场次</span><strong>{d.totals.pendingReview}</strong></div>
           </div>
+      )}
+      </div>
+      {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
+      {d && (
+        <>
           {!d.corridorFound ? (
             <div className="card pad" role="status"><strong>还没有直播间</strong><p className="muted">请到「资料 › 房间与档案位置」，在「西走廊办公室」下新建名称含「直播间」的房间（例如「直播间-北1」「直播间-南2（大房间）」），这里就会按南北两排显示。</p></div>
           ) : (
             <div className="live-floor" aria-label="西走廊平面">
-              <div className="live-row" aria-label="南侧直播间">{row(d.groups.south).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>
+              <div className="live-row live-room-bank" aria-label="南侧直播间" style={roomRowStyle(d.groups.south)}>{row(d.groups.south).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>
               <div className="live-corridor" aria-hidden="true">走　廊</div>
-              <div className="live-row" aria-label="北侧直播间">{row(d.groups.north).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>
+              <div className="live-row live-room-bank" aria-label="北侧直播间" style={roomRowStyle(d.groups.north)}>{row(d.groups.north).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>
               {d.groups.none.length > 0 && <div className="live-row">{row(d.groups.none).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>}
             </div>
           )}
