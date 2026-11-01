@@ -22,6 +22,27 @@ function setup() {
   return { settings, collector: new CollectorService(settings), rows, logs };
 }
 describe('采集器语音设置与代理', () => {
+  it('允许保存2000并发并保留密钥及使用范围，非法值不覆盖原设置', async () => {
+    const { settings, rows, logs } = setup();
+    const input = { enabled: true, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20 };
+    await settings.save(user, { ...input, apiKey: key, allEmployees: false });
+    expect((await settings.save(user, { ...input, maxConcurrent: 2000 })).maxConcurrent).toBe(2000);
+    expect(await settings.read(1)).toMatchObject({ apiKey: key, allEmployees: false, maxConcurrent: 2000 });
+    const ciphertext = rows[0].configEnc, auditCount = logs.length;
+    for (const maxConcurrent of [0, -1, 2001, 1.5, NaN, Infinity])
+      await expect(settings.save(user, { ...input, maxConcurrent })).rejects.toThrow('并发上限');
+    expect(rows[0].configEnc).toBe(ciphertext); expect(logs).toHaveLength(auditCount);
+  });
+  it('2000个公司槽位可同时占用，2001个拒绝；释放后可用且其他公司独立', () => {
+    const { collector } = setup();
+    const leases = Array.from({ length: 2000 }, () => collector.acquire(1, 2000));
+    expect(() => collector.acquire(1, 2000)).toThrow('并发');
+    expect(() => collector.acquire(2, 2000)()).not.toThrow();
+    leases[0](); leases[0](); const replacement = collector.acquire(1, 2000);
+    expect(() => collector.acquire(1, 2000)).toThrow('并发');
+    replacement(); leases.forEach(release => release());
+    expect(() => collector.acquire(1, 1)()).not.toThrow();
+  });
   it('默认全员可用；公司范围可恢复指定授权，旧客户端保存时保留此设置', async () => {
     const { settings, rows } = setup();
     expect((await settings.overview(1)).allEmployees).toBe(true);

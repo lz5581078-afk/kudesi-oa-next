@@ -2,7 +2,7 @@ import { Body, Controller, Get, Put, Post } from '@nestjs/common';
 import { IsBoolean, IsInt, IsOptional, IsString, Min, Max, MaxLength, IsArray, ArrayMaxSize } from 'class-validator';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { CollectorIdentityService } from './collector-identity.service';
-import { SpeechSettingsService } from './speech-settings.service';
+import { MAX_SPEECH_CONCURRENT, SpeechSettingsService } from './speech-settings.service';
 import { CollectorService } from './collector.service';
 
 class SpeechSettingsDto {
@@ -10,7 +10,7 @@ class SpeechSettingsDto {
   @IsBoolean() enabled!: boolean;
   @IsBoolean() fileEnabled!: boolean;
   @IsBoolean() realtimeEnabled!: boolean;
-  @IsInt() @Min(1) @Max(20) maxConcurrent!: number;
+  @IsInt() @Min(1) @Max(MAX_SPEECH_CONCURRENT) maxConcurrent!: number;
   @IsOptional() @IsBoolean() allEmployees?: boolean;
 }
 class SpeechFileDto {

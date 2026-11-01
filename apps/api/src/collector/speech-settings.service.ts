@@ -5,6 +5,7 @@ import { IntegrationSetting, ResourceChangeLog } from '../entities';
 import { CryptoService } from '../common/crypto.service';
 import { AuthUser } from '../common/auth.decorators';
 
+export const MAX_SPEECH_CONCURRENT = 2000;
 export interface SpeechConfig { apiKey: string; enabled: boolean; fileEnabled: boolean; realtimeEnabled: boolean; maxConcurrent: number; allEmployees: boolean }
 export type SpeechInput = Omit<SpeechConfig, 'apiKey' | 'allEmployees'> & { apiKey?: string; allEmployees?: boolean };
 
@@ -26,6 +27,8 @@ export class SpeechSettingsService {
       realtimeEnabled: c?.realtimeEnabled ?? true, maxConcurrent: c?.maxConcurrent ?? 20, allEmployees: c?.allEmployees ?? true };
   }
   async save(u: AuthUser, input: SpeechInput) {
+    if (!Number.isInteger(input.maxConcurrent) || input.maxConcurrent < 1 || input.maxConcurrent > MAX_SPEECH_CONCURRENT)
+      throw new BadRequestException(`公司语音并发上限须为 1–${MAX_SPEECH_CONCURRENT} 的整数`);
     const previous = await this.read(u.companyId);
     const apiKey = input.apiKey?.trim() || previous?.apiKey || '';
     if (input.enabled && !apiKey) throw new BadRequestException('请填写豆包语音 API Key');

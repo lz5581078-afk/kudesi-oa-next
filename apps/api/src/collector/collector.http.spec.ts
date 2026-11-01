@@ -93,6 +93,15 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
     try { expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [] })).status).toBe(401); }
     finally { companies.rows[0].status = 'active'; }
   });
+  it('管理员可设置2000并发，越界或非整数请求不进入保存服务', async () => {
+    const input = { enabled: true, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 2000 };
+    const count = settings.save.mock.calls.length;
+    for (const maxConcurrent of [2001, 0, 1.5, '2000'])
+      expect((await request('settings/integrations/speech', token(), { ...input, maxConcurrent }, 'PUT')).status).toBe(400);
+    expect(settings.save.mock.calls).toHaveLength(count);
+    expect((await request('settings/integrations/speech', token(), input, 'PUT')).status).toBe(200);
+    expect(settings.save).toHaveBeenLastCalledWith(expect.objectContaining({ companyId: 10, id: 1 }), input);
+  });
   it('会话只返回对应公司摘要，客户端不能通过 DTO 传入其他公司', async () => {
     const r = await request('collector/session', token(2, 20)); expect(r.status).toBe(200);
     const body = await r.json(); expect(body.company.id).toBe(20); expect(JSON.stringify(body)).not.toContain('server-test-key');
