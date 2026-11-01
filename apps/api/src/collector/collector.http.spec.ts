@@ -11,6 +11,7 @@ import { PermissionsGuard } from '../common/permissions.guard';
 import { Company, PlatformAdmin, PositionPermission, User, UserPermissionOverride } from '../entities';
 import { CollectorController, SpeechSettingsController } from './collector.controller';
 import { CollectorService } from './collector.service';
+import { CollectorFileService } from './collector-file.service';
 import { CollectorIdentityService } from './collector-identity.service';
 import { SpeechSettingsService } from './speech-settings.service';
 import { CollectorRealtimeService } from './collector-realtime.service';
@@ -39,6 +40,7 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
       imports: [JwtModule.register({ secret: 'isolated-test-jwt-secret-at-least-thirty-two', signOptions: { expiresIn: '1h' } })],
       controllers: [CollectorController, SpeechSettingsController],
       providers: [CollectorService, CollectorIdentityService, CollectorRealtimeService, JwtAuthGuard,
+        { provide: CollectorFileService, useValue: { start: file, query: jest.fn(async () => ({ state: 'processing' })), audio: jest.fn(async () => { throw new Error('invalid'); }) } },
         { provide: AuthService, useValue: auth }, { provide: SpeechSettingsService, useValue: settings },
         { provide: getRepositoryToken(User), useValue: users },
         { provide: getRepositoryToken(Company), useValue: companies },
@@ -50,7 +52,6 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
     app = module.createNestApplication(); app.setGlobalPrefix('api');
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     await app.listen(0, '127.0.0.1'); base = await app.getUrl(); jwt = app.get(JwtService); service = app.get(CollectorRealtimeService);
-    jest.spyOn(app.get(CollectorService), 'transcribe').mockImplementation(file);
   });
   afterAll(async () => { await app?.close(); });
   const token = (sub = 1, cid = 10) => jwt.sign({ sub, cid });
@@ -61,8 +62,8 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
     expect((await request('collector/session', jwt.sign({ sub: 1, typ: 'platform' }))).status).toBe(403);
     const employee = await request('collector/session', token(3)); expect(employee.status).toBe(200);
     expect((await employee.json()).speech.allEmployees).toBe(true);
-    expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [] })).status).toBe(201);
-    expect(file).toHaveBeenLastCalledWith(10, 3, 'xx', []);
+    expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [], apiVersion: 2, requestId: '11111111-1111-4111-8111-111111111111' })).status).toBe(201);
+    expect(file).toHaveBeenLastCalledWith(10, 3, 'xx', [], '11111111-1111-4111-8111-111111111111');
     expect((await request('settings/integrations/speech', token(3))).status).toBe(403);
     expect((await request('collector/session', token(1, 20))).status).toBe(401);
   });
@@ -70,12 +71,22 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
     limitedCompanies.add(10);
     try {
       expect((await request('collector/session', token(3))).status).toBe(403);
-      expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [] })).status).toBe(403);
+      expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [], apiVersion: 2, requestId: '11111111-1111-4111-8111-111111111111' })).status).toBe(403);
       const ws = new WebSocket(base.replace('http:', 'ws:') + '/api/collector/realtime', { headers: { Authorization: 'Bearer ' + token(3) } });
       const [error] = await once(ws, 'error'); expect(String(error)).toContain('403'); ws.terminate();
       expect((await request('collector/session', token())).status).toBe(200);
       expect((await request('collector/session', token(2, 20))).status).toBe(200);
     } finally { limitedCompanies.delete(10); }
+  });
+  it('旧客户端明确提示升级而不提交计费任务，新查询路由仍要求登录', async () => {
+    const count = file.mock.calls.length;
+    const old = await request('collector/file', token(3), { audio: 'xx', hotwords: [] });
+    expect(old.status).toBe(426); expect((await old.json()).message).toContain('更新'); expect(file.mock.calls).toHaveLength(count);
+    expect((await request('collector/file/tasks/opaque-task')).status).toBe(401);
+    expect((await request('collector/file/tasks/opaque-task', token(3))).status).toBe(200);
+    limitedCompanies.add(10);
+    try { expect((await request('collector/file/tasks/opaque-task', token(3))).status).toBe(403); }
+    finally { limitedCompanies.delete(10); }
   });
   it('全员使用不授予设置修改权限；使用范围只能提交布尔值', async () => {
     const input = { enabled: false, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20, allEmployees: false };
@@ -90,7 +101,7 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
     try { expect((await request('collector/session', token(3))).status).toBe(401); }
     finally { users.rows[2].status = 'active'; }
     companies.rows[0].status = 'disabled';
-    try { expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [] })).status).toBe(401); }
+    try { expect((await request('collector/file', token(3), { audio: 'xx', hotwords: [], apiVersion: 2, requestId: '11111111-1111-4111-8111-111111111111' })).status).toBe(401); }
     finally { companies.rows[0].status = 'active'; }
   });
   it('管理员可设置2000并发，越界或非整数请求不进入保存服务', async () => {
@@ -105,9 +116,9 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
   it('会话只返回对应公司摘要，客户端不能通过 DTO 传入其他公司', async () => {
     const r = await request('collector/session', token(2, 20)); expect(r.status).toBe(200);
     const body = await r.json(); expect(body.company.id).toBe(20); expect(JSON.stringify(body)).not.toContain('server-test-key');
-    expect((await request('collector/file', token(), { audio: 'xx', hotwords: [], companyId: 20 })).status).toBe(400);
-    const ok = await request('collector/file', token(), { audio: 'xx', hotwords: [] }); expect(ok.status).toBe(201);
-    expect(file).toHaveBeenLastCalledWith(10, 1, 'xx', []);
+    expect((await request('collector/file', token(), { audio: 'xx', hotwords: [], apiVersion: 2, requestId: '11111111-1111-4111-8111-111111111111', companyId: 20 })).status).toBe(400);
+    const ok = await request('collector/file', token(), { audio: 'xx', hotwords: [], apiVersion: 2, requestId: '11111111-1111-4111-8111-111111111111' }); expect(ok.status).toBe(201);
+    expect(file).toHaveBeenLastCalledWith(10, 1, 'xx', [], '11111111-1111-4111-8111-111111111111');
   });
   it('停用员工后已有令牌立刻失效；首次改密要求对采集器同样生效', async () => {
     const t = token(); users.rows[0].status = 'disabled';

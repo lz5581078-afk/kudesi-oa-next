@@ -24,7 +24,8 @@ export class SpeechSettingsService {
   async overview(companyId: number) {
     const c = await this.read(companyId);
     return { configured: Boolean(c?.apiKey), enabled: c?.enabled ?? false, fileEnabled: c?.fileEnabled ?? true,
-      realtimeEnabled: c?.realtimeEnabled ?? true, maxConcurrent: c?.maxConcurrent ?? 20, allEmployees: c?.allEmployees ?? true };
+      realtimeEnabled: c?.realtimeEnabled ?? true, maxConcurrent: c?.maxConcurrent ?? 20, allEmployees: c?.allEmployees ?? true,
+      fileApiVersion: 2, fileModel: '录音文件识别 2.0 标准版' };
   }
   async save(u: AuthUser, input: SpeechInput) {
     if (!Number.isInteger(input.maxConcurrent) || input.maxConcurrent < 1 || input.maxConcurrent > MAX_SPEECH_CONCURRENT)

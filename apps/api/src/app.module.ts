@@ -1,4 +1,5 @@
 import { CollectorController, SpeechSettingsController } from './collector/collector.controller';
+import { CollectorFileService } from './collector/collector-file.service';
 import { CollectorService } from './collector/collector.service';
 import { CollectorIdentityService } from './collector/collector-identity.service';
 import { SpeechSettingsService } from './collector/speech-settings.service';
@@ -250,7 +251,7 @@ const env = loadEnv();
     FinanceDocumentsService,
     FinanceVoucherHintsService,
     IntegrationSettingsService,
-    CollectorService, CollectorIdentityService, SpeechSettingsService, CollectorRealtimeService, JwtAuthGuard,
+    CollectorService, CollectorFileService, CollectorIdentityService, SpeechSettingsService, CollectorRealtimeService, JwtAuthGuard,
     AiProviderService,
     FilesService,
     OcrService,
