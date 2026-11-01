@@ -12,6 +12,19 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const provider = { id: 1, providerKey: 'geek', name: 'GeekNow', baseUrl: 'https://api.example.com/v1', modelName: 'gpt-4o', status: 'active' as const, lastSyncedAt: null, lastSyncError: null, modelCount: 0, apiKeyConfigured: true };
 
 describe('AI API 接口', () => {
+  it('DeepSeek预设填入官方地址和当前默认模型，但不预填密钥', async () => {
+    a.overview.mockResolvedValue({ syncEnabled: false, providers: [] });
+    render(<AiApiPage />);
+    fireEvent.click(await screen.findByText('添加 DeepSeek 话术整理'));
+    const dlg = await screen.findByRole('dialog', { name: 'AI 服务商' });
+    expect((within(dlg).getByLabelText(/^名称/) as HTMLInputElement).value).toBe('DeepSeek');
+    expect((within(dlg).getByLabelText(/^接口地址/) as HTMLInputElement).value).toBe('https://api.deepseek.com');
+    expect((within(dlg).getByLabelText(/^API Key/) as HTMLInputElement).value).toBe('');
+    fireEvent.click(within(dlg).getByText('保存'));
+    expect(await within(dlg).findByText('请填写 API Key')).toBeTruthy();
+    expect(a.create).not.toHaveBeenCalled();
+  });
+
   it('同步开关默认关；同步失败的原因显示出来；打开开关后同步成功', async () => {
     a.overview.mockResolvedValue({ syncEnabled: false, providers: [provider] });
     a.sync.mockRejectedValueOnce(Object.assign(new Error('模型同步开关是关着的'), { name: 'ApiError' }));
