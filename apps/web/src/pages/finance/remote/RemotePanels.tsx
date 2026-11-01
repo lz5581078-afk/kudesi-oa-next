@@ -8,7 +8,7 @@ import { remoteApi, type RemoteApi, type RemoteDevicesInfo, type RemoteHistoryRo
 const dur = (s: number) => (s <= 0 ? '-' : s >= 60 ? `${Math.floor(s / 60)}分${s % 60}秒` : `${s}秒`);
 
 /** 授权电脑页：每台电脑的远程协助开关（默认关闭）和“紧急停止”。需要 finance.session.manage 才能改。 */
-export function RemoteDeviceSettings({ client = remoteApi, deviceNames }: { client?: RemoteApi; deviceNames: Record<number, string> }) {
+export function RemoteDeviceSettings({ client = remoteApi, deviceNames, managePermission = 'finance.session.manage' }: { client?: RemoteApi; deviceNames: Record<number, string>; managePermission?: string }) {
   const { can } = useAuth();
   const [info, setInfo] = useState<RemoteDevicesInfo | null>(null);
   const [error, setError] = useState('');
@@ -16,7 +16,7 @@ export function RemoteDeviceSettings({ client = remoteApi, deviceNames }: { clie
   const load = useCallback(() => { client.devices().then(setInfo).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')); }, [client]);
   useEffect(load, [load]);
   if (!info) return error ? <div role="alert" className="notice error">{error}</div> : null;
-  const manage = can('finance.session.manage') && info.canManage;
+  const manage = can(managePermission) && info.canManage;
   const run = (fn: () => Promise<unknown>, msg = '') => { setError(''); setDone(''); fn().then(() => { setDone(msg); load(); }).catch((e) => setError(e instanceof ApiError ? e.message : '操作失败')); };
   return (
     <section aria-label="远程协助设置" style={{ marginTop: 20 }}>
@@ -53,9 +53,9 @@ export function RemoteDeviceSettings({ client = remoteApi, deviceNames }: { clie
 }
 
 /** 操作日志页：远程协助记录（谁、哪家店铺、哪台电脑、事由、起止、时长、结果） */
-export function RemoteHistory({ client = remoteApi }: { client?: RemoteApi }) {
+export function RemoteHistory({ client = remoteApi, managePermission = 'finance.session.manage', remotePermission = 'finance.session.remote' }: { client?: RemoteApi; managePermission?: string; remotePermission?: string }) {
   const { can } = useAuth();
-  const allowed = can('finance.session.remote') || can('finance.session.manage');
+  const allowed = can(remotePermission) || can(managePermission);
   const [rows, setRows] = useState<RemoteHistoryRow[] | null>(null);
   const [error, setError] = useState('');
   useEffect(() => { if (allowed) client.history().then(setRows).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')); }, [client, allowed]);
