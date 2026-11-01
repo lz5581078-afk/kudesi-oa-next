@@ -164,6 +164,7 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
       const r = await importStandaloneTask(ctx, source);
       expect((await importStandaloneTask(ctx, source)).reused).toBe(true);
       await expect(importStandaloneTask(ctx, { ...source, id: 7002, template_id: 1 })).rejects.toThrow('尚未兼容');
+      for(const feedback_schema of [{fields:['旧必填项']},{},false,0,JSON.stringify({fields:['旧必填项']})])await expect(importStandaloneTask(ctx,{...source,id:7002,feedback_schema})).rejects.toThrow('不能按空表单迁入');
       return r;
     });
     const row = await ds.manager.findOneByOrFail(WorkItem, { id: imported.id, companyId: admin.companyId });

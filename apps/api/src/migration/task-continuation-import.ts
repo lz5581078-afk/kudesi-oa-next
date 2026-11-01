@@ -48,6 +48,7 @@ export async function importStandaloneTask(ctx: Context, task: Row, template?: R
   if ((!routine && task.template_id != null) || (routine && (!template || String(template.company_id) !== String(ctx.sourceCompanyId) || String(template.id) !== String(task.template_id) || ![0, 1].includes(Number(template.requires_review))))) throw new Error('旧任务模板关联或复核规则尚未兼容');
   if (task.feedback_to_id != null && String(task.feedback_to_id) !== String(task.supervisor_id)) throw new Error('旧任务另有反馈接收人，尚未兼容');
   const schema = task.feedback_schema == null ? null : typeof task.feedback_schema === 'string' ? JSON.parse(task.feedback_schema) : task.feedback_schema;
+  if(schema!=null&&!Array.isArray(schema))throw new Error('旧任务自定义反馈表单尚未兼容，不能按空表单迁入');
   const hasSchema = Array.isArray(schema) && schema.length > 0;
   const feedbackPreset = hasSchema ? Object.entries(TASK_FEEDBACK_PRESETS).find(([, preset]) => isDeepStrictEqual(preset.fields, schema))?.[0] : 'simple';
   if (hasSchema && !feedbackPreset) throw new Error('旧任务自定义反馈表单尚未兼容');
