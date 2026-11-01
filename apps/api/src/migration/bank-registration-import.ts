@@ -10,7 +10,7 @@ import { legacyWallTime } from './legacy-time';
 
 const TYPE='bank-account-history';
 const FIELDS=new Set(['kind','accountName','bank','accountNo','ownerName','licenseId','storeId','keeperUserId','reservedPhoneNumber','reservedPhoneHolder','phoneId','customerNo','openingArchiveLocationId','balance','reconcileCycle','reconcileDay','abnormalReason','note']);
-/** Retain every original registration below its one physical account. Original
+/** Retain every original registration below its corresponding account. Original
  * balances here are descriptive snapshots, never additional opening balances. */
 export async function importBankRegistration(ctx:{em:EntityManager;resources:ResourcesService;crypto:CryptoService;user:AuthUser;sourceCompanyId:number;parentId:number;lookup(type:string,id:unknown):number|undefined},sourceId:string,raw:Record<string,any>,data:Record<string,unknown>,hasFiles:boolean){
   const fail=(detail='')=>Error('旧银行登记核对未完成'+(detail?'：'+detail:''));
@@ -19,7 +19,7 @@ export async function importBankRegistration(ctx:{em:EntityManager;resources:Res
   if(hasFiles||[1,2,3,4].some(i=>String(raw[`public_account_attachment_${i}_data_url`]??'').trim()))throw fail('开户附件须单独核对，未忽略');
   legacyWallTime(raw.created_at,true);
   const parent=await em.findOneBy(ResourceRecord,{id:ctx.parentId,companyId:user.companyId,type:'bank-accounts'});
-  const unique=typeof data.accountNo==='string'?await ctx.resources.findByUnique(em,user.companyId,'bank-accounts',data.accountNo):null;
+  const unique=typeof data.accountNo==='string'?await ctx.resources.findByUnique(em,user.companyId,'bank-accounts',data.accountNo,ctx.parentId):null;
   if(!parent||unique?.id!==parent.id||parent.data.accountName!==data.accountName||parent.data.bank!==data.bank||raw.current_balance==null||data.kind!==raw.account_kind)throw fail('原账户身份或原余额缺失');
   const balance=yuanToPreciseCents(String(raw.current_balance),0);
   if(data.balance!==balance||parent.data.balance!==balance)throw fail('同一账户原余额不一致，不重复相加或猜测');

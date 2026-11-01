@@ -1,10 +1,11 @@
 import { readSourceRow } from '../migration/source-rows';
 import { canAppendReadonly } from './append-only';
+import { isRegistrationType,registrationIdentity,registrationPrefixes,proveRegistration,proveExistingRegistration,type LegacyRegistration } from './legacy-registration';
 import { legacyTaxDefinition } from '../migration/legacy-tax-context';
 import { createHash } from 'crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, IsNull, Not, SelectQueryBuilder } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Like, Not, SelectQueryBuilder } from 'typeorm';
 import {
   unitYuanText, yuanToPreciseCents, createChecker,
   addDaysText, daysBetweenDates, dueDateFor, expirySources, EXPIRY_SKIP_STATUSES, todayShanghai,
@@ -476,7 +477,7 @@ export class ResourcesService implements RuleHost {
     def: ResourceDef,
     existing: ResourceRecord | null,
     input: Record<string, unknown>,
-    options: { status?: string; note?: string; cleanup?: string[]; logAction?: string; reason?: string } = {},
+    options: { status?: string; note?: string; cleanup?: string[]; logAction?: string; reason?: string; legacyRegistration?:LegacyRegistration } = {},
   ): Promise<ResourceRecord> {
     if (def.readOnly) {
       if (existing || !canAppendReadonly(em, user.companyId, def.key)) throw new ForbiddenException('历史记录只读，不能新增或修改');
@@ -565,12 +566,38 @@ export class ResourcesService implements RuleHost {
     if (!title) throw new BadRequestException('缺少标题字段');
     // 加密字段（如银行卡号）作唯一键：明文只在本次提交里，没改就沿用原来的键
     const ufDef = def.uniqueField ? def.fields.find((f) => f.key === def.uniqueField) : undefined;
-    const uniqueKey = !def.uniqueField
+    let uniqueKey = !def.uniqueField
       ? null
       : ufDef?.type === 'sensitive'
         ? (input[def.uniqueField] === undefined ? existing?.uniqueKey ?? null : this.uniqueKeyOf(def, input[def.uniqueField]))
         : this.uniqueKeyOf(def, data[def.uniqueField], data);
-    if (uniqueKey) {
+    let originalRegistration=false;
+    if(isRegistrationType(def.key)&&def.uniqueField){
+      const plain=ufDef?.type==='sensitive'?(secrets[def.uniqueField]?this.crypto.decrypt(secrets[def.uniqueField]):''):data[def.uniqueField];
+      const identity=registrationIdentity(def.key,plain);
+      if(options.legacyRegistration){
+        if(existing||!em.queryRunner?.isTransactionActive||em.queryRunner.data.legacyImport!==true||!user.permissions.isCompanyAdmin)throw new ForbiddenException('原登记只能在受控迁移事务创建');
+        uniqueKey=(await proveRegistration(em,this.crypto,user.companyId,def.key,identity,options.legacyRegistration))[0];
+        const matches=await this.registrationMatches(em,user.companyId,def.key,identity);
+        for(const match of matches){
+          if(!await proveExistingRegistration(em,this.crypto,match,identity))throw new ConflictException('原登记号码与现有人工资料冲突，禁止覆盖或合并');
+          if(match.uniqueKey===uniqueKey)throw new ConflictException('原登记已存在，须通过来源账本复用');
+        }
+        originalRegistration=true;
+      }else if(existing?.uniqueKey?.startsWith('lr1:')){
+        const old=ufDef?.type==='sensitive'?this.sensitiveOf(existing,def.uniqueField):existing.data[def.uniqueField];
+        if(registrationIdentity(def.key,old)===identity){
+          originalRegistration=await proveExistingRegistration(em,this.crypto,existing,identity);
+          uniqueKey=existing.uniqueKey;
+        }
+      }
+    }
+    if (uniqueKey&&!originalRegistration) {
+      if(isRegistrationType(def.key)){
+        const plain=ufDef?.type==='sensitive'?(secrets[def.uniqueField!]?this.crypto.decrypt(secrets[def.uniqueField!]):''):data[def.uniqueField!];
+        const matches=await this.registrationMatches(em,user.companyId,def.key,registrationIdentity(def.key,plain));
+        if(matches.some(r=>r.id!==existing?.id))throw new ConflictException('号码已存在登记，请选择已有资料');
+      }
       const clash = ufDef?.type === 'sensitive' && input[def.uniqueField!] !== undefined
         ? await this.findByUnique(em, user.companyId, def.key, String(input[def.uniqueField!]))
         : await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: def.key, uniqueKey } });
@@ -640,9 +667,21 @@ export class ResourcesService implements RuleHost {
 
   // ---------- RuleHost ----------
 
-  async findByUnique(em: EntityManager, companyId: number, type: string, uniqueKey: string) {
+  private async registrationMatches(em:EntityManager,companyId:number,type:string,identity:string){
+    const normal=this.def(type).fields.find(f=>f.key===this.def(type).uniqueField)?.type==='sensitive'?this.crypto.indexTokens(identity):[identity];
+    const prefixes=registrationPrefixes(this.crypto,companyId,type,identity);
+    return em.find(ResourceRecord,{where:[{companyId,type,uniqueKey:In(normal)},...prefixes.map(p=>({companyId,type,uniqueKey:Like(likeEscape(p)+'%')}))],order:{id:'ASC'}});
+  }
+
+  async findByUnique(em: EntityManager, companyId: number, type: string, uniqueKey: string,preferredId?:number) {
     const def = this.def(type);
     const raw = toUniqueKey(def, uniqueKey)!;
+    if(isRegistrationType(type)){
+      const matches=await this.registrationMatches(em,companyId,type,registrationIdentity(type,raw));
+      if(preferredId!=null){const picked=matches.find(r=>r.id===preferredId);if(picked)return picked;}
+      if(matches.length>1)throw new ConflictException('该号码有多份原登记，请明确选择资料，不按首条自动关联');
+      return matches[0]??null;
+    }
     const keys = def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(raw) : [raw];
     const direct = await em.findOne(ResourceRecord, { where: { companyId, type, uniqueKey: In(keys) } });
     if (type !== 'finance-categories') return direct;
@@ -685,9 +724,9 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 仅服务器迁移CLI调用，无HTTP入口；保留与手工录入相同的字段/引用/加密校验。 */
-  async importRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, status?: string) {
+  async importRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, status?: string,legacyRegistration?:LegacyRegistration) {
     if (em.queryRunner?.data.legacyImport !== true || !user.permissions.isCompanyAdmin) throw new ForbiddenException('仅允许受控迁移事务');
-    return this.saveRecord(em, user, this.def(type), null, values, { status, note: '旧系统资料迁入，来源对照见迁移账本' });
+    return this.saveRecord(em, user, this.def(type), null, values, { status,legacyRegistration, note: '旧系统资料迁入，来源对照见迁移账本' });
   }
 
   async importPatch(em: EntityManager, user: AuthUser, type: string, id: number, values: Record<string, unknown>) {
@@ -715,6 +754,9 @@ export class ResourcesService implements RuleHost {
     const def = this.def(type);
     const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type } });
     if (!record) return;
+    if(isRegistrationType(type)&&def.uniqueField&&Object.hasOwn(patch,def.uniqueField)){
+      await this.saveRecord(em,user,def,record,patch,{note});return;
+    }
     const before = { ...record, data: { ...record.data } } as ResourceRecord;
     const data: Record<string, unknown> = { ...record.data, ...patch };
     for (const k of Object.keys(data)) if (data[k] === null || data[k] === undefined) delete data[k];

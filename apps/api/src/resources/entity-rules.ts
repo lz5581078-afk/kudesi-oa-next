@@ -248,7 +248,7 @@ export const CERT_BEFORE_SAVE: Record<string, Before> = {
     const reserved = d.reservedPhoneNumber;
     if (reserved) {
       const number = normalizePhone(String(reserved));
-      const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number);
+      const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number,typeof d.phoneId==='number'?d.phoneId:undefined);
       if (phone) d.phoneId = phone.id;
     }
     // 选了手机号档案、没填文字时，文字按档案回写

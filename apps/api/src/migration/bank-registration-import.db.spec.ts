@@ -17,7 +17,7 @@ const suite=process.env.RESOURCE_DB_TEST==='1'?describe:describe.skip;
 suite('重复银行账户原登记保留（MySQL）',()=>{
   let ds:DataSource,svc:ReturnType<typeof buildServices>,actor:AuthUser,first:User,second:User,parentId:number;
   const TYPE='bank-account-history',accountNo='6222000011112222';
-  const raw=(id:number,kind='company_public',keeper=10,cycle='monthly')=>({id,company_id:3,account_scope:kind==='store_public'?'store':'company',account_kind:kind,keeper_employee_id:keeper,reconciliation_cycle:cycle,current_balance:'12.00',created_at:'2026-08-01 10:00:00',status:'normal'});
+  const raw=(id:number,kind='company_public',keeper=10,cycle='monthly')=>({id,company_id:3,account_no:accountNo,account_scope:kind==='store_public'?'store':'company',account_kind:kind,keeper_employee_id:keeper,reconciliation_cycle:cycle,current_balance:'12.00',created_at:'2026-08-01 10:00:00',status:'normal'});
   const data=(kind='company_public',keeper?:number,cycle='monthly')=>({kind,accountName:'同一户名',bank:'测试银行',accountNo,keeperUserId:keeper??first.id,reconcileCycle:cycle,balance:1200,note:'原登记说明'});
   beforeAll(async()=>{
     ds=await new DataSource({...buildDataSourceOptions({...process.env,DB_NAME:process.env.TEST_DB_NAME??'kudesi_oa_test'}),migrationsRun:true}).initialize();svc=buildServices(ds);
@@ -67,10 +67,12 @@ suite('重复银行账户原登记保留（MySQL）',()=>{
     const u=await ds.manager.save(User,ds.manager.create(User,{companyId:c.id,name:'管理员',account:null,passwordHash:'!no-login',status:'active',isCompanyAdmin:true,mustChangePassword:false}));
     const originals=[101,102,103].map(id=>({...raw(id,id===102?'store_public':'company_public',10,id===102?'quarterly':'monthly'),company_id:9,keeper_employee_id:null,current_balance:'0.00'}));
     const archive:LegacyArchive={company:{id:9,name:c.name},departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],exclusions:[],loadFile:async()=>Buffer.alloc(0),sourceRows:originals.map(r=>({table:'bank_accounts',key:String(r.id),row:r})),records:originals.map(r=>({id:String(r.id),type:'bank-accounts',status:'normal',data:{kind:r.account_kind,accountName:'整批同号户名',bank:'测试银行',accountNo,balance:0,reconcileCycle:r.reconciliation_cycle,note:r.id===103?'尚待验收的另一说明':'首条说明'}}))};
+    archive.exclusions.push({type:'fixture.unreviewed',id:'103',reason:'另一项未验收内容不得因同号登记保留而跳过'});
     const opts={companyId:c.id,actorId:u.id,expectedName:c.name,preserveLegacyStates:true,sourceRowsCrypto:svc.crypto,softwareFingerprint:'a'.repeat(64)};
     const report=await runLegacyImport(ds,svc.resources,svc.files,archive,{...opts,apply:false});
     expect(report.failures).toEqual([]);expect(report.created[TYPE]).toBe(3);expect(report.verified?.['bank-account-history-view']).toBe(3);
-    expect(report.excluded.map(e=>[e.type,e.id])).toEqual([['bank-accounts.duplicate.note','103']]);
+    expect(report.excluded.map(e=>[e.type,e.id])).toEqual([['fixture.unreviewed','103']]);
+    expect(report.created['bank-accounts']).toBe(3);expect(new Set(report.mappings.filter(m=>m.type==='bank-accounts').map(m=>m.targetId)).size).toBe(3);
     expect(await ds.manager.count(ResourceRecord,{where:{companyId:c.id}})).toBe(0);
     for(const patch of [{targetFingerprint:'0'.repeat(64)},{softwareFingerprint:'b'.repeat(64)},{companyId:c.id+99999}]){
       const rejected=jest.fn();

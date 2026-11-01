@@ -236,7 +236,7 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
   it('有加密原始证据才保留旧异常空原因；不伪造原因，普通新增仍拒绝，补充后清除提示', async () => {
     const records = [
       { type: 'stores', id: 'legacy-store', status: 'abnormal', data: { name: '原异常店铺', platform: 'pdd' }, sourceAbnormalRow: { id: 'legacy-store', company_id: 3, name: '原异常店铺', platform: '拼多多', status: 'abnormal', abnormal_reason: null } },
-      { type: 'phones', id: 'legacy-phone', status: 'abnormal', data: { number: '13800000000', usageType: 'company_kept' }, sourceAbnormalRow: { id: 'legacy-phone', company_id: 3, number: '13800000000', status: 'abnormal', abnormal_reason: '' } },
+      { type: 'phones', id: '9100001', status: 'abnormal', data: { number: '13800000000', usageType: 'company_kept' }, sourceAbnormalRow: { id: '9100001', company_id: 3, number: '13800000000', status: 'abnormal', abnormal_reason: '' } },
     ];
     const archive: LegacyArchive = { company: { id: 3, name: '旧流程续办测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [], records, exclusions: [], loadFile: async () => Buffer.alloc(0) };
     const opts = { companyId: admin.companyId, actorId: admin.id, expectedName: archive.company.name, sourceRowsCrypto: svc.crypto };

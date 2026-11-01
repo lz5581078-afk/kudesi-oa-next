@@ -12,7 +12,7 @@ const TYPE='phone-registration-history';
 const FIELDS:Record<string,string>={certifiedName:'phone_owner_name',plan:'package_name',externalUser:'external_user_name',deviceType:'phone_device_type',forwardApp:'has_forwarding_app',forwardAppName:'forwarding_app_name',rechargeDay:'recharge_day',feeCycle:'fee_cycle',originalRemark:'remark'};
 const ALLOWED_RAW=new Set(['id',...Object.values(FIELDS)]);
 const ALLOWED_DATA=new Set(['certifiedName','plan','externalUser','deviceType','forwardApp','forwardAppName','rechargeDay','feeCycle','note']);
-interface Original {record:LegacyRecord;raw:Record<string,unknown>;data:Record<string,unknown>}
+interface Original {record:LegacyRecord;raw:Record<string,unknown>;data:Record<string,unknown>;parentId?:number}
 /** Only the reviewed differences may be represented by this compact history.
  * Compare every raw column and every converted field, including sensitive and
  * secret fields; unknown differences block rather than disappear in a merge. */
@@ -25,6 +25,8 @@ export async function importPhoneRegistrations(ctx:{em:EntityManager;resources:R
   if(!parent)throw fail('本公司号码档案不存在');
   const first=originals[0];
   for(const o of originals){
+    const ownParent=o.parentId==null?parent:await em.findOneBy(ResourceRecord,{id:o.parentId,companyId:user.companyId,type:'phones'});
+    if(!ownParent||ownParent.data.number!==parent.data.number)throw fail('独立登记与同号组不一致');
     if(String(o.raw.company_id)!==String(ctx.sourceCompanyId)||String(o.raw.id)!==o.record.id||o.record.type!=='phones'||o.record.files?.length||o.record.status!==first.record.status||!isDeepStrictEqual(o.record.archive,first.record.archive))throw fail('公司、身份、状态或归档/附件存在未兼容差异');
     if(typeof o.raw.number!=='string'||normalizePhone(o.raw.number)!==parent.data.number||normalizePhone(String(o.data.number??''))!==parent.data.number)throw fail('原号码与主档案不一致');
     if(o.raw.has_forwarding_app!=null&&![0,1,'0','1'].includes(o.raw.has_forwarding_app as string|number))throw fail('原转发标记尚未兼容');
@@ -33,7 +35,7 @@ export async function importPhoneRegistrations(ctx:{em:EntityManager;resources:R
   }
   const results:Array<{sourceId:string;id:number;reused:boolean}>=[];
   for(const o of originals){
-    const values:Record<string,unknown>={phoneId:parent.id,sourceId:o.record.id,sourceStatus:o.raw.status??null};
+    const values:Record<string,unknown>={phoneId:o.parentId??parent.id,sourceId:o.record.id,sourceStatus:o.raw.status??null};
     for(const [field,column]of Object.entries(FIELDS)){
       const value=o.raw[column];
       if(value!=null&&typeof value!=='string'&&!(field==='forwardApp'&&[0,1].includes(Number(value))))throw fail('原登记字段类型尚未兼容');

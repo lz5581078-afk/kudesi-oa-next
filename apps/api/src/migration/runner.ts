@@ -25,6 +25,7 @@ import { importPhoneRegistrations } from './phone-registration-import';
 import { verifyGiftAliasIndex } from './gift-alias-index';
 import { OrgAdminService } from '../org/org-admin.service';
 import { legacyWallTime } from './legacy-time';
+import { isRegistrationType } from '../resources/legacy-registration';
 
 const SOURCE = 'legacy-oa';
 function stable(v: unknown): unknown {
@@ -276,6 +277,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
             if(link && !lookup(link.type,link.id) && fd && !fd.required && !structural.has(field)) { deferred[field]=v; delete immediate[field]; }
           }
           const data = resolve(immediate);
+          const registration=opts.preserveLegacyStates&&isRegistrationType(r.type)?{sourceCompanyId:source.company.id,sourceId:r.id}:undefined;
           await savepoint(async () => {
             const def = getResourceDef(r.type);
             if (!def) throw new MigrationError('目标资料类型不存在');
@@ -285,7 +287,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
               record = typeof v === 'string' ? await resources.findByUnique(em, company.id, r.type, v.toLowerCase()) : null;
               if (record && Object.entries(data).some(([k, v]) => record!.data[k] !== v && !['note','sortOrder'].includes(k))) throw new MigrationError('目标已有字典值不同，禁止覆盖');
             }
-            if (!record && def.uniqueField) {
+            if (!record && def.uniqueField&&!registration) {
               const field = def.fields.find(f=>f.key===def.uniqueField)!;
               const value = data[def.uniqueField];
               const raw = field.type==='phone' ? normalizePhone(String(value??'')) : String(value??'');
@@ -330,8 +332,8 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
                 const raw = r.sourceAbnormalRow;
                 if (!opts.sourceRowsCrypto || !raw || String(raw.company_id) !== String(source.company.id) || String(raw.id) !== r.id || raw.status !== 'abnormal' || String(raw.abnormal_reason ?? '').trim()) throw new MigrationError('旧异常状态缺少原始空原因记录，禁止伪造');
                 await preserveSourceRow(em, opts.sourceRowsCrypto, { companyId: company.id, sourceCompanyId: source.company.id, table: r.type === 'stores' ? 'stores' : 'phone_numbers', key: r.id }, raw);
-                record = await withMissingLegacyReason(em, { companyId: company.id, library: r.type === 'stores' ? 'store-abnormal-reasons' : 'phone-abnormal-reasons' }, () => resources.importRecord(em, user, r.type, data, r.status));
-              } else record = await resources.importRecord(em, user, r.type, data, r.status);
+                record = await withMissingLegacyReason(em, { companyId: company.id, library: r.type === 'stores' ? 'store-abnormal-reasons' : 'phone-abnormal-reasons' }, () => resources.importRecord(em, user, r.type, data, r.status,registration));
+              } else record = await resources.importRecord(em, user, r.type, data, r.status,registration);
               count('created', r.type); resourceCreated.add(record.id);
             }
             else count('reused', r.type);
@@ -427,13 +429,13 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     }
 
     if(opts.preserveLegacyStates){
-      const groups=new Map<number,LegacyRecord[]>();
-      for(const r of source.records.filter(r=>r.type==='phones')){const id=lookup(r.type,r.id);if(id)groups.set(id,[...(groups.get(id)??[]),r]);}
-      for(const [parentId,records]of groups)if(records.length>1){
+      const groups=new Map<string,LegacyRecord[]>();
+      for(const r of source.records.filter(r=>r.type==='phones')){const id=lookup(r.type,r.id),number=normalizePhone(String(r.data.number??''));if(id&&number)groups.set(number,[...(groups.get(number)??[]),r]);}
+      for(const records of groups.values())if(records.length>1){
         try{
-          const originals=records.map(record=>{const rows=source.sourceRows?.filter(row=>row.table==='phone_numbers'&&String(row.row.id)===record.id)??[];if(rows.length!==1)throw new MigrationError('旧号码登记缺少完整原始行');return {record,raw:rows[0].row,data:resolve(record.data)};});
+          const originals=records.map(record=>{const rows=source.sourceRows?.filter(row=>row.table==='phone_numbers'&&String(row.row.id)===record.id)??[];if(rows.length!==1)throw new MigrationError('旧号码登记缺少完整原始行');return {record,parentId:required(record.type,record.id),raw:rows[0].row,data:resolve(record.data)};});
           const result=await savepoint(async()=>{
-            const rows=await importPhoneRegistrations({em,resources,user,sourceCompanyId:source.company.id,parentId},originals);
+            const rows=await importPhoneRegistrations({em,resources,user,sourceCompanyId:source.company.id,parentId:originals[0].parentId},originals);
             for(const row of rows){const id=lookup('phone-registration-history',row.sourceId);if(id!=null&&id!==row.id)throw new MigrationError('旧号码登记账本不一致');if(!id)await register('phone-registration-history',row.sourceId,row.id);}
             return rows;
           });

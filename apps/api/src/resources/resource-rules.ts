@@ -16,7 +16,7 @@ import { workforceAfterSave, workforceBeforeDelete, workforceBeforeSave } from '
  * 这里只放“只有这一类资料才有”的规则，一条规则一个函数，便于单独测试。
  */
 export interface RuleHost {
-  findByUnique(em: EntityManager, companyId: number, type: string, uniqueKey: string): Promise<ResourceRecord | null>;
+  findByUnique(em: EntityManager, companyId: number, type: string, uniqueKey: string,preferredId?:number): Promise<ResourceRecord | null>;
   /** 走与手工新增完全相同的校验、日志、关联流程 */
   createRecord(
     em: EntityManager,
@@ -98,7 +98,7 @@ async function matchPhone(ctx: BeforeSaveContext, strict: boolean) {
   }
   const number = normalizePhone(String(text));
   ctx.data.phoneNumber = number;
-  const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number);
+  const phone = await ctx.host.findByUnique(ctx.em, ctx.user.companyId, 'phones', number,pickedId??undefined);
   if (!phone) {
     if (strict) throw new BadRequestException(`手机号 ${number} 还没有建档，请先到“手机号”里新增`);
     ctx.data.phoneId = null;
