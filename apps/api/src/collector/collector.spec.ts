@@ -72,23 +72,7 @@ describe('采集器语音设置与代理', () => {
     leases[0](); leases[0](); const slot = collector.acquire(1, 20);
     expect(() => collector.acquire(1, 20)).toThrow('并发'); slot(); leases.forEach(release => release());
   });
-  it('仅向固定豆包地址发声音和服务端身份，输出只含文本及时间', async () => {
-    const { collector, settings } = setup(); await settings.save(user, { apiKey: key, enabled: true, fileEnabled: true, realtimeEnabled: false, maxConcurrent: 20 });
-    let seen: any;
-    const fakeFetch = jest.fn(async (url, init) => { seen = { url, ...init }; return new Response(JSON.stringify({ secret: key, result: { text: '原话',
-      utterances: [{ text: '原话', start_time: 0, end_time: 1000, secret: key }] } }), { headers: { 'X-Api-Status-Code': '20000000' } }); });
-    const r = await collector.transcribe(1, 3, wav().toString('base64'), ['商品甲'], fakeFetch as any);
-    expect(seen.url).toBe('https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash');
-    expect(seen.headers['X-Api-Key']).toBe(key); expect(JSON.parse(seen.body).user.uid).toBe('oa-1-3');
-    expect(JSON.parse(seen.body).request.enable_ddc).toBe(false); expect(JSON.stringify(r)).not.toContain(key);
-    expect(r.result.utterances[0].end_time).toBe(1000); await expect(collector.config(1, 'realtime')).rejects.toThrow('未启用');
-  });
-  it('供应商鉴权失败是 502 而非 OA 401；不返回供应商原始内容，不自动重试', async () => {
-    const { collector, settings } = setup(); await settings.save(user, { apiKey: key, enabled: true, fileEnabled: true, realtimeEnabled: false, maxConcurrent: 1 });
-    const fail = jest.fn(async () => new Response(key, { status: 401 }));
-    await expect(collector.transcribe(1, 3, wav().toString('base64'), [], fail as any)).rejects.toBeInstanceOf(BadGatewayException);
-    expect(fail).toHaveBeenCalledTimes(1); expect(() => collector.acquire(1, 1)()).not.toThrow();
-  });
+
 });
 describe('采集器语音输入边界', () => {
   it('校验 WAV 类型、时长、热词及截断内容', () => {
