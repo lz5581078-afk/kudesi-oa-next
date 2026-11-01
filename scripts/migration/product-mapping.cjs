@@ -134,4 +134,19 @@ function bundleCategoryRecords(tables) {
   });
 }
 
-module.exports = { bundleCategoryRecords, nonnegativeSortRanks, buildUnitCatalog, productUnitFields, composedFromLinks, normCode, UNIT_TABLES };
+/** Preserve explicit old line settings, particularly opted-in packaging. */
+function bundleLineExtras(row, unit) {
+  if (row.is_required == null || row.include_in_jst_bundle == null || ![0, 1].includes(Number(row.is_required)) || ![0, 1].includes(Number(row.include_in_jst_bundle))) throw Error('旧组合组成的必需或上传选项无法对应');
+  return {
+    ...(unit ? { unit } : {}),
+    lossRate: Number(row.loss_rate ?? 0), isRequired: Number(row.is_required) === 1,
+    includeInJst: Number(row.include_in_jst_bundle) === 1,
+    ...(row.cost_bucket ? { costBucket: row.cost_bucket } : {}),
+    ...(row.cost_treatment ? { costTreatment: row.cost_treatment } : {}),
+    sortOrder: Number(row.sort_order ?? 0),
+    ...(row.effective_from ? { effectiveFrom: row.effective_from } : {}),
+    ...(row.effective_to ? { effectiveTo: row.effective_to } : {}),
+    ...(row.remark ? { note: row.remark } : {}),
+  };
+}
+module.exports = { bundleLineExtras, bundleCategoryRecords, nonnegativeSortRanks, buildUnitCatalog, productUnitFields, composedFromLinks, normCode, UNIT_TABLES };

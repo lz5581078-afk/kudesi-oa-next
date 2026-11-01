@@ -8,6 +8,17 @@ const rules = require('../../../../scripts/migration/mapping-rules.json');
 
 const defs = RESOURCE_DEFS as never;
 
+describe('旧组合构成显式选项', () => {
+  it('保留包装上传、非必需、原单位、损耗、成本处理、次序、有效期和说明', () => {
+    expect(mapping.bundleLineExtras({ role: 'package', is_required: 0, include_in_jst_bundle: 1, loss_rate: '0.1250', cost_bucket: 'shipping_package', cost_treatment: 'reference_only', sort_order: 7, effective_from: '2026-01-01', effective_to: '2026-12-31', remark: '原组成说明' }, 'EA')).toEqual({ unit: 'EA', lossRate: 0.125, isRequired: false, includeInJst: true, costBucket: 'shipping_package', costTreatment: 'reference_only', sortOrder: 7, effectiveFrom: '2026-01-01', effectiveTo: '2026-12-31', note: '原组成说明' });
+    expect(mapping.bundleLineExtras({ role: 'main', is_required: 1, include_in_jst_bundle: 0 }, 'G')).toMatchObject({ isRequired: true, includeInJst: false, unit: 'G' });
+  });
+  it('缺少来源选项时不按用途猜测上传和必需', () => {
+    expect(() => mapping.bundleLineExtras({ is_required: 1 }, 'G')).toThrow('无法对应');
+    expect(() => mapping.bundleLineExtras({ is_required: null, include_in_jst_bundle: 1 }, 'G')).toThrow('无法对应');
+  });
+});
+
 describe('旧单位表 → 新“单位与规格”', () => {
   const tables = {
     finance_product_units: [

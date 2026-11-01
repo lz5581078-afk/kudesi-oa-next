@@ -17,6 +17,7 @@ import type { CryptoService } from '../common/crypto.service';
 import { preserveSourceRow, sourceRowHash } from './source-rows';
 import { withCostHistory } from './cost-history-context';
 import { importWorkflows, workflowHashGroups, WORKFLOW_TARGET_TABLE } from './workflow-import';
+import { restoreBaseVerifications, restoreBundleVerifications } from './verification-restore';
 import { withMissingLegacyReason } from './legacy-state-context';
 
 const SOURCE = 'legacy-oa';
@@ -304,6 +305,8 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     }
     for(const m of createdProducts)await recomputeProduct(resources,em,user,m.targetId);
     if(createdProducts.length)for(const m of out.mappings.filter(m=>m.type==='finance-base-codes' && resourceCreated.has(m.targetId)))await resources.importPatch(em,user,m.type,m.targetId,{});
+    if (source.sourceRows?.some(r => r.table === 'legacy_verification_reports')) await restoreBaseVerifications({ em, companyId: company.id, sourceCompanyId: source.company.id, lookup, createdIds: resourceCreated, savepoint, count, fail: (type, id, reason) => out.failures.push({ type, id, reason }) }, source);
+    if (source.sourceRows?.some(r => r.table === 'legacy_verification_reports')) await restoreBundleVerifications({ em, companyId: company.id, sourceCompanyId: source.company.id, lookup, createdIds: resourceCreated, savepoint, count, fail: (type, id, reason) => out.failures.push({ type, id, reason }) }, source);
     // 文件上传仅在正式/隔离试迁apply时执行；试跑没有文件系统副作用。
     if (opts.apply) for (const r of source.records) {
       const recordId = lookup(r.type, r.id); if (!recordId) continue;

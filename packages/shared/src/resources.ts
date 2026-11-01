@@ -75,7 +75,7 @@ export interface FieldDef {
    * 下拉的值是列表项的编码，显示名称。kindBy：列表种类随另一个字段的值变（如发货物料用自己的单位表）。
    * 公司还没有维护该种类时，退回 options 里的默认选项。
    */
-  optionsFrom?: { resource: string; kind: string; kindBy?: { field: string; map: Record<string, string> } };
+  optionsFrom?: { resource: string; kind: string; alsoKinds?: string[]; kindBy?: { field: string; map: Record<string, string> } };
   /** 只在列表里当一列用（读时派生的摘要之类），详情和表单里不显示 */
   listOnly?: boolean;
   /** 旧叫法：导入表格里列标题写旧名称也认（字段改名后，员工手里的旧模板还能用） */
@@ -1438,6 +1438,10 @@ export function optionsKindOf(field: FieldDef, values: Record<string, unknown>):
   if (!from) return null;
   if (from.kindBy) return from.kindBy.map[String(values[from.kindBy.field] ?? '')] ?? from.kind;
   return from.kind;
+}
+export function optionsKindsOf(field: FieldDef, values: Record<string, unknown>): string[] {
+  const primary = optionsKindOf(field, values);
+  return primary ? [...new Set([primary, ...(field.optionsFrom?.alsoKinds ?? [])])] : [];
 }
 
 /** 资源动作权限键：resource.<key>.<action> */

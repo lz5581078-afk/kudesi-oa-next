@@ -13,6 +13,8 @@ import { ExpressService } from './express.service';
 import { PricingDebugService } from './pricing-debug.service';
 import { ResourcesService } from './resources.service';
 import { readZipEntries } from './xlsx-lite';
+import { BundleToolsService } from './bundle-tools.service';
+import { OutboxService } from '../outbox/outbox.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 
@@ -348,5 +350,27 @@ d('成本表与定价调试表（真实数据库）', () => {
     const snapshot=await ds.manager.save(FinanceCostSnapshot,ds.manager.create(FinanceCostSnapshot,{companyId:boss.companyId,bundleId:ids.bundle,code:'PRECISION-TEST',name:'历史精度回归',revision:99999,preShipCostCents:1.603,weightG:0.001,freightCents:112.2,marginPercent:10,minPriceCents:127,reason:'验证数据库边界精度',eventType:'manual',actorId:boss.id}));
     const saved=await ds.manager.findOneByOrFail(FinanceCostSnapshot,{id:snapshot.id,companyId:boss.companyId});
     expect(saved.weightG).toBe(0.001);expect(saved.freightCents).toBe(112.2);expect(saved.preShipCostCents).toBe(1.603);
+  });
+  it('组合核对包含人工和手工重量，和成本表一致；人工单价变化后旧核对签名失效', async () => {
+    const before = await cost.one(boss, ids.bundle);
+    const versionId = (await svc.create(boss, 'finance-labor-versions', { versionCode: 'REPORT', versionName: '核对人工', effectiveFrom: '2026-01-01' }, 'active')).id;
+    const archiveCategoryId = (await svc.create(boss, 'finance-labor-categories', { versionId, name: '包装' })).id;
+    const workTypeId = (await svc.create(boss, 'finance-labor-work-types', { name: '核对包装' })).id;
+    const unitId = (await svc.create(boss, 'finance-labor-units', { name: '元/个' })).id;
+    const labor = await svc.create(boss, 'finance-labor-costs', { versionId, archiveCategoryId, workTypeId, unitId, workName: '装箱', unitPrice: 150 });
+    await svc.create(boss, 'finance-bundle-lines', { bundleId: ids.bundle, role: 'labor', laborId: labor.id, qty: 2 });
+    await svc.update(boss, 'finance-bundles', ids.bundle, { weightMode: 'manual', manualWeightG: 0.01, overrideReason: '核对手工重量精度' });
+    const tools = new BundleToolsService(ds, svc, new OutboxService(ds, svc));
+    const report = await tools.report(boss, ids.bundle);
+    expect(report.totalCost).toBe(before.preShipCostCents! + 300);
+    expect(report.totalCost).toBe((await cost.one(boss, ids.bundle)).preShipCostCents);
+    expect(report.totalWeightG).toBe(0.01); expect(report.outbound.weight).toBe(0.00001);
+    expect(report.components.find(c => c.role === 'labor')!.cost).toBe(150);
+    const hidden = await tools.report(ops, ids.bundle);
+    expect(hidden.totalCost).toBeUndefined(); expect(hidden.outbound.cost_price).toBeUndefined();
+    expect(hidden.components.every(c => c.cost === undefined)).toBe(true);
+    await svc.update(boss, 'finance-labor-costs', labor.id, { unitPrice: 200 });
+    const stale = await tools.verify(boss, [{ id: ids.bundle, signature: report.signature }], { confirmed: true, syncToJst: false });
+    expect(stale.results[0]).toMatchObject({ ok: false, error: expect.stringContaining('资料又变了') });
   });
 });

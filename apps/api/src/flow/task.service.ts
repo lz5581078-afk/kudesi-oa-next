@@ -197,8 +197,8 @@ export class TaskService {
     const now = new Date();
     return {
       total: Number(n), page: q.page, pageSize: q.pageSize,
-      rows: rows.map((r: { status: string; dueAt: Date | null; requiresReview: number; isAbnormal: number; submittedAt: Date | null; submitPayload: unknown }) => ({
-        ...r, requiresReview: Number(r.requiresReview) === 1, isAbnormal: Number(r.isAbnormal) === 1,
+      rows: rows.map((r: { status: string; dueAt: Date | null; requiresReview: number; isAbnormal: number; submittedAt: Date | null; submitPayload: unknown; delayId: number | string | null }) => ({
+        ...r, delayId: r.delayId == null ? null : Number(r.delayId), requiresReview: Number(r.requiresReview) === 1, isAbnormal: Number(r.isAbnormal) === 1,
         stage: r.status !== 'open' ? r.status : !r.submittedAt ? 'open' : Number(r.isAbnormal) === 1 ? 'abnormal' : 'reviewing',
         submitPayload: typeof r.submitPayload === 'string' ? JSON.parse(r.submitPayload) : r.submitPayload,
         overdue: r.status === 'open' && !!r.dueAt && r.dueAt < now,

@@ -16,6 +16,7 @@ import {
   PRODUCT_SIMILARITY_FIELDS,
   UNIT_OPTIONS,
   unitOptionFromText,
+  optionsKindsOf,
   inspectArchiveSimilarity,
   formatSimilarityMatch,
   normalizePhone,
@@ -47,7 +48,7 @@ import { categoryAllowedForSave, categoryFromText, categoryLabels, categoryOptio
 import { certImportMatch } from './entity-rules';
 import { optionsKindOf, parseColFilters, readTimeKeys, STATUS_COL, type ColFilter } from '@kudesi/shared';
 import { applyColFilters } from './col-filter.sql';
-import { dynamicOptionsFor, loadUnitLists, seedUnitDefaults, unitLabel, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
+import { dynamicOptionsFor, loadUnitLists, seedUnitDefaults, unitLabel, unitLabelFor, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
 
 export interface ResourceDto {
@@ -280,6 +281,8 @@ export class ResourcesService implements RuleHost {
   private toDto(def: ResourceDef, r: ResourceRecord, labels: Record<string, string>, fileMap: Map<number, FileInfo>): ResourceDto {
     const secrets = this.readSecrets(r);
     const data: Record<string, unknown> = { ...r.data };
+    // Migration evidence is internal. Its costs must not bypass field ACLs.
+    for (const key of Object.keys(data)) if (key.startsWith('_legacy')) delete data[key];
     const secretConfigured: Record<string, boolean> = {};
     for (const f of def.fields) {
       if (f.type === 'secret') {
@@ -1461,8 +1464,9 @@ export class ResourcesService implements RuleHost {
     const def = this.def(type);
     const hide = restrictedFieldKeys(def, createChecker(user.permissions));
     const strip = (v: Record<string, unknown> | null) => {
-      if (!v || hide.size === 0) return v;
+      if (!v) return v;
       const copy = { ...v };
+      for (const key of Object.keys(copy)) if (key.startsWith('_legacy')) delete copy[key];
       for (const k of hide) delete copy[k];
       return copy;
     };
@@ -1740,7 +1744,7 @@ export class ResourcesService implements RuleHost {
   private displayValue(f: FieldDef, dto: ResourceDto, units?: UnitLists, cat?: { field: string; labels: Map<string, string> }): string {
     const v = dto.data[f.key];
     if (v === undefined || v === null) return '';
-    if (f.type === 'select' && f.optionsFrom && units) return unitLabel(units, optionsKindOf(f, dto.data) ?? f.optionsFrom.kind, v);
+    if (f.type === 'select' && f.optionsFrom && units) return unitLabelFor(units, f, dto.data, v);
     if (f.type === 'select' && cat?.field === f.key && cat.labels.has(String(v))) return cat.labels.get(String(v))!;
     if (f.type === 'select') return f.options?.find((o) => o.value === v)?.label ?? String(v);
     if (f.type === 'money') return f.scale ? unitYuanText(Number(v)) : (Number(v) / 100).toFixed(2);
@@ -1819,11 +1823,14 @@ export class ResourcesService implements RuleHost {
       if (raw && f.type === 'ref' && f.ref === 'licenses') raw = await mapLicenseByCreditCode(em, user.companyId, raw);
       if (!raw) continue;
       const unitKind = f.type === 'select' && f.optionsFrom ? optionsKindOf(f, input) : null;
-      if (unitKind && (unitLists ??= await loadUnitLists(em, user.companyId)).get(unitKind)?.some((i) => i.active)) {
+      const unitKinds = optionsKindsOf(f, input);
+      if (unitKind) unitLists ??= await loadUnitLists(em, user.companyId);
+      if (unitKind && unitKinds.some(kind => unitLists!.get(kind)?.some(i => i.active))) {
         // 公司维护了这一类单位：按名称或编码对应（如“箱”“CTN”），常见写法（公斤、只…）先对到内置单位再找
-        let v = unitValueFromText(unitLists, unitKind, raw);
+        let v = unitKinds.map(kind => unitValueFromText(unitLists!, kind, raw)).find(x => x !== undefined);
         const common = v === undefined && f.options === UNIT_OPTIONS ? unitOptionFromText(raw) : undefined;
-        if (common) v = unitValueFromText(unitLists, unitKind, common.label) ?? unitValueFromText(unitLists, unitKind, common.value);
+        if (common) v = unitKinds.flatMap(kind => [unitValueFromText(unitLists!, kind, common.label), unitValueFromText(unitLists!, kind, common.value)]).find(x => x !== undefined);
+        if (common && v === undefined && dynamicOptionsFor(def, unitLists!, input)?.[f.key]?.includes(common.value)) v = common.value;
         if (v === undefined) errors.push(`${f.label}“${raw}”不在“单位与规格”里`);
         else input[f.key] = v;
       } else if (f.type === 'select' && f.key === def.tabsBy && (catOpts ??= await categoryOptionsFor(em, user.companyId, def))) {
