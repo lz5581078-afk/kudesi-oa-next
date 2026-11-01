@@ -7,7 +7,7 @@ export interface RunRow {
   dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; stepEnteredAt?: string | null;
 }
 export interface RunList { total: number; page: number; pageSize: number; rows: RunRow[] }
-export interface TodoRow { id: number; kind: string; description: string | null; runId: number | null; title: string; stepName: string; enteredVia: string; templateLabel: string; runTitle: string; requesterName: string; dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; feedbackPreset?: string | null; completionStandard?: string | null; requiresReview?: number | boolean; reviewNote?: string | null; status?: string; batchKey?: string | null; batchName?: string | null; batchCount?: number }
+export interface TodoRow { storeId?: number | null; storeName?: string | null; id: number; kind: string; description: string | null; runId: number | null; title: string; stepName: string; enteredVia: string; templateLabel: string; runTitle: string; requesterName: string; dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; feedbackPreset?: string | null; completionStandard?: string | null; requiresReview?: number | boolean; reviewNote?: string | null; status?: string; batchKey?: string | null; batchName?: string | null; batchCount?: number }
 export interface TodoList { total: number; counts: { pending: number; overdue: number; returned: number; cc: number; taskReview?: number }; rows: TodoRow[] }
 export interface RunStep {
   id: number; seq: number; key: string; name: string; type: string; status: string; action: FlowAction | null; comment: string | null; form: Record<string, unknown> | null;
@@ -23,7 +23,7 @@ export interface RunDetailDto {
   links: { docId: number | null; docNo: string | null; borrowRecordId: number | null };
   me: { canPass: boolean; canReturn: boolean; canCancel: boolean; canReject: boolean; returnBlockedReason: string | null; cancelBlockedReason: string | null; canResubmit: boolean; canWithdraw: boolean; canTransfer: boolean; canAbnormal?: boolean; stepFields: FieldDef[] };
 }
-export interface AssignedRow { id: number; title: string; description: string | null; status: string; dueAt: string | null; createdAt: string; finishedAt: string | null; doneNote: string | null; assigneeName: string; overdue: boolean;
+export interface AssignedRow { storeId?: number | null; storeName?: string | null; id: number; title: string; description: string | null; status: string; dueAt: string | null; createdAt: string; finishedAt: string | null; doneNote: string | null; assigneeName: string; overdue: boolean;
   assigneeId?: number; supervisorId?: number | null; supervisorName?: string | null; creatorName?: string | null; requiresReview?: boolean; feedbackPreset?: string | null; completionStandard?: string | null;
   submitPayload?: Record<string, unknown> | null; submittedAt?: string | null; reviewNote?: string | null; stage?: string; isAbnormal?: boolean; delayId?: number | null; delayDueAt?: string | null; delayReason?: string | null }
 export interface TaskBody { title: string; description?: string; assigneeId?: number; dueDate?: string; supervisorId?: number; requiresReview?: boolean; feedbackPreset?: string; completionStandard?: string }

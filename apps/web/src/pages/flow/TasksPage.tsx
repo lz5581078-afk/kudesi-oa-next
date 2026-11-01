@@ -1,3 +1,4 @@
+import { TaskStoreLink } from './TaskStoreLink';
 import { useCallback, useEffect, useState } from 'react';
 import { ROUTINE_FREQUENCY_LABEL, TASK_FEEDBACK_PRESETS, WEEKDAY_LABEL } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
@@ -80,7 +81,7 @@ function Assigned({ users, canAssign, supervised }: { users: Opt[]; canAssign: b
             const hint = dueHint(r.dueAt, now);
             return (
               <tr key={r.id} className={r.overdue && stage(r) === 'open' ? 'late' : undefined}>
-                <td className="cell-title"><strong>{r.title}</strong>{r.description && <span className="sub-line">{r.description}</span>}</td>
+                <td className="cell-title"><strong>{r.title}</strong><TaskStoreLink storeId={r.storeId} storeName={r.storeName} />{r.description && <span className="sub-line">{r.description}</span>}</td>
                 <td data-label="负责人">{r.assigneeName}{r.supervisorName && <span className="sub-line">监督：{r.supervisorName}</span>}</td>
                 <td data-label="状态"><span className={`pill ${STATUS[stage(r)]?.[1] ?? ''}`}>{STATUS[stage(r)]?.[0] ?? r.status}</span></td>
                 <td data-label="截止">{r.dueAt ? <span>{fmtTime(r.dueAt)}{stage(r) === 'open' && <span className={`sub-line${hint.late ? ' late-text' : ''}`}>{hint.text}</span>}</span> : '不限时'}</td>

@@ -991,12 +991,12 @@ export class FlowService {
     if (q.tab !== 'done') args.push(...nowArg(q.tab), ...nowArg(q.tab));
     const kw = q.keyword?.trim();
     if (kw) { cond += ' AND (w.title LIKE ? OR r.title LIKE ? OR w.description LIKE ?)'; const like = `%${kw.replace(/[\\%_]/g, '\\$&')}%`; args.push(like, like, like); }
-    const from = `FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id LEFT JOIN flow_runs r ON r.id = w.run_id LEFT JOIN users u ON u.id = r.requester_id LEFT JOIN users cu ON cu.id = w.created_by WHERE ${base} AND ${cond}`;
+    const from = `FROM work_items w LEFT JOIN flow_steps s ON s.id = w.step_id LEFT JOIN flow_runs r ON r.id = w.run_id LEFT JOIN users u ON u.id = r.requester_id LEFT JOIN users cu ON cu.id = w.created_by LEFT JOIN resource_records st ON st.id = w.store_id AND st.company_id = w.company_id AND st.type = 'stores' WHERE ${base} AND ${cond}`;
     const [{ n }] = await this.dataSource.query(`SELECT COUNT(*) AS n ${from}`, args);
     const groupCount = q.tab === 'done' ? 'NULL' : `(SELECT COUNT(*) FROM work_items w3 JOIN flow_steps s3 ON s3.id = w3.step_id JOIN flow_runs r3 ON r3.id = w3.run_id
         WHERE ${BK('r')} IS NOT NULL AND w3.company_id = w.company_id AND w3.assignee_id = w.assignee_id AND r3.template_key = r.template_key AND ${BK('r3')} = ${BK('r')} AND s3.step_key = s.step_key AND ${tabCond('w3', 's3', q.tab)})`;
     const rows = await this.dataSource.query(
-      `SELECT w.id, w.kind, w.routine_id AS routineId, w.run_id AS runId, w.title, w.description, w.status, w.due_at AS dueAt, w.created_at AS createdAt, w.finished_at AS finishedAt,
+      `SELECT w.id, w.kind, w.routine_id AS routineId, w.run_id AS runId, w.title, w.description, w.store_id AS storeId, st.title AS storeName, w.status, w.due_at AS dueAt, w.created_at AS createdAt, w.finished_at AS finishedAt,
               w.feedback_preset AS feedbackPreset, w.completion_standard AS completionStandard, w.requires_review AS requiresReview, w.review_note AS reviewNote, w.supervisor_id AS supervisorId, s.step_name AS stepName, s.entered_via AS enteredVia, r.template_key AS templateKey, COALESCE(r.title, w.title) AS runTitle, COALESCE(u.name, cu.name) AS requesterName,
               ${BK('r')} AS batchKey, JSON_UNQUOTE(JSON_EXTRACT(r.payload, '$.batchName')) AS batchName, ${groupCount} AS batchCount
        ${from} ORDER BY ${q.tab === 'done' ? 'w.finished_at DESC' : 'w.due_at IS NULL, w.due_at ASC, w.id DESC'} LIMIT ? OFFSET ?`,

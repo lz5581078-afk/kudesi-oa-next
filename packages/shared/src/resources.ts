@@ -718,6 +718,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     statuses: [NORMAL, ABNORMAL, INACTIVE],
     defaultStatus: 'normal',
     fields: [
+      text('migrationNotice', '迁移核对提示', '基础税务信息', { readonly: true }),
       // 分区沿用 24 号旧版详情：基础税务信息 / 报税与经营 / 开票与银行 / 联系人与备注
       select('taxCategory', '税务分类', '基础税务信息', o('operation:经营税务', 'ecommerce:电商税务'), { list: true, help: '不选时跟随所属执照的类别' }),
       ref('licenseId', '营业执照', '基础税务信息', 'licenses', { required: true, list: true }),

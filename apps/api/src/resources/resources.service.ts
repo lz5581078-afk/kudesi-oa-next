@@ -1,3 +1,4 @@
+import { legacyTaxDefinition } from '../migration/legacy-tax-context';
 import { createHash } from 'crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -472,6 +473,7 @@ export class ResourcesService implements RuleHost {
     input: Record<string, unknown>,
     options: { status?: string; note?: string; cleanup?: string[]; logAction?: string; reason?: string } = {},
   ): Promise<ResourceRecord> {
+    def = legacyTaxDefinition(def, em, user.companyId, existing, input);
     let status = options.status ?? existing?.status ?? def.defaultStatus;
     if (!def.statuses.some((s) => s.value === status)) throw new BadRequestException('状态不合法');
 

@@ -1,3 +1,4 @@
+import { withLegacyTax } from './legacy-tax-context';
 import { mapLegacyPermission } from './permissions';
 import { createHash } from 'node:crypto';
 import { DataSource } from 'typeorm';
@@ -184,12 +185,15 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     }
     const backfills: Array<{r:LegacyRecord; patch:Record<string,unknown>}> = [];
     const sourceStamps: Array<{id:number;stamp:Date}> = [];
-    let pending = source.records.slice();
+    // 先占用全部旧费用编号，再为原本无编号的资料生成新编号；否则自动编号会抢占后续旧码。
+    const needsFeeCode = (r: LegacyRecord) => r.type === 'finance-fee-items' && !String(r.data.code ?? '').trim();
+    let pending = [...source.records.filter(r => !needsFeeCode(r)), ...source.records.filter(needsFeeCode)];
     // 按引用依赖排序；依赖失败的记录不会写坏引用。每条失败回滚它产生的全部联动。
     for (let pass = 0; pending.length && pass < 100; pass++) {
       const next: LegacyRecord[] = []; let progress = 0;
       for (const r of pending) {
         if (reuse(r.type, r.id)) { progress++; continue; }
+        if (needsFeeCode(r) && pending.some(other => other.type === 'finance-fee-items' && !needsFeeCode(other) && !lookup(other.type, other.id) && !out.failures.some(f => f.type === other.type && f.id === other.id))) { next.push(r); continue; }
         try {
           const definition = getResourceDef(r.type);
           const deferred: Record<string,unknown> = {};
@@ -240,6 +244,17 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
                 if (yuanToPreciseCents(String(raw.unit_cost)) !== data.unitCost || String(raw.effective_from) !== data.effectiveFrom || String(raw.effective_to ?? '') !== String(data.effectiveTo ?? '')) throw new MigrationError('成本历史金额或生效日期与原始行不一致');
                 await preserveSourceRow(em, opts.sourceRowsCrypto, { companyId: company.id, sourceCompanyId: source.company.id, table: 'finance_product_archive_costs', key: r.id }, raw);
                 record = await withCostHistory(em, { companyId: company.id, productId: data.productId as number }, () => resources.importRecord(em, user, r.type, data, r.status));
+              } else if (opts.preserveLegacyStates && r.type === 'tax-profiles') {
+                const raw = r.sourceTaxRow;
+                const oldLicense = (r.data.licenseId as LegacyRef | undefined)?.legacyRef;
+                if (!opts.sourceRowsCrypto || !raw || String(raw.id) !== r.id || String(raw.company_id) !== String(source.company.id) || (raw.license_id != null && (!oldLicense || oldLicense.type !== 'licenses' || String(raw.license_id) !== oldLicense.id)) || String(raw.taxpayer_name ?? '') !== String(data.taxpayerName ?? '') || (raw.tax_category && String(raw.tax_category) !== String(data.taxCategory ?? ''))) throw new MigrationError('旧税务资料原始行或关联证据不一致');
+                const category = data.taxCategory ?? 'operation';
+                const duplicates = data.licenseId == null ? [] : await resources.findWhere(em, company.id, 'tax-profiles', 'licenseId', data.licenseId as number);
+                const duplicate = duplicates.some(t => (t.data.taxCategory ?? 'operation') === category);
+                await preserveSourceRow(em, opts.sourceRowsCrypto, { companyId: company.id, sourceCompanyId: source.company.id, table: 'tax_profiles', key: r.id }, raw);
+                const issue = { ...(raw.license_id == null && data.licenseId == null ? { missingLicense: true as const } : {}), ...(duplicate ? { duplicateLicenseId: data.licenseId as number, duplicateCategory: String(category) } : {}) };
+                record = await withLegacyTax(em, company.id, issue, () => resources.importRecord(em, user, r.type, data, r.status));
+                if (issue.missingLicense || duplicate) out.excluded.push({ type: 'tax-profiles.identity', id: r.id, reason: issue.missingLicense ? '旧未关联执照税务资料单独保留，未猜测执照，原始行已加密留档' : '旧执照合并产生的同类别多份税务资料分别保留，未合并或覆盖字段，原始行已加密留档' });
               } else if (opts.preserveLegacyStates && ['stores', 'phones'].includes(r.type) && r.status === 'abnormal' && !data.abnormalReason) {
                 const raw = r.sourceAbnormalRow;
                 if (!opts.sourceRowsCrypto || !raw || String(raw.company_id) !== String(source.company.id) || String(raw.id) !== r.id || raw.status !== 'abnormal' || String(raw.abnormal_reason ?? '').trim()) throw new MigrationError('旧异常状态缺少原始空原因记录，禁止伪造');

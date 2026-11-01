@@ -1,3 +1,4 @@
+import { applyLegacyTaxIssue } from '../migration/legacy-tax-context';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { normalizePhone, normalizeReconcileDay, todayShanghai } from '@kudesi/shared';
@@ -236,6 +237,7 @@ export const CERT_BEFORE_SAVE: Record<string, Before> = {
     }
     if (!d.taxCategory) d.taxCategory = 'operation';
     if (!d.taxpayerName) throw new BadRequestException('纳税人名称不能为空');
+    applyLegacyTaxIssue(ctx.em, ctx.user.companyId, ctx.existing, d);
   },
 
   'bank-accounts': async (ctx) => {

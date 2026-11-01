@@ -14,7 +14,7 @@ import { readSourceRow } from './source-rows';
 import type { AuthUser } from '../common/auth.decorators';
 import { runLegacyImport } from './runner';
 import type { LegacyArchive } from './protocol';
-import { importManualTask } from './task-continuation-import';
+import { importStandaloneTask } from './task-continuation-import';
 import { TaskService } from '../flow/task.service';
 import { restoreWorkflowAccess } from './workflow-access';
 
@@ -147,9 +147,9 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
       em.queryRunner!.data.legacyImport = true;
       const ids = new Map<string, number>();
       const ctx = { em, companyId: admin.companyId, sourceCompanyId: 3, lookup: (type: string, id: unknown) => ids.get(`${type}:${id}`) ?? targets.get(`${type}:${id}`), register: async (type: string, id: string, target: number) => { ids.set(`${type}:${id}`, target); } };
-      const r = await importManualTask(ctx, source);
-      expect((await importManualTask(ctx, source)).reused).toBe(true);
-      await expect(importManualTask(ctx, { ...source, id: 7002, template_id: 1 })).rejects.toThrow('尚未兼容');
+      const r = await importStandaloneTask(ctx, source);
+      expect((await importStandaloneTask(ctx, source)).reused).toBe(true);
+      await expect(importStandaloneTask(ctx, { ...source, id: 7002, template_id: 1 })).rejects.toThrow('尚未兼容');
       return r;
     });
     const row = await ds.manager.findOneByOrFail(WorkItem, { id: imported.id, companyId: admin.companyId });
@@ -158,6 +158,31 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     const service = new TaskService(ds);
     await expect(service.complete(wh, row.id, '代办')).rejects.toThrow('负责人');
     expect((await service.complete(ops, row.id, '完成原任务', { payload: { result: '原任务已办妥', note: '保留原反馈字段' } })).status).toBe('done');
+  });
+  it('周期待办保留原店铺、负责人、复核人和旧表单默认值，提交后由原监督人复核', async () => {
+    const store = await svc.resources.create(admin, 'stores', { name: '旧待办关联店铺', platform: 'pdd' });
+    const source = { id: 7101, company_id: 3, source_type: 'routine', template_id: 7, store_id: 5, status: 'overdue', assignee_id: 10, supervisor_id: 30, feedback_to_id: 30, title: '旧周期店铺检查', completion_standard: '检查原店铺售后', feedback_schema: null, due_at: '2026-10-01 12:00:00', created_at: '2026-09-30 10:00:00' };
+    const template = { id: 7, company_id: 3, requires_review: 1, frequency: 'daily', submit_schema: { fields: ['未完结数量', '截图', '异常说明'] } };
+    const imported = await ds.transaction(async em => {
+      em.queryRunner!.data.legacyImport = true;
+      const lookup = (type: string, id: unknown) => type === 'stores' && String(id) === '5' ? store.id : targets.get(`${type}:${id}`);
+      const ctx = { em, companyId: admin.companyId, sourceCompanyId: 3, lookup, register: async () => {} };
+      await expect(importStandaloneTask(ctx, source, { ...template, company_id: 1 })).rejects.toThrow('模板关联');
+      await expect(importStandaloneTask({ ...ctx, lookup: (type, id) => type === 'stores' ? targets.get('finance-base-codes:11') : lookup(type, id) }, source, template)).rejects.toThrow('店铺未迁入');
+      return importStandaloneTask(ctx, source, template);
+    });
+    const row = await ds.manager.findOneByOrFail(WorkItem, { id: imported.id, companyId: admin.companyId });
+    expect(row).toMatchObject({ storeId: store.id, assigneeId: ops.id, supervisorId: fin.id, requiresReview: true, feedbackPreset: 'simple', routineId: null });
+    const todo = (await flow.todos(ops, { tab: 'overdue', page: 1, pageSize: 50 })).rows.find((t: { id: number }) => t.id === row.id);
+    expect(todo).toMatchObject({ storeId: store.id, storeName: '旧待办关联店铺' });
+    const service = new TaskService(ds);
+    const supervised = await service.supervised(fin, { page: 1, pageSize: 50 });
+    expect(supervised.rows.find((t: { id: number }) => t.id === row.id)).toMatchObject({ storeId: store.id, storeName: '旧待办关联店铺' });
+    expect((await service.complete(ops, row.id, '检查完成', { payload: { result: '原店铺已核对', note: '保留默认通用反馈' } })).status).toBe('reviewing');
+    expect((await ds.manager.findOneByOrFail(WorkItem, { id: row.id })).status).toBe('open');
+    await expect(service.review(wh, row.id, { action: 'approve' })).rejects.toThrow('监督人');
+    await service.review(fin, row.id, { action: 'approve' });
+    expect((await ds.manager.findOneByOrFail(WorkItem, { id: row.id })).status).toBe('done');
   });
   it('按旧权限证据恢复入口与原财务办理资格，保留明确禁止，不给运营成本或外部写入权限', async () => {
     const evidence = { policyHash: 'a'.repeat(64), employees: [10, 20, 30].map(id => ({ employeeId: String(id), canUseWorkflow: true, canViewCosts: id === 30 })) };

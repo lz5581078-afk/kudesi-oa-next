@@ -3,7 +3,7 @@ import type { CryptoService } from '../common/crypto.service';
 import { preserveSourceRow } from './source-rows';
 import { importSkuContinuation } from './sku-continuation-import';
 import type { LegacyArchive, LegacyWorkflowSource } from './protocol';
-import { importManualTask } from './task-continuation-import';
+import { importStandaloneTask } from './task-continuation-import';
 import { restoreWorkflowAccess } from './workflow-access';
 
 type Row = Record<string, any>;
@@ -75,9 +75,9 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
     }
   }
   for (const task of tasks) if (!CLOSED.has(task.status) && !mappedTasks.has(String(task.id))) {
-    if (task.source_type === 'manual') {
+    if (['manual', 'routine'].includes(task.source_type)) {
       try {
-        const result = await ctx.savepoint(() => importManualTask({ em: ctx.em, companyId: ctx.companyId, sourceCompanyId: workflow.companyId, lookup: ctx.lookup, register: ctx.register }, task));
+        const result = await ctx.savepoint(() => importStandaloneTask({ em: ctx.em, companyId: ctx.companyId, sourceCompanyId: workflow.companyId, lookup: ctx.lookup, register: ctx.register }, task, rows('task_templates').find(t => String(t.id) === String(task.template_id))));
         ctx.count(result.reused ? 'reused' : 'created', 'work_item'); mappedTasks.add(String(task.id)); continue;
       } catch (e) { ctx.fail('work_item', String(task.id), e instanceof Error && e.message.startsWith('旧任务') ? e.message : ctx.safeFailure(e)); continue; }
     }

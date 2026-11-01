@@ -83,4 +83,19 @@ d('迁入商品档案新字段（隔离MySQL）', () => {
     const blocked = await runLegacyImport(ds, svc.resources, svc.files, missing, { ...opts, apply: false });
     expect(blocked.failures.some(r => r.id === 'missing' && r.reason.includes('原始行'))).toBe(true);
   });
+  it('先保留全部旧费用编号；无编号费用随后自动编码，不抢占或重编旧码', async () => {
+    const records = [
+      { type: 'finance-fee-items', id: 'fee-blank', data: { name: '旧无编号费用', direction: 'expense' } },
+      { type: 'finance-fee-items', id: 'fee-explicit', data: { name: '旧有编号费用', code: 'FY-001', direction: 'expense', categoryId: ref('finance-fee-categories', 'late-category') } },
+      { type: 'finance-fee-categories', id: 'late-category', data: { name: '后置来源费用类别' } },
+    ];
+    const archive = { ...source, records };
+    const opts = { companyId: company.id, actorId: actor.id, expectedName: '迁前公司' };
+    const dry = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: false }); expect(dry.failures).toEqual([]);
+    const applied = await runLegacyImport(ds, svc.resources, svc.files, archive, { ...opts, apply: true, expectedReport: dry }); expect(applied.failures).toEqual([]);
+    const fees = await ds.manager.find(ResourceRecord, { where: { companyId: company.id, type: 'finance-fee-items' } });
+    expect(fees.find(r => r.title === '旧有编号费用')?.data.code).toBe('FY-001');
+    expect(fees.find(r => r.title === '旧无编号费用')?.data.code).toBe('FY-002');
+  });
+
 });
