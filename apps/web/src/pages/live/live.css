@@ -139,3 +139,10 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .live-import-previous { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .live-import-previous small { flex: 1 1 240px; }
 .live-next-products, .live-current-products { max-height: 4.5em; overflow-y: auto; overflow-wrap: anywhere; }
+
+.live-room-product-row { display: flex; align-items: center; gap: 10px; }
+.live-room-product-row input { flex: 1; min-width: 0; }
+.live-room-product-row button { flex: none; }
+.live-add-room-product { align-self: flex-start; }
+.live-room-product-items { display: inline-flex; flex-wrap: wrap; gap: 3px 6px; vertical-align: top; overflow-wrap: anywhere; }
+.live-room-product-items strong + strong::before { content: '、'; color: var(--muted); margin-right: 4px; }
