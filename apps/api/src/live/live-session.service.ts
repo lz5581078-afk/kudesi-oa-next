@@ -216,7 +216,7 @@ export class LiveSessionService {
         if (!trial && !a.canManage && !a.isAnchor && !a.isControl) liveFail('只有主播、中控岗位（或管理人员）可以上播', 403);
         roomId = idOf(input.roomId);
         anchorId = idOf(input.anchorId) ?? (a.isAnchor ? a.userId : null);
-        controlId = idOf(input.controlId) ?? (a.isControl && !a.isAnchor ? a.userId : null);
+        controlId = idOf(input.controlId) ?? (input.role==='control' || a.isControl && !a.isAnchor ? a.userId : null);
         if (!anchorId) liveFail('请选择主播', 400);
         if (!a.canManage && anchorId !== a.userId && !(a.isControl && controlId === a.userId)) liveFail('只能以本人的主播或中控身份上播', 403);
         operatorId = idOf(input.operatorId);
