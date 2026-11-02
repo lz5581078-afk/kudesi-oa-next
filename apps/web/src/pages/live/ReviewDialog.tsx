@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { LIVE_FINAL_SOURCES } from '@kudesi/shared';
 import { flowApi } from '../flow/flowApi';
 import { liveApi, type Options, type ReviewForm, type ReviewPreview, type SessionDetail } from './liveApi';
-import { errText, hm, minutesText, money, roi, yuanCents, yuanText } from './liveFormat';
-import { Modal, RoleAmounts } from './liveUi';
+import { errText, hm, money, yuanCents, yuanText } from './liveFormat';
+import { Modal } from './liveUi';
+import { ReviewPreviewAmounts } from './ReviewPreviewAmounts';
+import { ApiError } from '../../api/client';
 
 /** 一场一张审核单：审核人选最终销售额来源、确认运营和主播工资，右侧随输入试算提成（服务端算）。 */
 export function ReviewDialog({ session, onClose, onDone }: { session: SessionDetail; onClose: () => void; onDone: () => void }) {
@@ -27,6 +29,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
   const [previewErr, setPreviewErr] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [needsRefresh,setNeedsRefresh]=useState(false);
   const [stop, setStop] = useState<'' | 'return' | 'reject'>('');
   const [why, setWhy] = useState('');
 
@@ -63,12 +66,13 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
   useEffect(() => {
     if (!source || typeof form === 'string') { setPreview(null); setPreviewErr(typeof form === 'string' && source ? form : ''); return; }
     if (source === 'manual' && !form.finalReason) { setPreview(null); setPreviewErr('手填最终销售额必须写原因'); return; }
-    setPreviewErr('');
-    const t = setTimeout(() => { liveApi.reviewPreview(session.id, form).then((p) => { setPreview(p); setPreviewErr('') }).catch((e) => { setPreview(null); setPreviewErr(errText(e)); }); }, 300);
-    return () => clearTimeout(t);
+    let current=true;setPreview(null);setPreviewErr('');
+    const t = setTimeout(() => { liveApi.reviewPreview(session.id, form).then((p) => { if(current){setPreview(p);setPreviewErr('');} }).catch((e) => { if(current){setPreview(null);setPreviewErr(errText(e));} }); }, 300);
+    return () => {current=false;clearTimeout(t);};
   }, [form, source, session.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function act(kind: 'pass' | 'return' | 'reject') {
+    if(busy||needsRefresh)return;
     setError('');
     if (kind === 'pass') {
       if (!source) return setError('请选择最终销售额的来源');
@@ -82,20 +86,27 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
       else if (kind === 'return') await flowApi.back(run.id, { ...base, reason: why.trim() });
       else await flowApi.reject(run.id, { ...base, reason: why.trim() });
       onDone();
-    } catch (e) { setError(errText(e)); } finally { setBusy(false); }
+    } catch (e) {
+      const status=e instanceof ApiError?e.status:null;
+      const detail=errText(e,'审核请求未完成');
+      setError(status?`${detail}（HTTP ${status}）`:detail);
+      if(!status||status>=500||status===409){
+        setNeedsRefresh(true);
+        setError(`${status?`审核请求未完成（HTTP ${status}）`:'审核请求结果暂未确认'}：${detail}。请先刷新场次核对结果，再继续操作。`);
+      }
+    } finally { setBusy(false); }
   }
 
   return (
-    <Modal title="审核直播场次" size="wide" onClose={onClose} foot={stop ? <>
+    <Modal title="审核直播场次" size="wide" onClose={onClose} foot={<div className="live-review-footer">{error&&<div role="alert" className="notice error">{error}</div>}{needsRefresh&&<button type="button" className="secondary-button" disabled={busy} onClick={onDone}>刷新场次核对结果</button>}<div className="live-review-footer-actions">{stop ? <>
       <button type="button" className="secondary-button" onClick={() => setStop('')}>返回</button>
-      <button type="button" className={`primary-button ${stop === 'reject' ? 'danger-fill' : ''}`} disabled={busy} onClick={() => void act(stop)}>{stop === 'return' ? '确认退回' : '确认拒绝'}</button>
+      <button type="button" className={`primary-button ${stop === 'reject' ? 'danger-fill' : ''}`} disabled={busy||needsRefresh} onClick={() => void act(stop)}>{stop === 'return' ? '确认退回' : '确认拒绝'}</button>
     </> : <>
       {run.me.canReturn && <button type="button" className="secondary-button" onClick={() => setStop('return')}>退回修改</button>}
       {run.me.canReject && <button type="button" className="secondary-button danger" onClick={() => setStop('reject')}>拒绝</button>}
-      <button type="button" className="primary-button" disabled={busy || !run.me.canPass} onClick={() => void act('pass')}>{busy ? '提交中…' : '审核通过'}</button>
-    </>}>
-      {error && <div role="alert" className="notice error">{error}</div>}
-      <p className="muted">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt)} · 主播 {session.anchor.name}{session.control ? `，中控 ${session.control.name}` : ''}</p>
+      <button type="button" className="primary-button" disabled={busy || needsRefresh || !run.me.canPass} onClick={() => void act('pass')}>{busy ? '提交中…' : '审核通过'}</button>
+    </>}</div></div>}>
+      <p className="muted live-review-summary">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt)} · 主播 {session.anchor.name}{session.control ? `，中控 ${session.control.name}` : ''}</p>
       <div className="live-scroll"><table className="data-table" aria-label="上报对比">
         <thead><tr><th>角色</th><th>填报人</th><th className="num">所报销售额</th><th className="num">勾选订单合计</th><th className="num">订单数</th><th className="num">投流</th></tr></thead>
         <tbody>{session.reports.map((r) => <tr key={r.role}><td>{r.roleLabel}</td><td>{r.reporter.name}</td><td className="num">{money(r.salesCents)}</td><td className="num">{money(r.ordersTotalCents)}</td><td className="num">{r.orderCount}</td><td className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
@@ -133,15 +144,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
             <strong>试算结果（服务端按规则计算）</strong>
             {previewErr && <span className="notice warn">{previewErr}</span>}
 
-          {preview && (
-              <>
-                <span>最终销售额 {money(preview.finalSalesCents)} · 投流 {money(preview.adSpendCents)} · 投产 {roi(preview.roiScaled)}{preview.belowRoi ? '（不足，已扣减点数）' : ''} · 规则版本 {preview.ruleVersion.effectiveFrom} 起</span>
-                {preview.platforms?.map(p=><div key={p.platform}><strong>{LIVE_PLATFORMS[p.platform]??'原场次'} · 营业额 {money(p.finalSalesCents)} · 投流 {money(p.adSpendCents)}</strong><RoleAmounts anchor={p.anchor} control={session.control?p.control:null} operator={preview.operator?p.operator:null}/></div>)}
-                <RoleAmounts hideRates={(preview.platforms?.length??0)>1} anchor={preview.anchor} control={preview.control} operator={preview.operator} />
-                {preview.operatorDoubledAsControl && <small className="muted">运营兼任中控，不另算运营提成</small>}
-                <span>{preview.controlWage&&<>中控工资：{minutesText(preview.controlWage.minutes)} × {money(preview.controlWage.hourlyRateCents)}/小时 = <strong>{money(preview.controlWage.amountCents)}</strong><br/></>}主播工资：{minutesText(preview.wage.minutes)} × {money(preview.wage.hourlyRateCents)}/小时 = <strong>{money(preview.wage.amountCents)}</strong>（{preview.wage.rateSource === 'archive' ? '档案时薪' : '手填时薪'}）</span>
-              </>
-            )}
+          {preview && <ReviewPreviewAmounts preview={preview}/>}
             {!preview && !previewErr && <span className="muted">选择最终销售额来源后显示</span>}
           </div>
         </>
