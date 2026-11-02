@@ -53,6 +53,9 @@ export class FeishuAuthService {
     if (identity.tenantKey !== cfg.tenantKey) throw new ForbiddenException('请使用本企业的飞书账号');
     if (user) {
       await this.settings.ds.transaction(async em => {
+        await em.query('SELECT id FROM companies WHERE id=? FOR UPDATE', [user.companyId]);
+        const [validState] = await em.query('SELECT state_hash FROM feishu_oauth_states WHERE company_id=? AND user_id=? AND state_hash=? AND consumed_at IS NOT NULL FOR UPDATE', [user.companyId, user.id, row.state_hash]);
+        if (!validState) throw new UnauthorizedException('飞书关联已由管理员重置，请重新发起授权');
         const [other] = await em.query('SELECT user_id,company_id,open_id FROM feishu_identities WHERE app_id=? AND tenant_key=? AND open_id=? FOR UPDATE', [cfg.appId, cfg.tenantKey, identity.openId]);
         if (other && (Number(other.user_id) !== user.id || Number(other.company_id) !== user.companyId)) throw new ForbiddenException('此飞书账号已绑定其他员工');
         const [mine] = await em.query('SELECT open_id FROM feishu_identities WHERE company_id=? AND user_id=? AND app_id=? FOR UPDATE', [user.companyId, user.id, cfg.appId]);
