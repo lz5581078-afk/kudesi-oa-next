@@ -35,15 +35,23 @@ d('店铺与账号：实时视图与手机号导入（真实数据库）', () =>
 
   it('历史负责人未指派 + 聚水潭三级到期筛选', async () => {
     await svc.create(boss, 'stores', { platform: 'pdd', name: '历史店', legacyOwnerName: '老张' });
-    await svc.create(boss, 'stores', { platform: 'pdd', name: '聚过期', jushuitan: 'connected', jushuitanExpireAt: addDaysText(today, -3) });
-    await svc.create(boss, 'stores', { platform: 'pdd', name: '聚10天', jushuitan: 'connected', jushuitanExpireAt: addDaysText(today, 10) });
-    await svc.create(boss, 'stores', { platform: 'pdd', name: '聚25天', jushuitan: 'connected', jushuitanExpireAt: addDaysText(today, 25) });
-    await svc.create(boss, 'stores', { platform: 'pdd', name: '未连接', jushuitan: 'not_connected', jushuitanExpireAt: addDaysText(today, -3) });
-    expect(await filt('stores', { legacyOwner: 'unassigned' })).toEqual(['历史店']);
-    expect(await filt('stores', { jstExpiry: 'expired' })).toEqual(['聚过期']);
-    expect(await filt('stores', { jstExpiry: 'urgent' })).toEqual(['聚10天']);
-    expect(await filt('stores', { jstExpiry: 'soon' })).toEqual(['聚25天']);
-    await expect(filt('stores', { jstExpiry: 'nope' })).rejects.toThrow();
+    // 到期日期已由聚水潭维护：从模拟接口关联写入，继续验证原来的三级筛选。
+    const query = jest.spyOn(svc, 'jushuitanShops');
+    const mk = async (name: string, days: number, connected = true) => {
+      query.mockResolvedValue([{ id: name, name, platform: '拼多多', expiresAt: addDaysText(today, days), expiryStatus: 'dated' }]);
+      return svc.create(boss, 'stores', { platform: 'pdd', name, jushuitan: connected ? 'connected' : 'not_connected', jushuitanShopId: name });
+    };
+    try {
+        await mk('聚过期', -3);
+        await mk('聚10天', 10);
+        await mk('聚25天', 25);
+        await mk('未连接', -3, false);
+      expect(await filt('stores', { legacyOwner: 'unassigned' })).toEqual(['历史店']);
+      expect(await filt('stores', { jstExpiry: 'expired' })).toEqual(['聚过期']);
+      expect(await filt('stores', { jstExpiry: 'urgent' })).toEqual(['聚10天']);
+      expect(await filt('stores', { jstExpiry: 'soon' })).toEqual(['聚25天']);
+      await expect(filt('stores', { jstExpiry: 'nope' })).rejects.toThrow();
+    } finally { query.mockRestore(); }
   });
 
   it('手机号：绑定店铺/主子卡派生、筛选、导入店铺列与号码规范化', async () => {

@@ -190,6 +190,12 @@ export class ResourcesController {
     return this.resources.expiring(user, q.days, q.includeExpired !== '0');
   }
 
+  @RequireResourceAction('edit')
+  @Post(':type/:id/refresh-jushuitan')
+  refreshJushuitan(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number) {
+    return this.resources.refreshJushuitanShop(user, type, id);
+  }
+
   @RequireResourceAction('view')
   @Get(':type/jushuitan-shops')
   jushuitanShops(@CurrentUser() user: AuthUser, @Param('type') type: string) {
