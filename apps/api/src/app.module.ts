@@ -113,6 +113,7 @@ import { FlowScheduler } from './flow/flow.scheduler';
 import { LiveController } from './live/live.controller';
 import { LiveLedgerService } from './live/live-ledger.service';
 import { LiveOrderSource } from './live/live-order-source';
+import { LiveTurnoverService } from './live/live-turnover.service';
 import { LiveScheduleService } from './live/live-schedule.service';
 import { LiveScheduler } from './live/live.scheduler';
 import { LiveWorkspaceModule } from './live/live-workspace';
@@ -265,7 +266,7 @@ const env = loadEnv();
     SupervisionService,
     SupervisionScheduler,
     ServiceWorkspaceProvider,
-    LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
+    LiveTurnoverService, LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
     { provide: LiveOrderSource, useClass: JushuitanOrderSource },
     FinanceDocumentsService,
     FinanceVoucherHintsService,
