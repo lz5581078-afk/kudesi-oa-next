@@ -1,4 +1,4 @@
-import { liveStartNotification } from './live-start-notification';
+import { liveStartNotification, liveStartedNotification } from './live-start-notification';
 import { liveNoStartNotification } from './live-no-start-notification';
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
@@ -202,6 +202,27 @@ d('直播通知（隔离 MySQL）',()=>{
       await svc.save(admin,settings({enabled:false}));expect(await liveNoticeValid(ds.manager,companyId,execUser,`no-start:${rollback}:1`)).toBe(false);
       const before=(await alerts()).length;await svc.scan();expect(await alerts()).toHaveLength(before);
     } finally { await ds.query("UPDATE users SET status='inactive' WHERE id IN (?,?)",[hrUser,execUser]); }
+  });
+
+  it('每次正常上播经直播助手通知人事和总经理，临时场次也通知且同场去重/回滚',async()=>{
+    const dept=async(name:string)=>Number((await ds.query("INSERT INTO departments(company_id,name,status) VALUES(?,?,'active')",[companyId,name])).insertId);
+    const hr=await dept('人事综合部'), boss=await dept('总经理');
+    const hrUser=await person(companyId,'人事正常开播'), bossUser=await person(companyId,'总经理正常开播');
+    await ds.query('UPDATE users SET department_id=? WHERE id=?',[hr,hrUser]);await ds.query('UPDATE users SET department_id=? WHERE id=?',[boss,bossUser]);
+    try {
+      await ds.manager.save(OutboxSwitch,ds.manager.create(OutboxSwitch,{companyId,channel:'feishu',enabled:true,updatedBy:admin.id}));
+      await ds.query("INSERT INTO feishu_identities(company_id,user_id,tenant_key,app_id,open_id,oa_notifications) VALUES(?,?,'t','a','boss-started',1)",[companyId,bossUser]);
+      const id=await session('pending_report',await schedule());
+      await liveStartedNotification(ds.manager,companyId,id);await liveStartedNotification(ds.manager,companyId,id);
+      expect((await notices()).map(n=>n.userId).sort()).toEqual([hrUser,bossUser].sort());
+      expect((await notices())[0].title).toBe('测试间已上播');expect((await notices())[0].body).toContain('实际开播：2026-11-02 10:00:00');
+      const [job]=await ds.query('SELECT payload_json FROM outbox_jobs WHERE company_id=?',[companyId]);
+      const payload=typeof job.payload_json==='string'?JSON.parse(job.payload_json):job.payload_json;expect(payload.channel).toBe('live');
+      expect(await liveNoticeValid(ds.manager,companyId,bossUser,`started:${id}`)).toBe(true);expect(await liveNoticeValid(ds.manager,companyId,foreign,`started:${id}`)).toBe(false);
+      const temporary=await session('pending_report');await liveStartedNotification(ds.manager,companyId,temporary);expect(await notices()).toHaveLength(4);
+      const rollback=await session('pending_report');await expect(ds.transaction(async em=>{await liveStartedNotification(em,companyId,rollback);throw Error('rollback');})).rejects.toThrow('rollback');expect(await notices()).toHaveLength(4);
+      await ds.query('UPDATE users SET department_id=NULL WHERE id=?',[bossUser]);expect(await liveNoticeValid(ds.manager,companyId,bossUser,`started:${id}`)).toBe(false);
+    } finally {await ds.query("UPDATE users SET status='inactive' WHERE id IN (?,?)",[hrUser,bossUser]);}
   });
 
 });

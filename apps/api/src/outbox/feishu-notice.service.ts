@@ -33,7 +33,8 @@ export class FeishuNoticeService implements OnModuleInit, OnModuleDestroy {
 
   setSender(s: FeishuSender) { this.sender = s; }
   onModuleInit() {
-    if (process.env.NODE_ENV === 'test' || process.env.OUTBOX_WORKER === 'off') return;
+    const mode = process.env.FEISHU_NOTICE_WORKER;
+    if (process.env.NODE_ENV === 'test' || mode === 'off' || mode !== 'on' && process.env.OUTBOX_WORKER === 'off') return;
     this.timer = setInterval(() => void this.processAll(), 30_000);
     this.timer.unref();
   }
