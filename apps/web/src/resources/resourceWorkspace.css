@@ -223,3 +223,68 @@
   .base-profile-backdrop, .bundle-profile-backdrop { padding: 0; }
   .base-profile-backdrop .base-profile-editor, .bundle-profile-backdrop .bundle-profile-editor { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
 }
+
+/* 整条资料原位编辑：共用详情宽度、分区、双列及整行字段规则。 */
+.resource-detail .rd-info.no-anchors { grid-template-columns: minmax(0, 1fr); }
+.resource-detail .rd-body:has(> .inline-edit > .resource-detail-editor) { overflow: hidden; }
+.resource-detail .rd-body > .inline-edit:has(> .resource-detail-editor) { height: 100%; }
+.resource-detail-editor { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.resource-detail-editor .rf-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+.resource-detail-editor .rf-main.with-anchors { grid-template-columns: 134px minmax(0, 1fr); }
+.resource-detail-editor .rf-anchors { width: auto; padding: 16px 8px; gap: 4px; background: transparent; }
+.resource-detail-editor .rf-anchor { min-height: 36px; padding: 8px 10px; line-height: 1.4; }
+.resource-detail-editor .rf-scroll { min-width: 0; min-height: 0; max-height: none; overflow: auto; padding: 16px 18px 32px 6px; display: grid; gap: 14px; align-content: start; scrollbar-gutter: auto; }
+.resource-detail-editor .rf-sec { min-width: 0; margin: 0; padding: 16px; border: 1px solid #e1e7ec; border-radius: 10px; background: #fff; }
+.resource-detail-editor .rf-sec-title { margin: 0 0 12px; padding: 0 0 10px; border-bottom: 1px solid #edf0f3; font-size: 14px; line-height: 1.5; }
+.resource-detail-editor .form-grid { gap: 16px 20px; }
+.resource-detail-editor .rf-field output { min-height: 38px; padding: 7px 0; font-size: 14px; overflow-wrap: anywhere; }
+.resource-detail-editor .rf-field > :is(input:not([type=checkbox]),select) { width: 100%; min-width: 0; height: 38px; padding: 7px 10px; font-size: 14px; }
+.resource-detail-editor .rf-field > textarea { min-height: 88px; width: 100%; }
+.resource-detail-editor .rf-field > small { font-size: 12px; line-height: 1.5; }
+.resource-detail-editor .rf-foot { flex: none; margin: 0; padding: 12px 18px; border-top: 1px solid var(--border); background: #fff; }
+.resource-detail-editor .rf-errbar { flex: none; max-height: 100px; overflow: auto; }
+.resource-inline-editor .readonly-field { min-width: 0; overflow-wrap: anywhere; }
+.resource-inline-editor .readonly-field > small { font-size: 12px; }
+.resource-inline-editor .rf-field[data-kind=json] { grid-column: 1 / -1; }
+.resource-detail .rd-item[data-kind=bool] dd { font-weight: 600; }
+@media (max-width:720px) {
+  .resource-detail-editor .rf-main.with-anchors { display: flex; flex-direction: column; }
+  .resource-detail-editor .rf-anchors { flex: none; width: 100%; flex-direction: row; padding: 8px 12px; overflow-x: auto; }
+  .resource-detail-editor .rf-anchor { flex: none; white-space: nowrap; }
+  .resource-detail-editor .rf-scroll { flex: 1; padding: 12px 12px 32px; gap: 12px; }
+  .resource-detail-editor .rf-sec { padding: 14px; }
+  .resource-detail-editor .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .resource-detail-editor .rf-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+}
+/* 专用资料也使用同样的双列；商品查看分区按编辑配置排列。 */
+.finance-layout-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; }
+.finance-layout-grid > * { min-width: 0; }
+.finance-layout-grid > .wide { grid-column: 1 / -1; }
+.finance-layout-grid > [data-layout-field] > .finance-view-fields { grid-template-columns: minmax(0, 1fr); }
+.finance-layout-extra { margin-top: 18px; }
+.finance-code-value { display: block; overflow-wrap: anywhere; }
+.finance-detail-extra > .finance-layout-grid { margin-top: 16px; }
+.rd.resource-detail.finance-detail-dialog { width: min(1160px, calc(100vw - 48px)); height: min(900px, calc(100dvh - 48px)); max-height: calc(100dvh - 48px); }
+.resource-detail .finance-detail-head { padding: 16px 24px; min-height: 72px; }
+.resource-detail .finance-detail-head .rd-title { font-size: 20px; line-height: 1.4; }
+.resource-detail .finance-detail-body { padding: 20px 24px 28px; }
+.resource-detail .finance-view-section { padding: 18px; }
+.resource-detail .finance-view-heading { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #edf0f3; }
+.resource-detail .finance-view-heading h3 { font-size: 14px; line-height: 1.5; }
+@media (max-width:720px) {
+  .rd.resource-detail.finance-detail-dialog { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+  .resource-detail .finance-detail-body { padding: 12px; }
+  .resource-detail .finance-view-section { padding: 14px; }
+  .finance-layout-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
+/* 清除旧“编辑本区”外框，整条原位编辑才能与查看态的字段起点一致。 */
+.resource-detail .rd-body > .inline-edit:has(> .resource-detail-editor) { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.resource-detail .resource-detail-editor .rf-scroll { padding: 16px 18px 32px 6px; }
+@media (max-width:720px) { .resource-detail .resource-detail-editor .rf-scroll { padding: 12px 12px 32px; } }
+.resource-detail-editor .rf-anchors { display: flex; flex-direction: column; }
+.resource-detail .resource-detail-editor .rf-foot { padding: 12px 18px; gap: 8px; }
+@media (max-width:720px) {
+  .resource-detail-editor .rf-anchors { display: flex; flex-direction: row; }
+  .resource-detail .resource-detail-editor .rf-foot { padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .resource-detail .resource-detail-editor .rf-foot > button { width: auto; flex: 1 1 0; min-height: 40px; }
+}

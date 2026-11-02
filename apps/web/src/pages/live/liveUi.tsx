@@ -5,18 +5,34 @@ import { SCHEDULE_TONE, SESSION_TONE, money, ratePct } from './liveFormat';
 import './live.css';
 
 /** 弹窗：点遮罩不关闭（避免误触丢数据），Esc 关闭。 */
-export function Modal({ title, onClose, children, foot, size = '' }: { title: string; onClose: () => void; children: ReactNode; foot?: ReactNode; size?: '' | 'small' | 'wide' }) {
+export function Modal({ title, onClose, children, foot, size = '', bodyClassName = '' }: { title: string; onClose: () => void; children: ReactNode; foot?: ReactNode; size?: '' | 'small' | 'wide'; bodyClassName?: string }) {
   const dialogRef=useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { const dialogs=document.querySelectorAll('[role=dialog]'); if (e.key === 'Escape'&&dialogs[dialogs.length-1]===dialogRef.current) onClose(); };
+    const previous = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, []);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      const dialogs=document.querySelectorAll('[role=dialog]');
+      if (dialogs[dialogs.length-1]!==dialogRef.current) return;
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'Tab') {
+        const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]') ?? [])].filter(el => el.getClientRects().length);
+        const first=controls[0], last=controls[controls.length-1];
+        if (!first) { e.preventDefault(); return; }
+        if (e.shiftKey && (document.activeElement===first || document.activeElement===dialogRef.current)) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (document.activeElement===last || document.activeElement===dialogRef.current)) { e.preventDefault(); first.focus(); }
+      }
+    };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
   return createPortal(
     <div className="modal-backdrop live-modal-backdrop">
-      <div ref={dialogRef} className={`modal card live-modal ${size}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={dialogRef} tabIndex={-1} className={`modal card live-modal ${size}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-head between"><h2>{title}</h2><button type="button" className="link-button" onClick={onClose} aria-label="关闭">关闭</button></div>
-        <div className="modal-body">{children}</div>
+        <div className={`modal-body ${bodyClassName}`}>{children}</div>
         {foot && <div className="modal-foot">{foot}</div>}
       </div>
     </div>,document.body

@@ -229,6 +229,11 @@ export class LiveSessionService {
     return { ok: true };
   }
 
+  async submissionStatus(user: AuthUser) {
+    requireUse(await loadLiveAccess(this.em, user));
+    return { ...await this.flow.startReadiness(user, 'live-session-review') };
+  }
+
   // ---------- 提交审核 ----------
   async submit(user: AuthUser, sessionId: number) {
     const a = await loadLiveAccess(this.em, user); requireUse(a);
@@ -313,6 +318,9 @@ export class LiveSessionService {
       wage: wages.filter(w=>w.role==='anchor'&&showMoney(Number(w.user_id))).map(w=>({userId:Number(w.user_id),minutes:Number(w.minutes),hourlyRateCents:num(w.hourly_rate_cents),amountCents:num(w.amount_cents),rateSource:w.rate_source,note:w.adjust_note,startAt:w.start_text,endAt:w.end_text}))[0]??null,
       preview: await this.preview(em, a, s, reports),
       me: { reportRoles: canRoles, canSubmit: ['pending_report', 'returned'].includes(s.status) && ([ppl.anchorId, ppl.controlId].includes(a.userId) || a.canManage), isManager: a.canManage },
+      submission: ['pending_report', 'returned'].includes(s.status)
+        ? s.status === 'returned' && s.flow_run_id ? { ready: true, message: '修改完成后可重新提交原审核流程。' } : await this.flow.startReadiness(user, 'live-session-review')
+        : null,
       flow,
     };
   }
