@@ -389,10 +389,10 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     ],
     stepFields: {
       review: [
-        select('finalSource', '最终销售额来源', '审核', Object.entries(LIVE_FINAL_SOURCES).map(([value, label]) => ({ value, label })), { required: true, help: '选主播或中控所报的值，或手填并写明原因' }),
+        select('finalSource', '最终销售额来源', '审核', Object.entries(LIVE_FINAL_SOURCES).map(([value, label]) => ({ value, label })), { required: true, help: '有运营报告时以运营填报为主要依据；没有运营报告可按主播报告核定，改用其他来源请说明原因' }),
         { key:'storeLines',label:'逐店核定业绩',type:'json',group:'审核',showWhen:{field:'finalSource',in:['manual']},help:'多平台场次按店铺逐行核定，各平台单独计算提成' },
         money('finalSalesCents', '手填最终销售额', '审核', { showWhen: { field: 'finalSource', in: ['manual'] } }),
-        text('finalReason', '手填原因', '审核', { maxLength: 500, showWhen: { field: 'finalSource', in: ['manual'] } }),
+        text('finalReason', '核定说明', '审核', { maxLength: 500, showWhen: { field: 'finalSource', in: ['manual','anchor','control','anchor_orders','control_orders'] }, help:'人工核定、或有运营填报却改用其他来源时必填' }),
         ref('operatorUserId', '运营人员', '审核', 'user', { help: '不选则沿用排场/上播时填的运营；运营不能同时是主播；运营兼任中控时不另算运营提成' }),
         { key: 'noOperator', label: '本场没有运营人员', type: 'bool', group: '审核' },
         text('wageStartAt', '主播工资上播时间', '主播工资', { help: '格式 2026-03-01 20:00；不填按场次上播时间' }),

@@ -1,0 +1,8 @@
+const KEY='oa.live-room-intent',TIME='oa.live-room-intent-time';
+export function liveRoomTarget(value:string):string|null{
+  try{const url=new URL(value,'https://oa.local');if(url.origin!=='https://oa.local'||url.pathname!=='/features/live-desk')return null;const room=url.searchParams.get('room'),company=url.searchParams.get('company');if(!room||!company||!/^\d+$/.test(room)||!/^\d+$/.test(company)||Number(room)<=0||Number(company)<=0)return null;return `/features/live-desk?room=${Number(room)}&company=${Number(company)}`;}catch{return null;}
+}
+export function rememberLiveRoom(){const value=liveRoomTarget(location.pathname+location.search);if(value){sessionStorage.setItem(KEY,value);sessionStorage.setItem(TIME,String(Date.now()));}}
+export function pendingLiveRoom(){const time=Number(sessionStorage.getItem(TIME));if(!time||Date.now()-time>30*60_000){clearLiveRoom();return '/';}return liveRoomTarget(sessionStorage.getItem(KEY)??'')??'/';}
+export function consumeLiveRoom(){return pendingLiveRoom();}
+export function clearLiveRoom(){sessionStorage.removeItem(KEY);sessionStorage.removeItem(TIME);}

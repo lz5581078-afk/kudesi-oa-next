@@ -264,7 +264,7 @@ export function StaffPage() {
                   <td>
                     <span className="row-actions">
                       {can('org.staff.edit') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'edit', staff: s })}>编辑</button>}
-                      {can('org.staff.edit')&&<button type="button" className="link-button" onClick={()=>setTestStaff(s)}>测试飞书通知</button>}
+                      {can('org.staff.edit')&&<button type="button" className="link-button" onClick={()=>setTestStaff(s)}>发送飞书通知</button>}
                       {can('org.staff.view') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'records', staff: s })}>人员记录</button>}
                       {can('org.staff.edit') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'perm', staff: s })}>个人权限</button>}
                       {can('org.staff.reset') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'reset', staff: s })}>重置密码</button>}

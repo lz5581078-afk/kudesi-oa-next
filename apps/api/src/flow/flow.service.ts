@@ -1,3 +1,4 @@
+import { LiveOrderSource } from '../live/live-order-source';
 import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -49,6 +50,7 @@ export class FlowService {
     @Optional() private readonly bundles?: BundleToolsService,
     @Optional() private readonly outbox?: OutboxService,
     @Optional() private readonly feishu?: FeishuNoticeService,
+    @Optional() private readonly liveOrders?: LiveOrderSource,
   ) {}
   private readonly log = new Logger('Flow');
   private readonly quietEms = new WeakSet<EntityManager>();
@@ -60,7 +62,7 @@ export class FlowService {
   /** 解析模板（内置或自建）；在办流程传 run 以使用启动时的版本 */
   private tpl(em: EntityManager, companyId: number, key: string, definitionId?: number | null) { return loadTemplate(em, companyId, key, definitionId); }
   private runTpl(em: EntityManager, run: FlowRun) { return loadTemplate(em, run.companyId, run.templateKey, run.definitionId); }
-  private svc() { return { resources: this.resources, docs: this.docs, bundles: this.bundles, outbox: this.outbox }; }
+  private svc() { return { liveOrders:this.liveOrders, resources: this.resources, docs: this.docs, bundles: this.bundles, outbox: this.outbox }; }
   /** 字段权限（FieldDef.permission，如成本字段要 product.cost.view）：这个人没有权限的字段。服务端强制，看不到也填不了。 */
   private restricted(user: AuthUser, fields: readonly FieldDef[]): Set<string> { return restrictedFieldKeys({ fields } as never, createChecker(user.permissions)); }
   private visibleFields(user: AuthUser, fields: readonly FieldDef[]) { const hide = this.restricted(user, fields); return hide.size ? fields.filter((f) => !hide.has(f.key)) : fields; }

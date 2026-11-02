@@ -215,3 +215,24 @@
 @media(max-width:640px) {
   .live-workspace .live-responsive-table td.live-payroll-session { grid-column: 1 / -1; min-width: 0; max-width: none; white-space: normal; }
 }
+.live-modal .live-confirmation { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: #f5f9f9; font-size: 13px; line-height: 1.7; }
+.live-modal .live-confirmation input[type=checkbox] { width: 17px; height: 17px; flex: none; margin: 3px 0 0; }
+.live-modal .modal-foot .live-clock-button { min-height: 56px; font-size: 16px; }
+.live-modal .live-checkin-actions { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,260px),1fr)); gap: 12px; margin: 0; }
+.live-modal .live-checkin-actions .live-clock-button { text-align: left; line-height: 1.6; font-size: 15px; }
+.live-report-note { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; background: #f8fafb; border-radius: 8px; }
+.live-detail-disclosure { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.live-detail-disclosure > summary { padding: 14px 16px; cursor: pointer; background: #f5f9f9; color: var(--accent); font-size: 13px; font-weight: 600; }
+.live-checkin-panel > p,.live-checkin-panel > .notice { margin: 16px; }
+.live-checkin-panel > .live-checkin-actions { padding: 0 16px 16px; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,260px),1fr)); }
+.live-checkin-panel .live-checkin-actions > div { min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; gap: 10px; }
+.live-checkin-panel .live-checkin-actions .live-clock-button { font-size: 15px; line-height: 1.6; }
+.live-modal .live-checkout-summary { margin: 0; }
+.live-modal .live-checkout-summary > div { min-width: 0; background: #f8fafb; }
+.live-modal .live-checkout-summary dd { margin: 6px 0 0; }
+.live-modal .live-checkout-summary { grid-template-columns: repeat(auto-fit,minmax(min(100%,220px),1fr)); gap: 12px; }
+@media(max-width:640px) {
+  .live-modal .live-checkout-summary { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+  .live-modal .live-checkout-summary dt { font-size: 12px; }
+  .live-modal .live-checkout-summary dd { font-size: 16px; }
+}

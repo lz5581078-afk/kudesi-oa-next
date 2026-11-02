@@ -1,3 +1,4 @@
+import { LiveCheckinClosureService } from './live-checkin-closure.service';
 import { Injectable, Logger, Optional, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { LiveNotificationService } from './live-notification.service';
 import { LiveScheduleService } from './live-schedule.service';
@@ -8,7 +9,7 @@ export class LiveScheduler implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
   private readonly log = new Logger('LiveScheduler');
-  constructor(private readonly schedules: LiveScheduleService, @Optional() private readonly notifications?: LiveNotificationService) {}
+  constructor(private readonly schedules: LiveScheduleService, @Optional() private readonly notifications?: LiveNotificationService, @Optional() private readonly closure?: LiveCheckinClosureService) {}
 
   onModuleInit() {
     if (process.env.NODE_ENV === 'test' || process.env.LIVE_SCHEDULER === 'off') return;
@@ -23,6 +24,7 @@ export class LiveScheduler implements OnModuleInit, OnModuleDestroy {
     try { const n = await this.schedules.scanReminders(); if (n) this.log.log(`开播提醒 ${n} 条`); }
     catch (e) { this.log.error(`开播提醒扫描失败：${(e as Error).message}`); }
     finally {
+      try { await this.closure?.scan(); } catch (e) { this.log.error(`直播锁场失败：${(e as Error).message}`); }
       try { await this.notifications?.scan(); } catch (e) { this.log.error(`直播通知扫描失败：${(e as Error).message}`); }
       this.running = false;
     }

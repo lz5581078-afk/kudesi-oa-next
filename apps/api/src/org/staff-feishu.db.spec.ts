@@ -64,6 +64,18 @@ d('人员飞书状态和单人测试通知（隔离 MySQL）',()=>{
     expect(await ds.manager.count(AuditLog,{where:{companyId,action:'staff.feishu.test',resourceId:String(partTime)}})).toBe(1);
     await expect(service.sendTest(actor,partTime,randomUUID())).rejects.toMatchObject({status:429});
   });
+  it('自定义内容在OA与飞书队列一致保存；同编号改正文拒绝，不覆盖原消息',async()=>{
+    const requestId=randomUUID();const first=await service.sendTest(actor,regular,requestId,{title:'  自定义标题  ',body:'第一行\r\n第二行'});
+    const [oa]=await notices(),[out]=await jobs();
+    expect(oa).toMatchObject({title:'自定义标题',body:'第一行\n第二行'});expect(out.payloadJson).toMatchObject({title:oa.title,body:oa.body});
+    expect((await service.sendTest(actor,regular,requestId,{title:'自定义标题',body:'第一行\n第二行'})).jobId).toBe(first.jobId);
+    await expect(service.sendTest(actor,regular,requestId,{title:'自定义标题',body:'另一条正文'})).rejects.toMatchObject({status:409});
+    expect(await jobs()).toHaveLength(1);expect(await notices()).toHaveLength(1);
+  });
+  it('空白、超长和控制字符不入队',async()=>{
+    for(const content of [{title:'  ',body:'正文'},{title:'标题',body:'  '},{title:'a'.repeat(101),body:'正文'},{title:'标题',body:'a'.repeat(2001)},{title:'两行\n标题',body:'正文'},{title:'标题',body:'正文\x00'}])await expect(service.sendTest(actor,regular,randomUUID(),content)).rejects.toThrow('有效消息');
+    expect(await jobs()).toHaveLength(0);expect(await notices()).toHaveLength(0);
+  });
   it('无修改权限、跨公司、未绑定、停用人员均拒绝，失败不留OA通知或队列',async()=>{
     await expect(service.sendTest(viewer,regular,randomUUID())).rejects.toThrow('权限');
     await expect(service.sendTest(actor,foreign,randomUUID())).rejects.toThrow('不存在');

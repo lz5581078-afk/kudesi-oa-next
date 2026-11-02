@@ -23,10 +23,10 @@ describe('人员测试通知 HTTP 边界',()=>{
     const read=await fetch(base+'/api/org/staff-feishu',{headers:{'x-test-role':'read'}});expect(read.status).toBe(200);
     expect((await post('read',{requestId:randomUUID()})).status).toBe(403);expect((await post('anonymous',{requestId:randomUUID()})).status).toBe(403);expect(service.sendTest).not.toHaveBeenCalled();
   });
-  it('拒绝任意正文、公司身份及无效请求编号，接收人仅来自路径',async()=>{
-    for(const body of [{requestId:'bad'},{requestId:randomUUID(),companyId:8},{requestId:randomUUID(),text:'任意群发正文'}])expect((await post('edit',body)).status).toBe(400);
+  it('接受自定义标题正文，拒绝越界身份字段及无效请求编号',async()=>{
+    for(const body of [{requestId:'bad'},{requestId:randomUUID(),companyId:8},{requestId:randomUUID(),text:'未知字段'}])expect((await post('edit',body)).status).toBe(400);
     expect(service.sendTest).not.toHaveBeenCalled();
-    const requestId=randomUUID(),result=await post('edit',{requestId});expect(result.status).toBe(201);
-    expect(service.sendTest).toHaveBeenCalledWith(expect.objectContaining({id:11,companyId:7}),42,requestId);
+    const requestId=randomUUID(),result=await post('edit',{requestId,title:'自定义标题',body:'自定义正文'});expect(result.status).toBe(201);
+    expect(service.sendTest).toHaveBeenCalledWith(expect.objectContaining({id:11,companyId:7}),42,requestId,{title:'自定义标题',body:'自定义正文'});
   });
 });
