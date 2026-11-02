@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { createChecker, permissionOwner, resourcePermission, todayShanghai, unitYuanText, type ResourceDef } from '@kudesi/shared';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { createChecker, permissionOwner, resourcePermission, resolveProductSections, todayShanghai, unitYuanText, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { resourceApi, type ResourceDto } from './api';
-import { InfoValue } from './DetailFields';
+import { resourceFields, resourceGroups, resourceFieldWide } from './resourceFieldLayout';
+import { InfoValue, SecretCell } from './DetailFields';
 import { FileList } from './FilesField';
 
 export const FINANCE_DETAIL_TYPES = new Set(['finance-products', 'finance-suppliers', 'finance-customers', 'finance-fee-items', 'finance-base-codes', 'finance-bundles']);
@@ -21,10 +22,10 @@ export function FinanceFields({ def, record, keys }: { def: ResourceDef; record:
   return <dl className="finance-view-fields">{keys.map(item => {
     const [key, label] = typeof item === 'string' ? [item, undefined] : item;
     const field = def.fields.find(f => f.key === key);
-    if (!field || field.permission && !can(field.permission)) return null;
-    return <div key={key} className={['textarea', 'files'].includes(field.type) ? 'wide' : undefined}><dt>{label ?? field.label}</dt><dd>{field.type === 'files'
+    if (!field || field.permission && !can(field.permission) || field?.showWhen && !field.showWhen.in.includes(String(field.showWhen.field === 'status' ? record.status : record.data[field.showWhen.field] ?? ''))) return null;
+    return <Fragment key={key}><div data-field={key} data-kind={field.type} className={resourceFieldWide(field) ? 'wide' : undefined}><dt>{label ?? field.label}</dt><dd>{field.type === 'secret' ? <SecretCell def={def} record={record} fieldKey={key} /> : field.type === 'files'
       ? <FileList ids={Array.isArray(record.data[key]) ? record.data[key] as number[] : []} files={record.files} />
-      : <InfoValue def={def} record={record} f={field} today={todayShanghai()} canView={type => can(resourcePermission(permissionOwner(type), 'view'))} />}</dd></div>;
+      : <InfoValue def={def} record={record} f={field} today={todayShanghai()} canView={type => can(resourcePermission(permissionOwner(type), 'view'))} />}</dd></div>{def.key === 'finance-fee-items' && key === 'isCommon' && <div data-field="requiresObject"><dt>费用单必须挂归属对象</dt><dd>{String(record.data.defaultObject || '').split(/[、,，]/).some(n => n && n !== '公司' && n !== '不固定') ? '是' : '否'}</dd></div>}</Fragment>;
   })}</dl>;
 }
 
@@ -61,4 +62,16 @@ export function useFinanceDetailRows(type: string, field: string, id: number, ve
 
 export function DetailRowsState({ error, loading, empty }: { error: string; loading: boolean; empty: boolean }) {
   return error ? <p role="alert">明细读取失败：{error}</p> : loading ? <p role="status">正在加载组成明细…</p> : empty ? <p className="finance-view-empty">尚未维护商品组成</p> : null;
+}
+
+/** 专用统计/组成视图之外的字段也必须可查看；新增配置字段不会再被手写查看页漏掉。 */
+export function SupplementalFinanceFields({ def, record, covered }: { def: ResourceDef; record: ResourceDto; covered: readonly string[] }) {
+  const { user } = useAuth();
+  const can = (p: string) => !!user && createChecker(user.permissions)(p) && !(record.warehouseMode && ['product.cost.view', 'product.price.view'].includes(p));
+  const fields = def.key === 'finance-products'
+    ? resolveProductSections(record.data, { canUse: can }).flatMap(section => section.nodes.flatMap(node => node.kind === 'field' ? [node.field] : [...node.fields]))
+    : resourceFields(def, record.data, record.status, can);
+  const used = new Set(covered);
+  const remaining = fields.filter(f => { if (used.has(f.key) || f.listOnly) return false; used.add(f.key); return true; });
+  return <>{resourceGroups(remaining).map(([group, items]) => <FinanceSection key={group} title={`${group} · 补充资料`}><FinanceFields def={def} record={record} keys={items.map(f => [f.key, f.label])} /></FinanceSection>)}</>;
 }
