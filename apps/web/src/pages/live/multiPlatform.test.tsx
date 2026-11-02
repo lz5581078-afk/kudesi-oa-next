@@ -90,7 +90,8 @@ describe("多平台直播表单与工资", () => {
         onChange={change}
       />,
     );
-    expect(screen.getByLabelText("抖音直播号关联抖音店")).toBeTruthy();
+    expect(screen.getByText("抖音店")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", {name:"抖音直播号关联抖音店"})).toBeNull();
     expect(screen.queryByLabelText("抖音直播号关联快手店")).toBeNull();
     fireEvent.change(screen.getByLabelText("直播平台"), {
       target: { value: "kuaishou" },
@@ -98,9 +99,38 @@ describe("多平台直播表单与工资", () => {
     fireEvent.click(screen.getByLabelText("快手直播号"));
     expect(change).toHaveBeenCalledWith([
       { accountId: 1, storeIds: [10] },
-      { accountId: 2, storeIds: [] },
+      { accountId: 2, storeIds: [20] },
     ]);
     expect(screen.getByText(/抖音 · 抖音直播号/)).toBeTruthy();
+  });
+  it("单店账号只勾选一次便带入店铺，取消账号同时移除店铺", () => {
+    function Form() {
+      const [value, setValue] = useState<Array<{accountId:number;storeIds:number[]}>>([]);
+      return <><ChannelPicker options={options} value={value} onChange={setValue}/><output aria-label="所选范围">{JSON.stringify(value)}</output></>;
+    }
+    render(<Form/>);
+    fireEvent.click(screen.getByRole('checkbox', {name:'抖音直播号'}));
+    expect(screen.getByLabelText('所选范围').textContent).toBe('[{"accountId":1,"storeIds":[10]}]');
+    expect(screen.getByText('已自动选中，无需再次勾选')).toBeTruthy();
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('checkbox', {name:'抖音直播号'}));
+    expect(screen.getByLabelText('所选范围').textContent).toBe('[]');
+  });
+  it("多店账号必须明确选择本场店铺，切换平台保留选择", () => {
+    const multi = {...options, douyinAccounts:[{...options.douyinAccounts[0],storeIds:[10,11,20]},options.douyinAccounts[1]],stores:[...options.stores,{id:11,name:'抖音二店',platform:'douyin',hasJstShop:true,detail:''}]} as Options;
+    function Form() {
+      const [value, setValue] = useState<Array<{accountId:number;storeIds:number[]}>>([]);
+      return <><ChannelPicker options={multi} value={value} onChange={setValue}/><output aria-label="所选范围">{JSON.stringify(value)}</output></>;
+    }
+    render(<Form/>);
+    fireEvent.click(screen.getByRole('checkbox', {name:'抖音直播号'}));
+    expect(screen.getByText('尚未选择本场店铺')).toBeTruthy();
+    expect(screen.queryByRole('checkbox',{name:'抖音直播号关联快手店'})).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', {name:'抖音直播号关联抖音二店'}));
+    fireEvent.change(screen.getByLabelText('直播平台'),{target:{value:'kuaishou'}});
+    fireEvent.click(screen.getByRole('checkbox', {name:'快手直播号'}));
+    expect(screen.getByLabelText('所选范围').textContent).toBe('[{"accountId":1,"storeIds":[11]},{"accountId":2,"storeIds":[20]}]');
+    expect((screen.getByRole('checkbox',{name:'抖音直播号关联抖音二店'}) as HTMLInputElement).checked).toBe(true);
   });
   it("逐店填写金额和原因，合并同店账号；空营业额不能变成0提交", () => {
     const all = [
