@@ -21,7 +21,7 @@ export function TrialPersonDialog({ onClose, onDone }: { onClose: () => void; on
     }
   }
   return (
-    <Modal
+    <Modal error={error}
       title="新增试播主播"
       size="small"
       onClose={onClose}
@@ -31,11 +31,6 @@ export function TrialPersonDialog({ onClose, onDone }: { onClose: () => void; on
         </button>
       }
     >
-      {error && (
-        <p role="alert" className="notice error">
-          {error}
-        </p>
-      )}
       <p className="muted">保留试播身份，工资和提成可累计核算。无需先录入兼职档案。</p>
       <div className="live-fields">
         <label className="live-field">

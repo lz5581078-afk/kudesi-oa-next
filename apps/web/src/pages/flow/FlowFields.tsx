@@ -49,11 +49,15 @@ function LiveReviewFields(props: Parameters<typeof GenericFields>[0]) {
   useEffect(()=>{
     if(!edited.current&&multi&&manual&&!props.values.storeLines)props.onChange('storeLines',session!.reports.find(r=>r.role==='anchor')?.storeLines??[]);
   },[multi,manual,props.values.storeLines,session]); // onChange belongs to the active task form
-  return <>
+  const visibleFields=props.fields.filter(f=>f.key!=='storeLines'&&!(multi&&f.key==='finalSalesCents'));
+  const groups=[...new Set(visibleFields.map(f=>f.group||'审核'))];
+  return <div className="live-flow-review">
     {error&&<p className="notice error" role="alert">{error}</p>}
-    <GenericFields {...props} fields={props.fields.filter(f=>f.key!=='storeLines'&&!(multi&&f.key==='finalSalesCents'))}/>
-    {multi&&manual&&<StorePerformanceTable channels={session!.channels!} rows={rows} onChange={next=>{edited.current=true;setRows(next);try{props.onChange('storeLines',storePayload(next));setError('');}catch{props.onChange('storeLines',[]);setError('请逐店填写有效营业额和投流费用');}}}/>}
-  </>;
+    {groups.map(group=><fieldset key={group}><legend>{group}</legend>
+      <GenericFields {...props} fields={visibleFields.filter(f=>(f.group||'审核')===group)}/>
+      {visibleFields.some(f=>f.key==='finalSource'&&(f.group||'审核')===group)&&multi&&manual&&<StorePerformanceTable channels={session!.channels!} rows={rows} onChange={next=>{edited.current=true;setRows(next);try{props.onChange('storeLines',storePayload(next));setError('');}catch{props.onChange('storeLines',[]);setError('请逐店填写有效营业额和投流费用');}}}/>}
+    </fieldset>)}
+  </div>;
 }
 
 function GenericFields({ fields, values, onChange, labels, templateKey, context, files }: {

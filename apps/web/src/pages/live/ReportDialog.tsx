@@ -62,11 +62,10 @@ function LegacyReportDialog({ session, onClose, onDone }: { session: SessionDeta
   }
 
   return (
-    <Modal title={`报下播（${roleLabel(role)}）`} onClose={onClose} foot={<>
+    <Modal error={error} title={`报下播（${roleLabel(role)}）`} size="wide" onClose={onClose} foot={<>
       <button type="button" className="secondary-button" onClick={onClose}>取消</button>
       <button type="button" className="primary-button" disabled={busy} onClick={() => void submit()}>{busy ? '提交中…' : mine ? '保存修改' : '提交下播'}</button>
     </>}>
-      {error && <div role="alert" className="notice error">{error}</div>}
       {!multi&&<SourceStatusNotice />}
       <p className="muted">{session.roomName} · 上播 {hm(session.startAt)}。只能本人填报自己的角色，管理人员不能代填。</p>
       <div className="live-fields">

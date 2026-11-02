@@ -26,6 +26,15 @@ describe('审核计薪试算与失败反馈',()=>{
   expect(within(screen.getByRole('group',{name:'提成合计'})).getByText('¥36.22')).toBeTruthy();
   expect(within(screen.getByRole('group',{name:'本场预计应发'})).getByText('¥186.22')).toBeTruthy();
  });
+ it('传统运营中控没有计时工资时，应发只计其提成',()=>{
+  render(<ReviewPreviewAmounts preview={{...preview,controlWage:null}}/>);
+  expect(within(screen.getByRole('group',{name:'本场预计应发'})).getByText('¥17.48')).toBeTruthy();
+  expect(screen.queryByText(/中控计时工资：/)).toBeNull();expect(screen.queryByText('¥77.48')).toBeNull();
+ });
+ it('保留主分支传统运营中控规则，不再显示中控时薪输入',()=>{
+  render(<ReviewDialog session={{...session,controlCommissionOnly:true}} onClose={vi.fn()} onDone={vi.fn()}/>);
+  expect(screen.queryByLabelText('中控时薪')).toBeNull();expect(screen.getByText(/传统运营人员担任中控/)).toBeTruthy();
+ });
  it('旧场次没有分平台数据时仍只显示一次提成',()=>{
   render(<ReviewPreviewAmounts preview={{...preview,platforms:undefined}}/>);
   expect(screen.getAllByText('¥26.22')).toHaveLength(1);

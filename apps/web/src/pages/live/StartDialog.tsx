@@ -51,11 +51,10 @@ function StartForm({ schedule, identity, joining, roomId: fixedRoomId, onClose, 
   }
 
   return (
-    <Modal title={joining?'核对本场并确认本人上播':schedule ? '报上播（按排场）' : '报上播（临时加场）'} onClose={onClose} foot={<>
+    <Modal error={error} size="wide" title={joining?'核对本场并确认本人上播':schedule ? '报上播（按排场）' : '报上播（临时加场）'} onClose={onClose} foot={<>
       <button type="button" className="secondary-button" onClick={onClose}>取消</button>
       <button type="button" className="primary-button live-clock-button" disabled={busy || !opts} onClick={() => void submit()}>{busy ? '提交中…' : beforePlan&&early?'仍要提前开播':'确认上播'}</button>
     </>}>
-      {error && <div role="alert" className="notice error">{error}</div>}
       {schedule && <p className="muted">{schedule.roomName} · {schedule.startTime}–{schedule.endTime} · 主播 {schedule.anchor.name}{schedule.control ? `，中控 ${schedule.control.name}` : ''}{schedule.operator ? `，运营 ${schedule.operator.name}` : ''}</p>}
       {!opts ? <p className="muted" role="status">正在读取选项…</p> : (
         <div className="live-fields">
@@ -70,7 +69,7 @@ function StartForm({ schedule, identity, joining, roomId: fixedRoomId, onClose, 
           <ChannelPicker options={opts} value={channels} onChange={setChannels}/>
 <p className="wide muted">按点击确认的实际时间记录上播，排班时间仅供参考。</p>
           {beforePlan && <p className="notice warn wide">尚未到计划开播时间。{early ? '请再次点击“仍要提前开播”确认。' : '继续开播需要二次确认。'}</p>}
-          <label className="wide"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> 已核对本场人员、直播账号、关联店铺和产品（中控必选）</label>
+          <label className="wide live-confirmation"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> 已核对本场人员、直播账号、关联店铺和产品（中控必选）</label>
 
           {schedule ? <ManualProductEditor products={picked} onChange={setPicked} /> : <div className="wide live-field">
             <span>在卖产品（{picked.length}/100，至少 1 个）</span>
@@ -94,7 +93,7 @@ export function StartDialog(props:Parameters<typeof StartForm>[0]){
   const [loaded,setLoaded]=useState(!!props.schedule),[plans,setPlans]=useState<ScheduleRow[]>([]),[chosen,setChosen]=useState<ScheduleRow|null>(props.schedule),[error,setError]=useState('');
   const [manual,setManual]=useState(false);
   useEffect(()=>{if(props.schedule)return;liveApi.checkinContext(props.roomId).then(d=>{setPlans(d.schedules.filter(s=>s.status==='scheduled'&&s.canStart&&s.mineRole!=='operator'));setLoaded(true);}).catch(e=>setError(errText(e)));},[props.schedule]);
-  if(!loaded)return <Modal title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班…</p>}</Modal>;
+  if(!loaded)return <Modal title="读取本人排班" size="small" error={error} onClose={props.onClose}>{!error&&<p role="status">正在读取排班…</p>}</Modal>;
   if(!props.schedule&&!chosen&&!manual&&plans.length)return <Modal title="选择本次排班" onClose={props.onClose}><p>已读取你的排班，请核对要开始的场次。</p><div className="live-checkin-actions">{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}>{s.roomName} · {s.date} {s.startTime}–{s.endTime}</button>)}<button className="secondary-button live-clock-button" onClick={()=>setManual(true)}>没有对应排班，临时开播</button></div></Modal>;
   return <StartForm {...props} schedule={chosen}/>;
 }

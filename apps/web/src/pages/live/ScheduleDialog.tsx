@@ -59,8 +59,7 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
     finally { if (token === request.current) setImporting(false); }
   }
   return (
-    <><Modal size="wide" title={initial ? '修改排场' : '新增排场'} onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={busy || importing || !opts} onClick={() => void save()}>{busy ? '保存中…' : '保存'}</button></>}>
-      {error && <div role="alert" className="notice error">{error}</div>}
+    <><Modal error={error} size="wide" title={initial ? '修改排场' : '新增排场'} onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={busy || importing || !opts} onClick={() => void save()}>{busy ? '保存中…' : '保存'}</button></>}>
       {!initial && <div className="live-import-previous"><button type="button" className="secondary-button" disabled={!opts || !f.roomId || importing || busy} onClick={() => void importPrevious()}>{importing ? '导入中…' : '一键导入上次排场'}</button><small className="muted">先选择房间；导入开始时间之前最近一场未取消的配置。未填开始时间时读取所选日期及之前的最近一场，导入后需核对保存。</small></div>}
       {importNote && <p className="notice" role="status">{importNote}</p>}
       <p className="live-schedule-intro">安排直播时间、人员与账号。保存后，相关人员将按系统通知设置收到排班通知。</p>
