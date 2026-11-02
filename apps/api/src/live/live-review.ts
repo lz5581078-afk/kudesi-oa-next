@@ -1,5 +1,6 @@
 import { reportsLocked } from './live-checkin-core';
 import { liveClock } from './live-core';
+import { commissionOnlyControl } from './live-access';
 import { channelsOf, channelStores, linesOf } from './live-platforms';
 import { LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
 import { EntityManager } from 'typeorm';
@@ -168,7 +169,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   const operator = await resolveOperator(em, ctx.companyId, session, form);
   const wage = await resolveWage(em, ctx.companyId, session, form);
   const controlAttended=!session.checkin_mode||reports.some(r=>r.role==='control');
-  const controlWage=session.control_user_id && controlAttended ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
+
   if(session.checkin_mode){
     if(session.orders_capture_status!=='ready')liveFail('本场订单尚未完整归集，请核对聚水潭后重试',409);
     const base=reports.find(r=>r.role===String(form.finalSource).split('_')[0]);
@@ -177,6 +178,8 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
     await em.query('UPDATE live_session_order_snapshots SET baseline_refund_cents=0 WHERE company_id=? AND session_id=?',[ctx.companyId,sessionId]);
     for(const o of basis)await em.query('UPDATE live_session_order_snapshots SET baseline_refund_cents=? WHERE company_id=? AND session_id=? AND shop_id=? AND order_id=?',[o.refundCents,ctx.companyId,sessionId,o.shopId,o.orderId]);
   }
+  const commissionOnly = await commissionOnlyControl(em, ctx.companyId, session.control_user_id);
+  const controlWage=session.control_user_id && controlAttended && !commissionOnly ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
   const at = wallNow(ctx.now);
   const amounts = { anchor: 0, control: 0, operator: 0 };
   const approvedLines = resolvePlatformSales(session, reports, form);
@@ -191,7 +194,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
     if (session.control_user_id && controlAttended) roles.push(['control', Number(session.control_user_id), platform.control]);
     if (operator.counted) roles.push(['operator', operator.finalId!, platform.operator]);
     const snapshot = JSON.stringify({
-      versionId: version!.id, effectiveFrom: version!.effectiveFrom, rules,
+      controlCommissionOnly: commissionOnly, versionId: version!.id, effectiveFrom: version!.effectiveFrom, rules,
       tier: platform.tier, belowRoi: platform.belowRoi, platform: platform.platform,
       unverifiedStores: unverifiedStores.filter(store => store.platform === platform.platform),
       storeLines: approvedLines?.filter(line => line.platform === platform.platform),
@@ -255,7 +258,7 @@ export async function previewApproval(em: EntityManager, companyId: number, sess
     ruleVersion: { id: version!.id, effectiveFrom: version!.effectiveFrom }, tier: result.tier,
     anchor: result.anchor, control: session.control_user_id ? result.control : null, operator: operator.counted ? result.operator : null,
     operatorUserId: operator.finalId, operatorDoubledAsControl: operator.doubledAsControl,
-    controlWage: session.control_user_id && (!session.checkin_mode||reports.some(r=>r.role==='control')) ? await resolveWage(em, companyId, session, form, 'control'):null,
+    controlWage: session.control_user_id && (!session.checkin_mode||reports.some(r=>r.role==='control')) && !(await commissionOnlyControl(em, companyId, session.control_user_id)) ? await resolveWage(em, companyId, session, form, 'control'):null,
     wage: { startAt: wage.startAt, endAt: wage.endAt, minutes: wage.minutes, hourlyRateCents: wage.hourlyRateCents, amountCents: wage.amountCents, rateSource: wage.rateSource, archiveHourlyRateCents: wage.archiveRate },
   };
 }

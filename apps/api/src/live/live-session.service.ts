@@ -12,7 +12,7 @@ import {
 } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
 import { FlowService } from '../flow/flow.service';
-import { LiveAccess, liveDouyinAccounts, liveDouyinStores, resolveLiveProducts, liveRoomList, livePeople, loadLiveAccess, requireUse } from './live-access';
+import { commissionOnlyControl, LiveAccess, liveDouyinAccounts, liveDouyinStores, resolveLiveProducts, liveRoomList, livePeople, loadLiveAccess, requireUse } from './live-access';
 import { Row, SESSION_SELECT, closedDay, idOf, liveClock, liveFail, lockCompany, num, numOrNull, reportsOf, ruleVersions, sessionRow, text, wallNow } from './live-core';
 import { LiveOrderSource } from './live-order-source';
 import { ReviewForm, checkSubmittable, previewApproval } from './live-review';
@@ -406,6 +406,7 @@ export class LiveSessionService {
       ...serializeSession(s),
       capturedOrders: await em.query("SELECT store_id storeId,platform,shop_id shopId,order_id orderId,paid,amount_cents amountCents,refund_cents refundCents,order_status status,DATE_FORMAT(order_at,'%Y-%m-%d %H:%i:%s') orderAt FROM live_session_order_snapshots WHERE company_id=? AND session_id=? ORDER BY order_at,shop_id,order_id",[a.companyId,id]),
       myCheckins: await em.query("SELECT role,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') startAt,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') endAt FROM live_session_checkins WHERE company_id=? AND session_id=? AND user_id=?",[a.companyId,id,a.userId]),
+      controlCommissionOnly: await commissionOnlyControl(em, a.companyId, s.control_user_id),
       products: products.map((p) => ({ id: p.base_code_id == null ? null : Number(p.base_code_id), code: p.code_snapshot, name: p.name_snapshot, spec: p.spec_snapshot ?? '' })),
       reports: reports.map((r) => ({
         storeLines: linesOf(r), role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], manualActorId:r.manual_actor_id?Number(r.manual_actor_id):null, reporter: { id: Number(r.reporter_user_id), name: names.get(Number(r.reporter_user_id)) ?? '' }, endAt: r.end_text, salesCents: num(r.sales_cents),

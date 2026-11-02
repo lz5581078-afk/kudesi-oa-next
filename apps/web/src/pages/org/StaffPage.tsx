@@ -1,3 +1,4 @@
+import { StaffFeishuBadge, StaffTestNoticeDialog } from './StaffFeishu';
 import { StaffDialog } from './StaffDialog';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { createChecker, type CatalogGroup } from '@kudesi/shared';
@@ -5,7 +6,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { ApiError } from '../../api/client';
 import { ConfirmDialog } from './StructurePage';
 import { PermissionPicker } from './PermissionPicker';
-import { orgApi, flattenDepartments, type DepartmentNode, type PositionDto, type StaffDetail, type StaffDto, type HandoverPreview, EMPLOYMENT_LABELS } from './orgApi';
+import { orgApi, flattenDepartments, type DepartmentNode, type PositionDto, type StaffDetail, type StaffDto, type StaffFeishuStatus, type HandoverPreview, EMPLOYMENT_LABELS } from './orgApi';
 import { StaffRecordsDialog } from './StaffRecordsDialog';
 import { StaffImportDialog } from './StaffImportDialog';
 import { CopyButton } from '../../resources/CopyValue';
@@ -136,6 +137,11 @@ export function StaffPage() {
   const [tree, setTree] = useState<DepartmentNode[]>([]);
   const [positions, setPositions] = useState<PositionDto[]>([]);
   const [catalog, setCatalog] = useState<CatalogGroup[]>([]);
+  const [feishu,setFeishu]=useState<Map<number,StaffFeishuStatus>>(new Map());
+  const [feishuError,setFeishuError]=useState('');
+  const [bindingFilter,setBindingFilter]=useState('');
+  const [employmentFilter,setEmploymentFilter]=useState('');
+  const [testStaff,setTestStaff]=useState<StaffDto|null>(null);
   const [keyword, setKeyword] = useState('');
   const [showDisabled, setShowDisabled] = useState(false);
   const [onlyNoPosition, setOnlyNoPosition] = useState(false);
@@ -152,12 +158,17 @@ export function StaffPage() {
     | { kind: 'disable'; staff: StaffDto } | { kind: 'records'; staff: StaffDto } | { kind: 'import' } | { kind: 'password'; title: string; account: string; password: string } | null
   >(null);
 
+  const reloadFeishu=useCallback(async()=>{
+    try{const data=await orgApi.staffFeishu();setFeishu(new Map(data.rows.map(r=>[r.userId,r])));setFeishuError('');}
+    catch{setFeishu(new Map());setFeishuError('飞书绑定状态读取失败，请刷新状态后重试');}
+  },[]);
   const reload = useCallback(async () => {
+    void reloadFeishu();
     try {
       const [s, t, p, c] = await Promise.all([orgApi.staff(), orgApi.departments(), orgApi.positions(), orgApi.catalog()]);
       setStaff(s); setTree(t); setPositions(p); setCatalog(c); setError('');
     } catch (e) { setError(errText(e)); }
-  }, []);
+  }, [reloadFeishu]);
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => { if (entry.add && can('org.staff.create')) setDialog({ kind: 'edit', staff: null }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // 职责组筛选（旧员工页有）：没有职责组查看权限时静默不显示
@@ -179,7 +190,7 @@ export function StaffPage() {
     walk(tree, false);
     return ids;
   }, [deptFilter, tree]);
-  const shown = staff.filter((s) => (showDisabled || s.status === 'active') && (!onlyNoPosition || !s.positionId) && (!deptScope || (s.departmentId != null && deptScope.has(s.departmentId))) && (!groupFilter || memberOf.get(Number(groupFilter))?.has(s.id)) && (!posFilter || String(s.positionId) === posFilter || s.extraPositionIds.includes(Number(posFilter))) && (!keyword.trim() || `${s.name}${s.account}`.toLowerCase().includes(keyword.trim().toLowerCase())));
+  const shown = staff.filter((s) => (showDisabled || s.status === 'active') && (!employmentFilter||(s.employmentType??'regular')===employmentFilter) && (!bindingFilter||(bindingFilter==='bound'?feishu.get(s.id)?.bound===true:feishu.get(s.id)?.bound===false)) && (!onlyNoPosition || !s.positionId) && (!deptScope || (s.departmentId != null && deptScope.has(s.departmentId))) && (!groupFilter || memberOf.get(Number(groupFilter))?.has(s.id)) && (!posFilter || String(s.positionId) === posFilter || s.extraPositionIds.includes(Number(posFilter))) && (!keyword.trim() || `${s.name}${s.account}`.toLowerCase().includes(keyword.trim().toLowerCase())));
   const done = async () => { setDialog(null); await reload(); };
 
   async function exportCsv() {
@@ -207,6 +218,8 @@ export function StaffPage() {
           {can('org.staff.create') && <button type="button" className="primary-button" onClick={() => setDialog({ kind: 'edit', staff: null })}>＋ 新增员工</button>}
         </span>
       </div>
+      {feishuError&&<div role="alert" className="notice error">{feishuError}</div>}
+      {testStaff&&<StaffTestNoticeDialog key={testStaff.id} staff={testStaff} status={feishu.get(testStaff.id)} onClose={()=>setTestStaff(null)}/>}
       {error && <div role="alert" className="notice error">{error}</div>}
       <div className="card">
         <div className="toolbar">
@@ -225,12 +238,15 @@ export function StaffPage() {
             <option value="">岗位：全部</option>
             {positions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+          <select aria-label="用工类型" value={employmentFilter} onChange={e=>setEmploymentFilter(e.target.value)}><option value="">用工：全部</option><option value="regular">正式员工</option><option value="part_time">兼职</option><option value="temp">临时工</option></select>
+          <select aria-label="飞书绑定状态" value={bindingFilter} onChange={e=>setBindingFilter(e.target.value)}><option value="">飞书：全部</option><option value="bound">已绑定</option><option value="unbound">未绑定</option></select>
+          <button type="button" className="secondary-button" onClick={()=>void reloadFeishu()}>刷新绑定状态</button>
           <label className="check-line"><input type="checkbox" checked={showDisabled} onChange={(e) => setShowDisabled(e.target.checked)} />显示已停用</label>
           <label className="check-line"><input type="checkbox" checked={onlyNoPosition} onChange={(e) => setOnlyNoPosition(e.target.checked)} />只看没有岗位的</label>
         </div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>姓名</th><th>账号</th><th>部门</th><th>岗位</th><th>职称</th><th>用工/计薪</th><th>职责组</th><th>直属上级</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
+            <thead><tr><th>姓名</th><th>账号</th><th>部门</th><th>岗位</th><th>职称</th><th>用工/计薪</th><th>职责组</th><th>直属上级</th><th>状态</th><th>飞书绑定</th><th>最近登录</th><th>操作</th></tr></thead>
             <tbody>
               {shown.map((s) => (
                 <tr key={s.id}>
@@ -243,10 +259,12 @@ export function StaffPage() {
                   <td>{groups.filter((g) => memberOf.get(g.id)?.has(s.id)).map((g) => g.name).join('、') || '—'}</td>
                   <td>{staff.find((x) => x.id === s.managerId)?.name ?? '—'}</td>
                   <td><span className={s.status === 'active' ? 'pill ok' : 'pill warn'}>{s.status === 'active' ? '在职' : '已停用'}</span></td>
+                  <td><StaffFeishuBadge status={feishu.get(s.id)}/></td>
                   <td>{s.lastLoginAt ? new Date(s.lastLoginAt).toLocaleString('zh-CN') : '从未登录'}</td>
                   <td>
                     <span className="row-actions">
                       {can('org.staff.edit') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'edit', staff: s })}>编辑</button>}
+                      {can('org.staff.edit')&&<button type="button" className="link-button" onClick={()=>setTestStaff(s)}>测试飞书通知</button>}
                       {can('org.staff.view') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'records', staff: s })}>人员记录</button>}
                       {can('org.staff.edit') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'perm', staff: s })}>个人权限</button>}
                       {can('org.staff.reset') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'reset', staff: s })}>重置密码</button>}

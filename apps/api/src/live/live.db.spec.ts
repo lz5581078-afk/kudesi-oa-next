@@ -640,6 +640,28 @@ d('直播管理（真实数据库）', () => {
     await ds.query("UPDATE live_sessions SET status='pending_report',end_at='2026-11-01 11:00:00' WHERE company_id=? AND id=?",[company,live.id]);
   });
 
+  it('传统运营中控只计中控提成，审核后调岗仍列在运营提成，同场运营独立计提', async () => {
+    const day = '2026-05-06';
+    const id = await liveThrough({ day, from:'10:00', to:'12:00', room:ids.s1, sales:100000, ad:0, orders:[order('CTRL-OPS',100000)] });
+    const department = await ds.query("INSERT INTO departments(company_id,name,status) VALUES(?,'传统运营部','active')", [company]);
+    await ds.query('UPDATE users SET department_id=? WHERE company_id=? AND id=?', [department.insertId,company,control.id]);
+    try {
+      expect((await sessions.detail(reviewer,id)).controlCommissionOnly).toBe(true);
+      const form = reviewForm({controlWageHourlyRateCents: 6000});
+      const preview = await sessions.reviewPreview(reviewer,id,form);
+      expect(preview.controlWage).toBeNull();
+      await approve(id,form);
+      expect((await sessions.detail(manager,id)).wages.map(w=>w.role)).toEqual(['anchor']);
+    } finally {
+      await ds.query('UPDATE users SET department_id=NULL WHERE company_id=? AND id=?',[company,control.id]);
+    }
+    const period = {from:day,to:day};
+    const ops = await ledger.commissions(manager,{...period,role:'operator'});
+    expect(ops.rows.map(r=>r.userId).sort()).toEqual([control.id,operator.id].sort());
+    expect(ops.rows.find(r=>r.userId===control.id)?.amountCents).toBe(liveComputeCommission({rules:LIVE_DEFAULT_RULES,finalSalesCents:100000,adSpendCents:0}).control.amountCents);
+    expect((await ledger.commissions(manager,{...period,role:'control'})).rows).toEqual([]);
+  });
+
   it('传统电商部门及有效下级、主兼任人员可选中控；目录、保存及本人上播一致，停用和跨公司不放行', async () => {
     const cid = (await ds.manager.save(Company, ds.manager.create(Company, { code: `tc${crypto.randomBytes(5).toString('hex')}`, name: '传统电商测试', status: 'active' }))).id;
     await ensureDefaultLiveRules(ds.manager, cid);
