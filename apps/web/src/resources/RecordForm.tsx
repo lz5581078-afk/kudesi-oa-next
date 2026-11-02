@@ -1,6 +1,6 @@
 import { StoreJstSelect } from './StoreJstSelect';
 import { CascadePicker } from './CascadePicker';
-import { Fragment, FormEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, FormEvent, useEffect, useMemo, useRef, useState, useId } from 'react';
 import { fieldOptions, useUnitOptions } from './unitOptions';
 import { selectChoices, useCategoryVersion } from './categoryOptions';
 import { groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
@@ -27,139 +27,19 @@ import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
 import { LicenseRecognizeButton } from './LicenseRecognize';
+import { RefSelect, RefsSelect, clearRefCache } from './ResourceReferenceControls';
+export { RefSelect, RefsSelect, loadRefOptions, clearRefCache } from './ResourceReferenceControls';
+import './resourceWorkspace.css';
 
-export function MoneyControl({value,scale,onChange,ariaLabel}:{value:unknown;scale:number;onChange:(v:unknown)=>void;ariaLabel?:string}) {
+export function MoneyControl({value,scale,onChange,ariaLabel,inputId}:{value:unknown;scale:number;onChange:(v:unknown)=>void;ariaLabel?:string;inputId?:string}) {
   const textOf=(v:unknown)=>v===undefined||v===null||v===''?'':unitYuanText(Number(v));
   const [text,setText]=useState(()=>textOf(value));
   useEffect(()=>{if(!Number.isNaN(value))setText(textOf(value));},[value]);
-  return <input aria-label={ariaLabel} inputMode="decimal" value={text} placeholder={scale?'元（最多六位小数）':'元'} onChange={e=>{
+  return <input id={inputId} aria-label={ariaLabel} inputMode="decimal" value={text} placeholder={scale?'元（最多六位小数）':'元'} onChange={e=>{
     const raw=e.target.value;setText(raw);
     if(!raw.trim())return onChange('');
     try{onChange(yuanToPreciseCents(raw.trim().replace(/^\./,'0.'),scale));}catch{onChange(NaN);}
   }} />;
-}
-
-type RefOption = { value: number; label: string; disabled?: boolean; leaf?: boolean };
-type RefOptions = RefOption[] & { total?: number };
-/** 引用选择器一次最多取这么多条；更多的靠搜索框按关键字找（店铺、手机号等可能有几百条） */
-const REF_PAGE = 50;
-let refVersion = 0;
-const refListeners = new Set<() => void>();
-function useRefVersion() { return useSyncExternalStore(cb => { refListeners.add(cb); return () => { refListeners.delete(cb); }; }, () => refVersion); }
-const refCache = new Map<string, Promise<RefOptions>>();
-function refOptionLabel(target:string,row:ResourceDto){
-  if(target==='phones')return [row.title,row.data.certifiedName,row.data.plan,`登记 #${row.id}`].filter(Boolean).join(' · ');
-  if(target==='bank-accounts')return [row.title,row.data.bank,row.refLabels?.keeperUserId,`登记 #${row.id}`].filter(Boolean).join(' · ');
-  return row.title;
-}
-
-/** 按关键字服务端搜索可选项；员工/部门这类小列表不走这里 */
-function searchRefOptions(target: string, keyword: string): Promise<RefOptions> {
-  return resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true, keyword }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: refOptionLabel(target,i) })), { total: r.total }));
-}
-
-/** 选择器上方的搜索框：输入后（稍作防抖）向服务端搜索；用户/部门是整表加载，不显示 */
-function useRefSearch(target: string, initial: RefOptions | null) {
-  const [keyword, setKeyword] = useState('');
-  const [found, setFound] = useState<RefOptions | null>(null);
-  const searchable = target !== 'department' && target !== 'user' && (initial?.total ?? 0) > (initial?.length ?? 0);
-  useEffect(() => {
-    if (!searchable || !keyword.trim()) { setFound(null); return; }
-    let alive = true;
-    const t = setTimeout(() => { searchRefOptions(target, keyword.trim()).then((o) => alive && setFound(o)).catch(() => alive && setFound([])); }, 250);
-    return () => { alive = false; clearTimeout(t); };
-  }, [keyword, searchable, target]);
-  return { keyword, setKeyword, searchable, shown: found ?? initial, truncated: (found ?? initial) ? ((found ?? initial)!.total ?? 0) > (found ?? initial)!.length : false };
-}
-export function clearRefCache(type?: string) {
-  if (type) refCache.delete(type);
-  else refCache.clear();
-  refVersion++; refListeners.forEach(listener => listener());
-}
-
-export function loadRefOptions(target: string) {
-  let p = refCache.get(target);
-  if (!p) {
-    p =
-      target === 'department'
-        ? resourceApi.departments().then((list) => list.map((d) => ({ value: d.id, label: d.name })))
-        : target === 'user'
-        ? resourceApi.users().then((list) => list.map((u) => ({ value: u.id, label: u.active ? u.name : `${u.name}（已停用）`, disabled: !u.active })))
-        : ['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories'].includes(target)
-        ? (async () => { const rows: ResourceDto[] = []; for (let page=1;;page++) { const r=await resourceApi.list(target,{page,pageSize:200,showHidden:true}); rows.push(...r.items); if(rows.length>=r.total||!r.items.length)break; } const byId=new Map(rows.map(r=>[r.id,r])); const path=(row:ResourceDto)=>{const parts:string[]=[],seen=new Set<number>();for(let r:ResourceDto|undefined=row;r&&!seen.has(r.id);r=byId.get(Number(r.data.parentId))){seen.add(r.id);parts.unshift(r.title);}return parts.join(' / ');};return Object.assign(rows.filter(r=>r.status==='active').map(r=>({value:r.id,label:path(r),leaf:!rows.some(c=>c.data.parentId===r.id)})),{total:rows.filter(r=>r.status==='active').length}); })()
-        : resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: refOptionLabel(target,i) })), { total: r.total }));
-    p.catch(() => refCache.delete(target));
-    refCache.set(target, p);
-  }
-  return p;
-}
-
-export function RefSelect({ field, value, onChange, labelNow, leafOnly = false }: { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string; leafOnly?: boolean }) {
-  const version = useRefVersion();
-  const [options, setOptions] = useState<RefOptions | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    loadRefOptions(field.ref!).then((o) => alive && setOptions(o)).catch(() => alive && setFailed(true));
-    return () => {
-      alive = false;
-    };
-  }, [field.ref, version]);
-  const search = useRefSearch(field.ref!, options);
-  const current = typeof value === 'number' ? value : '';
-  if (failed) return <input disabled value={labelNow ?? ''} placeholder="没有权限查看可选项" />;
-  const list: RefOptions = leafOnly ? (search.shown ?? []).filter(o=>o.leaf!==false) : search.shown ?? Object.assign([], { total: 0 });
-  const missing = current !== '' && !list.some((o) => o.value === current);
-  return (
-    <>
-      {search.searchable && <input type="search" className="ref-search" aria-label={`搜索${field.label}`} placeholder="输入关键字搜索…" value={search.keyword} onChange={(e) => search.setKeyword(e.target.value)} />}
-      <select value={current} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} disabled={!options}>
-        <option value="">{options ? '（不选）' : '加载中…'}</option>
-        {missing && <option value={current}>{labelNow ?? `#${current}`}</option>}
-        {list.map((o) => (
-          // 已停用的员工不能新选；若本来就是这个值则保留显示
-          <option key={o.value} value={o.value} disabled={o.disabled && o.value !== current}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      {search.truncated && <small className="muted">只列出前 {list.length} 条，共 {list.total ?? '更多'} 条，输入关键字缩小范围</small>}
-    </>
-  );
-}
-
-/** 多选引用：勾选若干条记录（如供应商同时属于多个分类） */
-export function RefsSelect({ field, value, onChange, labelNow, onLabels, leafOnly = false }: { field: FieldDef; value: number[]; onChange: (v: number[]) => void; labelNow?: string; onLabels?: (labels: Record<number, string>) => void; leafOnly?: boolean }) {
-  const version = useRefVersion();
-  const [options, setOptions] = useState<RefOptions | null>(null);
-  const seen = useRef<Record<number, string>>({});
-  useEffect(() => {
-    let alive = true;
-    loadRefOptions(field.ref!).then((o) => alive && setOptions(o)).catch(() => alive && setOptions(Object.assign([], { total: 0 })));
-    return () => { alive = false; };
-  }, [field.ref, version]);
-  const search = useRefSearch(field.ref!, options);
-  if (!options) return <span className="muted">加载中…</span>;
-  const shown: RefOptions = leafOnly ? (search.shown ?? options).filter(o=>o.leaf!==false) : search.shown ?? options;
-  for (const o of shown) seen.current[o.value] = o.label;
-  const pick = (next: number[]) => { onChange(next); onLabels?.(seen.current); };
-  const labels = (labelNow ?? '').split('、');
-  // 已选但不在当前列出范围内的（分页/搜索之外），固定显示在最上面，保证能取消
-  const extra = value.filter((v) => !shown.some((o) => o.value === v));
-  return (
-    <div className="check-list" role="group" aria-label={field.label}>
-      {search.searchable && <input type="search" className="ref-search" aria-label={`搜索${field.label}`} placeholder="输入关键字搜索…" value={search.keyword} onChange={(e) => search.setKeyword(e.target.value)} />}
-      {extra.map((v, i) => <label key={v} className="check"><input type="checkbox" checked onChange={() => pick(value.filter((x) => x !== v))} /> {labels[i] ?? `#${v}`}</label>)}
-      {shown.map((o) => (
-        <label key={o.value} className="check">
-          <input type="checkbox" checked={value.includes(o.value)} onChange={(e) => pick(e.target.checked ? [...value, o.value] : value.filter((x) => x !== o.value))} />
-          {o.label}
-        </label>
-      ))}
-      {search.truncated && <small className="muted">只列出前 {shown.length} 条，共 {shown.total} 条，输入关键字缩小范围</small>}
-      {shown.length === 0 && extra.length === 0 && <span className="muted">还没有可选项</span>}
-    </div>
-  );
 }
 
 /** 分类自定义属性：属性名来自所选分类（逗号分隔的 customFields），值写在本记录里。 */
@@ -188,11 +68,11 @@ export function AttrsInput({ field, def, values, value, onChange }: { field: Fie
   );
 }
 
-export function FieldInput({ field, value, onChange, configured, labelNow, type, known, onKnown, values }: {
+export function FieldInput({ field, value, onChange, configured, labelNow, type, known, onKnown, values, inputId }: {
   field: FieldDef; value: unknown; onChange: (v: unknown) => void; configured?: boolean; labelNow?: string;
   type: string; known: Record<number, FileInfo>; onKnown: (f: FileInfo) => void;
   /** 整张表单当前的值（“规格单位”这类按档案类型换列表的字段要看它） */
-  values?: Record<string, unknown>;
+  values?: Record<string, unknown>; inputId?: string;
 }) {
   const units = useUnitOptions();
   useCategoryVersion(); // 分类改名/新增后下拉立即刷新
@@ -200,7 +80,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
   if (type === 'stores' && field.key === 'jushuitanShopId') return <StoreJstSelect value={str} currentName={String(values?.jushuitanShopName ?? '')} onChange={onChange} />;
   switch (field.type) {
     case 'textarea':
-      return <textarea rows={3} value={str} maxLength={field.maxLength} onChange={(e) => onChange(e.target.value)} />;
+      return <textarea id={inputId} rows={3} value={str} maxLength={field.maxLength} onChange={(e) => onChange(e.target.value)} />;
     case 'select':
       if (field.multi) {
         const picked = new Set(str.split('、').filter(Boolean));
@@ -216,7 +96,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
         );
       }
       return (
-        <select value={str} onChange={(e) => onChange(e.target.value)}>
+        <select id={inputId} value={str} onChange={(e) => onChange(e.target.value)}>
           <option value="">（不选）</option>
           {selectChoices(type, field, (f) => (f.optionsFrom ? fieldOptions(f, values ?? {}, units) : f.options ?? []), { mode: 'form', current: str }).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           {/* 记录里原来的值不在现在的列表里（历史数据、已停用的项）也要能看到 */}
@@ -224,33 +104,33 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
         </select>
       );
     case 'bool':
-      return <input type="checkbox" checked={value === true || value === 'true'} onChange={(e) => onChange(e.target.checked)} />;
+      return <input id={inputId} type="checkbox" checked={value === true || value === 'true'} onChange={(e) => onChange(e.target.checked)} />;
     case 'date':
-      return <input type="date" value={str} onChange={(e) => onChange(e.target.value)} />;
+      return <input id={inputId} type="date" value={str} onChange={(e) => onChange(e.target.value)} />;
     case 'monthday':
-      return <input value={str} placeholder="MM-DD，如 03-15" maxLength={5} onChange={(e) => onChange(e.target.value)} />;
+      return <input id={inputId} value={str} placeholder="MM-DD，如 03-15" maxLength={5} onChange={(e) => onChange(e.target.value)} />;
     case 'number':
-      return <input type="number" min={0} value={str} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))} />;
+      return <input id={inputId} type="number" min={0} value={str} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))} />;
     case 'decimal':
-      return <input type="number" min={0} step="any" value={str} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))} />;
+      return <input id={inputId} type="number" min={0} step="any" value={str} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))} />;
     case 'money':
-      return <MoneyControl value={value} scale={field.scale ?? 0} onChange={onChange} />;
+      return <MoneyControl inputId={inputId} value={value} scale={field.scale ?? 0} onChange={onChange} />;
     case 'files':
       return <FilesInput field={field} type={type} value={Array.isArray(value) ? (value as number[]) : []} known={known} onChange={onChange} onKnown={onKnown} />;
     case 'refs':
       return <RefsSelect leafOnly={type === 'finance-suppliers' && field.key === 'categoryIds'} field={field} value={Array.isArray(value) ? (value as number[]) : []} onChange={onChange} labelNow={labelNow} />;
     case 'ref':
       if (field.cascade && field.ref) return <CascadePicker target={field.ref} label={field.label} value={typeof value === 'number' ? value : null} onChange={onChange} labelNow={labelNow} />;
-      return <RefSelect field={field} value={value} onChange={onChange} labelNow={labelNow} />;
+      return <RefSelect inputId={inputId} field={field} value={value} onChange={onChange} labelNow={labelNow} />;
     case 'secret':
-      return <SecretInput value={str} maxLength={field.maxLength} placeholder={configured ? '已设置，留空表示不修改' : ''} onChange={onChange} />;
+      return <SecretInput inputId={inputId} value={str} maxLength={field.maxLength} placeholder={configured ? '已设置，留空表示不修改' : ''} onChange={onChange} />;
     default: {
       // 系统规格这类“可以选公司维护的，也可以手填”的文本
       const hints = field.optionsFrom ? fieldOptions(field, values ?? {}, units).map((o) => o.label) : [];
       const listId = hints.length ? `hints-${field.key}` : undefined;
       return (
         <>
-          <input value={str} maxLength={field.maxLength} list={listId} onChange={(e) => onChange(e.target.value)} />
+          <input id={inputId} value={str} maxLength={field.maxLength} list={listId} onChange={(e) => onChange(e.target.value)} />
           {listId && <datalist id={listId}>{hints.map((h) => <option key={h} value={h} />)}</datalist>}
         </>
       );
@@ -259,11 +139,11 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
 }
 
 /** 密码输入：默认遮住，点“显示输入”才看到自己输入的内容（核对有没有输错）。 */
-function SecretInput({ value, maxLength, placeholder, onChange }: { value: string; maxLength?: number; placeholder: string; onChange: (v: string) => void }) {
+function SecretInput({ value, maxLength, placeholder, onChange, inputId }: { value: string; maxLength?: number; placeholder: string; onChange: (v: string) => void; inputId?: string }) {
   const [shown, setShown] = useState(false);
   return (
     <span className="secret-input-row">
-      <input type={shown ? 'text' : 'password'} autoComplete="new-password" value={value} maxLength={maxLength} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <input id={inputId} type={shown ? 'text' : 'password'} autoComplete="new-password" value={value} maxLength={maxLength} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
       <button type="button" className="link-button" aria-pressed={shown} onClick={() => setShown((v) => !v)}>{shown ? '隐藏输入' : '显示输入'}</button>
     </span>
   );
@@ -299,6 +179,14 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   /** 提供了它，新建时就多出“保存并继续新建”：保存后不关弹窗，列表由它刷新 */
   onContinued?: (dto: ResourceDto) => void;
 }) {
+  const formId = useId().replace(/:/g, '');
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (inline) return;
+    const previous = document.activeElement as HTMLElement | null;
+    formRef.current?.querySelector<HTMLButtonElement>('[aria-label="关闭"]')?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, [inline]);
   const copyOf = typeof initial?.__copyOf === 'number' ? initial.__copyOf : null;
   const [values, setValues] = useState<Record<string, unknown>>(() => { const v: Record<string, unknown> = { ...(!record && def.key === 'finance-fee-items' ? {direction:'expense'} : {}), ...(record?.data ?? {}), ...(initial ?? {}) }; delete v.__copyOf; return v; });
   const [status, setStatus] = useState(record?.status ?? def.defaultStatus);
@@ -548,7 +436,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     setErrors(next);
     const first = visible.find((f) => next[f.key]);
     if (first) setTimeout(() => {
-      const el = document.querySelector<HTMLElement>(`[data-field="${first.key}"] input, [data-field="${first.key}"] select, [data-field="${first.key}"] textarea`);
+      const el = scrollBox.current?.querySelector<HTMLElement>(`[data-field="${first.key}"] input, [data-field="${first.key}"] select, [data-field="${first.key}"] textarea`);
       el?.focus();
       el?.scrollIntoView?.({ block: 'center' });
     }, 0);
@@ -561,7 +449,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   }
 
   const sectionHas = (title: string, block: string) => Boolean(resolved?.some((s) => s.title === title && s.nodes.some((n) => n.kind === 'block' && n.block === block)));
-  const secId = (g: string) => `rf-sec-${g}`;
+  const secId = (g: string) => `rf-sec-${formId}-${g}`;
   const [manualCode, setManualCode] = useState(false);
   const [generatedCode, setGeneratedCode] = useState('');
   const [generatedName, setGeneratedName] = useState('');
@@ -577,10 +465,15 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const showAnchors = !inline && !reference && groups.length > 1;
   const scrollBox = useRef<HTMLDivElement>(null);
   const [activeGroup, setActiveGroup] = useState('');
-  const jump = (g: string) => { setActiveGroup(g); document.getElementById(secId(g))?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); };
+  const jumpedGroup = useRef<string | null>(null);
+  const jump = (g: string) => {
+    setActiveGroup(g); jumpedGroup.current = g;
+    const box = scrollBox.current, section = document.getElementById(secId(g));
+    if (box && section) box.scrollTo?.({ top: box.scrollTop + section.getBoundingClientRect().top - box.getBoundingClientRect().top - 20, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  };
   const onScroll = () => {
     const box = scrollBox.current;
-    if (!box || !showAnchors) return;
+    if (!box || !showAnchors || jumpedGroup.current) return;
     const top = box.getBoundingClientRect().top + 24;
     let current = groups[0]?.[0] ?? '';
     for (const [g] of groups) { const el = document.getElementById(secId(g)); if (el && el.getBoundingClientRect().top <= top) current = g; }
@@ -588,10 +481,15 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   };
   const errorCount = Object.values(errors).filter(Boolean).length;
 
-  const renderField = (f: FieldDef, wide?: boolean) => (
-    <label key={f.key} data-field={f.key} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={[reference ? `s${wide ? 12 : referenceFieldSpan(def.key, f)}` : '', !reference && (wide || f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || (f.type === 'ref' && f.cascade)) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
-      <span className="rf-label">{isProduct && f.key === 'name' && ['self_made','purchased_original','purchased_oem','shipping_material'].includes(layoutKey) ? `${referenceLabel}名称` : isProduct && layoutKey === 'custom' && f.key === 'specQty' ? '多少' : isProduct && layoutKey === 'custom' && f.key === 'shape' ? '形态样式' : f.label}{f.required && <b className="req" title="必填">{reference ? '必填' : ' *'}</b>}{isProduct && ['materialCode','note'].includes(f.key) && !f.required && <small className="reference-optional">选填</small>}{!reference && isProduct && f.help && <FieldHint text={f.help} />}{isProduct && <ManageLink field={f} values={values} inPlace={reference} />}</span>
-      {def.key === 'finance-customers' && f.key === 'categoryIds' ? <><RefSelect leafOnly field={{...f,type:'ref'}} value={Array.isArray(values.categoryIds) ? values.categoryIds[0] : null} labelNow={record?.refLabels.categoryIds} onChange={v => setValues(cur => ({...cur,categoryIds:v ? [v] : []}))} />{Array.isArray(values.categoryIds) && values.categoryIds.length > 1 && <small>当前同时归属：{record?.refLabels.categoryIds}；重新选择后归入所选分类。</small>}</> : f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
+  const renderField = (f: FieldDef, wide?: boolean) => {
+    const compound = def.key === 'stores' && f.key === 'jushuitanShopId' || ['refs','attrs','files'].includes(f.type) || f.type === 'select' && f.multi || f.type === 'ref' && f.cascade;
+    const inputId = `rf-field-${formId}-${f.key}`;
+    const Caption = compound ? 'span' : 'label';
+    return (
+    <div key={f.key} data-field={f.key} data-kind={f.type} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={['rf-field', reference ? `s${wide || f.type === 'refs' ? 12 : referenceFieldSpan(def.key, f)}` : '', !reference && (wide || f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || f.type === 'refs' || f.type === 'select' && f.multi || (f.type === 'ref' && f.cascade)) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
+      <Caption className="rf-label" htmlFor={compound ? undefined : inputId}>{isProduct && f.key === 'name' && ['self_made','purchased_original','purchased_oem','shipping_material'].includes(layoutKey) ? `${referenceLabel}名称` : isProduct && layoutKey === 'custom' && f.key === 'specQty' ? '多少' : isProduct && layoutKey === 'custom' && f.key === 'shape' ? '形态样式' : f.label}{f.required && <b className="req" title="必填">{reference ? '必填' : ' *'}</b>}{isProduct && ['materialCode','note'].includes(f.key) && !f.required && <small className="reference-optional">选填</small>}{!reference && isProduct && f.help && <FieldHint text={f.help} />}{isProduct && <ManageLink field={f} values={values} inPlace={reference} />}</Caption>
+      {def.key === 'finance-customers' && f.key === 'categoryIds' ? <><RefSelect inputId={inputId} leafOnly field={{...f,type:'ref'}} value={Array.isArray(values.categoryIds) ? values.categoryIds[0] : null} labelNow={record?.refLabels.categoryIds} onChange={v => setValues(cur => ({...cur,categoryIds:v ? [v] : []}))} />{Array.isArray(values.categoryIds) && values.categoryIds.length > 1 && <small>当前同时归属：{record?.refLabels.categoryIds}；重新选择后归入所选分类。</small>}</> : f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
+        inputId={inputId}
         field={f}
         value={lockedFields?.includes(f.key) ? initial?.[f.key] : values[f.key]}
         configured={record?.secretConfigured[f.key]}
@@ -603,8 +501,9 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         onChange={(v) => { if (locked.includes(f.key)) return; setValues((cur) => ({ ...cur, [f.key]: v })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
       />}
       {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : !reference && f.help && <small className="muted">{f.help}</small>}
-    </label>
+    </div>
   );
+  };
 
   /** 商品档案分区里的一项：普通字段，或联动的功能块（编号预览、供货来源行、生产组成、重量、成本预览） */
   const renderNode = (n: ResolvedNode, i: number) => {
@@ -633,9 +532,17 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
 
   return (
     <div className={inline ? 'inline-edit' : `modal-backdrop${reference ? ' reference-backdrop' : ''}`} role="presentation">
-      <form className={inline ? 'inline-form' : `modal card rf${isProduct ? ' rf-p' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
+      <form ref={formRef} data-size={visible.length <= 4 && !isProduct ? 'compact' : 'full'} onKeyDown={e => {
+        if (inline || e.key !== 'Tab') return;
+        const dialogs = document.querySelectorAll('[role="dialog"]');
+        if (dialogs[dialogs.length - 1] !== formRef.current) return;
+        const controls = [...(formRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[tabindex="0"]') ?? [])].filter(el => el.getClientRects().length > 0);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }} className={inline ? 'inline-form resource-inline-editor' : `modal card rf resource-editor${isProduct ? ' rf-p' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
         {!inline && <div className="modal-head rf-head">
-          {reference ? <div className="reference-title">{def.key === 'finance-suppliers' && <small className="reference-party-kicker"><FolderTree size={20}/>财务基础资料</small>}{isProduct && values.archiveType === 'purchased' && <small>外购成品档案 · {values.supplyMode === 'supplier_oem' ? '供应商 OEM' : '原装采购'}</small>}<h2>{record ? referenceStatus || (isProduct && layoutKey === 'custom') ? String(values.name || referenceLabel) : `编辑${isProduct ? String(values.name || referenceLabel) : referenceLabel}` : `新增${referenceLabel}`}</h2><p>{isProduct && layoutKey === 'custom' ? '先确认分类，再维护基础信息；编号按分类、可选品牌、名称、规格和可选形态样式生成，空白可选段会直接省略。' : referenceStatus ? `${def.label}详情、分类归属和操作记录。` : isReferenceParty ? record ? `在原位编辑${referenceLabel}资料，保存后立即生效。` : `填写${referenceLabel}基础资料，保存后归入当前分类。` : record ? `字段布局与新增${referenceLabel}保持一致，保存后更新当前记录。` : `填写${referenceLabel}基础资料即可保存。`}</p></div> : <><strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>{record && <span className="rf-sub" title={record.title}>{record.title}</span>}</>}
+          {reference ? <div className="reference-title">{def.key === 'finance-suppliers' && <small className="reference-party-kicker"><FolderTree size={20}/>财务基础资料</small>}{isProduct && values.archiveType === 'purchased' && <small>外购成品档案 · {values.supplyMode === 'supplier_oem' ? '供应商 OEM' : '原装采购'}</small>}<h2>{record ? referenceStatus || (isProduct && layoutKey === 'custom') ? String(values.name || referenceLabel) : `编辑${isProduct ? String(values.name || referenceLabel) : referenceLabel}` : `新增${referenceLabel}`}</h2><p>{isProduct && layoutKey === 'custom' ? '先确认分类，再维护基础信息；编号按分类、可选品牌、名称、规格和可选形态样式生成，空白可选段会直接省略。' : referenceStatus ? `${def.label}详情、分类归属和操作记录。` : isReferenceParty ? record ? `在原位编辑${referenceLabel}资料，保存后立即生效。` : `填写${referenceLabel}基础资料，保存后归入当前分类。` : record ? `维护${referenceLabel}基础信息、规格及关联资料。` : `填写${referenceLabel}基础资料即可保存。`}</p></div> : <><strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>{record && <span className="rf-sub" title={record.title}>{record.title}</span>}</>}
           <span className="rf-gap" />
           {!reference && visible.some((f) => f.required) && <span className="muted rf-req-hint"><b className="req">*</b> 必填</span>}
           <button type="button" className={`icon-button${referenceStatus || isProduct && layoutKey === 'custom' ? ' reference-full-close' : ''}`} aria-label="关闭" onClick={requestClose}>{referenceStatus || isProduct && layoutKey === 'custom' ? '关闭' : reference ? <X size={20} /> : '✕'}</button>
@@ -646,7 +553,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
               {groups.map(([g]) => {
                 const n = errorsByGroup(g);
                 return (
-                  <button key={g} type="button" className={`rf-anchor${(activeGroup || groups[0][0]) === g ? ' active' : ''}${n ? ' has-error' : ''}`} onClick={() => jump(g)}>
+                  <button key={g} type="button" aria-current={(activeGroup || groups[0][0]) === g ? 'location' : undefined} className={`rf-anchor${(activeGroup || groups[0][0]) === g ? ' active' : ''}${n ? ' has-error' : ''}`} onClick={() => jump(g)}>
                     <span>{secTitle(g)}</span>
                     {n > 0 && <b className="rf-err-n" aria-label={`${n} 项有问题`}>{n}</b>}
                   </button>
@@ -654,7 +561,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
               })}
             </nav>
           )}
-          <div className="modal-body rf-scroll" ref={scrollBox} onScroll={onScroll}>
+          <div className="modal-body rf-scroll" ref={scrollBox} onScroll={onScroll} onWheel={() => { jumpedGroup.current = null; }} onTouchMove={() => { jumpedGroup.current = null; }} onPointerDown={() => { jumpedGroup.current = null; }} onKeyDown={e => { if (['PageDown','PageUp','Home','End','ArrowDown','ArrowUp'].includes(e.key)) jumpedGroup.current = null; }}>
           {def.key === 'licenses' && (
             <LicenseRecognizeButton
               onApply={(fields) => setValues((cur) => ({ ...cur, ...fields }))}
@@ -676,9 +583,9 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
               <div className="form-grid">{sec.nodes.filter(n => !(layoutKey === 'custom' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).filter(n => !(['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).map(renderNode)}</div>{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && <div className="reference-note">{sec.nodes.filter(n => n.kind === 'field' && n.field.key === 'note').map(renderNode)}</div>}{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && sec.nodes.filter(n => n.kind === 'block' && n.block === 'fullName').map(renderNode)}{sec.id === 'logistics' && canCostEdit && <FreightHistory productId={record?.id} values={previewValues} />}
             </section>
           )) : groups.map(([group, fields]) => group === '补充资料' && referenceStatus ? null : group === '补充资料' && reference ? <details key={group} className="rf-sec reference-extra"><summary>更多设置</summary><div className="form-grid">{fields.map(f => renderField(f))}</div></details> : (
-            <section key={group} id={secId(group)} className={`rf-sec reference-party-${group === '归入分类' ? 'category' : group === '系统自动编号' ? 'code' : 'fields'}`} aria-label={group}>
+            <section key={group} id={secId(group)} data-layout={fields.length <= 2 && !fields.some(f => ['refs','files','attrs','textarea'].includes(f.type)) ? 'compact' : 'full'} className={`rf-sec reference-party-${group === '归入分类' ? 'category' : group === '系统自动编号' ? 'code' : 'fields'}`} aria-label={group}>
               {group === '归入分类' && isReferenceParty ? <><ReferenceCategoryContext party label={referenceLabel} editing={!!record} path={record?.refLabels.categoryIds ?? ''}>{!record && fields.map(f => renderField(f))}</ReferenceCategoryContext>{record && def.key === 'finance-suppliers' && <div className="reference-supplier-categories"><h3>供应产品分类 <small>可多选</small></h3>{fields.map(f => renderField(f))}</div>}</> : <>
-              {!inline && <h3 className="rf-sec-title">{isReferenceParty && ['基础资料','联系资料','收款与银行资料'].includes(group) && <i className="rf-step">{['基础资料','联系资料','收款与银行资料'].indexOf(group) + 1}</i>}{referenceStatus && group === '基础信息' && <Database size={18}/>} {secTitle(group)}{def.key === 'finance-suppliers' && group === '基础资料' && <small>与新增供应商的字段排列一致</small>}{def.key === 'finance-suppliers' && group === '联系资料' && <small>用于业务联系和后续单据引用</small>}{group === '系统自动编号' && <small>编码按分类和名称生成</small>}</h3>}
+              {!inline && <h3 className="rf-sec-title">{isReferenceParty && ['基础资料','联系资料','收款与银行资料'].includes(group) && <i className="rf-step">{['基础资料','联系资料','收款与银行资料'].indexOf(group) + 1}</i>}{referenceStatus && group === '基础信息' && <Database size={18}/>} {secTitle(group)}{def.key === 'finance-suppliers' && group === '基础资料' && <small>采购和结算使用的基础信息</small>}{def.key === 'finance-suppliers' && group === '联系资料' && <small>用于业务联系和后续单据引用</small>}{group === '系统自动编号' && <small>编码按分类和名称生成</small>}</h3>}
               <div className="form-grid">{fields.map(f => <Fragment key={f.key}>{renderField(f)}{def.key === 'finance-fee-items' && f.key === 'isCommon' && <label className="s6"><span className="rf-label">费用单必须挂归属对象</span><select title="按挂账节点自动判断，修改挂账节点可改变要求" disabled value={String(values.defaultObject || '').split(/[、,，]/).some(n => n && n !== '公司' && n !== '不固定') ? 'yes' : 'no'}><option value="yes">是</option><option value="no">否</option></select><small className="muted">按挂账节点自动判断</small></label>}{referenceStatus && ['categoryId','categoryIds'].includes(f.key) && <label className="s6"><span className="rf-label">状态</span><select value={status} disabled={!!record && !(me && createChecker(me.permissions)(`resource.${def.key}.disable`))} onChange={e => setStatus(e.target.value)}><option value="active">正常</option><option value="inactive">停用</option></select></label>}</Fragment>)}{referenceStatus && status !== record?.status && status === 'inactive' && <label className="s12">停用原因<textarea value={statusReason} maxLength={500} onChange={e => setStatusReason(e.target.value)} /></label>}</div></>}
             </section>
           ))}
@@ -693,10 +600,10 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           <div role="alert" className="rf-errbar error-summary">
             <strong>还有 {errorCount} 项需要补充或修改：</strong>
             {visible.filter((f) => errors[f.key]).map((f) => (
-              <button key={f.key} type="button" className="link-button" onClick={() => document.querySelector<HTMLElement>(`[data-field="${f.key}"] input, [data-field="${f.key}"] select, [data-field="${f.key}"] textarea`)?.focus()}>{f.label}</button>
+              <button key={f.key} type="button" className="link-button" onClick={() => scrollBox.current?.querySelector<HTMLElement>(`[data-field="${f.key}"] input, [data-field="${f.key}"] select, [data-field="${f.key}"] textarea`)?.focus()}>{f.label}</button>
             ))}
             {([['supplySources', '供货来源'], ['composition', '生产组成']] as const).filter(([k]) => errors[k]).map(([k, label]) => (
-              <button key={k} type="button" className="link-button" onClick={() => document.querySelector<HTMLElement>(`[data-field="${k}"]`)?.scrollIntoView?.({ block: 'center' })}>{label}</button>
+              <button key={k} type="button" className="link-button" onClick={() => scrollBox.current?.querySelector<HTMLElement>(`[data-field="${k}"]`)?.scrollIntoView?.({ block: 'center' })}>{label}</button>
             ))}
           </div>
         )}
@@ -706,7 +613,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           {draftEnabled && <button type="button" className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>保存草稿</button>}
           {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新增</button>}
           {!record && onContinued && isProduct && <button type="button" className="secondary-button" disabled={busy} onClick={() => void prepare('blank')}>保存并继续新增</button>}
-          <button type="submit" className="primary-button" disabled={busy}>{busy ? '保存中…' : isProduct && layoutKey === 'custom' ? '保存商品' : isProduct && record ? '保存修改' : '保存'}</button>{isReferenceParty && record && <button type="button" className="secondary-button reference-party-close" disabled={busy} onClick={requestClose}>关闭</button>}
+          <button type="submit" className="primary-button" disabled={busy}>{busy ? '保存中…' : isProduct && layoutKey === 'custom' ? '保存商品' : isProduct && record ? '保存修改' : '保存'}</button>
         </div>
       </form>
       {quality && (
