@@ -29,7 +29,10 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((cur) => ({ ...cur, [k]: e.target.value }));
   async function save() {
     setError('');
-    if (!f.roomId || !f.startTime || !f.endTime || !f.anchorId || !channels.length || channels.some(c=>!c.storeIds.length)) return setError('请填写直播间、开始结束时间、主播、直播账号及关联店铺');
+    if (!f.roomId || !f.startTime || !f.endTime || !f.anchorId) return setError('请填写直播间、开始结束时间和主播');
+    if (!channels.length) return setError('请勾选本场使用的直播账号');
+    const missingStore = channels.find(c => !c.storeIds.length);
+    if (missingStore) return setError(`请为「${opts?.douyinAccounts.find(a => a.id === missingStore.accountId)?.name ?? '已选账号'}」选择至少一个本场店铺；没有关联店铺时，请先维护自媒体账号档案。`);
     const body: ScheduleBody = { channels,date: f.date, roomId: Number(f.roomId), startTime: f.startTime, endTime: f.endTime, anchorId: Number(f.anchorId), controlId: f.controlId ? Number(f.controlId) : null, operatorId: f.operatorId ? Number(f.operatorId) : null, douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], note: f.note.trim() || undefined, productEntries: productEntries(picked) };
     setBusy(true);
     try { if (initial) await liveApi.updateSchedule(initial.id, body); else await liveApi.createSchedule(body); onDone(); } catch (e) { setError(errText(e)); } finally { setBusy(false); }
@@ -56,23 +59,27 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
     finally { if (token === request.current) setImporting(false); }
   }
   return (
-    <><Modal title={initial ? '修改排场' : '新增排场'} onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={busy || importing || !opts} onClick={() => void save()}>{busy ? '保存中…' : '保存'}</button></>}>
+    <><Modal size="wide" title={initial ? '修改排场' : '新增排场'} onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={busy || importing || !opts} onClick={() => void save()}>{busy ? '保存中…' : '保存'}</button></>}>
       {error && <div role="alert" className="notice error">{error}</div>}
       {!initial && <div className="live-import-previous"><button type="button" className="secondary-button" disabled={!opts || !f.roomId || importing || busy} onClick={() => void importPrevious()}>{importing ? '导入中…' : '一键导入上次排场'}</button><small className="muted">先选择房间；导入开始时间之前最近一场未取消的配置。未填开始时间时读取所选日期及之前的最近一场，导入后需核对保存。</small></div>}
       {importNote && <p className="notice" role="status">{importNote}</p>}
-      <p className="muted">结束时间早于开始时间表示跨到第二天；单场最长 16 小时；同一直播间时间段不能重叠，同一主播不能同时在两个房间。</p>
+      <p className="live-schedule-intro">安排直播时间、人员与账号。保存后，相关人员将按系统通知设置收到排班通知。</p>
       {!opts ? <p className="muted" role="status">正在读取选项…</p> : (
         <div className="live-fields live-schedule-form">
+          <section className="wide live-schedule-section"><h3><span>01</span> 时间与直播间</h3><div className="live-fields">
           <label className="live-field">日期<select aria-label="排场日期" value={f.date} onChange={set('date')}>{days.map((d) => <option key={d} value={d}>{dayLabel(d)}</option>)}</select></label>
           <label className="live-field">直播间<select aria-label="直播间" value={f.roomId} onChange={set('roomId')}><option value="">请选择</option>{opts.rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
           <label className="live-field">开始时间<input aria-label="开始时间" type="time" value={f.startTime} onChange={set('startTime')} /></label>
           <label className="live-field">结束时间<input aria-label="结束时间" type="time" value={f.endTime} onChange={set('endTime')} /></label>
-          <label className="live-field">主播<select aria-label="主播" value={f.anchorId} onChange={set('anchorId')}><option value="">请选择</option>{opts.anchors.map((p) => <option key={p.id} value={p.id}>{p.name}{p.trial?'（试播）':p.partTime?'（兼职）':''}</option>)}</select><button type="button" className="link-button" onClick={()=>setTrial(true)}>＋ 新增试播主播</button></label>
+          </div><p className="live-section-help">时间均为北京时间。结束时间早于开始时间表示次日结束，单场最长 16 小时；直播间和主播的时间不能冲突。</p></section>
+          <section className="wide live-schedule-section"><h3><span>02</span> 本场人员</h3><div className="live-fields live-people-fields"><label className="live-field">主播<select aria-label="主播" value={f.anchorId} onChange={set('anchorId')}><option value="">请选择</option>{opts.anchors.map((p) => <option key={p.id} value={p.id}>{p.name}{p.trial?'（试播）':p.partTime?'（兼职）':''}</option>)}</select><button type="button" className="link-button" onClick={()=>setTrial(true)}>＋ 新增试播主播</button></label>
           <label className="live-field">中控（可选）<select aria-label="中控" value={f.controlId} onChange={set('controlId')}><option value="">无</option>{opts.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           <label className="live-field">运营（可选）<select aria-label="运营" value={f.operatorId} onChange={set('operatorId')}><option value="">无</option>{opts.operators.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          <ChannelPicker options={opts} value={channels} onChange={setChannels}/>
+          </div></section>
+          <section className="wide live-schedule-section"><h3><span>03</span> 直播账号与本场店铺</h3><ChannelPicker options={opts} value={channels} onChange={setChannels}/></section>
+          <section className="wide live-schedule-section"><h3><span>04</span> 产品与备注</h3>
           <ManualProductEditor products={picked} onChange={setPicked} />
-          <label className="live-field wide">备注（可选）<input aria-label="备注" maxLength={500} value={f.note} onChange={set('note')} /></label>
+          <label className="live-field wide">备注（可选）<input aria-label="备注" maxLength={500} value={f.note} onChange={set('note')} /></label></section>
         </div>
       )}
     </Modal>{trial&&<TrialPersonDialog onClose={()=>setTrial(false)} onDone={p=>{setTrial(false);setF(f=>({...f,anchorId:String(p.id)}));liveApi.options().then(setOpts).catch(e=>setError(errText(e)));}}/>}</>
