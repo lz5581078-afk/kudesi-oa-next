@@ -43,7 +43,7 @@ export function requireUse(a: LiveAccess) { if (!a.canView && !a.canDesk) liveFa
 export interface LivePerson { id: number; name: string; detail: string; partTime: boolean; trial?: boolean }
 
 /** 用户明确指定的部门范围；完整名称匹配，避免把同名岗位或其他协作部门误纳入。 */
-const TRADITIONAL_ECOMMERCE_DEPARTMENTS = new Set(['传统电商', '传统电商部', '传统电商部门']);
+const TRADITIONAL_ECOMMERCE_DEPARTMENTS = new Set(['传统电商', '传统电商部', '传统电商部门', '传统运营', '传统运营部', '传统运营部门']);
 
 async function traditionalControlPeople(em: EntityManager, companyId: number, userId?: number): Promise<LivePerson[]> {
   const departments: Row[] = await em.query('SELECT id, parent_id, name, status FROM departments WHERE company_id = ?', [companyId]);
@@ -73,6 +73,10 @@ async function traditionalControlPeople(em: EntityManager, companyId: number, us
     detail: [r.department_name, r.position_name].filter(Boolean).join(' · '),
   });
   return [...people.values()];
+}
+
+export async function commissionOnlyControl(em: EntityManager, companyId: number, controlId: unknown) {
+  return !!controlId && (await traditionalControlPeople(em, companyId, Number(controlId))).length > 0;
 }
 
 /** 主播仍按live_anchor；中控包含live_control、operations及明确指定的传统电商部门人员。 */
