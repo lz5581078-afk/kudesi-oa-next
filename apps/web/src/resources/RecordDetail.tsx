@@ -31,6 +31,7 @@ import { FileList } from './FilesField';
 import { ChevronDown } from './ResIcons';
 import { FINANCE_DETAIL_TYPES } from './FinanceDetailFields';
 import { FinanceDetailBackdrop, FinanceDetailBody, FinanceDetailHead } from './FinanceRecordDetail';
+import { resourceFields, resourceFieldWide } from './resourceFieldLayout';
 import { referenceRecordLabel } from './referenceFormLayout';
 import './resourceWorkspace.css';
 import { RevisionDialog } from '../pages/finance/jst/BundleDialogs';
@@ -198,7 +199,7 @@ function typingTarget(el: EventTarget | null): boolean {
   return /^(INPUT|TEXTAREA|SELECT)$/.test(n.tagName) || n.isContentEditable;
 }
 
-const HIDE_EMPTY_KEY = 'kudesi.detail.hideEmpty';
+const HIDE_EMPTY_KEY = 'kudesi.detail.hideEmpty.byType';
 
 export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initialTab }: { def: ResourceDef; id: number; /** 打开时直接显示的页签（如列表里的“成本明细”） */ initialTab?: string; nav?: DetailNav; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const financeReference = useFinanceReference();
@@ -215,6 +216,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const [relations, setRelations] = useState<Relation[] | null>(null);
   const [logs, setLogs] = useState<LogEntry[] | null>(null);
   const [editing, setEditing] = useState(false);
+  const closeEditor = useRef<(() => void) | null>(null);
   const [revising, setRevising] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -222,8 +224,8 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const [error, setError] = useState('');
   const [logLimit, setLogLimit] = useState(15);
   const [activeGroup, setActiveGroup] = useState('');
-  const [hideEmpty, setHideEmptyState] = useState(() => { try { const v = localStorage.getItem(HIDE_EMPTY_KEY); return v === null ? def.key === 'finance-products' : v === '1'; } catch { return def.key === 'finance-products'; } }); // 商品档案没设过偏好时默认藏起空字段
-  const setHideEmpty = (v: boolean) => { setHideEmptyState(v); try { localStorage.setItem(HIDE_EMPTY_KEY, v ? '1' : '0'); } catch { /* 不记住而已 */ } };
+  const [hideEmpty, setHideEmptyState] = useState(() => { try { const v = localStorage.getItem(`${HIDE_EMPTY_KEY}.${def.key}`); return v === null ? def.key === 'finance-products' : v === '1'; } catch { return def.key === 'finance-products'; } }); // 商品档案没设过偏好时默认藏起空字段
+  const setHideEmpty = (v: boolean) => { setHideEmptyState(v); try { localStorage.setItem(`${HIDE_EMPTY_KEY}.${def.key}`, v ? '1' : '0'); } catch { /* 不记住而已 */ } };
   const body = useRef<HTMLDivElement>(null);
   const loadSequence = useRef(0);
   const today = todayShanghai();
@@ -302,10 +304,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
       if (fields.length) groups.set(sec.title, fields);
     }
   }
-  for (const f of def.key === 'finance-products' ? [] : def.fields) {
-    if (f.permission && !(me && createChecker(me.permissions)(f.permission))) continue;
-    if (f.listOnly) continue;
-    if (f.showWhen && !f.showWhen.in.includes(String(f.showWhen.field === 'status' ? record.status : (record.data[f.showWhen.field] ?? '')))) continue;
+  for (const f of def.key === 'finance-products' ? [] : resourceFields(def, record.data, record.status, p => !!me && createChecker(me.permissions)(p))) {
     groups.set(f.group, [...(groups.get(f.group) ?? []), f]);
   }
   // 派生统计（配置 derivedColumns）：并进详情对应分区，只读（如税务的“月营业额 / 关联店铺数”）
@@ -387,21 +386,21 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
       {finance ? <FinanceDetailHead def={def} record={record} nav={nav} onClose={onClose} /> : <DetailHead
         def={def}
         record={record}
-        nav={nav}
+        nav={editing ? undefined : nav}
         wide={wide}
         onToggleWide={() => setWide((v) => !v)}
-        onClose={onClose}
-        statusSlot={statusSlot}
-        primary={live && can('edit') ? <button type="button" className="res-btn primary" onClick={() => setEditing(true)}>编辑</button> : undefined}
-        more={moreItems.length > 0 ? (
+        onClose={editing && !financeReference ? () => closeEditor.current?.() : onClose}
+        statusSlot={editing ? undefined : statusSlot}
+        primary={live && can('edit') ? <button type="button" className="res-btn primary" disabled={editing} onClick={() => { setTab('info'); setEditGroup(null); setEditing(true); }}>编辑</button> : undefined}
+        more={!editing && moreItems.length > 0 ? (
           <MoreMenu items={moreItems} />
         ) : undefined}
-        quick={quick}
+        quick={editing ? undefined : quick}
         canSee={(f) => !f.permission || Boolean(me && createChecker(me.permissions)(f.permission))}
       />}
       {(!finance || tab !== 'info') && <div role="tablist" aria-label="详情分区" className="rd-tabs">
         {tabs.map(([key, label]) => (
-          <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? 'rd-tab active' : 'rd-tab'} onClick={() => setTab(key)}>
+          <button key={key} type="button" role="tab" disabled={editing} aria-selected={tab === key} className={tab === key ? 'rd-tab active' : 'rd-tab'} onClick={() => setTab(key)}>
             {label}
           </button>
         ))}
@@ -409,9 +408,10 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
       <div className={finance ? 'rd-body finance-detail-body' : 'rd-body'} ref={body} onScroll={onBodyScroll}>
         {error && <div role="alert" className="notice error">{error}</div>}
         {finance && tab === 'info' && <FinanceDetailBody key={`${def.key}:${record.id}`} def={def} record={record} />}
-        {!finance && tab === 'info' && (
-          <div className={def.key === 'finance-products' ? 'rd-info rd-p' : 'rd-info'}>
-            {sectionList.length > 1 && (
+        {!finance && !financeReference && editing && <RecordForm def={def} record={record} inline inDetail onCloseReady={handler => { closeEditor.current = handler; }} onClose={() => setEditing(false)} onSaved={dto => { setEditing(false); setRecord(dto); setLogs(null); setRelations(null); onChanged(); }} />}
+        {!finance && (!editing || financeReference) && tab === 'info' && (
+          <div className={`rd-info${groups.size <= 1 ? ' no-anchors' : ''}`}>
+            {groups.size > 1 && (
               <nav aria-label="分区导航" className="rd-anchors">
                 {sectionList.map((s) => (
                   <button key={s.group} type="button" className={`rd-anchor${(activeGroup || sectionList[0].group) === s.group ? ' active' : ''}`} onClick={() => jump(s.group)}>{groupTitle(def, s.group, record.data)}</button>
@@ -454,7 +454,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
                   ) : (
                     <dl className="rd-grid">
                       {shown.map((f) => (
-                        <div key={f.key} className={`rd-item${['textarea', 'files', 'attrs', 'json', 'refs'].includes(f.type) ? ' wide' : ''}`}>
+                        <div key={f.key} data-field={f.key} data-kind={f.type} className={`rd-item${resourceFieldWide(f) ? ' wide' : ''}`}>
                           <dt>{f.label}</dt>
                           <dd>
                             {f.type === 'secret' ? (
@@ -562,7 +562,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
           }}
         />
       )}
-      {editing && (
+      {editing && (finance || financeReference) && (
         <RecordForm
           def={def}
           record={record}

@@ -17,19 +17,22 @@ export function displayValue(f: FieldDef, dto: ResourceDto): string {
   if (dto.type === 'stores' && f.key === 'jushuitanShopId') return storeJstText(dto.data);
   if (f.type === 'secret') return dto.secretConfigured[f.key] ? '已设置' : '';
   const v = dto.data[f.key];
+  // 未存储的开关与编辑器未勾选一致；尤其历史账号默认没有直播权限。
+  if (f.type === 'bool') return v ? '是' : '否';
   if (v === undefined || v === null || v === '') return '';
   switch (f.type) {
     case 'select':
       { const c = categoryLabel(dto.type, f.key, v); if (c) return c; } // 页签分类：本公司名称（自建、改名、已隐藏）
       if (f.optionsFrom) { const n = unitOptionLabel(f, dto.data, String(v)); if (n) return n; }
+      if (f.multi && Array.isArray(v)) return v.map(value => f.options?.find(o => o.value === value)?.label ?? String(value)).join('、');
       return f.options?.find((o) => o.value === v)?.label ?? String(v);
     case 'money':
       return f.scale ? `¥${unitYuanText(Number(v))}` : formatYuan(Number(v));
-    case 'bool':
-      return v ? '是' : '否';
     case 'ref':
     case 'refs':
-      return dto.refLabels[f.key] ?? '';
+      return dto.refLabels[f.key] || (Array.isArray(v) ? v : [v]).filter(id => typeof id === 'number').map(id => `#${id}`).join('、');
+    case 'json':
+      return typeof v === 'string' ? v : JSON.stringify(v, null, 2);
     case 'attrs':
       return Object.entries(v as Record<string, string>).map(([k, x]) => `${k}：${x}`).join('；');
     case 'files':

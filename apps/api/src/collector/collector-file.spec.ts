@@ -57,7 +57,13 @@ describe('录音文件2.0真实提交/查询协议与临时音频边界', () => 
     await expect(service.query(20, 3, task.taskToken)).rejects.toThrow('其他员工');
     await expect(service.query(10, 4, task.taskToken)).rejects.toThrow('其他员工');
     await expect(service.audio(task.taskToken)).rejects.toThrow('过期');
-    await expect(service.query(10, 3, task.taskToken.slice(0, -5) + 'xxxxx')).rejects.toThrow();
+    // 改动真实密文字节；改外层base64末尾可能只改到被解码器忽略的填充，样本并未篡改密文。
+    const envelope = Buffer.from(task.taskToken, 'base64url').toString().split(':');
+    const ciphertext = Buffer.from(envelope[4], 'base64');
+    ciphertext[0] ^= 1;
+    envelope[4] = ciphertext.toString('base64');
+    const tampered = Buffer.from(envelope.join(':')).toString('base64url');
+    await expect(service.query(10, 3, tampered)).rejects.toThrow();
     clock += 4 * 3600000 + 1;
     await expect(service.query(10, 3, task.taskToken)).rejects.toThrow('过期'); expect(fake).toHaveBeenCalledTimes(1);
   });
