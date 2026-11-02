@@ -152,6 +152,7 @@ export function PayrollTab({
           {error}
         </p>
       )}
+      {!data && !error && <p className="muted" role="status">正在读取工资与提成…</p>}
       {data && (
         <p className="muted">
           {data.comm.scope === 'all' ? '全部人员' : '仅本人'} · 已审核工资与提成，最终应发以工资结算单为准。
@@ -174,7 +175,7 @@ export function PayrollTab({
       <section className="card live-section">
         <h2>按人员汇总</h2>
         <div className="live-scroll">
-          <table className="data-table" aria-label="工资汇总">
+          <table className="data-table live-responsive-table" aria-label="工资汇总">
             <thead>
               <tr>
                 <th>人员</th>
@@ -186,14 +187,15 @@ export function PayrollTab({
               </tr>
             </thead>
             <tbody>
+              {data && !summary.size && <tr><td colSpan={6} className="live-empty">该期间暂无已审核的工资与提成。</td></tr>}
               {[...summary].map(([id, p]) => (
                 <tr key={id}>
-                  <td>{p.name}</td>
-                  <td>{p.count}</td>
-                  <td>{minutesText(p.minutes)}</td>
-                  <td>{money(p.wage)}</td>
-                  <td>{money(p.commission)}</td>
-                  <td>
+                  <td data-label="人员">{p.name}</td>
+                  <td data-label="场次">{p.count}</td>
+                  <td data-label="计薪时长">{minutesText(p.minutes)}</td>
+                  <td data-label="时间工资">{money(p.wage)}</td>
+                  <td data-label="提成">{money(p.commission)}</td>
+                  <td data-label="合计">
                     <strong>{money(p.wage + p.commission)}</strong>
                   </td>
                 </tr>
@@ -207,7 +209,7 @@ export function PayrollTab({
         <p className="muted pad">每场计时工资仅计算一次；各平台分别列示营业额、比例与提成。</p>
         {data && !rows.length && <p className="muted pad">该期间暂无已审核记录</p>}
         <div className="live-scroll">
-          <table className="data-table" aria-label="工资提成明细">
+          <table className="data-table live-responsive-table" aria-label="工资提成明细">
             <thead>
               <tr>
                 <th>日期 / 直播间</th>
@@ -223,28 +225,28 @@ export function PayrollTab({
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td>
+                  <td data-label="日期 / 直播间">
                     {r.date}
                     <br />
                     {r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'}
                   </td>
-                  <td>{r.userName}</td>
-                  <td>
+                  <td data-label="人员">{r.userName}</td>
+                  <td data-label="时长 / 时薪">
                     {minutesText(r.minutes)}
                     <br />
                     {money(r.hourlyRateCents)}/时
                   </td>
-                  <td>{money(r.wageCents)}</td>
-                  <td>
+                  <td data-label="时间工资">{money(r.wageCents)}</td>
+                  <td data-label="销售额 / 比例">
                     {money(r.finalSalesCents)}
                     <br />
                     {ratePct(r.rateUnits)}
                   </td>
-                  <td>{money(r.amountCents)}</td>
-                  <td>
+                  <td data-label="提成">{money(r.amountCents)}</td>
+                  <td data-label="合计">
                     <strong>{money(r.totalCents)}</strong>
                   </td>
-                  <td>
+                  <td data-label="操作">
                     <button className="link-button" onClick={() => onOpen(r.sessionId)}>
                       场次详情
                     </button>

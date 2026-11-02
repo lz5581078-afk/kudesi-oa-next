@@ -18,7 +18,7 @@ export function NotificationsTab() {
   const toggle=(field:'businessRecipients'|'systemRecipients',id:number)=>{if(data)setData({...data,[field]:data[field].includes(id)?data[field].filter(v=>v!==id):[...data[field],id]});};
   return <section className="card live-notification-settings">
     <h2>直播通知</h2>
-    {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
+    {error&&!data&&<p role="alert" className="notice error">{error}</p>}
     {!data?<p>{error?'通知设置读取失败，请刷新后重试。':'正在读取通知设置…'}</p>:<>
       <p>排场、变更与开播前提醒由直播助手发送；审批由流程助手发送。新增通知遵循飞书总开关、助手通道开关及员工通知绑定设置。</p>
       <label className="check-line"><input type="checkbox" checked={data.enabled} onChange={e=>setData({...data,enabled:e.target.checked})}/> 启用直播催办、交接、结果及接口异常通知</label>
@@ -37,7 +37,7 @@ export function NotificationsTab() {
         {data.people.filter(p=>p.system).map(p=><label key={p.id} className="check-line"><input type="checkbox" checked={data.systemRecipients.includes(p.id)} onChange={()=>toggle('systemRecipients',p.id)}/>{p.name}</label>)}
       </fieldset>
       {!data.configured&&<p>首次保存后开始定时监测。飞书各助手的凭据和通道需在接口设置中启用。</p>}
-      <p><button type="button" className="primary-button" disabled={saving||data.enabled&&data.digestEnabled&&!data.businessRecipients.length} onClick={()=>void save()}>{saving?'保存中…':'保存通知设置'}</button></p>
+      <div className="live-notification-actions">{error&&<p role="alert" className="notice error">{error}</p>}{message&&<p role="status" className="notice ok">{message}</p>}<button type="button" className="primary-button" disabled={saving||data.enabled&&data.digestEnabled&&!data.businessRecipients.length} onClick={()=>void save()}>{saving?'保存中…':'保存通知设置'}</button></div>
     </>}
   </section>;
 }

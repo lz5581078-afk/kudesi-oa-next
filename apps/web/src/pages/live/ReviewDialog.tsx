@@ -107,11 +107,11 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
       <button type="button" className="primary-button" disabled={busy || needsRefresh || !run.me.canPass} onClick={() => void act('pass')}>{busy ? '提交中…' : '审核通过'}</button>
     </>}</div></div>}>
       <p className="muted live-review-summary">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt)} · 主播 {session.anchor.name}{session.control ? `，中控 ${session.control.name}` : ''}</p>
-      <div className="live-scroll"><table className="data-table" aria-label="上报对比">
+      <section className="live-detail-section"><h3>核对下播报告</h3><div className="live-scroll"><table className="data-table live-responsive-table" aria-label="上报对比">
         <thead><tr><th>角色</th><th>填报人</th><th className="num">所报销售额</th><th className="num">勾选订单合计</th><th className="num">订单数</th><th className="num">投流</th></tr></thead>
-        <tbody>{session.reports.map((r) => <tr key={r.role}><td>{r.roleLabel}</td><td>{r.reporter.name}</td><td className="num">{money(r.salesCents)}</td><td className="num">{money(r.ordersTotalCents)}</td><td className="num">{r.orderCount}</td><td className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
-      </table></div>
-      {multi&&<div className="live-scroll"><table className="data-table" aria-label="逐店上报对比"><thead><tr><th>平台 / 店铺</th><th>角色</th><th>营业额</th><th>投流</th><th>订单核对</th></tr></thead><tbody>{session.reports.flatMap(r=>(r.storeLines??[]).map(l=><tr key={`${r.role}:${l.storeId}`}><td>{LIVE_PLATFORMS[l.platform]} · {session.channels!.flatMap(c=>c.stores).find(s=>s.id===l.storeId)?.name}</td><td>{r.roleLabel}</td><td>{money(l.salesCents)}</td><td>{r.role==='control'?money(l.adSpendCents):'—'}</td><td>{l.verified?`已核对 ${money(l.ordersTotalCents??0)}`:`特殊核定：${l.reason||'未核对订单'}`}</td></tr>))}</tbody></table></div>}
+        <tbody>{session.reports.map((r) => <tr key={r.role}><td data-label="角色">{r.roleLabel}</td><td data-label="填报人">{r.reporter.name}</td><td data-label="所报销售额" className="num">{money(r.salesCents)}</td><td data-label="勾选订单合计" className="num">{money(r.ordersTotalCents)}</td><td data-label="订单数" className="num">{r.orderCount}</td><td data-label="投流" className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
+      </table></div></section>
+      {multi&&<details className="live-review-store-compare"><summary>查看分平台 · 店铺上报对比（{session.reports.reduce((count,report)=>count+(report.storeLines?.length??0),0)} 条）</summary><div className="live-scroll"><table className="data-table live-responsive-table" aria-label="逐店上报对比"><thead><tr><th>平台 / 店铺</th><th>角色</th><th>营业额</th><th>投流</th><th>订单核对</th></tr></thead><tbody>{session.reports.flatMap(r=>(r.storeLines??[]).map(l=><tr key={`${r.role}:${l.storeId}`}><td data-label="平台 / 店铺">{LIVE_PLATFORMS[l.platform]} · {session.channels!.flatMap(c=>c.stores).find(s=>s.id===l.storeId)?.name}</td><td data-label="角色">{r.roleLabel}</td><td data-label="营业额">{money(l.salesCents)}</td><td data-label="投流">{r.role==='control'?money(l.adSpendCents):'—'}</td><td data-label="订单核对">{l.verified?`已核对 ${money(l.ordersTotalCents??0)}`:`特殊核定：${l.reason||'未核对订单'}`}</td></tr>))}</tbody></table></div></details>}
       {stop ? (
         <label className="live-field">{stop === 'return' ? '退回原因（主播或中控修改后重新提交）' : '拒绝原因（场次回到已退回，需重新发起审核）'}<textarea aria-label="原因" rows={3} maxLength={500} value={why} onChange={(e) => setWhy(e.target.value)} /></label>
       ) : (
@@ -120,7 +120,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
             <div className="live-fields">
               <label className="live-field">来源<select aria-label="最终销售额来源" value={source} onChange={(e) => setSource(e.target.value)}><option value="">请选择</option>{available.map(([k, label]) => <option key={k} value={k}>{label}{k !== 'manual' ? `（${money(Number(k.endsWith('orders') ? reportOf(k.split('_')[0])?.ordersTotalCents : reportOf(k)?.salesCents))}）` : ''}</option>)}</select></label>
               {source === 'manual' && !multi && <label className="live-field">手填金额（元）<input aria-label="手填最终销售额" inputMode="decimal" value={manual} onChange={(e) => setManual(e.target.value)} /></label>}
-              {source && <label className="live-field wide">{source === 'manual' ? '手填原因（必填）' : '说明（可选）'}<input aria-label="最终销售额说明" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>}
+              {source && <label className="live-field wide">{source === 'manual' ? '手填原因（必填）' : '说明（可选）'}<textarea rows={2} aria-label="最终销售额说明" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>}
             </div>
             {source==='manual'&&multi&&<StorePerformanceTable channels={session.channels!} rows={storeRows} onChange={setStoreRows}/>}
           </fieldset>
@@ -130,7 +130,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
               <label className="live-field" style={{ justifyContent: 'flex-end' }}><span><input type="checkbox" checked={noOperator} onChange={(e) => setNoOperator(e.target.checked)} /> 本场没有运营人员</span></label>
             </div>
           </fieldset>
-          <fieldset><legend>主播工资（按小时）</legend>
+          <fieldset><legend>主播工资（按小时）</legend><p className="live-section-help">本场计时工资只计算一次，不随直播平台数量增加。</p>
             <div className="live-fields">
               <label className="live-field">上播时间<input aria-label="工资上播时间" placeholder={session.startAt.slice(0, 16)} value={wStart} onChange={(e) => setWStart(e.target.value)} /></label>
               <label className="live-field">下播时间<input aria-label="工资下播时间" placeholder={(session.endAt ?? '').slice(0, 16)} value={wEnd} onChange={(e) => setWEnd(e.target.value)} /></label>

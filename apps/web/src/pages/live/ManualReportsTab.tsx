@@ -148,14 +148,14 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
           用于试播、漏报或接口异常。填写后保存并核对，再提交审核；审核通过后才计入提成与工资。无订单的业绩需填写特殊原因。
         </p>
         {submission ? <SubmissionNotice status={submission} onRefresh={() => void checkSubmission()} /> : <p role="status" className="muted">正在检查审核流程…</p>}
-        <div className="live-fields">
+        <div className="live-manual-load">
           <label className="live-field">
             已有场次编号（补报时填写）
             <input aria-label="补报场次编号" inputMode="numeric" value={f.sessionId} onChange={set('sessionId')} />
-            <button type="button" disabled={busy||loading} className="link-button" onClick={() => void loadSession()}>
+          </label>
+            <button type="button" disabled={busy||loading} className="secondary-button" onClick={() => void loadSession()}>
               载入原场次
             </button>
-          </label>
         </div>
         {!!f.sessionId&&!loadedSession&&!loading&&<p className="muted">请输入场次编号并点击「载入原场次」，成功载入后才能保存补报。</p>}
         {loading&&<p role="status">正在载入原场次…</p>}

@@ -10,8 +10,8 @@ function RuleView({ form }: { form: RulesForm }) {
   return (
     <div className="live-scroll">
       <p className="muted">档位边界：{form.boundary === 'min_inclusive' ? '含下限' : '含上限'} · 投产阈值 {form.roiThreshold} · 投产不足时主播扣 {form.belowRoiAnchorDeduct} 点、中控扣 {form.belowRoiControlDeduct} 点 · 运营固定 {form.operatorRate}%</p>
-      <table className="data-table" aria-label="提成档位"><thead><tr><th>销售额下限（元）</th><th>上限（元）</th><th className="num">主播</th><th className="num">中控</th><th className="num">运营</th></tr></thead>
-        <tbody>{form.tiers.map((t, i) => <tr key={i}><td>{t.min}</td><td>{t.max || '及以上'}</td><td className="num">{t.anchorRate}%</td><td className="num">{t.controlRate}%</td><td className="num">{form.operatorRate}%</td></tr>)}</tbody></table>
+      <table className="data-table live-responsive-table" aria-label="提成档位"><thead><tr><th>销售额下限（元）</th><th>上限（元）</th><th className="num">主播</th><th className="num">中控</th><th className="num">运营</th></tr></thead>
+        <tbody>{form.tiers.map((t, i) => <tr key={i}><td data-label="销售额下限（元）">{t.min}</td><td data-label="上限（元）">{t.max || '及以上'}</td><td data-label="主播" className="num">{t.anchorRate}%</td><td data-label="中控" className="num">{t.controlRate}%</td><td data-label="运营" className="num">{form.operatorRate}%</td></tr>)}</tbody></table>
     </div>
   );
 }
@@ -37,8 +37,7 @@ function Editor({ base, version, onClose, onDone }: { base: RulesForm;version?:R
     try { const body={effectiveFrom:from,note:note.trim()||undefined,rules:form}; if(version&&!version.usedCount)await liveApi.updateRule(version.id,body);else await liveApi.createRule(body); onDone(); } catch (e) { setError(errText(e)); } finally { setBusy(false); }
   }
   return (
-    <Modal title={version?'编辑提成规则':'新增规则版本'} size="wide" onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={busy} onClick={() => void save()}>{busy ? '保存中…' : version&&!version.usedCount?'保存修改':'保存为新版本'}</button></>}>
-      {error && <div role="alert" className="notice error">{error}</div>}
+    <Modal error={error} title={version?'编辑提成规则':'新增规则版本'} size="wide" onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={busy} onClick={() => void save()}>{busy ? '保存中…' : version&&!version.usedCount?'保存修改':'保存为新版本'}</button></>}>
       <p className="muted">未用于核算的版本可直接编辑；已用于核算的规则请指定新的生效日期另存版本，历史提成与工资保留原快照。</p>
       <div className="live-fields">
         <label className="live-field">生效日期<input aria-label="生效日期" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
@@ -84,6 +83,7 @@ export function RulesTab() {
     <div className="live-page">
       <div className="page-head"><p className="muted">提成按场次日期适用的规则版本计算；审核通过时保存当时的规则快照。</p>{d?.canManage && <button type="button" className="primary-button" onClick={() => setEditing('new')}>新增规则版本</button>}</div>
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
+      {!d && !error && <p className="muted" role="status">正在读取提成规则…</p>}
       {d && d.versions.length === 0 && <p className="muted card pad" role="status">还没有规则版本，请新增规则。</p>}
       {d?.versions.map((v) => (
         <section key={v.id} className="card live-section" aria-label={`规则 ${v.effectiveFrom}`}>
