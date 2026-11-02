@@ -1,5 +1,6 @@
 import { LiveManualProducts1766000000000 } from '../database/migrations/1766000000000-LiveManualProducts';
 import { livePeople, loadLiveAccess } from './live-access';
+import { LiveTurnoverService } from './live-turnover.service';
 import { LiveManagementService } from './live-management.service';
 /** 直播管理的真实数据库测试。RESOURCE_DB_TEST=1 TEST_DB_NAME=kudesi_oa_test_u9 npx jest --runInBand live */
 import 'reflect-metadata';
@@ -675,6 +676,23 @@ d('直播管理（真实数据库）', () => {
     const qr=ds.createQueryRunner(); await qr.connect();
     try { await expect(new LiveManualProducts1766000000000().down(qr)).rejects.toThrow(/手填场次产品/); } finally { await qr.release(); }
     await expect(sessions.detail(foreign,started.id)).rejects.toThrow(/不存在/);
+  });
+
+  it('本场营业额真实公司鉴权、时间窗、退款归属与已结束场次回看', async () => {
+    const startAt='2027-01-15 10:00:00', endAt='2027-01-15 11:00:00';
+    const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,end_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'pending_report',?,'anchor')`,[company,ids.n1,'直播间-北1',anchor.id,ids.account,'抖音一号',ids.store,'抖音店','JST1','2027-01-15',startAt,endAt,anchor.id]);
+    const id=Number(result.insertId),seen:string[][]=[];
+    const turnover=new LiveTurnoverService(ds,{
+      turnoverOrders:async()=>({available:true,truncated:false,reason:'',orders:[{...order('OLD',50000),orderTime:'2027-01-14 10:00:00'},{...order('NEW',12000),orderTime:'2027-01-15 10:30:00'}]}),
+      refunds:async(_c:number,_shop:string,orders:Array<{orderId:string}>)=>{seen.push(orders.map(o=>o.orderId));return new Map([['NEW',{cents:2000,source:'refund',details:[]}],['OLD',{cents:50000,source:'refund',details:[]}]]);},
+    } as unknown as LiveOrderSource);
+    clock('2027-01-16 12:00:00');
+    expect(await turnover.read(manager,id)).toMatchObject({sessionId:id,live:false,startAt,endAt,orderCount:1,turnoverCents:10000,refundCents:2000});
+    expect(seen).toEqual([['NEW']]);
+    await expect(turnover.read(stranger,id)).rejects.toThrow(/权限/);
+    await expect(turnover.read(foreign,id)).rejects.toThrow(/不存在/);
+    const tile=(await schedules.overview(manager,'2027-01-15')).groups.north.find(r=>r.id===ids.n1)!;
+    expect(tile.current).toMatchObject({id,endAt,status:'pending_report'});
   });
 
 });

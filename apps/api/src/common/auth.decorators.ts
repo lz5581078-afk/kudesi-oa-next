@@ -47,3 +47,7 @@ export interface PlatformAdminUser {
 export const CurrentPlatformAdmin = createParamDecorator((_data: unknown, ctx: ExecutionContext): PlatformAdminUser => {
   return ctx.switchToHttp().getRequest().platformAdmin as PlatformAdminUser;
 });
+
+/** Only account recovery and Feishu binding endpoints may run before mandatory binding. */
+export const ALLOW_UNBOUND_FEISHU = 'auth:allow-unbound-feishu';
+export const AllowUnboundFeishu = () => SetMetadata(ALLOW_UNBOUND_FEISHU, true);

@@ -1,3 +1,4 @@
+import { FeishuBindingPolicy } from './auth/feishu-binding-policy';
 import { StaffEnrollmentService } from './org/staff-enrollment.service';
 import { StaffEnrollmentAdminController, StaffEnrollmentPublicController } from './org/staff-enrollment.controller';
 import { CompatiblePurchaseController } from './flow/purchase-compat.controller';
@@ -112,6 +113,7 @@ import { FlowScheduler } from './flow/flow.scheduler';
 import { LiveController } from './live/live.controller';
 import { LiveLedgerService } from './live/live-ledger.service';
 import { LiveOrderSource } from './live/live-order-source';
+import { LiveTurnoverService } from './live/live-turnover.service';
 import { LiveScheduleService } from './live/live-schedule.service';
 import { LiveScheduler } from './live/live.scheduler';
 import { LiveWorkspaceModule } from './live/live-workspace';
@@ -204,7 +206,7 @@ const env = loadEnv();
   ],
   controllers: [AssistantController, StaffEnrollmentAdminController, StaffEnrollmentPublicController, CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, CostVersionController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, ExclusiveController, JstCenterController, CompatiblePurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, MaintenanceRemoteAssistController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
   providers: [
-    AuthService, FeishuAuthService, ExternalConfigService, FeishuClient, AssistantService,
+    AuthService, FeishuAuthService, FeishuBindingPolicy, ExternalConfigService, FeishuClient, AssistantService,
     { provide: OUTBOX_SENDER, useClass: JushuitanSenderFactory },
     { provide: FEISHU_SENDER, useClass: ConnectedFeishuSender },
     PlatformService,
@@ -264,7 +266,7 @@ const env = loadEnv();
     SupervisionService,
     SupervisionScheduler,
     ServiceWorkspaceProvider,
-    LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
+    LiveTurnoverService, LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
     { provide: LiveOrderSource, useClass: JushuitanOrderSource },
     FinanceDocumentsService,
     FinanceVoucherHintsService,

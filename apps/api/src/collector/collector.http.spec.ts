@@ -1,3 +1,4 @@
+import { FeishuBindingPolicy } from '../auth/feishu-binding-policy';
 import { CollectorTextController } from './collector-text.controller';
 import { CollectorTextService } from './collector-text.service';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
@@ -41,7 +42,7 @@ describe('采集器 HTTP/WS 真实登录守卫与公司隔离（假仓库，无�
     const module = await Test.createTestingModule({
       imports: [JwtModule.register({ secret: 'isolated-test-jwt-secret-at-least-thirty-two', signOptions: { expiresIn: '1h' } })],
       controllers: [CollectorTextController, CollectorController, SpeechSettingsController],
-      providers: [{ provide: CollectorTextService, useValue: { overview: jest.fn(async () => ({ configured: true })), organize: jest.fn(async (...args) => ({ body: '完整话术', identity: args.slice(0, 2) })) } }, CollectorService, CollectorIdentityService, CollectorRealtimeService, JwtAuthGuard,
+      providers: [{ provide: FeishuBindingPolicy, useValue: { isBound: async () => true } },{ provide: CollectorTextService, useValue: { overview: jest.fn(async () => ({ configured: true })), organize: jest.fn(async (...args) => ({ body: '完整话术', identity: args.slice(0, 2) })) } }, CollectorService, CollectorIdentityService, CollectorRealtimeService, JwtAuthGuard,
         { provide: CollectorFileService, useValue: { start: file, query: jest.fn(async () => ({ state: 'processing' })), audio: jest.fn(async () => { throw new Error('invalid'); }) } },
         { provide: AuthService, useValue: auth }, { provide: SpeechSettingsService, useValue: settings },
         { provide: getRepositoryToken(User), useValue: users },

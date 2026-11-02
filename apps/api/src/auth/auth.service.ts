@@ -1,4 +1,4 @@
-import { isPositionEnrollment } from './enrollment-feishu';
+import { FeishuBindingPolicy } from './feishu-binding-policy';
 import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { isLegacyPassword, verifyPassword } from './password';
 import { JwtService } from '@nestjs/jwt';
@@ -24,6 +24,7 @@ export class AuthService {
     @InjectRepository(PositionPermission) private readonly positionPermissions: Repository<PositionPermission>,
     @InjectRepository(UserPermissionOverride) private readonly overrides: Repository<UserPermissionOverride>,
     @InjectRepository(AuditLog) private readonly audits: Repository<AuditLog>,
+    private readonly feishu: FeishuBindingPolicy,
   ) {}
 
   /**
@@ -108,11 +109,7 @@ export class AuthService {
       await Promise.all([user.positionId, ...(user.extraPositionIds ?? [])].filter((x): x is number => !!x).map((positionId) => this.positionPermissions.find({ where: { positionId } })))
     ).flat();
     const overrideRows = await this.overrides.find({ where: { userId: user.id } });
-    let feishuBindingPending = false;
-    if (await isPositionEnrollment(this.audits, company.id, user.id)) {
-      const [bound] = await this.users.manager.query('SELECT id FROM feishu_identities WHERE company_id=? AND user_id=? AND oa_notifications=1 LIMIT 1', [company.id, user.id]);
-      feishuBindingPending = !bound;
-    }
+    const feishuBindingPending = !await this.feishu.isBound(company.id, user.id);
     return {
       id: user.id,
       name: user.name,

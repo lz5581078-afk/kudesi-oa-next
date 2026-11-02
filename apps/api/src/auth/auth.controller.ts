@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
-import { AuthenticatedOnly, AuthUser, CurrentUser, Public } from '../common/auth.decorators';
+import { AllowUnboundFeishu, AuthenticatedOnly, AuthUser, CurrentUser, Public } from '../common/auth.decorators';
 import { AuthService } from './auth.service';
 
 class LoginDto {
@@ -40,12 +40,14 @@ export class AuthController {
     return this.auth.login(dto.account, dto.password);
   }
 
+  @AllowUnboundFeishu()
   @AuthenticatedOnly()
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return this.auth.me(user.id, user.companyId);
   }
 
+  @AllowUnboundFeishu()
   @AuthenticatedOnly()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('change-password')
