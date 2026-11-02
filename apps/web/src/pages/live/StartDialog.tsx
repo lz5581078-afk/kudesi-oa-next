@@ -62,8 +62,8 @@ function StartForm({ schedule, identity, joining, roomId: fixedRoomId, onClose, 
           {(
             <>
               <label className="live-field">直播间<select disabled={!!schedule||!!fixedRoomId} value={roomId} onChange={(e) => setRoomId(e.target.value)}><option value="">请选择</option>{opts.rooms.map((r) => <option key={r.id} value={r.id} disabled={r.live}>{r.name}{r.live ? '（正在直播）' : ''}</option>)}</select></label>
-              {(!identity.isAnchor || identity.canManage) && <label className="live-field">主播<select disabled={!!joining} value={anchorId} onChange={(e) => setAnchorId(e.target.value)}><option value="">{identity.isAnchor ? '本人' : '请选择'}</option>{opts.anchors.map((p) => <option key={p.id} value={p.id} disabled={p.live}>{p.name}{p.live ? '（正在直播）' : ''}</option>)}</select></label>}
-              <label className="live-field">中控（可选）<select disabled={!!joining} value={controlId} onChange={(e) => setControlId(e.target.value)}><option value="">{identity.isControl && !identity.isAnchor ? '本人' : '无'}</option>{opts.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+              {(!identity.isAnchor || identity.canManage) && <label className="live-field">主播<select disabled={!!schedule} value={anchorId} onChange={(e) => setAnchorId(e.target.value)}><option value="">{identity.isAnchor ? '本人' : '请选择'}</option>{opts.anchors.map((p) => <option key={p.id} value={p.id} disabled={p.live}>{p.name}{p.live ? '（正在直播）' : ''}</option>)}</select></label>}
+              <label className="live-field">中控（可选）<select disabled={!!schedule} value={controlId} onChange={(e) => setControlId(e.target.value)}><option value="">{identity.isControl && !identity.isAnchor ? '本人' : '无'}</option>{opts.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
               <label className="live-field">运营（可选，审核时由人事确认）<select value={operatorId} onChange={(e) => setOperatorId(e.target.value)}><option value="">无</option>{opts.operators.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
             </>
           )}
@@ -92,10 +92,10 @@ function StartForm({ schedule, identity, joining, roomId: fixedRoomId, onClose, 
 
 export function StartDialog(props:Parameters<typeof StartForm>[0]){
   const [loaded,setLoaded]=useState(!!props.schedule),[plans,setPlans]=useState<ScheduleRow[]>([]),[chosen,setChosen]=useState<ScheduleRow|null>(props.schedule),[error,setError]=useState('');
-  const [manual,setManual]=useState(false);
+
   useEffect(()=>{if(props.schedule)return;liveApi.checkinContext(props.roomId).then(d=>{setPlans(d.schedules.filter(s=>s.status==='scheduled'&&s.canStart&&s.mineRole!=='operator'));setLoaded(true);}).catch(e=>setError(errText(e)));},[props.schedule]);
   if(!loaded)return <Modal title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班…</p>}</Modal>;
-  if(!props.schedule&&!chosen&&!manual&&plans.length)return <Modal title="选择本次排班" onClose={props.onClose}><p>已读取你的排班，请核对要开始的场次。</p><div className="live-checkin-actions">{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}>{s.roomName} · {s.date} {s.startTime}–{s.endTime}</button>)}<button className="secondary-button live-clock-button" onClick={()=>setManual(true)}>没有对应排班，临时开播</button></div></Modal>;
+  if(!props.schedule&&!chosen)return <Modal title="选择本次排班" onClose={props.onClose}><p>已读取你的排班，请核对要开始的场次。</p><div className="live-checkin-actions">{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}>{s.roomName} · {s.date} {s.startTime}–{s.endTime}</button>)}{!plans.length&&<p>没有可开播的排班，请联系人事安排。</p>}</div></Modal>;
   return <StartForm {...props} schedule={chosen}/>;
 }
 
