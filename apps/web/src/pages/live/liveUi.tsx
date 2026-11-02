@@ -3,9 +3,10 @@ import { ReactNode, useEffect, useState, useRef } from 'react';
 import { liveApi, type Person, type Preview, type RoleAmount, type SourceStatus } from './liveApi';
 import { SCHEDULE_TONE, SESSION_TONE, money, ratePct } from './liveFormat';
 import './live.css';
+import './liveWorkspace.css';
 
 /** 弹窗：点遮罩不关闭（避免误触丢数据），Esc 关闭。 */
-export function Modal({ title, onClose, children, foot, size = '', bodyClassName = '' }: { title: string; onClose: () => void; children: ReactNode; foot?: ReactNode; size?: '' | 'small' | 'wide'; bodyClassName?: string }) {
+export function Modal({ title, onClose, children, foot, size = '', bodyClassName = '', error }: { title: string; onClose: () => void; children: ReactNode; foot?: ReactNode; size?: '' | 'small' | 'wide'; bodyClassName?: string; error?: string }) {
   const dialogRef=useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -31,9 +32,9 @@ export function Modal({ title, onClose, children, foot, size = '', bodyClassName
   return createPortal(
     <div className="modal-backdrop live-modal-backdrop">
       <div ref={dialogRef} tabIndex={-1} className={`modal card live-modal ${size}`} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="modal-head between"><h2>{title}</h2><button type="button" className="link-button" onClick={onClose} aria-label="关闭">关闭</button></div>
+        <div className="modal-head between"><h2>{title}</h2><button type="button" className="live-dialog-close" onClick={onClose} aria-label="关闭"><span aria-hidden="true">×</span></button></div>
         <div className={`modal-body ${bodyClassName}`}>{children}</div>
-        {foot && <div className="modal-foot">{foot}</div>}
+        {(foot || error) && <div className="modal-foot">{error && <div role="alert" className="notice error live-dialog-feedback">{error}</div>}{foot}</div>}
       </div>
     </div>,document.body
   );

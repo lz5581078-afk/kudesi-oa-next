@@ -1,3 +1,4 @@
+import './liveWorkspace.css';
 import { useState } from "react";
 import {
   LIVE_PLATFORMS,
@@ -93,8 +94,8 @@ export function StorePerformanceTable({
     }
   }
   return (
-    <div className="wide">
-      <p className="muted live-table-hint">左右滑动表格查看投流费用和订单核对。</p>
+    <div className="wide live-store-editor">
+      <p className="muted live-table-hint">逐店填写营业额；订单与人工核定原因在同一张表中核对。</p>
       {error && (
         <p role="alert" className="notice error">
           {error}
@@ -102,7 +103,7 @@ export function StorePerformanceTable({
       )}
       <div className="live-scroll">
         <table
-          className="data-table live-store-performance"
+          className="data-table live-store-performance live-responsive-table"
           aria-label="按店铺填报业绩"
         >
           <thead>
@@ -114,11 +115,12 @@ export function StorePerformanceTable({
             </tr>
           </thead>
           <tbody>
+            {!rows.length && <tr><td colSpan={showAd ? 4 : 3} className="live-empty">先选择直播账号及店铺，再填写各店业绩。</td></tr>}
             {rows.map((r) => {
               const c = candidates[r.storeId];
               return (
                 <tr key={r.storeId}>
-                  <td>
+                  <td data-label="平台 / 店铺 / 直播号">
                     {LIVE_PLATFORMS[r.platform]} · {store(r.storeId)?.name}
                     <small className="muted">
                       {channels
@@ -127,7 +129,7 @@ export function StorePerformanceTable({
                         .join("、")}
                     </small>
                   </td>
-                  <td>
+                  <td data-label="营业额（元）">
                     <input
                       aria-label={`${store(r.storeId)?.name}营业额`}
                       inputMode="decimal"
@@ -139,7 +141,7 @@ export function StorePerformanceTable({
                     />
                   </td>
                   {showAd && (
-                    <td>
+                    <td data-label="投流费用（元）">
                       <input
                         aria-label={`${store(r.storeId)?.name}投流费用`}
                         inputMode="decimal"
@@ -151,7 +153,7 @@ export function StorePerformanceTable({
                       />
                     </td>
                   )}
-                  <td>
+                  <td data-label="订单核对 / 人工核定原因">
                     {!!r.orders.length&&!c&&<small>已载入 {r.orders.length} 个原订单</small>}
                     {sessionId && !readOnly && (
                       <button
@@ -194,7 +196,7 @@ export function StorePerformanceTable({
                         >
                           选择全部有效订单并带入营业额
                         </button>
-                        {c.orders.map((o) => (
+                        <div className="live-store-order-list">{c.orders.map((o) => (
                           <label className="live-order-option" key={o.orderId}>
                             <input
                               type="checkbox"
@@ -210,10 +212,11 @@ export function StorePerformanceTable({
                             />
                             {o.orderId} · {money(o.amountCents)}
                           </label>
-                        ))}
+                        ))}</div>
                       </details>
                     )}
-                    <input
+                    <textarea
+                      rows={2}
                       aria-label={`${store(r.storeId)?.name}人工核定原因`}
                       placeholder="未核对订单时填写原因"
                       maxLength={500}
@@ -230,16 +233,16 @@ export function StorePerformanceTable({
           </tbody>
           <tfoot>
             <tr>
-              <th>本场合计</th>
-              <td>
+              <th data-label="平台 / 店铺 / 直播号">本场合计</th>
+              <td data-label="营业额合计">
                 {money(rows.reduce((n, r) => n + (yuanCents(r.sales) || 0), 0))}
               </td>
               {showAd && (
-                <td>
+                <td data-label="投流合计">
                   {money(rows.reduce((n, r) => n + (yuanCents(r.ad) || 0), 0))}
                 </td>
               )}
-              <td>各平台营业额分别计算提成；场次工资按时间计算一次。</td>
+              <td data-label="计薪规则">各平台营业额分别计算提成；场次工资按时间计算一次。</td>
             </tr>
           </tfoot>
         </table>

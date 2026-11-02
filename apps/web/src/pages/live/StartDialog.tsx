@@ -47,11 +47,10 @@ export function StartDialog({ schedule, identity, onClose, onDone }: { schedule:
   }
 
   return (
-    <Modal title={schedule ? '报上播（按排场）' : '报上播（临时加场）'} onClose={onClose} foot={<>
+    <Modal error={error} title={schedule ? '报上播（按排场）' : '报上播（临时加场）'} size="wide" onClose={onClose} foot={<>
       <button type="button" className="secondary-button" onClick={onClose}>取消</button>
       <button type="button" className="primary-button" disabled={busy || !opts} onClick={() => void submit()}>{busy ? '提交中…' : '确认上播'}</button>
     </>}>
-      {error && <div role="alert" className="notice error">{error}</div>}
       {schedule && <p className="muted">{schedule.roomName} · {schedule.startTime}–{schedule.endTime} · 主播 {schedule.anchor.name}{schedule.control ? `，中控 ${schedule.control.name}` : ''}{schedule.operator ? `，运营 ${schedule.operator.name}` : ''}</p>}
       {!opts ? <p className="muted" role="status">正在读取选项…</p> : (
         <div className="live-fields">
