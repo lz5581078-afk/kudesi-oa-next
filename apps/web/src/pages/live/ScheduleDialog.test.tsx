@@ -13,6 +13,27 @@ beforeEach(() => { l.options.mockResolvedValue(options as never); l.products.moc
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('排场产品与上次配置', () => {
+  it('新增排场选择单店账号后直接保存，无需第二次勾选', async () => {
+    open(); await screen.findByRole('option', {name:'主播甲'});
+    fireEvent.change(screen.getByLabelText('开始时间'),{target:{value:'15:00'}});
+    fireEvent.change(screen.getByLabelText('结束时间'),{target:{value:'18:00'}});
+    fireEvent.change(screen.getByLabelText('主播'),{target:{value:'3'}});
+    fireEvent.click(screen.getByRole('checkbox',{name:'抖音号'}));
+    expect(screen.queryByRole('checkbox',{name:'抖音号关联店铺'})).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'保存'}));
+    await waitFor(()=>expect(l.createSchedule).toHaveBeenCalledWith(expect.objectContaining({channels:[{accountId:20,storeIds:[30]}],roomId:10,anchorId:3})));
+  });
+  it('多店账号未选本场店铺时阻止保存，修改时只保留原选店铺', async () => {
+    l.options.mockResolvedValue({...options,douyinAccounts:[{...options.douyinAccounts[0],storeIds:[30,31]}],stores:[...options.stores,{id:31,name:'第二店',platform:'douyin',hasJstShop:true}]} as never);
+    render(<ScheduleDialog initial={{...previous,store:null,channels:[{accountId:20,accountName:'抖音号',platform:'douyin',storeIds:[],stores:[]}]}} days={['2026-11-01']} onClose={vi.fn()} onDone={vi.fn()}/>);
+    await screen.findByRole('checkbox',{name:'抖音号关联第二店'});
+    fireEvent.click(screen.getByRole('button',{name:'保存'}));
+    expect(screen.getByRole('alert').textContent).toContain('请为「抖音号」选择至少一个本场店铺');
+    expect(l.updateSchedule).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('checkbox',{name:'抖音号关联第二店'}));
+    fireEvent.click(screen.getByRole('button',{name:'保存'}));
+    await waitFor(()=>expect(l.updateSchedule).toHaveBeenCalledWith(1,expect.objectContaining({channels:[{accountId:20,storeIds:[31]}]})));
+  });
   it('导入后保留本次日期时间，保存人员、账号、店铺、产品和备注', async () => {
     open();
     await screen.findByRole('option', { name: '主播甲' });
@@ -33,7 +54,8 @@ describe('排场产品与上次配置', () => {
     open();await screen.findByRole('option',{name:'主播甲'});
     fireEvent.change(screen.getByLabelText('开始时间'),{target:{value:'15:00'}});fireEvent.change(screen.getByLabelText('结束时间'),{target:{value:'18:00'}});
     fireEvent.click(screen.getByRole('button',{name:'一键导入上次排场'}));await screen.findByText(/已导入 2026/);
-    expect((screen.getByLabelText('快手号关联快手店') as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText('快手店')).toBeTruthy();
+    expect(screen.queryByRole('checkbox', {name:'快手号关联快手店'})).toBeNull();
     fireEvent.click(screen.getByRole('button',{name:'保存'}));
     await waitFor(()=>expect(l.createSchedule).toHaveBeenCalledWith(expect.objectContaining({channels:[{accountId:20,storeIds:[30]},{accountId:21,storeIds:[31]}],productEntries:[{productId:99}]})));
   });
@@ -71,7 +93,7 @@ describe('排场产品与上次配置', () => {
     l.start.mockResolvedValue({ id: 6 });
     render(<StartDialog schedule={previous} identity={{isAnchor:true,isControl:false,canManage:false}} onClose={vi.fn()} onDone={vi.fn()} />);
     const dlg = await screen.findByRole('dialog');
-    await screen.findByLabelText('抖音号关联店铺');
+    await screen.findByText('店铺');
     expect((within(dlg).getByLabelText('场次产品 1') as HTMLInputElement).value).toBe('花育25（大包）');
     expect(l.products).not.toHaveBeenCalled();
     fireEvent.click(within(dlg).getByRole('button', { name: '确认上播' }));
@@ -102,7 +124,7 @@ describe('排场产品与上次配置', () => {
     expect((screen.getByLabelText('场次产品 2') as HTMLInputElement).value).toBe('甜玉米种子');
     cleanup(); l.start.mockResolvedValue({ id: 8 });
     render(<StartDialog schedule={manual} identity={{ isAnchor:true,isControl:false,canManage:false }} onClose={vi.fn()} onDone={vi.fn()} />);
-    await screen.findByLabelText('抖音号关联店铺');
+    await screen.findByText('店铺');
     fireEvent.click(screen.getByRole('button', { name: '确认上播' }));
     await waitFor(() => expect(l.start).toHaveBeenCalledWith(expect.objectContaining({ productEntries: [{ name: '花育25 大包' }, { name: '甜玉米种子' }], scheduleId: 1 })));
     expect(l.products).not.toHaveBeenCalled();
