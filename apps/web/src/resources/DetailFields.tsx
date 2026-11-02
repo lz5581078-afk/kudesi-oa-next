@@ -92,7 +92,7 @@ export function InfoValue({ def, f, record, canView, today }: { def: ResourceDef
   const due = dueBadgeFor(def.key, f.key, record.data, record.status, today);
   return (
     <>
-      {url ? <a href={url} target="_blank" rel="noopener noreferrer">{text}</a> : f.type === 'textarea' ? <span className="pre-wrap">{text}</span> : text}
+      {url ? <a href={url} target="_blank" rel="noopener noreferrer">{text}</a> : ['textarea', 'json'].includes(f.type) ? <span className="pre-wrap">{text}</span> : text}
       {copyWorthy(f) && <CopyButton value={text} label={f.label} className={isCopyable(def, f) ? undefined : 'soft'} />}
       {due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`}>{due.text}</span></>}
     </>
