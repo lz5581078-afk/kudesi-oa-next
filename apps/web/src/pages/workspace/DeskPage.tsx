@@ -1,5 +1,6 @@
 import { TrialStartDesk } from '../live/TrialStart';
 import { LiveCheckinPanel } from '../live/LiveCheckinPanel';
+import { PersonalLiveIncome } from './PersonalLiveIncome';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { deskFor, deskLinks, groupDeskPositions, type DeskCatalog } from '@kudesi/shared';
@@ -45,7 +46,7 @@ export function DeskPage() {
     cards: desk.cards,
     pending: desk.pending,
     blank: current.workspaceType === 'blank',
-    top: <>{current.assigned && current.departmentPath.split('/').some(name=>['人事部','人事综合部','人力资源部'].includes(name.trim())) && <TrialStartDesk/>}{current.assigned && ['live_anchor','live_control','operations'].includes(current.workspaceType) && <LiveCheckinPanel workspaceType={current.workspaceType as 'live_anchor'|'live_control'|'operations'}/>}{current.workspaceType==='operations'&&can('resource.store-daily-metrics.view')&&<DailyBusinessPanel/>}</>,
+    top: refreshKey=><>{current.assigned && current.departmentPath.split('/').some(name=>['人事部','人事综合部','人力资源部'].includes(name.trim())) && <TrialStartDesk/>}{current.assigned && ['live_anchor','live_control','operations'].includes(current.workspaceType) && <><PersonalLiveIncome refreshKey={refreshKey}/><LiveCheckinPanel workspaceType={current.workspaceType as 'live_anchor'|'live_control'|'operations'}/></>}{current.workspaceType==='operations'&&can('resource.store-daily-metrics.view')&&<DailyBusinessPanel/>}</>,
   } : null;
   return (
     <div>
