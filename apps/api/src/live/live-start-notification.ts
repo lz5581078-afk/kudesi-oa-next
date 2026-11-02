@@ -3,7 +3,7 @@ import { liveFromText } from '@kudesi/shared';
 import { Department, Position, User } from '../entities';
 import { liveNotify } from './live-notification-events';
 
-const DEPARTMENTS = new Set(['人事部', '人事综合部', '人力资源部', '总经办', '总经办部门', '总经理办公室']);
+const DEPARTMENTS = new Set(['人事部', '人事综合部', '人力资源部', '总经办', '总经办部门', '总经理办公室', 'A总经理']);
 /** Resolve active staff by their department or active primary/secondary position, within this company. */
 export async function liveStartRecipients(em: EntityManager, companyId: number): Promise<number[]> {
   const departments = await em.find(Department, { where: { companyId, status: 'active' } });

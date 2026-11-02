@@ -168,7 +168,7 @@ d('直播通知（隔离 MySQL）',()=>{
 
   it('排场满10分钟未上播通知两部门并去重；改期、已上播、取消和调离使积压提醒失效',async()=>{
     const dept=async(name:string)=>Number((await ds.query("INSERT INTO departments(company_id,name,status) VALUES(?,?,'active')",[companyId,name])).insertId);
-    const hr=await dept('人事部'), executive=await dept('总经办');
+    const hr=await dept('人事部'), executive=await dept('A总经理');
     const hrUser=await person(companyId,'未上播提醒人事'), execUser=await person(companyId,'未上播提醒总经办');
     await ds.query('UPDATE users SET department_id=? WHERE id=?',[hr,hrUser]);
     await ds.query('UPDATE users SET department_id=? WHERE id=?',[executive,execUser]);
