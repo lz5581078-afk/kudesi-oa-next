@@ -9,7 +9,7 @@ import { StaffFeishuService } from './staff-feishu.service';
 
 describe('人员测试通知 HTTP 边界',()=>{
   let app:INestApplication,base:string;
-  const service={statuses:jest.fn(async()=>({rows:[]})),sendTest:jest.fn(async()=>({jobId:9,status:'pending'})),testStatus:jest.fn(async()=>({jobId:9,status:'pending'}))};
+  const service={statuses:jest.fn(async()=>({rows:[]})),sendTest:jest.fn(async()=>({jobId:9,status:'pending'})),testStatus:jest.fn(async()=>({jobId:9,status:'pending'})),resetPreview:jest.fn(async()=>({bindingCount:3})),resetBindings:jest.fn(async()=>({remainingBindings:0}))};
   beforeAll(async()=>{
     const module=await Test.createTestingModule({controllers:[StaffFeishuController],providers:[{provide:StaffFeishuService,useValue:service},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile();
     app=module.createNestApplication();app.setGlobalPrefix('api');app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));
@@ -28,5 +28,16 @@ describe('人员测试通知 HTTP 边界',()=>{
     expect(service.sendTest).not.toHaveBeenCalled();
     const requestId=randomUUID(),result=await post('edit',{requestId,title:'自定义标题',body:'自定义正文'});expect(result.status).toBe(201);
     expect(service.sendTest).toHaveBeenCalledWith(expect.objectContaining({id:11,companyId:7}),42,requestId,{title:'自定义标题',body:'自定义正文'});
+  });
+  it('批量重绑入口限制编辑权限和严格预览摘要，不接收客户端公司身份',async()=>{
+    const reset=(role:string,body:object)=>fetch(base+'/api/org/staff-feishu/reset-bindings',{method:'POST',headers:{'content-type':'application/json','x-test-role':role},body:JSON.stringify(body)});
+    expect((await reset('read',{fingerprint:'a'.repeat(64)})).status).toBe(403);
+    expect((await reset('anonymous',{fingerprint:'a'.repeat(64)})).status).toBe(403);
+    for(const body of [{fingerprint:'bad'},{fingerprint:'a'.repeat(64),companyId:8}])expect((await reset('edit',body)).status).toBe(400);
+    expect(service.resetBindings).not.toHaveBeenCalled();
+    expect((await reset('edit',{fingerprint:'a'.repeat(64)})).status).toBe(201);
+    expect(service.resetBindings).toHaveBeenCalledWith(expect.objectContaining({companyId:7,id:11}),'a'.repeat(64));
+    expect((await fetch(base+'/api/org/staff-feishu/reset-preview',{headers:{'x-test-role':'edit'}})).status).toBe(200);
+    expect(service.resetPreview).toHaveBeenCalledWith(expect.objectContaining({companyId:7,id:11}));
   });
 });
