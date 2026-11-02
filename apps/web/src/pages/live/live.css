@@ -83,6 +83,10 @@
 .live-bar i.done { background: var(--ok-ink); }
 .live-bar i.missed { background: var(--bad-ink); }
 .live-bar b { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--ink); }
+.live-timeline { min-width: 0; }
+.live-timeline-times { position: relative; }
+.live-timeline-time { position: absolute; transform: translateX(-50%); white-space: nowrap; font: 9px/12px ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--muted); }
+.live-timeline-tick { position: absolute; bottom: 0; height: 4px; width: 1px; background: var(--muted); }
 .live-day { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px; }
 .live-rule-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 @media (max-width: 640px) {
