@@ -90,4 +90,11 @@ d('OA助手真实队列隔离与防重（隔离MySQL）', () => {
     await service.test(user);
     expect(client.send.mock.calls.length + client.batchSend.mock.calls.length).toBe(before);
   });
+  it('单独关闭再开启欢迎功能，不回放暂停期间的旧入职事件', async () => {
+    await service.save(user, { ...input, welcomeEnabled: false });
+    const pausedEvent = { app_id: input.appId, tenant_key: input.tenantKey, create_time: String((Date.now() - 1000) * 1000), object: { open_id: 'ou_joinedwhilepaused' } };
+    await service.save(user, { ...input, welcomeEnabled: true });
+    await service.enqueueWelcome(user.companyId, pausedEvent);
+    expect((await jobs()).filter(j => j.idempotencyKey.includes('joinedwhilepaused'))).toHaveLength(0);
+  });
 });
