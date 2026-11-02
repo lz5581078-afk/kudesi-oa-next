@@ -1,6 +1,6 @@
 /**
  * 打包助手（先 npm run build）。产物在 release/：
- *   kudesi-assistant-windows/        首次安装用（install.ps1 + 程序），同时生成同名 .zip（Linux 有 zip 时）
+ *   kudesi-assistant-windows/        首次安装用（install.ps1 + 程序），同时生成同名 UTF-8 .zip
  *   update/kudesi-assistant-<版本>.kapkg   在线升级包：在 OA“授权电脑”页上传它（gzip JSON，含每个文件的 sha256）
  *   update/kudesi-assistant-<版本>.kapkg.sha256 与 latest.json   升级包的 SHA-256 和清单，上传时可填 SHA-256 做二次核对
  * Windows 安装入口是 安装助手.cmd + 可视化绑定，自动下载并校验独立 Node 运行环境，详见 README。
@@ -8,7 +8,6 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const cp = require('child_process');
 const root = path.join(__dirname, '..');
 const pkg = require('../package.json');
 const { encodeBundle } = require('../dist/bundle.js');
@@ -47,17 +46,25 @@ for (const file of walk(path.join(root, 'dist'))) {
 fs.writeFileSync(path.join(out, 'package.json'), JSON.stringify({ name: pkg.name, version: pkg.version, private: true, main: pkg.main, dependencies: pkg.dependencies }, null, 2));
 fs.copyFileSync(path.join(root, 'dist', 'launcher.js'), path.join(out, 'launcher.js'));
 for (const f of ['install.ps1', 'uninstall.ps1', 'README.txt', 'setup.ps1', 'assistant-panel.ps1', '安装助手.cmd', '打开助手.cmd']) fs.copyFileSync(path.join(root, 'windows', f), path.join(out, f));
-let zipped = '';
-try {
-  const z = path.join(root, 'release', 'kudesi-assistant-windows.zip');
-  fs.rmSync(z, { force: true });
-  if (process.platform === 'win32') {
-    const quote = (value) => "'" + value.replace(/'/g, "''") + "'";
-    cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Compress-Archive -LiteralPath ${quote(out)} -DestinationPath ${quote(z)} -Force`], { windowsHide: true });
-  } else {
-    cp.execFileSync('zip', ['-q', '-r', z, 'kudesi-assistant-windows'], { cwd: path.join(root, 'release') });
-  }
-  zipped = z;
-} catch { /* 没有 zip 命令就只留目录 */ }
+// UTF-8 ZIP STORE: system zip on macOS may omit the UTF-8 flag and corrupt Chinese filenames on Windows.
+const entries = walk(out).map((name) => ({ name: `kudesi-assistant-windows/${name}`, data: fs.readFileSync(path.join(out, name)) }));
+const records = [], directory = [];
+let offset = 0;
+for (const { name, data } of entries) {
+  const filename = Buffer.from(name, 'utf8');
+  let crc = 0xffffffff;
+  for (const byte of data) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0); }
+  crc = (crc ^ 0xffffffff) >>> 0;
+  const header = Buffer.alloc(30), central = Buffer.alloc(46);
+  header.writeUInt32LE(0x04034b50); header.writeUInt16LE(20, 4); header.writeUInt16LE(0x800, 6); header.writeUInt16LE(0x21, 12);
+  header.writeUInt32LE(crc, 14); header.writeUInt32LE(data.length, 18); header.writeUInt32LE(data.length, 22); header.writeUInt16LE(filename.length, 26);
+  central.writeUInt32LE(0x02014b50); central.writeUInt16LE(20, 4); header.copy(central, 6, 4, 30); central.writeUInt32LE(offset, 42);
+  records.push(header, filename, data); directory.push(central, filename); offset += 30 + filename.length + data.length;
+}
+const central = Buffer.concat(directory), end = Buffer.alloc(22);
+end.writeUInt32LE(0x06054b50); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+end.writeUInt32LE(central.length, 12); end.writeUInt32LE(offset, 16);
+const zipped = path.join(root, 'release', 'kudesi-assistant-windows.zip');
+fs.writeFileSync(zipped, Buffer.concat([...records, central, end]));
 console.log('已生成', out, zipped);
 console.log('升级包', path.join(upd, kname), 'sha256', sha);
