@@ -913,6 +913,14 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.start(foreign,{actualCheckin:true,role:'operator',sessionId:vacant.id,confirmDetails:true})).rejects.toThrow();
     await sessions.start(outsider,{actualCheckin:true,role:'operator',sessionId:vacant.id,confirmDetails:true});
     expect((await sessions.workbench(outsider)).active.find(s=>s.id===vacant.id)?.myCheckin?.role).toBe('operator');
+    source.turnover=[];clock('2026-12-04 11:00:00');
+    await sessions.report(bareOps,vacant.id,{role:'control',endAt:'2026-12-04 11:00:00',salesCents:0,adSpendCents:0});
+    clock('2026-12-04 11:02:00');await sessions.report(aa,vacant.id,{role:'anchor',endAt:'2026-12-04 11:02:00',salesCents:0});
+    await ds.manager.update(User,{id:operator.id,companyId:company},{extraPositionIds:[posA]});
+    clock('2026-12-05 10:00:00');
+    const dual=await sessions.start(bareOps,{actualCheckin:true,role:'control',roomId:room,anchorId:aa.id,productIds:[ids.p1],channels:[{accountId:account,storeIds:[shop]}]});
+    expect((await sessions.workbench(bareOps)).active.find(s=>s.id===dual.id)?.myCheckin?.role).toBe('control');
+
 
 
 
