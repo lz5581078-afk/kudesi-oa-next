@@ -59,6 +59,28 @@ html input[type='checkbox'], html input[type='radio'] { width: 16px; height: 16p
 }
 
 @media (max-width: 720px) {
+  /* 通知面板：贴着屏幕左右留 8px，不再从按钮处向左伸出屏幕 */
+  .bell { position: static; }
+  .bell-panel { position: fixed; left: 8px; right: 8px; top: 60px; width: auto; max-height: calc(100dvh - 140px); z-index: 60; }
+
+  /* 日期 / 月份输入：窄栏里也要把日期完整显示出来 */
+  input[type='date'], input[type='month'], input[type='datetime-local'], input[type='time'] { min-width: 0; font-size: 15px; padding-inline: 8px; }
+
+  /* 小按钮、链接式按钮文字不竖排 */
+  button, .link-button { white-space: nowrap; }
+
+  /* 统计卡片两列并排（资料总览等） */
+  .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stats > .stat, .stats > .card { width: auto; min-width: 0; flex: none; }
+
+  /* 页内搜索框占满一行 */
+  .ws-flow-tools input[type='search'], .ws-flow-tools input[type='text'] { flex: 1 1 100%; min-width: 0; width: 100%; }
+}
+
+@media (max-width: 420px) {
+  /* 店铺提现登录管理：标签条在窄屏上可横向滑动，不撑宽页面 */
+  .session-tabs { overflow-x: auto; flex-wrap: nowrap; max-width: 100%; }
+  .session-tabs button { flex: 0 0 auto; }
   /* 直播页顶部的长提示：手机上默认只显示前两行，点一下展开全文 */
   .live-source-status:not(:focus) { max-height: 3.7em; overflow: hidden; position: relative; cursor: pointer; }
   .live-source-status:not(:focus)::after { content: '点开看全文'; position: absolute; right: 8px; bottom: 2px; padding-left: 24px; background: linear-gradient(90deg, transparent, var(--warn-bg, #fdf1dc) 40%); color: var(--accent); font-size: 12px; }
