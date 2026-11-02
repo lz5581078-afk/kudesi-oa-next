@@ -1,3 +1,4 @@
+import { useFinanceReference } from '../pages/finance/FinanceReferenceLayout';
 import { StoreJstSelect } from './StoreJstSelect';
 import { CascadePicker } from './CascadePicker';
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState, useId } from 'react';
@@ -179,6 +180,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   /** 提供了它，新建时就多出“保存并继续新建”：保存后不关弹窗，列表由它刷新 */
   onContinued?: (dto: ResourceDto) => void;
 }) {
+  const financeReference = useFinanceReference();
   const formId = useId().replace(/:/g, '');
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
@@ -540,7 +542,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         const first = controls[0], last = controls[controls.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
         if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
-      }} className={inline ? 'inline-form resource-inline-editor' : `modal card rf resource-editor${isProduct ? ' rf-p' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
+      }} className={inline ? `inline-form${financeReference ? '' : ' resource-inline-editor'}` : `modal card rf${financeReference ? ' finance-reference-editor' : ' resource-editor'}${isProduct ? ' rf-p' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
         {!inline && <div className="modal-head rf-head">
           {reference ? <div className="reference-title">{def.key === 'finance-suppliers' && <small className="reference-party-kicker"><FolderTree size={20}/>财务基础资料</small>}{isProduct && values.archiveType === 'purchased' && <small>外购成品档案 · {values.supplyMode === 'supplier_oem' ? '供应商 OEM' : '原装采购'}</small>}<h2>{record ? referenceStatus || (isProduct && layoutKey === 'custom') ? String(values.name || referenceLabel) : `编辑${isProduct ? String(values.name || referenceLabel) : referenceLabel}` : `新增${referenceLabel}`}</h2><p>{isProduct && layoutKey === 'custom' ? '先确认分类，再维护基础信息；编号按分类、可选品牌、名称、规格和可选形态样式生成，空白可选段会直接省略。' : referenceStatus ? `${def.label}详情、分类归属和操作记录。` : isReferenceParty ? record ? `在原位编辑${referenceLabel}资料，保存后立即生效。` : `填写${referenceLabel}基础资料，保存后归入当前分类。` : record ? `维护${referenceLabel}基础信息、规格及关联资料。` : `填写${referenceLabel}基础资料即可保存。`}</p></div> : <><strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>{record && <span className="rf-sub" title={record.title}>{record.title}</span>}</>}
           <span className="rf-gap" />

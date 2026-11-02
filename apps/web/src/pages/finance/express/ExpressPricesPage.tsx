@@ -53,22 +53,22 @@ export function ExpressPricesPage() {
   }
 
   return (
-    <div>
+    <div className="express-reference-page">
       <div className="page-head between">
-        <h1>快递价格表</h1>
+        <div><h1>快递价格表</h1><p>快递公司、经营网点、价格版本与分区运费</p></div>
         <div className="toolbar">
           {can('create') && <button type="button" className="primary-button" onClick={() => setForm({ kind: 'carrier', id: null })}>新增快递公司</button>}
           <button type="button" className="secondary-button" onClick={() => setView('flat')}>平铺明细</button>
         </div>
       </div>
-      <p className="muted">每个网点只有一个“当前版本”；运费预估和分区建议只读取“当前版本 + 合作中 + 日期有效”的价格。</p>
       {error && <div role="alert" className="notice error">{error}</div>}
       {carriers && carriers.length === 0 && <div className="empty-state muted">还没有快递公司。先新增一家快递公司，再给它加经营网点和价格版本。</div>}
-      <nav className="toolbar" aria-label="快递价格层级">
+      <nav className="express-breadcrumb" aria-label="快递价格层级">
         <button type="button" className="link-button" onClick={() => { setBranchId(null); setSelected(null); }}>快递公司</button>
         {branch && <><span>/</span><button type="button" className="link-button" onClick={() => setSelected(null)}>{branch.c.name} / {branch.b.name}</button></>}
         {found && <><span>/</span><strong>{found.v.name}</strong></>}
       </nav>
+      <div className="express-summary" aria-label="快递资料统计"><span><b>{carriers?.length ?? 0}</b>快递公司</span><span><b>{carriers?.reduce((sum,c)=>sum+c.branches.length,0) ?? 0}</b>经营网点</span><span><b>{carriers?.flatMap(c=>c.branches.flatMap(b=>b.versions)).filter(v=>v.cooperationStatus==='active').length ?? 0}</b>合作中版本</span><span><b>{carriers?.flatMap(c=>c.branches.flatMap(b=>b.versions)).length ?? 0}</b>价格版本</span></div>
       {!branch && !found && <div className="express-company-list">{(carriers ?? []).map(c => <section key={c.id} className="card express-company-card">
         <header className="between"><div><h2>{c.name}</h2><small className="muted">{c.note || '经营网点与价格版本'}</small></div><div className="row-actions">
           {can('edit') && <button type="button" className="secondary-button small" onClick={() => setForm({ kind: 'carrier', id: c.id })}>编辑快递公司</button>}
@@ -87,10 +87,7 @@ export function ExpressPricesPage() {
       </section>)}</div>}
       {branch && !found && <section className="card" aria-label="价格版本列表">
         <header className="between"><div><h2>{branch.c.name} / {branch.b.name}</h2><p className="muted">选择价格版本查看原始价格、手工价格、临时加收与最终价格。</p></div><div className="row-actions"><button type="button" className="secondary-button" onClick={() => setBranchId(null)}>返回快递公司</button>{can('create') && <button type="button" className="primary-button" onClick={() => setForm({ kind: 'version', branchId: branch.b.id })}>新建价格版本</button>}</div></header>
-        <div className="table-scroll"><table className="data-table"><thead><tr><th>价格版本</th><th>合作状态</th><th>有效期间</th><th>可发货重量</th><th>价格规则</th><th>临时加收</th><th>操作</th></tr></thead><tbody>
-          {branch.b.versions.map(v => <tr key={v.id}><td><strong>{v.name}</strong>{v.isCurrent && <span className="pill ok">当前版本</span>}</td><td>{COOP_TEXT[v.cooperationStatus]}</td><td>{v.effectiveStart || '不限'} ~ {v.effectiveEnd || '长期'}</td><td>{v.shippingWeightMin ?? 0} ~ {v.shippingWeightMax ?? '不限'} kg</td><td>识别 {v.aiRuleCount} / 手工 {v.manualRuleCount}</td><td>{v.surchargeCount}</td><td><button type="button" className="primary-button small" onClick={() => setSelected(v.id)}>查看价格详情</button></td></tr>)}
-          {!branch.b.versions.length && <tr><td colSpan={7} className="empty-state muted">这个网点还没有价格版本。</td></tr>}
-        </tbody></table></div>
+        <div className="express-version-cards">{branch.b.versions.map(v=><article className="express-version-card" key={v.id}><div className="between"><h3>{v.name}</h3><span className={`pill ${v.cooperationStatus==='active'?'ok':'warn'}`}>{COOP_TEXT[v.cooperationStatus]}</span></div>{v.isCurrent && <span className="pill ok">当前版本</span>}<dl><dt>有效期间</dt><dd>{v.effectiveStart || '不限'} 至 {v.effectiveEnd || '长期'}</dd><dt>可发货重量</dt><dd>{v.shippingWeightMin ?? 0} ~ {v.shippingWeightMax ?? '不限'} kg</dd><dt>价格规则</dt><dd>识别 {v.aiRuleCount} / 手工 {v.manualRuleCount}</dd><dt>临时加收</dt><dd>{v.surchargeCount}</dd></dl><button type="button" className="primary-button" onClick={()=>setSelected(v.id)}>查看价格详情</button></article>)}</div>{!branch.b.versions.length && <p className="empty-state muted">这个网点还没有价格版本。</p>}
       </section>}
       {found && <section aria-label="价格版本详情"><button type="button" className="secondary-button" onClick={() => { setBranchId(found.b.id); setSelected(null); }}>返回版本列表</button><VersionPanel key={found.v.id} carrier={found.c} branch={found.b} version={found.v} onChanged={() => void load()} onDeleted={() => { setSelected(null); void load(); }} /></section>}
 

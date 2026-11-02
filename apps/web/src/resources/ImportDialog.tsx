@@ -1,3 +1,4 @@
+import { Download, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { phoneStoreImportColumns, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
@@ -17,7 +18,7 @@ async function readCsvText(file: File): Promise<string> {
 }
 
 /** 导入：先选文件 → 预览（逐行校验，不落库）→ 无错误才允许确认导入；有错整体不导入。 */
-export function ImportDialog({ def, onClose, onDone, embedded = false, parentId }: { def: ResourceDef; onClose: () => void; onDone: (message?: string) => void; embedded?: boolean; parentId?: number }) {
+export function ImportDialog({ def, onClose, onDone, embedded = false, parentId, referenceLayout = false }: { def: ResourceDef; onClose: () => void; onDone: (message?: string) => void; embedded?: boolean; parentId?: number; referenceLayout?: boolean }) {
   const [onlyBad, setOnlyBad] = useState(false);
   useCategoryVersion();
   const optsOf = (f: FieldDef) => selectChoices(def.key, f, (x) => x.options ?? [], { mode: 'form' }); // 页签分类用本公司的名称
@@ -109,7 +110,7 @@ export function ImportDialog({ def, onClose, onDone, embedded = false, parentId 
   const instructions = () => downloadText(`${def.label}-填写说明.csv`, toCsv(instructionRows()));
 
   return (
-    <div className={embedded ? 'import-inline' : 'modal-backdrop'} role="presentation">
+    <div className={embedded ? `import-inline${referenceLayout ? ' finance-import-inline' : ''}` : 'modal-backdrop'} role="presentation">
       <div className={embedded ? 'card' : 'modal card'} role={embedded ? 'region' : 'dialog'} aria-label={`导入${def.label}`}>
         <div className="modal-head between">
           <strong>导入{def.label}</strong>
@@ -128,7 +129,11 @@ export function ImportDialog({ def, onClose, onDone, embedded = false, parentId 
               ))}
             </ul>
           </details>
-          <div className="toolbar-inline">
+          {referenceLayout ? <div className="finance-import-actions">
+            <button type="button" className="secondary-button" onClick={()=>void downloadXlsx(`${def.label}-导入模板.xlsx`,[['状态',...importable.map(f=>f.label),...extraHeaders]])}><Download size={16}/>下载模板</button>
+            <button type="button" className="secondary-button" onClick={()=>void downloadXlsx(`${def.label}-填写示例.xlsx`,[['状态',...importable.map(f=>f.label),...extraHeaders],exampleRow()])}><Download size={16}/>下载示例</button>
+            <label className="primary-button finance-import-file"><Upload size={16}/>选择 Excel 并预检<input type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="选择 Excel 或 CSV 文件" onChange={e=>{void onFile(e.target.files?.[0]);e.target.value='';}}/></label>{fileName && <span>已选：{fileName}<button type="button" className="link-button" onClick={discard}>放弃此文件</button></span>}
+          </div> : <>          <div className="toolbar-inline">
             <button type="button" className="secondary-button" onClick={() => downloadText(`${def.label}-导入模板.csv`, toCsv([['状态', ...importable.map((f) => f.label), ...extraHeaders]]))}>
               下载模板
             </button>
@@ -141,6 +146,7 @@ export function ImportDialog({ def, onClose, onDone, embedded = false, parentId 
             {fileName ? <>已选：{fileName} <button type="button" className="link-button" onClick={discard}>放弃此文件</button></> : '把 Excel 或 CSV 文件拖到这里，或点下面选择（不超过 10 MB，一次一个）'}
             <div><input type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="选择 Excel 或 CSV 文件" onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ''; }} /></div>
           </div>
+</>}
           {busy && <p className="muted">处理中…</p>}
           {restoreMsg && <div role="status" className="notice ok-notice">{restoreMsg}</div>}
           {backups.length > 0 && (
