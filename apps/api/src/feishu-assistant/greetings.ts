@@ -2,6 +2,7 @@ export const ASSISTANT_KEY = 'feishu-assistant';
 export const ASSISTANT_CHANNEL = 'feishu_assistant';
 export const MORNING_TEXT = '早上好 ☀️ 新的一天开始啦！小白OA 助手祝大家工作顺利。';
 export const WELCOME_TEXT = '欢迎加入我们 🎉 我是小白OA 助手，很高兴认识你！祝你在这里工作顺利、收获满满。';
+export const HELLO_TEXT = '大家好 👋 我是小白OA 助手，很高兴和大家见面！祝大家工作顺利！';
 
 export interface AssistantConfig {
   appId: string;
