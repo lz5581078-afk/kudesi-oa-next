@@ -67,6 +67,17 @@ describe('录音文件2.0真实提交/查询协议与临时音频边界', () => 
     clock += 4 * 3600000 + 1;
     await expect(service.query(10, 3, task.taskToken)).rejects.toThrow('过期'); expect(fake).toHaveBeenCalledTimes(1);
   });
+  it('非规范密文尾部不能通过宽松base64解码绕过票据入口校验', async () => {
+    const fake = jest.fn(async () => response()); service = make(fake as typeof fetch);
+    const task = await service.start(10, 3, wav().toString('base64'), [], rid);
+    const sealed = Buffer.from(task.taskToken, 'base64url').toString('utf8');
+    // These decode to the same authenticated ciphertext with Buffer's permissive base64 parser.
+    for (const suffix of ['\n', '!', ':extra']) {
+      const alternate = Buffer.from(sealed + suffix).toString('base64url');
+      await expect(service.query(10, 3, alternate)).rejects.toThrow('过期');
+    }
+    expect(fake).toHaveBeenCalledTimes(1);
+  });
   it('供应商403给出2.0未授权原因，不泄露原始响应、密钥，释放公司槽位', async () => {
     const fake = jest.fn(async () => new Response(key, { status: 403, headers: { 'X-Api-Status-Code': '45000030' } }));
     service = make(fake as typeof fetch);
