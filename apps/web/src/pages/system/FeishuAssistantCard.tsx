@@ -5,7 +5,7 @@ import { SecretInput } from './SecretInput';
 type Settings = {
   appId: string; tenantKey: string; secretConfigured: boolean; enabled: boolean;
   morningEnabled: boolean; welcomeEnabled: boolean; morningText: string; welcomeText: string;
-  departmentIds: string[]; eventConnection: string;
+  departmentIds: string[]; eventConnection: string; workerRunning?: boolean;
   jobs: Array<{ id: number; kind: string; status: string; lastError?: string }>;
 };
 
@@ -48,7 +48,7 @@ export function FeishuAssistantCard({ canEdit }: { canEdit: boolean }) {
       <label className="check"><input type="checkbox" style={{ width: 'auto' }} checked={data.welcomeEnabled} onChange={e => patch({ welcomeEnabled: e.target.checked })} disabled={!canEdit} />新员工加入飞书时发送欢迎消息</label>
       <label>欢迎消息<textarea style={{ width: '100%', boxSizing: 'border-box', border: '1px solid #d1d5db', borderRadius: 8, padding: 10, font: 'inherit', resize: 'vertical' }} rows={3} maxLength={1000} value={data.welcomeText} onChange={e => patch({ welcomeText: e.target.value })} disabled={!canEdit} /></label>
       <p className="muted">入职欢迎需要在飞书应用的“事件与回调”中选择“使用长连接接收事件”，订阅“员工入职”。</p>
-      {data.enabled && data.welcomeEnabled && <p>入职事件连接：{data.eventConnection === 'connected' ? '已连接' : '等待连接，可刷新页面查看'}</p>}
+      {data.enabled && data.welcomeEnabled && <p>入职事件连接：{data.workerRunning === false ? '后台服务未启动，请联系管理员检查' : ({ connected: '已连接', connecting: '连接中', reconnecting: '重新连接中', failed: '连接失败，后台将重试', idle: '等待重试', not_started: '尚未启动，可刷新页面查看' } as Record<string, string>)[data.eventConnection] ?? '等待连接，可刷新页面查看'}</p>}
       {canEdit && <div className="row-actions"><button className="primary-button" type="submit" disabled={busy}>保存</button><button className="secondary-button" type="button" disabled={busy || !data.secretConfigured} onClick={test}>检查连接</button></div>}
       <details><summary>最近发送记录</summary>{data.jobs.length ? <ul>{data.jobs.map(j => <li key={j.id}>{j.kind === 'morning' ? '早安' : '欢迎'} · {({ pending: '等待发送', sending: '发送处理中，请勿重复提交', done: '已提交飞书', failed: '发送未确认', cancelled: '已取消' } as Record<string, string>)[j.status] ?? j.status}{j.lastError ? `：${j.lastError}` : ''}</li>)}</ul> : <p>暂无发送记录</p>}</details>
     </>}
