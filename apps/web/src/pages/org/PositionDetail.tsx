@@ -20,8 +20,8 @@ const OTHER_SECTIONS = DUTY_CATEGORIES.filter((c) => !MAIN_SECTIONS.some(([m]) =
 type Dlg = { kind: 'duty'; duty: DutyDto | null; category: string } | { kind: 'off'; duty: DutyDto } | { kind: 'del'; duty: DutyDto } | { kind: 'status' } | { kind: 'perm' } | null;
 
 /** 岗位档案详情（旧版整页）：头部（返回列表/编辑）→ 左：基础信息可就地编辑、五类条目分区、操作记录；右：在岗人员、岗位权限、快速摘要。 */
-export function PositionDetail({ id, tree, positions, catalog, canEdit, onBack, onChanged }: {
-  id: number; tree: DepartmentNode[]; positions: PositionDto[]; catalog: CatalogGroup[]; canEdit: boolean; onBack: () => void; onChanged: () => void;
+export function PositionDetail({ id, tree, positions, catalog, canEdit, onEnroll, onBack, onChanged }: {
+  id: number; tree: DepartmentNode[]; positions: PositionDto[]; catalog: CatalogGroup[]; canEdit: boolean; onEnroll?: () => void; onBack: () => void; onChanged: () => void;
 }) {
   const {user}=useAuth();
   const can=user?createChecker(user.permissions):()=>false;
@@ -86,6 +86,7 @@ export function PositionDetail({ id, tree, positions, catalog, canEdit, onBack, 
         </div>
         <div className="row-actions">
           <button type="button" className="secondary-button small" onClick={onBack}>返回列表</button>
+          {onEnroll && pos.status === 'active' && <button type="button" className="secondary-button small" onClick={onEnroll}>岗位入职码</button>}
           {canEdit && !editing && <button type="button" className="primary-button small" onClick={() => setEditing(true)}>编辑</button>}
           {canEdit && <button type="button" className="secondary-button small" onClick={() => setDlg({ kind: 'status' })}>{pos.status === 'inactive' ? '启用岗位' : '停用岗位'}</button>}
         </div>

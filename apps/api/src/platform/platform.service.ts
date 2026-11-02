@@ -1,3 +1,4 @@
+import { accountTransaction } from '../auth/account-transaction';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -86,8 +87,11 @@ export class PlatformService {
 
   /** 通过：开通公司（默认部门/岗位/销售平台）+ 管理员账号，同一事务，失败整体回滚。 */
   async approve(admin: PlatformAdminUser, id: number): Promise<{ companyId: number; companyName: string; adminAccount: string }> {
-    return this.ds.transaction(async (em) => {
+    const pending = await this.ds.manager.findOneBy(CompanyApplication, { id });
+    if (!pending) throw new NotFoundException('没有这份申请');
+    return accountTransaction(this.ds, pending.adminAccount, async (em) => {
       const app = await this.lockPending(em, id);
+      if (app.adminAccount !== pending.adminAccount) throw new ConflictException('申请信息已变化，请刷新重试');
       if (await this.accountTaken(em, app.adminAccount)) throw new ConflictException('该手机号已被其他账号使用，无法开通，请驳回并说明原因');
       let code = '';
       for (let i = 0; i < 5 && !code; i += 1) {

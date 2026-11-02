@@ -56,6 +56,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('登录与菜单', () => {
+  it('扫码入职入口免登录，点直接登录可离开扫码页', async () => {
+    renderAt('/join#bad');
+    expect(await screen.findByRole('heading', { name: '员工扫码入职' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: '直接登录' }));
+    expect(await screen.findByRole('button', { name: '登录' })).toBeTruthy();
+  });
+
   it('未登录显示登录页', () => {
     renderAt('/');
     expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();

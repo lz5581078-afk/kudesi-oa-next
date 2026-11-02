@@ -8,6 +8,7 @@ import { PageHint } from '../../resources/PageHint';
 import { SearchGlyph } from '../../resources/ResIcons';
 import { orgApi, flattenDepartments, LEVEL_LABELS, WORKSPACE_LABELS, type DepartmentNode, type PositionDto } from './orgApi';
 import { ConfirmDialog, PositionDialog, errText } from './OrgDialogs';
+import { EnrollmentInviteDialog } from './EnrollmentInviteDialog';
 import { DeskAccessDialog } from './DeskAccessDialog';
 import { PositionDetail } from './PositionDetail';
 
@@ -31,6 +32,7 @@ export function PositionProfilesPage() {
   const [sel, setSel] = useState<number | null>(null);
   const [folded, setFolded] = useState<Set<string>>(new Set());
   const [dlg, setDlg] = useState<{ kind: 'new' } | { kind: 'stop'; p: PositionDto } | { kind: 'del'; p: PositionDto } | null>(null);
+  const [invite, setInvite] = useState<{ position?: { id: number; name: string } } | null>(null);
   const [error, setError] = useState('');
   const [deskAccessOpen, setDeskAccessOpen] = useState(false);
   useAppbarBare();
@@ -79,7 +81,7 @@ export function PositionProfilesPage() {
           </nav>
         </aside>
         <main className="org-main pp-content" aria-label="岗位内容">
-        {sel!==null?<PositionDetail key={sel} id={sel} tree={tree} positions={positions} catalog={catalog} canEdit={canEdit} onBack={()=>setSel(null)} onChanged={reload}/>:<>
+        {sel!==null?<PositionDetail key={sel} id={sel} tree={tree} positions={positions} catalog={catalog} canEdit={canEdit} onEnroll={can('org.staff.create') ? () => { const p = positions.find(p => p.id === sel); if (p) setInvite({ position: p }); } : undefined} onBack={()=>setSel(null)} onChanged={reload}/>:<>
       <section className="res-main pp-main" aria-label="岗位档案列表">
         <div className="pp-content-head"><strong>{dept==='none'?'未分配部门':dept?flat.find(d=>String(d.id)===dept)?.name??'部门岗位':'全部岗位'}</strong><small className="muted">{shown.length} 个岗位{dept&&dept!=='none'?' · 包含下级部门':''}</small></div>
         <fieldset className="res-tools">
@@ -98,6 +100,7 @@ export function PositionProfilesPage() {
             <button type="button" className={vacantOnly ? 'res-btn on' : 'res-btn'} aria-pressed={vacantOnly} onClick={() => setVacantOnly((v) => !v)}>无人在岗 {positions.filter((p) => p.status === 'active' && p.userCount === 0).length}</button>
             {!hasSlot && hint}
             <span className="res-bar-gap" />
+            {can('org.staff.create') && <button type="button" className="res-btn" onClick={() => setInvite({})}>通用入职码</button>}
             {user?.permissions.isCompanyAdmin && <button type="button" className="res-btn" onClick={() => setDeskAccessOpen(true)}>按岗位配置功能权限</button>}
             {can('org.structure.create') && <button type="button" className="res-btn primary" onClick={() => setDlg({ kind: 'new' })}>＋ 新增岗位</button>}
           </div>
@@ -126,6 +129,7 @@ export function PositionProfilesPage() {
                         <td><span className={p.status === 'active' ? 'pill ok' : 'pill warn'}>{p.status === 'active' ? '启用' : '已停用'}</span></td>
                         <td className="pp-actions"><span className="row-actions">
                           <button type="button" className="link-button" onClick={() => setSel(p.id)}>查看档案</button>
+                          {can('org.staff.create') && p.status === 'active' && <button type="button" className="link-button" onClick={() => setInvite({ position: p })}>岗位入职码</button>}
                           {canEdit && p.status === 'active' && <button type="button" className="link-button" onClick={() => setDlg({ kind: 'stop', p })}>停用</button>}
                           {can('org.structure.delete') && <button type="button" className="link-button danger-text" onClick={() => setDlg({ kind: 'del', p })}>删除</button>}
                         </span></td>
@@ -142,6 +146,7 @@ export function PositionProfilesPage() {
       </section></>}
         </main>
       </div>
+      {invite && <EnrollmentInviteDialog position={invite.position} onClose={() => setInvite(null)} />}
       {deskAccessOpen && <DeskAccessDialog catalog={catalog} onClose={() => setDeskAccessOpen(false)} onApplied={reload} />}
       {dlg?.kind === 'new' && <PositionDialog position={null} defaultDepartmentId={dept&&dept!=='none' ? Number(dept) : null} departments={tree} catalog={catalog} canEditPerms={canEdit} onClose={() => setDlg(null)} onSaved={() => { setDlg(null); reload(); }} />}
       {dlg?.kind === 'stop' && (
