@@ -26,7 +26,7 @@ export function DeskAccessDialog({ catalog, onClose, onApplied }: { catalog: Cat
         {!plan && !error && <p role="status">正在生成调整预览…</p>}
         {plan && <>
           <p><strong>{plan.companyName}</strong>：调整 {plan.changedPositions} 个岗位；清除 {plan.changedStaff} 名员工的个人额外授权或拒绝，改按主岗、兼岗继承。</p>
-          <p>人事部及其下级部门、相关员工与兼任岗位的原权限保留。公司管理员身份、停用员工和未分配岗位员工的个人权限保留。</p>
+          <p>保留部门：{plan.protectedDepartments.join('、')}。这些部门及其下级部门、相关员工与兼任岗位的原权限保留。公司管理员身份、停用员工和未分配岗位员工的个人权限保留。</p>
           <div className="table-wrap"><table className="data-table"><thead><tr><th>部门 / 岗位</th><th>权限数量</th><th>功能 / 变化</th></tr></thead><tbody>
             {plan.positions.map((p) => <tr key={p.id}><td>{p.departmentName}<br /><strong>{p.name}</strong></td><td>{p.before.length} → {p.after.length}{p.preserved && <span>（保留）</span>}</td><td>{p.preserved ? '原权限不变' : <details><summary>查看功能及调整明细</summary><p>{p.pages.join('、')}</p><p>增加：{p.added.map((k) => labels.get(k) ?? k).join('、') || '无'}</p><p>移除：{p.removed.map((k) => labels.get(k) ?? k).join('、') || '无'}</p></details>}</td></tr>)}
           </tbody></table></div>

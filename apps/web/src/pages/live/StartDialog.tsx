@@ -17,7 +17,7 @@ export function StartDialog({ schedule, identity, onClose, onDone }: { schedule:
   const [startAt, setStartAt] = useState(nowText());
   const [keyword, setKeyword] = useState('');
   const [found, setFound] = useState<Product[]>([]);
-  const [picked, setPicked] = useState<Product[]>([]);
+  const [picked, setPicked] = useState<Product[]>(schedule?.products ?? []);
 
   useEffect(() => { liveApi.options().then(setOpts).catch((e) => setError(errText(e, '加载选项失败'))); }, []);
   useEffect(() => {

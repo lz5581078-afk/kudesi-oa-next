@@ -8,18 +8,23 @@ import {
 import type { AuthUser } from '../common/auth.decorators';
 import { Notification } from '../entities';
 import { FeishuNoticeService } from '../outbox/feishu-notice.service';
-import { LiveAccess, liveDouyinAccounts, liveDouyinStores, liveEmployees, livePeople, liveRoomList, loadLiveAccess, requireManage, requireUse, requireView } from './live-access';
+import { LiveAccess, liveDouyinAccounts, liveDouyinStores, liveEmployees, livePeople, liveProducts, liveRoomList, loadLiveAccess, requireManage, requireUse, requireView } from './live-access';
 import { Row, SESSION_SELECT, idOf, liveClock, liveFail, lockCompany, text, wallNow } from './live-core';
 
 export interface ScheduleInput {
   date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId?: number | null; operatorId?: number | null;
-  douyinAccountId: number; storeId?: number | null; note?: string;
+  douyinAccountId: number; storeId?: number | null; note?: string; productIds?: number[];
 }
 
 const SCHEDULE_SELECT = `SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text,
     a.name anchor_name, c.name control_name, o.name operator_name
     FROM live_schedules s JOIN users a ON a.id = s.anchor_user_id AND a.company_id = s.company_id
     LEFT JOIN users c ON c.id = s.control_user_id AND c.company_id = s.company_id LEFT JOIN users o ON o.id = s.operator_user_id AND o.company_id = s.company_id`;
+
+export function scheduleProducts(value: unknown): Array<{ id: number; code: string; name: string; spec: string }> {
+  const rows = typeof value === 'string' ? JSON.parse(value) : value;
+  return Array.isArray(rows) ? rows : [];
+}
 
 export function serializeSchedule(s: Row) {
   return {
@@ -28,6 +33,7 @@ export function serializeSchedule(s: Row) {
     anchor: { id: Number(s.anchor_user_id), name: s.anchor_name }, control: s.control_user_id ? { id: Number(s.control_user_id), name: s.control_name } : null,
     operator: s.operator_user_id ? { id: Number(s.operator_user_id), name: s.operator_name } : null,
     douyinAccount: { id: Number(s.douyin_account_id), name: s.douyin_account_name }, store: s.store_id ? { id: Number(s.store_id), name: s.store_name } : null,
+    products: scheduleProducts(s.products_json),
     sessionId: s.session_id ? Number(s.session_id) : null, note: s.note, cancelReason: s.cancel_reason,
   };
 }
@@ -81,6 +87,10 @@ export class LiveScheduleService {
     const storeId = input.storeId ? idOf(input.storeId) : null;
     const store = storeId ? (await liveDouyinStores(em, a.companyId)).find((x) => x.id === storeId) : null;
     if (input.storeId && !store) liveFail('所选店铺不存在、已注销或不是抖音店铺', 400);
+    const productIds = [...new Set(input.productIds ?? [])];
+    if (productIds.length > 100 || productIds.some((id) => !idOf(id))) liveFail('最多选择 100 个有效产品', 400);
+    const products = await liveProducts(em, a.companyId, productIds);
+    if (products.length !== productIds.length) liveFail('有产品不存在或已停用，请重新选择', 400);
     // 同一房间时间段不能重叠；同一主播不能同时在两个房间（相邻首尾相接不算重叠）
     const overlaps: Row[] = await em.query(
       `SELECT s.id, s.room_id, s.anchor_user_id, s.room_name, DATE_FORMAT(s.start_at,'%H:%i') st, DATE_FORMAT(s.end_at,'%H:%i') et, e.name anchor_name
@@ -91,7 +101,7 @@ export class LiveScheduleService {
     if (roomClash) liveFail(`该直播间 ${roomClash.st}–${roomClash.et} 已有排场（主播 ${roomClash.anchor_name}），时间段不能重叠`);
     const anchorClash = overlaps.find((r) => Number(r.anchor_user_id) === anchorId);
     if (anchorClash) liveFail(`${anchorClash.anchor_name} 在 ${anchorClash.st}–${anchorClash.et} 已排在 ${anchorClash.room_name}，同一主播不能同时在两个房间`);
-    return { day, startAt, endAt, room: room!, anchorId: anchorId!, controlId, operatorId, account: account!, store: store ?? null, note: text(input.note) || null };
+    return { day, startAt, endAt, room: room!, anchorId: anchorId!, controlId, operatorId, account: account!, store: store ?? null, note: text(input.note) || null, products };
   }
 
   /**
@@ -119,15 +129,25 @@ export class LiveScheduleService {
     return { from, to, rooms: await liveRoomList(this.em, a.companyId), rows: rows.map(serializeSchedule), canManage: a.canManage };
   }
 
+  /** 同房间、目标开始时间之前最近一次未取消排场；只读模板，不直接创建场次。 */
+  async previous(user: AuthUser, q: { roomId: number; date: string; startTime?: string }) {
+    const a = await this.access(user); requireManage(a);
+    if (!liveIsDay(q.date) || (q.startTime && liveMinutesOf(q.startTime) === null)) liveFail('请选择有效日期和开始时间', 400);
+    if (!(await liveRoomList(this.em, a.companyId)).some((r) => r.id === q.roomId)) liveFail('直播间不存在或已停用', 404);
+    const [row] = await this.em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.room_id = ? AND s.start_at < ? AND s.status <> 'cancelled' ORDER BY s.start_at DESC, s.id DESC LIMIT 1`,
+      [a.companyId, q.roomId, `${q.date} ${q.startTime ? q.startTime + ':00' : '23:59:59'}`]);
+    return row ? serializeSchedule(row) : null;
+  }
+
   async create(user: AuthUser, input: ScheduleInput) {
     const a = await this.access(user); requireManage(a);
     return this.ds.transaction(async (em) => {
       await lockCompany(em, a.companyId);
       const v = await this.validate(em, a, input, null);
       const res = await em.query(
-        `INSERT INTO live_schedules (company_id, room_id, room_name, schedule_date, start_at, end_at, anchor_user_id, control_user_id, operator_user_id, douyin_account_id, douyin_account_name, store_id, store_name, status, note, created_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?,?)`,
-        [a.companyId, v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, a.userId]);
+        `INSERT INTO live_schedules (company_id, room_id, room_name, schedule_date, start_at, end_at, anchor_user_id, control_user_id, operator_user_id, douyin_account_id, douyin_account_name, store_id, store_name, status, note, created_by, products_json)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?,?,?)`,
+        [a.companyId, v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, a.userId, JSON.stringify(v.products)]);
       const id = Number(res.insertId);
       const [row] = await em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.id = ?`, [a.companyId, id]);
       await this.notify(em, a.companyId, [v.anchorId, v.controlId, v.operatorId], '新排班', this.summary(row), { scheduleId: id, version: Number(row.notification_version), kind: 'schedule' });
@@ -145,8 +165,8 @@ export class LiveScheduleService {
       const v = await this.validate(em, a, input, id);
       await em.query(
         `UPDATE live_schedules SET room_id = ?, room_name = ?, schedule_date = ?, start_at = ?, end_at = ?, anchor_user_id = ?, control_user_id = ?, operator_user_id = ?,
-           douyin_account_id = ?, douyin_account_name = ?, store_id = ?, store_name = ?, note = ?, updated_by = ?, notification_version = notification_version + 1 WHERE company_id = ? AND id = ?`,
-        [v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, a.userId, a.companyId, id]);
+           douyin_account_id = ?, douyin_account_name = ?, store_id = ?, store_name = ?, note = ?, products_json = ?, updated_by = ?, notification_version = notification_version + 1 WHERE company_id = ? AND id = ?`,
+        [v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, JSON.stringify(v.products), a.userId, a.companyId, id]);
       const [row] = await em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.id = ?`, [a.companyId, id]);
       const now = new Set([v.anchorId, v.controlId, v.operatorId].filter(Boolean) as number[]);
       await this.feishu?.cancelPending(em, a.companyId, 'live-schedule', id);
@@ -200,26 +220,30 @@ export class LiveScheduleService {
       this.em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.schedule_date = ? AND s.status <> 'cancelled' ORDER BY s.start_at`, [a.companyId, day]),
       this.em.query(`${SESSION_SELECT} WHERE s.company_id = ? AND (s.session_date = ? OR s.status = 'live') ORDER BY s.start_at`, [a.companyId, day]),
     ]);
+    const liveProductsRows: Row[] = await this.em.query(`SELECT p.session_id, p.base_code_id id, p.code_snapshot code, p.name_snapshot name, COALESCE(p.spec_snapshot,'') spec
+      FROM live_session_products p JOIN live_sessions s ON s.company_id=p.company_id AND s.id=p.session_id
+      WHERE p.company_id=? AND s.status='live' ORDER BY p.session_id,p.sort_order`, [a.companyId]);
     const tiles = rooms.map((room) => {
       const roomSessions = sessions.filter((s) => Number(s.room_id) === room.id);
       const live = roomSessions.find((s) => s.status === 'live') ?? null;
       const items = schedules.filter((s) => Number(s.room_id) === room.id).map((s) => {
         const session = roomSessions.find((x) => Number(x.schedule_id) === Number(s.id));
         const state = session ? (session.status === 'live' ? 'live' : 'done') : s.end_text <= nowText ? 'missed' : s.start_text <= nowText ? 'due' : 'upcoming';
-        return { kind: 'schedule', id: Number(s.id), start: s.start_text, end: session?.end_text || s.end_text, plannedEnd: s.end_text, anchorName: s.anchor_name, controlName: s.control_name, operatorName: s.operator_name, douyinName: s.douyin_account_name, state, sessionId: session ? Number(session.id) : null };
+        return { kind: 'schedule', id: Number(s.id), start: s.start_text, end: session?.end_text || s.end_text, plannedEnd: s.end_text, anchorName: s.anchor_name, controlName: s.control_name, operatorName: s.operator_name, douyinName: s.douyin_account_name, products: scheduleProducts(s.products_json), state, sessionId: session ? Number(session.id) : null };
       });
       for (const s of roomSessions.filter((x) => !x.schedule_id && x.session_day === day)) {
-        items.push({ kind: 'adhoc', id: Number(s.id), start: s.start_text, end: s.end_text??nowText, plannedEnd: s.end_text??nowText, anchorName: s.anchor_name, controlName: s.control_name, operatorName: s.operator_name, douyinName: s.douyin_account_name, state: s.status === 'live' ? 'live' : 'done', sessionId: Number(s.id) });
+        items.push({ kind: 'adhoc', id: Number(s.id), start: s.start_text, end: s.end_text??nowText, plannedEnd: s.end_text??nowText, anchorName: s.anchor_name, controlName: s.control_name, operatorName: s.operator_name, douyinName: s.douyin_account_name, products: [], state: s.status === 'live' ? 'live' : 'done', sessionId: Number(s.id) });
       }
       items.sort((x, y) => String(x.start).localeCompare(String(y.start)));
       const upcoming = items.find((i) => ['upcoming', 'due'].includes(i.state)) ?? null;
       const status = live ? 'live' : day === liveToday(now) && items.some((i) => i.state === 'done') && !upcoming ? 'finished' : 'idle';
       const liveView = live ? {
+        products: liveProductsRows.filter((p) => Number(p.session_id) === Number(live.id)).map((p) => ({ id: Number(p.id), code: p.code, name: p.name, spec: p.spec })),
         id: Number(live.id), startAt: live.start_text, plannedEnd: live.schedule_end, anchor: { id: Number(live.anchor_user_id), name: live.anchor_name },
         control: live.control_user_id ? { id: Number(live.control_user_id), name: live.control_name } : null, operator: live.operator_user_id ? { id: Number(live.operator_user_id), name: live.operator_name } : null,
         douyinAccount: { id: Number(live.douyin_account_id), name: live.douyin_account_name },
       } : null;
-      return { ...room, status, statusLabel: ({ live: '正在直播', finished: '今日已结束', idle: '未开播' } as Record<string, string>)[status], live: liveView, next: live ? null : upcoming, timeline: items };
+      return { ...room, status, statusLabel: ({ live: '正在直播', finished: '今日已结束', idle: '未开播' } as Record<string, string>)[status], live: liveView, next: upcoming, timeline: items };
     });
     return {
       date: day, now: nowText, groups: liveGroupRooms(tiles), corridorFound: rooms.length > 0,
