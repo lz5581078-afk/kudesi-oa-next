@@ -1,3 +1,4 @@
+import { StoreJstBadge } from './StoreJstSelect';
 import { useRef, type ReactNode } from 'react';
 import { dueBadgeFor, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
@@ -101,7 +102,7 @@ export function ResourceTable(p: Props) {
           return (
             <td key={f.key} data-label={f.label} className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`}>
               <div className="cell">
-                <span className="cell-t" title={text || undefined}>{text}</span>
+                <span className="cell-t" title={text || undefined}>{p.type === 'stores' && f.key === 'jushuitanShopId' ? <StoreJstBadge data={row.data} /> : text}</span>
                 {isCopyable(def, f) && f.type !== 'number' && text && <CopyButton value={text} label={f.label} />}
                 {due && <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`} title="到期提醒按今天的日期实时计算">{due.text}</span>}
               </div>
@@ -174,7 +175,7 @@ export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns'
   const { def, rows } = p;
   if (!rows) return <div className="res-cards-wrap"><div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />{p.loadingText ?? '加载中…'}</div></div>;
   if (rows.length === 0) return <div className="res-cards-wrap">{p.empty}</div>;
-  const metaCols = p.columns.filter((f) => f.key !== def.titleField);
+  const metaCols = p.columns.filter((f) => f.key !== def.titleField && !(p.type === 'stores' && f.key === 'jushuitanShopId'));
   const renderCard = (row: ResourceDto) => {
     const st = statusOf(def, row.status);
     const metas = metaCols.map((f) => ({ f, text: displayValue(f, row) })).filter((m) => m.text).slice(0, 4);
@@ -187,6 +188,7 @@ export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns'
           <strong className="res-card-title">{row.title}</strong>
           <span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>
         </div>
+        {p.type === 'stores' && <div style={{ marginTop: 8 }}><StoreJstBadge data={row.data} /></div>}
         {metas.length > 0 && (
           <dl className="res-card-meta">
             {metas.map(({ f, text }) => {

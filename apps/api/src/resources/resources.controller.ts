@@ -191,6 +191,12 @@ export class ResourcesController {
   }
 
   @RequireResourceAction('view')
+  @Get(':type/jushuitan-shops')
+  jushuitanShops(@CurrentUser() user: AuthUser, @Param('type') type: string) {
+    return this.resources.jushuitanShops(user, type);
+  }
+
+  @RequireResourceAction('view')
   @Get(':type/category-tree')
   categoryTree(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: CategoryTreeQueryDto) {
     return this.resources.categoryTree(user, type, q.field, { tab: q.tab, status: q.status, showHidden: q.showHidden === '1' });
