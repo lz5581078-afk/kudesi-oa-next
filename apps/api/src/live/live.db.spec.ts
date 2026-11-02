@@ -803,4 +803,18 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.submissionStatus(stranger)).rejects.toThrow(/无权/);
   });
 
+  it('成功上播事务自动通知总经办，重复上播不重复通知；采用实际开播而非登记时间', async()=>{
+    await ds.query("UPDATE live_sessions SET status='approved' WHERE company_id=? AND status='live'",[company]);
+    const dept=await ds.manager.save(Department,ds.manager.create(Department,{companyId:company,name:'总经办',status:'active'}));
+    const recipient=await mkUser(company,'start-alert-'+crypto.randomBytes(3).toString('hex'),'总经办收件人',{departmentId:dept.id});
+    clock('2026-12-02 09:00:00');
+    const sch=await schedules.create(manager,input({date:'2026-12-02',startTime:'10:00',endTime:'12:00'}));
+    clock('2026-12-02 10:30:00');
+    const started=await sessions.start(anchor,{scheduleId:sch.id,...baseStart({startAt:'2026-12-02 10:05:01'})});
+    const rows=await ds.manager.find(Notification,{where:{companyId:company,userId:recipient,title:'开播时间异常：推迟超过5分钟'}});
+    expect(rows).toHaveLength(1);expect(rows[0].body).toContain('5分1秒');expect(rows[0].body).toContain('实际开播：2026-12-02 10:05:01');
+    await expect(sessions.start(anchor,{scheduleId:sch.id,...baseStart()})).rejects.toThrow('已上播');
+    expect(await ds.query('SELECT * FROM live_notification_events WHERE company_id=? AND event_key=?',[company,`start-deviation:${started.id}`])).toHaveLength(1);
+  });
+
 });
