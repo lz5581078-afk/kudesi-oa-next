@@ -73,7 +73,9 @@ export class LiveLedgerService {
   async commissions(user: AuthUser, q: { month?: string; from?: string; to?: string; userId?: number; role?: string }) {
     const { a, month, where, params } = await this.scope(user, q);
     if (q.userId && a.canViewAll) { where.push('r.user_id = ?'); params.push(q.userId); }
-    if (q.role && LIVE_ROLE_LABEL[q.role]) { where.push('r.role = ?'); params.push(q.role); }
+    // 按审核快照分账，员工调岗后仍保留原归属。原始角色用于比例、退款和工资结算。
+    const ledgerRole = "CASE WHEN r.role='control' AND JSON_EXTRACT(r.rule_snapshot,'$.controlCommissionOnly')=true THEN 'operator' ELSE r.role END";
+    if (q.role && LIVE_ROLE_LABEL[q.role]) { where.push(ledgerRole + ' = ?'); params.push(q.role); }
     const rows: Row[] = await this.em.query(
       `SELECT r.platform, r.id, r.session_id, r.user_id, r.role, DATE_FORMAT(r.session_date,'%Y-%m-%d') day, r.final_sales_cents, r.ad_spend_cents, r.roi_scaled, r.below_roi, r.rate_units, r.amount_cents, r.rule_version_id, e.name user_name,
          s.room_name, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i') start_text, s.douyin_account_name
