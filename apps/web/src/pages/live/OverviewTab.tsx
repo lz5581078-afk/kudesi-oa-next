@@ -32,9 +32,8 @@ function Tile({ t, day, now, onOpen,onEdit }: { t: RoomTile; day: string; now: s
     {t.live&&<><small className="live-current-products">本场产品 <strong>{productText(t.live.products)}</strong></small><div className="live-room-progress"><div role="progressbar" aria-label="本场直播进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress??undefined} className="live-progress-track"><i style={{width:`${progress??0}%`}}/></div><small>{progress===null?'临时场次，未设置预计下播':elapsed>planned!?'已超过预计下播时间':`直播进度 ${progress}%`}</small></div></>}
     <section className="live-next" aria-label={`${t.shortName || t.name}下一场`}>
       {t.next ? <>
-        <strong className="live-next-time">下一场 {hm(t.next.start,day)}–{hm(t.next.plannedEnd,day)}</strong>
-        <div className="live-next-people"><span>主播 <strong>{t.next.anchorName}</strong></span><span>中控 <strong>{t.next.controlName || '未安排'}</strong></span><span>运营 <strong>{t.next.operatorName || '未安排'}</strong></span></div>
-        <div className="live-next-products">产品 <strong>{productText(t.next.products)}</strong></div>
+        <div className="live-next-heading"><strong className="live-next-time">下一场 {hm(t.next.start,day)}–{hm(t.next.plannedEnd,day)}</strong><span className="live-next-products" title={`产品 ${productText(t.next.products)}`} aria-label={`产品 ${productText(t.next.products)}`}><strong>{productText(t.next.products)}</strong></span></div>
+        <div className="live-next-people"><span>主播<strong title={t.next.anchorName}>{t.next.anchorName}</strong></span><span>中控<strong title={t.next.controlName || '未安排'}>{t.next.controlName || '未安排'}</strong></span><span>运营<strong title={t.next.operatorName || '未安排'}>{t.next.operatorName || '未安排'}</strong></span></div>
       </> : <span>当天暂无后续排场</span>}
     </section>
     <div className="live-bar" aria-label="当天排场时间条">{t.timeline.map(i=><i key={`${i.kind}${i.id}`} className={i.state==='done'?'done':i.state==='missed'||i.state==='due'?'missed':''} style={{left:`${barPos(i.start,day)}%`,width:`${Math.max(1.5,barPos(i.end,day)-barPos(i.start,day))}%`}}/>)}{day===now.slice(0,10)&&<b style={{left:`${barPos(now,day)}%`}}/>}</div>
