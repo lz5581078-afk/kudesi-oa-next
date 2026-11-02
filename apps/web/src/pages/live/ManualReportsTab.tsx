@@ -4,10 +4,15 @@ import { type LiveChannelInput, type LiveChannel } from '@kudesi/shared';
 import { manualApiTime, manualSessionDraft } from './manualSessionDraft';
 import { productText } from './liveProducts';
 import { useEffect, useRef, useState } from 'react';
-import { liveApi, type Options, type ManualBody, type SessionDetail } from './liveApi';
+import { liveApi, type Options, type ManualBody, type SubmissionStatus, type SessionDetail } from './liveApi';
+import { SubmissionNotice } from './SubmissionNotice';
 import { errText, nowText, yuanCents } from './liveFormat';
 import { TrialPersonDialog } from './TrialPersonDialog';
 export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
+  const [submission, setSubmission] = useState<SubmissionStatus | null>(null);
+  const feedback = useRef<HTMLDivElement>(null);
+  const checkSubmission = () => liveApi.submissionStatus().then(setSubmission).catch(() => setSubmission({ ready: false, message: '暂时无法检查审核流程，请重试。' }));
+  useEffect(() => { void checkSubmission(); }, []);
   const [loadedSession,setLoadedSession]=useState<SessionDetail|null>(null);
   const [loading,setLoading]=useState(false);
   const loadVersion=useRef(0);
@@ -18,6 +23,7 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
     [busy, setBusy] = useState(false),
     [trial, setTrial] = useState(false),
     [saved, setSaved] = useState<number | null>(null);
+  useEffect(() => { if (error) feedback.current?.focus(); }, [error]);
   const [f, setF] = useState({
     sessionId: '',
     roomId: '',
@@ -108,6 +114,7 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
       const fresh=loadedSession ? {...loadedSession,startAt:manualApiTime(f.startAt),endAt:manualApiTime(f.endAt)} : null;
       if(fresh)setLoadedSession(fresh);
       setF((v) => ({ ...v, sessionId: String(r.id) }));
+      onOpen(r.id);
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -134,25 +141,13 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
     </label>
   );
   return (
-    <section className="card live-section">
+    <section className="card live-section live-manual-report">
       <h2>人事手工业绩填报</h2>
       <div className="pad live-page">
         <p className="notice warn">
-          用于试播、漏报或接口异常。保存后仍需提交场次审核，审核时确认主播和中控时薪。无订单的手工业绩会在工资结算报表中标记为“特殊核定，未核对订单”。
+          用于试播、漏报或接口异常。填写后保存并核对，再提交审核；审核通过后才计入提成与工资。无订单的业绩需填写特殊原因。
         </p>
-        {error && (
-          <p role="alert" className="notice error">
-            {error}
-          </p>
-        )}
-        {saved && (
-          <div role="status" className="notice ok">
-            已保存场次 #{saved}，待提交审核。
-            <button className="link-button" onClick={() => onOpen(saved)}>
-              查看并提交审核
-            </button>
-          </div>
-        )}
+        {submission ? <SubmissionNotice status={submission} onRefresh={() => void checkSubmission()} /> : <p role="status" className="muted">正在检查审核流程…</p>}
         <div className="live-fields">
           <label className="live-field">
             已有场次编号（补报时填写）
@@ -214,9 +209,14 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
             </fieldset>
           </>
         )}
-        <div className="live-actions">
+        <div className="live-manual-feedback" ref={feedback} tabIndex={-1}>
+          {error && <div role="alert" className="notice error">{error}</div>}
+          {saved && <div role="status" className="notice ok">已保存场次 #{saved}，可在详情中核对并提交。<button type="button" className="link-button" onClick={() => onOpen(saved)}>打开场次详情</button></div>}
+        </div>
+        <div className="live-actions live-manual-actions">
+          <p className="muted">保存后自动打开核对页面，填写内容会保留。</p>
           <button className="primary-button" disabled={busy || loading || !opts || saved !== null || (!!f.sessionId && Number(f.sessionId)!==loadedSession?.id) || (!!loadedSession&&!['live','pending_report','returned'].includes(loadedSession.status))} onClick={() => void save()}>
-            {busy ? '保存中…' : '保存为待审核场次'}
+            {busy ? '保存中…' : saved ? '已保存' : '保存并核对'}
           </button>
         </div>
       </div>

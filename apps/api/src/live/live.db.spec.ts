@@ -9,7 +9,7 @@ import { DataSource } from 'typeorm';
 import { LIVE_DEFAULT_RULES, liveComputeCommission, liveSettleLine as liveSettleLineFor, type StepDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, Notification, ResourceRecord, User } from '../entities';
+import { Company, Department, Notification, ResourceRecord, User } from '../entities';
 import { FlowService } from '../flow/flow.service';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { buildServices } from '../test-support';
@@ -719,6 +719,28 @@ d('直播管理（真实数据库）', () => {
     await expect(turnover.read(foreign,id)).rejects.toThrow(/不存在/);
     const tile=(await schedules.overview(manager,'2027-01-15')).groups.north.find(r=>r.id===ids.n1)!;
     expect(tile.current).toMatchObject({id,endAt,status:'pending_report'});
+  });
+
+  it('审核预检按公司隔离、草稿不放行；人事部门任一在职人员可办理，人员失效及时提示', async () => {
+    const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `ready${crypto.randomBytes(4).toString('hex')}`, name: '审核预检', status: 'active' }));
+    const dep = await ds.manager.save(Department, ds.manager.create(Department, { companyId: c.id, name: '人事综合部' }));
+    const first = await mkUser(c.id, 'hr1', '人事一', { departmentId: dep.id });
+    const second = await mkUser(c.id, 'hr2', '人事二', { departmentId: dep.id });
+    const config = { ...admin, companyId: c.id, id: first };
+    const employee = au(first, c.id, '人事一', ['features.live.view', 'live.manage']);
+    expect(await sessions.submissionStatus(employee)).toMatchObject({ready:false, message:expect.stringContaining('未启用')});
+    const review: StepDef = { ...step('review', '场次审核', 'approval'), assignee: { source: 'department', id: dep.id } };
+    await flow.saveDraft(config, 'live-session-review', [step('apply','提交审核','submit'), review, step('end','结束','end')], []);
+    expect((await sessions.submissionStatus(employee)).ready).toBe(false);
+    await flow.publish(config, 'live-session-review');
+    expect((await sessions.submissionStatus(employee)).ready).toBe(true);
+    expect((await flow.resolveRecipients(ds.manager,c.id,review,first)).sort()).toEqual([first,second].sort());
+    await ds.query("UPDATE users SET status='disabled' WHERE company_id=? AND id=?", [c.id,second]);
+    expect(await flow.resolveRecipients(ds.manager,c.id,review,first)).toEqual([first]);
+    await ds.query("UPDATE users SET status='disabled' WHERE company_id=? AND id=?", [c.id,first]);
+    expect(await sessions.submissionStatus(config)).toMatchObject({ready:false,message:expect.stringContaining('没有在职员工')});
+    expect((await sessions.submissionStatus(foreign)).ready).toBe(false);
+    await expect(sessions.submissionStatus(stranger)).rejects.toThrow(/无权/);
   });
 
 });
