@@ -11,7 +11,7 @@ describe('迁入账号登录升级', () => {
     const companies:any={findOne:jest.fn(async()=>({id:20,name:'测试公司',status:'active'}))};
     const admins:any={findOne:jest.fn(async()=>null)};
     const audits:any={findOne:async()=>null,create:(x:unknown)=>x,save:jest.fn()};
-    const service=new AuthService(jwt,companies,admins,users,{} as any,{find:async()=>[]} as any,{find:async()=>[]} as any,audits);
+    const service=new AuthService(jwt,companies,admins,users,{} as any,{find:async()=>[]} as any,{find:async()=>[]} as any,audits,{isBound:async()=>true} as any);
     return {service,users,jwt,row:()=>row};
   }
   it('原密码登录后升级bcrypt，返回值不含任何凭据',async()=>{

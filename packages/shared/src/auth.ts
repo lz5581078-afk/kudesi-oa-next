@@ -9,7 +9,7 @@ export interface CurrentUserDto {
   companyName: string;
   positionName: string | null;
   mustChangePassword: boolean;
-  /** 岗位扫码入职后尚未完成本人企业飞书绑定。 */
+  /** 当前公司员工尚未完成本人企业飞书绑定，必须先完成绑定。 */
   feishuBindingPending?: boolean;
   permissions: EffectivePermissions;
 }
