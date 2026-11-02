@@ -53,7 +53,7 @@ export function SchedulesTab() {
   const counts = (x: string) => (d?.rows ?? []).filter((r) => r.date === x && r.status !== 'cancelled').length;
   return (
     <div className="live-page">
-      <div className="live-filter card">
+      <div className="live-filter card live-schedule-toolbar">
         <div className="tab-group" role="tablist" aria-label="日期">{days.map((x) => <button key={x} type="button" role="tab" aria-selected={x === day} className={x === day ? 'chip active' : 'chip'} onClick={() => setDay(x)}>{x === today ? '今天' : dayLabel(x)}{counts(x) ? ` · ${counts(x)}` : ''}</button>)}</div>
         <label className="live-field"><span><input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} /> 显示已取消</span></label>
         {d?.canManage && <button type="button" className="primary-button" onClick={() => {setDefaultRoom(undefined);setEditing('new');}}>新增排场</button>}
