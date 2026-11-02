@@ -101,9 +101,6 @@
 .live-store-performance summary { cursor: pointer; margin: 8px 0; color: var(--accent); }
 .live-workspace .live-manual-report > .pad { padding: 24px; gap: 20px; }
 .live-workspace .live-manual-actions { padding: 16px; background: #f8fafb; border: 1px solid var(--border); border-radius: 10px; }
-.live-manual-load { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; padding: 16px; background: #f8fafb; border: 1px solid var(--border); border-radius: 10px; }
-.live-manual-load .live-field { flex: 1 1 240px; max-width: 400px; }
-.live-manual-load button { min-height: 40px; }
 .live-workspace .live-notification-settings { padding: 24px; display: grid; gap: 18px; }
 .live-workspace .live-notification-settings :is(h2,h3,p) { margin: 0; }
 .live-workspace .live-notification-settings > h2 { font-size: 18px; }
@@ -203,3 +200,15 @@
 @media(max-width:640px) { .modal-backdrop.live-modal-backdrop:has(.live-modal) { padding: 0; } }
 .live-modal :is(.live-pickbox,.live-orders,.live-store-order-list) label { display: flex; flex-direction: row; justify-content: flex-start; align-items: flex-start; gap: 10px; padding: 10px 12px; text-align: left; overflow-wrap: anywhere; }
 .live-modal :is(.live-pickbox,.live-orders,.live-store-order-list) input[type=checkbox] { width: 17px; height: 17px; flex: none; margin-top: 3px; }
+.live-workspace .live-manual-report [aria-label="补报方式"] { width: fit-content; max-width: 100%; padding: 6px; background: #f3f6f8; border: 1px solid var(--border); border-radius: 10px; }
+.live-workspace .live-manual-picker { display: flex; flex-direction: column; gap: 18px; }
+.live-workspace .live-manual-picker > p { margin: 0; }
+.live-manual-picker-filters { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.live-manual-picker .live-scroll { border: 1px solid var(--border); border-radius: 9px; }
+.live-picker-pager { align-items: center; justify-content: flex-end; }
+@media(max-width:640px) {
+  .live-workspace .live-manual-report [aria-label="补报方式"] { width: 100%; }
+  .live-workspace .live-manual-report [aria-label="补报方式"] button { flex: 1; min-height: 40px; }
+  .live-workspace .live-manual-picker-filters { grid-template-columns: minmax(0,1fr); }
+  .live-manual-picker .live-responsive-table td:last-child { grid-column: 1 / -1; }
+}

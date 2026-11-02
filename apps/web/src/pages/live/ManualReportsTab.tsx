@@ -1,3 +1,4 @@
+import { ManualSessionPicker } from './ManualSessionPicker';
 import { ChannelPicker, snapshotChannels } from './ChannelPicker';
 import { StorePerformanceTable, storeDrafts, storePayload, type StoreDraft } from './StorePerformanceTable';
 import { type LiveChannelInput, type LiveChannel } from '@kudesi/shared';
@@ -9,6 +10,13 @@ import { SubmissionNotice } from './SubmissionNotice';
 import { errText, nowText, yuanCents } from './liveFormat';
 import { TrialPersonDialog } from './TrialPersonDialog';
 export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
+  const [existing, setExisting] = useState(true);
+  return <ManualReportForm key={String(existing)} existing={existing} changeMode={setExisting} onOpen={onOpen}/>;
+}
+function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; changeMode:(value:boolean)=>void; onOpen:(id:number)=>void}) {
+  const [choosing,setChoosing]=useState(true);
+  const dirty = useRef(false);
+  const canDiscard = () => !dirty.current || window.confirm('放弃当前未保存的补报内容？');
   const [submission, setSubmission] = useState<SubmissionStatus | null>(null);
   const feedback = useRef<HTMLDivElement>(null);
   const checkSubmission = () => liveApi.submissionStatus().then(setSubmission).catch(() => setSubmission({ ready: false, message: '暂时无法检查审核流程，请重试。' }));
@@ -43,7 +51,6 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
   });
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => {
     setSaved(null);
-    if(k==='sessionId'){loadVersion.current++;setLoading(false);setLoadedSession(null);setLoadedChannels(null);setChannels([]);setStoreRows([]);}
     setF((v) => ({ ...v, [k]: e.target.value }));
   };
   useEffect(() => {
@@ -52,16 +59,16 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
       .then(setOpts)
       .catch((e) => setError(errText(e)));
   }, []);
-  async function loadSession() {
-    const id=Number(f.sessionId);
-    if(!Number.isSafeInteger(id)||id<1)return setError('请输入有效的原场次编号');
+  async function loadSession(id: number) {
+    if (!canDiscard()) return;
+    dirty.current = false;
     const version=++loadVersion.current;
     setError('');setSaved(null);setLoading(true);setLoadedSession(null);setLoadedChannels(null);setChannels([]);setStoreRows([]);
     try {
       const session=await liveApi.session(id);
       if(version!==loadVersion.current)return;
       const draft=manualSessionDraft(session,nowText());
-      setLoadedSession(session);setChannels(draft.channels);setLoadedChannels(draft.snapshot);setStoreRows(draft.rows);setF(draft.fields);
+      setChoosing(false);setLoadedSession(session);setChannels(draft.channels);setLoadedChannels(draft.snapshot);setStoreRows(draft.rows);setF(draft.fields);
     } catch(e) {if(version===loadVersion.current)setError(errText(e,'载入原场次失败'));}
     finally {if(version===loadVersion.current)setLoading(false);}
   }
@@ -114,6 +121,7 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
       const fresh=loadedSession ? {...loadedSession,startAt:manualApiTime(f.startAt),endAt:manualApiTime(f.endAt)} : null;
       if(fresh)setLoadedSession(fresh);
       setF((v) => ({ ...v, sessionId: String(r.id) }));
+      dirty.current = false;
       onOpen(r.id);
     } catch (e) {
       setError(errText(e));
@@ -148,20 +156,15 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
           用于试播、漏报或接口异常。填写后保存并核对，再提交审核；审核通过后才计入提成与工资。无订单的业绩需填写特殊原因。
         </p>
         {submission ? <SubmissionNotice status={submission} onRefresh={() => void checkSubmission()} /> : <p role="status" className="muted">正在检查审核流程…</p>}
-        <div className="live-manual-load">
-          <label className="live-field">
-            已有场次编号（补报时填写）
-            <input aria-label="补报场次编号" inputMode="numeric" value={f.sessionId} onChange={set('sessionId')} />
-          </label>
-            <button type="button" disabled={busy||loading} className="secondary-button" onClick={() => void loadSession()}>
-              载入原场次
-            </button>
+        <div className="live-actions" aria-label="补报方式">
+          {[true,false].map(mode => <button key={String(mode)} aria-pressed={existing===mode} disabled={busy} className={existing===mode?'primary-button':'secondary-button'} onClick={()=>{if(existing!==mode && canDiscard()) changeMode(mode);}}>{mode?'补报已有场次':'新建补报'}</button>)}
         </div>
-        {!!f.sessionId&&!loadedSession&&!loading&&<p className="muted">请输入场次编号并点击「载入原场次」，成功载入后才能保存补报。</p>}
+        {existing && !choosing && <button disabled={busy} className="link-button" onClick={()=>setChoosing(true)}>重新选择场次</button>}
+        {existing && choosing && !busy && <ManualSessionPicker options={opts} onPick={id=>void loadSession(id)}/>}
         {loading&&<p role="status">正在载入原场次…</p>}
         {loadedSession&&<div className="notice" role="status"><strong>已载入原场次 #{loadedSession.id} · {loadedSession.statusLabel}</strong><p>房间、人员、账号、店铺和开播时间沿用原记录；可补充或修改营业额、投流费用、下播时间、订单及核定原因。保存后仍需审核。</p><p>原场次产品：{productText(loadedSession.products)}</p>{!['live','pending_report','returned'].includes(loadedSession.status)&&<p>该场次已提交审核或已审核，当前只供核对，不能补报。</p>}</div>}
-        {opts && (
-          <>
+        {opts && (!existing || loadedSession) && (
+          <div className="live-page" onChangeCapture={()=>{dirty.current=true;}}>
             <fieldset>
               <legend>房间与参与人员</legend>
               <div className="live-fields">
@@ -207,18 +210,18 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
                 </label>
               </div>
             </fieldset>
-          </>
+          </div>
         )}
         <div className="live-manual-feedback" ref={feedback} tabIndex={-1}>
           {error && <div role="alert" className="notice error">{error}</div>}
           {saved && <div role="status" className="notice ok">已保存场次 #{saved}，可在详情中核对并提交。<button type="button" className="link-button" onClick={() => onOpen(saved)}>打开场次详情</button></div>}
         </div>
-        <div className="live-actions live-manual-actions">
+        {(!existing || loadedSession) && <div className="live-actions live-manual-actions">
           <p className="muted">保存后自动打开核对页面，填写内容会保留。</p>
           <button className="primary-button" disabled={busy || loading || !opts || saved !== null || (!!f.sessionId && Number(f.sessionId)!==loadedSession?.id) || (!!loadedSession&&!['live','pending_report','returned'].includes(loadedSession.status))} onClick={() => void save()}>
             {busy ? '保存中…' : saved ? '已保存' : '保存并核对'}
           </button>
-        </div>
+        </div>}
       </div>
       {trial && (
         <TrialPersonDialog

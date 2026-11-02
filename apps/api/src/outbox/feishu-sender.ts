@@ -12,6 +12,15 @@ export class ConnectedFeishuSender implements FeishuSender {
     if (!job.companyId) throw new Error('飞书发送缺少公司范围');
     if (job.notice.liveEventKey && !await liveNoticeValid(this.config.ds.manager,job.companyId,job.notice.userId,job.notice.liveEventKey)) return;
     const cfg = await this.config.read<FeishuConfig>(job.companyId, 'feishu');
+    if (job.notice.kind === 'staff-feishu-test') {
+      const fail = (message:string):never => { throw Object.assign(new Error(message),{permanent:true}); };
+      const deadline=Date.parse(job.notice.expiresAt??'');
+      if(!Number.isFinite(deadline)||deadline<=Date.now())fail('测试通知已过期，请重新发起');
+      const [valid]=cfg?await this.config.ds.query(`SELECT b.id FROM feishu_identities b
+        JOIN users u ON u.company_id=b.company_id AND u.id=b.user_id JOIN companies c ON c.id=b.company_id
+        WHERE b.company_id=? AND b.user_id=? AND b.app_id=? AND b.tenant_key=? AND b.oa_notifications=1 AND u.status='active' AND c.status='active'`,[job.companyId,job.notice.userId,cfg.appId,cfg.tenantKey]):[];
+      if(!valid)fail('员工绑定或通知状态已变化，请刷新后重试');
+    }
     if (!cfg?.enabled || !cfg.tenantKey) throw new Error('飞书公司授权未启用');
     const [binding] = await this.config.ds.query("SELECT b.open_id,b.union_id FROM feishu_identities b JOIN users u ON u.id=b.user_id AND u.company_id=b.company_id WHERE b.company_id=? AND b.user_id=? AND b.app_id=? AND b.tenant_key=? AND u.status='active'", [job.companyId, job.notice.userId, cfg.appId, cfg.tenantKey]);
     if (!binding) throw new Error('接收员工尚未绑定本公司飞书身份');
