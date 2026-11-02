@@ -16,7 +16,7 @@ export function DeskPage() {
   const [error, setError] = useState('');
   useEffect(() => { workspaceApi.catalog().then(setCatalog).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')); }, []);
   const wanted = Number(params.get('position')) || null;
-  const current = useMemo(() => catalog?.positions.find((p) => p.id === (wanted ?? catalog.defaultPositionId ?? catalog.positions[0]?.id ?? -1)) ?? null, [catalog, wanted]);
+  const current = useMemo(() => catalog?.positions.find((p) => p.id === (wanted ?? catalog.defaultPositionId ?? -1)) ?? null, [catalog, wanted]);
   useEffect(() => {
     let active = true;
     setDesk(null);
@@ -32,6 +32,7 @@ export function DeskPage() {
   if (catalog.positions.length === 0) return (
     <div className="empty-state muted"><strong>你还没有分配岗位</strong><span>请联系管理员在“员工与权限”里给你分配岗位；个人任务和流程在“个人工作台”里。</span></div>
   );
+  if (!current && !wanted && catalog.defaultPositionId == null) return <div className="empty-state muted"><strong>你还没有分配有效岗位</strong><span>请联系管理员分配主岗位或兼岗。</span></div>;
   if (!current) return <div role="alert" className="notice error">没有这个岗位的工作台，或你无权查看。</div>;
   const def = deskFor(current.workspaceType);
   const view: DeskView | null = current && desk ? {

@@ -149,6 +149,7 @@ import { ResourcesService } from './resources/resources.service';
 import { OrgController } from './org/org.controller';
 import { OrgAdminController } from './org/org-admin.controller';
 import { AuditController, BankFundController } from './org/audit.controller';
+import { DeskAccessService } from './org/desk-access.service';
 import { OrgAdminService } from './org/org-admin.service';
 import { StaffImportService } from './org/staff-import.service';
 import { OrgService } from './org/org.service';
@@ -209,6 +210,7 @@ const env = loadEnv();
     OrgService,
     OrgAdminService,
     StaffEnrollmentService,
+    DeskAccessService,
     StaffImportService,
     ResourcesService,
     GridSaveService,

@@ -9,6 +9,7 @@ import { SearchGlyph } from '../../resources/ResIcons';
 import { orgApi, flattenDepartments, LEVEL_LABELS, WORKSPACE_LABELS, type DepartmentNode, type PositionDto } from './orgApi';
 import { ConfirmDialog, PositionDialog, errText } from './OrgDialogs';
 import { EnrollmentInviteDialog } from './EnrollmentInviteDialog';
+import { DeskAccessDialog } from './DeskAccessDialog';
 import { PositionDetail } from './PositionDetail';
 
 /** 岗位类型（positions.workspace_type 显式字段）对应的默认工作台名称；空白类型没有默认工作台 */
@@ -33,6 +34,7 @@ export function PositionProfilesPage() {
   const [dlg, setDlg] = useState<{ kind: 'new' } | { kind: 'stop'; p: PositionDto } | { kind: 'del'; p: PositionDto } | null>(null);
   const [invite, setInvite] = useState<{ position?: { id: number; name: string } } | null>(null);
   const [error, setError] = useState('');
+  const [deskAccessOpen, setDeskAccessOpen] = useState(false);
   useAppbarBare();
   const hasSlot = useHasAppbarSlot();
   const hint = <PageHint text={resourceDescription('position-profiles') || '岗位不只是一个名称，它还承接职责、培训、绩效、监督规则和流程节点说明。'} />;
@@ -99,6 +101,7 @@ export function PositionProfilesPage() {
             {!hasSlot && hint}
             <span className="res-bar-gap" />
             {can('org.staff.create') && <button type="button" className="res-btn" onClick={() => setInvite({})}>通用入职码</button>}
+            {user?.permissions.isCompanyAdmin && <button type="button" className="res-btn" onClick={() => setDeskAccessOpen(true)}>按岗位配置功能权限</button>}
             {can('org.structure.create') && <button type="button" className="res-btn primary" onClick={() => setDlg({ kind: 'new' })}>＋ 新增岗位</button>}
           </div>
         </fieldset>
@@ -144,6 +147,7 @@ export function PositionProfilesPage() {
         </main>
       </div>
       {invite && <EnrollmentInviteDialog position={invite.position} onClose={() => setInvite(null)} />}
+      {deskAccessOpen && <DeskAccessDialog catalog={catalog} onClose={() => setDeskAccessOpen(false)} onApplied={reload} />}
       {dlg?.kind === 'new' && <PositionDialog position={null} defaultDepartmentId={dept&&dept!=='none' ? Number(dept) : null} departments={tree} catalog={catalog} canEditPerms={canEdit} onClose={() => setDlg(null)} onSaved={() => { setDlg(null); reload(); }} />}
       {dlg?.kind === 'stop' && (
         <ConfirmDialog title={`停用岗位「${dlg.p.name}」`} text="停用后不能再分配给新员工；已在岗的人员不受影响。" confirmLabel="确认停用" reasonLabel="停用原因" onClose={() => setDlg(null)}

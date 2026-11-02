@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Po
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, ValidateIf } from 'class-validator';
 import { permissionCatalog } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
+import { DeskAccessService } from './desk-access.service';
 import { StaffImportService } from './staff-import.service';
 import { DUTY_CATEGORIES, EMPLOYMENT_TYPES, OrgAdminService, PAY_TYPES, POSITION_LEVELS, WORKSPACE_TYPES } from './org-admin.service';
 
@@ -107,9 +108,22 @@ class UpdateDutyDto {
   @IsOptional() @IsString() @MaxLength(200) reason?: string;
 }
 
+class DeskAccessApplyDto {
+  @IsString() @Matches(/^[a-f0-9]{64}$/) fingerprint!: string;
+}
+
 @Controller('org')
 export class OrgAdminController {
-  constructor(private readonly admin: OrgAdminService, private readonly staffImport: StaffImportService) {}
+  constructor(private readonly admin: OrgAdminService, private readonly staffImport: StaffImportService, private readonly deskAccess: DeskAccessService) {}
+
+  @RequirePermission('org.structure.edit')
+  @Get('desk-access/preview')
+  deskAccessPreview(@CurrentUser() user: AuthUser) { return this.deskAccess.preview(user); }
+
+  @RequirePermission('org.structure.edit')
+  @Post('desk-access/apply')
+  @HttpCode(200)
+  deskAccessApply(@CurrentUser() user: AuthUser, @Body() dto: DeskAccessApplyDto) { return this.deskAccess.apply(user, dto.fingerprint); }
 
   /** 权限清单本身不含敏感信息，岗位/员工页都要用 */
   @AuthenticatedOnly()

@@ -130,6 +130,25 @@ describe('岗位工作台', () => {
   });
 });
 
+describe('本人岗位首页边界', () => {
+  it('本人主岗位排在其他岗位之后时，仍默认进入主岗位', async () => {
+    const base = { workspaceType: 'general' as const, level: 'staff' as const, departmentId: null, departmentPath: '' };
+    const own = { ...base, id: 52, name: '本人的岗位', assigned: true, isPrimary: true };
+    w.catalog.mockResolvedValue({ canBrowse: true, defaultPositionId: 52, positions: [{ ...base, id: 51, name: '别人的岗位', assigned: false, isPrimary: false }, own] });
+    w.desk.mockResolvedValue({ position: own, title: '本人的岗位工作台', focus: '', pending: [], cards: [] });
+    wrap(<DeskPage />);
+    expect(await screen.findByRole('heading', { name: '本人的岗位工作台' })).toBeTruthy();
+    expect(w.desk).toHaveBeenCalledWith(52);
+    expect(w.desk).not.toHaveBeenCalledWith(51);
+  });
+
+  it('能浏览别人的岗位但未分配本人岗位时，不自动选中别人的工作台', async () => {
+    w.catalog.mockResolvedValue({ canBrowse: true, defaultPositionId: null, positions: [{ id: 55, name: '其他岗位', workspaceType: 'general', level: 'staff', departmentId: null, departmentPath: '', assigned: false, isPrimary: false }] });
+    wrap(<DeskPage />);
+    expect(await screen.findByText('你还没有分配有效岗位')).toBeTruthy();
+  });
+});
+
 describe('运营每日经营', () => {
   it('运营岗位显示每日经营：默认昨天、可切换日期、提示当天没数据的店铺；没有权限的人看不到', async () => {
     const pos = { id: 1, name: '运营', workspaceType: 'operations', level: 'staff', departmentId: 1, departmentPath: '运营部', assigned: true, isPrimary: true };
