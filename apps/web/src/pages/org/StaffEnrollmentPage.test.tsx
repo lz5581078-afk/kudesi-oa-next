@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { enrollmentApi } from './enrollmentApi';
 import { StaffEnrollmentPage } from './StaffEnrollmentPage';
@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.spyOn(enrollmentApi, 'list').mockResolvedValue([]);
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
-const page = () => render(<MemoryRouter><StaffEnrollmentPage /></MemoryRouter>);
+const page = () => render(<MemoryRouter initialEntries={[window.location.pathname + window.location.hash]}><StaffEnrollmentPage /></MemoryRouter>);
 async function fill() {
   fireEvent.change(await screen.findByLabelText('姓名'), { target: { value: '新人' } });
   fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13900000001' } });
@@ -69,4 +69,19 @@ it.each([undefined, { id: 7, name: '运营专员' }])('生成通用/专属码参
   fireEvent.click(screen.getByText(/已生成的/)); fireEvent.click(await screen.findByRole('button', { name: '停用' }));
   await waitFor(() => expect(enrollmentApi.revoke).toHaveBeenCalledWith(1));
   await waitFor(() => expect(screen.queryByRole('img', { name: '入职二维码' })).toBeNull());
+});
+
+it('同一浏览器改扫另一个码时，刷新公司岗位并清空上一份表单', async () => {
+  const nextToken = 'b'.repeat(43);
+  vi.mocked(enrollmentApi.preview).mockImplementation(async t => t === token ? preview : { ...preview, companyName: '另一公司', mode: 'position', positions: [], position: { id: 8, name: '另一岗位' } });
+  function SwitchCode() { const navigate = useNavigate(); return <><button onClick={() => navigate('/join#' + nextToken)}>改扫另一二维码</button><StaffEnrollmentPage /></>; }
+  render(<MemoryRouter initialEntries={['/join#' + token]}><SwitchCode /></MemoryRouter>);
+  await fill(); fireEvent.change(screen.getByLabelText('选择岗位'), { target: { value: '7' } });
+  fireEvent.click(screen.getByRole('button', { name: '改扫另一二维码' }));
+  expect(await screen.findByRole('heading', { name: '加入另一公司' })).toBeTruthy();
+  expect(screen.getByText('另一岗位')).toBeTruthy(); expect(screen.queryByLabelText('选择岗位')).toBeNull();
+  expect((screen.getByLabelText('姓名') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('登录密码') as HTMLInputElement).value).toBe('');
+  await fill(); fireEvent.click(screen.getByRole('button', { name: '加入公司并登录' }));
+  await waitFor(() => expect(enrollmentApi.join).toHaveBeenCalledWith(expect.objectContaining({ token: nextToken })));
 });
