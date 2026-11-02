@@ -1,3 +1,4 @@
+import { BriefcaseBusiness, CalendarDays, CircleDollarSign, Database, UsersRound } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getResourceDef } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
@@ -87,7 +88,7 @@ export function LaborCostPage() {
   return (
     <div className="labor-cost-page">
       <div className="page-head between">
-        <h1>人力成本表</h1>
+        <div><small className="labor-kicker">财务模块 · 数据版本</small><h1>人力成本表</h1><p>按版本维护各类工作的计价标准，供成本核算和业务单据引用。</p></div>
         <div className="toolbar">
           {can('create') && <button type="button" className="primary-button" onClick={() => setVersionForm({ record: null })}>新建成本版本</button>}
           {can('create') && <button type="button" className="secondary-button" onClick={() => setDialog('workTypes')}>维护工作分类</button>}
@@ -98,6 +99,7 @@ export function LaborCostPage() {
       {notice && <div role="status" className="notice ok">{notice}</div>}
       <section className="card labor-version-panel" aria-label="成本版本列表">
         <header className="between"><div><h2>成本版本</h2><p className="muted">点击版本查看对应的分类和工作项目</p></div><span>{versions?.length ?? 0} 个版本</span></header>
+        {versions?.length === 0 && <div className="labor-empty"><strong>尚无成本版本</strong><small>新建版本后维护分类与工作项目</small></div>}
         <div className="labor-version-rows">{(versions ?? []).map(v => <article key={v.id} className={`labor-version-row${v.id === versionId ? ' selected' : ''}`}>
           <button type="button" className="labor-version-select" aria-pressed={v.id === versionId} onClick={() => setVersionId(v.id)}><strong>{v.title} <span className={`pill ${v.status === 'active' ? 'ok' : 'warn'}`}>{VERSION_STATUS[v.status]}</span>{v.data.isDefault === true && <span className="pill ok">默认</span>}</strong><code>{String(v.data.versionCode ?? '')}</code><small>{String(v.data.periodName || '未设置期间')} · {String(v.data.effectiveFrom || '立即')} 至 {String(v.data.effectiveTo || '长期')}</small></button>
           <div className="row-actions">{can('edit') && <button type="button" className="link-button" onClick={() => { setVersionId(v.id); setVersionForm({ record: v }); }}>编辑版本</button>}
@@ -110,7 +112,13 @@ export function LaborCostPage() {
         </article>)}</div>
       </section>
 
-      {versions && versions.length === 0 && <div className="empty-state muted">还没有成本版本。先“新增成本版本”，再建归档分类和工作项目。</div>}
+      <section className="labor-summary" aria-label="人力成本概览">
+        <div><Database size={20}/><span><small>当前默认版本</small><strong>{versions?.find(v=>v.data.isDefault === true)?.title ?? '尚未启用'}</strong></span></div>
+        <div><CalendarDays size={20}/><span><small>当前生效期间</small><strong>{String(versions?.find(v=>v.data.isDefault === true)?.data.periodName || '—')}</strong></span></div>
+        <div><BriefcaseBusiness size={20}/><span><small>所选版本项目</small><strong>{version ? items.length : '—'}</strong></span></div>
+        <div><CircleDollarSign size={20}/><span><small>启用计价标准</small><strong>{version ? items.filter(i=>i.status==='active').length : '—'}</strong></span></div>
+      </section>
+      {!version && <div className="labor-detail-layout"><div><small>当前成本版本</small><h3>项目归档分类</h3><p className="muted">点击归档分类查看项目</p><p className="muted">请先选择成本版本</p></div><section className="labor-empty"><UsersRound size={32}/><strong>请在上方选择成本版本</strong><span>版本选中后，在这里维护对应的分类和工作计价标准。</span></section></div>}
       {version && (
         <div className="card">
           <div className="toolbar">

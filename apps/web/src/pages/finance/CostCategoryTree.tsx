@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { pct } from './common';
 import type { CostTableData } from './financeApi';
@@ -17,15 +18,15 @@ export function CostCategoryTree({ data, selected, onSelect, onEdit }: {
       const hasKids = kids(c.id).length > 0;
       return (
         <div key={c.id}>
-          <div className={`cost-category${selected === c.id ? ' selected' : ''}`} style={{ paddingLeft: 6 + depth * 14 }}>
+          <div className={`cost-category${selected === c.id ? ' selected' : ''}`} style={{ paddingLeft: 8 + depth * 14 }}>
             {hasKids
-              ? <button type="button" className="cost-category-toggle" aria-label={`${collapsed.has(c.id) ? '展开' : '收起'}${c.name}`} aria-expanded={!collapsed.has(c.id)} onClick={() => toggle(c.id)}>{collapsed.has(c.id) ? '▸' : '▾'}</button>
+              ? <button type="button" className="cost-category-toggle" aria-label={`${collapsed.has(c.id) ? '展开' : '收起'}${c.name}`} aria-expanded={!collapsed.has(c.id)} onClick={() => toggle(c.id)}>{collapsed.has(c.id) ? <ChevronRight size={14}/> : <ChevronDown size={14}/>}</button>
               : <span className="cost-category-toggle" />}
             <button type="button" className="cost-category-select" aria-pressed={selected === c.id} onClick={() => onSelect(c.id)}>
               <span>{c.name} <small>{c.count}</small></span>
               <small>{pct(c.percent)} · {c.ownPercent === null ? (c.percent === null ? '未设置' : '继承') : '分类设置'}</small>
             </button>
-            {data.canEdit && <button type="button" className="link-button" aria-label={`设置${c.name}利润率`} onClick={() => onEdit({ id: c.id, name: c.name, ownPercent: c.ownPercent, revision: c.revision })}>设置</button>}
+            {data.canEdit && <button type="button" className="cost-category-edit" aria-label={`设置${c.name}利润率`} onClick={() => onEdit({ id: c.id, name: c.name, ownPercent: c.ownPercent, revision: c.revision })}><Pencil size={14}/></button>}
           </div>
           {!collapsed.has(c.id) && branch(c.id, depth + 1, new Set([...seen, c.id]))}
         </div>
@@ -40,7 +41,7 @@ export function CostCategoryTree({ data, selected, onSelect, onEdit }: {
           <span>全部 <small>{data.allTotal}</small></span>
           <small>默认利润率 {pct(data.defaultMargin.percent)}</small>
         </button>
-        {data.canEdit && <button type="button" className="link-button" aria-label="设置全部默认利润率" onClick={() => onEdit({ id: 0, name: '全部默认', ownPercent: data.defaultMargin.percent, revision: data.defaultMargin.revision })}>设置</button>}
+        {data.canEdit && <button type="button" className="cost-category-edit" aria-label="设置全部默认利润率" onClick={() => onEdit({ id: 0, name: '全部默认', ownPercent: data.defaultMargin.percent, revision: data.defaultMargin.revision })}><Pencil size={14}/></button>}
       </div>
       {branch(null, 0, new Set())}
     </nav>
