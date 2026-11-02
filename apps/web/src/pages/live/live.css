@@ -264,3 +264,11 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 /* 原场次核定原因另起一行，避免被表格默认 nowrap 裁掉。 */
 .live-store-performance td:last-child { white-space: normal; }
 .live-store-performance td:last-child > input { display: block; margin-top: 8px; }
+.live-review-footer { display: flex; flex-direction: column; gap: 8px; width: 100%; min-width: 0; }
+.live-review-footer .notice { margin: 0; white-space: normal; overflow-wrap: anywhere; }
+.live-review-footer-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.live-review-pay { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.live-review-pay > strong,.live-review-pay > small { flex-basis: 100%; }
+.live-modal-backdrop:has(.live-review-summary) { padding: 16px; align-items: center; overflow: clip; }
+.modal-body:has(.live-review-summary) > * { flex-shrink: 0; min-width: 0; }
+@media (max-width: 640px) { .live-modal-backdrop:has(.live-review-summary) { padding: 0; } }
