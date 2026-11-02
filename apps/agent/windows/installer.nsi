@@ -1,4 +1,4 @@
-Unicode true
+﻿Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
@@ -8,6 +8,9 @@ Unicode true
 !endif
 !ifndef PACKAGE_DIR
   !error "PACKAGE_DIR is required"
+!endif
+!ifndef PACKAGE_GLOB
+  !error "PACKAGE_GLOB is required"
 !endif
 !ifndef OUTPUT_FILE
   !error "OUTPUT_FILE is required"
@@ -39,7 +42,7 @@ Section "安装助手"
   SetShellVarContext current
   InitPluginsDir
   SetOutPath "$PLUGINSDIR\payload"
-  File /r "${PACKAGE_DIR}/*"
+  File /r "${PACKAGE_GLOB}"
   ${GetParameters} $Args
   ClearErrors
   ${GetOptions} $Args "/VALIDATEONLY" $Validate
