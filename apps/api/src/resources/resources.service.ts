@@ -1,5 +1,5 @@
 import { ExternalConfigService } from '../integrations/external-config.service';
-import { storeJstShops, validateStoreJst } from './store-jst';
+import { storeJstShops, validateStoreJst, storeJstPatch } from './store-jst';
 import { readSourceRow } from '../migration/source-rows';
 import { canAppendReadonly } from './append-only';
 import { isRegistrationType,registrationIdentity,registrationPrefixes,proveRegistration,proveExistingRegistration,type LegacyRegistration } from './legacy-registration';
@@ -172,6 +172,23 @@ export class ResourcesService implements RuleHost {
   async jushuitanShops(user: AuthUser, type: string) {
     if (type !== 'stores') throw new BadRequestException('只有店铺档案支持聚水潭店铺关联');
     return storeJstShops(new ExternalConfigService(this.dataSource, this.crypto), user.companyId);
+  }
+
+  async refreshJushuitanShop(user: AuthUser, type: string, id: number) {
+    if (type !== 'stores') throw new BadRequestException('只有店铺档案支持刷新聚水潭授权');
+    if (!createChecker(user.permissions)(resourcePermission('stores', 'edit'))) throw new ForbiddenException('没有修改店铺资料的权限');
+    const original = await this.load(this.dataSource.manager, user, type, id);
+    if (original.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再修改');
+    const shopId = String(original.data.jushuitanShopId ?? '').trim();
+    if (!shopId) throw new BadRequestException('请先关联聚水潭店铺');
+    const shop = (await this.jushuitanShops(user, type)).find(s => s.id === shopId);
+    if (!shop) throw new BadRequestException('关联店铺不在当前公司授权范围内，未更新原有到期时间');
+    await this.dataSource.transaction(async em => {
+      const current = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
+      if (!current || recordVersion(current) !== recordVersion(original)) throw new ConflictException('店铺资料刚被修改，请刷新页面后重试');
+      await this.patchData(em, user, type, id, storeJstPatch(shop), '从聚水潭刷新店铺授权到期时间');
+    });
+    return this.get(user, type, id);
   }
 
   // ---------- 通用工具 ----------

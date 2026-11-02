@@ -130,9 +130,10 @@ export function query(params: ListParams): string {
   return s ? `?${s}` : '';
 }
 
-export interface StoreJstShop { id: string; name: string; platform: string }
+export interface StoreJstShop { id: string; name: string; platform: string; expiresAt?: string | null; expiryStatus?: 'dated' | 'permanent' | 'unknown' }
 
 export const resourceApi = {
+  refreshJushuitanShop: (id: number) => api<ResourceDto>(`/resources/stores/${id}/refresh-jushuitan`, { method: 'POST' }),
   jushuitanShops: () => api<StoreJstShop[]>('/resources/stores/jushuitan-shops'),
   reorderCategories: (type: string, orderedIds: number[]) => api<{ok: boolean; changed: number}>(`/resources/${type}/reorder`,{method:'POST',body:{orderedIds}}),
   saveArchivePrefix: (archiveType: string, code: string) => api<ResourceDto>('/resources/finance-categories/archive-prefix',{method:'POST',body:{archiveType,code}}),
