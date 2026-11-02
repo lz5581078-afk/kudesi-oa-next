@@ -54,7 +54,7 @@ jobs:
       - run: npm ci
       - run: npm run pack -w @kudesi/agent
       - name: 解压安装包并检查中文入口
-        shell: powershell
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Expand-Archive -LiteralPath apps/agent/release/kudesi-assistant-windows.zip -DestinationPath "$env:RUNNER_TEMP/installer"
@@ -67,7 +67,7 @@ jobs:
           powershell.exe -NoProfile -STA -File "$dir/assistant-panel.ps1" -ValidateOnly
           if ($LASTEXITCODE -ne 0) { throw '解压助手面板初始化失败' }
       - name: 校验 Windows 安装脚本与面板
-        shell: powershell
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Get-ChildItem apps/agent/windows/*.ps1 | ForEach-Object {
