@@ -1,3 +1,4 @@
+import { LiveCheckinPanel } from '../live/LiveCheckinPanel';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { deskFor, deskLinks, groupDeskPositions, type DeskCatalog } from '@kudesi/shared';
@@ -43,7 +44,7 @@ export function DeskPage() {
     cards: desk.cards,
     pending: desk.pending,
     blank: current.workspaceType === 'blank',
-    top: current.workspaceType === 'operations' && can('resource.store-daily-metrics.view') ? <DailyBusinessPanel /> : undefined,
+    top: current.assigned && ['live_anchor','live_control'].includes(current.workspaceType) ? <LiveCheckinPanel/> : current.workspaceType === 'operations' && can('resource.store-daily-metrics.view') ? <DailyBusinessPanel /> : undefined,
   } : null;
   return (
     <div>

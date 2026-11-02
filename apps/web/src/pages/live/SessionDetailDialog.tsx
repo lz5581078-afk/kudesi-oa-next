@@ -27,6 +27,7 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
   }
   if (mode === 'report' && s) return <ReportDialog session={s} onClose={() => setMode('')} onDone={changed} />;
   if (mode === 'review' && s?.flow) return <ReviewDialog session={s} onClose={() => setMode('')} onDone={changed} />;
+  const joinRole=s?.checkinMode&&s.status==='live'&&!s.reportDeadline?s.me.reportRoles.find(r=>r!=='operator'&&!s.myCheckins?.some(c=>c.role===r)):null;
   const canReview = !!s?.flow?.me.canPass && s.status === 'submitted';
   return (
     <Modal title="直播场次" size="wide" bodyClassName="live-session-detail" onClose={onClose} foot={s && <div className="live-session-footer">
@@ -35,7 +36,8 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
       {s.me.canSubmit && s.submission && <SubmissionNotice status={s.submission} onRefresh={load} />}
       <div className="live-actions">
       <button type="button" className="secondary-button" onClick={onClose}>关闭详情</button>
-      {s.me.reportRoles.length > 0 && <button type="button" className="secondary-button" onClick={() => setMode('report')}>{s.reports.some((r) => s.me.reportRoles.includes(r.role)) ? '修改下播报告' : s.status === 'live' ? '报下播' : '补报下播'}</button>}
+      {joinRole&&<button type="button" className="primary-button live-clock-button" disabled={busy} onClick={async()=>{setBusy(true);setSubmitError('');try{await liveApi.start({sessionId:s.id,confirmDetails:true});changed();}catch(e){setSubmitError(errText(e));}finally{setBusy(false);}}}>已核对下方人员、账号、店铺和产品，确认本人上播</button>}
+      {s.me.reportRoles.length > 0 && !joinRole && <button type="button" className="primary-button live-clock-button" onClick={() => setMode('report')}>{s.reports.some((r) => s.me.reportRoles.includes(r.role)) ? '修改下播报告' : s.status === 'live' ? '报下播' : '补报下播'}</button>}
       {s.me.canSubmit && !submitted && <button type="button" className="primary-button" disabled={busy || s.submission?.ready === false} onClick={() => void submit()}>{busy ? '提交中…' : s.status === 'returned' ? '重新提交审核' : '提交审核'}</button>}
       {canReview && <button type="button" className="primary-button" onClick={() => setMode('review')}>审核</button>}
       </div>
@@ -47,6 +49,7 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
           <div className="between"><strong>{s.roomName} · {s.date}</strong><SessionPill status={s.status} label={s.statusLabel} /></div>
           {s.status === 'returned' && s.returnReason && <div className="notice warn">已退回：{s.returnReason}。请修改下播报告后重新提交。</div>}
           {s.reportSource==='manual'&&<p className="notice warn">人事手工填报 · 经办人编号 #{s.manualActorId} · 原因：{s.manualReason}</p>}
+          {s.checkinMode&&<div className="notice warn">{s.reportDeadline?`${s.reportsLocked?'本场已锁定':'报下播截止'}：${s.reportDeadline}，锁定后其他岗位不能再报。`:'首位报下播后开始30分钟补报倒计时。'}{s.autoSubmitError&&` 自动提交待处理：${s.autoSubmitError}`}{s.ordersCaptureStatus==='pending'&&` 订单待核对：${s.ordersCaptureError??'正在归集'}`}<br/>审核以运营填报为主要依据；没有运营报告时可按主播报告审核。</div>}
           <dl className="live-fields">
             <div><dt className="muted">时间</dt><dd>{hm(s.startAt)} – {s.endAt ? hm(s.endAt, s.date) : '直播中'}</dd></div>
             <div><dt className="muted">主播 / 中控 / 运营</dt><dd>{names(s.anchor)}{s.control ? ` / ${s.control.name}` : ''}{s.operator ? ` / ${s.operator.name}` : ''}</dd></div>
@@ -62,6 +65,8 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
             </table></div>
           ) : <p className="muted">还没有人报下播。</p>}
           {s.channels?.length&&<div className="live-scroll"><table className="data-table" aria-label="店铺业绩明细"><thead><tr><th>平台 / 店铺</th><th>填报角色</th><th>营业额</th><th>投流</th><th>订单核对</th></tr></thead><tbody>{s.reports.flatMap(r=>(r.storeLines??[]).map(l=><tr key={`${r.role}:${l.storeId}`}><td data-label="平台 / 店铺">{LIVE_PLATFORMS[l.platform]} · {s.channels!.flatMap(c=>c.stores).find(v=>v.id===l.storeId)?.name}</td><td data-label="填报角色">{r.roleLabel}</td><td data-label="营业额">{money(l.salesCents)}</td><td data-label="投流">{r.role==='control'?money(l.adSpendCents):'—'}</td><td data-label="订单核对">{l.verified?'已核对订单':`特殊核定：${l.reason||'未核对订单'}`}</td></tr>))}</tbody></table></div>}
+          {s.reports.filter(r=>r.note).map(r=><p key={r.role}><strong>{r.roleLabel}填报内容：</strong>{r.note}</p>)}
+          {!!s.capturedOrders?.length&&<details><summary>本场自动归集订单（{s.capturedOrders.length}单）</summary><div className="live-scroll"><table className="data-table"><thead><tr><th>平台 / 店铺</th><th>订单号</th><th>成单时间</th><th>订单额</th><th>退款</th><th>状态</th></tr></thead><tbody>{s.capturedOrders.map(o=><tr key={`${o.shopId}:${o.orderId}`}><td>{LIVE_PLATFORMS[o.platform]} · {o.shopId}</td><td>{o.orderId}</td><td>{o.orderAt}</td><td>{money(o.amountCents)}</td><td>{money(o.refundCents)}</td><td>{o.paid?'已付款':'待付款'} · {o.status}</td></tr>)}</tbody></table></div></details>}
           <PreviewBox preview={s.preview} />
           {s.commissions.length > 0 && (
             <div><strong>提成记录</strong>

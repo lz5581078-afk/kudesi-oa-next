@@ -1,3 +1,5 @@
+import { LiveCheckinPanel } from './LiveCheckinPanel';
+import { useSearchParams } from 'react-router-dom';
 import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { liveApi, type ScheduleRow, type Workbench } from './liveApi';
@@ -9,6 +11,8 @@ import { StartDialog } from './StartDialog';
 
 /** 我的直播：主播、中控（运营以中控资格）自己的工作台——报上播、报下播、提交审核、本周排场、本月提成与工资。 */
 export function LiveDeskPage() {
+  const [params]=useSearchParams();
+  const roomId=Number(params.get('room'))||undefined,companyId=Number(params.get('company'))||undefined;
   const [d, setD] = useState<Workbench | null>(null);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'desk' | 'history'>('desk');
@@ -20,20 +24,21 @@ export function LiveDeskPage() {
     const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60_000);
     return () => clearInterval(t);
   }, [load]);
-  const canStart = !!d && (d.identity.isAnchor || d.identity.isControl || d.identity.canManage);
+  const canStart = !!d && (d.identity.isAnchor || d.identity.isControl);
   return (
     <div className="live-page">
       <div className="page-head">
         <div><h1>我的直播</h1><p className="muted">报上播、报下播、提交审核，查看本周排场和本月提成。</p></div>
         <div className="live-actions">
           <button type="button" className="secondary-button" onClick={load}>刷新</button>
-          {canStart && <button type="button" className="primary-button" onClick={() => setStarting({ schedule: null })}>报上播（临时加场）</button>}
+          {canStart && <button type="button" className="primary-button live-clock-button" onClick={() => setStarting({ schedule: null })}>开始直播</button>}
         </div>
       </div>
       <div className="tab-group" role="tablist" aria-label="我的直播分区">
         <button type="button" role="tab" aria-selected={tab === 'desk'} className={tab === 'desk' ? 'chip active' : 'chip'} onClick={() => setTab('desk')}>工作台</button>
         <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'chip active' : 'chip'} onClick={() => setTab('history')}>我的场次历史</button>
       </div>
+      <LiveCheckinPanel roomId={roomId} companyId={companyId}/>
       <SourceStatusNotice />
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
       {tab === 'history' ? <HistoryPanel onOpen={setOpenId} /> : !d && !error ? <p className="muted" role="status">正在读取…</p> : d && (
@@ -62,7 +67,7 @@ export function LiveDeskPage() {
               <li key={s.id}>
                 <div className="main"><strong>{s.date} {s.startTime}–{s.endTime} · {s.roomName}</strong><small>我是{s.mineRole === 'anchor' ? '主播' : s.mineRole === 'control' ? '中控' : '运营'} · 主播 {s.anchor.name}{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div>
                 <SchedulePill status={s.status} label={s.statusLabel} />
-                {s.status === 'scheduled' && s.mineRole !== 'operator' && <button type="button" className="primary-button" disabled={!s.canStart} title={s.canStart ? '' : '开始前 2 小时起可以上播'} onClick={() => setStarting({ schedule: s })}>上播</button>}
+                {s.status === 'scheduled' && s.mineRole !== 'operator' && <button type="button" className="primary-button" disabled={!s.canStart} title={s.canStart ? '' : '排班已过结束时间'} onClick={() => setStarting({ schedule: s })}>上播</button>}
               </li>
             ))}</ul>
           </section>

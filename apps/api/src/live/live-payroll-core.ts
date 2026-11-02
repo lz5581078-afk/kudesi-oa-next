@@ -35,17 +35,20 @@ export async function payrollSources(em: EntityManager, c: number, from: string,
   );
   if (unfinished.length) liveFail('结算范围内还有未审核场次，请先处理完');
   const records: Row[] = await em.query(
-    `SELECT r.*,DATE_FORMAT(r.session_date,'%Y-%m-%d') day,s.report_source,s.manual_reason FROM live_commission_records r JOIN live_sessions s ON s.company_id=r.company_id AND s.id=r.session_id WHERE r.company_id=? AND r.session_date BETWEEN ? AND ? ORDER BY r.id`,
+    `SELECT r.*,DATE_FORMAT(r.session_date,'%Y-%m-%d') day,s.report_source,s.manual_reason,s.checkin_mode,s.orders_capture_status FROM live_commission_records r JOIN live_sessions s ON s.company_id=r.company_id AND s.id=r.session_id WHERE r.company_id=? AND r.session_date BETWEEN ? AND ? ORDER BY r.id`,
     [c, from, to],
   );
+  if(records.some(r=>r.checkin_mode&&r.orders_capture_status!=='ready'))liveFail('存在订单未完整归集的场次，不能发放提成');
   const wages: Row[] = await em.query(
     `SELECT *,DATE_FORMAT(session_date,'%Y-%m-%d') day FROM live_wage_records WHERE company_id=? AND session_date BETWEEN ? AND ? ORDER BY id`,
     [c, from, to],
   );
   const orders: Row[] = await em.query(
-    `SELECT DISTINCT o.session_id,o.order_id,o.shop_id,o.amount_cents,o.platform FROM live_session_orders o JOIN live_sessions s ON s.company_id=o.company_id AND s.id=o.session_id WHERE o.company_id=? AND s.session_date BETWEEN ? AND ? ORDER BY o.session_id,o.shop_id,o.order_id,o.amount_cents`,
+    `SELECT DISTINCT o.session_id,o.order_id,o.shop_id,o.amount_cents,o.platform FROM live_session_orders o JOIN live_sessions s ON s.company_id=o.company_id AND s.id=o.session_id WHERE o.company_id=? AND s.session_date BETWEEN ? AND ? AND s.checkin_mode=0 ORDER BY o.session_id,o.shop_id,o.order_id,o.amount_cents`,
     [c, from, to],
   );
+  const captured:Row[]=await em.query(`SELECT o.session_id,o.order_id,o.shop_id,o.amount_cents,o.platform,o.baseline_refund_cents FROM live_session_order_snapshots o JOIN live_sessions s ON s.company_id=o.company_id AND s.id=o.session_id WHERE o.company_id=? AND s.session_date BETWEEN ? AND ? AND s.checkin_mode=1 AND o.paid=1 ORDER BY o.session_id,o.shop_id,o.order_id`,[c,from,to]);
+  orders.push(...captured);
   return { records, wages, orders };
 }
 export const sourcesFingerprint = (s: Awaited<ReturnType<typeof payrollSources>>) => JSON.stringify(s);

@@ -1,3 +1,4 @@
+import { LiveCheckinClosureService } from './live/live-checkin-closure.service';
 import { LiveNotificationService } from './live/live-notification.service';
 import { FeishuBindingPolicy } from './auth/feishu-binding-policy';
 import { StaffEnrollmentService } from './org/staff-enrollment.service';
@@ -267,7 +268,7 @@ const env = loadEnv();
     SupervisionService,
     SupervisionScheduler,
     ServiceWorkspaceProvider,
-    LiveNotificationService, LiveTurnoverService, LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
+    LiveCheckinClosureService, LiveNotificationService, LiveTurnoverService, LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
     { provide: LiveOrderSource, useClass: JushuitanOrderSource },
     FinanceDocumentsService,
     FinanceVoucherHintsService,

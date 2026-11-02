@@ -1,3 +1,5 @@
+import { reportsLocked } from './live-checkin-core';
+import { liveClock } from './live-core';
 import { channelsOf, channelStores, linesOf } from './live-platforms';
 import { LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
 import { EntityManager } from 'typeorm';
@@ -9,6 +11,7 @@ import { Row, closedDay, liveFail, lockCompany, reportsOf, ruleVersions, session
 
 /** 主播和本场中控须有本人报告；有明确经办人和原因的人事补报也可进入审核。运营选填。 */
 export function requireReports(session: Row, reports: Row[]) {
+  if(session.checkin_mode && session.report_locked_at && reports.length)return;
   const missing = liveMissingReporter(
     reports.map((r) => ({ role: String(r.role), reporterId: Number(r.manual_actor_id ? (r.role==='anchor'?session.anchor_user_id:session.control_user_id):r.reporter_user_id) })),
     { anchorId: Number(session.anchor_user_id), controlId: session.control_user_id ? Number(session.control_user_id) : null },
@@ -20,6 +23,7 @@ export function requireReports(session: Row, reports: Row[]) {
 /** 能不能提交审核：状态对、两人都本人报过。 */
 export async function checkSubmittable(em: EntityManager, companyId: number, session: Row) {
   if (!['pending_report', 'returned'].includes(session.status)) liveFail(session.status === 'live' ? '还没有人报下播，请先报下播' : '场次当前状态不能提交审核');
+  if(session.checkin_mode&&!reportsLocked(session,liveClock.now()))liveFail('首位报下播后满30分钟自动锁场并提交审核，请等待其他岗位填报',409);
   requireReports(session, await reportsOf(em, companyId, Number(session.id)));
 }
 
@@ -32,8 +36,9 @@ export interface ReviewForm {
 }
 
 /** 审核人选择的最终销售额：选其中一个上报值，或手填并写原因。 */
-export function resolveFinalSales(form: ReviewForm, reports: Row[]): { source: string; cents: number; reason: string | null } {
-  const source = String(form.finalSource || '');
+export function resolveFinalSales(form: ReviewForm, reports: Row[], operatorPrimary=false): { source: string; cents: number; reason: string | null } {
+  const source = String(form.finalSource || (reports.some(r=>r.role==='operator')?'operator':reports.some(r=>r.role==='anchor')?'anchor':'control'));
+  if(operatorPrimary&&reports.some(r=>r.role==='operator')&&source!=='operator'&&!String(form.finalReason||'').trim())liveFail('本场以运营填报为主要依据，改用其他来源请填写原因',400);
   if (!LIVE_FINAL_SOURCES[source]) liveFail('请选择本场最终销售额的来源', 400);
   if (source === 'manual') {
     if(form.storeLines&&(!Array.isArray(form.storeLines)||form.storeLines.length>400||form.storeLines.some(l=>!l||typeof l!=='object'||!Number.isSafeInteger(l.salesCents)||l.salesCents<0||!Number.isSafeInteger(l.adSpendCents)||l.adSpendCents<0)))liveFail('请按店铺填写有效最终业绩明细',400);
@@ -113,7 +118,9 @@ export async function resolveOperator(em: EntityManager, companyId: number, sess
 export async function resolveWage(em: EntityManager, companyId: number, session: Row, form: ReviewForm, role: 'anchor'|'control' = 'anchor') {
   const label=role==='anchor'?'主播':'中控';
   const controlReport=role==='control'?(await reportsOf(em,companyId,Number(session.id))).find(r=>r.role==='control'):null;
-  const reportedStart: string = session.start_text, reportedEnd: string = controlReport?.end_text??session.end_text;
+  const [clock]:Row[]=session.checkin_mode?await em.query("SELECT DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') start_text,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_session_checkins WHERE company_id=? AND session_id=? AND role=?",[companyId,session.id,role]):[];
+  if(session.checkin_mode&&(!clock||!clock.end_text)&&!((await reportsOf(em,companyId,Number(session.id))).find(r=>r.role===role)?.manual_actor_id))liveFail(`${label}未完成本人上下播，请人事核实打卡后再核定工资`,400);
+  const reportedStart: string = clock?.start_text??session.start_text, reportedEnd: string = clock?.end_text??controlReport?.end_text??session.end_text;
   if (!reportedEnd) liveFail('本场还没有下播时间，不能计算主播工资', 400);
   const pick = (value: unknown, fallback: string, label: string) => {
     if (value === undefined || value === null || String(value).trim() === '') return fallback;
@@ -148,7 +155,8 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   if (session.status !== 'submitted' || Number(session.flow_run_id) !== ctx.runId) liveFail('场次已不在待审核状态，请刷新后核对');
   const reports = await reportsOf(em, ctx.companyId, sessionId);
   requireReports(session, reports);
-  const final = resolveFinalSales(form, reports);
+  form={...form,finalSource:form.finalSource||(reports.some(r=>r.role==='operator')?'operator':reports.some(r=>r.role==='anchor')?'anchor':'control')};
+  const final = resolveFinalSales(form, reports,!!session.checkin_mode);
   const versions = await ruleVersions(em, ctx.companyId);
   const version = liveVersionFor(versions, session.session_day);
   if (!version) liveFail(`没有适用于 ${session.session_day} 的提成规则版本，请先在直播管理 › 提成规则中设置`);
@@ -159,7 +167,16 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   const result = combinedResults(platforms);
   const operator = await resolveOperator(em, ctx.companyId, session, form);
   const wage = await resolveWage(em, ctx.companyId, session, form);
-  const controlWage=session.control_user_id ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
+  const controlAttended=!session.checkin_mode||reports.some(r=>r.role==='control');
+  const controlWage=session.control_user_id && controlAttended ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
+  if(session.checkin_mode){
+    if(session.orders_capture_status!=='ready')liveFail('本场订单尚未完整归集，请核对聚水潭后重试',409);
+    const base=reports.find(r=>r.role===String(form.finalSource).split('_')[0]);
+    const operatorBasis=form.finalSource==='operator'?await em.query('SELECT shop_id shopId,order_id orderId,refund_cents refundCents FROM live_session_order_snapshots WHERE company_id=? AND session_id=?',[ctx.companyId,sessionId]):[];
+    const basis=base?.order_basis_json?(typeof base.order_basis_json==='string'?JSON.parse(base.order_basis_json):base.order_basis_json):operatorBasis;
+    await em.query('UPDATE live_session_order_snapshots SET baseline_refund_cents=0 WHERE company_id=? AND session_id=?',[ctx.companyId,sessionId]);
+    for(const o of basis)await em.query('UPDATE live_session_order_snapshots SET baseline_refund_cents=? WHERE company_id=? AND session_id=? AND shop_id=? AND order_id=?',[o.refundCents,ctx.companyId,sessionId,o.shopId,o.orderId]);
+  }
   const at = wallNow(ctx.now);
   const amounts = { anchor: 0, control: 0, operator: 0 };
   const approvedLines = resolvePlatformSales(session, reports, form);
@@ -171,7 +188,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
       reason: String(form.finalReason || sourceLines.find(line => line.storeId === store.id)?.reason || session.manual_reason || '').trim() }));
   for (const platform of platforms) {
     const roles: Array<['anchor' | 'control' | 'operator', number, { rateUnits: number; amountCents: number }]> = [['anchor', Number(session.anchor_user_id), platform.anchor]];
-    if (session.control_user_id) roles.push(['control', Number(session.control_user_id), platform.control]);
+    if (session.control_user_id && controlAttended) roles.push(['control', Number(session.control_user_id), platform.control]);
     if (operator.counted) roles.push(['operator', operator.finalId!, platform.operator]);
     const snapshot = JSON.stringify({
       versionId: version!.id, effectiveFrom: version!.effectiveFrom, rules,
@@ -222,7 +239,8 @@ export async function detachSession(em: EntityManager, companyId: number, sessio
 export async function previewApproval(em: EntityManager, companyId: number, sessionId: number, form: ReviewForm) {
   const session = await sessionRow(em, companyId, sessionId);
   const reports = await reportsOf(em, companyId, sessionId);
-  const final = resolveFinalSales(form, reports);
+  form={...form,finalSource:form.finalSource||(reports.some(r=>r.role==='operator')?'operator':reports.some(r=>r.role==='anchor')?'anchor':'control')};
+  const final = resolveFinalSales(form, reports,!!session.checkin_mode);
   const version = liveVersionFor(await ruleVersions(em, companyId), session.session_day);
   if (!version) liveFail(`没有适用于 ${session.session_day} 的提成规则版本，请先在直播管理 › 提成规则中设置`);
   const control = reports.find((r) => r.role === 'control');
@@ -237,7 +255,7 @@ export async function previewApproval(em: EntityManager, companyId: number, sess
     ruleVersion: { id: version!.id, effectiveFrom: version!.effectiveFrom }, tier: result.tier,
     anchor: result.anchor, control: session.control_user_id ? result.control : null, operator: operator.counted ? result.operator : null,
     operatorUserId: operator.finalId, operatorDoubledAsControl: operator.doubledAsControl,
-    controlWage: session.control_user_id ? await resolveWage(em, companyId, session, form, 'control'):null,
+    controlWage: session.control_user_id && (!session.checkin_mode||reports.some(r=>r.role==='control')) ? await resolveWage(em, companyId, session, form, 'control'):null,
     wage: { startAt: wage.startAt, endAt: wage.endAt, minutes: wage.minutes, hourlyRateCents: wage.hourlyRateCents, amountCents: wage.amountCents, rateSource: wage.rateSource, archiveHourlyRateCents: wage.archiveRate },
   };
 }
