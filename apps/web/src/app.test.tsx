@@ -51,7 +51,7 @@ beforeEach(() => {
   currentUser = null;
   platformAdmin = null;
   apiMock.mockReset();
-  apiMock.mockImplementation(async () => ({ items: [], rows: [], total: 0, counts: { pending: 0, overdue: 0, returned: 0, cc: 0 } }) as never);
+  apiMock.mockImplementation(async (path) => path === '/workspace/catalog' ? ({ positions: [], defaultPositionId: null, canBrowse: false }) as never : ({ items: [], rows: [], total: 0, counts: { pending: 0, overdue: 0, returned: 0, cc: 0 } }) as never);
 });
 afterEach(cleanup);
 
@@ -87,14 +87,23 @@ describe('登录与菜单', () => {
     expect(await screen.findByText(/已开通：新公司，企业管理员账号：13900000001/)).toBeTruthy();
   });
 
-  it('只看到自己有权限的一级菜单；没有商品权限就没有“商品”菜单', () => {
+  it('默认进入本人岗位首页，业务菜单仍按权限显示', async () => {
     currentUser = userWith({ isCompanyAdmin: false, allow: ['workbench.todos.view'], deny: [] });
     renderAt('/');
     const top = screen.getByRole('navigation', { name: '一级导航' });
     expect(within(top).getByText('工作台')).toBeTruthy();
     expect(within(top).queryByText('商品')).toBeNull();
-    // 首页自动进入第一个可见页面
-    expect(screen.getByRole('heading', { name: '我的待办' })).toBeTruthy();
+    expect(await screen.findByText('你还没有分配岗位')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '我的待办' })).toBeNull();
+  });
+
+  it('没有业务权限也能进入本人岗位首页，不额外获得业务访问权', async () => {
+    currentUser = userWith({ isCompanyAdmin: false, allow: [], deny: [] });
+    renderAt('/');
+    expect(await screen.findByText('你还没有分配岗位')).toBeTruthy();
+    expect(screen.queryByText('没有访问权限')).toBeNull();
+    const top = screen.getByRole('navigation', { name: '一级导航' });
+    expect(within(top).queryByText('财务')).toBeNull();
   });
 
   it('管理员能看到已开放的全部菜单；未开放的页面不在菜单里', () => {
