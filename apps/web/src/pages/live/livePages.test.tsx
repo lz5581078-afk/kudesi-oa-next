@@ -59,10 +59,10 @@ describe('我的直播', () => {
     fireEvent.click(await within(dlg).findByLabelText('抖音一号关联抖音店'));
     fireEvent.click(within(dlg).getByRole('button', { name: '确认上播' }));
     expect((await within(dlg).findByRole('alert')).textContent).toContain('在卖产品');
-    fireEvent.click(await within(dlg).findByLabelText(/SKU-A/));
+    fireEvent.change(within(dlg).getByLabelText('场次产品 1'), { target: { value: '毛巾' } });
     fireEvent.click(within(dlg).getByRole('button', { name: '确认上播' }));
     await waitFor(() => expect(l.start).toHaveBeenCalled());
-    expect(l.start.mock.calls[0][0]).toMatchObject({ scheduleId: 1, douyinAccountId: 20, storeId: 30, productIds: [1] });
+    expect(l.start.mock.calls[0][0]).toMatchObject({ scheduleId: 1, douyinAccountId: 20, storeId: 30, productEntries: [{ name: '毛巾' }] });
   });
 
   it('报下播：聚水潭未接入时给原因；勾选订单后按分提交（销售额、投流、订单号）', async () => {
