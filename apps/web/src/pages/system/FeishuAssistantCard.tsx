@@ -23,7 +23,7 @@ export function FeishuAssistantCard({ canEdit }: { canEdit: boolean }) {
     setBusy(true); setError(''); setMessage('');
     try {
       const { appId, tenantKey, enabled, morningEnabled, welcomeEnabled, morningText, welcomeText, departmentIds } = data;
-      setData(await api<Settings>('/settings/feishu-assistant', { method: 'PUT', body: JSON.stringify({ appId, appSecret: secret || undefined, tenantKey, enabled, morningEnabled, welcomeEnabled, morningText, welcomeText, departmentIds }) }));
+      setData(await api<Settings>('/settings/feishu-assistant', { method: 'PUT', body: { appId, appSecret: secret || undefined, tenantKey, enabled, morningEnabled, welcomeEnabled, morningText, welcomeText, departmentIds } }));
       setSecret(''); setMessage('已保存。早安每天北京时间08:00发送；入职欢迎仅发送给新加入的员工。');
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
