@@ -71,7 +71,7 @@ function LegacyReportDialog({ session, onClose, onDone }: { session: SessionDeta
       <p className="muted">{session.roomName} · 上播 {hm(session.startAt)}。只能本人填报自己的角色，管理人员不能代填。</p>
       <div className="live-fields">
         {roles.length > 1 && <label className="live-field">填报角色<select value={role} onChange={(e) => {setRole(e.target.value);setStoreRows(storeDrafts(session.channels??[],session.reports.find(r=>r.role===e.target.value)?.storeLines));}}>{roles.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></label>}
-        <label className="live-field">下播时间<input aria-label="下播时间" value={endAt} onChange={(e) => setEndAt(e.target.value)} placeholder="2026-03-01 23:30" /></label>
+        {session.checkinMode&&role==='operator'?<p className="muted">下播时间按确认提交的实际时间记录。</p>:<label className="live-field">下播时间<input aria-label="下播时间" value={endAt} onChange={(e) => setEndAt(e.target.value)} placeholder="2026-03-01 23:30" /></label>}
         {!multi&&<label className="live-field">销售额（元）<input aria-label="销售额" inputMode="decimal" value={sales} onChange={(e) => { setSalesEdited(true); setSales(e.target.value); }} /></label>}
         {!multi && role === 'control' && <label className="live-field">投流费用（元）<input aria-label="投流费用" inputMode="decimal" value={ad} onChange={(e) => setAd(e.target.value)} /></label>}
         <label className="live-field wide">备注（可选）<textarea rows={2} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} /></label>

@@ -839,10 +839,17 @@ d('直播管理（真实数据库）', () => {
     expect((await sessions.start(aa,{...start,confirmEarly:true})).id).toBe(made.id);
     expect((await sessions.detail(aa,made.id)).startAt).toBe('2026-12-01 10:00:00');
     await expect(sessions.start(foreign,{actualCheckin:true,sessionId:made.id,confirmDetails:true})).rejects.toThrow(/不存在/);
+    const bareOps={...operator,permissions:{isCompanyAdmin:false,allow:[],deny:[]}};
+    expect((await sessions.checkinContext(bareOps,room)).joinable.some(s=>s.canJoinOperator)).toBe(false);
+    await expect(sessions.start(bareOps,{actualCheckin:true,role:'operator',sessionId:made.id,confirmDetails:true})).rejects.toThrow(/中控/);
     clock('2026-12-01 10:05:00');
     await expect(sessions.start(cc,{actualCheckin:true,sessionId:made.id})).rejects.toThrow(/核对/);
     await sessions.start(cc,{actualCheckin:true,sessionId:made.id,confirmDetails:true,channels:[{accountId:account,storeIds:[shop]}],productEntries:[{name:'中控核对后的产品'}]});
     expect((await sessions.detail(cc,made.id)).products[0].name).toBe('中控核对后的产品');
+    expect((await sessions.checkinContext(bareOps,room)).joinable.find(s=>s.id===made.id)?.canJoinOperator).toBe(true);
+    await sessions.start(bareOps,{actualCheckin:true,role:'operator',sessionId:made.id,confirmDetails:true});
+    expect((await sessions.workbench(bareOps)).active.find(s=>s.id===made.id)?.myCheckin?.role).toBe('operator');
+    await expect(sessions.start(bareOps,{actualCheckin:true,role:'control',sessionId:made.id,confirmDetails:true})).rejects.toThrow(/切换身份/);
     source.turnover=[{...order('QR1',10000),orderTime:'2026-12-01 10:10:00'},{...order('QR2',10000),orderTime:'2026-12-01 11:05:00'},{...order('BEFORE',99999),orderTime:'2026-12-01 09:59:59'}];
     source.refundMap.set('QR1',2000);
     clock('2026-12-01 11:00:00');
@@ -857,6 +864,7 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.submit(aa,made.id)).rejects.toThrow(/30分钟/);
     clock('2026-12-01 11:20:00');
     await sessions.report(operator,made.id,{role:'operator',endAt:'2026-12-01 11:10:00',salesCents:18000,storeLines:[{storeId:shop,platform:'douyin',salesCents:18000,adSpendCents:0,reason:'运营核实有效销售额'}]});
+    expect((await sessions.workbench(bareOps)).active.find(s=>s.id===made.id)?.myCheckin?.endAt).toBe('2026-12-01 11:20:00');
     clock('2026-12-01 11:30:00');
     await expect(sessions.report(aa,made.id,{role:'anchor',endAt:'2026-12-01 11:30:00',salesCents:0})).rejects.toThrow(/锁定/);
     const autoFlow={start:jest.fn().mockRejectedValueOnce(new Error('模拟流程未发布')).mockImplementation((...args:Parameters<FlowService['start']>)=>flow.start(...args))};
@@ -894,6 +902,26 @@ d('直播管理（真实数据库）', () => {
     source.turnover=[{...order('QR1',10000),orderTime:'2026-12-03 10:10:00'}];clock('2026-12-03 11:00:00');
     await sessions.report(aa,disputed.id,{role:'anchor',endAt:'2026-12-03 10:30:00',salesCents:0});
     const disputedDetail=await sessions.detail(aa,disputed.id);expect(disputedDetail.endAt).toBe('2026-12-03 11:00:00');expect(disputedDetail.ordersCaptureStatus).toBe('pending');expect(disputedDetail.ordersCaptureError).toContain('其他场次');expect(disputedDetail.reports[0].pending).toBe(true);
+    clock('2026-12-04 10:00:00');
+    const vacant=await sessions.start(aa,{actualCheckin:true,roomId:room,anchorId:aa.id,operatorId:operator.id,productIds:[ids.p1],channels:[{accountId:account,storeIds:[shop]}]});
+    const context=await sessions.checkinContext(bareOps,room);expect(context.joinable.find(s=>s.id===vacant.id)).toMatchObject({canJoinControl:true,canJoinOperator:false});
+    await sessions.start(bareOps,{actualCheckin:true,role:'control',sessionId:vacant.id,confirmDetails:true});
+    expect((await sessions.workbench(bareOps)).active.find(s=>s.id===vacant.id)?.myCheckin?.role).toBe('control');
+    expect((await sessions.detail(bareOps,vacant.id)).operator).toBeNull();
+    const outsider=au(await mkUser(company,'op-outsider','另一运营',{positionId:await position(company,'运营入场测试','operations')}),company,'另一运营');
+    expect((await sessions.checkinContext(outsider,room)).joinable.find(s=>s.id===vacant.id)?.canJoinOperator).toBe(true);
+    await expect(sessions.start(foreign,{actualCheckin:true,role:'operator',sessionId:vacant.id,confirmDetails:true})).rejects.toThrow();
+    await sessions.start(outsider,{actualCheckin:true,role:'operator',sessionId:vacant.id,confirmDetails:true});
+    expect((await sessions.workbench(outsider)).active.find(s=>s.id===vacant.id)?.myCheckin?.role).toBe('operator');
+    source.turnover=[];clock('2026-12-04 11:00:00');
+    await sessions.report(bareOps,vacant.id,{role:'control',endAt:'2026-12-04 11:00:00',salesCents:0,adSpendCents:0});
+    clock('2026-12-04 11:02:00');await sessions.report(aa,vacant.id,{role:'anchor',endAt:'2026-12-04 11:02:00',salesCents:0});
+    await ds.manager.update(User,{id:operator.id,companyId:company},{extraPositionIds:[posA]});
+    clock('2026-12-05 10:00:00');
+    const dual=await sessions.start(bareOps,{actualCheckin:true,role:'control',confirmDetails:true,roomId:room,anchorId:aa.id,productIds:[ids.p1],channels:[{accountId:account,storeIds:[shop]}]});
+    expect((await sessions.workbench(bareOps)).active.find(s=>s.id===dual.id)?.myCheckin?.role).toBe('control');
+
+
 
 
   },30000);
