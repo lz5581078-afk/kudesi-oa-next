@@ -134,6 +134,7 @@ class TrialPersonDto {
 class ManualDto {
   @IsOptional() @IsArray() @ArrayMaxSize(400) @ValidateNested({each:true}) @Type(()=>StoreLineDto) storeLines?:StoreLineDto[];
   @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({each:true}) @Type(()=>ChannelDto) channels?:ChannelDto[];
+  @IsOptional() @IsInt() @Min(1) scheduleId?:number;
   @IsOptional() @IsInt() @Min(1) sessionId?:number;
   @IsInt() @Min(1) roomId!:number;
   @IsInt() @Min(1) anchorId!:number;

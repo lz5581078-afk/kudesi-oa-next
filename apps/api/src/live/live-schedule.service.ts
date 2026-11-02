@@ -19,7 +19,7 @@ export interface ScheduleInput {
 }
 
 const SCHEDULE_SELECT = `SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text,
-    a.name anchor_name, c.name control_name, o.name operator_name
+    (SELECT ls.status FROM live_sessions ls WHERE ls.company_id=s.company_id AND ls.id=s.session_id) session_status, a.name anchor_name, c.name control_name, o.name operator_name
     FROM live_schedules s JOIN users a ON a.id = s.anchor_user_id AND a.company_id = s.company_id
     LEFT JOIN users c ON c.id = s.control_user_id AND c.company_id = s.company_id LEFT JOIN users o ON o.id = s.operator_user_id AND o.company_id = s.company_id`;
 
@@ -37,7 +37,7 @@ export function serializeSchedule(s: Row) {
     operator: s.operator_user_id ? { id: Number(s.operator_user_id), name: s.operator_name } : null,
     douyinAccount: { id: Number(s.douyin_account_id), name: s.douyin_account_name }, store: s.store_id ? { id: Number(s.store_id), name: s.store_name } : null,
     products: scheduleProducts(s.products_json),
-    sessionId: s.session_id ? Number(s.session_id) : null, note: s.note, cancelReason: s.cancel_reason,
+    sessionStatus: s.session_status ?? null, sessionId: s.session_id ? Number(s.session_id) : null, note: s.note, cancelReason: s.cancel_reason,
   };
 }
 
