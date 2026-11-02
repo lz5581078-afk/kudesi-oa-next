@@ -63,6 +63,8 @@ export const WORKSPACE_LABELS: Record<string, string> = {
 };
 
 export const orgApi = {
+  cashierPreview: () => api<DeskAccessPlan>('/org/cashier-withdrawal/preview'),
+  applyCashier: (fingerprint:string) => api<{changedPositions:number}>('/org/cashier-withdrawal/apply',{method:'POST',body:{fingerprint}}),
   deskAccessPreview: () => api<DeskAccessPlan>('/org/desk-access/preview'),
   applyDeskAccess: (fingerprint: string) => api<{ changedPositions: number; changedStaff: number }>('/org/desk-access/apply', { method: 'POST', body: { fingerprint } }),
   catalog: () => api<CatalogGroup[]>('/org/permission-catalog'),

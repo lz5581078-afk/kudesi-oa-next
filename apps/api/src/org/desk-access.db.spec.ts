@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { randomBytes } from 'crypto';
 import { DataSource } from 'typeorm';
-import { allGrantableKeys, deskAccessPermissions } from '@kudesi/shared';
+import { allGrantableKeys, cashierWithdrawalPermissions, deskAccessPermissions } from '@kudesi/shared';
 import { buildDataSourceOptions } from '../database/data-source';
 import { AuditLog, Company, Department, Position, PositionPermission, User, UserPermissionOverride } from '../entities';
 import { AuthUser } from '../common/auth.decorators';
@@ -103,4 +103,40 @@ db('岗位功能批量授权（真实数据库）', () => {
     expect((await ds.manager.find(PositionPermission, { where: { positionId: a.op.id } })).map((g) => g.permission)).toEqual(['finance.docs.post']);
     expect(await ds.manager.count(UserPermissionOverride, { where: { userId: a.worker.id } })).toBe(1);
   });
+  async function cashierFixture() {
+    const f = await fixture();
+    const cashier = await ds.manager.save(Position, ds.manager.create(Position, { companyId: f.company.id, name: '财务出纳', departmentId: f.fp.departmentId, workspaceType: 'cashier', level: 'staff', status: 'active', sortOrder: 0 }));
+    await ds.manager.save(PositionPermission, ds.manager.create(PositionPermission, { positionId: cashier.id, permission: 'finance.cash-bank.view' }));
+    await ds.manager.update(User, f.worker.id, { positionId: cashier.id });
+    await ds.manager.save(UserPermissionOverride, ds.manager.create(UserPermissionOverride, { userId: f.worker.id, permission: 'finance.session.remote', effect: 'deny' }));
+    return { ...f, cashier };
+  }
+  it('补授出纳只增加当前公司三项权限，保留原授权、个人拒绝和其他岗位，重复应用无变化', async () => {
+    const a = await cashierFixture(), b = await cashierFixture();
+    const plan = await svc.previewCashier(a.actor);
+    expect(plan.positions.map(p => p.id)).toEqual([a.cashier.id]);
+    expect(plan.positions[0].removed).toEqual([]);
+    expect(plan.positions[0].added).toEqual(cashierWithdrawalPermissions().sort());
+    expect(await svc.applyCashier(a.actor, plan.fingerprint)).toEqual({ changedPositions: 1, changedStaff: 0 });
+    expect((await ds.manager.findBy(PositionPermission, { positionId: a.cashier.id })).map(p => p.permission).sort()).toEqual(['finance.cash-bank.view', ...cashierWithdrawalPermissions()].sort());
+    expect((await ds.manager.findBy(PositionPermission, { positionId: b.cashier.id })).map(p => p.permission)).toEqual(['finance.cash-bank.view']);
+    expect((await ds.manager.findBy(PositionPermission, { positionId: a.fp.id })).map(p => p.permission)).toEqual(['finance.docs.post']);
+    expect(await ds.manager.countBy(UserPermissionOverride, { userId: a.worker.id })).toBe(2);
+    expect(await ds.manager.countBy(AuditLog, { companyId: a.company.id, action: 'position.cashier-withdrawal.grant' })).toBe(1);
+    const again = await svc.previewCashier(a.actor);
+    expect(again.changedPositions).toBe(0);
+    expect(await svc.applyCashier(a.actor, again.fingerprint)).toEqual({ changedPositions: 0, changedStaff: 0 });
+  });
+  it('出纳补授拒绝非管理员及跨公司身份；岗位停用使旧预览失效', async () => {
+    const a = await cashierFixture(), b = await cashierFixture();
+    await expect(svc.previewCashier({ ...a.actor, id: a.worker.id })).rejects.toThrow(/仅公司管理员/);
+    await expect(svc.previewCashier({ ...a.actor, companyId: b.company.id })).rejects.toThrow(/仅公司管理员/);
+    await expect(svc.applyCashier({ ...a.actor, permissions: { isCompanyAdmin: false, allow: [], deny: [] } }, '0'.repeat(64))).rejects.toThrow(/仅公司管理员/);
+    const plan = await svc.previewCashier(a.actor);
+    await ds.manager.update(Position, a.cashier.id, { status: 'inactive' });
+    await expect(svc.applyCashier(a.actor, plan.fingerprint)).rejects.toThrow(/重新预览/);
+    expect((await svc.previewCashier(a.actor)).positions).toEqual([]);
+    expect(await ds.manager.countBy(PositionPermission, { positionId: a.cashier.id })).toBe(1);
+  });
+
 });

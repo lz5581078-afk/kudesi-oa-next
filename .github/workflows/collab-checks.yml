@@ -42,8 +42,68 @@ jobs:
       - run: npm test -w @kudesi/api -- --runInBand
       - run: python3 -m unittest discover -s deploy/server/tests -v
       - run: npm run build
+  windows-agent:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run pack -w @kudesi/agent
+      - name: 编译并验证 EXE 安装程序
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compiler = "${env:ProgramFiles(x86)}/NSIS/makensis.exe"
+          if (-not (Test-Path -LiteralPath $compiler)) {
+            choco install nsis --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw 'NSIS installation failed' }
+          }
+          $env:MAKENSIS = $compiler
+          node apps/agent/scripts/pack-exe.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+          $version = (Get-Content apps/agent/package.json -Raw | ConvertFrom-Json).version
+          $exe = (Resolve-Path "apps/agent/release/KudesiAssistant-Setup-$version.exe").Path
+          $p = Start-Process -FilePath $exe -ArgumentList '/S', '/VALIDATEONLY' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installer smoke check failed: $($p.ExitCode)" }
+          if (Test-Path 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/KudesiAssistant') { throw 'Validation wrote uninstall registration' }
+          if (Test-Path "$env:LOCALAPPDATA/KudesiAssistant/agent.json") { throw 'Validation bound a device' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-assistant-installer
+          path: apps/agent/release/KudesiAssistant-Setup-*.exe
+          if-no-files-found: error
+      - name: 解压安装包并检查中文入口
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive -LiteralPath apps/agent/release/kudesi-assistant-windows.zip -DestinationPath "$env:RUNNER_TEMP/installer"
+          $dir = "$env:RUNNER_TEMP/installer/kudesi-assistant-windows"
+          foreach ($file in @('安装助手.cmd', '打开助手.cmd')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $dir $file))) { throw '中文安装入口缺失' }
+          }
+          powershell.exe -NoProfile -STA -File "$dir/setup.ps1" -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { throw '解压安装界面初始化失败' }
+          powershell.exe -NoProfile -STA -File "$dir/assistant-panel.ps1" -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { throw '解压助手面板初始化失败' }
+      - name: 校验 Windows 安装脚本与面板
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem apps/agent/windows/*.ps1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+          powershell.exe -NoProfile -STA -File apps/agent/windows/setup.ps1 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { throw '安装界面初始化失败' }
+          powershell.exe -NoProfile -STA -File apps/agent/windows/assistant-panel.ps1 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { throw '助手面板初始化失败' }
   merge:
-    needs: check
+    needs: [check, windows-agent]
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -52,7 +112,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr merge "${{ github.event.pull_request.html_url }}" --merge
   report-failure:
-    needs: check
+    needs: [check, windows-agent]
     if: failure()
     runs-on: ubuntu-latest
     steps:

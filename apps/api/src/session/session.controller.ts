@@ -71,7 +71,7 @@ export class SessionController {
   @RequirePermission(VIEW) @Post('docs/:docId/vouchers') bindVouchers(@CurrentUser() u: AuthUser, @Param('docId', ParseIntPipe) id: number, @Body() b: BindVouchersDto) { return this.session.bindVouchers(u, id, b.fileIds); }
   @RequirePermission(VIEW) @Get('installer') async installer(@CurrentUser() u: AuthUser, @Res() res: { set(h: Record<string, string>): void; end(b: Buffer): void }) {
     const r = await this.session.downloadInstaller(u);
-    res.set({ 'Content-Type': 'application/zip', 'Content-Length': String(r.buf.length), 'Content-Disposition': `attachment; filename="kudesi-assistant-${r.version}-windows.zip"`, 'X-Checksum-SHA256': r.sha256, 'Cache-Control': 'private, no-store' });
+    res.set({ 'Content-Type': r.contentType, 'Content-Length': String(r.buf.length), 'Content-Disposition': `attachment; filename="${r.filename}"`, 'X-Checksum-SHA256': r.sha256, 'Cache-Control': 'private, no-store' });
     res.end(r.buf);
   }
   @RequirePermission(VIEW) @Get('agent-releases') releases(@CurrentUser() u: AuthUser) { return this.session.listReleases(u); }
@@ -129,7 +129,7 @@ export class MaintenanceController {
   @RequirePermission(M_VIEW) @Get('audit') audit(@CurrentUser() u: AuthUser) { return this.m.audit(u); }
   @RequirePermission(M_VIEW) @Get('installer') async installer(@CurrentUser() u: AuthUser, @Res() res: { set(h: Record<string, string>): void; end(b: Buffer): void }) {
     const r = await this.m.downloadInstaller(u);
-    res.set({ 'Content-Type': 'application/zip', 'Content-Length': String(r.buf.length), 'Content-Disposition': `attachment; filename="kudesi-assistant-${r.version}-windows.zip"`, 'X-Checksum-SHA256': r.sha256, 'Cache-Control': 'private, no-store' });
+    res.set({ 'Content-Type': r.contentType, 'Content-Length': String(r.buf.length), 'Content-Disposition': `attachment; filename="${r.filename}"`, 'X-Checksum-SHA256': r.sha256, 'Cache-Control': 'private, no-store' });
     res.end(r.buf);
   }
   @RequirePermission(M_VIEW) @Get('agent-releases') releases(@CurrentUser() u: AuthUser) { return this.m.listReleases(u); }
