@@ -908,7 +908,9 @@ d('直播管理（真实数据库）', () => {
     await sessions.report(aa,disputed.id,{role:'anchor',endAt:'2026-12-03 10:30:00',salesCents:0});
     const disputedDetail=await sessions.detail(aa,disputed.id);expect(disputedDetail.endAt).toBe('2026-12-03 11:00:00');expect(disputedDetail.ordersCaptureStatus).toBe('pending');expect(disputedDetail.ordersCaptureError).toContain('其他场次');expect(disputedDetail.reports[0].pending).toBe(true);
     clock('2026-12-04 10:00:00');
-    const vacant=await sessions.start(aa,{actualCheckin:true,roomId:room,anchorId:aa.id,operatorId:operator.id,productIds:[ids.p1],channels:[{accountId:account,storeIds:[shop]}]});
+    const vacantPlan=await schedules.create(manager,input({date:'2026-12-04',roomId:room,anchorId:aa.id,controlId:null,operatorId:operator.id,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'}));
+    const vacantRow=(await sessions.workbench(aa)).schedules.find(s=>s.id===vacantPlan.id)!;
+    const vacant=await sessions.start(aa,{...start,scheduleId:vacantPlan.id,scheduleFingerprint:vacantRow.fingerprint});
     const context=await sessions.checkinContext(bareOps,room);expect(context.joinable.find(s=>s.id===vacant.id)).toMatchObject({canJoinControl:true,canJoinOperator:false});
     await sessions.start(bareOps,{actualCheckin:true,role:'control',sessionId:vacant.id,confirmDetails:true});
     expect((await sessions.workbench(bareOps)).active.find(s=>s.id===vacant.id)?.myCheckin?.role).toBe('control');
@@ -923,7 +925,10 @@ d('直播管理（真实数据库）', () => {
     clock('2026-12-04 11:02:00');await sessions.report(aa,vacant.id,{role:'anchor',endAt:'2026-12-04 11:02:00',salesCents:0});
     await ds.manager.update(User,{id:operator.id,companyId:company},{extraPositionIds:[posA]});
     clock('2026-12-05 10:00:00');
-    const dual=await sessions.start(bareOps,{actualCheckin:true,role:'control',confirmDetails:true,roomId:room,anchorId:aa.id,productIds:[ids.p1],channels:[{accountId:account,storeIds:[shop]}]});
+    const dualPlan=await schedules.create(manager,input({date:'2026-12-05',roomId:room,anchorId:aa.id,controlId:bareOps.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'}));
+    const dualRow=(await sessions.workbench(bareOps)).schedules.find(s=>s.id===dualPlan.id)!;
+    await expect(sessions.start(bareOps,{actualCheckin:true,role:'control',confirmDetails:true,roomId:room,anchorId:aa.id,productIds:[ids.p1],channels:[{accountId:account,storeIds:[shop]}]})).rejects.toThrow(/没有排班/);
+    const dual=await sessions.start(bareOps,{...start,role:'control',confirmDetails:true,scheduleId:dualPlan.id,scheduleFingerprint:dualRow.fingerprint});
     expect((await sessions.workbench(bareOps)).active.find(s=>s.id===dual.id)?.myCheckin?.role).toBe('control');
 
 

@@ -20,7 +20,7 @@ export function CheckinRoleDialog({context,onClose,onControl,onDone}:{context:Ch
       <label><input type="radio" name="checkin-role" value="control" checked={role==='control'} onChange={()=>{setRole('control');setSelected('');}}/><span><strong>中控</strong><small>默认身份</small></span></label>
       <label><input type="radio" name="checkin-role" value="operator" checked={role==='operator'} disabled={!operators.length} onChange={()=>{setRole('operator');setSelected('');}}/><span><strong>运营</strong><small>本场有中控时才可选择运营身份</small>{!operators.length&&<small>当前没有可加入的运营场次</small>}</span></label>
     </fieldset>
-    {!!candidates.length&&<label className="live-field">本场直播<select value={chosen?.id??''} onChange={e=>setSelected(e.target.value)}>{candidates.map(s=><option key={s.id} value={s.id}>{s.roomName} · 主播 {s.anchor.name}{s.control?` · 中控 ${s.control.name}`:''}</option>)}{role==='control'&&<option value="new">按排班或临时新开一场</option>}</select></label>}
+    {!!candidates.length&&<label className="live-field">本场直播<select value={chosen?.id??''} onChange={e=>setSelected(e.target.value)}>{candidates.map(s=><option key={s.id} value={s.id}>{s.roomName} · 主播 {s.anchor.name}{s.control?` · 中控 ${s.control.name}`:''}</option>)}{role==='control'&&<option value="new">按本人排班开播</option>}</select></label>}
     {chosen&&<p className="muted">{chosen.roomName} · 主播 {chosen.anchor.name} · 中控 {chosen.control?.name??'待本人确认'}{chosen.operator?` · 运营 ${chosen.operator.name}`:''}</p>}
     {role==='operator'&&chosen&&<p className="muted">{chosen.channels?.map(c=>`${c.accountName} / ${c.stores.map(s=>s.name).join('、')}`).join('；')}</p>}
   </Modal>;
