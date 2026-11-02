@@ -68,6 +68,13 @@ function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
   const [keys, setKeys] = useState<string[]>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(key) ?? 'null') as string[] | null;
+      if (type === 'stores' && !localStorage.getItem(`${key}.jst-association`)) {
+        localStorage.setItem(`${key}.jst-association`, '1');
+        if (saved?.length && !saved.includes('jushuitanShopId')) {
+          saved.push('jushuitanShopId');
+          localStorage.setItem(key, JSON.stringify(saved));
+        }
+      }
       if (saved?.length) return saved.filter((k) => all.some((f) => f.key === k));
     } catch {
       /* 存储不可用时用默认列 */
