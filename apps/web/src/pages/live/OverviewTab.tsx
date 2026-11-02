@@ -1,3 +1,4 @@
+import { roomProductItems } from './roomProducts';
 import { productText } from './ProductPicker';
 import { useAuth } from '../../auth/AuthContext';
 import { RoomSettingsDialog } from './RoomSettingsDialog';
@@ -24,7 +25,7 @@ function Tile({ t, day, now, onOpen,onEdit }: { t: RoomTile; day: string; now: s
   const state=t.status==='live'?'live':missed?'missed':t.status;
   return <article className={`live-room ${t.big?'big':''} state-${state}`} aria-label={`${t.name}，${t.statusLabel}`}>
     <h3><button className="link-button" onClick={onOpen}>{t.shortName||t.name}</button><span className={`live-status status-${state}`}>{t.status==='idle'&&missed?'待上播':t.statusLabel}</span></h3>
-    <div className="live-room-meta"><small>负责人 <strong>{t.ownerName||'未设置'}</strong></small><small>房间产品 <strong>{t.products||'未设置'}</strong></small></div>
+    <div className="live-room-meta"><small>房间管理员 <strong>{t.ownerName||'未设置'}</strong></small><small>房间产品 <span className="live-room-product-items">{roomProductItems(t.products).length ? roomProductItems(t.products).map((p,i) => <strong key={i}>{p}</strong>) : <strong>未设置</strong>}</span></small></div>
     <div className="live-room-people"><span>主播<strong>{t.live?.anchor.name||'—'}</strong></span><span>中控<strong>{t.live?.control?.name||'—'}</strong></span></div>
     {t.live&&<small className="muted">{t.live.operator?`运营 ${t.live.operator.name} · `:''}{t.live.douyinAccount.name}</small>}
     <div className="live-room-times"><span>开播<strong>{hm(t.live?.startAt,day)}</strong></span><span>预计下播<strong>{hm(t.live?.plannedEnd,day)}</strong></span><span>已播<strong>{t.live?minutesText(elapsed):'—'}</strong></span></div>

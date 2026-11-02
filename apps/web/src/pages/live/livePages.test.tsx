@@ -327,9 +327,15 @@ describe('直播管理', () => {
     expect(south.textContent).toContain('小中控');expect(south.textContent).toContain('毛巾');
     fireEvent.click(within(south).getByRole('button',{name:'编辑房间'}));
     const dlg=await screen.findByRole('dialog',{name:'直播间-南1 · 房间设置'});
-    fireEvent.change(within(dlg).getByLabelText('房间产品'),{target:{value:'牙刷'}});
+    expect(within(dlg).getByLabelText('房间管理员')).toBeTruthy();
+    expect(south.textContent).toContain('房间管理员');
+    fireEvent.change(within(dlg).getByLabelText('房间产品 1'),{target:{value:'牙刷'}});
+    fireEvent.click(within(dlg).getByRole('button',{name:'＋ 添加产品'}));
+    fireEvent.change(within(dlg).getByLabelText('房间产品 2'),{target:{value:'花育25'}});
+    fireEvent.click(within(dlg).getByRole('button',{name:'＋ 添加产品'}));
+    fireEvent.click(within(dlg).getByRole('button',{name:'删除房间产品 3'}));
     fireEvent.click(within(dlg).getByRole('button',{name:'保存房间信息'}));
-    await waitFor(()=>expect(l.roomSettings).toHaveBeenCalledWith(11,{ownerId:5,products:'牙刷'}));
+    await waitFor(()=>expect(l.roomSettings).toHaveBeenCalledWith(11,{ownerId:5,products:'牙刷\n花育25'}));
   });
 
   it('人事补报按分提交并保留原因；区间工资结算提交起止日期',async()=>{
