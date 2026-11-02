@@ -196,9 +196,8 @@ export function App() {
   }
 
   if (location.pathname === '/feishu-bind') return <FeishuBindCallback />;
-  if (user.feishuBindingPending) {
-    return <FeishuEnrollmentSetup key={`${user.companyId}:${user.id}`} />;
-  }
+  // 飞书绑定不强制：未绑定也能使用，只是每次进入都会在页面顶部提醒；主动去绑定时才进入绑定页。
+  if (location.pathname === '/feishu-setup') return <FeishuEnrollmentSetup key={`${user.companyId}:${user.id}`} />;
   return (
     <Routes>
       <Route element={<Shell />}>
