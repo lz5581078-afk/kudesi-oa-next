@@ -40,7 +40,12 @@ export class CollectorFileService implements OnModuleDestroy {
   private decode(token: string, purpose: Ticket['purpose']): Ticket {
     try {
       if (token.length > 2000 || !/^[A-Za-z0-9_-]+$/.test(token)) throw Error();
-      const t = JSON.parse(this.crypto.decrypt(Buffer.from(token, 'base64url').toString())) as Ticket;
+      const bytes = Buffer.from(token, 'base64url'), sealed = bytes.toString('utf8');
+      // Buffer's base64 decoder tolerates suffixes and invalid padding. Tickets must retain the exact authenticated encoding.
+      if (bytes.toString('base64url') !== token || !Buffer.from(sealed, 'utf8').equals(bytes)) throw Error();
+      const parts = sealed.split(':');
+      if (parts.length !== 5 || parts.slice(2).some((part) => Buffer.from(part, 'base64').toString('base64') !== part)) throw Error();
+      const t = JSON.parse(this.crypto.decrypt(sealed)) as Ticket;
       if (t.purpose !== purpose || !/^[0-9a-f]{64}$/.test(t.id) || !Number.isSafeInteger(t.cid) || t.cid < 1
         || !Number.isSafeInteger(t.uid) || t.uid < 1 || !Number.isSafeInteger(t.exp) || t.exp <= this.now() || t.exp > this.now() + TTL) throw Error();
       return t;
