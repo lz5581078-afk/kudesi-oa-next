@@ -3,8 +3,8 @@ import { ExternalOutcomeUnknown, JsonRow } from './jushuitan.client';
 export class FeishuClient {
   constructor(private readonly fetchFn: typeof fetch = fetch) {}
   async request(path: string, body?: JsonRow, token?: string): Promise<JsonRow> {
-    if (!['auth/v3/tenant_access_token/internal', 'authen/v2/oauth/token', 'authen/v1/user_info', 'im/v1/messages?receive_id_type=open_id', 'im/v1/messages?receive_id_type=union_id'].includes(path)) throw new Error('未允许的飞书接口');
-    const sending = path.startsWith('im/');
+    if (!['auth/v3/tenant_access_token/internal', 'authen/v2/oauth/token', 'authen/v1/user_info', 'im/v1/messages?receive_id_type=open_id', 'im/v1/messages?receive_id_type=union_id', 'message/v4/batch_send/'].includes(path)) throw new Error('未允许的飞书接口');
+    const sending = path.startsWith('im/') || path === 'message/v4/batch_send/';
     let r: Response;
     try { r = await this.fetchFn('https://open.feishu.cn/open-apis/' + path, { method: body ? 'POST' : 'GET', headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), redirect: 'error', signal: AbortSignal.timeout(20000) }); }
     catch { throw sending ? new ExternalOutcomeUnknown('飞书发送结果未知，请回查后再决定是否重试') : new Error('飞书接口暂时无法连接'); }
@@ -33,5 +33,12 @@ export class FeishuClient {
   async send(app: { appId: string; appSecret: string }, receiveId: string, kind: 'open_id' | 'union_id', text: string, idempotencyKey: string) {
     const token = await this.tenantToken(app);
     await this.request('im/v1/messages?receive_id_type=' + kind, { receive_id: receiveId, msg_type: 'text', content: JSON.stringify({ text }), uuid: createHash('sha256').update(idempotencyKey).digest('hex').slice(0, 48) }, token);
+  }
+  async batchSend(app: { appId: string; appSecret: string }, departmentIds: string[], text: string) {
+    if (!departmentIds.length) throw new Error('飞书群发缺少部门范围');
+    const token = await this.tenantToken(app);
+    const result = await this.request('message/v4/batch_send/', { department_ids: departmentIds, msg_type: 'text', content: { text } }, token);
+    if (!result.data?.message_id || result.data?.invalid_department_ids?.length) throw new ExternalOutcomeUnknown('批量消息提交结果不完整，请到飞书核查');
+    return String(result.data.message_id);
   }
 }
