@@ -1,3 +1,4 @@
+import { livePeople, loadLiveAccess } from './live-access';
 import { LiveManagementService } from './live-management.service';
 /** 直播管理的真实数据库测试。RESOURCE_DB_TEST=1 TEST_DB_NAME=kudesi_oa_test_u9 npx jest --runInBand live */
 import 'reflect-metadata';
@@ -474,6 +475,58 @@ d('直播管理（真实数据库）', () => {
     await expect(management.updateRule(foreign,unused.id,{effectiveFrom:unused.effectiveFrom,rules:unused.form})).rejects.toThrow(/不存在/);
     await management.updateRule(manager,unused.id,{effectiveFrom:unused.effectiveFrom,rules:{...unused.form,operatorRate:'2'}});
     expect((await ledger.rules(manager)).versions.find(r=>r.id===unused.id)!.form.operatorRate).toBe('2');
+  });
+
+  it('传统电商部门及有效下级、主兼任人员可选中控；目录、保存及本人上播一致，停用和跨公司不放行', async () => {
+    const cid = (await ds.manager.save(Company, ds.manager.create(Company, { code: `tc${crypto.randomBytes(5).toString('hex')}`, name: '传统电商测试', status: 'active' }))).id;
+    await ensureDefaultLiveRules(ds.manager, cid);
+    const dept = async (name: string, parent: number | null = null, status = 'active', co = cid) => Number((await ds.query('INSERT INTO departments(company_id,name,parent_id,status) VALUES(?,?,?,?)', [co,name,parent,status])).insertId);
+    const root = await dept('传统电商'), child = await dept('店铺运营组',root), off = await dept('停用组',root,'inactive');
+    const offChild = await dept('停用组下级',off), other = await dept('其他部门'), similar = await dept('传统电商协作组');
+    const foreignDept = await dept('传统电商',null,'active',foreign.companyId);
+    const pos = async (name: string, departmentId: number, type = 'blank', status = 'active') => {
+      const id = await position(cid,name,type); await ds.query('UPDATE positions SET department_id=?,status=? WHERE id=?',[departmentId,status,id]); return id;
+    };
+    const primaryPos = await pos('普通员工',child), offPos = await pos('停用岗位',root,'blank','inactive');
+    const originalControl = await pos('现有中控',other,'live_control');
+    const direct = await mkUser(cid,'tc-direct','部门直属人员',{departmentId:root});
+    const primary = await mkUser(cid,'tc-primary','主岗位人员',{positionId:primaryPos});
+    const extra = await mkUser(cid,'tc-extra','兼任人员',{departmentId:other,extraPositionIds:[primaryPos]});
+    const duplicate = await mkUser(cid,'tc-existing','原中控人员',{departmentId:root,positionId:originalControl,extraPositionIds:[primaryPos]});
+    const disabled = await mkUser(cid,'tc-disabled','停用人员',{departmentId:root,status:'disabled'});
+    const badPosition = await mkUser(cid,'tc-off-pos','停用岗位人员',{departmentId:other,extraPositionIds:[offPos]});
+    const offDepartment = await mkUser(cid,'tc-off-dept','停用部门人员',{departmentId:off});
+    const offDescendant = await mkUser(cid,'tc-off-child','停用父部门下人员',{departmentId:offChild});
+    const wrongDepartment = await mkUser(cid,'tc-similar','相似部门名称人员',{departmentId:similar});
+    const foreignReference = await mkUser(cid,'tc-bad-ref','错误外公司部门引用',{departmentId:foreignDept});
+    const foreignPerson = await mkUser(foreign.companyId,'tc-foreign','其他公司人员',{departmentId:foreignDept});
+    const people = await livePeople(ds.manager,cid), expected = [direct,primary,extra,duplicate].sort((a,b)=>a-b);
+    expect(people.controls.map(p=>p.id)).toEqual(expected);
+    expect(people.anchors).toEqual([]);
+    for (const id of [disabled,badPosition,offDepartment,offDescendant,wrongDepartment,foreignReference,foreignPerson]) expect(people.controls.some(p=>p.id===id)).toBe(false);
+    const actor = au(extra,cid,'兼任人员',['features.live-desk.view']);
+    expect(await loadLiveAccess(ds.manager,actor)).toMatchObject({isControl:true,isAnchor:false,canManage:false,canViewAll:false});
+    await expect(schedules.options(au(extra,cid,'兼任人员'))).rejects.toThrow(/无权/);
+    const managerActor = au(direct,cid,'排场管理员',['live.manage']);
+    expect((await schedules.options(managerActor)).controls.map(p=>p.id)).toEqual(expected);
+    const anchorPos = await pos('主播',other,'live_anchor');
+    const anchorId = await mkUser(cid,'tc-anchor','主播',{positionId:anchorPos});
+    const corridor = await rec(cid,'locations','西走廊办公室',{name:'西走廊办公室',locationType:'floor'});
+    const room = await rec(cid,'locations','直播间-南1',{name:'直播间-南1',locationType:'room',parentId:corridor});
+    const account = await rec(cid,'self-media','测试抖音号',{name:'测试抖音号',platform:'douyin'});
+    const store = await rec(cid,'stores','测试店铺',{name:'测试店铺',platform:'douyin',jushuitanShopId:'TC1'});
+    const product = await rec(cid,'finance-base-codes','TC-SKU',{name:'商品',spec:'一份'});
+    clock('2026-11-01 09:00:00');
+    const body = {date:'2026-11-02',roomId:room,startTime:'10:00',endTime:'11:00',anchorId,controlId:primary,douyinAccountId:account,storeId:store};
+    const schedule = await schedules.create(managerActor,body);
+    await schedules.update(managerActor,schedule.id,{...body,controlId:extra});
+    expect((await schedules.list(managerActor,{from:'2026-11-02',to:'2026-11-02'})).rows[0].control?.id).toBe(extra);
+    const started = await sessions.start(actor,{roomId:room,anchorId,controlId:extra,douyinAccountId:account,storeId:store,productIds:[product]});
+    expect((await sessions.detail(actor,started.id)).control?.id).toBe(extra);
+    await ds.query("UPDATE departments SET status='inactive' WHERE id=?",[root]);
+    expect((await livePeople(ds.manager,cid)).controls.map(p=>p.id)).toEqual([duplicate]); // 原live_control资格仍保留。
+    expect((await loadLiveAccess(ds.manager,actor)).isControl).toBe(false);
+    await expect(schedules.update(managerActor,schedule.id,{...body,controlId:primary})).rejects.toThrow(/不是中控岗位/);
   });
 
 });
