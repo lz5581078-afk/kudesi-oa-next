@@ -1,19 +1,22 @@
-import { ManualSessionPicker } from './ManualSessionPicker';
+import { ManualSchedulePicker } from './ManualSchedulePicker';
 import { ChannelPicker, snapshotChannels } from './ChannelPicker';
 import { StorePerformanceTable, storeDrafts, storePayload, type StoreDraft } from './StorePerformanceTable';
 import { type LiveChannelInput, type LiveChannel } from '@kudesi/shared';
 import { manualApiTime, manualSessionDraft } from './manualSessionDraft';
 import { productText } from './liveProducts';
 import { useEffect, useRef, useState } from 'react';
-import { liveApi, type Options, type ManualBody, type SubmissionStatus, type SessionDetail } from './liveApi';
+import { liveApi, type Options, type ManualBody, type SubmissionStatus, type SessionDetail, type ScheduleRow } from './liveApi';
 import { SubmissionNotice } from './SubmissionNotice';
 import { errText, nowText, yuanCents } from './liveFormat';
 import { TrialPersonDialog } from './TrialPersonDialog';
+type Mode = 'schedule' | 'new';
 export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
-  const [existing, setExisting] = useState(true);
-  return <ManualReportForm key={String(existing)} existing={existing} changeMode={setExisting} onOpen={onOpen}/>;
+  const [mode, setMode] = useState<Mode>('schedule');
+  return <ManualReportForm key={mode} mode={mode} changeMode={setMode} onOpen={onOpen}/>;
 }
-function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; changeMode:(value:boolean)=>void; onOpen:(id:number)=>void}) {
+function ManualReportForm({mode, changeMode, onOpen}: {mode:Mode; changeMode:(value:Mode)=>void; onOpen:(id:number)=>void}) {
+  const existing = mode !== 'new';
+  const [schedule,setSchedule] = useState<ScheduleRow|null>(null);
   const [choosing,setChoosing]=useState(true);
   const dirty = useRef(false);
   const canDiscard = () => !dirty.current || window.confirm('放弃当前未保存的补报内容？');
@@ -59,16 +62,28 @@ function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; cha
       .then(setOpts)
       .catch((e) => setError(errText(e)));
   }, []);
-  async function loadSession(id: number) {
+  function pickSchedule(row: ScheduleRow) {
+    if (row.sessionId) { void loadSession(row, row.sessionId); return; }
+    if (!canDiscard()) return;
+    loadVersion.current++;
+    dirty.current=false;
+    setSchedule(row); setLoadedSession(null); setLoading(false); setChoosing(false); setError(''); setSaved(null);
+    const inputs=row.channels?.length ? row.channels.map(c=>({accountId:c.accountId,storeIds:c.storeIds})) : [{accountId:row.douyinAccount.id,storeIds:row.store?[row.store.id]:[]}];
+    const snapshot=row.channels?.length ? row.channels : snapshotChannels(opts,inputs);
+    setChannels(inputs); setLoadedChannels(inputs.every(c=>c.storeIds.length)?snapshot:null); setStoreRows(storeDrafts(snapshot));
+    setF({sessionId:'',roomId:String(row.roomId),anchorId:String(row.anchor.id),controlId:row.control?String(row.control.id):'',operatorId:row.operator?String(row.operator.id):'',douyinAccountId:String(row.douyinAccount.id),storeId:row.store?String(row.store.id):'',startAt:row.start,endAt:row.end,sales:'',controlSales:'',operatorSales:'',ad:'0',reason:'',orders:''});
+  }
+  async function loadSession(row: ScheduleRow, id: number) {
     if (!canDiscard()) return;
     dirty.current = false;
+    setSchedule(null);
     const version=++loadVersion.current;
     setError('');setSaved(null);setLoading(true);setLoadedSession(null);setLoadedChannels(null);setChannels([]);setStoreRows([]);
     try {
       const session=await liveApi.session(id);
       if(version!==loadVersion.current)return;
       const draft=manualSessionDraft(session,nowText());
-      setChoosing(false);setLoadedSession(session);setChannels(draft.channels);setLoadedChannels(draft.snapshot);setStoreRows(draft.rows);setF(draft.fields);
+      setChoosing(false);setSchedule(row);setLoadedSession(session);setChannels(draft.channels);setLoadedChannels(draft.snapshot);setStoreRows(draft.rows);setF(draft.fields);
     } catch(e) {if(version===loadVersion.current)setError(errText(e,'载入原场次失败'));}
     finally {if(version===loadVersion.current)setLoading(false);}
   }
@@ -99,6 +114,7 @@ function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; cha
     setBusy(true);
     try {
       const body: ManualBody = {
+        scheduleId: schedule?.id,
         sessionId: f.sessionId ? Number(f.sessionId) : undefined,
         roomId: Number(f.roomId),
         anchorId: Number(f.anchorId),
@@ -136,7 +152,7 @@ function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; cha
   ) => (
     <label className="live-field">
       {label}
-      <select disabled={!!loadedSession || loading} aria-label={label} value={f[key]} onChange={set(key)}>
+      <select disabled={!!schedule || !!loadedSession || loading} aria-label={label} value={f[key]} onChange={set(key)}>
         <option value="">请选择</option>
         {loadedSession&&f[key]&&!rows.some(row=>String(row.id)===f[key])&&<option value={f[key]}>原记录：{({roomId:loadedSession.roomName,anchorId:loadedSession.anchor.name,controlId:loadedSession.control?.name,operatorId:loadedSession.operator?.name,douyinAccountId:loadedSession.douyinAccount.name,storeId:loadedSession.store?.name})[key]??f[key]}</option>}
         {rows.map((p) => (
@@ -157,13 +173,14 @@ function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; cha
         </p>
         {submission ? <SubmissionNotice status={submission} onRefresh={() => void checkSubmission()} /> : <p role="status" className="muted">正在检查审核流程…</p>}
         <div className="live-actions" aria-label="补报方式">
-          {[true,false].map(mode => <button key={String(mode)} aria-pressed={existing===mode} disabled={busy} className={existing===mode?'primary-button':'secondary-button'} onClick={()=>{if(existing!==mode && canDiscard()) changeMode(mode);}}>{mode?'补报已有场次':'新建补报'}</button>)}
+          {(['schedule','new'] as const).map(item => <button key={item} aria-pressed={mode===item} disabled={busy} className={mode===item?'primary-button':'secondary-button'} onClick={()=>{if(mode!==item && canDiscard()) changeMode(item);}}>{{schedule:'补报已有排班',new:'新建补报'}[item]}</button>)}
         </div>
-        {existing && !choosing && <button disabled={busy} className="link-button" onClick={()=>setChoosing(true)}>重新选择场次</button>}
-        {existing && choosing && !busy && <ManualSessionPicker options={opts} onPick={id=>void loadSession(id)}/>}
+        {existing && !choosing && <button disabled={busy} className="link-button" onClick={()=>setChoosing(true)}>重新选择排班</button>}
+        {mode==='schedule' && choosing && !busy && <ManualSchedulePicker onPick={pickSchedule}/>}
+        {schedule && <p className="notice">已选择 {schedule.roomName} · {schedule.start.slice(0,16)} 的排班。请核对实际上下播时间，保存后业绩归入这次排班。</p>}
         {loading&&<p role="status">正在载入原场次…</p>}
-        {loadedSession&&<div className="notice" role="status"><strong>已载入原场次 #{loadedSession.id} · {loadedSession.statusLabel}</strong><p>房间、人员、账号、店铺和开播时间沿用原记录；可补充或修改营业额、投流费用、下播时间、订单及核定原因。保存后仍需审核。</p><p>原场次产品：{productText(loadedSession.products)}</p>{!['live','pending_report','returned'].includes(loadedSession.status)&&<p>该场次已提交审核或已审核，当前只供核对，不能补报。</p>}</div>}
-        {opts && (!existing || loadedSession) && (
+        {loadedSession&&<div className="notice" role="status"><strong>已载入原场次 #{loadedSession.id} · {loadedSession.statusLabel}</strong><p>房间、人员、账号和店铺沿用原记录；可补充或修改营业额、投流费用、实际上下播时间、订单及核定原因。保存后仍需审核。</p><p>原场次产品：{productText(loadedSession.products)}</p>{!['live','pending_report','returned'].includes(loadedSession.status)&&<p>该场次已提交审核或已审核，当前只供核对，不能补报。</p>}</div>}
+        {opts && (!existing || loadedSession || schedule) && (
           <div className="live-page" onChangeCapture={()=>{dirty.current=true;}}>
             <fieldset>
               <legend>房间与参与人员</legend>
@@ -172,7 +189,7 @@ function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; cha
                 {select('anchorId', '主播', opts.anchors)}
                 {select('controlId', '中控（可选）', opts.controls)}
                 {select('operatorId', '运营（可选）', opts.operators)}
-                <button disabled={!!loadedSession||loading} className="secondary-button" onClick={() => setTrial(true)}>
+                <button disabled={!!schedule||!!loadedSession||loading} className="secondary-button" onClick={() => setTrial(true)}>
                   新增试播主播
                 </button>
               </div>
@@ -187,7 +204,7 @@ function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; cha
                     type="datetime-local"
                     step="1"
                     aria-label="补报上播时间"
-                    disabled={!!loadedSession||loading}
+                    disabled={loading}
                     value={f.startAt.replace(' ', 'T')}
                     onChange={set('startAt')}
                   />
@@ -216,7 +233,7 @@ function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; cha
           {error && <div role="alert" className="notice error">{error}</div>}
           {saved && <div role="status" className="notice ok">已保存场次 #{saved}，可在详情中核对并提交。<button type="button" className="link-button" onClick={() => onOpen(saved)}>打开场次详情</button></div>}
         </div>
-        {(!existing || loadedSession) && <div className="live-actions live-manual-actions">
+        {(!existing || loadedSession || schedule) && <div className="live-actions live-manual-actions">
           <p className="muted">保存后自动打开核对页面，填写内容会保留。</p>
           <button className="primary-button" disabled={busy || loading || !opts || saved !== null || (!!f.sessionId && Number(f.sessionId)!==loadedSession?.id) || (!!loadedSession&&!['live','pending_report','returned'].includes(loadedSession.status))} onClick={() => void save()}>
             {busy ? '保存中…' : saved ? '已保存' : '保存并核对'}

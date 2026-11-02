@@ -231,10 +231,8 @@ export function PayrollTab({
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="live-payroll-session">
-                    <span>{r.date}</span>
-                    <strong>{hm(r.startAt,r.date)}–{r.endAt?hm(r.endAt,r.date):'下播时间未记录'}</strong>
-                    <span>{r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'}</span>
-                    <small>产品：{productText(r.products)}</small>
+                    <span className="live-payroll-date">{r.date} <strong>{hm(r.startAt,r.date)}–{r.endAt?hm(r.endAt,r.date):'下播时间未记录'}</strong></span>
+                    <span>{r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'} · <small>产品：{productText(r.products)}</small></span>
                   </td>
                   <td>{r.userName}</td>
                   <td>
