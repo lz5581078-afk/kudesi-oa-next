@@ -1,3 +1,4 @@
+import { LiveQrService } from './live/live-qr.service';
 import { LiveCheckinClosureService } from './live/live-checkin-closure.service';
 import { StaffFeishuController } from './org/staff-feishu.controller';
 import { StaffFeishuService } from './org/staff-feishu.service';
@@ -270,7 +271,7 @@ const env = loadEnv();
     SupervisionService,
     SupervisionScheduler,
     ServiceWorkspaceProvider,
-    LiveCheckinClosureService, LiveNotificationService, LiveTurnoverService, LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
+    LiveQrService, LiveCheckinClosureService, LiveNotificationService, LiveTurnoverService, LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
     { provide: LiveOrderSource, useClass: JushuitanOrderSource },
     FinanceDocumentsService,
     FinanceVoucherHintsService,
