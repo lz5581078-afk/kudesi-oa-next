@@ -477,6 +477,40 @@ d('直播管理（真实数据库）', () => {
     expect((await ledger.rules(manager)).versions.find(r=>r.id===unused.id)!.form.operatorRate).toBe('2');
   });
 
+  it('排场保存产品快照、更新产品、导入同房间上次配置并隔离公司与权限', async () => {
+    clock('2026-11-01 09:00:00');
+    const first = await schedules.create(manager, input({date:'2026-11-01',productIds:[ids.p1,ids.p1,ids.p2]}));
+    const rows = (await schedules.list(manager,{from:'2026-11-01',to:'2026-11-01'})).rows;
+    expect(rows.find(r=>r.id===first.id)!.products).toEqual(expect.arrayContaining([expect.objectContaining({id:ids.p1,name:'毛巾'}),expect.objectContaining({id:ids.p2,name:'牙刷'})]));
+    expect(rows.find(r=>r.id===first.id)!.products).toHaveLength(2);
+    await schedules.update(manager,first.id,input({date:'2026-11-01',productIds:[ids.p2]}));
+    const cancelled = await schedules.create(manager,input({date:'2026-11-01',startTime:'15:00',endTime:'16:00'}));
+    await schedules.cancel(manager,cancelled.id,'取消不应导入');
+    expect((await schedules.previous(manager,{roomId:ids.n1,date:'2026-11-01'}))!.id).toBe(first.id);
+    expect((await schedules.previous(manager,{roomId:ids.n1,date:'2026-11-01',startTime:'09:00'}))?.date).not.toBe('2026-11-01');
+    const template = await schedules.previous(manager,{roomId:ids.n1,date:'2026-11-02'});
+    expect(template).toMatchObject({id:first.id,products:[{id:ids.p2,code:'SKU-B',name:'牙刷',spec:'软毛'}]});
+    expect(await schedules.previous(manager,{roomId:ids.s1,date:'2026-01-01'})).toBeNull();
+    await expect(schedules.previous(anchor,{roomId:ids.n1,date:'2026-11-02'})).rejects.toThrow(/权限/);
+    await expect(schedules.previous(foreign,{roomId:ids.n1,date:'2026-11-02'})).rejects.toThrow(/不存在/);
+    await expect(schedules.create(manager,input({date:'2026-11-02',productIds:[ids.account]}))).rejects.toThrow(/产品/);
+    const foreignProduct = await rec(foreign.companyId,'finance-base-codes','FOREIGN',{name:'外公司产品'});
+    await expect(schedules.create(manager,input({date:'2026-11-02',productIds:[foreignProduct]}))).rejects.toThrow(/产品/);
+    await ds.query("UPDATE resource_records SET status='disabled' WHERE company_id=? AND id=?",[company,ids.p2]);
+    await expect(schedules.create(manager,input({date:'2026-11-02',productIds:[ids.p2]}))).rejects.toThrow(/产品/);
+    await ds.query("UPDATE resource_records SET status='normal' WHERE company_id=? AND id=?",[company,ids.p2]);
+    // 已经在播仍保留下一场，产品来自该场快照而非房间产品文本。
+    const next = await schedules.create(manager,input({date:'2026-11-01',startTime:'16:00',endTime:'18:00',productIds:[ids.p1]}));
+    clock('2026-11-01 10:00:00');
+    const live = await sessions.start(anchor,{scheduleId:first.id,...baseStart()});
+    const overview = await schedules.overview(manager,'2026-11-01');
+    const tile = overview.groups.north.find(r=>r.id===ids.n1)!;
+    expect(tile.next).toMatchObject({id:next.id,controlName:'小中控',operatorName:'小运营',products:[expect.objectContaining({id:ids.p1})]});
+    expect(tile.live!.products).toHaveLength(2);
+    expect((await sessions.workbench(anchor)).schedules.find(s=>s.id===next.id)!.products).toHaveLength(1);
+    await ds.query("UPDATE live_sessions SET status='pending_report',end_at='2026-11-01 11:00:00' WHERE company_id=? AND id=?",[company,live.id]);
+  });
+
   it('传统电商部门及有效下级、主兼任人员可选中控；目录、保存及本人上播一致，停用和跨公司不放行', async () => {
     const cid = (await ds.manager.save(Company, ds.manager.create(Company, { code: `tc${crypto.randomBytes(5).toString('hex')}`, name: '传统电商测试', status: 'active' }))).id;
     await ensureDefaultLiveRules(ds.manager, cid);

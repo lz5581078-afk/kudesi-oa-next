@@ -1,3 +1,4 @@
+import { productText } from './ProductPicker';
 import { useAuth } from '../../auth/AuthContext';
 import { RoomSettingsDialog } from './RoomSettingsDialog';
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
@@ -27,7 +28,14 @@ function Tile({ t, day, now, onOpen,onEdit }: { t: RoomTile; day: string; now: s
     <div className="live-room-people"><span>主播<strong>{t.live?.anchor.name||'—'}</strong></span><span>中控<strong>{t.live?.control?.name||'—'}</strong></span></div>
     {t.live&&<small className="muted">{t.live.operator?`运营 ${t.live.operator.name} · `:''}{t.live.douyinAccount.name}</small>}
     <div className="live-room-times"><span>开播<strong>{hm(t.live?.startAt,day)}</strong></span><span>预计下播<strong>{hm(t.live?.plannedEnd,day)}</strong></span><span>已播<strong>{t.live?minutesText(elapsed):'—'}</strong></span></div>
-    {t.live?<div className="live-room-progress"><div role="progressbar" aria-label="本场直播进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress??undefined} className="live-progress-track"><i style={{width:`${progress??0}%`}}/></div><small>{progress===null?'临时场次，未设置预计下播':elapsed>planned!?'已超过预计下播时间':`直播进度 ${progress}%`}</small></div>:<p className="live-next">{t.next?`下一场 ${hm(t.next.start)}–${hm(t.next.plannedEnd,day)} · ${t.next.anchorName}`:'暂无后续排场'}</p>}
+    {t.live&&<><small className="live-current-products">本场产品 <strong>{productText(t.live.products)}</strong></small><div className="live-room-progress"><div role="progressbar" aria-label="本场直播进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress??undefined} className="live-progress-track"><i style={{width:`${progress??0}%`}}/></div><small>{progress===null?'临时场次，未设置预计下播':elapsed>planned!?'已超过预计下播时间':`直播进度 ${progress}%`}</small></div></>}
+    <section className="live-next" aria-label={`${t.shortName || t.name}下一场`}>
+      {t.next ? <>
+        <strong className="live-next-time">下一场 {hm(t.next.start,day)}–{hm(t.next.plannedEnd,day)}</strong>
+        <div className="live-next-people"><span>主播 <strong>{t.next.anchorName}</strong></span><span>中控 <strong>{t.next.controlName || '未安排'}</strong></span><span>运营 <strong>{t.next.operatorName || '未安排'}</strong></span></div>
+        <div className="live-next-products">产品 <strong>{productText(t.next.products)}</strong></div>
+      </> : <span>当天暂无后续排场</span>}
+    </section>
     <div className="live-bar" aria-label="当天排场时间条">{t.timeline.map(i=><i key={`${i.kind}${i.id}`} className={i.state==='done'?'done':i.state==='missed'||i.state==='due'?'missed':''} style={{left:`${barPos(i.start,day)}%`,width:`${Math.max(1.5,barPos(i.end,day)-barPos(i.start,day))}%`}}/>)}{day===now.slice(0,10)&&<b style={{left:`${barPos(now,day)}%`}}/>}</div>
     <div className="live-actions live-room-foot"><button className="secondary-button small" onClick={onOpen}>查看当天详情</button>{onEdit&&<button className="link-button" onClick={onEdit}>编辑房间</button>}</div>
   </article>;
@@ -46,7 +54,7 @@ function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId: numbe
           <strong>排场</strong>
           {d.schedules.length === 0 && <p className="muted">这天没有排场。</p>}
           <ul className="live-list">{d.schedules.map((s) => (
-            <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div><SchedulePill status={s.status} label={s.statusLabel} /></li>
+            <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.operator ? ` · 运营 ${s.operator.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}</small></div><SchedulePill status={s.status} label={s.statusLabel} /></li>
           ))}</ul>
           <strong>实际直播</strong>
           {d.sessions.length === 0 && <p className="muted">这天还没有直播记录。</p>}
