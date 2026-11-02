@@ -3,7 +3,7 @@ import { Notification, OutboxSwitch } from '../entities';
 import type { FeishuNotice } from './feishu-notice.service';
 
 type Input = Pick<Notification, 'companyId' | 'userId' | 'kind' | 'title' | 'body' | 'link'>;
-type Delivery = Partial<Pick<FeishuNotice, 'channel' | 'resourceType' | 'resourceId' | 'kind' | 'runId'>> & { key?: string };
+type Delivery = Partial<Pick<FeishuNotice, 'channel' | 'resourceType' | 'resourceId' | 'kind' | 'runId' | 'liveEventKey'>> & { key?: string };
 
 /** Persist the OA notice and its opt-in Feishu job in the same business transaction. No network calls. */
 export async function writeNotification(em: EntityManager, input: Input, delivery: Delivery = {}): Promise<InsertResult & { feishuQueued: boolean }> {
