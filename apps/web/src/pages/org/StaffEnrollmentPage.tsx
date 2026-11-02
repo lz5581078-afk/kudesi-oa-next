@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { enrollmentApi, type EnrollmentPreview } from './enrollmentApi';
 import './enrollment.css';
@@ -7,12 +7,13 @@ import './enrollment.css';
 export function StaffEnrollmentPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [token] = useState(() => window.location.hash.slice(1));
+  const token = useLocation().hash.slice(1);
   const [info, setInfo] = useState<EnrollmentPreview | null>(null), [error, setError] = useState('');
   const [name, setName] = useState(''), [phone, setPhone] = useState(''), [password, setPassword] = useState(''), [position, setPosition] = useState('');
   const [busy, setBusy] = useState(false), [joined, setJoined] = useState<{ companyName: string; positionName: string; account: string } | null>(null);
   useEffect(() => {
     let active = true;
+    setInfo(null); setJoined(null); setError(''); setName(''); setPhone(''); setPassword(''); setPosition('');
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) { setError('入职二维码无效，请联系人事重新获取。'); return; }
     enrollmentApi.preview(token).then(r => { if (active) setInfo(r); }).catch(e => { if (active) setError(e instanceof Error ? e.message : '二维码读取失败，请重试'); });
     return () => { active = false; };
