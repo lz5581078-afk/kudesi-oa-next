@@ -17,17 +17,26 @@ export function RoomSessionPanel({ session, day, now }: { session: RoomCurrentSe
     if (!id) return;
     const token = ++request.current;
     setBusy(true);
-    liveApi.turnover(id).then(d => { if (token === request.current) { setData(d); setError(''); } })
+    return liveApi.turnover(id).then(d => { if (token === request.current) { setData(d); setError(''); } })
       .catch(e => { if (token === request.current) setError(errText(e, '读取本场营业额失败')); })
       .finally(() => { if (token === request.current) setBusy(false); });
   }, [id, end]);
   useEffect(() => {
-    setData(null); setError(''); setOpen(false); load();
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // 查询完成后再等一个周期，慢请求不叠加，也不会撞上服务端同周期缓存。
+    const schedule = () => {
+      if (active && id) timer = setTimeout(async () => {
+        if (document.visibilityState === 'visible') await load();
+        schedule();
+      }, end ? 30_000 : 60_000);
+    };
+    setData(null); setError(''); setOpen(false);
+    void Promise.resolve(load()).then(schedule);
     const refresh = () => { if (document.visibilityState === 'visible') load(); };
-    const timer = id ? setInterval(refresh, 30_000) : null;
     document.addEventListener('visibilitychange', refresh);
-    return () => { request.current++; if (timer) clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
-  }, [load, id]);
+    return () => { active = false; request.current++; if (timer) clearTimeout(timer); document.removeEventListener('visibilitychange', refresh); };
+  }, [load, id, end]);
   const done = !!session?.endAt;
   const elapsed = session ? Math.max(0, Math.floor((Date.parse((session.endAt || now).replace(' ', 'T') + '+08:00') - Date.parse(session.startAt.replace(' ', 'T') + '+08:00')) / 60000)) : 0;
   const duration = session?.plannedEnd ? Math.max(1,(Date.parse(session.plannedEnd.replace(' ', 'T') + '+08:00') - Date.parse(session.startAt.replace(' ', 'T') + '+08:00'))/60000) : null;
@@ -50,7 +59,7 @@ export function RoomSessionPanel({ session, day, now }: { session: RoomCurrentSe
       {(error || (data && !data.available)) && <p className="notice error" role="alert">{error || data?.reason}，不会按零元计算。</p>}
       {!data && !error && <p role="status">正在读取聚水潭订单…</p>}
       {data && <><div className="live-scroll"><table className="data-table live-turnover-table"><thead><tr><th>店铺 / 平台</th><th>有效单数</th><th>有效营业额</th><th>本场订单退款</th></tr></thead><tbody>{data.stores.map(s => <tr key={s.storeId}><td>{s.storeName}<small>{LIVE_PLATFORMS[s.platform] || s.platform}</small>{!s.available && <small className="error-text">{s.reason}</small>}</td><td data-label="有效单数">{s.available ? `${s.orderCount} 单` : '—'}</td><td data-label="有效营业额">{s.available ? money(s.turnoverCents!) : '—'}</td><td data-label="本场订单退款">{s.available ? money(s.refundCents!) : '—'}</td></tr>)}</tbody><tfoot><tr><th>合计</th><td data-label="有效单数">{data.available ? `${data.orderCount} 单` : '—'}</td><td data-label="有效营业额">{data.available ? money(data.turnoverCents!) : '暂不可用'}</td><td data-label="本场订单退款">{data.available ? money(data.refundCents!) : '—'}</td></tr></tfoot></table></div>
-        <p className="muted">数据来自聚水潭。有效营业额＝本场实付金额－本场订单已确认退款，全额退款不计有效单数。更新于 {data.queriedAt}，约每 30 秒刷新。</p></>}
+        <p className="muted">数据来自聚水潭。有效营业额＝本场实付金额－本场订单已确认退款，全额退款不计有效单数。更新于 {data.queriedAt}，{done ? '约每 30 秒刷新' : '直播期间约每 1 分钟刷新'}。</p></>}
     </Modal>}
   </section>;
 }

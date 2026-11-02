@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { RoomSessionPanel } from './RoomSessionPanel';
 import { liveApi } from './liveApi';
@@ -6,7 +6,7 @@ vi.mock('./liveApi',()=>({liveApi:{turnover:vi.fn()}}));
 const session={id:7,startAt:'2026-11-02 10:00:00',plannedEnd:'2026-11-02 12:00:00',anchor:{id:1,name:'主播甲'},control:{id:2,name:'中控乙'},operator:{id:3,name:'运营丙'},douyinAccount:{id:4,name:'账号'}};
 const data={sessionId:7,roomName:'南1',startAt:session.startAt,endAt:'2026-11-02 11:00:00',live:true,queriedAt:'2026-11-02 11:00:02',available:true,reason:'',orderCount:3,turnoverCents:18000,grossCents:20000,refundCents:2000,stores:[{storeId:1,storeName:'抖音店A',platform:'douyin',available:true,reason:'',orderCount:2,turnoverCents:13000,grossCents:15000,refundCents:2000},{storeId:2,storeName:'快手店B',platform:'kuaishou',available:true,reason:'',orderCount:1,turnoverCents:5000,grossCents:5000,refundCents:0}]};
 beforeEach(()=>{vi.mocked(liveApi.turnover).mockResolvedValue(data);});
-afterEach(()=>{cleanup();vi.resetAllMocks();});
+afterEach(()=>{cleanup();vi.useRealTimers();vi.restoreAllMocks();vi.resetAllMocks();});
 it('本场金额可点开，按店铺展示单数金额与合计，明确成单时间口径',async()=>{
  render(<RoomSessionPanel session={session} day="2026-11-02" now="2026-11-02 11:00:00"/>);
  await screen.findByText('¥180.00');fireEvent.click(screen.getByRole('button',{name:'查看本场营业额'}));
@@ -26,4 +26,26 @@ it('场次变化丢弃旧请求结果，结束后保持实际下播时间和时�
  const {rerender}=render(<RoomSessionPanel session={session} day="2026-11-02" now="2026-11-02 11:00:00"/>);
  rerender(<RoomSessionPanel session={{...session,id:8,endAt:'2026-11-02 10:40:00'}} day="2026-11-02" now="2026-11-02 15:00:00"/>);
  await screen.findByText('¥90.00');resolve(data);await waitFor(()=>expect(screen.queryByText('¥180.00')).toBeNull());expect(screen.getByText('40 分')).toBeTruthy();expect(screen.getByText('已下播')).toBeTruthy();
+});
+it('直播查询完成一分钟后再查，慢请求不叠加；下播立即查且保留下播后的刷新周期',async()=>{
+ vi.useFakeTimers();
+ vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+ let resolve!:(v:typeof data)=>void;
+ vi.mocked(liveApi.turnover).mockReturnValueOnce(new Promise(r=>{resolve=r;})).mockResolvedValue(data);
+ const {rerender,unmount}=render(<RoomSessionPanel session={session} day="2026-11-02" now="2026-11-02 11:00:00"/>);
+ expect(liveApi.turnover).toHaveBeenCalledTimes(1);
+ await act(async()=>{await vi.advanceTimersByTimeAsync(60_000);});
+ expect(liveApi.turnover).toHaveBeenCalledTimes(1);
+ await act(async()=>{resolve(data);});
+ await act(async()=>{await vi.advanceTimersByTimeAsync(59_999);});
+ expect(liveApi.turnover).toHaveBeenCalledTimes(1);
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1);});
+ expect(liveApi.turnover).toHaveBeenCalledTimes(2);
+ await act(async()=>{rerender(<RoomSessionPanel session={{...session,endAt:'2026-11-02 11:00:00'}} day="2026-11-02" now="2026-11-02 11:00:00"/>);});
+ expect(liveApi.turnover).toHaveBeenCalledTimes(3);
+ await act(async()=>{await vi.advanceTimersByTimeAsync(30_000);});
+ expect(liveApi.turnover).toHaveBeenCalledTimes(4);
+ unmount();
+ await vi.advanceTimersByTimeAsync(60_000);
+ expect(liveApi.turnover).toHaveBeenCalledTimes(4);
 });
