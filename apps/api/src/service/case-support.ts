@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
@@ -119,7 +120,7 @@ export class CaseSupport {
           `SELECT assignee_id AS assigneeId FROM work_items WHERE company_id = ? AND run_id = ? AND status = 'open'`, [user.companyId, row.runId]);
         if (!handlers.length) throw new BadRequestException('现在没有办理人可催');
         for (const h of handlers) {
-          await em.insert(Notification, { companyId: user.companyId, userId: h.assigneeId, kind: 'urge', title: `${user.name} 催办：${row.title}`.slice(0, 200), body: text.slice(0, 500), link: `/workbench/todos?run=${row.runId}` });
+          await writeNotification(em, { companyId: user.companyId, userId: h.assigneeId, kind: 'urge', title: `${user.name} 催办：${row.title}`.slice(0, 200), body: text.slice(0, 500), link: `/workbench/todos?run=${row.runId}` });
         }
       }
       await em.insert(CaseLog, { companyId: user.companyId, targetType: t.logType, targetId: id, userId: user.id, kind, content: text });

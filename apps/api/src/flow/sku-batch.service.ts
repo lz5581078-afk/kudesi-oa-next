@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
@@ -247,7 +248,7 @@ export class SkuBatchService {
        WHERE w.company_id = ? AND w.status = 'open' AND w.run_id IN (${runIds.map(() => '?').join(',')}) GROUP BY w.assignee_id, s.step_name, s.entered_via`, [user.companyId, ...runIds]);
     for (const r of rows) {
       const returned = r.via === 'return';
-      await em.insert(Notification, {
+      await writeNotification(em, {
         companyId: user.companyId, userId: r.uid, kind: returned ? 'returned' : 'todo', title: `${returned ? '被退回' : '新待办'}：${name}（${r.n} 个规格 · ${r.stepName}）`.slice(0, 200),
         body: returned && comment ? `退回原因：${comment}`.slice(0, 500) : null, link,
       });
@@ -257,7 +258,7 @@ export class SkuBatchService {
       const k = ended.filter((r) => r.status === status);
       if (!k.length) continue;
       const word = status === 'completed' ? '已完成' : status === 'cancelled' ? '已废除' : '被拒绝';
-      await em.insert(Notification, { companyId: user.companyId, userId: fresh[0].requesterId, kind: 'result', title: `${name}：${k.length} 个规格${word}`.slice(0, 200), body: action === 'pass' || !comment ? null : comment.slice(0, 500), link: `/workbench/started?batch=${ref}` });
+      await writeNotification(em, { companyId: user.companyId, userId: fresh[0].requesterId, kind: 'result', title: `${name}：${k.length} 个规格${word}`.slice(0, 200), body: action === 'pass' || !comment ? null : comment.slice(0, 500), link: `/workbench/started?batch=${ref}` });
     }
   }
 

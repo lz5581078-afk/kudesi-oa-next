@@ -384,6 +384,7 @@ export class UserPermissionOverride {
 
 @Entity('audit_logs')
 @Index('idx_audit_company_time', ['companyId', 'createdAt'])
+@Index('idx_audit_actor_action', ['companyId', 'actorId', 'action'])
 export class AuditLog {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id!: string;

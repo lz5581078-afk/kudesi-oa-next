@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import { Injectable, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -109,8 +110,8 @@ export class LiveScheduleService {
    */
   private async notify(em: EntityManager, companyId: number, ids: Array<number | null | undefined>, title: string, body: string, ref: { scheduleId: number; version: number; kind: 'schedule' | 'changed' | 'removed' | 'cancelled' | 'reminder' }) {
     for (const uid of [...new Set(ids.filter((v): v is number => !!v).map(Number))]) {
-      await em.insert(Notification, { companyId, userId: uid, kind: 'live_schedule', title: title.slice(0, 200), body: body.slice(0, 500), link: '/features/live-desk' });
-      await this.feishu?.enqueue(em, companyId, 'live-schedule', `${ref.kind}:${ref.scheduleId}:${ref.version}`, {
+      const saved = await writeNotification(em, { companyId, userId: uid, kind: 'live_schedule', title: title.slice(0, 200), body: body.slice(0, 500), link: '/features/live-desk' }, { key: `${ref.kind}:${ref.scheduleId}:${ref.version}`, channel: 'live', resourceType: 'live-schedule', resourceId: ref.scheduleId, kind: ref.kind });
+      if (!saved.feishuQueued) await this.feishu?.enqueue(em, companyId, 'live-schedule', `${ref.kind}:${ref.scheduleId}:${ref.version}`, {
         channel: 'live', userId: uid, title: title.slice(0, 200), body: body.slice(0, 500), link: '/features/live-desk', resourceType: 'live-schedule', resourceId: ref.scheduleId, kind: ref.kind,
       });
     }
