@@ -10,10 +10,10 @@ export interface Product { id: number; code: string; name: string; spec: string 
 export interface ScheduleRow {
   id: number; roomId: number; roomName: string; date: string; start: string; end: string; startTime: string; endTime: string; status: 'scheduled' | 'live' | 'finished' | 'cancelled'; statusLabel: string;
   anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person; store: Person | null; sessionId: number | null; note: string | null; cancelReason: string | null;
-  canStart?: boolean; mineRole?: string;
+  products?: Product[]; canStart?: boolean; mineRole?: string;
 }
 export interface ScheduleList { rooms?:RoomOpt[]; from: string; to: string; rows: ScheduleRow[]; canManage: boolean }
-export interface ScheduleBody { date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId: number | null; operatorId: number | null; douyinAccountId: number; storeId: number | null; note?: string }
+export interface ScheduleBody { date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId: number | null; operatorId: number | null; douyinAccountId: number; storeId: number | null; note?: string; productIds?: number[] }
 
 export interface SessionRow { reportSource?:string;manualReason?:string|null;manualActorId?:number|null;
   id: number; scheduleId: number | null; roomId: number; roomName: string; date: string; startAt: string; endAt: string | null; plannedEnd: string | null; status: 'live' | 'pending_report' | 'submitted' | 'returned' | 'approved'; statusLabel: string;
@@ -44,10 +44,10 @@ export interface ReviewPreview { controlWage?:{minutes:number;hourlyRateCents:nu
   wage: { startAt: string; endAt: string; minutes: number; hourlyRateCents: number; amountCents: number; rateSource: string; archiveHourlyRateCents: number | null };
 }
 
-export interface TimelineItem { kind: 'schedule' | 'adhoc'; id: number; start: string; end: string; plannedEnd: string; anchorName: string; controlName: string | null; operatorName: string | null; douyinName: string; state: 'live' | 'done' | 'missed' | 'due' | 'upcoming'; sessionId: number | null }
+export interface TimelineItem { products?: Product[]; kind: 'schedule' | 'adhoc'; id: number; start: string; end: string; plannedEnd: string; anchorName: string; controlName: string | null; operatorName: string | null; douyinName: string; state: 'live' | 'done' | 'missed' | 'due' | 'upcoming'; sessionId: number | null }
 export interface RoomTile extends Omit<RoomOpt, 'live'> {
   status: 'live' | 'finished' | 'idle'; statusLabel: string; next: TimelineItem | null; timeline: TimelineItem[];
-  live: { id: number; startAt: string; plannedEnd: string | null; anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person } | null;
+  live: { products?: Product[]; id: number; startAt: string; plannedEnd: string | null; anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person } | null;
 }
 export interface Overview { date: string; now: string; groups: { north: RoomTile[]; south: RoomTile[]; none: RoomTile[] }; corridorFound: boolean; totals: { rooms: number; live: number; scheduled: number; pendingReview: number } }
 export interface RoomDay { room: RoomOpt; date: string; schedules: ScheduleRow[]; sessions: Array<{ id: number; scheduleId: number | null; status: string; startAt: string; endAt: string | null; anchor: Person; control: Person | null; douyinAccount: Person; anchorSalesCents: number | null; controlSalesCents: number | null; finalSalesCents: number | null }> }
@@ -97,6 +97,7 @@ export const liveApi = {
   overview: (date?: string) => api<Overview>(`/live/overview${qs({ date })}`),
   roomDay: (id: number, date?: string) => api<RoomDay>(`/live/rooms/${id}/day${qs({ date })}`),
   schedules: (p: { from?: string; to?: string } = {}) => api<ScheduleList>(`/live/schedules${qs(p)}`),
+  previousSchedule: (p: { roomId: number; date: string; startTime?: string }) => api<ScheduleRow | null>(`/live/schedules/previous${qs(p)}`),
   createSchedule: (b: ScheduleBody) => post<{ id: number }>('/live/schedules', b),
   updateSchedule: (id: number, b: ScheduleBody) => api<{ ok: true }>(`/live/schedules/${id}`, { method: 'PUT', body: b }),
   cancelSchedule: (id: number, reason: string) => post<{ ok: true }>(`/live/schedules/${id}/cancel`, { reason }),

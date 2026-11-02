@@ -1,6 +1,7 @@
-import { TrialPersonDialog } from './TrialPersonDialog';
+import { ScheduleDialog } from './ScheduleDialog';
+import { productText } from './ProductPicker';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { liveApi, type Options, type ScheduleBody, type ScheduleList, type ScheduleRow } from './liveApi';
+import { liveApi, type ScheduleList, type ScheduleRow } from './liveApi';
 import { errText, nowText, todayText } from './liveFormat';
 import { Modal, SchedulePill } from './liveUi';
 
@@ -14,46 +15,6 @@ function stateOf(s: ScheduleRow, now: string): { label: string; tone: string } {
   if (s.end <= now) return { label: '已过时未上播', tone: 'bad' };
   if (s.start <= now) return { label: '已到时间未上播', tone: 'warn' };
   return { label: s.statusLabel, tone: '' };
-}
-
-function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose, onDone }: { initial: ScheduleRow | null; days: string[];defaultRoom?:number;defaultDay?:string; onClose: () => void; onDone: () => void }) {
-  const [opts, setOpts] = useState<Options | null>(null);
-  const [f, setF] = useState({
-    date: initial?.date ?? defaultDay ?? days[0], roomId: initial ? String(initial.roomId) : String(defaultRoom??''), startTime: initial?.startTime ?? '', endTime: initial?.endTime ?? '', anchorId: initial ? String(initial.anchor.id) : '',
-    controlId: initial?.control ? String(initial.control.id) : '', operatorId: initial?.operator ? String(initial.operator.id) : '', douyinAccountId: initial ? String(initial.douyinAccount.id) : '', storeId: initial?.store ? String(initial.store.id) : '', note: initial?.note ?? '',
-  });
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [trial,setTrial]=useState(false);
-  useEffect(() => { liveApi.options().then(setOpts).catch((e) => setError(errText(e, '加载选项失败'))); }, []);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((cur) => ({ ...cur, [k]: e.target.value }));
-  async function save() {
-    setError('');
-    if (!f.roomId || !f.startTime || !f.endTime || !f.anchorId || !f.douyinAccountId) return setError('请填写直播间、开始结束时间、主播和抖音号');
-    const body: ScheduleBody = { date: f.date, roomId: Number(f.roomId), startTime: f.startTime, endTime: f.endTime, anchorId: Number(f.anchorId), controlId: f.controlId ? Number(f.controlId) : null, operatorId: f.operatorId ? Number(f.operatorId) : null, douyinAccountId: Number(f.douyinAccountId), storeId: f.storeId ? Number(f.storeId) : null, note: f.note.trim() || undefined };
-    setBusy(true);
-    try { if (initial) await liveApi.updateSchedule(initial.id, body); else await liveApi.createSchedule(body); onDone(); } catch (e) { setError(errText(e)); } finally { setBusy(false); }
-  }
-  return (
-    <><Modal title={initial ? '修改排场' : '新增排场'} onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={busy || !opts} onClick={() => void save()}>{busy ? '保存中…' : '保存'}</button></>}>
-      {error && <div role="alert" className="notice error">{error}</div>}
-      <p className="muted">结束时间早于开始时间表示跨到第二天；单场最长 16 小时；同一直播间时间段不能重叠，同一主播不能同时在两个房间。</p>
-      {!opts ? <p className="muted" role="status">正在读取选项…</p> : (
-        <div className="live-fields live-schedule-form">
-          <label className="live-field">日期<select aria-label="排场日期" value={f.date} onChange={set('date')}>{days.map((d) => <option key={d} value={d}>{dayLabel(d)}</option>)}</select></label>
-          <label className="live-field">直播间<select aria-label="直播间" value={f.roomId} onChange={set('roomId')}><option value="">请选择</option>{opts.rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
-          <label className="live-field">开始时间<input aria-label="开始时间" type="time" value={f.startTime} onChange={set('startTime')} /></label>
-          <label className="live-field">结束时间<input aria-label="结束时间" type="time" value={f.endTime} onChange={set('endTime')} /></label>
-          <label className="live-field">主播<select aria-label="主播" value={f.anchorId} onChange={set('anchorId')}><option value="">请选择</option>{opts.anchors.map((p) => <option key={p.id} value={p.id}>{p.name}{p.trial?'（试播）':p.partTime?'（兼职）':''}</option>)}</select><button type="button" className="link-button" onClick={()=>setTrial(true)}>＋ 新增试播主播</button></label>
-          <label className="live-field">中控（可选）<select aria-label="中控" value={f.controlId} onChange={set('controlId')}><option value="">无</option>{opts.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          <label className="live-field">运营（可选）<select aria-label="运营" value={f.operatorId} onChange={set('operatorId')}><option value="">无</option>{opts.operators.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          <label className="live-field">抖音号<select aria-label="抖音号" value={f.douyinAccountId} onChange={set('douyinAccountId')}><option value="">请选择</option>{opts.douyinAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-          <label className="live-field">抖音店铺（可选）<select aria-label="店铺" value={f.storeId} onChange={set('storeId')}><option value="">无</option>{opts.stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-          <label className="live-field wide">备注（可选）<input aria-label="备注" maxLength={500} value={f.note} onChange={set('note')} /></label>
-        </div>
-      )}
-    </Modal>{trial&&<TrialPersonDialog onClose={()=>setTrial(false)} onDone={p=>{setTrial(false);setF(f=>({...f,anchorId:String(p.id)}));liveApi.options().then(setOpts).catch(e=>setError(errText(e)));}}/>}</>
-  );
 }
 
 function CancelDialog({ row, onClose, onDone }: { row: ScheduleRow; onClose: () => void; onDone: () => void }) {
@@ -109,7 +70,7 @@ export function SchedulesTab() {
             const st = day === today || s.date <= today ? stateOf(s, now) : { label: s.statusLabel, tone: '' };
             return (
               <li key={s.id}>
-                <div className="main"><strong>{s.startTime}–{s.endTime}{s.end.slice(0, 10) > s.date ? '（次日）' : ''} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name}` : '无中控'}{s.operator ? ` · 运营 ${s.operator.name}` : ''} · {s.douyinAccount.name}{s.store ? ` · ${s.store.name}` : ''}{s.note ? ` · ${s.note}` : ''}{s.cancelReason ? ` · 取消原因：${s.cancelReason}` : ''}</small></div>
+                <div className="main"><strong>{s.startTime}–{s.endTime}{s.end.slice(0, 10) > s.date ? '（次日）' : ''} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name}` : '无中控'}{s.operator ? ` · 运营 ${s.operator.name}` : ''} · {s.douyinAccount.name}{s.store ? ` · ${s.store.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}{s.cancelReason ? ` · 取消原因：${s.cancelReason}` : ''}</small></div>
                 {st.tone ? <span className={`pill ${st.tone}`}>{st.label}</span> : <SchedulePill status={s.status} label={st.label} />}
                 {d?.canManage && s.status === 'scheduled' && <div className="live-actions"><button type="button" className="secondary-button small" onClick={() => setEditing(s)}>修改</button><button type="button" className="secondary-button small danger" onClick={() => setCancelling(s)}>取消</button></div>}
               </li>
