@@ -39,14 +39,18 @@ describe('本场营业额',()=>{
   jest.spyOn(core.liveClock,'now').mockReturnValue(at('2026-11-02 11:00:22'));
   expect(await service.read(user,7)).toMatchObject({available:true,orderCount:0,turnoverCents:0});
  });
- it('缓存仍校验权限和公司，30秒内同场请求复用，下播立即换统计窗口',async()=>{
+ it('直播期间一分钟内同场请求复用，到期重新查；下播立即换窗口且仍校验公司与权限',async()=>{
   await Promise.all([service.read(user,7),service.read(user,7)]);expect(source.turnoverOrders).toHaveBeenCalledTimes(1);
+  jest.spyOn(core.liveClock,'now').mockReturnValue(at('2026-11-02 11:00:30'));
+  await service.read(user,7);expect(source.turnoverOrders).toHaveBeenCalledTimes(1);
+  jest.spyOn(core.liveClock,'now').mockReturnValue(at('2026-11-02 11:01:00'));
+  await service.read(user,7);expect(source.turnoverOrders).toHaveBeenCalledTimes(2);
   read.mockResolvedValue({...row,end_text:'2026-11-02 10:50:00',status:'pending_report'});
-  expect(await service.read(user,7)).toMatchObject({endAt:'2026-11-02 10:50:00',live:false});expect(source.turnoverOrders).toHaveBeenCalledTimes(2);
+  expect(await service.read(user,7)).toMatchObject({endAt:'2026-11-02 10:50:00',live:false});expect(source.turnoverOrders).toHaveBeenCalledTimes(3);
   jest.spyOn(access,'loadLiveAccess').mockResolvedValue({companyId:10,canView:false} as never);
   await expect(service.read(user,7)).rejects.toThrow(/权限/);
   jest.spyOn(access,'loadLiveAccess').mockResolvedValue({companyId:20,canView:true} as never);
-  await service.read({...user,companyId:20},7);expect(read).toHaveBeenLastCalledWith({},20,7);expect(source.turnoverOrders).toHaveBeenCalledTimes(3);
+  await service.read({...user,companyId:20},7);expect(read).toHaveBeenLastCalledWith({},20,7);expect(source.turnoverOrders).toHaveBeenCalledTimes(4);
  });
 });
 

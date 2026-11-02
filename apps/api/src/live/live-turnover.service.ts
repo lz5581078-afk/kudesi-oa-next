@@ -32,7 +32,7 @@ export class LiveTurnoverService {
     try {
       const value = await entry.value;
       // 从查询完成时计时，合并慢查询的并发请求；失败短暂缓存，避免外部接口重试风暴。
-      entry.expires = +liveClock.now() + (value.available ? 30_000 : 10_000);
+      entry.expires = +liveClock.now() + (value.available ? (s.end_text ? 30_000 : 60_000) : 10_000);
       return value;
     } catch (e) { this.cache.delete(key); throw e; }
   }
