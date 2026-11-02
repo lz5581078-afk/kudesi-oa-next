@@ -28,6 +28,7 @@ export interface ReportDto { storeLines?:LiveStoreLine[];
   orders: Array<{ orderId: string; amountCents: number; payTime: string | null; status: string | null }>;
 }
 export interface SessionDetail extends SessionRow { wages?:Array<{role:string;userId:number;minutes:number;hourlyRateCents:number;amountCents:number;note:string|null}>;
+  submission?: SubmissionStatus | null;
   products: LiveProductSnapshot[]; reports: ReportDto[];
   commissions: Array<{ platform?:string;userId: number; name: string; role: string; roleLabel: string; rateUnits: number; amountCents: number; roiScaled: number | null; belowRoi: boolean }>;
   wage: { userId: number; minutes: number; hourlyRateCents: number; amountCents: number; rateSource: string; note: string | null; startAt: string; endAt: string } | null;
@@ -88,6 +89,7 @@ const qs = (p: Record<string, unknown>) => {
   return q ? `?${q}` : '';
 };
 const post = <T>(path: string, body: unknown = {}) => api<T>(path, { method: 'POST', body });
+export interface SubmissionStatus { ready: boolean; message: string }
 
 export interface SourceStatus { ready: boolean; code: 'ready' | 'unconfigured' | 'unauthorized' | 'expired' | 'error'; message: string }
 export const liveApi = {
@@ -96,6 +98,7 @@ export const liveApi = {
   manualReport:(b:ManualBody)=>post<{id:number}>('/live/manual-reports',b),
   updateRule:(id:number,b:{effectiveFrom:string;note?:string;rules:RulesForm})=>api<{id:number}>(`/live/rules/${id}`,{method:'PUT',body:b}),
   integrationStatus: () => api<SourceStatus>('/live/integration-status'),
+  submissionStatus: () => api<SubmissionStatus>('/live/submission-status'),
   commissionPreview: (id: number, b: { sales: string; adSpend?: string }) => post<Preview | null>(`/live/sessions/${id}/commission-preview`, b),
   options: () => api<Options>('/live/options'),
   products: (keyword: string) => api<Product[]>(`/live/products${qs({ keyword })}`),

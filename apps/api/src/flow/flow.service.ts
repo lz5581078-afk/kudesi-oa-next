@@ -102,6 +102,23 @@ export class FlowService {
     return [...builtin, ...custom];
   }
 
+  /** 业务页面的只读预检；真正提交仍由 start 在事务中重新校验。 */
+  async startReadiness(user: AuthUser, key: string) {
+    const em = this.dataSource.manager;
+    const def = await em.findOne(FlowDefinition, { where: { companyId: user.companyId, templateKey: key, status: 'active' } });
+    if (!def) return { ready: false, message: '审核流程尚未启用，请管理员在流程配置中指定审核人并发布。' };
+    if (!await this.canStartWith(em, user, def.starterScope)) return { ready: false, message: '你不在审核流程的发起范围内，请联系管理员调整。' };
+    for (const step of def.steps as StepDef[]) {
+      if (step.type === 'submit' || step.type === 'end' || ASSIGNEE_RUNTIME_ONLY.includes(step.assignee?.source ?? 'employee')) continue;
+      try { await this.resolveRecipients(em, user.companyId, step, user.id); }
+      catch (e) {
+        if (e instanceof BadRequestException) return { ready: false, message: e.message };
+        throw e;
+      }
+    }
+    return { ready: true, message: '审核流程已就绪，提交后进入审核人的待办。' };
+  }
+
   // ================= 发起人范围 =================
 
   /** 发起人的身份快照：部门、岗位（含兼任）、岗位类型、职责组。只取数据库，不信请求。 */
