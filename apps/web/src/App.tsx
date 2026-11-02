@@ -9,6 +9,7 @@ import { LoginPage } from './pages/LoginPage';
 import { AfterSalesPage } from './pages/service/AfterSalesPage';
 import { AppealsPage } from './pages/service/AppealsPage';
 import { SupervisionPage } from './pages/service/SupervisionPage';
+import { StaffEnrollmentPage } from './pages/org/StaffEnrollmentPage';
 import { PhoneUploadPage } from './resources/PhoneUploadPage';
 import { PlatformApp } from './pages/platform/PlatformApp';
 import { AuditPage } from './pages/system/AuditPage';
@@ -169,6 +170,7 @@ export function App() {
   const { user, platformAdmin, loading, can } = useAuth();
 
   // 手机扫码上传页：免登录，只认网址里的令牌
+  if (window.location.pathname === '/join') return <StaffEnrollmentPage />;
   if (window.location.pathname === '/m/upload') return <PhoneUploadPage />;
   if (loading) return <div className="center-screen">加载中…</div>;
   if (platformAdmin) return <PlatformApp />;

@@ -1,0 +1,27 @@
+.enrollment-dialog { width: min(620px, calc(100vw - 24px)); }
+.enrollment-generate { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 18px 0; }
+.enrollment-generate label { display: grid; gap: 6px; }
+.enrollment-generate select { padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px; background: white; }
+.enrollment-code { display: grid; justify-items: center; gap: 10px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; text-align: center; }
+.enrollment-code svg { max-width: 100%; height: auto; }
+.enrollment-code p { max-width: 360px; margin: 4px 0; }
+.enrollment-existing { margin-top: 20px; }
+.enrollment-existing summary { cursor: pointer; }
+.enrollment-existing ul { list-style: none; padding: 0; }
+.enrollment-existing li { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.enrollment-existing li small { display: block; color: var(--muted); margin-top: 4px; }
+.enrollment-page { min-height: 100dvh; padding: 36px 16px; background: #edf5f5; display: grid; place-items: center; color: #19333a; }
+.enrollment-card { background: white; width: min(100%, 460px); border: 1px solid #d8e7e7; border-radius: 18px; padding: 32px; box-shadow: 0 12px 40px #204b4b0a; }
+.enrollment-brand { font-size: 13px; font-weight: 600; color: #187978; }
+.enrollment-card h1 { font-size: 25px; margin: 16px 0 10px; overflow-wrap: anywhere; }
+.enrollment-intro { color: #60767d; margin: 0 0 22px; line-height: 1.7; }
+.enrollment-position { display: grid; gap: 5px; padding: 12px 14px; border-radius: 8px; background: #eef7f6; color: #506f74; font-size: 13px; margin-bottom: 20px; }
+.enrollment-position strong { color: #175e60; font-size: 16px; }
+.enrollment-form { display: grid; gap: 18px; }
+.enrollment-form label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
+.enrollment-form input, .enrollment-form select { width: 100%; min-width: 0; border: 1px solid #cbdada; background: white; color: #19333a; border-radius: 8px; padding: 11px 12px; font-size: 16px; font-weight: 400; }
+.enrollment-form input:focus, .enrollment-form select:focus { outline: 2px solid #65abaa; outline-offset: 1px; }
+.enrollment-form button { width: 100%; min-height: 44px; margin-top: 6px; }
+.enrollment-login { text-align: center; color: #60767d; font-size: 13px; margin: 24px 0 0; }
+.enrollment-login a { color: #116f71; margin-left: 5px; }
+@media(max-width: 480px) { .enrollment-page { padding: 20px 12px; align-items: start; } .enrollment-card { padding: 26px 20px; } }

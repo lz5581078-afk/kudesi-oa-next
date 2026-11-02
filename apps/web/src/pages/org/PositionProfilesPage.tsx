@@ -8,6 +8,7 @@ import { PageHint } from '../../resources/PageHint';
 import { SearchGlyph } from '../../resources/ResIcons';
 import { orgApi, flattenDepartments, LEVEL_LABELS, WORKSPACE_LABELS, type DepartmentNode, type PositionDto } from './orgApi';
 import { ConfirmDialog, PositionDialog, errText } from './OrgDialogs';
+import { EnrollmentInviteDialog } from './EnrollmentInviteDialog';
 import { PositionDetail } from './PositionDetail';
 
 /** 岗位类型（positions.workspace_type 显式字段）对应的默认工作台名称；空白类型没有默认工作台 */
@@ -30,6 +31,7 @@ export function PositionProfilesPage() {
   const [sel, setSel] = useState<number | null>(null);
   const [folded, setFolded] = useState<Set<string>>(new Set());
   const [dlg, setDlg] = useState<{ kind: 'new' } | { kind: 'stop'; p: PositionDto } | { kind: 'del'; p: PositionDto } | null>(null);
+  const [invite, setInvite] = useState<{ position?: { id: number; name: string } } | null>(null);
   const [error, setError] = useState('');
   useAppbarBare();
   const hasSlot = useHasAppbarSlot();
@@ -77,7 +79,7 @@ export function PositionProfilesPage() {
           </nav>
         </aside>
         <main className="org-main pp-content" aria-label="岗位内容">
-        {sel!==null?<PositionDetail key={sel} id={sel} tree={tree} positions={positions} catalog={catalog} canEdit={canEdit} onBack={()=>setSel(null)} onChanged={reload}/>:<>
+        {sel!==null?<PositionDetail key={sel} id={sel} tree={tree} positions={positions} catalog={catalog} canEdit={canEdit} onEnroll={can('org.staff.create') ? () => { const p = positions.find(p => p.id === sel); if (p) setInvite({ position: p }); } : undefined} onBack={()=>setSel(null)} onChanged={reload}/>:<>
       <section className="res-main pp-main" aria-label="岗位档案列表">
         <div className="pp-content-head"><strong>{dept==='none'?'未分配部门':dept?flat.find(d=>String(d.id)===dept)?.name??'部门岗位':'全部岗位'}</strong><small className="muted">{shown.length} 个岗位{dept&&dept!=='none'?' · 包含下级部门':''}</small></div>
         <fieldset className="res-tools">
@@ -96,6 +98,7 @@ export function PositionProfilesPage() {
             <button type="button" className={vacantOnly ? 'res-btn on' : 'res-btn'} aria-pressed={vacantOnly} onClick={() => setVacantOnly((v) => !v)}>无人在岗 {positions.filter((p) => p.status === 'active' && p.userCount === 0).length}</button>
             {!hasSlot && hint}
             <span className="res-bar-gap" />
+            {can('org.staff.create') && <button type="button" className="res-btn" onClick={() => setInvite({})}>通用入职码</button>}
             {can('org.structure.create') && <button type="button" className="res-btn primary" onClick={() => setDlg({ kind: 'new' })}>＋ 新增岗位</button>}
           </div>
         </fieldset>
@@ -123,6 +126,7 @@ export function PositionProfilesPage() {
                         <td><span className={p.status === 'active' ? 'pill ok' : 'pill warn'}>{p.status === 'active' ? '启用' : '已停用'}</span></td>
                         <td className="pp-actions"><span className="row-actions">
                           <button type="button" className="link-button" onClick={() => setSel(p.id)}>查看档案</button>
+                          {can('org.staff.create') && p.status === 'active' && <button type="button" className="link-button" onClick={() => setInvite({ position: p })}>岗位入职码</button>}
                           {canEdit && p.status === 'active' && <button type="button" className="link-button" onClick={() => setDlg({ kind: 'stop', p })}>停用</button>}
                           {can('org.structure.delete') && <button type="button" className="link-button danger-text" onClick={() => setDlg({ kind: 'del', p })}>删除</button>}
                         </span></td>
@@ -139,6 +143,7 @@ export function PositionProfilesPage() {
       </section></>}
         </main>
       </div>
+      {invite && <EnrollmentInviteDialog position={invite.position} onClose={() => setInvite(null)} />}
       {dlg?.kind === 'new' && <PositionDialog position={null} defaultDepartmentId={dept&&dept!=='none' ? Number(dept) : null} departments={tree} catalog={catalog} canEditPerms={canEdit} onClose={() => setDlg(null)} onSaved={() => { setDlg(null); reload(); }} />}
       {dlg?.kind === 'stop' && (
         <ConfirmDialog title={`停用岗位「${dlg.p.name}」`} text="停用后不能再分配给新员工；已在岗的人员不受影响。" confirmLabel="确认停用" reasonLabel="停用原因" onClose={() => setDlg(null)}
