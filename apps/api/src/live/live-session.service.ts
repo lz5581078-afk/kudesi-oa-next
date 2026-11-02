@@ -1,6 +1,6 @@
 import { REPORT_WINDOW_MS, reportsLocked, scheduleFingerprint, primaryReport } from './live-checkin-core';
 import { captureOrders, persistCapture } from './live-order-capture';
-import { liveStartNotification } from './live-start-notification';
+import { liveStartNotification, liveStartedNotification } from './live-start-notification';
 import { liveHandover } from './live-notification-events';
 import { channelsOf, linesOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines, channelStores } from './live-platforms';
 import { LiveChannelInput, LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
@@ -214,6 +214,7 @@ export class LiveSessionService {
       let order = 0;
       for (const p of products) await em.query('INSERT INTO live_session_products (company_id, session_id, base_code_id, code_snapshot, name_snapshot, spec_snapshot, sort_order) VALUES (?,?,?,?,?,?,?)', [a.companyId, id, p.id, p.code.slice(0, 100), (p.name || p.code).slice(0, 200), p.spec.slice(0, 300) || null, order++]);
       if (sched) await em.query("UPDATE live_schedules SET status = 'live', session_id = ?, updated_by = ? WHERE company_id = ? AND id = ?", [id, a.userId, a.companyId, sched.id]);
+      await liveStartedNotification(em, a.companyId, id);
       if (sched) await liveStartNotification(em, a.companyId, id);
       return { id };
     });

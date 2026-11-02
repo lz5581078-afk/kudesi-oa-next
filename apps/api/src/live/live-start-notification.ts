@@ -3,7 +3,7 @@ import { liveFromText } from '@kudesi/shared';
 import { Department, Position, User } from '../entities';
 import { liveNotify } from './live-notification-events';
 
-const DEPARTMENTS = new Set(['人事部', '人事综合部', '人力资源部', '总经办', '总经办部门', '总经理办公室', 'A总经理']);
+const DEPARTMENTS = new Set(['人事部', '人事综合部', '人力资源部', '总经办', '总经办部门', '总经理办公室', 'A总经理', '总经理', '总经理部', '总经理部门']);
 /** Resolve active staff by their department or active primary/secondary position, within this company. */
 export async function liveStartRecipients(em: EntityManager, companyId: number): Promise<number[]> {
   const departments = await em.find(Department, { where: { companyId, status: 'active' } });
@@ -50,4 +50,27 @@ export async function liveStartNotification(em: EntityManager, companyId: number
     body: `${s.room_name} · 场次${sessionId}\n主播：${s.anchor_name ?? '未安排'}；中控：${s.control_name ?? '未安排'}；运营：${s.operator_name ?? '未安排'}\n排班开始：${s.planned_start}\n实际开播：${s.actual_start}\n${direction}${Math.floor(seconds / 60)}分${seconds % 60}秒，请人事部门和总经办核实。`,
     link: '/features/live', resourceId: sessionId,
   });
+}
+
+/** Every newly started session, including unscheduled sessions. Deduplication is session/user scoped. */
+export async function liveStartedNotification(em: EntityManager, companyId: number, sessionId: number): Promise<void> {
+  if (!em.queryRunner?.isTransactionActive) return em.transaction(tx => liveStartedNotification(tx, companyId, sessionId));
+  const [s] = await em.query(`SELECT s.room_name,DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') actual_start,
+    a.name anchor_name,c.name control_name,o.name operator_name
+    FROM live_sessions s
+    LEFT JOIN users a ON a.company_id=s.company_id AND a.id=s.anchor_user_id
+    LEFT JOIN users c ON c.company_id=s.company_id AND c.id=s.control_user_id
+    LEFT JOIN users o ON o.company_id=s.company_id AND o.id=s.operator_user_id
+    WHERE s.company_id=? AND s.id=?`,[companyId,sessionId]);
+  if (!s) return;
+  await liveNotify(em,companyId,await liveStartRecipients(em,companyId),{
+    key:`started:${sessionId}`,channel:'live',title:`${s.room_name}已上播`,
+    body:`${s.room_name} · 场次${sessionId}\n主播：${s.anchor_name ?? '未安排'}；中控：${s.control_name ?? '未安排'}；运营：${s.operator_name ?? '未安排'}\n实际开播：${s.actual_start}`,
+    link:'/features/live',resourceId:sessionId,
+  });
+}
+
+export async function liveStartedNoticeValid(em: EntityManager, companyId: number, userId: number, sessionId: number) {
+  const [s]=await em.query('SELECT id FROM live_sessions WHERE company_id=? AND id=?',[companyId,sessionId]);
+  return !!s && (await liveStartRecipients(em,companyId)).includes(userId);
 }

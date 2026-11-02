@@ -935,6 +935,7 @@ d('直播管理（真实数据库）', () => {
     const started=await sessions.start(anchor,{scheduleId:sch.id,...baseStart({startAt:'2026-12-02 10:05:01'})});
     const rows=await ds.manager.find(Notification,{where:{companyId:company,userId:recipient,title:'开播时间异常：推迟超过5分钟'}});
     expect(rows).toHaveLength(1);expect(rows[0].body).toContain('5分1秒');expect(rows[0].body).toContain('实际开播：2026-12-02 10:05:01');
+    expect(await ds.manager.find(Notification,{where:{companyId:company,userId:recipient,title:'直播间-北1已上播'}})).toHaveLength(1);
     await expect(sessions.start(anchor,{scheduleId:sch.id,...baseStart()})).rejects.toThrow('已上播');
     expect(await ds.query('SELECT * FROM live_notification_events WHERE company_id=? AND event_key=?',[company,`start-deviation:${started.id}`])).toHaveLength(1);
   });
