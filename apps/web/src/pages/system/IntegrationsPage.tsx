@@ -5,6 +5,7 @@ import { api, ApiError } from '../../api/client';
 import { settingsApi, type IntegrationOverview } from '../../resources/api';
 import { SecretInput } from './SecretInput';
 import { SpeechCollectorCard } from './SpeechCollectorCard';
+import { FeishuAssistantCard } from './FeishuAssistantCard';
 import './speechCollector.css';
 
 const HTTPS_URL = /^https?:\/\/[^\s/]+/i;
@@ -167,6 +168,7 @@ export function IntegrationsPage() {
       {data && (
         <div className="settings-grid collector-integrations-grid">
           <SpeechCollectorCard canEdit={canEdit} />
+          <FeishuAssistantCard canEdit={canEdit && !!user?.permissions.isCompanyAdmin} />
           <QiniuCard data={data} canEdit={canEdit} onSaved={setData} />
           <VisionCard data={data} canEdit={canEdit} onSaved={setData} />
           {data.connections && (data.connections.jushuitan.configured || data.connections.feishu.configured) && (
