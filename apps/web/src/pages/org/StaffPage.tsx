@@ -1,4 +1,5 @@
 import { StaffFeishuBadge, StaffTestNoticeDialog } from './StaffFeishu';
+import { StaffFeishuResetDialog } from './StaffFeishuReset';
 import { StaffDialog } from './StaffDialog';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { createChecker, type CatalogGroup } from '@kudesi/shared';
@@ -142,6 +143,7 @@ export function StaffPage() {
   const [bindingFilter,setBindingFilter]=useState('');
   const [employmentFilter,setEmploymentFilter]=useState('');
   const [testStaff,setTestStaff]=useState<StaffDto|null>(null);
+  const [resetFeishu,setResetFeishu]=useState(false);
   const [keyword, setKeyword] = useState('');
   const [showDisabled, setShowDisabled] = useState(false);
   const [onlyNoPosition, setOnlyNoPosition] = useState(false);
@@ -213,6 +215,7 @@ export function StaffPage() {
       <div className="page-head">
         <h1>员工与权限</h1>
         <span className="row-actions">
+          {user?.permissions.isCompanyAdmin&&<button type="button" className="secondary-button" onClick={()=>setResetFeishu(true)}>取消全员飞书关联</button>}
           {can('org.staff.view') && <button type="button" className="secondary-button" onClick={() => void exportCsv()}>导出</button>}
           {can('org.staff.create') && <button type="button" className="secondary-button" onClick={() => setDialog({ kind: 'import' })}>导入</button>}
           {can('org.staff.create') && <button type="button" className="primary-button" onClick={() => setDialog({ kind: 'edit', staff: null })}>＋ 新增员工</button>}
@@ -220,6 +223,7 @@ export function StaffPage() {
       </div>
       {feishuError&&<div role="alert" className="notice error">{feishuError}</div>}
       {testStaff&&<StaffTestNoticeDialog key={testStaff.id} staff={testStaff} status={feishu.get(testStaff.id)} onClose={()=>setTestStaff(null)}/>}
+      {resetFeishu&&<StaffFeishuResetDialog onClose={()=>setResetFeishu(false)}/>}
       {error && <div role="alert" className="notice error">{error}</div>}
       <div className="card">
         <div className="toolbar">
