@@ -98,7 +98,7 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
     const id = event.object?.open_id;
     if (!id || !/^ou_[a-zA-Z0-9]+$/.test(id) || event.object?.status?.is_resigned || event.object?.status?.is_exited) return;
     // Never welcome existing employees by replaying an old subscription event.
-    const created = Number(event.create_time) / 1000;
+    const created = Number(event.create_time);
     if (!Number.isFinite(created) || created < new Date(cfg.activatedAt).getTime() || created > Date.now() + 300_000) return;
     await this.enqueue(companyId, cfg, 'welcome', `welcome:${id}`, { openId: id, text: cfg.welcomeText, expiresAt: new Date(Date.now() + 86400_000).toISOString() });
   }
