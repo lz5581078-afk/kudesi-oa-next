@@ -282,6 +282,8 @@ export class LiveController {
   history(@CurrentUser() u: AuthUser, @Query() q: HistoryQuery) { return this.sessions.history(u, q); }
 
   // ---- 提成与工资 ----
+  @AuthenticatedOnly() @Get('personal-income')
+  personalIncome(@CurrentUser() u:AuthUser) { return this.ledger.personalIncome(u); }
   @AuthenticatedOnly() @Get('commissions')
   commissions(@CurrentUser() u: AuthUser, @Query() q: LedgerQuery) { return this.ledger.commissions(u, q); }
   @AuthenticatedOnly() @Get('wages')

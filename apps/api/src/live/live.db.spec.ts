@@ -388,7 +388,7 @@ d('直播管理（真实数据库）', () => {
     expect(ops.find((c) => c.key === 'live-today')).toMatchObject({ value: 1, label: '我今天的直播排场' });
     const mine = await registry.get('live')!.deskCards!(anchor, 'live_anchor');
     expect(mine.find((c) => c.key === 'live-mine')!.value).toBe(1);
-    expect(Number(mine.find((c) => c.key === 'live-commission')!.value)).toBeGreaterThanOrEqual(0);
+    expect(mine.some(c=>c.key==='live-commission')).toBe(false); // 分角色收入由个人收入区统一展示。
     expect(await mod.deskCards(manager, 'finance')).toEqual([]);
   });
 

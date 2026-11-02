@@ -8,6 +8,7 @@ import { HomePage } from './HomePage';
 import { BossPage } from './BossPage';
 import { DeskPage } from './DeskPage';
 import { PersonalPage } from './PersonalPage';
+import { liveApi } from '../live/liveApi';
 
 vi.mock('./workspaceApi', () => ({ workspaceApi: { catalog: vi.fn(), desk: vi.fn(), tasks: vi.fn(), startTask: vi.fn(), submitTask: vi.fn(), reviewTask: vi.fn(), boss: vi.fn(), daily: vi.fn() } }));
 vi.mock('../flow/flowApi', async (orig) => {
@@ -26,7 +27,7 @@ const taskList = (rows: unknown[] = [], over: Record<string, unknown> = {}) => (
 const task = (o: Record<string, unknown> = {}) => ({ id: 1, title: '盘点库存', description: '按仓库盘', status: 'open', stage: 'new', dueAt: null, overdue: false, assigneeId: 2, assigneeName: '小王', creatorId: 3, creatorName: '主管', doneNote: null, reviewNote: null, startedAt: null, submittedAt: null, finishedAt: null, can: { start: true, complete: true, submit: true, review: false }, ...o });
 const emptyFlow = () => { f.todos.mockResolvedValue({ total: 0, counts: { pending: 3, overdue: 1, returned: 0, cc: 0 }, rows: [] }); f.runs.mockResolvedValue({ total: 0, page: 1, pageSize: 8, rows: [] }); };
 
-beforeEach(() => { window.localStorage.clear(); allow = ['*']; emptyFlow(); w.tasks.mockResolvedValue(taskList() as never); });
+beforeEach(() => { window.localStorage.clear(); allow = ['*']; emptyFlow(); w.tasks.mockResolvedValue(taskList() as never); vi.spyOn(liveApi,'personalIncome').mockResolvedValue({month:'2026-11',anchor:{visible:false,wageCents:0,wageMinutes:0,commissionCents:0},control:{visible:false,wageCents:0,wageMinutes:0,commissionCents:0},operator:{visible:false,commissionCents:0}}); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('功能首页', () => {
@@ -175,6 +176,12 @@ describe('运营每日经营', () => {
 });
 
 describe('个人工作台与个人任务', () => {
+  it('个人工作台展示本人直播收入，并随刷新工作台重新读取', async()=>{
+    vi.mocked(liveApi.personalIncome).mockResolvedValue({month:'2026-11',anchor:{visible:true,wageCents:10000,wageMinutes:120,commissionCents:2000},control:{visible:false,wageCents:0,wageMinutes:0,commissionCents:0},operator:{visible:true,commissionCents:3000}});
+    wrap(<PersonalPage/>);await screen.findByText('本月主播工资');
+    expect(screen.getByText('本月主播提成')).toBeTruthy();expect(screen.getByText('本月运营直播提成')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button',{name:'刷新工作台'}));await waitFor(()=>expect(liveApi.personalIncome).toHaveBeenCalledTimes(2));
+  });
   it('概览数字来自流程待办；四个分类都带数量；空状态有引导', async () => {
     wrap(<PersonalPage />);
     expect(await screen.findByText('暂无待我处理的事项，歇一会儿')).toBeTruthy();

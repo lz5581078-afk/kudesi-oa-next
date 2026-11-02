@@ -7,12 +7,14 @@ import {
 import type { AuthUser } from '../common/auth.decorators';
 import { loadLiveAccess, requireManage, requireUse, requireView } from './live-access';
 import { Row, liveClock, liveFail, lockCompany, num, numOrNull, ruleVersions, text } from './live-core';
+import { personalLiveIncome } from './live-personal-income';
 
 /** 提成规则版本、提成记录、主播工资记录。能看全员的只有 live.commissions.view，其余人只看本人。 */
 @Injectable()
 export class LiveLedgerService {
   constructor(@InjectDataSource() private readonly ds: DataSource) {}
   private get em() { return this.ds.manager; }
+  personalIncome(user:AuthUser) { return personalLiveIncome(this.em,user); }
 
   private rulesOf(input: LiveRulesInput) {
     try { return liveRulesFromInput(input); } catch (e) { if (e instanceof LiveRuleError) liveFail(e.message, 400); throw e; }
