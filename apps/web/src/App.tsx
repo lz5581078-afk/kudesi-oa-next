@@ -1,6 +1,6 @@
 import { FeishuEnrollmentSetup } from './auth/FeishuEnrollmentSetup';
 import { FeishuBindCallback } from './auth/FeishuLogin';
-import { ComponentType, useState } from 'react';
+import { ComponentType } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, getResourceDef, type DocType } from '@kudesi/shared';
 import { useAuth } from './auth/AuthContext';
@@ -170,7 +170,6 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
 export function App() {
   const { user, platformAdmin, loading, can } = useAuth();
   const location = useLocation();
-  const [feishuDeferred, setFeishuDeferred] = useState(() => sessionStorage.getItem('kudesi.feishu-enrollment-deferred') ?? '');
 
   // 扫码入口免登录，公司及岗位由服务端令牌绑定。
   if (location.pathname === '/join') return <StaffEnrollmentPage />;
@@ -185,9 +184,9 @@ export function App() {
     );
   }
 
-  const enrollmentUserKey = `${user.companyId}:${user.id}`;
-  if (user.feishuBindingPending && !user.mustChangePassword && feishuDeferred !== enrollmentUserKey && !['/feishu-bind', '/account/password'].includes(location.pathname)) {
-    return <FeishuEnrollmentSetup key={enrollmentUserKey} onLater={() => { sessionStorage.setItem('kudesi.feishu-enrollment-deferred', enrollmentUserKey); setFeishuDeferred(enrollmentUserKey); }} />;
+  if (user.feishuBindingPending) {
+    if (location.pathname === '/feishu-bind') return <FeishuBindCallback />;
+    return <FeishuEnrollmentSetup key={`${user.companyId}:${user.id}`} />;
   }
   return (
     <Routes>

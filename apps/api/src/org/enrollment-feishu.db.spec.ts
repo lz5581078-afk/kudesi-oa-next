@@ -1,3 +1,4 @@
+import { FeishuBindingPolicy } from '../auth/feishu-binding-policy';
 import 'reflect-metadata';
 import { randomBytes } from 'node:crypto';
 import { JwtService } from '@nestjs/jwt';
@@ -29,10 +30,13 @@ d('岗位入职→本人飞书绑定→OA通知推送（隔离MySQL，飞书网�
     const c = await ds.manager.save(Company, { code: tag, name: '新员工飞书测试', status: 'active' });
     const u = await ds.manager.save(User, { companyId: c.id, account: tag, name: '人事', passwordHash: 'x', status: 'active', isCompanyAdmin: true });
     boss = { id: u.id, companyId: c.id, name: u.name, permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
+    const crypto = buildServices(ds).crypto; config = new ExternalConfigService(ds, crypto);
+    cfg = { appId: 'cli_' + tag, appSecret: 'isolated-only', tenantKey: identity.tenantKey, enabled: true, origin: 'https://test.example', channels: [] };
+    await ds.query('INSERT INTO integration_settings(company_id,setting_key,config_enc) VALUES(?,?,?)', [c.id, 'feishu', crypto.encrypt(JSON.stringify(cfg))]);
     const org = new OrgAdminService(ds), enroll = new StaffEnrollmentService(ds);
     const job = await org.createPosition(boss, { name: '运营', workspaceType: 'operations' });
     await org.setPositionPermissions(boss, job.id, ['resource.stores.view']);
-    auth = new AuthService(new JwtService({ secret: randomBytes(48).toString('hex') }), ds.getRepository(Company), ds.getRepository(PlatformAdmin), ds.getRepository(User), ds.getRepository(Position), ds.getRepository(PositionPermission), ds.getRepository(UserPermissionOverride), ds.getRepository(AuditLog));
+    auth = new AuthService(new JwtService({ secret: randomBytes(48).toString('hex') }), ds.getRepository(Company), ds.getRepository(PlatformAdmin), ds.getRepository(User), ds.getRepository(Position), ds.getRepository(PositionPermission), ds.getRepository(UserPermissionOverride), ds.getRepository(AuditLog), new FeishuBindingPolicy(config));
     const signup = async (mode: 'general' | 'position') => {
       const invite = await enroll.create(boss, { mode, ...(mode === 'position' ? { positionId: job.id } : {}) });
       const phone = '139' + String(BigInt('0x' + randomBytes(6).toString('hex')) % 100000000n).padStart(8, '0');
@@ -41,18 +45,15 @@ d('岗位入职→本人飞书绑定→OA通知推送（隔离MySQL，飞书网�
       return { ...me.user } as AuthUser;
     };
     employee = await signup('position'); general = await signup('general'); other = await signup('position');
-    const crypto = buildServices(ds).crypto; config = new ExternalConfigService(ds, crypto);
-    cfg = { appId: 'cli_' + tag, appSecret: 'isolated-only', tenantKey: identity.tenantKey, enabled: true, origin: 'https://test.example', channels: [] };
-    await ds.query('INSERT INTO integration_settings(company_id,setting_key,config_enc) VALUES(?,?,?)', [c.id, 'feishu', crypto.encrypt(JSON.stringify(cfg))]);
     binding = new FeishuAuthService(config, client as never, auth);
     notices = new FeishuNoticeService(ds, new ConnectedFeishuSender(config, client as never));
   });
   afterAll(async () => { await ds?.destroy(); });
   const note = (userId = employee.id, title = '测试通知') => ({ companyId: boss.companyId, userId, kind: 'task', title, body: '任务内容', link: '/workbench/todos' });
   const jobs = () => ds.manager.find(OutboxJob, { where: { companyId: boss.companyId, channel: 'feishu' }, order: { id: 'ASC' } });
-  it('岗位入职身份由审计记录恢复，未绑定前每次登录都能继续绑定；通用码不强制绑定', async () => {
+  it('岗位码与通用码员工未绑定时登录都必须完成绑定', async () => {
     expect(await auth.me(employee.id, employee.companyId)).toMatchObject({ feishuBindingPending: true, permissions: { isCompanyAdmin: false } });
-    expect((await auth.me(general.id, general.companyId)).feishuBindingPending).toBeUndefined();
+    expect((await auth.me(general.id, general.companyId)).feishuBindingPending).toBe(true);
     expect((await binding.status(employee)).bound).toBe(false);
     expect((await binding.status(employee)).notificationsEnabled).toBe(false);
   });
@@ -105,15 +106,15 @@ d('岗位入职→本人飞书绑定→OA通知推送（隔离MySQL，飞书网�
     await notices.cancelPending(ds.manager, employee.companyId, 'live-schedule', 99);
     expect((await jobs()).at(-1)?.status).toBe('cancelled');
   });
-  it('普通绑定保持旧通知范围；停用员工不加入统一推送，未绑定的人不会被手机号误发', async () => {
+  it('通用码员工绑定后也接收本人通知；停用或未绑定员工不误发', async () => {
     const s = await binding.start(general.companyId, general);
     client.identity.mockResolvedValueOnce({ ...identity, openId: identity.openId + '_general' });
-    expect(await binding.complete('general', s.state, s.browser, general)).toEqual({ bound: true });
+    expect(await binding.complete('general', s.state, s.browser, general)).toEqual({ bound: true, allNotificationsEnabled: true });
     const before = (await jobs()).length;
     await writeNotification(ds.manager, note(general.id));
-    expect(await jobs()).toHaveLength(before);
+    expect(await jobs()).toHaveLength(before + 1);
     await ds.manager.update(User, employee.id, { status: 'disabled' });
-    try { await writeNotification(ds.manager, note()); expect(await jobs()).toHaveLength(before); }
+    try { await writeNotification(ds.manager, note()); expect(await jobs()).toHaveLength(before + 1); }
     finally { await ds.manager.update(User, employee.id, { status: 'active' }); }
   });
 });

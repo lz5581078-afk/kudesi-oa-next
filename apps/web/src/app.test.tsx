@@ -57,17 +57,15 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('登录与菜单', () => {
-  it('岗位入职后登录自动进入飞书绑定，暂缓只影响当前员工', async () => {
-    sessionStorage.removeItem('kudesi.feishu-enrollment-deferred');
+  it.each(['/', '/workbench/desk', '/resource/stores', '/account/password'])('未绑定员工即使有旧暂缓缓存也不能绕过绑定：%s', async path => {
+    sessionStorage.setItem('kudesi.feishu-enrollment-deferred', '1:1');
     const status = vi.spyOn(feishuApi, 'status').mockRejectedValue(new Error('公司尚未启用飞书授权'));
-    currentUser = userWith({ isCompanyAdmin: false, allow: [], deny: [] }, { feishuBindingPending: true });
-    renderAt('/');
-    expect(await screen.findByRole('heading', { name: '绑定飞书，接收通知' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '稍后绑定，先进入 OA' }));
-    expect(screen.queryByRole('heading', { name: '绑定飞书，接收通知' })).toBeNull();
-    expect(sessionStorage.getItem('kudesi.feishu-enrollment-deferred')).toBe('1:1');
-    cleanup(); currentUser = { ...currentUser!, id: 2 }; renderAt('/');
-    expect(await screen.findByRole('heading', { name: '绑定飞书，接收通知' })).toBeTruthy();
+    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] }, { feishuBindingPending: true, mustChangePassword: true });
+    renderAt(path);
+    expect(await screen.findByRole('heading', { name: '请先绑定本人飞书' })).toBeTruthy();
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /稍后/ })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: '一级导航' })).toBeNull();
     status.mockRestore(); sessionStorage.removeItem('kudesi.feishu-enrollment-deferred');
   });
 

@@ -1,3 +1,4 @@
+import { FeishuBindingPolicy } from '../auth/feishu-binding-policy';
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
@@ -6,7 +7,7 @@ import { Repository } from 'typeorm';
 import { resolvePermissions } from '@kudesi/shared';
 import { Company, PlatformAdmin, PositionPermission, User, UserPermissionOverride } from '../entities';
 import { workforceBlockFor } from '../workforce/workforce-contract';
-import { AuthUser, IS_PUBLIC, PLATFORM_ONLY } from './auth.decorators';
+import { ALLOW_UNBOUND_FEISHU, AuthUser, IS_PUBLIC, PLATFORM_ONLY } from './auth.decorators';
 
 interface TokenPayload {
   sub: number;
@@ -30,6 +31,7 @@ export class JwtAuthGuard implements CanActivate {
     @InjectRepository(Company) private readonly companies: Repository<Company>,
     @InjectRepository(PositionPermission) private readonly positionPermissions: Repository<PositionPermission>,
     @InjectRepository(UserPermissionOverride) private readonly overrides: Repository<UserPermissionOverride>,
+    private readonly feishu: FeishuBindingPolicy,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -67,6 +69,10 @@ export class JwtAuthGuard implements CanActivate {
     // 兼职/临时工合作期外：已登录的令牌也不再放行
     const contractBlock = await workforceBlockFor(this.users.manager, user);
     if (contractBlock) throw new UnauthorizedException(contractBlock);
+
+    if (!this.reflector.getAllAndOverride<boolean>(ALLOW_UNBOUND_FEISHU, [context.getHandler(), context.getClass()]) && !await this.feishu.isBound(user.companyId, user.id)) {
+      throw new ForbiddenException({ statusCode: 403, code: 'FEISHU_BINDING_REQUIRED', message: '请先绑定本人企业飞书账号后再使用 OA' });
+    }
 
     const positionRows = (
       await Promise.all([user.positionId, ...(user.extraPositionIds ?? [])].filter((x): x is number => !!x).map((positionId) => this.positionPermissions.find({ where: { positionId } })))

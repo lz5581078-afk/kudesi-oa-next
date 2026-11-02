@@ -1,3 +1,4 @@
+import { FeishuBindingPolicy } from './auth/feishu-binding-policy';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
@@ -115,7 +116,7 @@ describe('后端整体链路（内存假仓库）', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [JwtModule.register({ secret: 'x'.repeat(40), signOptions: { expiresIn: '1h' } })],
       controllers: [HealthController, AuthController, OrgController, ProbeController, PlatformController],
-      providers: [
+      providers: [{ provide: FeishuBindingPolicy, useValue: { isBound: async () => true } },
         AuthService,
         OrgService,
         { provide: PlatformService, useValue: { listCompanies: async () => [] } },

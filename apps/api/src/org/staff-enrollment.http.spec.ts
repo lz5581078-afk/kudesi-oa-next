@@ -1,3 +1,4 @@
+import { FeishuBindingPolicy } from '../auth/feishu-binding-policy';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, JwtService } from '@nestjs/jwt';
@@ -20,7 +21,7 @@ describe('扫码入职 HTTP 访问与 DTO 边界', () => {
     const module = await Test.createTestingModule({
       imports: [JwtModule.register({ secret: randomBytes(48).toString('hex') }), ThrottlerModule.forRoot([{ ttl: 60000, limit: 300 }])],
       controllers: [StaffEnrollmentAdminController, StaffEnrollmentPublicController],
-      providers: [{ provide: StaffEnrollmentService, useValue: service },
+      providers: [{ provide: FeishuBindingPolicy, useValue: { isBound: async () => true } },{ provide: StaffEnrollmentService, useValue: service },
         { provide: getRepositoryToken(User), useValue: repo([{ id: 1, companyId: 10, name: '人事', status: 'active', isCompanyAdmin: true }, { id: 2, companyId: 10, name: '普通员工', status: 'active', isCompanyAdmin: false }]) },
         { provide: getRepositoryToken(Company), useValue: repo([{ id: 10, status: 'active' }]) },
         ...[PlatformAdmin, PositionPermission, UserPermissionOverride].map(entity => ({ provide: getRepositoryToken(entity), useValue: repo([]) })),
