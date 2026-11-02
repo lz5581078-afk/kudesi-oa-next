@@ -76,7 +76,7 @@ export function colFilterKindOf(type: FieldType): ColFilterKind | null {
  * 数据库里没有这个值，没法在服务端筛选，所以列头不给入口，传来也拒绝。
  */
 export const READ_TIME_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  phones: ['cardKind', 'boundStores', 'boundStoreNos', 'boundAccounts', 'storesPdd', 'storesTaobao', 'storesTmall', 'storesDouyin', 'storesJd', 'storesKuaishou', 'storesXhs', 'storesOther'],
+  phones: ['cardKind', 'boundStores', 'boundStoreNos', 'boundAccounts', 'storesPdd', 'storesTaobao', 'storesTmall', 'storesDouyin', 'storesJd', 'storesKuaishou', 'storesChannels', 'storesXhs', 'storesOther'],
   // 自媒体：运营部门取自运营人员当前部门，账号属性是平台专属字段的摘要
   'self-media': ['operatorDeptId', 'propSummary'],
   // 备忘：负责人部门取自负责人；密码只显示“已维护/未设置”

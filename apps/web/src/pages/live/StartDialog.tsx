@@ -1,9 +1,10 @@
+import { ChannelPicker, initialChannels } from './ChannelPicker';
 import { useEffect, useState } from 'react';
 import { liveApi, type Options, type Product, type ScheduleRow } from './liveApi';
 import { errText, nowText } from './liveFormat';
 import { Modal, names } from './liveUi';
 
-/** 报上播：从排场带出（人、房间已定），或临时加场；必须选抖音号、店铺和至少 1 个在卖产品。 */
+/** 报上播：从排场带出（人、房间已定），或临时加场；必须选有直播权限的账号、关联店铺和至少 1 个在卖产品。 */
 export function StartDialog({ schedule, identity, onClose, onDone }: { schedule: ScheduleRow | null; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; onClose: () => void; onDone: (sessionId: number) => void }) {
   const [opts, setOpts] = useState<Options | null>(null);
   const [error, setError] = useState('');
@@ -12,8 +13,7 @@ export function StartDialog({ schedule, identity, onClose, onDone }: { schedule:
   const [anchorId, setAnchorId] = useState('');
   const [controlId, setControlId] = useState('');
   const [operatorId, setOperatorId] = useState('');
-  const [accountId, setAccountId] = useState(schedule ? String(schedule.douyinAccount.id) : '');
-  const [storeId, setStoreId] = useState(schedule?.store ? String(schedule.store.id) : '');
+  const [channels,setChannels]=useState(initialChannels(schedule));
   const [startAt, setStartAt] = useState(nowText());
   const [keyword, setKeyword] = useState('');
   const [found, setFound] = useState<Product[]>([]);
@@ -26,19 +26,17 @@ export function StartDialog({ schedule, identity, onClose, onDone }: { schedule:
   }, [keyword]);
 
   const toggle = (p: Product) => setPicked((cur) => (cur.some((x) => x.id === p.id) ? cur.filter((x) => x.id !== p.id) : cur.length >= 100 ? cur : [...cur, p]));
-  const store = opts?.stores.find((s) => String(s.id) === storeId);
 
   async function submit() {
     setError('');
     if (!schedule && !roomId) return setError('请选择直播间');
-    if (!accountId) return setError('请选择抖音号');
-    if (!storeId) return setError('请选择抖音店铺');
+    if (!channels.length || channels.some(c=>!c.storeIds.length)) return setError('请选择直播账号及关联店铺');
     if (!picked.length) return setError('请至少选择 1 个在卖产品');
     setBusy(true);
     try {
       const r = await liveApi.start({
         scheduleId: schedule?.id ?? null, roomId: roomId ? Number(roomId) : null, anchorId: anchorId ? Number(anchorId) : null, controlId: controlId ? Number(controlId) : null, operatorId: operatorId ? Number(operatorId) : null,
-        douyinAccountId: Number(accountId), storeId: Number(storeId), productIds: picked.map((p) => p.id), startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
+        channels,douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], productIds: picked.map((p) => p.id), startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
       });
       onDone(r.id);
     } catch (e) { setError(errText(e)); } finally { setBusy(false); }
@@ -61,10 +59,9 @@ export function StartDialog({ schedule, identity, onClose, onDone }: { schedule:
               <label className="live-field">运营（可选，审核时由人事确认）<select value={operatorId} onChange={(e) => setOperatorId(e.target.value)}><option value="">无</option>{opts.operators.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
             </>
           )}
-          <label className="live-field">抖音号<select value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">请选择</option>{opts.douyinAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-          <label className="live-field">抖音店铺<select value={storeId} onChange={(e) => setStoreId(e.target.value)}><option value="">请选择</option>{opts.stores.map((s) => <option key={s.id} value={s.id}>{s.name}{s.hasJstShop ? '' : '（未绑定聚水潭店铺）'}</option>)}</select></label>
+          <ChannelPicker options={opts} value={channels} onChange={setChannels}/>
           <label className="live-field">上播时间<input aria-label="上播时间" value={startAt} onChange={(e) => setStartAt(e.target.value)} placeholder="2026-03-01 20:00" /></label>
-          {store && !store.hasJstShop && <div className="notice warn wide">这个店铺的资料里还没有填「聚水潭店铺编号」，不能上播，请联系管理员补全。</div>}
+
           <div className="wide live-field">
             <span>在卖产品（{picked.length}/100，至少 1 个）</span>
             <input aria-label="搜索产品" type="search" placeholder="按编码或名称搜索" value={keyword} onChange={(e) => setKeyword(e.target.value)} />

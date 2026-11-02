@@ -1,8 +1,12 @@
+import { ChannelPicker, initialChannels, snapshotChannels } from './ChannelPicker';
+import { StorePerformanceTable, storeDrafts, storePayload, type StoreDraft } from './StorePerformanceTable';
+import { type LiveChannelInput, type LiveChannel } from '@kudesi/shared';
 import { useEffect, useState } from 'react';
 import { liveApi, type Options, type ManualBody } from './liveApi';
 import { errText, nowText, yuanCents } from './liveFormat';
 import { TrialPersonDialog } from './TrialPersonDialog';
 export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
+  const [channels,setChannels]=useState<LiveChannelInput[]>([]),[storeRows,setStoreRows]=useState<StoreDraft[]>([]),[loadedChannels,setLoadedChannels]=useState<LiveChannel[]|null>(null);
   const [opts, setOpts] = useState<Options | null>(null),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
@@ -40,6 +44,10 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
     setError('');
     try {
       const s = await liveApi.session(Number(f.sessionId));
+      const cs=s.channels?.length?s.channels:[{accountId:s.douyinAccount.id,accountName:s.douyinAccount.name,platform:'douyin',storeIds:s.store?[s.store.id]:[],stores:s.store?[{id:s.store.id,name:s.store.name,jstShopId:''}]:[]}];
+      const anchorReport=s.reports.find(r=>r.role==='anchor');
+      const ls=anchorReport?.storeLines?.length?anchorReport.storeLines:s.store?[{storeId:s.store.id,platform:'douyin',salesCents:anchorReport?.salesCents??0,adSpendCents:s.reports.find(r=>r.role==='control')?.adSpendCents??0,reason:s.manualReason??'',orderIds:anchorReport?.orders.map(o=>o.orderId)??[]}]:[];
+      setChannels(initialChannels(s));setLoadedChannels(cs);setStoreRows(storeDrafts(cs,ls));
       setF((v) => ({
         ...v,
         roomId: String(s.roomId),
@@ -59,8 +67,8 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
   }
   async function save() {
     setError('');
-    const sales = yuanCents(f.sales),
-      ad = yuanCents(f.ad),
+    const sales = channels.length?storeRows.reduce((n,r)=>n+(yuanCents(r.sales)||0),0):yuanCents(f.sales),
+      ad = channels.length?storeRows.reduce((n,r)=>n+(yuanCents(r.ad)||0),0):yuanCents(f.ad),
       controlSales = yuanCents(f.controlSales),
       operatorSales = yuanCents(f.operatorSales);
     if (
@@ -71,8 +79,7 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
     if (
       !f.roomId ||
       !f.anchorId ||
-      !f.douyinAccountId ||
-      !f.storeId ||
+      !channels.length || channels.some(c=>!c.storeIds.length) ||
       sales === null ||
       ad === null ||
       !Number.isSafeInteger(sales) ||
@@ -88,8 +95,9 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
         anchorId: Number(f.anchorId),
         controlId: f.controlId ? Number(f.controlId) : null,
         operatorId: f.operatorId ? Number(f.operatorId) : null,
-        douyinAccountId: Number(f.douyinAccountId),
-        storeId: Number(f.storeId),
+        channels,storeLines:storePayload(storeRows),
+        douyinAccountId: channels[0].accountId,
+        storeId: channels[0].storeIds[0],
         startAt: f.startAt.replace('T', ' ') + ':00',
         endAt: f.endAt.replace('T', ' ') + ':00',
         salesCents: sales,
@@ -172,8 +180,7 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
             <fieldset>
               <legend>场次与业绩</legend>
               <div className="live-fields">
-                {select('douyinAccountId', '抖音号', opts.douyinAccounts)}
-                {select('storeId', '店铺', opts.stores)}
+                {loadedChannels ? <p className="muted wide">沿用原场次平台、账号和店铺：{loadedChannels.map(c=>c.accountName).join('、')}</p> : <ChannelPicker options={opts} value={channels} onChange={next=>{setChannels(next);const draft=storeDrafts(snapshotChannels(opts,next));setStoreRows(draft.map(r=>storeRows.find(old=>old.storeId===r.storeId)??r));setSaved(null);}}/>}
                 <label className="live-field">
                   上播时间（北京时间）
                   <input
@@ -192,40 +199,7 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
                     onChange={set('endAt')}
                   />
                 </label>
-                <label className="live-field">
-                  销售额（元）
-                  <input aria-label="补报销售额" inputMode="decimal" value={f.sales} onChange={set('sales')} />
-                </label>
-                {f.controlId && (
-                  <label className="live-field">
-                    中控销售额（元，空则同主播）
-                    <input
-                      aria-label="补报中控销售额"
-                      inputMode="decimal"
-                      value={f.controlSales}
-                      onChange={set('controlSales')}
-                    />
-                  </label>
-                )}
-                {f.operatorId && (
-                  <label className="live-field">
-                    运营销售额（元，空则同主播）
-                    <input
-                      aria-label="补报运营销售额"
-                      inputMode="decimal"
-                      value={f.operatorSales}
-                      onChange={set('operatorSales')}
-                    />
-                  </label>
-                )}
-                <label className="live-field">
-                  投流费用（元）
-                  <input aria-label="补报投流" inputMode="decimal" value={f.ad} onChange={set('ad')} />
-                </label>
-                <label className="live-field wide">
-                  本场订单号（可选，多条用空格或逗号分隔）
-                  <textarea aria-label="补报订单号" rows={3} value={f.orders} onChange={set('orders')} />
-                </label>
+                <StorePerformanceTable channels={loadedChannels??snapshotChannels(opts,channels)} rows={storeRows} onChange={r=>{setStoreRows(r);setSaved(null);}} sessionId={f.sessionId?Number(f.sessionId):undefined} endAt={f.endAt.replace('T',' ')+':00'}/>
                 <label className="live-field wide">
                   特殊原因（必填）
                   <textarea aria-label="补报原因" maxLength={500} rows={3} value={f.reason} onChange={set('reason')} />
