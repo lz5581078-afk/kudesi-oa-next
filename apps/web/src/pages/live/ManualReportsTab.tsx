@@ -1,8 +1,10 @@
-import { ChannelPicker, initialChannels, snapshotChannels } from './ChannelPicker';
+import { ChannelPicker, snapshotChannels } from './ChannelPicker';
 import { StorePerformanceTable, storeDrafts, storePayload, type StoreDraft } from './StorePerformanceTable';
 import { type LiveChannelInput, type LiveChannel } from '@kudesi/shared';
+import { manualApiTime, manualSessionDraft } from './manualSessionDraft';
+import { productText } from './liveProducts';
 import { useEffect, useRef, useState } from 'react';
-import { liveApi, type Options, type ManualBody, type SubmissionStatus } from './liveApi';
+import { liveApi, type Options, type ManualBody, type SubmissionStatus, type SessionDetail } from './liveApi';
 import { SubmissionNotice } from './SubmissionNotice';
 import { errText, nowText, yuanCents } from './liveFormat';
 import { TrialPersonDialog } from './TrialPersonDialog';
@@ -11,6 +13,10 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
   const feedback = useRef<HTMLDivElement>(null);
   const checkSubmission = () => liveApi.submissionStatus().then(setSubmission).catch(() => setSubmission({ ready: false, message: '暂时无法检查审核流程，请重试。' }));
   useEffect(() => { void checkSubmission(); }, []);
+  const [loadedSession,setLoadedSession]=useState<SessionDetail|null>(null);
+  const [loading,setLoading]=useState(false);
+  const loadVersion=useRef(0);
+  useEffect(()=>()=>{loadVersion.current++;},[]);
   const [channels,setChannels]=useState<LiveChannelInput[]>([]),[storeRows,setStoreRows]=useState<StoreDraft[]>([]),[loadedChannels,setLoadedChannels]=useState<LiveChannel[]|null>(null);
   const [opts, setOpts] = useState<Options | null>(null),
     [error, setError] = useState(''),
@@ -37,6 +43,7 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
   });
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => {
     setSaved(null);
+    if(k==='sessionId'){loadVersion.current++;setLoading(false);setLoadedSession(null);setLoadedChannels(null);setChannels([]);setStoreRows([]);}
     setF((v) => ({ ...v, [k]: e.target.value }));
   };
   useEffect(() => {
@@ -46,33 +53,22 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
       .catch((e) => setError(errText(e)));
   }, []);
   async function loadSession() {
-    if (!f.sessionId) return;
-    setError('');
+    const id=Number(f.sessionId);
+    if(!Number.isSafeInteger(id)||id<1)return setError('请输入有效的原场次编号');
+    const version=++loadVersion.current;
+    setError('');setSaved(null);setLoading(true);setLoadedSession(null);setLoadedChannels(null);setChannels([]);setStoreRows([]);
     try {
-      const s = await liveApi.session(Number(f.sessionId));
-      const cs=s.channels?.length?s.channels:[{accountId:s.douyinAccount.id,accountName:s.douyinAccount.name,platform:'douyin',storeIds:s.store?[s.store.id]:[],stores:s.store?[{id:s.store.id,name:s.store.name,jstShopId:''}]:[]}];
-      const anchorReport=s.reports.find(r=>r.role==='anchor');
-      const ls=anchorReport?.storeLines?.length?anchorReport.storeLines:s.store?[{storeId:s.store.id,platform:'douyin',salesCents:anchorReport?.salesCents??0,adSpendCents:s.reports.find(r=>r.role==='control')?.adSpendCents??0,reason:s.manualReason??'',orderIds:anchorReport?.orders.map(o=>o.orderId)??[]}]:[];
-      setChannels(initialChannels(s));setLoadedChannels(cs);setStoreRows(storeDrafts(cs,ls));
-      setF((v) => ({
-        ...v,
-        roomId: String(s.roomId),
-        anchorId: String(s.anchor.id),
-        controlId: String(s.control?.id ?? ''),
-        operatorId: String(s.operator?.id ?? ''),
-        douyinAccountId: String(s.douyinAccount.id),
-        storeId: String(s.store?.id ?? ''),
-        startAt: s.startAt.slice(0, 16),
-        endAt: s.endAt?.slice(0, 16) ?? nowText(),
-        sales: String((s.reports[0]?.salesCents ?? 0) / 100),
-        ad: String((s.reports.find((r) => r.role === 'control')?.adSpendCents ?? 0) / 100),
-      }));
-    } catch (e) {
-      setError(errText(e));
-    }
+      const session=await liveApi.session(id);
+      if(version!==loadVersion.current)return;
+      const draft=manualSessionDraft(session,nowText());
+      setLoadedSession(session);setChannels(draft.channels);setLoadedChannels(draft.snapshot);setStoreRows(draft.rows);setF(draft.fields);
+    } catch(e) {if(version===loadVersion.current)setError(errText(e,'载入原场次失败'));}
+    finally {if(version===loadVersion.current)setLoading(false);}
   }
   async function save() {
     setError('');
+    if(loading || (f.sessionId && Number(f.sessionId)!==loadedSession?.id))return setError('请先成功载入该原场次，再填写和保存');
+    if(loadedSession && !['live','pending_report','returned'].includes(loadedSession.status))return setError('该场次已提交审核或已审核，不能补报');
     const sales = channels.length?storeRows.reduce((n,r)=>n+(yuanCents(r.sales)||0),0):yuanCents(f.sales),
       ad = channels.length?storeRows.reduce((n,r)=>n+(yuanCents(r.ad)||0),0):yuanCents(f.ad),
       controlSales = yuanCents(f.controlSales),
@@ -104,8 +100,8 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
         channels,storeLines:storePayload(storeRows),
         douyinAccountId: channels[0].accountId,
         storeId: channels[0].storeIds[0],
-        startAt: f.startAt.replace('T', ' ') + ':00',
-        endAt: f.endAt.replace('T', ' ') + ':00',
+        startAt: manualApiTime(f.startAt),
+        endAt: manualApiTime(f.endAt),
         salesCents: sales,
         adSpendCents: ad,
         controlSalesCents: controlSales ?? undefined,
@@ -115,6 +111,8 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
       };
       const r = await liveApi.manualReport(body);
       setSaved(r.id);
+      const fresh=loadedSession ? {...loadedSession,startAt:manualApiTime(f.startAt),endAt:manualApiTime(f.endAt)} : null;
+      if(fresh)setLoadedSession(fresh);
       setF((v) => ({ ...v, sessionId: String(r.id) }));
       onOpen(r.id);
     } catch (e) {
@@ -130,8 +128,9 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
   ) => (
     <label className="live-field">
       {label}
-      <select aria-label={label} value={f[key]} onChange={set(key)}>
+      <select disabled={!!loadedSession || loading} aria-label={label} value={f[key]} onChange={set(key)}>
         <option value="">请选择</option>
+        {loadedSession&&f[key]&&!rows.some(row=>String(row.id)===f[key])&&<option value={f[key]}>原记录：{({roomId:loadedSession.roomName,anchorId:loadedSession.anchor.name,controlId:loadedSession.control?.name,operatorId:loadedSession.operator?.name,douyinAccountId:loadedSession.douyinAccount.name,storeId:loadedSession.store?.name})[key]??f[key]}</option>}
         {rows.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -153,11 +152,14 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
           <label className="live-field">
             已有场次编号（补报时填写）
             <input aria-label="补报场次编号" inputMode="numeric" value={f.sessionId} onChange={set('sessionId')} />
-            <button className="link-button" onClick={() => void loadSession()}>
+            <button type="button" disabled={busy||loading} className="link-button" onClick={() => void loadSession()}>
               载入原场次
             </button>
           </label>
         </div>
+        {!!f.sessionId&&!loadedSession&&!loading&&<p className="muted">请输入场次编号并点击「载入原场次」，成功载入后才能保存补报。</p>}
+        {loading&&<p role="status">正在载入原场次…</p>}
+        {loadedSession&&<div className="notice" role="status"><strong>已载入原场次 #{loadedSession.id} · {loadedSession.statusLabel}</strong><p>房间、人员、账号、店铺和开播时间沿用原记录；可补充或修改营业额、投流费用、下播时间、订单及核定原因。保存后仍需审核。</p><p>原场次产品：{productText(loadedSession.products)}</p>{!['live','pending_report','returned'].includes(loadedSession.status)&&<p>该场次已提交审核或已审核，当前只供核对，不能补报。</p>}</div>}
         {opts && (
           <>
             <fieldset>
@@ -167,7 +169,7 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
                 {select('anchorId', '主播', opts.anchors)}
                 {select('controlId', '中控（可选）', opts.controls)}
                 {select('operatorId', '运营（可选）', opts.operators)}
-                <button className="secondary-button" onClick={() => setTrial(true)}>
+                <button disabled={!!loadedSession||loading} className="secondary-button" onClick={() => setTrial(true)}>
                   新增试播主播
                 </button>
               </div>
@@ -180,7 +182,9 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
                   上播时间（北京时间）
                   <input
                     type="datetime-local"
+                    step="1"
                     aria-label="补报上播时间"
+                    disabled={!!loadedSession||loading}
                     value={f.startAt.replace(' ', 'T')}
                     onChange={set('startAt')}
                   />
@@ -189,15 +193,17 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
                   下播时间（北京时间）
                   <input
                     type="datetime-local"
+                    step="1"
+                    disabled={loading||!!loadedSession&&!['live','pending_report','returned'].includes(loadedSession.status)}
                     aria-label="补报下播时间"
                     value={f.endAt.replace(' ', 'T')}
                     onChange={set('endAt')}
                   />
                 </label>
-                <StorePerformanceTable channels={loadedChannels??snapshotChannels(opts,channels)} rows={storeRows} onChange={r=>{setStoreRows(r);setSaved(null);}} sessionId={f.sessionId?Number(f.sessionId):undefined} endAt={f.endAt.replace('T',' ')+':00'}/>
+                <StorePerformanceTable readOnly={!!loadedSession&&!['live','pending_report','returned'].includes(loadedSession.status)} key={loadedSession?.id??'new'} channels={loadedChannels??snapshotChannels(opts,channels)} rows={storeRows} onChange={r=>{setStoreRows(r);setSaved(null);}} sessionId={f.sessionId?Number(f.sessionId):undefined} endAt={manualApiTime(f.endAt)}/>
                 <label className="live-field wide">
                   特殊原因（必填）
-                  <textarea aria-label="补报原因" maxLength={500} rows={3} value={f.reason} onChange={set('reason')} />
+                  <textarea disabled={loading||!!loadedSession&&!['live','pending_report','returned'].includes(loadedSession.status)} aria-label="补报原因" maxLength={500} rows={3} value={f.reason} onChange={set('reason')} />
                 </label>
               </div>
             </fieldset>
@@ -209,7 +215,7 @@ export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
         </div>
         <div className="live-actions live-manual-actions">
           <p className="muted">保存后自动打开核对页面，填写内容会保留。</p>
-          <button className="primary-button" disabled={busy || !opts || saved !== null} onClick={() => void save()}>
+          <button className="primary-button" disabled={busy || loading || !opts || saved !== null || (!!f.sessionId && Number(f.sessionId)!==loadedSession?.id) || (!!loadedSession&&!['live','pending_report','returned'].includes(loadedSession.status))} onClick={() => void save()}>
             {busy ? '保存中…' : saved ? '已保存' : '保存并核对'}
           </button>
         </div>
