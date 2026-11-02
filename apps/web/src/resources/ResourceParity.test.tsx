@@ -7,6 +7,7 @@ import { RecordDetail } from './RecordDetail';
 import { RecordForm, clearRefCache } from './RecordForm';
 import { FINANCE_DETAIL_TYPES } from './FinanceDetailFields';
 import { displayValue } from './format';
+import { FinanceReferenceLayout } from '../pages/finance/FinanceReferenceLayout';
 
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [] as string[], deny: [] as string[] } } };
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => auth }));
@@ -157,5 +158,25 @@ describe('专用资料查看不再遗漏编辑字段', () => {
     show(def);
     await waitFor(() => expect(document.querySelector('.finance-detail-dialog')).toBeTruthy());
     for (const field of def.fields.filter(f => ['note','shortName'].includes(f.key))) expect(document.querySelector(`.resource-detail [data-field="${field.key}"]`), `${type} 缺少 ${field.key}`).toBeTruthy();
+  });
+});
+
+
+describe('财务专用布局与字段修复兼容', () => {
+  it.each(['finance-brands', 'finance-fee-items'])('%s保留财务弹窗布局，同时保留完整字段和取消行为', async type => {
+    const def = getResourceDef(type)!;
+    const record = dto(def, { name: '财务资料验收', code: 'DEMO-01', isCommon: false });
+    vi.mocked(resourceApi.get).mockResolvedValue(record);
+    render(<MemoryRouter><FinanceReferenceLayout><RecordDetail def={def} id={1} onClose={vi.fn()} onChanged={vi.fn()} /></FinanceReferenceLayout></MemoryRouter>);
+    const edit = await screen.findByRole('button', { name: '编辑' });
+    expect(document.querySelector('aside.rd')?.classList.contains('resource-detail')).toBe(false);
+    fireEvent.click(edit);
+    const dialog = screen.getByRole('dialog', { name: `编辑${def.label}` });
+    expect(dialog.classList.contains('finance-reference-editor')).toBe(true);
+    expect(document.querySelector('.resource-detail-editor')).toBeNull();
+    expect(dialog.querySelector('[data-field="name"]')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /取消/ }));
+    expect(document.querySelector('.finance-reference-editor')).toBeNull();
+    expect(resourceApi.update).not.toHaveBeenCalled();
   });
 });
