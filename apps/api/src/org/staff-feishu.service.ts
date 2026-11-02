@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createChecker } from '@kudesi/shared';
 import { DataSource, EntityManager } from 'typeorm';
@@ -52,25 +52,33 @@ export class StaffFeishuService {
   }
   async statuses(actor:AuthUser) {this.permission(actor);return {rows:await this.load(this.ds.manager,actor.companyId)};}
   private key(actor:AuthUser,id:number,requestId:string){return `feishu:staff-test:${actor.id}:${requestId}:${id}`;}
-  async sendTest(actor:AuthUser,id:number,requestId:string) {
+  async sendTest(actor:AuthUser,id:number,requestId:string,content:{title?:string;body?:string}={}) {
     this.permission(actor,true);
+    const title=content.title===undefined?STAFF_TEST_TITLE:content.title;
+    const rawBody=content.body===undefined?STAFF_TEST_BODY:content.body;
+    if(typeof title!=='string'||!title.trim()||title.trim().length>100||/[\r\n\x00-\x1f\x7f]/.test(title))throw new BadRequestException('请填写有效消息标题，最多100字');
+    if(typeof rawBody!=='string'||!rawBody.trim()||rawBody.length>2000||/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(rawBody))throw new BadRequestException('请填写有效消息正文，最多2000字');
+    const message={title:title.trim(),body:rawBody.replace(/\r\n?/g,'\n').trim()};
     const jobId=await this.ds.transaction(async em=>{
       await em.query('SELECT id FROM companies WHERE id=? FOR UPDATE',[actor.companyId]);
       const key=this.key(actor,id,requestId);
       const existing=await em.findOne(OutboxJob,{where:{companyId:actor.companyId,idempotencyKey:key,resourceType:RESOURCE,resourceId:id,createdBy:actor.id}});
-      if(existing)return existing.id;
+      if(existing){
+        if(existing.payloadJson.title!==message.title||existing.payloadJson.body!==message.body)throw new ConflictException('该请求编号已用于另一条消息，请查询原发送结果');
+        return existing.id;
+      }
       const [state]=await this.load(em,actor.companyId,id);
       if(!state)throw new NotFoundException('员工不存在');
       if(!state.canTest)throw new BadRequestException(state.testBlockedReason!);
       const recent=await em.query("SELECT id FROM outbox_jobs WHERE company_id=? AND resource_type=? AND resource_id=? AND created_at>DATE_SUB(NOW(),INTERVAL 60 SECOND) LIMIT 1",[actor.companyId,RESOURCE,id]);
-      if(recent.length)throw new HttpException('该员工刚收到测试请求，请等待一分钟后再试',429);
+      if(recent.length)throw new HttpException('该员工刚收到通知请求，请等待一分钟后再试',429);
       const expiresAt=new Date(Date.now()+10*60_000).toISOString();
-      const saved=await writeNotification(em,{companyId:actor.companyId,userId:id,kind:RESOURCE,title:STAFF_TEST_TITLE,body:STAFF_TEST_BODY,link:'/'},
+      const saved=await writeNotification(em,{companyId:actor.companyId,userId:id,kind:RESOURCE,title:message.title,body:message.body,link:'/'},
         {key:`staff-test:${actor.id}:${requestId}`,channel:'notice',resourceType:RESOURCE,resourceId:id,kind:RESOURCE,expiresAt});
       if(!saved.feishuQueued)throw new BadRequestException('飞书通知条件已变化，请刷新绑定状态后重试');
       const job=await em.findOneByOrFail(OutboxJob,{companyId:actor.companyId,idempotencyKey:key});
       await em.update(OutboxJob,{id:job.id,companyId:actor.companyId},{createdBy:actor.id});
-      await em.insert(AuditLog,{companyId:actor.companyId,actorId:actor.id,action:'staff.feishu.test',resourceType:'user',resourceId:String(id),detail:{jobId:job.id,notificationId:Number(saved.identifiers[0]?.id)}});
+      await em.insert(AuditLog,{companyId:actor.companyId,actorId:actor.id,action:'staff.feishu.test',resourceType:'user',resourceId:String(id),detail:{jobId:job.id,notificationId:Number(saved.identifiers[0]?.id),titleLength:message.title.length,bodyLength:message.body.length}});
       return job.id;
     });
     return this.testStatus(actor,id,jobId);
@@ -78,10 +86,10 @@ export class StaffFeishuService {
   async testStatus(actor:AuthUser,id:number,jobId:number) {
     this.permission(actor,true);
     const job=await this.ds.manager.findOne(OutboxJob,{where:{id:jobId,companyId:actor.companyId,resourceType:RESOURCE,resourceId:id,createdBy:actor.id}});
-    if(!job)throw new NotFoundException('测试通知不存在');
+    if(!job)throw new NotFoundException('通知不存在');
     const sw=await this.ds.manager.findOne(OutboxSwitch,{where:{companyId:actor.companyId,channel:'feishu'}});
     const status=job.status==='pending'&&!sw?.enabled?'paused':job.status;
-    const messages:Record<string,string>={pending:'测试通知已加入队列，等待通知助手发送',sending:'通知助手正在发送',done:'飞书接口已确认发送成功，请本人在飞书查看',failed:'未确认发送成功，请检查飞书绑定、应用权限与通知通道；不要反复重发',cancelled:'测试通知已取消',paused:'公司飞书通知总开关已关闭，测试通知暂停发送'};
+    const messages:Record<string,string>={pending:'通知已加入队列，等待通知助手发送',sending:'通知助手正在发送',done:'飞书接口已确认发送成功，请本人在飞书查看',failed:'未确认发送成功，请检查飞书绑定、应用权限与通知通道；不要反复重发',cancelled:'通知已取消',paused:'公司飞书通知总开关已关闭，通知暂停发送'};
     return {jobId:job.id,userId:id,status,message:messages[status],createdAt:job.createdAt,doneAt:job.doneAt};
   }
 }
