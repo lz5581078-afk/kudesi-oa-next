@@ -130,6 +130,14 @@ describe('岗位工作台', () => {
   });
 });
 
+describe('本人岗位首页边界', () => {
+  it('能浏览别人的岗位但未分配本人岗位时，不自动选中别人的工作台', async () => {
+    w.catalog.mockResolvedValue({ canBrowse: true, defaultPositionId: null, positions: [{ id: 55, name: '其他岗位', workspaceType: 'general', level: 'staff', departmentId: null, departmentPath: '', assigned: false, isPrimary: false }] });
+    wrap(<DeskPage />);
+    expect(await screen.findByText('你还没有分配有效岗位')).toBeTruthy();
+  });
+});
+
 describe('运营每日经营', () => {
   it('运营岗位显示每日经营：默认昨天、可切换日期、提示当天没数据的店铺；没有权限的人看不到', async () => {
     const pos = { id: 1, name: '运营', workspaceType: 'operations', level: 'staff', departmentId: 1, departmentPath: '运营部', assigned: true, isPrimary: true };
