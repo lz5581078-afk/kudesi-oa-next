@@ -2,6 +2,8 @@ import { deskFor, deskLinks, navPageByKey } from './workspace';
 import { SPECIAL_PERMISSIONS } from './navigation';
 import { resourcePermission } from './resources';
 
+export const cashierWithdrawalPermissions = () => [navPageByKey('finance.doc-withdrawal')!.permission, SPECIAL_PERMISSIONS.financeSessionManage, SPECIAL_PERMISSIONS.financeSessionRemote];
+
 /** 岗位只开放功能入口；审批、办理、财务动作仍走流程，不能批量授予全局操作键。 */
 export function deskAccessPermissions(type: string, level: string): string[] {
   const def = deskFor(type);
@@ -20,6 +22,8 @@ export function deskAccessPermissions(type: string, level: string): string[] {
   if (def.modules?.includes('after-sales')) { pages.add('after-sales.table'); pages.add('after-sales.appeals'); }
   if (def.modules?.includes('supervision')) pages.add('supervision.center');
   const keys = new Set([...pages].map((k) => navPageByKey(k)?.permission).filter((k): k is string => !!k));
+  // 出纳明确开放店铺登录管理/受控远程协助，不包含全局财务开立或过账。
+  if (type === 'cashier') for (const key of cashierWithdrawalPermissions()) keys.add(key);
   if (type === 'operations') keys.add(resourcePermission('store-daily-metrics', 'view'));
   // 此能力仍须是当前“入库登记”节点的办理人，只能生成本流程草稿，不能开立/过账。
   keys.add(SPECIAL_PERMISSIONS.flowPurchaseInboundDraft);
