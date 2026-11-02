@@ -1,3 +1,4 @@
+import { liveNoticeValid } from '../live/live-notification-validity';
 import { Injectable } from '@nestjs/common';
 import { ExternalConfigService, FeishuConfig } from '../integrations/external-config.service';
 import { FeishuClient } from '../integrations/feishu.client';
@@ -9,6 +10,7 @@ export class ConnectedFeishuSender implements FeishuSender {
   async available(companyId: number) { const cfg = await this.config.read<FeishuConfig>(companyId, 'feishu'); return Boolean(cfg?.enabled && cfg.appId && cfg.appSecret && cfg.tenantKey); }
   async send(job: { companyId?: number; idempotencyKey: string; notice: FeishuNotice }) {
     if (!job.companyId) throw new Error('飞书发送缺少公司范围');
+    if (job.notice.liveEventKey && !await liveNoticeValid(this.config.ds.manager,job.companyId,job.notice.userId,job.notice.liveEventKey)) return;
     const cfg = await this.config.read<FeishuConfig>(job.companyId, 'feishu');
     if (!cfg?.enabled || !cfg.tenantKey) throw new Error('飞书公司授权未启用');
     const [binding] = await this.config.ds.query("SELECT b.open_id,b.union_id FROM feishu_identities b JOIN users u ON u.id=b.user_id AND u.company_id=b.company_id WHERE b.company_id=? AND b.user_id=? AND b.app_id=? AND b.tenant_key=? AND u.status='active'", [job.companyId, job.notice.userId, cfg.appId, cfg.tenantKey]);

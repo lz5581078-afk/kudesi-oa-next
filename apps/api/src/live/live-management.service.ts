@@ -1,3 +1,4 @@
+import { liveSessionResult, liveHandover } from './live-notification-events';
 import { channelStores, channelsOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines } from './live-platforms';
 import { LiveChannelInput, LiveStoreLine } from '@kudesi/shared';
 import { LiveOrderSource, LiveOrder } from './live-order-source';
@@ -298,6 +299,9 @@ export class LiveManagementService {
         [user.companyId, id],
       );
       await this.audit(em, user, 'live.manual.report', 'live-session', id!, { before, input });
+      const [noticeRow] = await em.query('SELECT revision FROM live_sessions WHERE company_id=? AND id=?',[user.companyId,id]);
+      await liveSessionResult(em,user.companyId,id!,`manual:${id}:${noticeRow.revision}`,'直播场次已由人事补报或修正');
+      await liveHandover(em,user.companyId,id!);
       return { id: id! };
     });
   }

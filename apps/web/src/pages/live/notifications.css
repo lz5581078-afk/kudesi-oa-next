@@ -1,0 +1,12 @@
+.live-notification-settings { padding: 20px; max-width: 920px; }
+.live-notification-settings h2 { margin: 0 0 12px; }
+.live-notification-settings h3 { margin: 24px 0 12px; }
+.live-notification-settings p { line-height: 1.7; color: var(--muted); }
+.live-notification-settings .check-line { display: inline-flex; margin-right: 18px; max-width: 100%; }
+.live-notification-settings .check-line input[type='checkbox'] { width: 16px; height: 16px; flex: none; padding: 0; }
+.live-notification-settings fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; }
+.live-notification-settings legend { padding: 0 6px; font-size: 13px; color: var(--muted); }
+.live-notification-settings label.live-notification-time { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
+.live-notification-settings select { width: auto; height: 34px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink); }
+.live-notification-settings [role='alert'] { color: var(--bad-ink); }
+@media (max-width: 600px) { .live-notification-settings { padding: 14px; } }
