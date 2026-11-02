@@ -7,6 +7,9 @@ import { buildServices } from '../test-support';
 import { sourceRowHash } from './source-rows';
 import type { LegacyArchive } from './protocol';
 import { runCutover,prepareCutoverSequences,type CompanyPlan } from './cutover';
+// This suite creates a fresh database and executes all migrations plus repeated multi-company rollback/apply checks.
+// It has no 5-second performance contract; allow MySQL setup and cleanup under concurrent test load.
+jest.setTimeout(30_000);
 const suite=process.env.RESOURCE_DB_TEST==='1'?describe:describe.skip;
 suite('全部公司统一清理/导入/核对/提交（独立MySQL库）',()=>{
   let ds:DataSource,admin:DataSource,svc:ReturnType<typeof buildServices>,sources:LegacyArchive[],plans:CompanyPlan[],oldUserId:number,configEnc:string,db:string;
