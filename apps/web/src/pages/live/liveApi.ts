@@ -1,4 +1,4 @@
-import type { LiveChannel, LiveChannelInput, LiveStoreLine } from '@kudesi/shared';
+import type { LiveChannel, LiveChannelInput, LiveStoreLine, LiveProductSnapshot, LiveProductEntry } from '@kudesi/shared';
 import { api } from '../../api/client';
 import type { RunDetailDto } from '../flow/flowApi';
 
@@ -11,10 +11,10 @@ export interface Product { id: number; code: string; name: string; spec: string 
 export interface ScheduleRow { channels?:LiveChannel[];
   id: number; roomId: number; roomName: string; date: string; start: string; end: string; startTime: string; endTime: string; status: 'scheduled' | 'live' | 'finished' | 'cancelled'; statusLabel: string;
   anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person; store: Person | null; sessionId: number | null; note: string | null; cancelReason: string | null;
-  products?: Product[]; canStart?: boolean; mineRole?: string;
+  products?: LiveProductSnapshot[]; canStart?: boolean; mineRole?: string;
 }
 export interface ScheduleList { rooms?:RoomOpt[]; from: string; to: string; rows: ScheduleRow[]; canManage: boolean }
-export interface ScheduleBody { channels?:LiveChannelInput[]; date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId: number | null; operatorId: number | null; douyinAccountId: number; storeId: number | null; note?: string;productIds?:number[] }
+export interface ScheduleBody { channels?:LiveChannelInput[]; date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId: number | null; operatorId: number | null; douyinAccountId: number; storeId: number | null; note?: string;productIds?:number[];productEntries?:LiveProductEntry[] }
 
 export interface SessionRow { channels?:LiveChannel[]; reportSource?:string;manualReason?:string|null;manualActorId?:number|null;
   id: number; scheduleId: number | null; roomId: number; roomName: string; date: string; startAt: string; endAt: string | null; plannedEnd: string | null; status: 'live' | 'pending_report' | 'submitted' | 'returned' | 'approved'; statusLabel: string;
@@ -28,13 +28,13 @@ export interface ReportDto { storeLines?:LiveStoreLine[];
   orders: Array<{ orderId: string; amountCents: number; payTime: string | null; status: string | null }>;
 }
 export interface SessionDetail extends SessionRow { wages?:Array<{role:string;userId:number;minutes:number;hourlyRateCents:number;amountCents:number;note:string|null}>;
-  products: Product[]; reports: ReportDto[];
+  products: LiveProductSnapshot[]; reports: ReportDto[];
   commissions: Array<{ platform?:string;userId: number; name: string; role: string; roleLabel: string; rateUnits: number; amountCents: number; roiScaled: number | null; belowRoi: boolean }>;
   wage: { userId: number; minutes: number; hourlyRateCents: number; amountCents: number; rateSource: string; note: string | null; startAt: string; endAt: string } | null;
   preview: Preview | null; me: { reportRoles: Array<'anchor' | 'control' | 'operator'>; canSubmit: boolean; isManager: boolean }; flow: RunDetailDto | null;
 }
 export interface SessionList { total: number; page: number; pageSize: number; rows: SessionRow[] }
-export interface StartBody { channels?:LiveChannelInput[]; scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null; douyinAccountId?: number | null; storeId?: number | null; productIds: number[]; startAt?: string | null }
+export interface StartBody { channels?:LiveChannelInput[]; scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null; douyinAccountId?: number | null; storeId?: number | null; productIds?: number[]; productEntries?: LiveProductEntry[]; startAt?: string | null }
 export interface OrderCandidate { orderId: string; innerId: string; payTime: string | null; paid: boolean; amountCents: number; status: string; statusLabel: string; cancelled: boolean }
 export interface Candidates { available: boolean; reason: string; shopName?: string; orders: OrderCandidate[]; truncated: boolean; queriedAt?: string; startAt: string; endAt: string }
 export interface ReportBody { storeLines?:LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
@@ -45,10 +45,10 @@ export interface ReviewPreview { platforms?:Array<{platform:string;finalSalesCen
   wage: { startAt: string; endAt: string; minutes: number; hourlyRateCents: number; amountCents: number; rateSource: string; archiveHourlyRateCents: number | null };
 }
 
-export interface TimelineItem { products?: Product[]; kind: 'schedule' | 'adhoc'; id: number; start: string; end: string; plannedEnd: string; anchorName: string; controlName: string | null; operatorName: string | null; douyinName: string; state: 'live' | 'done' | 'missed' | 'due' | 'upcoming'; sessionId: number | null }
+export interface TimelineItem { products?: LiveProductSnapshot[]; kind: 'schedule' | 'adhoc'; id: number; start: string; end: string; plannedEnd: string; anchorName: string; controlName: string | null; operatorName: string | null; douyinName: string; state: 'live' | 'done' | 'missed' | 'due' | 'upcoming'; sessionId: number | null }
 export interface RoomTile extends Omit<RoomOpt, 'live'> {
   status: 'live' | 'finished' | 'idle'; statusLabel: string; next: TimelineItem | null; timeline: TimelineItem[];
-  live: { products?: Product[]; id: number; startAt: string; plannedEnd: string | null; anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person } | null;
+  live: { products?: LiveProductSnapshot[]; id: number; startAt: string; plannedEnd: string | null; anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person } | null;
 }
 export interface Overview { date: string; now: string; groups: { north: RoomTile[]; south: RoomTile[]; none: RoomTile[] }; corridorFound: boolean; totals: { rooms: number; live: number; scheduled: number; pendingReview: number } }
 export interface RoomDay { room: RoomOpt; date: string; schedules: ScheduleRow[]; sessions: Array<{ id: number; scheduleId: number | null; status: string; startAt: string; endAt: string | null; anchor: Person; control: Person | null; douyinAccount: Person; anchorSalesCents: number | null; controlSalesCents: number | null; finalSalesCents: number | null }> }

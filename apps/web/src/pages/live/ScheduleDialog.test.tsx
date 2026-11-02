@@ -22,9 +22,10 @@ describe('排场产品与上次配置', () => {
     await screen.findByText(/已导入 2026-11-01/);
     expect(l.previousSchedule).toHaveBeenCalledWith({ roomId: 10, date: '2026-11-02', startTime: '15:00' });
     expect((screen.getByLabelText('主播') as HTMLSelectElement).value).toBe('3');
-    expect(screen.getByLabelText('已选产品').textContent).toContain('花育25');
+    expect((screen.getByLabelText('场次产品 1') as HTMLInputElement).value).toBe('花育25（大包）');
+    expect(l.products).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    await waitFor(() => expect(l.createSchedule).toHaveBeenCalledWith({ channels:[{accountId:20,storeIds:[30]}],date: '2026-11-02', roomId: 10, startTime: '15:00', endTime: '18:00', anchorId: 3, controlId: 4, operatorId: 5, douyinAccountId: 20, storeId: 30, productIds: [99], note: '上场备注' }));
+    await waitFor(() => expect(l.createSchedule).toHaveBeenCalledWith({ channels:[{accountId:20,storeIds:[30]}],date: '2026-11-02', roomId: 10, startTime: '15:00', endTime: '18:00', anchorId: 3, controlId: 4, operatorId: 5, douyinAccountId: 20, storeId: 30, productEntries: [{ productId: 99 }], note: '上场备注' }));
   });
   it('导入多平台排场同时保留全部账号店铺和产品',async()=>{
     l.options.mockResolvedValue({...options,douyinAccounts:[...options.douyinAccounts,{id:21,name:'快手号',platform:'kuaishou',storeIds:[31]}],stores:[...options.stores,{id:31,name:'快手店',platform:'kuaishou',hasJstShop:true}]} as never);
@@ -34,7 +35,7 @@ describe('排场产品与上次配置', () => {
     fireEvent.click(screen.getByRole('button',{name:'一键导入上次排场'}));await screen.findByText(/已导入 2026/);
     expect((screen.getByLabelText('快手号关联快手店') as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole('button',{name:'保存'}));
-    await waitFor(()=>expect(l.createSchedule).toHaveBeenCalledWith(expect.objectContaining({channels:[{accountId:20,storeIds:[30]},{accountId:21,storeIds:[31]}],productIds:[99]})));
+    await waitFor(()=>expect(l.createSchedule).toHaveBeenCalledWith(expect.objectContaining({channels:[{accountId:20,storeIds:[30]},{accountId:21,storeIds:[31]}],productEntries:[{productId:99}]})));
   });
   it('没有上次排场时保持表单，停用人员清空并提醒', async () => {
     l.previousSchedule.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...previous, control: { id: 404, name: '已停用' } });
@@ -61,18 +62,50 @@ describe('排场产品与上次配置', () => {
     render(<ScheduleDialog initial={previous} days={['2026-11-01']} onClose={vi.fn()} onDone={vi.fn()} />);
     await screen.findByRole('option', { name: '主播甲' });
     expect(screen.queryByRole('button', { name: '一键导入上次排场' })).toBeNull();
-    const list = await screen.findByLabelText('HY25 · 花育25 · 大包');
-    expect((list as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(list); fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    await waitFor(() => expect(l.updateSchedule).toHaveBeenCalledWith(1, expect.objectContaining({ productIds: [] })));
+    expect((screen.getByLabelText('场次产品 1') as HTMLInputElement).value).toBe('花育25（大包）');
+    fireEvent.click(screen.getByRole('button', { name: '移除场次产品 1' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(l.updateSchedule).toHaveBeenCalledWith(1, expect.objectContaining({ productEntries: [] })));
   });
   it('按排场上播自动选中预排产品', async () => {
     l.start.mockResolvedValue({ id: 6 });
     render(<StartDialog schedule={previous} identity={{isAnchor:true,isControl:false,canManage:false}} onClose={vi.fn()} onDone={vi.fn()} />);
     const dlg = await screen.findByRole('dialog');
     await screen.findByLabelText('抖音号关联店铺');
-    expect(within(dlg).getByLabelText('已选产品').textContent).toContain('HY25');
+    expect((within(dlg).getByLabelText('场次产品 1') as HTMLInputElement).value).toBe('花育25（大包）');
+    expect(l.products).not.toHaveBeenCalled();
     fireEvent.click(within(dlg).getByRole('button', { name: '确认上播' }));
-    await waitFor(() => expect(l.start).toHaveBeenCalledWith(expect.objectContaining({ productIds: [99], scheduleId: 1 })));
+    await waitFor(() => expect(l.start).toHaveBeenCalledWith(expect.objectContaining({ productEntries: [{ productId: 99 }], scheduleId: 1 })));
   });
+  it('手填多个产品，可加行、删行；保存名称，不请求或伪造编码产品', async () => {
+    render(<ScheduleDialog initial={previous} days={['2026-11-01']} onClose={vi.fn()} onDone={vi.fn()} />);
+    await screen.findByRole('option', { name: '主播甲' });
+    expect(screen.queryByLabelText('搜索产品')).toBeNull();
+    fireEvent.change(screen.getByLabelText('场次产品 1'), { target: { value: '花育25 大包' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加场次产品' }));
+    expect(document.activeElement).toBe(screen.getByLabelText('场次产品 2'));
+    fireEvent.change(screen.getByLabelText('场次产品 2'), { target: { value: '甜玉米种子' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加场次产品' }));
+    fireEvent.change(screen.getByLabelText('场次产品 3'), { target: { value: '待移除' } });
+    fireEvent.click(screen.getByRole('button', { name: '移除场次产品 3' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(l.updateSchedule).toHaveBeenCalledWith(1, expect.objectContaining({ productEntries: [{ name: '花育25 大包' }, { name: '甜玉米种子' }] })));
+    expect(l.products).not.toHaveBeenCalled();
+  });
+  it('上次排场的手填产品可导入，并按排场带入上播', async () => {
+    const manual = { ...previous, products: [{ id: null, code: '', name: '花育25 大包', spec: '' }, { id: null, code: '', name: '甜玉米种子', spec: '' }] };
+    l.previousSchedule.mockResolvedValue(manual);
+    open(); await screen.findByRole('option', { name: '主播甲' });
+    fireEvent.click(screen.getByRole('button', { name: '一键导入上次排场' }));
+    await screen.findByText(/已导入 2026/);
+    expect((screen.getByLabelText('场次产品 1') as HTMLInputElement).value).toBe('花育25 大包');
+    expect((screen.getByLabelText('场次产品 2') as HTMLInputElement).value).toBe('甜玉米种子');
+    cleanup(); l.start.mockResolvedValue({ id: 8 });
+    render(<StartDialog schedule={manual} identity={{ isAnchor:true,isControl:false,canManage:false }} onClose={vi.fn()} onDone={vi.fn()} />);
+    await screen.findByLabelText('抖音号关联店铺');
+    fireEvent.click(screen.getByRole('button', { name: '确认上播' }));
+    await waitFor(() => expect(l.start).toHaveBeenCalledWith(expect.objectContaining({ productEntries: [{ name: '花育25 大包' }, { name: '甜玉米种子' }], scheduleId: 1 })));
+    expect(l.products).not.toHaveBeenCalled();
+  });
+
 });
