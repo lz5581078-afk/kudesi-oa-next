@@ -1,7 +1,7 @@
 import { FeishuBindCallback } from './auth/FeishuLogin';
 import { ComponentType } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
-import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, getResourceDef, visibleSections, type DocType } from '@kudesi/shared';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, getResourceDef, type DocType } from '@kudesi/shared';
 import { useAuth } from './auth/AuthContext';
 import { Shell } from './layout/Shell';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
@@ -9,6 +9,7 @@ import { LoginPage } from './pages/LoginPage';
 import { AfterSalesPage } from './pages/service/AfterSalesPage';
 import { AppealsPage } from './pages/service/AppealsPage';
 import { SupervisionPage } from './pages/service/SupervisionPage';
+import { StaffEnrollmentPage } from './pages/org/StaffEnrollmentPage';
 import { PhoneUploadPage } from './resources/PhoneUploadPage';
 import { PlatformApp } from './pages/platform/PlatformApp';
 import { AuditPage } from './pages/system/AuditPage';
@@ -167,8 +168,10 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
 
 export function App() {
   const { user, platformAdmin, loading, can } = useAuth();
+  const location = useLocation();
 
-  // 手机扫码上传页：免登录，只认网址里的令牌
+  // 扫码入口免登录，公司及岗位由服务端令牌绑定。
+  if (location.pathname === '/join') return <StaffEnrollmentPage />;
   if (window.location.pathname === '/m/upload') return <PhoneUploadPage />;
   if (loading) return <div className="center-screen">加载中…</div>;
   if (platformAdmin) return <PlatformApp />;
@@ -180,12 +183,10 @@ export function App() {
     );
   }
 
-  const landing = visibleSections(can)[0]?.landingPath;
-
   return (
     <Routes>
       <Route element={<Shell />}>
-        <Route index element={landing ? <Navigate to={landing} replace /> : <NoAccessPage />} />
+        <Route index element={<Navigate to="/workbench/desk" replace />} />
         <Route path="/feishu-bind" element={<FeishuBindCallback />} />
         <Route path="/account/password" element={<ChangePasswordPage />} />
         {NAV_SECTIONS.flatMap((section) =>
@@ -197,7 +198,7 @@ export function App() {
                 <Route
                   key={page.path}
                   path={page.path}
-                  element={can(page.permission) ? <Component /> : <NoAccessPage />}
+                  element={page.path === '/workbench/desk' || can(page.permission) ? <Component /> : <NoAccessPage />}
                 />
               );
             }),

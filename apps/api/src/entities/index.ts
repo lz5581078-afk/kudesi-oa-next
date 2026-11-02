@@ -1,3 +1,5 @@
+import { StaffEnrollmentInvite } from '../org/staff-enrollment.entity';
+export { StaffEnrollmentInvite } from '../org/staff-enrollment.entity';
 import {
   Column,
   CreateDateColumn,
@@ -1326,6 +1328,7 @@ export class ResourceCategoryOption {
 }
 
 export const ALL_ENTITIES = [
+  StaffEnrollmentInvite,
   SessionDevice,
   SessionBindCode,
   SessionShop,

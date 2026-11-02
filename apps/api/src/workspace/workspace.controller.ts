@@ -22,7 +22,7 @@ export class WorkspaceController {
   @Get('catalog')
   catalog(@CurrentUser() user: AuthUser) { return this.ws.catalog(user); }
 
-  @RequirePermission('workbench.desk.view')
+  @AuthenticatedOnly()
   @Get('desk/:positionId')
   desk(@CurrentUser() user: AuthUser, @Param('positionId', ParseIntPipe) positionId: number) { return this.ws.desk(user, positionId); }
 

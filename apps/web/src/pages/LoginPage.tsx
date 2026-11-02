@@ -1,11 +1,13 @@
 import { FeishuLogin } from '../auth/FeishuLogin';
 import { FormEvent, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import mascot from '../assets/xiaobai.jpg';
 import { CompanyApplyDialog } from './CompanyApplyDialog';
 
 export function LoginPage() {
   const { login } = useAuth();
+  const navigate = useNavigate();
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -20,6 +22,7 @@ export function LoginPage() {
     setBusy(true);
     try {
       await login({ account: account.trim(), password });
+      navigate('/', { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : '登录失败，请检查账号和密码。');
     } finally {

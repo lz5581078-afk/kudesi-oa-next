@@ -47,3 +47,5 @@ export * from './product-weight';
 
 export { PURCHASE_COST_PERMISSION, PURCHASE_BIG_AMOUNT_CENTS, PURCHASE_PURPOSES, PAYMENT_MODES, type PaymentMode as CompatiblePaymentMode, RECEIPT_RESULTS, EXCEPTION_RESOLUTIONS, REFUND_RESOLUTIONS, type PurchaseLine as CompatiblePurchaseLine, normalizeLines, type PriceEntry, normalizePrices, type PricedItem, priceLines, type ReceiptEntry, type ReceiptState, normalizeReceipt, applyReceipt, acceptedLines, shanghaiToday } from './purchase-compat';
 export { compatiblePurchaseTemplate } from './purchase-compat-template';
+
+export * from "./desk-access";

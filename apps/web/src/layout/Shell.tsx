@@ -23,7 +23,7 @@ export function Shell() {
   const [accountOpen, setAccountOpen] = useState(false);
   const appbar = useAppbarState();
 
-  const canViewDesks = can('workbench.desk.view');
+  const canViewDesks = !!user;
   const [catalog, setCatalog] = useState<{ owner: typeof user; value: DeskCatalog } | null>(null);
   useEffect(() => {
     let active = true;
@@ -32,7 +32,7 @@ export function Shell() {
     }
     return () => { active = false; };
   }, [user, canViewDesks]);
-  const sections = useMemo(() => withDeskNavigation(visibleSections(can), catalog?.owner === user ? catalog.value.positions : null), [can, catalog, user]);
+  const sections = useMemo(() => withDeskNavigation(visibleSections((permission) => permission === 'workbench.desk.view' || can(permission)), catalog?.owner === user ? catalog.value.positions : null), [can, catalog, user]);
   const current = sections.flatMap((section) => section.pages.map((page) => ({ section, page })))
     .find(({ page }) => isNavPathCurrent(page.path, location.pathname, location.search)) ?? findPageByPath(location.pathname);
   const activeSection = sections.find((s) => s.id === current?.section.id);

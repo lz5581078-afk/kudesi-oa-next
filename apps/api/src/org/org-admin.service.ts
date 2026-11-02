@@ -1,3 +1,4 @@
+import { accountTransaction } from '../auth/account-transaction';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -519,7 +520,7 @@ export class OrgAdminService {
     const account = input.account.trim();
     const initialPassword = generatePassword();
     const passwordHash = await bcrypt.hash(initialPassword, 10);
-    const id = await this.ds.transaction(async (em) => {
+    const id = await accountTransaction(this.ds, account, async (em) => {
       await this.mustDepartment(em, actor.companyId, input.departmentId);
       await this.mustPosition(em, actor.companyId, input.positionId);
       const extra = await this.cleanExtraPositions(em, actor.companyId, input.positionId ?? null, input.extraPositionIds);
