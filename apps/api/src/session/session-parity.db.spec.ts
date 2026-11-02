@@ -109,7 +109,7 @@ db('店铺维护与提现对照回归（隔离 MySQL）', () => {
     const result=await maintenance.downloadInstaller(manager);
     expect(result.version).toBe('1.1.1');expect(result.buf.readUInt32LE(0)).toBe(0x04034b50);
     expect(createHash('sha256').update(result.buf).digest('hex')).toBe(result.sha256);
-    expect(result.buf.includes(Buffer.from('install.ps1'))).toBe(true);
+    for (const file of ['install.ps1', 'setup.ps1', 'assistant-panel.ps1', '安装助手.cmd', '打开助手.cmd']) expect(result.buf.includes(Buffer.from(file))).toBe(true);
     await expect(maintenance.downloadInstaller(other)).rejects.toThrow(/未发布/);
     await ds.query('UPDATE agent_releases SET package = ? WHERE company_id = ?',[Buffer.from('corrupt'),boss.companyId]);
     await expect(maintenance.downloadInstaller(manager)).rejects.toThrow(/校验失败/);
