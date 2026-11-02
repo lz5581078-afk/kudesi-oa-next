@@ -221,6 +221,8 @@ export class LiveSettlementService {
       list.push({ orderId: String(o.order_id), shopId: String(o.shop_id), amountCents: num(o.amount_cents),platform:o.platform });
       sessionOrders.set(Number(o.session_id), list);
     }
+    const incrementalRefunds=new Map(refunds);
+    for(const o of first.orders){const key=liveRefundKey(o.shop_id,o.order_id),r=refunds.get(key);if(r&&o.baseline_refund_cents)incrementalRefunds.set(key,{...r,cents:Math.max(0,r.cents-num(o.baseline_refund_cents))});}
     const built = liveBuildSettlement(
       first.records.map((r) => ({
         platform:r.platform,
@@ -231,7 +233,7 @@ export class LiveSettlementService {
         rateUnits: Number(r.rate_units),
       })),
       sessionOrders,
-      refunds,
+      incrementalRefunds,
     );
     return this.ds.transaction(async (tx) => {
       await lockCompany(tx, c);
@@ -324,20 +326,33 @@ export class LiveSettlementService {
         const r = refunds.get(liveRefundKey(o.shop_id, o.order_id))!;
         await tx.query(
           `INSERT INTO live_settlement_refunds(company_id,settlement_id,session_id,order_id,order_amount_cents,refund_cents,refund_source,detail_json,checked_at,shop_id,platform) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-          [c, id, o.session_id, o.order_id, o.amount_cents, r.cents, r.source, JSON.stringify(r.details), at,o.shop_id,o.platform??''],
+          [c, id, o.session_id, o.order_id, o.amount_cents, r.cents, r.source, JSON.stringify(o.baseline_refund_cents===undefined?r.details:{refunds:r.details,alreadyExcludedRefundCents:num(o.baseline_refund_cents),newRefundCents:Math.max(0,r.cents-num(o.baseline_refund_cents))}), at,o.shop_id,o.platform??''],
         );
       }
       return { id };
     });
   }
+  private async verifyRefunds(c:number,id:number,row:Row){
+    const p=payrollPeriod(row.month,row.period_from??undefined,row.period_to??undefined);
+    const sources=await payrollSources(this.em,c,p.from,p.to);
+    const saved:Row[]=await this.em.query('SELECT * FROM live_settlement_refunds WHERE company_id=? AND settlement_id=?',[c,id]);
+    for(const shop of new Set(sources.orders.map(o=>String(o.shop_id)))){
+      const orders=sources.orders.filter(o=>String(o.shop_id)===shop);
+      let got:Map<string,LiveRefund>;
+      try{got=await this.source.refunds(c,shop,orders.map(o=>({orderId:String(o.order_id),amountCents:num(o.amount_cents)})));}catch(e){liveFail(`退款复核失败，不能提交发放：${(e as Error).message}`,409);}
+      for(const o of orders){const r=got!.get(String(o.order_id)),old=saved.find(v=>Number(v.session_id)===Number(o.session_id)&&v.shop_id===shop&&v.order_id===o.order_id);if(!r||!old||num(old.refund_cents)!==r.cents)liveFail('本期订单退款已变化，请重新生成结算单并核对金额后提交',409);}
+    }
+    await this.em.query('UPDATE live_settlements SET refunds_checked_at=? WHERE company_id=? AND id=?',[wallNow(liveClock.now()),c,id]);
+  }
   async submit(user: AuthUser, id: number) {
     const a = await loadLiveAccess(this.em, user);
     requireManage(a);
-    const [r] = await this.em.query('SELECT status,flow_run_id FROM live_settlements WHERE company_id=? AND id=?', [
+    const [r] = await this.em.query("SELECT *,DATE_FORMAT(period_from,'%Y-%m-%d') period_from,DATE_FORMAT(period_to,'%Y-%m-%d') period_to FROM live_settlements WHERE company_id=? AND id=?", [
       a.companyId,
       id,
     ]);
     if (!r) liveFail('结算单不存在', 404);
+    await this.verifyRefunds(a.companyId,id,r);
     if (r.status === 'returned' && r.flow_run_id) {
       const [run] = await this.em.query('SELECT revision FROM flow_runs WHERE company_id=? AND id=?', [
         a.companyId,

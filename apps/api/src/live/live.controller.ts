@@ -60,6 +60,10 @@ class PreviousScheduleQuery {
 }
 class CancelDto { @IsString() @MaxLength(500) reason!: string }
 class StartDto {
+  @IsOptional() @IsInt() @Min(1) sessionId?:number;
+  @IsOptional() @IsBoolean() confirmDetails?:boolean;
+  @IsOptional() @IsBoolean() confirmEarly?:boolean;
+  @IsOptional() @IsString() @MaxLength(64) scheduleFingerprint?:string;
   @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({each:true}) @Type(()=>ChannelDto) channels?:ChannelDto[];
   @IsOptional() @IsInt() scheduleId?: number | null;
   @IsOptional() @IsInt() roomId?: number | null;
@@ -191,12 +195,17 @@ class ProductQuery {
 @Controller('live')
 export class LiveController {
   constructor(
-    @InjectDataSource() private readonly ds: DataSource,
+  @InjectDataSource() private readonly ds: DataSource,
     private readonly notices: LiveNotificationService,
     private readonly turnover: LiveTurnoverService,
     private readonly management: LiveManagementService,
     private readonly schedules: LiveScheduleService, private readonly sessions: LiveSessionService, private readonly ledger: LiveLedgerService, private readonly settlements: LiveSettlementService,
   ) {}
+
+    @Get('checkin-context') @AuthenticatedOnly()
+  checkinContext(@CurrentUser() u:AuthUser,@Query('roomId') room?:string){return this.sessions.checkinContext(u,room?Number(room):undefined);}
+  @Get('sessions/:id/checkout-preview') @AuthenticatedOnly()
+  checkoutPreview(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Query('role') role?:string){return this.sessions.checkoutPreview(u,id,role);}
 
   @RequirePermission('live.manage') @Get('notification-settings')
   notificationSettings(@CurrentUser() u:AuthUser) { return this.notices.settings(u); }
@@ -248,7 +257,7 @@ export class LiveController {
 
   // ---- 场次 ----
   @AuthenticatedOnly() @Post('sessions')
-  start(@CurrentUser() u: AuthUser, @Body() b: StartDto) { return this.sessions.start(u, b); }
+  start(@CurrentUser() u: AuthUser, @Body() b: StartDto) { return this.sessions.start(u, {...b, actualCheckin:true, startAt:null}); }
   @AuthenticatedOnly() @Get('sessions')
   listSessions(@CurrentUser() u: AuthUser, @Query() q: SessionsQuery) { return this.sessions.list(u, q); }
   @AuthenticatedOnly() @Get('sessions/:id')

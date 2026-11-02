@@ -344,7 +344,7 @@ export const LIVE_SESSION_STATUS: Record<string, string> = { live: '直播中', 
 export const LIVE_SCHEDULE_STATUS: Record<string, string> = { scheduled: '未开始', live: '直播中', finished: '已播', cancelled: '已取消' };
 export const LIVE_ROLE_LABEL: Record<string, string> = { anchor: '主播', control: '中控', operator: '运营' };
 export const LIVE_FINAL_SOURCES: Record<string, string> = {
-  anchor: '主播所报销售额', control: '中控所报销售额', anchor_orders: '主播勾选订单合计', control_orders: '中控勾选订单合计', manual: '审核人手填',
+  operator: '运营所报销售额（主要依据）', anchor: '主播所报销售额', control: '中控所报销售额', anchor_orders: '主播勾选订单合计', control_orders: '中控勾选订单合计', manual: '审核人手填',
 };
 export const LIVE_MAX_SCHEDULE_MINUTES = 16 * 60;
 /** 排场开始前 2 小时起到结束前，可以从排场上播。 */

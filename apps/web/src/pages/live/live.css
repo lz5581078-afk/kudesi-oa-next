@@ -272,6 +272,15 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .live-modal-backdrop:has(.live-review-summary) { padding: 16px; align-items: center; overflow: clip; }
 .modal-body:has(.live-review-summary) > * { flex-shrink: 0; min-width: 0; }
 @media (max-width: 640px) { .live-modal-backdrop:has(.live-review-summary) { padding: 0; } }
+
+.live-clock-button { min-height:56px; padding:14px 24px; font-size:18px; font-weight:700; touch-action:manipulation; white-space:normal; }
+.live-checkin-actions { display:flex; flex-wrap:wrap; gap:12px; margin:12px 0; }
+.live-checkout-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.live-checkout-summary div { padding:12px; border:1px solid var(--border,#dce3eb); border-radius:10px; }
+.live-checkout-summary dt { color:var(--muted,#526074); font-size:14px; }
+.live-checkout-summary dd { margin:6px 0 0; font-size:18px; font-weight:600; overflow-wrap:anywhere; }
+.live-room-qr { width:220px; height:220px; max-width:100%; background:white; }
+@media(max-width:600px){.live-checkin-actions{display:grid;grid-template-columns:1fr}.live-clock-button{width:100%}.live-checkout-summary{gap:10px}.live-modal .modal-foot{display:flex;flex-wrap:wrap}.live-modal .modal-foot .live-clock-button{flex:1 0 100%}}
 /* 台账展示实际场次起止，不使用计薪时长推算直播时间。 */
 .data-table td.live-payroll-session { min-width: 230px; max-width: 420px; white-space: normal; overflow-wrap: anywhere; }
 .live-payroll-session > span,.live-payroll-session > strong,.live-payroll-session > small { display: block; line-height: 1.65; }
