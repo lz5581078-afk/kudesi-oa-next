@@ -125,6 +125,11 @@ export class OrgAdminController {
   @HttpCode(200)
   deskAccessApply(@CurrentUser() user: AuthUser, @Body() dto: DeskAccessApplyDto) { return this.deskAccess.apply(user, dto.fingerprint); }
 
+  @RequirePermission('org.structure.edit') @Get('cashier-withdrawal/preview')
+  cashierPreview(@CurrentUser() user: AuthUser) { return this.deskAccess.previewCashier(user); }
+  @RequirePermission('org.structure.edit') @Post('cashier-withdrawal/apply') @HttpCode(200)
+  cashierApply(@CurrentUser() user: AuthUser, @Body() dto: DeskAccessApplyDto) { return this.deskAccess.applyCashier(user, dto.fingerprint); }
+
   /** 权限清单本身不含敏感信息，岗位/员工页都要用 */
   @AuthenticatedOnly()
   @Get('permission-catalog')

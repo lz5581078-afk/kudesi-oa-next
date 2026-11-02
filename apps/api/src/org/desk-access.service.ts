@@ -2,7 +2,7 @@ import { ConflictException, ForbiddenException, Injectable } from '@nestjs/commo
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
-import { deskAccessPermissions, permissionCatalog, type DeskAccessPlan } from '@kudesi/shared';
+import { cashierWithdrawalPermissions, deskAccessPermissions, permissionCatalog, type DeskAccessPlan } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { AuditLog, Company, Department, Position, PositionPermission, User, UserPermissionOverride } from '../entities';
 
@@ -54,6 +54,37 @@ export class DeskAccessService {
       protectedDepartments: departments.filter((d) => protectedIds.has(d.id)).map((d) => d.name),
       changedPositions: plans.filter((p) => p.added.length || p.removed.length).length,
       changedStaff: staff.filter((u) => !u.preserved && u.before.length).length };
+  }
+
+  /** 仅给当前公司的有效出纳岗位补授三项提现能力，保留所有原授权与个人拒绝。 */
+  private async cashierSnapshot(em: EntityManager, actor: AuthUser): Promise<DeskAccessPlan> {
+    const admin = await em.findOneBy(User, { id: actor.id, companyId: actor.companyId, status: 'active', isCompanyAdmin: true });
+    if (!actor.permissions.isCompanyAdmin || !admin) throw new ForbiddenException('仅公司管理员可补授出纳权限');
+    const company = await em.findOneByOrFail(Company, { id: actor.companyId });
+    const positions = await em.find(Position, { where: { companyId: actor.companyId, workspaceType: 'cashier', status: 'active' }, order: { id: 'ASC' } });
+    const rows = positions.length ? await em.find(PositionPermission, { where: { positionId: In(positions.map((p) => p.id)) } }) : [];
+    const plans = positions.map((p) => {
+      const before = rows.filter((r) => r.positionId === p.id).map((r) => r.permission).sort();
+      const after = [...new Set([...before, ...cashierWithdrawalPermissions()])].sort();
+      return { id: p.id, name: p.name, departmentName: '出纳岗位', workspaceType: p.workspaceType, preserved: false,
+        before, after, added: after.filter((key) => !before.includes(key)), removed: [], pages: ['财务 › 店铺提现', '店铺登录管理', '受控远程协助'] };
+    });
+    const fingerprint = createHash('sha256').update(JSON.stringify({ companyId: company.id, positions: plans })).digest('hex');
+    return { companyId: company.id, companyName: company.name, fingerprint, positions: plans, staff: [], protectedDepartments: [],
+      changedPositions: plans.filter((p) => p.added.length).length, changedStaff: 0 };
+  }
+
+  previewCashier(actor: AuthUser) { return this.ds.transaction('REPEATABLE READ', (em) => this.cashierSnapshot(em, actor)); }
+
+  applyCashier(actor: AuthUser, fingerprint: string) {
+    return this.ds.transaction('SERIALIZABLE', async (em) => {
+      await em.findOneOrFail(Company, { where: { id: actor.companyId }, lock: { mode: 'pessimistic_write' } });
+      const plan = await this.cashierSnapshot(em, actor);
+      if (plan.fingerprint !== fingerprint) throw new ConflictException('预览后岗位或权限已变化，请重新预览');
+      for (const p of plan.positions) if (p.added.length) await em.insert(PositionPermission, p.added.map((permission) => ({ positionId: p.id, permission })));
+      await em.save(AuditLog, em.create(AuditLog, { companyId: actor.companyId, actorId: actor.id, action: 'position.cashier-withdrawal.grant', resourceType: 'company', resourceId: String(actor.companyId), detail: { fingerprint: plan.fingerprint, positions: plan.positions } }));
+      return { changedPositions: plan.changedPositions, changedStaff: 0 };
+    });
   }
 
   preview(actor: AuthUser) { return this.ds.transaction('REPEATABLE READ', (em) => this.snapshot(em, actor)); }

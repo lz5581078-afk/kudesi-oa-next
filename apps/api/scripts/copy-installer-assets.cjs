@@ -5,6 +5,6 @@ const path = require('path');
 const source = path.resolve(__dirname, '../../agent/windows');
 const target = path.resolve(__dirname, '../dist/session/windows');
 fs.mkdirSync(target, { recursive: true });
-for (const name of ['install.ps1', 'uninstall.ps1', 'README.txt']) {
+for (const name of ['install.ps1', 'uninstall.ps1', 'README.txt', 'setup.ps1', 'assistant-panel.ps1', '安装助手.cmd', '打开助手.cmd']) {
   fs.copyFileSync(path.join(source, name), path.join(target, name));
 }
