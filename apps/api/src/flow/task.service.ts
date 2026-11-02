@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
@@ -27,7 +28,7 @@ export class TaskService {
     return u;
   }
   private notify(em: EntityManager, companyId: number, userId: number, title: string, kind = 'task') {
-    return em.insert(Notification, { companyId, userId, kind, title: title.slice(0, 200), body: null, link: '/workbench/todos' });
+    return writeNotification(em, { companyId, userId, kind, title: title.slice(0, 200), body: null, link: '/workbench/todos' });
   }
 
   /** 监督/复核/反馈模板的公共校验：监督人要是本公司在职员工；要复核必须有监督人或指派人；反馈模板要存在。 */

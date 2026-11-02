@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { createChecker, SPECIAL_PERMISSIONS, normalizeSpecs, normalizeWarehouse, type SkuSpec, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
@@ -153,7 +154,7 @@ export async function reviewSignature(em: EntityManager, user: AuthUser, bundles
 }
 
 const notify = (em: EntityManager, companyId: number, userId: number, title: string, body: string, link: string) =>
-  em.insert(Notification, { companyId, userId, kind: 'result', title: title.slice(0, 200), body: body.slice(0, 500), link });
+  writeNotification(em, { companyId, userId, kind: 'result', title: title.slice(0, 200), body: body.slice(0, 500), link });
 
 export interface CreatedBundle { spec: string; bundleId: number; code: string; reused: boolean }
 

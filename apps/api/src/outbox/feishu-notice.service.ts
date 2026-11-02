@@ -11,7 +11,7 @@ export const FEISHU_SENDER = 'FEISHU_SENDER';
 export const FEISHU_TEMPLATES = ['sku-batch-apply', 'live-schedule'];
 const MAX_ATTEMPTS = 5;
 
-export interface FeishuNotice { channel?: string; resourceType?: string; resourceId?: number; kind?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
+export interface FeishuNotice { notificationId?: number; channel?: string; resourceType?: string; resourceId?: number; kind?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
 export interface FeishuSender {
   readonly configured: boolean;
   available?(companyId: number): Promise<boolean>;
@@ -63,6 +63,9 @@ export class FeishuNoticeService implements OnModuleInit, OnModuleDestroy {
     if (!FEISHU_TEMPLATES.includes(templateKey)) return false;
     const sw = await em.findOne(OutboxSwitch, { where: { companyId, channel: FEISHU_CHANNEL } });
     if (!sw?.enabled) return false;
+    // Opted-in employees are delivered once by the actual OA notification writer.
+    const [mirrored] = await em.query('SELECT id FROM feishu_identities WHERE company_id=? AND user_id=? AND oa_notifications=1 LIMIT 1', [companyId, notice.userId]);
+    if (mirrored) return false;
     await em.query(
       'INSERT IGNORE INTO outbox_jobs (company_id, channel, kind, resource_type, resource_id, idempotency_key, payload_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)',
       [companyId, FEISHU_CHANNEL, 'feishu_notice', notice.resourceType ?? 'flow-run', notice.resourceId ?? notice.runId ?? 0, `feishu:${key}:${notice.userId}`.slice(0, 120), JSON.stringify({ ...notice, title: notice.title.slice(0, 200), body: notice.body?.slice(0, 500) })]);
