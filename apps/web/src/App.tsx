@@ -1,3 +1,5 @@
+import { FinanceReferenceLayout } from './pages/finance/FinanceReferenceLayout';
+import './pages/finance/finance-reference.css';
 import { FeishuEnrollmentSetup } from './auth/FeishuEnrollmentSetup';
 import { FeishuBindCallback } from './auth/FeishuLogin';
 import { ComponentType } from 'react';
@@ -162,9 +164,18 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
     else Component = () => <ResourcePage type={t.ref} />;
     return { ...t, Component };
   });
-  const Host = () => <TabHost tabs={hostTabs} />;
+  const financeReference = NAV_SECTIONS.find(s=>s.id === section)?.pages.find(p=>p.id === hostId);
+  const restoreFinance = section === 'finance' && ['数据','聚水潭分类'].includes(financeReference?.group ?? '');
+  const Host = () => <TabHost tabs={hostTabs} primaryCount={restoreFinance ? (hostId === 'cost-table' ? 2 : hostId === 'finance-express-prices' ? 3 : 1) : undefined} />;
   Host.displayName = `Host(${hostKey})`;
   PAGE_COMPONENTS[`${section}.${hostId}`] = Host;
+}
+
+// 只恢复用户指定的两组页面，其他资料编辑保持现有设计。
+for (const page of NAV_SECTIONS.find(s=>s.id === 'finance')?.pages ?? []) {
+  if (!['数据','聚水潭分类'].includes(page.group ?? '')) continue;
+  const Component = PAGE_COMPONENTS[`finance.${page.id}`];
+  if (Component) PAGE_COMPONENTS[`finance.${page.id}`] = () => <FinanceReferenceLayout><Component/></FinanceReferenceLayout>;
 }
 
 export function App() {

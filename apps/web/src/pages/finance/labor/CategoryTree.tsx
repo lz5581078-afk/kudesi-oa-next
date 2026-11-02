@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getResourceDef } from '@kudesi/shared';
 import { ReasonDialog, RecordForm, clearRefCache } from '../../../resources/RecordForm';
@@ -34,7 +35,7 @@ export function CategoryTree({ versionId, versionLocked, cats, tree, selected, c
   const render = (n: CatNode, depth: number) => (
     <li key={n.id}>
       <div className="between" style={{ paddingLeft: depth * 14 }}>
-        {!!n.children.length && <button type="button" className="link-button" aria-label={`${collapsed.has(n.id)?'展开':'收起'}${n.name}`} aria-expanded={!collapsed.has(n.id)} onClick={()=>setCollapsed(old=>{const next=new Set(old);if(next.has(n.id))next.delete(n.id);else next.add(n.id);return next;})}>{collapsed.has(n.id)?'▸':'▾'}</button>}
+        {!!n.children.length && <button type="button" className="link-button" aria-label={`${collapsed.has(n.id)?'展开':'收起'}${n.name}`} aria-expanded={!collapsed.has(n.id)} onClick={()=>setCollapsed(old=>{const next=new Set(old);if(next.has(n.id))next.delete(n.id);else next.add(n.id);return next;})}>{collapsed.has(n.id)?<ChevronRight size={14}/>:<ChevronDown size={14}/>}</button>}
         <button type="button" className={n.id === selected ? 'tree-item active' : 'tree-item'} aria-current={n.id === selected} onClick={() => onSelect(n.id)}>{n.name} <span className="muted">({n.count})</span></button>
         {management && canEdit && !versionLocked && (
           <span className="row-actions">

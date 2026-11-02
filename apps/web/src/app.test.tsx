@@ -208,7 +208,7 @@ describe('登录与菜单', () => {
     currentUser = userWith({ isCompanyAdmin: false, allow: ['workbench.todos.view'], deny: [] });
     renderAt('/finance/cost-table');
     expect(screen.getByText('没有访问权限')).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: '成本表' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'SKU成本表' })).toBeNull();
   });
 
   it('初始密码用户看到修改密码提示', () => {
@@ -236,7 +236,7 @@ describe('财务 · 成本表与定价调试', () => {
     currentUser = userWith({ isCompanyAdmin: false, allow: ['finance.cost-table.view', 'product.cost.view'], deny: [] });
     apiMock.mockResolvedValue(costTable([costRow]));
     renderAt('/finance/cost-table');
-    expect(screen.getByRole('heading', { name: '成本表' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'SKU成本表' })).toBeTruthy();
     const row = (await screen.findByText('ZH-TB-SGPGHFSPGG-2D5KG*2')).closest('tr')!;
     expect(within(row).getByText('¥16.00')).toBeTruthy();
     expect(within(row).getByText('继承：本分类')).toBeTruthy();

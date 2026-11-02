@@ -1,3 +1,4 @@
+import { FileSpreadsheet } from 'lucide-react';
 import { useState } from 'react';
 import { getResourceDef, permissionOwner } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
@@ -25,16 +26,15 @@ export function MasterImportPage() {
   const [notice, setNotice] = useState('');
   const def = type ? getResourceDef(type) : undefined;
   return <div className="master-data-import-page">
-    <div className="page-head"><h1>商品基础数据导入</h1></div>
-    <p className="muted">Excel 先预检、再写入；仅处理当前公司的本地商品基础资料。</p>
-    <section className="card">
-      <h2>分模块 Excel 导入</h2>
+    <div className="page-head"><div><h1>商品基础数据导入</h1><p>Excel先预检、再写入；仅处理当前公司的本地商品基础资料，不写入聚水潭。</p></div></div>
+    <section className="card master-import-panel">
+      <h2><FileSpreadsheet size={22}/>分模块 Excel 导入</h2>
       <p className="muted">建议按分类、字典/单位/平台、档案、基础编码、组合编码的顺序执行。</p>
       <label>导入类型<select aria-label="导入类型" value={type} onChange={e => { setType(e.target.value); setNotice(''); }}>
         {STEPS.map(step => <optgroup key={step.title} label={step.title}>{step.types.filter(t => types.includes(t)).map(t => <option key={t} value={t}>{getResourceDef(t)!.label}</option>)}</optgroup>)}
       </select></label>
       {notice && <div role="status" className="notice ok">{notice}</div>}
-      {def ? <ImportDialog key={`${type}-${tick}`} embedded def={def} onClose={() => setTick(n => n + 1)} onDone={message => { setNotice(message || '导入完成'); setTick(n => n + 1); }} /> : <p className="muted">当前账号没有资料导入权限。</p>}
+      {def ? <ImportDialog key={`${type}-${tick}`} embedded referenceLayout def={def} onClose={() => setTick(n => n + 1)} onDone={message => { setNotice(message || '导入完成'); setTick(n => n + 1); }} /> : <p className="muted">当前账号没有资料导入权限。</p>}
     </section>
     {can('finance.master-reset.view') && <section className="card"><MasterResetPage embedded /></section>}
   </div>;

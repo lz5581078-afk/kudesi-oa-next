@@ -1,3 +1,4 @@
+import { bundleCatalog } from './bundle-catalog';
 import { ExternalConfigService } from '../integrations/external-config.service';
 import { storeJstShops, validateStoreJst, storeJstPatch } from './store-jst';
 import { readSourceRow } from '../migration/source-rows';
@@ -360,11 +361,13 @@ export class ResourcesService implements RuleHost {
     const fileMap = await this.files.info(companyId, fileIds);
     // 手机号的“绑定店铺 / 主子卡”：读时从店铺档案和主卡字段算，不存库
     const derived = def.key === 'phones' ? await derivePhoneFields(em, companyId, records, (r) => labels.get(r.id)?.parentPhoneId) : def.key === 'stores' ? await deriveStoreFunds(em, companyId, records) : def.key === 'bank-accounts' ? await deriveBankBalances(em, companyId, records) : null;
+    const catalog = def.key === 'finance-bundles' ? await bundleCatalog(this.dataSource,em,user,records) : null;
     const derivedCols = def.derivedColumns?.length ? await deriveColumns(em, companyId, def, records) : null;
     const workforce = def.key === 'workforce' ? await deriveWorkforce(em, companyId, records) : null;
     const accountCols = hasAccountDerive(def) ? await deriveAccountFields(em, companyId, def, records) : null;
     return records.map((r) => {
       const dto = this.toDto(def, r, labels.get(r.id) ?? {}, fileMap);
+      if(catalog?.has(r.id)) Object.assign(dto, { catalog: catalog.get(r.id) });
       const acc = accountCols?.get(r.id);
       if (acc) { Object.assign(dto.data, acc.data); Object.assign(dto.refLabels, acc.labels); }
       if (def.fields.some((f) => f.key === 'passwordState')) dto.data.passwordState = dto.secretConfigured.password ? '已维护' : '未设置';

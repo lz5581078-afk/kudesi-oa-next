@@ -1,3 +1,4 @@
+import { useFinanceReference } from '../pages/finance/FinanceReferenceLayout';
 import { StoreJstRefresh } from './StoreJstSelect';
 import { copyValuesOf } from './HierRowActions';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
@@ -201,6 +202,7 @@ function typingTarget(el: EventTarget | null): boolean {
 const HIDE_EMPTY_KEY = 'kudesi.detail.hideEmpty.byType';
 
 export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initialTab }: { def: ResourceDef; id: number; /** 打开时直接显示的页签（如列表里的“成本明细”） */ initialTab?: string; nav?: DetailNav; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
+  const financeReference = useFinanceReference();
   const can = useResourceCan(def.key);
   const canFeeView = useResourceCan('phones')('view');
   useUnitOptions();
@@ -380,14 +382,14 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const financeMore = [...moreItems.filter(item => item !== baseCopy), ...tabs.filter(([key]) => key !== 'info').map(([key, label]) => ({ key: `tab-${key}`, label, run: () => setTab(key) }))];
 
   return (
-    <Frame><aside className={finance ? `rd resource-detail finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}` : wide ? 'rd resource-detail rd-wide' : 'rd resource-detail'} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
+    <Frame><aside className={finance ? `rd${financeReference ? '' : ' resource-detail'} finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}` : wide ? `rd${financeReference ? '' : ' resource-detail'} rd-wide` : `rd${financeReference ? '' : ' resource-detail'}`} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
       {finance ? <FinanceDetailHead def={def} record={record} nav={nav} onClose={onClose} /> : <DetailHead
         def={def}
         record={record}
         nav={editing ? undefined : nav}
         wide={wide}
         onToggleWide={() => setWide((v) => !v)}
-        onClose={editing ? () => closeEditor.current?.() : onClose}
+        onClose={editing && !financeReference ? () => closeEditor.current?.() : onClose}
         statusSlot={editing ? undefined : statusSlot}
         primary={live && can('edit') ? <button type="button" className="res-btn primary" disabled={editing} onClick={() => { setTab('info'); setEditGroup(null); setEditing(true); }}>编辑</button> : undefined}
         more={!editing && moreItems.length > 0 ? (
@@ -406,8 +408,8 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
       <div className={finance ? 'rd-body finance-detail-body' : 'rd-body'} ref={body} onScroll={onBodyScroll}>
         {error && <div role="alert" className="notice error">{error}</div>}
         {finance && tab === 'info' && <FinanceDetailBody key={`${def.key}:${record.id}`} def={def} record={record} />}
-        {!finance && editing && <RecordForm def={def} record={record} inline inDetail onCloseReady={handler => { closeEditor.current = handler; }} onClose={() => setEditing(false)} onSaved={dto => { setEditing(false); setRecord(dto); setLogs(null); setRelations(null); onChanged(); }} />}
-        {!finance && !editing && tab === 'info' && (
+        {!finance && !financeReference && editing && <RecordForm def={def} record={record} inline inDetail onCloseReady={handler => { closeEditor.current = handler; }} onClose={() => setEditing(false)} onSaved={dto => { setEditing(false); setRecord(dto); setLogs(null); setRelations(null); onChanged(); }} />}
+        {!finance && (!editing || financeReference) && tab === 'info' && (
           <div className={`rd-info${groups.size <= 1 ? ' no-anchors' : ''}`}>
             {groups.size > 1 && (
               <nav aria-label="分区导航" className="rd-anchors">
@@ -560,7 +562,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
           }}
         />
       )}
-      {editing && finance && (
+      {editing && (finance || financeReference) && (
         <RecordForm
           def={def}
           record={record}
