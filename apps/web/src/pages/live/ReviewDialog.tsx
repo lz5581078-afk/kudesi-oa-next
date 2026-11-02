@@ -1,3 +1,5 @@
+import { StorePerformanceTable, storeDrafts, storePayload } from './StorePerformanceTable';
+import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { LIVE_FINAL_SOURCES } from '@kudesi/shared';
 import { flowApi } from '../flow/flowApi';
@@ -7,6 +9,8 @@ import { Modal, RoleAmounts } from './liveUi';
 
 /** 一场一张审核单：审核人选最终销售额来源、确认运营和主播工资，右侧随输入试算提成（服务端算）。 */
 export function ReviewDialog({ session, onClose, onDone }: { session: SessionDetail; onClose: () => void; onDone: () => void }) {
+  const multi=!!session.channels?.length;
+  const [storeRows,setStoreRows]=useState(()=>storeDrafts(session.channels??[],session.reports.find(r=>r.role==='anchor')?.storeLines));
   const run = session.flow!;
   const [opts, setOpts] = useState<Options | null>(null);
   const [source, setSource] = useState('');
@@ -39,7 +43,9 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
   const form = useMemo((): ReviewForm | string => {
     const f: ReviewForm = { finalSource: source };
     if (source === 'manual') {
-      const c = yuanCents(manual);
+      let lines;try{lines=multi?storePayload(storeRows):undefined;}catch(e){return String((e as Error).message);}
+      if(lines)f.storeLines=lines;
+      const c = lines?lines.reduce((n,l)=>n+l.salesCents,0):yuanCents(manual);
       if (c === null || Number.isNaN(c)) return '请填写手填的最终销售额';
       f.finalSalesCents = c; f.finalReason = reason.trim();
     } else if (reason.trim()) f.finalReason = reason.trim();
@@ -51,7 +57,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
     if(controlRate.trim()){const c=yuanCents(controlRate);if(!c||!Number.isSafeInteger(c)||c<=0)return '中控时薪需要是大于 0 的金额';f.controlWageHourlyRateCents=c;}
     if(controlStart.trim())f.controlWageStartAt=controlStart.trim();if(controlEnd.trim())f.controlWageEndAt=controlEnd.trim();if(controlNote.trim())f.controlWageNote=controlNote.trim();
     return f;
-  }, [source, manual, reason, operator, noOperator, wStart, wEnd, rate, wNote,controlRate,controlStart,controlEnd,controlNote]);
+  }, [source, manual, reason, operator, noOperator, wStart, wEnd, rate, wNote,controlRate,controlStart,controlEnd,controlNote,storeRows,multi]);
 
   // 随输入试算（防抖）；试算失败只提示，不挡住操作
   useEffect(() => {
@@ -94,6 +100,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
         <thead><tr><th>角色</th><th>填报人</th><th className="num">所报销售额</th><th className="num">勾选订单合计</th><th className="num">订单数</th><th className="num">投流</th></tr></thead>
         <tbody>{session.reports.map((r) => <tr key={r.role}><td>{r.roleLabel}</td><td>{r.reporter.name}</td><td className="num">{money(r.salesCents)}</td><td className="num">{money(r.ordersTotalCents)}</td><td className="num">{r.orderCount}</td><td className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
       </table></div>
+      {multi&&<div className="live-scroll"><table className="data-table" aria-label="逐店上报对比"><thead><tr><th>平台 / 店铺</th><th>角色</th><th>营业额</th><th>投流</th><th>订单核对</th></tr></thead><tbody>{session.reports.flatMap(r=>(r.storeLines??[]).map(l=><tr key={`${r.role}:${l.storeId}`}><td>{LIVE_PLATFORMS[l.platform]} · {session.channels!.flatMap(c=>c.stores).find(s=>s.id===l.storeId)?.name}</td><td>{r.roleLabel}</td><td>{money(l.salesCents)}</td><td>{r.role==='control'?money(l.adSpendCents):'—'}</td><td>{l.verified?`已核对 ${money(l.ordersTotalCents??0)}`:`特殊核定：${l.reason||'未核对订单'}`}</td></tr>))}</tbody></table></div>}
       {stop ? (
         <label className="live-field">{stop === 'return' ? '退回原因（主播或中控修改后重新提交）' : '拒绝原因（场次回到已退回，需重新发起审核）'}<textarea aria-label="原因" rows={3} maxLength={500} value={why} onChange={(e) => setWhy(e.target.value)} /></label>
       ) : (
@@ -101,9 +108,10 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
           <fieldset><legend>最终销售额</legend>
             <div className="live-fields">
               <label className="live-field">来源<select aria-label="最终销售额来源" value={source} onChange={(e) => setSource(e.target.value)}><option value="">请选择</option>{available.map(([k, label]) => <option key={k} value={k}>{label}{k !== 'manual' ? `（${money(Number(k.endsWith('orders') ? reportOf(k.split('_')[0])?.ordersTotalCents : reportOf(k)?.salesCents))}）` : ''}</option>)}</select></label>
-              {source === 'manual' && <label className="live-field">手填金额（元）<input aria-label="手填最终销售额" inputMode="decimal" value={manual} onChange={(e) => setManual(e.target.value)} /></label>}
+              {source === 'manual' && !multi && <label className="live-field">手填金额（元）<input aria-label="手填最终销售额" inputMode="decimal" value={manual} onChange={(e) => setManual(e.target.value)} /></label>}
               {source && <label className="live-field wide">{source === 'manual' ? '手填原因（必填）' : '说明（可选）'}<input aria-label="最终销售额说明" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>}
             </div>
+            {source==='manual'&&multi&&<StorePerformanceTable channels={session.channels!} rows={storeRows} onChange={setStoreRows}/>}
           </fieldset>
           <fieldset><legend>运营人员（由人事最终确认）</legend>
             <div className="live-fields">
@@ -127,7 +135,8 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
           {preview && (
               <>
                 <span>最终销售额 {money(preview.finalSalesCents)} · 投流 {money(preview.adSpendCents)} · 投产 {roi(preview.roiScaled)}{preview.belowRoi ? '（不足，已扣减点数）' : ''} · 规则版本 {preview.ruleVersion.effectiveFrom} 起</span>
-                <RoleAmounts anchor={preview.anchor} control={preview.control} operator={preview.operator} />
+                {preview.platforms?.map(p=><div key={p.platform}><strong>{LIVE_PLATFORMS[p.platform]??'原场次'} · 营业额 {money(p.finalSalesCents)} · 投流 {money(p.adSpendCents)}</strong><RoleAmounts anchor={p.anchor} control={session.control?p.control:null} operator={preview.operator?p.operator:null}/></div>)}
+                <RoleAmounts hideRates={(preview.platforms?.length??0)>1} anchor={preview.anchor} control={preview.control} operator={preview.operator} />
                 {preview.operatorDoubledAsControl && <small className="muted">运营兼任中控，不另算运营提成</small>}
                 <span>{preview.controlWage&&<>中控工资：{minutesText(preview.controlWage.minutes)} × {money(preview.controlWage.hourlyRateCents)}/小时 = <strong>{money(preview.controlWage.amountCents)}</strong><br/></>}主播工资：{minutesText(preview.wage.minutes)} × {money(preview.wage.hourlyRateCents)}/小时 = <strong>{money(preview.wage.amountCents)}</strong>（{preview.wage.rateSource === 'archive' ? '档案时薪' : '手填时薪'}）</span>
               </>

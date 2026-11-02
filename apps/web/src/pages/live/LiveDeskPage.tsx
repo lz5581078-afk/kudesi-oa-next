@@ -1,3 +1,4 @@
+import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { liveApi, type ScheduleRow, type Workbench } from './liveApi';
 import { errText, hm, money, minutesText } from './liveFormat';
@@ -69,7 +70,7 @@ export function LiveDeskPage() {
             <h2>本月提成明细（已审核）</h2>
             {d.commissionRows.length === 0 && <p className="muted pad">本月还没有已审核的提成。</p>}
             <ul className="live-list">{d.commissionRows.map((r) => (
-              <li key={r.id}><div className="main"><strong>{r.date} · {r.roomName} · {r.roleLabel}</strong><small>销售额 {money(r.finalSalesCents)} · 提成点数 {(r.rateUnits / 100).toFixed(2)}%</small></div><strong>{money(r.amountCents)}</strong>
+              <li key={r.id}><div className="main"><strong>{r.date} · {r.roomName} · {LIVE_PLATFORMS[r.platform??'']??''} {r.roleLabel}</strong><small>销售额 {money(r.finalSalesCents)} · 提成点数 {(r.rateUnits / 100).toFixed(2)}%</small></div><strong>{money(r.amountCents)}</strong>
                 <button type="button" className="secondary-button small" onClick={() => setOpenId(r.sessionId)}>详情</button></li>
             ))}</ul>
           </section>

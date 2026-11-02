@@ -1,5 +1,5 @@
 import type { FieldDef } from '@kudesi/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FieldInput } from '../../resources/RecordForm';
 import { FileList } from '../../resources/FilesField';
 import { resourceApi, type FileInfo } from '../../resources/api';
@@ -8,6 +8,9 @@ import { PurchaseStepFields } from './PurchaseStepForms';
 import { PurchaseJsonField } from './PurchaseCompatibilityFields';
 import { PURCHASE_TEMPLATE_KEY } from './purchaseApi';
 import { SKU_TEMPLATE, SkuApplyFields, SkuWarehouseFields } from './SkuApply';
+import { liveApi, type SessionDetail } from '../live/liveApi';
+import { StorePerformanceTable, storeDrafts, storePayload, type StoreDraft } from '../live/StorePerformanceTable';
+import { liveJsonArray, type LiveStoreLine } from '@kudesi/shared';
 
 /** 流程表单：沿用资料表单的输入控件；金额界面按元、存整数分。 */
 export function FlowFieldsForm({ fields, values, onChange, labels, templateKey, context, files, stepKey, runId, refreshKey }: {
@@ -29,7 +32,28 @@ export function FlowFieldsForm({ fields, values, onChange, labels, templateKey, 
       </>
     );
   }
+  if (templateKey === 'live-session-review' && fields.some(f=>f.key==='finalSource')) return <LiveReviewFields fields={fields} values={values} onChange={onChange} labels={labels} templateKey={templateKey} context={context} files={files}/>;
   return <GenericFields fields={fields} values={values} onChange={onChange} labels={labels} templateKey={templateKey} context={context} files={files} />;
+}
+
+/** The task inbox and live management use the same shop performance table. */
+function LiveReviewFields(props: Parameters<typeof GenericFields>[0]) {
+  const [session,setSession]=useState<SessionDetail|null>(null);
+  const [error,setError]=useState('');
+  const [rows,setRows]=useState<StoreDraft[]>([]);
+  const edited=useRef(false);
+  const id=Number(props.context?.sessionId);
+  useEffect(()=>{let active=true;if(id)liveApi.session(id).then(s=>{if(active){setSession(s);setRows(storeDrafts(s.channels??[],liveJsonArray<LiveStoreLine>(props.values.storeLines).length?liveJsonArray<LiveStoreLine>(props.values.storeLines):s.reports.find(r=>r.role==='anchor')?.storeLines));}}).catch(()=>{if(active)setError('读取场次店铺失败，请刷新后审核');});return()=>{active=false;};},[id]);
+  const multi=!!session?.channels?.length;
+  const manual=props.values.finalSource==='manual';
+  useEffect(()=>{
+    if(!edited.current&&multi&&manual&&!props.values.storeLines)props.onChange('storeLines',session!.reports.find(r=>r.role==='anchor')?.storeLines??[]);
+  },[multi,manual,props.values.storeLines,session]); // onChange belongs to the active task form
+  return <>
+    {error&&<p className="notice error" role="alert">{error}</p>}
+    <GenericFields {...props} fields={props.fields.filter(f=>f.key!=='storeLines'&&!(multi&&f.key==='finalSalesCents'))}/>
+    {multi&&manual&&<StorePerformanceTable channels={session!.channels!} rows={rows} onChange={next=>{edited.current=true;setRows(next);try{props.onChange('storeLines',storePayload(next));setError('');}catch{props.onChange('storeLines',[]);setError('请逐店填写有效营业额和投流费用');}}}/>}
+  </>;
 }
 
 function GenericFields({ fields, values, onChange, labels, templateKey, context, files }: {

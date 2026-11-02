@@ -24,7 +24,7 @@ const person = (id: number, name: string) => ({ id, name });
 const opts = () => ({
   rooms: [{ id: 10, name: '直播间-北1', shortName: '北1', big: false, path: '', side: 'north' as const, live: false }],
   anchors: [{ ...person(3, '小主播'), detail: '', live: false }], controls: [{ ...person(4, '小中控'), detail: '' }], operators: [{ ...person(5, '小运营'), detail: '' }],
-  douyinAccounts: [{ ...person(20, '抖音一号'), detail: '' }], stores: [{ ...person(30, '抖音店'), detail: '', hasJstShop: true }, { ...person(31, '无绑定店'), detail: '', hasJstShop: false }],
+  douyinAccounts: [{ ...person(20, '抖音一号'), detail: '',platform:'douyin',storeIds:[30,31] }], stores: [{ ...person(30, '抖音店'), detail: '',platform:'douyin', hasJstShop: true }, { ...person(31, '无绑定店'), detail: '',platform:'douyin', hasJstShop: false }],
 });
 const sched = (o: Record<string, unknown> = {}) => ({ id: 1, roomId: 10, roomName: '直播间-北1', date: '2026-09-28', start: '2026-09-28 10:00:00', end: '2026-09-28 14:00:00', startTime: '10:00', endTime: '14:00', status: 'scheduled', statusLabel: '未开始', anchor: person(3, '小主播'), control: person(4, '小中控'), operator: null, douyinAccount: person(20, '抖音一号'), store: null, sessionId: null, note: null, cancelReason: null, canStart: true, mineRole: 'anchor', ...o });
 const session = (o: Record<string, unknown> = {}) => ({ id: 7, scheduleId: 1, roomId: 10, roomName: '直播间-北1', date: '2026-09-28', startAt: '2026-09-28 10:02:00', endAt: null, plannedEnd: null, status: 'live', statusLabel: '直播中', anchor: person(3, '小主播'), control: person(4, '小中控'), operator: null, douyinAccount: person(20, '抖音一号'), store: null, finalSalesCents: null, finalSalesSource: null, finalSalesReason: null, returnReason: null, flowRunId: null, submittedAt: null, approvedAt: null, approverName: null, revision: 1, ...o });
@@ -47,7 +47,7 @@ describe('我的直播', () => {
     expect((buttons[1] as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('按排场上播：必须选店铺和产品；店铺没绑聚水潭时拦住；提交带上所选', async () => {
+  it('按排场上播：选择关联店铺和产品，提交多平台账号结构', async () => {
     l.workbench.mockResolvedValue(bench() as never);
     l.start.mockResolvedValue({ id: 7 });
     l.session.mockResolvedValue(detail() as never);
@@ -55,10 +55,8 @@ describe('我的直播', () => {
     fireEvent.click(await screen.findByRole('button', { name: '上播' }));
     const dlg = await screen.findByRole('dialog', { name: '报上播（按排场）' });
     fireEvent.click(within(dlg).getByRole('button', { name: '确认上播' }));
-    expect((await within(dlg).findByRole('alert')).textContent).toContain('抖音店铺');
-    fireEvent.change(within(dlg).getByLabelText('抖音店铺'), { target: { value: '31' } });
-    expect(within(dlg).getByText(/聚水潭店铺编号/)).toBeTruthy();
-    fireEvent.change(within(dlg).getByLabelText('抖音店铺'), { target: { value: '30' } });
+    expect((await within(dlg).findByRole('alert')).textContent).toContain('关联店铺');
+    fireEvent.click(await within(dlg).findByLabelText('抖音一号关联抖音店'));
     fireEvent.click(within(dlg).getByRole('button', { name: '确认上播' }));
     expect((await within(dlg).findByRole('alert')).textContent).toContain('在卖产品');
     fireEvent.click(await within(dlg).findByLabelText(/SKU-A/));
@@ -195,7 +193,8 @@ describe('直播管理', () => {
     fireEvent.change(within(dlg).getByLabelText('开始时间'), { target: { value: '10:00' } });
     fireEvent.change(within(dlg).getByLabelText('结束时间'), { target: { value: '12:00' } });
     fireEvent.change(within(dlg).getByLabelText('主播'), { target: { value: '3' } });
-    fireEvent.change(within(dlg).getByLabelText('抖音号'), { target: { value: '20' } });
+    fireEvent.click(within(dlg).getByLabelText('抖音一号'));
+    fireEvent.click(within(dlg).getByLabelText('抖音一号关联抖音店'));
     l.createSchedule.mockRejectedValueOnce(new Error('该直播间 10:00–14:00 已有排场，时间段不能重叠'));
     fireEvent.click(within(dlg).getByRole('button', { name: '保存' }));
     expect((await within(dlg).findByRole('alert')).textContent).toContain('不能重叠');
@@ -342,8 +341,9 @@ describe('直播管理', () => {
     allow=['features.live.view','live.manage','live.commissions.view'];l.overview.mockResolvedValue(empty() as never);
     l.manualReport.mockResolvedValue({id:91});wrap(<LiveManagePage/>);
     fireEvent.click(await screen.findByRole('tab',{name:'人事补报'}));
-    await screen.findByLabelText('补报销售额');
-    for(const [label,value]of [['直播间','10'],['主播','3'],['抖音号','20'],['店铺','30'],['补报销售额','123.45'],['补报原因','漏报补录']] as const)fireEvent.change(screen.getByLabelText(label),{target:{value}});
+    await screen.findByLabelText('抖音一号');
+    fireEvent.click(screen.getByLabelText('抖音一号'));fireEvent.click(screen.getByLabelText('抖音一号关联抖音店'));
+    for(const [label,value]of [['直播间','10'],['主播','3'],['抖音店营业额','123.45'],['补报原因','漏报补录']] as const)fireEvent.change(screen.getByLabelText(label),{target:{value}});
     fireEvent.click(screen.getByRole('button',{name:'保存为待审核场次'}));
     await waitFor(()=>expect(l.manualReport).toHaveBeenCalledWith(expect.objectContaining({salesCents:12345,reason:'漏报补录',roomId:10,anchorId:3})));
     l.settlements.mockResolvedValue({canManage:true,defaultMonth:'2026-09',rows:[]});l.generateSettlement.mockRejectedValue(new Error('日期范围重叠'));

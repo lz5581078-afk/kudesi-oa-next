@@ -43,7 +43,7 @@ export async function payrollSources(em: EntityManager, c: number, from: string,
     [c, from, to],
   );
   const orders: Row[] = await em.query(
-    `SELECT DISTINCT o.session_id,o.order_id,o.shop_id,o.amount_cents FROM live_session_orders o JOIN live_sessions s ON s.company_id=o.company_id AND s.id=o.session_id WHERE o.company_id=? AND s.session_date BETWEEN ? AND ? ORDER BY o.session_id,o.shop_id,o.order_id,o.amount_cents`,
+    `SELECT DISTINCT o.session_id,o.order_id,o.shop_id,o.amount_cents,o.platform FROM live_session_orders o JOIN live_sessions s ON s.company_id=o.company_id AND s.id=o.session_id WHERE o.company_id=? AND s.session_date BETWEEN ? AND ? ORDER BY o.session_id,o.shop_id,o.order_id,o.amount_cents`,
     [c, from, to],
   );
   return { records, wages, orders };
