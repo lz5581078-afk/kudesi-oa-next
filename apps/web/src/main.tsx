@@ -7,6 +7,7 @@ import { AuthProvider } from './auth/AuthContext';
 import './styles.css';
 import './layout/module-panel.css';
 import './pages/finance/finance-data-pages.css';
+import './mobile.css';
 
 // 数据路由（createBrowserRouter）：只为了能用 useBlocker——表格编辑有没保存的修改时拦截站内跳转、后退前进。
 // 整个应用仍由 App 里的 <Routes> 分派页面，所以这里只有一条匹配所有地址的路由。
