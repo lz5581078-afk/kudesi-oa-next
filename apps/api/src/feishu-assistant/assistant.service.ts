@@ -84,8 +84,8 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
     this.admin(user);
     const cfg = await this.config(user.companyId);
     if (!cfg) throw new BadRequestException('请先保存助手配置');
-    await this.feishu.tenantToken(cfg);
-    return { ok: true, message: '应用鉴权成功；此操作未向员工发送消息。' };
+    await this.feishu.checkBatchScope(cfg, cfg.departmentIds);
+    return { ok: true, message: '应用鉴权及通讯录发送范围检查成功；此操作未向员工发送消息。' };
   }
   private async enabled(companyId: number, cfg: AssistantConfig) {
     const sw = await this.ds.manager.findOne(OutboxSwitch, { where: { companyId, channel: ASSISTANT_CHANNEL } });

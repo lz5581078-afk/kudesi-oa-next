@@ -12,7 +12,7 @@ const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 d('OA助手真实队列隔离与防重（隔离MySQL）', () => {
   let ds: DataSource, service: AssistantService, user: AuthUser, other: AuthUser;
   let input: AssistantInput;
-  const client = { batchSend: jest.fn(async () => 'bm-test'), send: jest.fn(async () => {}), tenantToken: jest.fn(async () => 'test-token') };
+  const client = { batchSend: jest.fn(async () => 'bm-test'), send: jest.fn(async () => {}), tenantToken: jest.fn(async () => 'test-token'), checkBatchScope: jest.fn(async () => ({ departments: 1, directUsers: 0 })) };
   const now = new Date('2030-01-02T00:00:00Z');
   beforeAll(async () => {
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
