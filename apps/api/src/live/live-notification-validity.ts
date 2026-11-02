@@ -1,3 +1,4 @@
+import { liveNoStartNoticeValid } from './live-no-start-notification';
 import { liveStartNoticeValid } from './live-start-notification';
 import { EntityManager } from 'typeorm';
 import { liveRecipientAllowed } from './live-notification-events';
@@ -8,6 +9,7 @@ export async function liveNoticeValid(em:EntityManager,companyId:number,userId:n
   if(cfg&&!cfg.enabled)return false;
   const list=(v:unknown):number[]=>{try{return (typeof v==='string'?JSON.parse(v):v) as number[]??[];}catch{return [];}};
   const parts=key.split(':'),kind=parts[0],id=Number(parts[1]);
+  if(kind==='no-start') return liveNoStartNoticeValid(em,companyId,userId,id,Number(parts[2]));
   if(kind==='start-deviation') return liveStartNoticeValid(em,companyId,userId,id);
   if(kind==='digest'||kind==='health'||kind==='expiry') {
     const business=kind==='digest';
