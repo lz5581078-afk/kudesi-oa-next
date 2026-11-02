@@ -10,7 +10,7 @@ describe('迁入账号登录升级', () => {
     const jwt:any={signAsync:jest.fn(async()=> 'test-token')};
     const companies:any={findOne:jest.fn(async()=>({id:20,name:'测试公司',status:'active'}))};
     const admins:any={findOne:jest.fn(async()=>null)};
-    const audits:any={create:(x:unknown)=>x,save:jest.fn()};
+    const audits:any={findOne:async()=>null,create:(x:unknown)=>x,save:jest.fn()};
     const service=new AuthService(jwt,companies,admins,users,{} as any,{find:async()=>[]} as any,{find:async()=>[]} as any,audits);
     return {service,users,jwt,row:()=>row};
   }
