@@ -1,3 +1,5 @@
+import { channelsOf, linesOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines, channelStores } from './live-platforms';
+import { LiveChannelInput, LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -15,9 +17,9 @@ import { serializeSchedule } from './live-schedule.service';
 
 export interface StartInput {
   scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null;
-  douyinAccountId?: number | null; storeId?: number | null; productIds: number[]; startAt?: string | null;
+  channels?: LiveChannelInput[]; douyinAccountId?: number | null; storeId?: number | null; productIds: number[]; startAt?: string | null;
 }
-export interface ReportInput { role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
+export interface ReportInput { storeLines?: LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
 export interface SessionQuery { from?: string; to?: string; roomId?: number; anchorId?: number; controlId?: number; status?: string; page?: number; pageSize?: number; reviewOnly?: boolean }
 
 const ACTIVE = ['live', 'pending_report', 'returned', 'submitted'];
@@ -26,6 +28,7 @@ const REVIEWER_SQL = 'EXISTS (SELECT 1 FROM flow_steps fs WHERE fs.run_id = s.fl
 
 export function serializeSession(s: Row) {
   return {
+    channels: channelsOf(s),
     id: Number(s.id), scheduleId: s.schedule_id ? Number(s.schedule_id) : null, roomId: Number(s.room_id), roomName: s.room_name, date: s.session_day, startAt: s.start_text, endAt: s.end_text ?? null,
     plannedEnd: s.schedule_end ?? null, status: s.status, statusLabel: LIVE_SESSION_STATUS[s.status] ?? s.status,
     anchor: { id: Number(s.anchor_user_id), name: s.anchor_name }, control: s.control_user_id ? { id: Number(s.control_user_id), name: s.control_name } : null,
@@ -109,14 +112,8 @@ export class LiveSessionService {
         if (!op) liveFail('所选运营人员不存在或已停用', 400);
         if (operatorId === anchorId) liveFail('运营人员不能同时是主播', 400);
       }
-      const account = accountId ? (await liveDouyinAccounts(em, a.companyId)).find((x) => x.id === accountId) : null;
-      if (!account) liveFail('请选择有效的抖音号（资料「自媒体账号」里平台为抖音）', 400);
-      if (!storeId) liveFail('请选择抖音店铺', 400);
-      const stores = await liveDouyinStores(em, a.companyId);
-      const store = stores.find((x) => x.id === storeId);
-      if (!store) liveFail('所选店铺不存在、已注销或不是抖音店铺', 400);
-      if (!store!.jstShopId) liveFail('这个店铺的资料里还没有填「聚水潭店铺编号」，不能上播。请联系管理员补全店铺资料', 400);
-      if (stores.filter((x) => x.jstShopId === store!.jstShopId).length > 1) liveFail('聚水潭店铺编号被多个抖音店铺使用，无法唯一对应，请联系管理员处理', 400);
+      const channels = await validateChannels(em, a.companyId, input.channels ?? (sched && channelsOf(sched).length ? channelsOf(sched) : [{ accountId: accountId!, storeIds: storeId ? [storeId] : [] }]));
+      const primary = channels[0], account = { id: primary.accountId, name: channels.map(c => c.accountName).join(' / ').slice(0,200) }, store = primary.stores[0];
       const productIds = [...new Set((input.productIds ?? []).map(Number))];
       if (!productIds.length || productIds.length > 100 || productIds.some((v) => !idOf(v))) liveFail('请选择 1 到 100 个在卖产品', 400);
       const products = await liveProducts(em, a.companyId, productIds);
@@ -125,12 +122,14 @@ export class LiveSessionService {
       if (busyRoom) liveFail('这个直播间正在直播，请先报下播');
       const [busyAnchor] = await em.query("SELECT id FROM live_sessions WHERE company_id = ? AND status = 'live' AND anchor_user_id = ? LIMIT 1", [a.companyId, anchorId]);
       if (busyAnchor) liveFail('这位主播正在另一场直播中，请先报下播');
+      await assertAccountTime(em, a.companyId, channels, startAt, sched ? wallText(sched.end_at) : null, undefined, sched ? Number(sched.id) : undefined);
       const role = a.userId === anchorId ? 'anchor' : a.userId === controlId ? 'control' : 'manager';
       const ins = await em.query(
         `INSERT INTO live_sessions (company_id, schedule_id, room_id, room_name, anchor_user_id, control_user_id, operator_user_id, douyin_account_id, douyin_account_name, store_id, store_name, jst_shop_id,
            session_date, start_at, status, started_by, started_role) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'live',?,?)`,
         [a.companyId, sched ? sched.id : null, room!.id, room!.name, anchorId, controlId, operatorId, account!.id, account!.name, store!.id, store!.name, store!.jstShopId, day, startAt, a.userId, role]);
       const id = Number(ins.insertId);
+      await em.query('UPDATE live_sessions SET channels_json=? WHERE company_id=? AND id=?', [JSON.stringify(channels),a.companyId,id]);
       let order = 0;
       for (const p of products) await em.query('INSERT INTO live_session_products (company_id, session_id, base_code_id, code_snapshot, name_snapshot, spec_snapshot, sort_order) VALUES (?,?,?,?,?,?,?)', [a.companyId, id, p.id, p.code.slice(0, 100), (p.name || p.code).slice(0, 200), p.spec.slice(0, 300) || null, order++]);
       if (sched) await em.query("UPDATE live_schedules SET status = 'live', session_id = ?, updated_by = ? WHERE company_id = ? AND id = ?", [id, a.userId, a.companyId, sched.id]);
@@ -145,12 +144,15 @@ export class LiveSessionService {
   }
 
   // ---------- 订单候选与报下播 ----------
-  async orderCandidates(user: AuthUser, sessionId: number, q: { endAt?: string; refresh?: boolean }) {
+  async orderCandidates(user: AuthUser, sessionId: number, q: { endAt?: string; refresh?: boolean; storeId?: number }) {
     const a = await loadLiveAccess(this.em, user); requireUse(a);
     const s = await sessionRow(this.em, a.companyId, sessionId);
-    if (!liveReportRoleFor(a.userId, this.people(s))) liveFail('只有本场主播、中控本人可以查看可勾选的订单', 403);
+    if (!a.canManage && !liveReportRoleFor(a.userId, this.people(s))) liveFail('只有本场主播、中控本人可以查看可勾选的订单', 403);
     const endAt = q.endAt ? this.parseTime(q.endAt, '下播时间') : s.end_text ?? wallNow(liveClock.now());
-    const found = await this.orders.candidates(a.companyId, { id: Number(s.id), shopId: s.jst_shop_id ?? null, startAt: s.start_text, endAt }, { refresh: !!q.refresh });
+    const stores = channelStores(channelsOf(s));
+    const selected = q.storeId ? stores.find(v => v.id === q.storeId) : stores[0];
+    if (q.storeId && !selected) liveFail('店铺不属于本场',400);
+    const found = await this.orders.candidates(a.companyId, { id: Number(s.id), shopId: selected ? selected.jstShopId || null : s.jst_shop_id ?? null, startAt: s.start_text, endAt }, { refresh: !!q.refresh });
     return { ...found, startAt: s.start_text, endAt };
   }
 
@@ -161,12 +163,17 @@ export class LiveSessionService {
     const role = liveReportRoleFor(a.userId, this.people(first), input.role ?? null);
     if (!role) liveFail('只能由主播、中控（或排定的运营）本人为自己的角色报下播，管理人员不能代填', 403);
     const endAt = this.parseTime(input.endAt, '下播时间');
-    const sales = input.salesCents;
+    if(role==='control'&&!input.storeLines&&input.adSpendCents==null)liveFail('中控请填写本场投流费用（没有投流填 0）',400);
+    const multi = channelsOf(first).length > 0;
+    const shops=channelStores(channelsOf(first));
+    const lineInput=input.storeLines ?? (shops.length===1?[{storeId:shops[0].id,platform:shops[0].platform,salesCents:input.salesCents,adSpendCents:input.adSpendCents??0,orderIds:input.orderIds,reason:input.note}]:[]);
+    const checked = multi ? await checkStoreLines(this.orders, a.companyId, first, lineInput, endAt,role==='operator') : null;
+    const sales = checked ? checked.sales : input.salesCents;
     if (!Number.isSafeInteger(sales) || sales < 0 || sales > 10_000_000_000) liveFail('销售额需要是 0 到 1 亿元之间的金额', 400);
     const needsOrders = role !== 'operator';
     const orderIds = [...new Set((input.orderIds ?? []).map((v) => String(v)))];
     let picked: Array<{ orderId: string; innerId: string; amountCents: number; payTime: string | null; status: string }> = [];
-    if (needsOrders) {
+    if (needsOrders && !checked) {
       const found = await this.orders.candidates(a.companyId, { id: Number(first.id), shopId: first.jst_shop_id ?? null, startAt: first.start_text, endAt }, { refresh: true });
       if (!found.available) liveFail(`不能报下播：${found.reason || '暂时查不到聚水潭订单'}`, 409);
       if (found.truncated) liveFail(found.reason || '聚水潭订单过多，只列出了一部分，请联系管理员核对本场订单', 409);
@@ -180,7 +187,7 @@ export class LiveSessionService {
         picked.push({ orderId: o!.orderId, innerId: o!.innerId, amountCents: o!.amountCents, payTime: o!.payTime, status: o!.status });
       }
     } else picked = [];
-    const adSpend = role === 'control' ? (input.adSpendCents ?? null) : null;
+    const adSpend = role === 'control' ? (checked ? checked.ad : input.adSpendCents ?? null) : null;
     if (role === 'control' && (adSpend === null || !Number.isSafeInteger(adSpend) || adSpend < 0 || adSpend > 10_000_000_000)) liveFail('中控请填写本场投流费用（没有投流填 0）', 400);
     if (role !== 'control' && input.adSpendCents) liveFail('只有中控填写投流费用', 400);
     await this.ds.transaction(async (em) => {
@@ -188,7 +195,7 @@ export class LiveSessionService {
       const s = await sessionRow(em, a.companyId, sessionId, true);
       if (!['live', 'pending_report', 'returned'].includes(s.status)) liveFail(s.status === 'submitted' ? '已提交审核，需审核人退回后才能修改' : '该场次已审核，不能再修改');
       if (liveReportRoleFor(a.userId, this.people(s), role) !== role) liveFail('只能由本人填报自己的角色', 403);
-      if (s.jst_shop_id !== first.jst_shop_id || s.start_text !== first.start_text) liveFail('场次信息已变化，请刷新后重试');
+      if (s.jst_shop_id !== first.jst_shop_id || JSON.stringify(channelsOf(s)) !== JSON.stringify(channelsOf(first)) || s.start_text !== first.start_text) liveFail('场次信息已变化，请刷新后重试');
       const now = liveClock.now();
       const end = liveFromText(endAt)!;
       if (end.getTime() <= liveFromText(s.start_text)!.getTime()) liveFail('下播时间必须晚于上播时间', 400);
@@ -208,6 +215,8 @@ export class LiveSessionService {
           [a.companyId, sessionId, role, a.userId, endAt, sales, adSpend, needsOrders ? total : null, picked.length, text(input.note) || null]);
         reportId = Number(ins.insertId);
       }
+      if (await closedDay(em,a.companyId,s.session_day))liveFail('该日期已进入工资结算，不能修改');
+      if (checked) await persistStoreLines(em,a.companyId,sessionId,reportId,checked);
       for (const o of picked) {
         await em.query('INSERT INTO live_session_orders (company_id, session_id, report_id, order_id, inner_order_id, amount_cents, pay_time, order_status, shop_id) VALUES (?,?,?,?,?,?,?,?,?)',
           [a.companyId, sessionId, reportId, o.orderId, o.innerId || null, o.amountCents, o.payTime, o.status || null, s.jst_shop_id ?? '']);
@@ -264,8 +273,10 @@ export class LiveSessionService {
     const version = liveVersionFor(await ruleVersions(em, a.companyId), s.session_day);
     if (!version) return { available: false, reason: '没有适用的提成规则版本', anchor: null, control: null, operator: null };
     const control = reports.find((r) => r.role === 'control');
-    const r = liveComputeCommission({ rules: version.rules, finalSalesCents: num(base.sales_cents), adSpendCents: control?.ad_spend_cents === null || control?.ad_spend_cents === undefined ? null : Number(control.ad_spend_cents) });
-    const p = { available: true, reason: '', basisSalesCents: r.finalSalesCents, adSpendCents: r.adSpendCents, roiScaled: r.roiScaled, belowRoi: r.belowRoi, ruleVersionId: version.id,
+    const platforms = linesOf(base).length ? livePlatformCommissions(version.rules, linesOf(base).map(l => ({ platform:l.platform, salesCents:l.salesCents, adSpendCents: control ? linesOf(control).find(c=>c.storeId===l.storeId)?.adSpendCents ?? 0 : null }))) : [];
+    const legacy = liveComputeCommission({ rules: version.rules, finalSalesCents: num(base.sales_cents), adSpendCents: control?.ad_spend_cents == null ? null : Number(control.ad_spend_cents) });
+    const r = platforms.length ? { ...legacy, roiScaled: null, belowRoi: platforms.some(p=>p.belowRoi), ...Object.fromEntries(['anchor','control','operator'].map(role=>[role,{rateUnits:platforms.length===1?platforms[0][role as 'anchor'].rateUnits:0,amountCents:platforms.reduce((n,p)=>n+p[role as 'anchor'].amountCents,0)}])) } as typeof legacy : legacy;
+    const p = { aggregated:platforms.length>1, available: true, reason: '', basisSalesCents: r.finalSalesCents, adSpendCents: r.adSpendCents, roiScaled: r.roiScaled, belowRoi: r.belowRoi, ruleVersionId: version.id,
       anchor: r.anchor, control: s.control_user_id ? r.control : null, operator: s.operator_user_id && Number(s.operator_user_id) !== Number(s.control_user_id) ? r.operator : null };
     return liveFilterPreview(a.canViewAll, a.userId, { ...this.people(s), status: s.status }, p);
   }
@@ -279,7 +290,7 @@ export class LiveSessionService {
       em.query('SELECT base_code_id, code_snapshot, name_snapshot, spec_snapshot FROM live_session_products WHERE company_id = ? AND session_id = ? ORDER BY sort_order', [a.companyId, id]) as Promise<Row[]>,
       reportsOf(em, a.companyId, id),
       em.query("SELECT order_id, report_id, amount_cents, DATE_FORMAT(pay_time,'%Y-%m-%d %H:%i:%s') pay_text, order_status FROM live_session_orders WHERE company_id = ? AND session_id = ? ORDER BY id", [a.companyId, id]) as Promise<Row[]>,
-      em.query('SELECT c.user_id, c.role, c.rate_units, c.amount_cents, c.roi_scaled, c.below_roi, c.rule_version_id, e.name FROM live_commission_records c JOIN users e ON e.id = c.user_id AND e.company_id = c.company_id WHERE c.company_id = ? AND c.session_id = ? ORDER BY c.id', [a.companyId, id]) as Promise<Row[]>,
+      em.query('SELECT c.platform, c.user_id, c.role, c.rate_units, c.amount_cents, c.roi_scaled, c.below_roi, c.rule_version_id, e.name FROM live_commission_records c JOIN users e ON e.id = c.user_id AND e.company_id = c.company_id WHERE c.company_id = ? AND c.session_id = ? ORDER BY c.id', [a.companyId, id]) as Promise<Row[]>,
       em.query("SELECT w.role, w.user_id, w.minutes, w.hourly_rate_cents, w.amount_cents, w.rate_source, w.adjust_note, DATE_FORMAT(w.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(w.end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_wage_records w WHERE w.company_id = ? AND w.session_id = ?", [a.companyId, id]) as Promise<Row[]>,
     ]);
     const names = new Map<number, string>((await em.query(`SELECT id, name FROM users WHERE company_id = ? AND id IN (${[...new Set([...reports.map((r) => r.reporter_user_id), s.anchor_user_id])].map(() => '?').join(',')})`, [a.companyId, ...new Set([...reports.map((r) => r.reporter_user_id), s.anchor_user_id])])).map((r: Row) => [Number(r.id), r.name]));
@@ -294,11 +305,11 @@ export class LiveSessionService {
       ...serializeSession(s),
       products: products.map((p) => ({ id: Number(p.base_code_id), code: p.code_snapshot, name: p.name_snapshot, spec: p.spec_snapshot ?? '' })),
       reports: reports.map((r) => ({
-        role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], manualActorId:r.manual_actor_id?Number(r.manual_actor_id):null, reporter: { id: Number(r.reporter_user_id), name: names.get(Number(r.reporter_user_id)) ?? '' }, endAt: r.end_text, salesCents: num(r.sales_cents),
+        storeLines: linesOf(r), role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], manualActorId:r.manual_actor_id?Number(r.manual_actor_id):null, reporter: { id: Number(r.reporter_user_id), name: names.get(Number(r.reporter_user_id)) ?? '' }, endAt: r.end_text, salesCents: num(r.sales_cents),
         adSpendCents: numOrNull(r.ad_spend_cents), ordersTotalCents: numOrNull(r.orders_total_cents), orderCount: Number(r.order_count), note: r.note ?? '',
         orders: orders.filter((o) => Number(o.report_id) === Number(r.id)).map((o) => ({ orderId: o.order_id, amountCents: num(o.amount_cents), payTime: o.pay_text, status: o.order_status })),
       })),
-      commissions: commissions.filter((c) => showMoney(Number(c.user_id))).map((c) => ({ userId: Number(c.user_id), name: c.name, role: c.role, roleLabel: LIVE_ROLE_LABEL[c.role], rateUnits: Number(c.rate_units), amountCents: num(c.amount_cents), roiScaled: numOrNull(c.roi_scaled), belowRoi: !!c.below_roi })),
+      commissions: commissions.filter((c) => showMoney(Number(c.user_id))).map((c) => ({ platform: c.platform || '', userId: Number(c.user_id), name: c.name, role: c.role, roleLabel: LIVE_ROLE_LABEL[c.role], rateUnits: Number(c.rate_units), amountCents: num(c.amount_cents), roiScaled: numOrNull(c.roi_scaled), belowRoi: !!c.below_roi })),
       wages: wages.filter((w) => showMoney(Number(w.user_id))).map((w) => ({ role:w.role, userId: Number(w.user_id), minutes: Number(w.minutes), hourlyRateCents: num(w.hourly_rate_cents), amountCents: num(w.amount_cents), rateSource: w.rate_source, note: w.adjust_note, startAt: w.start_text, endAt: w.end_text })),
       wage: wages.filter(w=>w.role==='anchor'&&showMoney(Number(w.user_id))).map(w=>({userId:Number(w.user_id),minutes:Number(w.minutes),hourlyRateCents:num(w.hourly_rate_cents),amountCents:num(w.amount_cents),rateSource:w.rate_source,note:w.adjust_note,startAt:w.start_text,endAt:w.end_text}))[0]??null,
       preview: await this.preview(em, a, s, reports),
@@ -321,6 +332,7 @@ export class LiveSessionService {
     const s = await sessionRow(this.em, a.companyId, sessionId);
     if (!(await this.visible(this.em, a, s))) liveFail('没有查看这场直播的权限', 403);
     if (s.status === 'approved') return null;
+    if (new Set(channelsOf(s).map(c=>c.platform)).size>1) return { available:false, reason:'多平台提成在逐店填报保存后按平台分别试算',anchor:null,control:null,operator:null };
     const version = liveVersionFor(await ruleVersions(this.em, a.companyId), s.session_day);
     if (!version) return { available: false, reason: `没有适用于 ${s.session_day} 的提成规则版本`, anchor: null, control: null, operator: null };
     let sales: number | null, ad: number | null;
@@ -350,7 +362,7 @@ export class LiveSessionService {
       em.query(`${SESSION_SELECT} WHERE s.company_id = ? AND ${mine} ORDER BY s.start_at DESC LIMIT 20`, [c, uid, uid, uid]) as Promise<Row[]>,
       em.query("SELECT COALESCE(SUM(amount_cents),0) total FROM live_commission_records WHERE company_id = ? AND user_id = ? AND DATE_FORMAT(session_date,'%Y-%m') = ?", [c, uid, month]),
       em.query("SELECT COALESCE(SUM(amount_cents),0) total, COALESCE(SUM(minutes),0) minutes FROM live_wage_records WHERE company_id = ? AND user_id = ? AND DATE_FORMAT(session_date,'%Y-%m') = ?", [c, uid, month]),
-      em.query("SELECT r.id, r.session_id, DATE_FORMAT(r.session_date,'%Y-%m-%d') d, r.role, r.final_sales_cents, r.rate_units, r.amount_cents, s.room_name FROM live_commission_records r JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id WHERE r.company_id = ? AND r.user_id = ? AND DATE_FORMAT(r.session_date,'%Y-%m') = ? ORDER BY r.session_date DESC, r.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
+      em.query("SELECT r.platform, r.id, r.session_id, DATE_FORMAT(r.session_date,'%Y-%m-%d') d, r.role, r.final_sales_cents, r.rate_units, r.amount_cents, s.room_name FROM live_commission_records r JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id WHERE r.company_id = ? AND r.user_id = ? AND DATE_FORMAT(r.session_date,'%Y-%m') = ? ORDER BY r.session_date DESC, r.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
       em.query("SELECT w.id, w.session_id, DATE_FORMAT(w.session_date,'%Y-%m-%d') d, w.minutes, w.hourly_rate_cents, w.amount_cents, s.room_name FROM live_wage_records w JOIN live_sessions s ON s.id = w.session_id AND s.company_id = w.company_id WHERE w.company_id = ? AND w.user_id = ? AND DATE_FORMAT(w.session_date,'%Y-%m') = ? ORDER BY w.session_date DESC, w.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
     ]);
     const nowText = wallNow(now), nowMs = now.getTime();
@@ -360,7 +372,7 @@ export class LiveSessionService {
       schedules: schedules.map((r) => ({ ...serializeSchedule(r), canStart: r.status === 'scheduled' && nowMs >= liveFromText(r.start_text)!.getTime() - LIVE_START_EARLY_MS && r.end_text > nowText, mineRole: Number(r.anchor_user_id) === uid ? 'anchor' : Number(r.control_user_id) === uid ? 'control' : 'operator' })),
       recent: recent.map(serializeSession),
       monthCommissionCents: num(comm[0].total), monthWageCents: num(wage[0].total), monthWageMinutes: num(wage[0].minutes),
-      commissionRows: commRows.map((r) => ({ id: Number(r.id), sessionId: Number(r.session_id), date: String(r.d), roomName: String(r.room_name), role: String(r.role), roleLabel: LIVE_ROLE_LABEL[String(r.role)] ?? String(r.role), finalSalesCents: num(r.final_sales_cents), rateUnits: Number(r.rate_units), amountCents: num(r.amount_cents) })),
+      commissionRows: commRows.map((r) => ({ platform:r.platform, id: Number(r.id), sessionId: Number(r.session_id), date: String(r.d), roomName: String(r.room_name), role: String(r.role), roleLabel: LIVE_ROLE_LABEL[String(r.role)] ?? String(r.role), finalSalesCents: num(r.final_sales_cents), rateUnits: Number(r.rate_units), amountCents: num(r.amount_cents) })),
       wageRows: wageRows.map((r) => ({ id: Number(r.id), sessionId: Number(r.session_id), date: String(r.d), roomName: String(r.room_name), minutes: Number(r.minutes), hourlyRateCents: num(r.hourly_rate_cents), amountCents: num(r.amount_cents) })),
     };
   }

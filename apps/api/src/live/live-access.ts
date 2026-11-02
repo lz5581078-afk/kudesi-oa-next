@@ -116,22 +116,22 @@ export async function liveRoomList(em: EntityManager, companyId: number): Promis
   return liveRooms(locations).map((r) => { const v=settings.find((x)=>Number(x.room_id)===r.id); return {...r, ownerId:v?.owner_user_id ? Number(v.owner_user_id):null, ownerName:v?.owner_name??'', products:v?.products??''}; });
 }
 
-export interface LiveNamed { id: number; name: string; detail: string; jstShopId?: string }
+export interface LiveNamed { id: number; name: string; detail: string; jstShopId?: string; platform?: string; storeIds?: number[] }
 
-/** 资料「自媒体账号」里平台为抖音、未停用的账号。 */
+/** 资料「自媒体账号」里有直播权限、未停用的各平台账号。 */
 export async function liveDouyinAccounts(em: EntityManager, companyId: number): Promise<LiveNamed[]> {
   const rows: Row[] = await em.query(
     `SELECT id, title, data FROM resource_records WHERE company_id = ? AND type = 'self-media' AND archived_at IS NULL AND status NOT IN ('inactive','cancelled')
-      AND JSON_UNQUOTE(JSON_EXTRACT(data, '$.platform')) = 'douyin' ORDER BY title, id`, [companyId]);
-  return rows.map((r) => ({ id: Number(r.id), name: json(r.data).name ?? r.title, detail: json(r.data).accountNo ?? '' }));
+      AND JSON_EXTRACT(data, '$.livePermission') = true ORDER BY title, id`, [companyId]);
+  return rows.map((r) => ({ id: Number(r.id), name: json(r.data).name ?? r.title, detail: json(r.data).accountNo ?? '', platform: json(r.data).platform, storeIds: [...new Set([json(r.data).storeId, ...(json(r.data).storeIds ?? [])].filter(Boolean).map(Number))] }));
 }
 
-/** 资料「店铺档案」里平台为抖音、未注销的店铺；jstShopId 是店铺档案里填的聚水潭店铺编号。 */
+/** 资料「店铺档案」里未注销的各平台店铺；jstShopId 是店铺档案里填的聚水潭店铺编号。 */
 export async function liveDouyinStores(em: EntityManager, companyId: number): Promise<LiveNamed[]> {
   const rows: Row[] = await em.query(
     `SELECT id, title, data FROM resource_records WHERE company_id = ? AND type = 'stores' AND archived_at IS NULL AND status NOT IN ('cancelled','inactive')
-      AND JSON_UNQUOTE(JSON_EXTRACT(data, '$.platform')) = 'douyin' ORDER BY title, id`, [companyId]);
-  return rows.map((r) => ({ id: Number(r.id), name: json(r.data).name ?? r.title, detail: json(r.data).storeNo ?? '', jstShopId: String(json(r.data).jushuitanShopId ?? '').trim() }));
+      ORDER BY title, id`, [companyId]);
+  return rows.map((r) => ({ id: Number(r.id), name: json(r.data).name ?? r.title, detail: json(r.data).storeNo ?? '', platform: json(r.data).platform, jstShopId: String(json(r.data).jushuitanShopId ?? '').trim() }));
 }
 
 /** 在卖产品：商品基础编码，只返回编码、名称、规格，绝不返回成本字段。 */

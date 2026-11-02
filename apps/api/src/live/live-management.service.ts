@@ -1,3 +1,5 @@
+import { channelStores, channelsOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines } from './live-platforms';
+import { LiveChannelInput, LiveStoreLine } from '@kudesi/shared';
 import { LiveOrderSource, LiveOrder } from './live-order-source';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -22,6 +24,7 @@ import {
 import { closedDay, liveClock, liveFail, lockCompany, reportsOf, sessionRow, text } from './live-core';
 
 export interface ManualInput {
+  channels?:LiveChannelInput[]; storeLines?:LiveStoreLine[];
   sessionId?: number;
   roomId: number;
   anchorId: number;
@@ -148,28 +151,14 @@ export class LiveManagementService {
       liveFail('请填写有效的上下播时间，结束不能晚于现在', 400);
     liveComputeWage({ startAt: input.startAt, endAt: input.endAt, hourlyRateCents: 1 });
     if (!text(input.reason)) liveFail('特殊情况必须填写原因', 400);
-    let picked: LiveOrder[] = [];
-    let queriedShopId:string|undefined;
-    if (input.orderIds?.length) {
-      const store = (await liveDouyinStores(this.ds.manager, user.companyId)).find((s) => s.id === input.storeId);
-      queriedShopId=store?.jstShopId;
-      const found = await this.orders.candidates(
-        user.companyId,
-        {
-          id: input.sessionId ?? 0,
-          shopId: store?.jstShopId ?? null,
-          startAt: liveToText(start)!,
-          endAt: liveToText(end)!,
-        },
-        { refresh: true },
-      );
-      if (!found.available || found.truncated) liveFail(found.reason || '订单查询不完整');
-      picked = [...new Set(input.orderIds)].map((id) => {
-        const o = found.orders.find((o) => o.orderId === id);
-        if (!o || !o.paid || o.cancelled) liveFail(`订单 ${id} 无效或不在本场范围`, 400);
-        return o;
-      });
-    }
+    const original = input.sessionId ? await sessionRow(this.ds.manager,user.companyId,input.sessionId) : null;
+    const historical = original ? channelsOf(original).length ? channelsOf(original) : [{accountId:Number(original.douyin_account_id),accountName:String(original.douyin_account_name),platform:'douyin',storeIds:[Number(original.store_id)],stores:[{id:Number(original.store_id),name:String(original.store_name),jstShopId:String(original.jst_shop_id||'')}]}] : null;
+    const channels = historical ?? await validateChannels(this.ds.manager,user.companyId,input.channels ?? [{accountId:input.douyinAccountId,storeIds:[input.storeId]}]);
+    if(original && input.channels && JSON.stringify(input.channels.map(c=>[c.accountId,[...c.storeIds].sort()])) !== JSON.stringify(channels.map(c=>[c.accountId,[...c.storeIds].sort()]))) liveFail('补报须沿用原场次账号和店铺',400);
+    const shops=channelStores(channels);
+    const lineInput=input.storeLines ?? (shops.length===1?[{storeId:shops[0].id,platform:shops[0].platform,salesCents:input.salesCents,adSpendCents:input.adSpendCents,orderIds:input.orderIds,reason:input.reason}]:[]);
+    const checked = await checkStoreLines(this.orders,user.companyId,{id:input.sessionId??0,channels_json:channels,start_text:liveToText(start)!},lineInput.map(l=>({...l,reason:l.reason||input.reason})),liveToText(end)!,true);
+    if(input.storeLines){input.salesCents=checked.sales;input.adSpendCents=checked.ad;input.controlSalesCents=checked.sales;input.operatorSalesCents=checked.sales;}
     return this.ds.transaction(async (em) => {
       await lockCompany(em, user.companyId);
       const startAt = liveToText(start)!,
@@ -193,13 +182,15 @@ export class LiveManagementService {
         ]);
         if (!op) liveFail('运营不存在', 400);
       }
-      const account = (await liveDouyinAccounts(em, user.companyId)).find((r) => r.id === input.douyinAccountId);
-      const store = (await liveDouyinStores(em, user.companyId)).find((r) => r.id === input.storeId);
-      if (!account || !store?.jstShopId) liveFail('请选择有效抖音账号和已绑定聚水潭的店铺', 400);
-      if(picked.length&&queriedShopId!==store!.jstShopId)liveFail('查询期间店铺绑定已变化，请刷新后补报');
+      const current = original ? channels : await validateChannels(em,user.companyId,input.channels ?? [{accountId:input.douyinAccountId,storeIds:[input.storeId]}]);
+      if(JSON.stringify(current)!==JSON.stringify(channels)) liveFail('账号或店铺绑定已变化，请刷新后补报',400);
+      const first=channels[0], account={id:first.accountId,name:channels.map(c=>c.accountName).join(' / ').slice(0,200)}, store=first.stores[0];
+      input.douyinAccountId=account.id;input.storeId=store.id;
+      await assertAccountTime(em,user.companyId,channels,startAt,endAt,input.sessionId,original?.schedule_id?Number(original.schedule_id):undefined);
       let id = input.sessionId;
       if (id) {
         const s = await sessionRow(em, user.companyId, id, true);
+        if(original && JSON.stringify(channelsOf(s))!==JSON.stringify(channelsOf(original)))liveFail('场次账号店铺已变化，请刷新后补报');
         if(s.jst_shop_id!==store!.jstShopId)liveFail('店铺聚水潭绑定与原场次不同，请先核对绑定');
         if (!['live', 'pending_report', 'returned'].includes(s.status)) liveFail('待审核或已审核场次不能补报');
         if (await closedDay(em, user.companyId, s.session_day)) liveFail('原场次日期已进入结算');
@@ -243,6 +234,7 @@ export class LiveManagementService {
         );
         id = Number(ins.insertId);
       }
+      await em.query('UPDATE live_sessions SET channels_json=? WHERE company_id=? AND id=?',[JSON.stringify(channels),user.companyId,id]);
       const before = await reportsOf(em, user.companyId, id!);
       // 先保留既有勾单，手工订单另走服务端查询后补写（见 controller）。
       for (const [role, uid] of [
@@ -289,32 +281,12 @@ export class LiveManagementService {
             ],
           );
       }
-      if (picked.length) {
-        const reports = await reportsOf(em, user.companyId, id!);
-        for (const report of reports.filter((r) => r.role === 'anchor' || r.role === 'control')) {
-          await em.query('DELETE FROM live_session_orders WHERE company_id=? AND report_id=?', [
-            user.companyId,
-            report.id,
-          ]);
-          for (const o of picked)
-            await em.query(
-              `INSERT INTO live_session_orders(company_id,session_id,report_id,order_id,inner_order_id,amount_cents,pay_time,order_status,shop_id) VALUES (?,?,?,?,?,?,?,?,?)`,
-              [
-                user.companyId,
-                id,
-                report.id,
-                o.orderId,
-                o.innerId,
-                o.amountCents,
-                o.payTime,
-                o.status,
-                store!.jstShopId,
-              ],
-            );
-          await em.query(
-            "UPDATE live_session_reports SET order_count=?,orders_total_cents=?,order_source='jushuitan' WHERE company_id=? AND id=?",
-            [picked.length, picked.reduce((n, o) => n + o.amountCents, 0), user.companyId, report.id],
-          );
+      if (checked) {
+        const saved = await reportsOf(em,user.companyId,id!);
+        for(const report of saved) {
+          const roleSales=report.role==='control'?input.controlSalesCents:report.role==='operator'?input.operatorSalesCents:undefined;
+          const result=!input.storeLines&&checked.lines.length===1&&roleSales!==undefined?{...checked,lines:checked.lines.map(l=>({...l,salesCents:roleSales})),sales:roleSales}:checked;
+          await persistStoreLines(em,user.companyId,id!,Number(report.id),result);
         }
       }
       await em.query(
