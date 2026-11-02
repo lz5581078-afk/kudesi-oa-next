@@ -17,7 +17,7 @@ export function StoreJstSelect({ value, onChange, currentName, autoFocus = false
   }, [attempt]);
   const selected = shops?.find(s => s.id === value);
   const matched = (shops ?? []).filter(s => s.id === value || `${s.name} ${s.id}`.toLowerCase().includes(keyword.trim().toLowerCase()));
-  return <div>
+  return <div className="resource-ref-control">
     <input aria-label="搜索聚水潭店铺" placeholder="搜索店铺名称或编号" value={keyword} onChange={e => setKeyword(e.target.value)} />
     <select aria-label="聚水潭店铺关联" autoFocus={autoFocus} value={value} onChange={e => onChange(e.target.value)}>
       <option value="">未关联（不选或解除关联）</option>

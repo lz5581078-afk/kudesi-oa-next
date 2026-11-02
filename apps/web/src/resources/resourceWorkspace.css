@@ -1,0 +1,225 @@
+/* 资料查看、编辑共用视觉规范。仅作用于资料界面，不改变业务字段及外层导航。 */
+.modal.rf.resource-editor {
+  width: min(1160px, calc(100vw - 48px));
+  height: min(900px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+  display: flex; flex-direction: column; overflow: hidden;
+  padding: 0; border: 1px solid var(--border); border-radius: 16px;
+  color: var(--ink); background: #fff;
+}
+.modal.rf.resource-editor .rf-head {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap;
+  min-height: 72px !important; height: auto !important;
+  gap: 8px 14px; padding: 16px 24px !important;
+  margin: 0; border-bottom: 1px solid var(--border); background: #fff;
+}
+.resource-editor .rf-head > strong, .resource-editor .reference-title h2 { margin: 0; font-size: 20px; line-height: 1.4; }
+.resource-editor .reference-title { min-width: 0; flex: 1; }
+.resource-editor .reference-title p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.resource-editor .rf-sub { font-size: 14px; max-width: 45%; }
+.resource-editor .rf-head > .icon-button { flex: none; width: 34px; height: 34px; min-width: 34px; border: 1px solid var(--border); border-radius: 8px; }
+.modal.rf.resource-editor .rf-main { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.modal.rf.resource-editor .rf-anchors { flex: 0 0 164px; padding: 18px 10px; gap: 5px; background: #f8fafb; }
+.resource-editor .rf-anchor { min-height: 38px; padding: 9px 12px; line-height: 1.45; font-size: 13px; }
+.resource-editor .rf-anchor.active { background: var(--accent-soft); color: var(--accent-ink); box-shadow: none; border-radius: 8px; }
+.modal.rf.resource-editor .rf-scroll {
+  flex: 1; min-height: 0; min-width: 0; height: auto !important;
+  overflow: auto !important; overscroll-behavior: contain;
+  padding: 20px 24px 28px !important; background: #f5f7f9 !important;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start; align-items: start; gap: 16px;
+  scrollbar-gutter: stable;
+}
+.resource-editor .rf-scroll > * { grid-column: 1 / -1; min-width: 0; }
+.resource-editor:not(.rf-reference) .rf-scroll > .rf-sec[data-layout=compact] { grid-column: auto; }
+.modal.rf.resource-editor .rf-sec {
+  padding: 18px !important; margin: 0; min-width: 0;
+  border: 1px solid #e1e7ec; border-radius: 10px; background: #fff;
+  scroll-margin-top: 20px;
+}
+.modal.rf.resource-editor .rf-sec-title {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 16px !important;
+  padding: 0 0 12px !important; border-bottom: 1px solid #edf0f3 !important;
+  color: var(--ink); font-size: 14px; font-weight: 700; line-height: 1.5;
+}
+.resource-editor .rf-sec-title small { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--muted); }
+.modal.rf.resource-editor .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; align-items: start; }
+.modal.rf.resource-editor:not(.rf-reference) .rf-sec[data-layout=compact] .form-grid { grid-template-columns: minmax(0, 1fr); }
+.modal.rf.resource-editor.rf-reference .form-grid { grid-template-columns: repeat(12, minmax(0, 1fr)) !important; }
+.resource-editor .form-grid > .s3 { grid-column: span 3; }
+.resource-editor .form-grid > .s4 { grid-column: span 4; }
+.resource-editor .form-grid > .s6 { grid-column: span 6; }
+.resource-editor .form-grid > .s12, .resource-editor .form-grid > .wide { grid-column: 1 / -1; }
+.resource-editor .form-grid .rf-field, .resource-inline-editor .rf-field { display: flex; flex-direction: column; min-width: 0; gap: 7px; }
+.resource-editor .rf-field > .rf-label, .resource-inline-editor .rf-field > .rf-label { display: flex; flex-direction: row; align-items: baseline; justify-content: flex-start; flex-wrap: wrap; gap: 4px; margin: 0; min-height: 20px; color: #475467; font-size: 13px; line-height: 1.5; }
+.resource-editor .rf-field > small { line-height: 1.55; font-size: 12px; }
+.modal.rf.resource-editor .form-grid input:not([type=checkbox]):not([type=radio]):not([type=file]),
+.modal.rf.resource-editor .form-grid select { width: 100%; min-width: 0; height: 38px !important; padding: 7px 10px; font-size: 14px !important; line-height: 1.4; border-radius: 7px; }
+.modal.rf.resource-editor .form-grid textarea { width: 100%; min-height: 88px; height: auto; padding: 10px 12px; font-size: 14px; line-height: 1.6; border-radius: 7px; resize: vertical; }
+.resource-editor .rf-field[data-kind=bool] { align-self: stretch; }
+.resource-editor .rf-field[data-kind=bool] > input { margin: 3px 0 4px; }
+/* checkbox 必须从普通输入框的 width/height 规则里隔离，避免方框撑满字段。 */
+.resource-editor input[type=checkbox], .resource-editor input[type=radio],
+.resource-inline-editor input[type=checkbox], .resource-multi-ref input[type=checkbox] {
+  appearance: auto; width: 16px !important; height: 16px !important;
+  min-width: 16px; min-height: 16px; flex: 0 0 16px; margin: 0;
+  padding: 0; accent-color: var(--accent); cursor: pointer;
+}
+.resource-editor .check-list:not(.resource-choice-options) { gap: 8px; align-content: start; }
+.resource-editor .check-list label.check { display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 7px 10px; min-width: 0; font-size: 13px; }
+.resource-editor .secret-input-row { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.resource-editor .secret-input-row input { flex: 1; min-width: 0; }
+.resource-editor .secret-input-row button { flex: none; white-space: nowrap; font-size: 12px; }
+.resource-editor .rf-status { margin: 0; max-width: 240px; }
+.resource-editor .required-hint { margin: 0; font-size: 12px; }
+.resource-editor .rf-field.invalid { padding: 8px; margin: -8px; border-radius: 8px; background: var(--bad-bg); }
+.modal.rf.resource-editor .rf-foot {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end !important;
+  min-height: 70px !important; height: auto !important; gap: 8px;
+  margin: 0 !important; padding: 14px 24px !important;
+  border-top: 1px solid var(--border); background: #fff;
+}
+.resource-editor .rf-foot button { min-height: 36px; height: auto; font-size: 14px !important; min-width: 76px; }
+.resource-editor .rf-foot .dirty-hint { margin-right: auto; font-size: 12px; }
+.resource-editor .rf-foot .primary-button { flex: 0 0 auto !important; }
+.resource-editor .rf-errbar { max-height: 100px; overflow: auto; padding: 10px 24px; }
+.resource-editor :is(input,select,textarea,button):focus-visible,
+.resource-multi-ref button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 共用关联选择：固定候选区 + 独立已选项，不挤压相邻字段。 */
+.resource-ref-control { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.resource-ref-control > small { font-size: 12px; line-height: 1.5; }
+.resource-multi-ref { display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.resource-choice-summary { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+.resource-choice-summary strong { color: var(--accent-ink); }
+.resource-selected { display: flex; flex-wrap: wrap; gap: 6px; max-height: 100px; overflow: auto; }
+.resource-selected-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 5px 8px; border: 1px solid #cce3df; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font: inherit; font-size: 12px; text-align: left; }
+.resource-selected-chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resource-selected-chip svg { flex: none; }
+.resource-choice-options.check-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 8px; max-height: 208px; overflow-y: auto; overscroll-behavior: contain; padding: 0; scrollbar-gutter: stable; }
+.resource-choice-options.check-list > label.check { display: flex; flex-direction: row; align-items: flex-start; gap: 9px; min-width: 0; padding: 8px; margin: 0; border-radius: 5px; line-height: 1.5; cursor: pointer; font-size: 13px; }
+.resource-choice-options label.check:hover { background: #f5f8fa; }
+.resource-choice-options label.check:has(input:checked) { background: #eef8f5; }
+.resource-choice-options label.check > input { margin-top: 2px; }
+.resource-choice-options label.check > span { min-width: 0; overflow-wrap: anywhere; }
+.resource-choice-options label.check small { display: block; font-size: 11px; color: var(--muted); }
+.resource-choice-more, .resource-choice-empty { grid-column: 1 / -1; font-size: 12px; line-height: 1.5; }
+.resource-choice-empty { padding: 12px 8px; }
+.resource-choice-error { font-size: 12px; color: var(--bad-ink); }
+.resource-choice-error button { margin-left: 8px; }
+.resource-inline-editor .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.resource-inline-editor .rf-field.wide { grid-column: 1 / -1; }
+
+/* 查看态沿用同一分区语言：字段名在上，内容在下，长文本独占一行。 */
+.rd.resource-detail:not(.finance-detail-dialog) { background: #f5f7f9; }
+.resource-detail .rd-head { background: #fff; padding: 16px 18px 0; }
+.resource-detail .rd-line { flex-wrap: wrap; gap: 8px; }
+.resource-detail .rd-title { font-size: 18px; line-height: 1.4; }
+.resource-detail .rd-tabs { background: #fff; padding: 0 16px; }
+.resource-detail .rd-tab { min-height: 42px; }
+.resource-detail .rd-info { grid-template-columns: 134px minmax(0, 1fr); }
+.resource-detail .rd-anchors { padding: 16px 8px; gap: 4px; }
+.resource-detail .rd-anchor { min-height: 36px; padding: 8px 10px; line-height: 1.4; }
+.resource-detail .rd-sections { padding: 16px 18px 32px 6px; display: grid; gap: 14px; align-content: start; }
+.resource-detail .rd-sections > * { min-width: 0; margin-top: 0; }
+.resource-detail .rd-sec { padding: 16px; border: 1px solid #e1e7ec; border-radius: 10px; background: #fff; scroll-margin-top: 16px; }
+.resource-detail .rd-sec-title { margin: 0 0 12px; padding: 0 0 10px; border-bottom: 1px solid #edf0f3; font-size: 14px; gap: 12px; }
+.resource-detail .rd-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; }
+.resource-detail .rd-item { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; border: 0; padding: 0; }
+.resource-detail .rd-item dt { font-size: 12px; line-height: 1.4; color: var(--muted); }
+.resource-detail .rd-item dd { width: 100%; font-size: 14px; line-height: 1.6; }
+.resource-detail .rd-panel { padding: 18px; }
+.resource-detail .rd-head .key-facts { gap: 10px 24px; padding: 12px 0; }
+.resource-detail .rd-head .key-facts dd { line-height: 1.5; }
+.rd.resource-detail.finance-detail-dialog { border-radius: 14px; }
+.resource-detail.finance-detail-dialog .finance-detail-body { background: #f5f7f9; }
+.resource-detail .finance-view-fields { gap: 16px 24px; }
+/* 独立编码编辑器同样固定头尾、统一控件密度；保留专用字段与来源面板。 */
+.base-profile-editor, .bundle-profile-editor { border-radius: 14px; max-height: calc(100dvh - 48px); }
+.base-profile-editor > header, .bundle-profile-editor > header { background: #fff; border-bottom: 1px solid var(--border); }
+.base-profile-editor > footer, .bundle-profile-editor > footer { background: #fff; border-top: 1px solid var(--border); }
+
+@media (max-width: 900px) {
+  .modal.rf.resource-editor .rf-scroll { padding: 16px !important; }
+  .modal.rf.resource-editor .rf-anchors { flex-basis: 140px; }
+  .resource-editor:not(.rf-reference) .rf-scroll > .rf-sec[data-layout=compact] { grid-column: 1 / -1; }
+  .resource-choice-options.check-list { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .modal-backdrop:has(> .resource-editor) { padding: 0; }
+  .modal.rf.resource-editor { width: 100vw !important; height: 100dvh !important; max-height: 100dvh !important; border: 0; border-radius: 0; }
+  .modal.rf.resource-editor .rf-head { padding: 12px 16px !important; min-height: 64px !important; gap: 6px 10px; }
+  .resource-editor .rf-head > strong, .resource-editor .reference-title h2 { font-size: 18px; }
+  .resource-editor .rf-sub { max-width: 50%; font-size: 12px; }
+  .resource-editor .rf-req-hint { display: none; }
+  .modal.rf.resource-editor .rf-main { flex-direction: column; }
+  .modal.rf.resource-editor .rf-anchors { flex: none; flex-direction: row; padding: 8px 12px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  .resource-editor .rf-anchor { white-space: nowrap; min-height: 36px; padding: 7px 10px; }
+  .modal.rf.resource-editor .rf-scroll { display: flex; flex-direction: column; gap: 12px; padding: 12px !important; }
+  .modal.rf.resource-editor .rf-scroll > * { flex: none; width: 100%; }
+  .modal.rf.resource-editor .rf-sec { padding: 14px !important; }
+  .modal.rf.resource-editor .form-grid, .resource-inline-editor .form-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .modal.rf.resource-editor.rf-reference .form-grid > :is(.s3,.s4,.s6,.s12) { grid-column: 1 / -1; }
+  .modal.rf.resource-editor .rf-foot { padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)) !important; min-height: 68px !important; }
+  .resource-editor .rf-foot .dirty-hint { width: 100%; }
+  .resource-editor .rf-foot button { min-height: 40px; }
+  .resource-editor .reference-title p { font-size: 12px; }
+  .resource-editor .rf-sec-title small { max-width: 65%; }
+  .resource-choice-options.check-list { grid-template-columns: minmax(0, 1fr); max-height: 192px; }
+  .resource-detail .rd-head { padding: 12px 14px 0; }
+  .resource-detail .rd-info { grid-template-columns: minmax(0, 1fr); }
+  .resource-detail .rd-anchors { flex-direction: row; align-items: center; padding: 8px 12px; background: #fff; z-index: 2; }
+  .resource-detail .rd-anchors .rd-anchor { white-space: nowrap; }
+  .resource-detail .rd-sections { padding: 12px 12px 32px; gap: 12px; }
+  .resource-detail .rd-sec { padding: 14px; }
+  .resource-detail .rd-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .resource-detail .rd-head .key-facts { flex-wrap: wrap; overflow: visible; gap: 10px 20px; }
+  .base-profile-editor, .bundle-profile-editor { max-height: 100dvh; border-radius: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .resource-editor *, .resource-detail * { scroll-behavior: auto !important; }
+}
+
+/* 编辑器从详情打开时也必须盖住导航和其他详情，避免被父层级裁住。 */
+.rd:has(.resource-editor), .rd:has(.base-profile-editor), .rd:has(.bundle-profile-editor) { z-index: 120; }
+.finance-detail-backdrop:has(.resource-editor), .finance-detail-backdrop:has(.base-profile-editor), .finance-detail-backdrop:has(.bundle-profile-editor) { z-index: 200; }
+.modal-backdrop:has(> .resource-editor) { z-index: 220; }
+.resource-editor.rf-reference .rf-field[data-kind=attrs] > .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.resource-editor.rf-reference .rf-field[data-kind=attrs] > .form-grid > label { grid-column: auto !important; }
+.resource-multi-ref .resource-choice-options .check { width: auto; max-width: 100%; }
+@media (max-width:720px) { .resource-editor.rf-reference .rf-field[data-kind=attrs] > .form-grid { grid-template-columns: minmax(0, 1fr) !important; } }
+/* 统一居中，避免旧版 6vh 顶部间距叠加窗口高度后把保存栏推到屏外。 */
+.modal-backdrop:has(> .resource-editor) { align-items: center; padding: 24px; overflow: hidden; }
+@media (max-width:720px) { .modal-backdrop:has(> .resource-editor) { padding: 0; } }
+/* 覆盖旧档案类型的局部列数：单字段统一双列，复合块仍保持整行。 */
+.modal.rf.resource-editor.rf-reference .form-grid > :is(.s3,.s4,.s6) { grid-column: span 6 !important; }
+.modal.rf.resource-editor.rf-reference .form-grid > .s12 { grid-column: 1 / -1 !important; }
+.modal.rf.resource-editor .rf-foot > button { flex: 0 0 auto !important; width: auto !important; }
+.resource-editor .reference-note .rf-field { width: 100%; }
+.resource-editor .cascade-current { align-items: center; }
+.resource-editor .cascade-current > strong { flex: 1; min-width: 0; word-break: normal; overflow-wrap: anywhere; }
+.resource-editor .cascade-current > button { width: auto; flex: none; margin-left: auto; min-height: 28px; }
+@media (max-width:720px) { .modal.rf.resource-editor.rf-reference .form-grid > :is(.s3,.s4,.s6) { grid-column: 1 / -1 !important; } }
+.resource-editor .rf-field textarea { width: 100%; min-height: 88px; height: auto; padding: 10px 12px; line-height: 1.6; font-size: 14px; border: 1px solid var(--border-strong); border-radius: 7px; resize: vertical; }
+.modal.rf.resource-editor .rf-foot > button { order: 0 !important; }
+.modal.rf.resource-editor .rf-foot > .primary-button { order: 10 !important; }
+.resource-editor .reference-supplier-categories > .rf-field > .rf-label { display: none; }
+/* 历史客户/费用窗口曾使用整页滚动，这里统一为头尾固定、正文独立滚动。 */
+.modal.rf.resource-editor { display: flex !important; height: min(900px, calc(100dvh - 48px)) !important; max-height: calc(100dvh - 48px) !important; padding: 0 !important; overflow: hidden !important; }
+.modal.rf.resource-editor .rf-main { display: flex !important; flex: 1 1 auto !important; min-height: 0 !important; overflow: hidden !important; }
+.modal.rf.resource-editor .rf-scroll { flex: 1 1 auto !important; min-height: 0 !important; }
+.modal.rf.resource-editor .rf-head > .reference-full-close { width: auto; min-width: 56px; white-space: nowrap; padding: 6px 10px; }
+@media (min-width:721px) {
+  .modal.rf.resource-editor[data-size=compact] { width: min(640px, calc(100vw - 48px)); height: auto !important; }
+  .resource-editor[data-size=compact] .rf-scroll { display: block; max-height: calc(100dvh - 220px) !important; }
+}
+@media (max-width:720px) { .modal.rf.resource-editor { height: 100dvh !important; max-height: 100dvh !important; } }
+.base-profile-editor h2, .bundle-profile-editor h2 { font-size: 20px; line-height: 1.4; }
+.base-profile-editor .base-profile-edit-grid label, .bundle-profile-editor .bundle-profile-body label { font-size: 13px; font-weight: 500; }
+.base-profile-editor .base-profile-edit-grid :is(input,select), .bundle-profile-editor .bundle-profile-body :is(input,select) { height: 38px; font-size: 14px; font-weight: 400; }
+.base-profile-editor > header button, .bundle-profile-editor > header button { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.modal.rf.resource-editor .rf-foot .primary-button, .base-profile-editor > footer .primary-button, .bundle-profile-editor > footer .primary-button { background: var(--accent); border-color: var(--accent); }
+@media (max-width:720px) {
+  .base-profile-backdrop, .bundle-profile-backdrop { padding: 0; }
+  .base-profile-backdrop .base-profile-editor, .bundle-profile-backdrop .bundle-profile-editor { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+}
