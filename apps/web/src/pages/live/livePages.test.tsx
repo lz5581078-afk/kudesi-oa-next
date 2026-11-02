@@ -11,7 +11,7 @@ vi.mock('./LiveCheckinPanel',()=>({LiveCheckinPanel:()=>null}));
 vi.mock('./liveApi', () => ({ liveApi: {
   checkinContext:vi.fn(),checkoutPreview:vi.fn(),turnover: vi.fn(), options: vi.fn(), products: vi.fn(), overview: vi.fn(), roomDay: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), cancelSchedule: vi.fn(), start: vi.fn(), sessions: vi.fn(), session: vi.fn(),
   candidates: vi.fn(), report: vi.fn(), submit: vi.fn(), reviewPreview: vi.fn(), workbench: vi.fn(), history: vi.fn(), commissions: vi.fn(), wages: vi.fn(), people: vi.fn(), rules: vi.fn(), createRule: vi.fn(), trial: vi.fn(),
-  roomSettings:vi.fn(),trialPerson:vi.fn(),manualReport:vi.fn(),updateRule:vi.fn(),
+  checkinQr:vi.fn().mockResolvedValue({token:null,version:0}),generateCheckinQr:vi.fn(),roomSettings:vi.fn(),trialPerson:vi.fn(),manualReport:vi.fn(),updateRule:vi.fn(),
   integrationStatus: vi.fn(), submissionStatus: vi.fn(), commissionPreview: vi.fn(),
   settlements: vi.fn(), settlement: vi.fn(), generateSettlement: vi.fn(), submitSettlement: vi.fn(),
 } }));
@@ -328,6 +328,7 @@ describe('直播管理', () => {
     fireEvent.click(within(south).getByRole('button',{name:'编辑房间'}));
     const dlg=await screen.findByRole('dialog',{name:'直播间-南1 · 房间设置'});
     expect(within(dlg).getByLabelText('房间管理员')).toBeTruthy();
+    expect(within(dlg).queryByRole('img',{name:/二维码/})).toBeNull();
     expect(south.textContent).toContain('房间管理员');
     fireEvent.change(within(dlg).getByLabelText('房间产品 1'),{target:{value:'牙刷'}});
     fireEvent.click(within(dlg).getByRole('button',{name:'＋ 添加产品'}));
@@ -336,6 +337,14 @@ describe('直播管理', () => {
     fireEvent.click(within(dlg).getByRole('button',{name:'删除房间产品 3'}));
     fireEvent.click(within(dlg).getByRole('button',{name:'保存房间信息'}));
     await waitFor(()=>expect(l.roomSettings).toHaveBeenCalledWith(11,{ownerId:5,products:'牙刷\n花育25'}));
+    const tabs=screen.getAllByRole('tab');
+    expect(tabs[tabs.length-1].textContent).toBe('上下播二维码');
+    expect(tabs[tabs.length-2].textContent).toBe('通知设置');
+    expect(screen.queryByRole('button',{name:'上下播二维码'})).toBeNull();
+    fireEvent.click(screen.getByRole('tab',{name:'上下播二维码'}));
+    expect(await screen.findByText('所有直播间共用此码，上播、下播通用。长期有效，重新生成后旧码立即失效。')).toBeTruthy();
+    expect(screen.getByRole('tab',{name:'上下播二维码'}).getAttribute('aria-selected')).toBe('true');
+    expect(window.localStorage.getItem('kudesi.live.tab')).toBe('qr');
   });
 
   it('人事补报按分提交并保留原因；区间工资结算提交起止日期',async()=>{

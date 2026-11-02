@@ -1,0 +1,8 @@
+.card.live-section.live-scan-panel { padding: 20px; min-width: 0; }
+.live-scan-panel h2 { margin: 0 0 12px; padding: 0 0 12px; }
+.live-scan-panel p { margin: 12px 0; line-height: 1.65; overflow-wrap: anywhere; }
+.live-scan-panel .live-field { display: grid; gap: 8px; margin: 16px 0; min-width: 0; }
+.live-scan-panel select { width: 100%; min-width: 0; min-height: 42px; }
+.live-scan-panel .live-checkin-actions { margin-top: 16px; }
+.live-scan-panel .live-clock-button { min-height: 48px; }
+@media(max-width:600px) { .card.live-section.live-scan-panel { padding: 16px; } }
