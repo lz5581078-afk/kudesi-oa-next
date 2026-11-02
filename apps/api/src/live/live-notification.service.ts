@@ -1,3 +1,4 @@
+import { liveNoStartNotification } from './live-no-start-notification';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -82,6 +83,7 @@ export class LiveNotificationService {
       for (const s of schedules) {
         const late=liveMinutesLate(now,s.start_text);
         if (late<5) continue;
+        if (late>=10) await liveNoStartNotification(em,companyId,Number(s.id),now);
         const level=late>=30?'owner':'crew';
         await liveNotify(em,companyId,level==='owner'?[Number(s.owner_user_id)]:[s.anchor_user_id,s.control_user_id,s.operator_user_id].map(Number),
           {key:`late:${s.id}:${s.notification_version}:${level}`,channel:'supervision',title:'排场已到时间，尚未登记上播',body:`${s.room_name}原定 ${s.start_text} 开播，请确认实际情况并及时登记。`,resourceId:Number(s.id)});

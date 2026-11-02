@@ -1,4 +1,5 @@
 import { liveStartNotification } from './live-start-notification';
+import { liveNoStartNotification } from './live-no-start-notification';
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import { randomBytes } from 'crypto';
@@ -163,6 +164,44 @@ d('直播通知（隔离 MySQL）',()=>{
     await ds.query('UPDATE users SET department_id=NULL,extra_position_ids=NULL WHERE id=?',[hrUser]);
     expect(await liveNoticeValid(ds.manager,companyId,hrUser,`start-deviation:${rollback}`)).toBe(false);
     await ds.query("UPDATE users SET status='inactive' WHERE id IN (?,?,?,?,?)",[hrUser,execUser,second,inactive,ignored]);
+  });
+
+  it('排场满10分钟未上播通知两部门并去重；改期、已上播、取消和调离使积压提醒失效',async()=>{
+    const dept=async(name:string)=>Number((await ds.query("INSERT INTO departments(company_id,name,status) VALUES(?,?,'active')",[companyId,name])).insertId);
+    const hr=await dept('人事部'), executive=await dept('总经办');
+    const hrUser=await person(companyId,'未上播提醒人事'), execUser=await person(companyId,'未上播提醒总经办');
+    await ds.query('UPDATE users SET department_id=? WHERE id=?',[hr,hrUser]);
+    await ds.query('UPDATE users SET department_id=? WHERE id=?',[executive,execUser]);
+    try {
+      await ds.manager.save(OutboxSwitch,ds.manager.create(OutboxSwitch,{companyId,channel:'feishu',enabled:true,updatedBy:admin.id}));
+      await ds.query("INSERT INTO feishu_identities(company_id,user_id,tenant_key,app_id,open_id,oa_notifications) VALUES(?,?,'t','a','hr-no-start',1)",[companyId,hrUser]);
+      const id=await schedule();const alerts=async()=>(await notices()).filter(n=>n.title==='排班开始已满10分钟，仍未登记上播');
+      clock('2026-11-02 10:09:59');await svc.scan();expect(await alerts()).toHaveLength(0);
+      clock('2026-11-02 10:10:00');await svc.scan();await svc.scan();
+      expect((await alerts()).map(n=>n.userId).sort()).toEqual([hrUser,execUser].sort());
+      expect((await alerts())[0].body).toContain('排班开始：2026-11-02 10:00:00');
+      expect((await alerts())[0].body).toContain('核对时间：2026-11-02 10:10:00');
+      expect((await ds.query('SELECT id FROM outbox_jobs WHERE company_id=?',[companyId]))).toHaveLength(1);
+      expect(await liveNoticeValid(ds.manager,companyId,hrUser,`no-start:${id}:1`)).toBe(true);
+      expect(await liveNoticeValid(ds.manager,companyId,foreign,`no-start:${id}:1`)).toBe(false);
+      await ds.query("UPDATE live_schedules SET start_at='2026-11-02 10:30:00',end_at='2026-11-02 11:30:00',notification_version=2 WHERE company_id=? AND id=?",[companyId,id]);
+      expect(await liveNoticeValid(ds.manager,companyId,hrUser,`no-start:${id}:1`)).toBe(false);
+      clock('2026-11-02 10:39:59');await svc.scan();expect(await alerts()).toHaveLength(2);
+      clock('2026-11-02 10:40:00');await svc.scan();await svc.scan();expect(await alerts()).toHaveLength(4);
+      expect(await liveNoticeValid(ds.manager,companyId,hrUser,`no-start:${id}:2`)).toBe(true);
+      await ds.query("UPDATE live_schedules SET status='live' WHERE company_id=? AND id=?",[companyId,id]);
+      expect(await liveNoticeValid(ds.manager,companyId,hrUser,`no-start:${id}:2`)).toBe(false);
+      await ds.query("UPDATE live_schedules SET status='cancelled' WHERE company_id=? AND id=?",[companyId,id]);await svc.scan();expect(await alerts()).toHaveLength(4);
+      const linked=await schedule();await session('pending_report',linked);await svc.scan();
+      expect(await alerts()).toHaveLength(4);expect(await liveNoticeValid(ds.manager,companyId,hrUser,`no-start:${linked}:1`)).toBe(false);
+      const rollback=await schedule();await expect(ds.transaction(async em=>{await liveNoStartNotification(em,companyId,rollback,liveClock.now());throw Error('rollback');})).rejects.toThrow('rollback');
+      expect(await ds.query('SELECT * FROM live_notification_events WHERE company_id=? AND event_key=?',[companyId,`no-start:${rollback}:1`])).toHaveLength(0);
+      await svc.scan();expect(await liveNoticeValid(ds.manager,companyId,hrUser,`no-start:${rollback}:1`)).toBe(true);
+      await ds.query('UPDATE users SET department_id=NULL WHERE id=?',[hrUser]);
+      expect(await liveNoticeValid(ds.manager,companyId,hrUser,`no-start:${rollback}:1`)).toBe(false);
+      await svc.save(admin,settings({enabled:false}));expect(await liveNoticeValid(ds.manager,companyId,execUser,`no-start:${rollback}:1`)).toBe(false);
+      const before=(await alerts()).length;await svc.scan();expect(await alerts()).toHaveLength(before);
+    } finally { await ds.query("UPDATE users SET status='inactive' WHERE id IN (?,?)",[hrUser,execUser]); }
   });
 
 });
