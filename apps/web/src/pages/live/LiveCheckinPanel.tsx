@@ -20,7 +20,7 @@ export function LiveCheckinPanel({roomId,companyId}:{roomId?:number;companyId?:n
     <div className="live-checkin-actions">{data.active.map(s=><div key={s.id}><p>{s.roomName} · {s.statusLabel}</p>{s.checkinMode&&s.status==='live'&&!s.reportDeadline&&<button className="secondary-button live-clock-button" onClick={()=>setOpened(s.id)}>核对信息 / 本人上播</button>}<button className="primary-button live-clock-button" onClick={()=>setOpened(s.id)}>{s.reportsLocked?'查看审核场次':'下播 / 查看本场'}</button></div>)}
     {(data.identity.isAnchor||data.identity.isControl)&&<>
       {data.schedules.filter(s=>s.status==='scheduled'&&s.canStart&&s.mineRole!=='operator').map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setStarting({schedule:s})}>开始直播 · {s.roomName}<br/>{s.date} {s.startTime}–{s.endTime}</button>)}
-      <button className="secondary-button live-clock-button" onClick={()=>setStarting({schedule:null})}>读取排班 / 无排班开播</button>
+      <button className="secondary-button live-clock-button" onClick={()=>setStarting({schedule:null})}>查看本人排班</button>
     </>}</div></>}
     {starting&&data&&<StartDialog roomId={roomId} schedule={starting.schedule} identity={data.identity} onClose={()=>setStarting(null)} onDone={id=>{setStarting(null);setOpened(id);load();}}/>}
     {opened&&<SessionDetailDialog id={opened} onClose={()=>setOpened(null)} onChanged={load}/>}

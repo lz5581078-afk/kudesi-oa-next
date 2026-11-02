@@ -6,7 +6,7 @@ import { liveFail } from './live-core';
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
-import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
+import { Public, AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { LiveLedgerService } from './live-ledger.service';
 import { LiveScheduleService } from './live-schedule.service';
 import { LiveSessionService } from './live-session.service';
@@ -59,6 +59,7 @@ class PreviousScheduleQuery {
   @IsOptional() @IsString() @MaxLength(5) startTime?: string;
 }
 class CancelDto { @IsString() @MaxLength(500) reason!: string }
+class TrialScanDto { @IsString() @MaxLength(64) token!:string; }
 class StartDto {
   @IsOptional() @IsInt() @Min(1) sessionId?:number;
   @IsOptional() @IsBoolean() confirmDetails?:boolean;
@@ -202,6 +203,13 @@ export class LiveController {
     private readonly management: LiveManagementService,
     private readonly schedules: LiveScheduleService, private readonly sessions: LiveSessionService, private readonly ledger: LiveLedgerService, private readonly settlements: LiveSettlementService,
   ) {}
+
+  @Get('trial-start/options') @AuthenticatedOnly()
+  async trialOptions(@CurrentUser() u:AuthUser){await this.sessions.requireTrialIssuer(u.companyId,u.id);return this.schedules.companyOptions(u.companyId);}
+  @Post('trial-start/issue') @AuthenticatedOnly()
+  issueTrial(@CurrentUser() u:AuthUser,@Body() b:StartDto){return this.sessions.issueTrial(u,b);}
+  @Post('trial-start/confirm') @Public()
+  confirmTrial(@Body() b:TrialScanDto){return this.sessions.redeemTrial(b.token);}
 
     @Get('checkin-context') @AuthenticatedOnly()
   checkinContext(@CurrentUser() u:AuthUser,@Query('roomId') room?:string){return this.sessions.checkinContext(u,room?Number(room):undefined);}

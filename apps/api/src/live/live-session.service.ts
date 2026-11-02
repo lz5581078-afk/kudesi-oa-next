@@ -1,6 +1,7 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { REPORT_WINDOW_MS, reportsLocked, scheduleFingerprint, primaryReport } from './live-checkin-core';
 import { captureOrders, persistCapture } from './live-order-capture';
-import { liveStartNotification } from './live-start-notification';
+import { liveStartNotification, liveStartRecipients } from './live-start-notification';
 import { liveHandover } from './live-notification-events';
 import { channelsOf, linesOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines, channelStores } from './live-platforms';
 import { LiveChannelInput, LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
@@ -70,11 +71,52 @@ export class LiveSessionService {
     return t as string;
   }
 
-  // ---------- 报上播 ----------
+  async requireTrialIssuer(companyId:number, userId:number, em=this.em) {
+    const staff=await liveStartRecipients(em,companyId,new Set(['人事部','人事综合部','人力资源部']));
+    if(!staff.includes(userId)) liveFail('只有人事人员可以签发临时主播开播码',403);
+  }
+
+  async issueTrial(user:AuthUser, form:StartInput) {
+    await this.requireTrialIssuer(user.companyId,user.id);
+    const input:StartInput={roomId:form.roomId,anchorId:form.anchorId,controlId:form.controlId,operatorId:form.operatorId,channels:form.channels,productEntries:form.productEntries};
+    const staff=await livePeople(this.em,user.companyId);
+    if(!staff.anchors.some(p=>p.id===input.anchorId && p.trial)) liveFail('请选择在职试播主播',400);
+    if(!input.controlId || !staff.controls.some(p=>p.id===input.controlId)) liveFail('请指定本场中控，供本人扫码加入',400);
+    if(!(await liveRoomList(this.em,user.companyId)).some(r=>r.id===input.roomId)) liveFail('请选择直播间',400);
+    await validateChannels(this.em,user.companyId,input.channels??[]);
+    await resolveLiveProducts(this.em,user.companyId,input,true);
+    const token=randomBytes(24).toString('base64url');
+    await this.em.query('INSERT INTO live_trial_tickets(token_hash,company_id,issuer_id,payload,expires_at) VALUES(?,?,?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 10 MINUTE))',
+      [createHash('sha256').update(token).digest('hex'),user.companyId,user.id,JSON.stringify(input)]);
+    return {token};
+  }
+
+  async redeemTrial(token:string) {
+    const hash=createHash('sha256').update(token).digest('hex');
+    return this.ds.transaction(async em=>{
+      const [ticket]=await em.query('SELECT * FROM live_trial_tickets WHERE token_hash=? AND expires_at>UTC_TIMESTAMP() AND session_id IS NULL FOR UPDATE',[hash]);
+      if(!ticket) liveFail('开播码已使用或已过期，请联系人事',400);
+      const companyId=Number(ticket.company_id);
+      await lockCompany(em,companyId);
+      await this.requireTrialIssuer(companyId,Number(ticket.issuer_id),em);
+      const input:StartInput=typeof ticket.payload==='string'?JSON.parse(ticket.payload):ticket.payload;
+      const user:AuthUser={id:Number(input.anchorId),companyId,name:'试播主播',permissions:{isCompanyAdmin:false,allow:[],deny:[]}};
+      const access=await loadLiveAccess(em,user);
+      const result=await this.startLocked(em,user,access,{...input,actualCheckin:true},true);
+      await em.query('UPDATE live_trial_tickets SET session_id=? WHERE token_hash=?',[result.id,hash]);
+      return result;
+    });
+  }
+
   async start(user: AuthUser, input: StartInput) {
     const a = await loadLiveAccess(this.em, user); requireUse(a);
-    return this.ds.transaction(async (em) => {
-      await lockCompany(em, a.companyId);
+    return this.ds.transaction(async em=>{
+      await lockCompany(em,a.companyId);
+      return this.startLocked(em,user,a,input,false);
+    });
+  }
+
+  private async startLocked(em:EntityManager,user:AuthUser,a:LiveAccess,input:StartInput,trial:boolean) {
       const now = liveClock.now();
       if (input.actualCheckin && input.sessionId) {
         const existing = await sessionRow(em,a.companyId,input.sessionId,true);
@@ -136,13 +178,16 @@ export class LiveSessionService {
         if (startDate.getTime() >= en) liveFail('这场排班已经过了结束时间，不能上播');
         [roomId, anchorId, controlId, operatorId] = [Number(row.room_id), Number(row.anchor_user_id), row.control_user_id ? Number(row.control_user_id) : null, row.operator_user_id ? Number(row.operator_user_id) : null];
         if(input.actualCheckin){
-          anchorId=input.anchorId??anchorId;controlId=input.controlId===undefined?controlId:input.controlId;operatorId=input.operatorId===undefined?operatorId:input.operatorId;
+          if ((input.anchorId!=null && input.anchorId!==anchorId) || (input.controlId!==undefined && input.controlId!==controlId))
+            liveFail('主播和中控须按排班开播，请重新核对排班',403);
+          operatorId=input.operatorId===undefined?operatorId:input.operatorId;
           if(anchorId!==a.userId&&!(a.isControl&&controlId===a.userId))liveFail('只能以本人岗位开播',403);
         }
         accountId = input.douyinAccountId ? idOf(input.douyinAccountId) : Number(row.douyin_account_id);
         storeId = input.storeId ? idOf(input.storeId) : row.store_id ? Number(row.store_id) : null;
       } else {
-        if (!a.canManage && !a.isAnchor && !a.isControl) liveFail('只有主播、中控岗位（或管理人员）可以上播', 403);
+        if (input.actualCheckin && !trial) liveFail('没有排班不能开播，请联系人事安排',403);
+        if (!trial && !a.canManage && !a.isAnchor && !a.isControl) liveFail('只有主播、中控岗位（或管理人员）可以上播', 403);
         roomId = idOf(input.roomId);
         anchorId = idOf(input.anchorId) ?? (a.isAnchor ? a.userId : null);
         controlId = idOf(input.controlId) ?? (a.isControl && !a.isAnchor ? a.userId : null);
@@ -155,6 +200,7 @@ export class LiveSessionService {
       const room = (await liveRoomList(em, a.companyId)).find((r) => r.id === roomId);
       if (!room) liveFail('所选房间不是启用的直播间', 400);
       const { anchors, controls } = await livePeople(em, a.companyId);
+      if (trial && !anchors.some(p=>p.id===anchorId && p.trial)) liveFail('临时主播档案已失效',400);
       if (!anchors.some((p) => p.id === anchorId)) liveFail('所选人员不是主播岗位', 400);
       if (controlId && !controls.some((p) => p.id === controlId)) liveFail('所选人员不是中控岗位', 400);
       if(controlId===anchorId)liveFail('主播和中控须分别由本人打卡，不能是同一人',400);
@@ -189,7 +235,6 @@ export class LiveSessionService {
       if (sched) await em.query("UPDATE live_schedules SET status = 'live', session_id = ?, updated_by = ? WHERE company_id = ? AND id = ?", [id, a.userId, a.companyId, sched.id]);
       if (sched) await liveStartNotification(em, a.companyId, id);
       return { id };
-    });
   }
 
   /** Both room QR and personal desk load this same company-scoped context. */

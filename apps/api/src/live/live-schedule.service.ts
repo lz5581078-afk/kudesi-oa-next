@@ -52,7 +52,9 @@ export class LiveScheduleService {
 
   async options(user: AuthUser) {
     const a = await this.access(user); requireUse(a);
-    const c = user.companyId;
+    return this.companyOptions(user.companyId);
+  }
+  async companyOptions(c:number) {
     const [rooms, staff, everyone, accounts, stores, liveRows] = await Promise.all([
       liveRoomList(this.em, c), livePeople(this.em, c), liveEmployees(this.em, c), liveDouyinAccounts(this.em, c), liveDouyinStores(this.em, c),
       this.em.query("SELECT room_id, anchor_user_id FROM live_sessions WHERE company_id = ? AND status = 'live'", [c]) as Promise<Row[]>,

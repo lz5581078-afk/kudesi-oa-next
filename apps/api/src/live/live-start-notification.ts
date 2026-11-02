@@ -5,9 +5,9 @@ import { liveNotify } from './live-notification-events';
 
 const DEPARTMENTS = new Set(['人事部', '人事综合部', '人力资源部', '总经办', '总经办部门', '总经理办公室', 'A总经理']);
 /** Resolve active staff by their department or active primary/secondary position, within this company. */
-export async function liveStartRecipients(em: EntityManager, companyId: number): Promise<number[]> {
+export async function liveStartRecipients(em: EntityManager, companyId: number, names: ReadonlySet<string> = DEPARTMENTS): Promise<number[]> {
   const departments = await em.find(Department, { where: { companyId, status: 'active' } });
-  const ids = new Set(departments.filter(d => DEPARTMENTS.has(d.name.trim())).map(d => d.id));
+  const ids = new Set(departments.filter(d => names.has(d.name.trim())).map(d => d.id));
   let size = -1;
   while (size !== ids.size) {
     size = ids.size;
