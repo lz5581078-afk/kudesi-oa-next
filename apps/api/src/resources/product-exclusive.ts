@@ -114,12 +114,32 @@ export function parsePeriodDays(v: unknown): number {
   return n;
 }
 
+/**
+ * 审批人定专属期：要么填天数，要么指定到期日（当天 23:59:59，北京时间），二选一。
+ * 到期日必须在今天之后，且不超过 3650 天。
+ */
+export function parsePeriod(form: Data): { days?: number; endsAt?: Date } {
+  const hasDays = form.periodDays !== undefined && form.periodDays !== null && form.periodDays !== '';
+  const endStr = str(form.endsAt).trim();
+  if (hasDays && endStr) throw new BadRequestException('专属期只能二选一：填天数，或指定到期日');
+  if (!hasDays && !endStr) throw new BadRequestException('请填专属有效期（天数），或指定到期日');
+  if (hasDays) return { days: parsePeriodDays(form.periodDays) };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endStr)) throw new BadRequestException('到期日格式不对，请按 年-月-日 填写');
+  const endsAt = new Date(`${endStr}T23:59:59+08:00`);
+  if (Number.isNaN(endsAt.getTime())) throw new BadRequestException('到期日不是有效日期');
+  const left = endsAt.getTime() - Date.now();
+  if (left <= 0) throw new BadRequestException('到期日必须晚于今天');
+  if (left > MAX_DAYS * 86400000) throw new BadRequestException(`专属期最长 ${MAX_DAYS} 天`);
+  return { endsAt };
+}
+
 /** 审批通过时生成专属记录；锁公司行让并发申请排队，之后重新检查。 */
-export async function grantExclusive(em: EntityManager, create: (values: Data) => Promise<ResourceRecord>, p: { companyId: number; runId: number; baseCodeId: number; ownerId: number; ownerName: string; approverId: number; approverName: string; days: number }): Promise<ResourceRecord> {
+export async function grantExclusive(em: EntityManager, create: (values: Data) => Promise<ResourceRecord>, p: { companyId: number; runId: number; baseCodeId: number; ownerId: number; ownerName: string; approverId: number; approverName: string; days?: number; endsAt?: Date }): Promise<ResourceRecord> {
   await em.query('SELECT id FROM companies WHERE id = ? FOR UPDATE', [p.companyId]);
   const { member, members } = await assertFamilyFree(em, p.companyId, p.baseCodeId, p.runId);
   const starts = new Date();
-  const ends = new Date(starts.getTime() + p.days * 86400000);
+  const ends = p.endsAt ?? new Date(starts.getTime() + (p.days ?? 0) * 86400000);
+  if (!(ends.getTime() > starts.getTime())) throw new BadRequestException('专属期必须晚于现在');
   const data = em.queryRunner?.data;
   // 专属记录的字段都是只读的（输入会被丢弃），由 beforeExclusive 从这里取值写入
   const values: Data = {

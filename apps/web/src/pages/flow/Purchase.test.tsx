@@ -1,10 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getFlowTemplate } from '@kudesi/shared';
+import { compatiblePurchaseTemplate } from '@kudesi/shared';
 import { api } from '../../api/client';
 import { FlowFieldsForm } from './FlowFields';
-import { PurchasePanel } from './PurchasePanel';
+import { PurchaseCompatibilityPanel as PurchasePanel } from './PurchaseCompatibilityPanel';
 
 vi.mock('../../api/client', async (orig) => ({ ...(await orig<typeof import('../../api/client')>()), api: vi.fn() }));
 vi.mock('../../resources/RecordForm', async (orig) => ({
@@ -12,7 +12,7 @@ vi.mock('../../resources/RecordForm', async (orig) => ({
   RefSelect: ({ onChange }: { onChange: (v: number | null) => void }) => <select aria-label="入库仓库" onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}><option value="">选仓库</option><option value="3">一号仓</option></select>,
 }));
 const apiMock = vi.mocked(api);
-const tpl = getFlowTemplate('purchase-request')!;
+const tpl = compatiblePurchaseTemplate;
 
 function Harness({ fields, initial, step, context }: { fields: typeof tpl.fields; initial: Record<string, unknown>; step?: boolean; context?: Record<string, unknown> }) {
   const [v, setV] = useState(initial);

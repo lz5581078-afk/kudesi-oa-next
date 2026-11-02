@@ -11,6 +11,7 @@ import { BundleToolsService } from '../resources/bundle-tools.service';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { buildServices } from '../test-support';
 import { FlowService } from './flow.service';
+import { ExclusiveService } from './exclusive.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 
@@ -137,5 +138,49 @@ d('专属品领取流程（真实数据库）', () => {
     const again = await apply(bob, ids.mango);
     expect(again.status).toBe('running');
     await flow.withdraw(bob, again.id, { revision: again.revision });
+  });
+
+  it('审批人也可以指定到期日（二选一）：必须在今天之后、不超过 3650 天', async () => {
+    const run = await apply(bob, ids.appleB);
+    const pass = (form: Record<string, unknown>) => flow.pass(approver, run.id, { revision: run.revision, stepId: run.activeStep!.id, form });
+    await expect(pass({})).rejects.toThrow(/天数.*到期日|到期日/);
+    await expect(pass({ periodDays: 30, endsAt: '2099-01-01' })).rejects.toThrow(/二选一/);
+    await expect(pass({ endsAt: '2020-01-01' })).rejects.toThrow(/晚于今天/);
+    await expect(pass({ endsAt: '2999-01-01' })).rejects.toThrow(/最长/);
+    await expect(pass({ endsAt: '明天' })).rejects.toThrow(/格式/);
+    const day = new Date(Date.now() + 20 * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+    const done = await pass({ endsAt: day });
+    expect(done.status).toBe('completed');
+    const g = (await grants()).find((r) => r.data.runId === run.id)!;
+    expect(String(g.data.endsAt)).toBe(new Date(`${day}T23:59:59+08:00`).toISOString());
+  });
+
+  it('领取页接口：商品清单标出专属/申请中/可领取并按分类、关键字、只看可领取筛选；专属记录与取消按人判断', async () => {
+    const svc = new ExclusiveService(ds, resources);
+    const pend = await apply(alice, ids.mango);
+    const all = await svc.options(bob, {});
+    const by = (n: string) => all.rows.find((r) => r.code === n) as { exclusive: { ownerName: string; mine: boolean } | null; pending: { requesterName: string; mine: boolean } | null };
+    expect(by('APPLE-B').exclusive).toMatchObject({ ownerName: '小乙', mine: true });
+    expect(by('MANGO-1').pending).toMatchObject({ requesterName: '小甲', mine: false });
+    expect((await svc.options(bob, { onlyFree: true })).rows.every((r) => !r.exclusive && !r.pending)).toBe(true);
+    expect((await svc.options(bob, { keyword: '芒果' })).rows.map((r) => r.code)).toEqual(['MANGO-1']);
+    expect((await svc.options(bob, { categoryId: all.categories.find((c) => c.name === '水果')!.id })).total).toBe(all.total);
+    expect((await svc.options(bob, { categoryId: 999999 })).total).toBe(0);
+    expect((await svc.options(outsider, {})).total).toBe(0);
+    await flow.withdraw(alice, pend.id, { revision: pend.revision });
+
+    const list = (await svc.grants(alice)).rows;
+    const mine = list.find((g) => g.ownerName === '小乙' && g.status === 'active')!;
+    expect(mine.canCancel).toBe(false);
+    expect((await svc.grants(bob)).rows.find((g) => g.id === mine.id)!.canCancel).toBe(true);
+    expect((await svc.grants(approver)).rows.find((g) => g.id === mine.id)!.canCancel).toBe(true);
+    expect((await svc.grants(outsider)).rows).toEqual([]);
+    await expect(svc.cancel(alice, mine.id, '想要')).rejects.toThrow(/本人、原审批人或管理员/);
+    await expect(svc.cancel(bob, mine.id, '   ')).rejects.toThrow(/原因/);
+    await expect(svc.cancel(outsider, mine.id, '串公司')).rejects.toThrow(/没有这条/);
+    await svc.cancel(bob, mine.id, '放弃');
+    const after = (await svc.grants(bob)).rows.find((g) => g.id === mine.id)!;
+    expect(after).toMatchObject({ status: 'cancelled', cancelReason: '放弃', canCancel: false });
+    expect((await svc.options(alice, {})).rows.find((r) => r.code === 'APPLE-B')).toMatchObject({ exclusive: null });
   });
 });

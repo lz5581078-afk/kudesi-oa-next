@@ -679,6 +679,19 @@ label.invalid input, label.invalid select, label.invalid textarea { border-color
 .kv-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0 0 12px; }
 .kv-list dt { color: var(--muted); font-size: 12px; }
 .kv-list dd { margin: 0; }
+.exclusive-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.exclusive-filters input[type="search"] { flex: 1 1 200px; min-width: 0; }
+.exclusive-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 8px 0; max-height: 360px; overflow-y: auto; }
+.exclusive-option { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 10px; border: 1px solid var(--line, #d9dde3); border-radius: 8px; background: var(--card, #fff); }
+.exclusive-option[aria-pressed="true"] { border-color: var(--accent, #2563eb); box-shadow: 0 0 0 2px var(--accent-soft, #dbeafe); }
+.exclusive-option:disabled { opacity: .65; cursor: not-allowed; }
+.exclusive-grants { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.exclusive-grants li { border: 1px solid var(--line, #d9dde3); border-radius: 8px; padding: 10px; display: grid; gap: 6px; }
+.exclusive-cancel { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.confirm-rows { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; }
+.confirm-rows dt { color: var(--muted); }
+.confirm-rows dd { margin: 0; }
+@media (max-width: 720px) { .exclusive-options { grid-template-columns: 1fr; } .confirm-rows { grid-template-columns: 1fr; } }
 
 /* u1 第二轮 */
 .inline-edit { border: 1px solid var(--border, #d8dde6); border-radius: 8px; padding: 8px; margin-bottom: 8px; }
@@ -1647,3 +1660,29 @@ div.ws-task { cursor: default; }
 }
 .rf-rows td .ref-search, .rf-rows td select { display: block; width: 100%; max-width: none; box-sizing: border-box; }
 .rf-rows td .ref-search + select { margin-top: 4px; }
+/* 采购申请中心 */
+.purchase-card { border: 1px solid var(--line, #d9dde3); border-radius: 8px; padding: 10px; margin: 8px 0; display: grid; gap: 8px; }
+.purchase-lines { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.purchase-lines li { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; border: 1px solid var(--line, #d9dde3); border-radius: 8px; padding: 8px 10px; }
+.purchase-lines input[type="number"], .purchase-qty input { width: 110px; }
+.purchase-evidence { display: grid; gap: 4px; }
+.purchase-files { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.purchase-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.purchase-row { width: 100%; text-align: left; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line, #d9dde3); border-radius: 8px; background: var(--card, #fff); }
+.purchase-progress { position: relative; flex: 1 1 100%; height: 18px; border-radius: 9px; background: var(--line, #e5e7eb); overflow: hidden; }
+.purchase-progress i { position: absolute; inset: 0 auto 0 0; background: var(--accent-soft, #bfdbfe); }
+.purchase-progress em { position: relative; font-style: normal; font-size: 12px; padding: 0 8px; line-height: 18px; }
+.purchase-panel table { width: 100%; }
+@media (max-width: 640px) {
+  .purchase-lines li { flex-direction: column; align-items: stretch; }
+  .purchase-lines input[type="number"], .purchase-qty input { width: 100%; }
+  .purchase-panel { overflow-x: auto; }
+}
+/* Keep purchase steps and the JST capability tables scrollable inside their own panels. */
+.purchase-step, .purchase-panel, .jst-center .two-col > div { min-width: 0; }
+.purchase-step { overflow-x: auto; }
+.jst-center .two-col { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.jst-center .pill-row code { overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .jst-center .two-col { grid-template-columns: minmax(0, 1fr); }
+}
