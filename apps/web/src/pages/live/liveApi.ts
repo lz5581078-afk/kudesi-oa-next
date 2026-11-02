@@ -95,17 +95,17 @@ export interface SourceStatus { ready: boolean; code: 'ready' | 'unconfigured' |
 export interface CheckinSession extends SessionRow { products:LiveProductSnapshot[]; canJoinAnchor?:boolean;canJoinControl?:boolean;canJoinOperator?:boolean }
 export interface CheckinContext extends Workbench { rooms:RoomOpt[];joinable?:CheckinSession[] }
 export interface CheckoutPreview {wageMessage?:string|null;minutes?:number;role:string;startAt:string;endAt:string;salesCents:number|null;orderCount:number|null;reason:string;wage:{minutes:number;amountCents:number;hourlyRateCents:number}|null;commission:RoleAmount|null;locked:boolean}
-export interface RoomQrCode { token: string | null; version: number }
+export interface LiveQrCode { token: string | null; version: number }
 // Scan requests carry the current code again at confirmation, so an open old page cannot submit after rotation.
 function scanAction(path: string) {
   const params = new URLSearchParams(location.search);
-  if (location.pathname !== '/features/live-desk' || !params.has('room')) return path;
-  return `${path}${qs({qrRoom:params.get('room') ?? '',qrToken:params.get('token') ?? ''})}`;
+  if (location.pathname !== '/features/live-desk' || !['company','token','room'].some(key=>params.has(key))) return path;
+  return `${path}${qs({qrScan:'1',qrToken:params.get('token') ?? ''})}`;
 }
 export const liveApi = {
-  roomQr:(id:number)=>api<RoomQrCode>(`/live/rooms/${id}/qr`),
-  generateRoomQr:(id:number,version:number)=>post<RoomQrCode>(`/live/rooms/${id}/qr`,{version}),
-  checkinContext:(roomId?:number,token?:string)=>api<CheckinContext>(`/live/checkin-context${qs({roomId,token})}`),
+  checkinQr:()=>api<LiveQrCode>('/live/checkin-qr'),
+  generateCheckinQr:(version:number)=>post<LiveQrCode>('/live/checkin-qr',{version}),
+  checkinContext:(roomId?:number,token?:string,scanned?:boolean)=>api<CheckinContext>(`/live/checkin-context${qs({roomId,token,qrScan:scanned?'1':undefined})}`),
   checkoutPreview:(id:number,role:string)=>api<CheckoutPreview>(`/live/sessions/${id}/checkout-preview${qs({role})}`),
   roomSettings:(id:number,b:{ownerId:number|null;products:string})=>api(`/live/rooms/${id}`,{method:'PUT',body:b}),
   trialPerson:(b:{name:string;hourlyRateCents:number})=>post<Person>('/live/trial-people',b),

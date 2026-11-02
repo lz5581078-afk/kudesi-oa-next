@@ -1,3 +1,5 @@
+import { LiveQr } from './LiveQr';
+import { Modal } from './liveUi';
 import { NotificationsTab } from './NotificationsTab';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -32,6 +34,7 @@ export function LiveManagePage() {
   const remembered = (() => { try { return localStorage.getItem(TAB_KEY); } catch { return null; } })();
   const wanted = (params.get('tab')==='commissions'?'wages':params.get('tab')) ?? (remembered==='commissions'?'wages':remembered);
   const current: TabKey = (visible.find(([k]) => k === wanted)?.[0] ?? visible[0]?.[0] ?? 'overview') as TabKey;
+  const [showQr,setShowQr]=useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
   const pick = (k: TabKey) => {
@@ -43,6 +46,8 @@ export function LiveManagePage() {
       <AppbarHint><span className="live-header-summary" title="房间排场、业绩审核、工资及售后结算；主播、中控日常操作请到「我的直播」。">排场 · 审核 · 工资结算<span className="live-header-guide">；主播、中控请到「我的直播」</span></span></AppbarHint>
       {!hasAppbar && <h1 className="live-header-fallback">直播管理</h1>}
       {canAll || can('live.manage') ? <SourceStatusNotice /> : null}
+      {can('live.manage')&&<div className="live-inline-actions"><button type="button" className="secondary-button" onClick={()=>setShowQr(true)}>上下播二维码</button></div>}
+      {showQr&&<Modal title="通用上下播二维码" onClose={()=>setShowQr(false)}><LiveQr/></Modal>}
       <div className="tab-group host-tabs" role="tablist" aria-label="直播管理分区">
         {visible.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={k === current} className={k === current ? 'chip active' : 'chip'} onClick={() => pick(k)}>{label}</button>)}
       </div>

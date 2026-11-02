@@ -5,14 +5,16 @@ export function liveRoomTarget(value:string):string|null {
     if(url.origin!=='https://oa.local'||url.pathname!=='/features/live-desk')return null;
     const room=url.searchParams.get('room'),company=url.searchParams.get('company'),token=url.searchParams.get('token');
     if(token!==null&&!/^[A-Za-z0-9_-]{43}$/.test(token))return null;
-    if(!room||!company||!/^\d+$/.test(room)||!/^\d+$/.test(company)||!Number.isSafeInteger(Number(room))||!Number.isSafeInteger(Number(company))||Number(room)<=0||Number(company)<=0)return null;
-    return `/features/live-desk?room=${Number(room)}&company=${Number(company)}${token?`&token=${token}`:''}`;
+    if(!company||!/^\d+$/.test(company)||!Number.isSafeInteger(Number(company))||Number(company)<=0)return null;
+    if(room!==null&&(!/^\d+$/.test(room)||!Number.isSafeInteger(Number(room))||Number(room)<=0))return null;
+    if(!room&&!token)return null;
+    return `/features/live-desk?${room?`room=${Number(room)}&`:''}company=${Number(company)}${token?`&token=${token}`:''}`;
   } catch {return null;}
 }
 export function rememberLiveRoom() {
   const value=liveRoomTarget(location.pathname+location.search);
   if(value){sessionStorage.setItem(KEY,value);sessionStorage.setItem(TIME,String(Date.now()));}
-  else if(location.pathname==='/features/live-desk'&&new URLSearchParams(location.search).has('room'))clearLiveRoom();
+  else if(location.pathname==='/features/live-desk'&&['room','company','token'].some(key=>new URLSearchParams(location.search).has(key)))clearLiveRoom();
 }
 export function pendingLiveRoom() {
   // This timeout only clears an abandoned login redirect; the QR itself has no expiry.

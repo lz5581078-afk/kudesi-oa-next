@@ -22,7 +22,7 @@ describe('直播间与岗位打卡',()=>{
  it('扫码携带令牌，旧码刷新失败时清掉已显示的上下播操作',async()=>{
   api.checkinContext.mockResolvedValue({identity:{isAnchor:true,isControl:false,isOperations:false},active:[],schedules:[],rooms:[]} as never);
   render(<LiveCheckinPanel roomId={10} companyId={1} token={'a'.repeat(43)}/>);
-  await screen.findByRole('button',{name:'上播'});expect(api.checkinContext).toHaveBeenCalledWith(10,'a'.repeat(43));
+  await screen.findByRole('button',{name:'上播'});expect(api.checkinContext).toHaveBeenCalledWith(10,'a'.repeat(43),true);
   api.checkinContext.mockRejectedValue(new Error('二维码已失效，请扫描直播间最新二维码'));fireEvent.focus(window);
   expect((await screen.findByRole('alert')).textContent).toContain('已失效');expect(screen.queryByRole('button',{name:'上播'})).toBeNull();
  });

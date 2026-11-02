@@ -12,19 +12,20 @@ import { StartDialog } from './StartDialog';
 /** 我的直播：主播、中控（运营以中控资格）自己的工作台——报上播、报下播、提交审核、本周排场、本月提成与工资。 */
 export function LiveDeskPage() {
   const [params]=useSearchParams();
+  const scanned=['company','token','room'].some(key=>params.has(key));
   const roomId=Number(params.get('room'))||undefined,companyId=Number(params.get('company'))||undefined;
   const [d, setD] = useState<Workbench | null>(null);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'desk' | 'history'>('desk');
   const [starting, setStarting] = useState<{ schedule: ScheduleRow | null } | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
-  const load = useCallback(() => { if(roomId)return; liveApi.workbench().then((x) => { setD(x); setError(''); }).catch((e) => setError(errText(e, '读取失败'))); }, [roomId]);
+  const load = useCallback(() => { if(scanned)return; liveApi.workbench().then((x) => { setD(x); setError(''); }).catch((e) => setError(errText(e, '读取失败'))); }, [scanned]);
   useEffect(load, [load]);
   useEffect(() => {
     const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60_000);
     return () => clearInterval(t);
   }, [load]);
-  if(roomId)return <div className="live-page"><LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined}/></div>;
+  if(scanned)return <div className="live-page"><LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined}/></div>;
   const canStart = !!d && (!d.identity.isOperations && (d.identity.isAnchor || d.identity.isControl));
   return (
     <div className="live-page">

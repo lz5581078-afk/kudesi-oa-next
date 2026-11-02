@@ -11,6 +11,24 @@ const context=(o:Record<string,unknown>={})=>({identity:{isAnchor:true,isControl
 beforeEach(()=>{vi.resetAllMocks();a.checkinContext.mockResolvedValue(context() as never);a.options.mockResolvedValue({rooms:[{id:10,name:'南1'}],anchors:[person(3,'本人')],controls:[person(4,'中控')],operators:[],douyinAccounts:[],stores:[]} as never);a.start.mockResolvedValue({id:7});});
 afterEach(()=>cleanup());
 describe('本人岗位工作台直播按钮',()=>{
+ it('通用码要求先选房，只加入所选房间，不自动使用其他房间场次',async()=>{
+   a.checkinContext.mockResolvedValue(context({rooms:[{id:10,name:'南1'},{id:20,name:'北2'}],joinable:[{...session,canJoinAnchor:true},{...session,id:8,roomId:20,roomName:'北2',canJoinAnchor:true}]}) as never);
+   a.options.mockResolvedValue({rooms:[{id:10,name:'南1'},{id:20,name:'北2'}],anchors:[person(3,'本人')],controls:[],operators:[],douyinAccounts:[],stores:[]} as never);
+   render(<LiveCheckinPanel companyId={1} token={'a'.repeat(43)}/>);
+   fireEvent.click(await screen.findByRole('button',{name:'上播'}));expect((await screen.findByRole('alert')).textContent).toContain('请选择上播直播间');expect(screen.queryByRole('dialog')).toBeNull();
+   fireEvent.change(screen.getByLabelText('上播直播间'),{target:{value:'20'}});fireEvent.click(screen.getByRole('button',{name:'上播'}));
+   const dlg=await screen.findByRole('dialog',{name:'核对本场并确认本人上播'});await waitFor(()=>expect((within(dlg).getByLabelText('直播间') as HTMLSelectElement).value).toBe('20'));
+ });
+ it('通用码已有本人实际场次时直接下播，无需选择房间',async()=>{
+   a.checkinContext.mockResolvedValue(context({rooms:[{id:10,name:'南1'},{id:20,name:'北2'}],active:[{...session,myCheckin:{role:'anchor',startAt:session.startAt,endAt:null}}]}) as never);
+   a.session.mockResolvedValue({...session,me:{reportRoles:['anchor']},reports:[]} as never);a.checkoutPreview.mockResolvedValue({role:'anchor',startAt:session.startAt,endAt:'2026-11-02 11:00:00',salesCents:0,orderCount:0,reason:'',wage:null,commission:null,locked:false});
+   render(<LiveCheckinPanel companyId={1} token={'a'.repeat(43)}/>);fireEvent.click(await screen.findByRole('button',{name:'下播'}));expect(screen.queryByLabelText('上播直播间')).toBeNull();expect(a.session).toHaveBeenCalledWith(7);await screen.findByRole('dialog',{name:'确认本人下播'});
+ });
+ it('运营用通用码选择房间后，身份候选仅显示该房间场次',async()=>{
+   a.checkinContext.mockResolvedValue(context({identity:{isAnchor:false,isControl:true,isOperations:true},rooms:[{id:10,name:'南1'},{id:20,name:'北2'}],joinable:[{...session,canJoinOperator:true},{...session,id:8,roomId:20,roomName:'北2',canJoinOperator:true}]}) as never);
+   render(<LiveCheckinPanel companyId={1} token={'a'.repeat(43)}/>);fireEvent.change(await screen.findByLabelText('上播直播间'),{target:{value:'20'}});fireEvent.click(screen.getByRole('button',{name:'上播'}));
+   const dlg=await screen.findByRole('dialog',{name:'选择本场身份'});fireEvent.click(within(dlg).getByRole('radio',{name:/运营/}));expect(dlg.textContent).toContain('北2');expect(dlg.textContent).not.toContain('南1');fireEvent.click(within(dlg).getByRole('button',{name:'确认运营身份上播'}));await waitFor(()=>expect(a.start).toHaveBeenCalledWith({sessionId:8,role:'operator',confirmDetails:true}));
+ });
  it('已实际上播的本人按钮直接显示下播，提交后原位置恢复上播',async()=>{
    a.checkinContext.mockResolvedValue(context({active:[{...session,myCheckin:{role:'anchor',startAt:session.startAt,endAt:null}}]}) as never);
    a.session.mockResolvedValue({...session,me:{reportRoles:['anchor'],canSubmit:false,isManager:false},reports:[]} as never);

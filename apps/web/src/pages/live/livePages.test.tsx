@@ -11,7 +11,7 @@ vi.mock('./LiveCheckinPanel',()=>({LiveCheckinPanel:()=>null}));
 vi.mock('./liveApi', () => ({ liveApi: {
   checkinContext:vi.fn(),checkoutPreview:vi.fn(),turnover: vi.fn(), options: vi.fn(), products: vi.fn(), overview: vi.fn(), roomDay: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), cancelSchedule: vi.fn(), start: vi.fn(), sessions: vi.fn(), session: vi.fn(),
   candidates: vi.fn(), report: vi.fn(), submit: vi.fn(), reviewPreview: vi.fn(), workbench: vi.fn(), history: vi.fn(), commissions: vi.fn(), wages: vi.fn(), people: vi.fn(), rules: vi.fn(), createRule: vi.fn(), trial: vi.fn(),
-  roomQr:vi.fn().mockResolvedValue({token:null,version:0}),generateRoomQr:vi.fn(),roomSettings:vi.fn(),trialPerson:vi.fn(),manualReport:vi.fn(),updateRule:vi.fn(),
+  checkinQr:vi.fn().mockResolvedValue({token:null,version:0}),generateCheckinQr:vi.fn(),roomSettings:vi.fn(),trialPerson:vi.fn(),manualReport:vi.fn(),updateRule:vi.fn(),
   integrationStatus: vi.fn(), submissionStatus: vi.fn(), commissionPreview: vi.fn(),
   settlements: vi.fn(), settlement: vi.fn(), generateSettlement: vi.fn(), submitSettlement: vi.fn(),
 } }));
@@ -325,9 +325,14 @@ describe('直播管理', () => {
     expect(!!(south.compareDocumentPosition(north)&Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(within(south).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
     expect(south.textContent).toContain('小中控');expect(south.textContent).toContain('毛巾');
+    fireEvent.click(screen.getByRole('button',{name:'上下播二维码'}));
+    const qrDialog=await screen.findByRole('dialog',{name:'通用上下播二维码'});
+    expect(qrDialog.textContent).toContain('所有直播间共用此码');
+    fireEvent.click(within(qrDialog).getByRole('button',{name:'关闭'}));
     fireEvent.click(within(south).getByRole('button',{name:'编辑房间'}));
     const dlg=await screen.findByRole('dialog',{name:'直播间-南1 · 房间设置'});
     expect(within(dlg).getByLabelText('房间管理员')).toBeTruthy();
+    expect(within(dlg).queryByRole('img',{name:/二维码/})).toBeNull();
     expect(south.textContent).toContain('房间管理员');
     fireEvent.change(within(dlg).getByLabelText('房间产品 1'),{target:{value:'牙刷'}});
     fireEvent.click(within(dlg).getByRole('button',{name:'＋ 添加产品'}));
