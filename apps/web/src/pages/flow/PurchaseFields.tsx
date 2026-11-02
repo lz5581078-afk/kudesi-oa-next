@@ -1,166 +1,124 @@
 import { useEffect, useRef, useState } from 'react';
-import { unitYuanText, yuanToPreciseCents, type FieldDef, type PurchaseLine } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
-import { purchaseApi, type ProductOption, type PurchaseSummary } from './purchaseApi';
-import './purchase.css';
+import { purchaseApi, type PurchaseProduct, type PurchaseProducts } from './purchaseApi';
 
-type Names = Record<number, ProductOption>;
-const labelOf = (names: Names, id: number) => names[id] ?? { id, code: '', name: `商品 #${id}`, spec: '' };
+export interface RequestLine { productId: number; qty: number | ''; aliasName?: string; name?: string; unit?: string; code?: string }
 
-/** 按编号补商品名称（重新提交、办理人看明细时用） */
-function useNames(ids: number[]) {
-  const [names, setNames] = useState<Names>({});
-  const key = ids.join(',');
-  useEffect(() => {
-    const need = ids.filter((id) => !names[id]);
-    if (!need.length) return;
-    let alive = true;
-    purchaseApi.names(need).then((r) => alive && setNames((cur) => ({ ...cur, ...Object.fromEntries(r.items.map((o) => [o.id, o])) }))).catch(() => undefined);
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return [names, (o: ProductOption) => setNames((cur) => ({ ...cur, [o.id]: o }))] as const;
-}
-
-/** 搜索并选一个商品：只列启用的采购品，最多 30 条，没有价格。 */
-function ProductPicker({ onPick, exclude }: { onPick: (o: ProductOption) => void; exclude: number[] }) {
-  const [open, setOpen] = useState(false);
-  const [kw, setKw] = useState('');
-  const [items, setItems] = useState<ProductOption[] | null>(null);
+/** 凭证上传：选文件即上传，列出已上传的文件名，可移除（还没提交的）。 */
+export function EvidenceInput({ runId, ids, onChange, label }: { runId: number; ids: number[]; onChange: (ids: number[]) => void; label: string }) {
+  const [names, setNames] = useState<Record<number, string>>({});
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  useEffect(() => {
-    if (!open) return;
-    let alive = true;
-    const t = setTimeout(() => { purchaseApi.options(kw).then((r) => alive && setItems(r.items)).catch((e) => alive && setErr(e instanceof ApiError ? e.message : '加载失败')); }, 250);
-    return () => { alive = false; clearTimeout(t); };
-  }, [open, kw]);
-  if (!open) return <button type="button" className="secondary-button small" onClick={() => setOpen(true)}>＋ 添加商品</button>;
-  const shown = (items ?? []).filter((o) => !exclude.includes(o.id));
+  const input = useRef<HTMLInputElement>(null);
+  async function pick(files: FileList | null) {
+    if (!files?.length) return;
+    setBusy(true); setErr('');
+    try {
+      let next = [...ids];
+      for (const f of Array.from(files)) {
+        const r = await purchaseApi.upload(runId, f);
+        setNames((n) => ({ ...n, [r.id]: r.name }));
+        next = [...next, r.id];
+      }
+      onChange(next);
+    } catch (e) { setErr(e instanceof ApiError ? e.message : '上传失败'); } finally { setBusy(false); if (input.current) input.current.value = ''; }
+  }
   return (
-    <div className="pur-picker">
-      <div className="row-actions">
-        <input type="search" autoFocus placeholder="输入编码或名称搜索商品" aria-label="搜索商品" value={kw} onChange={(e) => setKw(e.target.value)} />
-        <button type="button" className="link-button" onClick={() => { setOpen(false); setKw(''); }}>收起</button>
-      </div>
-      {err && <span role="alert" className="muted">{err}</span>}
-      <ul className="pur-picker-list">
-        {items === null ? <li className="muted" style={{ padding: 8 }}>加载中…</li> : shown.length === 0 ? <li className="muted" style={{ padding: 8 }}>{(items ?? []).length > 0 ? '搜索到的商品都已添加' : '没有找到（只能选启用的商品档案）'}</li> : shown.map((o) => (
-          <li key={o.id}><button type="button" onClick={() => onPick(o)}><strong>{o.code || '无编码'}</strong> {o.name}{o.spec && <small className="muted"> · {o.spec}</small>}</button></li>
-        ))}
+    <div className="purchase-evidence">
+      <span>{label}</span>
+      <input ref={input} type="file" multiple accept="image/*,application/pdf" aria-label={label} disabled={busy} onChange={(e) => void pick(e.target.files)} />
+      {busy && <span className="muted">上传中…</span>}
+      {err && <span role="alert" className="notice error">{err}</span>}
+      <ul className="purchase-files">
+        {ids.map((id) => <li key={id}>{names[id] ?? `文件 #${id}`} <button type="button" className="link-button" onClick={() => onChange(ids.filter((x) => x !== id))}>移除</button></li>)}
       </ul>
     </div>
   );
 }
 
-/** 申请：采购商品明细（商品 + 数量 + 单位 + 备注） */
-function LinesEditor({ value, onChange }: { value: PurchaseLine[]; onChange: (v: PurchaseLine[]) => void }) {
-  const [names, learn] = useNames(value.map((l) => l.productId));
-  const patch = (i: number, p: Partial<PurchaseLine>) => onChange(value.map((l, j) => (j === i ? { ...l, ...p } : l)));
+/** 已提交的凭证：点开取临时地址 */
+export function EvidenceLinks({ runId, ids }: { runId: number; ids: number[] }) {
+  const [err, setErr] = useState('');
+  if (!ids.length) return <span className="muted">无凭证</span>;
+  const open = async (id: number) => { try { window.open((await purchaseApi.fileUrl(runId, id)).url, '_blank', 'noopener'); } catch (e) { setErr(e instanceof ApiError ? e.message : '打开失败'); } };
+  return <span>{ids.map((id, i) => <button key={id} type="button" className="link-button" onClick={() => void open(id)}>凭证{i + 1}</button>)}{err && <span role="alert" className="muted"> {err}</span>}</span>;
+}
+
+/** 发起采购：按分类或关键字找商品，加入清单，填数量；原料有成品名（马甲）时必须选一个。 */
+export function PurchaseRequestFields({ values, onChange }: { values: Record<string, unknown>; onChange: (k: string, v: unknown) => void }) {
+  const lines = (Array.isArray(values.lines) ? values.lines : []) as RequestLine[];
+  const [kw, setKw] = useState('');
+  const [cat, setCat] = useState('');
+  const [data, setData] = useState<PurchaseProducts | null>(null);
+  const [err, setErr] = useState('');
+  const picked = useRef(new Map<number, PurchaseProduct>());
+  /** 界面显示用的名称和单位（发给服务端的清单只有商品、数量和成品名，其余由服务端按档案补全） */
+  const meta = useRef(new Map<number, { name?: string; unit?: string }>());
+  for (const l of lines) if (l.name && !meta.current.has(l.productId)) meta.current.set(l.productId, { name: l.name, unit: l.unit });
+  useEffect(() => {
+    let alive = true;
+    const t = setTimeout(() => { purchaseApi.products({ keyword: kw.trim() || undefined, categoryId: cat ? Number(cat) : undefined }).then((r) => { if (alive) { setData(r); setErr(''); } }).catch((e) => alive && setErr(e instanceof ApiError ? e.message : '加载失败')); }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [kw, cat]);
+  const set = (next: RequestLine[]) => onChange('lines', next.map((l) => ({ productId: l.productId, qty: l.qty, ...(l.aliasName !== undefined ? { aliasName: l.aliasName } : {}) })));
+  const add = (p: PurchaseProduct) => {
+    picked.current.set(p.id, p);
+    meta.current.set(p.id, { name: p.name, unit: p.unit });
+    if (lines.some((l) => l.productId === p.id)) return;
+    set([...lines, { productId: p.id, qty: '', ...(p.aliases.length ? { aliasName: '' } : {}) }]);
+  };
+  const nameOf = (id: number) => meta.current.get(id)?.name ?? `商品 #${id}`;
+  const upd = (i: number, patch: Partial<RequestLine>) => set(lines.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const aliasesOf = (id: number) => picked.current.get(id)?.aliases ?? [];
   return (
-    <div>
-      {value.length > 0 && (
-        <ul className="pur-lines">
-          {value.map((l, i) => {
-            const n = labelOf(names, l.productId);
-            return (
-              <li key={l.productId} className="pur-line">
-                <div className="pur-name"><strong>{n.name}</strong><small>{n.code}{n.spec ? ` · ${n.spec}` : ''}</small></div>
-                <label className="pur-cell"><span>数量</span><input type="number" min={0} step="any" inputMode="decimal" aria-label="数量" value={Number.isFinite(l.qty) ? l.qty : ''} onChange={(e) => patch(i, { qty: e.target.value === '' ? NaN : Number(e.target.value) })} /></label>
-                <label className="pur-cell"><span>单位</span><input aria-label="单位" maxLength={20} value={l.unit ?? ''} placeholder="箱/件" onChange={(e) => patch(i, { unit: e.target.value })} /></label>
-                <label className="pur-cell"><span>备注</span><input aria-label="行备注" maxLength={200} value={l.note ?? ''} placeholder="规格要求等" onChange={(e) => patch(i, { note: e.target.value })} /></label>
-                <button type="button" className="link-button" aria-label="去掉这个商品" onClick={() => onChange(value.filter((_, j) => j !== i))}>去掉</button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <ProductPicker exclude={value.map((l) => l.productId)} onPick={(o) => { learn(o); onChange([...value, { productId: o.id, qty: 1 }]); }} />
+    <div className="purchase-request wide">
+      <h4>采购商品</h4>
+      <div className="exclusive-filters">
+        <input type="search" placeholder="按名称或编码找商品" aria-label="搜索采购商品" value={kw} onChange={(e) => setKw(e.target.value)} />
+        <select aria-label="商品分类" value={cat} onChange={(e) => setCat(e.target.value)}>
+          <option value="">全部分类</option>
+          {data?.categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? '　' : ''}{c.name}</option>)}
+        </select>
+      </div>
+      {err && <div role="alert" className="notice error">{err}</div>}
+      <div className="exclusive-options">
+        {data?.rows.map((p) => (
+          <button key={p.id} type="button" className="exclusive-option" aria-pressed={lines.some((l) => l.productId === p.id)} onClick={() => add(p)}>
+            <strong>{p.name}</strong><span className="muted">{p.code} · {p.categoryName || '未分类'} · {p.unit || '未设单位'}</span>
+            {p.aliases.length > 0 && <span className="muted">成品名：{p.aliases.join('、')}</span>}
+          </button>
+        ))}
+        {data && !data.rows.length && <p className="muted">没有找到可采购的商品。</p>}
+      </div>
+      {data && data.total > data.rows.length && <p className="muted">共 {data.total} 个，仅显示前 {data.rows.length} 个，请缩小范围。</p>}
+      <h4>已选清单（{lines.length}）</h4>
+      {!lines.length && <p className="muted">从上面点选商品加入清单。</p>}
+      <ul className="purchase-lines">
+        {lines.map((l, i) => (
+          <li key={l.productId}>
+            <strong>{nameOf(l.productId)}</strong>
+            {(l.aliasName !== undefined || aliasesOf(l.productId).length > 0) && (
+              <label>成品名
+                <select aria-label={`${nameOf(l.productId)}成品名`} value={l.aliasName ?? ''} onChange={(e) => upd(i, { aliasName: e.target.value })}>
+                  <option value="">（请选择）</option>
+                  {aliasesOf(l.productId).map((a) => <option key={a} value={a}>{a}</option>)}
+                  {l.aliasName && !aliasesOf(l.productId).includes(l.aliasName) && <option value={l.aliasName}>{l.aliasName}</option>}
+                </select>
+              </label>
+            )}
+            <label>数量{meta.current.get(l.productId)?.unit ? `（${meta.current.get(l.productId)!.unit}）` : ''}
+              <input type="number" min="0" step="0.0001" aria-label={`${nameOf(l.productId)}数量`} value={l.qty} onChange={(e) => upd(i, { qty: e.target.value === '' ? '' : Number(e.target.value) })} />
+            </label>
+            <button type="button" className="link-button" onClick={() => set(lines.filter((_, k) => k !== i))}>移除</button>
+          </li>
+        ))}
+      </ul>
+      <label>要求到货日期<b className="req"> *</b>
+        <input type="date" aria-label="要求到货日期" value={String(values.requestedArrivalAt ?? '')} onChange={(e) => onChange('requestedArrivalAt', e.target.value)} />
+      </label>
+      <label className="wide">申请说明
+        <textarea rows={2} maxLength={500} value={String(values.note ?? '')} onChange={(e) => onChange('note', e.target.value)} />
+      </label>
     </div>
   );
-}
-
-interface PriceRow { productId: number; unitPriceCents: number }
-
-/** 采购方案/预计单价：按申请里的商品逐个填单价（元，最多 6 位小数），存成“分”（最多 4 位小数）。 */
-function PricesEditor({ lines, value, onChange, optional }: { lines: PurchaseLine[]; value: PriceRow[]; onChange: (v: PriceRow[]) => void; optional?: boolean }) {
-  const [names] = useNames(lines.map((l) => l.productId));
-  const [texts, setTexts] = useState<Record<number, string>>({});
-  const textOf = (id: number) => texts[id] ?? (value.find((v) => v.productId === id) ? unitYuanText(value.find((v) => v.productId === id)!.unitPriceCents) : '');
-  function set(id: number, raw: string) {
-    setTexts((cur) => ({ ...cur, [id]: raw }));
-    const rest = value.filter((v) => v.productId !== id);
-    if (raw.trim() === '') return onChange(rest);
-    try { onChange([...rest, { productId: id, unitPriceCents: yuanToPreciseCents(raw.trim()) }]); } catch { onChange(rest); }
-  }
-  if (lines.length === 0) return <span className="muted">先填采购商品明细</span>;
-  return (
-    <ul className="pur-lines">
-      {lines.map((l) => {
-        const n = labelOf(names, l.productId);
-        const t = textOf(l.productId);
-        const bad = t.trim() !== '' && !value.some((v) => v.productId === l.productId);
-        return (
-          <li key={l.productId} className="pur-line price">
-            <div className="pur-name"><strong>{n.name}</strong><small>{n.code}</small></div>
-            <div className="pur-cell"><span>数量</span>{l.qty}{l.unit ?? ''}</div>
-            <label className="pur-cell"><span>单价（元）</span><input inputMode="decimal" aria-label={`${n.name}单价（元）`} value={t} placeholder={optional ? '选填' : '必填'} aria-invalid={bad} onChange={(e) => set(l.productId, e.target.value)} /></label>
-            <div className="pur-cell"><span>小计</span>{!bad && t.trim() !== '' && value.find((v) => v.productId === l.productId) ? `¥${(Math.round(value.find((v) => v.productId === l.productId)!.unitPriceCents * l.qty) / 100).toFixed(2)}` : bad ? <em className="muted">格式不对</em> : '—'}</div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-interface ReceiptRow { productId: number; receivedQty: number; acceptedQty: number }
-
-/** 到货验收：每个商品本次到货数量和合格数量；上面显示已累计验收的数量。 */
-function ReceiptEditor({ lines, value, onChange, runId }: { lines: PurchaseLine[]; value: ReceiptRow[]; onChange: (v: ReceiptRow[]) => void; runId?: number }) {
-  const [names] = useNames(lines.map((l) => l.productId));
-  const [sum, setSum] = useState<PurchaseSummary | null>(null);
-  useEffect(() => { if (runId) purchaseApi.summary(runId).then(setSum).catch(() => undefined); }, [runId]);
-  const seeded = useRef(false);
-  const rowOf = (id: number) => value.find((v) => v.productId === id);
-  const set = (id: number, p: Partial<ReceiptRow>) => {
-    const cur = rowOf(id) ?? { productId: id, receivedQty: 0, acceptedQty: 0 };
-    const next = { ...cur, ...p };
-    onChange([...value.filter((v) => v.productId !== id), next]);
-  };
-  // 默认每个商品都带一行（数量 0），办理人只改有到货的
-  useEffect(() => {
-    if (seeded.current || lines.length === 0) return;
-    seeded.current = true;
-    if (value.length === 0) onChange(lines.map((l) => ({ productId: l.productId, receivedQty: 0, acceptedQty: 0 })));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines.length]);
-  return (
-    <ul className="pur-lines">
-      {lines.map((l) => {
-        const n = labelOf(names, l.productId);
-        const row = rowOf(l.productId);
-        const before = sum?.lines.find((x) => x.productId === l.productId);
-        return (
-          <li key={l.productId} className="pur-line receipt">
-            <div className="pur-name"><strong>{n.name}</strong><small>申请 {l.qty}{l.unit ?? ''}{before && before.received !== null ? ` · 已累计到货 ${before.received}、合格 ${before.accepted}` : ''}</small></div>
-            <label className="pur-cell"><span>本次到货</span><input type="number" min={0} step="any" inputMode="decimal" aria-label={`${n.name}本次到货数量`} value={row?.receivedQty ?? 0} onChange={(e) => { const q = e.target.value === '' ? 0 : Number(e.target.value); set(l.productId, { receivedQty: q, acceptedQty: !row || row.acceptedQty === row.receivedQty ? q : Math.min(row.acceptedQty, q) }); }} /></label>
-            <label className="pur-cell"><span>其中合格</span><input type="number" min={0} step="any" inputMode="decimal" aria-label={`${n.name}本次合格数量`} value={row?.acceptedQty ?? 0} onChange={(e) => set(l.productId, { acceptedQty: e.target.value === '' ? 0 : Number(e.target.value) })} /></label>
-            <div className="pur-cell"><span>不合格</span>{Math.max(0, Math.round(((row?.receivedQty ?? 0) - (row?.acceptedQty ?? 0)) * 10000) / 10000)}</div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/** 采购流程里“结构化清单”字段（商品明细、单价、验收数量）的编辑器；其余字段走通用控件。 */
-export function PurchaseJsonField({ field, values, context, onChange }: {
-  field: FieldDef; values: Record<string, unknown>; context?: Record<string, unknown>; onChange: (v: unknown) => void;
-}) {
-  const asLines = (v: unknown) => (Array.isArray(v) ? (v as PurchaseLine[]) : []);
-  const arr = <T,>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
-  if (field.key === 'estimates') return <PricesEditor optional lines={asLines(values.lines)} value={arr<PriceRow>(values[field.key])} onChange={onChange} />;
-  if (field.key === 'prices') return <PricesEditor lines={asLines(context?.lines)} value={arr<PriceRow>(values[field.key])} onChange={onChange} />;
-  if (field.key === 'lines' && context?.lines) return <ReceiptEditor runId={typeof context._runId === 'number' ? context._runId : undefined} lines={asLines(context.lines)} value={arr<ReceiptRow>(values[field.key])} onChange={onChange} />;
-  if (field.key === 'lines') return <LinesEditor value={arr<PurchaseLine>(values[field.key])} onChange={onChange} />;
-  return <span className="muted">不支持编辑</span>;
 }
