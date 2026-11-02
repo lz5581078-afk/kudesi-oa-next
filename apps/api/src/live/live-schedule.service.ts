@@ -5,17 +5,17 @@ import { Injectable, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import {
-  LIVE_MAX_SCHEDULE_MINUTES, LIVE_SCHEDULE_STATUS, liveAddDays, liveCanScheduleDay, liveFromText, liveGroupRooms, liveIsDay, liveMinutesOf, liveToday,
+  type LiveProductEntry, type LiveProductSnapshot, LIVE_MAX_SCHEDULE_MINUTES, LIVE_SCHEDULE_STATUS, liveAddDays, liveCanScheduleDay, liveFromText, liveGroupRooms, liveIsDay, liveMinutesOf, liveToday,
 } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
 import { Notification } from '../entities';
 import { FeishuNoticeService } from '../outbox/feishu-notice.service';
-import { LiveAccess, liveDouyinAccounts, liveDouyinStores, liveEmployees, livePeople, liveProducts, liveRoomList, loadLiveAccess, requireManage, requireUse, requireView } from './live-access';
+import { LiveAccess, liveDouyinAccounts, liveDouyinStores, liveEmployees, livePeople, liveRoomList, loadLiveAccess, requireManage, requireUse, requireView, resolveLiveProducts } from './live-access';
 import { Row, SESSION_SELECT, idOf, liveClock, liveFail, lockCompany, text, wallNow } from './live-core';
 
 export interface ScheduleInput {
   date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId?: number | null; operatorId?: number | null;
-  channels?: LiveChannelInput[]; douyinAccountId: number; storeId?: number | null; note?: string; productIds?: number[];
+  channels?: LiveChannelInput[]; douyinAccountId: number; storeId?: number | null; note?: string; productIds?: number[]; productEntries?: LiveProductEntry[];
 }
 
 const SCHEDULE_SELECT = `SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text,
@@ -23,7 +23,7 @@ const SCHEDULE_SELECT = `SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') sch
     FROM live_schedules s JOIN users a ON a.id = s.anchor_user_id AND a.company_id = s.company_id
     LEFT JOIN users c ON c.id = s.control_user_id AND c.company_id = s.company_id LEFT JOIN users o ON o.id = s.operator_user_id AND o.company_id = s.company_id`;
 
-export function scheduleProducts(value: unknown): Array<{ id: number; code: string; name: string; spec: string }> {
+export function scheduleProducts(value: unknown): LiveProductSnapshot[] {
   const rows = typeof value === 'string' ? JSON.parse(value) : value;
   return Array.isArray(rows) ? rows : [];
 }
@@ -87,10 +87,7 @@ export class LiveScheduleService {
     if (input.operatorId && !(await liveEmployees(em, a.companyId)).some((p) => p.id === operatorId)) liveFail('所选运营人员不存在或已停用', 400);
     const channels = await validateChannels(em,a.companyId,input.channels ?? [{accountId:accountId!,storeIds:input.storeId?[input.storeId]:[]}]);
     const first=channels[0], account={id:first.accountId,name:channels.map(c=>c.accountName).join(' / ').slice(0,200)}, store=first.stores[0];
-    const productIds = [...new Set(input.productIds ?? [])];
-    if (productIds.length > 100 || productIds.some((id) => !idOf(id))) liveFail('最多选择 100 个有效产品', 400);
-    const products = await liveProducts(em, a.companyId, productIds);
-    if (products.length !== productIds.length) liveFail('有产品不存在或已停用，请重新选择', 400);
+    const products = await resolveLiveProducts(em, a.companyId, input);
     // 同一房间时间段不能重叠；同一主播不能同时在两个房间（相邻首尾相接不算重叠）
     const overlaps: Row[] = await em.query(
       `SELECT s.id, s.room_id, s.anchor_user_id, s.room_name, DATE_FORMAT(s.start_at,'%H:%i') st, DATE_FORMAT(s.end_at,'%H:%i') et, e.name anchor_name
@@ -241,7 +238,7 @@ export class LiveScheduleService {
       const upcoming = items.find((i) => ['upcoming', 'due'].includes(i.state)) ?? null;
       const status = live ? 'live' : day === liveToday(now) && items.some((i) => i.state === 'done') && !upcoming ? 'finished' : 'idle';
       const liveView = live ? {
-        products: liveProductsRows.filter((p) => Number(p.session_id) === Number(live.id)).map((p) => ({ id: Number(p.id), code: p.code, name: p.name, spec: p.spec })),
+        products: liveProductsRows.filter((p) => Number(p.session_id) === Number(live.id)).map((p) => ({ id: p.id == null ? null : Number(p.id), code: p.code, name: p.name, spec: p.spec })),
         id: Number(live.id), startAt: live.start_text, plannedEnd: live.schedule_end, anchor: { id: Number(live.anchor_user_id), name: live.anchor_name },
         control: live.control_user_id ? { id: Number(live.control_user_id), name: live.control_name } : null, operator: live.operator_user_id ? { id: Number(live.operator_user_id), name: live.operator_name } : null,
         douyinAccount: { id: Number(live.douyin_account_id), name: live.douyin_account_name },

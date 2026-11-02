@@ -4,12 +4,12 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import {
-  LIVE_ROLE_LABEL, LIVE_SESSION_STATUS, LIVE_START_EARLY_MS, LiveRuleError, liveAddDays, liveCanSeeSession, liveComputeCommission, liveFilterPreview, liveFromText, liveYuanToCents, liveIsDay, liveIsMonth,
+  type LiveProductEntry, LIVE_ROLE_LABEL, LIVE_SESSION_STATUS, LIVE_START_EARLY_MS, LiveRuleError, liveAddDays, liveCanSeeSession, liveComputeCommission, liveFilterPreview, liveFromText, liveYuanToCents, liveIsDay, liveIsMonth,
   liveMonthBounds, liveReportRoleFor, liveToText, liveToday, liveVersionFor,
 } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
 import { FlowService } from '../flow/flow.service';
-import { LiveAccess, liveDouyinAccounts, liveDouyinStores, liveProducts, liveRoomList, livePeople, loadLiveAccess, requireUse } from './live-access';
+import { LiveAccess, liveDouyinAccounts, liveDouyinStores, resolveLiveProducts, liveRoomList, livePeople, loadLiveAccess, requireUse } from './live-access';
 import { Row, SESSION_SELECT, closedDay, idOf, liveClock, liveFail, lockCompany, num, numOrNull, reportsOf, ruleVersions, sessionRow, text, wallNow } from './live-core';
 import { LiveOrderSource } from './live-order-source';
 import { ReviewForm, checkSubmittable, previewApproval } from './live-review';
@@ -17,7 +17,7 @@ import { serializeSchedule } from './live-schedule.service';
 
 export interface StartInput {
   scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null;
-  channels?: LiveChannelInput[]; douyinAccountId?: number | null; storeId?: number | null; productIds: number[]; startAt?: string | null;
+  channels?: LiveChannelInput[]; douyinAccountId?: number | null; storeId?: number | null; productIds?: number[]; productEntries?: LiveProductEntry[]; startAt?: string | null;
 }
 export interface ReportInput { storeLines?: LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
 export interface SessionQuery { from?: string; to?: string; roomId?: number; anchorId?: number; controlId?: number; status?: string; page?: number; pageSize?: number; reviewOnly?: boolean }
@@ -114,10 +114,7 @@ export class LiveSessionService {
       }
       const channels = await validateChannels(em, a.companyId, input.channels ?? (sched && channelsOf(sched).length ? channelsOf(sched) : [{ accountId: accountId!, storeIds: storeId ? [storeId] : [] }]));
       const primary = channels[0], account = { id: primary.accountId, name: channels.map(c => c.accountName).join(' / ').slice(0,200) }, store = primary.stores[0];
-      const productIds = [...new Set((input.productIds ?? []).map(Number))];
-      if (!productIds.length || productIds.length > 100 || productIds.some((v) => !idOf(v))) liveFail('请选择 1 到 100 个在卖产品', 400);
-      const products = await liveProducts(em, a.companyId, productIds);
-      if (products.length !== productIds.length) liveFail('有产品不存在或已停用，请重新选择', 400);
+      const products = await resolveLiveProducts(em, a.companyId, input, true);
       const [busyRoom] = await em.query("SELECT id FROM live_sessions WHERE company_id = ? AND status = 'live' AND room_id = ? LIMIT 1", [a.companyId, roomId]);
       if (busyRoom) liveFail('这个直播间正在直播，请先报下播');
       const [busyAnchor] = await em.query("SELECT id FROM live_sessions WHERE company_id = ? AND status = 'live' AND anchor_user_id = ? LIMIT 1", [a.companyId, anchorId]);
@@ -303,7 +300,7 @@ export class LiveSessionService {
     if (s.flow_run_id) { try { flow = await this.flow.detail(user, Number(s.flow_run_id)); } catch { flow = null; } }
     return {
       ...serializeSession(s),
-      products: products.map((p) => ({ id: Number(p.base_code_id), code: p.code_snapshot, name: p.name_snapshot, spec: p.spec_snapshot ?? '' })),
+      products: products.map((p) => ({ id: p.base_code_id == null ? null : Number(p.base_code_id), code: p.code_snapshot, name: p.name_snapshot, spec: p.spec_snapshot ?? '' })),
       reports: reports.map((r) => ({
         storeLines: linesOf(r), role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], manualActorId:r.manual_actor_id?Number(r.manual_actor_id):null, reporter: { id: Number(r.reporter_user_id), name: names.get(Number(r.reporter_user_id)) ?? '' }, endAt: r.end_text, salesCents: num(r.sales_cents),
         adSpendCents: numOrNull(r.ad_spend_cents), ordersTotalCents: numOrNull(r.orders_total_cents), orderCount: Number(r.order_count), note: r.note ?? '',

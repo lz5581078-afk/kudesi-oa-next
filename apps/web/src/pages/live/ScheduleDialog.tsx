@@ -1,10 +1,12 @@
 import { ChannelPicker, initialChannels } from './ChannelPicker';
 import { useEffect, useRef, useState } from 'react';
 import { TrialPersonDialog } from './TrialPersonDialog';
-import { liveApi, type Options, type Product, type ScheduleBody, type ScheduleRow } from './liveApi';
+import { liveApi, type Options, type ScheduleBody, type ScheduleRow } from './liveApi';
 import { errText } from './liveFormat';
 import { Modal } from './liveUi';
-import { ProductPicker } from './ProductPicker';
+import type { LiveProductSnapshot } from '@kudesi/shared';
+import { ManualProductEditor } from './ManualProductEditor';
+import { emptyManualProduct, productEntries } from './liveProducts';
 
 const dayLabel = (day: string) => `${day.slice(5)} 周${['日','一','二','三','四','五','六'][new Date(`${day}T00:00:00Z`).getUTCDay()]}`;
 
@@ -15,7 +17,7 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
     date: initial?.date ?? defaultDay ?? days[0], roomId: initial ? String(initial.roomId) : String(defaultRoom??''), startTime: initial?.startTime ?? '', endTime: initial?.endTime ?? '', anchorId: initial ? String(initial.anchor.id) : '',
     controlId: initial?.control ? String(initial.control.id) : '', operatorId: initial?.operator ? String(initial.operator.id) : '', douyinAccountId: initial ? String(initial.douyinAccount.id) : '', storeId: initial?.store ? String(initial.store.id) : '', note: initial?.note ?? '',
   });
-  const [picked, setPicked] = useState<Product[]>(initial?.products ?? []);
+  const [picked, setPicked] = useState<LiveProductSnapshot[]>(initial?.products?.length ? initial.products : [emptyManualProduct()]);
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState('');
   const request = useRef(0);
@@ -28,7 +30,7 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
   async function save() {
     setError('');
     if (!f.roomId || !f.startTime || !f.endTime || !f.anchorId || !channels.length || channels.some(c=>!c.storeIds.length)) return setError('请填写直播间、开始结束时间、主播、直播账号及关联店铺');
-    const body: ScheduleBody = { channels,date: f.date, roomId: Number(f.roomId), startTime: f.startTime, endTime: f.endTime, anchorId: Number(f.anchorId), controlId: f.controlId ? Number(f.controlId) : null, operatorId: f.operatorId ? Number(f.operatorId) : null, douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], note: f.note.trim() || undefined, productIds: picked.map((p) => p.id) };
+    const body: ScheduleBody = { channels,date: f.date, roomId: Number(f.roomId), startTime: f.startTime, endTime: f.endTime, anchorId: Number(f.anchorId), controlId: f.controlId ? Number(f.controlId) : null, operatorId: f.operatorId ? Number(f.operatorId) : null, douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], note: f.note.trim() || undefined, productEntries: productEntries(picked) };
     setBusy(true);
     try { if (initial) await liveApi.updateSchedule(initial.id, body); else await liveApi.createSchedule(body); onDone(); } catch (e) { setError(errText(e)); } finally { setBusy(false); }
   }
@@ -48,7 +50,7 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
       const usableChannels=previousChannels.filter(c=>opts.douyinAccounts.some(a=>a.id===c.accountId)).map(c=>({...c,storeIds:c.storeIds.filter(id=>{const a=opts.douyinAccounts.find(a=>a.id===c.accountId);return a?.storeIds?.includes(id)&&opts.stores.some(s=>s.id===id&&s.platform===a.platform);})}));
       unavailable ||= previousChannels.length!==usableChannels.length || usableChannels.some(c=>c.storeIds.length!==previousChannels.find(p=>p.accountId===c.accountId)?.storeIds.length);
       setChannels(usableChannels);
-      setPicked(row.products ?? []);
+      setPicked(row.products?.length ? row.products : [emptyManualProduct()]);
       setImportNote(`已导入 ${row.date} ${row.startTime}–${row.endTime} 的人员、账号、店铺、产品和备注。本次日期、时间保持不变。${unavailable ? '部分人员或账号已停用，已清空，请重新选择。' : '请核对后保存。'}`);
     } catch (e) { if (token === request.current) setError(errText(e, '导入失败')); }
     finally { if (token === request.current) setImporting(false); }
@@ -69,7 +71,7 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
           <label className="live-field">中控（可选）<select aria-label="中控" value={f.controlId} onChange={set('controlId')}><option value="">无</option>{opts.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           <label className="live-field">运营（可选）<select aria-label="运营" value={f.operatorId} onChange={set('operatorId')}><option value="">无</option>{opts.operators.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           <ChannelPicker options={opts} value={channels} onChange={setChannels}/>
-          <ProductPicker picked={picked} onChange={setPicked} />
+          <ManualProductEditor products={picked} onChange={setPicked} />
           <label className="live-field wide">备注（可选）<input aria-label="备注" maxLength={500} value={f.note} onChange={set('note')} /></label>
         </div>
       )}

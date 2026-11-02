@@ -25,6 +25,10 @@ class StoreLineDto {
   @IsOptional() @IsArray() @ArrayMaxSize(500) @IsString({each:true}) orderIds?:string[];
   @IsOptional() @IsString() @MaxLength(500) reason?:string;
 }
+class LiveProductEntryDto {
+  @IsOptional() @IsInt() @Min(1) productId?: number;
+  @IsOptional() @IsString() @MaxLength(200) name?: string;
+}
 class ScheduleDto {
   @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({each:true}) @Type(()=>ChannelDto) channels?:ChannelDto[];
   @IsString() @MaxLength(10) date!: string;
@@ -38,6 +42,7 @@ class ScheduleDto {
   @IsOptional() @IsInt() storeId?: number | null;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
   @IsOptional() @IsArray() @ArrayMaxSize(100) @IsInt({ each: true }) productIds?: number[];
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => LiveProductEntryDto) productEntries?: LiveProductEntryDto[];
 }
 class PreviousScheduleQuery {
   @Type(() => Number) @IsInt() @Min(1) roomId!: number;
@@ -54,7 +59,8 @@ class StartDto {
   @IsOptional() @IsInt() operatorId?: number | null;
   @IsOptional() @IsInt() douyinAccountId?: number | null;
   @IsOptional() @IsInt() storeId?: number | null;
-  @IsArray() @ArrayMaxSize(100) @IsInt({ each: true }) productIds!: number[];
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @IsInt({ each: true }) productIds?: number[];
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => LiveProductEntryDto) productEntries?: LiveProductEntryDto[];
   @IsOptional() @IsString() @MaxLength(19) startAt?: string | null;
 }
 class ReportDto {
