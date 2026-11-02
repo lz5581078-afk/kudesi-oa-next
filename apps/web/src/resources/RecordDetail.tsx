@@ -1,3 +1,4 @@
+import { useFinanceReference } from '../pages/finance/FinanceReferenceLayout';
 import { StoreJstRefresh } from './StoreJstSelect';
 import { copyValuesOf } from './HierRowActions';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
@@ -200,6 +201,7 @@ function typingTarget(el: EventTarget | null): boolean {
 const HIDE_EMPTY_KEY = 'kudesi.detail.hideEmpty';
 
 export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initialTab }: { def: ResourceDef; id: number; /** 打开时直接显示的页签（如列表里的“成本明细”） */ initialTab?: string; nav?: DetailNav; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
+  const financeReference = useFinanceReference();
   const can = useResourceCan(def.key);
   const canFeeView = useResourceCan('phones')('view');
   useUnitOptions();
@@ -381,7 +383,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const financeMore = [...moreItems.filter(item => item !== baseCopy), ...tabs.filter(([key]) => key !== 'info').map(([key, label]) => ({ key: `tab-${key}`, label, run: () => setTab(key) }))];
 
   return (
-    <Frame><aside className={finance ? `rd resource-detail finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}` : wide ? 'rd resource-detail rd-wide' : 'rd resource-detail'} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
+    <Frame><aside className={finance ? `rd${financeReference ? '' : ' resource-detail'} finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}` : wide ? `rd${financeReference ? '' : ' resource-detail'} rd-wide` : `rd${financeReference ? '' : ' resource-detail'}`} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
       {finance ? <FinanceDetailHead def={def} record={record} nav={nav} onClose={onClose} /> : <DetailHead
         def={def}
         record={record}

@@ -7,7 +7,7 @@ import { jstApi } from './jstApi';
 vi.mock('../../../auth/AuthContext', () => ({ useAuth: () => ({ can: () => true, user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } }) }));
 vi.mock('../../../resources/RecordDetail', () => ({ RecordDetail: () => <div>商品档案抽屉</div>, useResourceCan: () => () => true }));
 vi.mock('../../../resources/RecordForm', () => ({ RecordForm: ({ initial }: { initial?: Record<string, unknown> }) => <div role="dialog">表单 {JSON.stringify(initial ?? {})}</div> }));
-vi.mock('../../../resources/api', async (orig) => ({ ...(await orig<typeof import('../../../resources/api')>()), resourceApi: { list: vi.fn(), export: vi.fn() } }));
+vi.mock('../../../resources/api', async (orig) => ({ ...(await orig<typeof import('../../../resources/api')>()), resourceApi: { list: vi.fn(), export: vi.fn(), categoryTree: vi.fn().mockResolvedValue({field:'categoryId',nodes:[],total:0,uncategorized:0}) } }));
 vi.mock('./jstApi', async (orig) => ({ ...(await orig<typeof import('./jstApi')>()), jstApi: { baseOverview: vi.fn() } }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 

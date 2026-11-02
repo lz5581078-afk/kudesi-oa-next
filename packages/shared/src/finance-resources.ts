@@ -755,6 +755,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
   // ---------- 聚水潭分类 ----------
   {
     key: 'finance-base-codes',
+    filterBy: 'categoryId',
     label: '商品基础编码',
     nav: { group: '聚水潭分类', ...F },
     titleField: 'code',
