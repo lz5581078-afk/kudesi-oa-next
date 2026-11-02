@@ -25,6 +25,8 @@ export interface PositionProfile {
   logs: Array<{ id: number; action: string; resourceType: string; resourceId: string; detail: unknown; createdAt: string; actorName: string | null }>;
 }
 export interface HandoverPreview { counts: { workItems: number; flowSteps: number; routines: number; total: number }; suggested: { id: number; name: string } | null; candidates: Array<{ id: number; name: string }> }
+export interface StaffFeishuStatus { userId:number; bound:boolean|null; boundAt:string|null; notificationsEnabled:boolean|null; canTest:boolean; testBlockedReason:string|null }
+export interface StaffTestNotice { jobId:number; userId:number; status:'pending'|'sending'|'done'|'failed'|'cancelled'|'paused'; message:string; createdAt:string; doneAt:string|null }
 export interface StaffDto {
   id: number; account: string; name: string; departmentId: number | null; positionId: number | null; positionName: string | null;
   isCompanyAdmin: boolean; status: 'active' | 'disabled'; lastLoginAt: string | null;
@@ -87,6 +89,9 @@ export const orgApi = {
   updateDuty: (id: number, body: Partial<DutyDto> & { reason?: string }) => api(`/org/position-duties/${id}`, { method: 'PATCH', body }),
   deleteDuty: (id: number) => api(`/org/position-duties/${id}`, { method: 'DELETE' }),
   handoverPreview: (id: number) => api<HandoverPreview>(`/org/staff/${id}/handover-preview`),
+  staffFeishu: () => api<{rows:StaffFeishuStatus[]}>('/org/staff-feishu'),
+  staffTestNotice: (id:number,requestId:string) => api<StaffTestNotice>(`/org/staff-feishu/${id}/test-notifications`,{method:'POST',body:{requestId}}),
+  staffTestNoticeStatus: (id:number,jobId:number) => api<StaffTestNotice>(`/org/staff-feishu/${id}/test-notifications/${jobId}`),
   staff: () => api<StaffDto[]>('/org/staff'),
   staffOne: (id: number) => api<StaffDetail>(`/org/staff/${id}`),
   addStaff: (body: { account: string; name: string; departmentId: number | null; positionId: number | null; extraPositionIds?: number[]; managerId?: number | null; title?: string; baseSalary?: number | null; payType?: PayType; hourlyRate?: number | null; employmentType?: EmploymentType }) =>

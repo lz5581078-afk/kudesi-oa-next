@@ -1,3 +1,5 @@
+import { StaffFeishuController } from './org/staff-feishu.controller';
+import { StaffFeishuService } from './org/staff-feishu.service';
 import { LiveNotificationService } from './live/live-notification.service';
 import { FeishuBindingPolicy } from './auth/feishu-binding-policy';
 import { StaffEnrollmentService } from './org/staff-enrollment.service';
@@ -205,7 +207,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [AssistantController, StaffEnrollmentAdminController, StaffEnrollmentPublicController, CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, CostVersionController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, ExclusiveController, JstCenterController, CompatiblePurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, MaintenanceRemoteAssistController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
+  controllers: [StaffFeishuController, AssistantController, StaffEnrollmentAdminController, StaffEnrollmentPublicController, CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, CostVersionController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, ExclusiveController, JstCenterController, CompatiblePurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, MaintenanceRemoteAssistController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
   providers: [
     AuthService, FeishuAuthService, FeishuBindingPolicy, ExternalConfigService, FeishuClient, AssistantService,
     { provide: OUTBOX_SENDER, useClass: JushuitanSenderFactory },
@@ -213,7 +215,7 @@ const env = loadEnv();
     PlatformService,
     PlatformIntegrationService,
     OrgService,
-    OrgAdminService,
+    StaffFeishuService, OrgAdminService,
     StaffEnrollmentService,
     DeskAccessService,
     StaffImportService,
