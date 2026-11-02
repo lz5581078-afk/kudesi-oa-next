@@ -1,3 +1,4 @@
+import { storeJstText } from './StoreJstSelect';
 import { unitYuanText, formatYuan, type FieldDef, type ResourceDef, type StatusDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 import { unitOptionLabel } from './unitOptions';
@@ -9,6 +10,7 @@ export function statusOf(def: ResourceDef, value: string): StatusDef {
 
 /** 展示值：选项显示中文，金额显示元，引用显示名称，密码类显示是否已设置。 */
 export function displayValue(f: FieldDef, dto: ResourceDto): string {
+  if (dto.type === 'stores' && f.key === 'jushuitanShopId') return storeJstText(dto.data);
   if (f.type === 'secret') return dto.secretConfigured[f.key] ? '已设置' : '';
   const v = dto.data[f.key];
   if (v === undefined || v === null || v === '') return '';

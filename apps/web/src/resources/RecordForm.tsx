@@ -1,3 +1,4 @@
+import { StoreJstSelect } from './StoreJstSelect';
 import { CascadePicker } from './CascadePicker';
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { fieldOptions, useUnitOptions } from './unitOptions';
@@ -196,6 +197,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
   const units = useUnitOptions();
   useCategoryVersion(); // 分类改名/新增后下拉立即刷新
   const str = value === undefined || value === null ? '' : String(value);
+  if (type === 'stores' && field.key === 'jushuitanShopId') return <StoreJstSelect value={str} currentName={String(values?.jushuitanShopName ?? '')} onChange={onChange} />;
   switch (field.type) {
     case 'textarea':
       return <textarea rows={3} value={str} maxLength={field.maxLength} onChange={(e) => onChange(e.target.value)} />;
