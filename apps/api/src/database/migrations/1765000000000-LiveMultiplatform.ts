@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class LiveMultiplatform1764000000000 implements MigrationInterface {
+export class LiveMultiplatform1765000000000 implements MigrationInterface {
   async up(q: QueryRunner) {
     // Nullable snapshots keep all existing historical calculations unchanged.
     for (const table of ["live_schedules", "live_sessions"])

@@ -1,5 +1,5 @@
 import type { FieldDef } from '@kudesi/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FieldInput } from '../../resources/RecordForm';
 import { FileList } from '../../resources/FilesField';
 import { resourceApi, type FileInfo } from '../../resources/api';
@@ -41,17 +41,18 @@ function LiveReviewFields(props: Parameters<typeof GenericFields>[0]) {
   const [session,setSession]=useState<SessionDetail|null>(null);
   const [error,setError]=useState('');
   const [rows,setRows]=useState<StoreDraft[]>([]);
+  const edited=useRef(false);
   const id=Number(props.context?.sessionId);
   useEffect(()=>{let active=true;if(id)liveApi.session(id).then(s=>{if(active){setSession(s);setRows(storeDrafts(s.channels??[],liveJsonArray<LiveStoreLine>(props.values.storeLines).length?liveJsonArray<LiveStoreLine>(props.values.storeLines):s.reports.find(r=>r.role==='anchor')?.storeLines));}}).catch(()=>{if(active)setError('读取场次店铺失败，请刷新后审核');});return()=>{active=false;};},[id]);
   const multi=!!session?.channels?.length;
   const manual=props.values.finalSource==='manual';
   useEffect(()=>{
-    if(multi&&manual&&!props.values.storeLines)props.onChange('storeLines',session!.reports.find(r=>r.role==='anchor')?.storeLines??[]);
+    if(!edited.current&&multi&&manual&&!props.values.storeLines)props.onChange('storeLines',session!.reports.find(r=>r.role==='anchor')?.storeLines??[]);
   },[multi,manual,props.values.storeLines,session]); // onChange belongs to the active task form
   return <>
     {error&&<p className="notice error" role="alert">{error}</p>}
     <GenericFields {...props} fields={props.fields.filter(f=>f.key!=='storeLines'&&!(multi&&f.key==='finalSalesCents'))}/>
-    {multi&&manual&&<StorePerformanceTable channels={session!.channels!} rows={rows} onChange={next=>{setRows(next);try{props.onChange('storeLines',storePayload(next));setError('');}catch{props.onChange('storeLines',[]);setError('请逐店填写有效营业额和投流费用');}}}/>}
+    {multi&&manual&&<StorePerformanceTable channels={session!.channels!} rows={rows} onChange={next=>{edited.current=true;setRows(next);try{props.onChange('storeLines',storePayload(next));setError('');}catch{props.onChange('storeLines',[]);setError('请逐店填写有效营业额和投流费用');}}}/>}
   </>;
 }
 
