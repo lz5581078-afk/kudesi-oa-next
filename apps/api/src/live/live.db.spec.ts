@@ -814,7 +814,8 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.start(foreign,{actualCheckin:true,sessionId:made.id,confirmDetails:true})).rejects.toThrow(/不存在/);
     clock('2026-12-01 10:05:00');
     await expect(sessions.start(cc,{actualCheckin:true,sessionId:made.id})).rejects.toThrow(/核对/);
-    await sessions.start(cc,{actualCheckin:true,sessionId:made.id,confirmDetails:true});
+    await sessions.start(cc,{actualCheckin:true,sessionId:made.id,confirmDetails:true,channels:[{accountId:account,storeIds:[shop]}],productEntries:[{name:'中控核对后的产品'}]});
+    expect((await sessions.detail(cc,made.id)).products[0].name).toBe('中控核对后的产品');
     source.turnover=[{...order('QR1',10000),orderTime:'2026-12-01 10:10:00'},{...order('QR2',10000),orderTime:'2026-12-01 11:05:00'},{...order('BEFORE',99999),orderTime:'2026-12-01 09:59:59'}];
     source.refundMap.set('QR1',2000);
     clock('2026-12-01 11:00:00');
@@ -861,6 +862,12 @@ d('直播管理（真实数据库）', () => {
     expect((await sessions.detail(reviewer,solo.id)).ordersCaptureStatus).toBe('ready');
     await approve(solo.id,{finalSource:'anchor'});
     const soloFinal=await sessions.detail(manager,solo.id);expect(soloFinal.wages.map(w=>w.role)).toEqual(['anchor']);expect(soloFinal.commissions.map(c=>c.role)).toEqual(['anchor']);
+    clock('2026-12-03 10:00:00');
+    const disputed=await sessions.start(aa,{actualCheckin:true,roomId:room,anchorId:aa.id,productIds:[ids.p1],channels:[{accountId:account,storeIds:[shop]}]});
+    source.turnover=[{...order('QR1',10000),orderTime:'2026-12-03 10:10:00'}];clock('2026-12-03 11:00:00');
+    await sessions.report(aa,disputed.id,{role:'anchor',endAt:'2026-12-03 10:30:00',salesCents:0});
+    const disputedDetail=await sessions.detail(aa,disputed.id);expect(disputedDetail.endAt).toBe('2026-12-03 11:00:00');expect(disputedDetail.ordersCaptureStatus).toBe('pending');expect(disputedDetail.ordersCaptureError).toContain('其他场次');expect(disputedDetail.reports[0].pending).toBe(true);
+
 
   },30000);
 

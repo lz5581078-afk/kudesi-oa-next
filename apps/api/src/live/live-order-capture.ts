@@ -36,13 +36,15 @@ export async function captureOrders(source: LiveOrderSource, companyId: number, 
 }
 export async function persistCapture(em: EntityManager, companyId: number, sessionId: number, capture: Awaited<ReturnType<typeof captureOrders>>, at: Date) {
   await em.query('DELETE FROM live_session_order_snapshots WHERE company_id=? AND session_id=?', [companyId, sessionId]);
-  for (const o of capture.orders) {
-    const [duplicate]=await em.query('SELECT id FROM live_session_order_snapshots WHERE company_id=? AND shop_id=? AND order_id=? AND session_id<>? LIMIT 1',[companyId,o.shopId,o.orderId,sessionId]);
-    const [legacy]=await em.query('SELECT id FROM live_session_orders WHERE company_id=? AND shop_id=? AND order_id=? AND session_id<>? LIMIT 1',[companyId,o.shopId,o.orderId,sessionId]);
-    if(duplicate||legacy)throw new Error(`订单 ${o.orderId} 已归属于其他场次，请核对时间范围`);
+  for(let offset=0;offset<capture.orders.length;offset+=200){
+    const batch=capture.orders.slice(offset,offset+200),pairs=batch.map(()=>'(?,?)').join(','),keys=batch.flatMap(o=>[o.shopId,o.orderId]);
+    for(const table of ['live_session_order_snapshots','live_session_orders']){
+      const [duplicate]=await em.query(`SELECT order_id FROM ${table} WHERE company_id=? AND session_id<>? AND (shop_id,order_id) IN (${pairs}) LIMIT 1`,[companyId,sessionId,...keys]);
+      if(duplicate)throw new Error(`订单 ${duplicate.order_id} 已归属于其他场次，请核对时间范围`);
+    }
     await em.query(`INSERT INTO live_session_order_snapshots
-    (company_id,session_id,store_id,platform,account_ids_json,shop_id,order_id,inner_order_id,order_at,pay_time,paid,amount_cents,refund_cents,order_status,refund_json,captured_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [companyId,sessionId,o.storeId,o.platform,JSON.stringify(o.accountIds),o.shopId,o.orderId,o.innerId || null,o.orderTime,o.payTime,o.paid?1:0,o.amountCents,o.refund.cents,o.status,JSON.stringify(o.refund),wallNow(at)]);
+      (company_id,session_id,store_id,platform,account_ids_json,shop_id,order_id,inner_order_id,order_at,pay_time,paid,amount_cents,refund_cents,order_status,refund_json,captured_at)
+      VALUES ${batch.map(()=>'(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',')}`,batch.flatMap(o=>[companyId,sessionId,o.storeId,o.platform,JSON.stringify(o.accountIds),o.shopId,o.orderId,o.innerId||null,o.orderTime,o.payTime,o.paid?1:0,o.amountCents,o.refund.cents,o.status,JSON.stringify(o.refund),wallNow(at)]));
   }
   // A failed checkout may have saved the clock with explicitly pending figures.
   // Once the read recovers, reconcile only those automatic reports, never an operator's manual report.

@@ -23,7 +23,7 @@ export interface SessionRow { checkinMode?:boolean; reportDeadline?:string|null;
 }
 export interface RoleAmount { rateUnits: number; amountCents: number }
 export interface Preview { aggregated?:boolean; available: boolean; reason: string; basisSalesCents?: number; adSpendCents?: number; roiScaled?: number | null; belowRoi?: boolean; anchor: RoleAmount | null; control: RoleAmount | null; operator: RoleAmount | null }
-export interface ReportDto { storeLines?:LiveStoreLine[];
+export interface ReportDto { pending?:boolean; storeLines?:LiveStoreLine[];
   manualActorId?:number|null;role: 'anchor' | 'control' | 'operator'; roleLabel: string; reporter: Person; endAt: string; salesCents: number; adSpendCents: number | null; ordersTotalCents: number | null; orderCount: number; note: string;
   orders: Array<{ orderId: string; amountCents: number; payTime: string | null; status: string | null }>;
 }
@@ -92,7 +92,7 @@ const post = <T>(path: string, body: unknown = {}) => api<T>(path, { method: 'PO
 export interface SubmissionStatus { ready: boolean; message: string }
 
 export interface SourceStatus { ready: boolean; code: 'ready' | 'unconfigured' | 'unauthorized' | 'expired' | 'error'; message: string }
-export interface CheckoutPreview {minutes?:number;role:string;startAt:string;endAt:string;salesCents:number|null;orderCount:number|null;reason:string;wage:{minutes:number;amountCents:number;hourlyRateCents:number}|null;commission:RoleAmount|null;locked:boolean}
+export interface CheckoutPreview {wageMessage?:string|null;minutes?:number;role:string;startAt:string;endAt:string;salesCents:number|null;orderCount:number|null;reason:string;wage:{minutes:number;amountCents:number;hourlyRateCents:number}|null;commission:RoleAmount|null;locked:boolean}
 export const liveApi = {
   checkinContext:(roomId?:number)=>api<Workbench & {rooms:RoomOpt[]}>(`/live/checkin-context${qs({roomId})}`),
   checkoutPreview:(id:number,role:string)=>api<CheckoutPreview>(`/live/sessions/${id}/checkout-preview${qs({role})}`),

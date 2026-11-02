@@ -3,12 +3,12 @@ import { ManualProductEditor } from './ManualProductEditor';
 import { productEntries, emptyManualProduct } from './liveProducts';
 import { ChannelPicker, initialChannels } from './ChannelPicker';
 import { useEffect, useState } from 'react';
-import { liveApi, type Options, type Product, type ScheduleRow } from './liveApi';
+import { liveApi, type Options, type Product, type ScheduleRow, type SessionDetail } from './liveApi';
 import { errText, nowText } from './liveFormat';
 import { Modal, names } from './liveUi';
 
 /** 报上播：从排场带出（人、房间已定），或临时加场；必须选有直播权限的账号、关联店铺，并至少填写或选择 1 个在卖产品。 */
-function StartForm({ schedule, identity, roomId: fixedRoomId, onClose, onDone }: { roomId?:number; schedule: ScheduleRow | null; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; onClose: () => void; onDone: (sessionId: number) => void }) {
+function StartForm({ schedule, identity, joining, roomId: fixedRoomId, onClose, onDone }: { joining?:SessionDetail; roomId?:number; schedule: ScheduleRow | null; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; onClose: () => void; onDone: (sessionId: number) => void }) {
   const [opts, setOpts] = useState<Options | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -43,7 +43,7 @@ function StartForm({ schedule, identity, roomId: fixedRoomId, onClose, onDone }:
     setBusy(true);
     try {
       const r = await liveApi.start({
-        confirmDetails:confirmed,confirmEarly:early,scheduleFingerprint:schedule?.fingerprint, scheduleId: schedule?.id ?? null, roomId: roomId ? Number(roomId) : null, anchorId: anchorId ? Number(anchorId) : null, controlId: controlId ? Number(controlId) : null, operatorId: operatorId ? Number(operatorId) : null,
+        sessionId:joining?.id,confirmDetails:confirmed,confirmEarly:early,scheduleFingerprint:schedule?.fingerprint, scheduleId: schedule?.id ?? null, roomId: roomId ? Number(roomId) : null, anchorId: anchorId ? Number(anchorId) : null, controlId: controlId ? Number(controlId) : null, operatorId: operatorId ? Number(operatorId) : null,
         channels,douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], ...(schedule ? { productEntries: productEntries(picked) } : { productIds: picked.flatMap((p) => p.id === null ? [] : [p.id]) }),
       });
       onDone(r.id);
@@ -51,7 +51,7 @@ function StartForm({ schedule, identity, roomId: fixedRoomId, onClose, onDone }:
   }
 
   return (
-    <Modal title={schedule ? '报上播（按排场）' : '报上播（临时加场）'} onClose={onClose} foot={<>
+    <Modal title={joining?'核对本场并确认本人上播':schedule ? '报上播（按排场）' : '报上播（临时加场）'} onClose={onClose} foot={<>
       <button type="button" className="secondary-button" onClick={onClose}>取消</button>
       <button type="button" className="primary-button live-clock-button" disabled={busy || !opts} onClick={() => void submit()}>{busy ? '提交中…' : beforePlan&&early?'仍要提前开播':'确认上播'}</button>
     </>}>
@@ -62,8 +62,8 @@ function StartForm({ schedule, identity, roomId: fixedRoomId, onClose, onDone }:
           {(
             <>
               <label className="live-field">直播间<select disabled={!!schedule||!!fixedRoomId} value={roomId} onChange={(e) => setRoomId(e.target.value)}><option value="">请选择</option>{opts.rooms.map((r) => <option key={r.id} value={r.id} disabled={r.live}>{r.name}{r.live ? '（正在直播）' : ''}</option>)}</select></label>
-              {(!identity.isAnchor || identity.canManage) && <label className="live-field">主播<select value={anchorId} onChange={(e) => setAnchorId(e.target.value)}><option value="">{identity.isAnchor ? '本人' : '请选择'}</option>{opts.anchors.map((p) => <option key={p.id} value={p.id} disabled={p.live}>{p.name}{p.live ? '（正在直播）' : ''}</option>)}</select></label>}
-              <label className="live-field">中控（可选）<select value={controlId} onChange={(e) => setControlId(e.target.value)}><option value="">{identity.isControl && !identity.isAnchor ? '本人' : '无'}</option>{opts.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+              {(!identity.isAnchor || identity.canManage) && <label className="live-field">主播<select disabled={!!joining} value={anchorId} onChange={(e) => setAnchorId(e.target.value)}><option value="">{identity.isAnchor ? '本人' : '请选择'}</option>{opts.anchors.map((p) => <option key={p.id} value={p.id} disabled={p.live}>{p.name}{p.live ? '（正在直播）' : ''}</option>)}</select></label>}
+              <label className="live-field">中控（可选）<select disabled={!!joining} value={controlId} onChange={(e) => setControlId(e.target.value)}><option value="">{identity.isControl && !identity.isAnchor ? '本人' : '无'}</option>{opts.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
               <label className="live-field">运营（可选，审核时由人事确认）<select value={operatorId} onChange={(e) => setOperatorId(e.target.value)}><option value="">无</option>{opts.operators.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
             </>
           )}
@@ -97,4 +97,10 @@ export function StartDialog(props:Parameters<typeof StartForm>[0]){
   if(!loaded)return <Modal title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班…</p>}</Modal>;
   if(!props.schedule&&!chosen&&!manual&&plans.length)return <Modal title="选择本次排班" onClose={props.onClose}><p>已读取你的排班，请核对要开始的场次。</p><div className="live-checkin-actions">{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}>{s.roomName} · {s.date} {s.startTime}–{s.endTime}</button>)}<button className="secondary-button live-clock-button" onClick={()=>setManual(true)}>没有对应排班，临时开播</button></div></Modal>;
   return <StartForm {...props} schedule={chosen}/>;
+}
+
+/** When another role has already opened the room, confirm the actual session rather than the original plan. */
+export function JoinDialog({session,role,onClose,onDone}:{session:SessionDetail;role:'anchor'|'control';onClose:()=>void;onDone:(id:number)=>void}){
+  const actual:ScheduleRow={id:session.scheduleId??0,roomId:session.roomId,roomName:session.roomName,date:session.date,start:session.startAt,end:session.endAt??session.startAt,startTime:session.startAt.slice(11,16),endTime:(session.endAt??session.plannedEnd??session.startAt).slice(11,16),status:'live',statusLabel:'直播中',anchor:session.anchor,control:session.control,operator:session.operator,douyinAccount:session.douyinAccount,store:session.store,channels:session.channels,products:session.products,sessionId:session.id,note:null,cancelReason:null};
+  return <StartForm joining={session} schedule={actual} identity={{isAnchor:role==='anchor',isControl:role==='control',canManage:false}} onClose={onClose} onDone={onDone}/>;
 }

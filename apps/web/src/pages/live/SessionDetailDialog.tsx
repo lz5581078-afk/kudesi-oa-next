@@ -1,3 +1,4 @@
+import { JoinDialog } from './StartDialog';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { LIVE_FINAL_SOURCES, LIVE_PLATFORMS } from '@kudesi/shared';
@@ -12,7 +13,7 @@ import { SubmissionNotice } from './SubmissionNotice';
 export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged?: () => void }) {
   const [s, setS] = useState<SessionDetail | null>(null);
   const [error, setError] = useState('');
-  const [mode, setMode] = useState<'' | 'report' | 'review'>('');
+  const [mode, setMode] = useState<'' | 'report' | 'review' | 'join'>('');
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [submitted, setSubmitted] = useState(false);
@@ -28,6 +29,7 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
   if (mode === 'report' && s) return <ReportDialog session={s} onClose={() => setMode('')} onDone={changed} />;
   if (mode === 'review' && s?.flow) return <ReviewDialog session={s} onClose={() => setMode('')} onDone={changed} />;
   const joinRole=s?.checkinMode&&s.status==='live'&&!s.reportDeadline?s.me.reportRoles.find(r=>r!=='operator'&&!s.myCheckins?.some(c=>c.role===r)):null;
+  if(mode==='join'&&s&&joinRole&&joinRole!=='operator')return <JoinDialog session={s} role={joinRole} onClose={()=>setMode('')} onDone={changed}/>;
   const canReview = !!s?.flow?.me.canPass && s.status === 'submitted';
   return (
     <Modal title="直播场次" size="wide" bodyClassName="live-session-detail" onClose={onClose} foot={s && <div className="live-session-footer">
@@ -36,7 +38,7 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
       {s.me.canSubmit && s.submission && <SubmissionNotice status={s.submission} onRefresh={load} />}
       <div className="live-actions">
       <button type="button" className="secondary-button" onClick={onClose}>关闭详情</button>
-      {joinRole&&<button type="button" className="primary-button live-clock-button" disabled={busy} onClick={async()=>{setBusy(true);setSubmitError('');try{await liveApi.start({sessionId:s.id,confirmDetails:true});changed();}catch(e){setSubmitError(errText(e));}finally{setBusy(false);}}}>已核对下方人员、账号、店铺和产品，确认本人上播</button>}
+      {joinRole&&<button type="button" className="primary-button live-clock-button" onClick={()=>setMode('join')}>核对并修正本场信息 / 本人上播</button>}
       {s.me.reportRoles.length > 0 && !joinRole && <button type="button" className="primary-button live-clock-button" onClick={() => setMode('report')}>{s.reports.some((r) => s.me.reportRoles.includes(r.role)) ? '修改下播报告' : s.status === 'live' ? '报下播' : '补报下播'}</button>}
       {s.me.canSubmit && !submitted && <button type="button" className="primary-button" disabled={busy || s.submission?.ready === false} onClick={() => void submit()}>{busy ? '提交中…' : s.status === 'returned' ? '重新提交审核' : '提交审核'}</button>}
       {canReview && <button type="button" className="primary-button" onClick={() => setMode('review')}>审核</button>}
@@ -61,7 +63,7 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
           {s.reports.length > 0 ? (
             <div className="live-scroll"><table className="data-table" aria-label="下播报告">
               <thead><tr><th>角色</th><th>填报人</th><th>下播时间</th><th className="num">销售额</th><th className="num">订单合计</th><th className="num">订单数</th><th className="num">投流</th></tr></thead>
-              <tbody>{s.reports.map((r) => <tr key={r.role}><td data-label="角色">{r.roleLabel}</td><td data-label="填报人">{r.reporter.name}{r.manualActorId?'（人事代报）':''}</td><td data-label="下播时间">{hm(r.endAt, s.date)}</td><td data-label="销售额" className="num">{money(r.salesCents)}</td><td data-label="订单合计" className="num">{money(r.ordersTotalCents)}</td><td data-label="订单数" className="num">{r.orderCount}</td><td data-label="投流" className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
+              <tbody>{s.reports.map((r) => <tr key={r.role}><td data-label="角色">{r.roleLabel}</td><td data-label="填报人">{r.reporter.name}{r.manualActorId?'（人事代报）':''}</td><td data-label="下播时间">{hm(r.endAt, s.date)}</td><td data-label="销售额" className="num">{r.pending?'待核对':money(r.salesCents)}</td><td data-label="订单合计" className="num">{r.pending?'待归集':money(r.ordersTotalCents)}</td><td data-label="订单数" className="num">{r.orderCount}</td><td data-label="投流" className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
             </table></div>
           ) : <p className="muted">还没有人报下播。</p>}
           {s.channels?.length&&<div className="live-scroll"><table className="data-table" aria-label="店铺业绩明细"><thead><tr><th>平台 / 店铺</th><th>填报角色</th><th>营业额</th><th>投流</th><th>订单核对</th></tr></thead><tbody>{s.reports.flatMap(r=>(r.storeLines??[]).map(l=><tr key={`${r.role}:${l.storeId}`}><td data-label="平台 / 店铺">{LIVE_PLATFORMS[l.platform]} · {s.channels!.flatMap(c=>c.stores).find(v=>v.id===l.storeId)?.name}</td><td data-label="填报角色">{r.roleLabel}</td><td data-label="营业额">{money(l.salesCents)}</td><td data-label="投流">{r.role==='control'?money(l.adSpendCents):'—'}</td><td data-label="订单核对">{l.verified?'已核对订单':`特殊核定：${l.reason||'未核对订单'}`}</td></tr>))}</tbody></table></div>}

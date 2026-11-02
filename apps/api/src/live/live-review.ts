@@ -256,7 +256,7 @@ export async function previewApproval(em: EntityManager, companyId: number, sess
     platforms, storeLines:resolvePlatformSales(session,reports,form),
     finalSource: final.source, finalSalesCents: result.finalSalesCents, adSpendCents: result.adSpendCents, roiScaled: result.roiScaled, belowRoi: result.belowRoi,
     ruleVersion: { id: version!.id, effectiveFrom: version!.effectiveFrom }, tier: result.tier,
-    anchor: result.anchor, control: session.control_user_id ? result.control : null, operator: operator.counted ? result.operator : null,
+    anchor: result.anchor, control: session.control_user_id && (!session.checkin_mode||reports.some(r=>r.role==='control')) ? result.control : null, operator: operator.counted ? result.operator : null,
     operatorUserId: operator.finalId, operatorDoubledAsControl: operator.doubledAsControl,
     controlWage: session.control_user_id && (!session.checkin_mode||reports.some(r=>r.role==='control')) && !(await commissionOnlyControl(em, companyId, session.control_user_id)) ? await resolveWage(em, companyId, session, form, 'control'):null,
     wage: { startAt: wage.startAt, endAt: wage.endAt, minutes: wage.minutes, hourlyRateCents: wage.hourlyRateCents, amountCents: wage.amountCents, rateSource: wage.rateSource, archiveHourlyRateCents: wage.archiveRate },

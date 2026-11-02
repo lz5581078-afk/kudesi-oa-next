@@ -18,12 +18,13 @@ export function LiveDeskPage() {
   const [tab, setTab] = useState<'desk' | 'history'>('desk');
   const [starting, setStarting] = useState<{ schedule: ScheduleRow | null } | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
-  const load = useCallback(() => { liveApi.workbench().then((x) => { setD(x); setError(''); }).catch((e) => setError(errText(e, '读取失败'))); }, []);
+  const load = useCallback(() => { if(roomId)return; liveApi.workbench().then((x) => { setD(x); setError(''); }).catch((e) => setError(errText(e, '读取失败'))); }, [roomId]);
   useEffect(load, [load]);
   useEffect(() => {
     const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60_000);
     return () => clearInterval(t);
   }, [load]);
+  if(roomId)return <div className="live-page"><LiveCheckinPanel roomId={roomId} companyId={companyId}/></div>;
   const canStart = !!d && (d.identity.isAnchor || d.identity.isControl);
   return (
     <div className="live-page">

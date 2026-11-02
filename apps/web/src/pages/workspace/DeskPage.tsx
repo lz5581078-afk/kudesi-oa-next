@@ -44,7 +44,7 @@ export function DeskPage() {
     cards: desk.cards,
     pending: desk.pending,
     blank: current.workspaceType === 'blank',
-    top: current.assigned && ['live_anchor','live_control'].includes(current.workspaceType) ? <LiveCheckinPanel/> : current.workspaceType === 'operations' && can('resource.store-daily-metrics.view') ? <DailyBusinessPanel /> : undefined,
+    top: <>{current.assigned && (['live_anchor','live_control'].includes(current.workspaceType)||current.workspaceType==='operations'&&(can('features.live-desk.view')||can('features.live.view'))) && <LiveCheckinPanel/>}{current.workspaceType==='operations'&&can('resource.store-daily-metrics.view')&&<DailyBusinessPanel/>}</>,
   } : null;
   return (
     <div>
