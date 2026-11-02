@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { randomBytes } from 'crypto';
 import { DataSource } from 'typeorm';
-import { deskAccessPermissions } from '@kudesi/shared';
+import { allGrantableKeys, deskAccessPermissions } from '@kudesi/shared';
 import { buildDataSourceOptions } from '../database/data-source';
 import { AuditLog, Company, Department, Position, PositionPermission, User, UserPermissionOverride } from '../entities';
 import { AuthUser } from '../common/auth.decorators';
@@ -63,6 +63,32 @@ db('岗位功能批量授权（真实数据库）', () => {
     await svc.apply(a.actor, plan.fingerprint);
     expect((await ds.manager.find(PositionPermission, { where: { positionId: a.fp.id } })).map((g) => g.permission)).toEqual(['finance.docs.post']);
     expect(await ds.manager.count(UserPermissionOverride, { where: { userId: a.hu.id } })).toBe(2);
+  });
+  it('真实部门名为人事综合部时，两个人事岗位完整203项及个人授权保留', async () => {
+    const a = await fixture();
+    await ds.manager.update(Department, { companyId: a.company.id, name: '人事部' }, { name: '人事综合部' });
+    const second = await ds.manager.save(Position, ds.manager.create(Position, { companyId: a.company.id, name: '人事专员', departmentId: a.hp.departmentId, workspaceType: 'general', level: 'staff', status: 'active', sortOrder: 0 }));
+    const original = [...allGrantableKeys()].sort().slice(0, 203);
+    for (const positionId of [a.hp.id, second.id]) {
+      await ds.manager.delete(PositionPermission, { positionId });
+      await ds.manager.save(PositionPermission, original.map((permission) => ds.manager.create(PositionPermission, { positionId, permission })));
+    }
+    const plan = await svc.preview(a.actor);
+    expect(plan.protectedDepartments).toContain('人事综合部');
+    for (const id of [a.hp.id, second.id]) {
+      const p = plan.positions.find((p) => p.id === id)!;
+      expect(p.preserved).toBe(true); expect(p.before).toHaveLength(203); expect(p.after).toEqual(p.before);
+    }
+    await svc.apply(a.actor, plan.fingerprint);
+    for (const positionId of [a.hp.id, second.id]) expect((await ds.manager.find(PositionPermission, { where: { positionId } })).map((p) => p.permission).sort()).toEqual(original);
+    expect(await ds.manager.count(UserPermissionOverride, { where: { userId: a.hu.id } })).toBe(1);
+  });
+  it('无法识别人事部门时禁止预览和应用，不会悄悄缩减原权限', async () => {
+    const a = await fixture(), plan = await svc.preview(a.actor);
+    await ds.manager.update(Department, { companyId: a.company.id, name: '人事部' }, { name: '待核定部门' });
+    await expect(svc.preview(a.actor)).rejects.toThrow(/未识别/);
+    await expect(svc.apply(a.actor, plan.fingerprint)).rejects.toThrow(/未识别/);
+    expect((await ds.manager.find(PositionPermission, { where: { positionId: a.hp.id } })).map((p) => p.permission)).toEqual(['live.manage']);
   });
   it('写审计失败时整批回滚，不产生半数岗位已更新的状态', async () => {
     const a = await fixture(), plan = await svc.preview(a.actor);
