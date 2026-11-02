@@ -1,3 +1,4 @@
+import { StoreJstRefresh } from './StoreJstSelect';
 import { copyValuesOf } from './HierRowActions';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useUnitOptions } from './unitOptions';
@@ -369,7 +370,8 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const feeLink = (def.key === 'phones' || def.key === 'broadband') && canFeeView ? (
     <Link className="res-btn" to={`/resource/fee-settings?tab=${def.key === 'phones' ? 'all' : 'broadband'}&q=${encodeURIComponent(record.title)}`} title="在费用模块里查看这条的费用、主子卡和绑定关系">在费用模块查看</Link>
   ) : null;
-  const quick = phoneRecharge || assetBar || feeLink || record.warehouseMode ? <>{phoneRecharge}{feeLink}{assetBar}{record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}</> : undefined;
+  const jstRefresh = def.key === 'stores' && live && can('edit') && record.data.jushuitanShopId ? <StoreJstRefresh key={record.id} id={record.id} onDone={reloadAll} /> : null;
+  const quick = jstRefresh || phoneRecharge || assetBar || feeLink || record.warehouseMode ? <>{jstRefresh}{phoneRecharge}{feeLink}{assetBar}{record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}</> : undefined;
 
   const finance = FINANCE_DETAIL_TYPES.has(def.key);
   const Frame = finance ? FinanceDetailBackdrop : Fragment;

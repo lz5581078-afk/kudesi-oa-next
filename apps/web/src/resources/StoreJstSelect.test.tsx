@@ -58,3 +58,38 @@ it('表格编辑弹窗提交店铺编号，取消时不修改', async () => {
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
   expect(onCancel).toHaveBeenCalledTimes(1);
 });
+
+it('选择店铺可预览授权到期日、永久授权和未知状态', async () => {
+  vi.spyOn(resourceApi, 'jushuitanShops').mockResolvedValue([
+    { ...shops[0], expiresAt: '2027-03-17', expiryStatus: 'dated' },
+    { ...shops[1], expiresAt: null, expiryStatus: 'permanent' },
+    { id: '789', name: '未知店', platform: '淘宝', expiresAt: null, expiryStatus: 'unknown' },
+  ]);
+  const view = render(<StoreJstSelect value="123" onChange={vi.fn()} />);
+  expect(await screen.findByText(/授权到期：2027-03-17/)).toBeTruthy();
+  view.rerender(<StoreJstSelect value="456" onChange={vi.fn()} />);
+  expect(screen.getByText(/永久授权；保存关联后同步/)).toBeTruthy();
+  view.rerender(<StoreJstSelect value="789" onChange={vi.fn()} />);
+  expect(screen.getByText(/未返回有效到期时间；保存关联后同步/)).toBeTruthy();
+});
+
+it('刷新更新到期日期；失败显示错误并保留原页面', async () => {
+  const { StoreJstRefresh } = await import('./StoreJstSelect');
+  const onDone = vi.fn();
+  const request = vi.spyOn(resourceApi, 'refreshJushuitanShop').mockResolvedValueOnce({ data: { jushuitanExpireAt: '2028-01-01', jushuitanExpiryStatus: 'dated' } } as never).mockRejectedValueOnce(new Error('授权查询失败'));
+  render(<StoreJstRefresh id={7} onDone={onDone} />);
+  fireEvent.click(screen.getByRole('button', { name: '刷新聚水潭授权' }));
+  expect(await screen.findByText('已更新到期日期：2028-01-01')).toBeTruthy();
+  expect(request).toHaveBeenCalledWith(7);
+  expect(onDone).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: '刷新聚水潭授权' }));
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', '授权查询失败');
+  expect(onDone).toHaveBeenCalledTimes(1);
+});
+
+it('永久或未知期限在原日期列显示明确文字', async () => {
+  const { displayValue } = await import('./format');
+  const field = getResourceDef('stores')!.fields.find(f => f.key === 'jushuitanExpireAt')!;
+  expect(displayValue(field, { type: 'stores', data: { jushuitanExpiryStatus: 'permanent' } } as never)).toBe('永久授权');
+  expect(displayValue(field, { type: 'stores', data: { jushuitanExpiryStatus: 'unknown' } } as never)).toBe('未返回有效到期时间');
+});
