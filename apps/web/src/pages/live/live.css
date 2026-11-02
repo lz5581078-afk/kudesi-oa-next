@@ -272,3 +272,7 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .live-modal-backdrop:has(.live-review-summary) { padding: 16px; align-items: center; overflow: clip; }
 .modal-body:has(.live-review-summary) > * { flex-shrink: 0; min-width: 0; }
 @media (max-width: 640px) { .live-modal-backdrop:has(.live-review-summary) { padding: 0; } }
+/* 台账展示实际场次起止，不使用计薪时长推算直播时间。 */
+.data-table td.live-payroll-session { min-width: 230px; max-width: 420px; white-space: normal; overflow-wrap: anywhere; }
+.live-payroll-session > span,.live-payroll-session > strong,.live-payroll-session > small { display: block; line-height: 1.65; }
+.live-payroll-session > small { color: var(--muted); }

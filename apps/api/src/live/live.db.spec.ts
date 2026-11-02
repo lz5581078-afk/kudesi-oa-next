@@ -287,6 +287,20 @@ d('直播管理（真实数据库）', () => {
     expect((await ledger.wages(anchor, { month: '2026-09' })).rows).toHaveLength(3);
     expect((await ledger.wages(control, { month: '2026-09' })).rows).toHaveLength(3);
     await expect(ledger.commissions(stranger, { month: '2026-09' })).rejects.toThrow(/无权/);
+    const sid=mine.rows[0].sessionId;
+    const manualProduct=await ds.query("INSERT INTO live_session_products(company_id,session_id,base_code_id,code_snapshot,name_snapshot,spec_snapshot,sort_order) VALUES(?,?,NULL,'','本场手填产品','大包',99)",[company,sid]);
+    const otherProduct=await ds.query("INSERT INTO live_session_products(company_id,session_id,base_code_id,code_snapshot,name_snapshot,spec_snapshot,sort_order) VALUES(?,?,NULL,'','别家公司产品','',100)",[foreign.companyId,sid]);
+    try {
+      const refreshed=await ledger.commissions(anchor,{month:'2026-09'});
+      const row=refreshed.rows.find(r=>r.sessionId===sid)!;
+      const original=await sessions.detail(anchor,sid);
+      expect(row.startAt).toBe(original.startAt.slice(0,16));expect(row.endAt).toBe(original.endAt!.slice(0,16));
+      expect(row.products).toEqual(original.products);
+      expect(row.products).toContainEqual({id:null,code:'',name:'本场手填产品',spec:'大包'});
+      expect(JSON.stringify(row.products)).not.toContain('别家公司产品');expect(JSON.stringify(row.products)).not.toContain('cost');
+    }finally{
+      await ds.query('DELETE FROM live_session_products WHERE id IN (?,?)',[manualProduct.insertId,otherProduct.insertId]);
+    }
     const rules = await ledger.rules(manager);
     expect(rules.versions).toHaveLength(1);
     expect(rules.versions[0].usedCount).toBeGreaterThan(0);
