@@ -7,7 +7,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
 import { IntegrationSetting, OutboxJob, OutboxSwitch, ResourceChangeLog } from '../entities';
 import { FeishuClient } from '../integrations/feishu.client';
-import { ASSISTANT_CHANNEL, ASSISTANT_KEY, AssistantConfig, beijingClock, morningDue, MORNING_TEXT, WELCOME_TEXT } from './greetings';
+import { ASSISTANT_CHANNEL, ASSISTANT_KEY, AssistantConfig, beijingClock, morningDue, MORNING_TEXT, WELCOME_TEXT, HELLO_TEXT } from './greetings';
 
 type JoinEvent = { app_id?: string; tenant_key?: string; create_time?: string; object?: { open_id?: string; status?: { is_resigned?: boolean; is_exited?: boolean } } };
 export type AssistantInput = Omit<AssistantConfig, 'activatedAt' | 'appSecret'> & { appSecret?: string };
@@ -47,11 +47,12 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
     const main = cfg ? null : await this.ds.manager.findOne(IntegrationSetting, { where: { companyId, settingKey: 'feishu' } });
     const jobs = await this.ds.query('SELECT id,kind,status,attempts,last_error AS lastError,created_at AS createdAt,done_at AS doneAt FROM outbox_jobs WHERE company_id=? AND channel=? ORDER BY id DESC LIMIT 15', [companyId, ASSISTANT_CHANNEL]);
     const sw = await this.ds.manager.findOne(OutboxSwitch, { where: { companyId, channel: ASSISTANT_CHANNEL } });
+    const helloSubmitted = cfg ? await this.ds.manager.exists(OutboxJob, { where: { companyId, channel: ASSISTANT_CHANNEL, idempotencyKey: `oa:${companyId}:${cfg.appId}:manual-hello` } }) : false;
     return {
       appId: cfg?.appId ?? 'cli_aa62b26501785bcd', tenantKey: cfg?.tenantKey ?? (main ? this.decode(main).tenantKey : '') ?? '', secretConfigured: !!cfg?.appSecret,
       enabled: !!cfg?.enabled && !!sw?.enabled, morningEnabled: cfg?.morningEnabled ?? true, welcomeEnabled: cfg?.welcomeEnabled ?? true,
       morningText: cfg?.morningText ?? MORNING_TEXT, welcomeText: cfg?.welcomeText ?? WELCOME_TEXT,
-      departmentIds: cfg?.departmentIds ?? ['0'], timezone: 'Asia/Shanghai', time: '08:00',
+      departmentIds: cfg?.departmentIds ?? ['0'], timezone: 'Asia/Shanghai', time: '08:00', helloText: HELLO_TEXT, helloSubmitted,
       workerRunning: !!this.timer, eventConnection: this.connections.get(companyId)?.client.getConnectionStatus().state ?? 'not_started', jobs,
     };
   }
@@ -87,6 +88,15 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
     if (!cfg) throw new BadRequestException('请先保存助手配置');
     await this.feishu.checkBatchScope(cfg, cfg.departmentIds);
     return { ok: true, message: '应用鉴权及通讯录发送范围检查成功；此操作未向员工发送消息。' };
+  }
+  async hello(user: AuthUser) {
+    this.admin(user);
+    const cfg = await this.config(user.companyId);
+    if (!cfg || !(await this.enabled(user.companyId, cfg))) throw new BadRequestException('请先配置并开启小白OA助手');
+    // This introduction is once per company/app, including repeated clicks or
+    // response loss. Never turn an uncertain broadcast into a duplicate.
+    await this.enqueue(user.companyId, cfg, 'hello', 'manual-hello', { text: HELLO_TEXT, departmentIds: cfg.departmentIds, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() });
+    return this.overview(user.companyId);
   }
   private async enabled(companyId: number, cfg: AssistantConfig) {
     const sw = await this.ds.manager.findOne(OutboxSwitch, { where: { companyId, channel: ASSISTANT_CHANNEL } });
@@ -147,13 +157,13 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
       const cfg = await this.config(companyId);
       if (!cfg || !(await this.enabled(companyId, cfg))) return;
       const p = job.payloadJson;
-      if (p.appId !== cfg.appId || p.tenantKey !== cfg.tenantKey || new Date(String(p.expiresAt)).getTime() <= now.getTime() || (job.kind === 'morning' ? !cfg.morningEnabled : !cfg.welcomeEnabled)) {
+      if (p.appId !== cfg.appId || p.tenantKey !== cfg.tenantKey || new Date(String(p.expiresAt)).getTime() <= now.getTime() || (job.kind === 'morning' && !cfg.morningEnabled) || (job.kind === 'welcome' && !cfg.welcomeEnabled)) {
         await this.ds.manager.update(OutboxJob, { id: job.id, companyId, status: 'pending' }, { status: 'cancelled' }); continue;
       }
       const claimed = await this.ds.manager.update(OutboxJob, { id: job.id, companyId, status: 'pending' }, { status: 'sending' });
       if (!claimed.affected) continue;
       try {
-        if (job.kind === 'morning') await this.feishu.batchSend(cfg, p.departmentIds as string[], String(p.text));
+        if (job.kind === 'morning' || job.kind === 'hello') await this.feishu.batchSend(cfg, p.departmentIds as string[], String(p.text));
         else if (job.kind === 'welcome') await this.feishu.send(cfg, String(p.openId), 'open_id', String(p.text), job.idempotencyKey);
         else throw new Error('不支持的助手任务类型');
         await this.ds.manager.update(OutboxJob, { id: job.id, companyId }, { status: 'done', doneAt: new Date(), attempts: 1 });
