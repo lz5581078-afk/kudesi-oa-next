@@ -11,7 +11,7 @@ export const FEISHU_SENDER = 'FEISHU_SENDER';
 export const FEISHU_TEMPLATES = ['sku-batch-apply', 'live-schedule', 'live-session-review', 'live-settlement'];
 const MAX_ATTEMPTS = 5;
 
-export interface FeishuNotice { liveEventKey?: string; notificationId?: number; channel?: string; resourceType?: string; resourceId?: number; kind?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
+export interface FeishuNotice { expiresAt?: string; liveEventKey?: string; notificationId?: number; channel?: string; resourceType?: string; resourceId?: number; kind?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
 export interface FeishuSender {
   readonly configured: boolean;
   available?(companyId: number): Promise<boolean>;
@@ -107,7 +107,7 @@ export class FeishuNoticeService implements OnModuleInit, OnModuleDestroy {
         sent++;
       } catch (e) {
         const attempts = job.attempts + 1;
-        await em.update(OutboxJob, { id: job.id }, { status: attempts >= MAX_ATTEMPTS || (e as { outcomeUnknown?: boolean }).outcomeUnknown ? 'failed' : 'pending', attempts, lastError: (e as Error).message.slice(0, 500), nextAttemptAt: new Date(Date.now() + 2 ** attempts * 60_000) });
+        await em.update(OutboxJob, { id: job.id }, { status: job.payloadJson.kind === 'staff-feishu-test' || attempts >= MAX_ATTEMPTS || (e as { outcomeUnknown?: boolean }).outcomeUnknown ? 'failed' : 'pending', attempts, lastError: (e as Error).message.slice(0, 500), nextAttemptAt: new Date(Date.now() + 2 ** attempts * 60_000) });
         failed++;
       }
     }
