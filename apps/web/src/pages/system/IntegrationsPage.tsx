@@ -177,7 +177,7 @@ export function IntegrationsPage() {
               <p>聚水潭：{data.connections.jushuitan.configured ? '授权配置已保存' : '未配置'}</p>
               {data.connections.jushuitan.accounts.map((a, i) => <p key={i}>{a.name} · 授权令牌{a.tokenConfigured ? '已保存' : '未设置'} · 续期令牌{a.refreshTokenConfigured ? '已保存' : '未设置'}{a.expiresAt ? ` · 到期时间 ${a.expiresAt}` : ''}</p>)}
               <p>飞书：{data.connections.feishu.configured ? '应用配置已保存' : '未配置'}</p>
-              {data.connections.feishu.channels.map(c => <p key={c.key}>{({ flow: '流程', business: '业务', notice: '通知', supervision: '监督', system: '系统', task: '任务' } as Record<string, string>)[c.key] ?? c.key} · 应用密钥{c.credentialConfigured ? '已保存' : '未设置'} · 接收人 {c.recipientCount} 名</p>)}
+              {data.connections.feishu.channels.map(c => <p key={c.key}>{({ flow: '流程', business: '经营', notice: '通知', supervision: '监督', system: '系统', task: '任务', live: '直播' } as Record<string, string>)[c.key] ?? c.key} · 应用密钥{c.credentialConfigured ? '已保存' : '未设置'} · 接收人 {c.recipientCount} 名</p>)}
               <div className="row-actions"><button type="button" className="secondary-button" disabled={checking} onClick={() => testConnection('jushuitan')}>检查聚水潭连接与店铺编号</button><button type="button" className="secondary-button" disabled={checking} onClick={() => testConnection('feishu')}>检查飞书鉴权</button></div>
               {check && <div role="status"><p className={check.ok ? 'notice ok-notice' : 'notice error'}>{check.message}</p>{check.shops?.length ? <details><summary>聚水潭店铺编号（用于店铺档案绑定）</summary><ul>{check.shops.map(s => <li key={s.id}>{s.name}：{s.id}</li>)}</ul></details> : null}</div>}
               <p className="muted">聚水潭同步和飞书通知由各自开关控制；开启前请核对目标账号。员工可在账号设置中绑定飞书。平台应用密钥在平台后台的“接口应用”中管理。</p>
