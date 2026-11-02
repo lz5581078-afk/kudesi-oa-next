@@ -75,19 +75,20 @@ export class LiveLedgerService {
     if (q.userId && a.canViewAll) { where.push('r.user_id = ?'); params.push(q.userId); }
     if (q.role && LIVE_ROLE_LABEL[q.role]) { where.push('r.role = ?'); params.push(q.role); }
     const rows: Row[] = await this.em.query(
-      `SELECT r.id, r.session_id, r.user_id, r.role, DATE_FORMAT(r.session_date,'%Y-%m-%d') day, r.final_sales_cents, r.ad_spend_cents, r.roi_scaled, r.below_roi, r.rate_units, r.amount_cents, r.rule_version_id, e.name user_name,
+      `SELECT r.platform, r.id, r.session_id, r.user_id, r.role, DATE_FORMAT(r.session_date,'%Y-%m-%d') day, r.final_sales_cents, r.ad_spend_cents, r.roi_scaled, r.below_roi, r.rate_units, r.amount_cents, r.rule_version_id, e.name user_name,
          s.room_name, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i') start_text, s.douyin_account_name
          FROM live_commission_records r JOIN users e ON e.id = r.user_id AND e.company_id = r.company_id JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id
         WHERE ${where.join(' AND ')} ORDER BY r.session_date DESC, r.session_id DESC, r.id`, params);
     const summary = new Map<string, { userId: number; name: string; role: string; roleLabel: string; sessions: number; salesCents: number; amountCents: number }>();
+    const counted=new Set<string>();
     for (const r of rows) {
       const key = `${r.user_id}:${r.role}`;
       const s = summary.get(key) ?? { userId: Number(r.user_id), name: r.user_name, role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], sessions: 0, salesCents: 0, amountCents: 0 };
-      s.sessions += 1; s.salesCents += num(r.final_sales_cents); s.amountCents += num(r.amount_cents); summary.set(key, s);
+      const sessionKey=`${key}:${r.session_id}`;if(!counted.has(sessionKey)){s.sessions++;counted.add(sessionKey);} s.salesCents += num(r.final_sales_cents); s.amountCents += num(r.amount_cents); summary.set(key, s);
     }
     return {
       month, scope: a.canViewAll ? 'all' : 'mine', totalCents: rows.reduce((t, r) => t + num(r.amount_cents), 0), summary: [...summary.values()],
-      rows: rows.map((r) => ({ id: Number(r.id), sessionId: Number(r.session_id), userId: Number(r.user_id), userName: r.user_name, role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], date: r.day, roomName: r.room_name, startAt: r.start_text, douyinName: r.douyin_account_name,
+      rows: rows.map((r) => ({ platform:r.platform,id: Number(r.id), sessionId: Number(r.session_id), userId: Number(r.user_id), userName: r.user_name, role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], date: r.day, roomName: r.room_name, startAt: r.start_text, douyinName: r.douyin_account_name,
         finalSalesCents: num(r.final_sales_cents), adSpendCents: num(r.ad_spend_cents), roiScaled: numOrNull(r.roi_scaled), belowRoi: !!r.below_roi, rateUnits: Number(r.rate_units), amountCents: num(r.amount_cents), ruleVersionId: Number(r.rule_version_id) })),
     };
   }

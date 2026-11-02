@@ -71,7 +71,7 @@ export class LiveSettlementService {
     const [row]: Row[] = await this.em.query(`${SELECT} WHERE s.company_id=? AND s.id=?`, [a.companyId, id]);
     if (!row) liveFail('结算单不存在', 404);
     const lines: Row[] = await this.em.query(
-      `SELECT l.*,u.name user_name,s.room_name,s.report_source,s.manual_reason,DATE_FORMAT(l.session_date,'%Y-%m-%d') day,DATE_FORMAT(s.start_at,'%H:%i') start_text FROM live_settlement_lines l JOIN users u ON u.company_id=l.company_id AND u.id=l.user_id JOIN live_sessions s ON s.company_id=l.company_id AND s.id=l.session_id WHERE l.company_id=? AND l.settlement_id=? ORDER BY l.session_date,l.id`,
+      `SELECT l.*,c.platform,c.rule_snapshot,u.name user_name,s.room_name,s.report_source,s.manual_reason,DATE_FORMAT(l.session_date,'%Y-%m-%d') day,DATE_FORMAT(s.start_at,'%H:%i') start_text FROM live_settlement_lines l JOIN live_commission_records c ON c.company_id=l.company_id AND c.id=l.commission_record_id JOIN users u ON u.company_id=l.company_id AND u.id=l.user_id JOIN live_sessions s ON s.company_id=l.company_id AND s.id=l.session_id WHERE l.company_id=? AND l.settlement_id=? ORDER BY l.session_date,l.id`,
       [a.companyId, id],
     );
     const refunds: Row[] = await this.em.query(
@@ -79,6 +79,7 @@ export class LiveSettlementService {
       [a.companyId, id],
     );
     const byPerson = new Map<string, Row>();
+    const counted=new Set<string>();
     for (const l of lines) {
       const key = `${l.user_id}:${l.role}`;
       const p = byPerson.get(key) ?? {
@@ -98,7 +99,7 @@ export class LiveSettlementService {
       p.minutes += num(l.wage_minutes);
       p.deductionCents += num(l.deduction_cents);
       p.payableCents += num(l.payable_cents);
-      p.sessions++;
+      const sessionKey=`${key}:${l.session_id}`;if(!counted.has(sessionKey)){p.sessions++;counted.add(sessionKey);}
       byPerson.set(key, p);
     }
     return {
@@ -106,6 +107,8 @@ export class LiveSettlementService {
       canManage: a.canManage,
       byPerson: [...byPerson.values()],
       lines: lines.map((l) => ({
+        platform:l.platform,
+        unverifiedStores: (typeof l.rule_snapshot==='string'?JSON.parse(l.rule_snapshot):l.rule_snapshot)?.unverifiedStores??[],
         id: Number(l.id),
         sessionId: Number(l.session_id),
         userId: Number(l.user_id),
@@ -131,6 +134,7 @@ export class LiveSettlementService {
       })),
       refunds: refunds.map((r) => ({
         sessionId: Number(r.session_id),
+        shopId:r.shop_id,platform:r.platform,
         orderId: r.order_id,
         orderAmountCents: num(r.order_amount_cents),
         refundCents: num(r.refund_cents),
@@ -139,6 +143,11 @@ export class LiveSettlementService {
         checkedAt: r.checked_text,
       })),
     };
+  }
+  private hasReviewedUnverifiedStores(record: Row): boolean {
+    const snapshot = typeof record.rule_snapshot === 'string' ? JSON.parse(record.rule_snapshot) : record.rule_snapshot;
+    const stores = snapshot?.unverifiedStores;
+    return Array.isArray(stores) && stores.length > 0 && stores.every(store => typeof store?.reason === 'string' && store.reason.trim());
   }
   async generate(user: AuthUser, monthIn: string, note?: string, range?: { from?: string; to?: string }) {
     const a = await loadLiveAccess(this.em, user);
@@ -172,8 +181,9 @@ export class LiveSettlementService {
     for (const r of first.records)
       if (
         num(r.final_sales_cents) > 0 &&
-        !first.orders.some((o) => Number(o.session_id) === Number(r.session_id)) &&
-        !(r.report_source === 'manual' && text(r.manual_reason))
+        !first.orders.some((o) => Number(o.session_id) === Number(r.session_id) && (!r.platform || o.platform===r.platform)) &&
+        !(r.report_source === 'manual' && text(r.manual_reason)) &&
+        !this.hasReviewedUnverifiedStores(r)
       )
         liveFail(`场次 #${r.session_id} 有销售额但没有订单，请人事补报并注明特殊原因后审核`);
     const seen = new Map<string, { shopId: string; orderId: string; amountCents: number }>();
@@ -205,14 +215,15 @@ export class LiveSettlementService {
         liveFail(`聚水潭店铺 ${shopId} 的退款暂时查不到，没有生成结算单：${(e as Error).message}`);
       }
     }
-    const sessionOrders = new Map<number, Array<{ orderId: string; shopId: string; amountCents: number }>>();
+    const sessionOrders = new Map<number, Array<{ orderId: string; shopId: string; amountCents: number; platform?:string }>>();
     for (const o of first.orders) {
       const list = sessionOrders.get(Number(o.session_id)) ?? [];
-      list.push({ orderId: String(o.order_id), shopId: String(o.shop_id), amountCents: num(o.amount_cents) });
+      list.push({ orderId: String(o.order_id), shopId: String(o.shop_id), amountCents: num(o.amount_cents),platform:o.platform });
       sessionOrders.set(Number(o.session_id), list);
     }
     const built = liveBuildSettlement(
       first.records.map((r) => ({
+        platform:r.platform,
         id: Number(r.id),
         sessionId: Number(r.session_id),
         role: r.role,
@@ -276,12 +287,14 @@ export class LiveSettlementService {
         );
         id = Number(ins.insertId);
       }
+      const usedWages=new Set<number>();
       for (const l of built.lines) {
         const r = first.records.find((r) => Number(r.id) === l.record.id)!;
         const w = first.wages.find(
           (w) =>
-            Number(w.session_id) === l.record.sessionId && w.role === r.role && Number(w.user_id) === Number(r.user_id),
+            !usedWages.has(Number(w.id)) && Number(w.session_id) === l.record.sessionId && w.role === r.role && Number(w.user_id) === Number(r.user_id),
         );
+        if(w)usedWages.add(Number(w.id));
         await tx.query(
           `INSERT INTO live_settlement_lines(company_id,settlement_id,commission_record_id,session_id,user_id,role,session_date,final_sales_cents,rate_units,commission_cents,order_count,orders_total_cents,refund_cents,deduction_cents,payable_cents,wage_record_id,wage_cents,wage_minutes,hourly_rate_cents) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
@@ -310,8 +323,8 @@ export class LiveSettlementService {
       for (const o of first.orders) {
         const r = refunds.get(liveRefundKey(o.shop_id, o.order_id))!;
         await tx.query(
-          `INSERT INTO live_settlement_refunds(company_id,settlement_id,session_id,order_id,order_amount_cents,refund_cents,refund_source,detail_json,checked_at) VALUES (?,?,?,?,?,?,?,?,?)`,
-          [c, id, o.session_id, o.order_id, o.amount_cents, r.cents, r.source, JSON.stringify(r.details), at],
+          `INSERT INTO live_settlement_refunds(company_id,settlement_id,session_id,order_id,order_amount_cents,refund_cents,refund_source,detail_json,checked_at,shop_id,platform) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          [c, id, o.session_id, o.order_id, o.amount_cents, r.cents, r.source, JSON.stringify(r.details), at,o.shop_id,o.platform??''],
         );
       }
       return { id };

@@ -29,11 +29,11 @@ export const SchedulePill = ({ status, label }: { status: string; label: string 
 export const names = (...p: Array<Person | null | undefined>) => p.filter(Boolean).map((x) => x!.name).join(' / ');
 
 /** 预估/试算的各角色金额一行 */
-export function RoleAmounts({ anchor, control, operator }: { anchor?: RoleAmount | null; control?: RoleAmount | null; operator?: RoleAmount | null }) {
+export function RoleAmounts({ anchor, control, operator, hideRates=false }: { hideRates?:boolean; anchor?: RoleAmount | null; control?: RoleAmount | null; operator?: RoleAmount | null }) {
   const rows: Array<[string, RoleAmount | null | undefined]> = [['主播', anchor], ['中控', control], ['运营', operator]];
   const shown = rows.filter(([, v]) => v);
   if (!shown.length) return null;
-  return <ul className="live-amounts">{shown.map(([label, v]) => <li key={label}><span>{label}</span><strong>{money(v!.amountCents)}</strong><small>{ratePct(v!.rateUnits)}</small></li>)}</ul>;
+  return <ul className="live-amounts">{shown.map(([label, v]) => <li key={label}><span>{label}</span><strong>{money(v!.amountCents)}</strong>{!hideRates&&<small>{ratePct(v!.rateUnits)}</small>}</li>)}</ul>;
 }
 
 export function PreviewBox({ preview }: { preview: Preview | null }) {
@@ -43,7 +43,7 @@ export function PreviewBox({ preview }: { preview: Preview | null }) {
     <div className="live-preview" aria-label="预估提成">
       <strong>预估提成（以主播所报销售额 {money(preview.basisSalesCents)} 试算，审核后以审核结果为准）</strong>
       {preview.belowRoi && <span className="pill warn">投产不足，已按规则扣减点数</span>}
-      <RoleAmounts anchor={preview.anchor} control={preview.control} operator={preview.operator} />
+      <RoleAmounts hideRates={preview.aggregated} anchor={preview.anchor} control={preview.control} operator={preview.operator} />
     </div>
   );
 }
@@ -53,5 +53,5 @@ export function SourceStatusNotice() {
   const [st, setSt] = useState<SourceStatus | null>(null);
   useEffect(() => { liveApi.integrationStatus().then(setSt).catch(() => setSt(null)); }, []);
   if (!st || st.ready) return null;
-  return <div role="status" className="notice warn" data-testid="live-source-status"><strong>聚水潭订单暂时不能查询：</strong>{st.message}<span className="muted">（报下播要从聚水潭勾选本场订单，月底结算要核对退款；没有授权前这两项不能进行，其余功能不受影响。）</span></div>;
+  return <div role="status" className="notice warn" data-testid="live-source-status"><strong>聚水潭订单暂时不能查询：</strong>{st.message}<span className="muted">（订单与售后核对需要有效授权；无法读取订单的店铺可填写原因，提交人工核定。）</span></div>;
 }

@@ -299,18 +299,18 @@ export function liveSettleLine(input: { commissionCents: number; rateUnits: numb
 }
 export const liveRefundKey = (shopId: unknown, orderId: unknown) => JSON.stringify([String(shopId || ''), String(orderId)]);
 
-export interface LiveSettleRecord { id: number; sessionId: number; role: string; amountCents: number; rateUnits: number }
-export interface LiveSettleOrder { orderId: string; shopId: string; amountCents: number }
+export interface LiveSettleRecord { platform?: string; id: number; sessionId: number; role: string; amountCents: number; rateUnits: number }
+export interface LiveSettleOrder { platform?: string; orderId: string; shopId: string; amountCents: number }
 export function liveBuildSettlement(records: readonly LiveSettleRecord[], sessionOrders: ReadonlyMap<number, readonly LiveSettleOrder[]>, refunds: ReadonlyMap<string, { cents: number }>) {
   const lines = records.map((record) => {
-    const orders = sessionOrders.get(record.sessionId) ?? [];
+    const orders = (sessionOrders.get(record.sessionId) ?? []).filter(o => !record.platform || o.platform === record.platform);
     const refundCents = orders.reduce((sum, o) => sum + (refunds.get(liveRefundKey(o.shopId, o.orderId))?.cents ?? 0), 0);
     const { deductionCents, payableCents } = liveSettleLine({ commissionCents: record.amountCents, rateUnits: record.rateUnits, refundCents });
     return { record, orderCount: orders.length, ordersCents: orders.reduce((s, o) => s + o.amountCents, 0), refundCents, commissionCents: record.amountCents, deductionCents, payableCents };
   });
   const sum = (key: 'commissionCents' | 'deductionCents' | 'payableCents') => lines.reduce((t, l) => t + l[key], 0);
-  // 同一场的主播、中控、运营共用本场退款，退款合计按场次去重
-  const sessionRefund = new Map(lines.map((l) => [l.record.sessionId, l.refundCents]));
+  // 同一场的主播、中控、运营共用本场退款，退款合计按场次和平台去重
+  const sessionRefund = new Map(lines.map((l) => [JSON.stringify([l.record.sessionId,l.record.platform || '']), l.refundCents]));
   return { lines, totals: { count: lines.length, commissionCents: sum('commissionCents'), refundCents: [...sessionRefund.values()].reduce((a, b) => a + b, 0), deductionCents: sum('deductionCents'), payableCents: sum('payableCents') } };
 }
 
