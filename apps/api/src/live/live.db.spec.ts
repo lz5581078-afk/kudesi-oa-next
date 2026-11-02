@@ -295,6 +295,18 @@ d('直播管理（真实数据库）', () => {
       const row=refreshed.rows.find(r=>r.sessionId===sid)!;
       const original=await sessions.detail(anchor,sid);
       expect(row.startAt).toBe(original.startAt.slice(0,16));expect(row.endAt).toBe(original.endAt!.slice(0,16));
+      const millis=(value:string)=>Date.parse(value.replace(' ','T')+'+08:00');
+      expect(row.liveMinutes).toBe(Math.round((millis(original.endAt!)-millis(original.startAt))/60000));
+      try {
+        await ds.query('UPDATE live_sessions SET start_at=?,end_at=? WHERE company_id=? AND id=?',['2026-09-01 23:00:10','2026-09-02 01:00:40',company,sid]);
+        const cross=(await ledger.commissions(anchor,{month:'2026-09'})).rows.find(r=>r.sessionId===sid)!;
+        expect(cross.liveMinutes).toBe(121);
+        expect(cross.amountCents).toBe(row.amountCents);
+        await ds.query('UPDATE live_sessions SET end_at=NULL WHERE company_id=? AND id=?',[company,sid]);
+        expect((await ledger.commissions(anchor,{month:'2026-09'})).rows.find(r=>r.sessionId===sid)!.liveMinutes).toBeNull();
+      } finally {
+        await ds.query('UPDATE live_sessions SET start_at=?,end_at=? WHERE company_id=? AND id=?',[original.startAt,original.endAt,company,sid]);
+      }
       expect(row.products).toEqual(original.products);
       expect(row.products).toContainEqual({id:null,code:'',name:'本场手填产品',spec:'大包'});
       expect(JSON.stringify(row.products)).not.toContain('别家公司产品');expect(JSON.stringify(row.products)).not.toContain('cost');
@@ -668,6 +680,7 @@ d('直播管理（真实数据库）', () => {
     const period = {from:day,to:day};
     const ops = await ledger.commissions(manager,{...period,role:'operator'});
     expect(ops.rows.map(r=>r.userId).sort()).toEqual([control.id,operator.id].sort());
+    expect(ops.rows.map(r=>r.liveMinutes)).toEqual([120,120]);
     expect(ops.rows.find(r=>r.userId===control.id)?.amountCents).toBe(liveComputeCommission({rules:LIVE_DEFAULT_RULES,finalSalesCents:100000,adSpendCents:0}).control.amountCents);
     expect((await ledger.commissions(manager,{...period,role:'control'})).rows).toEqual([]);
   });

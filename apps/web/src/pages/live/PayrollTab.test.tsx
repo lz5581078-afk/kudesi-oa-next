@@ -6,7 +6,7 @@ import {downloadText} from '../../resources/csv';
 vi.mock('./liveApi',()=>({liveApi:{commissions:vi.fn(),wages:vi.fn()}}));
 vi.mock('../../resources/csv',async orig=>({...await orig<typeof import('../../resources/csv')>(),downloadText:vi.fn()}));
 const base={platform:'douyin',userId:5,userName:'演示运营',role:'control',roleLabel:'中控',date:'2026-11-01',roomName:'直播间-南7',douyinName:'演示号',adSpendCents:0,roiScaled:null,belowRoi:false,rateUnits:200,ruleVersionId:1};
-const rows=[{...base,id:1,sessionId:10,startAt:'2026-11-01 11:00',endAt:'2026-11-01 13:00',products:[{id:null,name:'玉米种子',code:'',spec:''}],finalSalesCents:83900,amountCents:1678},{...base,id:2,sessionId:11,startAt:'2026-11-01 18:00',endAt:'2026-11-01 21:00',products:[{id:8,name:'花生种子',code:'P1',spec:'大包'}],finalSalesCents:42300,amountCents:846}];
+const rows=[{...base,id:1,sessionId:10,startAt:'2026-11-01 11:00',endAt:'2026-11-01 13:00',liveMinutes:120,products:[{id:null,name:'玉米种子',code:'',spec:''}],finalSalesCents:83900,amountCents:1678},{...base,id:2,sessionId:11,startAt:'2026-11-01 18:00',endAt:'2026-11-01 21:00',liveMinutes:180,products:[{id:8,name:'花生种子',code:'P1',spec:'大包'}],finalSalesCents:42300,amountCents:846}];
 beforeEach(()=>{vi.mocked(liveApi.commissions).mockResolvedValue({month:'2026-11',scope:'all',rows,summary:[],totalCents:2524} as never);vi.mocked(liveApi.wages).mockResolvedValue({month:'2026-11',scope:'all',rows:[],summary:[],totalCents:0});});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 describe('工资提成明细的场次信息',()=>{
@@ -16,15 +16,35 @@ describe('工资提成明细的场次信息',()=>{
   await within(table).findByText('11:00–13:00');
   expect(within(table).getByText('18:00–21:00')).toBeTruthy();
   expect(within(table).getByText('产品：玉米种子')).toBeTruthy();expect(within(table).getByText('产品：花生种子（大包）')).toBeTruthy();
-  expect(within(table).getAllByText((_,el)=>el?.tagName==='TD'&&el.textContent==='0 小时 0 分¥0.00/时')).toHaveLength(2);
+  expect(within(table).getByText('2 小时 0 分')).toBeTruthy();
+  expect(within(table).getByText('3 小时 0 分')).toBeTruthy();
+  expect(within(screen.getByRole('table',{name:'工资汇总'})).getByText('5 小时 0 分')).toBeTruthy();
+  expect(screen.queryByText('时间工资')).toBeNull();
+  expect(screen.queryByText('时长 / 时薪')).toBeNull();
+  expect(liveApi.wages).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button',{name:'导出明细'}));
-  expect(downloadText).toHaveBeenCalledWith('直播工资明细.csv',expect.stringContaining('2026-11-01 18:00'));
+  expect(downloadText).toHaveBeenCalledWith('运营提成明细.csv',expect.stringContaining('2026-11-01 18:00'));
+  expect(vi.mocked(downloadText).mock.calls[0][1]).toContain('直播分钟');
+  expect(vi.mocked(downloadText).mock.calls[0][1]).not.toContain('时薪');
+  expect(vi.mocked(downloadText).mock.calls[0][1]).not.toContain('时间工资');
   expect(vi.mocked(downloadText).mock.calls[0][1]).toContain('直播开始时间');expect(vi.mocked(downloadText).mock.calls[0][1]).toContain('花生种子（大包）');
  });
  it('跨日下播显示日期，历史未填写数据明确提示',async()=>{
-  vi.mocked(liveApi.commissions).mockResolvedValue({month:'2026-11',scope:'mine',summary:[],totalCents:2524,rows:[{...rows[0],startAt:'2026-11-01 23:00',endAt:'2026-11-02 01:00'}, {...rows[1],endAt:null,products:[]}]} as never);
+  vi.mocked(liveApi.commissions).mockResolvedValue({month:'2026-11',scope:'mine',summary:[],totalCents:2524,rows:[{...rows[0],startAt:'2026-11-01 23:00',endAt:'2026-11-02 01:00'}, {...rows[1],endAt:null,liveMinutes:null,products:[]}]} as never);
   render(<PayrollTab role="operator" onOpen={vi.fn()}/>);
   await screen.findByText('23:00–11-02 01:00');
+  expect(screen.getByText('时长未记录')).toBeTruthy();
   expect(screen.getByText('18:00–下播时间未记录')).toBeTruthy();expect(screen.getByText('产品：未填写')).toBeTruthy();
+ });
+ it('同人同场多平台只汇总一次直播时长，仍逐平台保留提成',async()=>{
+  vi.mocked(liveApi.commissions).mockResolvedValue({month:'2026-11',scope:'all',summary:[],totalCents:3524,rows:[...rows,{...rows[0],id:3,platform:'kuaishou',amountCents:1000}]} as never);
+  render(<PayrollTab role="operator" onOpen={vi.fn()}/>);
+  const detail=await screen.findByRole('table',{name:'工资提成明细'});
+  await within(detail).findByText('快手',{exact:false});
+  expect(within(detail).getAllByText('2 小时 0 分')).toHaveLength(2);
+  const summary=screen.getByRole('table',{name:'工资汇总'});
+  expect(within(summary).getByText('5 小时 0 分')).toBeTruthy();
+  expect(within(summary).getByText('2')).toBeTruthy();
+  expect(within(summary).getByText('¥35.24')).toBeTruthy();
  });
 });
