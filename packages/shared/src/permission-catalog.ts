@@ -131,6 +131,12 @@ export function permissionCatalog(): CatalogGroup[] {
     }
     groups.push({ id: `${sec}-${g}`, label: `${sec === 'finance' ? '财务' : '资料'} · ${g}`, items });
   }
+  // 专用资料页没有对应资源定义，入口权限也必须能在岗位授权中勾选。
+  const listed = new Set(groups.flatMap((g) => g.items.map((i) => i.key)));
+  const pages = NAV_SECTIONS.find((s) => s.id === 'resource')!.pages
+    .filter((p) => p.ready && !listed.has(p.permission))
+    .map((p) => ({ key: p.permission, label: `查看「${p.label}」` }));
+  if (pages.length) groups.push({ id: 'resource-pages', label: '资料 · 专用页面', items: pages });
   return groups;
 }
 
