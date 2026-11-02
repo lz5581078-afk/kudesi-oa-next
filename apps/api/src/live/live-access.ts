@@ -6,8 +6,8 @@ import { Row, can, liveFail, positionTypesOf } from './live-core';
 /**
  * 直播管理里“这个人能做什么”：
  * 管理/查看靠权限键（features.live.view、live.manage、live.commissions.view、features.live-desk.view），
- * 能不能当主播、中控靠岗位类型（positions.workspace_type：live_anchor、live_control；运营岗位 operations 可以以中控资格上播）。
- * 绝不按岗位名称或部门名称判断。
+ * 主播、中控原有资格按岗位类型判断；按业务明确要求，传统电商部门在职人员也可担任中控。
+ * 部门例外不修改岗位类型，也不授予管理、审批或菜单权限。
  */
 export interface LiveAccess {
   userId: number;
@@ -24,6 +24,7 @@ export interface LiveAccess {
 export async function loadLiveAccess(em: EntityManager, user: AuthUser): Promise<LiveAccess> {
   const types = await positionTypesOf(em, user.companyId, user.id);
   const canManage = can(user, 'live.manage');
+  const departmentControl = !types.has('live_control') && !types.has('operations') && (await traditionalControlPeople(em, user.companyId, user.id)).length > 0;
   return {
     userId: user.id, companyId: user.companyId,
     canManage,
@@ -32,7 +33,7 @@ export async function loadLiveAccess(em: EntityManager, user: AuthUser): Promise
     canDesk: can(user, 'features.live-desk.view'),
     isAnchor: types.has('live_anchor'),
     isLiveControl: types.has('live_control'),
-    isControl: types.has('live_control') || types.has('operations'),
+    isControl: types.has('live_control') || types.has('operations') || departmentControl,
   };
 }
 export function requireView(a: LiveAccess) { if (!a.canView) liveFail('没有查看直播管理的权限', 403); }
@@ -41,7 +42,40 @@ export function requireUse(a: LiveAccess) { if (!a.canView && !a.canDesk) liveFa
 
 export interface LivePerson { id: number; name: string; detail: string; partTime: boolean; trial?: boolean }
 
-/** 主播（岗位类型 live_anchor）、中控（live_control 或 operations）候选人。 */
+/** 用户明确指定的部门范围；完整名称匹配，避免把同名岗位或其他协作部门误纳入。 */
+const TRADITIONAL_ECOMMERCE_DEPARTMENTS = new Set(['传统电商', '传统电商部', '传统电商部门']);
+
+async function traditionalControlPeople(em: EntityManager, companyId: number, userId?: number): Promise<LivePerson[]> {
+  const departments: Row[] = await em.query('SELECT id, parent_id, name, status FROM departments WHERE company_id = ?', [companyId]);
+  const active = departments.filter((d) => d.status === 'active');
+  const ids = new Set<number>(active.filter((d) => TRADITIONAL_ECOMMERCE_DEPARTMENTS.has(String(d.name).trim())).map((d) => Number(d.id)));
+  // 只沿启用的部门向下展开；停用的部门不会成为通向下级部门的桥梁。
+  let previous = -1;
+  while (previous !== ids.size) {
+    previous = ids.size;
+    for (const d of active) if (ids.has(Number(d.parent_id))) ids.add(Number(d.id));
+  }
+  if (!ids.size) return [];
+  const list = [...ids], placeholders = list.map(() => '?').join(',');
+  const rows: Row[] = await em.query(
+    `SELECT u.id, u.name, u.employment_type, p.name position_name, COALESCE(pd.name, ud.name) department_name
+       FROM users u
+       LEFT JOIN departments ud ON ud.id = u.department_id AND ud.company_id = u.company_id AND ud.status = 'active'
+       LEFT JOIN positions p ON p.company_id = u.company_id AND p.status = 'active' AND p.department_id IN (${placeholders})
+        AND (p.id = u.position_id OR JSON_CONTAINS(COALESCE(u.extra_position_ids, JSON_ARRAY()), CAST(p.id AS JSON)))
+       LEFT JOIN departments pd ON pd.id = p.department_id AND pd.company_id = u.company_id AND pd.status = 'active'
+      WHERE u.company_id = ? AND u.status = 'active' AND (ud.id IN (${placeholders}) OR pd.id IS NOT NULL)
+        ${userId === undefined ? '' : 'AND u.id = ?'}
+      ORDER BY u.id, p.id`, [...list, companyId, ...list, ...(userId === undefined ? [] : [userId])]);
+  const people = new Map<number, LivePerson>();
+  for (const r of rows) if (!people.has(Number(r.id))) people.set(Number(r.id), {
+    id: Number(r.id), name: r.name, partTime: !!r.employment_type && r.employment_type !== 'regular',
+    detail: [r.department_name, r.position_name].filter(Boolean).join(' · '),
+  });
+  return [...people.values()];
+}
+
+/** 主播仍按live_anchor；中控包含live_control、operations及明确指定的传统电商部门人员。 */
 export async function livePeople(em: EntityManager, companyId: number): Promise<{ anchors: LivePerson[]; controls: LivePerson[] }> {
   const rows: Row[] = await em.query(
     `SELECT u.id, u.name, u.employment_type, p.name position_name, p.workspace_type, d.name department_name
@@ -57,7 +91,8 @@ export async function livePeople(em: EntityManager, companyId: number): Promise<
   }
   const trials: Row[] = await em.query("SELECT id,name FROM users WHERE company_id=? AND status='active' AND live_trial=1 ORDER BY id", [companyId]);
   for (const r of trials) anchors.set(Number(r.id), { id:Number(r.id), name:r.name, detail:'试播主播', partTime:true, trial:true });
-  return { anchors: [...anchors.values()], controls: [...controls.values()] };
+  for (const person of await traditionalControlPeople(em, companyId)) if (!controls.has(person.id)) controls.set(person.id, person);
+  return { anchors: [...anchors.values()], controls: [...controls.values()].sort((a, b) => a.id - b.id) };
 }
 
 /** 所有在职员工（运营可以是任何人）。 */
