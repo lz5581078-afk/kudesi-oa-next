@@ -325,10 +325,6 @@ describe('直播管理', () => {
     expect(!!(south.compareDocumentPosition(north)&Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(within(south).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
     expect(south.textContent).toContain('小中控');expect(south.textContent).toContain('毛巾');
-    fireEvent.click(screen.getByRole('button',{name:'上下播二维码'}));
-    const qrDialog=await screen.findByRole('dialog',{name:'通用上下播二维码'});
-    expect(qrDialog.textContent).toContain('所有直播间共用此码');
-    fireEvent.click(within(qrDialog).getByRole('button',{name:'关闭'}));
     fireEvent.click(within(south).getByRole('button',{name:'编辑房间'}));
     const dlg=await screen.findByRole('dialog',{name:'直播间-南1 · 房间设置'});
     expect(within(dlg).getByLabelText('房间管理员')).toBeTruthy();
@@ -341,6 +337,14 @@ describe('直播管理', () => {
     fireEvent.click(within(dlg).getByRole('button',{name:'删除房间产品 3'}));
     fireEvent.click(within(dlg).getByRole('button',{name:'保存房间信息'}));
     await waitFor(()=>expect(l.roomSettings).toHaveBeenCalledWith(11,{ownerId:5,products:'牙刷\n花育25'}));
+    const tabs=screen.getAllByRole('tab');
+    expect(tabs[tabs.length-1].textContent).toBe('上下播二维码');
+    expect(tabs[tabs.length-2].textContent).toBe('通知设置');
+    expect(screen.queryByRole('button',{name:'上下播二维码'})).toBeNull();
+    fireEvent.click(screen.getByRole('tab',{name:'上下播二维码'}));
+    expect(await screen.findByText('所有直播间共用此码，上播、下播通用。长期有效，重新生成后旧码立即失效。')).toBeTruthy();
+    expect(screen.getByRole('tab',{name:'上下播二维码'}).getAttribute('aria-selected')).toBe('true');
+    expect(window.localStorage.getItem('kudesi.live.tab')).toBe('qr');
   });
 
   it('人事补报按分提交并保留原因；区间工资结算提交起止日期',async()=>{
