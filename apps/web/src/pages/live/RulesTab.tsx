@@ -81,12 +81,12 @@ export function RulesTab() {
   useEffect(load, [load]);
   return (
     <div className="live-page">
-      <div className="page-head"><p className="muted">提成按场次日期适用的规则版本计算；审核通过时保存当时的规则快照。</p>{d?.canManage && <button type="button" className="primary-button" onClick={() => setEditing('new')}>新增规则版本</button>}</div>
+      <div className="page-head"><strong>规则版本</strong>{d?.canManage && <button type="button" className="primary-button" onClick={() => setEditing('new')}>新增规则版本</button>}</div>
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
       {!d && !error && <p className="muted" role="status">正在读取提成规则…</p>}
       {d && d.versions.length === 0 && <p className="muted card pad" role="status">还没有规则版本，请新增规则。</p>}
       {d?.versions.map((v) => (
-        <section key={v.id} className="card live-section" aria-label={`规则 ${v.effectiveFrom}`}>
+        <section key={v.id} className={`card live-section ${v.id === d.currentId ? "live-current-rule" : ""}`} aria-label={`规则 ${v.effectiveFrom}`}>
           <h2>{v.effectiveFrom} 起 {v.id === d.currentId && <span className="pill ok">当前生效</span>} <small className="muted">{v.creatorName ? `${v.creatorName} · ` : ''}{v.createdAt}{v.usedCount ? ` · 已用于 ${v.usedCount} 条提成` : ''}{v.note ? ` · ${v.note}` : ''}</small></h2>
           <div className="pad"><RuleView form={v.form} />{d.canManage&&<button className="secondary-button" onClick={()=>setEditing(v)}>编辑规则</button>}</div>
         </section>

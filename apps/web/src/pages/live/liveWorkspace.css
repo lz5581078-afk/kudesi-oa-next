@@ -1,38 +1,48 @@
 /* 管理工作区与直播弹窗独立作用域；全览的房间布局不受影响。 */
-.live-management { gap: 20px; min-width: 0; }
+.live-management { gap: 10px; min-width: 0; }
 .live-page.live-management > .tab-group.host-tabs { gap: 4px; border: 1px solid var(--border); padding: 6px; border-radius: 12px; background: var(--surface); display: flex; flex-wrap: wrap; }
-.live-page.live-management > .tab-group.host-tabs .chip { border: 0; border-radius: 7px; margin: 0; padding: 10px 14px; min-height: 40px; color: var(--muted); }
+.live-page.live-management > .tab-group.host-tabs .chip { border: 0; border-radius: 7px; margin: 0; padding: 7px 12px; min-height: 34px; color: var(--muted); }
 .live-page.live-management > .tab-group.host-tabs .chip.active { background: var(--accent-soft); color: var(--accent); box-shadow: none; font-weight: 650; }
-.live-workspace-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 2px; }
-.live-workspace-heading p { margin: 0 0 6px; font-size: 12px; color: var(--accent); font-weight: 600; }
-.live-workspace-heading h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.25; letter-spacing: -.5px; }
-.live-workspace-heading span { font-size: 13px; line-height: 1.7; color: var(--muted); }
-.live-workspace-heading .live-workspace-mark { border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; white-space: nowrap; background: var(--surface); }
 .live-workspace { min-width: 0; }
-.live-workspace > .live-page { gap: 20px; }
+.live-workspace > .live-page { gap: 10px; }
 .live-workspace :is(.card,.live-section,.live-fields,.main) { min-width: 0; }
 .live-workspace .card { box-shadow: none; border-radius: 12px; }
 .live-workspace .live-section { overflow: hidden; }
-.live-workspace .live-section > h2 { padding: 18px 20px; font-size: 15px; line-height: 1.65; }
+.live-workspace .live-section > h2 { padding: 10px 14px; font-size: 15px; line-height: 1.45; background: #f6f8f9; }
 .live-workspace .live-section > h2 small { font-size: 12px; font-weight: 400; }
-.live-workspace .live-filter { padding: 18px 20px; gap: 14px; align-items: flex-end; background: var(--surface); }
-.live-workspace .live-filter > .live-field { flex: 1 1 140px; max-width: 240px; min-width: 0; }
+.live-workspace .live-filter { padding: 10px 14px; gap: 8px 12px; align-items: flex-end; background: var(--surface); }
+.live-workspace .live-filter > .live-field { flex: 1 1 140px; max-width: 190px; min-width: 0; }
 .live-workspace .live-filter > button { min-height: 40px; }
 .live-workspace .live-filter > .tab-group { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; }
 .live-workspace .live-filter .tab-group .chip { min-height: 38px; }
-.live-workspace .live-list > li { padding: 18px 20px; gap: 12px 18px; align-items: center; }
+.live-workspace .live-list > li { padding: 10px 14px; gap: 8px 14px; align-items: center; }
 .live-workspace .live-list > li:hover { background: #f8fbfb; }
-.live-workspace .live-list .main { gap: 7px; }
+.live-workspace .live-list .main { gap: 3px; }
 .live-workspace .live-list strong { font-size: 14px; line-height: 1.6; }
 .live-workspace .live-list small { line-height: 1.7; overflow-wrap: anywhere; }
 .live-workspace .live-list-channel { color: var(--ink); }
 .live-workspace .live-list .pill { flex: none; }
-.live-workspace .live-stat { padding: 20px; gap: 10px; border-top: 3px solid var(--border); }
+.live-workspace .live-stat { padding: 12px 16px; gap: 4px; border-top: 2px solid var(--border); }
 .live-workspace .live-stat:last-child { border-top-color: var(--accent); background: linear-gradient(135deg,var(--surface),var(--accent-soft)); }
 .live-workspace .live-stat strong { font-size: 25px; line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.live-workspace .live-cards { grid-template-columns: repeat(auto-fit,minmax(min(100%,200px),1fr)); gap: 16px; }
+.live-workspace .live-cards { grid-template-columns: repeat(auto-fit,minmax(min(100%,200px),1fr)); gap: 10px; }
 .live-workspace .page-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .live-workspace .page-head p { margin: 0; flex: 1 1 300px; }
+.live-results-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+.live-results-head h2 { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 15px; }
+.live-results-head small { font-size: 12px; font-weight: 400; }
+.live-results-head .link-button { padding: 5px 8px; }
+.live-workspace .live-current-rule { border-inline-start: 3px solid var(--accent); }
+.live-settlement-help { padding: 7px 14px; font-size: 13px; color: var(--muted); }
+.live-settlement-help summary { cursor: pointer; }
+@media(min-width: 641px) {
+  .live-workspace .live-schedule-toolbar > .tab-group { flex: 1 1 560px; }
+  .live-workspace .live-schedule-toolbar > .live-field:has(input[type=checkbox]) { flex: 0 0 auto; }
+  .live-workspace .live-filter .live-field { gap: 3px; font-size: 12px; }
+  .live-workspace .live-filter .live-field :is(input:not([type=checkbox]),select),
+  .live-workspace .live-filter > button { height: 34px; min-height: 34px; padding-block: 4px; }
+  .live-workspace .live-scroll .data-table :is(td,th) { padding: 8px 12px; }
+}
 /* Shared forms: no inherited nowrap, oversized native dates or unlabeled clipped cells. */
 :is(.live-workspace,.live-modal,.live-store-editor) { line-height: 1.6; }
 :is(.live-workspace,.live-modal) .live-field { min-width: 0; font-size: 13px; gap: 7px; color: var(--muted); }
@@ -99,22 +109,20 @@
 .live-store-order-list { max-height: 230px; overflow: auto; margin: 10px 0; border: 1px solid var(--border); border-radius: 7px; }
 .live-store-performance .live-order-option { padding: 9px; font-size: 12px; align-items: flex-start; overflow-wrap: anywhere; }
 .live-store-performance summary { cursor: pointer; margin: 8px 0; color: var(--accent); }
-.live-workspace .live-manual-report > .pad { padding: 24px; gap: 20px; }
+.live-workspace .live-manual-report > .pad { padding: 14px; gap: 12px; }
 .live-workspace .live-manual-actions { padding: 16px; background: #f8fafb; border: 1px solid var(--border); border-radius: 10px; }
-.live-workspace .live-notification-settings { padding: 24px; display: grid; gap: 18px; }
+.live-workspace .live-notification-settings { padding: 16px; display: grid; gap: 9px; }
 .live-workspace .live-notification-settings :is(h2,h3,p) { margin: 0; }
 .live-workspace .live-notification-settings > h2 { font-size: 18px; }
-.live-workspace .live-notification-settings > h3 { font-size: 15px; padding-top: 20px; border-top: 1px solid var(--border); }
+.live-workspace .live-notification-settings > h3 { font-size: 15px; padding-top: 12px; border-top: 1px solid var(--border); }
 .live-workspace .live-notification-settings p { color: var(--muted); font-size: 13px; line-height: 1.8; }
 .live-workspace .live-notification-settings fieldset { display: flex; flex-wrap: wrap; gap: 10px; }
 .live-workspace .live-notification-settings fieldset label { background: #f5f8fa; border: 1px solid var(--border); border-radius: 7px; padding: 8px 12px; }
 @media(max-width:900px) {
   .live-workspace .live-filter > .live-field { max-width: none; }
-  .live-workspace-heading .live-workspace-mark { display: none; }
 }
 @media(max-width:640px) {
   .live-management { gap: 16px; }
-  .live-workspace-heading h1 { font-size: 22px; }
   .live-workspace .live-filter { padding: 16px; gap: 12px; }
   .live-workspace .live-filter > .live-field { flex: 1 1 calc(50% - 12px); }
   .live-workspace .live-filter > button { flex: 1; }

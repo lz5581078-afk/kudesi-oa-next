@@ -83,7 +83,7 @@ export function SettlementsTab({ onOpenSession }: { onOpenSession: (id: number) 
             <label className="live-field">备注（可选）<input aria-label="结算备注" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} /></label>
             <button type="button" className="primary-button" disabled={busy || (mode==='month'?!month:!from||!to)} onClick={() => void generate()}>{busy ? '核对退款中…' : '生成 / 重新核对'}</button>
           </div>
-          <p className="muted pad">汇总主播、中控的计时工资及各角色提成。按每场已报订单重新核对聚水潭售后，扣减不超过原提成；人工核定无订单场次单独标明。日期范围不可重叠，范围结束后才能完成审批。</p>
+          <details className="live-settlement-help"><summary>结算范围与退款核对说明</summary><p className="muted pad">汇总主播、中控的计时工资及各角色提成。按每场已报订单重新核对聚水潭售后，扣减不超过原提成；人工核定无订单场次单独标明。日期范围不可重叠，范围结束后才能完成审批。</p></details>
         </section>
       )}
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
