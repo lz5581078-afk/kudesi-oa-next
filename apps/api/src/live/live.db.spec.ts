@@ -803,4 +803,20 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.submissionStatus(stranger)).rejects.toThrow(/无权/);
   });
 
+  it('已排场但无人报播：原排场补录一次，保留产品，重复补录不会再建场次',async()=>{
+    clock('2026-03-12 08:00:00');
+    const sch=await schedules.create(manager,input({date:'2026-03-12',productEntries:[{name:'测试产品'}]}));
+    clock('2026-03-12 15:00:00');
+    const management=new LiveManagementService(ds,source);
+    const body={roomId:ids.n1,anchorId:anchor.id,controlId:control.id,operatorId:operator.id,douyinAccountId:ids.account,storeId:ids.store,startAt:'2026-03-12 10:00:00',endAt:'2026-03-12 14:00:00',salesCents:3000,adSpendCents:0,reason:'全员漏报',orderIds:[]};
+    await expect(management.manual(manager,body)).rejects.toThrow();
+    const actualStart='2026-03-12 10:15:00';
+    const saved=await management.manual(manager,{...body,scheduleId:sch.id,startAt:actualStart});
+    expect(await sessions.detail(manager,saved.id)).toMatchObject({scheduleId:sch.id,startAt:actualStart,status:'pending_report',products:[{name:'测试产品'}]});
+    expect((await schedules.list(manager,{from:'2026-03-12',to:'2026-03-12'})).rows[0]).toMatchObject({sessionId:saved.id,status:'finished'});
+    await expect(management.manual(manager,{...body,scheduleId:sch.id})).rejects.toThrow(/已有场次/);
+    await management.manual(manager,{...body,scheduleId:sch.id,sessionId:saved.id,startAt:'2026-03-12 10:20:00'});
+    expect((await sessions.detail(manager,saved.id)).startAt).toBe('2026-03-12 10:20:00');
+  });
+
 });

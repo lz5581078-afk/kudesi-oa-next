@@ -1,3 +1,4 @@
+import { scheduleProducts } from './live-schedule.service';
 import { liveSessionResult, liveHandover } from './live-notification-events';
 import { channelStores, channelsOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines } from './live-platforms';
 import { LiveChannelInput, LiveStoreLine } from '@kudesi/shared';
@@ -25,6 +26,7 @@ import {
 import { closedDay, liveClock, liveFail, lockCompany, reportsOf, sessionRow, text } from './live-core';
 
 export interface ManualInput {
+  scheduleId?: number;
   channels?:LiveChannelInput[]; storeLines?:LiveStoreLine[];
   sessionId?: number;
   roomId: number;
@@ -187,7 +189,29 @@ export class LiveManagementService {
       if(JSON.stringify(current)!==JSON.stringify(channels)) liveFail('账号或店铺绑定已变化，请刷新后补报',400);
       const first=channels[0], account={id:first.accountId,name:channels.map(c=>c.accountName).join(' / ').slice(0,200)}, store=first.stores[0];
       input.douyinAccountId=account.id;input.storeId=store.id;
-      await assertAccountTime(em,user.companyId,channels,startAt,endAt,input.sessionId,original?.schedule_id?Number(original.schedule_id):undefined);
+      const [schedule] = input.scheduleId ? await em.query(
+        "SELECT *,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') start_text FROM live_schedules WHERE company_id=? AND id=? FOR UPDATE",
+        [user.companyId,input.scheduleId],
+      ) : [];
+      if (input.scheduleId) {
+        if (!schedule || schedule.status === 'cancelled' || Number(schedule.session_id||0)!==Number(input.sessionId||0) || (original && Number(original.schedule_id)!==input.scheduleId) || (!original && schedule.status!=='scheduled')) liveFail('排场已变更或已有场次，请刷新后选择原排场');
+        if (!original && (Number(schedule.room_id)!==input.roomId || Number(schedule.anchor_user_id)!==input.anchorId ||
+          Number(schedule.control_user_id||0)!==Number(input.controlId||0) || Number(schedule.operator_user_id||0)!==Number(input.operatorId||0))) liveFail('排场人员已变更，请重新选择');
+        if (await closedDay(em,user.companyId,schedule.start_text.slice(0,10))) liveFail('原排班日期已进入工资结算，不能补报');
+        const other = await em.query("SELECT id FROM live_schedules WHERE company_id=? AND id<>? AND status<>'cancelled' AND (room_id=? OR anchor_user_id=?) AND start_at<? AND end_at>? LIMIT 1",
+          [user.companyId,schedule.id,input.roomId,input.anchorId,endAt,startAt]);
+        if (other.length) liveFail('实际补报时间与其他排场的房间或主播重合，请核对下播时间');
+        const planned = channelsOf(schedule);
+        const expected = planned.length ? planned : [{accountId:Number(schedule.douyin_account_id),storeIds:schedule.store_id?[Number(schedule.store_id)]:[]}];
+        if (!original && (expected.length !== channels.length || expected.some((p,i)=>p.accountId!==channels[i].accountId ||
+          (p.storeIds.length && (p.storeIds.length!==channels[i].storeIds.length || p.storeIds.some(id=>!channels[i].storeIds.includes(id))))))) liveFail('请沿用排场的直播账号和店铺');
+      }
+      await assertAccountTime(em,user.companyId,channels,startAt,endAt,input.sessionId,input.scheduleId ?? (original?.schedule_id?Number(original.schedule_id):undefined));
+      if (!original || schedule) {
+        const conflict = await em.query("SELECT id FROM live_sessions WHERE company_id=? AND id<>? AND (room_id=? OR anchor_user_id=?) AND start_at<? AND COALESCE(end_at,'9999-12-31')>? LIMIT 1",
+          [user.companyId,input.sessionId??0,input.roomId,input.anchorId,endAt,startAt]);
+        if (conflict.length) liveFail('该时间已有相同房间或主播的其他场次，请核对实际时间');
+      }
       let id = input.sessionId;
       if (id) {
         const s = await sessionRow(em, user.companyId, id, true);
@@ -198,7 +222,7 @@ export class LiveManagementService {
         if (
           Number(s.anchor_user_id) !== input.anchorId ||
           Number(s.control_user_id ?? 0) !== Number(input.controlId ?? 0) ||
-          s.start_text !== startAt ||
+          (!schedule && s.start_text !== startAt) ||
           Number(s.room_id) !== input.roomId ||
           Number(s.store_id) !== input.storeId ||
           Number(s.douyin_account_id) !== input.douyinAccountId ||
@@ -206,11 +230,6 @@ export class LiveManagementService {
         )
           liveFail('补报现有场次须沿用原房间、人员、店铺、账号和开播时间');
       } else {
-        const clash = await em.query(
-          `SELECT id FROM live_sessions WHERE company_id=? AND (room_id=? OR anchor_user_id=?) AND start_at<? AND COALESCE(end_at,'9999-12-31')>?`,
-          [user.companyId, input.roomId, input.anchorId, endAt, startAt],
-        );
-        if (clash.length) liveFail('该时间已有相同房间或主播的场次，请选择已有场次编号补报');
         const ins = await em.query(
           `INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,control_user_id,operator_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,end_at,status,started_by,started_role,report_source,manual_reason,manual_actor_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_report',?,'manager','manual',?,?)`,
           [
@@ -234,6 +253,14 @@ export class LiveManagementService {
           ],
         );
         id = Number(ins.insertId);
+      }
+      if (schedule && !original) {
+        await em.query('UPDATE live_sessions SET schedule_id=? WHERE company_id=? AND id=?',[schedule.id,user.companyId,id]);
+        let order=0;
+        for (const p of scheduleProducts(schedule.products_json)) {
+          await em.query('INSERT INTO live_session_products(company_id,session_id,base_code_id,code_snapshot,name_snapshot,spec_snapshot,sort_order) VALUES(?,?,?,?,?,?,?)',[user.companyId,id,p.id,p.code,p.name,p.spec||null,order++]);
+        }
+        await em.query("UPDATE live_schedules SET session_id=?,status='finished',updated_by=? WHERE company_id=? AND id=? AND status IN ('scheduled','live')",[id,user.id,user.companyId,schedule.id]);
       }
       await em.query('UPDATE live_sessions SET channels_json=? WHERE company_id=? AND id=?',[JSON.stringify(channels),user.companyId,id]);
       const before = await reportsOf(em, user.companyId, id!);
@@ -291,8 +318,8 @@ export class LiveManagementService {
         }
       }
       await em.query(
-        "UPDATE live_sessions SET end_at=?,status=IF(status='live','pending_report',status),report_source='manual',manual_reason=?,manual_actor_id=?,revision=revision+1 WHERE company_id=? AND id=?",
-        [endAt, text(input.reason), user.id, user.companyId, id],
+        "UPDATE live_sessions SET start_at=?,session_date=?,end_at=?,status=IF(status='live','pending_report',status),report_source='manual',manual_reason=?,manual_actor_id=?,revision=revision+1 WHERE company_id=? AND id=?",
+        [startAt, day, endAt, text(input.reason), user.id, user.companyId, id],
       );
       await em.query(
         "UPDATE live_schedules SET status='finished' WHERE company_id=? AND session_id=? AND status='live'",
