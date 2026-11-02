@@ -282,6 +282,6 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .live-room-qr { width:220px; height:220px; max-width:100%; background:white; }
 @media(max-width:600px){.live-checkin-actions{display:grid;grid-template-columns:1fr}.live-clock-button{width:100%}.live-checkout-summary{gap:10px}.live-modal .modal-foot{display:flex;flex-wrap:wrap}.live-modal .modal-foot .live-clock-button{flex:1 0 100%}}
 /* 台账展示实际场次起止，不使用计薪时长推算直播时间。 */
-.data-table td.live-payroll-session { min-width: 230px; max-width: 420px; white-space: normal; overflow-wrap: anywhere; }
-.live-payroll-session > span,.live-payroll-session > strong,.live-payroll-session > small { display: block; line-height: 1.65; }
-.live-payroll-session > small { color: var(--muted); }
+.data-table td.live-payroll-session { min-width: 230px; white-space: normal; overflow-wrap: anywhere; }
+.live-payroll-session > span { display: block; line-height: 1.65; white-space: nowrap; }
+.live-payroll-session small { color: var(--muted); }
