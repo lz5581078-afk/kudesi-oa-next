@@ -9,7 +9,6 @@
  */
 import type { FieldDef } from './resources';
 import { date, files, money, o, ref, refs, select, text, textarea } from './resource-kit';
-import { EXCEPTION_RESOLUTIONS, PAYMENT_MODES, PURCHASE_BIG_AMOUNT_CENTS, PURCHASE_COST_PERMISSION, PURCHASE_PURPOSES, RECEIPT_RESULTS } from './purchase';
 import { AFTER_SALES_TYPES, APPEAL_TYPES } from './service-cases';
 import { LIVE_FINAL_SOURCES } from './live';
 
@@ -238,12 +237,88 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     ],
     stepFields: {
       approve: [
-        { key: 'periodDays', label: '专属有效期（天）', type: 'number', group: '审批', required: true, help: '1 到 3650 天，从审批通过时起算' },
+        { key: 'periodDays', label: '专属有效期（天）', type: 'number', group: '审批', help: '1 到 3650 天，从审批通过时起算；和“指定到期日”二选一' },
+        { key: 'endsAt', label: '指定到期日', type: 'date', group: '审批', help: '填了就到这一天 23:59:59（北京时间）为止；和“有效期（天）”二选一' },
       ],
     },
     steps: [
       { key: 'apply', name: '提交申请', type: 'submit', assignee: { source: 'requester' }, locked: true },
       { key: 'approve', name: '审批', type: 'approval', dueMinutes: SKU_DUE_MINUTES, remind: SKU_REMIND, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
+  {
+    key: 'purchase-request',
+    label: '采购申请',
+    description: '运营提采购需求（商品、数量、要求到货日）→ 采购定供应商和单价 → 审批 → 出纳登记货款（生成预付款单）→ 分批发货、到货、核对实收、质检（异常可换货、折价或终止退款）→ 申报运费装卸费 → 财务结算（生成采购入库单、冲抵预付款、更新商品采购价和物流成本）→ 支付费用。运营看不到单价和付款。',
+    fields: [
+      { key: 'lines', label: '采购商品', type: 'json', group: '需求', required: true, help: '每行：商品、数量、计价单位；原料有成品名（马甲）的要选一个' },
+      date('requestedArrivalAt', '要求到货日期', '需求', { required: true, help: '到这天仓库还没收到货，会提醒办理人' }),
+      textarea('note', '申请说明', '需求', { maxLength: 500, help: '为什么采购、用在哪（选填）' }),
+    ],
+    stepFields: {
+      plan: [
+        { key: 'data', label: '采购方案', type: 'json', group: '方案', required: true, help: '供应商、仓库、每个商品的单价、货款方式、收款资料' },
+        textarea('comment', '方案备注', '方案', { maxLength: 500 }),
+      ],
+      approve: [textarea('comment', '审批意见', '审批', { maxLength: 500 })],
+      pay: [
+        { key: 'data', label: '货款安排', type: 'json', group: '付款', required: true, help: '新付款（账户、金额、流水、凭证）和占用的已有预付款' },
+        textarea('comment', '付款备注', '付款', { maxLength: 500 }),
+      ],
+      prepay_review: [textarea('comment', '复核备注', '复核', { maxLength: 500 })],
+      dispatch: [
+        { key: 'data', label: '发货登记', type: 'json', group: '发货', required: true, help: '本批商品和数量、物流单号、预计到货、凭证' },
+        textarea('comment', '发货备注', '发货', { maxLength: 500, help: '预计到货晚于要求日期时必填' }),
+      ],
+      arrival: [
+        { key: 'data', label: '到货凭证', type: 'json', group: '到货', required: true },
+        textarea('comment', '到货备注', '到货', { maxLength: 500 }),
+      ],
+      receive: [
+        { key: 'data', label: '实收数量', type: 'json', group: '收货', required: true },
+        textarea('comment', '差异说明', '收货', { maxLength: 500, help: '实收和发货数量不一致时必填' }),
+      ],
+      quality: [
+        { key: 'data', label: '质检结果', type: 'json', group: '质检', required: true },
+        textarea('comment', '质检说明', '质检', { maxLength: 500, help: '有不合格时必填' }),
+      ],
+      exception: [
+        { key: 'data', label: '异常处置', type: 'json', group: '异常', required: true },
+        textarea('comment', '处理原因', '异常', { maxLength: 500, required: true }),
+      ],
+      refund: [
+        { key: 'data', label: '退款确认', type: 'json', group: '退款', required: true },
+        textarea('comment', '退款备注', '退款', { maxLength: 500 }),
+      ],
+      expense: [
+        { key: 'data', label: '费用申报', type: 'json', group: '费用', required: true },
+        textarea('comment', '费用备注', '费用', { maxLength: 500 }),
+      ],
+      settle: [
+        { key: 'data', label: '结算', type: 'json', group: '结算', required: true },
+        textarea('comment', '复核备注', '结算', { maxLength: 500 }),
+      ],
+      expense_pay: [
+        { key: 'data', label: '费用付款', type: 'json', group: '费用付款', required: true },
+        textarea('comment', '付款备注', '费用付款', { maxLength: 500 }),
+      ],
+    },
+    steps: [
+      { key: 'apply', name: '提交采购需求', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'plan', name: '完善采购方案', type: 'execute', dueMinutes: 1440, locked: true },
+      { key: 'approve', name: '审核采购方案', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'pay', name: '登记采购货款', type: 'finance', dueMinutes: 1440, locked: true },
+      { key: 'prepay_review', name: '核对预付款使用', type: 'finance', dueMinutes: 1440, locked: true },
+      { key: 'dispatch', name: '跟进供应商发货', type: 'execute', locked: true },
+      { key: 'arrival', name: '登记本批到货', type: 'execute', locked: true },
+      { key: 'receive', name: '核对实收数量', type: 'execute', dueMinutes: 2880, locked: true },
+      { key: 'quality', name: '登记质检结果', type: 'execute', dueMinutes: 2880, locked: true },
+      { key: 'exception', name: '处理采购异常', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'refund', name: '确认预付款退款', type: 'finance', dueMinutes: 1440, locked: true },
+      { key: 'expense', name: '申报运费装卸费', type: 'execute', dueMinutes: 2880, locked: true },
+      { key: 'settle', name: '核对到货并结算', type: 'finance', dueMinutes: 1440, locked: true },
+      { key: 'expense_pay', name: '支付运费装卸费', type: 'finance', dueMinutes: 1440, locked: true },
       { key: 'end', name: '结束', type: 'end', locked: true },
     ],
   },
@@ -379,91 +454,6 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     steps: [
       { key: 'apply', name: '提交审批', type: 'submit', assignee: { source: 'requester' }, locked: true },
       { key: 'approve', name: '月结审批', type: 'approval', dueMinutes: 4320, locked: true },
-      { key: 'end', name: '结束', type: 'end', locked: true },
-    ],
-  },
-  {
-    key: 'purchase-request',
-    label: '采购申请',
-    description: '为公司采购商品或包装耗材：申请人选商品和数量 → 部门审核 → 采购员定供应商和单价 → 采购负责人、财务审核（金额达到门槛再加老板审批）→ 下单并登记付款 → 仓库到货验收（短少或不合格走异常处置，可退回补货重验、登记退款）→ 入库登记，可一键生成“采购入库单”草稿交给财务（只生成草稿，不自动过账）→ 尾款付款（预付定金或账期的才有）。单价和金额只有“成本查看”权限的人看得到，申请人不用报价。',
-    fields: [
-      select('purpose', '采购用途', '申请', PURCHASE_PURPOSES.map((x) => ({ ...x })), { required: true }),
-      textarea('reason', '采购事由', '申请', { required: true, maxLength: 500, help: '为什么要买、用在哪里；审批人会看到' }),
-      { key: 'lines', label: '采购商品明细', type: 'json', group: '明细', required: true, help: '从商品档案里选商品，填数量；不用填价格，价格由采购员询价后填写' },
-      date('expectedArrivalDate', '期望到货日', '申请', { required: true, help: '不早于今天；供应商承诺到货日定下来后，到货验收按承诺日督促' }),
-      ref('storeId', '关联店铺', '关联', 'stores', { help: '为哪个店铺备货；选填' }),
-      text('projectName', '关联项目/活动', '关联', { maxLength: 80, help: '例如“双 11 备货”；选填' }),
-      ref('suggestedSupplierId', '建议供应商', '关联', 'finance-suppliers', { help: '只是给采购员的参考，最终由采购员在“采购方案”里确定' }),
-      { key: 'estimates', label: '预计单价', type: 'json', group: '预估', permission: PURCHASE_COST_PERMISSION, help: '选填，仅有成本查看权限的人能填；每个商品一个预计单价（元）' },
-      files('attachments', '附件', '附件', { maxFiles: 9, help: '报价截图、需求说明等；图片或 PDF' }),
-    ],
-    stepFields: {
-      plan: [
-        ref('supplierId', '供应商', '采购方案', 'finance-suppliers', { required: true, help: '从供应商档案里选，已停用的不能选' }),
-        { key: 'prices', label: '商品单价', type: 'json', group: '采购方案', permission: PURCHASE_COST_PERMISSION, help: '每个申请商品一个单价（元，最多 6 位小数）；需要成本查看权限' },
-        { ...money('amountCents', '采购金额（系统按数量×单价算出）', '采购方案', { readonly: true }), permission: PURCHASE_COST_PERMISSION },
-        textarea('quoteNote', '询价说明', '采购方案', { maxLength: 500, help: '比价情况、起订量、运费承担、交期等' }),
-        files('quoteFiles', '报价单', '采购方案', { maxFiles: 9 }),
-      ],
-      order: [
-        text('orderNo', '采购订单号/合同号', '下单', { required: true, maxLength: 80 }),
-        date('orderedAt', '下单日期', '下单', { required: true }),
-        date('promisedArrivalDate', '供应商承诺到货日', '下单', { required: true, help: '到货验收按这一天督促；晚于期望到货日要在备注里说明' }),
-        select('paymentMode', '付款方式', '付款', PAYMENT_MODES.map((x) => ({ ...x })), { required: true }),
-        ref('bankAccountId', '付款账户', '付款', 'bank-accounts', { showWhen: { field: 'paymentMode', in: ['prepay', 'deposit'] }, help: '预付款/定金从哪个账户付出' }),
-        { ...money('paidCents', '本次付款金额', '付款', { showWhen: { field: 'paymentMode', in: ['prepay', 'deposit'] }, help: '全款预付必须等于采购金额；定金必须小于采购金额；不能超过已批准的采购金额' }), permission: PURCHASE_COST_PERMISSION },
-        date('paidAt', '付款日期', '付款', { showWhen: { field: 'paymentMode', in: ['prepay', 'deposit'] } }),
-        text('payRef', '银行流水号/付款凭证号', '付款', { maxLength: 64, showWhen: { field: 'paymentMode', in: ['prepay', 'deposit'] }, help: '不能和别的采购流程里登记过的重复' }),
-        files('voucher', '付款凭证', '付款', { maxFiles: 9, showWhen: { field: 'paymentMode', in: ['prepay', 'deposit'] } }),
-        textarea('remark', '备注', '下单', { maxLength: 500 }),
-      ],
-      receive: [
-        date('arrivedAt', '到货日期', '到货验收', { required: true }),
-        text('logisticsNo', '物流单号', '到货验收', { maxLength: 80 }),
-        { key: 'lines', label: '本次验收数量', type: 'json', group: '到货验收', required: true, help: '每个商品填本次到货数量和其中合格数量；分批到货、补发重验时，系统自动累计' },
-        { key: 'result', label: '验收结果（系统按累计数量推出）', type: 'select', group: '到货验收', readonly: true, options: RECEIPT_RESULTS.map((x) => ({ ...x })) },
-        textarea('note', '验收说明', '到货验收', { maxLength: 500, help: '有不合格或短少时必须写明情况' }),
-        files('receiptPhotos', '到货/验收照片', '到货验收', { maxFiles: 9 }),
-      ],
-      exception: [
-        select('resolution', '处置方式', '异常处置', EXCEPTION_RESOLUTIONS.map((x) => ({ ...x })), { required: true, help: '要供应商补发或换货：不要在这里通过，点“退回上一步”回到到货验收，补发的货到了再验收，数量会自动累计' }),
-        textarea('note', '处置说明', '异常处置', { required: true, maxLength: 500 }),
-        { ...money('expectedRefundCents', '预计应退金额', '异常处置', { help: '供应商应退回的金额，给后面登记退款的人参考；没有填 0' }), permission: PURCHASE_COST_PERMISSION },
-        text('returnLogisticsNo', '退货物流单号', '异常处置', { maxLength: 80 }),
-      ],
-      refund_confirm: [
-        { ...money('refundedCents', '实际退款金额', '退款确认', { help: '供应商实际退回的金额；没有退回填 0 并写明原因' }), permission: PURCHASE_COST_PERMISSION },
-        date('refundedAt', '退款到账日期', '退款确认', { required: true }),
-        ref('bankAccountId', '收款账户', '退款确认', 'bank-accounts'),
-        text('refundRef', '银行流水号', '退款确认', { maxLength: 64 }),
-        textarea('note', '说明', '退款确认', { maxLength: 500 }),
-        files('refundVoucher', '退款凭证', '退款确认', { maxFiles: 9 }),
-      ],
-      inbound: [
-        textarea('noDraftReason', '不生成入库单草稿的原因', '入库登记', { maxLength: 200, help: '合格数量大于 0 时，要么在上方“采购摘要”里点“生成采购入库单草稿”（选仓库），要么在这里写明原因（例如已在制单中心手工开单）' }),
-      ],
-      final_pay: [
-        ref('bankAccountId', '付款账户', '尾款付款', 'bank-accounts', { required: true }),
-        { ...money('paidCents', '本次付款金额', '尾款付款', {}), permission: PURCHASE_COST_PERMISSION },
-        date('paidAt', '付款日期', '尾款付款', { required: true }),
-        text('payRef', '银行流水号/付款凭证号', '尾款付款', { maxLength: 64, help: '不能和别的采购流程里登记过的重复' }),
-        files('finalVoucher', '付款凭证', '尾款付款', { maxFiles: 9 }),
-        textarea('note', '备注', '尾款付款', { maxLength: 500 }),
-      ],
-    },
-    steps: [
-      { key: 'apply', name: '提交采购申请', type: 'submit', assignee: { source: 'requester' }, locked: true },
-      { key: 'dept_review', name: '部门审核', type: 'approval', assignee: { source: 'requester_manager' }, dueMinutes: 1440, remind: { beforeMinutes: [240], overdueEveryMinutes: 480 } },
-      { key: 'plan', name: '采购方案（定供应商和单价）', type: 'execute', assignee: { source: 'position_type', key: 'purchasing' }, dueMinutes: 2880, remind: { beforeMinutes: [480], overdueEveryMinutes: 480 }, locked: true },
-      { key: 'plan_review', name: '采购负责人审核', type: 'approval', assignee: { source: 'position_type', key: 'purchasing' }, dueMinutes: 1440, remind: { beforeMinutes: [240], overdueEveryMinutes: 480 } },
-      { key: 'finance_review', name: '财务审核', type: 'approval', assignee: { source: 'position_type', key: 'finance' }, dueMinutes: 1440, remind: { beforeMinutes: [240], overdueEveryMinutes: 480 } },
-      { key: 'boss_review', name: '老板审批（大额）', type: 'approval', assignee: { source: 'position_type', key: 'boss' }, dueMinutes: 1440, when: { field: 'form.plan.amountCents', op: 'gte', value: PURCHASE_BIG_AMOUNT_CENTS }, remind: { beforeMinutes: [240], overdueEveryMinutes: 480 } },
-      { key: 'order', name: '下单与付款登记', type: 'finance', assignee: { source: 'position_type', key: 'cashier' }, dueMinutes: 1440, remind: { beforeMinutes: [240], overdueEveryMinutes: 480 }, locked: true },
-      { key: 'receive', name: '到货验收', type: 'execute', assignee: { source: 'position_type', key: 'warehouse' }, dueMinutes: 20160, remind: { beforeMinutes: [1440], overdueEveryMinutes: 1440 }, locked: true },
-      { key: 'exception', name: '验收异常处置', type: 'approval', assignee: { source: 'position_type', key: 'purchasing' }, dueMinutes: 1440, returnToKey: 'receive', when: { field: 'form.receive.result', op: 'in', value: ['defect', 'shortage'] }, remind: { beforeMinutes: [240], overdueEveryMinutes: 480 } },
-      { key: 'refund_confirm', name: '退款到账确认', type: 'approval', assignee: { source: 'position_type', key: 'cashier' }, dueMinutes: 4320, when: { field: 'form.exception.resolution', op: 'in', value: ['return_refund', 'cancel_remaining'] }, remind: { beforeMinutes: [480], overdueEveryMinutes: 1440 } },
-      { key: 'inbound', name: '入库登记', type: 'execute', assignee: { source: 'position_type', key: 'warehouse' }, dueMinutes: 1440, remind: { beforeMinutes: [240], overdueEveryMinutes: 480 }, locked: true },
-      { key: 'final_pay', name: '尾款付款登记', type: 'approval', assignee: { source: 'position_type', key: 'cashier' }, dueMinutes: 4320, when: { field: 'form.order.paymentMode', op: 'in', value: ['deposit', 'credit'] }, remind: { beforeMinutes: [480], overdueEveryMinutes: 1440 } },
       { key: 'end', name: '结束', type: 'end', locked: true },
     ],
   },

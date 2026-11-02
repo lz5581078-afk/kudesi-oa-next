@@ -1,92 +1,124 @@
 import { describe, expect, it } from 'vitest';
-import { FLOW_TEMPLATES, getFlowTemplate, validatePostingDecl, validateSteps, type StepDef } from './flow';
-import { acceptedLines, applyReceipt, normalizeLines, normalizePrices, normalizeReceipt, priceLines, shanghaiToday } from './purchase';
+import {
+  allocateCents, allocateFees, approvalCents, batchStageLabel, currentBatch, emptyPurchaseState, nextStepKey, prepayUsage, remainingQty, returnBlockedReason,
+  shipmentOutstanding, toShipQty, type Batch, type PurchaseLine, type PurchaseState,
+} from './purchase';
+import { getFlowTemplate, validateSteps } from './flow';
 
-const tpl = getFlowTemplate('purchase-request')!;
-const lines = [{ productId: 11, qty: 100 }, { productId: 12, qty: 2.5 }];
+const line = (productId: number, qty: number): PurchaseLine => ({ productId, qty, unit: '斤', name: `商品${productId}`, code: `P${productId}`, weightG: 500 });
+const lines = [line(1, 10), line(2, 4)];
+const batch = (over: Partial<Batch> = {}): Batch => ({ id: 'b1', shipmentId: 's1', shipment: [{ productId: 1, qty: 10 }], logisticsNo: 'SF1', expectedArrivalAt: '2026-11-01', dispatchFiles: [1], fees: [], ...over });
+const state = (over: Partial<PurchaseState> = {}): PurchaseState => ({ ...emptyPurchaseState(), prices: { '1': 250, '2': 1000 }, ...over });
 
-describe('采购申请明细', () => {
-  it('规范化：商品不重复、数量大于 0 且最多 4 位小数', () => {
-    expect(normalizeLines([{ productId: 1, qty: '3.25', unit: ' 箱 ' }]).lines).toEqual([{ productId: 1, qty: 3.25, unit: '箱' }]);
-    expect(normalizeLines([]).errors.length).toBe(1);
-    expect(normalizeLines([{ productId: 1, qty: 1 }, { productId: 1, qty: 2 }]).errors.join()).toContain('重复');
-    expect(normalizeLines([{ productId: 1, qty: 0 }]).errors.join()).toContain('大于 0');
-    expect(normalizeLines([{ productId: 1, qty: 1.00001 }]).errors.length).toBe(1);
-    expect(normalizeLines([{ productId: 0, qty: 1 }]).errors.join()).toContain('没有选择商品');
-    expect(normalizeLines(Array.from({ length: 101 }, (_, i) => ({ productId: i + 1, qty: 1 }))).errors.join()).toContain('最多 100');
+describe('采购数量与金额', () => {
+  it('批准金额 = 已入库货款 + 剩余数量 × 单价；数量乘单价后才结算到分', () => {
+    expect(approvalCents(lines, state())).toBe(10 * 250 + 4 * 1000);
+    expect(approvalCents(lines, state({ prices: { '1': 250 } }))).toBeNull();
+    // 4 位小数的单价：3 件 × 33.3333 分 = 99.9999 分 → 100 分
+    expect(approvalCents([line(1, 3)], state({ prices: { '1': 33.3333 } }))).toBe(100);
+    const done = state({ batches: [batch({ posted: true, goodsCents: 2500, accepted: [{ productId: 1, qty: 10, unitPriceCents: 250 }] })] });
+    expect(remainingQty(done, lines[0])).toBe(0);
+    expect(remainingQty(done, lines[1])).toBe(4);
+    expect(approvalCents(lines, done)).toBe(2500 + 4000);
   });
-  it('单价必须一一对应、大于 0、最多 4 位小数（分）', () => {
-    expect(normalizePrices([{ productId: 11, unitPriceCents: 1250.5 }, { productId: 12, unitPriceCents: 800 }], lines).errors).toEqual([]);
-    expect(normalizePrices([{ productId: 11, unitPriceCents: 1250 }], lines).errors.join()).toContain('还没有填');
-    expect(normalizePrices([{ productId: 11, unitPriceCents: 0 }, { productId: 12, unitPriceCents: 1 }], lines).errors.join()).toContain('大于 0');
-    expect(normalizePrices([{ productId: 11, unitPriceCents: 1.00001 }, { productId: 12, unitPriceCents: 1 }], lines).errors.length).toBeGreaterThan(0);
-    expect(normalizePrices([{ productId: 99, unitPriceCents: 1 }, { productId: 11, unitPriceCents: 1 }, { productId: 12, unitPriceCents: 1 }], lines).errors.join()).toContain('没有的商品');
+  it('终止的数量不再算剩余和批准金额', () => {
+    const s = state({ cancelledQty: { '2': 4 } });
+    expect(remainingQty(s, lines[1])).toBe(0);
+    expect(approvalCents(lines, s)).toBe(2500);
   });
-  it('数量乘单价之后才结算到分，合计是各行分之和', () => {
-    // 100 × 12.505 元（1250.5 分）= 1250.5 × 100 = 125050 分；2.5 × 8 元 = 2000 分
-    const r = priceLines(lines, [{ productId: 11, unitPriceCents: 1250.5 }, { productId: 12, unitPriceCents: 800 }]);
-    expect(r.items.map((i) => i.amountCents)).toEqual([125050, 2000]);
-    expect(r.totalCents).toBe(127050);
-    // 3 件 × 0.3333 分 = 0.9999 分 → 1 分（先乘后舍入，不是先舍入单价）
-    expect(priceLines([{ productId: 1, qty: 3 }], [{ productId: 1, unitPriceCents: 0.3333 }]).totalCents).toBe(1);
+  it('待发货数量：退回换货、确认缺失的数量要补发', () => {
+    const sh = { id: 's1', lines: [{ productId: 1, qty: 6 }], logisticsNo: 'x', expectedArrivalAt: '', files: [], closedMissing: { '1': 1 }, returned: { '1': 2 } };
+    const s = state({ shipments: [sh] });
+    expect(toShipQty(s, lines[0])).toBe(10 - (6 - 2 - 1));
+    expect(shipmentOutstanding(s, sh, 1)).toBe(5);
   });
 });
 
-describe('到货验收累计', () => {
-  it('分批到货：累计合格数量到齐才算全部合格', () => {
-    const a = applyReceipt(lines, undefined, [{ productId: 11, receivedQty: 60, acceptedQty: 60 }, { productId: 12, receivedQty: 2.5, acceptedQty: 2.5 }]);
-    expect(a.errors).toEqual([]);
-    expect(a.result).toBe('shortage');
-    const b = applyReceipt(lines, a.state, [{ productId: 11, receivedQty: 40, acceptedQty: 40 }]);
-    expect(b.result).toBe('ok');
-    expect(b.state['11']).toEqual({ received: 100, accepted: 100 });
+describe('费用分摊', () => {
+  it('最大余数法：各份相加正好等于总额', () => {
+    expect(allocateCents(100, [1, 1, 1])).toEqual([34, 33, 33]);
+    expect(allocateCents(100, [0, 0])).toBeNull();
+    expect(allocateCents(5, [1, 2, 2])!.reduce((a, b) => a + b, 0)).toBe(5);
   });
-  it('有不合格：收到的比合格的多就是“有不合格”；补发重验后合格数补齐则变为全部合格', () => {
-    const a = applyReceipt(lines, undefined, [{ productId: 11, receivedQty: 100, acceptedQty: 90 }, { productId: 12, receivedQty: 2.5, acceptedQty: 2.5 }]);
-    expect(a.result).toBe('defect');
-    const b = applyReceipt(lines, a.state, [{ productId: 11, receivedQty: 10, acceptedQty: 10 }]);
-    expect(b.result).toBe('ok');
-    expect(b.state['11']).toEqual({ received: 110, accepted: 100 });
+  it('按货值、数量、重量分摊运费和装卸费', () => {
+    const ls = [{ productId: 1, qty: 10, unitPriceCents: 250, weightG: 500 }, { productId: 2, qty: 4, unitPriceCents: 1000, weightG: 1000 }];
+    const fees = [{ type: 'freight' as const, amountCents: 130 }, { type: 'handling' as const, amountCents: 13 }];
+    const byValue = allocateFees(ls, fees, 'value')!;
+    expect(byValue.reduce((a, r) => a + r.freightCents, 0)).toBe(130);
+    expect(byValue.reduce((a, r) => a + r.handlingCents, 0)).toBe(13);
+    expect(byValue[0].freightCents).toBe(Math.round((130 * 2500) / 6500));
+    expect(allocateFees(ls, fees, 'quantity')![0].freightCents).toBe(93);
+    expect(allocateFees(ls, fees, 'weight')![1].freightCents).toBeGreaterThan(allocateFees(ls, fees, 'weight')![0].freightCents - 100);
+    expect(allocateFees([{ ...ls[0], weightG: 0 }], fees, 'weight')).toBeNull();
   });
-  it('合格累计不能超过申请数量；小数累加不丢精度', () => {
-    expect(applyReceipt(lines, undefined, [{ productId: 11, receivedQty: 101, acceptedQty: 101 }]).errors.join()).toContain('超过了申请数量');
-    const s = applyReceipt([{ productId: 1, qty: 0.3 }], undefined, [{ productId: 1, receivedQty: 0.1, acceptedQty: 0.1 }]);
-    const t = applyReceipt([{ productId: 1, qty: 0.3 }], s.state, [{ productId: 1, receivedQty: 0.2, acceptedQty: 0.2 }]);
-    expect(t.result).toBe('ok');
+});
+
+describe('预付款占用', () => {
+  it('冲抵先用新付款（按付款先后），再用已有预付款；没用掉的可退或释放', () => {
+    const pay = (docId: number, amountCents: number) => ({ docId, docNo: `YF${docId}`, amountCents, bankAccountId: 1, reference: `r${docId}`, files: [], payeeName: 'a', payeeAccount: 'b' });
+    const s = state({ payments: [pay(1, 1000), pay(2, 500)], prepayClaimCents: 300, batches: [batch({ offsetCents: 1200, posted: true })] });
+    const u = prepayUsage(s);
+    expect(u).toMatchObject({ newCents: 1500, claimCents: 300, reservedCents: 1800, consumedCents: 1200, unusedCents: 600, unusedClaimCents: 300 });
+    expect(u.perDoc.map((d) => d.unusedCents)).toEqual([0, 300]);
+    expect(prepayUsage(state({ payments: [pay(1, 1000)], prepayClaimCents: 300, batches: [batch({ offsetCents: 1100 })] })).unusedClaimCents).toBe(200);
   });
-  it('本次登记校验：合格不能大于到货；商品必须在申请里；至少有一行到货', () => {
-    expect(normalizeReceipt([{ productId: 11, receivedQty: 5, acceptedQty: 6 }], lines).errors.join()).toContain('合格数量不能大于到货');
-    expect(normalizeReceipt([{ productId: 99, receivedQty: 5, acceptedQty: 5 }], lines).errors.join()).toContain('不在这张采购申请');
-    expect(normalizeReceipt([{ productId: 11, receivedQty: 0, acceptedQty: 0 }], lines).errors.join()).toContain('没有登记任何到货');
-    expect(normalizeReceipt([{ productId: 11, receivedQty: 0, acceptedQty: 0 }], lines, true).errors).toEqual([]);
-    expect(normalizeReceipt([{ productId: 11, receivedQty: 5, acceptedQty: 5 }], lines).errors).toEqual([]);
+});
+
+describe('条件流转（沿用旧系统路由）', () => {
+  it('收货、质检有异常去异常处理，没有就往下', () => {
+    expect(nextStepKey('receive', lines, state({ batches: [batch({ pendingException: true })] }))).toBe('exception');
+    expect(nextStepKey('receive', lines, state({ batches: [batch()] }))).toBe('quality');
+    expect(nextStepKey('quality', lines, state({ batches: [batch()] }))).toBe('expense');
+    expect(nextStepKey('quality', lines, state({ batches: [batch({ pendingException: true })] }))).toBe('exception');
+    expect(nextStepKey('apply', lines, state())).toBeUndefined();
   });
-  it('只列出合格数量大于 0 的商品', () => {
-    expect(acceptedLines([{ productId: 11, qty: 100, unit: '箱' }, { productId: 12, qty: 2 }], { '11': { received: 5, accepted: 4 }, '12': { received: 1, accepted: 0 } })).toEqual([{ productId: 11, qty: 4, unit: '箱' }]);
+  it('异常处理后：终止退款去退款，整批重发回发货，否则回质检', () => {
+    expect(nextStepKey('exception', lines, state({ cancelApproved: true, batches: [batch()] }))).toBe('refund');
+    expect(nextStepKey('exception', lines, state({ batches: [batch({ retryShipment: true })] }))).toBe('dispatch');
+    expect(nextStepKey('exception', lines, state({ batches: [batch()] }))).toBe('quality');
+    expect(nextStepKey('refund', lines, state())).toBe('end');
   });
-  it('上海时区的今天', () => {
-    expect(shanghaiToday(new Date('2026-10-28T17:00:00Z'))).toBe('2026-10-29');
+  it('结算后：有费用待付去付费用，还有没到的回发货，都完了结束', () => {
+    const unpaid = batch({ posted: true, fees: [{ id: 'f', type: 'freight', amountCents: 10, payeeName: 'a', payeeAccount: 'b', files: [], paid: false }] });
+    expect(nextStepKey('settle', lines, state({ batches: [unpaid] }))).toBe('expense_pay');
+    expect(nextStepKey('settle', lines, state({ batches: [batch({ posted: true, accepted: [{ productId: 1, qty: 10, unitPriceCents: 250 }] })] }))).toBe('dispatch');
+    const all = state({ cancelledQty: { '2': 4 }, batches: [batch({ posted: true, accepted: [{ productId: 1, qty: 10, unitPriceCents: 250 }] })] });
+    expect(nextStepKey('settle', lines, all)).toBe('end');
+    expect(nextStepKey('expense_pay', lines, state({ batches: [batch({ posted: true })] }))).toBe('dispatch');
+  });
+});
+
+describe('退回限制与批次进度', () => {
+  it('已付款后不能退回到付款前；已入库不能退回结算；换货后不能退回收货', () => {
+    expect(returnBlockedReason('plan', state())).toBeNull();
+    const paid = state({ payments: [{ docId: 1, docNo: 'x', amountCents: 1, bankAccountId: 1, reference: 'r', files: [], payeeName: '', payeeAccount: '' }] });
+    expect(returnBlockedReason('pay', paid)).toContain('货款已安排');
+    expect(returnBlockedReason('expense', paid)).toBeNull();
+    const swapped = state({ batches: [batch({ returnedLines: [{ productId: 1, qty: 1 }] })] });
+    expect(returnBlockedReason('quality', swapped)).toBe('本批已退回换货，不能再退回收货核对');
+    expect(returnBlockedReason('receive', swapped)).toBeNull();
+    expect(returnBlockedReason('settle', state({ batches: [batch({ posted: true })] }))).toBe('本批已入库过账，不能退回');
+    expect(returnBlockedReason('dispatch', state())).toBe('这一步不能退回');
+  });
+  it('批次进度的人话', () => {
+    expect(batchStageLabel(batch())).toBe('运输中');
+    expect(batchStageLabel(batch({ arrived: true }))).toBe('待核对实收');
+    expect(batchStageLabel(batch({ received: [] }))).toBe('待质检');
+    expect(batchStageLabel(batch({ accepted: [] }))).toBe('待申报费用');
+    expect(batchStageLabel(batch({ accepted: [], feesDeclared: true }))).toBe('待财务结算');
+    expect(batchStageLabel(batch({ pendingException: true }))).toBe('异常处理中');
+    expect(batchStageLabel(batch({ posted: true }))).toBe('已入库');
+    expect(currentBatch(state())).toBeUndefined();
   });
 });
 
 describe('采购申请流程模板', () => {
-  const withPeople = (): StepDef[] => tpl.steps.map((s) => (s.type === 'approval' || s.type === 'execute' || s.type === 'finance' ? { ...s, assignee: { source: 'employee' as const, id: 7 } } : { ...s }));
-  it('默认步骤与办理人建议是合法的结构（办理人由管理员确认后才能发布）', () => {
-    expect(validateSteps(tpl, tpl.steps)).toEqual([]);
-    expect(validateSteps(tpl, withPeople())).toEqual([]);
-    expect(validatePostingDecl(tpl)).toEqual([]);
-    expect(FLOW_TEMPLATES.filter((t) => t.key === 'purchase-request').length).toBe(1);
-  });
-  it('金额条件只作用在老板审批上，且读采购方案步骤算出的金额', () => {
-    const boss = tpl.steps.find((s) => s.key === 'boss_review')!;
-    expect(boss.when).toMatchObject({ field: 'form.plan.amountCents', op: 'gte' });
-    expect(tpl.stepFields.plan.some((f) => f.key === 'amountCents' && f.readonly && f.permission === 'product.cost.view')).toBe(true);
-  });
-  it('单价、金额类字段全部要成本查看权限；业务必须的步骤不能删', () => {
-    const money = [...tpl.fields, ...Object.values(tpl.stepFields).flat()].filter((f) => f.key === 'prices' || f.key === 'estimates' || f.key === 'amountCents' || f.key === 'paidCents' || f.key === 'refundedCents' || f.key === 'expectedRefundCents');
-    expect(money.length).toBeGreaterThan(5);
-    for (const f of money) expect(f.permission).toBe('product.cost.view');
-    expect(validateSteps(tpl, withPeople().filter((s) => s.key !== 'receive')).join()).toContain('缺少业务必须的步骤');
-    expect(validateSteps(tpl, withPeople().filter((s) => s.key !== 'finance_review')).join()).toBe('');
+  it('锁定的步骤齐全且顺序固定；默认步骤必须配置办理人才能发布', () => {
+    const t = getFlowTemplate('purchase-request')!;
+    expect(t.steps.map((s) => s.key)).toEqual(['apply', 'plan', 'approve', 'pay', 'prepay_review', 'dispatch', 'arrival', 'receive', 'quality', 'exception', 'refund', 'expense', 'settle', 'expense_pay', 'end']);
+    expect(validateSteps(t, t.steps).length).toBeGreaterThan(0);
+    const assigned = t.steps.map((s) => (s.type === 'submit' || s.type === 'end' ? s : { ...s, assignee: { source: 'employee' as const, id: 7 } }));
+    expect(validateSteps(t, assigned)).toEqual([]);
+    expect(validateSteps(t, assigned.filter((s) => s.key !== 'exception')).join()).toContain('缺少业务必须的步骤');
   });
 });
