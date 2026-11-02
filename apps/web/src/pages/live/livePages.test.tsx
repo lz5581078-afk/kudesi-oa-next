@@ -11,7 +11,7 @@ vi.mock('./liveApi', () => ({ liveApi: {
   turnover: vi.fn(), options: vi.fn(), products: vi.fn(), overview: vi.fn(), roomDay: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), cancelSchedule: vi.fn(), start: vi.fn(), sessions: vi.fn(), session: vi.fn(),
   candidates: vi.fn(), report: vi.fn(), submit: vi.fn(), reviewPreview: vi.fn(), workbench: vi.fn(), history: vi.fn(), commissions: vi.fn(), wages: vi.fn(), people: vi.fn(), rules: vi.fn(), createRule: vi.fn(), trial: vi.fn(),
   roomSettings:vi.fn(),trialPerson:vi.fn(),manualReport:vi.fn(),updateRule:vi.fn(),
-  integrationStatus: vi.fn(), commissionPreview: vi.fn(),
+  integrationStatus: vi.fn(), submissionStatus: vi.fn(), commissionPreview: vi.fn(),
   settlements: vi.fn(), settlement: vi.fn(), generateSettlement: vi.fn(), submitSettlement: vi.fn(),
 } }));
 vi.mock('../flow/flowApi', async (orig) => ({ ...(await orig<typeof import('../flow/flowApi')>()), flowApi: { pass: vi.fn(), back: vi.fn(), reject: vi.fn() } }));
@@ -31,7 +31,7 @@ const session = (o: Record<string, unknown> = {}) => ({ id: 7, scheduleId: 1, ro
 const detail = (o: Record<string, unknown> = {}) => ({ ...session(), products: [{ id: 1, code: 'SKU-A', name: '毛巾', spec: '' }], reports: [], commissions: [], wage: null, preview: null, me: { reportRoles: ['anchor'], canSubmit: false, isManager: false }, flow: null, ...o });
 const bench = (o: Record<string, unknown> = {}) => ({ today: '2026-09-28', month: '2026-09', identity: { isAnchor: true, isControl: false, canManage: false }, active: [], schedules: [sched()], recent: [], monthCommissionCents: 12345, monthWageCents: 20000, monthWageMinutes: 240, commissionRows: [], wageRows: [], ...o });
 
-beforeEach(() => { l.turnover.mockResolvedValue({available:true,orderCount:0,turnoverCents:0,stores:[],queriedAt:'2026-09-28 12:00:00'} as never); window.localStorage.clear(); allow = ['features.live-desk.view']; l.wages.mockResolvedValue({month:'2026-09',scope:'all',totalCents:0,summary:[],rows:[]}); l.options.mockResolvedValue(opts() as never); l.integrationStatus.mockResolvedValue({ ready: true, code: 'ready', message: '' }); l.commissionPreview.mockResolvedValue(null); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
+beforeEach(() => { l.submissionStatus.mockResolvedValue({ready:true,message:'审核流程已就绪'}); l.turnover.mockResolvedValue({available:true,orderCount:0,turnoverCents:0,stores:[],queriedAt:'2026-09-28 12:00:00'} as never); window.localStorage.clear(); allow = ['features.live-desk.view']; l.wages.mockResolvedValue({month:'2026-09',scope:'all',totalCents:0,summary:[],rows:[]}); l.options.mockResolvedValue(opts() as never); l.integrationStatus.mockResolvedValue({ ready: true, code: 'ready', message: '' }); l.commissionPreview.mockResolvedValue(null); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const wrap = (ui: JSX.Element) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
@@ -339,13 +339,14 @@ describe('直播管理', () => {
 
   it('人事补报按分提交并保留原因；区间工资结算提交起止日期',async()=>{
     allow=['features.live.view','live.manage','live.commissions.view'];l.overview.mockResolvedValue(empty() as never);
-    l.manualReport.mockResolvedValue({id:91});wrap(<LiveManagePage/>);
+    l.session.mockResolvedValue(detail({id:91}) as never);l.manualReport.mockResolvedValue({id:91});wrap(<LiveManagePage/>);
     fireEvent.click(await screen.findByRole('tab',{name:'人事补报'}));
     await screen.findByLabelText('抖音一号');
     fireEvent.click(screen.getByLabelText('抖音一号'));fireEvent.click(screen.getByLabelText('抖音一号关联抖音店'));
     for(const [label,value]of [['直播间','10'],['主播','3'],['抖音店营业额','123.45'],['补报原因','漏报补录']] as const)fireEvent.change(screen.getByLabelText(label),{target:{value}});
-    fireEvent.click(screen.getByRole('button',{name:'保存为待审核场次'}));
+    fireEvent.click(screen.getByRole('button',{name:'保存并核对'}));
     await waitFor(()=>expect(l.manualReport).toHaveBeenCalledWith(expect.objectContaining({salesCents:12345,reason:'漏报补录',roomId:10,anchorId:3})));
+    fireEvent.click(await screen.findByRole('button',{name:'关闭详情'}));
     l.settlements.mockResolvedValue({canManage:true,defaultMonth:'2026-09',rows:[]});l.generateSettlement.mockRejectedValue(new Error('日期范围重叠'));
     fireEvent.click(screen.getByRole('tab',{name:'工资结算'}));
     fireEvent.change(await screen.findByLabelText('结算方式'),{target:{value:'range'}});
@@ -353,6 +354,40 @@ describe('直播管理', () => {
     fireEvent.click(screen.getByRole('button',{name:'生成 / 重新核对'}));
     await waitFor(()=>expect(l.generateSettlement).toHaveBeenCalledWith('2026-09',undefined,{from:'2026-09-01',to:'2026-09-15'}));
     expect((await screen.findByRole('alert')).textContent).toContain('重叠');
+  });
+
+  it('填报前提示流程不可用，保存校验错误留在底部并获得焦点',async()=>{
+    allow=['features.live.view','live.manage','flow.templates.view','flow.templates.manage'];
+    l.overview.mockResolvedValue(empty() as never);
+    l.submissionStatus.mockResolvedValue({ready:false,message:'审核流程尚未启用'});
+    wrap(<LiveManagePage/>);
+    fireEvent.click(await screen.findByRole('tab',{name:'人事补报'}));
+    expect(await screen.findByText(/审核流程尚未启用/)).toBeTruthy();
+    expect(screen.getByRole('link',{name:'配置直播场次审核'}).getAttribute('href')).toBe('/flow/templates?flow=live-session-review');
+    fireEvent.click(screen.getByRole('button',{name:'保存并核对'}));
+    const alert=await screen.findByRole('alert');
+    expect(alert.textContent).toContain('请完整填写');
+    expect(alert.closest('.live-manual-feedback')).toBe(document.activeElement);
+    expect(l.manualReport).not.toHaveBeenCalled();
+  });
+
+  it('详情提前拦截未就绪审核，可重新检查后提交，成功结果明确可见',async()=>{
+    allow=['features.live.view','live.manage'];l.overview.mockResolvedValue(empty() as never);
+    l.sessions.mockResolvedValue({total:1,page:1,pageSize:20,rows:[session({status:'pending_report'})]} as never);
+    const pending={status:'pending_report',me:{reportRoles:[],canSubmit:true,isManager:true}};
+    l.session.mockResolvedValue(detail({...pending,submission:{ready:false,message:'审核流程尚未启用'}}) as never);
+    wrap(<LiveManagePage/>);fireEvent.click(await screen.findByRole('tab',{name:'场次记录'}));
+    fireEvent.click(await screen.findByRole('button',{name:'详情'}));
+    const dlg=await screen.findByRole('dialog',{name:'直播场次'});
+    expect((await within(dlg).findByRole('button',{name:'提交审核'}) as HTMLButtonElement).disabled).toBe(true);
+    l.session.mockResolvedValue(detail({...pending,submission:{ready:true,message:'审核流程已就绪'}}) as never);
+    fireEvent.click(within(dlg).getByRole('button',{name:'重新检查'}));
+    await waitFor(()=>expect((within(dlg).getByRole('button',{name:'提交审核'}) as HTMLButtonElement).disabled).toBe(false));
+    l.submit.mockResolvedValue({runId:99});
+    l.session.mockResolvedValue(detail({status:'submitted',me:{reportRoles:[],canSubmit:false,isManager:true}}) as never);
+    fireEvent.click(within(dlg).getByRole('button',{name:'提交审核'}));
+    expect(await within(dlg).findByText('已提交审核，请等待审核人处理。')).toBeTruthy();
+    expect(within(dlg).queryByRole('button',{name:'提交审核'})).toBeNull();
   });
 
 });

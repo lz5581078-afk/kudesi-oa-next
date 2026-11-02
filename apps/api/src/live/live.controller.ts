@@ -194,6 +194,8 @@ export class LiveController {
 
   @AuthenticatedOnly() @Get('integration-status')
   integrationStatus(@CurrentUser() u: AuthUser) { return this.sessions.integrationStatus(u); }
+  @AuthenticatedOnly() @Get('submission-status')
+  submissionStatus(@CurrentUser() u: AuthUser) { return this.sessions.submissionStatus(u); }
   @AuthenticatedOnly() @Get('products')
   async products(@CurrentUser() u: AuthUser, @Query() q: ProductQuery) {
     const a = await loadLiveAccess(this.ds.manager, u); requireUse(a);
