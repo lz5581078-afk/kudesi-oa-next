@@ -1,0 +1,59 @@
+/* 手机适配统一补丁：只放跨页面的通用规则，页面自己的布局仍写在各自样式里。
+   720px 与 styles.css / module-panel.css 的手机断点一致。 */
+
+/* 复选框、单选框不能吃到 `label input` / `.form-grid input` 的 34px 高和 100% 宽 */
+html input[type='checkbox'], html input[type='radio'] { width: 16px; height: 16px; min-height: 0; padding: 0; margin: 0; flex: none; accent-color: var(--accent); }
+
+/* 表格外层必须能横向滚动，不能把整页撑宽 */
+.table-wrap { overflow-x: auto; }
+.card:has(> table.data-table) { overflow-x: auto; }
+
+/* 单据页"过账结果"提示和第一个分节标题之间留出间距 */
+.slip-hint { margin: 0 0 12px; }
+.section-title { display: flex; align-items: center; margin: 14px 0 8px; }
+
+@media (max-width: 720px) {
+  /* 页面名称已经在顶栏显示：页内再重复一遍大标题没有信息量 */
+  .page-head:has(> h1:only-child) { display: none; }
+  .page-head > h1:first-child { display: none; }
+  .page-head:has(> h1:first-child) { justify-content: flex-end; }
+
+  /* 直播管理：顶栏只留页面名，说明文字移到页内 */
+  .live-header-summary { display: none; }
+  .appbar-slot:has(.live-header-summary) { display: none; }
+
+  /* 控件：不带样式的原生下拉 / 输入框补上边框，字号不低于 16px（iOS 聚焦时不会自动放大页面），点击区不小于 40px */
+  :where(select, textarea, input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color'])) {
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink);
+    min-width: 0; max-width: 100%;
+  }
+  select, textarea, input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']) { font-size: 16px; }
+  select, input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']) { min-height: 40px; }
+  .toolbar button, .page-head button, .modal button, .form-grid button, .card-foot button { min-height: 38px; }
+
+  /* 工具条：搜索框独占一行，其余筛选两两并排，不再是一排窄条 */
+  .toolbar { gap: 8px; padding: 10px 12px; }
+  .toolbar > input, .toolbar > select, .toolbar > label { flex: 1 1 140px; min-width: 0; }
+  .toolbar input[type='search'], .toolbar > input[type='text'] { flex: 1 1 100%; min-width: 0; }
+  .toolbar label.check-inline, .toolbar label.check-line, .check-inline { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; }
+
+  /* 分页：一行放不下时换行，每页条数不压成一条缝 */
+  .card-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+}
+
+@media (max-width: 720px) {
+  /* 卡片标题：名称和说明上下排，不再贴在一行 */
+  .card-head { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  input.search-box { width: 100%; min-width: 0; flex: 1 1 100%; }
+}
+
+/* 资料总览等页面里直接放在卡片里的表格 */
+.pad:has(> table.data-table) { overflow-x: auto; }
+
+@media (max-width: 720px) {
+  /* 表单弹窗底部按钮 ≥4 个（新增商品等）：主按钮独占一行放最上，其余两两并排 */
+  .modal .modal-foot.rf-foot:has(> button:nth-of-type(4)) { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; justify-content: stretch; }
+  .modal .modal-foot.rf-foot:has(> button:nth-of-type(4)) > button { width: 100%; margin: 0; flex: none; }
+  .modal .modal-foot.rf-foot:has(> button:nth-of-type(4)) > .primary-button { grid-column: 1 / -1; order: -1; }
+  .modal .modal-foot.rf-foot:has(> button:nth-of-type(4)) > .dirty-hint { grid-column: 1 / -1; order: -2; }
+}
