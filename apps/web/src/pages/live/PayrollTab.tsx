@@ -162,6 +162,7 @@ export function PayrollTab({
           {error}
         </p>
       )}
+      {!data && !error && <p className="muted" role="status">正在读取工资与提成…</p>}
       {data && (
         <p className="muted">
           {data.comm.scope === 'all' ? '全部人员' : '仅本人'} · {commissionOnly ? '已审核运营提成' : '已审核工资与提成'}，最终应发以工资结算单为准。
@@ -185,7 +186,7 @@ export function PayrollTab({
       <section className="card live-section">
         <h2>按人员汇总</h2>
         <div className="live-scroll">
-          <table className="data-table" aria-label="工资汇总">
+          <table className="data-table live-responsive-table" aria-label="工资汇总">
             <thead>
               <tr>
                 <th>人员</th>
@@ -197,14 +198,15 @@ export function PayrollTab({
               </tr>
             </thead>
             <tbody>
+              {data && !summary.size && <tr><td colSpan={commissionOnly?4:6} className="live-empty">该期间暂无已审核的工资与提成。</td></tr>}
               {[...summary].map(([id, p]) => (
                 <tr key={id}>
-                  <td>{p.name}</td>
-                  <td>{p.count}</td>
-                  <td>{minutesText(p.minutes)}{p.unknownDurations>0 && <small>（{p.unknownDurations}场未记录）</small>}</td>
-                  {!commissionOnly && <td>{money(p.wage)}</td>}
-                  <td>{money(p.commission)}</td>
-                  {!commissionOnly && <td>
+                  <td data-label="人员">{p.name}</td>
+                  <td data-label="场次">{p.count}</td>
+                  <td data-label={commissionOnly?"直播时长":"计薪时长"}>{minutesText(p.minutes)}{p.unknownDurations>0 && <small>（{p.unknownDurations}场未记录）</small>}</td>
+                  {!commissionOnly && <td data-label="时间工资">{money(p.wage)}</td>}
+                  <td data-label="提成">{money(p.commission)}</td>
+                  {!commissionOnly && <td data-label="合计">
                     <strong>{money(p.wage + p.commission)}</strong>
                   </td>}
                 </tr>
@@ -218,7 +220,7 @@ export function PayrollTab({
         <p className="muted pad">{commissionOnly ? '直播时长按实际上下播时间统计，每人每场汇总一次；' : '每场计时工资仅计算一次；'}各平台分别列示营业额、比例与提成。</p>
         {data && !rows.length && <p className="muted pad">该期间暂无已审核记录</p>}
         <div className="live-scroll">
-          <table className="data-table" aria-label="工资提成明细">
+          <table className="data-table live-responsive-table" aria-label="工资提成明细">
             <thead>
               <tr>
                 <th>日期 / 时间 / 直播间 / 产品</th>
@@ -234,26 +236,26 @@ export function PayrollTab({
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td className="live-payroll-session">
+                  <td className="live-payroll-session" data-label="日期 / 时间 / 直播间 / 产品">
                     <span className="live-payroll-date">{r.date} <strong>{hm(r.startAt,r.date)}–{r.endAt?hm(r.endAt,r.date):'下播时间未记录'}</strong></span>
                     <span>{r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'} · <small>产品：{productText(r.products)}</small></span>
                   </td>
-                  <td>{r.userName}</td>
-                  <td>
+                  <td data-label="人员">{r.userName}</td>
+                  <td data-label={commissionOnly?"直播时长":"时长 / 时薪"}>
                     {r.minutes==null ? '时长未记录' : minutesText(r.minutes)}
                     {!commissionOnly && <><br />{money(r.hourlyRateCents)}/时</>}
                   </td>
-                  {!commissionOnly && <td>{money(r.wageCents)}</td>}
-                  <td>
+                  {!commissionOnly && <td data-label="合计">{money(r.wageCents)}</td>}
+                  <td data-label="销售额 / 比例">
                     {money(r.finalSalesCents)}
                     <br />
                     {ratePct(r.rateUnits)}
                   </td>
-                  <td>{money(r.amountCents)}</td>
-                  {!commissionOnly && <td>
+                  <td data-label="提成">{money(r.amountCents)}</td>
+                  {!commissionOnly && <td data-label="合计">
                     <strong>{money(r.totalCents)}</strong>
                   </td>}
-                  <td>
+                  <td data-label="操作">
                     <button className="link-button" onClick={() => onOpen(r.sessionId)}>
                       场次详情
                     </button>
