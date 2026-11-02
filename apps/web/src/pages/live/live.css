@@ -216,3 +216,48 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
   .live-modal .live-turnover-table tbody td:first-child, .live-modal .live-turnover-table tfoot th { grid-column: 1 / -1; }
   .live-modal .live-turnover-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-bottom: 4px; }
 }
+/* 排班：时间、人员、账号和产品分别成组；账号与店铺在同一卡片内选择。 */
+.live-schedule-intro { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+.live-schedule-form { gap: 16px; }
+.live-schedule-section { min-width: 0; border: 1px solid var(--border); border-radius: 12px; padding: 18px; background: #fff; }
+.live-schedule-section h3 { display: flex; align-items: center; gap: 9px; margin: 0 0 16px; font-size: 15px; }
+.live-schedule-section h3 > span { display: inline-grid; place-items: center; width: 26px; height: 26px; background: var(--accent-soft); color: var(--accent); border-radius: 8px; font-size: 12px; }
+.live-schedule-section > .live-fields { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; }
+.live-schedule-section > .live-people-fields { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.live-schedule-section .live-field { min-width: 0; }
+.live-schedule-section .live-field :is(input,select) { min-width: 0; width: 100%; }
+.live-section-help,.live-channel-footnote { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 12px 0 0; }
+.live-channel-picker { margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
+.live-schedule-section > .live-channel-picker { border: 0; padding: 0; }
+.live-schedule-section > .live-channel-picker > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.live-channel-picker > legend { font-size: 14px; font-weight: 600; }
+.live-channel-help { margin: 0 0 12px; font-size: 13px; line-height: 1.7; color: var(--muted); }
+.live-channel-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 20px; justify-content: space-between; margin-bottom: 14px; }
+.live-channel-toolbar .live-field { min-width: 150px; }
+.live-channel-toolbar > span { font-size: 12px; color: var(--muted); padding-bottom: 8px; }
+.live-channel-toolbar strong { color: var(--accent); }
+.live-account-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.live-account-card { min-width: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #fff; }
+.live-account-card.selected { border-color: var(--accent); background: var(--accent-soft); }
+.live-account-choice { display: flex; flex-direction: row; gap: 10px; padding: 14px; align-items: flex-start; cursor: pointer; color: var(--ink); }
+.live-account-choice > span { min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 6px; }
+.live-account-choice strong { font-size: 13px; }
+.live-account-choice small,.live-auto-store small,.live-store-options small { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.live-channel-picker .live-account-choice input[type=checkbox] { margin-top: 2px; }
+.live-account-stores { padding: 0 14px 14px 40px; }
+.live-auto-store { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.live-store-caption { color: var(--muted); font-size: 12px; }
+.live-store-options { padding: 10px; margin: 0; min-width: 0; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
+.live-store-options legend { font-size: 12px; font-weight: 600; }
+.live-store-options .live-chips { margin-top: 6px; }
+.live-store-options .live-chips label { align-items: flex-start; color: var(--ink); font-size: 13px; }
+.live-store-options .live-chips small { display: block; }
+.live-selection-hint { color: var(--warn-ink,#916013); margin: 8px 0 0; font-size: 12px; }
+.live-schedule-section > .live-room-products-editor { margin-bottom: 14px; }
+@media (max-width: 700px) {
+  .live-schedule-section { padding: 14px; }
+  .live-schedule-section > .live-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .live-schedule-section > .live-people-fields,.live-account-grid { grid-template-columns: minmax(0,1fr); }
+  .live-channel-picker { padding: 12px; }
+  .live-account-stores { padding-left: 14px; }
+}
