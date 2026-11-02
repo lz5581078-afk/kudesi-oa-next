@@ -1,4 +1,3 @@
-import { RoomQr } from './RoomQr';
 import { useEffect, useState } from 'react';
 import { liveApi, type Person, type RoomTile } from './liveApi';
 import { errText } from './liveFormat';
@@ -53,7 +52,6 @@ export function RoomSettingsDialog({
           {error}
         </p>
       )}
-      <RoomQr id={room.id} name={room.name}/>
       <div className="live-fields">
         <label className="live-field">
           房间管理员

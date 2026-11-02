@@ -1,3 +1,4 @@
+import { LiveQrService } from './live-qr.service';
 import { LiveNotificationService } from './live-notification.service';
 import { LiveTurnoverService } from './live-turnover.service';
 import { LiveManagementService } from './live-management.service';
@@ -14,6 +15,10 @@ import { LiveSettlementService } from './live-settlement.service';
 import { liveProducts, loadLiveAccess, requireUse } from './live-access';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+
+class LiveQrDto {
+  @IsInt() @Min(0) version!: number;
+}
 
 class NotificationSettingsDto {
   @IsBoolean() enabled!:boolean;
@@ -202,6 +207,7 @@ export class LiveController {
     private readonly notices: LiveNotificationService,
     private readonly turnover: LiveTurnoverService,
     private readonly management: LiveManagementService,
+    private readonly liveQr: LiveQrService,
     private readonly schedules: LiveScheduleService, private readonly sessions: LiveSessionService, private readonly ledger: LiveLedgerService, private readonly settlements: LiveSettlementService,
   ) {}
 
@@ -212,8 +218,15 @@ export class LiveController {
   @Post('trial-start/confirm') @Public()
   confirmTrial(@Body() b:TrialScanDto){return this.sessions.redeemTrial(b.token);}
 
-    @Get('checkin-context') @AuthenticatedOnly()
-  checkinContext(@CurrentUser() u:AuthUser,@Query('roomId') room?:string){return this.sessions.checkinContext(u,room?Number(room):undefined);}
+  @Get('checkin-context') @AuthenticatedOnly()
+  async checkinContext(@CurrentUser() u:AuthUser,@Query('roomId') room?:string,@Query('token') token?:string,@Query('qrScan') scan?:string){
+    if(scan!==undefined||room!==undefined||token!==undefined)await this.liveQr.assert(u,token);
+    return this.sessions.checkinContext(u,room?Number(room):undefined);
+  }
+  @RequirePermission('live.manage') @Get('checkin-qr')
+  readLiveQr(@CurrentUser() u:AuthUser){return this.liveQr.read(u);}
+  @RequirePermission('live.manage') @Post('checkin-qr')
+  generateLiveQr(@CurrentUser() u:AuthUser,@Body() b:LiveQrDto){return this.liveQr.generate(u,b.version);}
   @Get('sessions/:id/checkout-preview') @AuthenticatedOnly()
   checkoutPreview(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Query('role') role?:string){return this.sessions.checkoutPreview(u,id,role);}
 
@@ -267,7 +280,10 @@ export class LiveController {
 
   // ---- 场次 ----
   @AuthenticatedOnly() @Post('sessions')
-  start(@CurrentUser() u: AuthUser, @Body() b: StartDto) { return this.sessions.start(u, {...b, actualCheckin:true, startAt:null}); }
+  async start(@CurrentUser() u: AuthUser, @Body() b: StartDto, @Query('qrScan') qrScan?:string,@Query('qrToken') qrToken?:string) {
+    if(qrScan!==undefined||qrToken!==undefined)await this.liveQr.assert(u,qrToken);
+    return this.sessions.start(u, {...b, actualCheckin:true, startAt:null});
+  }
   @AuthenticatedOnly() @Get('sessions')
   listSessions(@CurrentUser() u: AuthUser, @Query() q: SessionsQuery) { return this.sessions.list(u, q); }
   @AuthenticatedOnly() @Get('sessions/:id')
@@ -275,7 +291,10 @@ export class LiveController {
   @AuthenticatedOnly() @Get('sessions/:id/order-candidates')
   candidates(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Query() q: CandidatesQuery) { return this.sessions.orderCandidates(u, id, { endAt: q.endAt, storeId:q.storeId, refresh: q.refresh === '1' }); }
   @AuthenticatedOnly() @Post('sessions/:id/report')
-  report(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReportDto) { return this.sessions.report(u, id, b); }
+  async report(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReportDto, @Query('qrScan') qrScan?:string,@Query('qrToken') qrToken?:string) {
+    if(qrScan!==undefined||qrToken!==undefined)await this.liveQr.assert(u,qrToken);
+    return this.sessions.report(u, id, b);
+  }
   @AuthenticatedOnly() @Post('sessions/:id/submit')
   submit(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.sessions.submit(u, id); }
   @AuthenticatedOnly() @Post('sessions/:id/review-preview')
