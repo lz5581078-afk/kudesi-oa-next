@@ -214,7 +214,7 @@ export function App() {
                 <Route
                   key={page.path}
                   path={page.path}
-                  element={page.path === '/workbench/desk' || can(page.permission) ? <Component /> : <NoAccessPage />}
+                  element={page.path === '/workbench/desk' || page.path === '/features/live-desk' || can(page.permission) ? <Component /> : <NoAccessPage />}
                 />
               );
             }),
