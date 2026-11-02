@@ -224,3 +224,6 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
   .live-channel-picker { padding: 12px; }
   .live-account-stores { padding-left: 14px; }
 }
+/* 原场次核定原因另起一行，避免被表格默认 nowrap 裁掉。 */
+.live-store-performance td:last-child { white-space: normal; }
+.live-store-performance td:last-child > input { display: block; margin-top: 8px; }
