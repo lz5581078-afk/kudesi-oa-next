@@ -11,13 +11,36 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$node = Get-Command node -ErrorAction SilentlyContinue
-if (-not $node) { throw '没有找到 Node.js。请先安装 Node.js 20 或更高版本（https://nodejs.org），再重新运行本脚本。' }
-$major = [int](& node -p 'process.versions.node.split(".")[0]')
-if ($major -lt 20) { throw "Node.js 版本太低（当前 $major），需要 20 或更高。" }
-
+$Server = $Server.Trim().TrimEnd('/')
+$Code = $Code.Trim().ToUpperInvariant()
+$uri = [Uri]$Server
+if ($uri.Scheme -ne 'https' -or $uri.UserInfo -or $uri.Query -or $uri.Fragment) { throw 'OA 地址必须为完整 HTTPS 地址，不能带账号或查询参数。' }
+if ($Code -notmatch '^[A-HJ-NP-Z2-9]{8}$') { throw '绑定码格式不正确。' }
 $src = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dest = Join-Path $env:LOCALAPPDATA 'KudesiAssistant\app'
+$runtime = Join-Path $dest 'runtime'
+New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+$account = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+& icacls.exe (Split-Path $dest -Parent) /inheritance:r /grant:r "${account}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw '无法保护本机助手数据目录，安装已停止。' }
+Stop-ScheduledTask -TaskName 'KudesiAssistant' -ErrorAction SilentlyContinue
+$nodePath = Join-Path $runtime 'node.exe'
+if (-not (Test-Path -LiteralPath $nodePath) -or -not (Test-Path -LiteralPath (Join-Path $runtime 'npm.cmd'))) {
+  if (-not [Environment]::Is64BitOperatingSystem) { throw '助手需要64位 Windows。' }
+  Write-Host '正在从 Node.js 官方网站下载并校验运行环境…'
+  $temp = Join-Path ([IO.Path]::GetTempPath()) ('KudesiNode-' + [Guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $temp | Out-Null
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $archive = Join-Path $temp 'node.zip'
+    Invoke-WebRequest -UseBasicParsing -Uri 'https://nodejs.org/dist/v22.23.4/node-v22.23.4-win-x64.zip' -OutFile $archive
+    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'cbc74b5e0982c9dbb41525fd8fb5dcd32fbee237863f7829072f4639a1ce5f20') { throw '运行环境完整性校验失败，安装已停止。' }
+    Expand-Archive -LiteralPath $archive -DestinationPath $temp -Force
+    Copy-Item -Path (Join-Path $temp 'node-v22.23.4-win-x64\*') -Destination $runtime -Recurse -Force
+  } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
+}
+if ([int](& $nodePath -p 'process.versions.node.split(".")[0]') -lt 20) { throw '助手运行环境版本过低，请重新下载完整安装包。' }
+$env:PATH = "$runtime;$env:PATH"
 $version = (Get-Content -Raw -Encoding UTF8 (Join-Path $src 'package.json') | ConvertFrom-Json).version
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw '安装包里的版本号不对。' }
 
@@ -33,8 +56,9 @@ Copy-Item -Recurse -Force (Join-Path $src 'dist') $vdir
 Copy-Item -Force (Join-Path $src 'package.json') $vdir
 Copy-Item -Force (Join-Path $src 'package.json') $dest      # npm install 在根目录装依赖，各版本共用
 Copy-Item -Force (Join-Path $src 'launcher.js') $dest
+Copy-Item -Force (Join-Path $src 'assistant-panel.ps1') $dest
 Push-Location $dest
-try { & npm install --omit=dev --no-audit --no-fund; if ($LASTEXITCODE -ne 0) { throw 'npm install 失败，请检查网络。' } } finally { Pop-Location }
+try { & (Join-Path $runtime 'npm.cmd') install --omit=dev --ignore-scripts --no-audit --no-fund; if ($LASTEXITCODE -ne 0) { throw 'npm install 失败，请检查网络。' } } finally { Pop-Location }
 
 # 启动状态：当前版本 = 刚装的版本，没有试运行
 $state = [ordered]@{ current = $version; previous = $null; trial = $false; bad = @() } | ConvertTo-Json
@@ -45,11 +69,10 @@ Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $dest 'dist
 
 # 绑定这台电脑（绑定码 10 分钟有效、只能用一次）
 $env:KUDESI_AGENT_ROOT = $dest
-& node (Join-Path $vdir 'dist\cli.js') register --server $Server --code $Code --name $Name
+& $nodePath (Join-Path $vdir 'dist\cli.js') register --server $Server --code $Code --name $Name
 if ($LASTEXITCODE -ne 0) { throw '绑定失败，请回到 OA 重新生成绑定码。' }
 
 # 开机（登录后）自动启动启动器，隐藏窗口
-$nodePath = $node.Source
 $action = New-ScheduledTaskAction -Execute $nodePath -Argument "`"$dest\launcher.js`"" -WorkingDirectory $dest
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Days 0)
@@ -58,3 +81,11 @@ Register-ScheduledTask -TaskName 'KudesiAssistant' -Action $action -Trigger $tri
 Start-ScheduledTask -TaskName 'KudesiAssistant'
 Write-Host "安装完成：助手 $version 已启动，之后每次登录 Windows 会自动运行，并可在 OA 里一键升级。"
 Write-Host '查看状态：node "$dest\versions\<版本>\dist\cli.js" status      日志：%LOCALAPPDATA%\KudesiAssistant\agent.log 和 app\launcher.log'
+
+# 桌面入口和登录后托盘，不写入员工账号密码。
+$shell = New-Object -ComObject WScript.Shell
+$desktop = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) '酷得斯店铺助手.lnk'))
+$desktop.TargetPath = 'powershell.exe'; $desktop.Arguments = "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$dest\assistant-panel.ps1`""; $desktop.Save()
+$startup = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Startup')) '酷得斯店铺助手面板.lnk'))
+$startup.TargetPath = 'powershell.exe'; $startup.Arguments = $desktop.Arguments + ' -Tray'; $startup.Save()
+Start-Process powershell.exe -ArgumentList $startup.Arguments

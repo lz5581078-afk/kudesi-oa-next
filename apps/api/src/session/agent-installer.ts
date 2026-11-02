@@ -35,6 +35,6 @@ export function buildAgentInstaller(packageBuffer: Buffer): { buf: Buffer; versi
   files.push({ path: 'launcher.js', data: launcher.data });
   const compiledTemplates = resolve(__dirname, 'windows');
   const templates = existsSync(resolve(compiledTemplates, 'install.ps1')) ? compiledTemplates : resolve(__dirname, '../../../agent/windows');
-  for (const path of ['install.ps1', 'uninstall.ps1', 'README.txt']) files.push({ path, data: readFileSync(resolve(templates, path)) });
+  for (const path of ['install.ps1', 'uninstall.ps1', 'README.txt', 'setup.ps1', 'assistant-panel.ps1', '安装助手.cmd', '打开助手.cmd']) files.push({ path, data: readFileSync(resolve(templates, path)) });
   return { version, buf: zip(files) };
 }
