@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import {
-  LIVE_ROLE_LABEL, LiveRuleError, LiveRulesInput, liveComputeCommission, liveComputeWage, liveIsDay, liveIsMonth, liveMonthBounds, liveRulesFromInput, liveRulesToInput, liveToday, liveYuanToCents,
+  LIVE_ROLE_LABEL, type LiveProductSnapshot, LiveRuleError, LiveRulesInput, liveComputeCommission, liveComputeWage, liveIsDay, liveIsMonth, liveMonthBounds, liveRulesFromInput, liveRulesToInput, liveToday, liveYuanToCents,
 } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
 import { loadLiveAccess, requireManage, requireUse, requireView } from './live-access';
@@ -78,9 +78,21 @@ export class LiveLedgerService {
     if (q.role && LIVE_ROLE_LABEL[q.role]) { where.push(ledgerRole + ' = ?'); params.push(q.role); }
     const rows: Row[] = await this.em.query(
       `SELECT r.platform, r.id, r.session_id, r.user_id, r.role, DATE_FORMAT(r.session_date,'%Y-%m-%d') day, r.final_sales_cents, r.ad_spend_cents, r.roi_scaled, r.below_roi, r.rate_units, r.amount_cents, r.rule_version_id, e.name user_name,
-         s.room_name, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i') start_text, s.douyin_account_name
+         s.room_name, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i') end_text, s.douyin_account_name
          FROM live_commission_records r JOIN users e ON e.id = r.user_id AND e.company_id = r.company_id JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id
         WHERE ${where.join(' AND ')} ORDER BY r.session_date DESC, r.session_id DESC, r.id`, params);
+    // Only load products for sessions already visible to this employee; one query per bounded batch.
+    const sessionIds=[...new Set(rows.map(row=>Number(row.session_id)))];
+    const productsBySession=new Map<number,LiveProductSnapshot[]>();
+    for(let offset=0;offset<sessionIds.length;offset+=500){
+      const batch=sessionIds.slice(offset,offset+500);
+      const products:Row[]=await this.em.query(`SELECT session_id,base_code_id,code_snapshot,name_snapshot,spec_snapshot FROM live_session_products WHERE company_id=? AND session_id IN (${batch.map(()=>'?').join(',')}) ORDER BY session_id,sort_order,id`,[a.companyId,...batch]);
+      for(const product of products){
+        const id=Number(product.session_id), list=productsBySession.get(id)??[];
+        list.push({id:product.base_code_id==null?null:Number(product.base_code_id),code:String(product.code_snapshot??''),name:String(product.name_snapshot??''),spec:String(product.spec_snapshot??'')});
+        productsBySession.set(id,list);
+      }
+    }
     const summary = new Map<string, { userId: number; name: string; role: string; roleLabel: string; sessions: number; salesCents: number; amountCents: number }>();
     const counted=new Set<string>();
     for (const r of rows) {
@@ -90,7 +102,7 @@ export class LiveLedgerService {
     }
     return {
       month, scope: a.canViewAll ? 'all' : 'mine', totalCents: rows.reduce((t, r) => t + num(r.amount_cents), 0), summary: [...summary.values()],
-      rows: rows.map((r) => ({ platform:r.platform,id: Number(r.id), sessionId: Number(r.session_id), userId: Number(r.user_id), userName: r.user_name, role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], date: r.day, roomName: r.room_name, startAt: r.start_text, douyinName: r.douyin_account_name,
+      rows: rows.map((r) => ({ platform:r.platform,id: Number(r.id), sessionId: Number(r.session_id), userId: Number(r.user_id), userName: r.user_name, role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], date: r.day, roomName: r.room_name, startAt: r.start_text, endAt:r.end_text??null, products:productsBySession.get(Number(r.session_id))??[], douyinName: r.douyin_account_name,
         finalSalesCents: num(r.final_sales_cents), adSpendCents: num(r.ad_spend_cents), roiScaled: numOrNull(r.roi_scaled), belowRoi: !!r.below_roi, rateUnits: Number(r.rate_units), amountCents: num(r.amount_cents), ruleVersionId: Number(r.rule_version_id) })),
     };
   }
