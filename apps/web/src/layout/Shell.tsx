@@ -18,6 +18,7 @@ export function Shell() {
   const { user, can, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const [feishuHintHidden, setFeishuHintHidden] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [panelId, setPanelId] = useState<string | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -132,6 +133,13 @@ export function Shell() {
           {user.mustChangePassword && location.pathname !== '/account/password' && (
             <div role="alert" className="notice warn">
               当前是初始密码，请先<Link to="/account/password">修改密码</Link>。
+            </div>
+          )}
+          {user.feishuBindingPending && !feishuHintHidden && location.pathname !== '/feishu-setup' && (
+            <div role="alert" className="notice warn feishu-hint">
+              你还没有绑定本人飞书，绑定后 OA 的待办和通知会推送到你的飞书。
+              <Link to="/feishu-setup">去绑定</Link>
+              <button type="button" className="link-button" onClick={() => setFeishuHintHidden(true)}>稍后再说</button>
             </div>
           )}
           <Outlet />
