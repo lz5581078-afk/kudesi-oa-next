@@ -46,10 +46,14 @@ export interface ReviewPreview { platforms?:Array<{platform:string;finalSalesCen
 }
 
 export interface TimelineItem { products?: LiveProductSnapshot[]; kind: 'schedule' | 'adhoc'; id: number; start: string; end: string; plannedEnd: string; anchorName: string; controlName: string | null; operatorName: string | null; douyinName: string; state: 'live' | 'done' | 'missed' | 'due' | 'upcoming'; sessionId: number | null }
+export interface RoomCurrentSession { products?: LiveProductSnapshot[]; id: number; startAt: string; endAt?: string | null; status?: string; plannedEnd: string | null; anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person }
 export interface RoomTile extends Omit<RoomOpt, 'live'> {
   status: 'live' | 'finished' | 'idle'; statusLabel: string; next: TimelineItem | null; timeline: TimelineItem[];
-  live: { products?: LiveProductSnapshot[]; id: number; startAt: string; plannedEnd: string | null; anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person } | null;
+  current?: RoomCurrentSession | null; live: RoomCurrentSession | null;
 }
+export interface TurnoverAmounts { orderCount: number | null; turnoverCents: number | null; grossCents: number | null; refundCents: number | null }
+export interface SessionTurnover extends TurnoverAmounts { sessionId: number; roomName: string; startAt: string; endAt: string; live: boolean; queriedAt: string; available: boolean; reason: string; stores: Array<TurnoverAmounts & { storeId: number; storeName: string; platform: string; available: boolean; reason: string }> }
+
 export interface Overview { date: string; now: string; groups: { north: RoomTile[]; south: RoomTile[]; none: RoomTile[] }; corridorFound: boolean; totals: { rooms: number; live: number; scheduled: number; pendingReview: number } }
 export interface RoomDay { room: RoomOpt; date: string; schedules: ScheduleRow[]; sessions: Array<{ id: number; scheduleId: number | null; status: string; startAt: string; endAt: string | null; anchor: Person; control: Person | null; douyinAccount: Person; anchorSalesCents: number | null; controlSalesCents: number | null; finalSalesCents: number | null }> }
 
@@ -95,6 +99,7 @@ export const liveApi = {
   commissionPreview: (id: number, b: { sales: string; adSpend?: string }) => post<Preview | null>(`/live/sessions/${id}/commission-preview`, b),
   options: () => api<Options>('/live/options'),
   products: (keyword: string) => api<Product[]>(`/live/products${qs({ keyword })}`),
+  turnover: (id: number) => api<SessionTurnover>(`/live/sessions/${id}/turnover`),
   overview: (date?: string) => api<Overview>(`/live/overview${qs({ date })}`),
   roomDay: (id: number, date?: string) => api<RoomDay>(`/live/rooms/${id}/day${qs({ date })}`),
   schedules: (p: { from?: string; to?: string } = {}) => api<ScheduleList>(`/live/schedules${qs(p)}`),

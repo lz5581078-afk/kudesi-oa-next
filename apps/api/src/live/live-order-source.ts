@@ -3,6 +3,9 @@
  * 退款查询失败不能当成零退款，不调用聚水潭写入接口。
  */
 export interface LiveOrder { orderId: string; innerId: string; payTime: string | null; paid: boolean; amountCents: number; status: string; statusLabel: string; cancelled: boolean }
+export interface LiveTurnoverOrder extends LiveOrder { orderTime: string }
+export interface LiveTurnoverOrders { available: boolean; reason: string; orders: LiveTurnoverOrder[]; truncated: boolean }
+
 export interface LiveOrderCandidates {
   available: boolean;
   reason: string;
@@ -23,6 +26,10 @@ export abstract class LiveOrderSource {
   async status(_companyId: number): Promise<LiveSourceStatus> { return { ready: true, code: 'ready', message: '' }; }
   /** 本场（聚水潭店铺编号 + 上播到下播时间窗）的订单。 */
   abstract candidates(companyId: number, session: { id: number; shopId: string | null; startAt: string; endAt: string | null }, opts: { refresh: boolean }): Promise<LiveOrderCandidates>;
+  /** 按成单时间查询，独立于报下播的付款时间候选口径。 */
+  async turnoverOrders(_companyId: number, _session: { id: number; shopId: string; startAt: string; endAt: string }): Promise<LiveTurnoverOrders> {
+    return { available: false, reason: '订单来源暂不支持按成单时间统计', orders: [], truncated: false };
+  }
   /** 一个聚水潭店铺里这些订单的退款；任何一步查不到都必须抛错，不能当零退款。 */
   abstract refunds(companyId: number, shopId: string, orders: Array<{ orderId: string; amountCents: number }>): Promise<Map<string, LiveRefund>>;
 }
