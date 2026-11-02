@@ -37,6 +37,12 @@ class ScheduleDto {
   @IsInt() douyinAccountId!: number;
   @IsOptional() @IsInt() storeId?: number | null;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @IsInt({ each: true }) productIds?: number[];
+}
+class PreviousScheduleQuery {
+  @Type(() => Number) @IsInt() @Min(1) roomId!: number;
+  @IsString() @MaxLength(10) date!: string;
+  @IsOptional() @IsString() @MaxLength(5) startTime?: string;
 }
 class CancelDto { @IsString() @MaxLength(500) reason!: string }
 class StartDto {
@@ -204,6 +210,8 @@ export class LiveController {
   // ---- 排场 ----
   @AuthenticatedOnly() @Get('schedules')
   listSchedules(@CurrentUser() u: AuthUser, @Query() q: RangeQuery) { return this.schedules.list(u, q); }
+  @RequirePermission('live.manage') @Get('schedules/previous')
+  previousSchedule(@CurrentUser() u: AuthUser, @Query() q: PreviousScheduleQuery) { return this.schedules.previous(u, q); }
   @RequirePermission('live.manage') @Post('schedules')
   createSchedule(@CurrentUser() u: AuthUser, @Body() b: ScheduleDto) { return this.schedules.create(u, b); }
   @RequirePermission('live.manage') @Put('schedules/:id')

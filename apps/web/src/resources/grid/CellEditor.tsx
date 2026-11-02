@@ -1,3 +1,4 @@
+import { StoreJstSelect } from '../StoreJstSelect';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Option, ResourceDef } from '@kudesi/shared';
@@ -29,6 +30,7 @@ interface Props {
 /** 单元格里的编辑器，按列类型派生：下拉、多选、引用选择、文本类输入。提交 = Enter/Tab/失焦，Esc 取消。 */
 export function CellEditor(props: Props) {
   const { col } = props;
+  if (props.def.key === 'stores' && col.key === 'jushuitanShopId') return <StoreJstEditor {...props} />;
   if (col.special === 'status') return <StatusEditor {...props} />;
   switch (col.kind) {
     case 'ref': return <RefEditor {...props} />;
@@ -417,4 +419,11 @@ function StatusEditor({ col, row, onCommit, onCancel }: Props) {
       )}
     </>
   );
+}
+
+function StoreJstEditor({ row, onCommit, onCancel }: Props) {
+  const [value, setValue] = useState(String(row?.data.jushuitanShopId ?? ''));
+  return <GridDialog title="关联聚水潭店铺" onCancel={onCancel} onOk={() => onCommit({ value }, 'none')}>
+    <StoreJstSelect value={value} currentName={String(row?.data.jushuitanShopName ?? '')} onChange={setValue} autoFocus />
+  </GridDialog>;
 }

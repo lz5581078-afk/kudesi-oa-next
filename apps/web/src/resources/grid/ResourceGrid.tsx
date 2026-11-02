@@ -1,3 +1,4 @@
+import { StoreJstBadge } from '../StoreJstSelect';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GRID_SAVE_MAX_ROWS, STATUS_COL, todayShanghai, colFilterKindFor, readTimeKeys, createChecker, gridPolicyOf, permissionOwner, resourcePermission, restrictedFieldKeys, type ColFilter, type ColFilterKind, type FieldDef, type Option, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
@@ -430,12 +431,12 @@ export function ResourceGrid(props: Props) {
       else if (bad) text = bad.raw;
       else if (col.kind === 'secret') text = row.data[col.key] ? '••••••' : row.secretConfigured[col.key] ? '已设置' : '';
       else if (na && !col.lockedAfterCreate) text = '';
-      else text = cellDisplay(col.field!, { data: row.data, refLabels: row.refLabels, secretConfigured: row.secretConfigured } as ResourceDto);
+      else text = cellDisplay(col.field!, { data: row.data, refLabels: row.refLabels, secretConfigured: row.secretConfigured, type: def.key } as ResourceDto);
     }
     const statusChanged = col.special === 'status' && row?.statusTo !== undefined;
     const tip = bad ? bad.error
       : statusChanged ? `原状态：${statusOf(def, row!.status).label}${row!.statusReason ? `；原因：${row!.statusReason}` : ''}`
-      : changed && row && !row.isNew ? `原值：${cellDisplay(col.field!, { data: row.base, refLabels: {}, secretConfigured: row.secretConfigured } as ResourceDto) || '（空）'}`
+      : changed && row && !row.isNew ? `原值：${cellDisplay(col.field!, { data: row.base, refLabels: {}, secretConfigured: row.secretConfigured, type: def.key } as ResourceDto) || '（空）'}`
       : col.special === 'child' ? '点开后在浮层里编辑，改动立即保存'
       : na && col.lockedAfterCreate ? col.lockedAfterCreate
       : !col.editable ? col.reason : undefined;
@@ -445,6 +446,8 @@ export function ResourceGrid(props: Props) {
         {isEditing ? (
           <CellEditor col={col} def={def} row={row} initial={editing!.initial} options={(row && col.field ? optionsOf(col.field, row) : col.field?.options) ?? []}
             onCommit={(res, move) => void commit(r, c, res, move)} onCancel={() => { setEditing(null); focusGrid(); }} />
+        ) : def.key === 'stores' && col.key === 'jushuitanShopId' && row && !bad ? (
+          <StoreJstBadge data={{ ...row.data, jushuitanShopName: isChanged(row, col) ? undefined : row.data.jushuitanShopName }} />
         ) : col.kind === 'bool' && row && !na ? (
           <span className="grid-bool" aria-label={`${col.label}：${row.data[col.key] === true ? '是' : '否'}`}>{row.data[col.key] === true ? '是' : row.data[col.key] === false ? '否' : ''}</span>
         ) : col.special === 'child' ? (

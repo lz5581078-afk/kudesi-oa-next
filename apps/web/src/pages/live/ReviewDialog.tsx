@@ -136,7 +136,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
               <>
                 <span>最终销售额 {money(preview.finalSalesCents)} · 投流 {money(preview.adSpendCents)} · 投产 {roi(preview.roiScaled)}{preview.belowRoi ? '（不足，已扣减点数）' : ''} · 规则版本 {preview.ruleVersion.effectiveFrom} 起</span>
                 {preview.platforms?.map(p=><div key={p.platform}><strong>{LIVE_PLATFORMS[p.platform]??'原场次'} · 营业额 {money(p.finalSalesCents)} · 投流 {money(p.adSpendCents)}</strong><RoleAmounts anchor={p.anchor} control={session.control?p.control:null} operator={preview.operator?p.operator:null}/></div>)}
-                <RoleAmounts anchor={preview.anchor} control={preview.control} operator={preview.operator} />
+                <RoleAmounts hideRates={(preview.platforms?.length??0)>1} anchor={preview.anchor} control={preview.control} operator={preview.operator} />
                 {preview.operatorDoubledAsControl && <small className="muted">运营兼任中控，不另算运营提成</small>}
                 <span>{preview.controlWage&&<>中控工资：{minutesText(preview.controlWage.minutes)} × {money(preview.controlWage.hourlyRateCents)}/小时 = <strong>{money(preview.controlWage.amountCents)}</strong><br/></>}主播工资：{minutesText(preview.wage.minutes)} × {money(preview.wage.hourlyRateCents)}/小时 = <strong>{money(preview.wage.amountCents)}</strong>（{preview.wage.rateSource === 'archive' ? '档案时薪' : '手填时薪'}）</span>
               </>

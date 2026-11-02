@@ -276,7 +276,7 @@ export class LiveSessionService {
     const platforms = linesOf(base).length ? livePlatformCommissions(version.rules, linesOf(base).map(l => ({ platform:l.platform, salesCents:l.salesCents, adSpendCents: control ? linesOf(control).find(c=>c.storeId===l.storeId)?.adSpendCents ?? 0 : null }))) : [];
     const legacy = liveComputeCommission({ rules: version.rules, finalSalesCents: num(base.sales_cents), adSpendCents: control?.ad_spend_cents == null ? null : Number(control.ad_spend_cents) });
     const r = platforms.length ? { ...legacy, roiScaled: null, belowRoi: platforms.some(p=>p.belowRoi), ...Object.fromEntries(['anchor','control','operator'].map(role=>[role,{rateUnits:platforms.length===1?platforms[0][role as 'anchor'].rateUnits:0,amountCents:platforms.reduce((n,p)=>n+p[role as 'anchor'].amountCents,0)}])) } as typeof legacy : legacy;
-    const p = { available: true, reason: '', basisSalesCents: r.finalSalesCents, adSpendCents: r.adSpendCents, roiScaled: r.roiScaled, belowRoi: r.belowRoi, ruleVersionId: version.id,
+    const p = { aggregated:platforms.length>1, available: true, reason: '', basisSalesCents: r.finalSalesCents, adSpendCents: r.adSpendCents, roiScaled: r.roiScaled, belowRoi: r.belowRoi, ruleVersionId: version.id,
       anchor: r.anchor, control: s.control_user_id ? r.control : null, operator: s.operator_user_id && Number(s.operator_user_id) !== Number(s.control_user_id) ? r.operator : null };
     return liveFilterPreview(a.canViewAll, a.userId, { ...this.people(s), status: s.status }, p);
   }

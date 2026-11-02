@@ -166,6 +166,18 @@ describe('直播管理', () => {
     expect(screen.getByLabelText('直播间-北1，正在直播').textContent).toContain('小主播');
   });
 
+  it('全览在正在直播时也显示下一场的时间、全部人员和场次产品', async () => {
+    allow = ['features.live.view'];
+    const next = {kind:'schedule',id:8,start:'2026-09-28 16:00:00',end:'2026-09-28 18:00:00',plannedEnd:'2026-09-28 18:00:00',anchorName:'下一场主播',controlName:'下一场中控',operatorName:'下一场运营',products:[{id:99,code:'HY25',name:'花育25',spec:'大包'}],state:'upcoming'};
+    const tile = {id:10,name:'直播间-南1',shortName:'南1',side:'south',big:false,status:'live',statusLabel:'正在直播',timeline:[],next,live:{id:7,startAt:'2026-09-28 10:00:00',plannedEnd:'2026-09-28 14:00:00',anchor:person(3,'本场主播'),control:null,operator:null,douyinAccount:person(20,'抖音一号')}};
+    l.overview.mockResolvedValue({...empty(),corridorFound:true,groups:{south:[tile],north:[],none:[]}} as never);
+    wrap(<LiveManagePage />);
+    const section = await screen.findByLabelText('南1下一场');
+    expect(section.textContent).toContain('16:00–18:00');
+    for(const text of ['下一场主播','下一场中控','下一场运营','花育25（大包）']) expect(section.textContent).toContain(text);
+    expect(screen.getByText('本场主播')).toBeTruthy();
+  });
+
   it('排场：只有管理权限能新增；后端的冲突提示原样显示；取消要写原因', async () => {
     allow = ['features.live.view', 'live.manage'];
     l.overview.mockResolvedValue(empty() as never);
