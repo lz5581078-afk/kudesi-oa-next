@@ -27,7 +27,16 @@ d('OA助手真实队列隔离与防重（隔离MySQL）', () => {
     user = await mk(); other = await mk();
     input = { appId: 'cli_' + randomBytes(6).toString('hex'), appSecret: 'test-private-secret', tenantKey: 'test-tenant', enabled: true, morningEnabled: true, welcomeEnabled: false, morningText: MORNING_TEXT, welcomeText: WELCOME_TEXT, departmentIds: ['0'] };
   });
-  afterAll(async () => { service?.onModuleDestroy(); await ds?.destroy(); });
+  afterAll(async () => {
+    service?.onModuleDestroy();
+    if (ds?.isInitialized && user && other) {
+      // Fixture keys are random per suite: remove encrypted settings after the test.
+      for (const table of ['outbox_jobs', 'outbox_switches', 'integration_settings']) {
+        await ds.query(`DELETE FROM ${table} WHERE company_id IN (?,?)`, [user.companyId, other.companyId]);
+      }
+    }
+    await ds?.destroy();
+  });
   const jobs = () => ds.manager.find(OutboxJob, { where: { companyId: user.companyId, channel: ASSISTANT_CHANNEL } });
   it('公司管理员才能配置，密钥加密且不从概况或日志返回', async () => {
     await expect(service.save({ ...user, permissions: { ...user.permissions, isCompanyAdmin: false } }, input)).rejects.toThrow(/公司管理员/);
