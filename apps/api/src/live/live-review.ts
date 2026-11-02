@@ -1,3 +1,4 @@
+import { commissionOnlyControl } from './live-access';
 import { channelsOf, channelStores, linesOf } from './live-platforms';
 import { LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
 import { EntityManager } from 'typeorm';
@@ -159,7 +160,8 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   const result = combinedResults(platforms);
   const operator = await resolveOperator(em, ctx.companyId, session, form);
   const wage = await resolveWage(em, ctx.companyId, session, form);
-  const controlWage=session.control_user_id ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
+  const commissionOnly = await commissionOnlyControl(em, ctx.companyId, session.control_user_id);
+  const controlWage=session.control_user_id && !commissionOnly ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
   const at = wallNow(ctx.now);
   const amounts = { anchor: 0, control: 0, operator: 0 };
   const approvedLines = resolvePlatformSales(session, reports, form);
@@ -174,7 +176,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
     if (session.control_user_id) roles.push(['control', Number(session.control_user_id), platform.control]);
     if (operator.counted) roles.push(['operator', operator.finalId!, platform.operator]);
     const snapshot = JSON.stringify({
-      versionId: version!.id, effectiveFrom: version!.effectiveFrom, rules,
+      controlCommissionOnly: commissionOnly, versionId: version!.id, effectiveFrom: version!.effectiveFrom, rules,
       tier: platform.tier, belowRoi: platform.belowRoi, platform: platform.platform,
       unverifiedStores: unverifiedStores.filter(store => store.platform === platform.platform),
       storeLines: approvedLines?.filter(line => line.platform === platform.platform),
@@ -237,7 +239,7 @@ export async function previewApproval(em: EntityManager, companyId: number, sess
     ruleVersion: { id: version!.id, effectiveFrom: version!.effectiveFrom }, tier: result.tier,
     anchor: result.anchor, control: session.control_user_id ? result.control : null, operator: operator.counted ? result.operator : null,
     operatorUserId: operator.finalId, operatorDoubledAsControl: operator.doubledAsControl,
-    controlWage: session.control_user_id ? await resolveWage(em, companyId, session, form, 'control'):null,
+    controlWage: session.control_user_id && !(await commissionOnlyControl(em, companyId, session.control_user_id)) ? await resolveWage(em, companyId, session, form, 'control'):null,
     wage: { startAt: wage.startAt, endAt: wage.endAt, minutes: wage.minutes, hourlyRateCents: wage.hourlyRateCents, amountCents: wage.amountCents, rateSource: wage.rateSource, archiveHourlyRateCents: wage.archiveRate },
   };
 }
