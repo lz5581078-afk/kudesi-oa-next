@@ -84,7 +84,9 @@ export class FlowService {
       who ??= this.starterWho(em, user);
       return starterScopeAllows(scope, await who);
     };
-    const builtin = await Promise.all(FLOW_TEMPLATES.map(async (t) => {
+    const builtin = await Promise.all(FLOW_TEMPLATES.map(async (catalogTemplate) => {
+      const current = defs.find(d => d.templateKey === catalogTemplate.key);
+      const t = current ? await this.tpl(em, user.companyId, catalogTemplate.key, current.id) : catalogTemplate;
       const active = defs.find((d) => d.templateKey === t.key);
       return { key: t.key, label: t.label, description: t.description, entry: t.entry ?? null, fields: this.visibleFields(user, t.fields), stepFields: this.visibleStepFields(user, t.stepFields), active: Boolean(active), version: active?.version ?? null, custom: false, startable: await startable(active), steps: ((active?.steps ?? t.steps) as StepDef[]).map((s) => ({ name: s.name, type: s.type })) };
     }));
@@ -581,7 +583,10 @@ export class FlowService {
           return this.detailIn(em, user, run.id);
         }
       }
-      await this.enter(em, user, run, steps, (g ? g.end : idx) + 1, 'normal');
+      const jump = adapter.nextStep?.(ctx, steps);
+      const to = jump === undefined ? (g ? g.end : idx) + 1 : steps.findIndex(s => s.key === jump);
+      if (to < 0) throw new ConflictException(`流程里找不到步骤「${jump}」，请管理员检查流程配置`);
+      await this.enter(em, user, run, steps, to, 'normal');
       if (adapter.afterCommit) {
         const payload = JSON.parse(JSON.stringify(run.payload)) as Record<string, unknown>;
         after = () => adapter.afterCommit!({ user, runId: run.id, companyId: run.companyId, requesterId: run.requesterId, payload, db: this.dataSource.manager, ...this.svc() });
@@ -617,8 +622,11 @@ export class FlowService {
       if (blocked) throw new BadRequestException(blocked);
       const target = await this.returnTarget(em, run, steps, idx);
       await this.closeStep(em, run, step, user, 'returned', 'return', p.reason);
+      const back = adapterFor(await this.runTpl(em, run)).returnTarget?.(this.stepCtx(em, user, run, step, {}), steps);
+      const to = back === undefined ? target : steps.findIndex(s => s.key === back);
+      if (to < 0) throw new ConflictException(`流程里找不到步骤「${back}」，请管理员检查流程配置`);
       await this.cancelActive(em, run);
-      await this.enter(em, user, run, steps, target, 'return');
+      await this.enter(em, user, run, steps, to, 'return');
       const returnAdapter = adapterFor(await this.runTpl(em, run));
       if (returnAdapter.onReturn) {
         const toSubmit = run.status === 'running' && (await this.activeStep(em, run)).stepType === 'submit';
@@ -698,9 +706,9 @@ export class FlowService {
       const adapter = adapterFor(t);
       // 重新提交时，自己这条在办的流程不算“重复申请”：临时把它标成非 running 做检查
       await em.update(FlowRun, { id: run.id }, { status: 'cancelled' });
-      try { await adapter.validateStart?.({ em, user, payload, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
+      try { await adapter.validateStart?.({ em, user, payload, run, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
       // 申请单批次标记是业务痕迹（下划线开头），重新提交不能丢，否则退回又提交的规格会从申请单里掉出去
-      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => BATCH_MARKS.includes(k) || (run.templateKey === 'sku-batch-apply' && ['_legacyWarehouseDraft','_legacySkuItemId'].includes(k))));
+      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => (adapter.keepStateOnResubmit && k.startsWith('_')) || BATCH_MARKS.includes(k) || (run.templateKey === 'sku-batch-apply' && ['_legacyWarehouseDraft','_legacySkuItemId'].includes(k))));
       run.payload = { ...payload, ...kept };
       run.title = await adapter.title(em, run.companyId, payload);
       await em.save(FlowRun, run);
@@ -709,6 +717,25 @@ export class FlowService {
       const steps = run.stepsSnapshot as StepDef[];
       const idx = steps.findIndex((s) => s.key === step.stepKey);
       await this.enter(em, user, run, steps, idx + 1, 'normal');
+      return this.detailIn(em, user, run.id);
+    });
+  }
+
+  /** 受业务服务授权并在同一事务中执行的流转，保留并行步骤取消规则。 */
+  async redirect(user: AuthUser, runId: number, p: { toKey: string; reason: string; via: 'normal' | 'return'; mutate: (ctx: StepContext) => void | Promise<void> }) {
+    if (!p.reason.trim()) throw new BadRequestException('请写明原因');
+    return this.dataSource.transaction(async (em) => {
+      const run = await this.lockRun(em, user, runId);
+      if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
+      const step = await this.activeStep(em, run);
+      const steps = run.stepsSnapshot as StepDef[];
+      const to = steps.findIndex((s) => s.key === p.toKey);
+      if (to < 0) throw new ConflictException(`流程里找不到步骤「${p.toKey}」，请管理员检查流程配置`);
+      await p.mutate(this.stepCtx(em, user, run, step, {}));
+      await em.update(FlowRun, { id: run.id }, { payload: run.payload } as never);
+      await this.closeStep(em, run, step, user, 'returned', 'return', p.reason);
+      await this.cancelActive(em, run);
+      await this.enter(em, user, run, steps, to, p.via);
       return this.detailIn(em, user, run.id);
     });
   }

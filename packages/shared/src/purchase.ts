@@ -1,174 +1,295 @@
 /**
- * 采购流程（purchase-request）的纯函数与常量：明细、单价、金额、验收累计。前后端共用，不依赖流程引擎。
- * 单价以“分”为基数、最多 4 位小数（走 unit-price.ts 的定点运算），数量最多 4 位小数，数量乘单价之后才结算到分。
+ * 采购申请（流程模板 purchase-request）的共享规则：状态结构、数量/金额计算、条件流转。前后端共用。
+ *
+ * 业务一句话：运营提采购需求（商品+数量+要求到货日）→ 采购完善方案（供应商、仓库、单价、货款安排）→ 审批 →
+ * 出纳登记货款（生成预付款单）→ 财务确认预付款使用 → 按批次：跟进发货 → 登记到货 → 核对实收 → 质检 →（异常处理）→
+ * 申报运费装卸费 → 财务结算（生成采购入库单，冲抵预付款，更新商品采购价与物流成本）→ 支付费用（生成费用单）→ 还有未到货的就回到发货。
+ * 谁办哪一步、多久办完由流程定义配置；这里只描述“数量、金额、事实 → 下一步”的规则。
+ *
+ * 金额一律整数分；单价按 unit-price.ts 保留到分的万分之一；数量最多 4 位小数，数量乘单价后才结算到分。
  */
-import { scaledDecimal, settledLineCents, validUnitCents } from './unit-price';
+import { settledLineCents } from './unit-price';
 
 export const PURCHASE_TEMPLATE = 'purchase-request';
-/** 单价、金额这类成本信息，要有这个权限才看得到、填得了（服务端强制） */
-export const PURCHASE_COST_PERMISSION = 'product.cost.view';
-/** 默认的“大额审批”门槛：采购金额（分）达到它才走老板审批；管理员可以在流程设计器里改这一步的条件 */
-export const PURCHASE_BIG_AMOUNT_CENTS = 1_000_000;
 
-export const PURCHASE_PURPOSES = [
-  { value: 'restock', label: '日常补货' },
-  { value: 'new_product', label: '新品备货' },
-  { value: 'campaign', label: '活动备货' },
-  { value: 'packaging', label: '包装耗材' },
-  { value: 'sample', label: '样品试用' },
-  { value: 'other', label: '其他' },
-] as const;
+export type PurchaseStepKey =
+  | 'apply' | 'plan' | 'approve' | 'pay' | 'prepay_review' | 'dispatch' | 'arrival' | 'receive' | 'quality'
+  | 'exception' | 'refund' | 'expense' | 'settle' | 'expense_pay' | 'end';
 
-export const PAYMENT_MODES = [
-  { value: 'prepay', label: '全款预付（下单时付清）' },
-  { value: 'deposit', label: '预付定金（尾款到货后付）' },
-  { value: 'credit', label: '货到付款 / 账期' },
-] as const;
-export type PaymentMode = (typeof PAYMENT_MODES)[number]['value'];
+/** 每一步在界面上的标题、说明、要做的事（沿用旧系统 purchase-step-ui） */
+export const PURCHASE_STEP_GUIDE: Record<Exclude<PurchaseStepKey, 'end'>, { title: string; description: string; tasks: string[]; action: string; noteLabel?: string }> = {
+  apply: { title: '提交采购需求', description: '选择要采购的商品，填写数量和要求到货日期。', tasks: ['选商品并填写采购数量', '填写要求到货日期'], action: '提交采购需求' },
+  plan: { title: '完善采购方案', description: '确认供应商、采购单价、收货仓库和收款资料，再提交配置的审批人审核。', tasks: ['确定供应商、仓库和商品单价', '填写货款方式及收款资料'], action: '提交采购方案', noteLabel: '方案备注' },
+  approve: { title: '审核采购方案', description: '核对本次采购方案，决定批准或退回补充。', tasks: ['核对商品、数量、单价及货款合计', '核对供应商与收款资料', '批准或退回补充'], action: '批准采购', noteLabel: '审批意见' },
+  pay: { title: '登记采购货款', description: '登记本次实际安排的货款。', tasks: ['核对批准金额和收款账户', '登记新付款或选择已有预付款', '上传实际付款凭证'], action: '确认货款安排并记账', noteLabel: '付款备注' },
+  prepay_review: { title: '核对预付款使用', description: '确认本次使用的预付款与供应商一致。', tasks: ['核对预付款来源及金额', '确认对应供应商'], action: '确认预付款使用', noteLabel: '复核备注' },
+  dispatch: { title: '跟进供应商发货', description: '按供应商实际发货情况登记。', tasks: ['未发货：登记承诺发货时间', '已发货：填写本批数量和物流凭证'], action: '确认已发货', noteLabel: '发货备注' },
+  arrival: { title: '登记本批到货', description: '确认货物已到仓；实收数量由下一步核对。', tasks: ['确认本批到仓', '上传到货凭证'], action: '确认本批到货', noteLabel: '到货备注' },
+  receive: { title: '核对实收数量', description: '核对仓库实际收到的数量。', tasks: ['逐项填写实收数量', '有短缺或多收时说明差异'], action: '确认收货核对', noteLabel: '差异说明' },
+  quality: { title: '登记质检结果', description: '登记本批质检合格数量。', tasks: ['逐项填写合格数量', '不合格时说明原因并上传凭证'], action: '确认质检结果', noteLabel: '质检说明' },
+  exception: { title: '处理采购异常', description: '处理本批数量或质检差异。', tasks: ['核对差异及质检资料', '选择处置方式并说明原因'], action: '确认异常处置', noteLabel: '处理原因' },
+  refund: { title: '确认预付款退款', description: '确认退款实际到账。', tasks: ['逐笔核对退款金额', '登记退款流水和凭证'], action: '确认退款到账并记账', noteLabel: '退款备注' },
+  expense: { title: '申报本批运费和装卸费', description: '只申报本批实际发生的物流费用。', tasks: ['填写运费、装卸费及收款资料', '无费用时填写原因'], action: '提交费用申报', noteLabel: '费用备注' },
+  settle: { title: '核对到货并结算', description: '核对本批合格货款与费用后完成结算。', tasks: ['核对本批合格数量、货款和费用', '确认预付款冲抵金额及费用分摊'], action: '确认结算并更新成本', noteLabel: '复核备注' },
+  expense_pay: { title: '登记本批费用付款', description: '登记运费或装卸费的实际支付记录。', tasks: ['核对已申报费用与收款人', '填写付款金额、账户、流水和凭证'], action: '确认费用付款并记账', noteLabel: '付款备注' },
+};
 
-export const RECEIPT_RESULTS = [
-  { value: 'ok', label: '全部合格' },
-  { value: 'defect', label: '有不合格' },
-  { value: 'shortage', label: '数量短少' },
-] as const;
+/** 涉及金额、单价的步骤：这些步骤的办理人（以及有成本查看权限的人）能看到价格和付款 */
+export const PURCHASE_MONEY_STEPS: readonly PurchaseStepKey[] = ['plan', 'approve', 'pay', 'prepay_review', 'refund', 'settle', 'expense_pay'];
 
-export const EXCEPTION_RESOLUTIONS = [
-  { value: 'accept_as_is', label: '按合格数量入库，差额不再补' },
-  { value: 'return_refund', label: '不合格品退回供应商，登记退款' },
-  { value: 'cancel_remaining', label: '取消未到货部分，登记退款' },
-] as const;
-/** 需要走“退款到账确认”的处置方式 */
-export const REFUND_RESOLUTIONS: readonly string[] = ['return_refund', 'cancel_remaining'];
+export const PAYMENT_MODE_LABEL = { new: '新付款', existing: '使用已有预付款', mixed: '新付款＋已有预付款' } as const;
+export type PaymentMode = keyof typeof PAYMENT_MODE_LABEL;
+export const ALLOCATION_LABEL = { value: '按货值', quantity: '按数量', weight: '按重量' } as const;
+export type AllocationMethod = keyof typeof ALLOCATION_LABEL;
+export const FEE_TYPE_LABEL = { freight: '运费', handling: '装卸费' } as const;
+export type FeeType = keyof typeof FEE_TYPE_LABEL;
+export const EXCEPTION_LABEL = {
+  reinspect: '重新检验',
+  replace: '不合格部分退回换货 / 短缺部分补发',
+  accept_discount: '批准折价接收',
+  cancel_remaining: '终止未到货部分并退款',
+} as const;
+export type ExceptionResolution = keyof typeof EXCEPTION_LABEL;
 
-const MAX_LINES = 100;
-const MAX_QTY = 99_999_999;
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const TICK = 10_000;
-
-function qtyOf(v: unknown): number | null {
-  if (typeof v === 'string' && v.trim() !== '' && !/^\d+(\.\d{1,4})?$/.test(v.trim())) return null;
-  const n = typeof v === 'string' ? Number(v) : v;
-  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > MAX_QTY) return null;
-  try { scaledDecimal(n, 4); } catch { return null; }
-  return n;
+/** 采购需求里的一行（申请时填；名称、编码、单位、重量由服务端按商品档案补全） */
+export interface PurchaseLine {
+  productId: number;
+  qty: number;
+  unit: string;
+  name: string;
+  code: string;
+  /** 原料可选的成品名（马甲）；商品档案里有成品名时必须选一个 */
+  aliasName?: string;
+  weightG: number;
 }
-/** 数量按万分之一单位的整数累加，避免小数误差 */
-const ticks = (q: number) => Number(scaledDecimal(q, 4));
-const fromTicks = (t: number) => t / TICK;
+export interface QtyRow { productId: number; qty: number }
 
-export interface PurchaseLine { productId: number; qty: number; unit?: string; note?: string }
+export interface PayRecord { docId: number; docNo: string; amountCents: number; bankAccountId: number; reference: string; files: number[]; payeeName: string; payeeAccount: string }
+export interface Shipment { id: string; lines: QtyRow[]; logisticsNo: string; expectedArrivalAt: string; files: number[]; closedMissing: Record<string, number>; returned: Record<string, number> }
+export interface FeeRecord { id: string; type: FeeType; amountCents: number; payeeName: string; payeeAccount: string; files: number[]; paid: boolean; paymentDocId?: number; paymentDocNo?: string; paymentFiles?: number[] }
+export interface AcceptedRow extends QtyRow { unitPriceCents: number }
+export interface CostPublication { productId: number; purchasePriceCents: number; freightCents: number; handlingCents: number }
+export interface Batch {
+  id: string;
+  shipmentId: string;
+  shipment: QtyRow[];
+  logisticsNo: string;
+  expectedArrivalAt: string;
+  dispatchFiles: number[];
+  arrived?: boolean;
+  arrivalFiles?: number[];
+  received?: QtyRow[];
+  originalReceived?: QtyRow[];
+  receiptFiles?: number[];
+  difference?: string;
+  deliveryShortage?: QtyRow[];
+  deliveryShortageResolved?: boolean;
+  accepted?: AcceptedRow[];
+  qualityFiles?: number[];
+  qualityComment?: string;
+  pendingException?: boolean;
+  resolution?: ExceptionResolution;
+  resolutionComment?: string;
+  resolutionFiles?: number[];
+  discountApproval?: boolean;
+  returnedLines?: QtyRow[];
+  retryShipment?: boolean;
+  returnedToSupplier?: boolean;
+  fees: FeeRecord[];
+  feesDeclared?: boolean;
+  zeroReason?: string;
+  allocationMethod?: AllocationMethod;
+  posted?: boolean;
+  goodsCents?: number;
+  offsetCents?: number;
+  docId?: number;
+  docNo?: string;
+  /** 结算时每个商品发布的单位成本（分，4 位小数） */
+  costPublication?: CostPublication[];
+}
+export interface Followup { at: string; promisedShipAt: string; comment: string; byName: string }
 
-/** 整理申请明细：商品不能重复，数量大于 0 且最多 4 位小数，最多 100 行。返回规范化后的行和错误。 */
-export function normalizeLines(raw: unknown): { lines: PurchaseLine[]; errors: string[] } {
-  const errors: string[] = [];
-  if (!Array.isArray(raw) || raw.length === 0) return { lines: [], errors: ['请至少添加一个采购商品'] };
-  if (raw.length > MAX_LINES) return { lines: [], errors: [`一张采购申请最多 ${MAX_LINES} 个商品`] };
-  const seen = new Set<number>();
-  const lines: PurchaseLine[] = [];
-  raw.forEach((r, i) => {
-    const at = `第 ${i + 1} 行`;
-    if (!isObj(r)) { errors.push(`${at}格式不对`); return; }
-    const productId = Number(r.productId);
-    if (!Number.isInteger(productId) || productId <= 0) { errors.push(`${at}没有选择商品`); return; }
-    if (seen.has(productId)) { errors.push(`${at}的商品重复了，请合并数量`); return; }
-    seen.add(productId);
-    const qty = qtyOf(r.qty);
-    if (qty === null || qty <= 0) { errors.push(`${at}的数量必须大于 0，最多 4 位小数`); return; }
-    const unit = typeof r.unit === 'string' ? r.unit.trim().slice(0, 20) : '';
-    const note = typeof r.note === 'string' ? r.note.trim().slice(0, 200) : '';
-    lines.push({ productId, qty, ...(unit ? { unit } : {}), ...(note ? { note } : {}) });
-  });
-  return { lines, errors };
+export interface PurchaseState {
+  supplierId?: number;
+  supplierName?: string;
+  warehouseId?: number;
+  warehouseName?: string;
+  paymentMode?: PaymentMode;
+  payeeName?: string;
+  payeeAccount?: string;
+  planNote?: string;
+  planFiles?: number[];
+  planReady?: boolean;
+  /** 商品单价（分，最多 4 位小数），键是商品档案 id */
+  prices: Record<string, number>;
+  approved?: boolean;
+  approvedCents?: number | null;
+  approvalComment?: string;
+  payments: PayRecord[];
+  /** 本采购占用的供应商已有预付款（分） */
+  prepayClaimCents: number;
+  /** 已释放回供应商余额的占用（分）：终止、完结时没用完的部分 */
+  releasedCents: number;
+  paymentReopened?: boolean;
+  prepayReviewed?: boolean;
+  shipments: Shipment[];
+  batches: Batch[];
+  cancelledQty: Record<string, number>;
+  cancelRequested?: boolean;
+  cancelRequestComment?: string;
+  cancelApproved?: boolean;
+  cancelApprovalComment?: string;
+  cancelFiles?: number[];
+  cancelledRemaining?: boolean;
+  amendOpen?: boolean;
+  amendments: Array<{ at: string; byName: string; comment: string; lines: PurchaseLine[]; approvedCents: number | null }>;
+  refunds: Array<{ docId: number; docNo: string; sourceDocId: number; amountCents: number; reference: string; files: number[] }>;
+  followups: Followup[];
 }
 
-export interface PriceEntry { productId: number; unitPriceCents: number }
+export const emptyPurchaseState = (): PurchaseState => ({
+  prices: {}, payments: [], prepayClaimCents: 0, releasedCents: 0, shipments: [], batches: [], cancelledQty: {}, amendments: [], refunds: [], followups: [],
+});
 
-/** 整理单价清单：必须与申请明细的商品一一对应，单价大于 0、最多 4 位小数（分）。 */
-/** partial：选填的预计单价——可以只填一部分商品，申请里已经没有的商品直接丢掉 */
-export function normalizePrices(raw: unknown, lines: readonly PurchaseLine[], label = '单价', partial = false): { prices: PriceEntry[]; errors: string[] } {
-  const errors: string[] = [];
-  if (!Array.isArray(raw)) return { prices: [], errors: [`请填写每个商品的${label}`] };
-  const byId = new Map<number, number>();
-  for (const r of raw) {
-    if (!isObj(r)) { errors.push(`${label}格式不对`); continue; }
-    const productId = Number(r.productId);
-    const cents = r.unitPriceCents;
-    if (!lines.some((l) => l.productId === productId)) { if (!partial) errors.push(`${label}里有申请中没有的商品`); continue; }
-    if (byId.has(productId)) { errors.push(`${label}里同一个商品出现了两次`); continue; }
-    if (!validUnitCents(cents) || (cents as number) <= 0) { errors.push(`商品 #${productId} 的${label}必须大于 0，单位为分，最多 4 位小数`); continue; }
-    byId.set(productId, cents as number);
+export const q4 = (n: number): number => Math.round((n + Number.EPSILON) * 10_000) / 10_000;
+export const pkey = (id: number): string => String(id);
+export const currentBatch = (s: PurchaseState): Batch | undefined => s.batches[s.batches.length - 1];
+
+/** 已入库（已过账批次的合格数量）的合计 */
+export function receivedQty(s: PurchaseState, productId: number): number {
+  return q4(s.batches.filter((b) => b.posted).reduce((sum, b) => sum + (b.accepted?.find((l) => l.productId === productId)?.qty ?? 0), 0));
+}
+/** 还要到货的数量 = 采购数量 - 已入库 - 已终止 */
+export function remainingQty(s: PurchaseState, line: Pick<PurchaseLine, 'productId' | 'qty'>): number {
+  return q4(line.qty - receivedQty(s, line.productId) - (s.cancelledQty[pkey(line.productId)] ?? 0));
+}
+/** 还没安排发货的数量（已发货但退回换货、确认缺失的数量会重新算回来） */
+export function toShipQty(s: PurchaseState, line: Pick<PurchaseLine, 'productId' | 'qty'>): number {
+  const shipped = s.shipments.reduce((sum, sh) => sum + (sh.lines.find((l) => l.productId === line.productId)?.qty ?? 0) - (sh.returned[pkey(line.productId)] ?? 0) - (sh.closedMissing[pkey(line.productId)] ?? 0), 0);
+  return q4(line.qty - shipped - (s.cancelledQty[pkey(line.productId)] ?? 0));
+}
+/** 一个已发货批次里还没收到的数量（按原始收货数量算，退回换货的部分要补发所以算回来） */
+export function shipmentOutstanding(s: PurchaseState, sh: Shipment, productId: number): number {
+  const sent = sh.lines.find((l) => l.productId === productId)?.qty ?? 0;
+  const got = s.batches.filter((b) => b.shipmentId === sh.id).reduce((sum, b) => sum + ((b.originalReceived ?? b.received)?.find((r) => r.productId === productId)?.qty ?? 0), 0);
+  return q4(sent - (sh.closedMissing[pkey(productId)] ?? 0) - got);
+}
+/** 还有没收完的已发货批次 */
+export const pendingShipments = (s: PurchaseState): Shipment[] => s.shipments.filter((sh) => sh.lines.some((l) => shipmentOutstanding(s, sh, l.productId) > 0));
+
+/** 一行的货款（分）：数量 × 单价后才结算到分 */
+export const lineCents = (qty: number, unitPriceCents: number): number => settledLineCents(unitPriceCents, qty);
+
+/** 批准金额 = 已过账批次的货款 + 剩余未到货数量 × 单价；有商品没定价返回 null */
+export function approvalCents(lines: readonly PurchaseLine[], s: PurchaseState): number | null {
+  if (!lines.length || lines.some((l) => !(s.prices[pkey(l.productId)] > 0))) return null;
+  const posted = s.batches.filter((b) => b.posted).reduce((sum, b) => sum + (b.goodsCents ?? 0), 0);
+  return posted + lines.reduce((sum, l) => sum + lineCents(Math.max(0, remainingQty(s, l)), s.prices[pkey(l.productId)]), 0);
+}
+
+export interface PurchaseFacts { remaining: boolean; pendingException: boolean; retryShipment: boolean; refundNeeded: boolean; feeDue: boolean }
+export function purchaseFacts(lines: readonly PurchaseLine[], s: PurchaseState): PurchaseFacts {
+  const b = currentBatch(s);
+  return {
+    remaining: lines.some((l) => remainingQty(s, l) > 0),
+    pendingException: !!b?.pendingException,
+    retryShipment: !!b?.retryShipment,
+    refundNeeded: !!s.cancelApproved,
+    feeDue: !!b?.fees.some((f) => !f.paid),
+  };
+}
+
+export interface PrepayUsage {
+  /** 本采购新付的预付款合计、占用的已有预付款、合计 */
+  newCents: number; claimCents: number; reservedCents: number;
+  /** 已被各批入库冲抵的合计、已释放的合计、还没用掉的合计 */
+  consumedCents: number; releasedCents: number; unusedCents: number;
+  /** 每笔新付款还没用掉的金额（冲抵先用新付款，按付款先后；用完再用已有预付款） */
+  perDoc: Array<{ docId: number; docNo: string; amountCents: number; unusedCents: number }>;
+  /** 占用的已有预付款里没用掉、可释放回供应商余额的部分 */
+  unusedClaimCents: number;
+}
+export function prepayUsage(s: PurchaseState): PrepayUsage {
+  const newCents = s.payments.reduce((a, p) => a + p.amountCents, 0);
+  const consumed = s.batches.reduce((a, b) => a + (b.offsetCents ?? 0), 0);
+  let rest = consumed;
+  const perDoc = s.payments.map((p) => { const used = Math.min(rest, p.amountCents); rest -= used; return { docId: p.docId, docNo: p.docNo, amountCents: p.amountCents, unusedCents: p.amountCents - used }; });
+  const unusedClaim = Math.max(0, s.prepayClaimCents - rest);
+  const reserved = newCents + s.prepayClaimCents;
+  return {
+    newCents, claimCents: s.prepayClaimCents, reservedCents: reserved, consumedCents: consumed, releasedCents: s.releasedCents,
+    unusedCents: Math.max(0, reserved - consumed - s.releasedCents), perDoc, unusedClaimCents: unusedClaim,
+  };
+}
+
+/** 把一笔金额（分）按权重分摊：最大余数法，保证各份加起来正好等于总额。权重全为 0 返回 null。 */
+export function allocateCents(total: number, weights: readonly number[]): number[] | null {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (weights.some((w) => !Number.isFinite(w) || w < 0) || !(sum > 0)) return null;
+  const shares = weights.map((w, i) => { const raw = (total * w) / sum; return { i, floor: Math.floor(raw), frac: raw - Math.floor(raw) }; });
+  let left = total - shares.reduce((a, s) => a + s.floor, 0);
+  const ranked = [...shares].sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; left > 0; k = (k + 1) % ranked.length) { ranked[k].floor += 1; left -= 1; }
+  return shares.map((s) => s.floor);
+}
+
+export interface AllocLine { productId: number; qty: number; unitPriceCents: number; weightG: number }
+/** 运费、装卸费分摊到每个合格商品：返回每行的运费合计、装卸费合计（分）。依据缺失返回 null。 */
+export function allocateFees(lines: readonly AllocLine[], fees: ReadonlyArray<{ type: FeeType; amountCents: number }>, method: AllocationMethod): Array<{ freightCents: number; handlingCents: number }> | null {
+  const out = lines.map(() => ({ freightCents: 0, handlingCents: 0 }));
+  const weights = lines.map((l) => (method === 'quantity' ? l.qty : method === 'weight' ? l.qty * l.weightG : lineCents(l.qty, l.unitPriceCents)));
+  for (const fee of fees) {
+    const shares = allocateCents(fee.amountCents, weights);
+    if (!shares) return null;
+    shares.forEach((c, i) => { if (fee.type === 'freight') out[i].freightCents += c; else out[i].handlingCents += c; });
   }
-  if (!partial) for (const l of lines) if (!byId.has(l.productId) && !errors.length) errors.push(`商品 #${l.productId} 还没有填${label}`);
-  return { prices: lines.filter((l) => byId.has(l.productId)).map((l) => ({ productId: l.productId, unitPriceCents: byId.get(l.productId)! })), errors };
+  return out;
 }
 
-export interface PricedItem { productId: number; qty: number; unitPriceCents: number; amountCents: number }
-/** 数量 × 单价之后才结算到分；合计为各行分之和。 */
-export function priceLines(lines: readonly PurchaseLine[], prices: readonly PriceEntry[]): { items: PricedItem[]; totalCents: number } {
-  const items = lines.map((l) => {
-    const p = prices.find((x) => x.productId === l.productId);
-    if (!p) throw new Error('单价与明细不一致');
-    return { productId: l.productId, qty: l.qty, unitPriceCents: p.unitPriceCents, amountCents: settledLineCents(p.unitPriceCents, l.qty) };
-  });
-  return { items, totalCents: items.reduce((s, i) => s + i.amountCents, 0) };
-}
+/** 单位成本（分，最多 4 位小数）：某行分摊到的费用 ÷ 数量 */
+export const perUnitCents = (totalCents: number, qty: number): number => (qty > 0 ? Math.round((totalCents / qty) * 10_000) / 10_000 : 0);
 
-// ================= 到货验收 =================
-
-export interface ReceiptEntry { productId: number; receivedQty: number; acceptedQty: number }
-/** 累计验收状态：商品 → 累计收到、累计合格 */
-export type ReceiptState = Record<string, { received: number; accepted: number }>;
-
-/** allowNone：允许本次一件都没到（供应商一直没发货时登记情况，走异常处置收尾） */
-export function normalizeReceipt(raw: unknown, ordered: readonly PurchaseLine[], allowNone = false): { entries: ReceiptEntry[]; errors: string[] } {
-  const errors: string[] = [];
-  if (!Array.isArray(raw) || raw.length === 0) return { entries: [], errors: ['请登记本次到货的商品数量'] };
-  const seen = new Set<number>();
-  const entries: ReceiptEntry[] = [];
-  raw.forEach((r, i) => {
-    const at = `第 ${i + 1} 行`;
-    if (!isObj(r)) { errors.push(`${at}格式不对`); return; }
-    const productId = Number(r.productId);
-    if (!ordered.some((l) => l.productId === productId)) { errors.push(`${at}的商品不在这张采购申请里`); return; }
-    if (seen.has(productId)) { errors.push(`${at}的商品重复了`); return; }
-    seen.add(productId);
-    const received = qtyOf(r.receivedQty), accepted = qtyOf(r.acceptedQty);
-    if (received === null || accepted === null) { errors.push(`${at}的数量不合法（不能为负，最多 4 位小数）`); return; }
-    if (accepted > received) { errors.push(`${at}的合格数量不能大于到货数量`); return; }
-    entries.push({ productId, receivedQty: received, acceptedQty: accepted });
-  });
-  if (!errors.length && !allowNone && !entries.some((e) => e.receivedQty > 0)) errors.push('本次没有登记任何到货数量');
-  return { entries, errors };
-}
-
-/** 把本次验收累加进累计状态：合格数量累计不能超过申请数量。result 由累计结果推出，不让办理人自己填。 */
-export function applyReceipt(ordered: readonly PurchaseLine[], prev: ReceiptState | undefined, entries: readonly ReceiptEntry[]): { state: ReceiptState; result: 'ok' | 'defect' | 'shortage'; errors: string[] } {
-  const errors: string[] = [];
-  const state: ReceiptState = {};
-  for (const l of ordered) {
-    const p = prev?.[String(l.productId)];
-    state[String(l.productId)] = { received: p?.received ?? 0, accepted: p?.accepted ?? 0 };
+/**
+ * 条件流转：这一步办完以后去哪一步（沿用旧系统的路由）。返回 undefined 表示按流程定义里的顺序走下一步。
+ * 收货、质检发现异常 → 异常处理；异常处理后：终止退款 → 退款确认；整批要重发 → 发货；否则回到质检；
+ * 结算后：有费用待付 → 支付费用；还有未到货的 → 回到发货；都完了 → 结束。
+ */
+export function nextStepKey(step: PurchaseStepKey, lines: readonly PurchaseLine[], s: PurchaseState): PurchaseStepKey | undefined {
+  const f = purchaseFacts(lines, s);
+  switch (step) {
+    case 'receive': return f.pendingException ? 'exception' : 'quality';
+    case 'quality': return f.pendingException ? 'exception' : 'expense';
+    case 'exception': return f.refundNeeded ? 'refund' : f.retryShipment ? 'dispatch' : 'quality';
+    case 'refund': return 'end';
+    case 'settle': return f.feeDue ? 'expense_pay' : f.remaining ? 'dispatch' : 'end';
+    case 'expense_pay': return f.remaining ? 'dispatch' : 'end';
+    default: return undefined;
   }
-  for (const e of entries) {
-    const s = state[String(e.productId)];
-    s.received = fromTicks(ticks(s.received) + ticks(e.receivedQty));
-    s.accepted = fromTicks(ticks(s.accepted) + ticks(e.acceptedQty));
-  }
-  for (const l of ordered) {
-    if (ticks(state[String(l.productId)].accepted) > ticks(l.qty)) errors.push(`商品 #${l.productId} 的合格数量累计超过了申请数量 ${l.qty}`);
-  }
-  const allOk = ordered.every((l) => ticks(state[String(l.productId)].accepted) === ticks(l.qty));
-  const anyRejected = ordered.some((l) => ticks(state[String(l.productId)].received) > ticks(state[String(l.productId)].accepted));
-  return { state, result: allOk ? 'ok' : anyRejected ? 'defect' : 'shortage', errors };
 }
 
-/** 合格入库的数量清单（只含合格数量大于 0 的商品） */
-export function acceptedLines(ordered: readonly PurchaseLine[], state: ReceiptState | undefined): Array<{ productId: number; qty: number; unit?: string }> {
-  return ordered.flatMap((l) => {
-    const q = state?.[String(l.productId)]?.accepted ?? 0;
-    return q > 0 ? [{ productId: l.productId, qty: q, ...(l.unit ? { unit: l.unit } : {}) }] : [];
-  });
+/** 退回到哪一步（沿用旧系统的“退回上一环节”）：没有可退回的返回 undefined。 */
+export const RETURN_TARGET: Partial<Record<PurchaseStepKey, PurchaseStepKey>> = {
+  plan: 'apply', approve: 'plan', pay: 'approve', receive: 'arrival', quality: 'receive', expense: 'quality', settle: 'expense',
+};
+
+/** 有不可撤销的业务事实后，不能退回：返回原因，null 表示可以退回。 */
+export function returnBlockedReason(step: PurchaseStepKey, s: PurchaseState): string | null {
+  const target = RETURN_TARGET[step];
+  if (!target) return '这一步不能退回';
+  const b = currentBatch(s);
+  if (b?.returnedLines?.length && target === 'receive') return '本批已退回换货，不能再退回收货核对';
+  if (['settle', 'expense_pay'].includes(step) && b?.posted) return '本批已入库过账，不能退回';
+  if (s.payments.length && ['apply', 'plan', 'approve', 'pay', 'prepay_review', 'dispatch'].includes(target)) return '货款已安排，不能退回到付款前；需要变更请由申请人发起“申请变更采购内容”';
+  return null;
 }
 
-/** 上海时区的今天（YYYY-MM-DD） */
-export const shanghaiToday = (now = new Date()): string => new Date(now.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
+/** 批次进度的人话，用在列表和详情里 */
+export function batchStageLabel(b: Batch): string {
+  if (b.posted) return b.fees.some((f) => !f.paid) ? '已入库，待付费用' : '已入库';
+  if (b.returnedToSupplier) return '已终止';
+  if (b.pendingException) return '异常处理中';
+  if (b.accepted) return b.feesDeclared ? '待财务结算' : '待申报费用';
+  if (b.received) return '待质检';
+  if (b.arrived) return '待核对实收';
+  return '运输中';
+}

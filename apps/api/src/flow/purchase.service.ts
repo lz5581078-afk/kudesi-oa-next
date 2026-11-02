@@ -1,120 +1,247 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, In } from 'typeorm';
-import { PURCHASE_COST_PERMISSION, PURCHASE_TEMPLATE, acceptedLines, createChecker, shanghaiToday } from '@kudesi/shared';
+import { DataSource, EntityManager, In } from 'typeorm';
+import {
+  PURCHASE_MONEY_STEPS, PURCHASE_TEMPLATE, createChecker, currentBatch, pendingShipments, prepayUsage, receivedQty, remainingQty, todayInChina, toShipQty, shipmentOutstanding, pkey,
+  type Batch, type PurchaseLine, type PurchaseState, type PurchaseStepKey,
+} from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { FlowEvent, FlowRun, FlowStep, ResourceRecord, WorkItem } from '../entities';
-import { FinanceDocumentsService } from '../resources/finance-documents.service';
+import { FlowRun, FlowStep, ResourceFile, ResourceRecord, WorkItem } from '../entities';
+import { FilesService, type UploadedFile } from '../integrations/files.service';
 import { FlowService } from './flow.service';
-import { asEngine } from './flow-adapters';
-import { linesOf, pricesOf, receiptOf } from './purchase';
+import { EVIDENCE_TYPE, PURCHASE_KEY, earmarkedPrepay, linesOf, stateOf, supplierPrepayBalance } from './purchase';
 
-const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
-const INACTIVE = ['inactive', 'stopped', 'deleted', 'cancelled'];
+const PRODUCT_PAGE = 40;
 
 /**
- * 采购流程的辅助接口：申请表单的商品选项、详情页的采购摘要、入库登记时的“生成采购入库单草稿”。
- * 摘要里的单价和金额只给有“成本查看”权限的人；生成草稿只生成草稿，不开立不过账。
+ * 采购申请中心的辅助接口：商品选择、状态视图（价格和付款服务端脱敏）、发货跟进、申请变更/终止、凭证上传。
+ * 谁办哪一步、顺序都在统一流程里；这里不决定办理人。
  */
 @Injectable()
 export class PurchaseService {
-  constructor(@InjectDataSource() private readonly ds: DataSource, private readonly flow: FlowService, private readonly docs: FinanceDocumentsService) {}
+  constructor(@InjectDataSource() private readonly ds: DataSource, private readonly flow: FlowService, private readonly files: FilesService) {}
 
-  private can(user: AuthUser, key: string) { return createChecker(user.permissions)(key); }
-
-  /** 申请表单里搜商品：只列启用的、非自制品的商品档案，最多 30 条，只给编码名称规格，没有价格 */
-  async options(user: AuthUser, keyword = '', ids = '') {
+  // ---------- 商品选择（发起采购用；不含成本价格） ----------
+  async products(user: AuthUser, q: { keyword?: string; categoryId?: number; page: number }) {
     const em = this.ds.manager;
-    const q = em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :c AND r.type = :t', { c: user.companyId, t: 'finance-products' });
-    const list = [...new Set(ids.split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 200);
-    if (ids) { if (!list.length) return { items: [] }; q.andWhere('r.id IN (:...ids)', { ids: list }); }
-    else {
-      q.andWhere('r.status = :s', { s: 'active' });
-      const kw = keyword.trim().slice(0, 50);
-      if (kw) q.andWhere('r.searchText LIKE :kw', { kw: `%${kw}%` });
-    }
-    const rows = await q.orderBy('r.title', 'ASC').limit(ids ? 200 : 120).getMany();
-    const items = rows.filter((r) => r.data.archiveType !== 'self_made').slice(0, ids ? 200 : 30)
-      .map((r) => ({ id: r.id, code: str(r.data.code), name: r.title, spec: str(r.data.purchaseSpec) || str(r.data.productPackagingSpec) || '' }));
-    return { items };
+    const c = user.companyId;
+    const cats = await em.find(ResourceRecord, { where: { companyId: c, type: 'finance-categories' }, select: ['id', 'title', 'data', 'status'] });
+    const catParent = new Map(cats.map((x) => [x.id, x.data.parentId ? Number(x.data.parentId) : null]));
+    const inCat = (id: number | null) => {
+      if (!q.categoryId) return true;
+      const seen = new Set<number>();
+      while (id && !seen.has(id)) { if (id === q.categoryId) return true; seen.add(id); id = catParent.get(id) ?? null; }
+      return false;
+    };
+    const kw = (q.keyword ?? '').trim().slice(0, 50);
+    const qb = em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :c AND r.type = :t AND r.status = :s', { c, t: 'finance-products', s: 'active' })
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.archiveType')) IN (:...types)", { types: ['raw', 'purchased', 'shipping_material', 'package', 'oem_package'] });
+    if (kw) qb.andWhere('(r.title LIKE :kw OR r.searchText LIKE :kw)', { kw: `%${kw.replace(/[\\%_]/g, '\\$&')}%` });
+    const all = (await qb.orderBy('r.title', 'ASC').getMany()).filter((r) => inCat(r.data.categoryId ? Number(r.data.categoryId) : null));
+    const name = new Map(cats.map((x) => [x.id, str(x.data.name) || x.title]));
+    const rows = all.slice((q.page - 1) * PRODUCT_PAGE, q.page * PRODUCT_PAGE).map((p) => ({
+      id: p.id, code: str(p.data.code) || p.title, name: str(p.data.name) || p.title, archiveType: str(p.data.archiveType),
+      categoryId: p.data.categoryId ? Number(p.data.categoryId) : null, categoryName: p.data.categoryId ? name.get(Number(p.data.categoryId)) ?? '' : '',
+      unit: str(p.data.purchaseSpec).trim() || '', unitKey: str(p.data.specUnit),
+      aliases: str(p.data.archiveType) === 'raw' ? str(p.data.rawFinishedNames).split(/\r?\n/).map((x) => x.trim()).filter(Boolean) : [],
+    }));
+    return { total: all.length, page: q.page, pageSize: PRODUCT_PAGE, rows, categories: cats.filter((x) => x.status !== 'stopped').map((x) => ({ id: x.id, name: str(x.data.name) || x.title, parentId: catParent.get(x.id) ?? null })) };
   }
 
-  /** 详情页的采购摘要：明细、验收进度、付款、入库单草稿；金额类只给有成本查看权限的人 */
-  async summary(user: AuthUser, runId: number) {
-    await this.flow.detail(user, runId); // 不能看这条流程就抛 403/404
+  // ---------- 可见性与脱敏 ----------
+  private async run(em: EntityManager, user: AuthUser, id: number): Promise<FlowRun> {
+    await this.flow.detail(user, id); // 能不能看由流程可见性决定，不能看会抛错
+    const run = await em.findOne(FlowRun, { where: { id, companyId: user.companyId, templateKey: PURCHASE_TEMPLATE } });
+    if (!run) throw new NotFoundException('采购申请不存在');
+    return run;
+  }
+
+  /** 成本与付款只按显式成本权限返回，办理人身份不能绕过权限。 */
+  private async canMoney(_em: EntityManager, user: AuthUser, _run: FlowRun): Promise<boolean> {
+    return createChecker(user.permissions)('product.cost.view');
+  }
+
+  async state(user: AuthUser, id: number) {
     const em = this.ds.manager;
-    const run = await em.findOne(FlowRun, { where: { id: runId, companyId: user.companyId, templateKey: PURCHASE_TEMPLATE } });
-    if (!run) throw new NotFoundException('不是采购流程');
-    const money = this.can(user, PURCHASE_COST_PERMISSION);
+    const run = await this.run(em, user, id);
+    const money = await this.canMoney(em, user, run);
+    return this.view(run, money, await this.myOpenStep(em, user, run));
+  }
+
+  private async myOpenStep(em: EntityManager, user: AuthUser, run: FlowRun): Promise<string | null> {
+    const open = await em.findOne(WorkItem, { where: { companyId: user.companyId, runId: run.id, assigneeId: user.id, status: 'open' } });
+    if (!open?.stepId) return null;
+    return (await em.findOne(FlowStep, { where: { id: open.stepId } }))?.stepKey ?? null;
+  }
+
+  /** 脱敏出口：没有金额权限就不返回单价、货款、付款、冲抵、成本发布和费用金额。 */
+  view(run: FlowRun, money: boolean, myStep: string | null) {
+    const s = stateOf(run.payload);
     const lines = linesOf(run.payload);
-    const prices = pricesOf(run.payload);
-    const rec = receiptOf(run.payload);
-    const products = lines.length ? await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-products', id: In(lines.map((l) => l.productId)) } }) : [];
-    const supplierId = num(run.payload._supplierId);
-    const supplier = supplierId ? await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-suppliers', id: supplierId }, select: ['id', 'title'] }) : null;
-    const active = run.status === 'running' ? await em.findOne(FlowStep, { where: { runId, status: 'active', stepKey: 'inbound' } }) : null;
-    const mine = active ? await em.findOne(WorkItem, { where: { companyId: user.companyId, stepId: active.id, assigneeId: user.id, status: 'open' } }) : null;
-    const accepted = acceptedLines(lines, rec);
-    const docId = num(run.payload._inboundDocId);
+    const done = run.status !== 'running';
+    const usage = prepayUsage(s);
+    const batchView = (b: Batch) => ({
+      id: b.id, shipmentId: b.shipmentId, shipment: b.shipment, logisticsNo: b.logisticsNo, expectedArrivalAt: b.expectedArrivalAt, dispatchFiles: b.dispatchFiles,
+      arrived: !!b.arrived, arrivalFiles: b.arrivalFiles ?? [], received: b.received ?? null, receiptFiles: b.receiptFiles ?? [], difference: b.difference ?? '',
+      deliveryShortage: b.deliveryShortage ?? [], accepted: b.accepted ? b.accepted.map((a) => ({ productId: a.productId, qty: a.qty, ...(money ? { unitPriceCents: a.unitPriceCents } : {}) })) : null,
+      qualityFiles: b.qualityFiles ?? [], qualityComment: b.qualityComment ?? '', pendingException: !!b.pendingException, resolution: b.resolution ?? null, resolutionComment: b.resolutionComment ?? '',
+      resolutionFiles: b.resolutionFiles ?? [], discountApproval: !!b.discountApproval, returnedLines: b.returnedLines ?? [], retryShipment: !!b.retryShipment, returnedToSupplier: !!b.returnedToSupplier,
+      feesDeclared: !!b.feesDeclared, zeroReason: b.zeroReason ?? '', allocationMethod: b.allocationMethod ?? null, posted: !!b.posted,
+      fees: b.fees.map((f) => ({ id: f.id, type: f.type, paid: f.paid, files: f.files, ...(money ? { amountCents: f.amountCents, payeeName: f.payeeName, payeeAccount: f.payeeAccount, paymentDocNo: f.paymentDocNo ?? null, paymentFiles: f.paymentFiles ?? [] } : {}) })),
+      ...(money ? { goodsCents: b.goodsCents ?? null, offsetCents: b.offsetCents ?? null, docNo: b.docNo ?? null, costPublication: b.costPublication ?? [] } : {}),
+    });
     return {
-      canSeeMoney: money,
-      lines: lines.map((l) => {
-        const p = products.find((x) => x.id === l.productId);
-        const price = prices.find((x) => x.productId === l.productId);
-        return {
-          productId: l.productId, code: str(p?.data.code), name: p?.title ?? `商品 #${l.productId}`, qty: l.qty, unit: l.unit ?? '', note: l.note ?? '',
-          received: rec?.[String(l.productId)]?.received ?? null, accepted: rec?.[String(l.productId)]?.accepted ?? null,
-          ...(money && price ? { unitPriceCents: price.unitPriceCents } : {}),
-        };
-      }),
-      supplier: supplier ? { id: supplier.id, name: supplier.title } : null,
-      orderNo: str(run.payload._orderNo) || null, paymentMode: str(run.payload._paymentMode) || null, promisedArrivalDate: str(run.payload._promisedArrival) || null,
-      ...(money ? { totalCents: num(run.payload._planTotalCents), paidCents: num(run.payload._paidCents) ?? 0 } : {}),
-      inbound: docId ? { docId, docNo: str(run.payload._inboundDocNo) } : null,
-      canGenerateDraft: !!mine && !docId && accepted.length > 0 && this.can(user, 'flow.purchase.inbound-draft'),
-      acceptedCount: accepted.length,
+      id: run.id, status: run.status, requesterId: run.requesterId, requestedArrivalAt: str(run.payload.requestedArrivalAt), note: str(run.payload.note), money, myStep,
+      supplierName: s.supplierName ?? '', warehouseName: s.warehouseName ?? '', paymentMode: s.paymentMode ?? null, planReady: !!s.planReady, approved: !!s.approved, paid: s.payments.length > 0 || s.prepayClaimCents > 0, amendOpen: !!s.amendOpen,
+      cancelRequested: !!s.cancelRequested, cancelApproved: !!s.cancelApproved, cancelledRemaining: !!s.cancelledRemaining, cancelRequestComment: s.cancelRequestComment ?? '',
+      lines: lines.map((l) => ({
+        productId: l.productId, name: l.name, code: l.code, unit: l.unit, aliasName: l.aliasName ?? null, qty: l.qty, received: receivedQty(s, l.productId), cancelled: s.cancelledQty[pkey(l.productId)] ?? 0,
+        remaining: remainingQty(s, l), toShip: toShipQty(s, l), ...(money ? { unitPriceCents: s.prices[pkey(l.productId)] ?? null } : {}),
+      })),
+      shipments: s.shipments.map((sh) => ({ id: sh.id, logisticsNo: sh.logisticsNo, expectedArrivalAt: sh.expectedArrivalAt, files: sh.files, lines: sh.lines.map((l) => ({ ...l, outstanding: shipmentOutstanding(s, sh, l.productId) })) })),
+      pendingShipments: pendingShipments(s).map((sh) => sh.id),
+      batches: s.batches.map(batchView),
+      followups: s.followups,
+      amendments: s.amendments.map((a) => ({ at: a.at, byName: a.byName, comment: a.comment })),
+      ...(money ? {
+        payeeName: s.payeeName ?? '', payeeAccount: s.payeeAccount ?? '', planNote: s.planNote ?? '', planFiles: s.planFiles ?? [], approvedCents: s.approvedCents ?? null, approvalComment: s.approvalComment ?? '',
+        payments: s.payments, prepay: { ...usage, unusedCents: done ? 0 : usage.unusedCents }, refunds: s.refunds, paymentReopened: !!s.paymentReopened, prepayReviewed: !!s.prepayReviewed,
+        cancelFiles: s.cancelFiles ?? [], cancelApprovalComment: s.cancelApprovalComment ?? '',
+      } : { prepayReviewed: !!s.prepayReviewed }),
     };
   }
 
-  /**
-   * 入库登记时生成采购入库单草稿：只生成草稿（不开立、不过账、不动库存和应付），用合格数量和采购方案里的单价；
-   * 同一条流程只会生成一张（来源键幂等）。要有 flow.purchase.inbound-draft，并且是“入库登记”这一步的办理人。
-   */
-  async inboundDraft(user: AuthUser, runId: number, b: { warehouseId: number; date?: string }) {
-    if (b.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(b.date)) throw new BadRequestException('单据日期格式应为 YYYY-MM-DD');
+  /** 只给能看到的流程返回进度 */
+  async progressVisible(user: AuthUser, ids: number[]) {
+    const visible: number[] = [];
+    for (const id of ids) { try { await this.flow.detail(user, id); visible.push(id); } catch { /* 看不到的不返回 */ } }
+    return this.progress(user, visible);
+  }
+
+  /** 列表上的进度：每条采购的商品到货情况、批次数、停在哪（没有金额） */
+  async progress(user: AuthUser, ids: number[]) {
+    if (!ids.length) return {};
+    const runs = await this.ds.manager.find(FlowRun, { where: { companyId: user.companyId, templateKey: PURCHASE_TEMPLATE, id: In(ids) } });
+    return Object.fromEntries(runs.map((r) => {
+      const older = !r.payload[PURCHASE_KEY];
+      const receipt = (r.payload._recv ?? {}) as Record<string, { accepted: number }>;
+      const s = stateOf(r.payload);
+      const ls = linesOf(r.payload);
+      return [r.id, {
+        supplierName: s.supplierName ?? '', requestedArrivalAt: str(r.payload.requestedArrivalAt ?? r.payload.expectedArrivalDate), batches: s.batches.length,
+        total: ls.reduce((a, l) => a + l.qty, 0), received: ls.reduce((a, l) => a + (older ? (receipt[l.productId]?.accepted ?? 0) : receivedQty(s, l.productId)), 0),
+        items: ls.length, abnormal: !!currentBatch(s)?.pendingException || !!s.cancelRequested, refunding: !!s.cancelApproved,
+      }];
+    }));
+  }
+
+  // ---------- 办理人的下拉选项（供应商、仓库、付款账户、预付款余额） ----------
+  async options(user: AuthUser, id: number) {
+    const em = this.ds.manager;
+    const run = await this.run(em, user, id);
+    const step = await this.myOpenStep(em, user, run);
+    if (!step) throw new ForbiddenException('这一步不是你办理的');
+    if (PURCHASE_MONEY_STEPS.includes(step as PurchaseStepKey) && !await this.canMoney(em, user, run)) throw new ForbiddenException('办理采购金额步骤需要成本查看权限');
+    const s = stateOf(run.payload);
+    const list = async (type: string) => (await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, order: { title: 'ASC' } })).filter((r) => r.status === 'active' && !r.archivedAt).map((r) => ({ id: r.id, name: r.title }));
+    const out: Record<string, unknown> = { step };
+    if (step === 'plan') { out.suppliers = await list('finance-suppliers'); out.warehouses = await list('finance-warehouses'); }
+    if (['pay', 'refund', 'expense_pay'].includes(step)) out.banks = await list('bank-accounts');
+    if (step === 'pay' && s.supplierId) {
+      const usage = prepayUsage(s);
+      const balance = await supplierPrepayBalance(em, user.companyId, s.supplierId);
+      const earmarked = await earmarkedPrepay(em, user.companyId, s.supplierId, run.id);
+      out.prepay = { balanceCents: balance, availableCents: Math.max(0, balance - earmarked - usage.unusedCents) };
+    }
+    return out;
+  }
+
+  // ---------- 发货跟进 ----------
+  async followup(user: AuthUser, id: number, p: { promisedShipAt: string; comment?: string }) {
+    const date = str(p.promisedShipAt);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new BadRequestException('请选择供应商承诺的发货日期');
+    if (date < todayInChina()) throw new BadRequestException('承诺发货日期不能早于今天');
     return this.ds.transaction(async (em) => {
-      const run = await em.findOne(FlowRun, { where: { id: runId, companyId: user.companyId }, lock: { mode: 'pessimistic_write' } });
-      if (!run || run.templateKey !== PURCHASE_TEMPLATE) throw new NotFoundException('采购流程不存在');
-      if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
-      const step = await em.findOne(FlowStep, { where: { runId, status: 'active', stepKey: 'inbound' } });
-      if (!step) throw new ConflictException('现在不在“入库登记”这一步');
-      if (!(await em.findOne(WorkItem, { where: { companyId: user.companyId, stepId: step.id, assigneeId: user.id, status: 'open' } }))) throw new ForbiddenException('这一步不是你办理的');
-      const existing = num(run.payload._inboundDocId);
-      if (existing) return { docId: existing, docNo: str(run.payload._inboundDocNo), already: true };
-      const lines = linesOf(run.payload);
-      const accepted = acceptedLines(lines, receiptOf(run.payload));
-      if (!accepted.length) throw new BadRequestException('没有合格数量，不需要入库单');
-      const wh = await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-warehouses', id: b.warehouseId } });
-      if (!wh || INACTIVE.includes(wh.status)) throw new BadRequestException('入库仓库不存在或已停用');
-      const supplierId = num(run.payload._supplierId);
-      if (!supplierId) throw new BadRequestException('还没有确定供应商');
-      const prices = pricesOf(run.payload);
-      const draft = await this.docs.createDraft(asEngine(user), {
-        type: 'purchase-in', date: b.date ?? shanghaiToday(), partyId: supplierId, partyKind: 'supplier', warehouseId: wh.id,
-        lines: accepted.map((a) => {
-          const price = prices.find((p) => p.productId === a.productId);
-          if (!price) throw new BadRequestException('采购方案里缺少单价');
-          return { productId: a.productId, qty: a.qty, unitPriceCents: price.unitPriceCents, ...(a.unit ? { unit: a.unit } : {}), memo: `采购流程 #${run.id}` };
-        }),
-      }, {
-        memo: `采购流程 #${run.id}（订单 ${str(run.payload._orderNo)}）生成的草稿。流程已登记付款 ${((num(run.payload._paidCents) ?? 0) / 100).toFixed(2)} 元，预付冲抵和实付请在开单页核对；本草稿没有开立也没有过账`.slice(0, 500),
-        sourceKey: `flow-purchase:${run.id}:inbound`,
-      }, em);
-      run.payload = { ...run.payload, _inboundDocId: draft.id, _inboundDocNo: draft.docNo, _inboundWarehouseId: wh.id };
+      const run = await em.findOne(FlowRun, { where: { id, companyId: user.companyId, templateKey: PURCHASE_TEMPLATE }, lock: { mode: 'pessimistic_write' } });
+      if (!run) throw new NotFoundException('采购申请不存在');
+      if (run.status !== 'running') throw new ConflictException('这条采购已经结束了');
+      if ((await this.myOpenStep(em, user, run)) !== 'dispatch') throw new ForbiddenException('只有当前负责跟进发货的人能登记');
+      const s = stateOf(run.payload);
+      const who = await em.query('SELECT name FROM users WHERE company_id = ? AND id = ?', [user.companyId, user.id]);
+      s.followups.push({ at: new Date().toISOString(), promisedShipAt: date, comment: str(p.comment).trim().slice(0, 500), byName: who[0]?.name ?? '' });
       await em.update(FlowRun, { id: run.id }, { payload: run.payload } as never);
-      await em.insert(FlowEvent, { companyId: run.companyId, runId: run.id, stepId: step.id, actorId: user.id, action: 'draft', note: draft.docNo });
-      return { docId: draft.id, docNo: draft.docNo, already: false };
+      return { ok: true, followups: s.followups };
     });
   }
+
+  // ---------- 申请人动作：申请变更采购内容、申请终止未到货部分并退款 ----------
+  async control(user: AuthUser, id: number, mode: 'amend' | 'cancel_remaining', comment: string) {
+    const why = comment.trim();
+    if (!why) throw new BadRequestException('请写明原因');
+    const check = async (em: EntityManager) => {
+      const run = await em.findOne(FlowRun, { where: { id, companyId: user.companyId, templateKey: PURCHASE_TEMPLATE } });
+      if (!run) throw new NotFoundException('采购申请不存在');
+      if (run.requesterId !== user.id) throw new ForbiddenException('只有发起人能申请变更或终止');
+      return run;
+    };
+    await check(this.ds.manager);
+    const who = (await this.ds.query('SELECT name FROM users WHERE company_id = ? AND id = ?', [user.companyId, user.id]))[0]?.name ?? '';
+    return this.flow.redirect(user, id, {
+      toKey: mode === 'amend' ? 'apply' : 'exception',
+      reason: `${mode === 'amend' ? '申请变更采购内容' : '申请终止未到货部分并退款'}：${why}`,
+      via: mode === 'amend' ? 'return' : 'normal',
+      mutate: ({ run, payload }) => {
+        if (!payload[PURCHASE_KEY]) throw new BadRequestException('原有采购单请按其已发布步骤办理');
+        const s = stateOf(payload);
+        const b = currentBatch(s);
+        if (run.requesterId !== user.id) throw new ForbiddenException('只有发起人能申请变更或终止');
+        if (mode === 'amend') {
+          if (!s.payments.length && !s.prepayClaimCents) throw new BadRequestException('还没有付款，可以直接让办理人退回，或撤回后重新申请');
+          if (s.cancelRequested) throw new BadRequestException('已经申请终止，请等待审批');
+          if (b && !b.posted && !b.returnedToSupplier) throw new BadRequestException('本批已发货，请先完成本批处理后再变更未到货部分');
+          if (pendingShipments(s).length) throw new BadRequestException('仍有已发货商品在途，请先完成该发货批次后再变更采购内容');
+          s.amendments.push({ at: new Date().toISOString(), byName: who, comment: why, lines: JSON.parse(JSON.stringify(linesOf(payload))), approvedCents: s.approvedCents ?? null });
+          s.amendOpen = true;
+          s.approved = false;
+          return;
+        }
+        if (s.batches.some((x) => x.posted && x.fees.some((f) => !f.paid)) || (b?.feesDeclared && !b.posted && b.fees.length)) throw new BadRequestException('请先完成已发生运费、装卸费的结算与付款');
+        if (!s.payments.length && !s.prepayClaimCents) throw new BadRequestException('尚未付款的采购可以直接撤回');
+        if (s.cancelRequested) throw new BadRequestException('已经申请过终止，请等待审批');
+        s.cancelRequested = true;
+        s.cancelRequestComment = why;
+      },
+    });
+  }
+
+  // ---------- 凭证 ----------
+  async upload(user: AuthUser, runId: number, file: UploadedFile | undefined) {
+    const em = this.ds.manager;
+    const run = await this.run(em, user, runId);
+    if (run.status !== 'running') throw new ConflictException('这条采购已经结束了');
+    const step = await this.myOpenStep(em, user, run);
+    if (!step) throw new ForbiddenException('只有当前办理人能上传凭证');
+    return this.files.putBlob(user.companyId, user.id, EVIDENCE_TYPE, 'evidence', file);
+  }
+
+  async fileUrl(user: AuthUser, runId: number, fileId: number) {
+    const em = this.ds.manager;
+    const run = await this.run(em, user, runId);
+    const money = await this.canMoney(em, user, run);
+    const v = this.view(run, money, null) as unknown as Record<string, unknown>;
+    const ids = new Set<number>();
+    const walk = (x: unknown) => {
+      if (Array.isArray(x)) x.forEach(walk);
+      else if (x && typeof x === 'object') for (const [k, val] of Object.entries(x)) { if (/files$/i.test(k) && Array.isArray(val)) val.forEach((n) => typeof n === 'number' && ids.add(n)); else walk(val); }
+    };
+    walk(v);
+    const own = await em.findOne(ResourceFile, { where: { id: fileId, companyId: user.companyId, resourceType: EVIDENCE_TYPE, resourceId: runId } });
+    if (!own || !ids.has(fileId)) throw new ForbiddenException('没有查看这个文件的权限');
+    return this.files.urlOf(user.companyId, fileId, EVIDENCE_TYPE);
+  }
 }
+
+export type PurchaseView = ReturnType<PurchaseService['view']>;
+export type { PurchaseState, PurchaseLine, PurchaseStepKey };
+void PURCHASE_KEY;

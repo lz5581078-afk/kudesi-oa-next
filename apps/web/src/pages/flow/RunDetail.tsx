@@ -8,6 +8,7 @@ import { RUN_TONE, flowApi, fmtTime, type RunDetailDto } from './flowApi';
 import { copyText, dwell } from './flowUi';
 import { ReturnSpecsDialog } from './ReturnSpecsDialog';
 import { SKU_TEMPLATE, SkuPreview } from './SkuApply';
+import { PurchaseCompatibilityPanel } from './PurchaseCompatibilityPanel';
 import { PurchasePanel } from './PurchasePanel';
 import { PURCHASE_TEMPLATE_KEY } from './purchaseApi';
 
@@ -107,7 +108,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
                 </div>
               </>
             ) : <LegacyFlowValues fields={run.fields} values={run.payload} labels={run.refLabels} files={run.files} />}
-            {run.templateKey === PURCHASE_TEMPLATE_KEY && !editing && <PurchasePanel runId={run.id} refreshKey={run.revision} onChanged={reload} />}
+            {run.templateKey === PURCHASE_TEMPLATE_KEY && !editing && (run.fields.some(f => f.key === 'requestedArrivalAt') ? <PurchasePanel runId={run.id} refreshKey={run.revision} onChanged={reload} /> : <PurchaseCompatibilityPanel runId={run.id} refreshKey={run.revision} onChanged={reload} />)}
             {run.templateKey === SKU_TEMPLATE && !editing && <SkuPreview runId={run.id} refreshKey={run.revision} />}
             {(run.links.docNo || run.links.borrowRecordId || run.links.ledgerHistoryId) && (
               <p className="muted">
@@ -153,7 +154,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
               )}
               {run.me.canPass && (
                 <>
-                  {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={{ ...run.payload, _runId: run.id }} files={run.files} values={form} onChange={(k, v) => setForm({ ...form, [k]: v })} />}
+                  {run.me.stepFields.length > 0 && <FlowFieldsForm fields={run.me.stepFields} templateKey={run.templateKey} context={{ ...run.payload, _runId: run.id }} files={run.files} stepKey={run.activeStep.key} runId={run.id} refreshKey={run.revision} values={form} onChange={(k, v) => setForm({ ...form, [k]: v })} />}
                   <label>意见（选填）<textarea rows={2} value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} /></label>
                 </>
               )}

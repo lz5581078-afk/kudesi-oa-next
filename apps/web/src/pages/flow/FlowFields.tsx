@@ -3,18 +3,23 @@ import { useEffect, useState } from 'react';
 import { FieldInput } from '../../resources/RecordForm';
 import { FileList } from '../../resources/FilesField';
 import { resourceApi, type FileInfo } from '../../resources/api';
-import { PurchaseJsonField } from './PurchaseFields';
+import { PurchaseRequestFields } from './PurchaseFields';
+import { PurchaseStepFields } from './PurchaseStepForms';
+import { PurchaseJsonField } from './PurchaseCompatibilityFields';
 import { PURCHASE_TEMPLATE_KEY } from './purchaseApi';
 import { SKU_TEMPLATE, SkuApplyFields, SkuWarehouseFields } from './SkuApply';
 
 /** 流程表单：沿用资料表单的输入控件；金额界面按元、存整数分。 */
-export function FlowFieldsForm({ fields, values, onChange, labels, templateKey, context, files }: {
+export function FlowFieldsForm({ fields, values, onChange, labels, templateKey, context, files, stepKey, runId, refreshKey }: {
   fields: FieldDef[]; values: Record<string, unknown>; onChange: (key: string, v: unknown) => void; labels?: Record<string, string>;
   /** 已上传文件的信息（重新提交时显示已有附件的缩略图） */
   files?: Record<number, FileInfo>;
+  stepKey?: string; runId?: number; refreshKey?: number;
   /** 有专用编辑器的流程（SKU 批量申请）传模板编号；context 是发起时的表单（仓库步骤要按规格逐个填） */
   templateKey?: string; context?: Record<string, unknown>;
 }) {
+  if (templateKey === PURCHASE_TEMPLATE_KEY && fields.some(f => f.key === 'requestedArrivalAt')) return <PurchaseRequestFields values={values} onChange={onChange} />;
+  if (templateKey === PURCHASE_TEMPLATE_KEY && stepKey && runId && fields.some(f => f.key === 'data')) return <PurchaseStepFields runId={runId} stepKey={stepKey} refreshKey={refreshKey ?? 0} onChange={onChange} />;
   if (templateKey === SKU_TEMPLATE && fields.some((f) => f.key === 'specs')) return <SkuApplyFields values={values} onChange={onChange} />;
   if (templateKey === SKU_TEMPLATE && fields.some((f) => f.key === 'config')) {
     return (

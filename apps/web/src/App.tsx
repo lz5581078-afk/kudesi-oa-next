@@ -42,6 +42,9 @@ import { HierarchyPage } from './resources/HierarchyPage';
 import { IntegrationsPage } from './pages/system/IntegrationsPage';
 import { AiApiPage } from './pages/system/AiApiPage';
 import { OcrSettingsPage } from './pages/system/OcrSettingsPage';
+import { JstSyncCenterPage } from './pages/system/JstSyncCenterPage';
+import { ExclusivePage } from './pages/flow/ExclusivePage';
+import { PurchaseCenterPage } from './pages/flow/PurchaseCenterPage';
 import { StaffPage } from './pages/org/StaffPage';
 import { StructurePage } from './pages/org/StructurePage';
 import { PositionProfilesPage } from './pages/org/PositionProfilesPage';
@@ -98,6 +101,9 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
   'system.audit': AuditPage,
   'system.ai-api': AiApiPage,
   'system.ocr': OcrSettingsPage,
+  'system.jst-sync-center': JstSyncCenterPage,
+  'flow.exclusive': ExclusivePage,
+  'flow.purchase': PurchaseCenterPage,
   'resource.bank-fund': BankFundPage,
   'resource.fee-settings': FeeSettingsPage,
   'resource.company-store-maintenance': MaintenancePage,

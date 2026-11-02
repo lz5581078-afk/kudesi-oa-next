@@ -213,6 +213,8 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     label: '流程',
     pages: [
       page('flow', 'apply', '申请中心', true),
+      page('flow', 'exclusive', '专属品领取', true),
+      page('flow', 'purchase', '采购申请中心', true),
       page('flow', 'overview', '流程总览', true),
       page('flow', 'templates', '流程配置', true),
       page('flow', 'node-templates', '节点中心', true),
@@ -268,6 +270,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       page('system', 'integrations', '接口设置', true),
       page('system', 'ai-api', 'AI API 接口', true),
       page('system', 'ocr', 'OCR 设置', true),
+      page('system', 'jst-sync-center', '聚水潭同步能力中心', true),
       page('system', 'settings', '系统设置'),
       page('system', 'audit', '审计日志', true),
     ],

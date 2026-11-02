@@ -1,9 +1,10 @@
 import { legacyContinuationAdapter } from './legacy-continuation';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { getFlowTemplate, type CustomSchema, type FlowTemplate, type StepDef } from '@kudesi/shared';
+import { getFlowTemplate, compatiblePurchaseTemplate, type CustomSchema, type FlowTemplate, type StepDef } from '@kudesi/shared';
 import { FlowDefinition, FlowTemplateRow } from '../entities';
 import type { FlowAdapter } from './flow-adapters';
+import { compatiblePurchaseRequest } from './purchase-compat';
 import { FLOW_ADAPTERS } from './flow-adapters';
 
 /**
@@ -12,7 +13,13 @@ import { FLOW_ADAPTERS } from './flow-adapters';
  */
 export async function loadTemplate(em: EntityManager, companyId: number, key: string, definitionId?: number | null): Promise<FlowTemplate> {
   const builtin = getFlowTemplate(key);
-  if (builtin) return builtin;
+  if (builtin) {
+    if (key === 'purchase-request' && definitionId) {
+      const pinned = await em.findOne(FlowDefinition, { where: { id: definitionId, companyId, templateKey: key } });
+      if (pinned && (pinned.steps as StepDef[]).some(s => ['dept_review', 'order', 'inbound', 'refund_confirm'].includes(s.key))) return compatiblePurchaseTemplate;
+    }
+    return builtin;
+  }
   const row = await em.findOne(FlowTemplateRow, { where: { companyId, templateKey: key } });
   if (!row) throw new NotFoundException('没有这种流程');
   let def: FlowDefinition | null = null;
@@ -42,6 +49,7 @@ export function adapterFor(t: FlowTemplate): FlowAdapter {
     async validateStart() { throw new BadRequestException('旧流程历史仅供查看，不能重新发起'); },
   };
   if (t.legacySource) return legacyContinuationAdapter(t);
+  if (t.key === 'purchase-request' && t.fields.some(f => f.key === 'purpose')) return compatiblePurchaseRequest;
   const builtin = FLOW_ADAPTERS[t.key];
   if (builtin) return builtin;
   return {
