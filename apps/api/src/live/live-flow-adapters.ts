@@ -1,3 +1,4 @@
+import { verifyLiveSettlementRefunds } from './live-refund-verification';
 import { liveNotify, liveSessionResult } from './live-notification-events';
 import { EntityManager } from 'typeorm';
 import type { FlowAdapter, StepContext } from '../flow/flow-adapters';
@@ -78,6 +79,7 @@ export const liveSettlement: FlowAdapter = {
     await markSubmitted(em, { companyId: user.companyId, actorId: user.id, now: liveClock.now() }, settlementIdOf(payload), run.id);
   },
   async onPass(ctx) {
+    if (ctx.stepKey === 'approve') await verifyLiveSettlementRefunds(ctx.em,ctx.liveOrders,ctx.run.companyId,settlementIdOf(ctx.payload));
     if (ctx.stepKey === 'approve') await checkApprovable(ctx.em, ctx.run.companyId, settlementIdOf(ctx.payload), ctx.run.id);
   },
   async onReturn(ctx, { reason, toSubmit }) {
@@ -90,6 +92,7 @@ export const liveSettlement: FlowAdapter = {
   async onFinish(ctx, outcome) {
     const id = settlementIdOf(ctx.payload);
     if (outcome === 'completed') {
+      await verifyLiveSettlementRefunds(ctx.em,ctx.liveOrders,ctx.run.companyId,id);
       await approveSettlement(ctx.em, { companyId: ctx.run.companyId, actorId: ctx.user.id, runId: ctx.run.id, now: liveClock.now() }, id);
       const people: Row[] = await ctx.em.query('SELECT DISTINCT user_id FROM live_settlement_lines WHERE company_id=? AND settlement_id=?',[ctx.run.companyId,id]);
       await liveNotify(ctx.em,ctx.run.companyId,people.map(p=>Number(p.user_id)),{key:`settled:${id}`,channel:'notice',title:'直播工资结算已确认',body:'本期直播结算已审批确认，请在「我的直播」查看本人明细。结算确认不代表已发放。',resourceId:id});

@@ -193,7 +193,7 @@ d('远程协助（真实数据库）', () => {
     expect(g).toMatchObject({ status: 'ended', endReason: 'expired' });
     expect((await audits('remote_ended')).pop()!.summary).toMatch(/到达时限/);
     await teardown(shop.id);
-  });
+  }, 30_000); // The simulated hour performs hundreds of database round trips.
 
   it('电脑没有响应 / 助手掉线 / 网页掉线 都会自动结束并记录原因', async () => {
     const a = await setup(storeA);

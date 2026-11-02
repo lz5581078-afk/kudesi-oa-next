@@ -1,3 +1,5 @@
+import { REPORT_WINDOW_MS, reportsLocked, scheduleFingerprint, primaryReport } from './live-checkin-core';
+import { captureOrders, persistCapture } from './live-order-capture';
 import { liveStartNotification } from './live-start-notification';
 import { liveHandover } from './live-notification-events';
 import { channelsOf, linesOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines, channelStores } from './live-platforms';
@@ -18,6 +20,7 @@ import { ReviewForm, checkSubmittable, previewApproval } from './live-review';
 import { serializeSchedule } from './live-schedule.service';
 
 export interface StartInput {
+  actualCheckin?: boolean; sessionId?: number; confirmDetails?: boolean; confirmEarly?: boolean; scheduleFingerprint?: string;
   scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null;
   channels?: LiveChannelInput[]; douyinAccountId?: number | null; storeId?: number | null; productIds?: number[]; productEntries?: LiveProductEntry[]; startAt?: string | null;
 }
@@ -30,6 +33,7 @@ const REVIEWER_SQL = 'EXISTS (SELECT 1 FROM flow_steps fs WHERE fs.run_id = s.fl
 
 export function serializeSession(s: Row) {
   return {
+    checkinMode: !!s.checkin_mode, reportDeadline: liveToText(s.report_deadline), reportsLocked: reportsLocked(s, liveClock.now()), autoSubmitError: s.auto_submit_error ?? null, ordersCaptureStatus: s.orders_capture_status, ordersCaptureError: s.orders_capture_error ?? null,
     channels: channelsOf(s),
     id: Number(s.id), scheduleId: s.schedule_id ? Number(s.schedule_id) : null, roomId: Number(s.room_id), roomName: s.room_name, date: s.session_day, startAt: s.start_text, endAt: s.end_text ?? null,
     plannedEnd: s.schedule_end ?? null, status: s.status, statusLabel: LIVE_SESSION_STATUS[s.status] ?? s.status,
@@ -72,7 +76,36 @@ export class LiveSessionService {
     return this.ds.transaction(async (em) => {
       await lockCompany(em, a.companyId);
       const now = liveClock.now();
-      const startAt = input.startAt ? this.parseTime(input.startAt, '上播时间') : wallNow(now);
+      if (input.actualCheckin && input.sessionId) {
+        const existing = await sessionRow(em,a.companyId,input.sessionId,true);
+        const role = Number(existing.anchor_user_id)===a.userId?'anchor':Number(existing.control_user_id)===a.userId?'control':null;
+        if (!role || !existing.checkin_mode || existing.status!=='live' || existing.first_reported_at) liveFail('只能为本人尚未结束的场次上播',403);
+        if(role==='control'&&!input.confirmDetails)liveFail('中控请先核对本场排班、账号、店铺和产品',400);
+        const [already]=await em.query('SELECT id FROM live_session_checkins WHERE company_id=? AND session_id=? AND role=? AND user_id=?',[a.companyId,existing.id,role,a.userId]);
+        if(already)return {id:Number(existing.id)};
+        const before=channelsOf(existing);
+        const beforeProducts=await em.query('SELECT code_snapshot,name_snapshot,spec_snapshot FROM live_session_products WHERE company_id=? AND session_id=? ORDER BY sort_order',[a.companyId,existing.id]);
+        if(input.channels){
+          const corrected=await validateChannels(em,a.companyId,input.channels);
+          await assertAccountTime(em,a.companyId,corrected,existing.start_text,existing.schedule_end??null,Number(existing.id),existing.schedule_id?Number(existing.schedule_id):undefined);
+          const primary=corrected[0],store=primary.stores[0];
+          await em.query('UPDATE live_sessions SET channels_json=?,douyin_account_id=?,douyin_account_name=?,store_id=?,store_name=?,jst_shop_id=? WHERE company_id=? AND id=?',[JSON.stringify(corrected),primary.accountId,corrected.map(c=>c.accountName).join(' / ').slice(0,200),store.id,store.name,store.jstShopId,a.companyId,existing.id]);
+        }
+        if(input.productEntries!==undefined||input.productIds!==undefined){
+          const products=await resolveLiveProducts(em,a.companyId,input,true);
+          await em.query('DELETE FROM live_session_products WHERE company_id=? AND session_id=?',[a.companyId,existing.id]);
+          for(const [i,p] of products.entries())await em.query('INSERT INTO live_session_products(company_id,session_id,base_code_id,code_snapshot,name_snapshot,spec_snapshot,sort_order) VALUES(?,?,?,?,?,?,?)',[a.companyId,existing.id,p.id,p.code.slice(0,100),(p.name||p.code).slice(0,200),p.spec.slice(0,300)||null,i]);
+        }
+        if(input.operatorId!==undefined){
+          if(input.operatorId){const [op]=await em.query("SELECT id FROM users WHERE company_id=? AND id=? AND status='active'",[a.companyId,input.operatorId]);if(!op||Number(input.operatorId)===Number(existing.anchor_user_id))liveFail('请选择有效运营，运营不能同时是主播',400);}
+          await em.query('UPDATE live_sessions SET operator_user_id=? WHERE company_id=? AND id=?',[input.operatorId??null,a.companyId,existing.id]);
+        }
+        await em.query('INSERT INTO audit_logs(company_id,actor_id,action,resource_type,resource_id,detail) VALUES(?,?,?,?,?,?)',[a.companyId,a.userId,'live.checkin.confirm','live-session',String(existing.id),JSON.stringify({role,beforeProducts,beforeChannels:before,confirmedChannels:input.channels??null,productEntries:input.productEntries??null,operatorId:input.operatorId??null})]);
+        await em.query('UPDATE live_sessions SET revision=revision+1 WHERE company_id=? AND id=?',[a.companyId,existing.id]);
+        await em.query('INSERT INTO live_session_checkins (company_id,session_id,user_id,role,start_at,confirmation_json) VALUES (?,?,?,?,?,?)',[a.companyId,existing.id,a.userId,role,wallNow(now),JSON.stringify({confirmed:true,corrected:!!input.channels})]);
+        return {id:Number(existing.id)};
+      }
+      const startAt = !input.actualCheckin && input.startAt ? this.parseTime(input.startAt, '上播时间') : wallNow(now);
       const startDate = liveFromText(startAt)!;
       if (startDate.getTime() > now.getTime() + SKEW_MS) liveFail('上播时间不能晚于现在', 400);
       if (startDate.getTime() < now.getTime() - 12 * 3600000) liveFail('上播时间不能早于 12 小时前，请联系管理员处理', 400);
@@ -84,20 +117,35 @@ export class LiveSessionService {
         const [row] = await em.query('SELECT * FROM live_schedules WHERE company_id = ? AND id = ? FOR UPDATE', [a.companyId, input.scheduleId]);
         if (!row) liveFail('排场不存在', 404);
         sched = row;
+        if(input.actualCheckin&&row.session_id){
+          const current=await sessionRow(em,a.companyId,Number(row.session_id),true);
+          const role=Number(current.anchor_user_id)===a.userId?'anchor':Number(current.control_user_id)===a.userId?'control':null;
+          if(current.checkin_mode&&current.status==='live'&&!current.first_reported_at&&role){
+            const [clock]=await em.query('SELECT id FROM live_session_checkins WHERE company_id=? AND session_id=? AND role=? AND user_id=?',[a.companyId,current.id,role,a.userId]);
+            if(clock)return {id:Number(current.id)};
+            liveFail('本场已经开播，请打开实际场次核对信息后确认本人上播',409);
+          }
+        }
         if (row.status !== 'scheduled' || row.session_id) liveFail('这场排班已上播、已结束或已取消');
         const mine = [row.anchor_user_id, row.control_user_id].some((v) => v && Number(v) === a.userId);
         if (!mine && !a.canManage) liveFail('只有本场排定的主播、中控（或管理人员）可以上播', 403);
         const [st, en] = [liveFromText(wallText(row.start_at))!.getTime(), liveFromText(wallText(row.end_at))!.getTime()];
-        if (startDate.getTime() < st - LIVE_START_EARLY_MS) liveFail('距离排场开始还早，开始前 2 小时才可以上播');
+        if(input.actualCheckin && input.scheduleFingerprint!==scheduleFingerprint(row))liveFail('排班已更新，请重新读取并核对',409);
+        if(input.actualCheckin && startDate.getTime()<st && !input.confirmEarly)liveFail('尚未到计划开播时间，请二次确认提前开播',400);
+        if (!input.actualCheckin && startDate.getTime() < st - LIVE_START_EARLY_MS) liveFail('距离排场开始还早，开始前 2 小时才可以上播');
         if (startDate.getTime() >= en) liveFail('这场排班已经过了结束时间，不能上播');
         [roomId, anchorId, controlId, operatorId] = [Number(row.room_id), Number(row.anchor_user_id), row.control_user_id ? Number(row.control_user_id) : null, row.operator_user_id ? Number(row.operator_user_id) : null];
+        if(input.actualCheckin){
+          anchorId=input.anchorId??anchorId;controlId=input.controlId===undefined?controlId:input.controlId;operatorId=input.operatorId===undefined?operatorId:input.operatorId;
+          if(anchorId!==a.userId&&!(a.isControl&&controlId===a.userId))liveFail('只能以本人岗位开播',403);
+        }
         accountId = input.douyinAccountId ? idOf(input.douyinAccountId) : Number(row.douyin_account_id);
         storeId = input.storeId ? idOf(input.storeId) : row.store_id ? Number(row.store_id) : null;
       } else {
         if (!a.canManage && !a.isAnchor && !a.isControl) liveFail('只有主播、中控岗位（或管理人员）可以上播', 403);
         roomId = idOf(input.roomId);
         anchorId = idOf(input.anchorId) ?? (a.isAnchor ? a.userId : null);
-        controlId = idOf(input.controlId) ?? (a.isControl && !a.isAnchor && !input.anchorId ? a.userId : null);
+        controlId = idOf(input.controlId) ?? (a.isControl && !a.isAnchor ? a.userId : null);
         if (!anchorId) liveFail('请选择主播', 400);
         if (!a.canManage && anchorId !== a.userId && !(a.isControl && controlId === a.userId)) liveFail('只能以本人的主播或中控身份上播', 403);
         operatorId = idOf(input.operatorId);
@@ -109,6 +157,7 @@ export class LiveSessionService {
       const { anchors, controls } = await livePeople(em, a.companyId);
       if (!anchors.some((p) => p.id === anchorId)) liveFail('所选人员不是主播岗位', 400);
       if (controlId && !controls.some((p) => p.id === controlId)) liveFail('所选人员不是中控岗位', 400);
+      if(controlId===anchorId)liveFail('主播和中控须分别由本人打卡，不能是同一人',400);
       if (operatorId) {
         const [op] = await em.query("SELECT id FROM users WHERE company_id = ? AND id = ? AND status = 'active'", [a.companyId, operatorId]);
         if (!op) liveFail('所选运营人员不存在或已停用', 400);
@@ -123,18 +172,93 @@ export class LiveSessionService {
       if (busyAnchor) liveFail('这位主播正在另一场直播中，请先报下播');
       await assertAccountTime(em, a.companyId, channels, startAt, sched ? wallText(sched.end_at) : null, undefined, sched ? Number(sched.id) : undefined);
       const role = a.userId === anchorId ? 'anchor' : a.userId === controlId ? 'control' : 'manager';
+      if(input.actualCheckin && role==='manager')liveFail('请由主播或中控本人打卡开播',403);
+      if(input.actualCheckin && role==='control'&&!input.confirmDetails)liveFail('中控请先核对本场排班、账号、店铺和产品',400);
       const ins = await em.query(
         `INSERT INTO live_sessions (company_id, schedule_id, room_id, room_name, anchor_user_id, control_user_id, operator_user_id, douyin_account_id, douyin_account_name, store_id, store_name, jst_shop_id,
            session_date, start_at, status, started_by, started_role) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'live',?,?)`,
         [a.companyId, sched ? sched.id : null, room!.id, room!.name, anchorId, controlId, operatorId, account!.id, account!.name, store!.id, store!.name, store!.jstShopId, day, startAt, a.userId, role]);
       const id = Number(ins.insertId);
       await em.query('UPDATE live_sessions SET channels_json=? WHERE company_id=? AND id=?', [JSON.stringify(channels),a.companyId,id]);
+      if(input.actualCheckin){
+        await em.query("UPDATE live_sessions SET checkin_mode=1,orders_capture_status='pending' WHERE company_id=? AND id=?",[a.companyId,id]);
+        await em.query('INSERT INTO live_session_checkins (company_id,session_id,user_id,role,start_at,confirmation_json) VALUES (?,?,?,?,?,?)',[a.companyId,id,a.userId,role,startAt,JSON.stringify({scheduleId:input.scheduleId??null,fingerprint:input.scheduleFingerprint??null,confirmed:!!input.confirmDetails,earlyConfirmed:!!input.confirmEarly})]);
+      }
       let order = 0;
       for (const p of products) await em.query('INSERT INTO live_session_products (company_id, session_id, base_code_id, code_snapshot, name_snapshot, spec_snapshot, sort_order) VALUES (?,?,?,?,?,?,?)', [a.companyId, id, p.id, p.code.slice(0, 100), (p.name || p.code).slice(0, 200), p.spec.slice(0, 300) || null, order++]);
       if (sched) await em.query("UPDATE live_schedules SET status = 'live', session_id = ?, updated_by = ? WHERE company_id = ? AND id = ?", [id, a.userId, a.companyId, sched.id]);
       if (sched) await liveStartNotification(em, a.companyId, id);
       return { id };
     });
+  }
+
+  /** Both room QR and personal desk load this same company-scoped context. */
+  async checkinContext(user: AuthUser, roomId?: number) {
+    const a=await loadLiveAccess(this.em,user); requireUse(a);
+    const rooms=await liveRoomList(this.em,a.companyId);
+    if(roomId&&!rooms.some(r=>r.id===roomId))liveFail('直播间不存在',404);
+    const desk=await this.workbench(user);
+    return {...desk, rooms, schedules:desk.schedules.filter(r=>!roomId||r.roomId===roomId),active:desk.active.filter(r=>!roomId||r.roomId===roomId)};
+  }
+  async checkoutPreview(user:AuthUser,id:number,role?:string){
+    const a=await loadLiveAccess(this.em,user);requireUse(a);
+    const s=await sessionRow(this.em,a.companyId,id);
+    const ownRole=liveReportRoleFor(a.userId,this.people(s),role??null);
+    if(!ownRole||ownRole==='operator')liveFail('只能查看本人主播或中控的下播信息',403);
+    const [clock]:Row[]=await this.em.query("SELECT DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') start_text,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_session_checkins WHERE company_id=? AND session_id=? AND user_id=? AND role=?",[a.companyId,id,a.userId,ownRole]);
+    if(!clock)liveFail('请先确认本人上播',400);
+    const endAt=clock.end_text??wallNow(liveClock.now());
+    let salesCents:number|null=null,reason='',orderCount:number|null=null,capture:Awaited<ReturnType<typeof captureOrders>>|null=null;
+    try {const c=await captureOrders(this.orders,a.companyId,s,s.end_text??endAt);capture=c;salesCents=c.sales;orderCount=c.orders.length;}catch(e){reason=(e as Error).message;}
+    const [profile]=await this.em.query('SELECT pay_type,hourly_rate FROM users WHERE company_id=? AND id=?',[a.companyId,a.userId]);
+    const {liveArchiveHourlyRate,liveComputeWage}=await import('@kudesi/shared');
+    const rate=liveArchiveHourlyRate(profile?{payType:profile.pay_type,hourlyRate:profile.hourly_rate==null?null:Number(profile.hourly_rate)}:null);
+    const wageExcluded=ownRole==='control'&&await commissionOnlyControl(this.em,a.companyId,a.userId);
+    const wage=!wageExcluded&&rate&&endAt>clock.start_text?liveComputeWage({startAt:clock.start_text,endAt,hourlyRateCents:rate}):null;
+    const reports=await reportsOf(this.em,a.companyId,id);
+    const preview=!capture?null:await this.preview(this.em,a,{...s,orders_capture_status:'ready'},[{role:'anchor',sales_cents:capture.sales,store_lines_json:capture.lines},...reports.filter(r=>r.role==='control')]);
+    return {role:ownRole,startAt:clock.start_text,endAt,minutes:Math.max(0,Math.ceil((+liveFromText(endAt)!-+liveFromText(clock.start_text)!)/60000)),salesCents,orderCount,reason,wage,wageMessage:wageExcluded?'该岗位担任中控只计提成，不计时薪':null,commission:preview?.[ownRole as 'anchor'|'control']??null,locked:reportsLocked(s,liveClock.now())};
+  }
+  private async actualReport(user:AuthUser,a:LiveAccess,first:Row,role:string,input:ReportInput){
+    const [clock]:Row[]=await this.em.query("SELECT *,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_session_checkins WHERE company_id=? AND session_id=? AND role=? AND user_id=?",[a.companyId,first.id,role,a.userId]);
+    if(!clock)liveFail('请先确认本人上播，不能代其他岗位报下播',400);
+    const at=liveClock.now(),endAt=clock.end_text??wallNow(at);
+    let capture:Awaited<ReturnType<typeof captureOrders>>|null=null,error='';
+    try{capture=await captureOrders(this.orders,a.companyId,first,role==='anchor'?endAt:first.end_text??endAt);}catch(e){error=String((e as Error).message).slice(0,500);}
+    if(role==='control'&&(!Number.isSafeInteger(input.adSpendCents)||input.adSpendCents!<0))liveFail('请核对本场投流费用，没有填0',400);
+    await this.ds.transaction(async em=>{
+      await lockCompany(em,a.companyId);const s=await sessionRow(em,a.companyId,Number(first.id),true);
+      if(reportsLocked(s,liveClock.now())||!['live','pending_report','returned'].includes(s.status))liveFail('本场已锁定，不能再报下播',409);
+      if(s.start_text!==first.start_text||s.end_text!==first.end_text||JSON.stringify(channelsOf(s))!==JSON.stringify(channelsOf(first)))liveFail('场次信息变化，请刷新重试',409);
+      if(await closedDay(em,a.companyId,s.session_day))liveFail('本场已进入结算，不能修改',409);
+      const [current]=await em.query('SELECT end_at FROM live_session_checkins WHERE company_id=? AND id=? FOR UPDATE',[a.companyId,clock.id]);
+      if(current.end_at && !clock.end_text)liveFail('本人已下播，请刷新查看',409);
+      if(endAt<=s.start_text)liveFail('下播时间必须晚于开播时间',400);
+      await em.query('UPDATE live_session_checkins SET end_at=COALESCE(end_at,?) WHERE company_id=? AND id=?',[endAt,a.companyId,clock.id]);
+      const lines=capture?.lines.map(l=>({...l,adSpendCents:role==='control'?(input.storeLines?.find(v=>v.storeId===l.storeId)?.adSpendCents??(capture!.lines.length===1?input.adSpendCents??0:0)):0}))??channelStores(channelsOf(s)).map(v=>({storeId:v.id,platform:v.platform,salesCents:0,adSpendCents:0,verified:false,reason:error}));
+      if(role==='control'&&lines.reduce((n,l)=>n+l.adSpendCents,0)!==input.adSpendCents)liveFail('请逐店核对投流费用',400);
+      const basis=capture?.orders.map(o=>({shopId:o.shopId,orderId:o.orderId,refundCents:o.refund.cents}))??null;
+      await em.query(`INSERT INTO live_session_reports (company_id,session_id,role,reporter_user_id,end_at,sales_cents,ad_spend_cents,orders_total_cents,order_count,note,store_lines_json,order_basis_json)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE end_at=VALUES(end_at),sales_cents=VALUES(sales_cents),ad_spend_cents=VALUES(ad_spend_cents),orders_total_cents=VALUES(orders_total_cents),order_count=VALUES(order_count),note=VALUES(note),store_lines_json=VALUES(store_lines_json),order_basis_json=VALUES(order_basis_json),revision=revision+1`,[a.companyId,s.id,role,a.userId,endAt,capture?.sales??0,role==='control'?input.adSpendCents:null,capture?.sales??null,capture?.orders.length??0,text(input.note)||null,JSON.stringify(lines),basis?JSON.stringify(basis):null]);
+      if(capture){
+        await em.query('SAVEPOINT live_order_capture');
+        try{await persistCapture(em,a.companyId,Number(s.id),capture,at);}
+        catch(e){
+          await em.query('ROLLBACK TO SAVEPOINT live_order_capture');
+          error=String((e as Error).message).slice(0,500);
+          await em.query("UPDATE live_sessions SET orders_capture_status='pending',orders_capture_error=? WHERE company_id=? AND id=?",[error,a.companyId,s.id]);
+          await em.query('UPDATE live_session_reports SET order_basis_json=NULL,orders_total_cents=NULL,store_lines_json=? WHERE company_id=? AND session_id=? AND role=?',[JSON.stringify(lines.map(l=>({...l,verified:false,reason:error}))),a.companyId,s.id,role]);
+        }
+        await em.query('RELEASE SAVEPOINT live_order_capture');
+      }
+      else await em.query("UPDATE live_sessions SET orders_capture_status='pending',orders_capture_error=? WHERE company_id=? AND id=?",[error,a.companyId,s.id]);
+      await em.query('UPDATE live_sessions SET first_reported_at=COALESCE(first_reported_at,?),report_deadline=COALESCE(report_deadline,?),revision=revision+1 WHERE company_id=? AND id=?',[wallNow(at),wallNow(new Date(+at+REPORT_WINDOW_MS)),a.companyId,s.id]);
+      if(role==='anchor'){
+        await em.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[endAt,a.companyId,s.id]);
+        await em.query("UPDATE live_schedules SET status='finished' WHERE company_id=? AND session_id=? AND status='live'",[a.companyId,s.id]);
+      }
+    });
+    return {ok:true};
   }
 
   /** 聚水潭只读授权状态（订单、退款读取是否可用）。 */
@@ -162,6 +286,8 @@ export class LiveSessionService {
     const first = await sessionRow(this.em, a.companyId, sessionId);
     const role = liveReportRoleFor(a.userId, this.people(first), input.role ?? null);
     if (!role) liveFail('只能由主播、中控（或排定的运营）本人为自己的角色报下播，管理人员不能代填', 403);
+    if(reportsLocked(first,liveClock.now()))liveFail('首位报下播已满30分钟，本场已锁定并进入审核，不能再填报',409);
+    if(first.checkin_mode && role!=='operator')return this.actualReport(user,a,first,role,input);
     const endAt = this.parseTime(input.endAt, '下播时间');
     if(role==='control'&&!input.storeLines&&input.adSpendCents==null)liveFail('中控请填写本场投流费用（没有投流填 0）',400);
     const multi = channelsOf(first).length > 0;
@@ -193,6 +319,7 @@ export class LiveSessionService {
     await this.ds.transaction(async (em) => {
       await lockCompany(em, a.companyId);
       const s = await sessionRow(em, a.companyId, sessionId, true);
+      if(reportsLocked(s,liveClock.now()))liveFail('本场已锁定，不能再填报',409);
       if (!['live', 'pending_report', 'returned'].includes(s.status)) liveFail(s.status === 'submitted' ? '已提交审核，需审核人退回后才能修改' : '该场次已审核，不能再修改');
       if (liveReportRoleFor(a.userId, this.people(s), role) !== role) liveFail('只能由本人填报自己的角色', 403);
       if (s.jst_shop_id !== first.jst_shop_id || JSON.stringify(channelsOf(s)) !== JSON.stringify(channelsOf(first)) || s.start_text !== first.start_text) liveFail('场次信息已变化，请刷新后重试');
@@ -200,6 +327,7 @@ export class LiveSessionService {
       const end = liveFromText(endAt)!;
       if (end.getTime() <= liveFromText(s.start_text)!.getTime()) liveFail('下播时间必须晚于上播时间', 400);
       if (end.getTime() > now.getTime() + SKEW_MS) liveFail('下播时间不能晚于现在', 400);
+      if(s.checkin_mode)await em.query('UPDATE live_sessions SET first_reported_at=COALESCE(first_reported_at,?),report_deadline=COALESCE(report_deadline,?) WHERE company_id=? AND id=?',[wallNow(now),wallNow(new Date(+now+REPORT_WINDOW_MS)),a.companyId,sessionId]);
       const total = picked.reduce((t, o) => t + o.amountCents, 0);
       const [old] = await em.query('SELECT id FROM live_session_reports WHERE company_id = ? AND session_id = ? AND role = ? FOR UPDATE', [a.companyId, sessionId, role]);
       let reportId: number;
@@ -274,7 +402,8 @@ export class LiveSessionService {
   /** 预估提成：按场次日期适用的规则版本，用主播（没有则中控）所报销售额试算；只向本人展示本人的角色。 */
   private async preview(em: EntityManager, a: LiveAccess, s: Row, reports: Row[]) {
     if (s.status === 'approved') return null;
-    const base = reports.find((r) => r.role === 'anchor') ?? reports.find((r) => r.role === 'control');
+    const base = primaryReport(reports);
+    if(s.checkin_mode && s.orders_capture_status!=='ready')return {available:false,reason:'本场订单和退款待核对',anchor:null,control:null,operator:null};
     if (!base) return { available: false, reason: '主播报下播后显示预估提成', anchor: null, control: null, operator: null };
     const version = liveVersionFor(await ruleVersions(em, a.companyId), s.session_day);
     if (!version) return { available: false, reason: '没有适用的提成规则版本', anchor: null, control: null, operator: null };
@@ -303,16 +432,18 @@ export class LiveSessionService {
     const mineAll = a.canViewAll;
     const showMoney = (userId: number) => mineAll || userId === a.userId; // 提成金额：全员权限者看全部，其他人只看本人
     const ppl = this.people(s);
-    const editable = ['live', 'pending_report', 'returned'].includes(s.status);
+    const editable = !reportsLocked(s,liveClock.now()) && ['live', 'pending_report', 'returned'].includes(s.status);
     const canRoles = (['anchor', 'control', 'operator'] as const).filter((r) => editable && liveReportRoleFor(a.userId, ppl, r) === r);
     let flow: unknown = null;
     if (s.flow_run_id) { try { flow = await this.flow.detail(user, Number(s.flow_run_id)); } catch { flow = null; } }
     return {
       ...serializeSession(s),
+      capturedOrders: await em.query("SELECT store_id storeId,platform,shop_id shopId,order_id orderId,paid,amount_cents amountCents,refund_cents refundCents,order_status status,DATE_FORMAT(order_at,'%Y-%m-%d %H:%i:%s') orderAt FROM live_session_order_snapshots WHERE company_id=? AND session_id=? ORDER BY order_at,shop_id,order_id",[a.companyId,id]),
+      myCheckins: await em.query("SELECT role,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') startAt,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') endAt FROM live_session_checkins WHERE company_id=? AND session_id=? AND user_id=?",[a.companyId,id,a.userId]),
       controlCommissionOnly: await commissionOnlyControl(em, a.companyId, s.control_user_id),
       products: products.map((p) => ({ id: p.base_code_id == null ? null : Number(p.base_code_id), code: p.code_snapshot, name: p.name_snapshot, spec: p.spec_snapshot ?? '' })),
       reports: reports.map((r) => ({
-        storeLines: linesOf(r), role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], manualActorId:r.manual_actor_id?Number(r.manual_actor_id):null, reporter: { id: Number(r.reporter_user_id), name: names.get(Number(r.reporter_user_id)) ?? '' }, endAt: r.end_text, salesCents: num(r.sales_cents),
+        pending:!!s.checkin_mode&&r.role!=='operator'&&!r.manual_actor_id&&!r.order_basis_json, storeLines: linesOf(r), role: r.role, roleLabel: LIVE_ROLE_LABEL[r.role], manualActorId:r.manual_actor_id?Number(r.manual_actor_id):null, reporter: { id: Number(r.reporter_user_id), name: names.get(Number(r.reporter_user_id)) ?? '' }, endAt: r.end_text, salesCents: num(r.sales_cents),
         adSpendCents: numOrNull(r.ad_spend_cents), ordersTotalCents: numOrNull(r.orders_total_cents), orderCount: Number(r.order_count), note: r.note ?? '',
         orders: orders.filter((o) => Number(o.report_id) === Number(r.id)).map((o) => ({ orderId: o.order_id, amountCents: num(o.amount_cents), payTime: o.pay_text, status: o.order_status })),
       })),
@@ -320,7 +451,7 @@ export class LiveSessionService {
       wages: wages.filter((w) => showMoney(Number(w.user_id))).map((w) => ({ role:w.role, userId: Number(w.user_id), minutes: Number(w.minutes), hourlyRateCents: num(w.hourly_rate_cents), amountCents: num(w.amount_cents), rateSource: w.rate_source, note: w.adjust_note, startAt: w.start_text, endAt: w.end_text })),
       wage: wages.filter(w=>w.role==='anchor'&&showMoney(Number(w.user_id))).map(w=>({userId:Number(w.user_id),minutes:Number(w.minutes),hourlyRateCents:num(w.hourly_rate_cents),amountCents:num(w.amount_cents),rateSource:w.rate_source,note:w.adjust_note,startAt:w.start_text,endAt:w.end_text}))[0]??null,
       preview: await this.preview(em, a, s, reports),
-      me: { reportRoles: canRoles, canSubmit: ['pending_report', 'returned'].includes(s.status) && ([ppl.anchorId, ppl.controlId].includes(a.userId) || a.canManage), isManager: a.canManage },
+      me: { reportRoles: canRoles, canSubmit: (!s.checkin_mode || reportsLocked(s,liveClock.now())) && ['pending_report', 'returned'].includes(s.status) && ([ppl.anchorId, ppl.controlId].includes(a.userId) || a.canManage), isManager: a.canManage },
       submission: ['pending_report', 'returned'].includes(s.status)
         ? s.status === 'returned' && s.flow_run_id ? { ready: true, message: '修改完成后可重新提交原审核流程。' } : await this.flow.startReadiness(user, 'live-session-review')
         : null,
@@ -379,7 +510,7 @@ export class LiveSessionService {
     return {
       today, month, identity: { isAnchor: a.isAnchor, isControl: a.isControl, canManage: a.canManage },
       active: active.map(serializeSession),
-      schedules: schedules.map((r) => ({ ...serializeSchedule(r), canStart: r.status === 'scheduled' && nowMs >= liveFromText(r.start_text)!.getTime() - LIVE_START_EARLY_MS && r.end_text > nowText, mineRole: Number(r.anchor_user_id) === uid ? 'anchor' : Number(r.control_user_id) === uid ? 'control' : 'operator' })),
+      schedules: schedules.map((r) => ({ ...serializeSchedule(r), canStart: r.status === 'scheduled' && r.end_text > nowText, mineRole: Number(r.anchor_user_id) === uid ? 'anchor' : Number(r.control_user_id) === uid ? 'control' : 'operator' })),
       recent: recent.map(serializeSession),
       monthCommissionCents: num(comm[0].total), monthWageCents: num(wage[0].total), monthWageMinutes: num(wage[0].minutes),
       commissionRows: commRows.map((r) => ({ platform:r.platform, id: Number(r.id), sessionId: Number(r.session_id), date: String(r.d), roomName: String(r.room_name), role: String(r.role), roleLabel: LIVE_ROLE_LABEL[String(r.role)] ?? String(r.role), finalSalesCents: num(r.final_sales_cents), rateUnits: Number(r.rate_units), amountCents: num(r.amount_cents) })),

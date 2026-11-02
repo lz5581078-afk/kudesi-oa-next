@@ -33,18 +33,19 @@ describe('人员绑定状态与测试通知',()=>{
   it('先展示接收人和固定文本，确认后发一次；入队与发送成功分开显示',async()=>{
     const send=vi.spyOn(orgApi,'staffTestNotice').mockResolvedValue(job());vi.spyOn(orgApi,'staffTestNoticeStatus').mockResolvedValue(job('done'));
     render(<StaffTestNoticeDialog staff={part} status={bound} onClose={vi.fn()}/>);
-    expect(send).not.toHaveBeenCalled();expect(screen.getByText(/发送测试通知给 兼职示例/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button',{name:'发送测试通知'}));await screen.findByText(/已加入队列/);
-    expect(send).toHaveBeenCalledTimes(1);expect(send).toHaveBeenCalledWith(2,expect.any(String));expect(screen.queryByText(/确认发送成功/)).toBeNull();
+    fireEvent.change(screen.getByLabelText('消息标题'),{target:{value:'自定义标题'}});fireEvent.change(screen.getByLabelText('消息正文'),{target:{value:'第一行\n第二行'}});
+    expect(send).not.toHaveBeenCalled();expect(screen.getByText(/发送飞书通知给 兼职示例/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button',{name:'预览消息'}));fireEvent.click(screen.getByRole('button',{name:'确认发送'}));await screen.findByText(/已加入队列/);
+    expect(send).toHaveBeenCalledTimes(1);expect(send).toHaveBeenCalledWith(2,expect.any(String),{title:'自定义标题',body:'第一行\n第二行'});expect(screen.queryByText(/确认发送成功/)).toBeNull();
     fireEvent.click(screen.getByRole('button',{name:'刷新发送状态'}));await screen.findByText('飞书接口已确认发送成功');
   });
   it('未绑定时解释原因并禁止发送；提交结果未知时重试复用同一请求编号',async()=>{
     const send=vi.spyOn(orgApi,'staffTestNotice').mockRejectedValueOnce(new ApiError(503,'连接中断')).mockResolvedValueOnce(job());
     const view=render(<StaffTestNoticeDialog staff={part} status={{...bound,canTest:false,testBlockedReason:'公司通知开关已关闭'}} onClose={vi.fn()}/>);
-    expect((screen.getByRole('button',{name:'发送测试通知'}) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button',{name:'预览消息'}) as HTMLButtonElement).disabled).toBe(true);
     view.rerender(<StaffTestNoticeDialog staff={part} status={bound} onClose={vi.fn()}/>);
-    fireEvent.click(screen.getByRole('button',{name:'发送测试通知'}));await screen.findByText('连接中断');
-    fireEvent.click(screen.getByRole('button',{name:'发送测试通知'}));await screen.findByText(/已加入队列/);
+    fireEvent.click(screen.getByRole('button',{name:'预览消息'}));fireEvent.click(screen.getByRole('button',{name:'确认发送'}));await screen.findByText('连接中断');
+    fireEvent.click(screen.getByRole('button',{name:'重试确认发送'}));await screen.findByText(/已加入队列/);
     await waitFor(()=>expect(send).toHaveBeenCalledTimes(2));expect(send.mock.calls[0][1]).toBe(send.mock.calls[1][1]);
   });
 });
