@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { LiveNotificationService } from './live-notification.service';
+import { Injectable, Optional, Logger } from '@nestjs/common';
 import { liveFromText, liveToText } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
 import { JushuitanClient, JsonRow } from '../integrations/jushuitan.client';
@@ -22,7 +23,7 @@ export function refundFor(orderAmount: number, order: JsonRow, rows: JsonRow[]):
 }
 @Injectable()
 export class JushuitanOrderSource extends LiveOrderSource {
-  constructor(private readonly settings: ExternalConfigService) { super(); }
+  constructor(private readonly settings: ExternalConfigService, @Optional() private readonly notices?: LiveNotificationService) { super(); }
   /** 只检查授权配置（不调用聚水潭）：未配置应用/未授权账户/授权过期分别给出明确提示。 */
   async status(companyId: number): Promise<LiveSourceStatus> {
     try { await this.settings.jst(companyId); return { ready: true, code: 'ready', message: '' }; }
@@ -42,7 +43,28 @@ export class JushuitanOrderSource extends LiveOrderSource {
     if (!shops.some(s => String(s.shop_id) === shopId && String(s.co_id) === String(cfg.coid))) throw new Error('聚水潭店铺不属于当前授权公司');
     return client;
   }
-  async candidates(companyId: number, session: { id: number; shopId: string | null; startAt: string; endAt: string | null }): Promise<LiveOrderCandidates> {
+  private async record(companyId:number,key:string,ok:boolean) {
+    try { await this.notices?.health(companyId,key,ok); }
+    catch { new Logger('LiveOrderSource').error('直播接口健康记录失败'); }
+  }
+  async candidates(companyId:number,session:{id:number;shopId:string|null;startAt:string;endAt:string|null}) {
+    const result=await this.queryCandidates(companyId,session);
+    if(session.shopId) await this.record(companyId,`orders:${session.shopId}`,result.available&&!result.truncated);
+    return result;
+  }
+  async turnoverOrders(companyId:number,session:{id:number;shopId:string;startAt:string;endAt:string}) {
+    const result=await this.queryTurnoverOrders(companyId,session);
+    await this.record(companyId,`turnover:${session.shopId}`,result.available&&!result.truncated);
+    return result;
+  }
+  async refunds(companyId:number,shopId:string,orders:Array<{orderId:string;amountCents:number}>) {
+    try {
+      const result=await this.queryRefunds(companyId,shopId,orders);
+      if(orders.length) await this.record(companyId,`refunds:${shopId}`,true);
+      return result;
+    } catch(e) { await this.record(companyId,`refunds:${shopId}`,false); throw e; }
+  }
+  private async queryCandidates(companyId: number, session: { id: number; shopId: string | null; startAt: string; endAt: string | null }): Promise<LiveOrderCandidates> {
     const unavailable = (reason: string): LiveOrderCandidates => ({ available: false, reason, window: null, orders: [], truncated: false });
     const start = liveFromText(session.startAt), end = session.endAt ? liveFromText(session.endAt) : null;
     if (!session.shopId) return unavailable('店铺尚未填写聚水潭店铺编号');
@@ -62,7 +84,7 @@ export class JushuitanOrderSource extends LiveOrderSource {
       return { available: true, reason: '', shopId: session.shopId, window: { start: session.startAt, end: session.endAt! }, orders: [...byId.values()], truncated: false, queriedAt: new Date().toISOString() };
     } catch (e) { return unavailable((e as Error).message); }
   }
-  async turnoverOrders(companyId: number, session: { id: number; shopId: string; startAt: string; endAt: string }): Promise<LiveTurnoverOrders> {
+  private async queryTurnoverOrders(companyId: number, session: { id: number; shopId: string; startAt: string; endAt: string }): Promise<LiveTurnoverOrders> {
     try {
       const start = liveFromText(session.startAt), end = liveFromText(session.endAt);
       if (!start || !end || +end < +start || +end - +start > 48 * 3600000) throw new Error('本场统计时间不完整或超过 48 小时');
@@ -90,7 +112,7 @@ export class JushuitanOrderSource extends LiveOrderSource {
       return { available: true, reason: '', orders, truncated: false };
     } catch (e) { return { available: false, reason: (e as Error).message, orders: [], truncated: false }; }
   }
-  async refunds(companyId: number, shopId: string, orders: Array<{ orderId: string; amountCents: number }>): Promise<Map<string, LiveRefund>> {
+  private async queryRefunds(companyId: number, shopId: string, orders: Array<{ orderId: string; amountCents: number }>): Promise<Map<string, LiveRefund>> {
     const result = new Map<string, LiveRefund>(); if (!orders.length) return result;
     const client = await this.client(companyId, shopId);
     for (let i = 0; i < orders.length; i += 20) {
