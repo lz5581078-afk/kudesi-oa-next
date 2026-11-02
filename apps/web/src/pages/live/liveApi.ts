@@ -27,7 +27,7 @@ export interface ReportDto { storeLines?:LiveStoreLine[];
   manualActorId?:number|null;role: 'anchor' | 'control' | 'operator'; roleLabel: string; reporter: Person; endAt: string; salesCents: number; adSpendCents: number | null; ordersTotalCents: number | null; orderCount: number; note: string;
   orders: Array<{ orderId: string; amountCents: number; payTime: string | null; status: string | null }>;
 }
-export interface SessionDetail extends SessionRow { wages?:Array<{role:string;userId:number;minutes:number;hourlyRateCents:number;amountCents:number;note:string|null}>;
+export interface SessionDetail extends SessionRow { controlCommissionOnly?:boolean; wages?:Array<{role:string;userId:number;minutes:number;hourlyRateCents:number;amountCents:number;note:string|null}>;
   submission?: SubmissionStatus | null;
   products: LiveProductSnapshot[]; reports: ReportDto[];
   commissions: Array<{ platform?:string;userId: number; name: string; role: string; roleLabel: string; rateUnits: number; amountCents: number; roiScaled: number | null; belowRoi: boolean }>;
