@@ -1,44 +1,45 @@
+import type { LiveChannel, LiveChannelInput, LiveStoreLine } from '@kudesi/shared';
 import { api } from '../../api/client';
 import type { RunDetailDto } from '../flow/flowApi';
 
 export interface Person { id: number; name: string }
-export interface Option extends Person { detail: string; partTime?: boolean; trial?:boolean; live?: boolean; hasJstShop?: boolean }
+export interface Option extends Person { platform?:string;storeIds?:number[]; detail: string; partTime?: boolean; trial?:boolean; live?: boolean; hasJstShop?: boolean }
 export interface RoomOpt { id: number; name: string; shortName: string; big: boolean; path: string; side: 'north' | 'south' | 'none'; live: boolean; ownerId?:number|null;ownerName?:string;products?:string }
 export interface Options { rooms: RoomOpt[]; anchors: Option[]; controls: Option[]; operators: Option[]; douyinAccounts: Option[]; stores: Option[] }
 export interface Product { id: number; code: string; name: string; spec: string }
 
-export interface ScheduleRow {
+export interface ScheduleRow { channels?:LiveChannel[];
   id: number; roomId: number; roomName: string; date: string; start: string; end: string; startTime: string; endTime: string; status: 'scheduled' | 'live' | 'finished' | 'cancelled'; statusLabel: string;
   anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person; store: Person | null; sessionId: number | null; note: string | null; cancelReason: string | null;
   canStart?: boolean; mineRole?: string;
 }
 export interface ScheduleList { rooms?:RoomOpt[]; from: string; to: string; rows: ScheduleRow[]; canManage: boolean }
-export interface ScheduleBody { date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId: number | null; operatorId: number | null; douyinAccountId: number; storeId: number | null; note?: string }
+export interface ScheduleBody { channels?:LiveChannelInput[]; date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId: number | null; operatorId: number | null; douyinAccountId: number; storeId: number | null; note?: string }
 
-export interface SessionRow { reportSource?:string;manualReason?:string|null;manualActorId?:number|null;
+export interface SessionRow { channels?:LiveChannel[]; reportSource?:string;manualReason?:string|null;manualActorId?:number|null;
   id: number; scheduleId: number | null; roomId: number; roomName: string; date: string; startAt: string; endAt: string | null; plannedEnd: string | null; status: 'live' | 'pending_report' | 'submitted' | 'returned' | 'approved'; statusLabel: string;
   anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person; store: Person | null; finalSalesCents: number | null; finalSalesSource: string | null; finalSalesReason: string | null;
   returnReason: string | null; flowRunId: number | null; submittedAt: string | null; approvedAt: string | null; approverName: string | null; revision: number;
 }
 export interface RoleAmount { rateUnits: number; amountCents: number }
 export interface Preview { available: boolean; reason: string; basisSalesCents?: number; adSpendCents?: number; roiScaled?: number | null; belowRoi?: boolean; anchor: RoleAmount | null; control: RoleAmount | null; operator: RoleAmount | null }
-export interface ReportDto {
+export interface ReportDto { storeLines?:LiveStoreLine[];
   manualActorId?:number|null;role: 'anchor' | 'control' | 'operator'; roleLabel: string; reporter: Person; endAt: string; salesCents: number; adSpendCents: number | null; ordersTotalCents: number | null; orderCount: number; note: string;
   orders: Array<{ orderId: string; amountCents: number; payTime: string | null; status: string | null }>;
 }
 export interface SessionDetail extends SessionRow { wages?:Array<{role:string;userId:number;minutes:number;hourlyRateCents:number;amountCents:number;note:string|null}>;
   products: Product[]; reports: ReportDto[];
-  commissions: Array<{ userId: number; name: string; role: string; roleLabel: string; rateUnits: number; amountCents: number; roiScaled: number | null; belowRoi: boolean }>;
+  commissions: Array<{ platform?:string;userId: number; name: string; role: string; roleLabel: string; rateUnits: number; amountCents: number; roiScaled: number | null; belowRoi: boolean }>;
   wage: { userId: number; minutes: number; hourlyRateCents: number; amountCents: number; rateSource: string; note: string | null; startAt: string; endAt: string } | null;
   preview: Preview | null; me: { reportRoles: Array<'anchor' | 'control' | 'operator'>; canSubmit: boolean; isManager: boolean }; flow: RunDetailDto | null;
 }
 export interface SessionList { total: number; page: number; pageSize: number; rows: SessionRow[] }
-export interface StartBody { scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null; douyinAccountId?: number | null; storeId?: number | null; productIds: number[]; startAt?: string | null }
+export interface StartBody { channels?:LiveChannelInput[]; scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null; douyinAccountId?: number | null; storeId?: number | null; productIds: number[]; startAt?: string | null }
 export interface OrderCandidate { orderId: string; innerId: string; payTime: string | null; paid: boolean; amountCents: number; status: string; statusLabel: string; cancelled: boolean }
 export interface Candidates { available: boolean; reason: string; shopName?: string; orders: OrderCandidate[]; truncated: boolean; queriedAt?: string; startAt: string; endAt: string }
-export interface ReportBody { role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
-export interface ReviewForm { finalSource?: string; finalSalesCents?: number; finalReason?: string; operatorUserId?: number; noOperator?: boolean; wageStartAt?: string; wageEndAt?: string; wageHourlyRateCents?: number; wageNote?: string; controlWageStartAt?:string;controlWageEndAt?:string;controlWageHourlyRateCents?:number;controlWageNote?:string }
-export interface ReviewPreview { controlWage?:{minutes:number;hourlyRateCents:number;amountCents:number}|null;
+export interface ReportBody { storeLines?:LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
+export interface ReviewForm { storeLines?:LiveStoreLine[]; finalSource?: string; finalSalesCents?: number; finalReason?: string; operatorUserId?: number; noOperator?: boolean; wageStartAt?: string; wageEndAt?: string; wageHourlyRateCents?: number; wageNote?: string; controlWageStartAt?:string;controlWageEndAt?:string;controlWageHourlyRateCents?:number;controlWageNote?:string }
+export interface ReviewPreview { platforms?:Array<{platform:string;finalSalesCents:number;adSpendCents:number;anchor:RoleAmount;control:RoleAmount;operator:RoleAmount}>; controlWage?:{minutes:number;hourlyRateCents:number;amountCents:number}|null;
   finalSource: string; finalSalesCents: number; adSpendCents: number; roiScaled: number | null; belowRoi: boolean; ruleVersion: { id: number; effectiveFrom: string };
   anchor: RoleAmount; control: RoleAmount | null; operator: RoleAmount | null; operatorUserId: number | null; operatorDoubledAsControl: boolean;
   wage: { startAt: string; endAt: string; minutes: number; hourlyRateCents: number; amountCents: number; rateSource: string; archiveHourlyRateCents: number | null };
@@ -55,13 +56,13 @@ export interface RoomDay { room: RoomOpt; date: string; schedules: ScheduleRow[]
 export interface Workbench {
   today: string; month: string; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; active: SessionRow[]; schedules: ScheduleRow[]; recent: SessionRow[];
   monthCommissionCents: number; monthWageCents: number; monthWageMinutes: number;
-  commissionRows: Array<{ id: number; sessionId: number; date: string; roomName: string; role: string; roleLabel: string; finalSalesCents: number; rateUnits: number; amountCents: number }>;
+  commissionRows: Array<{ platform?:string;id: number; sessionId: number; date: string; roomName: string; role: string; roleLabel: string; finalSalesCents: number; rateUnits: number; amountCents: number }>;
   wageRows: Array<{ id: number; sessionId: number; date: string; roomName: string; minutes: number; hourlyRateCents: number; amountCents: number }>;
 }
 export interface Period { sessions: number; minutes: number; commissionCents: number; wageCents: number; wageMinutes: number }
 export interface History { mode: string; month: string; total: number; page: number; pageSize: number; rows: Array<SessionRow & { myRoles: string[]; commissionCents: number | null; wageCents: number | null }>; summary: { all: Period; thisMonth: Period; lastMonth: Period } }
 
-export interface CommissionRow { id: number; sessionId: number; userId: number; userName: string; role: string; roleLabel: string; date: string; roomName: string; startAt: string; douyinName: string; finalSalesCents: number; adSpendCents: number; roiScaled: number | null; belowRoi: boolean; rateUnits: number; amountCents: number; ruleVersionId: number }
+export interface CommissionRow { platform?:string; id: number; sessionId: number; userId: number; userName: string; role: string; roleLabel: string; date: string; roomName: string; startAt: string; douyinName: string; finalSalesCents: number; adSpendCents: number; roiScaled: number | null; belowRoi: boolean; rateUnits: number; amountCents: number; ruleVersionId: number }
 export interface Commissions { month: string; scope: 'all' | 'mine'; totalCents: number; summary: Array<{ userId: number; name: string; role: string; roleLabel: string; sessions: number; salesCents: number; amountCents: number }>; rows: CommissionRow[] }
 export interface WageRow { role?:string; id: number; sessionId: number; userId: number; userName: string; date: string; roomName: string; startAt: string; endAt: string; minutes: number; hourlyRateCents: number; rateSource: string; amountCents: number; note: string }
 export interface Wages { month: string; scope: 'all' | 'mine'; totalCents: number; summary: Array<{ userId: number; name: string; sessions: number; minutes: number; amountCents: number }>; rows: WageRow[] }
@@ -74,8 +75,8 @@ export interface Trial { tierIndex: number; roiScaled: number | null; belowRoi: 
 export interface SettlementHead { from?:string;to?:string;wageTotalCents?:number; id: number; month: string; status: 'draft' | 'submitted' | 'returned' | 'approved'; statusLabel: string; recordCount: number; commissionTotalCents: number; refundTotalCents: number; deductionTotalCents: number; payableTotalCents: number; refundsCheckedAt: string | null; note: string; returnReason: string | null; flowRunId: number | null; creatorName: string; submittedAt: string | null; approvedAt: string | null; revision: number }
 export interface SettlementDetail extends SettlementHead {
   canManage: boolean; byPerson: Array<{ userId: number; name: string; role: string; roleLabel: string; commissionCents: number; wageCents?:number;minutes?:number; deductionCents: number; payableCents: number; sessions: number }>;
-  lines: Array<{ id: number; sessionId: number; userId: number; userName: string; role: string; roleLabel: string; date: string; roomName: string; startTime: string; finalSalesCents: number; rateUnits: number; commissionCents: number; wageCents?:number;minutes?:number;hourlyRateCents?:number;source?:string;manualReason?:string; orderCount: number; ordersTotalCents: number; refundCents: number; deductionCents: number; payableCents: number }>;
-  refunds: Array<{ sessionId: number; orderId: string; orderAmountCents: number; refundCents: number; source: string; details: unknown; checkedAt: string }>;
+  lines: Array<{ unverifiedStores?:Array<{storeId:number;name:string;reason:string}>;platform?:string;id: number; sessionId: number; userId: number; userName: string; role: string; roleLabel: string; date: string; roomName: string; startTime: string; finalSalesCents: number; rateUnits: number; commissionCents: number; wageCents?:number;minutes?:number;hourlyRateCents?:number;source?:string;manualReason?:string; orderCount: number; ordersTotalCents: number; refundCents: number; deductionCents: number; payableCents: number }>;
+  refunds: Array<{ shopId?:string;platform?:string;sessionId: number; orderId: string; orderAmountCents: number; refundCents: number; source: string; details: unknown; checkedAt: string }>;
 }
 
 const qs = (p: Record<string, unknown>) => {
@@ -103,7 +104,7 @@ export const liveApi = {
   start: (b: StartBody) => post<{ id: number }>('/live/sessions', b),
   sessions: (p: Record<string, unknown> = {}) => api<SessionList>(`/live/sessions${qs(p)}`),
   session: (id: number) => api<SessionDetail>(`/live/sessions/${id}`),
-  candidates: (id: number, p: { endAt?: string; refresh?: boolean }) => api<Candidates>(`/live/sessions/${id}/order-candidates${qs({ endAt: p.endAt, refresh: p.refresh ? '1' : undefined })}`),
+  candidates: (id: number, p: { endAt?: string; refresh?: boolean;storeId?:number }) => api<Candidates>(`/live/sessions/${id}/order-candidates${qs({ endAt: p.endAt,storeId:p.storeId, refresh: p.refresh ? '1' : undefined })}`),
   report: (id: number, b: ReportBody) => post<{ ok: true }>(`/live/sessions/${id}/report`, b),
   submit: (id: number) => post<{ runId: number }>(`/live/sessions/${id}/submit`),
   reviewPreview: (id: number, b: ReviewForm) => post<ReviewPreview>(`/live/sessions/${id}/review-preview`, b),
@@ -121,4 +122,4 @@ export const liveApi = {
   submitSettlement: (id: number) => post<{ runId: number }>(`/live/settlements/${id}/submit`),
 };
 
-export interface ManualBody {sessionId?:number;roomId:number;anchorId:number;controlId:number|null;operatorId:number|null;douyinAccountId:number;storeId:number;startAt:string;endAt:string;salesCents:number;adSpendCents:number;controlSalesCents?:number;operatorSalesCents?:number;reason:string;orderIds:string[]}
+export interface ManualBody { storeLines?:LiveStoreLine[]; channels?:LiveChannelInput[];sessionId?:number;roomId:number;anchorId:number;controlId:number|null;operatorId:number|null;douyinAccountId:number;storeId:number;startAt:string;endAt:string;salesCents:number;adSpendCents:number;controlSalesCents?:number;operatorSalesCents?:number;reason:string;orderIds:string[]}

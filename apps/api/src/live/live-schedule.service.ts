@@ -1,3 +1,5 @@
+import { channelsOf, validateChannels, assertAccountTime } from './live-platforms';
+import { LiveChannelInput } from '@kudesi/shared';
 import { Injectable, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -12,7 +14,7 @@ import { Row, SESSION_SELECT, idOf, liveClock, liveFail, lockCompany, text, wall
 
 export interface ScheduleInput {
   date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId?: number | null; operatorId?: number | null;
-  douyinAccountId: number; storeId?: number | null; note?: string;
+  channels?: LiveChannelInput[]; douyinAccountId: number; storeId?: number | null; note?: string;
 }
 
 const SCHEDULE_SELECT = `SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text,
@@ -22,6 +24,7 @@ const SCHEDULE_SELECT = `SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') sch
 
 export function serializeSchedule(s: Row) {
   return {
+    channels: channelsOf(s),
     id: Number(s.id), roomId: Number(s.room_id), roomName: s.room_name, date: s.schedule_day, start: s.start_text, end: s.end_text,
     startTime: String(s.start_text).slice(11, 16), endTime: String(s.end_text).slice(11, 16), status: s.status, statusLabel: LIVE_SCHEDULE_STATUS[s.status] ?? s.status,
     anchor: { id: Number(s.anchor_user_id), name: s.anchor_name }, control: s.control_user_id ? { id: Number(s.control_user_id), name: s.control_name } : null,
@@ -50,8 +53,8 @@ export class LiveScheduleService {
     return {
       rooms: rooms.map((r) => ({ ...r, live: busyRooms.has(r.id) })),
       anchors: staff.anchors.map((p) => ({ ...p, live: busyAnchors.has(p.id) })), controls: staff.controls, operators: everyone,
-      douyinAccounts: accounts.map(({ id, name, detail }) => ({ id, name, detail })),
-      stores: stores.map(({ id, name, detail, jstShopId }) => ({ id, name, detail, hasJstShop: Boolean(jstShopId) })),
+      douyinAccounts: accounts.map(({ id, name, detail, platform, storeIds }) => ({ id, name, detail, platform, storeIds })),
+      stores: stores.map(({ id, name, detail, jstShopId, platform }) => ({ id, name, detail, platform, hasJstShop: Boolean(jstShopId) })),
     };
   }
 
@@ -66,7 +69,7 @@ export class LiveScheduleService {
     const duration = (liveFromText(endAt)!.getTime() - liveFromText(startAt)!.getTime()) / 60000;
     if (duration > LIVE_MAX_SCHEDULE_MINUTES) liveFail('单场时长不能超过 16 小时', 400);
     const roomId = idOf(input.roomId), anchorId = idOf(input.anchorId), accountId = idOf(input.douyinAccountId);
-    if (!roomId || !anchorId || !accountId) liveFail('请选择直播间、主播和抖音号', 400);
+    if (!roomId || !anchorId || (!accountId && !input.channels?.length)) liveFail('请选择直播间、主播和抖音号', 400);
     const room = (await liveRoomList(em, a.companyId)).find((r) => r.id === roomId);
     if (!room) liveFail('所选房间不是「西走廊办公室」下名称含「直播间」的启用房间', 400);
     const { anchors, controls } = await livePeople(em, a.companyId);
@@ -75,11 +78,8 @@ export class LiveScheduleService {
     if (input.controlId && (!controlId || !controls.some((p) => p.id === controlId))) liveFail('所选人员不是中控岗位', 400);
     const operatorId = input.operatorId ? idOf(input.operatorId) : null;
     if (input.operatorId && !(await liveEmployees(em, a.companyId)).some((p) => p.id === operatorId)) liveFail('所选运营人员不存在或已停用', 400);
-    const account = (await liveDouyinAccounts(em, a.companyId)).find((x) => x.id === accountId);
-    if (!account) liveFail('所选抖音号不存在、已停用或不是抖音平台账号', 400);
-    const storeId = input.storeId ? idOf(input.storeId) : null;
-    const store = storeId ? (await liveDouyinStores(em, a.companyId)).find((x) => x.id === storeId) : null;
-    if (input.storeId && !store) liveFail('所选店铺不存在、已注销或不是抖音店铺', 400);
+    const channels = await validateChannels(em,a.companyId,input.channels ?? [{accountId:accountId!,storeIds:input.storeId?[input.storeId]:[]}]);
+    const first=channels[0], account={id:first.accountId,name:channels.map(c=>c.accountName).join(' / ').slice(0,200)}, store=first.stores[0];
     // 同一房间时间段不能重叠；同一主播不能同时在两个房间（相邻首尾相接不算重叠）
     const overlaps: Row[] = await em.query(
       `SELECT s.id, s.room_id, s.anchor_user_id, s.room_name, DATE_FORMAT(s.start_at,'%H:%i') st, DATE_FORMAT(s.end_at,'%H:%i') et, e.name anchor_name
@@ -90,7 +90,8 @@ export class LiveScheduleService {
     if (roomClash) liveFail(`该直播间 ${roomClash.st}–${roomClash.et} 已有排场（主播 ${roomClash.anchor_name}），时间段不能重叠`);
     const anchorClash = overlaps.find((r) => Number(r.anchor_user_id) === anchorId);
     if (anchorClash) liveFail(`${anchorClash.anchor_name} 在 ${anchorClash.st}–${anchorClash.et} 已排在 ${anchorClash.room_name}，同一主播不能同时在两个房间`);
-    return { day, startAt, endAt, room: room!, anchorId: anchorId!, controlId, operatorId, account: account!, store: store ?? null, note: text(input.note) || null };
+    await assertAccountTime(em,a.companyId,channels,startAt,endAt,undefined,excludeId ?? undefined);
+    return { channels, day, startAt, endAt, room: room!, anchorId: anchorId!, controlId, operatorId, account: account!, store: store ?? null, note: text(input.note) || null };
   }
 
   /**
@@ -128,6 +129,7 @@ export class LiveScheduleService {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?,?)`,
         [a.companyId, v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, a.userId]);
       const id = Number(res.insertId);
+      await em.query('UPDATE live_schedules SET channels_json=? WHERE company_id=? AND id=?',[JSON.stringify(v.channels),a.companyId,id]);
       const [row] = await em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.id = ?`, [a.companyId, id]);
       await this.notify(em, a.companyId, [v.anchorId, v.controlId, v.operatorId], '新排班', this.summary(row), { scheduleId: id, version: Number(row.notification_version), kind: 'schedule' });
       return { id };
@@ -147,6 +149,7 @@ export class LiveScheduleService {
            douyin_account_id = ?, douyin_account_name = ?, store_id = ?, store_name = ?, note = ?, updated_by = ?, notification_version = notification_version + 1 WHERE company_id = ? AND id = ?`,
         [v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, a.userId, a.companyId, id]);
       const [row] = await em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.id = ?`, [a.companyId, id]);
+      await em.query('UPDATE live_schedules SET channels_json=? WHERE company_id=? AND id=?',[JSON.stringify(v.channels),a.companyId,id]);
       const now = new Set([v.anchorId, v.controlId, v.operatorId].filter(Boolean) as number[]);
       await this.feishu?.cancelPending(em, a.companyId, 'live-schedule', id);
       const version = Number(row.notification_version);

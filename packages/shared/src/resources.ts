@@ -283,7 +283,7 @@ import { ABNORMAL, CANCELLED, INACTIVE, NORMAL, NOTE, attrs, date, files, money,
 /** 改为异常必须说明原因（旧系统的“标记异常”对话框必填） */
 const ABNORMAL_R = { ...ABNORMAL, requiresReason: true };
 
-const PLATFORMS = o('pdd:拼多多', 'taobao:淘宝', 'tmall:天猫', 'douyin:抖音', 'jd:京东', 'kuaishou:快手', 'xhs:小红书', 'other:其他');
+const PLATFORMS = o('pdd:拼多多', 'taobao:淘宝', 'tmall:天猫', 'douyin:抖音', 'jd:京东', 'kuaishou:快手', 'channels:视频号', 'xhs:小红书', 'other:其他');
 /** 手机号列表里“拼多多店铺 / 淘宝店铺 …”按平台拆开的只读列（读时从店铺档案算，键为 stores+平台值首字母大写） */
 export const PHONE_STORE_COLUMNS: FieldDef[] = PLATFORMS.map((p) => ({ key: `stores${p.value[0].toUpperCase()}${p.value.slice(1)}`, label: `${p.label}店铺`, type: 'text' as const, group: '关联店铺', readonly: true }));
 const RECONCILE = o('monthly:按月', 'quarterly:按季', 'yearly:按年');
@@ -1087,7 +1087,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'name',
     tabsBy: 'platform',
     statuses: [NORMAL, ABNORMAL_R, INACTIVE],
-    filterBy: 'operatorUserId',
+    filterBy: ['operatorUserId', 'livePermission'],
     importMatch: ['platform', 'name'],
     // 旧页面：每个平台一张表，表里再按运营人员所在部门分组；详情分 账号基础资料/运营人员/认证人/关联信息/{平台}专属属性/状态与备注
     listGroupBy: { field: 'operatorDeptId', emptyLabel: '未分配部门', order: 'department' },
@@ -1103,6 +1103,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       select('platform', '平台', '账号基础资料', o('douyin:抖音', 'kuaishou:快手', 'channels:视频号', 'xhs:小红书', 'other:其他'), { required: true }),
       text('name', '账号名称', '账号基础资料', { required: true, list: true, search: true }),
+      { key: 'livePermission', label: '直播权限', type: 'bool', group: '账号基础资料', list: true, help: '开启后可在直播管理选择此账号；新账号默认无直播权限' },
       text('accountNo', '账号/账号ID', '账号基础资料', { aliases: ['账号号'], list: true, search: true }),
       { ...secret('password', '账号密码', '账号基础资料'), importable: true },
       text('phoneNumber', '手机号', '账号基础资料', { aliases: ['绑定手机号'], list: true, search: true, help: '匹配已建档的手机号；也可只在“关联信息”里选手机号档案' }),

@@ -3,7 +3,7 @@ import { liveIsDay } from '@kudesi/shared';
 import { liveFail } from './live-core';
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { LiveLedgerService } from './live-ledger.service';
 import { LiveScheduleService } from './live-schedule.service';
@@ -13,7 +13,20 @@ import { liveProducts, loadLiveAccess, requireUse } from './live-access';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+class ChannelDto {
+  @IsInt() @Min(1) accountId!:number;
+  @IsArray() @ArrayMaxSize(20) @IsInt({each:true}) storeIds!:number[];
+}
+class StoreLineDto {
+  @IsInt() @Min(1) storeId!:number;
+  @IsString() @MaxLength(32) platform!:string;
+  @IsInt() @Min(0) @Max(10_000_000_000) salesCents!:number;
+  @IsInt() @Min(0) @Max(10_000_000_000) adSpendCents!:number;
+  @IsOptional() @IsArray() @ArrayMaxSize(500) @IsString({each:true}) orderIds?:string[];
+  @IsOptional() @IsString() @MaxLength(500) reason?:string;
+}
 class ScheduleDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({each:true}) @Type(()=>ChannelDto) channels?:ChannelDto[];
   @IsString() @MaxLength(10) date!: string;
   @IsInt() roomId!: number;
   @IsString() @MaxLength(5) startTime!: string;
@@ -27,6 +40,7 @@ class ScheduleDto {
 }
 class CancelDto { @IsString() @MaxLength(500) reason!: string }
 class StartDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({each:true}) @Type(()=>ChannelDto) channels?:ChannelDto[];
   @IsOptional() @IsInt() scheduleId?: number | null;
   @IsOptional() @IsInt() roomId?: number | null;
   @IsOptional() @IsInt() anchorId?: number | null;
@@ -38,6 +52,7 @@ class StartDto {
   @IsOptional() @IsString() @MaxLength(19) startAt?: string | null;
 }
 class ReportDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(400) @ValidateNested({each:true}) @Type(()=>StoreLineDto) storeLines?:StoreLineDto[];
   @IsOptional() @IsIn(['anchor', 'control', 'operator']) role?: string;
   @IsString() @MaxLength(19) endAt!: string;
   @IsInt() @Min(0) @Max(10_000_000_000) salesCents!: number;
@@ -46,6 +61,7 @@ class ReportDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
 class ReviewFormDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(400) @ValidateNested({each:true}) @Type(()=>StoreLineDto) storeLines?:StoreLineDto[];
   @IsOptional() @IsString() @MaxLength(20) finalSource?: string;
   @IsOptional() @IsInt() @Min(0) @Max(10_000_000_000) finalSalesCents?: number;
   @IsOptional() @IsString() @MaxLength(500) finalReason?: string;
@@ -95,6 +111,8 @@ class TrialPersonDto {
   @IsInt() @Min(1) @Max(100_000_000) hourlyRateCents!:number;
 }
 class ManualDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(400) @ValidateNested({each:true}) @Type(()=>StoreLineDto) storeLines?:StoreLineDto[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({each:true}) @Type(()=>ChannelDto) channels?:ChannelDto[];
   @IsOptional() @IsInt() @Min(1) sessionId?:number;
   @IsInt() @Min(1) roomId!:number;
   @IsInt() @Min(1) anchorId!:number;
@@ -126,6 +144,7 @@ class SessionsQuery extends RangeQuery {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
 class CandidatesQuery {
+  @IsOptional() @Type(()=>Number) @IsInt() @Min(1) storeId?:number;
   @IsOptional() @IsString() @MaxLength(19) endAt?: string;
   @IsOptional() @IsIn(['1', '0']) refresh?: string;
 }
@@ -200,7 +219,7 @@ export class LiveController {
   @AuthenticatedOnly() @Get('sessions/:id')
   session(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.sessions.detail(u, id); }
   @AuthenticatedOnly() @Get('sessions/:id/order-candidates')
-  candidates(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Query() q: CandidatesQuery) { return this.sessions.orderCandidates(u, id, { endAt: q.endAt, refresh: q.refresh === '1' }); }
+  candidates(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Query() q: CandidatesQuery) { return this.sessions.orderCandidates(u, id, { endAt: q.endAt, storeId:q.storeId, refresh: q.refresh === '1' }); }
   @AuthenticatedOnly() @Post('sessions/:id/report')
   report(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReportDto) { return this.sessions.report(u, id, b); }
   @AuthenticatedOnly() @Post('sessions/:id/submit')

@@ -109,10 +109,11 @@ d('直播管理（真实数据库）', () => {
     const corridor = await rec(company, 'locations', '西走廊办公室', { name: '西走廊办公室', locationType: 'floor' });
     ids.n1 = await rec(company, 'locations', '直播间-北1', { name: '直播间-北1', locationType: 'room', parentId: corridor });
     ids.s1 = await rec(company, 'locations', '直播间-南1', { name: '直播间-南1', locationType: 'room', parentId: corridor });
-    ids.account = await rec(company, 'self-media', '抖音一号', { name: '抖音一号', platform: 'douyin' });
+    ids.account = await rec(company, 'self-media', '抖音一号', { name: '抖音一号', platform: 'douyin',livePermission:true });
     ids.kuaishou = await rec(company, 'self-media', '快手号', { name: '快手号', platform: 'kuaishou' });
     ids.store = await rec(company, 'stores', '抖音店', { name: '抖音店', platform: 'douyin', jushuitanShopId: 'JST1' });
     ids.storeNoJst = await rec(company, 'stores', '无绑定店', { name: '无绑定店', platform: 'douyin' });
+    await ds.query("UPDATE resource_records SET data=JSON_SET(data,'$.storeIds',CAST(? AS JSON)) WHERE company_id=? AND id=?",[JSON.stringify([ids.store,ids.storeNoJst]),company,ids.account]);
     ids.p1 = await rec(company, 'finance-base-codes', 'SKU-A', { name: '毛巾', spec: '白色' });
     ids.p2 = await rec(company, 'finance-base-codes', 'SKU-B', { name: '牙刷', spec: '软毛', cost: 123 });
     // 流程：审核、月结都由「审核人」办理（管理员在流程配置里发布）
@@ -120,7 +121,7 @@ d('直播管理（真实数据库）', () => {
     await flow.publish(admin, 'live-session-review');
     await flow.saveDraft(admin, 'live-settlement', [step('apply', '提交审批', 'submit'), step('approve', '月结审批', 'approval', reviewer.id), step('end', '结束', 'end')], []);
     await flow.publish(admin, 'live-settlement');
-  });
+  },30000);
   afterAll(async () => { liveClock.now = realNow; await ds?.destroy(); });
 
   it('流程模板由业务页面发起：申请中心发不了，也不列出可申请', async () => {
@@ -135,7 +136,7 @@ d('直播管理（真实数据库）', () => {
     await expect(schedules.create(manager, input({ startTime: '10:00', endTime: '04:00' }))).rejects.toThrow(/16 小时/);
     await expect(schedules.create(manager, input({ anchorId: control.id }))).rejects.toThrow(/不是主播岗位/);
     await expect(schedules.create(manager, input({ controlId: anchor.id }))).rejects.toThrow(/不是中控岗位/);
-    await expect(schedules.create(manager, input({ douyinAccountId: ids.kuaishou }))).rejects.toThrow(/抖音号/);
+    await expect(schedules.create(manager, input({ douyinAccountId: ids.kuaishou }))).rejects.toThrow(/直播账号/);
     await expect(schedules.create(manager, input({ roomId: 999999 }))).rejects.toThrow(/直播间/);
     const first = await schedules.create(manager, input());
     expect((await ds.manager.count(Notification, { where: { companyId: company, kind: 'live_schedule', userId: anchor.id } }))).toBe(1);
@@ -168,7 +169,8 @@ d('直播管理（真实数据库）', () => {
     const sch = await schedules.create(manager, input({ date: '2026-09-30', startTime: '10:00', endTime: '12:00' }));
     await expect(sessions.start(stranger, { scheduleId: sch.id, ...baseStart() })).rejects.toThrow(/无权/);
     await expect(sessions.start(anchor, { scheduleId: sch.id, ...baseStart({ productIds: [] }) })).rejects.toThrow(/产品/);
-    await expect(sessions.start(anchor, { scheduleId: sch.id, ...baseStart({ storeId: ids.storeNoJst }) })).rejects.toThrow(/聚水潭店铺编号/);
+    // Unbound shops can be used; reporting them requires an explicit manual reason.
+    expect((await schedules.options(manager)).stores.find(s=>s.id===ids.storeNoJst)?.hasJstShop).toBe(false);
     await expect(sessions.start(anchor, { scheduleId: sch.id, ...baseStart({ startAt: '2026-09-30 09:30:00' }) })).rejects.toThrow(/晚于现在/);
     clock('2026-09-30 06:00:00');
     await expect(sessions.start(anchor, { scheduleId: sch.id, ...baseStart() })).rejects.toThrow(/还早/);
@@ -184,6 +186,8 @@ d('直播管理（真实数据库）', () => {
     // 当天排场在全览里显示为直播中
     const ov = await schedules.overview(manager, '2026-09-30');
     expect(ov.totals).toMatchObject({ rooms: 2, live: 1 });
+    // Simulate pre-upgrade session: no channel snapshot, retain its original single-shop calculation.
+    await ds.query('UPDATE live_sessions SET channels_json=NULL WHERE company_id=? AND id=?',[company,s1.id]);
     // 清理这一场，后续用例用别的日期
     clock('2026-09-30 12:05:00');
     source.orders = [order('X1', 100)];
@@ -363,7 +367,7 @@ d('直播管理（真实数据库）', () => {
     clock('2026-10-14 12:05:00');
     const body = { endAt: '2026-10-14 12:00:00', salesCents: 80000, orderIds: [] as string[] };
     source.unavailable = '公司还没有授权聚水潭';
-    await expect(sessions.report(anchor, s.id, body)).rejects.toThrow(/不能报下播.*授权聚水潭/);
+    await expect(sessions.report(anchor, s.id, body)).rejects.toThrow(/授权聚水潭.*人工核定原因/);
     source.unavailable = ''; source.truncated = true; source.orders = [order('T1', 1000)];
     await expect(sessions.report(anchor, s.id, { ...body, orderIds: ['T1'] })).rejects.toThrow(/订单太多/);
     source.truncated = false; source.orders = [order('CANCELLED-ONLY',1000,{cancelled:true,status:'Cancelled'})];
@@ -477,6 +481,75 @@ d('直播管理（真实数据库）', () => {
     expect((await ledger.rules(manager)).versions.find(r=>r.id===unused.id)!.form.operatorRate).toBe('2');
   });
 
+  it('同场三平台四店：账号权限、逐店审核、分平台提成、工资一次、分平台售后与历史快照',async()=>{
+    clock('2026-07-06 18:00:00');
+    const platforms=['douyin','douyin','kuaishou','channels'];
+    const shops:number[]=[];
+    for(let i=0;i<4;i++)shops.push(await rec(company,'stores',`多平台店${i}`,{name:`多平台店${i}`,platform:platforms[i],jushuitanShopId:`MP${i}`}));
+    const accounts:number[]=[];
+    for(const [i,platform] of ['douyin','kuaishou','channels'].entries())accounts.push(await rec(company,'self-media',`多平台账号${i}`,{name:`多平台账号${i}`,platform,livePermission:true,storeIds:i===0?shops.slice(0,2):[shops[i+1]]}));
+    const disabled=await rec(company,'self-media','未授权直播账号',{platform:'douyin',storeIds:[shops[0]]});
+    expect((await schedules.options(manager)).douyinAccounts.some(a=>a.id===disabled)).toBe(false);
+    const perShop=new FakeSource();
+    const amounts=[60000,40000,1000000,200000];
+    perShop.candidates=async(_c:number,v:any)=>({available:true,reason:'',truncated:false,orders:[order('SAME',amounts[Number(String(v.shopId).slice(2))]) ]});
+    perShop.refunds=async(_c:number,shop:string,orders)=>new Map(orders.map(o=>[o.orderId,{cents:shop==='MP0'?20000:0,source:shop==='MP0'?'refund' as const:'none' as const,details:[]} ]));
+    const management=new LiveManagementService(ds,perShop);
+    const channels=accounts.map((accountId,i)=>({accountId,storeIds:i===0?shops.slice(0,2):[shops[i+1]]}));
+    const body={roomId:ids.s1,anchorId:anchor.id,controlId:control.id,operatorId:operator.id,douyinAccountId:accounts[0],storeId:shops[0],channels,startAt:'2026-07-04 10:00:00',endAt:'2026-07-04 13:00:00',salesCents:0,adSpendCents:0,reason:'多平台漏报补录',storeLines:shops.map((storeId,i)=>({storeId,platform:platforms[i],salesCents:amounts[i],adSpendCents:i===2?1000000:0,orderIds:['SAME']}))};
+    await expect(management.manual(manager,{...body,channels:[{accountId:disabled,storeIds:[shops[0]]}]})).rejects.toThrow(/直播权限/);
+    await expect(management.manual(foreign,body)).rejects.toThrow();
+    await expect(management.manual(manager,{...body,storeLines:body.storeLines.slice(1)})).rejects.toThrow(/全部店铺/);
+    await expect(management.manual(manager,{...body,channels:[channels[0],channels[0]]})).rejects.toThrow(/重复/);
+    await expect(management.manual(manager,{...body,channels:[{accountId:accounts[1],storeIds:[shops[0]]}]})).rejects.toThrow(/同一平台/);
+    const made=await management.manual(manager,body);
+    await expect(management.manual(manager,{...body,startAt:'2026-07-03 10:00:00',endAt:'2026-07-03 13:00:00'})).rejects.toThrow(/订单已计入其他场次/);
+    const detail=await sessions.detail(manager,made.id);
+    expect(detail.channels).toHaveLength(3);expect(detail.reports[0].storeLines).toHaveLength(4);
+    expect(detail.reports[0].orders).toHaveLength(4);
+    await ds.query("UPDATE resource_records SET data=JSON_SET(data,'$.livePermission',false) WHERE company_id=? AND id IN (?,?,?)",[company,...accounts]);
+    const submitted=await sessions.submit(manager,made.id),run=await flow.detail(reviewer,submitted.runId);
+    const review={finalSource:'manual',finalReason:'逐店核定',storeLines:body.storeLines,wageHourlyRateCents:5000,controlWageHourlyRateCents:3000};
+    const preview=await sessions.reviewPreview(manager,made.id,review);
+    expect(preview.platforms).toHaveLength(3);expect(preview.wage.minutes).toBe(180);
+    await flow.pass(reviewer,run.id,{revision:run.revision,stepId:run.activeStep!.id,form:review});
+    const approved=await sessions.detail(manager,made.id);
+    expect(approved.commissions).toHaveLength(9);expect(approved.wages.map(w=>w.minutes)).toEqual([180,180]);
+    for(const platform of ['douyin','kuaishou','channels']){
+      const p=preview.platforms.find(p=>p.platform===platform)!;
+      expect(approved.commissions.find(c=>c.platform===platform&&c.role==='anchor')?.amountCents).toBe(p.anchor.amountCents);
+    }
+    const settlementService=new LiveSettlementService(ds,flow,perShop);
+    const settled=await settlementService.generate(manager,'',undefined,{from:'2026-07-04',to:'2026-07-04'});
+    const payroll=await settlementService.detail(manager,settled.id);
+    expect(payroll.lines).toHaveLength(9);expect(payroll.wageTotalCents).toBe(24000);
+    expect(payroll.lines.reduce((n,l)=>n+l.wageCents,0)).toBe(24000);
+    expect(payroll.lines.reduce((n,l)=>n+l.minutes,0)).toBe(360);
+    expect(payroll.byPerson.every(p=>p.sessions===1)).toBe(true);
+    expect(payroll.lines.filter(l=>l.platform==='kuaishou').every(l=>l.refundCents===0)).toBe(true);
+    expect(payroll.refundTotalCents).toBe(20000);expect(payroll.refunds).toHaveLength(4);
+    await settlementService.submit(manager,settled.id);
+  });
+
+  it('未绑定聚水潭也可开播；逐店说明后人工核定，工资和报表保留未核对标记',async()=>{
+    clock('2026-06-15 12:05:00');
+    const offline=new FakeSource();offline.unavailable='聚水潭授权过期';
+    const service=new LiveSessionService(ds,flow,offline);
+    const start=await service.start(manager,{roomId:ids.n1,anchorId:anchor.id,controlId:control.id,douyinAccountId:ids.account,storeId:ids.storeNoJst,channels:[{accountId:ids.account,storeIds:[ids.storeNoJst]}],productIds:[ids.p1],startAt:'2026-06-15 10:00:00'});
+    const line={storeId:ids.storeNoJst,platform:'douyin',salesCents:100000,adSpendCents:10000,orderIds:[]};
+    await expect(service.report(anchor,start.id,{endAt:'2026-06-15 12:00:00',salesCents:100000,storeLines:[line]})).rejects.toThrow(/人工核定原因/);
+    await service.report(anchor,start.id,{endAt:'2026-06-15 12:00:00',salesCents:100000,storeLines:[{...line,reason:'未绑定聚水潭，按平台后台营业额填报'}]});
+    await service.report(control,start.id,{endAt:'2026-06-15 12:00:00',salesCents:100000,storeLines:[{...line,reason:'中控核对平台后台'}]});
+    const submitted=await service.submit(anchor,start.id),run=await flow.detail(reviewer,submitted.runId);
+    await flow.pass(reviewer,run.id,{revision:run.revision,stepId:run.activeStep!.id,form:{finalSource:'anchor'}});
+    const payroll=new LiveSettlementService(ds,flow,offline);
+    clock('2026-06-16 12:00:00');
+    const generated=await payroll.generate(manager,'',undefined,{from:'2026-06-15',to:'2026-06-15'});
+    const detail=await payroll.detail(manager,generated.id);
+    expect(detail.lines.every(l=>l.unverifiedStores.length===1)).toBe(true);
+    expect(detail.refunds).toHaveLength(0);expect(detail.wageTotalCents).toBe(16000);
+  });
+
   it('传统电商部门及有效下级、主兼任人员可选中控；目录、保存及本人上播一致，停用和跨公司不放行', async () => {
     const cid = (await ds.manager.save(Company, ds.manager.create(Company, { code: `tc${crypto.randomBytes(5).toString('hex')}`, name: '传统电商测试', status: 'active' }))).id;
     await ensureDefaultLiveRules(ds.manager, cid);
@@ -513,10 +586,11 @@ d('直播管理（真实数据库）', () => {
     const anchorId = await mkUser(cid,'tc-anchor','主播',{positionId:anchorPos});
     const corridor = await rec(cid,'locations','西走廊办公室',{name:'西走廊办公室',locationType:'floor'});
     const room = await rec(cid,'locations','直播间-南1',{name:'直播间-南1',locationType:'room',parentId:corridor});
-    const account = await rec(cid,'self-media','测试抖音号',{name:'测试抖音号',platform:'douyin'});
+    const account = await rec(cid,'self-media','测试抖音号',{name:'测试抖音号',platform:'douyin',livePermission:true});
     const store = await rec(cid,'stores','测试店铺',{name:'测试店铺',platform:'douyin',jushuitanShopId:'TC1'});
     const product = await rec(cid,'finance-base-codes','TC-SKU',{name:'商品',spec:'一份'});
     clock('2026-11-01 09:00:00');
+    await ds.query("UPDATE resource_records SET data=JSON_SET(data,'$.storeId',?) WHERE company_id=? AND id=?",[store,cid,account]);
     const body = {date:'2026-11-02',roomId:room,startTime:'10:00',endTime:'11:00',anchorId,controlId:primary,douyinAccountId:account,storeId:store};
     const schedule = await schedules.create(managerActor,body);
     await schedules.update(managerActor,schedule.id,{...body,controlId:extra});

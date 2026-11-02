@@ -1,3 +1,5 @@
+import { channelsOf, channelStores, linesOf } from './live-platforms';
+import { LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
 import { EntityManager } from 'typeorm';
 import {
   LIVE_FINAL_SOURCES, liveArchiveHourlyRate, liveComputeCommission, liveComputeWage, liveFromText, liveMissingReporter, liveToText, liveVersionFor,
@@ -23,6 +25,7 @@ export async function checkSubmittable(em: EntityManager, companyId: number, ses
 
 /** 审核表单（流程步骤表单）里的字段。 */
 export interface ReviewForm {
+  storeLines?:LiveStoreLine[];
   finalSource?: string; finalSalesCents?: number; finalReason?: string;
   operatorUserId?: number; noOperator?: boolean;
   wageStartAt?: string; wageEndAt?: string; wageHourlyRateCents?: number; wageNote?: string; controlWageStartAt?:string; controlWageEndAt?:string; controlWageHourlyRateCents?:number; controlWageNote?:string;
@@ -33,7 +36,9 @@ export function resolveFinalSales(form: ReviewForm, reports: Row[]): { source: s
   const source = String(form.finalSource || '');
   if (!LIVE_FINAL_SOURCES[source]) liveFail('请选择本场最终销售额的来源', 400);
   if (source === 'manual') {
-    if (typeof form.finalSalesCents !== 'number' || form.finalSalesCents < 0) liveFail('请填写手填的最终销售额', 400);
+    if(form.storeLines&&(!Array.isArray(form.storeLines)||form.storeLines.length>400||form.storeLines.some(l=>!l||typeof l!=='object'||!Number.isSafeInteger(l.salesCents)||l.salesCents<0||!Number.isSafeInteger(l.adSpendCents)||l.adSpendCents<0)))liveFail('请按店铺填写有效最终业绩明细',400);
+    if (form.storeLines) form = {...form,finalSalesCents:form.storeLines.reduce((n,l)=>n+l.salesCents,0)};
+    if (!Number.isSafeInteger(form.finalSalesCents) || form.finalSalesCents! < 0 || form.finalSalesCents! > 10_000_000_000) liveFail('请填写手填的最终销售额', 400);
     const reason = String(form.finalReason || '').trim();
     if (!reason || reason.length > 500) liveFail('手填最终销售额时请写明原因（最多 500 字）', 400);
     return { source, cents: form.finalSalesCents as number, reason };
@@ -45,6 +50,41 @@ export function resolveFinalSales(form: ReviewForm, reports: Row[]): { source: s
   if (orders && !Number(report!.order_count)) liveFail('所选上报值没有勾选订单，请选择其他来源或手填', 400);
   const cents = Number(orders ? report!.orders_total_cents : report!.sales_cents);
   return { source, cents, reason: String(form.finalReason || '').trim().slice(0, 500) || null };
+}
+
+/** Resolve shop lines from the chosen report or reviewer input; never prorate a session total. */
+export function resolvePlatformSales(session: Row, reports: Row[], form: ReviewForm) {
+  const stores=channelStores(channelsOf(session));
+  if(!stores.length) return null;
+  if(!LIVE_FINAL_SOURCES[form.finalSource || '']) liveFail('请选择最终销售额来源',400);
+  const manual=form.finalSource==='manual';
+  const role=String(form.finalSource).split('_')[0];
+  const base=reports.find(r=>r.role===role);
+  const source=manual ? form.storeLines??[] : base ? linesOf(base) : [];
+  if(source.length!==stores.length||new Set(source.map(l=>l.storeId)).size!==stores.length) liveFail('最终业绩必须包含本场所有店铺，不能按总额分摊',400);
+  if(manual&&!String(form.finalReason||'').trim())liveFail('人工核定必须填写原因',400);
+  const control=reports.find(r=>r.role==='control');
+  const ads=control?linesOf(control):[];
+  return stores.map(store=>{
+    const line=source.find(l=>l.storeId===store.id);
+    if(!line||line.platform!==store.platform)liveFail('审核店铺或平台与本场不符',400);
+    if(form.finalSource?.endsWith('_orders')&&!line!.verified)liveFail('有店铺未核对订单，不能选订单合计',400);
+    const sales=Number(form.finalSource?.endsWith('_orders')?line!.ordersTotalCents:line!.salesCents);
+    const ad=manual?line!.adSpendCents:ads.find(l=>l.storeId===store.id)?.adSpendCents??null;
+    if(!Number.isSafeInteger(sales)||sales<0||sales>10_000_000_000||ad!==null&&(!Number.isSafeInteger(ad)||ad<0||ad>10_000_000_000))liveFail('逐店核定金额不正确',400);
+    return {storeId:store.id,platform:store.platform,salesCents:sales,adSpendCents:ad};
+  });
+}
+function commissionResults(rules: LiveRules,session:Row,reports:Row[],form:ReviewForm,final:{cents:number}){
+  const lines=resolvePlatformSales(session,reports,form);
+  if(lines)return livePlatformCommissions(rules,lines);
+  const c=reports.find(r=>r.role==='control');
+  return [{platform:'',...liveComputeCommission({rules,finalSalesCents:final.cents,adSpendCents:c?.ad_spend_cents==null?null:Number(c.ad_spend_cents)})}];
+}
+function combinedResults(results: ReturnType<typeof commissionResults>){
+  const first=results[0];
+  const amount=(role:'anchor'|'control'|'operator')=>({rateUnits:results.length===1?first[role].rateUnits:0,amountCents:results.reduce((n,r)=>n+r[role].amountCents,0)});
+  return {...first,finalSalesCents:results.reduce((n,r)=>n+r.finalSalesCents,0),adSpendCents:results.some(r=>r.adSpendCents===null)?null:results.reduce((n,r)=>n+(r.adSpendCents??0),0),roiScaled:results.length===1?first.roiScaled:null,belowRoi:results.some(r=>r.belowRoi),anchor:amount('anchor'),control:amount('control'),operator:amount('operator')};
 }
 
 /**
@@ -115,23 +155,23 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   const rules: LiveRules = version!.rules;
   const control = reports.find((r) => r.role === 'control');
   const adSpend = control?.ad_spend_cents === null || control?.ad_spend_cents === undefined ? null : Number(control.ad_spend_cents);
-  const result = liveComputeCommission({ rules, finalSalesCents: final.cents, adSpendCents: adSpend });
+  const platforms = commissionResults(rules,session,reports,form,final);
+  const result = combinedResults(platforms);
   const operator = await resolveOperator(em, ctx.companyId, session, form);
   const wage = await resolveWage(em, ctx.companyId, session, form);
   const controlWage=session.control_user_id ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
   const at = wallNow(ctx.now);
-  const roles: Array<['anchor' | 'control' | 'operator', number, { rateUnits: number; amountCents: number }]> = [['anchor', Number(session.anchor_user_id), result.anchor]];
-  if (session.control_user_id) roles.push(['control', Number(session.control_user_id), result.control]);
-  if (operator.counted) roles.push(['operator', operator.finalId as number, result.operator]);
-  const snapshot = JSON.stringify({ versionId: version!.id, effectiveFrom: version!.effectiveFrom, rules, tier: result.tier, belowRoi: result.belowRoi });
-  for (const [role, userId, value] of roles) {
-    await em.query(
-      `INSERT INTO live_commission_records (company_id, session_id, user_id, role, session_date, final_sales_cents, ad_spend_cents, roi_scaled, below_roi, rate_units, amount_cents,
-        rule_version_id, rule_snapshot, approved_by, approved_at, flow_run_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      // below_roi 表示「投产不足已按规则扣减」；运营提成是固定比例、不做扣减，所以运营记录不带这个标记
-      [ctx.companyId, sessionId, userId, role, session.session_day, result.finalSalesCents, result.adSpendCents, result.roiScaled, role !== 'operator' && result.belowRoi ? 1 : 0,
-        value.rateUnits, value.amountCents, version!.id, snapshot, ctx.actorId, at, ctx.runId],
-    );
+  const amounts={anchor:0,control:0,operator:0};
+  for(const platform of platforms){
+    const roles: Array<['anchor'|'control'|'operator',number,{rateUnits:number;amountCents:number}]>=[['anchor',Number(session.anchor_user_id),platform.anchor]];
+    if(session.control_user_id)roles.push(['control',Number(session.control_user_id),platform.control]);
+    if(operator.counted)roles.push(['operator',operator.finalId!,platform.operator]);
+    const snapshot=JSON.stringify({versionId:version!.id,effectiveFrom:version!.effectiveFrom,rules,tier:platform.tier,belowRoi:platform.belowRoi,platform:platform.platform,unverifiedStores:channelStores(channelsOf(session)).filter(s=>s.platform===platform.platform).filter(s=>!linesOf(reports.find(r=>r.role===(form.finalSource==='manual'?'anchor':String(form.finalSource).split('_')[0]))??{}).find(l=>l.storeId===s.id)?.verified).map(s=>({storeId:s.id,name:s.name,reason:form.finalReason||linesOf(reports.find(r=>r.role==='anchor')??{}).find(l=>l.storeId===s.id)?.reason||session.manual_reason||'未核对订单'})),storeLines:resolvePlatformSales(session,reports,form)?.filter(l=>l.platform===platform.platform)});
+    for(const [role,userId,value] of roles){
+      amounts[role]+=value.amountCents;
+      await em.query(`INSERT INTO live_commission_records(company_id,session_id,user_id,role,session_date,final_sales_cents,ad_spend_cents,roi_scaled,below_roi,rate_units,amount_cents,rule_version_id,rule_snapshot,approved_by,approved_at,flow_run_id,platform) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [ctx.companyId,sessionId,userId,role,session.session_day,platform.finalSalesCents,platform.adSpendCents,platform.roiScaled,role!=='operator'&&platform.belowRoi?1:0,value.rateUnits,value.amountCents,version!.id,snapshot,ctx.actorId,at,ctx.runId,platform.platform]);
+    }
   }
   const wageSnapshot = JSON.stringify({
     reportedStartAt: wage.reportedStart, reportedEndAt: wage.reportedEnd, timesChanged: wage.timesChanged, archiveHourlyRateCents: wage.archiveRate,
@@ -149,7 +189,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
       return_reason = NULL, revision = revision + 1 WHERE company_id = ? AND id = ?`,
     [result.finalSalesCents, final.source, final.reason, ctx.actorId, at, operator.finalId, ctx.companyId, sessionId],
   );
-  return { finalSalesCents: result.finalSalesCents, amounts: Object.fromEntries(roles.map(([r, , v]) => [r, v.amountCents])), wageCents: wage.amountCents };
+  return { finalSalesCents: result.finalSalesCents, amounts, wageCents: wage.amountCents };
 }
 
 /** 审核退回：场次回到「已退回」，主播和中控修改下播报告后可重新提交。 */
@@ -175,10 +215,12 @@ export async function previewApproval(em: EntityManager, companyId: number, sess
   if (!version) liveFail(`没有适用于 ${session.session_day} 的提成规则版本，请先在直播管理 › 提成规则中设置`);
   const control = reports.find((r) => r.role === 'control');
   const adSpend = control?.ad_spend_cents === null || control?.ad_spend_cents === undefined ? null : Number(control.ad_spend_cents);
-  const result = liveComputeCommission({ rules: version!.rules, finalSalesCents: final.cents, adSpendCents: adSpend });
+  const platforms=commissionResults(version!.rules,session,reports,form,final);
+  const result=combinedResults(platforms);
   const operator = await resolveOperator(em, companyId, session, form);
   const wage = await resolveWage(em, companyId, session, form);
   return {
+    platforms, storeLines:resolvePlatformSales(session,reports,form),
     finalSource: final.source, finalSalesCents: result.finalSalesCents, adSpendCents: result.adSpendCents, roiScaled: result.roiScaled, belowRoi: result.belowRoi,
     ruleVersion: { id: version!.id, effectiveFrom: version!.effectiveFrom }, tier: result.tier,
     anchor: result.anchor, control: session.control_user_id ? result.control : null, operator: operator.counted ? result.operator : null,

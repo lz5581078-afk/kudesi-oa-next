@@ -49,3 +49,5 @@ export { PURCHASE_COST_PERMISSION, PURCHASE_BIG_AMOUNT_CENTS, PURCHASE_PURPOSES,
 export { compatiblePurchaseTemplate } from './purchase-compat-template';
 
 export * from "./desk-access";
+
+export * from './live-platforms';

@@ -53,5 +53,5 @@ export function SourceStatusNotice() {
   const [st, setSt] = useState<SourceStatus | null>(null);
   useEffect(() => { liveApi.integrationStatus().then(setSt).catch(() => setSt(null)); }, []);
   if (!st || st.ready) return null;
-  return <div role="status" className="notice warn" data-testid="live-source-status"><strong>聚水潭订单暂时不能查询：</strong>{st.message}<span className="muted">（报下播要从聚水潭勾选本场订单，月底结算要核对退款；没有授权前这两项不能进行，其余功能不受影响。）</span></div>;
+  return <div role="status" className="notice warn" data-testid="live-source-status"><strong>聚水潭订单暂时不能查询：</strong>{st.message}<span className="muted">（订单与售后核对需要有效授权；无法读取订单的店铺可填写原因，提交人工核定。）</span></div>;
 }

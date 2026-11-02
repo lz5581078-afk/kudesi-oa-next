@@ -1,3 +1,4 @@
+import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { downloadText, toCsv } from '../../resources/csv';
 import { liveApi, type Commissions, type Wages } from './liveApi';
@@ -39,10 +40,12 @@ export function PayrollTab({
     setPersonId('');
     setData(null);
   }, [role]);
+  const usedWages=new Set<number>();
   const allRows = (data?.comm.rows ?? []).map((r) => {
     const w = data?.wages.rows.find(
-      (w) => w.sessionId === r.sessionId && w.userId === r.userId && (w.role ?? 'anchor') === r.role,
+      (w) => !usedWages.has(w.id) && w.sessionId === r.sessionId && w.userId === r.userId && (w.role ?? 'anchor') === r.role,
     );
+    if(w)usedWages.add(w.id);
     return {
       ...r,
       wageCents: w?.amountCents ?? 0,
@@ -54,9 +57,10 @@ export function PayrollTab({
   const rows = allRows.filter((r) => !personId || String(r.userId) === personId);
   const people = [...new Map(allRows.map((r) => [r.userId, r.userName])).entries()];
   const summary = new Map<number, { name: string; count: number; minutes: number; wage: number; commission: number }>();
+  const countedSessions=new Set<string>();
   for (const r of rows) {
     const p = summary.get(r.userId) ?? { name: r.userName, count: 0, minutes: 0, wage: 0, commission: 0 };
-    p.count++;
+    const key=`${r.userId}:${r.sessionId}`;if(!countedSessions.has(key)){p.count++;countedSessions.add(key);}
     p.minutes += r.minutes;
     p.wage += r.wageCents;
     p.commission += r.amountCents;
@@ -69,6 +73,7 @@ export function PayrollTab({
         [
           '日期',
           '房间',
+          '平台',
           '人员',
           '角色',
           '计薪分钟',
@@ -83,6 +88,7 @@ export function PayrollTab({
         ...rows.map((r) => [
           r.date,
           r.roomName,
+          LIVE_PLATFORMS[r.platform??'']??'历史场次',
           r.userName,
           r.roleLabel,
           String(r.minutes),
@@ -168,7 +174,7 @@ export function PayrollTab({
       <section className="card live-section">
         <h2>按人员汇总</h2>
         <div className="live-scroll">
-          <table className="data-table">
+          <table className="data-table" aria-label="工资汇总">
             <thead>
               <tr>
                 <th>人员</th>
@@ -219,7 +225,7 @@ export function PayrollTab({
                   <td>
                     {r.date}
                     <br />
-                    {r.roomName}
+                    {r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'}
                   </td>
                   <td>{r.userName}</td>
                   <td>
