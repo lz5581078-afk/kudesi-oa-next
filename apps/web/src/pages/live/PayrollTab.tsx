@@ -11,18 +11,19 @@ export function PayrollTab({
   role: 'anchor' | 'control' | 'operator';
   onOpen: (id: number) => void;
 }) {
+  const commissionOnly = role === 'operator';
   const [month, setMonth] = useState(todayText().slice(0, 7)),
     [mode, setMode] = useState('month'),
     [from, setFrom] = useState(''),
     [to, setTo] = useState(''),
     [personId, setPersonId] = useState('');
-  const [data, setData] = useState<{ comm: Commissions; wages: Wages } | null>(null),
+  const [data, setData] = useState<{ comm: Commissions; wages: Wages | null } | null>(null),
     [error, setError] = useState('');
   const load = useCallback(() => {
     if (mode === 'range' && (!from || !to)) return;
     const q = mode === 'month' ? { month, role } : { from, to, role };
     let active = true;
-    Promise.all([liveApi.commissions(q), liveApi.wages(q)])
+    Promise.all([liveApi.commissions(q), role === 'operator' ? Promise.resolve(null) : liveApi.wages(q)])
       .then(([comm, wages]) => {
         if (active) {
           setData({ comm, wages });
@@ -43,33 +44,37 @@ export function PayrollTab({
   }, [role]);
   const usedWages=new Set<number>();
   const allRows = (data?.comm.rows ?? []).map((r) => {
-    const w = data?.wages.rows.find(
+    const w = commissionOnly ? undefined : data?.wages?.rows.find(
       (w) => !usedWages.has(w.id) && w.sessionId === r.sessionId && w.userId === r.userId && (w.role ?? 'anchor') === r.role,
     );
     if(w)usedWages.add(w.id);
     return {
       ...r,
       wageCents: w?.amountCents ?? 0,
-      minutes: w?.minutes ?? 0,
+      minutes: commissionOnly ? r.liveMinutes ?? null : w?.minutes ?? 0,
       hourlyRateCents: w?.hourlyRateCents ?? 0,
       totalCents: r.amountCents + (w?.amountCents ?? 0),
     };
   });
   const rows = allRows.filter((r) => !personId || String(r.userId) === personId);
   const people = [...new Map(allRows.map((r) => [r.userId, r.userName])).entries()];
-  const summary = new Map<number, { name: string; count: number; minutes: number; wage: number; commission: number }>();
+  const summary = new Map<number, { name: string; count: number; minutes: number; wage: number; commission: number; unknownDurations: number }>();
   const countedSessions=new Set<string>();
   for (const r of rows) {
-    const p = summary.get(r.userId) ?? { name: r.userName, count: 0, minutes: 0, wage: 0, commission: 0 };
-    const key=`${r.userId}:${r.sessionId}`;if(!countedSessions.has(key)){p.count++;countedSessions.add(key);}
-    p.minutes += r.minutes;
+    const p = summary.get(r.userId) ?? { name: r.userName, count: 0, minutes: 0, wage: 0, commission: 0, unknownDurations: 0 };
+    const key=`${r.userId}:${r.sessionId}`;
+    if(!countedSessions.has(key)){
+      p.count++;countedSessions.add(key);
+      if(commissionOnly){p.minutes += r.minutes ?? 0;if(r.minutes==null)p.unknownDurations++;}
+    }
+    if(!commissionOnly)p.minutes += r.minutes ?? 0;
     p.wage += r.wageCents;
     p.commission += r.amountCents;
     summary.set(r.userId, p);
   }
   function exportCsv() {
     downloadText(
-      '直播工资明细.csv',
+      commissionOnly ? '运营提成明细.csv' : '直播工资明细.csv',
       toCsv([
         [
           '日期',
@@ -77,13 +82,12 @@ export function PayrollTab({
           '平台',
           '人员',
           '角色',
-          '计薪分钟',
-          '时薪',
-          '时间工资',
+          commissionOnly ? '直播分钟' : '计薪分钟',
+          ...(!commissionOnly ? ['时薪','时间工资'] : []),
           '销售额',
           '提成比例',
           '提成',
-          '合计',
+          ...(!commissionOnly ? ['合计'] : []),
           '场次编号',
           '直播开始时间',
           '直播结束时间',
@@ -95,13 +99,12 @@ export function PayrollTab({
           LIVE_PLATFORMS[r.platform??'']??'历史场次',
           r.userName,
           r.roleLabel,
-          String(r.minutes),
-          yuanText(r.hourlyRateCents),
-          yuanText(r.wageCents),
+          r.minutes == null ? '' : String(r.minutes),
+          ...(!commissionOnly ? [yuanText(r.hourlyRateCents),yuanText(r.wageCents)] : []),
           yuanText(r.finalSalesCents),
           ratePct(r.rateUnits),
           yuanText(r.amountCents),
-          yuanText(r.totalCents),
+          ...(!commissionOnly ? [yuanText(r.totalCents)] : []),
           String(r.sessionId),
           r.startAt,
           r.endAt ?? '',
@@ -161,22 +164,23 @@ export function PayrollTab({
       )}
       {data && (
         <p className="muted">
-          {data.comm.scope === 'all' ? '全部人员' : '仅本人'} · 已审核工资与提成，最终应发以工资结算单为准。
+          {data.comm.scope === 'all' ? '全部人员' : '仅本人'} · {commissionOnly ? '已审核运营提成' : '已审核工资与提成'}，最终应发以工资结算单为准。
         </p>
       )}
       <div className="live-cards">
         <div className="card live-stat">
-          <span>时间工资</span>
-          <strong>{money(rows.reduce((n, r) => n + r.wageCents, 0))}</strong>
+          <span>{commissionOnly ? '累计直播时长' : '时间工资'}</span>
+          <strong>{commissionOnly ? minutesText([...summary.values()].reduce((n,p)=>n+p.minutes,0)) : money(rows.reduce((n, r) => n + r.wageCents, 0))}</strong>
+          {commissionOnly && [...summary.values()].some(p=>p.unknownDurations>0) && <small>部分场次时长未记录</small>}
         </div>
         <div className="card live-stat">
           <span>提成</span>
           <strong>{money(rows.reduce((n, r) => n + r.amountCents, 0))}</strong>
         </div>
-        <div className="card live-stat">
+        {!commissionOnly && <div className="card live-stat">
           <span>工资与提成合计（结算前）</span>
           <strong>{money(rows.reduce((n, r) => n + r.totalCents, 0))}</strong>
-        </div>
+        </div>}
       </div>
       <section className="card live-section">
         <h2>按人员汇总</h2>
@@ -186,10 +190,10 @@ export function PayrollTab({
               <tr>
                 <th>人员</th>
                 <th>场次</th>
-                <th>计薪时长</th>
-                <th>时间工资</th>
+                <th>{commissionOnly ? '直播时长' : '计薪时长'}</th>
+                {!commissionOnly && <th>时间工资</th>}
                 <th>提成</th>
-                <th>合计</th>
+                {!commissionOnly && <th>合计</th>}
               </tr>
             </thead>
             <tbody>
@@ -197,12 +201,12 @@ export function PayrollTab({
                 <tr key={id}>
                   <td>{p.name}</td>
                   <td>{p.count}</td>
-                  <td>{minutesText(p.minutes)}</td>
-                  <td>{money(p.wage)}</td>
+                  <td>{minutesText(p.minutes)}{p.unknownDurations>0 && <small>（{p.unknownDurations}场未记录）</small>}</td>
+                  {!commissionOnly && <td>{money(p.wage)}</td>}
                   <td>{money(p.commission)}</td>
-                  <td>
+                  {!commissionOnly && <td>
                     <strong>{money(p.wage + p.commission)}</strong>
-                  </td>
+                  </td>}
                 </tr>
               ))}
             </tbody>
@@ -210,8 +214,8 @@ export function PayrollTab({
         </div>
       </section>
       <section className="card live-section">
-        <h2>场次工资明细</h2>
-        <p className="muted pad">每场计时工资仅计算一次；各平台分别列示营业额、比例与提成。</p>
+        <h2>{commissionOnly ? '场次提成明细' : '场次工资明细'}</h2>
+        <p className="muted pad">{commissionOnly ? '直播时长按实际上下播时间统计，每人每场汇总一次；' : '每场计时工资仅计算一次；'}各平台分别列示营业额、比例与提成。</p>
         {data && !rows.length && <p className="muted pad">该期间暂无已审核记录</p>}
         <div className="live-scroll">
           <table className="data-table" aria-label="工资提成明细">
@@ -219,11 +223,11 @@ export function PayrollTab({
               <tr>
                 <th>日期 / 时间 / 直播间 / 产品</th>
                 <th>人员</th>
-                <th>时长 / 时薪</th>
-                <th>时间工资</th>
+                <th>{commissionOnly ? '直播时长' : '时长 / 时薪'}</th>
+                {!commissionOnly && <th>时间工资</th>}
                 <th>销售额 / 比例</th>
                 <th>提成</th>
-                <th>合计</th>
+                {!commissionOnly && <th>合计</th>}
                 <th />
               </tr>
             </thead>
@@ -236,20 +240,19 @@ export function PayrollTab({
                   </td>
                   <td>{r.userName}</td>
                   <td>
-                    {minutesText(r.minutes)}
-                    <br />
-                    {money(r.hourlyRateCents)}/时
+                    {r.minutes==null ? '时长未记录' : minutesText(r.minutes)}
+                    {!commissionOnly && <><br />{money(r.hourlyRateCents)}/时</>}
                   </td>
-                  <td>{money(r.wageCents)}</td>
+                  {!commissionOnly && <td>{money(r.wageCents)}</td>}
                   <td>
                     {money(r.finalSalesCents)}
                     <br />
                     {ratePct(r.rateUnits)}
                   </td>
                   <td>{money(r.amountCents)}</td>
-                  <td>
+                  {!commissionOnly && <td>
                     <strong>{money(r.totalCents)}</strong>
-                  </td>
+                  </td>}
                   <td>
                     <button className="link-button" onClick={() => onOpen(r.sessionId)}>
                       场次详情
