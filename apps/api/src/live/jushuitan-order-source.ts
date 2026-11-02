@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { liveFromText, liveToText } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
 import { JushuitanClient, JsonRow } from '../integrations/jushuitan.client';
-import { LiveOrderCandidates, LiveOrderSource, LiveRefund, LiveSourceStatus } from './live-order-source';
+import { LiveOrderCandidates, LiveOrderSource, LiveRefund, LiveSourceStatus, LiveTurnoverOrders } from './live-order-source';
 function cents(v: unknown): number { const n = Math.round(Number(v) * 100); if (!Number.isSafeInteger(n) || n < 0) throw new Error('聚水潭金额不合法，不能结算'); return n; }
 export function refundFor(orderAmount: number, order: JsonRow, rows: JsonRow[]): LiveRefund {
   if (order.status === 'Cancelled') return { cents: orderAmount, source: 'cancelled', details: [{ kind: 'order', status: 'Cancelled' }] };
@@ -61,6 +61,34 @@ export class JushuitanOrderSource extends LiveOrderSource {
       }
       return { available: true, reason: '', shopId: session.shopId, window: { start: session.startAt, end: session.endAt! }, orders: [...byId.values()], truncated: false, queriedAt: new Date().toISOString() };
     } catch (e) { return unavailable((e as Error).message); }
+  }
+  async turnoverOrders(companyId: number, session: { id: number; shopId: string; startAt: string; endAt: string }): Promise<LiveTurnoverOrders> {
+    try {
+      const start = liveFromText(session.startAt), end = liveFromText(session.endAt);
+      if (!start || !end || +end < +start || +end - +start > 48 * 3600000) throw new Error('本场统计时间不完整或超过 48 小时');
+      if (+end === +start) return { available: true, reason: '', orders: [], truncated: false };
+      const client = await this.client(companyId, session.shopId);
+      // date_type=2 是订单日期，不以修改/付款/售后日期决定订单归属。
+      const rows = await client.pages('/open/orders/single/query', { shop_id: Number(session.shopId), date_type: 2, type: '普通订单', modified_begin: session.startAt, modified_end: session.endAt }, 'orders', 200);
+      const orders: LiveTurnoverOrders['orders'] = [], seen = new Set<string>();
+      for (const r of rows) {
+        if (String(r.shop_id) !== session.shopId) throw new Error('订单查询返回了其他店铺数据');
+        const t = liveFromText(String(r.order_date ?? ''));
+        if (!t) throw new Error('订单缺少有效成单时间，不能确认营业额');
+        if (+t < +start || +t >= +end) continue;
+        const id = String(r.so_id ?? '');
+        if (!id || seen.has(id)) throw new Error('订单编号缺失或存在拆单，请核对后重试');
+        seen.add(id);
+        if (r.type && r.type !== '普通订单') continue;
+        if (['Merged','Split'].includes(r.status)) throw new Error('本场存在拆合订单，请核对后再确认营业额');
+        const pays = r.pays ?? r.pay;
+        const value = r.paid_amount ?? (Array.isArray(pays) ? pays.filter((p: JsonRow) => p.is_order_pay === true && p.status !== 'Cancelled').reduce((n: number, p: JsonRow) => n + cents(p.amount), 0) / 100 : undefined);
+        if (!['WaitPay','Cancelled'].includes(r.status) && (value == null || value === '')) throw new Error('订单缺少实付金额，不能确认营业额');
+        const paid = r.status !== 'WaitPay' && (Number(value) > 0 || !!liveFromText(String(r.pay_date ?? '')));
+        orders.push({ orderId: id, innerId: String(r.o_id ?? ''), orderTime: liveToText(t)!, payTime: r.pay_date || null, paid, amountCents: cents(value ?? 0), status: String(r.status), statusLabel: String(r.status), cancelled: r.status === 'Cancelled' });
+      }
+      return { available: true, reason: '', orders, truncated: false };
+    } catch (e) { return { available: false, reason: (e as Error).message, orders: [], truncated: false }; }
   }
   async refunds(companyId: number, shopId: string, orders: Array<{ orderId: string; amountCents: number }>): Promise<Map<string, LiveRefund>> {
     const result = new Map<string, LiveRefund>(); if (!orders.length) return result;
