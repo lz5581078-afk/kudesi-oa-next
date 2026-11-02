@@ -3,12 +3,12 @@ import { ManualProductEditor } from './ManualProductEditor';
 import { productEntries, emptyManualProduct } from './liveProducts';
 import { ChannelPicker, initialChannels } from './ChannelPicker';
 import { useEffect, useState } from 'react';
-import { liveApi, type Options, type Product, type ScheduleRow, type SessionDetail } from './liveApi';
+import { liveApi, type Options, type Product, type ScheduleRow, type SessionDetail, type CheckinSession } from './liveApi';
 import { errText, nowText } from './liveFormat';
 import { Modal, names } from './liveUi';
 
 /** 报上播：从排场带出（人、房间已定），或临时加场；必须选有直播权限的账号、关联店铺，并至少填写或选择 1 个在卖产品。 */
-function StartForm({ schedule, identity, joining, roomId: fixedRoomId, onClose, onDone }: { joining?:SessionDetail; roomId?:number; schedule: ScheduleRow | null; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; onClose: () => void; onDone: (sessionId: number) => void }) {
+function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixedRoomId, onClose, onDone }: { role?:'anchor'|'control'; joining?:CheckinSession; roomId?:number; schedule: ScheduleRow | null; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; onClose: () => void; onDone: (sessionId: number) => void }) {
   const [opts, setOpts] = useState<Options | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -43,7 +43,7 @@ function StartForm({ schedule, identity, joining, roomId: fixedRoomId, onClose, 
     setBusy(true);
     try {
       const r = await liveApi.start({
-        sessionId:joining?.id,confirmDetails:confirmed,confirmEarly:early,scheduleFingerprint:schedule?.fingerprint, scheduleId: schedule?.id ?? null, roomId: roomId ? Number(roomId) : null, anchorId: anchorId ? Number(anchorId) : null, controlId: controlId ? Number(controlId) : null, operatorId: operatorId ? Number(operatorId) : null,
+        role:checkinRole,sessionId:joining?.id,confirmDetails:confirmed,confirmEarly:early,scheduleFingerprint:schedule?.fingerprint, scheduleId: schedule?.id ?? null, roomId: roomId ? Number(roomId) : null, anchorId: anchorId ? Number(anchorId) : null, controlId: controlId ? Number(controlId) : null, operatorId: operatorId ? Number(operatorId) : null,
         channels,douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], ...(schedule ? { productEntries: productEntries(picked) } : { productIds: picked.flatMap((p) => p.id === null ? [] : [p.id]) }),
       });
       onDone(r.id);
@@ -100,7 +100,7 @@ export function StartDialog(props:Parameters<typeof StartForm>[0]){
 }
 
 /** When another role has already opened the room, confirm the actual session rather than the original plan. */
-export function JoinDialog({session,role,onClose,onDone}:{session:SessionDetail;role:'anchor'|'control';onClose:()=>void;onDone:(id:number)=>void}){
+export function JoinDialog({session,role,onClose,onDone}:{session:CheckinSession;role:'anchor'|'control';onClose:()=>void;onDone:(id:number)=>void}){
   const actual:ScheduleRow={id:session.scheduleId??0,roomId:session.roomId,roomName:session.roomName,date:session.date,start:session.startAt,end:session.endAt??session.startAt,startTime:session.startAt.slice(11,16),endTime:(session.endAt??session.plannedEnd??session.startAt).slice(11,16),status:'live',statusLabel:'直播中',anchor:session.anchor,control:session.control,operator:session.operator,douyinAccount:session.douyinAccount,store:session.store,channels:session.channels,products:session.products,sessionId:session.id,note:null,cancelReason:null};
-  return <StartForm joining={session} schedule={actual} identity={{isAnchor:role==='anchor',isControl:role==='control',canManage:false}} onClose={onClose} onDone={onDone}/>;
+  return <StartForm role={role} joining={session} schedule={actual} identity={{isAnchor:role==='anchor',isControl:role==='control',canManage:false}} onClose={onClose} onDone={onDone}/>;
 }

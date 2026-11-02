@@ -60,6 +60,7 @@ class PreviousScheduleQuery {
 }
 class CancelDto { @IsString() @MaxLength(500) reason!: string }
 class StartDto {
+  @IsOptional() @IsIn(['anchor','control','operator']) role?:'anchor'|'control'|'operator';
   @IsOptional() @IsInt() @Min(1) sessionId?:number;
   @IsOptional() @IsBoolean() confirmDetails?:boolean;
   @IsOptional() @IsBoolean() confirmEarly?:boolean;
