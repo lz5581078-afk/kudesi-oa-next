@@ -36,4 +36,7 @@ d('完整应用真实路由注册（隔离 MySQL）', () => {
     expect((await fetch(base + '/api/settings/integrations/connections/jushuitan')).status).toBe(401);
     expect((await fetch(base + '/api/settings/integrations/connections/feishu')).status).toBe(401);
   });
+  it('个人直播收入接口已注册且必须登录',async()=>{
+    expect((await fetch(base+'/api/live/personal-income')).status).toBe(401);
+  });
 });

@@ -14,7 +14,7 @@ export interface DeskView {
   pending: string[];
   blank?: boolean;
   /** 放在概览卡片和常用业务之间的专属区块（如运营的每日经营） */
-  top?: ReactNode;
+  top?: ReactNode | ((refreshKey:number)=>ReactNode);
 }
 
 /** 工作台主体：今日概览 → 常用业务 → 流程与待办 → 个人任务。岗位工作台和个人工作台共用。 */
@@ -34,7 +34,7 @@ export function RoleDesk({ view }: { view: DeskView }) {
         <button type="button" className="secondary-button" onClick={() => setTick((t) => t + 1)}>刷新工作台</button>
       </div>
       <SummaryCards label="今日待办概览" cards={[...base, ...view.cards]} />
-      {view.top}
+      {typeof view.top==='function'?view.top(tick):view.top}
       {view.blank && <section className="card ws-section"><div className="ws-head"><h2>专属业务</h2></div><p className="muted ws-pad">这个岗位还没有配置专属业务；常用的流程与任务在下面。</p></section>}
       {(view.links.length > 0 || view.pending.length > 0) && (
         <section className="card ws-section" aria-label="岗位常用业务">

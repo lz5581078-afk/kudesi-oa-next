@@ -1,4 +1,4 @@
-import type { LiveChannel, LiveChannelInput, LiveStoreLine, LiveProductSnapshot, LiveProductEntry } from '@kudesi/shared';
+import type { LiveChannel, LiveChannelInput, LiveStoreLine, LiveProductSnapshot, LiveProductEntry, PersonalLiveIncome } from '@kudesi/shared';
 import { api } from '../../api/client';
 import type { RunDetailDto } from '../flow/flowApi';
 
@@ -123,6 +123,7 @@ export const liveApi = {
   submit: (id: number) => post<{ runId: number }>(`/live/sessions/${id}/submit`),
   reviewPreview: (id: number, b: ReviewForm) => post<ReviewPreview>(`/live/sessions/${id}/review-preview`, b),
   workbench: () => api<Workbench>('/live/workbench'),
+  personalIncome: () => api<PersonalLiveIncome>('/live/personal-income'),
   history: (p: Record<string, unknown>) => api<History>(`/live/workbench/history${qs(p)}`),
   commissions: (p: Record<string, unknown>) => api<Commissions>(`/live/commissions${qs(p)}`),
   wages: (p: Record<string, unknown>) => api<Wages>(`/live/wages${qs(p)}`),
