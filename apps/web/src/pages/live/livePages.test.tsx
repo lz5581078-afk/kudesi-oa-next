@@ -7,8 +7,9 @@ import { liveApi } from './liveApi';
 import { LiveDeskPage } from './LiveDeskPage';
 import { LiveManagePage } from './LiveManagePage';
 
+vi.mock('./LiveCheckinPanel',()=>({LiveCheckinPanel:()=>null}));
 vi.mock('./liveApi', () => ({ liveApi: {
-  turnover: vi.fn(), options: vi.fn(), products: vi.fn(), overview: vi.fn(), roomDay: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), cancelSchedule: vi.fn(), start: vi.fn(), sessions: vi.fn(), session: vi.fn(),
+  checkinContext:vi.fn(),checkoutPreview:vi.fn(),turnover: vi.fn(), options: vi.fn(), products: vi.fn(), overview: vi.fn(), roomDay: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), cancelSchedule: vi.fn(), start: vi.fn(), sessions: vi.fn(), session: vi.fn(),
   candidates: vi.fn(), report: vi.fn(), submit: vi.fn(), reviewPreview: vi.fn(), workbench: vi.fn(), history: vi.fn(), commissions: vi.fn(), wages: vi.fn(), people: vi.fn(), rules: vi.fn(), createRule: vi.fn(), trial: vi.fn(),
   roomSettings:vi.fn(),trialPerson:vi.fn(),manualReport:vi.fn(),updateRule:vi.fn(),
   integrationStatus: vi.fn(), submissionStatus: vi.fn(), commissionPreview: vi.fn(),
@@ -31,7 +32,7 @@ const session = (o: Record<string, unknown> = {}) => ({ id: 7, scheduleId: 1, ro
 const detail = (o: Record<string, unknown> = {}) => ({ ...session(), products: [{ id: 1, code: 'SKU-A', name: '毛巾', spec: '' }], reports: [], commissions: [], wage: null, preview: null, me: { reportRoles: ['anchor'], canSubmit: false, isManager: false }, flow: null, ...o });
 const bench = (o: Record<string, unknown> = {}) => ({ today: '2026-09-28', month: '2026-09', identity: { isAnchor: true, isControl: false, canManage: false }, active: [], schedules: [sched()], recent: [], monthCommissionCents: 12345, monthWageCents: 20000, monthWageMinutes: 240, commissionRows: [], wageRows: [], ...o });
 
-beforeEach(() => { l.schedules.mockResolvedValue({rows:[],from:"",to:"",canManage:true}); l.sessions.mockResolvedValue({total:0,page:1,pageSize:8,rows:[]}); l.submissionStatus.mockResolvedValue({ready:true,message:'审核流程已就绪'}); l.turnover.mockResolvedValue({available:true,orderCount:0,turnoverCents:0,stores:[],queriedAt:'2026-09-28 12:00:00'} as never); window.localStorage.clear(); allow = ['features.live-desk.view']; l.wages.mockResolvedValue({month:'2026-09',scope:'all',totalCents:0,summary:[],rows:[]}); l.options.mockResolvedValue(opts() as never); l.integrationStatus.mockResolvedValue({ ready: true, code: 'ready', message: '' }); l.commissionPreview.mockResolvedValue(null); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
+beforeEach(() => { l.schedules.mockResolvedValue({rows:[],from:"",to:"",canManage:true}); l.sessions.mockResolvedValue({total:0,page:1,pageSize:8,rows:[]}); l.checkinContext.mockResolvedValue({...bench(),schedules:[],rooms:[]} as never); l.submissionStatus.mockResolvedValue({ready:true,message:'审核流程已就绪'}); l.turnover.mockResolvedValue({available:true,orderCount:0,turnoverCents:0,stores:[],queriedAt:'2026-09-28 12:00:00'} as never); window.localStorage.clear(); allow = ['features.live-desk.view']; l.wages.mockResolvedValue({month:'2026-09',scope:'all',totalCents:0,summary:[],rows:[]}); l.options.mockResolvedValue(opts() as never); l.integrationStatus.mockResolvedValue({ ready: true, code: 'ready', message: '' }); l.commissionPreview.mockResolvedValue(null); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const wrap = (ui: JSX.Element) => render(<MemoryRouter>{ui}</MemoryRouter>);
 

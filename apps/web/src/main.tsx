@@ -1,3 +1,4 @@
+import { TrialStartScan } from './pages/live/TrialStart';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
@@ -10,6 +11,7 @@ import './pages/finance/finance-data-pages.css';
 // 数据路由（createBrowserRouter）：只为了能用 useBlocker——表格编辑有没保存的修改时拦截站内跳转、后退前进。
 // 整个应用仍由 App 里的 <Routes> 分派页面，所以这里只有一条匹配所有地址的路由。
 const router = createBrowserRouter([
+  { path: '/trial-start', element: <TrialStartScan/> },
   { path: '*', element: <AuthProvider><App /></AuthProvider> },
 ]);
 

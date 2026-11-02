@@ -1,3 +1,5 @@
+import { LiveCheckinClosureService } from './live-checkin-closure.service';
+import { LiveTurnoverOrder } from './live-order-source';
 import { LiveManualProducts1766000000000 } from '../database/migrations/1766000000000-LiveManualProducts';
 import { livePeople, loadLiveAccess } from './live-access';
 import { LiveTurnoverService } from './live-turnover.service';
@@ -28,6 +30,8 @@ const at = (text: string) => new Date(`${text.replace(' ', 'T')}+08:00`);
 
 class FakeSource extends LiveOrderSource {
   orders: LiveOrder[] = [];
+  turnover: LiveTurnoverOrder[]=[];
+  async turnoverOrders(){return {available:!this.unavailable,reason:this.unavailable,orders:this.turnover,truncated:this.truncated};}
   refundMap = new Map<string, number>();
   down = false;
   unavailable = ''; truncated = false;
@@ -816,6 +820,88 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.submissionStatus(stranger)).rejects.toThrow(/无权/);
   });
 
+  it('扫码与工作台共享实际打卡：提前二次确认、中控核对、首报30分钟锁场、流程失败重试、运营依据及退款增量',async()=>{
+    clock('2026-12-01 10:00:00');source.down=false;source.unavailable='';source.truncated=false;source.orders=[];source.refundMap.clear();
+    const posA=await position(company,'扫码主播','live_anchor'),posC=await position(company,'扫码中控','live_control');
+    const aa=au(await mkUser(company,'qr-anchor','扫码主播',{positionId:posA,payType:'hourly',hourlyRate:5000}),company,'扫码主播',['features.live-desk.view']);
+    const cc=au(await mkUser(company,'qr-control','扫码中控',{positionId:posC,payType:'hourly',hourlyRate:3000}),company,'扫码中控',['features.live-desk.view']);
+    const [oldRoom]=await ds.query('SELECT data FROM resource_records WHERE company_id=? AND id=?',[company,ids.n1]);
+    const parent=(typeof oldRoom.data==='string'?JSON.parse(oldRoom.data):oldRoom.data).parentId;
+    const room=await rec(company,'locations','直播间-扫码测试',{name:'直播间-扫码测试',locationType:'room',parentId:parent});
+    const shop=await rec(company,'stores','扫码测试店',{name:'扫码测试店',platform:'douyin',jushuitanShopId:'QRSHOP'});
+    const account=await rec(company,'self-media','扫码测试号',{name:'扫码测试号',platform:'douyin',livePermission:true,storeIds:[shop]});
+    const plan=await schedules.create(manager,input({date:'2026-12-01',roomId:room,anchorId:aa.id,controlId:cc.id,douyinAccountId:account,storeId:shop,startTime:'14:00',endTime:'16:00'}));
+    const fingerprint=(await sessions.workbench(aa)).schedules.find(r=>r.id===plan.id)!.fingerprint;
+    const start={actualCheckin:true,scheduleId:plan.id,scheduleFingerprint:fingerprint,productIds:[ids.p1],channels:[{accountId:account,storeIds:[shop]}],startAt:'2026-12-01 01:00:00'};
+    await expect(sessions.start(aa,start)).rejects.toThrow(/二次确认/);
+    await expect(sessions.start(aa,{...start,scheduleFingerprint:'stale',confirmEarly:true})).rejects.toThrow(/排班已更新/);
+    const made=await sessions.start(aa,{...start,confirmEarly:true});
+    expect((await sessions.start(aa,{...start,confirmEarly:true})).id).toBe(made.id);
+    expect((await sessions.detail(aa,made.id)).startAt).toBe('2026-12-01 10:00:00');
+    await expect(sessions.start(foreign,{actualCheckin:true,sessionId:made.id,confirmDetails:true})).rejects.toThrow(/不存在/);
+    clock('2026-12-01 10:05:00');
+    await expect(sessions.start(cc,{actualCheckin:true,sessionId:made.id})).rejects.toThrow(/核对/);
+    await sessions.start(cc,{actualCheckin:true,sessionId:made.id,confirmDetails:true,channels:[{accountId:account,storeIds:[shop]}],productEntries:[{name:'中控核对后的产品'}]});
+    expect((await sessions.detail(cc,made.id)).products[0].name).toBe('中控核对后的产品');
+    source.turnover=[{...order('QR1',10000),orderTime:'2026-12-01 10:10:00'},{...order('QR2',10000),orderTime:'2026-12-01 11:05:00'},{...order('BEFORE',99999),orderTime:'2026-12-01 09:59:59'}];
+    source.refundMap.set('QR1',2000);
+    clock('2026-12-01 11:00:00');
+    const preview=await sessions.checkoutPreview(cc,made.id,'control');
+    expect(preview.salesCents).toBe(8000);expect(preview.wage?.minutes).toBe(55);
+    await sessions.report(cc,made.id,{role:'control',endAt:'2026-12-01 10:59:00',salesCents:999999,adSpendCents:0});
+    expect((await sessions.detail(cc,made.id)).reportDeadline).toBe('2026-12-01 11:30:00');
+    clock('2026-12-01 11:10:00');
+    await sessions.report(aa,made.id,{role:'anchor',endAt:'2026-12-01 08:00:00',salesCents:999999});
+    expect((await sessions.detail(aa,made.id)).endAt).toBe('2026-12-01 11:10:00');
+    expect((await sessions.detail(aa,made.id)).reportDeadline).toBe('2026-12-01 11:30:00');
+    await expect(sessions.submit(aa,made.id)).rejects.toThrow(/30分钟/);
+    clock('2026-12-01 11:20:00');
+    await sessions.report(operator,made.id,{role:'operator',endAt:'2026-12-01 11:10:00',salesCents:18000,storeLines:[{storeId:shop,platform:'douyin',salesCents:18000,adSpendCents:0,reason:'运营核实有效销售额'}]});
+    clock('2026-12-01 11:30:00');
+    await expect(sessions.report(aa,made.id,{role:'anchor',endAt:'2026-12-01 11:30:00',salesCents:0})).rejects.toThrow(/锁定/);
+    const autoFlow={start:jest.fn().mockRejectedValueOnce(new Error('模拟流程未发布')).mockImplementation((...args:Parameters<FlowService['start']>)=>flow.start(...args))};
+    const closure=new LiveCheckinClosureService(ds,{me:async(id:number)=>({name:id===aa.id?aa.name:cc.name,permissions:aa.permissions})} as never,autoFlow as never,source);
+    await closure.scan();expect((await sessions.detail(aa,made.id)).autoSubmitError).toContain('流程未发布');
+    clock('2026-12-01 11:31:00');await closure.scan();await closure.scan();
+    const ready=await sessions.detail(reviewer,made.id);expect(ready.status).toBe('submitted');expect(ready.reportsLocked).toBe(true);expect(ready.me.reportRoles).toEqual([]);
+    expect(autoFlow.start).toHaveBeenCalledTimes(2);
+    const saved=await ds.query('SELECT * FROM live_session_order_snapshots WHERE company_id=? AND session_id=?',[company,made.id]);expect(saved.map((r:Record<string,unknown>)=>r.order_id).sort()).toEqual(['QR1','QR2']);
+    await expect(sessions.reviewPreview(reviewer,made.id,{finalSource:'anchor'})).rejects.toThrow(/运营/);
+    await approve(made.id,{finalSource:'operator'});
+    const final=await sessions.detail(manager,made.id);expect(final.finalSalesSource).toBe('operator');expect(final.wages.map(w=>[w.role,w.minutes])).toEqual(expect.arrayContaining([['anchor',70],['control',55]]));
+    source.refundMap.set('QR1',5000);clock('2026-12-02 10:00:00');
+    const payroll=await settlements.generate(manager,'2026-12',undefined,{from:'2026-12-01',to:'2026-12-01'});
+    const detail=await settlements.detail(manager,payroll.id);expect(detail.refundTotalCents).toBe(3000);expect(detail.refunds.find(r=>r.orderId==='QR1')?.refundCents).toBe(5000);
+    const anchorLine=detail.lines.find(l=>l.role==='anchor')!;
+    expect(anchorLine.deductionCents).toBe(liveSettleLineFor({commissionCents:anchorLine.commissionCents,rateUnits:anchorLine.rateUnits,refundCents:3000}).deductionCents);
+    source.refundMap.set('QR1',6000);await expect(settlements.submit(manager,payroll.id)).rejects.toThrow(/退款已变化/);
+    source.down=true;await expect(settlements.generate(manager,'2026-12',undefined,{from:'2026-12-01',to:'2026-12-01'})).rejects.toThrow(/退款/);source.down=false;
+    // Only the anchor reports, while the scheduled control never clocks in.
+    clock('2026-12-02 15:00:00');source.turnover=[];
+    async function plannedStart(date:string,startTime:string,endTime:string) {
+      const plan=await schedules.create(manager,input({date,roomId:room,anchorId:aa.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime,endTime}));
+      const row=(await sessions.workbench(aa)).schedules.find(s=>s.id===plan.id)!;
+      return sessions.start(aa,{...start,scheduleId:plan.id,scheduleFingerprint:row.fingerprint});
+    }
+    const solo=await plannedStart('2026-12-02','15:00','16:00');
+    clock('2026-12-02 16:00:00');source.unavailable='模拟订单接口故障';
+    await sessions.report(aa,solo.id,{role:'anchor',endAt:'2026-12-02 15:30:00',salesCents:0});
+    expect((await sessions.detail(aa,solo.id)).ordersCaptureStatus).toBe('pending');
+    clock('2026-12-02 16:30:00');await closure.scan();
+    expect((await sessions.detail(reviewer,solo.id)).status).toBe('submitted');
+    await expect(approve(solo.id,{finalSource:'anchor'})).rejects.toThrow(/订单尚未完整归集/);
+    source.unavailable='';await closure.scan();
+    expect((await sessions.detail(reviewer,solo.id)).ordersCaptureStatus).toBe('ready');
+    await approve(solo.id,{finalSource:'anchor'});
+    const soloFinal=await sessions.detail(manager,solo.id);expect(soloFinal.wages.map(w=>w.role)).toEqual(['anchor']);expect(soloFinal.commissions.map(c=>c.role)).toEqual(['anchor']);
+    clock('2026-12-03 10:00:00');
+    const disputed=await plannedStart('2026-12-03','10:00','11:00');
+    source.turnover=[{...order('QR1',10000),orderTime:'2026-12-03 10:10:00'}];clock('2026-12-03 11:00:00');
+    await sessions.report(aa,disputed.id,{role:'anchor',endAt:'2026-12-03 10:30:00',salesCents:0});
+    const disputedDetail=await sessions.detail(aa,disputed.id);expect(disputedDetail.endAt).toBe('2026-12-03 11:00:00');expect(disputedDetail.ordersCaptureStatus).toBe('pending');expect(disputedDetail.ordersCaptureError).toContain('其他场次');expect(disputedDetail.reports[0].pending).toBe(true);
+
+
+  },30000);
   it('成功上播事务自动通知总经办，重复上播不重复通知；采用实际开播而非登记时间', async()=>{
     await ds.query("UPDATE live_sessions SET status='approved' WHERE company_id=? AND status='live'",[company]);
     const dept=await ds.manager.save(Department,ds.manager.create(Department,{companyId:company,name:'总经办',status:'active'}));
@@ -843,6 +929,37 @@ d('直播管理（真实数据库）', () => {
     await expect(management.manual(manager,{...body,scheduleId:sch.id})).rejects.toThrow(/已有场次/);
     await management.manual(manager,{...body,scheduleId:sch.id,sessionId:saved.id,startAt:'2026-03-12 10:20:00'});
     expect((await sessions.detail(manager,saved.id)).startAt).toBe('2026-03-12 10:20:00');
+  });
+
+  it('无排班拒绝直接开播，人事码只有一次有效，主播和中控共用全览里的同一场',async()=>{
+    clock('2026-12-10 11:00:00');
+    const trial=await new LiveManagementService(ds,source).trial(manager,{name:'扫码临时主播',hourlyRateCents:5000});
+    const shop=await rec(company,'stores','临播店铺',{name:'临播店铺',platform:'douyin',jushuitanShopId:'TRIALSHOP'});
+    const acct=await rec(company,'self-media','临播账号',{name:'临播账号',platform:'douyin',livePermission:true,storeIds:[shop]});
+    const body={roomId:ids.s1,anchorId:trial.id,controlId:control.id,channels:[{accountId:acct,storeIds:[shop]}],productEntries:[{name:'试播商品'}]};
+    await expect(sessions.start(anchor,{...body,actualCheckin:true})).rejects.toThrow(/没有排班/);
+    await expect(sessions.start(control,{...body,actualCheckin:true})).rejects.toThrow(/没有排班/);
+    await expect(sessions.issueTrial(stranger,body)).rejects.toThrow(/人事/);
+    const dept=await ds.manager.save(Department,ds.manager.create(Department,{companyId:company,name:'人力资源部',status:'active'}));
+    const hr=au(await mkUser(company,'trial-hr','人事',{departmentId:dept.id}),company,'人事');
+    await expect(sessions.issueTrial(hr,{...body,anchorId:anchor.id})).rejects.toThrow(/试播主播/);
+    const expired=await sessions.issueTrial(hr,body);
+    await ds.query('UPDATE live_trial_tickets SET expires_at=UTC_TIMESTAMP()-INTERVAL 1 MINUTE WHERE token_hash=?',[crypto.createHash('sha256').update(expired.token).digest('hex')]);
+    await expect(sessions.redeemTrial(expired.token)).rejects.toThrow(/过期/);
+    const {token}=await sessions.issueTrial(hr,body);
+    const [ttl]=await ds.query('SELECT TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),expires_at) remaining FROM live_trial_tickets WHERE token_hash=?',[crypto.createHash('sha256').update(token).digest('hex')]);
+    expect(Number(ttl.remaining)).toBeGreaterThan(1190);
+    expect(Number(ttl.remaining)).toBeLessThanOrEqual(1200);
+    const [one,two]=await Promise.allSettled([sessions.redeemTrial(token),sessions.redeemTrial(token)]);
+    const ok=[one,two].filter(r=>r.status==='fulfilled');
+    if (!ok.length && one.status==='rejected') throw one.reason;
+    expect(ok).toHaveLength(1);
+    const id=(ok[0] as PromiseFulfilledResult<{id:number}>).value.id;
+    const overview=await schedules.overview(manager,'2026-12-10');
+    expect(Object.values(overview.groups).flat().find(r=>r.id===ids.s1)?.live?.id).toBe(id);
+    expect((await sessions.checkinContext(control,ids.s1)).active.some(s=>s.id===id)).toBe(true);
+    expect(await sessions.start(control,{actualCheckin:true,sessionId:id,confirmDetails:true})).toEqual({id});
+    expect((await ds.query('SELECT role,user_id FROM live_session_checkins WHERE company_id=? AND session_id=? ORDER BY id',[company,id])).map((r:any)=>[r.role,Number(r.user_id)])).toEqual([['anchor',trial.id],['control',control.id]]);
   });
 
 });
