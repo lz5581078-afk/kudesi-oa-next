@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Not } from 'typeorm';
@@ -323,9 +324,12 @@ export class FlowService {
 
   private async notify(em: EntityManager, companyId: number, userIds: number[], n: { kind: string; title: string; body?: string; link?: string }, run?: FlowRun) {
     for (const uid of [...new Set(userIds)]) {
-      if (!(this.quietEms.has(em) && QUIET_KINDS.has(n.kind))) await em.insert(Notification, { companyId, userId: uid, kind: n.kind, title: n.title.slice(0, 200), body: n.body?.slice(0, 500) ?? null, link: n.link ?? null });
-      // 飞书通知（出站队列，独立开关默认关；只有 SKU 批量申请会发）：和站内通知同一个事务入队，幂等键带步骤编号
-      if (run && this.feishu) await this.feishu.enqueue(em, companyId, run.templateKey, `${run.id}:${n.kind}:${run.currentStepKey ?? ''}:${run.revision}`, { userId: uid, title: n.title, body: n.body, link: n.link, runId: run.id });
+      const key = run ? `${run.id}:${n.kind}:${run.currentStepKey ?? ''}:${run.revision}` : undefined;
+      const saved = !(this.quietEms.has(em) && QUIET_KINDS.has(n.kind))
+        ? await writeNotification(em, { companyId, userId: uid, kind: n.kind, title: n.title.slice(0, 200), body: n.body?.slice(0, 500) ?? null, link: n.link ?? null }, run ? { key, channel: 'flow', runId: run.id, resourceType: 'flow-run', resourceId: run.id } : {})
+        : null;
+      // Retain legacy template delivery for other employees, without duplicating opted-in notices.
+      if (run && this.feishu && !saved?.feishuQueued) await this.feishu.enqueue(em, companyId, run.templateKey, key!, { userId: uid, title: n.title, body: n.body, link: n.link, runId: run.id });
     }
   }
 

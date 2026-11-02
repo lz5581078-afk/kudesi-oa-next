@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -139,7 +140,7 @@ export class WorkspaceService {
   }
 
   private notify(em: EntityManager, user: AuthUser, userId: number, title: string, kind = 'task') {
-    return em.insert(Notification, { companyId: user.companyId, userId, kind, title: title.slice(0, 200), body: null, link: '/workbench/personal' });
+    return writeNotification(em, { companyId: user.companyId, userId, kind, title: title.slice(0, 200), body: null, link: '/workbench/personal' });
   }
 
   private async lockTask(em: EntityManager, user: AuthUser, id: number) {
