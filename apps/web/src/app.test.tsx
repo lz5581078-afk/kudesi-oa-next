@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createChecker, CurrentUserDto, EffectivePermissions } from '@kudesi/shared';
 
+const { refreshCurrent } = vi.hoisted(() => ({ refreshCurrent: vi.fn() }));
 let currentUser: CurrentUserDto | null = null;
 let platformAdmin: { id: number; name: string; account: string } | null = null;
 
@@ -14,7 +15,7 @@ vi.mock('./auth/AuthContext', () => ({
     can: currentUser ? createChecker(currentUser.permissions) : () => false,
     login: vi.fn(),
     logout: vi.fn(),
-    refresh: vi.fn(),
+    refresh: refreshCurrent,
   }),
 }));
 
@@ -50,6 +51,7 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   currentUser = null;
+  refreshCurrent.mockReset().mockResolvedValue(undefined);
   platformAdmin = null;
   apiMock.mockReset();
   apiMock.mockImplementation(async (path) => path === '/workspace/catalog' ? ({ positions: [], defaultPositionId: null, canBrowse: false }) as never : ({ items: [], rows: [], total: 0, counts: { pending: 0, overdue: 0, returned: 0, cc: 0 } }) as never);
@@ -67,6 +69,23 @@ describe('登录与菜单', () => {
     expect(screen.queryByRole('button', { name: /稍后/ })).toBeNull();
     expect(screen.queryByRole('navigation', { name: '一级导航' })).toBeNull();
     status.mockRestore(); sessionStorage.removeItem('kudesi.feishu-enrollment-deferred');
+  });
+
+  it('绑定成功刷新员工身份时保留回调页面，不会丢失成功或关闭通知的结果', async () => {
+    window.history.replaceState(null, '', '/feishu-bind?code=synthetic&state=synthetic');
+    currentUser = userWith({ isCompanyAdmin: false, allow: [], deny: [] }, { feishuBindingPending: true });
+    refreshCurrent.mockImplementation(async () => { currentUser = { ...currentUser!, feishuBindingPending: undefined }; });
+    const complete = vi.spyOn(feishuApi, 'complete').mockResolvedValue({ bound: true, allNotificationsEnabled: true });
+    let finish!: (value: Awaited<ReturnType<typeof feishuApi.status>>) => void;
+    const status = vi.spyOn(feishuApi, 'status').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const view = renderAt('/feishu-bind');
+    await waitFor(() => expect(status).toHaveBeenCalled());
+    view.rerender(<MemoryRouter initialEntries={['/feishu-bind']}><App /></MemoryRouter>);
+    finish({ configured: true, bound: true, allNotificationsEnabled: true, notificationsEnabled: false });
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('公司通知开关尚未开启'));
+    expect(complete).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/授权不完整/)).toBeNull();
+    complete.mockRestore(); status.mockRestore();
   });
 
   it('扫码入职入口免登录，点直接登录可离开扫码页', async () => {

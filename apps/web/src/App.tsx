@@ -184,8 +184,8 @@ export function App() {
     );
   }
 
+  if (location.pathname === '/feishu-bind') return <FeishuBindCallback />;
   if (user.feishuBindingPending) {
-    if (location.pathname === '/feishu-bind') return <FeishuBindCallback />;
     return <FeishuEnrollmentSetup key={`${user.companyId}:${user.id}`} />;
   }
   return (
@@ -193,7 +193,6 @@ export function App() {
       <Route element={<Shell />}>
 
         <Route index element={<Navigate to="/workbench/desk" replace />} />
-        <Route path="/feishu-bind" element={<FeishuBindCallback />} />
         <Route path="/account/password" element={<ChangePasswordPage />} />
         {NAV_SECTIONS.flatMap((section) =>
           section.pages
