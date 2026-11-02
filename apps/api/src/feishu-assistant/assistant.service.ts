@@ -24,7 +24,7 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
   constructor(@InjectDataSource() private readonly ds: DataSource, private readonly crypto: CryptoService, private readonly feishu: FeishuClient) {}
 
   onModuleInit() {
-    if (process.env.NODE_ENV === 'test' || process.env.OUTBOX_WORKER === 'off') return;
+    if (process.env.NODE_ENV === 'test' || process.env.FEISHU_ASSISTANT_WORKER === 'off') return;
     this.timer = setInterval(() => void this.tick(), 15_000);
     this.timer.unref();
     void this.tick();
@@ -32,6 +32,7 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
     for (const c of this.connections.values()) c.client.close({ force: true });
     this.connections.clear();
   }
@@ -51,7 +52,7 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
       enabled: !!cfg?.enabled && !!sw?.enabled, morningEnabled: cfg?.morningEnabled ?? true, welcomeEnabled: cfg?.welcomeEnabled ?? true,
       morningText: cfg?.morningText ?? MORNING_TEXT, welcomeText: cfg?.welcomeText ?? WELCOME_TEXT,
       departmentIds: cfg?.departmentIds ?? ['0'], timezone: 'Asia/Shanghai', time: '08:00',
-      eventConnection: this.connections.get(companyId)?.client.getConnectionStatus().state ?? 'not_started', jobs,
+      workerRunning: !!this.timer, eventConnection: this.connections.get(companyId)?.client.getConnectionStatus().state ?? 'not_started', jobs,
     };
   }
   async save(user: AuthUser, input: AssistantInput) {
