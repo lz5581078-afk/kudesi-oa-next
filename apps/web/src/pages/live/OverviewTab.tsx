@@ -1,3 +1,4 @@
+import { RoomSessionPanel } from './RoomSessionPanel';
 import { roomProductItems } from './roomProducts';
 import { productText } from './liveProducts';
 import { useAuth } from '../../auth/AuthContext';
@@ -19,17 +20,11 @@ const STATE_LABEL: Record<TimelineItem['state'], string> = { live: '直播中', 
 
 function Tile({ t, day, now, onOpen,onEdit }: { t: RoomTile; day: string; now: string; onOpen: () => void;onEdit?:()=>void }) {
   const missed=t.timeline.some(i=>i.state==='missed'||i.state==='due');
-  const elapsed=t.live?Math.max(0,Math.round((Date.parse(now.replace(' ','T')+'+08:00')-Date.parse(t.live.startAt.replace(' ','T')+'+08:00'))/60000)):0;
-  const planned=t.live?.plannedEnd?Math.max(1,(Date.parse(t.live.plannedEnd.replace(' ','T')+'+08:00')-Date.parse(t.live.startAt.replace(' ','T')+'+08:00'))/60000):null;
-  const progress=planned?Math.min(100,Math.round(elapsed/planned*100)):null;
   const state=t.status==='live'?'live':missed?'missed':t.status;
   return <article className={`live-room ${t.big?'big':''} state-${state}`} aria-label={`${t.name}，${t.statusLabel}`}>
     <h3><button className="link-button" onClick={onOpen}>{t.shortName||t.name}</button><span className={`live-status status-${state}`}>{t.status==='idle'&&missed?'待上播':t.statusLabel}</span></h3>
     <div className="live-room-meta"><small>房间管理员 <strong>{t.ownerName||'未设置'}</strong></small><small>房间产品 <span className="live-room-product-items">{roomProductItems(t.products).length ? roomProductItems(t.products).map((p,i) => <strong key={i}>{p}</strong>) : <strong>未设置</strong>}</span></small></div>
-    <div className="live-room-people"><span>主播<strong>{t.live?.anchor.name||'—'}</strong></span><span>中控<strong>{t.live?.control?.name||'—'}</strong></span></div>
-    {t.live&&<small className="muted">{t.live.operator?`运营 ${t.live.operator.name} · `:''}{t.live.douyinAccount.name}</small>}
-    <div className="live-room-times"><span>开播<strong>{hm(t.live?.startAt,day)}</strong></span><span>预计下播<strong>{hm(t.live?.plannedEnd,day)}</strong></span><span>已播<strong>{t.live?minutesText(elapsed):'—'}</strong></span></div>
-    {t.live&&<><small className="live-current-products">本场产品 <strong>{productText(t.live.products)}</strong></small><div className="live-room-progress"><div role="progressbar" aria-label="本场直播进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress??undefined} className="live-progress-track"><i style={{width:`${progress??0}%`}}/></div><small>{progress===null?'临时场次，未设置预计下播':elapsed>planned!?'已超过预计下播时间':`直播进度 ${progress}%`}</small></div></>}
+    <RoomSessionPanel session={t.current ?? t.live} day={day} now={now} />
     <section className="live-next" aria-label={`${t.shortName || t.name}下一场`}>
       {t.next ? <>
         <div className="live-next-heading"><strong className="live-next-time">下一场 {hm(t.next.start,day)}–{hm(t.next.plannedEnd,day)}</strong><span className="live-next-products" title={`产品 ${productText(t.next.products)}`} aria-label={`产品 ${productText(t.next.products)}`}><strong>{productText(t.next.products)}</strong></span></div>

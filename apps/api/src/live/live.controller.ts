@@ -1,3 +1,4 @@
+import { LiveTurnoverService } from './live-turnover.service';
 import { LiveManagementService } from './live-management.service';
 import { liveIsDay } from '@kudesi/shared';
 import { liveFail } from './live-core';
@@ -183,6 +184,7 @@ class ProductQuery {
 export class LiveController {
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
+    private readonly turnover: LiveTurnoverService,
     private readonly management: LiveManagementService,
     private readonly schedules: LiveScheduleService, private readonly sessions: LiveSessionService, private readonly ledger: LiveLedgerService, private readonly settlements: LiveSettlementService,
   ) {}
@@ -224,6 +226,9 @@ export class LiveController {
   updateSchedule(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ScheduleDto) { return this.schedules.update(u, id, b); }
   @RequirePermission('live.manage') @Post('schedules/:id/cancel')
   cancelSchedule(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: CancelDto) { return this.schedules.cancel(u, id, b.reason); }
+
+  @AuthenticatedOnly() @Get('sessions/:id/turnover')
+  sessionTurnover(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.turnover.read(u, id); }
 
   // ---- 场次 ----
   @AuthenticatedOnly() @Post('sessions')
