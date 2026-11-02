@@ -6,6 +6,8 @@ import { AuthUser } from '../common/auth.decorators';
 import { AuditLog, OutboxJob, OutboxSwitch } from '../entities';
 import { ExternalConfigService, FeishuConfig } from '../integrations/external-config.service';
 import { writeNotification } from '../outbox/write-notification';
+import { createHash } from 'crypto';
+import { User } from '../entities';
 
 export const STAFF_TEST_TITLE = 'OA 飞书通知测试';
 export const STAFF_TEST_BODY = '这是一条 OA 测试通知，用于确认 OA 与你绑定的飞书账号之间的消息通道是否正常，无需办理业务。';
@@ -51,6 +53,32 @@ export class StaffFeishuService {
     });
   }
   async statuses(actor:AuthUser) {this.permission(actor);return {rows:await this.load(this.ds.manager,actor.companyId)};}
+  private async resetPlan(em:EntityManager,actor:AuthUser,lock=false) {
+    const admin=await em.findOneBy(User,{id:actor.id,companyId:actor.companyId,status:'active',isCompanyAdmin:true});
+    if(!actor.permissions.isCompanyAdmin||!admin)throw new ForbiddenException('仅公司管理员可以取消全员飞书关联');
+    const [company]=await em.query(`SELECT name,status FROM companies WHERE id=?${lock?' FOR UPDATE':''}`,[actor.companyId]);
+    const cfg=await this.config.read<FeishuConfig>(actor.companyId,'feishu');
+    if(company?.status!=='active'||!cfg?.enabled||!cfg.appId||!cfg.appSecret||!cfg.tenantKey)throw new BadRequestException('请先确认公司飞书授权配置可用，避免取消后无法重新绑定');
+    // Lock the company binding range; reset and bind completion share the company lock.
+    const rows=await em.query(`SELECT id,user_id FROM feishu_identities WHERE company_id=? ORDER BY id${lock?' FOR UPDATE':''}`,[actor.companyId]);
+    const userIds=[...new Set<number>(rows.map((r:any)=>Number(r.user_id)))].sort((a,b)=>a-b);
+    const employees=userIds.length?await em.query('SELECT id,name,status,employment_type FROM users WHERE company_id=? AND id IN (?) ORDER BY id',[actor.companyId,userIds]):[];
+    const fingerprint=createHash('sha256').update(JSON.stringify([actor.companyId,actor.id,cfg.appId,cfg.tenantKey,rows.map((r:any)=>[String(r.id),Number(r.user_id)])])).digest('hex');
+    return {companyName:company.name,bindingCount:rows.length,employeeCount:userIds.length,includesSelf:userIds.includes(actor.id),employees:employees.map((u:any)=>({id:Number(u.id),name:u.name,status:u.status,employmentType:u.employment_type})),fingerprint};
+  }
+  async resetPreview(actor:AuthUser) {return this.resetPlan(this.ds.manager,actor);}
+  async resetBindings(actor:AuthUser,fingerprint:string) {
+    return this.ds.transaction(async em=>{
+      const plan=await this.resetPlan(em,actor,true);
+      if(plan.fingerprint!==fingerprint)throw new ConflictException('绑定情况已变化，请重新预览后再取消关联');
+      if(!plan.bindingCount)throw new BadRequestException('当前公司没有需要取消的飞书关联');
+      // Invalidate both unused and already-consumed in-flight authorization callbacks.
+      await em.query('DELETE FROM feishu_oauth_states WHERE company_id=?',[actor.companyId]);
+      await em.query('DELETE FROM feishu_identities WHERE company_id=?',[actor.companyId]);
+      await em.insert(AuditLog,{companyId:actor.companyId,actorId:actor.id,action:'staff.feishu.reset_all',resourceType:'company',resourceId:String(actor.companyId),detail:{bindingCount:plan.bindingCount,employeeCount:plan.employeeCount,userIds:plan.employees.map((u:any)=>u.id),reason:'管理员要求全员重新完成本人飞书绑定'}});
+      return {bindingCount:plan.bindingCount,employeeCount:plan.employeeCount,includesSelf:plan.includesSelf,remainingBindings:0};
+    });
+  }
   private key(actor:AuthUser,id:number,requestId:string){return `feishu:staff-test:${actor.id}:${requestId}:${id}`;}
   async sendTest(actor:AuthUser,id:number,requestId:string,content:{title?:string;body?:string}={}) {
     this.permission(actor,true);
