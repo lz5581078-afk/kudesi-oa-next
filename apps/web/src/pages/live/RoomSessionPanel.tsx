@@ -50,7 +50,7 @@ export function RoomSessionPanel({ session, day, now }: { session: RoomCurrentSe
       {(error || (data && !data.available)) && <p className="notice error" role="alert">{error || data?.reason}，不会按零元计算。</p>}
       {!data && !error && <p role="status">正在读取聚水潭订单…</p>}
       {data && <><div className="live-scroll"><table className="data-table live-turnover-table"><thead><tr><th>店铺 / 平台</th><th>有效单数</th><th>有效营业额</th><th>本场订单退款</th></tr></thead><tbody>{data.stores.map(s => <tr key={s.storeId}><td>{s.storeName}<small>{LIVE_PLATFORMS[s.platform] || s.platform}</small>{!s.available && <small className="error-text">{s.reason}</small>}</td><td data-label="有效单数">{s.available ? `${s.orderCount} 单` : '—'}</td><td data-label="有效营业额">{s.available ? money(s.turnoverCents!) : '—'}</td><td data-label="本场订单退款">{s.available ? money(s.refundCents!) : '—'}</td></tr>)}</tbody><tfoot><tr><th>合计</th><td data-label="有效单数">{data.available ? `${data.orderCount} 单` : '—'}</td><td data-label="有效营业额">{data.available ? money(data.turnoverCents!) : '暂不可用'}</td><td data-label="本场订单退款">{data.available ? money(data.refundCents!) : '—'}</td></tr></tfoot></table></div>
-        <p className="muted">有效营业额＝本场实付金额－本场订单已确认退款，全额退款不计有效单数。更新于 {data.queriedAt}，约每 30 秒刷新。</p></>}
+        <p className="muted">数据来自聚水潭。有效营业额＝本场实付金额－本场订单已确认退款，全额退款不计有效单数。更新于 {data.queriedAt}，约每 30 秒刷新。</p></>}
     </Modal>}
   </section>;
 }
