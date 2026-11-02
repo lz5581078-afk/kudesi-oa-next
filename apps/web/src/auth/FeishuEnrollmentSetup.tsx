@@ -24,7 +24,7 @@ export function FeishuEnrollmentSetup({ onLater }: { onLater: () => void }) {
   }, []);
   return <main className="enrollment-page"><section className="enrollment-card">
     <span className="enrollment-brand">{user?.companyName ?? '小白全流程系统'}</span>
-    <h1>绑定飞书，接收入职后的通知</h1>
+    <h1>绑定飞书，接收通知</h1>
     <p className="enrollment-intro">OA 账号已建立。下一步使用你本人的企业飞书账号确认身份，系统会将两个账号绑定。</p>
     {busy && <p role="status">正在前往飞书授权…</p>}
     {error && <div role="alert" className="notice error">{error}<p>OA 账号已经保留，无需重新入职。可重试或联系公司管理员检查飞书配置。</p></div>}
