@@ -1,3 +1,4 @@
+import { LiveManualProducts1766000000000 } from '../database/migrations/1766000000000-LiveManualProducts';
 import { livePeople, loadLiveAccess } from './live-access';
 import { LiveManagementService } from './live-management.service';
 /** 直播管理的真实数据库测试。RESOURCE_DB_TEST=1 TEST_DB_NAME=kudesi_oa_test_u9 npx jest --runInBand live */
@@ -635,6 +636,45 @@ d('直播管理（真实数据库）', () => {
     expect((await livePeople(ds.manager,cid)).controls.map(p=>p.id)).toEqual([duplicate]); // 原live_control资格仍保留。
     expect((await loadLiveAccess(ds.manager,actor)).isControl).toBe(false);
     await expect(schedules.update(managerActor,schedule.id,{...body,controlId:primary})).rejects.toThrow(/不是中控岗位/);
+  });
+
+  it('手填排场产品新增/编辑/导入/上播/详情/全览完整回读，旧引用不丢失且不允许伪造关联', async () => {
+    const cid = (await ds.manager.save(Company, ds.manager.create(Company,{code:`mp${crypto.randomBytes(5).toString('hex')}`,name:'手填产品测试',status:'active'}))).id;
+    await ensureDefaultLiveRules(ds.manager,cid);
+    const adminId = await mkUser(cid,'mp-admin','管理员',{isCompanyAdmin:true});
+    const boss: AuthUser = {id:adminId,companyId:cid,name:'管理员',permissions:{isCompanyAdmin:true,allow:[],deny:[]}};
+    const pos = await position(cid,'主播','live_anchor'), anchorId = await mkUser(cid,'mp-anchor','主播',{positionId:pos});
+    const actor = au(anchorId,cid,'主播',['features.live-desk.view']);
+    const corridor = await rec(cid,'locations','西走廊办公室',{name:'西走廊办公室',locationType:'floor'});
+    const room = await rec(cid,'locations','直播间-北1',{name:'直播间-北1',locationType:'room',parentId:corridor});
+    const store = await rec(cid,'stores','测试店',{name:'测试店',platform:'douyin',jushuitanShopId:'MP1'});
+    const account = await rec(cid,'self-media','测试号',{name:'测试号',platform:'douyin',livePermission:true,storeId:store});
+    const legacy = await rec(cid,'finance-base-codes','MP-SKU',{name:'旧引用商品',spec:'大包'});
+    clock('2026-12-01 09:00:00');
+    const body = {date:'2026-12-01',roomId:room,startTime:'10:00',endTime:'11:00',anchorId,douyinAccountId:account,storeId:store};
+    const entries = [{name:'  花育25 大包  '},{name:'甜玉米种子'},{productId:legacy}];
+    const created = await schedules.create(boss,{...body,productEntries:entries});
+    const first = (await schedules.list(boss,{from:body.date,to:body.date})).rows.find(r=>r.id===created.id)!;
+    expect(first.products).toEqual([{id:null,code:'',name:'花育25 大包',spec:''},{id:null,code:'',name:'甜玉米种子',spec:''},{id:legacy,code:'MP-SKU',name:'旧引用商品',spec:'大包'}]);
+    await schedules.update(boss,created.id,{...body,productEntries:[{name:'茄子苗'},{name:'甜玉米种子'},{productId:legacy}]});
+    const previous = await schedules.previous(boss,{roomId:room,date:'2026-12-02'});
+    expect(previous!.products.map(p=>p.name)).toEqual(['茄子苗','甜玉米种子','旧引用商品']);
+    const foreignProduct = await rec(foreign.companyId,'finance-base-codes','MP-FOREIGN',{name:'外公司商品'});
+    for (const invalid of [[{name:' '}],[{name:'x'.repeat(201)}],[{productId:0}],[{productId:legacy,name:'冒认名称'}],[{productId:foreignProduct}],[{name:'名称',code:'伪造编码'}],Array.from({length:101},()=>({name:'产品'}))]) {
+      await expect(schedules.create(boss,{...body,date:'2026-12-02',productEntries:invalid} as never)).rejects.toThrow(/产品/);
+    }
+    await expect(schedules.create(boss,{...body,date:'2026-12-02',productIds:[legacy],productEntries:[{name:'歧义'}]})).rejects.toThrow(/两种格式/);
+    clock('2026-12-01 10:00:00');
+    const started = await sessions.start(actor,{scheduleId:created.id,productEntries:[{name:'茄子苗'},{name:'甜玉米种子'},{productId:legacy}]});
+    const detail = await sessions.detail(actor,started.id);
+    expect(detail.products).toEqual(previous!.products);
+    const tile = (await schedules.overview(boss,body.date)).groups.north.find(r=>r.id===room)!;
+    expect(tile.live!.products).toEqual(previous!.products);
+    const [stored] = await ds.query('SELECT SUM(base_code_id IS NULL) manual_count,SUM(base_code_id=?) referenced_count FROM live_session_products WHERE company_id=? AND session_id=?',[legacy,cid,started.id]);
+    expect(Number(stored.manual_count)).toBe(2); expect(Number(stored.referenced_count)).toBe(1);
+    const qr=ds.createQueryRunner(); await qr.connect();
+    try { await expect(new LiveManualProducts1766000000000().down(qr)).rejects.toThrow(/手填场次产品/); } finally { await qr.release(); }
+    await expect(sessions.detail(foreign,started.id)).rejects.toThrow(/不存在/);
   });
 
 });

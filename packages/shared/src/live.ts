@@ -465,3 +465,7 @@ export function liveRooms(locations: readonly LiveLocation[]): LiveRoom[] {
   for (const root of locations.filter((l) => String(l.name || '').trim() === LIVE_CORRIDOR_NAME && locActive(l))) { seen.add(root.id); visit(root, []); }
   return liveSortRooms(rooms);
 }
+
+/** 场次产品可以引用原基础编码，也可只保存手填名称；手填项不伪造编码编号。 */
+export interface LiveProductSnapshot { id: number | null; code: string; name: string; spec: string }
+export interface LiveProductEntry { productId?: number; name?: string }

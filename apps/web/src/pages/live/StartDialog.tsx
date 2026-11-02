@@ -1,10 +1,13 @@
+import type { LiveProductSnapshot } from '@kudesi/shared';
+import { ManualProductEditor } from './ManualProductEditor';
+import { productEntries, emptyManualProduct } from './liveProducts';
 import { ChannelPicker, initialChannels } from './ChannelPicker';
 import { useEffect, useState } from 'react';
 import { liveApi, type Options, type Product, type ScheduleRow } from './liveApi';
 import { errText, nowText } from './liveFormat';
 import { Modal, names } from './liveUi';
 
-/** 报上播：从排场带出（人、房间已定），或临时加场；必须选有直播权限的账号、关联店铺和至少 1 个在卖产品。 */
+/** 报上播：从排场带出（人、房间已定），或临时加场；必须选有直播权限的账号、关联店铺，并至少填写或选择 1 个在卖产品。 */
 export function StartDialog({ schedule, identity, onClose, onDone }: { schedule: ScheduleRow | null; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; onClose: () => void; onDone: (sessionId: number) => void }) {
   const [opts, setOpts] = useState<Options | null>(null);
   const [error, setError] = useState('');
@@ -17,26 +20,27 @@ export function StartDialog({ schedule, identity, onClose, onDone }: { schedule:
   const [startAt, setStartAt] = useState(nowText());
   const [keyword, setKeyword] = useState('');
   const [found, setFound] = useState<Product[]>([]);
-  const [picked, setPicked] = useState<Product[]>(schedule?.products ?? []);
+  const [picked, setPicked] = useState<LiveProductSnapshot[]>(schedule ? (schedule.products?.length ? schedule.products : [emptyManualProduct()]) : []);
 
   useEffect(() => { liveApi.options().then(setOpts).catch((e) => setError(errText(e, '加载选项失败'))); }, []);
   useEffect(() => {
+    if (schedule) return;
     const t = setTimeout(() => { liveApi.products(keyword.trim()).then(setFound).catch(() => setFound([])); }, 250);
     return () => clearTimeout(t);
-  }, [keyword]);
+  }, [keyword, schedule]);
 
-  const toggle = (p: Product) => setPicked((cur) => (cur.some((x) => x.id === p.id) ? cur.filter((x) => x.id !== p.id) : cur.length >= 100 ? cur : [...cur, p]));
+  const toggle = (p: LiveProductSnapshot) => setPicked((cur) => (cur.some((x) => x.id === p.id) ? cur.filter((x) => x.id !== p.id) : cur.length >= 100 ? cur : [...cur, p]));
 
   async function submit() {
     setError('');
     if (!schedule && !roomId) return setError('请选择直播间');
     if (!channels.length || channels.some(c=>!c.storeIds.length)) return setError('请选择直播账号及关联店铺');
-    if (!picked.length) return setError('请至少选择 1 个在卖产品');
+    if (!productEntries(picked).length) return setError(schedule ? '请至少填写 1 个在卖产品' : '请至少选择 1 个在卖产品');
     setBusy(true);
     try {
       const r = await liveApi.start({
         scheduleId: schedule?.id ?? null, roomId: roomId ? Number(roomId) : null, anchorId: anchorId ? Number(anchorId) : null, controlId: controlId ? Number(controlId) : null, operatorId: operatorId ? Number(operatorId) : null,
-        channels,douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], productIds: picked.map((p) => p.id), startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
+        channels,douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], ...(schedule ? { productEntries: productEntries(picked) } : { productIds: picked.flatMap((p) => p.id === null ? [] : [p.id]) }), startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
       });
       onDone(r.id);
     } catch (e) { setError(errText(e)); } finally { setBusy(false); }
@@ -62,7 +66,7 @@ export function StartDialog({ schedule, identity, onClose, onDone }: { schedule:
           <ChannelPicker options={opts} value={channels} onChange={setChannels}/>
           <label className="live-field">上播时间<input aria-label="上播时间" value={startAt} onChange={(e) => setStartAt(e.target.value)} placeholder="2026-03-01 20:00" /></label>
 
-          <div className="wide live-field">
+          {schedule ? <ManualProductEditor products={picked} onChange={setPicked} /> : <div className="wide live-field">
             <span>在卖产品（{picked.length}/100，至少 1 个）</span>
             <input aria-label="搜索产品" type="search" placeholder="按编码或名称搜索" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
             <div className="live-pickbox" aria-label="产品列表">
@@ -72,7 +76,7 @@ export function StartDialog({ schedule, identity, onClose, onDone }: { schedule:
               ))}
             </div>
             {picked.length > 0 && <div className="live-chips" aria-label="已选产品">{picked.map((p) => <button type="button" key={p.id} className="pill" onClick={() => toggle(p)} title="点击移除">{p.code} ×</button>)}</div>}
-          </div>
+          </div>}
         </div>
       )}
       {schedule && opts && <p className="muted">本场人员：{names(schedule.anchor, schedule.control, schedule.operator)}</p>}

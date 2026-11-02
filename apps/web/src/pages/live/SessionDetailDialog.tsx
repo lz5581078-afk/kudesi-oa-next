@@ -44,7 +44,7 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
             {s.finalSalesCents !== null && <div><dt className="muted">最终销售额</dt><dd>{money(s.finalSalesCents)}（{LIVE_FINAL_SOURCES[s.finalSalesSource ?? ''] ?? ''}{s.finalSalesReason ? `：${s.finalSalesReason}` : ''}）</dd></div>}
             {s.approvedAt && <div><dt className="muted">审核</dt><dd>{s.approverName} · {dt(s.approvedAt)}</dd></div>}
           </dl>
-          <div><strong>在卖产品（{s.products.length}）</strong><div className="live-chips">{s.products.map((p) => <span key={p.id} className="pill" title={p.spec}>{p.code} {p.name}</span>)}</div></div>
+          <div><strong>在卖产品（{s.products.length}）</strong><div className="live-chips">{s.products.map((p, i) => <span key={p.id ?? `manual-${i}`} className="pill" title={p.spec}>{p.code} {p.name}</span>)}</div></div>
           {s.reports.length > 0 ? (
             <div className="live-scroll"><table className="data-table" aria-label="下播报告">
               <thead><tr><th>角色</th><th>填报人</th><th>下播时间</th><th className="num">销售额</th><th className="num">订单合计</th><th className="num">订单数</th><th className="num">投流</th></tr></thead>

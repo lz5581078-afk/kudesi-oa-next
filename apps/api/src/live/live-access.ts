@@ -1,7 +1,7 @@
 import { EntityManager } from 'typeorm';
-import { liveRooms, type LiveLocation, type LiveRoom } from '@kudesi/shared';
+import { liveRooms, type LiveLocation, type LiveRoom, type LiveProductSnapshot, type LiveProductEntry } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
-import { Row, can, liveFail, positionTypesOf } from './live-core';
+import { Row, can, idOf, liveFail, positionTypesOf } from './live-core';
 
 /**
  * 直播管理里“这个人能做什么”：
@@ -142,4 +142,30 @@ export async function liveProducts(em: EntityManager, companyId: number, ids: nu
   if (keyword) { where.push("(title LIKE ? OR search_text LIKE ?)"); params.push(`%${keyword}%`, `%${keyword.toLowerCase()}%`); }
   const rows: Row[] = await em.query(`SELECT id, title, data FROM resource_records WHERE ${where.join(' AND ')} ORDER BY title LIMIT ${ids ? 200 : 50}`, params);
   return rows.map((r) => ({ id: Number(r.id), code: r.title, name: json(r.data).name ?? '', spec: json(r.data).spec ?? '' }));
+}
+
+/** 原产品编号接口继续兼容；新输入逐项区分真实引用与手填名称，保留顺序。 */
+export async function resolveLiveProducts(em: EntityManager, companyId: number, input: { productIds?: number[]; productEntries?: LiveProductEntry[] }, required = false): Promise<LiveProductSnapshot[]> {
+  if (input.productIds !== undefined && input.productEntries !== undefined) liveFail('产品输入不能同时使用两种格式', 400);
+  if ((input.productIds != null && !Array.isArray(input.productIds)) || (input.productEntries != null && !Array.isArray(input.productEntries))) liveFail('产品格式无效', 400);
+  const entries: LiveProductEntry[] = input.productEntries ?? (input.productIds ?? []).map((productId) => ({ productId }));
+  if (entries.length > 100) liveFail('最多填写 100 个产品', 400);
+  if (required && !entries.length) liveFail('请至少填写 1 个在卖产品', 400);
+  for (const e of entries) {
+    if (!e || typeof e !== 'object' || Array.isArray(e) || Object.keys(e).some((k) => !['productId', 'name'].includes(k))) liveFail('产品格式无效', 400);
+    const hasId = e.productId != null, hasName = e.name != null;
+    if (hasId === hasName) liveFail('每项产品只能填写名称或引用已有产品', 400);
+    if (hasId && (!Number.isSafeInteger(e.productId) || !idOf(e.productId))) liveFail('产品编号无效', 400);
+    if (hasName && (typeof e.name !== 'string' || !e.name.trim() || e.name.trim().length > 200)) liveFail('产品名称不能为空且不能超过 200 个字符', 400);
+  }
+  const ids = [...new Set(entries.filter((e) => e.productId != null).map((e) => e.productId!))];
+  const catalog = new Map((await liveProducts(em, companyId, ids)).map((p) => [p.id, p]));
+  if (catalog.size !== ids.length) liveFail('有产品不存在或已停用，请重新选择', 400);
+  const used = new Set<number>(), products: LiveProductSnapshot[] = [];
+  for (const e of entries) {
+    if (e.productId != null) {
+      if (!used.has(e.productId)) { products.push(catalog.get(e.productId)!); used.add(e.productId); }
+    } else products.push({ id: null, code: '', name: e.name!.trim(), spec: '' });
+  }
+  return products;
 }
