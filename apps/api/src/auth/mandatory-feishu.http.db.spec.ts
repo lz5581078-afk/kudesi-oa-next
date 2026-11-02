@@ -19,6 +19,7 @@ import { AuthService } from './auth.service';
 import { FeishuAuthController } from './feishu-auth.controller';
 import { FeishuAuthService } from './feishu-auth.service';
 import { FeishuBindingPolicy } from './feishu-binding-policy';
+import { StaffFeishuService } from '../org/staff-feishu.service';
 
 @Controller('binding-policy-test')
 class BusinessProbe {
@@ -90,7 +91,8 @@ d('全员强制飞书绑定：真实HTTP/JWT/权限守卫及隔离MySQL', () => 
     expect((await request('binding-policy-test', token(manual), {})).status).toBe(201);
   });
   it('解绑后原JWT立即失效于业务访问，登录状态恢复仍只允许绑定', async () => {
-    await ds.query('DELETE FROM feishu_identities WHERE company_id=? AND user_id=?', [manual.companyId, manual.id]);
+    const reset=new StaffFeishuService(ds,config),actor={id:admin.id,companyId:company.id,name:admin.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}};
+    await reset.resetBindings(actor,(await reset.resetPreview(actor)).fingerprint);
     const response = await request('binding-policy-test', token(manual)); expect(response.status).toBe(403);
     expect((await response.json()).code).toBe('FEISHU_BINDING_REQUIRED');
     expect((await (await request('auth/me', token(manual))).json()).feishuBindingPending).toBe(true);
