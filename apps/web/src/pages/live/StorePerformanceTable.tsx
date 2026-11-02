@@ -152,6 +152,7 @@ export function StorePerformanceTable({
                     </td>
                   )}
                   <td>
+                    {!!r.orders.length&&!c&&<small>已载入 {r.orders.length} 个原订单</small>}
                     {sessionId && !readOnly && (
                       <button
                         type="button"
