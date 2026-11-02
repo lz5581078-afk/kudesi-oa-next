@@ -468,6 +468,30 @@ d('直播管理（真实数据库）', () => {
     expect(Number(count.n)).toBe(1);
   });
 
+  it('874元单平台3小时审核：提成与工资按角色只落账一次，重复审核不能重复计薪',async()=>{
+    clock('2026-03-17 21:05:00');source.orders=[];source.unavailable='';source.truncated=false;
+    const management=new LiveManagementService(ds,source);
+    const [old]=await ds.query('SELECT hourly_rate FROM users WHERE company_id=? AND id=?',[company,control.id]);
+    await ds.query('UPDATE users SET hourly_rate=2000 WHERE company_id=? AND id=?',[company,control.id]);
+    try {
+      const made=await management.manual(manager,{roomId:ids.s1,anchorId:anchor.id,controlId:control.id,operatorId:null,douyinAccountId:ids.account,storeId:ids.store,channels:[{accountId:ids.account,storeIds:[ids.store]}],startAt:'2026-03-17 18:00:00',endAt:'2026-03-17 21:00:00',salesCents:87400,adSpendCents:0,storeLines:[{storeId:ids.store,platform:'douyin',salesCents:87400,adSpendCents:0,orderIds:[],reason:'本地874元核验'}],reason:'本地874元核验'});
+      await sessions.submit(manager,made.id);
+      const preview=await sessions.reviewPreview(reviewer,made.id,{finalSource:'anchor'});
+      expect(preview.platforms).toHaveLength(1);
+      expect(preview.anchor.amountCents).toBe(2622);expect(preview.control!.amountCents).toBe(1748);
+      expect(preview.wage).toMatchObject({minutes:180,hourlyRateCents:5000,amountCents:15000});
+      expect(preview.controlWage).toMatchObject({minutes:180,hourlyRateCents:2000,amountCents:6000});
+      const flowBefore=await runOf(made.id);
+      const body={revision:flowBefore.revision,stepId:flowBefore.activeStep!.id,form:{finalSource:'anchor'}};
+      await flow.pass(reviewer,flowBefore.id,body);
+      await expect(flow.pass(reviewer,flowBefore.id,body)).rejects.toThrow();
+      const records=await ds.query('SELECT role,platform,amount_cents FROM live_commission_records WHERE company_id=? AND session_id=? ORDER BY role',[company,made.id]);
+      expect(records.map((r:Record<string,unknown>)=>({...r,amount_cents:Number(r.amount_cents)}))).toEqual([{role:'anchor',platform:'douyin',amount_cents:2622},{role:'control',platform:'douyin',amount_cents:1748}]);
+      const wages=await ds.query('SELECT role,amount_cents FROM live_wage_records WHERE company_id=? AND session_id=? ORDER BY role',[company,made.id]);
+      expect(wages.map((r:Record<string,unknown>)=>({...r,amount_cents:Number(r.amount_cents)}))).toEqual([{role:'anchor',amount_cents:15000},{role:'control',amount_cents:6000}]);
+    }finally{await ds.query('UPDATE users SET hourly_rate=? WHERE company_id=? AND id=?',[old.hourly_rate,company,control.id]);}
+  });
+
   it('区间工资结算：时间工资加提成、特殊核定、重叠与结算日锁定',async()=>{
     clock('2026-08-20 18:00:00');
     const made=await settlements.generate(manager,'',undefined,{from:'2026-08-18',to:'2026-08-18'});
@@ -610,6 +634,28 @@ d('直播管理（真实数据库）', () => {
     expect(tile.live!.products).toHaveLength(2);
     expect((await sessions.workbench(anchor)).schedules.find(s=>s.id===next.id)!.products).toHaveLength(1);
     await ds.query("UPDATE live_sessions SET status='pending_report',end_at='2026-11-01 11:00:00' WHERE company_id=? AND id=?",[company,live.id]);
+  });
+
+  it('传统运营中控只计中控提成，审核后调岗仍列在运营提成，同场运营独立计提', async () => {
+    const day = '2026-05-06';
+    const id = await liveThrough({ day, from:'10:00', to:'12:00', room:ids.s1, sales:100000, ad:0, orders:[order('CTRL-OPS',100000)] });
+    const department = await ds.query("INSERT INTO departments(company_id,name,status) VALUES(?,'传统运营部','active')", [company]);
+    await ds.query('UPDATE users SET department_id=? WHERE company_id=? AND id=?', [department.insertId,company,control.id]);
+    try {
+      expect((await sessions.detail(reviewer,id)).controlCommissionOnly).toBe(true);
+      const form = reviewForm({controlWageHourlyRateCents: 6000});
+      const preview = await sessions.reviewPreview(reviewer,id,form);
+      expect(preview.controlWage).toBeNull();
+      await approve(id,form);
+      expect((await sessions.detail(manager,id)).wages.map(w=>w.role)).toEqual(['anchor']);
+    } finally {
+      await ds.query('UPDATE users SET department_id=NULL WHERE company_id=? AND id=?',[company,control.id]);
+    }
+    const period = {from:day,to:day};
+    const ops = await ledger.commissions(manager,{...period,role:'operator'});
+    expect(ops.rows.map(r=>r.userId).sort()).toEqual([control.id,operator.id].sort());
+    expect(ops.rows.find(r=>r.userId===control.id)?.amountCents).toBe(liveComputeCommission({rules:LIVE_DEFAULT_RULES,finalSalesCents:100000,adSpendCents:0}).control.amountCents);
+    expect((await ledger.commissions(manager,{...period,role:'control'})).rows).toEqual([]);
   });
 
   it('传统电商部门及有效下级、主兼任人员可选中控；目录、保存及本人上播一致，停用和跨公司不放行', async () => {

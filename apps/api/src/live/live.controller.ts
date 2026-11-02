@@ -1,10 +1,11 @@
+import { LiveNotificationService } from './live-notification.service';
 import { LiveTurnoverService } from './live-turnover.service';
 import { LiveManagementService } from './live-management.service';
 import { liveIsDay } from '@kudesi/shared';
 import { liveFail } from './live-core';
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { LiveLedgerService } from './live-ledger.service';
 import { LiveScheduleService } from './live-schedule.service';
@@ -14,6 +15,13 @@ import { liveProducts, loadLiveAccess, requireUse } from './live-access';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+class NotificationSettingsDto {
+  @IsBoolean() enabled!:boolean;
+  @IsBoolean() digestEnabled!:boolean;
+  @IsInt() @Min(0) @Max(23) digestHour!:number;
+  @IsArray() @ArrayMaxSize(100) @ArrayUnique() @IsInt({each:true}) @Min(1,{each:true}) businessRecipients!:number[];
+  @IsArray() @ArrayMaxSize(100) @ArrayUnique() @IsInt({each:true}) @Min(1,{each:true}) systemRecipients!:number[];
+}
 class ChannelDto {
   @IsInt() @Min(1) accountId!:number;
   @IsArray() @ArrayMaxSize(20) @IsInt({each:true}) storeIds!:number[];
@@ -184,10 +192,16 @@ class ProductQuery {
 export class LiveController {
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
+    private readonly notices: LiveNotificationService,
     private readonly turnover: LiveTurnoverService,
     private readonly management: LiveManagementService,
     private readonly schedules: LiveScheduleService, private readonly sessions: LiveSessionService, private readonly ledger: LiveLedgerService, private readonly settlements: LiveSettlementService,
   ) {}
+
+  @RequirePermission('live.manage') @Get('notification-settings')
+  notificationSettings(@CurrentUser() u:AuthUser) { return this.notices.settings(u); }
+  @RequirePermission('live.manage') @Put('notification-settings')
+  saveNotificationSettings(@CurrentUser() u:AuthUser,@Body() b:NotificationSettingsDto) { return this.notices.save(u,b); }
 
   @AuthenticatedOnly() @Get('options')
   options(@CurrentUser() u: AuthUser) { return this.schedules.options(u); }

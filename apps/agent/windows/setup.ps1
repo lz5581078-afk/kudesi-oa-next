@@ -1,6 +1,7 @@
-﻿param([switch]$ValidateOnly)
+﻿param([switch]$ValidateOnly, [switch]$Installer)
 # Windows 安装入口：不读取/嵌入 OA 员工密码，绑定码仅在本次安装中使用。
 $ErrorActionPreference = 'Stop'
+$script:installed = $false
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
@@ -34,6 +35,7 @@ $install.Add_Click({
   $form.Refresh()
   try {
     & (Join-Path $PSScriptRoot 'install.ps1') -Server $server.Text.Trim() -Code $code.Text.Trim().ToUpperInvariant() -Name $name.Text.Trim()
+    $script:installed = $true
     $code.Clear()
     [Windows.Forms.MessageBox]::Show('安装及绑定成功，助手已启动。请回 OA 确认电脑显示在线。') | Out-Null
     $form.Close()
@@ -45,3 +47,5 @@ $install.Add_Click({
 $form.Controls.AddRange(@($hint, $install))
 if ($ValidateOnly) { $form.Dispose(); return }
 [void]$form.ShowDialog()
+
+if ($Installer -and -not $script:installed) { exit 2 }

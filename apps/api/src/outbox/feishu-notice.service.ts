@@ -7,11 +7,11 @@ import { OutboxJob, OutboxSwitch } from '../entities';
 /** 飞书通知走出站队列：独立开关（channel=feishu），默认关；没有接入发送器时只积压，不发送。 */
 export const FEISHU_CHANNEL = 'feishu';
 export const FEISHU_SENDER = 'FEISHU_SENDER';
-/** 旧系统只有 SKU 批量申请的节点会发飞书通知；别的流程不发 */
-export const FEISHU_TEMPLATES = ['sku-batch-apply', 'live-schedule'];
+/** 已接入飞书的业务模板；审批人仍由统一流程定义决定。 */
+export const FEISHU_TEMPLATES = ['sku-batch-apply', 'live-schedule', 'live-session-review', 'live-settlement'];
 const MAX_ATTEMPTS = 5;
 
-export interface FeishuNotice { notificationId?: number; channel?: string; resourceType?: string; resourceId?: number; kind?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
+export interface FeishuNotice { liveEventKey?: string; notificationId?: number; channel?: string; resourceType?: string; resourceId?: number; kind?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
 export interface FeishuSender {
   readonly configured: boolean;
   available?(companyId: number): Promise<boolean>;

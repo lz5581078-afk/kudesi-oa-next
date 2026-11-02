@@ -57,9 +57,26 @@ describe('录音文件2.0真实提交/查询协议与临时音频边界', () => 
     await expect(service.query(20, 3, task.taskToken)).rejects.toThrow('其他员工');
     await expect(service.query(10, 4, task.taskToken)).rejects.toThrow('其他员工');
     await expect(service.audio(task.taskToken)).rejects.toThrow('过期');
-    await expect(service.query(10, 3, task.taskToken.slice(0, -5) + 'xxxxx')).rejects.toThrow();
+    // 改动真实密文字节；改外层base64末尾可能只改到被解码器忽略的填充，样本并未篡改密文。
+    const envelope = Buffer.from(task.taskToken, 'base64url').toString().split(':');
+    const ciphertext = Buffer.from(envelope[4], 'base64');
+    ciphertext[0] ^= 1;
+    envelope[4] = ciphertext.toString('base64');
+    const tampered = Buffer.from(envelope.join(':')).toString('base64url');
+    await expect(service.query(10, 3, tampered)).rejects.toThrow();
     clock += 4 * 3600000 + 1;
     await expect(service.query(10, 3, task.taskToken)).rejects.toThrow('过期'); expect(fake).toHaveBeenCalledTimes(1);
+  });
+  it('非规范密文尾部不能通过宽松base64解码绕过票据入口校验', async () => {
+    const fake = jest.fn(async () => response()); service = make(fake as typeof fetch);
+    const task = await service.start(10, 3, wav().toString('base64'), [], rid);
+    const sealed = Buffer.from(task.taskToken, 'base64url').toString('utf8');
+    // These decode to the same authenticated ciphertext with Buffer's permissive base64 parser.
+    for (const suffix of ['\n', '!', ':extra']) {
+      const alternate = Buffer.from(sealed + suffix).toString('base64url');
+      await expect(service.query(10, 3, alternate)).rejects.toThrow('过期');
+    }
+    expect(fake).toHaveBeenCalledTimes(1);
   });
   it('供应商403给出2.0未授权原因，不泄露原始响应、密钥，释放公司槽位', async () => {
     const fake = jest.fn(async () => new Response(key, { status: 403, headers: { 'X-Api-Status-Code': '45000030' } }));
