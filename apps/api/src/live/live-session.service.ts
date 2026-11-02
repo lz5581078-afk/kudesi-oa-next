@@ -1,3 +1,4 @@
+import { liveHandover } from './live-notification-events';
 import { channelsOf, linesOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines, channelStores } from './live-platforms';
 import { LiveChannelInput, LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
 import { Injectable } from '@nestjs/common';
@@ -223,6 +224,7 @@ export class LiveSessionService {
         await em.query("UPDATE live_sessions SET end_at = ?, status = IF(status = 'live', 'pending_report', status), revision = revision + 1 WHERE company_id = ? AND id = ?", [endAt, a.companyId, sessionId]);
         await em.query("UPDATE live_schedules SET status = 'finished' WHERE company_id = ? AND session_id = ? AND status = 'live'", [a.companyId, sessionId]);
       } else await em.query('UPDATE live_sessions SET revision = revision + 1 WHERE company_id = ? AND id = ?', [a.companyId, sessionId]);
+      if (role === 'anchor' && s.status === 'live') await liveHandover(em, a.companyId, sessionId);
     });
     return { ok: true };
   }

@@ -1,3 +1,4 @@
+import { NotificationsTab } from './NotificationsTab';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
@@ -15,7 +16,7 @@ import { SettlementsTab } from './SettlementsTab';
 
 const TAB_KEY = 'kudesi.live.tab';
 const TABS = [
-  ['overview', '全览'], ['schedules', '排场'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'],
+  ['overview', '全览'], ['schedules', '排场'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -27,7 +28,7 @@ export function LiveManagePage() {
   const [params, setParams] = useSearchParams();
   const canView = can('features.live.view') || can('live.manage');
   const canAll = can('live.commissions.view');
-  const visible = TABS.filter(([k]) => (['wages','control','operator'].includes(k) ? true : k==='manual'?can('live.manage'): k === 'settlements' ? canAll || can('live.manage') : canView));
+  const visible = TABS.filter(([k]) => (['wages','control','operator'].includes(k) ? true : ['manual','notifications'].includes(k)?can('live.manage'): k === 'settlements' ? canAll || can('live.manage') : canView));
   const remembered = (() => { try { return localStorage.getItem(TAB_KEY); } catch { return null; } })();
   const wanted = (params.get('tab')==='commissions'?'wages':params.get('tab')) ?? (remembered==='commissions'?'wages':remembered);
   const current: TabKey = (visible.find(([k]) => k === wanted)?.[0] ?? visible[0]?.[0] ?? 'overview') as TabKey;
@@ -55,6 +56,7 @@ export function LiveManagePage() {
       {current === 'manual' && <ManualReportsTab onOpen={setOpenId} />}
       {current === 'settlements' && <SettlementsTab onOpenSession={setOpenId} />}
       {current === 'rules' && <RulesTab />}
+      {current === 'notifications' && <NotificationsTab />}
       {openId !== null && <SessionDetailDialog id={openId} onClose={() => setOpenId(null)} onChanged={() => setTick((t) => t + 1)} />}
     </div>
   );
