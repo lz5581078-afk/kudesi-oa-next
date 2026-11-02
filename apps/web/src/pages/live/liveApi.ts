@@ -95,8 +95,17 @@ export interface SourceStatus { ready: boolean; code: 'ready' | 'unconfigured' |
 export interface CheckinSession extends SessionRow { products:LiveProductSnapshot[]; canJoinAnchor?:boolean;canJoinControl?:boolean;canJoinOperator?:boolean }
 export interface CheckinContext extends Workbench { rooms:RoomOpt[];joinable?:CheckinSession[] }
 export interface CheckoutPreview {wageMessage?:string|null;minutes?:number;role:string;startAt:string;endAt:string;salesCents:number|null;orderCount:number|null;reason:string;wage:{minutes:number;amountCents:number;hourlyRateCents:number}|null;commission:RoleAmount|null;locked:boolean}
+export interface RoomQrCode { token: string | null; version: number }
+// Scan requests carry the current code again at confirmation, so an open old page cannot submit after rotation.
+function scanAction(path: string) {
+  const params = new URLSearchParams(location.search);
+  if (location.pathname !== '/features/live-desk' || !params.has('room')) return path;
+  return `${path}${qs({qrRoom:params.get('room') ?? '',qrToken:params.get('token') ?? ''})}`;
+}
 export const liveApi = {
-  checkinContext:(roomId?:number)=>api<CheckinContext>(`/live/checkin-context${qs({roomId})}`),
+  roomQr:(id:number)=>api<RoomQrCode>(`/live/rooms/${id}/qr`),
+  generateRoomQr:(id:number,version:number)=>post<RoomQrCode>(`/live/rooms/${id}/qr`,{version}),
+  checkinContext:(roomId?:number,token?:string)=>api<CheckinContext>(`/live/checkin-context${qs({roomId,token})}`),
   checkoutPreview:(id:number,role:string)=>api<CheckoutPreview>(`/live/sessions/${id}/checkout-preview${qs({role})}`),
   roomSettings:(id:number,b:{ownerId:number|null;products:string})=>api(`/live/rooms/${id}`,{method:'PUT',body:b}),
   trialPerson:(b:{name:string;hourlyRateCents:number})=>post<Person>('/live/trial-people',b),
@@ -115,11 +124,11 @@ export const liveApi = {
   createSchedule: (b: ScheduleBody) => post<{ id: number }>('/live/schedules', b),
   updateSchedule: (id: number, b: ScheduleBody) => api<{ ok: true }>(`/live/schedules/${id}`, { method: 'PUT', body: b }),
   cancelSchedule: (id: number, reason: string) => post<{ ok: true }>(`/live/schedules/${id}/cancel`, { reason }),
-  start: (b: StartBody) => post<{ id: number }>('/live/sessions', b),
+  start: (b: StartBody) => post<{ id: number }>(scanAction('/live/sessions'), b),
   sessions: (p: Record<string, unknown> = {}) => api<SessionList>(`/live/sessions${qs(p)}`),
   session: (id: number) => api<SessionDetail>(`/live/sessions/${id}`),
   candidates: (id: number, p: { endAt?: string; refresh?: boolean;storeId?:number }) => api<Candidates>(`/live/sessions/${id}/order-candidates${qs({ endAt: p.endAt,storeId:p.storeId, refresh: p.refresh ? '1' : undefined })}`),
-  report: (id: number, b: ReportBody) => post<{ ok: true }>(`/live/sessions/${id}/report`, b),
+  report: (id: number, b: ReportBody) => post<{ ok: true }>(scanAction(`/live/sessions/${id}/report`), b),
   submit: (id: number) => post<{ runId: number }>(`/live/sessions/${id}/submit`),
   reviewPreview: (id: number, b: ReviewForm) => post<ReviewPreview>(`/live/sessions/${id}/review-preview`, b),
   workbench: () => api<Workbench>('/live/workbench'),

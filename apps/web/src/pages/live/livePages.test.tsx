@@ -11,7 +11,7 @@ vi.mock('./LiveCheckinPanel',()=>({LiveCheckinPanel:()=>null}));
 vi.mock('./liveApi', () => ({ liveApi: {
   checkinContext:vi.fn(),checkoutPreview:vi.fn(),turnover: vi.fn(), options: vi.fn(), products: vi.fn(), overview: vi.fn(), roomDay: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), cancelSchedule: vi.fn(), start: vi.fn(), sessions: vi.fn(), session: vi.fn(),
   candidates: vi.fn(), report: vi.fn(), submit: vi.fn(), reviewPreview: vi.fn(), workbench: vi.fn(), history: vi.fn(), commissions: vi.fn(), wages: vi.fn(), people: vi.fn(), rules: vi.fn(), createRule: vi.fn(), trial: vi.fn(),
-  roomSettings:vi.fn(),trialPerson:vi.fn(),manualReport:vi.fn(),updateRule:vi.fn(),
+  roomQr:vi.fn().mockResolvedValue({token:null,version:0}),generateRoomQr:vi.fn(),roomSettings:vi.fn(),trialPerson:vi.fn(),manualReport:vi.fn(),updateRule:vi.fn(),
   integrationStatus: vi.fn(), submissionStatus: vi.fn(), commissionPreview: vi.fn(),
   settlements: vi.fn(), settlement: vi.fn(), generateSettlement: vi.fn(), submitSettlement: vi.fn(),
 } }));

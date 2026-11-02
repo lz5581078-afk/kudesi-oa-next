@@ -7,19 +7,19 @@ import { StartDialog, JoinDialog } from './StartDialog';
 import { ReportDialog } from './ReportDialog';
 import { CheckinRoleDialog } from './CheckinRoleDialog';
 import './live.css';
-export function LiveCheckinPanel({roomId,companyId,workspaceType}:{roomId?:number;companyId?:number;workspaceType?:'live_anchor'|'live_control'|'operations'}){
+export function LiveCheckinPanel({roomId,companyId,token,workspaceType}:{roomId?:number;companyId?:number;token?:string;workspaceType?:'live_anchor'|'live_control'|'operations'}){
   const {user}=useAuth();
   const [data,setData]=useState<CheckinContext|null>(null),[error,setError]=useState(''),[mode,setMode]=useState<''|'role'|'start'|'join'|'end'>(''),[joining,setJoining]=useState<CheckinSession|null>(null),[ending,setEnding]=useState<SessionDetail|null>(null),[busy,setBusy]=useState(false);
   const channel=useRef<BroadcastChannel|null>(null),loadSequence=useRef(0);
   const mismatch=!!companyId&&companyId!==user?.companyId;
-  async function load(){if(mismatch)return;const seq=++loadSequence.current;try{const value=await liveApi.checkinContext(roomId);if(seq===loadSequence.current){setData(value);setError('');}}catch(e){if(seq===loadSequence.current)setError(errText(e));}}
+  async function load(){if(mismatch)return;const seq=++loadSequence.current;try{const value=await liveApi.checkinContext(roomId,token);if(seq===loadSequence.current){setData(value);setError('');}}catch(e){if(seq===loadSequence.current){setData(null);setMode('');setEnding(null);setError(errText(e));}}}
   useEffect(()=>{
-    if(roomId&&!mismatch)clearLiveRoom();void load();
+    setData(null);setMode('');setEnding(null);if(roomId&&!mismatch)clearLiveRoom();void load();
     const t=setInterval(()=>void load(),15_000),refresh=()=>void load();
     window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);
     if(typeof BroadcastChannel!=='undefined'){channel.current=new BroadcastChannel('oa-live-checkin');channel.current.onmessage=refresh;}
     return()=>{loadSequence.current++;clearInterval(t);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);channel.current?.close();channel.current=null;};
-  },[roomId,companyId,user?.companyId]);
+  },[roomId,companyId,token,user?.companyId]);
   const operations=workspaceType==='operations'||!workspaceType&&!!data?.identity.isOperations;
   const role=workspaceType==='live_control'||operations?'control':'anchor';
   const running=data?.active.find(s=>s.myCheckin&&!s.myCheckin.endAt&&!s.reportsLocked&&['live','pending_report'].includes(s.status));

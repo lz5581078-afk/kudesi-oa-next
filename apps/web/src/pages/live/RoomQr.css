@@ -1,0 +1,8 @@
+.live-room-qr-panel { margin: 0 0 24px; padding: 20px; border: 1px solid var(--border, #dfe5ea); border-radius: 12px; background: #f8fafb; min-width: 0; }
+.live-room-qr-panel h3 { margin: 0 0 8px; }
+.live-room-qr-panel p { line-height: 1.6; overflow-wrap: anywhere; }
+.live-room-qr-panel .live-room-qr { display: block; width: 220px; max-width: 100%; height: auto; background: #fff; }
+.live-room-qr-panel .live-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.live-room-qr-panel .notice { margin: 12px 0 0; white-space: normal; }
+.live-room-qr-panel .notice p { margin-top: 0; }
+@media(max-width: 600px) { .live-room-qr-panel { padding: 14px; } }

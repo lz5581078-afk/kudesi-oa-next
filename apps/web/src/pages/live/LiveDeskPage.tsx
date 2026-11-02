@@ -24,7 +24,7 @@ export function LiveDeskPage() {
     const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60_000);
     return () => clearInterval(t);
   }, [load]);
-  if(roomId)return <div className="live-page"><LiveCheckinPanel roomId={roomId} companyId={companyId}/></div>;
+  if(roomId)return <div className="live-page"><LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined}/></div>;
   const canStart = !!d && (!d.identity.isOperations && (d.identity.isAnchor || d.identity.isControl));
   return (
     <div className="live-page">
@@ -39,7 +39,7 @@ export function LiveDeskPage() {
         <button type="button" role="tab" aria-selected={tab === 'desk'} className={tab === 'desk' ? 'chip active' : 'chip'} onClick={() => setTab('desk')}>工作台</button>
         <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'chip active' : 'chip'} onClick={() => setTab('history')}>我的场次历史</button>
       </div>
-      <LiveCheckinPanel roomId={roomId} companyId={companyId}/>
+      <LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined}/>
       <SourceStatusNotice />
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
       {tab === 'history' ? <HistoryPanel onOpen={setOpenId} /> : !d && !error ? <p className="muted" role="status">正在读取…</p> : d && (
