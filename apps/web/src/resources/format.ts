@@ -10,6 +10,10 @@ export function statusOf(def: ResourceDef, value: string): StatusDef {
 
 /** 展示值：选项显示中文，金额显示元，引用显示名称，密码类显示是否已设置。 */
 export function displayValue(f: FieldDef, dto: ResourceDto): string {
+  if (dto.type === 'stores' && f.key === 'jushuitanExpireAt' && !dto.data.jushuitanExpireAt) {
+    if (dto.data.jushuitanExpiryStatus === 'permanent') return '永久授权';
+    if (dto.data.jushuitanExpiryStatus === 'unknown') return '未返回有效到期时间';
+  }
   if (dto.type === 'stores' && f.key === 'jushuitanShopId') return storeJstText(dto.data);
   if (f.type === 'secret') return dto.secretConfigured[f.key] ? '已设置' : '';
   const v = dto.data[f.key];
