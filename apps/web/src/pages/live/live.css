@@ -126,3 +126,11 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
   .live-overview .live-stat { flex-direction: row; align-items: center; justify-content: space-between; padding: 8px 14px; }
   .live-overview .live-stat strong { font-size: 20px; }
 }
+
+.live-next { padding: 8px 0; border-top: 1px solid var(--border); display: grid; gap: 5px; overflow-wrap: anywhere; }
+.live-next-time { color: var(--accent-ink, #087879); font-variant-numeric: tabular-nums; }
+.live-next-people { display: flex; flex-wrap: wrap; column-gap: 12px; row-gap: 3px; }
+.live-next-people strong, .live-next-products strong, .live-current-products strong { color: var(--ink); font-weight: 550; }
+.live-import-previous { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.live-import-previous small { flex: 1 1 240px; }
+.live-next-products, .live-current-products { max-height: 4.5em; overflow-y: auto; overflow-wrap: anywhere; }
