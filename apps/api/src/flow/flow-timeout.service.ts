@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
@@ -138,7 +139,7 @@ export class FlowTimeoutService {
 
   private async notify(em: EntityManager, companyId: number, userIds: number[], n: { kind: string; title: string; body?: string; link?: string }) {
     for (const uid of [...new Set(userIds)]) {
-      await em.query('INSERT INTO notifications (company_id, user_id, kind, title, body, link) VALUES (?, ?, ?, ?, ?, ?)', [companyId, uid, n.kind, n.title.slice(0, 200), n.body?.slice(0, 500) ?? null, n.link ?? null]);
+      await writeNotification(em, { companyId, userId: uid, kind: n.kind, title: n.title.slice(0, 200), body: n.body?.slice(0, 500) ?? null, link: n.link ?? null });
     }
   }
 

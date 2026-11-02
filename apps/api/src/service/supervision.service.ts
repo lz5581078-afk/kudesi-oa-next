@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -170,7 +171,7 @@ export class SupervisionService {
         severity: b.severity, status: 'open', level: 1, ownerId: b.ownerId ?? null, storeId: b.storeId ?? null, createdBy: user.id,
       } as never);
       const id = Number(ins.identifiers[0].id);
-      if (b.ownerId && b.ownerId !== user.id) await em.insert(Notification, { companyId: user.companyId, userId: b.ownerId, kind: 'exception', title: `${user.name} 登记了异常：${title}`.slice(0, 200), body: b.detail?.slice(0, 500) ?? null, link: LINK });
+      if (b.ownerId && b.ownerId !== user.id) await writeNotification(em, { companyId: user.companyId, userId: b.ownerId, kind: 'exception', title: `${user.name} 登记了异常：${title}`.slice(0, 200), body: b.detail?.slice(0, 500) ?? null, link: LINK });
       await em.insert(CaseLog, { companyId: user.companyId, targetType: 'exception', targetId: id, userId: user.id, kind: 'system', content: '登记异常' });
       return { id };
     });
@@ -244,7 +245,7 @@ export class SupervisionService {
   }
 
   private async notify(em: EntityManager, companyId: number, userIds: number[], title: string, body: string) {
-    for (const uid of [...new Set(userIds)]) await em.insert(Notification, { companyId, userId: uid, kind: 'escalate', title: title.slice(0, 200), body: body.slice(0, 500), link: LINK });
+    for (const uid of [...new Set(userIds)]) await writeNotification(em, { companyId, userId: uid, kind: 'escalate', title: title.slice(0, 200), body: body.slice(0, 500), link: LINK });
   }
 
   async scan(companyId: number, now = new Date()): Promise<ScanResult> {

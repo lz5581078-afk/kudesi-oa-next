@@ -1,3 +1,4 @@
+import { isPositionEnrollment } from './enrollment-feishu';
 import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { isLegacyPassword, verifyPassword } from './password';
 import { JwtService } from '@nestjs/jwt';
@@ -107,6 +108,11 @@ export class AuthService {
       await Promise.all([user.positionId, ...(user.extraPositionIds ?? [])].filter((x): x is number => !!x).map((positionId) => this.positionPermissions.find({ where: { positionId } })))
     ).flat();
     const overrideRows = await this.overrides.find({ where: { userId: user.id } });
+    let feishuBindingPending = false;
+    if (await isPositionEnrollment(this.audits, company.id, user.id)) {
+      const [bound] = await this.users.manager.query('SELECT id FROM feishu_identities WHERE company_id=? AND user_id=? AND oa_notifications=1 LIMIT 1', [company.id, user.id]);
+      feishuBindingPending = !bound;
+    }
     return {
       id: user.id,
       name: user.name,
@@ -115,6 +121,7 @@ export class AuthService {
       companyName: company.name,
       positionName: position?.name ?? null,
       mustChangePassword: user.mustChangePassword,
+      ...(feishuBindingPending ? { feishuBindingPending: true } : {}),
       permissions: resolvePermissions({
         isCompanyAdmin: user.isCompanyAdmin,
         positionPermissions: positionRows.map((row) => row.permission),

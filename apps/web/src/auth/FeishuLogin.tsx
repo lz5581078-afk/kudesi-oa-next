@@ -1,3 +1,6 @@
+import { useAuth } from './AuthContext';
+import { feishuApi } from './feishuApi';
+import { useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { api, tokenStore } from '../api/client';
 import type { LoginResponse } from '@kudesi/shared';
@@ -30,22 +33,34 @@ export function FeishuLogin() {
   </div>;
 }
 export function FeishuBindingCard() {
+  const { user } = useAuth();
   const [status, setStatus] = useState<{ bound: boolean } | null>(null), [error, setError] = useState('');
   useEffect(() => { api<{ bound: boolean }>('/auth/feishu/binding').then(setStatus).catch(() => {}); }, []);
   async function bind() {
     try { const r = await api<{ authorizationUrl: string }>('/auth/feishu/bind/start', { body: {} }); location.assign(r.authorizationUrl); } catch (e) { setError((e as Error).message); }
   }
   if (!status) return null;
-  return <section className="card"><h2>飞书账号</h2><p>{status.bound ? '已绑定，可以使用飞书登录并接收流程通知。' : '绑定自己的企业飞书账号后，可以使用飞书登录并接收通知。'}</p>{!status.bound && <button type="button" className="secondary-button" onClick={bind}>绑定我的飞书</button>}{error && <p role="alert">{error}</p>}</section>;
+  return <section className="card"><h2>飞书账号</h2><p>{status.bound ? '已绑定，可以使用飞书登录并接收流程通知。' : '绑定自己的企业飞书账号后，可以使用飞书登录并接收通知。'}</p>{(!status.bound || user?.feishuBindingPending) && <button type="button" className="secondary-button" onClick={bind}>绑定我的飞书</button>}{error && <p role="alert">{error}</p>}</section>;
 }
 export function FeishuBindCallback() {
+  const { refresh, user } = useAuth();
+  const navigate = useNavigate();
   const started = useRef(false), [message, setMessage] = useState('正在验证飞书身份…');
   useEffect(() => {
     if (started.current) return; started.current = true;
     const q = new URLSearchParams(location.search), code = q.get('code'), state = q.get('state');
     history.replaceState(null, '', '/feishu-bind');
-    if (!code || !state) { setMessage('授权不完整，请返回重新绑定'); return; }
-    api('/auth/feishu/bind/complete', { body: { code, state } }).then(() => setMessage('飞书绑定成功')).catch(e => setMessage(e.message));
+    if (!code || !state) { setMessage(q.has('error') ? '飞书授权已取消，OA 账号已保留，可重新绑定。' : '授权不完整，请返回重新绑定'); return; }
+    let completed = false;
+    feishuApi.complete(code, state).then(async r => {
+      completed = true;
+      await refresh();
+      if (r.allNotificationsEnabled) {
+        const status = await feishuApi.status();
+        if (status.notificationsEnabled) { navigate('/', { replace: true }); return; }
+        setMessage('飞书绑定成功。公司通知开关尚未开启，开启后新 OA 通知将推送到你的飞书。');
+      } else setMessage('飞书绑定成功');
+    }).catch(e => setMessage(completed ? '飞书已绑定，状态暂未刷新，请进入 OA 后刷新页面。' : `未完成飞书绑定：${e.message}。OA 账号已保留，可重新绑定。`));
   }, []);
-  return <div className="card"><p role="status">{message}</p><a href="/account/password">返回账号设置</a></div>;
+  return <div className="card"><p role="status">{message}</p><a className="primary-button" href="/" onClick={() => { if (user?.feishuBindingPending) sessionStorage.setItem('kudesi.feishu-enrollment-deferred', `${user.companyId}:${user.id}`); }}>进入 OA</a> <a href="/account/password">返回账号设置 / 重新绑定</a></div>;
 }
