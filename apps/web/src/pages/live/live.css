@@ -290,3 +290,23 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .live-role-options label { display:flex;align-items:flex-start;gap:12px;padding:16px;border:1px solid var(--border,#dce3eb);border-radius:10px;cursor:pointer; }
 .live-role-options input[type=radio] { width:20px;height:20px;min-height:20px;margin:2px 0;flex:0 0 20px; }
 .live-role-options span { display:grid;gap:6px; }.live-role-options small { color:var(--muted,#526074); }.live-role-options label:has(input:disabled) { opacity:.6;cursor:not-allowed; }
+
+/* 全览细节：保留原卡片结构，只调整文字间距和信息行的留白。 */
+.live-overview .live-room { gap: 6px; }
+.live-overview .live-room-meta { gap: 4px; line-height: 1.5; }
+.live-overview .live-room-meta > small { display: flex; align-items: baseline; column-gap: 6px; }
+.live-overview .live-room-meta > small > strong,.live-overview .live-room-product-items { min-width: 0; }
+.live-overview .live-current { gap: 7px; }
+.live-overview .live-current-head { line-height: 1.5; }
+.live-overview .live-current-people,.live-overview .live-next-people { column-gap: 8px; row-gap: 6px; line-height: 1.5; }
+.live-overview .live-current-people > span { gap: 6px; padding: 1px 0; }
+.live-overview .live-next-people > span { gap: 4px; }
+.live-overview .live-current-people strong,.live-overview .live-next-people strong { line-height: 1.5; }
+.live-overview .live-current-times { column-gap: 8px; line-height: 1.45; }
+.live-overview .live-current-times > span { gap: 4px; }
+.live-overview .live-turnover-button { gap: 3px; padding: 7px 10px; }
+.live-overview .live-turnover-button > strong { line-height: 1.2; }
+.live-overview .live-current-note,.live-overview .live-current-products { line-height: 1.5; }
+.live-overview .live-next { gap: 6px; padding: 8px 0; }
+.live-overview .live-next-heading { gap: 8px; line-height: 1.5; }
+.live-overview .live-room-foot { gap: 8px; padding-top: 2px; }

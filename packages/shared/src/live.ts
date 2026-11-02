@@ -6,6 +6,13 @@
  * 提成 = round(销售额分 × 比例点 ÷ 10000)，整数四舍五入（半分进位）；投产比存成 ×10000 的整数。
  */
 
+export interface PersonalLiveIncome {
+  month:string;
+  anchor:{visible:boolean;wageCents:number;wageMinutes:number;commissionCents:number};
+  control:{visible:boolean;wageCents:number;wageMinutes:number;commissionCents:number};
+  operator:{visible:boolean;commissionCents:number};
+}
+
 // ================= 北京时间 =================
 // 直播业务时间一律按北京时间墙钟保存为 'YYYY-MM-DD HH:mm:ss'，不依赖数据库会话或进程时区。
 
