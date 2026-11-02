@@ -59,16 +59,31 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('登录与菜单', () => {
-  it.each(['/', '/workbench/desk', '/resource/stores', '/account/password'])('未绑定员工即使有旧暂缓缓存也不能绕过绑定：%s', async path => {
-    sessionStorage.setItem('kudesi.feishu-enrollment-deferred', '1:1');
-    const status = vi.spyOn(feishuApi, 'status').mockRejectedValue(new Error('公司尚未启用飞书授权'));
-    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] }, { feishuBindingPending: true, mustChangePassword: true });
+  it.each(['/', '/workbench/desk'])('未绑定员工也能进入系统，只在页面顶部提醒，可以关闭提醒：%s', async path => {
+    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] }, { feishuBindingPending: true });
     renderAt(path);
+    expect(await screen.findByText(/你还没有绑定本人飞书/)).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '请先绑定本人飞书' })).toBeNull();
+    expect(screen.getByRole('link', { name: '去绑定' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '稍后再说' }));
+    expect(screen.queryByText(/你还没有绑定本人飞书/)).toBeNull();
+  });
+
+  it('已绑定员工不显示绑定提醒', async () => {
+    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] }, {});
+    renderAt('/workbench/desk');
+    await screen.findByRole('navigation', { name: '一级导航' });
+    expect(screen.queryByText(/你还没有绑定本人飞书/)).toBeNull();
+  });
+
+  it('主动打开绑定页可以"稍后再绑"回到系统', async () => {
+    const status = vi.spyOn(feishuApi, 'status').mockRejectedValue(new Error('公司尚未启用飞书授权'));
+    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] }, { feishuBindingPending: true });
+    renderAt('/feishu-setup');
     expect(await screen.findByRole('heading', { name: '请先绑定本人飞书' })).toBeTruthy();
-    expect(await screen.findByRole('alert')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /稍后/ })).toBeNull();
-    expect(screen.queryByRole('navigation', { name: '一级导航' })).toBeNull();
-    status.mockRestore(); sessionStorage.removeItem('kudesi.feishu-enrollment-deferred');
+    fireEvent.click(screen.getByRole('button', { name: '稍后再绑' }));
+    expect(await screen.findByRole('navigation', { name: '一级导航' })).toBeTruthy();
+    status.mockRestore();
   });
 
   it('绑定成功刷新员工身份时保留回调页面，不会丢失成功或关闭通知的结果', async () => {

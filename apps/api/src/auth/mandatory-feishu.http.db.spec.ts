@@ -62,15 +62,13 @@ d('全员强制飞书绑定：真实HTTP/JWT/权限守卫及隔离MySQL', () => 
     await app.listen(0, '127.0.0.1'); base = await app.getUrl(); jwt = app.get(JwtService);
   });
   afterAll(async () => { await app?.close(); await ds?.destroy(); });
-  it('手工老员工及公司管理员密码登录后都必须绑定；旧JWT直接读写业务也被拒绝', async () => {
+  it('手工老员工及公司管理员密码登录后只带“待绑定”提醒标记，不再拦截业务读写', async () => {
     for (const u of [manual, admin]) {
       const login = await request('auth/login', undefined, { account: u.account!, password }); expect(login.status).toBe(201);
       expect((await login.json()).user.feishuBindingPending).toBe(true);
       expect((await request('auth/me', token(u))).status).toBe(200);
-      for (const body of [undefined, {}]) {
-        const blocked = await request('binding-policy-test', token(u), body); expect(blocked.status).toBe(403);
-        expect(await blocked.json()).toMatchObject({ code: 'FEISHU_BINDING_REQUIRED' });
-      }
+      expect((await request('binding-policy-test', token(u))).status).toBe(200);
+      expect((await request('binding-policy-test', token(u), {})).status).toBe(201);
     }
   });
   it('真实已绑定员工不重复授权，通知标记为0也不妨碍正常使用', async () => {
@@ -90,24 +88,23 @@ d('全员强制飞书绑定：真实HTTP/JWT/权限守卫及隔离MySQL', () => 
     expect((await (await request('auth/me', token(manual))).json()).feishuBindingPending).toBeUndefined();
     expect((await request('binding-policy-test', token(manual), {})).status).toBe(201);
   });
-  it('解绑后原JWT立即失效于业务访问，登录状态恢复仍只允许绑定', async () => {
+  it('解绑后业务访问不受影响，登录状态重新带上“待绑定”提醒标记', async () => {
     const reset=new StaffFeishuService(ds,config),actor={id:admin.id,companyId:company.id,name:admin.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}};
     await reset.resetBindings(actor,(await reset.resetPreview(actor)).fingerprint);
-    const response = await request('binding-policy-test', token(manual)); expect(response.status).toBe(403);
-    expect((await response.json()).code).toBe('FEISHU_BINDING_REQUIRED');
+    expect((await request('binding-policy-test', token(manual))).status).toBe(200);
     expect((await (await request('auth/me', token(manual))).json()).feishuBindingPending).toBe(true);
   });
   it('别公司、别应用或别租户的绑定不能冒充本公司当前绑定；客户端公司身份不能绕过', async () => {
     for (const extra of [{ companyId: otherCompany.id }, { appId: 'wrong-app' }, { tenantKey: 'wrong-tenant' }]) {
       await bindRow(admin, extra);
-      try { expect(await policy.isBound(admin.companyId, admin.id)).toBe(false); expect((await request('binding-policy-test', token(admin))).status).toBe(403); }
+      try { expect(await policy.isBound(admin.companyId, admin.id)).toBe(false); expect((await request('binding-policy-test', token(admin))).status).toBe(200); }
       finally { await ds.query('DELETE FROM feishu_identities WHERE user_id=?', [admin.id]); }
     }
     expect((await request('binding-policy-test', jwt.sign({ sub: admin.id, cid: otherCompany.id }))).status).toBe(401);
   });
-  it('飞书配置缺失时仍拒绝业务，平台管理员继续使用独立平台后台', async () => {
+  it('飞书配置缺失时也不影响业务使用，平台管理员继续使用独立平台后台', async () => {
     const newcomer = await ds.manager.save(User, { companyId: otherCompany.id, account: randomBytes(8).toString('hex'), name: '未配置公司员工', passwordHash: 'x', status: 'active' });
-    expect((await request('binding-policy-test', token(newcomer))).status).toBe(403);
+    expect((await request('binding-policy-test', token(newcomer))).status).toBe(200);
     const platform = await ds.manager.save(PlatformAdmin, { account: randomBytes(8).toString('hex'), name: '平台管理', passwordHash: 'x', status: 'active' });
     const auth = jwt.sign({ sub: platform.id, typ: 'platform' });
     expect((await request('binding-policy-test/platform', auth)).status).toBe(200);
