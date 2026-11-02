@@ -144,6 +144,11 @@ export class LiveSettlementService {
       })),
     };
   }
+  private hasReviewedUnverifiedStores(record: Row): boolean {
+    const snapshot = typeof record.rule_snapshot === 'string' ? JSON.parse(record.rule_snapshot) : record.rule_snapshot;
+    const stores = snapshot?.unverifiedStores;
+    return Array.isArray(stores) && stores.length > 0 && stores.every(store => typeof store?.reason === 'string' && store.reason.trim());
+  }
   async generate(user: AuthUser, monthIn: string, note?: string, range?: { from?: string; to?: string }) {
     const a = await loadLiveAccess(this.em, user);
     requireManage(a);
@@ -176,8 +181,9 @@ export class LiveSettlementService {
     for (const r of first.records)
       if (
         num(r.final_sales_cents) > 0 &&
-        !first.orders.some((o) => Number(o.session_id) === Number(r.session_id)) &&
-        !(r.report_source === 'manual' && text(r.manual_reason))
+        !first.orders.some((o) => Number(o.session_id) === Number(r.session_id) && (!r.platform || o.platform===r.platform)) &&
+        !(r.report_source === 'manual' && text(r.manual_reason)) &&
+        !this.hasReviewedUnverifiedStores(r)
       )
         liveFail(`场次 #${r.session_id} 有销售额但没有订单，请人事补报并注明特殊原因后审核`);
     const seen = new Map<string, { shopId: string; orderId: string; amountCents: number }>();

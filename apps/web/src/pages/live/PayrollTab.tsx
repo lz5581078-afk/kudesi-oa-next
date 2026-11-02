@@ -204,6 +204,7 @@ export function PayrollTab({
       </section>
       <section className="card live-section">
         <h2>场次工资明细</h2>
+        <p className="muted pad">每场计时工资仅计算一次；各平台分别列示营业额、比例与提成。</p>
         {data && !rows.length && <p className="muted pad">该期间暂无已审核记录</p>}
         <div className="live-scroll">
           <table className="data-table" aria-label="工资提成明细">

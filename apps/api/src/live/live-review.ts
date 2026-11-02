@@ -161,16 +161,28 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   const wage = await resolveWage(em, ctx.companyId, session, form);
   const controlWage=session.control_user_id ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
   const at = wallNow(ctx.now);
-  const amounts={anchor:0,control:0,operator:0};
-  for(const platform of platforms){
-    const roles: Array<['anchor'|'control'|'operator',number,{rateUnits:number;amountCents:number}]>=[['anchor',Number(session.anchor_user_id),platform.anchor]];
-    if(session.control_user_id)roles.push(['control',Number(session.control_user_id),platform.control]);
-    if(operator.counted)roles.push(['operator',operator.finalId!,platform.operator]);
-    const snapshot=JSON.stringify({versionId:version!.id,effectiveFrom:version!.effectiveFrom,rules,tier:platform.tier,belowRoi:platform.belowRoi,platform:platform.platform,unverifiedStores:channelStores(channelsOf(session)).filter(s=>s.platform===platform.platform).filter(s=>!linesOf(reports.find(r=>r.role===(form.finalSource==='manual'?'anchor':String(form.finalSource).split('_')[0]))??{}).find(l=>l.storeId===s.id)?.verified).map(s=>({storeId:s.id,name:s.name,reason:form.finalReason||linesOf(reports.find(r=>r.role==='anchor')??{}).find(l=>l.storeId===s.id)?.reason||session.manual_reason||'未核对订单'})),storeLines:resolvePlatformSales(session,reports,form)?.filter(l=>l.platform===platform.platform)});
-    for(const [role,userId,value] of roles){
-      amounts[role]+=value.amountCents;
+  const amounts = { anchor: 0, control: 0, operator: 0 };
+  const approvedLines = resolvePlatformSales(session, reports, form);
+  const sourceRole = form.finalSource === 'manual' ? 'anchor' : String(form.finalSource).split('_')[0];
+  const sourceLines = linesOf(reports.find(r => r.role === sourceRole) ?? {});
+  const unverifiedStores = channelStores(channelsOf(session))
+    .filter(store => !sourceLines.find(line => line.storeId === store.id)?.verified)
+    .map(store => ({ storeId: store.id, name: store.name, platform: store.platform,
+      reason: String(form.finalReason || sourceLines.find(line => line.storeId === store.id)?.reason || session.manual_reason || '').trim() }));
+  for (const platform of platforms) {
+    const roles: Array<['anchor' | 'control' | 'operator', number, { rateUnits: number; amountCents: number }]> = [['anchor', Number(session.anchor_user_id), platform.anchor]];
+    if (session.control_user_id) roles.push(['control', Number(session.control_user_id), platform.control]);
+    if (operator.counted) roles.push(['operator', operator.finalId!, platform.operator]);
+    const snapshot = JSON.stringify({
+      versionId: version!.id, effectiveFrom: version!.effectiveFrom, rules,
+      tier: platform.tier, belowRoi: platform.belowRoi, platform: platform.platform,
+      unverifiedStores: unverifiedStores.filter(store => store.platform === platform.platform),
+      storeLines: approvedLines?.filter(line => line.platform === platform.platform),
+    });
+    for (const [role, userId, value] of roles) {
+      amounts[role] += value.amountCents;
       await em.query(`INSERT INTO live_commission_records(company_id,session_id,user_id,role,session_date,final_sales_cents,ad_spend_cents,roi_scaled,below_roi,rate_units,amount_cents,rule_version_id,rule_snapshot,approved_by,approved_at,flow_run_id,platform) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [ctx.companyId,sessionId,userId,role,session.session_day,platform.finalSalesCents,platform.adSpendCents,platform.roiScaled,role!=='operator'&&platform.belowRoi?1:0,value.rateUnits,value.amountCents,version!.id,snapshot,ctx.actorId,at,ctx.runId,platform.platform]);
+        [ctx.companyId, sessionId, userId, role, session.session_day, platform.finalSalesCents, platform.adSpendCents, platform.roiScaled, role !== 'operator' && platform.belowRoi ? 1 : 0, value.rateUnits, value.amountCents, version!.id, snapshot, ctx.actorId, at, ctx.runId, platform.platform]);
     }
   }
   const wageSnapshot = JSON.stringify({
