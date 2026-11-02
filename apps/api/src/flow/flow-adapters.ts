@@ -1,3 +1,4 @@
+import { LiveOrderSource } from '../live/live-order-source';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import type { FlowTemplate, StepDef } from '@kudesi/shared';
@@ -19,6 +20,7 @@ import { liveSessionReview, liveSettlement } from '../live/live-flow-adapters';
  * 适配器的副作用都用引擎传进来的事务 em，和流程流转同成同败。
  */
 export interface FlowServices {
+  liveOrders?:LiveOrderSource;
   resources: ResourcesService;
   docs: FinanceDocumentsService;
   /** 商品组合编码的批量生成服务（SKU 批量申请的财务步骤调用）；老流程用不到，所以可空 */

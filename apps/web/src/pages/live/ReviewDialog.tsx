@@ -15,7 +15,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
   const [storeRows,setStoreRows]=useState(()=>storeDrafts(session.channels??[],session.reports.find(r=>r.role==='anchor')?.storeLines));
   const run = session.flow!;
   const [opts, setOpts] = useState<Options | null>(null);
-  const [source, setSource] = useState('');
+  const [source, setSource] = useState(session.checkinMode?(session.reports.some(r=>r.role==='operator')?'operator':session.reports.some(r=>r.role==='anchor')?'anchor':'control'):'');
   const [manual, setManual] = useState('');
   const [reason, setReason] = useState('');
   const [operator, setOperator] = useState('');
@@ -45,6 +45,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
   /** 表单 → 流程步骤表单（金额用分）；有错返回字符串 */
   const form = useMemo((): ReviewForm | string => {
     const f: ReviewForm = { finalSource: source };
+    if(reason.trim())f.finalReason=reason.trim();
     if (source === 'manual') {
       let lines;try{lines=multi?storePayload(storeRows):undefined;}catch(e){return String((e as Error).message);}
       if(lines)f.storeLines=lines;
@@ -120,7 +121,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
             <div className="live-fields">
               <label className="live-field">来源<select aria-label="最终销售额来源" value={source} onChange={(e) => setSource(e.target.value)}><option value="">请选择</option>{available.map(([k, label]) => <option key={k} value={k}>{label}{k !== 'manual' ? `（${money(Number(k.endsWith('orders') ? reportOf(k.split('_')[0])?.ordersTotalCents : reportOf(k)?.salesCents))}）` : ''}</option>)}</select></label>
               {source === 'manual' && !multi && <label className="live-field">手填金额（元）<input aria-label="手填最终销售额" inputMode="decimal" value={manual} onChange={(e) => setManual(e.target.value)} /></label>}
-              {source && <label className="live-field wide">{source === 'manual' ? '手填原因（必填）' : '说明（可选）'}<textarea rows={2} aria-label="最终销售额说明" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>}
+              {source && <label className="live-field wide">{source === 'manual'||(session.reports.some(r=>r.role==='operator')&&source!=='operator') ? '核定原因（必填）' : '说明（可选）'}<textarea rows={2} aria-label="最终销售额说明" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>}
             </div>
             {source==='manual'&&multi&&<StorePerformanceTable channels={session.channels!} rows={storeRows} onChange={setStoreRows}/>}
           </fieldset>

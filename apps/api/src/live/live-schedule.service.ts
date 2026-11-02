@@ -1,3 +1,4 @@
+import { scheduleFingerprint } from './live-checkin-core';
 import { channelsOf, validateChannels, assertAccountTime } from './live-platforms';
 import { LiveChannelInput } from '@kudesi/shared';
 import { writeNotification } from '../outbox/write-notification';
@@ -30,7 +31,7 @@ export function scheduleProducts(value: unknown): LiveProductSnapshot[] {
 
 export function serializeSchedule(s: Row) {
   return {
-    channels: channelsOf(s),
+    fingerprint: scheduleFingerprint(s), channels: channelsOf(s),
     id: Number(s.id), roomId: Number(s.room_id), roomName: s.room_name, date: s.schedule_day, start: s.start_text, end: s.end_text,
     startTime: String(s.start_text).slice(11, 16), endTime: String(s.end_text).slice(11, 16), status: s.status, statusLabel: LIVE_SCHEDULE_STATUS[s.status] ?? s.status,
     anchor: { id: Number(s.anchor_user_id), name: s.anchor_name }, control: s.control_user_id ? { id: Number(s.control_user_id), name: s.control_name } : null,

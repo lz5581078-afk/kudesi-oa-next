@@ -1,3 +1,4 @@
+import { CheckOutDialog } from './CheckOutDialog';
 import { StorePerformanceTable, storeDrafts, storePayload } from './StorePerformanceTable';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { liveApi, type Candidates, type Preview, type SessionDetail } from './liveApi';
@@ -5,7 +6,7 @@ import { errText, money, nowText, roleLabel, yuanCents, hm } from './liveFormat'
 import { Modal, PreviewBox, SourceStatusNotice } from './liveUi';
 
 /** 报下播：只能本人报自己的角色；主播填销售额，中控填销售额和投流费用；主播、中控必须从聚水潭勾选本场订单。 */
-export function ReportDialog({ session, onClose, onDone }: { session: SessionDetail; onClose: () => void; onDone: () => void }) {
+function LegacyReportDialog({ session, onClose, onDone }: { session: SessionDetail; onClose: () => void; onDone: () => void }) {
   const multi=!!session.channels?.length;
   const [storeRows,setStoreRows]=useState(()=>storeDrafts(session.channels??[],session.reports.find(r=>r.role===session.me.reportRoles[0])?.storeLines));
   const roles = session.me.reportRoles;
@@ -97,3 +98,5 @@ export function ReportDialog({ session, onClose, onDone }: { session: SessionDet
     </Modal>
   );
 }
+
+export function ReportDialog(props:Parameters<typeof LegacyReportDialog>[0]){return props.session.checkinMode&&props.session.me.reportRoles.some(r=>r!=='operator')?<CheckOutDialog {...props}/>:<LegacyReportDialog {...props}/>;}
