@@ -189,7 +189,7 @@ describe('店铺与账号：字段找回（B 组）', () => {
         expect(f!.readonly, `${type}.${key}`).toBe(true);
       }
     }
-    expect(def('phones').fields.filter((f) => f.key.startsWith('stores')).map((f) => f.label)).toEqual(['拼多多店铺', '淘宝店铺', '天猫店铺', '抖音店铺', '京东店铺', '快手店铺', '小红书店铺', '其他店铺']);
+    expect(def('phones').fields.filter((f) => f.key.startsWith('stores')).map((f) => f.label)).toEqual(['拼多多店铺', '淘宝店铺', '天猫店铺', '抖音店铺', '京东店铺', '快手店铺', '视频号店铺', '小红书店铺', '其他店铺']);
   });
   it('字段旧叫法（aliases）不和同一资料里别的字段现名冲突，导入旧模板才不会串列', () => {
     for (const d of RESOURCE_DEFS) {
