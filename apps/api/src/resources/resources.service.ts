@@ -1,3 +1,5 @@
+import { ExternalConfigService } from '../integrations/external-config.service';
+import { storeJstShops, validateStoreJst } from './store-jst';
 import { readSourceRow } from '../migration/source-rows';
 import { canAppendReadonly } from './append-only';
 import { isRegistrationType,registrationIdentity,registrationPrefixes,proveRegistration,proveExistingRegistration,type LegacyRegistration } from './legacy-registration';
@@ -166,6 +168,11 @@ export class ResourcesService implements RuleHost {
     private readonly crypto: CryptoService,
     private readonly files: FilesService,
   ) {}
+
+  async jushuitanShops(user: AuthUser, type: string) {
+    if (type !== 'stores') throw new BadRequestException('只有店铺档案支持聚水潭店铺关联');
+    return storeJstShops(new ExternalConfigService(this.dataSource, this.crypto), user.companyId);
+  }
 
   // ---------- 通用工具 ----------
 
@@ -546,6 +553,7 @@ export class ResourcesService implements RuleHost {
     }
 
     const rule = { em, host: this, user, data, existing, status, hasSensitive: (key: string) => Boolean(secrets[key]) };
+    if (def.key === 'stores') await validateStoreJst(data, existing?.data, () => this.jushuitanShops(user, def.key));
     await beforeSaveRule(def.key, rule);
     status = rule.status;
     for (const k of Object.keys(data)) if (data[k] === null || data[k] === undefined) delete data[k];
