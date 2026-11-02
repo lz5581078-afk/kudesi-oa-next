@@ -215,21 +215,27 @@ d('资料配置：快捷页签 / 计算筛选 / 派生列 / 批量动作（真�
       { key: 'gone', label: '已过期', when: { field: 'jushuitanExpireAt', op: 'expired' } },
       { key: 'blank', label: '没填', when: { field: 'jushuitanExpireAt', op: 'empty' } },
     ];
-    const mk = (name: string, d?: string) => svc.create(boss, 'stores', { platform: 'pdd', name, ...(d ? { jushuitan: 'connected', jushuitanExpireAt: d } : {}) });
-    const today = await mk('今天到期D', day(0));
-    const in30 = await mk('三十天D', day(30));
-    const in31 = await mk('三十一天D', day(31));
-    const past = await mk('过期D', day(-1));
-    const none = await mk('没填D');
-    const ids = async (tab: string) => (await svc.list(boss, 'stores', { tab, pageSize: 200 })).items.map((i) => i.id);
-    const soon = await ids('q:soon');
-    expect(soon).toEqual(expect.arrayContaining([today.id, in30.id]));
-    expect(soon).not.toContain(in31.id);
-    expect(soon).not.toContain(past.id);
-    expect(await ids('q:gone')).toContain(past.id);
-    expect(await ids('q:gone')).not.toContain(today.id);
-    expect(await ids('q:blank')).toContain(none.id);
-    expect(await ids('q:blank')).not.toContain(today.id);
+    const query = jest.spyOn(svc, 'jushuitanShops');
+    const mk = (name: string, d?: string) => {
+      query.mockResolvedValue([{ id: name, name, platform: '拼多多', expiresAt: d ?? null, expiryStatus: d ? 'dated' : 'unknown' }]);
+      return svc.create(boss, 'stores', { platform: 'pdd', name, ...(d ? { jushuitan: 'connected', jushuitanShopId: name } : {}) });
+    };
+    try {
+      const today = await mk('今天到期D', day(0));
+      const in30 = await mk('三十天D', day(30));
+      const in31 = await mk('三十一天D', day(31));
+      const past = await mk('过期D', day(-1));
+      const none = await mk('没填D');
+      const ids = async (tab: string) => (await svc.list(boss, 'stores', { tab, pageSize: 200 })).items.map((i) => i.id);
+      const soon = await ids('q:soon');
+      expect(soon).toEqual(expect.arrayContaining([today.id, in30.id]));
+      expect(soon).not.toContain(in31.id);
+      expect(soon).not.toContain(past.id);
+      expect(await ids('q:gone')).toContain(past.id);
+      expect(await ids('q:gone')).not.toContain(today.id);
+      expect(await ids('q:blank')).toContain(none.id);
+      expect(await ids('q:blank')).not.toContain(today.id);
+    } finally { query.mockRestore(); }
   });
 
   it('员工所在部门条件 + 部门动态下拉：含下级、别家部门不认', async () => {
