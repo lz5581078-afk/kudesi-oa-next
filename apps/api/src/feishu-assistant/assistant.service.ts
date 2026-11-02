@@ -84,8 +84,8 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
     this.admin(user);
     const cfg = await this.config(user.companyId);
     if (!cfg) throw new BadRequestException('请先保存助手配置');
-    await this.feishu.tenantToken(cfg);
-    return { ok: true, message: '应用鉴权成功；此操作未向员工发送消息。' };
+    await this.feishu.checkBatchScope(cfg, cfg.departmentIds);
+    return { ok: true, message: '应用鉴权及通讯录发送范围检查成功；此操作未向员工发送消息。' };
   }
   private async enabled(companyId: number, cfg: AssistantConfig) {
     const sw = await this.ds.manager.findOne(OutboxSwitch, { where: { companyId, channel: ASSISTANT_CHANNEL } });
@@ -98,7 +98,7 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
     const id = event.object?.open_id;
     if (!id || !/^ou_[a-zA-Z0-9]+$/.test(id) || event.object?.status?.is_resigned || event.object?.status?.is_exited) return;
     // Never welcome existing employees by replaying an old subscription event.
-    const created = Number(event.create_time) / 1000;
+    const created = Number(event.create_time);
     if (!Number.isFinite(created) || created < new Date(cfg.activatedAt).getTime() || created > Date.now() + 300_000) return;
     await this.enqueue(companyId, cfg, 'welcome', `welcome:${id}`, { openId: id, text: cfg.welcomeText, expiresAt: new Date(Date.now() + 86400_000).toISOString() });
   }

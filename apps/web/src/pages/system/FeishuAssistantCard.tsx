@@ -23,7 +23,7 @@ export function FeishuAssistantCard({ canEdit }: { canEdit: boolean }) {
     setBusy(true); setError(''); setMessage('');
     try {
       const { appId, tenantKey, enabled, morningEnabled, welcomeEnabled, morningText, welcomeText, departmentIds } = data;
-      setData(await api<Settings>('/settings/feishu-assistant', { method: 'PUT', body: JSON.stringify({ appId, appSecret: secret || undefined, tenantKey, enabled, morningEnabled, welcomeEnabled, morningText, welcomeText, departmentIds }) }));
+      setData(await api<Settings>('/settings/feishu-assistant', { method: 'PUT', body: { appId, appSecret: secret || undefined, tenantKey, enabled, morningEnabled, welcomeEnabled, morningText, welcomeText, departmentIds } }));
       setSecret(''); setMessage('已保存。早安每天北京时间08:00发送；入职欢迎仅发送给新加入的员工。');
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -41,7 +41,7 @@ export function FeishuAssistantCard({ canEdit }: { canEdit: boolean }) {
       <label>App ID<input value={data.appId} onChange={e => patch({ appId: e.target.value })} disabled={!canEdit} /></label>
       <label>App Secret<SecretInput value={secret} onChange={e => setSecret(e.target.value)} placeholder={data.secretConfigured ? '已设置，留空不修改' : '填写小白OA助手的应用密钥'} disabled={!canEdit} /></label>
       <label>企业 Tenant Key<input value={data.tenantKey} onChange={e => patch({ tenantKey: e.target.value })} disabled={!canEdit} /></label>
-      <label>飞书部门范围<input value={data.departmentIds.join(',')} onChange={e => patch({ departmentIds: e.target.value.split(',').map(v => v.trim()).filter(Boolean) })} disabled={!canEdit} /><small className="muted">全员使用根部门0；应用在飞书的可用范围也需设置为全体员工。</small></label>
+      <label>飞书部门范围<input value={data.departmentIds.join(',')} onChange={e => patch({ departmentIds: e.target.value.split(',').map(v => v.trim()).filter(Boolean) })} disabled={!canEdit} /><small className="muted">填0表示全员；系统会解析实际部门和直属成员。飞书应用可用范围及通讯录数据范围均需包含全体员工。</small></label>
       <label className="check"><input type="checkbox" style={{ width: 'auto' }} checked={data.enabled} onChange={e => patch({ enabled: e.target.checked })} disabled={!canEdit} />开启自动发送（关闭后停止早安和欢迎消息）</label>
       <label className="check"><input type="checkbox" style={{ width: 'auto' }} checked={data.morningEnabled} onChange={e => patch({ morningEnabled: e.target.checked })} disabled={!canEdit} />每天08:00发送早安，含周末</label>
       <label>早安消息<textarea style={{ width: '100%', boxSizing: 'border-box', border: '1px solid #d1d5db', borderRadius: 8, padding: 10, font: 'inherit', resize: 'vertical' }} rows={3} maxLength={1000} value={data.morningText} onChange={e => patch({ morningText: e.target.value })} disabled={!canEdit} /></label>
