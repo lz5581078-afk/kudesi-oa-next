@@ -1,5 +1,5 @@
 import { roomProductItems } from './roomProducts';
-import { productText } from './ProductPicker';
+import { productText } from './liveProducts';
 import { useAuth } from '../../auth/AuthContext';
 import { RoomSettingsDialog } from './RoomSettingsDialog';
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';

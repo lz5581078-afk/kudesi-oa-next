@@ -1,5 +1,5 @@
 import { ScheduleDialog } from './ScheduleDialog';
-import { productText } from './ProductPicker';
+import { productText } from './liveProducts';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { liveApi, type ScheduleList, type ScheduleRow } from './liveApi';
 import { errText, nowText, todayText } from './liveFormat';
