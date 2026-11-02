@@ -1,0 +1,32 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { CashierWithdrawalDialog } from './CashierWithdrawalDialog';
+import { orgApi } from './orgApi';
+vi.mock('./orgApi', () => ({ orgApi: { cashierPreview: vi.fn(), applyCashier: vi.fn() } }));
+const plan = { companyId: 1, companyName: '测试公司', fingerprint: 'c'.repeat(64), positions: [{ id: 1, name: '财务出纳', departmentName: '财务部', workspaceType: 'cashier', preserved: false, before: [], after: ['finance.doc-withdrawal.view'], added: ['finance.doc-withdrawal.view'], removed: [], pages: [] }], staff: [], protectedDepartments: [], changedPositions: 1, changedStaff: 0 };
+afterEach(() => { cleanup(); vi.resetAllMocks(); });
+it('读取公司预览，点击后只提交计划指纹，成功回调刷新岗位', async () => {
+  vi.mocked(orgApi.cashierPreview).mockResolvedValue(plan);
+  vi.mocked(orgApi.applyCashier).mockResolvedValue({ changedPositions: 1 });
+  const applied = vi.fn(); render(<CashierWithdrawalDialog onClose={vi.fn()} onApplied={applied} />);
+  expect((screen.getByRole('button', { name: '确认补齐出纳权限' }) as HTMLButtonElement).disabled).toBe(true);
+  await screen.findByText('测试公司');
+  fireEvent.click(screen.getByRole('button', { name: '确认补齐出纳权限' }));
+  await screen.findByRole('status');
+  expect(orgApi.applyCashier).toHaveBeenCalledWith(plan.fingerprint);
+  expect(applied).toHaveBeenCalledOnce();
+});
+it('失效预览禁止继续提交；无出纳岗位不能应用', async () => {
+  vi.mocked(orgApi.cashierPreview).mockResolvedValue(plan);
+  vi.mocked(orgApi.applyCashier).mockRejectedValue(new Error('请重新预览'));
+  render(<CashierWithdrawalDialog onClose={vi.fn()} onApplied={vi.fn()} />);
+  await screen.findByText('测试公司');
+  fireEvent.click(screen.getByRole('button', { name: '确认补齐出纳权限' }));
+  await screen.findByRole('alert');
+  expect((screen.getByRole('button', { name: '确认补齐出纳权限' }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+  vi.mocked(orgApi.cashierPreview).mockResolvedValue({ ...plan, positions: [], changedPositions: 0 });
+  render(<CashierWithdrawalDialog onClose={vi.fn()} onApplied={vi.fn()} />);
+  await screen.findByText(/当前公司没有岗位类型/);
+  expect((screen.getByRole('button', { name: '确认补齐出纳权限' }) as HTMLButtonElement).disabled).toBe(true);
+});

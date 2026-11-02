@@ -3,7 +3,7 @@
  *   kudesi-assistant-windows/        首次安装用（install.ps1 + 程序），同时生成同名 .zip（Linux 有 zip 时）
  *   update/kudesi-assistant-<版本>.kapkg   在线升级包：在 OA“授权电脑”页上传它（gzip JSON，含每个文件的 sha256）
  *   update/kudesi-assistant-<版本>.kapkg.sha256 与 latest.json   升级包的 SHA-256 和清单，上传时可填 SHA-256 做二次核对
- * 旧系统是 NSIS 的 .exe 安装程序 + 内置 Node；这里的安装器是 install.ps1（需要电脑上已有 Node 20+），.exe 需在 Windows 上另行制作，见 README。
+ * Windows 安装入口是 安装助手.cmd + 可视化绑定，自动下载并校验独立 Node 运行环境，详见 README。
  */
 const fs = require('fs');
 const path = require('path');
@@ -46,7 +46,7 @@ for (const file of walk(path.join(root, 'dist'))) {
 }
 fs.writeFileSync(path.join(out, 'package.json'), JSON.stringify({ name: pkg.name, version: pkg.version, private: true, main: pkg.main, dependencies: pkg.dependencies }, null, 2));
 fs.copyFileSync(path.join(root, 'dist', 'launcher.js'), path.join(out, 'launcher.js'));
-for (const f of ['install.ps1', 'uninstall.ps1', 'README.txt']) fs.copyFileSync(path.join(root, 'windows', f), path.join(out, f));
+for (const f of ['install.ps1', 'uninstall.ps1', 'README.txt', 'setup.ps1', 'assistant-panel.ps1', '安装助手.cmd', '打开助手.cmd']) fs.copyFileSync(path.join(root, 'windows', f), path.join(out, f));
 let zipped = '';
 try {
   const z = path.join(root, 'release', 'kudesi-assistant-windows.zip');

@@ -42,8 +42,26 @@ jobs:
       - run: npm test -w @kudesi/api -- --runInBand
       - run: python3 -m unittest discover -s deploy/server/tests -v
       - run: npm run build
+  windows-agent:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: 校验 Windows 安装脚本与面板
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem apps/agent/windows/*.ps1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+          powershell.exe -NoProfile -STA -File apps/agent/windows/setup.ps1 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { throw '安装界面初始化失败' }
+          powershell.exe -NoProfile -STA -File apps/agent/windows/assistant-panel.ps1 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { throw '助手面板初始化失败' }
   merge:
-    needs: check
+    needs: [check, windows-agent]
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -52,7 +70,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr merge "${{ github.event.pull_request.html_url }}" --merge
   report-failure:
-    needs: check
+    needs: [check, windows-agent]
     if: failure()
     runs-on: ubuntu-latest
     steps:
