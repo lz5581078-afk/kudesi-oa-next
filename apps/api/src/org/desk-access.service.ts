@@ -19,7 +19,9 @@ export class DeskAccessService {
     const users = await em.find(User, { where: { companyId: actor.companyId }, order: { id: 'ASC' } });
     const grants = positions.length ? await em.find(PositionPermission, { where: { positionId: In(positions.map((p) => p.id)) }, order: { id: 'ASC' } }) : [];
     const overrides = users.length ? await em.find(UserPermissionOverride, { where: { userId: In(users.map((u) => u.id)) }, order: { id: 'ASC' } }) : [];
-    const protectedIds = new Set(departments.filter((d) => d.name.trim() === '人事部').map((d) => d.id));
+    const hrNames = new Set(['人事部', '人事综合部']);
+    const protectedIds = new Set(departments.filter((d) => hrNames.has(d.name.trim())).map((d) => d.id));
+    if (!protectedIds.size) throw new ConflictException('未识别需保留原权限的人事部门，已停止操作，请先核对保留范围');
     let changed = true;
     while (changed) { changed = false; for (const d of departments) if (d.parentId != null && protectedIds.has(d.parentId) && !protectedIds.has(d.id)) { protectedIds.add(d.id); changed = true; } }
     const protectedPositions = new Set(positions.filter((p) => p.departmentId != null && protectedIds.has(p.departmentId)).map((p) => p.id));
