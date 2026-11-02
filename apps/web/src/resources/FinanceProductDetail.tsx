@@ -1,12 +1,12 @@
-import { FolderTree } from 'lucide-react';
-import { COMPOSITION_GROUP_LABEL, createChecker, getResourceDef, multiplyUnitCents, productLayoutKey, type CompositionGroup } from '@kudesi/shared';
+import { Fragment } from 'react';
+import { COMPOSITION_GROUP_LABEL, createChecker, getResourceDef, multiplyUnitCents, productLayoutKey, resolveProductSections, type ResolvedNode, type CompositionGroup } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import type { ResourceDto } from './api';
 import { FinanceFields, FinanceSection, DetailRowsState, detailMoney, detailNumber, detailWeight, useFinanceDetailRows } from './FinanceDetailFields';
 import { ProductCostSummary } from './ProductCostSummary';
 import { CompositionResult, FreightHistory } from './ReferenceProductFields';
 import { calculateDraftFacts } from './useProductDraftFacts';
-import { referenceRecordLabel } from './referenceFormLayout';
+import { needsZeroReason } from './productFormGrid';
 import { FileList } from './FilesField';
 
 const def = getResourceDef('finance-products')!;
@@ -45,34 +45,47 @@ function ProductComposition({ record, canCost }: { record: ResourceDto; canCost:
   </FinanceSection>;
 }
 
-/** 24 号源码的查看态有独立字段顺序，不能把新增/编辑表单禁用后充当查看。 */
+/** 查看态读取编辑器的同一份分区和节点；业务块保留专用只读展示。 */
 export function FinanceProductDetail({ record }: { record: ResourceDto }) {
   const { user } = useAuth();
-  const canCost = !!user && createChecker(user.permissions)('product.cost.view') && !record.warehouseMode;
-  const key = productLayoutKey(record.data), label = referenceRecordLabel(def.key, record.data);
-  const packaging = ['package', 'oem_package'].includes(key), purchased = ['purchased_original', 'purchased_oem'].includes(key), self = key === 'self_made';
-  const sourceMaterial = ['raw', 'shipping_material'].includes(key);
+  const can = (permission: string) => !!user && createChecker(user.permissions)(permission) && !(record.warehouseMode && ['product.cost.view', 'product.cost.edit', 'product.price.view'].includes(permission));
+  const canCost = can('product.cost.view');
+  const key = productLayoutKey(record.data);
+  const sections = resolveProductSections(record.data, { canUse: can });
   const fields = (keys: Array<string | [string, string]>) => <FinanceFields def={def} record={record} keys={keys} />;
-  const fullName = <div className="finance-full-name"><small>基础信息全名</small><output>{String(record.data.basicInfoFullName || '未填写')}</output></div>;
-  const code = <FinanceSection title={packaging ? key === 'package' ? '产品包装编号' : 'OEM包装编号' : sourceMaterial ? '系统自动编号' : `${label}编号`} className="finance-code-card"><output>{String(record.data.code || '—')}</output></FinanceSection>;
-  const capacities = String(record.data.capacities ?? '').split(/\r?\n/).filter(Boolean);
-  return <>
-    {!packaging && <FinanceSection title="所属分类"><div className="finance-category-value"><FolderTree size={18} /><span>{record.refLabels.categoryId || '未设置分类'}</span></div></FinanceSection>}
-    {packaging && code}
-    <FinanceSection title={packaging ? '包装基础信息' : '基础资料'}>
-      {packaging ? <>{fields(['packagingCategory', ['name', '包装名称'], 'brandId'])}<dl className="finance-view-fields"><div><dt>尺寸</dt><dd>{[record.data.dimensions, record.data.dimensionUnit].filter(Boolean).join(' ') || '未填写'}</dd></div></dl></> : fields([
-        ['name', `${label}名称`], ...(!sourceMaterial ? ['brandId'] : []), ['specQty', sourceMaterial ? '规格' : self || purchased ? '名称规格' : '规格数量'], ['specUnit', key === 'shipping_material' ? '规格单位' : key === 'raw' || self || purchased ? '名称单位' : '单位'],
-        ...(self ? ['productPackagingSpec', 'productPackagingUnit'] : []), ...(self || purchased ? ['purchaseSpec'] : []), ...(purchased ? ['supplyMode'] : []), ...(sourceMaterial ? [['materialCode', key === 'raw' ? '原料生产编码' : '物料生产编码'] as [string, string]] : []), ...(!sourceMaterial && !self && !purchased ? [['shape', '形态样式'] as [string, string]] : []),
-      ])}
-      {fields([['note', '备注']])}{fullName}
-    </FinanceSection>
-    {!packaging && code}
-    {packaging && <><FinanceSection title="容量组"><div className="finance-capacities">{capacities.length ? capacities.map((text, i) => <span key={i}>{text}</span>) : '未填写'}</div></FinanceSection><FinanceSection title="生产与重量">{fields(['printingCompany', 'purchaseSpec'])}<dl className="finance-view-fields"><div><dt>重量</dt><dd>{detailWeight(record.data.weightG)}</dd></div></dl></FinanceSection><FinanceSection title="库存">{fields(['orderStock', 'actualStock', ...(canCost ? ['purchasePrice'] : [])])}</FinanceSection></>}
-    {!record.warehouseMode && (self || key === 'purchased_oem') && <ProductComposition record={record} canCost={canCost} />}
-    {key === 'raw' && <FinanceSection title="原料成品名"><div className="finance-finished-names">{String(record.data.rawFinishedNames ?? '').split(/\r?\n/).filter(Boolean).map((text, i) => <div key={i}><span>{String(i + 1).padStart(2, '0')}</span><input aria-label={`第${i + 1}条成品名`} value={text} readOnly /></div>)}{!record.data.rawFinishedNames && <p>暂无成品名</p>}</div></FinanceSection>}
-    {!record.warehouseMode && ['raw', 'shipping_material'].includes(key) && <ProductSources record={record} canCost={canCost} />}
-    {!packaging && <FinanceSection title={self ? '计量与成本结果' : purchased ? '采购计价' : key === 'shipping_material' ? '物料重量' : '系统规格与重量'}>{fields([...(key === 'raw' || self ? ['purchaseSpec'] : []), ...(purchased && !record.warehouseMode ? ['supplierId'] : []), ...(canCost && (self || purchased) ? [['purchasePrice', key === 'purchased_oem' ? '原料采购价' : self ? '总采购价' : '采购价'] as [string, string]] : [])])}<dl className="finance-view-fields"><div><dt>{key === 'shipping_material' ? '物料重量' : '称重重量'}</dt><dd>{detailWeight(record.data.weightG)}</dd></div></dl></FinanceSection>}
-    {canCost && <><FinanceSection title="运费与装卸费" hint="两项费用分别维护、统一汇总，并与当前系统规格和采购价一起留存历史">{fields(['freight', 'handlingFee'])}<FreightHistory key={record.updatedAt} productId={record.id} values={record.data} /></FinanceSection><ProductCostSummary def={def} record={record} reference /></>}
-    <FinanceSection title="商品照片"><FileList ids={Array.isArray(record.data.photos) ? record.data.photos as number[] : []} files={record.files} /></FinanceSection>
-  </>;
+  const block = (node: Extract<ResolvedNode, { kind: 'block' }>) => {
+    switch (node.block) {
+      case 'category': return fields([['categoryId', '所属分类']]);
+      case 'code': return <output data-field="code" className="finance-code-value">{String(record.data.code || '—')}</output>;
+      case 'fullName': return <div data-field="basicInfoFullName" className="finance-full-name"><small>基础信息全名</small><output>{String(record.data.basicInfoFullName || '未填写')}</output></div>;
+      case 'capacities': {
+        const capacities = String(record.data.capacities ?? '').split(/\r?\n/).filter(Boolean);
+        return <><div data-field="capacities" className="finance-capacities">{capacities.length ? capacities.map((text, i) => <span key={i}>{text}</span>) : '未填写'}</div></>;
+      }
+      case 'finishedNames': return <div data-field="rawFinishedNames" className="finance-finished-names">{String(record.data.rawFinishedNames ?? '').split(/\r?\n/).filter(Boolean).map((text, i) => <div key={i}><span>{String(i + 1).padStart(2, '0')}</span><input aria-label={`第${i + 1}条成品名`} value={text} readOnly /></div>)}{!record.data.rawFinishedNames && <p>暂无成品名</p>}</div>;
+      case 'supplySources': return <ProductSources record={record} canCost={canCost} />;
+      case 'composition': return <ProductComposition record={record} canCost={canCost} />;
+      case 'weight': return <><dl className="finance-view-fields"><div data-field="weightG"><dt>{key === 'shipping_material' ? '物料重量' : '重量'}</dt><dd>{detailWeight(record.data.weightG)}</dd></div></dl>{fields(node.fields.filter(f => f.key !== 'weightG').map(f => [f.key, f.label]))}</>;
+      case 'breakdown': return null; // 组成区已有成本和重量结果。
+      case 'costSummary': return canCost ? <><ProductCostSummary def={def} record={record} reference />{record.data.migrationNotice && fields(['migrationNotice'])}</> : null;
+    }
+  };
+  const renderNodes = (nodes: readonly ResolvedNode[]) => <div className="finance-layout-grid">{nodes.map((node, i) => {
+    if (node.kind === 'field') {
+      if (node.field.key === 'zeroValueReason' && !needsZeroReason(record.data)) return null;
+      const f = node.field;
+      return <div key={f.key} data-layout-field={f.key} data-field={f.type === 'files' ? f.key : undefined} className={['textarea','files','attrs','json','refs'].includes(f.type) || node.wide ? 'wide' : undefined}>{f.type === 'files' ? <><span>{f.label}</span><FileList ids={Array.isArray(record.data[f.key]) ? record.data[f.key] as number[] : []} files={record.files} /></> : fields([[f.key, f.label]])}</div>;
+    }
+    return <div key={`${node.block}-${i}`} className="wide">{block(node)}</div>;
+  })}</div>;
+  const ordered = sections.filter(sec => !(record.warehouseMode && ['sources','production','logistics','total','cost'].includes(sec.id)) && !(record && ['package','oem_package'].includes(key) && sec.id === 'category') && !(key === 'custom' && ['cost','total','photos'].includes(sec.id))).sort((a,b) => Number(a.id === 'gift') - Number(b.id === 'gift'));
+  return <>{ordered.map(sec => {
+    let nodes = sec.nodes.filter(n => !(key === 'custom' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName')));
+    const extras = ['raw','shipping_material'].includes(key) && sec.id === 'base' ? nodes.filter(n => n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName') : [];
+    if (extras.length) nodes = nodes.filter(n => !extras.includes(n));
+    if (sec.id === 'sources') return <Fragment key={sec.id}><ProductSources record={record} canCost={canCost} /></Fragment>;
+    if (sec.id === 'production' && nodes.some(n => n.kind === 'block' && n.block === 'composition')) return <Fragment key={sec.id}><ProductComposition record={record} canCost={canCost} /></Fragment>;
+    if (['gift','extra'].includes(sec.id)) return <details key={sec.id} data-sec={sec.id} className="finance-detail-extra"><summary>{sec.id === 'gift' ? '赠品简称设置' : sec.title}</summary>{renderNodes(nodes)}</details>;
+    return <FinanceSection key={sec.id} title={sec.id === 'stock' && ['package','oem_package'].includes(key) ? '库存' : sec.title} className={`finance-layout-section section-${sec.id}`}>{renderNodes(nodes)}{extras.length > 0 && <div className="finance-layout-extra">{renderNodes(extras)}</div>}{sec.id === 'logistics' && canCost && <FreightHistory productId={record.id} values={record.data} />}</FinanceSection>;
+  })}{key === 'custom' && <details className="finance-detail-extra"><summary>更多设置</summary>{sections.filter(sec => ['cost','total','photos'].includes(sec.id)).map(sec => <FinanceSection key={sec.id} title={sec.title}>{renderNodes(sec.nodes)}</FinanceSection>)}{renderNodes(sections.find(sec => sec.id === 'base')?.nodes.filter(n => n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName') ?? [])}</details>}</>;
 }

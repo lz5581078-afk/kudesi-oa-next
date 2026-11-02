@@ -10,6 +10,8 @@ import { CodePreview } from './CodePreview';
 import { ManageLink } from './ManageLink';
 import { BomDraft, saveBomRows, loadBomRows, validBomRows, type BomDraftRow } from './BomDraft';
 import { FieldHint } from './FieldHint';
+import { resourceFields, resourceGroups, resourceFieldWide } from './resourceFieldLayout';
+import { displayValue } from './format';
 import { fieldSpan, needsZeroReason } from './productFormGrid';
 import './productForm.css';
 import './referenceForm.css';
@@ -165,7 +167,7 @@ export function RecordForm(props: Parameters<typeof GenericRecordForm>[0]) {
   return <GenericRecordForm {...props} />;
 }
 
-function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inline, onClose, onSaved, onContinued }: {
+function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inline, inDetail, onCloseReady, onClose, onSaved, onContinued }: {
   def: ResourceDef;
   record: ResourceDto | null;
   initial?: Record<string, unknown>;
@@ -174,6 +176,10 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   onlyGroup?: string;
   /** 就地编辑：不弹窗，直接在详情页该分区的位置显示表单 */
   inline?: boolean;
+  /** 整条资料在原详情位置编辑，保留分区及字段列位置。 */
+  inDetail?: boolean;
+  /** 详情标题栏关闭也经过未保存检查。 */
+  onCloseReady?: (close: (() => void) | null) => void;
   onClose: () => void;
   onSaved: (dto: ResourceDto) => void;
   /** 提供了它，新建时就多出“保存并继续新建”：保存后不关弹窗，列表由它刷新 */
@@ -216,6 +222,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   };
   const closeRef = useRef(requestClose);
   closeRef.current = requestClose;
+  useEffect(() => { onCloseReady?.(() => closeRef.current()); return () => onCloseReady?.(null); }, [onCloseReady]);
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
@@ -249,7 +256,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const visible = useMemo(() => {
     if (resolved) return resolved.flatMap((s) => s.nodes.flatMap((n) => (n.kind === 'field' ? [n.field] : n.fields))).filter((f) => !f.readonly && (!onlyGroup || f.group === onlyGroup));
     const ctx: Record<string, unknown> = { ...values, status };
-    return def.fields.filter((f) => !f.readonly && canField(f)).filter(f => !(def.key === 'finance-base-codes' && !record && ['categoryId','weightG'].includes(f.key)) && !(def.key === 'finance-categories' && record && f.key === 'archiveType')).filter((f) => !(def.key === 'fixed-assets' && record && f.key === 'userId')).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? ''))).filter((f) => !onlyGroup || f.group === onlyGroup);
+    return resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)).filter((f) => !f.readonly && canField(f)).filter(f => !(def.key === 'finance-base-codes' && !record && ['categoryId','weightG'].includes(f.key)) && !(def.key === 'finance-categories' && record && f.key === 'archiveType')).filter((f) => !(def.key === 'fixed-assets' && record && f.key === 'userId')).filter((f) => !f.showWhen || f.showWhen.in.includes(String(ctx[f.showWhen.field] ?? ''))).filter((f) => !onlyGroup || f.group === onlyGroup);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def, values, status, me, onlyGroup, resolved]);
   const isReferenceParty = REFERENCE_PARTIES.includes(def.key);
@@ -257,12 +264,11 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const referenceMaintenance = ['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories','finance-brands','finance-product-units','finance-platforms','finance-scenarios'].includes(def.key);
   const reference = def.key === 'finance-products' || isReferenceParty || referenceMaintenance;
   const groups = useMemo(() => {
-    if (isReferenceParty) return referencePartyGroups(def.key, visible);
+    if (isReferenceParty) return referencePartyGroups(def.key, record ? resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)) : visible);
     if (resolved) return resolved.filter((s) => !onlyGroup || s.title === onlyGroup).map((s) => [s.title, visible.filter((f) => f.group === s.title)] as [string, FieldDef[]]);
-    const map = new Map<string, FieldDef[]>();
-    for (const f of visible) map.set(f.group, [...(map.get(f.group) ?? []), f]);
-    return [...map.entries()];
-  }, [visible, resolved, onlyGroup, isReferenceParty, def.key]);
+    const fields = record ? resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)).filter(f => !onlyGroup || f.group === onlyGroup) : visible;
+    return resourceGroups(fields);
+  }, [visible, resolved, onlyGroup, isReferenceParty, def, record, values, status, me]);
 
   // 商品档案新建：草稿（每人每个档案类型一份，存在服务器上）、保存并继续新建
   const isProduct = def.key === 'finance-products';
@@ -318,7 +324,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     for (const f of visible) {
       const v = values[f.key];
       if (f.type === 'secret' && (v === undefined || v === '')) continue;
-      body[f.key] = v === undefined ? (f.type === 'files' ? [] : f.type === 'attrs' ? {} : '') : v;
+      body[f.key] = v === undefined ? (f.type === 'files' ? [] : f.type === 'attrs' ? {} : f.type === 'bool' ? false : '') : v;
     }
     return body;
   }
@@ -462,7 +468,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const weightValues = values.weightManual === true || ['package','oem_package','shipping_material','custom'].includes(layoutKey) ? values : { ...values, weightG: automaticWeight };
   const secTitle = (g: string) => (resolved ? g : groupTitle(def, g, values));
   const errorsByGroup = (g: string) => groups.find(([name]) => name === g)?.[1].filter((f) => errors[f.key]).length ?? 0;
-  const showAnchors = !inline && !reference && groups.length > 1;
+  const showAnchors = (!inline || inDetail) && !reference && groups.length > 1;
   const scrollBox = useRef<HTMLDivElement>(null);
   const [activeGroup, setActiveGroup] = useState('');
   const jumpedGroup = useRef<string | null>(null);
@@ -482,11 +488,12 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const errorCount = Object.values(errors).filter(Boolean).length;
 
   const renderField = (f: FieldDef, wide?: boolean) => {
+    if (record && !visible.some(field => field.key === f.key)) return <div key={f.key} data-field={f.key} data-kind={f.type} className={`rf-field readonly-field${reference ? ` s${referenceFieldSpan(def.key, f)}` : resourceFieldWide(f) ? ' wide' : ''}`}><span className="rf-label">{f.label}</span><output>{displayValue(f, record) || '—'}</output><small className="muted">只读</small></div>;
     const compound = def.key === 'stores' && f.key === 'jushuitanShopId' || ['refs','attrs','files'].includes(f.type) || f.type === 'select' && f.multi || f.type === 'ref' && f.cascade;
     const inputId = `rf-field-${formId}-${f.key}`;
     const Caption = compound ? 'span' : 'label';
     return (
-    <div key={f.key} data-field={f.key} data-kind={f.type} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={['rf-field', reference ? `s${wide || f.type === 'refs' ? 12 : referenceFieldSpan(def.key, f)}` : '', !reference && (wide || f.type === 'textarea' || f.type === 'attrs' || f.type === 'files' || f.type === 'refs' || f.type === 'select' && f.multi || (f.type === 'ref' && f.cascade)) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
+    <div key={f.key} data-field={f.key} data-kind={f.type} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={['rf-field', reference ? `s${wide || f.type === 'refs' ? 12 : referenceFieldSpan(def.key, f)}` : '', !reference && (wide || resourceFieldWide(f)) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
       <Caption className="rf-label" htmlFor={compound ? undefined : inputId}>{isProduct && f.key === 'name' && ['self_made','purchased_original','purchased_oem','shipping_material'].includes(layoutKey) ? `${referenceLabel}名称` : isProduct && layoutKey === 'custom' && f.key === 'specQty' ? '多少' : isProduct && layoutKey === 'custom' && f.key === 'shape' ? '形态样式' : f.label}{f.required && <b className="req" title="必填">{reference ? '必填' : ' *'}</b>}{isProduct && ['materialCode','note'].includes(f.key) && !f.required && <small className="reference-optional">选填</small>}{!reference && isProduct && f.help && <FieldHint text={f.help} />}{isProduct && <ManageLink field={f} values={values} inPlace={reference} />}</Caption>
       {def.key === 'finance-customers' && f.key === 'categoryIds' ? <><RefSelect inputId={inputId} leafOnly field={{...f,type:'ref'}} value={Array.isArray(values.categoryIds) ? values.categoryIds[0] : null} labelNow={record?.refLabels.categoryIds} onChange={v => setValues(cur => ({...cur,categoryIds:v ? [v] : []}))} />{Array.isArray(values.categoryIds) && values.categoryIds.length > 1 && <small>当前同时归属：{record?.refLabels.categoryIds}；重新选择后归入所选分类。</small>}</> : f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
         inputId={inputId}
@@ -540,7 +547,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         const first = controls[0], last = controls[controls.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
         if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
-      }} className={inline ? 'inline-form resource-inline-editor' : `modal card rf resource-editor${isProduct ? ' rf-p' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
+      }} className={inline ? `inline-form resource-inline-editor${inDetail ? ' resource-detail-editor' : ''}` : `modal card rf resource-editor${isProduct ? ' rf-p' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
         {!inline && <div className="modal-head rf-head">
           {reference ? <div className="reference-title">{def.key === 'finance-suppliers' && <small className="reference-party-kicker"><FolderTree size={20}/>财务基础资料</small>}{isProduct && values.archiveType === 'purchased' && <small>外购成品档案 · {values.supplyMode === 'supplier_oem' ? '供应商 OEM' : '原装采购'}</small>}<h2>{record ? referenceStatus || (isProduct && layoutKey === 'custom') ? String(values.name || referenceLabel) : `编辑${isProduct ? String(values.name || referenceLabel) : referenceLabel}` : `新增${referenceLabel}`}</h2><p>{isProduct && layoutKey === 'custom' ? '先确认分类，再维护基础信息；编号按分类、可选品牌、名称、规格和可选形态样式生成，空白可选段会直接省略。' : referenceStatus ? `${def.label}详情、分类归属和操作记录。` : isReferenceParty ? record ? `在原位编辑${referenceLabel}资料，保存后立即生效。` : `填写${referenceLabel}基础资料，保存后归入当前分类。` : record ? `维护${referenceLabel}基础信息、规格及关联资料。` : `填写${referenceLabel}基础资料即可保存。`}</p></div> : <><strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>{record && <span className="rf-sub" title={record.title}>{record.title}</span>}</>}
           <span className="rf-gap" />
@@ -575,7 +582,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
               </select>
             </label>
           )}
-          {inline && visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项。</p>}
+          {inline && !inDetail && visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项。</p>}
           {!inline && !record && !reference && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
           {resolved ? resolved.filter(sec => (!onlyGroup || sec.title === onlyGroup) && !(record && ['package','oem_package'].includes(layoutKey) && sec.id === 'category') && !(layoutKey === 'custom' && ['cost','total','photos'].includes(sec.id))).sort((a, b) => Number(a.id === 'gift') - Number(b.id === 'gift')).map((sec) => ['gift','extra'].includes(sec.id) ? <details key={sec.id} className="rf-sec reference-section-gift" data-sec={sec.id === 'extra' ? sec.id : undefined}><summary>{sec.id === 'gift' ? '赠品简称设置' : sec.title}</summary><div className="form-grid">{sec.nodes.map(renderNode)}</div></details> : (
             <section key={sec.id} id={secId(sec.title)} data-sec={sec.id} className={`rf-sec reference-section-${sec.id}`} aria-label={sec.title}>
@@ -583,9 +590,9 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
               <div className="form-grid">{sec.nodes.filter(n => !(layoutKey === 'custom' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).filter(n => !(['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).map(renderNode)}</div>{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && <div className="reference-note">{sec.nodes.filter(n => n.kind === 'field' && n.field.key === 'note').map(renderNode)}</div>}{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && sec.nodes.filter(n => n.kind === 'block' && n.block === 'fullName').map(renderNode)}{sec.id === 'logistics' && canCostEdit && <FreightHistory productId={record?.id} values={previewValues} />}
             </section>
           )) : groups.map(([group, fields]) => group === '补充资料' && referenceStatus ? null : group === '补充资料' && reference ? <details key={group} className="rf-sec reference-extra"><summary>更多设置</summary><div className="form-grid">{fields.map(f => renderField(f))}</div></details> : (
-            <section key={group} id={secId(group)} data-layout={fields.length <= 2 && !fields.some(f => ['refs','files','attrs','textarea'].includes(f.type)) ? 'compact' : 'full'} className={`rf-sec reference-party-${group === '归入分类' ? 'category' : group === '系统自动编号' ? 'code' : 'fields'}`} aria-label={group}>
+            <section key={group} id={secId(group)} data-layout="full" className={`rf-sec reference-party-${group === '归入分类' ? 'category' : group === '系统自动编号' ? 'code' : 'fields'}`} aria-label={group}>
               {group === '归入分类' && isReferenceParty ? <><ReferenceCategoryContext party label={referenceLabel} editing={!!record} path={record?.refLabels.categoryIds ?? ''}>{!record && fields.map(f => renderField(f))}</ReferenceCategoryContext>{record && def.key === 'finance-suppliers' && <div className="reference-supplier-categories"><h3>供应产品分类 <small>可多选</small></h3>{fields.map(f => renderField(f))}</div>}</> : <>
-              {!inline && <h3 className="rf-sec-title">{isReferenceParty && ['基础资料','联系资料','收款与银行资料'].includes(group) && <i className="rf-step">{['基础资料','联系资料','收款与银行资料'].indexOf(group) + 1}</i>}{referenceStatus && group === '基础信息' && <Database size={18}/>} {secTitle(group)}{def.key === 'finance-suppliers' && group === '基础资料' && <small>采购和结算使用的基础信息</small>}{def.key === 'finance-suppliers' && group === '联系资料' && <small>用于业务联系和后续单据引用</small>}{group === '系统自动编号' && <small>编码按分类和名称生成</small>}</h3>}
+              {(!inline || inDetail) && <h3 className="rf-sec-title">{isReferenceParty && ['基础资料','联系资料','收款与银行资料'].includes(group) && <i className="rf-step">{['基础资料','联系资料','收款与银行资料'].indexOf(group) + 1}</i>}{referenceStatus && group === '基础信息' && <Database size={18}/>} {secTitle(group)}{def.key === 'finance-suppliers' && group === '基础资料' && <small>采购和结算使用的基础信息</small>}{def.key === 'finance-suppliers' && group === '联系资料' && <small>用于业务联系和后续单据引用</small>}{group === '系统自动编号' && <small>编码按分类和名称生成</small>}</h3>}
               <div className="form-grid">{fields.map(f => <Fragment key={f.key}>{renderField(f)}{def.key === 'finance-fee-items' && f.key === 'isCommon' && <label className="s6"><span className="rf-label">费用单必须挂归属对象</span><select title="按挂账节点自动判断，修改挂账节点可改变要求" disabled value={String(values.defaultObject || '').split(/[、,，]/).some(n => n && n !== '公司' && n !== '不固定') ? 'yes' : 'no'}><option value="yes">是</option><option value="no">否</option></select><small className="muted">按挂账节点自动判断</small></label>}{referenceStatus && ['categoryId','categoryIds'].includes(f.key) && <label className="s6"><span className="rf-label">状态</span><select value={status} disabled={!!record && !(me && createChecker(me.permissions)(`resource.${def.key}.disable`))} onChange={e => setStatus(e.target.value)}><option value="active">正常</option><option value="inactive">停用</option></select></label>}</Fragment>)}{referenceStatus && status !== record?.status && status === 'inactive' && <label className="s12">停用原因<textarea value={statusReason} maxLength={500} onChange={e => setStatusReason(e.target.value)} /></label>}</div></>}
             </section>
           ))}
