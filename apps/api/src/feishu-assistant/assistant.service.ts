@@ -65,7 +65,7 @@ export class AssistantService implements OnModuleInit, OnModuleDestroy {
       appId: input.appId, appSecret, tenantKey: input.tenantKey.trim(), enabled: input.enabled,
       morningEnabled: input.morningEnabled, welcomeEnabled: input.welcomeEnabled,
       morningText: input.morningText.trim(), welcomeText: input.welcomeText.trim(), departmentIds: [...new Set(input.departmentIds)],
-      activatedAt: old?.enabled && old.appId === input.appId && old.tenantKey === input.tenantKey.trim() ? old.activatedAt : new Date().toISOString(),
+      activatedAt: old?.enabled && old.appId === input.appId && old.tenantKey === input.tenantKey.trim() && !(input.welcomeEnabled && !old.welcomeEnabled) && !(input.morningEnabled && !old.morningEnabled) ? old.activatedAt : new Date().toISOString(),
     };
     await this.ds.transaction(async em => {
       // One Feishu app must never be attached to two OA companies.
