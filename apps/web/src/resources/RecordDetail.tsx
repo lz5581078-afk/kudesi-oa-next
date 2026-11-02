@@ -31,6 +31,7 @@ import { ChevronDown } from './ResIcons';
 import { FINANCE_DETAIL_TYPES } from './FinanceDetailFields';
 import { FinanceDetailBackdrop, FinanceDetailBody, FinanceDetailHead } from './FinanceRecordDetail';
 import { referenceRecordLabel } from './referenceFormLayout';
+import './resourceWorkspace.css';
 import { RevisionDialog } from '../pages/finance/jst/BundleDialogs';
 
 export { useResourceCan };
@@ -380,7 +381,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const financeMore = [...moreItems.filter(item => item !== baseCopy), ...tabs.filter(([key]) => key !== 'info').map(([key, label]) => ({ key: `tab-${key}`, label, run: () => setTab(key) }))];
 
   return (
-    <Frame><aside className={finance ? `rd finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}` : wide ? 'rd rd-wide' : 'rd'} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
+    <Frame><aside className={finance ? `rd resource-detail finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}` : wide ? 'rd resource-detail rd-wide' : 'rd resource-detail'} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
       {finance ? <FinanceDetailHead def={def} record={record} nav={nav} onClose={onClose} /> : <DetailHead
         def={def}
         record={record}
@@ -432,7 +433,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
               {def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} departmentLabel={record.refLabels.departmentId ?? ''} />}
               {def.key === 'workforce' && <WorkforceAccountNote />}
               {sectionList.map(({ group, fields, shown }) => (
-                <section key={group} id={secId(group)} className="rd-sec">
+                <section key={group} id={secId(group)} className="rd-sec" data-layout={shown.length <= 2 ? 'compact' : 'full'}>
                   <h3 className="rd-sec-title">
                     <span>{groupTitle(def, group, record.data)}</span>
                     {can('edit') && !record.archived && editGroup !== group && fields.some((f) => !f.readonly) && (
@@ -451,7 +452,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
                   ) : (
                     <dl className="rd-grid">
                       {shown.map((f) => (
-                        <div key={f.key} className={`rd-item${['textarea', 'files', 'attrs', 'json'].includes(f.type) ? ' wide' : ''}`}>
+                        <div key={f.key} className={`rd-item${['textarea', 'files', 'attrs', 'json', 'refs'].includes(f.type) ? ' wide' : ''}`}>
                           <dt>{f.label}</dt>
                           <dd>
                             {f.type === 'secret' ? (
