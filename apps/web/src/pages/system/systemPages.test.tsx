@@ -42,8 +42,8 @@ describe('接口设置', () => {
     fireEvent.click(within(card).getByText('保存'));
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/settings/feishu-assistant', expect.objectContaining({ method: 'PUT' })));
     const call = apiMock.mock.calls.find(c => c[1]?.method === 'PUT')!;
-    expect(JSON.parse(String(call[1]?.body))).toMatchObject({ appSecret: 'test-only-secret', welcomeText: '欢迎新伙伴！', departmentIds: ['0'] });
-    expect(JSON.parse(String(call[1]?.body))).not.toHaveProperty('jobs');
+    expect(call[1]?.body).toMatchObject({ appSecret: 'test-only-secret', welcomeText: '欢迎新伙伴！', departmentIds: ['0'] });
+    expect(call[1]?.body).not.toHaveProperty('jobs');
     await waitFor(() => expect((within(card).getByLabelText('App Secret') as HTMLInputElement).value).toBe(''));
   });
   it('没改东西时保存和测试按钮的状态：保存不可点；改了才出现“有未保存的修改”，并要求先保存再测试', async () => {
