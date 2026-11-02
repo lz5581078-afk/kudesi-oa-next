@@ -7,6 +7,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
 import { FilesService, UploadedFile } from '../integrations/files.service';
 import * as releases from './agent-release';
+import { hostedInstaller } from './hosted-installer';
 import { buildAgentInstaller } from './agent-installer';
 import { FinanceDocument, ResourceRecord, SessionAuditLog, SessionBindCode, SessionDevice, SessionOpenRequest, SessionShop, User } from '../entities';
 
@@ -515,7 +516,7 @@ export class SessionService {
     const version = await releases.latestReleaseVersion(this.dataSource, user.companyId);
     if (!version) throw new NotFoundException('暂未发布 Windows 助手，请先发布安装包');
     const pkg = await releases.loadPackage(this.dataSource, user.companyId, version);
-    const result = buildAgentInstaller(pkg.buf);
+    const result = hostedInstaller(version, pkg.sha256) ?? (() => { const zip = buildAgentInstaller(pkg.buf); return { ...zip, filename: `kudesi-assistant-${version}-windows.zip`, contentType: 'application/zip', sha256: crypto.createHash('sha256').update(zip.buf).digest('hex') }; })();
     await this.log(this.dataSource.manager, user.companyId, 'agent_installer_downloaded', `下载 Windows 助手 ${version} 安装包`, { actorId: user.id });
     return { ...result, sha256: crypto.createHash('sha256').update(result.buf).digest('hex') };
   }
