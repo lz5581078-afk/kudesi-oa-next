@@ -86,12 +86,11 @@ export function JstUploadPage() {
   }
 
   return (
-    <div>
-      <div className="page-head"><h1>资料维护</h1></div>
+    <div className="jst-maintenance-page">
+      <div className="page-head"><div><h1>聚水潭资料维护</h1><p>集中维护聚水潭商品、库存、仓位等基础资料；当前开放商品资料上传能力。</p></div></div>
       <section className="card">
       <div className="between"><div><h2>商品资料上传</h2><p className="muted">记录普通商品资料的上传结果和处理时间。</p></div><div className="row-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void loadLogs()}>刷新记录</button>{isAdmin && <button type="button" className="primary-button" onClick={() => { setForm(EMPTY); setCheck(null); setError(''); setNotice(''); setOpen(true); void loadOptions(); }}>上传普通商品资料</button>}</div></div>
       {!isAdmin && <p className="muted">当前账号可查看上传记录，上传资料需要管理员权限。</p>}
-      </section>
       {open && <FinanceModal title="普通商品资料上传" onClose={() => setOpen(false)} busy={busy}>
       <p className="muted">分组填写商品资料，查重后加入同步队列。</p>
       <div className="row-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { setForm(EMPTY); setCheck(null); setError(''); setNotice(''); }}>清空</button><button type="button" className="secondary-button" disabled={busy} onClick={() => void loadOptions()}>刷新分类/品牌</button></div>
@@ -132,7 +131,7 @@ export function JstUploadPage() {
       </form>
       </FinanceModal>}
       {!open && error && <div role="alert" className="notice error">{error}</div>}
-      <h2>上传记录</h2>
+
       <form className="toolbar" onSubmit={e => { e.preventDefault(); setKeyword(draftKeyword.trim()); setPage(1); if (keyword === draftKeyword.trim()) void loadLogs(); }}><input aria-label="搜索上传记录" placeholder="搜索商品编码或提示信息" value={draftKeyword} onChange={(e) => setDraftKeyword(e.target.value)} /><button type="submit" className="secondary-button">搜索</button></form>
       <div className="table-scroll"><table className="data-table">
         <thead><tr><th>商品编码</th><th>款式编码</th><th>名称</th><th>状态</th><th>说明</th><th>时间</th></tr></thead>
@@ -142,6 +141,13 @@ export function JstUploadPage() {
         </tbody>
       </table></div>
       <Pager page={page} total={logs?.total ?? 0} pageSize={20} onPage={setPage} />
+      </section>
+      <section className="card"><h2>导入模板字段对照</h2><p className="muted">商品资料上传与库存、仓位接口分别维护。</p><div className="table-scroll"><table className="data-table"><thead><tr><th>模板页</th><th>主要字段</th><th>API 覆盖判断</th></tr></thead><tbody>
+        <tr><td>商品资料</td><td>商品编码、款式编码、名称、简称、规格、图片、品牌、条码、分类、标签、状态、库存同步、重量、长宽高、单位、供应商、售价、成本价、采购价及其他属性</td><td>通过普通商品资料上传，先查重，再进入同步队列</td></tr>
+        <tr><td>商品库存</td><td>安全库存下限/上限、安全库存天数、虚拟库存数</td><td>使用库存类接口</td></tr>
+        <tr><td>仓位库容</td><td>主仓位、库容上下限、溢出数量、标准装箱数量和体积</td><td>使用仓位与库容相关接口</td></tr>
+        <tr><td>全字段导入模板</td><td>订单留言备注、序列号、保价等扩展项</td><td>按对应接口能力逐项维护</td></tr>
+      </tbody></table></div></section>
     </div>
   );
 }

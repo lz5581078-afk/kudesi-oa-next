@@ -9,6 +9,7 @@ export interface FileInfo {
 }
 
 export interface ResourceDto {
+  catalog?: { mainStyleCode: string; weightG: number | null; costCents?: number | null; saleCents?: number | null; composition: Array<{name:string;qty:number;unit:string}>; packaging: Array<{name:string;qty:number;unit:string}> };
   id: number;
   type: string;
   title: string;
