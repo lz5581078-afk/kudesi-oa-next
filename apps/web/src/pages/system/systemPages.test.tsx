@@ -25,12 +25,27 @@ const overview = {
   qiniu: { configured: true, accessKey: 'AK', secretKeyConfigured: true, bucket: 'b', zone: 'z0', domain: 'https://cdn.x.com', isPrivate: true },
   vision: { configured: false, baseUrl: '', apiKeyConfigured: false, model: '', enabled: false },
 };
+const assistant = { appId: 'cli_test', tenantKey: 'tenant', secretConfigured: false, enabled: false, morningEnabled: true, welcomeEnabled: true, morningText: '早上好 ☀️ 新的一天开始啦！小白OA 助手祝大家工作顺利。', welcomeText: '欢迎加入我们 🎉', departmentIds: ['0'], eventConnection: 'not_started', jobs: [] };
 
 beforeEach(() => { vi.mocked(settingsApi.overview).mockResolvedValue(overview as never); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('接口设置', () => {
-  beforeEach(() => { apiMock.mockResolvedValue({ configured: false, enabled: false, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20 }); });
+  beforeEach(() => { apiMock.mockImplementation(async (path) => (path === '/settings/feishu-assistant' ? assistant : { configured: false, enabled: false, fileEnabled: true, realtimeEnabled: true, maxConcurrent: 20 }) as never); });
+  it('OA助手可修改早安和欢迎语，保存后清空密钥，不把概况字段提交给服务端', async () => {
+    render(<IntegrationsPage />);
+    const card = await screen.findByRole('form', { name: '小白OA助手自动问候' });
+    const morning = await within(card).findByLabelText('早安消息');
+    expect((morning as HTMLTextAreaElement).value).not.toContain('记得查看');
+    fireEvent.change(within(card).getByLabelText('App Secret'), { target: { value: 'test-only-secret' } });
+    fireEvent.change(within(card).getByLabelText('欢迎消息'), { target: { value: '欢迎新伙伴！' } });
+    fireEvent.click(within(card).getByText('保存'));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/settings/feishu-assistant', expect.objectContaining({ method: 'PUT' })));
+    const call = apiMock.mock.calls.find(c => c[1]?.method === 'PUT')!;
+    expect(JSON.parse(String(call[1]?.body))).toMatchObject({ appSecret: 'test-only-secret', welcomeText: '欢迎新伙伴！', departmentIds: ['0'] });
+    expect(JSON.parse(String(call[1]?.body))).not.toHaveProperty('jobs');
+    await waitFor(() => expect((within(card).getByLabelText('App Secret') as HTMLInputElement).value).toBe(''));
+  });
   it('没改东西时保存和测试按钮的状态：保存不可点；改了才出现“有未保存的修改”，并要求先保存再测试', async () => {
     render(<IntegrationsPage />);
     const card = await screen.findByRole('form', { name: '七牛云存储' });
