@@ -33,7 +33,7 @@ export class LiveWorkspaceModule {
     ];
   }
 
-  /** 岗位工作台：运营看今天的排场和正在直播的场数；主播、中控看自己的排场和本月提成。 */
+  /** 岗位工作台的场次卡片；本人分角色工资和提成统一由个人收入区展示。 */
   async deskCards(user: AuthUser, type: string): Promise<SummaryCard[]> {
     const a = await loadLiveAccess(this.ds.manager, user);
     const today = liveToday(liveClock.now());
@@ -52,14 +52,9 @@ export class LiveWorkspaceModule {
       ];
     }
     if (type === 'live_anchor' || type === 'live_control') {
-      const month = today.slice(0, 7);
-      const [[sch], [comm]] = await Promise.all([
-        this.ds.query("SELECT COUNT(*) n FROM live_schedules WHERE company_id = ? AND schedule_date >= ? AND status = 'scheduled' AND (anchor_user_id = ? OR control_user_id = ?)", [a.companyId, today, user.id, user.id]),
-        this.ds.query("SELECT COALESCE(SUM(amount_cents),0) total FROM live_commission_records WHERE company_id = ? AND user_id = ? AND DATE_FORMAT(session_date,'%Y-%m') = ?", [a.companyId, user.id, month]),
-      ]);
+      const [sch] = await this.ds.query("SELECT COUNT(*) n FROM live_schedules WHERE company_id = ? AND schedule_date >= ? AND status = 'scheduled' AND (anchor_user_id = ? OR control_user_id = ?)", [a.companyId, today, user.id, user.id]);
       return [
         { key: 'live-mine', label: '我的待播排场', value: num(sch.n), page: 'features.live-desk', module: 'live' },
-        { key: 'live-commission', label: '本月提成（元）', value: (num(comm.total) / 100).toFixed(2), page: 'features.live-desk', module: 'live' },
       ];
     }
     return [];
