@@ -947,6 +947,9 @@ d('直播管理（真实数据库）', () => {
     await ds.query('UPDATE live_trial_tickets SET expires_at=UTC_TIMESTAMP()-INTERVAL 1 MINUTE WHERE token_hash=?',[crypto.createHash('sha256').update(expired.token).digest('hex')]);
     await expect(sessions.redeemTrial(expired.token)).rejects.toThrow(/过期/);
     const {token}=await sessions.issueTrial(hr,body);
+    const [ttl]=await ds.query('SELECT TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),expires_at) remaining FROM live_trial_tickets WHERE token_hash=?',[crypto.createHash('sha256').update(token).digest('hex')]);
+    expect(Number(ttl.remaining)).toBeGreaterThan(1190);
+    expect(Number(ttl.remaining)).toBeLessThanOrEqual(1200);
     const [one,two]=await Promise.allSettled([sessions.redeemTrial(token),sessions.redeemTrial(token)]);
     const ok=[one,two].filter(r=>r.status==='fulfilled');
     if (!ok.length && one.status==='rejected') throw one.reason;

@@ -86,7 +86,7 @@ export class LiveSessionService {
     await validateChannels(this.em,user.companyId,input.channels??[]);
     await resolveLiveProducts(this.em,user.companyId,input,true);
     const token=randomBytes(24).toString('base64url');
-    await this.em.query('INSERT INTO live_trial_tickets(token_hash,company_id,issuer_id,payload,expires_at) VALUES(?,?,?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 10 MINUTE))',
+    await this.em.query('INSERT INTO live_trial_tickets(token_hash,company_id,issuer_id,payload,expires_at) VALUES(?,?,?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 20 MINUTE))',
       [createHash('sha256').update(token).digest('hex'),user.companyId,user.id,JSON.stringify(input)]);
     return {token};
   }

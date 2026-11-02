@@ -29,7 +29,7 @@ function IssueTrialCode({close}:{close:()=>void}){
   const graphic=link?qrSvgPath(qrMatrix(link)):null;
   return <Modal title="临时主播开播" onClose={close}>
     {error&&<p role="alert">{error}</p>}
-    {graphic?<><p>请 {opts?.anchors.find(x=>x.id===Number(anchor))?.name} 用自己的手机扫码，点「确认开播」。二维码十分钟内有效，只能使用一次。</p>
+    {graphic?<><p>请 {opts?.anchors.find(x=>x.id===Number(anchor))?.name} 用自己的手机扫码，点「确认开播」。二维码 20 分钟内有效，只能使用一次。</p>
       <svg width="220" height="220" role="img" aria-label="临时主播一次性开播码" viewBox={`0 0 ${graphic.size} ${graphic.size}`}><rect width="100%" height="100%" fill="white"/><path d={graphic.path}/></svg>
       <p>主播确认后，指定的中控用本人账号扫直播间固定码，核对本场并登记上播。</p></>:opts?<div className="live-fields">
       {([['直播间',room,setRoom,opts.rooms.filter(x=>!x.live)],['临时主播',anchor,setAnchor,opts.anchors.filter(x=>x.trial&&!x.live)],['本场中控',control,setControl,opts.controls]] as const).map(([label,value,set,rows])=><label className="live-field" key={label}>{label}<select value={value} onChange={e=>set(e.target.value)}><option value="">请选择</option>{rows.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>)}
