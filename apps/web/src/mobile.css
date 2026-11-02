@@ -57,3 +57,28 @@ html input[type='checkbox'], html input[type='radio'] { width: 16px; height: 16p
   .modal .modal-foot.rf-foot:has(> button:nth-of-type(4)) > .primary-button { grid-column: 1 / -1; order: -1; }
   .modal .modal-foot.rf-foot:has(> button:nth-of-type(4)) > .dirty-hint { grid-column: 1 / -1; order: -2; }
 }
+
+@media (max-width: 720px) {
+  /* 直播页顶部的长提示：手机上默认只显示前两行，点一下展开全文 */
+  .live-source-status:not(:focus) { max-height: 3.7em; overflow: hidden; position: relative; cursor: pointer; }
+  .live-source-status:not(:focus)::after { content: '点开看全文'; position: absolute; right: 8px; bottom: 2px; padding-left: 24px; background: linear-gradient(90deg, transparent, var(--warn-bg, #fdf1dc) 40%); color: var(--accent); font-size: 12px; }
+  .live-source-status:focus { outline: none; }
+
+  /* 任何直接包着数据表格的容器都能横向滚动，表格不再撑宽整页 */
+  :where(div, section, article):has(> table.data-table:not(.cards-narrow)) { overflow-x: auto; }
+
+  /* 横向滚动的标签条：右侧加渐隐提示"后面还有" */
+  .tabs, .tab-group, .res-tabs, .tabbar-inline { scrollbar-width: none; }
+  .tabs::-webkit-scrollbar, .res-tabs::-webkit-scrollbar { display: none; }
+}
+
+@media (max-width: 720px) {
+  .tabs { overflow-x: auto; flex-wrap: nowrap; }
+  .tabs > * { flex: 0 0 auto; }
+}
+
+@media (max-width: 720px) {
+  /* 查询页筛选格：字段不超过父容器宽度（窄屏下内部日期框的固有宽度会把它撑出去） */
+  .qk-field, .qk-field.wide { width: 100%; max-width: 100%; box-sizing: border-box; min-width: 0; }
+  .qk-field input, .qk-field select, .qk-field .pick { min-width: 0; max-width: 100%; }
+}
