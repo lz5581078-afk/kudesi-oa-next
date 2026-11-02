@@ -31,7 +31,7 @@ const session = (o: Record<string, unknown> = {}) => ({ id: 7, scheduleId: 1, ro
 const detail = (o: Record<string, unknown> = {}) => ({ ...session(), products: [{ id: 1, code: 'SKU-A', name: '毛巾', spec: '' }], reports: [], commissions: [], wage: null, preview: null, me: { reportRoles: ['anchor'], canSubmit: false, isManager: false }, flow: null, ...o });
 const bench = (o: Record<string, unknown> = {}) => ({ today: '2026-09-28', month: '2026-09', identity: { isAnchor: true, isControl: false, canManage: false }, active: [], schedules: [sched()], recent: [], monthCommissionCents: 12345, monthWageCents: 20000, monthWageMinutes: 240, commissionRows: [], wageRows: [], ...o });
 
-beforeEach(() => { l.submissionStatus.mockResolvedValue({ready:true,message:'审核流程已就绪'}); l.turnover.mockResolvedValue({available:true,orderCount:0,turnoverCents:0,stores:[],queriedAt:'2026-09-28 12:00:00'} as never); window.localStorage.clear(); allow = ['features.live-desk.view']; l.wages.mockResolvedValue({month:'2026-09',scope:'all',totalCents:0,summary:[],rows:[]}); l.options.mockResolvedValue(opts() as never); l.integrationStatus.mockResolvedValue({ ready: true, code: 'ready', message: '' }); l.commissionPreview.mockResolvedValue(null); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
+beforeEach(() => { l.sessions.mockResolvedValue({total:0,page:1,pageSize:8,rows:[]}); l.submissionStatus.mockResolvedValue({ready:true,message:'审核流程已就绪'}); l.turnover.mockResolvedValue({available:true,orderCount:0,turnoverCents:0,stores:[],queriedAt:'2026-09-28 12:00:00'} as never); window.localStorage.clear(); allow = ['features.live-desk.view']; l.wages.mockResolvedValue({month:'2026-09',scope:'all',totalCents:0,summary:[],rows:[]}); l.options.mockResolvedValue(opts() as never); l.integrationStatus.mockResolvedValue({ ready: true, code: 'ready', message: '' }); l.commissionPreview.mockResolvedValue(null); l.products.mockResolvedValue([{ id: 1, code: 'SKU-A', name: '毛巾', spec: '白' }, { id: 2, code: 'SKU-B', name: '牙刷', spec: '' }]); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const wrap = (ui: JSX.Element) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
@@ -341,6 +341,7 @@ describe('直播管理', () => {
     allow=['features.live.view','live.manage','live.commissions.view'];l.overview.mockResolvedValue(empty() as never);
     l.session.mockResolvedValue(detail({id:91}) as never);l.manualReport.mockResolvedValue({id:91});wrap(<LiveManagePage/>);
     fireEvent.click(await screen.findByRole('tab',{name:'人事补报'}));
+    fireEvent.click(await screen.findByRole('button',{name:'新建补报'}));
     await screen.findByLabelText('抖音一号');
     fireEvent.click(screen.getByLabelText('抖音一号'));fireEvent.click(screen.getByLabelText('抖音一号关联抖音店'));
     for(const [label,value]of [['直播间','10'],['主播','3'],['抖音店营业额','123.45'],['补报原因','漏报补录']] as const)fireEvent.change(screen.getByLabelText(label),{target:{value}});
@@ -362,6 +363,7 @@ describe('直播管理', () => {
     l.submissionStatus.mockResolvedValue({ready:false,message:'审核流程尚未启用'});
     wrap(<LiveManagePage/>);
     fireEvent.click(await screen.findByRole('tab',{name:'人事补报'}));
+    fireEvent.click(await screen.findByRole('button',{name:'新建补报'}));
     expect(await screen.findByText(/审核流程尚未启用/)).toBeTruthy();
     expect(screen.getByRole('link',{name:'配置直播场次审核'}).getAttribute('href')).toBe('/flow/templates?flow=live-session-review');
     fireEvent.click(screen.getByRole('button',{name:'保存并核对'}));
