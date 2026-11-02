@@ -57,6 +57,7 @@ Copy-Item -Force (Join-Path $src 'package.json') $vdir
 Copy-Item -Force (Join-Path $src 'package.json') $dest      # npm install 在根目录装依赖，各版本共用
 Copy-Item -Force (Join-Path $src 'launcher.js') $dest
 Copy-Item -Force (Join-Path $src 'assistant-panel.ps1') $dest
+Copy-Item -Force (Join-Path $src 'uninstall.ps1') $dest
 Push-Location $dest
 try { & (Join-Path $runtime 'npm.cmd') install --omit=dev --ignore-scripts --no-audit --no-fund; if ($LASTEXITCODE -ne 0) { throw 'npm install 失败，请检查网络。' } } finally { Pop-Location }
 
