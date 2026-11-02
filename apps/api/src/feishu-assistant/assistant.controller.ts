@@ -24,4 +24,6 @@ export class AssistantController {
   save(@CurrentUser() user: AuthUser, @Body() body: AssistantDto) { return this.assistant.save(user, body); }
   @Post('test') @RequirePermission('system.integrations.edit')
   test(@CurrentUser() user: AuthUser) { return this.assistant.test(user); }
+  @Post('hello') @RequirePermission('system.integrations.edit')
+  hello(@CurrentUser() user: AuthUser) { return this.assistant.hello(user); }
 }
