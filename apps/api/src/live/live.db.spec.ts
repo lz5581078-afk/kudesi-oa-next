@@ -442,6 +442,32 @@ d('直播管理（真实数据库）', () => {
     expect(Number(audit.n)).toBe(1);
   });
 
+  it('原场次详情回带秒级时间、逐店订单和角色投流；按原编号补报更新同一记录',async()=>{
+    const management=new LiveManagementService(ds,source);
+    clock('2026-04-17 09:00:00');
+    const schedule=await schedules.create(manager,input({date:'2026-04-17',startTime:'10:00',endTime:'12:00',productIds:[ids.p1]}));
+    clock('2026-04-17 10:02:37');
+    const started=await sessions.start(anchor,{scheduleId:schedule.id,...baseStart({startAt:'2026-04-17 10:02:37',productIds:[ids.p1]})});
+    clock('2026-04-17 12:10:00');
+    source.unavailable='';source.truncated=false;source.orders=[order('LOAD-ORIGINAL',12345,{payTime:'2026-04-17 11:00:00'})];
+    await sessions.report(anchor,started.id,{endAt:'2026-04-17 12:08:49',salesCents:12345,orderIds:['LOAD-ORIGINAL'],note:'原主播说明'});
+    await sessions.report(control,started.id,{endAt:'2026-04-17 12:08:49',salesCents:12345,adSpendCents:678,orderIds:['LOAD-ORIGINAL']});
+    const original=await sessions.detail(manager,started.id);
+    expect(original).toMatchObject({scheduleId:schedule.id,startAt:'2026-04-17 10:02:37',endAt:'2026-04-17 12:08:49'});
+    expect(original.products).toHaveLength(1);
+    expect(original.reports.find(r=>r.role==='control')!.storeLines[0].adSpendCents).toBe(678);
+    const line={...original.reports.find(r=>r.role==='anchor')!.storeLines[0],salesCents:13000,adSpendCents:900,reason:'核对后修正'};
+    const saved=await management.manual(manager,{sessionId:original.id,roomId:original.roomId,anchorId:original.anchor.id,controlId:original.control!.id,operatorId:original.operator!.id,channels:original.channels.map(c=>({accountId:c.accountId,storeIds:c.storeIds})),douyinAccountId:original.douyinAccount.id,storeId:original.store!.id,startAt:original.startAt,endAt:original.endAt!,salesCents:13000,adSpendCents:900,storeLines:[line],reason:'核对后修正'});
+    expect(saved.id).toBe(started.id);
+    const again=await sessions.detail(manager,started.id);
+    expect(again).toMatchObject({scheduleId:schedule.id,startAt:'2026-04-17 10:02:37',manualReason:'核对后修正'});
+    expect(again.products).toEqual(original.products);
+    expect(again.reports.find(r=>r.role==='anchor')!).toMatchObject({salesCents:13000,orders:[expect.objectContaining({orderId:'LOAD-ORIGINAL'})]});
+    expect(again.reports.find(r=>r.role==='control')!.adSpendCents).toBe(900);
+    const [count]=await ds.query('SELECT COUNT(*) n FROM live_sessions WHERE company_id=? AND schedule_id=?',[company,schedule.id]);
+    expect(Number(count.n)).toBe(1);
+  });
+
   it('区间工资结算：时间工资加提成、特殊核定、重叠与结算日锁定',async()=>{
     clock('2026-08-20 18:00:00');
     const made=await settlements.generate(manager,'',undefined,{from:'2026-08-18',to:'2026-08-18'});
