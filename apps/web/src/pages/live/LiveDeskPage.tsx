@@ -25,7 +25,7 @@ export function LiveDeskPage() {
     return () => clearInterval(t);
   }, [load]);
   if(roomId)return <div className="live-page"><LiveCheckinPanel roomId={roomId} companyId={companyId}/></div>;
-  const canStart = !!d && (d.identity.isAnchor || d.identity.isControl);
+  const canStart = !!d && (!d.identity.isOperations && (d.identity.isAnchor || d.identity.isControl));
   return (
     <div className="live-page">
       <div className="page-head">
@@ -68,7 +68,7 @@ export function LiveDeskPage() {
               <li key={s.id}>
                 <div className="main"><strong>{s.date} {s.startTime}–{s.endTime} · {s.roomName}</strong><small>我是{s.mineRole === 'anchor' ? '主播' : s.mineRole === 'control' ? '中控' : '运营'} · 主播 {s.anchor.name}{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div>
                 <SchedulePill status={s.status} label={s.statusLabel} />
-                {s.status === 'scheduled' && s.mineRole !== 'operator' && <button type="button" className="primary-button" disabled={!s.canStart} title={s.canStart ? '' : '排班已过结束时间'} onClick={() => setStarting({ schedule: s })}>上播</button>}
+                {!d.identity.isOperations && s.status === 'scheduled' && s.mineRole !== 'operator' && <button type="button" className="primary-button" disabled={!s.canStart} title={s.canStart ? '' : '排班已过结束时间'} onClick={() => setStarting({ schedule: s })}>上播</button>}
               </li>
             ))}</ul>
           </section>

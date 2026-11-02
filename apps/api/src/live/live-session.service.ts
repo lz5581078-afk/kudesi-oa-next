@@ -21,7 +21,7 @@ import { ReviewForm, checkSubmittable, previewApproval } from './live-review';
 import { serializeSchedule } from './live-schedule.service';
 
 export interface StartInput {
-  actualCheckin?: boolean; sessionId?: number; confirmDetails?: boolean; confirmEarly?: boolean; scheduleFingerprint?: string;
+  role?:'anchor'|'control'|'operator'; actualCheckin?: boolean; sessionId?: number; confirmDetails?: boolean; confirmEarly?: boolean; scheduleFingerprint?: string;
   scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null;
   channels?: LiveChannelInput[]; douyinAccountId?: number | null; storeId?: number | null; productIds?: number[]; productEntries?: LiveProductEntry[]; startAt?: string | null;
 }
@@ -118,9 +118,34 @@ export class LiveSessionService {
 
   private async startLocked(em:EntityManager,user:AuthUser,a:LiveAccess,input:StartInput,trial:boolean) {
       const now = liveClock.now();
+      if(input.actualCheckin){
+        const [busy]=await em.query("SELECT c.session_id,c.role FROM live_session_checkins c JOIN live_sessions s ON s.company_id=c.company_id AND s.id=c.session_id WHERE c.company_id=? AND c.user_id=? AND c.end_at IS NULL AND s.status IN ('live','pending_report') AND s.report_locked_at IS NULL AND (s.report_deadline IS NULL OR s.report_deadline>?) LIMIT 1",[a.companyId,a.userId,wallNow(now)]);
+        if(busy&&Number(busy.session_id)!==input.sessionId&&(!input.scheduleId||!(await em.query('SELECT id FROM live_schedules WHERE company_id=? AND id=? AND session_id=?',[a.companyId,input.scheduleId,busy.session_id])).length))liveFail('本人还有未下播场次，请先下播',409);
+        if(busy&&input.role&&busy.role!==input.role)liveFail('本场已按其他身份上播，不能切换身份',409);
+        if(input.role==='operator'){
+          if(!a.isOperations||!input.sessionId)liveFail('只有运营岗位可选择本场运营身份',403);
+          const s=await sessionRow(em,a.companyId,input.sessionId,true);
+          if(!s.checkin_mode||s.status!=='live'||s.first_reported_at)liveFail('本场已结束或有人报下播，不能加入',409);
+          if(Number(s.anchor_user_id)===a.userId||Number(s.control_user_id)===a.userId)liveFail('主播或中控不能同时选择运营身份',403);
+          const [control]=await em.query("SELECT id FROM live_session_checkins WHERE company_id=? AND session_id=? AND role='control' AND user_id=? AND end_at IS NULL",[a.companyId,s.id,s.control_user_id]);
+          if(!control)liveFail('本场有中控上播时才可选择运营身份',409);
+          if(s.operator_user_id&&Number(s.operator_user_id)!==a.userId)liveFail('本场已安排其他运营，请选择本人场次',409);
+          if(!input.confirmDetails)liveFail('请先核对本场信息后确认运营上播',400);
+          await em.query('UPDATE live_sessions SET operator_user_id=?,revision=revision+1 WHERE company_id=? AND id=?',[a.userId,a.companyId,s.id]);
+          await em.query("INSERT IGNORE INTO live_session_checkins(company_id,session_id,user_id,role,start_at,confirmation_json) VALUES(?,?,?,'operator',?,?)",[a.companyId,s.id,a.userId,wallNow(now),JSON.stringify({confirmed:true,role:'operator'})]);
+          return {id:Number(s.id)};
+        }
+        if(input.role==='control'&&!a.isControl||input.role==='anchor'&&!a.isAnchor)liveFail('没有所选上播身份',403);
+      }
       if (input.actualCheckin && input.sessionId) {
         const existing = await sessionRow(em,a.companyId,input.sessionId,true);
+        if(input.role==='control'&&!existing.control_user_id&&Number(existing.anchor_user_id)!==a.userId){
+          if(!a.isControl||!input.confirmDetails)liveFail('请以本人中控身份核对场次',403);
+          if(existing.status!=='live'||existing.first_reported_at)liveFail('本场不能再加入中控',409);
+          await em.query('UPDATE live_sessions SET control_user_id=?,operator_user_id=IF(operator_user_id=?,NULL,operator_user_id) WHERE company_id=? AND id=?',[a.userId,a.userId,a.companyId,existing.id]);existing.control_user_id=a.userId;if(Number(existing.operator_user_id)===a.userId)existing.operator_user_id=null;
+        }
         const role = Number(existing.anchor_user_id)===a.userId?'anchor':Number(existing.control_user_id)===a.userId?'control':null;
+        if(input.role&&role!==input.role)liveFail('所选身份与本场人员不符',403);
         if (!role || !existing.checkin_mode || existing.status!=='live' || existing.first_reported_at) liveFail('只能为本人尚未结束的场次上播',403);
         if(role==='control'&&!input.confirmDetails)liveFail('中控请先核对本场排班、账号、店铺和产品',400);
         const [already]=await em.query('SELECT id FROM live_session_checkins WHERE company_id=? AND session_id=? AND role=? AND user_id=?',[a.companyId,existing.id,role,a.userId]);
@@ -138,6 +163,7 @@ export class LiveSessionService {
           await em.query('DELETE FROM live_session_products WHERE company_id=? AND session_id=?',[a.companyId,existing.id]);
           for(const [i,p] of products.entries())await em.query('INSERT INTO live_session_products(company_id,session_id,base_code_id,code_snapshot,name_snapshot,spec_snapshot,sort_order) VALUES(?,?,?,?,?,?,?)',[a.companyId,existing.id,p.id,p.code.slice(0,100),(p.name||p.code).slice(0,200),p.spec.slice(0,300)||null,i]);
         }
+        if(role==='control'&&input.operatorId===a.userId)input={...input,operatorId:null};
         if(input.operatorId!==undefined){
           if(input.operatorId){const [op]=await em.query("SELECT id FROM users WHERE company_id=? AND id=? AND status='active'",[a.companyId,input.operatorId]);if(!op||Number(input.operatorId)===Number(existing.anchor_user_id))liveFail('请选择有效运营，运营不能同时是主播',400);}
           await em.query('UPDATE live_sessions SET operator_user_id=? WHERE company_id=? AND id=?',[input.operatorId??null,a.companyId,existing.id]);
@@ -218,6 +244,7 @@ export class LiveSessionService {
       if (busyAnchor) liveFail('这位主播正在另一场直播中，请先报下播');
       await assertAccountTime(em, a.companyId, channels, startAt, sched ? wallText(sched.end_at) : null, undefined, sched ? Number(sched.id) : undefined);
       const role = a.userId === anchorId ? 'anchor' : a.userId === controlId ? 'control' : 'manager';
+      if(input.actualCheckin&&input.role&&role!==input.role)liveFail('请以本人所选身份上播',403);
       if(input.actualCheckin && role==='manager')liveFail('请由主播或中控本人打卡开播',403);
       if(input.actualCheckin && role==='control'&&!input.confirmDetails)liveFail('中控请先核对本场排班、账号、店铺和产品',400);
       const ins = await em.query(
@@ -243,7 +270,17 @@ export class LiveSessionService {
     const rooms=await liveRoomList(this.em,a.companyId);
     if(roomId&&!rooms.some(r=>r.id===roomId))liveFail('直播间不存在',404);
     const desk=await this.workbench(user);
-    return {...desk, rooms, schedules:desk.schedules.filter(r=>!roomId||r.roomId===roomId),active:desk.active.filter(r=>!roomId||r.roomId===roomId)};
+    const rows:Row[]=await this.em.query(`${SESSION_SELECT} WHERE s.company_id=? AND s.checkin_mode=1 AND s.status='live' AND s.first_reported_at IS NULL${roomId?' AND s.room_id=?':''} AND (s.anchor_user_id=? OR s.control_user_id=? OR ?=1) ORDER BY s.start_at DESC LIMIT 100`,[a.companyId,...(roomId?[roomId]:[]),a.userId,a.userId,a.isControl?1:0]);
+    const clocks:Row[]=await this.em.query("SELECT session_id,user_id,role FROM live_session_checkins WHERE company_id=? AND end_at IS NULL",[a.companyId]);
+    const products:Row[]=rows.length?await this.em.query(`SELECT session_id,base_code_id,code_snapshot,name_snapshot,spec_snapshot FROM live_session_products WHERE company_id=? AND session_id IN (${rows.map(()=>'?').join(',')}) ORDER BY sort_order`,[a.companyId,...rows.map(s=>s.id)]):[];
+    const joinable=rows.map(s=>({
+      ...serializeSession(s),
+      canJoinAnchor:Number(s.anchor_user_id)===a.userId,
+      canJoinControl:a.isControl&&Number(s.anchor_user_id)!==a.userId&&(!s.control_user_id||Number(s.control_user_id)===a.userId),
+      canJoinOperator:!!a.isOperations&&Number(s.anchor_user_id)!==a.userId&&Number(s.control_user_id)!==a.userId&&(!s.operator_user_id||Number(s.operator_user_id)===a.userId)&&clocks.some(c=>Number(c.session_id)===Number(s.id)&&c.role==='control'&&Number(c.user_id)===Number(s.control_user_id)),
+      products:products.filter(p=>Number(p.session_id)===Number(s.id)).map(p=>({id:p.base_code_id==null?null:Number(p.base_code_id),code:p.code_snapshot,name:p.name_snapshot,spec:p.spec_snapshot??''})),
+    })).filter(s=>s.canJoinAnchor||s.canJoinControl||s.canJoinOperator);
+    return {...desk,joinable, rooms, schedules:desk.schedules.filter(r=>!roomId||r.roomId===roomId),active:desk.active.filter(r=>!roomId||r.roomId===roomId)};
   }
   async checkoutPreview(user:AuthUser,id:number,role?:string){
     const a=await loadLiveAccess(this.em,user);requireUse(a);
@@ -333,7 +370,10 @@ export class LiveSessionService {
     if (!role) liveFail('只能由主播、中控（或排定的运营）本人为自己的角色报下播，管理人员不能代填', 403);
     if(reportsLocked(first,liveClock.now()))liveFail('首位报下播已满30分钟，本场已锁定并进入审核，不能再填报',409);
     if(first.checkin_mode && role!=='operator')return this.actualReport(user,a,first,role,input);
-    const endAt = this.parseTime(input.endAt, '下播时间');
+    const operatorAt=liveClock.now();
+    const [operatorClock]:Row[]=first.checkin_mode&&role==='operator'?await this.em.query("SELECT id,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_session_checkins WHERE company_id=? AND session_id=? AND user_id=? AND role='operator'",[a.companyId,sessionId,a.userId]):[];
+    if(first.checkin_mode&&role==='operator'&&!operatorClock)liveFail('请先选择运营身份上播',400);
+    const endAt = operatorClock?(operatorClock.end_text??wallNow(operatorAt)):this.parseTime(input.endAt, '下播时间');
     if(role==='control'&&!input.storeLines&&input.adSpendCents==null)liveFail('中控请填写本场投流费用（没有投流填 0）',400);
     const multi = channelsOf(first).length > 0;
     const shops=channelStores(channelsOf(first));
@@ -372,6 +412,11 @@ export class LiveSessionService {
       const end = liveFromText(endAt)!;
       if (end.getTime() <= liveFromText(s.start_text)!.getTime()) liveFail('下播时间必须晚于上播时间', 400);
       if (end.getTime() > now.getTime() + SKEW_MS) liveFail('下播时间不能晚于现在', 400);
+      if(operatorClock){
+        const [current]=await em.query("SELECT DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_session_checkins WHERE company_id=? AND id=? FOR UPDATE",[a.companyId,operatorClock.id]);
+        if(current.end_text&&current.end_text!==operatorClock.end_text)liveFail('本人已下播，请刷新查看',409);
+        await em.query('UPDATE live_session_checkins SET end_at=COALESCE(end_at,?) WHERE company_id=? AND id=?',[endAt,a.companyId,operatorClock.id]);
+      }
       if(s.checkin_mode)await em.query('UPDATE live_sessions SET first_reported_at=COALESCE(first_reported_at,?),report_deadline=COALESCE(report_deadline,?) WHERE company_id=? AND id=?',[wallNow(now),wallNow(new Date(+now+REPORT_WINDOW_MS)),a.companyId,sessionId]);
       const total = picked.reduce((t, o) => t + o.amountCents, 0);
       const [old] = await em.query('SELECT id FROM live_session_reports WHERE company_id = ? AND session_id = ? AND role = ? FOR UPDATE', [a.companyId, sessionId, role]);
@@ -537,7 +582,7 @@ export class LiveSessionService {
   // ---------- 我的直播 ----------
   async workbench(user: AuthUser) {
     const a = await loadLiveAccess(this.em, user);
-    if (!a.canDesk && !a.canView) liveFail('无权使用我的直播', 403);
+    if (!a.canDesk && !a.canView && !a.isOperations) liveFail('无权使用我的直播', 403);
     const em = this.em, c = a.companyId, uid = a.userId, now = liveClock.now();
     const today = liveToday(now), month = today.slice(0, 7), mine = '(s.anchor_user_id = ? OR s.control_user_id = ? OR s.operator_user_id = ?)';
     const [active, schedules, recent, comm, wage, commRows, wageRows] = await Promise.all([
@@ -551,10 +596,16 @@ export class LiveSessionService {
       em.query("SELECT r.platform, r.id, r.session_id, DATE_FORMAT(r.session_date,'%Y-%m-%d') d, r.role, r.final_sales_cents, r.rate_units, r.amount_cents, s.room_name FROM live_commission_records r JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id WHERE r.company_id = ? AND r.user_id = ? AND DATE_FORMAT(r.session_date,'%Y-%m') = ? ORDER BY r.session_date DESC, r.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
       em.query("SELECT w.id, w.session_id, DATE_FORMAT(w.session_date,'%Y-%m-%d') d, w.minutes, w.hourly_rate_cents, w.amount_cents, s.room_name FROM live_wage_records w JOIN live_sessions s ON s.id = w.session_id AND s.company_id = w.company_id WHERE w.company_id = ? AND w.user_id = ? AND DATE_FORMAT(w.session_date,'%Y-%m') = ? ORDER BY w.session_date DESC, w.id DESC LIMIT 100", [c, uid, month]) as Promise<Row[]>,
     ]);
-    const nowText = wallNow(now), nowMs = now.getTime();
+    const activeClocks:Row[]=active.length?await em.query(`SELECT session_id,role,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') startAt,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') endAt FROM live_session_checkins WHERE company_id=? AND user_id=? AND session_id IN (${active.map(()=>'?').join(',')}) ORDER BY start_at`,[c,uid,...active.map(s=>s.id)]):[];
+    const legacyReports:Row[]=active.some(s=>!s.checkin_mode)?await em.query(`SELECT session_id,role,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') endAt FROM live_session_reports WHERE company_id=? AND reporter_user_id=? AND session_id IN (${active.map(()=>'?').join(',')})`,[c,uid,...active.map(s=>s.id)]):[];
+    const nowText = wallNow(now);
     return {
-      today, month, identity: { isAnchor: a.isAnchor, isControl: a.isControl, canManage: a.canManage },
-      active: active.map(serializeSession),
+      today, month, identity: { isOperations:!!a.isOperations,isAnchor: a.isAnchor, isControl: a.isControl, canManage: a.canManage },
+      active: active.map(s=>{
+        let own=activeClocks.find(clock=>Number(clock.session_id)===Number(s.id))??null;
+        if(!s.checkin_mode&&!own){const role=Number(s.anchor_user_id)===uid?'anchor':Number(s.control_user_id)===uid?'control':'operator';const report=legacyReports.find(r=>Number(r.session_id)===Number(s.id)&&r.role===role);own={role,startAt:s.start_text,endAt:report?.endAt??null};}
+        return {...serializeSession(s),myCheckin:own?{role:own.role,startAt:own.startAt,endAt:own.endAt}:null};
+      }),
       schedules: schedules.map((r) => ({ ...serializeSchedule(r), canStart: r.status === 'scheduled' && r.end_text > nowText, mineRole: Number(r.anchor_user_id) === uid ? 'anchor' : Number(r.control_user_id) === uid ? 'control' : 'operator' })),
       recent: recent.map(serializeSession),
       monthCommissionCents: num(comm[0].total), monthWageCents: num(wage[0].total), monthWageMinutes: num(wage[0].minutes),
@@ -565,7 +616,7 @@ export class LiveSessionService {
 
   async history(user: AuthUser, q: { mode?: string; month?: string; from?: string; to?: string; page?: number; pageSize?: number }) {
     const a = await loadLiveAccess(this.em, user);
-    if (!a.canDesk && !a.canView) liveFail('无权使用我的直播', 403);
+    if (!a.canDesk && !a.canView && !a.isOperations) liveFail('无权使用我的直播', 403);
     const em = this.em, c = a.companyId, uid = a.userId, now = liveClock.now();
     const mine = '(s.anchor_user_id = ? OR s.control_user_id = ? OR s.operator_user_id = ?)';
     const month = liveIsMonth(q.month) ? q.month : liveToday(now).slice(0, 7);

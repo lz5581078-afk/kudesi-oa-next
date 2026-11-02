@@ -19,6 +19,7 @@ export interface LiveAccess {
   isAnchor: boolean;
   isControl: boolean;
   isLiveControl: boolean;
+  isOperations?: boolean;
 }
 
 export async function loadLiveAccess(em: EntityManager, user: AuthUser): Promise<LiveAccess> {
@@ -31,6 +32,7 @@ export async function loadLiveAccess(em: EntityManager, user: AuthUser): Promise
     canView: canManage || can(user, 'features.live.view'),
     canViewAll: can(user, 'live.commissions.view'),
     canDesk: can(user, 'features.live-desk.view'),
+    isOperations:types.has('operations'),
     isAnchor: types.has('live_anchor'),
     isLiveControl: types.has('live_control'),
     isControl: types.has('live_control') || types.has('operations') || departmentControl,
@@ -38,7 +40,7 @@ export async function loadLiveAccess(em: EntityManager, user: AuthUser): Promise
 }
 export function requireView(a: LiveAccess) { if (!a.canView) liveFail('没有查看直播管理的权限', 403); }
 export function requireManage(a: LiveAccess) { if (!a.canManage) liveFail('没有排场、修改提成规则的权限', 403); }
-export function requireUse(a: LiveAccess) { if (!a.canView && !a.canDesk) liveFail('无权使用直播管理', 403); }
+export function requireUse(a: LiveAccess) { if (!a.canView && !a.canDesk && !a.isOperations) liveFail('无权使用直播管理', 403); }
 
 export interface LivePerson { id: number; name: string; detail: string; partTime: boolean; trial?: boolean }
 
