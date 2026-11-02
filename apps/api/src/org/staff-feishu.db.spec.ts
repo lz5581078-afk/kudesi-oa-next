@@ -96,6 +96,14 @@ d('人员飞书状态和单人测试通知（隔离 MySQL）',()=>{
     expect(api.send).toHaveBeenCalledTimes(1);expect(api.send.mock.calls[0]).toEqual(expect.arrayContaining(['ou_'+partTime,'open_id']));
     expect((await service.testStatus(actor,partTime,r.jobId)).status).toBe('done');
   });
+  it('一次投递使用同一份公司配置，绑定校验与实际应用不分离',async()=>{
+    await service.sendTest(actor,regular,randomUUID());const [job]=await jobs();
+    const read=jest.spyOn(external,'read').mockResolvedValueOnce(cfg as never).mockResolvedValueOnce({...cfg!,appId:'another-app'} as never);
+    try {
+      await new ConnectedFeishuSender(external,api as never).send({companyId,idempotencyKey:job.idempotencyKey,notice:job.payloadJson as never});
+      expect(read).toHaveBeenCalledTimes(1);expect(api.send.mock.calls[0]).toEqual(expect.arrayContaining([expect.objectContaining({appId:'app'}),'ou_'+regular,'open_id']));
+    } finally {read.mockRestore();}
+  });
   it('发送失败只尝试一次，不反复推送测试消息；前端状态不声称本人已读',async()=>{
     const r=await service.sendTest(actor,regular,randomUUID());api.send.mockRejectedValueOnce(new Error('测试接口拒绝'));
     const worker=new FeishuNoticeService(ds,new ConnectedFeishuSender(external,api as never));await worker.processCompany(companyId);await worker.processCompany(companyId);
