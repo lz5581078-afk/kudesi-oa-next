@@ -16,7 +16,7 @@ export class ConnectedFeishuSender implements FeishuSender {
     const key = job.notice.channel ?? 'flow';
     if (!['flow', 'business', 'notice', 'supervision', 'system', 'task', 'live'].includes(key)) throw new Error('飞书通知通道不合法');
     const channel = cfg.channels?.find(c => c.key === key);
-    if (key !== 'flow' && !channel) throw new Error('飞书通道尚未配置');
+    if (!['flow', 'notice'].includes(key) && !channel) throw new Error('飞书通道尚未配置');
     if (channel && !channel.enabled) throw new Error('飞书流程通道已关闭');
     const origin = new URL(cfg.origin);
     if (origin.protocol !== 'https:') throw new Error('飞书链接域名必须使用 HTTPS');
