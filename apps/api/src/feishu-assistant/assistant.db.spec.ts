@@ -6,7 +6,7 @@ import { Company, IntegrationSetting, OutboxJob, User } from '../entities';
 import { buildServices } from '../test-support';
 import { AuthUser } from '../common/auth.decorators';
 import { AssistantInput, AssistantService } from './assistant.service';
-import { ASSISTANT_CHANNEL, MORNING_TEXT, WELCOME_TEXT } from './greetings';
+import { ASSISTANT_CHANNEL, MORNING_TEXT, WELCOME_TEXT, HELLO_TEXT } from './greetings';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 d('OA助手真实队列隔离与防重（隔离MySQL）', () => {
@@ -105,5 +105,20 @@ d('OA助手真实队列隔离与防重（隔离MySQL）', () => {
     await service.save(user, { ...input, welcomeEnabled: true });
     await service.enqueueWelcome(user.companyId, pausedEvent);
     expect((await jobs()).filter(j => j.idempotencyKey.includes('joinedwhilepaused'))).toHaveLength(0);
+  });
+  it('全员打招呼必须由管理员主动触发，关闭时拒绝，并发重复请求只提交一次', async () => {
+    await expect(service.hello({ ...user, permissions: { ...user.permissions, isCompanyAdmin: false } })).rejects.toThrow(/公司管理员/);
+    await service.save(user, { ...input, enabled: false });
+    await expect(service.hello(user)).rejects.toThrow(/开启/);
+    await service.save(user, { ...input, morningEnabled: false, welcomeEnabled: false });
+    const before = client.batchSend.mock.calls.length;
+    await Promise.all([service.hello(user), service.hello(user)]);
+    expect((await jobs()).filter(j => j.kind === 'hello')).toHaveLength(1);
+    await service.process(user.companyId, new Date());
+    expect(client.batchSend.mock.calls.length).toBe(before + 1);
+    expect(client.batchSend.mock.calls.at(-1)).toEqual([expect.objectContaining({ appId: input.appId }), ['0'], HELLO_TEXT]);
+    await service.hello(user);
+    await service.process(user.companyId, new Date());
+    expect(client.batchSend.mock.calls.length).toBe(before + 1);
   });
 });
