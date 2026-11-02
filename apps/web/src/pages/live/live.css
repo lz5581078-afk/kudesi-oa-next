@@ -11,6 +11,43 @@
 .live-list .main { display: flex; flex-direction: column; gap: 2px; min-width: 200px; flex: 1 1 260px; }
 .live-list small { color: var(--muted); }
 .live-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.live-manual-report fieldset { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px; margin: 0; }
+.live-manual-report legend { padding: 0 8px; font-weight: 650; }
+.live-manual-report .live-fields > fieldset { grid-column: 1 / -1; }
+.live-manual-report .live-field { min-width: 0; }
+.live-manual-feedback { outline: none; }
+.live-manual-feedback:empty { display: none; }
+.live-manual-feedback .notice { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.live-manual-actions { justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid var(--border); }
+.live-manual-actions p { margin: 0; }
+.live-submission-notice { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin: 0; }
+.live-session-detail > * { flex-shrink: 0; min-width: 0; }
+.live-session-detail dl { margin: 0; padding: 14px; background: var(--surface-2); border-radius: var(--radius-sm); }
+.live-session-detail dd { margin: 5px 0 0; overflow-wrap: anywhere; }
+.live-session-detail .live-scroll { border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.live-session-detail .data-table { margin: 0; }
+.live-session-detail .data-table td { overflow-wrap: anywhere; }
+.live-session-footer { display: flex; flex-direction: column; width: 100%; gap: 10px; }
+.live-session-footer > .live-actions { justify-content: flex-end; }
+.live-session-footer .notice { margin: 0; }
+.live-modal-backdrop:has(.live-session-detail) { padding: 16px; align-items: center; overflow: clip; }
+.live-session-detail { overscroll-behavior: contain; }
+@media (max-width: 640px) {
+  .live-modal-backdrop:has(.live-session-detail) { padding: 0; }
+  .live-manual-report .live-fields { grid-template-columns: minmax(0, 1fr); }
+  .live-manual-report fieldset { padding: 12px; }
+  .live-manual-actions { align-items: stretch; flex-direction: column; }
+  .live-manual-actions button { width: 100%; }
+  .live-session-detail .live-fields { grid-template-columns: minmax(0, 1fr); }
+  .live-session-detail .live-scroll { overflow: visible; }
+  .live-session-detail .data-table, .live-session-detail tbody { display: block; min-width: 0; }
+  .live-session-detail .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .live-session-detail .data-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px; border-bottom: 1px solid var(--border); }
+  .live-session-detail .data-table td { display: block; padding: 0; border: 0; min-width: 0; }
+  .live-session-detail .data-table td::before { content: attr(data-label); display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .live-session-footer .live-actions { width: 100%; }
+  .live-session-footer > .live-actions button { flex: 1; min-height: 40px; }
+}
 .live-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
 .live-field input, .live-field select, .live-field textarea { height: 34px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink); font: inherit; }
 .live-field textarea { height: auto; padding: 6px 10px; }
