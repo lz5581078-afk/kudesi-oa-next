@@ -1,3 +1,4 @@
+import type { DeskAccessPlan } from '@kudesi/shared';
 import { api } from '../../api/client';
 import type { CatalogGroup } from '@kudesi/shared';
 
@@ -62,6 +63,8 @@ export const WORKSPACE_LABELS: Record<string, string> = {
 };
 
 export const orgApi = {
+  deskAccessPreview: () => api<DeskAccessPlan>('/org/desk-access/preview'),
+  applyDeskAccess: (fingerprint: string) => api<{ changedPositions: number; changedStaff: number }>('/org/desk-access/apply', { method: 'POST', body: { fingerprint } }),
   catalog: () => api<CatalogGroup[]>('/org/permission-catalog'),
   departments: () => api<DepartmentNode[]>('/org/departments'),
   exportStaff: () => api<{ csv: string }>('/org/staff/export'),
