@@ -8,7 +8,7 @@ export interface RoomOpt { id: number; name: string; shortName: string; big: boo
 export interface Options { rooms: RoomOpt[]; anchors: Option[]; controls: Option[]; operators: Option[]; douyinAccounts: Option[]; stores: Option[] }
 export interface Product { id: number; code: string; name: string; spec: string }
 
-export interface ScheduleRow { channels?:LiveChannel[];
+export interface ScheduleRow { sessionStatus?:string|null; channels?:LiveChannel[];
   id: number; roomId: number; roomName: string; date: string; start: string; end: string; startTime: string; endTime: string; status: 'scheduled' | 'live' | 'finished' | 'cancelled'; statusLabel: string;
   anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person; store: Person | null; sessionId: number | null; note: string | null; cancelReason: string | null;
   products?: LiveProductSnapshot[]; canStart?: boolean; mineRole?: string;
@@ -131,4 +131,4 @@ export const liveApi = {
   submitSettlement: (id: number) => post<{ runId: number }>(`/live/settlements/${id}/submit`),
 };
 
-export interface ManualBody { storeLines?:LiveStoreLine[]; channels?:LiveChannelInput[];sessionId?:number;roomId:number;anchorId:number;controlId:number|null;operatorId:number|null;douyinAccountId:number;storeId:number;startAt:string;endAt:string;salesCents:number;adSpendCents:number;controlSalesCents?:number;operatorSalesCents?:number;reason:string;orderIds:string[]}
+export interface ManualBody { scheduleId?:number; storeLines?:LiveStoreLine[]; channels?:LiveChannelInput[];sessionId?:number;roomId:number;anchorId:number;controlId:number|null;operatorId:number|null;douyinAccountId:number;storeId:number;startAt:string;endAt:string;salesCents:number;adSpendCents:number;controlSalesCents?:number;operatorSalesCents?:number;reason:string;orderIds:string[]}
