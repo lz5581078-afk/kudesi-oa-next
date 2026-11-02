@@ -1,3 +1,4 @@
+import { writeNotification } from '../outbox/write-notification';
 import 'reflect-metadata';
 import { randomBytes } from 'crypto';
 import { DataSource } from 'typeorm';
@@ -48,7 +49,7 @@ d('真实接入的公司隔离、飞书授权与队列（隔离数据库）', ()
     const unbound = await service.start(user.companyId);
     await expect(service.complete('code', unbound.state, unbound.browser)).rejects.toThrow(/尚未绑定/);
     const bind = await service.start(user.companyId, user);
-    expect(await service.complete('code', bind.state, bind.browser, user)).toEqual({ bound: true });
+    expect(await service.complete('code', bind.state, bind.browser, user)).toEqual({ bound: true, allNotificationsEnabled: true });
     expect((await service.status(user)).bound).toBe(true);
     const login = await service.start(user.companyId);
     const results = await Promise.allSettled([service.complete('code', login.state, login.browser), service.complete('code', login.state, login.browser)]);
@@ -74,7 +75,7 @@ d('真实接入的公司隔离、飞书授权与队列（隔离数据库）', ()
     const notice = new FeishuNoticeService(ds, fake);
     expect(await notice.enqueue(ds.manager, user.companyId, 'sku-batch-apply', 'test', { userId: user.id, title: 'test' })).toBe(false);
     await notice.setSwitch(user, true);
-    await notice.enqueue(ds.manager, user.companyId, 'sku-batch-apply', 'test', { userId: user.id, title: 'test' });
+    await writeNotification(ds.manager, { companyId: user.companyId, userId: user.id, kind: 'task', title: 'test', body: null, link: null });
     expect((await notice.processCompany(user.companyId)).failed).toBe(1);
     await notice.processCompany(user.companyId); expect(fake.send).toHaveBeenCalledTimes(1);
     expect((await ds.query("SELECT status FROM outbox_jobs WHERE company_id=? AND channel='feishu'", [user.companyId]))[0].status).toBe('failed');

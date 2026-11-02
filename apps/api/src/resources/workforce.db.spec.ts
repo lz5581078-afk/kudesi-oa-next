@@ -172,7 +172,7 @@ d('兼职与临时工（真实数据库）', () => {
     };
     const auth = new AuthService(
       { signAsync: async () => 'tok' } as never, ds.getRepository(Company), ds.getRepository(PlatformAdmin), ds.getRepository(User), ds.getRepository(Position),
-      ds.getRepository(PositionPermission), ds.getRepository(UserPermissionOverride), ds.getRepository(AuditLog),
+      ds.getRepository(PositionPermission), ds.getRepository(UserPermissionOverride), ds.getRepository(AuditLog), { isBound: async () => true } as never,
     );
     const ended = await mkLogin('lg-e', { contractStartDate: day(-20), contractEndDate: day(-1) });
     const pending = await mkLogin('lg-p', { contractStartDate: day(3) });
