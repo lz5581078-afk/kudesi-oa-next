@@ -64,10 +64,11 @@ export const makeSessionApi = (base: string) => ({
     const bytes = await response.arrayBuffer();
     const actual = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
     if (!expected || !/^[a-f0-9]{64}$/.test(expected) || actual !== expected) throw new Error('安装包完整性校验失败，请重新下载');
-    const filename = /filename="([\w.-]+\.zip)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? 'kudesi-assistant-windows.zip';
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+    const filename = /filename="([\w.-]+\.(?:exe|zip))"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? 'kudesi-assistant-windows.zip';
+    const url = URL.createObjectURL(new Blob([bytes], { type: filename.endsWith('.exe') ? 'application/octet-stream' : 'application/zip' }));
     const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    return filename;
   },
 });
 export const sessionApi = makeSessionApi('/session');
