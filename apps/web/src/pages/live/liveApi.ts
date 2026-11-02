@@ -16,7 +16,7 @@ export interface ScheduleRow { fingerprint?:string; channels?:LiveChannel[];
 export interface ScheduleList { rooms?:RoomOpt[]; from: string; to: string; rows: ScheduleRow[]; canManage: boolean }
 export interface ScheduleBody { channels?:LiveChannelInput[]; date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId: number | null; operatorId: number | null; douyinAccountId: number; storeId: number | null; note?: string;productIds?:number[];productEntries?:LiveProductEntry[] }
 
-export interface SessionRow { checkinMode?:boolean; reportDeadline?:string|null; reportsLocked?:boolean; autoSubmitError?:string|null; ordersCaptureStatus?:string; ordersCaptureError?:string|null; channels?:LiveChannel[]; reportSource?:string;manualReason?:string|null;manualActorId?:number|null;
+export interface SessionRow { myCheckin?:{role:'anchor'|'control'|'operator';startAt:string;endAt:string|null}|null; checkinMode?:boolean; reportDeadline?:string|null; reportsLocked?:boolean; autoSubmitError?:string|null; ordersCaptureStatus?:string; ordersCaptureError?:string|null; channels?:LiveChannel[]; reportSource?:string;manualReason?:string|null;manualActorId?:number|null;
   id: number; scheduleId: number | null; roomId: number; roomName: string; date: string; startAt: string; endAt: string | null; plannedEnd: string | null; status: 'live' | 'pending_report' | 'submitted' | 'returned' | 'approved'; statusLabel: string;
   anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person; store: Person | null; finalSalesCents: number | null; finalSalesSource: string | null; finalSalesReason: string | null;
   returnReason: string | null; flowRunId: number | null; submittedAt: string | null; approvedAt: string | null; approverName: string | null; revision: number;
@@ -35,7 +35,7 @@ export interface SessionDetail extends SessionRow { controlCommissionOnly?:boole
   preview: Preview | null; me: { reportRoles: Array<'anchor' | 'control' | 'operator'>; canSubmit: boolean; isManager: boolean }; flow: RunDetailDto | null;
 }
 export interface SessionList { total: number; page: number; pageSize: number; rows: SessionRow[] }
-export interface StartBody { sessionId?:number;confirmDetails?:boolean;confirmEarly?:boolean;scheduleFingerprint?:string; channels?:LiveChannelInput[]; scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null; douyinAccountId?: number | null; storeId?: number | null; productIds?: number[]; productEntries?: LiveProductEntry[]; startAt?: string | null }
+export interface StartBody {role?:'anchor'|'control'|'operator'; sessionId?:number;confirmDetails?:boolean;confirmEarly?:boolean;scheduleFingerprint?:string; channels?:LiveChannelInput[]; scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null; douyinAccountId?: number | null; storeId?: number | null; productIds?: number[]; productEntries?: LiveProductEntry[]; startAt?: string | null }
 export interface OrderCandidate { orderId: string; innerId: string; payTime: string | null; paid: boolean; amountCents: number; status: string; statusLabel: string; cancelled: boolean }
 export interface Candidates { available: boolean; reason: string; shopName?: string; orders: OrderCandidate[]; truncated: boolean; queriedAt?: string; startAt: string; endAt: string }
 export interface ReportBody { storeLines?:LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
@@ -59,7 +59,7 @@ export interface Overview { date: string; now: string; groups: { north: RoomTile
 export interface RoomDay { room: RoomOpt; date: string; schedules: ScheduleRow[]; sessions: Array<{ id: number; scheduleId: number | null; status: string; startAt: string; endAt: string | null; anchor: Person; control: Person | null; douyinAccount: Person; anchorSalesCents: number | null; controlSalesCents: number | null; finalSalesCents: number | null }> }
 
 export interface Workbench {
-  today: string; month: string; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; active: SessionRow[]; schedules: ScheduleRow[]; recent: SessionRow[];
+  today: string; month: string; identity: { isOperations?:boolean; isAnchor: boolean; isControl: boolean; canManage: boolean }; active: SessionRow[]; schedules: ScheduleRow[]; recent: SessionRow[];
   monthCommissionCents: number; monthWageCents: number; monthWageMinutes: number;
   commissionRows: Array<{ platform?:string;id: number; sessionId: number; date: string; roomName: string; role: string; roleLabel: string; finalSalesCents: number; rateUnits: number; amountCents: number }>;
   wageRows: Array<{ id: number; sessionId: number; date: string; roomName: string; minutes: number; hourlyRateCents: number; amountCents: number }>;
@@ -92,9 +92,11 @@ const post = <T>(path: string, body: unknown = {}) => api<T>(path, { method: 'PO
 export interface SubmissionStatus { ready: boolean; message: string }
 
 export interface SourceStatus { ready: boolean; code: 'ready' | 'unconfigured' | 'unauthorized' | 'expired' | 'error'; message: string }
+export interface CheckinSession extends SessionRow { products:LiveProductSnapshot[]; canJoinAnchor?:boolean;canJoinControl?:boolean;canJoinOperator?:boolean }
+export interface CheckinContext extends Workbench { rooms:RoomOpt[];joinable?:CheckinSession[] }
 export interface CheckoutPreview {wageMessage?:string|null;minutes?:number;role:string;startAt:string;endAt:string;salesCents:number|null;orderCount:number|null;reason:string;wage:{minutes:number;amountCents:number;hourlyRateCents:number}|null;commission:RoleAmount|null;locked:boolean}
 export const liveApi = {
-  checkinContext:(roomId?:number)=>api<Workbench & {rooms:RoomOpt[]}>(`/live/checkin-context${qs({roomId})}`),
+  checkinContext:(roomId?:number)=>api<CheckinContext>(`/live/checkin-context${qs({roomId})}`),
   checkoutPreview:(id:number,role:string)=>api<CheckoutPreview>(`/live/sessions/${id}/checkout-preview${qs({role})}`),
   roomSettings:(id:number,b:{ownerId:number|null;products:string})=>api(`/live/rooms/${id}`,{method:'PUT',body:b}),
   trialPerson:(b:{name:string;hourlyRateCents:number})=>post<Person>('/live/trial-people',b),

@@ -285,3 +285,8 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .data-table td.live-payroll-session { min-width: 230px; white-space: normal; overflow-wrap: anywhere; }
 .live-payroll-session > span { display: block; line-height: 1.65; white-space: nowrap; }
 .live-payroll-session small { color: var(--muted); }
+.live-role-options { display:grid;gap:12px;margin:16px 0;padding:0;border:0; }
+.live-role-options legend { margin-bottom:12px;font-weight:600; }
+.live-role-options label { display:flex;align-items:flex-start;gap:12px;padding:16px;border:1px solid var(--border,#dce3eb);border-radius:10px;cursor:pointer; }
+.live-role-options input[type=radio] { width:20px;height:20px;min-height:20px;margin:2px 0;flex:0 0 20px; }
+.live-role-options span { display:grid;gap:6px; }.live-role-options small { color:var(--muted,#526074); }.live-role-options label:has(input:disabled) { opacity:.6;cursor:not-allowed; }
