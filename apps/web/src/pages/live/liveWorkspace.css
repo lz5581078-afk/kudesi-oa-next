@@ -212,3 +212,6 @@
   .live-workspace .live-manual-picker-filters { grid-template-columns: minmax(0,1fr); }
   .live-manual-picker .live-responsive-table td:last-child { grid-column: 1 / -1; }
 }
+@media(max-width:640px) {
+  .live-workspace .live-responsive-table td.live-payroll-session { grid-column: 1 / -1; min-width: 0; max-width: none; white-space: normal; }
+}

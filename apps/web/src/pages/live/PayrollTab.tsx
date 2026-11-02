@@ -2,7 +2,8 @@ import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { downloadText, toCsv } from '../../resources/csv';
 import { liveApi, type Commissions, type Wages } from './liveApi';
-import { errText, minutesText, money, ratePct, todayText, yuanText } from './liveFormat';
+import { productText } from './liveProducts';
+import { errText, hm, minutesText, money, ratePct, todayText, yuanText } from './liveFormat';
 export function PayrollTab({
   role,
   onOpen,
@@ -84,6 +85,9 @@ export function PayrollTab({
           '提成',
           '合计',
           '场次编号',
+          '直播开始时间',
+          '直播结束时间',
+          '场次产品',
         ],
         ...rows.map((r) => [
           r.date,
@@ -99,6 +103,9 @@ export function PayrollTab({
           yuanText(r.amountCents),
           yuanText(r.totalCents),
           String(r.sessionId),
+          r.startAt,
+          r.endAt ?? '',
+          productText(r.products),
         ]),
       ]),
     );
@@ -212,7 +219,7 @@ export function PayrollTab({
           <table className="data-table live-responsive-table" aria-label="工资提成明细">
             <thead>
               <tr>
-                <th>日期 / 直播间</th>
+                <th>日期 / 时间 / 直播间 / 产品</th>
                 <th>人员</th>
                 <th>时长 / 时薪</th>
                 <th>时间工资</th>
@@ -225,10 +232,11 @@ export function PayrollTab({
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td data-label="日期 / 直播间">
-                    {r.date}
-                    <br />
-                    {r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'}
+                  <td className="live-payroll-session" data-label="日期 / 时间 / 直播间 / 产品">
+                    <span>{r.date}</span>
+                    <strong>{hm(r.startAt,r.date)}–{r.endAt?hm(r.endAt,r.date):'下播时间未记录'}</strong>
+                    <span>{r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'}</span>
+                    <small>产品：{productText(r.products)}</small>
                   </td>
                   <td data-label="人员">{r.userName}</td>
                   <td data-label="时长 / 时薪">
