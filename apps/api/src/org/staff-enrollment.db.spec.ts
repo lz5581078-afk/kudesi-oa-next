@@ -1,3 +1,6 @@
+import { ExternalConfigService } from '../integrations/external-config.service';
+import { buildServices } from '../test-support';
+import { FeishuBindingPolicy } from '../auth/feishu-binding-policy';
 import 'reflect-metadata';
 import { randomBytes, createHash } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
@@ -51,7 +54,7 @@ d('员工扫码入职：真实 MySQL', () => {
     const u = await ds.manager.findOneByOrFail(User, { account: submitted.phone });
     expect(u).toMatchObject({ companyId: a.companyId, positionId: job.id, departmentId: department.id, isCompanyAdmin: false, mustChangePassword: false, name: '新人' });
     expect(await bcrypt.compare(password, u.passwordHash)).toBe(true);
-    const auth = new AuthService(new JwtService({ secret: randomBytes(48).toString('hex') }), ds.getRepository(Company), ds.getRepository(PlatformAdmin), ds.getRepository(User), ds.getRepository(Position), ds.getRepository(PositionPermission), ds.getRepository(UserPermissionOverride), ds.getRepository(AuditLog));
+    const auth = new AuthService(new JwtService({ secret: randomBytes(48).toString('hex') }), ds.getRepository(Company), ds.getRepository(PlatformAdmin), ds.getRepository(User), ds.getRepository(Position), ds.getRepository(PositionPermission), ds.getRepository(UserPermissionOverride), ds.getRepository(AuditLog), new FeishuBindingPolicy(new ExternalConfigService(ds, buildServices(ds).crypto)));
     const login = await auth.login(submitted.phone, password);
     expect(login.type).toBe('company');
     if (login.type === 'company') expect(login.user.permissions.allow).toContain('resource.stores.view');

@@ -11,10 +11,14 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
   ) {
     super(message);
   }
 }
+
+let onFeishuBindingRequired: (() => void) | null = null;
+export function setFeishuBindingRequiredHandler(handler: () => void) { onFeishuBindingRequired = handler; }
 
 let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(handler: () => void) {
@@ -35,8 +39,10 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
 
   if (!response.ok) {
     let message = `请求失败（${response.status}）`;
+    let code: string | undefined;
     try {
-      const data = (await response.json()) as { message?: string | string[] };
+      const data = (await response.json()) as { message?: string | string[]; code?: string };
+      code = data.code;
       if (data.message) message = Array.isArray(data.message) ? data.message.join('；') : data.message;
     } catch {
       /* 响应不是 JSON，保留默认提示 */
@@ -46,7 +52,8 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
       tokenStore.clear();
       onUnauthorized?.();
     }
-    throw new ApiError(response.status, message);
+    if (response.status === 403 && code === 'FEISHU_BINDING_REQUIRED') onFeishuBindingRequired?.();
+    throw new ApiError(response.status, message, code);
   }
   return (await response.json()) as T;
 }

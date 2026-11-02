@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createChecker, CurrentUserDto, LoginRequest, LoginResponse, PermissionChecker, PlatformAdminDto } from '@kudesi/shared';
-import { api, setUnauthorizedHandler, tokenStore } from '../api/client';
+import { api, setFeishuBindingRequiredHandler, setUnauthorizedHandler, tokenStore } from '../api/client';
 import { resetCategoryOptions } from '../resources/categoryOptions';
 
 interface AuthState {
@@ -47,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setUnauthorizedHandler(logout);
+    setFeishuBindingRequiredHandler(() => setUser(current => current ? { ...current, feishuBindingPending: true } : current));
     if (!tokenStore.get()) return;
     refresh()
       .catch(() => logout())

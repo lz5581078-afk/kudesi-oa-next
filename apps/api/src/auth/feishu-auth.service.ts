@@ -1,5 +1,4 @@
-import { isPositionEnrollment } from './enrollment-feishu';
-import { AuditLog, User } from '../entities';
+import { User } from '../entities';
 import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { AuthUser } from '../common/auth.decorators';
@@ -53,19 +52,17 @@ export class FeishuAuthService {
     try { identity = await this.client.identity(cfg, code, row.redirect_uri); } catch { throw new BadRequestException('飞书授权失败，请检查应用权限和回调白名单后重新授权'); }
     if (identity.tenantKey !== cfg.tenantKey) throw new ForbiddenException('请使用本企业的飞书账号');
     if (user) {
-      const enrolled = await this.settings.ds.transaction(async em => {
+      await this.settings.ds.transaction(async em => {
         const [other] = await em.query('SELECT user_id,company_id,open_id FROM feishu_identities WHERE app_id=? AND tenant_key=? AND open_id=? FOR UPDATE', [cfg.appId, cfg.tenantKey, identity.openId]);
         if (other && (Number(other.user_id) !== user.id || Number(other.company_id) !== user.companyId)) throw new ForbiddenException('此飞书账号已绑定其他员工');
         const [mine] = await em.query('SELECT open_id FROM feishu_identities WHERE company_id=? AND user_id=? AND app_id=? FOR UPDATE', [user.companyId, user.id, cfg.appId]);
         if (mine && mine.open_id !== identity.openId) throw new ForbiddenException('当前员工已绑定另一个飞书账号，请联系管理员');
         if (!await em.findOneBy(User, { id: user.id, companyId: user.companyId, status: 'active' })) throw new UnauthorizedException('员工已停用或不属于当前公司');
-        const enrollment = await isPositionEnrollment(em.getRepository(AuditLog), user.companyId, user.id);
-        try { await em.query('INSERT INTO feishu_identities(company_id,user_id,app_id,tenant_key,open_id,union_id,oa_notifications) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE union_id=VALUES(union_id),oa_notifications=GREATEST(oa_notifications,VALUES(oa_notifications))', [user.companyId, user.id, cfg.appId, cfg.tenantKey, identity.openId, identity.unionId, enrollment ? 1 : 0]); }
+        try { await em.query('INSERT INTO feishu_identities(company_id,user_id,app_id,tenant_key,open_id,union_id,oa_notifications) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE union_id=VALUES(union_id),oa_notifications=GREATEST(oa_notifications,VALUES(oa_notifications))', [user.companyId, user.id, cfg.appId, cfg.tenantKey, identity.openId, identity.unionId, 1]); }
         catch { throw new ForbiddenException('飞书身份绑定冲突，请联系管理员'); }
         await em.query("INSERT INTO audit_logs(company_id,actor_id,action,resource_type,resource_id,detail) VALUES(?,?,'user.bind_feishu','user',?,NULL)", [user.companyId, user.id, String(user.id)]);
-        return enrollment;
       });
-      return { bound: true, ...(enrolled ? { allNotificationsEnabled: true } : {}) };
+      return { bound: true, allNotificationsEnabled: true };
     }
     const [bound] = await this.settings.ds.query('SELECT user_id FROM feishu_identities WHERE company_id=? AND app_id=? AND tenant_key=? AND open_id=?', [Number(row.company_id), cfg.appId, cfg.tenantKey, identity.openId]);
     if (!bound) throw new ForbiddenException('此飞书账号尚未绑定员工，请先用账号密码登录，再绑定飞书');
