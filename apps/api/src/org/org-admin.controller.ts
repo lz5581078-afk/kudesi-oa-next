@@ -52,6 +52,8 @@ class CreateStaffDto {
   @IsOptional() @IsIn([...EMPLOYMENT_TYPES]) employmentType?: 'regular' | 'part_time' | 'temp';
 }
 class UpdateStaffDto {
+  @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractStartDate?: string | null;
+  @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractEndDate?: string | null;
   @IsOptional() @IsIn([...PAY_TYPES]) payType?: 'monthly' | 'hourly';
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) hourlyRate?: number | null;
   @IsOptional() @IsIn([...EMPLOYMENT_TYPES]) employmentType?: 'regular' | 'part_time' | 'temp';

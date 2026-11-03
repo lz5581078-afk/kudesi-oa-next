@@ -1,0 +1,16 @@
+.workforce-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.res-card-actions { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.workforce-page .res-table td.c-acts,
+.workforce-page .res-table th:last-child { position: sticky; right: 0; z-index: 2; background: var(--surface); box-shadow: -6px 0 6px -6px rgba(0, 0, 0, .12); }
+.workforce-page .res-table th:last-child { z-index: 4; }
+.workforce-page .res-table tr.workforce-incomplete > td.c-acts { background: #fff7db; }
+.workforce-page .res-table tr.workforce-incomplete:hover > td.c-acts { background: #ffefbd; }
+.workforce-modal .modal-backdrop { z-index: 1100; }
+.workforce-modal .modal { max-height: calc(100dvh - 32px); min-height: 0; overflow: hidden; }
+.workforce-modal .modal-head, .workforce-modal .modal-foot { flex-shrink: 0; }
+.workforce-modal .modal-body { min-height: 0; overflow: auto; }
+@media (max-width: 720px) {
+  .workforce-actions .row-act { min-height: 36px; padding-inline: 12px; }
+  .workforce-modal .modal-backdrop { padding: 12px; }
+  .workforce-modal .modal-body { overflow-x: auto; }
+}

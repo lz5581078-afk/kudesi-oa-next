@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getResourceDef, type ResourceDef } from '@kudesi/shared';
 import { resourceApi } from './api';
 
+vi.mock('../api/client', async orig => ({ ...await orig<typeof import('../api/client')>(), api: vi.fn(async () => []) }));
+
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } };
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => auth }));
 vi.mock('./RecordForm', () => ({ RecordForm: () => <div>表单</div>, loadRefOptions: async () => [{ value: 3, label: '小王' }] }));
@@ -31,6 +33,34 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); Object.assign(def, orig); });
 
 describe('列表壳：配置驱动的能力入口', () => {
+  it.each([false, true])('兼职临时工页只保留新增账号，桌面/手机（%s）和空列表不再提供已有账号建档', async mobile => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ matches: query.includes('max-width') ? mobile : !mobile, addEventListener() {}, removeEventListener() {} })) as never;
+    try {
+      vi.mocked(resourceApi.list).mockResolvedValue(list([]));
+      render(<MemoryRouter><ResourcePage type="workforce" /></MemoryRouter>);
+      await screen.findByText('还没有兼职与临时工');
+      if (mobile) fireEvent.click(screen.getByRole('button', { name: '更多' }));
+      expect(screen.getByRole('button', { name: '新增账号并建档' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: '为已有账号建档' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^＋ 新增/ })).toBeNull();
+    } finally { window.matchMedia = original; }
+  });
+
+  it.each([false, true])('用工列表的桌面/手机（%s）均可直接编辑、查记录和停用', async mobile => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ matches: query.includes('max-width') ? mobile : !mobile, addEventListener() {}, removeEventListener() {} })) as never;
+    try {
+      vi.mocked(resourceApi.list).mockResolvedValue(list([{ ...row(5), type: 'workforce', title: '兼职甲', status: 'active', data: { userId: 7, name: '兼职甲', employmentType: 'part_time', contractStartDate: '2026-01-01' } }]));
+      render(<MemoryRouter><ResourcePage type="workforce" /></MemoryRouter>);
+      expect(await screen.findByRole('button', { name: '记录' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '停用' })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+      expect(await screen.findByText('表单')).toBeTruthy();
+      expect(screen.queryByText('详情5')).toBeNull();
+    } finally { window.matchMedia = original; }
+  });
+
   it('只读历史显示原收支数据；管理员界面也不出现新增、导入或编辑入口', async () => {
     vi.mocked(resourceApi.list).mockResolvedValue(list([{ ...row(1), type: 'finance-ledger-history', title: '原收支', status: 'recorded', data: { caption: '原收支', entryDate: '2026-10-01', category: '流程费用', direction: 'expense', amountCents: 1234 } }]));
     render(<MemoryRouter><ResourcePage type="finance-ledger-history" /></MemoryRouter>);

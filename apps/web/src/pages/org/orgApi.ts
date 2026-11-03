@@ -36,6 +36,7 @@ export interface StaffDto {
   isCompanyAdmin: boolean; status: 'active' | 'disabled'; lastLoginAt: string | null;
   managerId: number | null; title: string | null; baseSalary?: number | null; extraPositionIds: number[];
   payType?: PayType; hourlyRate?: number | null; employmentType?: EmploymentType;
+  contractStartDate?: string | null; contractEndDate?: string | null;
 }
 export type PayType = 'monthly' | 'hourly';
 export type EmploymentType = 'regular' | 'part_time' | 'temp';
@@ -104,7 +105,7 @@ export const orgApi = {
   staffOne: (id: number) => api<StaffDetail>(`/org/staff/${id}`),
   addStaff: (body: { account: string; name: string; departmentId: number | null; positionId: number | null; extraPositionIds?: number[]; managerId?: number | null; title?: string; baseSalary?: number | null; payType?: PayType; hourlyRate?: number | null; employmentType?: EmploymentType }) =>
     api<{ staff: StaffDetail; initialPassword: string }>('/org/staff', { method: 'POST', body }),
-  updateStaff: (id: number, body: { name?: string; departmentId?: number | null; positionId?: number | null; extraPositionIds?: number[]; managerId?: number | null; title?: string | null; baseSalary?: number | null; payType?: PayType; hourlyRate?: number | null; employmentType?: EmploymentType }) => api<StaffDetail>(`/org/staff/${id}`, { method: 'PATCH', body }),
+  updateStaff: (id: number, body: { contractStartDate?: string | null; contractEndDate?: string | null; name?: string; departmentId?: number | null; positionId?: number | null; extraPositionIds?: number[]; managerId?: number | null; title?: string | null; baseSalary?: number | null; payType?: PayType; hourlyRate?: number | null; employmentType?: EmploymentType }) => api<StaffDetail>(`/org/staff/${id}`, { method: 'PATCH', body }),
   setOverrides: (id: number, allow: string[], deny: string[]) => api<StaffDetail>(`/org/staff/${id}/overrides`, { method: 'PUT', body: { allow, deny } }),
   setStatus: (id: number, status: 'active' | 'disabled', reason?: string, handoverToUserId?: number) => api<StaffDetail>(`/org/staff/${id}/status`, { method: 'POST', body: { status, reason, handoverToUserId } }),
   resetPassword: (id: number) => api<{ password: string }>(`/org/staff/${id}/reset-password`, { method: 'POST', body: {} }),
