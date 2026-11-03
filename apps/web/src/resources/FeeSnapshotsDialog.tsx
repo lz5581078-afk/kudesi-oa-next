@@ -7,7 +7,8 @@ const when = (s: string) => new Date(s).toLocaleString('zh-CN', { timeZone: 'Asi
 const base = '/finance/fee-archive/snapshots';
 
 /** 费用档案存档表：把当前费用类别和费用项目存成历史包，可查看、恢复（恢复前自动再存一份）、删除。 */
-export function FeeSnapshotsDialog({ canWrite, canDelete, onClose, onRestored }: { canWrite: boolean; canDelete: boolean; onClose: () => void; onRestored: () => void }) {
+export function FeeSnapshotsDialog({ canWrite, canDelete, onClose, onRestored, embedded = false }: { embedded?: boolean; canWrite: boolean; canDelete: boolean; onClose: () => void; onRestored: () => void }) {
+  const [creating, setCreating] = useState(!embedded);
   const [rows, setRows] = useState<Snap[]>([]);
   const [view, setView] = useState<View | null>(null);
   const [name, setName] = useState('');
@@ -23,14 +24,14 @@ export function FeeSnapshotsDialog({ canWrite, canDelete, onClose, onRestored }:
     try { await fn(); if (done) setNotice(done); await load(); } catch (e) { setError(e instanceof ApiError ? e.message : '操作失败'); }
   };
   return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="modal wide card" role="dialog" aria-label="费用档案存档表">
-        <div className="modal-head"><strong>费用档案存档表</strong></div>
+    <div className={embedded ? "finance-fee-snapshots" : "modal-backdrop"} role={embedded ? undefined : "presentation"}>
+      <div className={embedded ? "finance-fee-snapshot-card" : "modal wide card"} role={embedded ? "region" : "dialog"} aria-label="费用档案存档表">
+        <div className="modal-head"><h2>费用档案存档表</h2>{embedded && canWrite && <button type="button" className="res-btn" onClick={() => setCreating(v => !v)}>存为历史包</button>}</div>
         <div className="modal-body">
           <p className="muted">把当前费用类别和费用项目存成历史包，以后可以查看或恢复。恢复前系统会自动保存一份当前状态；存档里没有的费用会被停用（不会删除）。</p>
           {error && <div role="alert" className="notice error">{error}</div>}
           {notice && <div role="status" className="notice ok">{notice}</div>}
-          {canWrite && (
+          {canWrite && creating && (
             <div className="toolbar">
               <input aria-label="存档名称" placeholder="存档名称，如“2026 年初整理前”" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
               <input aria-label="存档备注" placeholder="备注（选填）" value={remark} maxLength={500} onChange={(e) => setRemark(e.target.value)} />
@@ -62,7 +63,7 @@ export function FeeSnapshotsDialog({ canWrite, canDelete, onClose, onRestored }:
             </div>
           )}
         </div>
-        <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>关闭</button></div>
+        {!embedded && <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>关闭</button></div>}
       </div>
     </div>
   );

@@ -202,3 +202,106 @@
 .modal.rf.finance-base-editor.rf-reference.reference-finance-suppliers .reference-party-code .rf-field > .rf-label { position: absolute; width: 1px; height: 1px; min-height: 0; margin: 0; padding: 0; overflow: hidden; clip-path: inset(50%); }
 .reference-finance-suppliers .reference-supplier-categories h3 { justify-content: flex-start; }
 .reference-finance-suppliers .reference-supplier-categories h3 > small { margin-left: auto; }
+/* 实站核对：赠品简称在编号之后直接展开，不能折叠到页面底部。 */
+.modal.rf.finance-base-editor .reference-section-gift { padding: 14px; background: #fbfcfe; border: 1px solid #dce5ed; border-radius: 10px; }
+.reference-gift-hint { margin: 0 0 14px; font-size: 16px; line-height: 1.5; color: #172235; }
+.finance-gift-field { display: grid; gap: 7px; font-size: 14px; color: #253345; }
+.finance-gift-field input { width: 100%; height: 40px; box-sizing: border-box; border: 1px solid #cbd5df; border-radius: 7px; padding: 8px 12px; font: inherit; color: #344054; background: #fff; }
+.finance-layout-section.section-gift .finance-layout-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.finance-detail-dialog:is(.finance-detail-raw,.finance-detail-self_made,.finance-detail-purchased,.finance-detail-shipping_material,.finance-detail-package,.finance-detail-oem_package,.finance-detail-custom) .finance-detail-foot-actions { width: 100%; }
+.finance-detail-dialog:is(.finance-detail-raw,.finance-detail-self_made,.finance-detail-purchased,.finance-detail-shipping_material,.finance-detail-package,.finance-detail-oem_package,.finance-detail-custom) .finance-detail-foot-actions > .secondary-button { flex: .8; }
+.finance-detail-dialog:is(.finance-detail-raw,.finance-detail-self_made,.finance-detail-purchased,.finance-detail-shipping_material,.finance-detail-package,.finance-detail-oem_package,.finance-detail-custom) .finance-detail-foot-actions > .primary-button { flex: 1.2; }
+.rd.resource-detail.finance-detail-costs { width: min(1180px,calc(100vw - 48px)); height: auto; max-height: calc(100dvh - 48px); border-radius: 18px; }
+.finance-cost-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border-bottom: 1px solid #e1e7ee; }
+.finance-cost-head h2 { margin: 0; font-size: 24px; color: #193e31; }
+.finance-cost-head p { margin: 6px 0 0; color: #64748b; font-size: 16px; }
+.finance-detail-costs .finance-detail-body { padding: 20px 24px; }
+.finance-cost-panel > .between { min-height: 38px; margin-bottom: 16px; }
+.finance-cost-panel > .between > .secondary-button { background: #087f61; border-color: #087f61; color: #fff; border-radius: 8px; min-height: 38px; font-size: 14px; }
+.finance-cost-table-scroll { overflow: auto; }
+.finance-cost-table { width: 100%; border-collapse: collapse; text-align: left; }
+.finance-cost-table th { padding: 12px; font-size: 13px; color: #526276; background: #f6f9fb; border-bottom: 1px solid #dfe6ed; }
+.finance-cost-table td { padding: 12px; font-size: 14px; vertical-align: top; border-bottom: 1px solid #e4ebf1; }
+.finance-cost-table td small { display: block; margin-top: 4px; color: #788699; font-size: 12px; }
+.finance-cost-panel > .inline-edit { margin-top: 18px; padding: 16px; border: 1px solid #dce5ed; border-radius: 10px; }
+.finance-cost-panel .rf-field[data-field=productId] { display: none; }
+@media(max-width:720px) { .rd.resource-detail.finance-detail-costs { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); } .finance-cost-head { padding: 16px; } .finance-detail-costs .finance-detail-body { padding: 16px; } .finance-layout-section.section-gift .finance-layout-grid { grid-template-columns: 1fr; } }
+
+.finance-fee-snapshots { flex: none; margin: 20px 0; border: 1px solid #dce5ec; border-radius: 10px; background: #fff; }
+.finance-fee-snapshots .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #e1e8ef; }
+.finance-fee-snapshots h2 { font-size: 18px; margin: 0; }
+.finance-fee-snapshots .modal-body { padding: 16px 20px; overflow-x: auto; }
+.finance-fee-snapshots .modal-body > p { margin-top: 0; font-size: 14px; }
+.finance-fee-snapshots .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.finance-base-home[data-resource=finance-fee-items] .hier-card > em { background: transparent; color: #718096; }
+.finance-base-page .finance-base-list-topline > .res-actions > .primary { order: -1; }
+
+/* 专用详情尺寸不能被全局资料工作区的 1160px 规则覆盖。 */
+.rd.resource-detail.finance-detail-dialog:is(.finance-detail-raw,.finance-detail-shipping_material,.finance-detail-custom) { width: min(820px,calc(100vw - 16px)); height: min(760px,calc(100dvh - 16px)); max-height: calc(100dvh - 16px); }
+.rd.resource-detail.finance-detail-dialog.finance-detail-self_made { width: min(1100px,calc(100vw - 32px)); height: min(880px,calc(100dvh - 32px)); max-height: calc(100dvh - 32px); }
+.rd.resource-detail.finance-detail-dialog.finance-detail-purchased { width: min(1040px,calc(100vw - 32px)); height: min(840px,calc(100dvh - 32px)); max-height: calc(100dvh - 32px); }
+.rd.resource-detail.finance-detail-dialog:is(.finance-detail-package,.finance-detail-oem_package) { width: min(1000px,calc(100vw - 40px)); height: min(820px,calc(100dvh - 32px)); max-height: calc(100dvh - 32px); }
+.rd.resource-detail.finance-detail-dialog.finance-detail-finance-suppliers { width: min(760px,calc(100vw - 24px)); height: auto; max-height: calc(100dvh - 24px); }
+.rd.resource-detail.finance-detail-dialog.finance-detail-finance-customers { width: min(840px,calc(100vw - 32px)); height: auto; max-height: calc(100dvh - 32px); }
+.rd.resource-detail.finance-detail-dialog.finance-detail-finance-fee-items { width: min(1060px,calc(100vw - 48px)); height: auto; max-height: calc(100dvh - 48px); }
+.rd.resource-detail.finance-detail-dialog .finance-detail-head .rd-title { font-size: 24px; line-height: 1.3; }
+.rd.resource-detail.finance-detail-dialog .finance-detail-head { min-height: 0; padding: 18px 28px; }
+.rd.resource-detail.finance-detail-dialog .finance-detail-body { padding: 10px 28px; gap: 8px; }
+.rd.resource-detail.finance-detail-dialog .finance-view-section { padding: 14px; }
+.rd.resource-detail.finance-detail-dialog .finance-view-heading { padding-bottom: 8px; margin-bottom: 10px; }
+.rd.resource-detail.finance-detail-dialog.finance-detail-costs { width: min(1180px,calc(100vw - 48px)); height: auto; max-height: calc(100dvh - 48px); }
+.rd.resource-detail.finance-detail-costs .finance-detail-body { padding: 20px 24px; }
+@media(max-width:720px) {
+ .rd.resource-detail.finance-detail-dialog { width: calc(100vw - 16px) !important; height: calc(100dvh - 16px) !important; max-height: calc(100dvh - 16px) !important; }
+ .rd.resource-detail.finance-detail-dialog .finance-detail-body { padding: 10px 14px; }
+}
+
+.finance-view-category { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #eff9f4; border-radius: 7px; color: #246d50; font-size: 14px; }
+
+.modal.rf.finance-base-editor.reference-finance-fee-items { width: min(940px,calc(100vw - 40px)); }
+.modal.rf.finance-base-editor.reference-finance-fee-items .reference-party-fields { padding: 12px !important; background: #f8fbf9 !important; margin: 0 0 10px; }
+.modal.rf.finance-base-editor.reference-finance-fee-items .reference-party-fields .rf-sec-title { font-size: 14px !important; padding-bottom: 12px !important; }
+.modal.rf.finance-base-editor.reference-finance-fee-items .form-grid { gap: 12px; }
+.modal.rf.finance-base-editor.reference-finance-fee-items .rf-field { gap: 7px; }
+.modal.rf.finance-base-editor.reference-finance-fee-items .form-grid > label { padding: 0; border: 0; background: transparent; }
+.modal.rf.finance-base-editor.reference-finance-fee-items .rf-scroll { padding: 0 !important; }
+.rd.resource-detail.finance-detail-dialog .finance-detail-foot .primary-button { background: #00935a; border-color: #00935a; }
+
+.finance-base-page > .modal-backdrop, .finance-base-home > .modal-backdrop { z-index: 220; }
+.reference-finance-fee-items [data-field=defaultObject] > .rf-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.reference-finance-fee-items [data-field=defaultObject] .check-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.reference-finance-fee-items [data-field=defaultObject] .check { position: relative; display: inline-flex; align-items: center; min-height: 32px; padding: 5px 12px; border: 1px solid #dce5e7; border-radius: 18px; background: #fff; color: #233143; font-size: 13px; cursor: pointer; }
+.reference-finance-fee-items [data-field=defaultObject] .check:has(input:checked) { border-color: #16866b; background: #eef9f4; }
+.reference-finance-fee-items [data-field=defaultObject] .check:focus-within { outline: 2px solid #16866b; outline-offset: 2px; }
+.reference-finance-fee-items [data-field=defaultObject] .check input { position: absolute; width: 1px !important; height: 1px !important; padding: 0; opacity: 0; }
+
+.finance-base-finance-fee-items .res-body.with-tree { grid-template-columns: minmax(300px, 380px) minmax(0,1fr); }
+.finance-fee-directory > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 16px; border-bottom: 1px solid #e1e7ee; }
+.finance-fee-directory h2 { margin: 0; font-size: 18px; }
+.finance-fee-directory button { font: inherit; cursor: pointer; }
+.finance-fee-directory header > button { padding: 6px 9px; background: #fff; border: 1px solid #d8e3e8; border-radius: 7px; font-size: 12px; color: #375449; }
+.finance-fee-directory > p { margin: 0; padding: 16px; color: #6d7d8f; font-size: 12px; }
+.finance-fee-directory > p strong { display: block; color: #243a31; margin-top: 6px; font-size: 14px; }
+.finance-fee-directory-columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 0 12px 12px; }
+.finance-fee-directory-columns > section { min-width: 0; padding: 8px; border: 1px solid #dce5ec; border-radius: 8px; background: #f8fafc; }
+.finance-fee-directory-columns section > header { display: flex; justify-content: space-between; align-items: center; min-height: 32px; margin-bottom: 8px; font-size: 12px; }
+.finance-fee-directory-columns section > button { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; text-align: left; margin-top: 6px; padding: 9px 8px; border: 1px solid #dce5ec; border-radius: 7px; background: #fff; color: #34465b; font-size: 12px; }
+.finance-fee-directory-columns section > button.active { border-color: #14926a; background: #edf9f2; color: #08704b; }
+.finance-fee-directory-columns em { font-size: 18px; font-style: normal; }
+.finance-fee-directory-columns small { font-size: 10px; color: #7b8c9d; white-space: nowrap; }
+.finance-fee-directory-columns section > p { font-size: 12px; color: #7b8b9b; line-height: 1.7; }
+.finance-fee-directory-search { padding: 10px 16px; font-size: 12px; color: #738295; border-top: 1px solid #e3eaf0; }
+.finance-fee-directory-search summary { cursor: pointer; }
+@media(max-width:720px) { .finance-base-finance-fee-items .res-body.with-tree { grid-template-columns: minmax(0,1fr); } }
+.finance-base-list-topline { flex-wrap: wrap; }
+.finance-base-list-topline .finance-base-list-title { min-width: 180px; flex-wrap: wrap; }
+.finance-base-list-topline .finance-base-list-title h3 { white-space: nowrap; }
+.finance-base-list-topline > .res-actions { margin-left: auto; }
+.finance-base-finance-fee-items { overflow-y: auto; }
+.finance-base-finance-fee-items .res-body.with-tree { flex: none; }
+/* 费用目录与列表按24号页面的最小面板宽度自然换行。 */
+.finance-base-finance-fee-items .res-body.with-tree { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; min-height: 0; overflow: visible; border: 0; background: transparent; box-shadow: none; }
+.finance-base-finance-fee-items .res-body.with-tree > .cat-tree { flex: 0 0 min(506px,100%); max-width: 100%; border: 1px solid #dfe5ed; border-radius: 10px; overflow: hidden; }
+.finance-base-finance-fee-items .cat-body { padding: 0; }
+.finance-base-finance-fee-items .res-body.with-tree > .res-main { flex: 1 1 760px; min-width: min(760px,100%); min-height: 280px; border: 1px solid #dfe5ed; border-radius: 10px; overflow: hidden; }
+.finance-base-list-topline .finance-base-list-title h3 { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
