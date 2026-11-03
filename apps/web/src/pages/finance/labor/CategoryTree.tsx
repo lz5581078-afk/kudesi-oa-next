@@ -25,11 +25,11 @@ export function CategoryTree({ versionId, tree, selected, onSelect }: { versionI
   useEffect(() => setExpanded(new Set()), [versionId]);
   const toggle = (id: number) => setExpanded(old => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const render = (node: CatNode, depth: number) => <li key={node.id}>
-    <div className={`labor-tree-row${node.id === selected ? ' selected' : ''}`} style={{ paddingLeft: depth * 16 + 5 }}>
+    <div className={`labor-tree-row${node.id === selected ? ' selected' : ''}`} style={{ paddingLeft: depth ? depth === 1 ? 38 : 66 : 6 }}>
       <button type="button" className="labor-tree-toggle" disabled={!node.children.length} aria-label={node.children.length ? `${expanded.has(node.id) ? '收起' : '展开'}${node.name}` : `${node.name}没有下级分类`} aria-expanded={node.children.length ? expanded.has(node.id) : undefined} onClick={() => toggle(node.id)}>{node.children.length ? expanded.has(node.id) ? <ChevronDown size={14}/> : <ChevronRight size={14}/> : null}</button>
       <button type="button" className="labor-tree-label" aria-current={node.id === selected} aria-expanded={node.children.length ? expanded.has(node.id) : undefined} onClick={() => { onSelect(node.id); if (node.children.length) toggle(node.id); }}><span>{node.id === selected && <Check size={13} aria-hidden="true"/>}{node.name}</span><small>{node.count}</small></button>
     </div>
     {expanded.has(node.id) && node.children.length > 0 && <ul className="plain-list">{node.children.map(child => render(child, depth + 1))}</ul>}
   </li>;
-  return <nav aria-label="项目归档分类" className="labor-tree-browse"><ul className="plain-list">{tree.map(node => render(node, 0))}</ul>{tree.length === 0 && <p className="muted">这个版本还没有归档分类。先建分类，再往里加工作项目（最多三级，项目放最末级）。</p>}</nav>;
+  return <nav aria-label="项目归档分类" className="labor-tree-browse"><ul className="plain-list">{tree.map(node => render(node, 0))}</ul>{tree.length === 0 && <div className="labor-tree-empty">暂未建立归档分类</div>}</nav>;
 }

@@ -109,6 +109,29 @@ describe('复制新增工作项目', () => {
 });
 
 describe('人力成本原版目录与查询行为', () => {
+  it('没有版本、没有分类和没有项目分别显示原提示；只有选到末级才显示新增', async () => {
+    m.list.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 200 });
+    const empty = render(<LaborCostPage/>);
+    await screen.findByText('尚无成本版本');
+    expect(screen.getByText('请先选择成本版本')).toBeTruthy();
+    expect(screen.queryByRole('table')).toBeNull();
+    empty.unmount();
+    const versions = [dto(1, 'v', '合成空版', { versionCode: 'EMPTY', isDefault: true })];
+    let categories: ResourceDto[] = [];
+    m.list.mockImplementation(async type => { const items = type === 'finance-labor-versions' ? versions : type === 'finance-labor-categories' ? categories : []; return { items, total: items.length, page: 1, pageSize: 200 }; });
+    const view = render(<LaborCostPage/>);
+    await screen.findByText('暂未建立归档分类');
+    expect(screen.getByText('请先在左侧管理当前版本的项目归档分类。')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '新增工作项目' })).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
+    view.unmount(); categories = [dto(10, 'c', '合成末级', {})];
+    render(<LaborCostPage/>); await screen.findByRole('button', { name: /^合成末级 / });
+    expect(screen.getByText('请选择左侧最末级归档分类后新增项目。')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '新增工作项目' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^合成末级 / }));
+    expect(screen.getByRole('button', { name: '新增工作项目' })).toBeTruthy();
+    expect(screen.getByText('当前归档分类暂无工作项目')).toBeTruthy();
+  });
   const response = (items: ResourceDto[], total = items.length) => ({ items, total, page: 1, pageSize: 200 });
   const version = dto(1, 'finance-labor-versions', '合成当前版本', { versionCode: 'A', isDefault: true });
   it('确认操作等待期间切公司，旧操作响应不能切回旧版本', async () => {

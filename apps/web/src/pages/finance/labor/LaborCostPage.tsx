@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getResourceDef, unitYuanText } from '@kudesi/shared';
-import { BriefcaseBusiness, CalendarDays, Check, CircleDollarSign, Copy, Database, FolderTree, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { BriefcaseBusiness, CalendarRange, Check, CircleDollarSign, Copy, Database, FolderTree, Pencil, Plus, Search, Trash2, UsersRound } from 'lucide-react';
 import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
 import { ReasonDialog, RecordForm, clearRefCache } from '../../../resources/RecordForm';
@@ -116,7 +116,7 @@ export function LaborCostPage() {
       {notice && <div role="status" className="notice ok">{notice}</div>}
       <section className="card labor-version-panel" aria-label="成本版本列表">
         <header><div><Database size={18}/><div><h2>成本版本</h2><p>点击版本查看对应的分类和工作项目</p></div></div><span>{versions ? `${versions.length} 个版本` : '加载中…'}</span></header>
-        <div className="labor-version-rows">{(versions ?? []).map(v => <article key={v.id} className={`labor-version-row${v.id === versionId ? ' selected' : ''}`}>
+        {versions?.length ? <div className="labor-version-rows">{versions.map(v => <article key={v.id} className={`labor-version-row${v.id === versionId ? ' selected' : ''}`}>
           <button type="button" className="labor-version-select" aria-pressed={v.id === versionId} onClick={() => setVersionId(v.id)}><span className="labor-version-name"><strong>{v.title}</strong>{v.status === 'active' && <i>已启用</i>}</span><code>{String(v.data.versionCode ?? '')}</code><small>{String(v.data.periodName || '未设置期间')} · {String(v.data.effectiveFrom || '立即')} 至 {String(v.data.effectiveTo || '长期')} · {typeof v.data.itemCount === 'number' ? v.data.itemCount : v.id === versionId && dataReady ? items.length : '—'} 项</small></button>
           <div className="row-actions">{can('create') && <button type="button" onClick={()=>{setVersionId(v.id);setCopying(true);}}><Copy size={15}/>复制版本</button>}
           {can('edit') && v.status === 'draft' && <button type="button" onClick={() => { setVersionId(v.id); setVersionForm({ record: v }); }}><Pencil size={15}/>编辑版本</button>}
@@ -125,22 +125,22 @@ export function LaborCostPage() {
           {can('edit') && v.status==='active' && <button type="button" className="link-button" onClick={()=>setReason({title:'请确认操作',hint:`确认停用“${v.title}”吗？其他模块将不再读取这个版本。`,confirm:'确认',run:async()=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'inactive');selectWrittenVersion(v.id);}})}>停用版本</button>}
           {can('delete') && v.status==='draft' && <button type="button" aria-label="删除版本" className="link-button danger" onClick={()=>setReason({title:'请确认操作',hint:`确认删除版本“${v.title}”吗？版本内人力成本项目也会一并删除。`,confirm:'确认',danger:true,run:async()=>{await resourceApi.remove('finance-labor-versions',v.id,'人力成本表确认删除版本');selectWrittenVersion(null);}})}><Trash2 size={15}/>删除</button>}
           </div>
-        </article>)}</div>
+        </article>)}</div> : <div className="labor-version-empty"><strong>{versions ? '尚无成本版本' : '正在读取版本…'}</strong><small>新建版本后维护分类与工作项目</small></div>}
       </section>
 
-      {versions && versions.length === 0 && <div className="empty-state muted">还没有成本版本。先“新建成本版本”，再建归档分类和工作项目。</div>}
       <section className="labor-summary-strip" aria-label="人力成本概览">
         <div><Database size={18}/><span>当前默认版本</span><strong>{versions ? defaultVersion?.title ?? '尚未启用' : '加载中…'}</strong></div>
-        <div><CalendarDays size={18}/><span>当前生效期间</span><strong>{defaultVersion ? String(defaultVersion.data.effectiveFrom || '立即') + ' 至 ' + String(defaultVersion.data.effectiveTo || '长期') : versions ? '-' : '加载中…'}</strong></div>
+        <div><CalendarRange size={18}/><span>当前生效期间</span><strong>{defaultVersion ? String(defaultVersion.data.effectiveFrom || '立即') + ' 至 ' + String(defaultVersion.data.effectiveTo || '长期') : versions ? '-' : '加载中…'}</strong></div>
         <div><BriefcaseBusiness size={18}/><span>所选版本项目</span><strong>{dataReady ? items.length + ' 项' : version ? '加载中…' : '—'}</strong></div>
         <div><CircleDollarSign size={18}/><span>启用计价标准</span><strong>{dataReady ? items.filter(i => i.status === 'active').length + ' 项' : version ? '加载中…' : '—'}</strong></div>
       </section>
-      <div className="labor-detail-layout">
+      <div className="labor-reference-workspace"><div className="labor-detail-layout">
         <aside className="labor-directory" aria-label="项目归档分类目录">
           <header><div><span>当前成本版本</span><h2>项目归档分类</h2></div>{version && !locked && (can('create') || can('edit')) && <button type="button" disabled={!dataReady} onClick={()=>setManaging(true)}><FolderTree size={14}/>管理归档</button>}</header>
           <div className="labor-directory-hint"><span>点击归档分类查看项目</span><span>末级归档可新增工作项目</span></div>
           {version && dataReady && <CategoryTree versionId={version.id} tree={tree} selected={selectedCat} onSelect={setSelectedCat}/>}
           {version && !dataReady && <p className="muted">正在读取项目归档…</p>}
+          {!version && <div className="labor-tree-empty">请先选择成本版本</div>}
         </aside>
         <section aria-label="工作项目" className="labor-project-list" aria-busy={!!version && !dataReady}>
           <header><div><h2>工作项目列表</h2><span>共 {dataReady ? filtered.length : '—'} 条</span></div>{can('create') && !locked && isLeaf && dataReady && <button type="button" className="primary-button" onClick={() => setItemForm({ record: null })}><Plus size={14}/>新增工作项目</button>}</header>
@@ -148,26 +148,26 @@ export function LaborCostPage() {
             <div className="labor-search-toolbar"><label><Search size={16}/><input aria-label="搜索工作项目" placeholder="搜索工作编码、名称、分类或单位" value={keyword} onChange={e => setKeyword(e.target.value)}/></label><span>显示 {dataReady ? filtered.length : '—'} / {dataReady ? items.length : '—'} 项</span></div>
             {version.status === 'active' && <p className="labor-version-hint">当前版本已启用，可新增和编辑；保存人力成本后，当前BOM及SKU成本表同步更新，历史记录保留。</p>}
             {locked && <p className="labor-version-hint">当前版本已停用，不可新增或修改资料。</p>}
-            <div className="table-scroll"><table className="data-table labor-project-table">
-              <thead><tr><th>工作编码</th><th>工作名称</th><th>项目归档分类</th><th>工作分类</th><th>计价单位</th><th className="num">单位人力成本</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>
+            {dataReady && filtered.length > 0 && <div className="table-scroll"><table className="data-table labor-project-table">
+              <thead><tr><th>工作编码</th><th>工作名称</th><th>项目归档分类</th><th>工作分类</th><th>计价单位</th><th>单位人力成本</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>
               <tbody>
                 {filtered.map((i) => (
                   <tr key={i.id}><td data-label="工作编码"><strong>{String(i.data.workCode ?? '')}</strong></td><td data-label="工作名称"><strong>{String(i.data.workName ?? '')}</strong></td><td data-label="项目归档分类">{i.refLabels.archiveCategoryId}</td><td data-label="工作分类">{i.refLabels.workTypeId}</td><td data-label="计价单位">{i.refLabels.unitId}</td>
-                    <td className="num" data-label="单位人力成本">{canSeeCost ? typeof i.data.unitPrice === 'number' && Number.isFinite(i.data.unitPrice) ? `¥${unitYuanText(i.data.unitPrice)}` : '未填写' : '无权限'}</td>
+                    <td data-label="单位人力成本"><strong className="labor-project-money">{canSeeCost ? typeof i.data.unitPrice === 'number' && Number.isFinite(i.data.unitPrice) ? `¥${unitYuanText(i.data.unitPrice)}` : '未填写' : '无权限'}</strong></td>
                     <td data-label="状态"><span className={`labor-project-status ${i.status}`}>{i.status === 'active' ? '启用' : '停用'}</span></td>
                     <td data-label="备注">{String(i.data.note || '-')}</td>
-                    <td className="row-actions">{locked ? '-' : <>
+                    <td>{locked ? '-' : <div className="row-actions">
                       {can('edit') && <button type="button" className="link-button" disabled={locked} onClick={() => setItemForm({ record: i })}>编辑</button>}
                       {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: { __copyOf: i.id, ...Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'note'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) } })}><Copy size={13}/>复制新增</button>}
                       {!locked && can('delete') && <button type="button" className="link-button danger" disabled={version.status !== 'draft'} onClick={() => setReason({ title: '请确认操作', hint: `确认删除人力成本项目“${String(i.data.workName || i.title)}”吗？`, confirm: '确认', danger: true, run: async () => { await resourceApi.remove('finance-labor-costs', i.id, '人力成本表确认删除项目'); } })}>删除</button>}
-                    </>}</td></tr>
+                    </div>}</td></tr>
                 ))}
               </tbody>
-            </table></div>
-            {!dataReady ? <div className="labor-list-empty">正在读取工作项目…</div> : filtered.length === 0 && <div className="labor-list-empty"><strong>{kw ? '没有匹配的工作项目' : node ? '当前归档分类暂无工作项目' : '当前版本暂无工作项目'}</strong><span>{kw ? '试试其他关键词。' : isLeaf ? '点击“新增工作项目”维护当前归档资料。' : '选择末级归档分类后可新增工作项目。'}</span></div>}
-          </> : <div className="labor-list-empty"><strong>请在上方选择成本版本</strong><span>选择版本后查看对应的项目归档和工作项目。</span></div>}
+            </table></div>}
+            {!dataReady ? <div className="labor-list-empty">正在读取工作项目…</div> : filtered.length === 0 && <div className="labor-list-empty"><BriefcaseBusiness size={30}/><strong>{kw ? '没有匹配的工作项目' : node ? '当前归档分类暂无工作项目' : '当前版本暂无工作项目'}</strong><span>{!locked && !kw ? cats.length ? '请选择左侧最末级归档分类后新增项目。' : '请先在左侧管理当前版本的项目归档分类。' : '请调整搜索条件或切换归档分类。'}</span></div>}
+          </> : <div className="labor-list-empty no-version"><UsersRound size={36}/><strong>请在上方选择成本版本</strong><span>版本选中后，在这里维护对应的分类和工作计价标准。</span></div>}
         </section>
-      </div>
+      </div></div>
 
       {managing && version && <FinanceCategoryManager key={`${scopeKey}:categories:${version.id}`} target="finance-labor-categories" context={{field:'versionId',value:version.id,label:'当前版本标识',text:String(version.data.versionCode || '-')}} presentation={{kicker:'人力成本表 · 归档设置',description:'按一级、二级、三级逐层维护，仅用于当前成本版本的项目归档和导航。',unit:'个工作项目',footer:'草稿版本可维护全部归档分类。'}} locked={locked} allowDelete={version.status==='draft'} guardDeleteReferences={false} confirmation="message" onClose={()=>setManaging(false)} onChanged={()=>void loadVersionData()}/>}
       {copying && version && <CopyVersionDialog key={`${scopeKey}:${version.id}`} source={version} onClose={() => setCopying(false)} onCopied={(id) => { if(!mounted.current || scopeRef.current!==scopeKey)return;setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
