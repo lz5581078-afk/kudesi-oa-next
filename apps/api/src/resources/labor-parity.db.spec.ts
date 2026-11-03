@@ -29,6 +29,30 @@ d('人力项目原版查重与工作编号（隔离数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
+  it('字典整表排序同事务保留全部条目，拒绝缺项/无效ID和无修改权限；引用数按公司跨版本统计', async () => {
+    const a = await svc.create(actor, 'finance-labor-work-types', { name: '排序合成甲', code: 'SORTA' });
+    const b = await svc.create(actor, 'finance-labor-work-types', { name: '排序合成乙', code: 'SORTB' });
+    const order = [b.id, workType, a.id];
+    expect(await svc.reorderCategories(actor, 'finance-labor-work-types', order)).toMatchObject({ ok: true });
+    const read = async () => (await svc.list(actor, 'finance-labor-work-types', { pageSize: 200 } as never)).items.map(row => [row.id, row.data.sortOrder]);
+    const saved = await read();
+    for (const [index, id] of order.entries()) expect(saved).toContainEqual([id, (index + 1) * 10]);
+    for (const invalid of [[b.id, a.id], [b.id, a.id, 999999999], [b.id, b.id, a.id]]) await expect(svc.reorderCategories(actor, 'finance-labor-work-types', invalid)).rejects.toThrow();
+    expect(await read()).toEqual(saved);
+    const noEdit = { ...actor, permissions: { isCompanyAdmin: false, allow: ['resource.finance-labor-costs.create'], deny: [] } };
+    await expect(svc.reorderCategories(noEdit, 'finance-labor-work-types', order)).rejects.toThrow(/没有修改权限/);
+    await expect(svc.reorderCategories({ ...actor, companyId: actor.companyId + 1000000 }, 'finance-labor-work-types', order)).rejects.toThrow();
+    const before = (await svc.get(actor, 'finance-labor-work-types', a.id)).data.referenceCount as number;
+    await create('字典引用当前版本', { workTypeId: a.id });
+    const otherVersion = await svc.create(actor, 'finance-labor-versions', { versionCode: 'RL-DICT-OTHER', versionName: '字典引用其他版本' });
+    const otherCat = await svc.create(actor, 'finance-labor-categories', { versionId: otherVersion.id, name: '其他版本归档' });
+    await create('字典引用其他版本', { workTypeId: a.id, versionId: otherVersion.id, archiveCategoryId: otherCat.id });
+    const reader = { ...actor, permissions: { isCompanyAdmin: false, allow: ['resource.finance-labor-costs.view'], deny: [] } };
+    expect((await svc.get(reader, 'finance-labor-work-types', a.id)).data.referenceCount).toBe(before + 2);
+    expect((await svc.get(reader, 'finance-labor-units', unit)).data.referenceCount).toBeGreaterThanOrEqual(2);
+    await expect(svc.remove(actor, 'finance-labor-work-types', a.id, '合成引用保护')).rejects.toThrow();
+  });
+
   it('新建预览与保存编号一致且不写库，编辑排除自身并保留成本隐私', async () => {
     const values = { versionId: version, archiveCategoryId: category, workTypeId: workType, workName: '预览合成装袋' };
     const before = await ds.manager.count(ResourceRecord, { where: { companyId: actor.companyId } });

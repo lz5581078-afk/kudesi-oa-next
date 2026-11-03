@@ -8,7 +8,6 @@ import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { Pager } from '../common';
 import { CategoryTree, buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
 import { CopyVersionDialog } from './CopyVersionDialog';
-import { DictionaryDialog } from './DictionaryDialog';
 import { FinanceModal } from '../FinanceModal';
 
 const PAGE_SIZE = 20;
@@ -32,7 +31,6 @@ export function LaborCostPage() {
   const [page, setPage] = useState(1);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [dialog, setDialog] = useState<'workTypes' | 'units' | null>(null);
   const [copying, setCopying] = useState(false);
   const [managing,setManaging] = useState(false);
   const request = useRef(0);
@@ -64,7 +62,7 @@ export function LaborCostPage() {
   useEffect(() => {
     mounted.current = true; versionRef.current = null;
     setVersions(null); setVersionId(null); setCats([]); setItems([]); setError(''); setNotice('');
-    setItemForm(null); setVersionForm(null); setReason(null); setDialog(null); setCopying(false);
+    setItemForm(null); setVersionForm(null); setReason(null); setCopying(false);
     void loadVersions();
     return () => { mounted.current = false; versionRequest.current++; request.current++; };
   }, [loadVersions]);
@@ -113,8 +111,6 @@ export function LaborCostPage() {
         <h1>人力成本表</h1>
         <div className="toolbar">
           {can('create') && <button type="button" className="primary-button" onClick={() => setVersionForm({ record: null })}>新建成本版本</button>}
-          {can('create') && <button type="button" className="secondary-button" onClick={() => setDialog('workTypes')}>维护工作分类</button>}
-          {can('create') && <button type="button" className="secondary-button" onClick={() => setDialog('units')}>维护计价单位</button>}
         </div>
       </div>
       {error && <div role="alert" className="notice error">{error}</div>}
@@ -186,9 +182,7 @@ export function LaborCostPage() {
         </div>
       )}
 
-      {dialog === 'workTypes' && <DictionaryDialog type="finance-labor-work-types" title="维护工作分类" hint="工作分类如“包装、分拣、生产加工”，会参与工作编号。已经被工作项目使用的不能删除。" onClose={() => { setDialog(null); void loadVersionData(); }} />}
       {managing && version && <FinanceModal title="管理项目归档分类" onClose={()=>setManaging(false)}><CategoryTree versionId={version.id} versionLocked={locked} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length} onSelect={setSelectedCat} onChanged={()=>void loadVersionData()}/></FinanceModal>}
-      {dialog === 'units' && <DictionaryDialog type="finance-labor-units" title="维护计价单位" hint="计价单位如“元/袋、元/小时”。已经被工作项目使用的不能删除。" onClose={() => { setDialog(null); void loadVersionData(); }} />}
       {copying && version && <CopyVersionDialog source={version} onClose={() => setCopying(false)} onCopied={(id) => { if(!mounted.current || scopeRef.current!==scopeKey)return;setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
       {versionForm && <RecordForm def={getResourceDef('finance-labor-versions')!} record={versionForm.record} initial={versionForm.record ? undefined : { versionCode: `RL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}` }} onClose={() => setVersionForm(null)} onSaved={(dto) => { if(!mounted.current || scopeRef.current!==scopeKey)return;clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} />}
       {itemForm && version && <RecordForm def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...itemForm.initial, ...(node && isLeaf && !itemForm.record && !itemForm.initial ? { archiveCategoryId: node.id } : {}) }} lockedFields={['versionId', 'archiveCategoryId']}

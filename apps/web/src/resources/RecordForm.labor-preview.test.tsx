@@ -10,7 +10,28 @@ vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, company
 vi.mock('../api/client', async original => ({ ...(await original<typeof import('../api/client')>()), api: vi.fn() }));
 vi.mock('./api', async original => {
   const module = await original<typeof import('./api')>();
-  return { ...module, resourceApi: { ...module.resourceApi, list: vi.fn(), update: vi.fn() }, draftApi: { ...module.draftApi, get: vi.fn(), clear: vi.fn() } };
+  return { ...module, resourceApi: { ...module.resourceApi, list: vi.fn(), update: vi.fn(), create: vi.fn() }, draftApi: { ...module.draftApi, get: vi.fn(), clear: vi.fn() } };
+});
+
+it('项目表单内新增工作分类后直接选中，内窗Enter和Escape不会保存或关闭父表单', async () => {
+  const added: ResourceDto = { ...record, id: 92, type: 'finance-labor-work-types', title: '合成新分类', data: { name: '合成新分类', code: 'HCXFL', referenceCount: 0 } };
+  let created = false;
+  vi.mocked(resourceApi.create).mockImplementation(async () => { created = true; return added; });
+  vi.mocked(resourceApi.list).mockImplementation(async type => { const items = created && type === added.type ? [added] : []; return { items, total: items.length, page: 1, pageSize: 200 }; });
+  const close = vi.fn(), saved = vi.fn();
+  render(<RecordForm def={def} record={record} lockedFields={['versionId', 'archiveCategoryId']} onClose={close} onSaved={saved}/>);
+  fireEvent.click(screen.getByRole('button', { name: '管理分类' }));
+  const input = screen.getByRole('textbox', { name: '分类名称' });
+  fireEvent.change(input, { target: { value: '合成新分类' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '管理工作分类' })).toBeNull());
+  await screen.findByRole('option', { name: '合成新分类（HCXFL）' });
+  expect(screen.getByRole('combobox', { name: '工作分类' })).toHaveProperty('value', '92');
+  expect(screen.getByRole('textbox', { name: /工作名称/ })).toHaveProperty('value', '合成装袋');
+  expect(resourceApi.update).not.toHaveBeenCalled(); expect(saved).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '管理分类' }));
+  fireEvent.keyDown(screen.getByRole('textbox', { name: '分类名称' }), { key: 'Escape' });
+  expect(screen.queryByRole('dialog', { name: '管理工作分类' })).toBeNull(); expect(close).not.toHaveBeenCalled();
 });
 const def = FINANCE_RESOURCE_DEFS.find(resource => resource.key === 'finance-labor-costs')!;
 const record: ResourceDto = { id: 81, type: def.key, title: '合成包装/装袋', status: 'active', statusReason: null, data: { label: '不应出现的标题', workCode: 'STORED-CODE', versionId: 1, archiveCategoryId: 2, workTypeId: 3, unitId: 4, workName: '合成装袋', unitPrice: 100 }, secretConfigured: {}, refLabels: { versionId: '合成版本', archiveCategoryId: '合成归档', workTypeId: '合成工作分类', unitId: '件' }, files: {}, createdAt: '', updatedAt: '' };

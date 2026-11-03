@@ -1,0 +1,21 @@
+.resource-dictionary-backdrop { position: fixed; inset: 0; z-index: 1600; display: grid; place-items: center; padding: 16px; background: rgba(10, 25, 20, .35); }
+.resource-dictionary { box-sizing: border-box; width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; background: white; border-radius: 16px; padding: 20px; box-shadow: 0 24px 70px rgba(10, 35, 25, .2); }
+.resource-dictionary > header { display: flex; justify-content: space-between; align-items: start; gap: 14px; }
+.resource-dictionary > header h2 { margin: 4px 0; font-size: 20px; }
+.resource-dictionary > header p, .resource-dictionary > header small { margin: 0; color: #7a8b82; font-size: 12px; }
+.resource-dictionary-create { display: flex; align-items: end; gap: 10px; padding: 14px; margin-top: 15px; border: 1px solid #dce6e0; border-radius: 10px; background: #f7faf8; }
+.resource-dictionary-create label { display: grid; gap: 6px; flex: 1; min-width: 0; font-size: 12px; font-weight: 800; color: #42544a; }
+.resource-dictionary-create input { min-width: 0; min-height: 40px; padding: 0 11px; border: 1px solid #c7d4cc; border-radius: 8px; }
+.resource-dictionary-create button { min-height: 40px; }
+.resource-dictionary-list { display: grid; gap: 7px; max-height: 360px; margin-top: 12px; overflow: auto; }
+.resource-dictionary-list > div { display: flex; justify-content: space-between; align-items: center; gap: 14px; border: 1px solid #e1e8e4; border-radius: 8px; padding: 10px 11px; }
+.resource-dictionary-list > div > span { display: grid; gap: 3px; }
+.resource-dictionary-list strong { color: #21352a; font-size: 13px; }
+.resource-dictionary-list small { color: #7b8a82; font-size: 11px; }
+.resource-dictionary-list > div[draggable=true] { cursor: grab; }
+.resource-dictionary-list .is-dragging { opacity: .45; }
+.resource-dictionary-actions { display: flex; gap: 7px; align-items: center; }
+.resource-dictionary-actions > span { color: #71839a; }
+.resource-dictionary-list > p { text-align: center; color: #7d8c84; padding: 28px; margin: 0; }
+.resource-dictionary > footer { display: flex; justify-content: end; margin-top: 16px; }
+@media (max-width: 640px) { .resource-dictionary-create { flex-direction: column; align-items: stretch; } }

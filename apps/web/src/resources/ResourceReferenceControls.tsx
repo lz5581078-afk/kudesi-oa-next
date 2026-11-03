@@ -3,6 +3,7 @@ import type { FieldDef } from '@kudesi/shared';
 import { X } from 'lucide-react';
 import { resourceApi, type ResourceDto } from './api';
 import { useAuth } from '../auth/AuthContext';
+import { loadResourceDirectory } from './resourceDirectory';
 
 type RefOption = { value: number; label: string; disabled?: boolean; leaf?: boolean; archiveType?: string };
 type RefOptions = RefOption[] & { total?: number };
@@ -77,18 +78,9 @@ function CompleteRefSelect({ field, value, onChange, labelNow, inputId }: RefSel
     let alive = true;
     const current = () => alive && scopeRef.current === scope;
     void (async () => {
-      const rows: ResourceDto[] = [];
-      for (let page = 1; ; page++) {
-        if (!current()) return;
-        const result = await resourceApi.list(field.ref!, { page, pageSize: 200, showHidden: true });
-        if (!current()) return;
-        rows.push(...result.items);
-        if (!result.items.length || rows.length >= result.total) break;
-      }
-      const sort = (row: ResourceDto) => Number(row.data[field.refOptions?.sortField ?? '']) || 0;
-      const active = [...new Map(rows.filter(row => row.status === 'active' && !row.archived).map(row => [row.id, row])).values()];
-      active.sort((a, b) => sort(a) - sort(b) || a.title.localeCompare(b.title, 'zh-CN') || a.id - b.id);
-      const options = active.map(row => {
+      const rows = await loadResourceDirectory(field.ref!, current, field.refOptions?.sortField);
+      if (!rows) return;
+      const options = rows.map(row => {
         const code = field.refOptions?.codeField && row.data[field.refOptions.codeField];
         return { value: row.id, label: code ? `${row.title}（${code}）` : row.title };
       });

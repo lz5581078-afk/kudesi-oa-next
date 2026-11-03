@@ -60,7 +60,7 @@ export interface FieldDef {
   /** type=ref：目标资源 key，或 'user'（员工） */
   ref?: string;
   /** 原生单选目录需完整读取；编码展示与维护排序由字段声明。 */
-  refOptions?: { complete: true; codeField?: string; sortField?: string };
+  refOptions?: { complete: true; codeField?: string; sortField?: string; manageLabel?: string };
   /** 在列表中显示的默认列 */
   list?: boolean;
   /** 参与关键词搜索 */
@@ -238,6 +238,8 @@ export interface ResourceDef {
   titleField: string;
   /** 表单只读编号预览；只提交列出的依赖，最终编号仍由通用保存规则计算。 */
   codePreview?: { field: string; inputFields: readonly string[] };
+  /** 小字典在引用字段旁原位新增并选中，复用通用资料及排序接口。 */
+  dictionary?: { title: string; sectionLabel?: string; hint: string; nameLabel: string; codeField: string; sortField?: string; referenceCountField: string };
   /** 公司内唯一的字段（重复返回 409）；phone 类型会先规范化 */
   uniqueField?: string;
   /** 组合唯一：这些字段值同时相同则拒绝 */

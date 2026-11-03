@@ -1245,6 +1245,22 @@ export class ResourcesService implements RuleHost {
 
   /** 同级排序整体提交；锁定本公司目录，同一事务更新，失败不会只保存一半。 */
   async reorderCategories(user: AuthUser, type: string, orderedIds: number[]) {
+    const dictionary = this.def(type).dictionary;
+    if (dictionary?.sortField) {
+      if (!createChecker(user.permissions)(resourcePermission(permissionOwner(type), 'edit'))) throw new ForbiddenException('没有修改权限');
+      const field = dictionary.sortField;
+      if (!orderedIds.every(id => Number.isSafeInteger(id) && id > 0) || orderedIds.length < 2 || new Set(orderedIds).size !== orderedIds.length) throw new BadRequestException('字典排序数据无效');
+      return this.dataSource.transaction(async em => {
+        const rows = await em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type AND r.archivedAt IS NULL AND r.status = :status', { companyId: user.companyId, type, status: 'active' }).orderBy('r.id', 'ASC').setLock('pessimistic_write').getMany();
+        const byId = new Map(rows.map(row => [row.id, row]));
+        if (rows.length !== orderedIds.length || orderedIds.some(id => !byId.has(id))) throw new BadRequestException('请提交完整有效的字典顺序');
+        let changed = 0;
+        for (const [index, id] of orderedIds.entries()) if (Number(byId.get(id)!.data[field]) !== (index + 1) * 10) {
+          await this.patchData(em, user, type, id, { [field]: (index + 1) * 10 }, '调整字典顺序'); changed++;
+        }
+        return { ok: true, changed };
+      });
+    }
     if (!['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories'].includes(type)) throw new BadRequestException('这类资料不支持分类排序');
     if (orderedIds.length < 2 || new Set(orderedIds).size !== orderedIds.length) throw new BadRequestException('请选择至少两个不重复的分类');
     return this.dataSource.transaction(async em => {
