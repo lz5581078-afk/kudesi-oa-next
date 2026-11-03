@@ -49,13 +49,14 @@ export function PayrollTab({
     );
     if(w)usedWages.add(w.id);
     return {
-      ...r,
+      ...r, dailyWorkId:null as number|null,dailyContent:null as string|null,
       wageCents: w?.amountCents ?? 0,
       minutes: commissionOnly ? r.liveMinutes ?? null : w?.minutes ?? 0,
       hourlyRateCents: w?.hourlyRateCents ?? 0,
       totalCents: r.amountCents + (w?.amountCents ?? 0),
     };
   });
+  for(const w of data?.wages?.rows??[])if(w.dailyWorkId)allRows.push({dailyContent:w.note,dailyWorkId:w.dailyWorkId,id:w.id,sessionId:0,userId:w.userId,userName:w.userName,role:w.role??role,roleLabel:role==='anchor'?'主播':'中控',date:w.date,roomName:w.roomName,startAt:w.startAt,endAt:w.endAt,douyinName:'',platform:'',finalSalesCents:0,adSpendCents:0,roiScaled:null,belowRoi:false,rateUnits:0,amountCents:0,ruleVersionId:0,wageCents:w.amountCents,minutes:w.minutes,hourlyRateCents:w.hourlyRateCents,totalCents:w.amountCents});
   const rows = allRows.filter((r) => !personId || String(r.userId) === personId);
   const people = [...new Map(allRows.map((r) => [r.userId, r.userName])).entries()];
   const summary = new Map<number, { name: string; count: number; minutes: number; wage: number; commission: number; unknownDurations: number }>();
@@ -63,7 +64,7 @@ export function PayrollTab({
   for (const r of rows) {
     const p = summary.get(r.userId) ?? { name: r.userName, count: 0, minutes: 0, wage: 0, commission: 0, unknownDurations: 0 };
     const key=`${r.userId}:${r.sessionId}`;
-    if(!countedSessions.has(key)){
+    if(!r.dailyWorkId&&!countedSessions.has(key)){
       p.count++;countedSessions.add(key);
       if(commissionOnly){p.minutes += r.minutes ?? 0;if(r.minutes==null)p.unknownDurations++;}
     }
@@ -96,7 +97,7 @@ export function PayrollTab({
         ...rows.map((r) => [
           r.date,
           r.roomName,
-          LIVE_PLATFORMS[r.platform??'']??'历史场次',
+          r.dailyWorkId?'日常工作':LIVE_PLATFORMS[r.platform??'']??'历史场次',
           r.userName,
           r.roleLabel,
           r.minutes == null ? '' : String(r.minutes),
@@ -105,7 +106,7 @@ export function PayrollTab({
           ratePct(r.rateUnits),
           yuanText(r.amountCents),
           ...(!commissionOnly ? [yuanText(r.totalCents)] : []),
-          String(r.sessionId),
+          r.dailyWorkId?`日常工作#${r.dailyWorkId}`:String(r.sessionId),
           r.startAt,
           r.endAt ?? '',
           productText(r.products),
@@ -236,7 +237,7 @@ export function PayrollTab({
                 <tr key={r.id}>
                   <td className="live-payroll-session">
                     <span className="live-payroll-date">{r.date} <strong>{hm(r.startAt,r.date)}–{r.endAt?hm(r.endAt,r.date):'下播时间未记录'}</strong></span>
-                    <span>{r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'} · <small>产品：{productText(r.products)}</small></span>
+                    {r.dailyWorkId?<span>{r.roomName}<small> · {r.dailyContent}</small></span>:<span>{r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'} · <small>产品：{productText(r.products)}</small></span>}
                   </td>
                   <td>{r.userName}</td>
                   <td>
@@ -254,8 +255,8 @@ export function PayrollTab({
                     <strong>{money(r.totalCents)}</strong>
                   </td>}
                   <td>
-                    <button className="link-button" onClick={() => onOpen(r.sessionId)}>
-                      场次详情
+                    <button className="link-button" disabled={!!r.dailyWorkId} onClick={() => onOpen(r.sessionId)}>
+                      {r.dailyWorkId?'日常工作':'场次详情'}
                     </button>
                   </td>
                 </tr>

@@ -8,6 +8,7 @@ import { LiveDeskPage } from './LiveDeskPage';
 import { LiveManagePage } from './LiveManagePage';
 
 vi.mock('./LiveCheckinPanel',()=>({LiveCheckinPanel:()=>null}));
+vi.mock('./DailyWorkPanel',()=>({DailyWorkPanel:()=>null,DailyOfficeCard:()=>null}));
 vi.mock('./liveApi', () => ({ liveApi: {
   checkinContext:vi.fn(),checkoutFeedback:vi.fn(),feedbackImageUrl:vi.fn(),uploadFeedbackImage:vi.fn(),checkoutPreview:vi.fn(),turnover: vi.fn(), options: vi.fn(), products: vi.fn(), overview: vi.fn(), roomDay: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), cancelSchedule: vi.fn(), start: vi.fn(), sessions: vi.fn(), session: vi.fn(),
   candidates: vi.fn(), report: vi.fn(), submit: vi.fn(), reviewPreview: vi.fn(), workbench: vi.fn(), history: vi.fn(), commissions: vi.fn(), wages: vi.fn(), people: vi.fn(), rules: vi.fn(), createRule: vi.fn(), trial: vi.fn(),
@@ -149,7 +150,7 @@ describe('直播管理', () => {
     wrap(<LiveManagePage />);
     expect(await screen.findByText('还没有直播间')).toBeTruthy();
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['全览', '排场', '场次记录', '待审核', '主播工资', '中控工资', '运营提成', '提成规则']);
+    expect(tabs).toEqual(['全览', '排场', '日常工作', '场次记录', '待审核', '主播工资', '中控工资', '运营提成', '提成规则']);
     cleanup();
     allow = ['features.live.view', 'live.commissions.view'];
     wrap(<LiveManagePage />);

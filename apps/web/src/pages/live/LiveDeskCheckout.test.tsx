@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveDeskPage } from './LiveDeskPage';
 import { liveApi, type Workbench } from './liveApi';
 
+// 日常工作独立组件有专门回归，本组只验证直播下播同步。
+vi.mock('./DailyWorkPanel',()=>({DailyWorkPanel:()=>null}));
 vi.mock('./LiveCheckinPanel', () => ({ LiveCheckinPanel: ({ onChanged }: { onChanged?: () => void }) => <button onClick={onChanged}>模拟下播成功</button> }));
 vi.mock('./liveApi', () => ({ liveApi: { workbench: vi.fn() } }));
 vi.mock('./liveUi', async original => ({ ...await original<typeof import('./liveUi')>(), SourceStatusNotice: () => null }));

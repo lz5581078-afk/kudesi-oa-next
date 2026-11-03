@@ -1,3 +1,4 @@
+import { DailyWorkPanel } from './DailyWorkPanel';
 import { LiveCheckinPanel } from './LiveCheckinPanel';
 import { useSearchParams } from 'react-router-dom';
 import { LIVE_PLATFORMS } from '@kudesi/shared';
@@ -44,6 +45,7 @@ export function LiveDeskPage() {
     if (channel) channel.onmessage = refresh;
     return () => { clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); channel?.close(); };
   }, [load]);
+  if(params.get('daily')==='1')return <div className="live-page"><DailyWorkPanel personal date={params.get('date')??undefined} token={params.get('token')??undefined} company={params.get('company')??undefined}/></div>;
   if(scanned)return <div className="live-page live-scan-page"><LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined} onChanged={load}/></div>;
   const canStart = !!d && (!d.identity.isOperations && (d.identity.isAnchor || d.identity.isControl));
   return (
@@ -60,6 +62,7 @@ export function LiveDeskPage() {
         <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'chip active' : 'chip'} onClick={() => setTab('history')}>我的场次历史</button>
       </div>
       <LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined} onChanged={load}/>
+      <DailyWorkPanel personal/>
       <SourceStatusNotice />
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
       {tab === 'history' ? <HistoryPanel onOpen={setOpenId} /> : !d && !error ? <p className="muted" role="status">正在读取…</p> : d && (

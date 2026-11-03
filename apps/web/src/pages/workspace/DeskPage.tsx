@@ -1,3 +1,4 @@
+import { DailyWorkPanel } from '../live/DailyWorkPanel';
 import { LiveCheckinPanel } from '../live/LiveCheckinPanel';
 import { PersonalLiveIncome } from './PersonalLiveIncome';
 import { useEffect, useMemo, useState } from 'react';
@@ -45,7 +46,7 @@ export function DeskPage() {
     cards: desk.cards,
     pending: desk.pending,
     blank: current.workspaceType === 'blank',
-    top: refreshKey=><>{current.assigned && ['live_anchor','live_control','operations'].includes(current.workspaceType) && <><PersonalLiveIncome refreshKey={refreshKey}/><LiveCheckinPanel workspaceType={current.workspaceType as 'live_anchor'|'live_control'|'operations'}/></>}{current.workspaceType==='operations'&&can('resource.store-daily-metrics.view')&&<DailyBusinessPanel/>}</>,
+    top: refreshKey=><>{current.assigned && ['live_anchor','live_control','operations'].includes(current.workspaceType) && <><PersonalLiveIncome refreshKey={refreshKey}/>{['live_anchor','live_control'].includes(current.workspaceType)&&<DailyWorkPanel personal/>}<LiveCheckinPanel workspaceType={current.workspaceType as 'live_anchor'|'live_control'|'operations'}/></>}{current.workspaceType==='operations'&&can('resource.store-daily-metrics.view')&&<DailyBusinessPanel/>}</>,
   } : null;
   return (
     <div>
