@@ -6,7 +6,7 @@
  * 详情页、新增表单、编辑表单都读这一份，所以三处的分区、顺序、显示条件不会各写各的。
  */
 import { FINANCE_RESOURCE_DEFS } from './finance-resources';
-import type { FieldDef } from './resources';
+import { resolveFieldDef, type FieldDef } from './resources';
 
 export type ProductLayoutKey = 'raw' | 'self_made' | 'purchased_original' | 'purchased_oem' | 'package' | 'oem_package' | 'shipping_material' | 'custom';
 
@@ -300,7 +300,8 @@ export function productFormProblems(values: Record<string, unknown>, ctx: Produc
   req('name');
   for (const k of ['brandId', 'packagingCategory', 'productPackagingSpec', 'productPackagingUnit', 'purchaseSpec']) req(k);
   if (t !== 'self_made' && !['package', 'oem_package'].includes(t)) {
-    if (!(Number(values.specQty) > 0)) out.specQty = `${meta('specQty').label}必须大于 0`;
+    if (resolveFieldDef(productFieldDef('specQty')!, values).type === 'text') req('specQty');
+    else if (!(Number(values.specQty) > 0)) out.specQty = `${meta('specQty').label}必须大于 0`;
     req('specUnit');
   }
   if (['package', 'oem_package'].includes(t)) {
@@ -371,7 +372,7 @@ export function resolveProductSections(values: Record<string, unknown>, opts: { 
       if (!def || !applies(def)) continue;
       if (i.whenFilled && !present(values[i.field])) continue;
       const help = i.help !== undefined ? (i.help || undefined) : def.help;
-      nodes.push({ kind: 'field', wide: i.wide, field: { ...def, group: s.title, label: i.label ?? def.label, required: i.required ?? def.required, help } });
+      nodes.push({ kind: 'field', wide: i.wide, field: { ...resolveFieldDef(def, values), group: s.title, label: i.label ?? def.label, required: i.required ?? def.required, help } });
     }
     if (nodes.length) out.push({ id: s.id, title: s.title, hint: s.hint, step: s.step, nodes });
   }

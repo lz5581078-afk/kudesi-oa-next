@@ -56,7 +56,7 @@ export function basicInfoFullName(data: Data, brandName: string, units?: UnitLis
   const optLabel = (key: string, value: unknown) => (units ? unitLabel(units, optionsKindOf(PRODUCT_DEF.fields.find((f) => f.key === key)!, data) ?? '', value) || optLabelStatic(key, value) : optLabelStatic(key, value));
   const type = str(data.archiveType);
   const name = str(data.name);
-  const qty = typeof data.specQty === 'number' ? String(data.specQty) : '';
+  const qty = str(data.specQty).trim();
   const unit = optLabel('specUnit', data.specUnit);
   if (type === 'package' || type === 'oem_package') {
     const caps = str(data.capacities).split(/\r?\n/).map((x) => x.trim()).filter(Boolean);

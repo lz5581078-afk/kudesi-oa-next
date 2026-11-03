@@ -52,3 +52,14 @@
 
 .reference-source.is-latest{border-left:3px solid #18886b;background:#f5faf8}
 .reference-source>header{margin:-14px -14px 14px;padding:10px 14px;border-bottom:1px solid #dce5ed}
+
+/* 对照物料窗口：备注独占一行；页脚给较长的继续新增操作保留宽度。 */
+.modal.rf.rf-reference .reference-note .rf-label{flex-direction:row;align-items:center;justify-content:flex-start}
+.modal.rf.rf-reference.reference-shipping_material .reference-section-gift>.form-grid{padding:0;border:0;border-radius:0;background:transparent}
+.modal.rf.rf-reference.reference-shipping_material .reference-note+.reference-full-name{margin-top:20px}
+.modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-save{flex:1}
+.modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-keep{flex:1.5;white-space:nowrap}
+.modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-next{flex:1.1;white-space:nowrap}
+@media(max-width:650px){.modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-keep,.modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-next{white-space:normal}}
+.modal.rf.rf-reference.reference-shipping_material .reference-section-gift{padding:0 0 20px;border:0;border-bottom:1px solid #e5eaf0;border-radius:0;background:transparent}
+.modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-save{border:1px solid #cfd9e5}

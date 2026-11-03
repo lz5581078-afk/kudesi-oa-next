@@ -30,7 +30,7 @@ import {
   resourcePermission,
   readOnlyFieldKeys,
   restrictedFieldKeys,
-  validateResourceInput,
+  validateResourceInput, resolveFieldDef,
   resourceTabCondition,
   validateStatusChange,
   normalizePhoneImportText,
@@ -1943,7 +1943,8 @@ export class ResourcesService implements RuleHost {
       status = def.statuses.find((s) => s.label === statusText || s.value === statusText)?.value;
       if (!status) errors.push(`状态“${statusText}”不认识`);
     }
-    for (const f of def.fields) {
+    for (const sourceField of def.fields) {
+      const f = resolveFieldDef(sourceField, input);
       if ((f.type === 'secret' && !f.importable) || f.type === 'files' || f.type === 'attrs' || f.readonly) continue; // 密码、文件、系统计算的字段不走导入（资质的平台登录密码除外）
       let raw = (row[f.label] ?? (f.aliases ?? []).map((a) => row[a]).find((v) => v !== undefined) ?? '').trim();
       // Excel 弄坏的手机号（="138…"、138….0、科学计数法）先还原

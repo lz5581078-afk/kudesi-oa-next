@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { validateResourceInput } from './resources';
 import { FINANCE_RESOURCE_DEFS } from './finance-resources';
-import { BLOCK_FIELDS, PRODUCT_LAYOUTS, isBlock, layoutFieldKeys, layoutFieldMeta, productFieldDef, productFormProblems, productLayoutKey, type ProductLayoutKey } from './product-layout';
+import { BLOCK_FIELDS, PRODUCT_LAYOUTS, isBlock, layoutFieldKeys, layoutFieldMeta, productFieldDef, productFormProblems, productLayoutKey, type ProductLayoutKey, resolveProductSections } from './product-layout';
 
 const def = FINANCE_RESOURCE_DEFS.find((d) => d.key === 'finance-products')!;
 const SAMPLE: Record<ProductLayoutKey, Record<string, unknown>> = {
@@ -168,5 +169,20 @@ describe('resolveProductSections（表单和详情共用的解析）', () => {
     expect(none).not.toContain('freight');
     expect(none).not.toContain('shape');
     expect(flat({ archiveType: 'purchased', supplyMode: 'original_purchase', shape: '盒' }, () => true)).toContain('shape');
+  });
+});
+
+
+describe('名称规格保留文字', () => {
+  it.each(['shipping_material', 'purchased', 'self_made'])('%s 的规格输入允许尺寸描述且不按正数校验', (archiveType) => {
+    const values = { archiveType, supplyMode: 'original_purchase', specQty: '25*33+4', specUnit: 'EA', categoryId: 1, name: '文字规格' };
+    expect(resolveProductSections(values).flatMap(s => s.nodes).find(n => n.kind === 'field' && n.field.key === 'specQty')).toMatchObject({ field: { type: 'text' } });
+    expect(productFormProblems(values, { canCost: false, sources: [] }).specQty).toBeUndefined();
+    expect(validateResourceInput(def, { specQty: '25*33+4' }, { status: 'active', existing: values })).toMatchObject({ errors: [], values: { specQty: '25*33+4' } });
+  });
+  it('原料仍拒绝文字规格，数字字符串仍规范化成数字', () => {
+    const existing = { archiveType: 'raw', categoryId: 1, name: '原料' };
+    expect(validateResourceInput(def, { specQty: '25*33+4' }, { status: 'active', existing }).errors.join()).toContain('非负数');
+    expect(validateResourceInput(def, { specQty: '2.5' }, { status: 'active', existing }).values.specQty).toBe(2.5);
   });
 });

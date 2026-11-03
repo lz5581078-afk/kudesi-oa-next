@@ -44,6 +44,8 @@ export interface FieldDef {
   key: string;
   label: string;
   type: FieldType;
+  /** 同一字段随档案类型改变输入方式，表单、服务端和导入共用。 */
+  typeBy?: { field: string; map: Record<string, FieldType> };
   group: string;
   required?: boolean;
   options?: readonly Option[];
@@ -93,6 +95,12 @@ export interface FieldDef {
   importable?: boolean;
   /** text/sensitive：格式校验（正则源码 + 不通过时的提示） */
   pattern?: { source: string; message: string };
+}
+
+/** 按记录上下文解析字段，避免表单允许的文字在保存或导入时被转成数字。 */
+export function resolveFieldDef(field: FieldDef, values: Record<string, unknown>): FieldDef {
+  const type = field.typeBy?.map[String(values[field.typeBy.field] ?? '')];
+  return type ? { ...field, type } : field;
 }
 
 export interface StatusDef extends Option {
@@ -1530,7 +1538,8 @@ export function validateResourceInput(
   const errors: string[] = [];
   const merged: Record<string, unknown> = { ...(context.existing ?? {}), ...input, status: context.status };
 
-  for (const field of def.fields) {
+  for (const sourceField of def.fields) {
+    const field = resolveFieldDef(sourceField, merged);
     if (field.readonly) continue; // 由系统计算，提交的值一律忽略
     if (!isShown(field, merged)) {
       values[field.key] = null;

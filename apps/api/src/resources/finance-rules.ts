@@ -1,5 +1,5 @@
 import { archiveCodePrefix, beforeArchivePrefix } from './archive-prefix';
-import { systemWeightG, sourcePriceTime } from '@kudesi/shared';
+import { systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { pinyin } from 'pinyin-pro';
@@ -45,6 +45,20 @@ export function initials(text: string): string {
     else if (/[一-龥]/.test(ch)) out.push(pinyin(ch, { pattern: 'first', toneType: 'none' }).toUpperCase());
   }
   return out.join('');
+}
+
+/** 名称规格可为文字；只有纯数字规格才参与数量/重量换算。 */
+function numericSpecification(value: unknown): number | null {
+  if (typeof value === 'number') return num(value);
+  if (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value.trim())) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** 数字沿用既有编码；文字规格取拼音/字母数字，尺寸连接符不进入编码。 */
+function specificationCode(value: unknown): string {
+  const qty = numericSpecification(value);
+  return qty !== null ? dstr(qty) : initials(str(value));
 }
 
 const rec = (em: EntityManager, companyId: number, type: string, id: unknown) =>
@@ -167,8 +181,8 @@ async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[]): Pro
   }
   const ini = initials(str(data.name));
   if (ini) parts.push(ini);
-  const qty = num(data.specQty);
-  if (qty !== null) parts.push(`${dstr(qty)}${str(data.specUnit)}`);
+  const spec = specificationCode(data.specQty);
+  if (spec) parts.push(`${spec}${str(data.specUnit)}`);
   if (!['raw', 'self_made', 'purchased', 'package'].includes(type) && data.shape) {
     const sh = initials(str(data.shape));
     if (sh) parts.push(sh);
@@ -203,9 +217,13 @@ async function beforeProduct(ctx: BeforeSaveContext) {
     const m = first.match(/^(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/);
     if (m && UNIT_OPTIONS.some((u) => u.value === m[2].toUpperCase())) { data.specQty = Number(m[1]); data.specUnit = m[2].toUpperCase(); }
   }
-  if ((type === 'package' || type === 'oem_package') && !((num(data.specQty) ?? 0) > 0) && !(ctx.existing && ctx.status !== ctx.existing.status)) throw new BadRequestException('容量第一行请写成“数量+单位”，如 500ML、1KG');
-  if (type === 'self_made' && num(data.specQty) === null) { delete data.specQty; delete data.specUnit; }
-  else if (!((num(data.specQty) ?? 0) > 0)) throw new BadRequestException('规格数量必须大于 0');
+  if ((type === 'package' || type === 'oem_package') && !((numericSpecification(data.specQty) ?? 0) > 0) && !(ctx.existing && ctx.status !== ctx.existing.status)) throw new BadRequestException('容量第一行请写成“数量+单位”，如 500ML、1KG');
+  if (['self_made', 'purchased', 'shipping_material'].includes(type)) {
+    if (!str(data.specQty).trim()) {
+      if (type !== 'self_made') throw new BadRequestException('请填写规格');
+      delete data.specQty;
+    }
+  } else if (!((numericSpecification(data.specQty) ?? 0) > 0)) throw new BadRequestException('规格数量必须大于 0');
 
   const statusChanging = !!existing && existing.status !== ctx.status;
   const canEditCost = createChecker(user.permissions)('product.cost.edit');
@@ -219,7 +237,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   // 容量是装多少商品，不能当作包装自重；发货物料也直接称重。
   const directWeight = ['package', 'oem_package', 'shipping_material'].includes(type);
   const manual = directWeight || data.weightManual === true;
-  if (!['raw', 'self_made', 'purchased', 'package', 'oem_package'].includes(type)) delete data.purchaseSpec;
+  if (!['raw', 'self_made', 'purchased', 'package', 'oem_package', 'shipping_material'].includes(type)) delete data.purchaseSpec;
   if (!['package', 'oem_package', 'shipping_material'].includes(type)) delete data.weightUnit;
   if (type !== 'self_made') delete data.productPackagingSpec;
   if (type === 'raw') {
@@ -230,9 +248,15 @@ async function beforeProduct(ctx: BeforeSaveContext) {
       if (auto !== null) data.weightG = auto;
       else if (spec && !statusChanging) throw new BadRequestException('系统规格换算不出重量；请勾选“人工修正重量”并填写重量（克）');
     }
+  } else if (type === 'purchased' && !manual) {
+    const weight = specificationWeightG(data.specQty, data.specUnit);
+    if (data.supplyMode === 'supplier_oem') data.weightG = Math.round(((weight ?? 0) + (num(data.oemPackageWeightG) ?? 0)) * 1e6) / 1e6;
+    else if (weight === null) delete data.weightG;
+    else data.weightG = weight;
   } else if (type !== 'self_made' && !manual) {
     const f = UNIT_G[str(data.specUnit)];
-    if (f !== undefined) data.weightG = Math.round((num(data.specQty) ?? 0) * f * 100) / 100;
+    const qty = numericSpecification(data.specQty);
+    if (f !== undefined && qty !== null) data.weightG = Math.round(qty * f * 100) / 100;
   }
   if (type === 'raw' || manual) {
     const w = num(data.weightG);
@@ -477,7 +501,8 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     // 多构成编码用自己选的分类、品牌、规格；其余取来源商品档案
     let srcCategoryId = Number(product.data.categoryId);
     let srcBrandId: unknown = product.data.brandId;
-    let srcQty = num(product.data.specQty);
+    let srcQty = numericSpecification(product.data.specQty);
+    let specCode = specificationCode(product.data.specQty);
     let srcUnit = str(product.data.specUnit);
     if (composed) {
       const cat = await rec(em, user.companyId, 'finance-categories', data.codeCategoryId);
@@ -487,6 +512,7 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
       srcCategoryId = cat.id; srcBrandId = data.codeBrandId; srcQty = num(data.codeSpecQty); srcUnit = str(data.codeSpecUnit);
       if (srcQty === null || !(srcQty > 0)) throw new BadRequestException('编码规格数量必须大于 0');
       if (!srcUnit) throw new BadRequestException('请选择编码规格单位');
+      specCode = dstr(srcQty);
     }
     const chain = await categoryChain(em, user.companyId, srcCategoryId);
     const brand = !composed && product.data.archiveType === 'raw' ? '' : await brandCode(em, user.companyId, srcBrandId);
@@ -494,7 +520,7 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     const chainCodes = chain.map((c) => str(c.data.code)).filter((c, i, a) => c && c !== a[i - 1]);
     const generatedStyle = [...chainCodes, brand, initials(variety)].filter(Boolean).join('-');
     const qty = srcQty;
-    const suffix = qty !== null ? `-${dstr(qty)}${srcUnit}` : '';
+    const suffix = specCode ? `-${specCode}${srcUnit}` : '';
     // 旧版把分类码、品牌码、首字母连在一起；碰到旧格式的已存编码，当作自动生成的重新生成
     const legacyStyle = `${chain.map((c) => str(c.data.code)).join('')}${brand}${initials(composed ? variety : str(product.data.name))}`;
     const legacyCode = legacyStyle + suffix;
@@ -517,7 +543,7 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
       if (!keepStyle) delete data.codeChangeReason;
     }
     data.varietyName = str(data.varietyName).trim() || undefined;
-    if (!str(data.spec).trim() && qty !== null) data.spec = `${dstr(qty).replace('D', '.')}${srcUnit}`;
+    if (!str(data.spec).trim() && specCode) data.spec = `${composed ? str(qty) : str(product.data.specQty)}${srcUnit}`;
   }
 
   // 名称、简称、颜色及规格、编码被人手改过：之后商品档案变化不再覆盖它们，也不再算可被取代的占位（旧系统 profile_manual_override）
@@ -1042,7 +1068,7 @@ async function syncAliases(host: RuleHost, em: EntityManager, user: AuthUser, pr
   if (!real) return;
   const names = p.data.archiveType === 'raw' ? rawNames(p.data.rawFinishedNames) : [];
   const have = new Map((await host.findWhere(em, user.companyId, 'finance-base-codes', 'canonicalId', real.id)).map((a) => [str(a.data.aliasKey), a]));
-  const qty = num(p.data.specQty);
+  const qty = numericSpecification(p.data.specQty);
   const keep = new Set<string>();
   for (const n of names) {
     const code = aliasCode(user.companyId, productId, n);
@@ -1107,8 +1133,8 @@ async function syncProductBaseCode(host: RuleHost, em: EntityManager, user: Auth
       const chain = await categoryChain(em, user.companyId, Number(p.data.categoryId));
       const brand = p.data.archiveType === 'raw' ? '' : await brandCode(em, user.companyId, p.data.brandId);
       const style = [...chain.map((c) => str(c.data.code)).filter((c, i, a) => c && c !== a[i - 1]), brand, initials(str(p.data.name))].filter(Boolean).join('-');
-      const qty = num(p.data.specQty);
-      const base = style + (qty !== null ? `-${dstr(qty)}${str(p.data.specUnit)}` : '');
+      const spec = specificationCode(p.data.specQty);
+      const base = style + (spec ? `-${spec}${str(p.data.specUnit)}` : '');
       for (let i = 2; i < 50; i++) {
         const code = `${base}-${i}`;
         if (await host.findByUnique(em, user.companyId, 'finance-base-codes', code.toLowerCase())) continue;
@@ -1171,7 +1197,7 @@ export async function recomputeProduct(host: RuleHost, em: EntityManager, user: 
     let weightG = p.data.weightG;
     if (p.data.weightManual !== true) {
       if (isOem) {
-        const base = (UNIT_G[str(p.data.specUnit)] ?? 0) * (num(p.data.specQty) ?? 0);
+        const base = specificationWeightG(p.data.specQty, p.data.specUnit) ?? 0;
         weightG = Math.round((base + (num(p.data.oemPackageWeightG) ?? 0) + weight) * 1e6) / 1e6;
       } else if (boms.length) weightG = Math.round(weight * 1e6) / 1e6;
     }
@@ -1241,7 +1267,7 @@ async function namingItem(em: EntityManager, companyId: number, bc: ResourceReco
   const unitCode = str(p?.data.specUnit);
   const archiveType = str(p?.data.archiveType);
   const isAlias = typeof bc.data.canonicalId === 'number';
-  const amount = num(p?.data.specQty) ?? 0;
+  const amount = numericSpecification(p?.data.specQty) ?? 0;
   const supplyMode = p?.data.supplyMode === 'supplier_oem' ? '供应商OEM' : p?.data.supplyMode === 'original_purchase' ? '原装采购' : '';
   const packageType = str(p?.data.purchaseSpec);
   const identityParts = [p?.data.categoryId, archiveType, p?.data.name, p?.data.brandId, str(p?.data.supplyMode) || archiveType, p?.data.purchaseSpec, unitCode].map((x) => str(x).trim());

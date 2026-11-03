@@ -38,7 +38,7 @@ export interface ArchiveSnap {
   purchasePrice: number | null;
   freight: number | null;
   handlingFee: number | null;
-  specQty: number | null;
+  specQty: number | string | null;
   specUnit: string;
   /** 从谁引用到它：自上而下的档案名 */
   parentPath: string[];
@@ -104,7 +104,7 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
       key: `product:${p.id}`, productId: p.id, name: p.title, code: str(d.code), archiveType: str(d.archiveType),
       categoryId: num(d.categoryId), categoryName: cat.map((c) => c.title).join('/'), brandName: brand?.title ?? '',
       weightG: num(d.weightG), totalCost: num(d.totalCost), purchasePrice: num(d.purchasePrice), freight: num(d.freight), handlingFee: num(d.handlingFee),
-      specQty: num(d.specQty), specUnit: str(d.specUnit), parentPath: path,
+      specQty: typeof d.specQty === 'string' && d.specQty.trim() ? (Number.isFinite(Number(d.specQty)) ? Number(d.specQty) : d.specQty.trim()) : num(d.specQty), specUnit: str(d.specUnit), parentPath: path,
       bom: boms.map((b) => `${b.data.laborId ? `L${b.data.laborId}` : `P${b.data.componentId}`}x${b.data.qty}+${b.data.lossPercent ?? 0}`).join(';'),
     };
     archives.push(a);
@@ -215,7 +215,7 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
   const w = composed ? facts!.weightG : num(p?.data.weightG) ?? num(bc.data.weightG);
   const cost = composed ? facts!.cost : num(p?.data.totalCost) ?? num(bc.data.cost);
   const buy = composed ? facts!.purchasePrice ?? cost : num(p?.data.purchasePrice) ?? cost;
-  const qty = composed ? num(bc.data.codeSpecQty) : num(p?.data.specQty);
+  const qty = composed ? num(bc.data.codeSpecQty) : p?.data.specQty == null ? null : str(p.data.specQty).trim() || null;
   const unit = composed ? str(bc.data.codeSpecUnit) : str(p?.data.specUnit);
   return {
     sku_id: str(bc.data.code),
