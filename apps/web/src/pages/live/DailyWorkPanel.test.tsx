@@ -57,9 +57,23 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+it('办公室管理集中展示统计、日期和排班入口，空状态可直接创建排班',async()=>{
+  vi.spyOn(dailyWorkApi,'options').mockResolvedValue([]);
+  render(<DailyOfficeCard date="2026-11-03"/>);
+  fireEvent.click(screen.getByRole('button',{name:'查看 / 排班日常工作'}));
+  const dialog=screen.getByRole('dialog',{name:'直播办公室'});
+  await within(dialog).findByText('当天暂无日常工作排班');
+  expect(within(dialog).getAllByRole('heading',{level:2})).toHaveLength(1);
+  expect((within(dialog).getByLabelText('日常工作日期') as HTMLInputElement).value).toBe('2026-11-03');
+  fireEvent.change(within(dialog).getByLabelText('日常工作日期'),{target:{value:'2026-11-04'}});
+  await waitFor(()=>expect(dailyWorkApi.list).toHaveBeenCalledWith('2026-11-04'));
+  await within(dialog).findByText('当天暂无日常工作排班');
+  fireEvent.click(within(dialog).getByRole('button',{name:'创建第一条排班'}));
+  expect(screen.getByRole('dialog',{name:'新增日常工作排班'})).toBeTruthy();
+});
 it('无排班或不在排班时间内，开始按钮禁用', async () => {
   const v = render(<DailyWorkPanel personal date="2026-11-03" />);
-  await screen.findByText('当天没有日常工作排班。');
+  await screen.findByText('当天暂无日常工作排班');
   expect(
     (screen.getByRole('button', { name: '开始日常工作' }) as HTMLButtonElement)
       .disabled,
@@ -169,6 +183,6 @@ it('扫码日常工作保留入口标识并向服务端验证企业和二维码'
   render(
     <DailyWorkPanel personal date="2026-11-03" token={token} company="8" />,
   );
-  await screen.findByText('当天没有日常工作排班。');
+  await screen.findByText('当天暂无日常工作排班');
   expect(dailyWorkApi.mine).toHaveBeenCalledWith('2026-11-03', token, '8');
 });
