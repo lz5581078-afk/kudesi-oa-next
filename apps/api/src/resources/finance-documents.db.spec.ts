@@ -215,9 +215,10 @@ d('财务单据（真实数据库）', () => {
   });
 
   it('费用单挂账、经营历程：财务审核后不能冲和改；改表头；复制为草稿；批量过账/删除', async () => {
-    // 现金费用单（不选往来对象）没付清要被拦住；费用单选了供应商可以挂应付
+    // 旧版允许先开立自由单位费用单；真正过账挂应付仍必须关联档案。
     const cash = await docs.createDraft(boss, { type: 'expense', date: day, bankAccountId: ids.bank, paidCents: 100, lines: [{ feeItemId: ids.feeOut, qty: 1, unitPriceCents: 300 }] });
-    await expect(docs.issue(boss, cash.id)).rejects.toThrow(/挂账|付清/);
+    expect((await docs.issue(boss, cash.id)).status).toBe('issued');
+    await expect(docs.post(boss, cash.id)).rejects.toThrow(/挂账|付清/);
     const credit = await docs.post(boss, (await docs.createDraft(boss, { type: 'expense', date: day, partyId: ids.supp, partyKind: 'supplier', bankAccountId: ids.bank, paidCents: 100, lines: [{ feeItemId: ids.feeOut, qty: 1, unitPriceCents: 300 }] })).id);
     expect(await sum(boss.companyId, credit.id)).toBe(0);
     expect(credit.entries.some((e) => e.kind === 'payable' && e.amountCents === -200)).toBe(true);

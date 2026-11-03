@@ -162,13 +162,13 @@ export function CashBankPage() {
                     { key: 'out', head: '支出', num: true, cell: (l) => (l.amountCents < 0 ? money(-l.amountCents) : '') },
                     { key: 'b', head: '结存', num: true, cell: (l) => money(l.balanceCents) },
                     { key: 'h', head: '经办人', cell: (l) => l.handler ?? '' },
-                    { key: 'm', head: '备注', cell: (l) => l.memo ?? '' },
+                    { key: 'm', head: '摘要 / 备注', cell: (l) => [l.summary, l.memo].filter(Boolean).join(' / ') },
                   ]} />
                 {ledger && <div className="qk-foot-actions"><ExportButton name={`${sel.title}-明细账本.csv`} rows={ledger.rows} label="导出账本" cols={[
                   { key: 'd', head: '日期', cell: () => null, csv: (l) => l.entryDate }, { key: 'no', head: '单号', cell: () => null, csv: (l) => l.docNo }, { key: 't', head: '类型', cell: () => null, csv: (l) => l.typeLabel },
                   { key: 'p', head: '往来对象', cell: () => null, csv: (l) => l.partyName }, { key: 'in', head: '收入', cell: () => null, csv: (l) => (l.amountCents > 0 ? plainYuan(l.amountCents) : '') },
                   { key: 'out', head: '支出', cell: () => null, csv: (l) => (l.amountCents < 0 ? plainYuan(-l.amountCents) : '') }, { key: 'b', head: '结存', cell: () => null, csv: (l) => plainYuan(l.balanceCents) },
-                  { key: 'h', head: '经办人', cell: () => null, csv: (l) => l.handler }, { key: 'm', head: '备注', cell: () => null, csv: (l) => l.memo },
+                  { key: 'h', head: '经办人', cell: () => null, csv: (l) => l.handler }, { key: 'm', head: '摘要 / 备注', cell: () => null, csv: (l) => [l.summary, l.memo].filter(Boolean).join(' / ') },
                 ]} /></div>}
               </QueryPanel>
             </div>

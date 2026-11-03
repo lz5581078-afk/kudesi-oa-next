@@ -183,6 +183,56 @@ describe('费用单与退货单的旧版结算方式', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({ lines: [expect.objectContaining({ feeItemId: 7, qty: 1, unitPriceCents: 1234 })] })));
   });
+  it('费用单相关单位自由填写，摘要和备注独立；欠款可先开立，继续新增会清空文字', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fa.issue.mockResolvedValue({ id: 1, docNo: 'FY1' } as never);
+    try {
+      render(<DocForm type="expense" inline onSaved={vi.fn()} />);
+      expect(screen.getByLabelText('相关单位').tagName).toBe('INPUT');
+      expect(screen.queryByLabelText('单据编号')).toBeNull();
+      expect(screen.queryByLabelText('归属部门')).toBeNull();
+      fireEvent.change(screen.getByLabelText('相关单位'), { target: { value: '合成临时司机' } });
+      fireEvent.change(screen.getByLabelText('单据摘要'), { target: { value: '合成运输摘要' } });
+      fireEvent.change(screen.getByLabelText('备注'), { target: { value: '合成单据备注' } });
+      fireEvent.click(screen.getByLabelText('第1行费用项目'));
+      fireEvent.click(await screen.findByRole('option', { name: '老客户' }));
+      fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '18.00' } });
+      fireEvent.click(screen.getByRole('button', { name: '欠款' }));
+      fireEvent.click(screen.getByRole('button', { name: '保存并开立' }));
+      await waitFor(() => expect(fa.issue).toHaveBeenCalledWith(1));
+      expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({ partyId: null, counterpartyName: '合成临时司机', summary: '合成运输摘要', memo: '合成单据备注', paidCents: 0, settlementMode: 'credit' }));
+      await waitFor(() => expect((screen.getByLabelText('相关单位') as HTMLInputElement).value).toBe(''));
+      expect((screen.getByLabelText('单据摘要') as HTMLInputElement).value).toBe('');
+      expect((screen.getByLabelText('备注') as HTMLTextAreaElement).value).toBe('');
+    } finally { confirm.mockRestore(); }
+  });
+  it('费用草稿分别恢复自由单位、挂账对象和摘要，重存不把自由文字当成档案名称', async () => {
+    const doc = { id: 12, docNo: 'FY12', docType: 'expense', status: 'draft', docDate: '2026-10-24', counterpartyName: '合成临时司机', partyName: '合成临时司机', partyId: 7, linkedPartyName: '合成结算供应商', partyKind: 'supplier', summary: '合成摘要', memo: '合成备注', amountCents: 2468, paidCents: 100, settlementMode: 'part', accounts: [], lines: [{ feeItemId: 7, feeItemName: '运输费', qty: 1, unitPriceCents: 2468 }], events: [], entries: [] } as unknown as DocDetailDto;
+    fa.update.mockResolvedValue(doc);
+    render(<DocForm type="expense" doc={doc} inline onSaved={vi.fn()} />);
+    expect((screen.getByLabelText('相关单位') as HTMLInputElement).value).toBe('合成临时司机');
+    expect(screen.getByLabelText('挂账往来档案').textContent).toContain('合成结算供应商');
+    expect((screen.getByLabelText('单据摘要') as HTMLInputElement).value).toBe('合成摘要');
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.update).toHaveBeenCalledWith(12, expect.objectContaining({ partyId: 7, counterpartyName: '合成临时司机', summary: '合成摘要', memo: '合成备注' })));
+  });
+  it('费用打印分别包含相关单位、摘要和备注，自由文字转义后输出', () => {
+    const write = vi.fn(), fake = { document: { write, close: vi.fn() }, focus: vi.fn(), print: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(fake as unknown as Window);
+    try {
+      render(<DocForm type="expense" inline onSaved={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText('相关单位'), { target: { value: '合成司机<script>' } });
+      fireEvent.change(screen.getByLabelText('单据摘要'), { target: { value: '合成运输摘要' } });
+      fireEvent.change(screen.getByLabelText('备注'), { target: { value: '合成单据备注' } });
+      fireEvent.click(screen.getByRole('button', { name: '打印' }));
+      const html = write.mock.calls[0][0] as string;
+      const printed = new DOMParser().parseFromString(html, 'text/html');
+      expect(printed.body.textContent).toContain('合成司机<script>');
+      expect(printed.querySelector('script')).toBeNull();
+      expect(html).toContain('单据摘要'); expect(html).toContain('合成运输摘要');
+      expect(html).toContain('备注：合成单据备注');
+    } finally { open.mockRestore(); }
+  });
   it('旧费用草稿的数量乘单价合为金额，重新保存总额不变', async () => {
     const doc = { id: 12, docNo: 'FY12', docType: 'expense', status: 'draft', docDate: '2026-10-24', amountCents: 2468, paidCents: 2468, accounts: [], lines: [{ feeItemId: 7, feeItemName: '运输费', qty: 2, unitPriceCents: 1234 }], events: [], entries: [] } as unknown as DocDetailDto;
     fa.update.mockResolvedValue(doc);

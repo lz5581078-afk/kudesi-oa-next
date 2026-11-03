@@ -109,8 +109,8 @@ export const DOC_TYPES: readonly DocTypeDef[] = [
     posting: '借：银行 贷：其他收入；没收齐的部分挂应收（要选往来对象）',
     ui: { moneyEntry: true, partyTitle: '收入来源', partyHint: '非销售类收入单独记录', detailHint: '填写收入项目和金额', partyLabel: '来源对象（选填）', warehouseLabel: '', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单收入合计', saveText: '保存其他收入单', detailTitle: '收入明细', moneyItemLabel: '收入项目', payModes: [{ mode: 'full', label: '已收全款' }, { mode: 'part', label: '收了部分' }, { mode: 'credit', label: '暂未收款' }] } },
   { type: 'expense', label: '费用单', prefix: 'FY', party: 'supplier', partyKinds: ['supplier', 'customer', 'store', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'out', offset: 'prepayment', feeDirection: 'expense',
-    posting: '借：费用 贷：银行（及预付冲抵）；没付清的部分挂应付（要选往来对象）。不选往来对象就是现金费用单，必须当场付清',
-    ui: { feeAmountOnly: true, partyTitle: '费用信息', partyHint: '先确认日期、相关单位和经办人', detailHint: '一行一笔费用，合计实时计算', partyLabel: '收费单位（选填）', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '暂未付款（挂应付）' }, { mode: 'offset', label: '用预付款结算' }] } },
+    posting: '借：费用 贷：银行（及预付冲抵）；没付清的部分挂应付（要选往来对象）。开立可填写自由相关单位，挂账或冲抵过账须关联往来档案',
+    ui: { feeAmountOnly: true, partyTitle: '费用信息', partyHint: '先确认日期、相关单位和经办人', detailHint: '一行一笔费用，合计实时计算', partyLabel: '相关单位', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '欠款' }, { mode: 'offset', label: '用预付款结算' }] } },
 ];
 
 export const DOC_TYPE_MAP = new Map(DOC_TYPES.map((d) => [d.type, d]));
@@ -173,6 +173,10 @@ export interface DocInput {
   type: DocType;
   date: string;
   partyId?: number | null;
+  /** 自由填写的相关单位；不是往来档案ID，不用于应收应付账户。 */
+  counterpartyName?: string | null;
+  /** 单独摘要，和单据备注独立保存。 */
+  summary?: string | null;
   /** 空值兼容旧金额单（原先按全额收付）；新表单保存用户选择。 */
   settlementMode?: PayMode | null;
   /** 往来对象来自哪份档案；不填取单据类型的默认来源 */
@@ -239,11 +243,11 @@ export interface Entry {
 export const lineAmount = (l: Pick<DocLineInput, 'qty' | 'unitPriceCents'>): number => { try { return settledLineCents(l.unitPriceCents, l.qty); } catch { return NaN; } };
 
 /** 当场结算金额。费用单/其他收入单没填就当“当场付清/收齐”（现金费用）；其他单据没填就是 0（全部挂账）。 */
-export function effectivePaid(def: DocTypeDef, input: Pick<DocInput, 'paidCents' | 'partyId'> & { accounts?: DocInput['accounts'] }, total: number): number {
+export function effectivePaid(def: DocTypeDef, input: Pick<DocInput, 'paidCents' | 'partyId' | 'settlementMode'> & { accounts?: DocInput['accounts'] }, total: number): number {
   if (!def.settle) return 0;
   // 分了多个账户：实收实付就是各账户金额之和
   if (payRole(def) && input.accounts?.length) return input.accounts.reduce((s, a) => s + (Number.isFinite(a.amountCents) ? a.amountCents : 0), 0);
-  if (input.paidCents === null || input.paidCents === undefined) return def.lines === 'fee' ? total : 0;
+  if (input.paidCents === null || input.paidCents === undefined) return def.lines === 'fee' && (!input.settlementMode || input.settlementMode === 'full') ? total : 0;
   return input.paidCents;
 }
 
@@ -277,10 +281,12 @@ export function docTotal(def: DocTypeDef, input: Pick<DocInput, 'amountCents' | 
 }
 
 /** 草稿校验：返回错误文字列表，空表示可以开立。 */
-export function validateDoc(input: DocInput): string[] {
+export function validateDoc(input: DocInput, phase: 'issue' | 'post' = 'post'): string[] {
   const def = DOC_TYPE_MAP.get(input.type);
   if (!def) return ['单据类型不认识'];
   const errors: string[] = [];
+  if ((input.counterpartyName?.trim().length ?? 0) > 160) errors.push('相关单位最多160字');
+  if ((input.summary?.trim().length ?? 0) > 255) errors.push('单据摘要最多255字');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date ?? '')) errors.push('请选择单据日期');
   if (input.docNo && !/^[A-Za-z0-9_-]{1,32}$/.test(input.docNo)) errors.push('单据编号只能用字母、数字、横线、下划线，最多 32 位');
   if (def.party && def.partyRequired && !input.partyId) errors.push(`请选择${def.ui.partyLabel.replace(/（选填）/, '')}`);
@@ -398,8 +404,10 @@ export function validateDoc(input: DocInput): string[] {
     if (input.accounts?.length && input.paidCents != null && input.paidCents !== input.accounts.reduce((sum, account) => sum + account.amountCents, 0)) errors.push('各账户合计必须等于实际收付款金额');
   }
   const paid = effectivePaid(def, input, total);
-  if (def.lines === 'fee' && def.settle && paid + offset < total && !input.partyId) errors.push(`没${def.settle === 'in' ? '收齐' : '付清'}的部分要挂账，请选择${def.ui.partyLabel.replace('（选填）', '')}（不挂账就必须当场${def.settle === 'in' ? '收齐' : '付清'}）`);
-  if (offset && def.lines === 'fee' && !input.partyId) errors.push(`冲抵${ACCOUNT_LABEL[def.offset as AccountKind] ?? '预付款'}要先选择${def.ui.partyLabel.replace('（选填）', '')}`);
+  const needsPartyAccount = phase === 'post' || input.type !== 'expense';
+  const accountPartyLabel = input.type === 'expense' ? '挂账往来档案' : def.ui.partyLabel.replace('（选填）', '');
+  if (needsPartyAccount && def.lines === 'fee' && def.settle && paid + offset < total && !input.partyId) errors.push(`没${def.settle === 'in' ? '收齐' : '付清'}的部分要挂账，请选择${accountPartyLabel}（不挂账就必须当场${def.settle === 'in' ? '收齐' : '付清'}）`);
+  if (needsPartyAccount && offset && def.lines === 'fee' && !input.partyId) errors.push(`冲抵${ACCOUNT_LABEL[def.offset as AccountKind] ?? '预付款'}要先选择${accountPartyLabel}`);
   if (paid) {
     if (!def.settle) errors.push('这种单据不能当场结算');
     else if (!Number.isInteger(paid) || paid < 0) errors.push(`${def.ui.amountLabel}不合法`);
@@ -425,6 +433,7 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
   const offset = input.offsetCents ?? 0;
   const paid = effectivePaid(def, input, total);
   const cash = cashSettlementAmount(def, input, total);
+  if (def.lines === 'fee' && !partyId && (total - paid - offset > 0 || offset > 0)) throw new Error('PARTY_ACCOUNT_REQUIRED');
   const e = (kind: AccountKind, accountId: number, amount: number, qty: number | null = null, subId = 0): Entry => ({ kind, accountId, subId, amount, qty });
   const out: Entry[] = [];
   // 分账户收付款：每个账户一条银行分录；没分账户就是单账户（bankAccountId）

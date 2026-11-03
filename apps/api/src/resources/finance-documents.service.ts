@@ -147,6 +147,7 @@ export class FinanceDocumentsService {
   private toInput(doc: FinanceDocument, lines: FinanceDocumentLine[], accounts: FinanceDocumentAccount[] = [], settlements: FinanceDocumentSettlement[] = []): DocInput {
     return {
       type: doc.docType as DocType, date: doc.docDate, settlementMode: doc.settlementMode as DocInput['settlementMode'], partyId: doc.partyId, partyKind: doc.partyKind as never, paidCents: doc.paidCents, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId,
+      counterpartyName: doc.counterpartyName, summary: doc.summary,
       warehouseId: doc.warehouseId, storeId: doc.storeId, refNo: doc.refNo, amountCents: DOC_TYPE_MAP.get(doc.docType as DocType)?.lines ? null : doc.amountCents, offsetCents: doc.offsetCents, discountCents: doc.discountCents,
       feeCents: doc.feeCents, feeBearer: doc.feeBearer, inTransit: doc.transitStatus !== null, handler: doc.handler, handlerId: doc.handlerId,
       settleBy: (doc.settleBy as SettleBy | null) ?? null,
@@ -266,6 +267,9 @@ export class FinanceDocumentsService {
     // 草稿允许没填完，但数字本身必须合法
     const def = DOC_TYPE_MAP.get(input.type);
     if (!def) throw new BadRequestException('单据类型不认识');
+    for (const [value, max, label] of [[input.counterpartyName, 160, '相关单位'], [input.summary, 255, '单据摘要']] as const) {
+      if (value != null && (typeof value !== 'string' || value.trim().length > max)) throw new BadRequestException(`${label}最多${max}字`);
+    }
     if (input.settlementMode && !def.ui.payModes.some(mode => mode.mode === input.settlementMode)) throw new BadRequestException('这种单据不支持所选收付方式');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date ?? '') || Number.isNaN(Date.parse(input.date))) throw new BadRequestException('单据日期格式应为 YYYY-MM-DD');
     if (input.handlerId !== null && input.handlerId !== undefined && (!Number.isInteger(input.handlerId) || input.handlerId <= 0)) throw new BadRequestException('经手人不对');
@@ -298,6 +302,7 @@ export class FinanceDocumentsService {
       const docNo = input.docNo?.trim() || await this.nextDocNo(em, user, def.prefix, input.date);
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: input.type, status: 'draft', docDate: input.date, partyId: input.partyId ?? null,
+        counterpartyName: input.counterpartyName?.trim() || null, summary: input.summary?.trim() || null,
         partyKind: def.party ? input.partyKind ?? def.partyKinds[0] ?? null : null, paidCents: def.moneySettlement ? cashSettlementAmount(def, input, docTotal(def, input)) : effectivePaid(def, input, docTotal(def, input)),
         settlementMode: def.ui.payModes.some(mode => mode.mode === input.settlementMode) ? input.settlementMode : null,
         handler: who.handler, handlerId: who.handlerId, department: input.department?.trim() || null, settleBy: this.settleByOf(input),
@@ -327,6 +332,8 @@ export class FinanceDocumentsService {
       const def = DOC_TYPE_MAP.get(input.type)!;
       const who = await this.resolveHandler(em, user, input, doc.handlerId);
       await em.update(FinanceDocument, { id, companyId: user.companyId }, {
+        counterpartyName: input.counterpartyName === undefined ? doc.counterpartyName : input.counterpartyName?.trim() || null,
+        summary: input.summary === undefined ? doc.summary : input.summary?.trim() || null,
         partyKind: def.party ? input.partyKind ?? def.partyKinds[0] ?? null : null, paidCents: def.moneySettlement ? cashSettlementAmount(def, input, docTotal(def, input)) : effectivePaid(def, input, docTotal(def, input)),
         settlementMode: def.ui.payModes.some(mode => mode.mode === input.settlementMode) ? input.settlementMode : null,
         handler: who.handler, handlerId: who.handlerId, department: input.department?.trim() || null, settleBy: this.settleByOf(input),
@@ -368,12 +375,17 @@ export class FinanceDocumentsService {
     const { doc, lines, accounts, settlements } = await this.load(em, user, id, true);
     if (doc.status !== 'draft') throw new ConflictException('只有草稿能开立');
     const input = this.toInput(doc, lines, accounts, settlements);
-    const errors = validateDoc(input);
+    const errors = validateDoc(input, 'issue');
     if (errors.length) throw new BadRequestException(errors.join('；'));
     await this.checkRefs(em, user, input, id);
     await this.checkFeeObjects(em, user, lines);
     await this.checkSettlements(em, user, input, id);
-    await em.update(FinanceDocument, { id, companyId: user.companyId }, { status: 'issued', issuedAt: new Date() });
+    let summary = doc.summary;
+    if (doc.docType === 'expense' && !summary) {
+      const first = lines[0]?.feeItemId ? await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-fee-items', id: lines[0].feeItemId } }) : null;
+      summary = `${first?.title || '费用'}等${lines.length}项费用`.slice(0, 255);
+    }
+    await em.update(FinanceDocument, { id, companyId: user.companyId }, { status: 'issued', issuedAt: new Date(), summary });
     await this.event(em, user, id, 'issue');
   }
 
@@ -402,6 +414,8 @@ export class FinanceDocumentsService {
       const { doc, lines, accounts, settlements } = await this.load(em, user, id, true);
       if (doc.status !== 'issued') throw new ConflictException('单据状态不对，不能过账');
       const input = this.toInput(doc, lines, accounts, settlements);
+      const errors = validateDoc(input, 'post');
+      if (errors.length) throw new BadRequestException(errors.join('；'));
       await this.checkSettlements(em, user, input, id);
       const def = DOC_TYPE_MAP.get(doc.docType as DocType)!;
 
@@ -571,6 +585,7 @@ export class FinanceDocumentsService {
       const docNo = await this.nextDocNo(em, user, def.prefix, today());
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: doc.docType, status: 'posted', docDate: today(), partyId: doc.partyId, bankAccountId: doc.bankAccountId,
+        counterpartyName: doc.counterpartyName, summary: doc.summary,
         toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId, amountCents: -doc.amountCents, offsetCents: -doc.offsetCents, paidCents: -doc.paidCents, discountCents: -doc.discountCents, feeCents: -doc.feeCents, feeBearer: doc.feeBearer, partyKind: doc.partyKind, settlementMode: doc.settlementMode, handler: doc.handler, handlerId: doc.handlerId, department: doc.department,
         memo: `红冲 ${doc.docNo}：${reason.trim()}`, reversesId: id, createdBy: user.id, issuedAt: new Date(), postedAt: new Date(),
       });
@@ -590,8 +605,9 @@ export class FinanceDocumentsService {
 
   // ---------- 经营历程：改表头 / 财务审核 / 复制为草稿 ----------
   /** 已过账单据只允许改日期、经手人、说明（不动账）；财务审核后不能改。日期改了，分录日期跟着改。 */
-  async editHeader(user: AuthUser, id: number, patch: { date?: string; handler?: string | null; handlerId?: number | null; memo?: string | null }) {
+  async editHeader(user: AuthUser, id: number, patch: { date?: string; handler?: string | null; handlerId?: number | null; memo?: string | null; summary?: string | null }) {
     this.need(user, 'finance.docs.edit-header', '没有修改已过账单据表头的权限');
+    if (patch.summary != null && (typeof patch.summary !== 'string' || patch.summary.trim().length > 255)) throw new BadRequestException('单据摘要最多255字');
     if (patch.date !== undefined && (!/^\d{4}-\d{2}-\d{2}$/.test(patch.date) || Number.isNaN(Date.parse(patch.date)))) throw new BadRequestException('单据日期格式应为 YYYY-MM-DD');
     return this.dataSource.transaction(async (em) => {
       await this.lockPosting(em, user);
@@ -607,6 +623,7 @@ export class FinanceDocumentsService {
         set.handlerId = null;
       }
       if (patch.memo !== undefined) set.memo = patch.memo?.trim() || null;
+      if (patch.summary !== undefined) set.summary = patch.summary?.trim() || null;
       await em.update(FinanceDocument, { id, companyId: user.companyId }, set);
       if (set.docDate) await em.update(FinanceEntry, { documentId: id, companyId: user.companyId }, { entryDate: set.docDate });
       await this.event(em, user, id, 'edit-header', Object.keys(set).join('、'));
@@ -643,6 +660,7 @@ export class FinanceDocumentsService {
       const docNo = await this.nextDocNo(em, user, def.prefix, input.date);
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: doc.docType, status: 'draft', docDate: input.date, partyId: doc.partyId, partyKind: doc.partyKind, settlementMode: doc.settlementMode, paidCents: doc.paidCents,
+        counterpartyName: doc.counterpartyName, summary: doc.summary,
         handler: doc.handler, handlerId: doc.handlerId, department: doc.department, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId,
         storeId: doc.storeId, refNo: null, amountCents: doc.amountCents, offsetCents: doc.offsetCents, discountCents: doc.discountCents, feeCents: doc.feeCents, feeBearer: doc.feeBearer, transitStatus: doc.transitStatus ? 'pending' : null, settleBy: doc.settleBy, memo: doc.memo, createdBy: user.id,
       });
@@ -697,7 +715,7 @@ export class FinanceDocumentsService {
       confirmedByName: doc.confirmedBy ? actorName.get(doc.confirmedBy) ?? '' : '',
       openingVouchers: (await em.find(ResourceFile, { where: { companyId: user.companyId, resourceType: OPENING_VOUCHER_TYPE, resourceId: id, fieldKey: 'voucher' }, order: { id: 'ASC' } })).map((f) => ({ id: f.id, name: f.name, mime: f.mime, size: f.size })),
       typeLabel: DOC_TYPE_MAP.get(doc.docType as DocType)?.label ?? doc.docType,
-      partyName: doc.partyId ? names.get(doc.partyId) ?? '' : '', storeName: doc.storeId ? names.get(doc.storeId) ?? '' : '', bankName: doc.bankAccountId ? names.get(doc.bankAccountId) ?? '' : '',
+      partyName: doc.counterpartyName || (doc.partyId ? names.get(doc.partyId) ?? '' : ''), linkedPartyName: doc.partyId ? names.get(doc.partyId) ?? '' : '', storeName: doc.storeId ? names.get(doc.storeId) ?? '' : '', bankName: doc.bankAccountId ? names.get(doc.bankAccountId) ?? '' : '',
       toBankName: doc.toBankAccountId ? names.get(doc.toBankAccountId) ?? '' : '', warehouseName: doc.warehouseId ? names.get(doc.warehouseId) ?? '' : '',
       createdByName: actorName.get(doc.createdBy) ?? '',
       accounts: accounts.map((a) => ({ ...a, bankName: names.get(a.bankAccountId) ?? '' })),
@@ -824,7 +842,7 @@ export class FinanceDocumentsService {
     }
     if (q.from) { where.push('d.doc_date >= ?'); args.push(q.from); }
     if (q.to) { where.push('d.doc_date <= ?'); args.push(q.to); }
-    if (q.keyword?.trim()) { where.push('(d.doc_no LIKE ? OR d.memo LIKE ? OR d.ref_no LIKE ?)'); args.push(`%${q.keyword.trim()}%`, `%${q.keyword.trim()}%`, `%${q.keyword.trim()}%`); }
+    if (q.keyword?.trim()) { where.push('(d.doc_no LIKE ? OR d.memo LIKE ? OR d.ref_no LIKE ? OR d.counterparty_name LIKE ? OR d.summary LIKE ?)'); args.push(...Array(5).fill(`%${q.keyword.trim()}%`)); }
     const w = where.join(' AND ');
     const inTypes = docTypesOfDirection('in'), outTypes = docTypesOfDirection('out');
     const [{ n, amt, paid, inc, exp }] = await this.dataSource.query(
@@ -839,7 +857,7 @@ export class FinanceDocumentsService {
     }
     const rows = await this.dataSource.query(
       `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.status, DATE_FORMAT(d.doc_date, '%Y-%m-%d') AS docDate, d.amount_cents AS amountCents, d.memo, d.reverses_id AS reversesId,
-              p.title AS partyName, u.name AS createdByName, COALESCE(hu.name, d.handler) AS handler, d.paid_cents AS paidCents, d.settlement_mode AS settlementMode, d.transit_status AS transitStatus, d.fee_cents AS feeCents, d.discount_cents AS discountCents,
+              COALESCE(d.counterparty_name,p.title) AS partyName, d.summary, u.name AS createdByName, COALESCE(hu.name, d.handler) AS handler, d.paid_cents AS paidCents, d.settlement_mode AS settlementMode, d.transit_status AS transitStatus, d.fee_cents AS feeCents, d.discount_cents AS discountCents,
               (SELECT COUNT(*) FROM finance_document_accounts fa WHERE fa.document_id = d.id AND fa.company_id = d.company_id) AS acctCount, d.audited_at AS auditedAt, d.created_by AS createdBy, b.title AS bankName,
               d.source_key AS sourceKey, d.ref_no AS refNo
        FROM finance_documents d LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id LEFT JOIN resource_records b ON b.id = d.bank_account_id AND b.company_id = d.company_id LEFT JOIN users u ON u.id = d.created_by LEFT JOIN users hu ON hu.id = d.handler_id AND hu.company_id = d.company_id
@@ -965,7 +983,7 @@ export class FinanceDocumentsService {
       opening += Number(r.s);
     }
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
-      `SELECT e.id, DATE_FORMAT(e.entry_date, '%Y-%m-%d') AS entryDate, e.amount_cents AS amountCents, d.id AS documentId, d.doc_no AS docNo, d.doc_type AS docType, d.memo, COALESCE(hu.name, d.handler) AS handler, p.title AS partyName
+      `SELECT e.id, DATE_FORMAT(e.entry_date, '%Y-%m-%d') AS entryDate, e.amount_cents AS amountCents, d.id AS documentId, d.doc_no AS docNo, d.doc_type AS docType, d.memo, d.summary, COALESCE(hu.name, d.handler) AS handler, COALESCE(d.counterparty_name,p.title) AS partyName
        FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id LEFT JOIN users hu ON hu.id = d.handler_id AND hu.company_id = d.company_id
        WHERE ${where.join(' AND ')} ORDER BY e.entry_date ASC, e.id ASC LIMIT 2000`, args);
     let run = opening, income = 0, expense = 0;

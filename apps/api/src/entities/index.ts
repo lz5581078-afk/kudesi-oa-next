@@ -640,6 +640,7 @@ export class FinanceDocument {
   @Column({ name: 'doc_date', type: 'date' }) docDate!: string;
   @Column({ name: 'party_id', type: 'int', unsigned: true, nullable: true }) partyId!: number | null;
   @Column({ name: 'party_kind', type: 'varchar', length: 12, nullable: true }) partyKind!: string | null;
+  @Column({ name: 'counterparty_name', type: 'varchar', length: 160, nullable: true }) counterpartyName!: string | null;
   @Column({ name: 'settlement_mode', type: 'varchar', length: 12, nullable: true }) settlementMode!: string | null;
   @Column({ name: 'bank_account_id', type: 'int', unsigned: true, nullable: true }) bankAccountId!: number | null;
   @Column({ name: 'to_bank_account_id', type: 'int', unsigned: true, nullable: true }) toBankAccountId!: number | null;
@@ -658,6 +659,7 @@ export class FinanceDocument {
   @Column({ name: 'confirmed_at', type: 'datetime', nullable: true }) confirmedAt!: Date | null;
   @Column({ name: 'settle_by', type: 'varchar', length: 8, nullable: true }) settleBy!: string | null;
   @Column({ type: 'varchar', length: 500, nullable: true }) memo!: string | null;
+  @Column({ type: 'varchar', length: 255, nullable: true }) summary!: string | null;
   @Column({ type: 'varchar', length: 60, nullable: true }) handler!: string | null;
   @Column({ name: 'handler_id', type: 'int', unsigned: true, nullable: true }) handlerId!: number | null;
   @Column({ type: 'varchar', length: 60, nullable: true }) department!: string | null;

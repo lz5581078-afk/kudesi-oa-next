@@ -75,7 +75,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
         <dl className="kv">
           <div className="kv-row"><dt>类型</dt><dd>{doc.typeLabel}</dd></div>
           <div className="kv-row"><dt>日期</dt><dd>{doc.docDate}</dd></div>
-          {doc.partyName && <div className="kv-row"><dt>{def.ui.partyLabel.replace('（选填）', '')}</dt><dd>{doc.partyName} <CopyButton text={doc.partyName} label="往来对象" />{doc.partyKind && <span className="muted">（{PARTY_KIND_LABEL[doc.partyKind]}档案）</span>}</dd></div>}
+          {doc.partyName && <div className="kv-row"><dt>{def.ui.partyLabel.replace('（选填）', '')}</dt><dd>{doc.partyName} <CopyButton text={doc.partyName} label="往来对象" />{doc.partyId && doc.partyKind && <span className="muted">（{PARTY_KIND_LABEL[doc.partyKind]}档案）</span>}</dd></div>}
           {doc.storeName && <div className="kv-row"><dt>店铺</dt><dd>{doc.storeName}</dd></div>}
           {doc.refNo && <div className="kv-row"><dt>{def.store ? '平台提现流水号' : '银行流水号'}</dt><dd className="mono">{doc.refNo} <CopyButton text={doc.refNo} label="流水号" /></dd></div>}
           {doc.warehouseName && <div className="kv-row"><dt>仓库</dt><dd>{doc.warehouseName}</dd></div>}
@@ -89,6 +89,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
           {!!doc.discountCents && hasMoneyDiscount(doc.docType) && <div className="kv-row"><dt>优惠金额</dt><dd>{money(doc.discountCents)} <span className="muted">（冲减{doc.docType === 'receipt' ? '应收' : '应付'}，{doc.discountCents > 0 === (doc.docType === 'receipt') ? '计入' : '冲减'}财务费用）</span></dd></div>}
           {!!doc.discountCents && def.lines === 'product' && <div className="kv-row"><dt>整单优惠</dt><dd>{money(doc.discountCents)}</dd></div>}
           {!!doc.feeCents && doc.docType === 'transfer' && <div className="kv-row"><dt>手续费</dt><dd>{money(doc.feeCents)} <span className="muted">（{doc.feeBearer === 'in' ? '转入方' : '转出方'}承担，计入财务费用）</span></dd></div>}
+          {doc.summary && <div className="kv-row"><dt>单据摘要</dt><dd>{doc.summary}</dd></div>}
           {doc.memo && <div className="kv-row"><dt>备注</dt><dd>{doc.memo}</dd></div>}
           {doc.handler && <div className="kv-row"><dt>经办人</dt><dd>{doc.handler}</dd></div>}
           {doc.department && <div className="kv-row"><dt>归属部门</dt><dd>{doc.department}</dd></div>}
@@ -179,21 +180,23 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
 }
 
 /** 修改已过账单据：只能改日期、经办人、说明，不动账（和管家婆“修改单据”一致） */
-function HeaderDialog({ doc, onClose, onSave }: { doc: DocDetailDto; onClose: () => void; onSave: (b: { date: string; handlerId: number | null; handler?: string; memo: string }) => Promise<void> }) {
+function HeaderDialog({ doc, onClose, onSave }: { doc: DocDetailDto; onClose: () => void; onSave: (b: { date: string; handlerId: number | null; handler?: string; memo: string; summary?: string }) => Promise<void> }) {
   const [date, setDate] = useState(doc.docDate);
   const [handlerId, setHandlerId] = useState<number | null>(doc.handlerId ?? null);
   const legacy = doc.handlerId ? '' : doc.handler ?? '';
   const [memo, setMemo] = useState(doc.memo ?? '');
+  const [summary, setSummary] = useState(doc.summary ?? '');
   const [err, setErr] = useState('');
   return (
     <div className="modal-backdrop" role="presentation">
-      <form className="modal card small" role="dialog" aria-label="修改单据" onSubmit={async (e) => { e.preventDefault(); try { await onSave({ date, handlerId, ...(handlerId ? {} : { handler: legacy }), memo }); } catch (x) { setErr(x instanceof ApiError ? x.message : '保存失败'); } }}>
+      <form className="modal card small" role="dialog" aria-label="修改单据" onSubmit={async (e) => { e.preventDefault(); try { await onSave({ date, handlerId, ...(handlerId ? {} : { handler: legacy }), memo, ...(doc.docType === 'expense' || doc.summary ? { summary } : {}) }); } catch (x) { setErr(x instanceof ApiError ? x.message : '保存失败'); } }}>
         <div className="modal-head between"><strong>修改单据 {doc.docNo}</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>×</button></div>
         <div className="modal-body">
           <p className="muted">已过账的单据只能改日期、经办人和说明；金额、往来对象要改请红冲后重开。</p>
           <label>单据日期<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required disabled={doc.transitStatus === 'confirmed'} /></label>
           <HandlerSelect value={handlerId} valueName={doc.handler ?? ''} legacy={legacy} onChange={(id) => setHandlerId(id)} />
           <label>说明<textarea rows={2} maxLength={500} value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
+          {(doc.docType === 'expense' || doc.summary) && <label>单据摘要<input aria-label="单据摘要" maxLength={255} value={summary} onChange={e => setSummary(e.target.value)} /></label>}
           {err && <div role="alert" className="notice error">{err}</div>}
         </div>
         <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="submit" className="primary-button">保存</button></div>

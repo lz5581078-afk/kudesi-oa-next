@@ -61,7 +61,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const [date, setDate] = useState(initial.date);
   const [docNo, setDocNo] = useState(doc?.docNo ?? '');
   const [partyKind, setPartyKind] = useState<PartyKind>((doc?.partyKind as PartyKind | null) ?? kinds[0] ?? 'customer');
-  const [party, setParty] = useState<{ id: number | null; name: string }>({ id: doc?.partyId ?? null, name: doc?.partyName ?? '' });
+  const [party, setParty] = useState<{ id: number | null; name: string }>({ id: doc?.partyId ?? null, name: doc?.linkedPartyName ?? doc?.partyName ?? '' });
   const [wh, setWh] = useState<{ id: number | null; name: string }>({ id: doc?.warehouseId ?? null, name: doc?.warehouseName ?? '' });
   const [bank, setBank] = useState<{ id: number | null; name: string }>({ id: doc?.bankAccountId ?? null, name: doc?.bankName ?? '' });
   const [toBank, setToBank] = useState<{ id: number | null; name: string }>({ id: doc?.toBankAccountId ?? null, name: doc?.toBankName ?? '' });
@@ -85,6 +85,8 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const [discount, setDiscount] = useState(doc?.discountCents ? centsToYuan(doc.discountCents) : '');
   const [payMode, setPayMode] = useState<PayMode | ''>(doc ? doc.settlementMode ?? (def.moneySettlement ? 'full' : doc.paidCents || doc.offsetCents ? 'part' : 'credit') : ui.payModes[0]?.mode ?? '');
   const [memo, setMemo] = useState(doc?.memo ?? '');
+  const [counterpartyName, setCounterpartyName] = useState(doc?.counterpartyName ?? doc?.partyName ?? '');
+  const [summary, setSummary] = useState(doc?.summary ?? '');
   const freshLines = () => emptyLines(1).map(row => def.lines === 'product' ? { ...row, qty: '', unit: '件' } : row);
   const [lines, setLines] = useState<LineState[]>(
     structuredLines && doc?.lines.length
@@ -184,11 +186,11 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
       : multiOn && payDir ? multi.map((a) => ({ role: payDir, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })) : null;
     const feeC = def.bank === 'transfer' ? parse(fee) ?? 0 : 0;
     return {
-      accounts, type, date, settlementMode: type !== 'withdrawal' ? payMode || null : null, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: multiOn && multi[0] ? multi[0].id : bank.id, toBankAccountId: toBank.id, warehouseId: wh.id,
+      ...(type === 'expense' ? { counterpartyName, summary } : {}), accounts, type, date, settlementMode: type !== 'withdrawal' ? payMode || null : null, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: multiOn && multi[0] ? multi[0].id : bank.id, toBankAccountId: toBank.id, warehouseId: wh.id,
       feeCents: feeC, feeBearer: feeC ? feeBearer : null, inTransit: def.bank === 'transfer' ? inTransit : false,
       storeId: def.store ? store.id : null, refNo: hasBankRef(def) ? refNo : null, amountCents: null, offsetCents: parse(offset) ?? 0,
       discountCents: def.lines === 'product' || hasMoneyDiscount(type) ? parse(discount) ?? 0 : 0,
-      paidCents: hasPayment ? (multiOn && payDir ? multiCents : parse(paid) ?? (def.lines === 'fee' ? null : def.moneySettlement && payMode === 'full' ? moneyCents : 0)) : 0, handlerId, handler: handlerId ? null : handlerLegacy.trim() || null, department: department.trim() || null,
+      paidCents: hasPayment ? (multiOn && payDir ? multiCents : parse(paid) ?? (def.lines === 'fee' && payMode === 'full' ? null : def.moneySettlement && payMode === 'full' ? moneyCents : 0)) : 0, handlerId, handler: handlerId ? null : handlerLegacy.trim() || null, department: department.trim() || null,
       lines: structuredLines ? parsedLines : moneyLines.filter((l) => l.item.trim() || l.amount.trim() || l.memo.trim()).map((l) => ({ ...l.original, qty: 1, unitPriceCents: parse(l.amount) ?? 0, itemName: l.item.trim(), memo: l.memo.trim() || undefined })), memo: memo || undefined,
       settleBy: canSettle ? settleBy : null,
       settlements: canSettle && settleBy !== 'amount'
@@ -217,7 +219,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
     }
     setAlloc(next);
   };
-  const dirty = !doc && !!(party.id || memo || paid.trim() && Number(paid) !== 0 || discount || offset.trim() && Number(offset) !== 0 || moneyLines.some((l) => l.item || l.amount) || docNo || lines.some((l) => l.productId || l.feeItemId || l.price) || outs.length || ins.length || multi.length || fee || inTransit);
+  const dirty = !doc && !!(party.id || counterpartyName || summary || memo || paid.trim() && Number(paid) !== 0 || discount || offset.trim() && Number(offset) !== 0 || moneyLines.some((l) => l.item || l.amount) || docNo || lines.some((l) => l.productId || l.feeItemId || l.price) || outs.length || ins.length || multi.length || fee || inTransit);
   useUnsavedWarning(!!inline && dirty);
   const goodsLines = lines.filter((l) => l.productId);
   const qtyTotal = goodsLines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
@@ -247,7 +249,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
 
   const reset = () => {
     setDocNo(''); setParty({ id: null, name: '' }); setWh({ id: null, name: '' }); setBank({ id: null, name: '' }); setToBank({ id: null, name: '' }); setRefNo('');
-    setOuts([]); setIns([]); setMulti([]); setMultiOn(false); setFee(''); setFeeBearer('out'); setInTransit(false); setMoneyLines([emptyMoney()]); setOffset(''); setPaid(''); setDiscount(''); setPayMode(ui.payModes[0]?.mode ?? ''); setMemo(''); setLines(structuredLines ? freshLines() : []); setVouchers([]); setVouchersDirty(false); setError(''); setAlloc({});
+    setOuts([]); setIns([]); setMulti([]); setMultiOn(false); setFee(''); setFeeBearer('out'); setInTransit(false); setMoneyLines([emptyMoney()]); setOffset(''); setPaid(''); setDiscount(''); setPayMode(ui.payModes[0]?.mode ?? ''); setMemo(''); setCounterpartyName(''); setSummary(''); setLines(structuredLines ? freshLines() : []); setVouchers([]); setVouchersDirty(false); setError(''); setAlloc({});
   };
 
   const save = async (e: FormEvent | null, then?: 'issue' | 'post') => {
@@ -257,10 +259,10 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
     try {
       const b = body();
       if (then) {
-        const errs = validateDoc(b);
+        const errs = validateDoc(b, then);
         if (errs.length) throw new Error(errs.join('；'));
         const warn = [bankAfter !== null && bankAfter < 0 ? `注意：${bank.name} 余额不足，${def.bank === 'in' ? '' : '付后'}余额约 ${money(bankAfter)}。` : '', origExcess.length ? `注意：退货数量超过原单（${origExcess.join('；')}）。` : '', partyBalance?.creditLimitCents != null && partyBalance.receivableCents + Math.max(rest, 0) > partyBalance.creditLimitCents && def.settle === 'in' && def.lines === 'product' ? `注意：挂账后应收超过赊销额度 ${money(partyBalance.creditLimitCents)}。` : ''].filter(Boolean);
-        const text = `${party.name ? `${ui.partyLabel.replace('（选填）', '')}：${party.name}\n` : ''}${def.lines ? `明细 ${b.lines.length} 行，` : ''}${ui.totalLabel}：${money(total)}${discountC ? `（已优惠 ${money(discountC)}）` : ''}\n${warn.length ? `${warn.join('\n')}\n` : ''}${then === 'post' ? '过账后会动账和库存，只能红冲，请核对。' : '开立后可再过账。'}`;
+        const text = `${(type === 'expense' ? counterpartyName : party.name) ? `${ui.partyLabel.replace('（选填）', '')}：${type === 'expense' ? counterpartyName : party.name}\n` : ''}${def.lines ? `明细 ${b.lines.length} 行，` : ''}${ui.totalLabel}：${money(total)}${discountC ? `（已优惠 ${money(discountC)}）` : ''}\n${warn.length ? `${warn.join('\n')}\n` : ''}${then === 'post' ? '过账后会动账和库存，只能红冲，请核对。' : '开立后可再过账。'}`;
         if (!window.confirm(`${then === 'post' ? '确认过账？' : '确认开立？'}\n${text}`)) { setBusy(false); return; }
       }
       let saved = doc ? await financeApi.update(doc.id, b) : await financeApi.create(b);
@@ -303,12 +305,12 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
 
   const doPrint = () => {
     const rowsOut = structuredLines
-      ? lines.filter((l) => l.productId || l.feeItemId).map((l, i) => [String(i + 1), l.productName || l.feeItemName, l.unit, l.qty, money(l.gift ? 0 : priceOf(l.price)), money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: l.gift ? 0 : priceOf(l.price) })), l.memo])
+      ? lines.filter((l) => l.productId || l.feeItemId).map((l, i) => ui.feeAmountOnly ? [String(i + 1), l.feeItemName, l.node, l.relatedName, money(priceOf(l.price)), l.memo] : [String(i + 1), l.productName || l.feeItemName, l.unit, l.qty, money(l.gift ? 0 : priceOf(l.price)), money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: l.gift ? 0 : priceOf(l.price) })), l.memo])
       : moneyLines.filter((l) => l.item || l.amount).map((l, i) => [String(i + 1), l.item, '', '1', l.amount, l.amount, l.memo]);
     const ok = printSlip({
       title: `${def.label}${doc ? ` ${doc.docNo}` : '（未保存）'}`,
-      head: [['日期', date], ...(def.party ? [[ui.partyLabel.replace('（选填）', ''), party.name] as [string, string]] : []), ...(def.warehouse ? [['仓库', wh.name] as [string, string]] : []), ['经办人', handlerName || handlerLegacy], [def.bank === 'transfer' ? '转出 → 转入' : '结算账户', def.bank === 'transfer' ? `${outs.map((a) => a.name).join('、')} → ${ins.map((a) => a.name).join('、')}` : multiOn ? multi.map((a) => `${a.name} ${money(yuanToCents(a.amount) || 0)}`).join('；') : bank.name]],
-      columns: ['#', ui.moneyEntry ? moneyItem : def.lines === 'fee' ? '费用项目' : '商品/项目', '单位', '数量', '单价', '金额', '备注'],
+      head: [['日期', date], ...(def.party ? [[ui.partyLabel.replace('（选填）', ''), (type === 'expense' ? counterpartyName : party.name)] as [string, string]] : []), ...(type === 'expense' ? [['单据摘要', summary || `${lines.find(l => l.feeItemId)?.feeItemName || '费用'}等${parsedCount}项费用`] as [string, string]] : []), ...(def.warehouse ? [['仓库', wh.name] as [string, string]] : []), ['经办人', handlerName || handlerLegacy], [def.bank === 'transfer' ? '转出 → 转入' : '结算账户', def.bank === 'transfer' ? `${outs.map((a) => a.name).join('、')} → ${ins.map((a) => a.name).join('、')}` : multiOn ? multi.map((a) => `${a.name} ${money(yuanToCents(a.amount) || 0)}`).join('；') : bank.name]],
+      columns: ui.feeAmountOnly ? ['#', '费用类型', '挂账节点', '挂账对象', '金额', '备注'] : ['#', ui.moneyEntry ? moneyItem : def.lines === 'fee' ? '费用项目' : '商品/项目', '单位', '数量', '单价', '金额', '备注'],
       rows: rowsOut,
       totals: [...(discountC ? [['明细合计', money(gross)] as [string, string], ['优惠', money(discountC)] as [string, string]] : []), [ui.totalLabel, money(total)], ...(moneyDiscC ? [['优惠金额（计入财务费用）', money(moneyDiscC)] as [string, string]] : []), ...(def.bank === 'transfer' && parse(fee) ? [[`手续费（${feeBearer === 'out' ? '转出方' : '转入方'}承担）`, money(parse(fee) ?? 0)] as [string, string]] : []), ...(def.settle ? [[ui.amountLabel, money(paidC)] as [string, string]] : [])],
       memo: memo,
@@ -339,9 +341,10 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
       <h3 className="section-title"><span className="step">1</span>{ui.partyTitle || '单据信息'}</h3>
       {ui.partyHint && <p className="reference-document-hint">{ui.partyHint}</p>}
       <section className="slip-head">
-        <label>单据编号<input aria-label="单据编号" value={docNo} maxLength={32} onChange={(e) => setDocNo(e.target.value)} placeholder={doc ? '' : `不填则自动生成（${def.prefix}${date.replace(/-/g, '')}001）`} disabled={!!doc && doc.status !== 'draft'} /></label>
+        {type !== 'expense' && <label>单据编号<input aria-label="单据编号" value={docNo} maxLength={32} onChange={(e) => setDocNo(e.target.value)} placeholder={doc ? '' : `不填则自动生成（${def.prefix}${date.replace(/-/g, '')}001）`} disabled={!!doc && doc.status !== 'draft'} /></label>}
         <label>单据日期<input type="date" aria-label="单据日期" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
-        {def.party && (
+        {type === 'expense' && <label className="slip-party">相关单位<input aria-label="相关单位" maxLength={160} placeholder="供应商、司机、平台等" value={counterpartyName} onChange={e => setCounterpartyName(e.target.value)} /></label>}
+        {def.party && type !== 'expense' && (
           <label className="slip-party">{ui.partyLabel}{def.partyRequired ? ' *' : ''}
             <div className="slip-party-row">
               {kinds.length > 1 && (
@@ -371,7 +374,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
         {def.store && <label>平台提现流水号 *<input aria-label="平台提现流水号" value={refNo} maxLength={80} onChange={(e) => setRefNo(e.target.value)} placeholder="平台后台提现记录里的流水号，不能重复" /></label>}
         {def.warehouse
           ? <label>{ui.warehouseLabel} *<SearchPick ariaLabel="仓库" type="finance-warehouses" value={wh.id} label={wh.name} onChange={(id, name) => setWh({ id, name })} /></label>
-          : <label>归属部门<input aria-label="归属部门" value={department} maxLength={60} onChange={(e) => setDepartment(e.target.value)} /></label>}
+          : type === 'expense' ? null : <label>归属部门<input aria-label="归属部门" value={department} maxLength={60} onChange={(e) => setDepartment(e.target.value)} /></label>}
         <HandlerSelect value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); }} />
       </section>
       </DocumentHeadCard>
@@ -383,11 +386,11 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
         <section>
           <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
           {ui.detailHint && <p className="reference-document-hint">{ui.detailHint}</p>}
-          <GoodsGrid def={def} type={type} lines={lines} setLines={setLines} setLine={setLine} priceOf={priceOf} hints={hints} onPickProduct={pickProduct} onPickFee={pickFee} addRow={addLine} gridRef={gridRef} />
+          <GoodsGrid def={def} type={type} lines={lines} setLines={setLines} setLine={setLine} priceOf={priceOf} hints={hints} onPickProduct={pickProduct} onPickFee={pickFee} addRow={addLine} gridRef={gridRef} totalCents={total} />
           <div className="vc-grid-foot">
-            <button type="button" className="secondary-button small" onClick={addLine}>+ 加一行</button>
-            <span className="muted">{def.lines === 'product' ? `共 ${goodsLines.length} 种商品 · 数量合计 ${Number(qtyTotal.toFixed(4))}　` : ''}回车跳到下一格，最后一格回车加行；Shift+Delete 删当前行</span>
-            <span className="vc-grid-total">{def.lines === 'product' && discountC > 0 ? `明细合计 ${money(gross)} − 优惠 ${money(discountC)} = ` : ''}{ui.totalLabel}　<b>{money(total)}</b></span>
+            <button type="button" className="secondary-button small" onClick={addLine}>{ui.feeAmountOnly ? '添加一行费用' : '+ 加一行'}</button>
+            {!ui.feeAmountOnly && <span className="muted">{def.lines === 'product' ? `共 ${goodsLines.length} 种商品 · 数量合计 ${Number(qtyTotal.toFixed(4))}　` : ''}回车跳到下一格，最后一格回车加行；Shift+Delete 删当前行</span>}
+            {!ui.feeAmountOnly && <span className="vc-grid-total">{def.lines === 'product' && discountC > 0 ? `明细合计 ${money(gross)} − 优惠 ${money(discountC)} = ` : ''}{ui.totalLabel}　<b>{money(total)}</b></span>}
           </div>
           {def.lines === 'product' && (
             <label className="vc-discount">整单优惠 / 抹零（元）
@@ -420,6 +423,18 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
           <div className="pay-modes" role="group" aria-label="结算方式">
             {ui.payModes.map((m) => <button key={m.mode} type="button" className={`mode-button${payMode === m.mode ? ' active' : ''}`} aria-pressed={payMode === m.mode} onClick={() => pickMode(m.mode)}>{m.label}</button>)}
           </div>
+        )}
+        {type === 'expense' && (rest > 0 || offsetC > 0 || party.id) && (
+          <label className="slip-party">往来档案（挂账过账时选择）
+            <div className="slip-party-row">
+              {kinds.length > 1 && (
+                <select aria-label="往来对象来源" value={partyKind} onChange={(e) => { if (e.target.value === 'employee') void financeApi.syncEmployees().catch(() => undefined); setPartyKind(e.target.value as PartyKind); setParty({ id: null, name: '' }); }}>
+                  {kinds.map((k) => <option key={k} value={k}>来自{PARTY_KIND_LABEL[k]}档案</option>)}
+                </select>
+              )}
+              <SearchPick ariaLabel="挂账往来档案" type={PARTY_KIND_RESOURCE[partyKind]} value={party.id} label={party.name} placeholder={`搜索${PARTY_KIND_LABEL[partyKind]}`} onChange={(id, name) => setParty({ id, name })} />
+            </div>
+          </label>
         )}
         <div className="form-grid">
           {!def.lines && !def.moneySettlement && def.bank !== 'transfer' && <p className="muted" aria-label="金额汇总">{ui.amountLabel}：<b>{money(moneyCents)}</b>（等于上面明细合计）</p>}
@@ -465,7 +480,10 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
       </section>
 
       {def.store && <VoucherPanel files={vouchers} shopId={shopId} onChange={(f) => { setVouchers(f); setVouchersDirty(true); }} />}
-      <label>{def.lines ? '备注' : `${moneyItem} / 备注`}<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
+      {type === 'expense' ? <section className="expense-note-fields">
+        <label>单据摘要<input aria-label="单据摘要" placeholder="不填则自动生成" maxLength={255} value={summary} onChange={e => setSummary(e.target.value)} /></label>
+        <label>单据备注<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>
+      </section> : <label>{def.lines ? '备注' : `${moneyItem} / 备注`}<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>}
       <div ref={noticeRef}>
         {notice && <div role="status" className="notice ok">{notice}</div>}
         {error && <div role="alert" className="notice error">{error}</div>}
@@ -485,7 +503,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
 
   if (inline) {
     return (
-      <ReferencePickContext.Provider value={type !== 'withdrawal'}><form className={`card slip vc-slip${type !== 'withdrawal' ? ' reference-document' : ''}`} aria-label={`${def.label}开单`} onSubmit={(e) => save(e)}>
+      <ReferencePickContext.Provider value={type !== 'withdrawal'}><form className={`card slip vc-slip${type !== 'withdrawal' ? ' reference-document' : ''}`} data-doc-type={type} aria-label={`${def.label}开单`} onSubmit={(e) => save(e)}>
         <div className="slip-title">{type === 'withdrawal' ? <strong>{def.label} / 手工开单</strong> : <h1>{def.label} / 手工开单</h1>}{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}</div>
         <div className="slip-toolbar-row"><VoucherToolbar type={type} busy={busy} editing={!!doc}
           onClear={() => { if (doc) onClose?.(); else reset(); }} onPrint={doPrint} onList={() => onShowList?.()} onPickDraft={(id) => onPickDraft?.(id)} />

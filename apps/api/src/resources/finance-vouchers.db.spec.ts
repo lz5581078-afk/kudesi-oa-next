@@ -94,8 +94,10 @@ d('制单中心：优惠、预付冲抵、往来余额、行提示（真实数�
     const bal = await hints.partyBalance(boss, 'supplier', ids.supp);
     expect(bal.prepaymentCents).toBe(2000);
     await expect(docs.post(boss, (await docs.createDraft(boss, { type: 'expense', date: day, partyId: ids.supp, partyKind: 'supplier', offsetCents: 5000, paidCents: 0, lines: [{ feeItemId: ids.fee, qty: 1, unitPriceCents: 5000, relatedNode: '公司', relatedName: '本公司' }] })).id)).rejects.toThrow(/预付款余额不够/);
-    // 不选往来对象就不能冲抵
-    await expect(docs.issue(boss, (await docs.createDraft(boss, { type: 'expense', date: day, offsetCents: 100, paidCents: 400, bankAccountId: ids.bank, lines: [{ feeItemId: ids.fee, qty: 1, unitPriceCents: 500 }] })).id)).rejects.toThrow(/冲抵预付款要先选择/);
+    // 自由相关单位可以先开立；真正冲抵入账必须绑定往来档案。
+    const free = await docs.createDraft(boss, { type: 'expense', date: day, offsetCents: 100, paidCents: 400, bankAccountId: ids.bank, lines: [{ feeItemId: ids.fee, qty: 1, unitPriceCents: 500 }] });
+    expect((await docs.issue(boss, free.id)).status).toBe('issued');
+    await expect(docs.post(boss, free.id)).rejects.toThrow(/冲抵预付款要先选择/);
   });
 
   it('往来余额：应收、预收、赊销额度；别的公司的往来对象查不到', async () => {

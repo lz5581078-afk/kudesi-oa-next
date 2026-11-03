@@ -18,6 +18,7 @@ interface Props {
   onPickFee: (i: number, id: number | null, name: string) => void;
   addRow: () => void;
   gridRef?: React.Ref<HTMLDivElement>;
+  totalCents?: number;
 }
 
 const outType = (t: DocType) => t === 'sale' || t === 'online-sale' || t === 'purchase-return';
@@ -37,22 +38,22 @@ function rowHint(type: DocType, l: LineState, h: LineHint | undefined, priceCent
 }
 
 /** 商品/费用明细网格：回车逐格录入、方向键换行、Shift+Delete 删行；商品行带库存与价格提示、赠品开关 */
-export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints, onPickProduct, onPickFee, addRow, gridRef }: Props) {
+export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints, onPickProduct, onPickFee, addRow, gridRef, totalCents }: Props) {
   const isFee = def.lines === 'fee';
   const amountOnly = isFee && def.ui.feeAmountOnly;
   const delRow = (i: number) => setLines((ls) => (ls.length <= 1 ? [emptyLine()] : ls.filter((_, k) => k !== i)));
   return (
     <div className="table-scroll vc-grid" ref={gridRef} onKeyDown={(e) => gridKeyDown(e, { addRow, deleteRow: delRow })}>
-      <table className="data-table doc-lines">
-        <thead><tr><th>#</th><th>{isFee ? amountOnly ? '费用类型' : '费用项目' : '商品'}</th>{!isFee && <th>单位</th>}{isFee && <><th>挂账节点</th><th>挂账对象</th></>}{!amountOnly && <><th>数量</th><th>单价（元）</th></>}<th>金额</th><th>备注</th><th /></tr></thead>
+      <table className={`data-table doc-lines${amountOnly ? ' expense-lines' : ''}`}>
+        <thead><tr>{!amountOnly && <th>#</th>}<th>{isFee ? amountOnly ? '费用类型' : '费用项目' : '商品'}</th>{!isFee && <th>单位</th>}{isFee && <><th>挂账节点</th><th>挂账对象</th></>}{!amountOnly && <><th>数量</th><th>单价（元）</th></>}<th>金额</th><th>备注</th><th>{amountOnly ? '操作' : ''}</th></tr></thead>
         <tbody>
           {lines.map((l, i) => (
             <tr key={i} data-row={i} className={l.gift ? 'vc-gift' : undefined}>
-              <td data-cell="#" className="vc-no">{i + 1}</td>
+              {!amountOnly && <td data-cell="#" className="vc-no">{i + 1}</td>}
               <td>
                 {!isFee
                   ? <SearchPick ariaLabel={`第${i + 1}行商品`} type="finance-products" value={l.productId} label={l.productName} onChange={(id, name) => onPickProduct(i, id, name)} />
-                  : <SearchPick ariaLabel={`第${i + 1}行费用项目`} type="finance-fee-items" fieldKey="direction" fieldValue={def.feeDirection} value={l.feeItemId} label={l.feeItemName} onChange={(id, name) => onPickFee(i, id, name)} />}
+                  : <SearchPick ariaLabel={`第${i + 1}行费用项目`} placeholder={amountOnly ? '搜索费用类型' : undefined} type="finance-fee-items" fieldKey="direction" fieldValue={def.feeDirection} value={l.feeItemId} label={l.feeItemName} onChange={(id, name) => onPickFee(i, id, name)} />}
                 {!isFee && rowHint(type, l, l.productId ? hints.get(l.productId) : undefined, priceOf(l.price))}
               </td>
               {!isFee && <td data-cell="单位"><input aria-label={`第${i + 1}行单位`} maxLength={20} value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} placeholder="单位" /></td>}
@@ -82,10 +83,11 @@ export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints,
               </>}
               <td className="num" data-cell="金额">{amountOnly ? <input type="number" min="0" step="0.01" inputMode="decimal" aria-label={`第${i + 1}行金额`} value={l.price} onChange={(e) => setLine(i, { price: e.target.value, qty: '1' })} placeholder="0.00" /> : money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: l.gift ? 0 : priceOf(l.price) }))}</td>
               <td data-cell="备注"><input aria-label={`第${i + 1}行备注`} maxLength={200} value={l.memo} onChange={(e) => setLine(i, { memo: e.target.value })} /></td>
-              <td><button type="button" className="link-button" aria-label={`删除第${i + 1}行`} onClick={() => delRow(i)}>{lines.length <= 1 ? '清空' : '删除'}</button></td>
+              <td><button type="button" className="link-button" aria-label={`删除第${i + 1}行`} onClick={() => delRow(i)}>{amountOnly ? '删' : lines.length <= 1 ? '清空' : '删除'}</button></td>
             </tr>
           ))}
         </tbody>
+        {amountOnly && <tfoot><tr><td colSpan={6}>费用合计金额：　<strong>{money(totalCents ?? 0)}</strong></td></tr></tfoot>}
       </table>
     </div>
   );

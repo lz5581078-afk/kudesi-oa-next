@@ -79,3 +79,24 @@
 .finance-cost-registration footer{display:flex;justify-content:flex-end;gap:12px;margin-top:24px}
 .finance-cost-registration footer button{min-height:40px}
 .finance-cost-registration footer .primary-button{background:#178b65;border-color:#178b65}
+
+.reference-document[data-doc-type="expense"] .slip-head { grid-template-columns: 1fr 1.5fr 1fr; }
+@media (max-width: 700px) { .reference-document[data-doc-type="expense"] .slip-head { grid-template-columns: 1fr; } }
+
+.reference-document .expense-lines tfoot td { background:#f5fcf7; border:1px solid #d2e6d9; border-radius:8px; padding:12px; text-align:right; color:#246d51; }
+.reference-document .expense-lines th:last-child { width:56px; }
+
+.reference-document[data-doc-type="expense"] .slip-title { padding:12px 0 18px; background:transparent; font-size:23px; }
+.reference-document[data-doc-type="expense"] .expense-lines { table-layout:fixed; }
+.reference-document[data-doc-type="expense"] .vc-grid { border:0; border-radius:0; background:transparent; }
+.reference-document[data-doc-type="expense"] .expense-lines th { background:transparent; color:#246d51; border:0; padding:8px 6px; }
+.reference-document[data-doc-type="expense"] .expense-lines th:nth-child(1) { width:25%; }
+.reference-document[data-doc-type="expense"] .expense-lines th:nth-child(2) { width:15%; }
+.reference-document[data-doc-type="expense"] .expense-lines th:nth-child(3) { width:20%; }
+.reference-document[data-doc-type="expense"] .expense-lines th:nth-child(4) { width:12%; }
+.reference-document[data-doc-type="expense"] .expense-lines th:nth-child(5) { width:21%; }
+.reference-document[data-doc-type="expense"] .expense-lines tbody td { border:0; padding:4px 3px 10px; vertical-align:top; }
+.reference-document[data-doc-type="expense"] .expense-lines input,.reference-document[data-doc-type="expense"] .expense-lines select { width:100%; min-width:0; min-height:38px; padding:8px; border:1px solid #d0dad5; border-radius:8px; font:inherit; background:#fff; color:inherit; }
+.reference-document[data-doc-type="expense"] .expense-note-fields { display:grid; gap:12px; padding:12px; border:1px solid #dde5ec; border-radius:8px; background:#fff; box-shadow:0 2px 7px #193b5510; }
+.reference-document[data-doc-type="expense"] .expense-note-fields label { display:grid; gap:6px; font-size:12px; color:#486556; }
+.reference-document[data-doc-type="expense"] .expense-note-fields input,.reference-document[data-doc-type="expense"] .expense-note-fields textarea { width:100%; min-height:38px; padding:8px 10px; border:1px solid #d0dad5; border-radius:8px; font:inherit; background:#fff; color:var(--ink); }

@@ -72,6 +72,8 @@ class DocDto {
   @IsOptional() @IsInt() @Min(1) handlerId?: number | null;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => LineDto) lines?: LineDto[];
   @IsOptional() @IsString() @MaxLength(500) memo?: string;
+  @IsOptional() @IsString() @MaxLength(160) counterpartyName?: string | null;
+  @IsOptional() @IsString() @MaxLength(255) summary?: string | null;
 }
 class OpeningPrepaymentDto {
   @IsString() @MinLength(1) @MaxLength(500) reason!: string;
@@ -79,6 +81,7 @@ class OpeningPrepaymentDto {
   @Equals(true) confirmed!: boolean;
 }
 class HeaderDto {
+  @IsOptional() @IsString() @MaxLength(255) summary?: string | null;
   @IsOptional() @Matches(DATE) date?: string;
   @IsOptional() @IsInt() @Min(1) handlerId?: number | null;
   @IsOptional() @IsString() @MaxLength(60) handler?: string | null;

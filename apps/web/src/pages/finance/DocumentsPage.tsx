@@ -136,7 +136,7 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
           <input type="date" aria-label="结束日期" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} />
           {isCenter && <button type="button" className="secondary-button small" disabled={loading} onClick={load}>{loading ? '加载中…' : '刷新'}</button>}
           {isCenter && filtersActive && <button type="button" className="ghost-button" onClick={resetFilters}>重置筛选</button>}
-          {isCenter && <button type="button" className="secondary-button small" disabled={rows.length === 0} onClick={() => downloadCsv(`${title}-${from || '全部'}.csv`, ['单号', '类型', '日期', '往来对象', '金额', '收付款账户', '收付款金额', '状态', '经办人', '制单人', '备注'], rows.map((r) => [r.docNo, r.typeLabel, r.docDate, r.partyName ?? '', plainYuan(r.amountCents), r.bankName ?? '', plainYuan(r.paidCents), DOC_STATUS_LABEL[r.status], r.handler ?? '', r.createdByName, r.memo ?? '']))}>导出本页</button>}
+          {isCenter && <button type="button" className="secondary-button small" disabled={rows.length === 0} onClick={() => downloadCsv(`${title}-${from || '全部'}.csv`, ['单号', '类型', '日期', '往来对象', '金额', '收付款账户', '收付款金额', '状态', '经办人', '制单人', '单据摘要', '备注'], rows.map((r) => [r.docNo, r.typeLabel, r.docDate, r.partyName ?? '', plainYuan(r.amountCents), r.bankName ?? '', plainYuan(r.paidCents), DOC_STATUS_LABEL[r.status], r.handler ?? '', r.createdByName, r.summary ?? '', r.memo ?? '']))}>导出本页</button>}
         </div>
         {isCenter && (
           <div className="toolbar" aria-label="批量操作">
@@ -160,7 +160,7 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
             {rows.map((r) => (
               <button type="button" key={r.id} className="bill-card" aria-label={`查看${r.typeLabel} ${r.docNo}`} onClick={() => setSelected(r.id)}>
                 <span className="bill-head"><b>{r.typeLabel}</b><em>{r.docDate}</em></span>
-                <span className="bill-main"><span>{r.partyName || r.memo || '—'}</span><strong className={r.amountCents < 0 ? 'neg' : ''}>{money(r.amountCents)}</strong></span>
+                <span className="bill-main"><span>{r.partyName || r.summary || r.memo || '—'}</span><strong className={r.amountCents < 0 ? 'neg' : ''}>{money(r.amountCents)}</strong></span>
                 <span className="bill-meta"><code>{r.docNo}</code><span className={`pill ${DOC_STATUS_TONE[r.status]}`}>{DOC_STATUS_LABEL[r.status]}</span>{r.transitStatus === 'pending' && r.status === 'posted' && <span className="pill warn">在途待确认</span>}</span>
               </button>
             ))}
@@ -171,7 +171,7 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
             <thead>
               <tr>
                 {isCenter && <th><input type="checkbox" aria-label="全选本页" checked={allChecked} onChange={() => setChecked(allChecked ? new Set() : new Set(rows.map((r) => r.id)))} /></th>}
-                <th>单号</th>{!def && <th>类型</th>}<th>日期</th>{scope === 'history' && <th>方向</th>}<th>往来对象</th><th>金额</th><th>收付款账户</th><th>收付款金额</th><th>状态</th>{scope === 'history' && <th>财务审核</th>}<th>经办人</th><th>制单人</th>{scope === 'history' && <th>来源</th>}<th>备注</th>
+                <th>单号</th>{!def && <th>类型</th>}<th>日期</th>{scope === 'history' && <th>方向</th>}<th>往来对象</th><th>金额</th><th>收付款账户</th><th>收付款金额</th><th>状态</th>{scope === 'history' && <th>财务审核</th>}<th>经办人</th><th>制单人</th>{scope === 'history' && <th>来源</th>}<th>摘要 / 备注</th>
               </tr>
             </thead>
             <tbody>
@@ -187,7 +187,7 @@ function DocumentsInner({ scope, embedded }: { scope: 'drafts' | 'history' | Doc
                   <td>{(r.acctCount ?? 0) > 1 ? `${r.bankName ?? ''} 等 ${r.acctCount} 个账户` : r.bankName ?? ''}</td><td className="num">{r.paidCents ? money(r.paidCents) : ''}</td>
                   <td><span className={`pill ${DOC_STATUS_TONE[r.status]}`}>{DOC_STATUS_LABEL[r.status]}</span>{r.transitStatus === 'pending' && r.status === 'posted' && <> <span className="pill warn">在途待确认</span></>}</td>
                   {scope === 'history' && <td>{r.auditedAt ? <span className="pill ok">已审核</span> : <span className="muted">未审核</span>}</td>}
-                  <td>{r.handler ?? ''}</td><td>{r.createdByName}</td>{scope === 'history' && <td>{r.source ?? ''}</td>}<td>{r.memo}</td>
+                  <td>{r.handler ?? ''}</td><td>{r.createdByName}</td>{scope === 'history' && <td>{r.source ?? ''}</td>}<td>{r.summary && <div>{r.summary}</div>}{r.memo && <div className="muted">{r.memo}</div>}</td>
                 </tr>
               ))}
             </tbody>

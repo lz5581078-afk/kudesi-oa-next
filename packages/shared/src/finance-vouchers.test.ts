@@ -99,3 +99,25 @@ describe('金额单的用途合计与实际收付', () => {
     expect(buildEntries(input, () => null).filter(entry => entry.kind === 'bank').map(entry => entry.amount)).toEqual([100, 200]);
   });
 });
+
+describe('费用自由相关单位的开立与挂账过账', () => {
+  it.each(['part', 'credit', 'offset'] as const)('%s 可以先开立，但没有真实往来ID时不能构造挂账分录', mode => {
+    const input: DocInput = { type: 'expense', date: '2026-10-24', counterpartyName: '合成司机', settlementMode: mode, paidCents: mode === 'part' ? 100 : 0, offsetCents: mode === 'offset' ? 1000 : 0, bankAccountId: 5, lines: [{ feeItemId: 7, qty: 1, unitPriceCents: 1000 }] };
+    expect(validateDoc(input, 'issue')).toEqual([]);
+    expect(validateDoc(input, 'post').join()).toContain('挂账往来档案');
+    expect(() => buildEntries(input, () => null)).toThrow('PARTY_ACCOUNT_REQUIRED');
+    const bound = { ...input, partyId: 9 };
+    expect(validateDoc(bound, 'post')).toEqual([]);
+    expect(buildEntries(bound, () => null).every(entry => !['payable', 'prepayment'].includes(entry.kind) || entry.accountId === 9)).toBe(true);
+  });
+  it('相关单位与摘要各自限制长度，不能挤入备注字段', () => {
+    const input: DocInput = { type: 'expense', date: '2026-10-24', paidCents: 1000, bankAccountId: 5, lines: [{ feeItemId: 7, qty: 1, unitPriceCents: 1000 }] };
+    expect(validateDoc({ ...input, counterpartyName: '字'.repeat(161), summary: '字'.repeat(256) })).toEqual(expect.arrayContaining(['相关单位最多160字', '单据摘要最多255字']));
+  });
+});
+
+it('费用明确选择欠款或预付冲抵时，空实付不回退全款；旧模式为空仍兼容原默认', () => {
+  const input: DocInput = { type: 'expense', date: '2026-10-24', partyId: 9, bankAccountId: 5, paidCents: null, lines: [{ feeItemId: 7, qty: 1, unitPriceCents: 1000 }] };
+  expect(buildEntries({ ...input, settlementMode: 'credit' }, () => null).some(entry => entry.kind === 'bank')).toBe(false);
+  expect(buildEntries(input, () => null).find(entry => entry.kind === 'bank')?.amount).toBe(-1000);
+});

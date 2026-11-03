@@ -2,12 +2,13 @@ import type { CostBreakdown, CostBreakdownLine, DocInput, DocLineInput, DocType 
 import type { FileInfo } from '../../resources/api';
 import { api } from '../../api/client';
 
-export interface DocRow { id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null; transitStatus?: 'pending' | 'confirmed' | null; feeCents?: number; discountCents?: number; acctCount?: number }
+export interface DocRow { summary?: string | null; id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null; transitStatus?: 'pending' | 'confirmed' | null; feeCents?: number; discountCents?: number; acctCount?: number }
 export interface DocList { todayCount?: number; total: number; amountCents: number; paidCents: number; incomeCents?: number; expenseCents?: number; page: number; pageSize: number; rows: DocRow[] }
 export interface BatchResult { okCount: number; failCount: number; results: Array<{ id: number; ok: boolean; docNo?: string; error?: string }> }
 export interface DocEntry { id: string; kind: string; accountId: number; accountName: string; subId: number; amountCents: number | null; qty: number | null }
 export interface DocLineView extends DocLineInput { id: number; productName: string; feeItemName: string; lineNo: number; relatedNode: string | null; relatedId: number | null; relatedName: string | null }
 export interface DocDetailDto {
+  counterpartyName?: string | null; summary?: string | null; linkedPartyName?: string;
   id: number; docNo: string; docType: DocType; typeLabel: string; status: DocRow['status']; docDate: string; partyId: number | null; partyName: string;
   storeId: number | null; storeName: string; refNo: string | null; bankAccountId: number | null; bankName: string; toBankAccountId: number | null; toBankName: string; warehouseId: number | null; warehouseName: string;
   settlementMode?: import('@kudesi/shared').PayMode | null; amountCents: number; offsetCents: number; paidCents: number; discountCents?: number; feeCents?: number; feeBearer?: 'out' | 'in' | null; transitStatus?: 'pending' | 'confirmed' | null; handlerId?: number | null; confirmedAt?: string | null; confirmedByName?: string; partyKind: 'customer' | 'store' | 'supplier' | 'employee' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
@@ -55,7 +56,7 @@ export interface BankBalance {
   id: number; title: string; kind: string; status: string; openingCents: number; movementCents: number; balanceCents: number; entries: number; inTransitCents?: number;
   bank?: string; ownerName?: string; licenseName?: string; keeperName?: string; storeIds?: number[]; storeNames?: string[]; updatedAt?: string | null;
 }
-export interface LedgerRow { id: number; entryDate: string; amountCents: number; balanceCents: number; documentId: number; docNo: string; typeLabel: string; memo: string | null; handler: string | null; partyName: string | null }
+export interface LedgerRow { summary?: string | null; id: number; entryDate: string; amountCents: number; balanceCents: number; documentId: number; docNo: string; typeLabel: string; memo: string | null; handler: string | null; partyName: string | null }
 export interface Ledger { openingCents: number; incomeCents: number; expenseCents: number; closingCents: number; rows: LedgerRow[] }
 export interface StockRow { code: string; unit: string; productId: number; warehouseId: number; productName: string; warehouseName: string; qty: number; avgCostCents: number | null; amountCents: number | null }
 export interface StockLedgerRow { id: number; entryDate: string; documentId: number; docNo: string; typeLabel: string; partyName: string; memo: string | null; qty: number; balanceQty: number; amountCents: number | null; balanceAmountCents: number | null }
@@ -98,7 +99,7 @@ export const financeApi = {
   remove: (id: number) => api<{ ok: true }>(`/finance/docs/${id}`, { method: 'DELETE', body: {} }),
   issue: (id: number) => api<DocDetailDto>(`/finance/docs/${id}/issue`, { method: 'POST', body: {} }),
   unissue: (id: number, reason: string) => api<DocDetailDto>(`/finance/docs/${id}/unissue`, { method: 'POST', body: { reason } }),
-  editHeader: (id: number, b: { date?: string; handler?: string | null; handlerId?: number | null; memo?: string | null }) => api<DocDetailDto>(`/finance/docs/${id}/header`, { method: 'PUT', body: b }),
+  editHeader: (id: number, b: { date?: string; handler?: string | null; handlerId?: number | null; memo?: string | null; summary?: string | null }) => api<DocDetailDto>(`/finance/docs/${id}/header`, { method: 'PUT', body: b }),
   audit: (id: number, on: boolean) => api<DocDetailDto>(`/finance/docs/${id}/audit`, { method: 'POST', body: { on } }),
   copy: (id: number) => api<DocDetailDto>(`/finance/docs/${id}/copy`, { method: 'POST', body: {} }),
   batch: (action: 'post' | 'delete' | 'copy', ids: number[]) => api<BatchResult>('/finance/docs-batch', { method: 'POST', body: { action, ids } }),
