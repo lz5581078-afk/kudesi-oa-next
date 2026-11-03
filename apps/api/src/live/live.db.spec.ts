@@ -1029,6 +1029,7 @@ d('直播管理（真实数据库）', () => {
     const trial=await management.trial(manager,{name:'排场试播核验',hourlyRateCents:6000});
     const pos=await position(company,'试播代报中控','live_control');
     const cc=au(await mkUser(company,'trial-proxy-control','试播中控',{positionId:pos,payType:'hourly',hourlyRate:3000}),company,'试播中控',['features.live-desk.view']);
+    const otherControl=au(await mkUser(company,'trial-proxy-other','其他中控',{positionId:pos}),company,'其他中控',['features.live-desk.view']);
     const [oldRoom]=await ds.query('SELECT data FROM resource_records WHERE company_id=? AND id=?',[company,ids.n1]);
     const parent=(typeof oldRoom.data==='string'?JSON.parse(oldRoom.data):oldRoom.data).parentId;
     const room=await rec(company,'locations','直播间-试播核验',{name:'直播间-试播核验',locationType:'room',parentId:parent});
@@ -1040,7 +1041,7 @@ d('直播管理（真实数据库）', () => {
     const start={actualCheckin:true,role:'control' as const,scheduleId:plan.id,scheduleFingerprint:row.fingerprint,confirmDetails:true,productIds:[ids.p1]};
     await expect(sessions.start(cc,start)).rejects.toThrow(/试播主播/);
     await expect(sessions.start(cc,{...start,confirmTrialAnchorId:anchor.id})).rejects.toThrow(/试播主播/);
-    await expect(sessions.start(control,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排定/);
+    await expect(sessions.start(otherControl,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排定/);
     await expect(sessions.start(foreign,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/身份|不存在/);
     await expect(sessions.start(cc,{...start,anchorId:anchor.id,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排班/);
     const made=await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id});
