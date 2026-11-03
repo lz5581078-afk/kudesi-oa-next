@@ -1,13 +1,22 @@
 import { LiveCheckinPanel } from './LiveCheckinPanel';
 import { useSearchParams } from 'react-router-dom';
 import { LIVE_PLATFORMS } from '@kudesi/shared';
-import { useCallback, useEffect, useState } from 'react';
-import { liveApi, type ScheduleRow, type Workbench } from './liveApi';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { liveApi, type ScheduleRow, type SessionRow, type Workbench } from './liveApi';
 import { errText, hm, money, minutesText } from './liveFormat';
 import { HistoryPanel } from './HistoryPanel';
 import { SchedulePill, SessionPill, SourceStatusNotice } from './liveUi';
 import { SessionDetailDialog } from './SessionDetailDialog';
 import { StartDialog } from './StartDialog';
+
+function PersonalSessionStatus({ session }: { session: SessionRow }) {
+  const own = session.myCheckin;
+  if (!own) return session.checkinMode ? <div className="live-personal-status"><span className="pill warn">本人未上播</span><small className="muted">整场：{session.statusLabel}</small></div> : <SessionPill status={session.status} label={session.statusLabel} />;
+  return <div className="live-personal-status">
+    <span className={`pill ${own.endAt ? 'ok' : session.status === 'live' ? 'bad' : 'warn'}`}>{own.endAt ? '本人已下播' : session.status === 'live' ? '本人直播中' : '本人未报下播'}</span>
+    {(own.endAt || session.status !== 'live') && <small className="muted">整场：{session.statusLabel}</small>}
+  </div>;
+}
 
 /** 我的直播：主播、中控（运营以中控资格）自己的工作台——报上播、报下播、提交审核、本周排场、本月提成与工资。 */
 export function LiveDeskPage() {
@@ -19,13 +28,23 @@ export function LiveDeskPage() {
   const [tab, setTab] = useState<'desk' | 'history'>('desk');
   const [starting, setStarting] = useState<{ schedule: ScheduleRow | null } | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
-  const load = useCallback(() => { if(scanned)return; liveApi.workbench().then((x) => { setD(x); setError(''); }).catch((e) => setError(errText(e, '读取失败'))); }, [scanned]);
-  useEffect(load, [load]);
+  const loadSequence = useRef(0);
+  const load = useCallback(() => {
+    if (scanned) return;
+    const sequence = ++loadSequence.current;
+    liveApi.workbench().then(x => { if (sequence === loadSequence.current) { setD(x); setError(''); } })
+      .catch(e => { if (sequence === loadSequence.current) setError(errText(e, '读取失败')); });
+  }, [scanned]);
+  useEffect(() => { load(); return () => { loadSequence.current++; }; }, [load]);
   useEffect(() => {
-    const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60_000);
-    return () => clearInterval(t);
+    const refresh = () => { if (document.visibilityState === 'visible') load(); };
+    const timer = setInterval(refresh, 60_000);
+    window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', refresh);
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('oa-live-checkin') : null;
+    if (channel) channel.onmessage = refresh;
+    return () => { clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); channel?.close(); };
   }, [load]);
-  if(scanned)return <div className="live-page live-scan-page"><LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined}/></div>;
+  if(scanned)return <div className="live-page live-scan-page"><LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined} onChanged={load}/></div>;
   const canStart = !!d && (!d.identity.isOperations && (d.identity.isAnchor || d.identity.isControl));
   return (
     <div className="live-page">
@@ -40,7 +59,7 @@ export function LiveDeskPage() {
         <button type="button" role="tab" aria-selected={tab === 'desk'} className={tab === 'desk' ? 'chip active' : 'chip'} onClick={() => setTab('desk')}>工作台</button>
         <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'chip active' : 'chip'} onClick={() => setTab('history')}>我的场次历史</button>
       </div>
-      <LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined}/>
+      <LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined} onChanged={load}/>
       <SourceStatusNotice />
       {error && <div role="alert" className="notice error toast-line"><span>{error}</span><button type="button" className="link-button" onClick={load}>重试</button></div>}
       {tab === 'history' ? <HistoryPanel onOpen={setOpenId} /> : !d && !error ? <p className="muted" role="status">正在读取…</p> : d && (
@@ -54,13 +73,14 @@ export function LiveDeskPage() {
           <section className="card live-section" aria-label="进行中的场次">
             <h2>进行中和待处理</h2>
             {d.active.length === 0 && <p className="muted pad">目前没有进行中的场次。</p>}
-            <ul className="live-list">{d.active.map((s) => (
-              <li key={s.id}>
-                <div className="main"><strong>{s.roomName} · {s.date} {hm(s.startAt)}{s.endAt ? `–${hm(s.endAt, s.date)}` : ' 起'}</strong><small>主播 {s.anchor.name}{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.returnReason ? ` · 退回原因：${s.returnReason}` : ''}</small></div>
-                <SessionPill status={s.status} label={s.statusLabel} />
-                <button type="button" className="secondary-button small" onClick={() => setOpenId(s.id)}>{s.status === 'live' ? '报下播 / 详情' : s.status === 'pending_report' || s.status === 'returned' ? '补报 / 提交审核' : '详情'}</button>
-              </li>
-            ))}</ul>
+            <ul className="live-list">{d.active.map((s) => {
+              const own = s.myCheckin, endAt = own ? own.endAt : s.endAt;
+              return <li key={s.id}>
+                <div className="main"><strong>{s.roomName} · {s.date} {hm(own?.startAt ?? s.startAt, s.date)}{endAt ? `–${hm(endAt, s.date)}` : ' 起'}</strong><small>主播 {s.anchor.name}{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.returnReason ? ` · 退回原因：${s.returnReason}` : ''}</small></div>
+                <PersonalSessionStatus session={s} />
+                <button type="button" className="secondary-button small" onClick={() => setOpenId(s.id)}>{s.checkinMode && !own ? '查看详情' : own?.endAt ? '下播记录 / 详情' : s.status === 'live' ? '报下播 / 详情' : s.status === 'pending_report' || s.status === 'returned' ? '补报 / 提交审核' : '详情'}</button>
+              </li>;
+            })}</ul>
           </section>
           <section className="card live-section" aria-label="本周排场">
             <h2>本周排场（今天起 7 天）</h2>
@@ -68,7 +88,7 @@ export function LiveDeskPage() {
             <ul className="live-list">{d.schedules.map((s) => (
               <li key={s.id}>
                 <div className="main"><strong>{s.date} {s.startTime}–{s.endTime} · {s.roomName}</strong><small>我是{s.mineRole === 'anchor' ? '主播' : s.mineRole === 'control' ? '中控' : '运营'} · 主播 {s.anchor.name}{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div>
-                <SchedulePill status={s.status} label={s.statusLabel} />
+                {d.active.find(session => session.id === s.sessionId)?.myCheckin?.endAt ? <span className="pill ok">本人已下播</span> : <SchedulePill status={s.status} label={s.statusLabel} />}
                 {!d.identity.isOperations && s.status === 'scheduled' && s.mineRole !== 'operator' && <button type="button" className="primary-button" disabled={!s.canStart} title={s.canStart ? '' : '排班已过结束时间'} onClick={() => setStarting({ schedule: s })}>上播</button>}
               </li>
             ))}</ul>
