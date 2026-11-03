@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getResourceDef } from '@kudesi/shared';
@@ -71,5 +72,30 @@ describe('列表左侧多维度浏览', () => {
     mount({ canManage: () => true, values: { userId: '7' } });
     await screen.findByText('王芳');
     expect(screen.queryByRole('button', { name: '管理' })).toBeNull();
+  });
+});
+
+
+describe('费用分列目录', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks(); });
+  it('沿所选目录展开下一列，再点祖先返回上级；只提交所选层级编号', async () => {
+    api.categoryTree.mockResolvedValue({ field: 'categoryId', total: 2, uncategorized: 0, nodes: [
+      { id: 1, title: '运行费用', parentId: 0, sort: 0, count: 2, status: 'active' },
+      { id: 2, title: '软件', parentId: 1, sort: 1, count: 2, status: 'active' },
+      { id: 3, title: '软件订阅', parentId: 2, sort: 1, count: 2, status: 'active' },
+    ] });
+    const picked = vi.fn();
+    function FeeDirectory() {
+      const [value, setValue] = useState('1');
+      return <CategoryTree type="finance-fee-items" fields={[getResourceDef('finance-fee-items')!.fields.find(f => f.key === 'categoryId')!]} tab="" status="" showHidden={false} values={{ categoryId: value }} reloadKey={0} rootId={1} onSelect={(key, id) => { picked(key, id); setValue(id); }} canManage={() => false} />;
+    }
+    render(<FeeDirectory />);
+    fireEvent.click(await screen.findByRole('button', { name: '软件 ›' }));
+    expect(picked).toHaveBeenLastCalledWith('categoryId', '2');
+    fireEvent.click(await screen.findByRole('button', { name: '软件订阅 2 条' }));
+    expect(picked).toHaveBeenLastCalledWith('categoryId', '3');
+    fireEvent.click(screen.getByRole('button', { name: '软件 ›' }));
+    expect(picked).toHaveBeenLastCalledWith('categoryId', '');
+    expect(screen.queryByRole('button', { name: '软件订阅 2 条' })).toBeNull();
   });
 });
