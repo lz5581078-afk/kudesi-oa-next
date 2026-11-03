@@ -3,12 +3,12 @@ import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest';
 import { LiveCheckinPanel } from './LiveCheckinPanel';
 import { liveApi } from './liveApi';
 vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:{id:3,companyId:1,name:'本人'}})}));
-vi.mock('./liveApi',()=>({liveApi:{checkinContext:vi.fn(),session:vi.fn(),start:vi.fn(),report:vi.fn(),checkoutPreview:vi.fn(),options:vi.fn(),products:vi.fn(),integrationStatus:vi.fn()}}));
+vi.mock('./liveApi',()=>({liveApi:{checkinContext:vi.fn(),session:vi.fn(),start:vi.fn(),report:vi.fn(),checkoutFeedback:vi.fn(),feedbackImageUrl:vi.fn(),uploadFeedbackImage:vi.fn(),checkoutPreview:vi.fn(),options:vi.fn(),products:vi.fn(),integrationStatus:vi.fn()}}));
 const a=vi.mocked(liveApi);
 const person=(id:number,name:string)=>({id,name});
 const session={id:7,roomId:10,roomName:'南1',date:'2026-11-02',startAt:'2026-11-02 10:00:00',endAt:null,checkinMode:true,reportsLocked:false,status:'live',anchor:person(3,'本人'),control:person(4,'中控'),operator:null,douyinAccount:person(20,'直播号'),store:person(30,'店铺'),channels:[],products:[{id:null,code:'',name:'玉米',spec:''}]};
 const context=(o:Record<string,unknown>={})=>({identity:{isAnchor:true,isControl:false,isOperations:false},active:[],schedules:[],joinable:[],rooms:[],...o});
-beforeEach(()=>{vi.resetAllMocks();a.checkinContext.mockResolvedValue(context() as never);a.options.mockResolvedValue({rooms:[{id:10,name:'南1'}],anchors:[person(3,'本人')],controls:[person(4,'中控')],operators:[],douyinAccounts:[],stores:[]} as never);a.start.mockResolvedValue({id:7});});
+beforeEach(()=>{vi.resetAllMocks();const feedbackApi=vi.mocked(liveApi);feedbackApi.checkoutFeedback.mockResolvedValue({targets:[],records:[{role:'control',images:[{id:91,name:'data.png',mime:'image/png',size:10}],ratings:[]}] as never,locked:false});feedbackApi.feedbackImageUrl.mockResolvedValue({url:'data:image/png;base64,'});a.checkinContext.mockResolvedValue(context() as never);a.options.mockResolvedValue({rooms:[{id:10,name:'南1'}],anchors:[person(3,'本人')],controls:[person(4,'中控')],operators:[],douyinAccounts:[],stores:[]} as never);a.start.mockResolvedValue({id:7});});
 afterEach(()=>cleanup());
 describe('本人岗位工作台直播按钮',()=>{
  it('通用码要求先选房，只加入所选房间，不自动使用其他房间场次',async()=>{
