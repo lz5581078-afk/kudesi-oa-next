@@ -33,7 +33,7 @@ d('岗位入职→本人飞书绑定→OA通知推送（隔离MySQL，飞书网�
     const crypto = buildServices(ds).crypto; config = new ExternalConfigService(ds, crypto);
     cfg = { appId: 'cli_' + tag, appSecret: 'isolated-only', tenantKey: identity.tenantKey, enabled: true, origin: 'https://test.example', channels: [] };
     await ds.query('INSERT INTO integration_settings(company_id,setting_key,config_enc) VALUES(?,?,?)', [c.id, 'feishu', crypto.encrypt(JSON.stringify(cfg))]);
-    const org = new OrgAdminService(ds), enroll = new StaffEnrollmentService(ds);
+    const org = new OrgAdminService(ds), enroll = new StaffEnrollmentService(ds, buildServices(ds).resources);
     const job = await org.createPosition(boss, { name: '运营', workspaceType: 'operations' });
     await org.setPositionPermissions(boss, job.id, ['resource.stores.view']);
     auth = new AuthService(new JwtService({ secret: randomBytes(48).toString('hex') }), ds.getRepository(Company), ds.getRepository(PlatformAdmin), ds.getRepository(User), ds.getRepository(Position), ds.getRepository(PositionPermission), ds.getRepository(UserPermissionOverride), ds.getRepository(AuditLog), new FeishuBindingPolicy(config));

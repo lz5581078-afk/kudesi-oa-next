@@ -65,7 +65,7 @@ it.each([undefined, { id: 7, name: '运营专员' }])('生成通用/专属码参
   render(<EnrollmentInviteDialog position={position} onClose={() => {}} />);
   fireEvent.click(screen.getByRole('button', { name: '生成二维码' }));
   expect(await screen.findByRole('img', { name: '入职二维码' })).toBeTruthy();
-  expect(enrollmentApi.create).toHaveBeenCalledWith(position ? { mode: 'position', positionId: 7, validDays: 30 } : { mode: 'general', validDays: 30 });
+  expect(enrollmentApi.create).toHaveBeenCalledWith(position ? { mode: 'position', positionId: 7, validDays: 30, employmentType: 'regular' } : { mode: 'general', validDays: 30, employmentType: 'regular' });
   fireEvent.click(screen.getByText(/已生成的/)); fireEvent.click(await screen.findByRole('button', { name: '停用' }));
   await waitFor(() => expect(enrollmentApi.revoke).toHaveBeenCalledWith(1));
   await waitFor(() => expect(screen.queryByRole('img', { name: '入职二维码' })).toBeNull());
@@ -84,4 +84,26 @@ it('同一浏览器改扫另一个码时，刷新公司岗位并清空上一份�
   expect((screen.getByLabelText('登录密码') as HTMLInputElement).value).toBe('');
   await fill(); fireEvent.click(screen.getByRole('button', { name: '加入公司并登录' }));
   await waitFor(() => expect(enrollmentApi.join).toHaveBeenCalledWith(expect.objectContaining({ token: nextToken })));
+});
+
+it('生成兼职岗位码，类型和合作日期由发码人指定', async()=>{
+  vi.spyOn(enrollmentApi,'create').mockResolvedValue({id:3,token,mode:'position',positionId:7,expiresAt:preview.expiresAt,employmentType:'part_time'});
+  render(<EnrollmentInviteDialog position={{id:7,name:'运营专员'}} onClose={()=>{}}/>);
+  fireEvent.change(screen.getByLabelText('入职码用工类型'),{target:{value:'part_time'}});
+  fireEvent.change(screen.getByLabelText('合作开始日期'),{target:{value:'2026-01-01'}});
+  fireEvent.click(screen.getByRole('button',{name:'生成二维码'}));
+  await waitFor(()=>expect(enrollmentApi.create).toHaveBeenCalledWith({mode:'position',positionId:7,validDays:30,employmentType:'part_time',contractStartDate:'2026-01-01'}));
+});
+it('临时工码必须由人事填合作结束日期，扫码者不增加填写项',async()=>{
+  render(<EnrollmentInviteDialog position={{id:7,name:'运营专员'}} onClose={()=>{}}/>);
+  fireEvent.change(screen.getByLabelText('入职码用工类型'),{target:{value:'temp'}});
+  expect((screen.getByRole('button',{name:'生成二维码'}) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('合作结束日期'),{target:{value:'2099-12-31'}});
+  expect((screen.getByRole('button',{name:'生成二维码'}) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('临时工扫码页展示人事指定的类型和期限，不让员工自行改用工类型',async()=>{
+  vi.mocked(enrollmentApi.preview).mockResolvedValue({...preview,mode:'position',position:{id:7,name:'运营专员'},positions:[],employmentType:'temp',contractStartDate:'2026-01-01',contractEndDate:'2099-12-31'});
+  page();expect(await screen.findByText('用工类型：临时工')).toBeTruthy();expect(screen.getByText(/2099-12-31/)).toBeTruthy();
+  expect(screen.queryByRole('combobox')).toBeNull();expect(screen.getByLabelText('姓名')).toBeTruthy();expect(screen.getByLabelText('手机号')).toBeTruthy();expect(screen.getByLabelText('登录密码')).toBeTruthy();
 });

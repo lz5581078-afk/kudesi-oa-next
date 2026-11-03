@@ -2,11 +2,12 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, EntityManager } from 'typeorm';
-import { createChecker } from '@kudesi/shared';
+import { DataSource, EntityManager, In } from 'typeorm';
+import { createChecker, resolvePermissions, todayShanghai, validateWorkforceTerms, type EnrollmentTerms } from '@kudesi/shared';
 import { accountTransaction } from '../auth/account-transaction';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, Company, Department, PlatformAdmin, Position, User } from '../entities';
+import { AuditLog, Company, Department, PlatformAdmin, Position, PositionPermission, UserPermissionOverride, User } from '../entities';
+import { ResourcesService } from '../resources/resources.service';
 import { StaffEnrollmentInvite } from './staff-enrollment.entity';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -14,7 +15,7 @@ const validToken = (token: string) => /^[A-Za-z0-9_-]{43}$/.test(token);
 
 @Injectable()
 export class StaffEnrollmentService {
-  constructor(@InjectDataSource() private readonly ds: DataSource) {}
+  constructor(@InjectDataSource() private readonly ds: DataSource, private readonly resources: ResourcesService) {}
 
   private need(actor: AuthUser) {
     if (!createChecker(actor.permissions)('org.staff.create')) throw new ForbiddenException('没有创建员工的权限');
@@ -31,11 +32,23 @@ export class StaffEnrollmentService {
   private audit(em: EntityManager, companyId: number, actorId: number, action: string, id: number, detail: Record<string, unknown>) {
     return em.save(AuditLog, em.create(AuditLog, { companyId, actorId, action, resourceType: 'staff-enrollment', resourceId: String(id), detail }));
   }
-  async create(actor: AuthUser, input: { mode: 'general' | 'position'; positionId?: number; validDays?: number }) {
+  async create(actor: AuthUser, input: { mode: 'general' | 'position'; positionId?: number; validDays?: number } & EnrollmentTerms) {
     this.need(actor);
     if (!['general', 'position'].includes(input.mode)) throw new BadRequestException('请选择二维码类型');
     if (input.mode === 'general' && input.positionId !== undefined) throw new BadRequestException('通用二维码不能预设岗位');
     if (input.mode === 'position' && !Number.isInteger(input.positionId)) throw new BadRequestException('请选择岗位');
+    const employmentType = input.employmentType ?? 'regular';
+    if (!['regular','part_time','temp'].includes(employmentType)) throw new BadRequestException('请选择有效用工类型');
+    if (employmentType === 'regular' && (input.contractStartDate || input.contractEndDate)) throw new BadRequestException('正式员工入职码不设置兼职合作期限');
+    const contractStartDate = employmentType === 'regular' ? null : input.contractStartDate || todayShanghai();
+    const contractEndDate = employmentType === 'regular' ? null : input.contractEndDate || null;
+    if (employmentType !== 'regular') {
+      if (!createChecker(actor.permissions)('resource.workforce.create')) throw new ForbiddenException('没有创建兼职与临时工档案的权限');
+      const problem = validateWorkforceTerms({ employmentType, contractStartDate, contractEndDate });
+      if (problem) throw new BadRequestException(problem);
+      if (contractStartDate! < '1000-01-01') throw new BadRequestException('合作开始日期不合法');
+      if (contractEndDate && contractEndDate < todayShanghai()) throw new BadRequestException('合作期已结束，不能生成入职码');
+    }
     const days = input.validDays ?? 30;
     if (![7, 30, 90].includes(days)) throw new BadRequestException('请选择7、30或90天有效期');
     const token = randomBytes(32).toString('base64url');
@@ -44,19 +57,19 @@ export class StaffEnrollmentService {
       if (!company) throw new ForbiddenException('公司已停用');
       if (input.mode === 'position') await this.position(em, actor.companyId, input.positionId!);
       const row = await em.save(StaffEnrollmentInvite, em.create(StaffEnrollmentInvite, {
-        companyId: actor.companyId, mode: input.mode, positionId: input.mode === 'position' ? input.positionId! : null,
+        employmentType, contractStartDate, contractEndDate, companyId: actor.companyId, mode: input.mode, positionId: input.mode === 'position' ? input.positionId! : null,
         tokenHash: digest(token), createdBy: actor.id, expiresAt: new Date(Date.now() + days * 86400000), revokedAt: null,
       }));
-      await this.audit(em, actor.companyId, actor.id, 'staff-enrollment.create', row.id, { mode: row.mode, positionId: row.positionId, expiresAt: row.expiresAt.toISOString() });
+      await this.audit(em, actor.companyId, actor.id, 'staff-enrollment.create', row.id, { mode: row.mode, employmentType: row.employmentType, contractStartDate: row.contractStartDate, contractEndDate: row.contractEndDate, positionId: row.positionId, expiresAt: row.expiresAt.toISOString() });
       return row;
     });
-    return { id: invite.id, token, mode: invite.mode, positionId: invite.positionId, expiresAt: invite.expiresAt.toISOString() };
+    return { id: invite.id, token, employmentType: invite.employmentType, contractStartDate: invite.contractStartDate, contractEndDate: invite.contractEndDate, mode: invite.mode, positionId: invite.positionId, expiresAt: invite.expiresAt.toISOString() };
   }
   async list(actor: AuthUser) {
     this.need(actor);
     const rows = await this.ds.manager.find(StaffEnrollmentInvite, { where: { companyId: actor.companyId }, order: { id: 'DESC' }, take: 100 });
     const positions = await this.ds.manager.find(Position, { where: { companyId: actor.companyId }, select: ['id', 'name'] });
-    return rows.map(row => ({ id: row.id, mode: row.mode, positionId: row.positionId, positionName: positions.find(p => p.id === row.positionId)?.name ?? '', expiresAt: row.expiresAt.toISOString(), createdAt: row.createdAt.toISOString(), status: row.revokedAt ? 'revoked' : row.expiresAt.getTime() <= Date.now() ? 'expired' : 'active' }));
+    return rows.map(row => ({ id: row.id, employmentType: row.employmentType, contractStartDate: row.contractStartDate, contractEndDate: row.contractEndDate, mode: row.mode, positionId: row.positionId, positionName: positions.find(p => p.id === row.positionId)?.name ?? '', expiresAt: row.expiresAt.toISOString(), createdAt: row.createdAt.toISOString(), status: row.revokedAt ? 'revoked' : row.expiresAt.getTime() <= Date.now() ? 'expired' : 'active' }));
   }
   async revoke(actor: AuthUser, id: number) {
     this.need(actor);
@@ -87,10 +100,22 @@ export class StaffEnrollmentService {
     const positions = all.filter(p => !p.departmentId || allowed.has(p.departmentId));
     if (invite.mode === 'position') await this.position(em, company.id, invite.positionId!);
     return {
-      companyName: company.name, mode: invite.mode, expiresAt: invite.expiresAt.toISOString(),
+      companyName: company.name, employmentType: invite.employmentType, contractStartDate: invite.contractStartDate, contractEndDate: invite.contractEndDate, mode: invite.mode, expiresAt: invite.expiresAt.toISOString(),
       position: invite.mode === 'position' ? { id: invite.positionId!, name: positions.find(p => p.id === invite.positionId)?.name ?? '' } : null,
       positions: invite.mode === 'general' ? positions.map(p => ({ id: p.id, name: p.name, departmentName: departments.find(d => d.id === p.departmentId)?.name ?? '' })) : [],
     };
+  }
+  private async issuer(em: EntityManager, companyId: number, id: number): Promise<AuthUser> {
+    const person = await em.findOneByOrFail(User, { companyId, id, status: 'active' });
+    const ids = [person.positionId, ...(person.extraPositionIds ?? [])].filter((id): id is number => !!id);
+    const positions = ids.length ? await em.find(Position, { where: { companyId, id: In(ids), status: 'active' } }) : [];
+    const rows = positions.length ? await em.find(PositionPermission, { where: { positionId: In(positions.map(p => p.id)) } }) : [];
+    const overrides = await em.find(UserPermissionOverride, { where: { userId: id } });
+    const permissions = resolvePermissions({ isCompanyAdmin: person.isCompanyAdmin, positionPermissions: rows.map(r => r.permission), overrides });
+    const actor = { id, companyId, name: person.name, permissions };
+    this.need(actor);
+    if (!createChecker(permissions)('resource.workforce.create')) throw new ForbiddenException('发码人已无兼职与临时工建档权限，请联系人事重新获取入职码');
+    return actor;
   }
   async join(input: { token: string; name: string; phone: string; password: string; positionId?: number }) {
     const name = input.name.trim(), phone = input.phone.trim();
@@ -108,10 +133,20 @@ export class StaffEnrollmentService {
       if (await em.findOneBy(User, { account: phone }) || await em.findOneBy(PlatformAdmin, { account: phone })) throw new ConflictException('该手机号暂不能注册，请直接登录或联系人事');
       const user = await em.save(User, em.create(User, { companyId: company.id, account: phone, passwordHash, name,
         departmentId: position.departmentId, positionId: position.id, extraPositionIds: null,
-        managerId: null, title: null, baseSalary: null, payType: 'monthly', hourlyRate: null, employmentType: 'regular',
+        managerId: null, title: null, baseSalary: null, payType: 'monthly', hourlyRate: null, employmentType: invite.employmentType,
         isCompanyAdmin: false, status: 'active', mustChangePassword: false,
       }));
-      await this.audit(em, company.id, user.id, 'user.self-enroll', user.id, { inviteId: invite.id, positionId: position.id, mode: invite.mode });
+      if (invite.employmentType !== 'regular') {
+        const problem = validateWorkforceTerms(invite);
+        if (problem) throw new BadRequestException(problem);
+        if (invite.contractEndDate && invite.contractEndDate < todayShanghai()) throw new BadRequestException('合作期已结束，请联系人事重新获取入职码');
+        const issuer = await this.issuer(em, company.id, invite.createdBy);
+        await this.resources.createRecord(em, issuer, 'workforce', {
+          userId: user.id, employmentType: invite.employmentType, phone,
+          contractStartDate: invite.contractStartDate, contractEndDate: invite.contractEndDate,
+        }, '员工扫描入职码自动建档');
+      }
+      await this.audit(em, company.id, user.id, 'user.self-enroll', user.id, { inviteId: invite.id, positionId: position.id, mode: invite.mode, employmentType: invite.employmentType });
       return { account: phone, companyName: company.name, positionName: position.name };
     });
   }
