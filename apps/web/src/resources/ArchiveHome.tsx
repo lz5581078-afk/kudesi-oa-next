@@ -173,7 +173,7 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
     <div className={`res-page hier-home finance-base-home${contact ? ' finance-contact-home' : ''}`} data-resource={type}>
       {hasAppbar && desc && <AppbarHint><PageHint text={desc} /></AppbarHint>}
       <header className="hier-home-head">
-        <div className="finance-base-home-title">{contact && <span>财务基础资料</span>}<h1>{def.label}</h1><p>{contact ? `按${noun}类型分层维护。进入一个分类后，只展示该目录直属的${noun}资料。` : type === 'finance-products' ? '按原料、自产品、原装采购、供应商 OEM、产品包装、发货物料和 OEM 包装分别维护，后续用于采购、成本和核算。' : cfg.subtitle}</p></div>
+        <div className="finance-base-home-title">{contact && <span>财务基础资料</span>}{!hasAppbar && <h1>{def.label}</h1>}<p>{contact ? `按${noun}类型分层维护。进入一个分类后，只展示该目录直属的${noun}资料。` : type === 'finance-products' ? '按原料、自产品、原装采购、供应商 OEM、产品包装、发货物料和 OEM 包装分别维护，后续用于采购、成本和核算。' : cfg.subtitle}</p></div>
         <div className="hier-home-actions">
           {type === 'finance-fee-items' && <>{catCan('create') && <button type="button" className="res-btn primary" onClick={() => setDraft({ name: '', subtitle: '' })}>新增顶级分类</button>}<button type="button" className="res-btn" onClick={() => setSnapshots(true)}>存为历史包</button></>}
           {cfg.kind === 'category' && <details className="finance-home-more"><summary>更多</summary><button type="button" className="res-btn" onClick={() => onEnter({ key: 'all', title: `全部${noun}`, subtitle: cfg.subtitle })}>查看全部{total !== null ? `（${total}）` : ''}</button>{type === 'finance-fee-items' && canManageRoots && <button type="button" className="res-btn" onClick={() => setManaging(v => !v)}>{managing ? '完成管理' : '管理顶级分类'}</button>}</details>}
