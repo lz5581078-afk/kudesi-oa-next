@@ -23,7 +23,11 @@ export class CollectorRealtimeService implements OnApplicationBootstrap, OnModul
   }
   onModuleDestroy() { this.server?.off('upgrade', this.upgrade); for (const ws of this.wss.clients) ws.terminate(); this.wss.close(); }
   private upgrade = (request: IncomingMessage, socket: Socket, head: Buffer) => {
-    if (request.url?.split('?')[0] !== '/api/collector/realtime') { socket.destroy(); return; }
+    const pathname = request.url?.split('?')[0];
+    // The enabled shop-session runtime owns this exact upgrade endpoint.
+    // Keep rejecting every other foreign path without changing collector auth.
+    if (pathname === '/api/session-manager/webrtc' && process.env.KUDESI_SESSION_ENGINE === 'legacy') return;
+    if (pathname !== '/api/collector/realtime') { socket.destroy(); return; }
     socket.setTimeout(12000, () => socket.destroy());
     void this.accept(request, socket, head).catch((error) => {
       if (socket.destroyed) return;
