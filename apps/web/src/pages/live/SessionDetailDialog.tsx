@@ -50,6 +50,7 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
         <>
           <div className="between"><strong>{s.roomName} · {s.date}</strong><SessionPill status={s.status} label={s.statusLabel} /></div>
           {s.status === 'returned' && s.returnReason && <div className="notice warn">已退回：{s.returnReason}。请修改下播报告后重新提交。</div>}
+          {s.anchorTrial&&<p className="notice warn">试播主播「{s.anchor.name}」由中控「{s.control?.name}」确认上下播，本场可凭中控报告审核工资和提成。</p>}
           {s.reportSource==='manual'&&<p className="notice warn">人事手工填报 · 经办人编号 #{s.manualActorId} · 原因：{s.manualReason}</p>}
           {s.checkinMode&&<div className="notice warn">{s.reportDeadline?`${s.reportsLocked?'本场已锁定':'报下播截止'}：${s.reportDeadline}，锁定后其他岗位不能再报。`:'首位报下播后开始30分钟补报倒计时。'}{s.autoSubmitError&&` 自动提交待处理：${s.autoSubmitError}`}{s.ordersCaptureStatus==='pending'&&` 订单待核对：${s.ordersCaptureError??'正在归集'}`}<br/>审核以运营填报为主要依据；没有运营报告时可按主播报告审核。</div>}
           <dl className="live-fields">

@@ -19,6 +19,9 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
   const [channels,setChannels]=useState(initialChannels(schedule));
   const [confirmed,setConfirmed]=useState(false);
   const [early,setEarly]=useState(false);
+  const [trialConfirmed,setTrialConfirmed]=useState(false);
+  const trialAnchor=!!schedule?.anchorTrial && identity.isControl;
+  useEffect(()=>setTrialConfirmed(false),[schedule?.id,schedule?.anchor.id]);
   const beforePlan=!!schedule && nowText()<(schedule.start??`${schedule.date} ${schedule.startTime}:00`).slice(0,16);
   const [keyword, setKeyword] = useState('');
   const [found, setFound] = useState<Product[]>([]);
@@ -39,11 +42,12 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
     if (!channels.length || channels.some(c=>!c.storeIds.length)) return setError('请选择直播账号及关联店铺');
     if (!productEntries(picked).length) return setError(schedule ? '请至少填写 1 个在卖产品' : '请至少选择 1 个在卖产品');
     if(identity.isControl&&!confirmed)return setError('请先核对并确认本场信息');
+    if(trialAnchor&&!trialConfirmed)return setError('请确认本场上播的试播主播');
     if(beforePlan&&!early){setEarly(true);return;}
     setBusy(true);
     try {
       const r = await liveApi.start({
-        role:checkinRole,sessionId:joining?.id,confirmDetails:confirmed,confirmEarly:early,scheduleFingerprint:schedule?.fingerprint, scheduleId: schedule?.id ?? null, roomId: roomId ? Number(roomId) : null, anchorId: anchorId ? Number(anchorId) : null, controlId: controlId ? Number(controlId) : null, operatorId: operatorId ? Number(operatorId) : null,
+        confirmTrialAnchorId:trialAnchor&&trialConfirmed?schedule!.anchor.id:undefined,role:checkinRole,sessionId:joining?.id,confirmDetails:confirmed,confirmEarly:early,scheduleFingerprint:schedule?.fingerprint, scheduleId: schedule?.id ?? null, roomId: roomId ? Number(roomId) : null, anchorId: anchorId ? Number(anchorId) : null, controlId: controlId ? Number(controlId) : null, operatorId: operatorId ? Number(operatorId) : null,
         channels,douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], ...(schedule ? { productEntries: productEntries(picked) } : { productIds: picked.flatMap((p) => p.id === null ? [] : [p.id]) }),
       });
       onDone(r.id);
@@ -62,13 +66,14 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
           {(
             <>
               <label className="live-field">直播间<select disabled={!!schedule||!!fixedRoomId} value={roomId} onChange={(e) => setRoomId(e.target.value)}><option value="">请选择</option>{opts.rooms.map((r) => <option key={r.id} value={r.id} disabled={r.live}>{r.name}{r.live ? '（正在直播）' : ''}</option>)}</select></label>
-              {(!identity.isAnchor || identity.canManage) && <label className="live-field">主播<select disabled={!!joining} value={anchorId} onChange={(e) => setAnchorId(e.target.value)}><option value="">{identity.isAnchor ? '本人' : '请选择'}</option>{opts.anchors.map((p) => <option key={p.id} value={p.id} disabled={p.live}>{p.name}{p.live ? '（正在直播）' : ''}</option>)}</select></label>}
+              {(!identity.isAnchor || identity.canManage) && <label className="live-field">主播<select disabled={!!joining||trialAnchor} value={anchorId} onChange={(e) => setAnchorId(e.target.value)}><option value="">{identity.isAnchor ? '本人' : '请选择'}</option>{opts.anchors.map((p) => <option key={p.id} value={p.id} disabled={p.live}>{p.name}{p.live ? '（正在直播）' : ''}</option>)}</select></label>}
               <label className="live-field">中控（可选）<select disabled={!!joining} value={controlId} onChange={(e) => setControlId(e.target.value)}><option value="">{identity.isControl && !identity.isAnchor ? '本人' : '无'}</option>{opts.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
               <label className="live-field">运营（可选，审核时由人事确认）<select value={operatorId} onChange={(e) => setOperatorId(e.target.value)}><option value="">无</option>{opts.operators.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
             </>
           )}
           <ChannelPicker options={opts} value={channels} onChange={setChannels}/>
 <p className="wide muted">按点击确认的实际时间记录上播，排班时间仅供参考。</p>
+          {trialAnchor&&<label className="wide notice warn"><input type="checkbox" checked={trialConfirmed} onChange={e=>setTrialConfirmed(e.target.checked)}/> 确认本场由试播主播「{schedule!.anchor.name}」上播，由我代报上下播，时间用于该主播工资和提成核算</label>}
           {beforePlan && <p className="notice warn wide">尚未到计划开播时间。{early ? '请再次点击“仍要提前开播”确认。' : '继续开播需要二次确认。'}</p>}
           <label className="wide"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> 已核对本场人员、直播账号、关联店铺和产品（中控必选）</label>
 
@@ -101,6 +106,6 @@ export function StartDialog(props:Parameters<typeof StartForm>[0]){
 
 /** When another role has already opened the room, confirm the actual session rather than the original plan. */
 export function JoinDialog({session,role,onClose,onDone}:{session:CheckinSession;role:'anchor'|'control';onClose:()=>void;onDone:(id:number)=>void}){
-  const actual:ScheduleRow={id:session.scheduleId??0,roomId:session.roomId,roomName:session.roomName,date:session.date,start:session.startAt,end:session.endAt??session.startAt,startTime:session.startAt.slice(11,16),endTime:(session.endAt??session.plannedEnd??session.startAt).slice(11,16),status:'live',statusLabel:'直播中',anchor:session.anchor,control:session.control,operator:session.operator,douyinAccount:session.douyinAccount,store:session.store,channels:session.channels,products:session.products,sessionId:session.id,note:null,cancelReason:null};
+  const actual:ScheduleRow={anchorTrial:session.anchorTrial,id:session.scheduleId??0,roomId:session.roomId,roomName:session.roomName,date:session.date,start:session.startAt,end:session.endAt??session.startAt,startTime:session.startAt.slice(11,16),endTime:(session.endAt??session.plannedEnd??session.startAt).slice(11,16),status:'live',statusLabel:'直播中',anchor:session.anchor,control:session.control,operator:session.operator,douyinAccount:session.douyinAccount,store:session.store,channels:session.channels,products:session.products,sessionId:session.id,note:null,cancelReason:null};
   return <StartForm role={role} joining={session} schedule={actual} identity={{isAnchor:role==='anchor',isControl:role==='control',canManage:false}} onClose={onClose} onDone={onDone}/>;
 }

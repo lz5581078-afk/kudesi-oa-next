@@ -65,6 +65,7 @@ class PreviousScheduleQuery {
 }
 class CancelDto { @IsString() @MaxLength(500) reason!: string }
 class StartDto {
+  @IsOptional() @IsInt() @Min(1) confirmTrialAnchorId?:number;
   @IsOptional() @IsIn(['anchor','control','operator']) role?:'anchor'|'control'|'operator';
   @IsOptional() @IsInt() @Min(1) sessionId?:number;
   @IsOptional() @IsBoolean() confirmDetails?:boolean;
@@ -83,6 +84,7 @@ class StartDto {
   @IsOptional() @IsString() @MaxLength(19) startAt?: string | null;
 }
 class ReportDto {
+  @IsOptional() @IsInt() @Min(1) confirmTrialAnchorId?:number;
   @IsOptional() @IsArray() @ArrayMaxSize(400) @ValidateNested({each:true}) @Type(()=>StoreLineDto) storeLines?:StoreLineDto[];
   @IsOptional() @IsIn(['anchor', 'control', 'operator']) role?: string;
   @IsString() @MaxLength(19) endAt!: string;

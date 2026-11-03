@@ -20,11 +20,11 @@ import { ReviewForm, checkSubmittable, previewApproval } from './live-review';
 import { serializeSchedule } from './live-schedule.service';
 
 export interface StartInput {
-  role?:'anchor'|'control'|'operator'; actualCheckin?: boolean; sessionId?: number; confirmDetails?: boolean; confirmEarly?: boolean; scheduleFingerprint?: string;
+  confirmTrialAnchorId?: number; role?:'anchor'|'control'|'operator'; actualCheckin?: boolean; sessionId?: number; confirmDetails?: boolean; confirmEarly?: boolean; scheduleFingerprint?: string;
   scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null;
   channels?: LiveChannelInput[]; douyinAccountId?: number | null; storeId?: number | null; productIds?: number[]; productEntries?: LiveProductEntry[]; startAt?: string | null;
 }
-export interface ReportInput { storeLines?: LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
+export interface ReportInput { confirmTrialAnchorId?: number; storeLines?: LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
 export interface SessionQuery { from?: string; to?: string; roomId?: number; anchorId?: number; controlId?: number; status?: string; page?: number; pageSize?: number; reviewOnly?: boolean }
 
 const ACTIVE = ['live', 'pending_report', 'returned', 'submitted'];
@@ -33,7 +33,7 @@ const REVIEWER_SQL = 'EXISTS (SELECT 1 FROM flow_steps fs WHERE fs.run_id = s.fl
 
 export function serializeSession(s: Row) {
   return {
-    checkinMode: !!s.checkin_mode, reportDeadline: liveToText(s.report_deadline), reportsLocked: reportsLocked(s, liveClock.now()), autoSubmitError: s.auto_submit_error ?? null, ordersCaptureStatus: s.orders_capture_status, ordersCaptureError: s.orders_capture_error ?? null,
+    anchorTrial: !!Number(s.trial_proxy), checkinMode: !!s.checkin_mode, reportDeadline: liveToText(s.report_deadline), reportsLocked: reportsLocked(s, liveClock.now()), autoSubmitError: s.auto_submit_error ?? null, ordersCaptureStatus: s.orders_capture_status, ordersCaptureError: s.orders_capture_error ?? null,
     channels: channelsOf(s),
     id: Number(s.id), scheduleId: s.schedule_id ? Number(s.schedule_id) : null, roomId: Number(s.room_id), roomName: s.room_name, date: s.session_day, startAt: s.start_text, endAt: s.end_text ?? null,
     plannedEnd: s.schedule_end ?? null, status: s.status, statusLabel: LIVE_SESSION_STATUS[s.status] ?? s.status,
@@ -162,6 +162,8 @@ export class LiveSessionService {
         if (startDate.getTime() >= en) liveFail('这场排班已经过了结束时间，不能上播');
         [roomId, anchorId, controlId, operatorId] = [Number(row.room_id), Number(row.anchor_user_id), row.control_user_id ? Number(row.control_user_id) : null, row.operator_user_id ? Number(row.operator_user_id) : null];
         if(input.actualCheckin){
+          const [plannedAnchor]=await em.query('SELECT live_trial FROM users WHERE company_id=? AND id=?',[a.companyId,anchorId]);
+          if(plannedAnchor?.live_trial && input.anchorId && input.anchorId!==anchorId)liveFail('试播主播与排班不一致，请先修改排班',409);
           anchorId=input.anchorId??anchorId;controlId=input.controlId===undefined?controlId:input.controlId;operatorId=input.operatorId===undefined?operatorId:input.operatorId;
           if(anchorId!==a.userId&&!(a.isControl&&controlId===a.userId))liveFail('只能以本人岗位开播',403);
         }
@@ -189,6 +191,12 @@ export class LiveSessionService {
         if (!op) liveFail('所选运营人员不存在或已停用', 400);
         if (operatorId === anchorId) liveFail('运营人员不能同时是主播', 400);
       }
+      const trialAnchor = anchors.find(p=>p.id===anchorId)?.trial === true;
+      if(input.confirmTrialAnchorId!==undefined && !trialAnchor)liveFail('试播身份已变化，请刷新排班后重新确认',409);
+      if(trialAnchor){
+        if(!input.actualCheckin || !sched || Number(sched.anchor_user_id)!==anchorId || !a.isControl || controlId!==a.userId || Number(sched.control_user_id)!==a.userId)liveFail('试播主播请先排班，由排定中控本人确认上播',400);
+        if(input.confirmTrialAnchorId!==anchorId)liveFail('请确认本场确实由排班中的试播主播上播',400);
+      }
       const channels = await validateChannels(em, a.companyId, input.channels ?? (sched && channelsOf(sched).length ? channelsOf(sched) : [{ accountId: accountId!, storeIds: storeId ? [storeId] : [] }]));
       const primary = channels[0], account = { id: primary.accountId, name: channels.map(c => c.accountName).join(' / ').slice(0,200) }, store = primary.stores[0];
       const products = await resolveLiveProducts(em, a.companyId, input, true);
@@ -210,6 +218,10 @@ export class LiveSessionService {
       if(input.actualCheckin){
         await em.query("UPDATE live_sessions SET checkin_mode=1,orders_capture_status='pending' WHERE company_id=? AND id=?",[a.companyId,id]);
         await em.query('INSERT INTO live_session_checkins (company_id,session_id,user_id,role,start_at,confirmation_json) VALUES (?,?,?,?,?,?)',[a.companyId,id,a.userId,role,startAt,JSON.stringify({scheduleId:input.scheduleId??null,fingerprint:input.scheduleFingerprint??null,confirmed:!!input.confirmDetails,earlyConfirmed:!!input.confirmEarly})]);
+      }
+      if(trialAnchor){
+        await em.query("INSERT INTO live_session_checkins(company_id,session_id,user_id,role,start_at,confirmation_json) VALUES(?,?,?,'anchor',?,?)",[a.companyId,id,anchorId,startAt,JSON.stringify({trialAnchorId:anchorId,confirmedBy:a.userId,scheduleId:Number(sched!.id),kind:'trial-control-proxy'})]);
+        await em.query('INSERT INTO audit_logs(company_id,actor_id,action,resource_type,resource_id,detail) VALUES(?,?,?,?,?,?)',[a.companyId,a.userId,'live.trial.start','live-session',String(id),JSON.stringify({trialAnchorId:anchorId,scheduleId:Number(sched!.id),startAt})]);
       }
       let order = 0;
       for (const p of products) await em.query('INSERT INTO live_session_products (company_id, session_id, base_code_id, code_snapshot, name_snapshot, spec_snapshot, sort_order) VALUES (?,?,?,?,?,?,?)', [a.companyId, id, p.id, p.code.slice(0, 100), (p.name || p.code).slice(0, 200), p.spec.slice(0, 300) || null, order++]);
@@ -258,6 +270,7 @@ export class LiveSessionService {
     return {role:ownRole,startAt:clock.start_text,endAt,minutes:Math.max(0,Math.ceil((+liveFromText(endAt)!-+liveFromText(clock.start_text)!)/60000)),salesCents,orderCount,reason,wage,wageMessage:wageExcluded?'该岗位担任中控只计提成，不计时薪':null,commission:preview?.[ownRole as 'anchor'|'control']??null,locked:reportsLocked(s,liveClock.now())};
   }
   private async actualReport(user:AuthUser,a:LiveAccess,first:Row,role:string,input:ReportInput){
+    if(Number(first.trial_proxy) && role==='control' && input.confirmTrialAnchorId!==Number(first.anchor_user_id))liveFail('请确认本场下播的试播主播与上播时为同一人',400);
     const [clock]:Row[]=await this.em.query("SELECT *,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_session_checkins WHERE company_id=? AND session_id=? AND role=? AND user_id=?",[a.companyId,first.id,role,a.userId]);
     if(!clock)liveFail('请先确认本人上播，不能代其他岗位报下播',400);
     const at=liveClock.now(),endAt=clock.end_text??wallNow(at);
@@ -291,7 +304,12 @@ export class LiveSessionService {
       }
       else await em.query("UPDATE live_sessions SET orders_capture_status='pending',orders_capture_error=? WHERE company_id=? AND id=?",[error,a.companyId,s.id]);
       await em.query('UPDATE live_sessions SET first_reported_at=COALESCE(first_reported_at,?),report_deadline=COALESCE(report_deadline,?),revision=revision+1 WHERE company_id=? AND id=?',[wallNow(at),wallNow(new Date(+at+REPORT_WINDOW_MS)),a.companyId,s.id]);
-      if(role==='anchor'){
+      if(Number(s.trial_proxy) && role==='control'){
+        if(input.confirmTrialAnchorId!==Number(s.anchor_user_id))liveFail('试播主播信息变化，请重新核对',409);
+        await em.query("UPDATE live_session_checkins SET end_at=COALESCE(end_at,?) WHERE company_id=? AND session_id=? AND role='anchor' AND user_id=?",[endAt,a.companyId,s.id,s.anchor_user_id]);
+        await em.query('INSERT INTO audit_logs(company_id,actor_id,action,resource_type,resource_id,detail) VALUES(?,?,?,?,?,?)',[a.companyId,a.userId,'live.trial.end','live-session',String(s.id),JSON.stringify({trialAnchorId:Number(s.anchor_user_id),endAt})]);
+      }
+      if(role==='anchor'||Number(s.trial_proxy)&&role==='control'){
         await em.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[endAt,a.companyId,s.id]);
         await em.query("UPDATE live_schedules SET status='finished' WHERE company_id=? AND session_id=? AND status='live'",[a.companyId,s.id]);
       }
@@ -543,7 +561,7 @@ export class LiveSessionService {
     const today = liveToday(now), month = today.slice(0, 7), mine = '(s.anchor_user_id = ? OR s.control_user_id = ? OR s.operator_user_id = ?)';
     const [active, schedules, recent, comm, wage, commRows, wageRows] = await Promise.all([
       em.query(`${SESSION_SELECT} WHERE s.company_id = ? AND ${mine} AND s.status IN (${ACTIVE.map(() => '?').join(',')}) ORDER BY s.start_at DESC LIMIT 20`, [c, uid, uid, uid, ...ACTIVE]) as Promise<Row[]>,
-      em.query(`SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text, a.name anchor_name, cc.name control_name, o.name operator_name
+      em.query(`SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text, a.name anchor_name, a.live_trial anchor_trial, cc.name control_name, o.name operator_name
           FROM live_schedules s JOIN users a ON a.id = s.anchor_user_id AND a.company_id = s.company_id LEFT JOIN users cc ON cc.id = s.control_user_id AND cc.company_id = s.company_id LEFT JOIN users o ON o.id = s.operator_user_id AND o.company_id = s.company_id
          WHERE s.company_id = ? AND (s.anchor_user_id = ? OR s.control_user_id = ? OR s.operator_user_id = ?) AND s.status IN ('scheduled','live') AND s.schedule_date BETWEEN ? AND ? ORDER BY s.start_at`, [c, uid, uid, uid, today, liveAddDays(today, 7)]) as Promise<Row[]>,
       em.query(`${SESSION_SELECT} WHERE s.company_id = ? AND ${mine} ORDER BY s.start_at DESC LIMIT 20`, [c, uid, uid, uid]) as Promise<Row[]>,
