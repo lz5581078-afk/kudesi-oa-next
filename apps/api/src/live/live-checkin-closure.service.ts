@@ -7,6 +7,7 @@ import { LiveOrderSource } from './live-order-source';
 import { captureOrders, persistCapture } from './live-order-capture';
 import { Row, liveClock, lockCompany, sessionRow, wallNow } from './live-core';
 import { finishCheckedOutRoom } from './live-checkout-state';
+import { autoCheckout } from './live-auto-checkout';
 
 @Injectable()
 export class LiveCheckinClosureService {
@@ -33,7 +34,8 @@ export class LiveCheckinClosureService {
         const s=await this.ds.transaction(async em=>{
           await lockCompany(em,Number(row.company_id));const s=await sessionRow(em,Number(row.company_id),Number(row.id),true);
           if(!['live','pending_report'].includes(s.status))return null;
-          await em.query("UPDATE live_sessions SET report_locked_at=COALESCE(report_locked_at,report_deadline),end_at=COALESCE(end_at,(SELECT MAX(r.end_at) FROM live_session_reports r WHERE r.company_id=? AND r.session_id=?)),status='pending_report' WHERE company_id=? AND id=?",[row.company_id,row.id,row.company_id,row.id]);
+          await autoCheckout(em,Number(row.company_id),s);
+          await em.query("UPDATE live_sessions SET report_locked_at=COALESCE(report_locked_at,report_deadline),end_at=COALESCE(end_at,(SELECT MAX(r.end_at) FROM live_session_checkins r WHERE r.company_id=? AND r.session_id=?)),status='pending_report' WHERE company_id=? AND id=?",[row.company_id,row.id,row.company_id,row.id]);
           await em.query("UPDATE live_schedules SET status='finished' WHERE company_id=? AND session_id=? AND status='live'",[row.company_id,row.id]);
           return sessionRow(em,Number(row.company_id),Number(row.id));
         });

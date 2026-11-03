@@ -13,6 +13,16 @@ const session={id:7,date:'2026-11-01',roomName:'演示房间',startAt:'2026-11-0
 beforeEach(()=>{vi.mocked(liveApi.options).mockResolvedValue({operators:[]} as never);vi.mocked(liveApi.reviewPreview).mockResolvedValue(preview);});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 describe('审核计薪试算与失败反馈',()=>{
+ it('自动下播显示缺报异常，修复该人员时间后才能提交；仅提成人员也必须修复',async()=>{
+  render(<ReviewDialog session={{...session,checkinMode:true,controlCommissionOnly:true,attendance:[{userId:2,name:'演示中控',role:'control',startAt:session.startAt,endAt:session.endAt,autoCheckout:true}]}} onClose={vi.fn()} onDone={vi.fn()}/>);
+  expect(screen.getAllByText(/未报下播.*下播时间异常/).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button',{name:'审核通过'}));
+  expect(flowApi.pass).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('中控计薪结束'),{target:{value:'2026-11-01 20:30:00'}});
+  await waitFor(()=>expect(liveApi.reviewPreview).toHaveBeenCalledWith(7,expect.objectContaining({controlWageEndAt:'2026-11-01 20:30:00'})));
+  fireEvent.click(screen.getByRole('button',{name:'审核通过'}));
+  await waitFor(()=>expect(flowApi.pass).toHaveBeenCalledWith(9,expect.objectContaining({form:expect.objectContaining({controlWageEndAt:'2026-11-01 20:30:00'})})));
+ });
  it('试播主播业绩明确标记中控代报，并保留真实中控报告和来源',async()=>{
   const trial={...session,anchorTrial:true,checkinMode:true,trialProxyReporter:{id:2,name:'演示中控'},reports:[{role:'control',roleLabel:'中控',reporter:{id:2,name:'演示中控'},salesCents:87400,orderCount:4,ordersTotalCents:87400,adSpendCents:0}]} as SessionDetail;
   render(<ReviewDialog session={trial} onClose={vi.fn()} onDone={vi.fn()}/>);

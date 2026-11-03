@@ -1,5 +1,6 @@
 import { assertNoDailyPaidOverlap } from './daily-work-core';
 import { reportsLocked } from './live-checkin-core';
+import { requireCheckoutCorrections } from './live-auto-checkout';
 import { liveClock } from './live-core';
 import { commissionOnlyControl } from './live-access';
 import { channelsOf, channelStores, linesOf } from './live-platforms';
@@ -13,11 +14,12 @@ import { Row, closedDay, liveFail, lockCompany, reportsOf, ruleVersions, session
 
 /** 主播和本场中控须有本人报告；有明确经办人和原因的人事补报也可进入审核。运营选填。 */
 export function requireReports(session: Row, reports: Row[]) {
+  // Locked check-in sessions enter review with missing reports explicitly flagged on attendance.
+  if(session.checkin_mode && session.report_locked_at && reports.length)return;
   if(Number(session.trial_proxy)){
     if(!reports.some(r=>r.role==='control'&&Number(r.reporter_user_id)===Number(session.control_user_id)))liveFail('试播场次须由本场中控确认试播主播并报下播',400);
     return;
   }
-  if(session.checkin_mode && session.report_locked_at && reports.length)return;
   const missing = liveMissingReporter(
     reports.map((r) => ({ role: String(r.role), reporterId: Number(r.manual_actor_id ? (r.role==='anchor'?session.anchor_user_id:session.control_user_id):r.reporter_user_id) })),
     { anchorId: Number(session.anchor_user_id), controlId: session.control_user_id ? Number(session.control_user_id) : null },
@@ -35,6 +37,7 @@ export async function checkSubmittable(em: EntityManager, companyId: number, ses
 
 /** 审核表单（流程步骤表单）里的字段。 */
 export interface ReviewForm {
+  operatorEndAt?: string;
   storeLines?:LiveStoreLine[];
   finalSource?: string; finalSalesCents?: number; finalReason?: string;
   operatorUserId?: number; noOperator?: boolean;
@@ -165,6 +168,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   if (await closedDay(em, ctx.companyId, session.session_day)) liveFail('该日期已进入工资结算审批或已结算，不能再新增收入');
   if (session.status !== 'submitted' || Number(session.flow_run_id) !== ctx.runId) liveFail('场次已不在待审核状态，请刷新后核对');
   const reports = await reportsOf(em, ctx.companyId, sessionId);
+  const corrections=await requireCheckoutCorrections(em,ctx.companyId,sessionId,form);
   requireReports(session, reports);
   form={...form,finalSource:form.finalSource||(reports.some(r=>r.role==='operator')?'operator':reports.some(r=>r.role==='anchor')?'anchor':'control')};
   const final = resolveFinalSales(form, reports,!!session.checkin_mode);
@@ -178,7 +182,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   const result = combinedResults(platforms);
   const operator = await resolveOperator(em, ctx.companyId, session, form);
   const wage = await resolveWage(em, ctx.companyId, session, form);
-  const controlAttended=!session.checkin_mode||reports.some(r=>r.role==='control');
+  const controlAttended=!session.checkin_mode||reports.some(r=>r.role==='control')||corrections.some(c=>c.role==='control');
 
   if(session.checkin_mode){
     if(session.orders_capture_status!=='ready')liveFail('本场订单尚未完整归集，请核对聚水潭后重试',409);
@@ -191,6 +195,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
   const commissionOnly = await commissionOnlyControl(em, ctx.companyId, session.control_user_id);
   const controlWage=session.control_user_id && controlAttended && !commissionOnly ? await resolveWage(em, ctx.companyId, session, form, 'control'):null;
   const at = wallNow(ctx.now);
+  for(const correction of corrections)await em.query(`UPDATE live_session_checkins SET confirmation_json=JSON_SET(confirmation_json,'$.autoCheckout.reviewCorrection',JSON_OBJECT('endAt',?,'reviewedBy',?,'reviewedAt',?)) WHERE company_id=? AND session_id=? AND role=?`,[correction.endAt,ctx.actorId,at,ctx.companyId,sessionId,correction.role]);
   const amounts = { anchor: 0, control: 0, operator: 0 };
   const approvedLines = resolvePlatformSales(session, reports, form);
   const sourceRole = form.finalSource === 'manual' ? 'anchor' : String(form.finalSource).split('_')[0];
@@ -254,6 +259,7 @@ export async function detachSession(em: EntityManager, companyId: number, sessio
 /** 审核试算：和「通过」用同一套规则算出提成与工资，但什么都不写（审核对话框随输入刷新）。 */
 export async function previewApproval(em: EntityManager, companyId: number, sessionId: number, form: ReviewForm) {
   const session = await sessionRow(em, companyId, sessionId);
+  const corrections=await requireCheckoutCorrections(em,companyId,sessionId,form);
   const reports = await reportsOf(em, companyId, sessionId);
   form={...form,finalSource:form.finalSource||(reports.some(r=>r.role==='operator')?'operator':reports.some(r=>r.role==='anchor')?'anchor':'control')};
   const final = resolveFinalSales(form, reports,!!session.checkin_mode);
@@ -269,9 +275,9 @@ export async function previewApproval(em: EntityManager, companyId: number, sess
     platforms, storeLines:resolvePlatformSales(session,reports,form),
     finalSource: final.source, finalSalesCents: result.finalSalesCents, adSpendCents: result.adSpendCents, roiScaled: result.roiScaled, belowRoi: result.belowRoi,
     ruleVersion: { id: version!.id, effectiveFrom: version!.effectiveFrom }, tier: result.tier,
-    anchor: result.anchor, control: session.control_user_id && (!session.checkin_mode||reports.some(r=>r.role==='control')) ? result.control : null, operator: operator.counted ? result.operator : null,
+    anchor: result.anchor, control: session.control_user_id && (!session.checkin_mode||reports.some(r=>r.role==='control')||corrections.some(c=>c.role==='control')) ? result.control : null, operator: operator.counted ? result.operator : null,
     operatorUserId: operator.finalId, operatorDoubledAsControl: operator.doubledAsControl,
-    controlWage: session.control_user_id && (!session.checkin_mode||reports.some(r=>r.role==='control')) && !(await commissionOnlyControl(em, companyId, session.control_user_id)) ? await resolveWage(em, companyId, session, form, 'control'):null,
+    controlWage: session.control_user_id && (!session.checkin_mode||reports.some(r=>r.role==='control')||corrections.some(c=>c.role==='control')) && !(await commissionOnlyControl(em, companyId, session.control_user_id)) ? await resolveWage(em, companyId, session, form, 'control'):null,
     wage: { startAt: wage.startAt, endAt: wage.endAt, minutes: wage.minutes, hourlyRateCents: wage.hourlyRateCents, amountCents: wage.amountCents, rateSource: wage.rateSource, archiveHourlyRateCents: wage.archiveRate },
   };
 }

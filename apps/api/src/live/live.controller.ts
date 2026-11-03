@@ -99,6 +99,7 @@ class ReportDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
 class ReviewFormDto {
+  @IsOptional() @IsString() @MaxLength(19) operatorEndAt?:string;
   @IsOptional() @IsArray() @ArrayMaxSize(400) @ValidateNested({each:true}) @Type(()=>StoreLineDto) storeLines?:StoreLineDto[];
   @IsOptional() @IsString() @MaxLength(20) finalSource?: string;
   @IsOptional() @IsInt() @Min(0) @Max(10_000_000_000) finalSalesCents?: number;

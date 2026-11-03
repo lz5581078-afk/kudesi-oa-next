@@ -15,6 +15,8 @@ import { ApiError } from '../../api/client';
 export function ReviewDialog({ session, onClose, onDone }: { session: SessionDetail; onClose: () => void; onDone: () => void }) {
   const trialProxy = !!session.trialProxyReporter;
   const multi=!!session.channels?.length;
+  const abnormal = session.attendance?.filter(a=>a.autoCheckout)??[];
+  const [operatorEnd,setOperatorEnd]=useState('');
   const [storeRows,setStoreRows]=useState(()=>storeDrafts(session.channels??[],session.reports.find(r=>r.role==='anchor')?.storeLines));
   const run = session.flow!;
   const [opts, setOpts] = useState<Options | null>(null);
@@ -48,6 +50,11 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
   /** 表单 → 流程步骤表单（金额用分）；有错返回字符串 */
   const form = useMemo((): ReviewForm | string => {
     const f: ReviewForm = { finalSource: source };
+    for(const person of abnormal){
+      const value=person.role==='anchor'?wEnd:person.role==='control'?controlEnd:operatorEnd;
+      if(!value.trim())return `${person.name}未报下播，下播时间异常，请修复后再继续`;
+    }
+    if(operatorEnd.trim())f.operatorEndAt=operatorEnd.trim();
     if(reason.trim())f.finalReason=reason.trim();
     if (source === 'manual') {
       let lines;try{lines=multi?storePayload(storeRows):undefined;}catch(e){return String((e as Error).message);}
@@ -65,7 +72,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
     if(controlRate.trim()){const c=yuanCents(controlRate);if(!c||!Number.isSafeInteger(c)||c<=0)return '中控时薪需要是大于 0 的金额';f.controlWageHourlyRateCents=c;}
     if(controlStart.trim())f.controlWageStartAt=controlStart.trim();if(controlEnd.trim())f.controlWageEndAt=controlEnd.trim();if(controlNote.trim())f.controlWageNote=controlNote.trim();
     return f;
-  }, [source, manual, reason, operator, noOperator, wStart, wEnd, rate, wNote,controlRate,controlStart,controlEnd,controlNote,storeRows,multi,trialProxy]);
+  }, [source, manual, reason, operator, noOperator, wStart, wEnd, rate, wNote,controlRate,controlStart,controlEnd,controlNote,storeRows,multi,trialProxy,session.attendance,operatorEnd]);
 
   // 随输入试算（防抖）；试算失败只提示，不挡住操作
   useEffect(() => {
@@ -113,6 +120,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
     </>}</div></div>}>
       <p className="muted live-review-summary">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt)} · 主播 {session.anchor.name}{session.control ? `，中控 ${session.control.name}` : ''}</p>
       <TrialProxyPerformance session={session}/>
+      {!!abnormal.length&&<div className="notice error" role="alert">{abnormal.map(a=>a.name).join('、')}：未报下播，下播时间异常。系统已在锁定时自动下播，请核实并填写正确下播时间后再继续。</div>}
       <CheckoutFeedbackRecords sessionId={session.id} records={session.checkoutFeedback} attendance={session.attendance}/>
       <section className="live-detail-section"><h3>核对下播报告</h3><div className="live-scroll"><table className="data-table live-responsive-table" aria-label="上报对比">
         <thead><tr><th>角色</th><th>填报人</th><th className="num">所报销售额</th><th className="num">勾选订单合计</th><th className="num">订单数</th><th className="num">投流</th></tr></thead>
@@ -124,6 +132,8 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
       ) : (
         <>
           <fieldset><legend>最终销售额</legend>
+            {abnormal.some(a=>a.role==='operator')&&<label className="live-field">运营下播时间（异常修复，必填）<input aria-label="运营下播时间" required value={operatorEnd} onChange={e=>setOperatorEnd(e.target.value)} placeholder="YYYY-MM-DD HH:mm:ss"/></label>}
+            {session.controlCommissionOnly&&abnormal.some(a=>a.role==='control')&&<label className="live-field">中控下播时间（异常修复，必填）<input aria-label="中控计薪结束" required value={controlEnd} onChange={e=>setControlEnd(e.target.value)} placeholder="YYYY-MM-DD HH:mm:ss"/></label>}
             <div className="live-fields">
               <label className="live-field">来源<select aria-label="最终销售额来源" value={source} onChange={(e) => setSource(e.target.value)}><option value="">请选择</option>{available.map(([k, label]) => <option key={k} value={k}>{session.anchorTrial&&k.startsWith('control')?`${label}（试播代报依据）`:label}{k !== 'manual' ? `（${money(Number(k.endsWith('orders') ? reportOf(k.split('_')[0])?.ordersTotalCents : reportOf(k)?.salesCents))}）` : ''}</option>)}</select></label>
               {source === 'manual' && !multi && <label className="live-field">手填金额（元）<input aria-label="手填最终销售额" inputMode="decimal" value={manual} onChange={(e) => setManual(e.target.value)} /></label>}
