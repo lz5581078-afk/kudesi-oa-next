@@ -1,0 +1,268 @@
+{
+  "formatVersion": 1,
+  "sourceCommit": "0fb7fdad2f3805e3579bd4f870199c880668aaa1",
+  "sourceVersion": "0.3.44",
+  "version": "0.3.45",
+  "policy": "Only profile namespace protocol changes and new-binding default OA address; all other browser/input/remote/update and remaining Windows source retained byte-for-byte. No user configuration, cookies, private keys or native binaries included.",
+  "files": [
+    {
+      "sourceSha256": "48a88a40ef232a4289a5a7f84a13e004637b9d43355cc0989066fe353a23732e",
+      "modified": true,
+      "sha256": "3bfb4395585d38c4041d87282acae8491197ed345d77e841bcdc4a1e8f5ef284",
+      "source": "agent/api.js",
+      "snapshot": "api.js"
+    },
+    {
+      "sourceSha256": "e407ac4a743ba3ccbbfe59a8a563a720a84bc46e1b63b1fbb238769b9fb3befd",
+      "modified": true,
+      "sha256": "a89c77686b8b58f2b8b197effff073d93cf38c2604201d1134ddb7889fb6aaba",
+      "source": "agent/browser-close-recovery.js",
+      "snapshot": "browser-close-recovery.js"
+    },
+    {
+      "sourceSha256": "20357f9280cbeff70b93e5419da64817ca8fc7505e56c1764de5daf1ed7a7cf1",
+      "modified": false,
+      "sha256": "20357f9280cbeff70b93e5419da64817ca8fc7505e56c1764de5daf1ed7a7cf1",
+      "source": "agent/browser-process.js",
+      "snapshot": "browser-process.js"
+    },
+    {
+      "sourceSha256": "f72f9639e0ae568c7ed4ff06c79479b41dc66a8ace7636ec3e86e3ec4fd29cc5",
+      "modified": false,
+      "sha256": "f72f9639e0ae568c7ed4ff06c79479b41dc66a8ace7636ec3e86e3ec4fd29cc5",
+      "source": "agent/browser.js",
+      "snapshot": "browser.js"
+    },
+    {
+      "sourceSha256": "a5e919c97a80533b226cd61845788ef107dac63dc69d848966da512f4e99035a",
+      "modified": false,
+      "sha256": "a5e919c97a80533b226cd61845788ef107dac63dc69d848966da512f4e99035a",
+      "source": "agent/capture-sidecar.js",
+      "snapshot": "capture-sidecar.js"
+    },
+    {
+      "sourceSha256": "3ea58cb10a696a0ee9276402f2dd6be1905f0ffd9112be30ff43775b62afa5cb",
+      "modified": false,
+      "sha256": "3ea58cb10a696a0ee9276402f2dd6be1905f0ffd9112be30ff43775b62afa5cb",
+      "source": "agent/chrome-for-testing.js",
+      "snapshot": "chrome-for-testing.js"
+    },
+    {
+      "sourceSha256": "f0aea4c407841d68cd9ba7cb1f42dd431c22dda2cdd9a3accc17273fc500cf2c",
+      "modified": true,
+      "sha256": "53a7f931bac1f2e632c4699771579fbcddee17ab721b3b3c942b37d6d47385f5",
+      "source": "agent/config.js",
+      "snapshot": "config.js"
+    },
+    {
+      "sourceSha256": "f81a51abaab75fed09ee962004aef955ce2695674fa998ef97525dc01c3a9281",
+      "modified": false,
+      "sha256": "f81a51abaab75fed09ee962004aef955ce2695674fa998ef97525dc01c3a9281",
+      "source": "agent/index.js",
+      "snapshot": "index.js"
+    },
+    {
+      "sourceSha256": "0b208239bba781a0456b3932f8abe3d29727b679d6fd506fa79f60293d51f280",
+      "modified": false,
+      "sha256": "0b208239bba781a0456b3932f8abe3d29727b679d6fd506fa79f60293d51f280",
+      "source": "agent/local-bridge.js",
+      "snapshot": "local-bridge.js"
+    },
+    {
+      "sourceSha256": "51fafe2a442fff5ee8829e3078e8688830374ad55e5d548c69db2c7c74dffef8",
+      "modified": false,
+      "sha256": "51fafe2a442fff5ee8829e3078e8688830374ad55e5d548c69db2c7c74dffef8",
+      "source": "agent/online-update.js",
+      "snapshot": "online-update.js"
+    },
+    {
+      "sourceSha256": "1728028ed81d0c0c8811a90acbd860ed78da10e8cfde1f86b86cb6624b0ecdec",
+      "modified": true,
+      "sha256": "d0f7e52a19ae45567e00d159b107650185c714890197ff2658dfafacbad9c3ca",
+      "source": "agent/open-shop.js",
+      "snapshot": "open-shop.js"
+    },
+    {
+      "sourceSha256": "26c993b5ea6090476577bfee497a07f078de4a6b722ae747eb4c6dc141ef22fd",
+      "modified": true,
+      "sha256": "a21336eb1a4383a7502db87fd85152124bf0198b7c31ad0e0a72fb5b2486ac61",
+      "source": "agent/register-device.js",
+      "snapshot": "register-device.js"
+    },
+    {
+      "sourceSha256": "99f62529b5a28852e70dec539b3a6deea7e47c974c298536e4b249c6eeef8080",
+      "modified": false,
+      "sha256": "99f62529b5a28852e70dec539b3a6deea7e47c974c298536e4b249c6eeef8080",
+      "source": "agent/remote-assistance.js",
+      "snapshot": "remote-assistance.js"
+    },
+    {
+      "sourceSha256": "2cd73f1fd9cacf51b3bab72a9ea9c86205815b05950dcfaec5130c38f59b0432",
+      "modified": false,
+      "sha256": "2cd73f1fd9cacf51b3bab72a9ea9c86205815b05950dcfaec5130c38f59b0432",
+      "source": "agent/remote-input.js",
+      "snapshot": "remote-input.js"
+    },
+    {
+      "sourceSha256": "edc3aaec9503ec3b301243a3d5c36aa5011dbbed95115d9ca11e2fd817f91371",
+      "modified": true,
+      "sha256": "914e297f1d4037d0ac7a811567d8936f91144c75ef678e4d9c516268ab498e05",
+      "source": "agent/sessions.js",
+      "snapshot": "sessions.js"
+    },
+    {
+      "sourceSha256": "ef6e4792db4e958f484293ed907f232fe66a5c045f5282327770c97c8ca84716",
+      "modified": false,
+      "sha256": "ef6e4792db4e958f484293ed907f232fe66a5c045f5282327770c97c8ca84716",
+      "source": "agent/state-model.js",
+      "snapshot": "state-model.js"
+    },
+    {
+      "sourceSha256": "fd0be46e51d498bf5b415a785065c124a0990edefaa6a0af91290e139d977ace",
+      "modified": false,
+      "sha256": "fd0be46e51d498bf5b415a785065c124a0990edefaa6a0af91290e139d977ace",
+      "source": "agent/status.js",
+      "snapshot": "status.js"
+    },
+    {
+      "sourceSha256": "9468f564b272549475be3ec5d9d005264a4eac4838deba1e0697e1681ea61713",
+      "modified": false,
+      "sha256": "9468f564b272549475be3ec5d9d005264a4eac4838deba1e0697e1681ea61713",
+      "source": "agent/update-cli.js",
+      "snapshot": "update-cli.js"
+    },
+    {
+      "sourceSha256": "0ae08d66e33cee811038840f6b7c66e206930b76b70d9b134d8644fbdf11dc69",
+      "modified": false,
+      "sha256": "0ae08d66e33cee811038840f6b7c66e206930b76b70d9b134d8644fbdf11dc69",
+      "source": "agent/update-policy.js",
+      "snapshot": "update-policy.js"
+    },
+    {
+      "sourceSha256": "636168aaf07972134d7c9b6b5fc5d3760b6c706f3ce2dfe18468b49698180020",
+      "modified": false,
+      "sha256": "636168aaf07972134d7c9b6b5fc5d3760b6c706f3ce2dfe18468b49698180020",
+      "source": "agent/webrtc-assistance.js",
+      "snapshot": "webrtc-assistance.js"
+    },
+    {
+      "sourceSha256": "4e7a9549e0281e249f96adfb82d4ebac6fd5c3c7e8043dfd016cd32940ce4a48",
+      "modified": false,
+      "sha256": "4e7a9549e0281e249f96adfb82d4ebac6fd5c3c7e8043dfd016cd32940ce4a48",
+      "source": "agent/webrtc-diagnostics.js",
+      "snapshot": "webrtc-diagnostics.js"
+    },
+    {
+      "sourceSha256": "5a8179de32ff87fe0f077a0ed2ed61ffea121e1eea31ba52217c772bbc75ca09",
+      "modified": true,
+      "sha256": "d60e3ec1cfcb96bca1f0cb7af565173f743ae4ac63f913774092305a114a2253",
+      "source": "agent/version.json",
+      "snapshot": "version.json"
+    },
+    {
+      "sourceSha256": "a89ea75becf673b5dd7c487234f8e64bdcd7a8f74d851e201b46f567b512ea63",
+      "modified": false,
+      "sha256": "a89ea75becf673b5dd7c487234f8e64bdcd7a8f74d851e201b46f567b512ea63",
+      "source": "agent/platforms/auth-verification.js",
+      "snapshot": "platforms/auth-verification.js"
+    },
+    {
+      "sourceSha256": "d9262bcdc793fdfee486f870493b99deb73f0209d3db82b87cb9afba7aac7a1a",
+      "modified": false,
+      "sha256": "d9262bcdc793fdfee486f870493b99deb73f0209d3db82b87cb9afba7aac7a1a",
+      "source": "agent/platforms/credential-login.js",
+      "snapshot": "platforms/credential-login.js"
+    },
+    {
+      "sourceSha256": "837476b883170d4417d1caf4bb95276fdaf0399c14762f714f5f87bba821fa09",
+      "modified": false,
+      "sha256": "837476b883170d4417d1caf4bb95276fdaf0399c14762f714f5f87bba821fa09",
+      "source": "agent/platforms/generic.js",
+      "snapshot": "platforms/generic.js"
+    },
+    {
+      "sourceSha256": "4ebc1cd3dd69492605c6b0a5b1ba46f526fc3cc7a82cacef5245dd5ae6c1ddc4",
+      "modified": false,
+      "sha256": "4ebc1cd3dd69492605c6b0a5b1ba46f526fc3cc7a82cacef5245dd5ae6c1ddc4",
+      "source": "agent/platforms/index.js",
+      "snapshot": "platforms/index.js"
+    },
+    {
+      "sourceSha256": "49beb73d6bc3c2111a2abf46edaa37cd09721af63f726160fcd682f37ad9bbe3",
+      "modified": false,
+      "sha256": "49beb73d6bc3c2111a2abf46edaa37cd09721af63f726160fcd682f37ad9bbe3",
+      "source": "agent/platforms/pdd.js",
+      "snapshot": "platforms/pdd.js"
+    },
+    {
+      "sourceSha256": "d24187dbe8ca0d5f50ef98fffb0cd218fe60e0fe4479202272fa32d020499b0d",
+      "modified": false,
+      "sha256": "d24187dbe8ca0d5f50ef98fffb0cd218fe60e0fe4479202272fa32d020499b0d",
+      "source": "agent/windows/apply-update.ps1",
+      "snapshot": "windows/apply-update.ps1"
+    },
+    {
+      "sourceSha256": "752727d886c1fed486e161724bbda38e974194d7b0a95554c58178ceb7a0f7dc",
+      "modified": false,
+      "sha256": "752727d886c1fed486e161724bbda38e974194d7b0a95554c58178ceb7a0f7dc",
+      "source": "agent/windows/bootstrap.ps1",
+      "snapshot": "windows/bootstrap.ps1"
+    },
+    {
+      "sourceSha256": "078513350f342c79f5e75c9e7a5ec3ff3caff1afe694400d6ffc06963540081e",
+      "modified": false,
+      "sha256": "078513350f342c79f5e75c9e7a5ec3ff3caff1afe694400d6ffc06963540081e",
+      "source": "agent/windows/browser-process-snapshot.ps1",
+      "snapshot": "windows/browser-process-snapshot.ps1"
+    },
+    {
+      "sourceSha256": "82d27b2ec762781c5e5bd1bde0e872daaef988c5edbb05166b7a91263b6989c8",
+      "modified": false,
+      "sha256": "82d27b2ec762781c5e5bd1bde0e872daaef988c5edbb05166b7a91263b6989c8",
+      "source": "agent/windows/component-progress.ps1",
+      "snapshot": "windows/component-progress.ps1"
+    },
+    {
+      "sourceSha256": "f2622ebcfc2bb3691d3ce2f919085126696d969de482cdab677a39249fd6c807",
+      "modified": false,
+      "sha256": "f2622ebcfc2bb3691d3ce2f919085126696d969de482cdab677a39249fd6c807",
+      "source": "agent/windows/install.ps1",
+      "snapshot": "windows/install.ps1"
+    },
+    {
+      "sourceSha256": "54affc6554b8873aae7741aa7f31eb0c20b442e1fc542e6732c520dd5170347b",
+      "modified": false,
+      "sha256": "54affc6554b8873aae7741aa7f31eb0c20b442e1fc542e6732c520dd5170347b",
+      "source": "agent/windows/installer.nsi",
+      "snapshot": "windows/installer.nsi"
+    },
+    {
+      "sourceSha256": "ddc4a8927e477524e41f1744107e7748c15e04372735dc9100b5609ee6c6df1b",
+      "modified": false,
+      "sha256": "ddc4a8927e477524e41f1744107e7748c15e04372735dc9100b5609ee6c6df1b",
+      "source": "agent/windows/launch-update.ps1",
+      "snapshot": "windows/launch-update.ps1"
+    },
+    {
+      "sourceSha256": "06ad2224d8c93dd88aabdb7cccc8e0a614fe9df449c01f086811eb95c2237135",
+      "modified": false,
+      "sha256": "06ad2224d8c93dd88aabdb7cccc8e0a614fe9df449c01f086811eb95c2237135",
+      "source": "agent/windows/repair-agent-0.3.0.ps1",
+      "snapshot": "windows/repair-agent-0.3.0.ps1"
+    },
+    {
+      "sourceSha256": "f8a70127420d37d5f1751dd685ac598ee791fce01df03831a82a9477f8b4f5b6",
+      "modified": true,
+      "sha256": "cb7a7cf3684c0d9df563fb29fa2103378869cbeb0edf8ee9d3ba74efba99df39",
+      "source": "agent/windows/tray.ps1",
+      "snapshot": "windows/tray.ps1"
+    },
+    {
+      "sourceSha256": "5ca9c0a34d7bbf696bee8da7be148106de7ccdd95f6c6e11e98fcfd15dbfea07",
+      "modified": false,
+      "sha256": "5ca9c0a34d7bbf696bee8da7be148106de7ccdd95f6c6e11e98fcfd15dbfea07",
+      "source": "agent/windows/uninstall.ps1",
+      "snapshot": "windows/uninstall.ps1"
+    }
+  ]
+}

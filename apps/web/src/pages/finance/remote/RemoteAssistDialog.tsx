@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REMOTE_MODE_LABEL, type RemoteMode } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
+import type { SessionId } from '../sessionEngine';
 import { remoteApi, type RemoteApi, type RemoteSession, type RemoteShopState } from './remoteApi';
 import { createViewerConnection, keyInputFrom, mapPointer, type ViewerConnection } from './viewerConnection';
 
@@ -21,7 +22,7 @@ export function RemoteAssistDialog({ shopId, storeName, deviceName, state, clien
   const [phase, setPhase] = useState<Phase>(resume?.status === 'requested' ? 'waiting' : 'form');
   const [mode, setMode] = useState<RemoteMode>('view');
   const [reason, setReason] = useState('');
-  const [sessionId, setSessionId] = useState<number | null>(resume?.status === 'requested' ? resume.id : null);
+  const [sessionId, setSessionId] = useState<SessionId | null>(resume?.status === 'requested' ? resume.id : null);
   const [info, setInfo] = useState<RemoteSession | null>(null);
   const [link, setLink] = useState<Link>('connecting');
   const [error, setError] = useState('');
