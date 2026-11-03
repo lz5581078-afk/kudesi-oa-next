@@ -45,6 +45,12 @@ function LiveReviewFields(props: Parameters<typeof GenericFields>[0]) {
   const edited=useRef(false);
   const id=Number(props.context?.sessionId);
   useEffect(()=>{let active=true;if(id)liveApi.session(id).then(s=>{if(active){setSession(s);setRows(storeDrafts(s.channels??[],liveJsonArray<LiveStoreLine>(props.values.storeLines).length?liveJsonArray<LiveStoreLine>(props.values.storeLines):s.reports.find(r=>r.role==='anchor')?.storeLines));}}).catch(()=>{if(active)setError('读取场次店铺失败，请刷新后审核');});return()=>{active=false;};},[id]);
+  const initializedRate=useRef<number|null>(null);
+  useEffect(()=>{
+    if (session?.id!==id || !session?.trialHourlyRateCents || initializedRate.current===id) return;
+    initializedRate.current=id;
+    if (props.values.wageHourlyRateCents == null) props.onChange('wageHourlyRateCents',session.trialHourlyRateCents);
+  },[id,session,props.values.wageHourlyRateCents,props.onChange]);
   const multi=!!session?.channels?.length;
   const manual=props.values.finalSource==='manual';
   useEffect(()=>{

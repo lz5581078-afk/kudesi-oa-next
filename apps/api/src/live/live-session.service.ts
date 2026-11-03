@@ -34,7 +34,7 @@ const REVIEWER_SQL = 'EXISTS (SELECT 1 FROM flow_steps fs WHERE fs.run_id = s.fl
 
 export function serializeSession(s: Row) {
   return {
-    trialProxyReporter: Number(s.trial_proxy)?{id:Number(s.started_by),name:s.trial_proxy_name}:null, anchorTrial: !!Number(s.trial_proxy), checkinMode: !!s.checkin_mode, reportDeadline: liveToText(s.report_deadline), reportsLocked: reportsLocked(s, liveClock.now()), autoSubmitError: s.auto_submit_error ?? null, ordersCaptureStatus: s.orders_capture_status, ordersCaptureError: s.orders_capture_error ?? null,
+    trialHourlyRateCents: s.scheduled_trial_rate ?? null, trialProxyReporter: Number(s.trial_proxy)?{id:Number(s.started_by),name:s.trial_proxy_name}:null, anchorTrial: !!Number(s.trial_proxy), checkinMode: !!s.checkin_mode, reportDeadline: liveToText(s.report_deadline), reportsLocked: reportsLocked(s, liveClock.now()), autoSubmitError: s.auto_submit_error ?? null, ordersCaptureStatus: s.orders_capture_status, ordersCaptureError: s.orders_capture_error ?? null,
     channels: channelsOf(s),
     id: Number(s.id), scheduleId: s.schedule_id ? Number(s.schedule_id) : null, roomId: Number(s.room_id), roomName: s.room_name, date: s.session_day, startAt: s.start_text, endAt: s.end_text ?? null,
     plannedEnd: s.schedule_end ?? null, status: s.status, statusLabel: LIVE_SESSION_STATUS[s.status] ?? s.status,

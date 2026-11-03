@@ -1055,7 +1055,9 @@ d('直播管理（真实数据库）', () => {
     const room=await rec(company,'locations','直播间-试播核验',{name:'直播间-试播核验',locationType:'room',parentId:parent});
     const shop=await rec(company,'stores','试播核验店',{name:'试播核验店',platform:'douyin',jushuitanShopId:'TRIAL-PROXY-SHOP'});
     const account=await rec(company,'self-media','试播核验号',{name:'试播核验号',platform:'douyin',livePermission:true,storeIds:[shop]});
-    const plan=await schedules.create(manager,input({date:'2027-01-05',roomId:room,anchorId:trial.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'}));
+    const scheduleInput={date:'2027-01-05',roomId:room,anchorId:trial.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'};
+    await expect(schedules.create(manager,input(scheduleInput))).rejects.toThrow(/试播主播时薪/);
+    const plan=await schedules.create(manager,input({...scheduleInput,trialHourlyRateCents:7250}));
     const row=(await sessions.workbench(cc)).schedules.find(s=>s.id===plan.id)!;
     expect(row.anchorTrial).toBe(true);
     const start={actualCheckin:true,role:'control' as const,scheduleId:plan.id,scheduleFingerprint:row.fingerprint,confirmDetails:true,productIds:[ids.p1]};
@@ -1084,6 +1086,10 @@ d('直播管理（真实数据库）', () => {
     clock('2027-01-05 11:30:00');
     const closure=new LiveCheckinClosureService(ds,{me:async()=>({name:cc.name,permissions:cc.permissions})} as never,flow,source);
     await closure.scan();expect((await sessions.detail(manager,made.id)).status).toBe('submitted');
+    expect((await sessions.detail(reviewer,made.id)).trialHourlyRateCents).toBe(7250);
+    expect((await sessions.reviewPreview(reviewer,made.id,{finalSource:'control'})).wage.amountCents).toBe(7250);
+    // Old schedules have no saved rate: verify the reviewer must supply one.
+    await ds.query('UPDATE live_schedules SET trial_hourly_rate_cents=NULL WHERE company_id=? AND id=?',[company,plan.id]);
     await expect(sessions.reviewPreview(reviewer,made.id,{finalSource:'control'})).rejects.toThrow(/试播主播时薪/);
     await expect(approve(made.id,{finalSource:'control'})).rejects.toThrow(/试播主播时薪/);
     const form={finalSource:'control',wageHourlyRateCents:6000};

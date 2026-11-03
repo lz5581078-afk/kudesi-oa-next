@@ -24,7 +24,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
   const [noOperator, setNoOperator] = useState(false);
   const [wStart, setWStart] = useState('');
   const [wEnd, setWEnd] = useState('');
-  const [rate, setRate] = useState('');
+  const [rate, setRate] = useState(yuanText(session.trialHourlyRateCents));
   const [wNote, setWNote] = useState('');
   const [controlRate,setControlRate]=useState(''),[controlStart,setControlStart]=useState(''),[controlEnd,setControlEnd]=useState(''),[controlNote,setControlNote]=useState('');
   const [preview, setPreview] = useState<ReviewPreview | null>(null);

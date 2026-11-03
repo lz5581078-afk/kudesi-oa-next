@@ -23,6 +23,23 @@ describe('排场产品与上次配置', () => {
     fireEvent.click(screen.getByRole('button',{name:'保存'}));
     await waitFor(()=>expect(l.createSchedule).toHaveBeenCalledWith(expect.objectContaining({channels:[{accountId:20,storeIds:[30]}],roomId:10,anchorId:3})));
   });
+  it('试播排班填写本场时薪后才可保存，换主播后清空',async()=>{
+    l.options.mockResolvedValue({...options,anchors:[...options.anchors,{id:6,name:'试播乙',trial:true}]} as never);
+    render(<ScheduleDialog initial={previous} days={[previous.date]} onClose={vi.fn()} onDone={vi.fn()}/>);
+    await screen.findByRole('option',{name:'试播乙（试播）'});
+    const anchor=screen.getByLabelText('主播');
+    fireEvent.change(anchor,{target:{value:'6'}});
+    fireEvent.click(screen.getByRole('button',{name:'保存'}));
+    expect(l.updateSchedule).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('本场试播时薪'),{target:{value:'72.50'}});
+    fireEvent.change(anchor,{target:{value:'3'}});
+    expect(screen.queryByLabelText('本场试播时薪')).toBeNull();
+    fireEvent.change(anchor,{target:{value:'6'}});
+    expect((screen.getByLabelText('本场试播时薪') as HTMLInputElement).value).toBe('');
+    fireEvent.change(screen.getByLabelText('本场试播时薪'),{target:{value:'72.50'}});
+    fireEvent.click(screen.getByRole('button',{name:'保存'}));
+    await waitFor(()=>expect(l.updateSchedule).toHaveBeenCalledWith(previous.id,expect.objectContaining({anchorId:6,trialHourlyRateCents:7250})));
+  });
   it('多店账号未选本场店铺时阻止保存，修改时只保留原选店铺', async () => {
     l.options.mockResolvedValue({...options,douyinAccounts:[{...options.douyinAccounts[0],storeIds:[30,31]}],stores:[...options.stores,{id:31,name:'第二店',platform:'douyin',hasJstShop:true}]} as never);
     render(<ScheduleDialog initial={{...previous,store:null,channels:[{accountId:20,accountName:'抖音号',platform:'douyin',storeIds:[],stores:[]}]}} days={['2026-11-01']} onClose={vi.fn()} onDone={vi.fn()}/>);
