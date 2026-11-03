@@ -27,6 +27,7 @@ export async function validateChannels(
   em: EntityManager,
   companyId: number,
   input: LiveChannelInput[],
+  onUnlinkedStore?: (message: string) => void,
 ): Promise<LiveChannel[]> {
   if (!Array.isArray(input) || !input.length || input.length > 20)
     liveFail("请选择 1 到 20 个有直播权限的账号", 400);
@@ -49,8 +50,12 @@ export async function validateChannels(
       liveFail("每个直播账号请选择关联店铺，不能重复", 400);
     const selected = c.storeIds.map((id) => {
       const s = stores.find((s) => s.id === id);
-      if (!s || s.platform !== a!.platform || !a!.storeIds?.includes(id))
+      if (!s || s.platform !== a!.platform)
         liveFail("店铺必须属于当前公司、同一平台且已关联该直播账号", 400);
+      if (!a!.storeIds?.includes(id)) {
+        if (!onUnlinkedStore) liveFail("店铺必须属于当前公司、同一平台且已关联该直播账号", 400);
+        onUnlinkedStore(`直播账号「${a!.name}」当前未关联店铺「${s!.name}」`);
+      }
       if (
         s!.jstShopId &&
         stores.some(
