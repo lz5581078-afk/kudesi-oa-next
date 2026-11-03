@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -138,10 +139,11 @@ export class FlowTimeoutService {
   // ================= 扫描（每分钟） =================
 
   private async notify(em: EntityManager, companyId: number, userIds: number[], n: { kind: string; title: string; body?: string; link?: string }) {
+    const batchKey=`live-timeout:${randomUUID()}`;
     for (const uid of [...new Set(userIds)]) {
       const runId = Number(n.link?.match(/(?:run=|runs\/)(\d+)/)?.[1]);
       const [liveRun] = runId ? await em.query("SELECT id FROM flow_runs WHERE company_id=? AND id=? AND template_key IN ('live-session-review','live-settlement')",[companyId,runId]) : [];
-      await writeNotification(em, { companyId, userId: uid, kind: n.kind, title: n.title.slice(0, 200), body: n.body?.slice(0, 500) ?? null, link: n.link ?? null }, liveRun ? {channel:'supervision',runId,resourceType:'flow-run',resourceId:runId} : {});
+      await writeNotification(em, { companyId, userId: uid, kind: n.kind, title: n.title.slice(0, 200), body: n.body?.slice(0, 500) ?? null, link: n.link ?? null }, liveRun ? {key:batchKey,channel:'supervision',runId,resourceType:'flow-run',resourceId:runId} : {});
     }
   }
 
