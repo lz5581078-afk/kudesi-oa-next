@@ -250,7 +250,7 @@ describe('财务 · 成本表与定价调试', () => {
     currentUser = userWith({ isCompanyAdmin: false, allow: ['finance.cost-table.view', 'product.cost.view'], deny: [] });
     apiMock.mockResolvedValue(costTable([costRow]));
     renderAt('/finance/cost-table');
-    expect(screen.getByRole('heading', { name: '成本表' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'SKU成本表' })).toBeTruthy();
     const row = (await screen.findByText('ZH-TB-SGPGHFSPGG-2D5KG*2')).closest('tr')!;
     expect(within(row).getByText('¥16.00')).toBeTruthy();
     expect(within(row).getByText('继承：本分类')).toBeTruthy();
@@ -266,7 +266,8 @@ describe('财务 · 成本表与定价调试', () => {
     renderAt('/finance/cost-table');
     const row = (await screen.findByText('ZH-TB-SGPGHFSPGG-2D5KG*2')).closest('tr')!;
     expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(2);
-    expect(within(row).getByText('1 项待补')).toBeTruthy();
+    expect(within(row).getByText('组合-红富士苹果×2').getAttribute('title')).toContain('运费无法预估');
+    expect(within(row).getByText('缺少运费预估')).toBeTruthy();
   });
 
   it('没有成本权限时（接口 403）显示接口给的原因，不显示任何金额', async () => {

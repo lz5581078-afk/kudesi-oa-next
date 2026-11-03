@@ -1,3 +1,4 @@
+import { costCompositionFacts } from './cost-components';
 import { archiveCodePrefix, beforeArchivePrefix } from './archive-prefix';
 import { systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
@@ -676,7 +677,7 @@ export async function bundleSnapshotJson(em: EntityManager, companyId: number, b
     out.push({ role: l.role, ref: str(bc?.data.code), qty: l.qty, weightG: bc?.data.weightG ?? null, cost: bc?.data.cost ?? null, signature: str(bc?.data.signature), ...extras });
   }
   out.sort((a, b) => `${a.role}${a.ref}`.localeCompare(`${b.role}${b.ref}`));
-  return JSON.stringify({ profile: { code: str(bundle.code), name: str(bundle.name), styleCode: str(bundle.styleCode), shortName: str(bundle.shortName), ...Object.fromEntries(['weightMode', 'manualWeightG', 'propertiesValue', 'baseUnit', 'bundleCategoryId', 'brandId', 'varietyName', 'configNo', 'bomVersion', 'bomEffectiveFrom', 'bomEffectiveTo'].filter(k => bundle[k] !== undefined).map(k => [k, bundle[k]])) }, lines: out });
+  return JSON.stringify({ breakdown: await costCompositionFacts(em, companyId, bundle, lines), profile: { code: str(bundle.code), name: str(bundle.name), styleCode: str(bundle.styleCode), shortName: str(bundle.shortName), ...Object.fromEntries(['weightMode', 'manualWeightG', 'propertiesValue', 'baseUnit', 'bundleCategoryId', 'brandId', 'varietyName', 'configNo', 'bomVersion', 'bomEffectiveFrom', 'bomEffectiveTo'].filter(k => bundle[k] !== undefined).map(k => [k, bundle[k]])) }, lines: out });
 }
 
 const lineKey = (l: Data) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` : l.baseCodeId}:${l.qty}`;

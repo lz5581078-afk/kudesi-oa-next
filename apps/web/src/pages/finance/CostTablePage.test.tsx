@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import { CurrentCostTable as CostTablePage } from './CostTablePage';
+import { costBreakdown } from '@kudesi/shared';
 import { financeApi, type CostRow, type CostTableData } from './financeApi';
 
 vi.mock('./financeApi', async (orig) => {
@@ -37,7 +38,7 @@ describe('当前SKU成本清单', () => {
     expect(screen.getByText(/12\.345678% · 分类设置/)).toBeTruthy();
     expect(screen.getByText(/15% · 继承/)).toBeTruthy();
     expect(screen.getByText('顺丰')).toBeTruthy();
-    expect(screen.getByText('¥110.50')).toBeTruthy(); // 含快递成本
+    expect(screen.getByText('¥110.500')).toBeTruthy(); // 含快递成本
     expect(screen.getByText('¥126.04')).toBeTruthy(); // 最低售价
     fireEvent.click(screen.getByRole('button', { name: '苹果类 3 12.345678% · 分类设置' }));
     await waitFor(() => expect(m.costTable).toHaveBeenLastCalledWith(expect.objectContaining({ categoryId: 3 })));
@@ -50,6 +51,9 @@ describe('当前SKU成本清单', () => {
     expect(screen.queryByRole('button', { name: /维护.*售价/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /设置.*利润率/ })).toBeNull();
     expect(screen.getByRole('button', { name: /查看.*成本历史/ })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: '预发货成本' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: '重量（kg）' })).toBeTruthy();
+    expect(screen.queryByRole('columnheader', { name: '状态' })).toBeNull();
   });
 
   it('点成本弹出成本组成；点重量弹出重量组成', async () => {
@@ -63,6 +67,28 @@ describe('当前SKU成本清单', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭组成明细' }));
     fireEvent.click(screen.getByRole('button', { name: '查看苹果礼盒重量组成' }));
     expect(screen.getByRole('dialog', { name: '重量组成明细' })).toBeTruthy();
+  });
+
+  it('成本与重量分别展示匹配的来源，保留快照名称单位；手工重量差额明确提示', async () => {
+    const current = row();
+    const verified = { preShipCostCents: current.preShipCostCents, weightG: 1000, lines: [{ ...current.lines[0], name: '验证时的苹果', unitName: '袋', unitWeightG: 1000, weightG: 1000 }] };
+    current.breakdown = costBreakdown(current, verified);
+    m.costTable.mockResolvedValue(table(false, [current]));
+    renderPage(); await screen.findByText('ZH-TB-001');
+    fireEvent.click(screen.getByRole('button', { name: '查看苹果礼盒成本组成' }));
+    expect(screen.getByText('明细来源：验证快照')).toBeTruthy();
+    expect(screen.getByText('验证时的苹果')).toBeTruthy();
+    expect(screen.getByText('1 袋')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '关闭组成明细' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看苹果礼盒重量组成' }));
+    expect(screen.getByText('明细来源：当前组成')).toBeTruthy();
+  });
+
+  it('手工计费重量不等于组成重量时显示差额', async () => {
+    m.costTable.mockResolvedValue(table(false, [row({ weightG: 2600 })]));
+    renderPage(); await screen.findByText('ZH-TB-001');
+    fireEvent.click(screen.getByRole('button', { name: '查看苹果礼盒重量组成' }));
+    expect(screen.getByText(/差额 0.100000 kg/)).toBeTruthy();
   });
 
   it('维护售价：必须写原因；利润率最多 6 位小数；带上乐观锁令牌；保存后刷新', async () => {

@@ -173,7 +173,7 @@ export interface PageTab { id: string; label: string; ref: string; permission: s
 const rtab = (key: string, label: string): PageTab => ({ id: key, label, ref: key, permission: `resource.${key}.view` });
 const ptab = (id: string, label: string): PageTab => ({ id, label, ref: id, permission: `finance.${id}.view` });
 export const PAGE_TABS: Record<string, readonly PageTab[]> = {
-  'finance/cost-table': [ptab('cost-table', 'SKU成本表'), ptab('cost-history', '成本历史'), rtab('finance-margins', '分类利润率'), rtab('finance-cost-versions', '成本版本与辅助成本')],
+  'finance/cost-table': [ptab('cost-table', 'SKU成本表'), ptab('cost-history', '成本历史')],
   'finance/finance-express-prices': [rtab('finance-express-prices', '快递价格'), rtab('finance-freight-overrides', '成本表预估快递费'), ptab('zone-suggestion', '分区建议')],
   'finance/finance-products': [rtab('finance-products', '商品档案'), rtab('finance-packaging-schemes', '包装方案'), ptab('packaging-match', '包装方案匹配'), rtab('finance-zero-reasons', '零值原因'), rtab('finance-product-units', '单位与规格')],
   'finance/finance-suppliers': [rtab('finance-suppliers', '供应商档案'), rtab('finance-supplier-categories', '供应商分类')],

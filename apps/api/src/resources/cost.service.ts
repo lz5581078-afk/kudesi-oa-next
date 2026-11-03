@@ -1,10 +1,13 @@
+import { calculateCostComponents, type CostLine } from './cost-components';
+export type { CostLine } from './cost-components';
+import { costBreakdown, readCostComposition, type CostBreakdown } from '@kudesi/shared';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { bundleOwnership } from './product-exclusive';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  multiplyUnitCents, sumUnitCents, PROVINCES, todayInChina, minSalePriceCentsByMicroPercent, percentToMicro, resolveMargin, createChecker, buildEstimateRows, buildAutomaticRecommendations, groupAutomaticRecommendations, sortRecommendationRules,
+  sumUnitCents, PROVINCES, todayInChina, minSalePriceCentsByMicroPercent, percentToMicro, resolveMargin, createChecker, buildEstimateRows, buildAutomaticRecommendations, groupAutomaticRecommendations, sortRecommendationRules,
   freightFromEstimateRows, validParcelLimit, type EstimateRow,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -20,7 +23,6 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
 const EXPRESS_TYPES = ['finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-express-prices'];
 
-export interface CostLine { role: string; code: string; name: string; qty: number; unitName?: string; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
 export interface CostRow {
   bundleId: number; code: string; name: string; status: string; categoryId: number | null; categoryName: string;
   preShipCostCents: number | null; weightG: number | null;
@@ -36,7 +38,7 @@ export interface CostRow {
   costIncludingFreightCents: number | null;
   /** 乐观锁令牌：保存售价设置时原样带回，别人先改过就拒绝 */
   revision: string;
-  minPriceCents: number | null; issues: string[]; lines: CostLine[];
+  minPriceCents: number | null; issues: string[]; lines: CostLine[]; breakdown?: CostBreakdown;
   /** 排序用：组合最近修改时间 */
   updatedAtMs: number;
 }
@@ -119,52 +121,9 @@ export class CostService {
   }
 
   row(d: CostData, b: ResourceRecord): CostRow {
-    const issues: string[] = [];
-    const lines: CostLine[] = [];
-    let cost: number | null = 0, weight = 0;
-    // 组合自己的分类树（旧系统 bundle_category）：成本表分类、分类利润率都按它汇总
+    const { lines, cost, issues, weightG: automaticWeightG } = calculateCostComponents(d, b.id);
     const categoryId = num(b.data.bundleCategoryId);
-    for (const l of d.lines.filter((x) => num(x.data.bundleId) === b.id).sort((x, y) => x.id - y.id)) {
-      const qty = num(l.data.qty) ?? 0, role = str(l.data.role);
-      let unit: number | null = null, w = 0, code = '', name = '', unitName = '';
-      let hasWeight = false;
-      if (role === 'labor') {
-        const lab = d.labor.get(num(l.data.laborId) ?? -1);
-        unit = lab ? num(lab.data.unitPrice) : null;
-        name = lab?.title ?? '人工';
-        code = '人工';
-        unitName = str(lab?.data.unitName).replace(/^元\s*[\/／]\s*/, '');
-      } else {
-        const bc = d.baseCodes.get(num(l.data.baseCodeId) ?? -1);
-        const p = bc ? d.products.get(num(bc.data.productId) ?? -1) : undefined;
-        unitName = bc?.data.origin === 'composed' ? str(l.data.unit) : str(p?.data.purchaseSpec) || str(l.data.unit);
-        if (bc?.data.origin === 'composed') {
-          // 多构成基础编码：成本、重量 = 构成行 数量×商品档案 汇总
-          const parts = d.baseCodeLines.filter((x) => num(x.data.baseCodeId) === bc.id);
-          let c: number | null = parts.length ? 0 : null;
-          for (const part of parts) {
-            const pp = d.products.get(num(part.data.productId) ?? -1);
-            const pc = pp ? num(pp.data.totalCost) : null;
-            const q = num(part.data.qty) ?? 0;
-            c = c === null || pc === null ? null : sumUnitCents([c, multiplyUnitCents(pc, q)]);
-            w += q * (pp ? (num(pp.data.weightG) ?? 0) : 0);
-          }
-          unit = c;
-        } else {
-          unit = p ? num(p.data.totalCost) : null;
-          w = p ? (num(p.data.weightG) ?? 0) : 0;
-        }
-        hasWeight = true;
-        code = str(bc?.data.code);
-        name = str(bc?.data.name) || bc?.title || '';
-      }
-      const sub = unit === null ? null : multiplyUnitCents(unit, qty);
-      if (sub === null) { issues.push(`「${name || code}」还没有成本`); cost = null; } else if (cost !== null) cost = sumUnitCents([cost,sub]);
-      weight += w * qty;
-      lines.push({ role, code, name, qty, unitName, unitCostCents: unit, subtotalCents: sub, unitWeightG: hasWeight ? w : null, weightG: Math.round(w * qty * 1e6) / 1e6 });
-    }
-    if (lines.length === 0) { cost = null; issues.push('还没有构成'); }
-    let weightG: number | null = Math.round(weight * 1e6) / 1e6;
+    let weightG: number | null = automaticWeightG;
     if (str(b.data.weightMode) === 'manual') weightG = num(b.data.manualWeightG);
     if (!weightG) { weightG = null; issues.push('没有重量'); }
 
@@ -189,7 +148,7 @@ export class CostService {
       marginOverride: own !== null, inheritedMargin: inherited, carrierName: str(b.data.carrierName),
       costIncludingFreightCents: cost === null || freight === null ? null : sumUnitCents([cost,freight]),
       revision: bundleRevision(b),
-      minPriceCents: min, issues, lines, updatedAtMs: b.updatedAt ? new Date(b.updatedAt).getTime() : 0,
+      minPriceCents: min, issues, lines, breakdown: costBreakdown({ preShipCostCents: cost, weightG, lines }, readCostComposition(b.data.snapshot)), updatedAtMs: b.updatedAt ? new Date(b.updatedAt).getTime() : 0,
     };
   }
 
