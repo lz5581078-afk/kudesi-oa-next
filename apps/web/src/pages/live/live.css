@@ -342,3 +342,8 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .live-summary-role h3 { margin: 0 0 8px; font-size: 1rem; }
 .live-summary-role ul { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }
 .live-summary-role li { background: #edf5f4; padding: 4px 10px; border-radius: 6px; }
+
+/* Room-day turnover sits immediately before the status badge. */
+.live-day-row-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 14px; }
+.live-day-turnover { white-space:nowrap; font-size:13px; color:var(--muted); }
+.live-day-turnover strong { color:var(--text); font-variant-numeric:tabular-nums; }

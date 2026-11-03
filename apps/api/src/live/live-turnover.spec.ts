@@ -23,34 +23,41 @@ describe('本场营业额',()=>{
  it('先按成单时间筛选，再仅核对本场订单售后；历史成单本场退款、跨场边界不混入',async()=>{
   source.turnoverOrders.mockResolvedValue({available:true,truncated:false,orders:[order('old','2026-11-01 10:30:00'),order('start','2026-11-02 10:00:00'),order('partial'),order('full'),order('boundary','2026-11-02 11:00:00'),{...order('cancel'),cancelled:true},{...order('unpaid'),paid:false}]});
   source.refunds.mockImplementation(async(_c,_s,orders)=>new Map(orders.map((o:LiveTurnoverOrder)=>[o.orderId,{cents:o.orderId==='partial'?2500:o.orderId==='full'?10000:0}])));
-  const result=await service.read(user,7);
+  const result=await service['calculate'](10,await core.sessionRow({} as never,10,7));
   expect(source.refunds.mock.calls[0][2].map((o:LiveTurnoverOrder)=>o.orderId)).toEqual(['start','partial','full']);
   expect(result).toMatchObject({available:true,orderCount:2,turnoverCents:17500,grossCents:30000,refundCents:12500,endAt:'2026-11-02 11:00:00'});
  });
  it('多账号同店铺只统计一次；部分店铺失败时合计为空，不能把漏查当零',async()=>{
   read.mockResolvedValue({...row,channels_json:[{platform:'douyin',stores:[{id:3,name:'A',jstShopId:'101'},{id:4,name:'B',jstShopId:'102'}]},{platform:'douyin',stores:[{id:3,name:'A',jstShopId:'101'},{id:5,name:'A的旧档案',jstShopId:'101'}]}]});
   source.turnoverOrders.mockResolvedValueOnce({available:true,orders:[order('A')],truncated:false}).mockResolvedValueOnce({available:false,reason:'授权过期',orders:[],truncated:false});
-  const d=await service.read(user,7);expect(source.turnoverOrders).toHaveBeenCalledTimes(2);expect(d).toMatchObject({available:false,turnoverCents:null,orderCount:null});expect(d.stores[0].turnoverCents).toBe(10000);expect(d.stores[1].reason).toBe('授权过期');
+  const d=await service['calculate'](10,await core.sessionRow({} as never,10,7));expect(source.turnoverOrders).toHaveBeenCalledTimes(2);expect(d).toMatchObject({available:false,turnoverCents:null,orderCount:null});expect(d.stores[0].turnoverCents).toBe(10000);expect(d.stores[1].reason).toBe('授权过期');
  });
  it('退款缺失、分页不完整都不显示误导的零；真正无有效订单显示0',async()=>{
-  source.turnoverOrders.mockResolvedValueOnce({available:true,truncated:true,orders:[]});expect((await service.read(user,7)).turnoverCents).toBeNull();
+  source.turnoverOrders.mockResolvedValueOnce({available:true,truncated:true,orders:[]});expect((await service['calculate'](10,await core.sessionRow({} as never,10,7))).turnoverCents).toBeNull();
   jest.spyOn(core.liveClock,'now').mockReturnValue(at('2026-11-02 11:00:11'));
-  source.turnoverOrders.mockResolvedValueOnce({available:true,truncated:false,orders:[order('1')]});source.refunds.mockResolvedValueOnce(new Map());expect((await service.read(user,7)).available).toBe(false);
+  source.turnoverOrders.mockResolvedValueOnce({available:true,truncated:false,orders:[order('1')]});source.refunds.mockResolvedValueOnce(new Map());expect((await service['calculate'](10,await core.sessionRow({} as never,10,7))).available).toBe(false);
   jest.spyOn(core.liveClock,'now').mockReturnValue(at('2026-11-02 11:00:22'));
-  expect(await service.read(user,7)).toMatchObject({available:true,orderCount:0,turnoverCents:0});
+  expect(await service['calculate'](10,await core.sessionRow({} as never,10,7))).toMatchObject({available:true,orderCount:0,turnoverCents:0});
  });
- it('直播期间一分钟内同场请求复用，到期重新查；下播立即换窗口且仍校验公司与权限',async()=>{
-  await Promise.all([service.read(user,7),service.read(user,7)]);expect(source.turnoverOrders).toHaveBeenCalledTimes(1);
-  jest.spyOn(core.liveClock,'now').mockReturnValue(at('2026-11-02 11:00:30'));
-  await service.read(user,7);expect(source.turnoverOrders).toHaveBeenCalledTimes(1);
-  jest.spyOn(core.liveClock,'now').mockReturnValue(at('2026-11-02 11:01:00'));
-  await service.read(user,7);expect(source.turnoverOrders).toHaveBeenCalledTimes(2);
-  read.mockResolvedValue({...row,end_text:'2026-11-02 10:50:00',status:'pending_report'});
-  expect(await service.read(user,7)).toMatchObject({endAt:'2026-11-02 10:50:00',live:false});expect(source.turnoverOrders).toHaveBeenCalledTimes(3);
+ it('读取接口只返回共享快照并逐次鉴权，不触发聚水潭查询',async()=>{
+  const query=jest.fn().mockResolvedValue([{payload_json:{sessionId:7,available:true,turnoverCents:5000},locked_at:'2026-11-02 11:00:00',last_error:null}]);
+  service=new LiveTurnoverService({manager:{},query} as never,source as unknown as LiveOrderSource);
+  expect(await service.read(user,7)).toMatchObject({turnoverCents:5000,locked:true});
+  await service.read(user,7);expect(source.turnoverOrders).not.toHaveBeenCalled();
+  expect(query).toHaveBeenLastCalledWith(expect.any(String),[10,7]);
   jest.spyOn(access,'loadLiveAccess').mockResolvedValue({companyId:10,canView:false} as never);
   await expect(service.read(user,7)).rejects.toThrow(/权限/);
-  jest.spyOn(access,'loadLiveAccess').mockResolvedValue({companyId:20,canView:true} as never);
-  await service.read({...user,companyId:20},7);expect(read).toHaveBeenLastCalledWith({},20,7);expect(source.turnoverOrders).toHaveBeenCalledTimes(4);
+ });
+ it('没有浏览器访问也在启动时及定时扫描，关闭后停止',async()=>{
+  const env=process.env.NODE_ENV, off=process.env.LIVE_TURNOVER_WORKER;
+  process.env.NODE_ENV='development';delete process.env.LIVE_TURNOVER_WORKER;
+  jest.useFakeTimers();
+  const scan=jest.spyOn(service,'scan').mockResolvedValue(0);
+  try{
+   service.onModuleInit();await jest.advanceTimersByTimeAsync(0);expect(scan).toHaveBeenCalledTimes(1);
+   await jest.advanceTimersByTimeAsync(15_000);expect(scan).toHaveBeenCalledTimes(2);
+   service.onModuleDestroy();await jest.advanceTimersByTimeAsync(30_000);expect(scan).toHaveBeenCalledTimes(2);
+  }finally{service.onModuleDestroy();jest.useRealTimers();if(env===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=env;if(off===undefined)delete process.env.LIVE_TURNOVER_WORKER;else process.env.LIVE_TURNOVER_WORKER=off;}
  });
 });
 
