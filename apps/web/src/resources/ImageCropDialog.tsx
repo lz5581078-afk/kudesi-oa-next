@@ -192,9 +192,9 @@ export function ImageCropDialog({
         aria-label={`裁剪${label}`}
         tabIndex={-1}
         onKeyDown={(e) => {
-          if (e.key === 'Escape' && !busy) {
+          if (e.key === 'Escape') {
             e.stopPropagation();
-            onClose();
+            if (!busy) onClose();
           }
           if (e.key === 'Tab') {
             const items = [

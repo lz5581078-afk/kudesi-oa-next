@@ -185,3 +185,35 @@ it('裁剪上传失败保留照片和错误，可重试，不误报成功', asyn
   fireEvent.click(screen.getByRole('button', { name: '确认裁剪并上传' }));
   await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
 });
+it('上传中按Escape不会关闭裁剪或触发外层档案关闭', async () => {
+  let finish!: () => void;
+  const upload = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const close = vi.fn(),
+    outerKey = vi.fn();
+  render(
+    <div onKeyDown={outerKey}>
+      <ImageCropDialog file={original} onConfirm={upload} onClose={close} />
+    </div>,
+  );
+  await screen.findByRole('img', { name: '待裁剪照片' });
+  fireEvent.click(screen.getByRole('button', { name: '确认裁剪并上传' }));
+  await waitFor(() => expect(upload).toHaveBeenCalledOnce());
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+  expect(close).not.toHaveBeenCalled();
+  expect(outerKey).not.toHaveBeenCalled();
+  finish();
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole('button', {
+          name: '确认裁剪并上传',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+});
