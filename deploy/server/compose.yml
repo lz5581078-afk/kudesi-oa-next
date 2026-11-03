@@ -24,9 +24,10 @@ services:
     ports: ["127.0.0.1:4107:4000"]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 15s
+      # Probe promptly after startup; retain the previous 75s failure window.
+      interval: 3s
       timeout: 5s
-      retries: 5
+      retries: 25
     networks: [backend]
 networks:
   backend:
