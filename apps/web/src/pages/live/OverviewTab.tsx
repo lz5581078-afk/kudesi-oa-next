@@ -5,7 +5,7 @@ import { productText } from './liveProducts';
 import { useAuth } from '../../auth/AuthContext';
 import { RoomSettingsDialog } from './RoomSettingsDialog';
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
-import { liveApi, type Overview, type RoomDay, type RoomTile, type TimelineItem } from './liveApi';
+import { liveApi, type Overview, type RoomDay, type RoomTile, type TimelineItem, type SessionTurnover } from './liveApi';
 import { errText, hm, minutesText, money, todayText } from './liveFormat';
 import { Modal, SchedulePill, SessionPill } from './liveUi';
 
@@ -31,12 +31,38 @@ function Tile({ t, day, now, onOpen,onEdit }: { t: RoomTile; day: string; now: s
   </article>;
 }
 
-function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId: number; date: string; onClose: () => void; onOpenSession: (id: number) => void }) {
+export function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId: number; date: string; onClose: () => void; onOpenSession: (id: number) => void }) {
   const [d, setD] = useState<RoomDay | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => { liveApi.roomDay(roomId, date).then(setD).catch((e) => setError(errText(e, '读取失败'))); }, [roomId, date]);
+  const [turnovers, setTurnovers] = useState<Record<number, { data?: SessionTurnover; error?: string }>>({});
+  const [refresh, setRefresh] = useState(0);
+  const [loadingTurnover, setLoadingTurnover] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setD(null); setError('');
+    liveApi.roomDay(roomId, date).then(value => { if (active) setD(value); }).catch(e => { if (active) setError(errText(e, '读取失败')); });
+    return () => { active = false; };
+  }, [roomId, date]);
+  useEffect(() => {
+    let active = true;
+    setTurnovers({});
+    const ids = [...new Set([...(d?.sessions.map(s => s.id) ?? []), ...(d?.schedules.flatMap(s => s.sessionId === null ? [] : [s.sessionId]) ?? [])])];
+    setLoadingTurnover(ids.length > 0);
+    void Promise.all(ids.map(id => liveApi.turnover(id).then(
+      data => { if (active) setTurnovers(current => ({ ...current, [id]: { data } })); },
+      e => { if (active) setTurnovers(current => ({ ...current, [id]: { error: errText(e, '读取营业额失败') } })); },
+    ))).then(() => { if (active) setLoadingTurnover(false); });
+    return () => { active = false; };
+  }, [d, refresh]);
+  const turnover = (id: number | null) => {
+    const result = id === null ? undefined : turnovers[id];
+    const available = result?.data?.available && result.data.turnoverCents != null;
+    const label = id === null ? '未开播' : result?.error ? '读取失败' : !result?.data ? '读取中…' : available ? money(result.data.turnoverCents!) : '暂无';
+    const detail = result?.error || (!available ? result?.data?.reason : '') || (result?.data ? `聚水潭 · 更新于 ${hm(result.data.queriedAt, date)}` : '');
+    return <small title={detail}>营业额 <strong>{label}</strong>{detail && <span> · {detail}</span>}</small>;
+  };
   return (
-    <Modal title={d ? `${d.room.name} · ${d.date}` : '直播间'} onClose={onClose}>
+    <Modal title={d ? `${d.room.name} · ${d.date}` : '直播间'} onClose={onClose} foot={<button type="button" className="secondary-button" disabled={!d || (!d.sessions.length && !d.schedules.some(s => s.sessionId !== null)) || loadingTurnover} onClick={() => setRefresh(value => value + 1)}>{loadingTurnover ? '营业额读取中…' : '刷新营业额'}</button>}>
       {error && <div role="alert" className="notice error">{error}</div>}
       {!d && !error && <p className="muted" role="status">正在读取…</p>}
       {d && (
@@ -44,12 +70,12 @@ function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId: numbe
           <strong>排场</strong>
           {d.schedules.length === 0 && <p className="muted">这天没有排场。</p>}
           <ul className="live-list">{d.schedules.map((s) => (
-            <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.operator ? ` · 运营 ${s.operator.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}</small></div><SchedulePill status={s.status} label={s.statusLabel} /></li>
+            <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.operator ? ` · 运营 ${s.operator.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}</small>{turnover(s.sessionId)}</div><SchedulePill status={s.status} label={s.statusLabel} /></li>
           ))}</ul>
           <strong>实际直播</strong>
           {d.sessions.length === 0 && <p className="muted">这天还没有直播记录。</p>}
           <ul className="live-list">{d.sessions.map((s) => (
-            <li key={s.id}><div className="main"><strong>{hm(s.startAt)}–{s.endAt ? hm(s.endAt, d.date) : '直播中'} · {s.anchor.name}</strong><small>{s.finalSalesCents !== null ? `销售额 ${money(s.finalSalesCents)}` : s.anchorSalesCents !== null ? `主播所报 ${money(s.anchorSalesCents)}` : '未报下播'}</small></div>
+            <li key={s.id}><div className="main"><strong>{hm(s.startAt)}–{s.endAt ? hm(s.endAt, d.date) : '直播中'} · {s.anchor.name}</strong><small>{s.finalSalesCents !== null ? `审核销售额 ${money(s.finalSalesCents)}` : s.anchorSalesCents !== null ? `主播所报 ${money(s.anchorSalesCents)}` : '未报下播'}</small>{turnover(s.id)}</div>
               <SessionPill status={s.status} label={({ live: '直播中', pending_report: '待提交审核', submitted: '待审核', returned: '已退回', approved: '已审核' } as Record<string, string>)[s.status] ?? s.status} />
               <button type="button" className="secondary-button small" onClick={() => onOpenSession(s.id)}>详情</button></li>
           ))}</ul>
