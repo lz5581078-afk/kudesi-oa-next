@@ -36,3 +36,10 @@ it('其他身份不可冒充加入，权限拒绝不会自动恢复或重发',as
  api.checkinContext.mockResolvedValue(context([{...actual,canJoinControl:false,canJoinAnchor:true}]));api.start.mockRejectedValue(new ApiError(403,'没有所选上播身份'));
  render(<StartDialog {...props}/>);await screen.findByDisplayValue('旧计划产品');confirm();fireEvent.click(screen.getByRole('button',{name:'确认上播'}));await screen.findByText('没有所选上播身份');expect(api.start).toHaveBeenCalledTimes(1);expect(api.checkinContext).toHaveBeenCalledTimes(2);
 });
+it('中控先上播时主播也从同一实际场次加入，按主播本人身份提交',async()=>{
+ api.checkinContext.mockResolvedValue(context([{...actual,canJoinAnchor:true,canJoinControl:false}]));
+ render(<StartDialog {...props} role="anchor" identity={{isAnchor:true,isControl:false,canManage:false}}/>);
+ await screen.findByRole('dialog',{name:'核对本场并确认本人上播'});await screen.findByDisplayValue('实际产品');expect(api.start).not.toHaveBeenCalled();
+ confirm();fireEvent.click(screen.getByRole('button',{name:'确认上播'}));
+ await waitFor(()=>expect(api.start).toHaveBeenCalledWith(expect.objectContaining({sessionId:7,role:'anchor'})));
+});
