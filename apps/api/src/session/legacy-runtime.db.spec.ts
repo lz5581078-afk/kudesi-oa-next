@@ -117,6 +117,58 @@ db('发布快照在真实Nest中的页面协议与远程信令接入（隔离MyS
     expect((await old('/overview', { auth: 'invalid' })).status).toBe(401);
   });
 
+  it('两个用途的重复加入不能改绑电脑，恢复必须等待旧浏览器关闭，并发加入只有一个成功', async () => {
+    const load = createRequire(path.resolve(__dirname, '../../../agent/legacy-runtime/index.js'));
+    const publicKeyPem = load('./config.js').createDeviceKeyPair().publicKey;
+    for (const ws of [workspace, 'company_store_maintenance'] as SessionWorkspace[]) {
+      const localDevices: any[] = [];
+      for (let i = 0; i < 2; i++) {
+        const pairing = await old('/pairings', { method: 'POST', ws, body: {} });
+        const device = await old('/agent/register', { method: 'POST', ws, body: { pairingCode: pairing.body.code,
+          name: `加入保护-${i}`, hostname: 'synthetic-only', platform: 'win32', arch: 'x64', agentVersion: '0.3.45', publicKeyPem } });
+        expect(device.status).toBe(201); localDevices.push(device.body);
+        expect((await old('/agent/heartbeat', { method: 'POST', ws, auth: device.body.deviceToken,
+          body: { agentVersion: '0.3.45', currentStep: 'idle', currentRequestId: null, activeBrowserSessionIds: [] } })).status).toBe(200);
+      }
+      const name = `加入保护-${randomBytes(5).toString('hex')}`;
+      await services.resources.create(boss, 'stores', { name, platform: 'pdd' });
+      const candidates = await old('/shop-candidates', { ws });
+      const id = candidates.body.shops.find((row: any) => row.name === name).id;
+      const add = (deviceId: string) => old('/managed-shops', { method: 'POST', ws, body: { storeIds: [id], assignedDeviceId: deviceId } });
+      const results = await Promise.all(localDevices.map(d => add(d.deviceId)));
+      expect(results.map(r => r.status).sort()).toEqual([201, 409]);
+      const owner = localDevices[results.findIndex(r => r.status === 201)];
+      const other = localDevices.find(d => d !== owner);
+      expect((await add(owner.deviceId)).status).toBe(409);
+      expect((await add(other.deviceId)).status).toBe(409);
+      await store.execute('UPDATE session_managed_shops SET withdrawal_login_account=?,withdrawal_login_password=? WHERE company_id=? AND store_id=?',
+        ['preserved-account', services.crypto.encrypt('synthetic-preserved-secret'), boss.companyId, id]);
+      const opened = await old('/open-requests', { method: 'POST', ws, body: { storeId: id, deviceId: owner.deviceId } });
+      expect(opened.status).toBe(201);
+      // A stale restore must not reassign even a queued login request.
+      await store.execute("UPDATE session_managed_shops SET status='removed' WHERE company_id=? AND store_id=?", [boss.companyId, id]);
+      expect((await add(other.deviceId)).status).toBe(409);
+      await store.execute("UPDATE session_open_requests SET status='completed' WHERE id=?", [opened.body.id]);
+      const [scope] = await store.query('SELECT workspace_id FROM session_managed_shops WHERE company_id=? AND store_id=?', [boss.companyId, id]);
+      const browserId = randomUUID();
+      await store.execute(`INSERT INTO managed_browser_sessions(id,company_id,workspace_id,user_id,device_id,shop_id,local_profile_id,page_url,status)
+        VALUES(?,?,?,?,?,?,?,?,'open')`, [browserId, boss.companyId, scope.workspace_id, boss.id, owner.deviceId, id, randomUUID(), 'https://mms.pinduoduo.com/home/']);
+      expect((await add(other.deviceId)).status).toBe(409);
+      const [unchanged] = await store.query('SELECT assigned_device_id,withdrawal_login_account,withdrawal_login_password FROM session_managed_shops WHERE company_id=? AND store_id=?', [boss.companyId, id]);
+      expect(unchanged.assigned_device_id).toBe(owner.deviceId);
+      expect(unchanged.withdrawal_login_account).toBe('preserved-account');
+      expect(services.crypto.decrypt(unchanged.withdrawal_login_password)).toBe('synthetic-preserved-secret');
+      await store.execute("UPDATE managed_browser_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP WHERE id=?", [browserId]);
+      const remoteId = randomUUID();
+      await store.execute(`INSERT INTO session_remote_sessions(id,company_id,workspace_id,user_id,device_id,shop_id,browser_session_id,status,expires_at)
+        VALUES(?,?,?,?,?,?,?,'requested',DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 10 MINUTE))`, [remoteId, boss.companyId, scope.workspace_id, boss.id, owner.deviceId, id, browserId]);
+      expect((await add(other.deviceId)).status).toBe(409);
+      await store.execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP WHERE id=?", [remoteId]);
+      expect((await add(other.deviceId)).status).toBe(201);
+      expect((await store.query('SELECT assigned_device_id FROM session_managed_shops WHERE company_id=? AND store_id=?', [boss.companyId, id]))[0].assigned_device_id).toBe(other.deviceId);
+    }
+  }, 30000);
+
   it('原助手完整心跳字段可用，两个用途分别绑定且分配CAS拒绝过时页面', async () => {
     const helperRoot = path.resolve(__dirname, '../../../agent/legacy-runtime');
     const load = createRequire(path.join(helperRoot, 'index.js'));
