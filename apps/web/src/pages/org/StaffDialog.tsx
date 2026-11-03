@@ -206,7 +206,7 @@ export function StaffDialog({
           </label>
           {staff && employmentType !== 'regular' && <>
             <label>合作开始日期<input type="date" value={contractStartDate} onChange={e => setContractStartDate(e.target.value)} /></label>
-            <label>{employmentType === 'temp' ? '合作结束日期（必填）' : '合作结束日期（可不填）'}<input aria-label="合作结束日期" type="date" min={contractStartDate} value={contractEndDate} onChange={e => setContractEndDate(e.target.value)} /></label>
+            <label>合作结束日期（可不填）<input aria-label="合作结束日期" type="date" min={contractStartDate} value={contractEndDate} onChange={e => setContractEndDate(e.target.value)} /></label>
             <p className="muted">保存后自动补齐或更新兼职与临时工档案，无需另行建档。</p>
           </>}
           {staff && employmentType === 'regular' && staff.employmentType !== 'regular' && <p className="muted">转为正式员工后，原用工档案保留在历史归档中，不再按兼职合作期限限制登录。</p>}

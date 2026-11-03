@@ -41,11 +41,13 @@ d('员工编辑与用工档案同事务联动', () => {
 
   it('临时工日期校验失败整笔回滚，合法期限控制登录；兼职可清空结束日期', async () => {
     const person = await mk();
-    for (const dates of [{}, { contractStartDate: '2026-02-30', contractEndDate: '2099-01-01' }, { contractStartDate: '2026-04-02', contractEndDate: '2026-04-01' }]) {
+    for (const dates of [{ contractStartDate: '2026-02-30', contractEndDate: '2099-01-01' }, { contractStartDate: '2026-04-02', contractEndDate: '2026-04-01' }]) {
       await expect(org.updateStaff(boss, person.id, { name: '不能保存的姓名', employmentType: 'temp', ...dates })).rejects.toThrow();
       expect((await ds.manager.findOneByOrFail(User, { id: person.id })).name).toBe(person.name);
       expect(await getFile(person.id)).toBeNull();
     }
+    await org.updateStaff(boss, person.id, { employmentType: 'temp', contractStartDate: '2026-01-01' });
+    expect((await getFile(person.id))!.data.contractEndDate).toBeUndefined();
     await org.updateStaff(boss, person.id, { employmentType: 'temp', contractStartDate: '2026-01-01', contractEndDate: '2026-02-01' });
     let user = await ds.manager.findOneByOrFail(User, { id: person.id });
     expect(await workforceBlockFor(ds.manager, user, '2026-02-02')).toMatch(/已结束/);
