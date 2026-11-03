@@ -7,28 +7,28 @@ import { resourceApi } from '../../resources/api';
 import { ApiError } from '../../api/client';
 vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:{permissions:{isCompanyAdmin:true,allow:[],deny:[]}}})}));
 const person=(id:number,name:string,type='regular')=>({id,name,account:String(id),departmentId:null,positionId:null,positionName:null,extraPositionIds:[],isCompanyAdmin:false,status:'active',lastLoginAt:null,managerId:null,title:null,employmentType:type}) as StaffDto;
-const regular=person(1,'正式示例'),part=person(2,'兼职示例','part_time');
+const regular=person(1,'正式示例'),part=person(2,'兼职示例','part_time'),temp=person(3,'临时示例','temp');
 const bound={userId:2,bound:true,boundAt:null,notificationsEnabled:true,canTest:true,testBlockedReason:null};
 const job=(status:StaffTestNotice['status']='pending')=>({jobId:7,userId:2,status,message:status==='done'?'飞书接口已确认发送成功':'测试通知已加入队列',createdAt:'now',doneAt:null});
 beforeEach(()=>{
-  vi.spyOn(orgApi,'staff').mockResolvedValue([regular,part]);vi.spyOn(orgApi,'departments').mockResolvedValue([]);vi.spyOn(orgApi,'positions').mockResolvedValue([]);vi.spyOn(orgApi,'catalog').mockResolvedValue([]);
+  vi.spyOn(orgApi,'staff').mockResolvedValue([regular,part,temp]);vi.spyOn(orgApi,'departments').mockResolvedValue([]);vi.spyOn(orgApi,'positions').mockResolvedValue([]);vi.spyOn(orgApi,'catalog').mockResolvedValue([]);
   vi.spyOn(orgApi,'staffFeishu').mockResolvedValue({rows:[{...bound,userId:1,bound:false,canTest:false,testBlockedReason:'尚未绑定本人飞书'},bound]});
   vi.spyOn(resourceApi,'list').mockResolvedValue({items:[]} as never);
 });
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 describe('人员绑定状态与测试通知',()=>{
-  it('正式和兼职统一显示，可按用工和绑定筛选，未绑定不伪装成已绑定',async()=>{
-    render(<StaffPage/>);await screen.findByText('兼职示例');await waitFor(()=>expect(within(screen.getByText('兼职示例').closest('tr')!).getByText('已绑定')).toBeTruthy());
-    expect(within(screen.getByText('兼职示例').closest('tr')!).getByText('已绑定')).toBeTruthy();
+  it('人员档案仅显示正式员工，兼职临时工不会通过筛选或搜索重新出现',async()=>{
+    render(<StaffPage/>);await screen.findByText('正式示例');
+    expect(screen.queryByText('兼职示例')).toBeNull();expect(screen.queryByText('临时示例')).toBeNull();expect(screen.queryByLabelText('用工类型')).toBeNull();
     expect(within(screen.getByText('正式示例').closest('tr')!).getByText('未绑定')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('用工类型'),{target:{value:'part_time'}});expect(screen.queryByText('正式示例')).toBeNull();
-    fireEvent.change(screen.getByLabelText('飞书绑定状态'),{target:{value:'unbound'}});expect(screen.queryByText('兼职示例')).toBeNull();
+    fireEvent.change(screen.getByLabelText('搜索员工'),{target:{value:'兼职'}});expect(screen.queryByText('兼职示例')).toBeNull();
+    fireEvent.change(screen.getByLabelText('搜索员工'),{target:{value:''}});fireEvent.change(screen.getByLabelText('飞书绑定状态'),{target:{value:'bound'}});expect(screen.queryByText('正式示例')).toBeNull();
   });
   it('状态读取失败显示未知且可刷新，不把加载失败当未绑定',async()=>{
     vi.mocked(orgApi.staffFeishu).mockRejectedValueOnce(new Error('网络错误'));
-    render(<StaffPage/>);await screen.findByText('兼职示例');await screen.findByText(/读取失败/);
-    expect(screen.getAllByRole('row').some(r=>r.textContent?.includes('未绑定'))).toBe(false);expect(screen.getAllByText('未读取')).toHaveLength(2);
-    fireEvent.click(screen.getByRole('button',{name:'刷新绑定状态'}));await waitFor(()=>expect(within(screen.getByText('兼职示例').closest('tr')!).getByText('已绑定')).toBeTruthy());
+    render(<StaffPage/>);await screen.findByText('正式示例');await screen.findByText(/读取失败/);
+    expect(screen.getAllByRole('row').some(r=>r.textContent?.includes('未绑定'))).toBe(false);expect(screen.getAllByText('未读取')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button',{name:'刷新绑定状态'}));await waitFor(()=>expect(within(screen.getByText('正式示例').closest('tr')!).getByText('未绑定')).toBeTruthy());
   });
   it('先展示接收人和固定文本，确认后发一次；入队与发送成功分开显示',async()=>{
     const send=vi.spyOn(orgApi,'staffTestNotice').mockResolvedValue(job());vi.spyOn(orgApi,'staffTestNoticeStatus').mockResolvedValue(job('done'));
