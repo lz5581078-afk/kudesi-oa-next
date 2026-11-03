@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { assertNoDailyWork } from './daily-work-core';
 import { saveCheckoutFeedback,checkoutFeedbackRecords,checkoutAttendance,type LiveFeedbackInput } from './live-feedback';
 import { REPORT_WINDOW_MS, reportsLocked, scheduleFingerprint, primaryReport } from './live-checkin-core';
 import { finishCheckedOutRoom } from './live-checkout-state';
@@ -119,6 +120,7 @@ export class LiveSessionService {
   }
 
   private async startLocked(em:EntityManager,user:AuthUser,a:LiveAccess,input:StartInput,trial:boolean) {
+      await assertNoDailyWork(em,a.companyId,[a.userId,...(input.confirmTrialAnchorId?[input.confirmTrialAnchorId]:[]),...(!input.actualCheckin?[input.anchorId,input.controlId,input.operatorId].filter((id):id is number=>!!id):[])],wallNow(liveClock.now()));
       const now = liveClock.now();
       if(input.actualCheckin){
         const [busy]=await em.query("SELECT c.session_id,c.role FROM live_session_checkins c JOIN live_sessions s ON s.company_id=c.company_id AND s.id=c.session_id WHERE c.company_id=? AND c.user_id=? AND c.end_at IS NULL AND s.status IN ('live','pending_report') AND s.report_locked_at IS NULL AND (s.report_deadline IS NULL OR s.report_deadline>?) LIMIT 1",[a.companyId,a.userId,wallNow(now)]);
@@ -256,6 +258,7 @@ export class LiveSessionService {
       if(input.actualCheckin&&input.role&&role!==input.role)liveFail('请以本人所选身份上播',403);
       if(input.actualCheckin && role==='manager')liveFail('请由主播或中控本人打卡开播',403);
       if(input.actualCheckin && role==='control'&&!input.confirmDetails)liveFail('中控请先核对本场排班、账号、店铺和产品',400);
+      if(!input.actualCheckin)await assertNoDailyWork(em,a.companyId,[anchorId,controlId,operatorId].filter((id):id is number=>!!id),wallNow(now));
       const ins = await em.query(
         `INSERT INTO live_sessions (company_id, schedule_id, room_id, room_name, anchor_user_id, control_user_id, operator_user_id, douyin_account_id, douyin_account_name, store_id, store_name, jst_shop_id,
            session_date, start_at, status, started_by, started_role) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'live',?,?)`,

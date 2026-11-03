@@ -49,6 +49,9 @@ export async function payrollSources(em: EntityManager, c: number, from: string,
   );
   const captured:Row[]=await em.query(`SELECT o.session_id,o.order_id,o.shop_id,o.amount_cents,o.platform,o.baseline_refund_cents FROM live_session_order_snapshots o JOIN live_sessions s ON s.company_id=o.company_id AND s.id=o.session_id WHERE o.company_id=? AND s.session_date BETWEEN ? AND ? AND s.checkin_mode=1 AND o.paid=1 ORDER BY o.session_id,o.shop_id,o.order_id`,[c,from,to]);
   orders.push(...captured);
-  return { records, wages, orders };
+  const pendingDaily=await em.query("SELECT id FROM live_daily_work WHERE company_id=? AND work_date BETWEEN ? AND ? AND status IN ('working','pending','submitted','returned') LIMIT 1",[c,from,to]);
+  if(pendingDaily.length)liveFail('结算范围内还有日常工作未结束或未审核，请先处理');
+  const dailyWork:Row[]=await em.query("SELECT *,DATE_FORMAT(work_date,'%Y-%m-%d') day FROM live_daily_work WHERE company_id=? AND work_date BETWEEN ? AND ? AND status='approved' ORDER BY id",[c,from,to]);
+  return { records, wages, orders, dailyWork };
 }
 export const sourcesFingerprint = (s: Awaited<ReturnType<typeof payrollSources>>) => JSON.stringify(s);

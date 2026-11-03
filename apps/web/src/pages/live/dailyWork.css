@@ -1,0 +1,105 @@
+.daily-work-panel {
+  padding: 18px;
+  margin: 12px 0;
+  min-width: 0;
+}
+.daily-head,
+.daily-actions,
+.daily-work-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.daily-head h2 {
+  margin: 0;
+}
+.daily-actions label,
+.daily-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.daily-clock-button {
+  font-size: 20px;
+  min-height: 60px;
+  width: 100%;
+  margin: 16px 0;
+}
+.daily-work-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+}
+.daily-work-list > li {
+  border: 1px solid var(--border, #d9e1eb);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.daily-times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.daily-times dt {
+  color: #64748b;
+  font-size: 13px;
+}
+.daily-times dd {
+  margin: 4px 0;
+}
+.daily-form {
+  display: grid;
+  gap: 16px;
+}
+.daily-form textarea,
+.daily-work-panel textarea {
+  width: 100%;
+  min-height: 96px;
+}
+.daily-office {
+  border-top: 3px solid #6685ab;
+  background: #f7faff;
+}
+.daily-office-person {
+  display: grid;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid #d9e1eb;
+}
+.daily-office-person small {
+  color: #64748b;
+}
+.daily-office > .secondary-button {
+  margin-top: auto;
+}
+.daily-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+@media (max-width: 600px) {
+  .daily-head {
+    align-items: stretch;
+  }
+  .daily-times {
+    grid-template-columns: 1fr;
+  }
+  .daily-actions {
+    justify-content: flex-start;
+  }
+  .daily-work-panel {
+    padding: 12px;
+  }
+  .daily-actions button {
+    min-height: 44px;
+  }
+  .daily-form input {
+    min-width: 0;
+    width: 100%;
+  }
+}

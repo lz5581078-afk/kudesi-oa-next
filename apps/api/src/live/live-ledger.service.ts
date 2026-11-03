@@ -117,14 +117,16 @@ export class LiveLedgerService {
       `SELECT r.role, r.id, r.session_id, r.user_id, DATE_FORMAT(r.session_date,'%Y-%m-%d') day, DATE_FORMAT(r.start_at,'%Y-%m-%d %H:%i') start_text, DATE_FORMAT(r.end_at,'%Y-%m-%d %H:%i') end_text, r.minutes, r.hourly_rate_cents, r.rate_source, r.amount_cents, r.adjust_note, e.name user_name, s.room_name
          FROM live_wage_records r JOIN users e ON e.id = r.user_id AND e.company_id = r.company_id JOIN live_sessions s ON s.id = r.session_id AND s.company_id = r.company_id
         WHERE ${where.join(' AND ')} ORDER BY r.session_date DESC, r.id DESC`, params);
+    const daily:Row[]=await this.em.query(`SELECT r.role,-r.id id,r.id daily_work_id,NULL session_id,r.user_id,DATE_FORMAT(r.work_date,'%Y-%m-%d') day,DATE_FORMAT(r.actual_start,'%Y-%m-%d %H:%i') start_text,DATE_FORMAT(r.actual_end,'%Y-%m-%d %H:%i') end_text,COALESCE(r.approved_minutes,r.minutes) minutes,r.hourly_rate_cents,'archive' rate_source,r.amount_cents,CONCAT(r.content,'；',COALESCE(r.review_note,'')) adjust_note,e.name user_name,'直播办公室 · 日常工作' room_name FROM live_daily_work r JOIN users e ON e.company_id=r.company_id AND e.id=r.user_id WHERE ${where.join(' AND ').replaceAll('r.session_date','r.work_date')} AND r.status='approved' ORDER BY r.work_date DESC,r.id DESC`,params);
+    rows.push(...daily);rows.sort((a,b)=>String(b.day).localeCompare(String(a.day))||Number(b.id)-Number(a.id));
     const summary = new Map<number, { userId: number; name: string; sessions: number; minutes: number; amountCents: number }>();
     for (const r of rows) {
       const s = summary.get(Number(r.user_id)) ?? { userId: Number(r.user_id), name: r.user_name, sessions: 0, minutes: 0, amountCents: 0 };
-      s.sessions += 1; s.minutes += Number(r.minutes); s.amountCents += num(r.amount_cents); summary.set(Number(r.user_id), s);
+      s.sessions += r.daily_work_id?0:1; s.minutes += Number(r.minutes); s.amountCents += num(r.amount_cents); summary.set(Number(r.user_id), s);
     }
     return {
       month, scope: a.canViewAll ? 'all' : 'mine', totalCents: rows.reduce((t, r) => t + num(r.amount_cents), 0), summary: [...summary.values()],
-      rows: rows.map((r) => ({ role:r.role, id: Number(r.id), sessionId: Number(r.session_id), userId: Number(r.user_id), userName: r.user_name, date: r.day, roomName: r.room_name, startAt: r.start_text, endAt: r.end_text, minutes: Number(r.minutes), hourlyRateCents: num(r.hourly_rate_cents), rateSource: r.rate_source, amountCents: num(r.amount_cents), note: r.adjust_note ?? '' })),
+      rows: rows.map((r) => ({ dailyWorkId:r.daily_work_id?Number(r.daily_work_id):null,role:r.role, id: Number(r.id), sessionId: Number(r.session_id), userId: Number(r.user_id), userName: r.user_name, date: r.day, roomName: r.room_name, startAt: r.start_text, endAt: r.end_text, minutes: Number(r.minutes), hourlyRateCents: num(r.hourly_rate_cents), rateSource: r.rate_source, amountCents: num(r.amount_cents), note: r.adjust_note ?? '' })),
     };
   }
 

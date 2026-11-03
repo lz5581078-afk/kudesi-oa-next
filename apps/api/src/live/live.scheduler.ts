@@ -1,3 +1,4 @@
+import { DailyWorkService } from './daily-work.service';
 import { LiveCheckinClosureService } from './live-checkin-closure.service';
 import { Injectable, Logger, Optional, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { LiveNotificationService } from './live-notification.service';
@@ -9,7 +10,7 @@ export class LiveScheduler implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
   private readonly log = new Logger('LiveScheduler');
-  constructor(private readonly schedules: LiveScheduleService, @Optional() private readonly notifications?: LiveNotificationService, @Optional() private readonly closure?: LiveCheckinClosureService) {}
+  constructor(private readonly schedules: LiveScheduleService, @Optional() private readonly notifications?: LiveNotificationService, @Optional() private readonly closure?: LiveCheckinClosureService, @Optional() private readonly daily?: DailyWorkService) {}
 
   onModuleInit() {
     if (process.env.NODE_ENV === 'test' || process.env.LIVE_SCHEDULER === 'off') return;
@@ -26,6 +27,7 @@ export class LiveScheduler implements OnModuleInit, OnModuleDestroy {
     finally {
       try { await this.closure?.scan(); } catch (e) { this.log.error(`直播锁场失败：${(e as Error).message}`); }
       try { await this.notifications?.scan(); } catch (e) { this.log.error(`直播通知扫描失败：${(e as Error).message}`); }
+      try { await this.daily?.scan(); } catch (e) { this.log.error(`日常工作超时通知失败：${(e as Error).message}`); }
       this.running = false;
     }
   }
