@@ -6,7 +6,7 @@ import { COST_TABLE_STATUSES, CostService } from './cost.service';
 
 /** 成本历史的事件类型（旧系统 bundle-cost-history 的事件）：验证发布 / 维护售价 / 来源值变化 / 手动登记 */
 export type CostEvent = 'workflow_publish' | 'pricing_update' | 'source_values_update' | 'manual';
-export const COST_EVENT_LABEL: Record<CostEvent, string> = { workflow_publish: '验证发布', pricing_update: '维护售价', source_values_update: '来源值变化', manual: '手动登记' };
+export const COST_EVENT_LABEL: Record<CostEvent, string> = { workflow_publish: '验证更新成本', pricing_update: '售价调整', source_values_update: '商品资料联动', manual: '手动登记' };
 
 /**
  * 登记成本快照：和这个组合上一次登记的相比没变就不记。
@@ -30,13 +30,14 @@ export async function registerCostSnapshots(
     if (!b) { missing++; continue; }
     const row = missingIds.includes(id) ? cost.row(d, b, costRegistrationFallback(previous.get(id), b.data.snapshot)) : raw.get(id)!;
     const last = await em.findOne(FinanceCostSnapshot, { where: { companyId, bundleId: id }, order: { id: 'DESC' }, ...(em.queryRunner?.isTransactionActive ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
-    const same = last && last.preShipCostCents === row.preShipCostCents && last.weightG === row.weightG && last.freightCents === row.freightCents
+    const context = { productCostCents: row.preShipCostCents, categoryId: row.categoryId, carrierName: row.carrierName };
+    const same = last && last.code === row.code && last.name === row.name && last.context?.productCostCents === context.productCostCents && last.context?.categoryId === context.categoryId && last.context?.carrierName === context.carrierName && last.preShipCostCents === row.preShipCostCents && last.weightG === row.weightG && last.freightCents === row.freightCents
       && last.minPriceCents === row.minPriceCents && last.marginPercent === row.marginPercent;
     if (same) { unchanged++; continue; }
     await em.insert(FinanceCostSnapshot, {
       companyId, bundleId: id, code: row.code, name: row.name, revision: (last?.revision ?? 0) + 1,
       preShipCostCents: row.preShipCostCents, weightG: row.weightG, freightCents: row.freightCents, marginPercent: row.marginPercent, minPriceCents: row.minPriceCents,
-      reason: reason.slice(0, 200), eventType, actorId,
+      context, reason: reason.slice(0, 200), eventType, actorId,
     });
     recorded++;
   }

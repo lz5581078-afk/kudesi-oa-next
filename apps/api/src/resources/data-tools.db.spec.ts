@@ -5,7 +5,7 @@ import { DataSource } from 'typeorm';
 import { PROVINCES } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, FinanceCostSnapshot, ResourceRecord, User } from '../entities';
 import { normalizeExpressRows } from '../integrations/ocr.service';
 import { buildServices } from '../test-support';
 import { CostService } from './cost.service';
@@ -71,6 +71,25 @@ d('数据板块工具（真实数据库）', () => {
     expect(reasonSearch.rows.some((row: { reason: string }) => row.reason === '首次')).toBe(true);
     expect((await tools.costHistory({ ...boss, companyId: boss.companyId + 9999999 }, { keyword: '首次', page: 1, pageSize: 10 })).total).toBe(0);
 
+  });
+
+  it('历史留存当时分类和快递，编码名称单独变更也登记，旧记录不补当前字段', async () => {
+    const original = await ds.manager.findOneByOrFail(ResourceRecord, { id: ids.bundle, companyId: boss.companyId });
+    const category = await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '历史上下文分类', code: 'LSCTX' });
+    await ds.manager.update(ResourceRecord, { id: original.id }, { data: { ...original.data, code: 'SYNTHETIC-HISTORY-001', name: '合成历史改名', carrierName: '合成快递', bundleCategoryId: category.id } });
+    expect((await tools.registerCost(boss, ids.bundle, '合成上下文变更')).recorded).toBe(1);
+    const h = await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    const saved = h.rows[0];
+    expect(saved).toMatchObject({ code: 'SYNTHETIC-HISTORY-001', name: '合成历史改名', categoryId: category.id, carrierName: '合成快递', productCostCents: saved.preShipCostCents });
+    expect(saved.before).toMatchObject({ code: original.data.code, name: original.data.name });
+    expect(saved.changes.map((change: { field: string }) => change.field)).toEqual(expect.arrayContaining(['code', 'name', 'categoryId', 'carrierName']));
+    expect((await tools.registerCost(boss, ids.bundle, '没有变化')).unchanged).toBe(1);
+    await ds.manager.update(ResourceRecord, { id: original.id }, { data: { ...original.data, name: '今天的新名字', carrierName: '今天的快递' } });
+    expect((await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 })).rows[0]).toMatchObject({ name: '合成历史改名', categoryId: category.id, carrierName: '合成快递' });
+    await ds.manager.insert(FinanceCostSnapshot, { companyId: boss.companyId, bundleId: ids.bundle, code: 'SYNTHETIC-LEGACY', name: '合成无上下文历史', revision: 99, preShipCostCents: 1, weightG: 1, freightCents: null, marginPercent: null, minPriceCents: null, context: null, reason: '', eventType: 'manual', actorId: boss.id });
+    const legacy = (await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 })).rows[0];
+    expect(legacy.categoryId).toBeUndefined(); expect(legacy.carrierName).toBeUndefined(); expect(legacy.productCostCents).toBeUndefined();
+    await ds.manager.save(ResourceRecord, original);
   });
 
   it('包装方案：明细只能选包装档案；匹配规则按优先级、重量、编码命中，同优先级冲突要提示', async () => {

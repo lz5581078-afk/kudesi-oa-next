@@ -155,10 +155,13 @@ d('成本表与定价调试表（真实数据库）', () => {
     const pricing = await maintain.pricingHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
     expect(pricing.total).toBe(1);
     expect(pricing.rows[0]).toMatchObject({ afterCarrier: '顺丰', beforeCarrier: '', afterPercent: 33.333333, beforePercent: null, reason: '大客户专价' });
-    // 只改快递、不改价格：不会多出成本快照，但售价维护记录里有
+    // 旧版成本历史也留存使用快递：只改快递应登记，金额保持原值
     const snapCount = snaps.length;
     await maintain.savePricing(boss, ids.bundle, { revision: after.revision, carrierName: '中通', profitPercent: 33.333333, reason: '换快递' });
-    expect(await ds.manager.count(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle } })).toBe(snapCount);
+    expect(await ds.manager.count(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle } })).toBe(snapCount + 1);
+    const carrierSnapshot = await ds.manager.findOneOrFail(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle }, order: { id: 'DESC' } });
+    expect(carrierSnapshot.context?.carrierName).toBe('中通');
+    expect(carrierSnapshot.preShipCostCents).toBe(snaps[0].preShipCostCents);
     expect((await maintain.pricingHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 })).total).toBe(2);
     const logs = await ds.manager.count(ResourceChangeLog, { where: { companyId: boss.companyId, resourceType: 'finance-bundles', resourceId: ids.bundle } });
     expect(logs).toBeGreaterThan(2);

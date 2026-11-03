@@ -1,3 +1,4 @@
+import { CostSnapshotContext1784000000000 } from './migrations/1784000000000-CostSnapshotContext';
 import { ResourceFormMutation1782000000000 } from './migrations/1782000000000-ResourceFormMutation';
 import { DocSettlementMode1781000000000 } from './migrations/1781000000000-DocSettlementMode';
 import { DocCounterpartySummary1783000000000 } from './migrations/1783000000000-DocCounterpartySummary';
@@ -85,6 +86,7 @@ MIGRATIONS.push(LiveDailyWork1780000000000);
 MIGRATIONS.push(DocSettlementMode1781000000000);
 MIGRATIONS.push(ResourceFormMutation1782000000000);
 MIGRATIONS.push(DocCounterpartySummary1783000000000);
+MIGRATIONS.push(CostSnapshotContext1784000000000);
 MIGRATIONS.push(SessionLegacyRuntime1777000000000);
 MIGRATIONS.push(SessionBrowserHistory1778000000000);
 

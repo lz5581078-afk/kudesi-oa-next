@@ -168,7 +168,7 @@ export function SkuHistoryDialog({ row, onClose }: { row: CostRow; onClose: () =
           </table></div>
         )}
         {!data && !error && <p className="muted">正在读取…</p>}
-        <div className="toolbar"><span>共 {total} 条 · {page} / {Math.max(1, Math.ceil(total / 20))}</span><button type="button" className="secondary-button small" aria-label="历史上一页" disabled={!data || page <= 1} onClick={() => setPage(p => p - 1)}>上一页</button><button type="button" className="secondary-button small" aria-label="历史下一页" disabled={!data || page * 20 >= total} onClick={() => setPage(p => p + 1)}>下一页</button><button type="button" className="secondary-button small" disabled={!data} onClick={() => setRefresh(v => v + 1)}>刷新历史</button></div>
+        <div className="toolbar"><span>共 {total} 条 · {page} / {Math.max(1, Math.ceil(total / 20))}</span><button type="button" className="secondary-button small" aria-label="历史上一页" disabled={!data || page <= 1} onClick={() => setPage(p => p - 1)}>上一页</button><button type="button" className="secondary-button small" aria-label="历史下一页" disabled={!data || page * 20 >= total} onClick={() => setPage(p => p + 1)}>下一页</button><button type="button" className="secondary-button small" disabled={!data && !error} onClick={() => setRefresh(v => v + 1)}>刷新历史</button></div>
       </div>
     </div></div>
   );

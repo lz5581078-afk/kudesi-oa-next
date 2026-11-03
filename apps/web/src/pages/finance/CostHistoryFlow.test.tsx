@@ -30,4 +30,15 @@ describe('成本历史读取与翻页', () => {
     await waitFor(() => expect(financeApi.skuCostHistory).toHaveBeenCalledTimes(3));
     expect(financeApi.skuCostHistory).toHaveBeenLastCalledWith(7, 2);
   });
+  it('SKU历史读取失败后能在原窗口刷新重试', async () => {
+    vi.mocked(financeApi.skuCostHistory).mockRejectedValueOnce(new Error('合成读取失败')).mockResolvedValue({ changes: { rows: [costRow], total: 1 }, pricing: { rows: [], total: 0 } });
+    render(<SkuHistoryDialog row={{ bundleId: 7, name: '合成组合', code: 'SYNTHETIC' } as CostRow} onClose={() => {}} />);
+    await screen.findByRole('alert');
+    const retry = screen.getByRole('button', { name: '刷新历史' });
+    expect(retry.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(retry);
+    await screen.findByText('合成历史SKU');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
 });

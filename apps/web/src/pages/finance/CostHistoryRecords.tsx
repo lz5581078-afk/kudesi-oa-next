@@ -3,13 +3,13 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { CostSnapshotRow } from './financeApi';
 
 const fields = [
-  ['code', 'SKU组合编码'], ['name', 'SKU名称'], ['preShipCostCents', '预发货成本'],
-  ['weightG', '计费重量（kg）'], ['freightCents', '历史固定运费'], ['marginPercent', '利润率'], ['minPriceCents', '最低售价'],
+  ['code', 'SKU组合编码'], ['name', 'SKU名称'], ['productCostCents', '成本'], ['preShipCostCents', '预发货成本'],
+  ['weightG', '计费重量（kg）'], ['categoryId', '分类ID'], ['carrierName', '使用快递'], ['freightCents', '历史固定运费'], ['marginPercent', '利润率'], ['minPriceCents', '最低售价'],
 ] as const;
 function value(key: string, raw: unknown) {
   if (raw === undefined) return '未记录';
   if (raw === null || raw === '') return '未设置';
-  if (key === 'code' || key === 'name') return String(raw);
+  if (key === 'code' || key === 'name' || key === 'carrierName' || key === 'categoryId') return String(raw);
   const n = Number(raw);
   if (!Number.isFinite(n)) return '未记录';
   if (key === 'weightG') return String(Number((n / 1000).toFixed(6)));

@@ -1,3 +1,4 @@
+import { COST_HISTORY_FIELDS, costHistoryValues } from './cost-history-values';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
@@ -109,16 +110,14 @@ export class DataToolsService {
     const prevIds = rows.map((r: { prevId: number | null }) => r.prevId).filter((x: number | null): x is number => !!x);
     const prev = prevIds.length ? await this.dataSource.query(`SELECT * FROM finance_cost_snapshots WHERE company_id = ? AND id IN (${prevIds.map(() => '?').join(',')})`, [user.companyId, ...prevIds]) : [];
     const pm = new Map<number, Record<string, unknown>>(prev.map((p: { id: number }) => [Number(p.id), p]));
-    const n_ = (v: unknown) => (v === null || v === undefined ? null : Number(v));
-    const FIELDS: Array<[string, string, string]> = [['pre_ship_cost_cents', 'preShipCostCents', '发货前成本'], ['weight_g', 'weightG', '重量(g)'], ['freight_cents', 'freightCents', '运费'], ['margin_percent', 'marginPercent', '利润率(%)'], ['min_price_cents', 'minPriceCents', '最低售价']];
     return {
       total: Number(n), page: q.page, pageSize: q.pageSize,
       rows: rows.map((r: Record<string, unknown>) => {
         const p = r.prevId ? pm.get(Number(r.prevId)) : undefined;
-        const cur = Object.fromEntries(FIELDS.map(([c, k]) => [k, n_(r[c])]));
-        const before = p ? { ...Object.fromEntries(FIELDS.map(([c, k]) => [k, n_(p[c])])), code: String(p.code ?? ''), name: String(p.name ?? '') } : null;
+        const cur = costHistoryValues(r);
+        const before = p ? costHistoryValues(p) : null;
         return { id: r.id, bundleId: r.bundle_id, code: r.code, name: r.name, revision: r.revision, reason: r.reason, eventType: r.event_type, eventLabel: COST_EVENT_LABEL[r.event_type as CostEvent] ?? '手动登记', actorName: r.actorName ?? '系统', createdAt: r.created_at, ...cur,
-          before, changes: before ? [...FIELDS.filter(([, k]) => cur[k] !== (before as Record<string, unknown>)[k]).map(([, k, label]) => ({ field: k, label, before: (before as Record<string, unknown>)[k], after: cur[k] })), ...([['code', 'SKU组合编码'], ['name', 'SKU名称']] as const).filter(([key]) => String(r[key] ?? '') !== before[key]).map(([key, label]) => ({ field: key, label, before: before[key], after: String(r[key] ?? '') }))] : [] };
+          before, changes: before ? COST_HISTORY_FIELDS.filter(([key]) => cur[key] !== before[key]).map(([key, label]) => ({ field: key, label, before: before[key], after: cur[key] })) : [] };
       }),
     };
   }
