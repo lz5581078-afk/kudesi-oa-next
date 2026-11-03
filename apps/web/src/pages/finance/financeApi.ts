@@ -27,9 +27,14 @@ export interface CostRow {
   freightCents: number | null; freightMethod: string | null; marginPercent: number | null; marginSource: string; marginOverride: boolean; inheritedMargin: { percent: number | null; source: string };
   carrierName: string; costIncludingFreightCents: number | null; revision: string; minPriceCents: number | null; issues: string[]; lines: CostLine[]; breakdown?: CostBreakdown;
 }
+export interface CostRegisterPreview {
+  rows: Array<{ id: number; code: string; name: string; costCents: number; weightG: number }>;
+  issues: Array<{ id: number; code: string; issues: string[] }>;
+  signature: string;
+}
 export interface CostCategory { id: number; name: string; parentId: number | null; ownPercent: number | null; percent: number | null; source: string; revision: string; count: number }
 export interface CostTableData {
-  total: number; page: number; pageSize: number; rows: CostRow[]; categories: CostCategory[]; defaultMargin: { percent: number | null; revision: string }; allTotal: number; canEdit: boolean;
+  total: number; page: number; pageSize: number; rows: CostRow[]; categories: CostCategory[]; defaultMargin: { percent: number | null; revision: string }; allTotal: number; canEdit: boolean; canFill?: boolean;
 }
 export interface CostPricingSave { revision: string; carrierName: string; profitPercent: number | null; reason: string }
 export interface MarginHistoryRow { id: string; createdAt: string; actorName: string; scopeName: string; beforePercent: number | null; afterPercent: number | null; reason: string }
@@ -130,7 +135,8 @@ export const financeApi = {
   settlementDetail: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<SettlementRow[]>(`/finance/settlement-detail${qs(p)}`),
   unsettledReceipts: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<UnsettledRow[]>(`/finance/unsettled-receipts${qs(p)}`),
   costHistory: (p: { bundleId?: number; keyword?: string; page?: number }) => api<{ total: number; page: number; pageSize: number; rows: CostSnapshotRow[] }>(`/finance/cost-history${qs({ ...p, pageSize: 20 })}`),
-  registerCost: (b: { bundleId?: number; reason?: string }) => api<{ recorded: number; unchanged: number }>('/finance/cost-history/register', { method: 'POST', body: b }),
+  previewCostRegistration: () => api<CostRegisterPreview>('/finance/cost-history/register-preview'),
+  registerCost: (b: { bundleId?: number; reason?: string; missingOnly?: boolean; confirmed?: boolean; signature?: string }) => api<{ recorded: number; unchanged: number }>('/finance/cost-history/register', { method: 'POST', body: b }),
   zone: (maxWeightKg: number) => api<{ generatedAt: string; day: string; maxWeightKg: number; ruleCount: number; rows: ZoneRow[] }>(`/finance/zone-suggestion${qs({ maxWeightKg })}`),
   packagingMatch: (b: Record<string, unknown>) => api<PackagingMatch>('/finance/packaging-match', { method: 'POST', body: b }),
   apiKeys: () => api<ApiKeyRow[]>('/finance/api-keys'),

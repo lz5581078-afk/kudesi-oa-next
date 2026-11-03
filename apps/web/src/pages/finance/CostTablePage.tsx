@@ -1,10 +1,11 @@
+import { CostRegistrationDialog } from './CostRegistrationDialog';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import { CopyButton } from '../../resources/CopyValue';
 import { Pager, money, pct } from './common';
 import { CostCategoryTree } from './CostCategoryTree';
 import { BreakdownDialog, costMoney, PricingEditDialog, SkuHistoryDialog, type EditTarget } from './CostDialogs';
-import { financeApi, type CostRow, type CostTableData } from './financeApi';
+import { financeApi, type CostRow, type CostTableData, type CostRegisterPreview } from './financeApi';
 import { CostVersionWorkspace } from './CostVersionWorkspace';
 
 export function CostTablePage() {
@@ -27,6 +28,8 @@ export function CurrentCostTable() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [registration, setRegistration] = useState<CostRegisterPreview | null>(null);
+  const [registering, setRegistering] = useState(false);
   const [editing, setEditing] = useState<EditTarget | null>(null);
   const [history, setHistory] = useState<CostRow | null>(null);
   const [breakdown, setBreakdown] = useState<{ row: CostRow; kind: 'cost' | 'weight' } | null>(null);
@@ -68,6 +71,22 @@ export function CurrentCostTable() {
     return () => { clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
   }, [load]);
 
+  async function previewMissing() {
+    setRegistering(true); setError('');
+    try { setRegistration(await financeApi.previewCostRegistration()); }
+    catch (error) { setError(error instanceof Error ? error.message : '预览失败'); }
+    finally { setRegistering(false); }
+  }
+  async function fillMissing() {
+    if (!registration) return;
+    setRegistering(true); setError('');
+    try {
+      const result = await financeApi.registerCost({ missingOnly: true, confirmed: true, signature: registration.signature, reason: '补齐已验证SKU' });
+      setRegistering(false); setRegistration(null); setNotice(`已补齐 ${result.recorded} 条SKU成本`);
+      load();
+    } catch (error) { setError(error instanceof Error ? error.message : '补齐失败'); setRegistering(false); }
+  }
+
   return (
     <div>
       <div className="page-head between">
@@ -78,7 +97,7 @@ export function CurrentCostTable() {
         </div>
       </div>
       {notice && <div role="status" className="notice ok">{notice} <button type="button" className="link-button" onClick={() => setNotice('')}>关闭</button></div>}
-      {error && !editing && <div role="alert" className="notice error">{error}</div>}
+      {error && !editing && !registration && <div role="alert" className="notice error">{error}</div>}
       <div className="cost-layout">
         <CostCategoryTree data={data} selected={categoryId} onSelect={(id) => { setCategoryId(id); setPage(1); }}
           onEdit={(t) => { setError(''); setEditing({ kind: 'category', ...t }); }} />
@@ -86,6 +105,7 @@ export function CurrentCostTable() {
           <div className="toolbar">
             <input className="search-box" type="search" aria-label="搜索SKU成本" placeholder="SKU组合编码 / SKU名称" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
             <span className="muted">{data.total} 条</span>
+            {data.canFill && <button type="button" className="secondary-button" disabled={busy || registering} onClick={() => void previewMissing()}>补齐已验证SKU</button>}
             {(keyword || categoryId !== null) && <button type="button" className="secondary-button small" onClick={() => { setKeyword(''); setCategoryId(null); setPage(1); }}>清除筛选</button>}
           </div>
           <div className="table-scroll">
@@ -124,6 +144,7 @@ export function CurrentCostTable() {
           onSaved={() => { setEditing(null); setNotice('已保存，售价已按最新规则更新'); load(); }} onConflict={() => load(true)} />
       )}
       {history && <SkuHistoryDialog row={history} onClose={() => setHistory(null)} />}
+      {registration && <CostRegistrationDialog preview={registration} busy={registering} error={error} onClose={() => { setRegistration(null); setError(''); }} onRefresh={() => void previewMissing()} onConfirm={() => void fillMissing()} />}
       {breakdown && <BreakdownDialog row={breakdown.row} kind={breakdown.kind} onClose={() => setBreakdown(null)} />}
     </div>
   );

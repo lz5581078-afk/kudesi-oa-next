@@ -8,7 +8,7 @@ import { financeApi, type CostRow, type CostTableData } from './financeApi';
 
 vi.mock('./financeApi', async (orig) => {
   const real = await orig<typeof import('./financeApi')>();
-  return { ...real, financeApi: { exportCostTable: vi.fn(), costTable: vi.fn(), saveCostPricing: vi.fn(), saveCategoryMargin: vi.fn(), skuCostHistory: vi.fn() } };
+  return { ...real, financeApi: { exportCostTable: vi.fn(), previewCostRegistration: vi.fn(), registerCost: vi.fn(), costTable: vi.fn(), saveCostPricing: vi.fn(), saveCategoryMargin: vi.fn(), skuCostHistory: vi.fn() } };
 });
 const m = vi.mocked(financeApi);
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -89,6 +89,51 @@ describe('当前SKU成本清单', () => {
     renderPage(); await screen.findByText('ZH-TB-001');
     fireEvent.click(screen.getByRole('button', { name: '查看苹果礼盒重量组成' }));
     expect(screen.getByText(/差额 0.100000 kg/)).toBeTruthy();
+  });
+
+  it('补齐先只读预览，确认才提交签名；问题清单保留，已有记录不覆盖', async () => {
+    m.costTable.mockResolvedValue({ ...table(true), canFill: true });
+    m.previewCostRegistration.mockResolvedValue({ signature: 'preview-token', rows: [{ id: 8, code: 'MISSING-8', name: '待补组合', costCents: 100, weightG: 500 }], issues: [{ id: 9, code: 'BAD-9', issues: ['缺少有效重量'] }] });
+    m.registerCost.mockResolvedValue({ recorded: 1, unchanged: 0 });
+    renderPage(); await screen.findByText('ZH-TB-001');
+    fireEvent.click(screen.getByRole('button', { name: '补齐已验证SKU' }));
+    await screen.findByRole('dialog', { name: '补齐已验证SKU' });
+    expect(screen.getByText('待补齐 1 条 · 需核对 1 条')).toBeTruthy();
+    expect(screen.getByText('BAD-9：缺少有效重量')).toBeTruthy();
+    expect(m.registerCost).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认补齐 1 条' }));
+    await screen.findByText('已补齐 1 条SKU成本');
+    expect(m.registerCost).toHaveBeenCalledWith(expect.objectContaining({ missingOnly: true, confirmed: true, signature: 'preview-token' }));
+  });
+
+  it('预览没有待补SKU时确认按钮禁用，仍能重新预览或关闭', async () => {
+    m.costTable.mockResolvedValue({ ...table(true), canFill: true });
+    m.previewCostRegistration.mockResolvedValue({ signature: 'empty', rows: [], issues: [] });
+    renderPage(); await screen.findByText('ZH-TB-001');
+    fireEvent.click(screen.getByRole('button', { name: '补齐已验证SKU' }));
+    await screen.findByRole('dialog', { name: '补齐已验证SKU' });
+    expect((screen.getByRole('button', { name: '确认补齐 0 条' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(m.registerCost).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '关闭补齐预览' }));
+    expect(screen.queryByRole('dialog', { name: '补齐已验证SKU' })).toBeNull();
+  });
+
+  it('补齐冲突留在预览内，重新预览后才带新签名重试', async () => {
+    m.costTable.mockResolvedValue({ ...table(true), canFill: true });
+    m.previewCostRegistration.mockResolvedValue({ signature: 'old', rows: [{ id: 7, code: 'SKU-7', name: '合成组合', costCents: 102, weightG: 500 }], issues: [] });
+    m.registerCost.mockRejectedValueOnce(new ApiError(409, '预览之后资料已变化，请重新预览再补齐')).mockResolvedValueOnce({ recorded: 1, unchanged: 0 });
+    renderPage(); await screen.findByText('ZH-TB-001');
+    fireEvent.click(screen.getByRole('button', { name: '补齐已验证SKU' }));
+    await screen.findByRole('dialog', { name: '补齐已验证SKU' });
+    fireEvent.click(screen.getByRole('button', { name: '确认补齐 1 条' }));
+    const error = await screen.findByRole('alert');
+    expect(screen.getByRole('dialog').contains(error)).toBe(true);
+    m.previewCostRegistration.mockResolvedValue({ signature: 'new', rows: [{ id: 7, code: 'SKU-7', name: '合成组合', costCents: 103, weightG: 500 }], issues: [] });
+    fireEvent.click(screen.getByRole('button', { name: '重新预览' }));
+    await screen.findByText('¥1.030 · 0.5 kg');
+    fireEvent.click(screen.getByRole('button', { name: '确认补齐 1 条' }));
+    await screen.findByText('已补齐 1 条SKU成本');
+    expect(m.registerCost).toHaveBeenLastCalledWith(expect.objectContaining({ signature: 'new' }));
   });
 
   it('维护售价：必须写原因；利润率最多 6 位小数；带上乐观锁令牌；保存后刷新', async () => {

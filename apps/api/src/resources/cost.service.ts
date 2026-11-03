@@ -1,3 +1,4 @@
+import { registeredCostValues, costRegistrationFallback, type RegisteredCostValues } from './cost-registration';
 import { calculateCostComponents, type CostLine } from './cost-components';
 export type { CostLine } from './cost-components';
 import { costBreakdown, readCostComposition, type CostBreakdown } from '@kudesi/shared';
@@ -120,12 +121,14 @@ export class CostService {
     return { percent: resolveMargin(chain.map((x) => x.v)), source: hit?.s ?? '未设置' };
   }
 
-  row(d: CostData, b: ResourceRecord): CostRow {
-    const { lines, cost, issues, weightG: automaticWeightG } = calculateCostComponents(d, b.id);
+  row(d: CostData, b: ResourceRecord, previous?: RegisteredCostValues): CostRow {
+    const { lines, cost: currentCost, issues, weightG: automaticWeightG } = calculateCostComponents(d, b.id);
     const categoryId = num(b.data.bundleCategoryId);
-    let weightG: number | null = automaticWeightG;
-    if (str(b.data.weightMode) === 'manual') weightG = num(b.data.manualWeightG);
-    if (!weightG) { weightG = null; issues.push('没有重量'); }
+    const cost = currentCost ?? previous?.preShipCostCents ?? null;
+    const currentWeightG = str(b.data.weightMode) === 'manual' ? num(b.data.manualWeightG) : automaticWeightG;
+    let weightG = currentWeightG !== null && currentWeightG > 0 ? currentWeightG : previous?.weightG ?? null;
+    if (currentWeightG === null || currentWeightG <= 0) issues.push('没有重量');
+    if (weightG !== null && weightG <= 0) weightG = null;
 
     let freight: number | null = null, method: string | null = null;
     const manual = num(b.data.manualFreight);
@@ -148,7 +151,7 @@ export class CostService {
       marginOverride: own !== null, inheritedMargin: inherited, carrierName: str(b.data.carrierName),
       costIncludingFreightCents: cost === null || freight === null ? null : sumUnitCents([cost,freight]),
       revision: bundleRevision(b),
-      minPriceCents: min, issues, lines, breakdown: costBreakdown({ preShipCostCents: cost, weightG, lines }, readCostComposition(b.data.snapshot)), updatedAtMs: b.updatedAt ? new Date(b.updatedAt).getTime() : 0,
+      minPriceCents: min, issues, lines, breakdown: costBreakdown({ preShipCostCents: currentCost, weightG: currentWeightG, lines }, readCostComposition(b.data.snapshot), { preShipCostCents: cost, weightG }), updatedAtMs: b.updatedAt ? new Date(b.updatedAt).getTime() : 0,
     };
   }
 
@@ -212,7 +215,13 @@ export class CostService {
 
   /** 当前SKU成本登记表：与旧版定价调试保持实时联动，期间版本通过日期匹配接口读取。 */
   async allRows(user: AuthUser, em?: EntityManager) {
-    return this.liveAllRows(user,em);
+    const live = await this.liveAllRows(user, em);
+    const missing = live.rows.filter(row => COST_TABLE_STATUSES.includes(row.status) && (row.preShipCostCents === null || row.weightG === null));
+    if (!missing.length) return live;
+    const previous = await registeredCostValues(em ?? this.dataSource.manager, user.companyId, missing.map(row => row.bundleId));
+    const byId = new Map(live.d.bundles.map(bundle => [bundle.id, bundle]));
+    const ids = new Set(missing.map(row => row.bundleId));
+    return { d: live.d, rows: live.rows.map(row => ids.has(row.bundleId) ? this.row(live.d, byId.get(row.bundleId)!, costRegistrationFallback(previous.get(row.bundleId), byId.get(row.bundleId)!.data.snapshot)) : row) };
   }
 
   /** 成本表的行：只含已验证（含需重新验证）的组合；按关键字、分类（含下级）筛选，最近修改的在前 */
@@ -252,7 +261,7 @@ export class CostService {
     const tree = this.categoryTree(d, every);
     return {
       total: all.length, page: q.page, pageSize: q.pageSize, rows: all.slice(start, start + q.pageSize),
-      ...tree, canEdit: createChecker(user.permissions)('product.cost.edit'),
+      ...tree, canEdit: createChecker(user.permissions)('product.cost.edit'), canFill: createChecker(user.permissions)('product.cost.edit') && createChecker(user.permissions)('finance.cost-history.view'),
     };
   }
 

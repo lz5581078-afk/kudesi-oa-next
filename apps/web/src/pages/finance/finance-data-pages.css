@@ -65,3 +65,17 @@
 .finance-cost-breakdown .data-table td .muted{margin-top:4px;font-size:smaller;line-height:normal}
 .finance-cost-breakdown .modal-body>.between{padding:14px 10px}
 .finance-cost-breakdown .modal-foot{padding:0;margin-top:15px}
+
+.modal-backdrop.finance-cost-registration-backdrop{align-items:center;padding:20px}
+.modal.card.finance-cost-registration{width:min(520px,100%);max-height:calc(100dvh - 40px);padding:24px;border-radius:9px;overflow:auto}
+.finance-cost-registration header{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.finance-cost-registration h2{margin:0;font-size:20px}
+.finance-cost-registration header .icon-button{width:38px;height:38px;border:1px solid #d5e1dc;border-radius:6px;color:#33594a}
+.finance-cost-registration>p{margin:0;line-height:1.5}
+.finance-cost-registration>p.muted{font-size:13px;color:#687e72}
+.finance-cost-registration-list{max-height:45vh;overflow:auto}
+.finance-cost-registration-list p{display:grid;gap:4px;margin:12px 0;font-size:13px}
+.finance-cost-registration-list small{color:#687e72}
+.finance-cost-registration footer{display:flex;justify-content:flex-end;gap:12px;margin-top:24px}
+.finance-cost-registration footer button{min-height:40px}
+.finance-cost-registration footer .primary-button{background:#178b65;border-color:#178b65}

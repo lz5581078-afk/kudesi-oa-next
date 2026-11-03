@@ -198,8 +198,7 @@ export class BundleToolsService {
     return { lines, revision: null };
   }
 
-  async report(user: AuthUser, id: number) {
-    const em = this.ds.manager;
+  async report(user: AuthUser, id: number, em: EntityManager = this.ds.manager) {
     const b = await this.load(em, user, id);
     const cost = this.canCost(user);
     const { lines, revision } = await this.currentLines(em, user, b);
@@ -288,8 +287,15 @@ export class BundleToolsService {
           if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再发布修订`);
         }
         if (opts.syncToJst && rep.uploadSignature !== it.uploadSignature) throw new ConflictException('要上传的内容在核对之后变了，请重新核对');
-        await this.resources.changeStatus(user, TYPE, it.id, 'verified');
-        await registerCostSnapshots(this.ds.manager, user.companyId, user.id, [it.id], '验证通过', 'workflow_publish');
+        await this.ds.transaction(async em => {
+          const locked = await em.findOne(ResourceRecord, { where: { id: it.id, companyId: user.companyId, type: TYPE }, lock: { mode: 'pessimistic_write' } });
+          if (!locked || !['pending', 'reverify'].includes(locked.status)) throw new ConflictException('组合状态已变化，请刷新后核对');
+          const fresh = await this.report(user, it.id, em);
+          if (fresh.signature !== it.signature || opts.syncToJst && fresh.uploadSignature !== it.uploadSignature) throw new ConflictException('核对之后资料又变了，请重新核对');
+          if (fresh.issues.length) throw new BadRequestException(fresh.issues[0]);
+          await this.resources.setStatusChecked(em, user, TYPE, it.id, 'verified');
+          await registerCostSnapshots(em, user.companyId, user.id, [it.id], '验证通过', 'workflow_publish');
+        });
         let queued = false;
         if (opts.syncToJst) queued = (await this.outbox.enqueue(user, TYPE, [it.id], { replaceConfirmed: opts.replaceConfirmed })).queued > 0;
         results.push({ id: it.id, ok: true, queued });

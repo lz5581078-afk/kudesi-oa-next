@@ -7,6 +7,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { Company, FinanceApiKey, FinanceCostSnapshot, FinanceMasterSnapshot, ResourceChangeLog, ResourceLink, ResourceRecord } from '../entities';
 import { COST_TABLE_STATUSES, CostService } from './cost.service';
 import { COST_EVENT_LABEL, registerCostSnapshots, type CostEvent } from './cost-snapshot';
+import { bundleIssues } from './bundle-checks';
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -48,14 +49,50 @@ export class DataToolsService {
 
   // ---------- 成本历史 ----------
   /** 登记成本快照：和上一次相比没变就不记。bundleId 不传 = 所有已验证的组合。 */
-  async registerCost(user: AuthUser, bundleId: number | undefined, reason: string, outer?: EntityManager, eventType: CostEvent = 'manual') {
-    const em = outer ?? this.dataSource.manager;
-    const ids = bundleId
-      ? [bundleId]
-      : (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-bundles', status: In(COST_TABLE_STATUSES) } })).map((b) => b.id);
-    const r = await registerCostSnapshots(em, user.companyId, user.id, ids, reason, eventType);
-    if (bundleId && r.missing) throw new NotFoundException('组合不存在');
-    return { recorded: r.recorded, unchanged: r.unchanged };
+  /** 补齐先预览，只包含缺少登记且当前资料完整的已验证SKU。 */
+  async previewCostRegistration(user: AuthUser, em: EntityManager = this.dataSource.manager) {
+    const { d, rows: current } = await this.cost.liveAllRows(user, em);
+    const existing = await em.createQueryBuilder(FinanceCostSnapshot, 's').select('s.bundleId', 'bundleId').distinct(true).where('s.companyId = :companyId', { companyId: user.companyId }).getRawMany<{ bundleId: number }>();
+    const present = new Set(existing.map(row => Number(row.bundleId)));
+    const rows: Array<{ id: number; code: string; name: string; costCents: number; weightG: number }> = [];
+    const issues: Array<{ id: number; code: string; issues: string[] }> = [];
+    const versions: unknown[] = [];
+    for (const row of current.filter(row => row.status === 'verified' && !present.has(row.bundleId)).sort((a,b) => a.bundleId - b.bundleId)) {
+      const problems: string[] = [];
+      if (row.preShipCostCents === null || row.preShipCostCents < 0) problems.push('缺少有效总成本');
+      if (row.weightG === null || row.weightG <= 0) problems.push('缺少有效重量');
+      const lines = d.lines.filter(line => line.data.bundleId === row.bundleId);
+      const bundle = d.bundles.find(bundle => bundle.id === row.bundleId)!;
+      const platform = await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-platforms', id: Number(bundle.data.platformId) } });
+      problems.push(...await bundleIssues(em, user.companyId, bundle.data, lines.map(line => line.data), platform?.status ?? 'missing'));
+      versions.push([row.bundleId, bundle.data, row.lines]);
+      if (problems.length) issues.push({ id: row.bundleId, code: row.code, issues: problems });
+      else rows.push({ id: row.bundleId, code: row.code, name: row.name, costCents: row.preShipCostCents!, weightG: row.weightG! });
+    }
+    const signature = crypto.createHash('sha256').update(JSON.stringify([user.companyId, rows, issues, versions])).digest('hex');
+    return { rows, issues, signature };
+  }
+
+  /** 登记成本快照；补齐必须确认预览，已经存在的记录及单品设置不覆盖。 */
+  async registerCost(user: AuthUser, bundleId: number | undefined, reason: string, outer?: EntityManager, eventType: CostEvent = 'manual', missingOnly = false, confirmation?: { confirmed?: boolean; signature?: string }): Promise<{ recorded: number; unchanged: number }> {
+    if (!outer) return this.dataSource.transaction(em => this.registerCost(user, bundleId, reason, em, eventType, missingOnly, confirmation));
+    const em = outer;
+    let ids: number[];
+    const locked = await em.find(ResourceRecord, {
+      where: { companyId: user.companyId, type: 'finance-bundles', ...(bundleId ? { id: bundleId } : { status: In(missingOnly ? ['verified'] : COST_TABLE_STATUSES) }) },
+      order: { id: 'ASC' }, lock: { mode: 'pessimistic_write' },
+    });
+    if (missingOnly) {
+      if (!confirmation?.confirmed || !confirmation.signature) throw new BadRequestException('请先预览并确认补齐');
+      // 先锁定本公司的已验证组合，再建立一致性读取，防止同时补齐重复登记。
+      if (bundleId && !locked.some(bundle => bundle.id === bundleId && bundle.status === 'verified')) throw new BadRequestException('只能补齐已经验证的SKU');
+      const preview = await this.previewCostRegistration(user, em);
+      if (preview.signature !== confirmation.signature) throw new ConflictException('预览之后资料已变化，请重新预览再补齐');
+      ids = preview.rows.filter(row => !bundleId || row.id === bundleId).map(row => row.id);
+    } else ids = bundleId ? [bundleId] : locked.map(bundle => bundle.id);
+    const result = await registerCostSnapshots(em, user.companyId, user.id, ids, reason, eventType);
+    if (bundleId && result.missing) throw new NotFoundException('组合不存在');
+    return { recorded: result.recorded, unchanged: result.unchanged };
   }
 
   async costHistory(user: AuthUser, q: { bundleId?: number; keyword?: string; page: number; pageSize: number }) {
