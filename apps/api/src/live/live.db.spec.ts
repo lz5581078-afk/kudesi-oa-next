@@ -1032,7 +1032,7 @@ d('直播管理（真实数据库）', () => {
     const [oldRoom]=await ds.query('SELECT data FROM resource_records WHERE company_id=? AND id=?',[company,ids.n1]);
     const parent=(typeof oldRoom.data==='string'?JSON.parse(oldRoom.data):oldRoom.data).parentId;
     const room=await rec(company,'locations','直播间-试播核验',{name:'直播间-试播核验',locationType:'room',parentId:parent});
-    const shop=await rec(company,'stores','试播核验店',{name:'试播核验店',platform:'douyin',jushuitanShopId:'TRIALSHOP'});
+    const shop=await rec(company,'stores','试播核验店',{name:'试播核验店',platform:'douyin',jushuitanShopId:'TRIAL-PROXY-SHOP'});
     const account=await rec(company,'self-media','试播核验号',{name:'试播核验号',platform:'douyin',livePermission:true,storeIds:[shop]});
     const plan=await schedules.create(manager,input({date:'2027-01-05',roomId:room,anchorId:trial.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'}));
     const row=(await sessions.workbench(cc)).schedules.find(s=>s.id===plan.id)!;
@@ -1042,7 +1042,7 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.start(cc,{...start,confirmTrialAnchorId:anchor.id})).rejects.toThrow(/试播主播/);
     await expect(sessions.start(control,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排定/);
     await expect(sessions.start(foreign,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/身份|不存在/);
-    await expect(sessions.start(cc,{...start,anchorId:anchor.id,confirmTrialAnchorId:trial.id})).rejects.toThrow(/不一致/);
+    await expect(sessions.start(cc,{...start,anchorId:anchor.id,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排班/);
     const made=await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id});
     expect((await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id})).id).toBe(made.id);
     expect((await sessions.detail(cc,made.id)).anchorTrial).toBe(true);

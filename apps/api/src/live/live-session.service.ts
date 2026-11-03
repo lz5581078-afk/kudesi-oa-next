@@ -235,7 +235,8 @@ export class LiveSessionService {
         if (!op) liveFail('所选运营人员不存在或已停用', 400);
         if (operatorId === anchorId) liveFail('运营人员不能同时是主播', 400);
       }
-      const trialAnchor = anchors.find(p=>p.id===anchorId)?.trial === true;
+      // Existing HR-issued temporary tickets keep their separately authenticated anchor checkin.
+      const trialAnchor = !trial && anchors.find(p=>p.id===anchorId)?.trial === true;
       if(input.confirmTrialAnchorId!==undefined && !trialAnchor)liveFail('试播身份已变化，请刷新排班后重新确认',409);
       if(trialAnchor){
         if(!input.actualCheckin || !sched || Number(sched.anchor_user_id)!==anchorId || !a.isControl || controlId!==a.userId || Number(sched.control_user_id)!==a.userId)liveFail('试播主播请先排班，由排定中控本人确认上播',400);
