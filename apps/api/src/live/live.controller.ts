@@ -142,6 +142,7 @@ class TrialPersonDto {
   @IsInt() @Min(1) @Max(100_000_000) hourlyRateCents!:number;
 }
 class ManualDto {
+  @IsOptional() @IsBoolean() confirmUnlinkedStores?:boolean;
   @IsOptional() @IsArray() @ArrayMaxSize(400) @ValidateNested({each:true}) @Type(()=>StoreLineDto) storeLines?:StoreLineDto[];
   @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({each:true}) @Type(()=>ChannelDto) channels?:ChannelDto[];
   @IsOptional() @IsInt() @Min(1) sessionId?:number;
