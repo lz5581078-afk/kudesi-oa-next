@@ -11,7 +11,7 @@ export const FEISHU_SENDER = 'FEISHU_SENDER';
 export const FEISHU_TEMPLATES = ['sku-batch-apply', 'live-schedule', 'live-session-review', 'live-settlement'];
 const MAX_ATTEMPTS = 5;
 
-export interface FeishuNotice { expiresAt?: string; liveEventKey?: string; notificationId?: number; channel?: string; resourceType?: string; resourceId?: number; kind?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
+export interface FeishuNotice { liveManagementCopySource?: number; expiresAt?: string; liveEventKey?: string; notificationId?: number; channel?: string; resourceType?: string; resourceId?: number; kind?: string; userId: number; title: string; body?: string; link?: string; runId?: number }
 export interface FeishuSender {
   readonly configured: boolean;
   available?(companyId: number): Promise<boolean>;

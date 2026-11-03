@@ -18,6 +18,7 @@ export function NotificationsTab() {
   const toggle=(field:'businessRecipients'|'systemRecipients',id:number)=>{if(data)setData({...data,[field]:data[field].includes(id)?data[field].filter(v=>v!==id):[...data[field],id]});};
   return <section className="card live-notification-settings">
     <h2>直播通知</h2>
+    <p className="notice">发给总经理、总经办的直播通知，会同步抄送本公司人事部门在职人员（含子部门和兼岗）。抄送不增加审批人；飞书接收仍需本人完成绑定并开启通知。</p>
     {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
     {!data?<p>{error?'通知设置读取失败，请刷新后重试。':'正在读取通知设置…'}</p>:<>
       <p>排场、变更与开播前提醒由直播助手发送；审批由流程助手发送。新增通知遵循飞书总开关、助手通道开关及员工通知绑定设置。</p>

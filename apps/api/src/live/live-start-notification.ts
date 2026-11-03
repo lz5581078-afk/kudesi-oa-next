@@ -1,23 +1,13 @@
 import { EntityManager } from 'typeorm';
 import { liveFromText } from '@kudesi/shared';
-import { Department, Position, User } from '../entities';
+import { liveDepartmentRecipients, liveManagementRecipients } from './live-management-recipients';
 import { liveNotify } from './live-notification-events';
 
-const DEPARTMENTS = new Set(['人事部', '人事综合部', '人力资源部', '总经办', '总经办部门', '总经理办公室', 'A总经理', '总经理', '总经理部', '总经理部门']);
-/** Resolve active staff by their department or active primary/secondary position, within this company. */
-export async function liveStartRecipients(em: EntityManager, companyId: number): Promise<number[]> {
-  const departments = await em.find(Department, { where: { companyId, status: 'active' } });
-  const ids = new Set(departments.filter(d => DEPARTMENTS.has(d.name.trim())).map(d => d.id));
-  let size = -1;
-  while (size !== ids.size) {
-    size = ids.size;
-    for (const d of departments) if (d.parentId && ids.has(d.parentId)) ids.add(d.id);
-  }
-  if (!ids.size) return [];
-  const positions = new Set((await em.find(Position, { where: { companyId, status: 'active' } })).filter(p => p.departmentId && ids.has(p.departmentId)).map(p => p.id));
-  return (await em.find(User, { where: { companyId, status: 'active' } }))
-    .filter(u => u.departmentId && ids.has(u.departmentId) || [u.positionId, ...(u.extraPositionIds ?? [])].some(id => id != null && positions.has(id)))
-    .map(u => u.id);
+/** Opening notifications already target both departments directly. */
+export async function liveStartRecipients(em:EntityManager,companyId:number,names?:ReadonlySet<string>):Promise<number[]> {
+  if(names)return liveDepartmentRecipients(em,companyId,names);
+  const {hr,management}=await liveManagementRecipients(em,companyId);
+  return [...new Set([...hr,...management])];
 }
 
 async function startDeviation(em: EntityManager, companyId: number, sessionId: number) {
