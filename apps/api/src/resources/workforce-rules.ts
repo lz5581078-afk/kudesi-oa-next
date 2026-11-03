@@ -6,6 +6,7 @@ import {
 } from '@kudesi/shared';
 import { AuditLog, Department, EmployeeCompensationRecord, Position, ResourceRecord, User } from '../entities';
 import { doHandover, handoverCounts, suggestHandoverTarget } from '../org/handover';
+import type { AuthUser } from '../common/auth.decorators';
 import type { AfterSaveContext, BeforeSaveContext } from './resource-rules';
 
 /**
@@ -51,7 +52,7 @@ export async function workforceBeforeSave(ctx: BeforeSaveContext): Promise<void>
   if (files > WORKFORCE_MAX_FILES) throw new BadRequestException(`每人最多上传 ${WORKFORCE_MAX_FILES} 个附件，请先删除不用的`);
 }
 
-async function auditUser(em: EntityManager, ctx: AfterSaveContext, u: User, action: string, detail: Record<string, unknown>) {
+async function auditUser(em: EntityManager, ctx: Pick<AfterSaveContext, 'user'>, u: User, action: string, detail: Record<string, unknown>) {
   await em.save(AuditLog, em.create(AuditLog, { companyId: ctx.user.companyId, actorId: ctx.user.id, action, resourceType: 'user', resourceId: String(u.id), detail }));
 }
 
@@ -101,20 +102,7 @@ export async function workforceAfterSave(ctx: AfterSaveContext): Promise<void> {
 
   // 3) 停用 / 重新启用：员工账号跟着停用并交接；重新启用只恢复账号（岗位保留）
   if (existing && existing.status !== 'inactive' && record.status === 'inactive') {
-    if (person.id === user.id) throw new BadRequestException('不能停用自己');
-    if (person.status === 'active') {
-      const reason = ctx.reason?.trim() || '兼职/临时工停用';
-      const counts = await handoverCounts(em, person);
-      let handover: Awaited<ReturnType<typeof doHandover>> | null = null;
-      if (counts.workItems + counts.flowSteps + counts.routines > 0) {
-        const target = await suggestHandoverTarget(em, person);
-        if (!target) throw new ConflictException('找不到可以接收交接的在职人员，请先到人员档案指定后再停用');
-        handover = await doHandover(em, user, person, target, `停用原因：${reason}`);
-      }
-      person.status = 'disabled';
-      await em.save(person);
-      await auditUser(em, ctx, person, 'user.disable', { reason, via: 'workforce', handover: handover ? { toUserId: handover.toUserId, workItems: handover.workItems, flowSteps: handover.flowSteps, routines: handover.routines } : null });
-    }
+    await workforceDisableAccount(em, user, person, ctx.reason?.trim() || '兼职/临时工停用');
   } else if (existing && existing.status === 'inactive' && record.status !== 'inactive' && person.status !== 'active') {
     person.status = 'active';
     await em.save(person);
@@ -122,9 +110,25 @@ export async function workforceAfterSave(ctx: AfterSaveContext): Promise<void> {
   }
 }
 
-/** 不允许删除：旧系统没有删除，合作结束用“停用”（保留记录和历史）。 */
+/** 删除和停用共用账号交接逻辑；只改账号状态，不修改用工或薪资信息。 */
+export async function workforceDisableAccount(em: EntityManager, user: AuthUser, person: User, reason: string): Promise<void> {
+  if (person.id === user.id) throw new BadRequestException('不能停用自己');
+  if (person.status !== 'active') return;
+  const counts = await handoverCounts(em, person);
+  let handover: Awaited<ReturnType<typeof doHandover>> | null = null;
+  if (counts.workItems + counts.flowSteps + counts.routines > 0) {
+    const target = await suggestHandoverTarget(em, person);
+    if (!target) throw new ConflictException('找不到可以接收交接的在职人员，请先到人员档案指定后再停用');
+    handover = await doHandover(em, user, person, target, `停用原因：${reason}`);
+  }
+  person.status = 'disabled';
+  await em.save(person);
+  await auditUser(em, { user }, person, 'user.disable', { reason, via: 'workforce', handover: handover ? { toUserId: handover.toUserId, workItems: handover.workItems, flowSteps: handover.flowSteps, routines: handover.routines } : null });
+}
+
+/** 禁止走物理删除；统一删除入口使用可恢复归档并停用账号。 */
 export function workforceBeforeDelete(): never {
-  throw new BadRequestException('兼职与临时工档案不能删除，合作结束请用“停用”');
+  throw new BadRequestException('兼职与临时工档案请通过可恢复删除处理');
 }
 
 /** 列表/详情读时才算的字段：合作状态按今天实时算；账号、部门、岗位、上级、账号状态、最近登录取员工当前资料。 */

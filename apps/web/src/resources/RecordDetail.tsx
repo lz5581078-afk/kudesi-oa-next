@@ -356,7 +356,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
       onCopy(values);
     } });
   }
-  if (live && can('delete')) moreItems.push({ key: 'delete', label: archivable ? '归档…' : '删除…', danger: true, run: () => setDeleting(true) });
+  if (def.key !== 'workforce' && live && can('delete')) moreItems.push({ key: 'delete', label: archivable ? '归档…' : '删除…', danger: true, run: () => setDeleting(true) });
 
   const phoneRecharge = live && def.key === 'phones' && can('edit') ? (
     <button type="button" className="res-btn" title="把最近充值日记为今天，下次充值日按充值周期自动更新" onClick={async () => {
