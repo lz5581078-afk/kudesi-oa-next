@@ -59,14 +59,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('登录与菜单', () => {
-  it.each(['/', '/workbench/desk'])('未绑定员工也能进入系统，只在页面顶部提醒，可以关闭提醒：%s', async path => {
+  it.each(['/', '/workbench/desk'])('未绑定员工也能进入系统，页面顶部持续保留绑定提醒：%s', async path => {
     currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] }, { feishuBindingPending: true });
     renderAt(path);
     expect(await screen.findByText(/你还没有绑定本人飞书/)).toBeTruthy();
     expect(screen.queryByRole('heading', { name: '请先绑定本人飞书' })).toBeNull();
     expect(screen.getByRole('link', { name: '去绑定' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '稍后再说' }));
-    expect(screen.queryByText(/你还没有绑定本人飞书/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '稍后再说' })).toBeNull();
   });
 
   it('已绑定员工不显示绑定提醒', async () => {

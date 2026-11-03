@@ -33,7 +33,7 @@ export function ChangePasswordPage() {
   };
 
   return (
-    <><FeishuBindingCard /><form className="card narrow-form" onSubmit={submit}>
+    <div className="account-security-page"><form className="card narrow-form" onSubmit={submit}>
       <h1>修改密码</h1>
       <label>
         当前密码
@@ -55,6 +55,6 @@ export function ChangePasswordPage() {
         </button>
         <button type="button" className="secondary-button" disabled={busy} onClick={() => navigate(-1)}>取消</button>
       </div>
-    </form></>
+    </form><FeishuBindingCard /></div>
   );
 }
