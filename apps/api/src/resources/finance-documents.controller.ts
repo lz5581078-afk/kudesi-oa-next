@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { FilesService, MAX_UPLOAD_BYTES, type UploadedFile as Upload } from '../integrations/files.service';
+import { FilesService, sniffFile, type UploadedFile as Upload } from '../integrations/files.service';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, Equals, IsBoolean, IsArray, IsIn, MinLength, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
-import { OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
+import { OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
 import { AuthUser, AuthenticatedOnly, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { OPENING_VOUCHER_TYPE, FinanceDocumentsService } from './finance-documents.service';
 import { FinanceVoucherHintsService } from './finance-voucher-hints.service';
@@ -78,7 +78,7 @@ class DocDto {
 }
 class OpeningPrepaymentDto {
   @IsString() @MinLength(1) @MaxLength(500) reason!: string;
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(10) @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true }) fileIds!: number[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(OPENING_PREPAYMENT_VOUCHERS.maxFiles) @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true }) fileIds!: number[];
   @Equals(true) confirmed!: boolean;
 }
 class HeaderDto {
@@ -175,9 +175,11 @@ export class FinanceDocumentsController {
   registerOpening(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: OpeningPrepaymentDto) { return this.docs.registerOpeningPrepayment(u, id, b); }
 
   @RequirePermission(OPENING_PREPAYMENT_PERMISSION) @Post('docs/:id/opening-vouchers')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: OPENING_PREPAYMENT_VOUCHERS.maxBytes, files: 1 } }))
   async uploadOpeningVoucher(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @UploadedFile() file: Upload) {
     await this.docs.checkOpeningPrepayment(u, id);
+    const kind=file?.buffer&&sniffFile(file.buffer);
+    if(!file?.size||file.size>OPENING_PREPAYMENT_VOUCHERS.maxBytes||!kind||!OPENING_PREPAYMENT_VOUCHERS.mimeTypes.some(mime=>mime===kind.mime))throw new BadRequestException('支持PNG、JPG、WebP、PDF，单文件不超过2MB');
     return this.files.putBlob(u.companyId, u.id, OPENING_VOUCHER_TYPE, 'voucher', file);
   }
 

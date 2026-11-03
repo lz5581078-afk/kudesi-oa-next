@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  cashSettlementAmount, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
+  cashSettlementAmount, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -510,7 +510,7 @@ export class FinanceDocumentsService {
     if (!reason || input.reason.length > 500) throw new BadRequestException('核对说明必填，且不能超过 500 字');
     if (input.confirmed !== true) throw new BadRequestException('请确认款项已在系统上线前付出，本次不扣银行余额');
     const ids = input.fileIds;
-    if (!Array.isArray(ids) || ids.length < 1 || ids.length > 10 || ids.some((v) => !Number.isSafeInteger(v) || v <= 0) || new Set(ids).size !== ids.length) throw new BadRequestException('请提供 1–10 个不重复的凭证附件');
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > OPENING_PREPAYMENT_VOUCHERS.maxFiles || ids.some((v) => !Number.isSafeInteger(v) || v <= 0) || new Set(ids).size !== ids.length) throw new BadRequestException('请提供 1–12 个不重复的凭证附件');
     return this.dataSource.transaction(async (em) => {
       await this.lockPosting(em, user);
       const { doc, lines, accounts, settlements } = await this.load(em, user, id, true);
@@ -519,7 +519,7 @@ export class FinanceDocumentsService {
       await this.checkRefs(em, user, this.toInput(doc, lines, accounts, settlements), id);
       if (await em.count(FinanceEntry, { where: { companyId: user.companyId, documentId: id } })) throw new ConflictException('这张单据已经入账，不能重复登记');
       const files = await em.find(ResourceFile, { where: { companyId: user.companyId, id: In(ids) }, lock: { mode: 'pessimistic_write' } });
-      if (files.length !== ids.length || files.some((f) => f.resourceType !== OPENING_VOUCHER_TYPE || f.fieldKey !== 'voucher' || f.resourceId !== null || f.uploadedBy !== user.id || f.size <= 0 || f.size > 10 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'].includes(f.mime))) throw new BadRequestException('凭证无效、已被占用或不属于当前上传人，请重新上传');
+      if (files.length !== ids.length || files.some((f) => f.resourceType !== OPENING_VOUCHER_TYPE || f.fieldKey !== 'voucher' || f.resourceId !== null || f.uploadedBy !== user.id || f.size <= 0 || f.size > OPENING_PREPAYMENT_VOUCHERS.maxBytes || !OPENING_PREPAYMENT_VOUCHERS.mimeTypes.some(mime=>mime===f.mime))) throw new BadRequestException('凭证无效、已被占用或不属于当前上传人，请重新上传');
       await em.update(ResourceFile, { companyId: user.companyId, id: In(ids) }, { resourceId: id });
       await this.writeEntries(em, user, id, doc.docDate, [
         { kind: 'prepayment', accountId: doc.partyId!, subId: 0, amount: doc.amountCents, qty: null },

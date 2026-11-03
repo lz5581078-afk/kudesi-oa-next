@@ -1,4 +1,7 @@
 import { validUnitCents, settledLineCents } from './unit-price';
+
+/** 已有预付款的原凭证选择约束；其他资料上传保持各自规则。 */
+export const OPENING_PREPAYMENT_VOUCHERS = { maxFiles: 12, maxBytes: 2 * 1024 * 1024, mimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'] } as const;
 /**
  * 财务单据（制单中心）：13 种单据的定义和过账规则，前后端共用。
  *

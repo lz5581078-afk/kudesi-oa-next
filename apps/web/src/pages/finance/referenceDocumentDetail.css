@@ -21,3 +21,7 @@
 .reference-document-opening ul{display:block;list-style:disc;margin:16px 0;padding-left:20px}
 .reference-document-opening>button{min-height:0;height:38px;padding:0 12px;background:#0e8062;border:1px solid #166534;border-radius:8px;color:#fff;font-size:16px;font-weight:700}
 @media(max-width:720px){.reference-document-summary{grid-template-columns:minmax(0,1fr)}}
+.reference-opening-file-list li{display:list-item;margin:6px 0}
+.reference-opening-file-list a{color:#00e;text-decoration:underline}
+.reference-opening-remove{display:inline-block;margin-left:8px;padding:3px;border:0;border-radius:0;background:#efefef;color:#000;font:inherit;line-height:normal}
+.reference-opening-remove svg{display:inline}
