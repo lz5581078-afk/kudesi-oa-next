@@ -28,6 +28,8 @@ export interface HandoverPreview { counts: { workItems: number; flowSteps: numbe
 export interface StaffFeishuStatus { userId:number; bound:boolean|null; boundAt:string|null; notificationsEnabled:boolean|null; canTest:boolean; testBlockedReason:string|null }
 export interface StaffFeishuResetPlan { companyName:string; bindingCount:number; employeeCount:number; includesSelf:boolean; fingerprint:string; employees:Array<{id:number;name:string;status:string;employmentType:string}> }
 export interface StaffFeishuResetResult { bindingCount:number; employeeCount:number; includesSelf:boolean; remainingBindings:number }
+export interface StaffFeishuUnbindPlan { userId:number; name:string; account:string; bindingCount:number; includesSelf:boolean; fingerprint:string }
+export interface StaffFeishuUnbindResult { userId:number; bindingCount:number; includesSelf:boolean }
 export interface StaffTestNotice { jobId:number; userId:number; status:'pending'|'sending'|'done'|'failed'|'cancelled'|'paused'; message:string; createdAt:string; doneAt:string|null }
 export interface StaffDto {
   id: number; account: string; name: string; departmentId: number | null; positionId: number | null; positionName: string | null;
@@ -92,6 +94,8 @@ export const orgApi = {
   deleteDuty: (id: number) => api(`/org/position-duties/${id}`, { method: 'DELETE' }),
   handoverPreview: (id: number) => api<HandoverPreview>(`/org/staff/${id}/handover-preview`),
   staffFeishu: () => api<{rows:StaffFeishuStatus[]}>('/org/staff-feishu'),
+  staffFeishuUnbindPreview: (id:number) => api<StaffFeishuUnbindPlan>(`/org/staff-feishu/${id}/unbind-preview`),
+  staffFeishuUnbind: (id:number,fingerprint:string) => api<StaffFeishuUnbindResult>(`/org/staff-feishu/${id}/unbind`,{method:'POST',body:{fingerprint}}),
   staffFeishuResetPreview: () => api<StaffFeishuResetPlan>('/org/staff-feishu/reset-preview'),
   staffFeishuReset: (fingerprint:string) => api<StaffFeishuResetResult>('/org/staff-feishu/reset-bindings',{method:'POST',body:{fingerprint}}),
   staffTestNotice: (id:number,requestId:string,message?:{title:string;body:string}) => api<StaffTestNotice>(`/org/staff-feishu/${id}/test-notifications`,{method:'POST',body:{requestId,...message}}),
