@@ -5,6 +5,7 @@ import { FINANCE_RESOURCE_DEFS } from '@kudesi/shared';
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } };
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => auth }));
 const create = vi.fn();
+const saveForm = vi.fn();
 const similar = vi.fn();
 const draftGet = vi.fn();
 const draftSave = vi.fn();
@@ -13,7 +14,7 @@ vi.mock('./api', async (orig) => {
   const mod = await orig<typeof import('./api')>();
   return {
     ...mod,
-    resourceApi: { ...mod.resourceApi, create: (...a: unknown[]) => create(...a), similarCheck: (...a: unknown[]) => similar(...a), list: vi.fn(async (type: string) => (type === 'finance-suppliers' ? { items: [{ id: 3, title: '供应商甲', status: 'active', data: {} }], total: 1 } : type === 'finance-categories' ? { items: [{ id: 1, title: '原料分类', status: 'active', data: { archiveType: 'raw' } }], total: 1 } : { items: [], total: 0 })) },
+    resourceApi: { ...mod.resourceApi, saveForm: (...a: unknown[]) => saveForm(...a), create: (...a: unknown[]) => create(...a), similarCheck: (...a: unknown[]) => similar(...a), list: vi.fn(async (type: string) => (type === 'finance-suppliers' ? { items: [{ id: 3, title: '供应商甲', status: 'active', data: {} }], total: 1 } : type === 'finance-categories' ? { items: [{ id: 1, title: '原料分类', status: 'active', data: { archiveType: 'raw' } }], total: 1 } : { items: [], total: 0 })) },
     draftApi: { ...mod.draftApi, get: (...a: unknown[]) => draftGet(...a), save: (...a: unknown[]) => draftSave(...a), remove: (...a: unknown[]) => draftRemove(...a) },
   };
 });
@@ -38,6 +39,7 @@ const confirmQuality = async () => { fireEvent.click(await screen.findByRole('bu
 
 beforeEach(() => {
   create.mockReset().mockResolvedValue(saved);
+  saveForm.mockReset().mockImplementation(async (type, body) => create(type, body.values, body.status));
   similar.mockReset().mockResolvedValue({ blocked: [], warnings: [] });
   draftGet.mockReset().mockResolvedValue({ draft: null });
   draftSave.mockReset().mockResolvedValue({});
@@ -103,7 +105,8 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     expect((screen.getByRole('textbox', { name: '系统自动编号' }) as HTMLInputElement).value).toBe('MANUAL-RAW');
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     await confirmQuality();
-    await waitFor(() => expect(create).toHaveBeenCalledWith('finance-product-sources', expect.objectContaining({ supplierId: 3, originArea: '陕西', purchasePrice: 800 })));
+    await waitFor(() => expect(saveForm).toHaveBeenCalled());
+    expect(saveForm.mock.calls[0][1].collections[0].rows[0].values).toMatchObject({ supplierId: 3, originArea: '陕西', purchasePrice: 800 });
     expect(create.mock.calls.find(c => c[0] === 'finance-products')![1]).not.toHaveProperty('__productParts');
   });
 
@@ -120,8 +123,27 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     await confirmQuality();
     await waitFor(() => expect(create.mock.calls.filter((c) => c[0] === 'finance-products')).toHaveLength(1));
-    expect(create).toHaveBeenCalledWith('finance-product-sources', expect.objectContaining({ productId: 9, supplierId: 3, originArea: '陕西' }));
+    expect(saveForm.mock.calls[0][1].collections[0].rows[0].values).toMatchObject({ supplierId: 3, originArea: '陕西' });
     confirm.mockRestore();
+  });
+
+  it('整组保存失败保留表单和来源，重试沿用请求标识；成功前不清草稿也不关闭', async () => {
+    const onSaved = vi.fn();
+    saveForm.mockRejectedValueOnce(new Error('模拟响应中断'));
+    render(<RecordForm def={def} record={null} initial={REQ} onClose={() => undefined} onSaved={onSaved} />);
+    await fillRaw('原子重试原料');
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await confirmQuality();
+    await screen.findByText('保存失败，请重试');
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(draftRemove).not.toHaveBeenCalled();
+    expect((screen.getByLabelText('产区') as HTMLInputElement).value).toBe('陕西');
+    const key = saveForm.mock.calls[0][1].requestKey;
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await confirmQuality();
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(saveForm.mock.calls[1][1].requestKey).toBe(key);
+    expect(saveForm.mock.calls[1][1].collections[0].rows).toHaveLength(1);
   });
 
   it('运费、装卸费填 0 没写原因：先弹核算资料确认，原因写进零值说明再保存', async () => {

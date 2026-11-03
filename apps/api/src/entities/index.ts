@@ -419,6 +419,20 @@ function boolTransformer() {
   };
 }
 
+/** 表单事务的幂等结果，不保存用户填写的内容。 */
+@Entity('resource_form_mutations')
+@Index('uq_resource_form_request', ['companyId', 'requestKey'], { unique: true })
+export class ResourceFormMutation {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'actor_id', type: 'int', unsigned: true }) actorId!: number;
+  @Column({ name: 'resource_type', type: 'varchar', length: 64 }) resourceType!: string;
+  @Column({ name: 'request_key', type: 'char', length: 36 }) requestKey!: string;
+  @Column({ name: 'request_hash', type: 'char', length: 64 }) requestHash!: string;
+  @Column({ name: 'record_id', type: 'int', unsigned: true, nullable: true }) recordId!: number | null;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+}
+
 /** 通用资料记录：字段定义见 packages/shared/src/resources.ts，字段值在 data(JSON)。 */
 @Entity('resource_records')
 @Index('uq_resource_unique', ['companyId', 'type', 'uniqueKey'], { unique: true })
@@ -1373,6 +1387,7 @@ export const ALL_ENTITIES = [
   EmployeeCompensationRecord,
   AuditLog,
   ResourceRecord,
+  ResourceFormMutation,
   ResourceLink,
   ResourceChangeLog,
   IntegrationSetting,

@@ -415,9 +415,13 @@ async function beforeSource(ctx: BeforeSaveContext) {
   if (p.data.archiveType === 'shipping_material' && !ctx.existing && !str(data.systemSpec).trim() && !em.queryRunner?.data.legacyImport) throw new BadRequestException('发货物料的供货来源要选择系统规格');
   if (!str(data.systemSpec).trim() && p.data.purchaseSpec) data.systemSpec = p.data.purchaseSpec;
   if (data.purchasePrice !== undefined && (num(data.purchasePrice) ?? -1) < 0) throw new BadRequestException('采购价不能是负数');
-  data.priceUpdatedAt = !ctx.existing || data.purchasePrice !== ctx.existing.data.purchasePrice
-    ? new Date().toISOString()
-    : ctx.existing.data.priceUpdatedAt || ctx.existing.updatedAt.toISOString();
+  if (!ctx.existing || data.purchasePrice !== ctx.existing.data.purchasePrice) {
+    // 整组保存同一毫秒内也保持提交先后；非价格编辑不推进采购价时间。
+    const clock = em.queryRunner?.data;
+    const time = Math.max(Date.now(), Number(clock?.sourcePriceClock ?? 0) + 1);
+    if (clock) clock.sourcePriceClock = time;
+    data.priceUpdatedAt = new Date(time).toISOString();
+  } else data.priceUpdatedAt = ctx.existing.data.priceUpdatedAt || ctx.existing.updatedAt.toISOString();
   if (p.data.archiveType === 'shipping_material' && !str(data.systemSpec).trim() && !em.queryRunner?.data.legacyImport) throw new BadRequestException('发货物料的供货来源要选择系统规格');
   data.label = `${p.title} ← ${sup.title}${str(data.originArea) ? `（${str(data.originArea)}）` : ''}`.slice(0, 200);
 }

@@ -1,3 +1,5 @@
+import { saveResourceForm } from './resource-form';
+import type { ResourceFormInput } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
 import { storeJstShops, validateStoreJst, storeJstPatch } from './store-jst';
 import { readSourceRow } from '../migration/source-rows';
@@ -1186,6 +1188,17 @@ export class ResourcesService implements RuleHost {
       await this.patchData(tx, user, 'finance-products', id, { photos: [...old, ...add] }, '仓库岗位上传了商品照片');
     });
     return this.get(user, 'finance-products', id);
+  }
+
+  async saveForm(user: AuthUser, type: string, input: ResourceFormInput) {
+    const cleanup: string[] = [];
+    const id = await saveResourceForm(this.dataSource, user, this.def(type), input, {
+      version: recordVersion,
+      save: (em, def, existing, values, options) => this.saveRecord(em, user, def, existing, values, options),
+      remove: (em, childType, childId, reason, objects) => this.removeRecord(em, user, childType, childId, reason, objects),
+    }, cleanup);
+    await this.files.deleteObjects(user.companyId, cleanup);
+    return this.get(user, type, id);
   }
 
   async create(user: AuthUser, type: string, values: Record<string, unknown>, status?: string) {

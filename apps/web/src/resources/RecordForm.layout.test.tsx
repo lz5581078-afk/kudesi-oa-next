@@ -5,6 +5,7 @@ import { FINANCE_RESOURCE_DEFS, PRODUCT_LAYOUTS, productLayoutKey } from '@kudes
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } };
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => auth }));
 const create = vi.fn();
+const saveForm = vi.fn();
 const update = vi.fn();
 const remove = vi.fn();
 const list = vi.fn();
@@ -12,7 +13,7 @@ vi.mock('./api', async (orig) => {
   const mod = await orig<typeof import('./api')>();
   return {
     ...mod,
-    resourceApi: { ...mod.resourceApi, create: (...a: unknown[]) => create(...a), update: (...a: unknown[]) => update(...a), remove: (...a: unknown[]) => remove(...a), similarCheck: vi.fn().mockResolvedValue({ blocked: [], warnings: [] }), list: (...a: unknown[]) => list(...a), get: vi.fn().mockResolvedValue({ id: 1, title: '组件', data: { archiveType: 'raw' } }) },
+    resourceApi: { ...mod.resourceApi, saveForm: (...a: unknown[]) => saveForm(...a), create: (...a: unknown[]) => create(...a), update: (...a: unknown[]) => update(...a), remove: (...a: unknown[]) => remove(...a), similarCheck: vi.fn().mockResolvedValue({ blocked: [], warnings: [] }), list: (...a: unknown[]) => list(...a), get: vi.fn().mockResolvedValue({ id: 1, title: '组件', data: { archiveType: 'raw' } }) },
     draftApi: { ...mod.draftApi, get: vi.fn().mockResolvedValue({ draft: null }), save: vi.fn(), remove: vi.fn() },
   };
 });
@@ -23,6 +24,7 @@ const saved = { id: 9, type: 'finance-products', title: '苹果', status: 'activ
 
 beforeEach(() => {
   create.mockReset().mockResolvedValue(saved);
+  saveForm.mockReset().mockImplementation(async (type, body) => body.id ? update(type, body.id, body.values) : create(type, body.values, body.status));
   update.mockReset().mockResolvedValue(saved);
   remove.mockReset().mockResolvedValue({});
   list.mockReset().mockImplementation(async (type: string) => (type === 'finance-suppliers' ? { items: [{ id: 3, title: '供应商甲', status: 'active', data: {} }], total: 1 } : { items: [], total: 0 }));
@@ -64,7 +66,7 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
     expect(create).not.toHaveBeenCalled();
   });
 
-  it('编辑原料：读出已有供货来源行，改了价格只更新这一行，去掉的行删除', async () => {
+  it('编辑原料：主档、价格修改及来源删除在一次表单请求中提交', async () => {
     list.mockImplementation(async (type: string) => {
       if (type === 'finance-product-sources') return { items: [{ id: 41, status: 'active', data: { supplierId: 3, originArea: '山东', purchasePrice: 125000 } }, { id: 42, status: 'active', data: { supplierId: 3, originArea: '甘肃', purchasePrice: 100000 } }], total: 2 };
       if (type === 'finance-suppliers') return { items: [{ id: 3, title: '供应商甲', status: 'active', data: {} }], total: 1 };
@@ -75,11 +77,13 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
     render(<RecordForm def={def} record={record} onClose={() => undefined} onSaved={() => undefined} />);
     await waitFor(() => expect(screen.getAllByLabelText('产区')).toHaveLength(2));
     fireEvent.change(screen.getAllByLabelText('来源采购价')[0], { target: { value: '13' } });
-    fireEvent.click(screen.getAllByRole('button', { name: '去掉' })[1]);
+    fireEvent.click(screen.getAllByRole('button', { name: '删除供货来源' })[1]);
     fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认并保存' }));
-    await waitFor(() => expect(update).toHaveBeenCalledWith('finance-product-sources', 41, expect.objectContaining({ productId: 7, supplierId: 3, purchasePrice: 1300 })));
-    expect(remove).toHaveBeenCalledWith('finance-product-sources', 42, expect.any(String));
+    await waitFor(() => expect(saveForm).toHaveBeenCalled());
+    expect(saveForm.mock.calls[0][1]).toMatchObject({ id: 7, collections: [{ type: 'finance-product-sources', expected: [{ id: 41 }, { id: 42 }], rows: [{ id: 41, values: { supplierId: 3, purchasePrice: 1300 } }] }] });
+    expect(remove).not.toHaveBeenCalled();
+    expect(update.mock.calls.some(c => c[0] === 'finance-product-sources')).toBe(false);
     // 档案本身不直接写采购价（由来源汇出）
     expect(update.mock.calls.find((c) => c[0] === 'finance-products')?.[2]).not.toHaveProperty('purchasePrice');
   });

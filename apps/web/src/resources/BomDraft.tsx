@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import { COMPOSITION_GROUP_LABEL, unitYuanText, multiplyUnitCents, type CompositionGroup } from '@kudesi/shared';
+import { COMPOSITION_GROUP_LABEL, unitYuanText, multiplyUnitCents, type ResourceFormCollection, type CompositionGroup } from '@kudesi/shared';
 import { resourceApi, type ResourceDto } from './api';
 import { RefSelect } from './RecordForm';
 import { FieldHint } from './FieldHint';
 
 /**
  * 商品档案表单里的“生产组成”：自产成品（原料 / 产品包装 / OEM 包装 / 人工）和供应商 OEM 成品（OEM 包装）。
- * 新增和编辑是同一个组件：编辑时读出已有的构成行，保存档案后只对改过的行做增、改、删；也能在详情“构成（BOM）”页签里单独改。
+ * 新增和编辑是同一个组件：编辑时读出已有的构成行，与主档在同一事务内对改过的行做增、改、删；也能在详情“构成（BOM）”页签里单独改。
  */
-export interface BomDraftRow { kind: 'component' | 'labor'; group: CompositionGroup; id: number | null; qty: number | ''; loss: number | ''; rowId?: number }
+export interface BomDraftRow { kind: 'component' | 'labor'; group: CompositionGroup; id: number | null; qty: number | ''; loss: number | ''; rowId?: number; version?: string }
 
 const LABOR = { key: 'laborId', label: '人工项目', type: 'ref', group: '基础', ref: 'finance-labor-costs' } as const;
 
@@ -17,7 +17,8 @@ export function validBomRows(rows: BomDraftRow[]) { return rows.filter((r) => r.
 
 /** 读出一个商品已有的构成行；组件所属的组按组件的档案类型归类 */
 export async function loadBomRows(productId: number): Promise<BomDraftRow[]> {
-  const boms = await resourceApi.list('finance-product-boms', { fieldKey: 'productId', fieldValue: productId, pageSize: 200, showHidden: true });
+  const boms: { items: ResourceDto[] } = { items: [] };
+  for (let page = 1; ; page++) { const result = await resourceApi.list('finance-product-boms', { fieldKey: 'productId', fieldValue: productId, pageSize: 200, page, showHidden: true }); boms.items.push(...result.items); if (!result.items.length || boms.items.length >= result.total) break; }
   const rows: BomDraftRow[] = [];
   const types = new Map<number, string>();
   await Promise.all([...new Set(boms.items.map((b) => b.data.componentId).filter((x): x is number => typeof x === 'number'))].map((id) => resourceApi.get('finance-products', id).then((r) => { types.set(id, String(r.data.archiveType ?? '')); }).catch(() => undefined)));
@@ -26,28 +27,13 @@ export async function loadBomRows(productId: number): Promise<BomDraftRow[]> {
     const componentId = typeof b.data.componentId === 'number' ? b.data.componentId : null;
     const type = types.get(componentId ?? 0) ?? '';
     const group: CompositionGroup = laborId ? 'labor' : type === 'oem_package' ? 'oem_package' : type === 'package' ? 'package' : 'raw';
-    rows.push({ kind: laborId ? 'labor' : 'component', group, id: laborId ?? componentId, qty: Number(b.data.qty ?? 1), loss: b.data.lossPercent === undefined || b.data.lossPercent === null || b.data.lossPercent === '' ? '' : Number(b.data.lossPercent), rowId: b.id });
+    rows.push({ kind: laborId ? 'labor' : 'component', group, id: laborId ?? componentId, qty: Number(b.data.qty ?? 1), loss: b.data.lossPercent === undefined || b.data.lossPercent === null || b.data.lossPercent === '' ? '' : Number(b.data.lossPercent), rowId: b.id, version: b.version });
   }
   return rows;
 }
 
-/** 保存档案后把构成行落库：新行建、改过的改、去掉的删；返回没成功的行的说明 */
-export async function saveBomRows(productId: number, rows: BomDraftRow[], original: BomDraftRow[] = []): Promise<string[]> {
-  const failed: string[] = [];
-  const keep = new Set(rows.map((r) => r.rowId).filter(Boolean));
-  for (const o of original) if (o.rowId && !keep.has(o.rowId)) {
-    try { await resourceApi.remove('finance-product-boms', o.rowId, '在商品档案表单里去掉'); } catch (e) { failed.push(`删除旧构成行：${(e as Error).message || '失败'}`); }
-  }
-  for (const [i, r] of validBomRows(rows).entries()) {
-    const values = { productId, ...(r.kind === 'labor' ? { laborId: r.id } : { componentId: r.id }), qty: Number(r.qty), ...(r.loss !== '' ? { lossPercent: Number(r.loss) } : r.rowId ? { lossPercent: 0 } : {}) };
-    const before = original.find((o) => o.rowId === r.rowId);
-    if (before && before.id === r.id && before.qty === r.qty && before.loss === r.loss) continue;
-    try {
-      if (r.rowId) await resourceApi.update('finance-product-boms', r.rowId, values);
-      else await resourceApi.create('finance-product-boms', values);
-    } catch (e) { failed.push(`第 ${i + 1} 行：${(e as Error).message || '保存失败'}`); }
-  }
-  return failed;
+export function bomCollection(rows: BomDraftRow[], original: BomDraftRow[]): ResourceFormCollection {
+  return { type: 'finance-product-boms', expected: original.filter(r => r.rowId).map(r => ({ id: r.rowId!, version: r.version ?? '' })), rows: validBomRows(rows).map(r => ({ ...(r.rowId ? { id: r.rowId } : {}), values: { ...(r.kind === 'labor' ? { laborId: r.id, componentId: null } : { componentId: r.id, laborId: null }), qty: Number(r.qty), lossPercent: r.loss === '' ? 0 : Number(r.loss) } })) };
 }
 
 /** 按档案类型挑组件：原料、产品包装、OEM 包装各自只列自己那一类（先取前 200 条，可输入关键字缩小） */

@@ -1,3 +1,4 @@
+import type { ResourceFormInput } from '@kudesi/shared';
 import type { ColFilter, GridSaveRequest, GridSaveResponse, ResourceDef } from '@kudesi/shared';
 import { api } from '../api/client';
 
@@ -165,6 +166,7 @@ export const resourceApi = {
   gridSave: (type: string, body: GridSaveRequest) => api<GridSaveResponse<ResourceDto>>(`/resources/${type}/grid-save`, { method: 'POST', body }),
   list: (type: string, params: ListParams) => api<ListResult>(`/resources/${type}${query(params)}`),
   get: (type: string, id: number) => api<ResourceDto>(`/resources/${type}/${id}`),
+  saveForm: (type: string, body: ResourceFormInput) => api<ResourceDto>(`/resources/${type}/save-form`, { method: 'POST', body }),
   create: (type: string, values: Record<string, unknown>, status?: string) =>
     api<ResourceDto>(`/resources/${type}`, { method: 'POST', body: { values, status } }),
   update: (type: string, id: number, values: Record<string, unknown>) =>

@@ -7,7 +7,7 @@ vi.mock('../api/client', async orig => ({ ...await orig<typeof import('../api/cl
 vi.mock('./api', () => ({ resourceApi: { list: vi.fn(), update: vi.fn(), create: vi.fn(), remove: vi.fn() } }));
 import { resetUnitOptionsForTest } from './unitOptions';
 import { resourceApi } from './api';
-import { SourcesDraft, latestSource, loadSourceRows, saveSourceRows, type SourceRow } from './ProductFormParts';
+import { SourcesDraft, latestSource, loadSourceRows, sourceCollection, type SourceRow } from './ProductFormParts';
 const row = (over: Partial<SourceRow>): SourceRow => ({ supplierId: 1, originArea: '测试', systemSpec: '斤', purchasePrice: 100, ...over });
 afterEach(() => { cleanup(); vi.clearAllMocks(); resetUnitOptionsForTest({}); });
 describe('供货来源的采购价时序', () => {
@@ -19,10 +19,10 @@ describe('供货来源的采购价时序', () => {
   it('一次保存多条报价时最后提交用户最近修改价格的行，不把行号当最新报价', async () => {
     const a = row({ priceUpdatedAt: '2022-01-01', purchasePrice: 300 });
     const b = row({ priceUpdatedAt: '2021-01-01', purchasePrice: 200 });
-    vi.mocked(resourceApi.create).mockResolvedValue({} as never);
-    expect(await saveSourceRows(7, [a, b], [], true)).toEqual([]);
-    expect(vi.mocked(resourceApi.create).mock.calls.map(call => call[1].purchasePrice)).toEqual([200, 300]);
-    expect(resourceApi.create).toHaveBeenLastCalledWith('finance-product-sources', expect.not.objectContaining({ priceUpdatedAt: expect.anything() }));
+    const collection = sourceCollection([a, b], [], true);
+    expect(collection.rows.map(row => row.values.purchasePrice)).toEqual([200, 300]);
+    expect(collection.rows.every(row => !('priceUpdatedAt' in row.values))).toBe(true);
+
   });
   it('加载全部页，保留采购价时间、停用状态和供应商显示名', async () => {
     const item = (id: number) => ({ id, status: id === 2 ? 'inactive' : 'active', data: { supplierId: 4, purchasePrice: 100, priceUpdatedAt: '2020-01-01' }, refLabels: { supplierId: '测试供应商' }, updatedAt: '2026-01-01' });
@@ -85,4 +85,18 @@ describe('发货物料的来源系统规格', () => {
     expect(outerSubmit).not.toHaveBeenCalled();
   });
 
+});
+
+
+describe('删除最后一条来源', () => {
+  it('清空为一条新空行，旧行ID不进入保存列表，其他表单数据仍由父表单保留', () => {
+    const original = row({ rowId: 8, version: 'v8' });
+    let changed: SourceRow[] = [];
+    render(<SourcesDraft rows={[original]} onChange={rows => { changed = rows; }} canCost needSpec reference />);
+    fireEvent.click(screen.getByRole('button', { name: '删除供货来源' }));
+    expect(changed).toHaveLength(1);
+    expect(changed[0].supplierId).toBeNull();
+    expect(changed[0].rowId).toBeUndefined();
+    expect(sourceCollection(changed, [original], true)).toMatchObject({ expected: [{ id: 8, version: 'v8' }], rows: [] });
+  });
 });

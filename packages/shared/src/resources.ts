@@ -269,6 +269,8 @@ export interface ResourceDef {
   copyOmit?: readonly string[];
   /** 详情页展示这些子资源 */
   children?: readonly string[];
+  /** 允许在同一表单事务内保存的直接子表，默认不开放。 */
+  formChildren?: ReadonlyArray<{ type: string; minRowsBy?: { field: string; map: Record<string, number> } }>;
   /** 详情页额外展示的相关资料页签：别的资料里指向本资料的记录（按它自己的权限显示） */
   related?: ReadonlyArray<{ type: string; field: string }>;
   /** 列表按这个日期字段倒序（不设则按新建先后） */

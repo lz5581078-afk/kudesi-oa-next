@@ -5,6 +5,7 @@ import { FINANCE_RESOURCE_DEFS } from '@kudesi/shared';
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } };
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => auth }));
 const create = vi.fn();
+const saveForm = vi.fn();
 const update = vi.fn();
 const remove = vi.fn();
 const list = vi.fn();
@@ -12,7 +13,7 @@ vi.mock('./api', async (orig) => {
   const mod = await orig<typeof import('./api')>();
   return {
     ...mod,
-    resourceApi: { ...mod.resourceApi, create: (...a: unknown[]) => create(...a), update: (...a: unknown[]) => update(...a), remove: (...a: unknown[]) => remove(...a), similarCheck: vi.fn().mockResolvedValue({ blocked: [], warnings: [] }), list: (...a: unknown[]) => list(...a), get: vi.fn().mockResolvedValue({ id: 1, title: '组件', data: { archiveType: 'raw' } }) },
+    resourceApi: { ...mod.resourceApi, saveForm: (...a: unknown[]) => saveForm(...a), create: (...a: unknown[]) => create(...a), update: (...a: unknown[]) => update(...a), remove: (...a: unknown[]) => remove(...a), similarCheck: vi.fn().mockResolvedValue({ blocked: [], warnings: [] }), list: (...a: unknown[]) => list(...a), get: vi.fn().mockResolvedValue({ id: 1, title: '组件', data: { archiveType: 'raw' } }) },
     draftApi: { ...mod.draftApi, get: vi.fn().mockResolvedValue({ draft: null }), save: vi.fn(), remove: vi.fn() },
   };
 });
@@ -23,6 +24,7 @@ const saved = { id: 9, type: 'finance-products', title: '苹果', status: 'activ
 
 beforeEach(() => {
   create.mockReset().mockResolvedValue(saved);
+  saveForm.mockReset().mockImplementation(async (type, body) => body.id ? update(type, body.id, body.values) : create(type, body.values, body.status));
   update.mockReset().mockResolvedValue(saved);
   remove.mockReset().mockResolvedValue({});
   list.mockReset().mockImplementation(async (type: string) => (type === 'finance-suppliers' ? { items: [{ id: 3, title: '供应商甲', status: 'active', data: {} }], total: 1 } : { items: [], total: 0 }));

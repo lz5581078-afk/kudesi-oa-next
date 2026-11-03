@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, Max, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsUUID, IsString, MaxLength, Max, Min, ValidateNested } from 'class-validator';
 import { createChecker } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission, RequireResourceAction } from '../common/auth.decorators';
 import { DataToolsService } from './data-tools.service';
@@ -50,6 +50,27 @@ class SaveDto {
 
 class UpdateDto {
   @IsObject() values!: Record<string, unknown>;
+}
+
+class FormExpectedDto {
+  @IsInt() @Min(1) id!: number;
+  @IsString() @MaxLength(64) version!: string;
+}
+class FormRowDto {
+  @IsOptional() @IsInt() @Min(1) id?: number;
+  @IsObject() values!: Record<string, unknown>;
+}
+class FormCollectionDto {
+  @IsString() @MaxLength(64) type!: string;
+  @IsArray() @ArrayMaxSize(2000) @ValidateNested({ each: true }) @Type(() => FormExpectedDto) expected!: FormExpectedDto[];
+  @IsArray() @ArrayMaxSize(2000) @ValidateNested({ each: true }) @Type(() => FormRowDto) rows!: FormRowDto[];
+}
+class FormSaveDto extends SaveDto {
+  @IsUUID('4') requestKey!: string;
+  @IsOptional() @IsInt() @Min(1) id?: number;
+  @IsOptional() @IsString() @MaxLength(64) version?: string;
+  @IsOptional() @IsString() @MaxLength(500) statusReason?: string;
+  @IsArray() @ArrayMaxSize(8) @ValidateNested({ each: true }) @Type(() => FormCollectionDto) collections!: FormCollectionDto[];
 }
 
 class CategoryOrderDto {
@@ -295,6 +316,13 @@ export class ResourcesController {
   @Post('finance-products/:id/warehouse-photos')
   warehousePhotos(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: PhotoIdsDto) {
     return this.resources.addWarehousePhotos(user, id, dto.fileIds);
+  }
+
+  // 操作权限随新增/编辑及每份子表逐项检查，配置未开放的资料不能使用。
+  @AuthenticatedOnly()
+  @Post(':type/save-form')
+  saveForm(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: FormSaveDto) {
+    return this.resources.saveForm(user, type, dto);
   }
 
   @RequireResourceAction('create')

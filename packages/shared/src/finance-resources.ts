@@ -99,6 +99,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     titleField: 'name',
     uniqueField: 'code',
     tabsBy: 'archiveType',
+    formChildren: [{ type: 'finance-product-sources', minRowsBy: { field: 'archiveType', map: { raw: 1, shipping_material: 1 } } }, { type: 'finance-product-boms', minRowsBy: { field: 'archiveType', map: { self_made: 1 } } }],
     children: ['finance-product-sources', 'finance-product-boms', 'finance-product-costs', 'finance-product-freight-history'],
     related: [{ type: 'finance-base-codes', field: 'productId' }],
     statuses: [ACTIVE, STOPPED, { value: 'deleted', label: '已删除', tone: 'bad', requiresReason: true, hidden: true }],

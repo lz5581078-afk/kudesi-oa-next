@@ -8,7 +8,7 @@ import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
 import { ManageLink } from './ManageLink';
-import { BomDraft, saveBomRows, loadBomRows, validBomRows, type BomDraftRow } from './BomDraft';
+import { BomDraft, bomCollection, loadBomRows, validBomRows, type BomDraftRow } from './BomDraft';
 import { FieldHint } from './FieldHint';
 import { resourceFields, resourceGroups, resourceFieldWide } from './resourceFieldLayout';
 import { displayValue } from './format';
@@ -27,7 +27,7 @@ import { ReferenceRecordHistory } from './ReferenceRecordHistory';
 import { ReferenceLines, FreightHistory, CompositionResult } from './ReferenceProductFields';
 import { BundleProfileEditor } from './BundleProfileEditor';
 import { BaseCodeProfileEditor } from './BaseCodeProfileEditor';
-import { SourcesDraft, WeightBlock, latestSource, loadSourceRows, saveSourceRows, type SourceRow } from './ProductFormParts';
+import { SourcesDraft, WeightBlock, latestSource, loadSourceRows, sourceCollection, type SourceRow } from './ProductFormParts';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
@@ -215,6 +215,8 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const [partsKnown, setPartsKnown] = useState({ sources: true, composition: true });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const formRequestKey = useRef('');
+  if (def.key === 'finance-products' && !formRequestKey.current) formRequestKey.current = crypto.randomUUID();
   const [known, setKnown] = useState<Record<number, FileInfo>>(record?.files ?? {});
   // 新建时填了内容就关闭，先确认，免得点错丢内容（旧系统同款）
   const startValues = useRef(JSON.stringify(values));
@@ -422,7 +424,14 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     try {
       if (wantSources) delete body.purchasePrice; // 采购价由供货来源汇出，不直接写档案
       let saved: ResourceDto;
-      if (record && (referenceStatus || isProduct) && status !== record.status) {
+      if (isProduct) {
+        const canCostEdit = Boolean(me && createChecker(me.permissions)('product.cost.edit'));
+        const collections = [
+          ...(wantSources && partsKnown.sources && (!onlyGroup || sectionHas(onlyGroup, 'supplySources')) ? [sourceCollection(sourceRows, sourceOrig, canCostEdit)] : []),
+          ...(wantComposition && partsKnown.composition && (!onlyGroup || sectionHas(onlyGroup, 'composition')) ? [bomCollection(bomRows, bomOrig)] : []),
+        ];
+        saved = await resourceApi.saveForm(def.key, { requestKey: formRequestKey.current, ...(record ? { id: record.id, version: record.version } : {}), values: body, status, statusReason, collections });
+      } else if (record && referenceStatus && status !== record.status) {
         const result = await resourceApi.gridSave(def.key, { updates: [{ id: record.id, version: record.version, data: body, status, statusReason }], note: '资料编辑' });
         const item = result.results[0];
         if (!item?.ok) throw new ApiError(400, item?.message || '保存失败');
@@ -430,11 +439,6 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       } else saved = record ? await resourceApi.update(def.key, record.id, body) : await resourceApi.create(def.key, body, status);
       clearRefCache(def.key);
       if (isProduct) {
-        const failed: string[] = [];
-        const canCostEdit = Boolean(me && createChecker(me.permissions)('product.cost.edit'));
-        if (wantSources && partsKnown.sources && (!onlyGroup || sectionHas(onlyGroup, 'supplySources'))) failed.push(...await saveSourceRows(saved.id, sourceRows, sourceOrig, canCostEdit));
-        if (wantComposition && partsKnown.composition && (!onlyGroup || sectionHas(onlyGroup, 'composition'))) failed.push(...await saveBomRows(saved.id, bomRows, bomOrig));
-        if (failed.length) window.alert(`档案已保存，但这些明细没保存成功，请到详情的“供货来源 / 构成（BOM）”页签补录：\n${failed.join('\n')}`);
         if (mode === 'blank') { setBomRows([]); setSourceRows([]); setBomOrig([]); setSourceOrig([]); }
         else { setBomRows((r) => r.map(({ rowId: _r, ...x }) => x)); setSourceRows((r) => r.map(({ rowId: _r, ...x }) => x)); setBomOrig([]); setSourceOrig([]); }
       }
@@ -451,6 +455,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       setShortNameManual(mode === 'keep' && Boolean(values.shortName));
       if (isReferenceParty && def.key !== 'finance-fee-items' && mode === 'blank') setStatus(def.defaultStatus);
       setKnown({});
+      if (isProduct) formRequestKey.current = crypto.randomUUID();
       setDraftNote(`已保存「${String(saved.title ?? '')}」，可以继续新增。`);
       setBusy(false);
     } catch (err) {
