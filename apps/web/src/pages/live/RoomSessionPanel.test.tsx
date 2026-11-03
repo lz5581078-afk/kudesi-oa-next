@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { RoomSessionPanel } from './RoomSessionPanel';
+import { RoomSessionAccounts, RoomSessionPanel } from './RoomSessionPanel';
 import { liveApi } from './liveApi';
 vi.mock('./liveApi',()=>({liveApi:{turnover:vi.fn()}}));
 const session={id:7,startAt:'2026-11-02 10:00:00',plannedEnd:'2026-11-02 12:00:00',anchor:{id:1,name:'主播甲'},control:{id:2,name:'中控乙'},operator:{id:3,name:'运营丙'},douyinAccount:{id:4,name:'账号'}};
@@ -48,4 +48,18 @@ it('直播查询完成一分钟后再查，慢请求不叠加；下播立即查�
  unmount();
  await vi.advanceTimersByTimeAsync(60_000);
  expect(liveApi.turnover).toHaveBeenCalledTimes(4);
+});
+
+it('姓名后小字分别显示已报未报，缺少历史记录不误判，无人员不显示状态',async()=>{
+ const {rerender}=render(<RoomSessionPanel session={{...session,startReports:{anchor:false,control:true,operator:false}}} day="2026-11-02" now="2026-11-02 11:00:00"/>);
+ expect(screen.getByLabelText('主播甲：未报上播').textContent).toBe('未报');expect(screen.getByLabelText('中控乙：已报上播').textContent).toBe('已报');expect(screen.getByLabelText('运营丙：未报上播').textContent).toBe('未报');
+ rerender(<RoomSessionPanel session={{...session,startReports:{anchor:null,control:true,operator:null},operator:null}} day="2026-11-02" now="2026-11-02 11:00:00"/>);
+ expect(screen.getByLabelText('主播甲：未记录').textContent).toBe('未记录');expect(screen.queryByLabelText('运营丙：未记录')).toBeNull();
+ await screen.findByText('¥180.00');
+});
+it('显示实际多账号完整名称，历史账号回退，未开播不冒用下一场账号',()=>{
+ const {rerender}=render(<RoomSessionAccounts session={{...session,accounts:[{id:8,name:'实际抖音账号完整名称',platform:'douyin'},{id:9,name:'实际快手直播号',platform:'kuaishou'}]}}/>);
+ expect(screen.getByLabelText('本场实际直播号：实际抖音账号完整名称 / 实际快手直播号')).toBeTruthy();expect(screen.queryByText('账号')).toBeNull();
+ rerender(<RoomSessionAccounts session={{...session,endAt:'2026-11-02 11:00:00'}}/>);expect(screen.getByText('上场直播号')).toBeTruthy();expect(screen.getByText('账号')).toBeTruthy();
+ rerender(<RoomSessionAccounts session={null}/>);expect(screen.queryByText('账号')).toBeNull();
 });
