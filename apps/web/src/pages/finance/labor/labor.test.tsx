@@ -289,14 +289,14 @@ it('版本资料仅草稿可编辑；启用版项目/分类删除禁用，草稿
   const versions = [dto(1, 'v', '合成启用', { versionCode: 'A', isDefault: true }), dto(2, 'v', '合成草稿', { versionCode: 'B' }, 'draft'), dto(3, 'v', '合成停用', { versionCode: 'C' }, 'inactive')];
   const cats = [dto(10, 'c', '合成根', {}), dto(11, 'c', '合成末级', { parentId: 10 })];
   const items = [dto(91, 'i', '合成项目', { workCode: 'SYNTHETIC-LIFECYCLE', workName: '合成项目', archiveCategoryId: 11, unitPrice: 100 })];
-  m.list.mockImplementation(async type => { const rows = type === 'finance-labor-versions' ? versions : type === 'finance-labor-categories' ? cats : type === 'finance-labor-costs' ? items : []; return { items: rows, total: rows.length, page: 1, pageSize: 200 }; });
+  m.list.mockImplementation(async (type, query) => { const rows = type === 'finance-labor-versions' ? versions : type === 'finance-labor-categories' ? cats : type === 'finance-labor-costs' ? items : []; return { items: rows.map(row => type === 'finance-labor-categories' ? { ...row, data: { ...row.data, versionId: query.fieldValue, referenceCount: row.id === 11 ? 1 : 0 } } : row), total: rows.length, page: 1, pageSize: 200 }; });
   render(<LaborCostPage/>);
   await screen.findByText('SYNTHETIC-LIFECYCLE');
   expect(screen.getAllByRole('button', { name: '编辑版本' })).toHaveLength(1);
   expect(screen.getByRole('button', { name: '删除' })).toHaveProperty('disabled', true);
   fireEvent.click(screen.getByRole('button', { name: '管理归档' }));
   const manager = screen.getByRole('dialog', { name: '管理项目归档分类' });
-  fireEvent.click(within(manager).getByRole('button', { name: '展开合成根' }));
+  fireEvent.click(await within(manager).findByRole('button', { name: /^合成根/ }));
   expect(within(manager).getByRole('button', { name: '删除合成末级' })).toHaveProperty('disabled', true);
   fireEvent.click(within(manager).getByRole('button', { name: '关闭' }));
   fireEvent.click(screen.getByRole('button', { name: /^合成草稿/ }));

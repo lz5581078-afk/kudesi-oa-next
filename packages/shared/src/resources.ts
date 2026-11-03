@@ -244,6 +244,8 @@ export interface ResourceDef {
   codePreview?: { field: string; inputFields: readonly string[] };
   /** 小字典在引用字段旁原位新增并选中，复用通用资料及排序接口。 */
   dictionary?: { title: string; sectionLabel?: string; hint: string; nameLabel: string; codeField: string; sortField?: string; referenceCountField: string };
+  /** 分级资料的同级排序及外侧上下文；复用通用分类管理与排序接口。 */
+  categoryOrder?: { sortField: string; scopeFields: readonly string[]; countField?: string; mutableScope?: { field: string; statuses: readonly string[] } };
   /** 零值需独立确认；确认内容不作为普通字段或导入导出列。 */
   zeroValueConfirmation?: { valueField: string; reasonField: string; confirmationField: string; contextFields: readonly (string | { ref: string })[]; reasonLabel: string; confirmLabel: string };
   /** 手动保存的新建草稿；keyFields隔离版本等外侧上下文，恢复时不覆盖这些身份字段。 */

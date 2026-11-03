@@ -1255,7 +1255,32 @@ export class ResourcesService implements RuleHost {
 
   /** 同级排序整体提交；锁定本公司目录，同一事务更新，失败不会只保存一半。 */
   async reorderCategories(user: AuthUser, type: string, orderedIds: number[]) {
-    const dictionary = this.def(type).dictionary;
+    const def = this.def(type), dictionary = def.dictionary, categoryOrder = def.categoryOrder;
+    if (categoryOrder) {
+      if (!createChecker(user.permissions)(resourcePermission(permissionOwner(type), 'edit'))) throw new ForbiddenException('没有修改权限');
+      if (!def.fields.some(field => field.key === categoryOrder.sortField && field.type === 'number') || categoryOrder.scopeFields.some(key => !def.fields.some(field => field.key === key)) || categoryOrder.mutableScope && !categoryOrder.scopeFields.includes(categoryOrder.mutableScope.field)) throw new BadRequestException('分类排序配置无效');
+      if (orderedIds.length < 2 || !orderedIds.every(id => Number.isSafeInteger(id) && id > 0) || new Set(orderedIds).size !== orderedIds.length) throw new BadRequestException('分类排序数据无效');
+      return this.dataSource.transaction(async em => {
+        await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
+        const first = await this.load(em, user, type, orderedIds[0]);
+        const policy = categoryOrder.mutableScope;
+        if (policy) {
+          const reference = def.fields.find(field => field.key === policy.field)?.ref;
+          if (!reference || typeof first.data[policy.field] !== 'number') throw new BadRequestException('分类归属无效');
+          const owner = await em.findOne(ResourceRecord, { where: { id: first.data[policy.field] as number, companyId: user.companyId, type: reference }, lock: { mode: 'pessimistic_write' } });
+          if (!owner || owner.archivedAt || !policy.statuses.includes(owner.status)) throw new BadRequestException('所属资料已停用，不能调整分类顺序');
+        }
+        const rows = await em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type AND r.archivedAt IS NULL', { companyId: user.companyId, type }).orderBy('r.id', 'ASC').setLock('pessimistic_write').getMany();
+        const sameScope = (row: ResourceRecord) => row.status === 'active' && (Number(row.data.parentId) || 0) === (Number(first.data.parentId) || 0) && categoryOrder.scopeFields.every(field => row.data[field] === first.data[field]);
+        const siblings = rows.filter(sameScope), byId = new Map(siblings.map(row => [row.id, row]));
+        if (siblings.length !== orderedIds.length || orderedIds.some(id => !byId.has(id))) throw new BadRequestException('请提交同一归属和上级下完整有效的分类顺序');
+        let changed = 0;
+        for (const [index, id] of orderedIds.entries()) if (Number(byId.get(id)!.data[categoryOrder.sortField]) !== (index + 1) * 10) {
+          await this.patchData(em, user, type, id, { [categoryOrder.sortField]: (index + 1) * 10 }, '调整分类顺序', undefined, true); changed++;
+        }
+        return { ok: true, changed };
+      });
+    }
     if (dictionary?.sortField) {
       if (!createChecker(user.permissions)(resourcePermission(permissionOwner(type), 'edit'))) throw new ForbiddenException('没有修改权限');
       const field = dictionary.sortField;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ApiError } from '../api/client';
 import './resourceConfirm.css';
 
@@ -18,7 +19,7 @@ export function ReasonDialog({ title, hint, confirmLabel, danger, requireReason 
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [busy, onClose]);
-  return (
+  const dialog = (
     <div className={requireReason ? 'modal-backdrop' : 'modal-backdrop resource-confirm-backdrop'} role="presentation">
       <form
         className={`modal card small${requireReason ? '' : ' resource-confirm-message'}`}
@@ -56,4 +57,5 @@ export function ReasonDialog({ title, hint, confirmLabel, danger, requireReason 
       </form>
     </div>
   );
+  return requireReason ? dialog : createPortal(dialog, document.body);
 }

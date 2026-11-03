@@ -8,7 +8,7 @@ import { useResourceCan } from '../../../resources/RecordDetail';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { CategoryTree, buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
 import { CopyVersionDialog } from './CopyVersionDialog';
-import { FinanceModal } from '../FinanceModal';
+import { FinanceCategoryManager } from '../../../resources/FinanceCategoryManager';
 import './labor-page.css';
 
 const err = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
@@ -84,7 +84,7 @@ export function LaborCostPage() {
       const [c, i] = await Promise.all([all('finance-labor-categories'), all('finance-labor-costs')]);
       if (!mounted.current || serial !== request.current || scopeRef.current !== scopeKey) return;
       i.sort((a, b) => String(a.refLabels.archiveCategoryId ?? '').localeCompare(String(b.refLabels.archiveCategoryId ?? ''), 'zh-CN') || String(a.refLabels.workTypeId ?? '').localeCompare(String(b.refLabels.workTypeId ?? ''), 'zh-CN') || String(a.data.workCode ?? '').localeCompare(String(b.data.workCode ?? '')) || a.id - b.id);
-      setCats(c); setItems(i); setLoadedVersion(versionId); setError('');
+      setCats(c); setSelectedCat(current => c.some(row => row.id === current) ? current : null); setItems(i); setLoadedVersion(versionId); setError('');
     } catch (e) { if(mounted.current && serial === request.current && scopeRef.current === scopeKey)setError(err(e)); }
   }, [versionId, scopeKey]);
   useEffect(() => { setSelectedCat(null); setKeyword(''); setManaging(false); setCats([]); setItems([]); setLoadedVersion(null); void loadVersionData(); return()=>{request.current++;}; }, [loadVersionData]);
@@ -137,10 +137,9 @@ export function LaborCostPage() {
       </section>
       <div className="labor-detail-layout">
         <aside className="labor-directory" aria-label="项目归档分类目录">
-          <header><div><span>当前成本版本</span><h2>项目归档分类</h2></div>{version && (can('create') || can('edit')) && <button type="button" disabled={locked} onClick={()=>setManaging(true)}><FolderTree size={14}/>管理归档</button>}</header>
+          <header><div><span>当前成本版本</span><h2>项目归档分类</h2></div>{version && !locked && (can('create') || can('edit')) && <button type="button" disabled={!dataReady} onClick={()=>setManaging(true)}><FolderTree size={14}/>管理归档</button>}</header>
           <div className="labor-directory-hint"><span>点击归档分类查看项目</span><span>末级归档可新增工作项目</span></div>
-          {version && dataReady && <CategoryTree versionId={version.id} versionLocked={locked} versionDraft={version.status === 'draft'} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length}
-            onSelect={setSelectedCat} onChanged={() => void loadVersionData()} management={false} />}
+          {version && dataReady && <CategoryTree versionId={version.id} tree={tree} selected={selectedCat} onSelect={setSelectedCat}/>}
           {version && !dataReady && <p className="muted">正在读取项目归档…</p>}
         </aside>
         <section aria-label="工作项目" className="labor-project-list" aria-busy={!!version && !dataReady}>
@@ -170,7 +169,7 @@ export function LaborCostPage() {
         </section>
       </div>
 
-      {managing && version && <FinanceModal title="管理项目归档分类" onClose={()=>setManaging(false)}><CategoryTree versionId={version.id} versionLocked={locked} versionDraft={version.status === 'draft'} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length} onSelect={setSelectedCat} onChanged={()=>void loadVersionData()}/></FinanceModal>}
+      {managing && version && <FinanceCategoryManager key={`${scopeKey}:categories:${version.id}`} target="finance-labor-categories" context={{field:'versionId',value:version.id,label:'当前版本标识',text:String(version.data.versionCode || '-')}} presentation={{kicker:'人力成本表 · 归档设置',description:'按一级、二级、三级逐层维护，仅用于当前成本版本的项目归档和导航。',unit:'个工作项目',footer:'草稿版本可维护全部归档分类。'}} locked={locked} allowDelete={version.status==='draft'} guardDeleteReferences={false} confirmation="message" onClose={()=>setManaging(false)} onChanged={()=>void loadVersionData()}/>}
       {copying && version && <CopyVersionDialog source={version} onClose={() => setCopying(false)} onCopied={(id) => { if(!mounted.current || scopeRef.current!==scopeKey)return;setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
       {versionForm && <RecordForm key={`${scopeKey}:version:${versionForm.record?.id ?? 'new'}`} def={getResourceDef('finance-labor-versions')!} record={versionForm.record} initial={versionForm.record ? undefined : { versionCode: `RL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}` }} onClose={() => setVersionForm(null)} onSaved={(dto) => { if(!mounted.current || scopeRef.current!==scopeKey)return;clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} />}
       {itemForm && version && <RecordForm key={`${scopeKey}:item:${version.id}:${itemForm.record?.id ?? itemForm.initial?.__copyOf ?? 'new'}`} def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...itemForm.initial, ...(node && isLeaf && !itemForm.record && !itemForm.initial ? { archiveCategoryId: node.id } : {}) }} lockedFields={['versionId', 'archiveCategoryId']}

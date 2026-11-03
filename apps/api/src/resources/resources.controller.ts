@@ -74,7 +74,7 @@ class FormSaveDto extends SaveDto {
 }
 
 class CategoryOrderDto {
-  @IsArray() @ArrayMaxSize(500) @IsInt({ each: true }) @Min(1, { each: true }) orderedIds!: number[];
+  @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) orderedIds!: number[];
 }
 
 class ArchivePrefixDto {

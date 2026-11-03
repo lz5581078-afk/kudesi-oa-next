@@ -439,6 +439,8 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
   {
     key: 'finance-labor-categories',
     label: '项目归档分类',
+    categoryOrder: { sortField: 'sortOrder', scopeFields: ['versionId'], countField: 'referenceCount', mutableScope: { field: 'versionId', statuses: ['draft', 'active'] } },
+    derivedColumns: [{ key: 'referenceCount', label: '项目引用数', kind: 'count', type: 'finance-labor-costs', field: 'archiveCategoryId' }],
     parent: { type: 'finance-labor-costs', field: 'versionId' },
     titleField: 'name',
     statuses: [ACTIVE],

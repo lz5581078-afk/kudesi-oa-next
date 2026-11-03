@@ -36,7 +36,7 @@ function initials(text: string): string {
   return letters.toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 const cleanCode = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
-const norm = (s: string) => s.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+const norm = (s: string) => s.normalize('NFKC').trim().toLowerCase();
 
 export const LABOR_MAX_DEPTH = 3;
 
@@ -133,13 +133,12 @@ async function beforeCategory({ em, host, user, existing, data }: BeforeSaveCont
       // 叶子分类带着工作项目移动没问题
     }
   }
-  const siblings = (await currentRows(em, user.companyId, 'finance-labor-categories', 'versionId', version.id)).filter(
-    (c) => c.id !== existing?.id && (num(c.data.parentId) ?? null) === parentId,
-  );
+  const versionCategories = (await currentRows(em, user.companyId, 'finance-labor-categories', 'versionId', version.id)).filter(c => c.id !== existing?.id && !c.archivedAt && c.status === 'active');
+  const siblings = versionCategories.filter(c => (num(c.data.parentId) ?? null) === parentId);
   if (siblings.some((c) => norm(c.title) === norm(name))) throw new BadRequestException(`同一级里已经有「${name}」了`);
   const code = (initials(str(data.code) || name) || 'FL').slice(0, 40);
   data.code = code;
-  if (siblings.some((c) => cleanCode(str(c.data.code)) === code)) throw new BadRequestException(`同一级里分类标识「${code}」重复了，请换一个`);
+  if (versionCategories.some((c) => cleanCode(str(c.data.code)) === code)) throw new BadRequestException(`同一版本里分类标识「${code}」重复了，请换一个`);
 }
 
 async function subtreeHeight(host: RuleHost, em: EntityManager, companyId: number, id: number, depth = 0): Promise<number> {
