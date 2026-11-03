@@ -7,15 +7,24 @@ import { LIVE_FINAL_SOURCES } from '@kudesi/shared';
 import { flowApi } from '../flow/flowApi';
 import { liveApi, type Options, type ReviewForm, type ReviewPreview, type SessionDetail } from './liveApi';
 import { errText, hm, money, yuanCents, yuanText } from './liveFormat';
+import { manualApiTime } from './manualSessionDraft';
 import { Modal } from './liveUi';
 import { ReviewPreviewAmounts } from './ReviewPreviewAmounts';
 import { ApiError } from '../../api/client';
+
+function ReviewTimeInput({ label, recorded, value, onChange, required = false }: {
+  label: string; recorded?: string | null; value: string | null; onChange: (value: string) => void; required?: boolean;
+}) {
+  return <input type="datetime-local" step="1" aria-label={label} required={required}
+    value={(value ?? (required ? '' : recorded) ?? '').replace(' ', 'T')}
+    onChange={event => onChange(manualApiTime(event.target.value))} />;
+}
 
 /** 一场一张审核单：审核人选最终销售额来源、确认运营和主播工资，右侧随输入试算提成（服务端算）。 */
 export function ReviewDialog({ session, onClose, onDone }: { session: SessionDetail; onClose: () => void; onDone: () => void }) {
   const multi=!!session.channels?.length;
   const abnormal = session.attendance?.filter(a=>a.autoCheckout)??[];
-  const [operatorEnd,setOperatorEnd]=useState('');
+  const [operatorEnd,setOperatorEnd]=useState<string | null>(null);
   const [storeRows,setStoreRows]=useState(()=>storeDrafts(session.channels??[],session.reports.find(r=>r.role==='anchor')?.storeLines));
   const run = session.flow!;
   const [opts, setOpts] = useState<Options | null>(null);
@@ -24,11 +33,11 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
   const [reason, setReason] = useState('');
   const [operator, setOperator] = useState('');
   const [noOperator, setNoOperator] = useState(false);
-  const [wStart, setWStart] = useState('');
-  const [wEnd, setWEnd] = useState('');
+  const [wStart, setWStart] = useState<string | null>(null);
+  const [wEnd, setWEnd] = useState<string | null>(null);
   const [rate, setRate] = useState('');
   const [wNote, setWNote] = useState('');
-  const [controlRate,setControlRate]=useState(''),[controlStart,setControlStart]=useState(''),[controlEnd,setControlEnd]=useState(''),[controlNote,setControlNote]=useState('');
+  const [controlRate,setControlRate]=useState(''),[controlStart,setControlStart]=useState<string | null>(null),[controlEnd,setControlEnd]=useState<string | null>(null),[controlNote,setControlNote]=useState('');
   const [preview, setPreview] = useState<ReviewPreview | null>(null);
   const [previewErr, setPreviewErr] = useState('');
   const [error, setError] = useState('');
@@ -51,9 +60,10 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
     const f: ReviewForm = { finalSource: source };
     for(const person of abnormal){
       const value=person.role==='anchor'?wEnd:person.role==='control'?controlEnd:operatorEnd;
-      if(!value.trim())return `${person.name}未报下播，下播时间异常，请修复后再继续`;
+      if(!value?.trim())return `${person.name}未报下播，下播时间异常，请修复后再继续`;
     }
-    if(operatorEnd.trim())f.operatorEndAt=operatorEnd.trim();
+    if ([wStart, wEnd, controlStart, controlEnd, operatorEnd].includes('')) return '请填写完整的日期和时间';
+    if (operatorEnd) f.operatorEndAt = operatorEnd;
     if(reason.trim())f.finalReason=reason.trim();
     if (source === 'manual') {
       let lines;try{lines=multi?storePayload(storeRows):undefined;}catch(e){return String((e as Error).message);}
@@ -63,12 +73,12 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
       f.finalSalesCents = c; f.finalReason = reason.trim();
     } else if (reason.trim()) f.finalReason = reason.trim();
     if (noOperator) f.noOperator = true; else if (operator) f.operatorUserId = Number(operator);
-    if (wStart.trim()) f.wageStartAt = wStart.trim().length === 16 ? `${wStart.trim()}:00` : wStart.trim();
-    if (wEnd.trim()) f.wageEndAt = wEnd.trim().length === 16 ? `${wEnd.trim()}:00` : wEnd.trim();
+    if (wStart) f.wageStartAt = wStart;
+    if (wEnd) f.wageEndAt = wEnd;
     if (rate.trim()) { const c = yuanCents(rate); if (c === null || Number.isNaN(c) || c <= 0) return '主播时薪需要是大于 0 的金额'; f.wageHourlyRateCents = c; }
     if (wNote.trim()) f.wageNote = wNote.trim();
     if(controlRate.trim()){const c=yuanCents(controlRate);if(!c||!Number.isSafeInteger(c)||c<=0)return '中控时薪需要是大于 0 的金额';f.controlWageHourlyRateCents=c;}
-    if(controlStart.trim())f.controlWageStartAt=controlStart.trim();if(controlEnd.trim())f.controlWageEndAt=controlEnd.trim();if(controlNote.trim())f.controlWageNote=controlNote.trim();
+    if (controlStart) f.controlWageStartAt = controlStart;if (controlEnd) f.controlWageEndAt = controlEnd;if(controlNote.trim())f.controlWageNote=controlNote.trim();
     return f;
   }, [source, manual, reason, operator, noOperator, wStart, wEnd, rate, wNote,controlRate,controlStart,controlEnd,controlNote,storeRows,multi,session.attendance,operatorEnd]);
 
@@ -130,8 +140,8 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
       ) : (
         <>
           <fieldset><legend>最终销售额</legend>
-            {abnormal.some(a=>a.role==='operator')&&<label className="live-field">运营下播时间（异常修复，必填）<input aria-label="运营下播时间" required value={operatorEnd} onChange={e=>setOperatorEnd(e.target.value)} placeholder="YYYY-MM-DD HH:mm:ss"/></label>}
-            {session.controlCommissionOnly&&abnormal.some(a=>a.role==='control')&&<label className="live-field">中控下播时间（异常修复，必填）<input aria-label="中控计薪结束" required value={controlEnd} onChange={e=>setControlEnd(e.target.value)} placeholder="YYYY-MM-DD HH:mm:ss"/></label>}
+            {abnormal.some(a=>a.role==='operator')&&<label className="live-field">运营下播时间（异常修复，必填）<ReviewTimeInput label="运营下播时间" value={operatorEnd} onChange={setOperatorEnd} required /></label>}
+            {session.controlCommissionOnly&&abnormal.some(a=>a.role==='control')&&<label className="live-field">中控下播时间（异常修复，必填）<ReviewTimeInput label="中控计薪结束" value={controlEnd} onChange={setControlEnd} required /></label>}
             <div className="live-fields">
               <label className="live-field">来源<select aria-label="最终销售额来源" value={source} onChange={(e) => setSource(e.target.value)}><option value="">请选择</option>{available.map(([k, label]) => <option key={k} value={k}>{session.anchorTrial&&k.startsWith('control')?`${label}（试播代报依据）`:label}{k !== 'manual' ? `（${money(Number(k.endsWith('orders') ? reportOf(k.split('_')[0])?.ordersTotalCents : reportOf(k)?.salesCents))}）` : ''}</option>)}</select></label>
               {source === 'manual' && !multi && <label className="live-field">手填金额（元）<input aria-label="手填最终销售额" inputMode="decimal" value={manual} onChange={(e) => setManual(e.target.value)} /></label>}
@@ -147,14 +157,14 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
           </fieldset>
           <fieldset><legend>主播工资（按小时）</legend>
             <div className="live-fields">
-              <label className="live-field">上播时间<input aria-label="工资上播时间" placeholder={(session.attendance?.find(a=>a.role==='anchor')?.startAt??session.startAt).slice(0,16)} value={wStart} onChange={(e) => setWStart(e.target.value)} /></label>
-              <label className="live-field">下播时间<input aria-label="工资下播时间" placeholder={(session.attendance?.find(a=>a.role==='anchor')?.endAt??session.endAt??'').slice(0,16)} value={wEnd} onChange={(e) => setWEnd(e.target.value)} /></label>
+              <label className="live-field">上播时间<ReviewTimeInput label="工资上播时间" recorded={session.attendance?.find(a => a.role === 'anchor')?.startAt ?? session.startAt} value={wStart} onChange={setWStart} /></label>
+              <label className="live-field">下播时间<ReviewTimeInput label="工资下播时间" recorded={session.attendance?.find(a => a.role === 'anchor')?.endAt ?? session.endAt} value={wEnd} onChange={setWEnd} required={abnormal.some(a => a.role === 'anchor')} /></label>
               <label className="live-field">时薪（元/小时）<input aria-label="主播时薪" inputMode="decimal" placeholder={preview?.wage.archiveHourlyRateCents ? `档案 ${yuanText(preview.wage.archiveHourlyRateCents)}` : '档案没有计时时薪，必填'} value={rate} onChange={(e) => setRate(e.target.value)} /></label>
               <label className="live-field wide">调整说明（可选）<input maxLength={500} value={wNote} onChange={(e) => setWNote(e.target.value)} /></label>
             </div>
           </fieldset>
             {session.controlCommissionOnly && <p>传统运营人员担任中控，仅按中控规则计提成，记入本人运营提成。</p>}
-            {session.control&&!session.controlCommissionOnly&&<fieldset><legend>中控计时工资</legend><div className="live-fields"><label className="live-field">计薪开始<input aria-label="中控计薪开始" placeholder={(session.attendance?.find(a=>a.role==='control')?.startAt??session.startAt).slice(0,16)} value={controlStart} onChange={e=>setControlStart(e.target.value)}/></label><label className="live-field">计薪结束<input aria-label="中控计薪结束" placeholder={(session.attendance?.find(a=>a.role==='control')?.endAt??session.endAt??'').slice(0,16)} value={controlEnd} onChange={e=>setControlEnd(e.target.value)}/></label><label className="live-field">中控时薪（元）<input aria-label="中控时薪" placeholder="默认取计时时薪档案" value={controlRate} onChange={e=>setControlRate(e.target.value)}/></label><label className="live-field">工资调整说明<input aria-label="中控工资说明" value={controlNote} onChange={e=>setControlNote(e.target.value)}/></label></div></fieldset>}
+            {session.control&&!session.controlCommissionOnly&&<fieldset><legend>中控计时工资</legend><div className="live-fields"><label className="live-field">计薪开始<ReviewTimeInput label="中控计薪开始" recorded={session.attendance?.find(a => a.role === 'control')?.startAt ?? session.startAt} value={controlStart} onChange={setControlStart} /></label><label className="live-field">计薪结束<ReviewTimeInput label="中控计薪结束" recorded={session.attendance?.find(a => a.role === 'control')?.endAt ?? session.endAt} value={controlEnd} onChange={setControlEnd} required={abnormal.some(a => a.role === 'control')} /></label><label className="live-field">中控时薪（元）<input aria-label="中控时薪" placeholder="默认取计时时薪档案" value={controlRate} onChange={e=>setControlRate(e.target.value)}/></label><label className="live-field">工资调整说明<input aria-label="中控工资说明" value={controlNote} onChange={e=>setControlNote(e.target.value)}/></label></div></fieldset>}
           <div className="live-preview" aria-label="审核试算" role="status">
             <strong>试算结果（服务端按规则计算）</strong>
             {previewErr && <span className="notice warn">{previewErr}</span>}
