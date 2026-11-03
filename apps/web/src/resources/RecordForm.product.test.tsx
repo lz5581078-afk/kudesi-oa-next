@@ -334,14 +334,18 @@ describe('新建关闭确认', () => {
   });
 });
 
-describe('人力成本版本：自动存草稿', () => {
-  it('填写后自动保存草稿，再打开自动恢复', async () => {
+describe('人力成本版本：手动存草稿', () => {
+  it('填写不自动保存，点保存草稿后关闭，再打开自动恢复', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const laborDef = (await import('@kudesi/shared')).getResourceDef('finance-labor-versions')!;
-    const first = render(<RecordForm def={laborDef} record={null} onClose={() => undefined} onSaved={() => undefined} />);
+    const close = vi.fn();
+    const first = render(<RecordForm def={laborDef} record={null} onClose={close} onSaved={() => undefined} />);
     fireEvent.change(screen.getAllByLabelText(/^版本编号/)[0], { target: { value: 'V9' } });
     await vi.advanceTimersByTimeAsync(1500);
-    expect(draftSave).toHaveBeenCalledTimes(1);
+    expect(draftSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(draftSave).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
     expect((draftSave.mock.calls[0][1] as { payload: Record<string, unknown> }).payload.versionCode).toBe('V9');
     first.unmount();
     draftGet.mockResolvedValue({ draft: { payload: { versionCode: 'V9' }, title: '', updatedAt: '' } });

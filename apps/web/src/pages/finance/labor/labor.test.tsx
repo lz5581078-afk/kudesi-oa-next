@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
 import { LaborCostPage } from './LaborCostPage';
+import { CopyVersionDialog } from './CopyVersionDialog';
 import { api } from '../../../api/client';
 import { resetUnitOptionsForTest } from '../../../resources/unitOptions';
 
@@ -211,4 +212,20 @@ it('版本资料仅草稿可编辑；启用版项目/分类删除禁用，草稿
   await screen.findByText('SYNTHETIC-LIFECYCLE');
   expect(screen.queryByRole('button', { name: '删除' })).toBeNull();
   expect(screen.getByRole('button', { name: '编辑' })).toHaveProperty('disabled', true);
+});
+
+it('复制版本预填原编号-COPY、名称副本、期间/日期/备注，提交时保留并大写输入编号', async () => {
+  const source = dto(1, 'finance-labor-versions', '合成春季', { versionCode: 'RL-SPRING', versionName: '合成春季', periodName: '2026春', effectiveFrom: '2026-01-01', effectiveTo: '2026-06-30', note: '合成版本说明' });
+  const copied = vi.fn(); vi.mocked(api).mockResolvedValue({ id: 9 });
+  render(<CopyVersionDialog source={source} onClose={vi.fn()} onCopied={copied}/>);
+  expect(screen.getByLabelText('新版本编号')).toHaveProperty('value', 'RL-SPRING-COPY');
+  expect(screen.getByLabelText('新版本名称')).toHaveProperty('value', '合成春季 - 副本');
+  expect(screen.getByLabelText('期间名称')).toHaveProperty('value', '2026春');
+  expect(screen.getByLabelText('生效开始')).toHaveProperty('value', '2026-01-01');
+  expect(screen.getByLabelText('生效结束')).toHaveProperty('value', '2026-06-30');
+  expect(screen.getByLabelText('备注')).toHaveProperty('value', '合成版本说明');
+  fireEvent.change(screen.getByLabelText('新版本编号'), { target: { value: 'rl-copy-new' } });
+  fireEvent.click(screen.getByRole('button', { name: '复制' }));
+  await waitFor(() => expect(copied).toHaveBeenCalledWith(9));
+  expect(api).toHaveBeenCalledWith('/finance/labor/versions/1/copy', { method: 'POST', body: { versionCode: 'RL-COPY-NEW', versionName: '合成春季 - 副本', periodName: '2026春', effectiveFrom: '2026-01-01', effectiveTo: '2026-06-30', remark: '合成版本说明' } });
 });

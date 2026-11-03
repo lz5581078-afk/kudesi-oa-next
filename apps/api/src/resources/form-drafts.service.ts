@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { createChecker, getResourceDef, restrictedFieldKeys } from '@kudesi/shared';
+import { createChecker, getResourceDef, permissionOwner, resourcePermission, restrictedFieldKeys } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
 import { FormDraft } from '../entities';
@@ -23,7 +23,7 @@ export class FormDraftsService {
       if (!MODULE_RE.test(moduleKey)) throw new BadRequestException('草稿模块不合法');
       const type = moduleKey.slice('resource:'.length);
       if (!getResourceDef(type)) throw new BadRequestException('草稿模块不存在');
-      if (!createChecker(user.permissions)(`resource.${type}.create`)) throw new ForbiddenException('你没有新增这类资料的权限，不能保存草稿');
+      if (!createChecker(user.permissions)(resourcePermission(permissionOwner(type), 'create'))) throw new ForbiddenException('你没有新增这类资料的权限，不能保存草稿');
     }
   }
 

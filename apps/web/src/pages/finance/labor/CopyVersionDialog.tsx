@@ -4,10 +4,10 @@ import type { ResourceDto } from '../../../resources/api';
 
 /** 复制成本版本：新版本是草稿，带上原版本的归档分类和全部工作项目。 */
 export function CopyVersionDialog({ source, onClose, onCopied }: { source: ResourceDto; onClose: () => void; onCopied: (newId: number) => void }) {
-  const [v, setV] = useState({ versionCode: '', versionName: `${source.title}（复制）`, periodName: '', effectiveFrom: '', effectiveTo: '' });
+  const [v, setV] = useState({ versionCode: `${String(source.data.versionCode ?? '')}-COPY`, versionName: `${String(source.data.versionName ?? source.title)} - 副本`, periodName: String(source.data.periodName ?? ''), effectiveFrom: String(source.data.effectiveFrom ?? ''), effectiveTo: String(source.data.effectiveTo ?? ''), remark: String(source.data.note ?? source.data.remark ?? '') });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const set = (k: keyof typeof v) => (e: { target: { value: string } }) => setV((o) => ({ ...o, [k]: e.target.value }));
+  const set = (k: keyof typeof v) => (e: { target: { value: string } }) => setV((o) => ({ ...o, [k]: k === 'versionCode' ? e.target.value.toUpperCase() : e.target.value }));
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true); setError('');
@@ -28,6 +28,7 @@ export function CopyVersionDialog({ source, onClose, onCopied }: { source: Resou
           <label>期间名称 <input aria-label="期间名称" value={v.periodName} onChange={set('periodName')} maxLength={120} /></label>
           <label>生效开始 <input aria-label="生效开始" type="date" value={v.effectiveFrom} onChange={set('effectiveFrom')} /></label>
           <label>生效结束 <input aria-label="生效结束" type="date" value={v.effectiveTo} onChange={set('effectiveTo')} /></label>
+          <label>备注 <textarea aria-label="备注" value={v.remark} onChange={set('remark')} maxLength={500}/></label>
         </div>
         <div className="modal-foot">
           <button type="button" className="secondary-button" onClick={onClose}>取消</button>

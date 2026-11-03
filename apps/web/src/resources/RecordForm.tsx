@@ -322,10 +322,9 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
 
   // 商品档案新建：草稿（每人每个档案类型一份，存在服务器上）、保存并继续新建
   const isProduct = def.key === 'finance-products';
-  // 人力成本版本：旧系统是边填边自动存草稿，关掉再开能接着填
-  const autoDraft = !record && def.key === 'finance-labor-versions';
-  const draftEnabled = !record && (isProduct || isReferenceParty || autoDraft);
-  const draftKey = draftApi.key(`resource:${def.key}`, [String(initial?.archiveType ?? ''), String(initial?.supplyMode ?? '')]);
+  const draftEnabled = !record && (isProduct || isReferenceParty || !!def.draft);
+  const draftParts = def.draft?.keyFields ? def.draft.keyFields.map(key => String(initial?.[key] ?? values[key] ?? '')) : [String(initial?.archiveType ?? ''), String(initial?.supplyMode ?? '')];
+  const draftKey = draftApi.key(`resource:${def.key}`, draftParts);
   const [draftNote, setDraftNote] = useState('');
   const [categoryNeedsPick, setCategoryNeedsPick] = useState(false);
   const [quality, setQuality] = useState<{ body: Record<string, unknown>; mode: SaveMode; options: QualityOptions } | null>(null);
@@ -334,7 +333,11 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     let alive = true;
     draftApi.get(draftKey).then(async (r) => {
       if (!alive || !r.draft) return;
-      const { __productParts, __archiveState, ...fields } = r.draft.payload;
+      const { __productParts, __archiveState, __draftStatus, ...fields } = r.draft.payload;
+      for (const key of def.draft?.keyFields ?? []) delete fields[key];
+      for (const key of def.draft?.omitFields ?? []) delete fields[key];
+      if (def.draft && def.codePreview) delete fields[def.codePreview.field];
+      if (def.draft?.includeStatus && typeof __draftStatus === 'string' && def.statuses.some(option => option.value === __draftStatus)) setStatus(current => current === status ? __draftStatus : current);
       let categoryMessage = '';
       if (isProduct && fields.categoryId) {
         try {
@@ -353,7 +356,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           categoryMessage = '草稿分类暂时无法核对，已保留原归属，请核对分类后保存。';
         }
       }
-      setValues((cur) => ({ ...cur, ...fields }));
+      setValues((cur) => ({ ...cur, ...(def.draft ? Object.fromEntries(Object.entries(fields).filter(([key]) => Object.is(cur[key], values[key]))) : fields) }));
       if (isProduct && __productParts && typeof __productParts === 'object') {
         const parts = __productParts as { sources?: SourceRow[]; composition?: BomDraftRow[]; manualCode?: boolean };
         if (Array.isArray(parts.sources)) setSourceRows(parts.sources.map(({ rowId: _r, ...row }) => row));
@@ -365,7 +368,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         setManualCode(state.manualCode === true); setManualShortCode(state.manualShortCode === true); setShortNameManual(state.shortNameManual === true);
       }
       setDraftNote(`已恢复上次保存的草稿。${categoryMessage}`);
-    }).catch(() => undefined);
+    }).catch(() => { if (alive && def.draft) setDraftNote('草稿读取失败，已保留当前填写内容。'); });
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -384,19 +387,6 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const draftReady = useRef(false);
-  useEffect(() => {
-    if (!autoDraft) return;
-    if (!draftReady.current) { draftReady.current = true; return; }
-    const t = setTimeout(() => {
-      const body = currentBody();
-      if (Object.values(body).some((v) => v !== '' && v !== undefined && !(Array.isArray(v) && !v.length))) {
-        void draftApi.save(draftKey, { moduleKey: `resource:${def.key}`, title: `新增${def.label}`, payload: body }).then(() => setDraftNote('草稿已自动保存。')).catch(() => undefined);
-      }
-    }, 1200);
-    return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values]);
 
   function currentBody() {
     // 只提交可见字段；密码类留空表示不修改，所以空值不提交
@@ -424,12 +414,13 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     setError('');
     try {
       // 来源和组成不属于档案主表字段，但也是用户已填写的草稿，必须一起恢复。
-      const payload = { ...currentBody(), ...(isProduct ? { archiveType: values.archiveType, ...(values.supplyMode ? { supplyMode: values.supplyMode } : {}), __productParts: {
+      const payload: Record<string, unknown> = { ...currentBody(), ...(isProduct ? { archiveType: values.archiveType, ...(values.supplyMode ? { supplyMode: values.supplyMode } : {}), __productParts: {
         sources: sourceRows.map(({ rowId: _r, ...row }) => row),
         composition: bomRows.map(({ rowId: _r, ...row }) => row), manualCode,
       } } : {}), ...(isReferenceParty ? { __archiveState: { manualCode, manualShortCode, shortNameManual } } : {}) };
-      await draftApi.save(draftKey, { moduleKey: `resource:${def.key}`, title: `新增${def.label}`, payload });
-      onClose();
+      for (const key of def.draft?.omitFields ?? []) delete payload[key];
+      await draftApi.save(draftKey, { moduleKey: `resource:${def.key}`, title: `新增${def.label}`, ...(def.draft && copyOf ? { sourceRecordId: String(copyOf) } : {}), payload: { ...payload, ...(def.draft?.includeStatus ? { __draftStatus: status } : {}) } });
+      if (formRef.current) onClose();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '草稿保存失败');
       setBusy(false);
@@ -607,7 +598,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       {def.key === 'finance-fee-items' && f.key === 'defaultObject' ? <FeeBookingNodes value={values.defaultObject} onChange={value => setValues(cur => ({...cur,defaultObject:value}))}/> : isReferenceParty && (f.key === 'code' || def.key === 'finance-suppliers' && f.key === 'shortCode') ? <ArchiveCodeInput inputId={inputId} label={f.label} value={values[f.key]} preview={f.key === 'code' ? archiveCode.code : archiveCode.shortCode} manual={f.key === 'code' ? manualCode : manualShortCode} onManual={f.key === 'code' ? setManualCode : setManualShortCode} onChange={v => setValues(cur => ({...cur,[f.key]:v}))} error={f.key === 'code' ? archiveCode.error : undefined}/> : def.key === 'finance-customers' && f.key === 'categoryIds' ? <><RefSelect inputId={inputId} leafOnly field={{...f,type:'ref'}} value={Array.isArray(values.categoryIds) ? values.categoryIds[0] : null} labelNow={record?.refLabels.categoryIds} onChange={v => setValues(cur => ({...cur,categoryIds:v ? [v] : []}))} />{Array.isArray(values.categoryIds) && values.categoryIds.length > 1 && <small>当前同时归属：{record?.refLabels.categoryIds}；重新选择后归入所选分类。</small>}</> : f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
         inputId={inputId}
         field={f}
-        value={lockedFields?.includes(f.key) ? initial?.[f.key] : values[f.key]}
+        value={def.draft ? values[f.key] : lockedFields?.includes(f.key) ? initial?.[f.key] : values[f.key]}
         configured={record?.secretConfigured[f.key]}
         labelNow={record?.refLabels[f.key]}
         type={def.key}
@@ -685,10 +676,10 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
             />
           )}
           {draftNote && <div className="notice">{draftNote}{draftEnabled && draftNote.startsWith('已恢复') && <> <button type="button" className="link-button" onClick={() => void clearDraft()}>清除草稿</button></>}</div>}
-          {!reference && !record && def.statuses.length > 1 && def.key !== 'fixed-assets' && (
+          {!reference && !record && !def.draft?.fixedStatus && def.statuses.length > 1 && def.key !== 'fixed-assets' && (
             <label className="rf-status">初始状态
               <select value={status} onChange={(e) => setStatus(e.target.value)}>
-                {def.statuses.filter((s) => !s.requiresReason).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {def.statuses.filter((s) => def.draft?.includeStatus || !s.requiresReason).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </label>
           )}

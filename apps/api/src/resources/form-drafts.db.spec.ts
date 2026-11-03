@@ -76,4 +76,22 @@ d('表单草稿（真实数据库）', () => {
     expect(draft.purchasePrice).toBeUndefined();
     expect(JSON.stringify(draft.__productParts)).not.toContain('purchasePrice');
   });
+
+  it('人工版本/项目草稿继承资料新增权限，按版本隔离并加密零值确认，撤销成本权限后确认也隐藏', async () => {
+    const owner = { ...a, permissions: { isCompanyAdmin: false, allow: ['resource.finance-labor-costs.create', 'product.cost.view', 'product.cost.edit'], deny: [] } };
+    const versionKey = 'resource%3Afinance-labor-versions:_:_';
+    await svc.put(owner, versionKey, { moduleKey: 'resource:finance-labor-versions', payload: { versionCode: 'RL-DRAFT', versionName: '合成版本草稿' } });
+    expect((await svc.get(owner, versionKey)).draft!.payload.versionName).toBe('合成版本草稿');
+    const first = 'resource%3Afinance-labor-costs:10', second = 'resource%3Afinance-labor-costs:20';
+    const payload = { versionId: 10, workName: '合成项目草稿', unitPrice: 0, zeroReason: '合成优惠原因', zeroCostConfirmation: { reason: '合成优惠原因', context: '["合成项目草稿","件","包装"]' }, __draftStatus: 'inactive' };
+    await svc.put(owner, first, { moduleKey: 'resource:finance-labor-costs', sourceRecordId: '91', payload });
+    const draft = (await svc.get(owner, first)).draft!;
+    expect(draft.payload).toEqual(payload); expect(draft.sourceRecordId).toBe('91');
+    expect((await svc.get(owner, second)).draft).toBeNull();
+    const raw = await ds.manager.findOneByOrFail(FormDraft, { companyId: owner.companyId, userId: owner.id, draftKey: first });
+    expect(JSON.stringify(raw.payload)).not.toContain('合成优惠原因'); expect(raw.payload.__encryptedDraft).toMatch(/^v1:/);
+    const hidden = (await svc.get({ ...owner, permissions: { ...owner.permissions, allow: ['resource.finance-labor-costs.create'] } }, first)).draft!.payload;
+    expect(hidden.workName).toBe(payload.workName); expect(hidden.unitPrice).toBeUndefined(); expect(hidden.zeroReason).toBeUndefined(); expect(hidden.zeroCostConfirmation).toBeUndefined();
+    await expect(svc.get({ ...owner, permissions: { ...owner.permissions, allow: [] } }, first)).rejects.toThrow(/新增/);
+  });
 });

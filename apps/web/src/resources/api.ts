@@ -242,7 +242,7 @@ export const draftApi = {
   key: (moduleKey: string, parts: string[] = []) =>
     [moduleKey, ...parts].map((v) => encodeURIComponent(String(v ?? '').trim() || '_')).join(':').slice(0, 190),
   get: (key: string) => api<{ draft: { payload: Record<string, unknown>; title: string; updatedAt: string } | null }>(`/form-drafts/${encodeURIComponent(key)}`),
-  save: (key: string, body: { moduleKey: string; title: string; payload: Record<string, unknown> }) =>
+  save: (key: string, body: { moduleKey: string; title: string; sourceRecordId?: string; payload: Record<string, unknown> }) =>
     api<unknown>(`/form-drafts/${encodeURIComponent(key)}`, { method: 'PUT', body }),
   remove: (key: string) => api<unknown>(`/form-drafts/${encodeURIComponent(key)}`, { method: 'DELETE' }),
 };

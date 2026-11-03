@@ -242,6 +242,8 @@ export interface ResourceDef {
   dictionary?: { title: string; sectionLabel?: string; hint: string; nameLabel: string; codeField: string; sortField?: string; referenceCountField: string };
   /** 零值需独立确认；确认内容不作为普通字段或导入导出列。 */
   zeroValueConfirmation?: { valueField: string; reasonField: string; confirmationField: string; contextFields: readonly (string | { ref: string })[]; reasonLabel: string; confirmLabel: string };
+  /** 手动保存的新建草稿；keyFields隔离版本等外侧上下文，恢复时不覆盖这些身份字段。 */
+  draft?: { keyFields?: readonly string[]; omitFields?: readonly string[]; includeStatus?: boolean; fixedStatus?: boolean };
   /** 公司内唯一的字段（重复返回 409）；phone 类型会先规范化 */
   uniqueField?: string;
   /** 组合唯一：这些字段值同时相同则拒绝 */
