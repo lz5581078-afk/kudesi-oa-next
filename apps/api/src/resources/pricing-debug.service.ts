@@ -19,13 +19,14 @@ const PRICEABLE = new Set(['verified', 'reverify']);
 /**
  * 定价调试表：从成本表选组合，按公司低价调预留利润、联动投产和售价，导出 Excel。
  * 全程只试算，不保存任何东西。看得到成本的人（product.cost.view）精确到分、能看到成本和比例；
- * 其他人（运营）看到的是整元，看不到发货前成本和比例。
+ * 其他人沿用整元试算；公司低价可单独授权查看，发货前成本和内部比例仍不开放。
  */
 @Injectable()
 export class PricingDebugService {
   constructor(private readonly cost: CostService) {}
 
   private viewer(user: AuthUser) { return createChecker(user.permissions)('product.cost.view'); }
+  private floorViewer(user: AuthUser) { return this.viewer(user) || createChecker(user.permissions)('finance.pricing-debug.floor.view'); }
 
   private async rows(user: AuthUser) {
     const { d, rows } = await this.cost.allRows(user);
@@ -45,11 +46,12 @@ export class PricingDebugService {
     return out;
   }
 
-  private publicRow(r: CostRow, costViewer: boolean) {
+  private publicRow(r: CostRow, costViewer: boolean, floorViewer: boolean) {
     return {
       id: r.bundleId, skuCode: r.code, skuName: r.name, categoryId: r.categoryId, categoryName: r.categoryName || '未分类',
       ready: r.minPriceCents !== null, weightG: r.weightG,
-      ...(costViewer ? { minPriceCents: r.minPriceCents, preShipCostCents: r.preShipCostCents } : {}),
+      ...(floorViewer ? { minPriceCents: r.minPriceCents } : {}),
+      ...(costViewer ? { preShipCostCents: r.preShipCostCents } : {}),
     };
   }
 
@@ -96,10 +98,10 @@ export class PricingDebugService {
       .sort((a, b) => (w(a) === w(b) ? 0 : w(a) < w(b) ? -1 : 1) || a.name.localeCompare(b.name, 'zh-CN') || a.bundleId - b.bundleId);
     return {
       rows: found.slice((q.page - 1) * q.pageSize, q.page * q.pageSize).map((r) => ({
-        ...this.publicRow(r, costViewer),
+        ...this.publicRow(r, costViewer, this.floorViewer(user)),
         exclusiveOwners: (owners.get(r.bundleId) ?? []).map((g) => ({ id: g.id, ownerName: g.ownerName, endsAt: g.endsAt, mine: g.ownerId === user.id })),
       })),
-      total: found.length, page: q.page, pageSize: q.pageSize, canViewInternals: costViewer,
+      total: found.length, page: q.page, pageSize: q.pageSize, canViewInternals: costViewer, canViewFloorPrice: this.floorViewer(user),
     };
   }
 
@@ -146,7 +148,7 @@ export class PricingDebugService {
         const target = this.slider(byId, costViewer, input).priceCents!;
         let q;
         try { q = roiQuote(mode, input.value, target); } catch (e) { return this.fail(e); }
-        return { id: input.id, ...q, ...(costViewer ? { minPriceCents: row.minPriceCents } : {}) };
+        return { id: input.id, ...q, ...(this.floorViewer(user) ? { minPriceCents: row.minPriceCents } : {}) };
       }),
     };
   }
@@ -184,14 +186,14 @@ export class PricingDebugService {
         slider.available ? yuan(slider.reservedProfitCents) : null, slider.available ? yuan(slider.priceCents) : null,
         yuan(quote.priceCents), quote.roi ?? null,
         ...(costViewer ? [input.profit ? (input.profit.amountCents / Math.max(1, byId.get(input.profit.id)!.minPriceCents ?? 1)) : markupPct === null ? null : markupPct / 100] : []),
-        yuan(row.minPriceCents),
+        ...(this.floorViewer(user) ? [yuan(row.minPriceCents)] : []),
       ]);
     }
     const buffer = buildXlsx('定价调试结果', [
       { header: '商品名称', width: 42 }, { header: 'SKU编码', width: 32 }, { header: '组合分类', width: 26 },
       { header: '预留利润', width: 18, format: 'money' }, { header: '预留利润后售价', width: 22, format: 'money' }, { header: '最终试算售价', width: 20, format: 'money' }, { header: '目标投产', width: 16, format: 'money' },
       ...(costViewer ? [{ header: '预留利润比例', width: 20, format: 'percent' as const }] : []),
-      { header: '公司低价', width: 18, format: 'money' },
+      ...(this.floorViewer(user) ? [{ header: '公司低价', width: 18, format: 'money' as const }] : []),
     ], out);
     return { fileName: `定价调试结果-${new Date().toISOString().slice(0, 10)}.xlsx`, fileBase64: buffer.toString('base64'), rowCount: out.length };
   }

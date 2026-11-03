@@ -283,6 +283,8 @@ export const SPECIAL_PERMISSIONS = {
   collectorUse: 'collector.use',
   /** 查看成本金额；运营默认没有 */
   productCostView: 'product.cost.view',
+  /** 仅定价调试表公司低价，不包含成本金额或成本明细 */
+  pricingFloorView: 'finance.pricing-debug.floor.view',
   /** 编辑成本与利润率；财务和管理员才有 */
   productCostEdit: 'product.cost.edit',
   /** 店铺提现登录管理：添加店铺、填账号密码、查看密码、请求登录、管理授权电脑 */

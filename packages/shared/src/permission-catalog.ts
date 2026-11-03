@@ -87,6 +87,7 @@ export function permissionCatalog(): CatalogGroup[] {
       { key: SPECIAL_PERMISSIONS.productCostView, label: '查看成本金额' },
       { key: SPECIAL_PERMISSIONS.productCostEdit, label: '编辑成本与利润率' },
       { key: SPECIAL_PERMISSIONS.productPriceView, label: '查看商品价格' },
+      { key: SPECIAL_PERMISSIONS.pricingFloorView, label: '定价调试表：查看公司低价（不含成本明细）' },
     ],
   });
   groups.push({ id: 'resource-categories', label: '资料 · 页签分类', items: [{ key: SPECIAL_PERMISSIONS.resourceCategoriesManage, label: '管理分类：改名、排序、隐藏、新增自建分类、删除（需同时有该资料的查看权限）' }] });

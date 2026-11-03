@@ -37,7 +37,7 @@ export interface PricingHistoryRow { id: string; createdAt: string; actorName: s
 export interface Paged<T> { total: number; page: number; pageSize: number; rows: T[] }
 
 export interface DebugRow { id: number; skuCode: string; skuName: string; categoryId: number | null; categoryName: string; ready: boolean; weightG: number | null; minPriceCents?: number | null; preShipCostCents?: number | null; exclusiveOwners?: Array<{ id: number; ownerName: string; endsAt: string; mine: boolean }> }
-export interface DebugList { rows: DebugRow[]; total: number; page: number; pageSize: number; canViewInternals: boolean }
+export interface DebugList { rows: DebugRow[]; total: number; page: number; pageSize: number; canViewInternals: boolean; canViewFloorPrice?: boolean }
 export interface DebugComponents { categories: Array<{ id: number; name: string; parentId: number | null }>; rows: Array<{ id: number; code: string; name: string; categoryId: number | null }>; total: number; page: number; pageSize: number }
 export interface DebugProfit { id: number; amountCents: number }
 export interface DebugSlider { available: boolean; message?: string; reservedProfitCents?: number; reservedProfitPercent?: number | null; priceCents?: number; step?: number }
