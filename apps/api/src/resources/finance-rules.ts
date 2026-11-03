@@ -203,7 +203,7 @@ async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[], unit
     const sh = initials(str(data.shape));
     if (sh) parts.push(sh);
   }
-  return parts.join('-');
+  return parts.join('-').slice(0, 160);
 }
 
 
@@ -345,7 +345,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
     for (let i = 2; i < 50; i++) {
       const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
       if (!clash || clash.id === existing?.id) break;
-      code = `${base}-${i}`;
+      code = `${base.slice(0, 159 - String(i).length).replace(/-+$/, '')}-${i}`;
     }
     checkCode(code, '自动生成的商品编码', 160);
   }
@@ -387,7 +387,7 @@ export async function previewProductCode(em: EntityManager, host: Pick<RuleHost,
   for (let i = 2; i < 50; i++) {
     const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
     if (!clash || clash.id === excludeId) break;
-    code = `${base}-${i}`;
+    code = `${base.slice(0, 159 - String(i).length).replace(/-+$/, '')}-${i}`;
   }
   checkCode(code, '自动生成的商品编码', 160);
   const brandTitle = (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '';
