@@ -4,7 +4,7 @@ import { REPORT_WINDOW_MS, reportsLocked, scheduleFingerprint, primaryReport } f
 import { finishCheckedOutRoom } from './live-checkout-state';
 import { captureOrders, persistCapture } from './live-order-capture';
 import { HR_DEPARTMENTS, notifyTrialSeventhDay, liveStartNotification, liveStartRecipients, liveStartedNotification } from './live-start-notification';
-import { liveHandover } from './live-notification-events';
+import { liveHandover, notifyCheckoutPeers } from './live-notification-events';
 import { channelsOf, linesOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines, channelStores } from './live-platforms';
 import { LiveChannelInput, LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
 import { Injectable } from '@nestjs/common';
@@ -356,6 +356,7 @@ export class LiveSessionService {
         await em.query("UPDATE live_session_checkins SET end_at=COALESCE(end_at,?) WHERE company_id=? AND session_id=? AND role='anchor' AND user_id=?",[endAt,a.companyId,s.id,s.anchor_user_id]);
         await em.query('INSERT INTO audit_logs(company_id,actor_id,action,resource_type,resource_id,detail) VALUES(?,?,?,?,?,?)',[a.companyId,a.userId,'live.trial.end','live-session',String(s.id),JSON.stringify({trialAnchorId:Number(s.anchor_user_id),endAt})]);
       }
+      if (!current.end_at) await notifyCheckoutPeers(em,a.companyId,s,user);
       if (await finishCheckedOutRoom(em, a.companyId, s)) {
         if (!s.end_text) await notifyTrialSeventhDay(em,a.companyId,s);
       }
@@ -465,6 +466,7 @@ export class LiveSessionService {
         await em.query("UPDATE live_schedules SET status = 'finished' WHERE company_id = ? AND session_id = ? AND status = 'live'", [a.companyId, sessionId]);
         if (!s.end_text) await notifyTrialSeventhDay(em,a.companyId,s);
       } else await em.query('UPDATE live_sessions SET revision = revision + 1 WHERE company_id = ? AND id = ?', [a.companyId, sessionId]);
+      if (!old) await notifyCheckoutPeers(em,a.companyId,s,user);
       if (role === 'anchor' && s.status === 'live') await liveHandover(em, a.companyId, sessionId);
     });
     return { ok: true };
