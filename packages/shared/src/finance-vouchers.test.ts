@@ -74,3 +74,28 @@ describe('其他收入的自由项目金额行', () => {
     expect(validateDoc({ ...input, lines: [{ feeItemId: 9, qty: 2, unitPriceCents: 150 }] })).toEqual([]);
   });
 });
+
+describe('金额单的用途合计与实际收付', () => {
+  it.each(['advance-receipt', 'receipt', 'payment', 'prepayment'] as const)('%s 部分收付只按实际金额动银行及往来，旧单仍按全额', (type) => {
+    const input: DocInput = { type, date: '2026-10-24', partyId: 7, bankAccountId: 5, settlementMode: 'part', paidCents: 300, lines: [{ itemName: '货款', qty: 1, unitPriceCents: 1000 }] };
+    expect(validateDoc(input)).toEqual([]);
+    const entries = buildEntries(input, () => null);
+    expect(sum(entries)).toBe(0);
+    expect(Math.abs(entries.find(entry => entry.kind === 'bank')!.amount)).toBe(300);
+    expect(Math.abs(entries.find(entry => entry.kind !== 'bank')!.amount)).toBe(300);
+    const legacy = buildEntries({ ...input, settlementMode: null, paidCents: 0 }, () => null);
+    expect(Math.abs(legacy.find(entry => entry.kind === 'bank')!.amount)).toBe(1000);
+  });
+  it('暂未付款不产生银行变动，不强制账户；超付和按总额分配结算被拒绝', () => {
+    const input: DocInput = { type: 'payment', date: '2026-10-24', partyId: 7, settlementMode: 'credit', paidCents: 0, lines: [{ itemName: '货款', qty: 1, unitPriceCents: 1000 }] };
+    expect(validateDoc(input)).toEqual([]);
+    expect(buildEntries(input, () => null).some(entry => entry.kind === 'bank')).toBe(false);
+    expect(validateDoc({ ...input, bankAccountId: 5, settlementMode: 'part', paidCents: 1100 }).join()).toContain('必须在0和本单合计之间');
+    expect(validateDoc({ ...input, bankAccountId: 5, settlementMode: 'part', paidCents: 300, settleBy: 'doc', settlements: [{ sourceDocId: 1, amountCents: 1000 }] }).join()).toContain('结算单据合计');
+  });
+  it('分账户只收付部分金额，合计不能超过用途总额', () => {
+    const input: DocInput = { type: 'receipt', date: '2026-10-24', partyId: 7, settlementMode: 'part', paidCents: 300, accounts: [{ role: 'in', bankAccountId: 5, amountCents: 100 }, { role: 'in', bankAccountId: 6, amountCents: 200 }], lines: [{ itemName: '回款', qty: 1, unitPriceCents: 1000 }] };
+    expect(validateDoc(input)).toEqual([]);
+    expect(buildEntries(input, () => null).filter(entry => entry.kind === 'bank').map(entry => entry.amount)).toEqual([100, 200]);
+  });
+});

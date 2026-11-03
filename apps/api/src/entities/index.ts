@@ -626,6 +626,7 @@ export class FinanceDocument {
   @Column({ name: 'doc_date', type: 'date' }) docDate!: string;
   @Column({ name: 'party_id', type: 'int', unsigned: true, nullable: true }) partyId!: number | null;
   @Column({ name: 'party_kind', type: 'varchar', length: 12, nullable: true }) partyKind!: string | null;
+  @Column({ name: 'settlement_mode', type: 'varchar', length: 12, nullable: true }) settlementMode!: string | null;
   @Column({ name: 'bank_account_id', type: 'int', unsigned: true, nullable: true }) bankAccountId!: number | null;
   @Column({ name: 'to_bank_account_id', type: 'int', unsigned: true, nullable: true }) toBankAccountId!: number | null;
   @Column({ name: 'warehouse_id', type: 'int', unsigned: true, nullable: true }) warehouseId!: number | null;

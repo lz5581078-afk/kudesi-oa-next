@@ -52,6 +52,7 @@ class DocDto {
   @Matches(DATE) date!: string;
   @IsOptional() @IsInt() @Min(1) partyId?: number | null;
   @IsOptional() @IsIn(['customer', 'store', 'supplier', 'employee']) partyKind?: 'customer' | 'store' | 'supplier' | 'employee' | null;
+  @IsOptional() @IsIn(['full', 'part', 'credit', 'offset', 'debt']) settlementMode?: 'full' | 'part' | 'credit' | 'offset' | 'debt' | null;
   @IsOptional() @IsInt() @Min(0) paidCents?: number | null;
   @IsOptional() @IsString() @MaxLength(60) handler?: string | null;
   @IsOptional() @IsString() @MaxLength(60) department?: string | null;

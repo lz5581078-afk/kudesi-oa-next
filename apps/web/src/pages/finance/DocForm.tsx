@@ -54,6 +54,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const def = DOC_TYPE_MAP.get(type)!;
   const { can, user } = useAuth();
   const ui = def.ui;
+  const hasPayment = !!def.settle || !!def.moneySettlement;
   const structuredLines = !!def.lines && !ui.moneyEntry;
   const kinds = def.partyKinds;
   const initial = useMemo(() => ({ date: doc?.docDate ?? today() }), [doc]);
@@ -80,9 +81,9 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const moneyCents = moneyLines.reduce((sum, l) => { const c = yuanToCents(l.amount); return sum + (c && !Number.isNaN(c) ? c : 0); }, 0);
   const amount = moneyCents ? centsToYuan(moneyCents) : '';
   const [offset, setOffset] = useState(doc?.offsetCents ? centsToYuan(doc.offsetCents) : '');
-  const [paid, setPaid] = useState(doc?.paidCents ? centsToYuan(doc.paidCents) : '');
+  const [paid, setPaid] = useState(doc && def.moneySettlement && !doc.settlementMode ? centsToYuan(doc.amountCents) : doc?.paidCents ? centsToYuan(doc.paidCents) : '');
   const [discount, setDiscount] = useState(doc?.discountCents ? centsToYuan(doc.discountCents) : '');
-  const [payMode, setPayMode] = useState<PayMode | ''>(doc ? (doc.paidCents || doc.offsetCents ? 'part' : 'credit') : ui.payModes[0]?.mode ?? '');
+  const [payMode, setPayMode] = useState<PayMode | ''>(doc ? doc.settlementMode ?? (def.moneySettlement ? 'full' : doc.paidCents || doc.offsetCents ? 'part' : 'credit') : ui.payModes[0]?.mode ?? '');
   const [memo, setMemo] = useState(doc?.memo ?? '');
   const freshLines = () => emptyLines(1).map(row => def.lines === 'product' ? { ...row, qty: '', unit: '件' } : row);
   const [lines, setLines] = useState<LineState[]>(
@@ -183,11 +184,11 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
       : multiOn && payDir ? multi.map((a) => ({ role: payDir, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })) : null;
     const feeC = def.bank === 'transfer' ? parse(fee) ?? 0 : 0;
     return {
-      accounts, type, date, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: multiOn && multi[0] ? multi[0].id : bank.id, toBankAccountId: toBank.id, warehouseId: wh.id,
+      accounts, type, date, settlementMode: type !== 'withdrawal' ? payMode || null : null, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: multiOn && multi[0] ? multi[0].id : bank.id, toBankAccountId: toBank.id, warehouseId: wh.id,
       feeCents: feeC, feeBearer: feeC ? feeBearer : null, inTransit: def.bank === 'transfer' ? inTransit : false,
       storeId: def.store ? store.id : null, refNo: hasBankRef(def) ? refNo : null, amountCents: null, offsetCents: parse(offset) ?? 0,
       discountCents: def.lines === 'product' || hasMoneyDiscount(type) ? parse(discount) ?? 0 : 0,
-      paidCents: def.settle ? (multiOn && payDir ? multiCents : parse(paid) ?? (def.lines === 'fee' ? null : 0)) : 0, handlerId, handler: handlerId ? null : handlerLegacy.trim() || null, department: department.trim() || null,
+      paidCents: hasPayment ? (multiOn && payDir ? multiCents : parse(paid) ?? (def.lines === 'fee' ? null : def.moneySettlement && payMode === 'full' ? moneyCents : 0)) : 0, handlerId, handler: handlerId ? null : handlerLegacy.trim() || null, department: department.trim() || null,
       lines: structuredLines ? parsedLines : moneyLines.filter((l) => l.item.trim() || l.amount.trim() || l.memo.trim()).map((l) => ({ ...l.original, qty: 1, unitPriceCents: parse(l.amount) ?? 0, itemName: l.item.trim(), memo: l.memo.trim() || undefined })), memo: memo || undefined,
       settleBy: canSettle ? settleBy : null,
       settlements: canSettle && settleBy !== 'amount'
@@ -200,10 +201,10 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const discountC = (() => { try { return def.lines === 'product' ? parse(discount) ?? 0 : 0; } catch { return 0; } })();
   /** 收款单/付款单的优惠金额：冲减往来余额、计入财务费用，不是单据金额的一部分 */
   const moneyDiscC = (() => { try { return hasMoneyDiscount(type) ? parse(discount) ?? 0 : 0; } catch { return 0; } })();
-  const paidC = (() => { try { return def.settle ? (multiOn && payDir ? multiCents : parse(paid) ?? 0) : 0; } catch { return 0; } })();
+  const paidC = (() => { try { return hasPayment ? (multiOn && payDir ? multiCents : parse(paid) ?? 0) : 0; } catch { return 0; } })();
   const offsetC = (() => { try { return parse(offset) ?? 0; } catch { return 0; } })();
-  const rest = total - paidC - offsetC;
-  const settleTotal = (() => { try { return (parse(amount) ?? 0) + offsetC + moneyDiscC; } catch { return 0; } })();
+  const rest = total - paidC - (def.moneySettlement ? 0 : offsetC);
+  const settleTotal = (() => { try { return (def.moneySettlement ? paidC : parse(amount) ?? 0) + offsetC + moneyDiscC; } catch { return 0; } })();
   const allocated = Object.values(alloc).reduce((a, v) => { const c = yuanToCents(v); return a + (Number.isNaN(c) || !c ? 0 : c); }, 0);
   /** 按业务发生先后自动分配（管家婆“按业务发生顺序自动结算”）；按商品时先分完一张单的商品再下一张 */
   const autoAlloc = () => {
@@ -221,7 +222,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const goodsLines = lines.filter((l) => l.productId);
   const qtyTotal = goodsLines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
   const bankBal = bank.id && !multiOn ? balances.get(bank.id) : undefined;
-  const bankDelta = def.bank === 'out' || (def.settle === 'out') ? -(def.lines ? paidC : (Number(amount) ? Math.round(Number(amount) * 100) : 0)) : (def.lines ? paidC : (Number(amount) ? Math.round(Number(amount) * 100) : 0));
+  const bankDelta = def.bank === 'out' || (def.settle === 'out') ? -(hasPayment ? paidC : (Number(amount) ? Math.round(Number(amount) * 100) : 0)) : (hasPayment ? paidC : (Number(amount) ? Math.round(Number(amount) * 100) : 0));
   const bankAfter = bankBal !== undefined && bankDelta !== 0 ? bankBal + bankDelta : null;
   const origExcess = origQty.map((o) => { const back = lines.filter((l) => l.productId === o.productId).reduce((x, l) => x + (Number(l.qty) || 0), 0); return back - o.qty > 1e-9 ? `${o.name}：退 ${back} > 原单 ${o.qty}` : ''; }).filter(Boolean);
   // 选了“全款/用预收预付结算”后，改明细金额时收付款金额跟着变
@@ -229,7 +230,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
     if (payMode === 'full') setPaid(centsToYuan(total));
     else if (payMode === 'offset') setOffset(centsToYuan(total));
   }, [total, payMode]);
-  const restLabel = def.settle === 'in' ? (type === 'purchase-return' ? '还没退回' : '欠款（挂应收）') : type === 'sale-return' ? '暂未退款（冲客户欠款）' : type === 'purchase-in' ? '欠款（挂应付）' : type === 'expense' ? '欠款（挂应付）' : '未结清';
+  const restLabel = def.moneySettlement ? '尚未实际收付金额' : def.settle === 'in' ? (type === 'purchase-return' ? '还没退回' : '欠款（挂应收）') : type === 'sale-return' ? '暂未退款（冲客户欠款）' : type === 'purchase-in' ? '欠款（挂应付）' : type === 'expense' ? '欠款（挂应付）' : '未结清';
 
   const pickMode = (m: PayMode) => {
     setPayMode(m);
@@ -240,7 +241,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
       setMultiOn(false);
     }
     if (m === 'full') { setPaid(centsToYuan(total)); setOffset(''); }
-    else if (m === 'credit') { setPaid(''); setOffset(''); }
+    else if (m === 'credit' || m === 'debt') { setPaid(''); setOffset(''); }
     else if (m === 'offset') { setPaid(''); setOffset(centsToYuan(total)); }
   };
 
@@ -298,7 +299,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const pickProduct = (i: number, id: number | null, name: string) => { setLine(i, { productId: id, productName: name, unit: '' }); if (id) void pickUnit(i, id); };
   const moneyItem = ui.moneyItemLabel ?? '项目';
   const parsedCount = structuredLines ? lines.filter((l) => l.productId || l.feeItemId || l.price).length : moneyLines.filter(l => l.item || l.amount).length;
-  const settleTitle = def.settle === 'in' && type !== 'purchase-return' ? '收款情况' : def.settle === 'out' && type !== 'sale-return' ? '付款情况' : def.settle ? '退款情况' : def.bank === 'in' ? '收款情况' : def.bank === 'out' ? '付款情况' : '转款情况';
+  const settleTitle = type === 'receipt' ? '到账情况' : def.settle === 'in' && type !== 'purchase-return' ? '收款情况' : def.settle === 'out' && type !== 'sale-return' ? '付款情况' : def.settle ? '退款情况' : def.bank === 'in' ? '收款情况' : def.bank === 'out' ? '付款情况' : '转款情况';
 
   const doPrint = () => {
     const rowsOut = structuredLines
@@ -415,24 +416,24 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
       <div className="slip-total-card"><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{def.lines && <span className="muted">共 {parsedCount} 行{discountC > 0 ? ` · 已优惠 ${money(discountC)}` : ''}</span>}</div>
       <section className="slip-settle">
         <h3 className="section-title"><span className="step">3</span>{settleTitle}</h3>
-        {def.settle && (
+        {hasPayment && (
           <div className="pay-modes" role="group" aria-label="结算方式">
             {ui.payModes.map((m) => <button key={m.mode} type="button" className={`mode-button${payMode === m.mode ? ' active' : ''}`} aria-pressed={payMode === m.mode} onClick={() => pickMode(m.mode)}>{m.label}</button>)}
           </div>
         )}
         <div className="form-grid">
-          {!def.lines && def.bank !== 'transfer' && <p className="muted" aria-label="金额汇总">{ui.amountLabel}：<b>{money(moneyCents)}</b>（等于上面明细合计）</p>}
-          {def.settle && <label>{ui.amountLabel}（元）<input inputMode="decimal" aria-label={ui.amountLabel} value={multiOn ? centsToYuan(multiCents) : paid} readOnly={multiOn} onChange={(e) => { setPaid(e.target.value); setPayMode('part'); }} placeholder={def.lines === 'fee' ? '不填 = 当场付清/收齐' : '0.00'} />{multiOn && <small className="muted">分账户时等于下面各账户金额之和</small>}</label>}
+          {!def.lines && !def.moneySettlement && def.bank !== 'transfer' && <p className="muted" aria-label="金额汇总">{ui.amountLabel}：<b>{money(moneyCents)}</b>（等于上面明细合计）</p>}
           {(def.bank === 'in' || def.bank === 'out' || def.settle) && def.bank !== 'transfer' && !multiOn && <label>{ui.accountLabel} *<SearchPick ariaLabel={ui.accountLabel} type="bank-accounts" value={bank.id} label={bank.name} onChange={(id, name) => setBank({ id, name })} /></label>}
-          {!multiOn && payDir && <button type="button" className="link-button pay-toggle" onClick={() => { setMulti(bank.id ? [{ id: bank.id, name: bank.name, amount: (def.settle ? paidC : moneyCents) ? centsToYuan(def.settle ? paidC : moneyCents) : '' }] : []); setMultiOn(true); }}>分多个账户{payDir === 'in' ? '收' : '付'}款</button>}
+          {hasPayment && <label>{ui.amountLabel}（元）<input inputMode="decimal" aria-label={ui.amountLabel} value={multiOn ? centsToYuan(multiCents) : paid} readOnly={multiOn} onChange={(e) => { setPaid(e.target.value); setPayMode('part'); }} placeholder={def.lines === 'fee' ? '不填 = 当场付清/收齐' : '0.00'} />{multiOn && <small className="muted">分账户时等于下面各账户金额之和</small>}</label>}
+          {!multiOn && payDir && <button type="button" className="link-button pay-toggle" onClick={() => { setMulti(bank.id ? [{ id: bank.id, name: bank.name, amount: (hasPayment ? paidC : moneyCents) ? centsToYuan(hasPayment ? paidC : moneyCents) : '' }] : []); setMultiOn(true); }}>分多个账户{payDir === 'in' ? '收' : '付'}款</button>}
           {hasMoneyDiscount(type) && <label>优惠金额（元）<input inputMode="decimal" aria-label="优惠金额" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="没有就留空" /><small className="muted vc-disc-hint">{type === 'receipt' ? '给对方让利：冲减他的应收，但没有收到钱，记入财务费用' : '对方给的折扣：冲减我们的应付，但没有付钱，冲减财务费用'}</small></label>}
           {type === 'online-sale' && <label>平台佣金率（%，仅估算，不入账）<input inputMode="decimal" aria-label="平台佣金率" value={feeRate} onChange={(e) => setFeeRate(e.target.value)} placeholder="如 0.6" /></label>}
           {!def.store && hasBankRef(def) && <label>银行流水号<input aria-label="银行流水号" value={refNo} maxLength={80} onChange={(e) => setRefNo(e.target.value)} placeholder="选填；银行回单上的流水号" /></label>}
           {def.offset && <label>冲抵{ACCOUNT_LABEL[def.offset]}（元）<input inputMode="decimal" aria-label="冲抵金额" value={offset} onChange={(e) => setOffset(e.target.value)} placeholder="不冲抵就留空" /></label>}
         </div>
         {multiOn && payDir && (
-          <PayAccounts role={payDir} accounts={multi} setAccounts={setMulti} expected={def.settle ? Math.max(total - offsetC, 0) : moneyCents} strict={!def.settle} balances={balances}
-            onSingle={() => { const first = multi[0]; if (first) setBank({ id: first.id, name: first.name }); if (def.settle) { setPaid(multiCents ? centsToYuan(multiCents) : ''); } setMultiOn(false); }} />
+          <PayAccounts role={payDir} accounts={multi} setAccounts={setMulti} expected={hasPayment ? Math.max(total - offsetC, 0) : moneyCents} strict={!hasPayment || !!def.moneySettlement && payMode === 'full'} balances={balances}
+            onSingle={() => { const first = multi[0]; if (first) setBank({ id: first.id, name: first.name }); if (hasPayment) { setPayMode('part'); setPaid(multiCents ? centsToYuan(multiCents) : ''); } setMultiOn(false); }} />
         )}
         {def.offset && partyBalance && (() => { const have = def.offset === 'advance_receipt' ? partyBalance.advanceReceiptCents : partyBalance.prepaymentCents; return <p className="muted vc-offset-hint">{party.name} 现有{ACCOUNT_LABEL[def.offset]} <b>{money(have)}</b>{offsetC > have ? <span className="vc-bad">（冲抵 {money(offsetC)} 超过余额，过账会被拒）</span> : ''}</p>; })()}
         {type === 'online-sale' && Number(feeRate) > 0 && total > 0 && <p className="muted">预估平台费 <b>{money(Math.round(total * Number(feeRate) / 100))}</b>，预计净到账 <b>{money(total - Math.round(total * Number(feeRate) / 100))}</b></p>}
@@ -485,7 +486,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   if (inline) {
     return (
       <ReferencePickContext.Provider value={type !== 'withdrawal'}><form className={`card slip vc-slip${type !== 'withdrawal' ? ' reference-document' : ''}`} aria-label={`${def.label}开单`} onSubmit={(e) => save(e)}>
-        <div className="slip-title"><strong>{def.label} / 手工开单</strong>{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}</div>
+        <div className="slip-title">{type === 'withdrawal' ? <strong>{def.label} / 手工开单</strong> : <h1>{def.label} / 手工开单</h1>}{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}</div>
         <div className="slip-toolbar-row"><VoucherToolbar type={type} busy={busy} editing={!!doc}
           onClear={() => { if (doc) onClose?.(); else reset(); }} onPrint={doPrint} onList={() => onShowList?.()} onPickDraft={(id) => onPickDraft?.(id)} />
           <span className="vc-keys muted">Ctrl+G 保存草稿 · F8 过账 · Ctrl+F9 打印 · Ctrl+F8 回到明细</span></div>

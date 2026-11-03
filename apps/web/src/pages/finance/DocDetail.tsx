@@ -82,6 +82,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
           {doc.bankName && <div className="kv-row"><dt>{def.bank === 'transfer' ? '转出账户' : '银行账户'}</dt><dd>{doc.bankName}</dd></div>}
           {doc.toBankName && <div className="kv-row"><dt>转入账户</dt><dd>{doc.toBankName}</dd></div>}
           <div className="kv-row"><dt>金额</dt><dd className={doc.amountCents < 0 ? 'neg' : ''}>{money(doc.amountCents)} <CopyButton text={plainYuan(doc.amountCents)} label="金额" /></dd></div>
+          {doc.settlementMode && <div className="kv-row"><dt>收付方式</dt><dd>{def.ui.payModes.find(mode => mode.mode === doc.settlementMode)?.label || doc.settlementMode}</dd></div>}
           {doc.paidCents !== 0 && <div className="kv-row"><dt>{def.ui.amountLabel}</dt><dd>{money(doc.paidCents)}</dd></div>}
           {def.settle && def.lines && <div className="kv-row"><dt>挂{def.settle === 'in' && def.type !== 'purchase-return' || def.type === 'sale-return' ? '应收' : '应付'}余额</dt><dd>{money(doc.amountCents - doc.paidCents - doc.offsetCents)}</dd></div>}
           {doc.offsetCents !== 0 && <div className="kv-row"><dt>冲抵{def.offset ? ACCOUNT_LABEL[def.offset] : ''}</dt><dd>{money(doc.offsetCents)}</dd></div>}

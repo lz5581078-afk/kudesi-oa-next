@@ -119,6 +119,31 @@ describe('往来余额与行提示', () => {
   });
 });
 
+describe('金额单部分到账与退货冲欠款', () => {
+  it('收款用途合计保持不变，实收另填，并保存选择的到账方式', async () => {
+    render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('第1行收款来源'), { target: { value: '客户回款' } });
+    fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '10.00' } });
+    await waitFor(() => expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('10.00'));
+    fireEvent.click(screen.getByRole('button', { name: '部分到账' }));
+    fireEvent.change(screen.getByLabelText('到账金额'), { target: { value: '3.00' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({ settlementMode: 'part', paidCents: 300, lines: [expect.objectContaining({ unitPriceCents: 1000 })] })));
+  });
+  it('旧金额草稿 paid 为零但没有模式时，按原本的全额收付加载', () => {
+    const doc = { id: 14, docNo: 'SK14', docType: 'receipt', status: 'draft', docDate: '2026-10-24', amountCents: 1000, paidCents: 0, accounts: [], lines: [{ itemName: '客户回款', qty: 1, unitPriceCents: 1000 }], events: [], entries: [] } as unknown as DocDetailDto;
+    render(<DocForm type="receipt" doc={doc} inline onSaved={vi.fn()} />);
+    expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('10.00');
+    expect(screen.getByRole('button', { name: '已到账' }).getAttribute('aria-pressed')).toBe('true');
+  });
+  it('退货冲欠款选择会保留，不产生现金退款', async () => {
+    render(<DocForm type="sale-return" inline onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '冲客户欠款' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({ settlementMode: 'debt', paidCents: 0 })));
+  });
+});
+
 describe('费用单与退货单的旧版结算方式', () => {
   it('其他收入直接填写收入项目，保存金额行，不强制选择费用档案', async () => {
     render(<DocForm type="other-income" inline onSaved={vi.fn()} />);

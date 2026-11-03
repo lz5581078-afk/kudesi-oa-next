@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
+  cashSettlementAmount, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -146,7 +146,7 @@ export class FinanceDocumentsService {
 
   private toInput(doc: FinanceDocument, lines: FinanceDocumentLine[], accounts: FinanceDocumentAccount[] = [], settlements: FinanceDocumentSettlement[] = []): DocInput {
     return {
-      type: doc.docType as DocType, date: doc.docDate, partyId: doc.partyId, partyKind: doc.partyKind as never, paidCents: doc.paidCents, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId,
+      type: doc.docType as DocType, date: doc.docDate, settlementMode: doc.settlementMode as DocInput['settlementMode'], partyId: doc.partyId, partyKind: doc.partyKind as never, paidCents: doc.paidCents, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId,
       warehouseId: doc.warehouseId, storeId: doc.storeId, refNo: doc.refNo, amountCents: DOC_TYPE_MAP.get(doc.docType as DocType)?.lines ? null : doc.amountCents, offsetCents: doc.offsetCents, discountCents: doc.discountCents,
       feeCents: doc.feeCents, feeBearer: doc.feeBearer, inTransit: doc.transitStatus !== null, handler: doc.handler, handlerId: doc.handlerId,
       settleBy: (doc.settleBy as SettleBy | null) ?? null,
@@ -264,7 +264,9 @@ export class FinanceDocumentsService {
 
   private sanity(input: DocInput) {
     // 草稿允许没填完，但数字本身必须合法
-    if (!DOC_TYPE_MAP.get(input.type)) throw new BadRequestException('单据类型不认识');
+    const def = DOC_TYPE_MAP.get(input.type);
+    if (!def) throw new BadRequestException('单据类型不认识');
+    if (input.settlementMode && !def.ui.payModes.some(mode => mode.mode === input.settlementMode)) throw new BadRequestException('这种单据不支持所选收付方式');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date ?? '') || Number.isNaN(Date.parse(input.date))) throw new BadRequestException('单据日期格式应为 YYYY-MM-DD');
     if (input.handlerId !== null && input.handlerId !== undefined && (!Number.isInteger(input.handlerId) || input.handlerId <= 0)) throw new BadRequestException('经手人不对');
     for (const v of [input.amountCents, input.offsetCents, input.paidCents, input.discountCents, input.feeCents, ...(input.accounts ?? []).map((a) => a.amountCents), ...(input.settlements ?? []).map((x) => x.amountCents)]) {
@@ -274,9 +276,9 @@ export class FinanceDocumentsService {
     for (const l of input.lines ?? []) if (!(l.qty > 0) || Math.round(l.qty * 10000) / 10000 !== l.qty) throw new BadRequestException('数量必须大于 0，最多 4 位小数');
     if ((input.lines?.length ?? 0) > 200) throw new BadRequestException('一张单据最多 200 行');
     // 分了账户的收付款：写明的实收实付必须等于各账户金额之和（草稿也不能存矛盾的数字）
-    const def = DOC_TYPE_MAP.get(input.type)!;
-    if (def.settle && payRole(def) && input.accounts?.length && input.paidCents !== null && input.paidCents !== undefined) {
+    if ((def.settle || def.moneySettlement) && payRole(def) && input.accounts?.length && input.paidCents !== null && input.paidCents !== undefined) {
       const sum = input.accounts.reduce((x, a) => x + (a.amountCents || 0), 0);
+      if (def.moneySettlement && input.settlementMode === 'full' && sum !== docTotal(def, input)) throw new BadRequestException('各账户合计必须等于已选全款金额');
       if (sum !== input.paidCents) throw new BadRequestException(`各账户金额合计 ${(sum / 100).toFixed(2)} 元，要等于${def.ui.amountLabel} ${(input.paidCents / 100).toFixed(2)} 元`);
     }
   }
@@ -296,7 +298,8 @@ export class FinanceDocumentsService {
       const docNo = input.docNo?.trim() || await this.nextDocNo(em, user, def.prefix, input.date);
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: input.type, status: 'draft', docDate: input.date, partyId: input.partyId ?? null,
-        partyKind: def.party ? input.partyKind ?? def.partyKinds[0] ?? null : null, paidCents: effectivePaid(def, input, docTotal(def, input)),
+        partyKind: def.party ? input.partyKind ?? def.partyKinds[0] ?? null : null, paidCents: def.moneySettlement ? cashSettlementAmount(def, input, docTotal(def, input)) : effectivePaid(def, input, docTotal(def, input)),
+        settlementMode: def.ui.payModes.some(mode => mode.mode === input.settlementMode) ? input.settlementMode : null,
         handler: who.handler, handlerId: who.handlerId, department: input.department?.trim() || null, settleBy: this.settleByOf(input),
         bankAccountId: input.bankAccountId ?? null, toBankAccountId: input.toBankAccountId ?? null, warehouseId: input.warehouseId ?? null,
         storeId: def.store ? input.storeId ?? null : null, refNo: hasBankRef(def) ? input.refNo?.trim() || null : null,
@@ -324,7 +327,8 @@ export class FinanceDocumentsService {
       const def = DOC_TYPE_MAP.get(input.type)!;
       const who = await this.resolveHandler(em, user, input, doc.handlerId);
       await em.update(FinanceDocument, { id, companyId: user.companyId }, {
-        partyKind: def.party ? input.partyKind ?? def.partyKinds[0] ?? null : null, paidCents: effectivePaid(def, input, docTotal(def, input)),
+        partyKind: def.party ? input.partyKind ?? def.partyKinds[0] ?? null : null, paidCents: def.moneySettlement ? cashSettlementAmount(def, input, docTotal(def, input)) : effectivePaid(def, input, docTotal(def, input)),
+        settlementMode: def.ui.payModes.some(mode => mode.mode === input.settlementMode) ? input.settlementMode : null,
         handler: who.handler, handlerId: who.handlerId, department: input.department?.trim() || null, settleBy: this.settleByOf(input),
         ...(input.docNo?.trim() ? { docNo: input.docNo.trim() } : {}),
         docDate: input.date, partyId: input.partyId ?? null, bankAccountId: input.bankAccountId ?? null, toBankAccountId: input.toBankAccountId ?? null,
@@ -567,7 +571,7 @@ export class FinanceDocumentsService {
       const docNo = await this.nextDocNo(em, user, def.prefix, today());
       const res = await em.insert(FinanceDocument, {
         companyId: user.companyId, docNo, docType: doc.docType, status: 'posted', docDate: today(), partyId: doc.partyId, bankAccountId: doc.bankAccountId,
-        toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId, amountCents: -doc.amountCents, offsetCents: -doc.offsetCents, paidCents: -doc.paidCents, discountCents: -doc.discountCents, feeCents: -doc.feeCents, feeBearer: doc.feeBearer, partyKind: doc.partyKind, handler: doc.handler, handlerId: doc.handlerId, department: doc.department,
+        toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId, amountCents: -doc.amountCents, offsetCents: -doc.offsetCents, paidCents: -doc.paidCents, discountCents: -doc.discountCents, feeCents: -doc.feeCents, feeBearer: doc.feeBearer, partyKind: doc.partyKind, settlementMode: doc.settlementMode, handler: doc.handler, handlerId: doc.handlerId, department: doc.department,
         memo: `红冲 ${doc.docNo}：${reason.trim()}`, reversesId: id, createdBy: user.id, issuedAt: new Date(), postedAt: new Date(),
       });
       const rid = Number(res.identifiers[0].id);
@@ -638,7 +642,7 @@ export class FinanceDocumentsService {
       input.paidCents = doc.paidCents;
       const docNo = await this.nextDocNo(em, user, def.prefix, input.date);
       const res = await em.insert(FinanceDocument, {
-        companyId: user.companyId, docNo, docType: doc.docType, status: 'draft', docDate: input.date, partyId: doc.partyId, partyKind: doc.partyKind, paidCents: doc.paidCents,
+        companyId: user.companyId, docNo, docType: doc.docType, status: 'draft', docDate: input.date, partyId: doc.partyId, partyKind: doc.partyKind, settlementMode: doc.settlementMode, paidCents: doc.paidCents,
         handler: doc.handler, handlerId: doc.handlerId, department: doc.department, bankAccountId: doc.bankAccountId, toBankAccountId: doc.toBankAccountId, warehouseId: doc.warehouseId,
         storeId: doc.storeId, refNo: null, amountCents: doc.amountCents, offsetCents: doc.offsetCents, discountCents: doc.discountCents, feeCents: doc.feeCents, feeBearer: doc.feeBearer, transitStatus: doc.transitStatus ? 'pending' : null, settleBy: doc.settleBy, memo: doc.memo, createdBy: user.id,
       });
@@ -778,7 +782,7 @@ export class FinanceDocumentsService {
     if (q.partyId) { where.push('d.party_id = ?'); args.push(q.partyId); }
     if (q.docType === 'receipt' || q.docType === 'payment') { where.push('d.doc_type = ?'); args.push(q.docType); }
     const rows = await this.dataSource.query(
-      `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.doc_date AS docDate, d.party_id AS partyId, d.settle_by AS settleBy, d.amount_cents + d.offset_cents + d.discount_cents AS totalCents, d.discount_cents AS discountCents,
+      `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.doc_date AS docDate, d.party_id AS partyId, d.settle_by AS settleBy, (CASE WHEN d.settlement_mode IS NULL THEN d.amount_cents ELSE d.paid_cents END) + d.offset_cents + d.discount_cents AS totalCents, d.discount_cents AS discountCents,
               COALESCE((SELECT SUM(s.amount_cents) FROM finance_document_settlements s WHERE s.document_id = d.id), 0) AS allocatedCents
          FROM finance_documents d WHERE ${where.join(' AND ')} ORDER BY d.doc_date DESC, d.id DESC LIMIT 1000`, args);
     const names = await this.names(this.dataSource.manager, user.companyId, rows.map((r: { partyId: number | null }) => r.partyId));
@@ -835,7 +839,7 @@ export class FinanceDocumentsService {
     }
     const rows = await this.dataSource.query(
       `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.status, DATE_FORMAT(d.doc_date, '%Y-%m-%d') AS docDate, d.amount_cents AS amountCents, d.memo, d.reverses_id AS reversesId,
-              p.title AS partyName, u.name AS createdByName, COALESCE(hu.name, d.handler) AS handler, d.paid_cents AS paidCents, d.transit_status AS transitStatus, d.fee_cents AS feeCents, d.discount_cents AS discountCents,
+              p.title AS partyName, u.name AS createdByName, COALESCE(hu.name, d.handler) AS handler, d.paid_cents AS paidCents, d.settlement_mode AS settlementMode, d.transit_status AS transitStatus, d.fee_cents AS feeCents, d.discount_cents AS discountCents,
               (SELECT COUNT(*) FROM finance_document_accounts fa WHERE fa.document_id = d.id AND fa.company_id = d.company_id) AS acctCount, d.audited_at AS auditedAt, d.created_by AS createdBy, b.title AS bankName,
               d.source_key AS sourceKey, d.ref_no AS refNo
        FROM finance_documents d LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id LEFT JOIN resource_records b ON b.id = d.bank_account_id AND b.company_id = d.company_id LEFT JOIN users u ON u.id = d.created_by LEFT JOIN users hu ON hu.id = d.handler_id AND hu.company_id = d.company_id

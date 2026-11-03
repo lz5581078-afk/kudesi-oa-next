@@ -26,7 +26,7 @@ export function VoucherPage({ type }: { type: DocType }) {
   };
   return (
     <div className="vc-page">
-      <div className="page-head between"><h1>{def.label}</h1></div>
+      {(type === 'withdrawal' || !can('finance.docs.create')) && <div className="page-head between"><h1>{def.label}</h1></div>}
       {loadError && <div role="alert" className="notice error">{loadError}</div>}
       {can('finance.docs.create')
         ? <DocForm key={`${type}-${editing?.id ?? 'new'}-${nonce}`} type={type} doc={editing ?? undefined} inline
