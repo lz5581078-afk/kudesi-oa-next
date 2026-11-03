@@ -1,3 +1,4 @@
+import { CheckoutFeedbackRecords } from './CheckoutFeedback';
 import { TrialProxyPerformance } from './TrialProxyPerformance';
 import { StorePerformanceTable, storeDrafts, storePayload } from './StorePerformanceTable';
 import { LIVE_PLATFORMS } from '@kudesi/shared';
@@ -110,6 +111,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
     </>}</div></div>}>
       <p className="muted live-review-summary">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt)} · 主播 {session.anchor.name}{session.control ? `，中控 ${session.control.name}` : ''}</p>
       <TrialProxyPerformance session={session}/>
+      <CheckoutFeedbackRecords sessionId={session.id} records={session.checkoutFeedback} attendance={session.attendance}/>
       <div className="live-scroll"><table className="data-table" aria-label="上报对比">
         <thead><tr><th>角色</th><th>填报人</th><th className="num">所报销售额</th><th className="num">勾选订单合计</th><th className="num">订单数</th><th className="num">投流</th></tr></thead>
         <tbody>{session.reports.map((r) => <tr key={r.role}><td>{r.roleLabel}</td><td>{r.reporter.name}</td><td className="num">{money(r.salesCents)}</td><td className="num">{money(r.ordersTotalCents)}</td><td className="num">{r.orderCount}</td><td className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
@@ -135,14 +137,14 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
           </fieldset>
           <fieldset><legend>主播工资（按小时）</legend>
             <div className="live-fields">
-              <label className="live-field">上播时间<input aria-label="工资上播时间" placeholder={session.startAt.slice(0, 16)} value={wStart} onChange={(e) => setWStart(e.target.value)} /></label>
-              <label className="live-field">下播时间<input aria-label="工资下播时间" placeholder={(session.endAt ?? '').slice(0, 16)} value={wEnd} onChange={(e) => setWEnd(e.target.value)} /></label>
+              <label className="live-field">上播时间<input aria-label="工资上播时间" placeholder={(session.attendance?.find(a=>a.role==='anchor')?.startAt??session.startAt).slice(0,16)} value={wStart} onChange={(e) => setWStart(e.target.value)} /></label>
+              <label className="live-field">下播时间<input aria-label="工资下播时间" placeholder={(session.attendance?.find(a=>a.role==='anchor')?.endAt??session.endAt??'').slice(0,16)} value={wEnd} onChange={(e) => setWEnd(e.target.value)} /></label>
               <label className="live-field">时薪（元/小时）<input aria-label="主播时薪" inputMode="decimal" placeholder={preview?.wage.archiveHourlyRateCents ? `档案 ${yuanText(preview.wage.archiveHourlyRateCents)}` : '档案没有计时时薪，必填'} value={rate} onChange={(e) => setRate(e.target.value)} /></label>
               <label className="live-field wide">调整说明（可选）<input maxLength={500} value={wNote} onChange={(e) => setWNote(e.target.value)} /></label>
             </div>
           </fieldset>
             {session.controlCommissionOnly && <p>传统运营人员担任中控，仅按中控规则计提成，记入本人运营提成。</p>}
-            {session.control&&!session.controlCommissionOnly&&<fieldset><legend>中控计时工资</legend><div className="live-fields"><label className="live-field">计薪开始<input aria-label="中控计薪开始" placeholder={session.startAt.slice(0,16)} value={controlStart} onChange={e=>setControlStart(e.target.value)}/></label><label className="live-field">计薪结束<input aria-label="中控计薪结束" placeholder={session.endAt?.slice(0,16)} value={controlEnd} onChange={e=>setControlEnd(e.target.value)}/></label><label className="live-field">中控时薪（元）<input aria-label="中控时薪" placeholder="默认取计时时薪档案" value={controlRate} onChange={e=>setControlRate(e.target.value)}/></label><label className="live-field">工资调整说明<input aria-label="中控工资说明" value={controlNote} onChange={e=>setControlNote(e.target.value)}/></label></div></fieldset>}
+            {session.control&&!session.controlCommissionOnly&&<fieldset><legend>中控计时工资</legend><div className="live-fields"><label className="live-field">计薪开始<input aria-label="中控计薪开始" placeholder={(session.attendance?.find(a=>a.role==='control')?.startAt??session.startAt).slice(0,16)} value={controlStart} onChange={e=>setControlStart(e.target.value)}/></label><label className="live-field">计薪结束<input aria-label="中控计薪结束" placeholder={(session.attendance?.find(a=>a.role==='control')?.endAt??session.endAt??'').slice(0,16)} value={controlEnd} onChange={e=>setControlEnd(e.target.value)}/></label><label className="live-field">中控时薪（元）<input aria-label="中控时薪" placeholder="默认取计时时薪档案" value={controlRate} onChange={e=>setControlRate(e.target.value)}/></label><label className="live-field">工资调整说明<input aria-label="中控工资说明" value={controlNote} onChange={e=>setControlNote(e.target.value)}/></label></div></fieldset>}
           <div className="live-preview" aria-label="审核试算" role="status">
             <strong>试算结果（服务端按规则计算）</strong>
             {previewErr && <span className="notice warn">{previewErr}</span>}
