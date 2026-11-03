@@ -24,3 +24,10 @@ export function pendingLiveRoom() {
 }
 export function consumeLiveRoom(){return pendingLiveRoom();}
 export function clearLiveRoom(){sessionStorage.removeItem(KEY);sessionStorage.removeItem(TIME);}
+
+/** 仅飞书内直接扫描的合法上下播链接自动授权；普通登录及授权失败不循环跳转。 */
+export function liveScanCompany(userAgent = navigator.userAgent): number | null {
+  if (!/Lark|Feishu/i.test(userAgent)) return null;
+  const target = liveRoomTarget(location.pathname + location.search);
+  return target ? Number(new URL(target, location.origin).searchParams.get('company')) : null;
+}
