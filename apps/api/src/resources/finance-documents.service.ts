@@ -925,19 +925,25 @@ export class FinanceDocumentsService {
   }
 
   /**
-   * 店铺资金：每家店铺取最新一次「店铺资金」快照（可提现/保证金/冻结/推广费）；没有快照的店铺用店铺档案里登记的资金。
+   * 店铺资金：每家店铺取最新一次「店铺资金」快照（可提现/保证金/冻结/推广费）；没有快照的店铺不虚构登记时点，金额显示0。
    * 带更新时间和平台，页面按平台分页签、按新旧着色，并能查到店铺关联的收款账户。
    */
   async storeFunds(user: AuthUser) {
     this.need(user, 'finance.cash-bank.view', '没有查看现金银行的权限');
-    const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'store-funds' }, order: { id: 'DESC' }, take: 5000 });
-    const latest = new Map<number, ResourceRecord>();
-    for (const r of rows) {
-      const sid = Number(r.data.storeId);
-      const cur = latest.get(sid);
-      if (!cur || String(r.data.snapshotDate) > String(cur.data.snapshotDate)) latest.set(sid, r);
+    const rows: Array<{ data: Record<string, unknown> | string; updatedAt: Date | string }> = await this.dataSource.query(`
+      SELECT data, updated_at AS updatedAt FROM (
+        SELECT data, updated_at, ROW_NUMBER() OVER (
+          PARTITION BY JSON_UNQUOTE(JSON_EXTRACT(data, '$.storeId'))
+          ORDER BY JSON_UNQUOTE(JSON_EXTRACT(data, '$.snapshotDate')) DESC, id DESC
+        ) AS snapshot_order
+        FROM resource_records WHERE company_id = ? AND type = 'store-funds'
+      ) snapshots WHERE snapshot_order = 1`, [user.companyId]);
+    const latest = new Map<number, { data: Record<string, unknown>; updatedAt: Date | string }>();
+    for (const row of rows) {
+      const data = typeof row.data === 'string' ? JSON.parse(row.data) as Record<string, unknown> : row.data;
+      latest.set(Number(data.storeId), { data, updatedAt: row.updatedAt });
     }
-    const stores = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'stores' }, take: 5000 });
+    const stores = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'stores' } });
     const platformOpts = await categoryLabelMap(this.dataSource.manager, user.companyId, 'stores', getResourceDef('stores')!);
     const n = (v: unknown) => (typeof v === 'number' ? v : 0);
     const out = stores.filter((st) => latest.has(st.id) || ['normal', 'abnormal'].includes(st.status)).map((st) => {
@@ -984,8 +990,8 @@ export class FinanceDocumentsService {
     }
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
       `SELECT e.id, DATE_FORMAT(e.entry_date, '%Y-%m-%d') AS entryDate, e.amount_cents AS amountCents, d.id AS documentId, d.doc_no AS docNo, d.doc_type AS docType, d.memo, d.summary, COALESCE(hu.name, d.handler) AS handler, COALESCE(d.counterparty_name,p.title) AS partyName
-       FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id LEFT JOIN users hu ON hu.id = d.handler_id AND hu.company_id = d.company_id
-       WHERE ${where.join(' AND ')} ORDER BY e.entry_date ASC, e.id ASC LIMIT 2000`, args);
+       FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id AND d.company_id = e.company_id LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id LEFT JOIN users hu ON hu.id = d.handler_id AND hu.company_id = d.company_id
+       WHERE ${where.join(' AND ')} ORDER BY e.entry_date ASC, e.id ASC`, args);
     let run = opening, income = 0, expense = 0;
     const list = rows.map((r) => {
       const amt = Number(r.amountCents);
@@ -1011,7 +1017,7 @@ export class FinanceDocumentsService {
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
       `SELECT e.account_id AS productId, e.sub_id AS warehouseId, p.title AS productName, JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.code')) AS code, JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.specUnit')) AS unit, w.title AS warehouseName, SUM(e.qty) AS qty, SUM(e.amount_cents) AS amount
        FROM finance_entries e LEFT JOIN resource_records p ON p.id = e.account_id AND p.company_id = e.company_id LEFT JOIN resource_records w ON w.id = e.sub_id AND w.company_id = e.company_id
-       WHERE ${where.join(' AND ')} GROUP BY e.account_id, e.sub_id, p.title, p.data, w.title HAVING ${having} ORDER BY p.title, w.title LIMIT 1000`, args);
+       WHERE ${where.join(' AND ')} GROUP BY e.account_id, e.sub_id, p.title, p.data, w.title HAVING ${having} ORDER BY p.title, w.title`, args);
     return rows.map((r) => {
       const qty = Number(r.qty), amount = Number(r.amount);
       return { productId: r.productId, warehouseId: r.warehouseId, productName: r.productName, code: r.code ?? '', unit: r.unit ?? '', warehouseName: r.warehouseName, qty, avgCostCents: canCost && qty ? Math.round(amount / qty) : null, amountCents: canCost ? amount : null };
@@ -1032,7 +1038,7 @@ export class FinanceDocumentsService {
       `SELECT e.id, DATE_FORMAT(e.entry_date, '%Y-%m-%d') AS entryDate, e.qty AS qty, e.amount_cents AS amountCents, d.id AS documentId, d.doc_no AS docNo, d.doc_type AS docType, d.status AS status, d.party_id AS partyId, d.memo AS memo
          FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id AND d.company_id = e.company_id
         WHERE e.company_id = ? AND e.kind = 'inventory' AND e.account_id = ? AND e.sub_id = ?${dateCond}
-        ORDER BY e.entry_date ASC, e.id ASC LIMIT 1000`, args);
+        ORDER BY e.entry_date ASC, e.id ASC`, args);
     const names = await this.names(this.dataSource.manager, user.companyId, rows.map((r) => r.partyId as number | null));
     let run = 0, runAmount = 0, inQty = 0, outQty = 0;
     const list = rows.map((r) => {
