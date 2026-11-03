@@ -28,12 +28,12 @@ describe('全部资料编辑入口的控件语义', () => {
   it.each(RESOURCE_DEFS.filter(def => !def.readOnly && def.fields.some(f => !f.readonly)).map(def => [def.key, def] as const))('%s：复合字段不嵌套标签，单字段显式关联输入', async (_key, def) => {
     const view = render(<MemoryRouter><RecordForm def={def} record={null} onClose={vi.fn()} onSaved={vi.fn()} /></MemoryRouter>);
     const dialog = screen.getByRole('dialog');
-    expect(dialog.classList.contains('resource-editor')).toBe(true);
+    expect(dialog.matches('.resource-editor, .finance-base-editor')).toBe(true);
     expect(dialog.querySelector('label label')).toBeNull();
     for (const label of dialog.querySelectorAll<HTMLLabelElement>('.rf-field > label[for]')) {
       expect(document.getElementById(label.htmlFor)).toBeTruthy();
     }
-    await waitFor(() => expect(view.baseElement.querySelector('.resource-editor')).toBeTruthy());
+    await waitFor(() => expect(view.baseElement.querySelector('.resource-editor, .finance-base-editor')).toBeTruthy());
   });
 
   it('两个相同资料表单同时存在时，分区和字段id各自独立', () => {
