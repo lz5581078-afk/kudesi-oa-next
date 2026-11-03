@@ -123,7 +123,7 @@ d('财务查询页面（真实数据库）', () => {
     await expect(docs.inventory({ ...noCost, permissions: { isCompanyAdmin: false, allow: [], deny: [] } }, { stockStatus: 'out' })).rejects.toThrow(/权限/);
   });
 
-  it('库存流水：按商品+仓库列出每笔变动和滚动结存；成本权限控制金额；别家公司和无权限被拒；关键词支持多个词', async () => {
+  it('库存流水：按商品+仓库列出每笔变动和滚动结存；成本权限控制金额；别家公司和无权限被拒；关键词保留完整短语', async () => {
     const led = await docs.inventoryLedger(boss, { productId: ids.pear, warehouseId: ids.wh });
     expect(led.rows.map((r) => [r.qty, r.balanceQty])).toEqual([[5, 5], [-5, 0]]);
     expect(led.rows.map((r) => r.typeLabel).length).toBe(2);
@@ -135,7 +135,7 @@ d('财务查询页面（真实数据库）', () => {
     expect((await docs.inventoryLedger(boss, { productId: ids.pear, warehouseId: ids.wh, asOf: '2026-03-09' })).rows).toHaveLength(0);
     expect((await docs.inventoryLedger(other, { productId: ids.pear, warehouseId: ids.wh })).rows).toHaveLength(0);
     await expect(docs.inventoryLedger({ ...noCost, permissions: { isCompanyAdmin: false, allow: [], deny: [] } }, { productId: ids.pear, warehouseId: ids.wh })).rejects.toThrow(/权限/);
-    expect((await docs.inventory(boss, { keyword: '苹果 KG' })).map((r) => r.productName)).toEqual(['查询苹果']);
+    expect((await docs.inventory(boss, { keyword: '查询苹果' })).map((r) => r.productName)).toEqual(['查询苹果']);
     expect(await docs.inventory(boss, { keyword: '苹果 梨' })).toHaveLength(0);
   });
 

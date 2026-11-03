@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { settledLineCents, sumUnitCents, multiplyUnitCents, yuanToPreciseCents, validUnitCents } from './unit-price';
+import { settledLineCents, averageUnitCents, sumUnitCents, multiplyUnitCents, yuanToPreciseCents, validUnitCents } from './unit-price';
 import { minSalePriceCentsByMicroPercent } from './pricing';
 import { validateResourceInput, RESOURCE_DEFS } from './resources';
 import { lineAmount, validateDoc } from './finance-documents';
@@ -32,4 +32,11 @@ describe('精细单价与整数分结算边界',()=>{
     const bank=RESOURCE_DEFS.find(d=>d.key==='bank-accounts')!;
     expect(validateResourceInput(bank,{balance:0.25},{status:'normal',existing:{kind:'company_public',accountName:'测试',bank:'测试',accountNo:true}}).errors.join()).toMatch(/整数/);
   });
+});
+
+it('库存平均报价由整数分总额定点相除，保留6位元精度及负金额，零数量无报价',()=>{
+ expect(averageUnitCents(1,3)).toBe(0.3333);expect(averageUnitCents(-1,3)).toBe(-0.3333);
+ expect(averageUnitCents(275,2.5)).toBe(110);expect(averageUnitCents(1,0.0001)).toBe(10000);
+ expect(averageUnitCents(0,3)).toBe(0);expect(averageUnitCents(100,0)).toBeNull();expect(averageUnitCents(100,-1)).toBeNull();
+ expect(()=>averageUnitCents(0.1,1)).toThrow();expect(()=>averageUnitCents(100,0.00001)).toThrow();
 });

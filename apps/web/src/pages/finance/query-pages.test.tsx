@@ -91,6 +91,13 @@ describe('库存查询（统一查询页版式）', () => {
     fa.inventory.mockResolvedValueOnce([stock(2,2,'乙公司库存','乙公司仓',1,200)]);fireEvent.click(screen.getByRole('button',{name:'查询'}));await screen.findByText('乙公司库存');
   });
 
+  it('多条商品条件按原换行完整提交，填写弹层不提前读取库存',async()=>{
+    fa.inventory.mockResolvedValue([]);render(<InventoryPage/>);fireEvent.click(screen.getByRole('button',{name:'打开多条搜索'}));
+    fireEvent.change(screen.getByLabelText('多条搜索内容'),{target:{value:'Alpha Beta\n中间\nalpha beta'}});fireEvent.click(screen.getByRole('button',{name:'开始搜索'}));
+    expect(fa.inventory).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'查询'}));
+    await waitFor(()=>expect(fa.inventory).toHaveBeenCalledWith({keyword:'Alpha Beta\n中间',warehouse:undefined,stockStatus:undefined}));
+  });
+
 });
 
 describe('收付款两张查询表', () => {

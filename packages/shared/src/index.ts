@@ -59,3 +59,5 @@ export * from './resource-form';
 export * from './cost-breakdown';
 
 export { productCapacity, productCapacityText } from './product-capacities';
+
+export * from './query-search';

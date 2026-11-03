@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  cashSettlementAmount, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
+  cashSettlementAmount, averageUnitCents, querySearchTerms, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -1047,8 +1047,11 @@ export class FinanceDocumentsService {
     if (q.warehouseId) { where.push('e.sub_id = ?'); args.push(q.warehouseId); }
     if (q.warehouse) { where.push("LOCATE(?, COALESCE(w.title, '')) > 0"); args.push(q.warehouse); }
     if (q.asOf) { where.push('e.entry_date <= ?'); args.push(q.asOf); } // 历史库存：截止某天
-    // 商品关键词支持多个词（空格分隔，每个词都要命中商品名称或编码），对齐旧版的多词搜索
-    for (const term of (q.keyword ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 6)) { where.push('(p.title LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(p.data, \'$.code\')) LIKE ?)'); args.push(`%${term}%`, `%${term}%`); }
+    const terms=querySearchTerms(q.keyword??'');
+    if(terms.length){
+      where.push('('+terms.map(()=>"LOCATE(?, CONCAT(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.code')),''),' ',COALESCE(p.title,''))) > 0").join(' OR ')+')');
+      args.push(...terms);
+    }
     // 全部状态包括已售空的零库存记录；正常/缺货按四位数量精度分别过滤。
     const having = q.stockStatus === 'normal' ? 'SUM(e.qty) > 0.00005' : q.stockStatus === 'out' ? 'SUM(e.qty) <= 0.00005' : '1 = 1';
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
@@ -1057,7 +1060,7 @@ export class FinanceDocumentsService {
        WHERE ${where.join(' AND ')} GROUP BY e.account_id, e.sub_id, p.title, p.data, w.title HAVING ${having} ORDER BY p.title, w.title`, args);
     return rows.map((r) => {
       const qty = Number(r.qty), amount = Number(r.amount);
-      return { productId: r.productId, warehouseId: r.warehouseId, productName: r.productName, code: r.code ?? '', unit: r.unit ?? '', warehouseName: r.warehouseName, qty, avgCostCents: canCost && qty ? Math.round(amount / qty) : null, amountCents: canCost ? amount : null };
+      return { productId: r.productId, warehouseId: r.warehouseId, productName: r.productName, code: r.code ?? '', unit: r.unit ?? '', warehouseName: r.warehouseName, qty, avgCostCents: canCost ? averageUnitCents(amount,qty) : null, amountCents: canCost ? amount : null };
     });
   }
 

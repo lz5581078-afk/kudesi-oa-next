@@ -26,3 +26,11 @@ export function settledLineCents(value: number, quantity: number): number {
   return Number(roundRatio(unitCentsTicks(value) * scaledDecimal(quantity,4), TICKS * 10_000n));
 }
 export function unitYuanText(cents: number): string { return (cents / 100).toFixed(6).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''); }
+
+/** 库存结算总额除以四位数量，平均报价保留万分之一分；零/负数量无平均报价。 */
+export function averageUnitCents(totalCents: number, quantity: number): number | null {
+  if (!Number.isSafeInteger(totalCents)) throw new Error('结算总额必须为安全整数分');
+  const qty = scaledDecimal(quantity, 4);
+  if (qty <= 0n) return null;
+  return Number(roundRatio(BigInt(totalCents) * TICKS * 10_000n, qty)) / Number(TICKS);
+}

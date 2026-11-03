@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ListFilter, Search, X } from 'lucide-react';
 
-export function querySearchTerms(value: string) {
-  const terms = new Map<string,string>();
-  for (const line of value.split(/[\r\n]+/)) { const term=line.trim(); if(term && !terms.has(term.toLocaleLowerCase()))terms.set(term.toLocaleLowerCase(),term); }
-  return [...terms.values()];
-}
+import { querySearchTerms } from '@kudesi/shared';
+export { querySearchTerms } from '@kudesi/shared';
+
 /** 普通搜索保持完整短语；多条搜索按行去重，任意一条匹配。 */
 export function ReferenceSearch({ value, onChange, label, placeholder = '搜索当前列表' }: { value:string; onChange:(value:string)=>void; label:string; placeholder?:string }) {
   const [open,setOpen]=useState(false),[draft,setDraft]=useState(''),[right,setRight]=useState(false);
