@@ -70,6 +70,8 @@ d('直播总经理通知同步人事（隔离MySQL）',()=>{
   expect(await liveManagementCopySender(ds.manager,c,payload)).toBe(boss);
   const send=jest.fn();const sender=new ConnectedFeishuSender({ds,read:async()=>({enabled:true,tenantKey:'fixture-tenant',appId:'fixture-app',appSecret:'fixture-only',origin:'https://example.test',channels:[{key:'business',enabled:true,inheritsMainApp:true},{key:'system',enabled:true,inheritsMainApp:true}]})} as never,{send} as never);
   await sender.send({companyId:c,idempotencyKey:'fixture',notice:payload});expect(send).toHaveBeenCalledTimes(1);
+  await ds.query('UPDATE feishu_identities SET oa_notifications=0 WHERE company_id=? AND user_id=?',[c,hr]);await sender.send({companyId:c,idempotencyKey:'opted-out',notice:payload});expect(send).toHaveBeenCalledTimes(1);
+  await ds.query('UPDATE feishu_identities SET oa_notifications=1 WHERE company_id=? AND user_id=?',[c,hr]);
   expect(await liveRecipientAllowed(ds.manager,c,hr,'features.live.view')).toBe(false);
   await ds.query("INSERT INTO live_notification_health(company_id,health_key,failures,first_failed_at,updated_at) VALUES(?,'fixture-health',3,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",[c]);
   await liveNotify(ds.manager,c,[boss],{key:'health:fixture-health:2026-11-03',channel:'system',title:'接口异常',body:'异常正文'});
