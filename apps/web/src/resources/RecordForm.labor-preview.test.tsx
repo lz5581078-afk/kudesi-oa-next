@@ -10,7 +10,7 @@ vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, company
 vi.mock('../api/client', async original => ({ ...(await original<typeof import('../api/client')>()), api: vi.fn() }));
 vi.mock('./api', async original => {
   const module = await original<typeof import('./api')>();
-  return { ...module, resourceApi: { ...module.resourceApi, list: vi.fn(), update: vi.fn(), create: vi.fn() }, draftApi: { ...module.draftApi, get: vi.fn(), clear: vi.fn() } };
+  return { ...module, resourceApi: { ...module.resourceApi, list: vi.fn(), update: vi.fn(), create: vi.fn(), get: vi.fn() }, draftApi: { ...module.draftApi, get: vi.fn(), clear: vi.fn() } };
 });
 
 it('项目表单内新增工作分类后直接选中，内窗Enter和Escape不会保存或关闭父表单', async () => {
@@ -41,6 +41,21 @@ beforeEach(() => {
   vi.mocked(api).mockResolvedValue({ code: 'SERVER-PREVIEW' });
   vi.mocked(draftApi.get).mockResolvedValue({ draft: null });
   vi.mocked(resourceApi.update).mockResolvedValue(record);
+  vi.mocked(resourceApi.get).mockImplementation(async (type, id) => ({ ...record, type, id, title: type === 'finance-labor-units' ? '件' : '合成工作分类' }));
+});
+
+it('实际零成本表单通过明确确认生成当前上下文，改名需重新确认；保存只提交确认原因和上下文', async () => {
+  render(<RecordForm def={def} record={{ ...record, data: { ...record.data, unitPrice: 0, zeroReason: '旧原因' } }} lockedFields={['versionId', 'archiveCategoryId']} onClose={vi.fn()} onSaved={vi.fn()}/>);
+  fireEvent.change(screen.getByRole('textbox', { name: '零人力成本原因' }), { target: { value: '合成优惠' } });
+  const confirm = screen.getByRole('button', { name: '确认该项为0' });
+  await waitFor(() => expect(confirm).toHaveProperty('disabled', false)); fireEvent.click(confirm);
+  expect(screen.getByText('已确认：合成优惠')).toBeTruthy();
+  fireEvent.change(screen.getByRole('textbox', { name: /工作名称/ }), { target: { value: '合成改名后' } });
+  expect(screen.queryByText('已确认：合成优惠')).toBeNull();
+  fireEvent.click(confirm); fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await waitFor(() => expect(resourceApi.update).toHaveBeenCalled());
+  expect(vi.mocked(resourceApi.update).mock.calls[0][2]).toMatchObject({ unitPrice: 0, zeroReason: '合成优惠', zeroCostConfirmation: { reason: '合成优惠', context: JSON.stringify(['合成改名后', '件', '合成工作分类']) } });
+  expect(document.querySelector('[data-field="zeroCostConfirmation"]')).toBeNull();
 });
 afterEach(cleanup);
 

@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { pinyin } from 'pinyin-pro';
 import { EntityManager } from 'typeorm';
+import { getResourceDef, readZeroValueConfirmation, zeroValueContext } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import type { AfterSaveContext, BeforeSaveContext, RuleHost } from './resource-rules';
@@ -236,10 +237,14 @@ async function beforeItem({ em, host, user, existing, data, status }: BeforeSave
   const price = num(data.unitPrice);
   if (price === null || price < 0) throw new BadRequestException('单位人力成本不能为空，也不能是负数');
   if (price === 0) {
-    if (str(data.zeroReason).trim().length < 2) throw new BadRequestException('单位人力成本为 0 时，必须写明零值原因');
-    data.zeroReason = str(data.zeroReason).trim();
+    const confirmation = readZeroValueConfirmation(data.zeroCostConfirmation);
+    const context = zeroValueContext(getResourceDef('finance-labor-costs')!.zeroValueConfirmation!, data, { unitId: unit.title, workTypeId: wt.title });
+    if (!confirmation || confirmation.context !== context) throw new BadRequestException('单位人力成本为0，请明确确认并填写零值原因；名称、工作分类或计价单位变化后需要重新确认');
+    data.zeroReason = confirmation.reason;
+    data.zeroCostConfirmation = { ...confirmation, employeeId: user.id, confirmedAt: new Date().toISOString() };
   } else {
     data.zeroReason = undefined;
+    data.zeroCostConfirmation = undefined;
   }
   // 原版按同版本的工作名称、工作分类、计价单位查重，与归档目录无关。
   const versionItems = (await host.findWhere(em, user.companyId, 'finance-labor-costs', 'versionId', version.id)).filter(row => !row.archivedAt);

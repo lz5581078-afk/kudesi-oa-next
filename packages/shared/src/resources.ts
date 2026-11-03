@@ -240,6 +240,8 @@ export interface ResourceDef {
   codePreview?: { field: string; inputFields: readonly string[] };
   /** 小字典在引用字段旁原位新增并选中，复用通用资料及排序接口。 */
   dictionary?: { title: string; sectionLabel?: string; hint: string; nameLabel: string; codeField: string; sortField?: string; referenceCountField: string };
+  /** 零值需独立确认；确认内容不作为普通字段或导入导出列。 */
+  zeroValueConfirmation?: { valueField: string; reasonField: string; confirmationField: string; contextFields: readonly (string | { ref: string })[]; reasonLabel: string; confirmLabel: string };
   /** 公司内唯一的字段（重复返回 409）；phone 类型会先规范化 */
   uniqueField?: string;
   /** 组合唯一：这些字段值同时相同则拒绝 */
@@ -1495,12 +1497,16 @@ export function resourcePermission(key: string, action: ResourceAction): string 
 
 /** 当前用户没有权限的字段 key（成本等受限字段）。 */
 export function restrictedFieldKeys(def: ResourceDef, can: (permission: string) => boolean): Set<string> {
-  return new Set(def.fields.filter((f) => f.permission && !can(f.permission)).map((f) => f.key));
+  const hidden = new Set(def.fields.filter((f) => f.permission && !can(f.permission)).map((f) => f.key));
+  if (def.zeroValueConfirmation && hidden.has(def.zeroValueConfirmation.valueField)) hidden.add(def.zeroValueConfirmation.confirmationField);
+  return hidden;
 }
 
 /** 当前用户不能修改的字段（看不到的，或缺少修改权限的）。 */
 export function readOnlyFieldKeys(def: ResourceDef, can: (permission: string) => boolean): Set<string> {
-  return new Set(def.fields.filter((f) => (f.permission && !can(f.permission)) || (f.writePermission && !can(f.writePermission))).map((f) => f.key));
+  const blocked = new Set(def.fields.filter((f) => (f.permission && !can(f.permission)) || (f.writePermission && !can(f.writePermission))).map((f) => f.key));
+  if (def.zeroValueConfirmation && blocked.has(def.zeroValueConfirmation.valueField)) blocked.add(def.zeroValueConfirmation.confirmationField);
+  return blocked;
 }
 
 export function secretFields(def: ResourceDef): FieldDef[] {

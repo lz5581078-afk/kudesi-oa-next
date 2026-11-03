@@ -11,7 +11,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, IsNull, Like, Not, SelectQueryBuilder } from 'typeorm';
 import {
-  unitYuanText, yuanToPreciseCents, createChecker,
+  unitYuanText, yuanToPreciseCents, createChecker, readZeroValueConfirmation,
   addDaysText, daysBetweenDates, dueDateFor, expirySources, EXPIRY_SKIP_STATUSES, todayShanghai,
   FieldDef,
   getResourceDef, isKnownRelationKind,
@@ -569,6 +569,16 @@ export class ResourcesService implements RuleHost {
       }
       if (v === null) delete data[f.key];
       else data[f.key] = v;
+    }
+    const zeroPolicy = def.zeroValueConfirmation;
+    if (zeroPolicy && Object.prototype.hasOwnProperty.call(input, zeroPolicy.confirmationField) && !blocked.has(zeroPolicy.valueField)) {
+      const supplied = input[zeroPolicy.confirmationField];
+      if (supplied === null || supplied === '') delete data[zeroPolicy.confirmationField];
+      else {
+        const confirmation = readZeroValueConfirmation(supplied);
+        if (!confirmation) throw new BadRequestException('零值确认格式不合法');
+        data[zeroPolicy.confirmationField] = confirmation;
+      }
     }
     // 状态变化后不再显示的字段也要清掉（如异常原因）
     for (const f of def.fields) {

@@ -29,6 +29,42 @@ d('人力项目原版查重与工作编号（隔离数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
+  it('零成本必须明确确认当前名称/单位/分类，原因不能替代确认；确认人和时间由服务端写入', async () => {
+    const name = '合成零价确认';
+    const context = JSON.stringify([name, '件', '合成包装']);
+    await expect(create(name, { unitPrice: 0, zeroReason: '原因本身不能代替确认' })).rejects.toThrow(/明确确认/);
+    await expect(create(name, { unitPrice: 0, zeroCostConfirmation: { reason: '赠', context: '[]' } })).rejects.toThrow(/重新确认/);
+    const saved = await create(name, { unitPrice: 0, zeroCostConfirmation: { reason: ' 赠 ', context, employeeId: 9999999, confirmedAt: '2000-01-01' } });
+    expect(saved.data.zeroReason).toBe('赠');
+    expect(saved.data.zeroCostConfirmation).toMatchObject({ reason: '赠', context, employeeId: actor.id });
+    expect((saved.data.zeroCostConfirmation as { confirmedAt: string }).confirmedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    await expect(svc.update(actor, 'finance-labor-costs', saved.id, { workName: `${name}改` })).rejects.toThrow(/重新确认/);
+    expect((await svc.get(actor, 'finance-labor-costs', saved.id)).data.workName).toBe(name);
+    const renamedContext = JSON.stringify([`${name}改`, '件', '合成包装']);
+    const renamed = await svc.update(actor, 'finance-labor-costs', saved.id, { workName: `${name}改`, zeroCostConfirmation: { reason: '赠', context: renamedContext } });
+    expect(renamed.data.unitPrice).toBe(0);
+    await expect(svc.update(actor, 'finance-labor-costs', saved.id, { unitId: otherUnit })).rejects.toThrow(/重新确认/);
+    const paid = await svc.update(actor, 'finance-labor-costs', saved.id, { unitPrice: 0.1234 });
+    expect(paid.data.unitPrice).toBe(0.1234); expect(paid.data.zeroReason).toBeUndefined(); expect(paid.data.zeroCostConfirmation).toBeUndefined();
+  });
+
+  it('零值确认同成本读写权限隔离；上游单位改名后旧确认失效，未确认复制不能沿用零价', async () => {
+    const localUnit = await svc.create(actor, 'finance-labor-units', { name: '合成零值单位' });
+    const name = '零价权限检查', context = JSON.stringify([name, localUnit.title, '合成包装']);
+    const saved = await create(name, { unitId: localUnit.id, unitPrice: 0, zeroCostConfirmation: { reason: '合成优惠', context } });
+    const reader = { ...actor, permissions: { isCompanyAdmin: false, allow: ['resource.finance-labor-costs.view', 'resource.finance-labor-costs.edit'], deny: [] } };
+    const hidden = await svc.get(reader, 'finance-labor-costs', saved.id);
+    expect(hidden.data).not.toHaveProperty('unitPrice'); expect(hidden.data).not.toHaveProperty('zeroReason'); expect(hidden.data).not.toHaveProperty('zeroCostConfirmation');
+    expect(JSON.stringify(await svc.logs(reader, 'finance-labor-costs', saved.id))).not.toContain('合成优惠');
+    await svc.update(reader, 'finance-labor-costs', saved.id, { zeroReason: '越权原因', zeroCostConfirmation: { reason: '越权原因', context } });
+    expect((await svc.get(actor, 'finance-labor-costs', saved.id)).data.zeroReason).toBe('合成优惠');
+    await expect(create('复制零价项目', { unitId: localUnit.id, unitPrice: 0, zeroReason: '合成优惠' })).rejects.toThrow(/明确确认/);
+    await svc.update(actor, 'finance-labor-units', localUnit.id, { name: '合成改名单位' });
+    await expect(svc.update(actor, 'finance-labor-costs', saved.id, { note: '保留旧确认不能越过验证' })).rejects.toThrow(/重新确认/);
+    const renewed = await svc.update(actor, 'finance-labor-costs', saved.id, { zeroCostConfirmation: { reason: '合成优惠', context: JSON.stringify([name, '合成改名单位', '合成包装']) } });
+    expect(renewed.data.unitPrice).toBe(0);
+  });
+
   it('字典整表排序同事务保留全部条目，拒绝缺项/无效ID和无修改权限；引用数按公司跨版本统计', async () => {
     const a = await svc.create(actor, 'finance-labor-work-types', { name: '排序合成甲', code: 'SORTA' });
     const b = await svc.create(actor, 'finance-labor-work-types', { name: '排序合成乙', code: 'SORTB' });

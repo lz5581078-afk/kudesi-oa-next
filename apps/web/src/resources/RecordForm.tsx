@@ -21,6 +21,7 @@ import { ReferenceProductCategoryPicker } from './ReferenceProductCategoryPicker
 import { ArchiveCodeInput, useArchiveCodePreview } from './ArchiveCodeInput';
 import { ResourceCodePreview } from './ResourceCodePreview';
 import { ResourceDictionaryButton } from './ResourceDictionaryManager';
+import { ZeroValueConfirmation } from './ZeroValueConfirmation';
 import { SupplierCategoryContext } from './SupplierCategoryContext';
 import { FeeBookingNodes } from './FeeBookingNodes';
 import { ReferenceCategoryContext } from './ReferenceCategoryContext';
@@ -405,6 +406,15 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       if (f.type === 'secret' && (v === undefined || v === '')) continue;
       body[f.key] = v === undefined ? (f.type === 'files' ? [] : f.type === 'attrs' ? {} : f.type === 'bool' ? false : '') : v;
     }
+    const policy = def.zeroValueConfirmation;
+    if (policy && body[policy.valueField] === 0) {
+      const valueField = def.fields.find(field => field.key === policy.valueField);
+      const permission = valueField?.writePermission ?? valueField?.permission;
+      if (!permission || me && createChecker(me.permissions)(permission)) {
+        const raw = values[policy.confirmationField] as { reason?: unknown; context?: unknown } | undefined;
+        if (raw) body[policy.confirmationField] = { reason: raw.reason, context: raw.context };
+      }
+    }
     if (isProduct) for (const key of productLayout(values).header) if (values[key] !== undefined) body[key] = values[key];
     return body;
   }
@@ -606,6 +616,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         onKnown={(info) => setKnown((cur) => ({ ...cur, [info.id]: info }))}
         onChange={(v) => { if (locked.includes(f.key)) return; if (f.initialOption) touchedInitialOptions.current.add(f.key); if (def.key === 'finance-suppliers' && f.key === 'shortName') setShortNameManual(true); setValues((cur) => ({ ...cur, [f.key]: v, ...(def.key === 'finance-suppliers' && f.key === 'name' && !shortNameManual ? {shortName:v} : {}) })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
       />}
+      {def.zeroValueConfirmation?.valueField === f.key && <ZeroValueConfirmation def={def} values={values} enabled={!locked.includes(f.key) && (!f.writePermission || !!me && createChecker(me.permissions)(f.writePermission))} onChange={patch => setValues(current => ({ ...current, ...patch }))}/>}
       {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : !reference && f.help && <small className="muted">{f.help}</small>}
     </div>
   );

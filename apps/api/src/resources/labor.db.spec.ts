@@ -78,7 +78,7 @@ d('人力成本表（真实数据库）', () => {
     expect((await svc.get(boss, 'finance-labor-versions', ids.v1)).data.isDefault).toBe(true);
     expect((await svc.get(boss, 'finance-labor-versions', ids.v2)).data.isDefault).toBeFalsy();
     await expect(svc.create(boss, 'finance-labor-costs', { ...base, archiveCategoryId: ids.catC, workName: ' 装礼盒 ' })).rejects.toThrow(/已存在/);
-    const zero = await svc.create(boss, 'finance-labor-costs', { ...base, archiveCategoryId: ids.catC, workName: '贴标', unitPrice: 0, zeroReason: '外包赠送，不另收费' });
+    const zero = await svc.create(boss, 'finance-labor-costs', { ...base, archiveCategoryId: ids.catC, workName: '贴标', unitPrice: 0, zeroReason: '外包赠送，不另收费', zeroCostConfirmation: { reason: '外包赠送，不另收费', context: JSON.stringify(['贴标', '元/个', '包装']) } });
     expect(zero.data.zeroReason).toBe('外包赠送，不另收费');
     ids.zero = zero.id;
     await svc.update(boss, 'finance-labor-costs', zero.id, { unitPrice: 20 });

@@ -11,7 +11,7 @@ type RefOptions = RefOption[] & { total?: number };
 const REF_PAGE = 50;
 let refVersion = 0;
 const refListeners = new Set<() => void>();
-function useRefVersion() { return useSyncExternalStore(cb => { refListeners.add(cb); return () => { refListeners.delete(cb); }; }, () => refVersion); }
+export function useRefVersion() { return useSyncExternalStore(cb => { refListeners.add(cb); return () => { refListeners.delete(cb); }; }, () => refVersion); }
 const refCache = new Map<string, Promise<RefOptions>>();
 function refOptionLabel(target:string,row:ResourceDto){
   if(target==='phones')return [row.title,row.data.certifiedName,row.data.plan,`登记 #${row.id}`].filter(Boolean).join(' · ');
