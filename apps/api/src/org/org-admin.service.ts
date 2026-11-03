@@ -515,10 +515,10 @@ export class OrgAdminService {
     if (!(await em.findOne(Position, { where: { id, companyId } }))) throw new BadRequestException('岗位不存在');
   }
 
-  /** 新员工的初始密码由系统随机生成，只在这次返回里出现一次，首次登录必须改。 */
-  async createStaff(actor: AuthUser, input: { account: string; name: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }) {
+  /** 默认随机初始密码；兼职专用入口可传入已验证的设置值。仅本次返回，首次登录必须改。 */
+  async createStaff(actor: AuthUser, input: { account: string; name: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }, configuredPassword?: string, afterCreate?: (em:EntityManager, person:User, password:string)=>Promise<void>) {
     const account = input.account.trim();
-    const initialPassword = generatePassword();
+    const initialPassword = configuredPassword ?? generatePassword();
     const passwordHash = await bcrypt.hash(initialPassword, 10);
     const id = await accountTransaction(this.ds, account, async (em) => {
       await this.mustDepartment(em, actor.companyId, input.departmentId);
@@ -535,6 +535,7 @@ export class OrgAdminService {
         payType: input.payType ?? 'monthly', hourlyRate: input.hourlyRate ?? null, employmentType: input.employmentType ?? 'regular',
         isCompanyAdmin: false, status: 'active', mustChangePassword: true,
       }));
+      if (afterCreate) await afterCreate(em,u,initialPassword);
       await this.audit(em, actor, 'user.create', 'user', u.id, { account, positionId: u.positionId, extraPositionIds: u.extraPositionIds });
       return u.id;
     });

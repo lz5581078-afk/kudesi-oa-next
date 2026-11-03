@@ -214,7 +214,7 @@ export class OrgAdminController {
   @RequirePermission('org.staff.view')
   @Get('staff/export')
   async exportStaff(@CurrentUser() u: AuthUser) {
-    return { csv: await this.staffImport.exportCsv(u) };
+    return { csv: await this.staffImport.exportCsv(u, true) };
   }
 
   /** 员工 CSV 导入：先 dryRun 预检，再正式导入。新增靠 org.staff.create，修改已有员工还要 org.staff.edit。 */
