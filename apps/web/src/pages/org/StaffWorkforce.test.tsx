@@ -20,12 +20,9 @@ it('已有员工改兼职填写合作期，空结束日期明确提交为null，
   expect(vi.mocked(orgApi.updateStaff).mock.calls[0][1]).not.toHaveProperty('hourlyRate');
 });
 
-it('临时工未填结束日期或结束早于开始，显示错误且不保存', async () => {
+it('临时工结束早于开始，显示错误且不保存', async () => {
   page();
   fireEvent.change(screen.getByLabelText('用工类型'), { target: { value: 'temp' } });
-  fireEvent.click(screen.getByRole('button', { name: '保存' }));
-  expect(await screen.findByText('临时工必须填写合作结束日期')).toBeTruthy();
-  expect(orgApi.updateStaff).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('合作开始日期'), { target: { value: '2026-02-02' } });
   fireEvent.change(screen.getByLabelText('合作结束日期'), { target: { value: '2026-02-01' } });
   fireEvent.submit(screen.getByRole('dialog'));

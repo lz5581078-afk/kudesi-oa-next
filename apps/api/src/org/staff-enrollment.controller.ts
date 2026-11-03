@@ -8,6 +8,7 @@ class CreateInviteDto {
   @IsIn(['general', 'position']) mode!: 'general' | 'position';
   @IsOptional() @IsInt() @Min(1) positionId?: number;
   @IsOptional() @IsIn(['regular', 'part_time', 'temp']) employmentType?: 'regular' | 'part_time' | 'temp';
+  // Compatibility fields for already-open old clients; new codes do not use these dates or validDays.
   @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractStartDate?: string;
   @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractEndDate?: string;
   @IsOptional() @IsIn([7, 30, 90]) validDays?: number;

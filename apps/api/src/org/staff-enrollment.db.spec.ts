@@ -1,3 +1,4 @@
+import { todayShanghai } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
 import { buildServices } from '../test-support';
 import { FeishuBindingPolicy } from '../auth/feishu-binding-policy';
@@ -83,6 +84,25 @@ d('员工扫码入职：真实 MySQL', () => {
     await expect(svc.preview(expired.token)).rejects.toThrow('已失效');
     await expect(svc.preview('bad')).rejects.toThrow('无效');
   });
+  it('长期码跨时间仍有效，同岗位换码后旧码失效且不影响其他岗位/公司/通用码',async()=>{
+    const other=await org.createPosition(a,{name:'另一个岗位',workspaceType:'blank'});
+    const first=await svc.create(a,{mode:'position',positionId:job.id,employmentType:'part_time'});
+    const independent=await svc.create(a,{mode:'position',positionId:other.id});
+    const general=await svc.create(a,{mode:'general'});
+    const crossCompany=await svc.create(b,{mode:'position',positionId:foreign.id});
+    expect(first.expiresAt).toBeNull();
+    const now=jest.spyOn(Date,'now').mockReturnValue(Date.now()+3650*86400000);
+    try{expect((await svc.preview(first.token)).expiresAt).toBeNull();}finally{now.mockRestore();}
+    const replacement=await svc.create(a,{mode:'position',positionId:job.id,employmentType:'temp'});
+    for(const token of [first.token]){await expect(svc.preview(token)).rejects.toThrow('已失效');await expect(svc.join(input(token))).rejects.toThrow('已失效');}
+    for(const token of [replacement.token,independent.token,general.token,crossCompany.token])await expect(svc.preview(token)).resolves.toBeTruthy();
+    const nextGeneral=await svc.create(a,{mode:'general'});await expect(svc.preview(general.token)).rejects.toThrow('已失效');await expect(svc.preview(nextGeneral.token)).resolves.toBeTruthy();
+    const raced=await Promise.all([svc.create(a,{mode:'position',positionId:job.id}),svc.create(a,{mode:'position',positionId:job.id})]);
+    expect((await svc.list(a)).filter(r=>r.mode==='position'&&r.positionId===job.id&&r.status==='active')).toHaveLength(1);
+    expect((await Promise.allSettled(raced.map(r=>svc.preview(r.token)))).filter(r=>r.status==='fulfilled')).toHaveLength(1);
+    await expect(svc.create(a,{mode:'position',positionId:foreign.id})).rejects.toThrow();
+    expect((await svc.list(a)).filter(r=>r.mode==='position'&&r.positionId===job.id&&r.status==='active')).toHaveLength(1);
+  });
   it('公司、发码人、岗位、部门停用后拒绝入职', async () => {
     const r = await svc.create(a, { mode: 'position', positionId: job.id });
     for (const [entity, id, inactive] of [[Company, a.companyId, 'suspended'], [User, a.id, 'disabled'], [Position, job.id, 'inactive'], [Department, department.id, 'inactive']] as const) {
@@ -93,14 +113,14 @@ d('员工扫码入职：真实 MySQL', () => {
   });
   it.each(['part_time','temp'] as const)('岗位码按%s创建唯一账号和兼职临时工档案，保持岗位和手机号关联', async employmentType => {
     const r = await svc.create(a, {mode:'position',positionId:job.id,employmentType,contractStartDate:'2020-01-01',...(employmentType==='temp'?{contractEndDate:'2099-12-31'}:{})});
-    expect(await svc.preview(r.token)).toMatchObject({employmentType,contractStartDate:'2020-01-01'});
+    expect(await svc.preview(r.token)).toMatchObject({employmentType,contractStartDate:null,contractEndDate:null,expiresAt:null});
     expect((await svc.list(a)).find(x=>x.id===r.id)?.employmentType).toBe(employmentType);
     const data=input(r.token); await svc.join(data);
     const u=await ds.manager.findOneByOrFail(User,{account:data.phone});
     expect(u.employmentType).toBe(employmentType); expect(u.positionId).toBe(job.id);
     const records=await ds.manager.find(ResourceRecord,{where:{companyId:a.companyId,type:'workforce'}});
     const mine=records.filter(r=>Number(r.data.userId)===u.id); expect(mine).toHaveLength(1);
-    expect(mine[0].data).toMatchObject({userId:u.id,employmentType,phone:data.phone,contractStartDate:'2020-01-01'});
+    expect(mine[0].data).toMatchObject({userId:u.id,employmentType,phone:data.phone,contractStartDate:todayShanghai()});
     expect(mine[0].title).toBe(data.name); expect(mine[0].status).toBe('active');
     expect(mine[0].data.payRate).toBeUndefined();
   });
@@ -109,14 +129,12 @@ d('员工扫码入职：真实 MySQL', () => {
     const u=await ds.manager.findOneByOrFail(User,{account:data.phone});expect(u.employmentType).toBe('regular');
     expect((await ds.manager.find(ResourceRecord,{where:{companyId:a.companyId,type:'workforce'}})).some(r=>Number(r.data.userId)===u.id)).toBe(false);
   });
-  it('拒绝临时工缺结束日期、非法日期、倒置合作期及非法类型',async()=>{
-    for(const terms of [{employmentType:'temp'},{employmentType:'temp',contractEndDate:'2099-02-30'},{employmentType:'part_time',contractStartDate:'2099-04-02',contractEndDate:'2099-04-01'},{employmentType:'part_time',contractStartDate:'2099-99-99'},{employmentType:'bad'}]){
-      await expect(svc.create(a,{mode:'position',positionId:job.id,...terms} as never)).rejects.toThrow();
-    }
+  it('拒绝非法用工类型，新码不再固化合作日期',async()=>{
+    await expect(svc.create(a,{mode:'position',positionId:job.id,employmentType:'bad'} as never)).rejects.toThrow();
   });
   it('入职码合作期到期拒绝注册且不留下孤立账号',async()=>{
     const r=await svc.create(a,{mode:'position',positionId:job.id,employmentType:'temp',contractStartDate:'2020-01-01',contractEndDate:'2099-01-01'});
-    await ds.manager.update(StaffEnrollmentInvite,r.id,{contractEndDate:'2020-01-02'});
+    await ds.manager.update(StaffEnrollmentInvite,r.id,{contractStartDate:'2020-01-01',contractEndDate:'2020-01-02'});
     const data=input(r.token);await expect(svc.join(data)).rejects.toThrow('合作期已结束');expect(await ds.manager.findOneBy(User,{account:data.phone})).toBeNull();
   });
   it('建档失败同事务回滚账号；公共提交不能自行更换用工类型',async()=>{
