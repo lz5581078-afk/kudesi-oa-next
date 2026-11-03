@@ -33,6 +33,7 @@ export function PricingDebugPage() {
   const [page, setPage] = useState(1);
   const [resultPage, setResultPage] = useState(1);
   const [data, setData] = useState<DebugList>({ rows: [], total: 0, page: 1, pageSize: PAGE, canViewInternals: false });
+  const canViewFloorPrice = data.canViewFloorPrice ?? data.canViewInternals;
   const [selected, setSelected] = useState<Record<number, DebugRow>>({});
   const [forms, setForms] = useState<Record<number, Form>>({});
   const [quotes, setQuotes] = useState<Record<number, QuoteState>>({});
@@ -301,7 +302,7 @@ export function PricingDebugPage() {
               <label key={row.id} className="pricing-debug-item">
                 <input type="checkbox" checked={Boolean(selected[row.id])} disabled={exporting || addingAll} onChange={() => toggle(row)} />
                 <span><strong>{row.skuName}</strong>{row.exclusiveOwners?.map((g) => <small className="pricing-exclusive-label" key={g.id}>{g.mine ? '我的专属品' : `${g.ownerName}的专属品`} · 至{new Date(g.endsAt).toLocaleDateString('zh-CN')}</small>)}<small className="muted">{row.skuCode} · {row.categoryName} · {weightText(row)}{!row.ready ? ' · 暂不可试算' : ''}</small></span>
-                {data.canViewInternals && <em>公司低价 {money(row.minPriceCents)}</em>}
+                {canViewFloorPrice && <em>公司低价 {money(row.minPriceCents)}</em>}
               </label>
             ))}
             {loading ? <p className="muted" role="status">正在加载…</p> : !error && !data.rows.length && <p className="muted">没有匹配的SKU成本项目{hasFilter && <> <button type="button" className="link-button" onClick={clearFilters}>清除筛选</button></>}</p>}
@@ -318,7 +319,7 @@ export function PricingDebugPage() {
           {feedback && <div role="status" className="notice ok">{feedback}</div>}
           <div className="table-scroll">
             <table className="data-table pricing-debug-table">
-              <thead><tr><th>商品与分类</th><th>预留利润</th><th>目标投产</th><th>试算售价（元）</th><th>状态</th>{data.canViewInternals && <th className="num">公司低价</th>}<th>操作</th></tr></thead>
+              <thead><tr><th>商品与分类</th><th>预留利润</th><th>目标投产</th><th>试算售价（元）</th><th>状态</th>{canViewFloorPrice && <th className="num">公司低价</th>}<th>操作</th></tr></thead>
               <tbody>
                 {visibleChosen.map((row) => {
                   const f = forms[row.id] ?? defaultForm(), q = quotes[row.id], s = sliders[row.id];
@@ -348,12 +349,12 @@ export function PricingDebugPage() {
                       <td><input aria-label={`${row.skuName} 目标投产`} type="number" disabled={exporting} min="1.01" step="0.01" placeholder="填投产" value={f.roi} onChange={(e) => update(row.id, 'roi', e.target.value)} /></td>
                       <td><input aria-label={`${row.skuName} 试算售价`} type="number" disabled={exporting} min="0.01" step="0.01" placeholder="填售价" value={f.price} onChange={(e) => update(row.id, 'price', e.target.value)} /></td>
                       <td>{q?.pending ? '试算中…' : q?.available === false ? q.message : q?.available ? '已试算' : sliderOk ? '档位已调试' : '待填写'}</td>
-                      {data.canViewInternals && <td className="num">{money(row.minPriceCents)}</td>}
+                      {canViewFloorPrice && <td className="num">{money(row.minPriceCents)}</td>}
                       <td><button type="button" className="link-button" disabled={exporting} onClick={() => toggle(row)}>移除</button></td>
                     </tr>
                   );
                 })}
-                {!chosen.length && <tr><td colSpan={data.canViewInternals ? 7 : 6} className="empty-state muted">尚未选择商品</td></tr>}
+                {!chosen.length && <tr><td colSpan={canViewFloorPrice ? 7 : 6} className="empty-state muted">尚未选择商品</td></tr>}
               </tbody>
             </table>
           </div>
