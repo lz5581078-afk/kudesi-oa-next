@@ -12,6 +12,7 @@ import { ApiError } from '../../api/client';
 
 /** 一场一张审核单：审核人选最终销售额来源、确认运营和主播工资，右侧随输入试算提成（服务端算）。 */
 export function ReviewDialog({ session, onClose, onDone }: { session: SessionDetail; onClose: () => void; onDone: () => void }) {
+  const trialProxy = !!session.trialProxyReporter;
   const multi=!!session.channels?.length;
   const [storeRows,setStoreRows]=useState(()=>storeDrafts(session.channels??[],session.reports.find(r=>r.role==='anchor')?.storeLines));
   const run = session.flow!;
@@ -57,12 +58,13 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
     if (noOperator) f.noOperator = true; else if (operator) f.operatorUserId = Number(operator);
     if (wStart.trim()) f.wageStartAt = wStart.trim().length === 16 ? `${wStart.trim()}:00` : wStart.trim();
     if (wEnd.trim()) f.wageEndAt = wEnd.trim().length === 16 ? `${wEnd.trim()}:00` : wEnd.trim();
+    if (trialProxy && !rate.trim()) return '请填写本场试播主播时薪';
     if (rate.trim()) { const c = yuanCents(rate); if (c === null || Number.isNaN(c) || c <= 0) return '主播时薪需要是大于 0 的金额'; f.wageHourlyRateCents = c; }
     if (wNote.trim()) f.wageNote = wNote.trim();
     if(controlRate.trim()){const c=yuanCents(controlRate);if(!c||!Number.isSafeInteger(c)||c<=0)return '中控时薪需要是大于 0 的金额';f.controlWageHourlyRateCents=c;}
     if(controlStart.trim())f.controlWageStartAt=controlStart.trim();if(controlEnd.trim())f.controlWageEndAt=controlEnd.trim();if(controlNote.trim())f.controlWageNote=controlNote.trim();
     return f;
-  }, [source, manual, reason, operator, noOperator, wStart, wEnd, rate, wNote,controlRate,controlStart,controlEnd,controlNote,storeRows,multi]);
+  }, [source, manual, reason, operator, noOperator, wStart, wEnd, rate, wNote,controlRate,controlStart,controlEnd,controlNote,storeRows,multi,trialProxy]);
 
   // 随输入试算（防抖）；试算失败只提示，不挡住操作
   useEffect(() => {
@@ -137,7 +139,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
             <div className="live-fields">
               <label className="live-field">上播时间<input aria-label="工资上播时间" placeholder={session.startAt.slice(0, 16)} value={wStart} onChange={(e) => setWStart(e.target.value)} /></label>
               <label className="live-field">下播时间<input aria-label="工资下播时间" placeholder={(session.endAt ?? '').slice(0, 16)} value={wEnd} onChange={(e) => setWEnd(e.target.value)} /></label>
-              <label className="live-field">时薪（元/小时）<input aria-label="主播时薪" inputMode="decimal" placeholder={preview?.wage.archiveHourlyRateCents ? `档案 ${yuanText(preview.wage.archiveHourlyRateCents)}` : '档案没有计时时薪，必填'} value={rate} onChange={(e) => setRate(e.target.value)} /></label>
+              <label className={trialProxy ? 'live-field trial-rate-required' : 'live-field'}>{trialProxy ? '试播主播时薪（元/小时）· 必填' : '时薪（元/小时）'}<input required={trialProxy} aria-label="主播时薪" inputMode="decimal" placeholder={trialProxy ? '请填写本场时薪' : preview?.wage.archiveHourlyRateCents ? `档案 ${yuanText(preview.wage.archiveHourlyRateCents)}` : '档案没有计时时薪，必填'} value={rate} onChange={(e) => setRate(e.target.value)} /></label>
               <label className="live-field wide">调整说明（可选）<input maxLength={500} value={wNote} onChange={(e) => setWNote(e.target.value)} /></label>
             </div>
           </fieldset>

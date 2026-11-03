@@ -1084,8 +1084,11 @@ d('直播管理（真实数据库）', () => {
     clock('2027-01-05 11:30:00');
     const closure=new LiveCheckinClosureService(ds,{me:async()=>({name:cc.name,permissions:cc.permissions})} as never,flow,source);
     await closure.scan();expect((await sessions.detail(manager,made.id)).status).toBe('submitted');
-    const preview=await sessions.reviewPreview(reviewer,made.id,{finalSource:'control'});expect(preview.wage.amountCents).toBe(6000);expect(preview.wage.minutes).toBe(60);
-    await approve(made.id,{finalSource:'control'});
+    await expect(sessions.reviewPreview(reviewer,made.id,{finalSource:'control'})).rejects.toThrow(/试播主播时薪/);
+    await expect(approve(made.id,{finalSource:'control'})).rejects.toThrow(/试播主播时薪/);
+    const form={finalSource:'control',wageHourlyRateCents:6000};
+    const preview=await sessions.reviewPreview(reviewer,made.id,form);expect(preview.wage.rateSource).toBe('manual');expect(preview.wage.amountCents).toBe(6000);expect(preview.wage.minutes).toBe(60);
+    await approve(made.id,form);
     const final=await sessions.detail(manager,made.id);expect(final.finalSalesCents).toBe(100000);expect(final.wage?.userId).toBe(trial.id);expect(final.wage?.amountCents).toBe(6000);
     expect(final.commissions.some(c=>c.role==='anchor'&&c.userId===trial.id&&c.amountCents>0)).toBe(true);
     expect(await ds.query("SELECT id FROM audit_logs WHERE company_id=? AND resource_id=? AND action IN ('live.trial.start','live.trial.end')",[company,String(made.id)])).toHaveLength(2);

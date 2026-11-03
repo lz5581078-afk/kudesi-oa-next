@@ -20,7 +20,11 @@ describe('审核计薪试算与失败反馈',()=>{
   expect(mark.textContent).toContain('试播主播：演示主播');expect(mark.textContent).toContain('代报中控：演示中控');expect(mark.textContent).toContain('¥874.00');expect(mark.textContent).toContain('4 单');
   expect(within(screen.getByRole('table',{name:'上报对比'})).getAllByRole('row')).toHaveLength(2);
   expect(screen.getByRole('option',{name:/中控所报销售额.*试播代报依据/})).toBeTruthy();
-  await waitFor(()=>expect(liveApi.reviewPreview).toHaveBeenCalledWith(7,expect.objectContaining({finalSource:'control'})));
+  expect((screen.getByLabelText('主播时薪') as HTMLInputElement).required).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:'审核通过'}));
+  expect(flowApi.pass).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('主播时薪'),{target:{value:'50'}});
+  await waitFor(()=>expect(liveApi.reviewPreview).toHaveBeenCalledWith(7,expect.objectContaining({finalSource:'control',wageHourlyRateCents:5000})));
  });
  it('正式主播审核不显示试播代报标识',()=>{
   render(<ReviewDialog session={session} onClose={vi.fn()} onDone={vi.fn()}/>);

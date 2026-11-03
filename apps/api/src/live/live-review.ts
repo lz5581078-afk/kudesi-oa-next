@@ -139,12 +139,16 @@ export async function resolveWage(em: EntityManager, companyId: number, session:
   const archiveRate = liveArchiveHourlyRate(profile ? { payType: profile.pay_type, hourlyRate: profile.hourly_rate === null ? null : Number(profile.hourly_rate) } : null);
   const inputRate=role==='anchor'?form.wageHourlyRateCents:form.controlWageHourlyRateCents;
   const typed = typeof inputRate === 'number' ? inputRate : null;
+  const trialProxyAnchor = role === 'anchor' && !!Number(session.trial_proxy);
+  if (trialProxyAnchor && (typed === null || !Number.isSafeInteger(typed) || typed <= 0)) {
+    liveFail('请填写本场试播主播时薪，金额必须大于 0', 400);
+  }
   const rate = typed ?? archiveRate;
   if (!rate) liveFail(`请填写${label}时薪：员工档案里没有计时时薪`, 400);
   const wage = liveComputeWage({ startAt, endAt, hourlyRateCents: rate });
   return {
     ...wage, startAt, endAt, archiveRate, reportedStart, reportedEnd,
-    rateSource: archiveRate !== null && wage.hourlyRateCents === archiveRate ? 'archive' : 'manual',
+    rateSource: !trialProxyAnchor && archiveRate !== null && wage.hourlyRateCents === archiveRate ? 'archive' : 'manual',
     note: String((role==='anchor'?form.wageNote:form.controlWageNote) || '').trim().slice(0, 500) || null,
     timesChanged: startAt !== reportedStart || endAt !== reportedEnd,
   };
