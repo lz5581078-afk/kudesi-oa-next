@@ -1,16 +1,20 @@
+import { copyLiveManagementNotice, reserveDirectLiveHrNotice } from '../live/live-management-notification-copy';
 import { EntityManager, InsertResult } from 'typeorm';
 import { Notification, OutboxSwitch } from '../entities';
 import type { FeishuNotice } from './feishu-notice.service';
 
 type Input = Pick<Notification, 'companyId' | 'userId' | 'kind' | 'title' | 'body' | 'link'>;
-type Delivery = Partial<Pick<FeishuNotice, 'channel' | 'resourceType' | 'resourceId' | 'kind' | 'runId' | 'liveEventKey' | 'expiresAt'>> & { key?: string };
+type Delivery = Partial<Pick<FeishuNotice, 'channel' | 'resourceType' | 'resourceId' | 'kind' | 'runId' | 'liveEventKey' | 'expiresAt' | 'liveManagementCopySource'>> & { key?: string };
 
 /** Persist the OA notice and its opt-in Feishu job in the same business transaction. No network calls. */
 export async function writeNotification(em: EntityManager, input: Input, delivery: Delivery = {}): Promise<InsertResult & { feishuQueued: boolean }> {
   // Some standalone helpers use the root manager; they need the same atomicity as business transactions.
   if (!em.queryRunner?.isTransactionActive) return em.transaction(tx => writeNotification(tx, input, delivery));
+  if(!await reserveDirectLiveHrNotice(em,input,delivery))return Object.assign(new InsertResult(),{identifiers:[],generatedMaps:[],raw:[],feishuQueued:false});
   const saved = await em.insert(Notification, input);
   const result = Object.assign(saved, { feishuQueued: false });
+  if(delivery.liveManagementCopySource===undefined)await copyLiveManagementNotice(em,input,delivery,Number(saved.identifiers[0]?.id),
+    (copy,meta)=>writeNotification(em,copy,meta));
   const sw = await em.findOne(OutboxSwitch, { where: { companyId: input.companyId, channel: 'feishu' } });
   if (!sw?.enabled) return result;
   const [binding] = await em.query(`SELECT b.id FROM feishu_identities b

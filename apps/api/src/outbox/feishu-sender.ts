@@ -1,3 +1,4 @@
+import { liveManagementCopySender } from '../live/live-management-notification-copy';
 import { liveNoticeValid } from '../live/live-notification-validity';
 import { Injectable } from '@nestjs/common';
 import { ExternalConfigService, FeishuConfig } from '../integrations/external-config.service';
@@ -10,7 +11,13 @@ export class ConnectedFeishuSender implements FeishuSender {
   async available(companyId: number) { const cfg = await this.config.read<FeishuConfig>(companyId, 'feishu'); return Boolean(cfg?.enabled && cfg.appId && cfg.appSecret && cfg.tenantKey); }
   async send(job: { companyId?: number; idempotencyKey: string; notice: FeishuNotice }) {
     if (!job.companyId) throw new Error('飞书发送缺少公司范围');
-    if (job.notice.liveEventKey && !await liveNoticeValid(this.config.ds.manager,job.companyId,job.notice.userId,job.notice.liveEventKey)) return;
+    let validityUserId=job.notice.userId;
+    if(job.notice.liveManagementCopySource!==undefined) {
+      const sender=await liveManagementCopySender(this.config.ds.manager,job.companyId,job.notice);
+      if(sender===null)return;
+      validityUserId=sender;
+    }
+    if (job.notice.liveEventKey && !await liveNoticeValid(this.config.ds.manager,job.companyId,validityUserId,job.notice.liveEventKey)) return;
     const cfg = await this.config.read<FeishuConfig>(job.companyId, 'feishu');
     if (job.notice.kind === 'staff-feishu-test') {
       const fail = (message:string):never => { throw Object.assign(new Error(message),{permanent:true}); };
@@ -22,6 +29,11 @@ export class ConnectedFeishuSender implements FeishuSender {
       if(!valid)fail('员工绑定或通知状态已变化，请刷新后重试');
     }
     if (!cfg?.enabled || !cfg.tenantKey) throw new Error('飞书公司授权未启用');
+    if(job.notice.liveManagementCopySource!==undefined) {
+      const [consent]=await this.config.ds.query('SELECT id FROM feishu_identities WHERE company_id=? AND user_id=? AND app_id=? AND tenant_key=? AND oa_notifications=1',[job.companyId,job.notice.userId,cfg.appId,cfg.tenantKey]);
+      if(!consent)return;
+    }
+
     const [binding] = await this.config.ds.query("SELECT b.open_id,b.union_id FROM feishu_identities b JOIN users u ON u.id=b.user_id AND u.company_id=b.company_id WHERE b.company_id=? AND b.user_id=? AND b.app_id=? AND b.tenant_key=? AND u.status='active'", [job.companyId, job.notice.userId, cfg.appId, cfg.tenantKey]);
     if (!binding) throw new Error('接收员工尚未绑定本公司飞书身份');
     const key = job.notice.channel ?? 'flow';
