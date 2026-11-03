@@ -15,7 +15,7 @@ export interface ResourceDto {
   title: string;
   status: string;
   statusReason: string | null;
-  archived?: { at: string; reason: string | null; by: number | null; fromStatus: string | null } | null;
+  archived?: { at: string; reason: string | null; by: number | null; fromStatus: string | null; deleted?: boolean } | null;
   data: Record<string, unknown>;
   secretConfigured: Record<string, boolean>;
   refLabels: Record<string, string>;

@@ -90,3 +90,42 @@ it('待补资料的临时行按真实员工ID停用，不向档案接口发送�
   await waitFor(() => expect(status).toHaveBeenCalledWith(7, 'disabled', '试播结束'));
   expect(resourceApi.changeStatus).not.toHaveBeenCalled();
 });
+
+it('删除确认保留记录并同步停用账号，通过统一接口删除后刷新', async () => {
+  const changed = vi.fn();
+  const remove = vi.spyOn(resourceApi, 'remove').mockResolvedValue({ ok: true });
+  render(<WorkforceActions record={record} onLogs={() => undefined} onChanged={changed} />);
+  fireEvent.click(screen.getByRole('button', { name: '删除' }));
+  expect(screen.getByText(/删除档案并停用 OA 账号/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+  expect(remove).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '合作结束' } });
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+  await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+  expect(remove).toHaveBeenCalledWith('workforce', 12, '合作结束');
+});
+
+it('删除失败保留原因，未授权不显示删除；恢复仅适用于删除的档案', async () => {
+  const changed = vi.fn();
+  vi.spyOn(resourceApi, 'remove').mockRejectedValue(new ApiError(409, '找不到交接人'));
+  const view = render(<WorkforceActions record={record} onLogs={() => undefined} onChanged={changed} />);
+  fireEvent.click(screen.getByRole('button', { name: '删除' }));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '合作结束' } });
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+  expect((await screen.findByRole('alert')).textContent).toContain('找不到交接人');
+  expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('合作结束');
+  expect(changed).not.toHaveBeenCalled();
+  view.unmount();
+  auth.user.permissions = { isCompanyAdmin: false, allow: ['resource.workforce.view'], deny: [] };
+  const next = render(<WorkforceActions record={record} onLogs={() => undefined} onChanged={changed} />);
+  expect(screen.queryByRole('button', { name: '删除' })).toBeNull();
+  auth.user.permissions = { isCompanyAdmin: true, allow: [], deny: [] };
+  const archived = { ...record, archived: { at: '', reason: '', by: 1, fromStatus: 'active', deleted: true } };
+  next.rerender(<WorkforceActions record={archived} onLogs={() => undefined} onChanged={changed} />);
+  const restore = vi.spyOn(resourceApi, 'restore').mockResolvedValue(record);
+  fireEvent.click(screen.getByRole('button', { name: '恢复' }));
+  expect(screen.getByText(/保持停用状态/)).toBeTruthy();
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '重新合作' } });
+  fireEvent.click(screen.getByRole('button', { name: '确认恢复' }));
+  await waitFor(() => expect(restore).toHaveBeenCalledWith('workforce', 12, '重新合作'));
+});
