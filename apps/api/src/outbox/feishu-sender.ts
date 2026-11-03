@@ -1,3 +1,4 @@
+import { liveManagementCopySender } from '../live/live-management-notification-copy';
 import { liveNoticeValid } from '../live/live-notification-validity';
 import { Injectable } from '@nestjs/common';
 import { ExternalConfigService, FeishuConfig } from '../integrations/external-config.service';
@@ -10,7 +11,13 @@ export class ConnectedFeishuSender implements FeishuSender {
   async available(companyId: number) { const cfg = await this.config.read<FeishuConfig>(companyId, 'feishu'); return Boolean(cfg?.enabled && cfg.appId && cfg.appSecret && cfg.tenantKey); }
   async send(job: { companyId?: number; idempotencyKey: string; notice: FeishuNotice }) {
     if (!job.companyId) throw new Error('飞书发送缺少公司范围');
-    if (job.notice.liveEventKey && !await liveNoticeValid(this.config.ds.manager,job.companyId,job.notice.userId,job.notice.liveEventKey)) return;
+    let validityUserId=job.notice.userId;
+    if(job.notice.liveManagementCopySource!==undefined) {
+      const sender=await liveManagementCopySender(this.config.ds.manager,job.companyId,job.notice);
+      if(sender===null)return;
+      validityUserId=sender;
+    }
+    if (job.notice.liveEventKey && !await liveNoticeValid(this.config.ds.manager,job.companyId,validityUserId,job.notice.liveEventKey)) return;
     const cfg = await this.config.read<FeishuConfig>(job.companyId, 'feishu');
     if (job.notice.kind === 'staff-feishu-test') {
       const fail = (message:string):never => { throw Object.assign(new Error(message),{permanent:true}); };
