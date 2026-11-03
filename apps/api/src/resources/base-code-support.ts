@@ -22,6 +22,7 @@ export const FIELD_LABELS: Record<string, string> = {
   code: '编码', styleCode: '款式编码', components: '商品组成', name: '名称', shortName: '简称', spec: '颜色及规格', varietyName: '品种',
   weightG: '重量(克)', totalCost: '总成本', purchasePrice: '采购价', freight: '运费', handlingFee: '装卸费',
   specQty: '规格数量', specUnit: '规格单位', categoryName: '分类', archiveType: '档案类型', bom: '配方构成', brandName: '品牌',
+  profileWeightG: '专属重量(克)', profileCategoryId: '专属分类',
 };
 
 export interface ArchiveSnap {
@@ -55,6 +56,7 @@ export interface Issue {
 
 export interface Snapshot {
   profile: Record<string, unknown>;
+  canonical?: Record<string, unknown>;
   archives: ArchiveSnap[];
 }
 
@@ -134,14 +136,20 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
     if (lines.length === 0) issues.push({ archiveKey: 'base-code', productId: productId ?? 0, archiveName: str(bc.data.name) || bc.title || '', parentPath: [], message: '尚未添加商品组成' });
     for (const l of lines) if (typeof l.data.productId === 'number') await visit(l.data.productId, [], []);
   } else if (productId !== null) await visit(productId, [], []);
+  const profile = (record: ResourceRecord): Record<string, unknown> => ({
+    code: str(record.data.code), styleCode: str(record.data.styleCode), name: str(record.data.name), shortName: str(record.data.shortName),
+    spec: str(record.data.spec), varietyName: str(record.data.varietyName),
+    ...(record.data.profileWeightOverride !== undefined ? { profileWeightG: record.data.profileWeightOverride } : {}),
+    ...(record.data.profileCategoryOverride !== undefined ? { profileCategoryId: record.data.profileCategoryOverride } : {}),
+  });
+  const real = typeof bc.data.canonicalId === 'number' ? await one(em, companyId, 'finance-base-codes', bc.data.canonicalId) : null;
+  if (typeof bc.data.canonicalId === 'number' && !real) issues.push({ archiveKey: 'canonical', productId: productId ?? 0, archiveName: str(bc.data.name), parentPath: [], message: '真实基础编码不存在' });
   const snapshot: Snapshot = {
     profile: {
-      code: str(bc.data.code), styleCode: str(bc.data.styleCode), name: str(bc.data.name), shortName: str(bc.data.shortName),
-      spec: str(bc.data.spec), varietyName: str(bc.data.varietyName),
-      ...(bc.data.profileWeightOverride !== undefined ? { profileWeightG: bc.data.profileWeightOverride } : {}),
-      ...(bc.data.profileCategoryOverride !== undefined ? { profileCategoryId: bc.data.profileCategoryOverride } : {}),
+      ...profile(bc),
       ...(composed ? { components: lines.map((l) => `${l.data.productId}x${l.data.qty}:${l.data.role}`).join(';') } : {}),
     },
+    ...(real ? { canonical: profile(real) } : {}),
     archives,
   };
   return { snapshot, issues, signature: sigOf(JSON.stringify(snapshot)) };
@@ -156,6 +164,7 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): Change[] {
     if (JSON.stringify(b ?? null) !== JSON.stringify(a ?? null)) out.push({ source, field, label: FIELD_LABELS[field] ?? field, before: b ?? null, after: a ?? null });
   };
   for (const k of Object.keys({ ...before.profile, ...after.profile })) push('基础编码', k, before.profile[k], after.profile[k]);
+  for (const k of Object.keys({ ...before.canonical, ...after.canonical })) push('真实基础编码', k, before.canonical?.[k], after.canonical?.[k]);
   const was = new Map(before.archives.map((x) => [x.key, x]));
   const now = new Map(after.archives.map((x) => [x.key, x]));
   for (const [key, a] of now) {
@@ -207,13 +216,14 @@ export interface BaseCodeOutbound {
 }
 
 export async function baseCodeOutbound(em: EntityManager, companyId: number, bc: ResourceRecord): Promise<BaseCodeOutbound> {
-  const composed = bc.data.origin === 'composed';
-  const p = await one(em, companyId, 'finance-products', bc.data.productId);
-  const cat = await categoryPath(em, companyId, composed ? bc.data.codeCategoryId : p?.data.categoryId ?? bc.data.categoryId);
+  const real = typeof bc.data.canonicalId === 'number' ? await one(em, companyId, 'finance-base-codes', bc.data.canonicalId) : bc;
+  const composed = real?.data.origin === 'composed';
+  const p = await one(em, companyId, 'finance-products', real?.data.productId);
+  const cat = await categoryPath(em, companyId, bc.data.profileCategoryOverride ?? (composed ? bc.data.codeCategoryId : p?.data.categoryId ?? bc.data.categoryId));
   const brand = await one(em, companyId, 'finance-brands', composed ? bc.data.codeBrandId : p?.data.brandId);
-  const facts = composed ? await composedFacts(em, companyId, bc.id) : null;
-  const w = composed ? facts!.weightG : num(p?.data.weightG) ?? num(bc.data.weightG);
-  const cost = composed ? facts!.cost : num(p?.data.totalCost) ?? num(bc.data.cost);
+  const facts = composed ? await composedFacts(em, companyId, real!.id) : null;
+  const w = real?.data.profileWeightOverride !== undefined ? num(real.data.profileWeightOverride) : composed ? facts!.weightG : num(p?.data.weightG) ?? num(real?.data.weightG);
+  const cost = composed ? facts!.cost : num(p?.data.totalCost) ?? num(real?.data.cost);
   const buy = composed ? facts!.purchasePrice ?? cost : num(p?.data.purchasePrice) ?? cost;
   const qty = composed ? num(bc.data.codeSpecQty) : p?.data.specQty == null ? null : str(p.data.specQty).trim() || null;
   const unit = composed ? str(bc.data.codeSpecUnit) : str(p?.data.specUnit);

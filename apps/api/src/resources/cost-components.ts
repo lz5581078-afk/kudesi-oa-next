@@ -25,9 +25,10 @@ export function calculateCostComponents(d: ComponentContext, bundleId: number): 
       name = labor?.title ?? '人工'; code = str(labor?.data.code) || '人工';
       unitName = str(labor?.data.unitName).replace(/^元\s*[\/／]\s*/, '');
     } else {
-      const base = d.baseCodes.get(num(line.baseCodeId) ?? -1);
+      const selected = d.baseCodes.get(num(line.baseCodeId) ?? -1);
+      const base = typeof selected?.data.canonicalId === 'number' ? d.baseCodes.get(selected.data.canonicalId) : selected;
       const product = base ? d.products.get(num(base.data.productId) ?? -1) : undefined;
-      code = str(base?.data.code); name = str(base?.data.name) || base?.title || '';
+      code = str(selected?.data.code); name = str(selected?.data.name) || selected?.title || '';
       unitName = base?.data.origin === 'composed' ? str(line.unit) : str(product?.data.purchaseSpec) || str(line.unit);
       if (base?.data.origin === 'composed') {
         const parts = d.baseCodeLines.filter(part => part.data.baseCodeId === base.id);
@@ -39,6 +40,8 @@ export function calculateCostComponents(d: ComponentContext, bundleId: number): 
           weight = weight === null || grams === null || quantity <= 0 ? null : weight + grams * quantity;
         }
       } else { unit = product ? num(product.data.totalCost) : null; weight = product ? num(product.data.weightG) : null; }
+      // 专属重量与来源商品的自动重量独立；马甲使用真实编码的专属重量。
+      if (base?.data.profileWeightOverride !== undefined) weight = num(base.data.profileWeightOverride);
     }
     const subtotal = unit === null || qty <= 0 ? null : multiplyUnitCents(unit, qty);
     const subtotalWeight = weight === null || qty <= 0 ? null : roundWeight(weight * qty);
@@ -57,7 +60,10 @@ export async function costCompositionFacts(em: EntityManager, companyId: number,
   const baseIds = [...new Set(input.map(line => num(line.baseCodeId)).filter((id): id is number => id !== null))];
   const laborIds = [...new Set(input.map(line => num(line.laborId)).filter((id): id is number => id !== null))];
   const bases = baseIds.length ? await em.find(ResourceRecord, { where: { companyId, type: 'finance-base-codes', id: In(baseIds) } }) : [];
-  const parts = baseIds.length ? await em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type', { companyId, type: 'finance-base-code-lines' }).andWhere("JSON_EXTRACT(r.data, '$.baseCodeId') IN (:...baseIds)", { baseIds }).getMany() : [];
+  const canonicalIds = [...new Set(bases.map(base => num(base.data.canonicalId)).filter((id): id is number => id !== null && !baseIds.includes(id)))];
+  if (canonicalIds.length) bases.push(...await em.find(ResourceRecord, { where: { companyId, type: 'finance-base-codes', id: In(canonicalIds) } }));
+  const allBaseIds = bases.map(base => base.id);
+  const parts = allBaseIds.length ? await em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type', { companyId, type: 'finance-base-code-lines' }).andWhere("JSON_EXTRACT(r.data, '$.baseCodeId') IN (:...baseIds)", { baseIds: allBaseIds }).getMany() : [];
   const productIds = [...new Set([...bases.map(base => num(base.data.productId)), ...parts.map(part => num(part.data.productId))].filter((id): id is number => id !== null))];
   const products = productIds.length ? await em.find(ResourceRecord, { where: { companyId, type: 'finance-products', id: In(productIds) } }) : [];
   const labor = laborIds.length ? await em.find(ResourceRecord, { where: { companyId, type: 'finance-labor-costs', id: In(laborIds) } }) : [];

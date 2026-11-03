@@ -666,18 +666,20 @@ async function beforeBundle(ctx: BeforeSaveContext) {
 
 /** 组合验证时的资料快照：编码资料 + 每一行构成（基础编码、数量、重量、成本）。二次验证按它对比。 */
 export async function bundleSnapshotJson(em: EntityManager, companyId: number, bundle: Data, lines: Data[]): Promise<string> {
+  const breakdown = await costCompositionFacts(em, companyId, bundle, lines);
   const out: Data[] = [];
-  for (const l of lines) {
+  for (const [index, l] of lines.entries()) {
     const extras = Object.fromEntries(LINE_EXTRA_KEYS.filter(k => l[k] !== undefined).map(k => [k, l[k]]));
     if (l.role === 'labor') {
       const labor = await rec(em, companyId, 'finance-labor-costs', l.laborId);
       out.push({ role: 'labor', ref: `L${l.laborId}`, qty: l.qty, cost: labor?.data.unitPrice ?? null, ...extras }); continue;
     }
     const bc = await rec(em, companyId, 'finance-base-codes', l.baseCodeId);
-    out.push({ role: l.role, ref: str(bc?.data.code), qty: l.qty, weightG: bc?.data.weightG ?? null, cost: bc?.data.cost ?? null, signature: str(bc?.data.signature), ...extras });
+    const facts = breakdown.lines[index];
+    out.push({ role: l.role, ref: str(bc?.data.code), qty: l.qty, weightG: facts?.unitWeightG ?? null, cost: facts?.unitCostCents ?? null, signature: str(bc?.data.signature), ...extras });
   }
   out.sort((a, b) => `${a.role}${a.ref}`.localeCompare(`${b.role}${b.ref}`));
-  return JSON.stringify({ breakdown: await costCompositionFacts(em, companyId, bundle, lines), profile: { code: str(bundle.code), name: str(bundle.name), styleCode: str(bundle.styleCode), shortName: str(bundle.shortName), ...Object.fromEntries(['weightMode', 'manualWeightG', 'propertiesValue', 'baseUnit', 'bundleCategoryId', 'brandId', 'varietyName', 'configNo', 'bomVersion', 'bomEffectiveFrom', 'bomEffectiveTo'].filter(k => bundle[k] !== undefined).map(k => [k, bundle[k]])) }, lines: out });
+  return JSON.stringify({ breakdown, profile: { code: str(bundle.code), name: str(bundle.name), styleCode: str(bundle.styleCode), shortName: str(bundle.shortName), ...Object.fromEntries(['weightMode', 'manualWeightG', 'propertiesValue', 'baseUnit', 'bundleCategoryId', 'brandId', 'varietyName', 'configNo', 'bomVersion', 'bomEffectiveFrom', 'bomEffectiveTo'].filter(k => bundle[k] !== undefined).map(k => [k, bundle[k]])) }, lines: out });
 }
 
 const lineKey = (l: Data) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` : l.baseCodeId}:${l.qty}`;
@@ -1484,6 +1486,15 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
       }
     }
     if (existing.status === 'verified' && record.status !== 'verified') await markBundlesOfBaseCode(host, em, user, record.id);
+    // 马甲的验证事实包含真实编码专属资料；真实编码修改后同时核对马甲及其组合。
+    if (!record.data.canonicalId && ['code', 'styleCode', 'name', 'shortName', 'spec', 'varietyName', 'profileWeightOverride', 'profileCategoryOverride'].some(key => existing.data[key] !== record.data[key])) {
+      for (const alias of await host.findWhere(em, user.companyId, 'finance-base-codes', 'canonicalId', record.id)) {
+        if (alias.status !== 'verified' || !alias.data.snapshot) continue;
+        if ((await buildSnapshot(em, user.companyId, alias)).signature === alias.data.signature) continue;
+        await host.setStatusDirect(em, user, 'finance-base-codes', alias.id, 'reverify', '真实基础编码资料变了，需要重新验证');
+        await markBundlesOfBaseCode(host, em, user, alias.id);
+      }
+    }
     if (existing.data.code !== record.data.code || existing.data.name !== record.data.name) {
       const seen = new Set<number>();
       for (const l of await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'baseCodeId', record.id)) {

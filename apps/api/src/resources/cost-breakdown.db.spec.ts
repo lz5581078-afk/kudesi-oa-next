@@ -11,6 +11,8 @@ import { ResourcesService } from './resources.service';
 import { DataToolsService } from './data-tools.service';
 import { BundleToolsService } from './bundle-tools.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { baseCodeOutbound, buildSnapshot, diffSnapshots } from './base-code-support';
+import { bundleSnapshotJson } from './finance-rules';
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 d('成本组成验证快照（真实数据库）', () => {
   let ds: DataSource, svc: ResourcesService, cost: CostService, actor: AuthUser;
@@ -61,6 +63,74 @@ d('成本组成验证快照（真实数据库）', () => {
     expect(row.breakdown?.cost.source).toBe('验证快照');
     expect(row.breakdown?.cost.lines[0].name).toBe(saved.lines[0].ref);
     expect(row.breakdown?.cost.lines[0].unitName).toBeUndefined();
+  });
+  it('基础编码人工重量用于组合、验证快照和上传；来源重量变化仍保留专属修正', async () => {
+    const { product, base, bundle } = await fixture(false);
+    await svc.confirmBaseProfile(actor, 'finance-base-codes', base.id, { weightG: 750.123456 });
+    if ((await svc.get(actor, 'finance-base-codes', base.id)).status !== 'verified') await svc.changeStatus(actor, 'finance-base-codes', base.id, 'verified');
+    await svc.changeStatus(actor, 'finance-bundles', bundle.id, 'verified');
+    let row = await cost.one(actor, bundle.id);
+    expect(row.weightG).toBe(750.123456);
+    expect(row.lines[0].unitWeightG).toBe(750.123456);
+    let record = await ds.manager.findOneByOrFail(ResourceRecord, { id: base.id });
+    expect((await baseCodeOutbound(ds.manager, actor.companyId, record)).weight).toBe(0.750123);
+    const lines = (await svc.list(actor, 'finance-bundle-lines', { fieldKey: 'bundleId', fieldValue: String(bundle.id) })).items.map(line => line.data);
+    const snap = JSON.parse(await bundleSnapshotJson(ds.manager, actor.companyId, bundle.data, lines));
+    expect(snap).toMatchObject({ lines: [{ weightG: 750.123456 }], breakdown: { weightG: 750.123456, lines: [{ unitWeightG: 750.123456 }] } });
+    await svc.update(actor, 'finance-products', product.id, { purchaseSpec: '千克', purchasePrice: 130 });
+    row = await cost.one(actor, bundle.id);
+    expect(row).toMatchObject({ weightG: 750.123456, preShipCostCents: 132 });
+    record = await ds.manager.findOneByOrFail(ResourceRecord, { id: base.id });
+    expect(await baseCodeOutbound(ds.manager, actor.companyId, record)).toMatchObject({ weight: 0.750123, cost_price: 1.32 });
+  });
+
+  it('马甲保留名称编码，但组合和上传读取真实编码人工重量，不读取马甲自己的修正', async () => {
+    const { product, base, bundle } = await fixture(false);
+    await svc.confirmBaseProfile(actor, 'finance-base-codes', base.id, { weightG: 825 });
+    await svc.update(actor, 'finance-products', product.id, { rawFinishedNames: '合成别名' });
+    const alias = (await ds.manager.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'finance-base-codes' } })).find(row => row.data.canonicalId === base.id)!;
+    expect(alias).toBeTruthy();
+    // 模拟旧资料里马甲独立保存过另一个重量；真实编码仍是取值依据。
+    await ds.manager.save(ResourceRecord, { ...alias, data: { ...alias.data, profileWeightOverride: 999, weightG: 999 } });
+    const line = (await svc.list(actor, 'finance-bundle-lines', { fieldKey: 'bundleId', fieldValue: String(bundle.id) })).items[0];
+    // 换基础编码的正常入口要求已验证；本例只合成历史引用，验证成本解析。
+    const saved = await ds.manager.findOneByOrFail(ResourceRecord, { id: line.id });
+    await ds.manager.save(ResourceRecord, { ...saved, data: { ...saved.data, baseCodeId: alias.id } });
+    for (const id of [base.id, alias.id]) if ((await svc.get(actor, 'finance-base-codes', id)).status !== 'verified') await svc.changeStatus(actor, 'finance-base-codes', id, 'verified');
+    await svc.changeStatus(actor, 'finance-bundles', bundle.id, 'verified');
+    const row = await cost.one(actor, bundle.id);
+    expect(row).toMatchObject({ weightG: 825, preShipCostCents: 102, lines: [{ code: alias.data.code, name: alias.data.name, unitWeightG: 825 }] });
+    expect(await baseCodeOutbound(ds.manager, actor.companyId, alias)).toMatchObject({ sku_id: alias.data.code, name: alias.data.name, weight: 0.825, cost_price: 1.02 });
+    const snap = JSON.parse(await bundleSnapshotJson(ds.manager, actor.companyId, bundle.data, [{ ...line.data, baseCodeId: alias.id }]));
+    expect(snap).toMatchObject({ lines: [{ ref: alias.data.code, weightG: 825 }], breakdown: { weightG: 825, lines: [{ code: alias.data.code, unitWeightG: 825 }] } });
+  });
+
+  it('多构成基础编码仍按组成算成本，独立人工重量用于组合与上传', async () => {
+    const { product, bundle } = await fixture(false);
+    const composed = await svc.create(actor, 'finance-base-codes', { origin: 'composed', productId: product.id, codeCategoryId: categoryId, codeSpecQty: 2, codeSpecUnit: 'KG', name: '合成组合基础品', shortName: '合成基础品', varietyName: '合成品种' });
+    await svc.confirmBaseProfile(actor, 'finance-base-codes', composed.id, { weightG: 410.25 });
+    await svc.changeStatus(actor, 'finance-base-codes', composed.id, 'verified');
+    const line = (await svc.list(actor, 'finance-bundle-lines', { fieldKey: 'bundleId', fieldValue: String(bundle.id) })).items[0];
+    await svc.update(actor, 'finance-bundle-lines', line.id, { baseCodeId: composed.id, qty: 2 });
+    await svc.changeStatus(actor, 'finance-bundles', bundle.id, 'verified');
+    expect(await cost.one(actor, bundle.id)).toMatchObject({ preShipCostCents: 204, weightG: 820.5, lines: [{ unitCostCents: 102, unitWeightG: 410.25 }] });
+    const saved = await ds.manager.findOneByOrFail(ResourceRecord, { id: composed.id });
+    expect(await baseCodeOutbound(ds.manager, actor.companyId, saved)).toMatchObject({ weight: 0.41025, cost_price: 1.02 });
+  });
+
+  it('真实编码专属资料改变后，马甲指纹及二次验证差异同步更新', async () => {
+    const { product, base } = await fixture(false);
+    await svc.update(actor, 'finance-products', product.id, { rawFinishedNames: '合成验证别名' });
+    const alias = (await ds.manager.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'finance-base-codes' } })).find(row => row.data.canonicalId === base.id)!;
+    for (const id of [base.id, alias.id]) if ((await svc.get(actor, 'finance-base-codes', id)).status !== 'verified') await svc.changeStatus(actor, 'finance-base-codes', id, 'verified');
+    const saved = await ds.manager.findOneByOrFail(ResourceRecord, { id: alias.id });
+    const before = await buildSnapshot(ds.manager, actor.companyId, saved);
+    await svc.confirmBaseProfile(actor, 'finance-base-codes', base.id, { weightG: 765.5 });
+    expect((await svc.get(actor, 'finance-base-codes', alias.id)).status).toBe('reverify');
+    const after = await buildSnapshot(ds.manager, actor.companyId, saved);
+    expect(after.signature).not.toBe(before.signature);
+    expect(after.snapshot.canonical).toMatchObject({ profileWeightG: 765.5 });
+    expect(diffSnapshots(before.snapshot, after.snapshot)).toEqual(expect.arrayContaining([expect.objectContaining({ source: '真实基础编码', field: 'profileWeightG', after: 765.5 })]));
   });
   it('部分组成缺少重量时当前合计保持未知，不把缺失资料按0拼入有效重量', async () => {
     const { product, bundle } = await fixture();
