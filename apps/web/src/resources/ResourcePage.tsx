@@ -489,7 +489,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
             <button type="button" role="menuitem" onClick={() => void doExport('all')}>导出全部</button>
           </></MorePop>
         : <button type="button" className="res-btn" onClick={() => void doExport('filtered')}>导出</button>)}
-      {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
+      {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>{type === 'workforce' ? '为已有账号建档' : '＋ 新增'}</button>}
     </>
   );
 
@@ -549,7 +549,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
         <span className="res-bar-gap" />
         <div className="res-actions">{isMobile ? (
           <>
-            {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
+            {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>{type === 'workforce' ? '为已有账号建档' : '＋ 新增'}</button>}
             <MorePop label="更多"><>
               {extras}
               {can('import') && <button type="button" role="menuitem" onClick={() => setImporting(true)}>导入</button>}

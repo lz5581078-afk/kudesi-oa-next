@@ -1,3 +1,4 @@
+import { EMPLOYMENT_LABELS } from './orgApi';
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
@@ -39,6 +40,8 @@ export function StaffEnrollmentPage() {
     {joined ? <div><p>已加入 {joined.companyName} · {joined.positionName}</p><p>登录账号：{joined.account}</p><Link className="primary-button" to="/">前往登录</Link></div> : info && <>
       <p className="enrollment-intro">填写以下信息，完成入职并建立你的 OA 账号。</p>
       {info.mode === 'position' && <div className="enrollment-position">入职岗位<strong>{info.position?.name}</strong><span>入职后将引导你绑定本人企业飞书，接收 OA 通知。</span></div>}
+      <p>用工类型：{EMPLOYMENT_LABELS[info.employmentType ?? 'regular']}</p>
+      {info.employmentType && info.employmentType !== 'regular' && <p>合作期限：{info.contractStartDate} 至 {info.contractEndDate || '不限期'}。入职后自动建立兼职与临时工档案。</p>}
       <form onSubmit={e => void submit(e)} className="enrollment-form">
         <label>姓名<input autoComplete="name" value={name} onChange={e => setName(e.target.value)} maxLength={50} required placeholder="请输入真实姓名" /></label>
         <label>手机号<input type="tel" inputMode="numeric" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} pattern="1[3-9][0-9]{9}" maxLength={11} required placeholder="手机号将作为登录账号" /></label>

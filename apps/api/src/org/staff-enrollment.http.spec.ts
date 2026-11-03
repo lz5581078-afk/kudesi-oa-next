@@ -45,7 +45,7 @@ describe('扫码入职 HTTP 访问与 DTO 边界', () => {
   it('拒绝公司/管理员/权限注入、无效手机号和弱密码，校验失败不触达服务', async () => {
     service.join.mockClear();
     const body = { token, name: '新人', phone: '13900000001', password: 'safe-password' };
-    for (const extra of [{ companyId: 20 }, { isCompanyAdmin: true }, { permissions: ['*'] }, { phone: '123' }, { password: '123' }, { positionId: '7' }]) {
+    for (const extra of [{ companyId: 20 }, { isCompanyAdmin: true }, { permissions: ['*'] }, { phone: '123' }, { password: '123' }, { positionId: '7' }, { employmentType: 'regular' }, { contractEndDate: '2099-01-01' }]) {
       expect((await request('enrollment/join', { ...body, ...extra })).status).toBe(400);
     }
     expect(service.join).not.toHaveBeenCalled();

@@ -7,6 +7,9 @@ import { StaffEnrollmentService } from './staff-enrollment.service';
 class CreateInviteDto {
   @IsIn(['general', 'position']) mode!: 'general' | 'position';
   @IsOptional() @IsInt() @Min(1) positionId?: number;
+  @IsOptional() @IsIn(['regular', 'part_time', 'temp']) employmentType?: 'regular' | 'part_time' | 'temp';
+  @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractStartDate?: string;
+  @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractEndDate?: string;
   @IsOptional() @IsIn([7, 30, 90]) validDays?: number;
 }
 class TokenDto { @IsString() @Matches(/^[A-Za-z0-9_-]{43}$/) token!: string }
