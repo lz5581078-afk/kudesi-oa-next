@@ -93,7 +93,7 @@ export function CashBankPage() {
   // ---- 列定义（三张账户表共用一套，按用途挑选）----
   const A = {
     type: { key: 'type', head: '账户类型', cell: (r) => KIND_LABEL[r.kind] ?? r.kind, csv: (r) => KIND_LABEL[r.kind] ?? r.kind } as Col<BankBalance>,
-    name: { key: 'name', head: '账户', primary: true, cell: (r) => <button type="button" className="link-button" onClick={() => setSel(r)}>{r.title}</button>, csv: (r) => r.title } as Col<BankBalance>,
+    name: { key: 'name', head: '账户名称', primary: true, cell: (r) => <button type="button" className="link-button" onClick={() => setSel(r)}>{r.title}</button>, csv: (r) => r.title } as Col<BankBalance>,
     no: { key: 'no', head: '账号', cell: (r) => <AccountNo value={accountNumbers.get(r.id)} canView={canReadAccounts} /> } as Col<BankBalance>,
     bank: { key: 'bank', head: '开户行', cell: (r) => r.bank || '-', csv: (r) => r.bank } as Col<BankBalance>,
     license: { key: 'license', head: '所属主体', cell: (r) => r.licenseName || '-', csv: (r) => r.licenseName } as Col<BankBalance>,
@@ -106,19 +106,19 @@ export function CashBankPage() {
     stores: { key: 'stores', head: '关联店铺', action: true, cell: (r) => <button type="button" className="link-button" onClick={() => setRel({ title: `${r.title} · 关联店铺`, stores: (r.storeIds ?? []).map((id, i) => ({ id, name: r.storeNames?.[i] ?? `店铺#${id}`, fund: funds.find((f) => f.storeId === id) })) })}>查看店铺</button> } as Col<BankBalance>,
     key: { key: 'key', head: '重点', action: true, cell: (r) => <button type="button" className="link-button" onClick={() => toggleKey(r.id)}>{keys.includes(r.id) ? '取消重点' : '设为重点'}</button> } as Col<BankBalance>,
   };
-  const keyCols = [A.type, A.name, A.no, A.bank, A.link, A.balance, A.transit, A.fresh, A.key];
-  const storeCols = [A.type, A.name, A.no, A.bank, A.license, A.balance, A.transit, A.fresh, A.status, A.stores, A.key];
-  const companyCols = [A.type, A.name, A.no, A.bank, A.keeper, A.balance, A.transit, A.fresh, A.status, A.key];
+  const keyCols = [A.type, A.name, A.bank, A.no, A.link, A.balance, A.transit, A.fresh, { ...A.key, head: '操作' }];
+  const storeCols = [A.type, A.name, A.bank, A.no, A.balance, A.transit, A.fresh, A.status, A.stores, A.key];
+  const companyCols = [A.type, A.name, A.bank, A.no, A.keeper, A.balance, A.transit, A.fresh, A.status, A.key];
   const exportCols = [A.type, A.name, A.bank, A.license, A.keeper, A.link, A.balance, A.transit, A.fresh, A.status];
 
   const fundAmount = (amount: number, at: StoreFund['updatedAt']) => <div className="finance-fund-amount"><strong>{money(amount)}</strong><Fresh at={at} now={now} compact /></div>;
   const fundCols: Array<Col<StoreFund>> = [
-    { key: 'store', head: '店铺', primary: true, cell: (f) => <>{f.platformLabel} / {f.name}<div className="muted">{f.storeNo || '未填写店铺编号'}</div></>, csv: (f) => `${f.platformLabel} / ${f.name}` },
+    { key: 'store', head: '店铺', primary: true, cell: (f) => <>{f.platformLabel || f.platform || '-'} / {f.name}<div className="muted">{f.storeNo || f.platformStoreId || '未填写店铺编号'}</div></>, csv: (f) => `${f.platformLabel || f.platform || '-'} / ${f.name}` },
     { key: 'w', head: '可提现余额', num: true, cell: (f) => fundAmount(f.withdrawableCents, f.updatedAt), sum: (l) => money(l.reduce((s, f) => s + f.withdrawableCents, 0)), csv: (f) => plainYuan(f.withdrawableCents) },
     { key: 'd', head: '保证金', num: true, cell: (f) => fundAmount(f.depositCents, f.updatedAt), sum: (l) => money(l.reduce((s, f) => s + f.depositCents, 0)), csv: (f) => plainYuan(f.depositCents) },
     { key: 'f', head: '冻结资金', num: true, cell: (f) => fundAmount(f.frozenCents, f.updatedAt), sum: (l) => money(l.reduce((s, f) => s + f.frozenCents, 0)), csv: (f) => plainYuan(f.frozenCents) },
     { key: 'p', head: '推广费余额', num: true, cell: (f) => fundAmount(f.promotionCents, f.updatedAt), sum: (l) => money(l.reduce((s, f) => s + f.promotionCents, 0)), csv: (f) => plainYuan(f.promotionCents) },
-    { key: 'acc', head: '收款账户', action: true, cell: (f) => <button type="button" className="link-button" onClick={() => setRel({ title: `${f.name} · 关联收款账户`, accounts: all.filter((a) => a.storeIds?.includes(f.storeId)) })}>查看账户</button> },
+    { key: 'acc', head: '操作', action: true, cell: (f) => <button type="button" className="link-button" onClick={() => setRel({ title: `${f.name} · 关联收款账户`, accounts: all.filter((a) => STORE_KINDS.includes(a.kind) && a.storeIds?.includes(f.storeId)) })}>查看账户</button> },
   ];
 
   const Toggle = ({ k, count, label }: { k: keyof typeof open; count: number; label: string }) => <button type="button" className="secondary-button small" onClick={() => setOpen({ ...open, [k]: !open[k] })}>{open[k] ? `收起${label}` : `展开 ${count} 个${label}`}</button>;

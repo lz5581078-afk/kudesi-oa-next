@@ -135,6 +135,19 @@ describe('现金银行查询', () => {
     expect(within(row).getByTitle(/确认入账后才计入余额/).textContent).toBe('¥2,500.00');
     expect(within(row).getByText('¥100.00')).toBeTruthy(); // 余额仍是 10000 分
   });
+  it('缺店铺编号时显示平台店铺ID；查看收款账户只列关联的店铺账户，不混入公司或其他账户', async () => {
+    fa.banks.mockResolvedValue([acct(1, '关联公司公户', 'company_public', { storeIds: [12] }), acct(2, '关联店铺个人卡', 'store_personal_card', { storeIds: [12] }), acct(3, '关联其他卡', 'other', { storeIds: [12] })]);
+    fa.storeFunds.mockResolvedValue([{ storeId: 12, name: '合成店铺', storeNo: '', platformStoreId: 'SYNTHETIC-STORE-12', platform: 'pdd', platformLabel: '拼多多', snapshotDate: '', updatedAt: null, withdrawableCents: 0, depositCents: 0, frozenCents: 0, promotionCents: 0 }]);
+    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
+    await waitFor(() => expect((screen.getByRole('button', { name: '刷新' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: /展开 1 个店铺/ }));
+    expect(screen.getByText('SYNTHETIC-STORE-12')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '查看账户' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('关联店铺个人卡')).toBeTruthy();
+    expect(within(dialog).queryByText('关联公司公户')).toBeNull();
+    expect(within(dialog).queryByText('关联其他卡')).toBeNull();
+  });
   it('有资料查看权限时直接显示账号并可按账号搜索，跨全部分页读取而非只看首批', async () => {
     vi.mocked(resourceApi.list).mockImplementation(async (_type, query) => ({ items: [{ id: query?.page === 2 ? 2 : 1, title: '合成账号', data: { accountNo: query?.page === 2 ? '6222000000000002' : '6222000000000001' } }], total: 2 }) as never);
     render(<MemoryRouter><CashBankPage /></MemoryRouter>);
