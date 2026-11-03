@@ -29,6 +29,38 @@ d('人力项目原版查重与工作编号（隔离数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
+  it('新建预览与保存编号一致且不写库，编辑排除自身并保留成本隐私', async () => {
+    const values = { versionId: version, archiveCategoryId: category, workTypeId: workType, workName: '预览合成装袋' };
+    const before = await ds.manager.count(ResourceRecord, { where: { companyId: actor.companyId } });
+    const preview = await svc.codePreview(actor, 'finance-labor-costs', values);
+    expect(Object.keys(preview)).toEqual(['code']);
+    expect(await ds.manager.count(ResourceRecord, { where: { companyId: actor.companyId } })).toBe(before);
+    const saved = await create(values.workName);
+    expect(saved.data.workCode).toBe(preview.code);
+    expect((await svc.codePreview(actor, 'finance-labor-costs', values, saved.id)).code).toBe(preview.code);
+    expect((await svc.codePreview(actor, 'finance-labor-costs', values)).code).toBe(`${preview.code}-2`);
+    const editOnly = { ...actor, permissions: { isCompanyAdmin: false, allow: ['resource.finance-labor-costs.edit'], deny: [] } };
+    await expect(svc.codePreview(editOnly, 'finance-labor-costs', values)).rejects.toThrow(/没有新增权限/);
+    expect((await svc.codePreview(editOnly, 'finance-labor-costs', values, saved.id)).code).toBe(preview.code);
+    const createOnly = { ...actor, permissions: { isCompanyAdmin: false, allow: ['resource.finance-labor-costs.create'], deny: [] } };
+    await expect(svc.codePreview(createOnly, 'finance-labor-costs', values, saved.id)).rejects.toThrow(/没有修改权限/);
+  });
+
+  it('预览拒绝额外字段、坏引用、跨版本目录及其他公司记录，不泄露或写入', async () => {
+    const values = { versionId: version, archiveCategoryId: category, workTypeId: workType, workName: '安全预览' };
+    for (const extra of [{ unitPrice: 100 }, { companyId: actor.companyId }, { workCode: 'MANUAL' }, { workName: null }, { workTypeId: -1 }, { workTypeId: '1' }, { workTypeId: 999999999 }]) {
+      await expect(svc.codePreview(actor, 'finance-labor-costs', { ...values, ...extra })).rejects.toThrow();
+    }
+    const v2 = await svc.create(actor, 'finance-labor-versions', { versionCode: 'RL-PREVIEW-OTHER', versionName: '其他版本' });
+    await expect(svc.codePreview(actor, 'finance-labor-costs', { ...values, versionId: v2.id })).rejects.toThrow(/不属于/);
+    const otherActor = { ...actor, companyId: actor.companyId + 1000000 };
+    await expect(svc.codePreview(otherActor, 'finance-labor-costs', values)).rejects.toThrow(/不存在/);
+    const saved = await create('合成所有权检查');
+    await expect(svc.codePreview(otherActor, 'finance-labor-costs', {}, saved.id)).rejects.toThrow();
+    expect((await svc.get(actor, 'finance-labor-costs', saved.id)).data.workName).toBe('合成所有权检查');
+    expect((await svc.codePreview(actor, 'finance-labor-costs', {})).code).toBeTruthy();
+  });
+
   it('同名同工作分类同单位跨归档目录仍拒绝；不同单位允许，更新不越过查重', async () => {
     const first = await create('合成同名项目');
     await expect(create(' 合成同名项目 ', { archiveCategoryId: otherCategory })).rejects.toThrow(/工作名称、工作分类和计价单位完全相同/);

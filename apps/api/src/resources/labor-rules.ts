@@ -156,6 +156,27 @@ export async function laborWorkCode(em: EntityManager, companyId: number, data: 
   return code;
 }
 
+/** 只读编号预览与保存共用生成器；未填项保留占位，但任何已给出的引用必须属于当前公司。 */
+export async function previewLaborWorkCode(em: EntityManager, companyId: number, values: Data, excludeId?: number) {
+  const references = { versionId: ['finance-labor-versions', '成本版本'], archiveCategoryId: ['finance-labor-categories', '归档分类'], workTypeId: ['finance-labor-work-types', '工作分类'] } as const;
+  const allowed = new Set(['workName', ...Object.keys(references)]);
+  if (Object.keys(values).some(key => !allowed.has(key))) throw new BadRequestException('编号预览字段不合法');
+  if (values.workName !== undefined && (typeof values.workName !== 'string' || values.workName.length > 160)) throw new BadRequestException('工作名称最多160字');
+  const data: Data = { workName: values.workName ?? '' };
+  const records = new Map<string, ResourceRecord>();
+  for (const [field, [type, label]] of Object.entries(references)) {
+    const value = values[field];
+    if (value === undefined || value === null || value === '') continue;
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) throw new BadRequestException(`${label}不合法`);
+    const record = await rec(em, companyId, type, value);
+    if (!record || record.archivedAt) throw new BadRequestException(`${label}不存在`);
+    data[field] = value; records.set(field, record);
+  }
+  const version = records.get('versionId'), category = records.get('archiveCategoryId');
+  if (version && category && category.data.versionId !== version.id) throw new BadRequestException('归档分类不属于所选成本版本');
+  return { code: await laborWorkCode(em, companyId, data, excludeId) };
+}
+
 async function refreshItemCodes(host: RuleHost, em: EntityManager, user: AuthUser, items: ResourceRecord[]) {
   for (const item of items) {
     const workCode = await laborWorkCode(em, user.companyId, item.data, item.id);

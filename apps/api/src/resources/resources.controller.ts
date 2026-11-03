@@ -235,6 +235,12 @@ export class ResourcesController {
     return this.resources.codePreview(user, type, body.values);
   }
 
+  @RequireResourceAction('edit')
+  @Post(':type/:id/code-preview')
+  codePreviewExisting(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() body: UpdateDto) {
+    return this.resources.codePreview(user, type, body.values, id);
+  }
+
   @RequireResourceAction('view')
   @Get(':type/column-facets')
   columnFacets(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: FacetQueryDto) {

@@ -19,6 +19,7 @@ import { X, Pencil, FolderTree, Database } from 'lucide-react';
 import { referenceRecordLabel, referencePartyGroups, referenceFieldSpan, REFERENCE_PARTIES } from './referenceFormLayout';
 import { ReferenceProductCategoryPicker } from './ReferenceProductCategoryPicker';
 import { ArchiveCodeInput, useArchiveCodePreview } from './ArchiveCodeInput';
+import { ResourceCodePreview } from './ResourceCodePreview';
 import { SupplierCategoryContext } from './SupplierCategoryContext';
 import { FeeBookingNodes } from './FeeBookingNodes';
 import { ReferenceCategoryContext } from './ReferenceCategoryContext';
@@ -584,6 +585,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const errorCount = Object.values(errors).filter(Boolean).length;
 
   const renderField = (f: FieldDef, wide?: boolean) => {
+    if (f.hideInForm || def.codePreview?.field === f.key) return null;
     if (record && !visible.some(field => field.key === f.key)) return <div key={f.key} data-field={f.key} data-kind={f.type} className={`rf-field readonly-field${reference ? ` s${referenceFieldSpan(def.key, f)}` : resourceFieldWide(f) ? ' wide' : ''}`}><span className="rf-label">{f.label}</span><output>{displayValue(f, record) || '—'}</output><small className="muted">只读</small></div>;
     const compound = def.key === 'stores' && f.key === 'jushuitanShopId' || ['refs','attrs','files'].includes(f.type) || f.type === 'select' && f.multi || f.type === 'ref' && f.cascade;
     const inputId = `rf-field-${formId}-${f.key}`;
@@ -679,6 +681,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
             </label>
           )}
           {inline && !inDetail && visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项。</p>}
+          {def.codePreview && <ResourceCodePreview def={def} values={values} record={record} />}
           {!inline && !record && !reference && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
           {resolved ? resolved.filter(sec => (!onlyGroup || sec.title === onlyGroup) && !(['package','oem_package'].includes(layoutKey) && sec.id === 'category' && !categoryNeedsPick) && !(layoutKey === 'custom' && ['cost','total','photos'].includes(sec.id))).map((sec) => sec.id === 'extra' ? <details key={sec.id} className="rf-sec reference-section-extra" data-sec={sec.id}><summary>{sec.title}</summary><div className="form-grid">{sec.nodes.map(renderNode)}</div></details> : (
             <section key={sec.id} id={secId(sec.title)} data-sec={sec.id} className={`rf-sec reference-section-${sec.id}`} aria-label={sec.title}>

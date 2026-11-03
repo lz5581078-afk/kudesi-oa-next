@@ -66,6 +66,8 @@ export interface FieldDef {
   maxLength?: number;
   /** 由系统计算，表单里不显示、提交的值会被忽略（如利润） */
   readonly?: boolean;
+  /** 自动汇总字段可仅用于检索、列表和详情，不占用编辑表单。 */
+  hideInForm?: boolean;
   /** type=decimal：小数位数上限（默认 4） */
   scale?: number;
   /** 要有这个权限键才看得到/改得了这个字段（如成本字段需要 product.cost.view）；服务端强制，不只是前端隐藏 */
@@ -232,6 +234,8 @@ export interface ResourceDef {
   parent?: { type: string; field: string };
   /** 用作标题的字段 */
   titleField: string;
+  /** 表单只读编号预览；只提交列出的依赖，最终编号仍由通用保存规则计算。 */
+  codePreview?: { field: string; inputFields: readonly string[] };
   /** 公司内唯一的字段（重复返回 409）；phone 类型会先规范化 */
   uniqueField?: string;
   /** 组合唯一：这些字段值同时相同则拒绝 */

@@ -54,6 +54,7 @@ import { certImportMatch } from './entity-rules';
 import { optionsKindOf, parseColFilters, readTimeKeys, STATUS_COL, type ColFilter } from '@kudesi/shared';
 import { applyColFilters } from './col-filter.sql';
 import { dynamicOptionsFor, loadUnitLists, loadUnitOptionLists, seedUnitDefaults, unitLabel, unitLabelFor, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
+import { previewLaborWorkCode } from './labor-rules';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
 import { previewArchiveCode } from './finance-rules';
 
@@ -877,9 +878,20 @@ export class ResourcesService implements RuleHost {
 
   // ---------- 对外接口 ----------
 
-  async codePreview(user: AuthUser, type: string, values: Record<string, unknown>) {
+  async codePreview(user: AuthUser, type: string, values: Record<string, unknown>, excludeId?: number): Promise<Record<string, unknown>> {
     this.def(type);
+    if (type === 'finance-labor-costs') {
+      const action = excludeId === undefined ? 'create' : 'edit';
+      if (!createChecker(user.permissions)(resourcePermission(type, action))) throw new ForbiddenException(action === 'create' ? '没有新增权限' : '没有修改权限');
+      if (excludeId !== undefined) {
+        if (!Number.isSafeInteger(excludeId) || excludeId < 1) throw new BadRequestException('编号预览记录不合法');
+        const record = await this.load(this.dataSource.manager, user, type, excludeId);
+        if (record.archivedAt) throw new ConflictException('该资料已归档，不能编辑');
+      }
+      return previewLaborWorkCode(this.dataSource.manager, user.companyId, values, excludeId);
+    }
     if (!createChecker(user.permissions)(resourcePermission(type, 'create'))) throw new ForbiddenException('没有新增权限');
+    if (excludeId !== undefined) throw new BadRequestException('这种资料不支持编辑编号预览');
     const allowed = ['name', 'shortName', 'code', 'shortCode', 'categoryIds'];
     if (Object.keys(values).some(key => !allowed.includes(key))) throw new BadRequestException('编号预览字段不合法');
     for (const key of allowed.filter(key => key !== 'categoryIds')) if (values[key] !== undefined && (typeof values[key] !== 'string' || (values[key] as string).length > 200)) throw new BadRequestException('编号预览字段不合法');
