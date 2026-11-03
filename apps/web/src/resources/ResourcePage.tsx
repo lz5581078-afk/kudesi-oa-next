@@ -32,7 +32,7 @@ import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../layout/AppbarSlo
 import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
 import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
 import { PageHint } from './PageHint';
-import { AddAccountDialog, UnfiledBanner } from './WorkforcePanels';
+import { AddAccountDialog, WorkforceLoginDialog, type UnfiledPerson } from './WorkforcePanels';
 import { CloseIcon, GearIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
 import { useIsMobile } from './useMedia';
@@ -114,6 +114,9 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     setColSaved(readColFilters(def, colCan));
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
   const commitCol = (next: SavedColFilters) => { setColSaved(next); writeColFilters(type, next); setPage(1); };
+  const [loginDisplay,setLoginDisplay]=useState<Array<{id:number;account:string|null;loginPassword?:string}>>([]);
+  const [unfiled,setUnfiled]=useState<UnfiledPerson[]>([]);
+  const [loginRow,setLoginRow]=useState<ResourceDto|null>(null);
   const [keyword, setKeyword] = useState('');
   const [tab, setTab] = useState(lockedTab ?? '');
   const [status, setStatus] = useState(() => readPrefs(type).status ?? '');
@@ -198,9 +201,16 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   const defaults = useMemo(() => [...def.fields.filter((f) => f.list), ...derivedFields.filter((f) => f.list)], [def, derivedFields]);
   const [colKeys, setColKeys] = useColumns(type, shownFields, defaults);
   const warehouseMode = Boolean(data?.items.some((i) => i.warehouseMode));
-  const columns = colKeys.map((k) => shownFields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
+  const baseColumns = colKeys.map((k) => shownFields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
     .filter((f) => !warehouseMode || WAREHOUSE_PRODUCT_FIELDS.includes(f.key))
     .filter((f) => !(wantGroup && f.key === groupCfg?.field)); // 按这个字段分组时，列里不再重复显示
+  const columns:FieldDef[]=type==='workforce'?[
+    {key:'userId',label:'姓名',type:'ref',ref:'user',group:'基本信息',readonly:true},
+    {key:'account',label:'OA登录账号',type:'text',group:'登录',readonly:true},
+    ...(colCan('org.staff.reset')?[{key:'loginPassword',label:'登录密码',type:'text' as const,group:'登录',readonly:true}]:[]),
+    {key:'profileState',label:'资料状态',type:'text',group:'基本信息',readonly:true},
+    ...baseColumns.filter(f=>!['userId','name','account'].includes(f.key)),
+  ]:baseColumns;
   const tabField = def.tabsBy ? def.fields.find((f) => f.key === def.tabsBy) : undefined;
 
   // 切换资料类型时重置筛选
@@ -249,7 +259,18 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
 
   const load = useCallback(async () => {
     try {
-      setData(await resourceApi.list(type, { page: wantGroup ? 1 : page, pageSize: wantGroup ? 200 : pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters }));
+      const result=await resourceApi.list(type, { page: wantGroup ? 1 : page, pageSize: wantGroup ? 200 : pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters });
+      if(type==='workforce') {
+        const missing=await api<UnfiledPerson[]>('/workforce/unfiled');
+        const ids=[...new Set([...result.items.map(r=>Number(r.data.userId)),...missing.map(p=>p.id)])].filter(id=>Number.isSafeInteger(id)&&id>0);
+        // Dedicated endpoint: passwords never enter generic resource data, exports or grid saves.
+        const credentials: Array<{id:number;account:string|null;loginPassword?:string}>=[];
+        for(let i=0;i<ids.length;i+=200)credentials.push(...await api<typeof credentials>('/workforce/login-display',{method:'POST',body:{ids:ids.slice(i,i+200)}}));
+        const byId=new Map(credentials.map(c=>[c.id,c]));
+        setLoginDisplay(credentials);
+        setUnfiled(missing.map(p=>({...p,...byId.get(p.id)})));
+      } else setUnfiled([]);
+      setData(result);
       setError('');
       if (type === 'finance-product-units') void loadUnitOptions(true); // 单位列表变了，商品档案的下拉也要跟着变
     } catch (e) {
@@ -264,6 +285,10 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     return () => clearTimeout(t);
   }, [load]);
 
+  const workforceActions=(row:ResourceDto)=><span onClick={e=>e.stopPropagation()}>{row.id<0&&can('create')&&<button type="button" className="link-button" onClick={()=>{setCopyInit({userId:-row.id});setCreating(true);}}>补资料</button>} {can('edit')&&colCan('org.staff.edit')&&<button type="button" className="link-button" onClick={()=>setLoginRow(row)}>设置账号密码</button>}</span>;
+  const missingRows:ResourceDto[]=type==='workforce'&&!tab&&!archived&&!expiring&&!status&&page===1&&!Object.values(filterVals).some(Boolean)&&!Object.keys(colFilters).length ? unfiled.filter(p=>keyword.trim().split(/\s+/).every(k=>`${p.name} ${p.account??''}`.toLowerCase().includes(k.toLowerCase()))).map(p=>({id:-p.id,type:'workforce',title:p.name,status:'待补资料',statusReason:null,data:{userId:p.id,name:p.name,account:p.account??'未设置',loginPassword:p.loginPassword,employmentType:p.employmentType,profileState:'待补资料',profileIncomplete:true},refLabels:{userId:p.name},secretConfigured:{},files:{},createdAt:'',updatedAt:''})):[];
+  const listRows=data?[...missingRows,...data.items.map(r=>type==='workforce'?{...r,data:{...r.data,...loginDisplay.find(c=>c.id===Number(r.data.userId)),profileState:'已建档'}}:r)]:null;
+  const openListRow=(id:number)=>{if(type==='workforce'&&id<0){if(can('create')){setCopyInit({userId:-id});setCreating(true);}}else setSelected(id);};
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
   const hiddenExists = def.statuses.some((s) => s.hidden);
 
@@ -278,7 +303,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   const groupField = groupCfg ? def.fields.find((f) => f.key === groupCfg.field) : undefined;
   const [chip, setChip] = useState('');
   useEffect(() => setChip(''), [type, tab, status]);
-  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(data.items, groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(data.items, groupCfg.field, groupCfg.emptyLabel, groupDepts, groupCfg.thenBy)).map((g) => ({ ...g, note: groupNote(type, g.rows) })) : undefined), [grouping, data, groupCfg, groupField, groupDepts, type]);
+  const allGroups = useMemo<RowGroup[] | undefined>(() => (grouping && data && groupCfg ? (groupCfg.order === 'value' && groupField ? groupRowsByValue(listRows??[], groupCfg.field, groupCfg.emptyLabel, (r) => displayValue(groupField, r)) : groupRowsByDept(listRows??[], groupCfg.field, groupCfg.emptyLabel, groupDepts, groupCfg.thenBy)).map((g) => ({ ...g, note: groupNote(type, g.rows) })) : undefined), [grouping, data, groupCfg, groupField, groupDepts, type, loginDisplay, unfiled, keyword]);
   const rowGroups = useMemo<RowGroup[] | undefined>(() => (allGroups && chip ? allGroups.filter((g) => g.key === chip) : allGroups), [allGroups, chip]);
   const setGroupMode = (on: boolean) => { setGroupOn(on); setPage(1); try { localStorage.setItem(`kudesi.group.${type}`, on ? 'group' : 'flat'); } catch { /* 存储不可用时只是不记住 */ } };
   const toggleGroup = (key: string) => setFoldedGroups((cur) => { const n = new Set(cur); if (n.has(key)) n.delete(key); else n.add(key); try { localStorage.setItem(`kudesi.folded.${type}`, JSON.stringify([...n])); } catch { /* 忽略 */ } return n; });
@@ -373,7 +398,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   }
 
   const filtered = Boolean(colFilters.length || keyword.trim() || (tab && !lockedTab) || status || archived || expiring || Object.entries(filterVals).some(([k, v]) => v && !(rootVal && k === treeField?.key && v === rootVal)));
-  const onCheck = (ids: number[], on: boolean) => setChecked((cur) => (on ? [...new Set([...cur, ...ids])] : cur.filter((id) => !ids.includes(id))));
+  const onCheck = (ids: number[], on: boolean) => setChecked((cur) => (on ? [...new Set([...cur, ...ids.filter(id=>id>0)])] : cur.filter((id) => !ids.includes(id))));
   function clearFilters() {
     if (colFilters.length) commitCol({ filters: [], labels: {} });
     setKeyword(''); setStatus(''); setArchived(false); setExpiring(false); setFilterVals(rootVal && treeField ? { [treeField.key]: rootVal } : {}); setTab(lockedTab ?? ''); setPage(1);
@@ -528,7 +553,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
               <label className="res-filter-wide"><span>排序</span>
                 <select aria-label="排序方式" value={sort ? `${sort.by}:${sort.dir}` : ''} onChange={(e) => { const [by, dir] = e.target.value.split(':'); setSort(by ? { by, dir: dir as 'asc' | 'desc' } : null); setPage(1); }}>
                   <option value="">默认排序</option>
-                  {columns.filter((f) => SORTABLE.has(f.type)).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
+                  {columns.filter((f) => SORTABLE.has(f.type)&&!(type==='workforce'&&['loginPassword','profileState'].includes(f.key))).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
                 </select>
               </label>
             ) : undefined}
@@ -595,7 +620,8 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
         )}
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
           {toolbar}
-          {type === 'workforce' && <UnfiledBanner refreshKey={data?.total} canCreate={can('create')} onFile={(userId) => { setCopyInit({ userId }); setCreating(true); }} />}
+          {type==='workforce'&&unfiled.length>0&&<p className="notice m">待补资料 {unfiled.length} 人（含试播主播），在“全部”第一页以黄色显示；点击姓名补资料。</p>}
+          {loginRow&&<WorkforceLoginDialog recordId={loginRow.id} currentAccount={String(loginRow.data.account==='未设置'?'':loginRow.data.account??'')} canPassword={colCan('org.staff.reset')} onClose={()=>setLoginRow(null)} onSaved={()=>{setLoginRow(null);void load();}}/>}
           {error && <div role="alert" className="notice error m">{error}</div>}
           {!gridOn && checked.length > 0 && <BatchBar allowDelete={Boolean(hier) && canDel} def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
@@ -629,12 +655,12 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
               />
             ) : <div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />加载中…</div>
           ) : isMobile ? (
-            <ResourceCards def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} />
+            <ResourceCards rowActions={type==='workforce'?workforceActions:undefined} def={def} type={type} rows={listRows} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={openListRow} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} />
           ) : (
             <ResourceTable
               def={def}
               type={type}
-              rows={data ? data.items : null}
+              rows={listRows}
               columns={columns}
               widths={colWidths.widths}
               onWidth={colWidths.preview}
@@ -646,20 +672,20 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
               checked={checked}
               onCheck={onCheck}
               selected={selected}
-              onOpen={setSelected}
+              onOpen={openListRow}
               today={today}
               empty={empty}
               groups={rowGroups}
               folded={foldedGroups}
               onToggleGroup={toggleGroup}
               onAddInGroup={addInGroup}
-              rowActions={rowActions}
+              rowActions={type==='workforce'?workforceActions:rowActions}
               rowActionsLabel={hier ? '操作' : ['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
               actWidth={hier ? (type === 'finance-products' ? 340 : 270) : undefined}
             />
           )}
           <div className="res-foot">
-            <span className="res-foot-sum">共 {data?.total ?? 0} 条{checked.length > 0 && !gridOn ? <> · 已勾选 {checked.length} 条</> : null}</span>
+            <span className="res-foot-sum">共 {data?.total ?? 0} 条{type==='workforce'&&unfiled.length>0?`已建档 · 待补资料 ${unfiled.length} 人`:null}{checked.length > 0 && !gridOn ? <> · 已勾选 {checked.length} 条</> : null}</span>
             {grouping
               ? <span className="res-foot-sum">{rowGroups?.length ?? 0} 个分组{data && data.total > data.items.length ? ` · 只显示前 ${data.items.length} 条，请用筛选缩小范围` : ''}</span>
               : (

@@ -5,30 +5,8 @@ import { api, ApiError } from '../api/client';
 import { orgApi, flattenDepartments, type DepartmentNode, type PositionDto } from '../pages/org/orgApi';
 import { useAuth } from '../auth/AuthContext';
 
-export interface UnfiledPerson { id: number; name: string; account: string | null; employmentType: string }
+export interface UnfiledPerson { id: number; name: string; account: string | null; employmentType: string; loginPassword?:string }
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : '操作失败');
-
-/** 已在“人员档案”里标成兼职/临时工、还没有建档的人：不建档就没有合作期，也不会按合作期限制登录。 */
-export function UnfiledBanner({ refreshKey, canCreate, onFile }: { refreshKey?: unknown; canCreate: boolean; onFile: (userId: number) => void }) {
-  const [list, setList] = useState<UnfiledPerson[]>([]);
-  useEffect(() => {
-    let alive = true;
-    api<UnfiledPerson[]>('/workforce/unfiled').then((r) => alive && setList(r)).catch(() => alive && setList([]));
-    return () => { alive = false; };
-  }, [refreshKey]);
-  if (list.length === 0) return null;
-  return (
-    <div role="status" className="notice m" aria-label="未建档提醒">
-      有 {list.length} 位兼职/临时工还没有建档（没有合作期限和计薪方式）：
-      {list.map((p) => (
-        <span key={p.id}>
-          {' '}{p.name}（{(WORKFORCE_EMPLOYMENT_LABELS as Record<string, string>)[p.employmentType] ?? p.employmentType}）
-          {canCreate && <> <button type="button" className="link-button" onClick={() => onFile(p.id)}>建档</button></>}
-        </span>
-      ))}
-    </div>
-  );
-}
 
 /** 新增登录账号并标成兼职/临时工；临时密码只显示一次，随后进入建档表单。 */
 export function AddAccountDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (userId: number) => void }) {
@@ -66,7 +44,7 @@ export function AddAccountDialog({ onClose, onCreated }: { onClose: () => void; 
         <div className="modal card small" role="dialog" aria-label="临时密码">
           <div className="modal-head"><strong>账号已创建</strong></div>
           <div className="modal-body">
-            <p>账号 <strong>{done.account}</strong> 的临时密码如下，<strong>只显示这一次</strong>，请当面或通过安全渠道告诉本人。首次登录会要求改密码。</p>
+            <p>账号 <strong>{done.account}</strong> 的临时密码如下，<strong>也会向有密码管理权限的人显示在用工列表</strong>，请当面或通过安全渠道告诉本人。首次登录会要求改密码。</p>
             <code className="secret-box" aria-label="临时密码">{done.password}</code>
           </div>
           <div className="modal-foot">
@@ -136,14 +114,14 @@ export function WorkforceLoginDialog({recordId,currentAccount,canPassword,onClos
     if(canPassword&&password&&(password.length<8||new TextEncoder().encode(password).length>72))return setError('密码至少8位，且不能超过72字节');
     if(canPassword&&password!==confirm)return setError('两次密码不一致');
     setBusy(true);
-    try{await api(`/workforce/${recordId}/login`,{method:'PUT',body:{account:account.trim(),...(canPassword&&password?{password}:{})}});onSaved();}
+    try{await api(recordId<0?`/workforce/users/${-recordId}/login`:`/workforce/${recordId}/login`,{method:'PUT',body:{account:account.trim(),...(canPassword&&password?{password}:{})}});onSaved();}
     catch(e){setError(errText(e));}finally{setBusy(false);}
   }
   return <div className="modal-backdrop" role="presentation"><form className="modal card small" role="dialog" aria-label="设置登录账号和密码" onSubmit={save}>
     <div className="modal-head"><strong>设置登录账号和密码</strong></div>
     <div className="modal-body workforce-login-fields">
       <label>登录账号<input autoComplete="off" value={account} maxLength={64} onChange={e=>setAccount(e.target.value)} required/></label>
-      {canPassword?<><label>新密码<input type="password" autoComplete="new-password" value={password} maxLength={72} onChange={e=>setPassword(e.target.value)} placeholder="留空保留原密码"/></label><label>确认新密码<input type="password" autoComplete="new-password" value={confirm} maxLength={72} onChange={e=>setConfirm(e.target.value)}/></label><p className="muted">密码留空保留原密码。设置新密码后，本人下次登录需修改密码。</p></>:<p className="muted">你可以修改登录账号，设置密码需要重置员工密码权限。</p>}
+      {canPassword?<><label>新密码<input type="password" autoComplete="new-password" value={password} maxLength={72} onChange={e=>setPassword(e.target.value)} placeholder="留空保留原密码"/></label><label>确认新密码<input type="password" autoComplete="new-password" value={confirm} maxLength={72} onChange={e=>setConfirm(e.target.value)}/></label><p className="muted">密码留空保留原密码。设置的新密码会在列表明文显示；本人修改密码后停止显示旧密码。下次登录需修改密码。</p></>:<p className="muted">你可以修改登录账号，设置密码需要重置员工密码权限。</p>}
       {error&&<p role="alert" className="notice error">{error}</p>}
     </div>
     <div className="modal-foot"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy}>{busy?'保存中…':'保存登录设置'}</button></div>

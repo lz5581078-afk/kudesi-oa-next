@@ -59,7 +59,7 @@ export function ResourceTable(p: Props) {
   if (rows && rows.length) for (const f of columns) if (auto.current.w[f.key] === undefined) auto.current.w[f.key] = autoColWidth(f, rows.map((r) => displayValue(f, r)), isCopyable(def, f) ? 44 : 0);
   const widthOf = (f: FieldDef) => p.widths[f.key] ?? auto.current.w[f.key] ?? defaultColWidth(f);
   const total = CHECK_W + columns.reduce((n, f) => n + widthOf(f), 0) + STATUS_MIN + (p.rowActions ? (p.actWidth ?? ACT_W) : 0);
-  const allChecked = !!rows?.length && rows.every((r) => p.checked.includes(r.id));
+  const allChecked = !!rows?.length && rows.some(r=>r.id>0) && rows.filter(r=>r.id>0).every((r) => p.checked.includes(r.id));
 
   const drag = useRef<{ key: string; x: number; w: number } | null>(null);
   const startResize = (e: React.PointerEvent, f: FieldDef) => {
@@ -84,7 +84,7 @@ export function ResourceTable(p: Props) {
     return (
       <tr
         key={row.id}
-        className={isSel ? 'selected' : undefined}
+        className={[isSel?'selected':'',p.type==='workforce'&&row.data.profileIncomplete?'workforce-incomplete':''].filter(Boolean).join(' ')}
         tabIndex={0}
         aria-selected={isSel}
         onClick={() => p.onOpen(row.id)}
@@ -94,7 +94,7 @@ export function ResourceTable(p: Props) {
         }}
       >
         <td className="c-check frozen" onClick={(e) => e.stopPropagation()}>
-          <input type="checkbox" aria-label={`勾选 ${row.title}`} checked={p.checked.includes(row.id)} onChange={(e) => p.onCheck([row.id], e.target.checked)} />
+          <input type="checkbox" aria-label={`勾选 ${row.title}`} disabled={row.id<0} checked={p.checked.includes(row.id)} onChange={(e) => p.onCheck([row.id], e.target.checked)} />
         </td>
         {columns.map((f, i) => {
           const text = displayValue(f, row);
@@ -125,12 +125,12 @@ export function ResourceTable(p: Props) {
         </colgroup>
         <thead>
           <tr>
-            <th className="c-check frozen" scope="col"><input type="checkbox" aria-label="本页全选" checked={allChecked} onChange={(e) => p.onCheck(rows?.map((r) => r.id) ?? [], e.target.checked)} /></th>
+            <th className="c-check frozen" scope="col"><input type="checkbox" aria-label="本页全选" checked={allChecked} onChange={(e) => p.onCheck(rows?.filter(r=>r.id>0).map((r) => r.id) ?? [], e.target.checked)} /></th>
             {columns.map((f, i) => {
               const sorted = p.sort?.by === f.key;
               return (
-                <th key={f.key} scope="col" className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`} aria-sort={SORTABLE.has(f.type) ? (sorted ? (p.sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}>
-                  {SORTABLE.has(f.type) ? (
+                <th key={f.key} scope="col" className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`} aria-sort={(SORTABLE.has(f.type)&&!(p.type==='workforce'&&['loginPassword','profileState'].includes(f.key))) ? (sorted ? (p.sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}>
+                  {(SORTABLE.has(f.type)&&!(p.type==='workforce'&&['loginPassword','profileState'].includes(f.key))) ? (
                     <button type="button" className="th-sort" title="点击排序" onClick={() => p.onSort(f.key)}>
                       {f.label}<span className="th-arrow" aria-hidden="true">{sorted ? (p.sort!.dir === 'asc' ? '↑' : '↓') : ''}</span>
                     </button>
@@ -171,20 +171,20 @@ export function ResourceTable(p: Props) {
 }
 
 /** 手机上的卡片列表：第一行是名称和状态，下面最多四项关键内容，点整张卡片查看详情。 */
-export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns' | 'checked' | 'onCheck' | 'selected' | 'onOpen' | 'today' | 'empty' | 'loadingText' | 'groups' | 'folded' | 'onToggleGroup' | 'onAddInGroup'>) {
+export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns' | 'checked' | 'onCheck' | 'selected' | 'onOpen' | 'today' | 'empty' | 'loadingText' | 'groups' | 'folded' | 'onToggleGroup' | 'onAddInGroup' | 'rowActions'>) {
   const { def, rows } = p;
   if (!rows) return <div className="res-cards-wrap"><div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />{p.loadingText ?? '加载中…'}</div></div>;
   if (rows.length === 0) return <div className="res-cards-wrap">{p.empty}</div>;
-  const metaCols = p.columns.filter((f) => f.key !== def.titleField && !(p.type === 'stores' && f.key === 'jushuitanShopId'));
+  const metaCols = p.columns.filter((f) => f.key !== def.titleField && !(p.type==='workforce'&&f.key==='userId') && !(p.type === 'stores' && f.key === 'jushuitanShopId'));
   const renderCard = (row: ResourceDto) => {
     const st = statusOf(def, row.status);
-    const metas = metaCols.map((f) => ({ f, text: displayValue(f, row) })).filter((m) => m.text).slice(0, 4);
+    const metas = metaCols.map((f) => ({ f, text: displayValue(f, row) })).filter((m) => m.text).slice(0, p.type==='workforce'?p.columns.length:4);
     return (
-      <li key={row.id} className={`res-card${row.id === p.selected ? ' selected' : ''}`} tabIndex={0} aria-selected={row.id === p.selected}
+      <li key={row.id} className={`res-card${row.id === p.selected ? ' selected' : ''}${p.type==='workforce'&&row.data.profileIncomplete?' workforce-incomplete':''}`} tabIndex={0} aria-selected={row.id === p.selected}
         onClick={() => p.onOpen(row.id)}
         onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); p.onOpen(row.id); } }}>
         <div className="res-card-head">
-          <input type="checkbox" aria-label={`勾选 ${row.title}`} checked={p.checked.includes(row.id)} onClick={(e) => e.stopPropagation()} onChange={(e) => p.onCheck([row.id], e.target.checked)} />
+          <input type="checkbox" aria-label={`勾选 ${row.title}`} disabled={row.id<0} checked={p.checked.includes(row.id)} onClick={(e) => e.stopPropagation()} onChange={(e) => p.onCheck([row.id], e.target.checked)} />
           <strong className="res-card-title">{row.title}</strong>
           <span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>
         </div>
@@ -202,6 +202,7 @@ export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns'
             })}
           </dl>
         )}
+        {p.rowActions&&<div className="res-card-actions" onClick={e=>e.stopPropagation()}>{p.rowActions(row)}</div>}
       </li>
     );
   };

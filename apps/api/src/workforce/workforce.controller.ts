@@ -1,11 +1,12 @@
-import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, MinLength } from 'class-validator';
 import { WorkforceLoginService } from './workforce-login.service';
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { unfiledWorkforce } from './workforce-contract';
 
+class DisplayDto { @IsArray() @ArrayMaxSize(200) @IsInt({each:true}) @Min(1,{each:true}) ids!:number[]; }
 class LoginDto {
   @IsString() @Matches(/^[A-Za-z0-9_.-]{2,64}$/) account!:string;
   @IsOptional() @IsString() @MinLength(8) @MaxLength(72) password?:string;
@@ -21,6 +22,15 @@ class CreateLoginDto extends LoginDto {
 @Controller('workforce')
 export class WorkforceController {
   constructor(@InjectDataSource() private readonly ds: DataSource, private readonly login:WorkforceLoginService) {}
+
+  @RequirePermission('resource.workforce.view')
+  @Post('login-display')
+  @Header('Cache-Control','no-store')
+  display(@CurrentUser() user:AuthUser,@Body() input:DisplayDto){return this.login.display(user,input.ids);}
+
+  @RequirePermission('resource.workforce.edit','org.staff.edit')
+  @Put('users/:id/login')
+  updateUnfiled(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() input:LoginDto){return this.login.update(user,id,input,true);}
 
   @RequirePermission('resource.workforce.create','org.staff.create')
   @Post('accounts')

@@ -24,7 +24,7 @@ d('兼职临时工账号与密码（真实数据库）',()=>{
     const u=await ds.manager.save(User,ds.manager.create(User,{companyId:company.id,account:account(),passwordHash:'!test-only',name:'管理',status:'active',isCompanyAdmin:true,mustChangePassword:false}));
     actor={id:u.id,companyId:company.id,name:u.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}};
     const c=await ds.manager.save(Company,ds.manager.create(Company,{code:account(),name:'其他公司',status:'active'}));foreign={...actor,companyId:c.id};
-    admin=new OrgAdminService(ds);login=new WorkforceLoginService(ds,admin);resources=buildServices(ds).resources;
+    admin=new OrgAdminService(ds);login=new WorkforceLoginService(ds,admin,buildServices(ds).crypto);resources=buildServices(ds).resources;
   },30000);
   afterAll(async()=>{await ds?.destroy();});
   async function filed(type:'part_time'|'temp'='part_time') {
@@ -79,4 +79,34 @@ d('兼职临时工账号与密码（真实数据库）',()=>{
     const result=await Promise.allSettled([login.update(actor,a.record.id,{account:same}),login.update(actor,b.record.id,{account:same})]);expect(result.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(result.filter(r=>r.status==='rejected')).toHaveLength(1);
     expect(await ds.manager.count(User,{where:{account:same}})).toBe(1);
   });
+  it('未来密码加密保存，仅密码管理员可读取，改密后旧明文失效且审计不含秘密',async()=>{
+    const {created,record}=await filed();
+    await expect(login.update(actor,created.staff.id,{account:account()},true)).rejects.toThrow(/已有用工档案/);
+    const [stored]=await ds.query('SELECT * FROM workforce_login_secrets WHERE company_id=? AND user_id=?',[actor.companyId,created.staff.id]);
+    expect(stored.password_cipher).not.toContain(password);
+    expect((await login.display(actor,[created.staff.id]))[0].loginPassword).toBe(password);
+    const viewer={...actor,permissions:{isCompanyAdmin:false,allow:['resource.workforce.view'],deny:[]}};
+    expect((await login.display(viewer,[created.staff.id]))[0]).not.toHaveProperty('loginPassword');
+    expect(await login.display(foreign,[created.staff.id])).toEqual([]);
+    await ds.manager.update(User,{id:created.staff.id},{passwordHash:await bcrypt.hash('Self-changed-123',10)});
+    expect((await login.display(actor,[created.staff.id]))[0].loginPassword).toMatch(/历史密码不可读取/);
+    await login.update(actor,record.id,{account:created.staff.account!,password:'Future-password-321'});
+    expect((await login.display(actor,[created.staff.id]))[0].loginPassword).toBe('Future-password-321');
+    const logs=await ds.manager.find(AuditLog,{where:{companyId:actor.companyId,action:'user.workforce_password.view'}});
+    expect(logs.length).toBeGreaterThan(0);
+    expect(JSON.stringify(logs)).not.toContain(password);expect(JSON.stringify(logs)).not.toContain('Future-password-321');
+    expect(JSON.stringify(await resources.list(actor,'workforce',{}))).not.toContain('Future-password-321');
+  });
+  it('未建档试播人员可设置账号，保留身份和直播试播标志',async()=>{
+    const person=await ds.manager.save(User,ds.manager.create(User,{companyId:actor.companyId,account:null,passwordHash:'!no-login',name:'试播测试',employmentType:'part_time',status:'active',isCompanyAdmin:false,mustChangePassword:false}));
+    await ds.query('UPDATE users SET live_trial=1 WHERE company_id=? AND id=?',[actor.companyId,person.id]);
+    const beforeCount=await ds.manager.count(ResourceRecord,{where:{companyId:actor.companyId,type:'workforce'}});
+    expect((await login.display(actor,[person.id]))[0].loginPassword).toBe('未设置');
+    const next=account();await login.update(actor,person.id,{account:next,password:'Trial-password-321'},true);
+    const [updated]=await ds.query('SELECT live_trial FROM users WHERE company_id=? AND id=?',[actor.companyId,person.id]);expect(updated.live_trial).toBe(1);
+    expect((await login.display(actor,[person.id]))[0]).toMatchObject({account:next,loginPassword:'Trial-password-321'});
+    expect(await ds.manager.count(ResourceRecord,{where:{companyId:actor.companyId,type:'workforce'}})).toBe(beforeCount);
+    await expect(login.update(foreign,person.id,{account:account()},true)).rejects.toThrow();
+  });
+
 });
