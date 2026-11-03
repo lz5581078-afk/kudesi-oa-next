@@ -31,6 +31,20 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); Object.assign(def, orig); });
 
 describe('列表壳：配置驱动的能力入口', () => {
+  it.each([false, true])('兼职临时工页只保留新增账号，桌面/手机（%s）和空列表不再提供已有账号建档', async mobile => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ matches: query.includes('max-width') ? mobile : !mobile, addEventListener() {}, removeEventListener() {} })) as never;
+    try {
+      vi.mocked(resourceApi.list).mockResolvedValue(list([]));
+      render(<MemoryRouter><ResourcePage type="workforce" /></MemoryRouter>);
+      await screen.findByText('还没有兼职与临时工');
+      if (mobile) fireEvent.click(screen.getByRole('button', { name: '更多' }));
+      expect(screen.getByRole('button', { name: '新增账号并建档' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: '为已有账号建档' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^＋ 新增/ })).toBeNull();
+    } finally { window.matchMedia = original; }
+  });
+
   it('只读历史显示原收支数据；管理员界面也不出现新增、导入或编辑入口', async () => {
     vi.mocked(resourceApi.list).mockResolvedValue(list([{ ...row(1), type: 'finance-ledger-history', title: '原收支', status: 'recorded', data: { caption: '原收支', entryDate: '2026-10-01', category: '流程费用', direction: 'expense', amountCents: 1234 } }]));
     render(<MemoryRouter><ResourcePage type="finance-ledger-history" /></MemoryRouter>);

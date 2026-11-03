@@ -781,6 +781,26 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.detail(foreign,started.id)).rejects.toThrow(/不存在/);
   });
 
+  it('全览按本场每人打卡显示已报未报，并读取实际多账号快照而非排班',async()=>{
+    const day='2027-02-17';clock(day+' 10:30:00');
+    const channels=[{accountId:ids.account,accountName:'实际抖音号完整名称',platform:'douyin',stores:[]},{accountId:999,accountName:'实际快手号',platform:'kuaishou',stores:[]}];
+    const ins=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,control_user_id,operator_user_id,douyin_account_id,douyin_account_name,session_date,start_at,status,started_by,started_role,checkin_mode,channels_json) VALUES(?,?,?,?,?,?,?,?,?,?,'live',?,'control',1,?)`,[company,ids.n1,'直播间-北1',anchor.id,control.id,operator.id,ids.account,'截断或旧名称',day,day+' 10:00:00',control.id,JSON.stringify(channels)]);
+    const id=Number(ins.insertId);
+    await ds.query("INSERT INTO live_session_checkins(company_id,session_id,user_id,role,start_at,confirmation_json) VALUES(?,?,?,'control',?,'{}')",[company,id,control.id,day+' 10:00:00']);
+    // A foreign company's row must never count as this employee's report.
+    await ds.query("INSERT INTO live_session_checkins(company_id,session_id,user_id,role,start_at,confirmation_json) VALUES(?,?,?,'anchor',?,'{}')",[foreign.companyId,id,anchor.id,day+' 10:01:00']);
+    const tile=async()=> (await schedules.overview(manager,day)).groups.north.find(r=>r.id===ids.n1)!;
+    expect((await tile()).live).toMatchObject({id,startReports:{anchor:false,control:true,operator:false},accounts:[{id:ids.account,name:'实际抖音号完整名称',platform:'douyin'},{id:999,name:'实际快手号',platform:'kuaishou'}]});
+    await ds.query("INSERT INTO live_session_checkins(company_id,session_id,user_id,role,start_at,end_at,confirmation_json) VALUES(?,?,?,'anchor',?,?,'{}')",[company,id,anchor.id,day+' 10:05:00',day+' 10:20:00']);
+    expect((await tile()).live!.startReports).toEqual({anchor:true,control:true,operator:false});
+    await ds.query("UPDATE live_sessions SET status='pending_report',end_at=? WHERE id=?",[day+' 10:30:00',id]);
+    expect((await tile()).current!.startReports).toEqual({anchor:true,control:true,operator:false});
+    await ds.query("UPDATE live_sessions SET checkin_mode=0,channels_json=JSON_ARRAY(),started_by=?,started_role='anchor' WHERE id=?",[anchor.id,id]);
+    await ds.query('DELETE FROM live_session_checkins WHERE session_id=?',[id]);
+    expect((await tile()).current).toMatchObject({startReports:{anchor:true,control:null,operator:null},accounts:[{id:ids.account,name:'截断或旧名称',platform:'douyin'}]});
+    expect((await schedules.overview(foreign,day)).groups.north.flatMap(r=>r.current?[r.current.id]:[])).not.toContain(id);
+  });
+
   it('本场营业额真实公司鉴权、时间窗、退款归属与已结束场次回看', async () => {
     const startAt='2027-01-15 10:00:00', endAt='2027-01-15 11:00:00';
     const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,end_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'pending_report',?,'anchor')`,[company,ids.n1,'直播间-北1',anchor.id,ids.account,'抖音一号',ids.store,'抖音店','JST1','2027-01-15',startAt,endAt,anchor.id]);
@@ -972,10 +992,11 @@ d('直播管理（真实数据库）', () => {
     const trial=await management.trial(manager,{name:'排场试播核验',hourlyRateCents:6000});
     const pos=await position(company,'试播代报中控','live_control');
     const cc=au(await mkUser(company,'trial-proxy-control','试播中控',{positionId:pos,payType:'hourly',hourlyRate:3000}),company,'试播中控',['features.live-desk.view']);
+    const otherControl=au(await mkUser(company,'trial-proxy-other','其他中控',{positionId:pos}),company,'其他中控',['features.live-desk.view']);
     const [oldRoom]=await ds.query('SELECT data FROM resource_records WHERE company_id=? AND id=?',[company,ids.n1]);
     const parent=(typeof oldRoom.data==='string'?JSON.parse(oldRoom.data):oldRoom.data).parentId;
     const room=await rec(company,'locations','直播间-试播核验',{name:'直播间-试播核验',locationType:'room',parentId:parent});
-    const shop=await rec(company,'stores','试播核验店',{name:'试播核验店',platform:'douyin',jushuitanShopId:'TRIALSHOP'});
+    const shop=await rec(company,'stores','试播核验店',{name:'试播核验店',platform:'douyin',jushuitanShopId:'TRIAL-PROXY-SHOP'});
     const account=await rec(company,'self-media','试播核验号',{name:'试播核验号',platform:'douyin',livePermission:true,storeIds:[shop]});
     const plan=await schedules.create(manager,input({date:'2027-01-05',roomId:room,anchorId:trial.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'}));
     const row=(await sessions.workbench(cc)).schedules.find(s=>s.id===plan.id)!;
@@ -983,7 +1004,7 @@ d('直播管理（真实数据库）', () => {
     const start={actualCheckin:true,role:'control' as const,scheduleId:plan.id,scheduleFingerprint:row.fingerprint,confirmDetails:true,productIds:[ids.p1]};
     await expect(sessions.start(cc,start)).rejects.toThrow(/试播主播/);
     await expect(sessions.start(cc,{...start,confirmTrialAnchorId:anchor.id})).rejects.toThrow(/试播主播/);
-    await expect(sessions.start(control,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排定/);
+    await expect(sessions.start(otherControl,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排定/);
     await expect(sessions.start(foreign,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/身份|不存在/);
     await expect(sessions.start(cc,{...start,anchorId:anchor.id,confirmTrialAnchorId:trial.id})).rejects.toThrow(/不一致/);
     const made=await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id});

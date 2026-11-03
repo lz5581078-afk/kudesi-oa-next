@@ -9,7 +9,7 @@ export interface UnfiledPerson { id: number; name: string; account: string | nul
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : '操作失败');
 
 /** 已在“人员档案”里标成兼职/临时工、还没有建档的人：不建档就没有合作期，也不会按合作期限制登录。 */
-export function UnfiledBanner({ refreshKey, canCreate, onFile }: { refreshKey?: unknown; canCreate: boolean; onFile: (userId: number) => void }) {
+export function UnfiledBanner({ refreshKey, canEdit, onEdit }: { refreshKey?: unknown; canEdit: boolean; onEdit: (userId: number) => void }) {
   const [list, setList] = useState<UnfiledPerson[]>([]);
   useEffect(() => {
     let alive = true;
@@ -19,11 +19,11 @@ export function UnfiledBanner({ refreshKey, canCreate, onFile }: { refreshKey?: 
   if (list.length === 0) return null;
   return (
     <div role="status" className="notice m" aria-label="未建档提醒">
-      有 {list.length} 位兼职/临时工还没有建档（没有合作期限和计薪方式）：
+      有 {list.length} 位兼职/临时工还没有建档，请在员工编辑中补齐合作期限，保存后自动建档：
       {list.map((p) => (
         <span key={p.id}>
           {' '}{p.name}（{(WORKFORCE_EMPLOYMENT_LABELS as Record<string, string>)[p.employmentType] ?? p.employmentType}）
-          {canCreate && <> <button type="button" className="link-button" onClick={() => onFile(p.id)}>建档</button></>}
+          {canEdit && <> <button type="button" className="link-button" onClick={() => onEdit(p.id)}>编辑员工</button></>}
         </span>
       ))}
     </div>
@@ -118,7 +118,7 @@ export function WorkforceAccountNote() {
   const path = resourcePagePath('employees');
   return (
     <p className="muted" aria-label="账号与岗位说明">
-      账号、部门、岗位、直属上级取自员工当前资料，这里不能改。
+      账号、部门、岗位、直属上级取自员工当前资料，这里不能改。用工类型和合作期限也可在员工编辑中修改；转为正式员工的原档案保留在“已归档”中。
       {path && can('resource.employees.view') && <> <Link className="link-button" to={path}>到人员档案修改</Link></>}
     </p>
   );
