@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Shops } from './SessionShops';
 import type { SessionClient, ShopRow } from './sessionApi';
 
@@ -40,6 +40,28 @@ describe('两个模块登录复用远程窗口',()=>{
     fireEvent.click(await screen.findByRole('button',{name:'首次登录'}));
     await waitFor(()=>{expect(api.open).toHaveBeenCalledTimes(1);expect(api.open).toHaveBeenCalledWith(101);});
     expect(screen.queryByRole('dialog')).toBeNull();expect(fixture.remoteShops).not.toHaveBeenCalled();
+  });
+  it.each([false,true])('兼容页面操作栏与旧OA一致，所有登录状态共用主入口 maintenance=%s',async maintenance=>{
+    fixture.remoteShops.mockResolvedValue({shops:[{shopId:101,remoteEnabled:true,deviceOnline:true,live:{mine:true}}]});
+    for(const [loginState,label] of [['none','首次登录'],['valid','立即登录'],['expired','重新登录']] as const){
+      const api=client({...baseShop,loginState,legacy:{workspace:maintenance?'company_store_maintenance':'finance_withdrawal'}});
+      render(<Shops client={api} maintenance={maintenance}/>);
+      const login=await screen.findByRole('button',{name:label});
+      await waitFor(()=>expect(fixture.remoteShops).toHaveBeenCalled());
+      expect(within(login.closest('td')!).getAllByRole('button').map(button=>button.textContent)).toEqual([label,'移除']);
+      expect(screen.queryByRole('button',{name:/^(远程协助|返回协助)$/})).toBeNull();
+      fireEvent.click(login);
+      expect(screen.getByRole('dialog',{name:'旧版远程控制'})).toBeTruthy();
+      expect(api.open).not.toHaveBeenCalled();
+      cleanup();
+    }
+  });
+  it('原生核心保留独立远程入口及原远程弹窗',async()=>{
+    fixture.remoteShops.mockResolvedValue({shops:[{shopId:101,remoteEnabled:true,deviceOnline:true,live:null}]});
+    const api=client(baseShop);render(<Shops client={api}/>);
+    fireEvent.click(await screen.findByRole('button',{name:'远程协助'}));
+    expect(screen.getByRole('dialog',{name:'原生远程控制'})).toBeTruthy();
+    expect(api.open).not.toHaveBeenCalled();
   });
   it('原生核心登录继续下发原任务',async()=>{
     const api=client(baseShop);render(<Shops client={api}/>);
