@@ -859,7 +859,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       ref('userId', '姓名', '基本信息', 'user', { required: true, list: true, help: '新员工通过入职码或“新增账号并建档”加入；已有人员在员工编辑里维护用工类型与合作期限，自动补齐对应档案' }),
       text('name', '姓名', '基本信息', { readonly: true, list: false, search: true, maxLength: 80 }),
-      select('employmentType', '用工类型', '基本信息', o('part_time:兼职', 'temp:临时工'), { required: true, list: true, help: '临时工必须填写合作结束日期；兼职可以不限期' }),
+      select('employmentType', '用工类型', '基本信息', o('part_time:兼职', 'temp:临时工'), { required: true, list: true, help: '兼职和临时工均可不限期，合作期限可由人事维护' }),
       select('cooperation', '合作状态', '基本信息', o('working:合作中', 'pending:待开始', 'ended:合作已到期', 'inactive:已停用'), { readonly: true, list: true }),
       text('account', 'OA登录账号', '账号与岗位', { readonly: true, list: true, search: true, maxLength: 64 }),
       text('departmentName', '部门', '账号与岗位', { readonly: true, list: true, search: true, maxLength: 100 }),
@@ -868,7 +868,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       select('accountStatus', '账号状态', '账号与岗位', o('active:启用', 'disabled:已停用'), { readonly: true }),
       text('lastLoginAt', '最近登录', '账号与岗位', { readonly: true, maxLength: 32 }),
       date('contractStartDate', '合作开始日期', '合作与计薪', { required: true, list: true }),
-      date('contractEndDate', '合作结束日期', '合作与计薪', { list: true, help: '到这一天（含）之后的第二天起，账号自动不能登录；临时工必填，兼职可不限期' }),
+      date('contractEndDate', '合作结束日期', '合作与计薪', { list: true, help: '到这一天（含）之后的第二天起，账号自动不能登录；不填表示不限期' }),
       select('payMethod', '计薪方式', '合作与计薪', o('hourly:计时', 'daily:计天', 'monthly:计月', 'piece:计件'), { list: true, permission: 'org.staff.salary', help: '计时且单价大于 0 时，同步为该员工的时薪（直播主播工资默认取它）' }),
       money('payRate', '单价（元）', '合作与计薪', { list: true, permission: 'org.staff.salary', help: '按所选计薪方式的单价，如计天 200 元/天；0 表示还没定价' }),
       text('workLocation', '工作地点', '合作与计薪', { maxLength: 160, search: true, help: '例如：仓库A区' }),

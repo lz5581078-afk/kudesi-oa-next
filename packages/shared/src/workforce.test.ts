@@ -32,7 +32,7 @@ describe('兼职与临时工：期限与单价校验', () => {
   it('逐条拒绝旧系统拒绝的情形', () => {
     expect(validateWorkforceTerms({ ...ok, employmentType: 'regular' })).toMatch(/兼职或临时工/);
     expect(validateWorkforceTerms({ ...ok, contractStartDate: '2026-02-30' })).toMatch(/开始日期/);
-    expect(validateWorkforceTerms({ ...ok, contractEndDate: undefined })).toMatch(/临时工必须填写合作结束日期/);
+    expect(validateWorkforceTerms({ ...ok, contractEndDate: undefined })).toBeNull();
     expect(validateWorkforceTerms({ ...ok, contractEndDate: '2026-10-31' })).toMatch(/不能早于/);
     expect(validateWorkforceTerms({ ...ok, contractEndDate: '11/30' })).toMatch(/格式/);
     expect(validateWorkforceTerms({ ...ok, payRate: -1 })).toMatch(/单价/);
