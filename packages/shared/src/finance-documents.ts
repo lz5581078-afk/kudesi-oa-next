@@ -13,7 +13,12 @@ import { validUnitCents, settledLineCents } from './unit-price';
  */
 
 /** 公司在国内，“今天”按北京时间算（不能用 UTC，否则凌晨制的单会记到前一天） */
-export const todayInChina = (): string => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+export const todayInChina = (): string => {
+  // Locale data is optional in some browsers: sv-SE can fall back to a non-ISO date.
+  // Shift the instant to UTC+8 and read UTC fields, independent of locale and host timezone.
+  const china = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return `${String(china.getUTCFullYear()).padStart(4, '0')}-${String(china.getUTCMonth() + 1).padStart(2, '0')}-${String(china.getUTCDate()).padStart(2, '0')}`;
+};
 
 export type DocType =
   | 'sale' | 'online-sale' | 'sale-return' | 'advance-receipt' | 'receipt' | 'payment'
