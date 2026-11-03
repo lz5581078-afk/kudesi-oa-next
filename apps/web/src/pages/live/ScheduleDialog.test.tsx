@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ScheduleDialog } from './ScheduleDialog';
 import { StartDialog } from './StartDialog';
 import { liveApi, type ScheduleRow } from './liveApi';
-vi.mock('./liveApi', () => ({ liveApi: { options: vi.fn(), products: vi.fn(), previousSchedule: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), start: vi.fn() } }));
+vi.mock('./liveApi', () => ({ liveApi: { checkinContext: vi.fn(), options: vi.fn(), products: vi.fn(), previousSchedule: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), start: vi.fn() } }));
 const l = vi.mocked(liveApi);
 const product = { id: 99, name: '花育25', code: 'HY25', spec: '大包' };
 const previous = { id: 1, roomId: 10, roomName: '南1', date: '2026-11-01', startTime: '10:00', endTime: '12:00', anchor: { id: 3, name: '主播甲' }, control: { id: 4, name: '中控乙' }, operator: { id: 5, name: '运营丙' }, douyinAccount: { id: 20, name: '抖音号' }, store: { id: 30, name: '店铺' }, products: [product], note: '上场备注' } as ScheduleRow;
 const options = { rooms: [{ id: 10, name: '南1' }], anchors: [{ id: 3, name: '主播甲' }], controls: [{ id: 4, name: '中控乙' }], operators: [{ id: 5, name: '运营丙' }], douyinAccounts: [{ id: 20, name: '抖音号',platform:'douyin',storeIds:[30] }], stores: [{ id: 30, name: '店铺', hasJstShop: true,platform:'douyin' }] };
 const open = () => render(<ScheduleDialog initial={null} days={['2026-11-02']} defaultRoom={10} onClose={vi.fn()} onDone={vi.fn()} />);
-beforeEach(() => { l.options.mockResolvedValue(options as never); l.products.mockResolvedValue([product]); l.previousSchedule.mockResolvedValue(previous); l.createSchedule.mockResolvedValue({ id: 2 }); });
+beforeEach(() => { l.checkinContext.mockResolvedValue({schedules:[],joinable:[]} as never); l.options.mockResolvedValue(options as never); l.products.mockResolvedValue([product]); l.previousSchedule.mockResolvedValue(previous); l.createSchedule.mockResolvedValue({ id: 2 }); });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('排场产品与上次配置', () => {
@@ -92,7 +92,7 @@ describe('排场产品与上次配置', () => {
   it('按排场上播自动选中预排产品', async () => {
     l.start.mockResolvedValue({ id: 6 });
     render(<StartDialog schedule={previous} identity={{isAnchor:true,isControl:false,canManage:false}} onClose={vi.fn()} onDone={vi.fn()} />);
-    const dlg = await screen.findByRole('dialog');
+    const dlg = await screen.findByRole('dialog', {name:'报上播（按排场）'});
     await screen.findByText('店铺');
     expect((within(dlg).getByLabelText('场次产品 1') as HTMLInputElement).value).toBe('花育25（大包）');
     expect(l.products).not.toHaveBeenCalled();
