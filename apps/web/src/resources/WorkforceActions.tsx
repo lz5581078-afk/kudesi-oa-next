@@ -38,7 +38,7 @@ export function WorkforceActions({ record, onEdit, onLogs, onChanged, employeeAc
   const can = createChecker(user?.permissions ?? { isCompanyAdmin: false, allow: [], deny: [] });
   const userId = Number(record.data.userId);
   const hasPerson = Number.isSafeInteger(userId) && userId > 0;
-  const [dialog, setDialog] = useState<'records' | 'employee' | 'disable' | null>(null);
+  const [dialog, setDialog] = useState<'records' | 'employee' | 'disable' | 'delete' | 'restore' | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const live = !record.archived;
@@ -54,6 +54,11 @@ export function WorkforceActions({ record, onEdit, onLogs, onChanged, employeeAc
     catch (e) { const message = e instanceof ApiError ? e.message : '状态修改失败'; setError(message); throw e; }
     finally { setBusy(false); }
   }
+  async function removeOrRestore(reason: string) {
+    if (dialog === 'restore') await resourceApi.restore('workforce', record.id, reason);
+    else await resourceApi.remove('workforce', record.id, reason);
+    setDialog(null); onChanged();
+  }
   return <span className="workforce-actions" onClick={e => e.stopPropagation()}>
     {live && onEdit && canEdit && <button type="button" className="row-act" onClick={() => incomplete ? setDialog('employee') : onEdit(record)}>{incomplete ? '补资料' : '编辑'}</button>}
     {hasPerson && can('org.staff.view') && <button type="button" className="row-act" onClick={() => setDialog('records')}>记录</button>}
@@ -62,10 +67,14 @@ export function WorkforceActions({ record, onEdit, onLogs, onChanged, employeeAc
     {live && can(incomplete ? 'org.staff.disable' : 'resource.workforce.disable') && (record.status === 'inactive'
       ? <button type="button" className="row-act" disabled={busy} title="恢复账号，登录仍按合作期限校验" onClick={() => void changeStatus('active').catch(() => undefined)}>{busy ? '处理中…' : '启用'}</button>
       : <button type="button" className="row-act danger" disabled={busy} onClick={() => { setError(''); setDialog('disable'); }}>停用</button>)}
+    {!incomplete && can('resource.workforce.delete') && (live
+      ? <button type="button" className="row-act danger" onClick={() => setDialog('delete')}>删除</button>
+      : record.archived?.deleted && <button type="button" className="row-act" onClick={() => setDialog('restore')}>恢复</button>)}
     {error && !dialog && <small role="alert" className="row-act-err">{error}</small>}
     {dialog && createPortal(<div className="workforce-modal">
       {dialog === 'records' && <WorkforceRecords userId={userId} canSalary={can('org.staff.salary')} canHandover={live && can('org.staff.disable')} onClose={() => setDialog(null)} />}
       {dialog === 'employee' && <StaffEditorDialog id={userId} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); onChanged(); }} />}
+      {(dialog === 'delete' || dialog === 'restore') && <ReasonDialog title={`${dialog === 'delete' ? '删除' : '恢复'}：${record.title}`} hint={dialog === 'delete' ? '删除档案并停用 OA 账号，未完成工作按现有交接规则处理。工资、直播、附件及历史记录保留，可在「已归档」恢复。' : '恢复档案后保持停用状态；确认继续合作后可另行启用账号。'} confirmLabel={dialog === 'delete' ? '确认删除' : '确认恢复'} onClose={() => setDialog(null)} onSubmit={removeOrRestore} />}
       {dialog === 'disable' && <ReasonDialog title={`停用：${record.title}`} hint="停用后该员工账号也会停用，未完成工作按现有交接规则处理。原因将记录在人事与档案操作记录中。" confirmLabel="确认停用" onClose={() => { setDialog(null); setError(''); }} onSubmit={reason => changeStatus('inactive', reason)} />}
     </div>, document.body)}
   </span>;

@@ -42,7 +42,7 @@ import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, Resource
 import { FileInfo, FilesService } from '../integrations/files.service';
 import { deriveStoreFunds } from './store-funds';
 import { deriveBankBalances } from './bank-balance';
-import { deriveWorkforce } from './workforce-rules';
+import { deriveWorkforce, workforceDisableAccount } from './workforce-rules';
 import { applyViewFilter, bindPhoneStores, derivePhoneFields, isViewFilter, mapLicenseByCreditCode } from './account-views';
 import { applyCond, deriveColumns } from './def-conditions';
 import { deriveAccountFields, hasAccountDerive } from './account-derive';
@@ -61,7 +61,7 @@ export interface ResourceDto {
   status: string;
   statusReason: string | null;
   /** 已归档时的信息（归档时间/原因/操作人）；未归档为 null */
-  archived: { at: Date; reason: string | null; by: number | null; fromStatus: string | null } | null;
+  archived: { at: Date; reason: string | null; by: number | null; fromStatus: string | null; deleted?: boolean } | null;
   /** 字段值：敏感字段是脱敏值，密码类字段不出现 */
   data: Record<string, unknown>;
   /** 密码/证件号类字段是否已设置 */
@@ -331,7 +331,7 @@ export class ResourcesService implements RuleHost {
       title: r.title,
       status: r.status,
       statusReason: r.statusReason,
-      archived: r.archivedAt ? { at: r.archivedAt, reason: r.archiveReason, by: r.archivedBy, fromStatus: r.archivedFromStatus } : null,
+      archived: r.archivedAt ? { at: r.archivedAt, reason: r.archiveReason, by: r.archivedBy, fromStatus: r.archivedFromStatus, ...(r.type === 'workforce' && r.data._workforceDeleted === true ? { deleted: true } : {}) } : null,
       data,
       secretConfigured,
       refLabels: labels,
@@ -1436,18 +1436,32 @@ export class ResourcesService implements RuleHost {
     await em.save(ResourceRecord, fresh);
   }
 
+  /** 与员工编辑保持同样的账号→档案锁顺序，避免转正与删除并发时互相等待。 */
+  private async lockWorkforceOwner(em: EntityManager, user: AuthUser, id: number) {
+    const record = await em.findOneBy(ResourceRecord, { id, companyId: user.companyId, type: 'workforce' });
+    if (!record) throw new NotFoundException('记录不存在');
+    return em.findOne(User, { where: { id: Number(record.data.userId), companyId: user.companyId }, lock: { mode: 'pessimistic_write' } });
+  }
+
   /** 旧系统同款软归档：只标记这条资料本身（状态变为停用/注销等）并写变更记录，关联和业务历史原样保留，可恢复。 */
   async archive(user: AuthUser, type: string, id: number, reason: string | undefined) {
     const def = this.def(type);
-    const policy = archivePolicyOf(type);
+    const policy = archivePolicyOf(type) ?? (type === 'workforce' ? { archivedStatus: 'inactive', defaultStatus: 'inactive' } : undefined);
     if (!policy) throw new BadRequestException('该资料类型不支持归档');
     const text = (reason ?? '').trim();
     if (!text) throw new BadRequestException('归档必须填写归档原因');
     if (text.length > 500) throw new BadRequestException('原因不能超过 500 个字');
     await this.dataSource.transaction(async (em) => {
+      const person = type === 'workforce' ? await this.lockWorkforceOwner(em, user, id) : null;
       const before = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
       if (!before) throw new NotFoundException('记录不存在');
       if (before.archivedAt) throw new ConflictException('该资料已归档');
+      if (type === 'workforce') {
+        if (!person || person.isCompanyAdmin || person.employmentType === 'regular') throw new ConflictException('员工用工类型已变化，请刷新后重试');
+        if (person.id === user.id) throw new BadRequestException('不能删除自己的档案并停用账号');
+        // 复用停用、交接与账号审计；不改变计薪信息，也不删除任何关联或附件。
+        await workforceDisableAccount(em, user, person, text);
+      }
       if (type === 'tax-profiles') {
         const licenseId = before.data.licenseId;
         if (typeof licenseId === 'number' && (await em.count(ResourceRecord, { where: { id: licenseId, companyId: user.companyId, type: 'licenses', archivedAt: IsNull() } })))
@@ -1456,30 +1470,34 @@ export class ResourcesService implements RuleHost {
       await em.update(
         ResourceRecord,
         { id, companyId: user.companyId },
-        { archivedAt: () => 'CURRENT_TIMESTAMP', archivedBy: user.id, archiveReason: text, archivedFromStatus: before.status, status: policy.archivedStatus, updatedBy: user.id },
+        { archivedAt: () => 'CURRENT_TIMESTAMP', archivedBy: user.id, archiveReason: text, archivedFromStatus: before.status, status: policy.archivedStatus, updatedBy: user.id, ...(type === 'workforce' ? { data: { ...before.data, _workforceDeleted: true } } : {}) },
       );
       const after = await this.load(em, user, type, id);
-      await this.writeLog(em, user, def, id, 'archived', before, after, `归档原因：${text}`);
+      await this.writeLog(em, user, def, id, 'archived', before, after, `${type === 'workforce' ? '删除' : '归档'}原因：${text}`);
     });
     return this.get(user, type, id);
   }
 
   async restore(user: AuthUser, type: string, id: number, reason: string | undefined) {
     const def = this.def(type);
-    const policy = archivePolicyOf(type);
+    const policy = archivePolicyOf(type) ?? (type === 'workforce' ? { archivedStatus: 'inactive', defaultStatus: 'inactive' } : undefined);
     if (!policy) throw new BadRequestException('该资料类型不支持归档');
     const text = (reason ?? '').trim();
     if (!text) throw new BadRequestException('恢复必须填写恢复原因');
     if (text.length > 500) throw new BadRequestException('原因不能超过 500 个字');
     await this.dataSource.transaction(async (em) => {
+      const person = type === 'workforce' ? await this.lockWorkforceOwner(em, user, id) : null;
       const before = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
       if (!before) throw new NotFoundException('记录不存在');
       if (!before.archivedAt) throw new ConflictException('该资料未归档，无需恢复');
-      const restored = before.archivedFromStatus && def.statuses.some((x) => x.value === before.archivedFromStatus) ? before.archivedFromStatus : policy.defaultStatus;
+      if (type === 'workforce') {
+        if (before.data._workforceDeleted !== true || !person || person.employmentType === 'regular') throw new ConflictException('历史用工档案请通过员工资料恢复');
+      }
+      const restored = type === 'workforce' ? 'inactive' : before.archivedFromStatus && def.statuses.some((x) => x.value === before.archivedFromStatus) ? before.archivedFromStatus : policy.defaultStatus;
       await em.update(
         ResourceRecord,
         { id, companyId: user.companyId },
-        { status: restored, statusReason: null, archivedAt: null, archivedBy: null, archiveReason: null, archivedFromStatus: null, updatedBy: user.id },
+        { ...(type === 'workforce' ? { data: { ...before.data, _workforceDeleted: false } } : {}), status: restored, statusReason: null, archivedAt: null, archivedBy: null, archiveReason: null, archivedFromStatus: null, updatedBy: user.id },
       );
       const after = await this.load(em, user, type, id);
       await this.writeLog(em, user, def, id, 'restored', before, after, `恢复原因：${text}`);
@@ -1491,7 +1509,7 @@ export class ResourcesService implements RuleHost {
     const def = this.def(type);
     if (def.readOnly) throw new ForbiddenException('历史记录只读，不能删除');
     // 旧系统里这些资料不物理删除：删除 = 归档
-    if (archivePolicyOf(type)) return this.archive(user, type, id, reason);
+    if (type === 'workforce' || archivePolicyOf(type)) return this.archive(user, type, id, reason);
     if (!reason || reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
     const cleanup: string[] = [];
     await this.dataSource.transaction(em => this.removeRecord(em,user,type,id,reason,cleanup));
