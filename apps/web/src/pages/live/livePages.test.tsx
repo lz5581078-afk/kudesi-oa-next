@@ -168,6 +168,18 @@ describe('直播管理', () => {
     expect(screen.getByLabelText('直播间-北1，正在直播').textContent).toContain('小主播');
   });
 
+  it('按所选日期查看全日参与名单，筛选正在直播后仍能看到已下播人员', async () => {
+    l.overview.mockImplementation(async date => ({...empty(),date,daySummary:{sessions:2,live:0,people:1,roles:[{role:'anchor',members:[{id:3,name:'已下播主播',sessions:2}]},{role:'control',members:[]},{role:'operator',members:[]}]}} as never));
+    wrap(<LiveManagePage />);
+    await screen.findByText('还没有直播间');
+    fireEvent.click(screen.getByRole('button',{name:'正在直播'}));
+    fireEvent.click(screen.getByRole('button',{name:'本日直播情况汇总'}));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('已下播主播 2 场');
+    expect(dialog.textContent).toContain('1 人参与');
+    expect(dialog.textContent).toContain('运营 · 0 人');
+  });
+
   it('全览在正在直播时也显示下一场的时间、全部人员和场次产品', async () => {
     allow = ['features.live.view'];
     const next = {kind:'schedule',id:8,start:'2026-09-28 16:00:00',end:'2026-09-28 18:00:00',plannedEnd:'2026-09-28 18:00:00',anchorName:'下一场主播',controlName:'下一场中控',operatorName:'下一场运营',products:[{id:99,code:'HY25',name:'花育25',spec:'大包'}],state:'upcoming'};
