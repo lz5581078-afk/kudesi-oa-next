@@ -109,3 +109,36 @@
 .finance-cost-history-comparison .data-table td{background:#fff}
 .finance-cost-history-comparison .changed td{background:#f0faf5;color:#146c4b}
 .finance-cost-history-comparison .data-table{min-width:540px}
+
+.finance-cost-history-page{margin:0 -24px -24px;padding:16px 24px 24px;background:#fff;min-height:calc(100dvh - 140px)}
+.finance-history-heading h2{font-size:20px;line-height:28px;margin:0;color:#253e35}
+.finance-history-heading p{font-size:12px;color:#65776e;margin:2px 0 1px}
+.finance-history-toolbar{display:grid;grid-template-columns:204px minmax(0,1fr) 38px;align-items:center;gap:12px;padding:16px 0;margin-bottom:4px}
+.finance-history-toolbar select,.finance-history-toolbar input{height:44px;min-width:0;width:100%;border-radius:5px}
+.finance-history-toolbar input{grid-column:2}
+.finance-history-toolbar>span{grid-column:2;text-align:center;font-size:16px}
+.finance-history-toolbar:has(input){grid-template-columns:204px minmax(200px,1fr) 100px 38px}
+.finance-history-toolbar:has(input)>span{grid-column:3}
+.finance-history-toolbar>button[aria-label="刷新历史"]{height:38px;width:38px;padding:0;display:grid;place-items:center;border-radius:5px}
+.finance-history-toolbar>.finance-history-register{grid-column:1/-1;justify-self:end}
+.finance-history-archives>.muted{margin:0;font-size:12px}
+.finance-history-archives .data-table{font-size:14px}
+.finance-history-archives .data-table th{background:#f2f6f8;height:44px;padding:12px}
+.finance-history-archives .data-table td{padding:14px 12px}
+.finance-history-archives .table-scroll button{min-height:36px;border-radius:5px;padding:6px 12px}
+.finance-history-archive-detail{border-top:1px solid #dce4e0;margin-top:24px;padding-top:24px}
+.finance-history-archive-detail h3{font-size:20px;line-height:28px;margin:0}
+.finance-history-archive-detail header>.icon-button{width:34px;height:34px;border:1px solid #d5e0da;border-radius:5px}
+.finance-history-archive-detail nav{gap:0;margin:0 0 -1px}
+.finance-history-archive-detail nav button{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;height:48px;padding:12px 16px;color:#28483b;font-size:16px}
+.finance-history-archive-detail nav button[aria-pressed=true]{border-bottom-color:#16865f;background:#edf7f2}
+@media(max-width:700px){.finance-history-toolbar,.finance-history-toolbar:has(input){grid-template-columns:minmax(0,1fr) auto}.finance-history-toolbar select{grid-column:1}.finance-history-toolbar input{grid-column:1/-1;grid-row:2}.finance-history-toolbar>span,.finance-history-toolbar:has(input)>span{grid-column:1;text-align:left}.finance-history-toolbar>button[aria-label="刷新历史"]{grid-column:2}.finance-cost-history-page{margin:0 -16px -16px;padding:16px 16px 16px}}
+.finance-history-archives>.table-scroll>.data-table{table-layout:fixed}
+.finance-history-archives>.table-scroll>.data-table th:nth-child(1){width:18.75%}
+.finance-history-archives>.table-scroll>.data-table th:nth-child(2){width:33.33%}
+.finance-history-archives>.table-scroll>.data-table th:nth-child(3){width:22.83%}
+.finance-history-archives>.table-scroll>.data-table th:nth-child(4){width:10%}
+.finance-history-archives>.table-scroll>.data-table th:nth-child(5){width:15.09%}
+.finance-history-archive-detail header{align-items:flex-start}
+
+.finance-history-archive-detail>.empty-state{padding:32px 24px;font-size:16px}

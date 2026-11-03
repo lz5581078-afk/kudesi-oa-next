@@ -1,3 +1,5 @@
+import { RefreshCw } from 'lucide-react';
+import { CostHistoryArchives } from './CostHistoryArchives';
 import { CostHistoryRecords } from './CostHistoryRecords';
 import { FormEvent, useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
@@ -22,12 +24,13 @@ export function CostHistoryPage() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   // 三种记录：成本变更（每次成本/重量/运费/利润率/最低售价的变化）、售价维护（使用快递、单品利润率）、分类利润率调整
-  const [source, setSource] = useState<'changes' | 'pricing' | 'margins'>('changes');
+  const [source, setSource] = useState<'changes' | 'pricing' | 'margins' | 'archive'>('changes');
   const [pricingRows, setPricingRows] = useState<PricingHistoryRow[]>([]);
   const [marginRows, setMarginRows] = useState<MarginHistoryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
+    if (source === 'archive') { setLoading(false); setError(''); setTotal(0); return; }
     let active = true;
     setLoading(true); setError(''); setRows([]); setPricingRows([]); setMarginRows([]); setTotal(0);
     const timer = setTimeout(() => {
@@ -47,8 +50,7 @@ export function CostHistoryPage() {
 
   return (
     <div className="finance-cost-history-page">
-      <div className="page-head between"><h1>成本历史</h1><div className="toolbar"><select aria-label="历史类型" value={source} onChange={(e) => { setSource(e.target.value as typeof source); setPage(1); setKeyword(''); }}><option value="changes">成本变更记录</option><option value="pricing">售价维护记录</option><option value="margins">分类利润率记录</option></select><input aria-label="搜索成本历史" placeholder={source === 'margins' ? '分类或修改原因' : 'SKU编码、名称或修改原因'} value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} /><button type="button" className="secondary-button" aria-label="刷新历史" disabled={loading} onClick={() => setRefresh(v => v + 1)}>刷新历史</button>{source === 'changes' && <button type="button" className="secondary-button" disabled={busy} onClick={register}>{busy ? '登记中…' : '登记所有已验证组合的当前成本'}</button>}</div></div>
-      <p className="muted">组合验证通过时会自动登记一次；成本、重量、运费、利润率或最低售价和上一次不同才会新增一条版本，没变化不重复记。</p>
+      <header className="finance-history-heading"><h2>成本历史</h2><p>已确认的成本与售价变更</p></header><div className="finance-history-toolbar"><select aria-label="历史类型" value={source} onChange={(e) => { setSource(e.target.value as typeof source); setPage(1); setKeyword(''); }}><option value="changes">成本变更记录</option><option value="pricing">售价维护记录</option><option value="margins">分类利润率记录</option><option value="archive">旧版成本档案（只读）</option></select>{source !== 'archive' && <input aria-label="搜索成本历史" placeholder={source === 'margins' ? '分类或修改原因' : 'SKU编码、名称或修改原因'} value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />}<span>{total} 条</span><button type="button" className="secondary-button" aria-label="刷新历史" disabled={loading} onClick={() => setRefresh(v => v + 1)}><RefreshCw size={16} /></button>{source === 'changes' && <button type="button" className="secondary-button finance-history-register" disabled={busy} onClick={register}>{busy ? '登记中…' : '登记所有已验证组合的当前成本'}</button>}</div>
       {notice && <div role="status" className="notice ok">{notice}</div>}
       {error && <div role="alert" className="notice error">{error}</div>}
       {source === 'pricing' && (
@@ -74,8 +76,9 @@ export function CostHistoryPage() {
           </tbody>
         </table></div>
       )}
+      {source === 'archive' && <CostHistoryArchives key={refresh} onTotal={setTotal} />}
       {source === 'changes' && <CostHistoryRecords key={`${page}:${keyword}:${refresh}`} rows={rows} busy={loading} />}
-      <div className="toolbar"><button type="button" className="secondary-button small" disabled={loading || page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span className="muted">共 {total} 条 · 第 {page} 页</span><button type="button" className="secondary-button small" disabled={loading || page * 20 >= total} onClick={() => setPage(page + 1)}>下一页</button></div>
+      {source !== 'archive' && <div className="toolbar"><button type="button" className="secondary-button small" disabled={loading || page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span className="muted">共 {total} 条 · 第 {page} 页</span><button type="button" className="secondary-button small" disabled={loading || page * 20 >= total} onClick={() => setPage(page + 1)}>下一页</button></div>}
     </div>
   );
 }
