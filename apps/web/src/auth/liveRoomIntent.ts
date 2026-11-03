@@ -8,7 +8,7 @@ export function liveRoomTarget(value:string):string|null {
     if(!company||!/^\d+$/.test(company)||!Number.isSafeInteger(Number(company))||Number(company)<=0)return null;
     if(room!==null&&(!/^\d+$/.test(room)||!Number.isSafeInteger(Number(room))||Number(room)<=0))return null;
     if(!room&&!token)return null;
-    return `/features/live-desk?${room?`room=${Number(room)}&`:''}company=${Number(company)}${token?`&token=${token}`:''}`;
+    return `/features/live-desk?${room?`room=${Number(room)}&`:''}company=${Number(company)}${token?`&token=${token}`:''}${url.searchParams.get('daily')==='1'?'&daily=1':''}`;
   } catch {return null;}
 }
 export function rememberLiveRoom() {

@@ -1,3 +1,4 @@
+import { assertNoDailyPaidOverlap } from './daily-work-core';
 import { reportsLocked } from './live-checkin-core';
 import { liveClock } from './live-core';
 import { commissionOnlyControl } from './live-access';
@@ -209,6 +210,8 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
         [ctx.companyId, sessionId, userId, role, session.session_day, platform.finalSalesCents, platform.adSpendCents, platform.roiScaled, role !== 'operator' && platform.belowRoi ? 1 : 0, value.rateUnits, value.amountCents, version!.id, snapshot, ctx.actorId, at, ctx.runId, platform.platform]);
     }
   }
+  if(wage.amountCents>0)await assertNoDailyPaidOverlap(em,ctx.companyId,Number(session.anchor_user_id),wage.startAt,wage.endAt);
+  if(controlWage&&controlWage.amountCents>0)await assertNoDailyPaidOverlap(em,ctx.companyId,Number(session.control_user_id),controlWage.startAt,controlWage.endAt);
   const wageSnapshot = JSON.stringify({
     trialProxy: Number(session.trial_proxy)?{anchorId:Number(session.anchor_user_id),confirmedBy:Number(session.started_by)}:null,
     reportedStartAt: wage.reportedStart, reportedEndAt: wage.reportedEnd, timesChanged: wage.timesChanged, archiveHourlyRateCents: wage.archiveRate,

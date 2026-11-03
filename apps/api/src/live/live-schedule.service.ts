@@ -1,3 +1,4 @@
+import { assertNoDailyWork } from './daily-work-core';
 import { scheduleFingerprint } from './live-checkin-core';
 import { channelsOf, validateChannels, assertAccountTime } from './live-platforms';
 import { LiveChannelInput } from '@kudesi/shared';
@@ -143,6 +144,7 @@ export class LiveScheduleService {
     return this.ds.transaction(async (em) => {
       await lockCompany(em, a.companyId);
       const v = await this.validate(em, a, input, null);
+      await assertNoDailyWork(em,a.companyId,[v.anchorId,v.controlId,v.operatorId].filter((id):id is number=>!!id),v.startAt,v.endAt);
       const res = await em.query(
         `INSERT INTO live_schedules (company_id, room_id, room_name, schedule_date, start_at, end_at, anchor_user_id, control_user_id, operator_user_id, douyin_account_id, douyin_account_name, store_id, store_name, status, note, created_by, products_json)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?,?,?)`,
@@ -163,6 +165,7 @@ export class LiveScheduleService {
       if (!old) liveFail('排场不存在', 404);
       if (old.status !== 'scheduled') liveFail('已上播、已结束或已取消的排场不能修改');
       const v = await this.validate(em, a, input, id);
+      await assertNoDailyWork(em,a.companyId,[v.anchorId,v.controlId,v.operatorId].filter((id):id is number=>!!id),v.startAt,v.endAt);
       await em.query(
         `UPDATE live_schedules SET room_id = ?, room_name = ?, schedule_date = ?, start_at = ?, end_at = ?, anchor_user_id = ?, control_user_id = ?, operator_user_id = ?,
            douyin_account_id = ?, douyin_account_name = ?, store_id = ?, store_name = ?, note = ?, products_json = ?, updated_by = ?, notification_version = notification_version + 1 WHERE company_id = ? AND id = ?`,

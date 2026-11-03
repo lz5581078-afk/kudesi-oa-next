@@ -1,3 +1,4 @@
+import { DailyOfficeCard } from './DailyWorkPanel';
 import { RoomSessionAccounts, RoomSessionPanel } from './RoomSessionPanel';
 import { roomProductItems } from './roomProducts';
 import { productText } from './liveProducts';
@@ -143,7 +144,7 @@ export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => 
             <div className="live-floor" aria-label="西走廊平面">
               <div className="live-row live-room-bank" aria-label="南侧直播间" style={roomRowStyle(d.groups.south)}>{row(d.groups.south).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>
               <div className="live-corridor" aria-hidden="true">走　廊</div>
-              <div className="live-row live-room-bank" aria-label="北侧直播间" style={roomRowStyle(d.groups.north)}>{row(d.groups.north).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>
+              <div className="live-row live-room-bank" aria-label="北侧直播间" style={{...roomRowStyle(d.groups.north),'--live-room-units':Math.max(1,row(d.groups.north).reduce((n,t)=>n+(t.big?2:1),0))+1} as CSSProperties}>{row(d.groups.north).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}<DailyOfficeCard date={d.date}/></div>
               {d.groups.none.length > 0 && <div className="live-row">{row(d.groups.none).map((t) => <Tile key={t.id} t={t} day={d.date} now={d.now} onOpen={() => setRoom(t.id)} onEdit={can('live.manage')?()=>setEditing(t):undefined} />)}</div>}
             </div>
           )}
