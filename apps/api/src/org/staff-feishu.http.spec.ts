@@ -9,7 +9,7 @@ import { StaffFeishuService } from './staff-feishu.service';
 
 describe('人员测试通知 HTTP 边界',()=>{
   let app:INestApplication,base:string;
-  const service={statuses:jest.fn(async()=>({rows:[]})),sendTest:jest.fn(async()=>({jobId:9,status:'pending'})),testStatus:jest.fn(async()=>({jobId:9,status:'pending'})),resetPreview:jest.fn(async()=>({bindingCount:3})),resetBindings:jest.fn(async()=>({remainingBindings:0}))};
+  const service={unbindPreview:jest.fn(async()=>({bindingCount:1})),unbind:jest.fn(async()=>({bindingCount:1})),statuses:jest.fn(async()=>({rows:[]})),sendTest:jest.fn(async()=>({jobId:9,status:'pending'})),testStatus:jest.fn(async()=>({jobId:9,status:'pending'})),resetPreview:jest.fn(async()=>({bindingCount:3})),resetBindings:jest.fn(async()=>({remainingBindings:0}))};
   beforeAll(async()=>{
     const module=await Test.createTestingModule({controllers:[StaffFeishuController],providers:[{provide:StaffFeishuService,useValue:service},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile();
     app=module.createNestApplication();app.setGlobalPrefix('api');app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));
@@ -28,6 +28,16 @@ describe('人员测试通知 HTTP 边界',()=>{
     expect(service.sendTest).not.toHaveBeenCalled();
     const requestId=randomUUID(),result=await post('edit',{requestId,title:'自定义标题',body:'自定义正文'});expect(result.status).toBe(201);
     expect(service.sendTest).toHaveBeenCalledWith(expect.objectContaining({id:11,companyId:7}),42,requestId,{title:'自定义标题',body:'自定义正文'});
+  });
+  it('单人解绑要求查看和编辑权限，严格校验员工编号和摘要，并只使用令牌公司',async()=>{
+    const unbind=(role:string,id:string,body:object)=>fetch(base+'/api/org/staff-feishu/'+id+'/unbind',{method:'POST',headers:{'content-type':'application/json','x-test-role':role},body:JSON.stringify(body)});
+    for(const role of ['read','anonymous'])expect((await unbind(role,'42',{fingerprint:'a'.repeat(64)})).status).toBe(403);
+    for(const [id,body] of [['bad',{fingerprint:'a'.repeat(64)}],['42',{fingerprint:'bad'}],['42',{fingerprint:'a'.repeat(64),companyId:8}]] as const)expect((await unbind('edit',id,body)).status).toBe(400);
+    expect(service.unbind).not.toHaveBeenCalled();
+    expect((await unbind('edit','42',{fingerprint:'a'.repeat(64)})).status).toBe(201);
+    expect(service.unbind).toHaveBeenCalledWith(expect.objectContaining({id:11,companyId:7}),42,'a'.repeat(64));
+    expect((await fetch(base+'/api/org/staff-feishu/42/unbind-preview',{headers:{'x-test-role':'edit'}})).status).toBe(200);
+    expect(service.unbindPreview).toHaveBeenCalledWith(expect.objectContaining({id:11,companyId:7}),42);
   });
   it('批量重绑入口限制编辑权限和严格预览摘要，不接收客户端公司身份',async()=>{
     const reset=(role:string,body:object)=>fetch(base+'/api/org/staff-feishu/reset-bindings',{method:'POST',headers:{'content-type':'application/json','x-test-role':role},body:JSON.stringify(body)});
