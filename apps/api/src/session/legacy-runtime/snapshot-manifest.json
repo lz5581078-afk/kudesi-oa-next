@@ -1,0 +1,134 @@
+{
+  "formatVersion": 1,
+  "sourceRepository": "kudesi-oa",
+  "sourceCommit": "0fb7fdad2f3805e3579bd4f870199c880668aaa1",
+  "policy": "Files copied byte-for-byte. No legacy server bootstrap, business-secret defaults, environment, credentials or installer binaries included.",
+  "dependencies": [
+    "node builtins",
+    "express",
+    "ws"
+  ],
+  "agentPlatformNote": "Server platform-registry is self-contained in this source revision; agent/platforms is included as the matching adapter source for assistant compatibility, not required by the server router.",
+  "files": [
+    {
+      "sha256": "48d85d89cccc055664d46e9fec48aec516d6e0500f92c0d0871eea5027a08b86",
+      "source": "server/modules/session-manager/agent-release-service.js",
+      "snapshot": "vendor/server/modules/session-manager/agent-release-service.js"
+    },
+    {
+      "sha256": "b18ddc5852011c0b512426f4aa87fd1a0520a2d97a841d29e3325f222dabc66d",
+      "source": "server/modules/session-manager/agent-update-service.js",
+      "snapshot": "vendor/server/modules/session-manager/agent-update-service.js"
+    },
+    {
+      "sha256": "f8e1b3a8cf75931783fad227e19a76705bd5dd506448c1da53749a216ee04856",
+      "source": "server/modules/session-manager/device-auth.js",
+      "snapshot": "vendor/server/modules/session-manager/device-auth.js"
+    },
+    {
+      "sha256": "d34a9f485995ae2199773cdfe8881b4ef243194ef4a5e1bb576fb65d03b67055",
+      "source": "server/modules/session-manager/managed-browser-session-service.js",
+      "snapshot": "vendor/server/modules/session-manager/managed-browser-session-service.js"
+    },
+    {
+      "sha256": "974b2f19d0d68962b10972f8a75a4b652917cec310f217ee7de4881038543887",
+      "source": "server/modules/session-manager/managed-shop-service.js",
+      "snapshot": "vendor/server/modules/session-manager/managed-shop-service.js"
+    },
+    {
+      "sha256": "f1a2b935fb77a592bf94da3ad6d6e687c887e6f3dc1f04399a9bcada786bf600",
+      "source": "server/modules/session-manager/open-request-service.js",
+      "snapshot": "vendor/server/modules/session-manager/open-request-service.js"
+    },
+    {
+      "sha256": "cd9cce9a7ca2b27f7d2c724ba0d17731f4578e494fc7031e5cd4170511cbe609",
+      "source": "server/modules/session-manager/overview-service.js",
+      "snapshot": "vendor/server/modules/session-manager/overview-service.js"
+    },
+    {
+      "sha256": "06809adf42f5c1a4ff67fda6b7d9750b80654d67351c8d7ae4980b9f62096998",
+      "source": "server/modules/session-manager/permissions.js",
+      "snapshot": "vendor/server/modules/session-manager/permissions.js"
+    },
+    {
+      "sha256": "4917ef3c29a840919bf315f019165840aec07be90b1ddf1cc319176199830e48",
+      "source": "server/modules/session-manager/platform-registry.js",
+      "snapshot": "vendor/server/modules/session-manager/platform-registry.js"
+    },
+    {
+      "sha256": "81102343302928ea6b15f90500af10c3e27ddf40044c01beb28bff6d5d4596d0",
+      "source": "server/modules/session-manager/remote-assistance-service.js",
+      "snapshot": "vendor/server/modules/session-manager/remote-assistance-service.js"
+    },
+    {
+      "sha256": "8816e272887e829b5fda37ee60506b7e62ec647c7af70129a92e580da8709d84",
+      "source": "server/modules/session-manager/routes.js",
+      "snapshot": "vendor/server/modules/session-manager/routes.js"
+    },
+    {
+      "sha256": "cdcbdafdcce915f630966d7e61bb336e2698ee7d28d26d0c6b4f0d46e4df8b88",
+      "source": "server/modules/session-manager/session-service.js",
+      "snapshot": "vendor/server/modules/session-manager/session-service.js"
+    },
+    {
+      "sha256": "9c62aa68a89f37d4a9736db72905de5af0b3d5559669b5dd92c2830658048142",
+      "source": "server/modules/session-manager/store-archive-status-service.js",
+      "snapshot": "vendor/server/modules/session-manager/store-archive-status-service.js"
+    },
+    {
+      "sha256": "3f4733796e18bbf9edf04260702b582d3a378332e1f3f3f01ba342a9eb0ef282",
+      "source": "server/modules/session-manager/store-credential-service.js",
+      "snapshot": "vendor/server/modules/session-manager/store-credential-service.js"
+    },
+    {
+      "sha256": "eab7e07a5666e80952bd89f099f5b01241fcfc51b844ba68251fac8d43f1e3de",
+      "source": "server/modules/session-manager/webrtc-signaling-server.js",
+      "snapshot": "vendor/server/modules/session-manager/webrtc-signaling-server.js"
+    },
+    {
+      "sha256": "7895a48eaa56c17e7c80871fde5a43062647431d80e4fca8cee7378ce65a8820",
+      "source": "server/modules/session-manager/webrtc-ticket-service.js",
+      "snapshot": "vendor/server/modules/session-manager/webrtc-ticket-service.js"
+    },
+    {
+      "sha256": "a3628b3793da766e477893ff82174dcfe9b13bd976ad0e6c0d89a7e4f299e0ab",
+      "source": "server/modules/session-manager/workspaces.js",
+      "snapshot": "vendor/server/modules/session-manager/workspaces.js"
+    },
+    {
+      "sha256": "a89ea75becf673b5dd7c487234f8e64bdcd7a8f74d851e201b46f567b512ea63",
+      "source": "agent/platforms/auth-verification.js",
+      "snapshot": "vendor/agent/platforms/auth-verification.js"
+    },
+    {
+      "sha256": "d9262bcdc793fdfee486f870493b99deb73f0209d3db82b87cb9afba7aac7a1a",
+      "source": "agent/platforms/credential-login.js",
+      "snapshot": "vendor/agent/platforms/credential-login.js"
+    },
+    {
+      "sha256": "837476b883170d4417d1caf4bb95276fdaf0399c14762f714f5f87bba821fa09",
+      "source": "agent/platforms/generic.js",
+      "snapshot": "vendor/agent/platforms/generic.js"
+    },
+    {
+      "sha256": "4ebc1cd3dd69492605c6b0a5b1ba46f526fc3cc7a82cacef5245dd5ae6c1ddc4",
+      "source": "agent/platforms/index.js",
+      "snapshot": "vendor/agent/platforms/index.js"
+    },
+    {
+      "sha256": "49beb73d6bc3c2111a2abf46edaa37cd09721af63f726160fcd682f37ad9bbe3",
+      "source": "agent/platforms/pdd.js",
+      "snapshot": "vendor/agent/platforms/pdd.js"
+    },
+    {
+      "snapshot": "vendor/agent/config.js",
+      "source": "agent/config.js",
+      "sha256": "f0aea4c407841d68cd9ba7cb1f42dd431c22dda2cdd9a3accc17273fc500cf2c"
+    },
+    {
+      "snapshot": "vendor/agent/version.json",
+      "source": "agent/version.json",
+      "sha256": "5a8179de32ff87fe0f077a0ed2ed61ffea121e1eea31ba52217c772bbc75ca09"
+    }
+  ]
+}
