@@ -43,3 +43,29 @@ it('中控先上播时主播也从同一实际场次加入，按主播本人身�
  confirm();fireEvent.click(screen.getByRole('button',{name:'确认上播'}));
  await waitFor(()=>expect(api.start).toHaveBeenCalledWith(expect.objectContaining({sessionId:7,role:'anchor'})));
 });
+
+it('默认只显示本场资料，切换账号后收起其他账号并重新核对',async()=>{
+ api.options.mockResolvedValue({rooms:[{id:10,name:'北1'},{id:11,name:'其他直播间'}],anchors:[plan.anchor],controls:[plan.control],operators:[],douyinAccounts:[{id:20,name:'实际直播号',platform:'douyin',storeIds:[30]},{id:21,name:'其他直播号',platform:'douyin',storeIds:[31]}],stores:[{id:30,name:'店铺',platform:'douyin'},{id:31,name:'另一店铺',platform:'douyin'}]} as never);
+ render(<StartDialog {...props}/>);await screen.findByDisplayValue('旧计划产品');
+ expect(screen.getByLabelText('直播间').textContent).toBe('北1');expect(screen.queryByText('其他直播间')).toBeNull();expect(screen.queryByText('其他直播号')).toBeNull();expect(screen.queryByRole('combobox')).toBeNull();
+ confirm();fireEvent.click(screen.getByRole('button',{name:'切换直播账号 / 店铺'}));
+ fireEvent.click(screen.getByRole('checkbox',{name:'其他直播号'}));fireEvent.click(screen.getByRole('checkbox',{name:'实际直播号'}));
+ expect((screen.getByRole('checkbox',{name:/已核对本场人员/}) as HTMLInputElement).checked).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'完成选择'}));expect(screen.queryByRole('checkbox',{name:'实际直播号'})).toBeNull();expect(screen.getByLabelText('本场已选账号与店铺').textContent).toContain('其他直播号');expect(screen.getByLabelText('本场已选账号与店铺').textContent).toContain('另一店铺');
+ confirm();fireEvent.click(screen.getByRole('button',{name:'确认上播'}));await waitFor(()=>expect(api.start).toHaveBeenCalledWith(expect.objectContaining({channels:[{accountId:21,storeIds:[31]}],douyinAccountId:21,storeId:31})));
+});
+it('临时加场先选择直播间，选完只显示选中项，需要切换再展开',async()=>{
+ api.checkinContext.mockResolvedValue({...context(),schedules:[]});
+ api.options.mockResolvedValue({rooms:[{id:10,name:'北1'},{id:11,name:'其他直播间'}],anchors:[],controls:[],operators:[],douyinAccounts:[],stores:[]} as never);
+ render(<StartDialog {...props} schedule={null}/>);await screen.findByRole('button',{name:'选择直播间'});expect(screen.queryByRole('combobox')).toBeNull();expect(screen.queryByText('其他直播间')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'选择直播间'}));fireEvent.change(screen.getByRole('combobox',{name:'选择直播间'}),{target:{value:'10'}});
+ expect(screen.getByLabelText('直播间').textContent).toBe('北1');expect(screen.queryByText('其他直播间')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'切换直播间'}));fireEvent.change(screen.getByRole('combobox',{name:'选择直播间'}),{target:{value:'11'}});expect(screen.getByLabelText('直播间').textContent).toBe('其他直播间');expect(screen.queryByRole('combobox')).toBeNull();
+});
+it('未安排本人的空缺中控场次默认收起，主动选择后才能加入',async()=>{
+ api.checkinContext.mockResolvedValue({...context([{...actual,control:null}]),schedules:[]});
+ render(<StartDialog {...props} schedule={null}/>);
+ await screen.findByRole('button',{name:'选择其他可加入场次'});expect(screen.queryByRole('button',{name:/直播中 · 加入本场/})).toBeNull();expect(api.start).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'选择其他可加入场次'}));fireEvent.click(screen.getByRole('button',{name:/直播中 · 加入本场/}));
+ await screen.findByRole('dialog',{name:'核对本场并确认本人上播'});expect(api.start).not.toHaveBeenCalled();
+});

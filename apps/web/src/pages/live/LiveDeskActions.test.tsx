@@ -17,7 +17,7 @@ describe('本人岗位工作台直播按钮',()=>{
    render(<LiveCheckinPanel companyId={1} token={'a'.repeat(43)}/>);
    fireEvent.click(await screen.findByRole('button',{name:'上播'}));expect((await screen.findByRole('alert')).textContent).toContain('请选择上播直播间');expect(screen.queryByRole('dialog')).toBeNull();
    fireEvent.change(screen.getByLabelText('上播直播间'),{target:{value:'20'}});fireEvent.click(screen.getByRole('button',{name:'上播'}));
-   const dlg=await screen.findByRole('dialog',{name:'核对本场并确认本人上播'});await waitFor(()=>expect((within(dlg).getByLabelText('直播间') as HTMLSelectElement).value).toBe('20'));
+   const dlg=await screen.findByRole('dialog',{name:'核对本场并确认本人上播'});await waitFor(()=>expect(within(dlg).getByLabelText('直播间').textContent).toBe('北2'));
  });
  it('通用码已有本人实际场次时直接下播，无需选择房间',async()=>{
    a.checkinContext.mockResolvedValue(context({rooms:[{id:10,name:'南1'},{id:20,name:'北2'}],active:[{...session,myCheckin:{role:'anchor',startAt:session.startAt,endAt:null}}]}) as never);

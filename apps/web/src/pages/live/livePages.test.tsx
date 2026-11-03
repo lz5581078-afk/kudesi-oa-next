@@ -57,6 +57,7 @@ describe('我的直播', () => {
     const dlg = await screen.findByRole('dialog', { name: '报上播（按排场）' });
     fireEvent.click(within(dlg).getByRole('button', { name: '确认上播' }));
     expect((await within(dlg).findByRole('alert')).textContent).toContain('关联店铺');
+    fireEvent.click(within(dlg).getByRole('button', { name: '切换直播账号 / 店铺' }));
     fireEvent.click(await within(dlg).findByLabelText('抖音一号关联抖音店'));
     fireEvent.click(within(dlg).getByRole('button', { name: '确认上播' }));
     expect((await within(dlg).findByRole('alert')).textContent).toContain('在卖产品');
