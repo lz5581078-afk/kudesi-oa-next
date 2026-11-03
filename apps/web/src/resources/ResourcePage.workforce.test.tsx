@@ -17,7 +17,7 @@ const row={id:7,type:'workforce',title:'正式建档主播',status:'active',stat
 beforeEach(()=>{
  localStorage.clear();auth.user.permissions={isCompanyAdmin:true,allow:[],deny:[]};
  vi.mocked(resourceApi.list).mockResolvedValue({items:[row],total:1,page:1,pageSize:20,tabCounts:{}});
- request.mockImplementation(async(path:string)=>path==='/workforce/unfiled'?[{id:80,name:'试播小白',account:null,employmentType:'part_time'}]:path==='/workforce/login-display'?[{id:70,account:'oa70',loginPassword:'Preview-only-123'},{id:80,account:null,loginPassword:'未设置'}]:[]);
+ request.mockImplementation(async(path:string)=>path==='/workforce/unfiled'?[{id:80,name:'试播小白',account:null,employmentType:'part_time'}]:path==='/workforce/login-display'?[{id:70,account:'oa70',loginPassword:'Preview-only-123',feishuBound:false},{id:80,account:null,loginPassword:'未设置',feishuBound:true}]:[]);
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe('用工列表姓名账号及试播人员',()=>{
@@ -33,6 +33,17 @@ describe('用工列表姓名账号及试播人员',()=>{
   expect((screen.getByRole('checkbox',{name:'勾选 试播小白'}) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole('button',{name:'补资料'}));
   expect(await screen.findByText('员工编辑80')).toBeTruthy();
+ });
+ it('按员工编号预览待补资料人员的绑定，已建档未绑定人员没有解绑按钮',async()=>{
+  const preview=vi.spyOn(orgApi,'staffFeishuUnbindPreview').mockResolvedValue({userId:80,name:'试播小白',account:'',bindingCount:1,includesSelf:false,fingerprint:'a'.repeat(64)});
+  render(<MemoryRouter><ResourcePage type="workforce"/></MemoryRouter>);
+  const trial=within((await screen.findByText('试播小白')).closest('tr')!);
+  expect(trial.getByText('已绑定')).toBeTruthy();
+  expect(within(screen.getByText('正式建档主播').closest('tr')!).getByText('未绑定')).toBeTruthy();
+  expect(screen.getAllByRole('button',{name:'解绑飞书'})).toHaveLength(1);
+  fireEvent.click(trial.getByRole('button',{name:'解绑飞书'}));
+  await screen.findByRole('dialog',{name:'解绑员工飞书'});
+  expect(preview).toHaveBeenCalledWith(80);preview.mockRestore();
  });
  it('搜索过滤试播，未建档账号设置使用人员ID而不伪造档案ID',async()=>{
   render(<MemoryRouter><ResourcePage type="workforce"/></MemoryRouter>);
@@ -51,7 +62,7 @@ describe('用工列表姓名账号及试播人员',()=>{
   auth.user.permissions={isCompanyAdmin:false,allow:['resource.workforce.view'],deny:[]};
   render(<MemoryRouter><ResourcePage type="workforce"/></MemoryRouter>);
   await screen.findByText('试播小白');
-  expect(screen.queryByText('登录密码')).toBeNull();expect(screen.queryByText('Preview-only-123')).toBeNull();
+  expect(screen.queryByRole('button',{name:'解绑飞书'})).toBeNull();expect(screen.getByText('已绑定')).toBeTruthy();expect(screen.queryByText('登录密码')).toBeNull();expect(screen.queryByText('Preview-only-123')).toBeNull();
  });
 
  it('显示停用后可找到未建档员工并用真实员工ID启用',async()=>{

@@ -129,8 +129,8 @@ export function ResourceTable(p: Props) {
             {columns.map((f, i) => {
               const sorted = p.sort?.by === f.key;
               return (
-                <th key={f.key} scope="col" className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`} aria-sort={(SORTABLE.has(f.type)&&!(p.type==='workforce'&&['loginPassword','profileState'].includes(f.key))) ? (sorted ? (p.sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}>
-                  {(SORTABLE.has(f.type)&&!(p.type==='workforce'&&['loginPassword','profileState'].includes(f.key))) ? (
+                <th key={f.key} scope="col" className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`} aria-sort={(SORTABLE.has(f.type)&&!(p.type==='workforce'&&['loginPassword','profileState','feishuBinding'].includes(f.key))) ? (sorted ? (p.sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}>
+                  {(SORTABLE.has(f.type)&&!(p.type==='workforce'&&['loginPassword','profileState','feishuBinding'].includes(f.key))) ? (
                     <button type="button" className="th-sort" title="点击排序" onClick={() => p.onSort(f.key)}>
                       {f.label}<span className="th-arrow" aria-hidden="true">{sorted ? (p.sort!.dir === 'asc' ? '↑' : '↓') : ''}</span>
                     </button>

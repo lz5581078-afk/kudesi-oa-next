@@ -31,6 +31,11 @@ export class WorkforceLoginService {
     if(!can('resource.workforce.view'))throw new ForbiddenException();
     if(!ids.length)return [];
     const people=await this.ds.manager.find(User,{where:{companyId:actor.companyId,id:In(ids),employmentType:In(['part_time','temp']),isCompanyAdmin:false}});
+    const bindings: Array<{user_id:number}> = people.length ? await this.ds.query(
+      'SELECT DISTINCT user_id FROM feishu_identities WHERE company_id=? AND user_id IN (?)',
+      [actor.companyId, people.map(person => person.id)],
+    ) : [];
+    const boundIds = new Set(bindings.map(row => Number(row.user_id)));
     const allowed=can('org.staff.reset');
     const secrets: Array<{user_id:number;password_cipher:string;password_hash_snapshot:string}>=allowed?await this.ds.query('SELECT user_id,password_cipher,password_hash_snapshot FROM workforce_login_secrets WHERE company_id=? AND user_id IN (?)',[actor.companyId,people.map(p=>p.id).length?people.map(p=>p.id):[0]]):[];
     const revealed:number[]=[];
@@ -38,7 +43,7 @@ export class WorkforceLoginService {
       const secret=secrets.find(s=>Number(s.user_id)===person.id&&s.password_hash_snapshot===person.passwordHash);
       const password=secret?this.crypto.decrypt(secret.password_cipher):undefined;
       if(password!==undefined)revealed.push(person.id);
-      return {id:person.id,account:person.account,...(allowed?{loginPassword:password??(person.passwordHash&&!person.passwordHash.startsWith('!')?'历史密码不可读取，可重新设置':'未设置')}:{})};
+      return {id:person.id,account:person.account,feishuBound:boundIds.has(person.id),...(allowed?{loginPassword:password??(person.passwordHash&&!person.passwordHash.startsWith('!')?'历史密码不可读取，可重新设置':'未设置')}:{})};
     });
     if(revealed.length)await this.ds.manager.save(AuditLog,this.ds.manager.create(AuditLog,{companyId:actor.companyId,actorId:actor.id,action:'user.workforce_password.view',resourceType:'user',resourceId:null,detail:{userIds:revealed}}));
     return result;

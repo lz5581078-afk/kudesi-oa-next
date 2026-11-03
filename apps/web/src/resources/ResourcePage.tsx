@@ -32,6 +32,7 @@ import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../layout/AppbarSlo
 import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
 import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
 import { PageHint } from './PageHint';
+import { StaffFeishuUnbindDialog } from '../pages/org/StaffFeishuUnbind';
 import { WorkforceActions } from './WorkforceActions';
 import { StaffEditorDialog } from '../pages/org/StaffEditorDialog';
 import { AddAccountDialog, WorkforceLoginDialog, type UnfiledPerson } from './WorkforcePanels';
@@ -116,8 +117,9 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     setColSaved(readColFilters(def, colCan));
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
   const commitCol = (next: SavedColFilters) => { setColSaved(next); writeColFilters(type, next); setPage(1); };
-  const [loginDisplay,setLoginDisplay]=useState<Array<{id:number;account:string|null;loginPassword?:string}>>([]);
+  const [loginDisplay,setLoginDisplay]=useState<Array<{id:number;account:string|null;loginPassword?:string;feishuBound?:boolean}>>([]);
   const [unfiled,setUnfiled]=useState<UnfiledPerson[]>([]);
+  const [unbindPerson,setUnbindPerson]=useState<{id:number;name:string}|null>(null);
   const [loginRow,setLoginRow]=useState<ResourceDto|null>(null);
   const [keyword, setKeyword] = useState('');
   const [tab, setTab] = useState(lockedTab ?? '');
@@ -211,6 +213,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     {key:'userId',label:'姓名',type:'ref',ref:'user',group:'基本信息',readonly:true},
     {key:'account',label:'OA登录账号',type:'text',group:'登录',readonly:true},
     ...(colCan('org.staff.reset')?[{key:'loginPassword',label:'登录密码',type:'text' as const,group:'登录',readonly:true}]:[]),
+    {key:'feishuBinding',label:'飞书绑定',type:'text',group:'登录',readonly:true},
     {key:'profileState',label:'资料状态',type:'text',group:'基本信息',readonly:true},
     ...baseColumns.filter(f=>!['userId','name','account'].includes(f.key)),
   ]:baseColumns;
@@ -267,7 +270,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
         const missing=await api<UnfiledPerson[]>('/workforce/unfiled' + (showHidden || status === 'inactive' ? '?showDisabled=true' : ''));
         const ids=[...new Set([...result.items.map(r=>Number(r.data.userId)),...missing.map(p=>p.id)])].filter(id=>Number.isSafeInteger(id)&&id>0);
         // Dedicated endpoint: passwords never enter generic resource data, exports or grid saves.
-        const credentials: Array<{id:number;account:string|null;loginPassword?:string}>=[];
+        const credentials: Array<{id:number;account:string|null;loginPassword?:string;feishuBound?:boolean}>=[];
         for(let i=0;i<ids.length;i+=200)credentials.push(...await api<typeof credentials>('/workforce/login-display',{method:'POST',body:{ids:ids.slice(i,i+200)}}));
         const byId=new Map(credentials.map(c=>[c.id,c]));
         setLoginDisplay(credentials);
@@ -290,12 +293,15 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
 
   const workforceActions = (row: ResourceDto) => <span className="workforce-actions" onClick={e => e.stopPropagation()}>
     <WorkforceActions record={row} onEdit={setEditRow} onLogs={() => { setDetailTab('logs'); setSelected(row.id); }} onChanged={() => void load()} />
+    {row.data.feishuBinding === '已绑定' && me?.permissions.isCompanyAdmin && colCan('org.staff.view') && colCan('org.staff.edit') &&
+      <button type="button" className="row-act danger" onClick={() => setUnbindPerson({id:Number(row.data.userId),name:row.refLabels?.userId || row.title})}>解绑飞书</button>}
     {!row.archived && can('edit') && colCan('org.staff.edit') && <button type="button" className="row-act" onClick={() => setLoginRow(row)}>设置账号密码</button>}
   </span>;
+  const bindingLabel = (bound?:boolean) => bound === undefined ? '状态未知' : bound ? '已绑定' : '未绑定';
   const missingRows: ResourceDto[] = type === 'workforce' && !tab && !archived && !expiring && page === 1 && !Object.values(filterVals).some(Boolean) && !Object.keys(colFilters).length
     ? unfiled.filter(p => (!status || (p.status === 'disabled' ? 'inactive' : 'active') === status) && keyword.trim().split(/\s+/).every(k => `${p.name} ${p.account ?? ''}`.toLowerCase().includes(k.toLowerCase())))
-      .map(p => ({ id: -p.id, type: 'workforce', title: p.name, status: p.status === 'disabled' ? 'inactive' : '待补资料', statusReason: null, data: { userId: p.id, name: p.name, account: p.account ?? '未设置', accountStatus: p.status ?? 'active', loginPassword: p.loginPassword, employmentType: p.employmentType, profileState: '待补资料', profileIncomplete: true }, refLabels: { userId: p.name }, secretConfigured: {}, files: {}, createdAt: '', updatedAt: '' })) : [];
-  const listRows=data?[...missingRows,...data.items.map(r=>type==='workforce'?{...r,data:{...r.data,...loginDisplay.find(c=>c.id===Number(r.data.userId)),profileState:'已建档'}}:r)]:null;
+      .map(p => ({ id: -p.id, type: 'workforce', title: p.name, status: p.status === 'disabled' ? 'inactive' : '待补资料', statusReason: null, data: { userId: p.id, name: p.name, account: p.account ?? '未设置', accountStatus: p.status ?? 'active', loginPassword: p.loginPassword, feishuBinding:bindingLabel(p.feishuBound), employmentType: p.employmentType, profileState: '待补资料', profileIncomplete: true }, refLabels: { userId: p.name }, secretConfigured: {}, files: {}, createdAt: '', updatedAt: '' })) : [];
+  const listRows=data?[...missingRows,...data.items.map(r=>type==='workforce'?{...r,data:{...r.data,...loginDisplay.find(c=>c.id===Number(r.data.userId)),feishuBinding:bindingLabel(loginDisplay.find(c=>c.id===Number(r.data.userId))?.feishuBound),profileState:'已建档'}}:r)]:null;
   const openListRow = (id: number) => { if (type === 'workforce' && id < 0) { if (colCan('org.staff.view') && colCan('org.staff.edit')) setEditingStaff(-id); } else setSelected(id); };
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
   const hiddenExists = def.statuses.some((s) => s.hidden);
@@ -561,7 +567,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
               <label className="res-filter-wide"><span>排序</span>
                 <select aria-label="排序方式" value={sort ? `${sort.by}:${sort.dir}` : ''} onChange={(e) => { const [by, dir] = e.target.value.split(':'); setSort(by ? { by, dir: dir as 'asc' | 'desc' } : null); setPage(1); }}>
                   <option value="">默认排序</option>
-                  {columns.filter((f) => SORTABLE.has(f.type)&&!(type==='workforce'&&['loginPassword','profileState'].includes(f.key))).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
+                  {columns.filter((f) => SORTABLE.has(f.type)&&!(type==='workforce'&&['loginPassword','profileState','feishuBinding'].includes(f.key))).flatMap((f) => [<option key={`${f.key}:asc`} value={`${f.key}:asc`}>{f.label} ↑</option>, <option key={`${f.key}:desc`} value={`${f.key}:desc`}>{f.label} ↓</option>])}
                 </select>
               </label>
             ) : undefined}
@@ -629,6 +635,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
           {toolbar}
           {type==='workforce'&&unfiled.length>0&&<p className="notice m">待补资料 {unfiled.length} 人（含试播主播），在“全部”第一页以黄色显示；点击姓名编辑员工并补齐合作期限。</p>}
+          {unbindPerson&&<StaffFeishuUnbindDialog staff={unbindPerson} onClose={()=>setUnbindPerson(null)} onDone={async()=>{setUnbindPerson(null);await load();}}/>}
           {loginRow&&<WorkforceLoginDialog recordId={loginRow.id} currentAccount={String(loginRow.data.account==='未设置'?'':loginRow.data.account??'')} canPassword={colCan('org.staff.reset')} onClose={()=>setLoginRow(null)} onSaved={()=>{setLoginRow(null);void load();}}/>}
           {error && <div role="alert" className="notice error m">{error}</div>}
           {!gridOn && checked.length > 0 && <BatchBar allowDelete={Boolean(hier) && canDel} def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
