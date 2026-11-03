@@ -33,6 +33,7 @@ import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
 import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
 import { PageHint } from './PageHint';
 import { AddAccountDialog, UnfiledBanner } from './WorkforcePanels';
+import { StaffEditorDialog } from '../pages/org/StaffEditorDialog';
 import { CloseIcon, GearIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
 import { useIsMobile } from './useMedia';
@@ -171,6 +172,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   const [editRow, setEditRow] = useState<ResourceDto | null>(null);
   const [detailTab, setDetailTab] = useState<string | undefined>(undefined);
   const [addingAccount, setAddingAccount] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<number | null>(null);
   const [copyInit, setCopyInit] = useState<Record<string, unknown> | null>(null);
   const [importing, setImporting] = useState(false);
   const [reasonLib, setReasonLib] = useState(false);
@@ -489,7 +491,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
             <button type="button" role="menuitem" onClick={() => void doExport('all')}>导出全部</button>
           </></MorePop>
         : <button type="button" className="res-btn" onClick={() => void doExport('filtered')}>导出</button>)}
-      {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>{type === 'workforce' ? '为已有账号建档' : '＋ 新增'}</button>}
+      {type !== 'workforce' && can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
     </>
   );
 
@@ -508,7 +510,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
 
   const empty = filtered
     ? <div className="res-empty"><p>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。</p><button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></div>
-    : <div className="res-empty"><p>还没有{def.label}</p>{can('create') && <button type="button" className="res-btn primary sm" onClick={startCreate}>＋ 新增{def.label}</button>}</div>;
+    : <div className="res-empty"><p>还没有{def.label}</p>{type !== 'workforce' && can('create') && <button type="button" className="res-btn primary sm" onClick={startCreate}>＋ 新增{def.label}</button>}</div>;
 
   const toolbar = (
     <fieldset className="grid-lock res-tools" disabled={gridLocked} title={gridLocked ? '有没保存的修改：请先保存或放弃，再换筛选或翻页' : undefined}>
@@ -532,7 +534,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
                 </select>
               </label>
             ) : undefined}
-            state={{ fields: shownFilterFields, viewFilters, vals: filterVals, opts: filterOpts, deptOpts, status, statuses: def.statuses, hasExpiry: expirySources().some((x) => x.resource === type), expiring, archivable: Boolean(archivePolicyOf(type)), archived, archivedCount: data?.archivedCount, hiddenLabels: def.statuses.filter((x) => x.hidden).map((x) => x.label), showHidden, canShowHidden: hiddenExists }}
+            state={{ fields: shownFilterFields, viewFilters, vals: filterVals, opts: filterOpts, deptOpts, status, statuses: def.statuses, hasExpiry: expirySources().some((x) => x.resource === type), expiring, archivable: Boolean(archivePolicyOf(type)) || type === 'workforce', archived, archivedCount: data?.archivedCount, hiddenLabels: def.statuses.filter((x) => x.hidden).map((x) => x.label), showHidden, canShowHidden: hiddenExists }}
             actions={{
               setVal: (k, v) => { setFilterVals((cur) => ({ ...cur, [k]: v })); setPage(1); },
               setStatus: (v) => { setStatus(v); setPage(1); },
@@ -549,7 +551,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
         <span className="res-bar-gap" />
         <div className="res-actions">{isMobile ? (
           <>
-            {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>{type === 'workforce' ? '为已有账号建档' : '＋ 新增'}</button>}
+            {type !== 'workforce' && can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
             <MorePop label="更多"><>
               {extras}
               {can('import') && <button type="button" role="menuitem" onClick={() => setImporting(true)}>导入</button>}
@@ -595,7 +597,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
         )}
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
           {toolbar}
-          {type === 'workforce' && <UnfiledBanner refreshKey={data?.total} canCreate={can('create')} onFile={(userId) => { setCopyInit({ userId }); setCreating(true); }} />}
+          {type === 'workforce' && <UnfiledBanner refreshKey={data?.total} canEdit={colCan('org.staff.view') && colCan('org.staff.edit')} onEdit={setEditingStaff} />}
           {error && <div role="alert" className="notice error m">{error}</div>}
           {!gridOn && checked.length > 0 && <BatchBar allowDelete={Boolean(hier) && canDel} def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
@@ -683,7 +685,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
       {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}
       {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}
-      {selected !== null && <RecordDetail key={`${selected}:${detailTab ?? ''}`} initialTab={detailTab} def={def} id={selected} nav={detailNav} onClose={() => { setSelected(null); setDetailTab(undefined); }} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
+      {selected !== null && <RecordDetail key={`${selected}:${detailTab ?? ''}`} initialTab={detailTab} def={def} id={selected} nav={detailNav} onClose={() => { setSelected(null); setDetailTab(undefined); }} onChanged={() => void load()} onCopy={type !== 'workforce' && can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
 
       {creating && (
         <RecordForm
@@ -703,6 +705,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
       {editRow && (
         <RecordForm def={def} record={editRow} onClose={() => setEditRow(null)} onSaved={() => { setEditRow(null); void load(); }} />
       )}
+      {editingStaff !== null && <StaffEditorDialog id={editingStaff} onClose={() => setEditingStaff(null)} onSaved={() => { setEditingStaff(null); void load(); }} />}
       {addingAccount && <AddAccountDialog onClose={() => setAddingAccount(false)} onCreated={(userId) => { setAddingAccount(false); setCopyInit({ userId }); setCreating(true); }} />}
       {inventory && <InventoryDialog onClose={() => setInventory(false)} onDone={(m) => { setInventory(false); setBatchMsg(m); void load(); }} />}
       {sorting && tab && <CategorySortDialog archiveType={tab} onClose={() => setSorting(false)} onDone={() => void load()} />}

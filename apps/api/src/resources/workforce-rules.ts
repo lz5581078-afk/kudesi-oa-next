@@ -27,10 +27,15 @@ export async function workforceBeforeSave(ctx: BeforeSaveContext): Promise<void>
   const userId = Number(data.userId);
   if (!Number.isInteger(userId) || userId <= 0) throw new BadRequestException('请选择登录账号（员工）');
   if (existing && Number(existing.data.userId) !== userId) throw new BadRequestException('不能更换档案对应的员工，请新建一条档案');
-  const person = await em.findOne(User, { where: { id: userId, companyId: user.companyId } });
+  const person = await em.findOne(User, { where: { id: userId, companyId: user.companyId }, lock: { mode: 'pessimistic_write' } });
   if (!person) throw new BadRequestException('员工不存在');
   if (person.isCompanyAdmin) throw new BadRequestException('公司管理员不能列为兼职或临时工');
   if (!existing && person.status !== 'active' && !em.queryRunner?.data.legacyImport) throw new BadRequestException('这个账号已停用，请先在人员档案里启用');
+  if (existing) {
+    const fresh = await em.findOne(ResourceRecord, { where: { id: existing.id, companyId: user.companyId, type: 'workforce' }, lock: { mode: 'pessimistic_write' } });
+    if (!fresh || fresh.archivedAt) throw new ConflictException('用工档案已归档，请刷新员工资料');
+    if (fresh.status !== existing.status || JSON.stringify(fresh.data) !== JSON.stringify(existing.data)) throw new ConflictException('用工档案已变化，请刷新后重试');
+  }
 
   // 姓名取自员工；账号/部门/岗位/上级的快照只用于搜索，列表和详情读的时候按员工当前资料实时取
   data.name = person.name;

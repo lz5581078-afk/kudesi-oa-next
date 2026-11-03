@@ -7,6 +7,7 @@ import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { allGrantableKeys, createChecker } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourcesService } from '../resources/resources.service';
+import { staffWorkforceRecord, syncStaffWorkforce, type StaffWorkforceTerms } from './staff-workforce';
 import { legacyPositionName } from './legacy-position-name';
 import { legacyPositionAssignments } from './legacy-position-assignments';
 import { doHandover, handoverCounts, suggestHandoverTarget } from './handover';
@@ -505,9 +506,15 @@ export class OrgAdminService {
     const ov = await em.find(UserPermissionOverride, { where: { userId: id } });
     return {
       ...this.toStaff(u, await this.positionMap(em, actor.companyId), this.canSalary(actor)),
+      ...await this.staffWorkforceTerms(em, actor.companyId, id),
       allow: ov.filter((o) => o.effect === 'allow').map((o) => o.permission).sort(),
       deny: ov.filter((o) => o.effect === 'deny').map((o) => o.permission).sort(),
     };
+  }
+
+  private async staffWorkforceTerms(em: EntityManager, companyId: number, id: number) {
+    const record = await staffWorkforceRecord(em, companyId, id);
+    return { contractStartDate: record?.data.contractStartDate ?? null, contractEndDate: record?.data.contractEndDate ?? null };
   }
 
   private async mustPosition(em: EntityManager, companyId: number, id: number | null | undefined) {
@@ -548,8 +555,8 @@ export class OrgAdminService {
     return u;
   }
 
-  private async mustEditable(em: EntityManager, actor: AuthUser, id: number) {
-    const u = await em.findOne(User, { where: { id, companyId: actor.companyId } });
+  private async mustEditable(em: EntityManager, actor: AuthUser, id: number, lock = false) {
+    const u = await em.findOne(User, { where: { id, companyId: actor.companyId }, ...(lock ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
     if (!u) throw new NotFoundException('员工不存在');
     // 公司管理员只能由管理员自己改，避免有“修改员工”权限的人动老板
     if (u.isCompanyAdmin && !actor.permissions.isCompanyAdmin) throw new ForbiddenException('不能修改公司管理员');
@@ -561,9 +568,9 @@ export class OrgAdminService {
     return type === 'hourly' ? `时薪 ${yuan(hourly)} 元/小时` : `月薪 ${yuan(base)} 元/月`;
   }
 
-  async updateStaff(actor: AuthUser, id: number, input: { name?: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string | null; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }) {
+  async updateStaff(actor: AuthUser, id: number, input: StaffWorkforceTerms & { name?: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string | null; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }) {
     await this.ds.transaction(async (em) => {
-      const u = await this.mustEditable(em, actor, id);
+      const u = await this.mustEditable(em, actor, id, true);
       if ((input.positionId !== undefined || input.extraPositionIds !== undefined) && id === actor.id && !actor.permissions.isCompanyAdmin) throw new ForbiddenException('不能修改自己的岗位');
       if (input.name !== undefined) u.name = input.name.trim();
       if (input.departmentId !== undefined) { await this.mustDepartment(em, actor.companyId, input.departmentId); u.departmentId = input.departmentId; }
@@ -599,6 +606,7 @@ export class OrgAdminService {
       if (input.payType !== undefined) u.payType = input.payType;
       if (input.hourlyRate !== undefined) u.hourlyRate = input.hourlyRate;
       await em.save(u);
+      await syncStaffWorkforce(em, actor, u, input, this.resources);
       const { baseSalary: _salary, hourlyRate: _hourly, ...logged } = input;
       await this.audit(em, actor, 'user.update', 'user', id, { ...logged });
       if (salaryChange) await this.audit(em, actor, 'user.salary', 'user', id, salaryChange);
