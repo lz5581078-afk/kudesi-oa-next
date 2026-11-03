@@ -72,3 +72,13 @@ it('已有有效绑定不要求重新授权，即使旧绑定未打开全通知�
   await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   expect(feishuApi.start).not.toHaveBeenCalled();
 });
+
+it('扫码进入绑定引导后稍后绑定返回原扫码页',async()=>{
+  const target='/features/live-desk?company=2&token='+ 'a'.repeat(43);
+  window.history.replaceState(null,'',target);
+  const {rememberLiveRoom,clearLiveRoom}=await import('./liveRoomIntent');rememberLiveRoom();
+  vi.mocked(feishuApi.status).mockRejectedValue(new Error('未配置'));
+  render(<MemoryRouter initialEntries={['/feishu-setup']}><Routes><Route path="/feishu-setup" element={<FeishuEnrollmentSetup/>}/><Route path="/features/live-desk" element={<h1>扫码上下播返回</h1>}/></Routes></MemoryRouter>);
+  await screen.findByRole('alert');fireEvent.click(screen.getByRole('button',{name:'稍后再绑'}));
+  expect(await screen.findByRole('heading',{name:'扫码上下播返回'})).toBeTruthy();clearLiveRoom();
+});

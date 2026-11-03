@@ -1,3 +1,4 @@
+import './feishuBinding.css';
 import { rememberLiveRoom, consumeLiveRoom, pendingLiveRoom, liveScanCompany } from './liveRoomIntent';
 import { useAuth } from './AuthContext';
 import { feishuApi } from './feishuApi';
@@ -49,14 +50,30 @@ export function FeishuLogin() {
   </div>;
 }
 export function FeishuBindingCard() {
-  const { user } = useAuth();
-  const [status, setStatus] = useState<{ bound: boolean } | null>(null), [error, setError] = useState('');
-  useEffect(() => { api<{ bound: boolean }>('/auth/feishu/binding').then(setStatus).catch(() => {}); }, []);
+  const { user, refresh } = useAuth();
+  const [status, setStatus] = useState<{ bound: boolean } | null>(null), [error, setError] = useState(''), [busy,setBusy]=useState(false);
+  useEffect(() => {
+    let active=true;
+    feishuApi.status().then(value=>{if(active)setStatus(value);}).catch(()=>{if(active)setError('暂时无法读取绑定状态，你仍可点击按钮前往绑定。');});
+    return ()=>{active=false;};
+  }, [user?.companyId,user?.id,user?.feishuBindingPending]);
   async function bind() {
-    try { const r = await api<{ authorizationUrl: string }>('/auth/feishu/bind/start', { body: {} }); location.assign(r.authorizationUrl); } catch (e) { setError((e as Error).message); }
+    if(busy)return;
+    setBusy(true);setError('');rememberLiveRoom();
+    try {
+      const current=await feishuApi.status().catch(()=>null);if(current)setStatus(current);
+      if(current?.bound){await refresh();return;}
+      const result=await feishuApi.start();feishuApi.redirect(result.authorizationUrl);
+    } catch(e) {setError(e instanceof Error?e.message:'暂时无法连接飞书，请重试');}
+    finally {setBusy(false);}
   }
-  if (!status) return null;
-  return <section className="card"><h2>飞书账号</h2><p>{status.bound ? '已绑定，可以使用飞书登录并接收流程通知。' : '绑定自己的企业飞书账号后，可以使用飞书登录并接收通知。'}</p>{(!status.bound || user?.feishuBindingPending) && <button type="button" className="secondary-button" onClick={bind}>绑定我的飞书</button>}{error && <p role="alert">{error}</p>}</section>;
+  const bound=status?.bound===true;
+  return <section className="card feishu-binding-card" aria-label="飞书账号绑定">
+    <header><h2>飞书账号</h2><span className={`pill ${bound?'ok':'warn'}`}>{bound?'已绑定':status||user?.feishuBindingPending?'未绑定':'状态待确认'}</span></header>
+    <p>{bound?'已绑定本人飞书，可以使用飞书登录并接收公司开启的 OA 通知。':'绑定自己的企业飞书账号后，可以使用飞书登录，并接收 OA 待办和通知。'}</p>
+    {!bound&&<button type="button" className="primary-button" disabled={busy} onClick={()=>void bind()}>{busy?'正在连接飞书…':'绑定我的飞书'}</button>}
+    {error&&<p role="alert" className="notice error">{error}</p>}
+  </section>;
 }
 export function FeishuBindCallback() {
   const { refresh, user, logout } = useAuth();
