@@ -172,6 +172,34 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
       }
     }
     req.legacyMaintenanceCandidates = ws === 'company_store_maintenance' && (req.path === '/shop-candidates' || (req.path === '/managed-shops' && req.method === 'POST'));
+    if (req.path === '/managed-shops' && req.method === 'POST') {
+      const ids = [...new Set<number>(req.body.storeIds ?? [])].sort((a, b) => a - b);
+      if (!ids.length) throw new BadRequestException('至少选择一家店铺');
+      const placeholders = ids.map(() => '?').join(',');
+      const result = await this.store.forMaintenanceCandidates(!!req.legacyMaintenanceCandidates, () => this.store.withTransaction(async tx => {
+        // Serialize first-time additions too: locking only an existing managed
+        // row leaves competing inserts on different devices unprotected.
+        await tx.query(`SELECT id FROM sm_legacy_store_ids WHERE company_id=? AND id IN (${placeholders}) ORDER BY id FOR UPDATE`, [user.companyId, ...ids]);
+        const managed = await tx.query(`SELECT store_id,status FROM session_managed_shops WHERE company_id=? AND workspace_id=? AND store_id IN (${placeholders}) ORDER BY store_id FOR UPDATE`, [user.companyId, workspaceId, ...ids]);
+        if (managed.some(row => row.status === 'active')) throw new ConflictException('所选店铺已在当前清单，请刷新；更换电脑请使用分配操作');
+        // Removed entries may still own a browser or remote session. Restoring
+        // must not silently move that live environment to another device.
+        for (const [table, column, statuses] of [
+          ['session_open_requests', 'store_id', "'queued','claimed','running','waiting_human','opening','restoring','waiting_login'"],
+          ['managed_browser_sessions', 'shop_id', "'open','closing'"],
+          ['session_remote_sessions', 'shop_id', "'requested','connected','closing'"],
+        ]) {
+          const live = await tx.query(`SELECT id FROM ${table} WHERE company_id=? AND workspace_id=? AND ${column} IN (${placeholders}) AND status IN (${statuses}) LIMIT 1 FOR UPDATE`, [user.companyId, workspaceId, ...ids]);
+          if (live.length) throw new ConflictException('店铺仍有登录任务、浏览器或远程会话，请结束并安全关闭后再加入');
+        }
+        const added = await this.store.module('managed-shop-service').addManagedShops({ companyId: user.companyId, workspaceId, employeeId: user.id,
+          storeIds: ids, assignedDeviceId: req.body.assignedDeviceId, withTransaction: (work: (sql: typeof tx) => Promise<unknown>) => work(tx) });
+        await tx.execute(`INSERT INTO session_audit_logs(company_id,workspace_id,employee_id,device_id,event_type,outcome,summary)
+          VALUES(?,?,?,?,'managed_shops_added','success',?)`, [user.companyId, workspaceId, user.id, added.assignedDevice.id, `已将 ${added.selected} 家店铺加入登录态管理`]);
+        return added;
+      }));
+      res.status(201).json(result); return true;
+    }
     if (action === 'remote' && req.method === 'DELETE' && /^\/open-requests\/[\da-f-]{36}$/i.test(req.path)) {
       const id = req.path.split('/').pop();
       const [request] = await this.store.query('SELECT id FROM session_open_requests WHERE id=? AND company_id=? AND workspace_id=? AND requested_by_employee_id=?', [id, user.companyId, workspaceId, user.id]);
