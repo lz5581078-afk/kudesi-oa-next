@@ -85,8 +85,8 @@ const FAMILY: Record<string, (data: Data) => string | null> = {
   purchased: (d) => (d.supplyMode === 'supplier_oem' ? 'supplier_oem' : d.supplyMode === 'original_purchase' ? 'original_purchase' : null),
 };
 
-function checkCode(code: string, label: string) {
-  if (code.length > 48) throw new BadRequestException(`${label}不能超过 48 位`);
+function checkCode(code: string, label: string, maxLength = 48) {
+  if (code.length > maxLength) throw new BadRequestException(`${label}不能超过 ${maxLength} 位`);
   if (!CODE_RE.test(code)) throw new BadRequestException(`${label}只能用大写字母、数字、+、*，段与段之间用 - 连接`);
 }
 
@@ -338,7 +338,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   let code = str(data.code).toUpperCase();
   const chain = await categoryChain(em, user.companyId, cat.id);
   if (code) {
-    checkCode(code, '商品编码');
+    checkCode(code, '商品编码', 160);
   } else {
     const base = await productCode(ctx, chain, capacityUnits);
     code = base;
@@ -347,7 +347,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
       if (!clash || clash.id === existing?.id) break;
       code = `${base}-${i}`;
     }
-    checkCode(code, '自动生成的商品编码');
+    checkCode(code, '自动生成的商品编码', 160);
   }
   data.code = code;
 
@@ -376,7 +376,7 @@ export async function previewProductCode(em: EntityManager, host: Pick<RuleHost,
   if (['self_made', 'purchased', 'oem_package'].includes(type) && typeof data.brandId !== 'number') notes.push('请选择品牌，品牌码会参与编码');
   let code = str(data.code).toUpperCase();
   if (code) {
-    checkCode(code, '商品编码');
+    checkCode(code, '商品编码', 160);
     const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
     if (clash && clash.id !== excludeId) throw new ConflictException(`商品编码 ${code} 已被“${clash.title}”使用`);
     const brandTitle = (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '';
@@ -389,7 +389,7 @@ export async function previewProductCode(em: EntityManager, host: Pick<RuleHost,
     if (!clash || clash.id === excludeId) break;
     code = `${base}-${i}`;
   }
-  checkCode(code, '自动生成的商品编码');
+  checkCode(code, '自动生成的商品编码', 160);
   const brandTitle = (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '';
   const full = basicInfoFullName({ ...data, code }, brandTitle, units);
   return { code, manual: false, notes, basicInfoFullName: full };

@@ -31,8 +31,8 @@ export class CodePreviewDto {
   @IsOptional() @ValidateBy({ name: 'specificationTextOrNumber', validator: { validate: (value: unknown) => typeof value === 'string' ? value.length <= 200 : typeof value === 'number' && Number.isFinite(value), defaultMessage: () => '规格须为最多200字的文字或有限数字' } }) specQty?: string | number;
   @IsOptional() @IsString() @MaxLength(30) purchaseSpec?: string;
   @IsOptional() @IsString() @MaxLength(30) specUnit?: string;
-  @IsOptional() @IsString() @MaxLength(60) shape?: string;
-  @IsOptional() @IsString() @MaxLength(60) code?: string;
+  @IsOptional() @IsString() @MaxLength(160) shape?: string;
+  @IsOptional() @IsString() @MaxLength(160) code?: string;
   @IsOptional() @IsString() @MaxLength(80) materialCode?: string;
   @IsOptional() @IsString() @MaxLength(10000) capacities?: string;
   @IsOptional() @IsString() @MaxLength(100) dimensions?: string;

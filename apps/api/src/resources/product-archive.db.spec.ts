@@ -92,6 +92,28 @@ d('商品档案与基础编码（真实数据库）', () => {
     expect((await svc.list(boss, 'finance-products', { fieldKey: 'categoryId', fieldValue: leaf.id, pageSize: 20 } as never)).total).toBe(1);
   });
 
+  it('商品档案编号允许160位，长多容量编号预览与保存一致；不套用基础编码48位限制', async () => {
+    const code = 'A'.repeat(160);
+    const manual = await mkRaw({ name: '合成长人工编号', code });
+    expect(manual.data.code).toBe(code);
+    expect((await previewProductCode(ds.manager, svc, boss, { ...manual.data, code }, manual.id)).code).toBe(code);
+    await expect(mkRaw({ name: '合成过长编号', code: 'B'.repeat(161) })).rejects.toThrow(/160/);
+    await expect(previewProductCode(ds.manager, svc, boss, { archiveType: 'raw', code: 'C'.repeat(161) }, null)).rejects.toThrow(/160/);
+    const input = { archiveType: 'package', categoryId: ids.pkgCat, name: '合成长容量', brandId: ids.brand, packagingCategory: 'bag', capacities: Array.from({ length: 12 }, (_, i) => `${1000 + i}G`).join('\n'), weightG: 10, purchasePrice: 100, freight: 1, handlingFee: 1 };
+    const preview = await previewProductCode(ds.manager, svc, boss, input, null);
+    expect(preview.code.length).toBeGreaterThan(64);
+    expect((await svc.create(boss, 'finance-products', input)).data.code).toBe(preview.code);
+  });
+
+  it('包装库存可保留两位小数，空尺寸仍保留所选尺寸单位的基础全名', async () => {
+    const input = { archiveType: 'package', categoryId: ids.pkgCat, name: '合成小数库存', brandId: ids.brand, packagingCategory: 'bag', capacities: '500G', dimensionUnit: 'mm', orderStock: 1.25, actualStock: 0.5, weightG: 10, purchasePrice: 100, freight: 1, handlingFee: 1 };
+    const saved = await svc.create(boss, 'finance-products', input);
+    expect(saved.data).toMatchObject({ orderStock: 1.25, actualStock: 0.5 });
+    expect(saved.data.basicInfoFullName).toContain('-毫米-500克');
+    expect((await previewProductCode(ds.manager, svc, boss, input, saved.id)).basicInfoFullName).toBe(saved.data.basicInfoFullName);
+    await expect(svc.update(boss, 'finance-products', saved.id, { actualStock: -0.5 })).rejects.toThrow(/非负/);
+  });
+
   it('包装每行容量使用公司单位，支持自定义和数字单位，沿用旧数字文字取码规则', async () => {
     await svc.seedUnitDefaults(boss);
     await svc.create(boss, 'finance-product-units', { kind: 'spec_unit', name: '合成托盘', code: 'TP' });

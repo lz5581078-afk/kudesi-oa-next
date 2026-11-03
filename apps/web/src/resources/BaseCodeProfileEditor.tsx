@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { createChecker, resolveProductSections, unitYuanText } from '@kudesi/shared';
+import { createChecker, getResourceDef, resolveProductSections, unitYuanText } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../api/client';
 import { resourceApi, type ResourceDto } from './api';
@@ -48,7 +48,7 @@ export function BaseCodeProfileEditor({ record, onClose, onSaved }: { record: Re
       {locked && locked.length > 0 && <p className="notice warn">该商品编码已有生效引用，编码、分类和重量已锁定；可修改名称、简称和颜色及规格。</p>}
       <section><div className="base-profile-section-title"><h3>商品编码专属信息</h3><span>{record.data.profileManual ? '已人工维护' : '等待人工确认'}</span></div>
         <div className="base-profile-edit-grid">
-          {(Object.keys(LABELS) as Array<keyof typeof LABELS>).map(key => <label key={key}><span>{LABELS[key]}{key !== 'spec' && <b>必填</b>}</span><input value={String(values[key] ?? '')} disabled={busy || isLocked(key)} onChange={e => change(key, e.target.value)} maxLength={key === 'shortName' ? 80 : key === 'code' || key === 'styleCode' ? 64 : undefined} /></label>)}
+          {(Object.keys(LABELS) as Array<keyof typeof LABELS>).map(key => <label key={key}><span>{LABELS[key]}{key !== 'spec' && <b>必填</b>}</span><input value={String(values[key] ?? '')} disabled={busy || isLocked(key)} onChange={e => change(key, e.target.value)} maxLength={getResourceDef('finance-base-codes')?.fields.find(field => field.key === key)?.maxLength} /></label>)}
           <label><span>分类 <b>必填</b></span><select value={String(values.categoryId ?? '')} disabled={busy || isLocked('categoryId')} onChange={e => change('categoryId', Number(e.target.value))}><option value="">请选择分类</option>{!leaves.some(r => r.id === values.categoryId) && !!values.categoryId && <option value={String(values.categoryId)}>{record.refLabels.categoryId ?? `#${values.categoryId}`}</option>}{leaves.map(r => <option key={r.id} value={r.id}>{categoryPath(r.id)}</option>)}</select></label>
           <label><span>重量（kg） <b>必填</b></span><input type="number" min="0" step="any" value={kg} disabled={busy || isLocked('weightG')} onChange={e => setKg(e.target.value)} /></label>
         </div>

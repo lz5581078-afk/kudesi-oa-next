@@ -15,6 +15,9 @@ describe('独立编辑链路',()=>{
     const saved=vi.fn();vi.mocked(resourceApi.confirmBaseProfile).mockRejectedValueOnce(new Error('记录刚被修改'));
     render(<BaseCodeProfileEditor record={record} onClose={()=>{}} onSaved={saved}/>);
     await waitFor(()=>expect((screen.getByLabelText(/重量（kg）/) as HTMLInputElement).disabled).toBe(false));
+    expect((screen.getByLabelText(/商品名称/) as HTMLInputElement).maxLength).toBe(500);
+    expect((screen.getByLabelText(/商品简称/) as HTMLInputElement).maxLength).toBe(500);
+    expect((screen.getByLabelText(/颜色及规格/) as HTMLInputElement).maxLength).toBe(255);
     fireEvent.change(screen.getByLabelText(/重量（kg）/),{target:{value:'0.750123456'}});
     fireEvent.click(screen.getByRole('button',{name:'保存专属资料'}));
     await screen.findByText('记录刚被修改');

@@ -61,7 +61,7 @@ export function basicInfoFullName(data: Data, brandName: string, units?: UnitLis
   const unit = optLabel('specUnit', data.specUnit);
   if (type === 'package' || type === 'oem_package') {
     const caps = packagingCapacities(data.capacities, units ?? new Map()).filter(capacity => capacity.quantityText).map(capacity => `${capacity.quantityText}${units ? unitLabel(units, 'spec_unit', capacity.code || capacity.unit) : optLabelStatic('specUnit', capacity.code || capacity.unit)}`);
-    return join([optLabel('packagingCategory', data.packagingCategory) || data.shape, name, brandName, data.dimensions, data.dimensions ? optLabel('dimensionUnit', data.dimensionUnit) : '', ...(caps.length ? caps : qty ? [`${qty}${unit}`] : [])]);
+    return join([optLabel('packagingCategory', data.packagingCategory) || data.shape, name, brandName, data.dimensions, optLabel('dimensionUnit', data.dimensionUnit), ...(caps.length ? caps : qty ? [`${qty}${unit}`] : [])]);
   }
   if (type === 'raw' || type === 'shipping_material') return join([name, qty, unit, data.materialCode]);
   if (type === 'self_made') return join([name, brandName, qty, unit, data.productPackagingSpec, optLabel('productPackagingUnit', data.productPackagingUnit), data.purchaseSpec]);

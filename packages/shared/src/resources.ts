@@ -50,7 +50,9 @@ export interface FieldDef {
   required?: boolean;
   options?: readonly Option[];
   /** 新增表单等候公司选项后选第一项；不会覆盖编辑、复制、草稿或手工选择。 */
-  initialOption?: { except?: { field: string; in: readonly string[] }; fallback: string };
+  initialOption?: { when?: { field: string; in: readonly string[] }; except?: { field: string; in: readonly string[] }; sourceKind?: string; useLabel?: boolean; fallback: string };
+  /** 新建时的初始值；只应用到 showWhen 满足且没有传入值的字段，编辑不补值。 */
+  initialValue?: string | number | boolean;
   /** 下拉可多选：保存为用顿号连接的选项值（按选项顺序、去重） */
   multi?: boolean;
   /** type=ref：目标资源 key，或 'user'（员工） */

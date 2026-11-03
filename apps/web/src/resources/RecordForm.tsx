@@ -168,6 +168,16 @@ function isEmptyValue(v: unknown): boolean {
 
 type SaveMode = 'close' | 'blank' | 'keep';
 
+function initialFormValues(def: ResourceDef, input: Record<string, unknown>) {
+  const values = { ...input };
+  for (const field of def.fields) {
+    if (field.initialValue === undefined || values[field.key] !== undefined) continue;
+    if (field.showWhen && !field.showWhen.in.includes(String(values[field.showWhen.field] ?? ''))) continue;
+    values[field.key] = field.initialValue;
+  }
+  return values;
+}
+
 /** 新建/编辑弹窗：按字段定义生成，按字段分组；showWhen 不满足的字段不显示。 */
 export function RecordForm(props: Parameters<typeof GenericRecordForm>[0]) {
   if (props.def.key === 'finance-bundles' && props.record && !props.inline) return <BundleProfileEditor record={props.record} onClose={props.onClose} onSaved={props.onSaved} />;
@@ -202,7 +212,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     return () => { if (previous?.isConnected) previous.focus(); };
   }, [inline]);
   const copyOf = typeof initial?.__copyOf === 'number' ? initial.__copyOf : null;
-  const [values, setValues] = useState<Record<string, unknown>>(() => { const v: Record<string, unknown> = { ...(!record && def.key === 'finance-fee-items' ? {direction:'expense',platform:'any',isCommon:'yes',needFlow:'by_amount'} : {}), ...(record?.data ?? {}), ...(initial ?? {}) }; delete v.__copyOf; return v; });
+  const [values, setValues] = useState<Record<string, unknown>>(() => { const v: Record<string, unknown> = { ...(!record && def.key === 'finance-fee-items' ? {direction:'expense',platform:'any',isCommon:'yes',needFlow:'by_amount'} : {}), ...(record?.data ?? {}), ...(initial ?? {}) }; delete v.__copyOf; return record ? v : initialFormValues(def, v); });
   const [status, setStatus] = useState(record?.status ?? def.defaultStatus);
   const [statusReason, setStatusReason] = useState('');
   const referenceStatus = ['finance-customers','finance-fee-items'].includes(def.key);
@@ -223,20 +233,22 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const formUnits = useUnitOptions();
   const initialOptionsApplied = useRef(new Set<string>());
   const touchedInitialOptions = useRef(new Set<string>());
-  const optionDefaultContext = JSON.stringify(def.fields.filter(field => field.initialOption).map(field => [field.key, values[field.optionsFrom?.kindBy?.field ?? ''], values[field.initialOption?.except?.field ?? '']]));
+  const optionDefaultContext = JSON.stringify(def.fields.filter(field => field.initialOption).map(field => [field.key, values[field.optionsFrom?.kindBy?.field ?? ''], values[field.initialOption?.except?.field ?? ''], values[field.initialOption?.when?.field ?? '']]));
   useEffect(() => {
     if (record || copyOf || !unitOptionsLoaded()) return;
     const defaults: Record<string, string> = {};
     for (const field of def.fields) {
       const rule = field.initialOption;
       if (!rule || touchedInitialOptions.current.has(field.key) || lockedFields?.includes(field.key)) continue;
+      if (rule.when && !rule.when.in.includes(String(values[rule.when.field] ?? ''))) continue;
       if (field.optionsFrom?.kindBy && !values[field.optionsFrom.kindBy.field]) continue;
       if (rule.except?.in.includes(String(values[rule.except.field] ?? ''))) continue;
-      const kind = optionsKindOf(field, values), scope = `${field.key}:${kind ?? ''}:${optionDefaultContext}`;
+      const kind = rule.sourceKind ?? optionsKindOf(field, values), scope = `${field.key}:${kind ?? ''}:${optionDefaultContext}`;
       if (initialOptionsApplied.current.has(scope)) continue;
       initialOptionsApplied.current.add(scope);
       if (values[field.key] !== undefined && values[field.key] !== null && values[field.key] !== '') continue;
-      const choice = (kind ? formUnits[kind]?.[0]?.value : undefined) || rule.fallback;
+      const first = kind ? formUnits[kind]?.[0] : undefined;
+      const choice = (rule.useLabel ? first?.label : first?.value) || rule.fallback;
       if (choice) defaults[field.key] = choice;
     }
     if (!Object.keys(defaults).length) return;
@@ -475,7 +487,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       onContinued(saved);
       setValues(mode === 'blank'
         ? def.key === 'finance-fee-items' ? { ...values, code: '', name: '', note: '' }
-          : Object.fromEntries(['archiveType', 'supplyMode', 'categoryId', 'categoryIds', 'purchaseSpec', 'specUnit'].filter((k) => values[k] !== undefined).map((k) => [k, values[k]]))
+          : initialFormValues(def, Object.fromEntries(['archiveType', 'supplyMode', 'categoryId', 'categoryIds', 'purchaseSpec', ...(layoutKey === 'self_made' ? ['productPackagingUnit'] : ['specUnit']), ...(['package','oem_package'].includes(layoutKey) ? ['packagingCategory','dimensionUnit','weightUnit'] : [])].filter((k) => values[k] !== undefined).map((k) => [k, values[k]])))
         : { ...values, code: '', giftShortName: '', giftCodeShortName: '', zeroValueReason: '' });
       setManualCode(false);
       setManualShortCode(false);
@@ -601,13 +613,13 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     if (n.kind === 'field') return n.field.key === 'zeroValueReason' && !needsZeroReason(values) && !errors.zeroValueReason ? null : renderField(n.field, n.wide);
     const editable = n.fields.filter((f) => !f.readonly);
     switch (n.block) {
-      case 'code': return <div key={`b${i}`} className="s12 reference-code"><button type="button" className="reference-code-toggle" disabled={locked.includes('code')} onClick={() => { setManualCode(v => !v); if (manualCode) { setValues(v => ({ ...v, code: '' })); setGeneratedCode(''); } else if (generatedCode) setValues(v => ({ ...v, code: generatedCode })); }}>{!manualCode && <Pencil size={15} />}{manualCode ? '恢复自动编号' : '人工修正'}</button><input aria-label="系统自动编号" readOnly={!manualCode || locked.includes('code')} value={String(manualCode ? values.code ?? '' : generatedCode || values.code || '')} placeholder="保存后自动生成" onChange={e => setValues(v => ({ ...v, code: e.target.value }))} /><CodePreview values={manualCode ? values : { ...values, code: '' }} excludeId={record?.id} onPreview={setGeneratedCode} onFullName={setGeneratedName} quiet />{!['raw','shipping_material'].includes(layoutKey) && <p className="reference-code-hint">{resolved?.find(sec => sec.id === 'code')?.hint}</p>}</div>;
+      case 'code': return <div key={`b${i}`} className="s12 reference-code"><button type="button" className="reference-code-toggle" disabled={locked.includes('code')} onClick={() => { setManualCode(v => !v); if (manualCode) { setValues(v => ({ ...v, code: '' })); setGeneratedCode(''); } else if (generatedCode) setValues(v => ({ ...v, code: generatedCode })); }}>{!manualCode && <Pencil size={15} />}{manualCode ? '恢复自动编号' : '人工修正'}</button><input aria-label="系统自动编号" readOnly={!manualCode || locked.includes('code')} maxLength={def.fields.find(f => f.key === 'code')?.maxLength} value={String(manualCode ? values.code ?? '' : generatedCode || values.code || '')} placeholder="保存后自动生成" onChange={e => setValues(v => ({ ...v, code: e.target.value }))} /><CodePreview values={manualCode ? values : { ...values, code: '' }} excludeId={record?.id} onPreview={setGeneratedCode} onFullName={setGeneratedName} quiet />{!['raw','shipping_material'].includes(layoutKey) && <p className="reference-code-hint">{resolved?.find(sec => sec.id === 'code')?.hint}</p>}</div>;
       case 'supplySources': return <div key={`b${i}`} className="s12"><SourcesDraft rows={sourceRows} onChange={setSourceRows} reference pricingUnit={String(values.purchaseSpec ?? '')} canCost={canCostEdit} needSpec={layoutKey === 'shipping_material'} error={errors.supplySources} />{!partsKnown.sources && <small className="muted">供货来源暂时读取不到，请到详情的“供货来源”页签维护。</small>}</div>;
       case 'composition': return <div key={`b${i}`} className="s12">{layoutKey === 'self_made' && <><nav className="reference-production-summary" aria-label="生产资料组成">{(['raw','package','labor'] as const).map((g,index)=><button type="button" key={g} onClick={()=>document.getElementById(`rf-bom-${g}`)?.scrollIntoView({behavior:'smooth',block:'start'})}><i>{String(index+1).padStart(2,'0')}</i><strong>{g==='raw'?'原料':g==='package'?'包装':'人工'}</strong><span>{bomRows.filter(r=>r.group===g||g==='package'&&r.group==='oem_package').length} 项</span></button>)}</nav><p className="reference-production-hint">选择档案和用量后，采购价、重量及成本会自动汇总。</p></>}<BomDraft reference records={draftFacts.records} canCost={canCostEdit} rows={bomRows} onChange={(r) => { setBomRows(r); if (errors.composition) setErrors((c) => ({ ...c, composition: '' })); }} groups={n.groups} required={layoutKey === 'self_made'} error={errors.composition} /></div>;
       case 'weight': return (
         <div key={`b${i}`} className="s6 rf-block" data-field="weightG">
           <span className="rf-label">{layoutKey === 'shipping_material' ? '物料重量' : '重量'}{n.required && <b className="req" title="必填">{reference ? '必填' : ' *'}</b>}</span>
-          <WeightBlock values={weightValues} manualOnly={['package', 'oem_package', 'shipping_material', 'custom'].includes(layoutKey)} required={n.required} error={errors.weightG} defaultUnit={['package','oem_package'].includes(layoutKey) ? 'g' : 'kg'}
+          <WeightBlock values={weightValues} manualOnly={['package', 'oem_package', 'shipping_material', 'custom'].includes(layoutKey)} required={n.required} error={errors.weightG} defaultUnit={['package','oem_package'].includes(layoutKey) && !record && !copyOf ? 'g' : 'kg'}
             onChange={(patch) => { setValues((cur) => ({ ...cur, ...patch })); if (errors.weightG) setErrors((c) => ({ ...c, weightG: '' })); }} />
         </div>
       );

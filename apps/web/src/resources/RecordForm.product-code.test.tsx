@@ -25,6 +25,7 @@ describe('商品档案自动与人工编号', () => {
     const input = screen.getByRole('textbox', { name: '系统自动编号' }) as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe('AUTO-500G'));
     expect(input.readOnly).toBe(true);
+    expect(input.maxLength).toBe(160);
     fireEvent.change(screen.getByLabelText('第1条容量'), { target: { value: '250' } });
     await waitFor(() => expect(input.value).toBe('AUTO-250G'));
     await save();
