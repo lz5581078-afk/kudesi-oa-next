@@ -1,4 +1,3 @@
-import { todayShanghai } from '@kudesi/shared';
 import { EMPLOYMENT_LABELS, type EmploymentType } from './orgApi';
 import { useEffect, useMemo, useState } from 'react';
 import { qrMatrix, qrSvgPath } from '../../lib/qr';
@@ -10,10 +9,7 @@ const when = (value: string) => new Date(value).toLocaleString('zh-CN', { timeZo
 const err = (error: unknown) => error instanceof Error ? error.message : '操作失败，请重试';
 
 export function EnrollmentInviteDialog({ position, onClose }: { position?: { id: number; name: string }; onClose: () => void }) {
-  const [days, setDays] = useState(30);
   const [employmentType, setEmploymentType] = useState<EmploymentType>('regular');
-  const [startDate, setStartDate] = useState(todayShanghai());
-  const [endDate, setEndDate] = useState('');
   const [created, setCreated] = useState<CreatedEnrollmentInvite | null>(null);
   const [rows, setRows] = useState<EnrollmentInvite[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
@@ -26,7 +22,7 @@ export function EnrollmentInviteDialog({ position, onClose }: { position?: { id:
   useEffect(() => { void load(); }, []);
   async function generate() {
     setBusy(true); setError(''); setNotice('');
-    try { setCreated(await enrollmentApi.create({ employmentType, ...(employmentType !== 'regular' ? { contractStartDate: startDate, ...(endDate ? { contractEndDate: endDate } : {}) } : {}), mode, ...(position ? { positionId: position.id } : {}), validDays: days })); await load(); }
+    try { setCreated(await enrollmentApi.create({ employmentType, mode, ...(position ? { positionId: position.id } : {}) })); await load(); }
     catch (e) { setError(err(e)); } finally { setBusy(false); }
   }
   async function revoke(id: number) {
@@ -50,18 +46,19 @@ export function EnrollmentInviteDialog({ position, onClose }: { position?: { id:
       <p>{position ? `扫码填写姓名、手机号和密码后，自动加入「${position.name}」。` : '扫码填写姓名、手机号和密码，并选择岗位后加入本公司。'}</p>
       <div className="enrollment-generate">
         <label>用工类型<select aria-label="入职码用工类型" value={employmentType} onChange={e=>{setEmploymentType(e.target.value as EmploymentType);setCreated(null);}}>{Object.entries(EMPLOYMENT_LABELS).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
-        {employmentType !== 'regular' && <><label>合作开始日期<input type="date" aria-label="合作开始日期" value={startDate} onChange={e=>{setStartDate(e.target.value);setCreated(null);}}/></label><label>合作结束日期{employmentType==='temp'?'（必填）':'（可不填）'}<input type="date" aria-label="合作结束日期" value={endDate} min={startDate} onChange={e=>{setEndDate(e.target.value);setCreated(null);}}/></label></>}
-        <label>二维码有效期<select aria-label="二维码有效期" value={days} onChange={e => setDays(Number(e.target.value))}><option value={7}>7天</option><option value={30}>30天</option><option value={90}>90天</option></select></label><button type="button" className="primary-button" disabled={busy || employmentType !== 'regular' && (!startDate || employmentType === 'temp' && !endDate || !!endDate && endDate < startDate)} onClick={() => void generate()}>{busy ? '处理中…' : '生成二维码'}</button></div>
-      {employmentType !== 'regular' && <p className="muted">扫码入职后自动建立兼职与临时工档案，计薪标准由人事维护。合作期限与二维码有效期分别生效。</p>}
+        <button type="button" className="primary-button" disabled={busy} onClick={() => void generate()}>{busy ? '处理中…' : '生成二维码'}</button></div>
+      <p className="muted">二维码长期有效，重新生成本{position?'岗位':'通用'}二维码后，旧码立即失效。也可手动停用。</p>
+      {employmentType !== 'regular' && <p className="muted">扫码入职后自动建立兼职与临时工档案，无需填写合作日期；开始日期按实际入职当天记录，结束日期留空，计薪标准和合作期限由人事后续维护。</p>}
+
       {error && <div className="notice error" role="alert">{error}</div>}{notice && <div className="notice ok" role="status">{notice}</div>}
       {created && graphic && <div className="enrollment-code">
         <svg role="img" aria-label="入职二维码" viewBox={`0 0 ${graphic.size} ${graphic.size}`} width="240" height="240" shapeRendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d={graphic.path} fill="#000"/></svg>
-        <strong>{title} · {EMPLOYMENT_LABELS[created.employmentType ?? 'regular']}</strong><small>有效至 {when(created.expiresAt)}</small>
+        <strong>{title} · {EMPLOYMENT_LABELS[created.employmentType ?? 'regular']}</strong><small>{created.expiresAt ? `有效至 ${when(created.expiresAt)}` : '长期有效（重新生成后旧码失效）'}</small>
         <div className="row-actions"><button type="button" className="secondary-button" onClick={download}>下载二维码</button><button type="button" className="secondary-button" onClick={async () => setNotice(await copyText(link) ? '入职链接已复制' : '复制失败，请重试')}>复制入职链接</button></div>
-        <p className="muted">有效期内可供多位新员工使用。请发给需要入职的员工；停用后立即失效。</p>
+        <p className="muted">可供多位新员工使用。请发给需要入职的员工；重新生成或停用后旧码立即失效。</p>
       </div>}
       <details className="enrollment-existing"><summary>已生成的{position ? '本岗位' : '通用'}二维码（{relevant.length}）</summary>
-        {relevant.length === 0 ? <p className="muted">还没有生成过二维码。</p> : <ul>{relevant.map(row => <li key={row.id}><div><strong>入职码 #{row.id} · {EMPLOYMENT_LABELS[row.employmentType ?? 'regular']}</strong><small>有效至 {when(row.expiresAt)}</small></div>{row.status === 'active' ? <button type="button" className="link-button danger-text" disabled={busy} onClick={() => void revoke(row.id)}>停用</button> : <span className="muted">{row.status === 'revoked' ? '已停用' : '已过期'}</span>}</li>)}</ul>}
+        {relevant.length === 0 ? <p className="muted">还没有生成过二维码。</p> : <ul>{relevant.map(row => <li key={row.id}><div><strong>入职码 #{row.id} · {EMPLOYMENT_LABELS[row.employmentType ?? 'regular']}</strong><small>{row.expiresAt ? `有效至 ${when(row.expiresAt)}` : '长期有效'}</small></div>{row.status === 'active' ? <button type="button" className="link-button danger-text" disabled={busy} onClick={() => void revoke(row.id)}>停用</button> : <span className="muted">{row.status === 'revoked' ? '已停用' : '已过期'}</span>}</li>)}</ul>}
       </details>
     </div><footer className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>关闭</button></footer>
   </section></div>;

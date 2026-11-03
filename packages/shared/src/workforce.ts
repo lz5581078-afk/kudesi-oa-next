@@ -5,7 +5,7 @@
  */
 
 export type WorkforceEmployment = 'part_time' | 'temp';
-/** 发码人指定用工类型和合作期限，扫码人不能覆盖。旧码兼容正式员工。 */
+/** 发码人指定用工类型；历史码保留合作期限，扫码人不能覆盖。 */
 export interface EnrollmentTerms { employmentType?: 'regular' | WorkforceEmployment; contractStartDate?: string; contractEndDate?: string }
 export type WorkforcePayMethod = 'hourly' | 'daily' | 'monthly' | 'piece';
 export type WorkforceCooperation = 'working' | 'pending' | 'ended' | 'inactive';
@@ -52,7 +52,6 @@ export function validateWorkforceTerms(v: { employmentType?: unknown; contractSt
   if (v.employmentType !== 'part_time' && v.employmentType !== 'temp') return '用工类型必须是兼职或临时工';
   if (!isDate(v.contractStartDate)) return '请填写合作开始日期';
   const hasEnd = v.contractEndDate !== undefined && v.contractEndDate !== null && v.contractEndDate !== '';
-  if (v.employmentType === 'temp' && !hasEnd) return '临时工必须填写合作结束日期';
   if (hasEnd) {
     if (!isDate(v.contractEndDate)) return '合作结束日期格式不正确';
     if (v.contractEndDate < v.contractStartDate) return '合作结束日期不能早于开始日期';

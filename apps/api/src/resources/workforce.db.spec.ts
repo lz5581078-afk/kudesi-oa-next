@@ -71,14 +71,13 @@ d('兼职与临时工（真实数据库）', () => {
     await expect(svc.remove(boss, 'workforce', rec.id, '想删')).rejects.toThrow(/不能删除/);
   }, 60000);
 
-  it('期限规则：临时工必填结束日期、结束不早于开始、开始日期必须是真实日期、单价上限', async () => {
+  it('期限规则：结束日期可空，填写时不早于开始、开始日期必须真实、单价上限', async () => {
     const u = await mkUser('zhao');
-    await expect(svc.create(boss, 'workforce', terms(u.id, { employmentType: 'temp' }))).rejects.toThrow(/临时工必须填写合作结束日期/);
     await expect(svc.create(boss, 'workforce', terms(u.id, { employmentType: 'temp', contractEndDate: day(-11) }))).rejects.toThrow(/不能早于/);
     await expect(svc.create(boss, 'workforce', terms(u.id, { contractStartDate: '2026-02-30' }))).rejects.toThrow(/开始日期/);
     await expect(svc.create(boss, 'workforce', terms(u.id, { payRate: 10_000_000 * 100 + 1 }))).rejects.toThrow(/单价/);
     await expect(svc.create(boss, 'workforce', { userId: u.id, employmentType: 'part_time', payMethod: 'daily' })).rejects.toThrow(/合作开始日期/);
-    const ok = await svc.create(boss, 'workforce', terms(u.id)); // 兼职可以不限期
+    const ok = await svc.create(boss, 'workforce', terms(u.id, {employmentType:'temp'})); // 临时工也可以不限期
     expect(ok.data.contractEndDate).toBeUndefined();
   }, 60000);
 

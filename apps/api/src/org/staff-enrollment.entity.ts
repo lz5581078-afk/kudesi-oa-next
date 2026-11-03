@@ -13,7 +13,7 @@ export class StaffEnrollmentInvite {
   @Column({ name: 'contract_start_date', type: 'date', nullable: true }) contractStartDate!: string | null;
   @Column({ name: 'contract_end_date', type: 'date', nullable: true }) contractEndDate!: string | null;
   @Column({ name: 'created_by', type: 'int', unsigned: true }) createdBy!: number;
-  @Column({ name: 'expires_at', type: 'datetime' }) expiresAt!: Date;
+  @Column({ name: 'expires_at', type: 'datetime', nullable: true }) expiresAt!: Date | null;
   @Column({ name: 'revoked_at', type: 'datetime', nullable: true }) revokedAt!: Date | null;
   @CreateDateColumn({ name: 'created_at', type: 'datetime' }) createdAt!: Date;
 }
