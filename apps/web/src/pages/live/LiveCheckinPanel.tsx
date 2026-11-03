@@ -8,7 +8,7 @@ import { ReportDialog } from './ReportDialog';
 import { CheckinRoleDialog } from './CheckinRoleDialog';
 import './live.css';
 import './liveCheckin.css';
-export function LiveCheckinPanel({roomId,companyId,token,workspaceType}:{roomId?:number;companyId?:number;token?:string;workspaceType?:'live_anchor'|'live_control'|'operations'}){
+export function LiveCheckinPanel({roomId,companyId,token,workspaceType,onChanged}:{roomId?:number;companyId?:number;token?:string;workspaceType?:'live_anchor'|'live_control'|'operations';onChanged?:()=>void}){
   const {user}=useAuth();
   const [data,setData]=useState<CheckinContext|null>(null),[error,setError]=useState(''),[mode,setMode]=useState<''|'role'|'start'|'join'|'end'>(''),[joining,setJoining]=useState<CheckinSession|null>(null),[ending,setEnding]=useState<SessionDetail|null>(null),[busy,setBusy]=useState(false);
   const [selectedRoom,setSelectedRoom]=useState('');
@@ -28,7 +28,7 @@ export function LiveCheckinPanel({roomId,companyId,token,workspaceType}:{roomId?
   const role=workspaceType==='live_control'||operations?'control':'anchor';
   const running=data?.active.find(s=>s.myCheckin&&!s.myCheckin.endAt&&!s.reportsLocked&&['live','pending_report'].includes(s.status));
   const canStart=!!data&&(data.identity.isAnchor||data.identity.isControl||data.identity.isOperations);
-  async function changed(){setMode('');setEnding(null);setBusy(true);channel.current?.postMessage('changed');try{await load();}finally{setBusy(false);}}
+  async function changed(){setMode('');setEnding(null);setBusy(true);channel.current?.postMessage('changed');onChanged?.();try{await load();}finally{setBusy(false);}}
   async function click(){
     if(!data||busy)return;setError('');
     if(running){setBusy(true);try{const detail=await liveApi.session(running.id);const actual=running.myCheckin!.role;if(!detail.me.reportRoles.includes(actual))throw new Error('本场已锁定或状态已变化，请刷新查看');setEnding({...detail,me:{...detail.me,reportRoles:[actual]}});setMode('end');}catch(e){setError(errText(e));await load();}finally{setBusy(false);}return;}

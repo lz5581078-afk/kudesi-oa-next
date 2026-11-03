@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
@@ -6,11 +6,27 @@ import { FlowService } from '../flow/flow.service';
 import { LiveOrderSource } from './live-order-source';
 import { captureOrders, persistCapture } from './live-order-capture';
 import { Row, liveClock, lockCompany, sessionRow, wallNow } from './live-core';
+import { finishCheckedOutRoom } from './live-checkout-state';
 
 @Injectable()
 export class LiveCheckinClosureService {
+  private readonly log = new Logger(LiveCheckinClosureService.name);
   constructor(@InjectDataSource() private readonly ds:DataSource,private readonly auth:AuthService,private readonly flow:FlowService,private readonly orders:LiveOrderSource){}
   async scan(){
+    // Reconcile saved checkouts left live by older code, independently of the 30-minute report lock.
+    const checkedOut: Row[] = await this.ds.query(`SELECT s.id,s.company_id FROM live_sessions s
+      JOIN live_session_checkins c ON c.company_id=s.company_id AND c.session_id=s.id AND c.role='control' AND c.user_id=s.control_user_id AND c.end_at IS NOT NULL
+      WHERE s.checkin_mode=1 AND s.status='live' AND NOT EXISTS (
+        SELECT 1 FROM live_session_checkins a WHERE a.company_id=s.company_id AND a.session_id=s.id AND a.role='anchor' AND a.user_id=s.anchor_user_id AND a.end_at IS NULL
+      ) ORDER BY s.id LIMIT 100`);
+    for (const row of checkedOut) {
+      try {
+        await this.ds.transaction(async em => {
+          await lockCompany(em, Number(row.company_id));
+          await finishCheckedOutRoom(em, Number(row.company_id), await sessionRow(em, Number(row.company_id), Number(row.id), true));
+        });
+      } catch (e) { this.log.error(`直播下播状态同步失败 #${row.id}：${(e as Error).message}`); }
+    }
     const due:Row[]=await this.ds.query("SELECT id,company_id FROM live_sessions WHERE checkin_mode=1 AND report_deadline<=? AND status IN ('live','pending_report') AND flow_run_id IS NULL ORDER BY report_deadline LIMIT 100",[wallNow(liveClock.now())]);
     for(const row of due){
       try{
