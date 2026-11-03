@@ -171,7 +171,7 @@ export function ResourceTable(p: Props) {
 }
 
 /** 手机上的卡片列表：第一行是名称和状态，下面最多四项关键内容，点整张卡片查看详情。 */
-export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns' | 'checked' | 'onCheck' | 'selected' | 'onOpen' | 'today' | 'empty' | 'loadingText' | 'groups' | 'folded' | 'onToggleGroup' | 'onAddInGroup'>) {
+export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns' | 'checked' | 'onCheck' | 'selected' | 'onOpen' | 'today' | 'empty' | 'loadingText' | 'groups' | 'folded' | 'onToggleGroup' | 'onAddInGroup' | 'rowActions'>) {
   const { def, rows } = p;
   if (!rows) return <div className="res-cards-wrap"><div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />{p.loadingText ?? '加载中…'}</div></div>;
   if (rows.length === 0) return <div className="res-cards-wrap">{p.empty}</div>;
@@ -188,6 +188,7 @@ export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns'
           <strong className="res-card-title">{row.title}</strong>
           <span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>
         </div>
+        {p.rowActions && <div className="res-card-actions">{p.rowActions(row)}</div>}
         {p.type === 'stores' && <div style={{ marginTop: 8 }}><StoreJstBadge data={row.data} /></div>}
         {metas.length > 0 && (
           <dl className="res-card-meta">

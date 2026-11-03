@@ -12,6 +12,10 @@ import { Row, closedDay, liveFail, lockCompany, reportsOf, ruleVersions, session
 
 /** 主播和本场中控须有本人报告；有明确经办人和原因的人事补报也可进入审核。运营选填。 */
 export function requireReports(session: Row, reports: Row[]) {
+  if(Number(session.trial_proxy)){
+    if(!reports.some(r=>r.role==='control'&&Number(r.reporter_user_id)===Number(session.control_user_id)))liveFail('试播场次须由本场中控确认试播主播并报下播',400);
+    return;
+  }
   if(session.checkin_mode && session.report_locked_at && reports.length)return;
   const missing = liveMissingReporter(
     reports.map((r) => ({ role: String(r.role), reporterId: Number(r.manual_actor_id ? (r.role==='anchor'?session.anchor_user_id:session.control_user_id):r.reporter_user_id) })),
@@ -206,6 +210,7 @@ export async function approveSession(em: EntityManager, ctx: { companyId: number
     }
   }
   const wageSnapshot = JSON.stringify({
+    trialProxy: Number(session.trial_proxy)?{anchorId:Number(session.anchor_user_id),confirmedBy:Number(session.started_by)}:null,
     reportedStartAt: wage.reportedStart, reportedEndAt: wage.reportedEnd, timesChanged: wage.timesChanged, archiveHourlyRateCents: wage.archiveRate,
     operator: { originalId: operator.original, finalId: operator.finalId, counted: operator.counted, doubledAsControl: operator.doubledAsControl },
   });
