@@ -16,6 +16,7 @@ import './staffDialog.css';
 
 export function StaffDialog({
   staff,
+  regularOnly=false,
   all,
   canSalary,
   departments,
@@ -25,6 +26,7 @@ export function StaffDialog({
   onSaved,
 }: {
   staff: StaffDto | null;
+  regularOnly?: boolean;
   defaultDepartmentId?: number | null;
   all: StaffDto[];
   canSalary: boolean;
@@ -187,7 +189,7 @@ export function StaffDialog({
           <label>
             用工类型
             <select value={employmentType} onChange={(e) => setEmploymentType(e.target.value as EmploymentType)}>
-              {(Object.keys(EMPLOYMENT_LABELS) as EmploymentType[]).map((k) => (
+              {(Object.keys(EMPLOYMENT_LABELS) as EmploymentType[]).filter(k=>!regularOnly||k==='regular').map((k) => (
                 <option key={k} value={k}>
                   {EMPLOYMENT_LABELS[k]}
                 </option>
