@@ -925,6 +925,49 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.submissionStatus(stranger)).rejects.toThrow(/无权/);
   });
 
+  it.each(['anchor','control'] as const)('锁场自动下播保留%s缺报异常，未修复时间不能推进审核，修复后分别计算实际工资',async(missing)=>{
+    const day=missing==='anchor'?'2026-12-10':'2026-12-11';
+    const pa=await position(company,'自动下播主播'+missing,'live_anchor'),pc=await position(company,'自动下播中控'+missing,'live_control');
+    const aa=au(await mkUser(company,'auto-anchor-'+missing,'自动下播主播',{positionId:pa,payType:'hourly',hourlyRate:6000}),company,'自动下播主播',['features.live-desk.view']);
+    const cc=au(await mkUser(company,'auto-control-'+missing,'自动下播中控',{positionId:pc,payType:'hourly',hourlyRate:3000}),company,'自动下播中控',['features.live-desk.view']);
+    source.turnover=[];source.unavailable='';source.down=false;source.truncated=false;
+    clock(day+' 10:00:00');
+    const plan=await schedules.create(manager,input({date:day,anchorId:aa.id,controlId:cc.id,startTime:'10:00',endTime:'12:00'}));
+    const fingerprint=(await sessions.workbench(aa)).schedules.find(s=>s.id===plan.id)!.fingerprint;
+    const made=await sessions.start(aa,{...baseStart(),actualCheckin:true,scheduleId:plan.id,scheduleFingerprint:fingerprint});
+    await sessions.start(cc,{actualCheckin:true,sessionId:made.id,confirmDetails:true});
+    if(missing==='anchor')await ds.query("INSERT INTO live_session_checkins(company_id,session_id,user_id,role,start_at,confirmation_json) VALUES(?,?,?,'operator',?,'{}')",[company,made.id,operator.id,day+' 10:00:00']);
+    clock(day+' 11:00:00');
+    const reporter=missing==='anchor'?cc:aa,reportedRole=missing==='anchor'?'control':'anchor';
+    await sessions.report(reporter,made.id,{...await feedbackInput(reporter,made.id),role:reportedRole,endAt:day+' 11:00:00',salesCents:0,adSpendCents:0});
+    const closure=new LiveCheckinClosureService(ds,{me:async()=>({name:aa.name,permissions:aa.permissions})} as never,flow,source);
+    clock(day+' 11:29:59');await closure.scan();
+    expect((await sessions.detail(reviewer,made.id)).attendance.find(a=>a.role===missing)?.endAt).toBeNull();
+    clock(day+' 11:31:00');await closure.scan();await closure.scan();
+    const saved=await sessions.detail(reviewer,made.id);
+    expect(saved.status).toBe('submitted');
+    expect(saved.attendance.find(a=>a.role===missing)).toMatchObject({endAt:day+' 11:30:00',autoCheckout:true});
+    expect(saved.attendance.find(a=>a.role===reportedRole)).toMatchObject({endAt:day+' 11:00:00',autoCheckout:false});
+    expect(saved.reports.map(r=>r.role)).toEqual([reportedRole]);
+    await expect(sessions.reviewPreview(reviewer,made.id,{finalSource:reportedRole})).rejects.toThrow(/未报下播.*时间异常/);
+    await expect(approve(made.id,{finalSource:reportedRole})).rejects.toThrow(/未报下播.*时间异常/);
+    const field=missing==='anchor'?'wageEndAt':'controlWageEndAt';
+    await expect(approve(made.id,{finalSource:reportedRole,[field]:day+' 09:00:00'})).rejects.toThrow(/晚于/);
+    expect((await sessions.detail(reviewer,made.id)).status).toBe('submitted');
+    if(missing==='anchor')await expect(approve(made.id,{finalSource:reportedRole,[field]:day+' 11:10:00'})).rejects.toThrow(/运营未报下播/);
+    const corrected={finalSource:reportedRole,[field]:day+' 11:10:00',...(missing==='anchor'?{operatorEndAt:day+' 11:15:00'}:{})};
+    const preview=await sessions.reviewPreview(reviewer,made.id,corrected);
+    expect((missing==='anchor'?preview.wage:preview.controlWage)?.minutes).toBe(70);
+    await approve(made.id,corrected);
+    const done=await sessions.detail(manager,made.id);
+    expect(done.wages.map(w=>[w.role,w.minutes])).toEqual(expect.arrayContaining([[reportedRole,60],[missing,70]]));
+    expect(done.attendance.find(a=>a.role===missing)?.correctedEndAt).toBe(day+' 11:10:00');
+    const [clockRow]=await ds.query('SELECT confirmation_json FROM live_session_checkins WHERE company_id=? AND session_id=? AND role=?',[company,made.id,missing]);
+    const confirmation=typeof clockRow.confirmation_json==='string'?JSON.parse(clockRow.confirmation_json):clockRow.confirmation_json;
+    expect(confirmation.autoCheckout.reviewCorrection).toMatchObject({endAt:day+' 11:10:00',reviewedBy:reviewer.id});
+  });
+
+
   it('扫码与工作台共享实际打卡：提前二次确认、中控核对、首报30分钟锁场、流程失败重试、运营依据及退款增量',async()=>{
     clock('2026-12-01 10:00:00');source.down=false;source.unavailable='';source.truncated=false;source.orders=[];source.refundMap.clear();
     const posA=await position(company,'扫码主播','live_anchor'),posC=await position(company,'扫码中控','live_control');
