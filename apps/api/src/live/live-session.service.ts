@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { REPORT_WINDOW_MS, reportsLocked, scheduleFingerprint, primaryReport } from './live-checkin-core';
 import { captureOrders, persistCapture } from './live-order-capture';
-import { liveStartNotification, liveStartRecipients, liveStartedNotification } from './live-start-notification';
+import { HR_DEPARTMENTS, notifyTrialSeventhDay, liveStartNotification, liveStartRecipients, liveStartedNotification } from './live-start-notification';
 import { liveHandover } from './live-notification-events';
 import { channelsOf, linesOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines, channelStores } from './live-platforms';
 import { LiveChannelInput, LiveStoreLine, livePlatformCommissions } from '@kudesi/shared';
@@ -72,7 +72,7 @@ export class LiveSessionService {
   }
 
   async requireTrialIssuer(companyId:number, userId:number, em=this.em) {
-    const staff=await liveStartRecipients(em,companyId,new Set(['人事部','人事综合部','人力资源部']));
+    const staff=await liveStartRecipients(em,companyId,HR_DEPARTMENTS);
     if(!staff.includes(userId)) liveFail('只有人事人员可以签发临时主播开播码',403);
   }
 
@@ -356,6 +356,7 @@ export class LiveSessionService {
       if(role==='anchor'||Number(s.trial_proxy)&&role==='control'){
         await em.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[endAt,a.companyId,s.id]);
         await em.query("UPDATE live_schedules SET status='finished' WHERE company_id=? AND session_id=? AND status='live'",[a.companyId,s.id]);
+        if (!s.end_text) await notifyTrialSeventhDay(em,a.companyId,s);
       }
     });
     return {ok:true};
@@ -461,6 +462,7 @@ export class LiveSessionService {
         // 场次下播时间以主播所报为准；离开「直播中」后房间和主播就空出来了
         await em.query("UPDATE live_sessions SET end_at = ?, status = IF(status = 'live', 'pending_report', status), revision = revision + 1 WHERE company_id = ? AND id = ?", [endAt, a.companyId, sessionId]);
         await em.query("UPDATE live_schedules SET status = 'finished' WHERE company_id = ? AND session_id = ? AND status = 'live'", [a.companyId, sessionId]);
+        if (!s.end_text) await notifyTrialSeventhDay(em,a.companyId,s);
       } else await em.query('UPDATE live_sessions SET revision = revision + 1 WHERE company_id = ? AND id = ?', [a.companyId, sessionId]);
       if (role === 'anchor' && s.status === 'live') await liveHandover(em, a.companyId, sessionId);
     });

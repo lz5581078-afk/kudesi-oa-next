@@ -1,6 +1,8 @@
 import { EntityManager } from 'typeorm';
 import { liveFromText } from '@kudesi/shared';
 import { Department, Position, User } from '../entities';
+import { writeNotification } from '../outbox/write-notification';
+import type { Row } from './live-core';
 import { liveNotify } from './live-notification-events';
 
 const DEPARTMENTS = new Set(['人事部', '人事综合部', '人力资源部', '总经办', '总经办部门', '总经理办公室', 'A总经理', '总经理', '总经理部', '总经理部门']);
@@ -73,4 +75,29 @@ export async function liveStartedNotification(em: EntityManager, companyId: numb
 export async function liveStartedNoticeValid(em: EntityManager, companyId: number, userId: number, sessionId: number) {
   const [s]=await em.query('SELECT id FROM live_sessions WHERE company_id=? AND id=?',[companyId,sessionId]);
   return !!s && (await liveStartRecipients(em,companyId)).includes(userId);
+}
+
+
+export const HR_DEPARTMENTS = new Set(['人事部','人事综合部','人力资源部']);
+
+/** Called under the company lock, together with the anchor's completed checkout. */
+export async function notifyTrialSeventhDay(em: EntityManager, companyId:number, session:Row) {
+  if (!Number(session.anchor_is_trial) && !Number(session.trial_proxy) && !session.scheduled_trial_rate) return;
+  const anchorId=Number(session.anchor_user_id);
+  const day=session.start_text.slice(0,10);
+  const [count]=await em.query(`SELECT COUNT(DISTINCT DATE(s.start_at)) days FROM live_sessions s
+    WHERE s.company_id=? AND s.anchor_user_id=? AND s.end_at>s.start_at
+      AND s.start_at<DATE_ADD(?,INTERVAL 1 DAY)
+      AND (s.report_source='normal' OR EXISTS (SELECT 1 FROM live_session_checkins c WHERE c.company_id=s.company_id
+        AND c.session_id=s.id AND c.user_id=s.anchor_user_id AND c.role='anchor' AND c.end_at>c.start_at))`,
+    [companyId,anchorId,day]);
+  if (Number(count.days)!==7) return;
+  const key='trial-seventh-day:'+anchorId;
+  for (const userId of await liveStartRecipients(em,companyId,HR_DEPARTMENTS)) {
+    const event=await em.query('INSERT IGNORE INTO live_notification_events(company_id,event_key,user_id) VALUES(?,?,?)',[companyId,key,userId]);
+    if (!event.affectedRows) continue;
+    await writeNotification(em,{companyId,userId,kind:'live_notification',title:'试播满 7 个有效直播日，请调整正式岗工资',
+      body:`主播 ${session.anchor_name}（员工编号 ${anchorId}）已于 ${day} 完成第 7 个有效直播日。请核对该主播的工资档案并设置正式岗工资。`,
+      link:'/resource/workforce'},{key,resourceType:'user',resourceId:anchorId});
+  }
 }

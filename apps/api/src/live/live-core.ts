@@ -30,7 +30,7 @@ export async function lockCompany(em: EntityManager, companyId: number) {
 export const SESSION_SELECT = `SELECT s.*, DATE_FORMAT(s.session_date,'%Y-%m-%d') session_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text,
     DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text, DATE_FORMAT(s.submitted_at,'%Y-%m-%d %H:%i:%s') submitted_text, DATE_FORMAT(s.approved_at,'%Y-%m-%d %H:%i:%s') approved_text,
     EXISTS (SELECT 1 FROM live_session_checkins tc WHERE tc.company_id=s.company_id AND tc.session_id=s.id AND tc.role='anchor' AND tc.user_id=s.anchor_user_id AND JSON_EXTRACT(tc.confirmation_json,'$.trialAnchorId')=s.anchor_user_id AND JSON_EXTRACT(tc.confirmation_json,'$.confirmedBy')=s.started_by AND s.started_role='control') trial_proxy,
-    CASE WHEN sc.anchor_user_id=s.anchor_user_id THEN sc.trial_hourly_rate_cents END scheduled_trial_rate, tp.name trial_proxy_name, a.name anchor_name, c.name control_name, o.name operator_name, ap.name approver_name,
+    CASE WHEN sc.anchor_user_id=s.anchor_user_id THEN sc.trial_hourly_rate_cents END scheduled_trial_rate, a.live_trial anchor_is_trial, tp.name trial_proxy_name, a.name anchor_name, c.name control_name, o.name operator_name, ap.name approver_name,
     DATE_FORMAT(sc.start_at,'%Y-%m-%d %H:%i:%s') schedule_start, DATE_FORMAT(sc.end_at,'%Y-%m-%d %H:%i:%s') schedule_end
     FROM live_sessions s JOIN users a ON a.id = s.anchor_user_id AND a.company_id = s.company_id
     LEFT JOIN users tp ON tp.id = s.started_by AND tp.company_id = s.company_id

@@ -1066,6 +1066,15 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.start(otherControl,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排定/);
     await expect(sessions.start(foreign,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/身份|不存在/);
     await expect(sessions.start(cc,{...start,anchorId:anchor.id,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排班/);
+    const hrDept=await ds.manager.save(Department,{companyId:company,name:'人事部',status:'active'});
+    const hrId=await mkUser(company,'trial-day-seven-hr','试播工资人事',{departmentId:hrDept.id});
+    // Six distinct dates, including two sessions on the same date and one manual-only day.
+    for(const [day,sourceKind] of [['20','normal'],['20','normal'],['21','normal'],['22','normal'],['23','normal'],['24','normal'],['25','normal'],['26','manual']]) {
+      const date='2026-12-'+day;
+      await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,
+        session_date,start_at,end_at,status,started_by,started_role,report_source) VALUES(?,?,?,?,?,?,?,?,?,'approved',?,'anchor',?)`,
+        [company,room,'试播',trial.id,account,'试播账号',date,date+' 23:58:00',date+' 23:59:00',trial.id,sourceKind]);
+    }
     const made=await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id});
     expect((await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id})).id).toBe(made.id);
     expect((await sessions.detail(cc,made.id)).anchorTrial).toBe(true);
@@ -1079,6 +1088,9 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.report(cc,made.id,report)).rejects.toThrow(/试播主播/);
     await expect(sessions.report(cc,made.id,{...report,confirmTrialAnchorId:anchor.id})).rejects.toThrow(/试播主播/);
     await sessions.report(cc,made.id,{...report,confirmTrialAnchorId:trial.id});
+    const notices=await ds.manager.findBy(Notification,{companyId:company,title:'试播满 7 个有效直播日，请调整正式岗工资'});
+    expect(notices.filter(n=>n.userId===hrId)).toHaveLength(1);
+    expect(notices.some(n=>n.userId===cc.id)).toBe(false);
     const ended=await sessions.detail(cc,made.id);expect(ended.trialProxyReporter).toEqual({id:cc.id,name:cc.name});expect(ended.endAt).toBe('2027-01-05 11:00:00');expect(ended.status).toBe('pending_report');expect(ended.reports.map(r=>r.role)).toEqual(['control']);
     // The per-session confirmation remains authoritative even if this person later becomes regular.
     await ds.query('UPDATE users SET live_trial=0 WHERE company_id=? AND id=?',[company,trial.id]);
