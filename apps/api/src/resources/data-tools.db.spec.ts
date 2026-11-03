@@ -65,6 +65,12 @@ d('数据板块工具（真实数据库）', () => {
     expect(h.rows[0].revision).toBe(2);
     expect(h.rows[0].changes.find((x: { field: string }) => x.field === 'preShipCostCents')).toMatchObject({ before: 1000, after: 1500 });
     expect(h.rows[1].changes).toEqual([]);
+    expect(h.rows[0].before).toMatchObject({ preShipCostCents: 1000, code: h.rows[1].code, name: h.rows[1].name });
+    expect(h.rows[1].before).toBeNull();
+    const reasonSearch = await tools.costHistory(boss, { bundleId: ids.bundle, keyword: '首次', page: 1, pageSize: 10 });
+    expect(reasonSearch.rows.some((row: { reason: string }) => row.reason === '首次')).toBe(true);
+    expect((await tools.costHistory({ ...boss, companyId: boss.companyId + 9999999 }, { keyword: '首次', page: 1, pageSize: 10 })).total).toBe(0);
+
   });
 
   it('包装方案：明细只能选包装档案；匹配规则按优先级、重量、编码命中，同优先级冲突要提示', async () => {

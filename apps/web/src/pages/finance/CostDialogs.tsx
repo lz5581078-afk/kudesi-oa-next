@@ -1,3 +1,4 @@
+import { CostHistoryRecords } from './CostHistoryRecords';
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError } from '../../api/client';
 import { money, pct } from './common';
@@ -125,14 +126,20 @@ export function PricingEditDialog({ target, categories, onClose, onSaved, onConf
   );
 }
 
-const fmt = (k: string, v: number | null) => (v === null ? '—' : k === 'weightG' ? `${v}g` : k === 'marginPercent' ? pct(v) : money(v));
-
 /** 一个组合自己的成本历史：成本变更（每次成本、重量、运费、利润率、最低售价变化）+ 售价维护（使用快递、单品利润率） */
 export function SkuHistoryDialog({ row, onClose }: { row: CostRow; onClose: () => void }) {
   const [tab, setTab] = useState<'changes' | 'pricing'>('changes');
   const [data, setData] = useState<{ changes: { total: number; rows: CostSnapshotRow[] }; pricing: { total: number; rows: PricingHistoryRow[] } } | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => { financeApi.skuCostHistory(row.bundleId).then(setData).catch((e) => setError(msg(e))); }, [row.bundleId]);
+  const [page, setPage] = useState(1);
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setData(null); setError('');
+    financeApi.skuCostHistory(row.bundleId, page).then(result => { if (active) setData(result); }).catch(e => { if (active) setError(msg(e)); });
+    return () => { active = false; };
+  }, [row.bundleId, page, refresh]);
+  const total = data?.[tab].total ?? 0;
   useEffect(() => {
     const close = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', close);
@@ -142,24 +149,12 @@ export function SkuHistoryDialog({ row, onClose }: { row: CostRow; onClose: () =
     <div className="modal-backdrop" role="presentation"><div className="modal card wide" role="dialog" aria-label="SKU成本历史">
       <div className="modal-head between"><div><strong>{row.name}</strong><div className="muted">{row.code}</div></div><button type="button" className="icon-button" aria-label="关闭成本历史" onClick={onClose}>✕</button></div>
       <div className="tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={tab === 'changes'} className={`tab${tab === 'changes' ? ' active' : ''}`} onClick={() => setTab('changes')}>成本变更记录{data ? `（${data.changes.total}）` : ''}</button>
-        <button type="button" role="tab" aria-selected={tab === 'pricing'} className={`tab${tab === 'pricing' ? ' active' : ''}`} onClick={() => setTab('pricing')}>售价维护记录{data ? `（${data.pricing.total}）` : ''}</button>
+        <button type="button" role="tab" aria-selected={tab === 'changes'} className={`tab${tab === 'changes' ? ' active' : ''}`} onClick={() => { setTab('changes'); setPage(1); }}>成本变更记录{data ? `（${data.changes.total}）` : ''}</button>
+        <button type="button" role="tab" aria-selected={tab === 'pricing'} className={`tab${tab === 'pricing' ? ' active' : ''}`} onClick={() => { setTab('pricing'); setPage(1); }}>售价维护记录{data ? `（${data.pricing.total}）` : ''}</button>
       </div>
       <div className="modal-body">
         {error && <div role="alert" className="notice error">{error}</div>}
-        {tab === 'changes' && data && (
-          <div className="table-scroll"><table className="data-table">
-            <thead><tr><th>时间</th><th>版本 / 事件</th><th className="num">发货前成本</th><th className="num">运费</th><th className="num">最低售价</th><th>相比上一版</th><th>操作人 / 原因</th></tr></thead>
-            <tbody>
-              {data.changes.rows.length === 0 && <tr><td colSpan={7} className="empty-state muted">暂无成本变更记录</td></tr>}
-              {data.changes.rows.map((r) => (
-                <tr key={r.id}><td>{when(r.createdAt)}</td><td>v{r.revision}{r.eventLabel && <div className="muted">{r.eventLabel}</div>}</td><td className="num">{fmt('p', r.preShipCostCents)}</td><td className="num">{fmt('f', r.freightCents)}</td><td className="num">{fmt('m', r.minPriceCents)}</td>
-                  <td>{r.revision === 1 ? <span className="muted">首版</span> : r.changes.map((c) => <div key={c.field}>{c.label}：{fmt(c.field, c.before)} → <strong>{fmt(c.field, c.after)}</strong></div>)}</td>
-                  <td>{r.actorName}<div className="muted">{r.reason}</div></td></tr>
-              ))}
-            </tbody>
-          </table></div>
-        )}
+        {tab === 'changes' && data && <CostHistoryRecords key={`${row.bundleId}:${page}:${refresh}`} rows={data.changes.rows} />}
         {tab === 'pricing' && data && (
           <div className="table-scroll"><table className="data-table">
             <thead><tr><th>时间</th><th>使用快递</th><th>单品利润率</th><th>操作人</th><th>修改原因</th></tr></thead>
@@ -173,6 +168,7 @@ export function SkuHistoryDialog({ row, onClose }: { row: CostRow; onClose: () =
           </table></div>
         )}
         {!data && !error && <p className="muted">正在读取…</p>}
+        <div className="toolbar"><span>共 {total} 条 · {page} / {Math.max(1, Math.ceil(total / 20))}</span><button type="button" className="secondary-button small" aria-label="历史上一页" disabled={!data || page <= 1} onClick={() => setPage(p => p - 1)}>上一页</button><button type="button" className="secondary-button small" aria-label="历史下一页" disabled={!data || page * 20 >= total} onClick={() => setPage(p => p + 1)}>下一页</button><button type="button" className="secondary-button small" disabled={!data} onClick={() => setRefresh(v => v + 1)}>刷新历史</button></div>
       </div>
     </div></div>
   );

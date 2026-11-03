@@ -1,3 +1,4 @@
+import { CostHistoryRecords } from './CostHistoryRecords';
 import { FormEvent, useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
 import { SearchPick, money, pct } from './common';
@@ -24,23 +25,29 @@ export function CostHistoryPage() {
   const [source, setSource] = useState<'changes' | 'pricing' | 'margins'>('changes');
   const [pricingRows, setPricingRows] = useState<PricingHistoryRow[]>([]);
   const [marginRows, setMarginRows] = useState<MarginHistoryRow[]>([]);
-  const load = () => {
-    setError('');
-    const q = { keyword: keyword || undefined, page };
-    if (source === 'pricing') return financeApi.pricingHistory(q).then((r) => { setPricingRows(r.rows); setTotal(r.total); }).catch((e) => setError(msg(e)));
-    if (source === 'margins') return financeApi.marginHistory(q).then((r) => { setMarginRows(r.rows); setTotal(r.total); }).catch((e) => setError(msg(e)));
-    return financeApi.costHistory(q).then((r) => { setRows(r.rows); setTotal(r.total); }).catch((e) => setError(msg(e)));
-  };
-  useEffect(() => { void load(); }, [page, keyword, source]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [loading, setLoading] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setLoading(true); setError(''); setRows([]); setPricingRows([]); setMarginRows([]); setTotal(0);
+    const timer = setTimeout(() => {
+      const q = { keyword: keyword.trim() || undefined, page };
+      const request = source === 'pricing' ? financeApi.pricingHistory(q).then(r => { if (active) { setPricingRows(r.rows); setTotal(r.total); } })
+        : source === 'margins' ? financeApi.marginHistory(q).then(r => { if (active) { setMarginRows(r.rows); setTotal(r.total); } })
+        : financeApi.costHistory(q).then(r => { if (active) { setRows(r.rows); setTotal(r.total); } });
+      void request.catch(e => { if (active) setError(msg(e)); }).finally(() => { if (active) setLoading(false); });
+    }, 150);
+    return () => { active = false; clearTimeout(timer); };
+  }, [page, keyword, source, refresh]);
   async function register() {
     setBusy(true); setError(''); setNotice('');
-    try { const r = await financeApi.registerCost({ reason: '手工登记' }); setNotice(`登记了 ${r.recorded} 个组合的新成本，${r.unchanged} 个没有变化`); await load(); } catch (e) { setError(msg(e)); }
+    try { const r = await financeApi.registerCost({ reason: '手工登记' }); setNotice(`登记了 ${r.recorded} 个组合的新成本，${r.unchanged} 个没有变化`); setRefresh(v => v + 1); } catch (e) { setError(msg(e)); }
     setBusy(false);
   }
-  const fmt = (k: string, v: number | null) => (v === null ? '—' : k === 'weightG' ? `${v}g` : k === 'marginPercent' ? `${v}%` : money(v));
+
   return (
-    <div>
-      <div className="page-head between"><h1>成本历史</h1><div className="toolbar"><select aria-label="历史类型" value={source} onChange={(e) => { setSource(e.target.value as typeof source); setPage(1); setKeyword(''); }}><option value="changes">成本变更记录</option><option value="pricing">售价维护记录</option><option value="margins">分类利润率记录</option></select><input aria-label="搜索组合" placeholder={source === 'margins' ? '搜索分类或修改原因' : '搜索组合编码或名称'} value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />{source === 'changes' && <button type="button" className="secondary-button" disabled={busy} onClick={register}>{busy ? '登记中…' : '登记所有已验证组合的当前成本'}</button>}</div></div>
+    <div className="finance-cost-history-page">
+      <div className="page-head between"><h1>成本历史</h1><div className="toolbar"><select aria-label="历史类型" value={source} onChange={(e) => { setSource(e.target.value as typeof source); setPage(1); setKeyword(''); }}><option value="changes">成本变更记录</option><option value="pricing">售价维护记录</option><option value="margins">分类利润率记录</option></select><input aria-label="搜索成本历史" placeholder={source === 'margins' ? '分类或修改原因' : 'SKU编码、名称或修改原因'} value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} /><button type="button" className="secondary-button" aria-label="刷新历史" disabled={loading} onClick={() => setRefresh(v => v + 1)}>刷新历史</button>{source === 'changes' && <button type="button" className="secondary-button" disabled={busy} onClick={register}>{busy ? '登记中…' : '登记所有已验证组合的当前成本'}</button>}</div></div>
       <p className="muted">组合验证通过时会自动登记一次；成本、重量、运费、利润率或最低售价和上一次不同才会新增一条版本，没变化不重复记。</p>
       {notice && <div role="status" className="notice ok">{notice}</div>}
       {error && <div role="alert" className="notice error">{error}</div>}
@@ -48,7 +55,7 @@ export function CostHistoryPage() {
         <div className="table-scroll"><table className="data-table">
           <thead><tr><th>时间</th><th>组合</th><th>使用快递</th><th>单品利润率</th><th>操作人</th><th>修改原因</th></tr></thead>
           <tbody>
-            {pricingRows.length === 0 && <tr><td colSpan={6} className="empty-state muted">还没有售价维护记录。在成本表里点“维护售价”保存后会出现在这里。</td></tr>}
+            {pricingRows.length === 0 && <tr><td colSpan={6} className="empty-state muted">{loading ? '正在加载…' : '还没有售价维护记录。在成本表里点“维护售价”保存后会出现在这里。'}</td></tr>}
             {pricingRows.map((r) => (
               <tr key={r.id}><td>{when(r.createdAt)}</td><td><strong>{r.code}</strong><div className="muted">{r.name}</div></td><td>{r.beforeCarrier || '未指定'} → <strong>{r.afterCarrier || '未指定'}</strong></td>
                 <td>{r.beforePercent === null ? '继承' : pct(r.beforePercent)} → <strong>{r.afterPercent === null ? '继承' : pct(r.afterPercent)}</strong></td><td>{r.actorName}</td><td>{r.reason}</td></tr>
@@ -60,26 +67,15 @@ export function CostHistoryPage() {
         <div className="table-scroll"><table className="data-table">
           <thead><tr><th>时间</th><th>分类</th><th>利润率变化</th><th>操作人</th><th>修改原因</th></tr></thead>
           <tbody>
-            {marginRows.length === 0 && <tr><td colSpan={5} className="empty-state muted">还没有分类利润率记录。</td></tr>}
+            {marginRows.length === 0 && <tr><td colSpan={5} className="empty-state muted">{loading ? '正在加载…' : '还没有分类利润率记录。'}</td></tr>}
             {marginRows.map((r) => (
               <tr key={r.id}><td>{when(r.createdAt)}</td><td>{r.scopeName}</td><td>{r.beforePercent === null ? '未设置（继承）' : pct(r.beforePercent)} → <strong>{r.afterPercent === null ? '未设置（继承）' : pct(r.afterPercent)}</strong></td><td>{r.actorName}</td><td>{r.reason}</td></tr>
             ))}
           </tbody>
         </table></div>
       )}
-      {source === 'changes' && <div className="table-scroll"><table className="data-table">
-        <thead><tr><th>时间</th><th>组合</th><th>版本</th><th className="num">发货前成本</th><th className="num">运费</th><th className="num">最低售价</th><th>相比上一版</th><th>登记人 / 原因</th></tr></thead>
-        <tbody>
-          {rows.length === 0 && <tr><td colSpan={8} className="empty-state muted">还没有成本历史。组合验证通过后会自动出现。</td></tr>}
-          {rows.map((r) => (
-            <tr key={r.id}><td>{when(r.createdAt)}</td><td><strong>{r.code}</strong><div className="muted">{r.name}</div></td><td>v{r.revision}</td>
-              <td className="num">{fmt('p', r.preShipCostCents)}</td><td className="num">{fmt('f', r.freightCents)}</td><td className="num">{fmt('m', r.minPriceCents)}</td>
-              <td>{r.revision === 1 ? <span className="muted">首版</span> : r.changes.map((c) => <div key={c.field}>{c.label}：{fmt(c.field, c.before)} → <strong>{fmt(c.field, c.after)}</strong></div>)}</td>
-              <td>{r.actorName}<div className="muted">{r.reason}</div></td></tr>
-          ))}
-        </tbody>
-      </table></div>}
-      <div className="toolbar"><button type="button" className="secondary-button small" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span className="muted">共 {total} 条 · 第 {page} 页</span><button type="button" className="secondary-button small" disabled={page * 20 >= total} onClick={() => setPage(page + 1)}>下一页</button></div>
+      {source === 'changes' && <CostHistoryRecords key={`${page}:${keyword}:${refresh}`} rows={rows} busy={loading} />}
+      <div className="toolbar"><button type="button" className="secondary-button small" disabled={loading || page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span className="muted">共 {total} 条 · 第 {page} 页</span><button type="button" className="secondary-button small" disabled={loading || page * 20 >= total} onClick={() => setPage(page + 1)}>下一页</button></div>
     </div>
   );
 }

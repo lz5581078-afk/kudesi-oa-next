@@ -99,7 +99,7 @@ export class DataToolsService {
     const where: string[] = ['s.company_id = ?'];
     const args: unknown[] = [user.companyId];
     if (q.bundleId) { where.push('s.bundle_id = ?'); args.push(q.bundleId); }
-    if (q.keyword?.trim()) { where.push('(s.code LIKE ? OR s.name LIKE ?)'); args.push(`%${q.keyword.trim()}%`, `%${q.keyword.trim()}%`); }
+    if (q.keyword?.trim()) { where.push('(s.code LIKE ? OR s.name LIKE ? OR s.reason LIKE ?)'); args.push(`%${q.keyword.trim()}%`, `%${q.keyword.trim()}%`, `%${q.keyword.trim()}%`); }
     const [{ n }] = await this.dataSource.query(`SELECT COUNT(*) AS n FROM finance_cost_snapshots s WHERE ${where.join(' AND ')}`, args);
     const rows = await this.dataSource.query(
       `SELECT s.*, u.name AS actorName,
@@ -116,9 +116,9 @@ export class DataToolsService {
       rows: rows.map((r: Record<string, unknown>) => {
         const p = r.prevId ? pm.get(Number(r.prevId)) : undefined;
         const cur = Object.fromEntries(FIELDS.map(([c, k]) => [k, n_(r[c])]));
-        const before = p ? Object.fromEntries(FIELDS.map(([c, k]) => [k, n_(p[c])])) : null;
+        const before = p ? { ...Object.fromEntries(FIELDS.map(([c, k]) => [k, n_(p[c])])), code: String(p.code ?? ''), name: String(p.name ?? '') } : null;
         return { id: r.id, bundleId: r.bundle_id, code: r.code, name: r.name, revision: r.revision, reason: r.reason, eventType: r.event_type, eventLabel: COST_EVENT_LABEL[r.event_type as CostEvent] ?? '手动登记', actorName: r.actorName ?? '系统', createdAt: r.created_at, ...cur,
-          before, changes: before ? FIELDS.filter(([, k]) => cur[k] !== before[k]).map(([, k, label]) => ({ field: k, label, before: before[k], after: cur[k] })) : [] };
+          before, changes: before ? [...FIELDS.filter(([, k]) => cur[k] !== (before as Record<string, unknown>)[k]).map(([, k, label]) => ({ field: k, label, before: (before as Record<string, unknown>)[k], after: cur[k] })), ...([['code', 'SKU组合编码'], ['name', 'SKU名称']] as const).filter(([key]) => String(r[key] ?? '') !== before[key]).map(([key, label]) => ({ field: key, label, before: before[key], after: String(r[key] ?? '') }))] : [] };
       }),
     };
   }
