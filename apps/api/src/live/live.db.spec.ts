@@ -1035,4 +1035,65 @@ d('直播管理（真实数据库）', () => {
     expect(await ds.query('SELECT id FROM live_wage_records WHERE company_id=? AND session_id=? AND user_id=?',[company,made.id,trial.id])).toHaveLength(1);
   },30000);
 
+  it.each([false,true])('中控实际下播按真实主播打卡结束房间（主播已上播=%s），排班不冒充打卡',async(anchorJoined)=>{
+    const date=anchorJoined?'2027-02-02':'2027-02-01',suffix=anchorJoined?'joined':'absent';
+    clock(`${date} 10:00:00`);source.down=false;source.unavailable='';source.truncated=false;source.turnover=[];source.refundMap.clear();
+    const pa=await position(company,`结束测试主播-${suffix}`,'live_anchor'),pc=await position(company,`结束测试中控-${suffix}`,'live_control');
+    const aa=au(await mkUser(company,`end-anchor-${suffix}`,'排定主播',{positionId:pa}),company,'排定主播',['features.live-desk.view']);
+    const cc=au(await mkUser(company,`end-control-${suffix}`,'实际中控',{positionId:pc}),company,'实际中控',['features.live-desk.view']);
+    const [oldRoom]=await ds.query('SELECT data FROM resource_records WHERE company_id=? AND id=?',[company,ids.n1]);
+    const parent=(typeof oldRoom.data==='string'?JSON.parse(oldRoom.data):oldRoom.data).parentId;
+    const room=await rec(company,'locations',`直播间-结束测试-${suffix}`,{name:`直播间-结束测试-${suffix}`,locationType:'room',parentId:parent});
+    const shop=await rec(company,'stores',`结束店-${suffix}`,{name:`结束店-${suffix}`,platform:'douyin',jushuitanShopId:`END-${suffix}`});
+    const account=await rec(company,'self-media',`结束号-${suffix}`,{name:`结束号-${suffix}`,platform:'douyin',livePermission:true,storeIds:[shop]});
+    const plan=await schedules.create(manager,input({date,roomId:room,anchorId:aa.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'}));
+    const future=await schedules.create(manager,input({date,roomId:room,anchorId:aa.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'12:30',endTime:'14:30'}));
+    const fingerprint=(await sessions.workbench(cc)).schedules.find(r=>r.id===plan.id)!.fingerprint;
+    const made=await sessions.start(cc,{actualCheckin:true,role:'control',scheduleId:plan.id,scheduleFingerprint:fingerprint,confirmDetails:true,productIds:[ids.p1]});
+    if(anchorJoined){clock(`${date} 10:01:00`);await sessions.start(aa,{actualCheckin:true,role:'anchor',sessionId:made.id});}
+    expect((await sessions.detail(cc,made.id)).myCheckins).toHaveLength(1);
+    clock(`${date} 12:18:20`);
+    const report={role:'control',endAt:`${date} 12:00:00`,salesCents:0,adSpendCents:0};
+    await sessions.report(cc,made.id,report);
+    let detail=await sessions.detail(cc,made.id);
+    expect(detail.status).toBe(anchorJoined?'live':'pending_report');
+    expect(detail.endAt).toBe(anchorJoined?null:`${date} 12:18:20`);
+    expect(detail.reportDeadline).toBe(`${date} 12:48:20`);
+    expect(detail.reports.map(r=>r.role)).toEqual(['control']);
+    expect((await sessions.workbench(cc)).active.find(r=>r.id===made.id)?.myCheckin?.endAt).toBe(`${date} 12:18:20`);
+    expect((await schedules.options(manager)).rooms.find(r=>r.id===room)?.live).toBe(anchorJoined);
+    expect((await schedules.list(manager,{from:date,to:date})).rows.find(r=>r.id===plan.id)?.status).toBe(anchorJoined?'live':'finished');
+    expect((await schedules.list(manager,{from:date,to:date})).rows.find(r=>r.id===future.id)?.status).toBe('scheduled');
+    const autoFlow={start:jest.fn().mockRejectedValue(new Error('与本测试无关的旧场次'))};
+    const closure=new LiveCheckinClosureService(ds,{me:async()=>({name:cc.name,permissions:cc.permissions})} as never,autoFlow as never,source);
+    clock(`${date} 12:23:20`);
+    if(!anchorJoined){
+      // Reproduce the old bug in this isolated database; recover the saved checkout before the report deadline.
+      await ds.query("UPDATE live_sessions SET status='live',end_at=NULL WHERE company_id=? AND id=?",[company,made.id]);
+      await ds.query("UPDATE live_schedules SET status='live' WHERE company_id=? AND id=?",[company,plan.id]);
+    }
+    await closure.scan();await closure.scan();
+    detail=await sessions.detail(cc,made.id);
+    expect(detail.status).toBe(anchorJoined?'live':'pending_report');
+    expect(detail.endAt).toBe(anchorJoined?null:`${date} 12:18:20`);
+    expect(detail.reportDeadline).toBe(`${date} 12:48:20`);expect(detail.reportsLocked).toBe(false);
+    expect(autoFlow.start.mock.calls.some((args:unknown[])=>JSON.stringify(args).includes(`"sessionId":${made.id}`))).toBe(false);
+    expect(await ds.query("SELECT id FROM live_session_checkins WHERE company_id=? AND session_id=? AND role='anchor'",[company,made.id])).toHaveLength(anchorJoined?1:0);
+    const overview=await schedules.overview(manager,date);
+    const tile=[...overview.groups.north,...overview.groups.south,...overview.groups.none].find(r=>r.id===room)!;
+    expect(tile.live?.id??null).toBe(anchorJoined?made.id:null);
+    expect(tile.current?.endAt).toBe(anchorJoined?null:`${date} 12:18:20`);
+    if(anchorJoined){
+      clock(`${date} 12:25:00`);await sessions.report(aa,made.id,{role:'anchor',endAt:`${date} 12:00:00`,salesCents:0});
+      expect((await sessions.detail(aa,made.id)).endAt).toBe(`${date} 12:25:00`);
+      expect((await sessions.detail(aa,made.id)).status).toBe('pending_report');
+    }else{
+      await expect(sessions.report(aa,made.id,{role:'anchor',endAt:`${date} 12:23:20`,salesCents:0})).rejects.toThrow(/先确认本人上播/);
+      await sessions.report(cc,made.id,report);
+      expect((await sessions.detail(cc,made.id)).endAt).toBe(`${date} 12:18:20`);
+      expect((await sessions.detail(cc,made.id)).reports).toHaveLength(1);
+      expect(await ds.query('SELECT id FROM live_wage_records WHERE company_id=? AND session_id=? AND user_id=?',[company,made.id,aa.id])).toHaveLength(0);
+    }
+  },30000);
+
 });
