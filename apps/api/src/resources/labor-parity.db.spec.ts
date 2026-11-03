@@ -1,0 +1,113 @@
+import 'reflect-metadata';
+import * as crypto from 'crypto';
+import { ConflictException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { AuthUser } from '../common/auth.decorators';
+import { buildDataSourceOptions } from '../database/data-source';
+import { Company, ResourceRecord, User } from '../entities';
+import { buildServices } from '../test-support';
+import { laborWorkCode } from './labor-rules';
+import { ResourcesService } from './resources.service';
+
+const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
+d('人力项目原版查重与工作编号（隔离数据库）', () => {
+  let ds: DataSource, svc: ResourcesService, actor: AuthUser;
+  let version: number, category: number, otherCategory: number, workType: number, unit: number, otherUnit: number;
+  const create = (workName: string, extra: Record<string, unknown> = {}) => svc.create(actor, 'finance-labor-costs', { versionId: version, archiveCategoryId: category, workTypeId: workType, unitId: unit, workName, unitPrice: 100, ...extra });
+  beforeAll(async () => {
+    ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
+    await ds.initialize(); svc = buildServices(ds).resources;
+    const company = await ds.manager.save(Company, ds.manager.create(Company, { code: `lp${crypto.randomBytes(5).toString('hex')}`, name: '合成人工规则验收', status: 'active' }));
+    const user = await ds.manager.save(User, ds.manager.create(User, { companyId: company.id, account: 'admin', passwordHash: 'x', name: '合成管理员', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
+    actor = { id: user.id, companyId: company.id, name: user.name, permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
+    version = (await svc.create(actor, 'finance-labor-versions', { versionCode: 'RL-A', versionName: '合成版本' })).id;
+    category = (await svc.create(actor, 'finance-labor-categories', { versionId: version, name: '合成目录甲', code: 'C1' })).id;
+    otherCategory = (await svc.create(actor, 'finance-labor-categories', { versionId: version, name: '合成目录乙', code: 'C2' })).id;
+    workType = (await svc.create(actor, 'finance-labor-work-types', { name: '合成包装' })).id;
+    unit = (await svc.create(actor, 'finance-labor-units', { name: '件' })).id;
+    otherUnit = (await svc.create(actor, 'finance-labor-units', { name: '小时' })).id;
+  });
+  afterAll(async () => { await ds?.destroy(); });
+
+  it('同名同工作分类同单位跨归档目录仍拒绝；不同单位允许，更新不越过查重', async () => {
+    const first = await create('合成同名项目');
+    await expect(create(' 合成同名项目 ', { archiveCategoryId: otherCategory })).rejects.toThrow(/工作名称、工作分类和计价单位完全相同/);
+    const second = await create('合成同名项目', { unitId: otherUnit });
+    expect(second.data.workCode).toBe(`${first.data.workCode}-2`);
+    await expect(svc.update(actor, 'finance-labor-costs', second.id, { unitId: unit })).rejects.toThrow(/完全相同/);
+    expect((await svc.get(actor, 'finance-labor-costs', second.id)).data.unitId).toBe(otherUnit);
+  });
+
+  it('不同名称同首字母加序号，编辑排除自身；内部空格不当成完全同名', async () => {
+    const first = await create('装袋'), second = await create('扎袋'), third = await create('装 袋');
+    expect(second.data.workCode).toBe(`${first.data.workCode}-2`);
+    expect(third.data.workCode).toBe(`${first.data.workCode}-3`);
+    const updated = await svc.update(actor, 'finance-labor-costs', second.id, { unitPrice: 123.4567 });
+    expect(updated.data.workCode).toBe(second.data.workCode);
+    expect(updated.data.unitPrice).toBe(123.4567);
+    expect(await laborWorkCode(ds.manager, actor.companyId, updated.data, updated.id)).toBe(updated.data.workCode);
+  });
+
+  it('80位截断为序号留长度；不同版本可有相同编号，通用唯一索引仍保护版本内唯一', async () => {
+    const a = await svc.create(actor, 'finance-labor-versions', { versionCode: `${'L'.repeat(79)}A`, versionName: '合成长版本甲' });
+    const b = await svc.create(actor, 'finance-labor-versions', { versionCode: `${'L'.repeat(79)}B`, versionName: '合成长版本乙' });
+    const ca = await svc.create(actor, 'finance-labor-categories', { versionId: a.id, name: '长编号目录' });
+    const cb = await svc.create(actor, 'finance-labor-categories', { versionId: b.id, name: '长编号目录' });
+    const first = await create('长项目甲', { versionId: a.id, archiveCategoryId: ca.id });
+    const second = await create('长项目乙', { versionId: a.id, archiveCategoryId: ca.id });
+    const third = await create('长项目丙', { versionId: a.id, archiveCategoryId: ca.id });
+    expect(first.data.workCode).toHaveLength(80);
+    expect(second.data.workCode).toMatch(/-2$/); expect(third.data.workCode).toMatch(/-3$/);
+    expect(String(second.data.workCode).length).toBeLessThanOrEqual(80); expect(String(third.data.workCode).length).toBeLessThanOrEqual(80);
+    const another = await create('长项目甲', { versionId: b.id, archiveCategoryId: cb.id });
+    expect(another.data.workCode).toBe(first.data.workCode);
+    const rawA = await ds.manager.findOneByOrFail(ResourceRecord, { id: first.id, companyId: actor.companyId });
+    const rawB = await ds.manager.findOneByOrFail(ResourceRecord, { id: another.id, companyId: actor.companyId });
+    expect(rawA.uniqueKey).toBeTruthy(); expect(rawB.uniqueKey).not.toBe(rawA.uniqueKey);
+    await expect(svc.findByUnique(ds.manager, actor.companyId, 'finance-labor-costs', String(first.data.workCode))).rejects.toThrow(/多个成本版本/);
+    expect((await svc.findByUnique(ds.manager, actor.companyId, 'finance-labor-costs', String(first.data.workCode), another.id))?.id).toBe(another.id);
+  });
+
+  it('并发首字母碰撞不落重复编号，冲突重试后能得到独立编号', async () => {
+    const names = ['并发装袋甲', '并发扎袋甲'];
+    const results = await Promise.allSettled(names.map(name => create(name)));
+    const ids: number[] = [];
+    for (const [index, result] of results.entries()) {
+      if (result.status === 'fulfilled') ids.push(result.value.id);
+      else { expect(result.reason).toBeInstanceOf(ConflictException); ids.push((await create(names[index])).id); }
+    }
+    const rows = await Promise.all(ids.map(id => svc.get(actor, 'finance-labor-costs', id)));
+    expect(new Set(rows.map(row => row.data.workCode)).size).toBe(2);
+    expect(new Set(rows.map(row => row.id)).size).toBe(2);
+  });
+
+  it('上游分类编码变化后各碰撞编号保持唯一，费用值和记录ID保留', async () => {
+    const before = (await svc.list(actor, 'finance-labor-costs', { fieldKey: 'archiveCategoryId', fieldValue: category, pageSize: 200 } as never)).items;
+    await svc.update(actor, 'finance-labor-categories', category, { code: 'UPDATED' });
+    const after = await Promise.all(before.map(row => svc.get(actor, 'finance-labor-costs', row.id)));
+    expect(new Set(after.map(row => row.data.workCode)).size).toBe(after.length);
+    for (const row of after) {
+      expect(row.data.workCode).toContain('-UPDATED-');
+      expect(row.data.unitPrice).toBe(before.find(old => old.id === row.id)!.data.unitPrice);
+      expect((await svc.findByUnique(ds.manager, actor.companyId, 'finance-labor-costs', String(row.data.workCode)))?.id).toBe(row.id);
+    }
+  });
+
+  it('草稿项目按原规则删除后，重新维护可复用已释放编号', async () => {
+    const first = await create('删除复用项目');
+    await svc.remove(actor, 'finance-labor-costs', first.id, '合成删除复用验收');
+    const again = await create('删除复用项目');
+    expect(again.id).not.toBe(first.id); expect(again.data.workCode).toBe(first.data.workCode);
+  });
+  it('超过500节点的三级归档目录，上游改码仍更新末尾分支的项目', async () => {
+    const root = await svc.create(actor, 'finance-labor-categories', { versionId: version, name: '合成大树根目录', code: 'ROOT' });
+    const branches = await ds.manager.save(ResourceRecord, Array.from({ length: 501 }, (_, index) => ds.manager.create(ResourceRecord, { companyId: actor.companyId, type: 'finance-labor-categories', title: `合成分支${index}`, status: 'active', data: { versionId: version, parentId: root.id, name: `合成分支${index}`, code: `B${index}` }, searchText: '', createdBy: actor.id, updatedBy: actor.id })));
+    const leaf = await svc.create(actor, 'finance-labor-categories', { versionId: version, parentId: branches.at(-1)!.id, name: '合成末尾叶子', code: 'LEAF' });
+    const item = await create('大树末级项目', { archiveCategoryId: leaf.id });
+    await svc.update(actor, 'finance-labor-categories', root.id, { code: 'ROOTNEW' });
+    const refreshed = await svc.get(actor, 'finance-labor-costs', item.id);
+    expect(refreshed.data.workCode).toContain('-ROOTNEW-B500-LEAF-');
+    expect(refreshed.data.workCode).not.toBe(item.data.workCode);
+    expect(refreshed.data.unitPrice).toBe(item.data.unitPrice);
+  });
+});

@@ -206,6 +206,8 @@ export class ResourcesService implements RuleHost {
     const key = toUniqueKey(def, value);
     // 24 号分类名称按所属档案类型和上级目录区分；旧唯一键由分类规则一并检查。
     if (key && def.key === 'finance-categories' && data) return `${data.archiveType}:${Number(data.parentId) || 0}:${key}`;
+    // 工作编号沿用原版的版本内唯一性，复用通用唯一键索引，不扩大到其他版本。
+    if (key && def.key === 'finance-labor-costs' && data) return `${Number(data.versionId) || 0}:${key}`;
     return key && def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(key)[0] : key;
   }
 
@@ -712,6 +714,14 @@ export class ResourcesService implements RuleHost {
     }
     const keys = def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(raw) : [raw];
     const direct = await em.findOne(ResourceRecord, { where: { companyId, type, uniqueKey: In(keys) } });
+    if (type === 'finance-labor-costs') {
+      if (direct && !direct.archivedAt) return direct;
+      const rows = await em.find(ResourceRecord, { where: { companyId, type, archivedAt: IsNull() } });
+      const matches = rows.filter(row => String(row.data.workCode ?? '').trim().toLowerCase() === raw);
+      if (preferredId !== undefined) { const preferred = matches.find(row => row.id === preferredId); if (preferred) return preferred; }
+      if (matches.length > 1) throw new ConflictException('该工作编号对应多个成本版本，请按版本选择具体项目');
+      return matches[0] ?? null;
+    }
     if (type !== 'finance-categories') return direct;
     const rows = await em.find(ResourceRecord, { where: { companyId, type, archivedAt: IsNull() } });
     const byId = new Map(rows.map(r => [r.id, r]));

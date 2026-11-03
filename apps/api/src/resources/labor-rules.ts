@@ -140,17 +140,25 @@ async function categoryPath(em: EntityManager, companyId: number, id: unknown): 
 }
 
 /** 工作编号：RL-版本-归档分类路径-工作分类-工作名称首字母 */
-export async function laborWorkCode(em: EntityManager, companyId: number, data: Data): Promise<string> {
+export async function laborWorkCode(em: EntityManager, companyId: number, data: Data, excludeId?: number, supplied?: ResourceRecord[]): Promise<string> {
   const version = await rec(em, companyId, 'finance-labor-versions', data.versionId);
   const wt = await rec(em, companyId, 'finance-labor-work-types', data.workTypeId);
   const path = await categoryPath(em, companyId, data.archiveCategoryId);
-  const parts = ['RL', initials(str(version?.data.versionCode).trim().replace(/^RL[-_]?/i, '')) || 'V', ...path.map((c) => cleanCode(str(c.data.code)) || 'X'), cleanCode(str(wt?.data.code)) || 'W', initials(str(data.workName)) || 'X'];
-  return parts.join('-').slice(0, 80);
+  const parts = ['RL', initials(str(version?.data.versionCode).trim().replace(/^RL[-_]?/i, '')) || 'V', ...path.map((c) => cleanCode(str(c.data.code)) || 'X'), cleanCode(str(wt?.data.code)) || 'X', initials(str(data.workName)) || 'X'];
+  const base = parts.join('-').slice(0, 80);
+  const rows = supplied ?? (typeof data.versionId === 'number' ? await em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type AND r.archivedAt IS NULL', { companyId, type: 'finance-labor-costs' }).andWhere("JSON_EXTRACT(r.data, '$.versionId') = :versionId", { versionId: data.versionId }).getMany() : []);
+  const used = new Set(rows.filter(row => row.id !== excludeId && !row.archivedAt).map(row => str(row.data.workCode).toUpperCase()));
+  let code = base;
+  for (let index = 2; used.has(code); index++) {
+    const suffix = `-${index}`;
+    code = `${base.slice(0, 80 - suffix.length)}${suffix}`;
+  }
+  return code;
 }
 
 async function refreshItemCodes(host: RuleHost, em: EntityManager, user: AuthUser, items: ResourceRecord[]) {
   for (const item of items) {
-    const workCode = await laborWorkCode(em, user.companyId, item.data);
+    const workCode = await laborWorkCode(em, user.companyId, item.data, item.id);
     const wt = await rec(em, user.companyId, 'finance-labor-work-types', item.data.workTypeId);
     await host.patchData(em, user, 'finance-labor-costs', item.id, { workCode, label: `${wt?.title ?? ''}/${str(item.data.workName)}`.slice(0, 200) }, '上级名称或编码变了，工作编号同步更新');
   }
@@ -159,11 +167,17 @@ async function refreshItemCodes(host: RuleHost, em: EntityManager, user: AuthUse
 async function afterCategory({ em, host, user, record, existing }: AfterSaveContext) {
   if (!existing) return;
   if (existing.data.name === record.data.name && existing.data.code === record.data.code && existing.data.parentId === record.data.parentId) return;
-  const ids = [record.id];
-  for (let n = 0; n < ids.length && ids.length < 500; n++) {
-    for (const k of await host.findWhere(em, user.companyId, 'finance-labor-categories', 'parentId', ids[n])) ids.push(k.id);
+  const versionId = Number(record.data.versionId);
+  const categories = (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-labor-categories' }, select: ['id', 'data'] })).filter(row => row.data.versionId === versionId);
+  const children = new Map<number, number[]>();
+  for (const category of categories) {
+    const parent = Number(category.data.parentId || 0);
+    const siblings = children.get(parent) ?? []; siblings.push(category.id); children.set(parent, siblings);
   }
-  for (const id of ids) await refreshItemCodes(host, em, user, await host.findWhere(em, user.companyId, 'finance-labor-costs', 'archiveCategoryId', id));
+  const ids = [record.id], seen = new Set(ids);
+  for (let index = 0; index < ids.length; index++) for (const id of children.get(ids[index]) ?? []) if (!seen.has(id)) { seen.add(id); ids.push(id); }
+  const items = (await host.findWhere(em, user.companyId, 'finance-labor-costs', 'versionId', versionId)).filter(row => seen.has(Number(row.data.archiveCategoryId)) && !row.archivedAt);
+  await refreshItemCodes(host, em, user, items);
 }
 
 // ---------- 工作分类 / 计价单位 ----------
@@ -206,11 +220,12 @@ async function beforeItem({ em, host, user, existing, data, status }: BeforeSave
   } else {
     data.zeroReason = undefined;
   }
-  // 查重：同版本、同归档分类、同工作分类、同名
-  const dup = (await host.findWhere(em, user.companyId, 'finance-labor-costs', 'versionId', version.id)).find(
-    (r) => r.id !== existing?.id && r.data.archiveCategoryId === cat.id && r.data.workTypeId === wt.id && norm(str(r.data.workName)) === norm(workName),
+  // 原版按同版本的工作名称、工作分类、计价单位查重，与归档目录无关。
+  const versionItems = (await host.findWhere(em, user.companyId, 'finance-labor-costs', 'versionId', version.id)).filter(row => !row.archivedAt);
+  const dup = versionItems.find(
+    r => r.id !== existing?.id && r.data.workTypeId === wt.id && r.data.unitId === unit.id && str(r.data.workName).trim().toLowerCase() === workName.toLowerCase(),
   );
-  if (dup) throw new BadRequestException(`这个版本的「${cat.title}」下已经有「${wt.title}」的「${workName}」了（${str(dup.data.workCode)}）`);
+  if (dup) throw new BadRequestException('当前版本已存在工作名称、工作分类和计价单位完全相同的项目');
   if (existing) {
     const used = await usageCount(host, em, user.companyId, existing.id);
     if (used > 0) {
@@ -219,7 +234,7 @@ async function beforeItem({ em, host, user, existing, data, status }: BeforeSave
       if (status !== 'active') throw new BadRequestException(`已被 ${used} 处成品或组合构成使用，不能停用；请先把它们改成别的项目`);
     }
   }
-  data.workCode = await laborWorkCode(em, user.companyId, data);
+  data.workCode = await laborWorkCode(em, user.companyId, data, existing?.id, versionItems);
   data.label = `${wt.title}/${workName}`.slice(0, 200);
 }
 

@@ -472,6 +472,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     label: '人力成本表',
     nav: { group: '数据', ...F },
     titleField: 'label',
+    uniqueField: 'workCode',
     filterBy: ['versionId', 'workTypeId'],
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',
