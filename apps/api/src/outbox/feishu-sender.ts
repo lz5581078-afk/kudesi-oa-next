@@ -29,6 +29,11 @@ export class ConnectedFeishuSender implements FeishuSender {
       if(!valid)fail('员工绑定或通知状态已变化，请刷新后重试');
     }
     if (!cfg?.enabled || !cfg.tenantKey) throw new Error('飞书公司授权未启用');
+    if(job.notice.liveManagementCopySource!==undefined) {
+      const [consent]=await this.config.ds.query('SELECT id FROM feishu_identities WHERE company_id=? AND user_id=? AND app_id=? AND tenant_key=? AND oa_notifications=1',[job.companyId,job.notice.userId,cfg.appId,cfg.tenantKey]);
+      if(!consent)return;
+    }
+
     const [binding] = await this.config.ds.query("SELECT b.open_id,b.union_id FROM feishu_identities b JOIN users u ON u.id=b.user_id AND u.company_id=b.company_id WHERE b.company_id=? AND b.user_id=? AND b.app_id=? AND b.tenant_key=? AND u.status='active'", [job.companyId, job.notice.userId, cfg.appId, cfg.tenantKey]);
     if (!binding) throw new Error('接收员工尚未绑定本公司飞书身份');
     const key = job.notice.channel ?? 'flow';
