@@ -857,7 +857,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
     alerts: [{ field: 'contractEndDate', withinDays: 7, label: '7 天内合作结束' }],
     fields: [
-      ref('userId', '姓名', '基本信息', 'user', { required: true, list: true, help: '在本页点“新增账号并建档”设置账号、密码；已有人员可直接选择，保存后按兼职/临时工管理，不进入正式人员档案' }),
+      ref('userId', '姓名', '基本信息', 'user', { required: true, list: true, help: '新员工通过入职码或“新增账号并建档”加入；已有人员在员工编辑里维护用工类型与合作期限，自动补齐对应档案' }),
       text('name', '姓名', '基本信息', { readonly: true, list: false, search: true, maxLength: 80 }),
       select('employmentType', '用工类型', '基本信息', o('part_time:兼职', 'temp:临时工'), { required: true, list: true, help: '临时工必须填写合作结束日期；兼职可以不限期' }),
       select('cooperation', '合作状态', '基本信息', o('working:合作中', 'pending:待开始', 'ended:合作已到期', 'inactive:已停用'), { readonly: true, list: true }),

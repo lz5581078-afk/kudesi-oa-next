@@ -5,7 +5,7 @@ import { api, ApiError } from '../api/client';
 import { orgApi, flattenDepartments, type DepartmentNode, type PositionDto } from '../pages/org/orgApi';
 import { useAuth } from '../auth/AuthContext';
 
-export interface UnfiledPerson { id: number; name: string; account: string | null; employmentType: string; loginPassword?:string }
+export interface UnfiledPerson { id: number; name: string; account: string | null; employmentType: string; status?: 'active' | 'disabled'; loginPassword?:string }
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : '操作失败');
 
 /** 新增登录账号并标成兼职/临时工；临时密码只显示一次，随后进入建档表单。 */

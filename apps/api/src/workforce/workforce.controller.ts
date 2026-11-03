@@ -1,6 +1,6 @@
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, MinLength } from 'class-validator';
 import { WorkforceLoginService } from './workforce-login.service';
-import { Body, Controller, Get, Header, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
+import { Body, Controller, Query, Get, Header, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
@@ -43,7 +43,7 @@ export class WorkforceController {
   /** 用工类型是兼职/临时工、账号在用但还没建档案的人：这些人的合作期不受登录控制，档案页顶部提示补档案。 */
   @RequirePermission('resource.workforce.view')
   @Get('unfiled')
-  unfiled(@CurrentUser() user: AuthUser) {
-    return unfiledWorkforce(this.ds.manager, user.companyId);
+  unfiled(@CurrentUser() user: AuthUser, @Query('showDisabled') showDisabled?: string) {
+    return unfiledWorkforce(this.ds.manager, user.companyId, showDisabled === 'true');
   }
 }

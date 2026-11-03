@@ -2,6 +2,7 @@ import { StaffFeishuBadge, StaffTestNoticeDialog } from './StaffFeishu';
 import { StaffFeishuResetDialog } from './StaffFeishuReset';
 import { StaffFeishuUnbindDialog } from './StaffFeishuUnbind';
 import { StaffDialog } from './StaffDialog';
+import { StaffEditorDialog } from './StaffEditorDialog';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { createChecker, type CatalogGroup } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
@@ -289,7 +290,8 @@ export function StaffPage() {
         <div className="card-foot"><span>共 {shown.length} 人{showDisabled ? '' : `（在职 ${staff.filter((x) => (x.employmentType??'regular')==='regular'&&x.status === 'active').length}，停用 ${staff.filter((x) => (x.employmentType??'regular')==='regular'&&x.status !== 'active').length} 人已隐藏）`}</span></div>
       </div>
 
-      {dialog?.kind === 'edit' && (
+      {dialog?.kind === 'edit' && dialog.staff && <StaffEditorDialog id={dialog.staff.id} onClose={() => setDialog(null)} onSaved={() => void done()} />}
+      {dialog?.kind === 'edit' && !dialog.staff && (
         <StaffDialog regularOnly staff={dialog.staff} defaultDepartmentId={entry.dept ? Number(entry.dept) : null} all={staff} canSalary={can('org.staff.salary')} departments={tree} positions={positions} onClose={() => setDialog(null)}
           onSaved={async (created) => { await reload(); setDialog(created ? { kind: 'password', title: '员工已创建', account: created.account, password: created.password } : null); }} />
       )}

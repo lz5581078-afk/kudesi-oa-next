@@ -45,6 +45,7 @@ describe('表格编辑：可编辑性', () => {
     expect(gridPolicyOf('finance-product-boms').enabled).toBe(true);
     expect(gridPolicyOf('finance-express-fee-batches').enabled).toBe(true);
     expect(gridPolicyOf('finance-products')).toMatchObject({ enabled: true, canCreate: false });
+    expect(gridPolicyOf('workforce')).toMatchObject({ enabled: true, canCreate: false });
     expect(gridPolicyOf('stores')).toMatchObject({ enabled: true, canCreate: true, canArchive: true });
     for (const k of ['finance-bundles', 'finance-products']) expect(getResourceDef(k)).toBeTruthy();
   });

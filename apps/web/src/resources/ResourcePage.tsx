@@ -32,6 +32,8 @@ import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../layout/AppbarSlo
 import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
 import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
 import { PageHint } from './PageHint';
+import { WorkforceActions } from './WorkforceActions';
+import { StaffEditorDialog } from '../pages/org/StaffEditorDialog';
 import { AddAccountDialog, WorkforceLoginDialog, type UnfiledPerson } from './WorkforcePanels';
 import { CloseIcon, GearIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
@@ -174,6 +176,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   const [editRow, setEditRow] = useState<ResourceDto | null>(null);
   const [detailTab, setDetailTab] = useState<string | undefined>(undefined);
   const [addingAccount, setAddingAccount] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<number | null>(null);
   const [copyInit, setCopyInit] = useState<Record<string, unknown> | null>(null);
   const [importing, setImporting] = useState(false);
   const [reasonLib, setReasonLib] = useState(false);
@@ -261,7 +264,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     try {
       const result=await resourceApi.list(type, { page: wantGroup ? 1 : page, pageSize: wantGroup ? 200 : pageSize, keyword: keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters });
       if(type==='workforce') {
-        const missing=await api<UnfiledPerson[]>('/workforce/unfiled');
+        const missing=await api<UnfiledPerson[]>('/workforce/unfiled' + (showHidden || status === 'inactive' ? '?showDisabled=true' : ''));
         const ids=[...new Set([...result.items.map(r=>Number(r.data.userId)),...missing.map(p=>p.id)])].filter(id=>Number.isSafeInteger(id)&&id>0);
         // Dedicated endpoint: passwords never enter generic resource data, exports or grid saves.
         const credentials: Array<{id:number;account:string|null;loginPassword?:string}>=[];
@@ -285,10 +288,15 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     return () => clearTimeout(t);
   }, [load]);
 
-  const workforceActions=(row:ResourceDto)=><span onClick={e=>e.stopPropagation()}>{row.id<0&&can('create')&&<button type="button" className="link-button" onClick={()=>{setCopyInit({userId:-row.id});setCreating(true);}}>补资料</button>} {can('edit')&&colCan('org.staff.edit')&&<button type="button" className="link-button" onClick={()=>setLoginRow(row)}>设置账号密码</button>}</span>;
-  const missingRows:ResourceDto[]=type==='workforce'&&!tab&&!archived&&!expiring&&!status&&page===1&&!Object.values(filterVals).some(Boolean)&&!Object.keys(colFilters).length ? unfiled.filter(p=>keyword.trim().split(/\s+/).every(k=>`${p.name} ${p.account??''}`.toLowerCase().includes(k.toLowerCase()))).map(p=>({id:-p.id,type:'workforce',title:p.name,status:'待补资料',statusReason:null,data:{userId:p.id,name:p.name,account:p.account??'未设置',loginPassword:p.loginPassword,employmentType:p.employmentType,profileState:'待补资料',profileIncomplete:true},refLabels:{userId:p.name},secretConfigured:{},files:{},createdAt:'',updatedAt:''})):[];
+  const workforceActions = (row: ResourceDto) => <span className="workforce-actions" onClick={e => e.stopPropagation()}>
+    <WorkforceActions record={row} onEdit={setEditRow} onLogs={() => { setDetailTab('logs'); setSelected(row.id); }} onChanged={() => void load()} />
+    {!row.archived && can('edit') && colCan('org.staff.edit') && <button type="button" className="row-act" onClick={() => setLoginRow(row)}>设置账号密码</button>}
+  </span>;
+  const missingRows: ResourceDto[] = type === 'workforce' && !tab && !archived && !expiring && page === 1 && !Object.values(filterVals).some(Boolean) && !Object.keys(colFilters).length
+    ? unfiled.filter(p => (!status || (p.status === 'disabled' ? 'inactive' : 'active') === status) && keyword.trim().split(/\s+/).every(k => `${p.name} ${p.account ?? ''}`.toLowerCase().includes(k.toLowerCase())))
+      .map(p => ({ id: -p.id, type: 'workforce', title: p.name, status: p.status === 'disabled' ? 'inactive' : '待补资料', statusReason: null, data: { userId: p.id, name: p.name, account: p.account ?? '未设置', accountStatus: p.status ?? 'active', loginPassword: p.loginPassword, employmentType: p.employmentType, profileState: '待补资料', profileIncomplete: true }, refLabels: { userId: p.name }, secretConfigured: {}, files: {}, createdAt: '', updatedAt: '' })) : [];
   const listRows=data?[...missingRows,...data.items.map(r=>type==='workforce'?{...r,data:{...r.data,...loginDisplay.find(c=>c.id===Number(r.data.userId)),profileState:'已建档'}}:r)]:null;
-  const openListRow=(id:number)=>{if(type==='workforce'&&id<0){if(can('create')){setCopyInit({userId:-id});setCreating(true);}}else setSelected(id);};
+  const openListRow = (id: number) => { if (type === 'workforce' && id < 0) { if (colCan('org.staff.view') && colCan('org.staff.edit')) setEditingStaff(-id); } else setSelected(id); };
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
   const hiddenExists = def.statuses.some((s) => s.hidden);
 
@@ -514,7 +522,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
             <button type="button" role="menuitem" onClick={() => void doExport('all')}>导出全部</button>
           </></MorePop>
         : <button type="button" className="res-btn" onClick={() => void doExport('filtered')}>导出</button>)}
-      {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>{type === 'workforce' ? '为已有账号建档' : '＋ 新增'}</button>}
+      {type !== 'workforce' && can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
     </>
   );
 
@@ -533,7 +541,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
 
   const empty = filtered
     ? <div className="res-empty"><p>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。</p><button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></div>
-    : <div className="res-empty"><p>还没有{def.label}</p>{can('create') && <button type="button" className="res-btn primary sm" onClick={startCreate}>＋ 新增{def.label}</button>}</div>;
+    : <div className="res-empty"><p>还没有{def.label}</p>{type !== 'workforce' && can('create') && <button type="button" className="res-btn primary sm" onClick={startCreate}>＋ 新增{def.label}</button>}</div>;
 
   const toolbar = (
     <fieldset className="grid-lock res-tools" disabled={gridLocked} title={gridLocked ? '有没保存的修改：请先保存或放弃，再换筛选或翻页' : undefined}>
@@ -557,7 +565,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
                 </select>
               </label>
             ) : undefined}
-            state={{ fields: shownFilterFields, viewFilters, vals: filterVals, opts: filterOpts, deptOpts, status, statuses: def.statuses, hasExpiry: expirySources().some((x) => x.resource === type), expiring, archivable: Boolean(archivePolicyOf(type)), archived, archivedCount: data?.archivedCount, hiddenLabels: def.statuses.filter((x) => x.hidden).map((x) => x.label), showHidden, canShowHidden: hiddenExists }}
+            state={{ fields: shownFilterFields, viewFilters, vals: filterVals, opts: filterOpts, deptOpts, status, statuses: def.statuses, hasExpiry: expirySources().some((x) => x.resource === type), expiring, archivable: Boolean(archivePolicyOf(type)) || type === 'workforce', archived, archivedCount: data?.archivedCount, hiddenLabels: def.statuses.filter((x) => x.hidden).map((x) => x.label), showHidden, canShowHidden: hiddenExists }}
             actions={{
               setVal: (k, v) => { setFilterVals((cur) => ({ ...cur, [k]: v })); setPage(1); },
               setStatus: (v) => { setStatus(v); setPage(1); },
@@ -574,7 +582,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
         <span className="res-bar-gap" />
         <div className="res-actions">{isMobile ? (
           <>
-            {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>{type === 'workforce' ? '为已有账号建档' : '＋ 新增'}</button>}
+            {type !== 'workforce' && can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
             <MorePop label="更多"><>
               {extras}
               {can('import') && <button type="button" role="menuitem" onClick={() => setImporting(true)}>导入</button>}
@@ -595,7 +603,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   );
 
   return (
-    <div className={`res-page${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}`}>
+    <div className={`res-page${type === 'workforce' ? ' workforce-page' : ''}${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}`}>
       {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
       {hier && <HierBar title={hier.title} subtitle={hier.subtitle} onBack={hier.onBack} />}
       <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
@@ -620,7 +628,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
         )}
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
           {toolbar}
-          {type==='workforce'&&unfiled.length>0&&<p className="notice m">待补资料 {unfiled.length} 人（含试播主播），在“全部”第一页以黄色显示；点击姓名补资料。</p>}
+          {type==='workforce'&&unfiled.length>0&&<p className="notice m">待补资料 {unfiled.length} 人（含试播主播），在“全部”第一页以黄色显示；点击姓名编辑员工并补齐合作期限。</p>}
           {loginRow&&<WorkforceLoginDialog recordId={loginRow.id} currentAccount={String(loginRow.data.account==='未设置'?'':loginRow.data.account??'')} canPassword={colCan('org.staff.reset')} onClose={()=>setLoginRow(null)} onSaved={()=>{setLoginRow(null);void load();}}/>}
           {error && <div role="alert" className="notice error m">{error}</div>}
           {!gridOn && checked.length > 0 && <BatchBar allowDelete={Boolean(hier) && canDel} def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
@@ -680,8 +688,8 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
               onToggleGroup={toggleGroup}
               onAddInGroup={addInGroup}
               rowActions={type==='workforce'?workforceActions:rowActions}
-              rowActionsLabel={hier ? '操作' : ['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
-              actWidth={hier ? (type === 'finance-products' ? 340 : 270) : undefined}
+              rowActionsLabel={hier || type === 'workforce' ? '操作' : ['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
+              actWidth={type === 'workforce' ? 320 : hier ? (type === 'finance-products' ? 340 : 270) : undefined}
             />
           )}
           <div className="res-foot">
@@ -709,7 +717,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
       {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}
       {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}
-      {selected !== null && <RecordDetail key={`${selected}:${detailTab ?? ''}`} initialTab={detailTab} def={def} id={selected} nav={detailNav} onClose={() => { setSelected(null); setDetailTab(undefined); }} onChanged={() => void load()} onCopy={can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
+      {selected !== null && <RecordDetail key={`${selected}:${detailTab ?? ''}`} initialTab={detailTab} def={def} id={selected} nav={detailNav} onClose={() => { setSelected(null); setDetailTab(undefined); }} onChanged={() => void load()} onCopy={type !== 'workforce' && can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
 
       {creating && (
         <RecordForm
@@ -729,6 +737,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
       {editRow && (
         <RecordForm def={def} record={editRow} onClose={() => setEditRow(null)} onSaved={() => { setEditRow(null); void load(); }} />
       )}
+      {editingStaff !== null && <StaffEditorDialog id={editingStaff} onClose={() => setEditingStaff(null)} onSaved={() => { setEditingStaff(null); void load(); }} />}
       {addingAccount && <AddAccountDialog onClose={() => setAddingAccount(false)} onCreated={(userId) => { setAddingAccount(false); setCopyInit({ userId }); setCreating(true); }} />}
       {inventory && <InventoryDialog onClose={() => setInventory(false)} onDone={(m) => { setInventory(false); setBatchMsg(m); void load(); }} />}
       {sorting && tab && <CategorySortDialog archiveType={tab} onClose={() => setSorting(false)} onDone={() => void load()} />}
