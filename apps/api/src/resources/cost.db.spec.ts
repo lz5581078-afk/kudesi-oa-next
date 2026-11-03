@@ -390,11 +390,12 @@ d('成本表与定价调试表（真实数据库）', () => {
   });
   it('组合核对包含人工和手工重量，和成本表一致；人工单价变化后旧核对签名失效', async () => {
     const before = await cost.one(boss, ids.bundle);
-    const versionId = (await svc.create(boss, 'finance-labor-versions', { versionCode: 'REPORT', versionName: '核对人工', effectiveFrom: '2026-01-01' }, 'active')).id;
+    const versionId = (await svc.create(boss, 'finance-labor-versions', { versionCode: 'REPORT', versionName: '核对人工', effectiveFrom: '2026-01-01' })).id;
     const archiveCategoryId = (await svc.create(boss, 'finance-labor-categories', { versionId, name: '包装' })).id;
     const workTypeId = (await svc.create(boss, 'finance-labor-work-types', { name: '核对包装' })).id;
     const unitId = (await svc.create(boss, 'finance-labor-units', { name: '元/个' })).id;
     const labor = await svc.create(boss, 'finance-labor-costs', { versionId, archiveCategoryId, workTypeId, unitId, workName: '装箱', unitPrice: 150 });
+    await svc.changeStatus(boss, 'finance-labor-versions', versionId, 'active');
     await svc.create(boss, 'finance-bundle-lines', { bundleId: ids.bundle, role: 'labor', laborId: labor.id, qty: 2 });
     await svc.update(boss, 'finance-bundles', ids.bundle, { weightMode: 'manual', manualWeightG: 0.01, overrideReason: '核对手工重量精度' });
     const tools = new BundleToolsService(ds, svc, new OutboxService(ds, svc));

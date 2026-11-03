@@ -22,10 +22,11 @@ export const findNode = (roots: CatNode[], id: number | null): CatNode | null =>
 };
 
 /** 项目归档分类树（最多三级）：新增下级、修改（改名/换上级）、删除；工作项目只能放在最末级。 */
-export function CategoryTree({ versionId, versionLocked, cats, tree, selected, canEdit, canDelete, onSelect, onChanged, total, management = true }: {
+export function CategoryTree({ versionId, versionLocked, versionDraft = false, cats, tree, selected, canEdit, canDelete, onSelect, onChanged, total, management = true }: {
   versionId: number; versionLocked: boolean; cats: ResourceDto[]; tree: CatNode[]; selected: number | null; canEdit: boolean; canDelete: boolean; total: number;
   onSelect: (id: number | null) => void; onChanged: () => void;
   management?: boolean;
+  versionDraft?: boolean;
 }) {
   const [form, setForm] = useState<{ record: ResourceDto | null; parentId: number | null } | null>(null);
   const [removing, setRemoving] = useState<CatNode | null>(null);
@@ -42,7 +43,7 @@ export function CategoryTree({ versionId, versionLocked, cats, tree, selected, c
           <span className="row-actions">
             {depth < 2 && <button type="button" className="link-button" aria-label={`给${n.name}加下级`} onClick={() => setForm({ record: null, parentId: n.id })}>加下级</button>}
             <button type="button" className="link-button" aria-label={`修改${n.name}`} onClick={() => setForm({ record: byId.get(n.id) ?? null, parentId: n.parentId })}>改</button>
-            {canDelete && <button type="button" className="link-button danger" aria-label={`删除${n.name}`} onClick={() => setRemoving(n)}>删</button>}
+            {canDelete && <button type="button" className="link-button danger" disabled={!versionDraft} aria-label={`删除${n.name}`} onClick={() => setRemoving(n)}>删</button>}
           </span>
         )}
       </div>

@@ -12,12 +12,15 @@ import { broadbandPhoneRule, isLegacyImport, phoneParentRule } from './fee-rules
 import { workforceAfterSave, workforceBeforeDelete, workforceBeforeSave } from './workforce-rules';
 import { beforeCostVersionDelete, beforeCostVersionSave } from './cost-version-rules';
 import { COST_VERSION_TYPES } from './cost-version-engine';
+import { beforeLaborDelete } from './labor-rules';
 
 /**
  * 各类资料的专属业务规则。通用的校验（必填、枚举、唯一、引用、停用原因）在 ResourcesService，
  * 这里只放“只有这一类资料才有”的规则，一条规则一个函数，便于单独测试。
  */
 export interface RuleHost {
+  /** 同一事务删除关联资料，保留引用保护及日志。 */
+  removeRecord(em: EntityManager, user: AuthUser, type: string, id: number, reason: string, cleanup?: string[], currentRead?: boolean): Promise<void>;
   findByUnique(em: EntityManager, companyId: number, type: string, uniqueKey: string,preferredId?:number): Promise<ResourceRecord | null>;
   /** 走与手工新增完全相同的校验、日志、关联流程 */
   createRecord(
@@ -26,13 +29,14 @@ export interface RuleHost {
     type: string,
     values: Record<string, unknown>,
     note?: string,
+    status?: string,
   ): Promise<ResourceRecord>;
   titleOf(em: EntityManager, companyId: number, type: string, id: number): Promise<string | null>;
   countWhere(em: EntityManager, companyId: number, type: string, field: string, value: unknown): Promise<number>;
   findWhere(em: EntityManager, companyId: number, type: string, field: string, value: string | number): Promise<ResourceRecord[]>;
   setStatusDirect(em: EntityManager, user: AuthUser, type: string, id: number, status: string, note?: string): Promise<void>;
   /** syncRefs：改了引用字段时同步关联表（默认不同步） */
-  patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs?: boolean): Promise<void>;
+  patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs?: boolean, currentRead?: boolean): Promise<void>;
   /** 读加密字段明文（仅服务端内部） */
   sensitiveOf(record: ResourceRecord, field: string): string | undefined;
   /** 改别的记录的加密字段；value 为空即清除 */
@@ -338,6 +342,7 @@ export interface AfterSaveContext {
 
 /** 删除记录之前（在“还被引用就不能删”的检查之前）：如删除位置时把各处对它的引用置空。 */
 export async function beforeDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
+  if (['finance-labor-versions', 'finance-labor-categories', 'finance-labor-costs'].includes(type)) await beforeLaborDelete(type, ctx);
   if (COST_VERSION_TYPES.includes(type)) await beforeCostVersionDelete(ctx);
   if (type === 'workforce') workforceBeforeDelete();
   const rule = ASSET_BEFORE_DELETE[type];

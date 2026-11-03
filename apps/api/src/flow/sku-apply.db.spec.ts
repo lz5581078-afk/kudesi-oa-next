@@ -88,11 +88,12 @@ d('SKU 批量申请流程（真实数据库）', () => {
     ids.labelBc = await baseCode({ archiveType: 'shipping_material', name: '标签', categoryId: shipLeaf, specQty: 1, specUnit: 'PCS', weightManual: true, weightG: 1, purchasePrice: 10 }, 'LABEL-A');
     ids.boxBc = await baseCode({ archiveType: 'package', name: '纸箱', categoryId: pkgLeaf, specQty: 1, specUnit: 'PCS', capacities: '5斤', weightManual: true, weightG: 200, purchasePrice: 300 }, 'BOX-A');
     // 人工
-    const v = await resources.create(admin, 'finance-labor-versions', { versionCode: 'V1', versionName: '测试版', effectiveFrom: '2026-01-01' }, 'active');
+    const v = await resources.create(admin, 'finance-labor-versions', { versionCode: 'V1', versionName: '测试版', effectiveFrom: '2026-01-01' });
     const lc = await resources.create(admin, 'finance-labor-categories', { versionId: v.id, name: '车间' });
     const wt = await resources.create(admin, 'finance-labor-work-types', { name: '包装' });
     const unit = await resources.create(admin, 'finance-labor-units', { name: '元/个' });
     ids.labor = (await resources.create(admin, 'finance-labor-costs', { versionId: v.id, workTypeId: wt.id, unitId: unit.id, workName: '装箱', unitPrice: 150, archiveCategoryId: lc.id })).id;
+    await resources.changeStatus(admin, 'finance-labor-versions', v.id, 'active');
     ids.bcat = (await resources.create(admin, 'finance-categories', { archiveType: 'bundle', name: '水果组合', code: 'SGZH' })).id;
     const giftProductId = (await resources.get(admin, 'finance-base-codes', ids.giftBc)).data.productId as number;
     await resources.update(admin, 'finance-products', giftProductId, { giftShortName: '小赠品', giftCodeShortName: 'XZP' });

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
@@ -188,4 +188,27 @@ describe('人力成本原版目录与查询行为', () => {
     fireEvent.click(screen.getByRole('button', { name: '新建成本版本' }));
     expect((await screen.findByRole('textbox', { name: /^版本编号/ }) as HTMLInputElement).value).toBe('RL-20261103');
   });
+});
+
+it('版本资料仅草稿可编辑；启用版项目/分类删除禁用，草稿恢复删除入口', async () => {
+  const versions = [dto(1, 'v', '合成启用', { versionCode: 'A', isDefault: true }), dto(2, 'v', '合成草稿', { versionCode: 'B' }, 'draft'), dto(3, 'v', '合成停用', { versionCode: 'C' }, 'inactive')];
+  const cats = [dto(10, 'c', '合成根', {}), dto(11, 'c', '合成末级', { parentId: 10 })];
+  const items = [dto(91, 'i', '合成项目', { workCode: 'SYNTHETIC-LIFECYCLE', workName: '合成项目', archiveCategoryId: 11, unitPrice: 100 })];
+  m.list.mockImplementation(async type => { const rows = type === 'finance-labor-versions' ? versions : type === 'finance-labor-categories' ? cats : type === 'finance-labor-costs' ? items : []; return { items: rows, total: rows.length, page: 1, pageSize: 200 }; });
+  render(<LaborCostPage/>);
+  await screen.findByText('SYNTHETIC-LIFECYCLE');
+  expect(screen.getAllByRole('button', { name: '编辑版本' })).toHaveLength(1);
+  expect(screen.getByRole('button', { name: '删除' })).toHaveProperty('disabled', true);
+  fireEvent.click(screen.getByRole('button', { name: '管理归档' }));
+  const manager = screen.getByRole('dialog', { name: '管理项目归档分类' });
+  fireEvent.click(within(manager).getByRole('button', { name: '展开合成根' }));
+  expect(within(manager).getByRole('button', { name: '删除合成末级' })).toHaveProperty('disabled', true);
+  fireEvent.click(within(manager).getByRole('button', { name: '关闭' }));
+  fireEvent.click(screen.getByRole('button', { name: /^合成草稿/ }));
+  await screen.findByText('SYNTHETIC-LIFECYCLE');
+  expect(screen.getByRole('button', { name: '删除' })).toHaveProperty('disabled', false);
+  fireEvent.click(screen.getByRole('button', { name: /^合成停用/ }));
+  await screen.findByText('SYNTHETIC-LIFECYCLE');
+  expect(screen.queryByRole('button', { name: '删除' })).toBeNull();
+  expect(screen.getByRole('button', { name: '编辑' })).toHaveProperty('disabled', true);
 });

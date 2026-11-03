@@ -119,12 +119,12 @@ export function LaborCostPage() {
         <header className="between"><div><h2>成本版本</h2><p className="muted">点击版本查看对应的分类和工作项目</p></div><span>{versions?.length ?? 0} 个版本</span></header>
         <div className="labor-version-rows">{(versions ?? []).map(v => <article key={v.id} className={`labor-version-row${v.id === versionId ? ' selected' : ''}`}>
           <button type="button" className="labor-version-select" aria-pressed={v.id === versionId} onClick={() => setVersionId(v.id)}><strong>{v.title} <span className={`pill ${v.status === 'active' ? 'ok' : 'warn'}`}>{VERSION_STATUS[v.status]}</span>{v.data.isDefault === true && <span className="pill ok">默认</span>}</strong><code>{String(v.data.versionCode ?? '')}</code><small>{String(v.data.periodName || '未设置期间')} · {String(v.data.effectiveFrom || '立即')} 至 {String(v.data.effectiveTo || '长期')}</small></button>
-          <div className="row-actions">{can('edit') && <button type="button" className="link-button" onClick={() => { setVersionId(v.id); setVersionForm({ record: v }); }}>编辑版本</button>}
+          <div className="row-actions">{can('edit') && v.status === 'draft' && <button type="button" className="link-button" onClick={() => { setVersionId(v.id); setVersionForm({ record: v }); }}>编辑版本</button>}
           {can('create') && <button type="button" className="link-button" onClick={()=>{setVersionId(v.id);setCopying(true);}}>复制版本</button>}
           {can('edit') && v.status!=='active' && <button type="button" className="link-button" onClick={()=>void run(()=>resourceApi.changeStatus('finance-labor-versions',v.id,'active'),'版本已启用')}>{v.status==='draft'?'启用版本':'恢复使用'}</button>}
           {can('edit') && v.status==='active' && v.data.isDefault!==true && <button type="button" className="link-button" onClick={()=>void run(()=>resourceApi.update('finance-labor-versions',v.id,{isDefault:true}),'已设为默认版本')}>设为默认版本</button>}
           {can('edit') && v.status==='active' && <button type="button" className="link-button" onClick={()=>setReason({title:`停用成本版本「${v.title}」`,hint:'停用后不能被新的构成选用，已在用构成保留。',confirm:'确认停用',run:async reason=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'inactive',reason);}})}>停用版本</button>}
-          {can('delete') && v.status==='draft' && <button type="button" className="link-button danger" onClick={()=>setReason({title:`删除成本版本「${v.title}」`,hint:'版本下还有分类或项目时不能删除。',confirm:'确认删除',run:async reason=>{await resourceApi.remove('finance-labor-versions',v.id,reason);if(versionId===v.id)setVersionId(null);}})}>删除版本</button>}
+          {can('delete') && v.status==='draft' && <button type="button" className="link-button danger" onClick={()=>setReason({title:`删除成本版本「${v.title}」`,hint:'版本内人力成本项目和归档分类也会一并删除；被其他资料引用时不能删除。',confirm:'确认删除',run:async reason=>{await resourceApi.remove('finance-labor-versions',v.id,reason);if(versionId===v.id)setVersionId(null);}})}>删除版本</button>}
           </div>
         </article>)}</div>
       </section>
@@ -147,7 +147,7 @@ export function LaborCostPage() {
       {version && (
         <div className="labor-detail-layout">
           <div><div className="between"><h2>项目归档分类</h2>{(can('create') || can('edit')) && <button type="button" className="link-button" disabled={locked} onClick={()=>setManaging(true)}>管理归档</button>}</div>
-          <CategoryTree versionId={version.id} versionLocked={locked} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length}
+          <CategoryTree versionId={version.id} versionLocked={locked} versionDraft={version.status === 'draft'} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length}
             onSelect={(id) => { setSelectedCat(id); setPage(1); }} onChanged={() => void loadVersionData()} management={false} /></div>
           <section aria-label="工作项目" className="card">
             <h2>工作项目列表</h2>
@@ -171,7 +171,7 @@ export function LaborCostPage() {
                       {!locked && can('disable') && (i.status === 'active'
                         ? <button type="button" className="link-button" onClick={() => setReason({ title: `停用「${i.title}」`, hint: '被成品构成或组合用着的项目不能停用。', confirm: '确认停用', run: async (r) => { await resourceApi.changeStatus('finance-labor-costs', i.id, 'inactive', r); } })}>停用</button>
                         : <button type="button" className="link-button" onClick={() => void run(() => resourceApi.changeStatus('finance-labor-costs', i.id, 'active'))}>启用</button>)}
-                      {!locked && can('delete') && <button type="button" className="link-button danger" onClick={() => setReason({ title: `删除「${i.title}」`, hint: '被成品构成或组合用着的项目不能删除，请改成停用。', confirm: '确认删除', run: async (r) => { await resourceApi.remove('finance-labor-costs', i.id, r); } })}>删除</button>}
+                      {!locked && can('delete') && <button type="button" className="link-button danger" disabled={version.status !== 'draft'} onClick={() => setReason({ title: `删除「${i.title}」`, hint: '被成品构成或组合用着的项目不能删除，请改成停用。', confirm: '确认删除', run: async (r) => { await resourceApi.remove('finance-labor-costs', i.id, r); } })}>删除</button>}
                     </td></tr>
                 ))}
               </tbody>
@@ -182,7 +182,7 @@ export function LaborCostPage() {
         </div>
       )}
 
-      {managing && version && <FinanceModal title="管理项目归档分类" onClose={()=>setManaging(false)}><CategoryTree versionId={version.id} versionLocked={locked} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length} onSelect={setSelectedCat} onChanged={()=>void loadVersionData()}/></FinanceModal>}
+      {managing && version && <FinanceModal title="管理项目归档分类" onClose={()=>setManaging(false)}><CategoryTree versionId={version.id} versionLocked={locked} versionDraft={version.status === 'draft'} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length} onSelect={setSelectedCat} onChanged={()=>void loadVersionData()}/></FinanceModal>}
       {copying && version && <CopyVersionDialog source={version} onClose={() => setCopying(false)} onCopied={(id) => { if(!mounted.current || scopeRef.current!==scopeKey)return;setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
       {versionForm && <RecordForm def={getResourceDef('finance-labor-versions')!} record={versionForm.record} initial={versionForm.record ? undefined : { versionCode: `RL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}` }} onClose={() => setVersionForm(null)} onSaved={(dto) => { if(!mounted.current || scopeRef.current!==scopeKey)return;clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} />}
       {itemForm && version && <RecordForm def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...itemForm.initial, ...(node && isLeaf && !itemForm.record && !itemForm.initial ? { archiveCategoryId: node.id } : {}) }} lockedFields={['versionId', 'archiveCategoryId']}

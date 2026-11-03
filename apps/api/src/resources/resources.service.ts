@@ -40,7 +40,7 @@ import {
 import { AuthUser } from '../common/auth.decorators';
 import { WAREHOUSE_PRODUCT_FIELDS, isWarehouseMode } from './warehouse-mode';
 import { CryptoService } from '../common/crypto.service';
-import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
+import { AuditLog, Company, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
 import { deriveStoreFunds } from './store-funds';
 import { deriveBankBalances } from './bank-balance';
@@ -746,9 +746,9 @@ export class ResourcesService implements RuleHost {
     return matches[0] ?? null;
   }
 
-  async createRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, note?: string) {
+  async createRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, note?: string, status?: string) {
     const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined && v !== null && v !== ''));
-    return this.saveRecord(em, user, this.def(type), null, clean, { note });
+    return this.saveRecord(em, user, this.def(type), null, clean, { note, status });
   }
 
   async unitOptions(user: AuthUser) {
@@ -818,10 +818,10 @@ export class ResourcesService implements RuleHost {
       .getMany();
   }
 
-  /** 规则里改别的记录（如组合行变化后刷新组合的编码）：直接改数据并记日志，不重新走完整校验。 */
-  async patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs = false) {
+  /** 规则里改别的记录并记日志；currentRead用于持锁业务操作，避免旧事务快照覆盖刚提交的事实。 */
+  async patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs = false, currentRead = false) {
     const def = this.def(type);
-    const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type } });
+    const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, ...(currentRead ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
     if (!record) return;
     if(isRegistrationType(type)&&def.uniqueField&&Object.hasOwn(patch,def.uniqueField)){
       await this.saveRecord(em,user,def,record,patch,{note});return;
@@ -1261,6 +1261,7 @@ export class ResourcesService implements RuleHost {
       const field = dictionary.sortField;
       if (!orderedIds.every(id => Number.isSafeInteger(id) && id > 0) || orderedIds.length < 2 || new Set(orderedIds).size !== orderedIds.length) throw new BadRequestException('字典排序数据无效');
       return this.dataSource.transaction(async em => {
+        await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
         const rows = await em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type AND r.archivedAt IS NULL AND r.status = :status', { companyId: user.companyId, type, status: 'active' }).orderBy('r.id', 'ASC').setLock('pessimistic_write').getMany();
         const byId = new Map(rows.map(row => [row.id, row]));
         if (rows.length !== orderedIds.length || orderedIds.some(id => !byId.has(id))) throw new BadRequestException('请提交完整有效的字典顺序');
@@ -1594,13 +1595,14 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 组合操作在同一事务内删除，仍执行统一引用校验和日志。 */
-  async removeRecord(em: EntityManager, user: AuthUser, type: string, id: number, reason: string, cleanup: string[] = []) {
+  async removeRecord(em: EntityManager, user: AuthUser, type: string, id: number, reason: string, cleanup: string[] = [], currentRead = false) {
     const def = this.def(type);
     if (archivePolicyOf(type)) throw new BadRequestException('该资料应走归档流程');
     if (reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
-    const existing = await this.load(em, user, type, id);
+    const existing = currentRead ? await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } }) : await this.load(em, user, type, id);
+    if (!existing) throw new NotFoundException('记录不存在');
     await beforeDeleteRule(def.key, { em, host: this, user, record: existing });
-    const incoming = await em.find(ResourceLink, { where: { companyId: user.companyId, targetType: type, targetId: id, relation: Not('manual') } });
+    const incoming = await em.find(ResourceLink, { where: { companyId: user.companyId, targetType: type, targetId: id, relation: Not('manual') }, ...(currentRead ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
     if (incoming.length > 0) {
       const sources = await em
         .createQueryBuilder(ResourceRecord, 'r')
