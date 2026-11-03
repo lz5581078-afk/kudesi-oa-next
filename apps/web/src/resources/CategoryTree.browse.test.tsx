@@ -73,6 +73,42 @@ describe('列表左侧多维度浏览', () => {
     await screen.findByText('王芳');
     expect(screen.queryByRole('button', { name: '管理' })).toBeNull();
   });
+
+  it('未选择、不存在、父分类和停用分类都不允许新增', async () => {
+    for (const value of ['', '99', '1', '3']) {
+      const onLeaf = vi.fn();
+      api.categoryTree.mockResolvedValue({ ...treeOf('categoryId'), nodes: [...treeOf('categoryId').nodes, { id: 3, title: '旧分类', status: 'inactive', parentId: 0, sort: 3, count: 0 }] });
+      mount({ values: { categoryId: value }, onLeaf });
+      await screen.findByText('电脑');
+      expect(onLeaf).toHaveBeenLastCalledWith(false);
+      cleanup();
+    }
+  });
+
+  it('已加载的末级切换档案类型后立即收回新增资格，失败时也不沿用旧目录', async () => {
+    const onLeaf = vi.fn();
+    const props = { type: 'fixed-assets', fields, tab: 'raw', status: '', showHidden: false, values: { categoryId: '2' }, reloadKey: 0, onSelect: vi.fn(), onLeaf };
+    const view = render(<CategoryTree {...props} />);
+    await waitFor(() => expect(onLeaf).toHaveBeenLastCalledWith(true));
+    let reject!: (error: Error) => void;
+    api.categoryTree.mockReturnValue(new Promise((_resolve, fail) => { reject = fail; }));
+    view.rerender(<CategoryTree {...props} tab="package" />);
+    expect(onLeaf).toHaveBeenLastCalledWith(false);
+    reject(new Error('offline'));
+    await screen.findByText('分类目录加载失败');
+    expect(onLeaf).toHaveBeenLastCalledWith(false);
+  });
+
+  it('往来单位顶级目录即使没有下级也不能新增，不能沿用其他顶级目录的末级', async () => {
+    const onLeaf = vi.fn();
+    mount({ type: 'finance-suppliers', rootId: 2, values: { categoryId: '2' }, onLeaf });
+    await screen.findByText('全部笔记本');
+    expect(onLeaf).toHaveBeenLastCalledWith(false);
+    cleanup();
+    mount({ rootId: 3, values: { categoryId: '2' }, onLeaf });
+    await screen.findByText('还没有分类，先到“资料维护”里建分类');
+    expect(onLeaf).toHaveBeenLastCalledWith(false);
+  });
 });
 
 

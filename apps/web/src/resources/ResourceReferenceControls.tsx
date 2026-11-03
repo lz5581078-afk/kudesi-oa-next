@@ -3,7 +3,7 @@ import type { FieldDef } from '@kudesi/shared';
 import { X } from 'lucide-react';
 import { resourceApi, type ResourceDto } from './api';
 
-type RefOption = { value: number; label: string; disabled?: boolean; leaf?: boolean };
+type RefOption = { value: number; label: string; disabled?: boolean; leaf?: boolean; archiveType?: string };
 type RefOptions = RefOption[] & { total?: number };
 /** 引用选择器一次最多取这么多条；更多的靠搜索框按关键字找（店铺、手机号等可能有几百条） */
 const REF_PAGE = 50;
@@ -50,7 +50,7 @@ export function loadRefOptions(target: string) {
         : target === 'user'
         ? resourceApi.users().then((list) => list.map((u) => ({ value: u.id, label: u.active ? u.name : `${u.name}（已停用）`, disabled: !u.active })))
         : ['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories'].includes(target)
-        ? (async () => { const rows: ResourceDto[] = []; for (let page=1;;page++) { const r=await resourceApi.list(target,{page,pageSize:200,showHidden:true}); rows.push(...r.items); if(rows.length>=r.total||!r.items.length)break; } const byId=new Map(rows.map(r=>[r.id,r])); const path=(row:ResourceDto)=>{const parts:string[]=[],seen=new Set<number>();for(let r:ResourceDto|undefined=row;r&&!seen.has(r.id);r=byId.get(Number(r.data.parentId))){seen.add(r.id);parts.unshift(r.title);}return parts.join(' / ');};return Object.assign(rows.filter(r=>r.status==='active').map(r=>({value:r.id,label:path(r),leaf:!rows.some(c=>c.data.parentId===r.id)})),{total:rows.filter(r=>r.status==='active').length}); })()
+        ? (async () => { const rows: ResourceDto[] = []; for (let page=1;;page++) { const r=await resourceApi.list(target,{page,pageSize:200,showHidden:true}); rows.push(...r.items); if(rows.length>=r.total||!r.items.length)break; } const byId=new Map(rows.map(r=>[r.id,r])); const path=(row:ResourceDto)=>{const parts:string[]=[],seen=new Set<number>();for(let r:ResourceDto|undefined=row;r&&!seen.has(r.id);r=byId.get(Number(r.data.parentId))){seen.add(r.id);parts.unshift(r.title);}return parts.join(' / ');};return Object.assign(rows.filter(r=>r.status==='active').map(r=>({value:r.id,label:path(r),archiveType:typeof r.data.archiveType === 'string' ? r.data.archiveType : undefined,leaf:!rows.some(c=>c.data.parentId===r.id)})),{total:rows.filter(r=>r.status==='active').length}); })()
         : resourceApi.list(target, { pageSize: REF_PAGE, showHidden: true }).then((r) => Object.assign(r.items.map((i) => ({ value: i.id, label: refOptionLabel(target,i) })), { total: r.total }));
     p.catch(() => refCache.delete(target));
     refCache.set(target, p);

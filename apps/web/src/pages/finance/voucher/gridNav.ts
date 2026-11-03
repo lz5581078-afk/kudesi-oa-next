@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from 'react';
 
-const FIELDS = 'input:not([disabled]):not([type="hidden"]):not([readonly]), select:not([disabled])';
+const FIELDS = 'input:not([disabled]):not([type="hidden"]):not([readonly]), select:not([disabled]), button[data-grid-picker]';
 
 /**
  * 明细网格的键盘录入（管家婆单据习惯）：
@@ -9,7 +9,9 @@ const FIELDS = 'input:not([disabled]):not([type="hidden"]):not([readonly]), sele
  */
 export function gridKeyDown(e: KeyboardEvent<HTMLElement>, opts: { addRow?: () => void; deleteRow?: (row: number) => void }) {
   const target = e.target as HTMLElement;
-  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+  if (target.closest('[data-picker-menu]')) return;
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLButtonElement && target.hasAttribute('data-grid-picker'))) return;
+  if (target instanceof HTMLButtonElement && e.key === 'Enter') return;
   const tr = target.closest('tr[data-row]') as HTMLElement | null;
   const body = tr?.parentElement;
   if (!tr || !body) return;

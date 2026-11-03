@@ -52,7 +52,7 @@ describe('分级布局下的列表页', () => {
   it('资料操作保留搜索、筛选、行高、表格编辑和导入导出，新增及显示停用仍可直接操作', async () => {
     renderIt();
     await screen.findByText('润农');
-    expect(screen.getByRole('button', { name: '＋ 新增' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '＋ 新增' })).toBeNull();
     expect(screen.getByRole('button', { name: '显示停用' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '资料操作' }));
     expect(screen.getByRole('searchbox', { name: '搜索' })).toBeTruthy();
@@ -63,12 +63,11 @@ describe('分级布局下的列表页', () => {
     expect(screen.getByRole('button', { name: '导出' })).toBeTruthy();
   });
 
-  it('没选到最末级分类时点新增只给提示；选到最末级才打开表单', async () => {
+  it('没选到最末级分类时不显示新增；选到最末级才打开表单', async () => {
     renderIt();
     await screen.findByText('润农');
-    fireEvent.click(screen.getByRole('button', { name: '＋ 新增' }));
+    expect(screen.queryByRole('button', { name: '＋ 新增' })).toBeNull();
     expect(screen.queryByText('新增表单')).toBeNull();
-    expect(screen.getByRole('status').textContent).toContain('请选择最末级分类后新增供应商');
     cleanup(); leafValue = true;
     renderIt();
     await screen.findByText('润农');
@@ -90,6 +89,7 @@ describe('分级布局下的列表页', () => {
     await screen.findByText('新增表单');
     const init = formProps.mock.calls.at(-1)![0].initial as Record<string, unknown>;
     expect(init.name).toBe('润农');
+    expect(init.categoryIds).toEqual([3]);
     expect(init.code).toBeUndefined();
   });
 

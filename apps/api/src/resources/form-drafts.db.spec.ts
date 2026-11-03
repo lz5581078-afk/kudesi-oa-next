@@ -3,7 +3,8 @@ import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, User, FormDraft } from '../entities';
+import { CryptoService } from '../common/crypto.service';
 import { FormDraftsService } from './form-drafts.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
@@ -21,7 +22,7 @@ d('表单草稿（真实数据库）', () => {
   beforeAll(async () => {
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
     await ds.initialize();
-    svc = new FormDraftsService(ds);
+    svc = new FormDraftsService(ds, new CryptoService({ test: crypto.randomBytes(32) }, 'test'));
     const c1 = await ds.manager.save(Company, ds.manager.create(Company, { code: `d${crypto.randomBytes(5).toString('hex')}`, name: '草稿一', status: 'active' }));
     const c2 = await ds.manager.save(Company, ds.manager.create(Company, { code: `d${crypto.randomBytes(5).toString('hex')}`, name: '草稿二', status: 'active' }));
     a = await mk(c1.id, 'a', ['resource.finance-products.create']);
@@ -53,5 +54,26 @@ d('表单草稿（真实数据库）', () => {
     await expect(svc.put(a, 'resource%3Astores:x', ok)).rejects.toThrow(/不一致/);
     await expect(svc.put(a, 'a b/c', ok)).rejects.toThrow(/标识/);
     await expect(svc.put(a, key, { ...ok, payload: { big: 'x'.repeat(300 * 1024) } })).rejects.toThrow(/太大/);
+  });
+
+  it('供应商收款账号草稿在库中加密，本人重开完整恢复；撤销新增权限后不能再读取', async () => {
+    const user = { ...a, permissions: { isCompanyAdmin: false, allow: ['resource.finance-suppliers.create'], deny: [] } };
+    const draftKey = 'resource%3Afinance-suppliers:_';
+    const payload = { name: '草稿供应商', bankAccountNo: '6222000012345678', __archiveState: { manualCode: true } };
+    await svc.put(user, draftKey, { moduleKey: 'resource:finance-suppliers', payload });
+    const raw = await ds.manager.findOneByOrFail(FormDraft, { companyId: user.companyId, userId: user.id, draftKey });
+    expect(JSON.stringify(raw.payload)).not.toContain(payload.bankAccountNo);
+    expect(raw.payload.__encryptedDraft).toMatch(/^v1:/);
+    expect((await svc.get(user, draftKey)).draft?.payload).toEqual(payload);
+    await expect(svc.get({ ...user, permissions: noCreate.permissions }, draftKey)).rejects.toThrow(/权限/);
+  });
+
+  it('商品草稿重新读取时按当前成本权限过滤主表和供货来源价格', async () => {
+    const admin = { ...a, permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
+    await svc.put(admin, key, { moduleKey: 'resource:finance-products', payload: { name: '草稿原料', purchasePrice: 150, __productParts: { sources: [{ supplierId: 2, originArea: '山东', purchasePrice: 150 }] } } });
+    const draft = (await svc.get(a, key)).draft!.payload;
+    expect(draft.name).toBe('草稿原料');
+    expect(draft.purchasePrice).toBeUndefined();
+    expect(JSON.stringify(draft.__productParts)).not.toContain('purchasePrice');
   });
 });

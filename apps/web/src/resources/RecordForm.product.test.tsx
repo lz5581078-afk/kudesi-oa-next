@@ -13,7 +13,7 @@ vi.mock('./api', async (orig) => {
   const mod = await orig<typeof import('./api')>();
   return {
     ...mod,
-    resourceApi: { ...mod.resourceApi, create: (...a: unknown[]) => create(...a), similarCheck: (...a: unknown[]) => similar(...a), list: vi.fn(async (type: string) => (type === 'finance-suppliers' ? { items: [{ id: 3, title: '供应商甲', status: 'active', data: {} }], total: 1 } : { items: [], total: 0 })) },
+    resourceApi: { ...mod.resourceApi, create: (...a: unknown[]) => create(...a), similarCheck: (...a: unknown[]) => similar(...a), list: vi.fn(async (type: string) => (type === 'finance-suppliers' ? { items: [{ id: 3, title: '供应商甲', status: 'active', data: {} }], total: 1 } : type === 'finance-categories' ? { items: [{ id: 1, title: '原料分类', status: 'active', data: { archiveType: 'raw' } }], total: 1 } : { items: [], total: 0 })) },
     draftApi: { ...mod.draftApi, get: (...a: unknown[]) => draftGet(...a), save: (...a: unknown[]) => draftSave(...a), remove: (...a: unknown[]) => draftRemove(...a) },
   };
 });
@@ -28,8 +28,8 @@ const fill = (label: string, value: string) => fireEvent.change(screen.getAllByL
 /** 原料至少要有一条完整的供货来源（供应商、产区、采购价） */
 const addSource = async () => {
   fireEvent.click(screen.getByRole('button', { name: '＋ 添加供货来源' }));
-  const supplier = (await screen.findByRole('option', { name: '供应商甲' })).closest('select')!;
-  fireEvent.change(supplier, { target: { value: '3' } });
+  fireEvent.click(screen.getByRole('button', { name: '选择供应商' }));
+  fireEvent.click(await screen.findByRole('button', { name: /供应商甲 未设置简称/ }));
   fireEvent.change(screen.getByLabelText('产区'), { target: { value: '陕西' } });
   fireEvent.change(screen.getByLabelText('来源采购价'), { target: { value: '8' } });
 };
@@ -46,6 +46,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('商品档案新建：草稿、继续新建、零值确认', () => {
+  it('复制新增沿用来源资料，不被普通新增保存的草稿覆盖', async () => {
+    draftGet.mockResolvedValue({ draft: { payload: { name: '其他草稿', categoryId: 99 } } });
+    render(<RecordForm def={def} record={null} initial={{...REQ,__copyOf:7,name:'被复制的原料'}} onClose={()=>undefined} onSaved={()=>undefined}/>);
+    await waitFor(()=>expect((screen.getByLabelText(/^原料名称/) as HTMLInputElement).value).toBe('被复制的原料'));
+    expect(draftGet).not.toHaveBeenCalled();
+    expect(screen.queryByText(/已恢复上次保存/)).toBeNull();
+  });
   it('保存草稿：把当前填的内容存到服务器并关闭；再打开自动恢复，可清除', async () => {
     const onClose = vi.fn();
     const { unmount } = render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw' }} onClose={onClose} onSaved={() => undefined} onContinued={() => undefined} />);
@@ -77,6 +84,27 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     expect(onSaved).not.toHaveBeenCalled();
     expect(draftRemove).toHaveBeenCalled();
     expect((screen.getAllByLabelText(/^原料名称/)[0] as HTMLInputElement).value).toBe('');
+  });
+
+  it('保存草稿后重新打开，供货来源、采购价和人工编号仍在，正式保存不发送草稿内部字段', async () => {
+    const view = render(<RecordForm def={def} record={null} initial={REQ} onClose={() => undefined} onSaved={() => undefined} />);
+    await fillRaw('草稿原料');
+    fireEvent.click(screen.getByRole('button', { name: '人工修正' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '系统自动编号' }), { target: { value: 'MANUAL-RAW' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(draftSave).toHaveBeenCalled());
+    const payload = draftSave.mock.calls.at(-1)![1].payload;
+    view.unmount();
+    draftGet.mockResolvedValue({ draft: { payload } });
+    render(<RecordForm def={def} record={null} initial={REQ} onClose={() => undefined} onSaved={() => undefined} />);
+    await screen.findByText('已恢复上次保存的草稿。');
+    expect((screen.getByLabelText('产区') as HTMLInputElement).value).toBe('陕西');
+    await waitFor(() => expect((screen.getByLabelText('来源采购价') as HTMLInputElement).value).toBe('8'));
+    expect((screen.getByRole('textbox', { name: '系统自动编号' }) as HTMLInputElement).value).toBe('MANUAL-RAW');
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await confirmQuality();
+    await waitFor(() => expect(create).toHaveBeenCalledWith('finance-product-sources', expect.objectContaining({ supplierId: 3, originArea: '陕西', purchasePrice: 800 })));
+    expect(create.mock.calls.find(c => c[0] === 'finance-products')![1]).not.toHaveProperty('__productParts');
   });
 
   it('相似商品要确认才保存；选“取消”就不保存', async () => {

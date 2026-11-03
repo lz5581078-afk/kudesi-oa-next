@@ -165,7 +165,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   useEffect(() => {
     if (rootVal && treeField) setFilterVals((cur) => (cur[treeField.key] ? cur : { ...cur, [treeField.key]: rootVal }));
   }, [rootVal, treeField, filterFields]);
-  const [leaf, setLeaf] = useState(true);
+  const [leaf, setLeaf] = useState(false);
   const [paths, setPaths] = useState<Record<string, string>>({});
   const setPath = useCallback((key: string, path: string) => setPaths((cur) => (cur[key] === path ? cur : { ...cur, [key]: path })), []);
   const [page, setPage] = useState(1);
@@ -370,7 +370,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     }
   }
 
-  // 旧版：供应商、客户、费用档案只能在最末级分类下新增
+  // 普通新增使用当前目录；复制新增沿用原资料分类，由表单和服务端校验。
   function startCreate() {
     if (hier && def.hierarchy?.leafHint && !leaf) { setBatchMsg(def.hierarchy.leafHint); return; }
     setCreating(true);
@@ -600,7 +600,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
           <ToolPop label="资料操作" trigger="资料操作" align="right" panelClass="finance-base-operations">{() => <><div className="finance-base-operation-query">{searchTools}</div><div className="finance-base-operation-actions">{actions}</div></>}</ToolPop>
           {hiddenButton}
           {!isMobile && <ColumnsPop fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} />}
-          {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate} aria-label="＋ 新增">＋ 新增{productLabel || def.label.replace('档案', '')}</button>}
+          {can('create') && (!def.hierarchy?.leafHint || leaf) && <button type="button" className="res-btn primary" disabled={gridLocked} onClick={startCreate} aria-label="＋ 新增">＋ 新增{productLabel || def.label.replace('档案', '')}</button>}
         </div>
       </div>
       {(filtered || chips.length > 0) && data && <ActiveChips chips={chips} summary={filtered ? `找到 ${data.total} 条符合条件的${def.label}` : ''} onClearAll={clearFilters} />}

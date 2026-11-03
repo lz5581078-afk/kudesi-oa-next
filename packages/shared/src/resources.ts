@@ -202,6 +202,8 @@ export interface ArchiveHierarchy {
   categoryType?: string;
   /** 新增资料时必须落在最末级分类（旧供应商/客户档案如此），提示用 */
   leafHint?: string;
+  /** 目录列表只看直属资料；分类卡片和目录计数仍汇总下级。 */
+  directItems?: boolean;
 }
 
 export interface ResourceDef {

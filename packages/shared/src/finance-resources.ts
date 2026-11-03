@@ -105,7 +105,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     // 旧系统外购成品是两个入口（原装采购成品档案 / 供应商 OEM 成品档案）：同一张档案表，按“采购方式”分开，各有各的分类树；不再用采购方式下拉筛选
     filterBy: ['categoryId'],
     treeManage: ['categoryId'],
-    hierarchy: { kind: 'tab', subtitle: '按原料、自产成品、原装采购、供应商 OEM、产品包装、发货物料和 OEM 包装分别维护，后续用于采购、成本和核算。', unit: '条商品', listTitle: '商品列表' },
+    hierarchy: { kind: 'tab', subtitle: '按原料、自产成品、原装采购、供应商 OEM、产品包装、发货物料和 OEM 包装分别维护，后续用于采购、成本和核算。', unit: '条商品', listTitle: '商品列表', leafHint: '请选择最末级分类后新增商品' },
     tabSplit: { tab: 'purchased', field: 'supplyMode', default: 'original_purchase', options: o('original_purchase:原装采购成品档案', 'supplier_oem:供应商 OEM 成品档案') },
     treeTabMap: { purchased: ['original_purchase', 'supplier_oem'], original_purchase: ['original_purchase'], supplier_oem: ['supplier_oem'] },
     batch: ['status', 'categoryId'],
@@ -273,7 +273,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     defaultStatus: 'active',
     filterBy: 'categoryIds',
     treeManage: ['categoryIds'],
-    hierarchy: { kind: 'category', categoryType: 'finance-supplier-categories', subtitle: '按供应商类型分层维护。进入一个分类后，只展示该目录下的供应商资料。', unit: '个供应商', listTitle: '供应商列表', leafHint: '请选择最末级分类后新增供应商' },
+    hierarchy: { kind: 'category', categoryType: 'finance-supplier-categories', directItems: true, subtitle: '按供应商类型分层维护。进入一个分类后，只展示该目录直属的供应商资料。', unit: '个供应商', listTitle: '供应商列表', leafHint: '请选择最末级分类后新增供应商' },
     batch: ['status', 'categoryIds'],
     fields: [
       text('code', '供应商编号', '基础', { list: true, search: true, maxLength: 64, help: '不填自动生成 GYS-001 这样的编号' }),
@@ -303,7 +303,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     defaultStatus: 'active',
     filterBy: 'categoryIds',
     treeManage: ['categoryIds'],
-    hierarchy: { kind: 'category', categoryType: 'finance-customer-categories', subtitle: '按客户类型分层维护。进入一个分类后，只展示该目录下的客户资料。', unit: '个客户', listTitle: '客户列表', leafHint: '请选择最末级分类后新增客户' },
+    hierarchy: { kind: 'category', categoryType: 'finance-customer-categories', directItems: true, subtitle: '按客户类型分层维护。进入一个分类后，只展示该目录直属的客户资料。', unit: '个客户', listTitle: '客户列表', leafHint: '请选择最末级分类后新增客户' },
     batch: ['status', 'categoryIds'],
     fields: [
       text('code', '客户编号', '基础', { list: true, search: true, maxLength: 64, help: '不填自动生成 KH-001 这样的编号' }),
@@ -329,7 +329,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     tabsBy: 'direction',
     filterBy: 'categoryId',
     treeManage: ['categoryId'],
-    hierarchy: { kind: 'category', categoryType: 'finance-fee-categories', subtitle: '维护费用类型、费用口径和后续流程入账时使用的费用分类。', unit: '个费用项', listTitle: '费用类型列表', leafHint: '请选择最末级费用类别后新增费用类型' },
+    hierarchy: { kind: 'category', categoryType: 'finance-fee-categories', directItems: true, subtitle: '维护费用类型、费用口径和后续流程入账时使用的费用分类。', unit: '个费用项', listTitle: '费用类型列表' },
     batch: ['status', 'categoryId'],
     statuses: [ACTIVE, STOPPED],
     defaultStatus: 'active',

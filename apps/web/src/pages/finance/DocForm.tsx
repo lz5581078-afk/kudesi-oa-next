@@ -1,9 +1,9 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { unitYuanText, yuanToPreciseCents, ACCOUNT_LABEL, DOC_TYPE_MAP, FEE_BOOKING_NODE_MAP, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, SETTLEMENT_DOC_TYPES, docTotal, grossTotal, hasBankRef, hasMoneyDiscount, lineAmount, payRole, todayInChina as today, validateDoc, type DocType, type PartyKind, type PayMode, type SettleBy } from '@kudesi/shared';
+import { FormEvent, Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { unitOptionFromText, unitYuanText, yuanToPreciseCents, ACCOUNT_LABEL, DOC_TYPE_MAP, FEE_BOOKING_NODE_MAP, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, SETTLEMENT_DOC_TYPES, docTotal, grossTotal, hasBankRef, hasMoneyDiscount, lineAmount, payRole, todayInChina as today, validateDoc, type DocType, type PartyKind, type PayMode, type SettleBy } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { resourceApi } from '../../resources/api';
-import { SearchPick, centsToYuan, money, yuanToCents } from './common';
+import { ReferencePickContext, SearchPick, centsToYuan, money, yuanToCents } from './common';
 import { useUnsavedWarning } from './fin-ui';
 import { financeApi, type DocDetailDto, type OpenItem } from './financeApi';
 import { sessionApi, type VoucherFile } from './sessionApi';
@@ -48,6 +48,8 @@ const ORIGIN: Partial<Record<DocType, { scope: DocType; kind: PartyKind; label: 
  * 中间是明细网格（回车逐格录入、库存与价格提示、赠品），右侧是“收款/付款情况”——选结算方式（全款/部分/欠款/预收预付冲抵）、收付款账户、实收实付金额，
  * 没结清的部分自动挂应收/应付。保存草稿时允许没填完，开立/过账时严格校验。
  */
+function DocumentHeadCard({ reference, children }: { reference: boolean; children: ReactNode }) { return reference ? <section className="reference-document-head-card">{children}</section> : <Fragment>{children}</Fragment>; }
+
 export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft, onShowList }: Props) {
   const def = DOC_TYPE_MAP.get(type)!;
   const { can, user } = useAuth();
@@ -79,12 +81,13 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const [offset, setOffset] = useState(doc?.offsetCents ? centsToYuan(doc.offsetCents) : '');
   const [paid, setPaid] = useState(doc?.paidCents ? centsToYuan(doc.paidCents) : '');
   const [discount, setDiscount] = useState(doc?.discountCents ? centsToYuan(doc.discountCents) : '');
-  const [payMode, setPayMode] = useState<PayMode | ''>(doc ? (doc.paidCents || doc.offsetCents ? 'part' : 'credit') : '');
+  const [payMode, setPayMode] = useState<PayMode | ''>(doc ? (doc.paidCents || doc.offsetCents ? 'part' : 'credit') : ui.payModes[0]?.mode ?? '');
   const [memo, setMemo] = useState(doc?.memo ?? '');
+  const freshLines = () => emptyLines(1).map(row => def.lines === 'product' ? { ...row, qty: '', unit: '件' } : row);
   const [lines, setLines] = useState<LineState[]>(
     doc?.lines.length
       ? doc.lines.map((l) => ({ unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents), memo: l.memo ?? '', gift: !!l.productId && l.unitPriceCents === 0, node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
-      : def.lines ? emptyLines(inline ? 3 : 1) : [],
+      : def.lines ? freshLines() : [],
   );
   const toAccts = (role: 'out' | 'in'): AcctState[] => (doc?.accounts ?? []).filter((a) => a.role === role).map((a) => ({ id: a.bankAccountId, name: a.bankName, amount: centsToYuan(a.amountCents) }));
   const [outs, setOuts] = useState<AcctState[]>(() => (doc?.accounts?.length ? toAccts('out') : doc?.bankAccountId && doc.docType === 'transfer' ? [{ id: doc.bankAccountId, name: doc.bankName, amount: centsToYuan(doc.amountCents) }] : []));
@@ -242,7 +245,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
 
   const reset = () => {
     setDocNo(''); setParty({ id: null, name: '' }); setWh({ id: null, name: '' }); setBank({ id: null, name: '' }); setToBank({ id: null, name: '' }); setRefNo('');
-    setOuts([]); setIns([]); setMulti([]); setMultiOn(false); setFee(''); setFeeBearer('out'); setInTransit(false); setMoneyLines([emptyMoney()]); setOffset(''); setPaid(''); setDiscount(''); setPayMode(''); setMemo(''); setLines(def.lines ? emptyLines(3) : []); setVouchers([]); setVouchersDirty(false); setError(''); setAlloc({});
+    setOuts([]); setIns([]); setMulti([]); setMultiOn(false); setFee(''); setFeeBearer('out'); setInTransit(false); setMoneyLines([emptyMoney()]); setOffset(''); setPaid(''); setDiscount(''); setPayMode(ui.payModes[0]?.mode ?? ''); setMemo(''); setLines(def.lines ? freshLines() : []); setVouchers([]); setVouchersDirty(false); setError(''); setAlloc({});
   };
 
   const save = async (e: FormEvent | null, then?: 'issue' | 'post') => {
@@ -271,7 +274,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
     }
   };
 
-  const addLine = () => setLines((ls) => [...ls, emptyLine()]);
+  const addLine = () => setLines((ls) => [...ls, freshLines()[0]]);
   const setLine = (i: number, patch: Partial<LineState>) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   /** 选了费用项目：按费用档案里的默认挂账节点预选，并记下是否必须挂对象 */
   const pickFee = async (i: number, id: number | null, name: string) => {
@@ -288,10 +291,10 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
     try {
       const r = await resourceApi.get('finance-products', id);
       const u = String(r?.data?.specUnit ?? '').trim();
-      if (u) setLines((ls) => ls.map((l, k) => (k === i && l.productId === id && !l.unit ? { ...l, unit: u } : l)));
+      if (u) setLines((ls) => ls.map((l, k) => (k === i && l.productId === id && !l.unit ? { ...l, unit: unitOptionFromText(u)?.label || u } : l)));
     } catch { /* 取不到单位不影响开单 */ }
   };
-  const pickProduct = (i: number, id: number | null, name: string) => { setLine(i, { productId: id, productName: name, ...(id ? {} : { unit: '' }) }); if (id) void pickUnit(i, id); };
+  const pickProduct = (i: number, id: number | null, name: string) => { setLine(i, { productId: id, productName: name, unit: '' }); if (id) void pickUnit(i, id); };
   const moneyItem = ui.moneyItemLabel ?? '项目';
   const parsedCount = lines.filter((l) => l.productId || l.feeItemId || l.price).length;
   const settleTitle = def.settle === 'in' && type !== 'purchase-return' ? '收款情况' : def.settle === 'out' && type !== 'sale-return' ? '付款情况' : def.settle ? '退款情况' : def.bank === 'in' ? '收款情况' : def.bank === 'out' ? '付款情况' : '转款情况';
@@ -329,8 +332,10 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const content = (
     <div className="slip-cols">
       <div className="slip-main">
-      <p className="muted slip-hint">过账结果：{def.posting}</p>
-      <h3 className="section-title"><span className="step">1</span>单据信息</h3>
+      <DocumentHeadCard reference={type !== 'withdrawal'}>
+      {type === 'withdrawal' && <p className="muted slip-hint">过账结果：{def.posting}</p>}
+      <h3 className="section-title"><span className="step">1</span>{ui.partyTitle || '单据信息'}</h3>
+      {ui.partyHint && <p className="reference-document-hint">{ui.partyHint}</p>}
       <section className="slip-head">
         <label>单据编号<input aria-label="单据编号" value={docNo} maxLength={32} onChange={(e) => setDocNo(e.target.value)} placeholder={doc ? '' : `不填则自动生成（${def.prefix}${date.replace(/-/g, '')}001）`} disabled={!!doc && doc.status !== 'draft'} /></label>
         <label>单据日期<input type="date" aria-label="单据日期" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
@@ -367,6 +372,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
           : <label>归属部门<input aria-label="归属部门" value={department} maxLength={60} onChange={(e) => setDepartment(e.target.value)} /></label>}
         <HandlerSelect value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); }} />
       </section>
+      </DocumentHeadCard>
 
       {def.bank === 'transfer' && <TransferPanel outs={outs} ins={ins} setOuts={setOuts} setIns={setIns} balances={balances} />}
       {def.bank === 'transfer' && <TransferFee fee={fee} setFee={setFee} bearer={feeBearer} setBearer={setFeeBearer} inTransit={inTransit} setInTransit={setInTransit} outName={outs[0]?.name ?? ''} inName={ins[0]?.name ?? ''} />}
@@ -374,6 +380,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
       {def.lines && (
         <section>
           <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
+          {ui.detailHint && <p className="reference-document-hint">{ui.detailHint}</p>}
           <GoodsGrid def={def} type={type} lines={lines} setLines={setLines} setLine={setLine} priceOf={priceOf} hints={hints} onPickProduct={pickProduct} onPickFee={pickFee} addRow={addLine} gridRef={gridRef} />
           <div className="vc-grid-foot">
             <button type="button" className="secondary-button small" onClick={addLine}>+ 加一行</button>
@@ -391,6 +398,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
       {!def.lines && (
         <section>
           <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
+          {ui.detailHint && <p className="reference-document-hint">{ui.detailHint}</p>}
           <MoneyGrid type={type} label={moneyItem} lines={moneyLines} setLines={setMoneyLines} gridRef={gridRef} />
           <div className="vc-grid-foot">
             <button type="button" className="secondary-button small" onClick={() => setMoneyLines((ls) => [...ls, emptyMoney()])}>+ 加一行</button>
@@ -400,6 +408,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
         </section>
       )}
 
+      {type !== 'withdrawal' && <details className="reference-document-extra"><summary>过账说明</summary><p className="muted slip-hint">过账结果：{def.posting}</p></details>}
       </div>
       <aside className="slip-side" aria-label="单据功能区">
       <div className="slip-total-card"><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{def.lines && <span className="muted">共 {parsedCount} 行{discountC > 0 ? ` · 已优惠 ${money(discountC)}` : ''}</span>}</div>
@@ -474,23 +483,23 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
 
   if (inline) {
     return (
-      <form className="card slip vc-slip" aria-label={`${def.label}开单`} onSubmit={(e) => save(e)}>
+      <ReferencePickContext.Provider value={type !== 'withdrawal'}><form className={`card slip vc-slip${type !== 'withdrawal' ? ' reference-document' : ''}`} aria-label={`${def.label}开单`} onSubmit={(e) => save(e)}>
         <div className="slip-title"><strong>{def.label} / 手工开单</strong>{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}</div>
         <div className="slip-toolbar-row"><VoucherToolbar type={type} busy={busy} editing={!!doc}
           onClear={() => { if (doc) onClose?.(); else reset(); }} onPrint={doPrint} onList={() => onShowList?.()} onPickDraft={(id) => onPickDraft?.(id)} />
           <span className="vc-keys muted">Ctrl+G 保存草稿 · F8 过账 · Ctrl+F9 打印 · Ctrl+F8 回到明细</span></div>
         <div className="slip-body">{content}</div>
         <div className="slip-foot"><div className="slip-foot-total"><span className="muted">{ui.totalLabel}</span> <b>{money(total)}</b></div>{buttons}</div>
-      </form>
+      </form></ReferencePickContext.Provider>
     );
   }
   return (
-    <div className="modal-backdrop" role="presentation">
-      <form className="modal card slip" style={{ maxWidth: 980 }} role="dialog" aria-label={`${doc ? '编辑' : '新建'}${def.label}`} onSubmit={(e) => save(e)}>
+    <ReferencePickContext.Provider value={type !== 'withdrawal'}><div className="modal-backdrop" role="presentation">
+      <form className={`modal card slip${type !== 'withdrawal' ? ' reference-document' : ''}`} style={{ maxWidth: 980 }} role="dialog" aria-label={`${doc ? '编辑' : '新建'}${def.label}`} onSubmit={(e) => save(e)}>
         <div className="modal-head between"><strong>{doc ? `编辑 ${doc.docNo}` : `新建${def.label}`}</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>×</button></div>
         <div className="modal-body">{content}</div>
         <div className="modal-foot">{buttons}</div>
       </form>
-    </div>
+    </div></ReferencePickContext.Provider>
   );
 }

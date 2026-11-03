@@ -107,14 +107,14 @@ describe('开单页细节', () => {
     fa.create.mockResolvedValue({ id: 1, docNo: 'FK1' } as never);
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<DocForm type="payment" inline onSaved={vi.fn()} />);
-    fireEvent.focus(screen.getByLabelText('付款账户'));
+    fireEvent.click(screen.getByLabelText('付款账户'));
     fireEvent.click(await screen.findByRole('option', { name: '现金户' }));
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '50' } });
     fireEvent.change(screen.getByLabelText(/^第1行(?!金额|备注)/), { target: { value: '货款' } });
     const hint = await screen.findByLabelText('账户余额预览');
     expect(hint.textContent).toContain('¥10.00');
     expect(hint.textContent).toContain('¥-40.00');
-    fireEvent.focus(screen.getByLabelText('收款方'));
+    fireEvent.click(screen.getByLabelText('收款方'));
     fireEvent.click(await screen.findByRole('option', { name: '老客户' }));
     fireEvent.click(screen.getByRole('button', { name: '保存并开立' }));
     await waitFor(() => expect(confirm).toHaveBeenCalled());
@@ -145,7 +145,7 @@ describe('开单页细节', () => {
   });
   it('转款单：能互换转出/转入账户', async () => {
     render(<DocForm type="transfer" inline onSaved={vi.fn()} />);
-    fireEvent.focus(screen.getByLabelText('添加转出账户'));
+    fireEvent.click(screen.getByLabelText('添加转出账户'));
     fireEvent.click(await screen.findByRole('option', { name: '现金户' }));
     expect(screen.getByText('还没有选转入账户')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /互换转出\/转入/ }));

@@ -1,7 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { createChecker, getResourceDef } from '@kudesi/shared';
+import { createChecker, getResourceDef, restrictedFieldKeys } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
+import { CryptoService } from '../common/crypto.service';
 import { FormDraft } from '../entities';
 
 const KEY_RE = /^[A-Za-z0-9%:_\-.]{1,190}$/;
@@ -14,7 +15,7 @@ const MAX_BYTES = 200 * 1024;
  */
 @Injectable()
 export class FormDraftsService {
-  constructor(private readonly ds: DataSource) {}
+  constructor(private readonly ds: DataSource, private readonly crypto: CryptoService) {}
 
   private check(user: AuthUser, key: string, moduleKey?: string) {
     if (!KEY_RE.test(key)) throw new BadRequestException('草稿标识不合法');
@@ -29,7 +30,18 @@ export class FormDraftsService {
   async get(user: AuthUser, key: string) {
     this.check(user, key);
     const d = await this.ds.manager.findOne(FormDraft, { where: { companyId: user.companyId, userId: user.id, draftKey: key } });
-    return { draft: d ? { key: d.draftKey, moduleKey: d.moduleKey, title: d.title, sourceRecordId: d.sourceRecordId, payload: d.payload, updatedAt: d.updatedAt } : null };
+    if (!d) return { draft: null };
+    this.check(user, key, d.moduleKey);
+    // 兼容已存在的明文草稿；新草稿整体加密，避免收款账号等字段绕过主档案的加密规则。
+    const payload = typeof d.payload.__encryptedDraft === 'string' ? JSON.parse(this.crypto.decrypt(d.payload.__encryptedDraft)) as Record<string, unknown> : { ...d.payload };
+    const def = getResourceDef(d.moduleKey.slice('resource:'.length))!;
+    const can = createChecker(user.permissions);
+    for (const field of restrictedFieldKeys(def, can)) delete payload[field];
+    if (!can('product.cost.view') && payload.__productParts && typeof payload.__productParts === 'object') {
+      const parts = payload.__productParts as Record<string, unknown>;
+      if (Array.isArray(parts.sources)) parts.sources = parts.sources.map(source => { if (!source || typeof source !== 'object' || Array.isArray(source)) return source; const { purchasePrice: _p, ...rest } = source; return rest; });
+    }
+    return { draft: { key: d.draftKey, moduleKey: d.moduleKey, title: d.title, sourceRecordId: d.sourceRecordId, payload, updatedAt: d.updatedAt } };
   }
 
   async put(user: AuthUser, key: string, body: { moduleKey: string; title?: string; sourceRecordId?: string; payload: Record<string, unknown> }) {
@@ -37,7 +49,7 @@ export class FormDraftsService {
     if (!key.startsWith(encodeURIComponent(body.moduleKey))) throw new BadRequestException('草稿标识和模块不一致');
     if (!body.payload || typeof body.payload !== 'object' || Array.isArray(body.payload)) throw new BadRequestException('草稿内容不合法');
     if (Buffer.byteLength(JSON.stringify(body.payload)) > MAX_BYTES) throw new BadRequestException('草稿内容太大');
-    const values = { moduleKey: body.moduleKey, title: (body.title ?? '').slice(0, 200), sourceRecordId: body.sourceRecordId ? body.sourceRecordId.slice(0, 40) : null, payload: body.payload };
+    const values = { moduleKey: body.moduleKey, title: (body.title ?? '').slice(0, 200), sourceRecordId: body.sourceRecordId ? body.sourceRecordId.slice(0, 40) : null, payload: { __encryptedDraft: this.crypto.encrypt(JSON.stringify(body.payload)) } };
     const where = { companyId: user.companyId, userId: user.id, draftKey: key };
     const hit = await this.ds.manager.findOne(FormDraft, { where });
     await this.ds.manager.save(FormDraft, hit ? Object.assign(hit, values) : this.ds.manager.create(FormDraft, { ...where, ...values }));

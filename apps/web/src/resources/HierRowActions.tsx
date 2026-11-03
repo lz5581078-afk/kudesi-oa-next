@@ -42,7 +42,7 @@ export function HierRowActions({ def, row, can, onOpen, onEdit, onCopy, onCost, 
     <span className="row-acts hier-acts" onClick={(e) => e.stopPropagation()}>
       <button type="button" className="row-act" aria-label={`查看：${row.title}`} onClick={act(() => onOpen(row.id))}>查看</button>
       {live && can('edit') && <button type="button" className="row-act" aria-label={`编辑：${row.title}`} onClick={act(() => onEdit(row))}>编辑</button>}
-      {live && can('create') && <button type="button" className="row-act" aria-label={`复制新增：${row.title}`} title="按这条的内容新增一条，编号、图片不带过去" onClick={act(() => onCopy({ ...copyValuesOf(def, row.data), ...(def.key === 'finance-products' ? { __copyOf: row.id } : {}) }))}>复制新增</button>}
+      {live && can('create') && <button type="button" className="row-act" aria-label={`复制新增：${row.title}`} title="按这条的内容新增一条，编号、图片不带过去" onClick={act(() => onCopy({ ...copyValuesOf(def, row.data), ...(def.key.startsWith('finance-') ? { __copyOf: row.id } : {}) }))}>复制新增</button>}
       {onCost && <button type="button" className="row-act" aria-label={`成本明细：${row.title}`} onClick={act(() => onCost(row.id))}>成本明细</button>}
       {live && can('disable') && off && on && (
         <button type="button" className="row-act" aria-label={`${stopped ? '启用' : '停用'}：${row.title}`} onClick={act(() => setAsking(stopped ? 'on' : 'off'))}>{stopped ? '启用' : '停用'}</button>

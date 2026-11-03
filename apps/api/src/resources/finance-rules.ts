@@ -825,6 +825,38 @@ async function nextSeqCode(em: EntityManager, companyId: number, type: string, p
   return `${prefix}-${String(max + 1).padStart(3, '0')}`;
 }
 
+/** 只读编号预览与实际保存共用；不创建资料、不写审计、不占用编号。 */
+export async function previewArchiveCode(host: RuleHost, em: EntityManager, user: AuthUser, type: string, values: Data, existing?: ResourceRecord | null): Promise<Data> {
+  const data = { ...values };
+  if (type === 'finance-fee-items') return { code: str(data.code).trim() || await nextSeqCode(em, user.companyId, type, 'FY') };
+  if (!['finance-suppliers', 'finance-customers'].includes(type)) throw new BadRequestException('这类资料没有自动编号预览');
+  const prefix = type === 'finance-suppliers' ? 'GYS' : 'KH';
+  const catType = type === 'finance-suppliers' ? 'finance-supplier-categories' : 'finance-customer-categories';
+  const catIds = Array.isArray(data.categoryIds) ? data.categoryIds.filter((id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0) : [];
+  for (const id of catIds) if (!await rec(em, user.companyId, catType, id)) throw new BadRequestException('分类不存在');
+  if (type === 'finance-suppliers' && !str(data.shortName).trim()) data.shortName = str(data.name).trim();
+  if (!str(data.shortCode).trim()) data.shortCode = initials(str(data.shortName) || str(data.name)).slice(0, 16) || undefined;
+  else data.shortCode = str(data.shortCode).trim().toUpperCase();
+  if (!str(data.code).trim()) {
+    if (existing && str(existing.data.code)) data.code = str(existing.data.code);
+    else if (catIds.length) {
+      let leaf: ResourceRecord | null = null; // 取选中的第一个最末级分类来生成
+      for (const id of catIds) {
+        if ((await host.countWhere(em, user.companyId, catType, 'parentId', id)) === 0) { leaf = await rec(em, user.companyId, catType, id); break; }
+      }
+      leaf = leaf ?? (await rec(em, user.companyId, catType, catIds[0]));
+      const chain: ResourceRecord[] = [];
+      for (let cur = leaf, i = 0; cur && i < 6; i++) { chain.unshift(cur); cur = await rec(em, user.companyId, catType, cur.data.parentId); }
+      const base = [prefix, chain.length ? catToken(chain[0]) : 'X', leaf ? catToken(leaf) : 'X', initials(str(data.name)).slice(0, 16) || 'X'].join('-');
+      let code = base;
+      for (let n = 2; await host.findByUnique(em, user.companyId, type, code); n++) code = `${base}${n}`;
+      data.code = code;
+    } else data.code = await nextSeqCode(em, user.companyId, type, prefix);
+  }
+  data.code = str(data.code).trim();
+  return { code: data.code, shortCode: data.shortCode, ...(type === 'finance-suppliers' ? { shortName: data.shortName } : {}) };
+}
+
 /** 供应商/客户分类树上，一个分类的“分类码”：没填取名称拼音首字母（旧系统的 categoryCode） */
 const catToken = (c: ResourceRecord) => (str(c.data.categoryCode) || initials(c.title) || 'X').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'X';
 
@@ -850,25 +882,7 @@ const beforeParty = (prefix: string, type: string) => async (ctx: BeforeSaveCont
       if (!anyLeaf) throw new BadRequestException('请至少选一个最末级分类（下面没有子分类的）');
     }
   }
-  if (!str(data.shortCode).trim()) data.shortCode = initials(str(data.shortName) || str(data.name)).slice(0, 16) || undefined;
-  else data.shortCode = str(data.shortCode).trim().toUpperCase();
-  if (!str(data.code).trim()) {
-    if (existing && str(existing.data.code)) data.code = str(existing.data.code);
-    else if (catIds.length) {
-      let leaf: ResourceRecord | null = null; // 取选中的第一个最末级分类来生成
-      for (const id of catIds) {
-        if ((await ctx.host.countWhere(em, user.companyId, catType, 'parentId', id)) === 0) { leaf = await rec(em, user.companyId, catType, id); break; }
-      }
-      leaf = leaf ?? (await rec(em, user.companyId, catType, catIds[0]));
-      const chain: ResourceRecord[] = [];
-      for (let cur = leaf, i = 0; cur && i < 6; i++) { chain.unshift(cur); cur = await rec(em, user.companyId, catType, cur.data.parentId); }
-      const base = [prefix, chain.length ? catToken(chain[0]) : 'X', leaf ? catToken(leaf) : 'X', initials(str(data.name)).slice(0, 16) || 'X'].join('-');
-      let code = base;
-      for (let n = 2; await ctx.host.findByUnique(em, user.companyId, type, code); n++) code = `${base}${n}`;
-      data.code = code;
-    } else data.code = await nextSeqCode(em, user.companyId, type, prefix);
-  }
-  data.code = str(data.code).trim();
+  Object.assign(data, await previewArchiveCode(ctx.host, em, user, type, data, existing));
   if (existing && Object.keys(SIMILARITY_FIELDS).every((k) => str(data[k]) === str(existing.data[k]))) return; // 没改这些字段（如只是停用）不查重
   const others = await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'data'] });
   const { blocked } = inspectArchiveSimilarity({ ...data, ...typed }, others.map((o) => ({ id: o.id, data: o.data })), existing?.id);

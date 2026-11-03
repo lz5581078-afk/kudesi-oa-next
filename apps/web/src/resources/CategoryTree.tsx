@@ -44,14 +44,16 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   const field = fields.find((f) => f.key === activeKey) ?? fields[0];
   const value = values[field.key] ?? '';
   const flat = field.ref === 'user' || field.ref === 'department';
-  const [tree, setTree] = useState<CategoryTreeResult | null>(null);
+  const [reload, setReload] = useState(0);
+  const queryKey = JSON.stringify([type, field.key, tab, status, showHidden, reloadKey, reload]);
+  const [loadedTree, setLoadedTree] = useState<{ key: string; result: CategoryTreeResult } | null>(null);
+  const tree = loadedTree?.key === queryKey ? loadedTree.result : null;
   const [error, setError] = useState('');
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [kw, setKw] = useState('');
   const [mOpen, setMOpen] = useState(false); // 手机上目录折叠成一行，点开再选
   const [manage, setManage] = useState(false);
   const [financeManage, setFinanceManage] = useState(false);
-  const [reload, setReload] = useState(0);
   const [adding, setAdding] = useState<{ parent: number; name: string } | null>(null);
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
   const [deleting, setDeleting] = useState<Node | null>(null);
@@ -62,11 +64,12 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   const target = field.ref!;
   const financeTree = ['finance-categories', 'finance-supplier-categories', 'finance-customer-categories', 'finance-fee-categories'].includes(target);
 
-  useEffect(() => { setTree(null); setKw(''); setAdding(null); setRenaming(null); if (!manageable) setManage(false); }, [field.key, manageable]);
+  useEffect(() => { setKw(''); setAdding(null); setRenaming(null); if (!manageable) setManage(false); }, [field.key, manageable]);
   useEffect(() => {
     let alive = true;
+    setLoadedTree(null);
     resourceApi.categoryTree(type, { field: field.key, tab: tab || undefined, status: status || undefined, showHidden })
-      .then((r) => { if (alive) { setTree(r); setError(''); } })
+      .then((r) => { if (alive) { setLoadedTree({ key: queryKey, result: r }); setError(''); } })
       .catch(() => alive && setError('分类目录加载失败'));
     return () => { alive = false; };
   }, [type, field.key, tab, status, showHidden, reloadKey, reload]);
@@ -89,10 +92,14 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   }, [tree, value, kids, byId]);
 
   useEffect(() => {
-    if (!onLeaf || !tree) return;
+    if (!onLeaf) return;
     const cur = Number(value) || top;
-    onLeaf((kids.get(cur) ?? []).length === 0);
-  }, [onLeaf, tree, value, kids, top]);
+    const node = byId.get(cur);
+    const contactRoot = ['finance-suppliers', 'finance-customers'].includes(type) && cur === top;
+    let inScope = !top || cur === top;
+    for (let n = node, i = 0; n && !inScope && i < 32; n = byId.get(n.parentId), i++) inScope = n.parentId === top;
+    onLeaf(Boolean(tree && node && inScope && !contactRoot && !['inactive', 'deleted'].includes(node.status) && !kids.has(cur)));
+  }, [onLeaf, tree, value, kids, top, byId, type]);
 
   // 把每个维度当前选中的路径告诉外面（筛选标签条、新建时预填用）
   useEffect(() => {

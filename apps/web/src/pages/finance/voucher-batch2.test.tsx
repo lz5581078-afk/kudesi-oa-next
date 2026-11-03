@@ -29,8 +29,8 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-const pickParty = async (label: string) => { fireEvent.focus(screen.getByLabelText(label)); fireEvent.click(await screen.findByRole('option', { name: '老客户' })); };
-const addAccount = async (label: string, name: string) => { fireEvent.focus(screen.getByLabelText(label)); fireEvent.click(await screen.findByRole('option', { name })); };
+const pickParty = async (label: string) => { fireEvent.click(screen.getByLabelText(label)); fireEvent.click(await screen.findByRole('option', { name: '老客户' })); };
+const addAccount = async (label: string, name: string) => { fireEvent.click(screen.getByLabelText(label)); fireEvent.click(await screen.findByRole('option', { name })); };
 const lastCreated = () => fa.create.mock.calls[0][0] as unknown as Record<string, unknown> & { accounts: Array<{ role: string; bankAccountId: number; amountCents: number }> };
 
 describe('收款单/付款单优惠金额', () => {
@@ -89,7 +89,7 @@ describe('多账户收付款', () => {
     expect(screen.getByLabelText('分账户合计').textContent).toContain('一致');
     fireEvent.click(screen.getByRole('button', { name: '改回单个账户' }));
     expect(screen.getByLabelText('付款账户')).toBeTruthy();
-    expect((screen.getByLabelText('付款账户') as HTMLInputElement).value).toBe('甲户');
+    expect(screen.getByLabelText('付款账户').textContent).toContain('甲户');
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated().accounts).toBeNull();
@@ -151,11 +151,12 @@ describe('转款手续费与在途', () => {
 describe('经手人员工选择器', () => {
   it('默认当前登录员工，可以改选其他在职员工，提交员工 id', async () => {
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
-    const sel = screen.getByLabelText('经办人') as HTMLSelectElement;
-    expect(sel.value).toBe('1');
-    await waitFor(() => expect(within(sel).getByRole('option', { name: '员工小王' })).toBeTruthy());
-    expect(within(sel).queryByRole('option', { name: /离职小李/ })).toBeNull();
-    fireEvent.change(sel, { target: { value: '2' } });
+    const sel = screen.getByLabelText('经办人');
+    expect(sel.textContent).toContain('老板');
+    fireEvent.click(sel);
+    await screen.findByRole('option', { name: '员工小王' });
+    expect(screen.queryByRole('option', { name: /离职小李/ })).toBeNull();
+    fireEvent.click(screen.getByRole('option', { name: '员工小王' }));
     await pickParty('客户');
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
@@ -166,9 +167,8 @@ describe('经手人员工选择器', () => {
     const doc = { id: 9, docNo: 'SK9', docType: 'receipt', status: 'draft', docDate: '2026-10-29', partyId: 7, partyName: '老客户', partyKind: 'customer', handler: '老张（外聘）', handlerId: null, bankAccountId: 5, bankName: '甲户', amountCents: 1000, paidCents: 0, offsetCents: 0, accounts: [], lines: [{ id: 1, lineNo: 1, itemName: '回款', qty: 1, unitPriceCents: 1000, productName: '', feeItemName: '' }], entries: [], events: [] } as unknown as DocDetailDto;
     fa.update.mockResolvedValue(doc as never);
     render(<DocForm type="receipt" doc={doc} onSaved={vi.fn()} onClose={vi.fn()} />);
-    const sel = screen.getByLabelText('经办人') as HTMLSelectElement;
-    expect(sel.value).toBe('');
-    expect(within(sel).getByRole('option', { name: '老张（外聘）（原文字）' })).toBeTruthy();
+    const sel = screen.getByLabelText('经办人');
+    expect(sel.textContent).toContain('老张（外聘）（原文字）');
     fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.update).toHaveBeenCalled());
     const b = fa.update.mock.calls[0][1] as unknown as Record<string, unknown>;
@@ -178,7 +178,7 @@ describe('经手人员工选择器', () => {
   it('取不到员工名单时不影响开单，仍能用默认经手人', async () => {
     vi.mocked(resourceApi.users).mockRejectedValue(new Error('没权限'));
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
-    expect((screen.getByLabelText('经办人') as HTMLSelectElement).value).toBe('1');
+    expect(screen.getByLabelText('经办人').textContent).toContain('老板');
   });
 });
 

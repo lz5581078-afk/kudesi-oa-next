@@ -53,6 +53,7 @@ import { optionsKindOf, parseColFilters, readTimeKeys, STATUS_COL, type ColFilte
 import { applyColFilters } from './col-filter.sql';
 import { dynamicOptionsFor, loadUnitLists, seedUnitDefaults, unitLabel, unitLabelFor, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
+import { previewArchiveCode } from './finance-rules';
 
 export interface ResourceDto {
   id: number;
@@ -864,6 +865,16 @@ export class ResourcesService implements RuleHost {
 
   // ---------- 对外接口 ----------
 
+  async codePreview(user: AuthUser, type: string, values: Record<string, unknown>) {
+    this.def(type);
+    if (!createChecker(user.permissions)(resourcePermission(type, 'create'))) throw new ForbiddenException('没有新增权限');
+    const allowed = ['name', 'shortName', 'code', 'shortCode', 'categoryIds'];
+    if (Object.keys(values).some(key => !allowed.includes(key))) throw new BadRequestException('编号预览字段不合法');
+    for (const key of allowed.filter(key => key !== 'categoryIds')) if (values[key] !== undefined && (typeof values[key] !== 'string' || (values[key] as string).length > 200)) throw new BadRequestException('编号预览字段不合法');
+    if (values.categoryIds !== undefined && (!Array.isArray(values.categoryIds) || values.categoryIds.length > 10 || values.categoryIds.some(id => !Number.isSafeInteger(id) || id < 1))) throw new BadRequestException('编号预览分类不合法');
+    return previewArchiveCode(this, this.dataSource.manager, user, type, values);
+  }
+
   async list(user: AuthUser, type: string, q: ListQuery) {
     const def = this.def(type);
     const em = this.dataSource.manager;
@@ -886,11 +897,15 @@ export class ResourcesService implements RuleHost {
         else filterPairs.push([k, String(v)]);
       }
     }
-    // 分类字段：选上级分类时，下级分类的资料一并列出（商品分类、供应商分类等所有树形资料通用）
+    // 往来档案按直属分类浏览；其他目录仍包含下级。列表、计数、分页和导出共用这个范围。
     const catIds = new Map<string, number[]>();
     for (const [key, val] of filterPairs) {
       const f = def.fields.find((x) => x.key === key);
       if (f?.ref && isTreeResource(f.ref) && /^\d+$/.test(val)) {
+        if (def.hierarchy?.directItems && f.ref === def.hierarchy.categoryType) {
+          catIds.set(key, [Number(val)]);
+          continue;
+        }
         const cats = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: f.ref }, select: ['id', 'data'] });
         const kids = new Map<number, number[]>();
         for (const c of cats) {

@@ -34,6 +34,26 @@ d('财务资料（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
+  it.each(['suppliers', 'customers'])('往来单位 %s 列表只展示直属分类，分页和导出不混入下级，目录仍有汇总计数', async (kind) => {
+    const company = await ds.manager.save(Company, ds.manager.create(Company, { code: `direct${crypto.randomBytes(5).toString('hex')}`, name: '直属测试隔离公司', status: 'active' }));
+    const user = await ds.manager.save(User, ds.manager.create(User, { companyId: company.id, account: 'admin', passwordHash: 'x', name: '测试管理员', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
+    const actor = { ...boss, id: user.id, companyId: company.id };
+    const type = `finance-${kind}`;
+    const catType = kind === 'suppliers' ? 'finance-supplier-categories' : 'finance-customer-categories';
+    const root = await svc.create(actor, catType, { name: `直属测试${kind}` });
+    const child = await svc.create(actor, catType, { name: '末级目录', parentId: root.id });
+    const party = await svc.create(actor, type, { name: `直属单位${kind}`, categoryIds: [child.id] });
+    const q = { filters: JSON.stringify({ categoryIds: String(root.id) }), pageSize: 1 };
+    expect((await svc.list(actor, type, q)).total).toBe(0);
+    expect((await svc.exportCsv(actor, type, false, q)).csv).not.toContain(party.title);
+    const direct = await svc.list(actor, type, { filters: JSON.stringify({ categoryIds: String(child.id) }) });
+    expect(direct.total).toBe(1);
+    expect(direct.items[0].id).toBe(party.id);
+    const tree = await svc.categoryTree(actor, type, 'categoryIds', {});
+    expect(tree.nodes.find(node => node.id === root.id)?.count).toBe(1);
+    expect((await svc.list({ ...actor, companyId: 999999999 }, type, q)).total).toBe(0);
+  });
+
   it('分类：编码规范、自动沿用上级类型、最多 4 级、不能给有商品的分类加下级', async () => {
     await expect(svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '坏码', code: 'a-b' })).rejects.toThrow(/分类码/);
     const child = await svc.get(boss, 'finance-categories', ids.leaf);
@@ -242,6 +262,16 @@ d('财务资料（真实数据库）', () => {
     expect(s1.refLabels.categoryIds).toBe('种子供应商、种子供应商 / 玉米 / 甜玉米 / 四级');
     const s2 = await svc.create(boss, 'finance-suppliers', { name: '另一家', categoryIds: [c4.id] });
     expect(s2.data.code).toBe('GYS-ZZGYS-SJ-LYJ');
+    expect(s2.data.shortName).toBe('另一家');
+    const previewValues = { name: '编号预览测试', shortName: '预览', categoryIds: [c4.id] };
+    const preview = await svc.codePreview(boss, 'finance-suppliers', previewValues);
+    expect(await svc.codePreview(boss, 'finance-suppliers', previewValues)).toEqual(preview); // 预览不占号
+    const previewSaved = await svc.create(boss, 'finance-suppliers', previewValues);
+    expect(previewSaved.data.code).toBe(preview.code);
+    expect(previewSaved.data.shortCode).toBe(preview.shortCode);
+    await expect(svc.codePreview(ops, 'finance-suppliers', previewValues)).rejects.toThrow(/权限/);
+    await expect(svc.codePreview({ ...boss, companyId: 999999999 }, 'finance-suppliers', previewValues)).rejects.toThrow(/不存在/);
+    await expect(svc.codePreview(boss, 'finance-suppliers', { categoryIds: Array(11).fill(c4.id) })).rejects.toThrow(/分类不合法/);
     await expect(svc.create(boss, 'finance-suppliers', { name: '没选分类' })).rejects.toThrow(/分类/);
     await expect(svc.create(boss, 'finance-suppliers', { name: '坏分类', categoryIds: [999999] })).rejects.toThrow(/不存在/);
     const k = await svc.create(boss, 'finance-customers', { name: '老客户' });

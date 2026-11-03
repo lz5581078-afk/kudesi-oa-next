@@ -49,7 +49,7 @@ export interface DocTypeDef {
   /** 开单时直接结算：in 表示收到钱（实收），out 表示付出钱（实付）；余额挂应收/应付 */
   settle?: 'in' | 'out';
   /** 界面文案 */
-  ui: { partyLabel: string; warehouseLabel: string; amountLabel: string; accountLabel: string; totalLabel: string; saveText: string; detailTitle: string; moneyItemLabel?: string; payModes: Array<{ mode: PayMode; label: string }> };
+  ui: { partyTitle?: string; partyHint?: string; detailHint?: string; partyLabel: string; warehouseLabel: string; amountLabel: string; accountLabel: string; totalLabel: string; saveText: string; detailTitle: string; moneyItemLabel?: string; payModes: Array<{ mode: PayMode; label: string }> };
   partyRequired: boolean;
   /** 明细行：商品行 / 费用行 / 没有（直接填金额） */
   lines: 'product' | 'fee' | null;
@@ -72,43 +72,43 @@ export interface DocTypeDef {
 export const DOC_TYPES: readonly DocTypeDef[] = [
   { type: 'sale', label: '普通销售单', prefix: 'XS', party: 'customer', partyKinds: ['customer'], partyRequired: true, lines: 'product', warehouse: true, bank: 'none', settle: 'in', offset: 'advance_receipt', stock: 'out',
     posting: '借：应收账款 贷：销售收入；借：销售成本 贷：库存；收到的钱：借：银行 贷：应收账款',
-    ui: { partyLabel: '客户', warehouseLabel: '出货仓库', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单销售合计', saveText: '保存销售单', detailTitle: '商品明细', payModes: [{ mode: 'full', label: '收了全款' }, { mode: 'part', label: '收了部分款' }, { mode: 'credit', label: '欠款' }, { mode: 'offset', label: '用预收款结算' }] } },
+    ui: { partyTitle: '客户和出货', partyHint: '先确认客户、仓库、经办人', detailHint: '销售单位自动带出，合计实时计算', partyLabel: '客户', warehouseLabel: '出货仓库', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单销售合计', saveText: '保存销售单', detailTitle: '商品明细', payModes: [{ mode: 'full', label: '收了全款' }, { mode: 'part', label: '收了部分款' }, { mode: 'credit', label: '欠款' }, { mode: 'offset', label: '用预收款结算' }] } },
   { type: 'online-sale', label: '网店销售单', prefix: 'WDXS', party: 'customer', partyKinds: ['store'], partyRequired: true, lines: 'product', warehouse: true, bank: 'none', settle: 'in', offset: null, stock: 'out',
     posting: '借：应收账款（平台/店铺）贷：销售收入；借：销售成本 贷：库存；平台回款：借：银行 贷：应收账款',
-    ui: { partyLabel: '销售店铺', warehouseLabel: '出货仓库', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单销售合计', saveText: '保存网店销售单', detailTitle: '商品明细', payModes: [{ mode: 'full', label: '收了全款' }, { mode: 'part', label: '收了部分款' }, { mode: 'credit', label: '欠款' }] } },
+    ui: { partyTitle: '店铺和出货', partyHint: '客户来源于资料里的店铺档案，商品来源于商品档案', detailHint: '选择商品后自动带出编码和单位，合计实时计算', partyLabel: '销售店铺', warehouseLabel: '出货仓库', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单销售合计', saveText: '保存网店销售单', detailTitle: '商品明细', payModes: [{ mode: 'full', label: '收了全款' }, { mode: 'part', label: '收了部分款' }, { mode: 'credit', label: '欠款' }] } },
   { type: 'sale-return', label: '销售退货单', prefix: 'XSTH', party: 'customer', partyKinds: ['customer', 'store'], partyRequired: true, lines: 'product', warehouse: true, bank: 'none', settle: 'out', offset: null, stock: 'in',
     posting: '借：销售收入 贷：应收账款；借：库存 贷：销售成本；退回的钱：借：应收账款 贷：银行',
-    ui: { partyLabel: '客户', warehouseLabel: '退回仓库', amountLabel: '退款金额', accountLabel: '退款账户', totalLabel: '本单退货合计', saveText: '保存销售退货单', detailTitle: '退货商品明细', payModes: [{ mode: 'full', label: '退了全款' }, { mode: 'part', label: '退了部分款' }, { mode: 'credit', label: '暂不退款' }] } },
+    ui: { partyTitle: '客户和退货', partyHint: '客户来源于客户档案，确认退回仓库和经办人', detailHint: '填写退回商品、数量和退款单价', partyLabel: '客户', warehouseLabel: '退回仓库', amountLabel: '退款金额', accountLabel: '退款账户', totalLabel: '本单退货合计', saveText: '保存销售退货单', detailTitle: '退货商品明细', payModes: [{ mode: 'full', label: '退了全款' }, { mode: 'part', label: '退了部分款' }, { mode: 'credit', label: '暂不退款' }] } },
   { type: 'advance-receipt', label: '预收款单', prefix: 'YS', party: 'customer', partyKinds: ['customer', 'store'], partyRequired: true, lines: null, warehouse: false, bank: 'in', offset: null,
     posting: '借：银行 贷：预收款',
-    ui: { partyLabel: '客户', warehouseLabel: '', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单预收合计', saveText: '保存预收款单', detailTitle: '预收款明细', moneyItemLabel: '预收项目', payModes: [] } },
+    ui: { partyTitle: '客户和预收', partyHint: '客户提前交钱，后续可冲销售单', detailHint: '只记录这次预收金额和用途', partyLabel: '客户', warehouseLabel: '', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单预收合计', saveText: '保存预收款单', detailTitle: '预收款明细', moneyItemLabel: '预收项目', payModes: [] } },
   { type: 'receipt', label: '收款单', prefix: 'SK', party: 'customer', partyKinds: ['customer', 'store'], partyRequired: true, lines: null, warehouse: false, bank: 'in', offset: 'advance_receipt',
     posting: '借：银行（及预收冲抵）贷：应收账款',
-    ui: { partyLabel: '客户', warehouseLabel: '', amountLabel: '到账金额', accountLabel: '收款账户', totalLabel: '本单收款合计', saveText: '保存收款单', detailTitle: '收款明细', moneyItemLabel: '收款来源', payModes: [] } },
+    ui: { partyTitle: '客户和收款', partyHint: '客户还款、补款或其他应收款到账', detailHint: '可填写来源单据或收款原因', partyLabel: '客户', warehouseLabel: '', amountLabel: '到账金额', accountLabel: '收款账户', totalLabel: '本单收款合计', saveText: '保存收款单', detailTitle: '收款明细', moneyItemLabel: '收款来源', payModes: [] } },
   { type: 'payment', label: '付款单', prefix: 'FK', party: 'supplier', partyKinds: ['supplier', 'customer', 'employee'], partyRequired: true, lines: null, warehouse: false, bank: 'out', offset: 'prepayment',
     posting: '借：应付账款 贷：银行（及预付冲抵）',
-    ui: { partyLabel: '收款方', warehouseLabel: '', amountLabel: '付款金额', accountLabel: '付款账户', totalLabel: '本单付款合计', saveText: '保存付款单', detailTitle: '付款明细', moneyItemLabel: '付款用途', payModes: [] } },
+    ui: { partyTitle: '收款方和付款', partyHint: '给供应商、客户或其他对象付款', detailHint: '填写付款用途、来源单据或备注', partyLabel: '收款方', warehouseLabel: '', amountLabel: '付款金额', accountLabel: '付款账户', totalLabel: '本单付款合计', saveText: '保存付款单', detailTitle: '付款明细', moneyItemLabel: '付款用途', payModes: [] } },
   { type: 'withdrawal', label: '店铺提现', prefix: 'TX', party: 'customer', partyKinds: ['store'], partyRequired: false, store: true, lines: null, warehouse: false, bank: 'in', offset: null,
     posting: '借：银行（提现到账）贷：应收账款（平台货款）。在店铺登录后远程提现，提现一笔登记一笔',
     ui: { partyLabel: '平台货款往来（选填）', warehouseLabel: '', amountLabel: '到账金额', accountLabel: '收款账户', totalLabel: '本单提现合计', saveText: '保存提现单', detailTitle: '提现明细', payModes: [] } },
   { type: 'transfer', label: '转款单', prefix: 'ZK', party: null, partyKinds: [], partyRequired: false, lines: null, warehouse: false, bank: 'transfer', offset: null,
     posting: '借：转入账户 贷：转出账户',
-    ui: { partyLabel: '', warehouseLabel: '', amountLabel: '转款金额', accountLabel: '转出账户', totalLabel: '本单转款合计', saveText: '保存转款单', detailTitle: '转款明细', moneyItemLabel: '转款用途', payModes: [] } },
+    ui: { partyTitle: '转出与转入', partyHint: '记录公司、店铺、公户、银行卡或出纳账户之间的资金划转', detailHint: '填写转款用途、金额和必要说明', partyLabel: '', warehouseLabel: '', amountLabel: '转款金额', accountLabel: '转出账户', totalLabel: '本单转款合计', saveText: '保存转款单', detailTitle: '转款明细', moneyItemLabel: '转款用途', payModes: [] } },
   { type: 'prepayment', label: '预付款单', prefix: 'YF', party: 'supplier', partyKinds: ['supplier'], partyRequired: true, lines: null, warehouse: false, bank: 'out', offset: null,
     posting: '借：预付款 贷：银行',
-    ui: { partyLabel: '供应商', warehouseLabel: '', amountLabel: '付款金额', accountLabel: '付款账户', totalLabel: '本单预付合计', saveText: '保存预付款单', detailTitle: '预付款明细', moneyItemLabel: '预付项目', payModes: [] } },
+    ui: { partyTitle: '供应商和预付', partyHint: '给供应商提前付款，后续可冲采购入库', detailHint: '填写预付用途或锁定商品', partyLabel: '供应商', warehouseLabel: '', amountLabel: '付款金额', accountLabel: '付款账户', totalLabel: '本单预付合计', saveText: '保存预付款单', detailTitle: '预付款明细', moneyItemLabel: '预付项目', payModes: [] } },
   { type: 'purchase-in', label: '采购入库单', prefix: 'CGRK', party: 'supplier', partyKinds: ['supplier'], partyRequired: true, lines: 'product', warehouse: true, bank: 'none', settle: 'out', offset: 'prepayment', stock: 'in',
     posting: '借：库存 贷：应付账款（及预付冲抵）；付出的钱：借：应付账款 贷：银行',
-    ui: { partyLabel: '供应商', warehouseLabel: '入库仓库', amountLabel: '付款金额', accountLabel: '付款账户', totalLabel: '本单采购合计', saveText: '保存采购入库单', detailTitle: '入库商品明细', payModes: [{ mode: 'full', label: '付了全款' }, { mode: 'part', label: '付了部分款' }, { mode: 'credit', label: '欠款' }, { mode: 'offset', label: '用预付款结算' }] } },
+    ui: { partyTitle: '供应商和入库', partyHint: '确认供应商、入库仓库和经办人', detailHint: '填写采购商品、数量和进货单价', partyLabel: '供应商', warehouseLabel: '入库仓库', amountLabel: '付款金额', accountLabel: '付款账户', totalLabel: '本单采购合计', saveText: '保存采购入库单', detailTitle: '入库商品明细', payModes: [{ mode: 'full', label: '付了全款' }, { mode: 'part', label: '付了部分款' }, { mode: 'credit', label: '欠款' }, { mode: 'offset', label: '用预付款结算' }] } },
   { type: 'purchase-return', label: '采购退货单', prefix: 'CGTH', party: 'supplier', partyKinds: ['supplier'], partyRequired: true, lines: 'product', warehouse: true, bank: 'none', settle: 'in', offset: null, stock: 'out',
     posting: '借：应付账款 贷：库存；收到的退款：借：银行 贷：应付账款',
-    ui: { partyLabel: '供应商', warehouseLabel: '退货仓库', amountLabel: '收到退款', accountLabel: '收款账户', totalLabel: '本单退货合计', saveText: '保存采购退货单', detailTitle: '退货商品明细', payModes: [{ mode: 'full', label: '已退全款' }, { mode: 'part', label: '退了部分款' }, { mode: 'credit', label: '暂未退款' }] } },
+    ui: { partyTitle: '供应商和退货', partyHint: '确认供应商、退货仓库和经办人', detailHint: '填写退给供应商的商品、数量和金额', partyLabel: '供应商', warehouseLabel: '退货仓库', amountLabel: '收到退款', accountLabel: '收款账户', totalLabel: '本单退货合计', saveText: '保存采购退货单', detailTitle: '退货商品明细', payModes: [{ mode: 'full', label: '已退全款' }, { mode: 'part', label: '退了部分款' }, { mode: 'credit', label: '暂未退款' }] } },
   { type: 'other-income', label: '其他收入单', prefix: 'QTSR', party: 'customer', partyKinds: ['customer', 'store', 'supplier', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'in', offset: null, feeDirection: 'income',
     posting: '借：银行 贷：其他收入；没收齐的部分挂应收（要选往来对象）',
-    ui: { partyLabel: '来源对象（选填）', warehouseLabel: '', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单收入合计', saveText: '保存其他收入单', detailTitle: '收入明细', moneyItemLabel: '收入项目', payModes: [{ mode: 'full', label: '已收全款' }, { mode: 'part', label: '收了部分' }, { mode: 'credit', label: '暂未收款' }] } },
+    ui: { partyTitle: '收入来源', partyHint: '非销售类收入单独记录', detailHint: '填写收入项目和金额', partyLabel: '来源对象（选填）', warehouseLabel: '', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单收入合计', saveText: '保存其他收入单', detailTitle: '收入明细', moneyItemLabel: '收入项目', payModes: [{ mode: 'full', label: '已收全款' }, { mode: 'part', label: '收了部分' }, { mode: 'credit', label: '暂未收款' }] } },
   { type: 'expense', label: '费用单', prefix: 'FY', party: 'supplier', partyKinds: ['supplier', 'customer', 'store', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'out', offset: 'prepayment', feeDirection: 'expense',
     posting: '借：费用 贷：银行（及预付冲抵）；没付清的部分挂应付（要选往来对象）。不选往来对象就是现金费用单，必须当场付清',
-    ui: { partyLabel: '收费单位（选填）', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '暂未付款（挂应付）' }, { mode: 'offset', label: '用预付款结算' }] } },
+    ui: { partyTitle: '费用信息', partyHint: '先确认日期、相关单位和经办人', detailHint: '一行一笔费用，合计实时计算', partyLabel: '收费单位（选填）', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '暂未付款（挂应付）' }, { mode: 'offset', label: '用预付款结算' }] } },
 ];
 
 export const DOC_TYPE_MAP = new Map(DOC_TYPES.map((d) => [d.type, d]));

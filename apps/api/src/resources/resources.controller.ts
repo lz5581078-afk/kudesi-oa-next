@@ -208,6 +208,12 @@ export class ResourcesController {
     return this.resources.categoryTree(user, type, q.field, { tab: q.tab, status: q.status, showHidden: q.showHidden === '1' });
   }
 
+  @RequireResourceAction('create')
+  @Post(':type/code-preview')
+  codePreview(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() body: UpdateDto) {
+    return this.resources.codePreview(user, type, body.values);
+  }
+
   @RequireResourceAction('view')
   @Get(':type/column-facets')
   columnFacets(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: FacetQueryDto) {

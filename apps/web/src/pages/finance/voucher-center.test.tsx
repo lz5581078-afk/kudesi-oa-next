@@ -25,7 +25,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 const pickProduct = async (row = 1) => {
-  fireEvent.focus(screen.getByLabelText(`第${row}行商品`));
+  fireEvent.click(screen.getByLabelText(`第${row}行商品`));
   fireEvent.click(await screen.findByRole('option', { name: '小油菜' }));
 };
 
@@ -46,6 +46,7 @@ describe('明细网格键盘录入', () => {
   });
   it('上下方向键在同一列换行', () => {
     render(<DocForm type="sale" inline onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '+ 加一行' }));
     const q1 = screen.getByLabelText('第1行数量');
     q1.focus();
     fireEvent.keyDown(q1, { key: 'ArrowDown' });
@@ -61,6 +62,7 @@ describe('赠品与整单优惠', () => {
     fireEvent.change(screen.getByLabelText('第1行单价'), { target: { value: '10' } });
     fireEvent.change(screen.getByLabelText('优惠金额'), { target: { value: '3' } });
     expect(document.querySelector('.slip-foot-total')!.textContent).toContain('¥97.00');
+    fireEvent.click(screen.getByRole('button', { name: '+ 加一行' }));
     fireEvent.click(screen.getByLabelText('第2行赠品'));
     expect((screen.getByLabelText('第2行单价') as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
@@ -84,7 +86,7 @@ describe('赠品与整单优惠', () => {
 describe('往来余额与行提示', () => {
   it('选了客户显示应收、预收和赊销额度；挂账后超额给提醒', async () => {
     render(<DocForm type="sale" inline onSaved={vi.fn()} />);
-    fireEvent.focus(screen.getByLabelText('客户'));
+    fireEvent.click(screen.getByLabelText('客户'));
     fireEvent.click(await screen.findByRole('option', { name: '老客户' }));
     const bar = await screen.findByLabelText('往来余额');
     expect(bar.textContent).toContain('应收');
@@ -92,6 +94,8 @@ describe('往来余额与行提示', () => {
     expect(bar.textContent).toContain('预收款');
     expect(bar.textContent).toContain('赊销额度');
     await pickProduct(1);
+    fireEvent.click(screen.getByRole('button', { name: '欠款' }));
+    fireEvent.change(screen.getByLabelText('第1行数量'), { target: { value: '1' } });
     fireEvent.change(screen.getByLabelText('第1行单价'), { target: { value: '200' } });
     expect((await screen.findByRole('alert')).textContent).toContain('超过赊销额度');
   });
@@ -123,7 +127,7 @@ describe('费用单与退货单的旧版结算方式', () => {
   });
   it('采购退货单可以关联原采购入库单', async () => {
     render(<DocForm type="purchase-return" inline onSaved={vi.fn()} />);
-    fireEvent.focus(screen.getByLabelText('供应商'));
+    fireEvent.click(screen.getByLabelText('供应商'));
     fireEvent.click(await screen.findByRole('option', { name: '老客户' }));
     await waitFor(() => expect(fa.docs).toHaveBeenCalledWith(expect.objectContaining({ scope: 'purchase-in', status: 'posted' })));
     expect(await screen.findByLabelText('关联原采购入库单')).toBeTruthy();
