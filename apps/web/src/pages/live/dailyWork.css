@@ -103,3 +103,95 @@
     width: 100%;
   }
 }
+
+/* Office management uses the same teal controls and spacing as the live overview. */
+.daily-work-embedded { padding: 0; margin: 0; }
+.daily-work-embedded .daily-head p { margin: 0; }
+.daily-head-copy { min-width: 0; }
+.daily-eyebrow { color: var(--accent); font-size: 12px; font-weight: 600; letter-spacing: .05em; }
+.daily-head h2 { font-size: 22px; margin-top: 6px; }
+.daily-head p { margin: 8px 0 0; font-size: 13px; }
+.daily-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin: 24px 0 20px; }
+.daily-date { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13px; }
+.daily-date svg { color: var(--accent); }
+.daily-date input { min-width: 148px; height: 38px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 0 10px; color: var(--ink); background: var(--surface); font: inherit; }
+.daily-actions { gap: 8px; justify-content: flex-start; }
+.daily-actions .primary-button, .daily-actions .secondary-button, .daily-empty button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; white-space: nowrap; font: inherit; font-size: 13px; }
+.daily-actions .primary-button { font-weight: 600; }
+.daily-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); margin: 0; border: 1px solid var(--border); border-radius: 12px; background: #f8fafb; }
+.daily-summary > div { padding: 16px 20px; display: grid; grid-template-columns: 24px 1fr; column-gap: 10px; align-items: center; }
+.daily-summary > div + div { border-left: 1px solid var(--border); }
+.daily-summary svg { color: var(--accent); grid-row: span 2; }
+.daily-summary dt { font-size: 12px; color: var(--muted); }
+.daily-summary dd { margin: 5px 0 0; font-size: 25px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.daily-summary small, .daily-office-stats small { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+.daily-work-list:empty { margin: 0; }
+.daily-empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 40px 16px 36px; }
+.daily-empty-icon { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 18px; background: var(--accent-soft); color: var(--accent); margin-bottom: 16px; }
+.daily-empty h3 { font-size: 16px; margin: 0; }
+.daily-empty p { font-size: 13px; margin: 10px 0 20px; line-height: 1.7; }
+.daily-rules { border-top: 1px solid var(--border); padding-top: 16px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.daily-rules summary { cursor: pointer; width: fit-content; }
+.daily-rules p { max-width: 700px; margin-bottom: 0; }
+.daily-work-list > li { background: var(--surface); }
+.daily-work-heading strong { font-size: 15px; }
+.daily-work-list > li > p { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.daily-work-list .daily-times { background: #f8fafb; padding: 14px; border-radius: 8px; font-size: 13px; }
+.daily-office-modal { padding: 24px !important; }
+.live-room.daily-office { border-color: var(--border-strong); border-top-color: var(--accent); background: var(--surface); gap: 20px; }
+.daily-office-heading { display: flex; align-items: center; gap: 10px; }
+.daily-office-icon { background: var(--accent-soft); color: var(--accent); border-radius: 10px; width: 42px; height: 42px; display: grid; place-items: center; flex: 0 0 auto; }
+.daily-office-heading > div { flex: 1; min-width: 0; }
+.daily-office-heading h3 { margin: 0; }
+.daily-office-heading h3 .link-button { text-decoration: none; color: var(--ink); font-size: 16px; }
+.daily-office-heading p { font-size: 11px; margin: 5px 0 0; }
+.daily-office-heading > .pill { white-space: nowrap; font-size: 11px; }
+.daily-office-stats { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); margin: 0; border: 1px solid var(--border); border-radius: 10px; background: #f8fafb; }
+.daily-office-stats > div { padding: 13px 16px; }
+.daily-office-stats > div + div { border-left: 1px solid var(--border); }
+.daily-office-stats dt { font-size: 12px; color: var(--muted); }
+.daily-office-stats dd { font-size: 24px; font-weight: 650; margin: 7px 0 0; font-variant-numeric: tabular-nums; }
+.daily-office-people { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.daily-office-idle { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; padding: 24px 0; min-height: 154px; color: var(--muted); }
+.daily-office-idle svg { color: #759696; }
+.daily-office-idle strong { font-size: 13px; color: var(--ink); font-weight: 500; }
+.daily-office-idle span { font-size: 12px; }
+.daily-office-person { display: flex; align-items: flex-start; gap: 10px; padding: 14px 0; }
+.daily-office-person:first-child { padding-top: 0; }
+.daily-office-person:last-child { border-bottom: 0; }
+.daily-person-avatar { flex: 0 0 auto; display: grid; place-items: center; height: 32px; width: 32px; border-radius: 50%; font-size: 13px; color: var(--accent-ink); background: var(--accent-soft); }
+.daily-office-person > div { flex: 1; min-width: 0; }
+.daily-person-heading { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.daily-person-heading strong { font-size: 13px; }
+.daily-person-heading small { font-size: 11px; }
+.daily-person-heading > span { margin-left: auto; font-size: 11px; }
+.daily-elapsed { color: var(--accent); }
+.daily-overdue { color: var(--bad-ink); }
+.daily-office-person p { margin: 5px 0 4px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.daily-office-person > div > small, .daily-office-more { font-size: 11px; }
+.daily-office-open { display: flex; justify-content: space-between; align-items: center; width: 100%; height: 38px; color: var(--accent); border-color: #b8cecd; font-size: 13px; margin-top: auto; }
+.daily-office-open:hover { background: var(--accent-soft); }
+@media (max-width: 600px) {
+  .daily-office-modal { padding: 16px !important; }
+  .daily-head h2 { font-size: 20px; }
+  .daily-toolbar { align-items: stretch; gap: 12px; margin-top: 20px; }
+  .daily-date { width: 100%; }
+  .daily-date input { flex: 1; min-width: 0; }
+  .daily-toolbar > .daily-actions { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.8fr); width: 100%; gap: 6px; }
+  .daily-toolbar .daily-actions .primary-button { grid-column: 1 / -1; }
+  .daily-toolbar .daily-actions button { padding: 0 9px; font-size: 12px; min-height: 40px; }
+  .daily-summary > div { padding: 13px 10px; display: block; }
+  .daily-summary svg { display: none; }
+  .daily-summary dd { font-size: 23px; }
+  .daily-empty { padding: 32px 4px; }
+  .daily-office-heading { gap: 8px; }
+  .daily-office-icon { width: 36px; height: 36px; }
+  .daily-office-heading h3 .link-button { font-size: 15px; }
+}
+.daily-work-panel .daily-date { flex-direction: row; white-space: nowrap; }
+.live-modal .daily-office-modal { max-height: none; }
+.live-modal-backdrop:has(.daily-office-modal) { padding: 16px; align-items: center; }
+@media (max-width: 600px) { .live-modal-backdrop:has(.daily-office-modal) { padding: 0; } }
+
+.daily-form input, .daily-form select, .daily-form textarea { width: 100%; min-width: 0; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.daily-form label { font-size: 13px; color: var(--muted); }
