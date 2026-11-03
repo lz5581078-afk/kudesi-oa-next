@@ -39,11 +39,12 @@ function rowHint(type: DocType, l: LineState, h: LineHint | undefined, priceCent
 /** 商品/费用明细网格：回车逐格录入、方向键换行、Shift+Delete 删行；商品行带库存与价格提示、赠品开关 */
 export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints, onPickProduct, onPickFee, addRow, gridRef }: Props) {
   const isFee = def.lines === 'fee';
+  const amountOnly = isFee && def.ui.feeAmountOnly;
   const delRow = (i: number) => setLines((ls) => (ls.length <= 1 ? [emptyLine()] : ls.filter((_, k) => k !== i)));
   return (
     <div className="table-scroll vc-grid" ref={gridRef} onKeyDown={(e) => gridKeyDown(e, { addRow, deleteRow: delRow })}>
       <table className="data-table doc-lines">
-        <thead><tr><th>#</th><th>{isFee ? '费用项目' : '商品'}</th>{!isFee && <th>单位</th>}{isFee && <><th>挂账节点</th><th>挂账对象</th></>}<th>数量</th><th>单价（元）</th><th>金额</th><th>备注</th><th /></tr></thead>
+        <thead><tr><th>#</th><th>{isFee ? amountOnly ? '费用类型' : '费用项目' : '商品'}</th>{!isFee && <th>单位</th>}{isFee && <><th>挂账节点</th><th>挂账对象</th></>}{!amountOnly && <><th>数量</th><th>单价（元）</th></>}<th>金额</th><th>备注</th><th /></tr></thead>
         <tbody>
           {lines.map((l, i) => (
             <tr key={i} data-row={i} className={l.gift ? 'vc-gift' : undefined}>
@@ -71,14 +72,15 @@ export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints,
                   </td>
                 </>
               )}
-              <td data-cell="数量"><input inputMode="decimal" aria-label={`第${i + 1}行数量`} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} /></td>
+              {!amountOnly && <><td data-cell="数量"><input inputMode="decimal" aria-label={`第${i + 1}行数量`} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} /></td>
               <td data-cell="单价（元）">
                 <input inputMode="decimal" aria-label={`第${i + 1}行单价`} value={l.gift ? '0' : l.price} disabled={l.gift} onChange={(e) => setLine(i, { price: e.target.value })} />
                 {!isFee && (
                   <label className="vc-gift-toggle"><input type="checkbox" aria-label={`第${i + 1}行赠品`} checked={l.gift} onChange={(e) => setLine(i, { gift: e.target.checked, price: e.target.checked ? '0' : '' })} />赠品</label>
                 )}
               </td>
-              <td className="num" data-cell="金额">{money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: l.gift ? 0 : priceOf(l.price) }))}</td>
+              </>}
+              <td className="num" data-cell="金额">{amountOnly ? <input type="number" min="0" step="0.01" inputMode="decimal" aria-label={`第${i + 1}行金额`} value={l.price} onChange={(e) => setLine(i, { price: e.target.value, qty: '1' })} placeholder="0.00" /> : money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: l.gift ? 0 : priceOf(l.price) }))}</td>
               <td data-cell="备注"><input aria-label={`第${i + 1}行备注`} maxLength={200} value={l.memo} onChange={(e) => setLine(i, { memo: e.target.value })} /></td>
               <td><button type="button" className="link-button" aria-label={`删除第${i + 1}行`} onClick={() => delRow(i)}>{lines.length <= 1 ? '清空' : '删除'}</button></td>
             </tr>

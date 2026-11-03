@@ -138,6 +138,24 @@ d('财务单据（真实数据库）', () => {
     expect(b.balanceCents).toBe(104200);
   });
 
+  it('其他收入自由金额项目可保存、过账、复制和红冲，保持明细与分录平衡', async () => {
+    const company = await ds.manager.save(Company, ds.manager.create(Company, { code: `free${crypto.randomBytes(5).toString('hex')}`, name: '自由收入隔离公司', status: 'active' }));
+    const user = await ds.manager.save(User, ds.manager.create(User, { companyId: company.id, account: 'admin', passwordHash: 'x', name: '管理员', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
+    const actor = { ...boss, id: user.id, companyId: company.id };
+    const bank = await svc.create(actor, 'bank-accounts', { kind: 'cashier_account', accountName: '隔离出纳账户', bank: '测试银行', accountNo: '6222000055556666' });
+    const before = (await docs.bankBalances(actor)).find(x => x.id === bank.id)?.balanceCents;
+    const draft = await docs.createDraft(actor, { type: 'other-income', date: day, bankAccountId: bank.id, lines: [{ itemName: '回收余料', qty: 1, unitPriceCents: 1234, memo: '自由项目测试' }] });
+    expect(draft.lines[0]).toMatchObject({ itemName: '回收余料', feeItemId: null, unitPriceCents: 1234 });
+    const posted = await docs.post(actor, draft.id);
+    expect(posted.entries).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'other_income', amountCents: -1234, accountId: 0 }), expect.objectContaining({ kind: 'bank', amountCents: 1234 })]));
+    expect(await sum(actor.companyId, draft.id)).toBe(0);
+    const copy = await docs.copyAsDraft(actor, draft.id);
+    expect(copy.lines[0]).toMatchObject({ itemName: '回收余料', feeItemId: null, unitPriceCents: 1234 });
+    await docs.deleteDraft(actor, copy.id);
+    await docs.reverse(actor, draft.id, '合成数据冲回，避免影响本套其余余额断言');
+    expect((await docs.bankBalances(actor)).find(x => x.id === bank.id)?.balanceCents).toBe(before);
+  });
+
   it('转款、费用、其他收入、付款与预付冲抵', async () => {
     const t = await docs.createDraft(boss, { type: 'transfer', date: day, bankAccountId: ids.bank, toBankAccountId: ids.bank2, amountCents: 2000 });
     await docs.post(boss, t.id);

@@ -120,6 +120,48 @@ describe('往来余额与行提示', () => {
 });
 
 describe('费用单与退货单的旧版结算方式', () => {
+  it('其他收入直接填写收入项目，保存金额行，不强制选择费用档案', async () => {
+    render(<DocForm type="other-income" inline onSaved={vi.fn()} />);
+    expect(screen.queryByLabelText('第1行费用项目')).toBeNull();
+    fireEvent.change(screen.getByLabelText('第1行收入项目'), { target: { value: '废纸回收' } });
+    fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '12.34' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({ lines: [expect.objectContaining({ itemName: '废纸回收', qty: 1, unitPriceCents: 1234 })], paidCents: 1234 })));
+  });
+  it('旧其他收入草稿改为金额行显示时，保留费用档案和挂账关联', async () => {
+    const doc = { id: 13, docNo: 'QTSR13', docType: 'other-income', status: 'draft', docDate: '2026-10-24', amountCents: 2468, paidCents: 2468, accounts: [], lines: [{ feeItemId: 7, feeItemName: '回收收入', qty: 2, unitPriceCents: 1234, relatedNode: '店铺', relatedId: 9, relatedName: '测试店铺' }], events: [], entries: [] } as unknown as DocDetailDto;
+    fa.update.mockResolvedValue(doc);
+    render(<DocForm type="other-income" doc={doc} inline onSaved={vi.fn()} />);
+    expect((screen.getByLabelText('第1行收入项目') as HTMLInputElement).value).toBe('回收收入');
+    expect((screen.getByLabelText('第1行金额') as HTMLInputElement).value).toBe('24.68');
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.update).toHaveBeenCalledWith(13, expect.objectContaining({ lines: [expect.objectContaining({ itemName: '回收收入', feeItemId: 7, qty: 1, unitPriceCents: 2468, relatedNode: '店铺', relatedId: 9 })] })));
+  });
+  it('费用单直接填金额，保存为一笔费用，不出现数量和单价', async () => {
+    render(<DocForm type="expense" inline onSaved={vi.fn()} />);
+    expect(screen.queryByLabelText('第1行数量')).toBeNull();
+    expect(screen.queryByLabelText('第1行单价')).toBeNull();
+    fireEvent.click(screen.getByLabelText('第1行费用项目'));
+    fireEvent.click(await screen.findByRole('option', { name: '老客户' }));
+    fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '12.34' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({ lines: [expect.objectContaining({ feeItemId: 7, qty: 1, unitPriceCents: 1234 })] })));
+  });
+  it('旧费用草稿的数量乘单价合为金额，重新保存总额不变', async () => {
+    const doc = { id: 12, docNo: 'FY12', docType: 'expense', status: 'draft', docDate: '2026-10-24', amountCents: 2468, paidCents: 2468, accounts: [], lines: [{ feeItemId: 7, feeItemName: '运输费', qty: 2, unitPriceCents: 1234 }], events: [], entries: [] } as unknown as DocDetailDto;
+    fa.update.mockResolvedValue(doc);
+    render(<DocForm type="expense" doc={doc} inline onSaved={vi.fn()} />);
+    expect((screen.getByLabelText('第1行金额') as HTMLInputElement).value).toBe('24.68');
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.update).toHaveBeenCalledWith(12, expect.objectContaining({ lines: [expect.objectContaining({ qty: 1, unitPriceCents: 2468 })] })));
+  });
+  it('费用金额超过分精度时提示错误，不静默截断提交', async () => {
+    render(<DocForm type="expense" inline onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '12.345' } });
+    fireEvent.keyDown(window, { key: 'g', ctrlKey: true });
+    expect(await screen.findByText('金额格式不对（最多两位小数）')).toBeTruthy();
+    expect(fa.create).not.toHaveBeenCalled();
+  });
   it('费用单有“用预付款结算”和冲抵预付款', () => {
     render(<DocForm type="expense" inline onSaved={vi.fn()} />);
     expect(screen.getByRole('button', { name: '用预付款结算' })).toBeTruthy();

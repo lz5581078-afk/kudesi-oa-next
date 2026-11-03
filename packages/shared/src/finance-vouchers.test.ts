@@ -59,3 +59,18 @@ describe('费用单用预付款结算（旧版“用预付款结算”）', () =
     expect(validateDoc({ ...base, offsetCents: 20000 }).join()).toContain('冲抵金额不能超过单据金额');
   });
 });
+
+
+describe('其他收入的自由项目金额行', () => {
+  const input: DocInput = { type: 'other-income', date: '2026-10-24', bankAccountId: 5, lines: [{ itemName: '废纸回收', qty: 1, unitPriceCents: 1234 }] };
+  it('没有费用档案ID也可记收入，金额按原值入账且借贷平衡', () => {
+    expect(validateDoc(input)).toEqual([]);
+    expect(buildEntries(input, () => null)).toEqual(expect.arrayContaining([{ kind: 'other_income', accountId: 0, subId: 0, amount: -1234, qty: null }, { kind: 'bank', accountId: 5, subId: 0, amount: 1234, qty: null }]));
+    expect(sum(buildEntries(input, () => null))).toBe(0);
+  });
+  it('新金额行要求项目和分精度，同时兼容旧费用项目行', () => {
+    expect(validateDoc({ ...input, lines: [{ qty: 1, unitPriceCents: 1234 }] }).join()).toContain('请填写收入项目');
+    expect(validateDoc({ ...input, lines: [{ itemName: '回收', qty: 1, unitPriceCents: 12.3 }] }).join()).toContain('最多两位小数');
+    expect(validateDoc({ ...input, lines: [{ feeItemId: 9, qty: 2, unitPriceCents: 150 }] })).toEqual([]);
+  });
+});

@@ -49,7 +49,7 @@ export interface DocTypeDef {
   /** 开单时直接结算：in 表示收到钱（实收），out 表示付出钱（实付）；余额挂应收/应付 */
   settle?: 'in' | 'out';
   /** 界面文案 */
-  ui: { partyTitle?: string; partyHint?: string; detailHint?: string; partyLabel: string; warehouseLabel: string; amountLabel: string; accountLabel: string; totalLabel: string; saveText: string; detailTitle: string; moneyItemLabel?: string; payModes: Array<{ mode: PayMode; label: string }> };
+  ui: { moneyEntry?: boolean; feeAmountOnly?: boolean; partyTitle?: string; partyHint?: string; detailHint?: string; partyLabel: string; warehouseLabel: string; amountLabel: string; accountLabel: string; totalLabel: string; saveText: string; detailTitle: string; moneyItemLabel?: string; payModes: Array<{ mode: PayMode; label: string }> };
   partyRequired: boolean;
   /** 明细行：商品行 / 费用行 / 没有（直接填金额） */
   lines: 'product' | 'fee' | null;
@@ -105,10 +105,10 @@ export const DOC_TYPES: readonly DocTypeDef[] = [
     ui: { partyTitle: '供应商和退货', partyHint: '确认供应商、退货仓库和经办人', detailHint: '填写退给供应商的商品、数量和金额', partyLabel: '供应商', warehouseLabel: '退货仓库', amountLabel: '收到退款', accountLabel: '收款账户', totalLabel: '本单退货合计', saveText: '保存采购退货单', detailTitle: '退货商品明细', payModes: [{ mode: 'full', label: '已退全款' }, { mode: 'part', label: '退了部分款' }, { mode: 'credit', label: '暂未退款' }] } },
   { type: 'other-income', label: '其他收入单', prefix: 'QTSR', party: 'customer', partyKinds: ['customer', 'store', 'supplier', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'in', offset: null, feeDirection: 'income',
     posting: '借：银行 贷：其他收入；没收齐的部分挂应收（要选往来对象）',
-    ui: { partyTitle: '收入来源', partyHint: '非销售类收入单独记录', detailHint: '填写收入项目和金额', partyLabel: '来源对象（选填）', warehouseLabel: '', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单收入合计', saveText: '保存其他收入单', detailTitle: '收入明细', moneyItemLabel: '收入项目', payModes: [{ mode: 'full', label: '已收全款' }, { mode: 'part', label: '收了部分' }, { mode: 'credit', label: '暂未收款' }] } },
+    ui: { moneyEntry: true, partyTitle: '收入来源', partyHint: '非销售类收入单独记录', detailHint: '填写收入项目和金额', partyLabel: '来源对象（选填）', warehouseLabel: '', amountLabel: '收到金额', accountLabel: '收款账户', totalLabel: '本单收入合计', saveText: '保存其他收入单', detailTitle: '收入明细', moneyItemLabel: '收入项目', payModes: [{ mode: 'full', label: '已收全款' }, { mode: 'part', label: '收了部分' }, { mode: 'credit', label: '暂未收款' }] } },
   { type: 'expense', label: '费用单', prefix: 'FY', party: 'supplier', partyKinds: ['supplier', 'customer', 'store', 'employee'], partyRequired: false, lines: 'fee', warehouse: false, bank: 'none', settle: 'out', offset: 'prepayment', feeDirection: 'expense',
     posting: '借：费用 贷：银行（及预付冲抵）；没付清的部分挂应付（要选往来对象）。不选往来对象就是现金费用单，必须当场付清',
-    ui: { partyTitle: '费用信息', partyHint: '先确认日期、相关单位和经办人', detailHint: '一行一笔费用，合计实时计算', partyLabel: '收费单位（选填）', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '暂未付款（挂应付）' }, { mode: 'offset', label: '用预付款结算' }] } },
+    ui: { feeAmountOnly: true, partyTitle: '费用信息', partyHint: '先确认日期、相关单位和经办人', detailHint: '一行一笔费用，合计实时计算', partyLabel: '收费单位（选填）', warehouseLabel: '', amountLabel: '实付金额', accountLabel: '付款账户', totalLabel: '本单费用合计', saveText: '保存费用单', detailTitle: '费用明细', moneyItemLabel: '费用项目', payModes: [{ mode: 'full', label: '已付全款' }, { mode: 'part', label: '付了部分' }, { mode: 'credit', label: '暂未付款（挂应付）' }, { mode: 'offset', label: '用预付款结算' }] } },
 ];
 
 export const DOC_TYPE_MAP = new Map(DOC_TYPES.map((d) => [d.type, d]));
@@ -317,7 +317,13 @@ export function validateDoc(input: DocInput): string[] {
     lines.forEach((l, i) => {
       const n = i + 1;
       if (def.lines === 'product' && !l.productId) errors.push(`第 ${n} 行请选择商品`);
-      if (def.lines === 'fee' && !l.feeItemId) errors.push(`第 ${n} 行请选择费用项目`);
+      if (def.lines === 'fee' && !l.feeItemId) {
+        if (!def.ui.moneyEntry) errors.push(`第 ${n} 行请选择费用项目`);
+        else {
+          if (!l.itemName?.trim() || l.itemName.trim().length > 100) errors.push(`第 ${n} 行请填写收入项目（最多100字）`);
+          if (l.qty !== 1 || !Number.isInteger(l.unitPriceCents) || l.unitPriceCents <= 0) errors.push(`第 ${n} 行金额必须大于 0（最多两位小数）`);
+        }
+      }
       if (!(l.qty > 0) || Math.round(l.qty * 10000) / 10000 !== l.qty) errors.push(`第 ${n} 行数量必须大于 0（最多 4 位小数）`);
       if (!validUnitCents(l.unitPriceCents) || l.unitPriceCents < 0) errors.push(`第 ${n} 行单价不合法`);
     });
@@ -471,7 +477,7 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
       break;
     }
     case 'other-income':
-      for (const l of input.lines ?? []) out.push(e('other_income', l.feeItemId as number, -lineAmount(l)));
+      for (const l of input.lines ?? []) out.push(e('other_income', l.feeItemId ?? 0, -lineAmount(l)));
       if (paid) out.push(...bankLegs(1, paid));
       if (total - paid) out.push(e('receivable', partyId, total - paid));
       break;
