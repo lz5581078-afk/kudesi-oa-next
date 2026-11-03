@@ -10,6 +10,7 @@ import { AddSessionShops } from './SessionShopPicker';
 import { sessionApi, type DeviceRow, type ShopList, type ShopRow, type SessionClient } from './sessionApi';
 import { remoteApi, maintenanceRemoteApi, type RemoteShopState } from './remote/remoteApi';
 import { RemoteAssistDialog } from './remote/RemoteAssistDialog';
+import { LegacyRemoteAssistDialog } from './remote/legacy/LegacyRemoteAssistDialog';
 
 import { PLATFORM_LABELS, deviceLabel } from './sessionPresentation';
 const LOGIN: Record<string,[string,string]> = { none:['未登录','pending'], synced:['待验证','pending'], valid:['有效','valid'], expired:['已过期','error'], error:['异常','error'] };
@@ -93,6 +94,8 @@ export function Shops({ client = sessionApi, maintenance = false }: { client?: S
     {adding && <AddSessionShops client={client} devices={devices.filter(d=>d.status==='active')} maintenance={maintenance} onClose={()=>setAdding(false)} onDone={()=>{setAdding(false);load();}}/>}
     {detail && <ShopDrawer maintenance={maintenance} client={client} shop={data?.shops.find(s=>s.id===detail.id) ?? detail} canManage={manage} onClose={()=>setDetail(null)} onChanged={load} actions={!maintenance && can('finance.docs.create') ? <button type="button" className="session-primary" onClick={()=>{setRegister(detail);setDetail(null);}}>登记提现</button> : undefined}/>}
     {register && <DocForm type="withdrawal" preset={{storeId:register.storeId,storeName:register.storeName}} onClose={()=>setRegister(null)} onSaved={()=>setRegister(null)}/>}
-    {remoteFor && remoteMap.get(remoteFor.id) && <RemoteAssistDialog client={remoteClient} shopId={remoteFor.id} storeName={remoteFor.storeName} deviceName={remoteFor.deviceName} state={remoteMap.get(remoteFor.id)!} onClose={()=>{setRemoteFor(null);load();}}/>}
+    {remoteFor && remoteMap.get(remoteFor.id) && (remoteFor.legacy
+      ? <LegacyRemoteAssistDialog shop={remoteFor} onClose={()=>{setRemoteFor(null);load();}} onChanged={load}/>
+      : <RemoteAssistDialog client={remoteClient} shopId={remoteFor.id} storeName={remoteFor.storeName} deviceName={remoteFor.deviceName} state={remoteMap.get(remoteFor.id)!} onClose={()=>{setRemoteFor(null);load();}}/>)}
   </section>;
 }

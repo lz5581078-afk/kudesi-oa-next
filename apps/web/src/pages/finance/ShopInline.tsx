@@ -10,10 +10,11 @@ const REQ: Record<string, string> = { pending: '等待助手领取', claimed: '�
 export function InlineDevice({ client, shop, devices, onChanged, onError }: { client: SessionClient; shop: ShopRow; devices: DeviceRow[]; onChanged: () => void; onError: (m: string) => void }) {
   return (
     <select aria-label={`${shop.storeName} 负责电脑`} value={shop.deviceId ?? ''} onChange={(e) => {
-      const v = e.target.value ? Number(e.target.value) : null;
+      const v = e.target.value ? devices.find(d=>String(d.id)===e.target.value)?.id : null;
+      if(v===undefined)return;
       const picked = devices.find(d => d.id === v); const name = picked?.remark ? `${picked.remark}（${picked.name}）` : picked?.name ?? '未分配';
       if (!window.confirm(`把「${shop.storeName}」的负责电脑改为「${name}」？\n之后的登录任务会发到新电脑，本机登录态不会迁移。`)) return;
-      client.updateShop(shop.id, { deviceId: v }).then(onChanged).catch((er) => onError(errText(er, '保存失败')));
+      client.updateShop(shop.id, { deviceId: v, expectedDeviceId:shop.deviceId }).then(onChanged).catch((er) => onError(errText(er, '保存失败')));
     }}>
       <option value="">（未分配）</option>
       {devices.map((d) => <option key={d.id} value={d.id} disabled={d.status !== 'active'}>{d.remark ? `${d.remark}（${d.name}）` : d.name} · {d.status === 'revoked' ? '已撤销' : d.online ? '在线' : '离线'}</option>)}
