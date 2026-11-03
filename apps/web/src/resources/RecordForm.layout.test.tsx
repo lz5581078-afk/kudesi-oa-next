@@ -41,7 +41,7 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
     expect(productLayoutKey(initial)).toBe(key);
     render(<RecordForm def={def} record={null} initial={initial} onClose={() => undefined} onSaved={() => undefined} />);
     const sections = [...document.querySelectorAll('[data-sec]')].map(el => el.getAttribute('data-sec'));
-    const expected = PRODUCT_LAYOUTS[key as keyof typeof PRODUCT_LAYOUTS].sections.filter(s => !(key === 'custom' && ['cost','total','photos'].includes(s.id))).map(s => s.id);
+    const expected = PRODUCT_LAYOUTS[key as keyof typeof PRODUCT_LAYOUTS].sections.filter(s => !(['package','oem_package'].includes(key) && s.id === 'category')).filter(s => !(key === 'custom' && ['cost','total','photos'].includes(s.id))).map(s => s.id);
     // 分类改为上下文卡片，赠品设置按源码顺序直接展开。
     expect(sections).toEqual(expected);
     expect(document.querySelector('.rf-anchors')).toBeNull();

@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FINANCE_RESOURCE_DEFS } from '@kudesi/shared';
+import { FINANCE_RESOURCE_DEFS, validateResourceInput } from '@kudesi/shared';
 
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } };
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => auth }));
@@ -152,6 +152,8 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     await confirmQuality();
     await waitFor(() => expect(saveForm).toHaveBeenCalled());
     expect(saveForm.mock.calls[0][1].collections[0].rows[0].values).toMatchObject({ supplierId: 3, originArea: '陕西', purchasePrice: 800 });
+    expect(saveForm.mock.calls[0][1].values.archiveType).toBe('raw');
+    expect(validateResourceInput(def, saveForm.mock.calls[0][1].values, { status: def.defaultStatus }).errors).toEqual([]);
     expect(create.mock.calls.find(c => c[0] === 'finance-products')![1]).not.toHaveProperty('__productParts');
   });
 
@@ -210,6 +212,27 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     expect(dialog).toBeTruthy();
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
+  it.each(['original_purchase', 'supplier_oem'])('采购新增实际请求带隐藏类型和采购方式：%s', async supplyMode => {
+    render(<RecordForm def={def} record={null} initial={{ archiveType: 'purchased', supplyMode, categoryId: 1, name: '合成采购', brandId: 2, specQty: '1', specUnit: 'KG', purchaseSpec: '袋', purchasePrice: 100, freight: 1, handlingFee: 1, weightG: 1000, zeroValueReason: '包装组成：合成无包装\n人力组成：合成无人工' }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await confirmQuality();
+    await waitFor(() => expect(saveForm).toHaveBeenCalled());
+    const values = saveForm.mock.calls[0][1].values;
+    expect(values).toMatchObject({ archiveType: 'purchased', supplyMode, categoryId: 1 });
+    expect(validateResourceInput(def, values, { status: def.defaultStatus }).errors).toEqual([]);
+  });
+
+  it('包装不显示新增分类/供应商控件，但提交保留分类和已有隐藏供应商值', async () => {
+    render(<RecordForm def={def} record={null} initial={{ archiveType: 'package', categoryId: 1, supplierId: 3, name: '合成包装', brandId: 2, packagingCategory: 'bag', capacities: '500G', weightG: 10, purchaseSpec: '个', purchasePrice: 100, freight: 1, handlingFee: 1 }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.queryByRole('region', { name: '所属分类' })).toBeNull();
+    expect(screen.queryByText('供应商', { exact: true })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await confirmQuality();
+    await waitFor(() => expect(saveForm).toHaveBeenCalled());
+    expect(saveForm.mock.calls[0][1].values).toMatchObject({ archiveType: 'package', categoryId: 1, supplierId: 3 });
+    expect(validateResourceInput(def, saveForm.mock.calls[0][1].values, { status: def.defaultStatus }).errors).toEqual([]);
+  });
+
 });
 
 describe('新建关闭确认', () => {
@@ -244,4 +267,5 @@ describe('人力成本版本：自动存草稿', () => {
     await screen.findByText(/已恢复上次保存的草稿/);
     vi.useRealTimers();
   });
+
 });

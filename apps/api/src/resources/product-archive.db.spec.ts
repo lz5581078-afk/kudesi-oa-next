@@ -84,6 +84,9 @@ d('商品档案与基础编码（真实数据库）', () => {
     expect(saved.data.basicInfoFullName).toContain('00500克-01.00千克');
     const updated = await svc.update(boss, 'finance-products', saved.id, { capacities: '250G\n2KG' });
     expect(updated.data.code).toBe(saved.data.code);
+    const automatic = await svc.update(boss, 'finance-products', saved.id, { code: '' });
+    expect(automatic.data.code).toMatch(/-250G-2KG$/);
+    expect(automatic.data.code).not.toBe(saved.data.code);
     const emptyName = await previewProductCode(ds.manager, svc, boss, { archiveType: 'package', categoryId: leaf.id }, null);
     expect(emptyName.code).toBe('BZ-PACK-LEAF-X');
     expect((await svc.list(boss, 'finance-products', { fieldKey: 'categoryId', fieldValue: leaf.id, pageSize: 20 } as never)).total).toBe(1);

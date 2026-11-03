@@ -172,7 +172,7 @@ const PURCHASED_OEM: ProductLayout = {
 
 const PACKAGE_LIKE = (key: 'package' | 'oem_package'): ProductLayout => ({
   key,
-  header: ['archiveType'],
+  header: ['archiveType', 'categoryId', 'supplierId'],
   sections: [
     CATEGORY,
     S('code', key === 'package' ? '产品包装编号' : 'OEM 包装编号', [B('code')], { hint: '系统根据分类、品牌、名称和全部适用容量生成' }),
@@ -182,7 +182,7 @@ const PACKAGE_LIKE = (key: 'package' | 'oem_package'): ProductLayout => ({
     ], { hint: '只保留建档所需的包装资料' }),
     S('capacities', '容量组', [B('capacities')], { hint: '同一种包装可维护多个容量' }),
     S('production', '生产与重量', [F('printingCompany', { label: '包装印刷公司' }), B('weight', { required: true })], { hint: '记录印刷方和单件重量' }),
-    S('stock', '库存与采购价', [F('orderStock'), F('actualStock'), F('purchaseSpec', { required: true }), F('supplierId', { help: '' }), F('purchasePrice', { required: true, help: '按系统规格计价，单位元' })], { hint: '维护库存参数、采购价和库存业务使用的系统规格，不触发自动增减' }),
+    S('stock', '库存与采购价', [F('orderStock'), F('actualStock'), F('purchaseSpec', { required: true }), F('purchasePrice', { required: true, help: '按系统规格计价，单位元' })], { hint: '维护库存参数、采购价和库存业务使用的系统规格，不触发自动增减' }),
     LOGISTICS, TOTAL, PHOTOS,
   ],
 });

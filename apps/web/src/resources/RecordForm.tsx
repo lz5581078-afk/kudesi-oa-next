@@ -3,7 +3,7 @@ import { CascadePicker } from './CascadePicker';
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState, useId } from 'react';
 import { fieldOptions, useUnitOptions, unitOptionsLoaded } from './unitOptions';
 import { selectChoices, useCategoryVersion } from './categoryOptions';
-import { PRODUCT_UNIT_SEEDS, optionsKindOf, groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { PRODUCT_UNIT_SEEDS, optionsKindOf, groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayout, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
@@ -391,6 +391,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       if (f.type === 'secret' && (v === undefined || v === '')) continue;
       body[f.key] = v === undefined ? (f.type === 'files' ? [] : f.type === 'attrs' ? {} : f.type === 'bool' ? false : '') : v;
     }
+    if (isProduct) for (const key of productLayout(values).header) if (values[key] !== undefined) body[key] = values[key];
     return body;
   }
 
@@ -422,6 +423,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     setError('');
     try {
       const body = currentBody();
+      if (isProduct && !manualCode) body.code = '';
       if (SIMILARITY_RESOURCES.includes(def.key) && (!isProduct || !record || body.name !== record.data.name)) {
         const sim = await resourceApi.similarCheck(def.key, { ...(record?.data ?? {}), ...body }, record?.id).catch(() => null);
         if (sim?.warnings.length && !window.confirm(`发现相似的资料，确定仍要保存吗？\n\n${sim.warnings.slice(0, 3).map((w) => w.text).join('\n')}`)) { setBusy(false); return; }
@@ -535,7 +537,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
 
   const sectionHas = (title: string, block: string) => Boolean(resolved?.some((s) => s.title === title && s.nodes.some((n) => n.kind === 'block' && n.block === block)));
   const secId = (g: string) => `rf-sec-${formId}-${g}`;
-  const [manualCode, setManualCode] = useState(false);
+  const [manualCode, setManualCode] = useState(Boolean(record && isProduct && !['package','oem_package'].includes(layoutKey)));
   const [manualShortCode, setManualShortCode] = useState(false);
   const [shortNameManual, setShortNameManual] = useState(Boolean(record || initial?.shortName));
   const archiveCode = useArchiveCodePreview(def.key, values, isReferenceParty && !record);
@@ -599,7 +601,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     if (n.kind === 'field') return n.field.key === 'zeroValueReason' && !needsZeroReason(values) && !errors.zeroValueReason ? null : renderField(n.field, n.wide);
     const editable = n.fields.filter((f) => !f.readonly);
     switch (n.block) {
-      case 'code': return <div key={`b${i}`} className="s12 reference-code"><button type="button" className="reference-code-toggle" disabled={locked.includes('code')} onClick={() => { setManualCode(v => !v); if (manualCode) { setValues(v => ({ ...v, code: '' })); setGeneratedCode(''); } }}>{!manualCode && <Pencil size={15} />}{manualCode ? '恢复自动编号' : '人工修正'}</button><input aria-label="系统自动编号" readOnly={!manualCode || locked.includes('code')} value={String(manualCode ? values.code ?? '' : generatedCode || values.code || '')} placeholder="保存后自动生成" onChange={e => setValues(v => ({ ...v, code: e.target.value }))} /><CodePreview values={values} excludeId={record?.id} onPreview={setGeneratedCode} onFullName={setGeneratedName} quiet />{!['raw','shipping_material'].includes(layoutKey) && <p className="reference-code-hint">{resolved?.find(sec => sec.id === 'code')?.hint}</p>}</div>;
+      case 'code': return <div key={`b${i}`} className="s12 reference-code"><button type="button" className="reference-code-toggle" disabled={locked.includes('code')} onClick={() => { setManualCode(v => !v); if (manualCode) { setValues(v => ({ ...v, code: '' })); setGeneratedCode(''); } else if (generatedCode) setValues(v => ({ ...v, code: generatedCode })); }}>{!manualCode && <Pencil size={15} />}{manualCode ? '恢复自动编号' : '人工修正'}</button><input aria-label="系统自动编号" readOnly={!manualCode || locked.includes('code')} value={String(manualCode ? values.code ?? '' : generatedCode || values.code || '')} placeholder="保存后自动生成" onChange={e => setValues(v => ({ ...v, code: e.target.value }))} /><CodePreview values={manualCode ? values : { ...values, code: '' }} excludeId={record?.id} onPreview={setGeneratedCode} onFullName={setGeneratedName} quiet />{!['raw','shipping_material'].includes(layoutKey) && <p className="reference-code-hint">{resolved?.find(sec => sec.id === 'code')?.hint}</p>}</div>;
       case 'supplySources': return <div key={`b${i}`} className="s12"><SourcesDraft rows={sourceRows} onChange={setSourceRows} reference pricingUnit={String(values.purchaseSpec ?? '')} canCost={canCostEdit} needSpec={layoutKey === 'shipping_material'} error={errors.supplySources} />{!partsKnown.sources && <small className="muted">供货来源暂时读取不到，请到详情的“供货来源”页签维护。</small>}</div>;
       case 'composition': return <div key={`b${i}`} className="s12">{layoutKey === 'self_made' && <><nav className="reference-production-summary" aria-label="生产资料组成">{(['raw','package','labor'] as const).map((g,index)=><button type="button" key={g} onClick={()=>document.getElementById(`rf-bom-${g}`)?.scrollIntoView({behavior:'smooth',block:'start'})}><i>{String(index+1).padStart(2,'0')}</i><strong>{g==='raw'?'原料':g==='package'?'包装':'人工'}</strong><span>{bomRows.filter(r=>r.group===g||g==='package'&&r.group==='oem_package').length} 项</span></button>)}</nav><p className="reference-production-hint">选择档案和用量后，采购价、重量及成本会自动汇总。</p></>}<BomDraft reference records={draftFacts.records} canCost={canCostEdit} rows={bomRows} onChange={(r) => { setBomRows(r); if (errors.composition) setErrors((c) => ({ ...c, composition: '' })); }} groups={n.groups} required={layoutKey === 'self_made'} error={errors.composition} /></div>;
       case 'weight': return (
@@ -666,7 +668,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           )}
           {inline && !inDetail && visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项。</p>}
           {!inline && !record && !reference && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
-          {resolved ? resolved.filter(sec => (!onlyGroup || sec.title === onlyGroup) && !(record && ['package','oem_package'].includes(layoutKey) && sec.id === 'category') && !(layoutKey === 'custom' && ['cost','total','photos'].includes(sec.id))).map((sec) => sec.id === 'extra' ? <details key={sec.id} className="rf-sec reference-section-extra" data-sec={sec.id}><summary>{sec.title}</summary><div className="form-grid">{sec.nodes.map(renderNode)}</div></details> : (
+          {resolved ? resolved.filter(sec => (!onlyGroup || sec.title === onlyGroup) && !(['package','oem_package'].includes(layoutKey) && sec.id === 'category' && !categoryNeedsPick) && !(layoutKey === 'custom' && ['cost','total','photos'].includes(sec.id))).map((sec) => sec.id === 'extra' ? <details key={sec.id} className="rf-sec reference-section-extra" data-sec={sec.id}><summary>{sec.title}</summary><div className="form-grid">{sec.nodes.map(renderNode)}</div></details> : (
             <section key={sec.id} id={secId(sec.title)} data-sec={sec.id} className={`rf-sec reference-section-${sec.id}`} aria-label={sec.title}>
               {!inline && (sec.id !== 'category' || layoutKey === 'custom') && <h3 className="rf-sec-title">{sec.step && !(layoutKey === 'self_made' && sec.id !== 'base') && <i className="rf-step">{sec.step}</i>}{sec.id === 'stock' && ['package','oem_package'].includes(layoutKey) ? '库存' : sec.title}{sec.hint && sec.id !== 'gift' && (reference ? <small>{sec.hint}</small> : <FieldHint text={sec.hint} />)}</h3>}
               {sec.id === 'gift' && sec.hint && <p className="reference-gift-hint">{sec.hint}</p>}<div className="form-grid">{sec.nodes.filter(n => !(layoutKey === 'custom' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).filter(n => !(['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).map(renderNode)}</div>{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && <div className="reference-note">{sec.nodes.filter(n => n.kind === 'field' && n.field.key === 'note').map(renderNode)}</div>}{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && sec.nodes.filter(n => n.kind === 'block' && n.block === 'fullName').map(renderNode)}{sec.id === 'logistics' && canCostEdit && <FreightHistory productId={record?.id} values={previewValues} />}
