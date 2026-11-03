@@ -1,3 +1,4 @@
+import { ImageCropDialog } from './ImageCropDialog';
 import { useEffect, useRef, useState } from 'react';
 import type { FieldDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
@@ -73,6 +74,7 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [phone, setPhone] = useState(false);
+  const [crop,setCrop]=useState<File|null>(null);
   const max = field.maxFiles ?? 9;
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -91,6 +93,11 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
 
   async function pick(list: FileList | null) {
     if (!list || list.length === 0) return;
+    if(field.imageCrop==='square'){
+      const file=list[0];setError('');if(file.size>10*1024*1024){setError('照片不能超过10MB，请压缩后重试');return;}
+      if(valueRef.current.length>=max){setError('请先移除原照片，再上传新照片');return;}
+      setCrop(file);if(input.current)input.current.value='';return;
+    }
     setBusy(true);
     setError('');
     let ids = value;
@@ -140,6 +147,12 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
           <small className="muted"> 单个文件不超过 10 MB</small>
         </>
       )}
+      {crop&&<ImageCropDialog file={crop} label={field.label} onClose={()=>setCrop(null)} onConfirm={async file=>{
+        if(valueRef.current.length>=max)throw new Error('照片已变更，请关闭裁剪后核对');
+        const info=await resourceApi.uploadFile(type,field.key,file);
+        if(valueRef.current.length>=max)throw new Error('已收到其他照片，请关闭裁剪后核对');
+        onKnown(info);const ids=[...valueRef.current,info.id];valueRef.current=ids;onChange(ids);setCrop(null);
+      }}/>}
       {error && <div role="alert" className="notice error">{error}</div>}
       {phone && <PhoneUploadDialog type={type} field={field.key} label={field.label} onFiles={addFromPhone} onClose={() => setPhone(false)} />}
     </div>

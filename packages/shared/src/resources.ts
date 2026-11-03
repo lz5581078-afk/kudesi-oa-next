@@ -72,6 +72,8 @@ export interface FieldDef {
   accept?: 'image' | 'any';
   /** type=files：电脑上可以点“手机上传”，扫码用手机拍照/选图传到这个字段（只收图片） */
   phoneUpload?: boolean;
+  /** 上传前进行正方形照片裁剪，电脑与手机扫码页共用。 */
+  imageCrop?: 'square';
   /**
    * 选项（select）或建议（text）来自公司自己维护的“商品单位与规格”列表（旧系统的单位、包装分类、尺寸单位管理）：
    * 下拉的值是列表项的编码，显示名称。kindBy：列表种类随另一个字段的值变（如发货物料用自己的单位表）。
@@ -859,6 +861,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     fields: [
       ref('userId', '姓名', '基本信息', 'user', { required: true, list: true, help: '新员工通过入职码或“新增账号并建档”加入；已有人员在员工编辑里维护用工类型与合作期限，自动补齐对应档案' }),
       text('name', '姓名', '基本信息', { readonly: true, list: false, search: true, maxLength: 80 }),
+      files('photo', '人员照片', '人员照片', { accept: 'image', maxFiles: 1, phoneUpload: true, imageCrop: 'square', help: '可直接上传或手机扫码上传，支持裁剪；每人一张，保存档案后可在直播总览点击主播姓名查看' }),
       select('employmentType', '用工类型', '基本信息', o('part_time:兼职', 'temp:临时工'), { required: true, list: true, help: '兼职和临时工均可不限期，合作期限可由人事维护' }),
       select('cooperation', '合作状态', '基本信息', o('working:合作中', 'pending:待开始', 'ended:合作已到期', 'inactive:已停用'), { readonly: true, list: true }),
       text('account', 'OA登录账号', '账号与岗位', { readonly: true, list: true, search: true, maxLength: 64 }),
