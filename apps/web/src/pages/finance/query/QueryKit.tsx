@@ -147,7 +147,6 @@ function QueryTableContent<R>({ cols: allCols, rows: allRows, rowKey, empty, loa
       {controls && <colgroup>{cols.map(col=><col key={col.key} style={widths[col.key]?{width:widths[col.key]}:undefined}/>)}</colgroup>}
       <thead><tr>{cols.map((c) => <th key={c.key} className={c.num ? 'num' : undefined} aria-sort={controls ? sort?.key === c.key ? sort.direction === 'asc' ? 'ascending' : 'descending' : 'none' : undefined}>{controls && !c.action ? <button type="button" title={sort?.key===c.key?sort.direction==='asc'?`按${c.head}降序排列`:`恢复${c.head}默认顺序`:`按${c.head}升序排列`} onClick={() => toggleSort(c.key)}><span>{c.head}</span><i aria-hidden="true" className={sort?.key===c.key?'is-sorted':undefined}>{sort?.key === c.key ? sort.direction === 'asc' ? '▲' : '▼' : '↕'}</i></button> : c.head}{controls&&<button type="button" className="qk-column-resize" aria-label={`调整${c.head}列宽`} onPointerDown={event=>startResize(c.key,event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize}/>}</th>)}</tr></thead>
       <tbody>
-        {rows.length === 0 && <tr><td colSpan={cols.length} className="qk-reference-empty">{empty}</td></tr>}
         {groups ? groups.flatMap(([k, list]) => [
           <tr key={`g-${k}`} className="qk-grow">
             <td colSpan={span}>

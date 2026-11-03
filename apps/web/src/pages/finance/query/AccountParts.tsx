@@ -1,9 +1,9 @@
-import { CopyButton } from '../fin-ui';
+import { querySearchTerms } from '@kudesi/shared';
 import { FRESH_HINT, fmtUpdated, freshnessTone } from '../freshness';
 
 export const KIND_LABEL: Record<string, string> = { company_public: '公司公户', company_card: '公司银行卡', cashier_account: '出纳账户', store_public: '店铺公户', store_personal_card: '店铺个人卡', legal_person_card: '法人卡', other: '其他' };
 export const STORE_KINDS = ['store_public', 'store_personal_card'];
-export const has = (text: string, kw: string) => !kw.trim() || kw.trim().split(/\s+/).every((w) => text.toLowerCase().includes(w.toLowerCase()));
+export const has = (text: string, kw: string) => !kw.trim() || querySearchTerms(kw).some((term)=>text.toLocaleLowerCase().includes(term.toLocaleLowerCase()));
 
 /** 更新时间标签：越久没更新颜色越重，鼠标放上去说明档位（沿用旧版 1/2/3/7/15/30 天档位） */
 export function Fresh({ at, now, compact = false }: { at: string | null | undefined; now: number; compact?: boolean }) {
@@ -15,5 +15,5 @@ export function Fresh({ at, now, compact = false }: { at: string | null | undefi
 export function AccountNo({ value, canView }: { value?: string; canView: boolean }) {
   if (!canView) return <span className="muted">无查看权限</span>;
   if (value === undefined) return <span className="muted">未能读取</span>;
-  return value ? <span className="mono">{value} <CopyButton text={value} label="账号" /></span> : <span className="muted">未填写</span>;
+  return value ? <span>{value}</span> : <span className="muted">未填写</span>;
 }

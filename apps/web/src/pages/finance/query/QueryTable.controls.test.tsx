@@ -21,7 +21,7 @@ it('完整数据分页、数值三态稳定排序和多条短语搜索共用同�
   fireEvent.click(screen.getByRole('button',{name:'金额'}));
   expect(within(screen.getAllByRole('row')[1]).getByText('1',{exact:true})).toBeTruthy();
   fireEvent.change(screen.getByRole('textbox',{name:'合成列表搜索'}),{target:{value:'合成2 甲'}});
-  expect(screen.getByText('无合成结果')).toBeTruthy();
+  expect(within(screen.getByRole('table',{name:'合成列表'})).getAllByRole('row')).toHaveLength(1);
   fireEvent.doubleClick(screen.getByRole('textbox',{name:'合成列表搜索'}));
   fireEvent.change(screen.getByRole('textbox',{name:'多条搜索内容'}),{target:{value:'合成21\n合成23\n合成21'}});
   fireEvent.click(screen.getByRole('button',{name:'开始搜索'}));
@@ -45,7 +45,7 @@ it('列设置持久化、恢复和Escape关闭；无匹配仍保留表头和可�
   fireEvent.mouseDown(document.body);
   expect(screen.queryByRole('checkbox',{name:/^金额/})).toBeNull();
   fireEvent.change(screen.getByRole('textbox',{name:'合成列表搜索'}),{target:{value:'不存在'}});
-  expect(screen.getByText('无合成结果')).toBeTruthy();
+  expect(within(screen.getByRole('table',{name:'合成列表'})).getAllByRole('row')).toHaveLength(1);
   expect(screen.getByRole('columnheader',{name:/^名称/})).toBeTruthy();
   fireEvent.change(screen.getByRole('textbox',{name:'合成列表搜索'}),{target:{value:''}});
   expect(screen.getByText('共 25 条')).toBeTruthy();
@@ -83,4 +83,8 @@ it('读取完成后立即翻页不会被迟到归位覆盖，清除搜索回到�
   fireEvent.change(screen.getByRole('textbox',{name:'合成列表搜索'}),{target:{value:'合成2'}});
   fireEvent.click(screen.getByRole('button',{name:'清空'}));
   expect(screen.getByText('合成1',{exact:true})).toBeTruthy();expect(screen.queryByText('合成25')).toBeNull();
+});
+
+it('原查询空列表保留表头和零条计数，不增加原版没有的空行文案',()=>{
+ render(table([]));const list=screen.getByRole('table',{name:'合成列表'});expect(within(list).getAllByRole('row')).toHaveLength(1);expect(screen.queryByText('无合成结果')).toBeNull();expect(screen.getByText('共 0 条')).toBeTruthy();
 });

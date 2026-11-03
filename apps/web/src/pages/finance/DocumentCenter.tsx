@@ -103,7 +103,7 @@ function CenterContent({scope}:{scope:Scope}){
       <div className="reference-query-actions"><button type="button" className="primary-button" disabled={loading} onClick={()=>void load()}>{loading?'查询中':'查询'}</button><button type="button" className="secondary-button" onClick={()=>setFilters({...empty})}>重置</button></div>
     </div></QueryPanel>}
     {error&&<div className="notice error" role="alert">{error}<button type="button" className="link-button" onClick={()=>void load()}>重试</button></div>}
-    <div className="document-center-metrics" aria-label="汇总">{stats.map(stat=><div key={stat.label} className={`document-center-metric ${stat.tone}`}><span>{stat.label}</span><strong>{stat.value}</strong></div>)}</div>
+    <div className="reference-query-metrics" aria-label="汇总">{stats.map(stat=><div key={stat.label} className={`reference-query-metric ${stat.tone}`}><span>{stat.label}</span><strong>{stat.value}</strong></div>)}</div>
     <QueryPanel title={scope==='history'?'财务单据汇总':'财务单据草稿'} icon={scope==='history'?<ClipboardList size={18}/>:<FileCheck2 size={18}/>}>
       {(!error||records!==null)&&<QueryTable cols={columns} rows={filtered} rowKey={row=>row.id} caption={title} empty="暂无数据" foot={false} controls={{storageKey:`oa.finance.${scope}.reference-columns.v1`,searchText,searchPlaceholder:scope==='history'?'搜索当前单据列表':'搜索草稿单号、摘要、关联对象'}}/>}
     </QueryPanel>

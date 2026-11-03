@@ -17,7 +17,7 @@ export function ReferenceDocumentDetail({doc,row,error,onClose,onSaved}:{doc:Doc
   const posted=doc?.status==='posted',reversed=doc?.status==='reversed';
   const isOpening=doc?.entries.some(entry=>entry.kind==='opening')??false;
   const mayOpen=!!doc&&canRegisterOpeningPrepayment(doc,can(OPENING_PREPAYMENT_PERMISSION));
-  return <FinanceModal title={doc?.typeLabel||row?.typeLabel||'单据详情'} subtitle={`${doc?.docNo||row?.docNo||''} · ${posted?'已过账':reversed?'已红冲':'未过账'}`} className="reference-finance-document" closeOnBackdrop busy={busy} onClose={onClose}>
+  return <FinanceModal presentation="reference" title={doc?.typeLabel||row?.typeLabel||'单据详情'} subtitle={`${doc?.docNo||row?.docNo||''} · ${posted?'已过账':reversed?'已红冲':'未过账'}`} className="reference-finance-document" closeOnBackdrop busy={busy} onClose={onClose}>
     {!doc&&!error&&<p className="reference-document-loading" role="status">正在加载单据详情...</p>}
     {(error||fileError)&&<div className="notice error" role="alert">{error||fileError}</div>}
     {doc&&<div className="reference-document-body">

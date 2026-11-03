@@ -1,10 +1,4 @@
-.reference-finance-document-backdrop{display:grid;grid-template-columns:minmax(0,1fr);place-items:center;padding:24px;background:#0f172a85}
-.modal.reference-finance-document{width:100%;max-width:980px;max-height:calc(100dvh - 48px);display:grid;gap:16px;overflow:auto;padding:18px;border:0;border-radius:8px;background:#fff;color:#172033;box-shadow:0 24px 70px #0f172a3d;outline:none;font-family:Inter,'PingFang SC','Microsoft YaHei',Arial,sans-serif;font-size:16px;line-height:normal}
-.reference-finance-document>.modal-head{padding:0 0 14px;margin:0;gap:16px;align-items:flex-start;border:0;border-bottom:1px solid #eef2f6;background:transparent}
-.reference-finance-document>.modal-head h2{margin:0;font-size:24px;font-weight:700}
-.reference-finance-document>.modal-head p{margin:0;color:#172033;font-size:16px}
-.reference-finance-document>.modal-head>button{height:38px;min-height:0;padding:0 12px;font-size:16px;font-weight:400;color:#334155;background:#fff;border:1px solid #cbd5e1;border-radius:8px}
-.reference-finance-document>.modal-body{padding:0;overflow:visible}
+.reference-finance-document>.modal-head{border-bottom-color:#eef2f6}
 .reference-document-body{display:grid;gap:16px}
 .reference-document-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .reference-document-summary>div,.reference-document-body>section{padding:12px;border:1px solid #dbe4ef;border-radius:6px;background:#f8fafc}

@@ -73,7 +73,7 @@ describe('经营历程 / 草稿中心筛选', () => {
     fireEvent.change(screen.getByLabelText('收支方向'),{target:{value:'out'}});
     expect(screen.queryByText('XS1')).toBeNull();expect(screen.getByText('FY1')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('关键词'),{target:{value:'不存在'}});
-    expect(screen.getByText('暂无数据')).toBeTruthy();
+    expect(screen.getAllByRole('row')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button',{name:'重置'}));
     expect(screen.getByText('XS1')).toBeTruthy();expect(screen.getByLabelText('开始日期')).toHaveProperty('value','');
     expect(fa.docs).toHaveBeenCalledTimes(1);

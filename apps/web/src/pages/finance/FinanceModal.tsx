@@ -1,7 +1,8 @@
+import './referenceFinanceModal.css';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 /** 财务工作弹窗：焦点留在弹窗内，关闭后回到入口。 */
-export function FinanceModal({ title, subtitle, className, closeOnBackdrop = false, onClose, busy = false, children }: { title: string; subtitle?: ReactNode; className?: string; closeOnBackdrop?: boolean; onClose: () => void; busy?: boolean; children: ReactNode }) {
+export function FinanceModal({ title, subtitle, className, presentation, closeOnBackdrop = false, onClose, busy = false, children }: { title: string; subtitle?: ReactNode; className?: string; presentation?:'reference'; closeOnBackdrop?: boolean; onClose: () => void; busy?: boolean; children: ReactNode }) {
   const titleId = useId();
   const panel = useRef<HTMLElement>(null);
   const close = useRef(onClose); close.current = onClose;
@@ -23,7 +24,7 @@ export function FinanceModal({ title, subtitle, className, closeOnBackdrop = fal
     const element = panel.current;
     return () => { element?.removeEventListener('keydown', keydown); previous?.focus(); };
   }, []);
-  return <div className={`modal-backdrop${className?` ${className}-backdrop`:""}`} onMouseDown={event=>{if(closeOnBackdrop&&!busy&&event.target===event.currentTarget)onClose();}}><section ref={panel} className={`card modal wide${className?` ${className}`:''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+  return <div className={`modal-backdrop${presentation==='reference'?' finance-reference-modal-backdrop':''}`} onMouseDown={event=>{if(closeOnBackdrop&&!busy&&event.target===event.currentTarget)onClose();}}><section ref={panel} className={`card modal wide${presentation==='reference'?' finance-reference-modal':''}${className?` ${className}`:''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
     <header className="modal-head between">{subtitle?<div><h2 id={titleId}>{title}</h2><p>{subtitle}</p></div>:<h2 id={titleId}>{title}</h2>}<button type="button" className="secondary-button" disabled={busy} onClick={onClose}>关闭</button></header>
     <div className="modal-body">{children}</div>
   </section></div>;

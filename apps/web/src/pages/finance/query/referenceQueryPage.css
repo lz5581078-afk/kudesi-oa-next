@@ -24,3 +24,9 @@
 .finance-reference-query .reference-query-empty{margin:40px;min-height:420px;display:grid;place-items:center;align-content:center;gap:10px;border:1px dashed #b7c4d6;border-radius:8px;background:#fff;color:#64748b;text-align:center}
 .finance-reference-query .reference-query-empty h2{color:#172033}
 .finance-reference-query .reference-query-empty h2,.finance-reference-query .reference-query-empty p{margin:0}
+.reference-query-metrics{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:14px}
+.reference-query-metric{padding:16px;border:1px solid #dce4ef;border-left:4px solid #0e8062;border-radius:8px;background:#fff;box-shadow:0 10px 30px #0f172a0d}
+.reference-query-metric.amber{border-left-color:#f59e0b}
+.reference-query-metric>span{display:block;color:#64748b;font-size:13px}
+.reference-query-metric>strong{display:block;margin-top:8px;font-size:25px}
+@media(max-width:1100px){.reference-query-metrics{grid-template-columns:minmax(0,1fr)}}

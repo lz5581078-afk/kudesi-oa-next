@@ -1,0 +1,20 @@
+.cash-bank-reference .cash-reference-main{font-weight:800;color:#172033}
+.cash-bank-reference .link-button,.cash-reference-relations .link-button{padding:0;border:0;background:transparent;color:#166534;font-size:14px;font-weight:800;cursor:pointer}
+.cash-bank-reference .qk-panel-actions>.secondary-button{height:38px;min-height:0;padding:0 12px;font-size:16px;font-weight:400}
+.cash-reference-collapsed{padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fbfdfb}
+.cash-reference-collapsed strong,.cash-reference-collapsed span{display:block}
+.cash-reference-collapsed span{margin-top:5px;color:#64748b;font-size:13px}
+.cash-reference-platforms{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+.cash-reference-platforms>button{display:flex;align-items:center;justify-content:flex-start;gap:8px;min-height:40px;height:40px;padding:0 10px;border:1px solid #d7deea;border-radius:8px;background:#fff;color:#334155;text-align:left;white-space:nowrap;font:inherit;cursor:pointer}
+.cash-reference-platforms>button:hover,.cash-reference-platforms>button.active{border-color:#166534;background:#ecfdf5;color:#166534}
+.cash-reference-store-no{display:block;margin-top:3px;color:#64748b;font-size:12px}
+.cash-bank-reference .finance-fund-amount{display:block;min-width:126px}
+.cash-bank-reference .finance-fund-amount>strong{display:block;margin-bottom:3px;color:#172033;font-size:15px;white-space:nowrap}
+.cash-bank-reference .finance-fund-amount .finance-balance-updated.is-compact{margin-top:2px}
+.cash-reference-status{display:inline-flex;align-items:center;min-height:0;padding:4px 9px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:12px;font-weight:700}
+.cash-reference-status.normal{background:#dcfce7;color:#166534}
+.cash-reference-status.abnormal,.cash-reference-status.inactive{background:#fee2e2;color:#991b1b}
+.modal.cash-reference-relations{display:block;max-width:760px}
+.cash-reference-relations .data-table{font-size:14px;min-width:100%}
+.cash-reference-relations .data-table th,.cash-reference-relations .data-table td{padding:11px 10px;font-size:14px;white-space:nowrap}
+@media(max-width:1300px){.cash-bank-reference .finance-fund-amount{min-width:108px}}

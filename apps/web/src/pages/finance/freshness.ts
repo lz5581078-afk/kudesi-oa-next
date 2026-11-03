@@ -23,5 +23,5 @@ export function fmtUpdated(updatedAt: string | null | undefined): string {
   if (!updatedAt) return '未记录';
   const d = new Date(updatedAt);
   if (Number.isNaN(d.getTime())) return '未记录';
-  return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', year: 'numeric' });
+  return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', year: 'numeric' });
 }

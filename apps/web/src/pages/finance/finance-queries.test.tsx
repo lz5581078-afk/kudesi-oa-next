@@ -71,7 +71,7 @@ describe('经营历程', () => {
   it('草稿中心没有收支筛选，保留原来源列', async () => {
     fa.docs.mockResolvedValue({ total: 0, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: [] });
     render(<MemoryRouter><DocumentsPage scope="drafts" /></MemoryRouter>);
-    await screen.findByText('暂无数据');
+    await screen.findByText('共 0 条');
     expect(screen.queryByLabelText('收支方向')).toBeNull();
     expect(screen.getByRole('columnheader', { name: /^来源/ })).toBeTruthy();
   });
@@ -116,7 +116,7 @@ describe('现金银行查询', () => {
     fireEvent.click(within(row).getByRole('button', { name: '设为重点' }));
     await waitFor(() => expect(fa.setKeyAccount).toHaveBeenCalledWith(2, true));
     // 店铺资金：平台页签
-    fireEvent.click(screen.getByRole('button', { name: /展开 2 个店铺/ }));
+    fireEvent.click(screen.getByRole('button', { name: /展开 2 家店铺/ }));
     expect(screen.getByText(/拼多多 \/ 拼店/)).toBeTruthy();
     expect(screen.getByText(/淘宝 \/ 淘店/)).toBeTruthy();
     expect(screen.getAllByText('最后更新：未记录')).toHaveLength(4); // 四项资金分别显示自己的更新时间
@@ -130,20 +130,17 @@ describe('现金银行查询', () => {
     expect(within(dlg).getByText('拼店收款户')).toBeTruthy();
     expect(within(dlg).queryByText('招行主户')).toBeNull();
   });
-  it('有在途待确认的转款时：汇总卡片和账户行显示在途金额，不计入余额', async () => {
-    fa.banks.mockResolvedValue([acct(1, '招行主户', 'company_public', { inTransitCents: 250000 }), acct(2, '拼店收款户', 'store_public')]);
-    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
-    expect(await screen.findByText('在途待确认转款')).toBeTruthy();
-    const row = screen.getByText('招行主户').closest('tr')!;
-    expect(within(row).getByTitle(/确认入账后才计入余额/).textContent).toBe('¥2,500.00');
-    expect(within(row).getByText('¥100.00')).toBeTruthy(); // 余额仍是 10000 分
+  it('原页面四项汇总不增加在途卡或操作，实际银行余额仍不包含在途款',async()=>{
+    fa.banks.mockResolvedValue([acct(1,'招行主户','company_public',{inTransitCents:250000}),acct(2,'拼店收款户','store_public')]);render(<MemoryRouter><CashBankPage/></MemoryRouter>);
+    const row=(await screen.findByText('招行主户')).closest('tr')!;expect(within(row).getByText('¥100.00')).toBeTruthy();
+    expect(screen.queryByText('在途待确认转款')).toBeNull();expect(within(screen.getByLabelText('汇总')).getAllByText(/个|¥/)).toHaveLength(4);expect(screen.queryByRole('button',{name:'导出账户余额'})).toBeNull();
   });
   it('缺店铺编号时显示平台店铺ID；查看收款账户只列关联的店铺账户，不混入公司或其他账户', async () => {
     fa.banks.mockResolvedValue([acct(1, '关联公司公户', 'company_public', { storeIds: [12] }), acct(2, '关联店铺个人卡', 'store_personal_card', { storeIds: [12] }), acct(3, '关联其他卡', 'other', { storeIds: [12] })]);
     fa.storeFunds.mockResolvedValue([{ storeId: 12, name: '合成店铺', storeNo: '', platformStoreId: 'SYNTHETIC-STORE-12', platform: 'pdd', platformLabel: '拼多多', snapshotDate: '', updatedAt: null, withdrawableCents: 0, depositCents: 0, frozenCents: 0, promotionCents: 0 }]);
     render(<MemoryRouter><CashBankPage /></MemoryRouter>);
-    await waitFor(() => expect((screen.getByRole('button', { name: '刷新' }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByRole('button', { name: /展开 1 个店铺/ }));
+    await screen.findByRole('button',{name:'展开 1 家店铺'});
+    fireEvent.click(screen.getByRole('button', { name: /展开 1 家店铺/ }));
     expect(screen.getByText('SYNTHETIC-STORE-12')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '查看账户' }));
     const dialog = await screen.findByRole('dialog');
@@ -170,21 +167,16 @@ describe('现金银行查询', () => {
     expect(resourceApi.list).not.toHaveBeenCalled();
     expect(screen.getByText('无查看权限')).toBeTruthy();
   });
-  it('店铺编号与平台店铺ID分别可搜索，资金读取失败不把上次余额改成零', async () => {
-    fa.storeFunds.mockResolvedValueOnce([{ storeId: 11, name: '拼店', storeNo: 'S1', platformStoreId: 'PLATFORM-SYNTHETIC-001', platform: 'pdd', platformLabel: '拼多多', snapshotDate: '', updatedAt: null, withdrawableCents: 5000, depositCents: 0, frozenCents: 0, promotionCents: 0 }]);
-    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
-    await screen.findByText('招行主户');
-    fireEvent.change(screen.getByLabelText('搜索账户'), { target: { value: 'PLATFORM-SYNTHETIC-001' } });
-    fireEvent.click(screen.getByRole('button', { name: /展开 1 个店铺/ }));
-    expect(screen.getByText(/拼多多 \/ 拼店/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('搜索账户'), { target: { value: '' } });
-    fa.storeFunds.mockRejectedValueOnce(new Error('合成资金读取失败'));
-    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
-    await screen.findByText('加载失败');
-    expect(screen.getByText(/拼多多 \/ 拼店/)).toBeTruthy();
-    const card = screen.getByText('店铺可提现余额').parentElement!;
-    expect(card.textContent).toContain('¥50.00');
+  it('店铺编号与平台店铺ID分别可搜索，不加原页面没有的刷新或账本入口',async()=>{
+    fa.storeFunds.mockResolvedValueOnce([{storeId:11,name:'拼店',storeNo:'S1',platformStoreId:'PLATFORM-SYNTHETIC-001',platform:'pdd',platformLabel:'拼多多',snapshotDate:'',updatedAt:null,withdrawableCents:5000,depositCents:0,frozenCents:0,promotionCents:0}]);
+    render(<MemoryRouter><CashBankPage/></MemoryRouter>);await screen.findByText('招行主户');fireEvent.change(screen.getByLabelText('搜索账户'),{target:{value:'PLATFORM-SYNTHETIC-001'}});
+    fireEvent.click(screen.getByRole('button',{name:'展开 1 家店铺'}));expect(screen.getByText(/拼多多 \/ 拼店/)).toBeTruthy();expect(screen.queryByRole('button',{name:'刷新'})).toBeNull();expect(screen.queryByRole('button',{name:'招行主户'})).toBeNull();
   });
+  it('读取失败不显示虚假的零余额，也不把未读账户当成完整空表',async()=>{
+    fa.storeFunds.mockRejectedValueOnce(new Error('合成资金读取失败'));render(<MemoryRouter><CashBankPage/></MemoryRouter>);await screen.findByText('合成资金读取失败');
+    expect(screen.getByRole('heading',{name:'账户查询失败'})).toBeTruthy();expect(within(screen.getByLabelText('汇总')).queryByText('¥0.00')).toBeNull();expect(screen.queryByRole('table')).toBeNull();
+  });
+
 });
 
 describe('店铺提现的店铺列表', () => {
