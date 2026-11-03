@@ -1,0 +1,56 @@
+/* Scoped to the start and join form, including entry from the personal desk. */
+.live-modal:has(.live-start-body) { width:min(820px,100%); }
+.live-start-body { background:#f5f7f9; }
+.live-start-intro { padding:4px 2px 20px; }
+.live-start-intro > span { color:var(--accent); font-size:12px; font-weight:650; }
+.live-start-intro h3 { font-size:22px; margin:8px 0; overflow-wrap:anywhere; }
+.live-start-intro p { margin:0 0 8px; font-size:14px; }
+.live-start-intro small { color:var(--muted); line-height:1.6; }
+.live-start-sections { display:grid; gap:16px; min-width:0; }
+.live-start-section { padding:20px; background:var(--surface,#fff); border:1px solid var(--border); border-radius:12px; min-width:0; }
+.live-start-section > header { display:flex; align-items:start; gap:12px; margin-bottom:20px; }
+.live-start-section > header > span { display:grid; place-items:center; flex:0 0 30px; height:30px; border-radius:9px; background:#e5f2f0; color:#176f70; font-size:12px; font-weight:700; }
+.live-start-section header h3 { font-size:16px; margin:0; line-height:1.5; }
+.live-start-section header p { font-size:12px; color:var(--muted); margin:4px 0 0; line-height:1.6; }
+.live-start-section .live-fields { gap:16px; }
+.live-start-section .live-field { min-width:0; margin:0; gap:8px; }
+.live-start-section > .live-channel-picker { border:0; padding:0; }
+.live-start-section > .live-channel-picker > legend { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.live-start-body .live-channel-toolbar { gap:12px; align-items:center; }
+.live-start-body .live-channel-toolbar .live-field { flex:1; }
+.live-start-body .live-channel-toolbar > span { padding:0; }
+.live-start-body .live-account-grid { grid-template-columns:minmax(0,1fr); }
+.live-start-body .live-channel-footnote { border-top:1px solid var(--border); padding-top:12px; }
+.live-start-body .live-start-check,.live-start-confirm > label { display:flex; flex-direction:row; align-items:start; gap:12px; padding:14px; border:1px solid var(--border); border-radius:10px; line-height:1.65; font-size:14px; }
+.live-start-check small { display:block; color:var(--muted); margin-top:4px; font-size:12px; }
+.live-start-body input[type=checkbox] { flex:0 0 20px; width:20px; height:20px; margin:2px 0 0; }
+.live-start-body .live-room-product-row { align-items:center; }
+.live-start-body .live-room-product-row button { min-width:44px; min-height:44px; }
+.live-start-body .live-room-products-editor > .link-button { justify-self:start; min-height:44px; }
+.live-start-body .live-pickbox label { display:flex; flex-direction:row; align-items:center; gap:12px; min-height:48px; overflow-wrap:anywhere; }
+.live-start-selection .live-checkin-actions { display:grid; gap:14px; }
+.live-start-selection .live-checkin-actions button { display:grid; gap:6px; white-space:normal; text-align:left; line-height:1.6; padding:16px; }
+@media(max-width:640px) {
+  .live-modal-backdrop:has(.live-start-body) { padding:0; align-items:stretch; overflow:hidden; }
+  .modal.card.live-modal:has(.live-start-body) { width:100%; max-width:100%; height:100dvh; max-height:100dvh; margin:0; border-radius:0; }
+  .live-modal:has(.live-start-body) .modal-head { padding:14px 16px; gap:12px; }
+  .live-modal:has(.live-start-body) .modal-head h2 { font-size:18px; line-height:1.4; min-width:0; }
+  .live-modal:has(.live-start-body) .modal-head button { min-height:44px; min-width:48px; flex-shrink:0; }
+  .live-modal:has(.live-start-body) .modal-body { padding:18px 12px; overscroll-behavior:contain; }
+  .live-start-intro { padding-inline:4px; }
+  .live-start-section { padding:16px; }
+  .live-start-section .live-fields { grid-template-columns:minmax(0,1fr); gap:16px; }
+  .live-start-body :is(input:not([type=checkbox]):not([type=radio]),select,textarea) { width:100%; min-width:0; max-width:100%; min-height:48px; font-size:16px; }
+  .live-start-body .live-channel-toolbar { display:grid; grid-template-columns:minmax(0,1fr); }
+  .live-start-body .live-account-choice { align-items:start; }
+  .live-start-body .live-account-stores { margin-left:0; }
+  .live-modal-backdrop .live-modal:has(.live-start-body) .modal-foot { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr); gap:12px; padding:12px 16px max(12px,env(safe-area-inset-bottom)); }
+  .live-modal-backdrop .live-modal:has(.live-start-body) .modal-foot button { width:100%; min-height:48px; margin:0; padding:10px; }
+}
+
+.live-start-selection .live-checkin-actions button small { font-size:12px; font-weight:400; opacity:.85; }
+.live-start-selection .live-checkin-actions button strong { font-size:16px; }
+.live-start-selection .live-checkin-actions button span { font-size:13px; font-weight:400; }
+
+.live-start-submit-error { grid-column:1 / -1; flex:1 0 100%; margin:0; text-align:left; overflow-wrap:anywhere; }
+.live-modal-backdrop .live-modal:has(.live-start-body) .modal-foot { flex-wrap:wrap; }

@@ -3,9 +3,10 @@ import { ManualProductEditor } from './ManualProductEditor';
 import { productEntries, emptyManualProduct } from './liveProducts';
 import { ChannelPicker, initialChannels } from './ChannelPicker';
 import { useEffect, useState } from 'react';
-import { liveApi, type Options, type Product, type ScheduleRow, type SessionDetail, type CheckinSession } from './liveApi';
+import { liveApi, type Options, type Product, type ScheduleRow, type CheckinSession } from './liveApi';
 import { errText, nowText } from './liveFormat';
-import { Modal, names } from './liveUi';
+import { Modal } from './liveUi';
+import './liveStart.css';
 import { ApiError } from '../../api/client';
 
 /** 报上播：从排场带出（人、房间已定），或临时加场；必须选有直播权限的账号、关联店铺，并至少填写或选择 1 个在卖产品。 */
@@ -66,16 +67,16 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
   }
 
   return (
-    <Modal title={joining?'核对本场并确认本人上播':schedule ? '报上播（按排场）' : '报上播（临时加场）'} onClose={onClose} foot={<>
+    <Modal bodyClassName="live-start-body" title={joining?'核对本场并确认本人上播':schedule ? '报上播（按排场）' : '报上播（临时加场）'} onClose={onClose} foot={<>
+      {error && <div role="alert" className="notice error live-start-submit-error">{error}</div>}
       <button type="button" className="secondary-button" onClick={onClose}>取消</button>
       <button type="button" className="primary-button live-clock-button" disabled={busy || !opts} onClick={() => void submit()}>{busy ? '提交中…' : beforePlan&&early?'仍要提前开播':'确认上播'}</button>
     </>}>
-      {error && <div role="alert" className="notice error">{error}</div>}
       {joining&&<p className="notice">本场已经开播。请核对以下实际场次信息，确认后只记录你本人的上播，不会再开一场。</p>}
-      {schedule && <p className="muted">{schedule.roomName} · {schedule.startTime}–{schedule.endTime} · 主播 {schedule.anchor.name}{schedule.control ? `，中控 ${schedule.control.name}` : ''}{schedule.operator ? `，运营 ${schedule.operator.name}` : ''}</p>}
-      {trialAnchor&&<label className="wide notice warn"><input type="checkbox" checked={trialConfirmed} onChange={e=>setTrialConfirmed(e.target.checked)}/> 确认本场由试播主播「{schedule!.anchor.name}」上播，由我代报上下播，时间用于该主播工资和提成核算</label>}
+      <div className="live-start-intro"><span>{joining ? '加入已开播场次' : schedule ? '按排班上播' : '临时加场'}</span><h3>{schedule?.roomName ?? '确认本次直播'}</h3><p>{schedule ? `${schedule.date} · ${schedule.startTime}–${schedule.endTime}` : '依次选择人员、账号店铺和在卖产品。'}</p><small>以点击确认的实际时间记录上播。</small></div>
       {!opts ? <p className="muted" role="status">正在读取选项…</p> : (
-        <div className="live-fields">
+        <div className="live-start-sections">
+          <section className="live-start-section" aria-label="本场人员"><header><span>01</span><div><h3>本场信息</h3><p>核对直播间和参与人员</p></div></header><div className="live-fields">
           {(
             <>
               <label className="live-field">直播间<select disabled={!!schedule||!!fixedRoomId} value={roomId} onChange={(e) => setRoomId(e.target.value)}><option value="">请选择</option>{opts.rooms.map((r) => <option key={r.id} value={r.id} disabled={r.live}>{r.name}{r.live ? '（正在直播）' : ''}</option>)}</select></label>
@@ -84,11 +85,10 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
               <label className="live-field">运营（可选，审核时由人事确认）<select value={operatorId} onChange={(e) => setOperatorId(e.target.value)}><option value="">无</option>{opts.operators.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
             </>
           )}
-          <ChannelPicker options={opts} value={channels} onChange={setChannels}/>
-<p className="wide muted">按点击确认的实际时间记录上播，排班时间仅供参考。</p>
-          {beforePlan && <p className="notice warn wide">尚未到计划开播时间。{early ? '请再次点击“仍要提前开播”确认。' : '继续开播需要二次确认。'}</p>}
-          <label className="wide"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> 已核对本场人员、直播账号、关联店铺和产品（中控必选）</label>
-
+          </div></section>
+          <section className="live-start-section" aria-label="平台与店铺"><header><span>02</span><div><h3>平台与店铺</h3><p>可选择多个平台，已选账号会保留</p></div></header>
+          <ChannelPicker options={opts} value={channels} onChange={setChannels}/></section>
+          <section className="live-start-section" aria-label="在卖产品"><header><span>03</span><div><h3>在卖产品</h3><p>至少选择或填写一个产品</p></div></header>
           {schedule ? <ManualProductEditor products={picked} onChange={setPicked} /> : <div className="wide live-field">
             <span>在卖产品（{picked.length}/100，至少 1 个）</span>
             <input aria-label="搜索产品" type="search" placeholder="按编码或名称搜索" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
@@ -100,9 +100,14 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
             </div>
             {picked.length > 0 && <div className="live-chips" aria-label="已选产品">{picked.map((p) => <button type="button" key={p.id} className="pill" onClick={() => toggle(p)} title="点击移除">{p.code} ×</button>)}</div>}
           </div>}
+          </section>
+          <section className="live-start-section live-start-confirm" aria-label="上播确认"><header><span>04</span><div><h3>确认上播</h3><p>检查完成后，点击底部按钮提交</p></div></header>
+          {beforePlan && <p className="notice warn">尚未到计划开播时间。{early ? '请再次点击“仍要提前开播”确认。' : '继续开播需要二次确认。'}</p>}
+      {trialAnchor&&<label className="wide notice warn"><input type="checkbox" checked={trialConfirmed} onChange={e=>setTrialConfirmed(e.target.checked)}/> 确认本场由试播主播「{schedule!.anchor.name}」上播，由我代报上下播，时间用于该主播工资和提成核算</label>}
+          <label className="live-start-check"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/><span>已核对本场人员、直播账号、关联店铺和产品<small>{identity.isControl ? '中控上播前必须确认' : '请核对后确认上播'}</small></span></label>
+          </section>
         </div>
       )}
-      {schedule && opts && <p className="muted">本场人员：{names(schedule.anchor, schedule.control, schedule.operator)}</p>}
     </Modal>
   );
 }
@@ -126,9 +131,9 @@ export function StartDialog(props:Parameters<typeof StartForm>[0]){
     }).catch(e=>{if(active)setError(errText(e));});
     return()=>{active=false;};
   },[props.schedule,props.roomId,props.role]);
-  if(!loaded)return <Modal title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班和实际场次…</p>}</Modal>;
+  if(!loaded)return <Modal bodyClassName="live-start-body" title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班和实际场次…</p>}</Modal>;
   if(existing)return <JoinDialog session={existing} role={props.role??(existing.canJoinAnchor?'anchor':'control')} onClose={props.onClose} onDone={props.onDone}/>;
-  if(!props.schedule&&!chosen&&!manual&&(plans.length||joinable.length))return <Modal title="选择本次排班" onClose={props.onClose}><p>已读取你的排班和实际场次，请核对要开始的场次。</p><div className="live-checkin-actions">{joinable.map(s=><button className="primary-button live-clock-button" key={`session-${s.id}`} onClick={()=>setExisting(s)}>加入已开播场次 · {s.roomName} · 主播 {s.anchor.name}</button>)}{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}>{s.roomName} · {s.date} {s.startTime}–{s.endTime}</button>)}<button className="secondary-button live-clock-button" onClick={()=>setManual(true)}>没有对应排班，临时开播</button></div></Modal>;
+  if(!props.schedule&&!chosen&&!manual&&(plans.length||joinable.length))return <Modal bodyClassName="live-start-body live-start-selection" title="选择本次排班" onClose={props.onClose}><p>已读取你的排班和实际场次，请核对要开始的场次。</p><div className="live-checkin-actions">{joinable.map(s=><button className="primary-button live-clock-button" key={`session-${s.id}`} onClick={()=>setExisting(s)}><small>直播中 · 加入本场</small><strong>{s.roomName}</strong><span>主播 {s.anchor.name}</span></button>)}{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}><small>待上播 · 我的排班</small><strong>{s.roomName}</strong><span>{s.date} · {s.startTime}–{s.endTime}</span></button>)}<button className="secondary-button live-clock-button" onClick={()=>setManual(true)}>没有对应排班，临时开播</button></div></Modal>;
   return <StartForm {...props} schedule={chosen} onExisting={setExisting}/>;
 }
 
