@@ -1,3 +1,4 @@
+import { TrialProxyPerformance } from '../live/TrialProxyPerformance';
 import type { FieldDef } from '@kudesi/shared';
 import { useEffect, useRef, useState } from 'react';
 import { FieldInput } from '../../resources/RecordForm';
@@ -53,6 +54,7 @@ function LiveReviewFields(props: Parameters<typeof GenericFields>[0]) {
   const groups=[...new Set(visibleFields.map(f=>f.group||'审核'))];
   return <div className="live-flow-review">
     {error&&<p className="notice error" role="alert">{error}</p>}
+    {session&&<TrialProxyPerformance session={session}/>}
     {groups.map(group=><fieldset key={group}><legend>{group}</legend>
       <GenericFields {...props} fields={visibleFields.filter(f=>(f.group||'审核')===group)}/>
       {visibleFields.some(f=>f.key==='finalSource'&&(f.group||'审核')===group)&&multi&&manual&&<StorePerformanceTable channels={session!.channels!} rows={rows} onChange={next=>{edited.current=true;setRows(next);try{props.onChange('storeLines',storePayload(next));setError('');}catch{props.onChange('storeLines',[]);setError('请逐店填写有效营业额和投流费用');}}}/>}
