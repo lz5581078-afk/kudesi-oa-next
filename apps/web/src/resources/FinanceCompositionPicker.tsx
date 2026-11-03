@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, ChevronRight, FolderTree, Search, X } from 'lucide-react';
 import { pinyin } from 'pinyin-pro';
-import { todayInChina, unitYuanText, type CompositionGroup } from '@kudesi/shared';
+import { unitYuanText, type CompositionGroup } from '@kudesi/shared';
 import { resourceApi, type ResourceDto } from './api';
 import { useAuth } from '../auth/AuthContext';
 import './financeSupplierPicker.css';
@@ -34,7 +34,7 @@ async function catalog(group: CompositionGroup): Promise<Catalog> {
     const [items, categories] = await Promise.all([readAll('finance-products', { tab: scopes[group].archive }), readAll('finance-categories', { tab: scopes[group].archive })]);
     return { items: items.filter(row => row.data.archiveType === scopes[group].archive), categories: categories.filter(row => row.data.archiveType === scopes[group].archive) };
   }
-  const day = todayInChina();
+  const day = new Date().toISOString().slice(0, 10);
   const versions = (await readAll('finance-labor-versions')).filter(row => (!row.data.effectiveFrom || String(row.data.effectiveFrom) <= day) && (!row.data.effectiveTo || String(row.data.effectiveTo) >= day));
   versions.sort((a, b) => Number(b.data.isDefault === true) - Number(a.data.isDefault === true) || String(b.data.effectiveFrom ?? '').localeCompare(String(a.data.effectiveFrom ?? '')) || b.id - a.id);
   const version = versions[0];

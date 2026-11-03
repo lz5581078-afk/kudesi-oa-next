@@ -81,6 +81,17 @@ describe('生产组成的直接搜索与分类选择', () => {
     expect(await screen.findByText('当前没有有效启用的人力成本版本')).toBeTruthy();
     expect(resourceApi.list).not.toHaveBeenCalledWith('finance-labor-costs', expect.anything());
   });
+  it('当前人工版本的业务日期沿用原接口UTC日期，未提前切到北京时间的次日版本', async () => {
+    vi.setSystemTime(new Date('2026-11-03T16:30:00Z'));
+    vi.mocked(resourceApi.list).mockImplementation(async (type, query) => {
+      if (type === 'finance-labor-versions') return list([record(3, '当日版本', { effectiveTo: '2026-11-03' }), record(4, '次日默认', { isDefault: true, effectiveFrom: '2026-11-04' })]);
+      expect(query.fieldValue).toBe(3);
+      return list([]);
+    });
+    render(<FinanceCompositionPicker group="labor" value={null} onChange={vi.fn()}/>);
+    fireEvent.focus(screen.getByRole('combobox'));
+    await waitFor(() => expect(resourceApi.list).toHaveBeenCalledWith('finance-labor-costs', expect.objectContaining({ fieldValue: 3 })));
+  });
 
   it('历史引用不在当前可选目录时保留显示和值，浏览后关闭不会清除原引用', async () => {
     vi.mocked(resourceApi.list).mockImplementation(async type => list(type === 'finance-products' ? [record(1, '当前包装', { archiveType: 'package' })] : []));

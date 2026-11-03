@@ -1,18 +1,21 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
 import { LaborCostPage } from './LaborCostPage';
 import { api } from '../../../api/client';
+import { resetUnitOptionsForTest } from '../../../resources/unitOptions';
 
 vi.mock('../../../api/client', async (orig) => ({ ...(await orig<typeof import('../../../api/client')>()), api: vi.fn() }));
-vi.mock('../../../auth/AuthContext', () => ({ useAuth: () => ({ can: () => true, user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } }) }));
+const laborAuth = vi.hoisted(() => ({ companyId: 1, cost: true }));
+vi.mock('../../../auth/AuthContext', () => ({ useAuth: () => ({ can: (key: string) => key === 'product.cost.view' ? laborAuth.cost : true, user: { id: 1, companyId: laborAuth.companyId, permissions: { isCompanyAdmin: true, allow: [], deny: [] } } }) }));
 vi.mock('../../../resources/api', async (orig) => {
   const real = await orig<typeof import('../../../resources/api')>();
   return { ...real, resourceApi: { list: vi.fn(), changeStatus: vi.fn(), update: vi.fn(), remove: vi.fn() } };
 });
 const m = vi.mocked(resourceApi);
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+beforeEach(() => { laborAuth.companyId = 1; laborAuth.cost = true; resetUnitOptionsForTest({}); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); });
 
 const dto = (id: number, type: string, title: string, data: Record<string, unknown>, status = 'active', refLabels: Record<string, string> = {}): ResourceDto =>
   ({ id, type, title, status, statusReason: null, data, secretConfigured: {}, refLabels, files: {}, createdAt: '', updatedAt: '' });
@@ -42,7 +45,7 @@ describe('人力成本表页面', () => {
     render(<LaborCostPage />);
     await screen.findByText('RL-A-BZ-BZ-ZH');
     expect(screen.getByText('外包赠送')).toBeTruthy();
-    expect(screen.getByText('¥1.50')).toBeTruthy();
+    expect(screen.getByText('¥1.5')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^分拣/ }));
     expect(screen.queryByText('RL-A-BZ-BZ-ZH')).toBeNull();
     expect(screen.getByText('RL-A-FJ-FJ-TG')).toBeTruthy();
@@ -86,5 +89,103 @@ describe('复制新增工作项目', () => {
     fireEvent.click(screen.getByRole('button', { name: '清除搜索和分类' }));
     expect((screen.getByLabelText('搜索工作项目') as HTMLInputElement).value).toBe('');
     await screen.findByText('RL-A-BZ-BZ-ZH');
+  });
+});
+
+describe('人力成本原版目录与查询行为', () => {
+  const response = (items: ResourceDto[], total = items.length) => ({ items, total, page: 1, pageSize: 200 });
+  const version = dto(1, 'finance-labor-versions', '合成当前版本', { versionCode: 'A', isDefault: true });
+  it('全部和父级不显示普通新增，默认折叠，点击目录展开并在末级恢复新增；复制入口保留', async () => {
+    const categories = [dto(10, 'c', '包装父级', {}), dto(11, 'c', '包装末级', { parentId: 10 })];
+    const item = dto(100, 'i', '工作甲', { workCode: 'CODE-LEAF', workName: '装盒', archiveCategoryId: 11, unitPrice: 100 });
+    m.list.mockImplementation(async type => response(type === 'finance-labor-versions' ? [version] : type === 'finance-labor-categories' ? categories : type === 'finance-labor-costs' ? [item] : []));
+    render(<LaborCostPage/>);
+    await screen.findByText('CODE-LEAF');
+    expect(screen.queryByRole('button', { name: '新增工作项目' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^包装末级/ })).toBeNull();
+    expect(screen.getByRole('button', { name: '复制新增' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^包装父级/ }));
+    expect(screen.queryByRole('button', { name: '新增工作项目' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^包装末级/ }));
+    expect(screen.getByRole('button', { name: '新增工作项目' })).toBeTruthy();
+  });
+  it('按归档分类、工作分类、单位和备注检索；成本不被两位金额格式截掉，权限变化后隐藏', async () => {
+    const items = [dto(100, 'i', '工作甲', { workCode: 'CODE-A', workName: '装盒', unitPrice: 12345.6789, note: '特殊验收备注' }, 'active', { archiveCategoryId: '包装目录', workTypeId: '分拣项目', unitId: '元/袋' }), dto(101, 'i', '工作乙', { workCode: 'CODE-B', workName: '贴纸', unitPrice: 200 }, 'active', { archiveCategoryId: '其他目录', workTypeId: '标签', unitId: '元/张' })];
+    m.list.mockImplementation(async type => response(type === 'finance-labor-versions' ? [version] : type === 'finance-labor-costs' ? items : []));
+    const { rerender } = render(<LaborCostPage/>);
+    await screen.findByText('CODE-A');
+    expect(screen.getByText('¥123.456789')).toBeTruthy();
+    expect(screen.getByText('特殊验收备注')).toBeTruthy();
+    for (const keyword of ['包装目录', '分拣项目', '元/袋', '特殊验收备注']) {
+      fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: keyword } });
+      expect(screen.getByText('CODE-A')).toBeTruthy(); expect(screen.queryByText('CODE-B')).toBeNull();
+    }
+    laborAuth.cost = false; rerender(<LaborCostPage/>);
+    expect(screen.queryByText('¥123.456789')).toBeNull();
+    expect(screen.getByText('无权限')).toBeTruthy();
+  });
+  it('版本全分页读取，末页的默认版本也能被选中', async () => {
+    const versions = Array.from({ length: 201 }, (_, index) => dto(index + 1, 'v', `合成版本${index + 1}`, { versionCode: `V${index}`, isDefault: index === 200 }, index === 200 ? 'active' : 'draft'));
+    m.list.mockImplementation(async (type, query) => type === 'finance-labor-versions' ? response(versions.slice(((query.page ?? 1) - 1) * 200, (query.page ?? 1) * 200), 201) : response([]));
+    render(<LaborCostPage/>);
+    await waitFor(() => expect((screen.getByLabelText('成本版本') as HTMLSelectElement).value).toBe('201'));
+    expect(m.list).toHaveBeenCalledWith('finance-labor-versions', expect.objectContaining({ page: 2, pageSize: 200 }));
+  });
+  it('切版本清空搜索及旧项目，迟到的上一版本结果不能覆盖当前版本', async () => {
+    const versions = [version, dto(2, 'v', '合成第二版本', { versionCode: 'B' }, 'draft')];
+    let finishSecond!: (result: ReturnType<typeof response>) => void;
+    m.list.mockImplementation(async (type, query) => {
+      if (type === 'finance-labor-versions') return response(versions);
+      if (type !== 'finance-labor-costs') return response([]);
+      if (query.fieldValue === 2) return new Promise(resolve => { finishSecond = resolve; });
+      return response([dto(100, 'i', '原项目', { workCode: 'CODE-OLD', workName: '原项目', unitPrice: 100 })]);
+    });
+    render(<LaborCostPage/>);
+    await screen.findByText('CODE-OLD');
+    fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: 'OLD' } });
+    fireEvent.change(screen.getByLabelText('成本版本'), { target: { value: '2' } });
+    expect((screen.getByLabelText('搜索工作项目') as HTMLInputElement).value).toBe('');
+    expect(screen.queryByText('CODE-OLD')).toBeNull();
+    await waitFor(() => expect(finishSecond).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('成本版本'), { target: { value: '1' } });
+    await screen.findByText('CODE-OLD');
+    await act(async () => { finishSecond(response([dto(200, 'i', '迟到项目', { workCode: 'CODE-WRONG', unitPrice: 100 })])); });
+    expect(screen.queryByText('CODE-WRONG')).toBeNull();
+    expect(screen.getByText('CODE-OLD')).toBeTruthy();
+  });
+  it('切公司后旧版本读取不能覆盖新公司的目录', async () => {
+    let finishFirst!: (result: ReturnType<typeof response>) => void;
+    m.list.mockImplementation(async type => {
+      if (type === 'finance-labor-versions') return laborAuth.companyId === 1 ? new Promise(resolve => { finishFirst = resolve; }) : response([dto(2, 'v', '乙公司版本', { versionCode: 'B', isDefault: true })]);
+      return response(type === 'finance-labor-costs' ? [dto(200, 'i', '乙公司项目', { workCode: 'COMPANY-B', unitPrice: 100 })] : []);
+    });
+    const { rerender } = render(<LaborCostPage/>);
+    await waitFor(() => expect(finishFirst).toBeTruthy());
+    laborAuth.companyId = 2; rerender(<LaborCostPage/>);
+    await screen.findByText('COMPANY-B');
+    await act(async () => { finishFirst(response([version])); });
+    expect((screen.getByLabelText('成本版本') as HTMLSelectElement).value).toBe('2');
+    expect(screen.getByText('COMPANY-B')).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /合成当前版本/ })).toBeNull();
+  });
+  it('刷新版本失败保留已完成资料和错误，不再用项目刷新清掉错误', async () => {
+    let reads = 0;
+    m.list.mockImplementation(async type => {
+      if (type === 'finance-labor-versions') { if (++reads > 1) throw new Error('合成版本刷新失败'); return response([version, dto(2, 'v', '另一个启用版本', { versionCode: 'B' })]); }
+      return response(type === 'finance-labor-costs' ? [dto(100, 'i', '保留项目', { workCode: 'KEEP-ROW', unitPrice: 100 })] : []);
+    });
+    m.update.mockResolvedValue(version);
+    render(<LaborCostPage/>);
+    await screen.findByText('KEEP-ROW');
+    fireEvent.click(screen.getByRole('button', { name: '设为默认版本' }));
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', '合成版本刷新失败');
+    expect(screen.getByText('KEEP-ROW')).toBeTruthy();
+  });
+  it('新建版本按原版UTC日期预填RL编号', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-03T16:30:00Z'));
+    m.list.mockResolvedValue(response([]));
+    render(<LaborCostPage/>);
+    fireEvent.click(screen.getByRole('button', { name: '新建成本版本' }));
+    expect((await screen.findByRole('textbox', { name: /^版本编号/ }) as HTMLInputElement).value).toBe('RL-20261103');
   });
 });

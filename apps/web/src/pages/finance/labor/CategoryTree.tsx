@@ -7,7 +7,8 @@ export interface CatNode { id: number; name: string; parentId: number | null; ch
 
 /** 把平铺的分类整理成树；count = 自己和所有下级分类下的工作项目数 */
 export function buildCategoryTree(cats: Array<{ id: number; title: string; data: Record<string, unknown> }>, itemCategoryIds: Array<number | null>): CatNode[] {
-  const nodes = new Map<number, CatNode>(cats.map((c) => [c.id, { id: c.id, name: c.title, parentId: typeof c.data.parentId === 'number' ? c.data.parentId : null, children: [], count: 0 }]));
+  const ordered = [...cats].sort((a, b) => Number(a.data.sortOrder ?? 0) - Number(b.data.sortOrder ?? 0) || a.title.localeCompare(b.title, 'zh-CN'));
+  const nodes = new Map<number, CatNode>(ordered.map((c) => [c.id, { id: c.id, name: c.title, parentId: typeof c.data.parentId === 'number' ? c.data.parentId : null, children: [], count: 0 }]));
   const roots: CatNode[] = [];
   for (const n of nodes.values()) (n.parentId !== null && nodes.get(n.parentId) ? nodes.get(n.parentId)!.children : roots).push(n);
   const sum = (n: CatNode): number => { n.count = itemCategoryIds.filter((id) => id === n.id).length + n.children.reduce((t, c) => t + sum(c), 0); return n.count; };
@@ -28,14 +29,15 @@ export function CategoryTree({ versionId, versionLocked, cats, tree, selected, c
 }) {
   const [form, setForm] = useState<{ record: ResourceDto | null; parentId: number | null } | null>(null);
   const [removing, setRemoving] = useState<CatNode | null>(null);
-  const [collapsed,setCollapsed] = useState<Set<number>>(new Set());
-  useEffect(()=>setCollapsed(new Set()),[versionId]);
+  const [expanded,setExpanded] = useState<Set<number>>(new Set());
+  useEffect(()=>setExpanded(new Set()),[versionId]);
+  const toggle = (id: number) => setExpanded(old => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const byId = useMemo(() => new Map(cats.map((c) => [c.id, c])), [cats]);
   const render = (n: CatNode, depth: number) => (
     <li key={n.id}>
       <div className="between" style={{ paddingLeft: depth * 14 }}>
-        {!!n.children.length && <button type="button" className="link-button" aria-label={`${collapsed.has(n.id)?'展开':'收起'}${n.name}`} aria-expanded={!collapsed.has(n.id)} onClick={()=>setCollapsed(old=>{const next=new Set(old);if(next.has(n.id))next.delete(n.id);else next.add(n.id);return next;})}>{collapsed.has(n.id)?'▸':'▾'}</button>}
-        <button type="button" className={n.id === selected ? 'tree-item active' : 'tree-item'} aria-current={n.id === selected} onClick={() => onSelect(n.id)}>{n.name} <span className="muted">({n.count})</span></button>
+        {!!n.children.length && <button type="button" className="link-button" aria-label={`${expanded.has(n.id)?'收起':'展开'}${n.name}`} aria-expanded={expanded.has(n.id)} onClick={()=>toggle(n.id)}>{expanded.has(n.id)?'▾':'▸'}</button>}
+        <button type="button" className={n.id === selected ? 'tree-item active' : 'tree-item'} aria-current={n.id === selected} aria-expanded={n.children.length ? expanded.has(n.id) : undefined} onClick={() => { onSelect(n.id); if (n.children.length) toggle(n.id); }}>{n.name} <span className="muted">({n.count})</span></button>
         {management && canEdit && !versionLocked && (
           <span className="row-actions">
             {depth < 2 && <button type="button" className="link-button" aria-label={`给${n.name}加下级`} onClick={() => setForm({ record: null, parentId: n.id })}>加下级</button>}
@@ -44,7 +46,7 @@ export function CategoryTree({ versionId, versionLocked, cats, tree, selected, c
           </span>
         )}
       </div>
-      {n.children.length > 0 && !collapsed.has(n.id) && <ul className="plain-list">{n.children.map((c) => render(c, depth + 1))}</ul>}
+      {n.children.length > 0 && expanded.has(n.id) && <ul className="plain-list">{n.children.map((c) => render(c, depth + 1))}</ul>}
     </li>
   );
   return (

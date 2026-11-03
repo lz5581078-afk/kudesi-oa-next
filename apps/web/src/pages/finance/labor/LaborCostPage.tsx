@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getResourceDef } from '@kudesi/shared';
+import { getResourceDef, unitYuanText } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
 import { ReasonDialog, RecordForm, clearRefCache } from '../../../resources/RecordForm';
 import { useResourceCan } from '../../../resources/RecordDetail';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
-import { Pager, money } from '../common';
+import { Pager } from '../common';
 import { CategoryTree, buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
 import { CopyVersionDialog } from './CopyVersionDialog';
 import { DictionaryDialog } from './DictionaryDialog';
@@ -18,7 +18,10 @@ const err = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).me
 /** 人力成本表：成本版本 → 项目归档分类树 → 工作项目；工作分类和计价单位可自己维护。 */
 export function LaborCostPage() {
   const can = useResourceCan('finance-labor-costs');
-  const { can: has } = useAuth();
+  const { can: has, user } = useAuth();
+  const scopeKey = JSON.stringify([user?.companyId, user?.id]);
+  const scopeRef = useRef(scopeKey); scopeRef.current = scopeKey;
+  const mounted = useRef(false), versionRequest = useRef(0);
   const canSeeCost = has('product.cost.view');
   const [versions, setVersions] = useState<ResourceDto[] | null>(null);
   const [versionId, setVersionId] = useState<number | null>(null);
@@ -39,23 +42,42 @@ export function LaborCostPage() {
   const [reason, setReason] = useState<{ title: string; hint?: string; confirm: string; run: (reason: string) => Promise<void> } | null>(null);
 
   const loadVersions = useCallback(async () => {
+    if (!mounted.current || scopeRef.current !== scopeKey) return;
+    const serial = ++versionRequest.current;
     try {
-      const r = await resourceApi.list('finance-labor-versions', { pageSize: 200, showHidden: true });
-      setVersions(r.items);
-      setVersionId((cur) => cur ?? r.items.find((v) => v.data.isDefault === true)?.id ?? r.items.find((v) => v.status === 'active')?.id ?? r.items[0]?.id ?? null);
+      const rows: ResourceDto[] = [];
+      for (let page = 1; ; page++) {
+        if (!mounted.current || serial !== versionRequest.current || scopeRef.current !== scopeKey) return;
+        const result = await resourceApi.list('finance-labor-versions', { page, pageSize: 200, showHidden: true });
+        rows.push(...result.items);
+        if (!result.items.length || rows.length >= result.total) break;
+      }
+      if (!mounted.current || serial !== versionRequest.current || scopeRef.current !== scopeKey) return;
+      const rank = (status: string) => ({ active: 0, draft: 1, inactive: 2 }[status] ?? 3);
+      rows.sort((a, b) => Number(b.data.isDefault === true) - Number(a.data.isDefault === true) || rank(a.status) - rank(b.status) || String(b.data.effectiveFrom ?? '').localeCompare(String(a.data.effectiveFrom ?? '')) || b.id - a.id);
+      setVersions(rows);
+      setVersionId(cur => rows.some(row => row.id === cur) ? cur : rows.find(row => row.data.isDefault === true)?.id ?? rows[0]?.id ?? null);
       setError('');
-    } catch (e) { setError(err(e)); }
-  }, []);
-  useEffect(() => { void loadVersions(); }, [loadVersions]);
+      return true;
+    } catch (e) { if (mounted.current && serial === versionRequest.current && scopeRef.current === scopeKey) setError(err(e)); return false; }
+  }, [scopeKey]);
+  useEffect(() => {
+    mounted.current = true; versionRef.current = null;
+    setVersions(null); setVersionId(null); setCats([]); setItems([]); setError(''); setNotice('');
+    setItemForm(null); setVersionForm(null); setReason(null); setDialog(null); setCopying(false);
+    void loadVersions();
+    return () => { mounted.current = false; versionRequest.current++; request.current++; };
+  }, [loadVersions]);
 
   const loadVersionData = useCallback(async () => {
-    if(versionId !== versionRef.current)return;
+    if(!mounted.current || scopeRef.current !== scopeKey || versionId !== versionRef.current)return;
     const serial = ++request.current;
     if (versionId === null) { setCats([]); setItems([]); return; }
     try {
       const all = async (type: string) => {
         const out: ResourceDto[] = [];
         for (let p = 1; ; p++) {
+          if (!mounted.current || serial !== request.current || scopeRef.current !== scopeKey) return out;
           const r = await resourceApi.list(type, { fieldKey: 'versionId', fieldValue: versionId, pageSize: 200, page: p, showHidden: true });
           out.push(...r.items);
           if (out.length >= r.total || !r.items.length) break;
@@ -63,24 +85,25 @@ export function LaborCostPage() {
         return out;
       };
       const [c, i] = await Promise.all([all('finance-labor-categories'), all('finance-labor-costs')]);
-      if (serial !== request.current) return;
+      if (!mounted.current || serial !== request.current || scopeRef.current !== scopeKey) return;
+      i.sort((a, b) => String(a.refLabels.archiveCategoryId ?? '').localeCompare(String(b.refLabels.archiveCategoryId ?? ''), 'zh-CN') || String(a.refLabels.workTypeId ?? '').localeCompare(String(b.refLabels.workTypeId ?? ''), 'zh-CN') || String(a.data.workCode ?? '').localeCompare(String(b.data.workCode ?? '')) || a.id - b.id);
       setCats(c); setItems(i); setError('');
-    } catch (e) { if(serial === request.current)setError(err(e)); }
-  }, [versionId]);
-  useEffect(() => { setSelectedCat(null); setPage(1); setManaging(false); void loadVersionData(); return()=>{request.current++;}; }, [loadVersionData]);
+    } catch (e) { if(mounted.current && serial === request.current && scopeRef.current === scopeKey)setError(err(e)); }
+  }, [versionId, scopeKey]);
+  useEffect(() => { setSelectedCat(null); setKeyword(''); setPage(1); setManaging(false); setCats([]); setItems([]); void loadVersionData(); return()=>{request.current++;}; }, [loadVersionData]);
 
   const version = versions?.find((v) => v.id === versionId) ?? null;
   const tree = useMemo(() => buildCategoryTree(cats, items.map((i) => (typeof i.data.archiveCategoryId === 'number' ? i.data.archiveCategoryId : null))), [cats, items]);
   const node = findNode(tree, selectedCat);
   const scope = node ? new Set(subtreeIds(node)) : null;
   const kw = keyword.trim().toLowerCase();
-  const filtered = items.filter((i) => (!scope || scope.has(Number(i.data.archiveCategoryId))) && (!kw || `${i.title} ${String(i.data.workCode ?? '')} ${String(i.data.workName ?? '')}`.toLowerCase().includes(kw)));
+  const filtered = items.filter(i => (!scope || scope.has(Number(i.data.archiveCategoryId))) && (!kw || [i.title, i.data.workCode, i.data.workName, i.refLabels.archiveCategoryId, i.refLabels.workTypeId, i.refLabels.unitId, i.data.note, i.data.zeroReason].some(value => String(value ?? '').toLowerCase().includes(kw))));
   const shown = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const isLeaf = node ? node.children.length === 0 : false;
 
   async function run(fn: () => Promise<unknown>, done?: string) {
     setError(''); setNotice('');
-    try { await fn(); if (done) setNotice(done); await loadVersions(); await loadVersionData(); } catch (e) { setError(err(e)); }
+    try { await fn(); if (!mounted.current || scopeRef.current !== scopeKey) return; if (done) setNotice(done); if (await loadVersions()) await loadVersionData(); } catch (e) { if (mounted.current && scopeRef.current === scopeKey) setError(err(e)); }
   }
   const locked = version?.status === 'inactive';
 
@@ -133,18 +156,19 @@ export function LaborCostPage() {
           <section aria-label="工作项目" className="card">
             <h2>工作项目列表</h2>
             <div className="toolbar">
-              <input aria-label="搜索工作项目" placeholder="搜索工作名称或编号" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
-              {can('create') && <button type="button" className="primary-button" disabled={locked || (node !== null && !isLeaf)} title={node && !isLeaf ? '请选最末级分类' : undefined} onClick={() => setItemForm({ record: null })}>新增工作项目</button>}
+              <input aria-label="搜索工作项目" placeholder="搜索工作编码、名称、分类或单位" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
+              {can('create') && !locked && isLeaf && <button type="button" className="primary-button" onClick={() => setItemForm({ record: null })}>新增工作项目</button>}
               {node && !isLeaf && <span className="muted">「{node.name}」还有下级分类，工作项目要放在最末级</span>}
             </div>
             <div className="table-scroll"><table className="data-table cards-narrow">
-              <thead><tr><th>工作编号</th><th>归档分类</th><th>工作分类</th><th>工作名称</th><th>计价单位</th><th className="num">单位人力成本</th><th>零值原因</th><th>状态</th><th /></tr></thead>
+              <thead><tr><th>工作编号</th><th>归档分类</th><th>工作分类</th><th>工作名称</th><th>计价单位</th><th className="num">单位成本</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>
               <tbody>
                 {shown.length === 0 && <tr><td colSpan={9} className="empty-state muted">{items.length === 0 ? '这个版本还没有工作项目。' : <>没有符合条件的工作项目。<button type="button" className="link-button" onClick={() => { setKeyword(''); setSelectedCat(null); setPage(1); }}>清除搜索和分类</button></>}</td></tr>}
                 {shown.map((i) => (
                   <tr key={i.id}><td data-label="工作编号">{String(i.data.workCode ?? '')}</td><td data-label="归档分类">{i.refLabels.archiveCategoryId}</td><td data-label="工作分类">{i.refLabels.workTypeId}</td><td data-label="工作名称">{String(i.data.workName ?? '')}</td><td data-label="计价单位">{i.refLabels.unitId}</td>
-                    <td className="num" data-label="单位人力成本">{canSeeCost ? money(i.data.unitPrice as number | undefined) : '无权限'}</td><td data-label="零值原因">{String(i.data.zeroReason ?? '')}</td>
+                    <td className="num" data-label="单位成本">{canSeeCost ? typeof i.data.unitPrice === 'number' && Number.isFinite(i.data.unitPrice) ? `¥${unitYuanText(i.data.unitPrice)}` : '未填写' : '无权限'}</td>
                     <td data-label="状态">{i.status === 'active' ? '启用' : '停用'}</td>
+                    <td data-label="备注">{[...new Set([i.data.zeroReason, i.data.note].map(value => String(value ?? '')).filter(Boolean))].join('；') || '-'}</td>
                     <td className="row-actions">
                       {can('edit') && <button type="button" className="link-button" disabled={locked} onClick={() => setItemForm({ record: i })}>编辑</button>}
                       {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'zeroReason'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) })}>复制新增</button>}
@@ -165,11 +189,11 @@ export function LaborCostPage() {
       {dialog === 'workTypes' && <DictionaryDialog type="finance-labor-work-types" title="维护工作分类" hint="工作分类如“包装、分拣、生产加工”，会参与工作编号。已经被工作项目使用的不能删除。" onClose={() => { setDialog(null); void loadVersionData(); }} />}
       {managing && version && <FinanceModal title="管理项目归档分类" onClose={()=>setManaging(false)}><CategoryTree versionId={version.id} versionLocked={locked} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length} onSelect={setSelectedCat} onChanged={()=>void loadVersionData()}/></FinanceModal>}
       {dialog === 'units' && <DictionaryDialog type="finance-labor-units" title="维护计价单位" hint="计价单位如“元/袋、元/小时”。已经被工作项目使用的不能删除。" onClose={() => { setDialog(null); void loadVersionData(); }} />}
-      {copying && version && <CopyVersionDialog source={version} onClose={() => setCopying(false)} onCopied={(id) => { setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
-      {versionForm && <RecordForm def={getResourceDef('finance-labor-versions')!} record={versionForm.record} onClose={() => setVersionForm(null)} onSaved={(dto) => { clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} />}
-      {itemForm && version && <RecordForm def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...itemForm.initial, ...(node && isLeaf && !itemForm.record && !itemForm.initial ? { archiveCategoryId: node.id } : {}) }} lockedFields={itemForm.record ? undefined : ['versionId']}
-        onClose={() => setItemForm(null)} onSaved={() => { clearRefCache('finance-labor-costs'); setItemForm(null); void loadVersionData(); }} />}
-      {reason && <ReasonDialog title={reason.title} hint={reason.hint} confirmLabel={reason.confirm} danger onClose={() => setReason(null)} onConfirm={async (r) => { await reason.run(r); setReason(null); await loadVersions(); await loadVersionData(); }} />}
+      {copying && version && <CopyVersionDialog source={version} onClose={() => setCopying(false)} onCopied={(id) => { if(!mounted.current || scopeRef.current!==scopeKey)return;setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
+      {versionForm && <RecordForm def={getResourceDef('finance-labor-versions')!} record={versionForm.record} initial={versionForm.record ? undefined : { versionCode: `RL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}` }} onClose={() => setVersionForm(null)} onSaved={(dto) => { if(!mounted.current || scopeRef.current!==scopeKey)return;clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} />}
+      {itemForm && version && <RecordForm def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...itemForm.initial, ...(node && isLeaf && !itemForm.record && !itemForm.initial ? { archiveCategoryId: node.id } : {}) }} lockedFields={['versionId', 'archiveCategoryId']}
+        onClose={() => setItemForm(null)} onSaved={() => { if(!mounted.current || scopeRef.current!==scopeKey)return;clearRefCache('finance-labor-costs'); setItemForm(null); void loadVersionData(); }} />}
+      {reason && <ReasonDialog title={reason.title} hint={reason.hint} confirmLabel={reason.confirm} danger onClose={() => setReason(null)} onConfirm={async (r) => { await reason.run(r); if(!mounted.current || scopeRef.current!==scopeKey)return;setReason(null); if (await loadVersions()) await loadVersionData(); }} />}
     </div>
   );
 }
