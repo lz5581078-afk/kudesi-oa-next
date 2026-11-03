@@ -31,12 +31,9 @@ export async function lockLaborCompany(em: EntityManager, companyId: number): Pr
 }
 
 function initials(text: string): string {
-  const out: string[] = [];
-  for (const ch of text.normalize('NFKC')) {
-    if (/[A-Za-z0-9]/.test(ch)) out.push(ch.toUpperCase());
-    else if (/[一-龥]/.test(ch)) out.push(pinyin(ch, { pattern: 'first', toneType: 'none' }).toUpperCase());
-  }
-  return out.join('');
+  // 整段转换保留词语读音；逐字转换会把“重庆”等多音词拆错。
+  const letters = pinyin(text.trim(), { pattern: 'first', toneType: 'none', separator: '' });
+  return letters.toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 const cleanCode = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
 const norm = (s: string) => s.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
@@ -140,7 +137,7 @@ async function beforeCategory({ em, host, user, existing, data }: BeforeSaveCont
     (c) => c.id !== existing?.id && (num(c.data.parentId) ?? null) === parentId,
   );
   if (siblings.some((c) => norm(c.title) === norm(name))) throw new BadRequestException(`同一级里已经有「${name}」了`);
-  const code = cleanCode(str(data.code)) || initials(name) || 'X';
+  const code = (initials(str(data.code) || name) || 'FL').slice(0, 40);
   data.code = code;
   if (siblings.some((c) => cleanCode(str(c.data.code)) === code)) throw new BadRequestException(`同一级里分类标识「${code}」重复了，请换一个`);
 }
@@ -227,12 +224,12 @@ async function afterCategory({ em, host, user, record, existing }: AfterSaveCont
 
 // ---------- 工作分类 / 计价单位 ----------
 
-const beforeDictionary = (label: string) => async ({ data, em, user }: BeforeSaveContext) => {
+const beforeDictionary = (label: string, fallback: string) => async ({ data, em, user }: BeforeSaveContext) => {
   await lockLaborCompany(em, user.companyId);
   const name = str(data.name).trim();
   if (!name) throw new BadRequestException(`请填写${label}`);
   data.name = name;
-  data.code = cleanCode(str(data.code)) || initials(name) || 'X';
+  data.code = (initials(str(data.code) || name) || fallback).slice(0, 40);
 };
 
 async function afterWorkType({ em, host, user, record, existing }: AfterSaveContext) {
@@ -298,8 +295,8 @@ async function beforeItem({ em, host, user, existing, data, status }: BeforeSave
 export const LABOR_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Promise<void>> = {
   'finance-labor-versions': beforeVersion,
   'finance-labor-categories': beforeCategory,
-  'finance-labor-work-types': beforeDictionary('工作分类名称'),
-  'finance-labor-units': beforeDictionary('计价单位'),
+  'finance-labor-work-types': beforeDictionary('工作分类名称', 'FL'),
+  'finance-labor-units': beforeDictionary('计价单位', 'UNIT'),
   'finance-labor-costs': beforeItem,
 };
 
