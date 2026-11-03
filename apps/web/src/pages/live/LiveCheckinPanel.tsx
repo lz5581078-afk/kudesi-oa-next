@@ -41,13 +41,26 @@ export function LiveCheckinPanel({roomId,companyId,token,workspaceType}:{roomId?
   if(mismatch)return <p role="alert" className="notice error">这个二维码属于另一家公司，请使用对应公司的本人飞书账号登录。</p>;
   const effectiveRole=operations?'control':workspaceType?role:data?.identity.isAnchor?'anchor':'control';
   const schedule=data?.schedules.find(s=>s.status==='scheduled'&&s.canStart&&s.mineRole===effectiveRole&&(!effectiveRoomId||s.roomId===effectiveRoomId))??null;
-  return <section className={`card live-section ${scanned?'live-scan-panel':''}`}><h2>{scanned?'扫码上下播':'本场上下播'}</h2>
-    {error&&<p role="alert" className="notice error">{error}</p>}
-    {!data&&!error&&<p role="status">正在读取本人排班和场次…</p>}
-    {data&&<><p className="muted">{running?`${running.roomName} · 本人${running.myCheckin!.role==='operator'?'运营':running.myCheckin!.role==='control'?'中控':'主播'}身份已上播`:'工作台和飞书扫码使用同一场次，按实际确认时间记录。'}</p>
-      {scanned&&!running&&canStart&&!roomId&&<label className="live-field">上播直播间<select aria-label="上播直播间" value={selectedRoom} onChange={e=>{setSelectedRoom(e.target.value);setError('');}}><option value="">请选择直播间</option>{data.rooms.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label>}
-      <div className="live-checkin-actions">{(running||canStart)&&<button className="primary-button live-clock-button" disabled={busy} onClick={()=>void click()}>{busy?'正在读取…':running?'下播':'上播'}</button>}</div>
-      {!running&&data.active.some(s=>s.myCheckin?.endAt)&&<p className="muted">本人已下播，场次报告按现有流程处理。</p>}
+  const roleName=running?.myCheckin?.role==='operator'?'运营':running?.myCheckin?.role==='control'?'中控':running?'主播':operations?'中控 / 运营':effectiveRole==='anchor'?'主播':'中控';
+  const selectedRoomName=running?.roomName??data?.rooms.find(r=>r.id===effectiveRoomId)?.name;
+  return <section className={`card live-section ${scanned?'live-scan-panel':''}`} aria-label={scanned?'扫码上下播':'本场上下播'}>
+    {scanned?<header className="live-scan-heading"><div><span className="live-scan-eyebrow">直播打卡</span><h1>扫码上下播</h1><p>同一个二维码，完成上播与下播</p></div><button type="button" className="secondary-button" disabled={busy} onClick={()=>void load()}>刷新状态</button></header>:<h2>本场上下播</h2>}
+    {error&&<div className="live-scan-error"><p role="alert" className="notice error">{error}</p>{!data&&<button type="button" className="secondary-button" onClick={()=>void load()}>重新读取</button>}</div>}
+    {!data&&!error&&<p className="live-scan-loading" role="status">正在读取本人排班和场次…</p>}
+    {data&&<>
+      {scanned?<>
+        <div className="live-scan-identity"><div><span>当前操作人</span><strong>{user?.name??'本人'}</strong><small>{roleName}</small></div><span className={`live-scan-state ${running?'is-live':''}`}>{running?'已上播':canStart?'待上播':'暂无可操作场次'}</span></div>
+        <ol className="live-scan-steps" aria-label="上下播步骤"><li aria-current={!running?'step':undefined}><span>1</span>选择直播间</li><li><span>2</span>确认上播</li><li aria-current={running?'step':undefined}><span>3</span>下播并核对</li></ol>
+      </>:<p className="muted">{running?`${running.roomName} · 本人${roleName}身份已上播`:'工作台和飞书扫码使用同一场次，按实际确认时间记录。'}</p>}
+      <div className={scanned?'live-scan-task':undefined}>
+        {scanned&&<h2>{running?'当前直播':'选择本场直播'}</h2>}
+        {scanned&&!running&&canStart&&!roomId&&<label className="live-field">上播直播间<select aria-label="上播直播间" value={selectedRoom} onChange={e=>{setSelectedRoom(e.target.value);setError('');}}><option value="">请选择直播间</option>{data.rooms.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label>}
+        {scanned&&selectedRoomName&&(running||roomId||schedule)&&<dl className="live-scan-summary"><div><dt>直播间</dt><dd>{selectedRoomName}</dd></div>{running?<><div><dt>本次身份</dt><dd>{roleName}</dd></div><div><dt>本人上播时间</dt><dd>{running.myCheckin!.startAt.replace('T',' ').slice(0,16)}</dd></div></>:schedule&&<div><dt>计划时段</dt><dd>{schedule.date} {schedule.startTime}–{schedule.endTime}</dd></div>}</dl>}
+        <div className="live-checkin-actions">{(running||canStart)&&<button type="button" className="primary-button live-clock-button" disabled={busy} onClick={()=>void click()}>{busy?'正在读取…':running?'下播':'上播'}</button>}</div>
+        {scanned&&<p className="live-scan-help">{running?'点击下播后，核对本场时间与业绩，再确认本人下播。':canStart?'选择直播间后，继续核对人员、直播账号和店铺，再确认上播。':'当前账号暂无可操作场次，请联系人事核对主播或中控岗位。'}</p>}
+      </div>
+      {!running&&data.active.some(s=>s.myCheckin?.endAt)&&<p className="live-scan-help" role="status">本人已下播，场次报告按现有流程处理。</p>}
+      {scanned&&<p className="live-scan-footnote">按本人实际确认时间计时，工资与提成以审核结果为准。</p>}
     </>}
     {data&&mode==='role'&&<CheckinRoleDialog context={effectiveRoomId?{...data,rooms:data.rooms.filter(r=>r.id===effectiveRoomId),schedules:data.schedules.filter(s=>s.roomId===effectiveRoomId),joinable:data.joinable?.filter(s=>s.roomId===effectiveRoomId)}:data} onClose={()=>setMode('')} onControl={s=>{setJoining(s);setMode(s?'join':'start');}} onDone={()=>void changed()}/>}
     {data&&mode==='start'&&<StartDialog role={effectiveRole} roomId={effectiveRoomId} schedule={schedule} identity={{isAnchor:effectiveRole==='anchor',isControl:effectiveRole==='control',canManage:false}} onClose={()=>setMode('')} onDone={()=>void changed()}/>}
