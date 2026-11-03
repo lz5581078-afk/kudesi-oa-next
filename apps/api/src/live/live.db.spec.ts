@@ -889,9 +889,12 @@ d('直播管理（真实数据库）', () => {
     expect(preview.salesCents).toBe(8000);expect(preview.wage?.minutes).toBe(55);
     await sessions.report(cc,made.id,{...await feedbackInput(cc,made.id),role:'control',endAt:'2026-12-01 10:59:00',salesCents:999999,adSpendCents:0});
     expect((await sessions.detail(cc,made.id)).reportDeadline).toBe('2026-12-01 11:30:00');
+    const peerNotices = (reporterId:number) => ds.query('SELECT user_id FROM live_notification_events WHERE company_id=? AND event_key=? ORDER BY user_id',[company,`checkout-peer:${made.id}:${reporterId}`]);
+    expect((await peerNotices(cc.id)).map((r:{user_id:number})=>r.user_id)).toEqual([aa.id,operator.id].sort((a,b)=>a-b));
     clock('2026-12-01 11:10:00');
     await sessions.report(aa,made.id,{...await feedbackInput(aa,made.id),role:'anchor',endAt:'2026-12-01 08:00:00',salesCents:999999});
     expect((await sessions.detail(aa,made.id)).endAt).toBe('2026-12-01 11:10:00');
+    expect(await peerNotices(aa.id)).toEqual([{user_id:operator.id}]);
     expect((await sessions.detail(aa,made.id)).reportDeadline).toBe('2026-12-01 11:30:00');
     await expect(sessions.submit(aa,made.id)).rejects.toThrow(/30分钟/);
     clock('2026-12-01 11:20:00');

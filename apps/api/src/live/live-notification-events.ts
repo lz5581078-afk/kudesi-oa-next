@@ -1,3 +1,5 @@
+import { reportsLocked } from './live-checkin-core';
+import { liveClock, type Row } from './live-core';
 import { EntityManager } from 'typeorm';
 import { createChecker, resolvePermissions } from '@kudesi/shared';
 import { User, Position, PositionPermission, UserPermissionOverride } from '../entities';
@@ -46,4 +48,27 @@ export async function liveHandover(em: EntityManager, companyId: number, session
   if (!next) return;
   await liveNotify(em,companyId,[next.anchor_user_id,next.control_user_id,next.operator_user_id].map(Number),
     {key:`handover:${sessionId}:${next.id}:${next.notification_version}`,channel:'live',title:'上一场已下播，请准备交接',body:`${next.room_name}上一场已下播，请按排场时间准备接播。`,resourceId:Number(next.id)});
+}
+
+
+export async function pendingCheckoutUsers(em: EntityManager, companyId: number, sessionId: number): Promise<number[]> {
+  const [s]: Row[] = await em.query('SELECT status,checkin_mode,anchor_user_id,control_user_id,operator_user_id,report_locked_at,report_deadline FROM live_sessions WHERE company_id=? AND id=?',[companyId,sessionId]);
+  if (!s || !['live','pending_report','returned'].includes(s.status) || reportsLocked(s,liveClock.now())) return [];
+  const participants = [['anchor',s.anchor_user_id],['control',s.control_user_id],['operator',s.operator_user_id]] as const;
+  if (s.checkin_mode) {
+    const clocks: Row[] = await em.query('SELECT role,user_id FROM live_session_checkins WHERE company_id=? AND session_id=? AND end_at IS NULL',[companyId,sessionId]);
+    return clocks.filter(c=>participants.some(([role,id])=>role===c.role && Number(id)===Number(c.user_id))).map(c=>Number(c.user_id));
+  }
+  const reports: Row[] = await em.query('SELECT role FROM live_session_reports WHERE company_id=? AND session_id=?',[companyId,sessionId]);
+  return participants.filter(([role,id])=>id && !reports.some(r=>r.role===role)).map(([,id])=>Number(id));
+}
+
+export async function notifyCheckoutPeers(em: EntityManager, companyId: number, session: Row, reporter: {id:number;name:string}) {
+  const sessionId=Number(session.id);
+  const pending=await pendingCheckoutUsers(em,companyId,sessionId);
+  await liveNotify(em,companyId,pending.filter(id=>id!==reporter.id),{
+    key:`checkout-peer:${sessionId}:${reporter.id}`,channel:'live',resourceId:sessionId,
+    title:`${reporter.name}已下播，请报下播`,
+    body:`${session.room_name} · ${session.start_text.slice(0,16)} 场次。请在「我的直播」确认并提交本人的下播记录。`,
+  });
 }
