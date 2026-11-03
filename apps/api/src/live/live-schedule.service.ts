@@ -15,6 +15,7 @@ import { LiveAccess, liveDouyinAccounts, liveDouyinStores, liveEmployees, livePe
 import { Row, SESSION_SELECT, idOf, liveClock, liveFail, lockCompany, text, wallNow } from './live-core';
 
 export interface ScheduleInput {
+  trialHourlyRateCents?: number;
   date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId?: number | null; operatorId?: number | null;
   channels?: LiveChannelInput[]; douyinAccountId: number; storeId?: number | null; note?: string; productIds?: number[]; productEntries?: LiveProductEntry[];
 }
@@ -31,7 +32,7 @@ export function scheduleProducts(value: unknown): LiveProductSnapshot[] {
 
 export function serializeSchedule(s: Row) {
   return {
-    anchorTrial: !!s.anchor_trial, fingerprint: scheduleFingerprint(s), channels: channelsOf(s),
+    trialHourlyRateCents: s.trial_hourly_rate_cents ?? null, anchorTrial: !!s.anchor_trial, fingerprint: scheduleFingerprint(s), channels: channelsOf(s),
     id: Number(s.id), roomId: Number(s.room_id), roomName: s.room_name, date: s.schedule_day, start: s.start_text, end: s.end_text,
     startTime: String(s.start_text).slice(11, 16), endTime: String(s.end_text).slice(11, 16), status: s.status, statusLabel: LIVE_SCHEDULE_STATUS[s.status] ?? s.status,
     anchor: { id: Number(s.anchor_user_id), name: s.anchor_name }, control: s.control_user_id ? { id: Number(s.control_user_id), name: s.control_name } : null,
@@ -84,6 +85,9 @@ export class LiveScheduleService {
     if (!room) liveFail('所选房间不是「西走廊办公室」下名称含「直播间」的启用房间', 400);
     const { anchors, controls } = await livePeople(em, a.companyId);
     if (!anchors.some((p) => p.id === anchorId)) liveFail('所选人员不是主播岗位，请在「部门与岗位」把主播岗位的岗位类型设为「直播主播」', 400);
+    const trialAnchor = anchors.find(p => p.id === anchorId)?.trial;
+    const trialRate = trialAnchor ? input.trialHourlyRateCents : null;
+    if (trialAnchor && (!Number.isSafeInteger(trialRate) || !trialRate || trialRate <= 0 || trialRate > 2147483647)) liveFail('请填写本场试播主播时薪', 400);
     const controlId = input.controlId ? idOf(input.controlId) : null;
     if (input.controlId && (!controlId || !controls.some((p) => p.id === controlId))) liveFail('所选人员不是中控岗位', 400);
     const operatorId = input.operatorId ? idOf(input.operatorId) : null;
@@ -102,7 +106,7 @@ export class LiveScheduleService {
     const anchorClash = overlaps.find((r) => Number(r.anchor_user_id) === anchorId);
     if (anchorClash) liveFail(`${anchorClash.anchor_name} 在 ${anchorClash.st}–${anchorClash.et} 已排在 ${anchorClash.room_name}，同一主播不能同时在两个房间`);
     await assertAccountTime(em,a.companyId,channels,startAt,endAt,undefined,excludeId ?? undefined);
-    return { channels, day, startAt, endAt, room: room!, anchorId: anchorId!, controlId, operatorId, account: account!, store: store ?? null, note: text(input.note) || null, products };
+    return { trialRate, channels, day, startAt, endAt, room: room!, anchorId: anchorId!, controlId, operatorId, account: account!, store: store ?? null, note: text(input.note) || null, products };
   }
 
   /**
@@ -150,7 +154,7 @@ export class LiveScheduleService {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?,?,?)`,
         [a.companyId, v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, a.userId, JSON.stringify(v.products)]);
       const id = Number(res.insertId);
-      await em.query('UPDATE live_schedules SET channels_json=? WHERE company_id=? AND id=?',[JSON.stringify(v.channels),a.companyId,id]);
+      await em.query('UPDATE live_schedules SET channels_json=?,trial_hourly_rate_cents=? WHERE company_id=? AND id=?',[JSON.stringify(v.channels),v.trialRate,a.companyId,id]);
       const [row] = await em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.id = ?`, [a.companyId, id]);
       await this.notify(em, a.companyId, [v.anchorId, v.controlId, v.operatorId], '新排班', this.summary(row), { scheduleId: id, version: Number(row.notification_version), kind: 'schedule' });
       return { id };
@@ -170,7 +174,7 @@ export class LiveScheduleService {
            douyin_account_id = ?, douyin_account_name = ?, store_id = ?, store_name = ?, note = ?, products_json = ?, updated_by = ?, notification_version = notification_version + 1 WHERE company_id = ? AND id = ?`,
         [v.room.id, v.room.name, v.day, v.startAt, v.endAt, v.anchorId, v.controlId, v.operatorId, v.account.id, v.account.name, v.store?.id ?? null, v.store?.name ?? null, v.note, JSON.stringify(v.products), a.userId, a.companyId, id]);
       const [row] = await em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.id = ?`, [a.companyId, id]);
-      await em.query('UPDATE live_schedules SET channels_json=? WHERE company_id=? AND id=?',[JSON.stringify(v.channels),a.companyId,id]);
+      await em.query('UPDATE live_schedules SET channels_json=?,trial_hourly_rate_cents=? WHERE company_id=? AND id=?',[JSON.stringify(v.channels),v.trialRate,a.companyId,id]);
       const now = new Set([v.anchorId, v.controlId, v.operatorId].filter(Boolean) as number[]);
       await this.feishu?.cancelPending(em, a.companyId, 'live-schedule', id);
       const version = Number(row.notification_version);

@@ -44,6 +44,7 @@ class LiveProductEntryDto {
   @IsOptional() @IsString() @MaxLength(200) name?: string;
 }
 class ScheduleDto {
+  @IsOptional() @IsInt() @Min(1) @Max(2147483647) trialHourlyRateCents?:number;
   @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({each:true}) @Type(()=>ChannelDto) channels?:ChannelDto[];
   @IsString() @MaxLength(10) date!: string;
   @IsInt() roomId!: number;

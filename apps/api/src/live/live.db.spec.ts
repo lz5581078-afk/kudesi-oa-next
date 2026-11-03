@@ -1055,7 +1055,9 @@ d('直播管理（真实数据库）', () => {
     const room=await rec(company,'locations','直播间-试播核验',{name:'直播间-试播核验',locationType:'room',parentId:parent});
     const shop=await rec(company,'stores','试播核验店',{name:'试播核验店',platform:'douyin',jushuitanShopId:'TRIAL-PROXY-SHOP'});
     const account=await rec(company,'self-media','试播核验号',{name:'试播核验号',platform:'douyin',livePermission:true,storeIds:[shop]});
-    const plan=await schedules.create(manager,input({date:'2027-01-05',roomId:room,anchorId:trial.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'}));
+    const scheduleInput={date:'2027-01-05',roomId:room,anchorId:trial.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'};
+    await expect(schedules.create(manager,input(scheduleInput))).rejects.toThrow(/试播主播时薪/);
+    const plan=await schedules.create(manager,input({...scheduleInput,trialHourlyRateCents:7250}));
     const row=(await sessions.workbench(cc)).schedules.find(s=>s.id===plan.id)!;
     expect(row.anchorTrial).toBe(true);
     const start={actualCheckin:true,role:'control' as const,scheduleId:plan.id,scheduleFingerprint:row.fingerprint,confirmDetails:true,productIds:[ids.p1]};
@@ -1064,6 +1066,15 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.start(otherControl,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排定/);
     await expect(sessions.start(foreign,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/身份|不存在/);
     await expect(sessions.start(cc,{...start,anchorId:anchor.id,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排班/);
+    const hrDept=await ds.manager.save(Department,{companyId:company,name:'人事部',status:'active'});
+    const hrId=await mkUser(company,'trial-day-seven-hr','试播工资人事',{departmentId:hrDept.id});
+    // Six distinct dates, including two sessions on the same date and one manual-only day.
+    for(const [day,sourceKind] of [['20','normal'],['20','normal'],['21','normal'],['22','normal'],['23','normal'],['24','normal'],['25','normal'],['26','manual']]) {
+      const date='2026-12-'+day;
+      await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,
+        session_date,start_at,end_at,status,started_by,started_role,report_source) VALUES(?,?,?,?,?,?,?,?,?,'approved',?,'anchor',?)`,
+        [company,room,'试播',trial.id,account,'试播账号',date,date+' 23:58:00',date+' 23:59:00',trial.id,sourceKind]);
+    }
     const made=await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id});
     expect((await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id})).id).toBe(made.id);
     expect((await sessions.detail(cc,made.id)).anchorTrial).toBe(true);
@@ -1077,6 +1088,9 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.report(cc,made.id,report)).rejects.toThrow(/试播主播/);
     await expect(sessions.report(cc,made.id,{...report,confirmTrialAnchorId:anchor.id})).rejects.toThrow(/试播主播/);
     await sessions.report(cc,made.id,{...report,confirmTrialAnchorId:trial.id});
+    const notices=await ds.manager.findBy(Notification,{companyId:company,title:'试播满 7 个有效直播日，请调整正式岗工资'});
+    expect(notices.filter(n=>n.userId===hrId)).toHaveLength(1);
+    expect(notices.some(n=>n.userId===cc.id)).toBe(false);
     const ended=await sessions.detail(cc,made.id);expect(ended.trialProxyReporter).toEqual({id:cc.id,name:cc.name});expect(ended.endAt).toBe('2027-01-05 11:00:00');expect(ended.status).toBe('pending_report');expect(ended.reports.map(r=>r.role)).toEqual(['control']);
     // The per-session confirmation remains authoritative even if this person later becomes regular.
     await ds.query('UPDATE users SET live_trial=0 WHERE company_id=? AND id=?',[company,trial.id]);
@@ -1084,8 +1098,15 @@ d('直播管理（真实数据库）', () => {
     clock('2027-01-05 11:30:00');
     const closure=new LiveCheckinClosureService(ds,{me:async()=>({name:cc.name,permissions:cc.permissions})} as never,flow,source);
     await closure.scan();expect((await sessions.detail(manager,made.id)).status).toBe('submitted');
-    const preview=await sessions.reviewPreview(reviewer,made.id,{finalSource:'control'});expect(preview.wage.amountCents).toBe(6000);expect(preview.wage.minutes).toBe(60);
-    await approve(made.id,{finalSource:'control'});
+    expect((await sessions.detail(reviewer,made.id)).trialHourlyRateCents).toBe(7250);
+    expect((await sessions.reviewPreview(reviewer,made.id,{finalSource:'control'})).wage.amountCents).toBe(7250);
+    // Old schedules have no saved rate: verify the reviewer must supply one.
+    await ds.query('UPDATE live_schedules SET trial_hourly_rate_cents=NULL WHERE company_id=? AND id=?',[company,plan.id]);
+    await expect(sessions.reviewPreview(reviewer,made.id,{finalSource:'control'})).rejects.toThrow(/试播主播时薪/);
+    await expect(approve(made.id,{finalSource:'control'})).rejects.toThrow(/试播主播时薪/);
+    const form={finalSource:'control',wageHourlyRateCents:6000};
+    const preview=await sessions.reviewPreview(reviewer,made.id,form);expect(preview.wage.rateSource).toBe('manual');expect(preview.wage.amountCents).toBe(6000);expect(preview.wage.minutes).toBe(60);
+    await approve(made.id,form);
     const final=await sessions.detail(manager,made.id);expect(final.finalSalesCents).toBe(100000);expect(final.wage?.userId).toBe(trial.id);expect(final.wage?.amountCents).toBe(6000);
     expect(final.commissions.some(c=>c.role==='anchor'&&c.userId===trial.id&&c.amountCents>0)).toBe(true);
     expect(await ds.query("SELECT id FROM audit_logs WHERE company_id=? AND resource_id=? AND action IN ('live.trial.start','live.trial.end')",[company,String(made.id)])).toHaveLength(2);

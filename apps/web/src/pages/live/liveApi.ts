@@ -8,15 +8,15 @@ export interface RoomOpt { id: number; name: string; shortName: string; big: boo
 export interface Options { rooms: RoomOpt[]; anchors: Option[]; controls: Option[]; operators: Option[]; douyinAccounts: Option[]; stores: Option[] }
 export interface Product { id: number; code: string; name: string; spec: string }
 
-export interface ScheduleRow { anchorTrial?:boolean; fingerprint?:string; sessionStatus?:string|null; channels?:LiveChannel[];
+export interface ScheduleRow { trialHourlyRateCents?:number|null; anchorTrial?:boolean; fingerprint?:string; sessionStatus?:string|null; channels?:LiveChannel[];
   id: number; roomId: number; roomName: string; date: string; start: string; end: string; startTime: string; endTime: string; status: 'scheduled' | 'live' | 'finished' | 'cancelled'; statusLabel: string;
   anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person; store: Person | null; sessionId: number | null; note: string | null; cancelReason: string | null;
   products?: LiveProductSnapshot[]; canStart?: boolean; mineRole?: string;
 }
 export interface ScheduleList { rooms?:RoomOpt[]; from: string; to: string; rows: ScheduleRow[]; canManage: boolean }
-export interface ScheduleBody { channels?:LiveChannelInput[]; date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId: number | null; operatorId: number | null; douyinAccountId: number; storeId: number | null; note?: string;productIds?:number[];productEntries?:LiveProductEntry[] }
+export interface ScheduleBody { trialHourlyRateCents?:number; channels?:LiveChannelInput[]; date: string; roomId: number; startTime: string; endTime: string; anchorId: number; controlId: number | null; operatorId: number | null; douyinAccountId: number; storeId: number | null; note?: string;productIds?:number[];productEntries?:LiveProductEntry[] }
 
-export interface SessionRow { trialProxyReporter?:Person|null; anchorTrial?:boolean; myCheckin?:{role:'anchor'|'control'|'operator';startAt:string;endAt:string|null}|null; checkinMode?:boolean; reportDeadline?:string|null; reportsLocked?:boolean; autoSubmitError?:string|null; ordersCaptureStatus?:string; ordersCaptureError?:string|null; channels?:LiveChannel[]; reportSource?:string;manualReason?:string|null;manualActorId?:number|null;
+export interface SessionRow { trialHourlyRateCents?:number|null; trialProxyReporter?:Person|null; anchorTrial?:boolean; myCheckin?:{role:'anchor'|'control'|'operator';startAt:string;endAt:string|null}|null; checkinMode?:boolean; reportDeadline?:string|null; reportsLocked?:boolean; autoSubmitError?:string|null; ordersCaptureStatus?:string; ordersCaptureError?:string|null; channels?:LiveChannel[]; reportSource?:string;manualReason?:string|null;manualActorId?:number|null;
   id: number; scheduleId: number | null; roomId: number; roomName: string; date: string; startAt: string; endAt: string | null; plannedEnd: string | null; status: 'live' | 'pending_report' | 'submitted' | 'returned' | 'approved'; statusLabel: string;
   anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person; store: Person | null; finalSalesCents: number | null; finalSalesSource: string | null; finalSalesReason: string | null;
   returnReason: string | null; flowRunId: number | null; submittedAt: string | null; approvedAt: string | null; approverName: string | null; revision: number;
