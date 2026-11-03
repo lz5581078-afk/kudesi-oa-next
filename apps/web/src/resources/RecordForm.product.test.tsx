@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FINANCE_RESOURCE_DEFS, validateResourceInput } from '@kudesi/shared';
 
@@ -50,12 +50,33 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('商品档案新建：草稿、继续新建、零值确认', () => {
+  it.each([
+    ['raw', '', 'system_spec'], ['self_made', '', 'self_made_system_spec'],
+    ['purchased', 'original_purchase', 'purchased_system_spec'], ['purchased', 'supplier_oem', 'purchased_system_spec'],
+    ['package', '', 'package_system_spec'], ['oem_package', '', 'oem_package_system_spec'],
+  ])('%s %s的系统规格使用所属目录的下拉和管理弹窗，历史名称回填而不变成引用ID', async (archiveType, supplyMode, kind) => {
+    resetUnitOptionsForTest({ system_spec: [{ value: '原料专用规格', label: '原料专用规格' }], [kind]: [{ value: '当前目录规格', label: '当前目录规格' }] });
+    render(<RecordForm def={def} record={null} initial={{ archiveType, supplyMode, categoryId: 1, purchaseSpec: '已有历史规格' }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const field = document.querySelector<HTMLElement>('[data-field="purchaseSpec"]')!;
+    const select = within(field).getByRole('combobox') as HTMLSelectElement;
+    expect(select.value).toBe('已有历史规格');
+    expect(new Set([...select.options].map(option => option.value))).toEqual(new Set(['', '当前目录规格', '已有历史规格']));
+    fireEvent.click(within(field).getByRole('button', { name: '管理单位与规格' }));
+    const dialog = await screen.findByRole('dialog', { name: '管理系统规格' });
+    await waitFor(() => expect(within(dialog).queryByText('读取中…')).toBeNull());
+    expect(within(dialog).queryByText('编码设置')).toBeNull();
+    expect(within(dialog).queryByText('原料专用规格')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: '当前目录规格' }));
+    expect(select.value).toBe('当前目录规格');
+    expect(screen.queryByRole('dialog', { name: '管理系统规格' })).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+  });
   it.each(['package', 'oem_package'])('%s新建等公司选项返回后，用名称单位首项的名称作系统规格，尺寸首项及零库存初始化且不算修改', async archiveType => {
     resetUnitOptionsForTest({}, false);
     const close = vi.fn(), confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     try {
       render(<RecordForm def={def} record={null} initial={{ archiveType, categoryId: 1 }} onClose={close} onSaved={vi.fn()} />);
-      const system = document.querySelector<HTMLInputElement>('[data-field="purchaseSpec"] input')!;
+      const system = document.querySelector<HTMLSelectElement>('[data-field="purchaseSpec"] select')!;
       const dimension = document.querySelector<HTMLSelectElement>('[data-field="dimensionUnit"] select')!;
       expect(system.value).toBe(''); expect(dimension.value).toBe('');
       act(() => resetUnitOptionsForTest({ spec_unit: [{ value: 'KG', label: '千克' }], dimension_unit: [{ value: 'cm', label: '厘米' }], system_spec: [{ value: '其他规格', label: '其他规格' }] }));
@@ -70,7 +91,7 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
   });
   it('包装默认个/毫米，手工清空及恢复草稿的空值不被后续选项刷新覆盖', async () => {
     const view = render(<RecordForm def={def} record={null} initial={{ archiveType: 'package', categoryId: 1 }} onClose={vi.fn()} onSaved={vi.fn()} />);
-    const system = document.querySelector<HTMLInputElement>('[data-field="purchaseSpec"] input')!;
+    const system = document.querySelector<HTMLSelectElement>('[data-field="purchaseSpec"] select')!;
     const dimension = document.querySelector<HTMLSelectElement>('[data-field="dimensionUnit"] select')!;
     await waitFor(() => expect(system.value).toBe('个')); expect(dimension.value).toBe('mm');
     fireEvent.change(system, { target: { value: '' } }); fireEvent.change(dimension, { target: { value: '' } });
@@ -80,21 +101,21 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     draftGet.mockResolvedValue({ draft: { payload: { purchaseSpec: '', dimensionUnit: '', orderStock: '', actualStock: '' } } });
     render(<RecordForm def={def} record={null} initial={{ archiveType: 'package', categoryId: 1 }} onClose={vi.fn()} onSaved={vi.fn()} />);
     await screen.findByText(/已恢复上次保存/);
-    expect(document.querySelector<HTMLInputElement>('[data-field="purchaseSpec"] input')!.value).toBe('');
+    expect(document.querySelector<HTMLSelectElement>('[data-field="purchaseSpec"] select')!.value).toBe('');
     expect(document.querySelector<HTMLSelectElement>('[data-field="dimensionUnit"] select')!.value).toBe('');
     expect((screen.getByLabelText('订单库存') as HTMLInputElement).value).toBe('');
   });
   it('包装编辑与复制不补系统规格及尺寸默认，复制重置的库存仍初始化零', () => {
     const data = { archiveType: 'package', categoryId: 1, purchaseSpec: '', dimensionUnit: '', weightG: 500 };
     render(<RecordForm def={def} record={{ ...saved, data }} onClose={vi.fn()} onSaved={vi.fn()} />);
-    expect(document.querySelector<HTMLInputElement>('[data-field="purchaseSpec"] input')!.value).toBe('');
+    expect(document.querySelector<HTMLSelectElement>('[data-field="purchaseSpec"] select')!.value).toBe('');
     expect(document.querySelector<HTMLSelectElement>('[data-field="dimensionUnit"] select')!.value).toBe('');
     expect((screen.getByLabelText('订单库存') as HTMLInputElement).value).toBe('');
     expect((screen.getByLabelText('重量输入单位') as HTMLSelectElement).value).toBe('kg');
     expect((screen.getByLabelText('重量') as HTMLInputElement).value).toBe('0.5');
     cleanup();
     render(<RecordForm def={def} record={null} initial={{ ...data, __copyOf: 7 }} onClose={vi.fn()} onSaved={vi.fn()} />);
-    expect(document.querySelector<HTMLInputElement>('[data-field="purchaseSpec"] input')!.value).toBe('');
+    expect(document.querySelector<HTMLSelectElement>('[data-field="purchaseSpec"] select')!.value).toBe('');
     expect(document.querySelector<HTMLSelectElement>('[data-field="dimensionUnit"] select')!.value).toBe('');
     expect((screen.getByLabelText('订单库存') as HTMLInputElement).value).toBe('0');
     expect((screen.getByLabelText('重量输入单位') as HTMLSelectElement).value).toBe('kg');
@@ -106,7 +127,7 @@ describe('商品档案新建：草稿、继续新建、零值确认', () => {
     expect(create.mock.calls[0][1]).toMatchObject({ orderStock: 1.25, actualStock: 0.5 });
     expect(document.querySelector<HTMLSelectElement>('[data-field="packagingCategory"] select')!.value).toBe('bottle');
     expect(document.querySelector<HTMLSelectElement>('[data-field="dimensionUnit"] select')!.value).toBe('cm');
-    expect(document.querySelector<HTMLInputElement>('[data-field="purchaseSpec"] input')!.value).toBe('个');
+    expect(document.querySelector<HTMLSelectElement>('[data-field="purchaseSpec"] select')!.value).toBe('个');
     expect((screen.getByLabelText('订单库存') as HTMLInputElement).value).toBe('0');
     expect((screen.getByLabelText('实际库存') as HTMLInputElement).value).toBe('0');
     expect((screen.getByLabelText('重量输入单位') as HTMLSelectElement).value).toBe('jin');

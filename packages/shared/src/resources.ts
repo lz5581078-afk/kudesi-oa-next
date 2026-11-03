@@ -44,6 +44,8 @@ export interface FieldDef {
   key: string;
   label: string;
   type: FieldType;
+  /** 文字值仍按文字保存/导入，表单只能从维护目录选取（含已有历史值）。 */
+  input?: 'select';
   /** 同一字段随档案类型改变输入方式，表单、服务端和导入共用。 */
   typeBy?: { field: string; map: Record<string, FieldType> };
   group: string;

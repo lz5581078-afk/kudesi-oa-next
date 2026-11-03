@@ -88,7 +88,7 @@ export function FieldInput({ field, value, onChange, configured, labelNow, type,
     return <select id={inputId} value={str} onChange={event => onChange(event.target.value)}><option value="">请选择系统规格</option>{str && !options.some(option => option.value === str) && <option value={str}>{str}</option>}{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;
   }
   if (type === 'stores' && field.key === 'jushuitanShopId') return <StoreJstSelect value={str} currentName={String(values?.jushuitanShopName ?? '')} onChange={onChange} />;
-  switch (field.type) {
+  switch (field.input ?? field.type) {
     case 'textarea':
       return <textarea id={inputId} rows={3} value={str} maxLength={field.maxLength} onChange={(e) => onChange(e.target.value)} />;
     case 'select':

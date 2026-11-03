@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { createChecker, getResourceDef, resourcePermission } from '@kudesi/shared';
+import { createChecker, getResourceDef, PRODUCT_SYSTEM_SPEC_KINDS, resourcePermission } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { resourceApi, type ResourceDto } from './api';
 import { clearRefCache } from './RecordForm';
@@ -14,7 +14,7 @@ export function ReferenceDictionaryManager({ target, kind, title, onClose, onPic
   const [rows, setRows] = useState<ResourceDto[] | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<{ id?: number; name: string; code: string }>({ name: '', code: '' });
   const def = getResourceDef(target)!;
-  const plainNames = target === 'finance-product-units' && ['system_spec', 'shipping_system_spec'].includes(kind || '');
+  const plainNames = target === 'finance-product-units' && Object.values(PRODUCT_SYSTEM_SPEC_KINDS).includes(kind || '');
   const unitOptions = useUnitOptions();
   const historicalNames = plainNames && rows ? (unitOptions[kind!] ?? []).map(option => option.value).filter(name => !rows.some(row => String(row.data.name || row.title) === name)) : [];
   const load = async () => { const all: ResourceDto[] = []; for (let page = 1; ; page++) { const r = await resourceApi.list(target, { page, pageSize: 200, showHidden: true, ...(kind ? { tab: kind } : {}) }); all.push(...r.items); if (all.length >= r.total || !r.items.length) break; } setRows(all); };

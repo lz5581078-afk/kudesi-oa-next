@@ -25,7 +25,8 @@ export const PACKAGING_CATEGORY_OPTIONS = o('bag:袋', 'bottle:瓶', 'box:盒', 
 export const DIMENSION_UNIT_OPTIONS = o('mm:毫米', 'cm:厘米', 'm:米');
 
 /** 商品单位与规格列表的种类（旧系统：名称单位/规格单位、产品包装单位、发货物料规格单位、系统规格、包装类别、尺寸单位） */
-export const PRODUCT_UNIT_KINDS = o('spec_unit:规格单位', 'packaging_unit:产品包装单位', 'shipping_unit:发货物料规格单位', 'system_spec:系统规格', 'shipping_system_spec:发货物料系统规格', 'packaging_category:包装类别', 'dimension_unit:尺寸单位', 'archive_type:自定义档案类型');
+export const PRODUCT_SYSTEM_SPEC_KINDS: Readonly<Record<string, string>> = { raw: 'system_spec', self_made: 'self_made_system_spec', purchased: 'purchased_system_spec', package: 'package_system_spec', oem_package: 'oem_package_system_spec', shipping_material: 'shipping_system_spec' };
+export const PRODUCT_UNIT_KINDS = o('spec_unit:规格单位', 'packaging_unit:产品包装单位', 'shipping_unit:发货物料规格单位', 'system_spec:原料系统规格', 'self_made_system_spec:自产成品系统规格', 'purchased_system_spec:采购成品系统规格', 'package_system_spec:产品包装系统规格', 'oem_package_system_spec:OEM包装系统规格', 'shipping_system_spec:发货物料系统规格', 'packaging_category:包装类别', 'dimension_unit:尺寸单位', 'archive_type:自定义档案类型');
 /** 这几种有“编码”（商品里存编码、显示名称）；系统规格只有名称，商品里存名称 */
 export const PRODUCT_UNIT_CODED_KINDS = ['spec_unit', 'packaging_unit', 'shipping_unit', 'packaging_category', 'dimension_unit', 'archive_type'] as const;
 /** 新公司和“导入默认项”用的预置：[种类, 名称, 编码] */
@@ -123,7 +124,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('giftShortName', '赠品简称', '基础', { maxLength: 40, showWhen: { field: 'archiveType', in: ['raw', 'purchased', 'shipping_material'] }, help: '作赠品时组合名称里用，最多 40 字，不能含 + × * ；全公司商品之间不能重复' }),
       text('giftCodeShortName', '赠品编码简称', '基础', { maxLength: 20, showWhen: { field: 'archiveType', in: ['raw', 'purchased', 'shipping_material'] }, help: '作赠品时组合编码里用，1～20 位英文字母或数字（自动转大写）；全公司商品之间不能重复' }),
       { key: 'basicInfoFullName', label: '基础信息全称', type: 'text', group: '基础', readonly: true, list: true, maxLength: 400, help: '按档案类型把名称、品牌、规格等拼成，自动生成' },
-      text('purchaseSpec', '系统规格', '规格', { maxLength: 30, initialOption: { when: { field: 'archiveType', in: ['package', 'oem_package'] }, sourceKind: 'spec_unit', useLabel: true, fallback: '个' }, optionsFrom: { resource: 'finance-product-units', kind: 'system_spec', kindBy: { field: 'archiveType', map: { shipping_material: 'shipping_system_spec' } } }, showWhen: { field: 'archiveType', in: ['raw', 'self_made', 'purchased', 'package', 'oem_package', 'shipping_material'] }, help: '必填，如“斤”“500克”“千克”；采购价按它计价（原料的重量也按它自动换算），后续采购单、销售单按它选择；不参与商品编码' }),
+      text('purchaseSpec', '系统规格', '规格', { maxLength: 30, input: 'select', initialOption: { when: { field: 'archiveType', in: ['package', 'oem_package'] }, sourceKind: 'spec_unit', useLabel: true, fallback: '个' }, optionsFrom: { resource: 'finance-product-units', kind: 'system_spec', kindBy: { field: 'archiveType', map: PRODUCT_SYSTEM_SPEC_KINDS } }, showWhen: { field: 'archiveType', in: ['raw', 'self_made', 'purchased', 'package', 'oem_package', 'shipping_material'] }, help: '必填，如“斤”“500克”“千克”；采购价按它计价（原料的重量也按它自动换算），后续采购单、销售单按它选择；不参与商品编码' }),
       text('productPackagingSpec', '产品包装规格', '规格', { maxLength: 30, showWhen: { field: 'archiveType', in: ['self_made'] }, help: '参与编码，如“500G袋”' }),
       select('productPackagingUnit', '产品包装单位', '规格', UNIT_OPTIONS, { optionsFrom: { resource: 'finance-product-units', kind: 'packaging_unit' }, showWhen: { field: 'archiveType', in: ['self_made'] }, help: '选填；在“单位与规格”里维护，仅用于产品包装规格，不影响规格单位' }),
       { key: 'specQty', label: '规格数量', type: 'decimal', typeBy: { field: 'archiveType', map: { shipping_material: 'text', purchased: 'text', self_made: 'text' } }, maxLength: 200, aliases: ['规格', '名称规格', '多少'], group: '规格', scale: 3, list: true, help: '除自产成品外必填；包装类由“容量”的第一行决定' },
