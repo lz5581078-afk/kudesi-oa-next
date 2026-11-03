@@ -167,7 +167,7 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
   const seedable = cfg.kind === 'category' && can('create') && (type === 'finance-fee-items' ? hasFeeDefaults(me?.companyName) : Boolean(PARTY_SEED_CATEGORIES[catType as 'finance-supplier-categories']));
   const cards: Array<{ key: string; title: string; subtitle: string; count: number; foot: string; rootId?: number; rec?: ResourceDto; idx: number }> = cfg.kind === 'tab'
     ? tabs.map((t, i) => ({ key: t.value, title: t.label, subtitle: TAB_BLURB[t.value] ?? '公司自定义的档案类型。', count: counts[t.value] ?? 0, foot: `标识 ${TAB_CODE[t.value] ?? t.value}${categoryCounts[t.value] !== undefined ? ` · ${categoryCounts[t.value]} ${['original_purchase', 'supplier_oem'].includes(t.value) ? '个有资料分类' : '个分类'}` : ''}`, idx: i }))
-    : roots.map((r, i) => ({ key: String(r.node.id), title: r.node.title, subtitle: String(r.rec?.data.subtitle ?? '') || `${def.label}分类维护。`, count: r.node.count, foot: '', rootId: r.node.id, rec: r.rec, idx: i }));
+    : roots.map((r, i) => ({ key: String(r.node.id), title: r.node.title, subtitle: String(r.rec?.data.subtitle ?? '') || `${def.label}分类维护。`, count: r.node.count, foot: type === 'finance-fee-items' ? `${r.node.count} 个费用项` : '', rootId: r.node.id, rec: r.rec, idx: i }));
 
   return (
     <div className={`res-page hier-home finance-base-home${contact ? ' finance-contact-home' : ''}`} data-resource={type}>
@@ -175,11 +175,11 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
       <header className="hier-home-head">
         <div className="finance-base-home-title">{contact && <span>财务基础资料</span>}<h1>{def.label}</h1><p>{contact ? `按${noun}类型分层维护。进入一个分类后，只展示该目录直属的${noun}资料。` : type === 'finance-products' ? '按原料、自产品、原装采购、供应商 OEM、产品包装、发货物料和 OEM 包装分别维护，后续用于采购、成本和核算。' : cfg.subtitle}</p></div>
         <div className="hier-home-actions">
-          {type === 'finance-fee-items' && <button type="button" className="res-btn" onClick={() => setSnapshots(true)}>费用存档表</button>}
-          {cfg.kind === 'category' && <details className="finance-home-more"><summary>更多</summary><button type="button" className="res-btn" onClick={() => onEnter({ key: 'all', title: `全部${noun}`, subtitle: cfg.subtitle })}>查看全部{total !== null ? `（${total}）` : ''}</button></details>}
+          {type === 'finance-fee-items' && <>{catCan('create') && <button type="button" className="res-btn primary" onClick={() => setDraft({ name: '', subtitle: '' })}>新增顶级分类</button>}<button type="button" className="res-btn" onClick={() => setSnapshots(true)}>存为历史包</button></>}
+          {cfg.kind === 'category' && <details className="finance-home-more"><summary>更多</summary><button type="button" className="res-btn" onClick={() => onEnter({ key: 'all', title: `全部${noun}`, subtitle: cfg.subtitle })}>查看全部{total !== null ? `（${total}）` : ''}</button>{type === 'finance-fee-items' && canManageRoots && <button type="button" className="res-btn" onClick={() => setManaging(v => !v)}>{managing ? '完成管理' : '管理顶级分类'}</button>}</details>}
           {cfg.kind === 'tab' && can('edit') && <button type="button" className="res-btn" onClick={() => setTypesOpen(true)}>管理顶级分类</button>}
-          {canManageRoots && <button type="button" className={managing ? 'res-btn on' : 'res-btn'} aria-pressed={managing} onClick={() => { setManaging(!managing); setDraft(null); }}>{managing ? '完成管理' : '管理顶级分类'}</button>}
-          {managing && catCan('create') && <button type="button" className="res-btn primary" onClick={() => setDraft({ name: '', subtitle: '' })}>＋ 新增顶级分类</button>}
+          {canManageRoots && type !== 'finance-fee-items' && <button type="button" className={managing ? 'res-btn on' : 'res-btn'} aria-pressed={managing} onClick={() => { setManaging(!managing); setDraft(null); }}>{managing ? '完成管理' : '管理顶级分类'}</button>}
+          {managing && type !== 'finance-fee-items' && catCan('create') && <button type="button" className="res-btn primary" onClick={() => setDraft({ name: '', subtitle: '' })}>＋ 新增顶级分类</button>}
         </div>
       </header>
       {error && !draft && <div role="alert" className="notice error m">{error}</div>}
@@ -237,6 +237,7 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
           {seedable && <button type="button" className="res-btn" disabled={busy} onClick={() => void seed()}>{type === 'finance-fee-items' ? '导入默认费用档案' : '导入默认分类'}</button>}
         </div>
       )}
+      {type === 'finance-fee-items' && <FeeSnapshotsDialog embedded canWrite={can('create')} canDelete={can('delete')} onClose={() => undefined} onRestored={refresh} />}
       {typesOpen && <ArchiveTypeDialog counts={counts} onClose={() => setTypesOpen(false)} onChanged={refresh} />}
       {snapshots && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshots(false)} onRestored={refresh} />}
       {deleting && (

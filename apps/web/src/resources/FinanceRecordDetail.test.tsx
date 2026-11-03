@@ -166,9 +166,11 @@ describe('查看与编辑切换', () => {
     expect(screen.queryByRole('heading', { name: '旧客户' })).toBeNull();
   });
 
-  it('列表直达子记录页签的入口仍有效，不被初始加载重置成详情', async () => {
+  it('列表直达成本明细表格，保留新增入口且不回到详情', async () => {
     show(dto('finance-products', 1, { name: '商品甲', archiveType: 'raw' }), { initialTab: 'child:finance-product-costs|productId' });
-    await waitFor(() => expect(screen.getByRole('tab', { name: '档案成本记录' }).getAttribute('aria-selected')).toBe('true'));
+    await screen.findByRole('heading', { name: '成本明细' });
+    expect(screen.getByRole('table', { name: '成本明细' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '＋ 新增成本' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: '供货来源' })).toBeNull();
   });
 });

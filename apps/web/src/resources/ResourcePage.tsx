@@ -35,6 +35,7 @@ import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip }
 import { PageHint } from './PageHint';
 import { StaffFeishuUnbindDialog } from '../pages/org/StaffFeishuUnbind';
 import { ToolPop } from './ToolPop';
+import { referenceRecordLabel } from './referenceFormLayout';
 import { WorkforceActions } from './WorkforceActions';
 import { StaffEditorDialog } from '../pages/org/StaffEditorDialog';
 import { AddAccountDialog, WorkforceLoginDialog, type UnfiledPerson } from './WorkforcePanels';
@@ -68,11 +69,12 @@ function writePrefs(type: string, patch: ListPrefs) {
   }
 }
 
-function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
-  const key = `kudesi.cols.${type}`;
+function useColumns(type: string, all: FieldDef[], defaults: FieldDef[], scope?: string) {
+  const baseKey = `kudesi.cols.${type}`;
+  const key = scope ? `${baseKey}.${scope}` : baseKey;
   const [keys, setKeys] = useState<string[]>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(key) ?? 'null') as string[] | null;
+      const saved = JSON.parse(localStorage.getItem(key) ?? (scope ? localStorage.getItem(baseKey) : null) ?? 'null') as string[] | null;
       if (type === 'stores' && !localStorage.getItem(`${key}.jst-association`)) {
         localStorage.setItem(`${key}.jst-association`, '1');
         if (saved?.length && !saved.includes('jushuitanShopId')) {
@@ -205,9 +207,15 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   // 派生列（配置 derivedColumns）：按页现算的数字，当作只读列显示，服务端可排序、可导出
   const derivedFields = useMemo<FieldDef[]>(() => (def.derivedColumns ?? []).map((d) => ({ key: d.key, label: d.label, type: d.kind === 'sum' && d.format === 'money' ? 'money' : 'number', group: '统计', readonly: true, list: d.list !== false })), [def]);
   const derivedKeys = useMemo(() => new Set(derivedFields.map((f) => f.key)), [derivedFields]);
-  const shownFields = useMemo(() => [...def.fields.filter((f) => f.type !== 'secret'), ...derivedFields], [def, derivedFields]);
-  const defaults = useMemo(() => [...def.fields.filter((f) => f.list), ...derivedFields.filter((f) => f.list)], [def, derivedFields]);
-  const [colKeys, setColKeys] = useColumns(type, shownFields, defaults);
+  const shownFields = useMemo(() => [...def.fields.filter((f) => f.type !== 'secret').map(f => type === 'finance-products' && hier ? { ...f, label: ({ code: '系统自动编号', basicInfoFullName: '基础信息全名', categoryId: '所属分类', totalCost: '最新成本' } as Record<string,string>)[f.key] || f.label } : f), ...derivedFields], [def, derivedFields, type, hier]);
+  const defaults = useMemo(() => {
+    if (type === 'finance-products' && hier) {
+      const keys = ['code', 'basicInfoFullName', 'categoryId', ...(['package', 'oem_package'].includes(tab) ? ['packagingCategory', 'dimensions', 'capacities', 'orderStock', 'actualStock'] : []), 'purchaseSpec', 'purchasePrice', 'freight', 'handlingFee', 'totalCost'];
+      return keys.map(key => shownFields.find(f => f.key === key)).filter((f): f is FieldDef => !!f);
+    }
+    return [...def.fields.filter((f) => f.list), ...derivedFields.filter((f) => f.list)];
+  }, [def, derivedFields, shownFields, type, hier, tab]);
+  const [colKeys, setColKeys] = useColumns(type, shownFields, defaults, type === 'finance-products' && hier ? tab : undefined);
   const warehouseMode = Boolean(data?.items.some((i) => i.warehouseMode));
   const baseColumns = colKeys.map((k) => shownFields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
     .filter((f) => !warehouseMode || WAREHOUSE_PRODUCT_FIELDS.includes(f.key))
@@ -617,15 +625,17 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     </fieldset>
   );
 
+  const productLabel = type === 'finance-products' ? referenceRecordLabel(type, ['original_purchase', 'supplier_oem'].includes(tab) ? { archiveType: 'purchased', supplyMode: tab } : { archiveType: tab }) : '';
+  const financeListTitle = productLabel ? `${productLabel}列表` : `${paths[treeField?.key ?? '']?.split(' / ').at(-1) || hier?.title || def.label}${def.label.replace('档案', '')}列表`;
   const toolbar = !hier ? standardToolbar : (
     <fieldset className="grid-lock res-tools finance-base-tools" disabled={gridLocked}>
       <div className="finance-base-list-topline">
-        <div className="finance-base-list-title"><h3>{paths[treeField?.key ?? '']?.split(' / ').at(-1) || hier.title}{def.label.replace('档案', '')}列表</h3><span>共 {data?.total ?? 0} 条</span></div>
+        <div className="finance-base-list-title"><h3>{financeListTitle}</h3><span>共 {data?.total ?? 0} 条</span></div>
         <div className="res-actions">
           <ToolPop label="资料操作" trigger="资料操作" align="right" panelClass="finance-base-operations">{() => <><div className="finance-base-operation-query">{searchTools}</div><div className="finance-base-operation-actions">{actions}</div></>}</ToolPop>
           {hiddenButton}
           {!isMobile && <ColumnsPop fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} />}
-          {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
+          {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate} aria-label="＋ 新增">＋ 新增{productLabel || def.label.replace('档案', '')}</button>}
         </div>
       </div>
       {(filtered || chips.length > 0) && data && <ActiveChips chips={chips} summary={filtered ? `找到 ${data.total} 条符合条件的${def.label}` : ''} onClearAll={clearFilters} />}
@@ -747,6 +757,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
       {archiveTypesOpen && <ArchiveTypeDialog counts={data?.tabCounts} onClose={() => setArchiveTypesOpen(false)} onChanged={() => void load()} />}
       {costXlOpen && <ProductCostExcelDialog canImport={costCan('product.cost.edit') && costCan('resource.finance-product-costs.create')} onClose={() => setCostXlOpen(false)} onDone={() => void load()} />}
       {packagingXlOpen && <PackagingExcelDialog canCreate={can('create')} onClose={() => setPackagingXlOpen(false)} onDone={() => void load()} />}
+      {type === 'finance-fee-items' && <FeeSnapshotsDialog embedded canWrite={can('create')} canDelete={can('delete')} onClose={() => undefined} onRestored={() => void load()} />}
       {snapshotsOpen && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshotsOpen(false)} onRestored={() => void load()} />}
       {selected !== null && <RecordDetail key={`${selected}:${detailTab ?? ''}`} initialTab={detailTab} def={def} id={selected} nav={detailNav} onClose={() => { setSelected(null); setDetailTab(undefined); }} onChanged={() => void load()} onCopy={type !== 'workforce' && can('create') ? (v) => { setCopyInit(v); setSelected(null); setCreating(true); } : undefined} />}
 
