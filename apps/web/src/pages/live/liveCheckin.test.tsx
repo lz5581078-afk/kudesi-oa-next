@@ -32,7 +32,7 @@ describe('直播间与岗位打卡',()=>{
   const trialPlan={...plan,anchorTrial:true,anchor:{id:3,name:'试播小李'},start:'2020-01-01 10:00:00'};
   render(<StartDialog role="control" schedule={trialPlan as never} identity={{isAnchor:false,isControl:true,canManage:false}} onClose={()=>{}} onDone={done}/>);
   const button=await screen.findByRole('button',{name:'确认上播'});await waitFor(()=>expect(button.hasAttribute('disabled')).toBe(false));
-  expect(screen.getByLabelText('主播').hasAttribute('disabled')).toBe(true);
+  expect(screen.getByLabelText('本场主播').textContent).toBe('试播小李');fireEvent.click(screen.getByRole('button',{name:'调整本场人员'}));expect(screen.getByLabelText('主播').hasAttribute('disabled')).toBe(true);
   fireEvent.click(screen.getByRole('checkbox',{name:/已核对本场人员/}));fireEvent.click(button);
   expect((await screen.findByRole('alert')).textContent).toContain('试播主播');expect(api.start).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('checkbox',{name:/确认本场由试播主播「试播小李」上播/}));fireEvent.click(button);
