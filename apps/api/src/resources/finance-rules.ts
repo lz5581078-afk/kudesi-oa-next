@@ -1,5 +1,5 @@
 import { archiveCodePrefix, beforeArchivePrefix } from './archive-prefix';
-import { systemWeightG } from '@kudesi/shared';
+import { systemWeightG, sourcePriceTime } from '@kudesi/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { pinyin } from 'pinyin-pro';
@@ -390,6 +390,9 @@ async function beforeSource(ctx: BeforeSaveContext) {
   if (p.data.archiveType === 'raw' && !str(data.originArea).trim()) throw new BadRequestException('原料的供货来源要填产区');
   if (!str(data.systemSpec).trim() && p.data.purchaseSpec) data.systemSpec = p.data.purchaseSpec;
   if (data.purchasePrice !== undefined && (num(data.purchasePrice) ?? -1) < 0) throw new BadRequestException('采购价不能是负数');
+  data.priceUpdatedAt = !ctx.existing || data.purchasePrice !== ctx.existing.data.purchasePrice
+    ? new Date().toISOString()
+    : ctx.existing.data.priceUpdatedAt || ctx.existing.updatedAt.toISOString();
   data.label = `${p.title} ← ${sup.title}${str(data.originArea) ? `（${str(data.originArea)}）` : ''}`.slice(0, 200);
 }
 
@@ -1181,12 +1184,12 @@ export async function recomputeProduct(host: RuleHost, em: EntityManager, user: 
   }
 }
 
-/** 原料/发货物料的当前采购价和供应商 = 最近更新的启用供货来源。 */
+/** 原料/发货物料的当前采购价和供应商 = 采购价最近更新的启用供货来源。 */
 export async function refreshFromSources(host: RuleHost, em: EntityManager, user: AuthUser, productId: number) {
   const p = await rec(em, user.companyId, 'finance-products', productId);
   if (!p || !['raw', 'shipping_material'].includes(str(p.data.archiveType))) return;
   const live = (await host.findWhere(em, user.companyId, 'finance-product-sources', 'productId', productId)).filter((x) => x.status === 'active');
-  live.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || (a.data.legacySourceId && b.data.legacySourceId ? Number(BigInt(str(b.data.legacySourceId))-BigInt(str(a.data.legacySourceId))) : b.id - a.id));
+  live.sort((a, b) => sourcePriceTime(b.data.priceUpdatedAt, b.updatedAt) - sourcePriceTime(a.data.priceUpdatedAt, a.updatedAt) || (a.data.legacySourceId && b.data.legacySourceId ? Number(BigInt(str(b.data.legacySourceId))-BigInt(str(a.data.legacySourceId))) : b.id - a.id));
   const cur = live[0];
   const price = cur ? num(cur.data.purchasePrice) : null;
   const f = num(p.data.freight), h = num(p.data.handlingFee);

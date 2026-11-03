@@ -1,3 +1,4 @@
+import { sourcePriceTime } from '@kudesi/shared';
 import { Fragment } from 'react';
 import { FolderTree } from 'lucide-react';
 import { COMPOSITION_GROUP_LABEL, createChecker, getResourceDef, multiplyUnitCents, productLayoutKey, resolveProductSections, type ResolvedNode, type CompositionGroup } from '@kudesi/shared';
@@ -16,7 +17,7 @@ const sourceRef = () => null;
 
 function ProductSources({ record, canCost }: { record: ResourceDto; canCost: boolean }) {
   const { rows, error } = useFinanceDetailRows('finance-product-sources', 'productId', record.id, record.updatedAt, sourceRef);
-  const ordered = rows ? [...rows].sort((a, b) => b.row.updatedAt.localeCompare(a.row.updatedAt) || b.row.id - a.row.id) : null;
+  const ordered = rows ? [...rows].sort((a, b) => sourcePriceTime(b.row.data.priceUpdatedAt, b.row.updatedAt) - sourcePriceTime(a.row.data.priceUpdatedAt, a.row.updatedAt) || b.row.id - a.row.id) : null;
   const latest = ordered?.find(({ row }) => row.status === 'active')?.row.id;
   return <FinanceSection title="供货来源" hint="同一原料可维护多个产区和供应商"><DetailRowsState error={error} loading={!rows && !error} empty={false} />{ordered?.map(({ row }, index) => <section className="finance-source-card" key={row.id}>
     <header><strong>来源 {String(index + 1).padStart(2, '0')}</strong>{row.id === latest && <span>当前最新成本</span>}{row.status !== 'active' && <span>已停用</span>}</header>

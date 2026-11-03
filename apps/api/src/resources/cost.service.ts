@@ -20,7 +20,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
 const EXPRESS_TYPES = ['finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-express-prices'];
 
-export interface CostLine { role: string; code: string; name: string; qty: number; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
+export interface CostLine { role: string; code: string; name: string; qty: number; unitName?: string; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
 export interface CostRow {
   bundleId: number; code: string; name: string; status: string; categoryId: number | null; categoryName: string;
   preShipCostCents: number | null; weightG: number | null;
@@ -126,16 +126,18 @@ export class CostService {
     const categoryId = num(b.data.bundleCategoryId);
     for (const l of d.lines.filter((x) => num(x.data.bundleId) === b.id).sort((x, y) => x.id - y.id)) {
       const qty = num(l.data.qty) ?? 0, role = str(l.data.role);
-      let unit: number | null = null, w = 0, code = '', name = '';
+      let unit: number | null = null, w = 0, code = '', name = '', unitName = '';
       let hasWeight = false;
       if (role === 'labor') {
         const lab = d.labor.get(num(l.data.laborId) ?? -1);
         unit = lab ? num(lab.data.unitPrice) : null;
         name = lab?.title ?? '人工';
         code = '人工';
+        unitName = str(lab?.data.unitName).replace(/^元\s*[\/／]\s*/, '');
       } else {
         const bc = d.baseCodes.get(num(l.data.baseCodeId) ?? -1);
         const p = bc ? d.products.get(num(bc.data.productId) ?? -1) : undefined;
+        unitName = bc?.data.origin === 'composed' ? str(l.data.unit) : str(p?.data.purchaseSpec) || str(l.data.unit);
         if (bc?.data.origin === 'composed') {
           // 多构成基础编码：成本、重量 = 构成行 数量×商品档案 汇总
           const parts = d.baseCodeLines.filter((x) => num(x.data.baseCodeId) === bc.id);
@@ -159,7 +161,7 @@ export class CostService {
       const sub = unit === null ? null : multiplyUnitCents(unit, qty);
       if (sub === null) { issues.push(`「${name || code}」还没有成本`); cost = null; } else if (cost !== null) cost = sumUnitCents([cost,sub]);
       weight += w * qty;
-      lines.push({ role, code, name, qty, unitCostCents: unit, subtotalCents: sub, unitWeightG: hasWeight ? w : null, weightG: Math.round(w * qty * 1e6) / 1e6 });
+      lines.push({ role, code, name, qty, unitName, unitCostCents: unit, subtotalCents: sub, unitWeightG: hasWeight ? w : null, weightG: Math.round(w * qty * 1e6) / 1e6 });
     }
     if (lines.length === 0) { cost = null; issues.push('还没有构成'); }
     let weightG: number | null = Math.round(weight * 1e6) / 1e6;

@@ -27,7 +27,7 @@ import { ReferenceRecordHistory } from './ReferenceRecordHistory';
 import { ReferenceLines, FreightHistory, CompositionResult } from './ReferenceProductFields';
 import { BundleProfileEditor } from './BundleProfileEditor';
 import { BaseCodeProfileEditor } from './BaseCodeProfileEditor';
-import { SourcesDraft, WeightBlock, loadSourceRows, saveSourceRows, type SourceRow } from './ProductFormParts';
+import { SourcesDraft, WeightBlock, latestSource, loadSourceRows, saveSourceRows, type SourceRow } from './ProductFormParts';
 import { draftApi, resourceApi, type FileInfo, type ResourceDto } from './api';
 import { ProductQualityDialog } from './ProductQualityDialog';
 import { FilesInput } from './FilesField';
@@ -402,7 +402,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       if (isProduct) {
         // 旧系统每次保存商品档案都先弹“核算资料确认”：逐项核对、零值写原因
         // 原料、发货物料的采购价来自供货来源：核算确认里按有价格的来源行显示（保存时仍以来源为准）
-        const sourcePrice = wantSources ? sourceRows.find((r) => r.supplierId && r.purchasePrice !== '' && !Number.isNaN(r.purchasePrice))?.purchasePrice : undefined;
+        const sourcePrice = wantSources ? latestSource(sourceRows)?.purchasePrice : undefined;
         const merged = { ...(record?.data ?? {}), ...body, ...(sourcePrice !== undefined ? { purchasePrice: sourcePrice } : {}) };
         const options: QualityOptions = { canCost: Boolean(me && createChecker(me.permissions)('product.cost.edit')), composition: wantComposition || layoutKey === 'self_made' ? (partsKnown.composition ? { packaging: validBomRows(bomRows).filter((r) => r.group === 'package' || r.group === 'oem_package').length, labor: validBomRows(bomRows).filter((r) => r.group === 'labor').length } : await compositionCounts(record?.id, merged)) : undefined };
         setQuality({ body: merged, mode, options });
@@ -514,7 +514,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const draftFacts = useProductDraftFacts(bomRows, canCostEdit);
   const compositionPrice = layoutKey === 'purchased_oem' && !bomRows.length ? 0 : draftFacts.cost;
   const oemRawPrice = Number(values.purchasePrice || 0);
-  const previewValues = { ...values, ...(wantComposition ? { purchasePrice: compositionPrice === null || layoutKey === 'purchased_oem' && !Number.isFinite(oemRawPrice) ? undefined : sumUnitCents([compositionPrice, layoutKey === 'purchased_oem' ? oemRawPrice : 0]) } : {}), ...(wantSources ? { purchasePrice: sourceRows.find(r => r.supplierId && r.purchasePrice !== '')?.purchasePrice ?? values.purchasePrice } : {}) };
+  const previewValues = { ...values, ...(wantComposition ? { purchasePrice: compositionPrice === null || layoutKey === 'purchased_oem' && !Number.isFinite(oemRawPrice) ? undefined : sumUnitCents([compositionPrice, layoutKey === 'purchased_oem' ? oemRawPrice : 0]) } : {}), ...(wantSources ? { purchasePrice: latestSource(sourceRows)?.purchasePrice ?? values.purchasePrice } : {}) };
   const automaticWeight = layoutKey === 'raw' ? systemWeightG(String(values.purchaseSpec ?? '')) : layoutKey === 'self_made' ? draftFacts.weightG : layoutKey === 'purchased_oem' ? (specificationWeightG(values.specQty, values.specUnit) ?? 0) + Number(values.oemPackageWeightG || 0) + (draftFacts.weightG ?? 0) : specificationWeightG(values.specQty, values.specUnit);
   const weightValues = values.weightManual === true || ['package','oem_package','shipping_material','custom'].includes(layoutKey) ? values : { ...values, weightG: automaticWeight };
   const secTitle = (g: string) => (resolved ? g : groupTitle(def, g, values));

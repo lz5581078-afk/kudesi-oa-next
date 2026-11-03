@@ -2,7 +2,7 @@ import { StoreJstRefresh } from './StoreJstSelect';
 import { copyValuesOf } from './HierRowActions';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useUnitOptions } from './unitOptions';
-import { RESOURCE_DEFS, resolveProductSections, groupTitle, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
+import { sourcePriceTime, RESOURCE_DEFS, resolveProductSections, groupTitle, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
 import { useAuth } from '../auth/AuthContext';
@@ -47,11 +47,12 @@ export function childDefaults(childType: string, isNew: boolean, parent: Resourc
 }
 
 const todayText = () => todayShanghai();
-/** 供货来源：启用的来源里最近更新的一条，就是商品当前取用的最新成本。 */
+/** 供货来源：启用的来源里采购价最近更新的一条，就是商品当前取用的最新成本。 */
 export function isLatestSource(it: ResourceDto, all: ResourceDto[]): boolean {
   const live = all.filter((x) => x.status === 'active');
   if (it.status !== 'active' || live.length < 2) return false;
-  return !live.some((x) => x.id !== it.id && (x.updatedAt > it.updatedAt || (x.updatedAt === it.updatedAt && x.id > it.id)));
+  const time = sourcePriceTime(it.data.priceUpdatedAt, it.updatedAt);
+  return !live.some((x) => x.id !== it.id && (sourcePriceTime(x.data.priceUpdatedAt, x.updatedAt) > time || (sourcePriceTime(x.data.priceUpdatedAt, x.updatedAt) === time && x.id > it.id)));
 }
 /** 同一成本类型里，启用、已开始、没结束且生效日最新的一条。 */
 export function isCurrentCost(it: ResourceDto, all: ResourceDto[]): boolean {

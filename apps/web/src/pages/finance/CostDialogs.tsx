@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError } from '../../api/client';
 import { money, pct } from './common';
 import { financeApi, type CostCategory, type CostRow, type CostSnapshotRow, type PricingHistoryRow } from './financeApi';
+import { unitOptionFromText } from '@kudesi/shared';
 
 export const ROLE: Record<string, string> = { main: '主品', gift: '赠品', package: '包装', label: '标签', instruction: '说明书', other: '其他物料', labor: '人工' };
 export const METHOD: Record<string, string> = {
@@ -10,30 +11,32 @@ export const METHOD: Record<string, string> = {
 };
 const when = (s: string) => new Date(s).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
-const kg = (g: number | null) => (g === null ? '未设置' : `${Number((g / 1000).toFixed(3))} kg`);
+const kg = (g: number | null) => (g === null ? '未设置' : `${Number((g / 1000).toFixed(6))} kg`);
+
+const costMoney = (cents: number | null) => cents === null ? '—' : `¥${(cents / 100).toLocaleString('zh-CN', { minimumFractionDigits: 3, maximumFractionDigits: 6 })}`;
 
 /** 成本组成 / 重量组成：这个组合的成本和重量是怎么由各个构成加起来的 */
 export function BreakdownDialog({ row, kind, onClose }: { row: CostRow; kind: 'cost' | 'weight'; onClose: () => void }) {
   const cost = kind === 'cost';
   const lines = cost ? row.lines : row.lines.filter((l) => l.role !== 'labor');
   return (
-    <div className="modal-backdrop" role="presentation"><div className="modal card wide" role="dialog" aria-label={`${cost ? '成本' : '重量'}组成明细`}>
-      <div className="modal-head between"><strong>{cost ? '成本组成' : '重量组成'} · {row.code}</strong><button type="button" className="icon-button" aria-label="关闭组成明细" onClick={onClose}>✕</button></div>
+    <div className="modal-backdrop" role="presentation"><div className="modal card wide finance-cost-breakdown" role="dialog" aria-modal="true" aria-label={`${cost ? '成本' : '重量'}组成明细`}>
+      <div className="modal-head between"><div><h2>{cost ? '成本组成' : '重量组成'}</h2><p className="muted">{row.code} · {row.name}</p></div><button type="button" className="icon-button" aria-label="关闭组成明细" onClick={onClose}>✕</button></div>
       <div className="modal-body">
-        <p className="muted">{row.name}</p>
+        <p className="muted">明细来源：当前组成</p>
         {row.issues.length > 0 && <ul>{row.issues.map((i) => <li key={i} className="bad-text">{i}</li>)}</ul>}
         <div className="table-scroll"><table className="data-table">
-          <thead><tr><th>类型</th><th>组成项目</th><th className="num">数量</th><th className="num">{cost ? '单位成本' : '单件重量'}</th><th className="num">{cost ? '成本小计' : '重量小计'}</th></tr></thead>
+          <thead><tr><th>类型</th><th>组成项目</th><th className="num">数量（系统规格）</th><th className="num">{cost ? '单位成本' : '单件重量'}</th><th className="num">{cost ? '成本小计' : '重量小计'}</th></tr></thead>
           <tbody>
             {lines.length === 0 && <tr><td colSpan={5} className="empty-state muted">暂无组成明细</td></tr>}
             {lines.map((l, i) => (
-              <tr key={i}><td>{ROLE[l.role] ?? l.role}</td><td><strong>{l.name}</strong><div className="muted">{l.code}</div></td><td className="num">{l.qty}</td>
-                <td className="num">{cost ? money(l.unitCostCents) : l.unitWeightG === null ? '—' : `${l.unitWeightG} g`}</td>
-                <td className="num">{cost ? money(l.subtotalCents) : `${l.weightG} g`}</td></tr>
+              <tr key={i}><td>{ROLE[l.role] ?? l.role}</td><td><strong>{l.name}</strong><div className="muted">{l.code}</div></td><td className="num">{l.qty} {l.unitName ? unitOptionFromText(l.unitName)?.label || l.unitName : '（系统规格未记录）'}</td>
+                <td className="num">{cost ? costMoney(l.unitCostCents) : l.unitWeightG === null ? '—' : `${(l.unitWeightG / 1000).toFixed(6)} kg`}</td>
+                <td className="num">{cost ? costMoney(l.subtotalCents) : `${(l.weightG / 1000).toFixed(6)} kg`}</td></tr>
             ))}
           </tbody>
         </table></div>
-        <div className="between"><span>{cost ? '成本表成本（发货前）' : '成本表计费重量'}</span><strong>{cost ? money(row.preShipCostCents) : row.weightG === null ? '未设置' : `${row.weightG} g（${kg(row.weightG)}）`}</strong></div>
+        <div className="between"><span>{cost ? '成本表成本' : '成本表计费重量'}</span><strong>{cost ? costMoney(row.preShipCostCents) : kg(row.weightG)}</strong></div>
       </div>
       <div className="modal-foot"><button type="button" className="secondary-button" onClick={onClose}>关闭</button></div>
     </div></div>

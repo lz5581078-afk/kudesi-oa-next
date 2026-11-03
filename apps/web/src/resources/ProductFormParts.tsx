@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react';
-import type { FieldDef } from '@kudesi/shared';
+import { sourcePriceTime, type FieldDef } from '@kudesi/shared';
 import { MoneyControl, RefSelect } from './RecordForm';
 import { resourceApi } from './api';
 import { FieldHint } from './FieldHint';
 import { FinanceSupplierPicker } from './FinanceSupplierPicker';
 
 /** 供货来源行（原料、发货物料）：同一个组件用于新增和编辑，保存档案后按差异落库。 */
-export interface SourceRow { rowId?: number; supplierId: number | null; originArea: string; systemSpec: string; purchasePrice: unknown; note?: string; stopped?: boolean }
+export interface SourceRow { rowId?: number; supplierId: number | null; originArea: string; systemSpec: string; purchasePrice: unknown; note?: string; stopped?: boolean; priceUpdatedAt?: string; updatedAt?: string; supplierLabel?: string }
 
 const SUPPLIER: FieldDef = { key: 'supplierId', label: '供应商', type: 'ref', group: '基础', ref: 'finance-suppliers' };
-export const blankSource = (): SourceRow => ({ supplierId: null, originArea: '', systemSpec: '', purchasePrice: '' });
+export const blankSource = (): SourceRow => ({ supplierId: null, originArea: '', systemSpec: '', purchasePrice: '', priceUpdatedAt: new Date().toISOString() });
 
 export async function loadSourceRows(productId: number): Promise<SourceRow[]> {
-  const r = await resourceApi.list('finance-product-sources', { fieldKey: 'productId', fieldValue: productId, pageSize: 200, showHidden: true });
-  return r.items.map((i) => ({
+  const items: import('./api').ResourceDto[] = [];
+  for (let page = 1; ; page++) { const r = await resourceApi.list('finance-product-sources', { fieldKey: 'productId', fieldValue: productId, page, pageSize: 200, showHidden: true }); items.push(...r.items); if (items.length >= r.total || !r.items.length) break; }
+  return items.map((i) => ({
     rowId: i.id, supplierId: typeof i.data.supplierId === 'number' ? i.data.supplierId : null, originArea: String(i.data.originArea ?? ''), systemSpec: String(i.data.systemSpec ?? ''),
+    priceUpdatedAt: typeof i.data.priceUpdatedAt === 'string' ? i.data.priceUpdatedAt : undefined, updatedAt: i.updatedAt, supplierLabel: i.refLabels?.supplierId,
     purchasePrice: i.data.purchasePrice ?? '', note: String(i.data.note ?? ''), stopped: i.status !== 'active',
   }));
 }
@@ -28,7 +30,8 @@ export async function saveSourceRows(productId: number, rows: SourceRow[], origi
   for (const o of original) if (o.rowId && !keep.has(o.rowId)) {
     try { await resourceApi.remove('finance-product-sources', o.rowId, '在商品档案表单里去掉'); } catch (e) { failed.push(`删除旧供货来源：${(e as Error).message || '失败'}`); }
   }
-  for (const [i, r] of rows.entries()) {
+  const ordered = [...rows.entries()].sort(([,a],[,b]) => sourcePriceTime(a.priceUpdatedAt,a.updatedAt)-sourcePriceTime(b.priceUpdatedAt,b.updatedAt));
+  for (const [i, r] of ordered) {
     if (!r.supplierId) continue;
     const before = original.find((o) => o.rowId === r.rowId);
     if (before && same(before, r)) continue;
@@ -41,12 +44,17 @@ export async function saveSourceRows(productId: number, rows: SourceRow[], origi
   return failed;
 }
 
+export function latestSource(rows: SourceRow[]): SourceRow | undefined {
+  return rows.filter(row => !row.stopped).reduce<SourceRow | undefined>((latest,row) => !latest || sourcePriceTime(row.priceUpdatedAt,row.updatedAt) > sourcePriceTime(latest.priceUpdatedAt,latest.updatedAt) || sourcePriceTime(row.priceUpdatedAt,row.updatedAt) === sourcePriceTime(latest.priceUpdatedAt,latest.updatedAt) && (row.rowId ?? 0) >= (latest.rowId ?? 0) ? row : latest, undefined);
+}
+
 export function SourcesDraft({ rows, onChange, canCost, needSpec, error, reference = false }: { rows: SourceRow[]; onChange: (r: SourceRow[]) => void; canCost: boolean; needSpec: boolean; error?: string; reference?: boolean }) {
-  const set = (i: number, patch: Partial<SourceRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  const set = (i: number, patch: Partial<SourceRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch, ...("purchasePrice" in patch && patch.purchasePrice !== r.purchasePrice ? { priceUpdatedAt: new Date().toISOString() } : {}) } : r)));
   if (reference) {
     const shown = rows.length ? rows : [blankSource()];
-    const change = (i: number, patch: Partial<SourceRow>) => onChange(shown.map((r,k) => k === i ? {...r,...patch} : r));
-    return <div className="reference-sources" data-field="supplySources"><div className="reference-lines-actions"><button type="button" className="secondary-button small" onClick={() => onChange([...rows,blankSource()])}>＋ 添加供货来源</button></div>{shown.map((r,i) => <section key={r.rowId ?? i} className="reference-source"><header><strong>来源 {String(i + 1).padStart(2,'0')}</strong>{i === 0 && <span>当前最新成本</span>}{rows.length > 1 && <button type="button" className="link-button danger" onClick={() => onChange(rows.filter((_,k)=>k!==i))}>去掉</button>}</header><div className="reference-source-grid"><label>供应商名称 <b className="req">必填</b><FinanceSupplierPicker value={r.supplierId} onChange={v=>change(i,{supplierId:v})}/></label><label>产区 <b className="req">必填</b><input aria-label="产区" maxLength={80} value={r.originArea} onChange={e=>change(i,{originArea:e.target.value})}/></label>{needSpec && <label>系统规格 <b className="req">必填</b><input aria-label="来源系统规格" maxLength={30} value={r.systemSpec} onChange={e=>change(i,{systemSpec:e.target.value})}/></label>}{canCost && <label>采购价 <b className="req">必填</b><MoneyControl ariaLabel="来源采购价" value={r.purchasePrice} scale={4} onChange={v=>change(i,{purchasePrice:v})}/></label>}</div></section>)}{error && <small className="field-error" role="alert">{error}</small>}</div>;
+    const change = (i: number, patch: Partial<SourceRow>) => onChange(shown.map((r,k) => k === i ? {...r,...patch,...('purchasePrice' in patch && patch.purchasePrice !== r.purchasePrice ? {priceUpdatedAt:new Date().toISOString()} : {})} : r));
+    const latest = latestSource(shown);
+    return <div className="reference-sources" data-field="supplySources"><div className="reference-lines-actions"><button type="button" className="secondary-button small" onClick={() => onChange([...rows,blankSource()])}>＋ 添加供货来源</button></div>{shown.map((r,i) => <section key={r.rowId ?? i} className="reference-source"><header><strong>来源 {String(i + 1).padStart(2,'0')}</strong>{r === latest && <span>当前最新成本</span>}{rows.length > 1 && <button type="button" className="link-button danger" onClick={() => onChange(rows.filter((_,k)=>k!==i))}>去掉</button>}</header><div className="reference-source-grid"><label>供应商名称 <b className="req">必填</b><FinanceSupplierPicker labelNow={r.supplierLabel} value={r.supplierId} onChange={v=>change(i,{supplierId:v})}/></label><label>产区 <b className="req">必填</b><input aria-label="产区" maxLength={80} value={r.originArea} onChange={e=>change(i,{originArea:e.target.value})}/></label>{needSpec && <label>系统规格 <b className="req">必填</b><input aria-label="来源系统规格" maxLength={30} value={r.systemSpec} onChange={e=>change(i,{systemSpec:e.target.value})}/></label>}{canCost && <label>采购价 <b className="req">必填</b><MoneyControl ariaLabel="来源采购价" value={r.purchasePrice} scale={4} onChange={v=>change(i,{purchasePrice:v})}/></label>}</div></section>)}{error && <small className="field-error" role="alert">{error}</small>}</div>;
   }
   return (
     <div className="rf-rows" data-field="supplySources">

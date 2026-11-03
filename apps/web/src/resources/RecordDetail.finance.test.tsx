@@ -99,7 +99,7 @@ describe('成本明细行', () => {
 
 describe('供货来源：当前最新成本', () => {
   const src = (id: number, updatedAt: string, status = 'active') => ({ id, status, updatedAt, data: {} }) as never;
-  it('启用来源里最近更新的一条标最新；只有一条或已停用的不标', () => {
+  it('旧数据按更新时间回退；只有一条或已停用的不标', () => {
     const a = src(1, '2026-01-01'), b = src(2, '2026-03-01'), c = src(3, '2026-05-01', 'inactive');
     const all = [a, b, c];
     expect(isLatestSource(b, all)).toBe(true);
@@ -107,4 +107,11 @@ describe('供货来源：当前最新成本', () => {
     expect(isLatestSource(c, all)).toBe(false);
     expect(isLatestSource(a, [a])).toBe(false);
   });
+  it('改产区等资料不会抢占采购价较新的来源', () => {
+    const older = dto({ id: 1, updatedAt: '2026-04-01', data: { priceUpdatedAt: '2026-01-01' } });
+    const newer = dto({ id: 2, updatedAt: '2026-03-01', data: { priceUpdatedAt: '2026-03-01' } });
+    expect(isLatestSource(newer, [older, newer])).toBe(true);
+    expect(isLatestSource(older, [older, newer])).toBe(false);
+  });
+
 });

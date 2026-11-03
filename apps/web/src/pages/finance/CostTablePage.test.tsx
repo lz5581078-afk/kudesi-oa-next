@@ -16,7 +16,7 @@ const row = (over: Partial<CostRow> = {}): CostRow => ({
   bundleId: 7, code: 'ZH-TB-001', name: '苹果礼盒', status: 'verified', categoryId: 3, categoryName: '苹果类', preShipCostCents: 10250, weightG: 2500,
   freightCents: 800, freightMethod: '手工填写', marginPercent: 12.345678, marginSource: '本分类', marginOverride: false, inheritedMargin: { percent: 12.345678, source: '本分类' },
   carrierName: '顺丰', costIncludingFreightCents: 11050, revision: 'rev1', minPriceCents: 12604, issues: [],
-  lines: [{ role: 'main', code: 'APPLE', name: '红富士', qty: 1, unitCostCents: 10250, subtotalCents: 10250, unitWeightG: 2500, weightG: 2500 }], ...over,
+  lines: [{ role: 'main', code: 'APPLE', name: '红富士', qty: 1, unitName: '斤', unitCostCents: 10250, subtotalCents: 10250, unitWeightG: 2500, weightG: 2500 }], ...over,
 });
 const table = (canEdit: boolean, rows = [row()]): CostTableData => ({
   total: rows.length, page: 1, pageSize: 20, rows, allTotal: 5, canEdit, defaultMargin: { percent: 15, revision: 'none' },
@@ -58,6 +58,7 @@ describe('当前SKU成本清单', () => {
     await screen.findByText('ZH-TB-001');
     fireEvent.click(screen.getByRole('button', { name: '查看苹果礼盒成本组成' }));
     expect(screen.getByRole('dialog', { name: '成本组成明细' })).toBeTruthy();
+    expect(screen.getByText('1 斤')).toBeTruthy();
     expect(screen.getByText('红富士')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '关闭组成明细' }));
     fireEvent.click(screen.getByRole('button', { name: '查看苹果礼盒重量组成' }));

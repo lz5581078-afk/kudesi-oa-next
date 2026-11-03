@@ -21,7 +21,7 @@ export interface PartyBalance { partyId: number; partyKind: string; name: string
 export interface LineHint { productId: number; stockQty: number; lastPurchaseCents?: number | null; lastPurchaseDocNo?: string | null; lastPurchaseDate?: string | null; lastSaleCents?: number | null; lastSaleDocNo?: string | null; lastSaleDate?: string | null }
 export type DocBody = DocInput & { memo?: string };
 
-export interface CostLine { role: string; code: string; name: string; qty: number; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
+export interface CostLine { role: string; code: string; name: string; qty: number; unitName?: string; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
 export interface CostRow {
   bundleId: number; code: string; name: string; status: string; categoryId: number | null; categoryName: string; preShipCostCents: number | null; weightG: number | null;
   freightCents: number | null; freightMethod: string | null; marginPercent: number | null; marginSource: string; marginOverride: boolean; inheritedMargin: { percent: number | null; source: string };

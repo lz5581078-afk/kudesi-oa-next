@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, ResourceRecord, User } from '../entities';
 import { buildServices } from '../test-support';
 import { CostService } from './cost.service';
 import { ResourcesService } from './resources.service';
@@ -52,6 +52,32 @@ d('财务资料（真实数据库）', () => {
     const tree = await svc.categoryTree(actor, type, 'categoryIds', {});
     expect(tree.nodes.find(node => node.id === root.id)?.count).toBe(1);
     expect((await svc.list({ ...actor, companyId: 999999999 }, type, q)).total).toBe(0);
+  });
+
+  it('供货来源只因采购价修改切换最新成本，非价格修改保留时间且兼容旧记录', async () => {
+    const supplier = await svc.create(boss, 'finance-suppliers', { name: '报价时序测试供应商' });
+    const product = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '报价时序苹果', categoryId: ids.leaf, purchaseSpec: '千克', specQty: 1, specUnit: 'KG', purchasePrice: 100, freight: 1, handlingFee: 1 });
+    const a = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '甲产区', purchasePrice: 100 });
+    const b = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '乙产区', purchasePrice: 200 });
+    // 固定合成记录的时间，避免依赖机器时钟和毫秒先后。
+    for (const [id, priceUpdatedAt] of [[a.id, '2020-01-01T00:00:00Z'], [b.id, '2021-01-01T00:00:00Z']] as const) {
+      const record = await ds.manager.findOneByOrFail(ResourceRecord, { id });
+      await ds.manager.update(ResourceRecord, { id }, { data: { ...record.data, priceUpdatedAt } });
+    }
+    const edited = await svc.update(boss, 'finance-product-sources', a.id, { originArea: '甲产区修正' });
+    expect(edited.data.priceUpdatedAt).toBe('2020-01-01T00:00:00Z');
+    expect((await svc.get(boss, 'finance-products', product.id)).data.purchasePrice).toBe(200);
+    const repriced = await svc.update(boss, 'finance-product-sources', a.id, { purchasePrice: 300 });
+    expect(new Date(String(repriced.data.priceUpdatedAt)).getTime()).toBeGreaterThan(new Date('2021-01-01').getTime());
+    expect((await svc.get(boss, 'finance-products', product.id)).data.purchasePrice).toBe(300);
+    const legacy = await ds.manager.findOneByOrFail(ResourceRecord, { id: b.id });
+    delete legacy.data.priceUpdatedAt;
+    await ds.manager.query('UPDATE resource_records SET data = ?, updated_at = ? WHERE id = ? AND company_id = ?', [JSON.stringify(legacy.data), '2019-01-01 00:00:00', b.id, boss.companyId]);
+    const legacyTime = (await ds.manager.findOneByOrFail(ResourceRecord, { id: b.id })).updatedAt.toISOString();
+    const legacyEdited = await svc.update(boss, 'finance-product-sources', b.id, { originArea: '旧记录产区修正' });
+    expect(legacyEdited.data.priceUpdatedAt).toBe(legacyTime);
+    expect((await svc.get(boss, 'finance-products', product.id)).data.purchasePrice).toBe(300);
+    await expect(svc.update({ ...boss, companyId: 999999999 }, 'finance-product-sources', a.id, { purchasePrice: 999 })).rejects.toThrow();
   });
 
   it('分类：编码规范、自动沿用上级类型、最多 4 级、不能给有商品的分类加下级', async () => {
@@ -229,6 +255,7 @@ d('财务资料（真实数据库）', () => {
     }
     const est = await cost.one(boss, ids.bundle);
     expect(est.freightCents).toBe(1100);
+    expect(est.lines.find(line => line.role === 'main')?.unitName).toBe(prod.data.purchaseSpec);
     // 商品成本变 -> 成本表立刻变
     await svc.update(boss, 'finance-products', ids.apple, { purchasePrice: (prod.data.purchasePrice as number) + 100 });
     expect((await cost.one(boss, ids.bundle)).preShipCostCents).toBe(unit * 2 + 200);
