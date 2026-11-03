@@ -1,0 +1,23 @@
+.feishu-binding-reminder { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 18px; border:1px solid #ead5a7; border-radius:12px; background:#fff8e9; color:#624923; flex-shrink:0; }
+.feishu-binding-reminder > div { min-width:0; }
+.feishu-binding-reminder strong { font-size:14px; }
+.feishu-binding-reminder p { margin:6px 0 0; line-height:1.6; font-size:13px; overflow-wrap:anywhere; }
+.feishu-binding-reminder .primary-button { display:flex; justify-content:center; align-items:center; min-height:48px; min-width:104px; padding:12px 20px; text-decoration:none; flex-shrink:0; touch-action:manipulation; }
+.feishu-setup-actions { display:grid; gap:18px; margin-top:24px; }
+.feishu-setup-actions > button { width:100%; min-height:50px; margin:0; padding:12px 18px; font-size:16px; touch-action:manipulation; white-space:normal; }
+.feishu-setup-actions > .secondary-button { margin-top:6px; }
+.feishu-binding-card { width:100%; max-width:600px; min-width:0; padding:22px; }
+.feishu-binding-card header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+.feishu-binding-card h2 { margin:0; font-size:18px; }
+.feishu-binding-card p { line-height:1.7; overflow-wrap:anywhere; }
+.feishu-binding-card button { min-height:48px; padding:12px 18px; touch-action:manipulation; }
+.account-security-page { display:grid; gap:20px; align-content:start; justify-items:start; width:100%; min-width:0; }
+.account-security-page .narrow-form { margin:0; width:100%; max-width:600px; }
+@media(max-width:600px) {
+  .feishu-binding-reminder { align-items:center; gap:12px; padding:14px; }
+  .feishu-binding-reminder .primary-button { min-width:88px; padding:12px; }
+  .feishu-binding-card { padding:18px; }
+  .feishu-binding-card button { width:100%; }
+  .account-security-page .row-actions { display:grid; grid-template-columns:1fr; gap:14px; }
+  .account-security-page .row-actions button { min-height:48px; }
+}

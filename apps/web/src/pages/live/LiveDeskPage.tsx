@@ -25,7 +25,7 @@ export function LiveDeskPage() {
     const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60_000);
     return () => clearInterval(t);
   }, [load]);
-  if(scanned)return <div className="live-page"><LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined}/></div>;
+  if(scanned)return <div className="live-page live-scan-page"><LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined}/></div>;
   const canStart = !!d && (!d.identity.isOperations && (d.identity.isAnchor || d.identity.isControl));
   return (
     <div className="live-page">
