@@ -35,8 +35,6 @@ export function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId
   const [d, setD] = useState<RoomDay | null>(null);
   const [error, setError] = useState('');
   const [turnovers, setTurnovers] = useState<Record<number, { data?: SessionTurnover; error?: string }>>({});
-  const [refresh, setRefresh] = useState(0);
-  const [loadingTurnover, setLoadingTurnover] = useState(false);
   useEffect(() => {
     let active = true;
     setD(null); setError('');
@@ -45,24 +43,29 @@ export function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId
   }, [roomId, date]);
   useEffect(() => {
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const locked = new Set<number>();
     setTurnovers({});
     const ids = [...new Set([...(d?.sessions.map(s => s.id) ?? []), ...(d?.schedules.flatMap(s => s.sessionId === null ? [] : [s.sessionId]) ?? [])])];
-    setLoadingTurnover(ids.length > 0);
-    void Promise.all(ids.map(id => liveApi.turnover(id).then(
-      data => { if (active) setTurnovers(current => ({ ...current, [id]: { data } })); },
-      e => { if (active) setTurnovers(current => ({ ...current, [id]: { error: errText(e, '读取营业额失败') } })); },
-    ))).then(() => { if (active) setLoadingTurnover(false); });
-    return () => { active = false; };
-  }, [d, refresh]);
+    const read = async () => {
+      await Promise.all(ids.filter(id => !locked.has(id)).map(id => liveApi.turnover(id).then(
+        data => { if (active) { if (data.locked) locked.add(id); setTurnovers(current => ({ ...current, [id]: { data } })); } },
+        e => { if (active) setTurnovers(current => ({ ...current, [id]: { error: errText(e, '读取营业额失败') } })); },
+      )));
+      if (active && ids.some(id => !locked.has(id))) timer = setTimeout(() => { if (document.visibilityState === 'visible') void read(); else timer = setTimeout(() => void read(), 30_000); }, 30_000);
+    };
+    if (ids.length) void read();
+    return () => { active = false; if (timer) clearTimeout(timer); };
+  }, [d]);
   const turnover = (id: number | null) => {
     const result = id === null ? undefined : turnovers[id];
     const available = result?.data?.available && result.data.turnoverCents != null;
     const label = id === null ? '未开播' : result?.error ? '读取失败' : !result?.data ? '读取中…' : available ? money(result.data.turnoverCents!) : '暂无';
-    const detail = result?.error || (!available ? result?.data?.reason : '') || (result?.data ? `聚水潭 · 更新于 ${hm(result.data.queriedAt, date)}` : '');
-    return <small title={detail}>营业额 <strong>{label}</strong>{detail && <span> · {detail}</span>}</small>;
+    const detail = result?.error || (!available ? result?.data?.reason : '') || result?.data?.refreshError || (result?.data?.locked ? '本场下播营业额已锁定' : '由服务器统一统计');
+    return <span className="live-day-turnover" title={detail}>营业额 <strong>{label}</strong></span>;
   };
   return (
-    <Modal title={d ? `${d.room.name} · ${d.date}` : '直播间'} onClose={onClose} foot={<button type="button" className="secondary-button" disabled={!d || (!d.sessions.length && !d.schedules.some(s => s.sessionId !== null)) || loadingTurnover} onClick={() => setRefresh(value => value + 1)}>{loadingTurnover ? '营业额读取中…' : '刷新营业额'}</button>}>
+    <Modal title={d ? `${d.room.name} · ${d.date}` : '直播间'} onClose={onClose}>
       {error && <div role="alert" className="notice error">{error}</div>}
       {!d && !error && <p className="muted" role="status">正在读取…</p>}
       {d && (
@@ -70,14 +73,14 @@ export function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId
           <strong>排场</strong>
           {d.schedules.length === 0 && <p className="muted">这天没有排场。</p>}
           <ul className="live-list">{d.schedules.map((s) => (
-            <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.operator ? ` · 运营 ${s.operator.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}</small>{turnover(s.sessionId)}</div><SchedulePill status={s.status} label={s.statusLabel} /></li>
+            <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.operator ? ` · 运营 ${s.operator.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}</small></div><div className="live-day-row-actions">{turnover(s.sessionId)}<SchedulePill status={s.status} label={s.statusLabel} /></div></li>
           ))}</ul>
           <strong>实际直播</strong>
           {d.sessions.length === 0 && <p className="muted">这天还没有直播记录。</p>}
           <ul className="live-list">{d.sessions.map((s) => (
-            <li key={s.id}><div className="main"><strong>{hm(s.startAt)}–{s.endAt ? hm(s.endAt, d.date) : '直播中'} · {s.anchor.name}</strong><small>{s.finalSalesCents !== null ? `审核销售额 ${money(s.finalSalesCents)}` : s.anchorSalesCents !== null ? `主播所报 ${money(s.anchorSalesCents)}` : '未报下播'}</small>{turnover(s.id)}</div>
-              <SessionPill status={s.status} label={({ live: '直播中', pending_report: '待提交审核', submitted: '待审核', returned: '已退回', approved: '已审核' } as Record<string, string>)[s.status] ?? s.status} />
-              <button type="button" className="secondary-button small" onClick={() => onOpenSession(s.id)}>详情</button></li>
+            <li key={s.id}><div className="main"><strong>{hm(s.startAt)}–{s.endAt ? hm(s.endAt, d.date) : '直播中'} · {s.anchor.name}</strong><small>{s.finalSalesCents !== null ? `审核销售额 ${money(s.finalSalesCents)}` : s.anchorSalesCents !== null ? `主播所报 ${money(s.anchorSalesCents)}` : '未报下播'}</small></div>
+              <div className="live-day-row-actions">{turnover(s.id)}<SessionPill status={s.status} label={({ live: '直播中', pending_report: '待提交审核', submitted: '待审核', returned: '已退回', approved: '已审核' } as Record<string, string>)[s.status] ?? s.status} />
+              <button type="button" className="secondary-button small" onClick={() => onOpenSession(s.id)}>详情</button></div></li>
           ))}</ul>
         </>
       )}
