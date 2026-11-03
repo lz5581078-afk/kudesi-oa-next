@@ -6,10 +6,13 @@ import { SettlementDetailPage, UnsettledReceiptsPage } from './SettlementPages';
 import { financeApi } from './financeApi';
 import { QueryTable } from './query/QueryKit';
 
+const queryAuth = vi.hoisted(() => ({ allow: ['finance.history.view'] }));
+vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ can: (key: string) => queryAuth.allow.includes(key) }) }));
+
 vi.mock('./financeApi', () => ({ financeApi: { inventory: vi.fn(), inventoryLedger: vi.fn(), unsettledReceipts: vi.fn(), settlementDetail: vi.fn() } }));
 vi.mock('./common', async (orig) => ({ ...(await orig<typeof import('./common')>()), SearchPick: () => <input aria-label="仓库" readOnly /> }));
 const fa = vi.mocked(financeApi);
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); queryAuth.allow = ['finance.history.view']; });
 afterEach(cleanup);
 
 const stock = (productId: number, warehouseId: number, name: string, wh: string, qty: number, amount: number | null) => ({ code: `C${productId}`, unit: 'KG', productId, warehouseId, productName: name, warehouseName: wh, qty, avgCostCents: amount === null ? null : Math.round(amount / (qty || 1)), amountCents: amount });
@@ -101,6 +104,35 @@ describe('库存查询（统一查询页版式）', () => {
 });
 
 describe('收付款两张查询表', () => {
+  const pages = [{ name: '未完全结算', Page: UnsettledReceiptsPage, api: 'unsettledReceipts' as const }, { name: '结算明细', Page: SettlementDetailPage, api: 'settlementDetail' as const }];
+  const queryRow = (id: number, docNo: string) => ({ id, docId: id, docNo, typeLabel: '收款单', docDate: '2026-03-01', partyName: '合成客户', settleByLabel: '按金额结算', sourceDocId: id + 100, sourceDocNo: `SOURCE-${id}`, sourceTypeLabel: '普通销售单', productName: '合成商品', amountCents: 1, totalCents: 2, allocatedCents: 1, unallocatedCents: 1 });
+  it.each(pages)('$name只显示已授权单据类型，不提供无权的付款选项', async ({ Page, api }) => {
+    queryAuth.allow = ['finance.doc-receipt.view'];
+    fa[api].mockResolvedValue([]);
+    render(<MemoryRouter><Page /></MemoryRouter>);
+    await waitFor(() => expect(fa[api]).toHaveBeenCalled());
+    const select = screen.getByLabelText('单据类型') as HTMLSelectElement;
+    expect([...select.options].map(option => option.text)).toEqual(['收款单']);
+  });
+  it.each(pages)('$name重置后的新结果不被旧查询覆盖', async ({ Page, api }) => {
+    let resolve!: (rows: ReturnType<typeof queryRow>[]) => void;
+    fa[api].mockReset().mockReturnValueOnce(new Promise<ReturnType<typeof queryRow>[]>(done => { resolve = done; })).mockResolvedValueOnce([queryRow(2, 'SYNTHETIC-NEW')]);
+    render(<MemoryRouter><Page /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '重置' }));
+    await screen.findByText('SYNTHETIC-NEW');
+    await act(async () => resolve([queryRow(1, 'SYNTHETIC-OLD')]));
+    expect(screen.queryByText('SYNTHETIC-OLD')).toBeNull();
+    expect(screen.getByText('SYNTHETIC-NEW')).toBeTruthy();
+  });
+  it('失败保留上次已完成的结算数据和汇总，不清成零', async () => {
+    fa.unsettledReceipts.mockResolvedValueOnce([queryRow(3, 'SYNTHETIC-KEPT')]);
+    render(<MemoryRouter><UnsettledReceiptsPage /></MemoryRouter>);
+    await screen.findByText('SYNTHETIC-KEPT');
+    fa.unsettledReceipts.mockRejectedValueOnce(new Error('合成读取失败'));
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await screen.findByText('加载失败');
+    expect(screen.getByText('SYNTHETIC-KEPT')).toBeTruthy();
+  });
   it('未完全结算：汇总卡、关键词本地筛选、按往来对象分组、重置', async () => {
     fa.unsettledReceipts.mockResolvedValue([
       { id: 1, docNo: 'SK1', typeLabel: '收款单', docDate: '2026-10-27', partyName: '甲客户', settleByLabel: '按金额', totalCents: 30000, allocatedCents: 0, unallocatedCents: 30000 },

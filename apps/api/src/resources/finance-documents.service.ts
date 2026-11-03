@@ -41,6 +41,14 @@ export class FinanceDocumentsService {
   private canSee(user: AuthUser, type: string) {
     return this.can(user, `finance.doc-${type}.view`) || this.can(user, 'finance.history.view') || this.can(user, 'finance.drafts.view');
   }
+  private settlementViewTypes(user: AuthUser, requested?: string) {
+    const allowed = ['receipt', 'payment'].filter(type => this.canSee(user, type));
+    if (!allowed.length) throw new ForbiddenException('没有查看收付款单的权限');
+    if (!requested) return allowed;
+    if (!['receipt', 'payment'].includes(requested)) throw new BadRequestException('这里只能查询收款单或付款单');
+    if (!allowed.includes(requested)) throw new ForbiddenException('没有查看这种收付款单的权限');
+    return [requested];
+  }
 
   // ---------- 引用校验 ----------
   private async checkRefs(em: EntityManager, user: AuthUser, input: DocInput, selfId?: number) {
@@ -202,7 +210,7 @@ export class FinanceDocumentsService {
     if (!ids.length) return new Map<number, { doc: FinanceDocument; outstanding: number; byProduct: Map<number, number> }>();
     const docs = await em.find(FinanceDocument, { where: { companyId: user.companyId, id: In(ids) } });
     const used = await em.query(
-      `SELECT s.source_document_id AS sid, s.product_id AS pid, SUM(s.amount_cents) AS a FROM finance_document_settlements s JOIN finance_documents d ON d.id = s.document_id
+      `SELECT s.source_document_id AS sid, s.product_id AS pid, SUM(s.amount_cents) AS a FROM finance_document_settlements s JOIN finance_documents d ON d.id = s.document_id AND d.company_id = s.company_id
         WHERE s.company_id = ? AND s.source_document_id IN (${ids.map(() => '?').join(',')}) AND d.status IN ('issued','posted') AND s.document_id <> ? GROUP BY s.source_document_id, s.product_id`,
       [user.companyId, ...ids, excludeDocId]);
     const out = new Map<number, { doc: FinanceDocument; outstanding: number; byProduct: Map<number, number> }>();
@@ -576,7 +584,7 @@ export class FinanceDocumentsService {
       if (doc.status !== 'posted') throw new ConflictException('只有已过账的单据能红冲');
       if (doc.reversesId) throw new ConflictException('红冲单本身不能再红冲，需要的话请重新制一张正常单据');
       if (doc.auditedAt) throw new ConflictException('这张单据已经财务审核，不能再红冲；需要的话先取消财务审核');
-      const used = await em.query("SELECT DISTINCT d.doc_no AS no FROM finance_document_settlements s JOIN finance_documents d ON d.id = s.document_id WHERE s.company_id = ? AND s.source_document_id = ? AND d.status IN ('issued','posted')", [user.companyId, id]);
+      const used = await em.query("SELECT DISTINCT d.doc_no AS no FROM finance_document_settlements s JOIN finance_documents d ON d.id = s.document_id AND d.company_id = s.company_id WHERE s.company_id = ? AND s.source_document_id = ? AND d.status IN ('issued','posted')", [user.companyId, id]);
       if (used.length) throw new ConflictException(`这张单据已经被 ${used.map((x: { no: string }) => x.no).join('、')} 结算，不能红冲；请先红冲那张收付款单`);
       const original = await em.find(FinanceEntry, { where: { documentId: id, companyId: user.companyId }, order: { id: 'ASC' } });
       const neg = negateEntries(original.map((e) => ({ kind: e.kind as Entry['kind'], accountId: e.accountId, subId: e.subId, amount: e.amountCents, qty: e.qty })));
@@ -742,7 +750,7 @@ export class FinanceDocumentsService {
   /** 这张单据被哪些收付款单结算过（开立和已过账的） */
   private async settledBy(em: EntityManager, user: AuthUser, id: number) {
     const rows = await em.query(
-      "SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.status, SUM(s.amount_cents) AS amountCents FROM finance_document_settlements s JOIN finance_documents d ON d.id = s.document_id WHERE s.company_id = ? AND s.source_document_id = ? AND d.status IN ('issued','posted') GROUP BY d.id, d.doc_no, d.doc_type, d.status ORDER BY d.id",
+      "SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.status, SUM(s.amount_cents) AS amountCents FROM finance_document_settlements s JOIN finance_documents d ON d.id = s.document_id AND d.company_id = s.company_id WHERE s.company_id = ? AND s.source_document_id = ? AND d.status IN ('issued','posted') GROUP BY d.id, d.doc_no, d.doc_type, d.status ORDER BY d.id",
       [user.companyId, id]);
     return (rows as { id: number; docNo: string; docType: string; status: string; amountCents: string }[]).map((r) => ({ ...r, amountCents: Number(r.amountCents) }));
   }
@@ -752,7 +760,7 @@ export class FinanceDocumentsService {
     this.need(user, 'finance.docs.create', '没有制单的权限');
     const em = this.dataSource.manager;
     const types = DOC_TYPES.filter((d) => d.settle === q.dir).map((d) => d.type);
-    const docs = await em.find(FinanceDocument, { where: { companyId: user.companyId, status: 'posted', partyId: q.partyId, partyKind: q.partyKind, docType: In(types) }, order: { docDate: 'ASC', id: 'ASC' }, take: 500 });
+    const docs = await em.find(FinanceDocument, { where: { companyId: user.companyId, status: 'posted', partyId: q.partyId, partyKind: q.partyKind, docType: In(types) }, order: { docDate: 'ASC', id: 'ASC' } });
     const open = await this.openAmounts(em, user, docs.map((d) => d.id));
     const lines = docs.length ? await em.find(FinanceDocumentLine, { where: { companyId: user.companyId, documentId: In(docs.map((d) => d.id)) }, order: { lineNo: 'ASC' } }) : [];
     const names = await this.names(em, user.companyId, lines.map((l) => l.productId));
@@ -771,17 +779,16 @@ export class FinanceDocumentsService {
 
   /** 收付款结算明细表：每一笔“收付款单 → 被结算单据（商品）”的分配 */
   async settlementDetail(user: AuthUser, q: { from?: string; to?: string; partyId?: number; docType?: string }) {
-    if (!this.canSee(user, 'receipt') && !this.canSee(user, 'payment')) throw new ForbiddenException('没有查看收付款单的权限');
-    const where = ["s.company_id = ?", "d.status = 'posted'"];
-    const args: unknown[] = [user.companyId];
+    const types = this.settlementViewTypes(user, q.docType);
+    const where = ["s.company_id = ?", "d.status = 'posted'", `d.doc_type IN (${types.map(() => '?').join(',')})`];
+    const args: unknown[] = [user.companyId, ...types];
     if (q.from) { where.push('d.doc_date >= ?'); args.push(q.from); }
     if (q.to) { where.push('d.doc_date <= ?'); args.push(q.to); }
     if (q.partyId) { where.push('d.party_id = ?'); args.push(q.partyId); }
-    if (q.docType === 'receipt' || q.docType === 'payment') { where.push('d.doc_type = ?'); args.push(q.docType); }
     const rows = await this.dataSource.query(
       `SELECT s.id, d.id AS docId, d.doc_no AS docNo, d.doc_type AS docType, d.doc_date AS docDate, d.party_id AS partyId, d.settle_by AS settleBy, src.id AS sourceDocId, src.doc_no AS sourceDocNo, src.doc_type AS sourceType, s.product_id AS productId, s.amount_cents AS amountCents
-         FROM finance_document_settlements s JOIN finance_documents d ON d.id = s.document_id JOIN finance_documents src ON src.id = s.source_document_id
-        WHERE ${where.join(' AND ')} ORDER BY d.doc_date DESC, d.id DESC, s.id LIMIT 500`, args);
+         FROM finance_document_settlements s JOIN finance_documents d ON d.id = s.document_id AND d.company_id = s.company_id JOIN finance_documents src ON src.id = s.source_document_id AND src.company_id = s.company_id
+        WHERE ${where.join(' AND ')} ORDER BY d.doc_date DESC, d.id DESC, s.id`, args);
     const names = await this.names(this.dataSource.manager, user.companyId, rows.flatMap((r: { partyId: number | null; productId: number | null }) => [r.partyId, r.productId]));
     return (rows as Array<Record<string, unknown>>).map((r) => ({
       ...r, amountCents: Number(r.amountCents), partyName: r.partyId ? names.get(Number(r.partyId)) ?? '' : '', productName: r.productId ? names.get(Number(r.productId)) ?? '' : '',
@@ -792,17 +799,16 @@ export class FinanceDocumentsService {
 
   /** 未完全结算的收付款单：已过账的收款单/付款单，本次结算金额还有没分给单据的部分（按金额结算的整张都算没分配） */
   async unsettledReceipts(user: AuthUser, q: { from?: string; to?: string; partyId?: number; docType?: string }) {
-    if (!this.canSee(user, 'receipt') && !this.canSee(user, 'payment')) throw new ForbiddenException('没有查看收付款单的权限');
-    const where = ["d.company_id = ?", "d.status = 'posted'", 'd.reverses_id IS NULL', "d.doc_type IN ('receipt','payment')"];
-    const args: unknown[] = [user.companyId];
+    const types = this.settlementViewTypes(user, q.docType);
+    const where = ["d.company_id = ?", "d.status = 'posted'", 'd.reverses_id IS NULL', `d.doc_type IN (${types.map(() => '?').join(',')})`];
+    const args: unknown[] = [user.companyId, ...types];
     if (q.from) { where.push('d.doc_date >= ?'); args.push(q.from); }
     if (q.to) { where.push('d.doc_date <= ?'); args.push(q.to); }
     if (q.partyId) { where.push('d.party_id = ?'); args.push(q.partyId); }
-    if (q.docType === 'receipt' || q.docType === 'payment') { where.push('d.doc_type = ?'); args.push(q.docType); }
     const rows = await this.dataSource.query(
       `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.doc_date AS docDate, d.party_id AS partyId, d.settle_by AS settleBy, (CASE WHEN d.settlement_mode IS NULL THEN d.amount_cents ELSE d.paid_cents END) + d.offset_cents + d.discount_cents AS totalCents, d.discount_cents AS discountCents,
-              COALESCE((SELECT SUM(s.amount_cents) FROM finance_document_settlements s WHERE s.document_id = d.id), 0) AS allocatedCents
-         FROM finance_documents d WHERE ${where.join(' AND ')} ORDER BY d.doc_date DESC, d.id DESC LIMIT 1000`, args);
+              COALESCE((SELECT SUM(s.amount_cents) FROM finance_document_settlements s JOIN finance_documents src_alloc ON src_alloc.id = s.source_document_id AND src_alloc.company_id = s.company_id WHERE s.document_id = d.id AND s.company_id = d.company_id), 0) AS allocatedCents
+         FROM finance_documents d WHERE ${where.join(' AND ')} ORDER BY d.doc_date DESC, d.id DESC`, args);
     const names = await this.names(this.dataSource.manager, user.companyId, rows.map((r: { partyId: number | null }) => r.partyId));
     return (rows as Array<{ id: number; docNo: string; docType: string; docDate: string; partyId: number | null; settleBy: string | null; totalCents: string; allocatedCents: string; discountCents: string }>)
       .map((r) => ({ id: r.id, discountCents: Number(r.discountCents), docNo: r.docNo, docType: r.docType, typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType, docDate: r.docDate, partyName: r.partyId ? names.get(r.partyId) ?? '' : '',

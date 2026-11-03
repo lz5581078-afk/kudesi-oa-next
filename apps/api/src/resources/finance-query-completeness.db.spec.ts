@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, FinanceEntry, ResourceRecord, User } from '../entities';
+import { Company, FinanceDocument, FinanceDocumentSettlement, FinanceEntry, ResourceRecord, User } from '../entities';
 import { buildServices } from '../test-support';
 import { FinanceDocumentsService } from './finance-documents.service';
 
@@ -73,5 +73,56 @@ d('财务查询完整性：超过旧截断边界的合成历史事实', () => {
     expect(funds.find(row => row.storeId === quiet.id)).toMatchObject({ withdrawableCents: 111, snapshotDate: '2020-01-01' });
     expect(funds.find(row => row.storeId === busy.id)).toMatchObject({ withdrawableCents: 5000, snapshotDate: new Date(Date.UTC(2010, 0, 5001)).toISOString().slice(0, 10) });
     expect(await docs.storeFunds({ ...actor, companyId: foreign.id })).toEqual([]);
+  });
+
+  it('501张可结算原单、1001张收款及1000笔分配不截断，较早的未分配款仍能找出', async () => {
+    const customer = await buildServices(ds).resources.create(actor, 'finance-customers', { name: '合成全量结算客户' });
+    ids.customer = customer.id;
+    const header = (docNo: string, docType: string, amountCents = 1, paidCents = 0) => ({ companyId: actor.companyId, docNo, docType, docDate: docType === 'sale' ? '2026-03-01' : '2026-03-02', partyId: docType === 'payment' ? ids.supplier : customer.id, partyKind: docType === 'payment' ? 'supplier' : 'customer', bankAccountId: docType === 'sale' ? null : ids.bank, status: 'posted' as const, amountCents, paidCents, offsetCents: 0, discountCents: 0, settlementMode: docType === 'sale' ? 'credit' : 'full', settleBy: docType === 'sale' ? null : 'doc', createdBy: actor.id });
+    // 构造导入历史头部及结算事实；不依赖这些历史单据必须拥有商品明细才能按金额核销。
+    await ds.manager.insert(FinanceDocument, Array.from({ length: 501 }, (_, index) => header(`SYNTHETIC-OPEN-${index}`, 'sale')));
+    const source = await ds.manager.save(FinanceDocument, ds.manager.create(FinanceDocument, header('SYNTHETIC-ALLOCATED-SOURCE', 'sale', 1000)));
+    await ds.manager.insert(FinanceDocument, Array.from({ length: 1001 }, (_, index) => header(`SYNTHETIC-RECEIPT-${index}`, 'receipt', 1, 1)));
+    const receipts = (await ds.manager.find(FinanceDocument, { where: { companyId: actor.companyId, docType: 'receipt' }, order: { id: 'ASC' } }));
+    ids.unallocatedReceipt = receipts[0].id;
+    await ds.manager.insert(FinanceDocumentSettlement, receipts.slice(1).map(receipt => ({ companyId: actor.companyId, documentId: receipt.id, sourceDocumentId: source.id, productId: null, amountCents: 1 })));
+    const payment = await ds.manager.save(FinanceDocument, ds.manager.create(FinanceDocument, header('SYNTHETIC-PAYMENT-CAP', 'payment', 2, 2)));
+    ids.partialPayment = payment.id;
+    await ds.manager.insert(FinanceDocumentSettlement, { companyId: actor.companyId, documentId: payment.id, sourceDocumentId: ids.document, productId: null, amountCents: 1 });
+    const open = await docs.openItems(actor, { dir: 'in', partyKind: 'customer', partyId: customer.id });
+    expect(open).toHaveLength(501);
+    expect(open.some(row => row.docNo === 'SYNTHETIC-OPEN-500')).toBe(true);
+    const unallocated = await docs.unsettledReceipts(actor, { docType: 'receipt' });
+    expect(unallocated).toHaveLength(1);
+    expect(unallocated[0]).toMatchObject({ id: receipts[0].id, unallocatedCents: 1 });
+    const detail = await docs.settlementDetail(actor, { docType: 'receipt' });
+    expect(detail).toHaveLength(1000);
+    expect(detail.reduce((sum, row) => sum + row.amountCents, 0)).toBe(1000);
+    expect(detail).toEqual(expect.arrayContaining([expect.objectContaining({ docId: receipts[1].id })]));
+
+    const foreign = await ds.manager.save(Company, ds.manager.create(Company, { code: `settle${randomBytes(5).toString('hex')}`, name: '合成外公司结算', status: 'active' }));
+    const foreignDoc = await ds.manager.save(FinanceDocument, ds.manager.create(FinanceDocument, { ...header('SYNTHETIC-FOREIGN-RECEIPT', 'receipt', 1, 1), companyId: foreign.id }));
+    const oldestSale = await ds.manager.findOneByOrFail(FinanceDocument, { companyId: actor.companyId, docNo: 'SYNTHETIC-OPEN-0' });
+    await ds.manager.insert(FinanceDocumentSettlement, [
+      { companyId: actor.companyId, documentId: foreignDoc.id, sourceDocumentId: oldestSale.id, productId: null, amountCents: 1 },
+      { companyId: foreign.id, documentId: receipts[0].id, sourceDocumentId: source.id, productId: null, amountCents: 1 },
+      { companyId: actor.companyId, documentId: receipts[0].id, sourceDocumentId: foreignDoc.id, productId: null, amountCents: 1 },
+    ]);
+    expect(await docs.openItems(actor, { dir: 'in', partyKind: 'customer', partyId: customer.id })).toHaveLength(501);
+    expect((await docs.unsettledReceipts(actor, { docType: 'receipt' }))[0]).toMatchObject({ id: receipts[0].id, unallocatedCents: 1 });
+    expect(await docs.settlementDetail(actor, { docType: 'receipt' })).toHaveLength(1000);
+  });
+
+  it('两张结算查询按现有单据查看权限过滤类型，指定无权类型也拒绝', async () => {
+    const receiptOnly = { ...actor, permissions: { isCompanyAdmin: false, allow: ['finance.doc-receipt.view'], deny: [] } };
+    const paymentOnly = { ...actor, permissions: { isCompanyAdmin: false, allow: ['finance.doc-payment.view'], deny: [] } };
+    expect((await docs.unsettledReceipts(receiptOnly, {})).map(row => row.id)).toEqual([ids.unallocatedReceipt]);
+    expect(await docs.settlementDetail(receiptOnly, {})).toHaveLength(1000);
+    expect((await docs.unsettledReceipts(paymentOnly, {})).map(row => row.id)).toEqual([ids.partialPayment]);
+    expect(await docs.settlementDetail(paymentOnly, {})).toHaveLength(1);
+    await expect(docs.settlementDetail(receiptOnly, { docType: 'payment' })).rejects.toThrow(/权限/);
+    await expect(docs.unsettledReceipts(paymentOnly, { docType: 'receipt' })).rejects.toThrow(/权限/);
+    const historyReader = { ...actor, permissions: { isCompanyAdmin: false, allow: ['finance.history.view'], deny: [] } };
+    expect(await docs.settlementDetail(historyReader, {})).toHaveLength(1001);
   });
 });
