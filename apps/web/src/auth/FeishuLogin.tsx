@@ -1,4 +1,4 @@
-import { rememberLiveRoom, consumeLiveRoom, pendingLiveRoom } from './liveRoomIntent';
+import { rememberLiveRoom, consumeLiveRoom, pendingLiveRoom, liveScanCompany } from './liveRoomIntent';
 import { useAuth } from './AuthContext';
 import { feishuApi } from './feishuApi';
 import { useNavigate } from 'react-router-dom';
@@ -20,17 +20,31 @@ export function FeishuLogin() {
       setBusy(true);
       api<LoginResponse>('/auth/feishu/complete', { body: { code, state } }).then(r => { tokenStore.set(r.accessToken); location.replace(consumeLiveRoom()); }).catch(e => { setError(e.message); setBusy(false); });
     } else if (query.has('error')) { setError('飞书授权已取消，请重新尝试'); history.replaceState(null, '', location.pathname); }
-    api<Array<{ id: number; name: string }>>('/auth/feishu/companies').then(rows => { setCompanies(rows); if (rows.length) setCompanyId(String(rows[0].id)); }).catch(() => {});
+    let active = true;
+    const scanCompany = !code && !state && !query.has('error') ? liveScanCompany() : null;
+    api<Array<{ id: number; name: string }>>('/auth/feishu/companies').then(rows => {
+      if (!active) return;
+      setCompanies(rows);
+      const scan = rows.find(c => c.id === scanCompany);
+      if (rows.length) setCompanyId(String(scan?.id ?? rows[0].id));
+      if (scan && !started.current) {
+        started.current = true;
+        rememberLiveRoom();
+        void authorize(scan.id, () => active);
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+
   }, []);
-  async function begin() {
+  async function authorize(id: number, active = () => true) {
     rememberLiveRoom();
     setBusy(true); setError('');
-    try { const r = await api<{ authorizationUrl: string }>('/auth/feishu/start', { body: { companyId: Number(companyId) } }); location.assign(r.authorizationUrl); }
-    catch (e) { setError((e as Error).message); setBusy(false); }
+    try { const r = await api<{ authorizationUrl: string }>('/auth/feishu/start', { body: { companyId: id } }); if (active()) feishuApi.redirect(r.authorizationUrl); }
+    catch (e) { if (active()) { setError((e as Error).message); setBusy(false); } }
   }
   return <div className="stack">
     {companies.length > 1 && <label>飞书所属公司<select value={companyId} onChange={e => setCompanyId(e.target.value)}>{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
-    {companies.length > 0 && <button type="button" className="secondary-button" disabled={busy || !companyId} onClick={begin}>{busy ? '正在授权…' : '飞书授权登录'}</button>}
+    {companies.length > 0 && <button type="button" className="secondary-button" disabled={busy || !companyId} onClick={() => void authorize(Number(companyId))}>{busy ? '正在授权…' : '飞书授权登录'}</button>}
     {error && <div role="alert" className="notice error">{error}</div>}
   </div>;
 }

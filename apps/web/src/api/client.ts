@@ -1,10 +1,29 @@
-const TOKEN_KEY = 'kudesi.token';
+export const TOKEN_KEY = 'kudesi.token';
 
-/** 令牌放 sessionStorage：关闭标签页即失效，比 localStorage 更保守。 */
+/** 同源扫码窗口共享有效令牌；有效期仍由服务端校验，退出/401清除两种存储。 */
 export const tokenStore = {
-  get: () => sessionStorage.getItem(TOKEN_KEY),
-  set: (token: string) => sessionStorage.setItem(TOKEN_KEY, token),
-  clear: () => sessionStorage.removeItem(TOKEN_KEY),
+  get: (): string | null => {
+    try {
+      const saved = localStorage.getItem(TOKEN_KEY);
+      if (saved) return saved;
+    } catch { /* 隐私模式可能禁用持久存储，继续使用本窗口。 */ }
+    let legacy: string | null = null;
+    try { legacy = sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+    if (legacy) tokenStore.set(legacy); // 兼容升级前已登录的窗口。
+    return legacy;
+  },
+  set: (token: string) => {
+    try {
+      localStorage.setItem(TOKEN_KEY, token);
+      try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* 已持久保存。 */ }
+      return;
+    } catch { /* 存储受限时保留本窗口登录能力。 */ }
+    sessionStorage.setItem(TOKEN_KEY, token);
+  },
+  clear: () => {
+    try { localStorage.removeItem(TOKEN_KEY); } catch { /* 尽力清除两处，互不阻塞。 */ }
+    try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* 无可用会话存储。 */ }
+  },
 };
 
 export class ApiError extends Error {
