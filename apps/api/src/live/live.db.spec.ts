@@ -949,6 +949,33 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.start(anchor,{scheduleId:sch.id,...baseStart()})).rejects.toThrow('已上播');
     expect(await ds.query('SELECT * FROM live_notification_events WHERE company_id=? AND event_key=?',[company,`start-deviation:${started.id}`])).toHaveLength(1);
   });
+  it('补报旧排班账号店铺关联不一致先提示，确认后保存本次填报且不改资料，安全校验仍生效',async()=>{
+    source.orders=[];source.unavailable='';source.truncated=false;clock('2026-03-13 08:00:00');
+    const shop=await rec(company,'stores','原排班店铺',{name:'原排班店铺',platform:'douyin',jushuitanShopId:'MANUALOLD'});
+    const linked=await rec(company,'stores','当前关联店铺',{name:'当前关联店铺',platform:'douyin',jushuitanShopId:'MANUALNEW'});
+    const account=await rec(company,'self-media','关联已变账号',{name:'关联已变账号',platform:'douyin',livePermission:true,storeIds:[shop]});
+    const sch=await schedules.create(manager,input({date:'2026-03-13',douyinAccountId:account,storeId:shop,channels:[{accountId:account,storeIds:[shop]}],productEntries:[{name:'补报产品'}]}));
+    await ds.query("UPDATE resource_records SET data=JSON_SET(data,'$.storeIds',CAST(? AS JSON)) WHERE company_id=? AND id=?",[JSON.stringify([linked]),company,account]);
+    clock('2026-03-13 15:00:00');
+    const management=new LiveManagementService(ds,source);
+    const body={scheduleId:sch.id,roomId:ids.n1,anchorId:anchor.id,controlId:control.id,operatorId:operator.id,douyinAccountId:account,storeId:shop,channels:[{accountId:account,storeIds:[shop]}],startAt:'2026-03-13 10:10:00',endAt:'2026-03-13 11:10:00',salesCents:12345,adSpendCents:500,reason:'人事补录实际业绩',orderIds:[]};
+    await expect(management.manual(manager,body)).rejects.toMatchObject({response:{code:'LIVE_MANUAL_CHANNEL_CONFIRM_REQUIRED',message:expect.stringContaining('原排班店铺')}});
+    expect((await ds.query('SELECT session_id FROM live_schedules WHERE company_id=? AND id=?',[company,sch.id]))[0].session_id).toBeNull();
+    const foreignShop=await rec(foreign.companyId,'stores','外公司店铺',{name:'外公司店铺',platform:'douyin'});
+    const otherPlatform=await rec(company,'stores','其他平台店铺',{name:'其他平台店铺',platform:'kuaishou'});
+    for(const invalid of [foreignShop,otherPlatform])await expect(management.manual(manager,{...body,confirmUnlinkedStores:true,channels:[{accountId:account,storeIds:[invalid]}]})).rejects.toThrow(/当前公司、同一平台/);
+    await expect(management.manual(stranger,{...body,confirmUnlinkedStores:true})).rejects.toThrow(/权限/);
+    await expect(schedules.create(manager,input({date:'2026-03-14',douyinAccountId:account,storeId:shop,channels:body.channels}))).rejects.toThrow(/已关联/);
+    const saved=await management.manual(manager,{...body,confirmUnlinkedStores:true});
+    const detail=await sessions.detail(manager,saved.id);
+    expect(detail).toMatchObject({scheduleId:sch.id,startAt:body.startAt,endAt:body.endAt,status:'pending_report',store:{id:shop},products:[{name:'补报产品'}]});
+    expect(detail.reports.find(r=>r.role==='anchor')).toMatchObject({salesCents:12345});
+    const [record]=await ds.query('SELECT data FROM resource_records WHERE company_id=? AND id=?',[company,account]);
+    expect((typeof record.data==='string'?JSON.parse(record.data):record.data).storeIds).toEqual([linked]);
+    const [audit]=await ds.query("SELECT detail FROM audit_logs WHERE company_id=? AND resource_id=? AND action='live.manual.report' ORDER BY id DESC LIMIT 1",[company,String(saved.id)]);
+    expect(typeof audit.detail==='string'?JSON.parse(audit.detail):audit.detail).toMatchObject({input:{confirmUnlinkedStores:true},channelWarnings:[expect.stringContaining('当前未关联')]});
+  });
+
   it('已排场但无人报播：原排场补录一次，保留产品，重复补录不会再建场次',async()=>{
     clock('2026-03-12 08:00:00');
     const sch=await schedules.create(manager,input({date:'2026-03-12',productEntries:[{name:'测试产品'}]}));

@@ -3,7 +3,7 @@ import { liveSessionResult, liveHandover } from './live-notification-events';
 import { channelStores, channelsOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines } from './live-platforms';
 import { LiveChannelInput, LiveStoreLine } from '@kudesi/shared';
 import { LiveOrderSource, LiveOrder } from './live-order-source';
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import {
@@ -26,6 +26,7 @@ import {
 import { closedDay, liveClock, liveFail, lockCompany, reportsOf, sessionRow, text } from './live-core';
 
 export interface ManualInput {
+  confirmUnlinkedStores?: boolean;
   scheduleId?: number;
   channels?:LiveChannelInput[]; storeLines?:LiveStoreLine[];
   sessionId?: number;
@@ -156,7 +157,15 @@ export class LiveManagementService {
     if (!text(input.reason)) liveFail('特殊情况必须填写原因', 400);
     const original = input.sessionId ? await sessionRow(this.ds.manager,user.companyId,input.sessionId) : null;
     const historical = original ? channelsOf(original).length ? channelsOf(original) : [{accountId:Number(original.douyin_account_id),accountName:String(original.douyin_account_name),platform:'douyin',storeIds:[Number(original.store_id)],stores:[{id:Number(original.store_id),name:String(original.store_name),jstShopId:String(original.jst_shop_id||'')}]}] : null;
-    const channels = historical ?? await validateChannels(this.ds.manager,user.companyId,input.channels ?? [{accountId:input.douyinAccountId,storeIds:[input.storeId]}]);
+    const channelWarnings: string[] = [];
+    const resolveChannels = async (em: import('typeorm').EntityManager) => {
+      const warnings: string[] = [];
+      const result = await validateChannels(em,user.companyId,input.channels ?? [{accountId:input.douyinAccountId,storeIds:[input.storeId]}],message=>warnings.push(message));
+      if (warnings.length && !input.confirmUnlinkedStores) throw new ConflictException({code:'LIVE_MANUAL_CHANNEL_CONFIRM_REQUIRED',message:`${warnings.join('；')}。请核对本次补报数据，确认后可继续保存并进入原审核流程。`});
+      channelWarnings.splice(0,channelWarnings.length,...warnings);
+      return result;
+    };
+    const channels = historical ?? await resolveChannels(this.ds.manager);
     if(original && input.channels && JSON.stringify(input.channels.map(c=>[c.accountId,[...c.storeIds].sort()])) !== JSON.stringify(channels.map(c=>[c.accountId,[...c.storeIds].sort()]))) liveFail('补报须沿用原场次账号和店铺',400);
     const shops=channelStores(channels);
     const lineInput=input.storeLines ?? (shops.length===1?[{storeId:shops[0].id,platform:shops[0].platform,salesCents:input.salesCents,adSpendCents:input.adSpendCents,orderIds:input.orderIds,reason:input.reason}]:[]);
@@ -185,7 +194,7 @@ export class LiveManagementService {
         ]);
         if (!op) liveFail('运营不存在', 400);
       }
-      const current = original ? channels : await validateChannels(em,user.companyId,input.channels ?? [{accountId:input.douyinAccountId,storeIds:[input.storeId]}]);
+      const current = original ? channels : await resolveChannels(em);
       if(JSON.stringify(current)!==JSON.stringify(channels)) liveFail('账号或店铺绑定已变化，请刷新后补报',400);
       const first=channels[0], account={id:first.accountId,name:channels.map(c=>c.accountName).join(' / ').slice(0,200)}, store=first.stores[0];
       input.douyinAccountId=account.id;input.storeId=store.id;
@@ -325,7 +334,7 @@ export class LiveManagementService {
         "UPDATE live_schedules SET status='finished' WHERE company_id=? AND session_id=? AND status='live'",
         [user.companyId, id],
       );
-      await this.audit(em, user, 'live.manual.report', 'live-session', id!, { before, input });
+      await this.audit(em, user, 'live.manual.report', 'live-session', id!, { before, input, channelWarnings });
       const [noticeRow] = await em.query('SELECT revision FROM live_sessions WHERE company_id=? AND id=?',[user.companyId,id]);
       await liveSessionResult(em,user.companyId,id!,`manual:${id}:${noticeRow.revision}`,'直播场次已由人事补报或修正');
       await liveHandover(em,user.companyId,id!);
