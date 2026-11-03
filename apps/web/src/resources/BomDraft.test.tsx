@@ -15,7 +15,7 @@ describe('表单里的生产组成（新增和编辑同一个组件）', () => {
     expect(screen.getByRole('group', { name: '人工组成' })).toBeTruthy();
     expect(screen.queryByRole('group', { name: 'OEM 包装' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '＋ 添加原料组成' }));
-    expect(rows).toEqual([{ kind: 'component', group: 'raw', id: null, qty: 1, loss: '' }]);
+    expect(rows).toEqual([{ kind: 'component', group: 'raw', id: null, qty: '', loss: '' }]);
     rerender(<BomDraft rows={rows} groups={['raw', 'labor']} onChange={(r) => { rows = r; }} />);
     fireEvent.click(screen.getByRole('button', { name: '＋ 添加人工组成' }));
     expect(rows[1]).toMatchObject({ kind: 'labor', group: 'labor' });
