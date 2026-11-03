@@ -53,6 +53,30 @@ export class StaffFeishuService {
     });
   }
   async statuses(actor:AuthUser) {this.permission(actor);return {rows:await this.load(this.ds.manager,actor.companyId)};}
+  private async unbindPlan(em:EntityManager,actor:AuthUser,userId:number,lock=false) {
+    this.permission(actor,true);
+    const admin=await em.findOneBy(User,{id:actor.id,companyId:actor.companyId,status:'active',isCompanyAdmin:true});
+    if(!actor.permissions.isCompanyAdmin||!admin)throw new ForbiddenException('仅公司管理员可以解绑员工飞书');
+    // Match the company lock used by binding completion and the all-staff reset.
+    await em.query(`SELECT id FROM companies WHERE id=?${lock?' FOR UPDATE':''}`,[actor.companyId]);
+    const employee=await em.findOneBy(User,{id:userId,companyId:actor.companyId});
+    if(!employee)throw new NotFoundException('员工不存在');
+    const rows=await em.query(`SELECT id FROM feishu_identities WHERE company_id=? AND user_id=? ORDER BY id${lock?' FOR UPDATE':''}`,[actor.companyId,userId]);
+    const fingerprint=createHash('sha256').update(JSON.stringify([actor.companyId,actor.id,userId,rows.map((r:any)=>String(r.id))])).digest('hex');
+    return {userId,name:employee.name,account:employee.account,bindingCount:rows.length,includesSelf:userId===actor.id,fingerprint};
+  }
+  async unbindPreview(actor:AuthUser,userId:number) {return this.unbindPlan(this.ds.manager,actor,userId);}
+  async unbind(actor:AuthUser,userId:number,fingerprint:string) {
+    return this.ds.transaction(async em=>{
+      const plan=await this.unbindPlan(em,actor,userId,true);
+      if(plan.fingerprint!==fingerprint)throw new ConflictException('绑定情况已变化，请重新预览后再解绑');
+      if(!plan.bindingCount)throw new BadRequestException('该员工没有已绑定的飞书账号');
+      await em.query('DELETE FROM feishu_oauth_states WHERE company_id=? AND user_id=?',[actor.companyId,userId]);
+      await em.query('DELETE FROM feishu_identities WHERE company_id=? AND user_id=?',[actor.companyId,userId]);
+      await em.insert(AuditLog,{companyId:actor.companyId,actorId:actor.id,action:'staff.feishu.unbind',resourceType:'user',resourceId:String(userId),detail:{bindingCount:plan.bindingCount,reason:'管理员解绑员工飞书，允许本人重新授权'}});
+      return {userId,bindingCount:plan.bindingCount,includesSelf:plan.includesSelf};
+    });
+  }
   private async resetPlan(em:EntityManager,actor:AuthUser,lock=false) {
     const admin=await em.findOneBy(User,{id:actor.id,companyId:actor.companyId,status:'active',isCompanyAdmin:true});
     if(!actor.permissions.isCompanyAdmin||!admin)throw new ForbiddenException('仅公司管理员可以取消全员飞书关联');

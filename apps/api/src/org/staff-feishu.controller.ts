@@ -18,6 +18,10 @@ export class StaffFeishuController {
   resetPreview(@CurrentUser() u:AuthUser){return this.service.resetPreview(u);}
   @RequirePermission('org.staff.view','org.staff.edit') @Post('reset-bindings')
   resetBindings(@CurrentUser() u:AuthUser,@Body() b:ResetBindingsDto){return this.service.resetBindings(u,b.fingerprint);}
+  @RequirePermission('org.staff.view','org.staff.edit') @Get(':id/unbind-preview')
+  unbindPreview(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number){return this.service.unbindPreview(u,id);}
+  @RequirePermission('org.staff.view','org.staff.edit') @Post(':id/unbind')
+  unbind(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:ResetBindingsDto){return this.service.unbind(u,id,b.fingerprint);}
   @Throttle({default:{limit:20,ttl:60000}})
   @RequirePermission('org.staff.view','org.staff.edit') @Post(':id/test-notifications')
   send(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:TestNoticeDto){return this.service.sendTest(u,id,b.requestId,{title:b.title,body:b.body});}
