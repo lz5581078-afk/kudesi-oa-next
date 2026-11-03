@@ -802,14 +802,21 @@ d('直播管理（真实数据库）', () => {
     // A foreign company's row must never count as this employee's report.
     await ds.query("INSERT INTO live_session_checkins(company_id,session_id,user_id,role,start_at,confirmation_json) VALUES(?,?,?,'anchor',?,'{}')",[foreign.companyId,id,anchor.id,day+' 10:01:00']);
     const tile=async()=> (await schedules.overview(manager,day)).groups.north.find(r=>r.id===ids.n1)!;
+    expect((await schedules.overview(manager,day)).daySummary).toMatchObject({sessions:1,live:1,people:1,roles:[{members:[]},{members:[{id:control.id,sessions:1}]},{members:[]}]});
     expect((await tile()).live).toMatchObject({id,startReports:{anchor:false,control:true,operator:false},accounts:[{id:ids.account,name:'实际抖音号完整名称',platform:'douyin'},{id:999,name:'实际快手号',platform:'kuaishou'}]});
     await ds.query("INSERT INTO live_session_checkins(company_id,session_id,user_id,role,start_at,end_at,confirmation_json) VALUES(?,?,?,'anchor',?,?,'{}')",[company,id,anchor.id,day+' 10:05:00',day+' 10:20:00']);
     expect((await tile()).live!.startReports).toEqual({anchor:true,control:true,operator:false});
     await ds.query("UPDATE live_sessions SET status='pending_report',end_at=? WHERE id=?",[day+' 10:30:00',id]);
+    expect((await schedules.overview(manager,day)).daySummary).toMatchObject({sessions:1,live:0,people:2});
     expect((await tile()).current!.startReports).toEqual({anchor:true,control:true,operator:false});
     await ds.query("UPDATE live_sessions SET checkin_mode=0,channels_json=JSON_ARRAY(),started_by=?,started_role='anchor' WHERE id=?",[anchor.id,id]);
     await ds.query('DELETE FROM live_session_checkins WHERE session_id=?',[id]);
     expect((await tile()).current).toMatchObject({startReports:{anchor:true,control:null,operator:null},accounts:[{id:ids.account,name:'截断或旧名称',platform:'douyin'}]});
+    const second=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'直播间-北1',anchor.id,ids.account,'测试',day,day+' 11:00:00',anchor.id]);
+    await ds.query("INSERT INTO live_session_reports(company_id,session_id,role,reporter_user_id,end_at,sales_cents,ad_spend_cents) VALUES(?,?,'anchor',?,?,0,0)",[company,id,anchor.id,day+' 10:30:00']);
+    expect((await schedules.overview(manager,day)).daySummary).toMatchObject({sessions:2,live:1,people:1,roles:[{members:[{id:anchor.id,sessions:2}]},{members:[]},{members:[]}]});
+    expect((await schedules.overview(manager,'2027-02-18')).daySummary).toMatchObject({sessions:0,people:0});
+    await ds.query('DELETE FROM live_sessions WHERE company_id=? AND id=?',[company,second.insertId]);
     expect((await schedules.overview(foreign,day)).groups.north.flatMap(r=>r.current?[r.current.id]:[])).not.toContain(id);
   });
 

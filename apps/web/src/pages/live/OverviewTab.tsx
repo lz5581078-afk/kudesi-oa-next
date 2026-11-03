@@ -62,6 +62,7 @@ function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId: numbe
 /** 全览：西走廊平面（南北两排、走廊居中、大房间双倍宽），页面可见时每 30 秒自动刷新。 */
 export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => void }) {
   const {can}=useAuth();
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [editing,setEditing]=useState<RoomTile|null>(null);
   const [date, setDate] = useState(todayText());
   const [filter, setFilter] = useState<(typeof FILTERS)[number][0]>('all');
@@ -87,6 +88,7 @@ export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => 
         <div className="tab-group" role="group" aria-label="筛选">{FILTERS.map(([k, label]) => <button key={k} type="button" className={filter === k ? 'chip active' : 'chip'} onClick={() => setFilter(k)}>{label}</button>)}</div>
         <button type="button" className="secondary-button" onClick={load}>刷新</button>
         {d && <span className="muted" role="status">数据截至 {hm(d.now)}</span>}
+        <button type="button" className="secondary-button live-summary-trigger" disabled={!d?.daySummary || d.date !== date} onClick={() => setSummaryOpen(true)}>本日直播情况汇总</button>
       </div>
       {d && (
           <div className="live-cards" aria-label="统计">
@@ -112,6 +114,14 @@ export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => 
           )}
         </>
       )}
+      {summaryOpen && d?.daySummary && <Modal title={d.date + ' · 本日直播情况汇总'} onClose={() => setSummaryOpen(false)}>
+        <p><strong>{d.daySummary.people} 人参与</strong> · 开播 {d.daySummary.sessions} 场（直播中 {d.daySummary.live} 场，已结束 {d.daySummary.sessions - d.daySummary.live} 场）</p>
+        <p className="muted">按开播日期统计，有上播或业绩填报记录才计入。兼任多个角色的人，总人数只算一次。</p>
+        {d.daySummary.roles.map(({role, members}) => <section className="live-summary-role" key={role}>
+          <h3>{{anchor:'主播',control:'中控',operator:'运营'}[role]} · {members.length} 人</h3>
+          {members.length ? <ul>{members.map(m => <li key={m.id}>{m.name} <small>{m.sessions} 场</small></li>)}</ul> : <span className="muted">暂无参与记录</span>}
+        </section>)}
+      </Modal>}
       {editing&&<RoomSettingsDialog room={editing} onClose={()=>setEditing(null)} onDone={()=>{setEditing(null);load();}}/>}
       {room !== null && <RoomDayDialog roomId={room} date={date} onClose={() => setRoom(null)} onOpenSession={(id) => { setRoom(null); onOpenSession(id); }} />}
     </div>
