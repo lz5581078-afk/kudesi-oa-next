@@ -286,5 +286,8 @@ d('组织与权限管理（真实数据库）', () => {
     expect(out).not.toContain('6000.50');
     expect(await imp.exportCsv(boss)).toContain('6000.50');
     expect(await imp.exportCsv(other)).not.toContain(`imp-a${T}`);
+    const regularCsv=await imp.exportCsv(boss,true);
+    expect(regularCsv).toContain(`imp-a${T}`);expect(regularCsv).not.toContain(`imp-b${T}`);
+    expect((await svc.listStaff(boss)).some(p=>p.id===b.id)).toBe(true); // 其他业务人员目录仍保留兼职
   });
 });
