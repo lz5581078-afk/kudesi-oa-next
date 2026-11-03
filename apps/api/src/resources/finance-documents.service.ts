@@ -1123,20 +1123,29 @@ export class FinanceDocumentsService {
       financeCostCents: x.financeCostCents,
       profitCents: canCost ? x.revenueCents - x.cogsCents - x.expenseCents - x.financeCostCents + x.otherIncomeCents : null,
     }));
+    // 原经营中心的图表来自店铺经营日报；保持单据分录趋势独立，不能互相冒充。
+    const metricAmounts = "SUM(CAST(JSON_EXTRACT(data,'$.sales') AS SIGNED)) AS sales, SUM(CAST(JSON_EXTRACT(data,'$.refund') AS SIGNED)) AS refund, SUM(CAST(JSON_EXTRACT(data,'$.adCost') AS SIGNED)) AS ad, SUM(CAST(JSON_EXTRACT(data,'$.platformFee') AS SIGNED)) AS fee, SUM(CAST(JSON_EXTRACT(data,'$.purchaseCost') AS SIGNED)) AS pc, SUM(CAST(JSON_EXTRACT(data,'$.otherCost') AS SIGNED)) AS oc";
+    const dailyMetrics = await this.dataSource.query(
+      `SELECT JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) AS day, ${metricAmounts} FROM resource_records WHERE company_id = ? AND type = 'store-daily-metrics' AND archived_at IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) >= ? AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) <= ? GROUP BY day ORDER BY day`, [user.companyId, lo, hi]);
+    const storeTrend = (dailyMetrics as Array<{ day: string; sales: string | null; refund: string | null; ad: string | null; fee: string | null; pc: string | null; oc: string | null }>).map(row => {
+      const sales = Number(row.sales ?? 0), cost = [row.refund, row.ad, row.fee, row.pc, row.oc].reduce<number>((sum, value) => sum + Number(value ?? 0), 0);
+      return { date: row.day, salesCents: sales, costCents: canCost ? cost : null, profitCents: canCost ? sales - cost : null };
+    });
     // 店铺利润：取「店铺经营数据」按店铺汇总，带店铺所属主体（营业执照）
     const metrics = await this.dataSource.query(
-      "SELECT JSON_UNQUOTE(JSON_EXTRACT(data,'$.storeId')) AS sid, SUM(CAST(JSON_EXTRACT(data,'$.sales') AS SIGNED)) AS sales, SUM(CAST(JSON_EXTRACT(data,'$.refund') AS SIGNED)) AS refund, SUM(CAST(JSON_EXTRACT(data,'$.adCost') AS SIGNED)) AS ad, SUM(CAST(JSON_EXTRACT(data,'$.platformFee') AS SIGNED)) AS fee, SUM(CAST(JSON_EXTRACT(data,'$.purchaseCost') AS SIGNED)) AS pc, SUM(CAST(JSON_EXTRACT(data,'$.otherCost') AS SIGNED)) AS oc FROM resource_records WHERE company_id = ? AND type = 'store-daily-metrics' AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) >= ? AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) <= ? GROUP BY sid",
+      `SELECT JSON_UNQUOTE(JSON_EXTRACT(data,'$.storeId')) AS sid, ${metricAmounts} FROM resource_records WHERE company_id = ? AND type = 'store-daily-metrics' AND archived_at IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) >= ? AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.day')) <= ? GROUP BY sid`,
       [user.companyId, lo, hi]);
     const storeIds = (metrics as { sid: string }[]).map((x) => Number(x.sid)).filter((n) => n > 0);
     const storeRows = storeIds.length ? await this.dataSource.query(`SELECT id, title, JSON_UNQUOTE(JSON_EXTRACT(data,'$.licenseId')) AS lid, JSON_UNQUOTE(JSON_EXTRACT(data,'$.platform')) AS platform FROM resource_records WHERE company_id = ? AND type = 'stores' AND id IN (${storeIds.map(() => '?').join(',')})`, [user.companyId, ...storeIds]) : [];
     const lids = [...new Set((storeRows as { lid: string | null }[]).map((x) => Number(x.lid)).filter((n) => n > 0))];
     const licRows = lids.length ? await this.dataSource.query(`SELECT id, title FROM resource_records WHERE company_id = ? AND type = 'licenses' AND id IN (${lids.map(() => '?').join(',')})`, [user.companyId, ...lids]) : [];
     const licOf = new Map((licRows as { id: number; title: string }[]).map((x) => [Number(x.id), x.title]));
+    const platformLabels = await categoryLabelMap(this.dataSource.manager, user.companyId, 'stores', getResourceDef('stores')!);
     const storeOf = new Map((storeRows as { id: number; title: string; lid: string | null; platform: string | null }[]).map((x) => [Number(x.id), { name: x.title, license: licOf.get(Number(x.lid)) ?? '', platform: x.platform ?? '' }]));
     const stores = (metrics as { sid: string; sales: string | null; refund: string | null; ad: string | null; fee: string | null; pc: string | null; oc: string | null }[]).map((x) => {
       const sales = Number(x.sales ?? 0), refund = Number(x.refund ?? 0), ad = Number(x.ad ?? 0), fee = Number(x.fee ?? 0), pc = Number(x.pc ?? 0), oc = Number(x.oc ?? 0);
       const st = storeOf.get(Number(x.sid));
-      return { storeId: Number(x.sid), name: st?.name ?? `店铺#${x.sid}`, licenseName: st?.license ?? '', platform: st?.platform ?? '', salesCents: sales, adCostCents: ad, profitCents: canCost ? sales - refund - ad - fee - pc - oc : null };
+      return { storeId: Number(x.sid), name: st?.name ?? `店铺#${x.sid}`, licenseName: st?.license ?? '', platform: st?.platform ?? '', platformLabel: platformLabels.get(st?.platform ?? '') ?? st?.platform ?? '', salesCents: sales, adCostCents: ad, profitCents: canCost ? sales - refund - ad - fee - pc - oc : null };
     }).sort((a, b) => b.salesCents - a.salesCents);
     // 财务台账：最近的收入/费用/其他收入分录，带店铺（提现单的店铺或往来对象是店铺）和来源（手工制单/流程自动记账）
     const led = await this.dataSource.query(
@@ -1147,7 +1156,7 @@ export class FinanceDocumentsService {
     const ledger = (led as { d: string; kind: string; a: string; did: number; no: string; dt: string; sk: string | null; storeName: string | null }[]).map((x) => ({
       date: x.d, direction: x.kind === 'expense' || (x.kind === 'finance_cost' && Number(x.a) > 0) ? 'out' : 'in', kind: x.kind, amountCents: Math.abs(Number(x.a)), documentId: x.did, docNo: x.no, docType: x.dt, storeName: x.storeName ?? '', source: sourceLabel(x.sk) }));
     return {
-      trend, trendBy: byMonth ? 'month' : 'day', from: lo === '0000-01-01' ? '' : lo, to: hi === '9999-12-31' ? '' : hi, stores, ledger,
+      trend, storeTrend, trendBy: byMonth ? 'month' : 'day', from: lo === '0000-01-01' ? '' : lo, to: hi === '9999-12-31' ? '' : hi, stores, ledger,
       month: m, revenueCents: revenue, cogsCents: canCost ? cogs : null, grossProfitCents: canCost ? revenue - cogs : null,
       expenseCents: expense, financeCostCents: financeCost, otherIncomeCents: otherIncome, netProfitCents: canCost ? revenue - cogs - expense - financeCost + otherIncome : null,
       receivableCents: bal('receivable'), payableCents: -bal('payable') || 0, advanceReceiptCents: -bal('advance_receipt') || 0, prepaymentCents: bal('prepayment'),

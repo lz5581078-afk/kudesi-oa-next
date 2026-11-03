@@ -19,8 +19,9 @@ vi.mock('./financeApi', () => ({
 }));
 vi.mock('../../resources/api', async (orig) => ({ ...(await orig<typeof import('../../resources/api')>()), resourceApi: { list: vi.fn(), get: vi.fn() } }));
 const fa = vi.mocked(financeApi);
-beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); fa.banks.mockResolvedValue([]); vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 15 } as never); });
-afterEach(cleanup);
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); vi.clearAllMocks(); window.localStorage.clear(); fa.banks.mockResolvedValue([]); vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 15 } as never); });
+afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
 
 describe('金额类单据：多行明细', () => {
   it('收款单可以加多行，合计是各行之和，提交的是整数分明细', async () => {
@@ -47,14 +48,14 @@ describe('开单明细单位', () => {
   });
 });
 
-describe('财务经营：任意起止日期', () => {
-  it('填起止日期后按日期区间查询', async () => {
-    fa.overview.mockResolvedValue({ month: '2026-10', from: '2026-10-01', to: '2026-10-27', trendBy: 'day', trend: [], stores: [], ledger: [], revenueCents: 0, cogsCents: null, grossProfitCents: null, expenseCents: 0, otherIncomeCents: 0, netProfitCents: null, receivableCents: 0, payableCents: 0, advanceReceiptCents: 0, prepaymentCents: 0, bankCents: null, drafts: 0, issued: 0 } as never);
-    render(<MemoryRouter><FinanceOverviewPage /></MemoryRouter>);
-    await waitFor(() => expect(fa.overview).toHaveBeenCalled());
-    fireEvent.change(await screen.findByLabelText('开始日期'), { target: { value: '2026-09-01' } });
-    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-20' } });
-    await waitFor(() => expect(fa.overview).toHaveBeenLastCalledWith(undefined, { from: '2026-09-01', to: '2026-09-20' }));
+describe('财务经营：原版范围', () => {
+  it('按全部店铺日报读取，不保留新版独加的期间筛选', async () => {
+    fa.overview.mockResolvedValue({storeTrend:[],stores:[],ledger:[]} as never);
+    render(<MemoryRouter><FinanceOverviewPage/></MemoryRouter>);
+    await waitFor(() => expect(fa.overview).toHaveBeenLastCalledWith('all'));
+    expect(screen.queryByLabelText('开始日期')).toBeNull();
+    expect(screen.queryByLabelText('结束日期')).toBeNull();
+    expect(screen.queryByRole('button',{name:'刷新数据'})).toBeNull();
   });
 });
 

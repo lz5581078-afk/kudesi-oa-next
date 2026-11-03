@@ -1,0 +1,15 @@
+.app-main .content:has(>.finance-overview-reference){padding:0}
+.qk.finance-overview-reference{display:grid;gap:18px;padding:26px 28px 42px;color:#172033;background:#f4f7f6;font-family:Inter,'PingFang SC','Microsoft YaHei',Arial,sans-serif;font-size:16px;line-height:normal}
+.finance-overview-reference .qk-head{margin:0;padding:16px;gap:20px}
+.finance-overview-reference .qk-head h1{margin:0 0 7px;font-size:25px;font-weight:700;line-height:normal}
+.finance-overview-reference .qk-head p{max-width:none;font-size:16px;line-height:normal;color:#64748b}
+.finance-overview-two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.finance-overview-reference .qk-panel{min-width:0;padding:16px;border:1px solid #dce4ef;border-radius:8px;background:#fff;box-shadow:0 10px 30px #0f172a0d}
+.finance-overview-reference .qk-panel-head{margin:0 0 14px;padding:0;border:0}
+.finance-overview-reference .qk-panel-head h2{display:flex;align-items:center;gap:9px;margin:0;color:#172033;font-size:16px;font-weight:700;line-height:normal}
+.finance-overview-reference .qk-panel-head h2>svg{color:#172033;flex:none}
+.finance-store-profit-chart{height:280px;min-width:0}
+.finance-overview-reference .data-table{font-size:14px;min-width:0}
+.finance-overview-reference .data-table th,.finance-overview-reference .data-table td{padding:11px 10px;white-space:nowrap}
+.finance-overview-reference .qk-table .data-table th{font-size:14px;font-weight:700;color:#64748b;background:#f7f9fc}
+@media(max-width:1100px){.finance-overview-two-col{grid-template-columns:minmax(0,1fr)}}

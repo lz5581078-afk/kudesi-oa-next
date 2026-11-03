@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createChecker } from '@kudesi/shared';
 import { DocForm } from './DocForm';
@@ -18,11 +18,12 @@ vi.mock('./financeApi', () => ({
 vi.mock('../../resources/api', async (orig) => ({ ...(await orig<typeof import('../../resources/api')>()), resourceApi: { list: vi.fn(), get: vi.fn() } }));
 const fa = vi.mocked(financeApi);
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   vi.clearAllMocks(); window.localStorage.clear();
   // Range labels are distinct mid-month; keep real timers for async UI checks.
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-03-15T12:00:00Z'));
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { vi.unstubAllGlobals(); cleanup(); vi.useRealTimers(); });
 
 const emptyList = { total: 0, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: [] };
 
@@ -79,21 +80,25 @@ describe('经营历程 / 草稿中心筛选', () => {
 });
 
 describe('财务经营', () => {
-  it('点销售收入：把当前月份和“收入”写进经营历程筛选并跳转', async () => {
-    fa.overview.mockResolvedValue({ month: '2026-03', trend: [], stores: [{ storeId: 1, name: '甲店', salesCents: 10000, adCostCents: 0, profitCents: 2500 }], ledger: [], revenueCents: 10000, cogsCents: 4000, grossProfitCents: 6000, expenseCents: 700, otherIncomeCents: 0, netProfitCents: 5300, receivableCents: 0, payableCents: 0, advanceReceiptCents: 0, prepaymentCents: 0, bankCents: 1000, drafts: 0, issued: 0 } as never);
-    render(<MemoryRouter initialEntries={['/finance/overview']}><Routes><Route path="/finance/overview" element={<FinanceOverviewPage />} /><Route path="/finance/history" element={<div>历程页</div>} /></Routes></MemoryRouter>);
-    fireEvent.click(await screen.findByRole('button', { name: /销售收入/ }));
-    await screen.findByText('历程页');
-    const saved = JSON.parse(window.localStorage.getItem('oa.finance.history.filters.v1')!);
-    expect(saved.direction).toBe('in');
-    expect(saved.from).toMatch(/-01$/);
-    expect(screen.queryByText('25.0%')).toBeNull();
+  it('恢复原经营中心三面板和四列店铺表，不显示额外汇总和日期筛选', async () => {
+    fa.overview.mockResolvedValue({ stores:[{storeId:1,name:'甲店',platform:'pdd',licenseName:'合成主体',salesCents:10000,profitCents:2500}],storeTrend:[],ledger:[] } as never);
+    render(<MemoryRouter><FinanceOverviewPage/></MemoryRouter>);
+    await screen.findByText('pdd / 甲店');
+    expect(fa.overview).toHaveBeenCalledWith('all');
+    expect(screen.getByRole('heading',{name:'财务经营中心'})).toBeTruthy();
+    expect(screen.getByRole('region',{name:'利润趋势'})).toBeTruthy();
+    expect(screen.getByRole('region',{name:'店铺利润'})).toBeTruthy();
+    expect(screen.getByRole('region',{name:'财务台账'})).toBeTruthy();
+    expect(screen.queryByRole('button',{name:/销售收入/})).toBeNull();
+    expect(screen.queryByLabelText('月份')).toBeNull();
+    expect(screen.queryByLabelText('开始日期')).toBeNull();
   });
-  it('店铺利润有利润率列', async () => {
-    fa.overview.mockResolvedValue({ month: '2026-03', trend: [], stores: [{ storeId: 1, name: '甲店', salesCents: 10000, adCostCents: 0, profitCents: 2500 }], ledger: [], revenueCents: 10000, cogsCents: 4000, grossProfitCents: 6000, expenseCents: 700, otherIncomeCents: 0, netProfitCents: 5300, receivableCents: 0, payableCents: 0, advanceReceiptCents: 0, prepaymentCents: 0, bankCents: 1000, drafts: 0, issued: 0 } as never);
-    render(<MemoryRouter><FinanceOverviewPage /></MemoryRouter>);
-    expect(await screen.findByText('25.0%')).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: '利润率' })).toBeTruthy();
+  it('店铺利润显示原四列，利润金额保留而不额外增加利润率列', async () => {
+    fa.overview.mockResolvedValue({ stores:[{storeId:1,name:'甲店',platform:'pdd',salesCents:10000,profitCents:2500}],storeTrend:[],ledger:[] } as never);
+    render(<MemoryRouter><FinanceOverviewPage/></MemoryRouter>);
+    expect(await screen.findByText('¥25.00')).toBeTruthy();
+    expect(screen.queryByRole('columnheader',{name:'利润率'})).toBeNull();
+    expect(screen.queryByRole('columnheader',{name:'推广费'})).toBeNull();
   });
 });
 

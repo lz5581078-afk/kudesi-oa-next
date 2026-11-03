@@ -18,6 +18,7 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
     "read-excel-file": "^5.8.8",
+    "recharts": "^2.15.4",
     "write-excel-file": "^2.3.10"
   },
   "devDependencies": {

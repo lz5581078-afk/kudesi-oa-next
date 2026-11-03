@@ -63,9 +63,10 @@ export interface StockLedgerRow { id: number; entryDate: string; documentId: num
 export interface StockLedger { rows: StockLedgerRow[]; inQty: number; outQty: number; closingQty: number; closingAmountCents: number | null }
 export interface StoreFund { storeId: number; name: string; storeNo?: string; platformStoreId?: string; platform?: string; platformLabel?: string; snapshotDate: string; updatedAt?: string | null; withdrawableCents: number; depositCents: number; frozenCents: number; promotionCents: number }
 export interface Overview {
+  storeTrend?: Array<{ date: string; salesCents: number; costCents: number | null; profitCents: number | null }>;
   trend: Array<{ date: string; revenueCents: number; expenseCents: number; financeCostCents?: number; profitCents: number | null }>;
   trendBy?: 'day' | 'month';
-  stores: Array<{ storeId: number; name: string; licenseName?: string; platform?: string; salesCents: number; adCostCents: number; profitCents: number | null }>;
+  stores: Array<{ storeId: number; name: string; licenseName?: string; platform?: string; platformLabel?: string; salesCents: number; adCostCents: number; profitCents: number | null }>;
   ledger: Array<{ date: string; direction: 'in' | 'out'; kind: string; amountCents: number; documentId: number; docNo: string; docType: string; storeName?: string; source?: string }>;
   month: string; revenueCents: number; cogsCents: number | null; grossProfitCents: number | null; expenseCents: number; financeCostCents?: number; otherIncomeCents: number; netProfitCents: number | null;
   receivableCents: number; payableCents: number; advanceReceiptCents: number; prepaymentCents: number; bankCents: number | null; drafts: number; issued: number;

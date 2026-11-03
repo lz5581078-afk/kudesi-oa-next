@@ -21,8 +21,9 @@ vi.mock('./financeApi', () => ({
   financeApi: { overview: vi.fn(), docs: vi.fn(), banks: vi.fn(), storeFunds: vi.fn(), keyAccounts: vi.fn(), setKeyAccount: vi.fn(), ledger: vi.fn(), inventory: vi.fn() },
 }));
 const fa = vi.mocked(financeApi);
-beforeEach(() => { vi.clearAllMocks(); cashAuth.canReadAccounts = true; cashAuth.companyId = 1; vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 200 }); });
-afterEach(cleanup);
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver',class { observe() {} unobserve() {} disconnect() {} }); vi.clearAllMocks(); cashAuth.canReadAccounts = true; cashAuth.companyId = 1; vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 200 }); });
+afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
 
 describe('财务经营', () => {
   const overview = (month: string) => ({
@@ -31,20 +32,18 @@ describe('财务经营', () => {
     ledger: [{ date: '2026-03-10', direction: 'out' as const, kind: 'expense', amountCents: 700, documentId: 3, docNo: 'FY1', docType: 'expense', storeName: '甲店', source: '流程自动记账' }],
     revenueCents: 10000, cogsCents: 4000, grossProfitCents: 6000, expenseCents: 700, otherIncomeCents: 0, netProfitCents: 5300, receivableCents: 0, payableCents: 0, advanceReceiptCents: 0, prepaymentCents: 0, bankCents: 1000, drafts: 0, issued: 0,
   });
-  it('店铺利润有主体列，台账有店铺和来源列；勾选“全部时间”用 all 重新查，趋势改按月', async () => {
+  it('原经营中心保留主体、店铺和来源列，店铺日报始终按全部日期读取', async () => {
     fa.overview.mockImplementation(async (m) => overview(m ?? '2026-03'));
     render(<MemoryRouter><FinanceOverviewPage /></MemoryRouter>);
     expect(await screen.findByText('主体甲公司')).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: '主体' })).toBeTruthy();
-    expect(screen.getAllByRole('columnheader', { name: '店铺' }).length).toBe(2); // 店铺利润表和台账各一列
+    expect(screen.getByRole('columnheader', { name: /^主体/ })).toBeTruthy();
+    expect(screen.getAllByRole('columnheader', { name: /^店铺/ }).length).toBe(2); // 店铺利润表和台账各一列
     expect(screen.getByRole('columnheader', { name: '来源' })).toBeTruthy();
     expect(screen.getByText('流程自动记账')).toBeTruthy();
-    expect(screen.getByText('利润趋势（按日）')).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('全部时间'));
-    await screen.findByText('利润趋势（按月）');
+    expect(screen.getByRole('heading', { name: '利润趋势' })).toBeTruthy();
     expect(fa.overview).toHaveBeenLastCalledWith('all');
     expect(screen.queryByLabelText('月份')).toBeNull();
-    expect(screen.getByText(/全部时间 经营情况/)).toBeTruthy();
+    expect(screen.queryByLabelText('全部时间')).toBeNull();
   });
 });
 

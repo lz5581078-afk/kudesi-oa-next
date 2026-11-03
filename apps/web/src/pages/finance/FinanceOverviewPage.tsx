@@ -1,123 +1,59 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { todayInChina } from '@kudesi/shared';
+import { useEffect, useMemo, useState } from 'react';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Landmark, Store, WalletCards } from 'lucide-react';
 import { ApiError } from '../../api/client';
-import { DOC_TYPE_MAP } from '@kudesi/shared';
+import { useAuth } from '../../auth/AuthContext';
 import { money } from './common';
-import { DocDetail } from './DocDetail';
 import { financeApi, type Overview } from './financeApi';
-import { DATE_PRESETS, activePreset, writeStored } from './fin-ui';
+import { QueryPage, QueryPanel, QueryTable, type Col } from './query/QueryKit';
+import './financeOverview.css';
 
-const month0 = () => todayInChina().slice(0, 7);
-const monthBefore = () => { const [y, m] = month0().split('-').map(Number); const t = new Date(Date.UTC(y, m - 2, 1)); return t.toISOString().slice(0, 7); };
-const monthRange = (month: string): [string, string] => { if (month === 'all') return ['', '']; const [y, m] = month.split('-').map(Number); return [`${month}-01`, new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)]; };
-const rate = (num: number | null, den: number) => (num === null || den <= 0 ? '—' : `${((num / den) * 100).toFixed(1)}%`);
-
-/** 财务经营：本月（或全部时间）收入、成本、费用、利润，往来余额，待处理单据。没有成本权限的人看不到成本和利润。 */
+/** 经营中心按店铺日报展示利润，单据台账保持独立；不把两种口径互换。 */
 export function FinanceOverviewPage() {
-  const [month, setMonth] = useState(month0());
-  const [range, setRange] = useState<{ from: string; to: string } | null>(null); // 任意起止日期；设了就按日期查
-  const all = !range && month === 'all';
-  const [d, setD] = useState<Overview | null>(null);
-  const [error, setError] = useState('');
-  const [selected, setSelected] = useState<number | null>(null);
-  const [tick, setTick] = useState(0);
-  const navigate = useNavigate();
-  useEffect(() => {
-    setError('');
-    (range ? financeApi.overview(undefined, range) : financeApi.overview(month)).then(setD).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
-  }, [month, range, tick]);
-  /** 把当前期间和收支方向写进经营历程的筛选条件，再跳过去 */
-  const openJourney = (direction: '' | 'in' | 'out') => {
-    const [from, to] = range ? [range.from, range.to] : monthRange(month);
-    writeStored('oa.finance.history.filters.v1', { datePreset: activePreset(from, to) || 'custom', from, to, status: '', docType: '', direction, mine: false, audited: '' });
-    navigate('/finance/history');
-  };
-  const Stat = ({ label, value, tone, hint, onClick }: { label: string; value: string; tone?: string; hint?: string; onClick?: () => void }) => {
-    const body = <><div className="muted">{label}</div><div className={`strong ${tone ?? ''}`}>{value}</div>{hint && <small className="muted">{hint}</small>}</>;
-    return onClick ? <button type="button" className="stat clickable" aria-label={`${label}，点击查看对应单据`} onClick={onClick}>{body}</button> : <div className="stat">{body}</div>;
-  };
-  const noData = !!d && d.trend.length === 0 && d.stores.length === 0 && d.ledger.length === 0 && d.revenueCents === 0 && d.expenseCents === 0;
-  return (
-    <div>
-      <div className="page-head between"><h1>财务经营</h1>
-        <div className="toolbar">
-          <label className="check-line"><input type="checkbox" aria-label="全部时间" checked={all} onChange={(e) => { setRange(null); setMonth(e.target.checked ? 'all' : month0()); }} />全部时间</label>
-          <div className="chips" role="group" aria-label="期间快捷选择">
-            <button type="button" className={`chip${!range && !all && month === month0() ? ' active' : ''}`} onClick={() => { setRange(null); setMonth(month0()); }}>本月</button>
-            <button type="button" className={`chip${!range && !all && month === monthBefore() ? ' active' : ''}`} onClick={() => { setRange(null); setMonth(monthBefore()); }}>上月</button>
-          </div>
-          <button type="button" className="secondary-button small" onClick={() => setTick((t) => t + 1)}>刷新数据</button>
-          {!all && !range && <input type="month" aria-label="月份" value={month} onChange={(e) => setMonth(e.target.value || month0())} />}
-          <button type="button" className={`chip${range && activePreset(range.from, range.to) === '7d' ? ' active' : ''}`} onClick={() => { const [a, b] = DATE_PRESETS.find((p) => p.key === '7d')!.range(); setRange({ from: a, to: b }); }}>近7天</button>
-          <label className="check-line">开始日期<input type="date" aria-label="开始日期" value={range?.from ?? ''} max={range?.to || undefined} onChange={(e) => setRange({ from: e.target.value, to: range?.to ?? '' })} /></label>
-          <label className="check-line">结束日期<input type="date" aria-label="结束日期" value={range?.to ?? ''} min={range?.from || undefined} onChange={(e) => setRange({ from: range?.from ?? '', to: e.target.value })} /></label>
-          {range && <button type="button" className="ghost-button" onClick={() => setRange(null)}>清除日期</button>}
-        </div></div>
-      {error && <div role="alert" className="notice error">{error}</div>}
-      {d && (
-        <>
-          <h2 className="section-title">{all ? '全部时间' : range ? `${range.from || '起始'} 至 ${range.to || '今天'}` : d.month} 经营情况（按已过账单据）</h2>
-          {noData && <div className="empty-state muted">这个期间还没有已过账的经营数据。<button type="button" className="link-button" onClick={() => openJourney('')}>去经营历程看单据</button>，或到「资料」里完善店铺和账户档案。</div>}
-          <div className="stats">
-            <Stat label="销售收入" value={money(d.revenueCents)} hint="点击查看收入单据" onClick={() => openJourney('in')} />
-            <Stat label="销售成本" value={money(d.cogsCents)} />
-            <Stat label="毛利" value={money(d.grossProfitCents)} hint={`毛利率 ${rate(d.grossProfitCents, d.revenueCents)}`} />
-            <Stat label="费用" value={money(d.expenseCents)} hint="点击查看支出单据" onClick={() => openJourney('out')} />
-            <Stat label="其他收入" value={money(d.otherIncomeCents)} />
-            <Stat label="财务费用" value={money(d.financeCostCents ?? 0)} hint="收款优惠、转款手续费（借）减去付款优惠（贷）；负数表示得到的折扣更多" />
-            <Stat label="净利润" value={money(d.netProfitCents)} hint={`利润率 ${rate(d.netProfitCents, d.revenueCents)}`} tone={d.netProfitCents !== null && d.netProfitCents < 0 ? 'neg' : ''} />
-          </div>
-          <h2 className="section-title">往来与资金（截至现在）</h2>
-          <div className="stats">
-            <Stat label="银行余额合计" value={money(d.bankCents)} hint="点击进入现金银行查询" onClick={() => navigate('/finance/cash-bank')} />
-            <Stat label="应收账款" value={money(d.receivableCents)} />
-            <Stat label="应付账款" value={money(d.payableCents)} />
-            <Stat label="预收款" value={money(d.advanceReceiptCents)} />
-            <Stat label="预付款" value={money(d.prepaymentCents)} />
-          </div>
-          <h2 className="section-title">利润趋势（{d.trendBy === 'month' ? '按月' : '按日'}）</h2>
-          <Trend rows={d.trend} by={d.trendBy ?? 'day'} />
-          <h2 className="section-title">店铺利润（来自店铺经营数据）</h2>
-          {d.stores.length === 0 ? <p className="muted">{all ? '还没有店铺经营数据。' : '本月还没有店铺经营数据。'}</p> : (
-            <div className="table-scroll"><table className="data-table"><thead><tr><th>店铺</th><th>主体</th><th className="num">销售额</th><th className="num">推广费</th><th className="num">利润</th><th className="num">利润率</th></tr></thead>
-              <tbody>{d.stores.map((s) => <tr key={s.storeId}><td>{s.name}</td><td>{s.licenseName || <span className="muted">未关联执照</span>}</td><td className="num">{money(s.salesCents)}</td><td className="num">{money(s.adCostCents)}</td><td className={`num ${s.profitCents !== null && s.profitCents < 0 ? 'neg' : ''}`}>{money(s.profitCents)}</td><td className="num">{rate(s.profitCents, s.salesCents)}</td></tr>)}</tbody></table></div>
-          )}
-          <h2 className="section-title between"><span>财务台账（{all ? '最近' : '本月最近'} 60 笔）</span><button type="button" className="secondary-button small" onClick={() => openJourney('')}>全部单据 · 经营历程</button></h2>
-          {d.ledger.length === 0 ? <p className="muted">{all ? '还没有已过账的收支。' : '本月还没有已过账的收支。'}</p> : (
-            <div className="table-scroll"><table className="data-table"><thead><tr><th>日期</th><th>方向</th><th>分类</th><th>店铺</th><th>单据</th><th className="num">金额</th><th>来源</th></tr></thead>
-              <tbody>{d.ledger.map((l, i) => <tr key={i}><td>{l.date}</td><td>{l.direction === 'in' ? '收入' : '支出'}</td><td>{l.kind === 'revenue' ? '销售收入' : l.kind === 'expense' ? '费用' : l.kind === 'finance_cost' ? '财务费用' : '其他收入'}</td><td>{l.storeName || '-'}</td>
-                <td><button type="button" className="link-button" onClick={() => setSelected(l.documentId)}>{DOC_TYPE_MAP.get(l.docType as never)?.label ?? l.docType} {l.docNo}</button></td><td className="num">{money(l.amountCents)}</td><td>{l.source ?? '-'}</td></tr>)}</tbody></table></div>
-          )}
-          <h2 className="section-title">待处理</h2>
-          <p><Link to="/finance/drafts">草稿 {d.drafts} 张，已开立未过账 {d.issued} 张</Link></p>
-          <p className="muted">利润为系统内已过账数据；聚水潭订单接入后，会在这里并入平台订单算整体利润。</p>
-        </>
-      )}
-      {selected && <DocDetail key={selected} id={selected} onClose={() => setSelected(null)} onChanged={() => undefined} />}
-    </div>
-  );
+  const { user } = useAuth();
+  return <OverviewContent key={JSON.stringify([user?.companyId, user?.id, user?.permissions])}/>;
 }
-
-/** 简单柱图：每天一根，收入蓝、利润绿/红；没有成本权限时只画收入。 */
-function Trend({ rows, by }: { rows: Overview['trend']; by: 'day' | 'month' }) {
-  if (rows.length === 0) return <p className="muted">{by === 'month' ? '还没有已过账的收支。' : '本月还没有已过账的收支。'}</p>;
-  const max = Math.max(1, ...rows.map((r) => Math.max(r.revenueCents, Math.abs(r.profitCents ?? 0))));
-  const step = by === 'month' ? 44 : 28;
-  const w = Math.max(rows.length * step, 280), h = 140;
-  return (
-    <svg role="img" aria-label="利润趋势" width={w} height={h + 20} style={{ maxWidth: '100%' }}>
-      {rows.map((r, i) => {
-        const x = i * step + 4, rh = (r.revenueCents / max) * h, ph = r.profitCents === null ? 0 : (Math.abs(r.profitCents) / max) * h;
-        return (
-          <g key={r.date}>
-            <title>{`${r.date} 收入 ${money(r.revenueCents)} 利润 ${money(r.profitCents)}`}</title>
-            <rect x={x} y={h - rh} width={10} height={rh} fill="#3b82f6" />
-            {r.profitCents !== null && <rect x={x + 11} y={h - ph} width={10} height={ph} fill={r.profitCents < 0 ? '#dc2626' : '#16a34a'} />}
-            <text x={x + 10} y={h + 14} fontSize="10" textAnchor="middle">{by === 'month' ? r.date.slice(2) : r.date.slice(8)}</text>
-          </g>
-        );
-      })}
-    </svg>
-  );
+function OverviewContent() {
+  const [data, setData] = useState<Overview | null>(null), [error, setError] = useState(''), [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let alive = true; setData(null); setError('');
+    financeApi.overview('all').then(result => { if (alive) setData(result); }).catch(error => { if (alive) setError(error instanceof ApiError ? error.message : '财务经营数据加载失败'); });
+    return () => { alive = false; };
+  }, [retry]);
+  const stores = useMemo(() => data ? [...data.stores].sort((a,b) => a.profitCents === null || b.profitCents === null ? a.name.localeCompare(b.name, 'zh-CN') : b.profitCents - a.profitCents) : null, [data]);
+  const storeCols = useMemo<Array<Col<Overview['stores'][number]>>>(() => [
+    { key:'store', head:'店铺', cell:row => `${row.platformLabel || row.platform || ''} / ${row.name}`, csv:row => `${row.platformLabel || row.platform || ''} / ${row.name}` },
+    { key:'license', head:'主体', cell:row => row.licenseName || '', csv:row => row.licenseName || '' },
+    { key:'sales', head:'销售额', cell:row => reportMoney(row.salesCents), csv:row => row.salesCents / 100 },
+    { key:'profit', head:'利润', cell:row => reportMoney(row.profitCents), csv:row => row.profitCents === null ? '' : row.profitCents / 100 },
+  ], []);
+  const ledgerCols = useMemo<Array<Col<Overview['ledger'][number]>>>(() => [
+    { key:'date', head:'日期', cell:row => row.date, csv:row => row.date },
+    { key:'direction', head:'方向', cell:row => row.direction === 'in' ? '收入' : '支出', csv:row => row.direction === 'in' ? '收入' : '支出' },
+    { key:'kind', head:'分类', cell:row => kindLabel(row.kind), csv:row => kindLabel(row.kind) },
+    { key:'store', head:'店铺', cell:row => row.storeName || '-', csv:row => row.storeName || '' },
+    { key:'amount', head:'金额', cell:row => reportMoney(row.amountCents), csv:row => row.amountCents / 100 },
+    { key:'source', head:'来源', cell:row => row.source || '', csv:row => row.source || '' },
+  ], []);
+  const ledger = useMemo(() => data?.ledger.slice(0,20).map((row,index) => ({ ...row, tableKey:index })) ?? null, [data]);
+  return <QueryPage className="finance-overview-reference" title="财务经营中心" subtitle="经营财务先落地：收入、费用、提现、余额、店铺利润和来源流程追溯。">
+    {error && <div role="alert" className="notice error">{error}<button type="button" className="link-button" onClick={() => setRetry(value => value + 1)}>重试</button></div>}
+    {!error && <><div className="finance-overview-two-col">
+      <QueryPanel title="利润趋势" icon={<Landmark size={18}/>}>
+        {!data ? <p className="muted" role="status">正在读取店铺经营数据…</p> : <StoreProfitChart rows={data.storeTrend || []}/>}
+      </QueryPanel>
+      <QueryPanel title="店铺利润" icon={<Store size={18}/>}>
+        <QueryTable cols={storeCols} rows={stores} rowKey={row => row.storeId} empty="暂无数据" caption="店铺利润" foot={false} controls={{ storageKey:'oa.finance.overview.store-columns.v1' }}/>
+      </QueryPanel>
+    </div>
+    <QueryPanel title="财务台账" icon={<WalletCards size={18}/>}>
+      <QueryTable cols={ledgerCols} rows={ledger} rowKey={row => row.tableKey} empty="暂无数据" caption="财务台账" foot={false} controls={{ storageKey:'oa.finance.overview.ledger-columns.v1' }}/>
+    </QueryPanel></>}
+  </QueryPage>;
+}
+const reportMoney = (value: number | null) => typeof value === 'number' && value < 0 ? `-${money(-value)}` : money(value);
+const kindLabel = (kind: string) => ({ revenue:'销售收入', expense:'费用', finance_cost:'财务费用', other_income:'其他收入' }[kind] || kind);
+function StoreProfitChart({ rows }: { rows: NonNullable<Overview['storeTrend']> }) {
+  const data = rows.map(row => ({ date:row.date, profit:row.profitCents === null ? null : row.profitCents / 100, cost:row.costCents === null ? null : row.costCents / 100 }));
+  return <div className="finance-store-profit-chart" role="img" aria-label="店铺利润和成本趋势"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#d8dee9"/><XAxis dataKey="date" tickFormatter={value => String(value).slice(5,10)}/><YAxis/><Tooltip formatter={value => reportMoney(Number(value) * 100)}/><Area type="monotone" dataKey="profit" stroke="#0e8062" fill="#b9ddca" name="利润"/><Area type="monotone" dataKey="cost" stroke="#f59e0b" fill="#fde68a" name="成本"/></AreaChart></ResponsiveContainer></div>;
 }
