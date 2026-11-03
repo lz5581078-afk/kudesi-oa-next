@@ -1,3 +1,4 @@
+import { Building2, CalendarDays, ClipboardCheck, Clock3, Plus, QrCode, RefreshCw, ArrowRight, Users } from 'lucide-react';
 import { RunDetail } from '../flow/RunDetail';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { useAuth } from '../../auth/AuthContext';
@@ -141,7 +142,7 @@ function DailySchedule({
       onClose={onClose}
       foot={
         <>
-          <button disabled={busy} onClick={onClose}>
+          <button className="secondary-button" disabled={busy} onClick={onClose}>
             取消
           </button>
           <button
@@ -223,7 +224,9 @@ export function DailyWorkPanel({
   date: fixedDate,
   token,
   company,
+  embedded = false,
 }: {
+  embedded?: boolean;
   personal?: boolean;
   date?: string;
   token?: string;
@@ -323,37 +326,32 @@ export function DailyWorkPanel({
     startable = data?.rows.find((r) => r.canStart);
   return (
     <section
-      className="card daily-work-panel"
+      className={`daily-work-panel ${embedded ? 'daily-work-embedded' : 'card'}`}
       aria-label={personal ? '我的日常工作' : '直播办公室日常工作'}
     >
       <header className="daily-head">
-        <div>
-          <h2>{personal ? '我的日常工作' : '直播办公室'}</h2>
-          <p className="muted">
-            仅限已排班人员 · 按实际打卡计时 · 审核后计入工资
-          </p>
-        </div>
-        <div className="daily-actions">
-          <label>
-            日期
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => {
-                setDate(e.target.value);
-                setData(null);
-              }}
-            />
-          </label>
-          <button onClick={() => load()}>刷新</button>
-          {!personal && can('live.manage') && (
-            <>
-              <button onClick={() => setAdding(true)}>新增日常工作排班</button>
-              <button onClick={() => setQr(true)}>办公室二维码</button>
-            </>
-          )}
+        <div className="daily-head-copy">
+          {!embedded&&<><span className="daily-eyebrow">{personal ? '我的工作' : '办公室管理'}</span><h2>{personal ? '我的日常工作' : '日常工作排班'}</h2></>}
+          <p className="muted">安排主播与中控的日常工作，按实际打卡计时。</p>
         </div>
       </header>
+      <div className="daily-toolbar">
+        <label className="daily-date"><CalendarDays size={17} aria-hidden="true"/><span>日期</span>
+          <input aria-label="日常工作日期" type="date" value={date} onChange={(e)=>{setDate(e.target.value);setData(null);}}/>
+        </label>
+        <div className="daily-actions">
+          <button type="button" className="secondary-button daily-refresh" onClick={()=>load()}><RefreshCw size={15} aria-hidden="true"/>刷新</button>
+          {!personal && can('live.manage') && <>
+            <button type="button" className="secondary-button" onClick={()=>setQr(true)}><QrCode size={16} aria-hidden="true"/>办公室二维码</button>
+            <button type="button" className="primary-button" aria-label="新增日常工作排班" onClick={()=>setAdding(true)}><Plus size={17} aria-hidden="true"/>新增排班</button>
+          </>}
+        </div>
+      </div>
+      {!personal && <dl className="daily-summary" aria-label="日常工作状态统计">
+        <div><CalendarDays size={18} aria-hidden="true"/><dt>当日排班</dt><dd>{data ? data.rows.filter(r=>r.date===date&&r.status!=='cancelled').length : '—'}<small>段</small></dd></div>
+        <div><Clock3 size={18} aria-hidden="true"/><dt>工作中</dt><dd>{data ? data.rows.filter(r=>r.status==='working').length : '—'}<small>人</small></dd></div>
+        <div><ClipboardCheck size={18} aria-hidden="true"/><dt>待处理</dt><dd>{data ? data.rows.filter(r=>['pending','submitted','returned'].includes(r.status)).length : '—'}<small>条</small></dd></div>
+      </dl>}
       {personal && data?.monthTotal && (
         <p>
           {data.monthTotal.month} 日常工资（已审核）：
@@ -377,11 +375,6 @@ export function DailyWorkPanel({
       {personal && !working && !startable && data && (
         <p className="muted">
           当前没有可以开始的日常工作排班。请在排定的开始至结束时间内操作。
-        </p>
-      )}
-      {!personal && (
-        <p className="muted">
-          审核使用“日常工作工时审核”流程，请先在流程设计器配置审核人并发布。
         </p>
       )}
       {error && (
@@ -449,21 +442,21 @@ export function DailyWorkPanel({
             {r.returnReason && <p className="notice warn">{r.returnReason}</p>}
             <div className="daily-actions">
               {personal && ['pending', 'returned'].includes(r.status) && (
-                <button disabled={busy} onClick={() => open(r, 'report')}>
+                <button className="secondary-button" disabled={busy} onClick={() => open(r, 'report')}>
                   修改完成内容
                 </button>
               )}
               {(personal || data?.canManage) &&
                 ['pending', 'returned'].includes(r.status) && (
-                  <button disabled={busy} onClick={() => void submit(r)}>
+                  <button className="primary-button" disabled={busy} onClick={() => void submit(r)}>
                     {r.status === 'returned' ? '重新提交审核' : '提交工时审核'}
                   </button>
                 )}
               {r.flowRunId && (
-                <button onClick={() => setRunId(r.flowRunId)}>查看审核</button>
+                <button className="secondary-button" onClick={() => setRunId(r.flowRunId)}>查看审核</button>
               )}
               {!personal && data?.canManage && r.status === 'scheduled' && (
-                <button disabled={busy} onClick={() => open(r, 'cancel')}>
+                <button className="secondary-button danger" disabled={busy} onClick={() => open(r, 'cancel')}>
                   取消排班
                 </button>
               )}
@@ -472,8 +465,14 @@ export function DailyWorkPanel({
         ))}
       </ul>
       {data?.rows.length === 0 && (
-        <p className="muted">当天没有日常工作排班。</p>
+        <div className="daily-empty" role="status">
+          <span className="daily-empty-icon"><CalendarDays size={28} strokeWidth={1.5} aria-hidden="true"/></span>
+          <h3>当天暂无日常工作排班</h3>
+          <p className="muted">{personal ? '排班后，可在计划时间内开始工作并记录实际工时。' : '为主播、中控安排样品整理、复盘等日常工作。'}</p>
+          {!personal&&can('live.manage')&&<button type="button" className="secondary-button" onClick={()=>setAdding(true)}><Plus size={16} aria-hidden="true"/>创建第一条排班</button>}
+        </div>
       )}
+      {!personal && <details className="daily-rules"><summary>计时与审核规则</summary><p>仅已排班人员可开始工作；工资按实际打卡时间核算，审核后计入工资。审核使用“日常工作工时审核”流程，请先配置审核人并发布。</p></details>}
       {runId && (
         <RunDetail
           id={runId}
@@ -511,7 +510,7 @@ export function DailyWorkPanel({
           }}
           foot={
             <>
-              <button disabled={busy} onClick={() => setAction(null)}>
+              <button className="secondary-button" disabled={busy} onClick={() => setAction(null)}>
                 取消
               </button>
               <button
@@ -600,37 +599,29 @@ export function DailyOfficeCard({ date }: { date: string }) {
       ).length ?? 0;
   return (
     <article className="live-room daily-office" aria-label="直播办公室">
-      <h3>
-        <button className="link-button" onClick={() => setOpen(true)}>
-          直播办公室
-        </button>
-        <span className="pill">工作中 {working.length}人</span>
-      </h3>
-      <p className="muted">主播 / 中控 · 排班日常工作</p>
-      {working.slice(0, 4).map((r) => (
-        <div className="daily-office-person" key={r.id}>
-          <strong>{r.name}</strong>
-          <span>{r.content}</span>
-          <small>
-            {r.startAt?.slice(11, 16)}开始 · 已工作{r.elapsedMinutes ?? 0}分钟
-            {r.overdue ? ' · 已超时1小时' : ''}
-          </small>
-        </div>
-      ))}
-      {data && !working.length && <p className="muted">当前无人进行日常工作</p>}
-      <p>
-        今日排班{' '}
-        {data?.rows.filter((r) => r.date === date && r.status !== 'cancelled')
-          .length ?? 0}
-        段 · 待处理 {pending}条
-      </p>
-      {error && <small role="alert">{error}</small>}
-      <button className="secondary-button" onClick={() => setOpen(true)}>
-        查看 / 排班日常工作
-      </button>
+      <div className="daily-office-heading">
+        <span className="daily-office-icon"><Building2 size={22} strokeWidth={1.7} aria-hidden="true"/></span>
+        <div><h3><button className="link-button" onClick={()=>setOpen(true)}>直播办公室</button></h3><p className="muted">主播 / 中控 · 日常工作</p></div>
+        <span className={`pill ${working.length ? 'good' : ''}`}>工作中 {working.length}人</span>
+      </div>
+      <dl className="daily-office-stats">
+        <div><dt>今日排班</dt><dd>{data ? data.rows.filter(r=>r.date===date&&r.status!=='cancelled').length : '—'}<small>段</small></dd></div>
+        <div><dt>待处理</dt><dd>{data ? pending : '—'}<small>条</small></dd></div>
+      </dl>
+      <div className="daily-office-people">
+        {working.slice(0,4).map(r=><div className="daily-office-person" key={r.id}>
+          <span className="daily-person-avatar" aria-hidden="true">{r.name.slice(0,1)}</span>
+          <div><div className="daily-person-heading"><strong>{r.name}</strong><small>{r.role==='anchor'?'主播':'中控'}</small><span className={r.overdue?'daily-overdue':'daily-elapsed'}>{r.elapsedMinutes??0} 分钟</span></div><p>{r.content}</p><small>{r.startAt?.slice(11,16)} 开始{r.overdue?' · 已超时1小时':''}</small></div>
+        </div>)}
+        {data&&!working.length&&<div className="daily-office-idle"><Users size={25} strokeWidth={1.5} aria-hidden="true"/><strong>当前无人进行日常工作</strong><span>安排工作后，人员可扫码打卡</span></div>}
+        {!data&&!error&&<p className="muted" role="status">正在读取工作状态…</p>}
+        {working.length>4&&<p className="muted daily-office-more">另有 {working.length-4} 人工作中，查看排班了解详情</p>}
+      </div>
+      {error&&<small role="alert" className="notice error">{error}</small>}
+      <button className="secondary-button daily-office-open" onClick={()=>setOpen(true)}>查看 / 排班日常工作<ArrowRight size={16} aria-hidden="true"/></button>
       {open && (
-        <Modal title="直播办公室" size="wide" onClose={() => setOpen(false)}>
-          <DailyWorkPanel date={date} />
+        <Modal title="直播办公室" size="wide" bodyClassName="daily-office-modal" onClose={() => setOpen(false)}>
+          <DailyWorkPanel embedded date={date} />
         </Modal>
       )}
     </article>
