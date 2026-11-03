@@ -3,3 +3,11 @@
 .workforce-login-fields { display: grid; gap: 16px; }
 .workforce-login-fields label { display: grid; gap: 7px; min-width: 0; }
 .workforce-login-fields input,.workforce-login-fields select { width: 100%; min-width: 0; box-sizing: border-box; }
+
+.res-table tr.workforce-incomplete > td, .res-card.workforce-incomplete { background: #fff7db; }
+.res-table tr.workforce-incomplete:hover > td { background: #ffefbd; }
+
+.res-table td[data-label="登录密码"] .cell-t { white-space: normal; overflow-wrap: anywhere; }
+.res-card-actions { display:flex; gap:12px; margin-top:12px; }
+
+.res-card-meta [data-label="登录密码"] dd { white-space: normal; overflow-wrap: anywhere; }

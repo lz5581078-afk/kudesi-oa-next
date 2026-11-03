@@ -63,7 +63,7 @@ describe('兼职与临时工：资料配置', () => {
   });
   it('字段校验：员工、用工类型、开始日期必填（计薪方式按薪资权限可空）；单价是整数分；手机号规范化', () => {
     const bad = validateResourceInput(def, {}, { status: 'active' });
-    for (const label of ['登录账号（员工）', '用工类型', '合作开始日期']) expect(bad.errors.some((e) => e.includes(label))).toBe(true);
+    for (const label of ['姓名', '用工类型', '合作开始日期']) expect(bad.errors.some((e) => e.includes(label))).toBe(true);
     const good = validateResourceInput(def, { userId: 5, employmentType: 'temp', contractStartDate: '2026-11-01', contractEndDate: '2026-11-30', payMethod: 'daily', payRate: 20000, phone: '138-0000-0000' }, { status: 'active' });
     expect(good.errors).toEqual([]);
     expect(good.values.phone).toBe('13800000000');
