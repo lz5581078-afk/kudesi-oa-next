@@ -76,3 +76,11 @@ it('金额升降序均把空值放最后，零值参与正常排序',()=>{
   expect(within(screen.getAllByRole('row')[1]).getByText('正值')).toBeTruthy();
   expect(within(screen.getAllByRole('row')[3]).getByText('空值')).toBeTruthy();
 });
+it('读取完成后立即翻页不会被迟到归位覆盖，清除搜索回到第一页',()=>{
+  const view=render(<QueryTable cols={cols} rows={null} rowKey={row=>row.id} empty="无" foot={false} caption="合成列表" controls={{storageKey:'synthetic.page-transition'}}/>);
+  view.rerender(<QueryTable cols={cols} rows={rows} rowKey={row=>row.id} empty="无" foot={false} caption="合成列表" controls={{storageKey:'synthetic.page-transition'}}/>);
+  fireEvent.click(screen.getByRole('button',{name:'下一页'}));expect(screen.getByText('合成25')).toBeTruthy();
+  fireEvent.change(screen.getByRole('textbox',{name:'合成列表搜索'}),{target:{value:'合成2'}});
+  fireEvent.click(screen.getByRole('button',{name:'清空'}));
+  expect(screen.getByText('合成1',{exact:true})).toBeTruthy();expect(screen.queryByText('合成25')).toBeNull();
+});

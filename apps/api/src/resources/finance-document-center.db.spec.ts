@@ -1,0 +1,68 @@
+import 'reflect-metadata';
+import * as crypto from 'crypto';
+import { DataSource } from 'typeorm';
+import type { AuthUser } from '../common/auth.decorators';
+import { buildDataSourceOptions } from '../database/data-source';
+import { Company, FinanceDocumentLine, User } from '../entities';
+import { buildServices } from '../test-support';
+import { FinanceDocumentsService, type ListQuery } from './finance-documents.service';
+import type { ResourcesService } from './resources.service';
+const d=process.env.RESOURCE_DB_TEST==='1'?describe:describe.skip;
+d('原经营历程和草稿中心读取范围（隔离数据库）',()=>{
+  let ds:DataSource,resources:ResourcesService,docs:FinanceDocumentsService,actor:AuthUser,other:AuthUser;
+  let draft:number,issued:number,posted:number,reversed:number,expense:number,flow:number;
+  const day='2026-11-03';
+  type Row={id:number;status:string;memo:string|null;firstItemName?:string|null;sourceKind?:string};
+  const read=async(user:AuthUser,query:ListQuery)=>await docs.list(user,query) as {rows:Row[];total:number};
+  const makeUser=async(name:string):Promise<AuthUser>=>{
+    const company=await ds.manager.save(Company,ds.manager.create(Company,{code:`dc${crypto.randomBytes(5).toString('hex')}`,name,status:'active'}));
+    const user=await ds.manager.save(User,ds.manager.create(User,{companyId:company.id,account:'admin',passwordHash:'x',name,isCompanyAdmin:true,status:'active',mustChangePassword:false}));
+    return{id:user.id,companyId:company.id,name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}};
+  };
+  beforeAll(async()=>{
+    ds=new DataSource({...buildDataSourceOptions({...process.env,DB_NAME:process.env.TEST_DB_NAME??'kudesi_oa_test'}),migrationsRun:true}as never);await ds.initialize();
+    resources=buildServices(ds).resources;docs=new FinanceDocumentsService(ds);actor=await makeUser('合成查询甲');other=await makeUser('合成查询乙');
+    const bank=await resources.create(actor,'bank-accounts',{kind:'cashier_account',accountName:'合成收付账户',bank:'合成测试行',accountNo:'1234567890123456'});
+    const income=()=>docs.createDraft(actor,{type:'other-income',date:day,bankAccountId:bank.id,lines:[{itemName:'合成自由收入',qty:1,unitPriceCents:100}]});
+    draft=(await income()).id;issued=(await income()).id;await docs.issue(actor,issued);
+    posted=(await income()).id;await docs.post(actor,posted);
+    reversed=(await income()).id;await docs.post(actor,reversed);await docs.reverse(actor,reversed,'合成红冲');
+    const fee=await resources.create(actor,'finance-fee-items',{name:'合成费用类型',direction:'expense'});
+    expense=(await docs.createDraft(actor,{type:'expense',date:day,lines:[{feeItemId:fee.id,qty:1,unitPriceCents:200}]})).id;
+    flow=(await docs.createDraft(actor,{type:'expense',date:day,lines:[{feeItemId:fee.id,qty:1,unitPriceCents:100}]},{sourceKey:'flow:synthetic-center'})).id;
+    await docs.createDraft(other,{type:'expense',date:day},{memo:'不得混入甲公司'});
+  });
+  afterAll(async()=>{await ds?.destroy();});
+  it('原查询合并草稿/已制单/过账/红冲，草稿列表可只取草稿；旧接口默认范围保持',async()=>{
+    const old=await read(actor,{scope:'history',page:1,pageSize:200});
+    expect(old.rows.some(row=>row.id===draft||row.id===issued||row.id===expense)).toBe(false);
+    const all=await read(actor,{scope:'history',includeDrafts:true,page:1,pageSize:200});
+    expect(all.rows.map(row=>row.id)).toEqual(expect.arrayContaining([draft,issued,posted,reversed,expense]));
+    expect(all.rows.find(row=>row.id===reversed)?.status).toBe('reversed');
+    expect(all.rows.find(row=>row.id===expense)?.firstItemName).toBe('合成费用类型');
+    expect(all.rows.find(row=>row.id===expense)?.sourceKind).toBe('manual');
+    expect(all.rows.find(row=>row.id===flow)?.sourceKind).toBe('workflow');
+    expect(all.rows.some(row=>row.memo==='不得混入甲公司')).toBe(false);
+    const onlyDrafts=await read(actor,{scope:'drafts',status:'draft',page:1,pageSize:200});
+    expect(onlyDrafts.rows.map(row=>row.id).sort((a,b)=>a-b)).toEqual([draft,expense,flow].sort((a,b)=>a-b));
+    const legacyDrafts=await read(actor,{scope:'drafts',page:1,pageSize:200});
+    expect(legacyDrafts.rows.some(row=>row.id===issued)).toBe(true);
+    const pages=await Promise.all([1,2].map(page=>read(actor,{scope:'history',includeDrafts:true,page,pageSize:2})));
+    expect(new Set(pages.flatMap(page=>page.rows.map(row=>row.id))).size).toBe(4);
+    expect(pages[0].total).toBe(all.total);
+  });
+  it('合并草稿必须具有两个范围的权限，跨范围参数拒绝；类型标题不穿透公司',async()=>{
+    const reader={...actor,permissions:{isCompanyAdmin:false,allow:['finance.history.view'],deny:[]}};
+    await expect(read(reader,{scope:'history',includeDrafts:true,page:1,pageSize:200})).rejects.toThrow(/草稿中心/);
+    expect((await read(reader,{scope:'history',page:1,pageSize:200})).rows.some(row=>row.status==='draft'||row.status==='issued')).toBe(false);
+    await expect(read(actor,{scope:'drafts',includeDrafts:true,page:1,pageSize:200})).rejects.toThrow(/只有经营历程/);
+    await expect(read({...reader,permissions:{...reader.permissions,allow:['finance.drafts.view']}},{scope:'history',includeDrafts:true,page:1,pageSize:200})).rejects.toThrow(/经营历程/);
+    const foreign=await resources.create(other,'finance-fee-items',{name:'乙公司私有类型',direction:'expense'});
+    const line=await ds.manager.findOneByOrFail(FinanceDocumentLine,{companyId:actor.companyId,documentId:expense});
+    await ds.manager.update(FinanceDocumentLine,{id:line.id,companyId:actor.companyId},{feeItemId:foreign.id,itemName:'合成本地保留名'});
+    const result=await read(actor,{scope:'history',includeDrafts:true,page:1,pageSize:200});
+    expect(result.rows.find(row=>row.id===expense)?.firstItemName).toBe('合成本地保留名');
+    expect(JSON.stringify(result)).not.toContain('乙公司私有类型');
+    expect((await read(other,{scope:'history',includeDrafts:true,page:1,pageSize:200})).rows).toHaveLength(1);
+  });
+});

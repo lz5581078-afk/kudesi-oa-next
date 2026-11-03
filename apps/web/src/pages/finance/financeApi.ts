@@ -2,7 +2,7 @@ import type { CostBreakdown, CostBreakdownLine, DocInput, DocLineInput, DocType 
 import type { FileInfo } from '../../resources/api';
 import { api } from '../../api/client';
 
-export interface DocRow { summary?: string | null; id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null; transitStatus?: 'pending' | 'confirmed' | null; feeCents?: number; discountCents?: number; acctCount?: number }
+export interface DocRow { sourceKind?: 'manual' | 'workflow'; firstItemName?: string | null; summary?: string | null; id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null; transitStatus?: 'pending' | 'confirmed' | null; feeCents?: number; discountCents?: number; acctCount?: number }
 export interface DocList { todayCount?: number; total: number; amountCents: number; paidCents: number; incomeCents?: number; expenseCents?: number; page: number; pageSize: number; rows: DocRow[] }
 export interface BatchResult { okCount: number; failCount: number; results: Array<{ id: number; ok: boolean; docNo?: string; error?: string }> }
 export interface DocEntry { id: string; kind: string; accountId: number; accountName: string; subId: number; amountCents: number | null; qty: number | null }
@@ -93,7 +93,7 @@ const qs = (o: Record<string, string | number | undefined>, keepEmpty: string[] 
 };
 
 export const financeApi = {
-  docs: (p: { scope: string; direction?: string; status?: string; transit?: string; from?: string; to?: string; keyword?: string; creatorId?: number; audited?: string; docType?: string; page?: number }) => api<DocList>(`/finance/docs${qs(p)}`),
+  docs: (p: { scope: string; includeDrafts?: 'yes'; direction?: string; status?: string; transit?: string; from?: string; to?: string; keyword?: string; creatorId?: number; audited?: string; docType?: string; page?: number; pageSize?: number }) => api<DocList>(`/finance/docs${qs(p)}`),
   doc: (id: number) => api<DocDetailDto>(`/finance/docs/${id}`),
   create: (b: DocBody) => api<DocDetailDto>('/finance/docs', { method: 'POST', body: b }),
   update: (id: number, b: DocBody) => api<DocDetailDto>(`/finance/docs/${id}`, { method: 'PUT', body: b }),

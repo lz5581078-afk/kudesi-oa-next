@@ -3,27 +3,23 @@ import { Settings } from 'lucide-react';
 import type { Col } from './QueryKit';
 import { ReferenceSearch, querySearchTerms } from './ReferenceSearch';
 
-export interface QueryTableControls { storageKey: string; pageSize?: number; searchPlaceholder?: string }
+export interface QueryTableControls<R=unknown> { storageKey: string; pageSize?: number; searchPlaceholder?: string; searchText?: (row:R)=>string }
 /** 旧版查询列表的公共搜索、列设置、三态排序和本地分页；不另建数据接口。 */
-export function useQueryTableControls<R>(allCols: Col<R>[], allRows: R[] | null, options?: QueryTableControls, caption?: string) {
-  const [keyword, setKeyword] = useState(''), [page, setPage] = useState(1), [open, setOpen] = useState(false);
+export function useQueryTableControls<R>(allCols: Col<R>[], allRows: R[] | null, options?: QueryTableControls<R>, caption?: string) {
+  const [keyword, setKeyword] = useState(''), [paging, setPaging] = useState({context:'',page:1}), [open, setOpen] = useState(false);
   const [sort, setSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
-  const [stored, setStored] = useState<{ key?: string; columns?: string[] }>({});
+  const [stored, setStored] = useState<{ key?: string; columns?: string[] }>(()=>{
+    if(!options)return{};
+    try{const value:unknown=JSON.parse(localStorage.getItem(options.storageKey)||'null');return{key:options.storageKey,columns:Array.isArray(value)?value.filter((key):key is string=>typeof key==='string'):undefined};}
+    catch{return{key:options.storageKey};}
+  });
   const panel = useRef<HTMLDivElement>(null);
-  const [sizing,setSizing]=useState<{key?:string;widths:Record<string,number>}>({widths:{}});
-  const resize=useRef<{key:string;x:number;initial:number;pointer:number;next:Record<string,number>} | null>(null);
-  useEffect(() => {
-    if (!options) return;
-    setKeyword(''); setPage(1); setSort(null); setOpen(false);
-    try { const value: unknown = JSON.parse(localStorage.getItem(options.storageKey) || 'null'); setStored({ key: options.storageKey, columns: Array.isArray(value) ? value.filter((key): key is string => typeof key === 'string') : undefined }); }
-    catch { setStored({ key: options.storageKey }); }
-  }, [options?.storageKey]);
-  useEffect(()=>{
-    if(!options)return;
-    const widths:Record<string,number>={};
+  const [sizing,setSizing]=useState<{key?:string;widths:Record<string,number>}>(()=>{
+    const widths:Record<string,number>={};if(!options)return{widths};
     try{const saved=JSON.parse(localStorage.getItem(`${options.storageKey}.widths`)||'{}');for(const col of allCols){const value=saved?.[col.key];if(typeof value==='number'&&Number.isFinite(value)&&value>=88&&value<=720)widths[col.key]=value;}}catch{/* 损坏的偏好恢复为自动列宽。 */}
-    setSizing({key:options.storageKey,widths});resize.current=null;
-  },[options?.storageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    return{key:options.storageKey,widths};
+  });
+  const resize=useRef<{key:string;x:number;initial:number;pointer:number;next:Record<string,number>} | null>(null);
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent) => { if (event.target instanceof Node && !panel.current?.contains(event.target)) setOpen(false); };
@@ -37,9 +33,9 @@ export function useQueryTableControls<R>(allCols: Col<R>[], allRows: R[] | null,
   const text = (row: R, col: Col<R>) => col.csv?.(row) ?? col.sortValue?.(row) ?? '';
   const terms = querySearchTerms(keyword).map(term=>term.toLocaleLowerCase());
   const filtered = useMemo(() => !options || !terms.length ? allRows : allRows?.filter(row => {
-    const value = allCols.map(col => String(text(row, col))).join(' ').toLocaleLowerCase();
+    const value = (options.searchText?options.searchText(row):allCols.map(col => String(text(row, col))).join(' ')).toLocaleLowerCase();
     return terms.some(term => value.includes(term));
-  }) ?? null, [allRows, keyword, allCols, !!options]); // eslint-disable-line react-hooks/exhaustive-deps
+  }) ?? null, [allRows, keyword, allCols, options?.searchText, !!options]); // eslint-disable-line react-hooks/exhaustive-deps
   const ordered = useMemo(() => {
     const col = allCols.find(candidate => candidate.key === sort?.key);
     if (!options || !filtered || !sort || !col) return filtered;
@@ -52,15 +48,19 @@ export function useQueryTableControls<R>(allCols: Col<R>[], allRows: R[] | null,
       return compared * (sort.direction === 'asc' ? 1 : -1) || a.index - b.index;
     }).map(item => item.row);
   }, [filtered, allCols, sort, !!options]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => setPage(1), [keyword, sort, allRows?.length]);
-  const size = options?.pageSize ?? 20, pages = Math.max(1, Math.ceil((ordered?.length ?? 0) / size)), current = Math.min(page, pages);
+  const size = options?.pageSize ?? 20, pages = Math.max(1, Math.ceil((ordered?.length ?? 0) / size));
+  const pageContext=options?JSON.stringify([keyword,sort,allRows?.length,size]):'';
+  // 同次渲染同步归位，避免迟到的effect把用户刚点的下一页退回第一页。
+  if(paging.context!==pageContext)setPaging({context:pageContext,page:1});
+  const current=paging.context===pageContext?Math.min(paging.page,pages):1;
+  const setPage=(page:number)=>setPaging({context:pageContext,page});
   const rows = options ? ordered?.slice((current - 1) * size, current * size) ?? null : allRows;
   const save = (next: string[]) => {
     if (!options) return;
     setStored({ key: options.storageKey, columns: next });
     try { localStorage.setItem(options.storageKey, JSON.stringify(next)); } catch { /* 存储不可用仍可在当前列表设置。 */ }
   };
-  const toolbar = options && <div className="qk-reference-toolbar"><ReferenceSearch value={keyword} onChange={setKeyword} label={`${caption || '列表'}搜索`} placeholder={options.searchPlaceholder}/><span>{allRows === null ? '加载中…' : terms.length ? `筛选 ${filtered?.length ?? 0}/${allRows?.length ?? 0} 条` : `共 ${allRows?.length ?? 0} 条`}</span>{keyword && <button type="button" className="link-button" onClick={()=>setKeyword('')}>清空</button>}<div ref={panel} className="qk-reference-columns"><button type="button" className="icon-button" title="显示字段" aria-label="显示字段" aria-expanded={open} onClick={() => setOpen(value => !value)}><Settings size={15}/></button>{open && <div className="qk-reference-popover"><strong>显示列</strong>{allCols.map(col => <label key={col.key}><input type="checkbox" checked={cols.some(item => item.key === col.key)} disabled={col.action || cols.length === 1 && cols[0].key === col.key} onChange={() => save(cols.some(item => item.key === col.key) ? cols.filter(item => item.key !== col.key).map(item => item.key) : allCols.filter(item => item.key === col.key || cols.some(selected => selected.key === item.key)).map(item => item.key))}/>{col.head}</label>)}<button type="button" className="secondary-button small" onClick={() => save(allCols.map(col => col.key))}>显示全部</button><button type="button" className="secondary-button small" onClick={() => save(allCols.map(col => col.key))}>恢复默认</button></div>}</div></div>;
+  const toolbar = options && <div className="qk-reference-toolbar"><ReferenceSearch value={keyword} onChange={setKeyword} label={`${caption || '列表'}搜索`} placeholder={options.searchPlaceholder}/><span>{allRows === null ? '加载中…' : terms.length ? `筛选 ${filtered?.length ?? 0}/${allRows?.length ?? 0} 条` : `共 ${allRows?.length ?? 0} 条`}</span>{keyword && <button type="button" className="link-button" onClick={()=>setKeyword('')}>清空</button>}<div ref={panel} className="qk-reference-columns"><button type="button" className="icon-button" title="显示字段" aria-label="显示字段" aria-expanded={open} onClick={() => setOpen(value => !value)}><Settings size={15}/></button>{open && <div className="qk-reference-popover"><strong>显示列</strong>{allCols.map(col => <label key={col.key}><input type="checkbox" checked={cols.some(item => item.key === col.key)} disabled={col.action || cols.length === 1 && cols[0].key === col.key} onChange={() => save(cols.some(item => item.key === col.key) ? cols.filter(item => item.key !== col.key).map(item => item.key) : allCols.filter(item => item.key === col.key || cols.some(selected => selected.key === item.key)).map(item => item.key))}/>{col.head}</label>)}<div className="qk-reference-column-actions"><button type="button" className="secondary-button small" onClick={() => save(allCols.map(col => col.key))}>显示全部</button><button type="button" className="secondary-button small" onClick={() => save(allCols.map(col => col.key))}>恢复默认</button></div></div>}</div></div>;
   const pagination = options && pages > 1 && <div className="qk-reference-pagination"><span>共 {ordered?.length ?? 0} 条 · 第 {current}/{pages} 页</span><div><button type="button" disabled={current <= 1} onClick={() => setPage(current - 1)}>上一页</button><button type="button" disabled={current >= pages} onClick={() => setPage(current + 1)}>下一页</button></div></div>;
   const toggleSort = (key: string) => setSort(value => value?.key !== key ? { key, direction: 'asc' } : value.direction === 'asc' ? { key, direction: 'desc' } : null);
   const widths=sizing.key===options?.storageKey?sizing.widths:{};

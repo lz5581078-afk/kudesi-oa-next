@@ -52,30 +52,38 @@ describe('复制按钮', () => {
 });
 
 describe('经营历程 / 草稿中心筛选', () => {
-  it('日期快捷按钮会带着日期重新查询，并记住筛选，下次打开还在', async () => {
+  it('默认当天且不保留新版期间快捷筛选，每次打开重新初始化', async () => {
     fa.docs.mockResolvedValue(emptyList);
-    const { unmount } = render(<MemoryRouter><DocumentsPage scope="history" /></MemoryRouter>);
-    fireEvent.click(await screen.findByRole('button', { name: '本月' }));
-    const [from] = DATE_PRESETS.find((p) => p.key === 'month')!.range();
-    await waitFor(() => expect(fa.docs).toHaveBeenLastCalledWith(expect.objectContaining({ from })));
-    unmount();
-    render(<MemoryRouter><DocumentsPage scope="history" /></MemoryRouter>);
-    expect((screen.getByLabelText('开始日期') as HTMLInputElement).value).toBe(from);
-    expect(screen.getByRole('button', { name: '本月' }).getAttribute('aria-pressed')).toBe('true');
+    const first=render(<MemoryRouter><DocumentsPage scope="history"/></MemoryRouter>);
+    await waitFor(()=>expect(fa.docs).toHaveBeenCalled());
+    expect(screen.getByLabelText('开始日期')).toHaveProperty('value','2026-03-15');
+    fireEvent.change(screen.getByLabelText('开始日期'),{target:{value:'2026-03-01'}});
+    expect(fa.docs).toHaveBeenCalledTimes(1);first.unmount();
+    render(<MemoryRouter><DocumentsPage scope="history"/></MemoryRouter>);
+    expect(screen.getByLabelText('开始日期')).toHaveProperty('value','2026-03-15');
+    expect(screen.queryByRole('button',{name:'本月'})).toBeNull();
   });
-  it('点收入合计只看收入；有筛选时空结果提示放宽条件，重置后恢复', async () => {
-    fa.docs.mockResolvedValue({ ...emptyList, incomeCents: 100, expenseCents: 50 });
-    render(<MemoryRouter><DocumentsPage scope="history" /></MemoryRouter>);
-    fireEvent.click(await screen.findByRole('button', { name: /收入合计/ }));
-    await waitFor(() => expect(fa.docs).toHaveBeenLastCalledWith(expect.objectContaining({ direction: 'in' })));
-    await screen.findByText(/当前条件下没有单据/);
-    fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
-    await waitFor(() => expect(fa.docs).toHaveBeenLastCalledWith(expect.objectContaining({ direction: undefined })));
+  it('原汇总不增加下钻按钮，筛选和重置在完整数据上生效', async () => {
+    fa.docs.mockResolvedValue({...emptyList,total:2,rows:[
+      {id:1,docNo:'XS1',docType:'sale',typeLabel:'普通销售单',status:'posted',docDate:'2026-03-15',amountCents:100,direction:'in'},
+      {id:2,docNo:'FY1',docType:'expense',typeLabel:'费用单',status:'posted',docDate:'2026-03-15',amountCents:50,direction:'out'},
+    ]} as never);
+    render(<MemoryRouter><DocumentsPage scope="history"/></MemoryRouter>);await screen.findByText('XS1');
+    expect(screen.queryByRole('button',{name:/收入合计/})).toBeNull();
+    fireEvent.change(screen.getByLabelText('收支方向'),{target:{value:'out'}});
+    expect(screen.queryByText('XS1')).toBeNull();expect(screen.getByText('FY1')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('关键词'),{target:{value:'不存在'}});
+    expect(screen.getByText('暂无数据')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button',{name:'重置'}));
+    expect(screen.getByText('XS1')).toBeTruthy();expect(screen.getByLabelText('开始日期')).toHaveProperty('value','');
+    expect(fa.docs).toHaveBeenCalledTimes(1);
   });
-  it('单号旁有复制按钮', async () => {
-    fa.docs.mockResolvedValue({ ...emptyList, total: 1, rows: [{ id: 1, docNo: 'FK1', docType: 'payment', typeLabel: '付款单', status: 'draft', docDate: '2026-03-10', amountCents: 100, paidCents: 0, bankName: null, handler: null, auditedAt: null, createdBy: 1, memo: null, reversesId: null, partyName: null, createdByName: '老板' }] as never });
-    render(<MemoryRouter><DocumentsPage scope="drafts" /></MemoryRouter>);
-    expect(await screen.findByRole('button', { name: '复制单号 FK1' })).toBeTruthy();
+  it('草稿编号恢复主文本，操作来自查看草稿，不另加复制按钮', async () => {
+    fa.docs.mockResolvedValue({...emptyList,total:1,rows:[{id:1,docNo:'FK1',docType:'payment',typeLabel:'付款单',status:'draft',docDate:'2026-03-10',amountCents:100,paidCents:0,bankName:null,handler:null,auditedAt:null,createdBy:1,memo:null,reversesId:null,partyName:null,createdByName:'老板'}]} as never);
+    render(<MemoryRouter><DocumentsPage scope="drafts"/></MemoryRouter>);
+    expect(await screen.findByText('FK1')).toBeTruthy();
+    expect(screen.getByRole('button',{name:'查看草稿'})).toBeTruthy();
+    expect(screen.queryByRole('button',{name:'复制单号 FK1'})).toBeNull();
   });
 });
 

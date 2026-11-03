@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react';
-import { OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, ACCOUNT_LABEL, DOC_STATUS_LABEL, DOC_TYPE_MAP, PARTY_KIND_LABEL, hasMoneyDiscount, todayInChina, type AccountKind } from '@kudesi/shared';
+import { useEffect, useRef, useState } from 'react';
+import { OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, ACCOUNT_LABEL, DOC_STATUS_LABEL, DOC_TYPE_MAP, PARTY_KIND_LABEL, hasMoneyDiscount, lineAmount, todayInChina, type AccountKind } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { ReasonDialog } from '../../resources/RecordForm';
-import { OpeningPrepaymentDialog } from './OpeningPrepaymentDialog';
+import { OpeningPrepaymentDialog, canRegisterOpeningPrepayment } from './OpeningPrepaymentDialog';
 import { DocForm } from './DocForm';
 import { HandlerSelect } from './voucher/HandlerSelect';
 import { DOC_STATUS_TONE, money } from './common';
-import { financeApi, type DocDetailDto } from './financeApi';
+import { financeApi, type DocDetailDto, type DocRow } from './financeApi';
+import { ReferenceDocumentDetail } from './ReferenceDocumentDetail';
 import { CopyButton, plainYuan } from './fin-ui';
 import { sessionApi, type VoucherFile } from './sessionApi';
 import { VoucherPanel } from './VoucherPanel';
@@ -15,7 +16,12 @@ import { VoucherPanel } from './VoucherPanel';
 const ACTION_LABEL: Record<string, string> = { create: '新建草稿', update: '修改草稿', issue: '开立', unissue: '退回草稿', post: '过账', reverse: '红冲', 'edit-header': '修改单据', 'opening-prepay': '登记已有预付款余额', audit: '财务审核', unaudit: '取消财务审核', 'confirm-transfer': '确认转款入账' };
 
 /** 单据详情抽屉：头信息、明细、分录（借/贷）、操作记录，以及按状态和权限出现的操作按钮。 */
-export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged: () => void }) {
+type DocDetailProps={id:number;onClose:()=>void;onChanged:()=>void;presentation?:'reference';row?:DocRow};
+export function DocDetail(props:DocDetailProps){
+  const {user}=useAuth();
+  return <DocDetailContent key={JSON.stringify([props.id,user?.companyId,user?.id,user?.permissions])} {...props}/>;
+}
+function DocDetailContent({ id, onClose, onChanged, presentation, row }: DocDetailProps) {
   const { can } = useAuth();
   const [doc, setDoc] = useState<DocDetailDto | null>(null);
   const [error, setError] = useState('');
@@ -24,6 +30,8 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
   const [dialog, setDialog] = useState<'reverse' | 'unissue' | 'header' | 'opening' | 'confirm' | null>(null);
   const [copied, setCopied] = useState('');
   const [vouchers, setVouchers] = useState<VoucherFile[]>([]);
+  const alive=useRef(false);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
 
   useEffect(() => {
     let live = true;
@@ -33,6 +41,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
     return () => { live = false; };
   }, [id]);
   useEffect(() => { setVouchers([]); if (doc?.storeId) sessionApi.docVouchers(doc.id).then(setVouchers).catch(() => undefined); }, [doc?.id, doc?.storeId]);
+  if(presentation==='reference')return <ReferenceDocumentDetail doc={doc} row={row} error={error} onClose={onClose} onSaved={saved=>{if(alive.current){setDoc(saved);onChanged();}}}/>;
   if (!doc) return <aside className="drawer card">{error ? <div role="alert" className="notice error">{error}</div> : <div className="empty-state muted">加载中…</div>}</aside>;
 
   const def = DOC_TYPE_MAP.get(doc.docType)!;
@@ -41,13 +50,14 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
     setError('');
     try {
       const r = await fn();
+      if(!alive.current)return;
       onChanged();
       if (closeAfter) return onClose();
       if ('docNo' in r) setDoc(r);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '操作失败');
     } finally {
-      setBusy(false);
+      if(alive.current)setBusy(false);
     }
   };
   const isDraft = doc.status === 'draft', isIssued = doc.status === 'issued';
@@ -130,7 +140,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
             <div className="table-scroll"><table className="data-table">
               <thead><tr><th>#</th><th>{def.ui.moneyEntry ? def.ui.moneyItemLabel || '项目' : def.lines === 'fee' ? '费用项目' : def.lines ? '商品' : '项目'}</th>{def.lines === 'product' && <th>单位</th>}{def.lines && !def.ui.moneyEntry && !def.ui.feeAmountOnly ? <><th>数量</th><th>单价</th></> : null}<th>金额</th>{def.lines === 'fee' && !def.ui.moneyEntry && <th>挂账</th>}{doc.lines.some((l) => l.unitCostCents != null) && <th>成本单价</th>}</tr></thead>
               <tbody>{doc.lines.map((l) => (
-                <tr key={l.id}><td>{l.lineNo}</td><td>{def.ui.moneyEntry ? l.itemName || l.feeItemName : l.productName || l.feeItemName || l.itemName}{l.memo && <span className="muted">（{l.memo}）</span>}</td>{def.lines === 'product' && <td>{l.unit ?? ''}</td>}{def.lines && !def.ui.moneyEntry && !def.ui.feeAmountOnly ? <><td className="num">{l.qty}</td><td className="num">{money(l.unitPriceCents)}</td></> : null}<td className="num">{money(Math.round(l.qty * l.unitPriceCents))}</td>{def.lines === 'fee' && !def.ui.moneyEntry && <td>{l.relatedNode ? `${l.relatedNode}${l.relatedName ? `：${l.relatedName}` : l.relatedId ? ` #${l.relatedId}` : ''}` : ''}</td>}{doc.lines.some((x) => x.unitCostCents != null) && <td className="num">{money(l.unitCostCents)}</td>}</tr>
+                <tr key={l.id}><td>{l.lineNo}</td><td>{def.ui.moneyEntry ? l.itemName || l.feeItemName : l.productName || l.feeItemName || l.itemName}{l.memo && <span className="muted">（{l.memo}）</span>}</td>{def.lines === 'product' && <td>{l.unit ?? ''}</td>}{def.lines && !def.ui.moneyEntry && !def.ui.feeAmountOnly ? <><td className="num">{l.qty}</td><td className="num">{money(l.unitPriceCents)}</td></> : null}<td className="num">{money(lineAmount(l))}</td>{def.lines === 'fee' && !def.ui.moneyEntry && <td>{l.relatedNode ? `${l.relatedNode}${l.relatedName ? `：${l.relatedName}` : l.relatedId ? ` #${l.relatedId}` : ''}` : ''}</td>}{doc.lines.some((x) => x.unitCostCents != null) && <td className="num">{money(l.unitCostCents)}</td>}</tr>
               ))}</tbody>
             </table></div>
           </>
@@ -160,7 +170,7 @@ export function DocDetail({ id, onClose, onChanged }: { id: number; onClose: () 
         {isDraft && can('finance.docs.create') && <button type="button" className="secondary-button" disabled={busy} onClick={() => setEditing(true)}>编辑</button>}
         {isDraft && can('finance.docs.issue') && <button type="button" className="secondary-button" disabled={busy} onClick={() => run(() => financeApi.issue(doc.id))}>开立</button>}
         {(isDraft || isIssued) && can('finance.docs.post') && <button type="button" className="primary-button" disabled={busy} onClick={() => run(() => financeApi.post(doc.id))}>过账</button>}
-        {isIssued && doc.docType === 'prepayment' && doc.partyKind === 'supplier' && doc.sourceKey == null && !doc.reversesId && doc.amountCents > 0 && can(OPENING_PREPAYMENT_PERMISSION) && <button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog('opening')}>登记已有预付款余额</button>}
+        {canRegisterOpeningPrepayment(doc,can(OPENING_PREPAYMENT_PERMISSION)) && <button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog('opening')}>登记已有预付款余额</button>}
         {isIssued && can('finance.docs.issue') && <button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog('unissue')}>退回草稿</button>}
         {isDraft && can('finance.docs.delete') && <button type="button" className="ghost-button danger-text" disabled={busy} onClick={() => run(() => financeApi.remove(doc.id), true)}>删除草稿</button>}
         {isPosted && !doc.auditedAt && can('finance.docs.edit-header') && <button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog('header')}>修改单据</button>}

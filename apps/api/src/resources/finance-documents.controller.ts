@@ -100,6 +100,7 @@ class ConfirmTransferDto {
 class ReasonDto { @IsString() @MaxLength(500) reason!: string }
 class ListDto {
   @IsString() scope!: string;
+  @IsOptional() @IsIn(['yes']) includeDrafts?: 'yes';
   @IsOptional() @IsIn(['draft', 'issued', 'posted', 'reversed']) status?: string;
   @IsOptional() @IsIn(['in', 'out', 'internal']) direction?: 'in' | 'out' | 'internal';
   @IsOptional() @Matches(DATE) from?: string;
@@ -147,7 +148,7 @@ export class FinanceDocumentsController {
 
   @AuthenticatedOnly() @Get('docs')
   list(@CurrentUser() u: AuthUser, @Query() q: ListDto) {
-    return this.docs.list(u, { scope: q.scope as never, direction: q.direction, status: q.status, from: q.from, to: q.to, keyword: q.keyword, creatorId: q.creatorId, audited: q.audited, transit: q.transit, docType: q.docType, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
+    return this.docs.list(u, { scope: q.scope as never, includeDrafts:q.includeDrafts === 'yes', direction: q.direction, status: q.status, from: q.from, to: q.to, keyword: q.keyword, creatorId: q.creatorId, audited: q.audited, transit: q.transit, docType: q.docType, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
   }
   @AuthenticatedOnly() @Get('docs/:id')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.docs.get(u, id); }

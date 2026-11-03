@@ -13,6 +13,7 @@ export function yuanToCents(text: string): number | null {
 }
 export const centsToYuan = (c: number | null | undefined) => (c === null || c === undefined ? '' : (c / 100).toFixed(2));
 export const money = (c: number | null | undefined) => (c === null || c === undefined || !Number.isFinite(c) ? '—' : `¥${(c / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`);
+export const referenceMoney = (value: number | null | undefined) => typeof value === 'number' && value < 0 ? `-${money(-value)}` : money(value);
 
 export const DOC_STATUS_TONE: Record<string, string> = { draft: 'muted', issued: 'warn', posted: 'ok', reversed: 'bad' };
 

@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { downloadCsv, useIsMobile } from '../fin-ui';
 import { useQueryTableControls, type QueryTableControls } from './useQueryTableControls';
 import './referenceQueryTable.css';
+import './referenceQueryPage.css';
 
 /**
  * 实时查询页共用组件（库存查询、现金银行查询、未完全结算收付款单、收付款结算明细表共用一套版式）：
@@ -82,11 +83,15 @@ export interface GroupBy<R> { key: (r: R) => string; label: (key: string, rows: 
 /**
  * 查询表格：可选分组（分组行可折叠，带小计）、合计行、行选中；手机宽度下换成卡片列表（标题 + 字段对 + 操作）。
  */
-export function QueryTable<R>({ cols: allCols, rows: allRows, rowKey, empty, loading, group, foot = true, footLabel, selectedKey, onRowClick, caption, controls }: {
+export interface QueryTableProps<R> {
   cols: Array<Col<R>>; rows: R[] | null; rowKey: (r: R) => string | number; empty: ReactNode; loading?: ReactNode;
   group?: GroupBy<R> | null; foot?: boolean; footLabel?: (rows: R[]) => ReactNode; selectedKey?: string | number | null; onRowClick?: (r: R) => void; caption?: string;
-  controls?: QueryTableControls;
-}) {
+  controls?: QueryTableControls<R>;
+}
+export function QueryTable<R>(props:QueryTableProps<R>){
+  return <QueryTableContent key={props.controls?.storageKey??'plain'} {...props}/>;
+}
+function QueryTableContent<R>({ cols: allCols, rows: allRows, rowKey, empty, loading, group, foot = true, footLabel, selectedKey, onRowClick, caption, controls }: QueryTableProps<R>) {
   const { cols, rows, toolbar, pagination, sort, toggleSort, widths, startResize, moveResize, stopResize } = useQueryTableControls(allCols, allRows, controls, caption);
   const mobile = useIsMobile();
   const [closed, setClosed] = useState<Record<string, boolean>>({});

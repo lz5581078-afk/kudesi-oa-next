@@ -14,12 +14,13 @@ const COST_VIEW = 'product.cost.view';
 const today = todayInChina;
 const ymd = (d: string) => d.replace(/-/g, '');
 /** 单据来源：流程办理时自动生成的单据 sourceKey 以 flow: 开头；其余都是人在制单中心手工做的 */
-export const sourceLabel = (key: string | null | undefined) => (key?.startsWith('flow:') ? '流程自动记账' : '手工制单');
+export const documentSourceKind = (key: string | null | undefined) => key?.startsWith('flow:') ? 'workflow' : 'manual';
+export const sourceLabel = (key: string | null | undefined) => documentSourceKind(key)==='workflow' ? '流程自动记账' : '手工制单';
 
 export const OPENING_VOUCHER_TYPE = 'opening-prepayment-voucher';
 export interface OpeningPrepaymentInput { reason: string; fileIds: number[]; confirmed: boolean }
 
-export interface ListQuery { scope: 'drafts' | 'history' | DocType; transit?: 'pending'; direction?: 'in' | 'out' | 'internal'; status?: string; creatorId?: number; audited?: 'yes' | 'no'; docType?: string; from?: string; to?: string; keyword?: string; page: number; pageSize: number }
+export interface ListQuery { scope: 'drafts' | 'history' | DocType; includeDrafts?: boolean; transit?: 'pending'; direction?: 'in' | 'out' | 'internal'; status?: string; creatorId?: number; audited?: 'yes' | 'no'; docType?: string; from?: string; to?: string; keyword?: string; page: number; pageSize: number }
 
 /**
  * 财务单据引擎：草稿 → 开立 → 过账 → 红冲。
@@ -852,10 +853,15 @@ export class FinanceDocumentsService {
     else if (q.scope === 'history') this.need(user, 'finance.history.view', '没有查看经营历程的权限');
     else if (isType) this.need(user, `finance.doc-${q.scope}.view`, '没有查看这种单据的权限');
     else throw new BadRequestException('范围不对');
+    if(q.includeDrafts){
+      if(q.scope!=='history')throw new BadRequestException('只有经营历程可以合并查询草稿');
+      this.need(user,'finance.drafts.view','没有查看草稿中心的权限');
+    }
     const where: string[] = ['d.company_id = ?'];
     const args: unknown[] = [user.companyId];
     if (q.scope === 'drafts') where.push("d.status IN ('draft','issued')");
-    else if (q.scope === 'history') where.push("d.status IN ('posted','reversed')");
+    else if (q.scope === 'history' && !q.includeDrafts) where.push("d.status IN ('posted','reversed')");
+    else if(q.scope === 'history') where.push("d.status IN ('draft','issued','posted','reversed')");
     else { where.push('d.doc_type = ?'); args.push(q.scope); }
     if (q.status) { where.push('d.status = ?'); args.push(q.status); }
     if (q.transit === 'pending') where.push("d.transit_status = 'pending' AND d.status = 'posted'");
@@ -886,7 +892,9 @@ export class FinanceDocumentsService {
     }
     const rows = await this.dataSource.query(
       `SELECT d.id, d.doc_no AS docNo, d.doc_type AS docType, d.status, DATE_FORMAT(d.doc_date, '%Y-%m-%d') AS docDate, d.amount_cents AS amountCents, d.memo, d.reverses_id AS reversesId,
-              COALESCE(d.counterparty_name,p.title) AS partyName, d.summary, u.name AS createdByName, COALESCE(hu.name, d.handler) AS handler, d.paid_cents AS paidCents, d.settlement_mode AS settlementMode, d.transit_status AS transitStatus, d.fee_cents AS feeCents, d.discount_cents AS discountCents,
+              COALESCE(d.counterparty_name,p.title) AS partyName, d.summary,
+              (SELECT COALESCE(fi.title,dl.item_name) FROM finance_document_lines dl LEFT JOIN resource_records fi ON fi.id=dl.fee_item_id AND fi.company_id=dl.company_id AND fi.type='finance-fee-items' WHERE dl.document_id=d.id AND dl.company_id=d.company_id ORDER BY dl.line_no,dl.id LIMIT 1) AS firstItemName,
+              u.name AS createdByName, COALESCE(hu.name, d.handler) AS handler, d.paid_cents AS paidCents, d.settlement_mode AS settlementMode, d.transit_status AS transitStatus, d.fee_cents AS feeCents, d.discount_cents AS discountCents,
               (SELECT COUNT(*) FROM finance_document_accounts fa WHERE fa.document_id = d.id AND fa.company_id = d.company_id) AS acctCount, d.audited_at AS auditedAt, d.created_by AS createdBy, b.title AS bankName,
               d.source_key AS sourceKey, d.ref_no AS refNo
        FROM finance_documents d LEFT JOIN resource_records p ON p.id = d.party_id AND p.company_id = d.company_id LEFT JOIN resource_records b ON b.id = d.bank_account_id AND b.company_id = d.company_id LEFT JOIN users u ON u.id = d.created_by LEFT JOIN users hu ON hu.id = d.handler_id AND hu.company_id = d.company_id
@@ -897,7 +905,7 @@ export class FinanceDocumentsService {
       total: Number(n), amountCents: Number(amt), paidCents: Number(paid), incomeCents: Number(inc), expenseCents: Number(exp), ...(todayCount === undefined ? {} : { todayCount }), page: q.page, pageSize: q.pageSize,
       rows: rows.map(({ sourceKey, ...r }: Record<string, unknown>) => ({
         ...r, amountCents: Number(r.amountCents), paidCents: Number(r.paidCents), feeCents: Number(r.feeCents), discountCents: Number(r.discountCents), acctCount: Number(r.acctCount), typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType,
-        direction: DOC_DIRECTION[r.docType as DocType] ?? 'internal', source: sourceLabel(sourceKey as string | null),
+        direction: DOC_DIRECTION[r.docType as DocType] ?? 'internal', source: sourceLabel(sourceKey as string | null), sourceKind:documentSourceKind(sourceKey as string|null),
       })),
     };
   }

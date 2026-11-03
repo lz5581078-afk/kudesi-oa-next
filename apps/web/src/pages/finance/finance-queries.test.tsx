@@ -48,13 +48,15 @@ describe('财务经营', () => {
 });
 
 describe('经营历程', () => {
-  it('有收支方向筛选、汇总条（数量/收入/支出/净额）和来源列', async () => {
+  it('原收支筛选、四项汇总和来源列在完整查询结果上计算', async () => {
     fa.docs.mockResolvedValue({ total: 2, amountCents: 0, paidCents: 0, incomeCents: 50000, expenseCents: 20000, page: 1, pageSize: 20, rows: [
       { id: 1, docNo: 'XS1', docType: 'sale', typeLabel: '普通销售单', status: 'posted', docDate: '2026-03-10', amountCents: 50000, paidCents: 0, bankName: null, handler: null, auditedAt: null, createdBy: 1, memo: null, reversesId: null, partyName: '老客户', createdByName: '老板', direction: 'in', source: '手工制单' },
       { id: 2, docNo: 'FY1', docType: 'expense', typeLabel: '费用单', status: 'posted', docDate: '2026-03-10', amountCents: 20000, paidCents: 0, bankName: null, handler: null, auditedAt: null, createdBy: 1, memo: null, reversesId: null, partyName: null, createdByName: '老板', direction: 'out', source: '流程自动记账' },
     ] });
     render(<MemoryRouter><DocumentsPage scope="history" /></MemoryRouter>);
     const bar = await screen.findByLabelText('汇总');
+    fireEvent.click(screen.getByRole('button',{name:'重置'}));
+    await screen.findByText('XS1');
     expect(within(bar).getByText('2 条')).toBeTruthy();
     expect(within(bar).getByText('¥500.00')).toBeTruthy();
     expect(within(bar).getByText('¥200.00')).toBeTruthy();
@@ -62,14 +64,16 @@ describe('经营历程', () => {
     expect(screen.getByRole('columnheader', { name: '来源' })).toBeTruthy();
     expect(screen.getByText('流程自动记账')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('收支方向'), { target: { value: 'out' } });
-    await waitFor(() => expect(fa.docs).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'history', direction: 'out' })));
+    expect(screen.queryByText('XS1')).toBeNull();
+    expect(screen.getByText('FY1')).toBeTruthy();
+    expect(fa.docs).toHaveBeenCalledTimes(1);
   });
-  it('草稿中心没有收支方向筛选和来源列', async () => {
+  it('草稿中心没有收支筛选，保留原来源列', async () => {
     fa.docs.mockResolvedValue({ total: 0, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: [] });
     render(<MemoryRouter><DocumentsPage scope="drafts" /></MemoryRouter>);
-    await screen.findByText('没有单据');
+    await screen.findByText('暂无数据');
     expect(screen.queryByLabelText('收支方向')).toBeNull();
-    expect(screen.queryByRole('columnheader', { name: '来源' })).toBeNull();
+    expect(screen.getByRole('columnheader', { name: /^来源/ })).toBeTruthy();
   });
 });
 

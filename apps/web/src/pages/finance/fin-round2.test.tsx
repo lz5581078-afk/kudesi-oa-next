@@ -61,10 +61,10 @@ describe('财务经营：原版范围', () => {
 
 describe('草稿中心', () => {
   it('显示后端统计的今日新增草稿', async () => {
-    fa.docs.mockResolvedValue({ total: 30, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: [], todayCount: 4 } as never);
+    fa.docs.mockResolvedValue({ total: 30, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: Array.from({length:30},(_,index)=>({id:index+1,docNo:'SYNTHETIC-'+index,docType:'payment',typeLabel:'付款单',status:'draft',docDate:'2026-03-10',amountCents:0,paidCents:0,partyName:'合成对象',source:'手工制单'})), todayCount: 4 } as never);
     render(<MemoryRouter><DocumentsPage scope="drafts" /></MemoryRouter>);
     expect(await screen.findByText('今日新增草稿')).toBeTruthy();
-    expect(await screen.findByText('4 张')).toBeTruthy();
+    expect(await screen.findByText('4 条')).toBeTruthy();
   });
 });
 
