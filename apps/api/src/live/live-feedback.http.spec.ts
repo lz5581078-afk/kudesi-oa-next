@@ -1,0 +1,15 @@
+import 'reflect-metadata';
+import {INestApplication,ValidationPipe} from '@nestjs/common';
+import {APP_GUARD} from '@nestjs/core';
+import {Test} from '@nestjs/testing';
+import {PermissionsGuard} from '../common/permissions.guard';
+import {LiveFeedbackController,LiveFeedbackService} from './live-feedback.controller';
+describe('直播下播资料HTTP边界',()=>{
+ let app:INestApplication,base:string;
+ const service={context:jest.fn(async()=>({targets:[],records:[],locked:false})),upload:jest.fn(async()=>({id:8,name:'data.png',mime:'image/png',size:8})),url:jest.fn(async()=>({url:'https://fake.example/image'}))};
+ beforeAll(async()=>{const module=await Test.createTestingModule({controllers:[LiveFeedbackController],providers:[{provide:LiveFeedbackService,useValue:service},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile();app=module.createNestApplication();app.setGlobalPrefix('api');app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));app.use((req:any,_res:any,next:()=>void)=>{if(req.headers['x-test-user'])req.user={id:7,companyId:4,name:'本人',permissions:{isCompanyAdmin:false,allow:[],deny:[]}};next();});await app.listen(0,'127.0.0.1');base=await app.getUrl();});
+ beforeEach(()=>jest.clearAllMocks());afterAll(async()=>{await app?.close();});
+ it('未登录不能读取互评范围或图片，不能上传',async()=>{for(const path of ['/7/checkout-feedback','/7/feedback-images/8/url'])expect((await fetch(base+'/api/live/sessions'+path)).status).toBe(403);expect((await fetch(base+'/api/live/sessions/7/feedback-images',{method:'POST'})).status).toBe(403);expect(service.context).not.toHaveBeenCalled();expect(service.upload).not.toHaveBeenCalled();});
+ it('只使用令牌身份，路径必须是整数；图片交由所属场次服务授权',async()=>{const headers={'x-test-user':'yes'};expect((await fetch(base+'/api/live/sessions/bad/checkout-feedback',{headers})).status).toBe(400);expect(service.context).not.toHaveBeenCalled();expect((await fetch(base+'/api/live/sessions/7/checkout-feedback?companyId=99',{headers})).status).toBe(200);expect(service.context).toHaveBeenCalledWith(expect.objectContaining({id:7,companyId:4}),7);expect((await fetch(base+'/api/live/sessions/7/feedback-images/8/url',{headers})).status).toBe(200);expect(service.url).toHaveBeenCalledWith(expect.objectContaining({companyId:4}),7,8);});
+ it('接收图片不接受客户端公司身份，超过10MB的上传由接口拒绝',async()=>{const form=new FormData();form.append('file',new Blob([new Uint8Array([137,80,78,71,13,10,26,10])],{type:'image/png'}),'data.png');form.append('companyId','99');expect((await fetch(base+'/api/live/sessions/7/feedback-images',{method:'POST',headers:{'x-test-user':'yes'},body:form})).status).toBe(201);expect(service.upload).toHaveBeenCalledWith(expect.objectContaining({companyId:4,id:7}),7,expect.objectContaining({size:8}));const big=new FormData();big.append('file',new Blob([new Uint8Array(10*1024*1024+1)]),'large.png');expect((await fetch(base+'/api/live/sessions/7/feedback-images',{method:'POST',headers:{'x-test-user':'yes'},body:big})).status).toBe(413);expect(service.upload).toHaveBeenCalledTimes(1);});
+});
