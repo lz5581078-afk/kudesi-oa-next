@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { createChecker, resolvePermissions, todayShanghai, validateWorkforceTerms, type EnrollmentTerms } from '@kudesi/shared';
 import { accountTransaction } from '../auth/account-transaction';
 import { AuthUser } from '../common/auth.decorators';
@@ -39,41 +39,38 @@ export class StaffEnrollmentService {
     if (input.mode === 'position' && !Number.isInteger(input.positionId)) throw new BadRequestException('请选择岗位');
     const employmentType = input.employmentType ?? 'regular';
     if (!['regular','part_time','temp'].includes(employmentType)) throw new BadRequestException('请选择有效用工类型');
-    if (employmentType === 'regular' && (input.contractStartDate || input.contractEndDate)) throw new BadRequestException('正式员工入职码不设置兼职合作期限');
-    const contractStartDate = employmentType === 'regular' ? null : input.contractStartDate || todayShanghai();
-    const contractEndDate = employmentType === 'regular' ? null : input.contractEndDate || null;
-    if (employmentType !== 'regular') {
-      if (!createChecker(actor.permissions)('resource.workforce.create')) throw new ForbiddenException('没有创建兼职与临时工档案的权限');
-      const problem = validateWorkforceTerms({ employmentType, contractStartDate, contractEndDate });
-      if (problem) throw new BadRequestException(problem);
-      if (contractStartDate! < '1000-01-01') throw new BadRequestException('合作开始日期不合法');
-      if (contractEndDate && contractEndDate < todayShanghai()) throw new BadRequestException('合作期已结束，不能生成入职码');
-    }
-    const days = input.validDays ?? 30;
-    if (![7, 30, 90].includes(days)) throw new BadRequestException('请选择7、30或90天有效期');
+    if (employmentType !== 'regular' && !createChecker(actor.permissions)('resource.workforce.create')) throw new ForbiddenException('没有创建兼职与临时工档案的权限');
+    // New codes carry the employment type only; dates are set when the employee actually joins.
+    const contractStartDate = null, contractEndDate = null;
     const token = randomBytes(32).toString('base64url');
     const invite = await this.ds.transaction(async em => {
-      const company = await em.findOneBy(Company, { id: actor.companyId, status: 'active' });
+      const company = await em.findOne(Company, { where: { id: actor.companyId, status: 'active' }, lock: { mode: 'pessimistic_write' } });
       if (!company) throw new ForbiddenException('公司已停用');
       if (input.mode === 'position') await this.position(em, actor.companyId, input.positionId!);
+      const replaced = await em.find(StaffEnrollmentInvite, { where: { companyId: actor.companyId, mode: input.mode, ...(input.mode === 'position' ? {positionId: input.positionId!} : {}), revokedAt: IsNull() } });
+      for (const previous of replaced) {
+        previous.revokedAt = new Date(); await em.save(previous);
+        await this.audit(em, actor.companyId, actor.id, 'staff-enrollment.revoke', previous.id, { reason: 'replaced-by-new-code' });
+      }
       const row = await em.save(StaffEnrollmentInvite, em.create(StaffEnrollmentInvite, {
         employmentType, contractStartDate, contractEndDate, companyId: actor.companyId, mode: input.mode, positionId: input.mode === 'position' ? input.positionId! : null,
-        tokenHash: digest(token), createdBy: actor.id, expiresAt: new Date(Date.now() + days * 86400000), revokedAt: null,
+        tokenHash: digest(token), createdBy: actor.id, expiresAt: null, revokedAt: null,
       }));
-      await this.audit(em, actor.companyId, actor.id, 'staff-enrollment.create', row.id, { mode: row.mode, employmentType: row.employmentType, contractStartDate: row.contractStartDate, contractEndDate: row.contractEndDate, positionId: row.positionId, expiresAt: row.expiresAt.toISOString() });
+      await this.audit(em, actor.companyId, actor.id, 'staff-enrollment.create', row.id, { mode: row.mode, employmentType: row.employmentType, contractStartDate: row.contractStartDate, contractEndDate: row.contractEndDate, positionId: row.positionId, expiresAt: row.expiresAt?.toISOString() ?? null });
       return row;
     });
-    return { id: invite.id, token, employmentType: invite.employmentType, contractStartDate: invite.contractStartDate, contractEndDate: invite.contractEndDate, mode: invite.mode, positionId: invite.positionId, expiresAt: invite.expiresAt.toISOString() };
+    return { id: invite.id, token, employmentType: invite.employmentType, contractStartDate: invite.contractStartDate, contractEndDate: invite.contractEndDate, mode: invite.mode, positionId: invite.positionId, expiresAt: invite.expiresAt?.toISOString() ?? null };
   }
   async list(actor: AuthUser) {
     this.need(actor);
     const rows = await this.ds.manager.find(StaffEnrollmentInvite, { where: { companyId: actor.companyId }, order: { id: 'DESC' }, take: 100 });
     const positions = await this.ds.manager.find(Position, { where: { companyId: actor.companyId }, select: ['id', 'name'] });
-    return rows.map(row => ({ id: row.id, employmentType: row.employmentType, contractStartDate: row.contractStartDate, contractEndDate: row.contractEndDate, mode: row.mode, positionId: row.positionId, positionName: positions.find(p => p.id === row.positionId)?.name ?? '', expiresAt: row.expiresAt.toISOString(), createdAt: row.createdAt.toISOString(), status: row.revokedAt ? 'revoked' : row.expiresAt.getTime() <= Date.now() ? 'expired' : 'active' }));
+    return rows.map(row => ({ id: row.id, employmentType: row.employmentType, contractStartDate: row.contractStartDate, contractEndDate: row.contractEndDate, mode: row.mode, positionId: row.positionId, positionName: positions.find(p => p.id === row.positionId)?.name ?? '', expiresAt: row.expiresAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString(), status: row.revokedAt ? 'revoked' : row.expiresAt && row.expiresAt.getTime() <= Date.now() ? 'expired' : 'active' }));
   }
   async revoke(actor: AuthUser, id: number) {
     this.need(actor);
     await this.ds.transaction(async em => {
+      await em.findOne(Company, {where:{id:actor.companyId},lock:{mode:'pessimistic_write'}});
       const row = await em.findOne(StaffEnrollmentInvite, { where: { companyId: actor.companyId, id }, lock: { mode: 'pessimistic_write' } });
       if (!row) throw new NotFoundException('没有这个入职二维码');
       if (row.revokedAt) return;
@@ -84,9 +81,11 @@ export class StaffEnrollmentService {
   }
   private async resolve(em: EntityManager, token: string, lock = false) {
     if (!validToken(token)) throw new NotFoundException('入职二维码无效，请联系人事重新获取');
-    const invite = await em.findOne(StaffEnrollmentInvite, { where: { tokenHash: digest(token) }, ...(lock ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
-    if (!invite || invite.revokedAt || invite.expiresAt.getTime() <= Date.now()) throw new NotFoundException('入职二维码已失效，请联系人事重新获取');
-    const company = await em.findOneBy(Company, { id: invite.companyId, status: 'active' });
+    let invite = await em.findOne(StaffEnrollmentInvite, { where: { tokenHash: digest(token) } });
+    if (!invite) throw new NotFoundException('入职二维码已失效，请联系人事重新获取');
+    const company = await em.findOne(Company, { where: {id: invite.companyId, status:'active'}, ...(lock ? {lock:{mode:'pessimistic_write' as const}} : {}) });
+    if (lock) invite = await em.findOne(StaffEnrollmentInvite, {where:{tokenHash:digest(token)},lock:{mode:'pessimistic_write'}});
+    if (!invite || invite.revokedAt || invite.expiresAt && invite.expiresAt.getTime() <= Date.now()) throw new NotFoundException('入职二维码已失效，请联系人事重新获取');
     const creator = await em.findOneBy(User, { id: invite.createdBy, companyId: invite.companyId, status: 'active' });
     if (!company || !creator) throw new NotFoundException('入职二维码已失效，请联系人事');
     return { invite, company };
@@ -100,7 +99,7 @@ export class StaffEnrollmentService {
     const positions = all.filter(p => !p.departmentId || allowed.has(p.departmentId));
     if (invite.mode === 'position') await this.position(em, company.id, invite.positionId!);
     return {
-      companyName: company.name, employmentType: invite.employmentType, contractStartDate: invite.contractStartDate, contractEndDate: invite.contractEndDate, mode: invite.mode, expiresAt: invite.expiresAt.toISOString(),
+      companyName: company.name, employmentType: invite.employmentType, contractStartDate: invite.contractStartDate, contractEndDate: invite.contractEndDate, mode: invite.mode, expiresAt: invite.expiresAt?.toISOString() ?? null,
       position: invite.mode === 'position' ? { id: invite.positionId!, name: positions.find(p => p.id === invite.positionId)?.name ?? '' } : null,
       positions: invite.mode === 'general' ? positions.map(p => ({ id: p.id, name: p.name, departmentName: departments.find(d => d.id === p.departmentId)?.name ?? '' })) : [],
     };
@@ -137,13 +136,14 @@ export class StaffEnrollmentService {
         isCompanyAdmin: false, status: 'active', mustChangePassword: false,
       }));
       if (invite.employmentType !== 'regular') {
-        const problem = validateWorkforceTerms(invite);
+        const contractStartDate = invite.contractStartDate || todayShanghai();
+        const problem = validateWorkforceTerms({...invite,contractStartDate});
         if (problem) throw new BadRequestException(problem);
         if (invite.contractEndDate && invite.contractEndDate < todayShanghai()) throw new BadRequestException('合作期已结束，请联系人事重新获取入职码');
         const issuer = await this.issuer(em, company.id, invite.createdBy);
         await this.resources.createRecord(em, issuer, 'workforce', {
           userId: user.id, employmentType: invite.employmentType, phone,
-          contractStartDate: invite.contractStartDate, contractEndDate: invite.contractEndDate,
+          contractStartDate, contractEndDate: invite.contractEndDate,
         }, '员工扫描入职码自动建档');
       }
       await this.audit(em, company.id, user.id, 'user.self-enroll', user.id, { inviteId: invite.id, positionId: position.id, mode: invite.mode, employmentType: invite.employmentType });
