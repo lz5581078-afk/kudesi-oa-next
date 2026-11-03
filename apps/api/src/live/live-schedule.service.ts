@@ -224,6 +224,8 @@ export class LiveScheduleService {
     const liveProductsRows: Row[] = await this.em.query(`SELECT p.session_id, p.base_code_id id, p.code_snapshot code, p.name_snapshot name, COALESCE(p.spec_snapshot,'') spec
       FROM live_session_products p JOIN live_sessions s ON s.company_id=p.company_id AND s.id=p.session_id
       WHERE p.company_id=? AND (s.status='live' OR s.session_date=?) ORDER BY p.session_id,p.sort_order`, [a.companyId, day]);
+    const checkins: Row[] = sessions.length ? await this.em.query(`SELECT session_id,user_id,role FROM live_session_checkins
+      WHERE company_id=? AND session_id IN (${sessions.map(()=>'?').join(',')})`,[a.companyId,...sessions.map(s=>s.id)]) : [];
     const tiles = rooms.map((room) => {
       const roomSessions = sessions.filter((s) => Number(s.room_id) === room.id);
       const live = roomSessions.find((s) => s.status === 'live') ?? null;
@@ -238,7 +240,15 @@ export class LiveScheduleService {
       items.sort((x, y) => String(x.start).localeCompare(String(y.start)));
       const upcoming = items.find((i) => ['upcoming', 'due'].includes(i.state)) ?? null;
       const status = live ? 'live' : day === liveToday(now) && items.some((i) => i.state === 'done') && !upcoming ? 'finished' : 'idle';
+      const reported = (s:Row,role:string,userId:unknown):boolean|null => {
+        if(checkins.some(c=>Number(c.session_id)===Number(s.id)&&Number(c.user_id)===Number(userId)&&c.role===role))return true;
+        if(Number(s.checkin_mode)===1)return false;
+        // Older sessions only recorded who opened the session, not every person's check-in.
+        return s.started_role===role&&Number(s.started_by)===Number(userId)?true:null;
+      };
       const view = (live: Row | null) => live ? {
+        startReports: {anchor:reported(live,'anchor',live.anchor_user_id),control:live.control_user_id?reported(live,'control',live.control_user_id):null,operator:live.operator_user_id?reported(live,'operator',live.operator_user_id):null},
+        accounts: channelsOf(live).length ? channelsOf(live).map(c=>({id:c.accountId,name:c.accountName,platform:c.platform})) : [{id:Number(live.douyin_account_id),name:live.douyin_account_name,platform:'douyin'}],
         products: liveProductsRows.filter((p) => Number(p.session_id) === Number(live.id)).map((p) => ({ id: p.id == null ? null : Number(p.id), code: p.code, name: p.name, spec: p.spec })),
         endAt: live.end_text ?? null, status: live.status, id: Number(live.id), startAt: live.start_text, plannedEnd: live.schedule_end, anchor: { id: Number(live.anchor_user_id), name: live.anchor_name },
         control: live.control_user_id ? { id: Number(live.control_user_id), name: live.control_name } : null, operator: live.operator_user_id ? { id: Number(live.operator_user_id), name: live.operator_name } : null,
