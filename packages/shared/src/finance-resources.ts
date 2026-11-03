@@ -511,7 +511,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       { key: 'label', label: '标题', type: 'text', group: '基础', readonly: true, hideInForm: true, search: true, maxLength: 200 },
       ref('versionId', '成本版本', '基础', 'finance-labor-versions', { required: true, list: true }),
       ref('archiveCategoryId', '项目归档分类', '基础', 'finance-labor-categories', { required: true, list: true, help: '必须选当前版本里最末级的归档分类' }),
-      ref('workTypeId', '工作分类', '基础', 'finance-labor-work-types', { required: true, list: true, refOptions: { complete: true, codeField: 'code', sortField: 'sortOrder', manageLabel: '管理分类' } }),
+      ref('workTypeId', '工作分类', '基础', 'finance-labor-work-types', { required: true, list: true, refOptions: { complete: true, codeField: 'code', sortField: 'sortOrder', manageLabel: '管理分类', initialFocus: true } }),
       text('workName', '工作名称', '基础', { required: true, list: true, search: true, maxLength: 160, placeholder: '例如：人工装袋' }),
       { key: 'workCode', label: '工作编号', type: 'text', group: '基础', readonly: true, list: true, search: true, maxLength: 80, help: '系统自动生成：人力标识 - 成本版本 - 归档分类路径 - 工作分类 - 工作名称' },
       ref('unitId', '计价单位', '基础', 'finance-labor-units', { required: true, list: true, refOptions: { complete: true, sortField: 'sortOrder', manageLabel: '管理单位' } }),

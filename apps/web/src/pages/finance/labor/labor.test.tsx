@@ -67,8 +67,8 @@ describe('复制版本', () => {
     vi.mocked(api).mockResolvedValue({ id: 9 } as never);
     render(<LaborCostPage />);
     fireEvent.click(await screen.findByRole('button', { name: '复制版本' }));
-    fireEvent.change(screen.getByLabelText('新版本编号'), { target: { value: 'B2' } });
-    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+    fireEvent.change(screen.getByLabelText('版本编号'), { target: { value: 'B2' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存版本' }));
     await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith('/finance/labor/versions/1/copy', expect.objectContaining({ method: 'POST', body: expect.objectContaining({ versionCode: 'B2' }) })));
     await screen.findByText(/已复制/);
   });
@@ -312,14 +312,57 @@ it('复制版本预填原编号-COPY、名称副本、期间/日期/备注，提
   const source = dto(1, 'finance-labor-versions', '合成春季', { versionCode: 'RL-SPRING', versionName: '合成春季', periodName: '2026春', effectiveFrom: '2026-01-01', effectiveTo: '2026-06-30', note: '合成版本说明' });
   const copied = vi.fn(); vi.mocked(api).mockResolvedValue({ id: 9 });
   render(<CopyVersionDialog source={source} onClose={vi.fn()} onCopied={copied}/>);
-  expect(screen.getByLabelText('新版本编号')).toHaveProperty('value', 'RL-SPRING-COPY');
-  expect(screen.getByLabelText('新版本名称')).toHaveProperty('value', '合成春季 - 副本');
+  expect(screen.getByLabelText('版本编号')).toHaveProperty('value', 'RL-SPRING-COPY');
+  expect(screen.getByLabelText('版本名称')).toHaveProperty('value', '合成春季 - 副本');
   expect(screen.getByLabelText('期间名称')).toHaveProperty('value', '2026春');
   expect(screen.getByLabelText('生效开始')).toHaveProperty('value', '2026-01-01');
   expect(screen.getByLabelText('生效结束')).toHaveProperty('value', '2026-06-30');
   expect(screen.getByLabelText('备注')).toHaveProperty('value', '合成版本说明');
-  fireEvent.change(screen.getByLabelText('新版本编号'), { target: { value: 'rl-copy-new' } });
-  fireEvent.click(screen.getByRole('button', { name: '复制' }));
+  fireEvent.change(screen.getByLabelText('版本编号'), { target: { value: 'rl-copy-new' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存版本' }));
   await waitFor(() => expect(copied).toHaveBeenCalledWith(9));
   expect(api).toHaveBeenCalledWith('/finance/labor/versions/1/copy', { method: 'POST', body: { versionCode: 'RL-COPY-NEW', versionName: '合成春季 - 副本', periodName: '2026春', effectiveFrom: '2026-01-01', effectiveTo: '2026-06-30', remark: '合成版本说明' } });
+});
+
+it('复制版本沿用两个版本分区，不提供普通新增草稿；必填校验在请求前执行', () => {
+  render(<CopyVersionDialog source={dto(1, 'finance-labor-versions', '合成', { versionCode: 'A' })} onClose={vi.fn()} onCopied={vi.fn()}/>);
+  const dialog = screen.getByRole('dialog', { name: '复制人力成本版本' });
+  expect(within(screen.getByRole('region', { name: '版本信息' })).getByLabelText('版本名称')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: '适用期间' })).getByLabelText('备注')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '保存草稿' })).toBeNull();
+  fireEvent.change(screen.getByLabelText('版本编号'), { target: { value: '  ' } });
+  fireEvent.submit(dialog);
+  expect(screen.getByRole('alert')).toHaveProperty('textContent', '请填写版本编号');
+  expect(document.activeElement).toBe(screen.getByLabelText('版本编号'));
+  expect(api).not.toHaveBeenCalled();
+});
+
+it('复制版本重复提交仅请求一次，失败保留输入并允许重试', async () => {
+  let fail!: (error: unknown) => void;
+  vi.mocked(api).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+  const copied = vi.fn(), close = vi.fn();
+  render(<CopyVersionDialog source={dto(1, 'finance-labor-versions', '合成', { versionCode: 'A' })} onClose={close} onCopied={copied}/>);
+  fireEvent.change(screen.getByLabelText('版本编号'), { target: { value: 'retry' } });
+  const dialog = screen.getByRole('dialog', { name: '复制人力成本版本' });
+  fireEvent.submit(dialog); fireEvent.submit(dialog);
+  fireEvent.keyDown(dialog, { key: 'Escape' });
+  expect(api).toHaveBeenCalledTimes(1); expect(close).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: '取消' })).toHaveProperty('disabled', true);
+  await act(async () => fail(new ApiError(409, '合成版本编号重复')));
+  expect(screen.getByRole('alert')).toHaveProperty('textContent', '合成版本编号重复');
+  expect(screen.getByLabelText('版本编号')).toHaveProperty('value', 'RETRY');
+  vi.mocked(api).mockResolvedValueOnce({ id: 99 });
+  fireEvent.click(screen.getByRole('button', { name: '保存版本' }));
+  await waitFor(() => expect(copied).toHaveBeenCalledWith(99));
+});
+
+it('复制窗口卸载后迟到的成功结果不执行切换回调', async () => {
+  let finish!: (result: unknown) => void;
+  vi.mocked(api).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const copied = vi.fn();
+  const view = render(<CopyVersionDialog source={dto(1, 'finance-labor-versions', '合成', { versionCode: 'A' })} onClose={vi.fn()} onCopied={copied}/>);
+  fireEvent.click(screen.getByRole('button', { name: '保存版本' }));
+  view.unmount();
+  await act(async () => finish({ id: 99 }));
+  expect(copied).not.toHaveBeenCalled();
 });

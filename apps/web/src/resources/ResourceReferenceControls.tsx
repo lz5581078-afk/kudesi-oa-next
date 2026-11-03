@@ -74,6 +74,7 @@ function CompleteRefSelect({ field, value, onChange, labelNow, inputId }: RefSel
   const scopeRef = useRef(scope); scopeRef.current = scope;
   const [state, setState] = useState<{ scope: string; rows?: RefOption[]; error?: string }>();
   const [retry, setRetry] = useState(0);
+  const select = useRef<HTMLSelectElement>(null), focusAttempted = useRef(false);
   useEffect(() => {
     let alive = true;
     const current = () => alive && scopeRef.current === scope;
@@ -89,10 +90,17 @@ function CompleteRefSelect({ field, value, onChange, labelNow, inputId }: RefSel
     return () => { alive = false; };
   }, [scope, retry]); // eslint-disable-line react-hooks/exhaustive-deps
   const current = state?.scope === scope ? state : undefined;
+  useEffect(() => {
+    if (!field.refOptions?.initialFocus || !current?.rows || focusAttempted.current) return;
+    focusAttempted.current = true;
+    const active = document.activeElement, element = select.current;
+    // 等候字典时用户已经开始填写其他字段，则保留用户当前焦点。
+    if (element && (active === document.body || active === element || active instanceof HTMLElement && active.matches('button[aria-label="关闭"]') && active.closest('[role="dialog"]') === element.closest('[role="dialog"]'))) element.focus();
+  }, [current?.rows, field.refOptions?.initialFocus]);
   const options = current?.rows ?? [];
   const selected = typeof value === 'number' ? value : '';
   return <div className="resource-ref-control">
-    <select id={inputId} aria-label={field.label} value={selected} disabled={!current?.rows} onChange={event => onChange(event.target.value ? Number(event.target.value) : null)}>
+    <select ref={select} id={inputId} aria-label={field.label} value={selected} disabled={!current?.rows} onChange={event => onChange(event.target.value ? Number(event.target.value) : null)}>
       <option value="">{current?.rows ? `请选择${field.label}` : current?.error ? '读取失败' : '加载中…'}</option>
       {selected !== '' && !options.some(option => option.value === selected) && <option value={selected}>{labelNow || `#${selected}`}</option>}
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}

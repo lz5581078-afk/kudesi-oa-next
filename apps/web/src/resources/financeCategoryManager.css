@@ -66,3 +66,6 @@
 .fcm-scoped .fcm-column>header{border-bottom-color:#e2e9f0}
 .fcm-scoped .fcm-column>header strong{color:#24364d}
 .fcm-scoped .fcm-empty{color:#8695a8}
+.fcm-scoped .fcm-empty{margin:0;gap:0}
+.fcm-scoped .fcm-empty span{margin-top:4px}
+.fcm-scoped .fcm-actions{justify-content:normal}

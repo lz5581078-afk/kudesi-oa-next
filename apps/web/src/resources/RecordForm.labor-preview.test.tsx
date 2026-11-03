@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FINANCE_RESOURCE_DEFS } from '@kudesi/shared';
 import { RecordForm } from './RecordForm';
 import { resourceApi, draftApi, type ResourceDto } from './api';
 import { api } from '../api/client';
 import { resetUnitOptionsForTest } from './unitOptions';
+import { clearRefCache } from './ResourceReferenceControls';
 
 const formAuth = vi.hoisted(() => ({ permissions: { isCompanyAdmin: true, allow: [] as string[], deny: [] as string[] } }));
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, companyId: 1, permissions: formAuth.permissions } }) }));
@@ -59,6 +60,27 @@ it('实际零成本表单通过明确确认生成当前上下文，改名需重�
   expect(document.querySelector('[data-field="zeroCostConfirmation"]')).toBeNull();
 });
 afterEach(cleanup);
+
+it('工作分类完整加载后获得初始焦点，维护刷新不夺走正在填写的名称焦点', async () => {
+  render(<RecordForm def={def} record={record} lockedFields={['versionId', 'archiveCategoryId']} onClose={vi.fn()} onSaved={vi.fn()}/>);
+  const select = screen.getByRole('combobox', { name: '工作分类' });
+  await waitFor(() => expect(document.activeElement).toBe(select));
+  const name = screen.getByRole('textbox', { name: /工作名称/ }); name.focus();
+  act(() => clearRefCache('finance-labor-work-types'));
+  await waitFor(() => expect(select).toHaveProperty('disabled', false));
+  expect(document.activeElement).toBe(name);
+});
+
+it('等候工作分类时用户先填写其他字段，加载完成后保留当前焦点和输入', async () => {
+  let finish!: (result: Awaited<ReturnType<typeof resourceApi.list>>) => void;
+  vi.mocked(resourceApi.list).mockImplementation(async type => type === 'finance-labor-work-types' ? new Promise(resolve => { finish = resolve; }) : { items: [], total: 0, page: 1, pageSize: 200 });
+  render(<RecordForm def={def} record={record} lockedFields={['versionId', 'archiveCategoryId']} onClose={vi.fn()} onSaved={vi.fn()}/>);
+  const name = screen.getByRole('textbox', { name: /工作名称/ }); name.focus();
+  fireEvent.change(name, { target: { value: '合成继续填写' } });
+  await act(async () => finish({ items: [], total: 0, page: 1, pageSize: 200 }));
+  expect(screen.getByRole('combobox', { name: '工作分类' })).toHaveProperty('disabled', false);
+  expect(document.activeElement).toBe(name); expect(name).toHaveProperty('value', '合成继续填写');
+});
 
 it('项目分区固定外侧归属，状态和资料一起保存；失败不关闭，重试保留填写', async () => {
   const saved = vi.fn();
