@@ -66,6 +66,10 @@ export interface FieldDef {
   /** 参与关键词搜索 */
   search?: boolean;
   maxLength?: number;
+  /** 表单提示及显示变换，不改变服务端保存/导入规则。 */
+  placeholder?: string;
+  inputCase?: 'upper';
+  moneyInput?: { nativeNumber?: boolean; currency?: string };
   /** 由系统计算，表单里不显示、提交的值会被忽略（如利润） */
   readonly?: boolean;
   /** 自动汇总字段可仅用于检索、列表和详情，不占用编辑表单。 */
@@ -247,7 +251,8 @@ export interface ResourceDef {
   /** 配置驱动的紧凑分区表单；未列出的身份字段仍保留在保存数据中。 */
   form?: {
     createTitle: string; editTitle: string; subtitle: string; saveLabel: string;
-    sections: readonly { title: string; fields: readonly string[]; step?: string; hint?: string; contextField?: string; contextLabel?: string }[];
+    width?: number; titleSize?: number; sectionLabel?: string; icon?: 'users' | 'database'; requiredBadges?: boolean;
+    sections: readonly { title: string; fields: readonly string[]; wideFields?: readonly string[]; step?: string; hint?: string; contextField?: string; contextLabel?: string }[];
     confirmClose?: boolean;
     status?: { section: string; activeValue: string; inactiveValue: string; activeText: string; inactiveText: string; activeHint: string; inactiveHint: string };
   };

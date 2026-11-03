@@ -409,9 +409,10 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     form: {
       createTitle: '新建人力成本版本', editTitle: '编辑人力成本版本', subtitle: '草稿和启用版本均可维护项目；启用后可供其他模块按业务日期读取。', saveLabel: '保存版本',
       confirmClose: false,
+      width: 780, titleSize: 21, sectionLabel: '人力成本资料', icon: 'users',
       sections: [
         { title: '版本信息', fields: ['versionCode', 'versionName', 'periodName'], hint: '版本编号在公司内不能重复' },
-        { title: '适用期间', fields: ['effectiveFrom', 'effectiveTo', 'note'], hint: '留空表示不限制日期' },
+        { title: '适用期间', fields: ['effectiveFrom', 'effectiveTo', 'note'], wideFields: ['note'], hint: '留空表示不限制日期' },
       ],
     },
     parent: { type: 'finance-labor-costs', field: 'versionCode' },
@@ -425,9 +426,9 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
     defaultStatus: 'draft',
     fields: [
-      text('versionCode', '版本编号', '基础', { required: true, list: true, search: true, maxLength: 80, help: '公司内不能重复，如 RL-20261026' }),
+      text('versionCode', '版本编号', '基础', { required: true, list: true, search: true, maxLength: 80, inputCase: 'upper', help: '公司内不能重复，如 RL-20261026' }),
       text('versionName', '版本名称', '基础', { required: true, list: true, search: true, maxLength: 160 }),
-      text('periodName', '期间名称', '基础', { list: true, maxLength: 120, help: '例如：2026年秋季' }),
+      text('periodName', '期间名称', '基础', { list: true, maxLength: 120, placeholder: '例如：2026年秋季', help: '例如：2026年秋季' }),
       date('effectiveFrom', '生效开始', '适用期间', { list: true, help: '留空表示不限制日期' }),
       date('effectiveTo', '生效结束', '适用期间', { list: true }),
       { key: 'isDefault', label: '默认版本', type: 'bool', group: '基础', hideInForm: true, list: true, help: '只有已启用的版本能设为默认；其他模块按业务日期读取时优先用默认版本' },
@@ -493,6 +494,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     form: {
       createTitle: '新增人力成本项目', editTitle: '编辑人力成本项目', subtitle: '项目归档由外侧目录决定；工作分类为独立业务属性，工作编号由系统自动生成。', saveLabel: '保存项目',
       confirmClose: false,
+      width: 860, titleSize: 23, sectionLabel: '人力成本资料', icon: 'users', requiredBadges: true,
       sections: [
         { title: '工作基础信息', fields: ['workTypeId', 'workName'], step: '01', contextField: 'archiveCategoryId', contextLabel: '归档分类' },
         { title: '计价标准', fields: ['unitPrice', 'unitId'], step: '02', hint: '后续业务按计价单位引用单价' },
@@ -508,12 +510,12 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       ref('versionId', '成本版本', '基础', 'finance-labor-versions', { required: true, list: true }),
       ref('archiveCategoryId', '项目归档分类', '基础', 'finance-labor-categories', { required: true, list: true, help: '必须选当前版本里最末级的归档分类' }),
       ref('workTypeId', '工作分类', '基础', 'finance-labor-work-types', { required: true, list: true, refOptions: { complete: true, codeField: 'code', sortField: 'sortOrder', manageLabel: '管理分类' } }),
-      text('workName', '工作名称', '基础', { required: true, list: true, search: true, maxLength: 160 }),
+      text('workName', '工作名称', '基础', { required: true, list: true, search: true, maxLength: 160, placeholder: '例如：人工装袋' }),
       { key: 'workCode', label: '工作编号', type: 'text', group: '基础', readonly: true, list: true, search: true, maxLength: 80, help: '系统自动生成：人力标识 - 成本版本 - 归档分类路径 - 工作分类 - 工作名称' },
       ref('unitId', '计价单位', '基础', 'finance-labor-units', { required: true, list: true, refOptions: { complete: true, sortField: 'sortOrder', manageLabel: '管理单位' } }),
-      { ...money('unitPrice', '单位人力成本', '基础', { required: true, list: true }), permission: COST_VIEW, writePermission: COST_EDIT },
+      { ...money('unitPrice', '单位人力成本', '基础', { required: true, list: true, placeholder: '0.0000', moneyInput: { nativeNumber: true, currency: '¥' } }), permission: COST_VIEW, writePermission: COST_EDIT },
       { ...textarea('zeroReason', '零值原因', '基础', { hideInForm: true, help: '单位人力成本填 0 时必须写明原因' }), permission: COST_VIEW, writePermission: COST_EDIT },
-      NOTE(),
+      { ...NOTE(), placeholder: '记录适用范围、核算说明或其他注意事项' },
     ],
   },
   // 快递价格：快递公司 → 经营网点 → 价格版本 → 价格规则（省份 × 重量段）。

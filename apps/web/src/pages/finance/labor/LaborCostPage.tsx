@@ -156,11 +156,11 @@ export function LaborCostPage() {
                     <td className="num" data-label="单位人力成本">{canSeeCost ? typeof i.data.unitPrice === 'number' && Number.isFinite(i.data.unitPrice) ? `¥${unitYuanText(i.data.unitPrice)}` : '未填写' : '无权限'}</td>
                     <td data-label="状态"><span className={`labor-project-status ${i.status}`}>{i.status === 'active' ? '启用' : '停用'}</span></td>
                     <td data-label="备注">{String(i.data.note || '-')}</td>
-                    <td className="row-actions">
+                    <td className="row-actions">{locked ? '-' : <>
                       {can('edit') && <button type="button" className="link-button" disabled={locked} onClick={() => setItemForm({ record: i })}>编辑</button>}
-                      {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: { __copyOf: i.id, ...Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'zeroReason', 'note'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) } })}>复制新增</button>}
+                      {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: { __copyOf: i.id, ...Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'note'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) } })}>复制新增</button>}
                       {!locked && can('delete') && <button type="button" className="link-button danger" disabled={version.status !== 'draft'} onClick={() => setReason({ title: `删除「${i.title}」`, hint: '被成品构成或组合用着的项目不能删除，请改成停用。', confirm: '确认删除', run: async (r) => { await resourceApi.remove('finance-labor-costs', i.id, r); } })}>删除</button>}
-                    </td></tr>
+                    </>}</td></tr>
                 ))}
               </tbody>
             </table></div>

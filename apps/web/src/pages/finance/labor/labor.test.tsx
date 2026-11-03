@@ -74,6 +74,19 @@ describe('复制版本', () => {
 });
 
 describe('复制新增工作项目', () => {
+  it('复制停用零价项目保留备注和单价，清除原原因并恢复启用，必须重新确认零价', async () => {
+    const versions = [dto(1, 'v', '合成当前版', { versionCode: 'A', isDefault: true })];
+    const item = dto(92, 'i', '合成赠送项目', { versionId: 1, archiveCategoryId: 10, workTypeId: 2, unitId: 3, workCode: 'ZERO-COPY', workName: '合成赠送项目', unitPrice: 0, zeroReason: '原项目赠送原因', note: '需保留的合成备注' }, 'inactive');
+    m.list.mockImplementation(async type => { const items = type === 'finance-labor-versions' ? versions : type === 'finance-labor-costs' ? [item] : []; return { items, total: items.length, page: 1, pageSize: 200 }; });
+    render(<LaborCostPage/>);
+    fireEvent.click(await screen.findByRole('button', { name: '复制新增' }));
+    expect(screen.getByRole('textbox', { name: '零人力成本原因' })).toHaveProperty('value', '');
+    expect(screen.getByRole('spinbutton', { name: /单位人力成本/ })).toHaveProperty('value', '0');
+    expect(screen.getByRole('switch', { name: '状态' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByDisplayValue('需保留的合成备注')).toBeTruthy();
+    expect(screen.queryByText(/已确认：/)).toBeNull();
+    expect(screen.getByRole('button', { name: '确认该项为0' })).toHaveProperty('disabled', true);
+  });
   it('带出原项目的分类、单位和名称，但不带工作编号；没有结果时可清除搜索', async () => {
     const versions = [dto(1, 'v', '2026春', { versionCode: 'A', isDefault: true }, 'active')];
     const items = [dto(100, 'i', '包装/装盒', { workCode: 'RL-A-BZ-BZ-ZH', workName: '装盒', unitPrice: 150, archiveCategoryId: 10, note: '合成复制备注' }, 'active', { archiveCategoryId: '包装', workTypeId: '包装', unitId: '元/个' })];
@@ -230,7 +243,7 @@ it('版本资料仅草稿可编辑；启用版项目/分类删除禁用，草稿
   fireEvent.click(screen.getByRole('button', { name: /^合成停用/ }));
   await screen.findByText('SYNTHETIC-LIFECYCLE');
   expect(screen.queryByRole('button', { name: '删除' })).toBeNull();
-  expect(screen.getByRole('button', { name: '编辑' })).toHaveProperty('disabled', true);
+  expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
 });
 
 it('复制版本预填原编号-COPY、名称副本、期间/日期/备注，提交时保留并大写输入编号', async () => {

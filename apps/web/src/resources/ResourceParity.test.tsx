@@ -37,7 +37,7 @@ describe('查看与原位编辑的字段一致性', () => {
     const fields = [...document.querySelectorAll<HTMLElement>('.rd-item[data-field]')].map(el => ({ key: el.dataset.field, wide: el.classList.contains('wide') }));
     fireEvent.click(screen.getByRole('button', { name: '编辑' }));
     const form = screen.getByRole('group', { name: def.form?.editTitle ?? `编辑${def.label}` });
-    const formFields = def.form ? def.form.sections.flatMap(section => section.fields.flatMap(key => fields.find(field => field.key === key) ?? [])) : fields.filter(field => !def.fields.find(f => f.key === field.key)?.hideInForm && def.codePreview?.field !== field.key);
+    const formFields = def.form ? def.form.sections.flatMap(section => section.fields.flatMap(key => fields.some(field => field.key === key) ? [{ key, wide: section.wideFields?.includes(key) ?? false }] : [])) : fields.filter(field => !def.fields.find(f => f.key === field.key)?.hideInForm && def.codePreview?.field !== field.key);
     expect([...form.querySelectorAll<HTMLElement>('.rf-field[data-field]')].map(el => ({ key: el.dataset.field, wide: el.classList.contains('wide') }))).toEqual(formFields);
     if (def.codePreview) expect(within(form).getByRole('status', { name: def.fields.find(f => f.key === def.codePreview!.field)!.label })).toBeTruthy();
     expect(screen.queryByRole('dialog', { name: `编辑${def.label}` })).toBeNull();

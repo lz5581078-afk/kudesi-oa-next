@@ -24,6 +24,15 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('人工成本的手动草稿', () => {
+  it('版本编号输入按原版转大写，日期和名称保存仍走通用资料接口', async () => {
+    render(<RecordForm record={null} def={version} onClose={vi.fn()} onSaved={vi.fn()}/>);
+    const code = screen.getByRole('textbox', { name: '版本编号' });
+    fireEvent.change(code, { target: { value: 'rl-mixed-01' } });
+    expect(code).toHaveProperty('value', 'RL-MIXED-01');
+    fireEvent.change(screen.getByRole('textbox', { name: '版本名称' }), { target: { value: '合成大写版本' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存版本' }));
+    await waitFor(() => expect(resourceApi.create).toHaveBeenCalledWith(version.key, expect.objectContaining({ versionCode: 'RL-MIXED-01', versionName: '合成大写版本' }), 'draft'));
+  });
   it('版本不再自动保存，固定草稿且隐藏默认/启用字段；手动存草稿成功后关闭并保留旧键', async () => {
     vi.useFakeTimers(); const close = vi.fn();
     render(<RecordForm record={null} def={version} initial={{ versionCode: 'RL-TEST' }} onClose={close} onSaved={vi.fn()}/>);

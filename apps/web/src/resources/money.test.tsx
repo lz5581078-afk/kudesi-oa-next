@@ -15,4 +15,13 @@ describe('单价输入',()=>{
     render(<Form scale={0}/>);fireEvent.change(screen.getByRole('textbox'),{target:{value:'0.0025'}});
     expect(screen.getByRole('status').textContent).toBe('NaN');
   });
+  it('原生数字单价输入保留六位元精度，超出精度不会沿用旧价格',()=>{
+    function NativeForm(){const [value,set]=useState<unknown>('');return <><MoneyControl value={value} scale={4} appearance={{nativeNumber:true,currency:'¥'}} placeholder="0.0000" onChange={set}/><output>{String(value)}</output></>;}
+    render(<NativeForm/>);const input=screen.getByRole('spinbutton');
+    fireEvent.change(input,{target:{value:'0.000012'}});
+    expect(screen.getByRole('status').textContent).toBe('0.0012');
+    expect(input).toHaveProperty('value','0.000012');
+    fireEvent.change(input,{target:{value:'0.0000001'}});
+    expect(screen.getByRole('status').textContent).toBe('NaN');
+  });
 });
