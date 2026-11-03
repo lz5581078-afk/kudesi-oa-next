@@ -166,7 +166,8 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
   });
   const financeReference = NAV_SECTIONS.find(s=>s.id === section)?.pages.find(p=>p.id === hostId);
   const restoreFinance = section === 'finance' && ['数据','聚水潭分类'].includes(financeReference?.group ?? '');
-  const Host = () => <TabHost tabs={hostTabs} primaryCount={restoreFinance ? (hostId === 'cost-table' ? 2 : hostId === 'finance-express-prices' ? 3 : 1) : undefined} />;
+  const basicFinance = section === 'finance' && financeReference?.group === '基础资料';
+  const Host = () => <TabHost tabs={hostTabs} hideNavigation={basicFinance} primaryCount={restoreFinance ? (hostId === 'cost-table' ? 2 : hostId === 'finance-express-prices' ? 3 : 1) : undefined} />;
   Host.displayName = `Host(${hostKey})`;
   PAGE_COMPONENTS[`${section}.${hostId}`] = Host;
 }

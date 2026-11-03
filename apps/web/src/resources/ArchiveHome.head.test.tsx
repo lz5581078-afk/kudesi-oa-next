@@ -15,16 +15,17 @@ import { ArchiveHome } from './ArchiveHome';
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('基础资料首页使用24号标题与卡片结构', () => {
-  it('恢复24号内容区标题和说明，顶部页面栏不叠分区面包屑', async () => {
+  it('有顶栏时不重复渲染内容区大标题，保留说明和卡片', async () => {
     vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 3, page: 1, pageSize: 1, tabCounts: { raw: 2, self_made: 1 } } as never);
     const setBare = vi.fn();
     render(
       <MemoryRouter>
-        <AppbarContext.Provider value={{ slot: null, setBare }}><ArchiveHome type="finance-products" onEnter={() => undefined} /></AppbarContext.Provider>
+        <AppbarContext.Provider value={{ slot: document.createElement('div'), setBare }}><ArchiveHome type="finance-products" onEnter={() => undefined} /></AppbarContext.Provider>
       </MemoryRouter>,
     );
     await screen.findByText('原料档案');
-    expect(screen.getByRole('heading', { level: 1, name: '商品档案' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 1, name: '商品档案' })).toBeNull();
+    expect(screen.getByText(/按原料、自产品/)).toBeTruthy();
     expect(setBare).toHaveBeenCalledWith(true);
   });
 
