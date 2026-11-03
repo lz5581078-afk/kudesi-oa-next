@@ -49,7 +49,7 @@ export interface ReviewPreview { platforms?:Array<{platform:string;finalSalesCen
   wage: { startAt: string; endAt: string; minutes: number; hourlyRateCents: number; amountCents: number; rateSource: string; archiveHourlyRateCents: number | null };
 }
 
-export interface TimelineItem { products?: LiveProductSnapshot[]; kind: 'schedule' | 'adhoc'; id: number; start: string; end: string; plannedEnd: string; anchorName: string; controlName: string | null; operatorName: string | null; douyinName: string; state: 'live' | 'done' | 'missed' | 'due' | 'upcoming'; sessionId: number | null }
+export interface TimelineItem { anchorId?:number; products?: LiveProductSnapshot[]; kind: 'schedule' | 'adhoc'; id: number; start: string; end: string; plannedEnd: string; anchorName: string; controlName: string | null; operatorName: string | null; douyinName: string; state: 'live' | 'done' | 'missed' | 'due' | 'upcoming'; sessionId: number | null }
 export interface RoomCurrentSession { startReports?:{anchor:boolean|null;control:boolean|null;operator:boolean|null}; accounts?:Array<Person & {platform:string}>; products?: LiveProductSnapshot[]; id: number; startAt: string; endAt?: string | null; status?: string; plannedEnd: string | null; anchor: Person; control: Person | null; operator: Person | null; douyinAccount: Person }
 export interface RoomTile extends Omit<RoomOpt, 'live'> {
   status: 'live' | 'finished' | 'idle'; statusLabel: string; next: TimelineItem | null; timeline: TimelineItem[];

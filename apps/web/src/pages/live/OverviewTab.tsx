@@ -1,3 +1,4 @@
+import { PersonPhotoName } from './PersonPhotoName';
 import { DailyOfficeCard } from './DailyWorkPanel';
 import { RoomSessionAccounts, RoomSessionPanel } from './RoomSessionPanel';
 import { roomProductItems } from './roomProducts';
@@ -30,7 +31,7 @@ function Tile({ t, day, now, onOpen,onEdit }: { t: RoomTile; day: string; now: s
     <section className="live-next" aria-label={`${t.shortName || t.name}下一场`}>
       {t.next ? <>
         <div className="live-next-heading"><strong className="live-next-time">下一场 {hm(t.next.start,day)}–{hm(t.next.plannedEnd,day)}</strong><span className="live-next-products" title={`产品 ${productText(t.next.products)}`} aria-label={`产品 ${productText(t.next.products)}`}><strong>{productText(t.next.products)}</strong></span></div>
-        <div className="live-next-people"><span>主播<strong title={t.next.anchorName}>{t.next.anchorName}</strong></span><span>中控<strong title={t.next.controlName || '未安排'}>{t.next.controlName || '未安排'}</strong></span><span>运营<strong title={t.next.operatorName || '未安排'}>{t.next.operatorName || '未安排'}</strong></span></div>
+        <div className="live-next-people"><span>主播<strong title={t.next.anchorName}><PersonPhotoName key={t.next.anchorId} personId={t.next.anchorId} name={t.next.anchorName}/></strong></span><span>中控<strong title={t.next.controlName || '未安排'}>{t.next.controlName || '未安排'}</strong></span><span>运营<strong title={t.next.operatorName || '未安排'}>{t.next.operatorName || '未安排'}</strong></span></div>
       </> : <span>当天暂无后续排场</span>}
     </section>
     <div className="live-bar" aria-label="当天排场时间条">{t.timeline.map(i=><i key={`${i.kind}${i.id}`} className={i.state==='done'?'done':i.state==='missed'||i.state==='due'?'missed':''} style={{left:`${barPos(i.start,day)}%`,width:`${Math.max(1.5,barPos(i.end,day)-barPos(i.start,day))}%`}}/>)}{day===now.slice(0,10)&&<b style={{left:`${barPos(now,day)}%`}}/>}</div>
@@ -80,12 +81,12 @@ export function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId
           <strong>排场</strong>
           {d.schedules.length === 0 && <p className="muted">这天没有排场。</p>}
           <ul className="live-list">{d.schedules.map((s) => (
-            <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.operator ? ` · 运营 ${s.operator.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}</small></div><div className="live-day-row-actions">{turnover(s.sessionId)}<SchedulePill status={s.status} label={s.statusLabel} /></div></li>
+            <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime} · 主播 <PersonPhotoName key={s.anchor.id} personId={s.anchor.id} name={s.anchor.name}/></strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.operator ? ` · 运营 ${s.operator.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}</small></div><div className="live-day-row-actions">{turnover(s.sessionId)}<SchedulePill status={s.status} label={s.statusLabel} /></div></li>
           ))}</ul>
           <strong>实际直播</strong>
           {d.sessions.length === 0 && <p className="muted">这天还没有直播记录。</p>}
           <ul className="live-list">{d.sessions.map((s) => (
-            <li key={s.id}><div className="main"><strong>{hm(s.startAt)}–{s.endAt ? hm(s.endAt, d.date) : '直播中'} · {s.anchor.name}</strong><small>{s.finalSalesCents !== null ? `审核销售额 ${money(s.finalSalesCents)}` : s.anchorSalesCents !== null ? `主播所报 ${money(s.anchorSalesCents)}` : '未报下播'}</small></div>
+            <li key={s.id}><div className="main"><strong>{hm(s.startAt)}–{s.endAt ? hm(s.endAt, d.date) : '直播中'} · <PersonPhotoName key={s.anchor.id} personId={s.anchor.id} name={s.anchor.name}/></strong><small>{s.finalSalesCents !== null ? `审核销售额 ${money(s.finalSalesCents)}` : s.anchorSalesCents !== null ? `主播所报 ${money(s.anchorSalesCents)}` : '未报下播'}</small></div>
               <div className="live-day-row-actions">{turnover(s.id)}<SessionPill status={s.status} label={({ live: '直播中', pending_report: '待提交审核', submitted: '待审核', returned: '已退回', approved: '已审核' } as Record<string, string>)[s.status] ?? s.status} />
               <button type="button" className="secondary-button small" onClick={() => onOpenSession(s.id)}>详情</button></div></li>
           ))}</ul>
@@ -155,7 +156,7 @@ export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => 
         <p className="muted">按开播日期统计，有上播或业绩填报记录才计入。兼任多个角色的人，总人数只算一次。</p>
         {d.daySummary.roles.map(({role, members}) => <section className="live-summary-role" key={role}>
           <h3>{{anchor:'主播',control:'中控',operator:'运营'}[role]} · {members.length} 人</h3>
-          {members.length ? <ul>{members.map(m => <li key={m.id}>{m.name} <small>{m.sessions} 场</small></li>)}</ul> : <span className="muted">暂无参与记录</span>}
+          {members.length ? <ul>{members.map(m => <li key={m.id}>{role==='anchor'?<PersonPhotoName key={m.id} personId={m.id} name={m.name}/>:m.name} <small>{m.sessions} 场</small></li>)}</ul> : <span className="muted">暂无参与记录</span>}
         </section>)}
       </Modal>}
       {editing&&<RoomSettingsDialog room={editing} onClose={()=>setEditing(null)} onDone={()=>{setEditing(null);load();}}/>}
