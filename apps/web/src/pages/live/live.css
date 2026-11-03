@@ -311,14 +311,16 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .live-overview .live-next-heading { gap: 8px; line-height: 1.5; }
 .live-overview .live-room-foot { gap: 8px; padding-top: 2px; }
 
-/* 实际账号与个人上播状态只补充全览信息，不改变房间排列。 */
-.live-room-accounts { display:flex; justify-content:flex-end; align-items:baseline; gap:6px; min-width:0; font-size:10px; line-height:1.5; }
+/* 各卡片预留相同账号行，人员按角色/姓名两行对齐。 */
+.live-room-accounts { display:flex; justify-content:flex-end; align-items:flex-start; gap:6px; height:30px; min-width:0; font-size:10px; line-height:15px; }
 .live-room-accounts > small { color:var(--muted); flex-shrink:0; }
-.live-room-accounts > strong { min-width:0; overflow-wrap:anywhere; text-align:right; }
-.live-overview .live-current-people { column-gap:4px; }
-.live-overview .live-current-people > span { flex-wrap:nowrap; gap:3px; font-size:9px; }
-.live-overview .live-current-people > span > strong { min-width:0; }
-.live-current-people .live-start-report { font-size:9px; font-weight:400; flex-shrink:0; white-space:nowrap; line-height:1.5; }
+.live-room-accounts > strong { min-width:0; overflow-wrap:anywhere; text-align:right; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.live-overview .live-current-people { column-gap:8px; }
+.live-overview .live-current-people > .live-current-person { display:flex; flex-direction:column; align-items:stretch; gap:3px; min-width:0; min-height:34px; }
+.live-person-role { font-size:10px; font-weight:400; line-height:14px; color:var(--muted); }
+.live-overview .live-current-people .live-person-identity { display:flex; align-items:baseline; gap:4px; min-width:0; line-height:16px; }
+.live-overview .live-person-identity > strong { min-width:0; font-size:11px; }
+.live-current-people .live-start-report { font-size:9px; font-weight:400; flex-shrink:0; white-space:nowrap; line-height:16px; }
 .live-start-report.reported { color:#167056; }
 .live-start-report.unreported { color:#9b5700; }
 .live-start-report.unknown { color:var(--muted); }

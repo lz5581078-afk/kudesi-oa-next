@@ -6,7 +6,7 @@ import { Modal } from './liveUi';
 import { productText } from './liveProducts';
 
 export function RoomSessionAccounts({session}:{session:RoomCurrentSession|null}) {
-  if(!session)return null;
+  if(!session)return <div className="live-room-accounts empty" aria-hidden="true"/>;
   const accounts=session.accounts?.length?session.accounts:[session.douyinAccount];
   const names=accounts.map(a=>a.name).filter(Boolean).join(' / ')||'未记录';
   return <div className="live-room-accounts" aria-label={`本场实际直播号：${names}`}><small>{session.endAt?'上场直播号':'直播号'}</small><strong title={names}>{names}</strong></div>;
@@ -54,7 +54,7 @@ export function RoomSessionPanel({ session, day, now }: { session: RoomCurrentSe
     <div className="live-current-people">{(['anchor','control','operator'] as const).map(role => {
       const label={anchor:'主播',control:'中控',operator:'运营'}[role],person=session?.[role],reported=session?.startReports?.[role];
       const status=reported===true?'已报上播':reported===false?'未报上播':'未记录';
-      return <span key={role}>{label}<strong title={person?.name || '未安排'}>{person?.name || '—'}</strong>{person&&<small className={`live-start-report ${reported===true?'reported':reported===false?'unreported':'unknown'}`} title={`${person.name}：${status}${reported==null?'（历史场次未记录个人上播状态）':''}`} aria-label={`${person.name}：${status}`}>{reported===true?'已报':reported===false?'未报':'未记录'}</small>}</span>;
+      return <span className="live-current-person" key={role}><small className="live-person-role">{label}</small><span className="live-person-identity"><strong title={person?.name || '未安排'}>{person?.name || '—'}</strong>{person&&<small className={`live-start-report ${reported===true?'reported':reported===false?'unreported':'unknown'}`} title={`${person.name}：${status}${reported==null?'（历史场次未记录个人上播状态）':''}`} aria-label={`${person.name}：${status}`}>{reported===true?'已报':reported===false?'未报':'未记录'}</small>}</span></span>;
     })}</div>
     <button type="button" className="live-turnover-button" disabled={!session} onClick={() => setOpen(true)} aria-label="查看本场营业额">
       <span>本场营业额</span><strong>{!session ? '—' : error ? '读取失败' : !data ? '读取中…' : available ? money(data.turnoverCents!) : '暂不可用'}</strong><small>{session ? available ? `${data!.orderCount} 单 · 查看店铺 ›` : '查看原因 ›' : '报上播后开始统计'}</small>
