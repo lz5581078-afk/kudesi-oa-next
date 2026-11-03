@@ -127,7 +127,7 @@ export const financeApi = {
   setKeyAccount: (id: number, on: boolean) => api<number[]>(`/finance/key-accounts/${id}`, { method: 'PUT', body: { on } }),
   banks: () => api<BankBalance[]>('/finance/bank-balances'),
   ledger: (id: number, p: { from?: string; to?: string } = {}) => api<Ledger>(`/finance/bank-ledger/${id}${qs(p)}`),
-  inventory: (p: { warehouseId?: number; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
+  inventory: (p: { warehouseId?: number; warehouse?: string; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
   inventoryLedger: (p: { productId: number; warehouseId: number; asOf?: string }) => api<StockLedger>(`/finance/inventory-ledger${qs(p)}`),
   partyBalance: (p: { partyKind: string; partyId: number }) => api<PartyBalance>(`/finance/party-balance${qs(p)}`),
   lineHints: (productIds: number[], warehouseId?: number) => api<LineHint[]>(`/finance/line-hints${qs({ productIds: productIds.join(','), warehouseId })}`),

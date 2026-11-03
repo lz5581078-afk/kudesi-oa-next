@@ -1,17 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import { DocDetail } from './DocDetail';
-import { SearchPick, money } from './common';
+import { money } from './common';
 import { financeApi, type StockLedger, type StockRow } from './financeApi';
 import { CopyButton, plainYuan, usePersisted } from './fin-ui';
 import { ExportButton, Field, FilterBar, GroupSwitch, QueryPage, QueryPanel, QueryTable, SummaryCards, stamp, type Col } from './query/QueryKit';
 
-interface Filters { keyword: string; warehouseId: number | null; warehouseName: string; stockStatus: string; asOf: string }
-const EMPTY: Filters = { keyword: '', warehouseId: null, warehouseName: '', stockStatus: '', asOf: '' };
+interface Filters { keyword: string; warehouseName: string; stockStatus: string; asOf: string }
+const EMPTY: Filters = { keyword: '', warehouseName: '', stockStatus: '', asOf: '' };
 const qtyText = (n: number) => String(Math.round(n * 10000) / 10000);
 
 /**
- * 库存查询（按旧版 10-24 的版式）：查询条件（商品/仓库/库存状态，另有“截至日期”看历史库存）→ 汇总卡 → 已过账库存表。
+ * 库存查询（查询/重置及仓库文字筛选按旧版 10-24 行为）：查询条件（商品/仓库/库存状态，另有“截至日期”看历史库存）→ 汇总卡 → 已过账库存表。
  * 表可平铺，也可按仓库、按商品分组并带小计；点一行的“流水”看这个商品在这个仓库的每一笔入库/出库（可点单号看原单据）。
  * 库存成本、平均单位成本由服务端按“成本查看”权限决定是否返回，没有权限时这两列不出现。
  */
@@ -20,6 +20,8 @@ export function InventoryPage() {
   const [applied, setApplied] = useState<Filters>(EMPTY);
   const [rows, setRows] = useState<StockRow[] | null>(null);
   const [error, setError] = useState('');
+  const [queried, setQueried] = useState(false);
+  const request = useRef(0);
   const [busy, setBusy] = useState(false);
   const [at, setAt] = useState<Date | null>(null);
   const [view, setView] = usePersisted<{ group: string }>('finance.inventory.view', { group: 'none' });
@@ -28,22 +30,25 @@ export function InventoryPage() {
   const [docId, setDocId] = useState<number | null>(null);
 
   const load = useCallback((f: Filters) => {
-    setError(''); setBusy(true);
-    financeApi.inventory({ keyword: f.keyword.trim() || undefined, warehouseId: f.warehouseId ?? undefined, asOf: f.asOf || undefined, stockStatus: f.stockStatus || undefined })
-      .then((r) => { setRows(r); setAt(new Date()); })
-      .catch((e) => { setRows([]); setError(e instanceof ApiError ? e.message : '加载失败'); })
-      .finally(() => setBusy(false));
+    const version = ++request.current;
+    setError(''); setBusy(true); setQueried(true);
+    financeApi.inventory({ keyword: f.keyword.trim() || undefined, warehouse: f.warehouseName || undefined, asOf: f.asOf || undefined, stockStatus: f.stockStatus || undefined })
+      .then((r) => { if (version === request.current) { setRows(r); setApplied(f); setAt(new Date()); } })
+      .catch((e) => { if (version === request.current) setError(e instanceof ApiError ? e.message : '加载失败'); })
+      .finally(() => { if (version === request.current) setBusy(false); });
   }, []);
-  useEffect(() => { load(EMPTY); }, [load]);
+  useEffect(() => () => { request.current++; }, []);
   useEffect(() => {
     if (!sel) { setLedger(null); return; }
+    let alive = true;
     setLedger(null);
-    financeApi.inventoryLedger({ productId: sel.productId, warehouseId: sel.warehouseId, asOf: applied.asOf || undefined }).then(setLedger).catch((e) => setError(e instanceof ApiError ? e.message : '流水加载失败'));
+    financeApi.inventoryLedger({ productId: sel.productId, warehouseId: sel.warehouseId, asOf: applied.asOf || undefined })
+      .then(r => { if (alive) setLedger(r); }).catch((e) => { if (alive) setError(e instanceof ApiError ? e.message : '流水加载失败'); });
+    return () => { alive = false; };
   }, [sel, applied.asOf]);
 
-  const query = () => { setApplied(draft); setSel(null); load(draft); };
-  const reset = () => { setDraft(EMPTY); setApplied(EMPTY); setSel(null); load(EMPTY); };
-  const filtered = applied.keyword || applied.warehouseId || applied.asOf || applied.stockStatus;
+  const query = () => { setSel(null); load(draft); };
+  const reset = () => { request.current++; setDraft(EMPTY); setQueried(false); setBusy(false); setSel(null); setError(''); };
 
   const hasCost = !!rows?.some((r) => r.amountCents !== null);
   const list = rows ?? [];
@@ -83,19 +88,19 @@ export function InventoryPage() {
         <QueryPage
           title="库存查询"
           subtitle={<>按商品、仓库和库存状态查询实时库存。数据来自已过账的采购入库、销售、退货等单据，不允许为负；“缺货”是数量已经到 0 的商品。{applied.asOf ? <strong> 当前显示截至 {applied.asOf} 的历史库存。</strong> : null}</>}
-          actions={<>{at && <span className="muted qk-stamp">数据时间 {stamp(at)}</span>}<button type="button" className="secondary-button small" disabled={busy} onClick={() => load(applied)}>刷新</button><ExportButton name={`库存-${applied.asOf || '当前'}.csv`} cols={cols} rows={rows} /></>}
+          actions={<>{at && <span className="muted qk-stamp">数据时间 {stamp(at)}</span>}<button type="button" className="secondary-button small" disabled={busy || !at} onClick={() => load(applied)}>刷新</button><ExportButton name={`库存-${applied.asOf || '当前'}.csv`} cols={cols} rows={rows} /></>}
         >
           <FilterBar onQuery={query} onReset={reset} busy={busy}>
-            <Field label="商品" wide><input type="search" aria-label="商品" placeholder="商品编码或名称，多个词用空格分开" value={draft.keyword} onChange={(e) => setDraft({ ...draft, keyword: e.target.value })} /></Field>
-            <Field label="仓库"><SearchPick ariaLabel="仓库" type="finance-warehouses" value={draft.warehouseId} label={draft.warehouseName} placeholder="全部仓库" onChange={(id, name) => setDraft({ ...draft, warehouseId: id, warehouseName: name })} /></Field>
+            <Field label="商品" wide><input type="search" aria-label="商品" maxLength={200} placeholder="商品编码、商品名称或规格" value={draft.keyword} onChange={(e) => setDraft({ ...draft, keyword: e.target.value })} /></Field>
+            <Field label="仓库"><input aria-label="仓库" maxLength={160} placeholder="全部仓库" value={draft.warehouseName} onChange={event => setDraft({ ...draft, warehouseName: event.target.value })} /></Field>
             <Field label="库存状态"><select aria-label="库存状态" value={draft.stockStatus} onChange={(e) => setDraft({ ...draft, stockStatus: e.target.value })}><option value="">全部状态</option><option value="normal">库存正常</option><option value="out">缺货</option></select></Field>
             <Field label="截至日期"><input type="date" aria-label="截止日期" value={draft.asOf} onChange={(e) => setDraft({ ...draft, asOf: e.target.value })} /></Field>
           </FilterBar>
           {error && <div role="alert" className="notice error">{error}</div>}
           {rows !== null && <SummaryCards items={cards} />}
           <QueryPanel title="已过账库存" hint={rows ? `${rows.length} 行${units.size > 1 ? '（含多种单位，数量合计不相加）' : ''}` : undefined} actions={<GroupSwitch value={view.group} onChange={(g) => setView({ group: g })} options={[['none', '平铺'], ['warehouse', '按仓库'], ['product', '按商品']]} />}>
-            <QueryTable cols={cols} rows={rows} rowKey={(r) => `${r.warehouseId}-${r.productId}`} group={group} selectedKey={sel ? `${sel.warehouseId}-${sel.productId}` : null} caption="已过账库存"
-              loading="正在读取已过账库存…" empty={filtered ? '没有符合条件的库存，请调整条件后重新查询' : '还没有库存。先做一张采购入库单并过账，库存就出来了'} />
+            <QueryTable cols={cols} rows={busy ? null : rows ?? []} rowKey={(r) => `${r.warehouseId}-${r.productId}`} group={group} selectedKey={sel ? `${sel.warehouseId}-${sel.productId}` : null} caption="已过账库存"
+              loading="正在读取已过账库存…" empty={queried ? <><strong>暂无库存快照</strong><br />当前条件下没有本地已过账库存记录。</> : <><strong>请先输入查询条件</strong><br />支持按商品、仓库和库存状态查询本地已过账库存。</>} />
           </QueryPanel>
           {sel && (
             <QueryPanel title={`库存流水 · ${sel.productName}（${sel.warehouseName}）`} hint={applied.asOf ? `截至 ${applied.asOf}` : undefined} actions={<button type="button" className="secondary-button small" onClick={() => setSel(null)}>关闭流水</button>}>

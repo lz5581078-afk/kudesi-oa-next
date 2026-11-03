@@ -112,9 +112,10 @@ class ListDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) pageSize?: number;
 }
 class InvDto {
+  @IsOptional() @IsString() @MaxLength(160) warehouse?: string;
   @IsOptional() @Matches(DATE) asOf?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) warehouseId?: number;
-  @IsOptional() @IsString() @MaxLength(60) keyword?: string;
+  @IsOptional() @IsString() @MaxLength(200) keyword?: string;
   @IsOptional() @IsIn(['normal', 'out']) stockStatus?: 'normal' | 'out';
 }
 class InvLedgerDto {

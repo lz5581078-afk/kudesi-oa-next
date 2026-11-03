@@ -109,12 +109,17 @@ d('财务查询页面（真实数据库）', () => {
 
   it('库存查询：缺货筛选只留数量 ≤ 0 的行；库存正常只留 > 0 的行', async () => {
     const all = await docs.inventory(boss, {});
-    expect(all.map((r) => r.productName)).toEqual(['查询苹果']); // 梨数量为 0 且金额为 0，不筛选时不显示
+    expect(all.map((r) => r.productName).sort()).toEqual(['查询梨', '查询苹果'].sort()); // 旧版全部状态保留已售空的零库存
     const out = await docs.inventory(boss, { stockStatus: 'out' });
     expect(out.map((r) => r.productName)).toEqual(['查询梨']);
     expect(out[0].qty).toBe(0);
     const normal = await docs.inventory(boss, { stockStatus: 'normal' });
     expect(normal.map((r) => r.productName)).toEqual(['查询苹果']);
+    expect((await docs.inventory(boss, { warehouse: '号仓' })).map(row => row.productName).sort()).toEqual(all.map(row => row.productName).sort());
+    expect(await docs.inventory(boss, { warehouse: '不存在的仓' })).toEqual([]);
+    expect(await docs.inventory(boss, { warehouse: '%' })).toEqual([]);
+    expect(await docs.inventory(other, { warehouse: '号仓' })).toEqual([]);
+    expect((await docs.inventory(noCost, { warehouse: '号仓' })).every(row => row.amountCents === null && row.avgCostCents === null)).toBe(true);
     await expect(docs.inventory({ ...noCost, permissions: { isCompanyAdmin: false, allow: [], deny: [] } }, { stockStatus: 'out' })).rejects.toThrow(/权限/);
   });
 

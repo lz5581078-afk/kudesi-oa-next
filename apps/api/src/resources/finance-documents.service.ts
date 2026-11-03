@@ -996,17 +996,18 @@ export class FinanceDocumentsService {
     return { openingCents: opening, incomeCents: income, expenseCents: expense, closingCents: run, rows: list };
   }
 
-  async inventory(user: AuthUser, q: { warehouseId?: number; keyword?: string; asOf?: string; stockStatus?: 'normal' | 'out' }) {
+  async inventory(user: AuthUser, q: { warehouseId?: number; warehouse?: string; keyword?: string; asOf?: string; stockStatus?: 'normal' | 'out' }) {
     this.need(user, 'finance.inventory.view', '没有查看库存的权限');
     const canCost = this.can(user, COST_VIEW);
     const where = ["e.company_id = ?", "e.kind = 'inventory'"];
     const args: unknown[] = [user.companyId];
     if (q.warehouseId) { where.push('e.sub_id = ?'); args.push(q.warehouseId); }
+    if (q.warehouse) { where.push("LOCATE(?, COALESCE(w.title, '')) > 0"); args.push(q.warehouse); }
     if (q.asOf) { where.push('e.entry_date <= ?'); args.push(q.asOf); } // 历史库存：截止某天
     // 商品关键词支持多个词（空格分隔，每个词都要命中商品名称或编码），对齐旧版的多词搜索
     for (const term of (q.keyword ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 6)) { where.push('(p.title LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(p.data, \'$.code\')) LIKE ?)'); args.push(`%${term}%`, `%${term}%`); }
-    // 库存状态：正常 = 数量大于 0；缺货 = 数量等于 0（卖空了）或欠着（<=0）；不筛选时不显示数量和金额都是 0 的空行
-    const having = q.stockStatus === 'normal' ? 'SUM(e.qty) > 0.00005' : q.stockStatus === 'out' ? 'SUM(e.qty) <= 0.00005' : 'ABS(SUM(e.qty)) > 0.00005 OR SUM(e.amount_cents) <> 0';
+    // 全部状态包括已售空的零库存记录；正常/缺货按四位数量精度分别过滤。
+    const having = q.stockStatus === 'normal' ? 'SUM(e.qty) > 0.00005' : q.stockStatus === 'out' ? 'SUM(e.qty) <= 0.00005' : '1 = 1';
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
       `SELECT e.account_id AS productId, e.sub_id AS warehouseId, p.title AS productName, JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.code')) AS code, JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.specUnit')) AS unit, w.title AS warehouseName, SUM(e.qty) AS qty, SUM(e.amount_cents) AS amount
        FROM finance_entries e LEFT JOIN resource_records p ON p.id = e.account_id AND p.company_id = e.company_id LEFT JOIN resource_records w ON w.id = e.sub_id AND w.company_id = e.company_id

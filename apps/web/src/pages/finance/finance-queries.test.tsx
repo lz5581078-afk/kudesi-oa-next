@@ -74,11 +74,11 @@ describe('库存查询', () => {
   it('库存状态可选“缺货”，按 out 重新查询', async () => {
     fa.inventory.mockResolvedValue([]);
     render(<MemoryRouter><InventoryPage /></MemoryRouter>);
-    await waitFor(() => expect(fa.inventory).toHaveBeenCalled());
+    expect(fa.inventory).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('库存状态'), { target: { value: 'out' } });
     fireEvent.click(screen.getByRole('button', { name: '查询' })); // 改条件后点“查询”才发请求（对齐旧版）
     await waitFor(() => expect(fa.inventory).toHaveBeenLastCalledWith(expect.objectContaining({ stockStatus: 'out' })));
-    expect(screen.getByText('没有符合条件的库存，请调整条件后重新查询')).toBeTruthy();
+    expect(await screen.findByText('暂无库存快照')).toBeTruthy();
   });
 });
 
