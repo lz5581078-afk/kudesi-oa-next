@@ -23,10 +23,11 @@ describe('表单里的生产组成（新增和编辑同一个组件）', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '去掉' })[0]);
     expect(rows).toHaveLength(1);
   });
-  it('新组成只包含选择有效的商品/人工，空占位不提交；切换引用种类清除另一种引用', () => {
+  it('不完整组成不能靠过滤后提交；完整行保持引用二选一', () => {
     const rows: BomDraftRow[] = [{ kind: 'component', group: 'raw', id: 5, qty: 2, loss: 3 }, { kind: 'labor', group: 'labor', id: 8, qty: 1, loss: '' }, { kind: 'component', group: 'raw', id: null, qty: 1, loss: '' }];
     expect(validBomRows(rows)).toHaveLength(2);
-    const collection = bomCollection(rows, []);
+    expect(() => bomCollection(rows, [])).toThrow(/选择档案.*大于 0/);
+    const collection = bomCollection(rows.slice(0, 2), []);
     expect(collection.rows).toMatchObject([{ values: { componentId: 5, laborId: null } }, { values: { laborId: 8, componentId: null } }]);
     expect(resourceApi.create).not.toHaveBeenCalled();
   });

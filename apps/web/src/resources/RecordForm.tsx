@@ -521,14 +521,14 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       const p = fieldProblem(f);
       if (p) next[f.key] = p;
     }
-    if (isProduct && !onlyGroup) {
+    if (isProduct) {
       // 按旧版 saveProduct 的校验逐项标出来（同一份布局决定哪些必填）；服务端仍是最终裁判
       const bom = bomRows.map((r) => ({ group: r.group, id: r.id, qty: r.qty }));
       const probs = productFormProblems(values, {
         canCost: Boolean(me && createChecker(me.permissions)('product.cost.edit')),
         sources: partsKnown.sources ? sourceRows : null, composition: partsKnown.composition ? bom : null,
       });
-      const shown = new Set([...visible.map((f) => f.key), 'supplySources', 'composition']);
+      const shown = new Set([...visible.map((f) => f.key), ...(!onlyGroup || sectionHas(onlyGroup, 'supplySources') ? ['supplySources'] : []), ...(!onlyGroup || sectionHas(onlyGroup, 'composition') ? ['composition'] : [])]);
       for (const [k, msg] of Object.entries(probs)) if (shown.has(k) && !(next[k] && /数字|日期格式/.test(next[k]))) next[k] = msg;
     }
     setErrors(next);

@@ -34,6 +34,7 @@ export async function loadBomRows(productId: number): Promise<BomDraftRow[]> {
 }
 
 export function bomCollection(rows: BomDraftRow[], original: BomDraftRow[]): ResourceFormCollection {
+  if (rows.some(row => !row.id || !Number.isFinite(Number(row.qty)) || !(Number(row.qty) > 0))) throw new Error('原料、包装和人工明细必须选择档案，并填写大于 0 的倍数');
   return { type: 'finance-product-boms', expected: original.filter(r => r.rowId).map(r => ({ id: r.rowId!, version: r.version ?? '' })), rows: validBomRows(rows).map(r => ({ ...(r.rowId ? { id: r.rowId } : {}), values: { ...(r.kind === 'labor' ? { laborId: r.id, componentId: null } : { componentId: r.id, laborId: null }), qty: Number(r.qty), lossPercent: r.loss === '' ? 0 : Number(r.loss) } })) };
 }
 
