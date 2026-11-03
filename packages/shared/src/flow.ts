@@ -403,6 +403,7 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
         text('controlWageEndAt', '中控计薪结束', '中控工资', { help:'不填按本人实际打卡下播时间；原始记录保留' }),
         money('controlWageHourlyRateCents', '中控时薪', '中控工资', { help:'有中控时必填，档案有计时时薪可不填' }),
         text('controlWageNote', '中控工资调整说明', '中控工资', {maxLength:500}),
+        text('operatorEndAt', '运营下播时间异常修复', '审核', { help:'运营未报下播而由系统自动下播时，审核人必须核实并填写正确时间；原始记录保留' }),
       ],
     },
     steps: [

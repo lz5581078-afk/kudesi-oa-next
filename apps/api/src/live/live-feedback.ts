@@ -42,6 +42,6 @@ export async function checkoutFeedbackRecords(em:EntityManager,companyId:number,
   return out;
 }
 export async function checkoutAttendance(em:EntityManager,companyId:number,sessionId:number){
- const rows:Row[]=await em.query("SELECT c.user_id userId,c.role,u.name,DATE_FORMAT(c.start_at,'%Y-%m-%d %H:%i:%s') startAt,DATE_FORMAT(c.end_at,'%Y-%m-%d %H:%i:%s') endAt FROM live_session_checkins c JOIN users u ON u.company_id=c.company_id AND u.id=c.user_id WHERE c.company_id=? AND c.session_id=? ORDER BY c.role",[companyId,sessionId]);
- return rows.map(r=>({userId:Number(r.userId),name:String(r.name),role:String(r.role),startAt:String(r.startAt),endAt:r.endAt==null?null:String(r.endAt)}));
+ const rows:Row[]=await em.query("SELECT c.user_id userId,c.role,c.confirmation_json,u.name,DATE_FORMAT(c.start_at,'%Y-%m-%d %H:%i:%s') startAt,DATE_FORMAT(c.end_at,'%Y-%m-%d %H:%i:%s') endAt FROM live_session_checkins c JOIN users u ON u.company_id=c.company_id AND u.id=c.user_id WHERE c.company_id=? AND c.session_id=? ORDER BY c.role",[companyId,sessionId]);
+ return rows.map(r=>({correctedEndAt:(typeof r.confirmation_json==='string'?JSON.parse(r.confirmation_json):r.confirmation_json)?.autoCheckout?.reviewCorrection?.endAt??null,autoCheckout:!!(typeof r.confirmation_json==='string'?JSON.parse(r.confirmation_json):r.confirmation_json)?.autoCheckout,userId:Number(r.userId),name:String(r.name),role:String(r.role),startAt:String(r.startAt),endAt:r.endAt==null?null:String(r.endAt)}));
 }
