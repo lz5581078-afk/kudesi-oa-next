@@ -746,6 +746,26 @@ export class ResourcesService implements RuleHost {
     return this.saveRecord(em, user, this.def(type), existing, values, { note });
   }
 
+  /** 员工编辑内的转正式/恢复兼职联动：保留附件和计薪历史，不触发停用账号或交接。无独立HTTP入口。 */
+  async setWorkforceHistory(em: EntityManager, user: AuthUser, id: number, historical: boolean) {
+    if (!createChecker(user.permissions)('org.staff.edit') || !createChecker(user.permissions)('resource.workforce.edit')) throw new ForbiddenException('没有修改员工用工资料的权限');
+    const record = await this.load(em, user, 'workforce', id);
+    const person = await em.findOne(User, { where: { id: Number(record.data.userId), companyId: user.companyId } });
+    const reason = '员工编辑：转为正式员工，保留原用工档案';
+    if (!person || historical !== (person.employmentType === 'regular')) throw new ConflictException('员工用工类型已变化，请刷新后重试');
+    if (!historical && record.archiveReason !== reason) throw new ConflictException('该档案已归档，请先核对历史资料');
+    if (historical === !!record.archivedAt) return;
+    const before = { ...record, data: { ...record.data } } as ResourceRecord;
+    if (historical) {
+      Object.assign(record, { archivedAt: new Date(), archivedBy: user.id, archiveReason: reason, archivedFromStatus: record.status, status: 'inactive' });
+    } else {
+      Object.assign(record, { status: record.archivedFromStatus ?? 'active', statusReason: null, archivedAt: null, archivedBy: null, archiveReason: null, archivedFromStatus: null });
+    }
+    record.updatedBy = user.id;
+    await em.save(ResourceRecord, record);
+    await this.writeLog(em, user, this.def('workforce'), id, historical ? 'archived' : 'restored', before, record, historical ? reason : '员工编辑：恢复原用工档案');
+  }
+
   /** Internal continuation proof reader. There is no raw-source HTTP route. */
   async legacySourceRow(em: EntityManager, user: AuthUser, sourceCompanyId: number, table: string, key: string) {
     return readSourceRow(em, this.crypto, { companyId: user.companyId, sourceCompanyId, table, key });
@@ -993,7 +1013,7 @@ export class ResourcesService implements RuleHost {
     }
 
     let archivedCount: number | undefined;
-    if (archivePolicyOf(type)) {
+    if (archivePolicyOf(type) || type === 'workforce') {
       archivedCount = await em.count(ResourceRecord, { where: { companyId: user.companyId, type, archivedAt: Not(IsNull()) } });
     }
     return { items: await this.toDtos(em, user, def, records), total, page, pageSize, tabCounts, archivedCount };

@@ -192,6 +192,10 @@ d('兼职与临时工（真实数据库）', () => {
     expect(list.map((x) => x.id)).toContain(unfiled.id);
     expect(list.map((x) => x.id)).not.toContain(live.id);
     expect(await unfiledWorkforce(ds.manager, other.companyId)).toEqual([]);
+    await ds.manager.update(User, { id: unfiled.id }, { status: 'disabled' });
+    expect((await unfiledWorkforce(ds.manager, companyId)).map(p => p.id)).not.toContain(unfiled.id);
+    expect(await unfiledWorkforce(ds.manager, companyId, true)).toEqual(expect.arrayContaining([expect.objectContaining({ id: unfiled.id, status: 'disabled' })]));
+    expect(await unfiledWorkforce(ds.manager, other.companyId, true)).toEqual([]);
   }, 120000);
 
   it('停用：必须填原因；账号一并停用并把待办/周期任务交接；重新启用恢复账号；不能停用自己', async () => {

@@ -31,6 +31,7 @@ const GRID_DISABLED: Record<string, string> = {
 
 /** 只能改、不能在网格里新增的资料（新增要走专属表单：编码规则、构成录入等） */
 const GRID_NO_CREATE: Record<string, string> = {
+  workforce: '已有账号请在员工编辑中修改用工类型与合作期限；新增人员请使用入职码或“新增账号并建档”',
   'finance-products': '商品档案的新增要选档案类型并生成编码，请用“＋ 新增”',
   'finance-base-codes': '基础编码的新增要填构成，请用“＋ 新增”',
 };
