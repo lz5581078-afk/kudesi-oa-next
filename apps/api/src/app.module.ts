@@ -1,4 +1,5 @@
 import { WorkforceLoginService } from './workforce/workforce-login.service';
+import { LiveFeedbackController,LiveFeedbackService } from './live/live-feedback.controller';
 import { LiveQrService } from './live/live-qr.service';
 import { LiveCheckinClosureService } from './live/live-checkin-closure.service';
 import { StaffFeishuController } from './org/staff-feishu.controller';
@@ -210,7 +211,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [StaffFeishuController, AssistantController, StaffEnrollmentAdminController, StaffEnrollmentPublicController, CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, CostVersionController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, ExclusiveController, JstCenterController, CompatiblePurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, MaintenanceRemoteAssistController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
+  controllers: [LiveFeedbackController,StaffFeishuController, AssistantController, StaffEnrollmentAdminController, StaffEnrollmentPublicController, CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, CostVersionController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, ExclusiveController, JstCenterController, CompatiblePurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, MaintenanceRemoteAssistController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
   providers: [
     AuthService, FeishuAuthService, FeishuBindingPolicy, ExternalConfigService, FeishuClient, AssistantService,
     { provide: OUTBOX_SENDER, useClass: JushuitanSenderFactory },
@@ -273,7 +274,7 @@ const env = loadEnv();
     SupervisionScheduler,
     ServiceWorkspaceProvider,
     WorkforceLoginService,
-    LiveQrService, LiveCheckinClosureService, LiveNotificationService, LiveTurnoverService, LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
+    LiveFeedbackService, LiveQrService, LiveCheckinClosureService, LiveNotificationService, LiveTurnoverService, LiveManagementService, LiveScheduleService, LiveSessionService, LiveLedgerService, LiveSettlementService, LiveScheduler, LiveWorkspaceModule,
     { provide: LiveOrderSource, useClass: JushuitanOrderSource },
     FinanceDocumentsService,
     FinanceVoucherHintsService,

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { saveCheckoutFeedback,checkoutFeedbackRecords,checkoutAttendance,type LiveFeedbackInput } from './live-feedback';
 import { REPORT_WINDOW_MS, reportsLocked, scheduleFingerprint, primaryReport } from './live-checkin-core';
 import { captureOrders, persistCapture } from './live-order-capture';
 import { liveStartNotification, liveStartRecipients, liveStartedNotification } from './live-start-notification';
@@ -25,7 +26,7 @@ export interface StartInput {
   scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null;
   channels?: LiveChannelInput[]; douyinAccountId?: number | null; storeId?: number | null; productIds?: number[]; productEntries?: LiveProductEntry[]; startAt?: string | null;
 }
-export interface ReportInput { confirmTrialAnchorId?: number; storeLines?: LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
+export interface ReportInput extends LiveFeedbackInput { confirmTrialAnchorId?: number; storeLines?: LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
 export interface SessionQuery { from?: string; to?: string; roomId?: number; anchorId?: number; controlId?: number; status?: string; page?: number; pageSize?: number; reviewOnly?: boolean }
 
 const ACTIVE = ['live', 'pending_report', 'returned', 'submitted'];
@@ -329,6 +330,7 @@ export class LiveSessionService {
       const [current]=await em.query('SELECT end_at FROM live_session_checkins WHERE company_id=? AND id=? FOR UPDATE',[a.companyId,clock.id]);
       if(current.end_at && !clock.end_text)liveFail('本人已下播，请刷新查看',409);
       if(endAt<=s.start_text)liveFail('下播时间必须晚于开播时间',400);
+      await saveCheckoutFeedback(em,a.companyId,s,a.userId,role,input);
       await em.query('UPDATE live_session_checkins SET end_at=COALESCE(end_at,?) WHERE company_id=? AND id=?',[endAt,a.companyId,clock.id]);
       const lines=capture?.lines.map(l=>({...l,adSpendCents:role==='control'?(input.storeLines?.find(v=>v.storeId===l.storeId)?.adSpendCents??(capture!.lines.length===1?input.adSpendCents??0:0)):0}))??channelStores(channelsOf(s)).map(v=>({storeId:v.id,platform:v.platform,salesCents:0,adSpendCents:0,verified:false,reason:error}));
       if(role==='control'&&lines.reduce((n,l)=>n+l.adSpendCents,0)!==input.adSpendCents)liveFail('请逐店核对投流费用',400);
@@ -546,6 +548,8 @@ export class LiveSessionService {
     if (s.flow_run_id) { try { flow = await this.flow.detail(user, Number(s.flow_run_id)); } catch { flow = null; } }
     return {
       ...serializeSession(s),
+      checkoutFeedback: await checkoutFeedbackRecords(em,a.companyId,id),
+      attendance: await checkoutAttendance(em,a.companyId,id),
       capturedOrders: await em.query("SELECT store_id storeId,platform,shop_id shopId,order_id orderId,paid,amount_cents amountCents,refund_cents refundCents,order_status status,DATE_FORMAT(order_at,'%Y-%m-%d %H:%i:%s') orderAt FROM live_session_order_snapshots WHERE company_id=? AND session_id=? ORDER BY order_at,shop_id,order_id",[a.companyId,id]),
       myCheckins: await em.query("SELECT role,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') startAt,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') endAt FROM live_session_checkins WHERE company_id=? AND session_id=? AND user_id=?",[a.companyId,id,a.userId]),
       controlCommissionOnly: await commissionOnlyControl(em, a.companyId, s.control_user_id),

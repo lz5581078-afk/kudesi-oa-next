@@ -84,7 +84,10 @@ class StartDto {
   @IsOptional() @IsArray() @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => LiveProductEntryDto) productEntries?: LiveProductEntryDto[];
   @IsOptional() @IsString() @MaxLength(19) startAt?: string | null;
 }
+class LiveRatingDto { @IsInt() @Min(1) userId!:number; @IsInt() @Min(0) @Max(10) score!:number; }
 class ReportDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(10) @ArrayUnique() @IsInt({each:true}) @Min(1,{each:true}) evidenceFileIds?:number[];
+  @IsOptional() @IsArray() @ArrayMaxSize(3) @ValidateNested({each:true}) @Type(()=>LiveRatingDto) ratings?:LiveRatingDto[];
   @IsOptional() @IsInt() @Min(1) confirmTrialAnchorId?:number;
   @IsOptional() @IsArray() @ArrayMaxSize(400) @ValidateNested({each:true}) @Type(()=>StoreLineDto) storeLines?:StoreLineDto[];
   @IsOptional() @IsIn(['anchor', 'control', 'operator']) role?: string;
