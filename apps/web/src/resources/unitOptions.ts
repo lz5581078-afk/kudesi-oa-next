@@ -7,6 +7,7 @@ export type UnitOptionsPayload = Record<string, Array<{ value: string; label: st
 
 let cache: UnitOptionsPayload = {};
 let loaded = false;
+export const unitOptionsLoaded = () => loaded;
 let inflight: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
@@ -45,4 +46,4 @@ export function unitOptionLabel(field: FieldDef, values: Record<string, unknown>
   return kind ? optionsKindsOf(field, values).flatMap(k => cache[k] ?? []).find(o => o.value === value)?.label : undefined;
 }
 
-export function resetUnitOptionsForTest(p: UnitOptionsPayload = {}) { cache = p; loaded = true; listeners.forEach((l) => l()); }
+export function resetUnitOptionsForTest(p: UnitOptionsPayload = {}, ready = true) { cache = p; loaded = ready; listeners.forEach((l) => l()); }

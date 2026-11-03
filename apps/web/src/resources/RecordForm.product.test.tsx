@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FINANCE_RESOURCE_DEFS } from '@kudesi/shared';
 
@@ -19,6 +19,7 @@ vi.mock('./api', async (orig) => {
   };
 });
 import { RecordForm } from './RecordForm';
+import { resetUnitOptionsForTest } from './unitOptions';
 
 const def = FINANCE_RESOURCE_DEFS.find((d) => d.key === 'finance-products')!;
 const saved = { id: 9, type: 'finance-products', title: '苹果', status: 'active', statusReason: null, data: {}, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '', updatedAt: '' };
@@ -38,6 +39,7 @@ const fillRaw = async (name: string) => { fill('原料名称', name); fill('系�
 const confirmQuality = async () => { fireEvent.click(await screen.findByRole('button', { name: '确认并保存' })); };
 
 beforeEach(() => {
+  resetUnitOptionsForTest({});
   create.mockReset().mockResolvedValue(saved);
   saveForm.mockReset().mockImplementation(async (type, body) => create(type, body.values, body.status));
   similar.mockReset().mockResolvedValue({ blocked: [], warnings: [] });
@@ -48,6 +50,49 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('商品档案新建：草稿、继续新建、零值确认', () => {
+  it('公司单位尚未返回时不抢选内置首项，返回后再选公司首项', async () => {
+    resetUnitOptionsForTest({}, false);
+    render(<RecordForm def={def} record={null} initial={{ archiveType: 'shipping_material', categoryId: 1 }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(document.querySelector<HTMLSelectElement>('[data-field="specUnit"] select')?.value).toBe('');
+    act(() => resetUnitOptionsForTest({ shipping_unit: [{ value: 'ROLL', label: '卷' }] }));
+    await waitFor(() => expect(document.querySelector<HTMLSelectElement>('[data-field="specUnit"] select')?.value).toBe('ROLL'));
+  });
+  it('发货物料默认公司首个名称单位，默认值本身不导致未保存确认', async () => {
+    resetUnitOptionsForTest({ shipping_unit: [{ value: 'ROLL', label: '卷' }, { value: 'EA', label: '个' }] });
+    const close = vi.fn(), confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    try {
+      render(<RecordForm def={def} record={null} initial={{ archiveType: 'shipping_material', categoryId: 1 }} onClose={close} onSaved={vi.fn()} />);
+      await waitFor(() => expect(document.querySelector<HTMLSelectElement>('[data-field="specUnit"] select')?.value).toBe('ROLL'));
+      fireEvent.click(screen.getByRole('button', { name: '取消' }));
+      expect(confirm).not.toHaveBeenCalled(); expect(close).toHaveBeenCalledOnce();
+    } finally { confirm.mockRestore(); }
+  });
+  it('新增名称单位可手选和清空，后续选项刷新不覆盖；无维护列表按旧默认包', async () => {
+    resetUnitOptionsForTest({ shipping_unit: [{ value: 'ROLL', label: '卷' }, { value: 'EA', label: '个' }] });
+    render(<RecordForm def={def} record={null} initial={{ archiveType: 'shipping_material', categoryId: 1 }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const select = document.querySelector<HTMLSelectElement>('[data-field="specUnit"] select')!;
+    await waitFor(() => expect(select.value).toBe('ROLL'));
+    fireEvent.change(select, { target: { value: 'EA' } });
+    act(() => resetUnitOptionsForTest({ shipping_unit: [{ value: 'ROLL', label: '卷' }, { value: 'EA', label: '个' }, { value: 'CM', label: '厘米' }] }));
+    expect(select.value).toBe('EA');
+    fireEvent.change(select, { target: { value: '' } });
+    act(() => resetUnitOptionsForTest({ shipping_unit: [{ value: 'EA', label: '个' }] }));
+    expect(select.value).toBe('');
+    cleanup(); resetUnitOptionsForTest({});
+    render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw', categoryId: 1 }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector<HTMLSelectElement>('[data-field="specUnit"] select')?.value).toBe('B'));
+  });
+  it('自产名称单位不默认，编辑和复制也不替已有空值重新选单位', async () => {
+    resetUnitOptionsForTest({ spec_unit: [{ value: 'KG', label: '千克' }], shipping_unit: [{ value: 'EA', label: '个' }] });
+    render(<RecordForm def={def} record={null} initial={{ archiveType: 'self_made', categoryId: 1 }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(document.querySelector<HTMLSelectElement>('[data-field="specUnit"] select')?.value).toBe('');
+    cleanup();
+    render(<RecordForm def={def} record={null} initial={{ archiveType: 'shipping_material', categoryId: 1, specUnit: '', __copyOf: 9 }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(document.querySelector<HTMLSelectElement>('[data-field="specUnit"] select')?.value).toBe('');
+    cleanup();
+    render(<RecordForm def={def} record={{ ...saved, data: { archiveType: 'shipping_material', categoryId: 1, specUnit: '' } }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(document.querySelector<HTMLSelectElement>('[data-field="specUnit"] select')?.value).toBe('');
+  });
   it('复制新增沿用来源资料，不被普通新增保存的草稿覆盖', async () => {
     draftGet.mockResolvedValue({ draft: { payload: { name: '其他草稿', categoryId: 99 } } });
     render(<RecordForm def={def} record={null} initial={{...REQ,__copyOf:7,name:'被复制的原料'}} onClose={()=>undefined} onSaved={()=>undefined}/>);

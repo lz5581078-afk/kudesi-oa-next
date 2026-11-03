@@ -49,6 +49,8 @@ export interface FieldDef {
   group: string;
   required?: boolean;
   options?: readonly Option[];
+  /** 新增表单等候公司选项后选第一项；不会覆盖编辑、复制、草稿或手工选择。 */
+  initialOption?: { except?: { field: string; in: readonly string[] }; fallback: string };
   /** 下拉可多选：保存为用顿号连接的选项值（按选项顺序、去重） */
   multi?: boolean;
   /** type=ref：目标资源 key，或 'user'（员工） */

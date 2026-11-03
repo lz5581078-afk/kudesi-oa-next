@@ -34,6 +34,19 @@ describe('供货来源的采购价时序', () => {
 
 
 describe('发货物料的来源系统规格', () => {
+  it('管理窗也可回填已经使用但维护项已删除的规格，不虚构字典ID或新建记录', async () => {
+    resetUnitOptionsForTest({ shipping_system_spec: [{ value: '历史张', label: '历史张' }] });
+    vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0 } as never);
+    const change = vi.fn();
+    render(<SourcesDraft reference needSpec canCost rows={[row({ systemSpec: '' })]} onChange={change} />);
+    fireEvent.click(screen.getByRole('button', { name: '管理单位与规格' }));
+    const button = await screen.findByRole('button', { name: '历史张' });
+    expect(screen.queryByRole('button', { name: '删除系统规格历史张' })).toBeNull();
+    fireEvent.click(button);
+    expect(change).toHaveBeenCalledWith([expect.objectContaining({ systemSpec: '历史张' })]);
+    expect(screen.queryByRole('dialog', { name: '管理系统规格' })).toBeNull();
+    expect(resourceApi.create).not.toHaveBeenCalled();
+  });
   it('使用物料独立维护的下拉列表，保留历史值，不混入原料计价规格', () => {
     resetUnitOptionsForTest({ system_spec: [{ value: '斤', label: '斤' }], shipping_system_spec: [{ value: '卷', label: '卷' }] });
     const change = vi.fn();

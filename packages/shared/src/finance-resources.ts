@@ -127,7 +127,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('productPackagingSpec', '产品包装规格', '规格', { maxLength: 30, showWhen: { field: 'archiveType', in: ['self_made'] }, help: '参与编码，如“500G袋”' }),
       select('productPackagingUnit', '产品包装单位', '规格', UNIT_OPTIONS, { optionsFrom: { resource: 'finance-product-units', kind: 'packaging_unit' }, showWhen: { field: 'archiveType', in: ['self_made'] }, help: '选填；在“单位与规格”里维护，仅用于产品包装规格，不影响规格单位' }),
       { key: 'specQty', label: '规格数量', type: 'decimal', typeBy: { field: 'archiveType', map: { shipping_material: 'text', purchased: 'text', self_made: 'text' } }, maxLength: 200, aliases: ['规格', '名称规格', '多少'], group: '规格', scale: 3, list: true, help: '除自产成品外必填；包装类由“容量”的第一行决定' },
-      select('specUnit', '规格单位', '规格', UNIT_OPTIONS, { list: true, optionsFrom: { resource: 'finance-product-units', kind: 'spec_unit', kindBy: { field: 'archiveType', map: { shipping_material: 'shipping_unit' } } } }),
+      select('specUnit', '规格单位', '规格', UNIT_OPTIONS, { list: true, initialOption: { except: { field: 'archiveType', in: ['self_made'] }, fallback: 'B' }, optionsFrom: { resource: 'finance-product-units', kind: 'spec_unit', kindBy: { field: 'archiveType', map: { shipping_material: 'shipping_unit' } } } }),
       { key: 'weightG', label: '重量(克)', type: 'decimal', group: '规格', scale: 6, list: true, help: '自动换算：原料按系统规格，其它按规格数量和单位，自制品/OEM 按构成汇总；换算不了或要人工修正时勾选下面的“人工修正重量”' },
       { key: 'weightManual', label: '人工修正重量', type: 'bool', group: '规格', help: '勾选后重量不再自动换算，按你填的为准' },
       select('weightUnit', '重量输入单位', '规格', o('g:克', 'kg:千克', 'jin:斤'), { showWhen: { field: 'archiveType', in: ['package', 'oem_package', 'shipping_material'] }, help: '只影响输入和显示，重量统一按克保存；包装类默认克，发货物料默认千克' }),

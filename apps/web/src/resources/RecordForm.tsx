@@ -1,9 +1,9 @@
 import { StoreJstSelect } from './StoreJstSelect';
 import { CascadePicker } from './CascadePicker';
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState, useId } from 'react';
-import { fieldOptions, useUnitOptions } from './unitOptions';
+import { fieldOptions, useUnitOptions, unitOptionsLoaded } from './unitOptions';
 import { selectChoices, useCategoryVersion } from './categoryOptions';
-import { PRODUCT_UNIT_SEEDS, groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { PRODUCT_UNIT_SEEDS, optionsKindOf, groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
@@ -220,6 +220,31 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const [known, setKnown] = useState<Record<number, FileInfo>>(record?.files ?? {});
   // 新建时填了内容就关闭，先确认，免得点错丢内容（旧系统同款）
   const startValues = useRef(JSON.stringify(values));
+  const formUnits = useUnitOptions();
+  const initialOptionsApplied = useRef(new Set<string>());
+  const touchedInitialOptions = useRef(new Set<string>());
+  const optionDefaultContext = JSON.stringify(def.fields.filter(field => field.initialOption).map(field => [field.key, values[field.optionsFrom?.kindBy?.field ?? ''], values[field.initialOption?.except?.field ?? '']]));
+  useEffect(() => {
+    if (record || copyOf || !unitOptionsLoaded()) return;
+    const defaults: Record<string, string> = {};
+    for (const field of def.fields) {
+      const rule = field.initialOption;
+      if (!rule || touchedInitialOptions.current.has(field.key) || lockedFields?.includes(field.key)) continue;
+      if (field.optionsFrom?.kindBy && !values[field.optionsFrom.kindBy.field]) continue;
+      if (rule.except?.in.includes(String(values[rule.except.field] ?? ''))) continue;
+      const kind = optionsKindOf(field, values), scope = `${field.key}:${kind ?? ''}:${optionDefaultContext}`;
+      if (initialOptionsApplied.current.has(scope)) continue;
+      initialOptionsApplied.current.add(scope);
+      if (values[field.key] !== undefined && values[field.key] !== null && values[field.key] !== '') continue;
+      const choice = (kind ? formUnits[kind]?.[0]?.value : undefined) || rule.fallback;
+      if (choice) defaults[field.key] = choice;
+    }
+    if (!Object.keys(defaults).length) return;
+    startValues.current = JSON.stringify({ ...(JSON.stringify(values) === startValues.current ? values : JSON.parse(startValues.current)), ...defaults });
+    setValues(current => ({ ...current, ...Object.fromEntries(Object.entries(defaults).filter(([key]) => !touchedInitialOptions.current.has(key) && (current[key] === undefined || current[key] === null || current[key] === ''))) }));
+  // 默认值只跟随种类及公司选项初始化，清空字段后不重新填回。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [def, record, copyOf, formUnits, optionDefaultContext]);
   const rowsKey = JSON.stringify([bomRows, sourceRows]);
   const startRows = useRef<string | null>(null);
   if (startRows.current === null && !(record || copyOf)) startRows.current = rowsKey;
@@ -551,7 +576,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     const Caption = compound ? 'span' : 'label';
     return (
     <div key={f.key} data-field={f.key} data-kind={f.type} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={['rf-field', reference ? `s${wide || f.type === 'refs' ? 12 : referenceFieldSpan(def.key, f)}` : '', !reference && (wide || resourceFieldWide(f)) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
-      <Caption className="rf-label" htmlFor={compound ? undefined : inputId}>{isProduct && f.key === 'name' && ['self_made','purchased_original','purchased_oem','shipping_material'].includes(layoutKey) ? `${referenceLabel}名称` : isProduct && layoutKey === 'custom' && f.key === 'specQty' ? '多少' : isProduct && layoutKey === 'custom' && f.key === 'shape' ? '形态样式' : f.label}{f.required && <b className="req" title="必填">{reference ? '必填' : ' *'}</b>}{isProduct && ['materialCode','note'].includes(f.key) && !f.required && <small className="reference-optional">选填</small>}{!reference && isProduct && f.help && <FieldHint text={f.help} />}{isProduct && <ManageLink field={f} values={values} inPlace={reference} onChoose={value => { if (!locked.includes(f.key)) { setValues(current => ({ ...current, [f.key]: value })); setErrors(current => ({ ...current, [f.key]: '' })); } }} />}</Caption>
+      <Caption className="rf-label" htmlFor={compound ? undefined : inputId}>{isProduct && f.key === 'name' && ['self_made','purchased_original','purchased_oem','shipping_material'].includes(layoutKey) ? `${referenceLabel}名称` : isProduct && layoutKey === 'custom' && f.key === 'specQty' ? '多少' : isProduct && layoutKey === 'custom' && f.key === 'shape' ? '形态样式' : f.label}{f.required && <b className="req" title="必填">{reference ? '必填' : ' *'}</b>}{isProduct && ['materialCode','note'].includes(f.key) && !f.required && <small className="reference-optional">选填</small>}{!reference && isProduct && f.help && <FieldHint text={f.help} />}{isProduct && <ManageLink field={f} values={values} inPlace={reference} onChoose={value => { if (!locked.includes(f.key)) { if (f.initialOption) touchedInitialOptions.current.add(f.key); setValues(current => ({ ...current, [f.key]: value })); setErrors(current => ({ ...current, [f.key]: '' })); } }} />}</Caption>
       {def.key === 'finance-fee-items' && f.key === 'defaultObject' ? <FeeBookingNodes value={values.defaultObject} onChange={value => setValues(cur => ({...cur,defaultObject:value}))}/> : isReferenceParty && (f.key === 'code' || def.key === 'finance-suppliers' && f.key === 'shortCode') ? <ArchiveCodeInput inputId={inputId} label={f.label} value={values[f.key]} preview={f.key === 'code' ? archiveCode.code : archiveCode.shortCode} manual={f.key === 'code' ? manualCode : manualShortCode} onManual={f.key === 'code' ? setManualCode : setManualShortCode} onChange={v => setValues(cur => ({...cur,[f.key]:v}))} error={f.key === 'code' ? archiveCode.error : undefined}/> : def.key === 'finance-customers' && f.key === 'categoryIds' ? <><RefSelect inputId={inputId} leafOnly field={{...f,type:'ref'}} value={Array.isArray(values.categoryIds) ? values.categoryIds[0] : null} labelNow={record?.refLabels.categoryIds} onChange={v => setValues(cur => ({...cur,categoryIds:v ? [v] : []}))} />{Array.isArray(values.categoryIds) && values.categoryIds.length > 1 && <small>当前同时归属：{record?.refLabels.categoryIds}；重新选择后归入所选分类。</small>}</> : f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
         inputId={inputId}
         field={f}
@@ -562,7 +587,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         values={values}
         known={known}
         onKnown={(info) => setKnown((cur) => ({ ...cur, [info.id]: info }))}
-        onChange={(v) => { if (locked.includes(f.key)) return; if (def.key === 'finance-suppliers' && f.key === 'shortName') setShortNameManual(true); setValues((cur) => ({ ...cur, [f.key]: v, ...(def.key === 'finance-suppliers' && f.key === 'name' && !shortNameManual ? {shortName:v} : {}) })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
+        onChange={(v) => { if (locked.includes(f.key)) return; if (f.initialOption) touchedInitialOptions.current.add(f.key); if (def.key === 'finance-suppliers' && f.key === 'shortName') setShortNameManual(true); setValues((cur) => ({ ...cur, [f.key]: v, ...(def.key === 'finance-suppliers' && f.key === 'name' && !shortNameManual ? {shortName:v} : {}) })); if (errors[f.key]) setErrors((cur) => ({ ...cur, [f.key]: '' })); }}
       />}
       {errors[f.key] ? <small className="field-error" role="alert">{errors[f.key]}</small> : !reference && f.help && <small className="muted">{f.help}</small>}
     </div>

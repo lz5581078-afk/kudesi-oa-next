@@ -53,7 +53,7 @@ import { categoryAllowedForSave, categoryFromText, categoryLabels, categoryOptio
 import { certImportMatch } from './entity-rules';
 import { optionsKindOf, parseColFilters, readTimeKeys, STATUS_COL, type ColFilter } from '@kudesi/shared';
 import { applyColFilters } from './col-filter.sql';
-import { dynamicOptionsFor, loadUnitLists, seedUnitDefaults, unitLabel, unitLabelFor, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
+import { dynamicOptionsFor, loadUnitLists, loadUnitOptionLists, seedUnitDefaults, unitLabel, unitLabelFor, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
 import { previewArchiveCode } from './finance-rules';
 
@@ -731,7 +731,7 @@ export class ResourcesService implements RuleHost {
   }
 
   async unitOptions(user: AuthUser) {
-    return optionsPayload(await loadUnitLists(this.dataSource.manager, user.companyId));
+    return optionsPayload(await loadUnitOptionLists(this.dataSource.manager, user.companyId));
   }
 
   async seedUnitDefaults(user: AuthUser) {

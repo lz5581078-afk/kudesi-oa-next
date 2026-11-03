@@ -182,8 +182,9 @@ async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[]): Pro
   }
   const ini = initials(str(data.name));
   if (ini) parts.push(ini);
-  const spec = specificationCode(data.specQty);
-  if (spec) parts.push(`${spec}${str(data.specUnit)}`);
+  const spec = type === 'shipping_material' ? initials(str(data.specQty)) : specificationCode(data.specQty);
+  const specificationSegment = `${spec}${str(data.specUnit)}`;
+  if (specificationSegment) parts.push(specificationSegment);
   if (!['raw', 'self_made', 'purchased', 'package'].includes(type) && data.shape) {
     const sh = initials(str(data.shape));
     if (sh) parts.push(sh);

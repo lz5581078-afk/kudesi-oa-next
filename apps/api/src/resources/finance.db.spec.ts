@@ -10,6 +10,7 @@ import { buildSnapshot } from './base-code-support';
 import { getResourceDef } from '@kudesi/shared';
 import { CostService } from './cost.service';
 import { ResourcesService } from './resources.service';
+import { previewProductCode } from './finance-rules';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 
@@ -104,6 +105,21 @@ d('财务资料（真实数据库）', () => {
     expect((await svc.get(boss, 'finance-products', product.id)).data.specQty).toBe('25*33+4');
   });
 
+  it('发货物料小数按文字取码，纯符号规格保留单位；预览和保存一致，既有编码不重写', async () => {
+    const category = await svc.create(boss, 'finance-categories', { archiveType: 'shipping_material', name: '符号编码测试类', code: 'FHFB' });
+    const data = { archiveType: 'shipping_material', name: '合成规格袋', categoryId: category.id, specQty: '2.50', specUnit: 'CM', weightG: 10, purchasePrice: 100, freight: 5, handlingFee: 1 };
+    const preview = await previewProductCode(ds.manager, svc, boss, data, null);
+    expect(preview.code).toMatch(/-250CM$/);
+    const created = await svc.create(boss, 'finance-products', data);
+    expect(created.data.code).toBe(preview.code);
+    const symbols = await svc.create(boss, 'finance-products', { ...data, name: '合成符号袋', specQty: '*+*' });
+    expect(symbols.data.code).toMatch(/-CM$/);
+    const legacy = await svc.create(boss, 'finance-products', { ...data, name: '合成历史袋', code: 'FH-LEGACY-2D5CM' });
+    expect((await svc.update(boss, 'finance-products', legacy.id, { name: '合成历史袋改名' })).data.code).toBe('FH-LEGACY-2D5CM');
+    const raw = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '合成数字原料', categoryId: ids.leaf, specQty: 2.5, specUnit: 'KG', purchaseSpec: '千克', purchasePrice: 100, freight: 5, handlingFee: 1 });
+    expect(raw.data.code).toMatch(/-2D5KG$/);
+  });
+
   it('采购和自产文字名称规格不丢失，采购自动重量随名称规格变化重新计算', async () => {
     const cat = await svc.create(boss, 'finance-categories', { archiveType: 'original_purchase', name: '文字采购规格', code: 'WZCG' });
     const purchased = await svc.create(boss, 'finance-products', { archiveType: 'purchased', supplyMode: 'original_purchase', name: '合成采购测试', categoryId: cat.id, brandId: ids.brand, specQty: '净含量500g', specUnit: 'EA', purchaseSpec: '袋', purchasePrice: 100, freight: 1, handlingFee: 1 });
@@ -151,6 +167,15 @@ d('财务资料（真实数据库）', () => {
     const raw = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '规格删除测试原料', categoryId: ids.leaf, purchaseSpec: '合成原料规格', specQty: 1, specUnit: 'KG', weightManual: true, weightG: 10, freight: 1, handlingFee: 1 });
     await svc.remove(boss, 'finance-product-units', rawUnit.id, '删除维护项保留历史');
     expect((await svc.get(boss, 'finance-products', raw.id)).data.purchaseSpec).toBe('合成原料规格');
+    const options = await svc.unitOptions(boss);
+    expect(options.shipping_system_spec.map(option => option.value)).toEqual(expect.arrayContaining(['合成卷', '合成张']));
+    expect(options.system_spec.map(option => option.value)).toContain('合成原料规格');
+    expect(options.system_spec.map(option => option.value)).not.toContain('合成张');
+    const reused = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '历史规格复用产区', purchasePrice: 180, systemSpec: '合成张' });
+    expect(reused.data.systemSpec).toBe('合成张');
+    const reusedRaw = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '历史规格复用原料', categoryId: ids.leaf, purchaseSpec: '合成原料规格', specQty: 1, specUnit: 'KG', weightManual: true, weightG: 10, freight: 1, handlingFee: 1 });
+    expect(reusedRaw.data.purchaseSpec).toBe('合成原料规格');
+    expect(await svc.unitOptions({ ...boss, companyId: boss.companyId + 9999999 })).toEqual({});
     expect(unitA.data.code).toBeUndefined();
   });
 

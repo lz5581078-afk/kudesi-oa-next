@@ -45,6 +45,13 @@ d('单位与规格（真实数据库）', () => {
     expect(opts.system_spec.map((o) => o.label)).toContain('斤');
   });
 
+  it('默认名称单位的选项顺序按公司排序值，停用项不进入可选第一项', async () => {
+    const first = await svc.create(boss, 'finance-product-units', { kind: 'shipping_unit', name: '合成优先单位', code: 'FIRST', sortOrder: 0 });
+    expect((await svc.unitOptions(boss)).shipping_unit[0]).toEqual({ value: 'FIRST', label: '合成优先单位' });
+    await svc.changeStatus(boss, 'finance-product-units', first.id, 'inactive', '合成停用');
+    expect((await svc.unitOptions(boss)).shipping_unit.some(option => option.value === 'FIRST')).toBe(false);
+  });
+
   it('新增自定义单位：编码自动生成，商品能选；基础信息全称用名称', async () => {
     const u = await svc.create(boss, 'finance-product-units', { kind: 'spec_unit', name: '托盘' });
     expect(u.data.code).toBe('TP'); // 拼音首字母
