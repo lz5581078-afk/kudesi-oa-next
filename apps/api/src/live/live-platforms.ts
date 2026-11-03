@@ -2,12 +2,13 @@ import { EntityManager } from "typeorm";
 import {
   LIVE_PLATFORMS,
   liveJsonArray,
+  liveToText,
   type LiveChannel,
   type LiveChannelInput,
   type LiveStoreLine,
 } from "@kudesi/shared";
 import { liveDouyinAccounts, liveDouyinStores } from "./live-access";
-import { liveFail, type Row } from "./live-core";
+import { liveClock, liveFail, type Row } from "./live-core";
 import { LiveOrderSource, type LiveOrder } from "./live-order-source";
 
 export const channelsOf = (row: Row) =>
@@ -85,13 +86,21 @@ export async function assertAccountTime(
   endAt: string | null,
   excludeSession?: number,
   excludeSchedule?: number,
+  purpose: "actual" | "schedule" = "actual",
 ) {
+  const now = liveToText(liveClock.now())!;
+  const futureSchedule = purpose === "schedule" && startAt > now;
   for (const table of ["live_sessions", "live_schedules"]) {
     const session = table === "live_sessions";
     const exclude = session ? excludeSession : excludeSchedule;
+    // Planning projects an unfinished session to its scheduled end. Actual starts and
+    // historical corrections retain the open-ended occupation until a real checkout.
+    const projected = session && futureSchedule;
+    const source = projected ? "live_sessions s LEFT JOIN live_schedules p ON p.company_id=s.company_id AND p.id=s.schedule_id" : `${table} s`;
+    const occupiedUntil = projected ? "COALESCE(s.end_at,p.end_at,?)" : "COALESCE(s.end_at,'9999-12-31')";
     const rows: Row[] = await em.query(
-      `SELECT * FROM ${table} WHERE company_id=? AND status IN (${session ? "'live','pending_report','submitted','returned','approved'" : "'scheduled','live'"}) AND start_at${endAt ? "<" : "<="}? AND COALESCE(end_at,'9999-12-31')>?${exclude ? " AND id<>?" : ""}`,
-      [companyId, endAt ?? startAt, startAt, ...(exclude ? [exclude] : [])],
+      `SELECT s.* FROM ${source} WHERE s.company_id=? AND s.status IN (${session ? "'live','pending_report','submitted','returned','approved'" : "'scheduled','live'"}) AND s.start_at${endAt ? "<" : "<="}? AND ${occupiedUntil}>?${exclude ? " AND s.id<>?" : ""}`,
+      [companyId, endAt ?? startAt, ...(projected ? [now] : []), startAt, ...(exclude ? [exclude] : [])],
     );
     for (const row of rows) {
       if (
