@@ -215,6 +215,8 @@ d('成本表与定价调试表（真实数据库）', () => {
     expect(asBoss.rows[1].ready).toBe(false); // 运费估不出来：暂不可试算
     const asOps = await debug.list(ops, { page: 1, pageSize: 30 });
     expect(asOps.canViewInternals).toBe(false);
+    expect(asOps.canViewFloorPrice).toBe(false);
+    expect(asOps.rows[0]).not.toHaveProperty('minPriceCents');
     expect(asOps.rows[0]).not.toHaveProperty('preShipCostCents');
     expect(JSON.stringify(asOps)).not.toContain('preShipCostCents');
     // 按基础编码 / 分类筛选
@@ -226,6 +228,24 @@ d('成本表与定价调试表（真实数据库）', () => {
     const comps = await debug.components(boss, { categoryId: ids.rootCat, page: 1 });
     expect(comps.rows.some((r) => r.id === bc)).toBe(true);
     expect(comps.categories.some((c) => c.id === ids.leaf)).toBe(true);
+  });
+
+  it('公司低价独立权限仅增加低价字段及导出，不开放成本或改变试算；撤销后立即脱敏',async()=>{
+    const floorOnly:AuthUser={...ops,permissions:{...ops.permissions,allow:[...ops.permissions.allow,'finance.pricing-debug.floor.view']}};
+    const floor=(await bundleRow()).minPriceCents;
+    const list=await debug.list(floorOnly,{page:1,pageSize:30});
+    expect(list).toMatchObject({canViewInternals:false,canViewFloorPrice:true});
+    expect(list.rows.find(r=>r.id===ids.bundle)).toMatchObject({minPriceCents:floor});
+    expect(JSON.stringify(list)).not.toMatch(/preShipCostCents|costIncludingFreightCents|marginPpm|purchasePrice/);
+    const normal=await debug.sliderPrice(ops,{id:ids.bundle,step:10});
+    expect(await debug.sliderPrice(floorOnly,{id:ids.bundle,step:10})).toEqual(normal);
+    expect((await debug.quote(floorOnly,'roiToPrice',[{id:ids.bundle,step:10,value:4}])).rows[0]).toMatchObject({minPriceCents:floor});
+    const input={id:ids.bundle,step:10,mode:'sliderPrice' as const,sliderPriceCents:normal.priceCents};
+    const sheet=readZipEntries(Buffer.from((await debug.exportXlsx(floorOnly,[input])).fileBase64,'base64'))['xl/worksheets/sheet1.xml'];
+    expect(sheet).toContain('公司低价');expect(sheet).not.toContain('预留利润比例');expect(sheet).not.toContain('发货前成本');
+    const revoked:AuthUser={...floorOnly,permissions:{...floorOnly.permissions,deny:['finance.pricing-debug.floor.view']}};
+    const hidden=await debug.list(revoked,{page:1,pageSize:30});expect(hidden.canViewFloorPrice).toBe(false);expect(hidden.rows[0]).not.toHaveProperty('minPriceCents');
+    const hiddenSheet=readZipEntries(Buffer.from((await debug.exportXlsx(revoked,[input])).fileBase64,'base64'))['xl/worksheets/sheet1.xml'];expect(hiddenSheet).not.toContain('公司低价');
   });
 
   it('定价调试表：预留利润、投产与售价联动；手填利润金额按来源商品比例；运营整元', async () => {
@@ -277,6 +297,7 @@ d('成本表与定价调试表（真实数据库）', () => {
     const opsSliderPrice = (await debug.sliderPrice(ops, { id: ids.bundle, step: 10 })).priceCents;
     const opsFile = readZipEntries(Buffer.from((await debug.exportXlsx(ops, [{ id: ids.bundle, step: 10, mode: 'sliderPrice', sliderPriceCents: opsSliderPrice }])).fileBase64, 'base64'));
     expect(opsFile['xl/worksheets/sheet1.xml']).not.toContain('预留利润比例');
+    expect(opsFile['xl/worksheets/sheet1.xml']).not.toContain('公司低价');
 
     // 页面打开后，成本/利润率变了 → 导出被拒绝，要求重新试算
     const row = await bundleRow();

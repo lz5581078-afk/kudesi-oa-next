@@ -41,6 +41,18 @@ describe('定价调试表页面', () => {
     expect(names[1]).toContain('梨礼盒');
     expect(names[2]).toContain('苹果礼盒');
   });
+  it('只有公司低价权限时，列表和所选商品显示低价，成本权限标记仍为关闭',async()=>{
+    m.debugList.mockResolvedValue({rows:[r(1,'独立低价商品',1000,12345)],total:1,page:1,pageSize:30,canViewInternals:false,canViewFloorPrice:true});
+    m.debugSlider.mockResolvedValue({available:true,priceCents:12400,reservedProfitCents:0,step:0});
+    render(<PricingDebugPage/>);await screen.findByText('独立低价商品');expect(screen.getByText('公司低价 ¥123.45')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('checkbox').find(c=>c.closest('label')?.textContent?.includes('独立低价商品'))!);
+    await screen.findByRole('columnheader',{name:'公司低价'});expect(screen.getByRole('cell',{name:'¥123.45'})).toBeTruthy();
+    expect(screen.queryByText('发货前成本')).toBeNull();
+  });
+  it('未授予低价查看权限时不显示低价列，即使数据中意外带有金额',async()=>{
+    m.debugList.mockResolvedValue({rows:[r(1,'无权限示例',1000,12345)],total:1,page:1,pageSize:30,canViewInternals:false,canViewFloorPrice:false});
+    render(<PricingDebugPage/>);await screen.findByText('无权限示例');expect(screen.queryByText(/123\.45/)).toBeNull();expect(screen.queryByRole('columnheader',{name:'公司低价'})).toBeNull();
+  });
 
   it('选到右侧后拉滑块，向服务端要预留利润后的售价；填投产联动出售价', async () => {
     setup();
