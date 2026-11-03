@@ -99,7 +99,7 @@ export class LiveScheduleService {
     if (roomClash) liveFail(`该直播间 ${roomClash.st}–${roomClash.et} 已有排场（主播 ${roomClash.anchor_name}），时间段不能重叠`);
     const anchorClash = overlaps.find((r) => Number(r.anchor_user_id) === anchorId);
     if (anchorClash) liveFail(`${anchorClash.anchor_name} 在 ${anchorClash.st}–${anchorClash.et} 已排在 ${anchorClash.room_name}，同一主播不能同时在两个房间`);
-    await assertAccountTime(em,a.companyId,channels,startAt,endAt,undefined,excludeId ?? undefined);
+    await assertAccountTime(em,a.companyId,channels,startAt,endAt,undefined,excludeId ?? undefined,'schedule');
     return { channels, day, startAt, endAt, room: room!, anchorId: anchorId!, controlId, operatorId, account: account!, store: store ?? null, note: text(input.note) || null, products };
   }
 
