@@ -1,4 +1,4 @@
-import { EntityManager } from 'typeorm';
+import { EntityManager, In } from 'typeorm';
 import { todayShanghai, workforceLoginBlock } from '@kudesi/shared';
 import { ResourceRecord, User } from '../entities';
 
@@ -18,10 +18,10 @@ export async function workforceBlockFor(em: EntityManager, user: Pick<User, 'id'
 }
 
 /** 有兼职/临时工账号但还没建档的人（档案页顶部提示用）：不受合作期控制，建议尽快补档案。 */
-export async function unfiledWorkforce(em: EntityManager, companyId: number): Promise<Array<{ id: number; name: string; account: string | null; employmentType: string }>> {
-  const people = await em.find(User, { where: [{ companyId, employmentType: 'part_time', status: 'active' }, { companyId, employmentType: 'temp', status: 'active' }], select: ['id', 'name', 'account', 'employmentType'], order: { id: 'ASC' } });
+export async function unfiledWorkforce(em: EntityManager, companyId: number, showDisabled = false): Promise<Array<{ id: number; name: string; account: string | null; employmentType: string; status: 'active' | 'disabled' }>> {
+  const people = await em.find(User, { where: [{ companyId, employmentType: 'part_time', status: showDisabled ? In(['active', 'disabled']) : 'active' }, { companyId, employmentType: 'temp', status: showDisabled ? In(['active', 'disabled']) : 'active' }], select: ['id', 'name', 'account', 'employmentType', 'status'], order: { id: 'ASC' } });
   if (!people.length) return [];
   const records = await em.find(ResourceRecord, { where: { companyId, type: 'workforce' }, select: ['id', 'data'] });
   const filed = new Set(records.map((r) => Number(r.data.userId)));
-  return people.filter((p) => !filed.has(p.id)).map((p) => ({ id: p.id, name: p.name, account: p.account, employmentType: p.employmentType }));
+  return people.filter((p) => !filed.has(p.id)).map((p) => ({ id: p.id, name: p.name, account: p.account, employmentType: p.employmentType, status: p.status }));
 }

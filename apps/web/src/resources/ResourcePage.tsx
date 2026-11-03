@@ -33,6 +33,7 @@ import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
 import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
 import { PageHint } from './PageHint';
 import { AddAccountDialog, UnfiledBanner } from './WorkforcePanels';
+import { WorkforceActions } from './WorkforceActions';
 import { StaffEditorDialog } from '../pages/org/StaffEditorDialog';
 import { CloseIcon, GearIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
@@ -497,6 +498,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
 
   const addInGroup = groupCfg && can('create') ? (g: RowGroup) => { setCopyInit(def.fields.find((f) => f.key === groupCfg.field)?.readonly ? {} : g.refId ? { [groupCfg.field]: g.refId } : g.value ? { [groupCfg.field]: g.value } : {}); setCreating(true); } : undefined;
   const rowActions = useMemo(() => {
+    if (type === 'workforce') return (row: ResourceDto) => <WorkforceActions key={row.id} record={row} onEdit={setEditRow} onLogs={() => { setDetailTab('logs'); setSelected(row.id); }} onChanged={() => void load()} />;
     if (hier) {
       return (row: ResourceDto) => (
         <HierRowActions def={def} row={row} can={can} onOpen={(id) => { setDetailTab(undefined); setSelected(id); }} onEdit={setEditRow}
@@ -572,7 +574,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   );
 
   return (
-    <div className={`res-page${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}`}>
+    <div className={`res-page${type === 'workforce' ? ' workforce-page' : ''}${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}`}>
       {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
       {hier && <HierBar title={hier.title} subtitle={hier.subtitle} onBack={hier.onBack} />}
       <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
@@ -631,7 +633,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
               />
             ) : <div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />加载中…</div>
           ) : isMobile ? (
-            <ResourceCards def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} />
+            <ResourceCards def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} rowActions={type === 'workforce' ? rowActions : undefined} />
           ) : (
             <ResourceTable
               def={def}
@@ -656,7 +658,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
               onToggleGroup={toggleGroup}
               onAddInGroup={addInGroup}
               rowActions={rowActions}
-              rowActionsLabel={hier ? '操作' : ['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
+              rowActionsLabel={hier || type === 'workforce' ? '操作' : ['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
               actWidth={hier ? (type === 'finance-products' ? 340 : 270) : undefined}
             />
           )}
