@@ -10,6 +10,7 @@ import './live.css';
 import './liveCheckin.css';
 export function LiveCheckinPanel({roomId,companyId,token,workspaceType,onChanged}:{roomId?:number;companyId?:number;token?:string;workspaceType?:'live_anchor'|'live_control'|'operations';onChanged?:()=>void}){
   const {user}=useAuth();
+  const isAdmin=!!user?.permissions?.isCompanyAdmin;
   const [data,setData]=useState<CheckinContext|null>(null),[error,setError]=useState(''),[mode,setMode]=useState<''|'role'|'start'|'join'|'end'>(''),[joining,setJoining]=useState<CheckinSession|null>(null),[ending,setEnding]=useState<SessionDetail|null>(null),[busy,setBusy]=useState(false);
   const [selectedRoom,setSelectedRoom]=useState('');
   const scanned=companyId!==undefined||token!==undefined||roomId!==undefined;
@@ -28,9 +29,11 @@ export function LiveCheckinPanel({roomId,companyId,token,workspaceType,onChanged
   const role=workspaceType==='live_control'||operations?'control':'anchor';
   const running=data?.active.find(s=>s.myCheckin&&!s.myCheckin.endAt&&!s.reportsLocked&&['live','pending_report'].includes(s.status));
   const canStart=!!data&&(data.identity.isAnchor||data.identity.isControl||data.identity.isOperations);
+  const roleEligible=!workspaceType||(workspaceType==='live_anchor'?!!data?.identity.isAnchor:!!data?.identity.isControl||!!data?.identity.isOperations);
+  const adminViewOnly=isAdmin&&!running&&(!canStart||!roleEligible);
   async function changed(){setMode('');setEnding(null);setBusy(true);channel.current?.postMessage('changed');onChanged?.();try{await load();}finally{setBusy(false);}}
   async function click(){
-    if(!data||busy)return;setError('');
+    if(!data||busy||adminViewOnly)return;setError('');
     if(running){setBusy(true);try{const detail=await liveApi.session(running.id);const actual=running.myCheckin!.role;if(!detail.me.reportRoles.includes(actual))throw new Error('本场已锁定或状态已变化，请刷新查看');setEnding({...detail,me:{...detail.me,reportRoles:[actual]}});setMode('end');}catch(e){setError(errText(e));await load();}finally{setBusy(false);}return;}
     if(scanned&&(!effectiveRoomId||!data.rooms.some(r=>r.id===effectiveRoomId))){setError('请选择上播直播间');return;}
     if(operations){setMode('role');return;}
@@ -56,7 +59,8 @@ export function LiveCheckinPanel({roomId,companyId,token,workspaceType,onChanged
         {scanned&&<h2>{running?'当前直播':'选择本场直播'}</h2>}
         {scanned&&!running&&canStart&&!roomId&&<label className="live-field">上播直播间<select aria-label="上播直播间" value={selectedRoom} onChange={e=>{setSelectedRoom(e.target.value);setError('');}}><option value="">请选择直播间</option>{data.rooms.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label>}
         {scanned&&selectedRoomName&&(running||roomId||schedule)&&<dl className="live-scan-summary"><div><dt>直播间</dt><dd>{selectedRoomName}</dd></div>{running?<><div><dt>本次身份</dt><dd>{roleName}</dd></div><div><dt>本人上播时间</dt><dd>{running.myCheckin!.startAt.replace('T',' ').slice(0,16)}</dd></div></>:schedule&&<div><dt>计划时段</dt><dd>{schedule.date} {schedule.startTime}–{schedule.endTime}</dd></div>}</dl>}
-        <div className="live-checkin-actions">{(running||canStart)&&<button type="button" className="primary-button live-clock-button" disabled={busy} onClick={()=>void click()}>{busy?'正在读取…':running?'下播':'上播'}</button>}</div>
+        <div className="live-checkin-actions">{(running||canStart||isAdmin)&&<button type="button" className="primary-button live-clock-button" disabled={busy||adminViewOnly} title={adminViewOnly?'当前账号没有本岗位直播身份，不能为本人记录上播':undefined} onClick={()=>void click()}>{busy?'正在读取…':running?'下播':'上播'}</button>}</div>
+        {adminViewOnly&&<p className="live-scan-help" role="status">当前账号没有本岗位直播身份，上播按钮暂不可用；可到直播管理安排人员和排班。</p>}
         {scanned&&<p className="live-scan-help">{running?'点击下播后，核对本场时间与业绩，再确认本人下播。':canStart?'选择直播间后，继续核对人员、直播账号和店铺，再确认上播。':'当前账号暂无可操作场次，请联系人事核对主播或中控岗位。'}</p>}
       </div>
       {!running&&data.active.some(s=>s.myCheckin?.endAt)&&<p className="live-scan-help" role="status">本人已下播，场次报告按现有流程处理。</p>}
