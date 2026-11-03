@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Headers, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, ArrayMaxSize, ValidateNested } from 'class-validator';
 import { AuthUser, CurrentUser, Public, RequirePermission } from '../common/auth.decorators';
 import { RemoteAssistService, MaintenanceRemoteAssistService } from './remote.service';
+import { NativeSessionFence } from './native-session-fence';
 
 class RequestRemoteDto { @IsIn(['view', 'control']) mode!: string; @IsString() @MaxLength(200) reason!: string }
 class SignalDto { @IsString() @MaxLength(10) kind!: string; @IsOptional() @IsObject() payload?: Record<string, unknown> }
@@ -25,6 +26,7 @@ const VIEW = 'finance.doc-withdrawal.view';
  * finance.session.remote / finance.session.manage 判断。轮询接口很频繁，不参与全局限流。
  */
 @SkipThrottle()
+@UseGuards(NativeSessionFence)
 @Controller('session/remote')
 export class RemoteAssistController {
   constructor(private readonly remote: RemoteAssistService) {}
@@ -43,6 +45,7 @@ export class RemoteAssistController {
 }
 
 @SkipThrottle()
+@UseGuards(NativeSessionFence)
 @Controller('store-maintenance/remote')
 export class MaintenanceRemoteAssistController {
   constructor(private readonly remote: MaintenanceRemoteAssistService) {}
@@ -62,6 +65,7 @@ export class MaintenanceRemoteAssistController {
 
 /** 远程协助（助手端）：设备令牌，和 /agent/* 其他接口一样不读员工登录信息。 */
 @SkipThrottle()
+@UseGuards(NativeSessionFence)
 @Controller('agent/remote')
 export class RemoteAssistAgentController {
   constructor(private readonly remote: RemoteAssistService) {}

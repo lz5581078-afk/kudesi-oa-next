@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, ParseIntPipe, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseIntPipe, Post, Query, Res, UploadedFile, UseInterceptors, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
@@ -7,6 +7,7 @@ import { MAX_UPLOAD_BYTES } from '../integrations/files.service';
 import { SessionService } from './session.service';
 import { MAX_PACKAGE_BYTES } from './agent-package';
 import { MaintenanceService } from './maintenance.service';
+import { NativeSessionFence } from './native-session-fence';
 
 type Upload = { originalname: string; buffer: Buffer; size: number };
 class BindVouchersDto { @IsArray() @IsInt({ each: true }) fileIds!: number[] }
@@ -41,6 +42,7 @@ class RemarkDto { @IsString() @MaxLength(80) remark!: string }
 const VIEW = 'finance.doc-withdrawal.view';
 
 /** 店铺提现登录管理（网页端）：查看要提现页面的权限，改动要 finance.session.manage（服务里再判断）。 */
+@UseGuards(NativeSessionFence)
 @Controller('session')
 export class SessionController {
   constructor(private readonly session: SessionService) {}
@@ -82,6 +84,7 @@ export class SessionController {
 }
 
 /** 助手接口：不走员工登录，用设备令牌（X-Device-Token）；令牌在绑定时只返回一次，库里只存哈希。 */
+@UseGuards(NativeSessionFence)
 @Controller('agent')
 export class AgentController {
   constructor(private readonly session: SessionService) {}
@@ -105,6 +108,7 @@ class StoreStatusDto { @IsIn(['normal', 'abnormal', 'cancelled', 'inactive']) st
 const M_VIEW = 'resource.company-store-maintenance.view';
 
 /** 公司店铺维护（网页端）：和店铺提现同一套授权电脑，但店铺清单和权限独立。 */
+@UseGuards(NativeSessionFence)
 @Controller('store-maintenance')
 export class MaintenanceController {
   constructor(private readonly m: MaintenanceService) {}
