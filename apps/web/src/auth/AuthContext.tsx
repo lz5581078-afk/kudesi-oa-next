@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createChecker, CurrentUserDto, LoginRequest, LoginResponse, PermissionChecker, PlatformAdminDto } from '@kudesi/shared';
-import { api, setFeishuBindingRequiredHandler, setUnauthorizedHandler, tokenStore } from '../api/client';
+import { api, setFeishuBindingRequiredHandler, setUnauthorizedHandler, tokenStore, TOKEN_KEY } from '../api/client';
 import { resetCategoryOptions } from '../resources/categoryOptions';
 
 interface AuthState {
@@ -41,8 +41,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     const token = tokenStore.get();
-    if (token && tokenIsPlatform(token)) setPlatformAdmin(await api<PlatformAdminDto>('/platform/me'));
-    else setUser(await api<CurrentUserDto>('/auth/me'));
+    if (token && tokenIsPlatform(token)) {
+      const result = await api<PlatformAdminDto>('/platform/me');
+      if (tokenStore.get() === token) setPlatformAdmin(result);
+    } else {
+      const result = await api<CurrentUserDto>('/auth/me');
+      if (tokenStore.get() === token) setUser(result);
+    }
   }, []);
 
   useEffect(() => {
@@ -52,6 +57,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refresh()
       .catch(() => logout())
       .finally(() => setLoading(false));
+  }, [logout, refresh]);
+
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      if (event.storageArea !== localStorage || (event.key !== TOKEN_KEY && event.key !== null)) return;
+      // 另一窗口退出或换账号时，立即移除旧身份及公司缓存，重新向服务端取权限。
+      resetCategoryOptions();
+      setUser(null); setPlatformAdmin(null);
+      if (!event.newValue) { logout(); setLoading(false); return; }
+      setLoading(true);
+      refresh().catch(logout).finally(() => setLoading(false));
+    };
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
   }, [logout, refresh]);
 
   const login = useCallback(async (request: LoginRequest) => {
