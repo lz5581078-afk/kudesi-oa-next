@@ -469,7 +469,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
           } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '导入失败'); }
         }}>导入默认分类</button>
       )}
-      {type === 'workforce' && can('create') && <button type="button" className="res-btn" onClick={() => setAddingAccount(true)}>新增账号并建档</button>}
+      {type === 'workforce' && can('create') && !!me && createChecker(me.permissions)('org.staff.create') && <button type="button" className="res-btn" onClick={() => setAddingAccount(true)}>新增账号并建档</button>}
       {type === 'fixed-assets' && catCan('view') && resourcePagePath('asset-categories') && <Link className="res-btn" to={resourcePagePath('asset-categories')!}>分类管理</Link>}
       {type === 'fixed-assets' && can('edit') && <button type="button" className="res-btn" onClick={() => setInventory(true)}>盘点</button>}
       {type === 'tax-profiles' && can('create') && <TaxPendingButton refreshKey={data?.total} onCreated={() => void load()} />}

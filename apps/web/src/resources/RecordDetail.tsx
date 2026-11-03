@@ -433,7 +433,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
                 <PhoneArchiveButton type="partners" record={record} numberKey="cardPhone" idKey="cardPhoneId" holder={String(record.data.cardPhoneHolder ?? record.title)} onDone={reloadAll} onError={setError} />
               )}
               {def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} departmentLabel={record.refLabels.departmentId ?? ''} />}
-              {def.key === 'workforce' && <WorkforceAccountNote />}
+              {def.key === 'workforce' && <WorkforceAccountNote recordId={record.id} account={String(record.data.account??'')} onChanged={reloadAll} editable={!record.archived}/>}
               {sectionList.map(({ group, fields, shown }) => (
                 <section key={group} id={secId(group)} className="rd-sec" data-layout={shown.length <= 2 ? 'compact' : 'full'}>
                   <h3 className="rd-sec-title">
