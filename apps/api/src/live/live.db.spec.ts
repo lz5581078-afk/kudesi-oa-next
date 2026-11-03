@@ -1,3 +1,4 @@
+import { assertAccountTime } from './live-platforms';
 import { LiveFeedbackService } from './live-feedback.controller';
 import { FilesService } from '../integrations/files.service';
 import { FakeStorage } from '../test-support';
@@ -1226,5 +1227,42 @@ d('直播管理（真实数据库）', () => {
       expect(await ds.query('SELECT id FROM live_wage_records WHERE company_id=? AND session_id=? AND user_id=?',[company,made.id,aa.id])).toHaveLength(0);
     }
   },30000);
+
+  it('未下播不阻塞计划结束后的排场和修改，实际开播仍查占用，已结束场次按实际时间校验',async()=>{
+    clock('2026-04-20 11:00:00');
+    const [parent]=await ds.query('SELECT data FROM resource_records WHERE company_id=? AND id=?',[company,ids.n1]);
+    const room=await rec(company,'locations','直播间-未来排班测试',{name:'直播间-未来排班测试',locationType:'room',parentId:(typeof parent.data==='string'?JSON.parse(parent.data):parent.data).parentId});
+    const shop=await rec(company,'stores','未来排班店',{name:'未来排班店',platform:'douyin',jushuitanShopId:'FUTURE-SCHEDULE'});
+    const account=await rec(company,'self-media','未来排班账号',{name:'未来排班账号',platform:'douyin',livePermission:true,storeIds:[shop]});
+    const person=au(await mkUser(company,'future-anchor','未来排班主播',{positionId:await position(company,'未来排班主播','live_anchor')}),company,'未来排班主播',['features.live-desk.view']);
+    const form=(over:Record<string,unknown>={})=>input({date:'2026-04-20',roomId:room,anchorId:person.id,controlId:null,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'12:00',endTime:'15:00',...over});
+    const first=await schedules.create(manager,form());
+    clock('2026-04-20 12:06:00');
+    const live=await sessions.start(person,{scheduleId:first.id,productIds:[ids.p1],douyinAccountId:account,storeId:shop});
+    const channels=(await sessions.detail(manager,live.id)).channels;
+    const next=await schedules.create(manager,form({startTime:'15:50',endTime:'17:50'}));
+    await schedules.update(manager,next.id,form({startTime:'15:50',endTime:'17:50',note:'正常安排下一场'}));
+    clock('2026-04-20 15:50:00');
+    await expect(sessions.start(person,{scheduleId:next.id,productIds:[ids.p1],douyinAccountId:account,storeId:shop})).rejects.toThrow(/正在直播/);
+    clock('2026-04-20 12:06:00');
+    await expect(schedules.create(manager,form({roomId:ids.s1,anchorId:anchor.id,startTime:'14:30',endTime:'15:30'}))).rejects.toThrow(/直播账号/);
+    await expect(schedules.create(manager,form({roomId:ids.s1,anchorId:anchor.id,startTime:'16:00',endTime:'18:00'}))).rejects.toThrow(/直播账号/);
+    const adjacent=await schedules.create(manager,form({roomId:ids.s1,anchorId:anchor.id,startTime:'15:00',endTime:'15:50'}));
+    await expect(assertAccountTime(ds.manager,company,channels,'2026-04-20 15:50:00','2026-04-20 17:50:00',undefined,next.id)).rejects.toThrow(/直播账号/);
+    await expect(assertAccountTime(ds.manager,foreign.companyId,channels,'2026-04-20 15:50:00','2026-04-20 17:50:00')).resolves.toBeUndefined();
+    await schedules.cancel(manager,next.id,'测试取消');await schedules.cancel(manager,adjacent.id,'测试取消');
+    // A legacy/unplanned open session must not reserve every future day either.
+    await ds.query("UPDATE live_schedules SET status='finished' WHERE company_id=? AND id=?",[company,first.id]);
+    await ds.query('UPDATE live_sessions SET schedule_id=NULL WHERE company_id=? AND id=?',[company,live.id]);
+    const unplanned=await schedules.create(manager,form({startTime:'15:50',endTime:'17:50'}));
+    await expect(assertAccountTime(ds.manager,company,channels,'2026-04-20 15:50:00','2026-04-20 17:50:00',undefined,unplanned.id)).rejects.toThrow(/直播账号/);
+    await schedules.cancel(manager,unplanned.id,'测试取消');
+    await ds.query("UPDATE live_sessions SET end_at='2026-04-20 16:00:00',status='approved',schedule_id=? WHERE company_id=? AND id=?",[first.id,company,live.id]);
+    await expect(schedules.create(manager,form({startTime:'15:50',endTime:'17:50'}))).rejects.toThrow(/直播账号/);
+    const afterActual=await schedules.create(manager,form({startTime:'16:00',endTime:'17:50'}));
+    expect((await sessions.detail(manager,live.id)).endAt).toBe('2026-04-20 16:00:00');
+    await schedules.cancel(manager,afterActual.id,'测试取消');
+  });
+
 
 });
