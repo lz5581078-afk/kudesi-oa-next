@@ -3,7 +3,7 @@ import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { orgApi, type StaffDto, type StaffFeishuUnbindPlan, type StaffFeishuUnbindResult } from './orgApi';
 
-export function StaffFeishuUnbindDialog({staff,onClose,onDone}:{staff:StaffDto;onClose:()=>void;onDone:()=>Promise<void>}) {
+export function StaffFeishuUnbindDialog({staff,onClose,onDone}:{staff:Pick<StaffDto,'id'|'name'>;onClose:()=>void;onDone:()=>Promise<void>}) {
   const {refresh}=useAuth();
   const [plan,setPlan]=useState<StaffFeishuUnbindPlan|null>(null),[result,setResult]=useState<StaffFeishuUnbindResult|null>(null);
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -30,7 +30,7 @@ export function StaffFeishuUnbindDialog({staff,onClose,onDone}:{staff:StaffDto;o
     <div className="modal-head"><strong>解绑飞书 · {staff.name}</strong></div>
     <div className="modal-body">
       {result?<div role="status"><p>已解绑 {staff.name} 的飞书账号。</p><p>员工可使用 OA 账号密码登录，在飞书绑定页面重新授权本人企业飞书。</p></div>:plan?<>
-        <p>员工：<strong>{plan.name}</strong>（OA 账号：{plan.account}）</p>
+        <p>员工：<strong>{plan.name}</strong>（OA 账号：{plan.account || '未设置'}）</p>
         {plan.bindingCount?<><p>将移除该员工的 {plan.bindingCount} 条飞书关联，并使其尚未完成的绑定授权失效。</p>
           <p>解绑后，该员工无法通过原飞书账号登录或接收 OA 飞书通知，重新绑定后恢复。员工档案、岗位、工资和业务记录全部保留。</p>
           {plan.includesSelf&&<p className="notice">这是你当前使用的账号，解绑后你也需要重新绑定本人飞书。</p>}
