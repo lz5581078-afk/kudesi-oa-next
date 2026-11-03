@@ -1106,7 +1106,7 @@ d('直播管理（真实数据库）', () => {
     if(anchorJoined){clock(`${date} 10:01:00`);await sessions.start(aa,{actualCheckin:true,role:'anchor',sessionId:made.id});}
     expect((await sessions.detail(cc,made.id)).myCheckins).toHaveLength(1);
     clock(`${date} 12:18:20`);
-    const report={role:'control',endAt:`${date} 12:00:00`,salesCents:0,adSpendCents:0};
+    const report={...await feedbackInput(cc,made.id),role:'control',endAt:`${date} 12:00:00`,salesCents:0,adSpendCents:0};
     await sessions.report(cc,made.id,report);
     let detail=await sessions.detail(cc,made.id);
     expect(detail.status).toBe(anchorJoined?'live':'pending_report');
@@ -1137,7 +1137,7 @@ d('直播管理（真实数据库）', () => {
     expect(tile.live?.id??null).toBe(anchorJoined?made.id:null);
     expect(tile.current?.endAt).toBe(anchorJoined?null:`${date} 12:18:20`);
     if(anchorJoined){
-      clock(`${date} 12:25:00`);await sessions.report(aa,made.id,{role:'anchor',endAt:`${date} 12:00:00`,salesCents:0});
+      clock(`${date} 12:25:00`);await sessions.report(aa,made.id,{...await feedbackInput(aa,made.id),role:'anchor',endAt:`${date} 12:00:00`,salesCents:0});
       expect((await sessions.detail(aa,made.id)).endAt).toBe(`${date} 12:25:00`);
       expect((await sessions.detail(aa,made.id)).status).toBe('pending_report');
     }else{
