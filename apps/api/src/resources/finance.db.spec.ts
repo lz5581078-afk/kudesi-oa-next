@@ -245,12 +245,12 @@ d('财务资料（真实数据库）', () => {
     await expect(svc.create(boss, 'finance-products', { ...base, categoryId: ids.smCat })).rejects.toThrow(/不匹配/);
     await expect(svc.create(boss, 'finance-products', { ...base, categoryId: ids.leaf, purchasePrice: 0, freight: 100, handlingFee: 50 })).rejects.toThrow(/零值说明/);
     const p = await svc.create(boss, 'finance-products', { ...base, categoryId: ids.leaf, purchasePrice: 1000, freight: 200, handlingFee: 50 });
-    expect(p.data.code).toBe('YL-SGPG-HFSPG-2D5KG');
+    expect(p.data.code).toBe('YL-SG-PG-HFSPG-2D5KG');
     expect(p.data.totalCost).toBe(1250);
     ids.apple = p.id;
     // 同样的商品再建一个：自动编码加序号，不是报错
     const p2 = await svc.create(boss, 'finance-products', { ...base, name: '红富士苹果', categoryId: ids.leaf, purchasePrice: 900, freight: 100, handlingFee: 0, zeroValueReason: '装卸费：供应商承担' });
-    expect(p2.data.code).toBe('YL-SGPG-HFSPG-2D5KG-2');
+    expect(p2.data.code).toBe('YL-SG-PG-HFSPG-2D5KG-2');
     ids.apple2 = p2.id;
     await expect(svc.create(boss, 'finance-products', { ...base, code: 'bad code', categoryId: ids.leaf })).rejects.toThrow(/商品编码/);
     // 有商品的分类不能再加下级

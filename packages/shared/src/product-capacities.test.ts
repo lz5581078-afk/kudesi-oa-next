@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { productCapacity } from './product-capacities';
+import { productCapacity, productCapacityText } from './product-capacities';
 import { productFormProblems } from './product-layout';
 describe('包装容量逐行读取', () => {
   it('单位可先填写；保留数量文字及小数，不把单位当成数量', () => {
@@ -12,4 +12,13 @@ describe('包装容量逐行读取', () => {
     for (const capacities of ['1KG\nKG', '1KG\n2', '1KG\n0G', '1KG\n-1G']) expect(productFormProblems({ archiveType: 'package', capacities }, { canCost: true }).capacities).toContain('每条容量');
     expect(productFormProblems({ archiveType: 'package', capacities: '1KG\n2.50G' }, { canCost: true }).capacities).toBeUndefined();
   });
+  it('数字单位和E开头编码与数量分隔，单位先选的草稿也能恢复', () => {
+    for (const unit of ['123', 'E3']) {
+      const empty = productCapacityText('', unit);
+      expect(productCapacity(empty)).toMatchObject({ quantityText: '', quantity: null, unit });
+      const filled = productCapacityText('2.50', unit);
+      expect(productCapacity(filled)).toEqual({ quantityText: '2.50', quantity: 2.5, unit });
+    }
+  });
+
 });

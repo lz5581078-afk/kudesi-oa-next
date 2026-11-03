@@ -7,13 +7,15 @@ vi.mock('../api/client', async (orig) => ({ ...(await orig<typeof import('../api
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('商品编码预览', () => {
-  it('填了类型和名称后向服务端要预览；显示将生成的编码；没名称不请求', async () => {
-    vi.mocked(api).mockResolvedValue({ code: 'YL-SG-PG', manual: false, notes: ['请选择品牌'], basicInfoFullName: '苹果' });
-    const { rerender } = render(<CodePreview values={{ archiveType: 'raw' }} />);
+  it('有类型时允许空名称只读预览，填写名称后重新请求；无类型不请求', async () => {
+    vi.mocked(api).mockResolvedValue({ code: 'YL-SG-PG-X', manual: false, notes: ['请选择品牌'], basicInfoFullName: '' });
+    const { rerender } = render(<CodePreview values={{}} />);
     expect(api).not.toHaveBeenCalled();
+    rerender(<CodePreview values={{ archiveType: 'raw', categoryId: 3, specUnit: 'KG' }} />);
+    await screen.findByText('YL-SG-PG-X');
+    expect(api).toHaveBeenCalledWith('/finance/products/code-preview', { method: 'POST', body: expect.objectContaining({ archiveType: 'raw', categoryId: 3 }) });
     rerender(<CodePreview values={{ archiveType: 'raw', name: '苹果', categoryId: 3, specQty: '1', specUnit: 'KG' }} excludeId={5} />);
-    await screen.findByText('YL-SG-PG');
-    expect(api).toHaveBeenCalledWith('/finance/products/code-preview', { method: 'POST', body: expect.objectContaining({ archiveType: 'raw', name: '苹果', categoryId: 3, specQty: '1', excludeId: 5 }) });
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/finance/products/code-preview', { method: 'POST', body: expect.objectContaining({ archiveType: 'raw', name: '苹果', categoryId: 3, specQty: '1', excludeId: 5 }) }));
     expect(screen.getByText('请选择品牌')).toBeTruthy();
   });
   it('文字规格及独立系统规格完整传给预览，系统规格变化触发重新预览', async () => {

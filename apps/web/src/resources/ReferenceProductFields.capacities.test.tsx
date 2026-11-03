@@ -50,4 +50,15 @@ describe('包装容量行交互', () => {
     expect(screen.getByLabelText('保存容量').textContent).toBe('2KG\n ');
   });
 
+  it('纯数字单位能先选、填数量和清空，不与数量粘连', () => {
+    resetUnitOptionsForTest({ spec_unit: [{ value: '123', label: '数字单位' }] });
+    render(<Form />);
+    fireEvent.change(screen.getByLabelText('第1条容量单位'), { target: { value: '123' } });
+    expect((screen.getByLabelText('第1条容量单位') as HTMLSelectElement).value).toBe('123');
+    fireEvent.change(screen.getByLabelText('第1条容量'), { target: { value: '2' } });
+    expect(screen.getByLabelText('保存容量').textContent).toBe('2 123');
+    fireEvent.change(screen.getByLabelText('第1条容量'), { target: { value: '' } });
+    expect((screen.getByLabelText('第1条容量单位') as HTMLSelectElement).value).toBe('123');
+  });
+
 });

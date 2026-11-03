@@ -1,6 +1,7 @@
+import { capacityQuantityCode, packagingCapacities } from './packaging-capacities';
 import { costCompositionFacts } from './cost-components';
 import { archiveCodePrefix, beforeArchivePrefix } from './archive-prefix';
-import { productCapacity, systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/shared';
+import { systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { pinyin } from 'pinyin-pro';
@@ -15,7 +16,7 @@ import { buildSnapshot, aliasCode, rawNames } from './base-code-support';
 import { NamingInput, NamingItem, NamingRule, composeBundle, parseFieldList, parseOverrides, validateRule } from './bundle-naming';
 import type { AfterSaveContext, BeforeSaveContext, RuleHost } from './resource-rules';
 import { beforeUnit } from './unit-rules';
-import { loadUnitLists } from './unit-options';
+import { allowedValues, loadUnitLists, type UnitLists } from './unit-options';
 import { EXPRESS_AFTER_SAVE, EXPRESS_BEFORE_SAVE } from './express-rules';
 import { applyGiftAliases, basicInfoFullName } from './product-extras';
 import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, beforeBaseCodeLine, guardReferenced, inspectBaseCodeReferences, isComposed, refreshComposedTotals, seedMainLine } from './base-code-composed';
@@ -169,23 +170,27 @@ async function beforeBrand(ctx: BeforeSaveContext) {
 }
 
 /** 商品编码：类型段 – (采购:YZ|OEM) – 分类链 – 品牌码 – 名称首字母 – 规格 – 形态 */
-async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[]): Promise<string> {
+async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[], units?: UnitLists): Promise<string> {
   const { em, user, data } = ctx;
   const type = str(data.archiveType);
   const parts: string[] = [await archiveCodePrefix(em,user.companyId,type)]; // 自定义档案类型用自己的编码
   if (type === 'purchased') parts.push(data.supplyMode === 'supplier_oem' ? 'OEM' : 'YZ');
-  const chainCode = chain.map((c) => str(c.data.code)).join('');
-  if (chainCode) parts.push(chainCode);
-  if (type !== 'raw') {
+  parts.push(...chain.map(c => str(c.data.code)).filter(Boolean));
+  if (!['raw', 'shipping_material'].includes(type)) {
     const b = await brandCode(em, user.companyId, data.brandId);
     if (b) parts.push(b);
   }
   const ini = initials(str(data.name));
-  if (ini) parts.push(ini);
+  parts.push(ini || 'X');
   const textSpecification = ['shipping_material', 'purchased', 'self_made'].includes(type);
   const spec = textSpecification ? initials(str(data.specQty)) : specificationCode(data.specQty);
   const specificationSegment = `${spec}${str(data.specUnit)}`;
-  if (specificationSegment) parts.push(specificationSegment);
+  if (type === 'package' || type === 'oem_package') {
+    const capacityUnits = units ?? await loadUnitLists(em, user.companyId);
+    for (const capacity of packagingCapacities(data.capacities, capacityUnits)) {
+      if (capacity.quantity !== null && capacity.quantity > 0 && capacity.unit) parts.push(`${capacityQuantityCode(capacity.quantityText)}${capacity.code || initials(capacity.unit)}`);
+    }
+  } else if (specificationSegment) parts.push(specificationSegment);
   if (type === 'self_made') {
     const packaging = `${initials(str(data.productPackagingSpec))}${str(data.productPackagingUnit)}`;
     if (packaging) parts.push(packaging);
@@ -194,7 +199,7 @@ async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[]): Pro
     const systemSpec = initials(str(data.purchaseSpec));
     if (systemSpec) parts.push(systemSpec);
   }
-  if (!['raw', 'self_made', 'purchased', 'package'].includes(type) && data.shape) {
+  if (!['raw', 'shipping_material', 'self_made', 'purchased', 'package', 'oem_package'].includes(type) && data.shape) {
     const sh = initials(str(data.shape));
     if (sh) parts.push(sh);
   }
@@ -222,13 +227,25 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   if ((await host.findWhere(em, user.companyId, 'finance-categories', 'parentId', cat.id)).length > 0) throw new BadRequestException('必须选最末级分类');
   const need = type in FAMILY ? FAMILY[type](data) : (type || null); // 自定义档案类型：分类树的类型就是它自己
   if (!need || cat.data.archiveType !== need) throw new BadRequestException('分类和档案类型不匹配');
-  // 包装类：规格数量/单位由“容量”第一行决定（如 500ML）；自产成品的规格数量可不填
+  let capacityUnits: UnitLists | undefined;
   if (type === 'package' || type === 'oem_package') {
-    const first = str(data.capacities).split(/\r?\n/).map((x) => x.trim()).find(Boolean) ?? '';
-    const m = first.match(/^(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/);
-    if (m && UNIT_OPTIONS.some((u) => u.value === m[2].toUpperCase())) { data.specQty = Number(m[1]); data.specUnit = m[2].toUpperCase(); }
+    capacityUnits = await loadUnitLists(em, user.companyId);
+    const capacities = packagingCapacities(data.capacities, capacityUnits);
+    const unitField = FINANCE_RESOURCE_DEFS.find(def => def.key === 'finance-products')!.fields.find(field => field.key === 'specUnit')!;
+    const allowed = new Set(allowedValues(capacityUnits, unitField, data) ?? UNIT_OPTIONS.map(option => option.value));
+    const historical = new Set(packagingCapacities(existing?.data.capacities, capacityUnits).map(capacity => capacity.code || capacity.unit));
+    const changingStatus = !!existing && ctx.status !== existing.status;
+    if (!changingStatus && !capacities.length) throw new BadRequestException('容量第一行请写成“数量+单位”，如 500ML、1KG');
+    for (const [index, capacity] of capacities.entries()) {
+      if (capacity.quantity === null || capacity.quantity <= 0 || !capacity.unit) {
+        if (changingStatus) continue;
+        throw new BadRequestException(index === 0 ? '容量第一行请写成“数量+单位”，如 500ML、1KG' : `第 ${index + 1} 条容量请填写大于0的数量和单位`);
+      }
+      if ((!capacity.code || !allowed.has(capacity.code)) && !historical.has(capacity.code || capacity.unit) && !changingStatus) throw new BadRequestException(`第 ${index + 1} 条容量请选择公司维护的名称单位`);
+    }
+    const first = capacities[0];
+    if (first?.quantity !== null && first?.quantity !== undefined && first.quantity > 0 && first.unit) { data.specQty = first.quantity; data.specUnit = first.code || first.unit; }
   }
-  if ((type === 'package' || type === 'oem_package') && !((numericSpecification(data.specQty) ?? 0) > 0) && !(ctx.existing && ctx.status !== ctx.existing.status)) throw new BadRequestException('容量第一行请写成“数量+单位”，如 500ML、1KG');
   if (['self_made', 'purchased', 'shipping_material'].includes(type)) {
     if (!str(data.specQty).trim()) {
       if (type !== 'self_made') throw new BadRequestException('请填写规格');
@@ -237,13 +254,6 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   } else if (!((numericSpecification(data.specQty) ?? 0) > 0)) throw new BadRequestException('规格数量必须大于 0');
 
   const statusChanging = !!existing && existing.status !== ctx.status;
-  if (['package', 'oem_package'].includes(type) && !statusChanging) {
-    const capacities = str(data.capacities).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-    for (const [index, line] of capacities.entries()) {
-      const capacity = productCapacity(line);
-      if (capacity.quantity === null || capacity.quantity <= 0 || !capacity.unit) throw new BadRequestException(`第 ${index + 1} 条容量请填写大于0的数量和单位`);
-    }
-  }
   const canEditCost = createChecker(user.permissions)('product.cost.edit');
 
   // 品牌：原料、发货物料可不填；自制品、采购成品、OEM 包装必填
@@ -330,7 +340,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   if (code) {
     checkCode(code, '商品编码');
   } else {
-    const base = await productCode(ctx, chain);
+    const base = await productCode(ctx, chain, capacityUnits);
     code = base;
     for (let i = 2; i < 50; i++) {
       const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
@@ -347,7 +357,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
     data.materialCode = mc || undefined;
   } else delete data.materialCode;
   await applyGiftAliases(em, user.companyId, data, existing?.id ?? null);
-  data.basicInfoFullName = basicInfoFullName(data, (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '', await loadUnitLists(em, user.companyId));
+  data.basicInfoFullName = basicInfoFullName(data, (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '', capacityUnits ?? await loadUnitLists(em, user.companyId));
 }
 
 /**
@@ -358,6 +368,7 @@ export async function previewProductCode(em: EntityManager, host: Pick<RuleHost,
   const data: Data = { ...input };
   const type = str(data.archiveType);
   if (!type) throw new BadRequestException('请先选择档案类型');
+  const units = await loadUnitLists(em, user.companyId);
   const cat = await rec(em, user.companyId, 'finance-categories', data.categoryId);
   const chain = cat ? await categoryChain(em, user.companyId, cat.id) : [];
   const notes: string[] = [];
@@ -369,9 +380,9 @@ export async function previewProductCode(em: EntityManager, host: Pick<RuleHost,
     const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
     if (clash && clash.id !== excludeId) throw new ConflictException(`商品编码 ${code} 已被“${clash.title}”使用`);
     const brandTitle = (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '';
-    return { code, manual: true, notes, basicInfoFullName: basicInfoFullName(data, brandTitle, await loadUnitLists(em, user.companyId)) };
+    return { code, manual: true, notes, basicInfoFullName: basicInfoFullName(data, brandTitle, units) };
   }
-  const base = await productCode({ em, user, data } as BeforeSaveContext, chain);
+  const base = await productCode({ em, user, data } as BeforeSaveContext, chain, units);
   code = base;
   for (let i = 2; i < 50; i++) {
     const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
@@ -380,7 +391,7 @@ export async function previewProductCode(em: EntityManager, host: Pick<RuleHost,
   }
   checkCode(code, '自动生成的商品编码');
   const brandTitle = (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '';
-  const full = basicInfoFullName({ ...data, code }, brandTitle, await loadUnitLists(em, user.companyId));
+  const full = basicInfoFullName({ ...data, code }, brandTitle, units);
   return { code, manual: false, notes, basicInfoFullName: full };
 }
 

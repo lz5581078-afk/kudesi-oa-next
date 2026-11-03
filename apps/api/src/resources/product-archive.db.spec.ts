@@ -67,10 +67,41 @@ d('商品档案与基础编码（真实数据库）', () => {
     const aliases = (await baseCodesOf(raw.id)).filter((r) => r.data.canonicalId);
     expect(aliases.map((a) => a.data.name)).toEqual(['丰花礼盒-2J-SC01']);
     const pkg = await svc.create(boss, 'finance-products', { archiveType: 'package', name: '礼盒', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'box', dimensions: '20×15×8', dimensionUnit: 'cm', capacities: '500ML\n1KG', weightG: 25, specQty: 1, specUnit: 'EA', purchasePrice: 300, freight: 10, handlingFee: 5 });
-    expect(pkg.data.basicInfoFullName).toBe('盒-礼盒-果园先生-20×15×8-厘米-500ML-1KG');
+    expect(pkg.data.basicInfoFullName).toBe('盒-礼盒-果园先生-20×15×8-厘米-500毫升-1千克');
     expect(pkg.data.weightG).toBe(25);
     const changed = await svc.update(boss, 'finance-products', pkg.id, { capacities: '2KG' });
     expect(changed.data.weightG).toBe(25); // 容量不是包装自重
+  });
+
+  it('包装编号包含各级分类和全部容量，预览与保存相同；未填名称也能只读预览', async () => {
+    const root = await svc.create(boss, 'finance-categories', { archiveType: 'package', name: '合成包装父类', code: 'PACK' });
+    const leaf = await svc.create(boss, 'finance-categories', { archiveType: 'package', name: '合成包装子类', code: 'LEAF', parentId: root.id });
+    const input = { archiveType: 'package', categoryId: leaf.id, name: '合成多容量袋', brandId: ids.brand, packagingCategory: 'bag', capacities: '00500g\n01.00kg', specQty: 1, specUnit: 'EA', weightG: 10, purchasePrice: 100, freight: 1, handlingFee: 1 };
+    const preview = await previewProductCode(ds.manager, svc, boss, input, null);
+    expect(preview.code).toMatch(/^BZ-PACK-LEAF-/); expect(preview.code).toMatch(/-500G-1KG$/);
+    const saved = await svc.create(boss, 'finance-products', input);
+    expect(saved.data.code).toBe(preview.code); expect(saved.data.specQty).toBe(500); expect(saved.data.specUnit).toBe('G');
+    expect(saved.data.basicInfoFullName).toContain('00500克-01.00千克');
+    const updated = await svc.update(boss, 'finance-products', saved.id, { capacities: '250G\n2KG' });
+    expect(updated.data.code).toBe(saved.data.code);
+    const emptyName = await previewProductCode(ds.manager, svc, boss, { archiveType: 'package', categoryId: leaf.id }, null);
+    expect(emptyName.code).toBe('BZ-PACK-LEAF-X');
+    expect((await svc.list(boss, 'finance-products', { fieldKey: 'categoryId', fieldValue: leaf.id, pageSize: 20 } as never)).total).toBe(1);
+  });
+
+  it('包装每行容量使用公司单位，支持自定义和数字单位，沿用旧数字文字取码规则', async () => {
+    await svc.seedUnitDefaults(boss);
+    await svc.create(boss, 'finance-product-units', { kind: 'spec_unit', name: '合成托盘', code: 'TP' });
+    const numericUnit = await svc.create(boss, 'finance-product-units', { kind: 'spec_unit', name: '合成数值单位', code: '123' });
+    const input = { archiveType: 'package', categoryId: ids.pkgCat, name: '合成自定义容量', brandId: ids.brand, packagingCategory: 'bag', capacities: '1e3TP\n2 123', weightG: 10, purchasePrice: 100, freight: 1, handlingFee: 1 };
+    const preview = await previewProductCode(ds.manager, svc, boss, input, null);
+    expect(preview.code).toMatch(/-13TP-2123$/);
+    const saved = await svc.create(boss, 'finance-products', input);
+    expect(saved.data.code).toBe(preview.code); expect(saved.data.specQty).toBe(1000); expect(saved.data.specUnit).toBe('TP');
+    expect(saved.data.basicInfoFullName).toContain('1e3合成托盘-2合成数值单位');
+    await expect(svc.update(boss, 'finance-product-units', numericUnit.id, { code: '124' })).rejects.toThrow(/已被/);
+    await expect(svc.remove(boss, 'finance-product-units', numericUnit.id, '合成引用保护')).rejects.toThrow(/已被/);
+    await expect(svc.create(boss, 'finance-products', { ...input, name: '合成非法第二单位', capacities: '1TP\n2UNKNOWN' })).rejects.toThrow(/第 2 条容量/);
   });
 
   it('档案保存自动同步基础编码：没有就建待验证编码，名称跟着档案走，手改过就不再跟；手工新建会取代占位', async () => {

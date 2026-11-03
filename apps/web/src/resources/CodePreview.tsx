@@ -17,7 +17,7 @@ export function CodePreview({ values, excludeId, onPreview, onFullName, quiet = 
   };
   const key = JSON.stringify(body);
   useEffect(() => {
-    if (!body.archiveType || !body.name) { setRes(null); setErr(''); return; }
+    if (!body.archiveType) { setRes(null); setErr(''); return; }
     let alive = true;
     const t = setTimeout(() => {
       api<Preview>('/finance/products/code-preview', { method: 'POST', body }).then((r) => { if (alive) { setRes(r); setErr(''); onPreview?.(r.code); onFullName?.(r.basicInfoFullName); } })

@@ -1,9 +1,10 @@
+import { packagingCapacities } from './packaging-capacities';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { CATEGORY_ROOTS, PRODUCT_UNIT_CODED_KINDS, PRODUCT_UNIT_SEEDS } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 import type { BeforeSaveContext } from './resource-rules';
-import { UNIT_RESOURCE } from './unit-options';
+import { loadUnitLists, UNIT_RESOURCE } from './unit-options';
 import { initials } from './finance-rules';
 
 const str = (v: unknown) => (v === undefined || v === null ? '' : String(v));
@@ -29,7 +30,15 @@ export async function productsUsingUnit(em: EntityManager, companyId: number, ki
   const lines = await em.createQueryBuilder(ResourceRecord, 'r')
     .where("r.companyId = :c AND r.type = 'finance-bundle-lines'", { c: companyId })
     .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.unit')) = :v", { v: value }).getCount();
-  return products + lines;
+  let capacityProducts = 0;
+  if (kind === 'spec_unit') {
+    const units = await loadUnitLists(em, companyId);
+    const packaging = await em.createQueryBuilder(ResourceRecord, 'r').select(['r.id', 'r.data'])
+      .where("r.companyId = :c AND r.type = 'finance-products'", { c: companyId })
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.archiveType')) IN ('package','oem_package')").getMany();
+    capacityProducts = packaging.filter(row => String(row.data.specUnit ?? '') !== value && packagingCapacities(row.data.capacities, units).some(capacity => (capacity.code || capacity.unit) === value)).length;
+  }
+  return products + lines + capacityProducts;
 }
 
 /** 常用单位用固定编码（克 G、千克 KG…），其它取名称拼音首字母（对照旧系统 suggestUnitCode） */
