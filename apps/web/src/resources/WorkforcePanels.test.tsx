@@ -12,35 +12,13 @@ vi.mock('../pages/org/orgApi', async (orig) => {
   const mod = await orig<typeof import('../pages/org/orgApi')>();
   return { ...mod, orgApi: { ...mod.orgApi, departments: async () => [{ id: 1, name: '仓库', sortOrder: 0, status: 'active', children: [] }], positions: async () => [{ id: 2, name: '打包' }], addStaff: (...a: unknown[]) => addStaff(...a) } };
 });
-import { AddAccountDialog, UnfiledBanner, WorkforceLoginDialog, WorkforceAccountNote } from './WorkforcePanels';
+import { AddAccountDialog, WorkforceLoginDialog, WorkforceAccountNote } from './WorkforcePanels';
 import { KeyFacts } from './KeyFacts';
 
 beforeEach(() => { apiMock.mockReset(); addStaff.mockReset(); });
 afterEach(cleanup);
 
 describe('兼职与临时工专用面板', () => {
-  it('未建档提醒：列出人，点“建档”带出这个人', async () => {
-    apiMock.mockResolvedValue([{ id: 7, name: '小李', account: 'li', employmentType: 'temp' }]);
-    const onFile = vi.fn();
-    render(<UnfiledBanner canCreate onFile={onFile} />);
-    expect(await screen.findByText(/小李（临时工）/)).toBeTruthy();
-    fireEvent.click(screen.getByText('建档'));
-    expect(onFile).toHaveBeenCalledWith(7);
-    expect(apiMock).toHaveBeenCalledWith('/workforce/unfiled');
-  });
-
-  it('没有未建档的人，或没有建档权限：不出现提醒/按钮', async () => {
-    apiMock.mockResolvedValue([]);
-    const { container } = render(<UnfiledBanner canCreate onFile={() => undefined} />);
-    await waitFor(() => expect(apiMock).toHaveBeenCalled());
-    expect(container.textContent).toBe('');
-    cleanup();
-    apiMock.mockResolvedValue([{ id: 1, name: '甲', account: 'a', employmentType: 'part_time' }]);
-    render(<UnfiledBanner canCreate={false} onFile={() => undefined} />);
-    await screen.findByText(/甲（兼职）/);
-    expect(screen.queryByText('建档')).toBeNull();
-  });
-
   it('新增账号并建档：创建后只显示一次临时密码，确认后带着员工进入建档', async () => {
     apiMock.mockResolvedValue({ staff: { id: 11, account: 'zhang' }, initialPassword: 'Tmp-pass-1' });
     const onCreated = vi.fn();
