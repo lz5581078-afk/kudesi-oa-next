@@ -1,0 +1,11 @@
+.modal.resource-confirm-message { width:min(480px,calc(100vw - 32px)); padding:0; border:1px solid #d5e1ec; border-radius:14px; background:#fff; overflow:hidden; box-shadow:0 24px 72px #0f172a47; font:16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif; }
+.resource-confirm-message .modal-head { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 20px 13px; border-bottom:1px solid #e3eaf1; }
+.resource-confirm-message .modal-head>h2 { margin:0; color:#17263b; font-size:19px; }
+.resource-confirm-message .modal-head>.icon-button { display:grid; place-items:center; width:30px; height:30px; padding:0; border:0; color:#607086; background:transparent; font-size:22px; }
+.resource-confirm-message .modal-body { padding:18px 20px 8px; }
+.resource-confirm-message .modal-body>p { margin:0; color:#40516a; font-size:14px; line-height:1.7; white-space:pre-line; }
+.resource-confirm-message .modal-foot { justify-content:flex-end; gap:9px; padding:20px; border:0; }
+.resource-confirm-message .modal-foot>button { min-width:84px; min-height:38px; font:inherit; color:#334155; border-color:#cbd5e1; }
+.resource-confirm-message .modal-foot>.primary-button { color:#fff; font-weight:700; background:#0e8062; border-color:#166534; }
+.resource-confirm-message .modal-foot>.danger-fill { background:#dc2626; border-color:#dc2626; font-weight:800; }
+.modal-backdrop.resource-confirm-backdrop { z-index:10000; display:grid; place-items:center; padding:20px; background:#0f172a75; backdrop-filter:blur(2px); }

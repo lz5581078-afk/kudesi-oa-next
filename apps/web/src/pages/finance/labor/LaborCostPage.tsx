@@ -36,7 +36,7 @@ export function LaborCostPage() {
   const versionRef = useRef(versionId); versionRef.current = versionId;
   const [versionForm, setVersionForm] = useState<{ record: ResourceDto | null } | null>(null);
   const [itemForm, setItemForm] = useState<{ record: ResourceDto | null; initial?: Record<string, unknown> } | null>(null);
-  const [reason, setReason] = useState<{ title: string; hint?: string; confirm: string; run: (reason: string) => Promise<void> } | null>(null);
+  const [reason, setReason] = useState<{ title: string; hint?: string; confirm: string; danger?: boolean; run: (reason: string) => Promise<void> } | null>(null);
 
   const loadVersions = useCallback(async () => {
     if (!mounted.current || scopeRef.current !== scopeKey) return;
@@ -94,7 +94,7 @@ export function LaborCostPage() {
   const node = findNode(tree, selectedCat);
   const scope = node ? new Set(subtreeIds(node)) : null;
   const kw = keyword.trim().toLowerCase();
-  const filtered = items.filter(i => (!scope || scope.has(Number(i.data.archiveCategoryId))) && (!kw || [i.title, i.data.workCode, i.data.workName, i.refLabels.archiveCategoryId, i.refLabels.workTypeId, i.refLabels.unitId, i.data.note, i.data.zeroReason].some(value => String(value ?? '').toLowerCase().includes(kw))));
+  const filtered = items.filter(i => (!scope || scope.has(Number(i.data.archiveCategoryId))) && (!kw || [i.data.workCode, i.data.workName, i.refLabels.archiveCategoryId, i.refLabels.workTypeId, i.refLabels.unitId, i.data.note].some(value => String(value ?? '').toLowerCase().includes(kw))));
   const dataReady = versionId !== null && loadedVersion === versionId;
   const defaultVersion = versions?.find(v => v.data.isDefault === true) ?? versions?.find(v => v.status === 'active');
   const isLeaf = node ? node.children.length === 0 : false;
@@ -104,6 +104,7 @@ export function LaborCostPage() {
     try { await fn(); if (!mounted.current || scopeRef.current !== scopeKey) return; if (done) setNotice(done); if (await loadVersions()) await loadVersionData(); } catch (e) { if (mounted.current && scopeRef.current === scopeKey) setError(err(e)); }
   }
   const locked = version?.status === 'inactive';
+  const selectWrittenVersion = (id: number | null) => { if (mounted.current && scopeRef.current === scopeKey) setVersionId(id); };
 
   return (
     <div className="labor-cost-page">
@@ -119,10 +120,10 @@ export function LaborCostPage() {
           <button type="button" className="labor-version-select" aria-pressed={v.id === versionId} onClick={() => setVersionId(v.id)}><span className="labor-version-name"><strong>{v.title}</strong>{v.status === 'active' && <i>已启用</i>}</span><code>{String(v.data.versionCode ?? '')}</code><small>{String(v.data.periodName || '未设置期间')} · {String(v.data.effectiveFrom || '立即')} 至 {String(v.data.effectiveTo || '长期')} · {typeof v.data.itemCount === 'number' ? v.data.itemCount : v.id === versionId && dataReady ? items.length : '—'} 项</small></button>
           <div className="row-actions">{can('create') && <button type="button" onClick={()=>{setVersionId(v.id);setCopying(true);}}><Copy size={14}/>复制版本</button>}
           {can('edit') && v.status === 'draft' && <button type="button" onClick={() => { setVersionId(v.id); setVersionForm({ record: v }); }}>编辑版本</button>}
-          {can('edit') && v.status!=='active' && <button type="button" className="link-button" onClick={()=>void run(()=>resourceApi.changeStatus('finance-labor-versions',v.id,'active'),'版本已启用')}>{v.status==='draft'?'启用版本':'恢复使用'}</button>}
-          {can('edit') && v.status==='active' && v.data.isDefault!==true && <button type="button" className="link-button" onClick={()=>void run(()=>resourceApi.update('finance-labor-versions',v.id,{isDefault:true}),'已设为默认版本')}>设为默认版本</button>}
-          {can('edit') && v.status==='active' && <button type="button" className="link-button" onClick={()=>setReason({title:`停用成本版本「${v.title}」`,hint:'停用后不能被新的构成选用，已在用构成保留。',confirm:'确认停用',run:async reason=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'inactive',reason);}})}>停用版本</button>}
-          {can('delete') && v.status==='draft' && <button type="button" className="link-button danger" onClick={()=>setReason({title:`删除成本版本「${v.title}」`,hint:'版本内人力成本项目和归档分类也会一并删除；被其他资料引用时不能删除。',confirm:'确认删除',run:async reason=>{await resourceApi.remove('finance-labor-versions',v.id,reason);if(versionId===v.id)setVersionId(null);}})}>删除版本</button>}
+          {can('edit') && v.status!=='active' && <button type="button" className="link-button" onClick={()=>setReason({title:'请确认操作',hint:`确认启用“${v.title}”并设为默认人力成本版本吗？启用后仍可维护项目，成本变更将同步到当前引用。`,confirm:'确认',run:async()=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'active');selectWrittenVersion(v.id);}})}>{v.status==='draft'?'启用版本':'恢复使用'}</button>}
+          {can('edit') && v.status==='active' && v.data.isDefault!==true && <button type="button" className="link-button" onClick={()=>void run(async()=>{await resourceApi.update('finance-labor-versions',v.id,{isDefault:true});selectWrittenVersion(v.id);},'已设为默认版本')}>设为默认版本</button>}
+          {can('edit') && v.status==='active' && <button type="button" className="link-button" onClick={()=>setReason({title:'请确认操作',hint:`确认停用“${v.title}”吗？其他模块将不再读取这个版本。`,confirm:'确认',run:async()=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'inactive');selectWrittenVersion(v.id);}})}>停用版本</button>}
+          {can('delete') && v.status==='draft' && <button type="button" className="link-button danger" onClick={()=>setReason({title:'请确认操作',hint:`确认删除版本“${v.title}”吗？版本内人力成本项目也会一并删除。`,confirm:'确认',danger:true,run:async()=>{await resourceApi.remove('finance-labor-versions',v.id,'人力成本表确认删除版本');selectWrittenVersion(null);}})}>删除版本</button>}
           </div>
         </article>)}</div>
       </section>
@@ -159,7 +160,7 @@ export function LaborCostPage() {
                     <td className="row-actions">{locked ? '-' : <>
                       {can('edit') && <button type="button" className="link-button" disabled={locked} onClick={() => setItemForm({ record: i })}>编辑</button>}
                       {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: { __copyOf: i.id, ...Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'note'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) } })}>复制新增</button>}
-                      {!locked && can('delete') && <button type="button" className="link-button danger" disabled={version.status !== 'draft'} onClick={() => setReason({ title: `删除「${i.title}」`, hint: '被成品构成或组合用着的项目不能删除，请改成停用。', confirm: '确认删除', run: async (r) => { await resourceApi.remove('finance-labor-costs', i.id, r); } })}>删除</button>}
+                      {!locked && can('delete') && <button type="button" className="link-button danger" disabled={version.status !== 'draft'} onClick={() => setReason({ title: '请确认操作', hint: `确认删除人力成本项目“${String(i.data.workName || i.title)}”吗？`, confirm: '确认', danger: true, run: async () => { await resourceApi.remove('finance-labor-costs', i.id, '人力成本表确认删除项目'); } })}>删除</button>}
                     </>}</td></tr>
                 ))}
               </tbody>
@@ -174,7 +175,7 @@ export function LaborCostPage() {
       {versionForm && <RecordForm key={`${scopeKey}:version:${versionForm.record?.id ?? 'new'}`} def={getResourceDef('finance-labor-versions')!} record={versionForm.record} initial={versionForm.record ? undefined : { versionCode: `RL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}` }} onClose={() => setVersionForm(null)} onSaved={(dto) => { if(!mounted.current || scopeRef.current!==scopeKey)return;clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} />}
       {itemForm && version && <RecordForm key={`${scopeKey}:item:${version.id}:${itemForm.record?.id ?? itemForm.initial?.__copyOf ?? 'new'}`} def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...itemForm.initial, ...(node && isLeaf && !itemForm.record && !itemForm.initial ? { archiveCategoryId: node.id } : {}) }} lockedFields={['versionId', 'archiveCategoryId']}
         onClose={() => setItemForm(null)} onSaved={() => { if(!mounted.current || scopeRef.current!==scopeKey)return;clearRefCache('finance-labor-costs'); setItemForm(null); void loadVersions(); void loadVersionData(); }} />}
-      {reason && <ReasonDialog title={reason.title} hint={reason.hint} confirmLabel={reason.confirm} danger onClose={() => setReason(null)} onConfirm={async (r) => { await reason.run(r); if(!mounted.current || scopeRef.current!==scopeKey)return;setReason(null); if (await loadVersions()) await loadVersionData(); }} />}
+      {reason && <ReasonDialog title={reason.title} hint={reason.hint} confirmLabel={reason.confirm} danger={reason.danger} requireReason={false} onClose={() => setReason(null)} onConfirm={async (r) => { await reason.run(r); if(!mounted.current || scopeRef.current!==scopeKey)return;setReason(null); if (await loadVersions()) await loadVersionData(); }} />}
     </div>
   );
 }

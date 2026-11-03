@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../api/client';
 import { ResourceDictionaryManager } from './ResourceDictionaryManager';
 import { resourceApi, type ResourceDto } from './api';
 
@@ -58,12 +59,12 @@ describe('原位字典维护', () => {
 
   it('未引用项仍需明确确认；服务端发现新引用时保留资料并显示原因', async () => {
     vi.mocked(resourceApi.list).mockResolvedValue(list([row(1, '合成计价单位', { code: 'UNIT', referenceCount: 0 })]));
-    vi.mocked(resourceApi.remove).mockRejectedValueOnce(new Error('该单位刚被项目引用，不能删除'));
+    vi.mocked(resourceApi.remove).mockRejectedValueOnce(new ApiError(409, '该单位刚被项目引用，不能删除'));
     render(<ResourceDictionaryManager target="finance-labor-units" onClose={vi.fn()}/>);
     fireEvent.click(await screen.findByRole('button', { name: '删除合成计价单位' }));
     expect(resourceApi.remove).not.toHaveBeenCalled();
-    const confirm = screen.getByRole('alertdialog', { name: '删除合成计价单位' });
-    fireEvent.click(within(confirm).getByRole('button', { name: '确认删除' }));
+    const confirm = screen.getByRole('dialog', { name: '请确认操作' });
+    fireEvent.click(within(confirm).getByRole('button', { name: '确认' }));
     await screen.findByText('该单位刚被项目引用，不能删除');
     expect(resourceApi.remove).toHaveBeenCalledWith('finance-labor-units', 1, '删除未引用字典项');
     fireEvent.click(within(confirm).getByRole('button', { name: '取消' }));

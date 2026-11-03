@@ -59,8 +59,8 @@ export function CategoryTree({ versionId, versionLocked, versionDraft = false, c
       </ul>
       {tree.length === 0 && <p className="muted">这个版本还没有归档分类。先建分类，再往里加工作项目（最多三级，项目放最末级）。</p>}
       {form && <RecordForm def={getResourceDef('finance-labor-categories')!} record={form.record} initial={{ versionId, ...(form.parentId ? { parentId: form.parentId } : {}) }} lockedFields={['versionId']} onClose={() => setForm(null)} onSaved={() => { clearRefCache('finance-labor-categories'); setForm(null); onChanged(); }} />}
-      {removing && <ReasonDialog title={`删除分类「${removing.name}」`} hint="分类下有下级分类或工作项目时不能删除，请先移走。" confirmLabel="确认删除" danger onClose={() => setRemoving(null)}
-        onConfirm={async (reason) => { await resourceApi.remove('finance-labor-categories', removing.id, reason); clearRefCache('finance-labor-categories'); setRemoving(null); if (selected === removing.id) onSelect(null); onChanged(); }} />}
+      {removing && <ReasonDialog title="请确认操作" hint={`确认删除项目归档分类“${removing.name}”吗？`} confirmLabel="确认" danger requireReason={false} onClose={() => setRemoving(null)}
+        onConfirm={async () => { await resourceApi.remove('finance-labor-categories', removing.id, '人力成本表确认删除归档分类'); clearRefCache('finance-labor-categories'); setRemoving(null); if (selected === removing.id) onSelect(null); onChanged(); }} />}
     </nav>
   );
 }

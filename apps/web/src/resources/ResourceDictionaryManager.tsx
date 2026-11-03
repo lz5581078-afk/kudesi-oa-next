@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 import { resourceApi, type ResourceDto } from './api';
 import { clearRefCache } from './ResourceReferenceControls';
 import { loadResourceDirectory } from './resourceDirectory';
+import { ReasonDialog } from './ResourceConfirmDialog';
 import './resourceDictionary.css';
 
 export function ResourceDictionaryButton({ field, onChoose, disabled }: { field: FieldDef; onChoose: (id: number) => void; disabled?: boolean }) {
@@ -80,7 +81,7 @@ export function ResourceDictionaryManager({ target, onClose, onPick }: { target:
     }}>
       <header><div><small>{config.sectionLabel ?? def.label}</small><h2>{config.title}</h2><p>{config.hint}</p></div><button type="button" className="icon-button" aria-label="关闭字典管理" disabled={busy} onClick={onClose}><X size={18}/></button></header>
       {current.error && <div role="alert" className="notice error">{current.error}<button type="button" className="link-button" disabled={busy} onClick={() => void run(load)}>重试</button></div>}
-      {removing ? <div role="alertdialog" aria-label={`删除${removing.title}`}><p>确认删除“{removing.title}”吗？</p><button type="button" disabled={busy} className="secondary-button" onClick={() => setRemoving(null)}>取消</button><button type="button" disabled={busy || !can('delete')} className="danger" onClick={() => void run(async () => { await resourceApi.remove(target, removing.id, '删除未引用字典项'); if (sameScope()) { clearRefCache(target); setRemoving(null); await load(); } })}>确认删除</button></div> : <>
+      {removing ? <ReasonDialog title="请确认操作" hint={`确认删除“${removing.title}”吗？`} confirmLabel="确认" danger requireReason={false} onClose={() => setRemoving(null)} onConfirm={async () => { if (!sameScope()) return; await resourceApi.remove(target, removing.id, '删除未引用字典项'); if (sameScope()) { clearRefCache(target); setRemoving(null); try { await load(); } catch (error) { report(error); } } }}/> : <>
         {can('create') && <div className="resource-dictionary-create"><label>{config.nameLabel}<input autoFocus value={draft} disabled={busy} maxLength={def.fields.find(field => field.key === def.titleField)?.maxLength} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void create(); } }}/></label><button type="button" className="primary-button" disabled={busy || !draft.trim()} onClick={() => void create()}>新增并选中</button></div>}
         <div className="resource-dictionary-list">{rows === null ? !current.error && <p>正在读取…</p> : rows.length === 0 ? <p>还没有可选项，请在上方新增。</p> : rows.map(row => {
           const count = row.data[config.referenceCountField];

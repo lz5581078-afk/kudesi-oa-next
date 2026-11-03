@@ -4,7 +4,7 @@ import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
 import { LaborCostPage } from './LaborCostPage';
 import { CopyVersionDialog } from './CopyVersionDialog';
-import { api } from '../../../api/client';
+import { ApiError, api } from '../../../api/client';
 import { resetUnitOptionsForTest } from '../../../resources/unitOptions';
 
 vi.mock('../../../api/client', async (orig) => ({ ...(await orig<typeof import('../../../api/client')>()), api: vi.fn() }));
@@ -52,6 +52,7 @@ describe('人力成本表页面', () => {
     expect(screen.getByText('RL-A-FJ-FJ-TG')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^2026秋|^合成第二版本/ }));
     fireEvent.click(await screen.findByRole('button', { name: '启用版本' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '请确认操作' })).getByRole('button', { name: '确认' }));
     await waitFor(() => expect(m.changeStatus).toHaveBeenCalledWith('finance-labor-versions', 2, 'active'));
   });
 });
@@ -110,6 +111,67 @@ describe('复制新增工作项目', () => {
 describe('人力成本原版目录与查询行为', () => {
   const response = (items: ResourceDto[], total = items.length) => ({ items, total, page: 1, pageSize: 200 });
   const version = dto(1, 'finance-labor-versions', '合成当前版本', { versionCode: 'A', isDefault: true });
+  it('确认操作等待期间切公司，旧操作响应不能切回旧版本', async () => {
+    let finish!: (row: ResourceDto) => void;
+    const versions = [version, dto(2, 'v', '甲公司草稿', { versionCode: 'B' }, 'draft')];
+    m.list.mockImplementation(async type => response(type === 'finance-labor-versions' ? laborAuth.companyId === 1 ? versions : [dto(9, 'v', '乙公司版本', { versionCode: 'C', isDefault: true })] : type === 'finance-labor-costs' ? [dto(100, 'i', '合成项目', { workCode: `COMPANY-${laborAuth.companyId}`, workName: '合成项目', unitPrice: 100 })] : []));
+    m.changeStatus.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<LaborCostPage/>); await screen.findByText('COMPANY-1');
+    fireEvent.click(screen.getByRole('button', { name: '启用版本' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '请确认操作' })).getByRole('button', { name: '确认' }));
+    await waitFor(() => expect(finish).toBeTruthy());
+    laborAuth.companyId = 2; view.rerender(<LaborCostPage/>); await screen.findByText('COMPANY-2');
+    await act(async () => finish(versions[1]));
+    expect(screen.getByRole('button', { name: /^乙公司版本 / }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('COMPANY-2')).toBeTruthy(); expect(screen.queryByText('COMPANY-1')).toBeNull();
+  });
+  it('删除项目只作文字确认，引用失败保留资料和窗口，重试成功后刷新', async () => {
+    let exists = true, fail = true;
+    const v = dto(2, 'v', '合成草稿', { versionCode: 'B' }, 'draft');
+    const item = dto(91, 'i', '合成待删除', { workCode: 'DELETE-CHECK', workName: '合成待删除', unitPrice: 100 });
+    m.list.mockImplementation(async type => response(type === 'finance-labor-versions' ? [v] : type === 'finance-labor-costs' && exists ? [item] : []));
+    m.remove.mockImplementation(async () => { if (fail) { fail = false; throw new ApiError(409, '合成被引用不能删除'); } exists = false; return { ok: true }; });
+    render(<LaborCostPage/>); await screen.findByText('DELETE-CHECK');
+    fireEvent.click(within(screen.getByRole('region', { name: '工作项目' })).getByRole('button', { name: '删除' }));
+    const confirm = screen.getByRole('dialog', { name: '请确认操作' });
+    expect(within(confirm).queryByRole('textbox')).toBeNull(); expect(m.remove).not.toHaveBeenCalled();
+    fireEvent.click(within(confirm).getByRole('button', { name: '确认' }));
+    await screen.findByText('合成被引用不能删除'); expect(screen.getByText('DELETE-CHECK')).toBeTruthy();
+    fireEvent.click(within(confirm).getByRole('button', { name: '确认' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '请确认操作' })).toBeNull());
+    await waitFor(() => expect(screen.queryByText('DELETE-CHECK')).toBeNull());
+    expect(m.remove).toHaveBeenLastCalledWith('finance-labor-costs', 91, '人力成本表确认删除项目');
+  });
+  it('启用先文字确认，取消不写入；确认后选中该版本并读取其项目', async () => {
+    const versions = [version, dto(2, 'v', '合成待启用', { versionCode: 'B' }, 'draft')];
+    m.list.mockImplementation(async (type, query) => {
+      const items = type === 'finance-labor-versions' ? versions : type === 'finance-labor-costs' ? [dto(100 + Number(query.fieldValue), 'i', '合成项目', { workCode: `VERSION-${query.fieldValue}`, workName: '合成项目', unitPrice: 100 })] : [];
+      return response(items);
+    });
+    m.changeStatus.mockImplementation(async () => { versions[0] = { ...version, data: { ...version.data, isDefault: false } }; versions[1] = { ...versions[1], status: 'active', data: { ...versions[1].data, isDefault: true } }; return versions[1]; });
+    render(<LaborCostPage/>);
+    await screen.findByText('VERSION-1');
+    fireEvent.click(screen.getByRole('button', { name: '启用版本' }));
+    let confirm = screen.getByRole('dialog', { name: '请确认操作' });
+    expect(within(confirm).queryByRole('textbox')).toBeNull(); expect(m.changeStatus).not.toHaveBeenCalled();
+    fireEvent.click(within(confirm).getByRole('button', { name: '取消' })); expect(m.changeStatus).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '启用版本' })); confirm = screen.getByRole('dialog', { name: '请确认操作' });
+    fireEvent.click(within(confirm).getByRole('button', { name: '确认' }));
+    await screen.findByText('VERSION-2');
+    expect(m.changeStatus).toHaveBeenCalledWith('finance-labor-versions', 2, 'active');
+    expect(screen.getByRole('button', { name: /^合成待启用 / }).getAttribute('aria-pressed')).toBe('true');
+  });
+  it('检索只使用原版六类内容，不额外混入组合标题或零价原因', async () => {
+    const item = dto(92, 'i', '额外组合标题', { workCode: 'SIX-FIELDS', workName: '合成工作', unitPrice: 0, zeroReason: '仅零值原因', note: '原版备注' });
+    m.list.mockImplementation(async type => response(type === 'finance-labor-versions' ? [version] : type === 'finance-labor-costs' ? [item] : []));
+    render(<LaborCostPage/>); await screen.findByText('SIX-FIELDS');
+    for (const keyword of ['额外组合标题', '仅零值原因']) {
+      fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: keyword } });
+      expect(screen.queryByText('SIX-FIELDS')).toBeNull();
+    }
+    fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: '原版备注' } });
+    expect(screen.getByText('SIX-FIELDS')).toBeTruthy();
+  });
   it('摘要使用默认版本期间，完整显示超过20项，缺失的版本数量不伪造0', async () => {
     const items = Array.from({ length: 25 }, (_, i) => dto(100 + i, 'i', `合成项目${i}`, { workCode: `ALL-${i}`, workName: `工作${i}`, unitPrice: 100 }, i === 24 ? 'inactive' : 'active'));
     const versions = [{ ...version, data: { ...version.data, effectiveFrom: '2000-01-01', effectiveTo: '2000-12-31', itemCount: 25 } }, dto(2, 'v', '未知数量版本', { versionCode: 'B' }, 'draft')];
