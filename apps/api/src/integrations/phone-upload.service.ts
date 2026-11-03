@@ -72,7 +72,7 @@ export class PhoneUploadService {
     const s = await this.live(token);
     const { def, field } = this.fieldOf(s.resourceType, s.fieldKey);
     if (!s.scannedAt) await this.ds.manager.update(PhoneUploadSession, { id: s.id }, { scannedAt: new Date() });
-    return { label: field.label, resource: def.label, remaining: s.maxUploads - s.uploadCount, expiresAt: s.expiresAt.toISOString() };
+    return { label: field.label, resource: def.label, remaining: s.maxUploads - s.uploadCount, expiresAt: s.expiresAt.toISOString(), ...(field.imageCrop ? { imageCrop: field.imageCrop } : {}) };
   }
 
   /** 手机端传一张图片（只收图片，按文件头判断，不信扩展名）。 */

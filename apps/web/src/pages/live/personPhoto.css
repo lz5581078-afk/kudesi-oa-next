@@ -1,0 +1,44 @@
+.live-person-photo-trigger {
+  display: inline;
+  min-width: 0;
+}
+.live-person-photo-name {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  min-height: 0;
+  min-width: 0;
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+}
+.live-person-photo-name:hover,
+.live-person-photo-name:focus-visible {
+  color: #08777b;
+  text-decoration-style: solid;
+}
+.live-person-photo-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  min-height: 80px;
+}
+.live-person-photo-view > img {
+  width: min(100%, 360px);
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #f4f6fa;
+}
+.live-person-photo-view > p {
+  margin: 8px 0;
+}

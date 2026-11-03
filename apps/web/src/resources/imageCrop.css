@@ -1,0 +1,117 @@
+.modal-backdrop.image-crop-backdrop {
+  padding: 12px;
+  align-items: center;
+  z-index: 1600;
+}
+.modal.card.image-crop-dialog {
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+}
+.image-crop-dialog .modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.image-crop-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+}
+.image-crop-body p {
+  margin: 0;
+}
+.image-crop-viewport {
+  position: relative;
+  align-self: center;
+  width: min(100%, 300px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  touch-action: none;
+  background: #eef2f6;
+  border-radius: 8px;
+  cursor: grab;
+  flex-shrink: 0;
+  outline-offset: 3px;
+}
+.image-crop-viewport:active {
+  cursor: grabbing;
+}
+.image-crop-viewport > img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  max-width: none;
+  max-height: none;
+  pointer-events: none;
+  user-select: none;
+}
+.image-crop-viewport > span[role='status'] {
+  display: grid;
+  place-items: center;
+  height: 100%;
+}
+.image-crop-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2px solid white;
+  box-shadow: inset 0 0 0 1px #52637544;
+  background: linear-gradient(
+      to right,
+      transparent 33.1%,
+      #ffffff88 33.2%,
+      #ffffff88 33.6%,
+      transparent 33.7%,
+      transparent 66.3%,
+      #ffffff88 66.4%,
+      #ffffff88 66.8%,
+      transparent 66.9%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 33.1%,
+      #ffffff88 33.2%,
+      #ffffff88 33.6%,
+      transparent 33.7%,
+      transparent 66.3%,
+      #ffffff88 66.4%,
+      #ffffff88 66.8%,
+      transparent 66.9%
+    );
+}
+.image-crop-dialog .image-crop-zoom {
+  flex-direction: row;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.image-crop-dialog .image-crop-zoom input {
+  width: auto;
+  max-width: none;
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+}
+.image-crop-tools {
+  display: flex;
+  gap: 12px;
+}
+.image-crop-dialog button {
+  min-height: 40px;
+}
+@media (max-width: 600px) {
+  .modal.card.image-crop-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+  .image-crop-dialog .modal-body {
+    padding: 14px;
+  }
+  .image-crop-dialog .modal-foot button {
+    min-height: 44px;
+  }
+}
