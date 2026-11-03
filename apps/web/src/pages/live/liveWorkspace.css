@@ -249,3 +249,9 @@
   .live-manual-picker > .live-field { max-width: none; }
   .live-manual-picker .live-responsive-table td:first-child { grid-column: 1 / -1; }
 }
+
+.live-field.trial-rate-required,
+.trial-proxy-review [data-field="wageHourlyRateCents"] > span,
+.trial-proxy-review [data-field="wageHourlyRateCents"] > small { color: #a32121; font-weight: 600; }
+.live-field.trial-rate-required input,
+.trial-proxy-review [data-field="wageHourlyRateCents"] input { border-color: #b93c3c; }

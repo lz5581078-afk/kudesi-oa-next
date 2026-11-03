@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { liveApi, type Person } from './liveApi';
 import { errText, yuanCents } from './liveFormat';
 import { Modal } from './liveUi';
-export function TrialPersonDialog({ onClose, onDone }: { onClose: () => void; onDone: (p: Person) => void }) {
+export function TrialPersonDialog({ onClose, onDone }: { onClose: () => void; onDone: (p: Person, cents:number) => void }) {
   const [name, setName] = useState(''),
     [rate, setRate] = useState(''),
     [error, setError] = useState(''),
@@ -13,7 +13,7 @@ export function TrialPersonDialog({ onClose, onDone }: { onClose: () => void; on
       return setError('请填写姓名和大于零的时薪');
     setBusy(true);
     try {
-      onDone(await liveApi.trialPerson({ name: name.trim(), hourlyRateCents: cents }));
+      onDone(await liveApi.trialPerson({ name: name.trim(), hourlyRateCents: cents }), cents);
     } catch (e) {
       setError(errText(e));
     } finally {

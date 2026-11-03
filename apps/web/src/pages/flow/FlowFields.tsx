@@ -46,19 +46,27 @@ function LiveReviewFields(props: Parameters<typeof GenericFields>[0]) {
   const edited=useRef(false);
   const id=Number(props.context?.sessionId);
   useEffect(()=>{let active=true;if(id)liveApi.session(id).then(s=>{if(active){setSession(s);setRows(storeDrafts(s.channels??[],liveJsonArray<LiveStoreLine>(props.values.storeLines).length?liveJsonArray<LiveStoreLine>(props.values.storeLines):s.reports.find(r=>r.role==='anchor')?.storeLines));}}).catch(()=>{if(active)setError('读取场次店铺失败，请刷新后审核');});return()=>{active=false;};},[id]);
+  const initializedRate=useRef<number|null>(null);
+  useEffect(()=>{
+    if (session?.id!==id || !session?.trialHourlyRateCents || initializedRate.current===id) return;
+    initializedRate.current=id;
+    if (props.values.wageHourlyRateCents == null) props.onChange('wageHourlyRateCents',session.trialHourlyRateCents);
+  },[id,session,props.values.wageHourlyRateCents,props.onChange]);
   const multi=!!session?.channels?.length;
   const manual=props.values.finalSource==='manual';
   useEffect(()=>{
     if(!edited.current&&multi&&manual&&!props.values.storeLines)props.onChange('storeLines',session!.reports.find(r=>r.role==='anchor')?.storeLines??[]);
   },[multi,manual,props.values.storeLines,session]); // onChange belongs to the active task form
   const visibleFields=props.fields.filter(f=>f.key!=='storeLines'&&!(multi&&f.key==='finalSalesCents'));
-  const groups=[...new Set(visibleFields.map(f=>f.group||'审核'))];
-  return <div className="live-flow-review">
+  const reviewFields=visibleFields.map(f=>session?.trialProxyReporter && f.key==='wageHourlyRateCents'
+    ? {...f, label:'试播主播时薪（元/小时）', required:true, help:'必填，请填写本场试播主播时薪'} : f);
+  const groups=[...new Set(reviewFields.map(f=>f.group||'审核'))];
+  return <div className={session?.trialProxyReporter ? "live-flow-review trial-proxy-review" : "live-flow-review"}>
     {error&&<p className="notice error" role="alert">{error}</p>}
     {session&&<TrialProxyPerformance session={session}/>}
     {session&&<CheckoutFeedbackRecords sessionId={session.id} records={session.checkoutFeedback} attendance={session.attendance}/>}
     {groups.map(group=><fieldset key={group}><legend>{group}</legend>
-      <GenericFields {...props} fields={visibleFields.filter(f=>(f.group||'审核')===group)}/>
+      <GenericFields {...props} fields={reviewFields.filter(f=>(f.group||'审核')===group)}/>
       {visibleFields.some(f=>f.key==='finalSource'&&(f.group||'审核')===group)&&multi&&manual&&<StorePerformanceTable channels={session!.channels!} rows={rows} onChange={next=>{edited.current=true;setRows(next);try{props.onChange('storeLines',storePayload(next));setError('');}catch{props.onChange('storeLines',[]);setError('请逐店填写有效营业额和投流费用');}}}/>}
     </fieldset>)}
   </div>;
@@ -76,7 +84,7 @@ function GenericFields({ fields, values, onChange, labels, templateKey, context,
   return (
     <div className="form-grid">
       {shown.map((f) => (
-        <label key={f.key} className={f.type === 'textarea' || (purchase && f.type === 'json') ? 'wide' : undefined}>
+        <label key={f.key} data-field={f.key} className={f.type === 'textarea' || (purchase && f.type === 'json') ? 'wide' : undefined}>
           <span>{f.label}{f.required && <b className="req"> *</b>}</span>
           {purchase && f.type === 'json'
             ? <PurchaseJsonField field={f} values={values} context={context} onChange={(v) => onChange(f.key, v)} />
