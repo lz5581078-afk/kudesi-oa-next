@@ -5,7 +5,7 @@ import { api } from '../../api/client';
 export interface DocRow { sourceKind?: 'manual' | 'workflow'; firstItemName?: string | null; summary?: string | null; id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null; transitStatus?: 'pending' | 'confirmed' | null; feeCents?: number; discountCents?: number; acctCount?: number }
 export interface DocList { todayCount?: number; total: number; amountCents: number; paidCents: number; incomeCents?: number; expenseCents?: number; page: number; pageSize: number; rows: DocRow[] }
 export interface BatchResult { okCount: number; failCount: number; results: Array<{ id: number; ok: boolean; docNo?: string; error?: string }> }
-export interface DocEntry { id: string; kind: string; accountId: number; accountName: string; subId: number; amountCents: number | null; qty: number | null }
+export interface DocEntry { unit?: string | null; id: string; kind: string; accountId: number; accountName: string; subId: number; amountCents: number | null; qty: number | null }
 export interface DocLineView extends DocLineInput { id: number; productName: string; feeItemName: string; lineNo: number; relatedNode: string | null; relatedId: number | null; relatedName: string | null }
 export interface DocDetailDto {
   counterpartyName?: string | null; summary?: string | null; linkedPartyName?: string;
@@ -59,8 +59,8 @@ export interface BankBalance {
 export interface LedgerRow { summary?: string | null; id: number; entryDate: string; amountCents: number; balanceCents: number; documentId: number; docNo: string; typeLabel: string; memo: string | null; handler: string | null; partyName: string | null }
 export interface Ledger { openingCents: number; incomeCents: number; expenseCents: number; closingCents: number; rows: LedgerRow[] }
 export interface StockRow { code: string; unit: string; productId: number; warehouseId: number; productName: string; warehouseName: string; qty: number; avgCostCents: number | null; amountCents: number | null }
-export interface StockLedgerRow { id: number; entryDate: string; documentId: number; docNo: string; typeLabel: string; partyName: string; memo: string | null; qty: number; balanceQty: number; amountCents: number | null; balanceAmountCents: number | null }
-export interface StockLedger { rows: StockLedgerRow[]; inQty: number; outQty: number; closingQty: number; closingAmountCents: number | null }
+export interface StockLedgerRow { unit?: string; id: number; entryDate: string; documentId: number; docNo: string; typeLabel: string; partyName: string; memo: string | null; qty: number; balanceQty: number; amountCents: number | null; balanceAmountCents: number | null }
+export interface StockLedger { mixedUnits?: boolean; unit?: string | null; byUnit?: Array<{unit:string;inQty:number;outQty:number;closingQty:number;closingAmountCents:number|null}>; rows: StockLedgerRow[]; inQty: number | null; outQty: number | null; closingQty: number | null; closingAmountCents: number | null }
 export interface StoreFund { storeId: number; name: string; storeNo?: string; platformStoreId?: string; platform?: string; platformLabel?: string; snapshotDate: string; updatedAt?: string | null; withdrawableCents: number; depositCents: number; frozenCents: number; promotionCents: number }
 export interface Overview {
   storeTrend?: Array<{ date: string; salesCents: number; costCents: number | null; profitCents: number | null }>;
@@ -129,7 +129,7 @@ export const financeApi = {
   banks: () => api<BankBalance[]>('/finance/bank-balances'),
   ledger: (id: number, p: { from?: string; to?: string } = {}) => api<Ledger>(`/finance/bank-ledger/${id}${qs(p)}`),
   inventory: (p: { warehouseId?: number; warehouse?: string; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
-  inventoryLedger: (p: { productId: number; warehouseId: number; asOf?: string }) => api<StockLedger>(`/finance/inventory-ledger${qs(p)}`),
+  inventoryLedger: (p: { productId: number; warehouseId: number; asOf?: string; unit?: string }) => api<StockLedger>(`/finance/inventory-ledger${qs(p)}${p.unit===''?'&unit=':''}`),
   partyBalance: (p: { partyKind: string; partyId: number }) => api<PartyBalance>(`/finance/party-balance${qs(p)}`),
   lineHints: (productIds: number[], warehouseId?: number, warehouseName?: string) => api<LineHint[]>(`/finance/line-hints${qs({ productIds: productIds.join(','), warehouseId, warehouseName }, ['warehouseName'])}`),
   syncEmployees: () => api<{ created: number }>('/finance/employee-parties/sync', { method: 'POST', body: {} }),

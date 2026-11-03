@@ -1,3 +1,4 @@
+import { DOC_LINE_UNIT_MAX_LENGTH } from '@kudesi/shared';
 import { FEE_BOOKING_NODES, FEE_BOOKING_NODE_MAP, lineAmount, type DocType, type DocTypeDef } from '@kudesi/shared';
 import { SearchPick, money } from '../common';
 import type { LineHint } from '../financeApi';
@@ -56,7 +57,7 @@ export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints,
                   : <SearchPick ariaLabel={`第${i + 1}行费用项目`} placeholder={amountOnly ? '搜索费用类型' : undefined} type="finance-fee-items" fieldKey="direction" fieldValue={def.feeDirection} value={l.feeItemId} label={l.feeItemName} onChange={(id, name) => onPickFee(i, id, name)} />}
                 {!isFee && rowHint(type, l, l.productId ? hints.get(l.productId) : undefined, priceOf(l.price))}
               </td>
-              {!isFee && <td data-cell="单位"><input aria-label={`第${i + 1}行单位`} maxLength={20} value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} placeholder="单位" /></td>}
+              {!isFee && <td data-cell="单位"><input aria-label={`第${i + 1}行单位`} maxLength={DOC_LINE_UNIT_MAX_LENGTH} value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} placeholder="单位" /></td>}
               {isFee && (
                 <>
                   <td data-cell="挂账节点">

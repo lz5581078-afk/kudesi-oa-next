@@ -1,9 +1,10 @@
+import { INVENTORY_UNIT_SQL } from './finance-inventory-units';
 import { categoryLabelMap } from './category-options';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  cashSettlementAmount, averageUnitCents, querySearchTerms, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
+  cashSettlementAmount, unitOptionFromText, DOC_LINE_UNIT_MAX_LENGTH, averageUnitCents, querySearchTerms, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -187,14 +188,22 @@ export class FinanceDocumentsService {
     };
   }
 
+  private async productLineUnits(em:EntityManager,user:AuthUser,lines:Array<Pick<DocLineInput,'productId'>>){
+    const ids=[...new Set(lines.map(line=>line.productId).filter((id):id is number=>!!id))];
+    if(!ids.length)return new Map<number,string>();
+    const products=await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-products',id:In(ids)}});
+    return new Map(products.map(product=>{const raw=String(product.data.specUnit??'').trim();const unit=raw?(unitOptionFromText(raw)?.label||raw):'件';if(unit.length>DOC_LINE_UNIT_MAX_LENGTH)throw new BadRequestException('商品单位不能超过40字，请先核对商品档案');return[product.id,unit]as const;}));
+  }
+
   private async writeLines(em: EntityManager, user: AuthUser, documentId: number, lines: DocLineInput[]) {
+    const units=await this.productLineUnits(em,user,lines.filter(line=>!line.unit?.trim()));
     await em.delete(FinanceDocumentLine, { documentId, companyId: user.companyId });
     let n = 0;
     for (const l of lines) {
       await em.insert(FinanceDocumentLine, {
         companyId: user.companyId, documentId, lineNo: ++n, productId: l.productId ?? null, feeItemId: l.feeItemId ?? null, qty: l.qty,
         unitPriceCents: l.unitPriceCents, unitCostCents: l.unitCostCents ?? null, memo: l.memo ?? null,
-        relatedNode: l.relatedNode ?? null, relatedId: l.relatedId ?? null, relatedName: l.relatedName?.trim() || null, itemName: l.itemName?.trim() || null, unit: l.unit?.trim() || null,
+        relatedNode: l.relatedNode ?? null, relatedId: l.relatedId ?? null, relatedName: l.relatedName?.trim() || null, itemName: l.itemName?.trim() || null, unit: l.unit?.trim() || (l.productId?units.get(l.productId)??'件':null),
       });
     }
   }
@@ -307,6 +316,7 @@ export class FinanceDocumentsService {
       if (v !== null && v !== undefined && (!Number.isInteger(v) || Math.abs(v) > 99_999_999_999)) throw new BadRequestException('金额必须是以分为单位的整数');
     }
     for (const l of input.lines ?? []) for(const v of [l.unitPriceCents,l.unitCostCents]) if(v!==undefined && v!==null && !validUnitCents(v)) throw new BadRequestException('单价最多支持六位元小数');
+    for (const l of input.lines??[]) if(l.unit!=null&&(typeof l.unit!=='string'||l.unit.trim().length>DOC_LINE_UNIT_MAX_LENGTH))throw new BadRequestException('单位最多40字');
     for (const l of input.lines ?? []) if (!(l.qty > 0) || Math.round(l.qty * 10000) / 10000 !== l.qty) throw new BadRequestException('数量必须大于 0，最多 4 位小数');
     if ((input.lines?.length ?? 0) > 200) throw new BadRequestException('一张单据最多 200 行');
     // 分了账户的收付款：写明的实收实付必须等于各账户金额之和（草稿也不能存矛盾的数字）
@@ -445,6 +455,9 @@ export class FinanceDocumentsService {
       }
       const { doc, lines, accounts, settlements } = await this.load(em, user, id, true);
       if (doc.status !== 'issued') throw new ConflictException('单据状态不对，不能过账');
+      const missingUnits=lines.filter(line=>line.productId&&!line.unit?.trim());
+      const units=await this.productLineUnits(em,user,missingUnits);
+      for(const line of missingUnits){line.unit=units.get(line.productId!)??'件';await em.update(FinanceDocumentLine,{id:line.id,companyId:user.companyId,documentId:id},{unit:line.unit});}
       const input = this.toInput(doc, lines, accounts, settlements);
       const errors = validateDoc(input, 'post');
       if (errors.length) throw new BadRequestException(errors.join('；'));
@@ -534,25 +547,25 @@ export class FinanceDocumentsService {
 
   private async writeEntries(em: EntityManager, user: AuthUser, documentId: number, date: string, entries: Entry[]) {
     for (const e of entries) {
-      await em.insert(FinanceEntry, { companyId: user.companyId, documentId, entryDate: date, kind: e.kind, accountId: e.accountId, subId: e.subId, amountCents: e.amount, qty: e.qty });
+      await em.insert(FinanceEntry, { companyId: user.companyId, documentId, entryDate: date, kind: e.kind, accountId: e.accountId, subId: e.subId, amountCents: e.amount, qty: e.qty, unit:e.kind==='inventory'?e.unit?.trim()||null:null });
     }
   }
 
   /** 过账前检查：库存不能为负；预收/预付冲抵不能超过余额。 */
   private async guard(em: EntityManager, user: AuthUser, entries: Entry[], doc: FinanceDocument) {
-    const stock = new Map<string, { productId: number; wh: number; qty: number }>();
-    for (const e of entries) if (e.kind === 'inventory' && e.qty) {
-      const k = `${e.accountId}:${e.subId}`;
-      const cur = stock.get(k) ?? { productId: e.accountId, wh: e.subId, qty: 0 };
-      cur.qty += e.qty;
-      stock.set(k, cur);
+    const stock=new Map<string,{productId:number;wh:number;qty:number;unit:string}>();
+    for(const entry of entries)if(entry.kind==='inventory'&&entry.qty){
+      const unit=entry.unit?.trim()||'',key=JSON.stringify([entry.accountId,entry.subId,unit]);
+      const item=stock.get(key)??{productId:entry.accountId,wh:entry.subId,qty:0,unit};item.qty+=entry.qty;stock.set(key,item);
     }
-    for (const s of stock.values()) {
-      if (s.qty >= 0) continue;
-      const [row] = await em.query("SELECT COALESCE(SUM(qty), 0) AS q FROM finance_entries WHERE company_id = ? AND kind = 'inventory' AND account_id = ? AND sub_id = ?", [user.companyId, s.productId, s.wh]);
-      if (Number(row.q) + s.qty < -1e-9) {
-        const p = await em.findOne(ResourceRecord, { where: { id: s.productId, companyId: user.companyId } });
-        throw new BadRequestException(`库存不够：「${p?.title ?? s.productId}」现有 ${Number(row.q)}，这张单要出 ${-s.qty}（库存不允许为负）`);
+    for(const item of stock.values()){
+      if(item.qty>=0)continue;
+      const rows:Array<{unit:string;q:string}>=await em.query(`SELECT stockUnit AS unit,SUM(qty) AS q FROM (SELECT e.qty,${INVENTORY_UNIT_SQL} AS stockUnit FROM finance_entries e WHERE e.company_id=? AND e.kind='inventory' AND e.account_id=? AND e.sub_id=?) facts GROUP BY stockUnit`,[user.companyId,item.productId,item.wh]);
+      const quantity=Number(rows.find(row=>row.unit===item.unit)?.q??0);
+      if(quantity+item.qty < -1e-9){
+        const product=await em.findOne(ResourceRecord,{where:{id:item.productId,companyId:user.companyId,type:'finance-products'}});
+        if(item.unit&&Number(rows.find(row=>!row.unit)?.q??0)>0)throw new BadRequestException(`「${product?.title??item.productId}」的部分历史库存未记录单位，不能按「${item.unit}」扣减，请先核对历史库存单位`);
+        throw new BadRequestException(`库存不够：「${product?.title??item.productId}」现有 ${quantity}${item.unit}，这张单要出 ${-item.qty}${item.unit}（库存不允许为负）`);
       }
     }
     for (const [kind, sign, label] of [['advance_receipt', -1, '预收款'], ['prepayment', 1, '预付款']] as const) {
@@ -611,7 +624,9 @@ export class FinanceDocumentsService {
       const used = await em.query("SELECT DISTINCT d.doc_no AS no FROM finance_document_settlements s JOIN finance_documents d ON d.id = s.document_id AND d.company_id = s.company_id WHERE s.company_id = ? AND s.source_document_id = ? AND d.status IN ('issued','posted')", [user.companyId, id]);
       if (used.length) throw new ConflictException(`这张单据已经被 ${used.map((x: { no: string }) => x.no).join('、')} 结算，不能红冲；请先红冲那张收付款单`);
       const original = await em.find(FinanceEntry, { where: { documentId: id, companyId: user.companyId }, order: { id: 'ASC' } });
-      const neg = negateEntries(original.map((e) => ({ kind: e.kind as Entry['kind'], accountId: e.accountId, subId: e.subId, amount: e.amountCents, qty: e.qty })));
+      const unitRows:Array<{id:string;unit:string}>=await em.query(`SELECT e.id,${INVENTORY_UNIT_SQL} AS unit FROM finance_entries e WHERE e.company_id=? AND e.document_id=? AND e.kind='inventory'`,[user.companyId,id]);
+      const originalUnits=new Map(unitRows.map(row=>[String(row.id),row.unit]));
+      const neg=negateEntries(original.map(entry=>({kind:entry.kind as Entry['kind'],accountId:entry.accountId,subId:entry.subId,amount:entry.amountCents,qty:entry.qty,...(entry.kind==='inventory'?{unit:originalUnits.get(String(entry.id))||null}:{})})));
       await this.guard(em, user, neg, doc);
       const def = DOC_TYPE_MAP.get(doc.docType as DocType)!;
       const docNo = await this.nextDocNo(em, user, def.prefix, today());
@@ -1055,9 +1070,9 @@ export class FinanceDocumentsService {
     // 全部状态包括已售空的零库存记录；正常/缺货按四位数量精度分别过滤。
     const having = q.stockStatus === 'normal' ? 'SUM(e.qty) > 0.00005' : q.stockStatus === 'out' ? 'SUM(e.qty) <= 0.00005' : '1 = 1';
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
-      `SELECT e.account_id AS productId, e.sub_id AS warehouseId, p.title AS productName, JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.code')) AS code, JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.specUnit')) AS unit, w.title AS warehouseName, SUM(e.qty) AS qty, SUM(e.amount_cents) AS amount
-       FROM finance_entries e LEFT JOIN resource_records p ON p.id = e.account_id AND p.company_id = e.company_id LEFT JOIN resource_records w ON w.id = e.sub_id AND w.company_id = e.company_id
-       WHERE ${where.join(' AND ')} GROUP BY e.account_id, e.sub_id, p.title, p.data, w.title HAVING ${having} ORDER BY p.title, w.title`, args);
+      `WITH unit_stock AS (SELECT e.*, ${INVENTORY_UNIT_SQL} AS stockUnit FROM finance_entries e WHERE e.company_id=? AND e.kind='inventory') SELECT e.account_id AS productId, e.sub_id AS warehouseId, p.title AS productName, JSON_UNQUOTE(JSON_EXTRACT(p.data, '$.code')) AS code, e.stockUnit AS unit, w.title AS warehouseName, SUM(e.qty) AS qty, SUM(e.amount_cents) AS amount
+       FROM unit_stock e LEFT JOIN resource_records p ON p.id = e.account_id AND p.company_id = e.company_id LEFT JOIN resource_records w ON w.id = e.sub_id AND w.company_id = e.company_id
+       WHERE ${where.join(' AND ')} GROUP BY e.account_id, e.sub_id, p.title, p.data, w.title,e.stockUnit HAVING ${having} ORDER BY p.title, w.title,e.stockUnit`, [user.companyId,...args]);
     return rows.map((r) => {
       const qty = Number(r.qty), amount = Number(r.amount);
       return { productId: r.productId, warehouseId: r.warehouseId, productName: r.productName, code: r.code ?? '', unit: r.unit ?? '', warehouseName: r.warehouseName, qty, avgCostCents: canCost ? averageUnitCents(amount,qty) : null, amountCents: canCost ? amount : null };
@@ -1068,30 +1083,26 @@ export class FinanceDocumentsService {
    * 库存流水：某商品在某仓库的每一笔库存变动（来自已过账单据），带单号、类型、往来对象和滚动结存数量。
    * 对应旧版“采购分批入库可追溯”。没有成本权限的人看不到金额列（服务端置空）。
    */
-  async inventoryLedger(user: AuthUser, q: { productId: number; warehouseId: number; asOf?: string }) {
+  async inventoryLedger(user: AuthUser, q: { productId: number; warehouseId: number; asOf?: string;unit?:string }) {
     this.need(user, 'finance.inventory.view', '没有查看库存的权限');
     const canCost = this.can(user, COST_VIEW);
     const args: unknown[] = [user.companyId, q.productId, q.warehouseId];
-    let dateCond = '';
-    if (q.asOf) { dateCond = ' AND e.entry_date <= ?'; args.push(q.asOf); }
-    const rows: Array<Record<string, unknown>> = await this.dataSource.query(
-      `SELECT e.id, DATE_FORMAT(e.entry_date, '%Y-%m-%d') AS entryDate, e.qty AS qty, e.amount_cents AS amountCents, d.id AS documentId, d.doc_no AS docNo, d.doc_type AS docType, d.status AS status, d.party_id AS partyId, d.memo AS memo
-         FROM finance_entries e JOIN finance_documents d ON d.id = e.document_id AND d.company_id = e.company_id
-        WHERE e.company_id = ? AND e.kind = 'inventory' AND e.account_id = ? AND e.sub_id = ?${dateCond}
-        ORDER BY e.entry_date ASC, e.id ASC`, args);
-    const names = await this.names(this.dataSource.manager, user.companyId, rows.map((r) => r.partyId as number | null));
-    let run = 0, runAmount = 0, inQty = 0, outQty = 0;
-    const list = rows.map((r) => {
-      const qty = Number(r.qty ?? 0), amt = Number(r.amountCents);
-      run = Math.round((run + qty) * 10000) / 10000; runAmount += amt;
-      if (qty > 0) inQty += qty; else outQty += -qty;
-      return {
-        id: Number(r.id), entryDate: r.entryDate, documentId: Number(r.documentId), docNo: r.docNo, typeLabel: DOC_TYPE_MAP.get(r.docType as DocType)?.label ?? r.docType,
-        partyName: r.partyId ? names.get(Number(r.partyId)) ?? '' : '', memo: r.memo ?? null, qty, balanceQty: run,
-        amountCents: canCost ? amt : null, balanceAmountCents: canCost ? runAmount : null,
-      };
+    let dateCond='';
+    if(q.asOf){dateCond=' AND e.entry_date <= ?';args.push(q.asOf);}
+    const unitCond=q.unit===undefined?'':` AND ${INVENTORY_UNIT_SQL}=?`;if(q.unit!==undefined)args.push(q.unit);
+    const rows:Array<Record<string,unknown>>=await this.dataSource.query(`SELECT e.id,${INVENTORY_UNIT_SQL} AS unit,DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS entryDate,e.qty,e.amount_cents AS amountCents,d.id AS documentId,d.doc_no AS docNo,d.doc_type AS docType,d.party_id AS partyId,d.memo
+      FROM finance_entries e JOIN finance_documents d ON d.id=e.document_id AND d.company_id=e.company_id
+      WHERE e.company_id=? AND e.kind='inventory' AND e.account_id=? AND e.sub_id=?${dateCond}${unitCond} ORDER BY e.entry_date,e.id`,args);
+    const names=await this.names(this.dataSource.manager,user.companyId,rows.map(row=>row.partyId as number|null));
+    const groups=new Map<string,{unit:string;inQty:number;outQty:number;closingQty:number;amount:number}>();
+    const round=(qty:number)=>Math.round(qty*10000)/10000;
+    const list=rows.map(row=>{
+      const unit=String(row.unit??''),qty=Number(row.qty??0),amount=Number(row.amountCents);
+      const group=groups.get(unit)??{unit,inQty:0,outQty:0,closingQty:0,amount:0};group.closingQty=round(group.closingQty+qty);group.amount+=amount;if(qty>0)group.inQty=round(group.inQty+qty);else group.outQty=round(group.outQty-qty);groups.set(unit,group);
+      return{id:Number(row.id),entryDate:row.entryDate,documentId:Number(row.documentId),docNo:row.docNo,typeLabel:DOC_TYPE_MAP.get(row.docType as DocType)?.label??row.docType,partyName:row.partyId?names.get(Number(row.partyId))??'':'',memo:row.memo??null,unit,qty,balanceQty:group.closingQty,amountCents:canCost?amount:null,balanceAmountCents:canCost?group.amount:null};
     });
-    return { rows: list, inQty: Math.round(inQty * 10000) / 10000, outQty: Math.round(outQty * 10000) / 10000, closingQty: run, closingAmountCents: canCost ? runAmount : null };
+    const byUnit=[...groups.values()].map(({amount,...group})=>({...group,closingAmountCents:canCost?amount:null})),single=byUnit.length<=1,only=byUnit[0];
+    return{rows:list,byUnit,mixedUnits:!single,unit:single?only?.unit??null:null,inQty:single?only?.inQty??0:null,outQty:single?only?.outQty??0:null,closingQty:single?only?.closingQty??0:null,closingAmountCents:canCost?[...groups.values()].reduce((sum,group)=>sum+group.amount,0):null};
   }
 
   /** 财务经营：month 传 YYYY-MM 看当月，传 'all' 看全部时间（趋势按月汇总，其余合计全部） */

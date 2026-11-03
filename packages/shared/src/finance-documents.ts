@@ -1,4 +1,5 @@
 import { validUnitCents, settledLineCents } from './unit-price';
+export const DOC_LINE_UNIT_MAX_LENGTH = 40;
 
 /** 已有预付款的原凭证选择约束；其他资料上传保持各自规则。 */
 export const OPENING_PREPAYMENT_VOUCHERS = { maxFiles: 12, maxBytes: 2 * 1024 * 1024, mimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'] } as const;
@@ -243,6 +244,8 @@ export interface Entry {
   amount: number;
   /** 库存数量变化（入库正、出库负） */
   qty: number | null;
+  /** 库存数量所属的历史单位；非库存分录不使用。 */
+  unit?: string | null;
 }
 
 export const lineAmount = (l: Pick<DocLineInput, 'qty' | 'unitPriceCents'>): number => { try { return settledLineCents(l.unitPriceCents, l.qty); } catch { return NaN; } };
@@ -439,7 +442,7 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
   const paid = effectivePaid(def, input, total);
   const cash = cashSettlementAmount(def, input, total);
   if (def.lines === 'fee' && !partyId && (total - paid - offset > 0 || offset > 0)) throw new Error('PARTY_ACCOUNT_REQUIRED');
-  const e = (kind: AccountKind, accountId: number, amount: number, qty: number | null = null, subId = 0): Entry => ({ kind, accountId, subId, amount, qty });
+  const e = (kind: AccountKind, accountId: number, amount: number, qty: number | null = null, subId = 0, unit?: string | null): Entry => ({ kind, accountId, subId, amount, qty, ...(kind==='inventory'&&unit?{unit}:{}) });
   const out: Entry[] = [];
   // 分账户收付款：每个账户一条银行分录；没分账户就是单账户（bankAccountId）
   const split = def.bank !== 'transfer' && payRole(def) && input.accounts?.length ? input.accounts : null;
@@ -450,21 +453,21 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
     const productId = l.productId as number;
     const unit = l.unitCostCents ?? costOf(productId);
     if (unit === null || unit === undefined) throw new Error('COST_MISSING');
-    return { productId, qty: l.qty, cost: settledLineCents(unit, l.qty) };
+    return { productId, qty: l.qty, unit:l.unit, cost: settledLineCents(unit, l.qty) };
   });
 
   switch (input.type) {
     case 'sale':
     case 'online-sale':
       out.push(e('receivable', partyId, total), e('revenue', 0, -total));
-      for (const s of stockLines()) out.push(e('cogs', s.productId, s.cost), e('inventory', s.productId, -s.cost, -s.qty, wh));
+      for (const s of stockLines()) out.push(e('cogs', s.productId, s.cost), e('inventory', s.productId, -s.cost, -s.qty, wh, s.unit));
       // 当场收到的钱、用预收款结算的部分，从应收里减掉；剩下的就是欠款
       if (paid) out.push(...bankLegs(1, paid), e('receivable', partyId, -paid));
       if (offset) out.push(e('advance_receipt', partyId, offset), e('receivable', partyId, -offset));
       break;
     case 'sale-return':
       out.push(e('revenue', 0, total), e('receivable', partyId, -total));
-      for (const s of stockLines()) out.push(e('inventory', s.productId, s.cost, s.qty, wh), e('cogs', s.productId, -s.cost));
+      for (const s of stockLines()) out.push(e('inventory', s.productId, s.cost, s.qty, wh, s.unit), e('cogs', s.productId, -s.cost));
       // 当场退出去的钱：把冲掉的应收再挂回来
       if (paid) out.push(e('receivable', partyId, paid), ...bankLegs(-1, paid));
       break;
@@ -496,7 +499,7 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
     case 'purchase-in': {
       // 整单优惠摊进每行入库成本
       const cut = allocateDiscount((input.lines ?? []).map(lineAmount), input.discountCents ?? 0);
-      (input.lines ?? []).forEach((l, i) => out.push(e('inventory', l.productId as number, lineAmount(l) - cut[i], l.qty, wh)));
+      (input.lines ?? []).forEach((l, i) => out.push(e('inventory', l.productId as number, lineAmount(l) - cut[i], l.qty, wh, l.unit)));
       out.push(e('payable', partyId, -(total - offset)));
       if (offset) out.push(e('prepayment', partyId, -offset));
       if (paid) out.push(e('payable', partyId, paid), ...bankLegs(-1, paid));
@@ -505,7 +508,7 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
     case 'purchase-return': {
       out.push(e('payable', partyId, total));
       const cut = allocateDiscount((input.lines ?? []).map(lineAmount), input.discountCents ?? 0);
-      (input.lines ?? []).forEach((l, i) => out.push(e('inventory', l.productId as number, -(lineAmount(l) - cut[i]), -l.qty, wh)));
+      (input.lines ?? []).forEach((l, i) => out.push(e('inventory', l.productId as number, -(lineAmount(l) - cut[i]), -l.qty, wh, l.unit)));
       if (paid) out.push(...bankLegs(1, paid), e('payable', partyId, -paid));
       break;
     }

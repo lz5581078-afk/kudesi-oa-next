@@ -40,3 +40,13 @@ it('库存平均报价由整数分总额定点相除，保留6位元精度及负
  expect(averageUnitCents(0,3)).toBe(0);expect(averageUnitCents(100,0)).toBeNull();expect(averageUnitCents(100,-1)).toBeNull();
  expect(()=>averageUnitCents(0.1,1)).toThrow();expect(()=>averageUnitCents(100,0.00001)).toThrow();
 });
+
+it('库存分录和红冲保留明细的自由单位，金额科目不携带库存单位',async()=>{
+  const {buildEntries,negateEntries}=await import('./finance-documents');
+  for(const type of ['sale','online-sale','sale-return','purchase-in','purchase-return'] as const){
+    const entries=buildEntries({type,date:'2026-11-03',partyId:1,storeId:1,warehouseId:1,lines:[{productId:1,unit:'原计价单位',qty:2,unitPriceCents:1000,unitCostCents:500}]},()=>500);
+    expect(entries.find(entry=>entry.kind==='inventory')?.unit).toBe('原计价单位');
+    expect(negateEntries(entries).find(entry=>entry.kind==='inventory')?.unit).toBe('原计价单位');
+    expect(entries.filter(entry=>entry.kind!=='inventory').every(entry=>entry.unit===undefined)).toBe(true);
+  }
+});

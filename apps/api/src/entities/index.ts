@@ -691,7 +691,7 @@ export class FinanceDocumentLine {
   @Column({ name: 'related_id', type: 'int', unsigned: true, nullable: true }) relatedId!: number | null;
   @Column({ name: 'related_name', type: 'varchar', length: 100, nullable: true }) relatedName!: string | null;
   @Column({ name: 'item_name', type: 'varchar', length: 100, nullable: true }) itemName!: string | null;
-  @Column({ type: 'varchar', length: 20, nullable: true }) unit!: string | null;
+  @Column({ type: 'varchar', length: 40, nullable: true }) unit!: string | null;
 }
 
 @Entity('finance_document_accounts')
@@ -831,6 +831,7 @@ export class FinanceEntry {
   @Column({ name: 'sub_id', type: 'int', unsigned: true, default: 0 }) subId!: number;
   @Column({ name: 'amount_cents', type: 'bigint', transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) amountCents!: number;
   @Column({ type: 'decimal', precision: 18, scale: 4, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) qty!: number | null;
+  @Column({type:'varchar',length:40,nullable:true}) unit!:string|null;
 }
 
 @Entity('finance_document_events')
