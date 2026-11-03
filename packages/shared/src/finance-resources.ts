@@ -25,7 +25,7 @@ export const PACKAGING_CATEGORY_OPTIONS = o('bag:袋', 'bottle:瓶', 'box:盒', 
 export const DIMENSION_UNIT_OPTIONS = o('mm:毫米', 'cm:厘米', 'm:米');
 
 /** 商品单位与规格列表的种类（旧系统：名称单位/规格单位、产品包装单位、发货物料规格单位、系统规格、包装类别、尺寸单位） */
-export const PRODUCT_UNIT_KINDS = o('spec_unit:规格单位', 'packaging_unit:产品包装单位', 'shipping_unit:发货物料规格单位', 'system_spec:系统规格', 'packaging_category:包装类别', 'dimension_unit:尺寸单位', 'archive_type:自定义档案类型');
+export const PRODUCT_UNIT_KINDS = o('spec_unit:规格单位', 'packaging_unit:产品包装单位', 'shipping_unit:发货物料规格单位', 'system_spec:系统规格', 'shipping_system_spec:发货物料系统规格', 'packaging_category:包装类别', 'dimension_unit:尺寸单位', 'archive_type:自定义档案类型');
 /** 这几种有“编码”（商品里存编码、显示名称）；系统规格只有名称，商品里存名称 */
 export const PRODUCT_UNIT_CODED_KINDS = ['spec_unit', 'packaging_unit', 'shipping_unit', 'packaging_category', 'dimension_unit', 'archive_type'] as const;
 /** 新公司和“导入默认项”用的预置：[种类, 名称, 编码] */
@@ -34,6 +34,7 @@ export const PRODUCT_UNIT_SEEDS: ReadonlyArray<readonly [string, string, string]
   ...PACKAGING_CATEGORY_OPTIONS.map((u) => ['packaging_category', u.label, u.value] as const),
   ...DIMENSION_UNIT_OPTIONS.map((u) => ['dimension_unit', u.label, u.value] as const),
   ...['斤', '千克', '克'].map((n) => ['system_spec', n, ''] as const),
+  ...['个', '卷', '张', '米', '厘米'].map((n) => ['shipping_system_spec', n, ''] as const),
 ];
 
 export const ARCHIVE_TYPES = o('raw:原料档案', 'self_made:自产成品档案', 'purchased:外购成品档案', 'package:产品包装档案', 'shipping_material:发货物料档案', 'oem_package:OEM包装档案');

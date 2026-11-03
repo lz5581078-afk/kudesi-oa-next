@@ -130,6 +130,17 @@ describe('金额单部分到账与退货冲欠款', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({ settlementMode: 'part', paidCents: 300, lines: [expect.objectContaining({ unitPriceCents: 1000 })] })));
   });
+  it('新单自动填入0.00不拦截离开，真实输入金额或冲抵后才提示未保存', async () => {
+    render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
+    await waitFor(() => expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('0.00'));
+    const clean = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+    fireEvent.change(screen.getByLabelText('冲抵金额'), { target: { value: '1.00' } });
+    const dirty = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+  });
   it('旧金额草稿 paid 为零但没有模式时，按原本的全额收付加载', () => {
     const doc = { id: 14, docNo: 'SK14', docType: 'receipt', status: 'draft', docDate: '2026-10-24', amountCents: 1000, paidCents: 0, accounts: [], lines: [{ itemName: '客户回款', qty: 1, unitPriceCents: 1000 }], events: [], entries: [] } as unknown as DocDetailDto;
     render(<DocForm type="receipt" doc={doc} inline onSaved={vi.fn()} />);

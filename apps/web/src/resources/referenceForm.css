@@ -41,3 +41,14 @@
 .reference-archive-code{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.reference-archive-code>input{flex:1;min-width:0}.reference-archive-code>small{flex-basis:100%}.supplier-category-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.supplier-category-choice-grid>label{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #dce5e5;border-radius:8px;background:#fff;font-size:12px}.supplier-category-choice-grid>label.is-selected{border-color:#9bcbb9;background:#edf9f4}.supplier-category-choice-grid input{width:16px!important;height:16px!important;accent-color:#059669}.supplier-category-choice-grid span{flex:1}@media(max-width:600px){.supplier-category-choice-grid{grid-template-columns:1fr}}
 
 .fee-booking-node-buttons{display:flex;flex-wrap:wrap;gap:7px}.fee-booking-node-buttons>button{padding:6px 12px;border:1px solid #dce5e5;border-radius:18px;background:#fff;color:#263946;font-weight:600;font-size:12px}.fee-booking-node-buttons>button[aria-pressed=true]{border-color:#73b69b;background:#eaf8f1;color:#126f4e}
+
+/* 发货物料来源：供应商/产区、系统规格/采购价分别成行。 */
+.modal.rf.rf-reference.reference-shipping_material{width:min(940px,calc(100vw - 16px))}
+.reference-source-grid.has-system-spec{grid-template-columns:repeat(2,minmax(0,1fr))}
+.reference-sources .reference-source .reference-source-grid>label{flex-direction:row;align-content:flex-start;align-items:center}
+.reference-source-grid .finance-supplier-control{width:100%}
+.reference-source-grid .reference-source-unit{margin-left:auto;padding:1px 5px;border-radius:3px;background:#f0f4f8;color:#65758a;font-size:11px}
+@media(max-width:650px){.reference-source-grid.has-system-spec{grid-template-columns:1fr}}
+
+.reference-source.is-latest{border-left:3px solid #18886b;background:#f5faf8}
+.reference-source>header{margin:-14px -14px 14px;padding:10px 14px;border-bottom:1px solid #dce5ed}

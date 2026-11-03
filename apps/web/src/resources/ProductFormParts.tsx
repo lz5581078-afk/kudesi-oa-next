@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
-import { sourcePriceTime, type FieldDef } from '@kudesi/shared';
+import { PRODUCT_UNIT_SEEDS, sourcePriceTime, type FieldDef } from '@kudesi/shared';
 import { MoneyControl, RefSelect } from './RecordForm';
 import { resourceApi } from './api';
 import { FieldHint } from './FieldHint';
 import { FinanceSupplierPicker } from './FinanceSupplierPicker';
+import { fieldOptions, useUnitOptions } from './unitOptions';
+import { ManageLink } from './ManageLink';
 
 /** 供货来源行（原料、发货物料）：同一个组件用于新增和编辑，保存档案后按差异落库。 */
 export interface SourceRow { rowId?: number; supplierId: number | null; originArea: string; systemSpec: string; purchasePrice: unknown; note?: string; stopped?: boolean; priceUpdatedAt?: string; updatedAt?: string; supplierLabel?: string }
 
 const SUPPLIER: FieldDef = { key: 'supplierId', label: '供应商', type: 'ref', group: '基础', ref: 'finance-suppliers' };
+const SOURCE_SPEC: FieldDef = { key: 'systemSpec', label: '系统规格', type: 'select', group: '基础', optionsFrom: { resource: 'finance-product-units', kind: 'shipping_system_spec' }, options: PRODUCT_UNIT_SEEDS.filter(([kind]) => kind === 'shipping_system_spec').map(([, name]) => ({ value: name, label: name })) };
 export const blankSource = (): SourceRow => ({ supplierId: null, originArea: '', systemSpec: '', purchasePrice: '', priceUpdatedAt: new Date().toISOString() });
 
 export async function loadSourceRows(productId: number): Promise<SourceRow[]> {
@@ -48,13 +51,16 @@ export function latestSource(rows: SourceRow[]): SourceRow | undefined {
   return rows.filter(row => !row.stopped).reduce<SourceRow | undefined>((latest,row) => !latest || sourcePriceTime(row.priceUpdatedAt,row.updatedAt) > sourcePriceTime(latest.priceUpdatedAt,latest.updatedAt) || sourcePriceTime(row.priceUpdatedAt,row.updatedAt) === sourcePriceTime(latest.priceUpdatedAt,latest.updatedAt) && (row.rowId ?? 0) >= (latest.rowId ?? 0) ? row : latest, undefined);
 }
 
-export function SourcesDraft({ rows, onChange, canCost, needSpec, error, reference = false }: { rows: SourceRow[]; onChange: (r: SourceRow[]) => void; canCost: boolean; needSpec: boolean; error?: string; reference?: boolean }) {
+export function SourcesDraft({ rows, onChange, canCost, needSpec, error, reference = false, pricingUnit }: { pricingUnit?: string; rows: SourceRow[]; onChange: (r: SourceRow[]) => void; canCost: boolean; needSpec: boolean; error?: string; reference?: boolean }) {
+  const units = useUnitOptions();
+  const specs = fieldOptions(SOURCE_SPEC, {}, units);
+  const specSelect = (row: SourceRow, change: (value: string) => void) => <select aria-label="来源系统规格" value={row.systemSpec} onChange={e => change(e.target.value)}><option value="">请选择系统规格</option>{row.systemSpec && !specs.some(option => option.value === row.systemSpec) && <option value={row.systemSpec}>{row.systemSpec}</option>}{specs.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;
   const set = (i: number, patch: Partial<SourceRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch, ...("purchasePrice" in patch && patch.purchasePrice !== r.purchasePrice ? { priceUpdatedAt: new Date().toISOString() } : {}) } : r)));
   if (reference) {
     const shown = rows.length ? rows : [blankSource()];
     const change = (i: number, patch: Partial<SourceRow>) => onChange(shown.map((r,k) => k === i ? {...r,...patch,...('purchasePrice' in patch && patch.purchasePrice !== r.purchasePrice ? {priceUpdatedAt:new Date().toISOString()} : {})} : r));
     const latest = latestSource(shown);
-    return <div className="reference-sources" data-field="supplySources"><div className="reference-lines-actions"><button type="button" className="secondary-button small" onClick={() => onChange([...rows,blankSource()])}>＋ 添加供货来源</button></div>{shown.map((r,i) => <section key={r.rowId ?? i} className="reference-source"><header><strong>来源 {String(i + 1).padStart(2,'0')}</strong>{r === latest && <span>当前最新成本</span>}{rows.length > 1 && <button type="button" className="link-button danger" onClick={() => onChange(rows.filter((_,k)=>k!==i))}>去掉</button>}</header><div className="reference-source-grid"><label>供应商名称 <b className="req">必填</b><FinanceSupplierPicker labelNow={r.supplierLabel} value={r.supplierId} onChange={v=>change(i,{supplierId:v})}/></label><label>产区 <b className="req">必填</b><input aria-label="产区" maxLength={80} value={r.originArea} onChange={e=>change(i,{originArea:e.target.value})}/></label>{needSpec && <label>系统规格 <b className="req">必填</b><input aria-label="来源系统规格" maxLength={30} value={r.systemSpec} onChange={e=>change(i,{systemSpec:e.target.value})}/></label>}{canCost && <label>采购价 <b className="req">必填</b><MoneyControl ariaLabel="来源采购价" value={r.purchasePrice} scale={4} onChange={v=>change(i,{purchasePrice:v})}/></label>}</div></section>)}{error && <small className="field-error" role="alert">{error}</small>}</div>;
+    return <div className="reference-sources" data-field="supplySources"><div className="reference-lines-actions"><button type="button" className="secondary-button small" onClick={() => onChange([...rows,blankSource()])}>＋ 添加供货来源</button></div>{shown.map((r,i) => <section key={r.rowId ?? i} className={`reference-source${r === latest ? ' is-latest' : ''}`}><header><strong>来源 {String(i + 1).padStart(2,'0')}</strong>{r === latest && <span>当前最新成本</span>}{rows.length > 1 && <button type="button" className="link-button danger" onClick={() => onChange(rows.filter((_,k)=>k!==i))}>去掉</button>}</header><div className={`reference-source-grid${needSpec ? ' has-system-spec' : ''}`}><label>供应商名称 <b className="req">必填</b><FinanceSupplierPicker labelNow={r.supplierLabel} value={r.supplierId} onChange={v=>change(i,{supplierId:v})}/></label><label>产区 <b className="req">必填</b><input aria-label="产区" maxLength={80} value={r.originArea} onChange={e=>change(i,{originArea:e.target.value})}/></label>{needSpec && <label>系统规格 <b className="req">必填</b><ManageLink field={SOURCE_SPEC} inPlace onChoose={value => change(i, { systemSpec: String(value) })} />{specSelect(r, value => change(i, { systemSpec: value }))}</label>}{canCost && <label>采购价 <b className="req">必填</b><small className="reference-source-unit">元/{needSpec ? r.systemSpec : pricingUnit}</small><MoneyControl ariaLabel="来源采购价" value={r.purchasePrice} scale={4} onChange={v=>change(i,{purchasePrice:v})}/></label>}</div></section>)}{error && <small className="field-error" role="alert">{error}</small>}</div>;
   }
   return (
     <div className="rf-rows" data-field="supplySources">
@@ -66,7 +72,7 @@ export function SourcesDraft({ rows, onChange, canCost, needSpec, error, referen
               <tr key={r.rowId ?? `n${i}`}>
                 <td data-label="供应商"><RefSelect field={SUPPLIER} value={r.supplierId} onChange={(v) => set(i, { supplierId: v })} /></td>
                 <td data-label="产区"><input aria-label="产区" maxLength={80} value={r.originArea} onChange={(e) => set(i, { originArea: e.target.value })} /></td>
-                {needSpec && <td data-label="系统规格"><input aria-label="来源系统规格" maxLength={30} value={r.systemSpec} onChange={(e) => set(i, { systemSpec: e.target.value })} /></td>}
+                {needSpec && <td data-label="系统规格">{specSelect(r, value => set(i, { systemSpec: value }))}</td>}
                 {canCost && <td data-label="采购价"><MoneyControl ariaLabel="来源采购价" value={r.purchasePrice} scale={4} onChange={(v) => set(i, { purchasePrice: v })} /></td>}
                 <td><button type="button" className="link-button" onClick={() => onChange(rows.filter((_, k) => k !== i))}>去掉</button></td>
               </tr>

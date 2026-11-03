@@ -217,7 +217,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
     }
     setAlloc(next);
   };
-  const dirty = !doc && !!(party.id || memo || paid || discount || moneyLines.some((l) => l.item || l.amount) || docNo || lines.some((l) => l.productId || l.feeItemId || l.price) || outs.length || ins.length || multi.length || fee || inTransit);
+  const dirty = !doc && !!(party.id || memo || paid.trim() && Number(paid) !== 0 || discount || offset.trim() && Number(offset) !== 0 || moneyLines.some((l) => l.item || l.amount) || docNo || lines.some((l) => l.productId || l.feeItemId || l.price) || outs.length || ins.length || multi.length || fee || inTransit);
   useUnsavedWarning(!!inline && dirty);
   const goodsLines = lines.filter((l) => l.productId);
   const qtyTotal = goodsLines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0);

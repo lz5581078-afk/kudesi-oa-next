@@ -387,12 +387,14 @@ async function beforeSource(ctx: BeforeSaveContext) {
   if (!['raw', 'shipping_material'].includes(str(p.data.archiveType))) throw new BadRequestException('只有原料和发货物料才有供货来源');
   const sup = await rec(em, user.companyId, 'finance-suppliers', data.supplierId);
   if (!sup) throw new BadRequestException('请选择供应商');
-  if (p.data.archiveType === 'raw' && !str(data.originArea).trim()) throw new BadRequestException('原料的供货来源要填产区');
+  if ((p.data.archiveType === 'raw' || p.data.archiveType === 'shipping_material' && !em.queryRunner?.data.legacyImport) && !str(data.originArea).trim()) throw new BadRequestException('供货来源要填产区');
+  if (p.data.archiveType === 'shipping_material' && !ctx.existing && !str(data.systemSpec).trim() && !em.queryRunner?.data.legacyImport) throw new BadRequestException('发货物料的供货来源要选择系统规格');
   if (!str(data.systemSpec).trim() && p.data.purchaseSpec) data.systemSpec = p.data.purchaseSpec;
   if (data.purchasePrice !== undefined && (num(data.purchasePrice) ?? -1) < 0) throw new BadRequestException('采购价不能是负数');
   data.priceUpdatedAt = !ctx.existing || data.purchasePrice !== ctx.existing.data.purchasePrice
     ? new Date().toISOString()
     : ctx.existing.data.priceUpdatedAt || ctx.existing.updatedAt.toISOString();
+  if (p.data.archiveType === 'shipping_material' && !str(data.systemSpec).trim() && !em.queryRunner?.data.legacyImport) throw new BadRequestException('发货物料的供货来源要选择系统规格');
   data.label = `${p.title} ← ${sup.title}${str(data.originArea) ? `（${str(data.originArea)}）` : ''}`.slice(0, 200);
 }
 
@@ -1194,6 +1196,7 @@ export async function refreshFromSources(host: RuleHost, em: EntityManager, user
   const price = cur ? num(cur.data.purchasePrice) : null;
   const f = num(p.data.freight), h = num(p.data.handlingFee);
   const patch: Data = { purchasePrice: price, supplierId: cur ? cur.data.supplierId : null, totalCost: price !== null && f !== null && h !== null ? sumUnitCents([price,f,h]) : null };
+  if (p.data.archiveType === 'shipping_material' && cur?.data.systemSpec) patch.purchaseSpec = cur.data.systemSpec;
   await host.patchData(em, user, 'finance-products', productId, patch, '供货来源变化，更新当前采购价');
   if (cur && price !== null) await syncAutoCost(host, em, user, productId, { sourceType: 'raw_supply_source', unitCost: price, unitName: str(cur.data.systemSpec) || str(p.data.purchaseSpec) || specUnitText(p.data), sourceRef: cur.title, calculationMethod: '取最新启用的供货来源采购价' });
 }

@@ -73,6 +73,8 @@ export async function beforeUnit(ctx: BeforeSaveContext) {
 export async function beforeUnitDelete(ctx: { em: EntityManager; user: { companyId: number }; record: ResourceRecord }) {
   const kind = str(ctx.record.data.kind);
   const coded = (PRODUCT_UNIT_CODED_KINDS as readonly string[]).includes(kind);
+  // 系统规格只存名称：删除维护项不修改历史商品。带编码的单位仍保护引用。
+  if (!coded) return;
   const value = coded ? str(ctx.record.data.code) : str(ctx.record.data.name);
   const n = await productsUsingUnit(ctx.em, ctx.user.companyId, kind, value);
   if (n > 0) throw new BadRequestException(`已被 ${n} 条商品档案或组合构成引用，不能删除；可以改为停用`);

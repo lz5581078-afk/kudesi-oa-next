@@ -80,6 +80,37 @@ d('财务资料（真实数据库）', () => {
     await expect(svc.update({ ...boss, companyId: 999999999 }, 'finance-product-sources', a.id, { purchasePrice: 999 })).rejects.toThrow();
   });
 
+  it('发货物料来源系统规格独立维护，随当前报价传到档案及成本，且删除维护项不改历史来源', async () => {
+    const category = await svc.create(boss, 'finance-categories', { archiveType: 'shipping_material', name: '来源计量测试类', code: 'JLDW' });
+    const product = await svc.create(boss, 'finance-products', { archiveType: 'shipping_material', name: '计量测试胶带', categoryId: category.id, specQty: 1, specUnit: 'EA', weightG: 10, freight: 5, handlingFee: 1 });
+    const supplier = await svc.create(boss, 'finance-suppliers', { name: '物料计量测试商' });
+    const unitA = await svc.create(boss, 'finance-product-units', { kind: 'shipping_system_spec', name: '合成卷' });
+    const unitB = await svc.create(boss, 'finance-product-units', { kind: 'shipping_system_spec', name: '合成张' });
+    await expect(svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, purchasePrice: 100, systemSpec: '合成卷' })).rejects.toThrow(/产区/);
+    await expect(svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '山东', purchasePrice: 100 })).rejects.toThrow(/系统规格/);
+    const a = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '山东', purchasePrice: 100, systemSpec: '合成卷' });
+    const b = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '浙江', purchasePrice: 200, systemSpec: '合成张' });
+    for (const [id, priceUpdatedAt] of [[a.id, '2020-01-01T00:00:00Z'], [b.id, '2021-01-01T00:00:00Z']] as const) {
+      const record = await ds.manager.findOneByOrFail(ResourceRecord, { id });
+      await ds.manager.update(ResourceRecord, { id }, { data: { ...record.data, priceUpdatedAt } });
+    }
+    await svc.update(boss, 'finance-product-sources', a.id, { originArea: '产区修正' });
+    expect((await svc.get(boss, 'finance-products', product.id)).data).toMatchObject({ purchasePrice: 200, purchaseSpec: '合成张', totalCost: 206 });
+    await svc.update(boss, 'finance-product-sources', a.id, { purchasePrice: 150 });
+    expect((await svc.get(boss, 'finance-products', product.id)).data).toMatchObject({ purchasePrice: 150, purchaseSpec: '合成卷', totalCost: 156 });
+    const costs = await svc.list(boss, 'finance-product-costs', { fieldKey: 'productId', fieldValue: String(product.id) });
+    expect(costs.items.some(row => row.data.sourceType === 'raw_supply_source' && row.data.unitName === '合成卷')).toBe(true);
+    // 原系统规格管理删除名称，不更改已经使用该名称的历史资料。
+    await svc.remove(boss, 'finance-product-units', unitB.id, '删除维护名称');
+    expect((await svc.get(boss, 'finance-product-sources', b.id)).data.systemSpec).toBe('合成张');
+    expect((await svc.get(boss, 'finance-products', product.id)).data.purchaseSpec).toBe('合成卷');
+    const rawUnit = await svc.create(boss, 'finance-product-units', { kind: 'system_spec', name: '合成原料规格' });
+    const raw = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '规格删除测试原料', categoryId: ids.leaf, purchaseSpec: '合成原料规格', specQty: 1, specUnit: 'KG', weightManual: true, weightG: 10, freight: 1, handlingFee: 1 });
+    await svc.remove(boss, 'finance-product-units', rawUnit.id, '删除维护项保留历史');
+    expect((await svc.get(boss, 'finance-products', raw.id)).data.purchaseSpec).toBe('合成原料规格');
+    expect(unitA.data.code).toBeUndefined();
+  });
+
   it('分类：编码规范、自动沿用上级类型、最多 4 级、不能给有商品的分类加下级', async () => {
     await expect(svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '坏码', code: 'a-b' })).rejects.toThrow(/分类码/);
     const child = await svc.get(boss, 'finance-categories', ids.leaf);
