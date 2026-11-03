@@ -1,5 +1,6 @@
 import { StaffFeishuBadge, StaffTestNoticeDialog } from './StaffFeishu';
 import { StaffFeishuResetDialog } from './StaffFeishuReset';
+import { StaffFeishuUnbindDialog } from './StaffFeishuUnbind';
 import { StaffDialog } from './StaffDialog';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { createChecker, type CatalogGroup } from '@kudesi/shared';
@@ -143,6 +144,7 @@ export function StaffPage() {
   const [bindingFilter,setBindingFilter]=useState('');
   const [testStaff,setTestStaff]=useState<StaffDto|null>(null);
   const [resetFeishu,setResetFeishu]=useState(false);
+  const [unbindStaff,setUnbindStaff]=useState<StaffDto|null>(null);
   const [keyword, setKeyword] = useState('');
   const [showDisabled, setShowDisabled] = useState(false);
   const [onlyNoPosition, setOnlyNoPosition] = useState(false);
@@ -224,6 +226,7 @@ export function StaffPage() {
       {feishuError&&<div role="alert" className="notice error">{feishuError}</div>}
       {testStaff&&<StaffTestNoticeDialog key={testStaff.id} staff={testStaff} status={feishu.get(testStaff.id)} onClose={()=>setTestStaff(null)}/>}
       {resetFeishu&&<StaffFeishuResetDialog onClose={()=>setResetFeishu(false)}/>}
+      {unbindStaff&&<StaffFeishuUnbindDialog key={unbindStaff.id} staff={unbindStaff} onClose={()=>setUnbindStaff(null)} onDone={async()=>{await reloadFeishu();setUnbindStaff(null);}}/>}
       {error && <div role="alert" className="notice error">{error}</div>}
       <div className="card">
         <div className="toolbar">
@@ -268,6 +271,7 @@ export function StaffPage() {
                     <span className="row-actions">
                       {can('org.staff.edit') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'edit', staff: s })}>编辑</button>}
                       {can('org.staff.edit')&&<button type="button" className="link-button" onClick={()=>setTestStaff(s)}>发送飞书通知</button>}
+                      {user?.permissions.isCompanyAdmin&&<button type="button" className="link-button danger-text" onClick={()=>setUnbindStaff(s)}>解绑飞书</button>}
                       {can('org.staff.view') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'records', staff: s })}>人员记录</button>}
                       {can('org.staff.edit') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'perm', staff: s })}>个人权限</button>}
                       {can('org.staff.reset') && <button type="button" className="link-button" onClick={() => setDialog({ kind: 'reset', staff: s })}>重置密码</button>}
