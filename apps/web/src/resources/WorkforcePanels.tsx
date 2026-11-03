@@ -119,7 +119,7 @@ export function WorkforceAccountNote() {
   return (
     <p className="muted" aria-label="账号与岗位说明">
       账号、部门、岗位、直属上级取自员工当前资料，这里不能改。用工类型和合作期限也可在员工编辑中修改；转为正式员工的原档案保留在“已归档”中。
-      {path && can('resource.employees.view') && <> <Link className="link-button" to={path}>到人员档案修改</Link></>}
+      {path && can('org.staff.view') && <> <Link className="link-button" to={path}>到人员档案修改</Link></>}
     </p>
   );
 }
