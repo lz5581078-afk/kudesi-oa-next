@@ -829,12 +829,78 @@ d('直播管理（真实数据库）', () => {
       refunds:async(_c:number,_shop:string,orders:Array<{orderId:string}>)=>{seen.push(orders.map(o=>o.orderId));return new Map([['NEW',{cents:2000,source:'refund',details:[]}],['OLD',{cents:50000,source:'refund',details:[]}]]);},
     } as unknown as LiveOrderSource);
     clock('2027-01-16 12:00:00');
-    expect(await turnover.read(manager,id)).toMatchObject({sessionId:id,live:false,startAt,endAt,orderCount:1,turnoverCents:10000,refundCents:2000});
+    expect(await turnover.read(manager,id)).toMatchObject({available:false,locked:false});
+    expect(seen).toEqual([]); // A visitor cannot cause external I/O.
+    await turnover.update(company,id);
+    expect(await turnover.read(manager,id)).toMatchObject({sessionId:id,live:false,locked:true,startAt,endAt,orderCount:1,turnoverCents:10000,refundCents:2000});
+    const replica=new LiveTurnoverService(ds,{turnoverOrders:async()=>{throw new Error('locked snapshots must not query again');}} as unknown as LiveOrderSource);
+    clock('2027-01-17 12:00:00');await replica.update(company,id);
+    expect(await replica.read(manager,id)).toEqual(await turnover.read(manager,id));
     expect(seen).toEqual([['NEW']]);
     await expect(turnover.read(stranger,id)).rejects.toThrow(/权限/);
     await expect(turnover.read(foreign,id)).rejects.toThrow(/不存在/);
     const tile=(await schedules.overview(manager,'2027-01-15')).groups.north.find(r=>r.id===ids.n1)!;
     expect(tile.current).toMatchObject({id,endAt,status:'pending_report'});
+  });
+
+  it('服务器营业额跨进程一致，直播定时更新，下播失败重试后锁定，之后退款变化不再改额',async()=>{
+    const day='2027-03-10';clock(day+' 11:00:00');
+    const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,ids.account,'账号',ids.store,'店铺','SNAP',day,day+' 10:00:00',anchor.id]);
+    const id=Number(result.insertId);
+    const fetch=jest.fn().mockResolvedValue({available:true,truncated:false,orders:[{...order('S',10000),orderTime:day+' 10:30:00'}]});
+    let refund=0;
+    const fake={turnoverOrders:fetch,refunds:async()=>new Map([['S',{cents:refund,source:'refund',details:[]}]])} as unknown as LiveOrderSource;
+    const first=new LiveTurnoverService(ds,fake),second=new LiveTurnoverService(ds,fake);
+    const discovered=jest.spyOn(first,'update').mockResolvedValue(undefined);await first.scan();expect(discovered).toHaveBeenCalledWith(company,id);discovered.mockRestore();
+    await Promise.all([first.update(company,id),second.update(company,id)]);expect(fetch).toHaveBeenCalledTimes(1);
+    expect(await first.read(manager,id)).toEqual(await second.read(manager,id));
+    expect(await second.read(manager,id)).toMatchObject({turnoverCents:10000,locked:false});
+    clock(day+' 11:01:01');refund=1000;await second.update(company,id);
+    expect(await first.read(manager,id)).toMatchObject({turnoverCents:9000});
+    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:01:02',company,id]);
+    clock(day+' 11:01:03');fetch.mockResolvedValueOnce({available:false,reason:'外部接口暂时失败',orders:[]});
+    await first.update(company,id);
+    expect(await second.read(manager,id)).toMatchObject({available:false,turnoverCents:null,locked:false});
+    clock(day+' 11:01:34');await second.update(company,id);
+    expect(await first.read(manager,id)).toMatchObject({available:true,turnoverCents:9000,locked:true,endAt:day+' 11:01:02'});
+    const calls=fetch.mock.calls.length;refund=9000;clock(day+' 13:00:00');await first.update(company,id);
+    expect(fetch).toHaveBeenCalledTimes(calls);expect(await second.read(manager,id)).toMatchObject({turnoverCents:9000,locked:true});
+  });
+
+  it('旧直播查询遇上下播会丢弃；租约超时可恢复且最终快照不会被慢请求覆盖',async()=>{
+    const day='2027-03-11';clock(day+' 11:00:00');
+    const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,ids.account,'账号',ids.store,'店铺','RACE',day,day+' 10:00:00',anchor.id]);
+    const id=Number(result.insertId);
+    let entered!:()=>void,resolve!:(v:unknown)=>void;
+    const started=new Promise<void>(r=>{entered=r;});
+    const fetch=jest.fn().mockImplementationOnce(()=>{entered();return new Promise(r=>{resolve=r;});}).mockResolvedValue({available:true,truncated:false,orders:[]});
+    const fake={turnoverOrders:fetch,refunds:async()=>new Map()} as unknown as LiveOrderSource;
+    const service=new LiveTurnoverService(ds,fake),replica=new LiveTurnoverService(ds,fake);
+    const pending=service.update(company,id);await started;
+    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:00:01',company,id]);
+    resolve({available:true,truncated:false,orders:[]});await pending;
+    expect(await service.read(manager,id)).toMatchObject({available:false,locked:false});
+    await ds.query("UPDATE live_turnover_snapshots SET lease_token='interrupted-process',lease_until=?,next_refresh_at=? WHERE company_id=? AND session_id=?",[day+' 11:05:00',day+' 10:00:00',company,id]);
+    await replica.update(company,id);expect(fetch).toHaveBeenCalledTimes(1);
+    clock(day+' 11:05:01');await replica.update(company,id);
+    expect(await service.read(manager,id)).toMatchObject({turnoverCents:0,locked:true,endAt:day+' 11:00:01'});
+    const before=fetch.mock.calls.length;await service.update(company,id);expect(fetch).toHaveBeenCalledTimes(before);
+  });
+
+  it('过期进程的慢查询不能覆盖另一进程已经锁定的营业额',async()=>{
+    const day='2027-03-12';clock(day+' 11:00:00');
+    const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,ids.account,'账号',ids.store,'店铺','LEASE',day,day+' 10:00:00',anchor.id]);
+    const id=Number(result.insertId);let entered!:()=>void,resolve!:(v:unknown)=>void;
+    const started=new Promise<void>(r=>{entered=r;});
+    const fetch=jest.fn().mockImplementationOnce(()=>{entered();return new Promise(r=>{resolve=r;});}).mockResolvedValue({available:true,truncated:false,orders:[]});
+    const fake={turnoverOrders:fetch,refunds:async()=>new Map([['STALE',{cents:0,source:'refund',details:[]}]])} as unknown as LiveOrderSource;
+    const oldWorker=new LiveTurnoverService(ds,fake),newWorker=new LiveTurnoverService(ds,fake);
+    const old=oldWorker.update(company,id);await started;
+    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:00:01',company,id]);
+    clock(day+' 11:05:01');await newWorker.update(company,id);
+    expect(await newWorker.read(manager,id)).toMatchObject({turnoverCents:0,locked:true});
+    resolve({available:true,truncated:false,orders:[{...order('STALE',99000),orderTime:day+' 10:30:00'}]});await old;
+    expect(await oldWorker.read(manager,id)).toMatchObject({turnoverCents:0,locked:true});
   });
 
   it('审核预检按公司隔离、草稿不放行；人事部门任一在职人员可办理，人员失效及时提示', async () => {
