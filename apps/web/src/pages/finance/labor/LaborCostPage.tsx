@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getResourceDef, unitYuanText } from '@kudesi/shared';
-import { BriefcaseBusiness, CalendarDays, CircleDollarSign, Copy, Database, FolderTree, Plus, Search } from 'lucide-react';
+import { BriefcaseBusiness, CalendarDays, Check, CircleDollarSign, Copy, Database, FolderTree, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
 import { ReasonDialog, RecordForm, clearRefCache } from '../../../resources/RecordForm';
@@ -110,7 +110,7 @@ export function LaborCostPage() {
     <div className="labor-cost-page">
       <header className="labor-page-heading">
         <div><span>财务模块 · 数据版本</span><h1>人力成本表</h1><p>按版本维护各类工作的计价标准，供成本核算和业务单据引用。</p></div>
-        {can('create') && <button type="button" className="primary-button" onClick={() => setVersionForm({ record: null })}><Plus size={16}/>新建成本版本</button>}
+        {can('create') && <button type="button" className="primary-button" onClick={() => setVersionForm({ record: null })}><Plus size={17}/>新建成本版本</button>}
       </header>
       {error && <div role="alert" className="notice error">{error}</div>}
       {notice && <div role="status" className="notice ok">{notice}</div>}
@@ -118,12 +118,12 @@ export function LaborCostPage() {
         <header><div><Database size={18}/><div><h2>成本版本</h2><p>点击版本查看对应的分类和工作项目</p></div></div><span>{versions ? `${versions.length} 个版本` : '加载中…'}</span></header>
         <div className="labor-version-rows">{(versions ?? []).map(v => <article key={v.id} className={`labor-version-row${v.id === versionId ? ' selected' : ''}`}>
           <button type="button" className="labor-version-select" aria-pressed={v.id === versionId} onClick={() => setVersionId(v.id)}><span className="labor-version-name"><strong>{v.title}</strong>{v.status === 'active' && <i>已启用</i>}</span><code>{String(v.data.versionCode ?? '')}</code><small>{String(v.data.periodName || '未设置期间')} · {String(v.data.effectiveFrom || '立即')} 至 {String(v.data.effectiveTo || '长期')} · {typeof v.data.itemCount === 'number' ? v.data.itemCount : v.id === versionId && dataReady ? items.length : '—'} 项</small></button>
-          <div className="row-actions">{can('create') && <button type="button" onClick={()=>{setVersionId(v.id);setCopying(true);}}><Copy size={14}/>复制版本</button>}
-          {can('edit') && v.status === 'draft' && <button type="button" onClick={() => { setVersionId(v.id); setVersionForm({ record: v }); }}>编辑版本</button>}
-          {can('edit') && v.status!=='active' && <button type="button" className="link-button" onClick={()=>setReason({title:'请确认操作',hint:`确认启用“${v.title}”并设为默认人力成本版本吗？启用后仍可维护项目，成本变更将同步到当前引用。`,confirm:'确认',run:async()=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'active');selectWrittenVersion(v.id);}})}>{v.status==='draft'?'启用版本':'恢复使用'}</button>}
-          {can('edit') && v.status==='active' && v.data.isDefault!==true && <button type="button" className="link-button" onClick={()=>void run(async()=>{await resourceApi.update('finance-labor-versions',v.id,{isDefault:true});selectWrittenVersion(v.id);},'已设为默认版本')}>设为默认版本</button>}
+          <div className="row-actions">{can('create') && <button type="button" onClick={()=>{setVersionId(v.id);setCopying(true);}}><Copy size={15}/>复制版本</button>}
+          {can('edit') && v.status === 'draft' && <button type="button" onClick={() => { setVersionId(v.id); setVersionForm({ record: v }); }}><Pencil size={15}/>编辑版本</button>}
+          {can('edit') && v.status!=='active' && <button type="button" className="primary-button" onClick={()=>setReason({title:'请确认操作',hint:`确认启用“${v.title}”并设为默认人力成本版本吗？启用后仍可维护项目，成本变更将同步到当前引用。`,confirm:'确认',run:async()=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'active');selectWrittenVersion(v.id);}})}>{v.status==='draft' && <Check size={15}/>}{v.status==='draft'?'启用版本':'恢复使用'}</button>}
+          {can('edit') && v.status==='active' && v.data.isDefault!==true && <button type="button" aria-label="设为默认版本" className="link-button" onClick={()=>void run(async()=>{await resourceApi.update('finance-labor-versions',v.id,{isDefault:true});selectWrittenVersion(v.id);},'已设为默认版本')}>设为默认</button>}
           {can('edit') && v.status==='active' && <button type="button" className="link-button" onClick={()=>setReason({title:'请确认操作',hint:`确认停用“${v.title}”吗？其他模块将不再读取这个版本。`,confirm:'确认',run:async()=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'inactive');selectWrittenVersion(v.id);}})}>停用版本</button>}
-          {can('delete') && v.status==='draft' && <button type="button" className="link-button danger" onClick={()=>setReason({title:'请确认操作',hint:`确认删除版本“${v.title}”吗？版本内人力成本项目也会一并删除。`,confirm:'确认',danger:true,run:async()=>{await resourceApi.remove('finance-labor-versions',v.id,'人力成本表确认删除版本');selectWrittenVersion(null);}})}>删除版本</button>}
+          {can('delete') && v.status==='draft' && <button type="button" aria-label="删除版本" className="link-button danger" onClick={()=>setReason({title:'请确认操作',hint:`确认删除版本“${v.title}”吗？版本内人力成本项目也会一并删除。`,confirm:'确认',danger:true,run:async()=>{await resourceApi.remove('finance-labor-versions',v.id,'人力成本表确认删除版本');selectWrittenVersion(null);}})}><Trash2 size={15}/>删除</button>}
           </div>
         </article>)}</div>
       </section>
@@ -158,7 +158,7 @@ export function LaborCostPage() {
                     <td data-label="备注">{String(i.data.note || '-')}</td>
                     <td className="row-actions">{locked ? '-' : <>
                       {can('edit') && <button type="button" className="link-button" disabled={locked} onClick={() => setItemForm({ record: i })}>编辑</button>}
-                      {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: { __copyOf: i.id, ...Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'note'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) } })}>复制新增</button>}
+                      {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: { __copyOf: i.id, ...Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'note'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) } })}><Copy size={13}/>复制新增</button>}
                       {!locked && can('delete') && <button type="button" className="link-button danger" disabled={version.status !== 'draft'} onClick={() => setReason({ title: '请确认操作', hint: `确认删除人力成本项目“${String(i.data.workName || i.title)}”吗？`, confirm: '确认', danger: true, run: async () => { await resourceApi.remove('finance-labor-costs', i.id, '人力成本表确认删除项目'); } })}>删除</button>}
                     </>}</td></tr>
                 ))}

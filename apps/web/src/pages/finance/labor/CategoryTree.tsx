@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Check, ChevronDown, ChevronRight } from 'lucide-react';
 
 export interface CatNode { id: number; name: string; parentId: number | null; children: CatNode[]; count: number }
 
@@ -25,8 +26,8 @@ export function CategoryTree({ versionId, tree, selected, onSelect }: { versionI
   const toggle = (id: number) => setExpanded(old => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const render = (node: CatNode, depth: number) => <li key={node.id}>
     <div className={`labor-tree-row${node.id === selected ? ' selected' : ''}`} style={{ paddingLeft: depth * 16 + 5 }}>
-      <button type="button" className="labor-tree-toggle" disabled={!node.children.length} aria-label={node.children.length ? `${expanded.has(node.id) ? '收起' : '展开'}${node.name}` : `${node.name}没有下级分类`} aria-expanded={node.children.length ? expanded.has(node.id) : undefined} onClick={() => toggle(node.id)}>{node.children.length ? expanded.has(node.id) ? '⌄' : '›' : ''}</button>
-      <button type="button" className="labor-tree-label" aria-current={node.id === selected} aria-expanded={node.children.length ? expanded.has(node.id) : undefined} onClick={() => { onSelect(node.id); if (node.children.length) toggle(node.id); }}><span>{node.name}</span>{depth > 0 && <i>{depth + 1}</i>}<small>{node.count}</small>{node.id === selected && <span aria-hidden="true">✓</span>}</button>
+      <button type="button" className="labor-tree-toggle" disabled={!node.children.length} aria-label={node.children.length ? `${expanded.has(node.id) ? '收起' : '展开'}${node.name}` : `${node.name}没有下级分类`} aria-expanded={node.children.length ? expanded.has(node.id) : undefined} onClick={() => toggle(node.id)}>{node.children.length ? expanded.has(node.id) ? <ChevronDown size={14}/> : <ChevronRight size={14}/> : null}</button>
+      <button type="button" className="labor-tree-label" aria-current={node.id === selected} aria-expanded={node.children.length ? expanded.has(node.id) : undefined} onClick={() => { onSelect(node.id); if (node.children.length) toggle(node.id); }}><span>{node.id === selected && <Check size={13} aria-hidden="true"/>}{node.name}</span><small>{node.count}</small></button>
     </div>
     {expanded.has(node.id) && node.children.length > 0 && <ul className="plain-list">{node.children.map(child => render(child, depth + 1))}</ul>}
   </li>;
