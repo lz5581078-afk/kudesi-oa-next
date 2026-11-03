@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FieldDef } from '@kudesi/shared';
 import { X } from 'lucide-react';
 import { resourceApi, type ResourceDto } from './api';
+import { useAuth } from '../auth/AuthContext';
 
 type RefOption = { value: number; label: string; disabled?: boolean; leaf?: boolean; archiveType?: string };
 type RefOptions = RefOption[] & { total?: number };
@@ -58,7 +59,57 @@ export function loadRefOptions(target: string) {
   return p;
 }
 
-export function RefSelect({ field, value, onChange, labelNow, inputId, leafOnly = false }: { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string; inputId?: string; leafOnly?: boolean }) {
+type RefSelectProps = { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string; inputId?: string; leafOnly?: boolean };
+
+export function RefSelect(props: RefSelectProps) {
+  return props.field.refOptions?.complete ? <CompleteRefSelect {...props}/> : <PagedRefSelect {...props}/>;
+}
+
+/** 小字典按原生下拉读取全部候选；不把第51/201项变成另一种搜索交互。 */
+function CompleteRefSelect({ field, value, onChange, labelNow, inputId }: RefSelectProps) {
+  const { user } = useAuth();
+  const version = useRefVersion();
+  const scope = JSON.stringify([user?.companyId, user?.id, user?.permissions, field.ref, field.refOptions, version]);
+  const scopeRef = useRef(scope); scopeRef.current = scope;
+  const [state, setState] = useState<{ scope: string; rows?: RefOption[]; error?: string }>();
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const current = () => alive && scopeRef.current === scope;
+    void (async () => {
+      const rows: ResourceDto[] = [];
+      for (let page = 1; ; page++) {
+        if (!current()) return;
+        const result = await resourceApi.list(field.ref!, { page, pageSize: 200, showHidden: true });
+        if (!current()) return;
+        rows.push(...result.items);
+        if (!result.items.length || rows.length >= result.total) break;
+      }
+      const sort = (row: ResourceDto) => Number(row.data[field.refOptions?.sortField ?? '']) || 0;
+      const active = [...new Map(rows.filter(row => row.status === 'active' && !row.archived).map(row => [row.id, row])).values()];
+      active.sort((a, b) => sort(a) - sort(b) || a.title.localeCompare(b.title, 'zh-CN') || a.id - b.id);
+      const options = active.map(row => {
+        const code = field.refOptions?.codeField && row.data[field.refOptions.codeField];
+        return { value: row.id, label: code ? `${row.title}（${code}）` : row.title };
+      });
+      if (current()) setState({ scope, rows: options });
+    })().catch(() => { if (current()) setState({ scope, error: '可选资料读取失败，当前值仍保留。' }); });
+    return () => { alive = false; };
+  }, [scope, retry]); // eslint-disable-line react-hooks/exhaustive-deps
+  const current = state?.scope === scope ? state : undefined;
+  const options = current?.rows ?? [];
+  const selected = typeof value === 'number' ? value : '';
+  return <div className="resource-ref-control">
+    <select id={inputId} aria-label={field.label} value={selected} disabled={!current?.rows} onChange={event => onChange(event.target.value ? Number(event.target.value) : null)}>
+      <option value="">{current?.rows ? `请选择${field.label}` : current?.error ? '读取失败' : '加载中…'}</option>
+      {selected !== '' && !options.some(option => option.value === selected) && <option value={selected}>{labelNow || `#${selected}`}</option>}
+      {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+    {current?.error && <div role="alert">{current.error}<button type="button" className="link-button" onClick={() => { setState(undefined); setRetry(value => value + 1); }}>重试加载</button></div>}
+  </div>;
+}
+
+function PagedRefSelect({ field, value, onChange, labelNow, inputId, leafOnly = false }: RefSelectProps) {
   const version = useRefVersion();
   const [options, setOptions] = useState<RefOptions | null>(null);
   const [failed, setFailed] = useState(false);

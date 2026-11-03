@@ -59,6 +59,8 @@ export interface FieldDef {
   multi?: boolean;
   /** type=ref：目标资源 key，或 'user'（员工） */
   ref?: string;
+  /** 原生单选目录需完整读取；编码展示与维护排序由字段声明。 */
+  refOptions?: { complete: true; codeField?: string; sortField?: string };
   /** 在列表中显示的默认列 */
   list?: boolean;
   /** 参与关键词搜索 */
