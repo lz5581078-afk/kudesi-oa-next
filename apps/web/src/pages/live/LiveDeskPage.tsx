@@ -1,3 +1,4 @@
+import { useAuth } from '../../auth/AuthContext';
 import { DailyWorkPanel } from './DailyWorkPanel';
 import { LiveCheckinPanel } from './LiveCheckinPanel';
 import { useSearchParams } from 'react-router-dom';
@@ -21,6 +22,8 @@ function PersonalSessionStatus({ session }: { session: SessionRow }) {
 
 /** 我的直播：主播、中控（运营以中控资格）自己的工作台——报上播、报下播、提交审核、本周排场、本月提成与工资。 */
 export function LiveDeskPage() {
+  const {user}=useAuth();
+  const isAdmin=!!user?.permissions?.isCompanyAdmin;
   const [params]=useSearchParams();
   const scanned=['company','token','room'].some(key=>params.has(key));
   const roomId=Number(params.get('room'))||undefined,companyId=Number(params.get('company'))||undefined;
@@ -54,7 +57,7 @@ export function LiveDeskPage() {
         <div><h1>我的直播</h1><p className="muted">报上播、报下播、提交审核，查看本周排场和本月提成。</p></div>
         <div className="live-actions">
           <button type="button" className="secondary-button" onClick={load}>刷新</button>
-          {canStart && <button type="button" className="primary-button live-clock-button" onClick={() => setStarting({ schedule: null })}>开始直播</button>}
+          {(canStart||isAdmin) && <button type="button" className="primary-button live-clock-button" disabled={!canStart} title={!canStart?(d?.identity.isOperations?'请在本场上下播中选择中控或运营身份操作':'当前账号没有可用于本人上播的主播或中控身份'):undefined} onClick={() => setStarting({ schedule: null })}>开始直播</button>}
         </div>
       </div>
       <div className="tab-group" role="tablist" aria-label="我的直播分区">
