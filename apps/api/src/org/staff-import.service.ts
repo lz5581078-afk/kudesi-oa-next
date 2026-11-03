@@ -38,7 +38,7 @@ export class StaffImportService {
   constructor(@InjectDataSource() private readonly ds: DataSource, private readonly admin: OrgAdminService) {}
 
   /** 导出：薪资两列只有 org.staff.salary 权限的人才有内容。 */
-  async exportCsv(actor: AuthUser): Promise<string> {
+  async exportCsv(actor: AuthUser, regularOnly = false): Promise<string> {
     const em = this.ds.manager;
     const [users, depts, positions] = await Promise.all([
       em.find(User, { where: { companyId: actor.companyId }, order: { id: 'ASC' } }),
@@ -49,6 +49,7 @@ export class StaffImportService {
     const sal = createChecker(actor.permissions)('org.staff.salary');
     const lines = [STAFF_CSV_COLUMNS.join(',')];
     for (const u of users) {
+      if (regularOnly && u.employmentType !== 'regular') continue;
       lines.push([
         u.name, u.account ?? '', u.departmentId ? dn.get(u.departmentId) : '', u.positionId ? pn.get(u.positionId) : '', u.managerId ? un.get(u.managerId) : '', u.title ?? '',
         EMPLOYMENT_LABEL[u.employmentType] ?? '', u.payType === 'hourly' ? '时薪' : '月薪',

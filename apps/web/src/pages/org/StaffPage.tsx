@@ -141,7 +141,6 @@ export function StaffPage() {
   const [feishu,setFeishu]=useState<Map<number,StaffFeishuStatus>>(new Map());
   const [feishuError,setFeishuError]=useState('');
   const [bindingFilter,setBindingFilter]=useState('');
-  const [employmentFilter,setEmploymentFilter]=useState('');
   const [testStaff,setTestStaff]=useState<StaffDto|null>(null);
   const [resetFeishu,setResetFeishu]=useState(false);
   const [keyword, setKeyword] = useState('');
@@ -192,7 +191,7 @@ export function StaffPage() {
     walk(tree, false);
     return ids;
   }, [deptFilter, tree]);
-  const shown = staff.filter((s) => (showDisabled || s.status === 'active') && (!employmentFilter||(s.employmentType??'regular')===employmentFilter) && (!bindingFilter||(bindingFilter==='bound'?feishu.get(s.id)?.bound===true:feishu.get(s.id)?.bound===false)) && (!onlyNoPosition || !s.positionId) && (!deptScope || (s.departmentId != null && deptScope.has(s.departmentId))) && (!groupFilter || memberOf.get(Number(groupFilter))?.has(s.id)) && (!posFilter || String(s.positionId) === posFilter || s.extraPositionIds.includes(Number(posFilter))) && (!keyword.trim() || `${s.name}${s.account}`.toLowerCase().includes(keyword.trim().toLowerCase())));
+  const shown = staff.filter((s) => (s.employmentType??'regular')==='regular' && (showDisabled || s.status === 'active') && (!bindingFilter||(bindingFilter==='bound'?feishu.get(s.id)?.bound===true:feishu.get(s.id)?.bound===false)) && (!onlyNoPosition || !s.positionId) && (!deptScope || (s.departmentId != null && deptScope.has(s.departmentId))) && (!groupFilter || memberOf.get(Number(groupFilter))?.has(s.id)) && (!posFilter || String(s.positionId) === posFilter || s.extraPositionIds.includes(Number(posFilter))) && (!keyword.trim() || `${s.name}${s.account}`.toLowerCase().includes(keyword.trim().toLowerCase())));
   const done = async () => { setDialog(null); await reload(); };
 
   async function exportCsv() {
@@ -221,6 +220,7 @@ export function StaffPage() {
           {can('org.staff.create') && <button type="button" className="primary-button" onClick={() => setDialog({ kind: 'edit', staff: null })}>＋ 新增员工</button>}
         </span>
       </div>
+      <p className="muted">这里只显示正式员工；兼职与临时工请在“兼职与临时工”页面管理。</p>
       {feishuError&&<div role="alert" className="notice error">{feishuError}</div>}
       {testStaff&&<StaffTestNoticeDialog key={testStaff.id} staff={testStaff} status={feishu.get(testStaff.id)} onClose={()=>setTestStaff(null)}/>}
       {resetFeishu&&<StaffFeishuResetDialog onClose={()=>setResetFeishu(false)}/>}
@@ -242,7 +242,6 @@ export function StaffPage() {
             <option value="">岗位：全部</option>
             {positions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <select aria-label="用工类型" value={employmentFilter} onChange={e=>setEmploymentFilter(e.target.value)}><option value="">用工：全部</option><option value="regular">正式员工</option><option value="part_time">兼职</option><option value="temp">临时工</option></select>
           <select aria-label="飞书绑定状态" value={bindingFilter} onChange={e=>setBindingFilter(e.target.value)}><option value="">飞书：全部</option><option value="bound">已绑定</option><option value="unbound">未绑定</option></select>
           <button type="button" className="secondary-button" onClick={()=>void reloadFeishu()}>刷新绑定状态</button>
           <label className="check-line"><input type="checkbox" checked={showDisabled} onChange={(e) => setShowDisabled(e.target.checked)} />显示已停用</label>
@@ -283,11 +282,11 @@ export function StaffPage() {
           </table>
         </div>
         {shown.length === 0 && <p className="muted pad">没有符合条件的员工</p>}
-        <div className="card-foot"><span>共 {shown.length} 人{showDisabled ? '' : `（在职 ${staff.filter((x) => x.status === 'active').length}，停用 ${staff.filter((x) => x.status !== 'active').length} 人已隐藏）`}</span></div>
+        <div className="card-foot"><span>共 {shown.length} 人{showDisabled ? '' : `（在职 ${staff.filter((x) => (x.employmentType??'regular')==='regular'&&x.status === 'active').length}，停用 ${staff.filter((x) => (x.employmentType??'regular')==='regular'&&x.status !== 'active').length} 人已隐藏）`}</span></div>
       </div>
 
       {dialog?.kind === 'edit' && (
-        <StaffDialog staff={dialog.staff} defaultDepartmentId={entry.dept ? Number(entry.dept) : null} all={staff} canSalary={can('org.staff.salary')} departments={tree} positions={positions} onClose={() => setDialog(null)}
+        <StaffDialog regularOnly staff={dialog.staff} defaultDepartmentId={entry.dept ? Number(entry.dept) : null} all={staff} canSalary={can('org.staff.salary')} departments={tree} positions={positions} onClose={() => setDialog(null)}
           onSaved={async (created) => { await reload(); setDialog(created ? { kind: 'password', title: '员工已创建', account: created.account, password: created.password } : null); }} />
       )}
       {dialog?.kind === 'perm' && (
