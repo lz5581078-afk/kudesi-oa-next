@@ -15,32 +15,30 @@ export function RoomSessionAccounts({session}:{session:RoomCurrentSession|null})
 export function RoomSessionPanel({ session, day, now }: { session: RoomCurrentSession | null; day: string; now: string }) {
   const [data, setData] = useState<SessionTurnover | null>(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const request = useRef(0);
+  const locked = useRef(false);
   const id = session?.id;
   const end = session?.endAt;
   const load = useCallback(() => {
     if (!id) return;
     const token = ++request.current;
-    setBusy(true);
-    return liveApi.turnover(id).then(d => { if (token === request.current) { setData(d); setError(''); } })
-      .catch(e => { if (token === request.current) setError(errText(e, '读取本场营业额失败')); })
-      .finally(() => { if (token === request.current) setBusy(false); });
+    return liveApi.turnover(id).then(d => { if (token === request.current) { setData(d); locked.current = !!d.locked; setError(''); } })
+      .catch(e => { if (token === request.current) setError(errText(e, '读取本场营业额失败')); });
   }, [id, end]);
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // 查询完成后再等一个周期，慢请求不叠加，也不会撞上服务端同周期缓存。
     const schedule = () => {
-      if (active && id) timer = setTimeout(async () => {
+      if (active && id && !locked.current) timer = setTimeout(async () => {
         if (document.visibilityState === 'visible') await load();
         schedule();
       }, end ? 30_000 : 60_000);
     };
-    setData(null); setError(''); setOpen(false);
+    setData(null); setError(''); setOpen(false); locked.current = false;
     void Promise.resolve(load()).then(schedule);
-    const refresh = () => { if (document.visibilityState === 'visible') load(); };
+    const refresh = () => { if (document.visibilityState === 'visible' && !locked.current) load(); };
     document.addEventListener('visibilitychange', refresh);
     return () => { active = false; request.current++; if (timer) clearTimeout(timer); document.removeEventListener('visibilitychange', refresh); };
   }, [load, id, end]);
@@ -62,15 +60,15 @@ export function RoomSessionPanel({ session, day, now }: { session: RoomCurrentSe
     <div className="live-current-times"><span>开播<strong>{hm(session?.startAt,day)}</strong></span><span>{done ? '下播' : '预计下播'}<strong>{hm(session?.endAt || session?.plannedEnd,day)}</strong></span><span>已播<strong>{session ? (elapsed < 60 ? `${elapsed} 分` : `${Math.floor(elapsed / 60)}时${elapsed % 60}分`) : '—'}</strong></span></div>
     {session && <>
       {!done && <div className="live-progress-track" role="progressbar" aria-label="本场直播进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress ?? undefined}><i style={{width:`${progress ?? 0}%`}} /></div>}
-      <small className="live-current-note">{error ? '营业额查询失败，点击查看' : data ? `更新于 ${hm(data.queriedAt,day)}` : '正在读取聚水潭'}{!done && progress !== null ? duration && elapsed > duration ? ' · 已超预计下播' : ` · 进度 ${progress}%` : ''}</small>
+      <small className="live-current-note">{error ? '营业额读取失败，稍后自动重试' : data?.locked ? '本场营业额已锁定' : data?.refreshError ? '服务器正在重试更新' : '营业额由服务器统一更新'}{!done && progress !== null ? duration && elapsed > duration ? ' · 已超预计下播' : ` · 进度 ${progress}%` : ''}</small>
       <small className="live-current-products" title={productText(session.products)}>本场产品 {productText(session.products)}</small>
     </>}
-    {open && session && <Modal title={`${data?.roomName || ''} · 本场营业额`} onClose={() => setOpen(false)} foot={<button type="button" className="secondary-button" disabled={busy} onClick={load}>{busy ? '刷新中…' : '刷新营业额'}</button>}>
+    {open && session && <Modal title={`${data?.roomName || ''} · 本场营业额`} onClose={() => setOpen(false)}>
       <p className="muted">统计成单时间：{data?.startAt || session.startAt} 至 {data?.endAt || session.endAt || now}{!done ? '（直播中）' : ''}。只计算本场时间内成单且仍有效的订单；历史订单在此期间退款不计入。</p>
       {(error || (data && !data.available)) && <p className="notice error" role="alert">{error || data?.reason}，不会按零元计算。</p>}
       {!data && !error && <p role="status">正在读取聚水潭订单…</p>}
       {data && <><div className="live-scroll"><table className="data-table live-turnover-table"><thead><tr><th>店铺 / 平台</th><th>有效单数</th><th>有效营业额</th><th>本场订单退款</th></tr></thead><tbody>{data.stores.map(s => <tr key={s.storeId}><td>{s.storeName}<small>{LIVE_PLATFORMS[s.platform] || s.platform}</small>{!s.available && <small className="error-text">{s.reason}</small>}</td><td data-label="有效单数">{s.available ? `${s.orderCount} 单` : '—'}</td><td data-label="有效营业额">{s.available ? money(s.turnoverCents!) : '—'}</td><td data-label="本场订单退款">{s.available ? money(s.refundCents!) : '—'}</td></tr>)}</tbody><tfoot><tr><th>合计</th><td data-label="有效单数">{data.available ? `${data.orderCount} 单` : '—'}</td><td data-label="有效营业额">{data.available ? money(data.turnoverCents!) : '暂不可用'}</td><td data-label="本场订单退款">{data.available ? money(data.refundCents!) : '—'}</td></tr></tfoot></table></div>
-        <p className="muted">数据来自聚水潭。有效营业额＝本场实付金额－本场订单已确认退款，全额退款不计有效单数。更新于 {data.queriedAt}，{done ? '约每 30 秒刷新' : '直播期间约每 1 分钟刷新'}。</p></>}
+        <p className="muted">数据来自聚水潭。有效营业额＝本场实付金额－本场订单已确认退款，全额退款不计有效单数。服务器统一更新；下播后完成最后统计并锁定，所有人查看同一份营业额。</p></>}
     </Modal>}
   </section>;
 }

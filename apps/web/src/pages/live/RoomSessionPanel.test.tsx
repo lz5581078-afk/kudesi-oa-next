@@ -63,3 +63,14 @@ it('显示实际多账号完整名称，历史账号回退，未开播不冒用�
  rerender(<RoomSessionAccounts session={{...session,endAt:'2026-11-02 11:00:00'}}/>);expect(screen.getByText('上场直播号')).toBeTruthy();expect(screen.getByText('账号')).toBeTruthy();
  rerender(<RoomSessionAccounts session={null}/>);expect(screen.queryByText('账号')).toBeNull();
 });
+
+it('下播最终快照锁定后不再轮询或因页面重新可见而刷新，不显示更新时间',async()=>{
+ vi.useFakeTimers();vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+ vi.mocked(liveApi.turnover).mockResolvedValue({...data,live:false,locked:true});
+ await act(async()=>{render(<RoomSessionPanel session={{...session,endAt:'2026-11-02 11:00:00'}} day="2026-11-02" now="2026-11-02 12:00:00"/>);});
+ expect(screen.getByText('本场营业额已锁定')).toBeTruthy();expect(screen.queryByText(/更新于/)).toBeNull();
+ await act(async()=>{await vi.advanceTimersByTimeAsync(120_000);document.dispatchEvent(new Event('visibilitychange'));});
+ expect(liveApi.turnover).toHaveBeenCalledTimes(1);
+ fireEvent.click(screen.getByRole('button',{name:'查看本场营业额'}));
+ expect(screen.queryByRole('button',{name:'刷新营业额'})).toBeNull();
+});

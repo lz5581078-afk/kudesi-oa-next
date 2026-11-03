@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { liveFromText } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
 import { loadLiveAccess, requireView } from './live-access';
-import { liveClock, sessionRow, wallNow } from './live-core';
+import { liveClock, lockCompany, sessionRow, wallNow } from './live-core';
 import { channelsOf, channelStores } from './live-platforms';
 import { LiveOrderSource } from './live-order-source';
 
@@ -13,28 +14,104 @@ const emptyAmounts = { orderCount: null, turnoverCents: null, grossCents: null, 
 const add = (a: number, b: number) => { const n = a + b; if (!Number.isSafeInteger(n) || n < 0) throw new Error('订单合计金额不合法'); return n; };
 
 @Injectable()
-export class LiveTurnoverService {
+export class LiveTurnoverService implements OnModuleInit, OnModuleDestroy {
   constructor(@InjectDataSource() private readonly ds: DataSource, private readonly source: LiveOrderSource) {}
-  private readonly cache = new Map<string, { expires: number; value: Promise<ReturnType<LiveTurnoverService['calculate']> extends Promise<infer T> ? T : never> }>();
+  private timer?: NodeJS.Timeout;
+  private running = false;
+  private readonly log = new Logger(LiveTurnoverService.name);
 
+  onModuleInit() {
+    if (process.env.NODE_ENV === 'test' || process.env.LIVE_TURNOVER_WORKER === 'off') return;
+    this.timer = setInterval(() => void this.scheduled(), 15_000);
+    this.timer.unref();
+    void this.scheduled();
+  }
+  onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
+  private async scheduled() {
+    if (this.running) return;
+    this.running = true;
+    try { await this.scan(); }
+    catch { this.log.error('营业额统一快照扫描失败，将自动重试'); }
+    finally { this.running = false; }
+  }
+  private payload(value: any): any { return typeof value === 'string' ? JSON.parse(value) : value; }
+
+  /** Browsers only read the persisted shared snapshot; a GET never calls an external source. */
   async read(user: AuthUser, id: number) {
     const a = await loadLiveAccess(this.ds.manager, user); requireView(a);
-    // 每次读取均先校验公司与权限，缓存不能绕过鉴权。
     const s = await sessionRow(this.ds.manager, a.companyId, id);
-    const key = JSON.stringify([a.companyId, id, s.start_text, s.end_text, s.status, s.channels_json, s.store_id, s.jst_shop_id]);
-    const time = +liveClock.now();
-    const old = this.cache.get(key);
-    if (old && old.expires > time) return old.value;
-    for (const [k, v] of this.cache) if (v.expires <= time) this.cache.delete(k);
-    if (this.cache.size >= 200) this.cache.delete(this.cache.keys().next().value!);
-    const entry = { expires: Number.POSITIVE_INFINITY, value: this.calculate(a.companyId, s) };
-    this.cache.set(key, entry);
-    try {
-      const value = await entry.value;
-      // 从查询完成时计时，合并慢查询的并发请求；失败短暂缓存，避免外部接口重试风暴。
-      entry.expires = +liveClock.now() + (value.available ? (s.end_text ? 30_000 : 60_000) : 10_000);
-      return value;
-    } catch (e) { this.cache.delete(key); throw e; }
+    const [row] = await this.ds.query('SELECT payload_json,locked_at,last_error FROM live_turnover_snapshots WHERE company_id=? AND session_id=?', [a.companyId, id]);
+    const data = this.payload(row?.payload_json);
+    if (data && (row.locked_at || !s.end_text)) return { ...data, locked: !!row.locked_at, refreshError: row.last_error || null };
+    return { sessionId: id, roomName: s.room_name, startAt: s.start_text, endAt: s.end_text || s.start_text, live: !s.end_text,
+      queriedAt: '', locked: false, available: false, ...emptyAmounts, stores: [], refreshError: row?.last_error || null,
+      reason: s.end_text ? '下播后最后统计中，服务器会自动完成并锁定' : '服务器正在统一统计营业额' };
+  }
+
+  /** Independent of visitors, notifications and browser visibility. Leases coordinate API replicas. */
+  async scan() {
+    const now = wallNow(liveClock.now());
+    // Finalize newly ended broadcasts before historical backfill.
+    const due: Array<{id:number;company_id:number}> = await this.ds.query(`SELECT s.id,s.company_id FROM live_sessions s
+      JOIN companies c ON c.id=s.company_id AND c.status='active'
+      LEFT JOIN live_turnover_snapshots t ON t.company_id=s.company_id AND t.session_id=s.id
+      WHERE (s.status='live' OR s.end_at IS NOT NULL) AND t.locked_at IS NULL
+        AND (t.lease_until IS NULL OR t.lease_until<=?)
+        AND (t.next_refresh_at IS NULL OR t.next_refresh_at<=?
+          OR (s.end_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(t.payload_json,'$.live'))='true'))
+      ORDER BY CASE WHEN s.end_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(t.payload_json,'$.live'))='true' THEN 0
+        WHEN s.status='live' THEN 1 WHEN t.payload_json IS NOT NULL THEN 2 ELSE 3 END,
+        COALESCE(t.next_refresh_at,'1970-01-01'),s.id DESC LIMIT 6`, [now, now]);
+    for (let i = 0; i < due.length; i += 2) await Promise.all(due.slice(i, i + 2).map(async s => {
+      try { await this.update(Number(s.company_id), Number(s.id)); }
+      catch { this.log.error(`营业额快照处理失败 #${s.id}，将自动重试`); }
+    }));
+    return due.length;
+  }
+
+  async update(companyId: number, id: number) {
+    const token = randomUUID();
+    const s = await this.ds.transaction(async em => {
+      await lockCompany(em, companyId);
+      const session = await sessionRow(em, companyId, id, true);
+      await em.query('INSERT IGNORE INTO live_turnover_snapshots(company_id,session_id) VALUES (?,?)', [companyId, id]);
+      const [row] = await em.query(`SELECT *,DATE_FORMAT(lease_until,'%Y-%m-%d %H:%i:%s') lease_text,DATE_FORMAT(next_refresh_at,'%Y-%m-%d %H:%i:%s') next_text FROM live_turnover_snapshots WHERE company_id=? AND session_id=? FOR UPDATE`, [companyId, id]);
+      const now = wallNow(liveClock.now()), prior = this.payload(row.payload_json);
+      if (row.locked_at || (row.lease_text && row.lease_text > now)) return null;
+      const closing = !!session.end_text && prior?.live === true;
+      if (row.next_text > now && !closing) return null;
+      if (session.status !== 'live' && !session.end_text) return null;
+      await em.query('UPDATE live_turnover_snapshots SET lease_token=?,lease_until=? WHERE company_id=? AND session_id=?',
+        [token, wallNow(new Date(+liveClock.now() + 300_000)), companyId, id]);
+      return session;
+    });
+    if (!s) return;
+    // External I/O is outside the company transaction. Never hold company locks while waiting on an API.
+    let value: Awaited<ReturnType<LiveTurnoverService['calculate']>>;
+    try { value = await this.calculate(companyId, s); }
+    catch { value = { sessionId:id,roomName:s.room_name,startAt:s.start_text,endAt:s.end_text||wallNow(liveClock.now()),live:!s.end_text,
+      queriedAt:wallNow(liveClock.now()),available:false,reason:'营业额查询失败，服务器将自动重试',...emptyAmounts,stores:[] }; }
+    await this.ds.transaction(async em => {
+      await lockCompany(em, companyId);
+      const latest = await sessionRow(em, companyId, id, true);
+      const [row] = await em.query(`SELECT *,DATE_FORMAT(lease_until,'%Y-%m-%d %H:%i:%s') lease_text FROM live_turnover_snapshots WHERE company_id=? AND session_id=? FOR UPDATE`, [companyId, id]);
+      const now = wallNow(liveClock.now());
+      if (row.locked_at || row.lease_token !== token || row.lease_text <= now) return;
+      const sameBounds = latest.start_text === s.start_text && latest.end_text === s.end_text && JSON.stringify(channelsOf(latest)) === JSON.stringify(channelsOf(s));
+      if (!sameBounds) {
+        await em.query('UPDATE live_turnover_snapshots SET lease_token=NULL,lease_until=NULL,next_refresh_at=? WHERE company_id=? AND session_id=? AND lease_token=?', [now,companyId,id,token]);
+        return;
+      }
+      const prior = this.payload(row.payload_json);
+      const closing = !!latest.end_text;
+      const locked = closing && value.available;
+      const failures = value.available ? 0 : Number(row.failures) + 1;
+      const next = wallNow(new Date(+liveClock.now() + (value.available ? 60_000 : Math.min(300_000, 30_000 * 2 ** Math.min(failures - 1, 4)))));
+      const payload = !value.available && !closing && prior?.available ? prior : value;
+      await em.query(`UPDATE live_turnover_snapshots SET payload_json=?,locked_at=?,next_refresh_at=?,last_error=?,failures=?,lease_token=NULL,lease_until=NULL
+        WHERE company_id=? AND session_id=? AND lease_token=? AND locked_at IS NULL`,
+        [JSON.stringify(payload), locked ? now : null, next, value.available ? null : value.reason.slice(0,500), failures, companyId, id, token]);
+    });
   }
 
   private async store(companyId: number, sessionId: number, store: Store, startAt: string, endAt: string) {
@@ -68,7 +145,7 @@ export class LiveTurnoverService {
   private async calculate(companyId: number, s: Record<string, any>) {
     const now = wallNow(liveClock.now());
     const endAt = s.end_text || now;
-    const base = { sessionId: Number(s.id), roomName: s.room_name, startAt: s.start_text as string, endAt: endAt as string, live: s.status === 'live' };
+    const base = { sessionId: Number(s.id), roomName: s.room_name, startAt: s.start_text as string, endAt: endAt as string, live: !s.end_text };
     const stores: Store[] = channelStores(channelsOf(s));
     if (!stores.length && s.store_id) stores.push({ id: Number(s.store_id), name: s.store_name || '本场店铺', jstShopId: s.jst_shop_id || '', platform: 'douyin' });
     const byShop = new Map<string, Store>();
