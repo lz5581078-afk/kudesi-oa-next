@@ -352,3 +352,20 @@ describe('我的待办', () => {
     expect(screen.getByRole('tab', { name: /待办理 \(2\)/ })).toBeTruthy();
   });
 });
+
+
+describe('财务基础资料不显示额外分区栏', () => {
+  it.each(['finance-products','finance-suppliers','finance-customers','finance-fee-items'])('%s直接显示档案页面', async type => {
+    currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] });
+    apiMock.mockImplementation(async path => {
+      if (path === '/workspace/catalog') return { positions: [], defaultPositionId: null, canBrowse: false } as never;
+      if (path.includes('/category-tree')) return { nodes: [], total: 0, uncategorized: 0 } as never;
+      if (path.includes('/snapshots')) return [] as never;
+      return { items: [], rows: [], total: 0 } as never;
+    });
+    renderAt(`/finance/${type}`);
+    await screen.findByRole('navigation', { name: '一级导航' });
+    expect(screen.queryByRole('tablist', { name: '页面分区' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: '包装方案' })).toBeNull();
+  });
+});

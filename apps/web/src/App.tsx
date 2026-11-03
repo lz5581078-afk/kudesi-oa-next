@@ -162,7 +162,8 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
     else Component = () => <ResourcePage type={t.ref} />;
     return { ...t, Component };
   });
-  const Host = () => <TabHost tabs={hostTabs} />;
+  const basicFinance = section === 'finance' && NAV_SECTIONS.find(s => s.id === section)?.pages.find(p => p.id === hostId)?.group === '基础资料';
+  const Host = () => <TabHost tabs={hostTabs} hideNavigation={basicFinance} />;
   Host.displayName = `Host(${hostKey})`;
   PAGE_COMPONENTS[`${section}.${hostId}`] = Host;
 }
