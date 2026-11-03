@@ -1,10 +1,11 @@
 import { EntityManager } from 'typeorm';
 import { liveFromText } from '@kudesi/shared';
-import { liveManagementRecipients } from './live-management-recipients';
+import { liveDepartmentRecipients, liveManagementRecipients } from './live-management-recipients';
 import { liveNotify } from './live-notification-events';
 
 /** Opening notifications already target both departments directly. */
-export async function liveStartRecipients(em:EntityManager,companyId:number):Promise<number[]> {
+export async function liveStartRecipients(em:EntityManager,companyId:number,names?:ReadonlySet<string>):Promise<number[]> {
+  if(names)return liveDepartmentRecipients(em,companyId,names);
   const {hr,management}=await liveManagementRecipients(em,companyId);
   return [...new Set([...hr,...management])];
 }

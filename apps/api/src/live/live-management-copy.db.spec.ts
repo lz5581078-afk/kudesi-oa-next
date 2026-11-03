@@ -5,6 +5,7 @@ import { buildDataSourceOptions } from '../database/data-source';
 import { Company, Department, Position, User, Notification, FlowRun, OutboxSwitch, OutboxJob, WorkItem } from '../entities';
 import { liveNotify, liveRecipientAllowed } from './live-notification-events';
 import { writeNotification } from '../outbox/write-notification';
+import { liveStartRecipients } from './live-start-notification';
 import { liveManagementCopySender } from './live-management-notification-copy';
 import { ConnectedFeishuSender } from '../outbox/feishu-sender';
 
@@ -27,6 +28,7 @@ d('直播总经理通知同步人事（隔离MySQL）',()=>{
  });
  const notes=()=>ds.manager.find(Notification,{where:{companyId:c}});
  it('所有直播事件同内容抄送，子部门/兼岗包含且去重，不发其他公司或停用人员',async()=>{
+  expect((await liveStartRecipients(ds.manager,c,new Set(['人事综合部']))).sort()).toEqual([hr,child,secondary].sort());
   const notice={key:'custom-result:1',channel:'notice' as const,title:'场次审核结果',body:'相同正文'};
   await Promise.all([liveNotify(ds.manager,c,[boss,hr],notice),liveNotify(ds.manager,c,[boss],notice)]);
   expect((await notes()).map(n=>n.userId).sort()).toEqual([boss,hr,child,secondary].sort());
