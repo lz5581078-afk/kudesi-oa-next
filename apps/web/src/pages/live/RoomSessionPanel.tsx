@@ -29,7 +29,7 @@ export function RoomSessionPanel({ session, day, now }: { session: RoomCurrentSe
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // 查询完成后再等一个周期，慢请求不叠加，也不会撞上服务端同周期缓存。
+    // 只读取服务器共享快照；慢请求不叠加，最终快照锁定后停止轮询。
     const schedule = () => {
       if (active && id && !locked.current) timer = setTimeout(async () => {
         if (document.visibilityState === 'visible') await load();
