@@ -6,9 +6,10 @@ import { useEffect, useState } from 'react';
 import { liveApi, type Options, type Product, type ScheduleRow, type SessionDetail, type CheckinSession } from './liveApi';
 import { errText, nowText } from './liveFormat';
 import { Modal, names } from './liveUi';
+import { ApiError } from '../../api/client';
 
 /** 报上播：从排场带出（人、房间已定），或临时加场；必须选有直播权限的账号、关联店铺，并至少填写或选择 1 个在卖产品。 */
-function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixedRoomId, onClose, onDone }: { role?:'anchor'|'control'; joining?:CheckinSession; roomId?:number; schedule: ScheduleRow | null; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; onClose: () => void; onDone: (sessionId: number) => void }) {
+function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixedRoomId, onClose, onDone, onExisting }: { onExisting?:(s:CheckinSession)=>void; role?:'anchor'|'control'; joining?:CheckinSession; roomId?:number; schedule: ScheduleRow | null; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; onClose: () => void; onDone: (sessionId: number) => void }) {
   const [opts, setOpts] = useState<Options | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -38,20 +39,30 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
 
   async function submit() {
     setError('');
-    if (!schedule && !roomId) return setError('请选择直播间');
-    if (!channels.length || channels.some(c=>!c.storeIds.length)) return setError('请选择直播账号及关联店铺');
-    if (!productEntries(picked).length) return setError(schedule ? '请至少填写 1 个在卖产品' : '请至少选择 1 个在卖产品');
-    if(identity.isControl&&!confirmed)return setError('请先核对并确认本场信息');
-    if(trialAnchor&&!trialConfirmed)return setError('请确认本场上播的试播主播');
-    if(beforePlan&&!early){setEarly(true);return;}
     setBusy(true);
     try {
+      if(!joining&&schedule&&onExisting){
+        const context=await liveApi.checkinContext();
+        const existing=findJoin(context.joinable??[],schedule,checkinRole);
+        if(existing){onExisting(existing);return;}
+      }
+      if (!schedule && !roomId) return setError('请选择直播间');
+      if (!channels.length || channels.some(c=>!c.storeIds.length)) return setError('请选择直播账号及关联店铺');
+      if (!productEntries(picked).length) return setError(schedule ? '请至少填写 1 个在卖产品' : '请至少选择 1 个在卖产品');
+      if(identity.isControl&&!confirmed)return setError('请先核对并确认本场信息');
+      if(trialAnchor&&!trialConfirmed)return setError('请确认本场上播的试播主播');
+      if(beforePlan&&!early){setEarly(true);return;}
       const r = await liveApi.start({
         confirmTrialAnchorId:trialAnchor&&trialConfirmed?schedule!.anchor.id:undefined,role:checkinRole,sessionId:joining?.id,confirmDetails:confirmed,confirmEarly:early,scheduleFingerprint:schedule?.fingerprint, scheduleId: schedule?.id ?? null, roomId: roomId ? Number(roomId) : null, anchorId: anchorId ? Number(anchorId) : null, controlId: controlId ? Number(controlId) : null, operatorId: operatorId ? Number(operatorId) : null,
         channels,douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], ...(schedule ? { productEntries: productEntries(picked) } : { productIds: picked.flatMap((p) => p.id === null ? [] : [p.id]) }),
       });
       onDone(r.id);
-    } catch (e) { setError(errText(e)); } finally { setBusy(false); }
+    } catch (e) {
+      if(e instanceof ApiError&&e.status===409&&!joining&&schedule&&onExisting){
+        try {const context=await liveApi.checkinContext();const existing=findJoin(context.joinable??[],schedule,checkinRole);if(existing){onExisting(existing);return;}}catch { /* Keep the original error; never submit an uncertain request again. */ }
+      }
+      setError(errText(e));
+    } finally { setBusy(false); }
   }
 
   return (
@@ -60,6 +71,7 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
       <button type="button" className="primary-button live-clock-button" disabled={busy || !opts} onClick={() => void submit()}>{busy ? '提交中…' : beforePlan&&early?'仍要提前开播':'确认上播'}</button>
     </>}>
       {error && <div role="alert" className="notice error">{error}</div>}
+      {joining&&<p className="notice">本场已经开播。请核对以下实际场次信息，确认后只记录你本人的上播，不会再开一场。</p>}
       {schedule && <p className="muted">{schedule.roomName} · {schedule.startTime}–{schedule.endTime} · 主播 {schedule.anchor.name}{schedule.control ? `，中控 ${schedule.control.name}` : ''}{schedule.operator ? `，运营 ${schedule.operator.name}` : ''}</p>}
       {trialAnchor&&<label className="wide notice warn"><input type="checkbox" checked={trialConfirmed} onChange={e=>setTrialConfirmed(e.target.checked)}/> 确认本场由试播主播「{schedule!.anchor.name}」上播，由我代报上下播，时间用于该主播工资和提成核算</label>}
       {!opts ? <p className="muted" role="status">正在读取选项…</p> : (
@@ -95,13 +107,29 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
   );
 }
 
+function findJoin(rows:CheckinSession[],schedule:ScheduleRow,role?:'anchor'|'control') {
+  return rows.find(s=>s.scheduleId===schedule.id&&s.roomId===schedule.roomId&&(role==='anchor'?s.canJoinAnchor:role==='control'?s.canJoinControl:s.canJoinAnchor||s.canJoinControl));
+}
+
 export function StartDialog(props:Parameters<typeof StartForm>[0]){
-  const [loaded,setLoaded]=useState(!!props.schedule),[plans,setPlans]=useState<ScheduleRow[]>([]),[chosen,setChosen]=useState<ScheduleRow|null>(props.schedule),[error,setError]=useState('');
-  const [manual,setManual]=useState(false);
-  useEffect(()=>{if(props.schedule)return;liveApi.checkinContext(props.roomId).then(d=>{setPlans(d.schedules.filter(s=>s.status==='scheduled'&&s.canStart&&s.mineRole!=='operator'));setLoaded(true);}).catch(e=>setError(errText(e)));},[props.schedule]);
-  if(!loaded)return <Modal title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班…</p>}</Modal>;
-  if(!props.schedule&&!chosen&&!manual&&plans.length)return <Modal title="选择本次排班" onClose={props.onClose}><p>已读取你的排班，请核对要开始的场次。</p><div className="live-checkin-actions">{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}>{s.roomName} · {s.date} {s.startTime}–{s.endTime}</button>)}<button className="secondary-button live-clock-button" onClick={()=>setManual(true)}>没有对应排班，临时开播</button></div></Modal>;
-  return <StartForm {...props} schedule={chosen}/>;
+  const [loaded,setLoaded]=useState(false),[plans,setPlans]=useState<ScheduleRow[]>([]),[chosen,setChosen]=useState<ScheduleRow|null>(props.schedule),[error,setError]=useState('');
+  const [manual,setManual]=useState(false),[existing,setExisting]=useState<CheckinSession|null>(null),[joinable,setJoinable]=useState<CheckinSession[]>([]);
+  useEffect(()=>{
+    let active=true;
+    liveApi.checkinContext().then(d=>{
+      if(!active)return;
+      const eligible=(d.joinable??[]).filter(s=>(!props.roomId||s.roomId===props.roomId)&&(props.role==='anchor'?s.canJoinAnchor:props.role==='control'?s.canJoinControl:s.canJoinAnchor||s.canJoinControl));
+      setJoinable(eligible);
+      if(props.schedule)setExisting(findJoin(eligible,props.schedule,props.role)??null);
+      setPlans(d.schedules.filter(s=>s.status==='scheduled'&&s.canStart&&s.mineRole!=='operator'&&(!props.roomId||s.roomId===props.roomId)));
+      setLoaded(true);
+    }).catch(e=>{if(active)setError(errText(e));});
+    return()=>{active=false;};
+  },[props.schedule,props.roomId,props.role]);
+  if(!loaded)return <Modal title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班和实际场次…</p>}</Modal>;
+  if(existing)return <JoinDialog session={existing} role={props.role??(existing.canJoinAnchor?'anchor':'control')} onClose={props.onClose} onDone={props.onDone}/>;
+  if(!props.schedule&&!chosen&&!manual&&(plans.length||joinable.length))return <Modal title="选择本次排班" onClose={props.onClose}><p>已读取你的排班和实际场次，请核对要开始的场次。</p><div className="live-checkin-actions">{joinable.map(s=><button className="primary-button live-clock-button" key={`session-${s.id}`} onClick={()=>setExisting(s)}>加入已开播场次 · {s.roomName} · 主播 {s.anchor.name}</button>)}{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}>{s.roomName} · {s.date} {s.startTime}–{s.endTime}</button>)}<button className="secondary-button live-clock-button" onClick={()=>setManual(true)}>没有对应排班，临时开播</button></div></Modal>;
+  return <StartForm {...props} schedule={chosen} onExisting={setExisting}/>;
 }
 
 /** When another role has already opened the room, confirm the actual session rather than the original plan. */
