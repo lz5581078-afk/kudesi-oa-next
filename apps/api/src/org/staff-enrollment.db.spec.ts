@@ -8,7 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { DataSource } from 'typeorm';
 import { buildDataSourceOptions } from '../database/data-source';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, Company, Department, PlatformAdmin, Position, PositionPermission, User, UserPermissionOverride } from '../entities';
+import { AuditLog, Company, Department, PlatformAdmin, Position, PositionPermission, ResourceRecord, User, UserPermissionOverride } from '../entities';
 import { AuthService } from '../auth/auth.service';
 import { OrgAdminService } from './org-admin.service';
 import { StaffEnrollmentInvite } from './staff-enrollment.entity';
@@ -23,7 +23,7 @@ d('员工扫码入职：真实 MySQL', () => {
   const input = (token: string, extra: object = {}) => ({ token, name: '新人', phone: phone(), password, ...extra });
   beforeAll(async () => {
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME }), migrationsRun: true } as never);
-    await ds.initialize(); svc = new StaffEnrollmentService(ds); org = new OrgAdminService(ds);
+    await ds.initialize(); svc = new StaffEnrollmentService(ds, buildServices(ds).resources); org = new OrgAdminService(ds);
     async function actor() {
       const c = await ds.manager.save(Company, ds.manager.create(Company, { code: randomBytes(8).toString('hex'), name: '扫码测试', status: 'active' }));
       const u = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, name: '人事', account: randomBytes(10).toString('hex'), passwordHash: 'x', status: 'active', isCompanyAdmin: true, mustChangePassword: false }));
@@ -90,6 +90,50 @@ d('员工扫码入职：真实 MySQL', () => {
       try { await expect(svc.join(input(r.token))).rejects.toThrow(); }
       finally { await ds.manager.update(entity as typeof Company, id, { status: 'active' }); }
     }
+  });
+  it.each(['part_time','temp'] as const)('岗位码按%s创建唯一账号和兼职临时工档案，保持岗位和手机号关联', async employmentType => {
+    const r = await svc.create(a, {mode:'position',positionId:job.id,employmentType,contractStartDate:'2020-01-01',...(employmentType==='temp'?{contractEndDate:'2099-12-31'}:{})});
+    expect(await svc.preview(r.token)).toMatchObject({employmentType,contractStartDate:'2020-01-01'});
+    expect((await svc.list(a)).find(x=>x.id===r.id)?.employmentType).toBe(employmentType);
+    const data=input(r.token); await svc.join(data);
+    const u=await ds.manager.findOneByOrFail(User,{account:data.phone});
+    expect(u.employmentType).toBe(employmentType); expect(u.positionId).toBe(job.id);
+    const records=await ds.manager.find(ResourceRecord,{where:{companyId:a.companyId,type:'workforce'}});
+    const mine=records.filter(r=>Number(r.data.userId)===u.id); expect(mine).toHaveLength(1);
+    expect(mine[0].data).toMatchObject({userId:u.id,employmentType,phone:data.phone,contractStartDate:'2020-01-01'});
+    expect(mine[0].title).toBe(data.name); expect(mine[0].status).toBe('active');
+    expect(mine[0].data.payRate).toBeUndefined();
+  });
+  it('正式员工码不创建兼职档案；旧码类型兼容正式',async()=>{
+    const r=await svc.create(a,{mode:'position',positionId:job.id}); const data=input(r.token);await svc.join(data);
+    const u=await ds.manager.findOneByOrFail(User,{account:data.phone});expect(u.employmentType).toBe('regular');
+    expect((await ds.manager.find(ResourceRecord,{where:{companyId:a.companyId,type:'workforce'}})).some(r=>Number(r.data.userId)===u.id)).toBe(false);
+  });
+  it('拒绝临时工缺结束日期、非法日期、倒置合作期及非法类型',async()=>{
+    for(const terms of [{employmentType:'temp'},{employmentType:'temp',contractEndDate:'2099-02-30'},{employmentType:'part_time',contractStartDate:'2099-04-02',contractEndDate:'2099-04-01'},{employmentType:'part_time',contractStartDate:'2099-99-99'},{employmentType:'bad'}]){
+      await expect(svc.create(a,{mode:'position',positionId:job.id,...terms} as never)).rejects.toThrow();
+    }
+  });
+  it('入职码合作期到期拒绝注册且不留下孤立账号',async()=>{
+    const r=await svc.create(a,{mode:'position',positionId:job.id,employmentType:'temp',contractStartDate:'2020-01-01',contractEndDate:'2099-01-01'});
+    await ds.manager.update(StaffEnrollmentInvite,r.id,{contractEndDate:'2020-01-02'});
+    const data=input(r.token);await expect(svc.join(data)).rejects.toThrow('合作期已结束');expect(await ds.manager.findOneBy(User,{account:data.phone})).toBeNull();
+  });
+  it('建档失败同事务回滚账号；公共提交不能自行更换用工类型',async()=>{
+    const r=await svc.create(a,{mode:'position',positionId:job.id,employmentType:'part_time'});
+    const data=input(r.token,{employmentType:'regular'}); await svc.join(data);
+    expect((await ds.manager.findOneByOrFail(User,{account:data.phone})).employmentType).toBe('part_time');
+    const resources=buildServices(ds).resources; const fail=jest.spyOn(resources,'createRecord').mockRejectedValueOnce(new Error('建档失败'));
+    const isolated=new StaffEnrollmentService(ds,resources); const next=input(r.token);
+    await expect(isolated.join(next)).rejects.toThrow('建档失败');expect(await ds.manager.findOneBy(User,{account:next.phone})).toBeNull();fail.mockRestore();
+  });
+  it('发码人失去建档权限后扫码被拒，账号不会单独创建',async()=>{
+    const r=await svc.create(a,{mode:'position',positionId:job.id,employmentType:'part_time'});
+    const data=input(r.token); await ds.manager.update(User,a.id,{isCompanyAdmin:false});
+    try{await expect(svc.join(data)).rejects.toThrow('权限');expect(await ds.manager.findOneBy(User,{account:data.phone})).toBeNull();}
+    finally{await ds.manager.update(User,a.id,{isCompanyAdmin:true});}
+    const limited={...a,permissions:{isCompanyAdmin:false,allow:['org.staff.create'],deny:[]}} as AuthUser;
+    await expect(svc.create(limited,{mode:'position',positionId:job.id,employmentType:'part_time'})).rejects.toThrow('没有创建兼职');
   });
   it('不同公司的码并发注册同一手机号仅创建一个账号；手工创建同样遵守全局唯一', async () => {
     const r = await svc.create(a, { mode: 'position', positionId: job.id });

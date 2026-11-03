@@ -5,6 +5,8 @@
  */
 
 export type WorkforceEmployment = 'part_time' | 'temp';
+/** 发码人指定用工类型和合作期限，扫码人不能覆盖。旧码兼容正式员工。 */
+export interface EnrollmentTerms { employmentType?: 'regular' | WorkforceEmployment; contractStartDate?: string; contractEndDate?: string }
 export type WorkforcePayMethod = 'hourly' | 'daily' | 'monthly' | 'piece';
 export type WorkforceCooperation = 'working' | 'pending' | 'ended' | 'inactive';
 
@@ -21,7 +23,7 @@ export const WORKFORCE_FILE_FIELDS = ['contractFiles', 'identityFiles', 'payment
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** 真实存在的日期（2026-02-30 这类会被 JS 自动顺延的日期不算） */
-const isDate = (v: unknown): v is string => typeof v === 'string' && DATE_RE.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+const isDate = (v: unknown): v is string => typeof v === 'string' && DATE_RE.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
 
 /** 合作状态。停用优先；没填开始日期不算“待开始”（档案校验保证开始日期必填）。 */
 export function workforceCooperation(data: Record<string, unknown>, status: string, today: string): WorkforceCooperation {
