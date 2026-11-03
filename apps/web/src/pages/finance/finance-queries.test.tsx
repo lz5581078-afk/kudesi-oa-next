@@ -109,18 +109,19 @@ describe('现金银行查询', () => {
     expect(within(await screen.findByRole('dialog')).getByText('拼店')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     const stale = within(row).getByTitle('超过 30 天没更新');
-    expect(stale.className).toContain('bad');
+    expect(stale.className).toContain('is-stale');
     fireEvent.click(within(row).getByRole('button', { name: '设为重点' }));
     await waitFor(() => expect(fa.setKeyAccount).toHaveBeenCalledWith(2, true));
     // 店铺资金：平台页签
     fireEvent.click(screen.getByRole('button', { name: /展开 2 个店铺/ }));
     expect(screen.getByText(/拼多多 \/ 拼店/)).toBeTruthy();
     expect(screen.getByText(/淘宝 \/ 淘店/)).toBeTruthy();
-    expect(screen.getByText('未记录')).toBeTruthy(); // 淘店没有更新记录
+    expect(screen.getAllByText('最后更新：未记录')).toHaveLength(4); // 四项资金分别显示自己的更新时间
     fireEvent.click(screen.getByRole('tab', { name: /^淘宝/ }));
     expect(screen.queryByText(/拼多多 \/ 拼店/)).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /^全部店铺/ }));
     const storeRow = screen.getByText(/拼多多 \/ 拼店/).closest('tr')!;
+    expect(within(storeRow).getAllByTitle('24 小时内更新')).toHaveLength(4);
     fireEvent.click(within(storeRow).getByRole('button', { name: '查看账户' }));
     const dlg = await screen.findByRole('dialog');
     expect(within(dlg).getByText('拼店收款户')).toBeTruthy();

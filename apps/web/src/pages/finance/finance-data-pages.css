@@ -142,3 +142,13 @@
 .finance-history-archive-detail header{align-items:flex-start}
 
 .finance-history-archive-detail>.empty-state{padding:32px 24px;font-size:16px}
+
+.finance-balance-updated{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border-radius:999px;font-size:12px;line-height:1.35;white-space:nowrap;color:#64748b;background:#e2e8f0}
+.finance-balance-updated.is-fresh{color:#137333;background:#dcfce7}
+.finance-balance-updated.is-two-days{color:#0a654f;background:#dcefe4}
+.finance-balance-updated.is-three-days{color:#0c4a6e;background:#e0f2fe}
+.finance-balance-updated.is-seven-days{color:#92400e;background:#fef3c7}
+.finance-balance-updated.is-fifteen-days{color:#6b21a8;background:#f3e8ff}
+.finance-balance-updated.is-thirty-days{color:#7c2d12;background:#ffedd5}
+.finance-balance-updated.is-stale{color:#b91c1c;background:#fee2e2}
+.finance-fund-amount{display:flex;flex-direction:column;align-items:flex-end;gap:4px}

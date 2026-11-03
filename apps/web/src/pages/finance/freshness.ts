@@ -15,10 +15,6 @@ export function freshnessTone(updatedAt: string | null | undefined, now: number)
   return 'stale';
 }
 
-/** 档位对应的标签颜色（pill 的 ok / warn / bad，没有记录用灰色） */
-export const FRESH_PILL: Record<Freshness, string> = {
-  fresh: 'ok', 'two-days': 'warn', 'three-days': 'warn', 'seven-days': 'bad', 'fifteen-days': 'bad', 'thirty-days': 'bad', stale: 'bad', unknown: '',
-};
 export const FRESH_HINT: Record<Freshness, string> = {
   fresh: '24 小时内更新', 'two-days': '1 到 2 天前更新', 'three-days': '2 到 3 天前更新', 'seven-days': '3 到 7 天前更新', 'fifteen-days': '7 到 15 天前更新', 'thirty-days': '15 到 30 天前更新', stale: '超过 30 天没更新', unknown: '没有更新记录',
 };

@@ -111,13 +111,13 @@ export function CashBankPage() {
   const companyCols = [A.type, A.name, A.no, A.bank, A.keeper, A.balance, A.transit, A.fresh, A.status, A.key];
   const exportCols = [A.type, A.name, A.bank, A.license, A.keeper, A.link, A.balance, A.transit, A.fresh, A.status];
 
+  const fundAmount = (amount: number, at: StoreFund['updatedAt']) => <div className="finance-fund-amount"><strong>{money(amount)}</strong><Fresh at={at} now={now} compact /></div>;
   const fundCols: Array<Col<StoreFund>> = [
     { key: 'store', head: '店铺', primary: true, cell: (f) => <>{f.platformLabel} / {f.name}<div className="muted">{f.storeNo || '未填写店铺编号'}</div></>, csv: (f) => `${f.platformLabel} / ${f.name}` },
-    { key: 'w', head: '可提现余额', num: true, cell: (f) => money(f.withdrawableCents), sum: (l) => money(l.reduce((s, f) => s + f.withdrawableCents, 0)), csv: (f) => plainYuan(f.withdrawableCents) },
-    { key: 'd', head: '保证金', num: true, cell: (f) => money(f.depositCents), sum: (l) => money(l.reduce((s, f) => s + f.depositCents, 0)), csv: (f) => plainYuan(f.depositCents) },
-    { key: 'f', head: '冻结资金', num: true, cell: (f) => money(f.frozenCents), sum: (l) => money(l.reduce((s, f) => s + f.frozenCents, 0)), csv: (f) => plainYuan(f.frozenCents) },
-    { key: 'p', head: '推广费余额', num: true, cell: (f) => money(f.promotionCents), sum: (l) => money(l.reduce((s, f) => s + f.promotionCents, 0)), csv: (f) => plainYuan(f.promotionCents) },
-    { key: 'u', head: '最后更新', cell: (f) => <Fresh at={f.updatedAt} now={now} />, csv: (f) => fmtUpdated(f.updatedAt) },
+    { key: 'w', head: '可提现余额', num: true, cell: (f) => fundAmount(f.withdrawableCents, f.updatedAt), sum: (l) => money(l.reduce((s, f) => s + f.withdrawableCents, 0)), csv: (f) => plainYuan(f.withdrawableCents) },
+    { key: 'd', head: '保证金', num: true, cell: (f) => fundAmount(f.depositCents, f.updatedAt), sum: (l) => money(l.reduce((s, f) => s + f.depositCents, 0)), csv: (f) => plainYuan(f.depositCents) },
+    { key: 'f', head: '冻结资金', num: true, cell: (f) => fundAmount(f.frozenCents, f.updatedAt), sum: (l) => money(l.reduce((s, f) => s + f.frozenCents, 0)), csv: (f) => plainYuan(f.frozenCents) },
+    { key: 'p', head: '推广费余额', num: true, cell: (f) => fundAmount(f.promotionCents, f.updatedAt), sum: (l) => money(l.reduce((s, f) => s + f.promotionCents, 0)), csv: (f) => plainYuan(f.promotionCents) },
     { key: 'acc', head: '收款账户', action: true, cell: (f) => <button type="button" className="link-button" onClick={() => setRel({ title: `${f.name} · 关联收款账户`, accounts: all.filter((a) => a.storeIds?.includes(f.storeId)) })}>查看账户</button> },
   ];
 
@@ -143,7 +143,7 @@ export function CashBankPage() {
             { label: '公司账户余额', value: money(sum(companyAccounts)), tone: 'accent' },
             ...(transitSum(accounts) !== 0 ? [{ label: '在途待确认转款', value: money(transitSum(accounts)), tone: 'warn' as const }] : []),
           ]} />
-          <p className="muted qk-note">余额旁的时间是“最后更新”：24 小时内绿色，3 天内黄色，更久红色。期初取自“银行账户”资料里登记的余额，之后每张已过账的单据都会自动计入。</p>
+          <p className="muted qk-note">余额旁标记最后更新时间，按1、2、3、7、15、30天分档显示颜色。期初取自“银行账户”资料里登记的余额，之后每张已过账的单据都会自动计入。</p>
 
           <QueryPanel title="重点账户" hint="每个人自己标记，只对你自己生效">
             {accountTable(keyAccounts, keyCols, '还没有标记重点账户。在下面的账户列表里点“设为重点”，这里就会一直显示（只对你自己生效）。', '重点账户')}
