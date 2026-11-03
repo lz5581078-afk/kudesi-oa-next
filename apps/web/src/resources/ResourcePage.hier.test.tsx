@@ -49,6 +49,20 @@ describe('分级布局下的列表页', () => {
     expect(screen.queryByText(/找到 \d+ 条符合条件/)).toBeNull();
   });
 
+  it('资料操作保留搜索、筛选、行高、表格编辑和导入导出，新增及显示停用仍可直接操作', async () => {
+    renderIt();
+    await screen.findByText('润农');
+    expect(screen.getByRole('button', { name: '＋ 新增' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '显示停用' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '资料操作' }));
+    expect(screen.getByRole('searchbox', { name: '搜索' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '筛选' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /行高/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '表格编辑' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '导入' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '导出' })).toBeTruthy();
+  });
+
   it('没选到最末级分类时点新增只给提示；选到最末级才打开表单', async () => {
     renderIt();
     await screen.findByText('润农');

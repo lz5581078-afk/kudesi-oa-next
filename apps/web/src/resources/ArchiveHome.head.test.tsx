@@ -14,8 +14,8 @@ import { ArchiveHome } from './ArchiveHome';
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-describe('基础资料首页页头：页面名称只出现一处', () => {
-  it('内容区没有再写一遍页面大标题；声明顶部页面栏只显示页面名称（不叠分区面包屑）', async () => {
+describe('基础资料首页使用24号标题与卡片结构', () => {
+  it('恢复24号内容区标题和说明，顶部页面栏不叠分区面包屑', async () => {
     vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 3, page: 1, pageSize: 1, tabCounts: { raw: 2, self_made: 1 } } as never);
     const setBare = vi.fn();
     render(
@@ -24,16 +24,15 @@ describe('基础资料首页页头：页面名称只出现一处', () => {
       </MemoryRouter>,
     );
     await screen.findByText('原料档案');
-    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
-    expect(screen.queryByText('商品档案', { selector: 'h1, h2, h3' })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1, name: '商品档案' })).toBeTruthy();
     expect(setBare).toHaveBeenCalledWith(true);
   });
 
-  it('卡片：名称 + 数量 + 单位在一行，说明最多两行，没有“N 条商品”的重复页脚', async () => {
+  it('卡片按名称、数量、说明、标识依次排列', async () => {
     vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 3, page: 1, pageSize: 1, tabCounts: { raw: 2 } } as never);
     render(<MemoryRouter><ArchiveHome type="finance-products" onEnter={() => undefined} /></MemoryRouter>);
     const card = (await screen.findByText('原料档案')).closest('.hier-card') as HTMLElement;
-    await waitFor(() => expect(card.querySelector('.hier-card-top')?.textContent).toContain('2'));
+    await waitFor(() => expect(card.querySelector('.hier-card-count')?.textContent).toContain('2'));
     expect(card.querySelector('em')?.textContent).toBe('标识 YL');
   });
 });

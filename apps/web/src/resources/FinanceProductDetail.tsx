@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { FolderTree } from 'lucide-react';
 import { COMPOSITION_GROUP_LABEL, createChecker, getResourceDef, multiplyUnitCents, productLayoutKey, resolveProductSections, type ResolvedNode, type CompositionGroup } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import type { ResourceDto } from './api';
@@ -55,7 +56,7 @@ export function FinanceProductDetail({ record }: { record: ResourceDto }) {
   const fields = (keys: Array<string | [string, string]>) => <FinanceFields def={def} record={record} keys={keys} />;
   const block = (node: Extract<ResolvedNode, { kind: 'block' }>) => {
     switch (node.block) {
-      case 'category': return fields([['categoryId', '所属分类']]);
+      case 'category': return <div data-field="categoryId" className="finance-view-category"><FolderTree size={18} /><strong>{record.refLabels.categoryId || '未填写'}</strong></div>;
       case 'code': return <output data-field="code" className="finance-code-value">{String(record.data.code || '—')}</output>;
       case 'fullName': return <div data-field="basicInfoFullName" className="finance-full-name"><small>基础信息全名</small><output>{String(record.data.basicInfoFullName || '未填写')}</output></div>;
       case 'capacities': {
@@ -73,19 +74,26 @@ export function FinanceProductDetail({ record }: { record: ResourceDto }) {
   const renderNodes = (nodes: readonly ResolvedNode[]) => <div className="finance-layout-grid">{nodes.map((node, i) => {
     if (node.kind === 'field') {
       if (node.field.key === 'zeroValueReason' && !needsZeroReason(record.data)) return null;
-      const f = node.field;
+      const f = node.field.key === 'name' ? { ...node.field, label: ({ self_made: '自产成品名称', purchased_original: '原装采购成品名称', purchased_oem: '供应商OEM成品名称' } as Record<string, string>)[key] || node.field.label } : node.field;
+      if (['giftShortName', 'giftCodeShortName'].includes(f.key)) return <label key={f.key} className="finance-gift-field" data-field={f.key}><span>{f.label}</span><input aria-label={f.label} readOnly value={String(record.data[f.key] ?? '')} placeholder={f.key === 'giftShortName' ? '例如：购种合同、拌种剂10克' : '例如：HT、BZJ10G，仅字母和数字'} /></label>;
       return <div key={f.key} data-layout-field={f.key} data-field={f.type === 'files' ? f.key : undefined} className={['textarea','files','attrs','json','refs'].includes(f.type) || node.wide ? 'wide' : undefined}>{f.type === 'files' ? <><span>{f.label}</span><FileList ids={Array.isArray(record.data[f.key]) ? record.data[f.key] as number[] : []} files={record.files} /></> : fields([[f.key, f.label]])}</div>;
     }
     return <div key={`${node.block}-${i}`} className="wide">{block(node)}</div>;
   })}</div>;
-  const ordered = sections.filter(sec => !(record.warehouseMode && ['sources','production','logistics','total','cost'].includes(sec.id)) && !(record && ['package','oem_package'].includes(key) && sec.id === 'category') && !(key === 'custom' && ['cost','total','photos'].includes(sec.id))).sort((a,b) => Number(a.id === 'gift') - Number(b.id === 'gift'));
+  const viewOrder = !['package', 'oem_package'].includes(key) ? ['category', 'gift', 'base', 'code'] : [];
+  const ordered = sections.filter(sec => !(record.warehouseMode && ['sources','production','logistics','total','cost'].includes(sec.id)) && !(record && ['package','oem_package'].includes(key) && sec.id === 'category') && !(key === 'custom' && ['cost','total','photos'].includes(sec.id))).sort((a,b) => { const rank = (id: string) => { const index = viewOrder.indexOf(id); return index < 0 ? viewOrder.length : index; }; return rank(a.id) - rank(b.id); });
   return <>{ordered.map(sec => {
     let nodes = sec.nodes.filter(n => !(key === 'custom' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName')));
-    const extras = ['raw','shipping_material'].includes(key) && sec.id === 'base' ? nodes.filter(n => n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName') : [];
+    if (sec.id === 'base' && ['self_made', 'purchased_original', 'purchased_oem'].includes(key)) {
+      const measured = sections.filter(s => ['measure', 'result', 'pricing'].includes(s.id)).flatMap(s => s.nodes).filter(n => n.kind === 'field' && n.field.key === 'purchaseSpec' || key === 'self_made' && n.kind === 'block' && n.block === 'weight');
+      const tail = nodes.filter(n => n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName');
+      nodes = [...nodes.filter(n => !tail.includes(n)), ...measured, ...(key.startsWith('purchased_') ? [{ kind: 'field' as const, field: { ...def.fields.find(f => f.key === 'supplyMode')!, label: '供货模式' } }] : []), ...tail];
+    }
+    const extras = sec.id === 'base' ? nodes.filter(n => n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName') : [];
     if (extras.length) nodes = nodes.filter(n => !extras.includes(n));
     if (sec.id === 'sources') return <Fragment key={sec.id}><ProductSources record={record} canCost={canCost} /></Fragment>;
     if (sec.id === 'production' && nodes.some(n => n.kind === 'block' && n.block === 'composition')) return <Fragment key={sec.id}><ProductComposition record={record} canCost={canCost} /></Fragment>;
-    if (['gift','extra'].includes(sec.id)) return <details key={sec.id} data-sec={sec.id} className="finance-detail-extra"><summary>{sec.id === 'gift' ? '赠品简称设置' : sec.title}</summary>{renderNodes(nodes)}</details>;
-    return <FinanceSection key={sec.id} title={sec.id === 'stock' && ['package','oem_package'].includes(key) ? '库存' : sec.title} className={`finance-layout-section section-${sec.id}`}>{renderNodes(nodes)}{extras.length > 0 && <div className="finance-layout-extra">{renderNodes(extras)}</div>}{sec.id === 'logistics' && canCost && <FreightHistory productId={record.id} values={record.data} />}</FinanceSection>;
+    if (sec.id === 'extra') return <details key={sec.id} data-sec={sec.id} className="finance-detail-extra"><summary>{sec.title}</summary>{renderNodes(nodes)}</details>;
+    return <FinanceSection key={sec.id} title={sec.id === 'base' ? (['package', 'oem_package'].includes(key) ? sec.title : '基础资料') : sec.id === 'code' ? ({ self_made: '自产成品编号', purchased_original: '原装采购成品编号', purchased_oem: '供应商OEM成品编号', package: '产品包装编号', oem_package: 'OEM包装编号' } as Record<string,string>)[key] || sec.title : sec.id === 'stock' && ['package','oem_package'].includes(key) ? '库存' : sec.title} className={`finance-layout-section section-${sec.id}`}>{sec.id === 'gift' && sec.hint && <p className="reference-gift-hint">{sec.hint}</p>}{renderNodes(nodes)}{extras.length > 0 && <div className="finance-layout-extra">{renderNodes(extras)}</div>}{sec.id === 'logistics' && canCost && <FreightHistory productId={record.id} values={record.data} />}</FinanceSection>;
   })}{key === 'custom' && <details className="finance-detail-extra"><summary>更多设置</summary>{sections.filter(sec => ['cost','total','photos'].includes(sec.id)).map(sec => <FinanceSection key={sec.id} title={sec.title}>{renderNodes(sec.nodes)}</FinanceSection>)}{renderNodes(sections.find(sec => sec.id === 'base')?.nodes.filter(n => n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName') ?? [])}</details>}</>;
 }

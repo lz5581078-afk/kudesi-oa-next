@@ -30,7 +30,7 @@ import { ACTION_LABEL, LogChanges } from './DetailLogs';
 import { DetailHead, type DetailNav } from './DetailHead';
 import { FileList } from './FilesField';
 import { ChevronDown } from './ResIcons';
-import { FINANCE_DETAIL_TYPES } from './FinanceDetailFields';
+import { FINANCE_DETAIL_TYPES, allDetailRows } from './FinanceDetailFields';
 import { FinanceDetailBackdrop, FinanceDetailBody, FinanceDetailHead } from './FinanceRecordDetail';
 import { resourceFields, resourceFieldWide } from './resourceFieldLayout';
 import { referenceRecordLabel } from './referenceFormLayout';
@@ -78,7 +78,7 @@ export function ChildPanel({ parentDef, parent, childType, field }: { parentDef:
   const [error, setError] = useState('');
   const reload = useCallback(async () => {
     try {
-      const list = (await resourceApi.list(childType, { pageSize: 100, showHidden: true, fieldKey: field, fieldValue: parent.id })).items;
+      const list = childType === 'finance-product-costs' ? await allDetailRows(childType, field, parent.id) : (await resourceApi.list(childType, { pageSize: 100, showHidden: true, fieldKey: field, fieldValue: parent.id })).items;
       setItems(childType === 'finance-product-costs' ? [...list].sort((a, b) => String(b.data.effectiveFrom ?? '').localeCompare(String(a.data.effectiveFrom ?? ''))) : list);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
@@ -88,17 +88,26 @@ export function ChildPanel({ parentDef, parent, childType, field }: { parentDef:
     void reload();
   }, [reload]);
   const cols = (CHILD_COLS[childType] ? CHILD_COLS[childType].map((k) => def.fields.find((f) => f.key === k)).filter((f): f is NonNullable<typeof f> => !!f) : def.fields.filter((f) => f.list && f.key !== field));
+  const costs = childType === 'finance-product-costs';
   const labeled = LABELED_CHILDREN.has(childType);
   const secrets = labeled ? def.fields.filter((f) => f.type === 'secret') : [];
   return (
-    <section>
+    <section className={costs ? 'finance-cost-panel' : undefined}>
       <div className="between">
-        <h2 className="section-title">{def.label}（{items.length}）</h2>
-        {can('create') && <button type="button" className="secondary-button small" onClick={() => setEditing('new')}>＋ 新增</button>}
+        {costs ? <span className="muted">业务日期：{todayShanghai()}</span> : <h2 className="section-title">{def.label}（{items.length}）</h2>}
+        {can('create') && <button type="button" className="secondary-button small" onClick={() => setEditing('new')}>{costs ? '＋ 新增成本' : '＋ 新增'}</button>}
       </div>
       {error && <div role="alert" className="notice error">{error}</div>}
       {items.length === 0 && <p className="muted">还没有{def.label}</p>}
-      {items.map((it) => (
+      {costs ? <div className="finance-cost-table-scroll"><table className="finance-cost-table" aria-label="成本明细"><thead><tr><th>成本类型</th><th>单位成本</th><th>生效期间</th><th>来源</th><th>状态</th><th>操作</th></tr></thead><tbody>{items.map(it => <tr key={it.id}>
+        <td>{displayValue(def.fields.find(f => f.key === 'costType')!, it)}</td>
+        <td><strong>{displayValue(def.fields.find(f => f.key === 'unitCost')!, it)}</strong><small>/{String(it.data.unitName || parent.data.purchaseSpec || '未维护计价单位')}</small>{Boolean(it.data.manualOverride) && <small>手工锁定{it.data.manualLockReason ? ` · ${String(it.data.manualLockReason)}` : ''}</small>}</td>
+        <td>{String(it.data.effectiveFrom || '未维护')}<small>至 {String(it.data.effectiveTo || '长期')}</small></td>
+        <td>{displayValue(def.fields.find(f => f.key === 'sourceType')!, it)}{Boolean(it.data.sourceRef || it.data.calculationMethod) && <small>{String(it.data.sourceRef || it.data.calculationMethod)}</small>}</td>
+        <td>{isCurrentCost(it, items) ? '当前生效' : statusOf(def, it.status).label}</td>
+        <td><div className="row-actions">{can('edit') && <button type="button" className="link-button" onClick={() => setEditing(it)}>编辑</button>}{can('disable') && <StatusControl def={def} id={it.id} current={it.status} onChanged={reload} onError={setError} />}{can('delete') && <button type="button" className="link-button danger-text" onClick={() => setDeleting(it)}>删除…</button>}</div></td>
+      </tr>)}</tbody></table></div> : items.map((it) => (
+
         <div key={it.id} className="line-item col">
           <div className="between">
             <strong>{it.title}{childType === 'finance-product-costs' && isCurrentCost(it, items) && <span className="pill ok"> 当前生效</span>}{childType === 'finance-product-sources' && isLatestSource(it, items) && <span className="pill ok"> 当前最新成本</span>}</strong>
@@ -121,6 +130,7 @@ export function ChildPanel({ parentDef, parent, childType, field }: { parentDef:
           record={editing === 'new' ? null : editing}
           initial={{ [field]: parent.id, ...childDefaults(childType, editing === 'new', parent), ...(childType === 'bank-accounts' && parent.data.category ? { kind: parent.data.category === 'ecommerce' ? 'store_public' : 'company_public' } : {}) }}
           lockedFields={[field]}
+          inline={costs}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -377,14 +387,15 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const quick = def.key === 'workforce' ? <WorkforceActions key={record.id} record={record} employeeAction onLogs={() => setTab('logs')} onChanged={reloadAll} /> : jstRefresh || phoneRecharge || assetBar || feeLink || record.warehouseMode ? <>{jstRefresh}{phoneRecharge}{feeLink}{assetBar}{record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}</> : undefined;
 
   const finance = FINANCE_DETAIL_TYPES.has(def.key);
+  const productCosts = def.key === 'finance-products' && tab.startsWith('child:finance-product-costs');
   const Frame = finance ? FinanceDetailBackdrop : Fragment;
   const financeLabel = referenceRecordLabel(def.key, record.data);
   const baseCopy = def.key === 'finance-base-codes' && !record.data.canonicalId ? moreItems.find(item => item.key === 'copy') : undefined;
   const financeMore = [...moreItems.filter(item => item !== baseCopy), ...tabs.filter(([key]) => key !== 'info').map(([key, label]) => ({ key: `tab-${key}`, label, run: () => setTab(key) }))];
 
   return (
-    <Frame><aside className={finance ? `rd${financeReference ? '' : ' resource-detail'} finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}` : wide ? `rd${financeReference ? '' : ' resource-detail'} rd-wide` : `rd${financeReference ? '' : ' resource-detail'}`} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
-      {finance ? <FinanceDetailHead def={def} record={record} nav={nav} onClose={onClose} /> : <DetailHead
+    <Frame><aside className={finance ? `rd${financeReference ? '' : ' resource-detail'}${['finance-products','finance-suppliers','finance-customers','finance-fee-items'].includes(def.key) ? ' finance-base-detail' : ''} finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}${productCosts ? ' finance-detail-costs' : ''}` : wide ? `rd${financeReference ? '' : ' resource-detail'} rd-wide` : `rd${financeReference ? '' : ' resource-detail'}`} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
+      {productCosts ? <header className="finance-cost-head"><div><h2>成本明细</h2><p>{String(record.data.code || '')} · {record.title}</p></div><button type="button" className="secondary-button" aria-label="关闭详情" onClick={onClose}>关闭</button></header> : finance ? <FinanceDetailHead def={def} record={record} nav={nav} onClose={onClose} /> : <DetailHead
         def={def}
         record={record}
         nav={editing ? undefined : nav}
@@ -399,7 +410,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
         quick={editing ? undefined : quick}
         canSee={(f) => !f.permission || Boolean(me && createChecker(me.permissions)(f.permission))}
       />}
-      {(!finance || tab !== 'info') && <div role="tablist" aria-label="详情分区" className="rd-tabs">
+      {!productCosts && (!finance || tab !== 'info') && <div role="tablist" aria-label="详情分区" className="rd-tabs">
         {tabs.map(([key, label]) => (
           <button key={key} type="button" role="tab" disabled={editing} aria-selected={tab === key} className={tab === key ? 'rd-tab active' : 'rd-tab'} onClick={() => setTab(key)}>
             {label}
@@ -534,7 +545,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
           </section>
         )}
       </div>
-      {finance && <footer className="finance-detail-foot">
+      {finance && !productCosts && <footer className="finance-detail-foot">
         {['finance-base-codes', 'finance-bundles'].includes(def.key) && <small>{record.updatedAt ? `最后更新：${new Date(record.updatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : ''}</small>}
         <div className="finance-detail-foot-actions">
           {baseCopy && <button type="button" className="secondary-button" onClick={baseCopy.run}>复制新建</button>}

@@ -42,14 +42,14 @@ describe('商品档案详情：成本汇总', () => {
   });
 });
 
-describe('商品档案详情：查看与编辑统一分区', () => {
-  it('原料查看与编辑共用分类、编号、基础资料及成品名的顺序', async () => {
+describe('商品档案详情：源码查看顺序', () => {
+  it('原料查看按分类、赠品、基础资料、编号排列，赠品直接展开', async () => {
     const def = getResourceDef('finance-products')!;
     vi.mocked(resourceApi.get).mockResolvedValue(dto({ type: 'finance-products', title: '番茄种子', data: { archiveType: 'raw', code: 'YL-1', name: '番茄种子', specQty: 500, specUnit: 'G', purchaseSpec: '斤' } }));
     render(<MemoryRouter><RecordDetail def={def} id={1} onClose={() => undefined} onChanged={() => undefined} /></MemoryRouter>);
     await screen.findByText('番茄种子', { selector: '.rd-title' });
     const titles = [...document.querySelectorAll('.finance-view-heading h3')].map(e => e.textContent);
-    expect(titles.slice(0, 4)).toEqual(['所属分类', '系统自动编号', '原料基础信息', '原料成品名']);
+    expect(titles.slice(0, 4)).toEqual(['所属分类', '赠品简称设置', '基础资料', '系统自动编号']);
     expect(screen.getByText('原料名称', { selector: 'dt' })).toBeTruthy();
     expect(screen.getByText('名称单位', { selector: 'dt' })).toBeTruthy();
   });

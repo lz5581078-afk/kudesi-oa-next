@@ -1,1 +1,19 @@
 .reference-dict-backdrop{position:fixed;inset:0;z-index:350;display:grid;place-items:center;background:#0f172a66;padding:20px}.reference-dict{display:flex;flex-direction:column;width:min(760px,calc(100vw - 40px));max-height:calc(100dvh - 40px);overflow:hidden;border-radius:14px;background:#fff;box-shadow:0 24px 72px #0f172a4d;color:#203449}.reference-dict>header{display:flex;justify-content:space-between;padding:22px 24px;border-bottom:1px solid #e1e8e4}.reference-dict header small{color:#198453;font-size:12px}.reference-dict h2{font-size:22px;margin:4px 0 0}.reference-dict header button{background:transparent;border:0;color:#65788a}.reference-dict-body{padding:20px 24px;overflow:auto}.reference-dict form{padding:16px;background:#f6faf8;border:1px solid #d5e4db;border-radius:10px;margin-bottom:20px}.reference-dict h3{font-size:14px;margin:0 0 12px}.reference-dict form>div{display:grid;grid-template-columns:1fr 1fr;gap:14px}.reference-dict label{display:flex;flex-wrap:wrap;gap:6px;color:#345345;font-size:13px}.reference-dict label input{width:100%;box-sizing:border-box;height:40px;border:1px solid #cad8d0;border-radius:7px;padding:8px 12px;font:inherit}.reference-dict form footer{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.reference-dict table{width:100%;border-collapse:collapse;font-size:14px}.reference-dict th,.reference-dict td{padding:12px 8px;border-bottom:1px solid #e2eae5;text-align:left}.reference-dict th{font-weight:600;color:#74867b;background:#f7faf8}@media(max-width:550px){.reference-dict form>div{grid-template-columns:1fr}}
+
+.reference-dict { width: min(650px,calc(100vw - 40px)); border: 1px solid #d8e2e9; }
+.reference-dict h2 { margin: 0; font-size: 24px; }
+.reference-dict header p { margin: 6px 0 0; font-size: 16px; color: #65758a; line-height: 1.5; }
+.reference-dict form { position: relative; padding: 0 0 18px; border: 0; border-radius: 0; background: #fff; }
+.reference-dict form h3 { display: none; }
+.reference-dict form > div { display: block; padding-right: 108px; }
+.reference-dict form > div > label { display: grid; gap: 8px; font-size: 14px; }
+.reference-dict form > div > label .req { display: none; }
+.reference-dict form footer { position: absolute; top: 24px; right: 0; margin: 0; }
+.reference-dict-code { margin-top: 12px; color: #718096; font-size: 12px; }
+.reference-dict-code label { margin-top: 8px; }
+.reference-dict-list { display: grid; gap: 10px; }
+.reference-dict-list > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid #dce5eb; border-radius: 10px; background: #fbfcfd; }
+.reference-dict-list span { display: grid; gap: 5px; }
+.reference-dict-list strong { font-size: 16px; }
+.reference-dict-list small { color: #738397; font-size: 14px; }
+@media(max-width:550px) { .reference-dict form:has(footer > button + button) > div { padding-right: 0; } .reference-dict form:has(footer > button + button) footer { position: static; margin-top: 12px; } }
