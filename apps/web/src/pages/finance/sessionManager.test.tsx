@@ -17,6 +17,7 @@ const device={id:2,name:'DEMO-PC',remark:'01-维护',deviceNo:'DEMO-DEVICE',os:'
 beforeEach(()=>{
   admin=true;apiMock.mockReset();
   apiMock.mockImplementation(async(path:string,init?:{body?:unknown})=>{
+    if(path.endsWith('/engine'))return {engine:'native'};
     if(path.includes('/remote/devices'))return {canManage:admin,canRemote:admin,devices:[],limits:{minMinutes:5,hardCapMinutes:60},globalDisabled:false,iceConfigured:false};
     if(path.includes('/remote/shops'))return {shops:[],canRemote:admin,globalDisabled:false};
     if(path.endsWith('/devices'))return [device];

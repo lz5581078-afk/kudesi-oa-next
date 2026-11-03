@@ -1,0 +1,48 @@
+{
+  "repository": "kudesi-oa",
+  "commit": "0fb7fdad2f3805e3579bd4f870199c880668aaa1",
+  "sourceDirectory": "src/session-manager",
+  "files": [
+    {
+      "path": "PddRemoteAssistDialog.jsx",
+      "sha256": "896769d89f1e5de9cc82e8651b24f449121fa3209968da6e1bf0572c09d74260",
+      "adaptation": "Module-local new-OA authenticated transport import; explicit purpose=remote on remote open requests",
+      "sourceSha256": "4b01da6e819f5a01749e15db0826bd602162881d05677c0d8df9b0904fa738ab"
+    },
+    {
+      "path": "webrtc-remote-client.js",
+      "sha256": "7000bb9b0498163b5b4176d0bf435c04047e92b3ee48c129dfa16751acacd77d",
+      "adaptation": "Unchanged"
+    },
+    {
+      "path": "remote-video-coordinate.mjs",
+      "sha256": "480254c8e916179fc427d367cdc0c3c568dcb0b27e22af6d30bc24a8e67b69c6",
+      "adaptation": "Unchanged"
+    },
+    {
+      "path": "video-frame-observer.mjs",
+      "sha256": "7478243a29f5afa58af66691c438a4aad05c7962465dcb16d6418f65e8fcce1f",
+      "adaptation": "Unchanged"
+    },
+    {
+      "path": "remote-quality-controller.mjs",
+      "sha256": "d6a58b9fa32d35dba850960a523a68a13ea302887a67c8d1877cf5bf7fb27af8",
+      "adaptation": "Unchanged"
+    },
+    {
+      "path": "remote-input-command-tracker.mjs",
+      "sha256": "b56c477d135a958dbc796962277da4bf9553873e541286a1b36f096279d98969",
+      "adaptation": "Unchanged"
+    },
+    {
+      "path": "remote-close-recovery.mjs",
+      "sha256": "e6b3cdd28a16dd0ed642d7615e8cd75d04e5d9ccd0c1ecf84cb21c4b3b597edc",
+      "adaptation": "Unchanged"
+    },
+    {
+      "path": "session-manager.css",
+      "sha256": "41513ad73517ab400c947cdf372b1e30e64214fa1e404eed013f9ee3d70c76f2",
+      "adaptation": "Unchanged"
+    }
+  ]
+}
