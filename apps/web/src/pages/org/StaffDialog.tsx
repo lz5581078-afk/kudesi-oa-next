@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { todayShanghai, validateWorkforceTerms } from '@kudesi/shared';
 import {
   orgApi,
   flattenDepartments,
@@ -46,11 +47,17 @@ export function StaffDialog({
   const [payType, setPayType] = useState<PayType>(staff?.payType ?? 'monthly');
   const [hourly, setHourly] = useState(staff?.hourlyRate != null ? String(staff.hourlyRate / 100) : '');
   const [employmentType, setEmploymentType] = useState<EmploymentType>(staff?.employmentType ?? 'regular');
+  const [contractStartDate, setContractStartDate] = useState(staff?.contractStartDate ?? todayShanghai());
+  const [contractEndDate, setContractEndDate] = useState(staff?.contractEndDate ?? '');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) return setError('请填写姓名');
+    if (staff && employmentType !== 'regular') {
+      const problem = validateWorkforceTerms({ employmentType, contractStartDate, contractEndDate });
+      if (problem) return setError(problem);
+    }
     if (canSalary && salary.trim() && !/^\d+(\.\d{1,2})?$/.test(salary.trim()))
       return setError('底薪请填写金额，最多两位小数');
     if (canSalary && hourly.trim() && !/^\d+(\.\d{1,2})?$/.test(hourly.trim()))
@@ -59,6 +66,7 @@ export function StaffDialog({
     const hourlyCents = canSalary ? (hourly.trim() ? Math.round(Number(hourly) * 100) : null) : undefined;
     const payFields = {
       employmentType,
+      ...(staff && employmentType !== 'regular' ? { contractStartDate, contractEndDate: contractEndDate || null } : {}),
       ...(canSalary ? { payType } : {}),
       ...(hourlyCents !== undefined ? { hourlyRate: hourlyCents } : {}),
     };
@@ -194,6 +202,12 @@ export function StaffDialog({
               ))}
             </select>
           </label>
+          {staff && employmentType !== 'regular' && <>
+            <label>合作开始日期<input type="date" value={contractStartDate} onChange={e => setContractStartDate(e.target.value)} /></label>
+            <label>{employmentType === 'temp' ? '合作结束日期（必填）' : '合作结束日期（可不填）'}<input aria-label="合作结束日期" type="date" min={contractStartDate} value={contractEndDate} onChange={e => setContractEndDate(e.target.value)} /></label>
+            <p className="muted">保存后自动补齐或更新兼职与临时工档案，无需另行建档。</p>
+          </>}
+          {staff && employmentType === 'regular' && staff.employmentType !== 'regular' && <p className="muted">转为正式员工后，原用工档案保留在历史归档中，不再按兼职合作期限限制登录。</p>}
           {canSalary && (
             <>
               <label>

@@ -19,26 +19,26 @@ beforeEach(() => { apiMock.mockReset(); addStaff.mockReset(); });
 afterEach(cleanup);
 
 describe('兼职与临时工专用面板', () => {
-  it('未建档提醒：列出人，点“建档”带出这个人', async () => {
+  it('未建档提醒：列出人，点“编辑员工”带出这个人', async () => {
     apiMock.mockResolvedValue([{ id: 7, name: '小李', account: 'li', employmentType: 'temp' }]);
     const onFile = vi.fn();
-    render(<UnfiledBanner canCreate onFile={onFile} />);
+    render(<UnfiledBanner canEdit onEdit={onFile} />);
     expect(await screen.findByText(/小李（临时工）/)).toBeTruthy();
-    fireEvent.click(screen.getByText('建档'));
+    fireEvent.click(screen.getByText('编辑员工'));
     expect(onFile).toHaveBeenCalledWith(7);
     expect(apiMock).toHaveBeenCalledWith('/workforce/unfiled');
   });
 
   it('没有未建档的人，或没有建档权限：不出现提醒/按钮', async () => {
     apiMock.mockResolvedValue([]);
-    const { container } = render(<UnfiledBanner canCreate onFile={() => undefined} />);
+    const { container } = render(<UnfiledBanner canEdit onEdit={() => undefined} />);
     await waitFor(() => expect(apiMock).toHaveBeenCalled());
     expect(container.textContent).toBe('');
     cleanup();
     apiMock.mockResolvedValue([{ id: 1, name: '甲', account: 'a', employmentType: 'part_time' }]);
-    render(<UnfiledBanner canCreate={false} onFile={() => undefined} />);
+    render(<UnfiledBanner canEdit={false} onEdit={() => undefined} />);
     await screen.findByText(/甲（兼职）/);
-    expect(screen.queryByText('建档')).toBeNull();
+    expect(screen.queryByText('编辑员工')).toBeNull();
   });
 
   it('新增账号并建档：创建后只显示一次临时密码，确认后带着员工进入建档', async () => {
