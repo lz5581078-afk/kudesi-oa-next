@@ -9,7 +9,7 @@ vi.mock('./remote/remoteApi',()=>({remoteApi:{shops:fixture.remoteShops},mainten
 vi.mock('./remote/legacy/LegacyRemoteAssistDialog',()=>({LegacyRemoteAssistDialog:(props:{shop:ShopRow;onClose:()=>void})=>{fixture.legacy(props.shop);return <div role="dialog" aria-label="旧版远程控制"><button onClick={props.onClose}>关闭远程</button></div>;}}));
 vi.mock('./remote/RemoteAssistDialog',()=>({RemoteAssistDialog:()=> <div role="dialog" aria-label="原生远程控制"/>}));
 const baseShop:ShopRow={id:101,storeId:901,storeName:'合成店铺',platform:'pdd',deviceId:'synthetic-device',deviceName:'合成电脑',deviceStatus:'online',loginAccount:'',hasPassword:false,autoLogin:false,loginState:'none',lastVerifiedAt:null,activeRequest:null};
-function client(shop:ShopRow,canManage=true){return {overview:vi.fn().mockResolvedValue({shops:[shop],canManage,total:1,page:1,pageSize:50,pageCount:1}),devices:vi.fn().mockResolvedValue([{id:shop.deviceId,name:'合成电脑',status:'active',online:true}]),abnormalReasons:vi.fn().mockResolvedValue([]),open:vi.fn().mockResolvedValue({id:'request'})} as unknown as SessionClient;}
+function client(shop:ShopRow,canManage=true){return {overview:vi.fn().mockResolvedValue({shops:[shop],canManage,total:1,page:1,pageSize:50,pageCount:1}),devices:vi.fn().mockResolvedValue([{id:shop.deviceId,name:'合成电脑',status:'active',online:true}]),abnormalReasons:vi.fn().mockResolvedValue([]),open:vi.fn().mockResolvedValue({id:'request'}),cancel:vi.fn().mockResolvedValue({})} as unknown as SessionClient;}
 beforeEach(()=>{fixture.canRemote=true;fixture.permissions=[];fixture.remoteShops.mockReset().mockResolvedValue({shops:[]});fixture.legacy.mockReset();});
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 
@@ -55,6 +55,27 @@ describe('两个模块登录复用远程窗口',()=>{
       expect(api.open).not.toHaveBeenCalled();
       cleanup();
     }
+  });
+  it.each([false,true])('只有远程权限仍有唯一协助入口且不开放管理操作 maintenance=%s',async maintenance=>{
+    fixture.remoteShops.mockResolvedValue({shops:[{shopId:101,remoteEnabled:true,deviceOnline:true,live:null}]});
+    const api=client({...baseShop,legacy:{workspace:maintenance?'company_store_maintenance':'finance_withdrawal'}},false);
+    render(<Shops client={api} maintenance={maintenance}/>);
+    const remote=await screen.findByRole('button',{name:'远程协助'});
+    expect(within(remote.closest('td')!).getAllByRole('button')).toEqual([remote]);
+    expect(screen.queryByRole('button',{name:'首次登录'})).toBeNull();
+    fireEvent.click(remote);
+    expect(screen.getByRole('dialog',{name:'旧版远程控制'})).toBeTruthy();
+    expect(api.open).not.toHaveBeenCalled();expect(api.cancel).not.toHaveBeenCalled();
+  });
+  it.each([false,true])('人工验证任务刷新后仍可返回协助且不重复打开或停止任务 maintenance=%s',async maintenance=>{
+    fixture.remoteShops.mockResolvedValue({shops:[{shopId:101,remoteEnabled:true,deviceOnline:true,live:{mine:true}}]});
+    const api=client({...baseShop,activeRequest:{id:'existing-request',kind:'open',status:'waiting_human'},legacy:{workspace:maintenance?'company_store_maintenance':'finance_withdrawal'}});
+    render(<Shops client={api} maintenance={maintenance}/>);
+    const remote=await screen.findByRole('button',{name:'返回协助'});
+    expect(screen.getByRole('button',{name:'停止任务'})).toBeTruthy();
+    fireEvent.click(remote);
+    expect(screen.getByRole('dialog',{name:'旧版远程控制'})).toBeTruthy();
+    expect(api.open).not.toHaveBeenCalled();expect(api.cancel).not.toHaveBeenCalled();
   });
   it('原生核心保留独立远程入口及原远程弹窗',async()=>{
     fixture.remoteShops.mockResolvedValue({shops:[{shopId:101,remoteEnabled:true,deviceOnline:true,live:null}]});
