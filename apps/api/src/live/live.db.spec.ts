@@ -999,7 +999,7 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.report(cc,made.id,report)).rejects.toThrow(/试播主播/);
     await expect(sessions.report(cc,made.id,{...report,confirmTrialAnchorId:anchor.id})).rejects.toThrow(/试播主播/);
     await sessions.report(cc,made.id,{...report,confirmTrialAnchorId:trial.id});
-    const ended=await sessions.detail(cc,made.id);expect(ended.endAt).toBe('2027-01-05 11:00:00');expect(ended.status).toBe('pending_report');expect(ended.reports.map(r=>r.role)).toEqual(['control']);
+    const ended=await sessions.detail(cc,made.id);expect(ended.trialProxyReporter).toEqual({id:cc.id,name:cc.name});expect(ended.endAt).toBe('2027-01-05 11:00:00');expect(ended.status).toBe('pending_report');expect(ended.reports.map(r=>r.role)).toEqual(['control']);
     // The per-session confirmation remains authoritative even if this person later becomes regular.
     await ds.query('UPDATE users SET live_trial=0 WHERE company_id=? AND id=?',[company,trial.id]);
     expect((await sessions.detail(cc,made.id)).anchorTrial).toBe(true);

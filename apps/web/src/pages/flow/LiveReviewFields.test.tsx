@@ -21,3 +21,11 @@ it('待办审核复用逐店填报，保留各平台金额；空金额清除可�
   expect(JSON.parse(screen.getByTestId('payload').textContent!).storeLines).toEqual([]);
   expect(screen.getByRole('alert').textContent).toContain('有效营业额');
 });
+
+it('待办审核同步显示试播主播及确切代报中控，订单待核对不显示成零业绩',async()=>{
+  vi.mocked(liveApi.session).mockResolvedValue({anchorTrial:true,trialProxyReporter:{id:4,name:'代报小王'},anchor:{id:3,name:'试播小李'},startAt:'2026-11-02 10:00:00',endAt:'2026-11-02 11:00:00',channels:[],reports:[{role:'control',reporter:{id:4,name:'代报小王'},salesCents:0,orderCount:0,pending:true}]} as never);
+  const fields:FieldDef[]=[{key:'finalSource',label:'最终来源',type:'select',group:'审核',options:[{value:'control',label:'中控填报'}]}];
+  render(<FlowFieldsForm fields={fields} values={{finalSource:'control'}} onChange={()=>{}} templateKey="live-session-review" context={{sessionId:8}}/>);
+  const mark=await screen.findByRole('region',{name:'主播业绩（试播代报）'});
+  expect(mark.textContent).toContain('试播小李');expect(mark.textContent).toContain('代报小王');expect(mark.textContent).toContain('待核对');expect(mark.textContent).not.toContain('¥0.00');
+});

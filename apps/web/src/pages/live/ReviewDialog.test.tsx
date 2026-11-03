@@ -13,6 +13,20 @@ const session={id:7,date:'2026-11-01',roomName:'演示房间',startAt:'2026-11-0
 beforeEach(()=>{vi.mocked(liveApi.options).mockResolvedValue({operators:[]} as never);vi.mocked(liveApi.reviewPreview).mockResolvedValue(preview);});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 describe('审核计薪试算与失败反馈',()=>{
+ it('试播主播业绩明确标记中控代报，并保留真实中控报告和来源',async()=>{
+  const trial={...session,anchorTrial:true,checkinMode:true,trialProxyReporter:{id:2,name:'演示中控'},reports:[{role:'control',roleLabel:'中控',reporter:{id:2,name:'演示中控'},salesCents:87400,orderCount:4,ordersTotalCents:87400,adSpendCents:0}]} as SessionDetail;
+  render(<ReviewDialog session={trial} onClose={vi.fn()} onDone={vi.fn()}/>);
+  const mark=screen.getByRole('region',{name:'主播业绩（试播代报）'});
+  expect(mark.textContent).toContain('试播主播：演示主播');expect(mark.textContent).toContain('代报中控：演示中控');expect(mark.textContent).toContain('¥874.00');expect(mark.textContent).toContain('4 单');
+  expect(within(screen.getByRole('table',{name:'上报对比'})).getAllByRole('row')).toHaveLength(2);
+  expect(screen.getByRole('option',{name:/中控所报销售额.*试播代报依据/})).toBeTruthy();
+  await waitFor(()=>expect(liveApi.reviewPreview).toHaveBeenCalledWith(7,expect.objectContaining({finalSource:'control'})));
+ });
+ it('正式主播审核不显示试播代报标识',()=>{
+  render(<ReviewDialog session={session} onClose={vi.fn()} onDone={vi.fn()}/>);
+  expect(screen.queryByRole('region',{name:'主播业绩（试播代报）'})).toBeNull();
+ });
+
  it('874元单平台只显示一次提成，并明确工资和预计应发',()=>{
   render(<ReviewPreviewAmounts preview={preview}/>);
   expect(screen.getAllByText('¥26.22')).toHaveLength(1);expect(screen.getAllByText('¥17.48')).toHaveLength(1);

@@ -1,3 +1,4 @@
+import { TrialProxyPerformance } from '../live/TrialProxyPerformance';
 import type { FieldDef } from '@kudesi/shared';
 import { useEffect, useRef, useState } from 'react';
 import { FieldInput } from '../../resources/RecordForm';
@@ -51,6 +52,7 @@ function LiveReviewFields(props: Parameters<typeof GenericFields>[0]) {
   },[multi,manual,props.values.storeLines,session]); // onChange belongs to the active task form
   return <>
     {error&&<p className="notice error" role="alert">{error}</p>}
+    {session&&<TrialProxyPerformance session={session}/>}
     <GenericFields {...props} fields={props.fields.filter(f=>f.key!=='storeLines'&&!(multi&&f.key==='finalSalesCents'))}/>
     {multi&&manual&&<StorePerformanceTable channels={session!.channels!} rows={rows} onChange={next=>{edited.current=true;setRows(next);try{props.onChange('storeLines',storePayload(next));setError('');}catch{props.onChange('storeLines',[]);setError('请逐店填写有效营业额和投流费用');}}}/>}
   </>;
