@@ -286,7 +286,12 @@ db('发布快照在真实Nest中的页面协议与远程信令接入（隔离MyS
     expect((await old(`/open-requests/${first.body.id}`, { method: 'DELETE', auth: remoteToken })).status).toBe(200);
     const opened = await old('/open-requests', { method: 'POST', auth: remoteToken, body: { ...body, purpose: 'remote' } }); expect(opened.status).toBe(201);
     expect(Number((await agent('/open-requests', undefined, 'GET')).body.request.requested_by_employee_id)).toBe(jwt.decode(remoteToken).sub);
-    const browser = await agent('/browser-sessions', { openRequestId: opened.body.id, storeId: String(shopId), localProfileId: profileId, platformCode: 'pdd', pageUrl: 'https://mms.pinduoduo.com/home/' }); expect(browser.status).toBe(201);
+    const registration = { openRequestId: opened.body.id, storeId: String(shopId), localProfileId: profileId, platformCode: 'pdd', pageUrl: 'https://mms.pinduoduo.com/home/' };
+    const [browser, duplicate] = await Promise.all([agent('/browser-sessions', registration), agent('/browser-sessions', registration)]);
+    expect(browser.status).toBe(201); expect(duplicate.status).toBe(201);
+    expect(duplicate.body.id).toBe(browser.body.id);
+    const [active] = await store.query("SELECT COUNT(*) n FROM managed_browser_sessions WHERE device_id=? AND local_profile_id=? AND status='open'", [devices[workspace].deviceId, profileId]);
+    expect(Number(active.n)).toBe(1);
     const created = await old('/remote-sessions', { method: 'POST', auth: remoteToken, body: { browserSessionId: browser.body.id, deviceId: devices[workspace].deviceId, shopId } }); expect(created.status).toBe(201);
     expect((await old(`/remote-sessions/${created.body.id}/webrtc-ticket`, { method: 'POST', auth: remoteToken, body: {} })).status).toBe(201);
     expect((await old(`/remote-sessions/${created.body.id}/webrtc-ticket`, { method: 'POST', body: {} })).status).toBe(404);
