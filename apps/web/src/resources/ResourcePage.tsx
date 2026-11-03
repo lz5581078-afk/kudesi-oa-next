@@ -6,6 +6,7 @@ import { BatchBar } from './BatchBar';
 import { rowActionsFor } from './RowActions';
 import { HierRowActions } from './HierRowActions';
 import { HierBar } from './HierBar';
+import './financeBaseDesign.css';
 import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, browseFilterFields, permissionOwner, resourcePermission, viewFiltersOf, createChecker, gridPolicyOf, SPECIAL_PERMISSIONS, type ColFilter, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -32,6 +33,7 @@ import { AppbarHint, useAppbarBare, useHasAppbarSlot } from '../layout/AppbarSlo
 import { ResourceCards, ResourceTable, SORTABLE } from './ResourceTable';
 import { ActiveChips, ColumnsPop, DensityButton, FilterPop, MorePop, type Chip } from './ListTools';
 import { PageHint } from './PageHint';
+import { ToolPop } from './ToolPop';
 import { AddAccountDialog, UnfiledBanner } from './WorkforcePanels';
 import { WorkforceActions } from './WorkforceActions';
 import { StaffEditorDialog } from '../pages/org/StaffEditorDialog';
@@ -97,6 +99,7 @@ function useColumns(type: string, all: FieldDef[], defaults: FieldDef[]) {
 /** 通用资料页：列表（搜索/分类页签/状态/分页/列设置）+ 右侧详情抽屉 + 新增/导入/导出，全部由资源定义生成。 */
 export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type: string; lockedTab?: string; title?: string; embedded?: boolean; hier?: HierContext }) {
   const def = getResourceDef(type)!;
+  const financeBase = Boolean(hier) || ['finance-packaging-schemes', 'finance-zero-reasons', 'finance-product-units', 'finance-supplier-categories', 'finance-customer-categories', 'finance-fee-categories'].includes(type);
   const isMobile = useIsMobile();
   const [density, setDensity] = useDensity();
   const colWidths = useColumnWidths(type);
@@ -451,9 +454,11 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     </div>
   );
 
+  const hiddenButton = (hier && hiddenExists && <button type="button" className={showHidden ? 'res-btn on' : 'res-btn'} aria-pressed={showHidden} onClick={() => { setShowHidden(!showHidden); setPage(1); }}>{showHidden ? '隐藏停用' : '显示停用'}</button>
+  );
   const extras = (
     <>
-      {hier && hiddenExists && <button type="button" className={showHidden ? 'res-btn on' : 'res-btn'} aria-pressed={showHidden} onClick={() => { setShowHidden(!showHidden); setPage(1); }}>{showHidden ? '隐藏停用' : '显示停用'}</button>}
+
       {groupCfg && <button type="button" className={wantGroup ? 'res-btn on' : 'res-btn'} aria-pressed={wantGroup} title={`列表按${groupField?.label ?? '所属部门'}分组，可折叠`} onClick={() => setGroupMode(!wantGroup)}>{groupCfg.order === 'value' ? `按${groupField?.label ?? ''}分组` : '按部门分组'}</button>}
       {type === 'finance-products' && costCan('product.cost.view') && costCan('resource.finance-product-costs.view') && <button type="button" className="res-btn" onClick={() => setCostXlOpen(true)}>成本 Excel</button>}
       {type === 'finance-packaging-schemes' && <button type="button" className="res-btn" onClick={() => setPackagingXlOpen(true)}>Excel 导入导出</button>}
@@ -492,7 +497,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
             <button type="button" role="menuitem" onClick={() => void doExport('all')}>导出全部</button>
           </></MorePop>
         : <button type="button" className="res-btn" onClick={() => void doExport('filtered')}>导出</button>)}
-      {type !== 'workforce' && can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
+      {!hier && type !== 'workforce' && can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={hier && def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
     </>
   );
 
@@ -514,11 +519,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     ? <div className="res-empty"><p>没有符合当前条件的{def.label}。可以清空搜索词、换一个分类，或勾选“显示停用”。</p><button type="button" className="link-button" onClick={clearFilters}>清除全部条件</button></div>
     : <div className="res-empty"><p>还没有{def.label}</p>{type !== 'workforce' && can('create') && <button type="button" className="res-btn primary sm" onClick={startCreate}>＋ 新增{def.label}</button>}</div>;
 
-  const toolbar = (
-    <fieldset className="grid-lock res-tools" disabled={gridLocked} title={gridLocked ? '有没保存的修改：请先保存或放弃，再换筛选或翻页' : undefined}>
-      {tabsOwnRow && tabsEl}
-      <div className="res-bar">
-        {!tabsOwnRow && tabsEl}
+  const searchTools = <>
         <span className="res-search">
           <SearchGlyph />
           <input type="search" placeholder="搜索，多个词用空格隔开" aria-label="搜索" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
@@ -547,9 +548,17 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
             }}
           />
         )}
-        {!isMobile && <ColumnsPop fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} />}
+        {!hier && !isMobile && <ColumnsPop fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} />}
         {!isMobile && <DensityButton density={density} onChange={setDensity} />}
         {!hasAppbar && hint}
+  </>;
+
+  const standardToolbar = (
+    <fieldset className="grid-lock res-tools" disabled={gridLocked} title={gridLocked ? '有没保存的修改：请先保存或放弃，再换筛选或翻页' : undefined}>
+      {tabsOwnRow && tabsEl}
+      <div className="res-bar">
+        {!tabsOwnRow && tabsEl}
+        {searchTools}
         <span className="res-bar-gap" />
         <div className="res-actions">{isMobile ? (
           <>
@@ -573,8 +582,23 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     </fieldset>
   );
 
+  const toolbar = !hier ? standardToolbar : (
+    <fieldset className="grid-lock res-tools finance-base-tools" disabled={gridLocked}>
+      <div className="finance-base-list-topline">
+        <div className="finance-base-list-title"><h3>{paths[treeField?.key ?? '']?.split(' / ').at(-1) || hier.title}{def.label.replace('档案', '')}列表</h3><span>共 {data?.total ?? 0} 条</span></div>
+        <div className="res-actions">
+          <ToolPop label="资料操作" trigger="资料操作" align="right" panelClass="finance-base-operations">{() => <><div className="finance-base-operation-query">{searchTools}</div><div className="finance-base-operation-actions">{actions}</div></>}</ToolPop>
+          {hiddenButton}
+          {!isMobile && <ColumnsPop fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} />}
+          {can('create') && <button type="button" className="res-btn primary" disabled={gridLocked} title={def.hierarchy?.leafHint && !leaf ? def.hierarchy.leafHint : undefined} onClick={startCreate}>＋ 新增</button>}
+        </div>
+      </div>
+      {(filtered || chips.length > 0) && data && <ActiveChips chips={chips} summary={filtered ? `找到 ${data.total} 条符合条件的${def.label}` : ''} onClearAll={clearFilters} />}
+    </fieldset>
+  );
+
   return (
-    <div className={`res-page${type === 'workforce' ? ' workforce-page' : ''}${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}`}>
+    <div className={`res-page${type === 'workforce' ? ' workforce-page' : ''}${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}${financeBase ? ` finance-base-page finance-base-${type}` : ''}`}>
       {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
       {hier && <HierBar title={hier.title} subtitle={hier.subtitle} onBack={hier.onBack} />}
       <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
