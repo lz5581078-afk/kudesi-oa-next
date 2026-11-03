@@ -13,7 +13,7 @@ export function CodePreview({ values, excludeId, onPreview, onFullName, quiet = 
   const [err, setErr] = useState('');
   const body = {
     archiveType: txt(values.archiveType), supplyMode: txt(values.supplyMode), categoryId: intOrUndef(values.categoryId), brandId: intOrUndef(values.brandId),
-    name: txt(values.name), specQty: numOrUndef(values.specQty), specUnit: txt(values.specUnit), shape: txt(values.shape), code: txt(values.code), materialCode: txt(values.materialCode), capacities: txt(values.capacities), dimensions: txt(values.dimensions), dimensionUnit: txt(values.dimensionUnit), productPackagingSpec: txt(values.productPackagingSpec), productPackagingUnit: txt(values.productPackagingUnit), excludeId,
+    name: txt(values.name), specQty: typeof values.specQty === 'string' ? txt(values.specQty) : numOrUndef(values.specQty), purchaseSpec: txt(values.purchaseSpec), specUnit: txt(values.specUnit), shape: txt(values.shape), code: txt(values.code), materialCode: txt(values.materialCode), capacities: txt(values.capacities), dimensions: txt(values.dimensions), dimensionUnit: txt(values.dimensionUnit), productPackagingSpec: txt(values.productPackagingSpec), productPackagingUnit: txt(values.productPackagingUnit), excludeId,
   };
   const key = JSON.stringify(body);
   useEffect(() => {

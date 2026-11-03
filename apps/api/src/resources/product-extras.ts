@@ -63,7 +63,7 @@ export function basicInfoFullName(data: Data, brandName: string, units?: UnitLis
     return join([optLabel('packagingCategory', data.packagingCategory) || data.shape, name, brandName, data.dimensions, data.dimensions ? optLabel('dimensionUnit', data.dimensionUnit) : '', ...(caps.length ? caps : qty ? [`${qty}${unit}`] : [])]);
   }
   if (type === 'raw' || type === 'shipping_material') return join([name, qty, unit, data.materialCode]);
-  if (type === 'self_made') return join([name, brandName, qty, unit, data.productPackagingSpec]);
+  if (type === 'self_made') return join([name, brandName, qty, unit, data.productPackagingSpec, optLabel('productPackagingUnit', data.productPackagingUnit), data.purchaseSpec]);
   if (type === 'purchased') return join([name, brandName, qty, unit, data.purchaseSpec, data.supplyMode === 'supplier_oem' ? '供应商OEM' : '原装采购']);
   return join([name, brandName, qty, unit, data.shape]);
 }

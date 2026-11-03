@@ -120,6 +120,26 @@ d('财务资料（真实数据库）', () => {
     expect(raw.data.code).toMatch(/-2D5KG$/);
   });
 
+  it('采购与自产按文字名称规格、包装规格及系统规格分段编码，预览与保存一致', async () => {
+    const cat = await svc.create(boss, 'finance-categories', { archiveType: 'original_purchase', name: '分段采购类', code: 'FDCG' });
+    const purchased = { archiveType: 'purchased', supplyMode: 'original_purchase', name: '分段采购', categoryId: cat.id, brandId: ids.brand, specQty: '2.50', specUnit: 'G', purchaseSpec: '袋', purchasePrice: 100, freight: 1, handlingFee: 1 };
+    const preview = await previewProductCode(ds.manager, svc, boss, purchased, null);
+    expect(preview.code).toMatch(/-250G-D$/);
+    expect((await svc.create(boss, 'finance-products', purchased)).data.code).toBe(preview.code);
+    const made = { archiveType: 'self_made', name: '分段自产', categoryId: ids.smCat, brandId: ids.brand, specQty: '混合2.50', specUnit: 'BOX', productPackagingSpec: '500g袋', productPackagingUnit: 'D', purchaseSpec: '千克' };
+    const madePreview = await previewProductCode(ds.manager, svc, boss, made, null);
+    expect(madePreview.code).toMatch(/-HH250BOX-500GDD-QK$/);
+    const saved = await svc.create(boss, 'finance-products', made);
+    expect(saved.data.code).toBe(madePreview.code);
+    expect(saved.data.basicInfoFullName).toBe(madePreview.basicInfoFullName);
+    expect(saved.data.basicInfoFullName).toContain('-500g袋-袋-千克');
+    expect((await svc.update(boss, 'finance-products', saved.id, { purchaseSpec: '斤', productPackagingUnit: 'BOX' })).data.code).toBe(saved.data.code);
+    const noNameSpec = { ...made, name: '无名称规格分段', specQty: '', specUnit: '', productPackagingSpec: '500', productPackagingUnit: 'D' };
+    const emptyPreview = await previewProductCode(ds.manager, svc, boss, noNameSpec, null);
+    expect(emptyPreview.code).toMatch(/-500D-QK$/);
+    expect((await svc.create(boss, 'finance-products', noNameSpec)).data.code).toBe(emptyPreview.code);
+  });
+
   it('采购和自产文字名称规格不丢失，采购自动重量随名称规格变化重新计算', async () => {
     const cat = await svc.create(boss, 'finance-categories', { archiveType: 'original_purchase', name: '文字采购规格', code: 'WZCG' });
     const purchased = await svc.create(boss, 'finance-products', { archiveType: 'purchased', supplyMode: 'original_purchase', name: '合成采购测试', categoryId: cat.id, brandId: ids.brand, specQty: '净含量500g', specUnit: 'EA', purchaseSpec: '袋', purchasePrice: 100, freight: 1, handlingFee: 1 });
