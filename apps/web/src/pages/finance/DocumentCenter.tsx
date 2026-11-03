@@ -93,14 +93,14 @@ function CenterContent({scope}:{scope:Scope}){
     {label:'今日新增草稿',value:todayCount===null?'—':`${todayCount} 条`,tone:'green'},
   ];
   return <QueryPage className="finance-reference-query finance-document-center" title={title} subtitle={scope==='history'?'把费用、付款、收款、提现、入库成本和流程自动生成的财务单据集中查询。':'集中查看尚未提交、待补充和可继续处理的财务单据草稿。后续流程自动生成的草稿也会统一进入这里。'}>
-    {scope==='history'&&<QueryPanel title="查询条件" icon={<Search size={18}/>}><div className="document-center-filters">
+    {scope==='history'&&<QueryPanel title="查询条件" icon={<Search size={18}/>}><div className="reference-query-filters">
       <label><span>开始日期</span><input aria-label="开始日期" type="date" value={filters.from} onChange={event=>field('from',event.target.value)}/></label>
       <label><span>结束日期</span><input aria-label="结束日期" type="date" value={filters.to} onChange={event=>field('to',event.target.value)}/></label>
       <label><span>单据类型</span><select aria-label="单据类型" value={filters.type} onChange={event=>field('type',event.target.value)}><option value="">全部类型</option>{DOC_TYPES.filter(type=>type.type!=='withdrawal').map(type=><option key={type.type} value={type.type}>{type.label}</option>)}</select></label>
       <label><span>收支方向</span><select aria-label="收支方向" value={filters.direction} onChange={event=>field('direction',event.target.value)}><option value="">全部方向</option>{Object.entries(DOC_DIRECTION_LABEL).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
       <label><span>单据状态</span><select aria-label="单据状态" value={filters.status} onChange={event=>field('status',event.target.value)}><option value="">全部状态</option>{Object.entries(statusLabels).filter(([value])=>value!=='draft'||includePending).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
-      <label className="document-center-keyword"><span>关键词</span><ReferenceSearch label="关键词" value={filters.keyword} onChange={value=>field('keyword',value)} placeholder="搜索单号、摘要、关联对象、经办人"/></label>
-      <div className="document-center-filter-actions"><button type="button" className="primary-button" disabled={loading} onClick={()=>void load()}>{loading?'查询中':'查询'}</button><button type="button" className="secondary-button" onClick={()=>setFilters({...empty})}>重置</button></div>
+      <label className="reference-query-keyword"><span>关键词</span><ReferenceSearch label="关键词" value={filters.keyword} onChange={value=>field('keyword',value)} placeholder="搜索单号、摘要、关联对象、经办人"/></label>
+      <div className="reference-query-actions"><button type="button" className="primary-button" disabled={loading} onClick={()=>void load()}>{loading?'查询中':'查询'}</button><button type="button" className="secondary-button" onClick={()=>setFilters({...empty})}>重置</button></div>
     </div></QueryPanel>}
     {error&&<div className="notice error" role="alert">{error}<button type="button" className="link-button" onClick={()=>void load()}>重试</button></div>}
     <div className="document-center-metrics" aria-label="汇总">{stats.map(stat=><div key={stat.label} className={`document-center-metric ${stat.tone}`}><span>{stat.label}</span><strong>{stat.value}</strong></div>)}</div>

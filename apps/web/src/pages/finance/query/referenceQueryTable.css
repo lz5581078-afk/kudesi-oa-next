@@ -8,8 +8,11 @@
 .qk-reference-popover input{width:13px;height:13px}
 .qk-reference-column-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:6px}
 .qk-reference-column-actions .secondary-button.small{height:38px;min-height:0;padding:6px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font-size:16px;font-weight:400}
-.qk-reference-table th>button:not(.qk-column-resize){display:flex;align-items:center;gap:5px;width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:inherit}
-.qk-reference-table th>button:not(.qk-column-resize)>span{color:#94a3b8;font-size:12px}
+.qk-reference-table th>button:not(.qk-column-resize){display:inline-flex;align-items:center;gap:6px;max-width:calc(100% - 8px);padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.qk-reference-table th>button:not(.qk-column-resize)>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.qk-reference-table th>button>i{flex:0 0 auto;color:#91a0b2;font-size:12px;font-style:normal;line-height:1}
+.qk-reference-table th>button>i.is-sorted,.qk-reference-table th>button:not(.qk-column-resize):hover,.qk-reference-table th>button:not(.qk-column-resize):focus-visible{color:#087443}
+.qk-reference-table th>button:not(.qk-column-resize):focus-visible{outline:none;border-radius:4px;box-shadow:0 0 0 2px #0874432e}
 .qk-reference-table .qk-reference-empty{padding:28px 12px;color:#94a3b8;text-align:center}
 .qk-reference-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;color:#64748b;font-size:12px}
 .qk-reference-pagination>div{display:flex;gap:8px}
@@ -31,6 +34,7 @@
 .qk-reference-search-popover footer>div{display:flex;gap:10px}
 .qk-reference-search-popover footer button{height:34px;min-height:34px}
 .qk-reference-table th{position:relative}
-.qk-reference-table th>.qk-column-resize{position:absolute;top:0;right:0;bottom:0;width:9px;padding:0;border:0;background:transparent;cursor:col-resize;touch-action:none}
-.qk-reference-table th>.qk-column-resize:hover{border-right:2px solid #94a3b8}
+.qk-reference-table th>.qk-column-resize{position:absolute;top:0;right:-5px;bottom:0;width:10px;padding:0;border:0;background:transparent;cursor:col-resize;touch-action:none}
+.qk-reference-table th>.qk-column-resize:after{content:"";position:absolute;right:4px;top:7px;width:2px;height:calc(100% - 14px);background:#b9ddca;opacity:0;transition:opacity .12s ease}
+.qk-reference-table th:hover>.qk-column-resize:after{opacity:1}
 @media(max-width:600px){.qk-reference-search-popover{width:420px;max-width:calc(100vw - 32px)}.qk-reference-search-popover footer{align-items:stretch;flex-direction:column}.qk-reference-search-popover footer>div{justify-content:flex-end}}
