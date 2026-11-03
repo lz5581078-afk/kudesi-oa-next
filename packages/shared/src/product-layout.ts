@@ -1,3 +1,4 @@
+import { productCapacity } from './product-capacities';
 /**
  * 商品档案“新增 / 编辑 / 详情”共用的一份布局（旧版 10-24 的商品抽屉：每种档案类型一套分区、顺序、必填、显示条件）。
  *
@@ -307,6 +308,7 @@ export function productFormProblems(values: Record<string, unknown>, ctx: Produc
   if (['package', 'oem_package'].includes(t)) {
     const lines = String(values.capacities ?? '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
     if (!lines.length) out.capacities = '请至少填写一个容量（数量和单位）';
+    else if (lines.some(line => { const capacity = productCapacity(line); return capacity.quantity === null || capacity.quantity <= 0 || !capacity.unit; })) out.capacities = '每条容量都要填写大于0的数量和单位';
     if (present(values.dimensions) && !present(values.dimensionUnit)) out.dimensionUnit = '填了尺寸，请选择尺寸单位';
     for (const k of ['orderStock', 'actualStock']) if (present(values[k]) && Number(values[k]) < 0) out[k] = '库存不能小于 0';
   }

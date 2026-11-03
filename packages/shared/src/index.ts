@@ -56,3 +56,5 @@ export * from './source-price-time';
 export * from './resource-form';
 
 export * from './cost-breakdown';
+
+export { productCapacity } from './product-capacities';

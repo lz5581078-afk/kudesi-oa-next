@@ -1,6 +1,6 @@
 import { costCompositionFacts } from './cost-components';
 import { archiveCodePrefix, beforeArchivePrefix } from './archive-prefix';
-import { systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/shared';
+import { productCapacity, systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { pinyin } from 'pinyin-pro';
@@ -237,6 +237,13 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   } else if (!((numericSpecification(data.specQty) ?? 0) > 0)) throw new BadRequestException('规格数量必须大于 0');
 
   const statusChanging = !!existing && existing.status !== ctx.status;
+  if (['package', 'oem_package'].includes(type) && !statusChanging) {
+    const capacities = str(data.capacities).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    for (const [index, line] of capacities.entries()) {
+      const capacity = productCapacity(line);
+      if (capacity.quantity === null || capacity.quantity <= 0 || !capacity.unit) throw new BadRequestException(`第 ${index + 1} 条容量请填写大于0的数量和单位`);
+    }
+  }
   const canEditCost = createChecker(user.permissions)('product.cost.edit');
 
   // 品牌：原料、发货物料可不填；自制品、采购成品、OEM 包装必填

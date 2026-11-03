@@ -287,6 +287,7 @@ d('商品档案与基础编码（真实数据库）', () => {
     expect(changed.data.specQty).toBe(2);
     expect(changed.data.specUnit).toBe('KG');
     await expect(svc.create(boss, 'finance-products', { archiveType: 'package', name: '坏容量', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'bag', capacities: '一大袋', weightG: 1, weightManual: true, purchaseSpec: '个', purchasePrice: 1, freight: 0, handlingFee: 0, zeroValueReason: '运费：无\n装卸费：无' })).rejects.toThrow(/容量第一行/);
+    for (const invalid of ['250G\nKG', '250G\n2', '250G\n0KG', '250G\n-1KG']) await expect(svc.create(boss, 'finance-products', { archiveType: 'package', name: '合成第二容量错误', categoryId: ids.pkgCat, brandId: ids.brand, packagingCategory: 'bag', capacities: invalid, weightG: 1, weightManual: true, purchaseSpec: '个', purchasePrice: 1, freight: 0, handlingFee: 0, zeroValueReason: '运费：无\n装卸费：无' })).rejects.toThrow(/第 2 条容量/);
     // 自产成品：名称规格、名称单位选填
     const sm = await svc.create(boss, 'finance-categories', { archiveType: 'self_made', name: '无规格类', code: 'ZC9' });
     const made = await svc.create(boss, 'finance-products', { archiveType: 'self_made', name: '无规格自产', categoryId: sm.id, brandId: ids.brand, purchaseSpec: '袋', productPackagingSpec: '500G袋', productPackagingUnit: 'D', freight: 0, handlingFee: 0, zeroValueReason: '运费：自提\n装卸费：无' });

@@ -63,3 +63,13 @@
 @media(max-width:650px){.modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-keep,.modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-next{white-space:normal}}
 .modal.rf.rf-reference.reference-shipping_material .reference-section-gift{padding:0 0 20px;border:0;border-bottom:1px solid #e5eaf0;border-radius:0;background:transparent}
 .modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-save{border:1px solid #cfd9e5}
+
+.reference-lines[data-field=capacities] .reference-line-label{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:18px}
+.reference-lines[data-field=capacities] .reference-line-label .rf-manage{margin:0}
+.reference-lines[data-field=capacities] .reference-line-label .req{font-size:12px;font-weight:500;color:inherit}
+.reference-lines[data-field=capacities] .reference-line>label{gap:4px}
+.reference-lines[data-field=capacities] .reference-line>span{flex:0 0 32px;width:32px;text-align:center;color:#708080}
+.reference-lines[data-field=capacities] .reference-line>button{align-self:flex-end;width:36px;height:36px;border:1px solid #d5dfda;border-radius:6px;display:grid;place-items:center}
+.reference-package .reference-section-capacities,.reference-oem_package .reference-section-capacities{position:relative}
+.reference-package .reference-lines-actions,.reference-oem_package .reference-lines-actions{position:absolute;right:16px;top:16px}
+@media(max-width:650px){.reference-package .reference-lines-actions,.reference-oem_package .reference-lines-actions{position:static;margin-bottom:4px}}

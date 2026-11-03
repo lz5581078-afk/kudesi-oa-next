@@ -1,22 +1,33 @@
-import { useEffect, useState } from 'react';
+import { ManageLink } from './ManageLink';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { unitYuanText, sumUnitCents, specificationWeightG, getResourceDef } from '@kudesi/shared';
+import { productCapacity, unitYuanText, sumUnitCents, specificationWeightG, getResourceDef } from '@kudesi/shared';
 import { resourceApi, type ResourceDto } from './api';
 import { useUnitOptions, fieldOptions } from './unitOptions';
 
 /** 多行编辑只改变呈现方式，仍保存原有的一行一项格式，兼容既有马甲和容量资料。 */
-export function ReferenceLines({ kind, value, onChange }: { kind: 'finishedNames' | 'capacities'; value: unknown; onChange: (value: string) => void }) {
-  const [lines, setLines] = useState(() => String(value ?? '').split(/\r?\n/).filter(Boolean));
+export function ReferenceLines({ kind, value, onChange, defaultUnit }: { kind: 'finishedNames' | 'capacities'; value: unknown; onChange: (value: string) => void; defaultUnit?: string }) {
+  const [lines, setLines] = useState(() => { const initial = String(value ?? '').split(/\r?\n/).filter(Boolean); return initial.length || kind !== 'capacities' ? initial : [defaultUnit || '']; });
   const units = useUnitOptions();
   const capacity = kind === 'capacities';
-  const options = fieldOptions(getResourceDef('finance-products')!.fields.find(f => f.key === 'specUnit')!, {}, units);
-  const write = (next: string[]) => { setLines(next); onChange(next.join('\n')); };
-  useEffect(() => { if (String(value ?? '') !== lines.filter(Boolean).join('\n') && String(value ?? '') !== lines.join('\n')) setLines(String(value ?? '').split(/\r?\n/).filter(Boolean)); }, [value]); // retain newly added blank rows
+  const unitField = { ...getResourceDef('finance-products')!.fields.find(f => f.key === 'specUnit')!, label: '单位' };
+  const options = fieldOptions(unitField, {}, units);
+  const lastWritten = useRef(String(value ?? '')), touched = useRef(false);
+  const write = (next: string[]) => { touched.current = true; lastWritten.current = next.map(line => capacity && !line ? ' ' : line).join('\n'); setLines(next); onChange(lastWritten.current); };
+  useEffect(() => {
+    if (String(value ?? '') === lastWritten.current) return;
+    lastWritten.current = String(value ?? ''); touched.current = false;
+    const next = String(value ?? '').split(/\r?\n/).filter(Boolean);
+    setLines(next.length || !capacity ? next : [defaultUnit || '']);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (capacity && defaultUnit && !touched.current && !String(value ?? '')) setLines(current => current.length === 1 ? [defaultUnit] : current);
+  }, [capacity, defaultUnit]); // eslint-disable-line react-hooks/exhaustive-deps
   return <div className="reference-lines" data-field={capacity ? 'capacities' : 'rawFinishedNames'}>
-    <div className="reference-lines-actions"><button type="button" className="secondary-button" onClick={() => setLines(v => [...v, ''])}><Plus size={15} />{capacity ? '增加容量' : '增加成品名'}</button></div>
+    <div className="reference-lines-actions"><button type="button" className="secondary-button" onClick={() => capacity ? write([...lines, '']) : setLines(v => [...v, ''])}><Plus size={15} />{capacity ? '增加容量' : '增加成品名'}</button></div>
     {lines.map((line, index) => {
-      const match = /^(\d+(?:\.\d+)?)\s*(.*)$/.exec(line), qty = match?.[1] ?? '', unit = match?.[2] ?? '';
-      return <div className="reference-line" key={index}><span>{String(index + 1).padStart(2, '0')}</span>{capacity ? <><label>容量 <b className="req">必填</b><input aria-label={`第${index + 1}条容量`} type="number" min="0" step="any" value={qty} onChange={e => write(lines.map((v, i) => i === index ? `${e.target.value}${unit}` : v))} /></label><label>单位 <b className="req">必填</b><select aria-label={`第${index + 1}条容量单位`} value={unit} onChange={e => write(lines.map((v, i) => i === index ? `${qty}${e.target.value}` : v))}><option value="">请选择单位</option>{unit && !options.some(o => o.value === unit) && <option value={unit}>{unit}</option>}{options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label></> : <label>成品名<input aria-label={`第${index + 1}条成品名`} maxLength={160} value={line} onChange={e => write(lines.map((v, i) => i === index ? e.target.value : v))} placeholder="请输入原料对应的成品名" /></label>}<button type="button" className="link-button danger" aria-label={`删除第${index + 1}条${capacity ? '容量' : '成品名'}`} onClick={() => write(lines.filter((_, i) => i !== index))}><Trash2 size={16} /></button></div>;
+      const parsed = productCapacity(line), qty = parsed.quantityText, unit = parsed.unit;
+      return <div className="reference-line" key={index}><span>{String(index + 1).padStart(2, '0')}</span>{capacity ? <><label><span className="reference-line-label">容量 <b className="req">必填</b></span><input aria-label={`第${index + 1}条容量`} type="number" min="0" step="any" placeholder="请输入容量" value={qty} onChange={e => write(lines.map((v, i) => i === index ? `${e.target.value}${unit}` : v))} /></label><label><span className="reference-line-label">单位 <b className="req">必填</b><ManageLink field={unitField} inPlace onChoose={chosen => write(lines.map((v, i) => i === index ? `${qty}${String(chosen ?? '')}` : v))} /></span><select aria-label={`第${index + 1}条容量单位`} value={unit} onChange={e => write(lines.map((v, i) => i === index ? `${qty}${e.target.value}` : v))}><option value="">请选择单位</option>{unit && !options.some(o => o.value === unit) && <option value={unit}>{unit}</option>}{options.map(o => <option key={o.value} value={o.value}>{o.label}（{o.value}）</option>)}</select></label></> : <label>成品名<input aria-label={`第${index + 1}条成品名`} maxLength={160} value={line} onChange={e => write(lines.map((v, i) => i === index ? e.target.value : v))} placeholder="请输入原料对应的成品名" /></label>}<button type="button" className="link-button danger" aria-label={`删除第${index + 1}条${capacity ? '容量' : '成品名'}`} disabled={capacity && lines.length <= 1} onClick={() => write(lines.filter((_, i) => i !== index))}><Trash2 size={16} /></button></div>;
     })}
     {!lines.length && <div className="reference-lines-empty">{capacity ? '点击“增加容量”维护适用容量。' : '暂无成品名，可按需增加。'}</div>}
   </div>;
