@@ -1,3 +1,4 @@
+import { TrialProxyPerformance } from './TrialProxyPerformance';
 import { StorePerformanceTable, storeDrafts, storePayload } from './StorePerformanceTable';
 import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { useEffect, useMemo, useState } from 'react';
@@ -108,6 +109,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
       <button type="button" className="primary-button" disabled={busy || needsRefresh || !run.me.canPass} onClick={() => void act('pass')}>{busy ? '提交中…' : '审核通过'}</button>
     </>}</div></div>}>
       <p className="muted live-review-summary">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt)} · 主播 {session.anchor.name}{session.control ? `，中控 ${session.control.name}` : ''}</p>
+      <TrialProxyPerformance session={session}/>
       <section className="live-detail-section"><h3>核对下播报告</h3><div className="live-scroll"><table className="data-table live-responsive-table" aria-label="上报对比">
         <thead><tr><th>角色</th><th>填报人</th><th className="num">所报销售额</th><th className="num">勾选订单合计</th><th className="num">订单数</th><th className="num">投流</th></tr></thead>
         <tbody>{session.reports.map((r) => <tr key={r.role}><td data-label="角色">{r.roleLabel}</td><td data-label="填报人">{r.reporter.name}</td><td data-label="所报销售额" className="num">{money(r.salesCents)}</td><td data-label="勾选订单合计" className="num">{money(r.ordersTotalCents)}</td><td data-label="订单数" className="num">{r.orderCount}</td><td data-label="投流" className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
@@ -119,7 +121,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
         <>
           <fieldset><legend>最终销售额</legend>
             <div className="live-fields">
-              <label className="live-field">来源<select aria-label="最终销售额来源" value={source} onChange={(e) => setSource(e.target.value)}><option value="">请选择</option>{available.map(([k, label]) => <option key={k} value={k}>{label}{k !== 'manual' ? `（${money(Number(k.endsWith('orders') ? reportOf(k.split('_')[0])?.ordersTotalCents : reportOf(k)?.salesCents))}）` : ''}</option>)}</select></label>
+              <label className="live-field">来源<select aria-label="最终销售额来源" value={source} onChange={(e) => setSource(e.target.value)}><option value="">请选择</option>{available.map(([k, label]) => <option key={k} value={k}>{session.anchorTrial&&k.startsWith('control')?`${label}（试播代报依据）`:label}{k !== 'manual' ? `（${money(Number(k.endsWith('orders') ? reportOf(k.split('_')[0])?.ordersTotalCents : reportOf(k)?.salesCents))}）` : ''}</option>)}</select></label>
               {source === 'manual' && !multi && <label className="live-field">手填金额（元）<input aria-label="手填最终销售额" inputMode="decimal" value={manual} onChange={(e) => setManual(e.target.value)} /></label>}
               {source && <label className="live-field wide">{source === 'manual'||(session.reports.some(r=>r.role==='operator')&&source!=='operator') ? '核定原因（必填）' : '说明（可选）'}<textarea rows={2} aria-label="最终销售额说明" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>}
             </div>

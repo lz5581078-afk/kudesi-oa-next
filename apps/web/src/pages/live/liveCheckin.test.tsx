@@ -28,4 +28,23 @@ describe('直播间与岗位打卡',()=>{
   expect((await screen.findByRole('alert')).textContent).toContain('已失效');expect(screen.queryByRole('button',{name:'上播'})).toBeNull();
  });
  it('飞书登录和强制绑定返回固定房间，拒绝任意跳转地址',()=>{history.replaceState(null,'','/features/live-desk?room=10&company=1');rememberLiveRoom();history.replaceState(null,'','/feishu-bind');expect(consumeLiveRoom()).toBe('/features/live-desk?room=10&company=1');expect(consumeLiveRoom()).toContain('room=10');expect(liveRoomTarget('https://evil.example/features/live-desk?room=1&company=1')).toBeNull();expect(liveRoomTarget('//evil.example')).toBeNull();clearLiveRoom();history.replaceState(null,'','/');});
+ it('试播上播必须具名确认，不能更换排班试播主播',async()=>{
+  const trialPlan={...plan,anchorTrial:true,anchor:{id:3,name:'试播小李'},start:'2020-01-01 10:00:00'};
+  render(<StartDialog role="control" schedule={trialPlan as never} identity={{isAnchor:false,isControl:true,canManage:false}} onClose={()=>{}} onDone={done}/>);
+  const button=await screen.findByRole('button',{name:'确认上播'});await waitFor(()=>expect(button.hasAttribute('disabled')).toBe(false));
+  expect(screen.getByLabelText('主播').hasAttribute('disabled')).toBe(true);
+  fireEvent.click(screen.getByRole('checkbox',{name:/已核对本场人员/}));fireEvent.click(button);
+  expect((await screen.findByRole('alert')).textContent).toContain('试播主播');expect(api.start).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('checkbox',{name:/确认本场由试播主播「试播小李」上播/}));fireEvent.click(button);
+  await waitFor(()=>expect(api.start).toHaveBeenCalledWith(expect.objectContaining({confirmTrialAnchorId:3,role:'control'})));
+ });
+ it('试播下播再次具名确认，中控报告携带确切试播主播ID',async()=>{
+  api.checkoutPreview.mockResolvedValue({role:'control',startAt:'2026-11-01 10:00:00',endAt:'2026-11-01 11:00:00',salesCents:0,orderCount:0,reason:'',wage:null,commission:null,locked:false});api.report.mockResolvedValue({ok:true});
+  render(<CheckOutDialog session={{id:7,anchorTrial:true,anchor:{id:3,name:'试播小李'},roomName:'北1',me:{reportRoles:['control']},channels:[]} as never} onClose={()=>{}} onDone={done}/>);
+  await screen.findByText('¥0.00');fireEvent.click(screen.getByRole('checkbox',{name:/已核对本场投流费用/}));fireEvent.click(screen.getByRole('button',{name:'确认下播'}));
+  expect((await screen.findByRole('alert')).textContent).toContain('试播主播');expect(api.report).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('checkbox',{name:/确认本场下播的仍是试播主播「试播小李」/}));fireEvent.click(screen.getByRole('button',{name:'确认下播'}));
+  await waitFor(()=>expect(api.report).toHaveBeenCalledWith(7,expect.objectContaining({confirmTrialAnchorId:3,role:'control'})));
+ });
+
 });

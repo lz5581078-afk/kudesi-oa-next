@@ -1043,4 +1043,53 @@ d('直播管理（真实数据库）', () => {
     expect((await ds.query('SELECT role,user_id FROM live_session_checkins WHERE company_id=? AND session_id=? ORDER BY id',[company,id])).map((r:any)=>[r.role,Number(r.user_id)])).toEqual([['anchor',trial.id],['control',control.id]]);
   });
 
+  it('排场试播由排定中控具名确认上下播，单份中控报告即可审核计薪，标记保留不依赖账号',async()=>{
+    clock('2027-01-05 10:00:00');source.down=false;source.unavailable='';source.truncated=false;source.turnover=[];source.refundMap.clear();
+    const management=new LiveManagementService(ds,source);
+    const trial=await management.trial(manager,{name:'排场试播核验',hourlyRateCents:6000});
+    const pos=await position(company,'试播代报中控','live_control');
+    const cc=au(await mkUser(company,'trial-proxy-control','试播中控',{positionId:pos,payType:'hourly',hourlyRate:3000}),company,'试播中控',['features.live-desk.view']);
+    const otherControl=au(await mkUser(company,'trial-proxy-other','其他中控',{positionId:pos}),company,'其他中控',['features.live-desk.view']);
+    const [oldRoom]=await ds.query('SELECT data FROM resource_records WHERE company_id=? AND id=?',[company,ids.n1]);
+    const parent=(typeof oldRoom.data==='string'?JSON.parse(oldRoom.data):oldRoom.data).parentId;
+    const room=await rec(company,'locations','直播间-试播核验',{name:'直播间-试播核验',locationType:'room',parentId:parent});
+    const shop=await rec(company,'stores','试播核验店',{name:'试播核验店',platform:'douyin',jushuitanShopId:'TRIAL-PROXY-SHOP'});
+    const account=await rec(company,'self-media','试播核验号',{name:'试播核验号',platform:'douyin',livePermission:true,storeIds:[shop]});
+    const plan=await schedules.create(manager,input({date:'2027-01-05',roomId:room,anchorId:trial.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'}));
+    const row=(await sessions.workbench(cc)).schedules.find(s=>s.id===plan.id)!;
+    expect(row.anchorTrial).toBe(true);
+    const start={actualCheckin:true,role:'control' as const,scheduleId:plan.id,scheduleFingerprint:row.fingerprint,confirmDetails:true,productIds:[ids.p1]};
+    await expect(sessions.start(cc,start)).rejects.toThrow(/试播主播/);
+    await expect(sessions.start(cc,{...start,confirmTrialAnchorId:anchor.id})).rejects.toThrow(/试播主播/);
+    await expect(sessions.start(otherControl,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排定/);
+    await expect(sessions.start(foreign,{...start,confirmTrialAnchorId:trial.id})).rejects.toThrow(/身份|不存在/);
+    await expect(sessions.start(cc,{...start,anchorId:anchor.id,confirmTrialAnchorId:trial.id})).rejects.toThrow(/排班/);
+    const made=await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id});
+    expect((await sessions.start(cc,{...start,confirmTrialAnchorId:trial.id})).id).toBe(made.id);
+    expect((await sessions.detail(cc,made.id)).anchorTrial).toBe(true);
+    const clocks=await ds.query('SELECT role,user_id,confirmation_json FROM live_session_checkins WHERE company_id=? AND session_id=?',[company,made.id]);
+    expect(clocks).toHaveLength(2);
+    const evidence=clocks.find((r:{role:string})=>r.role==='anchor').confirmation_json;
+    expect(typeof evidence==='string'?JSON.parse(evidence):evidence).toMatchObject({trialAnchorId:trial.id,confirmedBy:cc.id,kind:'trial-control-proxy'});
+    source.turnover=[{...order('TRIAL-OK',100000),orderTime:'2027-01-05 10:30:00'},{...order('TRIAL-OLD',999999),orderTime:'2027-01-04 10:30:00'}];
+    clock('2027-01-05 11:00:00');
+    const report={role:'control',endAt:'2000-01-01 10:00:00',salesCents:999999,adSpendCents:0};
+    await expect(sessions.report(cc,made.id,report)).rejects.toThrow(/试播主播/);
+    await expect(sessions.report(cc,made.id,{...report,confirmTrialAnchorId:anchor.id})).rejects.toThrow(/试播主播/);
+    await sessions.report(cc,made.id,{...report,confirmTrialAnchorId:trial.id});
+    const ended=await sessions.detail(cc,made.id);expect(ended.trialProxyReporter).toEqual({id:cc.id,name:cc.name});expect(ended.endAt).toBe('2027-01-05 11:00:00');expect(ended.status).toBe('pending_report');expect(ended.reports.map(r=>r.role)).toEqual(['control']);
+    // The per-session confirmation remains authoritative even if this person later becomes regular.
+    await ds.query('UPDATE users SET live_trial=0 WHERE company_id=? AND id=?',[company,trial.id]);
+    expect((await sessions.detail(cc,made.id)).anchorTrial).toBe(true);
+    clock('2027-01-05 11:30:00');
+    const closure=new LiveCheckinClosureService(ds,{me:async()=>({name:cc.name,permissions:cc.permissions})} as never,flow,source);
+    await closure.scan();expect((await sessions.detail(manager,made.id)).status).toBe('submitted');
+    const preview=await sessions.reviewPreview(reviewer,made.id,{finalSource:'control'});expect(preview.wage.amountCents).toBe(6000);expect(preview.wage.minutes).toBe(60);
+    await approve(made.id,{finalSource:'control'});
+    const final=await sessions.detail(manager,made.id);expect(final.finalSalesCents).toBe(100000);expect(final.wage?.userId).toBe(trial.id);expect(final.wage?.amountCents).toBe(6000);
+    expect(final.commissions.some(c=>c.role==='anchor'&&c.userId===trial.id&&c.amountCents>0)).toBe(true);
+    expect(await ds.query("SELECT id FROM audit_logs WHERE company_id=? AND resource_id=? AND action IN ('live.trial.start','live.trial.end')",[company,String(made.id)])).toHaveLength(2);
+    expect(await ds.query('SELECT id FROM live_wage_records WHERE company_id=? AND session_id=? AND user_id=?',[company,made.id,trial.id])).toHaveLength(1);
+  },30000);
+
 });
