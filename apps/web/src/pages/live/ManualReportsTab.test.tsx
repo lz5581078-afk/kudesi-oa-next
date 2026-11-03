@@ -1,3 +1,4 @@
+import { ApiError } from '../../api/client';
 import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {ManualReportsTab} from './ManualReportsTab';
@@ -23,6 +24,27 @@ describe('载入原场次填报',()=>{
     fireEvent.change(screen.getByLabelText('补报原因'),{target:{value:'主播和运营漏报'}});
     fireEvent.click(screen.getByRole('button',{name:'保存并核对'}));
     await waitFor(()=>expect(api.manualReport).toHaveBeenCalledWith(expect.objectContaining({scheduleId:9,sessionId:undefined,startAt:'2025-01-01 09:13:00',endAt:'2025-01-01 11:07:00',roomId:1,anchorId:2,salesCents:2000})));
+  });
+  it('关联不一致先确认，取消不提交且保留填写内容，确认按同一份补报数据保存',async()=>{
+    api.manualReport.mockRejectedValueOnce(new ApiError(409,'直播账号「原直播号」当前未关联店铺「原店铺」','LIVE_MANUAL_CHANNEL_CONFIRM_REQUIRED'));
+    render(<ManualReportsTab onOpen={vi.fn()}/>);await load();await screen.findByText(/已载入原场次 #42/);
+    fireEvent.change(await screen.findByLabelText('原店铺营业额'),{target:{value:'123.45'}});
+    fireEvent.change(screen.getByLabelText('补报原因'),{target:{value:'实际业绩补录'}});
+    fireEvent.click(screen.getByRole('button',{name:'保存并核对'}));
+    expect(await screen.findByRole('dialog',{name:'确认补报账号与店铺'})).toBeTruthy();expect(api.manualReport).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button',{name:'返回核对'}));expect(screen.queryByRole('dialog')).toBeNull();expect((screen.getByLabelText('原店铺营业额') as HTMLInputElement).value).toBe('123.45');
+    api.manualReport.mockRejectedValueOnce(new ApiError(409,'账号与店铺关联不一致','LIVE_MANUAL_CHANNEL_CONFIRM_REQUIRED'));
+    fireEvent.click(screen.getByRole('button',{name:'保存并核对'}));await screen.findByRole('dialog',{name:'确认补报账号与店铺'});
+    const reported=api.manualReport.mock.calls[1][0];
+    fireEvent.click(screen.getByRole('button',{name:'按本次补报数据保存并核对'}));
+    await waitFor(()=>expect(api.manualReport).toHaveBeenLastCalledWith({...reported,confirmUnlinkedStores:true}));
+    expect(await screen.findByText(/已保存场次 #42/)).toBeTruthy();expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('普通校验错误保持阻止保存，不提供关联差异确认',async()=>{
+    api.manualReport.mockRejectedValueOnce(new ApiError(400,'店铺必须属于当前公司'));
+    render(<ManualReportsTab onOpen={vi.fn()}/>);await load();await screen.findByText(/已载入原场次 #42/);
+    fireEvent.click(screen.getByRole('button',{name:'保存并核对'}));
+    expect((await screen.findByRole('alert')).textContent).toContain('店铺必须属于当前公司');expect(screen.queryByRole('dialog')).toBeNull();expect(api.manualReport).toHaveBeenCalledTimes(1);
   });
   it('列表失败可重试，筛选后只允许选择可补报场次',async()=>{
     api.schedules.mockRejectedValueOnce(new Error('暂时无法查询'));

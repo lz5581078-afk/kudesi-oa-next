@@ -1,3 +1,5 @@
+import { ApiError } from '../../api/client';
+import { Modal } from './liveUi';
 import { ManualSchedulePicker } from './ManualSchedulePicker';
 import { ChannelPicker, snapshotChannels } from './ChannelPicker';
 import { StorePerformanceTable, storeDrafts, storePayload, type StoreDraft } from './StorePerformanceTable';
@@ -7,7 +9,7 @@ import { productText } from './liveProducts';
 import { useEffect, useRef, useState } from 'react';
 import { liveApi, type Options, type ManualBody, type SubmissionStatus, type SessionDetail, type ScheduleRow } from './liveApi';
 import { SubmissionNotice } from './SubmissionNotice';
-import { errText, nowText, yuanCents } from './liveFormat';
+import { errText, nowText, yuanCents, money } from './liveFormat';
 import { TrialPersonDialog } from './TrialPersonDialog';
 type Mode = 'schedule' | 'new';
 export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
@@ -18,6 +20,7 @@ function ManualReportForm({mode, changeMode, onOpen}: {mode:Mode; changeMode:(va
   const existing = mode !== 'new';
   const [schedule,setSchedule] = useState<ScheduleRow|null>(null);
   const [choosing,setChoosing]=useState(true);
+  const [channelConfirmation,setChannelConfirmation]=useState<{body:ManualBody;message:string}|null>(null);
   const dirty = useRef(false);
   const canDiscard = () => !dirty.current || window.confirm('放弃当前未保存的补报内容？');
   const [submission, setSubmission] = useState<SubmissionStatus | null>(null);
@@ -132,7 +135,14 @@ function ManualReportForm({mode, changeMode, onOpen}: {mode:Mode; changeMode:(va
         reason: f.reason.trim(),
         orderIds: f.orders.split(/[\s,，]+/).filter(Boolean),
       };
+      await persist(body);
+    } finally {setBusy(false);}
+  }
+  async function persist(body:ManualBody) {
+    setBusy(true);
+    try {
       const r = await liveApi.manualReport(body);
+      setChannelConfirmation(null);
       setSaved(r.id);
       const fresh=loadedSession ? {...loadedSession,startAt:manualApiTime(f.startAt),endAt:manualApiTime(f.endAt)} : null;
       if(fresh)setLoadedSession(fresh);
@@ -140,7 +150,8 @@ function ManualReportForm({mode, changeMode, onOpen}: {mode:Mode; changeMode:(va
       dirty.current = false;
       onOpen(r.id);
     } catch (e) {
-      setError(errText(e));
+      if(e instanceof ApiError && e.code==='LIVE_MANUAL_CHANNEL_CONFIRM_REQUIRED')setChannelConfirmation({body,message:e.message});
+      else {setChannelConfirmation(null);setError(errText(e));}
     } finally {
       setBusy(false);
     }
@@ -240,6 +251,15 @@ function ManualReportForm({mode, changeMode, onOpen}: {mode:Mode; changeMode:(va
           </button>
         </div>}
       </div>
+      {channelConfirmation && <Modal title="确认补报账号与店铺" onClose={()=>{if(!busy)setChannelConfirmation(null);}} foot={<>
+        <button type="button" className="secondary-button" disabled={busy} onClick={()=>setChannelConfirmation(null)}>返回核对</button>
+        <button type="button" className="primary-button" disabled={busy} onClick={()=>void persist({...channelConfirmation.body,confirmUnlinkedStores:true})}>{busy?'保存中…':'按本次补报数据保存并核对'}</button>
+      </>}>
+        <p className="notice warn">{channelConfirmation.message}</p>
+        <p>实际时间（北京时间）：{channelConfirmation.body.startAt} 至 {channelConfirmation.body.endAt}</p>
+        <p>本次营业额：{money(channelConfirmation.body.salesCents)}；投流费用：{money(channelConfirmation.body.adSpendCents)}</p>
+        <p>确认后按本次填写的店铺、实际上下播时间和业绩保存，不会修改账号档案的关联关系，仍须提交审核。</p>
+      </Modal>}
       {trial && (
         <TrialPersonDialog
           onClose={() => setTrial(false)}
