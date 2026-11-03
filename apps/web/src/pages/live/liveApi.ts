@@ -146,4 +146,4 @@ export const liveApi = {
   submitSettlement: (id: number) => post<{ runId: number }>(`/live/settlements/${id}/submit`),
 };
 
-export interface ManualBody { storeLines?:LiveStoreLine[]; channels?:LiveChannelInput[];sessionId?:number;roomId:number;anchorId:number;controlId:number|null;operatorId:number|null;douyinAccountId:number;storeId:number;startAt:string;endAt:string;salesCents:number;adSpendCents:number;controlSalesCents?:number;operatorSalesCents?:number;reason:string;orderIds:string[]}
+export interface ManualBody { confirmUnlinkedStores?:boolean; storeLines?:LiveStoreLine[]; channels?:LiveChannelInput[];sessionId?:number;roomId:number;anchorId:number;controlId:number|null;operatorId:number|null;douyinAccountId:number;storeId:number;startAt:string;endAt:string;salesCents:number;adSpendCents:number;controlSalesCents?:number;operatorSalesCents?:number;reason:string;orderIds:string[]}

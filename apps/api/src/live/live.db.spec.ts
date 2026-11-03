@@ -840,6 +840,32 @@ d('直播管理（真实数据库）', () => {
     await expect(sessions.submissionStatus(stranger)).rejects.toThrow(/无权/);
   });
 
+  it('补报账号店铺关联不一致先提示，确认后保存本次填报且不改资料，安全校验仍生效',async()=>{
+    source.orders=[];source.unavailable='';source.truncated=false;clock('2026-03-13 08:00:00');
+    const shop=await rec(company,'stores','原排班店铺',{name:'原排班店铺',platform:'douyin',jushuitanShopId:'MANUALOLD'});
+    const linked=await rec(company,'stores','当前关联店铺',{name:'当前关联店铺',platform:'douyin',jushuitanShopId:'MANUALNEW'});
+    const account=await rec(company,'self-media','关联已变账号',{name:'关联已变账号',platform:'douyin',livePermission:true,storeIds:[shop]});
+    await ds.query("UPDATE resource_records SET data=JSON_SET(data,'$.storeIds',CAST(? AS JSON)) WHERE company_id=? AND id=?",[JSON.stringify([linked]),company,account]);
+    clock('2026-03-13 15:00:00');
+    const management=new LiveManagementService(ds,source);
+    const body={roomId:ids.n1,anchorId:anchor.id,controlId:control.id,operatorId:operator.id,douyinAccountId:account,storeId:shop,channels:[{accountId:account,storeIds:[shop]}],startAt:'2026-03-13 10:10:00',endAt:'2026-03-13 11:10:00',salesCents:12345,adSpendCents:500,reason:'人事补录实际业绩',orderIds:[]};
+    await expect(management.manual(manager,body)).rejects.toMatchObject({response:{code:'LIVE_MANUAL_CHANNEL_CONFIRM_REQUIRED',message:expect.stringContaining('原排班店铺')}});
+    expect(await ds.query('SELECT id FROM live_sessions WHERE company_id=? AND douyin_account_id=?',[company,account])).toHaveLength(0);
+    const foreignShop=await rec(foreign.companyId,'stores','外公司店铺',{name:'外公司店铺',platform:'douyin'});
+    const otherPlatform=await rec(company,'stores','其他平台店铺',{name:'其他平台店铺',platform:'kuaishou'});
+    for(const invalid of [foreignShop,otherPlatform])await expect(management.manual(manager,{...body,confirmUnlinkedStores:true,channels:[{accountId:account,storeIds:[invalid]}]})).rejects.toThrow(/当前公司、同一平台/);
+    await expect(management.manual(stranger,{...body,confirmUnlinkedStores:true})).rejects.toThrow(/权限/);
+    await expect(schedules.create(manager,input({date:'2026-03-14',douyinAccountId:account,storeId:shop,channels:body.channels}))).rejects.toThrow(/已关联/);
+    const saved=await management.manual(manager,{...body,confirmUnlinkedStores:true});
+    const detail=await sessions.detail(manager,saved.id);
+    expect(detail).toMatchObject({startAt:body.startAt,endAt:body.endAt,status:'pending_report',store:{id:shop}});
+    expect(detail.reports.find(r=>r.role==='anchor')).toMatchObject({salesCents:12345});
+    const [record]=await ds.query('SELECT data FROM resource_records WHERE company_id=? AND id=?',[company,account]);
+    expect((typeof record.data==='string'?JSON.parse(record.data):record.data).storeIds).toEqual([linked]);
+    const [audit]=await ds.query("SELECT detail FROM audit_logs WHERE company_id=? AND resource_id=? AND action='live.manual.report' ORDER BY id DESC LIMIT 1",[company,String(saved.id)]);
+    expect(typeof audit.detail==='string'?JSON.parse(audit.detail):audit.detail).toMatchObject({input:{confirmUnlinkedStores:true},channelWarnings:[expect.stringContaining('当前未关联')]});
+  });
+
   it('扫码与工作台共享实际打卡：提前二次确认、中控核对、首报30分钟锁场、流程失败重试、运营依据及退款增量',async()=>{
     clock('2026-12-01 10:00:00');source.down=false;source.unavailable='';source.truncated=false;source.orders=[];source.refundMap.clear();
     const posA=await position(company,'扫码主播','live_anchor'),posC=await position(company,'扫码中控','live_control');
