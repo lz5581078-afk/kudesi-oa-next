@@ -227,7 +227,7 @@ export interface PhoneStatus { scanned: boolean; uploaded: number; expired: bool
 export const phoneUploadApi = {
   create: (type: string, field: string) => api<PhoneSession>('/phone-uploads', { method: 'POST', body: { type, field } }),
   status: (id: number) => api<PhoneStatus>(`/phone-uploads/${id}`),
-  inspect: (token: string) => api<{ label: string; resource: string; remaining: number; expiresAt: string }>('/phone-uploads/public/inspect', { method: 'POST', body: { token } }),
+  inspect: (token: string) => api<{ label: string; resource: string; remaining: number; expiresAt: string; imageCrop?: 'square' }>('/phone-uploads/public/inspect', { method: 'POST', body: { token } }),
   upload: (token: string, file: File) => {
     const form = new FormData();
     form.append('token', token);
