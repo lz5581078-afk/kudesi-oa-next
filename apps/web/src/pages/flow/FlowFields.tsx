@@ -1,3 +1,4 @@
+import { CheckoutFeedbackRecords } from '../live/CheckoutFeedback';
 import { TrialProxyPerformance } from '../live/TrialProxyPerformance';
 import type { FieldDef } from '@kudesi/shared';
 import { useEffect, useRef, useState } from 'react';
@@ -63,6 +64,7 @@ function LiveReviewFields(props: Parameters<typeof GenericFields>[0]) {
   return <div className={session?.trialProxyReporter ? "live-flow-review trial-proxy-review" : "live-flow-review"}>
     {error&&<p className="notice error" role="alert">{error}</p>}
     {session&&<TrialProxyPerformance session={session}/>}
+    {session&&<CheckoutFeedbackRecords sessionId={session.id} records={session.checkoutFeedback} attendance={session.attendance}/>}
     {groups.map(group=><fieldset key={group}><legend>{group}</legend>
       <GenericFields {...props} fields={reviewFields.filter(f=>(f.group||'审核')===group)}/>
       {visibleFields.some(f=>f.key==='finalSource'&&(f.group||'审核')===group)&&multi&&manual&&<StorePerformanceTable channels={session!.channels!} rows={rows} onChange={next=>{edited.current=true;setRows(next);try{props.onChange('storeLines',storePayload(next));setError('');}catch{props.onChange('storeLines',[]);setError('请逐店填写有效营业额和投流费用');}}}/>}

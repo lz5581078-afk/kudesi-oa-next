@@ -23,11 +23,14 @@ export interface SessionRow { trialHourlyRateCents?:number|null; trialProxyRepor
 }
 export interface RoleAmount { rateUnits: number; amountCents: number }
 export interface Preview { aggregated?:boolean; available: boolean; reason: string; basisSalesCents?: number; adSpendCents?: number; roiScaled?: number | null; belowRoi?: boolean; anchor: RoleAmount | null; control: RoleAmount | null; operator: RoleAmount | null }
+export interface FeedbackImage {id:number;name:string;mime:string;size:number}
+export interface FeedbackDraft {ready:boolean;evidenceFileIds:number[];ratings:Array<{userId:number;score:number}>}
+export interface CheckoutFeedbackRecord {reporterId:number;reporterName:string;role:string;submittedAt:string;images:FeedbackImage[];ratings:Array<{userId:number;name:string;role:string;score:number}>}
 export interface ReportDto { pending?:boolean; storeLines?:LiveStoreLine[];
   manualActorId?:number|null;role: 'anchor' | 'control' | 'operator'; roleLabel: string; reporter: Person; endAt: string; salesCents: number; adSpendCents: number | null; ordersTotalCents: number | null; orderCount: number; note: string;
   orders: Array<{ orderId: string; amountCents: number; payTime: string | null; status: string | null }>;
 }
-export interface SessionDetail extends SessionRow { controlCommissionOnly?:boolean; capturedOrders?:Array<{storeId:number;platform:string;shopId:string;orderId:string;paid:boolean;amountCents:number;refundCents:number;status:string;orderAt:string}>; myCheckins?:Array<{role:string;startAt:string;endAt:string|null}>; wages?:Array<{role:string;userId:number;minutes:number;hourlyRateCents:number;amountCents:number;note:string|null}>;
+export interface SessionDetail extends SessionRow { attendance?:Array<{userId:number;name:string;role:string;startAt:string;endAt:string|null}>; checkoutFeedback?:CheckoutFeedbackRecord[]; controlCommissionOnly?:boolean; capturedOrders?:Array<{storeId:number;platform:string;shopId:string;orderId:string;paid:boolean;amountCents:number;refundCents:number;status:string;orderAt:string}>; myCheckins?:Array<{role:string;startAt:string;endAt:string|null}>; wages?:Array<{role:string;userId:number;minutes:number;hourlyRateCents:number;amountCents:number;note:string|null}>;
   submission?: SubmissionStatus | null;
   products: LiveProductSnapshot[]; reports: ReportDto[];
   commissions: Array<{ platform?:string;userId: number; name: string; role: string; roleLabel: string; rateUnits: number; amountCents: number; roiScaled: number | null; belowRoi: boolean }>;
@@ -38,7 +41,7 @@ export interface SessionList { total: number; page: number; pageSize: number; ro
 export interface StartBody { confirmTrialAnchorId?:number;role?:'anchor'|'control'|'operator'; sessionId?:number;confirmDetails?:boolean;confirmEarly?:boolean;scheduleFingerprint?:string; channels?:LiveChannelInput[]; scheduleId?: number | null; roomId?: number | null; anchorId?: number | null; controlId?: number | null; operatorId?: number | null; douyinAccountId?: number | null; storeId?: number | null; productIds?: number[]; productEntries?: LiveProductEntry[]; startAt?: string | null }
 export interface OrderCandidate { orderId: string; innerId: string; payTime: string | null; paid: boolean; amountCents: number; status: string; statusLabel: string; cancelled: boolean }
 export interface Candidates { available: boolean; reason: string; shopName?: string; orders: OrderCandidate[]; truncated: boolean; queriedAt?: string; startAt: string; endAt: string }
-export interface ReportBody { confirmTrialAnchorId?:number; storeLines?:LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
+export interface ReportBody { evidenceFileIds?:number[];ratings?:Array<{userId:number;score:number}>; confirmTrialAnchorId?:number; storeLines?:LiveStoreLine[]; role?: string; endAt: string; salesCents: number; adSpendCents?: number | null; orderIds?: string[]; note?: string }
 export interface ReviewForm { storeLines?:LiveStoreLine[]; finalSource?: string; finalSalesCents?: number; finalReason?: string; operatorUserId?: number; noOperator?: boolean; wageStartAt?: string; wageEndAt?: string; wageHourlyRateCents?: number; wageNote?: string; controlWageStartAt?:string;controlWageEndAt?:string;controlWageHourlyRateCents?:number;controlWageNote?:string }
 export interface ReviewPreview { platforms?:Array<{platform:string;finalSalesCents:number;adSpendCents:number;anchor:RoleAmount;control:RoleAmount;operator:RoleAmount}>; controlWage?:{minutes:number;hourlyRateCents:number;amountCents:number}|null;
   finalSource: string; finalSalesCents: number; adSpendCents: number; roiScaled: number | null; belowRoi: boolean; ruleVersion: { id: number; effectiveFrom: string };
@@ -106,6 +109,9 @@ export const liveApi = {
   checkinQr:()=>api<LiveQrCode>('/live/checkin-qr'),
   generateCheckinQr:(version:number)=>post<LiveQrCode>('/live/checkin-qr',{version}),
   checkinContext:(roomId?:number,token?:string,scanned?:boolean)=>api<CheckinContext>(`/live/checkin-context${qs({roomId,token,qrScan:scanned?'1':undefined})}`),
+  checkoutFeedback:(id:number)=>api<{targets:Array<{userId:number;name:string;role:string}>;records:CheckoutFeedbackRecord[];locked:boolean}>(`/live/sessions/${id}/checkout-feedback`),
+  uploadFeedbackImage:(id:number,file:File)=>{const form=new FormData();form.append('file',file);return api<FeedbackImage>(`/live/sessions/${id}/feedback-images`,{form});},
+  feedbackImageUrl:(id:number,fileId:number)=>api<{url:string}>(`/live/sessions/${id}/feedback-images/${fileId}/url`),
   checkoutPreview:(id:number,role:string)=>api<CheckoutPreview>(`/live/sessions/${id}/checkout-preview${qs({role})}`),
   roomSettings:(id:number,b:{ownerId:number|null;products:string})=>api(`/live/rooms/${id}`,{method:'PUT',body:b}),
   trialPerson:(b:{name:string;hourlyRateCents:number})=>post<Person>('/live/trial-people',b),
