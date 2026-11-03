@@ -18,7 +18,10 @@ export async function validateSettlementSources(em: EntityManager, companyId: nu
   await checkOverlap(em,companyId,p.from,p.to,Number(row.id));
   const sources=await payrollSources(em,companyId,p.from,p.to);
   const lines:Row[]=await em.query('SELECT * FROM live_settlement_lines WHERE company_id=? AND settlement_id=? ORDER BY commission_record_id',[companyId,row.id]);
-  if(sources.records.length!==Number(row.record_count)||sources.records.length!==lines.length||sources.records.some((r,i)=>Number(r.id)!==Number(lines[i].commission_record_id)))liveFail('本期提成记录有变化，请退回重新核对');
+  const commissionLines=lines.filter(l=>!l.daily_work_id);
+  if(sources.records.length+sources.dailyWork.length!==Number(row.record_count)||sources.records.length!==commissionLines.length||sources.records.some((r,i)=>Number(r.id)!==Number(commissionLines[i].commission_record_id)))liveFail('本期提成记录有变化，请退回重新核对');
+  const dailyLines=lines.filter(l=>l.daily_work_id);
+  if(dailyLines.length!==sources.dailyWork.length||sources.dailyWork.some(w=>!dailyLines.some(l=>Number(l.daily_work_id)===Number(w.id)&&Number(l.wage_cents)===Number(w.amount_cents)&&Number(l.wage_minutes)===Number(w.approved_minutes??w.minutes)&&Number(l.user_id)===Number(w.user_id))))liveFail('本期日常工作工资有变化，请重新核对');
   if(row.period_from){
     for(const l of lines){const w=sources.wages.find(w=>Number(w.id)===Number(l.wage_record_id));if(l.wage_record_id&&(!w||Number(w.amount_cents)!==Number(l.wage_cents)||Number(w.minutes)!==Number(l.wage_minutes)))liveFail('本期计时工资有变化，请重新核对');}
     if(sources.wages.length!==lines.filter(l=>l.wage_record_id).length)liveFail('本期计时工资有变化，请重新核对');

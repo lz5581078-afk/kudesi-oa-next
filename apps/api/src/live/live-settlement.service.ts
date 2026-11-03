@@ -71,7 +71,7 @@ export class LiveSettlementService {
     const [row]: Row[] = await this.em.query(`${SELECT} WHERE s.company_id=? AND s.id=?`, [a.companyId, id]);
     if (!row) liveFail('结算单不存在', 404);
     const lines: Row[] = await this.em.query(
-      `SELECT l.*,c.platform,c.rule_snapshot,u.name user_name,s.room_name,s.report_source,s.manual_reason,DATE_FORMAT(l.session_date,'%Y-%m-%d') day,DATE_FORMAT(s.start_at,'%H:%i') start_text FROM live_settlement_lines l JOIN live_commission_records c ON c.company_id=l.company_id AND c.id=l.commission_record_id JOIN users u ON u.company_id=l.company_id AND u.id=l.user_id JOIN live_sessions s ON s.company_id=l.company_id AND s.id=l.session_id WHERE l.company_id=? AND l.settlement_id=? ORDER BY l.session_date,l.id`,
+      `SELECT l.*,c.platform,c.rule_snapshot,u.name user_name,COALESCE(s.room_name,'直播办公室 · 日常工作') room_name,s.report_source,s.manual_reason,DATE_FORMAT(l.session_date,'%Y-%m-%d') day,DATE_FORMAT(COALESCE(s.start_at,dw.actual_start),'%H:%i') start_text FROM live_settlement_lines l LEFT JOIN live_commission_records c ON c.company_id=l.company_id AND c.id=l.commission_record_id JOIN users u ON u.company_id=l.company_id AND u.id=l.user_id LEFT JOIN live_sessions s ON s.company_id=l.company_id AND s.id=l.session_id LEFT JOIN live_daily_work dw ON dw.company_id=l.company_id AND dw.id=l.daily_work_id WHERE l.company_id=? AND l.settlement_id=? ORDER BY l.session_date,l.id`,
       [a.companyId, id],
     );
     const refunds: Row[] = await this.em.query(
@@ -99,7 +99,7 @@ export class LiveSettlementService {
       p.minutes += num(l.wage_minutes);
       p.deductionCents += num(l.deduction_cents);
       p.payableCents += num(l.payable_cents);
-      const sessionKey=`${key}:${l.session_id}`;if(!counted.has(sessionKey)){p.sessions++;counted.add(sessionKey);}
+      const sessionKey=`${key}:${l.session_id}`;if(l.session_id&&!counted.has(sessionKey)){p.sessions++;counted.add(sessionKey);}
       byPerson.set(key, p);
     }
     return {
@@ -110,7 +110,7 @@ export class LiveSettlementService {
         platform:l.platform,
         unverifiedStores: (typeof l.rule_snapshot==='string'?JSON.parse(l.rule_snapshot):l.rule_snapshot)?.unverifiedStores??[],
         id: Number(l.id),
-        sessionId: Number(l.session_id),
+        sessionId: Number(l.session_id), dailyWorkId:l.daily_work_id?Number(l.daily_work_id):null,
         userId: Number(l.user_id),
         userName: l.user_name,
         role: l.role,
@@ -167,7 +167,7 @@ export class LiveSettlementService {
       liveFail(existing.status === 'approved' ? '这个月已经结算完成，不能重新生成' : '结算单正在审批中，不能重新生成');
     await checkOverlap(this.em, c, p.from, p.to, existing?.id);
     const first = await payrollSources(this.em, c, p.from, p.to);
-    if (!first.records.length) liveFail('所选范围没有已审核的提成记录，不需要结算');
+    if (!first.records.length && !first.dailyWork.length) liveFail('所选范围没有已审核的提成记录或日常工作工资，不需要结算');
     for (const w of first.wages)
       if (
         !first.records.some(
@@ -244,7 +244,7 @@ export class LiveSettlementService {
       if (sourcesFingerprint(again) !== sourcesFingerprint(first)) liveFail('核对期间收入或订单发生变化，请重新核对');
       const at = wallNow(liveClock.now()),
         t = built.totals,
-        wageTotal = first.wages.reduce((n, w) => n + num(w.amount_cents), 0);
+        wageTotal = [...first.wages,...first.dailyWork].reduce((n, w) => n + num(w.amount_cents), 0);
       let id: number;
       if (cur) {
         id = Number(cur.id);
@@ -253,7 +253,7 @@ export class LiveSettlementService {
         await tx.query(
           `UPDATE live_settlements SET status='draft',record_count=?,commission_total_cents=?,wage_total_cents=?,refund_total_cents=?,deduction_total_cents=?,payable_total_cents=?,refunds_checked_at=?,note=?,return_reason=NULL,flow_run_id=NULL,period_from=?,period_to=?,updated_by=?,revision=revision+1 WHERE company_id=? AND id=?`,
           [
-            t.count,
+            t.count + first.dailyWork.length,
             t.commissionCents,
             wageTotal,
             t.refundCents,
@@ -276,7 +276,7 @@ export class LiveSettlementService {
             p.month,
             p.from,
             p.to,
-            t.count,
+            t.count + first.dailyWork.length,
             t.commissionCents,
             wageTotal,
             t.refundCents,
@@ -322,6 +322,7 @@ export class LiveSettlementService {
           ],
         );
       }
+      for(const work of first.dailyWork)await tx.query(`INSERT INTO live_settlement_lines(company_id,settlement_id,daily_work_id,commission_record_id,session_id,user_id,role,session_date,final_sales_cents,rate_units,commission_cents,payable_cents,wage_cents,wage_minutes,hourly_rate_cents) VALUES(?,?,?,NULL,NULL,?,?,?,0,0,0,?,?,?,?)`,[c,id,work.id,work.user_id,work.role,work.day,work.amount_cents,work.amount_cents,work.approved_minutes??work.minutes,work.hourly_rate_cents]);
       for (const o of first.orders) {
         const r = refunds.get(liveRefundKey(o.shop_id, o.order_id))!;
         await tx.query(

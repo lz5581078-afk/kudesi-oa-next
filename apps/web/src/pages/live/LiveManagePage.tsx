@@ -1,3 +1,4 @@
+import { DailyWorkPanel } from './DailyWorkPanel';
 import { LiveQr } from './LiveQr';
 import { NotificationsTab } from './NotificationsTab';
 import { useState } from 'react';
@@ -18,7 +19,7 @@ import { SettlementsTab } from './SettlementsTab';
 
 const TAB_KEY = 'kudesi.live.tab';
 const TABS = [
-  ['overview', '全览'], ['schedules', '排场'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'],
+  ['overview', '全览'], ['schedules', '排场'], ['daily','日常工作'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -51,6 +52,7 @@ export function LiveManagePage() {
       {current !== 'overview' && <label className="live-mobile-nav"><span>切换页面</span><select aria-label="直播管理页面" value={current} onChange={event=>pick(event.target.value as TabKey)}>{visible.map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>}
       {current === 'overview' && <OverviewTab onOpenSession={setOpenId} />}
       {current !== 'overview' && <div className="live-workspace" role="tabpanel" aria-label={visible.find(([key]) => key === current)?.[1]}>
+      {current === 'daily' && <DailyWorkPanel date={params.get('date')??undefined}/>}
       {current === 'schedules' && <SchedulesTab />}
       {current === 'sessions' && <SessionsTab onOpen={setOpenId} refreshKey={tick} />}
       {current === 'review' && <SessionsTab presetStatus="submitted" onOpen={setOpenId} refreshKey={tick} />}

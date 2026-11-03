@@ -1,3 +1,4 @@
+import { dailyWorkReview } from '../live/daily-work-flow';
 import { LiveOrderSource } from '../live/live-order-source';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
@@ -220,4 +221,4 @@ export async function postDeclared(ctx: StepContext, t: FlowTemplate): Promise<v
   payload._docNo = finalDoc.docNo;
 }
 
-export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [afterSalesAdapter.key]: afterSalesAdapter, [appealAdapter.key]: appealAdapter, [liveSessionReview.key]: liveSessionReview, [liveSettlement.key]: liveSettlement, [purchase.key]: purchase };
+export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [dailyWorkReview.key]: dailyWorkReview, [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [afterSalesAdapter.key]: afterSalesAdapter, [appealAdapter.key]: appealAdapter, [liveSessionReview.key]: liveSessionReview, [liveSettlement.key]: liveSettlement, [purchase.key]: purchase };

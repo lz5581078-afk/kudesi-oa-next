@@ -380,6 +380,14 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     ],
   },
   {
+    key: 'live-daily-work-review', label: '日常工作工时审核',
+    description: '直播办公室日常工作结束后提交；按实际打卡及开始时的时薪审核，审批完成后纳入工资结算。办理人由流程定义配置。',
+    entry: { path: '/features/live-desk?daily=1', label: '在“日常工作”里提交' },
+    fields: [{key:'workId',label:'日常工作记录',type:'number',group:'工作',required:true},text('summary','工作与计时记录','工作',{maxLength:3000})],
+    stepFields: {review:[{key:'payMinutes',label:'核定计薪分钟',type:'number',group:'工资',help:'不填按实际工时；只能核减，调整必须说明原因'},text('wageNote','工时调整说明','工资',{maxLength:500})]},
+    steps: [{key:'apply',name:'提交工时',type:'submit',assignee:{source:'requester'},locked:true},{key:'review',name:'工时审核',type:'approval',dueMinutes:2880,locked:true},{key:'end',name:'结束',type:'end',locked:true}],
+  },
+  {
     key: 'live-session-review',
     label: '直播场次审核',
     description: '主播、中控报完下播后提交本场审核。审核人确认最终销售额、运营人员和主播中控工资，通过后自动生成主播、中控、运营的提成记录和主播中控计时工资记录；退回后主播或中控修改下播报告再重新提交。由直播管理页面发起。',
