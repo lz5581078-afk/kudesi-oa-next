@@ -12,14 +12,15 @@ import { workspaceApi, type DeskDto } from './workspaceApi';
 
 /** 岗位工作台：一个岗位一个工作台，按部门分组选择；默认进入本人主岗位。 */
 export function DeskPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const isAdmin = !!user?.permissions?.isCompanyAdmin;
   const [params, setParams] = useSearchParams();
   const [catalog, setCatalog] = useState<DeskCatalog | null>(null);
   const [desk, setDesk] = useState<DeskDto | null>(null);
   const [error, setError] = useState('');
   useEffect(() => { workspaceApi.catalog().then(setCatalog).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')); }, []);
   const wanted = Number(params.get('position')) || null;
-  const current = useMemo(() => catalog?.positions.find((p) => p.id === (wanted ?? catalog.defaultPositionId ?? -1)) ?? null, [catalog, wanted]);
+  const current = useMemo(() => catalog?.positions.find((p) => p.id === (wanted ?? catalog.defaultPositionId ?? (isAdmin ? catalog.positions[0]?.id : -1))) ?? null, [catalog, wanted, isAdmin]);
   useEffect(() => {
     let active = true;
     setDesk(null);
@@ -41,12 +42,12 @@ export function DeskPage() {
   const view: DeskView | null = current && desk ? {
     title: desk.title,
     subtitle: [current.departmentPath, def.focus].filter(Boolean).join(' · '),
-    links: deskLinks(def, current.level, can),
+    links: deskLinks(def, isAdmin ? 'boss' : current.level, can),
     linksHint: def.focus,
     cards: desk.cards,
     pending: desk.pending,
     blank: current.workspaceType === 'blank',
-    top: refreshKey=><>{current.assigned && ['live_anchor','live_control','operations'].includes(current.workspaceType) && <><PersonalLiveIncome refreshKey={refreshKey}/>{['live_anchor','live_control'].includes(current.workspaceType)&&<DailyWorkPanel personal/>}<LiveCheckinPanel workspaceType={current.workspaceType as 'live_anchor'|'live_control'|'operations'}/></>}{current.workspaceType==='operations'&&can('resource.store-daily-metrics.view')&&<DailyBusinessPanel/>}</>,
+    top: refreshKey=><>{(current.assigned || isAdmin) && ['live_anchor','live_control','operations'].includes(current.workspaceType) && <>{isAdmin&&!current.assigned&&<p className="notice" role="status">管理员可查看本岗位操作入口；日常工作和上下播仍按当前账号的本人排班记录。</p>}<PersonalLiveIncome refreshKey={refreshKey}/>{['live_anchor','live_control'].includes(current.workspaceType)&&<DailyWorkPanel personal/>}<LiveCheckinPanel workspaceType={current.workspaceType as 'live_anchor'|'live_control'|'operations'}/></>}{current.workspaceType==='operations'&&can('resource.store-daily-metrics.view')&&<DailyBusinessPanel/>}</>,
   } : null;
   return (
     <div>
