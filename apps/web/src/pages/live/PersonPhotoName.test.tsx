@@ -38,6 +38,8 @@ it('点击姓名才读取照片，使用人员编号且不触发场次行点击'
     ).getAttribute('src'),
   ).toBe('https://test.invalid/p.jpg');
   expect(read).toHaveBeenCalledWith(7);
+  expect(screen.getByRole('dialog').closest('.modal-backdrop')).toBeNull();
+  expect(screen.getByRole('button', { name: '查看同名主播照片' }).getAttribute('aria-expanded')).toBe('true');
   expect(row).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '关闭' }));
   expect(row).not.toHaveBeenCalled();
@@ -54,6 +56,18 @@ it('未上传明确提示，失败可重试且不会显示旧照片', async () =
   await screen.findByText(/尚未上传人员照片/);
   expect(read).toHaveBeenCalledTimes(2);
   expect(screen.queryByRole('img')).toBeNull();
+  expect(screen.queryByText('电脑上传')).toBeNull();
+});
+it('缺少照片且有档案编辑权限时可原地补传，Escape关闭并回到姓名', async () => {
+  vi.spyOn(personPhotoApi, 'read').mockResolvedValue({ userId: 7, name: '主播', photo: null, upload: { recordId: 77 } });
+  render(<PersonPhotoName personId={7} name="主播" />);
+  const name = screen.getByRole('button', { name: '查看主播照片' });
+  fireEvent.click(name);
+  await screen.findByText('电脑上传');
+  expect(screen.getByText('手机扫码')).toBeTruthy();
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.activeElement).toBe(name);
 });
 it('同名编号变化时不展示上个人照片，旧响应不能覆盖新人员', async () => {
   let resolve!: (x: any) => void;

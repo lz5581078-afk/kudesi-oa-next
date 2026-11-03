@@ -6,8 +6,9 @@ import { phoneUploadApi, type FileInfo, type PhoneSession } from './api';
 export const phoneUploadUrl = (token: string) => `${window.location.origin}/m/upload#${token}`;
 
 /** 电脑端：显示二维码，手机扫码拍照/选图，传上来的图自动加到字段里（每 2.5 秒看一次）。 */
-export function PhoneUploadDialog({ type, field, label, onFiles, onClose }: {
+export function PhoneUploadDialog({ type, field, label, onFiles, onClose, inline = false }: {
   type: string; field: string; label: string; onFiles: (files: FileInfo[]) => void; onClose: () => void;
+  inline?: boolean;
 }) {
   const [session, setSession] = useState<PhoneSession | null>(null);
   const [state, setState] = useState<{ scanned: boolean; uploaded: number; expired: boolean }>({ scanned: false, uploaded: 0, expired: false });
@@ -49,10 +50,9 @@ export function PhoneUploadDialog({ type, field, label, onFiles, onClose }: {
 
   const qr = useMemo(() => (session ? qrSvgPath(qrMatrix(phoneUploadUrl(session.token))) : null), [session]);
 
-  return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="modal card small" role="dialog" aria-modal="true" aria-label={`手机上传${label}`}>
-        <div className="modal-head between"><strong>手机上传{label}</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
+  const content = (
+      <div className={inline ? 'phone-upload-inline' : 'modal card small'} role={inline ? 'region' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={`手机上传${label}`}>
+        <div className="modal-head between"><strong>手机上传{label}</strong><button type="button" className="icon-button" aria-label={inline ? '返回照片' : '关闭'} onClick={onClose}>✕</button></div>
         <div className="modal-body phone-upload-body">
           {error && <div role="alert" className="notice error">{error}</div>}
           {qr && !state.expired && (
@@ -61,12 +61,12 @@ export function PhoneUploadDialog({ type, field, label, onFiles, onClose }: {
               <path d={qr.path} fill="#000" />
             </svg>
           )}
-          {session && !state.expired && <p className="muted">用手机相机、飞书或微信扫一扫，拍照或选图上传；{session.minutes} 分钟内有效，最多 {session.maxUploads} 张。传好的图会自动出现在表单里。</p>}
+          {session && !state.expired && <p className="muted">用手机相机、飞书或微信扫一扫，拍照或选图上传；{session.minutes} 分钟内有效，最多 {session.maxUploads} 张。{inline ? '裁剪上传后自动保存人员照片。' : '传好的图会自动出现在表单里。'}</p>}
           {state.expired && <div className="notice warn">二维码已失效或次数已用完。<button type="button" className="link-button" onClick={() => setRound((n) => n + 1)}>重新生成</button></div>}
           <p role="status">{!session ? '正在生成二维码…' : state.uploaded ? `已收到 ${state.uploaded} 张` : state.scanned ? '手机已打开页面，等待上传…' : '等待手机扫码…'}</p>
         </div>
         <div className="modal-foot"><button type="button" className="primary-button" onClick={onClose}>完成</button></div>
       </div>
-    </div>
   );
+  return inline ? content : <div className="modal-backdrop" role="presentation">{content}</div>;
 }

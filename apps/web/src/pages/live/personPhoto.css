@@ -32,7 +32,7 @@
   min-height: 80px;
 }
 .live-person-photo-view > img {
-  width: min(100%, 360px);
+  width: min(100%, 220px);
   height: auto;
   aspect-ratio: 1;
   object-fit: contain;
@@ -40,5 +40,73 @@
   background: #f4f6fa;
 }
 .live-person-photo-view > p {
+  margin: 8px 0;
+}
+.live-person-photo-popover {
+  position: fixed;
+  z-index: 1200;
+  width: min(300px, calc(100vw - 16px));
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid #d6dfe8;
+  border-radius: 12px;
+  background: #fff;
+  color: #182532;
+  box-shadow: 0 8px 28px #142b4030;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 400;
+  text-align: left;
+}
+.live-person-photo-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.live-person-photo-heading > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.live-person-photo-heading .icon-button {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+}
+.live-person-photo-upload {
+  width: 100%;
+  min-width: 0;
+}
+.live-person-photo-upload-actions {
+  display: flex;
+  gap: 8px;
+}
+.live-person-photo-upload-actions > button {
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+}
+.live-person-photo-upload > small {
+  display: block;
+  margin-top: 8px;
+  text-align: center;
+}
+.live-person-photo-popover .phone-upload-inline .phone-upload-qr {
+  display: block;
+  width: 170px;
+  max-width: 100%;
+  height: auto;
+  margin: auto;
+}
+.live-person-photo-popover .phone-upload-inline .modal-head,
+.live-person-photo-popover .phone-upload-inline .modal-body,
+.live-person-photo-popover .phone-upload-inline .modal-foot {
+  padding: 6px 0;
+}
+.live-person-photo-popover .phone-upload-inline p {
+  font-size: 12px;
   margin: 8px 0;
 }

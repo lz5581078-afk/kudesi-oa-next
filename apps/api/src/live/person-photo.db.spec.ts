@@ -97,6 +97,8 @@ d('人员照与直播姓名受控读取（真实MySQL）', () => {
     await ds?.destroy();
   });
   it('人员照片只接受图片，最多一张；只存对应字段，保存后才可总览读取', async () => {
+    expect((await photos.photo(boss, personId))).toMatchObject({ photo: null, upload: { recordId } });
+    expect((await photos.photo(viewer, personId))).not.toHaveProperty('upload');
     await expect(
       s.files.upload(boss, 'workforce', 'photo', {
         originalname: 'x.pdf',
@@ -111,6 +113,7 @@ d('人员照与直播姓名受控读取（真实MySQL）', () => {
     expect(dto.data.photo).toEqual([file.id]);
     expect(dto.files[file.id]).toMatchObject({ mime: 'image/png' });
     const shown = await photos.photo(viewer, personId);
+    expect(shown).not.toHaveProperty('upload');
     expect(shown.photo).toMatchObject({ expiresIn: 300, mime: 'image/png' });
     await expect(s.files.url(viewer, file.id)).rejects.toThrow(/权限/);
     const other = await s.files.upload(boss, 'workforce', 'photo', image);

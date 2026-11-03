@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { createChecker, resourcePermission } from '@kudesi/shared';
 import {
   AuthenticatedOnly,
   AuthUser,
@@ -53,7 +54,9 @@ export class LivePersonPhotoService {
       Array.isArray(data?.photo) && data.photo.length === 1
         ? Number(data.photo[0])
         : null;
-    const empty = { userId, name: person.name, photo: null };
+    const upload = record && createChecker(user.permissions)(resourcePermission('workforce', 'edit'))
+      ? { recordId: Number(record.id) } : undefined;
+    const empty = { userId, name: person.name, photo: null, ...(upload ? { upload } : {}) };
     if (!id || !Number.isSafeInteger(id)) return empty;
     const file = await this.ds.manager.findOneBy(ResourceFile, {
       companyId: user.companyId,
