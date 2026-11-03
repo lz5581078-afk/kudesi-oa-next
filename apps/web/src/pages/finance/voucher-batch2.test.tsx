@@ -149,10 +149,10 @@ describe('转款手续费与在途', () => {
 });
 
 describe('经手人员工选择器', () => {
-  it('默认当前登录员工，可以改选其他在职员工，提交员工 id', async () => {
+  it('新建按旧版留空经办人，选择在职员工后提交员工 id', async () => {
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
     const sel = screen.getByLabelText('经办人');
-    expect(sel.textContent).toContain('老板');
+    expect(sel.textContent).toContain('选择经办人');
     fireEvent.click(sel);
     await screen.findByRole('option', { name: '员工小王' });
     expect(screen.queryByRole('option', { name: /离职小李/ })).toBeNull();
@@ -162,6 +162,34 @@ describe('经手人员工选择器', () => {
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated().handlerId).toBe(2);
     expect(lastCreated().handler).toBeNull();
+  });
+  it('费用单新建同样留空，草稿不把登录员工偷偷当作经办人', async () => {
+    render(<DocForm type="expense" inline onSaved={vi.fn()} />);
+    expect(screen.getByLabelText('经办人').textContent).toContain('选择经办人');
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalled());
+    expect(lastCreated()).toMatchObject({ handlerId: null, handler: null });
+  });
+  it('清空单据恢复日期、默认往来类型、部门和空经办人，不带上次手选值', async () => {
+    render(<DocForm type="payment" inline onSaved={vi.fn()} />);
+    const date = screen.getByLabelText('单据日期') as HTMLInputElement;
+    const initialDate = date.value;
+    fireEvent.change(date, { target: { value: '2020-01-02' } });
+    fireEvent.change(screen.getByLabelText('往来对象来源'), { target: { value: 'customer' } });
+    fireEvent.change(screen.getByLabelText('归属部门'), { target: { value: '合成临时部门' } });
+    fireEvent.click(screen.getByLabelText('经办人'));
+    fireEvent.click(await screen.findByRole('option', { name: '员工小王' }));
+    fireEvent.click(screen.getByRole('button', { name: '清空单据' }));
+    expect(date.value).toBe(initialDate);
+    expect((screen.getByLabelText('归属部门') as HTMLInputElement).value).toBe('财务部');
+    expect(screen.getByLabelText('经办人').textContent).toContain('选择经办人');
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalled());
+    expect(lastCreated()).toMatchObject({ handlerId: null, handler: null, date: initialDate, partyKind: 'supplier' });
+  });
+  it('店铺提现沿用当前默认经办人，不跟随其他制单页复原而改变', () => {
+    render(<DocForm type="withdrawal" inline onSaved={vi.fn()} />);
+    expect((screen.getByLabelText('经办人') as HTMLSelectElement).value).toBe('1');
   });
   it('老数据里的文字经手人保持显示（原文字选项），保存时仍是文字、不丢', async () => {
     const doc = { id: 9, docNo: 'SK9', docType: 'receipt', status: 'draft', docDate: '2026-10-29', partyId: 7, partyName: '老客户', partyKind: 'customer', handler: '老张（外聘）', handlerId: null, bankAccountId: 5, bankName: '甲户', amountCents: 1000, paidCents: 0, offsetCents: 0, accounts: [], lines: [{ id: 1, lineNo: 1, itemName: '回款', qty: 1, unitPriceCents: 1000, productName: '', feeItemName: '' }], entries: [], events: [] } as unknown as DocDetailDto;
@@ -174,11 +202,28 @@ describe('经手人员工选择器', () => {
     const b = fa.update.mock.calls[0][1] as unknown as Record<string, unknown>;
     expect(b.handler).toBe('老张（外聘）');
     expect(b.handlerId).toBeNull();
+    fireEvent.click(sel);
+    fireEvent.click(await screen.findByRole('option', { name: '员工小王' }));
+    fireEvent.click(sel);
+    fireEvent.click(screen.getByRole('option', { name: '清空选择' }));
+    expect(sel.textContent).toContain('选择经办人');
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
+    await waitFor(() => expect(fa.update).toHaveBeenLastCalledWith(9, expect.objectContaining({ handlerId: null, handler: null })));
+    cleanup();
+    const write = vi.fn(), popup = { document: { write, close: vi.fn() }, focus: vi.fn(), print: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+    try {
+      render(<DocForm type="receipt" doc={doc} inline onSaved={vi.fn()} />);
+      fireEvent.click(screen.getByRole('button', { name: '打印' }));
+      const printed = new DOMParser().parseFromString(write.mock.calls[0][0] as string, 'text/html');
+      expect(printed.body.textContent).toContain('老张（外聘）');
+      expect(printed.body.textContent).not.toContain('老板');
+    } finally { open.mockRestore(); }
   });
-  it('取不到员工名单时不影响开单，仍能用默认经手人', async () => {
+  it('取不到员工名单时新建仍留空，不伪造经办人', async () => {
     vi.mocked(resourceApi.users).mockRejectedValue(new Error('没权限'));
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
-    expect(screen.getByLabelText('经办人').textContent).toContain('老板');
+    expect(screen.getByLabelText('经办人').textContent).toContain('选择经办人');
   });
 });
 
