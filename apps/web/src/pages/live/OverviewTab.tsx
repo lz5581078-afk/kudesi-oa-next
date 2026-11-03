@@ -1,5 +1,5 @@
 import { RoomTimeline } from './RoomTimeline';
-import { RoomSessionPanel } from './RoomSessionPanel';
+import { RoomSessionAccounts, RoomSessionPanel } from './RoomSessionPanel';
 import { roomProductItems } from './roomProducts';
 import { productText } from './liveProducts';
 import { useAuth } from '../../auth/AuthContext';
@@ -17,6 +17,7 @@ function Tile({ t, day, now, onOpen,onEdit }: { t: RoomTile; day: string; now: s
   const state=t.status==='live'?'live':missed?'missed':t.status;
   return <article className={`live-room ${t.big?'big':''} state-${state}`} aria-label={`${t.name}，${t.statusLabel}`}>
     <h3><button className="link-button" onClick={onOpen}>{t.shortName||t.name}</button><span className={`live-status status-${state}`}>{t.status==='idle'&&missed?'待上播':t.statusLabel}</span></h3>
+    <RoomSessionAccounts session={t.current ?? t.live}/>
     <div className="live-room-meta"><small>房间管理员 <strong>{t.ownerName||'未设置'}</strong></small><small>房间产品 <span className="live-room-product-items">{roomProductItems(t.products).length ? roomProductItems(t.products).map((p,i) => <strong key={i}>{p}</strong>) : <strong>未设置</strong>}</span></small></div>
     <RoomSessionPanel session={t.current ?? t.live} day={day} now={now} />
     <section className="live-next" aria-label={`${t.shortName || t.name}下一场`}>
