@@ -84,9 +84,9 @@ export interface ExpressDraft { carrier: string; branch: string; province: strin
 
 export interface OutboxJobRow { id: number; kind: string; resourceType: string; resourceId: number; status: 'pending' | 'sending' | 'done' | 'failed' | 'cancelled'; attempts: number; lastError: string | null; createdAt: string; doneAt: string | null; payload: { code?: string; name?: string } }
 
-const qs = (o: Record<string, string | number | undefined>) => {
+const qs = (o: Record<string, string | number | undefined>, keepEmpty: string[] = []) => {
   const q = new URLSearchParams();
-  for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== '') q.set(k, String(v));
+  for (const [k, v] of Object.entries(o)) if (v !== undefined && (v !== '' || keepEmpty.includes(k))) q.set(k, String(v));
   const s = q.toString();
   return s ? `?${s}` : '';
 };
@@ -130,7 +130,7 @@ export const financeApi = {
   inventory: (p: { warehouseId?: number; warehouse?: string; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
   inventoryLedger: (p: { productId: number; warehouseId: number; asOf?: string }) => api<StockLedger>(`/finance/inventory-ledger${qs(p)}`),
   partyBalance: (p: { partyKind: string; partyId: number }) => api<PartyBalance>(`/finance/party-balance${qs(p)}`),
-  lineHints: (productIds: number[], warehouseId?: number) => api<LineHint[]>(`/finance/line-hints${qs({ productIds: productIds.join(','), warehouseId })}`),
+  lineHints: (productIds: number[], warehouseId?: number, warehouseName?: string) => api<LineHint[]>(`/finance/line-hints${qs({ productIds: productIds.join(','), warehouseId, warehouseName }, ['warehouseName'])}`),
   syncEmployees: () => api<{ created: number }>('/finance/employee-parties/sync', { method: 'POST', body: {} }),
   openItems: (p: { dir: 'in' | 'out'; partyKind: string; partyId: number }) => api<OpenItem[]>(`/finance/open-items${qs(p)}`),
   settlementDetail: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<SettlementRow[]>(`/finance/settlement-detail${qs(p)}`),

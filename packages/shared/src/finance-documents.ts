@@ -184,6 +184,8 @@ export interface DocInput {
   bankAccountId?: number | null;
   toBankAccountId?: number | null;
   warehouseId?: number | null;
+  /** 制单仓库文字；服务端在同一事务内解析到已有仓库，保留库存ID关联。 */
+  warehouseName?: string | null;
   /** 店铺提现：店铺档案 id 和平台提现流水号 */
   storeId?: number | null;
   refNo?: string | null;
@@ -290,7 +292,7 @@ export function validateDoc(input: DocInput, phase: 'issue' | 'post' = 'post'): 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date ?? '')) errors.push('请选择单据日期');
   if (input.docNo && !/^[A-Za-z0-9_-]{1,32}$/.test(input.docNo)) errors.push('单据编号只能用字母、数字、横线、下划线，最多 32 位');
   if (def.party && def.partyRequired && !input.partyId) errors.push(`请选择${def.ui.partyLabel.replace(/（选填）/, '')}`);
-  if (def.warehouse && !input.warehouseId) errors.push('请选择仓库');
+  if (def.warehouse && !input.warehouseId && !input.warehouseName?.trim()) errors.push('请填写仓库');
   if (def.store) {
     if (!input.storeId) errors.push('请选择提现的店铺');
     if (!input.refNo?.trim()) errors.push('请填写平台提现流水号');

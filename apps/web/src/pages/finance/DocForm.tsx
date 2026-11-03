@@ -62,7 +62,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const [docNo, setDocNo] = useState(doc?.docNo ?? '');
   const [partyKind, setPartyKind] = useState<PartyKind>((doc?.partyKind as PartyKind | null) ?? kinds[0] ?? 'customer');
   const [party, setParty] = useState<{ id: number | null; name: string }>({ id: doc?.partyId ?? null, name: doc?.linkedPartyName ?? doc?.partyName ?? '' });
-  const [wh, setWh] = useState<{ id: number | null; name: string }>({ id: doc?.warehouseId ?? null, name: doc?.warehouseName ?? '' });
+  const [wh, setWh] = useState<{ id: number | null; name: string }>({ id: doc?.warehouseId ?? null, name: doc ? doc.warehouseName : def.warehouse ? '总仓' : '' });
   const [bank, setBank] = useState<{ id: number | null; name: string }>({ id: doc?.bankAccountId ?? null, name: doc?.bankName ?? '' });
   const [toBank, setToBank] = useState<{ id: number | null; name: string }>({ id: doc?.toBankAccountId ?? null, name: doc?.toBankName ?? '' });
   const [store, setStore] = useState<{ id: number | null; name: string }>({ id: doc?.storeId ?? preset?.storeId ?? null, name: doc?.storeName ?? preset?.storeName ?? '' });
@@ -173,7 +173,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
 
   const [balanceTick, setBalanceTick] = useState(0);
   const partyBalance = usePartyBalance(def.party ? partyKind : null, party.id, balanceTick);
-  const hints = useLineHints(def.lines === 'product' ? lines.map((l) => l.productId).filter((x): x is number => !!x) : [], wh.id);
+  const hints = useLineHints(def.lines === 'product' ? lines.map((l) => l.productId).filter((x): x is number => !!x) : [], wh.id, def.warehouse ? wh.name : undefined);
 
   const parse = (t: string) => { const v = yuanToCents(t); if (Number.isNaN(v)) throw new Error('金额格式不对（最多两位小数）'); return v; };
   const priceOf = (t: string) => { const v = unitPriceOf(t); return typeof v === 'number' && !Number.isNaN(v) ? v : 0; };
@@ -186,7 +186,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
       : multiOn && payDir ? multi.map((a) => ({ role: payDir, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })) : null;
     const feeC = def.bank === 'transfer' ? parse(fee) ?? 0 : 0;
     return {
-      ...(type === 'expense' ? { counterpartyName, summary } : {}), accounts, type, date, settlementMode: type !== 'withdrawal' ? payMode || null : null, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: multiOn && multi[0] ? multi[0].id : bank.id, toBankAccountId: toBank.id, warehouseId: wh.id,
+      ...(type === 'expense' ? { counterpartyName, summary } : {}), accounts, type, date, settlementMode: type !== 'withdrawal' ? payMode || null : null, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: multiOn && multi[0] ? multi[0].id : bank.id, toBankAccountId: toBank.id, warehouseId: wh.id, ...(def.warehouse ? { warehouseName: wh.name } : {}),
       feeCents: feeC, feeBearer: feeC ? feeBearer : null, inTransit: def.bank === 'transfer' ? inTransit : false,
       storeId: def.store ? store.id : null, refNo: hasBankRef(def) ? refNo : null, amountCents: null, offsetCents: parse(offset) ?? 0,
       discountCents: def.lines === 'product' || hasMoneyDiscount(type) ? parse(discount) ?? 0 : 0,
@@ -251,7 +251,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
     if (type !== 'withdrawal') {
       setDate(today()); setPartyKind(kinds[0] ?? 'customer'); setHandlerId(null); setHandlerName(''); setHandlerLegacy(''); setDepartment(def.warehouse ? '' : '财务部');
     }
-    setDocNo(''); setParty({ id: null, name: '' }); setWh({ id: null, name: '' }); setBank({ id: null, name: '' }); setToBank({ id: null, name: '' }); setRefNo('');
+    setDocNo(''); setParty({ id: null, name: '' }); setWh({ id: null, name: def.warehouse ? '总仓' : '' }); setBank({ id: null, name: '' }); setToBank({ id: null, name: '' }); setRefNo('');
     setOuts([]); setIns([]); setMulti([]); setMultiOn(false); setFee(''); setFeeBearer('out'); setInTransit(false); setMoneyLines([emptyMoney()]); setOffset(''); setPaid(''); setDiscount(''); setPayMode(ui.payModes[0]?.mode ?? ''); setMemo(''); setCounterpartyName(''); setSummary(''); setLines(structuredLines ? freshLines() : []); setVouchers([]); setVouchersDirty(false); setError(''); setAlloc({});
   };
 
@@ -376,7 +376,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
         {def.store && <label>店铺 *<SearchPick ariaLabel="店铺" type="stores" value={store.id} label={store.name} onChange={(id, name) => setStore({ id, name })} /></label>}
         {def.store && <label>平台提现流水号 *<input aria-label="平台提现流水号" value={refNo} maxLength={80} onChange={(e) => setRefNo(e.target.value)} placeholder="平台后台提现记录里的流水号，不能重复" /></label>}
         {def.warehouse
-          ? <label>{ui.warehouseLabel} *<SearchPick ariaLabel="仓库" type="finance-warehouses" value={wh.id} label={wh.name} onChange={(id, name) => setWh({ id, name })} /></label>
+          ? <label>{ui.warehouseLabel} *<input aria-label="仓库" value={wh.name} maxLength={200} onChange={e => setWh({ id: null, name: e.target.value })} /></label>
           : type === 'expense' ? null : <label>归属部门<input aria-label="归属部门" value={department} maxLength={60} onChange={(e) => setDepartment(e.target.value)} /></label>}
         <HandlerSelect value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); if (type !== 'withdrawal') setHandlerLegacy(''); }} />
       </section>

@@ -60,6 +60,7 @@ class DocDto {
   @IsOptional() @IsInt() @Min(1) bankAccountId?: number | null;
   @IsOptional() @IsInt() @Min(1) toBankAccountId?: number | null;
   @IsOptional() @IsInt() @Min(1) warehouseId?: number | null;
+  @IsOptional() @IsString() @MaxLength(200) warehouseName?: string | null;
   @IsOptional() @IsInt() @Min(1) storeId?: number | null;
   @IsOptional() @IsString() @MaxLength(80) refNo?: string | null;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => AccountDto) accounts?: AccountDto[] | null;
@@ -130,6 +131,7 @@ class PartyBalanceDto {
 class LineHintsDto {
   @IsString() @Matches(/^\d+(,\d+)*$/) productIds!: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) warehouseId?: number;
+  @IsOptional() @IsString() @MaxLength(200) warehouseName?: string;
 }
 class LedgerDto {
   @IsOptional() @Matches(DATE) from?: string;
@@ -213,7 +215,7 @@ export class FinanceDocumentsController {
   partyBalance(@CurrentUser() u: AuthUser, @Query() q: PartyBalanceDto) { return this.hints.partyBalance(u, q.partyKind, q.partyId); }
 
   @AuthenticatedOnly() @Get('line-hints')
-  lineHints(@CurrentUser() u: AuthUser, @Query() q: LineHintsDto) { return this.hints.lineHints(u, q.productIds.split(',').map(Number), q.warehouseId); }
+  lineHints(@CurrentUser() u: AuthUser, @Query() q: LineHintsDto) { return this.hints.lineHints(u, q.productIds.split(',').map(Number), q.warehouseId, q.warehouseName); }
 
   @AuthenticatedOnly() @Get('settlement-detail')
   settlementDetail(@CurrentUser() u: AuthUser, @Query() q: SettlementQueryDto) { return this.docs.settlementDetail(u, q); }

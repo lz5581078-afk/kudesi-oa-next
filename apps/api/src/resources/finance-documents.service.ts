@@ -1,5 +1,5 @@
 import { categoryLabelMap } from './category-options';
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
@@ -8,6 +8,7 @@ import {
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { AuditLog, ResourceFile, User, FinanceDocument, FinanceDocumentAccount, FinanceDocumentEvent, FinanceDocumentLine, FinanceDocumentSettlement, FinanceEntry, ResourceRecord } from '../entities';
+import { ResourcesService } from './resources.service';
 
 const COST_VIEW = 'product.cost.view';
 const today = todayInChina;
@@ -28,7 +29,7 @@ export interface ListQuery { scope: 'drafts' | 'history' | DocType; transit?: 'p
  */
 @Injectable()
 export class FinanceDocumentsService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(@InjectDataSource() private readonly dataSource: DataSource, @Optional() private readonly resources?: ResourcesService) {}
 
   /** 流程引擎在自己的事务里调用时传入 em，单据和流程流转同成同败 */
   private tx<T>(em: EntityManager | undefined, fn: (em: EntityManager) => Promise<T>): Promise<T> {
@@ -51,6 +52,26 @@ export class FinanceDocumentsService {
   }
 
   // ---------- 引用校验 ----------
+  private async warehouseInput(em: EntityManager, user: AuthUser, input: DocInput): Promise<DocInput> {
+    if (input.warehouseName === undefined || input.warehouseName === null) return input;
+    const name = input.warehouseName.trim();
+    if (!DOC_TYPE_MAP.get(input.type)?.warehouse) {
+      if (name) throw new BadRequestException('这种单据不使用仓库');
+      return input;
+    }
+    if (!name) return { ...input, warehouseId: null };
+    if (!this.resources) throw new BadRequestException('仓库资料服务不可用');
+    await this.lockPosting(em, user);
+    let warehouse = await this.resources.findByUnique(em, user.companyId, 'finance-warehouses', name);
+    if (warehouse && (warehouse.archivedAt || warehouse.status !== 'active')) throw new BadRequestException(`仓库「${warehouse.title}」已停用或归档`);
+    if (input.warehouseId && warehouse?.id !== input.warehouseId) throw new BadRequestException('仓库名称与所选仓库不一致');
+    if (!warehouse) {
+      this.need(user, 'resource.finance-warehouses.create', '该仓库尚未维护，需要新建仓库资料的权限');
+      warehouse = await this.resources.createRecord(em, user, 'finance-warehouses', { name }, '制单填写仓库名称，建立库存关联');
+    }
+    return { ...input, warehouseId: warehouse.id };
+  }
+
   private async checkRefs(em: EntityManager, user: AuthUser, input: DocInput, selfId?: number) {
     const def = DOC_TYPE_MAP.get(input.type);
     if (!def) throw new BadRequestException('单据类型不认识');
@@ -275,7 +296,7 @@ export class FinanceDocumentsService {
     // 草稿允许没填完，但数字本身必须合法
     const def = DOC_TYPE_MAP.get(input.type);
     if (!def) throw new BadRequestException('单据类型不认识');
-    for (const [value, max, label] of [[input.counterpartyName, 160, '相关单位'], [input.summary, 255, '单据摘要']] as const) {
+    for (const [value, max, label] of [[input.counterpartyName, 160, '相关单位'], [input.summary, 255, '单据摘要'], [input.warehouseName, 200, '仓库名称']] as const) {
       if (value != null && (typeof value !== 'string' || value.trim().length > max)) throw new BadRequestException(`${label}最多${max}字`);
     }
     if (input.settlementMode && !def.ui.payModes.some(mode => mode.mode === input.settlementMode)) throw new BadRequestException('这种单据不支持所选收付方式');
@@ -304,6 +325,7 @@ export class FinanceDocumentsService {
         const dup = await em.findOne(FinanceDocument, { where: { companyId: user.companyId, sourceKey: opts.sourceKey } });
         if (dup) return this.view(user, em, dup.id);
       }
+      input = await this.warehouseInput(em, user, input);
       await this.checkRefs(em, user, input);
       const def = DOC_TYPE_MAP.get(input.type)!;
       const who = await this.resolveHandler(em, user, input);
@@ -336,6 +358,7 @@ export class FinanceDocumentsService {
       const { doc } = await this.load(em, user, id, true);
       if (doc.status !== 'draft') throw new ConflictException('只有草稿能修改；已开立的单据请先退回草稿');
       if (doc.docType !== input.type) throw new BadRequestException('不能改单据类型');
+      input = await this.warehouseInput(em, user, input);
       await this.checkRefs(em, user, input, id);
       const def = DOC_TYPE_MAP.get(input.type)!;
       const who = await this.resolveHandler(em, user, input, doc.handlerId);

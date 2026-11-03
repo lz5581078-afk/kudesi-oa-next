@@ -170,6 +170,18 @@ describe('经手人员工选择器', () => {
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated()).toMatchObject({ handlerId: null, handler: null });
   });
+  it('库存制单仓库恢复文字输入和总仓默认，保存文字并在清空后恢复默认', async () => {
+    render(<DocForm type="purchase-in" inline onSaved={vi.fn()} />);
+    const warehouse = screen.getByRole('textbox', { name: '仓库' }) as HTMLInputElement;
+    expect(warehouse.value).toBe('总仓');
+    fireEvent.change(warehouse, { target: { value: '合成文字仓库' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalled());
+    expect(lastCreated()).toMatchObject({ warehouseId: null, warehouseName: '合成文字仓库' });
+    fireEvent.click(screen.getByRole('button', { name: '清空单据' }));
+    expect(warehouse.value).toBe('总仓');
+  });
+
   it('清空单据恢复日期、默认往来类型、部门和空经办人，不带上次手选值', async () => {
     render(<DocForm type="payment" inline onSaved={vi.fn()} />);
     const date = screen.getByLabelText('单据日期') as HTMLInputElement;

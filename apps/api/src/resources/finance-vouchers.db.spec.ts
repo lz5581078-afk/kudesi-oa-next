@@ -29,7 +29,7 @@ d('制单中心：优惠、预付冲抵、往来余额、行提示（真实数�
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
     await ds.initialize();
     svc = buildServices(ds).resources;
-    docs = new FinanceDocumentsService(ds);
+    docs = new FinanceDocumentsService(ds, svc);
     hints = new FinanceVoucherHintsService(ds);
     const mk = async (name: string) => {
       const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `v${crypto.randomBytes(5).toString('hex')}`, name, status: 'active' }));
@@ -53,6 +53,41 @@ d('制单中心：优惠、预付冲抵、往来余额、行提示（真实数�
     ids.otherCust = (await svc.create(other, 'finance-customers', { name: '乙公司客户' })).id;
   });
   afterAll(async () => { await ds?.destroy(); });
+
+  it('文字仓库解析同公司已有资料，不要求额外创建权限；ID与名称不一致时拒绝', async () => {
+    const draft = await docs.createDraft(clerk, { type: 'sale', date: day, warehouseName: ' 制单仓 ' });
+    expect(draft.warehouseId).toBe(ids.wh);
+    expect(draft.warehouseName).toBe('制单仓');
+    await expect(docs.createDraft(boss, { type: 'sale', date: day, warehouseName: '尚未维护的仓库', warehouseId: ids.wh })).rejects.toThrow(/不一致/);
+  });
+
+  it('新文字仓库走通用资料创建并关联真实库存；提示按仓库名隔离，未知或空仓库不显示全公司库存', async () => {
+    const foreign = await svc.create(other, 'finance-warehouses', { name: '文字库存验收仓' });
+    const draft = await docs.createDraft(boss, { type: 'purchase-in', date: day, partyId: ids.supp, warehouseName: '文字库存验收仓', lines: [{ productId: ids.apple, qty: 2, unitPriceCents: 100 }] });
+    expect(draft.warehouseId).not.toBe(foreign.id);
+    await docs.post(boss, draft.id);
+    expect((await docs.inventory(boss, { warehouseId: draft.warehouseId! }))[0]).toMatchObject({ qty: 2, amountCents: 200, warehouseName: '文字库存验收仓' });
+    expect((await hints.lineHints(boss, [ids.apple], undefined, '文字库存验收仓'))[0].stockQty).toBe(2);
+    expect((await hints.lineHints(boss, [ids.apple], undefined, '不存在的仓库'))[0].stockQty).toBe(0);
+    expect((await hints.lineHints(boss, [ids.apple], undefined, ''))[0].stockQty).toBe(0);
+    expect(await hints.lineHints(other, [ids.apple], undefined, '文字库存验收仓')).toEqual([]);
+    await docs.reverse(boss, draft.id, '合成仓库隔离验收后冲回');
+  });
+
+  it('缺少仓库创建权限不暗中建立资料；后续单据引用错误也回滚新仓库', async () => {
+    await expect(docs.createDraft(clerk, { type: 'sale', date: day, warehouseName: '无权新仓库' })).rejects.toThrow(/新建仓库资料的权限/);
+    expect(await svc.findByUnique(ds.manager, boss.companyId, 'finance-warehouses', '无权新仓库')).toBeNull();
+    await expect(docs.createDraft(boss, { type: 'sale', date: day, partyId: ids.otherCust, warehouseName: '回滚验收仓' })).rejects.toThrow(/不存在/);
+    expect(await svc.findByUnique(ds.manager, boss.companyId, 'finance-warehouses', '回滚验收仓')).toBeNull();
+  });
+
+  it('并发填写同名仓库只建立一条，停止的仓库不能靠文字重新建立', async () => {
+    const drafts = await Promise.all([1, 2].map(() => docs.createDraft(boss, { type: 'sale', date: day, warehouseName: '并发文字验收仓' })));
+    expect(drafts[0].warehouseId).toBe(drafts[1].warehouseId);
+    const warehouse = await svc.findByUnique(ds.manager, boss.companyId, 'finance-warehouses', '并发文字验收仓');
+    await svc.changeStatus(boss, 'finance-warehouses', warehouse!.id, 'inactive', '合成停用仓库验收');
+    await expect(docs.createDraft(boss, { type: 'sale', date: day, warehouseName: '并发文字验收仓' })).rejects.toThrow(/停用或归档/);
+  });
 
   it('采购入库带优惠：应付按优惠后，库存成本被优惠摊低；红冲完全冲回，优惠额也取反', async () => {
     const draft = await docs.createDraft(boss, { type: 'purchase-in', date: day, partyId: ids.supp, warehouseId: ids.wh, discountCents: 1000, lines: [{ productId: ids.apple, qty: 10, unitPriceCents: 500 }, { productId: ids.pear, qty: 10, unitPriceCents: 500 }] });
