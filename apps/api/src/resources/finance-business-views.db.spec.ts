@@ -45,7 +45,7 @@ d('财务查询页面（真实数据库）', () => {
     ids.wh = (await svc.create(boss, 'finance-warehouses', { name: '一号仓' })).id;
     ids.feeOut = (await svc.create(boss, 'finance-fee-items', { name: '房租', direction: 'expense' })).id;
     ids.lic = (await svc.create(boss, 'licenses', { category: 'operation', companyName: '主体甲公司', creditCode: `V-${crypto.randomBytes(5).toString('hex')}`, legalPerson: '王' })).id;
-    ids.store = (await svc.create(boss, 'stores', { name: '查询店A', platform: 'pdd', licenseId: ids.lic })).id;
+    ids.store = (await svc.create(boss, 'stores', { name: '查询店A', platform: 'pdd', storeNo: 'SYNTHETIC-S1', platformStoreId: 'PLATFORM-SYNTHETIC-001', licenseId: ids.lic })).id;
     ids.store2 = (await svc.create(boss, 'stores', { name: '查询店B', platform: 'taobao' })).id;
     ids.bankStore = (await svc.create(boss, 'bank-accounts', { kind: 'store_public', accountName: '店铺公户', bank: '测试银行', accountNo: '6222000011110001', balance: 1000, storeId: ids.store, licenseId: ids.lic })).id;
     ids.bankCo = (await svc.create(boss, 'bank-accounts', { kind: 'company_public', accountName: '公司公户', bank: '测试银行', accountNo: '6222000011110002', balance: 100000 })).id;
@@ -151,6 +151,7 @@ d('财务查询页面（真实数据库）', () => {
     await svc.create(boss, 'store-funds', { storeId: ids.store, snapshotDate: day, withdrawable: 7777, deposit: 100, frozen: 0, promotion: 50 });
     const funds = await docs.storeFunds(boss);
     const a = funds.find((f) => f.storeId === ids.store)!, b = funds.find((f) => f.storeId === ids.store2)!;
+    expect(a).toMatchObject({ storeNo: 'SYNTHETIC-S1', platformStoreId: 'PLATFORM-SYNTHETIC-001' });
     expect(a).toMatchObject({ platformLabel: '拼多多', withdrawableCents: 7777, snapshotDate: day });
     expect(b).toMatchObject({ platformLabel: '淘宝', withdrawableCents: 0, depositCents: 0, snapshotDate: '' });
     expect(b.updatedAt).toBeNull();

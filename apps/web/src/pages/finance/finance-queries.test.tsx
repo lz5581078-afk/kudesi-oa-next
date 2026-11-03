@@ -9,15 +9,19 @@ import { InventoryPage } from './InventoryPage';
 import { Shops } from './StoreWithdrawalPage';
 import { financeApi } from './financeApi';
 import { makeSessionApi } from './sessionApi';
+import { resourceApi } from '../../resources/api';
+
+const cashAuth = vi.hoisted(() => ({ canReadAccounts: true, companyId: 1 }));
 
 vi.mock('../../auth/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, name: '测试员' }, loading: false, can: createChecker({ isCompanyAdmin: true, allow: [], deny: [] }) }),
+  useAuth: () => ({ user: { id: 1, companyId: cashAuth.companyId, name: '测试员' }, loading: false, can: (key: string) => key === 'resource.bank-accounts.view' ? cashAuth.canReadAccounts : createChecker({ isCompanyAdmin: true, allow: [], deny: [] })(key) }),
 }));
+vi.mock('../../resources/api', async orig => { const mod = await orig<typeof import('../../resources/api')>(); return { ...mod, resourceApi: { ...mod.resourceApi, list: vi.fn() } }; });
 vi.mock('./financeApi', () => ({
   financeApi: { overview: vi.fn(), docs: vi.fn(), banks: vi.fn(), storeFunds: vi.fn(), keyAccounts: vi.fn(), setKeyAccount: vi.fn(), ledger: vi.fn(), inventory: vi.fn() },
 }));
 const fa = vi.mocked(financeApi);
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); cashAuth.canReadAccounts = true; cashAuth.companyId = 1; vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 200 }); });
 afterEach(cleanup);
 
 describe('财务经营', () => {
@@ -129,6 +133,40 @@ describe('现金银行查询', () => {
     const row = screen.getByText('招行主户').closest('tr')!;
     expect(within(row).getByTitle(/确认入账后才计入余额/).textContent).toBe('¥2,500.00');
     expect(within(row).getByText('¥100.00')).toBeTruthy(); // 余额仍是 10000 分
+  });
+  it('有资料查看权限时直接显示账号并可按账号搜索，跨全部分页读取而非只看首批', async () => {
+    vi.mocked(resourceApi.list).mockImplementation(async (_type, query) => ({ items: [{ id: query?.page === 2 ? 2 : 1, title: '合成账号', data: { accountNo: query?.page === 2 ? '6222000000000002' : '6222000000000001' } }], total: 2 }) as never);
+    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
+    expect(await screen.findByText('6222000000000001')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '显示账号' })).toBeNull();
+    expect(resourceApi.list).toHaveBeenCalledWith('bank-accounts', { page: 2, pageSize: 200, showHidden: true });
+    fireEvent.change(screen.getByLabelText('搜索账户'), { target: { value: '6222000000000002' } });
+    expect(screen.queryByText('招行主户')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /展开 1 个账户/ }));
+    expect(screen.getByText('拼店收款户')).toBeTruthy();
+    expect(screen.getByText('6222000000000002')).toBeTruthy();
+  });
+  it('没有银行资料查看权限时不读账号，现金余额的既有查看权限不被扩大', async () => {
+    cashAuth.canReadAccounts = false;
+    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
+    await screen.findByText('招行主户');
+    expect(resourceApi.list).not.toHaveBeenCalled();
+    expect(screen.getByText('无查看权限')).toBeTruthy();
+  });
+  it('店铺编号与平台店铺ID分别可搜索，资金读取失败不把上次余额改成零', async () => {
+    fa.storeFunds.mockResolvedValueOnce([{ storeId: 11, name: '拼店', storeNo: 'S1', platformStoreId: 'PLATFORM-SYNTHETIC-001', platform: 'pdd', platformLabel: '拼多多', snapshotDate: '', updatedAt: null, withdrawableCents: 5000, depositCents: 0, frozenCents: 0, promotionCents: 0 }]);
+    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
+    await screen.findByText('招行主户');
+    fireEvent.change(screen.getByLabelText('搜索账户'), { target: { value: 'PLATFORM-SYNTHETIC-001' } });
+    fireEvent.click(screen.getByRole('button', { name: /展开 1 个店铺/ }));
+    expect(screen.getByText(/拼多多 \/ 拼店/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('搜索账户'), { target: { value: '' } });
+    fa.storeFunds.mockRejectedValueOnce(new Error('合成资金读取失败'));
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await screen.findByText('加载失败');
+    expect(screen.getByText(/拼多多 \/ 拼店/)).toBeTruthy();
+    const card = screen.getByText('店铺可提现余额').parentElement!;
+    expect(card.textContent).toContain('¥50.00');
   });
 });
 

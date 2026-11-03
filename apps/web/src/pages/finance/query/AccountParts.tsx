@@ -1,6 +1,3 @@
-import { useState } from 'react';
-import { ApiError } from '../../../api/client';
-import { resourceApi } from '../../../resources/api';
 import { CopyButton } from '../fin-ui';
 import { FRESH_HINT, FRESH_PILL, fmtUpdated, freshnessTone } from '../freshness';
 
@@ -14,11 +11,9 @@ export function Fresh({ at, now }: { at: string | null | undefined; now: number 
   return <span className={`pill ${FRESH_PILL[tone]}`} title={FRESH_HINT[tone]}>{fmtUpdated(at)}</span>;
 }
 
-/** 账号/卡号：平时不显示；点“显示”才向服务器取明文（要有查看明文权限，并会留下查看记录），取到后可以一键复制 */
-export function AccountNo({ id }: { id: number }) {
-  const [value, setValue] = useState<string | null>(null);
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-  if (value !== null) return <span className="mono">{value} <CopyButton text={value} label="账号" /> <button type="button" className="link-button" onClick={() => setValue(null)}>隐藏</button></span>;
-  return <span><button type="button" className="link-button" disabled={busy} aria-label="显示账号" onClick={() => { setBusy(true); setErr(''); resourceApi.reveal('bank-accounts', id, 'accountNo').then((r) => setValue(r.value)).catch((e) => setErr(e instanceof ApiError ? e.message : '无法查看')).finally(() => setBusy(false)); }}>{busy ? '读取中…' : '显示账号'}</button>{err && <small className="neg"> {err}</small>}</span>;
+/** 银行账号沿用资料查看权限直接显示；密码类字段仍走各自的专门权限。 */
+export function AccountNo({ value, canView }: { value?: string; canView: boolean }) {
+  if (!canView) return <span className="muted">无查看权限</span>;
+  if (value === undefined) return <span className="muted">未能读取</span>;
+  return value ? <span className="mono">{value} <CopyButton text={value} label="账号" /></span> : <span className="muted">未填写</span>;
 }

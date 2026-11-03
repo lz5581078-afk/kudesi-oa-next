@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api/client';
+import { useAuth } from '../../auth/AuthContext';
+import { resourceApi } from '../../resources/api';
 import { DocDetail } from './DocDetail';
 import { money } from './common';
 import { DateChips, plainYuan } from './fin-ui';
@@ -18,6 +20,11 @@ const transitSum = (l: BankBalance[]) => l.reduce((s, r) => s + (r.inTransitCent
  * 余额 = 银行账户资料里登记的期初余额 + 已过账单据的流水；余额旁标着最后更新时间，越久没更新颜色越重。
  */
 export function CashBankPage() {
+  const { can, user } = useAuth();
+  const canReadAccounts = can('resource.bank-accounts.view');
+  const [accountNumbers, setAccountNumbers] = useState<Map<number, string>>(new Map());
+  const request = useRef(0);
+  const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [at, setAt] = useState<Date | null>(null);
   const [rows, setRows] = useState<BankBalance[] | null>(null);
@@ -37,22 +44,40 @@ export function CashBankPage() {
   const ledgerRef = useRef<HTMLDivElement>(null);
   const fail = (e: unknown) => setError(e instanceof ApiError ? e.message : '加载失败');
 
-  const load = () => {
-    setError(''); setRows(null);
-    Promise.all([financeApi.banks(), financeApi.storeFunds().catch(() => [] as StoreFund[])]).then(([b, f]) => { setRows(b); setFunds(f); setNow(Date.now()); setAt(new Date()); }).catch((e) => { setRows([]); fail(e); });
-  };
-  useEffect(load, []);
-  useEffect(() => { financeApi.keyAccounts().then(setKeys).catch(() => undefined); }, []);
+  const load = useCallback(() => {
+    const version = ++request.current;
+    const numbers = async () => {
+      const out = new Map<number, string>();
+      if (!canReadAccounts) return out;
+      for (let page = 1, count = 0; ; page++) {
+        if (version !== request.current) return out;
+        const result = await resourceApi.list('bank-accounts', { page, pageSize: 200, showHidden: true });
+        for (const item of result.items) out.set(item.id, String(item.data.accountNo ?? ''));
+        count += result.items.length;
+        if (!result.items.length || count >= result.total) return out;
+      }
+    };
+    setError(''); setBusy(true);
+    Promise.all([financeApi.banks(), financeApi.storeFunds(), financeApi.keyAccounts(), numbers().catch(() => new Map<number, string>())])
+      .then(([banks, funds, keys, numbers]) => { if (version === request.current) { setRows(banks); setFunds(funds); setKeys(keys); setAccountNumbers(numbers); setNow(Date.now()); setAt(new Date()); } })
+      .catch((e) => { if (version === request.current) { setRows(current => current ?? []); fail(e); } })
+      .finally(() => { if (version === request.current) setBusy(false); });
+  }, [canReadAccounts, user?.companyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setRows(null); setFunds([]); setKeys([]); setAccountNumbers(new Map()); setSel(null); setLedger(null); setRel(null); setDocId(null);
+    load();
+    return () => { request.current++; };
+  }, [load]);
   useEffect(() => {
     if (!sel) return;
+    let alive = true;
     setLedger(null);
-    financeApi.ledger(sel.id, { from: from || undefined, to: to || undefined }).then(setLedger).catch(fail);
+    financeApi.ledger(sel.id, { from: from || undefined, to: to || undefined }).then(result => { if (alive) setLedger(result); }).catch(e => { if (alive) fail(e); });
+    return () => { alive = false; };
   }, [sel, from, to]);
-  useEffect(() => { if (sel) ledgerRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); }, [sel]);
-
   const all = rows ?? [];
-  const accounts = useMemo(() => all.filter((r) => (!kind || r.kind === kind) && has(`${r.title} ${r.bank ?? ''} ${r.ownerName ?? ''} ${r.licenseName ?? ''} ${(r.storeNames ?? []).join(' ')}`, keyword)), [all, keyword, kind]);
-  const stores = useMemo(() => funds.filter((f) => (platform === 'all' || f.platform === platform) && has(`${f.name} ${f.platformLabel ?? ''} ${f.storeNo ?? ''}`, keyword)), [funds, platform, keyword]);
+  const accounts = useMemo(() => all.filter((r) => (!kind || r.kind === kind) && has(`${r.title} ${r.bank ?? ''} ${r.ownerName ?? ''} ${canReadAccounts ? accountNumbers.get(r.id) ?? '' : ''} ${r.licenseName ?? ''} ${(r.storeNames ?? []).join(' ')}`, keyword)), [all, keyword, kind, accountNumbers, canReadAccounts]);
+  const stores = useMemo(() => funds.filter((f) => (platform === 'all' || f.platform === platform) && has(`${f.name} ${f.platformLabel ?? ''} ${f.storeNo ?? ''} ${f.platformStoreId ?? ''}`, keyword)), [funds, platform, keyword]);
   const platforms = useMemo(() => { const m = new Map<string, string>(); for (const f of funds) if (f.platform) m.set(f.platform, f.platformLabel ?? f.platform); return [...m.entries()]; }, [funds]);
   const storeAccounts = accounts.filter((r) => STORE_KINDS.includes(r.kind));
   const companyAccounts = accounts.filter((r) => !STORE_KINDS.includes(r.kind));
@@ -69,7 +94,7 @@ export function CashBankPage() {
   const A = {
     type: { key: 'type', head: '账户类型', cell: (r) => KIND_LABEL[r.kind] ?? r.kind, csv: (r) => KIND_LABEL[r.kind] ?? r.kind } as Col<BankBalance>,
     name: { key: 'name', head: '账户', primary: true, cell: (r) => <button type="button" className="link-button" onClick={() => setSel(r)}>{r.title}</button>, csv: (r) => r.title } as Col<BankBalance>,
-    no: { key: 'no', head: '账号', cell: (r) => <AccountNo id={r.id} /> } as Col<BankBalance>,
+    no: { key: 'no', head: '账号', cell: (r) => <AccountNo value={accountNumbers.get(r.id)} canView={canReadAccounts} /> } as Col<BankBalance>,
     bank: { key: 'bank', head: '开户行', cell: (r) => r.bank || '-', csv: (r) => r.bank } as Col<BankBalance>,
     license: { key: 'license', head: '所属主体', cell: (r) => r.licenseName || '-', csv: (r) => r.licenseName } as Col<BankBalance>,
     keeper: { key: 'keeper', head: '保管人', cell: (r) => r.keeperName || '-', csv: (r) => r.keeperName } as Col<BankBalance>,
@@ -105,9 +130,9 @@ export function CashBankPage() {
     <div className={docId ? 'split' : undefined}>
       <div className="split-main">
         <QueryPage title="现金银行查询" subtitle="按电商资金路径查看重点账户、店铺可提现资金、店铺收款账户和公司层面账户余额。"
-          actions={<>{at && <span className="muted qk-stamp">数据时间 {stamp(at)}</span>}<button type="button" className="secondary-button small" onClick={load}>刷新</button><ExportButton name="现金银行账户余额.csv" cols={exportCols} rows={accounts} label="导出账户余额" /></>}>
+          actions={<>{at && <span className="muted qk-stamp">数据时间 {stamp(at)}</span>}<button type="button" className="secondary-button small" disabled={busy} onClick={load}>刷新</button><ExportButton name="现金银行账户余额.csv" cols={exportCols} rows={accounts} label="导出账户余额" /></>}>
           <FilterBar title="账户查询" live onReset={() => { setKeyword(''); setKind(''); setPlatform('all'); }}>
-            <Field label="关键词" wide><input type="search" aria-label="搜索账户" placeholder="搜索银行、户名、主体或店铺" value={keyword} onChange={(e) => setKeyword(e.target.value)} /></Field>
+            <Field label="关键词" wide><input type="search" aria-label="搜索账户" placeholder="搜索银行、账户名称、账号、主体或店铺" value={keyword} onChange={(e) => setKeyword(e.target.value)} /></Field>
             <Field label="账户类型"><select aria-label="账户类型" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">全部类型</option>{Object.entries(KIND_LABEL).filter(([k]) => all.some((r) => r.kind === k)).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
           </FilterBar>
           {error && <div role="alert" className="notice error">{error}</div>}

@@ -943,7 +943,7 @@ export class FinanceDocumentsService {
     const out = stores.filter((st) => latest.has(st.id) || ['normal', 'abnormal'].includes(st.status)).map((st) => {
       const snap = latest.get(st.id);
       const platform = String(st.data.platform ?? '');
-      const base = { storeId: st.id, name: st.title, storeNo: String(st.data.storeNo ?? st.data.platformStoreId ?? ''), platform, platformLabel: platformOpts.get(platform) ?? (platform || '其他') };
+      const base = { storeId: st.id, name: st.title, storeNo: String(st.data.storeNo ?? st.data.platformStoreId ?? ''), platformStoreId: String(st.data.platformStoreId ?? ''), platform, platformLabel: platformOpts.get(platform) ?? (platform || '其他') };
       return snap
         ? { ...base, snapshotDate: String(snap.data.snapshotDate), updatedAt: new Date(snap.updatedAt).toISOString(), withdrawableCents: n(snap.data.withdrawable), depositCents: n(snap.data.deposit), frozenCents: n(snap.data.frozen), promotionCents: n(snap.data.promotion) }
         : { ...base, snapshotDate: '', updatedAt: null, withdrawableCents: 0, depositCents: 0, frozenCents: 0, promotionCents: 0 };

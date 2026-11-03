@@ -61,7 +61,7 @@ export interface Ledger { openingCents: number; incomeCents: number; expenseCent
 export interface StockRow { code: string; unit: string; productId: number; warehouseId: number; productName: string; warehouseName: string; qty: number; avgCostCents: number | null; amountCents: number | null }
 export interface StockLedgerRow { id: number; entryDate: string; documentId: number; docNo: string; typeLabel: string; partyName: string; memo: string | null; qty: number; balanceQty: number; amountCents: number | null; balanceAmountCents: number | null }
 export interface StockLedger { rows: StockLedgerRow[]; inQty: number; outQty: number; closingQty: number; closingAmountCents: number | null }
-export interface StoreFund { storeId: number; name: string; storeNo?: string; platform?: string; platformLabel?: string; snapshotDate: string; updatedAt?: string | null; withdrawableCents: number; depositCents: number; frozenCents: number; promotionCents: number }
+export interface StoreFund { storeId: number; name: string; storeNo?: string; platformStoreId?: string; platform?: string; platformLabel?: string; snapshotDate: string; updatedAt?: string | null; withdrawableCents: number; depositCents: number; frozenCents: number; promotionCents: number }
 export interface Overview {
   trend: Array<{ date: string; revenueCents: number; expenseCents: number; financeCostCents?: number; profitCents: number | null }>;
   trendBy?: 'day' | 'month';
