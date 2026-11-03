@@ -58,7 +58,7 @@ export interface RoomTile extends Omit<RoomOpt, 'live'> {
 export interface TurnoverAmounts { orderCount: number | null; turnoverCents: number | null; grossCents: number | null; refundCents: number | null }
 export interface SessionTurnover extends TurnoverAmounts { sessionId: number; roomName: string; startAt: string; endAt: string; live: boolean; queriedAt: string; available: boolean; reason: string; stores: Array<TurnoverAmounts & { storeId: number; storeName: string; platform: string; available: boolean; reason: string }> }
 
-export interface Overview { date: string; now: string; groups: { north: RoomTile[]; south: RoomTile[]; none: RoomTile[] }; corridorFound: boolean; totals: { rooms: number; live: number; scheduled: number; pendingReview: number } }
+export interface Overview { daySummary: { sessions: number; live: number; people: number; roles: { role: 'anchor' | 'control' | 'operator'; members: { id: number; name: string; sessions: number }[] }[] }; date: string; now: string; groups: { north: RoomTile[]; south: RoomTile[]; none: RoomTile[] }; corridorFound: boolean; totals: { rooms: number; live: number; scheduled: number; pendingReview: number } }
 export interface RoomDay { room: RoomOpt; date: string; schedules: ScheduleRow[]; sessions: Array<{ id: number; scheduleId: number | null; status: string; startAt: string; endAt: string | null; anchor: Person; control: Person | null; douyinAccount: Person; anchorSalesCents: number | null; controlSalesCents: number | null; finalSalesCents: number | null }> }
 
 export interface Workbench {

@@ -336,3 +336,9 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .live-feedback-image > button:first-child { height:auto; min-height:88px; padding:6px; display:flex; align-items:center; justify-content:center; overflow:hidden; }
 .live-rating-row input[type=range] { margin:0; min-width:0; max-width:100%; box-sizing:border-box; }
 .live-personal-status { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+
+.live-summary-trigger { margin-inline-start: auto; }
+.live-summary-role { padding: 12px 0; border-top: 1px solid var(--border, #dde4e7); }
+.live-summary-role h3 { margin: 0 0 8px; font-size: 1rem; }
+.live-summary-role ul { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }
+.live-summary-role li { background: #edf5f4; padding: 4px 10px; border-radius: 6px; }
