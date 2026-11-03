@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { todayShanghai, addDaysText } from '@kudesi/shared';
+import * as handover from '../org/handover';
 import { AuthService } from '../auth/auth.service';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
@@ -65,11 +66,58 @@ d('兼职与临时工（真实数据库）', () => {
     // 员工改名、换部门后，读出来是当前资料
     await ds.manager.update(User, { id: u.id }, { departmentId: deptB.id });
     expect((await svc.get(boss, 'workforce', rec.id)).data.departmentName).toBe('运营');
-    // 不能换人，不能删除
+    // 不能换人
     const v = await mkUser('wang');
     await expect(svc.update(boss, 'workforce', rec.id, { userId: v.id })).rejects.toThrow(/不能更换/);
-    await expect(svc.remove(boss, 'workforce', rec.id, '想删')).rejects.toThrow(/不能删除/);
   }, 60000);
+
+  it.each(['part_time', 'temp'])('删除 %s 档案停用账号，保留历史，不回到待补资料；恢复不自动启用', async (employmentType) => {
+    const u = await mkUser(`delete${employmentType}`);
+    const rec = await svc.create(boss, 'workforce', terms(u.id, { employmentType, payMethod: 'hourly', payRate: 5000 }));
+    const historyCount = await ds.manager.count(EmployeeCompensationRecord, { where: { companyId, userId: u.id } });
+    const pending = await ds.manager.save(WorkItem, ds.manager.create(WorkItem, { companyId, kind: 'task', assigneeId: u.id, title: '删除交接', status: 'open' } as never));
+    await expect(svc.remove(other, 'workforce', rec.id, '合作结束')).rejects.toThrow(/不存在/);
+    await expect(svc.remove(boss, 'workforce', rec.id, '')).rejects.toThrow(/原因/);
+    await svc.remove(boss, 'workforce', rec.id, '合作结束');
+    expect((await ds.manager.findOneByOrFail(WorkItem, { id: pending.id })).assigneeId).not.toBe(u.id);
+    expect(await ds.manager.count(EmployeeCompensationRecord, { where: { companyId, userId: u.id } })).toBe(historyCount);
+    const deleted = await svc.get(boss, 'workforce', rec.id);
+    expect(deleted.archived).toMatchObject({ deleted: true, reason: '合作结束' });
+    expect(deleted.status).toBe('inactive');
+    expect((await ds.manager.findOneByOrFail(User, { id: u.id })).status).toBe('disabled');
+    expect((await unfiledWorkforce(ds.manager, companyId, true)).some(p => p.id === u.id)).toBe(false);
+    expect((await svc.list(boss, 'workforce', {})).items.some(r => r.id === rec.id)).toBe(false);
+    expect((await svc.list(boss, 'workforce', { archived: true })).items.some(r => r.id === rec.id)).toBe(true);
+    await expect(svc.remove(boss, 'workforce', rec.id, '再删除')).rejects.toThrow(/已归档/);
+    const restored = await svc.restore(boss, 'workforce', rec.id, '重新合作');
+    expect(restored.archived).toBeNull();
+    expect(restored.status).toBe('inactive');
+    expect((await ds.manager.findOneByOrFail(User, { id: u.id })).status).toBe('disabled');
+    await svc.changeStatus(boss, 'workforce', rec.id, 'active');
+    expect((await ds.manager.findOneByOrFail(User, { id: u.id })).status).toBe('active');
+    expect(await ds.manager.count(AuditLog, { where: { companyId, resourceId: String(u.id), action: 'user.disable' } })).toBeGreaterThan(0);
+  }, 60000);
+
+  it('找不到交接人时删除整体回滚，账号与档案保留', async () => {
+    const u = await mkUser('deleteRollback');
+    const rec = await svc.create(boss, 'workforce', terms(u.id));
+    await ds.manager.save(WorkItem, ds.manager.create(WorkItem, { companyId, kind: 'task', assigneeId: u.id, title: '保留待办', status: 'open' } as never));
+    const target = jest.spyOn(handover, 'suggestHandoverTarget').mockResolvedValue(null);
+    try { await expect(svc.remove(boss, 'workforce', rec.id, '合作结束')).rejects.toThrow(/交接/); }
+    finally { target.mockRestore(); }
+    expect((await svc.get(boss, 'workforce', rec.id)).archived).toBeNull();
+    expect((await ds.manager.findOneByOrFail(User, { id: u.id })).status).toBe('active');
+  });
+
+  it('历史转正档案不允许走删除恢复；不能删除自己的档案', async () => {
+    const u = await mkUser('deleteGuard');
+    const rec = await svc.create(boss, 'workforce', terms(u.id));
+    await expect(svc.remove({ ...boss, id: u.id }, 'workforce', rec.id, '误删自己')).rejects.toThrow(/自己/);
+    await ds.manager.update(User, u.id, { employmentType: 'regular' });
+    await ds.transaction(em => svc.setWorkforceHistory(em, boss, rec.id, true));
+    await expect(svc.restore(boss, 'workforce', rec.id, '恢复')).rejects.toThrow(/员工资料/);
+    expect((await ds.manager.findOneByOrFail(User, { id: u.id })).status).toBe('active');
+  });
 
   it('期限规则：结束日期可空，填写时不早于开始、开始日期必须真实、单价上限', async () => {
     const u = await mkUser('zhao');
