@@ -60,7 +60,7 @@ export class CostMaintainService {
       if (!samePercent) notes.push(`单品利润率 ${num(b.data.marginOverridePercent) ?? '继承'} → ${percent ?? '继承'}`);
       await this.resources.patchData(em, user, 'finance-bundles', bundleId, { carrierName: carrier || null, marginOverridePercent: percent, overrideReason: reason }, `${PRICING_NOTE}${reason}（${notes.join('；')}）`.slice(0, 500));
       changed = true;
-      // 成本历史：新的最低售价和上一版不同，就登记一版（和保存在同一个事务里）
+      // 和售价保存同事务，登记快递及单品利润率的变化；金额相同也不能丢掉覆盖/继承切换。
       await this.tools.registerCost(user, bundleId, reason, em, 'pricing_update');
     });
     return { ok: true, changed };

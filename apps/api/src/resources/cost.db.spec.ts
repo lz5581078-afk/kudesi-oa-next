@@ -151,6 +151,7 @@ d('成本表与定价调试表（真实数据库）', () => {
     const snaps = await ds.manager.find(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle }, order: { id: 'DESC' } });
     expect(snaps[0].reason).toBe('大客户专价');
     expect(snaps[0].marginPercent).toBe(33.333333); // 数据库里也保留 6 位小数
+    expect(snaps[0].context?.explicitMarginPercent).toBe(33.333333);
     expect(snaps[0].minPriceCents).toBe(after.minPriceCents);
     const pricing = await maintain.pricingHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
     expect(pricing.total).toBe(1);
@@ -172,6 +173,18 @@ d('成本表与定价调试表（真实数据库）', () => {
     expect(back.marginOverride).toBe(false);
     expect(back.marginPercent).toBe(15);
     expect(back.carrierName).toBe('');
+    const historyTools = new DataToolsService(ds, cost);
+    const inheritedCount = await ds.manager.count(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle } });
+    await maintain.savePricing(boss, ids.bundle, { revision: back.revision, carrierName: '', profitPercent: 15, reason: '合成将继承15明确设为单品15' });
+    const explicit = await bundleRow();
+    expect(explicit.minPriceCents).toBe(back.minPriceCents);
+    expect(await ds.manager.count(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle } })).toBe(inheritedCount + 1);
+    let history = await historyTools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    expect(history.rows[0].changes).toContainEqual({ field: 'explicitMarginPercent', label: '利润率', before: null, after: 15 });
+    await maintain.savePricing(boss, ids.bundle, { revision: explicit.revision, carrierName: '', profitPercent: null, reason: '合成再次恢复继承15' });
+    expect((await bundleRow()).minPriceCents).toBe(back.minPriceCents);
+    history = await historyTools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    expect(history.rows[0].changes).toContainEqual({ field: 'explicitMarginPercent', label: '利润率', before: 15, after: null });
   });
 
   it('同时点保存只有一个人成功；归档的组合不能再维护售价；从资料页直接改单品利润率也会让旧令牌失效', async () => {

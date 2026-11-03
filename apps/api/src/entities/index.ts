@@ -727,8 +727,8 @@ export class FinanceCostSnapshot {
   @Column({ name: 'freight_cents', type: 'decimal', precision: 24, scale: 4, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) freightCents!: number | null;
   @Column({ name: 'margin_percent', type: 'decimal', precision: 10, scale: 6, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) marginPercent!: number | null;
   @Column({ name: 'min_price_cents', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) minPriceCents!: number | null;
-  /** 当时的独立成本、分类及快递备注；旧记录缺失时不按当前档案回填。 */
-  @Column({ name: 'context_json', type: 'json', nullable: true }) context!: { productCostCents: number | null; categoryId: number | null; carrierName: string } | null;
+  /** 当时的独立成本、分类、快递及显式单品利润率；旧记录缺失时不按当前档案回填。 */
+  @Column({ name: 'context_json', type: 'json', nullable: true }) context!: { productCostCents: number | null; categoryId: number | null; carrierName: string; explicitMarginPercent?: number | null } | null;
   @Column({ type: 'varchar', length: 200, default: '' }) reason!: string;
   /** 事件类型：workflow_publish 验证发布 / pricing_update 维护售价 / source_values_update 来源值变化 / manual 手动登记 */
   @Column({ name: 'event_type', type: 'varchar', length: 24, default: 'manual' }) eventType!: string;

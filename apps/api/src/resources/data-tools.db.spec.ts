@@ -73,6 +73,26 @@ d('数据板块工具（真实数据库）', () => {
 
   });
 
+  it('历史利润率区分单品手填与继承，生效率相同也登记切换，旧记录不推填覆盖值', async () => {
+    const original = await ds.manager.findOneByOrFail(ResourceRecord, { id: ids.bundle, companyId: boss.companyId });
+    await svc.update(boss, 'finance-bundles', ids.bundle, { marginOverridePercent: 20, overrideReason: '合成明确单品利润率' });
+    expect((await tools.registerCost(boss, ids.bundle, '合成明确单品20')).recorded).toBe(1);
+    let h = await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    expect(h.rows[0]).toMatchObject({ marginPercent: 20, explicitMarginPercent: 20 });
+    expect(h.rows[0].before).toMatchObject({ marginPercent: 20, explicitMarginPercent: null });
+    expect(h.rows[0].changes).toContainEqual({ field: 'explicitMarginPercent', label: '利润率', before: null, after: 20 });
+    expect((await tools.registerCost(boss, ids.bundle, '合成未改变')).unchanged).toBe(1);
+    await svc.update(boss, 'finance-bundles', ids.bundle, { marginOverridePercent: '' });
+    expect((await tools.registerCost(boss, ids.bundle, '合成改回继承20')).recorded).toBe(1);
+    h = await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    expect(h.rows[0]).toMatchObject({ marginPercent: 20, explicitMarginPercent: null });
+    expect(h.rows[0].changes).toContainEqual({ field: 'explicitMarginPercent', label: '利润率', before: 20, after: null });
+    await svc.update(boss, 'finance-bundles', ids.bundle, { marginOverridePercent: 0, overrideReason: '合成零利润率' });
+    await tools.registerCost(boss, ids.bundle, '合成明确零利润');
+    expect((await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 })).rows[0]).toMatchObject({ marginPercent: 0, explicitMarginPercent: 0 });
+    await ds.manager.save(ResourceRecord, original);
+  });
+
   it('历史留存当时分类和快递，编码名称单独变更也登记，旧记录不补当前字段', async () => {
     const original = await ds.manager.findOneByOrFail(ResourceRecord, { id: ids.bundle, companyId: boss.companyId });
     const category = await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '历史上下文分类', code: 'LSCTX' });
@@ -89,6 +109,7 @@ d('数据板块工具（真实数据库）', () => {
     await ds.manager.insert(FinanceCostSnapshot, { companyId: boss.companyId, bundleId: ids.bundle, code: 'SYNTHETIC-LEGACY', name: '合成无上下文历史', revision: 99, preShipCostCents: 1, weightG: 1, freightCents: null, marginPercent: null, minPriceCents: null, context: null, reason: '', eventType: 'manual', actorId: boss.id });
     const legacy = (await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 })).rows[0];
     expect(legacy.categoryId).toBeUndefined(); expect(legacy.carrierName).toBeUndefined(); expect(legacy.productCostCents).toBeUndefined();
+    expect(legacy.explicitMarginPercent).toBeUndefined();
     await ds.manager.save(ResourceRecord, original);
   });
 

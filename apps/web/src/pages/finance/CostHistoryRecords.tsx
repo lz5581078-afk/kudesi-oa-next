@@ -4,7 +4,7 @@ import type { CostSnapshotRow } from './financeApi';
 
 const fields = [
   ['code', 'SKU组合编码'], ['name', 'SKU名称'], ['productCostCents', '成本'], ['preShipCostCents', '预发货成本'],
-  ['weightG', '计费重量（kg）'], ['categoryId', '分类ID'], ['carrierName', '使用快递'], ['freightCents', '历史固定运费'], ['marginPercent', '利润率'], ['minPriceCents', '最低售价'],
+  ['weightG', '计费重量（kg）'], ['categoryId', '分类ID'], ['carrierName', '使用快递'], ['freightCents', '历史固定运费'], ['explicitMarginPercent', '利润率'], ['minPriceCents', '最低售价'],
 ] as const;
 function value(key: string, raw: unknown) {
   if (raw === undefined) return '未记录';
@@ -13,7 +13,7 @@ function value(key: string, raw: unknown) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return '未记录';
   if (key === 'weightG') return String(Number((n / 1000).toFixed(6)));
-  if (key === 'marginPercent') return `${n}%`;
+  if (key === 'explicitMarginPercent') return `${n}%`;
   return `¥${(n / 100).toFixed(3)}`;
 }
 /** 全局历史与SKU内层历史共用同一份逐字段前后对比，只展示登记时留存的值。 */

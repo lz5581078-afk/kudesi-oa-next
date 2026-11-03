@@ -10,4 +10,12 @@ describe('历史字段解读', () => {
     const context = { productCostCents: 0, categoryId: null, carrierName: '' };
     for (const context_json of [context, JSON.stringify(context)]) expect(costHistoryValues({ ...row, context_json })).toMatchObject(context);
   });
+  it('历史生效利润率保留，只有明确留存的单品覆盖值才解读为手填利润率', () => {
+    const legacy = { ...row, margin_percent: '20' };
+    expect(costHistoryValues(legacy).marginPercent).toBe(20);
+    expect(costHistoryValues(legacy).explicitMarginPercent).toBeUndefined();
+    for (const explicitMarginPercent of [null, 0, 20.123456]) {
+      expect(costHistoryValues({ ...legacy, context_json: { explicitMarginPercent } })).toMatchObject({ marginPercent: 20, explicitMarginPercent });
+    }
+  });
 });

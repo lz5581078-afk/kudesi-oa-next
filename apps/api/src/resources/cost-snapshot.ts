@@ -30,8 +30,8 @@ export async function registerCostSnapshots(
     if (!b) { missing++; continue; }
     const row = missingIds.includes(id) ? cost.row(d, b, costRegistrationFallback(previous.get(id), b.data.snapshot)) : raw.get(id)!;
     const last = await em.findOne(FinanceCostSnapshot, { where: { companyId, bundleId: id }, order: { id: 'DESC' }, ...(em.queryRunner?.isTransactionActive ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
-    const context = { productCostCents: row.preShipCostCents, categoryId: row.categoryId, carrierName: row.carrierName };
-    const same = last && last.code === row.code && last.name === row.name && last.context?.productCostCents === context.productCostCents && last.context?.categoryId === context.categoryId && last.context?.carrierName === context.carrierName && last.preShipCostCents === row.preShipCostCents && last.weightG === row.weightG && last.freightCents === row.freightCents
+    const context = { productCostCents: row.preShipCostCents, categoryId: row.categoryId, carrierName: row.carrierName, explicitMarginPercent: row.marginOverride ? row.marginPercent : null };
+    const same = last && last.code === row.code && last.name === row.name && last.context?.productCostCents === context.productCostCents && last.context?.categoryId === context.categoryId && last.context?.carrierName === context.carrierName && last.context?.explicitMarginPercent === context.explicitMarginPercent && last.preShipCostCents === row.preShipCostCents && last.weightG === row.weightG && last.freightCents === row.freightCents
       && last.minPriceCents === row.minPriceCents && last.marginPercent === row.marginPercent;
     if (same) { unchanged++; continue; }
     await em.insert(FinanceCostSnapshot, {
