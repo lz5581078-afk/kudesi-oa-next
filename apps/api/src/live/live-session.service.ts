@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { saveCheckoutFeedback,checkoutFeedbackRecords,checkoutAttendance,type LiveFeedbackInput } from './live-feedback';
 import { REPORT_WINDOW_MS, reportsLocked, scheduleFingerprint, primaryReport } from './live-checkin-core';
+import { finishCheckedOutRoom } from './live-checkout-state';
 import { captureOrders, persistCapture } from './live-order-capture';
 import { HR_DEPARTMENTS, notifyTrialSeventhDay, liveStartNotification, liveStartRecipients, liveStartedNotification } from './live-start-notification';
 import { liveHandover } from './live-notification-events';
@@ -355,9 +356,7 @@ export class LiveSessionService {
         await em.query("UPDATE live_session_checkins SET end_at=COALESCE(end_at,?) WHERE company_id=? AND session_id=? AND role='anchor' AND user_id=?",[endAt,a.companyId,s.id,s.anchor_user_id]);
         await em.query('INSERT INTO audit_logs(company_id,actor_id,action,resource_type,resource_id,detail) VALUES(?,?,?,?,?,?)',[a.companyId,a.userId,'live.trial.end','live-session',String(s.id),JSON.stringify({trialAnchorId:Number(s.anchor_user_id),endAt})]);
       }
-      if(role==='anchor'||Number(s.trial_proxy)&&role==='control'){
-        await em.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[endAt,a.companyId,s.id]);
-        await em.query("UPDATE live_schedules SET status='finished' WHERE company_id=? AND session_id=? AND status='live'",[a.companyId,s.id]);
+      if (await finishCheckedOutRoom(em, a.companyId, s)) {
         if (!s.end_text) await notifyTrialSeventhDay(em,a.companyId,s);
       }
     });
