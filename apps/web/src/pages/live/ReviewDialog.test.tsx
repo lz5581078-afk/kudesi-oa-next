@@ -13,12 +13,23 @@ const session={id:7,date:'2026-11-01',roomName:'演示房间',startAt:'2026-11-0
 beforeEach(()=>{vi.mocked(liveApi.options).mockResolvedValue({operators:[]} as never);vi.mocked(liveApi.reviewPreview).mockResolvedValue(preview);});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 describe('审核计薪试算与失败反馈',()=>{
+ it('审核时间显示个人打卡原值，跨日修改按北京时间送入试算和审核', async () => {
+  render(<ReviewDialog session={{...session,checkinMode:true,attendance:[{userId:1,name:'演示主播',role:'anchor',startAt:'2026-11-01 18:03:21',endAt:session.endAt}]}} onClose={vi.fn()} onDone={vi.fn()}/>);
+  const start=screen.getByLabelText('工资上播时间') as HTMLInputElement;
+  expect(start.type).toBe('datetime-local');
+  expect(start.value).toMatch(/^2026-11-01T18:03:21/);
+  fireEvent.change(screen.getByLabelText('工资下播时间'),{target:{value:'2026-11-02T00:05'}});
+  const expected=expect.objectContaining({wageEndAt:'2026-11-02 00:05:00'});
+  await waitFor(()=>expect(liveApi.reviewPreview).toHaveBeenCalledWith(7,expected));
+  fireEvent.click(screen.getByRole('button',{name:'审核通过'}));
+  await waitFor(()=>expect(flowApi.pass).toHaveBeenCalledWith(9,expect.objectContaining({form:expected})));
+ });
  it('自动下播显示缺报异常，修复该人员时间后才能提交；仅提成人员也必须修复',async()=>{
   render(<ReviewDialog session={{...session,checkinMode:true,controlCommissionOnly:true,attendance:[{userId:2,name:'演示中控',role:'control',startAt:session.startAt,endAt:session.endAt,autoCheckout:true}]}} onClose={vi.fn()} onDone={vi.fn()}/>);
   expect(screen.getAllByText(/未报下播.*下播时间异常/).length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole('button',{name:'审核通过'}));
   expect(flowApi.pass).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByLabelText('中控计薪结束'),{target:{value:'2026-11-01 20:30:00'}});
+  fireEvent.change(screen.getByLabelText('中控计薪结束'),{target:{value:'2026-11-01T20:30:00'}});
   await waitFor(()=>expect(liveApi.reviewPreview).toHaveBeenCalledWith(7,expect.objectContaining({controlWageEndAt:'2026-11-01 20:30:00'})));
   fireEvent.click(screen.getByRole('button',{name:'审核通过'}));
   await waitFor(()=>expect(flowApi.pass).toHaveBeenCalledWith(9,expect.objectContaining({form:expect.objectContaining({controlWageEndAt:'2026-11-01 20:30:00'})})));
