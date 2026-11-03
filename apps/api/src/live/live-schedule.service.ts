@@ -230,8 +230,37 @@ export class LiveScheduleService {
     const liveProductsRows: Row[] = await this.em.query(`SELECT p.session_id, p.base_code_id id, p.code_snapshot code, p.name_snapshot name, COALESCE(p.spec_snapshot,'') spec
       FROM live_session_products p JOIN live_sessions s ON s.company_id=p.company_id AND s.id=p.session_id
       WHERE p.company_id=? AND (s.status='live' OR s.session_date=?) ORDER BY p.session_id,p.sort_order`, [a.companyId, day]);
-    const checkins: Row[] = sessions.length ? await this.em.query(`SELECT session_id,user_id,role FROM live_session_checkins
-      WHERE company_id=? AND session_id IN (${sessions.map(()=>'?').join(',')})`,[a.companyId,...sessions.map(s=>s.id)]) : [];
+    const checkins: Row[] = sessions.length ? await this.em.query(`SELECT c.session_id,c.user_id,c.role,u.name FROM live_session_checkins c JOIN users u ON u.id=c.user_id AND u.company_id=c.company_id
+      WHERE c.company_id=? AND c.session_id IN (${sessions.map(()=>'?').join(',')})`,[a.companyId,...sessions.map(s=>s.id)]) : [];
+    const daily = sessions.filter(s => s.session_day === day);
+    const reports: Row[] = daily.length ? await this.em.query(`SELECT r.session_id,r.role,r.reporter_user_id user_id,u.name FROM live_session_reports r JOIN users u ON u.id=r.reporter_user_id AND u.company_id=r.company_id
+      WHERE r.company_id=? AND r.session_id IN (?)`, [a.companyId, daily.map(s => s.id)]) : [];
+    const dailyIds = new Set(daily.map(s => Number(s.id)));
+    const evidence = [...checkins, ...reports].filter(r => dailyIds.has(Number(r.session_id)));
+    // Legacy sessions may have a recorded starter but no individual check-in.
+    for (const s of daily) {
+      const role = s.started_role;
+      if (['anchor','control','operator'].includes(role) && Number(s.started_by) === Number(s[role + '_user_id'])) {
+        evidence.push({ session_id: s.id, role, user_id: s.started_by, name: s[role + '_name'] });
+      }
+    }
+    const people = new Set<number>();
+    const seen = new Set<string>();
+    const roles = (['anchor', 'control', 'operator'] as const).map(role => {
+      const members = new Map<number, { id: number; name: string; sessions: number }>();
+      for (const r of evidence) {
+        if (role !== r.role) continue;
+        const id = Number(r.user_id), key = `${r.session_id}:${role}:${id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        people.add(id);
+        const member = members.get(id) ?? { id, name: r.name, sessions: 0 };
+        member.sessions++;
+        members.set(id, member);
+      }
+      return { role, members: [...members.values()].sort((a,b) => b.sessions - a.sessions || a.name.localeCompare(b.name, 'zh-CN') || a.id - b.id) };
+    });
+    const daySummary = { sessions: daily.length, live: daily.filter(s => s.status === 'live').length, people: people.size, roles };
     const tiles = rooms.map((room) => {
       const roomSessions = sessions.filter((s) => Number(s.room_id) === room.id);
       const live = roomSessions.find((s) => s.status === 'live') ?? null;
@@ -263,7 +292,7 @@ export class LiveScheduleService {
       return { ...room, status, statusLabel: ({ live: '正在直播', finished: '今日已结束', idle: '未开播' } as Record<string, string>)[status], live: view(live), current: view(live ?? roomSessions.filter(s => s.session_day === day).slice(-1)[0] ?? null), next: upcoming, timeline: items };
     });
     return {
-      date: day, now: nowText, groups: liveGroupRooms(tiles), corridorFound: rooms.length > 0,
+      date: day, now: nowText, daySummary, groups: liveGroupRooms(tiles), corridorFound: rooms.length > 0,
       totals: { rooms: tiles.length, live: tiles.filter((t) => t.status === 'live').length, scheduled: schedules.length, pendingReview: sessions.filter((s) => s.status === 'submitted').length },
     };
   }
