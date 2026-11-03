@@ -31,14 +31,28 @@ fi
 # If public verification fails, restore only the release this invocation deployed.
 if ! python3 - "$release" "${revision:-}" <<'PY'
 import json,sys,time,urllib.request
-for attempt in range(6):
- try:
-  with urllib.request.urlopen('https://lc.kudesi.com/api/health',timeout=15) as f:health=json.load(f)
-  with urllib.request.urlopen('https://lc.kudesi.com/release.json?verify='+sys.argv[1],timeout=15) as f:release=json.load(f)
-  if health.get('status')=='ok' and release.get('release')==sys.argv[1] and (not sys.argv[2] or release.get('revision')==sys.argv[2]):break
- except Exception:pass
- time.sleep(3)
-else:raise SystemExit('Public health or release verification failed')
+from concurrent.futures import ThreadPoolExecutor
+
+def read_json(url):
+ with urllib.request.urlopen(url,timeout=15) as response:
+  return json.load(response)
+
+# Check both public paths in parallel. Success never incurs a retry delay.
+with ThreadPoolExecutor(max_workers=2) as pool:
+ for attempt in range(6):
+  health_check=pool.submit(read_json,'https://lc.kudesi.com/api/health')
+  release_check=pool.submit(read_json,'https://lc.kudesi.com/release.json?verify='+sys.argv[1])
+  try:
+   health=health_check.result()
+   release=release_check.result()
+   if health.get('status')=='ok' and release.get('release')==sys.argv[1] and (not sys.argv[2] or release.get('revision')==sys.argv[2]):break
+  except Exception:pass
+  # Drain both requests before retrying; do not sleep after the final failure.
+  for check in (health_check,release_check):
+   try:check.result()
+   except Exception:pass
+  if attempt<5:time.sleep((1,1,2,3,3)[attempt])
+ else:raise SystemExit('Public health or release verification failed')
 print('Public HTTPS health and release verification passed')
 PY
 then
