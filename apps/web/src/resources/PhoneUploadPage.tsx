@@ -1,3 +1,4 @@
+import { ImageCropDialog } from './ImageCropDialog';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import { phoneUploadApi } from './api';
@@ -8,9 +9,10 @@ import { phoneUploadApi } from './api';
  */
 export function PhoneUploadPage() {
   const token = decodeURIComponent(window.location.hash.replace(/^#/, ''));
-  const [info, setInfo] = useState<{ label: string; resource: string; remaining: number } | null>(null);
+  const [info, setInfo] = useState<{ label: string; resource: string; remaining: number; imageCrop?: 'square' } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [crop,setCrop]=useState<File|null>(null);
   const [done, setDone] = useState<string[]>([]);
   const camera = useRef<HTMLInputElement>(null);
   const album = useRef<HTMLInputElement>(null);
@@ -22,6 +24,10 @@ export function PhoneUploadPage() {
 
   async function pick(list: FileList | null) {
     if (!list?.length || !info) return;
+    if(info.imageCrop==='square'){
+      const file=list[0];if(file.size>10*1024*1024){setError('照片不能超过10MB，请压缩后重试');return;}
+      setError('');setCrop(file);if(camera.current)camera.current.value='';if(album.current)album.current.value='';return;
+    }
     setBusy(true);
     setError('');
     let remaining = info.remaining;
@@ -47,11 +53,12 @@ export function PhoneUploadPage() {
     <main className="phone-upload-page">
       <h1>手机上传</h1>
       {info && <p>{info.resource} · {info.label}，还能传 {info.remaining} 张</p>}
+      {crop&&<ImageCropDialog file={crop} label={info?.label} onClose={()=>setCrop(null)} onConfirm={async file=>{const result=await phoneUploadApi.upload(token,file);setDone(d=>[...d,file.name]);setInfo(cur=>cur?{...cur,remaining:result.remaining}:cur);setCrop(null);}}/>}
       {dead && <div role="alert" className="notice error">{error}</div>}
       {info && (
         <>
-          <input ref={camera} type="file" accept="image/*" capture="environment" hidden aria-label="拍照" onChange={(e) => void pick(e.target.files)} />
-          <input ref={album} type="file" accept="image/*" multiple hidden aria-label="从相册选图" onChange={(e) => void pick(e.target.files)} />
+          <input ref={camera} type="file" accept="image/*" capture={info.imageCrop==='square'?'user':'environment'} hidden aria-label="拍照" onChange={(e) => void pick(e.target.files)} />
+          <input ref={album} type="file" accept="image/*" multiple={info.imageCrop!=='square'} hidden aria-label="从相册选图" onChange={(e) => void pick(e.target.files)} />
           <div className="phone-upload-actions">
             <button type="button" className="primary-button" disabled={busy || info.remaining <= 0} onClick={() => camera.current?.click()}>拍照上传</button>
             <button type="button" className="secondary-button" disabled={busy || info.remaining <= 0} onClick={() => album.current?.click()}>从相册选择</button>

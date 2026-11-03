@@ -61,7 +61,7 @@ export function PhoneUploadDialog({ type, field, label, onFiles, onClose }: {
               <path d={qr.path} fill="#000" />
             </svg>
           )}
-          {session && !state.expired && <p className="muted">用手机相机或微信扫一扫，拍照或选图上传；{session.minutes} 分钟内有效，最多 {session.maxUploads} 张。传好的图会自动出现在表单里。</p>}
+          {session && !state.expired && <p className="muted">用手机相机、飞书或微信扫一扫，拍照或选图上传；{session.minutes} 分钟内有效，最多 {session.maxUploads} 张。传好的图会自动出现在表单里。</p>}
           {state.expired && <div className="notice warn">二维码已失效或次数已用完。<button type="button" className="link-button" onClick={() => setRound((n) => n + 1)}>重新生成</button></div>}
           <p role="status">{!session ? '正在生成二维码…' : state.uploaded ? `已收到 ${state.uploaded} 张` : state.scanned ? '手机已打开页面，等待上传…' : '等待手机扫码…'}</p>
         </div>
