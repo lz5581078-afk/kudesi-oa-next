@@ -36,9 +36,9 @@ export function CategoryTree({ versionId, versionLocked, versionDraft = false, c
   const byId = useMemo(() => new Map(cats.map((c) => [c.id, c])), [cats]);
   const render = (n: CatNode, depth: number) => (
     <li key={n.id}>
-      <div className="between" style={{ paddingLeft: depth * 14 }}>
-        {!!n.children.length && <button type="button" className="link-button" aria-label={`${expanded.has(n.id)?'收起':'展开'}${n.name}`} aria-expanded={expanded.has(n.id)} onClick={()=>toggle(n.id)}>{expanded.has(n.id)?'▾':'▸'}</button>}
-        <button type="button" className={n.id === selected ? 'tree-item active' : 'tree-item'} aria-current={n.id === selected} aria-expanded={n.children.length ? expanded.has(n.id) : undefined} onClick={() => { onSelect(n.id); if (n.children.length) toggle(n.id); }}>{n.name} <span className="muted">({n.count})</span></button>
+      <div className={`labor-tree-row${n.id === selected ? ' selected' : ''}`} style={{ paddingLeft: depth * 16 + 5 }}>
+        <button type="button" className="labor-tree-toggle" disabled={!n.children.length} aria-label={n.children.length ? `${expanded.has(n.id)?'收起':'展开'}${n.name}` : `${n.name}没有下级分类`} aria-expanded={n.children.length ? expanded.has(n.id) : undefined} onClick={()=>toggle(n.id)}>{n.children.length ? expanded.has(n.id)?'⌄':'›' : ''}</button>
+        <button type="button" className="labor-tree-label" aria-current={n.id === selected} aria-expanded={n.children.length ? expanded.has(n.id) : undefined} onClick={() => { onSelect(n.id); if (n.children.length) toggle(n.id); }}><span>{n.name}</span>{depth > 0 && <i>{depth + 1}</i>}<small>{n.count}</small>{n.id === selected && <span aria-hidden="true">✓</span>}</button>
         {management && canEdit && !versionLocked && (
           <span className="row-actions">
             {depth < 2 && <button type="button" className="link-button" aria-label={`给${n.name}加下级`} onClick={() => setForm({ record: null, parentId: n.id })}>加下级</button>}
@@ -51,10 +51,10 @@ export function CategoryTree({ versionId, versionLocked, versionDraft = false, c
     </li>
   );
   return (
-    <nav aria-label="项目归档分类" className="card">
+    <nav aria-label="项目归档分类" className={management ? 'card labor-tree-management' : 'labor-tree-browse'}>
       {management && <div className="between"><strong>项目归档分类</strong>{canEdit && !versionLocked && <button type="button" className="link-button" onClick={() => setForm({ record: null, parentId: null })}>+ 一级分类</button>}</div>}
       <ul className="plain-list">
-        <li><button type="button" className={selected === null ? 'tree-item active' : 'tree-item'} onClick={() => onSelect(null)}>全部 <span className="muted">({total})</span></button></li>
+        {management && <li><button type="button" className={selected === null ? 'tree-item active' : 'tree-item'} onClick={() => onSelect(null)}>全部 <span className="muted">({total})</span></button></li>}
         {tree.map((n) => render(n, 0))}
       </ul>
       {tree.length === 0 && <p className="muted">这个版本还没有归档分类。先建分类，再往里加工作项目（最多三级，项目放最末级）。</p>}

@@ -409,6 +409,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     parent: { type: 'finance-labor-costs', field: 'versionCode' },
     titleField: 'versionName',
     uniqueField: 'versionCode',
+    derivedColumns: [{ key: 'itemCount', label: '工作项目数', kind: 'count', type: 'finance-labor-costs', field: 'versionId' }],
     statuses: [
       { value: 'draft', label: '草稿', tone: 'warn' },
       { value: 'active', label: '已启用', tone: 'ok' },

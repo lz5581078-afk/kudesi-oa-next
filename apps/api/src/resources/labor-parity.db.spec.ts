@@ -29,6 +29,19 @@ d('人力项目原版查重与工作编号（隔离数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
+  it('版本项目数包含停用项目、排除已删除项目，并按版本及公司隔离', async () => {
+    const v = await svc.create(actor, 'finance-labor-versions', { versionCode: 'RL-COUNT', versionName: '合成计数版本' });
+    const c = await svc.create(actor, 'finance-labor-categories', { versionId: v.id, name: '合成计数归档' });
+    const first = await create('计数启用项目', { versionId: v.id, archiveCategoryId: c.id });
+    const second = await create('计数停用项目', { versionId: v.id, archiveCategoryId: c.id });
+    await svc.changeStatus(actor, 'finance-labor-costs', second.id, 'inactive', '合成计数验收');
+    expect((await svc.get(actor, 'finance-labor-versions', v.id)).data.itemCount).toBe(2);
+    await svc.remove(actor, 'finance-labor-costs', first.id, '合成计数删除');
+    const reader = { ...actor, permissions: { isCompanyAdmin: false, allow: ['resource.finance-labor-costs.view'], deny: [] } };
+    expect((await svc.list(reader, 'finance-labor-versions', { pageSize: 200 } as never)).items.find(row => row.id === v.id)?.data.itemCount).toBe(1);
+    expect((await svc.list({ ...reader, companyId: actor.companyId + 1000000 }, 'finance-labor-versions', { pageSize: 200 } as never)).items).toEqual([]);
+  });
+
   it('零成本必须明确确认当前名称/单位/分类，原因不能替代确认；确认人和时间由服务端写入', async () => {
     const name = '合成零价确认';
     const context = JSON.stringify([name, '件', '合成包装']);

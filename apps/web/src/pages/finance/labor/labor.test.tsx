@@ -31,7 +31,7 @@ describe('归档分类树', () => {
 });
 
 describe('人力成本表页面', () => {
-  it('默认打开默认版本；按归档分类筛项目；零值原因可见；草稿版本可以启用', async () => {
+  it('默认打开默认版本；按归档分类筛项目；备注不混入确认原因；草稿版本可以启用', async () => {
     const versions = [dto(1, 'v', '2026春', { versionCode: 'A', isDefault: true }, 'active'), dto(2, 'v', '2026秋', { versionCode: 'B' }, 'draft')];
     const cats = [dto(10, 'c', '包装', {}), dto(11, 'c', '分拣', {})];
     const items = [
@@ -45,12 +45,12 @@ describe('人力成本表页面', () => {
     m.changeStatus.mockResolvedValue(versions[1]);
     render(<LaborCostPage />);
     await screen.findByText('RL-A-BZ-BZ-ZH');
-    expect(screen.getByText('外包赠送')).toBeTruthy();
+    expect(screen.queryByText('外包赠送')).toBeNull();
     expect(screen.getByText('¥1.5')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /^分拣/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^分拣 /  }));
     expect(screen.queryByText('RL-A-BZ-BZ-ZH')).toBeNull();
     expect(screen.getByText('RL-A-FJ-FJ-TG')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('成本版本'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /^2026秋|^合成第二版本/ }));
     fireEvent.click(await screen.findByRole('button', { name: '启用版本' }));
     await waitFor(() => expect(m.changeStatus).toHaveBeenCalledWith('finance-labor-versions', 2, 'active'));
   });
@@ -87,7 +87,7 @@ describe('复制新增工作项目', () => {
     await screen.findByDisplayValue('装盒');
     expect(screen.queryByDisplayValue('RL-A-BZ-BZ-ZH')).toBeNull();
     fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: '不存在' } });
-    fireEvent.click(screen.getByRole('button', { name: '清除搜索和分类' }));
+    fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: '' } });
     expect((screen.getByLabelText('搜索工作项目') as HTMLInputElement).value).toBe('');
     await screen.findByText('RL-A-BZ-BZ-ZH');
   });
@@ -96,6 +96,24 @@ describe('复制新增工作项目', () => {
 describe('人力成本原版目录与查询行为', () => {
   const response = (items: ResourceDto[], total = items.length) => ({ items, total, page: 1, pageSize: 200 });
   const version = dto(1, 'finance-labor-versions', '合成当前版本', { versionCode: 'A', isDefault: true });
+  it('摘要使用默认版本期间，完整显示超过20项，缺失的版本数量不伪造0', async () => {
+    const items = Array.from({ length: 25 }, (_, i) => dto(100 + i, 'i', `合成项目${i}`, { workCode: `ALL-${i}`, workName: `工作${i}`, unitPrice: 100 }, i === 24 ? 'inactive' : 'active'));
+    const versions = [{ ...version, data: { ...version.data, effectiveFrom: '2000-01-01', effectiveTo: '2000-12-31', itemCount: 25 } }, dto(2, 'v', '未知数量版本', { versionCode: 'B' }, 'draft')];
+    let resolveItems!: (result: ReturnType<typeof response>) => void;
+    m.list.mockImplementation(async type => type === 'finance-labor-versions' ? response(versions) : type === 'finance-labor-costs' ? new Promise(resolve => { resolveItems = resolve; }) : response([]));
+    render(<LaborCostPage/>);
+    const summary = await screen.findByRole('region', { name: '人力成本概览' });
+    await waitFor(() => expect(resolveItems).toBeTruthy());
+    expect(within(summary).getByText('2000-01-01 至 2000-12-31')).toBeTruthy();
+    expect(within(summary).getAllByText('加载中…')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /^未知数量版本/ }).textContent).toContain('— 项');
+    await act(async () => resolveItems(response(items)));
+    expect(screen.getByText('ALL-24')).toBeTruthy();
+    expect(within(summary).getByText('25 项')).toBeTruthy();
+    expect(within(summary).getByText('24 项')).toBeTruthy();
+    expect(screen.queryByLabelText('成本版本')).toBeNull();
+    expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['工作编码', '工作名称', '项目归档分类', '工作分类', '计价单位', '单位人力成本', '状态', '备注', '操作']);
+  });
   it('全部和父级不显示普通新增，默认折叠，点击目录展开并在末级恢复新增；复制入口保留', async () => {
     const categories = [dto(10, 'c', '包装父级', {}), dto(11, 'c', '包装末级', { parentId: 10 })];
     const item = dto(100, 'i', '工作甲', { workCode: 'CODE-LEAF', workName: '装盒', archiveCategoryId: 11, unitPrice: 100 });
@@ -103,11 +121,11 @@ describe('人力成本原版目录与查询行为', () => {
     render(<LaborCostPage/>);
     await screen.findByText('CODE-LEAF');
     expect(screen.queryByRole('button', { name: '新增工作项目' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /^包装末级/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^包装末级 /  })).toBeNull();
     expect(screen.getByRole('button', { name: '复制新增' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^包装父级/ }));
     expect(screen.queryByRole('button', { name: '新增工作项目' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /^包装末级/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^包装末级 /  }));
     expect(screen.getByRole('button', { name: '新增工作项目' })).toBeTruthy();
   });
   it('按归档分类、工作分类、单位和备注检索；成本不被两位金额格式截掉，权限变化后隐藏', async () => {
@@ -129,7 +147,7 @@ describe('人力成本原版目录与查询行为', () => {
     const versions = Array.from({ length: 201 }, (_, index) => dto(index + 1, 'v', `合成版本${index + 1}`, { versionCode: `V${index}`, isDefault: index === 200 }, index === 200 ? 'active' : 'draft'));
     m.list.mockImplementation(async (type, query) => type === 'finance-labor-versions' ? response(versions.slice(((query.page ?? 1) - 1) * 200, (query.page ?? 1) * 200), 201) : response([]));
     render(<LaborCostPage/>);
-    await waitFor(() => expect((screen.getByLabelText('成本版本') as HTMLSelectElement).value).toBe('201'));
+    await waitFor(() => expect(screen.getByRole('button', { name: /^合成版本201 / }).getAttribute('aria-pressed')).toBe('true'));
     expect(m.list).toHaveBeenCalledWith('finance-labor-versions', expect.objectContaining({ page: 2, pageSize: 200 }));
   });
   it('切版本清空搜索及旧项目，迟到的上一版本结果不能覆盖当前版本', async () => {
@@ -144,11 +162,11 @@ describe('人力成本原版目录与查询行为', () => {
     render(<LaborCostPage/>);
     await screen.findByText('CODE-OLD');
     fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: 'OLD' } });
-    fireEvent.change(screen.getByLabelText('成本版本'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /^合成第二版本 / }));
     expect((screen.getByLabelText('搜索工作项目') as HTMLInputElement).value).toBe('');
     expect(screen.queryByText('CODE-OLD')).toBeNull();
     await waitFor(() => expect(finishSecond).toBeTruthy());
-    fireEvent.change(screen.getByLabelText('成本版本'), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: /^合成当前版本/ }));
     await screen.findByText('CODE-OLD');
     await act(async () => { finishSecond(response([dto(200, 'i', '迟到项目', { workCode: 'CODE-WRONG', unitPrice: 100 })])); });
     expect(screen.queryByText('CODE-WRONG')).toBeNull();
@@ -165,9 +183,9 @@ describe('人力成本原版目录与查询行为', () => {
     laborAuth.companyId = 2; rerender(<LaborCostPage/>);
     await screen.findByText('COMPANY-B');
     await act(async () => { finishFirst(response([version])); });
-    expect((screen.getByLabelText('成本版本') as HTMLSelectElement).value).toBe('2');
+    expect(screen.getByRole('button', { name: /^乙公司版本 / }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText('COMPANY-B')).toBeTruthy();
-    expect(screen.queryByRole('option', { name: /合成当前版本/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^合成当前版本 / })).toBeNull();
   });
   it('刷新版本失败保留已完成资料和错误，不再用项目刷新清掉错误', async () => {
     let reads = 0;
