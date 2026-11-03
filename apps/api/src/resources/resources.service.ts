@@ -54,7 +54,7 @@ import { certImportMatch } from './entity-rules';
 import { optionsKindOf, parseColFilters, readTimeKeys, STATUS_COL, type ColFilter } from '@kudesi/shared';
 import { applyColFilters } from './col-filter.sql';
 import { dynamicOptionsFor, loadUnitLists, loadUnitOptionLists, seedUnitDefaults, unitLabel, unitLabelFor, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
-import { previewLaborWorkCode } from './labor-rules';
+import { lockLaborCompany, previewLaborWorkCode } from './labor-rules';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
 import { previewArchiveCode } from './finance-rules';
 
@@ -1352,6 +1352,7 @@ export class ResourcesService implements RuleHost {
     const def = this.def(type);
     const cleanup: string[] = [];
     const record = await this.dataSource.transaction(async (em) => {
+      if ((def.parent?.type ?? def.key) === 'finance-labor-costs') await lockLaborCompany(em, user.companyId);
       if (row.id === undefined) return this.saveRecord(em, user, def, null, row.values, { cleanup, note });
       const existing = await em.findOne(ResourceRecord, { where: { id: row.id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
       if (!existing) throw new NotFoundException('记录不存在');

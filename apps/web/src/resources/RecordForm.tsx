@@ -3,7 +3,7 @@ import { CascadePicker } from './CascadePicker';
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState, useId } from 'react';
 import { fieldOptions, useUnitOptions, unitOptionsLoaded } from './unitOptions';
 import { selectChoices, useCategoryVersion } from './categoryOptions';
-import { PRODUCT_UNIT_SEEDS, optionsKindOf, groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayout, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { PRODUCT_UNIT_SEEDS, optionsKindOf, groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayout, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, permissionOwner, resourcePermission, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
@@ -20,6 +20,8 @@ import { referenceRecordLabel, referencePartyGroups, referenceFieldSpan, REFEREN
 import { ReferenceProductCategoryPicker } from './ReferenceProductCategoryPicker';
 import { ArchiveCodeInput, useArchiveCodePreview } from './ArchiveCodeInput';
 import { ResourceCodePreview } from './ResourceCodePreview';
+import { ResourceFormContext } from './ResourceFormContext';
+import './sectionedForm.css';
 import { ResourceDictionaryButton } from './ResourceDictionaryManager';
 import { ZeroValueConfirmation } from './ZeroValueConfirmation';
 import { SupplierCategoryContext } from './SupplierCategoryContext';
@@ -267,7 +269,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const dirty = status !== (record?.status ?? def.defaultStatus) || JSON.stringify(values) !== startValues.current || (startRows.current !== null && rowsKey !== startRows.current);
   const requestClose = () => {
     if (busy) return;
-    if (dirty && !window.confirm(record ? '修改的内容还没有保存，关闭后会丢失。确定直接关闭吗？' : '新增的资料还没有保存，关闭后填写的内容会丢失。确定直接关闭吗？')) return;
+    if (dirty && def.form?.confirmClose !== false && !window.confirm(record ? '修改的内容还没有保存，关闭后会丢失。确定直接关闭吗？' : '新增的资料还没有保存，关闭后填写的内容会丢失。确定直接关闭吗？')) return;
     onClose();
   };
   const closeRef = useRef(requestClose);
@@ -314,6 +316,10 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const referenceMaintenance = ['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories','finance-brands','finance-product-units','finance-platforms','finance-scenarios'].includes(def.key);
   const reference = def.key === 'finance-products' || isReferenceParty || referenceMaintenance;
   const groups = useMemo(() => {
+    if (def.form) {
+      const fields = record ? resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)) : visible;
+      return def.form.sections.map(section => [section.title, section.fields.flatMap(key => fields.find(field => field.key === key) ?? [])] as [string, FieldDef[]]);
+    }
     if (isReferenceParty) return referencePartyGroups(def.key, record ? resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)) : visible);
     if (resolved) return resolved.filter((s) => !onlyGroup || s.title === onlyGroup).map((s) => [s.title, visible.filter((f) => f.group === s.title)] as [string, FieldDef[]]);
     const fields = record ? resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)).filter(f => !onlyGroup || f.group === onlyGroup) : visible;
@@ -473,7 +479,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           ...(wantComposition && partsKnown.composition && (!onlyGroup || sectionHas(onlyGroup, 'composition')) ? [bomCollection(bomRows, bomOrig)] : []),
         ];
         saved = await resourceApi.saveForm(def.key, { requestKey: formRequestKey.current, ...(record ? { id: record.id, version: record.version } : {}), values: body, status, statusReason, collections });
-      } else if (record && referenceStatus && status !== record.status) {
+      } else if (record && (referenceStatus || def.form?.status) && status !== record.status) {
         const result = await resourceApi.gridSave(def.key, { updates: [{ id: record.id, version: record.version, data: body, status, statusReason }], note: '资料编辑' });
         const item = result.results[0];
         if (!item?.ok) throw new ApiError(400, item?.message || '保存失败');
@@ -567,7 +573,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const weightValues = values.weightManual === true || ['package','oem_package','shipping_material','custom'].includes(layoutKey) ? values : { ...values, weightG: automaticWeight };
   const secTitle = (g: string) => (resolved ? g : groupTitle(def, g, values));
   const errorsByGroup = (g: string) => groups.find(([name]) => name === g)?.[1].filter((f) => errors[f.key]).length ?? 0;
-  const showAnchors = (!inline || inDetail) && !reference && groups.length > 1;
+  const showAnchors = (!inline || inDetail) && !reference && !def.form && groups.length > 1;
   const scrollBox = useRef<HTMLDivElement>(null);
   const [activeGroup, setActiveGroup] = useState('');
   const jumpedGroup = useRef<string | null>(null);
@@ -639,7 +645,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   };
 
   return (
-    <div className={inline ? 'inline-edit' : `modal-backdrop${reference ? ' reference-backdrop' : ''}`} role="presentation">
+    <div className={inline ? 'inline-edit' : `modal-backdrop${reference ? ' reference-backdrop' : ''}${def.form ? ' sectioned-backdrop' : ''}`} role="presentation">
       <form ref={formRef} data-size={visible.length <= 4 && !isProduct ? 'compact' : 'full'} onKeyDown={e => {
         if (inline || e.key !== 'Tab') return;
         const dialogs = document.querySelectorAll('[role="dialog"]');
@@ -648,11 +654,11 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         const first = controls[0], last = controls[controls.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
         if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
-      }} className={inline ? `inline-form resource-inline-editor${inDetail ? ' resource-detail-editor' : ''}` : `modal card rf${reference ? ' finance-base-editor' : ' resource-editor'}${isProduct ? ' rf-p' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={onlyGroup ? `编辑${onlyGroup}` : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
+      }} className={inline ? `inline-form resource-inline-editor${inDetail ? ' resource-detail-editor' : ''}` : `modal card rf${reference ? ' finance-base-editor' : def.form ? ' sectioned-editor' : ' resource-editor'}${isProduct ? ' rf-p' : ''}${def.form ? ' rf-sectioned' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={onlyGroup ? `编辑${onlyGroup}` : def.form ? record ? def.form.editTitle : def.form.createTitle : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
         {!inline && <div className="modal-head rf-head">
-          {reference ? <div className="reference-title">{def.key === 'finance-suppliers' && <small className="reference-party-kicker"><FolderTree size={20}/>财务基础资料</small>}{isProduct && values.archiveType === 'purchased' && <small>外购成品档案 · {values.supplyMode === 'supplier_oem' ? '供应商 OEM' : '原装采购'}</small>}<h2>{record ? referenceStatus || (isProduct && layoutKey === 'custom') ? String(values.name || referenceLabel) : `编辑${isProduct ? String(values.name || referenceLabel) : referenceLabel}` : `新增${referenceLabel}`}</h2><p>{isProduct && layoutKey === 'custom' ? '先确认分类，再维护基础信息；编号按分类、可选品牌、名称、规格和可选形态样式生成，空白可选段会直接省略。' : def.key === 'finance-fee-items' ? '费用类型用于后续费用单、流程和财务归集；挂账节点支持多选。' : referenceStatus ? `${def.label}详情、分类归属和操作记录。` : isReferenceParty ? record ? `在原位编辑${referenceLabel}资料，保存后立即生效。` : `填写${referenceLabel}基础资料，保存后归入当前分类。` : record ? `维护${referenceLabel}基础信息、规格及关联资料。` : `填写${referenceLabel}基础资料即可保存。`}</p></div> : <><strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>{record && <span className="rf-sub" title={record.title}>{record.title}</span>}</>}
+          {def.form ? <><div className="rf-sectioned-icon"><Database size={22}/></div><div className="rf-sectioned-heading"><span>{def.label}</span><h2>{record ? def.form.editTitle : def.form.createTitle}</h2><p>{def.form.subtitle}</p></div></> : reference ? <div className="reference-title">{def.key === 'finance-suppliers' && <small className="reference-party-kicker"><FolderTree size={20}/>财务基础资料</small>}{isProduct && values.archiveType === 'purchased' && <small>外购成品档案 · {values.supplyMode === 'supplier_oem' ? '供应商 OEM' : '原装采购'}</small>}<h2>{record ? referenceStatus || (isProduct && layoutKey === 'custom') ? String(values.name || referenceLabel) : `编辑${isProduct ? String(values.name || referenceLabel) : referenceLabel}` : `新增${referenceLabel}`}</h2><p>{isProduct && layoutKey === 'custom' ? '先确认分类，再维护基础信息；编号按分类、可选品牌、名称、规格和可选形态样式生成，空白可选段会直接省略。' : def.key === 'finance-fee-items' ? '费用类型用于后续费用单、流程和财务归集；挂账节点支持多选。' : referenceStatus ? `${def.label}详情、分类归属和操作记录。` : isReferenceParty ? record ? `在原位编辑${referenceLabel}资料，保存后立即生效。` : `填写${referenceLabel}基础资料，保存后归入当前分类。` : record ? `维护${referenceLabel}基础信息、规格及关联资料。` : `填写${referenceLabel}基础资料即可保存。`}</p></div> : <><strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>{record && <span className="rf-sub" title={record.title}>{record.title}</span>}</>}
           <span className="rf-gap" />
-          {!reference && visible.some((f) => f.required) && <span className="muted rf-req-hint"><b className="req">*</b> 必填</span>}
+          {!reference && !def.form && visible.some((f) => f.required) && <span className="muted rf-req-hint"><b className="req">*</b> 必填</span>}
           <button type="button" className={`icon-button${referenceStatus || isProduct && layoutKey === 'custom' ? ' reference-full-close' : ''}`} aria-label="关闭" onClick={requestClose}>{referenceStatus || isProduct && layoutKey === 'custom' ? '关闭' : reference ? <X size={20} /> : '✕'}</button>
         </div>}
         <div className={showAnchors ? 'rf-main with-anchors' : 'rf-main'}>
@@ -676,7 +682,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
             />
           )}
           {draftNote && <div className="notice">{draftNote}{draftEnabled && draftNote.startsWith('已恢复') && <> <button type="button" className="link-button" onClick={() => void clearDraft()}>清除草稿</button></>}</div>}
-          {!reference && !record && !def.draft?.fixedStatus && def.statuses.length > 1 && def.key !== 'fixed-assets' && (
+          {!reference && !record && !def.draft?.fixedStatus && !def.form?.status && def.statuses.length > 1 && def.key !== 'fixed-assets' && (
             <label className="rf-status">初始状态
               <select value={status} onChange={(e) => setStatus(e.target.value)}>
                 {def.statuses.filter((s) => def.draft?.includeStatus || !s.requiresReason).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -685,13 +691,21 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           )}
           {inline && !inDetail && visible.some((f) => f.required) && <p className="muted required-hint"><b className="req">*</b> 为必填项。</p>}
           {def.codePreview && <ResourceCodePreview def={def} values={values} record={record} />}
-          {!inline && !record && !reference && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
+          {!inline && !record && !reference && !def.form && visible.some((f) => f.required) && <p className="muted required-hint">带 <b className="req">*</b> 的为必填项，保存后可以继续补充关联资料。</p>}
           {resolved ? resolved.filter(sec => (!onlyGroup || sec.title === onlyGroup) && !(['package','oem_package'].includes(layoutKey) && sec.id === 'category' && !categoryNeedsPick) && !(layoutKey === 'custom' && ['cost','total','photos'].includes(sec.id))).map((sec) => sec.id === 'extra' ? <details key={sec.id} className="rf-sec reference-section-extra" data-sec={sec.id}><summary>{sec.title}</summary><div className="form-grid">{sec.nodes.map(renderNode)}</div></details> : (
             <section key={sec.id} id={secId(sec.title)} data-sec={sec.id} className={`rf-sec reference-section-${sec.id}`} aria-label={sec.title}>
               {!inline && (sec.id !== 'category' || layoutKey === 'custom') && <h3 className="rf-sec-title">{sec.step && !(layoutKey === 'self_made' && sec.id !== 'base') && <i className="rf-step">{sec.step}</i>}{sec.id === 'stock' && ['package','oem_package'].includes(layoutKey) ? '库存' : sec.title}{sec.hint && sec.id !== 'gift' && (reference ? <small>{sec.hint}</small> : <FieldHint text={sec.hint} />)}</h3>}
               {sec.id === 'gift' && sec.hint && <p className="reference-gift-hint">{sec.hint}</p>}<div className="form-grid">{sec.nodes.filter(n => !(layoutKey === 'custom' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).filter(n => !(['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName'))).map(renderNode)}</div>{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && <div className="reference-note">{sec.nodes.filter(n => n.kind === 'field' && n.field.key === 'note').map(renderNode)}</div>}{['raw','shipping_material'].includes(layoutKey) && sec.id === 'base' && sec.nodes.filter(n => n.kind === 'block' && n.block === 'fullName').map(renderNode)}{sec.id === 'logistics' && canCostEdit && <FreightHistory productId={record?.id} values={previewValues} />}
             </section>
-          )) : groups.map(([group, fields]) => group === '补充资料' && referenceStatus ? null : group === '补充资料' && reference ? <details key={group} className="rf-sec reference-extra"><summary>更多设置</summary><div className="form-grid">{fields.map(f => renderField(f))}</div></details> : (
+          )) : def.form ? groups.map(([group, fields]) => {
+            const section = def.form!.sections.find(item => item.title === group)!;
+            const state = def.form!.status?.section === group ? def.form!.status : undefined;
+            const context = section.contextField ? def.fields.find(field => field.key === section.contextField) : undefined;
+            return <section key={group} id={secId(group)} className="rf-sec rf-configured-section" aria-label={group}>
+              <header><h3>{section.step && <i>{section.step}</i>}{group}</h3>{context ? <ResourceFormContext field={context} value={values[context.key]} label={section.contextLabel || context.label} currentLabel={record && values[context.key] === record.data[context.key] ? record.refLabels[context.key] : undefined}/> : section.hint && <small>{section.hint}</small>}</header>
+              <div className="form-grid">{state && <div className="rf-configured-status"><span>状态</span><button type="button" role="switch" aria-label="状态" aria-checked={status === state.activeValue} disabled={!!record && !(me && createChecker(me.permissions)(resourcePermission(permissionOwner(def.key), 'disable')))} onClick={() => setStatus(status === state.activeValue ? state.inactiveValue : state.activeValue)}><i/><strong>{status === state.activeValue ? state.activeText : state.inactiveText}</strong></button><small>{status === state.activeValue ? state.activeHint : state.inactiveHint}</small></div>}{fields.map(field => renderField(field))}</div>
+            </section>;
+          }) : groups.map(([group, fields]) => group === '补充资料' && referenceStatus ? null : group === '补充资料' && reference ? <details key={group} className="rf-sec reference-extra"><summary>更多设置</summary><div className="form-grid">{fields.map(f => renderField(f))}</div></details> : (
             <section key={group} id={secId(group)} data-layout="full" className={`rf-sec reference-party-${group === '归入分类' ? 'category' : group === '系统自动编号' ? 'code' : 'fields'}`} aria-label={group}>
               {group === '归入分类' && isReferenceParty ? def.key === 'finance-suppliers' ? <SupplierCategoryContext value={Array.isArray(values.categoryIds) ? values.categoryIds as number[] : []} labelNow={record?.refLabels.categoryIds} onChange={ids => setValues(cur => ({...cur,categoryIds:ids}))}/> : <ReferenceCategoryContext party label={referenceLabel} editing={!!record} path={record?.refLabels.categoryIds ?? ''}>{!record && fields.map(f => renderField(f))}</ReferenceCategoryContext> : <>
               {(!inline || inDetail) && <h3 className="rf-sec-title">{isReferenceParty && ['基础资料','联系资料','收款与银行资料'].includes(group) && <i className="rf-step">{['基础资料','联系资料','收款与银行资料'].indexOf(group) + 1}</i>}{referenceStatus && group === '基础信息' && <Database size={18}/>} {secTitle(group)}{def.key === 'finance-fee-items' && <small>{({ '基础信息': '先确定费用叫什么、放在哪个目录。', '费用设置': '控制费用单里怎么使用这个费用类型。', '挂账节点': '可以多选，费用单后续会按这些资料节点归集和统计。' } as Record<string,string>)[group]}</small>}{def.key === 'finance-suppliers' && group === '基础资料' && <small>{record ? '与新增供应商的字段排列一致' : '采购和结算使用的基础信息'}</small>}{def.key === 'finance-suppliers' && group === '联系资料' && <small>用于业务联系和后续单据引用</small>}{group === '系统自动编号' && <small>编码按分类和名称生成</small>}</h3>}
@@ -717,12 +731,12 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           </div>
         )}
         <div className="modal-foot rf-foot">
-          {dirty && !reference && <span className="muted dirty-hint">{record ? '有未保存的修改' : '已填写内容尚未保存'}</span>}
+          {dirty && !reference && !def.form && <span className="muted dirty-hint">{record ? '有未保存的修改' : '已填写内容尚未保存'}</span>}
           <button type="button" className="secondary-button finance-form-cancel" disabled={busy} onClick={requestClose}>{isReferenceParty && record ? '取消编辑' : '取消'}</button>
           {draftEnabled && <button type="button" className="secondary-button finance-form-draft" disabled={busy} onClick={() => void saveDraft()}>保存草稿</button>}
           {!record && onContinued && (isProduct || isReferenceParty && def.key !== 'finance-fee-items') && <button type="button" className="secondary-button finance-form-keep" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新增</button>}
           {!record && onContinued && (isProduct || isReferenceParty) && <button type="button" className="secondary-button finance-form-next" disabled={busy} onClick={() => void prepare('blank')}>保存并继续新增</button>}
-          {!(def.key === 'finance-fee-items' && !record && onContinued) && <button type="submit" className="primary-button finance-form-save" disabled={busy}>{busy ? '保存中…' : isProduct && layoutKey === 'custom' ? '保存商品' : isProduct && record ? '保存修改' : '保存'}</button>}
+          {!(def.key === 'finance-fee-items' && !record && onContinued) && <button type="submit" className="primary-button finance-form-save" disabled={busy}>{busy ? '保存中…' : def.form?.saveLabel ? def.form.saveLabel : isProduct && layoutKey === 'custom' ? '保存商品' : isProduct && record ? '保存修改' : '保存'}</button>}
         </div>
       </form>
       {quality && (

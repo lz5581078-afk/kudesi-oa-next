@@ -17,7 +17,7 @@ const dto: ResourceDto = { id: 81, type: project.key, title: '合成项目', dat
 beforeEach(() => {
   vi.clearAllMocks(); resetUnitOptionsForTest({}); clearRefCache();
   vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 200 });
-  vi.mocked(resourceApi.get).mockImplementation(async (type, id) => ({ ...dto, type, id, title: type === 'finance-labor-units' ? '件' : '包装' }));
+  vi.mocked(resourceApi.get).mockImplementation(async (type, id) => ({ ...dto, type, id, title: type === 'finance-labor-categories' ? `归档${id}` : type === 'finance-labor-units' ? '件' : '包装' }));
   vi.mocked(resourceApi.create).mockResolvedValue(dto);
   vi.mocked(draftApi.get).mockResolvedValue({ draft: null }); vi.mocked(draftApi.save).mockResolvedValue({}); vi.mocked(draftApi.remove).mockResolvedValue({});
 });
@@ -40,8 +40,9 @@ describe('人工成本的手动草稿', () => {
     vi.mocked(draftApi.get).mockImplementation(async key => ({ draft: key === draftApi.key(`resource:${project.key}`, ['10']) ? { payload: { ...values, versionId: 999, archiveCategoryId: 23, workName: '草稿工作', unitPrice: 0, zeroReason: '合成优惠', zeroCostConfirmation: confirmation, workCode: 'DO-NOT-RESTORE', __draftStatus: 'inactive' }, title: '合成草稿', updatedAt: '' } : null }));
     const close = vi.fn(); const view = render(<RecordForm record={null} def={project} initial={{ versionId: 10, archiveCategoryId: 21 }} lockedFields={['versionId', 'archiveCategoryId']} onClose={close} onSaved={vi.fn()}/>);
     await screen.findByDisplayValue('草稿工作');
-    expect(screen.getByRole('combobox', { name: '初始状态' })).toHaveProperty('value', 'inactive');
-    expect(screen.getByRole('combobox', { name: '项目归档分类' })).toHaveProperty('value', '23');
+    expect(screen.getByRole('switch', { name: '状态' }).getAttribute('aria-checked')).toBe('false');
+    expect(screen.queryByRole('combobox', { name: '项目归档分类' })).toBeNull();
+    await screen.findByText('归档分类：归档23');
     expect(screen.queryByDisplayValue('DO-NOT-RESTORE')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(close).toHaveBeenCalled());
@@ -56,11 +57,11 @@ describe('人工成本的手动草稿', () => {
     vi.mocked(draftApi.get).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     render(<RecordForm record={null} def={project} initial={{ versionId: 10, archiveCategoryId: 21 }} lockedFields={['versionId', 'archiveCategoryId']} onClose={vi.fn()} onSaved={vi.fn()}/>);
     fireEvent.change(screen.getByRole('textbox', { name: /工作名称/ }), { target: { value: '本次正在填写' } });
-    fireEvent.change(screen.getByRole('combobox', { name: '初始状态' }), { target: { value: 'inactive' } });
+    fireEvent.click(screen.getByRole('switch', { name: '状态' }));
     await act(async () => { finish({ draft: { payload: { ...values, versionId: 999, workName: '迟到旧名称', __draftStatus: 'active' }, title: '旧草稿', updatedAt: '' } }); });
     expect(screen.getByRole('textbox', { name: /工作名称/ })).toHaveProperty('value', '本次正在填写');
     expect(screen.getByRole('combobox', { name: '计价单位' })).toHaveProperty('value', '4');
-    expect(screen.getByRole('combobox', { name: '初始状态' })).toHaveProperty('value', 'inactive');
+    expect(screen.getByRole('switch', { name: '状态' }).getAttribute('aria-checked')).toBe('false');
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(draftApi.save).toHaveBeenCalled());
     expect(vi.mocked(draftApi.save).mock.calls[0][1].payload).toMatchObject({ versionId: 10, workName: '本次正在填写', unitId: 4 });
@@ -79,9 +80,9 @@ describe('人工成本的手动草稿', () => {
     vi.mocked(resourceApi.create).mockRejectedValueOnce(new Error('合成失败')).mockResolvedValueOnce(dto);
     const saved = vi.fn(), close = vi.fn();
     render(<RecordForm record={null} def={project} initial={values} lockedFields={['versionId', 'archiveCategoryId']} onClose={close} onSaved={saved}/>);
-    fireEvent.click(screen.getByRole('button', { name: '保存' })); await screen.findByText('保存失败，请重试');
+    fireEvent.click(screen.getByRole('button', { name: '保存项目' })); await screen.findByText('保存失败，请重试');
     expect(draftApi.remove).not.toHaveBeenCalled(); expect(saved).not.toHaveBeenCalled(); expect(close).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存项目' }));
     await waitFor(() => expect(saved).toHaveBeenCalledWith(dto));
     expect(draftApi.remove).toHaveBeenCalledWith(draftApi.key(`resource:${project.key}`, ['10']));
   });

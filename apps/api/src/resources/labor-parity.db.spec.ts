@@ -29,6 +29,16 @@ d('人力项目原版查重与工作编号（隔离数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
+  it('表单修改项目和启停同事务保存，不要求原版没有的原因；校验失败不留半份修改', async () => {
+    const project = await create('合成状态联存项目');
+    await svc.saveGridRow(actor, 'finance-labor-costs', { id: project.id, values: { workName: '合成停用且改名', unitPrice: 123.4567 }, status: 'inactive' }, '合成表单联存');
+    const stopped = await svc.get(actor, 'finance-labor-costs', project.id);
+    expect(stopped.status).toBe('inactive'); expect(stopped.data).toMatchObject({ workName: '合成停用且改名', unitPrice: 123.4567 });
+    await expect(svc.saveGridRow(actor, 'finance-labor-costs', { id: project.id, values: { workName: '失败不得落库', unitPrice: 0, zeroReason: '未明确确认' }, status: 'active' }, '合成失败回滚')).rejects.toThrow(/明确确认/);
+    const unchanged = await svc.get(actor, 'finance-labor-costs', project.id);
+    expect(unchanged.status).toBe('inactive'); expect(unchanged.data).toMatchObject({ workName: '合成停用且改名', unitPrice: 123.4567 });
+  });
+
   it('版本项目数包含停用项目、排除已删除项目，并按版本及公司隔离', async () => {
     const v = await svc.create(actor, 'finance-labor-versions', { versionCode: 'RL-COUNT', versionName: '合成计数版本' });
     const c = await svc.create(actor, 'finance-labor-categories', { versionId: v.id, name: '合成计数归档' });

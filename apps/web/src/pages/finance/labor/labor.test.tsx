@@ -12,7 +12,7 @@ const laborAuth = vi.hoisted(() => ({ companyId: 1, cost: true }));
 vi.mock('../../../auth/AuthContext', () => ({ useAuth: () => ({ can: (key: string) => key === 'product.cost.view' ? laborAuth.cost : true, user: { id: 1, companyId: laborAuth.companyId, permissions: { isCompanyAdmin: true, allow: [], deny: [] } } }) }));
 vi.mock('../../../resources/api', async (orig) => {
   const real = await orig<typeof import('../../../resources/api')>();
-  return { ...real, resourceApi: { list: vi.fn(), changeStatus: vi.fn(), update: vi.fn(), remove: vi.fn() } };
+  return { ...real, resourceApi: { get: vi.fn().mockResolvedValue({ title: '合成归档' }), list: vi.fn(), changeStatus: vi.fn(), update: vi.fn(), remove: vi.fn() } };
 });
 const m = vi.mocked(resourceApi);
 beforeEach(() => { laborAuth.companyId = 1; laborAuth.cost = true; resetUnitOptionsForTest({}); });
@@ -35,7 +35,7 @@ describe('人力成本表页面', () => {
     const versions = [dto(1, 'v', '2026春', { versionCode: 'A', isDefault: true }, 'active'), dto(2, 'v', '2026秋', { versionCode: 'B' }, 'draft')];
     const cats = [dto(10, 'c', '包装', {}), dto(11, 'c', '分拣', {})];
     const items = [
-      dto(100, 'i', '包装/装盒', { workCode: 'RL-A-BZ-BZ-ZH', workName: '装盒', unitPrice: 150, archiveCategoryId: 10 }, 'active', { archiveCategoryId: '包装', workTypeId: '包装', unitId: '元/个' }),
+      dto(100, 'i', '包装/装盒', { workCode: 'RL-A-BZ-BZ-ZH', workName: '装盒', unitPrice: 150, archiveCategoryId: 10, note: '合成复制备注' }, 'active', { archiveCategoryId: '包装', workTypeId: '包装', unitId: '元/个' }),
       dto(101, 'i', '分拣/挑果', { workCode: 'RL-A-FJ-FJ-TG', workName: '挑果', unitPrice: 0, zeroReason: '外包赠送', archiveCategoryId: 11 }, 'active', { archiveCategoryId: '分拣', workTypeId: '分拣', unitId: '元/个' }),
     ];
     m.list.mockImplementation(async (type) => {
@@ -76,7 +76,7 @@ describe('复制版本', () => {
 describe('复制新增工作项目', () => {
   it('带出原项目的分类、单位和名称，但不带工作编号；没有结果时可清除搜索', async () => {
     const versions = [dto(1, 'v', '2026春', { versionCode: 'A', isDefault: true }, 'active')];
-    const items = [dto(100, 'i', '包装/装盒', { workCode: 'RL-A-BZ-BZ-ZH', workName: '装盒', unitPrice: 150, archiveCategoryId: 10 }, 'active', { archiveCategoryId: '包装', workTypeId: '包装', unitId: '元/个' })];
+    const items = [dto(100, 'i', '包装/装盒', { workCode: 'RL-A-BZ-BZ-ZH', workName: '装盒', unitPrice: 150, archiveCategoryId: 10, note: '合成复制备注' }, 'active', { archiveCategoryId: '包装', workTypeId: '包装', unitId: '元/个' })];
     m.list.mockImplementation(async (type) => {
       const pick = type === 'finance-labor-versions' ? versions : type === 'finance-labor-costs' ? items : [];
       return { items: pick, total: pick.length, page: 1, pageSize: 200 };
@@ -85,6 +85,7 @@ describe('复制新增工作项目', () => {
     await screen.findByText('RL-A-BZ-BZ-ZH');
     fireEvent.click(screen.getByRole('button', { name: '复制新增' }));
     await screen.findByDisplayValue('装盒');
+    expect(screen.getByDisplayValue('合成复制备注')).toBeTruthy();
     expect(screen.queryByDisplayValue('RL-A-BZ-BZ-ZH')).toBeNull();
     fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: '不存在' } });
     fireEvent.change(screen.getByLabelText('搜索工作项目'), { target: { value: '' } });

@@ -244,6 +244,13 @@ export interface ResourceDef {
   zeroValueConfirmation?: { valueField: string; reasonField: string; confirmationField: string; contextFields: readonly (string | { ref: string })[]; reasonLabel: string; confirmLabel: string };
   /** 手动保存的新建草稿；keyFields隔离版本等外侧上下文，恢复时不覆盖这些身份字段。 */
   draft?: { keyFields?: readonly string[]; omitFields?: readonly string[]; includeStatus?: boolean; fixedStatus?: boolean };
+  /** 配置驱动的紧凑分区表单；未列出的身份字段仍保留在保存数据中。 */
+  form?: {
+    createTitle: string; editTitle: string; subtitle: string; saveLabel: string;
+    sections: readonly { title: string; fields: readonly string[]; step?: string; hint?: string; contextField?: string; contextLabel?: string }[];
+    confirmClose?: boolean;
+    status?: { section: string; activeValue: string; inactiveValue: string; activeText: string; inactiveText: string; activeHint: string; inactiveHint: string };
+  };
   /** 公司内唯一的字段（重复返回 409）；phone 类型会先规范化 */
   uniqueField?: string;
   /** 组合唯一：这些字段值同时相同则拒绝 */

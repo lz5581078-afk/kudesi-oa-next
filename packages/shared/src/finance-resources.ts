@@ -406,6 +406,14 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     key: 'finance-labor-versions',
     label: '人力成本版本',
     draft: { fixedStatus: true, omitFields: ['isDefault', 'activatedAt'] },
+    form: {
+      createTitle: '新建人力成本版本', editTitle: '编辑人力成本版本', subtitle: '草稿和启用版本均可维护项目；启用后可供其他模块按业务日期读取。', saveLabel: '保存版本',
+      confirmClose: false,
+      sections: [
+        { title: '版本信息', fields: ['versionCode', 'versionName', 'periodName'], hint: '版本编号在公司内不能重复' },
+        { title: '适用期间', fields: ['effectiveFrom', 'effectiveTo', 'note'], hint: '留空表示不限制日期' },
+      ],
+    },
     parent: { type: 'finance-labor-costs', field: 'versionCode' },
     titleField: 'versionName',
     uniqueField: 'versionCode',
@@ -482,8 +490,18 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
     codePreview: { field: 'workCode', inputFields: ['versionId', 'archiveCategoryId', 'workTypeId', 'workName'] },
     zeroValueConfirmation: { valueField: 'unitPrice', reasonField: 'zeroReason', confirmationField: 'zeroCostConfirmation', contextFields: ['workName', { ref: 'unitId' }, { ref: 'workTypeId' }], reasonLabel: '零人力成本原因', confirmLabel: '确认该项为0' },
     draft: { keyFields: ['versionId'], includeStatus: true },
+    form: {
+      createTitle: '新增人力成本项目', editTitle: '编辑人力成本项目', subtitle: '项目归档由外侧目录决定；工作分类为独立业务属性，工作编号由系统自动生成。', saveLabel: '保存项目',
+      confirmClose: false,
+      sections: [
+        { title: '工作基础信息', fields: ['workTypeId', 'workName'], step: '01', contextField: 'archiveCategoryId', contextLabel: '归档分类' },
+        { title: '计价标准', fields: ['unitPrice', 'unitId'], step: '02', hint: '后续业务按计价单位引用单价' },
+        { title: '其他信息', fields: ['note'], step: '03', hint: '维护启用状态和补充说明' },
+      ],
+      status: { section: '其他信息', activeValue: 'active', inactiveValue: 'inactive', activeText: '已启用', inactiveText: '已停用', activeHint: '该项目可被业务单据引用', inactiveHint: '该项目暂不可被业务单据引用' },
+    },
     filterBy: ['versionId', 'workTypeId'],
-    statuses: [ACTIVE, STOPPED],
+    statuses: [ACTIVE, { ...STOPPED, requiresReason: false }],
     defaultStatus: 'active',
     fields: [
       { key: 'label', label: '标题', type: 'text', group: '基础', readonly: true, hideInForm: true, search: true, maxLength: 200 },

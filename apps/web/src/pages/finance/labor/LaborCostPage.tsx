@@ -158,10 +158,7 @@ export function LaborCostPage() {
                     <td data-label="备注">{String(i.data.note || '-')}</td>
                     <td className="row-actions">
                       {can('edit') && <button type="button" className="link-button" disabled={locked} onClick={() => setItemForm({ record: i })}>编辑</button>}
-                      {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: { __copyOf: i.id, ...Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'zeroReason'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) } })}>复制新增</button>}
-                      {!locked && can('disable') && (i.status === 'active'
-                        ? <button type="button" className="link-button" onClick={() => setReason({ title: `停用「${i.title}」`, hint: '被成品构成或组合用着的项目不能停用。', confirm: '确认停用', run: async (r) => { await resourceApi.changeStatus('finance-labor-costs', i.id, 'inactive', r); } })}>停用</button>
-                        : <button type="button" className="link-button" onClick={() => void run(() => resourceApi.changeStatus('finance-labor-costs', i.id, 'active'))}>启用</button>)}
+                      {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: { __copyOf: i.id, ...Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'zeroReason', 'note'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) } })}>复制新增</button>}
                       {!locked && can('delete') && <button type="button" className="link-button danger" disabled={version.status !== 'draft'} onClick={() => setReason({ title: `删除「${i.title}」`, hint: '被成品构成或组合用着的项目不能删除，请改成停用。', confirm: '确认删除', run: async (r) => { await resourceApi.remove('finance-labor-costs', i.id, r); } })}>删除</button>}
                     </td></tr>
                 ))}

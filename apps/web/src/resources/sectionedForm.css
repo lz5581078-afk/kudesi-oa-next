@@ -1,0 +1,34 @@
+.modal.rf.rf-sectioned { width:min(860px,calc(100vw - 32px)); height:auto; max-height:calc(100dvh - 32px); padding:0; overflow:hidden; border:1px solid #d9e5df; border-radius:16px; background:#f5f8f6; box-shadow:0 28px 80px #0f172a47; }
+.rf-sectioned .rf-head { flex:none; align-items:flex-start; gap:12px; padding:20px 24px 18px; border-bottom:1px solid #dfe9e3; background:linear-gradient(135deg,#fff,#f5fbf7); }
+.rf-sectioned-icon { display:grid; place-items:center; flex:none; width:44px; height:44px; border:1px solid #a7e8bd; border-radius:11px; background:#e6f7ed; color:#07824b; }
+.rf-sectioned-heading { display:grid; gap:3px; min-width:0; }
+.rf-sectioned-heading>span { font-size:11px; color:#07824b; font-weight:800; }
+.rf-sectioned .rf-sectioned-heading h2 { margin:0; font-size:23px; color:#172236; line-height:1.3; }
+.rf-sectioned-heading p { margin:2px 0 0; font-size:12px; color:#64748b; font-weight:400; }
+.rf-sectioned .rf-main { overflow:hidden; }
+.rf-sectioned .rf-scroll { padding:16px 20px; display:grid; grid-template-columns:minmax(0,1fr); align-content:start; gap:12px; background:#f5f8f6; }
+.rf-sectioned .rf-configured-section { margin:0; padding:15px 16px 16px; border:1px solid #dfe7e2; border-radius:11px; background:#fff; box-shadow:0 4px 18px #0f172a09; }
+.rf-configured-section>header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding-bottom:10px; margin-bottom:14px; border-bottom:1px solid #edf1ef; }
+.rf-configured-section>header h3 { display:flex; align-items:center; gap:8px; margin:0; font-size:15px; color:#172236; }
+.rf-configured-section>header h3 i { display:grid; place-items:center; width:25px; height:25px; border-radius:7px; background:#e7f7ed; color:#08794a; font-size:10px; font-style:normal; }
+.rf-configured-section>header small { color:#7a8799; font-size:11px; }
+.rf-sectioned .rf-configured-section .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.rf-sectioned .rf-field { min-width:0; }
+.rf-sectioned .rf-field.wide { grid-column:1/-1; }
+.rf-sectioned .rf-label { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; min-height:20px; color:#334d40; font-size:12px; font-weight:800; }
+.rf-sectioned .rf-label .req { font-size:10px; color:#b45309; }
+.rf-sectioned .rf-field input,.rf-sectioned .rf-field select,.rf-sectioned .rf-field textarea { width:100%; min-height:42px; border:1px solid #cbd5e1; border-radius:8px; padding:9px 11px; background:#fff; color:#0f172a; font-size:14px; }
+.rf-sectioned .rf-field textarea { min-height:70px; resize:vertical; }
+.rf-configured-status { display:grid; align-content:start; gap:8px; min-width:0; }
+.rf-configured-status>span { font-size:12px; color:#334d40; font-weight:800; }
+.rf-configured-status>button { display:inline-flex; align-items:center; gap:9px; justify-self:start; min-height:40px; padding:7px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc; color:#64748b; }
+.rf-configured-status>button i { display:block; position:relative; width:32px; height:18px; border-radius:999px; background:#cbd5e1; }
+.rf-configured-status>button i::after { content:''; display:block; position:absolute; top:3px; left:3px; width:12px; height:12px; border-radius:50%; background:#fff; }
+.rf-configured-status>button[aria-checked=true] { color:#08794a; border-color:#a7dfbd; background:#f0fbf4; }
+.rf-configured-status>button[aria-checked=true] i { background:#0b9760; }
+.rf-configured-status>button[aria-checked=true] i::after { left:17px; }
+.rf-configured-status>small { color:#7a8799; font-size:11px; }
+.rf-sectioned .rf-foot { flex:none; padding:14px 20px 18px; background:#fff; border-top:1px solid #dfe7e2; }
+.rf-sectioned .finance-form-save { background:#0c8063; border-color:#0c8063; }
+@media(max-width:560px) { .rf-sectioned .rf-configured-section .form-grid { grid-template-columns:minmax(0,1fr); } .rf-sectioned .rf-head { padding:16px; } .rf-sectioned .rf-scroll { padding:12px; } .rf-configured-section>header { align-items:start; flex-direction:column; } }
+.modal-backdrop.sectioned-backdrop { padding:16px; align-items:center; }
