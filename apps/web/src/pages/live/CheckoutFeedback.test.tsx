@@ -1,11 +1,22 @@
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {CheckoutFeedbackFields,CheckoutFeedbackRecords} from './CheckoutFeedback';
 import {CheckOutDialog} from './CheckOutDialog';
 import {liveApi,type FeedbackDraft} from './liveApi';
 vi.mock('./liveApi',()=>({liveApi:{checkoutFeedback:vi.fn(),uploadFeedbackImage:vi.fn(),feedbackImageUrl:vi.fn(),checkoutPreview:vi.fn(),report:vi.fn()}}));
 const a=vi.mocked(liveApi),file={id:8,name:'本场数据.png',mime:'image/png',size:8},targets=[{userId:1,name:'主播甲',role:'anchor'},{userId:3,name:'运营乙',role:'operator'}];
-beforeEach(()=>{vi.resetAllMocks();a.checkoutFeedback.mockResolvedValue({targets,records:[],locked:false});a.uploadFeedbackImage.mockResolvedValue(file);a.feedbackImageUrl.mockResolvedValue({url:'data:image/png;base64,'});});afterEach(cleanup);
+beforeEach(()=>{vi.resetAllMocks();a.checkoutFeedback.mockResolvedValue({targets,records:[],locked:false});a.uploadFeedbackImage.mockResolvedValue(file);a.feedbackImageUrl.mockResolvedValue({url:'data:image/png;base64,'});});afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+it('打开审核图片使用大图预览并刷新原图地址，避免复用过期的缩略图链接',async()=>{
+ vi.stubGlobal('ResizeObserver',class{observe(){} disconnect(){}});
+ a.feedbackImageUrl.mockResolvedValueOnce({url:'/earlier.png'}).mockResolvedValue({url:'/fresh-original.png'});
+ const view=render(<CheckoutFeedbackRecords sessionId={7} records={[{reporterId:2,reporterName:'中控丙',role:'control',submittedAt:'2026-11-03 11:50:00',images:[file],ratings:[]}]}/>);
+ const button=screen.getByRole('button',{name:'查看本场数据.png'});
+ await waitFor(()=>expect((button as HTMLButtonElement).disabled).toBe(false));fireEvent.click(button);
+ const dialog=screen.getByRole('dialog',{name:'直播数据图片'});
+ await waitFor(()=>expect(within(dialog).getByRole('link',{name:'查看原图'}).getAttribute('href')).toBe('/fresh-original.png'));
+ expect(within(dialog).getByLabelText('图片缩放比例').textContent).toBe('100%');
+ view.unmount();vi.unstubAllGlobals();
+});
 it('中控必须先上传图片并逐人评分；0分有效，滑杆满分10分，上传失败不能提交',async()=>{
  const drafts:FeedbackDraft[]=[];render(<CheckoutFeedbackFields sessionId={7} role="control" onChange={d=>drafts.push(d)}/>);
  await screen.findByRole('slider',{name:'给主播甲评分'});expect(drafts.at(-1)?.ready).toBe(false);expect(screen.getAllByText('未评分')).toHaveLength(2);
