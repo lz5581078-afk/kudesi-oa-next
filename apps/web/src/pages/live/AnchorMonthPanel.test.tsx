@@ -4,19 +4,19 @@ import { AnchorMonthPanel } from './AnchorMonthPanel';
 import { AnchorMonthSelect } from './AnchorMonthSelect';
 import { anchorMonthApi,type AnchorMonthData } from './anchorMonthApi';
 vi.mock('./SessionDetailDialog',()=>({SessionDetailDialog:({id,onClose}:{id:number;onClose:()=>void})=><div role="dialog" aria-label="场次详情">场次 {id}<button onClick={onClose}>关闭详情</button></div>}));
-const data=(id=7):AnchorMonthData=>({month:'2026-11',asOf:'2026-11-04 14:00:00',canViewCommission:true,canOpenSession:true,items:[{userId:id,name:'主播甲',employmentType:'part_time',summary:{sessionCount:2,minutes:120,turnoverCents:1860000,commissionCents:93000,missingTimeSessions:0,missingSalesSessions:0,missingCommissionSessions:0,estimatedSessions:1},sessions:[{id:11,date:'2026-11-03',roomId:1,roomName:'南7',status:'submitted',startAt:'2026-11-03 10:00:00',endAt:'2026-11-03 12:00:00',minutes:120,turnoverCents:1860000,commissionCents:93000,estimated:true}]}]});
+const data=(id=7):AnchorMonthData=>({month:'2026-11',asOf:'2026-11-04 14:00:00',canViewCommission:true,canOpenSession:true,items:[{userId:id,name:'主播甲',employmentType:'part_time',summary:{wageCents:12000,pendingWageSessions:1,sessionCount:2,minutes:120,turnoverCents:1860000,commissionCents:93000,missingTimeSessions:0,missingSalesSessions:0,missingCommissionSessions:0,estimatedSessions:1},sessions:[{id:11,date:'2026-11-03',roomId:1,roomName:'南7',status:'submitted',startAt:'2026-11-03 10:00:00',endAt:'2026-11-03 12:00:00',minutes:120,turnoverCents:1860000,commissionCents:93000,estimated:true}]}]});
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 it('同一资料组件展示自然月汇总、未审核场次和每场实际时间，并可查看详情',async()=>{
  const read=vi.spyOn(anchorMonthApi,'read').mockResolvedValue(data()),overlay=vi.fn();
  render(<AnchorMonthPanel userId={7} onOverlayChange={overlay}/>);
- await screen.findByText('2026-11');expect(read).toHaveBeenCalledWith(7);expect(screen.getByText(/包含未审核场次/)).toBeTruthy();expect(screen.getAllByText('¥18,600.00')).toHaveLength(2);expect(screen.getByText('未审核 · 预估')).toBeTruthy();
+ await screen.findByText('2026-11');expect(read).toHaveBeenCalledWith(7);expect(screen.getByText('¥120.00')).toBeTruthy();expect(screen.getByText('10:00 至 12:00')).toBeTruthy();expect(screen.getByText(/包含未审核场次/)).toBeTruthy();expect(screen.getAllByText('¥18,600.00')).toHaveLength(2);expect(screen.getByText('未审核 · 预估')).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'场次详情'}));await screen.findByRole('dialog',{name:'场次详情'});expect(overlay).toHaveBeenCalledWith(true);
  fireEvent.click(screen.getByRole('button',{name:'关闭详情'}));await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());
 });
 it('未知金额不显示为零，无提成权限不能显示金额，读取失败可刷新',async()=>{
  const x=data();x.canViewCommission=false;x.items[0].summary.commissionCents=null;x.items[0].summary.missingSalesSessions=1;x.items[0].sessions![0].turnoverCents=null;
  vi.spyOn(anchorMonthApi,'read').mockRejectedValueOnce(new Error('网络失败')).mockResolvedValue(x);
- render(<AnchorMonthPanel userId={7}/>);await screen.findByText(/本月直播资料读取失败|网络失败/);fireEvent.click(screen.getByRole('button',{name:'刷新业绩'}));await screen.findByText(/1场营业额待补充/);expect(screen.getAllByText('无查看权限')).toHaveLength(2);expect(screen.queryByText('¥930.00')).toBeNull();expect(screen.getByText('待补充')).toBeTruthy();
+ render(<AnchorMonthPanel userId={7}/>);await screen.findByText(/本月直播资料读取失败|网络失败/);fireEvent.click(screen.getByRole('button',{name:'刷新业绩'}));await screen.findByText(/1场营业额待补充/);expect(screen.getAllByText('无查看权限')).toHaveLength(3);expect(screen.queryByText('¥930.00')).toBeNull();expect(screen.getByText('待补充')).toBeTruthy();
 });
 it('人员变化时旧响应不能串入新人员资料',async()=>{
  let resolve!:(d:AnchorMonthData)=>void;vi.spyOn(anchorMonthApi,'read').mockImplementation(id=>id===7?new Promise(r=>resolve=r):Promise.resolve({...data(8),items:[{...data(8).items[0],sessions:[]}]}));
