@@ -53,7 +53,7 @@ it.each(['company','user','permission'])('%s切换重置整个制单表单，旧
   if(kind==='company')auth.companyId=2;else if(kind==='user')auth.id=2;else auth.permissions={...auth.permissions,allow:['synthetic-new-permission']};
   view.rerender(<DocForm type="sale" inline onSaved={saved}/>);expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('件');
   fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'新上下文单位'}});await act(async()=>{pending.resolve(draft as never);});
-  expect(saved).not.toHaveBeenCalled();expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('新上下文单位');expect(screen.queryByText(/已保存 SYNTHETIC/)).toBeNull();
+  expect(saved).not.toHaveBeenCalled();expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('新上下文单位');expect(screen.queryByText(/已保存：SYNTHETIC/)).toBeNull();
 });
 it('关闭发生在创建等待中时，不再继续开立或执行父页面回调',async()=>{
   vi.spyOn(window,'confirm').mockReturnValue(true);const pending=deferred(),saved=vi.fn();fa.create.mockReturnValue(pending.promise);const view=render(<DocForm type="expense" inline onSaved={saved}/>);await fillExpense();
@@ -66,7 +66,7 @@ it('创建成功但开立失败后，重试更新同一草稿，不重复创建�
 });
 it('创建失败解除保存互斥，保留输入供重试；明确清空时同时清除旧成功提示',async()=>{
   fa.create.mockRejectedValueOnce(new Error('合成保存失败')).mockResolvedValueOnce(draft as never);render(<DocForm type="sale" inline onSaved={vi.fn()}/>);fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'合成箱'}});
-  fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await screen.findByRole('alert');expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('合成箱');fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await screen.findByText(/已保存 SYNTHETIC-51/);expect(fa.create).toHaveBeenCalledTimes(2);fireEvent.click(screen.getByRole('button',{name:'清空单据'}));expect(screen.queryByText(/已保存 SYNTHETIC-51/)).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await screen.findByRole('alert');expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('合成箱');fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await screen.findByText(/已保存：SYNTHETIC-51/);expect(fa.create).toHaveBeenCalledTimes(2);fireEvent.click(screen.getByRole('button',{name:'清空单据'}));expect(screen.queryByText(/已保存：SYNTHETIC-51/)).toBeNull();
 });
 it('制单宿主页切换公司重建表单，原版开单页不再自动读取最近单据或提供额外草稿工具栏',()=>{
   const view=render(<VoucherPage type="sale"/>);fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'旧公司合成单位'}});
@@ -142,6 +142,15 @@ it('原金额四列没有常用词建议，增删行只保存保留的项目和�
   fireEvent.change(screen.getByLabelText('第1行收款来源'),{target:{value:'合成删除项'}});fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'12.34'}});fireEvent.click(screen.getByRole('button',{name:'添加一行明细'}));
   fireEvent.change(screen.getByLabelText('第2行收款来源'),{target:{value:'合成保留项'}});fireEvent.change(screen.getByLabelText('第2行金额'),{target:{value:'0.01'}});expect(view.container.querySelector('tfoot')?.textContent).toContain('¥12.35');fireEvent.click(screen.getByRole('button',{name:'删除第1行'}));
   fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({itemName:'合成保留项',qty:1,unitPriceCents:1})]})));
+});
+it('原其他收入仅两种收款方式，来源没有选填标记；有效金额仍需选择来源再开立',async()=>{
+  render(<DocForm type="other-income" inline onSaved={vi.fn()}/>);expect(screen.getByRole('group',{name:'结算方式'}).textContent).toBe('已收全款收了部分');expect(screen.queryByRole('button',{name:'暂未收款'})).toBeNull();expect(screen.queryByLabelText('来源对象（选填）')).toBeNull();expect(screen.getByLabelText('来源对象')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'保存其他收入单'}));expect((await screen.findByRole('alert')).textContent).toBe('请至少填写一条金额明细');fireEvent.change(screen.getByLabelText('第1行收入项目'),{target:{value:'合成回收收入'}});fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'10'}});fireEvent.click(screen.getByRole('button',{name:'保存其他收入单'}));expect((await screen.findByRole('alert')).textContent).toBe('请选择来源对象');expect(fa.create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByLabelText('来源对象'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));fireEvent.click(screen.getByLabelText('收款账户'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));fireEvent.click(screen.getByRole('button',{name:'保存其他收入单'}));await waitFor(()=>expect(fa.issue).toHaveBeenCalledWith(51));expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({partyId:7,bankAccountId:7,paidCents:1000,settlementMode:'full',lines:[expect.objectContaining({itemName:'合成回收收入',unitPriceCents:1000})]}));const notice=await screen.findByRole('status');expect(notice.textContent).toBe('其他收入单已保存：SYNTHETIC-51，当前为未过账状态');expect(notice.closest('.slip-side')).toBeNull();expect(notice.compareDocumentPosition(screen.getByRole('heading',{name:'其他收入单 / 手工开单'}))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+it('历史其他收入的暂未收款方式仍能查看和重存，不能因新入口复原而丢掉已存数据',async()=>{
+  const doc={...draft,docType:'other-income',docDate:'2026-10-24',amountCents:1000,paidCents:0,settlementMode:'credit',partyId:7,partyKind:'customer',partyName:'合成往来',accounts:[],events:[],entries:[],lines:[{itemName:'合成旧收入',qty:1,unitPriceCents:1000}]};fa.update.mockResolvedValue(doc as never);
+  render(<DocForm type="other-income" doc={doc as never} inline onSaved={vi.fn()}/>);expect(screen.getByRole('button',{name:'暂未收款'}).getAttribute('aria-pressed')).toBe('true');expect((screen.getByLabelText('收到金额') as HTMLInputElement).value).toBe('0.00');fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.update).toHaveBeenCalledWith(51,expect.objectContaining({paidCents:0,settlementMode:'credit',lines:[expect.objectContaining({itemName:'合成旧收入',unitPriceCents:1000})]})));expect(fa.create).not.toHaveBeenCalled();
 });
 const transferBanks=()=>vi.mocked(resourceApi.list).mockResolvedValue({items:[{id:71,title:'合成甲户',status:'active',data:{}},{id:72,title:'合成乙户',status:'active',data:{}},{id:73,title:'合成丙户',status:'active',data:{}}],total:3,page:1,pageSize:200} as never);
 const addTransfer=async(role:'转出'|'转入',name:string)=>{fireEvent.click(screen.getByLabelText(`选择${role}账户`));fireEvent.click(await screen.findByRole('option',{name}));fireEvent.click(screen.getByRole('button',{name:`添加${role}账户`}));};

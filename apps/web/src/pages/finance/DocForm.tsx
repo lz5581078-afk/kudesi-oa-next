@@ -78,6 +78,8 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const sourceInline=!!inline&&type!=='withdrawal';
   const originalFields=sourceInline&&!doc;
   const sourceTransfer=originalFields&&type==='transfer';
+  const partyLabel=originalFields&&type==='other-income'?'来源对象':ui.partyLabel;
+  const sourcePayModes=type==='other-income'?ui.payModes.filter(item=>item.mode!=='credit'):ui.payModes;
   const [resetVersion,setResetVersion]=useState(0);
   const hasPayment = !!def.settle || !!def.moneySettlement;
   const structuredLines = !!def.lines && !ui.moneyEntry;
@@ -295,6 +297,10 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
       const b = body();
       if (then) {
         if(sourceTransfer&&!b.lines.length)throw new Error('请至少填写一条金额明细');
+        if(originalFields&&type==='other-income'){
+          if(!b.lines.some(line=>'itemName' in line&&line.itemName?.trim()&&line.unitPriceCents>0))throw new Error('请至少填写一条金额明细');
+          if(!party.id)throw new Error('请选择来源对象');
+        }
         const errs = validateDoc(b, then);
         if (errs.length) throw new Error(errs.join('；'));
         const warn = [bankAfter !== null && bankAfter < 0 ? `注意：${bank.name} 余额不足，${def.bank === 'in' ? '' : '付后'}余额约 ${money(bankAfter)}。` : '', origExcess.length ? `注意：退货数量超过原单（${origExcess.join('；')}）。` : '', partyBalance?.creditLimitCents != null && partyBalance.receivableCents + Math.max(rest, 0) > partyBalance.creditLimitCents && def.settle === 'in' && def.lines === 'product' ? `注意：挂账后应收超过赊销额度 ${money(partyBalance.creditLimitCents)}。` : ''].filter(Boolean);
@@ -311,7 +317,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
       if(!current())return;
       if (then === 'post') saved = await financeApi.post(saved.id);
       if(!current())return;
-      if (inline && !doc) { reset(); setNotice(`已保存 ${saved.docNo}（${then === 'post' ? '已过账' : then === 'issue' ? '已开立' : '草稿'}），可以接着开下一张`); setBalanceTick((t) => t + 1); }
+      if (inline && !doc) { reset(); setNotice(sourceInline?type==='expense'?`费用单已保存：${saved.docNo||'已生成单号'}`:`${def.label}已保存：${saved.docNo}，当前为${then?'未过账':'草稿'}状态`:`已保存 ${saved.docNo}（${then === 'post' ? '已过账' : then === 'issue' ? '已开立' : '草稿'}），可以接着开下一张`); setBalanceTick((t) => t + 1); }
       onSaved(saved, then === 'post' ? 'posted' : then === 'issue' ? 'issued' : 'draft');
     } catch (err) {
       if(current())setError(err instanceof ApiError || err instanceof Error ? err.message : '保存失败');
@@ -387,14 +393,14 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         {sourceTransfer&&<ReferenceTransferFields key={resetVersion} outs={outs} ins={ins} setOuts={setOuts} setIns={setIns}/>}
         {type === 'expense' && <label className="slip-party">相关单位<input aria-label="相关单位" maxLength={160} placeholder="供应商、司机、平台等" value={counterpartyName} onChange={e => setCounterpartyName(e.target.value)} /></label>}
         {def.party && type !== 'expense' && (
-          <PartyField reference={originalFields}>{ui.partyLabel}{def.partyRequired&&!originalFields ? ' *' : ''}
+          <PartyField reference={originalFields}>{partyLabel}{def.partyRequired&&!originalFields ? ' *' : ''}
             <div className="slip-party-row">
               {kinds.length > 1 && (
                 <select aria-label="往来对象来源" value={partyKind} onChange={(e) => { if (e.target.value === 'employee') void financeApi.syncEmployees().catch(() => undefined); setPartyKind(e.target.value as PartyKind); setParty({ id: null, name: '' }); }}>
                   {kinds.map((k) => <option key={k} value={k}>{originalFields?'':'来自'}{originalFields&&k==='employee'?'人员':PARTY_KIND_LABEL[k]}档案</option>)}
                 </select>
               )}
-              <SearchPick ariaLabel={ui.partyLabel} type={PARTY_KIND_RESOURCE[partyKind]} value={party.id} label={party.name} placeholder={originalFields?sourcePartyPlaceholder[type]:`搜索${PARTY_KIND_LABEL[partyKind]}`} onChange={(id, name) => setParty({ id, name })} />
+              <SearchPick ariaLabel={partyLabel} type={PARTY_KIND_RESOURCE[partyKind]} value={party.id} label={party.name} placeholder={originalFields?sourcePartyPlaceholder[type]:`搜索${PARTY_KIND_LABEL[partyKind]}`} onChange={(id, name) => setParty({ id, name })} />
             </div>
           </PartyField>
         )}
@@ -457,7 +463,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
       </div>
       <aside className="slip-side" aria-label="单据功能区">
       <div className={`slip-total-card${originalFields?' reference-voucher-total':''}`}><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{!originalFields&&def.lines && <span className="muted">共 {parsedCount} 行{discountC > 0 ? ` · 已优惠 ${money(discountC)}` : ''}</span>}</div>
-      {originalFields?sourceTransfer?<ReferenceTransferSummary title={settleTitle} outs={outs} ins={ins} totalCents={total}/>:<ReferenceVoucherPayment ui={ui} title={settleTitle} expense={type==='expense'} mode={payMode} onMode={pickMode} bank={bank} onBank={(id,name)=>setBank({id,name})} paid={paid} onPaid={setPaid}/>:<section className="slip-settle">
+      {originalFields?sourceTransfer?<ReferenceTransferSummary title={settleTitle} outs={outs} ins={ins} totalCents={total}/>:<ReferenceVoucherPayment ui={ui} payModes={sourcePayModes} title={settleTitle} expense={type==='expense'} mode={payMode} onMode={pickMode} bank={bank} onBank={(id,name)=>setBank({id,name})} paid={paid} onPaid={setPaid}/>:<section className="slip-settle">
         <h3 className="section-title"><span className="step">3</span>{settleTitle}</h3>
         {hasPayment && (
           <div className="pay-modes" role="group" aria-label="结算方式">
@@ -525,7 +531,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         <label>单据备注<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>
       </section> : <label>{def.lines ? '备注' : `${moneyItem} / 备注`}<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>}
       {sourceInline&&(type==='expense'?buttons:<div className="reference-document-actions">{buttons}</div>)}
-      {(!sourceInline||notice||error)&&<div ref={noticeRef}>
+      {!sourceInline&&<div ref={noticeRef}>
         {notice && <div role="status" className="notice ok">{notice}</div>}
         {error && <div role="alert" className="notice error">{error}</div>}
       </div>}
@@ -537,6 +543,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   if (inline) {
     return (
       <ReferencePickContext.Provider value={type !== 'withdrawal'}><form className={`card slip vc-slip${type !== 'withdrawal' ? ' reference-document' : ''}${sourceInline?' reference-document-source':''}`} data-doc-type={type} aria-label={`${def.label}开单`} onSubmit={(e) => save(e,sourceInline?'issue':undefined)}>
+        {sourceInline&&(notice||error)&&<div ref={noticeRef} className="reference-voucher-feedback">{notice&&<div role="status" className="reference-voucher-message success">{notice}</div>}{error&&<div role="alert" className="reference-voucher-message error">{error}</div>}</div>}
         <div className="slip-title">{type === 'withdrawal' ? <strong>{def.label} / 手工开单</strong> : <h1>{def.label} / 手工开单</h1>}{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}{sourceInline&&<button type="button" className="secondary-button" disabled={busy} onClick={()=>{if(doc)onClose?.();else reset();}}>{type==='expense'?'清空':'清空单据'}</button>}</div>
         {!sourceInline&&<div className="slip-toolbar-row"><VoucherToolbar type={type} busy={busy} editing={!!doc}
           onClear={() => { if (doc) onClose?.(); else reset(); }} onPrint={doPrint} onList={() => onShowList?.()} onPickDraft={(id) => onPickDraft?.(id)} />
