@@ -1,6 +1,8 @@
 import type { DocLineInput } from '@kudesi/shared';
 /** 开单页的明细行状态（界面里的字符串，保存时才转成分/数量） */
 export interface LineState {
+  id?:number;
+  refreshRelatedName?:boolean;
   unit: string;
   productId: number | null; productName: string; feeItemId: number | null; feeItemName: string; qty: string; price: string; memo: string;
   /** 选择器展示名，不代替单据商品名称或进入保存字段。 */
@@ -12,7 +14,7 @@ export interface LineState {
   node: string; relatedId: number | null; relatedName: string; needObject: boolean;
 }
 export interface AcctState { id: number; name: string; amount: string }
-export interface MoneyLine { item: string; amount: string; memo: string; original?: Pick<DocLineInput, 'feeItemId' | 'relatedNode' | 'relatedId' | 'relatedName'> }
+export interface MoneyLine { item: string; amount: string; memo: string; original?: Pick<DocLineInput, 'id' | 'feeItemId' | 'relatedNode' | 'relatedId' | 'relatedName'> }
 export const emptyMoney = (): MoneyLine => ({ item: '', amount: '', memo: '' });
 export const emptyLine = (): LineState => ({ unit: '', productId: null, productName: '', feeItemId: null, feeItemName: '', qty: '1', price: '', memo: '', gift: false, node: '', relatedId: null, relatedName: '', needObject: false });
 export const emptyLines = (n: number) => Array.from({ length: n }, emptyLine);

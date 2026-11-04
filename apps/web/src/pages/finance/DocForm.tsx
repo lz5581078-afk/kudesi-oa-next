@@ -101,7 +101,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const [department, setDepartment] = useState(doc?.department ?? (sourceTransfer||def.warehouse ? '' : '财务部'));
   const [moneyLines, setMoneyLines] = useState<MoneyLine[]>(() => {
     if (structuredLines) return [];
-    if (doc?.lines.length) return doc.lines.map((l) => ({ item: l.itemName || l.feeItemName || '', amount: centsToYuan(lineAmount(l)), memo: l.memo ?? '', original: { feeItemId: l.feeItemId, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName } }));
+    if (doc?.lines.length) return doc.lines.map((l) => ({ item: l.itemName || l.feeItemName || '', amount: centsToYuan(lineAmount(l)), memo: l.memo ?? '', original: { id:l.id, feeItemId: l.feeItemId, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName } }));
     if (doc && doc.amountCents) return [{ item: '', amount: centsToYuan(doc.amountCents), memo: '' }];
     return [emptyMoney()];
   });
@@ -117,7 +117,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const freshLines = () => emptyLines(1).map(row => def.lines === 'product' ? { ...row, qty: '', unit: '件' } : row);
   const [lines, setLines] = useState<LineState[]>(
     structuredLines && doc?.lines.length
-      ? doc.lines.map((l) => ({ unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: ui.feeAmountOnly ? '1' : String(l.qty), price: ui.feeAmountOnly ? centsToYuan(lineAmount(l)) : unitYuanText(l.unitPriceCents), memo: l.memo ?? '', gift: !!l.productId && l.unitPriceCents === 0, node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
+      ? doc.lines.map((l) => ({ id:l.id, unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: ui.feeAmountOnly ? '1' : String(l.qty), price: ui.feeAmountOnly ? centsToYuan(lineAmount(l)) : unitYuanText(l.unitPriceCents), memo: l.memo ?? '', gift: !!l.productId && l.unitPriceCents === 0, node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
       : structuredLines ? freshLines() : [],
   );
   const toAccts = (role: 'out' | 'in'): AcctState[] => (doc?.accounts ?? []).filter((a) => a.role === role).map((a) => ({ id: a.bankAccountId, name: a.bankName, amount: centsToYuan(a.amountCents) }));
@@ -204,7 +204,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const body = () => {
     const parsedLines = lines
       .filter((l) => !(inline && !doc && !l.productId && !l.feeItemId && !l.price)) // 开单页预留的空行不算
-      .map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: ui.feeAmountOnly ? 1 : Number(l.qty), unitPriceCents: ui.feeAmountOnly ? parse(l.price) ?? 0 : l.gift ? 0 : (() => { const v = unitPriceOf(l.price); if (Number.isNaN(v)) throw new Error('单价格式不对（最多六位小数）'); return v ?? 0; })(), memo: l.memo || undefined, unit: l.unit.trim() || null, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
+      .map((l) => ({ id:l.id, refreshRelatedName:l.refreshRelatedName||undefined, productId: l.productId, feeItemId: l.feeItemId, qty: ui.feeAmountOnly ? 1 : Number(l.qty), unitPriceCents: ui.feeAmountOnly ? parse(l.price) ?? 0 : l.gift ? 0 : (() => { const v = unitPriceOf(l.price); if (Number.isNaN(v)) throw new Error('单价格式不对（最多六位小数）'); return v ?? 0; })(), memo: l.memo || undefined, unit: l.unit.trim() || null, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
     const accounts = def.bank === 'transfer'
       ? [...outs.map((a) => ({ role: 'out' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })), ...ins.map((a) => ({ role: 'in' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 }))]
       : multiOn && payDir ? multi.map((a) => ({ role: payDir, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })) : null;
@@ -325,7 +325,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   };
 
   const addLine = () => setLines((ls) => [...ls, freshLines()[0]]);
-  const setLine = (i: number, patch: Partial<LineState>) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const setLine = (i: number, patch: Partial<LineState>) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch,...('relatedId' in patch||'node' in patch?{refreshRelatedName:true}:{}) } : l)));
   /** 费用约束随已选资料同步带入，避免晚返回把新行或用户选择的节点覆盖。 */
   const pickFee = (i: number, id: number | null, name: string, data?: Record<string, unknown>) => {
     const first = id ? String(data?.defaultObject ?? '').split(/[、,，]/).map(value => value.trim()).find(value => FEE_BOOKING_NODE_MAP.has(value) && value !== '不固定') : '';

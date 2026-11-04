@@ -151,7 +151,12 @@ export function payRole(def: Pick<DocTypeDef, 'bank' | 'settle' | 'store'>): 'in
   return def.settle === 'in' ? 'in' : def.settle === 'out' ? 'out' : null;
 }
 
+export const DOC_LINE_RELATED_NAME_MAX_LENGTH=512;
 export interface DocLineInput {
+  /** 编辑草稿时保留本单据明细身份；新建与复制不提交。 */
+  id?:number;
+  /** 用户明确重选挂账对象时，从服务端重新冻结当前名称。 */
+  refreshRelatedName?:boolean;
   productId?: number | null;
   feeItemId?: number | null;
   qty: number;

@@ -1,4 +1,5 @@
 import { FinanceEntryUnit1785000000000 } from './migrations/1785000000000-FinanceEntryUnit';
+import { FinanceRelatedNameSnapshot1786000000000 } from './migrations/1786000000000-FinanceRelatedNameSnapshot';
 import { CostSnapshotContext1784000000000 } from './migrations/1784000000000-CostSnapshotContext';
 import { ResourceFormMutation1782000000000 } from './migrations/1782000000000-ResourceFormMutation';
 import { DocSettlementMode1781000000000 } from './migrations/1781000000000-DocSettlementMode';
@@ -89,6 +90,7 @@ MIGRATIONS.push(ResourceFormMutation1782000000000);
 MIGRATIONS.push(DocCounterpartySummary1783000000000);
 MIGRATIONS.push(CostSnapshotContext1784000000000);
 MIGRATIONS.push(FinanceEntryUnit1785000000000);
+MIGRATIONS.push(FinanceRelatedNameSnapshot1786000000000);
 MIGRATIONS.push(SessionLegacyRuntime1777000000000);
 MIGRATIONS.push(SessionBrowserHistory1778000000000);
 

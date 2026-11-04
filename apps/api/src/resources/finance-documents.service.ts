@@ -5,7 +5,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  cashSettlementAmount, DOC_LINE_UNIT_MAX_LENGTH, averageUnitCents, querySearchTerms, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
+  financeBookingReferenceLabel, DOC_LINE_RELATED_NAME_MAX_LENGTH, cashSettlementAmount, DOC_LINE_UNIT_MAX_LENGTH, averageUnitCents, querySearchTerms, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -208,21 +208,64 @@ export class FinanceDocumentsService {
     const employee=await em.findOneBy(User,{id,companyId:user.companyId});if(!employee)throw new BadRequestException('挂账人员不存在或不属于当前公司');return employee.name;
   }
 
-  private async writeLines(em: EntityManager, user: AuthUser, documentId: number, lines: DocLineInput[]) {
-    const units=await this.productLineUnits(em,user,lines.filter(line=>!line.unit?.trim()));
-    const names=new Map<string,string>();
-    await em.delete(FinanceDocumentLine, { documentId, companyId: user.companyId });
-    let n = 0;
-    for (const l of lines) {
-      let relatedName=l.relatedName?.trim()||null;
-      const entity=l.relatedNode?FEE_BOOKING_NODE_MAP.get(l.relatedNode)?.entity:undefined;
-      if(entity&&l.relatedId){const key=`${entity}:${l.relatedId}`;if(!names.has(key))names.set(key,await this.bookingEntityName(em,user,entity,l.relatedId));relatedName=names.get(key)!;}
-      await em.insert(FinanceDocumentLine, {
-        companyId: user.companyId, documentId, lineNo: ++n, productId: l.productId ?? null, feeItemId: l.feeItemId ?? null, qty: l.qty,
-        unitPriceCents: l.unitPriceCents, unitCostCents: l.unitCostCents ?? null, memo: l.memo ?? null,
-        relatedNode: l.relatedNode ?? null, relatedId: l.relatedId ?? null, relatedName, itemName: l.itemName?.trim() || null, unit: l.unit?.trim() || (l.productId?units.get(l.productId)??'件':null),
-      });
+  private bookingKey(line:Pick<DocLineInput,'relatedNode'|'relatedId'>){return `${line.relatedNode}:${line.relatedId}`;}
+
+  /** 只读取本公司身份字段；旧空快照允许只读回退，不在读时回填历史记录。 */
+  private async bookingNames(em:EntityManager,user:AuthUser,lines:Array<Pick<DocLineInput,'relatedNode'|'relatedId'>>,strict:boolean){
+    const refs=lines.filter(line=>line.relatedId&&line.relatedNode),out=new Map<string,string>();
+    const resourceIds=[...new Set(refs.filter(line=>FEE_BOOKING_NODE_MAP.get(line.relatedNode!)?.resource).map(line=>line.relatedId!))];
+    const records=resourceIds.length?await em.find(ResourceRecord,{where:{companyId:user.companyId,id:In(resourceIds)}}):[];
+    const byId=new Map(records.map(record=>[record.id,record]));
+    const storeIds=[...new Set(records.filter(record=>record.type==='bank-accounts').map(record=>Number(record.data.storeId)).filter(id=>Number.isSafeInteger(id)&&id>0))];
+    const stores=storeIds.length?await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'stores',id:In(storeIds)},select:['id','title']}):[];
+    const storeNames=new Map(stores.map(record=>[record.id,record.title]));
+    const employeeIds=[...new Set(refs.filter(line=>FEE_BOOKING_NODE_MAP.get(line.relatedNode!)?.entity==='user').map(line=>line.relatedId!))];
+    const employees=employeeIds.length?await em.find(User,{where:{companyId:user.companyId,id:In(employeeIds)},select:['id','name']}):[];
+    const employeeNames=new Map(employees.map(employee=>[employee.id,employee.name]));
+    const company=refs.some(line=>FEE_BOOKING_NODE_MAP.get(line.relatedNode!)?.entity==='company')?await em.findOne(Company,{where:{id:user.companyId},select:['id','name']}):null;
+    for(const line of refs){
+      const key=this.bookingKey(line);if(out.has(key))continue;
+      const node=FEE_BOOKING_NODE_MAP.get(line.relatedNode!);let name:string|undefined;
+      if(node?.entity==='company'&&line.relatedId===user.companyId)name=company?.name;
+      else if(node?.entity==='user')name=employeeNames.get(line.relatedId!);
+      else if(node?.resource){
+        const record=byId.get(line.relatedId!);
+        if(record?.type===node.resource&&(!node.kind||record.data.kind===node.kind)){
+          const data={...record.data};
+          if(record.type==='bank-accounts')data.accountNo=this.resources?.sensitiveOf(record,'accountNo')??'';
+          if(record.type==='phones')data.number=this.resources?.sensitiveOf(record,'number')??data.number;
+          name=financeBookingReferenceLabel(record.type,data,record.title,storeNames.get(Number(data.storeId)));
+        }
+      }
+      if(name)out.set(key,name);else if(strict)throw new BadRequestException('挂账对象不存在或不属于当前公司及节点');
     }
+    return out;
+  }
+
+  private async writeLines(em: EntityManager, user: AuthUser, documentId: number, lines: DocLineInput[],trustedSnapshots=false) {
+    const existing=await em.find(FinanceDocumentLine,{where:{documentId,companyId:user.companyId},order:{lineNo:'ASC'}});
+    const byId=new Map(existing.map(line=>[line.id,line])),requested=new Set<number>();
+    for(const line of lines){
+      if((line.relatedName?.length??0)>DOC_LINE_RELATED_NAME_MAX_LENGTH)throw new BadRequestException(`挂账对象名称最多${DOC_LINE_RELATED_NAME_MAX_LENGTH}字`);
+      if(line.id!=null){if(!Number.isSafeInteger(line.id)||line.id<=0||requested.has(line.id)||!byId.has(line.id))throw new BadRequestException('单据明细已变更，请重新打开后保存');requested.add(line.id);}
+    }
+    const used=new Set<number>();
+    const prepared=lines.map((line,index)=>{
+      const old=line.id?byId.get(line.id):existing.find(row=>row.lineNo===index+1&&!requested.has(row.id)&&!used.has(row.id));
+      if(old)used.add(old.id);
+      const same=old&&old.relatedNode===(line.relatedNode??null)&&old.relatedId===(line.relatedId??null);
+      const frozen=line.relatedId?(trustedSnapshots?line.relatedName:same&&!line.refreshRelatedName?old.relatedName:null):null;
+      return{line,old,name:frozen?.trim()||(!line.relatedId?line.relatedName?.trim():null)||null};
+    });
+    const names=await this.bookingNames(em,user,prepared.filter(row=>row.line.relatedId&&!row.name).map(row=>row.line),!trustedSnapshots);
+    const units=await this.productLineUnits(em,user,lines.filter(line=>!line.unit?.trim()));
+    for(const [index,row] of prepared.entries()){
+      const l=row.line,relatedName=row.name||names.get(this.bookingKey(l))||null;
+      const values={companyId:user.companyId,documentId,lineNo:index+1,productId:l.productId??null,feeItemId:l.feeItemId??null,qty:l.qty,unitPriceCents:l.unitPriceCents,unitCostCents:l.unitCostCents??null,memo:l.memo??null,relatedNode:l.relatedNode??null,relatedId:l.relatedId??null,relatedName,itemName:l.itemName?.trim()||null,unit:l.unit?.trim()||(l.productId?units.get(l.productId)??'件':null)};
+      if(row.old)await em.update(FinanceDocumentLine,{id:row.old.id,documentId,companyId:user.companyId},values);else await em.insert(FinanceDocumentLine,values);
+    }
+    const removed=existing.filter(line=>!used.has(line.id)).map(line=>line.id);
+    if(removed.length)await em.delete(FinanceDocumentLine,{documentId,companyId:user.companyId,id:In(removed)});
   }
 
   /** 费用档案里标了“必须挂对象”的费用项目，这一行必须选了挂账节点和对象 */
@@ -729,7 +772,7 @@ export class FinanceDocumentsService {
         storeId: doc.storeId, refNo: null, amountCents: doc.amountCents, offsetCents: doc.offsetCents, discountCents: doc.discountCents, feeCents: doc.feeCents, feeBearer: doc.feeBearer, transitStatus: doc.transitStatus ? 'pending' : null, settleBy: doc.settleBy, memo: doc.memo, createdBy: user.id,
       });
       const nid = Number(res.identifiers[0].id);
-      await this.writeLines(em, user, nid, lines.map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: null, memo: l.memo ?? undefined, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName, itemName: l.itemName, unit: l.unit })));
+      await this.writeLines(em, user, nid, lines.map((l) => ({ productId: l.productId, feeItemId: l.feeItemId, qty: l.qty, unitPriceCents: l.unitPriceCents, unitCostCents: null, memo: l.memo ?? undefined, relatedNode: l.relatedNode, relatedId: l.relatedId, relatedName: l.relatedName, itemName: l.itemName, unit: l.unit })),true);
       await this.writeAccounts(em, user, nid, input);
       await this.writeSettlements(em, user, nid, input);
       await this.event(em, user, nid, 'create', `复制自 ${doc.docNo}`);
@@ -770,6 +813,7 @@ export class FinanceDocumentsService {
     const events = await em.find(FinanceDocumentEvent, { where: { documentId: id, companyId: user.companyId }, order: { id: 'ASC' } });
     const names = await this.names(em, user.companyId, [doc.partyId, doc.storeId, doc.bankAccountId, doc.toBankAccountId, doc.warehouseId, ...accounts.map((a) => a.bankAccountId), ...settlements.map((x) => x.productId), ...lines.flatMap((l) => [l.productId, l.feeItemId]), ...entries.map((e) => e.accountId), ...events.map((e) => e.actorId)]);
     const canCost = this.can(user, COST_VIEW);
+    const bookingNames=await this.bookingNames(em,user,lines.filter(line=>line.relatedId&&!line.relatedName),false);
     const [actors] = [await em.query('SELECT id, name FROM users WHERE company_id = ? AND id IN (?)', [user.companyId, [...new Set([doc.createdBy, doc.handlerId, doc.confirmedBy, ...events.map((e) => e.actorId)].filter((x): x is number => !!x))]])];
     const actorName = new Map<number, string>(actors.map((a: { id: number; name: string }) => [a.id, a.name]));
     return {
@@ -786,7 +830,7 @@ export class FinanceDocumentsService {
       settleByLabel: doc.settleBy ? SETTLE_BY_LABEL[doc.settleBy as SettleBy] : null,
       settlements: await this.settlementRows(em, user, settlements, names),
       settledBy: await this.settledBy(em, user, id),
-      lines: lines.map((l) => ({ ...l, productName: l.productId ? names.get(l.productId) ?? '' : '', feeItemName: l.feeItemId ? names.get(l.feeItemId) ?? '' : '', unitCostCents: canCost ? l.unitCostCents : null })),
+      lines: lines.map((l) => ({ ...l, relatedName:l.relatedName||bookingNames.get(this.bookingKey(l))||null,relatedNameSource:l.relatedName?'snapshot':bookingNames.has(this.bookingKey(l))?'current':null, productName: l.productId ? names.get(l.productId) ?? '' : '', feeItemName: l.feeItemId ? names.get(l.feeItemId) ?? '' : '', unitCostCents: canCost ? l.unitCostCents : null })),
       // 成本类分录（销售成本、库存金额）只给有成本权限的人看
       entries: entries.filter((e) => canCost || e.kind !== 'cogs').map((e) => ({ ...e, accountName: e.accountId ? names.get(e.accountId) ?? '' : '', amountCents: !canCost && e.kind === 'inventory' ? null : e.amountCents })),
       events: events.map((e) => ({ ...e, actorName: actorName.get(e.actorId) ?? '' })),

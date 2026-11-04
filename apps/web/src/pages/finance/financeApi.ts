@@ -6,7 +6,7 @@ export interface DocRow { sourceKind?: 'manual' | 'workflow'; firstItemName?: st
 export interface DocList { todayCount?: number; total: number; amountCents: number; paidCents: number; incomeCents?: number; expenseCents?: number; page: number; pageSize: number; rows: DocRow[] }
 export interface BatchResult { okCount: number; failCount: number; results: Array<{ id: number; ok: boolean; docNo?: string; error?: string }> }
 export interface DocEntry { unit?: string | null; id: string; kind: string; accountId: number; accountName: string; subId: number; amountCents: number | null; qty: number | null }
-export interface DocLineView extends DocLineInput { id: number; productName: string; feeItemName: string; lineNo: number; relatedNode: string | null; relatedId: number | null; relatedName: string | null }
+export interface DocLineView extends DocLineInput { id: number; productName: string; feeItemName: string; lineNo: number; relatedNode: string | null; relatedId: number | null; relatedName: string | null;relatedNameSource?:'snapshot'|'current'|null }
 export interface DocDetailDto {
   counterpartyName?: string | null; summary?: string | null; linkedPartyName?: string;
   id: number; docNo: string; docType: DocType; typeLabel: string; status: DocRow['status']; docDate: string; partyId: number | null; partyName: string;

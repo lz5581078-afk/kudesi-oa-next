@@ -23,6 +23,11 @@ it('商品选择器显示原名称、品牌与名称规格，保留文字规格�
   expect(referencePickOption('finance-fee-items',{...item(7,'合成费用'),data:{name:'合成费用',code:'FEE'}} as never)).toMatchObject({title:'合成费用',detail:'FEE'});
   expect(referencePickOption('finance-customers',{...item(8,'合成客户'),data:{name:'合成客户',code:'CLIENT'}} as never)).toMatchObject({title:'合成客户',detail:'CLIENT'});
 });
+it('挂账对象按各资料的原名称编号展示并可搜索，商品对象不套商品行规格格式',async()=>{
+  const row={...item(7,'合成商品'),data:{name:'合成商品',code:'P001',specQty:500,specUnit:'包'},refLabels:{brandId:'合成品牌'}};vi.mocked(resourceApi.list).mockResolvedValue(response([row]));const change=vi.fn();render(<ReferencePickContext.Provider value><SearchPick type="finance-products" referenceLabel="booking" ariaLabel="挂账对象" value={null} onChange={change}/></ReferencePickContext.Provider>);
+  fireEvent.click(screen.getByRole('button',{name:'挂账对象'}));fireEvent.change(await screen.findByRole('textbox',{name:'搜索挂账对象'}),{target:{value:'合成商品 · P001'}});fireEvent.click(await screen.findByRole('option',{name:'合成商品 · P001'}));expect(change).toHaveBeenCalledWith(7,'合成商品 · P001',row.data,undefined);
+  expect(referencePickOption('stores',{...item(8),data:{name:'合成店',storeNo:'S001'}} as never,'booking').title).toBe('合成店 · S001');
+});
 it('完整读取201条再按实际展示的品牌/规格/编码做完整短语搜索，最多展示80项而不漏后页',async()=>{
   const target={...item(201,'目标 商品'),data:{name:'目标 商品',specQty:'00500',specUnit:'SYNTHUNIT',code:'TARGET'},refLabels:{brandId:'合成品牌'},optionLabels:{specUnit:'合成托盘'}};
   vi.mocked(resourceApi.list).mockResolvedValueOnce(response(Array.from({length:200},(_,i)=>item(i+1)),201)).mockResolvedValueOnce(response([target],201));

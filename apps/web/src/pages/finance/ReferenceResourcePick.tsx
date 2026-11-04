@@ -6,9 +6,9 @@ import {referencePickOption,type PickOption,type SearchPickProps} from './refere
 /** 旧制单选择器在完整资料中按展示文字搜索，最多展示80项，不按服务端搜索字段截断资料。 */
 export function ReferenceResourcePick(props:SearchPickProps){
   const {user}=useAuth();
-  return <CompleteReferencePick key={JSON.stringify([props.type,props.fieldKey,props.fieldValue,user?.companyId,user?.id,user?.permissions])} {...props}/>;
+  return <CompleteReferencePick key={JSON.stringify([props.type,props.fieldKey,props.fieldValue,props.referenceLabel,user?.companyId,user?.id,user?.permissions])} {...props}/>;
 }
-function CompleteReferencePick({type,value,label,onChange,placeholder,fieldKey,fieldValue,ariaLabel,options,excludeIds}:SearchPickProps){
+function CompleteReferencePick({type,value,label,onChange,placeholder,fieldKey,fieldValue,ariaLabel,options,excludeIds,referenceLabel}:SearchPickProps){
   const [all,setAll]=useState<PickOption[]|null>(null),[open,setOpen]=useState(false),[keyword,setKeyword]=useState(''),[loading,setLoading]=useState(false),[error,setError]=useState('');
   const root=useRef<HTMLDivElement>(null),serial=useRef(0),mounted=useRef(false);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;serial.current++;};},[]);
@@ -31,7 +31,7 @@ function CompleteReferencePick({type,value,label,onChange,placeholder,fieldKey,f
         for(const item of response.items){
           if(seen.has(item.id))throw new Error('资料未能完整读取，请重试');
           seen.add(item.id);
-          if(!['inactive','deleted','disabled'].includes(item.status))collected.push(referencePickOption(type,item));
+          if(!['inactive','deleted','disabled'].includes(item.status))collected.push(referencePickOption(type,item,referenceLabel));
         }
         if(seen.size===total)break;
         if(!response.items.length||seen.size>total)throw new Error('资料未能完整读取，请重试');

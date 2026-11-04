@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { FilesService, sniffFile, type UploadedFile as Upload } from '../integrations/files.service';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, Equals, IsBoolean, IsArray, IsIn, MinLength, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
-import { OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, DOC_LINE_UNIT_MAX_LENGTH, CONFIRM_TRANSFER_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
+import { OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, DOC_LINE_UNIT_MAX_LENGTH, DOC_LINE_RELATED_NAME_MAX_LENGTH, CONFIRM_TRANSFER_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
 import { AuthUser, AuthenticatedOnly, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { OPENING_VOUCHER_TYPE, FinanceDocumentsService } from './finance-documents.service';
 import { FinanceVoucherHintsService } from './finance-voucher-hints.service';
@@ -12,6 +12,8 @@ const TYPES = DOC_TYPES.map((d) => d.type);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 class LineDto {
+  @IsOptional() @IsInt() @Min(1) id?: number;
+  @IsOptional() @IsBoolean() refreshRelatedName?:boolean;
   @IsOptional() @IsInt() @Min(1) productId?: number | null;
   @IsOptional() @IsInt() @Min(1) feeItemId?: number | null;
   @IsNumber({ maxDecimalPlaces: 4 }) qty!: number;
@@ -20,7 +22,7 @@ class LineDto {
   @IsOptional() @IsString() @MaxLength(200) memo?: string;
   @IsOptional() @IsString() @MaxLength(20) relatedNode?: string | null;
   @IsOptional() @IsInt() @Min(1) relatedId?: number | null;
-  @IsOptional() @IsString() @MaxLength(100) relatedName?: string | null;
+  @IsOptional() @IsString() @MaxLength(DOC_LINE_RELATED_NAME_MAX_LENGTH) relatedName?: string | null;
   @IsOptional() @IsString() @MaxLength(100) itemName?: string | null;
   @IsOptional() @IsString() @MaxLength(DOC_LINE_UNIT_MAX_LENGTH) unit?: string | null;
 }

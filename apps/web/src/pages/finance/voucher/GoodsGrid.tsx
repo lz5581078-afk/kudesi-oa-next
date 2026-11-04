@@ -1,4 +1,4 @@
-import { DOC_LINE_UNIT_MAX_LENGTH } from '@kudesi/shared';
+import { DOC_LINE_UNIT_MAX_LENGTH,DOC_LINE_RELATED_NAME_MAX_LENGTH } from '@kudesi/shared';
 import { FEE_BOOKING_NODES, FEE_BOOKING_NODE_MAP, lineAmount, type DocType, type DocTypeDef } from '@kudesi/shared';
 import { SearchPick, money } from '../common';
 import type { LineHint } from '../financeApi';
@@ -77,8 +77,8 @@ export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints,
                       : l.node&&FEE_BOOKING_NODE_MAP.get(l.node)?.entity==='user'&&staff.some(employee=>employee.active||employee.id===l.relatedId)
                       ? <SearchPick ariaLabel={`第${i+1}行挂账对象`} type="user" value={l.relatedId} label={l.relatedName} placeholder="搜索人员" options={staff.filter(employee=>employee.active||employee.id===l.relatedId).sort((a,b)=>a.id-b.id).map(employee=>({id:employee.id,title:employee.active?employee.name:`${employee.name}（已停用）`}))} onChange={(id,name)=>setLine(i,{relatedId:id,relatedName:id?staff.find(employee=>employee.id===id)?.name||name:''})}/>
                       : l.node && FEE_BOOKING_NODE_MAP.get(l.node)?.resource
-                      ? <SearchPick ariaLabel={`第${i + 1}行挂账对象`} type={FEE_BOOKING_NODE_MAP.get(l.node)!.resource!} fieldKey={FEE_BOOKING_NODE_MAP.get(l.node)!.kind ? 'kind' : undefined} fieldValue={FEE_BOOKING_NODE_MAP.get(l.node)!.kind} value={l.relatedId} label={l.relatedName} placeholder={`搜索${l.node}`} onChange={(id, name) => setLine(i, { relatedId: id, relatedName: name })} />
-                      : <input aria-label={`第${i + 1}行挂账对象`} value={l.relatedName} maxLength={100} placeholder={l.needObject ? '必填：写清挂在哪里' : l.node ? `${l.node}名称` : '先选挂账节点'} disabled={!l.node} onChange={(e) => setLine(i, { relatedName: e.target.value })} />}
+                      ? <SearchPick ariaLabel={`第${i + 1}行挂账对象`} referenceLabel="booking" type={FEE_BOOKING_NODE_MAP.get(l.node)!.resource!} fieldKey={FEE_BOOKING_NODE_MAP.get(l.node)!.kind ? 'kind' : undefined} fieldValue={FEE_BOOKING_NODE_MAP.get(l.node)!.kind} value={l.relatedId} label={l.relatedName} placeholder={`搜索${l.node}`} onChange={(id, name) => setLine(i, { relatedId: id, relatedName: name })} />
+                      : <input aria-label={`第${i + 1}行挂账对象`} value={l.relatedName} maxLength={DOC_LINE_RELATED_NAME_MAX_LENGTH} placeholder={l.needObject ? '必填：写清挂在哪里' : l.node ? `${l.node}名称` : '先选挂账节点'} disabled={!l.node} onChange={(e) => setLine(i, { relatedName: e.target.value })} />}
                     {l.needObject && !l.relatedId && !l.relatedName.trim() && <span className="vc-bad">必须挂对象</span>}
                   </td>
                 </>
