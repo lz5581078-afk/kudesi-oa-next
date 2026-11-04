@@ -12,14 +12,14 @@ import { LiveManagementService } from './live-management.service';
 import 'reflect-metadata';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
-import { LIVE_DEFAULT_RULES, liveComputeCommission, liveSettleLine as liveSettleLineFor, type StepDef } from '@kudesi/shared';
+import { LIVE_DEFAULT_RULES, liveVersionFor, liveComputeCommission, liveSettleLine as liveSettleLineFor, type StepDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
 import { Company, Department, Notification, ResourceFile, ResourceRecord, User } from '../entities';
 import { FlowService } from '../flow/flow.service';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { buildServices } from '../test-support';
-import { ensureDefaultLiveRules, liveClock } from './live-core';
+import { ensureDefaultLiveRules, ruleVersions, liveClock } from './live-core';
 import { LiveLedgerService } from './live-ledger.service';
 import { LiveOrder, LiveOrderCandidates, LiveOrderSource, LiveRefund, type LiveSourceStatus } from './live-order-source';
 import { FeishuNoticeService } from '../outbox/feishu-notice.service';
@@ -818,6 +818,28 @@ d('直播管理（真实数据库）', () => {
     expect((await schedules.overview(manager,'2027-02-18')).daySummary).toMatchObject({sessions:0,people:0});
     await ds.query('DELETE FROM live_sessions WHERE company_id=? AND id=?',[company,second.insertId]);
     expect((await schedules.overview(foreign,day)).groups.north.flatMap(r=>r.current?[r.current.id]:[])).not.toContain(id);
+  });
+
+  it('全览当日汇总包含未审核实际发生金额、跨公司隔离且查看费用需全员权限', async () => {
+    const day='2030-06-11';clock(day+' 11:00:00');let createdId:number|null=null;
+    const profiles=await ds.query('SELECT id,pay_type,hourly_rate FROM users WHERE company_id=? AND id IN (?,?)',[company,anchor.id,control.id]);
+    try {
+      await ds.query("UPDATE users SET pay_type='hourly',hourly_rate=5000 WHERE company_id=? AND id IN (?,?)",[company,anchor.id,control.id]);
+      const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,control_user_id,operator_user_id,douyin_account_id,douyin_account_name,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,control.id,operator.id,ids.account,'测试',day,day+' 10:00:00',anchor.id]);
+      const id=Number(result.insertId);createdId=id;
+      await ds.query('INSERT INTO live_turnover_snapshots(company_id,session_id,payload_json) VALUES(?,?,?)',[company,id,JSON.stringify({available:true,turnoverCents:100000,stores:[{storeId:ids.store,platform:'douyin',available:true,turnoverCents:100000}]})]);
+      const all=await schedules.overview(admin,day);
+      const rules=liveVersionFor(await ruleVersions(ds.manager,company),day)!.rules;
+      const calc=liveComputeCommission({rules,finalSalesCents:100000,adSpendCents:null});
+      expect(all.financials).toMatchObject({sessions:1,turnoverCents:100000,missingSalesSessions:0,costs:{wageCents:10000,commissionCents:calc.anchor.amountCents+calc.control.amountCents+calc.operator.amountCents,missingSessions:0}});
+      const limited=au(manager.id,company,'仅全览',['features.live.view']);
+      expect((await schedules.overview(limited,day)).financials.costs).toBeNull();
+      expect((await schedules.overview(foreign,day)).financials).toMatchObject({sessions:0,turnoverCents:0});
+      expect((await schedules.overview(admin,'2030-06-12')).financials).toMatchObject({sessions:0,turnoverCents:0});
+    } finally {
+      if(createdId)await ds.query('DELETE FROM live_sessions WHERE company_id=? AND id=?',[company,createdId]);
+      for(const p of profiles)await ds.query('UPDATE users SET pay_type=?,hourly_rate=? WHERE company_id=? AND id=?',[p.pay_type,p.hourly_rate,company,p.id]);
+    }
   });
 
   it('本场营业额真实公司鉴权、时间窗、退款归属与已结束场次回看', async () => {
