@@ -370,7 +370,7 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 }
 @media (max-width: 640px) {
   .live-overview-controls { flex-basis: 100%; }
-  .live-overview-financials { flex: 1; justify-content: space-between; gap: 12px; }
+  .live-overview-financials { flex: 1 1 100%; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
   .live-financial-stat { min-width: 0; }
   .live-overview .live-summary-trigger { margin-inline-start: 0; }
 }

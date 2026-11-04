@@ -41,13 +41,33 @@ describe('全览按当前时刻预估当日营业额和费用',()=>{
  it('没有全员提成权限时不查询工资/时薪和提成，不返回费用',async()=>{
   const em={query:jest.fn().mockResolvedValue([])};
   const result=await dayEstimate(em as never,{companyId:7,canViewAll:false} as never,[session()],now);
-  expect(result.costs).toBeNull();expect(em.query).toHaveBeenCalledTimes(2);
+  expect(result.costs).toBeNull();expect(result.adSpend).toBeNull();expect(em.query).toHaveBeenCalledTimes(2);
   for(const [sql,params]of em.query.mock.calls){expect(sql).toMatch(/company_id=\?/);expect(params).toEqual([7,[1]]);expect(sql).not.toMatch(/live_wage|live_commission|FROM users/);}
  });
  it('试播优先采用本场时薪，缺少本场试播时薪时不挪用旧档案工资',()=>{
   const x=input();
   expect(computeDayEstimate([session({scheduled_trial_rate:8000,trial_proxy:1})],now,x,true).costs?.wageCents).toBe(11000);
   expect(computeDayEstimate([session({trial_proxy:1})],now,x,true).costs).toMatchObject({wageCents:3000,missingSessions:1});
+ });
+ it('未审核投流只取中控的一份合计，不重复累加主播和运营报告',()=>{
+  const x=input();x.reports=[{session_id:1,role:'anchor',ad_spend_cents:9999},{session_id:1,role:'control',ad_spend_cents:3500},{session_id:1,role:'operator',ad_spend_cents:9999}];
+  expect(computeDayEstimate([session()],now,x,true).adSpend).toEqual({totalCents:3500,missingSessions:0});
+ });
+ it('审核后的投流按平台去重，不把主播中控运营三份账本重复累加',()=>{
+  const x=input();x.reports=[{session_id:1,role:'control',ad_spend_cents:300}];
+  x.commissions=['anchor','control','operator'].flatMap(()=>[{session_id:1,platform:'douyin',ad_spend_cents:2000,amount_cents:100},{session_id:1,platform:'kuaishou',ad_spend_cents:1000,amount_cents:100}]);
+  expect(computeDayEstimate([session({status:'approved',final_sales_cents:150000})],now,x,true).adSpend).toEqual({totalCents:3000,missingSessions:0});
+ });
+ it('未填报与明确填零区分，投流独立统计不重复加到工资提成费用',()=>{
+  const x=input();
+  expect(computeDayEstimate([session()],now,x,true).adSpend).toEqual({totalCents:0,missingSessions:1});
+  x.reports=[{session_id:1,role:'control',ad_spend_cents:0}];
+  const zero=computeDayEstimate([session()],now,x,true);
+  expect(zero.adSpend).toEqual({totalCents:0,missingSessions:0});
+  x.reports[0].ad_spend_cents=500;
+  const paid=computeDayEstimate([session()],now,x,true);
+  expect(paid.adSpend?.totalCents).toBe(500);expect(paid.costs?.totalCents).toBe(zero.costs?.totalCents);
+  expect(computeDayEstimate([session()],now,x,false).adSpend).toBeNull();
  });
  it('未来日期的记录不提前计入当前已发生金额',()=>{
   expect(computeDayEstimate([session({start_text:'2026-11-05 10:00:00'})],now,input(),true)).toMatchObject({sessions:0,turnoverCents:0,costs:{totalCents:0}});
