@@ -1,3 +1,4 @@
+import { DESKTOP_WORKSPACE_TABLES } from '../database/migrations/1793000000000-DesktopAfterSalesWorkspace';
 import { createHash } from 'node:crypto';
 import { DataSource,type EntityManager } from 'typeorm';
 import { Company,User } from '../entities';
@@ -22,12 +23,12 @@ export interface CutoverOptions {apply:boolean;softwareFingerprint:string;backup
 
 export async function cutoverTables(ds:DataSource){
   const rows:Array<{name:string}>=await ds.query("SELECT TABLE_NAME name FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME");
-  const compatibleKnown=new Set([...known,...LEGACY_SESSION_TABLES,...DESKTOP_AFTER_SALES_TABLES]);
+  const compatibleKnown=new Set([...known,...LEGACY_SESSION_TABLES,...DESKTOP_AFTER_SALES_TABLES,...DESKTOP_WORKSPACE_TABLES]);
   if(rows.some(r=>!compatibleKnown.has(r.name))||rows.length!==compatibleKnown.size)throw new MigrationError('目标结构与切换清单不同，禁止清理未知表');
   // A newly migrated empty session schema must not disable the existing importer.
   // Once these two modules have data, refuse destructive full remigration rather
   // than silently deleting or orphaning their devices, mappings and credentials.
-  for(const table of DESKTOP_AFTER_SALES_TABLES){const [row]=await ds.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1`);if(row)throw new MigrationError('桌面售后已有建档或跟进记录，禁止整库重新迁入');}
+  for(const table of [...DESKTOP_AFTER_SALES_TABLES,...DESKTOP_WORKSPACE_TABLES]){const [row]=await ds.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1`);if(row)throw new MigrationError('桌面售后已有建档或跟进记录，禁止整库重新迁入');}
   for(const table of LEGACY_SESSION_TABLES){const [row]=await ds.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1`);if(row)throw new MigrationError('店铺登录兼容模块已有数据，禁止整库重新迁入；需先单独核对这两个模块');}
   return rows.map(r=>r.name);
 }

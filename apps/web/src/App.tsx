@@ -1,3 +1,6 @@
+import {DesktopAfterSalesCollector} from './pages/service/DesktopAfterSalesCollector';
+import {DesktopAfterSalesSharedPage} from './pages/service/DesktopAfterSalesSharedPage';
+import {DESKTOP_AFTER_SALES_ROUTES} from '@kudesi/shared';
 import { DesktopAfterSalesPage } from './pages/service/DesktopAfterSalesPage';
 import { FeishuEnrollmentSetup } from './auth/FeishuEnrollmentSetup';
 import { FeishuBindCallback } from './auth/FeishuLogin';
@@ -174,6 +177,8 @@ export function App() {
   const { user, platformAdmin, loading, can } = useAuth();
   const location = useLocation();
 
+  if(location.pathname===DESKTOP_AFTER_SALES_ROUTES.collector)return <DesktopAfterSalesCollector/>;
+
   // 扫码入口免登录，公司及岗位由服务端令牌绑定。
   if (location.pathname === '/join') return <StaffEnrollmentPage />;
   if (window.location.pathname === '/m/upload') return <PhoneUploadPage />;
@@ -195,6 +200,7 @@ export function App() {
       <Route element={<Shell />}>
 
         <Route index element={<Navigate to="/workbench/desk" replace />} />
+        <Route path={DESKTOP_AFTER_SALES_ROUTES.shared} element={<DesktopAfterSalesSharedPage/>}/>
         <Route path="/account/password" element={<ChangePasswordPage />} />
         {NAV_SECTIONS.flatMap((section) =>
           section.pages
