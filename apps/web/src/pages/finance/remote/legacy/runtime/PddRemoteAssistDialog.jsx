@@ -5,7 +5,7 @@ import { mapVideoPointerToCapture } from './remote-video-coordinate.mjs';
 import { createVideoFrameObserver } from './video-frame-observer.mjs';
 import { connectViewerWebRtc } from './webrtc-remote-client.js';
 import { REMOTE_QUALITY_PROFILES } from './remote-quality-controller.mjs';
-import { fetchCloseJson, pendingBrowserClose, pollBrowserClose } from './remote-close-recovery.mjs';
+import { browserCloseConfirmed, fetchCloseJson, pendingBrowserClose, pollBrowserClose } from './remote-close-recovery.mjs';
 
 const WEBRTC_REMOTE_ENABLED = import.meta.env.VITE_SESSION_MANAGER_WEBRTC_REMOTE !== 'false';
 
@@ -593,9 +593,9 @@ function WebRtcRemoteAssistDialog({ shop, onClose, onRequestChange, requestJson 
   async function pollSafeClose(id, signal = closeAbortRef.current?.signal) {
     await pollBrowserClose({ sessionId: id, fetchJson, signal, onUpdate: (next) => {
       sessionRef.current = next;
-      if (next.closeStage) setCloseStage(next.closeStage);
-      setStatus(next.status);
-      setMessage(next.error || CLOSE_STAGE_LABELS[next.closeStage] || WEBRTC_STATUS_LABELS[next.status] || next.status);
+      if (next.closeStage && (next.closeStage !== 'safe_closed' || browserCloseConfirmed(next))) setCloseStage(next.closeStage);
+      setStatus(next.status === 'ended' && !browserCloseConfirmed(next) ? 'closed' : next.status);
+      setMessage(next.error || CLOSE_STAGE_LABELS[next.closeStage === 'safe_closed' && !browserCloseConfirmed(next) ? '' : next.closeStage] || WEBRTC_STATUS_LABELS[next.status] || next.status);
     } });
     endingRef.current = false;
     endedRef.current = true;
@@ -640,12 +640,12 @@ function WebRtcRemoteAssistDialog({ shop, onClose, onRequestChange, requestJson 
         return;
       }
       const result = await closeFetchJson(`/api/session-manager/remote-sessions/${id}`, { method: 'DELETE' });
-      setCloseStage(result.status === 'ended' ? 'safe_closed' : 'notifying_agent');
+      setCloseStage(browserCloseConfirmed(result) ? 'safe_closed' : 'notifying_agent');
       controllerRef.current?.close();
       controllerRef.current = null;
       if (videoRef.current) videoRef.current.srcObject = null;
       setStreamReady(false);
-      if (result.status === 'ended') {
+      if (browserCloseConfirmed(result)) {
         endingRef.current = false;
         endedRef.current = true;
         setEnding(false);
@@ -685,14 +685,19 @@ function WebRtcRemoteAssistDialog({ shop, onClose, onRequestChange, requestJson 
       : `画质已锁定为${REMOTE_QUALITY_PROFILES[mode].label}`);
   }
 
+  const connectionFailed = ['failed', 'error', 'offline', 'browser_missing', 'page_not_allowed', 'expired', 'closed', 'disconnected'].includes(status);
+  const authorizationFailed = /未允许远程控制|未启用远程|未开启远程|无权|没有.*权限/.test(message);
+  const awaitingMedia = !connectionFailed && !ending && status !== 'ended';
+  const noMediaText = status === 'ended' ? '视频已结束' : connectionFailed ? '暂无视频画面' : '等待视频统计';
   const metrics = stats
     ? `${stats.width || 0}×${stats.height || 0} · ${Math.round(stats.decodeFps || 0)} FPS · ${Math.round((stats.bitrate || 0) / 1000)} kbps · RTT ${stats.roundTripTimeMs || 0} ms · 丢包 ${stats.packetsLost || 0} · ${stats.connectionType === 'turn' ? 'TURN' : 'P2P'}`
-    : '等待视频统计';
+    : noMediaText;
 
   return <div className="sm-remote-backdrop" role="presentation">
     <section className="sm-remote-dialog" role="dialog" aria-modal="true" aria-labelledby="sm-remote-title">
       <header><div><span className={`sm-remote-dot ${status}`} /><div><h2 id="sm-remote-title">{shop.name} · 远程操作</h2><p>{WEBRTC_STATUS_LABELS[status] || status}：{message}</p></div></div><button onClick={closeRemote} aria-label="关闭"><X size={20} /></button></header>
       <div className="sm-remote-toolbar">
+        <div className="sm-remote-tools">
         <button className={panMode ? '' : 'active'} onClick={() => setPanMode(false)}><MousePointer2 size={15} />操作画面</button>
         <button className={panMode ? 'active' : ''} onClick={() => setPanMode(true)}><Hand size={15} />移动画面</button>
         <button onClick={() => { setFit(true); setZoom(1); setPan({ x: 0, y: 0 }); }}>适应窗口</button>
@@ -701,16 +706,17 @@ function WebRtcRemoteAssistDialog({ shop, onClose, onRequestChange, requestJson 
         <button onClick={() => stageRef.current?.requestFullscreen?.()}><Maximize2 size={15} />全屏</button>
         {!jpegFallback && <button onClick={recoverConnection} disabled={ending || recoveringConnection || !connectionRecoverySupported} title={connectionRecoverySupported ? '在当前远程会话内恢复画面与控制，不重新打开店铺' : '请先将该电脑的 Windows 助手升级到 v0.3.26'}><RefreshCw className={recoveringConnection ? 'spinning' : ''} size={15} />{recoveringConnection ? '恢复中' : '恢复连接'}</button>}
         {jpegFallback && <button onClick={() => reconnectRef.current?.()}>重试实时连接</button>}
-        <span>{frameUpdatedAt ? `画面更新 ${frameUpdatedAt.toLocaleTimeString('zh-CN', { hour12: false })}` : metrics}</span>
-        <strong>{operation}</strong>
+        </div>
+        <div className="sm-remote-telemetry" aria-live="polite"><span>{frameUpdatedAt ? `画面更新 ${frameUpdatedAt.toLocaleTimeString('zh-CN', { hour12: false })}` : metrics}</span>
+        <strong>{operation}</strong></div>
       </div>
-      <div ref={stageRef} className={`sm-remote-stage ${panMode ? 'pan' : 'control'}`}>
+      <div ref={stageRef} className={`sm-remote-stage ${!streamReady && !jpegFrame ? 'empty' : 'has-media'} ${panMode ? 'pan' : 'control'}`}>
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className={fit ? 'fit' : 'actual'}
+          className={`${fit ? 'fit' : 'actual'}${!streamReady ? ' sm-remote-media-unready' : ''}`}
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -742,7 +748,7 @@ function WebRtcRemoteAssistDialog({ shop, onClose, onRequestChange, requestJson 
         >
           <X size={16} />退出全屏
         </button>
-        {!streamReady && !jpegFrame && <div className="sm-remote-wait"><span className="sm-remote-spinner" /><strong>{WEBRTC_STATUS_LABELS[status] || '正在请求'}</strong><p>{message}</p><small>Windows 助手主动连接 OA，不开放电脑入站端口。</small></div>}
+        {!streamReady && !jpegFrame && <div className={`sm-remote-wait ${connectionFailed ? 'error' : ''}`} role={connectionFailed ? 'alert' : 'status'}>{awaitingMedia && <span className="sm-remote-spinner" />}<strong>{WEBRTC_STATUS_LABELS[status] || '正在请求'}</strong><p>{message}</p>{authorizationFailed ? <small>请由管理员在当前用途的「授权电脑 → 远程协助设置」中核对负责电脑{shop.savedDeviceName ? `「${shop.savedDeviceName}」` : ''}{shop.savedDeviceCode ? `（${shop.savedDeviceCode}）` : ''}的授权；授权后可恢复连接。</small> : <small>Windows 助手主动连接 OA，不开放电脑入站端口。</small>}</div>}
       </div>
       <footer>
         <span>{closeStage ? `${CLOSE_STAGE_LABELS[closeStage] || closeStage}${CLOSE_STAGE_PROGRESS[closeStage] ? `（${CLOSE_STAGE_PROGRESS[closeStage]}%）` : ''}` : `${metrics}。仅控制当前店铺所属平台的商家网页，不支持桌面、文件或剪贴板操作。`}{closeError ? `：${closeError}` : ''}</span>
@@ -824,10 +830,10 @@ function LegacyPddRemoteAssistDialog({ shop, onClose, onRequestChange, requestJs
       while (!controller.signal.aborted) {
         const next = await fetchJson(`/api/session-manager/remote-sessions/${session.id}`);
         setRemoteSession(next);
-        setStatus(statusForError(next.error, next.status));
-        setMessage(next.error || STATUS_LABELS[next.status] || next.status);
-        if (next.closeStage) setCloseStage(next.closeStage);
-        if (next.status === 'ended') {
+        setStatus(statusForError(next.error, next.status === 'ended' && !browserCloseConfirmed(next) ? 'closed' : next.status));
+        setMessage(next.error || STATUS_LABELS[next.status === 'ended' && !browserCloseConfirmed(next) ? 'closed' : next.status] || next.status);
+        if (next.closeStage && (next.closeStage !== 'safe_closed' || browserCloseConfirmed(next))) setCloseStage(next.closeStage);
+        if (browserCloseConfirmed(next)) {
           setEnding(false);
           setCloseError('');
           setCloseStage('safe_closed');
@@ -894,9 +900,9 @@ function LegacyPddRemoteAssistDialog({ shop, onClose, onRequestChange, requestJs
     await pollBrowserClose({ sessionId: id, fetchJson, signal, onUpdate: (next) => {
       sessionRef.current = next;
       setRemoteSession(next);
-      setStatus(next.status);
-      if (next.closeStage) setCloseStage(next.closeStage);
-      setMessage(next.error || CLOSE_STAGE_LABELS[next.closeStage] || STATUS_LABELS[next.status]);
+      setStatus(next.status === 'ended' && !browserCloseConfirmed(next) ? 'closed' : next.status);
+      if (next.closeStage && (next.closeStage !== 'safe_closed' || browserCloseConfirmed(next))) setCloseStage(next.closeStage);
+      setMessage(next.error || CLOSE_STAGE_LABELS[next.closeStage === 'safe_closed' && !browserCloseConfirmed(next) ? '' : next.closeStage] || STATUS_LABELS[next.status === 'ended' && !browserCloseConfirmed(next) ? 'closed' : next.status]);
     } });
     setEnding(false);
     setCloseError('');
@@ -937,8 +943,8 @@ function LegacyPddRemoteAssistDialog({ shop, onClose, onRequestChange, requestJs
         return;
       }
       const result = await closeFetchJson(`/api/session-manager/remote-sessions/${id}`, { method: 'DELETE' });
-      setCloseStage(result.status === 'ended' ? 'safe_closed' : 'notifying_agent');
-      if (result.status === 'ended') {
+      setCloseStage(browserCloseConfirmed(result) ? 'safe_closed' : 'notifying_agent');
+      if (browserCloseConfirmed(result)) {
         setStatus('ended');
         setEnding(false);
         setMessage('店铺已安全关闭');
@@ -990,6 +996,9 @@ function LegacyPddRemoteAssistDialog({ shop, onClose, onRequestChange, requestJs
     void sendCommand({ kind: 'scroll', deltaY: Math.max(-2000, Math.min(2000, Math.round(event.deltaY))) });
   }
 
+  const connectionFailed = ['error', 'offline', 'browser_missing', 'page_not_allowed', 'expired', 'closed'].includes(status);
+  const authorizationFailed = /未允许远程控制|未启用远程|未开启远程|无权|没有.*权限/.test(message);
+
   return <div className="sm-remote-backdrop" role="presentation">
     <section className="sm-remote-dialog" role="dialog" aria-modal="true" aria-labelledby="sm-remote-title">
       <header><div><span className={`sm-remote-dot ${status}`} /><div><h2 id="sm-remote-title">{shop.name} · 远程操作</h2><p>{STATUS_LABELS[status] || status}：{message}</p></div></div><button onClick={endRemoteOperation} aria-label="关闭"><X size={20} /></button></header>
@@ -997,10 +1006,10 @@ function LegacyPddRemoteAssistDialog({ shop, onClose, onRequestChange, requestJs
         <button className={panMode ? '' : 'active'} onClick={() => setPanMode(false)}><MousePointer2 size={15} />操作画面</button>
         <button className={panMode ? 'active' : ''} onClick={() => setPanMode(true)}><Hand size={15} />移动画面</button>
         <label><Maximize2 size={15} />缩放<select value={zoom} onChange={(event) => { setZoom(Number(event.target.value)); setPan({ x: 0, y: 0 }); }}>{ZOOM_LEVELS.map((level) => <option key={level} value={level}>{level}×</option>)}</select></label>
-        <span>{frameUpdatedAt ? `画面更新 ${frameUpdatedAt.toLocaleTimeString('zh-CN', { hour12: false })}` : '尚未收到画面'}</span>
+        <span>{frameUpdatedAt ? `画面更新 ${frameUpdatedAt.toLocaleTimeString('zh-CN', { hour12: false })}` : connectionFailed ? '暂无视频画面' : '尚未收到画面'}</span>
         <strong>{operation}</strong>
       </div>
-      <div className={`sm-remote-stage ${panMode ? 'pan' : 'control'}`}>
+      <div className={`sm-remote-stage ${frame.current ? 'has-media' : 'empty'} ${panMode ? 'pan' : 'control'}`}>
         {frame.previous && <img className="previous" src={frame.previous} alt="上一帧远程画面" />}
         {frame.current ? <img
           key={frame.frameSequence}
@@ -1013,7 +1022,7 @@ function LegacyPddRemoteAssistDialog({ shop, onClose, onRequestChange, requestJs
           onPointerUp={onPointerUp}
           onPointerCancel={() => { pointer.current = null; }}
           onWheel={onWheel}
-        /> : <div className="sm-remote-wait"><span className="sm-remote-spinner" /><strong>{STATUS_LABELS[status] || '正在请求'}</strong><p>{message}</p><small>远程电脑不开放入站端口，由 Windows 助手主动连接 OA。</small></div>}
+        /> : <div className={`sm-remote-wait ${connectionFailed ? 'error' : ''}`} role={connectionFailed ? 'alert' : 'status'}>{!connectionFailed && !ending && status !== 'ended' && <span className="sm-remote-spinner" />}<strong>{STATUS_LABELS[status] || '正在请求'}</strong><p>{message}</p>{authorizationFailed ? <small>请由管理员在当前用途的「授权电脑 → 远程协助设置」中核对负责电脑{shop.savedDeviceName ? `「${shop.savedDeviceName}」` : ''}{shop.savedDeviceCode ? `（${shop.savedDeviceCode}）` : ''}的授权；授权后重试。</small> : <small>远程电脑不开放入站端口，由 Windows 助手主动连接 OA。</small>}</div>}
       </div>
       <footer>
         <span>{closeStage ? `${CLOSE_STAGE_LABELS[closeStage] || closeStage}${CLOSE_STAGE_PROGRESS[closeStage] ? `（${CLOSE_STAGE_PROGRESS[closeStage]}%）` : ''}` : '仅允许点击、拖动和滚动，不支持键盘、文本输入或文件操作。'}{closeError ? `：${closeError}` : ''}</span>

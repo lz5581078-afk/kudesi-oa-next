@@ -11,6 +11,6 @@ export function LegacyRemoteAssistDialog({shop,onClose,onChanged}:{shop:ShopRow;
   const workspace=shop.legacy?.workspace as SessionWorkspace;
   const transport=useMemo(()=>legacyRemoteTransport(workspace),[workspace]);
   if(!shop.legacy||!shop.deviceId)return null;
-  return <div className="sm-page"><PddRemoteAssistDialog shop={{...shop.legacy,id:shop.id,name:shop.storeName,savedDeviceId:shop.deviceId,savedDeviceName:shop.deviceName,savedDeviceAgentVersion:shop.legacy.assignedDeviceAgentVersion}}
+  return <div className="sm-page"><PddRemoteAssistDialog shop={{...shop.legacy,id:shop.id,name:shop.storeName,savedDeviceId:shop.deviceId,savedDeviceName:shop.deviceName,savedDeviceCode:shop.legacy.assignedDeviceCode,savedDeviceAgentVersion:shop.legacy.assignedDeviceAgentVersion}}
     onClose={onClose} onRequestChange={onChanged} {...transport}/></div>;
 }
