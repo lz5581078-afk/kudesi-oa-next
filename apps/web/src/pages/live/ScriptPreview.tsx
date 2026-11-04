@@ -20,18 +20,25 @@ export function ScriptPreview({ v }: { v: ScriptVersion }) {
       current = false;
     };
   }, [active, v.id]);
-  const points = [...new Set([0, v.body.length, ...v.cues.flatMap((c) => [c.start, c.end])])].sort(
-    (a, b) => a - b,
-  );
+  // Keep each original paragraph together even when a cue starts mid-sentence.
+  const paragraphs = Array.from(v.body.matchAll(/[^\n]*\n|[^\n]+$/g), (m) => {
+    const start = m.index!,
+      end = start + m[0].length;
+    const cues = v.cues.filter((c) => c.start < end && c.end > start);
+    const points = [
+      ...new Set([start, end, ...cues.flatMap((c) => [Math.max(start, c.start), Math.min(end, c.end)])]),
+    ].sort((a, b) => a - b);
+    return { start, end, cues, points };
+  });
   const color = (id: number) => `hsl(${(v.assets.findIndex((a) => a.id === id) * 137 + 159) % 360} 55% 87%)`;
-  function arrow(assetId: number, start: boolean) {
+  function arrow(assetId: number, start: boolean, position: number) {
     const a = v.assets.find((x) => x.id === assetId);
     if (!a) return null;
     const label = start ? '展示 ' + a.name + ' →' : '← 撤下 ' + a.name;
     return (
       <button
         type="button"
-        key={a.id}
+        key={a.id + ':' + position}
         aria-label={label}
         data-label={label}
         style={{ background: color(a.id) }}
@@ -95,39 +102,38 @@ export function ScriptPreview({ v }: { v: ScriptVersion }) {
           }}
         >
           {!v.body && <p className="muted">这个版本还没有正文。</p>}
-          {points.slice(0, -1).map((start, i) => {
-            const end = points[i + 1],
-              spans = v.cues.filter((c) => c.start <= start && c.end >= end);
-            const colors = [...new Set(spans.map((c) => color(c.asset)))];
-            const focusAsset = v.assets.find((a) => a.id === spans[spans.length - 1]?.asset);
-            const show = () => {
-              if (focusAsset) setActive(focusAsset);
-            };
-            return (
-              <div className="sc-line" key={start}>
-                <aside>
-                  {[...new Set(spans.filter((c) => c.start === start).map((c) => c.asset))].map((id) =>
-                    arrow(id, true),
-                  )}
-                </aside>
-                <span
-                  onMouseEnter={show}
-                  onClick={show}
-                  style={{
-                    background:
-                      colors.length > 1 ? 'linear-gradient(to bottom,' + colors.join(',') + ')' : colors[0],
-                  }}
-                >
-                  {v.body.slice(start, end)}
-                </span>
-                <aside>
-                  {[...new Set(spans.filter((c) => c.end === end).map((c) => c.asset))].map((id) =>
-                    arrow(id, false),
-                  )}
-                </aside>
-              </div>
-            );
-          })}
+          {paragraphs.map(({ start, end, cues, points }) => (
+            <div className="sc-line" key={start}>
+              <aside>{cues.filter((c) => c.start >= start).map((c) => arrow(c.asset, true, c.start))}</aside>
+              <span className="sc-prose">
+                {points.slice(0, -1).map((left, i) => {
+                  const right = points[i + 1],
+                    spans = cues.filter((c) => c.start <= left && c.end >= right);
+                  const colors = [...new Set(spans.map((c) => color(c.asset)))];
+                  const asset = v.assets.find((a) => a.id === spans[spans.length - 1]?.asset);
+                  const show = () => {
+                    if (asset) setActive(asset);
+                  };
+                  return (
+                    <span
+                      key={left}
+                      onMouseEnter={show}
+                      onClick={show}
+                      style={{
+                        background:
+                          colors.length > 1
+                            ? 'linear-gradient(to bottom,' + colors.join(',') + ')'
+                            : colors[0],
+                      }}
+                    >
+                      {v.body.slice(left, right)}
+                    </span>
+                  );
+                })}
+              </span>
+              <aside>{cues.filter((c) => c.end <= end).map((c) => arrow(c.asset, false, c.end))}</aside>
+            </div>
+          ))}
         </div>
         {active && (
           <aside className="sc-media" aria-label="素材预览">

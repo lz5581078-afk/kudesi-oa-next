@@ -20,7 +20,7 @@ import { SettlementsTab } from './SettlementsTab';
 
 const TAB_KEY = 'kudesi.live.tab';
 const TABS = [
-  ['overview', '全览'], ['schedules', '排场'], ['scripts','话术中心'], ['daily','日常工作'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'],
+  ['overview', '全览'], ['schedules', '排场'], ['daily','日常工作'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'], ['scripts','话术中心'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 

@@ -18,7 +18,7 @@ export function ScriptVersionPanel({
 }) {
   const [v, setV] = useState(initial),
     [edit, setEdit] = useState(manage && !initial.body);
-  const [libraryOpen, setLibraryOpen] = useState(!initial.assets.length);
+  const [section, setSection] = useState<'script' | 'info' | 'assets'>('script');
   const [asset, setAsset] = useState(0),
     [category, setCategory] = useState<Category>('image'),
     [name, setName] = useState('');
@@ -95,10 +95,10 @@ export function ScriptVersionPanel({
   }
   return (
     <fieldset className="sc-panel" disabled={busy}>
-      <div className="sc-bar">
+      <div className="sc-bar sc-version-head">
         <h2>{v.name}</h2>
         {dirty && <small>尚未保存</small>}
-        {dirty && !edit && manage && (
+        {(dirty || edit) && manage && (
           <button className="primary-button" disabled={!v.name.trim()} onClick={save}>
             保存版本
           </button>
@@ -111,26 +111,37 @@ export function ScriptVersionPanel({
       </div>
       {edit ? (
         <>
-          <label>
-            版本名称
-            <input value={v.name} maxLength={100} onChange={(e) => change({ name: e.target.value })} />
-          </label>
-          <label>
-            版本特色与使用说明
-            <textarea
-              rows={4}
-              maxLength={10000}
-              value={v.notes}
-              onChange={(e) => change({ notes: e.target.value })}
-              placeholder="适用人群、讲解重点、与上一版的区别…"
-            />
-          </label>
-          <details
-            className="sc-library"
-            open={libraryOpen}
-            onToggle={(e) => setLibraryOpen(e.currentTarget.open)}
-          >
-            <summary>本版素材库（{v.assets.length}）</summary>
+          <div className="sc-edit-tabs" role="group" aria-label="编辑分区">
+            {(
+              [
+                ['script', '正文与标注'],
+                ['assets', '素材库'],
+                ['info', '版本资料'],
+              ] as const
+            ).map(([key, label]) => (
+              <button key={key} aria-pressed={section === key} onClick={() => setSection(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div hidden={section !== 'info'} className="sc-section">
+            <label>
+              版本名称
+              <input value={v.name} maxLength={100} onChange={(e) => change({ name: e.target.value })} />
+            </label>
+            <label>
+              版本特色与使用说明
+              <textarea
+                rows={4}
+                maxLength={10000}
+                value={v.notes}
+                onChange={(e) => change({ notes: e.target.value })}
+                placeholder="适用人群、讲解重点、与上一版的区别…"
+              />
+            </label>
+          </div>
+          <div hidden={section !== 'assets'} className="sc-section">
+            <h3>本版素材库 · {v.assets.length}</h3>
             <div className="sc-bar">
               <label>
                 素材分类
@@ -180,54 +191,53 @@ export function ScriptVersionPanel({
                   .join('、') || '暂无素材'}
               </p>
             ))}
-          </details>
-          <label>
-            话术正文
-            <textarea
-              ref={body}
-              rows={10}
-              maxLength={30000}
-              value={v.body}
-              onChange={(e) =>
-                change({
-                  body: e.target.value,
-                  cues: moveCues(v.body, e.target.value, e.target.selectionStart, v.cues),
-                })
-              }
-            />
-          </label>
-          <p className="muted">选中要配素材的一段话。选区开头提示展示，结尾提示撤下。</p>
-          <div className="sc-bar">
-            <label>
-              关联素材
-              <select value={asset} onChange={(e) => setAsset(Number(e.target.value))}>
-                <option value={0}>请选择</option>
-                {v.assets.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {categories[a.category]} · {a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="secondary-button" disabled={!asset} onClick={mark}>
-              标注选中文字
-            </button>
           </div>
-          {v.cues.map((c, i) => (
-            <div className="sc-cue" key={i}>
-              <strong>{v.assets.find((a) => a.id === c.asset)?.name}</strong>　「
-              {v.body.slice(c.start, c.end)}」{' '}
-              <button
-                className="link-button"
-                onClick={() => change({ cues: v.cues.filter((_, n) => n !== i) })}
-              >
-                移除标注
+          <div hidden={section !== 'script'} className="sc-section">
+            <label>
+              话术正文
+              <textarea
+                ref={body}
+                rows={10}
+                maxLength={30000}
+                value={v.body}
+                onChange={(e) =>
+                  change({
+                    body: e.target.value,
+                    cues: moveCues(v.body, e.target.value, e.target.selectionStart, v.cues),
+                  })
+                }
+              />
+            </label>
+            <p className="muted">选中要配素材的一段话。选区开头提示展示，结尾提示撤下。</p>
+            <div className="sc-bar">
+              <label>
+                关联素材
+                <select value={asset} onChange={(e) => setAsset(Number(e.target.value))}>
+                  <option value={0}>请选择</option>
+                  {v.assets.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {categories[a.category]} · {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="secondary-button" disabled={!asset} onClick={mark}>
+                标注选中文字
               </button>
             </div>
-          ))}
-          <button className="primary-button" disabled={!v.name.trim()} onClick={save}>
-            保存版本
-          </button>
+            {v.cues.map((c, i) => (
+              <div className="sc-cue" key={i}>
+                <strong>{v.assets.find((a) => a.id === c.asset)?.name}</strong>　「
+                {v.body.slice(c.start, c.end)}」{' '}
+                <button
+                  className="link-button"
+                  onClick={() => change({ cues: v.cues.filter((_, n) => n !== i) })}
+                >
+                  移除标注
+                </button>
+              </div>
+            ))}
+          </div>
         </>
       ) : (
         <>
