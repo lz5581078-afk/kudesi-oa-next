@@ -39,9 +39,9 @@ d('桌面售后（真实 MySQL）',()=>{
  });
  it('拒绝跨公司负责人；原始内容按成本和价格权限过滤',async()=>{
   const v=await svc.detail(a,id);await expect(svc.follow(a,id,{version:v.version,progress:'x',note:'x',ownerId:b.id})).rejects.toThrow(/本公司/);
-  await svc.import(a,store,snapshot({实退金额:'54.29',商品信息:'商品 成本10元',售后日志:'成交单价记录'}));
+  await svc.import(a,store,snapshot({实退金额:'54.29',原订单采购金额:'10.00',实际收货金额:'54.29',商品信息:'商品 成本10元',售后日志:'成交单价记录'}));
   const restricted={...a,permissions:{isCompanyAdmin:false,allow:['after-sales.workspace.view'],deny:[]}};
-  const limited=await svc.detail(restricted,id);expect(limited.snapshot.fields['实退金额']).toBeUndefined();expect(limited.snapshot.fields['商品信息']).toBeUndefined();expect(limited.snapshot.fields['售后日志']).toBeUndefined();expect(limited.snapshot.fields['线上状态']).toBeTruthy();
+  const limited=await svc.detail(restricted,id);expect(limited.snapshot.fields['实退金额']).toBeUndefined();expect(limited.snapshot.fields['原订单采购金额']).toBeUndefined();expect(limited.snapshot.fields['实际收货金额']).toBeUndefined();expect(limited.snapshot.fields['商品信息']).toBeUndefined();expect(limited.snapshot.fields['售后日志']).toBeUndefined();expect(limited.snapshot.fields['线上状态']).toBeTruthy();
  });
  it('附件必须属于同公司同档案；上传更新版本，不覆盖跟进',async()=>{
   const buffer=Buffer.from([137,80,78,71,13,10,26,10,0]);const v=await svc.upload(a,id,{originalname:'测试.png',buffer,size:buffer.length});expect(v.files).toHaveLength(1);expect(v.progress).toBe('等待物流');expect((await svc.fileUrl(a,id,v.files[0].id)).url).toMatch(/^https:/);
