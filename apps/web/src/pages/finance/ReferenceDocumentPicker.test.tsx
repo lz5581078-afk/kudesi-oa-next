@@ -9,6 +9,12 @@ vi.mock('../../resources/api',()=>({resourceApi:{list:vi.fn()}}));
 const item=(id:number,title=`合成商品${id}`)=>({id,title,status:'active',data:{name:title},refLabels:{}});
 const response=(items:unknown[],total=items.length)=>({items,total,page:1,pageSize:200}) as never;
 const picker=(change=vi.fn(),type='finance-products',value:number|null=null)=><ReferencePickContext.Provider value><SearchPick type={type} ariaLabel="选择资料" value={value} label={value?'原账户':''} onChange={change}/></ReferencePickContext.Provider>;
+it('排除已添加账户发生在80项展示限制之前，动态取消排除不重读或遗漏后面的账户',async()=>{
+  vi.mocked(resourceApi.list).mockResolvedValue(response(Array.from({length:82},(_,index)=>item(index+1,`合成账户${index+1}`))));
+  const show=(excludeIds:number[])=><ReferencePickContext.Provider value><SearchPick type="bank-accounts" ariaLabel="选择账户" value={null} onChange={vi.fn()} excludeIds={excludeIds}/></ReferencePickContext.Provider>;
+  const view=render(show([1,2]));fireEvent.click(screen.getByRole('button',{name:'选择账户'}));await waitFor(()=>expect(screen.getAllByRole('option')).toHaveLength(80));expect(screen.queryByRole('option',{name:'合成账户1'})).toBeNull();expect(screen.getByRole('option',{name:'合成账户82'})).toBeTruthy();
+  view.rerender(show([]));expect(screen.getAllByRole('option')).toHaveLength(80);expect(screen.getByRole('option',{name:'合成账户1'})).toBeTruthy();expect(resourceApi.list).toHaveBeenCalledTimes(1);
+});
 beforeEach(()=>{vi.resetAllMocks();auth.companyId=1;auth.id=1;});
 afterEach(()=>{cleanup();});
 it('商品选择器显示原名称、品牌与名称规格，保留文字规格和公司单位名，不使用基础信息全称',()=>{

@@ -25,7 +25,7 @@ export function SearchPick(props:SearchPickProps) {
  const reference=useContext(ReferencePickContext);
  return reference?<ReferenceResourcePick {...props}/>:<RemoteSearchPick {...props}/>;
 }
-function RemoteSearchPick({ type, value, label, onChange, placeholder, fieldKey, fieldValue, ariaLabel, options }:SearchPickProps) {
+function RemoteSearchPick({ type, value, label, onChange, placeholder, fieldKey, fieldValue, ariaLabel, options,excludeIds }:SearchPickProps) {
   const [text, setText] = useState(label ?? '');
   const [items, setItems] = useState<PickOption[]>([]);
   const [open, setOpen] = useState(false);
@@ -45,6 +45,7 @@ function RemoteSearchPick({ type, value, label, onChange, placeholder, fieldKey,
   };
   const optionsKey = JSON.stringify(options);
   useEffect(() => { if (open && options) search(''); }, [optionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visibleItems=items.filter(item=>!excludeIds?.includes(item.id));
   return (
     <div className="pick">
       <input
@@ -55,8 +56,8 @@ function RemoteSearchPick({ type, value, label, onChange, placeholder, fieldKey,
       />
       {open && (
         <ul className="pick-list" role="listbox">
-          {items.length === 0 && <li className="muted">没有找到</li>}
-          {items.map((i) => (
+          {visibleItems.length === 0 && <li className="muted">没有找到</li>}
+          {visibleItems.map((i) => (
             <li key={i.id}><button type="button" role="option" aria-selected={i.id === value} onMouseDown={(e) => e.preventDefault()} onClick={() => { setText(i.title); onChange(i.id, i.title,i.data,i.optionLabels); setOpen(false); }}>{i.title}</button></li>
           ))}
         </ul>

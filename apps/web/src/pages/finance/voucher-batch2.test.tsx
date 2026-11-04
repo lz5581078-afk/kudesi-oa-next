@@ -121,7 +121,7 @@ describe('多账户收付款', () => {
 
 describe('转款手续费与在途', () => {
   it('填手续费并选承担方、勾选先登记在途，随单据提交', async () => {
-    render(<DocForm type="transfer" inline onSaved={vi.fn()} />);
+    render(<DocForm type="transfer" onSaved={vi.fn()} />);
     await addAccount('添加转出账户', '甲户');
     await addAccount('添加转入账户', '乙户');
     fireEvent.change(screen.getByLabelText('转出账户甲户金额'), { target: { value: '50' } });
@@ -132,7 +132,7 @@ describe('转款手续费与在途', () => {
     expect(screen.getByText(/由转入账户/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('第1行转款用途'), { target: { value: '资金调拨' } });
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '50' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     const b = lastCreated();
     expect(b.feeCents).toBe(30);
@@ -140,7 +140,7 @@ describe('转款手续费与在途', () => {
     expect(b.inTransit).toBe(true);
   });
   it('不填手续费时不提交承担方；不是转款单没有这一栏', () => {
-    render(<DocForm type="transfer" inline onSaved={vi.fn()} />);
+    render(<DocForm type="transfer" onSaved={vi.fn()} />);
     expect((screen.getByLabelText('手续费承担方') as HTMLSelectElement).disabled).toBe(true);
     cleanup();
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);

@@ -8,7 +8,7 @@ export function ReferenceResourcePick(props:SearchPickProps){
   const {user}=useAuth();
   return <CompleteReferencePick key={JSON.stringify([props.type,props.fieldKey,props.fieldValue,user?.companyId,user?.id,user?.permissions])} {...props}/>;
 }
-function CompleteReferencePick({type,value,label,onChange,placeholder,fieldKey,fieldValue,ariaLabel,options}:SearchPickProps){
+function CompleteReferencePick({type,value,label,onChange,placeholder,fieldKey,fieldValue,ariaLabel,options,excludeIds}:SearchPickProps){
   const [all,setAll]=useState<PickOption[]|null>(null),[open,setOpen]=useState(false),[keyword,setKeyword]=useState(''),[loading,setLoading]=useState(false),[error,setError]=useState('');
   const root=useRef<HTMLDivElement>(null),serial=useRef(0),mounted=useRef(false);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;serial.current++;};},[]);
@@ -41,7 +41,7 @@ function CompleteReferencePick({type,value,label,onChange,placeholder,fieldKey,f
     finally{if(current())setLoading(false);}
   };
   const text=keyword.trim().toLocaleLowerCase();
-  const items=(options??all??[]).filter(item=>[item.title,item.detail].filter(Boolean).join(' · ').toLocaleLowerCase().includes(text)).slice(0,80);
+  const items=(options??all??[]).filter(item=>!excludeIds?.includes(item.id)&&[item.title,item.detail].filter(Boolean).join(' · ').toLocaleLowerCase().includes(text)).slice(0,80);
   return <div className={`pick reference-document-picker${open?' open':''}`} ref={root} onKeyDown={event=>{if(event.key==='Escape'&&open){event.preventDefault();event.stopPropagation();setOpen(false);root.current?.querySelector<HTMLButtonElement>('.reference-document-picker-trigger')?.focus();}}}>
     <button type="button" data-grid-picker className="reference-document-picker-trigger" aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} onClick={()=>{setOpen(!open);if(!open){setKeyword('');if(!options&&all===null&&!loading)void load();}}}><span className={!value?'placeholder':''}>{label||placeholder||'请选择资料'}</span><b aria-hidden="true">{open?'▲':'▼'}</b></button>
     {open&&<div className="reference-document-picker-menu" data-picker-menu><input autoFocus aria-label={`搜索${ariaLabel||'资料'}`} placeholder={`搜索${placeholder||ariaLabel||'资料'}`} value={keyword} onChange={event=>setKeyword(event.target.value)}/><ul role="listbox" className="pick-list">

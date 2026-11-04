@@ -146,3 +146,21 @@ it('原金额四列没有常用词建议，增删行只保存保留的项目和�
   fireEvent.change(screen.getByLabelText('第2行收款来源'),{target:{value:'合成保留项'}});fireEvent.change(screen.getByLabelText('第2行金额'),{target:{value:'0.01'}});expect(view.container.querySelector('tfoot')?.textContent).toContain('¥12.35');fireEvent.click(screen.getByRole('button',{name:'删除第1行'}));
   fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({itemName:'合成保留项',qty:1,unitPriceCents:1})]})));
 });
+const transferBanks=()=>vi.mocked(resourceApi.list).mockResolvedValue({items:[{id:71,title:'合成甲户',status:'active',data:{}},{id:72,title:'合成乙户',status:'active',data:{}},{id:73,title:'合成丙户',status:'active',data:{}}],total:3,page:1,pageSize:200} as never);
+const addTransfer=async(role:'转出'|'转入',name:string)=>{fireEvent.click(screen.getByLabelText(`选择${role}账户`));fireEvent.click(await screen.findByRole('option',{name}));fireEvent.click(screen.getByRole('button',{name:`添加${role}账户`}));};
+it('原转款先选择再添加，已添加账户在本侧候选中排除，移除和清空释放账户及待添加选择',async()=>{
+  transferBanks();render(<DocForm type="transfer" inline onSaved={vi.fn()}/>);
+  expect(screen.queryByLabelText('归属部门')).toBeNull();expect(screen.queryByLabelText('转款手续费')).toBeNull();expect(screen.queryByRole('button',{name:/互换转出/})).toBeNull();expect(fa.banks).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByLabelText('选择转出账户'));fireEvent.click(await screen.findByRole('option',{name:'合成甲户'}));expect(screen.queryByLabelText('转出账户合成甲户金额')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'添加转出账户'}));expect(screen.getByLabelText('转出账户合成甲户金额')).toBeTruthy();fireEvent.click(screen.getByLabelText('选择转出账户'));expect(screen.queryByRole('option',{name:'合成甲户'})).toBeNull();fireEvent.click(await screen.findByRole('option',{name:'合成乙户'}));
+  fireEvent.click(screen.getByRole('button',{name:'清空单据'}));expect(screen.queryByLabelText('转出账户合成甲户金额')).toBeNull();expect(screen.getByLabelText('选择转出账户').textContent).toContain('搜索转出账户');fireEvent.click(screen.getByRole('button',{name:'添加转出账户'}));expect(screen.queryByLabelText('转出账户合成乙户金额')).toBeNull();
+  await addTransfer('转出','合成甲户');fireEvent.click(screen.getByRole('button',{name:'移除转出账户合成甲户'}));fireEvent.click(screen.getByLabelText('选择转出账户'));expect(await screen.findByRole('option',{name:'合成甲户'})).toBeTruthy();
+});
+it('原转款要求金额明细及两侧分配等于明细，纠正后保存真实多账户和用途，只开立且清空表单',async()=>{
+  transferBanks();render(<DocForm type="transfer" inline onSaved={vi.fn()}/>);await addTransfer('转出','合成甲户');await addTransfer('转出','合成乙户');await addTransfer('转入','合成丙户');
+  fireEvent.change(screen.getByLabelText('转出账户合成甲户金额'),{target:{value:'6'}});fireEvent.change(screen.getByLabelText('转出账户合成乙户金额'),{target:{value:'5'}});fireEvent.change(screen.getByLabelText('转入账户合成丙户金额'),{target:{value:'11'}});
+  fireEvent.click(screen.getByRole('button',{name:'保存转款单'}));expect(await screen.findByRole('alert')).toHaveProperty('textContent','请至少填写一条金额明细');expect(fa.create).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('第1行转款用途'),{target:{value:'合成划转'}});fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'10'}});expect(document.querySelector('.reference-transfer-summary')?.textContent).toContain('本次计划转款 ¥10.00');fireEvent.click(screen.getByRole('button',{name:'保存转款单'}));expect((await screen.findByRole('alert')).textContent).toContain('要等于明细合计');expect(fa.create).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('转出账户合成甲户金额'),{target:{value:'5'}});fireEvent.change(screen.getByLabelText('转入账户合成丙户金额'),{target:{value:'10'}});fireEvent.click(screen.getByRole('button',{name:'保存转款单'}));
+  await waitFor(()=>expect(fa.issue).toHaveBeenCalledWith(51));expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({department:null,feeCents:0,inTransit:false,accounts:[{role:'out',bankAccountId:71,amountCents:500},{role:'out',bankAccountId:72,amountCents:500},{role:'in',bankAccountId:73,amountCents:1000}],lines:[expect.objectContaining({itemName:'合成划转',unitPriceCents:1000,qty:1})]}));expect(fa.post).not.toHaveBeenCalled();await waitFor(()=>expect(screen.queryByLabelText('转出账户合成甲户金额')).toBeNull());
+});

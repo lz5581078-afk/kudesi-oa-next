@@ -156,8 +156,8 @@ describe('开单页细节', () => {
     expect((await screen.findByText(/本单还差 ¥15.00 未结清/)).textContent).toContain('挂应收');
     expect(document.querySelector('.slip-total-card')!.textContent).toContain('¥20.00');
   });
-  it('转款单：能互换转出/转入账户', async () => {
-    render(<DocForm type="transfer" inline onSaved={vi.fn()} />);
+  it('既有转款编辑保留互换转出/转入账户', async () => {
+    render(<DocForm type="transfer" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByLabelText('添加转出账户'));
     fireEvent.click(await screen.findByRole('option', { name: '现金户' }));
     expect(screen.getByText('还没有选转入账户')).toBeTruthy();
