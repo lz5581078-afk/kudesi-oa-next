@@ -135,3 +135,12 @@ it('费用明确选择欠款或预付冲抵时，空实付不回退全款；旧�
   expect(buildEntries({ ...input, settlementMode: 'credit' }, () => null).some(entry => entry.kind === 'bank')).toBe(false);
   expect(buildEntries(input, () => null).find(entry => entry.kind === 'bank')?.amount).toBe(-1000);
 });
+
+it('费用目录为空的手工费用类型按原金额入账，不生成虚构费用档案',()=>{
+  const input:DocInput={type:'expense',date:'2026-11-03',bankAccountId:5,lines:[{itemName:'合成手工费用',qty:1,unitPriceCents:1234}]};
+  expect(validateDoc(input)).toEqual([]);
+  const entries=buildEntries(input,()=>null);expect(entries.reduce((sum,row)=>sum+row.amount,0)).toBe(0);
+  expect(entries).toEqual(expect.arrayContaining([expect.objectContaining({kind:'expense',accountId:0,amount:1234})]));
+  expect(validateDoc({...input,lines:[{itemName:' ',qty:1,unitPriceCents:1234}]}).join()).toContain('费用类型');
+  expect(validateDoc({...input,lines:[{itemName:'字'.repeat(513),qty:1,unitPriceCents:1234}]}).join()).toContain('512');
+});

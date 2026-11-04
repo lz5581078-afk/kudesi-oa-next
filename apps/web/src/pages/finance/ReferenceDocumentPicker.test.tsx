@@ -9,6 +9,17 @@ vi.mock('../../resources/api',()=>({resourceApi:{list:vi.fn()}}));
 const item=(id:number,title=`合成商品${id}`)=>({id,title,status:'active',data:{name:title},refLabels:{}});
 const response=(items:unknown[],total=items.length)=>({items,total,page:1,pageSize:200}) as never;
 const picker=(change=vi.fn(),type='finance-products',value:number|null=null)=><ReferencePickContext.Provider value><SearchPick type={type} ariaLabel="选择资料" value={value} label={value?'原账户':''} onChange={change}/></ReferencePickContext.Provider>;
+const emptyPicker=(change=vi.fn(),value:number|null=null)=><ReferencePickContext.Provider value><SearchPick type="stores" referenceLabel="booking" emptyTextPlaceholder="名称/编号（可手工填写）" ariaLabel="挂账对象" value={value} label={value?'合成历史店铺':''} onChange={change}/></ReferencePickContext.Provider>;
+it('完整目录确认为空后恢复原手填，文字只回传空ID；已有历史ID不会因候选为空自行丢掉',async()=>{
+  vi.mocked(resourceApi.list).mockResolvedValue(response([]));const change=vi.fn(),view=render(emptyPicker(change));const field=await screen.findByRole('textbox',{name:'挂账对象'});expect(field.getAttribute('placeholder')).toBe('名称/编号（可手工填写）');fireEvent.change(field,{target:{value:'合成手填店铺'}});expect(change).toHaveBeenCalledWith(null,'合成手填店铺');expect(resourceApi.list).toHaveBeenCalledTimes(1);
+  view.unmount();change.mockClear();const selected=render(emptyPicker(change,7));await waitFor(()=>expect(resourceApi.list).toHaveBeenCalledTimes(2));expect(screen.getByRole('button',{name:'挂账对象'}).textContent).toContain('合成历史店铺');expect(screen.queryByRole('textbox',{name:'挂账对象'})).toBeNull();expect(change).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'挂账对象'}));fireEvent.click(await screen.findByRole('option',{name:'清空当前选择'}));selected.rerender(emptyPicker(change));expect(await screen.findByRole('textbox',{name:'挂账对象'})).toBeTruthy();
+});
+it('目录读取失败保留重试，不作为真实空目录手填；重试成功为空才切换原手填',async()=>{
+  vi.mocked(resourceApi.list).mockRejectedValueOnce(new Error('合成失败')).mockResolvedValue(response([]));render(emptyPicker());fireEvent.click(screen.getByRole('button',{name:'挂账对象'}));await screen.findByRole('alert');expect(screen.queryByRole('textbox',{name:'挂账对象'})).toBeNull();fireEvent.click(screen.getByRole('button',{name:'重试'}));expect(await screen.findByRole('textbox',{name:'挂账对象'})).toBeTruthy();
+});
+it('跨公司迟到的空目录不能把新公司已有资料选择器换成自由文字',async()=>{
+  let resolve!:(value:never)=>void;vi.mocked(resourceApi.list).mockReturnValueOnce(new Promise(done=>{resolve=done;})).mockResolvedValue(response([item(8,'合成新公司店铺')]));const view=render(emptyPicker());await waitFor(()=>expect(resourceApi.list).toHaveBeenCalledTimes(1));auth.companyId=2;view.rerender(emptyPicker());await waitFor(()=>expect(resourceApi.list).toHaveBeenCalledTimes(2));await act(async()=>{resolve(response([]));});expect(screen.queryByRole('textbox',{name:'挂账对象'})).toBeNull();fireEvent.click(screen.getByRole('button',{name:'挂账对象'}));expect(await screen.findByRole('option',{name:'合成新公司店铺'})).toBeTruthy();
+});
 it('排除已添加账户发生在80项展示限制之前，动态取消排除不重读或遗漏后面的账户',async()=>{
   vi.mocked(resourceApi.list).mockResolvedValue(response(Array.from({length:82},(_,index)=>item(index+1,`合成账户${index+1}`))));
   const show=(excludeIds:number[])=><ReferencePickContext.Provider value><SearchPick type="bank-accounts" ariaLabel="选择账户" value={null} onChange={vi.fn()} excludeIds={excludeIds}/></ReferencePickContext.Provider>;

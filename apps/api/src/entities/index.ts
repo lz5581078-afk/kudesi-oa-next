@@ -690,7 +690,10 @@ export class FinanceDocumentLine {
   @Column({ name: 'related_node', type: 'varchar', length: 20, nullable: true }) relatedNode!: string | null;
   @Column({ name: 'related_id', type: 'int', unsigned: true, nullable: true }) relatedId!: number | null;
   @Column({ name: 'related_name', type: 'varchar', length: 512, nullable: true }) relatedName!: string | null;
-  @Column({ name: 'item_name', type: 'varchar', length: 100, nullable: true }) itemName!: string | null;
+  @Column({ name: 'item_name', type: 'varchar', length: 512, nullable: true }) itemName!: string | null;
+  @Column({ name: 'product_name', type: 'varchar', length: 200, nullable: true }) productNameSnapshot!: string | null;
+  @Column({ name: 'fee_item_name', type: 'varchar', length: 200, nullable: true }) feeItemNameSnapshot!: string | null;
+  @Column({ name: 'item_code', type: 'varchar', length: 160, nullable: true }) itemCodeSnapshot!: string | null;
   @Column({ type: 'varchar', length: 40, nullable: true }) unit!: string | null;
 }
 

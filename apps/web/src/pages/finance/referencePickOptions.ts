@@ -11,7 +11,7 @@ export function referenceProductLabel(item: Pick<ResourceDto,'title'|'data'|'ref
 
 export interface SearchPickProps {
  type:string;value:number|null|undefined;label?:string;onChange:(id:number|null,label:string,data?:Record<string,unknown>,optionLabels?:Record<string,string>)=>void;
- placeholder?:string;fieldKey?:string;fieldValue?:string;ariaLabel?:string;options?:PickOption[];referenceLabel?:'booking';excludeIds?:readonly number[];
+ placeholder?:string;fieldKey?:string;fieldValue?:string;ariaLabel?:string;options?:PickOption[];referenceLabel?:'booking';excludeIds?:readonly number[];emptyTextPlaceholder?:string;
 }
 export function referencePickOption(type:string,item:ResourceDto,presentation?:'booking'):PickOption {
  let title=type==='finance-products'?referenceProductLabel(item):item.title;

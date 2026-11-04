@@ -3,6 +3,7 @@ import type { DocLineInput } from '@kudesi/shared';
 export interface LineState {
   id?:number;
   refreshRelatedName?:boolean;
+  refreshItemName?:boolean;
   unit: string;
   productId: number | null; productName: string; feeItemId: number | null; feeItemName: string; qty: string; price: string; memo: string;
   /** 选择器展示名，不代替单据商品名称或进入保存字段。 */

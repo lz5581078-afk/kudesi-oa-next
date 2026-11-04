@@ -161,6 +161,10 @@ it('已有挂账快照原样显示和重存，明确重选同一个ID才请求�
 it('已有金额行删除前一行后保留后一行ID、项目和历史挂账关联',async()=>{
   const doc={...draft,docType:'other-income',docDate:'2026-11-03',amountCents:300,paidCents:0,settlementMode:'credit',partyId:7,partyKind:'customer',partyName:'合成往来',accounts:[],events:[],entries:[],lines:[{id:81,itemName:'合成删除项',qty:1,unitPriceCents:100},{id:82,itemName:'合成保留项',qty:1,unitPriceCents:200,relatedNode:'客户',relatedId:7,relatedName:'合成历史客户 · OLD'}]};fa.update.mockResolvedValue(doc as never);render(<DocForm type="other-income" doc={doc as never} inline onSaved={vi.fn()}/>);fireEvent.click(screen.getByRole('button',{name:'删除第1行'}));fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.update).toHaveBeenCalledWith(51,expect.objectContaining({lines:[expect.objectContaining({id:82,itemName:'合成保留项',unitPriceCents:200,relatedNode:'客户',relatedId:7,relatedName:'合成历史客户 · OLD'})]})));
 });
+it('原挂账档案为空时允许手填对象并保存原文字，不虚构档案ID',async()=>{
+  vi.mocked(resourceApi.list).mockImplementation((async(type:string)=>type==='finance-fee-items'?{items:[{id:7,title:'合成费用',status:'active',data:{name:'合成费用'}}],total:1,page:1,pageSize:200}:{items:[],total:0,page:1,pageSize:200}) as never);
+  render(<DocForm type="expense" inline onSaved={vi.fn()}/>);await fillExpense();fireEvent.change(screen.getByLabelText('第1行挂账节点'),{target:{value:'店铺'}});const object=await screen.findByRole('textbox',{name:'第1行挂账对象'});expect(object.getAttribute('placeholder')).toBe('名称/编号（可手工填写）');fireEvent.change(object,{target:{value:'合成原手填店铺'}});fireEvent.click(screen.getByRole('button',{name:'保存费用单'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({relatedNode:'店铺',relatedId:null,relatedName:'合成原手填店铺'})]})));
+});
 const transferBanks=()=>vi.mocked(resourceApi.list).mockResolvedValue({items:[{id:71,title:'合成甲户',status:'active',data:{}},{id:72,title:'合成乙户',status:'active',data:{}},{id:73,title:'合成丙户',status:'active',data:{}}],total:3,page:1,pageSize:200} as never);
 const addTransfer=async(role:'转出'|'转入',name:string)=>{fireEvent.click(screen.getByLabelText(`选择${role}账户`));fireEvent.click(await screen.findByRole('option',{name}));fireEvent.click(screen.getByRole('button',{name:`添加${role}账户`}));};
 it('原收款手填金额保留已到账选择，清空提交显式0，部分到账仍按原明细变动带出合计',async()=>{
@@ -191,4 +195,12 @@ it('原转款要求金额明细及两侧分配等于明细，纠正后保存真�
   fireEvent.change(screen.getByLabelText('第1行转款用途'),{target:{value:'合成划转'}});fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'10'}});expect(document.querySelector('.reference-transfer-summary')?.textContent).toContain('本次计划转款 ¥10.00');fireEvent.click(screen.getByRole('button',{name:'保存转款单'}));expect((await screen.findByRole('alert')).textContent).toContain('要等于明细合计');expect(fa.create).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('转出账户合成甲户金额'),{target:{value:'5'}});fireEvent.change(screen.getByLabelText('转入账户合成丙户金额'),{target:{value:'10'}});fireEvent.click(screen.getByRole('button',{name:'保存转款单'}));
   await waitFor(()=>expect(fa.issue).toHaveBeenCalledWith(51));expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({department:null,feeCents:0,inTransit:false,accounts:[{role:'out',bankAccountId:71,amountCents:500},{role:'out',bankAccountId:72,amountCents:500},{role:'in',bankAccountId:73,amountCents:1000}],lines:[expect.objectContaining({itemName:'合成划转',unitPriceCents:1000,qty:1})]}));expect(fa.post).not.toHaveBeenCalled();await waitFor(()=>expect(screen.queryByLabelText('转出账户合成甲户金额')).toBeNull());
+});
+
+it('费用目录确认为空才恢复原手工费用类型，文字按项目保存且不伪造档案ID',async()=>{
+  vi.mocked(resourceApi.list).mockResolvedValue({items:[],total:0,page:1,pageSize:200} as never);
+  render(<DocForm type="expense" inline onSaved={vi.fn()}/>);
+  const item=await screen.findByPlaceholderText('费用类型');fireEvent.change(item,{target:{value:'合成手工费用'}});
+  fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'12.34'}});fireEvent.click(screen.getByRole('button',{name:'欠款'}));fireEvent.click(screen.getByRole('button',{name:'保存费用单'}));
+  await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({feeItemId:null,itemName:'合成手工费用',qty:1,unitPriceCents:1234})]})));
 });

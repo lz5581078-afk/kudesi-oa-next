@@ -152,11 +152,14 @@ export function payRole(def: Pick<DocTypeDef, 'bank' | 'settle' | 'store'>): 'in
 }
 
 export const DOC_LINE_RELATED_NAME_MAX_LENGTH=512;
+export const DOC_LINE_ITEM_NAME_MAX_LENGTH=512;
 export interface DocLineInput {
   /** 编辑草稿时保留本单据明细身份；新建与复制不提交。 */
   id?:number;
   /** 用户明确重选挂账对象时，从服务端重新冻结当前名称。 */
   refreshRelatedName?:boolean;
+  /** 明确重选商品或费用类型时更新其服务端名称编码快照。 */
+  refreshItemName?:boolean;
   productId?: number | null;
   feeItemId?: number | null;
   qty: number;
@@ -349,9 +352,9 @@ export function validateDoc(input: DocInput, phase: 'issue' | 'post' = 'post'): 
       const n = i + 1;
       if (def.lines === 'product' && !l.productId) errors.push(`第 ${n} 行请选择商品`);
       if (def.lines === 'fee' && !l.feeItemId) {
-        if (!def.ui.moneyEntry) errors.push(`第 ${n} 行请选择费用项目`);
+        if (!def.ui.moneyEntry && !def.ui.feeAmountOnly) errors.push(`第 ${n} 行请选择费用项目`);
         else {
-          if (!l.itemName?.trim() || l.itemName.trim().length > 100) errors.push(`第 ${n} 行请填写收入项目（最多100字）`);
+          if (!l.itemName?.trim() || l.itemName.trim().length > DOC_LINE_ITEM_NAME_MAX_LENGTH) errors.push(`第 ${n} 行请填写${def.ui.feeAmountOnly?'费用类型':'收入项目'}（最多${DOC_LINE_ITEM_NAME_MAX_LENGTH}字）`);
           if (l.qty !== 1 || !Number.isInteger(l.unitPriceCents) || l.unitPriceCents <= 0) errors.push(`第 ${n} 行金额必须大于 0（最多两位小数）`);
         }
       }
@@ -361,7 +364,7 @@ export function validateDoc(input: DocInput, phase: 'issue' | 'post' = 'post'): 
   } else if (input.lines?.length) {
     input.lines.forEach((l, i) => {
       const n = i + 1;
-      if (!l.itemName?.trim()) errors.push(`第 ${n} 行请填写${def.ui.moneyItemLabel ?? '项目'}`);
+      if (!l.itemName?.trim() || l.itemName.trim().length > DOC_LINE_ITEM_NAME_MAX_LENGTH) errors.push(`第 ${n} 行请填写${def.ui.moneyItemLabel ?? '项目'}（最多${DOC_LINE_ITEM_NAME_MAX_LENGTH}字）`);
       if (!Number.isInteger(l.unitPriceCents) || l.unitPriceCents <= 0) errors.push(`第 ${n} 行金额必须大于 0（最多两位小数）`);
     });
     if (def.bank === 'transfer' && input.accounts?.length) {
@@ -523,7 +526,7 @@ export function buildEntries(input: DocInput, costOf: (productId: number) => num
       if (total - paid) out.push(e('receivable', partyId, total - paid));
       break;
     case 'expense':
-      for (const l of input.lines ?? []) out.push(e('expense', l.feeItemId as number, lineAmount(l)));
+      for (const l of input.lines ?? []) out.push(e('expense', l.feeItemId ?? 0, lineAmount(l)));
       if (paid) out.push(...bankLegs(-1, paid));
       if (offset) out.push(e('prepayment', partyId, -offset));
       if (total - paid - offset) out.push(e('payable', partyId, -(total - paid - offset)));

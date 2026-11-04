@@ -117,7 +117,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const freshLines = () => emptyLines(1).map(row => def.lines === 'product' ? { ...row, qty: '', unit: '件' } : row);
   const [lines, setLines] = useState<LineState[]>(
     structuredLines && doc?.lines.length
-      ? doc.lines.map((l) => ({ id:l.id, unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName, qty: ui.feeAmountOnly ? '1' : String(l.qty), price: ui.feeAmountOnly ? centsToYuan(lineAmount(l)) : unitYuanText(l.unitPriceCents), memo: l.memo ?? '', gift: !!l.productId && l.unitPriceCents === 0, node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
+      ? doc.lines.map((l) => ({ id:l.id, unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, productLabel:[l.productName,l.itemCode].filter(Boolean).join(' · '),feeItemId: l.feeItemId ?? null, feeItemName: l.feeItemName,feeItemLabel:[l.feeItemName,l.itemCode].filter(Boolean).join(' · '), qty: ui.feeAmountOnly ? '1' : String(l.qty), price: ui.feeAmountOnly ? centsToYuan(lineAmount(l)) : unitYuanText(l.unitPriceCents), memo: l.memo ?? '', gift: !!l.productId && l.unitPriceCents === 0, node: l.relatedNode ?? '', relatedId: l.relatedId ?? null, relatedName: l.relatedName ?? '', needObject: false }))
       : structuredLines ? freshLines() : [],
   );
   const toAccts = (role: 'out' | 'in'): AcctState[] => (doc?.accounts ?? []).filter((a) => a.role === role).map((a) => ({ id: a.bankAccountId, name: a.bankName, amount: centsToYuan(a.amountCents) }));
@@ -203,8 +203,8 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const priceOf = (t: string) => { const v = unitPriceOf(t); return typeof v === 'number' && !Number.isNaN(v) ? v : 0; };
   const body = () => {
     const parsedLines = lines
-      .filter((l) => !(inline && !doc && !l.productId && !l.feeItemId && !l.price)) // 开单页预留的空行不算
-      .map((l) => ({ id:l.id, refreshRelatedName:l.refreshRelatedName||undefined, productId: l.productId, feeItemId: l.feeItemId, qty: ui.feeAmountOnly ? 1 : Number(l.qty), unitPriceCents: ui.feeAmountOnly ? parse(l.price) ?? 0 : l.gift ? 0 : (() => { const v = unitPriceOf(l.price); if (Number.isNaN(v)) throw new Error('单价格式不对（最多六位小数）'); return v ?? 0; })(), memo: l.memo || undefined, unit: l.unit.trim() || null, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
+      .filter((l) => !(inline && !doc && !l.productId && !l.feeItemId && !l.feeItemName && !l.price)) // 开单页预留的空行不算
+      .map((l) => ({ id:l.id, refreshRelatedName:l.refreshRelatedName||undefined, refreshItemName:l.refreshItemName||undefined,itemName:ui.feeAmountOnly&&!l.feeItemId?l.feeItemName.trim()||null:undefined, productId: l.productId, feeItemId: l.feeItemId, qty: ui.feeAmountOnly ? 1 : Number(l.qty), unitPriceCents: ui.feeAmountOnly ? parse(l.price) ?? 0 : l.gift ? 0 : (() => { const v = unitPriceOf(l.price); if (Number.isNaN(v)) throw new Error('单价格式不对（最多六位小数）'); return v ?? 0; })(), memo: l.memo || undefined, unit: l.unit.trim() || null, relatedNode: l.node || null, relatedId: l.relatedId, relatedName: l.relatedId ? null : l.relatedName.trim() || null }));
     const accounts = def.bank === 'transfer'
       ? [...outs.map((a) => ({ role: 'out' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })), ...ins.map((a) => ({ role: 'in' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 }))]
       : multiOn && payDir ? multi.map((a) => ({ role: payDir, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })) : null;
@@ -329,13 +329,13 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   /** 费用约束随已选资料同步带入，避免晚返回把新行或用户选择的节点覆盖。 */
   const pickFee = (i: number, id: number | null, name: string, data?: Record<string, unknown>) => {
     const first = id ? String(data?.defaultObject ?? '').split(/[、,，]/).map(value => value.trim()).find(value => FEE_BOOKING_NODE_MAP.has(value) && value !== '不固定') : '';
-    setLines(current => current.map((line, index) => index === i ? { ...line, feeItemId: id, feeItemName: String(data?.name||name), feeItemLabel: [name,data?.code].filter(Boolean).join(' · '), needObject: !!id && data?.requiredObject === 'yes', node: line.node || first || '' } : line));
+    setLines(current => current.map((line, index) => index === i ? { ...line, feeItemId: id, refreshItemName:true,feeItemName: String(data?.name||name), feeItemLabel: [name,data?.code].filter(Boolean).join(' · '), needObject: !!id && data?.requiredObject === 'yes', node: line.node || first || '' } : line));
   };
   /** 名称单位与选中商品一起带入；未设置则保留行内单位，最后回退为件。 */
   const pickProduct = (i: number, id: number | null, name: string, data?: Record<string, unknown>, labels?: Record<string,string>) => {
     const rawUnit = id ? String(data?.specUnit ?? '').trim() : '';
     const unit = id && labels?.specUnit || unitOptionFromText(rawUnit)?.label || rawUnit;
-    setLines(current => current.map((line, index) => index === i ? { ...line, productId: id, productName: String(data?.name || name), productLabel: [name, data?.code].filter(Boolean).join(' · '), unit: unit || line.unit || '件' } : line));
+    setLines(current => current.map((line, index) => index === i ? { ...line, productId: id, refreshItemName:true,productName: String(data?.name || name), productLabel: [name, data?.code].filter(Boolean).join(' · '), unit: unit || line.unit || '件' } : line));
   };
   const moneyItem = ui.moneyItemLabel ?? '项目';
   const parsedCount = structuredLines ? lines.filter((l) => l.productId || l.feeItemId || l.price).length : moneyLines.filter(l => l.item || l.amount).length;
@@ -343,11 +343,11 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
 
   const doPrint = () => {
     const rowsOut = structuredLines
-      ? lines.filter((l) => l.productId || l.feeItemId).map((l, i) => ui.feeAmountOnly ? [String(i + 1), l.feeItemName, l.node, l.relatedName, money(priceOf(l.price)), l.memo] : [String(i + 1), l.productName || l.feeItemName, l.unit, l.qty, money(l.gift ? 0 : priceOf(l.price)), money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: l.gift ? 0 : priceOf(l.price) })), l.memo])
+      ? lines.filter((l) => l.productId || l.feeItemId || l.feeItemName.trim()).map((l, i) => ui.feeAmountOnly ? [String(i + 1), l.feeItemName, l.node, l.relatedName, money(priceOf(l.price)), l.memo] : [String(i + 1), l.productName || l.feeItemName, l.unit, l.qty, money(l.gift ? 0 : priceOf(l.price)), money(lineAmount({ qty: Number(l.qty) || 0, unitPriceCents: l.gift ? 0 : priceOf(l.price) })), l.memo])
       : moneyLines.filter((l) => l.item || l.amount).map((l, i) => [String(i + 1), l.item, '', '1', l.amount, l.amount, l.memo]);
     const ok = printSlip({
       title: `${def.label}${doc ? ` ${doc.docNo}` : '（未保存）'}`,
-      head: [['日期', date], ...(def.party ? [[ui.partyLabel.replace('（选填）', ''), (type === 'expense' ? counterpartyName : party.name)] as [string, string]] : []), ...(type === 'expense' ? [['单据摘要', summary || `${lines.find(l => l.feeItemId)?.feeItemName || '费用'}等${parsedCount}项费用`] as [string, string]] : []), ...(def.warehouse ? [['仓库', wh.name] as [string, string]] : []), ['经办人', handlerName || handlerLegacy], [def.bank === 'transfer' ? '转出 → 转入' : '结算账户', def.bank === 'transfer' ? `${outs.map((a) => a.name).join('、')} → ${ins.map((a) => a.name).join('、')}` : multiOn ? multi.map((a) => `${a.name} ${money(yuanToCents(a.amount) || 0)}`).join('；') : bank.name]],
+      head: [['日期', date], ...(def.party ? [[ui.partyLabel.replace('（选填）', ''), (type === 'expense' ? counterpartyName : party.name)] as [string, string]] : []), ...(type === 'expense' ? [['单据摘要', summary || `${lines.find(l => l.feeItemId||l.feeItemName.trim())?.feeItemName || '费用'}等${parsedCount}项费用`] as [string, string]] : []), ...(def.warehouse ? [['仓库', wh.name] as [string, string]] : []), ['经办人', handlerName || handlerLegacy], [def.bank === 'transfer' ? '转出 → 转入' : '结算账户', def.bank === 'transfer' ? `${outs.map((a) => a.name).join('、')} → ${ins.map((a) => a.name).join('、')}` : multiOn ? multi.map((a) => `${a.name} ${money(yuanToCents(a.amount) || 0)}`).join('；') : bank.name]],
       columns: ui.feeAmountOnly ? ['#', '费用类型', '挂账节点', '挂账对象', '金额', '备注'] : ['#', ui.moneyEntry ? moneyItem : def.lines === 'fee' ? '费用项目' : '商品/项目', '单位', '数量', '单价', '金额', '备注'],
       rows: rowsOut,
       totals: [...(discountC ? [['明细合计', money(gross)] as [string, string], ['优惠', money(discountC)] as [string, string]] : []), [ui.totalLabel, money(total)], ...(moneyDiscC ? [['优惠金额（计入财务费用）', money(moneyDiscC)] as [string, string]] : []), ...(def.bank === 'transfer' && parse(fee) ? [[`手续费（${feeBearer === 'out' ? '转出方' : '转入方'}承担）`, money(parse(fee) ?? 0)] as [string, string]] : []), ...(def.settle ? [[ui.amountLabel, money(paidC)] as [string, string]] : [])],
