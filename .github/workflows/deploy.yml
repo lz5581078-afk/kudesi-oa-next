@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - name: Start isolated test database
         run: |
@@ -50,6 +50,9 @@ jobs:
           [ "$ready" = true ]
           docker exec -e MYSQL_PWD="$DB_PASSWORD" mysql mysql --protocol=TCP -h127.0.0.1 -uroot -e 'CREATE DATABASE kudesi_oa_next CHARACTER SET utf8mb4; CREATE DATABASE kudesi_oa_test CHARACTER SET utf8mb4;'
       - run: npm ci
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - run: npm run typecheck
       - run: RESOURCE_DB_TEST=0 npm test
       - run: RESOURCE_DB_TEST=1 npm test -w @kudesi/api -- --runInBand

@@ -227,6 +227,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     label: '售后',
     pages: [
       { ...page('after-sales', 'table', '售后表格', true), group: '售后管理' },
+      { ...page('after-sales', 'workspace', '售后工作台', true), group: '售后管理' },
       { ...page('after-sales', 'appeals', '订单申诉', true), group: '售后管理' },
     ],
   },

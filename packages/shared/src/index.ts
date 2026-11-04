@@ -51,3 +51,5 @@ export { compatiblePurchaseTemplate } from './purchase-compat-template';
 export * from "./desk-access";
 
 export * from './live-platforms';
+
+export * from './desktop-after-sales';
