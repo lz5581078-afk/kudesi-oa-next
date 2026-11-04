@@ -239,7 +239,7 @@ export function ArchiveHome({ type, onEnter }: { type: string; onEnter: (e: Hier
       )}
       {type === 'finance-fee-items' && <FeeSnapshotsDialog embedded canWrite={can('create')} canDelete={can('delete')} onClose={() => undefined} onRestored={refresh} />}
       {typesOpen && <ArchiveTypeDialog counts={counts} onClose={() => setTypesOpen(false)} onChanged={refresh} />}
-      {snapshots && <FeeSnapshotsDialog canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshots(false)} onRestored={refresh} />}
+      {snapshots && <FeeSnapshotsDialog createOnly canWrite={can('create')} canDelete={can('delete')} onClose={() => setSnapshots(false)} onRestored={refresh} />}
       {deleting && (
         <ReasonDialog
           title={`删除「${deleting.title}」`}

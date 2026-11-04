@@ -54,4 +54,28 @@ d('通用列表小数与引用显示名排序（隔离数据库）', () => {
   }
  });
 
+ it('往来状态按24号normal/inactive排序并保持公司隔离，其他资源不放开状态伪字段',async()=>{
+  for(const type of ['finance-suppliers','finance-customers','finance-fee-items']){
+   const active=await insert(type,'状态正常',{name:'状态正常'}),inactive=await insert(type,'状态停用',{name:'状态停用'});
+   await ds.manager.update(ResourceRecord,{id:inactive.id},{status:'inactive'});
+   await insert(type,'其他公司',{name:'其他公司'},otherCompany);
+   const q={sortBy:'$status',sortDir:'asc' as const,showHidden:true};
+   expect((await svc.list(actor,type,q)).items.map(r=>r.id)).toEqual([inactive.id,active.id]);
+   expect((await svc.list(actor,type,{...q,sortDir:'desc'})).items.map(r=>r.id)).toEqual([active.id,inactive.id]);
+  }
+  await expect(svc.list(actor,'finance-base-codes',{sortBy:'$status'})).rejects.toMatchObject({status:400});
+ });
+
+ it('费用多条搜索保留短语空格、逐行OR，涵盖同公司分类完整路径和未索引备注字段',async()=>{
+  const cat=await insert('finance-fee-categories','办公室支出',{name:'办公室支出'}),leaf=await insert('finance-fee-categories','打印纸',{name:'打印纸',parentId:cat.id});
+  const exact=await insert('finance-fee-items','办公费用 A',{name:'办公费用 A',categoryId:leaf.id,accountingSubject:'特别 科目'});
+  await insert('finance-fee-items','办公费用-B A',{name:'办公费用-B A'});
+  const shipping=await insert('finance-fee-items','运输',{name:'运输'});
+  await insert('finance-fee-items','办公费用 A',{name:'办公费用 A',categoryId:leaf.id},otherCompany);
+  expect((await svc.list(actor,'finance-fee-items',{keyword:'办公费用 A'})).items.map(row=>row.id)).toEqual([exact.id]);
+  expect((await svc.list(actor,'finance-fee-items',{keyword:'办公费用 A\n运输'})).items.map(row=>row.id)).toEqual([shipping.id,exact.id]);
+  expect((await svc.list(actor,'finance-fee-items',{keyword:'办公室支出 / 打印纸'})).items.map(row=>row.id)).toEqual([exact.id]);
+  expect((await svc.list(actor,'finance-fee-items',{keyword:'特别 科目'})).items.map(row=>row.id)).toEqual([exact.id]);
+ });
+
 });

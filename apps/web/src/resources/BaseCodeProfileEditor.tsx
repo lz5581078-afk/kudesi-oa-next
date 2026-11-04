@@ -1,5 +1,5 @@
 import { loadResourceDirectory } from './resourceDirectory';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { createChecker, getResourceDef, unitYuanText } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -14,8 +14,11 @@ const LABELS = { code: '商品编码', styleCode: '款式编码', name: '商品�
 const sourceCostText = (cents: number) => { const [whole, fraction = ''] = unitYuanText(cents).split('.'); return whole + '.' + fraction.padEnd(3, '0'); };
 
 /** 专属字段与只读来源上下排列，保存动作沿用资料服务及生效引用锁。 */
-export function BaseCodeProfileEditor({ record, onClose, onSaved }: { record: ResourceDto; onClose: () => void; onSaved: (row: ResourceDto) => void }) {
+type BaseProfileProps={record:ResourceDto;onClose:()=>void;onSaved:(row:ResourceDto)=>void};
+export function BaseCodeProfileEditor(props:BaseProfileProps){const {user}=useAuth();return <Profile key={JSON.stringify([user?.companyId,user?.id,user?.permissions,props.record.id,props.record.version])} {...props}/>;}
+function Profile({record,onClose,onSaved}:BaseProfileProps){
   const { user } = useAuth();
+  const mounted=useRef(true);useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   const can = user ? createChecker(user.permissions) : () => false;
   const [values, setValues] = useState<Record<string, unknown>>(() => Object.fromEntries(KEYS.map(k => [k, record.data[k] ?? ''])));
   const [kg, setKg] = useState(record.data.weightG === undefined ? '' : String(Number(record.data.weightG) / 1000));
@@ -34,14 +37,14 @@ export function BaseCodeProfileEditor({ record, onClose, onSaved }: { record: Re
   const isLocked = (key: string) => locked === null || locked.includes(key) || (!!record.data.canonicalId && ['code', 'styleCode'].includes(key));
   const byId = new Map(categories.map(r => [r.id, r]));
   const categoryPath = (id: number) => { const names: string[] = [], seen = new Set<number>(); for (let r = byId.get(id); r && !seen.has(r.id); r = byId.get(Number(r.data.parentId))) { seen.add(r.id); names.unshift(r.title); } return names.join(' / '); };
-  const leaves = categories.filter(r => r.status==='active'&&!categories.some(c => c.data.parentId === r.id));
+  const leaves = categories.filter(r => {if(r.status!=='active'||categories.some(c=>c.data.parentId===r.id))return false;const seen=new Set<number>();let node:ResourceDto|undefined=r;while(node){if(seen.has(node.id)||seen.size>=4||node.status!=='active')return false;seen.add(node.id);const parent=node.data.parentId;if(parent==null)return true;node=byId.get(Number(parent));if(!node)return false;}return false;});
   async function save(e: React.FormEvent) {
     e.preventDefault(); if (busy || locked === null || !categoriesReady) return;
     if (['code', 'styleCode', 'name', 'shortName'].some(k => !String(values[k] ?? '').trim())) return setError('请填写商品编码、款式编码、商品名称和商品简称。');
     if ((!values.codeDictionaryCategoryId && !record.data.categoryId) || !kg.trim() || !Number.isFinite(Number(kg)) || Number(kg) < 0) return setError('请选择分类，并填写不小于0的重量。');
     if (codeChanged && reason.trim().length < 2) return setError('手改编码请填写修改原因。');
     setBusy(true); setError('');
-    try { const row = await resourceApi.confirmBaseProfile(record.id, { ...values, weightG: Math.round(Number(kg) * 1e9) / 1e6, ...(codeChanged ? { codeChangeReason: reason.trim() } : {}) }); onSaved(row); } catch (e) { setError(e instanceof Error ? e.message : '保存失败'); setBusy(false); }
+    try { const row = await resourceApi.confirmBaseProfile(record.id, { ...values, weightG: Math.round(Number(kg) * 1e9) / 1e6, ...(codeChanged ? { codeChangeReason: reason.trim() } : {}) }); if(mounted.current)onSaved(row); } catch (e) { if(mounted.current){setError(e instanceof Error ? e.message : '保存失败');setBusy(false);} }
   }
   return <div className="base-profile-backdrop"><form className="base-profile-editor" role="dialog" aria-modal="true" aria-label="编辑商品基础编码" onSubmit={save}>
     <header><div><small>商品基础编码 · 专属资料</small><h2>编辑商品基础编码</h2><p>上方字段独立维护，保存后不再被来源商品档案覆盖。</p></div><button type="button" className="base-profile-close" aria-label="关闭" disabled={busy} onClick={onClose}><X size={22} /></button></header>

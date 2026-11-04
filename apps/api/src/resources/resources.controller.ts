@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import {referenceArchiveCsv} from './reference-archive-csv';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsUUID, IsString, Matches, MaxLength, Max, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { createChecker } from '@kudesi/shared';
@@ -11,6 +12,9 @@ class ListQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) pageSize?: number;
   @IsOptional() @IsString() @MaxLength(100) keyword?: string;
+  /** 原费用表多条搜索；普通资料keyword保留原100字契约。 */
+  @IsOptional() @IsString() @MaxLength(20000) referenceSearch?:string;
+  @IsOptional() @IsIn(['1']) referenceOrder?:string;
   @IsOptional() @IsString() @MaxLength(24) status?: string;
   @IsOptional() @IsString() @MaxLength(64) tab?: string;
   @IsOptional() @IsString() @MaxLength(48) fieldKey?: string;
@@ -161,6 +165,8 @@ class ImportDto {
   /** true=有问题的行跳过，其余照常导入 */
   @IsOptional() @IsBoolean() partial?: boolean;
   @IsOptional() @IsInt() @Min(1) parentId?: number;
+  @IsOptional() @IsBoolean() referenceArchive?:boolean;
+  @IsOptional() @IsInt() @Min(1) referenceCategoryId?:number;
 }
 
 class ProfileSheetDto {
@@ -180,6 +186,7 @@ class SimilarDto {
 }
 
 class ExportQueryDto {
+  @IsOptional() @IsIn(['1']) referenceArchive?:string;
   @IsOptional() @IsString() includeHidden?: string;
   // 导出范围：带上列表当前的筛选条件=导出当前筛选结果；带 ids=导出所选；都不带=全部
   @IsOptional() @IsString() @MaxLength(100) keyword?: string;
@@ -279,15 +286,19 @@ export class ResourcesController {
   @RequireResourceAction('view')
   @Get(':type')
   list(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ListQueryDto) {
-    return this.resources.list(user, type, { ...q, showHidden: q.showHidden === '1', archived: q.archived === '1', expiring: q.expiring === '1' });
+    const {referenceSearch,referenceOrder,...base}=q;
+    if(referenceOrder&&type!=='finance-fee-items')throw new BadRequestException('该资料不支持此顺序偏好');
+    if(referenceSearch!==undefined&&(type!=='finance-fee-items'||q.keyword!==undefined))throw new BadRequestException('这个资料不支持此搜索条件，或重复提交了搜索条件');
+    return this.resources.list(user, type, { ...base, ...(referenceOrder?{referenceOrder:true}:{}), keyword:referenceSearch??q.keyword, showHidden: q.showHidden === '1', archived: q.archived === '1', expiring: q.expiring === '1' });
   }
 
   @RequireResourceAction('export')
   @Get(':type/export')
   export(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ExportQueryDto) {
+    if(q.referenceArchive&&!referenceArchiveCsv(type))throw new BadRequestException('该资料没有原版CSV格式');
     const ids = (q.ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
     return this.resources.exportCsv(user, type, q.includeHidden === '1', {
-      keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, colFilters: q.colFilters, archived: q.archived === '1', expiring: q.expiring === '1',
+      referenceArchive:q.referenceArchive==='1', keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, colFilters: q.colFilters, archived: q.archived === '1', expiring: q.expiring === '1',
       sortBy: q.sortBy, sortDir: q.sortDir, ids: ids.length ? ids : undefined,
       derivedKeys: (q.cols ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20),
     });
@@ -308,6 +319,9 @@ export class ResourcesController {
   @RequireResourceAction('import')
   @Post(':type/import')
   import(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: ImportDto) {
+    if(dto.referenceArchive&&!referenceArchiveCsv(type))throw new BadRequestException('该资料没有原版CSV格式');
+    if(dto.referenceCategoryId!==undefined&&!dto.referenceArchive)throw new BadRequestException('请使用原版分类导入上下文');
+    if(dto.referenceArchive)return this.resources.importRows(user,type,dto.rows,dto.dryRun,dto.partial===true,dto.parentId,{categoryId:dto.referenceCategoryId});
     return this.resources.importRows(user, type, dto.rows, dto.dryRun, dto.partial === true, dto.parentId);
   }
 

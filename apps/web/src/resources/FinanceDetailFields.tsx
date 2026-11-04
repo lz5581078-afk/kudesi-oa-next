@@ -3,6 +3,7 @@ import { createChecker, restrictedFieldKeys, permissionOwner, resourcePermission
 import { useAuth } from '../auth/AuthContext';
 import { resourceApi, type ResourceDto } from './api';
 import { resourceFields, resourceGroups, resourceFieldWide } from './resourceFieldLayout';
+import {displayValue} from './format';
 import { InfoValue, SecretCell } from './DetailFields';
 import { FileList } from './FilesField';
 
@@ -11,22 +12,22 @@ export const detailNumber = (value: unknown): number | null => !['number', 'stri
 export const detailMoney = (value: unknown) => detailNumber(value) === null ? '未维护' : `¥${unitYuanText(Number(value))}`;
 export const detailWeight = (value: unknown) => detailNumber(value) === null ? '未维护' : `${(Number(value) / 1000).toFixed(6)} kg`;
 
-export function FinanceSection({ title, hint, step, children, className = '' }: { title: string; hint?: ReactNode; step?: number; children: ReactNode; className?: string }) {
-  return <section className={`finance-view-section ${className}`} aria-label={title}><div className="finance-view-heading"><h3>{step && <i className="finance-view-step" aria-hidden="true">{step}</i>}{title}</h3>{hint && <small>{hint}</small>}</div>{children}</section>;
+export function FinanceSection({ title, hint, icon, step, children, className = '' }: { title: string; hint?: ReactNode; icon?:ReactNode; step?: number; children: ReactNode; className?: string }) {
+  return <section className={`finance-view-section ${className}`} aria-label={title}><div className="finance-view-heading"><h3>{icon}{step && <i className="finance-view-step" aria-hidden="true">{step}</i>}{title}</h3>{hint && <small>{hint}</small>}</div>{children}</section>;
 }
 
 /** 字段仍从统一资料定义取权限、选项和格式；只读视图不挂载任何输入/自动保存逻辑。 */
-export function FinanceFields({ def, record, keys }: { def: ResourceDef; record: ResourceDto; keys: Array<string | [string, string]> }) {
+export function FinanceFields({ def, record, keys, before, plain=false }: { def: ResourceDef; record: ResourceDto; keys: Array<string | [string, string]>;before?:ReactNode;plain?:boolean }) {
   const { user } = useAuth();
   const can = user ? createChecker(user.permissions) : () => false;
   const restricted = restrictedFieldKeys(def, can);
-  return <dl className="finance-view-fields">{keys.map(item => {
+  return <dl className="finance-view-fields">{before}{keys.map(item => {
     const [key, label] = typeof item === 'string' ? [item, undefined] : item;
     const field = def.fields.find(f => f.key === key);
     if (!field || restricted.has(key) || field?.showWhen && !field.showWhen.in.includes(String(field.showWhen.field === 'status' ? record.status : record.data[field.showWhen.field] ?? ''))) return null;
     return <Fragment key={key}><div data-field={key} data-kind={field.type} className={resourceFieldWide(field) ? 'wide' : undefined}><dt>{label ?? field.label}</dt><dd>{field.type === 'secret' ? <SecretCell def={def} record={record} fieldKey={key} /> : field.type === 'files'
       ? <FileList ids={Array.isArray(record.data[key]) ? record.data[key] as number[] : []} files={record.files} />
-      : <InfoValue def={def} record={record} f={field} today={todayShanghai()} canView={type => can(resourcePermission(permissionOwner(type), 'view'))} />}</dd></div>{def.key === 'finance-fee-items' && key === 'isCommon' && <div data-field="requiresObject"><dt>费用单必须挂归属对象</dt><dd>{String(record.data.defaultObject || '').split(/[、,，]/).some(n => n && n !== '公司' && n !== '不固定') ? '是' : '否'}</dd></div>}</Fragment>;
+      : plain?(def.key==='finance-fee-items'&&key==='direction'&&record.data.direction==='expense'?'支出':displayValue(field,record))||'未填写':<InfoValue def={def} record={record} f={field} today={todayShanghai()} canView={type => can(resourcePermission(permissionOwner(type), 'view'))} />}</dd></div></Fragment>;
   })}</dl>;
 }
 

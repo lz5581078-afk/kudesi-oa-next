@@ -21,8 +21,10 @@ class PriceLogsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
-class CategoryScopeDto { @IsIn(['product', 'bundle']) scope!: CategoryScope }
-class CategoryExecuteDto { @IsIn(['product', 'bundle']) scope!: CategoryScope; @IsString() @MaxLength(80) signature!: string; @IsBoolean() confirmed!: boolean }
+class CategoryScopeDto { @IsIn(['product', 'bundle','archive']) scope!: CategoryScope }
+class CategoryExecuteDto { @IsIn(['product', 'bundle','archive']) scope!: CategoryScope; @IsString() @MaxLength(80) signature!: string; @IsBoolean() confirmed!: boolean }
+class CategoryAutomaticDto extends CategoryScopeDto { @IsBoolean() enabled!:boolean; @IsOptional() @IsBoolean() confirmed?:boolean; @IsOptional() @IsString() @MaxLength(80) targetKey?:string }
+class CategoryStatusDto extends CategoryScopeDto { @IsOptional() @Type(()=>Number) @IsInt() @Min(1) @Max(10000) page?:number }
 class PageDto { @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number }
 class ItemsDto {
   @IsIn(['finance-base-codes', 'finance-bundles']) type!: string;
@@ -117,6 +119,17 @@ export class OutboxController {
   @RequirePermission('finance.jst-sync.view')
   @Get('price/logs')
   priceLogs(@CurrentUser() u: AuthUser, @Query() q: PriceLogsDto) { return this.price.logs(u, { bundleId: q.bundleId, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
+
+  @RequirePermission('finance.jst-sync.view')
+  @Get('category/status')
+  categoryStatus(@CurrentUser() u:AuthUser,@Query() q:CategoryStatusDto){return this.category.status(u,q.scope,q.page??1);}
+  @RequirePermission('finance.jst-sync.view')
+  @Put('category/automatic')
+  categoryAutomatic(@CurrentUser() u:AuthUser,@Body() b:CategoryAutomaticDto){return this.category.automatic(u,b.scope,b.enabled,b.confirmed===true,b.targetKey);}
+  @RequirePermission('finance.jst-sync.view')
+  @Post('category/retry')
+  @HttpCode(200)
+  categoryRetry(@CurrentUser() u:AuthUser,@Body() b:CategoryScopeDto){return this.category.retryAutomatic(u,b.scope);}
 
   // ---------- 聚水潭分类同步（只有公司管理员；先预览差异，确认后只入队） ----------
   @RequirePermission('finance.jst-sync.view')

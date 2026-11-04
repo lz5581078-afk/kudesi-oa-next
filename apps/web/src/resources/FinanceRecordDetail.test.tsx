@@ -63,11 +63,30 @@ describe('六类查看入口与源码查看态', () => {
 
   it('只读供应商仍可复制银行信息，无编辑入口和写请求', async () => {
     auth.user.permissions = { isCompanyAdmin: false, allow: ['resource.finance-suppliers.view'], deny: [] };
-    show(dto('finance-suppliers', 1, { name: '演示供应商', bankAccountName: '演示公司', bank: '演示银行', bankAccountNo: 'DEMO-ACCOUNT' }));
+    show(dto('finance-suppliers', 1, { name: '演示供应商', bankAccountName: '演示公司', bank: '演示银行', bankAccountNo: 'DEMO-ACCOUNT' }),{initialEditing:true});
     await screen.findByRole('heading', { name: '查看供应商' });
     fireEvent.click(screen.getByRole('button', { name: '复制全部银行信息' }));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('供应商名称：演示供应商\n账户名称：演示公司\n开户行：演示银行\n银行账号：DEMO-ACCOUNT');
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
+    expect(resourceApi.update).not.toHaveBeenCalled();
+  });
+
+  it('供应商空银行项保留禁用复制按钮，编号复制留在补充资料，不改变真实空值', async () => {
+    show(dto('finance-suppliers', 1, { name: '演示供应商', code:'GYS-HC' }));
+    await screen.findByRole('heading', { name: '查看供应商' });
+    for(const label of ['账户名称','开户行','收款账号'])expect((screen.getByRole('button',{name:`复制${label}`}) as HTMLButtonElement).disabled).toBe(true);
+    const extra=screen.getByRole('button',{name:'复制供应商编号'}).closest('details');
+    expect(extra?.querySelector('summary')?.textContent).toBe('补充资料');
+    expect(extra?.open).toBe(false);
+    expect(resourceApi.update).not.toHaveBeenCalled();
+  });
+
+  it('供应商从列表直接编辑也只出现一层，取消后回到原查看窗口',async()=>{
+    show(dto('finance-suppliers',1,{name:'演示供应商'}),{initialEditing:true});
+    await screen.findByRole('dialog',{name:'编辑资料'});
+    expect(screen.queryByRole('dialog',{name:'供应商档案详情'})).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'取消编辑'}));
+    await screen.findByRole('heading',{name:'查看供应商'});
     expect(resourceApi.update).not.toHaveBeenCalled();
   });
 

@@ -1,3 +1,4 @@
+import {formatOaDateTime} from '../../../lib/oaDateTime';
 import { Fragment, useEffect, useState } from 'react';
 import { api, ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
@@ -8,9 +9,9 @@ import { jstApi } from './jstApi';
 interface Item {
   signature: string; id: number; type: string; code: string; name: string; state: string; uploadedCode: string | null; replacing: boolean;
   current: Record<string, unknown>; uploaded: Record<string, unknown> | null; diff: Array<{ field: string; uploaded: unknown; current: unknown }>;
-  records: Array<{ id: number; kind: string; status: string; attempts: number; lastError: string | null; createdAt: string; doneAt: string | null }>;
+  records: Array<{ blockedIntent?:boolean; id: number; kind: string; status: string; attempts: number; lastError: string | null; createdAt: string; doneAt: string | null }>;
 }
-const STATE: Record<string, [string, string]> = { not_synced: ['未同步', 'warn'], queued: ['排队中', 'warn'], confirming: ['等待回查确认', 'warn'], synced: ['已同步', 'ok'], failed: ['同步失败', 'bad'], incomplete: ['资料待补齐', 'bad'] };
+const STATE: Record<string, [string, string]> = { not_synced: ['未同步', 'warn'], queued: ['排队中', 'warn'], confirming: ['等待回查确认', 'warn'], synced: ['已同步', 'ok'], failed: ['同步失败', 'bad'], blocked_intent:['待处理配置/资料问题','warn'], incomplete: ['资料待补齐', 'bad'] };
 const KIND: Record<string, string> = { bundle_price_update: '同步基本售价', category_sync: '同步分类',  base_code_upsert: '上传基础编码', base_code_replace: '改码上传', base_code_disable: '停用旧编码', bundle_upsert: '上传组合', bundle_replace: '组合改码上传', bundle_disable: '停用组合', normal_product_upload: '商品资料上传' };
 const FIELD: Record<string, string> = { sku_id: '商品编码', i_id: '款式编码', name: '名称', short_name: '简称', properties_value: '颜色及规格', c_name: '分类', brand: '品牌', unit: '单位', weight: '重量(kg)', cost_price: '成本价', purchase_price: '采购价', code: '组合编码', lines: '构成' };
 const RECORD_STATUS: Record<string, string> = { pending: '待发送', sending: '发送中', done: '已完成', failed: '失败', cancelled: '已取消' };
@@ -108,7 +109,7 @@ export function JstSyncItems({ onQueued, initialType = 'finance-base-codes', ini
                   <strong>同步记录</strong>
                   <table className="data-table"><thead><tr><th>时间</th><th>操作</th><th>结果</th><th>说明</th></tr></thead>
                     <tbody>{it.records.length === 0 && <tr><td colSpan={4} className="muted center">还没有记录</td></tr>}
-                      {it.records.map((r) => <tr key={r.id}><td>{new Date(r.createdAt).toLocaleString('zh-CN', { hour12: false })}</td><td>{KIND[r.kind] ?? r.kind}</td><td>{RECORD_STATUS[r.status] ?? r.status}（尝试 {r.attempts} 次）</td><td className="bad-text">{r.lastError}</td></tr>)}
+                      {it.records.map((r) => <tr key={r.id}><td>{formatOaDateTime(r.createdAt)}</td><td>{KIND[r.kind] ?? r.kind}</td><td>{r.blockedIntent?'待处理配置/资料问题':RECORD_STATUS[r.status] ?? r.status}（尝试 {r.attempts} 次）</td><td className="bad-text">{r.lastError}</td></tr>)}
                     </tbody></table>
                 </td></tr>
               )}

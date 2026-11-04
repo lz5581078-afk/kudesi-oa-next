@@ -148,3 +148,7 @@ describe('飞书通知开关', () => {
     ask.mockRestore();
   });
 });
+
+it('审批意图被配置/资料拦住时显示待处理而非伪造发送失败，尝试次数真实保留0',async()=>{
+ apiMock.mockResolvedValue({total:1,rows:[item(1,{state:'blocked_intent',records:[{id:7,kind:'bundle_upsert',status:'failed',blockedIntent:true,attempts:0,lastError:'聚水潭授权尚未配置',createdAt:'2026-10-24T10:00:00Z',doneAt:null}]})]});render(<JstSyncItems onQueued={()=>undefined}/>);expect(await screen.findByText('待处理配置/资料问题')).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:/ZH-1/}));expect(screen.getByText('待处理配置/资料问题（尝试 0 次）')).toBeTruthy();expect(screen.queryByRole('cell',{name:'失败（尝试 0 次）'})).toBeNull();expect(screen.getByText('聚水潭授权尚未配置')).toBeTruthy();
+});

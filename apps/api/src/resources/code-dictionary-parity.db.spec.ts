@@ -37,6 +37,32 @@ d('编码独立分类维护统一规则（隔离数据库）',()=>{
   for(const parentId of [foreign.id,variety.id,inactive.id])await expect(create('非法归属'+parentId,{parentId})).rejects.toThrow(/同类|启用/);
   expect((await svc.get(actor,'finance-code-dictionaries',root.id)).data.parentId).toBeUndefined();
  });
+ it('两套编码分类共享规范化名称，跨层/跨套拒绝，档案与品种及公司仍独立，旧重名不迁移',async()=>{
+  const root=await create('名称域根'),child=await create('  Ｘ Ｙ 名称域  ',{parentId:root.id});
+  await expect(create('xy名称域')).rejects.toThrow(/名称已存在/);
+  await expect(svc.create(actor,'finance-categories',{archiveType:'bundle',name:'X Y 名称域',code:'NAB'})).rejects.toThrow(/名称已存在/);
+  const bundle=await svc.create(actor,'finance-categories',{archiveType:'bundle',name:'组合独占名称',code:'NBUN'});
+  await expect(create('组合独占名称')).rejects.toThrow(/名称已存在/);
+  await svc.create(actor,'finance-categories',{archiveType:'raw',name:'xy名称域',code:'NRAW'});
+  await create('xy名称域',{kind:'variety'});await create('xy名称域',{},other);
+  const legacy=await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:actor.companyId,type:'finance-code-dictionaries',title:'旧重复',data:{kind:'product_category',name:child.data.name,code:'LEGACY-DUP'},status:'active',createdBy:actor.id,updatedBy:actor.id}));
+  expect((await svc.update(actor,'finance-code-dictionaries',legacy.id,{sort:90})).data.name).toBe(child.data.name);
+  await expect(svc.update(actor,'finance-code-dictionaries',legacy.id,{name:bundle.data.name})).rejects.toThrow(/名称已存在/);
+ });
+ it('真实并发跨两套目录创建同名，等待公司锁后也只能一条成功',async()=>{
+  const result=await Promise.allSettled([create('并发唯一分类'),svc.create(actor,'finance-categories',{archiveType:'bundle',name:'并 发 唯 一 分 类',code:'CONCUR'})]);
+  expect(result.filter(row=>row.status==='fulfilled')).toHaveLength(1);
+  const failed=result.find(row=>row.status==='rejected') as PromiseRejectedResult;expect(String(failed.reason)).toMatch(/名称已存在/);
+ });
+ it('grid改名先等待公司锁且不先占分类行，与另一套普通新增同名只能一条成功',async()=>{
+  const original=await create('并发改名前分类'),runner=ds.createQueryRunner();await runner.connect();await runner.startTransaction();
+  await runner.manager.findOneOrFail(Company,{where:{id:actor.companyId},lock:{mode:'pessimistic_write'}});
+  const editing=svc.saveGridRow(actor,'finance-code-dictionaries',{id:original.id,version:original.version,values:{name:'并发改名目标'}},'合成并发改名');
+  let settled=false;void editing.then(()=>{settled=true;},()=>{settled=true;});
+  try{await new Promise(resolve=>setTimeout(resolve,40));expect(settled).toBe(false);await runner.manager.findOneOrFail(ResourceRecord,{where:{id:original.id,companyId:actor.companyId},lock:{mode:'pessimistic_write',onLocked:'nowait'}});await runner.commitTransaction();}finally{if(runner.isTransactionActive)await runner.rollbackTransaction();await runner.release();}
+  const result=await Promise.allSettled([editing,svc.create(actor,'finance-categories',{archiveType:'bundle',name:'并 发 改 名 目 标',code:'GRIDNEW'})]);
+  expect(result.filter(row=>row.status==='fulfilled')).toHaveLength(1);const failed=result.find(row=>row.status==='rejected') as PromiseRejectedResult;expect(String(failed.reason)).toMatch(/名称已存在/);
+ });
  it('统一排序必须同kind同级完整；跨域/漏项/其他公司拒绝',async()=>{
   const all=(await svc.list(actor,'finance-code-dictionaries',{showHidden:true,pageSize:200})).items;
   const roots=all.filter(r=>r.status==='active'&&r.data.kind==='product_category'&&!r.data.parentId),variety=all.find(r=>r.data.kind==='variety')!;

@@ -1,3 +1,4 @@
+import { UserPreferences1791000000000 } from './migrations/1791000000000-UserPreferences';
 import { FinanceLineItemSnapshots1787000000000 } from './migrations/1787000000000-FinanceLineItemSnapshots';
 import { FinanceEntryUnit1785000000000 } from './migrations/1785000000000-FinanceEntryUnit';
 import { FinanceRelatedNameSnapshot1786000000000 } from './migrations/1786000000000-FinanceRelatedNameSnapshot';
@@ -93,6 +94,7 @@ MIGRATIONS.push(CostSnapshotContext1784000000000);
 MIGRATIONS.push(FinanceEntryUnit1785000000000);
 MIGRATIONS.push(FinanceRelatedNameSnapshot1786000000000);
 MIGRATIONS.push(FinanceLineItemSnapshots1787000000000);
+MIGRATIONS.push(UserPreferences1791000000000);
 MIGRATIONS.push(SessionLegacyRuntime1777000000000);
 MIGRATIONS.push(SessionBrowserHistory1778000000000);
 

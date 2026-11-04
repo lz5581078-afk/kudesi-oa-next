@@ -1,6 +1,8 @@
+import {independentDefinitionFacts} from './base-definition-facts';
+import {purchasePriceSnapshot} from './product-purchase-history';
 import * as crypto from 'crypto';
 import { EntityManager } from 'typeorm';
-import { sumUnitCents, multiplyUnitCents, unitYuanText } from '@kudesi/shared';
+import { sumUnitCents, multiplyUnitCents, unitYuanText, scaledDecimal,unitCentsTicks } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 
 /**
@@ -99,7 +101,7 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
     if (seen.has(productId) || path.length > 10) return;
     seen.add(productId);
     const p = await one(em, companyId, 'finance-products', productId);
-    if (!p) return;
+    if (!p) {issues.push({archiveKey:'product:'+productId,productId,archiveName:'商品档案',parentPath:path,message:'组成商品档案不存在或不属于当前公司'});return;}
     const d = p.data;
     const cat = await categoryPath(em, companyId, d.categoryId);
     const brand = await one(em, companyId, 'finance-brands', d.brandId);
@@ -114,7 +116,7 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
     };
     archives.push(a);
 
-    if (p.status !== 'active') issue(a, '这个档案已经删除');
+    if (p.status !== 'active' || p.archivedAt) issue(a, p.status==='deleted'||p.archivedAt ? '这个档案已经删除' : '这个档案已停用');
     if (!str(d.name).trim()) issue(a, '没有填名称');
     if (cat.length === 0) issue(a, '没有选分类');
     else if ((await byField(em, companyId, 'finance-categories', 'parentId', cat[cat.length - 1].id)).length > 0) issue(a, '所选分类不是最末级');
@@ -156,10 +158,13 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
     if(num(bc.data.externalCost)===null)missing('没有导入成本价');
     if(!(Number(bc.data.codeSpecQty)>0) || !bc.data.codeSpecUnit)missing('规格数量和规格单位没有填全');
   }
+  let definition:unknown;
+  if(composed&&bc.data.codeDictionaryCategoryId){try{const facts=await independentDefinitionFacts(em,companyId,bc.data);definition=facts.definition;for(const message of facts.errors)issues.push({archiveKey:'definition',productId:0,archiveName:bc.title,parentPath:[],message});}catch(error){issues.push({archiveKey:'definition',productId:0,archiveName:bc.title,parentPath:[],message:error instanceof Error?error.message:'独立商品定义无效'});}}
   const snapshot: Snapshot = {
     profile: {
       ...profile(bc),
       ...externalProfile,
+      ...(definition?{definition}:{}),
       ...(composed ? { components: lines.map((l) => `${l.data.productId}x${l.data.qty}:${l.data.role}`).join(';') } : {}),
     },
     ...(real ? { canonical: profile(real) } : {}),
@@ -232,7 +237,7 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
   const real = typeof bc.data.canonicalId === 'number' ? await one(em, companyId, 'finance-base-codes', bc.data.canonicalId) : bc;
   const composed = real?.data.origin === 'composed';
   const p = await one(em, companyId, 'finance-products', real?.data.productId);
-  const external=real?.data.origin==='external_import';
+  const external=real?.data.origin==='external_import',independent=composed&&real?.data.codeDictionaryCategoryId!=null;
   const codingPath:ResourceRecord[]=[];
   if(bc.data.codeDictionaryCategoryId){let cur=await one(em,companyId,'finance-code-dictionaries',bc.data.codeDictionaryCategoryId);const seen=new Set<number>();while(cur && !seen.has(cur.id)){seen.add(cur.id);codingPath.unshift(cur);cur=await one(em,companyId,'finance-code-dictionaries',cur.data.parentId);}}
   const cat = codingPath.length ? codingPath : await categoryPath(em, companyId, bc.data.profileCategoryOverride ?? (composed ? bc.data.codeCategoryId : p?.data.categoryId ?? bc.data.categoryId));
@@ -240,7 +245,7 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
   const facts = composed ? await composedFacts(em, companyId, real!.id) : null;
   const w = real?.data.profileWeightOverride !== undefined ? num(real.data.profileWeightOverride) : composed ? facts!.weightG : num(p?.data.weightG) ?? num(real?.data.weightG);
   const cost = composed ? facts!.cost : num(p?.data.totalCost) ?? num(real?.data.cost);
-  const buy = external ? num(real?.data.externalPurchasePrice) : composed ? facts!.purchasePrice ?? cost : num(p?.data.purchasePrice) ?? cost;
+  const buy = external ? num(real?.data.externalPurchasePrice) : composed ? independent ? facts!.purchasePrice : facts!.purchasePrice ?? cost : num(p?.data.purchasePrice) ?? cost;
   const qty = composed || external ? num(bc.data.codeSpecQty) : p?.data.specQty == null ? null : str(p.data.specQty).trim() || null;
   const unit = composed || external ? str(bc.data.codeSpecUnit) : str(p?.data.specUnit);
   return {
@@ -251,7 +256,7 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
     properties_value: str(bc.data.spec) || (qty !== null ? `${qty}${unit}` : ''),
     c_name: cat.map((c) => c.title).join('/'),
     brand: brand?.title ?? '',
-    unit,
+    unit: independent ? str(real?.data.baseUnit)||unit : unit,
     weight: w === null ? null : Math.round(w * 1000) / 1_000_000,
     cost_price: cost === null ? null : Number(unitYuanText(cost)),
     purchase_price: buy === null ? null : Number(unitYuanText(buy)),
@@ -260,20 +265,23 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
 
 /** 多构成基础编码的重量、成本、采购价：按构成行 数量×商品档案 汇总；有一个组成缺成本，成本就是空。 */
 export async function composedFacts(em: EntityManager, companyId: number, baseCodeId: number): Promise<{ weightG: number; cost: number | null; purchasePrice: number | null; count: number }> {
-  const lines = baseCodeId ? await byField(em, companyId, 'finance-base-code-lines', 'baseCodeId', baseCodeId) : [];
-  let weight = 0;
+  const lines = !baseCodeId ? [] : em.queryRunner?.isTransactionActive ? await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:company AND r.type=:type',{company:companyId,type:'finance-base-code-lines'}).andWhere("JSON_EXTRACT(r.data, '$.baseCodeId')=:id",{id:baseCodeId}).orderBy('r.id','ASC').setLock('pessimistic_read').getMany() : await byField(em, companyId, 'finance-base-code-lines', 'baseCodeId', baseCodeId);
+  let weight = 0n;
   let cost: number | null = 0;
   let buy: number | null = 0;
   for (const l of lines) {
     const p = await one(em, companyId, 'finance-products', l.data.productId);
     const qty = num(l.data.qty) ?? 0;
-    weight += qty * (num(p?.data.weightG) ?? 0);
+    const weightProduct=scaledDecimal(qty,6)*scaledDecimal(num(p?.data.weightG)??0,6);
+    weight += weightProduct;
     const c = num(p?.data.totalCost);
-    cost = cost === null || c === null ? null : sumUnitCents([cost, multiplyUnitCents(c, qty)]);
-    const pp = num(p?.data.purchasePrice) ?? c;
-    buy = buy === null || pp === null ? null : sumUnitCents([buy, multiplyUnitCents(pp, qty)]);
+    cost = cost === null || c === null ? null : sumUnitCents([cost, multiplyUnitCents(c, qty,0,6)]);
+    const pp = p?purchasePriceSnapshot(p)?.purchasePrice??null:null;
+    buy = buy === null || pp === null ? null : sumUnitCents([buy, multiplyUnitCents(pp, qty,0,6)]);
   }
-  return { weightG: Math.round(weight * 100) / 100, cost: lines.length ? cost : null, purchasePrice: lines.length ? buy : null, count: lines.length };
+  const weightTicks=(weight+500_000n)/1_000_000n;
+  if(weightTicks>BigInt(Number.MAX_SAFE_INTEGER)||[cost,buy].some(value=>value!==null&&unitCentsTicks(value)>BigInt(Number.MAX_SAFE_INTEGER)))throw new Error('组成汇总超出安全精度范围');
+  return { weightG: Number(weightTicks)/1_000_000, cost: lines.length ? cost : null, purchasePrice: lines.length ? buy : null, count: lines.length };
 }
 
 export const OUTBOUND_LABELS: Record<keyof BaseCodeOutbound, string> = {

@@ -1,10 +1,12 @@
+import type {SkuInspection} from './SkuInspectionView';
 import type { FieldDef, FlowAction } from '@kudesi/shared';
 import { api } from '../../api/client';
 
+export interface FlowConfirmation{token:string;confirmed:boolean;reason:string}
 export interface TemplateInfo { key: string; label: string; description: string; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; active: boolean; version: number | null; custom?: boolean; steps?: Array<{ name: string; type: string }>; startable?: boolean }
 export interface RunRow {
   id: number; templateKey: string; templateLabel: string; title: string; status: string; requesterName: string; stepName: string | null; handlers: string[];
-  batchRef?:string;specCount?:number;completedSpecs?:number;progress?:Array<{name:string;handlers:string[];count:number;returned:boolean}>;
+  canDelete?:boolean;batchRef?:string;specCount?:number;completedSpecs?:number;progress?:Array<{name:string;handlers:string[];count:number;returned:boolean}>;
   dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; stepEnteredAt?: string | null;
 }
 export interface RunList { total: number; page: number; pageSize: number; rows: RunRow[] }
@@ -15,6 +17,9 @@ export interface RunStep {
   formRefLabels: Record<string, string>; enteredVia: string; enteredAt: string; finishedAt: string | null; dueAt: string | null; handledByName: string | null; recipients: string[];
 }
 export interface RunDetailDto {
+  syncIntents?:Array<{bundleId:number;state:string}>;
+  inspection?:SkuInspection;
+  stepDraft?:{canSave:boolean;stepId:number;form:Record<string,unknown>};
   historicalTasks?:Array<{id:number;sourceTaskId:string;stepId:number;title:string;status:string;createdAt:string;dueAt:string|null;finishedAt:string|null;submittedAt:string|null;doneNote:string|null;completionStandard:string|null;assigneeName:string;supervisorName:string|null}>;
   legacyHistory?:{sourceRunId:string;status:string;itemStatus?:string;createdAt:string|null;request?:{fields:FieldDef[];values:Record<string,unknown>};steps:Array<{stepId:number;sourceRecordId:string;name:string;comment:string|null;enteredAt:string|null;finishedAt:string|null;fields:FieldDef[];values:Record<string,unknown>}>};
   initialForm?: Record<string, unknown>;
@@ -35,7 +40,7 @@ export type RoutineBody = { supervisorId?: number | null; requiresReview?: boole
 export interface NotificationDto { unread: number; items: Array<{ id: number; kind: string; title: string; body: string | null; link: string | null; createdAt: string; read: boolean }> }
 
 export interface ApplicationDraftTemplate {id:number;version:number;status:string;label:string;steps:Array<{key:string;name:string;type:string;handlerName:string}>;issues:string[]}
-export interface ApplicationHeader {batchKey:string;title:string;requesterId:number;definitionId:number;definitionVersion:number;headerVersion:string;shared:Record<string,unknown>;steps:Array<{key:string;name:string;type:string}>;createdAt:string;canAdd:boolean}
+export interface ApplicationHeader {canDelete?:boolean;batchKey:string;title:string;requesterId:number;definitionId:number;definitionVersion:number;headerVersion:string;shared:Record<string,unknown>;steps:Array<{key:string;name:string;type:string;handlerName?:string}>;createdAt:string;canAdd:boolean}
 export interface ApplicationDraftResult {batchKey:string;headerVersion:string;runs:Array<{id:number;revision:number}>}
 export interface DraftReference {id:number;code:string;name:string;spec:string;clear:boolean;restrictedUsage:boolean;successful:Array<{id:number;code:string;name:string}>;inProgress:Array<{runId:number;itemId:string;batchRef:string;title:string;specName:string;status:string;requesterName:string;createdAt:string;nodeName:string;ownerName:string;matchedLines:Array<{role:string;quantity:number}>}>}
 const qs = (o: Record<string, string | number | boolean | undefined>) => {
@@ -53,7 +58,7 @@ export const flowApi = {
   addApplicationDrafts:(key:string,ref:string,body:{headerVersion:string;requestKey:string;payloads:Record<string,unknown>[]})=>post<ApplicationDraftResult>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}/items`,body),
   saveApplicationDraft:(id:number,body:{revision:number;payload:Record<string,unknown>})=>api<RunDetailDto>(`/flow/runs/${id}/draft`,{method:'PUT',body}),
   saveApplicationDraftShared:(key:string,ref:string,body:{headerVersion:string;expected:Array<{id:number;revision:number}>;payload:Record<string,unknown>})=>api<{ok:true;headerVersion:string}>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}/shared`,{method:'PUT',body}),
-  submitApplicationDrafts:(key:string,ref:string,body:{requestKey:string;items:Array<{id:number;revision:number}>})=>post<{ref:string;ok:number;failed:number;results:Array<{runId:number;ok:boolean;message?:string}>}>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}/submit`,body),
+  submitApplicationDrafts:(key:string,ref:string,body:{requestKey:string;comment?:string;items:Array<{id:number;revision:number;confirmation?:FlowConfirmation}>})=>post<{ref:string;ok:number;failed:number;results:Array<{runId:number;ok:boolean;message?:string}>}>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}/submit`,body),
   removeApplicationDraft:(id:number,revision:number,reason:string)=>api<{ok:true;headerVersion:string}>(`/flow/runs/${id}/draft`,{method:'DELETE',body:{revision,reason}}),
   removeApplicationDraftBatch:(key:string,ref:string,body:{headerVersion:string;expected:Array<{id:number;revision:number}>;reason:string})=>api<{ok:true}>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}`,{method:'DELETE',body}),
 
@@ -61,6 +66,7 @@ export const flowApi = {
   start: (templateKey: string, payload: Record<string, unknown>, requestKey: string) => post<RunDetailDto>('/flow/runs', { templateKey, payload, requestKey }),
   runs: (p: { groupSku?:boolean; view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page?: number; pageSize?: number }) => api<RunList>(`/flow/runs${qs(p)}`),
   run: (id: number) => api<RunDetailDto>(`/flow/runs/${id}`),
+  saveStepDraft:(id:number,body:{revision:number;stepId:number;form:Record<string,unknown>;draftContext?:Record<string,unknown>})=>api<RunDetailDto>(`/flow/runs/${id}/step-draft`,{method:'PUT',body}),
   pass: (id: number, b: { revision: number; stepId: number; form?: Record<string, unknown>; comment?: string }) => post<RunDetailDto>(`/flow/runs/${id}/pass`, b),
   back: (id: number, b: { revision: number; stepId: number; reason: string }) => post<RunDetailDto>(`/flow/runs/${id}/return`, b),
   abnormal: (id: number, b: { revision: number; stepId: number; reason: string }) => post<RunDetailDto>(`/flow/runs/${id}/abnormal`, b),

@@ -124,6 +124,29 @@ describe('资料维护原主页及内窗', () => {
     fireEvent.click(screen.getByRole('button', { name: '填入测试数据' })); expect((screen.getByLabelText(/^分类/) as HTMLSelectElement).value).toBe('');
   });
 
+  it('分类focus刷新仅接纳最后响应，完整父链仍可选且品牌保持自由文本', async () => {
+    render(<JstUploadPage />); await openFilled();
+    const category = screen.getByLabelText(/^分类/) as HTMLSelectElement;
+    const brand = screen.getByLabelText(/^品牌/) as HTMLInputElement;
+    expect(brand.type).toBe('text');
+    fireEvent.change(brand, { target: { value: '自填品牌，不在远端清单中' } });
+    type Options = Awaited<ReturnType<typeof jstApi.uploadOptions>>;
+    let finishOld!: (value: Options) => void, finishNew!: (value: Options) => void;
+    vi.mocked(jstApi.uploadOptions).mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; })).mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve; }));
+    fireEvent.focus(category); fireEvent.focus(category);
+    finishNew({ categories: ['根/中层/唯一叶'], brands: [], categoryOptions: [{ value:'根',label:'根',disabled:true,reason:'请选择聚水潭末级分类。' },{ value:'根/中层',label:'根/中层',disabled:true,reason:'请选择聚水潭末级分类。' },{ value:'根/中层/唯一叶',label:'根/中层/唯一叶',disabled:false }] });
+    await screen.findByRole('option', { name:'根/中层/唯一叶' });
+    expect((screen.getByRole('option', { name:/^根\/中层（不可选/ }) as HTMLOptionElement).disabled).toBe(true);
+    fireEvent.change(category, { target: { value:'根/中层/唯一叶' } });
+    finishOld({ categories:['旧响应/旧叶'], brands:['旧品牌'] });
+    await waitFor(() => expect(screen.queryByRole('option', { name:'旧响应/旧叶' })).toBeNull());
+    expect(category.value).toBe('根/中层/唯一叶');
+    expect(brand.value).toBe('自填品牌，不在远端清单中');
+    fireEvent.click(screen.getByRole('button', { name:'查重并上传' }));
+    await screen.findByText('已提交，等待发送。');
+    expect(jstApi.upload).toHaveBeenCalledWith(expect.objectContaining({categoryName:'根/中层/唯一叶',brand:'自填品牌，不在远端清单中'}),'signed-current-result',false);
+  });
+
   it('三身份编辑后迟到查重不能恢复旧确认或自动提交', async () => {
     let finish!: (value: Awaited<ReturnType<typeof jstApi.uploadCheck>>) => void;
     vi.mocked(jstApi.uploadCheck).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));

@@ -55,6 +55,8 @@ d('财务资料（真实数据库）', () => {
     expect(direct.items[0].id).toBe(party.id);
     const tree = await svc.categoryTree(actor, type, 'categoryIds', {});
     expect(tree.nodes.find(node => node.id === root.id)?.count).toBe(1);
+    expect(tree.nodes.find(node => node.id === root.id)?.directCount).toBe(0);
+    expect(tree.nodes.find(node => node.id === child.id)?.directCount).toBe(1);
     expect((await svc.list({ ...actor, companyId: 999999999 }, type, q)).total).toBe(0);
   });
 
@@ -430,9 +432,11 @@ d('财务资料（真实数据库）', () => {
     expect(f1.data.code).toBe('FY-991');
     expect(f1.data.requiredObject).toBe('no');
     const f2 = await svc.create(boss, 'finance-fee-items', { name: '手机卡', direction: 'offset', defaultObject: '手机号、店铺', requiredObject: 'no' });
-    expect(f2.data.requiredObject).toBe('yes');
+    expect(f2.data.requiredObject).toBe('no'); // 原档案允许明确设置；节点变更仍联动
     expect(f2.data.defaultObject).toBe('手机号、店铺'); // 原选择顺序决定制单时的首个默认节点
     const f3 = await svc.create(boss, 'finance-fee-items', { name: '无节点', direction: 'current' });
     expect(f3.data.defaultObject).toBe('不固定');
+    const derived=await svc.create(boss,'finance-fee-items',{name:'未指定必挂要求',defaultObject:'店铺'});
+    expect(derived.data.requiredObject).toBe('yes');
   });
 });

@@ -135,6 +135,8 @@ export function resolveFieldDef(field: FieldDef, values: Record<string, unknown>
 }
 
 export interface StatusDef extends Option {
+  /** 原页面明确允许更短原因时声明；未配置仍至少两个字。 */
+  reasonMinLength?:number;
   tone: 'ok' | 'warn' | 'bad' | 'muted';
   /** 切换到该状态必须填写原因（停用/注销/解除合作等） */
   requiresReason?: boolean;
@@ -316,6 +318,8 @@ export interface ResourceDef {
   derivedStores?: string;
   /** 复制新建时不带过去的字段（旧页面的“复制”规则：编号、名称、照片等） */
   copyOmit?: readonly string[];
+  /** 经同公司/查看权限/源版本核验后，复制可继承原引用归属。普通新增仍执行末级等规则。 */
+  copyReferenceFields?: readonly string[];
   /** 详情页展示这些子资源 */
   children?: readonly string[];
   /** 允许在同一表单事务内保存的直接子表，默认不开放。 */
@@ -1735,7 +1739,7 @@ export function validateResourceInput(
 export function validateStatusChange(def: ResourceDef, status: string, reason: string | undefined): string | null {
   const target = def.statuses.find((s) => s.value === status);
   if (!target) return '状态不合法';
-  if (target.requiresReason && !(reason && reason.trim().length >= 2)) return `改为“${target.label}”必须填写原因`;
+  if (target.requiresReason && !(reason && reason.trim().length >= (target.reasonMinLength??2))) return `改为“${target.label}”必须填写原因`;
   return null;
 }
 

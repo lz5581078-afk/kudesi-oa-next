@@ -162,7 +162,7 @@ db('直接档案 BOM 沿统一修订与验证发布（隔离 MySQL）',()=>{
   const f=await fixture(),payload=await f.envelope(await f.payload()),results=await Promise.allSettled(['合成并发甲','合成并发乙'].map(reason=>resources.create(f.user,'finance-bundle-revisions',{bundleId:f.bundle.id,reason,payload})));
   expect(results.filter(result=>result.status==='fulfilled')).toHaveLength(1);expect(results.filter(result=>result.status==='rejected')).toHaveLength(1);
   const revisions=await ds.manager.find(ResourceRecord,{where:{companyId:f.user.companyId,type:'finance-bundle-revisions'}});expect(revisions).toHaveLength(1);expect(revisions[0].status).toBe('pending');expect((await resources.get(f.user,'finance-bundles',f.bundle.id)).data.pendingRevisionId).toBe(revisions[0].id);
-  const logs=await ds.manager.find(ResourceChangeLog,{where:{companyId:f.user.companyId,resourceType:'finance-bundle-revisions'}});expect(logs.filter(log=>log.resourceId===revisions[0].id)).toHaveLength(1);
+  const logs=await ds.manager.find(ResourceChangeLog,{where:{companyId:f.user.companyId,resourceType:'finance-bundle-revisions'}});expect(logs.filter(log=>log.resourceId===revisions[0].id&&log.action==='create')).toHaveLength(1);expect(logs.filter(log=>log.resourceId===revisions[0].id&&log.action==='update')).toHaveLength(1);expect(revisions[0].data.bomVersionId).toEqual(expect.any(Number));expect(await ds.manager.count(ResourceRecord,{where:{companyId:f.user.companyId,type:'finance-bundle-bom-versions'}})).toBe(2);
  });
 
  it('统一资源真正新建人工仅有unitId也能进入组成修订、核对、发布与只读显示',async()=>{
@@ -175,6 +175,12 @@ db('直接档案 BOM 沿统一修订与验证发布（隔离 MySQL）',()=>{
   const context=await tools.composition(f.user,f.bundle.id);expect(context.facts['labor:'+labor.id]).toMatchObject({title:'合成实际装袋',unit:'元/件',available:true});expect((await resources.get(f.user,'finance-labor-costs',labor.id)).data.unitName).toBeUndefined();
   const other=await fixture(),foreignUnit=await resources.create(other.user,'finance-labor-units',{name:'元/外部件'}),saved=await ds.manager.findOneByOrFail(ResourceRecord,{id:labor.id});await ds.manager.update(ResourceRecord,{id:labor.id},{data:{...saved.data,unitId:foreignUnit.id,unitName:'伪装已有单位'}});
   const input=(await f.lines()).map(line=>({...line.data,...(line.data.laborId?{qty:2}:{} )}));await expect(resources.create(f.user,'finance-bundle-revisions',{bundleId:f.bundle.id,reason:'跨公司单位不可回退文本',payload:await f.envelope(input)})).rejects.toThrow(/计价单位/);
+ });
+
+ it('通用资源入口的null/数组/标量组成行统一业务400，拒绝后不留草稿/BOM/审计',async()=>{
+  const f=await fixture(),payload=JSON.parse(await f.envelope(await f.payload())),before=await resources.get(f.user,'finance-bundles',f.bundle.id),lines=await f.lines(),logs=await ds.manager.count(ResourceChangeLog,{where:{companyId:f.user.companyId}});
+  for(const invalid of [null,[],1,'伪造的行'])await expect(resources.create(f.user,'finance-bundle-revisions',{bundleId:f.bundle.id,reason:'合成非法行结构',payload:JSON.stringify({...payload,lines:[invalid]})})).rejects.toMatchObject({status:400,response:expect.objectContaining({statusCode:400,message:'每项组成必须是有效对象'})});
+  expect(await resources.get(f.user,'finance-bundles',f.bundle.id)).toEqual(before);expect(await f.lines()).toEqual(lines);expect(await ds.manager.count(ResourceRecord,{where:{companyId:f.user.companyId,type:'finance-bundle-revisions'}})).toBe(0);expect(await ds.manager.count(ResourceChangeLog,{where:{companyId:f.user.companyId}})).toBe(logs);
  });
 
 });

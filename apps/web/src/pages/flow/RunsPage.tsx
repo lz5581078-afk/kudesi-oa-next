@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {ChevronRight,Trash2} from 'lucide-react';
+import {SkuApplicationDeleteDialog} from './SkuApplicationDraftPanels';
+import {skuApplicationTime} from './skuApplicationTime';
 import { Link, useSearchParams } from 'react-router-dom';
 import { RUN_STATUS_LABEL } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
@@ -21,7 +24,7 @@ const EMPTY_HINT: Record<View, string> = {
 };
 
 /** 我发起的 / 抄送我的 / 流程总览：同一张列表，只是范围不同（总览要流程总览权限，服务端把关）。 */
-export function RunsPage({ view,skuApplications=false,reloadToken=0,hideRefresh=false }: { view: View;skuApplications?:boolean;reloadToken?:number;hideRefresh?:boolean }) {
+export function RunsPage({ view,skuApplications=false,reloadToken=0,hideRefresh=false,onOpenSkuApplication }: { onOpenSkuApplication?:(ref:string)=>void;view: View;skuApplications?:boolean;reloadToken?:number;hideRefresh?:boolean }) {
   const [params, setParams] = useSearchParams();
   const { can, user } = useAuth();
   const [status, setStatus] = useState('');
@@ -41,6 +44,7 @@ export function RunsPage({ view,skuApplications=false,reloadToken=0,hideRefresh=
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [deletingApplication,setDeletingApplication]=useState<{ref:string;title:string}|null>(null);
   const [applicationBatch,setApplicationBatch]=useState<string|null>(null);
   const open = skuApplications?null:Number(params.get('run')) || null;
   const batchOpen = skuApplications?applicationBatch:params.get('batch');
@@ -80,10 +84,11 @@ export function RunsPage({ view,skuApplications=false,reloadToken=0,hideRefresh=
     <div className="sku-application-my-heading"><h3>我的申请</h3><small>{loading?'正在加载申请...':`${list?.total ?? 0} 张申请单`}</small>{!hideRefresh&&<button type="button" className="secondary-button" disabled={loading} onClick={load}>刷新</button>}</div>
     {error&&<div role="alert" className="notice error">{error}<button type="button" onClick={load}>重试</button></div>}
     <div className="table-scroll"><table className="data-table"><thead><tr><th>申请单</th><th>状态</th><th>当前节点 / 处理人</th><th>验证进度</th><th>创建时间</th><th>操作</th></tr></thead><tbody>
-      {list?.rows.map(row=><tr key={row.batchRef ?? row.id}><td><strong>{row.title}</strong><small>申请单 {row.batchRef ?? `#${row.id}`} · {row.specCount ?? 0} 个规格</small></td><td>{row.progress?.some(step=>step.returned)?'有退回':({draft:'待提交',running:'流转中',completed:'已完成',cancelled:'已废除',rejected:'已拒绝',mixed:'部分已结束'} as Record<string,string>)[row.status] ?? row.status}</td><td>{row.progress?.map((step,index)=><div key={index}><strong>{step.returned?'退回 · ':''}{step.name} <b>{step.count} 个规格</b></strong><small>处理人：{step.handlers.join('、') || '待分配'}</small></div>)}</td><td><strong>{row.completedSpecs ?? 0} / {row.specCount ?? 0}</strong><small>规格已验证</small></td><td>{fmtTime(row.createdAt)}</td><td><button type="button" className="secondary-button" disabled={loading} onClick={()=>setApplicationBatch(row.batchRef ?? `run-${row.id}`)}>查看申请</button></td></tr>)}
+      {list?.rows.map(row=><tr key={row.batchRef ?? row.id}><td><strong>{row.title}</strong><small>申请单 #{row.id} · {row.specCount ?? 0} 个规格</small></td><td>{row.progress?.some(step=>step.returned)?'有退回':({draft:'待提交',running:'流转中',completed:'已完成',cancelled:'已废除',rejected:'已拒绝',mixed:'部分已结束'} as Record<string,string>)[row.status] ?? row.status}</td><td>{row.progress?.map((step,index)=><div key={index}><strong>{step.returned?'退回 · ':''}{step.name} <b>{step.count} 个规格</b></strong><small>处理人：{step.handlers.join('、') || '待分配'}</small></div>)}</td><td><strong>{row.completedSpecs ?? 0} / {row.specCount ?? 0}</strong><small>规格已验证</small></td><td>{skuApplicationTime(row.createdAt)}</td><td><div className="sku-application-row-actions"><button type="button" className="secondary-button" disabled={loading} onClick={()=>{const ref=row.batchRef??`run-${row.id}`;if(onOpenSkuApplication)onOpenSkuApplication(ref);else setApplicationBatch(ref);}}>查看申请<ChevronRight size={14}/></button>{row.canDelete&&row.batchRef&&<button type="button" aria-label={`删除申请 ${row.title}`} disabled={loading} onClick={()=>setDeletingApplication({ref:row.batchRef!,title:row.title})}><Trash2 size={16}/></button>}</div></td></tr>)}
       {!list?.rows.length&&<tr><td colSpan={6}>{loading?'正在加载我的申请...':error?'申请加载失败，请重试':'暂无我发起的申请'}</td></tr>}
     </tbody></table></div>
-    {list&&<Pager page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage}/>}
+    {list&&list.total>list.pageSize&&<Pager page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage}/>}
+    {deletingApplication&&<SkuApplicationDeleteDialog batchKey={deletingApplication.ref} title={deletingApplication.title} onClose={()=>setDeletingApplication(null)} onDeleted={()=>{setDeletingApplication(null);load();}}/>}
     {batchOpen&&<SkuBatchPanel key={batchOpen} batchKey={batchOpen} onClose={()=>setApplicationBatch(null)} onChanged={load}/>}
   </section>;
   return (

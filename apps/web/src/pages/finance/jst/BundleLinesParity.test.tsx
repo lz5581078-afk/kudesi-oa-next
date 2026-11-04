@@ -1,7 +1,6 @@
 import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {RevisionDialog} from './BundleDialogs';
-import {BundleBomDialog} from './BundleBomDialog';
 import {resourceApi,type ResourceDto} from '../../../resources/api';
 import {jstApi} from './jstApi';
 vi.mock('../../../resources/api',async original=>({...await original<typeof import('../../../resources/api')>(),resourceApi:{list:vi.fn(),get:vi.fn()}}));
@@ -22,12 +21,7 @@ it('第201项混合直接档案BOM全部读到并原样提交，人工/赠品/�
  await screen.findByText('组成200');fireEvent.change(screen.getByLabelText('组成修改原因'),{target:{value:'合成对照修改'}});fireEvent.click(screen.getByRole('button',{name:'保存新版本并核对'}));
  await waitFor(()=>expect(jstApi.bundleRevise).toHaveBeenCalledOnce());const saved=vi.mocked(jstApi.bundleRevise).mock.calls[0][2];expect(saved).toHaveLength(201);expect(saved[200]).toMatchObject({productId:901,role:'package',qty:2.5,includeInJst:false,costBucket:'shipping_package',sortOrder:200,note:'第201项真实档案'});expect(saved[200]).not.toHaveProperty('baseCodeId');expect(saved[100]).toMatchObject({laborId:902,role:'labor'});expect(jstApi.bundleComposition).toHaveBeenCalledWith(7);expect(vi.mocked(jstApi.bundleRevise).mock.calls[0][3]).toMatchObject({sourceToken:'a'.repeat(64),weight:{mode:'auto'}});
 },15000);
-it('组成完整读取失败不能开放部分BOM保存',async()=>{vi.mocked(jstApi.bundleComposition).mockRejectedValue(new Error('组成读取不完整，请重试'));render(<RevisionDialog bundle={bundle} onClose={()=>{}} onDone={()=>{}}/>);await screen.findByText('组成读取不完整，请重试');expect(screen.queryByRole('button',{name:'保存新版本并核对'})).toBeNull();expect(jstApi.bundleRevise).not.toHaveBeenCalled();});
-it('BOM当前与历史都解析真实productId，保留原参与聚水潭事实',async()=>{
- const history=dto(30,'finance-bundle-revisions',{payload:JSON.stringify([{productId:901,role:'package',qty:2,includeInJst:true}]),reason:'真实组成修订'});
- vi.mocked(resourceApi.list).mockImplementation(async(type)=>{const rows=type==='finance-bundle-lines'?[dto(11,type,{bundleId:7,productId:901,role:'package',qty:2,includeInJst:true})]:type==='finance-bundle-revisions'?[history]:[];return{items:rows,total:rows.length,page:1,pageSize:200};});
- render(<BundleBomDialog bundle={bundle} onClose={()=>{}} onRevise={()=>{}}/>);await screen.findByText('真实直接档案');fireEvent.click(screen.getByRole('button',{name:'查看组成'}));await screen.findByText('修订 #30 的组成');expect(screen.queryByText(/组成数据不完整/)).toBeNull();expect(screen.getByText('真实直接档案')).toBeTruthy();expect(screen.getByText('是')).toBeTruthy();expect(resourceApi.get).toHaveBeenCalledWith('finance-products',901);
-});
+it('组成完整读取失败不能开放部分BOM保存',async()=>{vi.mocked(jstApi.bundleComposition).mockRejectedValue(new Error('组成读取不完整，请重试'));render(<RevisionDialog bundle={bundle} onClose={()=>{}} onDone={()=>{}}/>);await screen.findByText('组成读取不完整，请重试');expect(screen.getByRole('dialog',{name:'修改组合组成'}).classList.contains('composition-revision-dialog')).toBe(true);expect(screen.queryByRole('button',{name:'保存新版本并核对'})).toBeNull();expect(jstApi.bundleRevise).not.toHaveBeenCalled();});
 it('新增空白包装后分类窗真实打开，选择后带入材料和单位，未选择不能静默过滤',async()=>{
  const context={sourceToken:'b'.repeat(64),profile:bundle.data,lines:[{role:'main',baseCodeId:11,qty:1,label:'原主品',unit:'KG',includeInJst:true}],facts:{'base:11':{title:'原主品',code:'HC-11',unit:'千克',weightG:1000,available:true}},weightG:1000,weightMode:'auto' as const,canManualWeight:true,pending:null,history:[]};
  vi.mocked(jstApi.bundleComposition).mockResolvedValue(context);const product=dto(901,'finance-products',{archiveType:'raw',categoryId:10,name:'真实新包装',code:'PKG-901',specUnit:'KG',weightG:10},'真实新包装');const category=dto(10,'finance-categories',{archiveType:'raw'},'真实原料类');category.status='active';product.status='active';

@@ -1,3 +1,11 @@
+import {assertBrandReferenceChanges} from './brand-references';
+import {beforeIndependentBaseCode,beginIndependentBaseForm,finishIndependentBaseForm} from './independent-base-code';
+import {financeCodeInitials,definitionCodeInitials} from './code-initials';
+import {beforeBomVersionSave,captureBomVersion,captureRevisionBom,nextBundleBomVersion,syncBomComponentLinks} from './bundle-bom-versions';
+import {beforeSalesPlatform} from './platform-rules';
+import {codeCategoryNamingRule,codeCategoryRuleSet,namingRuleData} from './bundle-naming-source';
+import {beforeSalesScenario} from './scenario-rules';
+import {assertCodeCategoryName} from './code-category-names';
 import {normalizeBundleComponent} from './bundle-component-validation';
 import {assertCompositionToken,bundleCompositionToken,readRevisionPayload,normalizedRevisionWeight,revisionWeightPatch,writeRevisionPayload} from './bundle-revision-facts';
 import {unfinishedApplications} from './bundle-guards';
@@ -10,10 +18,9 @@ import { archiveBaseCodeIdentity } from './product-base-code-sync';
 import { capacityQuantityCode, packagingCapacities } from './packaging-capacities';
 import { costCompositionFacts } from './cost-components';
 import { archiveCodePrefix, beforeArchivePrefix } from './archive-prefix';
-import { systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/shared';
+import { getResourceDef, systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { pinyin } from 'pinyin-pro';
 import { EntityManager,IsNull,Not } from 'typeorm';
 import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, UNIT_OPTIONS, FEE_BOOKING_NODE_MAP, FINANCE_RESOURCE_DEFS, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS,FEE_SIMILARITY_FIELDS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -49,14 +56,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined
 const dstr = (n: number) => String(n).replace('.', 'D');
 
 /** 取拼音首字母（大写）；英文数字原样保留，其它符号去掉。 */
-export function initials(text: string): string {
-  const out: string[] = [];
-  for (const ch of text.normalize('NFKC')) {
-    if (/[A-Za-z0-9]/.test(ch)) out.push(ch.toUpperCase());
-    else if (/[一-龥]/.test(ch)) out.push(pinyin(ch, { pattern: 'first', toneType: 'none' }).toUpperCase());
-  }
-  return out.join('');
-}
+export function initials(text: string): string { return financeCodeInitials(text); }
 
 /** 名称规格可为文字；只有纯数字规格才参与数量/重量换算。 */
 function numericSpecification(value: unknown): number | null {
@@ -116,6 +116,7 @@ async function beforeCategory(ctx: BeforeSaveContext) {
     if(parent.data.importArchiveType==='purchased' && parent.data.archiveType==='original_purchase')data.importArchiveType='purchased';
     else if(existing?.data.importArchiveType==='purchased')throw new BadRequestException('原外购共享分类不能移入其他归属的分类树');
   }
+  await assertCodeCategoryName(em,user.companyId,'finance-categories',data,existing);
   if (existing && existing.data.archiveType !== data.archiveType && await hasChildren(em,user.companyId,existing.id)) throw new BadRequestException('这个分类下还有下级分类，不能改所属类型');
   const family = (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' }, select: ['id', 'title', 'data'] })).filter(r => r.id !== existing?.id && r.data.archiveType === data.archiveType);
   data.code = str(data.code).toUpperCase();
@@ -168,7 +169,8 @@ async function rememberZeroReasons(host: RuleHost, em: EntityManager, user: Auth
 async function assertCodeFree(ctx: BeforeSaveContext, type: string, code: string, label: string) {
   const { em, user, existing } = ctx;
   if (em.queryRunner?.data.legacyImport) return;
-  const all = (await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'title', 'data'] })).filter((r) => r.id !== existing?.id && str(r.data.code));
+  const records=type==='finance-brands'?await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:companyId AND r.type=:type',{companyId:user.companyId,type}).orderBy('r.id','ASC').setLock('pessimistic_read').getMany():await em.find(ResourceRecord,{where:{companyId:user.companyId,type},select:['id','title','data']});
+  const all=records.filter(r=>r.id!==existing?.id&&str(r.data.code));
   const used = new Map(all.map((r) => [str(r.data.code).toUpperCase(), r.title] as const));
   if (!used.has(code)) return;
   let n = 2;
@@ -178,10 +180,19 @@ async function assertCodeFree(ctx: BeforeSaveContext, type: string, code: string
 }
 
 async function beforeBrand(ctx: BeforeSaveContext) {
-  const { data } = ctx;
-  const code=(str(data.code) || initials(str(data.name))).toUpperCase();
-  data.code=trustedResourceImport(ctx.em,ctx.user,'dictionaries') || ctx.existing?.data.code===code ? code : code.slice(0,8);
-  await assertCodeFree(ctx, 'finance-brands', str(data.code), '品牌码');
+  const { data,em,user,existing } = ctx;
+  await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+  const requested=str(data.code).trim(),base=(requested || initials(str(data.name)) || 'BRAND').toUpperCase();
+  let code=base;
+  if(code.length>48)throw new BadRequestException('品牌码不能超过48位');
+  if(!requested&&!existing){
+    const rows=await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:companyId AND r.type=:type',{companyId:user.companyId,type:'finance-brands'}).orderBy('r.id','ASC').setLock('pessimistic_read').getMany();
+    const used=new Set(rows.map(row=>str(row.data.code).toUpperCase()));
+    for(let suffix=2;used.has(code);suffix++){code=base+suffix;if(code.length>48)throw new BadRequestException('品牌自动编号已超过48位，请维护品牌码');}
+  }
+  data.code=code;
+  if(existing)await assertBrandReferenceChanges(em,user.companyId,existing,data);
+  await assertCodeFree(ctx, 'finance-brands', code, '品牌码');
 }
 
 /** 商品编码：类型段 – (采购:YZ|OEM) – 分类链 – 品牌码 – 名称首字母 – 规格 – 形态 */
@@ -503,6 +514,7 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     if (typeof data.categoryId === 'number') data.profileCategoryOverride = data.categoryId;
   }
   if(await beforeExternalBaseCode(ctx))return;
+  if(await beforeIndependentBaseCode(ctx))return;
   await validateCodingReferences(ctx);
   const product = await rec(em, user.companyId, 'finance-products', data.productId);
   if (!product) throw new BadRequestException('请选择来源商品档案');
@@ -767,9 +779,11 @@ const lineKey = (l: Data) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` :
 
 async function beforeNamingRule({ em, user, data }: BeforeSaveContext) {
   if (!user.permissions.isCompanyAdmin) throw new BadRequestException('只有公司管理员能改命名规则');
-  const cat = await rec(em, user.companyId, 'finance-categories', data.categoryId);
-  if (!cat) throw new BadRequestException('请选择适用分类');
-  data.scopeKey = `cat:${cat.id}`;
+  if(data.categoryId!=null&&data.codeDictionaryCategoryId!=null)throw new BadRequestException('命名规则只能指定一种来源分类');
+  const independent=data.codeDictionaryCategoryId!=null;
+  const cat=await rec(em,user.companyId,independent?'finance-code-dictionaries':'finance-categories',independent?data.codeDictionaryCategoryId:data.categoryId);
+  if(!cat||independent&&(cat.data.kind!=='product_category'||cat.status!=='active'||cat.archivedAt))throw new BadRequestException('请选择同公司有效的来源分类');
+  data.scopeKey=(independent?'code-cat:':'cat:')+cat.id;
   data.label = `${cat.title} 命名规则`.slice(0, 200);
   data.prefix = str(data.prefix).trim().toUpperCase();
   if (data.stylePrefix) data.stylePrefix = str(data.stylePrefix).trim().toUpperCase();
@@ -780,7 +794,7 @@ async function beforeNamingRule({ em, user, data }: BeforeSaveContext) {
     codeOverrides: str(data.codeOverrides), nameOverrides: str(data.nameOverrides),
   });
   if (err) throw new BadRequestException(err);
-  if (parseFieldList(str(data.codeFields)).includes('custom') && !/^[A-Z0-9]{1,12}$/.test(str(data.customCode).toUpperCase())) throw new BadRequestException('编码选了“自定义”，请填 1～12 位大写字母或数字的自定义编码段');
+  if (parseFieldList(str(data.codeFields)).includes('custom') && !/^[A-Z0-9-]{1,20}$/.test(str(data.customCode).toUpperCase())) throw new BadRequestException('编码选了“自定义”，请填 1～20 位大写字母、数字或连字符的自定义编码段');
   if (str(data.customCode)) data.customCode = str(data.customCode).toUpperCase();
 }
 
@@ -855,7 +869,9 @@ async function beforeBundleLine(ctx: BeforeSaveContext) {
     const bc0 = await rec(em, user.companyId, 'finance-base-codes', data.baseCodeId);
     const real0 = bc0 && typeof bc0.data.canonicalId === 'number' ? (await rec(em, user.companyId, 'finance-base-codes', bc0.data.canonicalId)) ?? bc0 : bc0;
     product = real0 ? await rec(em, user.companyId, 'finance-products', real0.data.productId) : null;
-    if (role === 'gift' && !em.queryRunner?.data.legacyImport && !trustedResourceImport(em,user,'bundle_codes')) {
+    if(role==='gift'&&bc0?.data.codeDictionaryCategoryId!=null&&!em.queryRunner?.data.legacyImport&&!trustedResourceImport(em,user,'bundle_codes')){
+      if(!await codeCategoryNamingRule(ctx.host,em,user.companyId,bc0.data.codeDictionaryCategoryId))throw new BadRequestException('赠品来源类目及上级未配置组合品编码规则');
+    }else if (role === 'gift' && !em.queryRunner?.data.legacyImport && !trustedResourceImport(em,user,'bundle_codes')) {
       const gp = bc0 ? await rec(em, user.companyId, 'finance-products', bc0.data.productId) : null;
       if (!str(gp?.data.giftShortName) || !str(gp?.data.giftCodeShortName)) throw new BadRequestException(`${name}：请先在商品档案里填写赠品简称和赠品编码简称`);
     }
@@ -866,7 +882,10 @@ async function beforeBundleLine(ctx: BeforeSaveContext) {
 }
 
 /** 平台/场景：被组合引用后，编码和段不能改；内置场景不能改编码 */
-const protectCode = (field: string, refField: string, builtin: string[]) => async ({ em, host, user, data, existing }: BeforeSaveContext) => {
+const protectCode = (field: string, refField: string, builtin: string[]) => async (ctx: BeforeSaveContext) => {
+  const {em,host,user,data,existing}=ctx;
+  if(field==='scenario')await beforeSalesScenario(ctx);
+  if(field==='platform')await beforeSalesPlatform(ctx);
   data.code = str(data.code).trim();
   if (!existing) return;
   const was = str(existing.data.code);
@@ -987,7 +1006,8 @@ const beforeParty = (prefix: string, type: string) => async (ctx: BeforeSaveCont
   const catType = type === 'finance-suppliers' ? 'finance-supplier-categories' : 'finance-customer-categories';
   const catIds = Array.isArray(data.categoryIds) ? (data.categoryIds as unknown[]).filter((x): x is number => typeof x === 'number') : [];
   const catsChanged = !existing || JSON.stringify(catIds) !== JSON.stringify(existing.data.categoryIds ?? []);
-  if (catsChanged) {
+  const inheritedCategory=getResourceDef(type)?.copyReferenceFields?.includes('categoryIds') && ctx.copySource?.companyId===user.companyId && ctx.copySource.type===type && JSON.stringify(catIds)===JSON.stringify(ctx.copySource.data.categoryIds??[]);
+  if (catsChanged && !existing && !inheritedCategory) {
     const total = await em.count(ResourceRecord, { where: { companyId: user.companyId, type: catType } });
     if (total > 0 && !existing && !catIds.length) throw new BadRequestException('请选择至少一个分类');
     if (total > 0 && catIds.length) {
@@ -1066,7 +1086,10 @@ async function beforeFeeItem(ctx: BeforeSaveContext) {
   const bad = nodes.find((x) => !FEE_BOOKING_NODE_MAP.has(x));
   if (bad) throw new BadRequestException(`挂账节点“${bad}”不存在`);
   data.defaultObject = nodes.length ? nodes.join('、') : '不固定';
-  data.requiredObject = nodes.some((n) => n !== '公司') ? 'yes' : 'no';
+  // 原创建/详情可明确编辑必挂对象；没有明确输入才取默认，修改节点仍重新推导。
+  const explicitRequirement=Object.prototype.hasOwnProperty.call(ctx.input??{},'requiredObject');
+  if (!existing&&!explicitRequirement || !!existing&&data.defaultObject!==existing.data.defaultObject) data.requiredObject = nodes.some(n=>n!=='公司')?'yes':'no';
+  else if(explicitRequirement&&!str(ctx.input?.requiredObject))delete data.requiredObject;
   if(!existing || !Object.keys(FEE_SIMILARITY_FIELDS).every(key=>str(data[key])===str(existing.data[key]))){
     const others=await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-fee-items',archivedAt:IsNull(),status:Not('deleted')},select:['id','data']});
     const {blocked}=inspectArchiveSimilarity(data,others.map(row=>({id:row.id,data:row.data})),existing?.id,FEE_SIMILARITY_FIELDS);
@@ -1106,6 +1129,7 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
   'finance-bundle-lines': beforeBundleLine,
   'finance-bundle-naming-rules': beforeNamingRule,
   'finance-bundle-revisions': beforeBundleRevision,
+  'finance-bundle-bom-versions':beforeBomVersionSave,
   'finance-platforms': protectCode('platform', 'platformId', []),
   'finance-scenarios': protectCode('scenario', 'scenarioId', ['STANDARD', 'SUPPLY_CHAIN', 'standard', 'supply_chain']),
   'finance-margins': beforeMargin,
@@ -1368,16 +1392,16 @@ async function namingItem(em: EntityManager, companyId: number, bc: ResourceReco
   const amount = numericSpecification(multi ? bc.data.codeSpecQty : p?.data.specQty) ?? 0;
   const supplyMode = p?.data.supplyMode === 'supplier_oem' ? '供应商OEM' : p?.data.supplyMode === 'original_purchase' ? '原装采购' : '';
   const packageType = str(p?.data.purchaseSpec);
-  const identityParts = [p?.data.categoryId, archiveType, p?.data.name, p?.data.brandId, str(p?.data.supplyMode) || archiveType, p?.data.purchaseSpec, unitCode].map((x) => str(x).trim());
+  const identityParts = [bc.data.codeDictionaryCategoryId??p?.data.categoryId, archiveType, p?.data.name, p?.data.brandId, str(p?.data.supplyMode) || archiveType, p?.data.purchaseSpec, unitCode].map((x) => str(x).trim());
   const plainSpec = `${amount}${unitNameOf(unitCode)}`;
   const mergeable = !isAlias && identityParts.every(Boolean) && amount > 0 && (!str(bc.data.spec) || str(bc.data.spec) === plainSpec || str(bc.data.spec) === `${amount}${unitCode}`);
   return {
     id: bc.id, code: str(bc.data.code), name: str(bc.data.name) || bc.title, shortName: str(bc.data.shortName), styleCode: str(bc.data.styleCode), spec: str(bc.data.spec), qty,
     categoryCode: str(leaf?.data.code), categoryName: leaf?.title ?? '',
     brandCode: brand ? str(brand.data.code) || initials(brand.title) : '', brandName: brand?.title ?? '',
-    varietyInitials: initials(variety), varietyName: variety, packageType, packageTypeCode: initials(packageType), supplyMode, supplyModeCode: supplyMode === '供应商OEM' ? 'OEM' : supplyMode ? 'YZCG' : '',
+    varietyInitials: bc.data.origin==='composed'&&bc.data.codeDictionaryCategoryId ? definitionCodeInitials(variety) : initials(variety), varietyName: variety, packageType, packageTypeCode: initials(packageType), supplyMode, supplyModeCode: supplyMode === '供应商OEM' ? 'OEM' : supplyMode ? 'YZCG' : '',
     weightG: num(bc.data.weightG) ?? num(p?.data.weightG) ?? 0,
-    realCode: str(real.data.code), amount, unitName: unitNameOf(unitCode), unitCode, isAlias,
+    realCode: str(real.data.code), amount, unitName: bc.data.origin==='composed'&&bc.data.codeDictionaryCategoryId ? str(bc.data.baseUnit)||unitNameOf(unitCode) : unitNameOf(unitCode), unitCode, isAlias,
     identity: mergeable ? JSON.stringify([...identityParts, str(bc.data.varietyName), str(p?.data.shape)]) : undefined,
     giftName: str(p?.data.giftShortName), giftCode: str(p?.data.giftCodeShortName),
     brandOptional: ['raw', 'shipping_material'].includes(archiveType),
@@ -1390,11 +1414,7 @@ export async function findNamingRule(host: RuleHost, em: EntityManager, companyI
   for (const c of [...chain].reverse()) {
     const r = await host.findByUnique(em, companyId, 'finance-bundle-naming-rules', `cat:${c.id}`);
     if (r) {
-      const d = r.data;
-      return {
-        prefix: str(d.prefix), namePrefix: str(d.namePrefix), stylePrefix: str(d.stylePrefix), codeFields: parseFieldList(str(d.codeFields)), nameFields: parseFieldList(str(d.nameFields)),
-        customCode: str(d.customCode), customName: str(d.customName), codeOverrides: parseOverrides(str(d.codeOverrides)), nameOverrides: parseOverrides(str(d.nameOverrides)),
-      };
+      return namingRuleData(r.data);
     }
   }
   return null;
@@ -1434,7 +1454,9 @@ export async function composeBundleFor(host: RuleHost, em: EntityManager, user: 
   const gifts = await merge(['gift']);
   if (mains.length === 0) return null; // 还没有主品：保持占位编码
   const input = await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, str(bundle.data.configNo), bundle.data.brandId);
-  const rule = await findNamingRule(host, em, user.companyId, mains[0].bc.data.origin === 'composed' ? mains[0].bc.data.codeCategoryId : (await rec(em, user.companyId, 'finance-products', mains[0].bc.data.productId))?.data.categoryId);
+  const independent=mains[0].bc.data.codeDictionaryCategoryId;
+  const rule=(independent!=null?await codeCategoryNamingRule(host,em,user.companyId,independent):null)??await findNamingRule(host, em, user.companyId, mains[0].bc.data.origin === 'composed' ? mains[0].bc.data.codeCategoryId : (await rec(em, user.companyId, 'finance-products', mains[0].bc.data.productId))?.data.categoryId);
+  input.itemRules=await codeCategoryRuleSet(host,em,user.companyId,[...mains,...gifts].map(row=>row.bc),false);
   const composed = composeBundle(rule, input);
   const manualCode = bundle.data.recordOrigin==='external_import' ? str(bundle.data.manualCode).trim() : str(bundle.data.manualCode).trim().toUpperCase();
   // 手改了编码，其余自动生成的部分信息不全也不拦（旧系统同样允许人工覆盖）
@@ -1472,6 +1494,8 @@ export async function refreshBundle(host: RuleHost, em: EntityManager, user: Aut
 async function publishRevision(host: RuleHost, em: EntityManager, user: AuthUser, bundleId: number, revisionId: number) {
   const revision = await rec(em, user.companyId, 'finance-bundle-revisions', revisionId);
   if (!revision || revision.status !== 'pending') return;
+  await captureBomVersion(host,em,user,bundleId,{unknown:true});
+  const candidate=await captureRevisionBom(host,em,user,revision);
   const active=publishing.get(em) ?? new Set<number>();
   active.add(bundleId);publishing.set(em,active);
   try {
@@ -1485,8 +1509,9 @@ async function publishRevision(host: RuleHost, em: EntityManager, user: AuthUser
     await refreshBundle(host, em, user, bundleId);
     const fresh = await rec(em, user.companyId, 'finance-bundles', bundleId);
     const newLines = (await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'bundleId', bundleId)).map((l) => l.data);
-    const curVer = /^V(\d+)$/.exec(str(fresh?.data.bomVersion) || 'V01');
-    await host.patchData(em, user, 'finance-bundles', bundleId, { bomVersion: `V${String((curVer ? Number(curVer[1]) : 1) + 1).padStart(2, '0')}`, pendingRevisionId: null, snapshot: fresh ? await bundleSnapshotJson(em, user.companyId, fresh.data, newLines) : undefined }, '构成修订已发布');
+    const nextVersion=nextBundleBomVersion(fresh?.data.bomVersion);
+    await host.patchData(em, user, 'finance-bundles', bundleId, { bomVersion: nextVersion, pendingRevisionId: null, snapshot: fresh ? await bundleSnapshotJson(em, user.companyId, fresh.data, newLines) : undefined }, '构成修订已发布');
+    await captureBomVersion(host,em,user,bundleId,{definition:str(candidate.data.definitionKey),activated:true,sealed:true});
     await host.setStatusDirect(em, user, 'finance-bundle-revisions', revisionId, 'published', '随组合验证发布');
   } finally {
     active.delete(bundleId);if(!active.size)publishing.delete(em);
@@ -1494,6 +1519,7 @@ async function publishRevision(host: RuleHost, em: EntityManager, user: AuthUser
 }
 
 export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promise<void>> = {
+  'finance-bundle-bom-versions':ctx=>syncBomComponentLinks(ctx.em,ctx.user,ctx.record),
   ...LABOR_AFTER_SAVE,
   ...EXPRESS_AFTER_SAVE,
   'finance-labor-costs': async (ctx) => {
@@ -1604,6 +1630,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
   'finance-bundle-revisions': async ({ em, host, user, record, existing }) => {
     const bundleId = record.data.bundleId;
     if (typeof bundleId !== 'number') return;
+    if(record.status==='pending')await captureRevisionBom(host,em,user,record);
     if (record.status === 'cancelled') {
       await host.patchData(em, user, 'finance-bundles', bundleId, { pendingRevisionId: null }, '构成修订已取消');
     } else if (record.status === 'pending' && !existing) {
@@ -1623,6 +1650,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
       await publishRevision(host, em, user, record.id, revId);
       return;
     }
+    if(record.status==='verified'&&existing?.status!=='verified')await captureBomVersion(host,em,user,record.id,{activated:true});
     // 手改项变了，也要重新生成
     const manualChanged = existing && ['manualCode', 'manualStyleCode', 'manualName', 'manualShortName'].some((k) => str(existing.data[k]) !== str(record.data[k]));
     if (manualChanged) await refreshBundle(host, em, user, record.id);
@@ -1659,7 +1687,9 @@ export const FINANCE_AFTER_DELETE: Record<string, (ctx: DeleteCtx) => Promise<vo
 
 export const FINANCE_BEFORE_FORM_SAVE: Record<string, (ctx: { em: EntityManager; host: RuleHost; user: AuthUser; existing: ResourceRecord | null }) => Promise<void>> = {
   'finance-products': async ({ em, existing }) => beginPurchaseHistoryBatch(em, existing),
+  'finance-base-codes': async ({em,user}) => beginIndependentBaseForm(em,user),
 };
 export const FINANCE_AFTER_FORM_SAVE: Record<string, (ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }) => Promise<void>> = {
   'finance-products': async ({ em, host, user }) => flushPurchaseHistory(host, em, user),
+  'finance-base-codes': async ({em,host,user,record}) => finishIndependentBaseForm(host,em,user,record,id=>markBundlesOfBaseCode(host,em,user,id)),
 };

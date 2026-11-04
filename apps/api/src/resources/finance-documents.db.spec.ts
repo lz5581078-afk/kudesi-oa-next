@@ -277,6 +277,15 @@ d('财务单据（真实数据库）', () => {
     await expect(docs.createDraft(boss, { type: 'expense', date: day, lines: [{ feeItemId: must, qty: 1, unitPriceCents: 1, relatedNode: '乱写' }] })).rejects.toThrow(/不认识/);
   });
 
+  it('费用详情独立修改必挂对象后，开立费用单按保存结果检查对象而非重新猜节点',async()=>{
+    const item=await svc.create(boss,'finance-fee-items',{code:'T-MANUAL-REQ',name:'合成独立归属要求',direction:'expense',defaultObject:'公司'});
+    const changed=await svc.saveForm(boss,'finance-fee-items',{id:item.id,version:item.version,requestKey:crypto.randomUUID(),values:{requiredObject:'yes'},collections:[]});
+    const draft=await docs.createDraft(boss,{type:'expense',date:day,bankAccountId:ids.bank,lines:[{feeItemId:item.id,qty:1,unitPriceCents:100}]});
+    await expect(docs.issue(boss,draft.id)).rejects.toThrow(/必须选挂账节点和挂账对象/);
+    await svc.saveForm(boss,'finance-fee-items',{id:item.id,version:changed.version,requestKey:crypto.randomUUID(),values:{requiredObject:'no'},collections:[]});
+    expect((await docs.issue(boss,draft.id)).status).toBe('issued');
+  });
+
   it('员工作为往来对象：同步员工名单（不重复）；费用单挂员工，没付的部分记在员工名下', async () => {
     const ep = new EmployeePartyService(ds, svc);
     const r1 = await ep.sync(boss);

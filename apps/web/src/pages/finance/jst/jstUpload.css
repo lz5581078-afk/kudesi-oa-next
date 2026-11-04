@@ -58,3 +58,5 @@
 .jst-upload-dialog .jst-upload-continue { all: revert; font: inherit; }
 .jst-upload-result { padding: 14px; border: 1px solid #cce7d5; background: #f1fbf4; }
 .jst-upload-result p { margin: 8px 0 0; font-size: 13px; }
+/* The original button row stretches its native continue button to its neighbour. */
+.jst-upload-duplicate > .row-actions { align-items:stretch; gap:10px; }

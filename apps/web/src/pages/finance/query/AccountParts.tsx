@@ -1,7 +1,7 @@
 import { querySearchTerms } from '@kudesi/shared';
 import { FRESH_HINT, fmtUpdated, freshnessTone } from '../freshness';
 
-export const KIND_LABEL: Record<string, string> = { company_public: '公司公户', company_card: '公司银行卡', cashier_account: '出纳账户', store_public: '店铺公户', store_personal_card: '店铺个人卡', legal_person_card: '法人卡', other: '其他' };
+export const KIND_LABEL: Record<string, string> = { company_public: '公司公户', company_card: '公司银行卡', cashier_account: '公司出纳账户', store_public: '店铺公户', store_personal_card: '店铺个人银行卡', legal_person_card: '法人卡', other: '其他' };
 export const STORE_KINDS = ['store_public', 'store_personal_card'];
 export const has = (text: string, kw: string) => !kw.trim() || querySearchTerms(kw).some((term)=>text.toLocaleLowerCase().includes(term.toLocaleLowerCase()));
 

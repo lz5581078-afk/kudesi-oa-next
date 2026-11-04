@@ -1,3 +1,4 @@
+import {formatOaDateTime} from '../../lib/oaDateTime';
 import { useEffect, useRef, useState } from 'react';
 import { OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, ACCOUNT_LABEL, DOC_STATUS_LABEL, DOC_TYPE_MAP, PARTY_KIND_LABEL, hasMoneyDiscount, lineAmount, todayInChina, type AccountKind } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
@@ -81,7 +82,7 @@ function DocDetailContent({ id, onClose, onChanged, presentation, row }: DocDeta
             {can(CONFIRM_TRANSFER_PERMISSION) && <button type="button" className="primary-button small" disabled={busy} onClick={() => setDialog('confirm')}>确认入账</button>}
           </div>
         )}
-        {doc.docType === 'transfer' && doc.transitStatus === 'confirmed' && <div className="notice ok" role="status">已确认入账{doc.confirmedAt ? `（${new Date(doc.confirmedAt).toLocaleString('zh-CN')}${doc.confirmedByName ? `，${doc.confirmedByName}` : ''}）` : ''}</div>}
+        {doc.docType === 'transfer' && doc.transitStatus === 'confirmed' && <div className="notice ok" role="status">已确认入账{doc.confirmedAt ? `（${formatOaDateTime(doc.confirmedAt)}${doc.confirmedByName ? `，${doc.confirmedByName}` : ''}）` : ''}</div>}
         <dl className="kv">
           <div className="kv-row"><dt>类型</dt><dd>{doc.typeLabel}</dd></div>
           <div className="kv-row"><dt>日期</dt><dd>{doc.docDate}</dd></div>
@@ -164,7 +165,7 @@ function DocDetailContent({ id, onClose, onChanged, presentation, row }: DocDeta
         )}
 
         <h3 className="section-title">操作记录</h3>
-        <ul className="stack">{doc.events.map((e) => <li key={e.id} className="log-item">{new Date(e.createdAt).toLocaleString('zh-CN')} · {e.actorName} · {ACTION_LABEL[e.action] ?? e.action}{e.note && `：${e.note}`}</li>)}</ul>
+        <ul className="stack">{doc.events.map((e) => <li key={e.id} className="log-item">{formatOaDateTime(e.createdAt)} · {e.actorName} · {ACTION_LABEL[e.action] ?? e.action}{e.note && `：${e.note}`}</li>)}</ul>
       </div>
       <div className="drawer-foot row-actions">
         {isDraft && can('finance.docs.create') && <button type="button" className="secondary-button" disabled={busy} onClick={() => setEditing(true)}>编辑</button>}

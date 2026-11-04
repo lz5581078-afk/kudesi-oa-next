@@ -55,7 +55,7 @@ export function FileThumb({ file, onRemove,removeText }: { file: FileInfo; onRem
           </div>
         </div>
       )}
-      {onRemove && <button type="button" className="icon-button file-remove" aria-label={`移除 ${file.name}`} onClick={onRemove}>{removeText || '✕'}</button>}
+      {onRemove && <button type="button" className={removeText?'link-button file-remove file-remove-text':'icon-button file-remove'} aria-label={`移除 ${file.name}`} onClick={onRemove}>{removeText || '✕'}</button>}
     </div>
   );
 }

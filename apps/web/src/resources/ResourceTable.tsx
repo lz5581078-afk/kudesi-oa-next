@@ -1,7 +1,7 @@
 import { StoreJstBadge } from './StoreJstSelect';
 import {FeeBookingNodeCell} from './FeeBookingNodeCell';
 import { useRef, type ReactNode } from 'react';
-import { dueBadgeFor, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { dueBadgeFor, STATUS_COL, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 import { CopyButton, isCopyable } from './CopyValue';
 import { displayValue, statusOf } from './format';
@@ -16,6 +16,8 @@ const ACT_W = 196;
 type Sort = { by: string; dir: 'asc' | 'desc' } | null;
 
 interface Props {
+  showStatus?: boolean;
+  referenceArchive?: boolean;
   def: ResourceDef;
   type: string;
   rows: ResourceDto[] | null;
@@ -47,6 +49,7 @@ interface Props {
   /** 操作列宽（默认 196，分级布局的行内操作多一些） */
   actWidth?: number;
   onCellSaved?:()=>void;
+  onRowMove?:(source:number,target:number)=>void;
 }
 
 /**
@@ -55,12 +58,14 @@ interface Props {
  */
 export function ResourceTable(p: Props) {
   const { def, columns, rows } = p;
+  const rowDrag=useRef<number|null>(null);
+  const showStatus = p.showStatus !== false;
   // 没手动调过的列：按第一批数据里最长的内容定宽，之后翻页、筛选也不再变，免得列来回跳
   const auto = useRef<{ type: string; w: Record<string, number> }>({ type: p.type, w: {} });
   if (auto.current.type !== p.type) auto.current = { type: p.type, w: {} };
   if (rows && rows.length) for (const f of columns) if (auto.current.w[f.key] === undefined) auto.current.w[f.key] = autoColWidth(f, rows.map((r) => displayValue(f, r)), isCopyable(def, f) ? 44 : 0);
   const widthOf = (f: FieldDef) => p.widths[f.key] ?? auto.current.w[f.key] ?? defaultColWidth(f);
-  const total = CHECK_W + columns.reduce((n, f) => n + widthOf(f), 0) + STATUS_MIN + (p.rowActions ? (p.actWidth ?? ACT_W) : 0);
+  const total = CHECK_W + columns.reduce((n, f) => n + widthOf(f), 0) + (showStatus ? STATUS_MIN : 0) + (p.rowActions ? (p.actWidth ?? ACT_W) : 0);
   const allChecked = !!rows?.length && rows.every((r) => p.checked.includes(r.id));
 
   const drag = useRef<{ key: string; x: number; w: number } | null>(null);
@@ -79,7 +84,7 @@ export function ResourceTable(p: Props) {
     window.addEventListener('pointerup', up);
   };
 
-  const colSpan = columns.length + 2 + (p.rowActions ? 1 : 0);
+  const colSpan = columns.length + 1 + (showStatus ? 1 : 0) + (p.rowActions ? 1 : 0);
   const renderRow = (row: ResourceDto) => {
     const st = statusOf(def, row.status);
     const isSel = row.id === p.selected;
@@ -89,6 +94,11 @@ export function ResourceTable(p: Props) {
         className={isSel ? 'selected' : undefined}
         tabIndex={0}
         aria-selected={isSel}
+        draggable={!!p.onRowMove}
+        onDragStart={e=>{if(!p.onRowMove)return;rowDrag.current=row.id;e.dataTransfer.effectAllowed='move';}}
+        onDragOver={e=>{if(p.onRowMove&&rowDrag.current!==null)e.preventDefault();}}
+        onDrop={e=>{if(!p.onRowMove)return;e.preventDefault();const source=rowDrag.current;rowDrag.current=null;if(source!==null&&source!==row.id)p.onRowMove(source,row.id);}}
+        onDragEnd={()=>{rowDrag.current=null;}}
         onClick={() => p.onOpen(row.id)}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return;
@@ -99,7 +109,7 @@ export function ResourceTable(p: Props) {
           <input type="checkbox" aria-label={`勾选 ${row.title}`} checked={p.checked.includes(row.id)} onChange={(e) => p.onCheck([row.id], e.target.checked)} />
         </td>
         {columns.map((f, i) => {
-          const text = p.type==='finance-fee-items'&&f.key==='requiredObject'?['yes','是'].includes(String(row.data.requiredObject))?'必须挂对象':'可不挂对象':displayValue(f, row);
+          const text = p.referenceArchive && f.key==='paymentQr' ? Array.isArray(row.data[f.key]) && (row.data[f.key] as unknown[]).some(id=>typeof id==='number' && !!row.files[id]) ? '已上传' : '-' : p.type==='finance-fee-items'&&f.key==='requiredObject'?['yes','是'].includes(String(row.data.requiredObject))?'必须挂对象':'可不挂对象':displayValue(f, row);
           const due = dueBadgeFor(p.type, f.key, row.data, row.status, p.today);
           return (
             <td key={f.key} data-label={f.label} className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`}>
@@ -111,19 +121,19 @@ export function ResourceTable(p: Props) {
             </td>
           );
         })}
-        <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
+        {showStatus && <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{p.referenceArchive && row.status==='active' ? '正常' : st.label}</span></td>}
         {p.rowActions && <td data-label={p.rowActionsLabel ?? '办理'} className="c-acts">{p.rowActions(row)}</td>}
       </tr>
     );
   };
   return (
-    <div className="res-table-scroll" data-density={p.density}>
-      <table className="res-table" style={{ minWidth: total }}>
+    <div className={`res-table-scroll${p.referenceArchive ? ' reference-archive-table' : ''}`}  data-density={p.density}>
+      <table className="res-table" style={{ minWidth: p.referenceArchive ? 920 : total, tableLayout:p.referenceArchive ? 'auto' : undefined }}>
         <colgroup>
           <col style={{ width: CHECK_W }} />
-          {columns.map((f) => <col key={f.key} style={{ width: widthOf(f) }} />)}
-          <col style={{ minWidth: STATUS_MIN }} />
-          {p.rowActions && <col style={{ width: p.actWidth ?? ACT_W }} />}
+          {columns.map((f) => <col key={f.key} style={{ width: p.referenceArchive ? p.widths[f.key] : widthOf(f) }} />)}
+          {showStatus && <col style={p.referenceArchive ? undefined : { minWidth: STATUS_MIN }} />}
+          {p.rowActions && <col style={p.referenceArchive ? undefined : { width: p.actWidth ?? ACT_W }} />}
         </colgroup>
         <thead>
           <tr>
@@ -141,7 +151,7 @@ export function ResourceTable(p: Props) {
                 </th>
               );
             })}
-            <th scope="col">状态</th>
+            {showStatus && <th scope="col" aria-sort={p.referenceArchive ? p.sort?.by===STATUS_COL ? p.sort.dir==='asc'?'ascending':'descending' : 'none' : undefined}>{p.referenceArchive ? <button type="button" className="th-sort" onClick={()=>p.onSort(STATUS_COL)}>状态<span className="th-arrow" aria-hidden="true">{p.sort?.by===STATUS_COL?p.sort.dir==='asc'?'↑':'↓':''}</span></button> : '状态'}</th>}
             {p.rowActions && <th scope="col">{p.rowActionsLabel ?? '办理'}</th>}
           </tr>
         </thead>

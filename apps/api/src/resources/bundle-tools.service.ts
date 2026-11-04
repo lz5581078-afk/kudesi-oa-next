@@ -1,15 +1,20 @@
+import {captureBomVersion,listBomVersions} from './bundle-bom-versions';
+import {codeCategoryRuleSet} from './bundle-naming-source';
+import {bundleGenerationProfile,type BundleGenerationProfile} from './bundle-generation-profile';
+import {costCompositionFacts} from './cost-components';
+import {normalizeBundleComponent} from './bundle-component-validation';
 import {bundleLaborUnit} from './bundle-component-validation';
 import {bundleCompositionToken,readRevisionPayload,revisionWeightPatch,type RevisionWeight} from './bundle-revision-facts';
 import { codeLifecycleCounts, codeVerificationState } from './finance-code-lifecycle';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
-import { createChecker, getResourceDef, multiplyUnitCents, sumUnitCents,restrictedFieldKeys } from '@kudesi/shared';
+import { createChecker, getResourceDef, multiplyUnitCents, sumUnitCents,restrictedFieldKeys,scaledDecimal } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { Company, ResourceRecord } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
 import { COST_FIELDS, sigOf } from './base-code-support';
-import { composeBundle } from './bundle-naming';
+import { composeBundle, resolvedMainStyleCode } from './bundle-naming';
 import { bundleIssues, pickLine } from './bundle-checks';
 import { registerCostSnapshots } from './cost-snapshot';
 import { unfinishedApplications } from './bundle-guards';
@@ -23,7 +28,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v ==
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export interface LineInput { sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; role: string; baseCodeId?: number; productId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean; costBucket?: string; costTreatment?: string; note?: string }
-export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number; manualCode?: string; manualName?: string; manualShortName?: string; manualReason?: string }
+export interface TargetInput extends BundleGenerationProfile { sourceBundleId?:number;sourceToken?:string; platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number; manualCode?: string; manualName?: string; manualShortName?: string; manualReason?: string }
 interface SnapLine { role: string; ref: string; qty: number; weightG: number | null; cost: number | null; [key: string]: unknown }
 interface BundleSnap { profile: Record<string, unknown>; lines: SnapLine[] }
 
@@ -103,6 +108,7 @@ export class BundleToolsService {
     for (const l of lines) {
       if (!(l.qty > 0)) throw new BadRequestException('数量必须大于 0');
       if (l.role === 'labor') continue;
+      if(l.productId!=null){if(['main','gift'].includes(l.role))throw new BadRequestException('主商品和赠品必须选择已验证基础编码');await normalizeBundleComponent(em,this.resources,user,l as unknown as Record<string,unknown>);continue;}
       const bc = await em.findOne(ResourceRecord, { where: { id: Number(l.baseCodeId), companyId: user.companyId, type: 'finance-base-codes' } });
       if (!bc) throw new BadRequestException('构成里有基础编码不存在');
       if (bc.status !== 'verified') throw new BadRequestException(`基础编码「${bc.title}」还没验证，验证通过后才能加入组合`);
@@ -113,11 +119,26 @@ export class BundleToolsService {
     return { mains, gifts };
   }
 
+  /** 跨平台复用绑定同公司当前源BOM，客户端组成不能替换实际来源。 */
+  private async reuseSource(em:EntityManager,user:AuthUser,lines:LineInput[],targets:TargetInput[],lock=false){
+    const sourced=targets.filter(target=>target.sourceBundleId!==undefined);if(!sourced.length)return{lines,targets};
+    if(sourced.length!==targets.length||new Set(sourced.map(target=>target.sourceBundleId)).size!==1)throw new BadRequestException('一次只能复用同一源组合');
+    if(!createChecker(user.permissions)('resource.finance-bundles.view'))throw new ForbiddenException('没有查看源组合的权限');
+    const id=sourced[0].sourceBundleId;if(!Number.isSafeInteger(id)||!id||id<=0)throw new BadRequestException('源组合无效');
+    if(lock)await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+    const source=await em.findOne(ResourceRecord,{where:{companyId:user.companyId,type:TYPE,id},...(lock?{lock:{mode:'pessimistic_write' as const}}:{})});
+    if(!source||source.archivedAt||source.status==='archived')throw new NotFoundException('源组合不存在或已归档');
+    const records=await this.lineRecords(em,user,source.id),token=bundleCompositionToken(source,records);
+    if(sourced.some(target=>target.sourceToken!==token))throw new ConflictException('原组合或BOM已变化，请重新打开跨平台复用');
+    return{lines:records.map(record=>pickLine(record.data) as unknown as LineInput),targets:targets.map(target=>({...target,bundleCategoryId:num(source.data.bundleCategoryId)??target.bundleCategoryId,brandId:num(source.data.brandId)??target.brandId,baseUnit:str(source.data.baseUnit)||target.baseUnit,...(str(source.data.manualPropertiesValue)?{manualPropertiesValue:str(source.data.manualPropertiesValue),manualReason:target.manualReason||str(source.data.manualReason)}:{}),...(source.data.weightMode==='manual'?{weightMode:'manual' as const,manualWeightG:num(source.data.manualWeightG)??undefined,overrideReason:str(source.data.overrideReason)}:{})}))};
+  }
+
   /**
    * 保存前检查：每个“平台 + 场景”算出编码和名称，并做重复检查。
    * 同一构成、同平台同场景已有的组合直接复用；编码撞上本地组合、本地基础编码、聚水潭普通商品、聚水潭组合装任何一层都算重复。
    */
   async preview(user: AuthUser, lines: LineInput[], targets: TargetInput[], em: EntityManager = this.ds.manager) {
+    ({lines,targets}=await this.reuseSource(em,user,lines,targets));
     if (!targets.length) throw new BadRequestException('请至少选一个销售平台和销售场景');
     const seen = new Set<string>();
     for (const t of targets) {
@@ -126,16 +147,19 @@ export class BundleToolsService {
       seen.add(k);
     }
     const { mains, gifts } = await this.resolveLines(em, user, lines);
+    const facts=await costCompositionFacts(em,user.companyId,{weightMode:'auto'},lines as unknown as Record<string,unknown>[]);
     const productId = num(mains[0].bc.data.productId);
     const source = productId !== null && Number.isSafeInteger(productId) && productId > 0 ? await em.findOne(ResourceRecord, { where: { id: productId, companyId: user.companyId, type: 'finance-products' } }) : null;
-    const rule = await findNamingRule(this.resources, em, user.companyId, source?.data.categoryId);
+    const independent=mains[0].bc.data.codeDictionaryCategoryId;
+    const sourceRules=await codeCategoryRuleSet(this.resources,em,user.companyId,[...mains,...gifts].map(row=>row.bc),true);
+    const rule=independent!=null?sourceRules?.[mains[0].bc.id]??null:await findNamingRule(this.resources,em,user.companyId,source?.data.categoryId);
     const mySig = sigOf(...lines.map(lineKey).sort());
     const allBundles = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE } });
     const allLines = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-bundle-lines' } });
     const linesOf = new Map<number, LineInput[]>();
     for (const l of allLines) {
       const arr = linesOf.get(Number(l.data.bundleId)) ?? [];
-      arr.push({ role: str(l.data.role), baseCodeId: num(l.data.baseCodeId) ?? undefined, laborId: num(l.data.laborId) ?? undefined, qty: Number(l.data.qty) });
+      arr.push({ role: str(l.data.role), baseCodeId: num(l.data.baseCodeId) ?? undefined, productId:num(l.data.productId)??undefined, laborId: num(l.data.laborId) ?? undefined, qty: Number(l.data.qty) });
       linesOf.set(Number(l.data.bundleId), arr);
     }
     const out = [];
@@ -149,14 +173,19 @@ export class BundleToolsService {
         const brand = await em.findOne(ResourceRecord, { where: { id: t.brandId, companyId: user.companyId, type: 'finance-brands' } });
         if (!brand || brand.status !== 'active') throw new BadRequestException('组合品牌不存在或已停用');
       }
+      const profile=bundleGenerationProfile(user,t);
       const configNo = t.configNo || '01';
-      const auto = composeBundle(rule, await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, configNo, t.brandId));
+      const naming=await namingInputFor(em,user.companyId,mains,gifts,platform,scenario,configNo,t.brandId);
+      naming.itemRules=sourceRules;
+      const auto = composeBundle(rule,naming);
       // 新建时手填的编码/名称/简称覆盖自动生成的值（和“改码/改名”同一套规则：必须写原因）
       const manualCode = (t.manualCode ?? '').trim().toUpperCase(), manualName = (t.manualName ?? '').trim(), manualShort = (t.manualShortName ?? '').trim();
       const manualErrors = (manualCode || manualName || manualShort) && (t.manualReason ?? '').trim().length < 2 ? ['手填编码、名称或简称必须写明原因'] : [];
-      const composed = { ...auto, code: manualCode || auto.code, name: manualName || auto.name, shortName: manualShort || auto.shortName, errors: [...auto.errors, ...manualErrors] };
+      const composed = { ...auto, code: manualCode || auto.code, name: manualName || auto.name, styleCode:str(profile.manualStyleCode)||auto.styleCode, mainStyleCode:resolvedMainStyleCode(auto,str(profile.manualStyleCode)), propertiesValue:str(profile.manualPropertiesValue)||auto.propertiesValue, shortName: manualShort || auto.shortName, errors: [...auto.errors, ...manualErrors] };
+      if(sourceRules){for(const [value,label,limit] of [[composed.code,'组合品编码',48],[composed.styleCode,'组合品款式编码',48],[composed.name,'组合品名称',255],[composed.shortName,'组合品简称',160],[composed.propertiesValue,'组合品规格',255]] as const)if(value.length>limit)composed.errors.push(`${label}不能超过${limit}个字符`);}
       const reuse = allBundles.find((b) => b.status !== 'archived' && b.data.platformId === platform.id && b.data.scenarioId === scenario.id && str(b.data.configNo || '01') === configNo
         && (num(b.data.brandId) ?? null) === (t.brandId ?? null)
+        && Object.entries(profile).filter(([key])=>!['manualReason','overrideReason'].includes(key)).every(([key,value])=>b.data[key]===value)
         && sigOf(...(linesOf.get(b.id) ?? []).map(lineKey).sort()) === mySig);
       const layers: { layer: string; label: string; hit: string }[] = [];
       if (!reuse) {
@@ -171,7 +200,7 @@ export class BundleToolsService {
       }
       out.push({
         platformId: platform.id, platformName: platform.title, scenarioId: scenario.id, scenarioName: scenario.title, configNo,
-        code: composed.code, name: composed.name, styleCode: composed.styleCode, shortName: composed.shortName,
+        code: composed.code, name: composed.name, styleCode: composed.styleCode, mainStyleCode:composed.mainStyleCode, shortName: composed.shortName, propertiesValue:composed.propertiesValue, baseUnit:str(profile.baseUnit)||naming.mains[0]?.unitName||'', weightG:profile.weightMode==='manual'?profile.manualWeightG:facts.weightG, ...(this.canCost(user)?{cost:facts.preShipCostCents}:{}),
         reuse: reuse ? { id: reuse.id, code: str(reuse.data.code), status: reuse.status } : null,
         duplicates: layers,
         errors: composed.errors,
@@ -186,26 +215,40 @@ export class BundleToolsService {
     // 传入 outer 表示已经在别人的事务里（如流程引擎），和它同成同败；不传则自己开事务
     const run = <T>(fn: (em: EntityManager) => Promise<T>) => (outer ? fn(outer) : this.ds.transaction(fn));
     return run(async (em) => {
+      await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+      ({lines,targets}=await this.reuseSource(em,user,lines,targets,true));
       const pre = await this.preview(user, lines, targets, em);
       const bad = pre.targets.find((t) => !t.ok);
       if (bad?.errors.length) throw new BadRequestException(bad.errors.join('；'));
       if (bad) throw new ConflictException(`「${bad.code}」重复：${bad.duplicates.map((d) => `${d.label}「${d.hit}」`).join('、')}`);
+      let definitionSource:number|undefined=targets[0]?.sourceBundleId;
       const created: { id: number; code: string; reused: boolean }[] = [];
       for (const t of pre.targets) {
         if (t.reuse) { created.push({ id: t.reuse.id, code: t.reuse.code, reused: true }); continue; }
         const src = targets.find((x) => x.platformId === t.platformId && x.scenarioId === t.scenarioId);
-        const manual = src && (src.manualCode?.trim() || src.manualName?.trim() || src.manualShortName?.trim())
-          ? { manualCode: src.manualCode?.trim().toUpperCase() || undefined, manualName: src.manualName?.trim() || undefined, manualShortName: src.manualShortName?.trim() || undefined, manualReason: src.manualReason?.trim() }
-          : {};
+        const manual=src?bundleGenerationProfile(user,src):{};
         const b = await this.resources.createRecord(em, user, TYPE, { platformId: t.platformId, scenarioId: t.scenarioId, configNo: t.configNo, bundleCategoryId: src?.bundleCategoryId, brandId: src?.brandId, ...manual }, '批量生成组合');
         await buildBundleLines(this.resources as never, em, user, b.id, async () => {
           for (const l of lines) await this.resources.createRecord(em, user, 'finance-bundle-lines', { bundleId: b.id, ...pickLine(l as never), sortOrder: undefined }, '批量生成组合');
         });
+        if(definitionSource){const source=await this.load(em,user,definitionSource),bom=await captureBomVersion(this.resources,em,user,source.id,{unknown:!source.data.bomVersionId});if(bom)await this.resources.patchData(em,user,TYPE,b.id,{bomDefinitionKey:bom.data.definitionKey,bomVersionId:bom.id,bomVersion:bom.data.versionNo||null},'同一真实来源复用BOM',true);}else{await captureBomVersion(this.resources,em,user,b.id,{initial:true});definitionSource=b.id;}
         const fresh = await this.load(em, user, b.id);
         created.push({ id: b.id, code: str(fresh.data.code), reused: false });
       }
       return { created };
     });
+  }
+
+  /** 命名草稿只读预览上下文：只返回现有白名单命名字段，不含成本、价格或验证快照。 */
+  async namingSample(user:AuthUser,baseCodeId:number,qty:number){
+    if(!createChecker(user.permissions)('resource.finance-base-codes.view'))throw new ForbiddenException('没有查看商品基础编码的权限');
+    if(!Number.isSafeInteger(baseCodeId)||baseCodeId<=0||!Number.isFinite(qty)||qty<=0)throw new BadRequestException('预览商品或件数无效');
+    try{scaledDecimal(qty,6);}catch{throw new BadRequestException('预览件数最多六位小数');}
+    const base=await this.ds.manager.findOne(ResourceRecord,{where:{id:baseCodeId,companyId:user.companyId,type:'finance-base-codes'}});
+    if(!base||base.archivedAt||base.status!=='verified')throw new NotFoundException('预览商品不存在或尚未验证');
+    const productId=num(base.data.productId),product=productId?await this.ds.manager.findOne(ResourceRecord,{where:{id:productId,companyId:user.companyId,type:'finance-products'}}):null;
+    const brandId=['composed','external_import'].includes(str(base.data.origin))?num(base.data.codeBrandId):num(product?.data.brandId);
+    return{input:await namingInputFor(this.ds.manager,user.companyId,[{bc:base,qty}],[],null,null,'01'),brandId,platformId:num(base.data.platformId)};
   }
 
   // ---------- 构成修订 ----------
@@ -232,6 +275,8 @@ export class BundleToolsService {
       return {baseUnits,sourceToken:bundleCompositionToken(bundle,records),profile:Object.fromEntries(['code','name','shortName','bomVersion','weightMode'].map(key=>[key,bundle.data[key]])),lines:lines.map((line,index)=>({...line,label:facts[`${line.laborId?'labor':line.productId?'archive':'base'}:${line.laborId??line.productId??line.baseCodeId}`]?.title||records[index].title})),facts,weightG:current.weightG,weightMode:bundle.data.weightMode==='manual'?'manual':'auto',canManualWeight:createChecker(user.permissions)('product.cost.edit'),pending:pending&&parsed?{id:pending.id,reason:str(pending.data.reason),lines:parsed.lines,...(parsed.weight?{weightG:parsed.weight.grams,weightMode:parsed.weight.mode}:{})}:null,history:revisions.map(row=>({id:row.id,status:row.status,reason:str(row.data.reason),createdAt:row.createdAt}))};
     });
   }
+
+  async bomVersions(user:AuthUser,id:number){const bundle=await this.load(this.ds.manager,user,id);return listBomVersions(this.ds.manager,user,bundle,this.resources);}
 
   async createRevision(user: AuthUser, bundleId: number, reason: string, lines: LineInput[], facts?:{sourceToken:string;weight?:RevisionWeight}) {
     if (await this.pendingJobs(user, bundleId)) throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请等它发完再改构成');
@@ -366,6 +411,7 @@ export class BundleToolsService {
         }
         if (opts.syncToJst && rep.uploadSignature !== it.uploadSignature) throw new ConflictException('要上传的内容在核对之后变了，请重新核对');
         await this.ds.transaction(async em => {
+          await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
           const locked = await em.findOne(ResourceRecord, { where: { id: it.id, companyId: user.companyId, type: TYPE }, lock: { mode: 'pessimistic_write' } });
           if (!locked || !['pending', 'reverify'].includes(locked.status)) throw new ConflictException('组合状态已变化，请刷新后核对');
           const fresh = await this.report(user, it.id, em);

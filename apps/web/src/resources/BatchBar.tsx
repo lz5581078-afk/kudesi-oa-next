@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { BatchAction, FieldDef, ResourceDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
 import { resourceApi, type ResourceDto } from './api';
 import { loadRefOptions } from './RecordForm';
+import { FinanceArchiveMoveDialog } from './FinanceArchiveMoveDialog';
+import {ReasonDialog} from './ResourceConfirmDialog';
 
 type Result = { done: number; failed: Array<{ id: number; message: string }> };
 
@@ -68,9 +70,11 @@ function ReasonPickDialog({ title, pickField, reasonLabel, reasonRequired, confi
  * 勾选后的批量操作条：批量修改字段（config.batch）、停用/启用所选（所有资料）、带原因的批量动作（config.batchActions）、导出所选。
  * 服务端逐条校验权限、状态联动和归档，这里只负责收集输入。
  */
-export function BatchBar({ allowDelete, def, type, rows, checked, can, filterOpts, onMessage, onDone, onExport, onClear }: {
+export function BatchBar({ referenceArchive = false, currentCategoryId, allowDelete, def, type, rows, checked, can, filterOpts, onMessage, onDone, onExport, onClear }: {
   /** 分级布局：多一个“批量删除”（逐条写同一个原因，被引用的会失败并列出） */
   allowDelete?: boolean;
+  referenceArchive?: boolean;
+  currentCategoryId?:number;
   def: ResourceDef; type: string; rows: ResourceDto[]; checked: number[];
   can: (action: 'edit' | 'disable' | 'export') => boolean;
   filterOpts: Record<string, Array<{ id: number | string; label: string }>>;
@@ -78,9 +82,10 @@ export function BatchBar({ allowDelete, def, type, rows, checked, can, filterOpt
 }) {
   const [batchField, setBatchField] = useState('');
   const [batchValue, setBatchValue] = useState('');
-  const [dialog, setDialog] = useState<{ kind: 'delete' } | { kind: 'status'; status: string; label: string; requiresReason: boolean; ids: number[] } | { kind: 'action'; action: BatchAction } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: 'move' } | { kind: 'delete' } | { kind: 'status'; status: string; label: string; requiresReason: boolean; ids: number[] } | { kind: 'action'; action: BatchAction } | null>(null);
   const batchFields = (def.batch ?? []).filter((k) => k !== 'status').map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f));
   const picked = rows.filter((r) => checked.includes(r.id));
+  const financeParty=['finance-suppliers','finance-customers','finance-fee-items'].includes(type);
   // 停用 = 停用状态（没有就取第一个隐藏状态）；启用 = 默认状态。和旧系统一样：已经是目标状态的不重复处理
   const offStatus = def.statuses.find((s) => s.value === 'inactive') ?? def.statuses.find((s) => s.hidden && s.value !== 'deleted' && s.value !== 'cancelled');
   const onStatus = def.statuses.find((s) => s.value === def.defaultStatus);
@@ -93,9 +98,17 @@ export function BatchBar({ allowDelete, def, type, rows, checked, can, filterOpt
     setDialog(null); onClear(); onDone();
   };
 
+  async function deletePicked(reason:string){
+    const failed:Array<{id:number;message:string}>=[];let done=0;
+    for(const id of checked){try{if(financeParty)await resourceApi.remove(type,id,reason,picked.find(row=>row.id===id)?.version);else await resourceApi.remove(type,id,reason);done++;}catch(error){failed.push({id,message:error instanceof ApiError?error.message:'删除失败'});}}
+    await run(async()=>({done,failed}),'已删除');
+  }
+
+  const extras = (children: ReactNode) => referenceArchive ? null : children;
   return (
-    <div className="res-batch" role="group" aria-label="批量操作">
-      <strong className="res-batch-n">已勾选 {checked.length} 条</strong>
+    <div className={referenceArchive ? 'reference-archive-batch' : 'res-batch'} role="group" aria-label="批量操作">
+      {referenceArchive && <>{can('edit') && <button type="button" className="res-btn" disabled={!checked.length} onClick={()=>setDialog({kind:'move'})}>移动分类{checked.length ? ` ${checked.length}` : ''}</button>}{allowDelete && <button type="button" className="res-btn danger-text" disabled={!checked.length} onClick={()=>setDialog({kind:'delete'})}>批量删除{checked.length ? ` ${checked.length}` : ''}</button>}</>}
+      {extras(<><strong className="res-batch-n">已勾选 {checked.length} 条</strong>
       {def.batch && can('edit') && batchFields.length > 0 && (
         <>
           <select aria-label="批量修改字段" value={batchField} onChange={(e) => { setBatchField(e.target.value); setBatchValue(''); }}>
@@ -129,9 +142,10 @@ export function BatchBar({ allowDelete, def, type, rows, checked, can, filterOpt
         .filter((s) => s.value !== 'deleted' && s.value !== offStatus?.value && s.value !== onStatus?.value).slice(0, 4).map((s) => (
           <button key={s.value} type="button" className="secondary-button" onClick={() => setDialog({ kind: 'status', status: s.value, label: s.label, requiresReason: Boolean(s.requiresReason), ids: checked })}>批量{s.label}</button>
         ))}
-      {allowDelete && <button type="button" className="secondary-button danger-text" onClick={() => setDialog({ kind: 'delete' })}>批量删除（{checked.length}）</button>}
+      {!referenceArchive && allowDelete && <button type="button" className="secondary-button danger-text" onClick={() => setDialog({ kind: 'delete' })}>批量删除（{checked.length}）</button>}
       {can('export') && <button type="button" className="secondary-button" onClick={onExport}>导出所选</button>}
-      <button type="button" className="secondary-button" onClick={onClear}>取消勾选</button>
+      <button type="button" className="secondary-button" onClick={onClear}>取消勾选</button></>)}
+      {dialog?.kind === 'move' && <FinanceArchiveMoveDialog initialCategoryId={currentCategoryId} type={type} count={checked.length} onClose={()=>setDialog(null)} onConfirm={async id=>{ await run(()=>resourceApi.batch(type,checked,type==='finance-fee-items'?{categoryId:id}:{categoryIds:[id]}),'已移动'); }}/>}
       {dialog?.kind === 'status' && (
         <ReasonPickDialog
           title={`批量${dialog.label}（${dialog.ids.length} 条）`}
@@ -141,22 +155,7 @@ export function BatchBar({ allowDelete, def, type, rows, checked, can, filterOpt
           onConfirm={async (_v, reason) => { await run(() => resourceApi.batchStatus(type, dialog.ids, dialog.status, reason || undefined), `已${dialog.label === '启用' ? '启用' : `改为${dialog.label}`}`); }}
         />
       )}
-      {dialog?.kind === 'delete' && (
-        <ReasonPickDialog
-          title={`批量删除（${checked.length} 条）`}
-          reasonLabel="删除原因" reasonRequired confirmLabel="确认删除"
-          suggestions={['重复录入', '录入错误', '不再使用']}
-          onClose={() => setDialog(null)}
-          onConfirm={async (_v, reason) => {
-            const failed: Array<{ id: number; message: string }> = [];
-            let done = 0;
-            for (const id of checked) {
-              try { await resourceApi.remove(type, id, reason); done++; } catch (e) { failed.push({ id, message: e instanceof ApiError ? e.message : '删除失败' }); }
-            }
-            await run(async () => ({ done, failed }), '已删除');
-          }}
-        />
-      )}
+      {dialog?.kind === 'delete' && (financeParty?<ReasonDialog presentation="finance-delete" requireReason={false} title="确认删除" hint="删除后不会在当前列表继续显示。" subject={`已选择 ${checked.length} 个${type==='finance-suppliers'?'供应商':type==='finance-customers'?'客户':'费用类型'}`} confirmationText={`请确认是否删除这些${def.label}。`} confirmLabel="确认删除" danger onClose={()=>setDialog(null)} onConfirm={()=>deletePicked('财务档案页面批量删除')}/>:<ReasonPickDialog title={`批量删除（${checked.length} 条）`} reasonLabel="删除原因" reasonRequired confirmLabel="确认删除" suggestions={['重复录入','录入错误','不再使用']} onClose={()=>setDialog(null)} onConfirm={async(_value,reason)=>deletePicked(reason)}/>)}
       {dialog?.kind === 'action' && (
         <ReasonPickDialog
           title={`${dialog.action.label}（${checked.length} 条）`}

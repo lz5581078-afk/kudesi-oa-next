@@ -1,20 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { phoneStoreImportColumns, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
-import { csvToObjects, downloadText, parseCsv, toCsv } from './csv';
+import { csvToObjects, downloadText, parseCsv, readCsvText, toCsv } from './csv';
 import { resourceApi, type ImportBackupInfo, type ImportResult } from './api';
 import { selectChoices, useCategoryVersion } from './categoryOptions';
 import { downloadXlsx, isXlsx, readXlsxRows } from './xlsx';
 
-/** Excel 另存的 CSV 常是 GBK 编码：先按 UTF-8 严格解码，不行就按 GB18030。 */
-async function readCsvText(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
-  } catch {
-    return new TextDecoder('gb18030').decode(buf);
-  }
-}
+
 
 /** 导入：先选文件 → 预览（逐行校验，不落库）→ 无错误才允许确认导入；有错整体不导入。 */
 export function ImportDialog({ def, onClose, onDone, embedded = false, parentId }: { def: ResourceDef; onClose: () => void; onDone: (message?: string) => void; embedded?: boolean; parentId?: number }) {

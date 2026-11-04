@@ -18,8 +18,8 @@ export function FinanceCodeDirectory({ cats, counts, value, onPick, onManage, ki
       const expanded = open.has(c.id);
       return [
         <li key={c.id} data-depth={depth} role="treeitem" aria-level={depth+1} aria-selected={c.id===value} aria-expanded={has?expanded:undefined} style={{ paddingLeft: depth * 14 }}>
-          {has ? <button type="button" className="link-button" aria-label={expanded ? '收起' : '展开'} onClick={() => setOpen((s) => { const n = new Set(s); if (n.has(c.id)) n.delete(c.id); else n.add(c.id); return n; })}>{expanded ? '▾' : '▸'}</button> : <span style={{ display: 'inline-block', width: 14 }} />}
-          <button type="button" className={c.id === value ? 'code-category-row active' : 'code-category-row'} onClick={() => { onPick(value === c.id ? null : c.id); if (has) setOpen(current => new Set([...current, c.id])); }}><span>{c.name}</span> <span className="code-category-count">{total(c.id)}</span></button>
+          <div className={"code-category-entry"+(c.id===value?" active":"")}>{has ? <button type="button" className="code-category-expand" aria-label={expanded ? '收起' : '展开'} onClick={() => setOpen((s) => { const n = new Set(s); if (n.has(c.id)) n.delete(c.id); else n.add(c.id); return n; })}>{expanded ? '▾' : '▸'}</button> : <span className="code-category-leaf"><i/></span>}
+          <button type="button" className={c.id === value ? 'code-category-row active' : 'code-category-row'} onClick={() => { onPick(value === c.id ? null : c.id); if (has) setOpen(current => new Set([...current, c.id])); }}><span>{c.name}</span> <span className="code-category-count">{total(c.id)}</span></button></div>
         </li>,
         ...(has && expanded ? render(c.id, depth + 1) : []),
       ];

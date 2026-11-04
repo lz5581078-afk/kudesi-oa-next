@@ -133,6 +133,12 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     const b = await svc.get(boss, 'finance-bundles', ids.b1);
     expect(b.data.jstPriceStatus).toBe('success');
     expect(b.data.jstPriceCents).toBe(row.minPriceCents);
+    // 同步清单的当前/已上传资料同样按成本、售价独立ACL投影；保留实际同步状态。
+    for(const canCost of [false,true])for(const canPrice of [false,true]){
+      const actor={...nobody,permissions:{isCompanyAdmin:false,allow:['finance.jst-sync.view',...(canCost?['product.cost.view']:[]),...(canPrice?['product.price.view']:[])],deny:[]}};
+      const bundle=(await outbox.items(actor,{type:'finance-bundles',page:1,pageSize:50})).rows.find(item=>item.id===ids.b1)!,base=(await outbox.items(actor,{type:'finance-base-codes',page:1,pageSize:50})).rows.find(item=>item.id===ids.bc)!;
+      expect(Object.hasOwn(bundle.current,'compose_sale_price')).toBe(canPrice);expect(Object.hasOwn(bundle.uploaded!,'compose_sale_price')).toBe(canPrice);expect(Object.hasOwn(base.current,'cost_price')).toBe(canCost);expect(Object.hasOwn(base.uploaded!,'cost_price')).toBe(canCost);expect(base.state).toBe('synced');
+    }
     // 回读到的子商品没被覆盖
     expect((fake.remote.get(String(b.data.code)) as { childList?: unknown[] }).childList?.length).toBe(1);
     // 价格已经同步：再跑算“相同”

@@ -1,3 +1,4 @@
+import {formatOaDateTime} from '../../lib/oaDateTime';
 /** 余额“多新”：按距离最后更新过了多久分档，档位越久颜色越重（沿用旧系统的 1/2/3/7/15/30 天档位）。 */
 export type Freshness = 'fresh' | 'two-days' | 'three-days' | 'seven-days' | 'fifteen-days' | 'thirty-days' | 'stale' | 'unknown';
 
@@ -20,8 +21,5 @@ export const FRESH_HINT: Record<Freshness, string> = {
 };
 
 export function fmtUpdated(updatedAt: string | null | undefined): string {
-  if (!updatedAt) return '未记录';
-  const d = new Date(updatedAt);
-  if (Number.isNaN(d.getTime())) return '未记录';
-  return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', year: 'numeric' });
+  return formatOaDateTime(updatedAt,{empty:'未记录'}).replace(/^(\d{4})-(\d{2})-(\d{2})/,'$1/$2/$3');
 }

@@ -20,6 +20,21 @@ db('费用列表挂账节点沿通用主表事务（隔离MySQL）',()=>{
   expect((await s.resources.saveForm(user,'finance-fee-items',input)).id).toBe(record.id);expect(await ds.manager.count(ResourceChangeLog,{where:{companyId:user.companyId}})).toBe(before+1);
   const cleared=await s.resources.saveForm(user,'finance-fee-items',{...input,version:result.version,requestKey:crypto.randomUUID(),values:{defaultObject:'',relationRequirement:''}});expect(cleared.data).toMatchObject({requiredObject:'no',defaultObject:'不固定',accountingSubject:'原核算科目',note:'保留原备注'});expect(cleared.data.relationRequirement??'').toBe('');
  });
+ it('原详情可单独设置必挂对象，普通编辑保留，节点改变重新推导',async()=>{
+  const record=await create();
+  const changed=await s.resources.saveForm(user,'finance-fee-items',{id:record.id,version:record.version,requestKey:crypto.randomUUID(),values:{requiredObject:'yes'},collections:[]});
+  expect(changed.data).toMatchObject({defaultObject:'公司',requiredObject:'yes'});
+  const renamed=await s.resources.saveForm(user,'finance-fee-items',{id:record.id,version:changed.version,requestKey:crypto.randomUUID(),values:{note:'只修改备注'},collections:[]});
+  expect(renamed.data.requiredObject).toBe('yes');
+  const unset=await s.resources.saveForm(user,'finance-fee-items',{id:record.id,version:renamed.version,requestKey:crypto.randomUUID(),values:{direction:''},collections:[]});
+  expect(unset.data.direction??'').toBe('');
+  const noRequirement=await s.resources.saveForm(user,'finance-fee-items',{id:record.id,version:unset.version,requestKey:crypto.randomUUID(),values:{requiredObject:''},collections:[]});
+  expect(noRequirement.data.requiredObject??'').toBe('');
+  const keptUnset=await s.resources.saveForm(user,'finance-fee-items',{id:record.id,version:noRequirement.version,requestKey:crypto.randomUUID(),values:{note:'保留未设置要求'},collections:[]});
+  expect(keptUnset.data.requiredObject??'').toBe('');
+  const moved=await s.resources.saveForm(user,'finance-fee-items',{id:record.id,version:keptUnset.version,requestKey:crypto.randomUUID(),values:{defaultObject:'',requiredObject:'yes'},collections:[]});
+  expect(moved.data).toMatchObject({defaultObject:'不固定',requiredObject:'no'});
+ });
  it('过期版本/跨公司/无编辑权都不写回节点，失败保持现有科目与节点',async()=>{
   const record=await create(),input={id:record.id,version:record.version,requestKey:crypto.randomUUID(),values:{defaultObject:'手机号',relationRequirement:'迟到内容'},collections:[]};
   await s.resources.update(user,'finance-fee-items',record.id,{accountingSubject:'刚维护的科目'});
@@ -28,4 +43,12 @@ db('费用列表挂账节点沿通用主表事务（隔离MySQL）',()=>{
   await expect(s.resources.saveForm({...user,permissions:{isCompanyAdmin:false,allow:['resource.finance-fee-items.view'],deny:[]}},'finance-fee-items',{...input,requestKey:crypto.randomUUID()})).rejects.toThrow(/编辑/);
   expect((await s.resources.get(user,'finance-fee-items',record.id)).data).toMatchObject({accountingSubject:'刚维护的科目',defaultObject:'公司',relationRequirement:'原说明'});
  });
+ it('原版新增的独立必挂选择不被默认公司节点覆盖，明确未设置也保留；未提供仍自动取默认',async()=>{
+  const form=(name:string,values:Record<string,unknown>)=>s.resources.saveForm(user,'finance-fee-items',{requestKey:crypto.randomUUID(),values:{name,categoryId,defaultObject:'公司',...values},collections:[]});
+  const yes=await form('新增手动必挂'+crypto.randomBytes(3).toString('hex'),{requiredObject:'yes'});expect(yes.data).toMatchObject({defaultObject:'公司',requiredObject:'yes'});
+  const unset=await form('新增手动空白'+crypto.randomBytes(3).toString('hex'),{requiredObject:''});expect(unset.data.requiredObject??'').toBe('');
+  const auto=await form('新增自动默认'+crypto.randomBytes(3).toString('hex'),{});expect(auto.data.requiredObject).toBe('no');
+  const node=await form('新增节点默认'+crypto.randomBytes(3).toString('hex'),{defaultObject:'店铺'});expect(node.data.requiredObject).toBe('yes');
+ });
+
 });

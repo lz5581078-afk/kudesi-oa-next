@@ -1,3 +1,4 @@
+import {assertCodeCategoryName} from './code-category-names';
 import { pinyin } from 'pinyin-pro';
 import { BadRequestException } from '@nestjs/common';
 import type { BeforeSaveContext } from './resource-rules';
@@ -10,6 +11,7 @@ export async function beforeCodeDictionary({em,user,data,existing}:BeforeSaveCon
   if(!['product_category','variety'].includes(kind))throw new BadRequestException('编码字典类型不正确');
   const rows=await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-code-dictionaries'}});
   data.name=String(data.name ?? '').trim();
+  await assertCodeCategoryName(em,user.companyId,'finance-code-dictionaries',data,existing);
   let code=String(data.code ?? '').trim().toUpperCase();
   if(!code){
     code=String(existing?.data.code || '').trim();

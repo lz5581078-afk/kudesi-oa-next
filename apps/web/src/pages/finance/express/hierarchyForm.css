@@ -23,7 +23,7 @@
 .express-hierarchy-form .express-hierarchy-grid input,
 .express-hierarchy-form .express-hierarchy-grid select,
 .express-hierarchy-form .express-hierarchy-grid textarea { border:1px solid #cbd5e1; border-radius:8px; background:#fff; padding:0 10px; outline:none; box-shadow:none; font:inherit; }
-.express-hierarchy-form .express-hierarchy-grid textarea { padding:10px; margin-bottom:0; resize:vertical; }
+.express-hierarchy-form .express-hierarchy-grid textarea { padding:10px; margin-bottom:12px; resize:vertical; }
 .express-hierarchy-form .express-hierarchy-grid input:focus,
 .express-hierarchy-form .express-hierarchy-grid select:focus,
 .express-hierarchy-form .express-hierarchy-grid textarea:focus { outline:none; box-shadow:none; border-color:#cbd5e1; }
@@ -33,3 +33,6 @@
 
 .express-price-rule-backdrop { padding:12px; }
 .express-price-rule-form { width:min(600px,100%); max-height:calc(100dvh - 24px); }
+/* The rule editor uses the original flex overlay, independently of hierarchy forms. */
+.express-price-rule-backdrop { display:flex; align-items:center; justify-content:center; }
+.express-price-rule-form .express-hierarchy-grid textarea { margin-bottom:12px; }

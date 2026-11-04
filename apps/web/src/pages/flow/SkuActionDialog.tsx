@@ -1,0 +1,11 @@
+import {useState,useEffect,useRef} from 'react';
+import {X} from 'lucide-react';
+import './skuApplicationDetail.css';
+export type SkuSourceAction='submit'|'approve'|'return'|'cancel'|'reject';
+const labels:Record<SkuSourceAction,string>={submit:'提交',approve:'审核并更新成本表',return:'退回上一步',cancel:'废除',reject:'拒绝并废除'};
+/** Source application actions delegate to the unified flow, with the same per-action confirmation. */
+export function SkuActionDialog({action,count,busy,error,onClose,onConfirm}:{action:SkuSourceAction;count:number;busy:boolean;error?:string;onClose:()=>void;onConfirm:(comment:string)=>Promise<void>}){
+ const [comment,setComment]=useState(''),[confirmed,setConfirmed]=useState(false);const close=useRef<HTMLButtonElement>(null);useEffect(()=>{close.current?.focus();},[]);
+ const reason=['return','cancel','reject'].includes(action);
+ return <div className="modal-backdrop sku-action-backdrop"><form role="dialog" aria-modal="true" aria-label={`${labels[action]} ${count} 个规格`} className="sku-source-action" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onClose();}}} onSubmit={event=>{event.preventDefault();if(!busy&&(!reason||comment.trim())&&(action!=='approve'||confirmed))void onConfirm(comment);}}><header><h2>{labels[action]} {count} 个规格</h2><button ref={close} type="button" aria-label="关闭动作确认" disabled={busy} onClick={onClose}><X size={18}/></button></header><div className="sku-source-action-body">{error&&<p className="notice error" role="alert">{error}</p>}{(action==='cancel'||action==='reject')&&<p>确认后废除所选规格，关闭当前待办并保留{action==='reject'?'拒绝理由':'废除原因'}。已生成的商品、成本和同步记录不通过此入口删除。</p>}{action==='approve'&&<><p>最后审核通过时，将生成或复用已验证组合编码，并更新成本表的SKU编码、名称及成本；并自动提交聚水潭同步。上传状态单独显示，失败可在聚水潭同步中心处理。</p><label className="sku-source-action-check"><input type="checkbox" checked={confirmed} onChange={event=>setConfirmed(event.target.checked)}/>已核对所选规格、发货组成和成本，确认更新成本表并同步聚水潭</label></>}<label>{reason?'原因（必填）':'备注'}<textarea maxLength={500} value={comment} disabled={busy} onChange={event=>setComment(event.target.value)}/></label></div><footer><button type="submit" className="primary-button" disabled={busy||(action==='approve'&&!confirmed)||(reason&&!comment.trim())}>{action==='approve'?'审核并更新成本表':'确认'}{busy?'处理中':''}</button></footer></form></div>;
+}

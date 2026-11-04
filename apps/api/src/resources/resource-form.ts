@@ -6,12 +6,13 @@ import { ResourceFormMutation, ResourceRecord } from '../entities';
 import { AuthUser } from '../common/auth.decorators';
 
 interface FormHost {
+  lock?(em:EntityManager,def:ResourceDef):Promise<void>;
   before?(em: EntityManager, def: ResourceDef, existing: ResourceRecord | null): Promise<void>;
   after?(em: EntityManager, def: ResourceDef, parent: ResourceRecord): Promise<void>;
   version(record: ResourceRecord): string;
   copy?(em: EntityManager, def: ResourceDef, source: ResourceRecord, request: NonNullable<ResourceFormInput['copySource']>, values: Record<string, unknown>): Promise<Record<string, unknown>>;
   endCopy?(em: EntityManager): void;
-  save(em: EntityManager, def: ResourceDef, existing: ResourceRecord | null, values: Record<string, unknown>, options: { status?: string; reason?: string; cleanup: string[]; note: string }): Promise<ResourceRecord>;
+  save(em: EntityManager, def: ResourceDef, existing: ResourceRecord | null, values: Record<string, unknown>, options: { status?: string; reason?: string; cleanup: string[]; note: string; copySource?:ResourceRecord }): Promise<ResourceRecord>;
   remove(em: EntityManager, type: string, id: number, reason: string, cleanup: string[]): Promise<unknown>;
 }
 
@@ -43,6 +44,7 @@ export async function saveResourceForm(ds: DataSource, user: AuthUser, def: Reso
     return await ds.transaction(async em => {
       // 唯一键让同一请求的并发重试等待事务结果，不重复创建主档或子行。
       const attempt = await em.save(ResourceFormMutation, em.create(ResourceFormMutation, { companyId: user.companyId, actorId: user.id, resourceType: def.key, requestKey: input.requestKey, requestHash: hash, recordId: null }));
+      await host.lock?.(em,def);
       const existing = input.id ? await em.findOne(ResourceRecord, { where: { id: input.id, companyId: user.companyId, type: def.key }, lock: { mode: 'pessimistic_write' } }) : null;
       if (input.id && !existing) throw new NotFoundException('主档不存在');
       if (existing?.archivedAt) throw new ConflictException('主档已归档，请刷新后重试');
@@ -81,17 +83,19 @@ export async function saveResourceForm(ds: DataSource, user: AuthUser, def: Reso
       let parent:ResourceRecord;
       try {
         let values=input.values;
+        let copySource:ResourceRecord|undefined;
         if(input.copySource){
           const copy=input.copySource;
-          if(existing || !def.fields.some(f=>f.type==='files' && f.copyOnCreate) || !host.copy || !Number.isSafeInteger(copy.id) || copy.id<=0 || typeof copy.version!=='string' || !copy.files || Array.isArray(copy.files) || typeof copy.files!=='object')throw new BadRequestException('复制来源不合法');
+          if(existing || !(def.copyReferenceFields?.length || def.fields.some(f=>f.type==='files' && f.copyOnCreate)) || !host.copy || !Number.isSafeInteger(copy.id) || copy.id<=0 || typeof copy.version!=='string' || !copy.files || Array.isArray(copy.files) || typeof copy.files!=='object')throw new BadRequestException('复制来源不合法');
           requireAction(def.key,'view');
           const source=await em.findOne(ResourceRecord,{where:{companyId:user.companyId,type:def.key,id:copy.id},lock:{mode:'pessimistic_write'}});
           if(!source || source.archivedAt)throw new NotFoundException('复制来源不存在');
           if(host.version(source)!==copy.version)throw new ConflictException('复制来源刚被修改，请重新打开复制窗口');
           values=await host.copy(em,def,source,copy,values);
+          copySource=def.copyReferenceFields?.length?source:undefined;
         }
         await host.before?.(em, def, existing);
-        parent = await host.save(em, def, existing, values, { status: input.status, reason: input.statusReason, cleanup, note: input.copySource ? `复制资料 #${input.copySource.id}` : '整组保存资料' });
+        parent = await host.save(em, def, existing, values, { status: input.status, reason: input.statusReason, cleanup, copySource, note: input.copySource ? `复制资料 #${input.copySource.id}` : '整组保存资料' });
       } finally {host.endCopy?.(em);}
       if (changingStatus || initialExpenseStop) { parent.statusReason = input.statusReason?.trim() || null; await em.save(ResourceRecord, parent); }
       for (const { child, field, rows, removed } of prepared) {

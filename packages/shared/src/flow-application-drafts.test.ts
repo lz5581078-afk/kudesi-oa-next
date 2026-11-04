@@ -8,3 +8,4 @@ it('草稿只允许暂缺主商品，普通提交与已填数量/引用结构仍
 });
 
 it('运营需求保留原1000字，不静默截断；超限明确校验',()=>{const note='甲'.repeat(1000);expect(normalizeSpecs([{name:'草稿',note}],{allowIncomplete:true}).specs[0].note).toBe(note);expect(normalizeSpecs([{name:'草稿',note:note+'乙'}],{allowIncomplete:true}).errors.join('；')).toContain('1000');});
+it('原申请入口可选六位小数数量，普通规格仍保持整数；合并不产生浮点尾差',()=>{const raw=[{name:'原入口小数',main:[{baseCodeId:1,qty:.000001},{baseCodeId:1,qty:.000002}],gift:[{baseCodeId:2,qty:.125}]}];expect(normalizeSpecs(raw).errors.length).toBeGreaterThan(0);expect(normalizeSpecs(raw,{quantityScale:6})).toMatchObject({errors:[],specs:[{main:[{baseCodeId:1,qty:.000003}],gift:[{baseCodeId:2,qty:.125}]}]});expect(normalizeSpecs([{name:'过精度',main:[{baseCodeId:1,qty:.0000001}]}],{quantityScale:6}).errors.join('；')).toContain('6 位小数');});

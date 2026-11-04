@@ -46,6 +46,8 @@ export interface ListParams {
   page?: number;
   pageSize?: number;
   keyword?: string;
+  referenceSearch?:string;
+  referenceOrder?:boolean;
   status?: string;
   tab?: string;
   showHidden?: boolean;
@@ -64,7 +66,7 @@ export interface CategoryTreeResult {
   field: string;
   total: number;
   uncategorized: number;
-  nodes: Array<{ id: number; title: string; status: string; parentId: number; sort: number; count: number }>;
+  nodes: Array<{ id: number; title: string; status: string; parentId: number; sort: number; count: number; directCount?:number }>;
 }
 
 export interface ImportBackupInfo { id: number; recordCount: number; createdAt: string; restoredAt: string | null }
@@ -122,6 +124,8 @@ export function query(params: ListParams): string {
   if (params.page) q.set('page', String(params.page));
   if (params.pageSize) q.set('pageSize', String(params.pageSize));
   if (params.keyword) q.set('keyword', params.keyword);
+  if(params.referenceOrder)q.set('referenceOrder','1');
+  if (params.referenceSearch) q.set('referenceSearch',params.referenceSearch);
   if (params.status) q.set('status', params.status);
   if (params.tab) q.set('tab', params.tab);
   if (params.showHidden) q.set('showHidden', '1');
@@ -200,9 +204,10 @@ export const resourceApi = {
   recentChanges: () => api<RecentChange[]>('/resources/recent-changes'),
   expiring: (days: number) => api<ExpiringResult>(`/resources/expiring?days=${days}`),
   /** scope：不传=全部；传筛选条件=当前筛选结果；ids=所选 */
-  export: (type: string, includeHidden: boolean, scope: ListParams & { ids?: number[]; cols?: string[] } = {}) => {
+  export: (type: string, includeHidden: boolean, scope: ListParams & { ids?: number[]; cols?: string[];referenceArchive?:boolean } = {}) => {
     const q = new URLSearchParams(query({ ...scope, page: undefined, pageSize: undefined, showHidden: undefined }).replace(/^\?/, ''));
     if (includeHidden) q.set('includeHidden', '1');
+    if(scope.referenceArchive)q.set('referenceArchive','1');
     if (scope.ids?.length) q.set('ids', scope.ids.join(','));
     if (scope.cols?.length) q.set('cols', scope.cols.join(','));
     const qs = q.toString();
@@ -210,8 +215,8 @@ export const resourceApi = {
   },
   importBackups: (type: string) => api<ImportBackupInfo[]>(`/resources/${type}/import-backups`),
   restoreBackup: (type: string, id: number) => api<{ restored: number; removed: number; skippedDelete: number }>(`/resources/${type}/import-backups/${id}/restore`, { method: 'POST' }),
-  import: (type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number) =>
-    api<ImportResult>(`/resources/${type}/import`, { method: 'POST', body: { rows, dryRun, partial, ...(parentId ? { parentId } : {}) } }),
+  import: (type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number, reference?:{categoryId?:number}) =>
+    api<ImportResult>(`/resources/${type}/import`, { method: 'POST', body: { rows, dryRun, partial, ...(parentId ? { parentId } : {}),...(reference?{referenceArchive:true,referenceCategoryId:reference.categoryId}:{}) } }),
   uploadFile: (type: string, field: string, file: File) => {
     const form = new FormData();
     form.append('type', type);

@@ -212,7 +212,7 @@ function typingTarget(el: EventTarget | null): boolean {
 
 const HIDE_EMPTY_KEY = 'kudesi.detail.hideEmpty.byType';
 
-export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initialTab }: { def: ResourceDef; id: number; /** 打开时直接显示的页签（如列表里的“成本明细”） */ initialTab?: string; nav?: DetailNav; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
+export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initialTab, initialEditing=false }: { def: ResourceDef; id: number; /** 打开时直接显示的页签（如列表里的“成本明细”） */ initialTab?: string; /** 原供应商列表编辑也支持取消后返回查看。 */ initialEditing?:boolean; nav?: DetailNav; onClose: () => void; onChanged: () => void; onCopy?: (values: Record<string, unknown>) => void }) {
   const can = useResourceCan(def.key);
   const canFeeView = useResourceCan('phones')('view');
   useUnitOptions();
@@ -225,7 +225,8 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const [linkDialog, setLinkDialog] = useState<'new' | EditableLink | null>(null);
   const [relations, setRelations] = useState<Relation[] | null>(null);
   const [logs, setLogs] = useState<LogEntry[] | null>(null);
-  const [editing, setEditing] = useState(false);
+  const startEditing=['finance-suppliers','finance-customers','finance-fee-items'].includes(def.key)&&initialEditing&&can('edit');
+  const [editing, setEditing] = useState(startEditing);
   const closeEditor = useRef<(() => void) | null>(null);
   const [revising, setRevising] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -259,7 +260,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
     setError('');
     setRelations(null);
     setLogs(null);
-    setEditing(false);
+    setEditing(startEditing);
     setRevising(false);
     setDeleting(false);
     setRestoring(false);
@@ -269,7 +270,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
     setEditGroup(null);
     void load();
     return () => { loadSequence.current++; };
-  }, [load, initialTab]);
+  }, [load, initialTab, startEditing]);
 
   // 快捷键：Esc 关闭；↑ / ↓ 切换上一条、下一条（有弹窗、下拉、输入框在前面时让它们先处理）
   useEffect(() => {
@@ -386,11 +387,15 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const quick = def.key === 'workforce' ? <WorkforceActions key={record.id} record={record} employeeAction onLogs={() => setTab('logs')} onChanged={reloadAll} /> : jstRefresh || phoneRecharge || assetBar || feeLink || record.warehouseMode ? <>{jstRefresh}{phoneRecharge}{feeLink}{assetBar}{record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}</> : undefined;
 
   const finance = FINANCE_DETAIL_TYPES.has(def.key);
+  const referenceParty=['finance-suppliers','finance-customers','finance-fee-items'].includes(def.key);
   const productCosts = def.key === 'finance-products' && tab.startsWith('child:finance-product-costs');
   const Frame = finance ? FinanceDetailBackdrop : Fragment;
   const financeLabel = referenceRecordLabel(def.key, record.data);
   const baseCopy = def.key === 'finance-base-codes' && !record.data.canonicalId ? moreItems.find(item => item.key === 'copy') : undefined;
   const financeMore = [...moreItems.filter(item => item !== baseCopy), ...tabs.filter(([key]) => key !== 'info').map(([key, label]) => ({ key: `tab-${key}`, label, run: () => setTab(key) }))];
+
+  // 原供应商在同一尺寸窗口切换查看/编辑，不在查看层上再叠一层背景。
+  if(referenceParty&&editing)return <RecordForm def={def} record={record} onClose={()=>setEditing(false)} onDismiss={onClose} onSaved={dto=>{setEditing(false);setRecord(dto);setLogs(null);setRelations(null);onChanged();}}/>;
 
   return (
     <Frame><aside className={finance ? `rd resource-detail finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}${productCosts ? ' finance-detail-costs' : ''}` : wide ? 'rd resource-detail rd-wide' : 'rd resource-detail'} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
@@ -418,7 +423,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
       </div>}
       <div className={finance ? 'rd-body finance-detail-body' : 'rd-body'} ref={body} onScroll={onBodyScroll}>
         {error && <div role="alert" className="notice error">{error}</div>}
-        {finance && tab === 'info' && <FinanceDetailBody key={`${def.key}:${record.id}`} def={def} record={record} />}
+        {finance && tab === 'info' && <FinanceDetailBody key={`${def.key}:${record.id}`} def={def} record={record} extraActions={referenceParty&&financeMore.length>0?<MoreMenu items={financeMore}/>:undefined} />}
         {!finance && editing && <RecordForm def={def} record={record} inline inDetail onCloseReady={handler => { closeEditor.current = handler; }} onClose={() => setEditing(false)} onSaved={dto => { setEditing(false); setRecord(dto); setLogs(null); setRelations(null); onChanged(); }} />}
         {!finance && !editing && tab === 'info' && (
           <div className={`rd-info${groups.size <= 1 ? ' no-anchors' : ''}`}>
@@ -553,7 +558,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
           {live && can('edit') && <button type="button" className="primary-button" onClick={() => setEditing(true)}>{def.key === 'finance-products' ? `编辑${financeLabel}` : def.key === 'finance-bundles' ? '修改' : '编辑'}</button>}
           {live && def.key === 'finance-bundles' && can('edit') && <button type="button" className="secondary-button" onClick={() => setRevising(true)}>修改组成</button>}
           {quick}
-          {financeMore.length > 0 && <MoreMenu items={financeMore} />}
+          {financeMore.length > 0 && !(referenceParty&&tab==='info') && <MoreMenu items={financeMore} />}
           {def.key !== 'finance-products' && <button type="button" className="secondary-button" onClick={onClose}>关闭</button>}
         </div>
       </footer>}
@@ -589,15 +594,18 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
       )}
       {deleting && (
         <ReasonDialog
-          title={`${archivable ? '归档' : '删除'}${def.label}`}
-          hint={archivable
+          presentation={referenceParty?'finance-delete':undefined}
+          subject={record.title}
+          requireReason={!referenceParty}
+          title={referenceParty?'确认删除':`${archivable ? '归档' : '删除'}${def.label}`}
+          hint={referenceParty?'删除后不会在当前列表继续显示。':archivable
             ? `归档后不再出现在日常列表，但这条资料的关联和历史记录原样保留，可在「已归档」里恢复。${relationHint(relations)}`
             : '删除后无法恢复。还被其他资料引用时不能删除，请先解除引用，或改为停用。'}
           confirmLabel={archivable ? '确认归档' : '确认删除'}
           danger
           onClose={() => setDeleting(false)}
           onConfirm={async (reason) => {
-            await resourceApi.remove(def.key, record.id, reason);
+            await resourceApi.remove(def.key, record.id, referenceParty?'财务档案页面删除':reason,referenceParty?record.version:undefined);
             clearRefCache(def.key);
             setDeleting(false);
             onChanged();

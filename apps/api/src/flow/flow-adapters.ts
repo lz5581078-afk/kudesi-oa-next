@@ -1,9 +1,10 @@
+import type {FlowConfirmation} from './flow-confirmation.dto';
 import { dailyWorkReview } from '../live/daily-work-flow';
 import { LiveOrderSource } from '../live/live-order-source';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import type { FlowTemplate, StepDef } from '@kudesi/shared';
-import { FlowRun, ResourceRecord } from '../entities';
+import type { FieldDef, FlowTemplate, StepDef } from '@kudesi/shared';
+import { FlowRun,FlowStep, ResourceRecord } from '../entities';
 import { AuthUser } from '../common/auth.decorators';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
@@ -31,6 +32,7 @@ export interface FlowServices {
 }
 
 export interface StartContext extends FlowServices {
+  confirmation?:FlowConfirmation;
   em: EntityManager;
   user: AuthUser;
   payload: Record<string, unknown>;
@@ -39,6 +41,7 @@ export interface StartContext extends FlowServices {
 }
 
 export interface StepContext extends FlowServices {
+  confirmation?:FlowConfirmation;
   em: EntityManager;
   user: AuthUser;
   run: FlowRun;
@@ -64,11 +67,22 @@ export interface AfterCommitContext extends FlowServices {
 
 export interface FlowAdapter {
   key: string;
+  /** Default off: saving an active form never advances the engine. */
+  onDraftSave?(ctx:StartContext & {run:FlowRun}):Promise<void>;
+  initialStepDraft?(ctx:StepContext):Promise<Record<string,unknown>>;
+  companyTransactionLock?(run:FlowRun):boolean;
+  publicApplicationState?(run:FlowRun,user:AuthUser,em:EntityManager):Record<string,unknown>|Promise<Record<string,unknown>>;
+  stepDraftEnabled?(ctx:StepContext):boolean;
+  validateStepDraft?(ctx:StepContext,options:{previousForm:Record<string,unknown>|null;context?:Record<string,unknown>}):Promise<void>;
+  stepFields?(run:FlowRun,key:string,fields:readonly FieldDef[]):readonly FieldDef[];
   title(em: EntityManager, companyId: number, payload: Record<string, unknown>): Promise<string>;
   /** 配置启用的申请草稿允许不完整资料，但仍核验已填值和引用。 */
   validateDraft?(ctx: StartContext): Promise<void>;
   validateDraftShared?(ctx:StartContext):Promise<void>;
   draftIdentity?(payload:Record<string,unknown>):string;
+  editReturnedApplication?:boolean;
+  copyApplicationPayload?(source:Record<string,unknown>,input:Record<string,unknown>):Record<string,unknown>;
+  applicationDeletionIssue?(ctx:{run:FlowRun;steps:FlowStep[]}):string|null;
   validateStart?(ctx: StartContext): Promise<void>;
   /** 流程刚发起、发起步骤已记录、还没进入下一步时调用：业务适配器在这里建自己的业务记录（run 已有编号）；和流转同一个事务 */
   onStart?(ctx: StartContext & { run: FlowRun }): Promise<void>;
@@ -89,7 +103,7 @@ export interface FlowAdapter {
   /** 退回时回到哪一步：返回步骤编号；undefined 就退回上一步 */
   returnTarget?(ctx: StepContext, steps: StepDef[]): string | undefined;
   /** 为 true 时，被退回给发起人重新提交以后，业务痕迹（以下划线开头的字段）原样保留，而不是清空 */
-  keepStateOnResubmit?: boolean;
+  keepStateOnResubmit?: boolean|((run:FlowRun)=>boolean);
   /** 返回不能退回的原因；null 表示可以退回 */
   returnBlocked?(ctx: StepContext): string | null;
   /** 流程被退回之后调用；toSubmit=true 表示退回到了发起人 */

@@ -1,3 +1,6 @@
+import {beforeBomVersionDelete,detachBomOwner} from './bundle-bom-versions';
+import {beforePlatformDelete} from './platform-rules';
+import {markCategorySyncDirty} from '../outbox/category-sync-policy';
 import { directCodeStatus, finishCodeLifecycleSave, resolveCodeStatus, isCodeResource } from './finance-code-lifecycle';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { importingMissingLegacyReason } from '../migration/legacy-state-context';
@@ -50,6 +53,8 @@ export interface BeforeSaveContext {
   user: AuthUser;
   /** 原始提交仅供服务端业务字段保护，不写入资料。 */
   input?: Readonly<Record<string,unknown>>;
+  /** 统一整组复制已在事务内锁定且核验版本的来源，不能从请求字段取得。 */
+  copySource?:ResourceRecord;
   /** 将要保存的字段值（可修改） */
   data: Record<string, unknown>;
   existing: ResourceRecord | null;
@@ -346,6 +351,9 @@ export interface AfterSaveContext {
 
 /** 删除记录之前（在“还被引用就不能删”的检查之前）：如删除位置时把各处对它的引用置空。 */
 export async function beforeDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
+  if(type==='finance-bundle-bom-versions')await beforeBomVersionDelete(ctx.em,ctx.user,ctx.record);
+  if(type==='finance-bundles')await detachBomOwner(ctx.host,ctx.em,ctx.user,ctx.record);
+  if(type==='finance-platforms')await beforePlatformDelete(ctx.em,ctx.user.companyId,ctx.record);
   if (['finance-labor-versions', 'finance-labor-categories', 'finance-labor-costs'].includes(type)) await beforeLaborDelete(type, ctx);
   if (COST_VERSION_TYPES.includes(type)) await beforeCostVersionDelete(ctx);
   if (type === 'workforce') workforceBeforeDelete();
@@ -359,6 +367,7 @@ export async function afterDeleteRule(type: string, ctx: { em: EntityManager; ho
   const rule = FINANCE_AFTER_DELETE[type];
   if (rule) await rule(ctx);
   await CERT_AFTER_DELETE[type]?.(ctx);
+  await markCategorySyncDirty(ctx.em,ctx.user,type,ctx.record);
 }
 
 /** 每次保存（新建、修改、改状态）之后：用于同步别的记录，如组合行变化后刷新组合编码。 */
@@ -367,6 +376,7 @@ export async function afterSaveRule(type: string, ctx: AfterSaveContext): Promis
   if (rule) await rule(ctx);
   await CERT_AFTER_SAVE[type]?.(ctx);
   if (type === 'workforce') await workforceAfterSave(ctx);
+  await markCategorySyncDirty(ctx.em,ctx.user,type,ctx.record,ctx.existing);
 }
 
 /** 找到手机号档案，没有就建（外部使用）；返回档案 id。 */

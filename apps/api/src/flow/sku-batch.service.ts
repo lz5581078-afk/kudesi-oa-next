@@ -1,3 +1,4 @@
+import type {FlowConfirmation} from './flow-confirmation.dto';
 import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -15,7 +16,7 @@ const REF_RE = /^(B[0-9a-z]{1,19}|run-\d{1,10})$/;
 const SKU_FIELD_KEYS = FLOW_TEMPLATES.find((t) => t.key === SKU_TEMPLATE)!.fields.map((f) => f.key);
 
 export type BatchAction = 'pass' | 'return' | 'reject' | 'cancel' | 'resubmit';
-export interface BatchItemIn { runId: number; revision: number; stepId?: number }
+export interface BatchItemIn { confirmation?:FlowConfirmation; runId: number; revision: number; stepId?: number }
 export interface BatchResult { runId: number; ok: boolean; message?: string }
 
 /**
@@ -67,7 +68,7 @@ export class SkuBatchService {
     const items: Array<Record<string, unknown>> = [];
     for (const run of runs) {
       const st = active.get(run.id);
-      const specs: SkuSpec[] = normalizeSpecs(run.payload.specs).specs;
+      const specs: SkuSpec[] = normalizeSpecs(run.payload.specs,{quantityScale:run.payload._applicationDraftOrigin===true?6:0}).specs;
       const ret = st?.enteredVia === 'return' ? lastReturn.get(run.id) : undefined;
       const iHold = !!st && myStep.has(st.id);
       for (const [i, sp] of specs.entries()) {
@@ -99,7 +100,7 @@ export class SkuBatchService {
       items,
       history: events.map((e) => {
         const run = runs.find((r) => r.id === e.runId)!;
-        const sp = normalizeSpecs(run.payload.specs).specs;
+        const sp = normalizeSpecs(run.payload.specs,{quantityScale:run.payload._applicationDraftOrigin===true?6:0}).specs;
         return { id: e.id, runId: e.runId, action: e.action, note: e.note, actorName: evNames.get(e.actorId) ?? '', createdAt: e.createdAt, specNames: sp.map((x) => x.name) };
       }),
     };
@@ -108,6 +109,7 @@ export class SkuBatchService {
   // ================= 批量办理（逐条独立事务，部分成功） =================
 
   async act(user: AuthUser, b: { ref: string; action: BatchAction; items: BatchItemIn[]; comment?: string; form?: Record<string, unknown>; forms?: Record<string, Record<string, unknown>> }) {
+    if(b.comment!==undefined&&(typeof b.comment!=='string'||b.comment.length>500))throw new BadRequestException('备注最多500字');
     const comment = (b.comment ?? '').trim();
     if (['return', 'reject', 'cancel'].includes(b.action) && !comment) throw new BadRequestException('退回、废除、拒绝都要写原因');
     if (!b.items?.length || b.items.length > 100) throw new BadRequestException('请选择 1 到 100 个规格');
@@ -120,18 +122,18 @@ export class SkuBatchService {
       try {
         if (!run) throw new ForbiddenException('这个规格不在这张申请单里');
         const rev = { revision: it.revision, stepId: it.stepId ?? (await this.ds.manager.findOne(FlowStep, { where: { runId: run.id, status: 'active' }, order: { seq: 'DESC' } }))?.id ?? 0 };
-        if (b.action === 'pass') await this.flow.pass(user, run.id, { ...rev, form: b.forms?.[String(run.id)] ?? b.form, comment: comment || undefined }, { quiet: true });
+        if (b.action === 'pass') await this.flow.pass(user, run.id, { ...rev,confirmation:it.confirmation, form: b.forms?.[String(run.id)] ?? b.form, comment: comment || undefined }, { quiet: true });
         else if (b.action === 'return') await this.flow.returnBack(user, run.id, { ...rev, reason: comment }, { quiet: true });
-        else if (b.action === 'reject' || b.action === 'cancel') await this.flow.stop(user, run.id, b.action, { ...rev, reason: comment }, { quiet: true });
+        else if (b.action === 'reject' || b.action === 'cancel'){if(run.status==='draft')await this.flow.stopApplicationDraft(user,run.id,it.revision,b.action,comment);else await this.flow.stop(user, run.id, b.action, { ...rev, reason: comment }, { quiet: true });}
         else {
           const payload = Object.fromEntries(Object.entries(run.payload).filter(([k]) => SKU_FIELD_KEYS.includes(k)));
-          await this.flow.resubmit(user, run.id, { revision: it.revision, payload }, { quiet: true });
+          await this.flow.resubmit(user, run.id, { revision: it.revision, payload,confirmation:it.confirmation,comment:comment||undefined }, { quiet: true });
         }
         results.push({ runId: run.id, ok: true });
       } catch (e) { results.push({ runId: it.runId, ok: false, message: e instanceof Error ? e.message : '处理失败' }); }
     }
     const okIds = results.filter((r) => r.ok).map((r) => r.runId);
-    if (okIds.length) await this.summarize(this.ds.manager, user, b.ref, runs, okIds, b.action, comment);
+    if (okIds.length) await this.summarize(this.ds.manager, user, b.ref, runs, okIds.filter(id=>byId.get(id)?.status!=='draft'), b.action, comment);
     await this.audit(user, `flow.sku.batch.${b.action}`, b.ref, { runIds: okIds, failed: results.filter((r) => !r.ok), comment: comment || null });
     return { results, ok: okIds.length, failed: results.length - okIds.length };
   }
@@ -195,7 +197,7 @@ export class SkuBatchService {
       if (step.stepType === 'submit') throw new BadRequestException('发起步骤不能退回');
       const mine = await em.findOne(WorkItem, { where: { companyId: user.companyId, stepId: step.id, assigneeId: user.id, status: 'open' } });
       if (!mine) throw new ForbiddenException('这一步不是你办理的');
-      const specs: SkuSpec[] = normalizeSpecs(run.payload.specs).specs;
+      const specs: SkuSpec[] = normalizeSpecs(run.payload.specs,{quantityScale:run.payload._applicationDraftOrigin===true?6:0}).specs;
       const unknown = [...want].filter((n) => !specs.some((s) => s.name === n));
       if (unknown.length) throw new BadRequestException(`申请里没有规格：${unknown.join('、')}`);
       const batchKey = str(run.payload._batchKey) || `B${Date.now().toString(36)}${randomBytes(3).toString('hex')}`.slice(0, 20);

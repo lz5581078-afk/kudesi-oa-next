@@ -23,6 +23,8 @@ class LineDto {
   @IsOptional() @IsString() @MaxLength(200) note?: string;
 }
 class TargetDto {
+  @IsOptional() @IsInt() @Min(1) sourceBundleId?:number;
+  @IsOptional() @IsString() @Length(64,64) sourceToken?:string;
   @IsInt() @Min(1) platformId!: number;
   @IsInt() @Min(1) scenarioId!: number;
   @IsOptional() @IsString() @MaxLength(8) configNo?: string;
@@ -32,9 +34,16 @@ class TargetDto {
   @IsOptional() @IsString() @MaxLength(300) manualName?: string;
   @IsOptional() @IsString() @MaxLength(160) manualShortName?: string;
   @IsOptional() @IsString() @MaxLength(500) manualReason?: string;
+  @IsOptional() @IsString() @MaxLength(120) manualStyleCode?:string;
+  @IsOptional() @IsString() @MaxLength(255) manualPropertiesValue?:string;
+  @IsOptional() @IsString() @MaxLength(60) baseUnit?:string;
+  @IsOptional() @IsIn(['auto','manual']) weightMode?:'auto'|'manual';
+  @IsOptional() @IsNumber() @Min(0.000001) manualWeightG?:number;
+  @IsOptional() @IsString() @MaxLength(500) overrideReason?:string;
 }
+class NamingSampleDto { @Type(()=>Number) @IsInt() @Min(1) baseCodeId!:number; @Type(()=>Number) @IsNumber() @Min(0.000001) qty!:number }
 class PlanDto {
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => LineDto) lines!: LineDto[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(300) @ValidateNested({ each: true }) @Type(() => LineDto) lines!: LineDto[];
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(30) @ValidateNested({ each: true }) @Type(() => TargetDto) targets!: TargetDto[];
 }
 class RevisionWeightDto {
@@ -92,6 +101,10 @@ export class BundleToolsController {
     return this.tools.summaries(u, value.split(',').map(Number));
   }
 
+  @RequirePermission('resource.finance-bundles.view')
+  @Get('naming-sample')
+  namingSample(@CurrentUser() u:AuthUser,@Query() q:NamingSampleDto){return this.tools.namingSample(u,q.baseCodeId,q.qty);}
+
   @RequirePermission('resource.finance-bundles.create')
   @Post('preview')
   @HttpCode(200)
@@ -120,6 +133,10 @@ export class BundleToolsController {
   @RequirePermission('resource.finance-bundles.view')
   @Get(':id/report')
   report(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.tools.report(u, id); }
+
+  @Get(':id/bom-versions')
+  @RequirePermission('resource.finance-bundles.view')
+  bomVersions(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number){return this.tools.bomVersions(user,id);}
 
   @Get(':id/composition')
   @RequirePermission('resource.finance-bundles.view')

@@ -24,6 +24,12 @@ describe('商品基础编码页', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /^复制/ }).find((b) => b.getAttribute('aria-label') !== '复制款式编码')!);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('SG-PG-HFS-1KG'));
     expect(screen.queryByText('商品档案抽屉')).toBeNull(); // 复制不触发打开详情
+    const more=screen.getByText('更多操作',{selector:'summary'}).parentElement!;
+    expect(more.hasAttribute('open')).toBe(false);
+    expect([...more.parentElement!.children].filter(node=>node.tagName==='BUTTON').map(node=>node.textContent)).toEqual(['查看','编辑','验证']);
+    expect(more.textContent).toContain('复制新建');expect(more.textContent).toContain('停用');
+
+    fireEvent.click(screen.getByText('更多操作',{selector:'summary'}));
     fireEvent.click(screen.getByRole('button', { name: '复制新建' }));
     const dlg = await screen.findByRole('dialog');
     expect(dlg.textContent).toContain('"categoryId":5');

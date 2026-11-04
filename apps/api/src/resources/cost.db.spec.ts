@@ -430,6 +430,8 @@ d('成本表与定价调试表（真实数据库）', () => {
     expect(report.totalCost).toBe((await cost.one(boss, ids.bundle)).preShipCostCents);
     expect(report.totalWeightG).toBe(0.01); expect(report.outbound.weight).toBe(0.00001);
     expect(report.components.find(c => c.role === 'labor')!.cost).toBe(150);
+    expect((await cost.one(boss,ids.bundle)).lines.find(line=>line.role==='labor')).toMatchObject({unitName:'个',unitCostCents:150,subtotalCents:300});
+    expect((await ds.manager.findOneByOrFail(ResourceRecord,{companyId:boss.companyId,id:labor.id})).data).not.toHaveProperty('unitName');
     const hidden = await tools.report(ops, ids.bundle);
     expect(hidden.totalCost).toBeUndefined(); expect(hidden.outbound.cost_price).toBeUndefined();
     expect(hidden.components.every(c => c.cost === undefined)).toBe(true);

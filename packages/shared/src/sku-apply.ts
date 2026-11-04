@@ -35,23 +35,25 @@ export const WAREHOUSE_ROLE_LABEL: Record<WarehouseRole, string> = { package: '�
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const posInt = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null);
 
-function normLines(raw: unknown, what: string, errors: string[]): SkuLine[] {
+const sourceQty=(value:unknown)=>{const n=Number(value);return (typeof value==='number'||typeof value==='string'&&value.trim()!=='')&&Number.isFinite(n)&&n>0&&n<=1_000_000_000&&Math.round(n*1e6)/1e6===n?n:null;};
+function normLines(raw: unknown, what: string, errors: string[],quantityScale:0|6=0): SkuLine[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) { errors.push(`${what}格式不对`); return []; }
-  if (raw.length > SKU_MAX_LINES) errors.push(`${what}最多 ${SKU_MAX_LINES} 行`);
+  const maxLines=quantityScale===6?100:SKU_MAX_LINES;
+  if (raw.length > maxLines) errors.push(`${what}最多 ${maxLines} 行`);
   const merged = new Map<number, number>();
   for (const l of raw) {
     const id = isObj(l) ? posInt(l.baseCodeId) : null;
-    const qty = isObj(l) ? posInt(l.qty) : null;
+    const qty = isObj(l) ? quantityScale===6?sourceQty(l.qty):posInt(l.qty) : null;
     if (!id) { errors.push(`${what}里有商品没选`); continue; }
-    if (!qty) { errors.push(`${what}的数量必须是大于 0 的整数`); continue; }
-    merged.set(id, (merged.get(id) ?? 0) + qty); // 同一商品数量合并
+    if (!qty) { errors.push(quantityScale===6?`${what}的数量必须大于 0（最多 6 位小数）`:`${what}的数量必须是大于 0 的整数`); continue; }
+    merged.set(id, Math.round(((merged.get(id) ?? 0) + qty)*1e6)/1e6); // 同一商品数量合并
   }
   return [...merged].map(([baseCodeId, qty]) => ({ baseCodeId, qty }));
 }
 
 /** 整理并校验规格清单；返回整理后的清单和中文错误列表 */
-export function normalizeSpecs(raw: unknown, options: { allowIncomplete?: boolean } = {}): { specs: SkuSpec[]; errors: string[] } {
+export function normalizeSpecs(raw: unknown, options: { allowIncomplete?: boolean;quantityScale?:0|6 } = {}): { specs: SkuSpec[]; errors: string[] } {
   const errors: string[] = [];
   if (!Array.isArray(raw) || raw.length === 0) return { specs: [], errors: ['请至少填写一个规格'] };
   if (raw.length > SKU_MAX_SPECS) return { specs: [], errors: [`一张申请单最多 ${SKU_MAX_SPECS} 个规格`] };
@@ -66,8 +68,9 @@ export function normalizeSpecs(raw: unknown, options: { allowIncomplete?: boolea
     names.add(name.toLowerCase());
     const brandId=o.brandId===undefined||o.brandId===null||o.brandId===''?undefined:Number(o.brandId);
     if(brandId!==undefined&&(!Number.isSafeInteger(brandId)||brandId<=0))errors.push(`${label}的组合品牌无效`);
-    const main = normLines(o.main, `${label}的主商品`, errors);
-    const gift = normLines(o.gift, `${label}的赠品`, errors);
+    const main = normLines(o.main, `${label}的主商品`, errors,options.quantityScale);
+    const gift = normLines(o.gift, `${label}的赠品`, errors,options.quantityScale);
+    if(options.quantityScale===6&&main.length+gift.length>100)errors.push(`${label}的组成项最多100项`);
     if (!options.allowIncomplete && main.length === 0) errors.push(`${label}至少要有一个主商品`);
     if(typeof o.note==='string'&&o.note.trim().length>1000)errors.push(`${label}的运营需求不能超过1000字`);
     const note = typeof o.note === 'string' ? o.note.trim().slice(0, 1000) : undefined;
@@ -78,7 +81,7 @@ export function normalizeSpecs(raw: unknown, options: { allowIncomplete?: boolea
 }
 
 /** 整理并校验仓库配置（按规格顺序一一对应）；四类每类要么有配置，要么写明不需要的原因 */
-export function normalizeWarehouse(raw: unknown, specNames: readonly string[]): { config: WarehouseSpec[]; errors: string[] } {
+export function normalizeWarehouse(raw: unknown, specNames: readonly string[],options:{quantityScale?:3|6;allowIncomplete?:boolean}={}): { config: WarehouseSpec[]; errors: string[] } {
   const errors: string[] = [];
   if (!Array.isArray(raw) || raw.length !== specNames.length) return { config: [], errors: ['仓库配置和申请的规格对不上，请刷新后重新填写'] };
   const config = raw.map((r, i): WarehouseSpec => {
@@ -86,13 +89,13 @@ export function normalizeWarehouse(raw: unknown, specNames: readonly string[]): 
     const o = isObj(r) ? r : {};
     const lines: WarehouseLine[] = [];
     const rawLines = Array.isArray(o.lines) ? o.lines : [];
-    if (rawLines.length > 60) errors.push(`${label}的物料行太多`);
+    if (rawLines.length > (options.quantityScale===6?200:60)) errors.push(`${label}的物料行太多`);
     for (const l of rawLines) {
       if (!isObj(l)) { errors.push(`${label}的物料格式不对`); continue; }
       const role = l.role as WarehouseRole;
       if (!WAREHOUSE_GROUPS.some((g) => g.roles.includes(role))) { errors.push(`${label}有物料类别不对`); continue; }
-      const qty = typeof l.qty === 'number' && Number.isFinite(l.qty) && l.qty > 0 && Math.round(l.qty * 1000) / 1000 === l.qty ? l.qty : null;
-      if (qty === null) { errors.push(`${label}的物料数量必须大于 0（最多 3 位小数）`); continue; }
+      const qty = options.quantityScale===6?sourceQty(l.qty):typeof l.qty === 'number' && Number.isFinite(l.qty) && l.qty > 0 && Math.round(l.qty * 1000) / 1000 === l.qty ? l.qty : null;
+      if (qty === null) { errors.push(`${label}的物料数量必须大于 0（最多 ${options.quantityScale??3} 位小数）`); continue; }
       if (role === 'labor') {
         const laborId = posInt(l.laborId);
         if (!laborId) { errors.push(`${label}有人工项目没选`); continue; }
@@ -108,7 +111,7 @@ export function normalizeWarehouse(raw: unknown, specNames: readonly string[]): 
     for (const g of WAREHOUSE_GROUPS) {
       const has = lines.some((l) => g.roles.includes(l.role));
       const why = typeof nr[g.key] === 'string' ? (nr[g.key] as string).trim().slice(0, 200) : '';
-      if (!has && !why) errors.push(`${label}的「${g.label}」要么选好物料，要么写明不需要的原因`);
+      if (!options.allowIncomplete && !has && !why) errors.push(`${label}的「${g.label}」要么选好物料，要么写明不需要的原因`);
       if (!has && why) notRequired[g.key] = why;
     }
     return { lines, notRequired };

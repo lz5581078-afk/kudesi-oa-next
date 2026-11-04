@@ -37,3 +37,9 @@ it('查看申请进入既有批量面板，不改组合页面查询参数；身�
 it('默认我发起的页面不限制SKU或整申请分组',async()=>{
  render(<MemoryRouter><RunsPage view="started"/></MemoryRouter>);await screen.findByRole('heading',{name:'我发起的'});expect(mocks.runs).toHaveBeenCalledWith(expect.objectContaining({view:'started',templateKey:''}));expect(mocks.runs.mock.calls[0][0]).not.toHaveProperty('groupSku');expect(screen.getByRole('columnheader',{name:'标题'})).toBeTruthy();
 });
+it('我的申请显示真实数字编号和上海无秒；单页无额外分页，多页保留服务端翻页',async()=>{
+ render(<Page/>);await screen.findByText('我的合成申请');expect(screen.getByText('申请单 #21 · 3 个规格')).toBeTruthy();expect(screen.getByText('2026-11-04 08:00')).toBeTruthy();expect(screen.queryByText('Btest1')).toBeNull();expect(screen.queryByRole('button',{name:'下一页'})).toBeNull();cleanup();mocks.runs.mockResolvedValue({...list(),total:21});render(<Page/>);fireEvent.click(await screen.findByRole('button',{name:'下一页'}));await waitFor(()=>expect(mocks.runs).toHaveBeenLastCalledWith(expect.objectContaining({page:2,groupSku:true})));
+});
+it('新建替换mine为单层弹窗，X和历史申请均同源回mine，历史入口刷新列表',async()=>{
+ render(<Page/>);await screen.findByText('我的合成申请');let dialog=await openCreate();expect(screen.getAllByRole('dialog')).toHaveLength(1);expect(screen.queryByText('我的合成申请')).toBeNull();fireEvent.click(within(dialog).getByRole('button',{name:'关闭新建申请'}));await screen.findByText('我的合成申请');dialog=await openCreate();const before=mocks.runs.mock.calls.length;fireEvent.click(within(dialog).getByRole('button',{name:'历史申请'}));await screen.findByText('我的合成申请');await waitFor(()=>expect(mocks.runs.mock.calls.length).toBeGreaterThan(before));
+});

@@ -1,3 +1,4 @@
+import {independentDefinitionFacts} from './base-definition-facts';
 import { codeLifecycleCounts, codeVerificationState } from './finance-code-lifecycle';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -27,6 +28,8 @@ export class BaseCodeToolsService {
     private readonly resources: ResourcesService,
     private readonly outbox: OutboxService,
   ) {}
+
+  async definitionPreview(user:AuthUser,input:Record<string,unknown>){return independentDefinitionFacts(this.ds.manager,user.companyId,input);}
 
   private canCost(user: AuthUser) { return createChecker(user.permissions)('product.cost.view'); }
 

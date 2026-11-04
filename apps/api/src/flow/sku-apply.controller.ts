@@ -1,11 +1,17 @@
+import {FlowConfirmationDto} from './flow-confirmation.dto';
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, MaxLength,Min,Max, ValidateNested } from 'class-validator';
 import { AuthUser, CurrentUser, RequirePermission, AuthenticatedOnly } from '../common/auth.decorators';
 import { SkuApplyService, type SkuOptionKind } from './sku-apply.service';
 import { SkuBatchService, type BatchAction } from './sku-batch.service';
 
 class OptionsQuery {
+  @IsOptional() @IsIn(['true']) catalog?:'true';
+  @IsOptional() @Type(()=>Number) @IsInt() @Min(1) runId?:number;
+  @IsOptional() @IsString() @Matches(/^(code|archive):[1-9][0-9]*$/) category?:string;
+  @IsOptional() @Type(()=>Number) @IsInt() @Min(1) page?:number;
+  @IsOptional() @Type(()=>Number) @IsInt() @Min(1) @Max(100) pageSize?:number;
   @IsIn(['meta', 'main', 'gift', 'package', 'label', 'other', 'labor', 'names']) kind!: SkuOptionKind | 'meta';
   @IsOptional() @IsString() @MaxLength(50) keyword?: string;
   @IsOptional() @IsString() @MaxLength(1500) ids?: string;
@@ -14,7 +20,12 @@ class OptionsQuery {
 class DraftReferenceQuery {
   @IsString() @MaxLength(100) keyword!:string;
 }
+class PreviewQuery {
+  @IsOptional() @Type(()=>Number) @IsInt() @Min(1) checkRevision?:number;
+}
 class HistoryQuery {
+  @IsOptional() @IsIn(['true']) sourceLibrary?:'true';
+  @IsOptional() @Type(()=>Number) @IsInt() @Min(1) runId?:number;
   @IsOptional() @IsString() @MaxLength(200) @Matches(/^[0-9,]*$/) mainIds?: string;
   @IsOptional() @IsString() @MaxLength(50) keyword?: string;
 }
@@ -24,6 +35,7 @@ class SplitDto {
 }
 
 class BatchItemDto {
+  @IsOptional() @ValidateNested() @Type(()=>FlowConfirmationDto) confirmation?:FlowConfirmationDto;
   @IsInt() runId!: number;
   @IsInt() revision!: number;
   @IsOptional() @IsInt() stepId?: number;
@@ -54,9 +66,9 @@ class ReturnSpecsDto {
 export class SkuApplyController {
   constructor(private readonly sku: SkuApplyService, private readonly batches: SkuBatchService) {}
 
-  @RequirePermission('flow.apply.view')
+  @AuthenticatedOnly()
   @Get('options')
-  options(@CurrentUser() user: AuthUser, @Query() q: OptionsQuery) { return this.sku.options(user, q.kind, q.keyword, q.ids); }
+  options(@CurrentUser() user: AuthUser, @Query() q: OptionsQuery) { return q.catalog==='true'?(q.kind==='names'?this.sku.catalogNames(user,q.ids??'',q.runId):this.sku.catalogOptions(user,q.kind,q)):this.sku.options(user,q.kind,q.keyword,q.ids,{runId:q.runId}); }
 
   @RequirePermission('flow.apply.view')
   @Get('draft-references')
@@ -65,13 +77,13 @@ export class SkuApplyController {
   /** 能不能看由流程可见性决定（发起人、办理人、抄送、有流程总览权限的人） */
   @AuthenticatedOnly()
   @Get('runs/:id/preview')
-  preview(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.sku.preview(user, id); }
+  preview(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number,@Query() query:PreviewQuery) { return this.sku.preview(user, id,query.checkRevision); }
 
-  @RequirePermission('flow.apply.view')
+  @AuthenticatedOnly()
   @Get('history-config')
   history(@CurrentUser() user: AuthUser, @Query() q: HistoryQuery) {
     const ids = [...new Set((q.mainIds ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 10);
-    return this.sku.historyConfigs(user, ids, q.keyword);
+    return q.sourceLibrary==='true'?this.sku.reuseLibrary(user,q.runId,q.keyword):this.sku.historyConfigs(user, ids, q.keyword,q.runId);
   }
 
   /** 每个规格独立办理：拆成一规格一条流程（发起权限和普通发起一样，由流程引擎校验） */

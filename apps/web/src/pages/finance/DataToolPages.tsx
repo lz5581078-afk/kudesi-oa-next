@@ -265,7 +265,7 @@ export function JstSyncPage() {
           {data?.rows.length === 0 && <tr><td colSpan={6} className="empty-state muted">队列是空的</td></tr>}
           {data?.rows.map((j) => (
             <tr key={j.id}><td>{when(j.createdAt)}</td><td>{JOB_KIND[j.kind] ?? (j.resourceType === 'finance-bundles' ? '商品组合' : '基础编码')} <strong>{j.payload.code ?? (j.payload as { skuId?: string }).skuId}</strong><div className="muted">{j.payload.name}</div>{(j.payload as { oldCode?: string }).oldCode && <div className="muted">旧编码：{(j.payload as { oldCode?: string }).oldCode}</div>}</td>
-              <td><span className={`pill ${JOB_STATUS[j.status][1]}`}>{JOB_STATUS[j.status][0]}</span></td><td className="num">{j.attempts}</td><td className="bad-text">{j.lastError}</td>
+              <td><span className={`pill ${'blockedIntent' in j.payload&&j.payload.blockedIntent===true?'warn':JOB_STATUS[j.status][1]}`}>{'blockedIntent' in j.payload&&j.payload.blockedIntent===true?'待处理配置/资料问题':JOB_STATUS[j.status][0]}</span></td><td className="num">{j.attempts}</td><td className="bad-text">{j.lastError}</td>
               <td>{(j.status === 'failed' || j.status === 'cancelled') && <button type="button" className="secondary-button small" onClick={() => void act(() => financeApi.jstRetry(j.id))}>重试</button>}{(j.status === 'pending' || j.status === 'failed') && <button type="button" className="secondary-button small" onClick={() => void act(() => financeApi.jstCancel(j.id))}>取消</button>}</td></tr>
           ))}
         </tbody>

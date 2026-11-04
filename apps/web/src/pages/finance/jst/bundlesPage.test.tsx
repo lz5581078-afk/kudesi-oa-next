@@ -27,6 +27,7 @@ describe('商品组合编码页', () => {
     await screen.findByText('ZH-APPLE-2',{selector:'td[data-label="组合编码"]'});
     fireEvent.click(screen.getByRole('button', { name: '复制组合编码' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('ZH-APPLE-2'));
+    fireEvent.click(screen.getAllByText('更多操作',{selector:'summary'}).find(node=>node.closest('tr'))!);
     fireEvent.click(screen.getByRole('button', { name: '展开构成' }));
     await screen.findByText(/红富士1KG × 2 个/);
     expect(screen.getByText('主品')).toBeTruthy();
@@ -47,7 +48,7 @@ describe('商品组合编码页', () => {
     render(<BundlesPage/>);await screen.findByText('ZH-PARITY',{selector:'td[data-label="组合编码"]'});
     expect(screen.getAllByRole('tab').map(tab=>tab.textContent)).toEqual(['待验证1','已验证2','二次验证3']);
     expect(resourceApi.list).toHaveBeenCalledWith('finance-bundles',expect.objectContaining({pageSize:30}));
-    expect(screen.queryByRole('button',{name:'＋ 新建组合编码'})).toBeNull();
+    expect(screen.queryByRole('button',{name:'新建组合编码'})).toBeNull();
     const before=vi.mocked(resourceApi.list).mock.calls.filter(([type])=>type==='finance-bundles').length;
     fireEvent.change(screen.getByLabelText('搜索'),{target:{value:'查找草稿'}});
     await new Promise(resolve=>setTimeout(resolve,250));
@@ -55,7 +56,7 @@ describe('商品组合编码页', () => {
     fireEvent.submit(screen.getByLabelText('搜索').closest('form')!);
     await waitFor(()=>expect(resourceApi.list).toHaveBeenCalledWith('finance-bundles',expect.objectContaining({keyword:'查找草稿'})));
     fireEvent.click(screen.getByRole('button',{name:'合成末级分类 0'}));
-    fireEvent.click(screen.getByRole('button',{name:'＋ 新建组合编码'}));
+    fireEvent.click(screen.getByRole('button',{name:'新建组合编码'}));
     expect(screen.getByRole('dialog').textContent).toBe('新增分类5');
     fireEvent.keyDown(screen.getAllByRole('tab')[0],{key:'ArrowRight'});
     expect((screen.getByLabelText('搜索') as HTMLInputElement).value).toBe('');
@@ -72,7 +73,8 @@ describe('商品组合编码页', () => {
       return{items:all.slice((page-1)*200,page*200),total:all.length,page,pageSize:200};
     });
     vi.mocked(jstApi.bundleOverview).mockResolvedValue({status:{pending:1}});
-    render(<BundlesPage/>);await screen.findByRole('option',{name:'合成平台200'});await screen.findByText('ZH-FULL',{selector:'td[data-label="组合编码"]'});
+    render(<BundlesPage/>);fireEvent.click(screen.getByRole('button',{name:'归档与聚水潭禁用记录'}));fireEvent.click(screen.getAllByText('更多操作',{selector:'summary'}).find(node=>!node.closest('tr'))!);await screen.findByRole('option',{name:'合成平台200'});await screen.findByText('ZH-FULL',{selector:'td[data-label="组合编码"]'});
+    fireEvent.click(screen.getAllByText('更多操作',{selector:'summary'}).find(node=>node.closest('tr'))!);
     fireEvent.click(screen.getByRole('button',{name:'展开构成'}));
     await screen.findByText(/合成构成200 × 1/);
     expect(resourceApi.list).toHaveBeenCalledWith('finance-platforms',expect.objectContaining({page:2}));

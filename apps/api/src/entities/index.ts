@@ -808,9 +808,19 @@ export class FeeArchiveSnapshot {
   @Column({ name: 'category_count', type: 'int', unsigned: true, default: 0 }) categoryCount!: number;
   @Column({ name: 'item_count', type: 'int', unsigned: true, default: 0 }) itemCount!: number;
   @Column({ name: 'snapshot_json', type: 'longtext' }) snapshotJson!: string;
+  @Column({ name: 'sort_preference', type: 'json', nullable: true }) sortPreference!: Record<string,unknown> | null;
   @Column({ name: 'created_by', type: 'int', unsigned: true, nullable: true }) createdBy!: number | null;
   @CreateDateColumn({ name: 'created_at', type: 'datetime' }) createdAt!: Date;
   @Column({ name: 'restored_at', type: 'datetime', nullable: true }) restoredAt!: Date | null;
+}
+
+@Entity('user_preferences')
+export class UserPreference {
+  @PrimaryColumn({name:'company_id',type:'int',unsigned:true}) companyId!:number;
+  @PrimaryColumn({name:'user_id',type:'int',unsigned:true}) userId!:number;
+  @PrimaryColumn({name:'preference_key',type:'varchar',length:80}) preferenceKey!:string;
+  @Column({type:'json'}) value!:Record<string,unknown>;
+  @Column({name:'updated_at',type:'datetime',insert:false,update:false}) updatedAt!:Date;
 }
 
 @Entity('outbox_switches')
@@ -1401,6 +1411,7 @@ export const ALL_ENTITIES = [
   IntegrationSetting,
   ResourceFile,
   FormDraft,
+  UserPreference,
   PhoneUploadSession,
   ProductVerificationEvent,
   AfterSalesCase,

@@ -22,7 +22,7 @@ import { bundleLaborCost, bundleSeedBuckets, costSeedBuckets } from './cost-seed
 type Data = Record<string, unknown>;
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
-const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-code-dictionaries', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
+const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs','finance-labor-units', 'finance-margins', 'finance-categories', 'finance-code-dictionaries', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
 const EXPRESS_TYPES = ['finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-express-prices'];
 
 export interface CostRow {
@@ -80,9 +80,11 @@ export class CostService {
     const snap = rows.find((r) => r.type === 'finance-freight-estimates' && r.uniqueKey === 'default');
     // 运费引用已确认的重量段快照；读取成本不会隐式重建快递报价样本。
     const {rows:estimateRows,parcelLimit}=readFreightSnapshot(snap,rows);
+    const laborUnits=map('finance-labor-units');
+    const labor=new Map<number,ResourceRecord>(by('finance-labor-costs').map((row):[number,ResourceRecord]=>{const referenced=row.data.unitId!==undefined&&row.data.unitId!==null&&row.data.unitId!=='';return [row.id,{...row,data:{...row.data,unitName:referenced?laborUnits.get(Number(row.data.unitId))?.title??'':str(row.data.unitName)}}];}));
     return {
       bundles: by('finance-bundles'), lines: by('finance-bundle-lines'), baseCodeLines: by('finance-base-code-lines'), baseCodes: map('finance-base-codes'), products: map('finance-products'),
-      labor: map('finance-labor-costs'), margins: by('finance-margins'), categories: new Map([...by('finance-categories'),...by('finance-code-dictionaries').filter(row=>row.data.kind==='product_category')].map(row=>[row.id,row])),
+      labor, margins: by('finance-margins'), categories: new Map([...by('finance-categories'),...by('finance-code-dictionaries').filter(row=>row.data.kind==='product_category')].map(row=>[row.id,row])),
       groups, freight: { rows: estimateRows, parcelLimit },
     };
   }

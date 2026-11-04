@@ -1,16 +1,17 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor,within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BaseCodesPage } from './BaseCodesPage';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
 import { jstApi } from './jstApi';
+import {api} from '../../../api/client';
 const identity=vi.hoisted(()=>({companyId:1}));
 vi.mock('../../../auth/AuthContext',()=>({useAuth:()=>({can:()=>true,user:{id:1,companyId:identity.companyId,permissions:{isCompanyAdmin:true,allow:[],deny:[]}}})}));
 vi.mock('../../../resources/RecordDetail',()=>({RecordDetail:()=>null,useResourceCan:()=>()=>true}));
-vi.mock('../../../resources/RecordForm',()=>({RecordForm:({initial}:{initial?:Record<string,unknown>})=><div role="dialog">{JSON.stringify(initial)}</div>}));
+vi.mock('../../../api/client',async orig=>({...await orig<typeof import('../../../api/client')>(),api:vi.fn()}));
 vi.mock('../../../resources/api',async orig=>({...await orig<typeof import('../../../resources/api')>(),resourceApi:{list:vi.fn(),export:vi.fn()}}));
 vi.mock('./jstApi',async orig=>({...await orig<typeof import('./jstApi')>(),jstApi:{baseOverview:vi.fn()}}));
 const dto=(id:number,title:string,data:Record<string,unknown>={}):ResourceDto=>({id,type:'finance-categories',title,status:'active',statusReason:null,data,refLabels:{},files:{},secretConfigured:{},createdAt:'',updatedAt:''});
-beforeEach(()=>{identity.companyId=1;vi.mocked(jstApi.baseOverview).mockResolvedValue({status:{pending:0,verified:0,reverify:0},byCategory:{}});});
+beforeEach(()=>{identity.companyId=1;vi.mocked(api).mockResolvedValue({generated:{code:'FL-XP-1KG',styleCode:'FL-XP',name:'末级-新品',shortName:'新品',spec:'1千克'},errors:[]});vi.mocked(jstApi.baseOverview).mockResolvedValue({status:{pending:0,verified:0,reverify:0},byCategory:{}});});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 it('完整201项目录/品牌含0记录末级，未选与父级不能新建，末级带入分类',async()=>{
  const categories=[dto(1,'合成父级',{kind:'product_category'}),...Array.from({length:199},(_,i)=>dto(i+2,`合成目录${i}`,{kind:'product_category',parentId:1})),dto(201,'最后末级',{kind:'product_category',parentId:1})];
@@ -23,9 +24,12 @@ it('完整201项目录/品牌含0记录末级，未选与父级不能新建，�
  expect(screen.queryByRole('button',{name:'新建商品编码'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'最后末级 0'}));
  fireEvent.click(screen.getByRole('button',{name:'新建商品编码'}));
- expect(screen.getByRole('dialog').textContent).toContain('"codeDictionaryCategoryId":201');
- expect(screen.getByRole('dialog').textContent).not.toContain('"categoryId"');
- expect(screen.getByRole('dialog').textContent).toContain('"origin":"composed"');
+ const dialog=screen.getByRole('dialog',{name:'新建商品基础编码'});
+ await waitFor(()=>expect((within(dialog).getByRole('combobox',{name:'2级分类'}) as HTMLInputElement).value).toBe('最后末级'));
+ expect((within(dialog).getByRole('combobox',{name:'1级分类'}) as HTMLInputElement).value).toBe('合成父级');
+ expect(within(dialog).getByRole('button',{name:/添加商品档案/})).toBeTruthy();
+ expect(within(dialog).queryByLabelText('来源商品档案')).toBeNull();
+ await waitFor(()=>expect(api).toHaveBeenCalledWith(expect.stringContaining('codeDictionaryCategoryId=201')));
  expect(resourceApi.list).toHaveBeenCalledWith('finance-code-dictionaries',expect.objectContaining({page:2}));
  expect(resourceApi.list).toHaveBeenCalledWith('finance-brands',expect.objectContaining({page:2}));
 });
