@@ -65,6 +65,7 @@ import { ScriptCenterController } from './script-center.controller';
     expect(await api.detail(actor, v.id)).toMatchObject({
       ...draft,
       revision: 2,
+      outline: [{name:"留人",length:draft.body.length}, ...["互动","塑品","逼单","追单"].map(name=>({name,length:0}))],
       assets: [{ id: a.id, name: '籽粒特写' }],
     });
     await expect(api.save(actor, v.id, draft)).rejects.toThrow('版本已变更');
