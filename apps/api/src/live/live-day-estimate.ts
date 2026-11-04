@@ -73,8 +73,9 @@ export function computeDayEstimate(sessions: Row[], now: string, input: Inputs, 
       const minutes = Math.round((Date.parse(end.replace(' ','T') + '+08:00') - Date.parse(start.replace(' ','T') + '+08:00')) / 60000);
       if (minutes === 0) continue;
       const p = input.profiles.find(p => Number(p.id) === userId);
-      const rate = liveArchiveHourlyRate(p ? {payType:p.pay_type,hourlyRate:p.hourly_rate == null ? null : Number(p.hourly_rate)} : null);
-      if (rate === null) { missingCosts.add(id); continue; }
+      const archiveRate = liveArchiveHourlyRate(p ? {payType:p.pay_type,hourlyRate:p.hourly_rate == null ? null : Number(p.hourly_rate)} : null);
+      const rate = role === 'anchor' ? amount(s.scheduled_trial_rate) ?? (Number(s.trial_proxy) ? null : archiveRate) : archiveRate;
+      if (rate === null || rate <= 0) { missingCosts.add(id); continue; }
       try { wageCents += liveComputeWage({startAt:start,endAt:end,hourlyRateCents:rate}).amountCents; }
       catch { missingCosts.add(id); }
     }

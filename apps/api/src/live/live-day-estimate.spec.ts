@@ -44,6 +44,11 @@ describe('全览按当前时刻预估当日营业额和费用',()=>{
   expect(result.costs).toBeNull();expect(em.query).toHaveBeenCalledTimes(2);
   for(const [sql,params]of em.query.mock.calls){expect(sql).toMatch(/company_id=\?/);expect(params).toEqual([7,[1]]);expect(sql).not.toMatch(/live_wage|live_commission|FROM users/);}
  });
+ it('试播优先采用本场时薪，缺少本场试播时薪时不挪用旧档案工资',()=>{
+  const x=input();
+  expect(computeDayEstimate([session({scheduled_trial_rate:8000,trial_proxy:1})],now,x,true).costs?.wageCents).toBe(11000);
+  expect(computeDayEstimate([session({trial_proxy:1})],now,x,true).costs).toMatchObject({wageCents:3000,missingSessions:1});
+ });
  it('未来日期的记录不提前计入当前已发生金额',()=>{
   expect(computeDayEstimate([session({start_text:'2026-11-05 10:00:00'})],now,input(),true)).toMatchObject({sessions:0,turnoverCents:0,costs:{totalCents:0}});
  });
