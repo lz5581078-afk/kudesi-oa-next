@@ -1,5 +1,5 @@
 import { api } from '../../api/client';
-export interface AnchorMonthSummary {sessionCount:number;minutes:number;turnoverCents:number;commissionCents:number|null;missingTimeSessions:number;missingSalesSessions:number;missingCommissionSessions:number;estimatedSessions:number}
+export interface AnchorMonthSummary {wageCents:number|null;pendingWageSessions:number;sessionCount:number;minutes:number;turnoverCents:number;commissionCents:number|null;missingTimeSessions:number;missingSalesSessions:number;missingCommissionSessions:number;estimatedSessions:number}
 export interface AnchorMonthSession {id:number;date:string;roomId:number;roomName:string;status:string;startAt:string|null;endAt:string|null;minutes:number|null;turnoverCents:number|null;commissionCents:number|null;estimated:boolean}
 export interface AnchorMonthPerson {userId:number;name:string;employmentType:string;summary:AnchorMonthSummary;sessions?:AnchorMonthSession[]}
 export interface AnchorMonthData {month:string;asOf:string;canViewCommission:boolean;canOpenSession:boolean;items:AnchorMonthPerson[]}

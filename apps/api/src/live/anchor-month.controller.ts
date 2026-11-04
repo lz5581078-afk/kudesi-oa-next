@@ -40,11 +40,12 @@ export function computeAnchorMonth(sessions:Row[],input:Inputs,userId:number,now
   const rows=sessions.filter(s=>Number(s.anchor_user_id)===userId).map(s=>{
     const current=indexed.get(Number(s.id))??{...input,snapshots:[],reports:[],checkins:[],wages:[],commissions:[]};
     const worked=anchorWorkedTime(s,current,now),v=computeDayEstimate([s],now,current,commissionVisible,true);
-    return {id:Number(s.id),date:s.session_day,roomId:Number(s.room_id),roomName:s.room_name||`直播间 #${s.room_id}`,status:s.status,...worked,
+    const ledger=commissionVisible&&s.status==='approved'?current.wages.find(w=>w.role==='anchor'&&Number(w.user_id)===userId):undefined;
+    return {wageCents:ledger?.amount_cents==null?null:Number(ledger.amount_cents),id:Number(s.id),date:s.session_day,roomId:Number(s.room_id),roomName:s.room_name||`直播间 #${s.room_id}`,status:s.status,...worked,
       turnoverCents:v.missingSalesSessions?null:v.turnoverCents,
       commissionCents:commissionVisible&&!v.costs?.missingSessions?v.costs?.commissionCents??0:null,estimated:s.status!=='approved'};
   });
-  return {userId,sessions:rows,summary:{sessionCount:rows.length,minutes:rows.reduce((n,r)=>n+(r.minutes??0),0),turnoverCents:rows.reduce((n,r)=>n+(r.turnoverCents??0),0),commissionCents:commissionVisible?rows.reduce((n,r)=>n+(r.commissionCents??0),0):null,
+  return {userId,sessions:rows,summary:{wageCents:commissionVisible?rows.reduce((n,r)=>n+(r.wageCents??0),0):null,pendingWageSessions:commissionVisible?rows.filter(r=>r.wageCents===null).length:0,sessionCount:rows.length,minutes:rows.reduce((n,r)=>n+(r.minutes??0),0),turnoverCents:rows.reduce((n,r)=>n+(r.turnoverCents??0),0),commissionCents:commissionVisible?rows.reduce((n,r)=>n+(r.commissionCents??0),0):null,
     missingTimeSessions:rows.filter(r=>r.minutes===null).length,missingSalesSessions:rows.filter(r=>r.turnoverCents===null).length,missingCommissionSessions:commissionVisible?rows.filter(r=>r.commissionCents===null).length:0,estimatedSessions:rows.filter(r=>r.estimated).length}};
 }
 @Injectable()
@@ -60,7 +61,7 @@ export class AnchorMonthService {
     const period=currentAnchorMonth(liveClock.now());
     const sessions:Row[]=await this.ds.query(`${SESSION_SELECT} WHERE s.company_id=? AND s.anchor_user_id IN (?) AND s.session_date>=? AND s.session_date<? AND s.start_at<=? AND s.status IN ('live','pending_report','submitted','returned','approved') ORDER BY s.start_at DESC,s.id DESC`,[user.companyId,ids,period.from,period.until,period.asOf]);
     const input=await loadEstimateInputs(this.ds.manager,access,sessions,period.asOf,true);
-    if(sessions.length)input.wages=await this.ds.query("SELECT session_id,user_id,role,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') start_text,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_wage_records WHERE company_id=? AND session_id IN (?) AND role='anchor'",[user.companyId,sessions.map(s=>Number(s.id))]);
+    if(sessions.length)input.wages=await this.ds.query("SELECT session_id,user_id,role,amount_cents,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') start_text,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text FROM live_wage_records WHERE company_id=? AND session_id IN (?) AND role='anchor'",[user.companyId,sessions.map(s=>Number(s.id))]);
     // No external sales polling and no new ledger entries: use existing shared snapshots/reports.
     const indexed=indexMonthInputs(input);
     const items=people.map(p=>{
