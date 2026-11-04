@@ -9,6 +9,7 @@ import './scriptCenter.css';
 interface Item {
   id: number;
   name: string;
+  category?: string;
 }
 interface Library {
   folders: Item[];
@@ -23,6 +24,8 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
     [dirty, setDirty] = useState(false),
     [error, setError] = useState('');
   const [creating, setCreating] = useState<'folder' | 'version' | null>(null);
+  const [classification, setClassification] = useState('');
+  const [classifying, setClassifying] = useState(false);
   const [folderName, setFolderName] = useState(''),
     [versionName, setVersionName] = useState(''),
     [busy, setBusy] = useState(false),
@@ -76,12 +79,15 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
     try {
       const { id } = await api<{ id: number }>(
         kind === 'folder' ? base + '/folders' : base + '/folders/' + folder + '/versions',
-        { body: { name } },
+        { body: kind === 'folder' ? { name, category: classification.trim() } : { name } },
       );
       setDirty(false);
       setCreating(null);
       if (kind === 'folder') {
-        setLibrary({ ...library, folders: [...library.folders, { id, name }] });
+        setLibrary({
+          ...library,
+          folders: [...library.folders, { id, name, category: classification.trim() }],
+        });
         setFolderName('');
         setFolder(id);
         setVersion(0);
@@ -103,6 +109,8 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
     setFolderName('');
     setVersionName('');
     setError('');
+    setClassifying(false);
+    setClassification('');
     setFolder(folderId);
     setVersion(versionId);
   }
@@ -113,6 +121,49 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
   const itemName = folder ? '版本' : '文件夹';
   const draftName = folder ? versionName : folderName;
   const cards = folder ? versions : (library?.folders ?? []);
+  const names = [...new Set((library?.folders ?? []).map((f) => f.category || '').filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b, 'zh-CN'),
+  );
+  const groups = folder
+    ? ['']
+    : [...new Set(['玉米种子', ...names, ''])].filter((key) => cards.some((c) => (c.category || '') === key));
+  async function classify() {
+    if (!library || busy) return;
+    setBusy(true);
+    try {
+      const { category } = await api<{ category: string }>(base + '/folders/' + folder + '/category', {
+        method: 'PUT',
+        body: { category: classification.trim() },
+      });
+      setLibrary({
+        ...library,
+        folders: library.folders.map((f) => (f.id === folder ? { ...f, category } : f)),
+      });
+      setClassifying(false);
+      setError('');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const categoryInput = (
+    <label>
+      产品分类
+      <input
+        list="sc-product-categories"
+        maxLength={80}
+        value={classification}
+        placeholder="选择或输入品类"
+        onChange={(e) => setClassification(e.target.value)}
+      />
+      <datalist id="sc-product-categories">
+        {[...new Set(['玉米种子', ...names])].map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+    </label>
+  );
   const Icon = folder ? FileText : Folder;
   return (
     <section className="sc-center card pad">
@@ -181,12 +232,53 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                     className="secondary-button"
                     aria-expanded={creating === kind}
                     disabled={busy}
-                    onClick={() => setCreating(creating === kind ? null : kind)}
+                    onClick={() => {
+                      setClassifying(false);
+                      setClassification('');
+                      setCreating(creating === kind ? null : kind);
+                    }}
                   >
                     ＋ 新建{itemName}
                   </button>
                 )}
               </header>
+              {manage && !!folder && (
+                <div className="sc-classify">
+                  {classifying ? (
+                    <form
+                      className="sc-create"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void classify();
+                      }}
+                    >
+                      {categoryInput}
+                      <button className="secondary-button" disabled={busy}>
+                        保存分类
+                      </button>
+                      <button
+                        type="button"
+                        className="link-button"
+                        disabled={busy}
+                        onClick={() => setClassifying(false)}
+                      >
+                        取消
+                      </button>
+                    </form>
+                  ) : (
+                    <button
+                      className="link-button"
+                      onClick={() => {
+                        setCreating(null);
+                        setClassification(library.folders.find((f) => f.id === folder)?.category || '');
+                        setClassifying(true);
+                      }}
+                    >
+                      调整产品分类 · {library.folders.find((f) => f.id === folder)?.category || '未分类'}
+                    </button>
+                  )}
+                </div>
+              )}
               {manage && creating === kind && (
                 <form
                   className="sc-create"
@@ -204,6 +296,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                     disabled={busy}
                     onChange={(e) => (folder ? setVersionName : setFolderName)(e.target.value)}
                   />
+                  {!folder && categoryInput}
                   <button className="primary-button" disabled={busy || !draftName.trim()}>
                     创建
                   </button>
@@ -218,28 +311,35 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                 </form>
               )}
               {cards.length ? (
-                <div className="sc-tiles">
-                  {cards.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className="sc-tile"
-                      disabled={busy}
-                      onClick={() => (folder ? openLevel(folder, item.id) : openLevel(item.id))}
-                    >
-                      <Icon className="sc-tile-icon" aria-hidden="true" size={26} />
-                      <span>
-                        <strong>{item.name}</strong>
-                        <small>
-                          {folder
-                            ? '打开话术'
-                            : library.versions.filter((v) => v.folderId === item.id).length + ' 个版本'}
-                        </small>
-                      </span>
-                      <ChevronRight size={16} aria-hidden="true" />
-                    </button>
-                  ))}
-                </div>
+                groups.map((group) => (
+                  <section key={group} className="sc-product-group">
+                    {!folder && <h4>{group || '未分类'}</h4>}
+                    <div className="sc-tiles">
+                      {cards
+                        .filter((c) => folder || (c.category || '') === group)
+                        .map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="sc-tile"
+                            disabled={busy}
+                            onClick={() => (folder ? openLevel(folder, item.id) : openLevel(item.id))}
+                          >
+                            <Icon className="sc-tile-icon" aria-hidden="true" size={26} />
+                            <span>
+                              <strong>{item.name}</strong>
+                              <small>
+                                {folder
+                                  ? '打开话术'
+                                  : library.versions.filter((v) => v.folderId === item.id).length + ' 个版本'}
+                              </small>
+                            </span>
+                            <ChevronRight size={16} aria-hidden="true" />
+                          </button>
+                        ))}
+                    </div>
+                  </section>
+                ))
               ) : (
                 <p className="sc-empty">
                   {folder ? '这个产品还没有话术版本。' : '还没有产品文件夹。'}

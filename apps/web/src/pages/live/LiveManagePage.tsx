@@ -1,3 +1,4 @@
+import { ScriptMobileUpload } from './ScriptAssetLibrary';
 import { ScriptCenter } from './ScriptCenter';
 import { DailyWorkPanel } from './DailyWorkPanel';
 import { LiveQr } from './LiveQr';
@@ -42,6 +43,10 @@ export function LiveManagePage() {
     try { localStorage.setItem(TAB_KEY, k); } catch { /* 本机存不了就不记 */ }
     setParams(k === visible[0]?.[0] ? {} : { tab: k }, { replace: true });
   };
+  const upload = Number(params.get('upload')), section = params.get('section');
+  if (current==='scripts' && upload>0 && Number.isSafeInteger(upload) && (section==='background'||section==='image'||section==='video')) {
+    return <div className="live-page">{can('live.manage') ? <ScriptMobileUpload version={upload} category={section}/> : <p role="alert">需要直播管理权限才能上传素材。</p>}</div>;
+  }
   return (
     <div className={`live-page ${current === 'overview' ? '' : 'live-management'}`}>
       <AppbarHint><span className="live-header-summary" title="房间排场、业绩审核、工资及售后结算；主播、中控日常操作请到「我的直播」。">排场 · 审核 · 工资结算<span className="live-header-guide">；主播、中控请到「我的直播」</span></span></AppbarHint>

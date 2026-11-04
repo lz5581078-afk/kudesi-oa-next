@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { categories, type Asset, type ScriptVersion } from './scriptCues';
 
-export function ScriptPreview({ v }: { v: ScriptVersion }) {
+import { AssetDownload } from './ScriptAssetLibrary';
+
+export function ScriptPreview({
+  v,
+  onMark,
+}: {
+  v: ScriptVersion;
+  onMark?: (start: number, end: number) => void;
+}) {
   const [active, setActive] = useState<Asset | null>(null);
   const [media, setMedia] = useState<{ id: number; url?: string; error?: string } | null>(null);
   const [notice, setNotice] = useState('');
@@ -92,6 +100,28 @@ export function ScriptPreview({ v }: { v: ScriptVersion }) {
       <div className="sc-reading">
         <div
           className="sc-lines"
+          onContextMenu={(e) => {
+            const sel = window.getSelection();
+            if (!onMark || !sel?.rangeCount || sel.isCollapsed) return;
+            const range = sel.getRangeAt(0);
+            if (!e.currentTarget.contains(range.commonAncestorContainer)) return;
+            // Only count original prose; the arrow controls live outside each paragraph.
+            function offset(node: Node, index: number) {
+              const el = node instanceof Element ? node : node.parentElement;
+              const prose = el?.closest<HTMLElement>('.sc-prose');
+              if (!prose) return null;
+              const prefix = document.createRange();
+              prefix.selectNodeContents(prose);
+              prefix.setEnd(node, index);
+              return Number(prose.dataset.start) + prefix.toString().length;
+            }
+            const start = offset(range.startContainer, range.startOffset),
+              end = offset(range.endContainer, range.endOffset);
+            if (start !== null && end !== null && end > start) {
+              e.preventDefault();
+              onMark(start, end);
+            }
+          }}
           onCopy={(e) => {
             const selection = window.getSelection();
             if (!selection?.rangeCount) return;
@@ -105,7 +135,7 @@ export function ScriptPreview({ v }: { v: ScriptVersion }) {
           {paragraphs.map(({ start, end, cues, points }) => (
             <div className="sc-line" key={start}>
               <aside>{cues.filter((c) => c.start >= start).map((c) => arrow(c.asset, true, c.start))}</aside>
-              <span className="sc-prose">
+              <span className="sc-prose" data-start={start}>
                 {points.slice(0, -1).map((left, i) => {
                   const right = points[i + 1],
                     spans = cues.filter((c) => c.start <= left && c.end >= right);
@@ -141,6 +171,7 @@ export function ScriptPreview({ v }: { v: ScriptVersion }) {
               <strong>
                 {categories[active.category]} · {active.name}
               </strong>
+              <AssetDownload version={v.id} asset={active} />
               <button className="link-button" onClick={() => setActive(null)}>
                 收起
               </button>
