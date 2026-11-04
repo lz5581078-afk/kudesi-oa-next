@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { editRange, moveCues, type ScriptVersion } from './scriptCues';
-import { offsets, editStages, reorderStage, stageAt, type Stage } from './scriptOutline';
+import { offsets, editStages, stageAt, type Stage } from './scriptOutline';
+
+import { ScriptOutlineDialog } from './ScriptOutlineDialog';
 
 type Selection = { start: number; end: number };
 export function ScriptArticleEditor({
@@ -40,15 +42,14 @@ export function ScriptArticleEditor({
     window.addEventListener('scroll', track, true);
     return () => window.removeEventListener('scroll', track, true);
   }, []);
-  function move(to: number) {
-    change(reorderStage(v.outline, v.body, v.cues, index, to));
-    preferred.current = to;
-    setCurrent(to);
-  }
+  const [managing, setManaging] = useState(false);
   return (
     <div className="sc-outline-layout sc-article-layout">
       <nav aria-label="话术环节目录">
         <strong>文内目录</strong>
+        <button type="button" className="sc-manage-stages" onClick={() => setManaging(true)}>
+          管理章节
+        </button>
         {v.outline.map((s, i) => (
           <button
             type="button"
@@ -69,7 +70,9 @@ export function ScriptArticleEditor({
         <div className="sc-manuscript">
           <div className="sc-text-measure" aria-hidden="true" ref={mirror}>
             {v.outline.map((s, i) => (
-              <span key={i} data-current={i===index?true:undefined}>{v.body.slice(starts[i], starts[i] + s.length)}</span>
+              <span key={i} data-current={i === index ? true : undefined}>
+                {v.body.slice(starts[i], starts[i] + s.length)}
+              </span>
             ))}
             {'\u200b'}
           </div>
@@ -124,68 +127,25 @@ export function ScriptArticleEditor({
             }}
           />
         </div>
-        <details className="sc-article-settings">
-          <summary>调整目录</summary>
-          <div className="sc-bar">
-            <label>
-              当前环节
-              <select value={index} onChange={(e) => setCurrent(Number(e.target.value))}>
-                {v.outline.map((s, i) => (
-                  <option key={i} value={i}>
-                    {i + 1} · {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              名称
-              <input
-                maxLength={100}
-                value={v.outline[index].name}
-                onChange={(e) =>
-                  change({
-                    outline: v.outline.map((s, i) => (i === index ? { ...s, name: e.target.value } : s)),
-                  })
-                }
-              />
-            </label>
-            <button className="link-button" disabled={!index} onClick={() => move(index - 1)}>
-              上移
-            </button>
-            <button
-              className="link-button"
-              disabled={index === v.outline.length - 1}
-              onClick={() => move(index + 1)}
-            >
-              下移
-            </button>
-            <button
-              className="link-button"
-              disabled={v.outline.length === 1}
-              onClick={() => {
-                const outline = v.outline.filter((_, i) => i !== index).map((s) => ({ ...s }));
-                const next = Math.max(0, index - 1);
-                outline[next].length += v.outline[index].length;
-                change({ outline });
-                preferred.current = next;
-                setCurrent(next);
-              }}
-            >
-              合并到相邻环节
-            </button>
-            <button
-              className="secondary-button"
-              disabled={v.outline.length >= 80}
-              onClick={() => {
-                change({ outline: [...v.outline, { name: '新环节', length: 0 }] });
-                setCurrent(v.outline.length);
-                preferred.current = v.outline.length;
-              }}
-            >
-              ＋ 添加环节
-            </button>
-          </div>
-        </details>
+        {managing && (
+          <ScriptOutlineDialog
+            article={v}
+            current={index}
+            close={() => setManaging(false)}
+            apply={(draft, selected) => {
+              change(draft);
+              preferred.current = selected;
+              setCurrent(selected);
+              setManaging(false);
+              const start = offsets(draft.outline)[selected];
+              onSelect({ start, end: start });
+              requestAnimationFrame(() => {
+                input.current?.focus({ preventScroll: true });
+                input.current?.setSelectionRange(start, start);
+              });
+            }}
+          />
+        )}
       </div>
     </div>
   );

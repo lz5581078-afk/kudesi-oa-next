@@ -653,3 +653,16 @@
   overflow: hidden;
   background: transparent;
 }
+
+.sc-outline-layout nav .sc-manage-stages { justify-content:center; color:#105c52; border:1px solid #b5d3cb; background:white; }
+.sc-outline-dialog { width:min(720px,94vw); max-height:88vh; overflow:auto; }
+.sc-stage-workspace { display:grid; grid-template-columns:minmax(130px,2fr) minmax(0,3fr); gap:18px; margin:14px 0; }
+.sc-stage-workspace section { max-height:40vh; overflow:auto; margin:0; }
+.sc-stage-workspace section button { display:flex; align-items:center; gap:8px; width:100%; margin:0; padding:8px; background:transparent; border:0; text-align:left; }
+.sc-stage-workspace section strong { flex:1; overflow-wrap:anywhere; }
+.sc-stage-workspace section button[aria-current] { background:#d6ede8; color:#105c52; }
+.sc-stage-tools { display:grid; align-content:start; gap:10px; }
+.sc-stage-tools small { color:var(--muted); }
+.sc-stage-tools label { display:grid; gap:4px; }
+.sc-outline-dialog footer { justify-content:flex-end; margin-top:16px; }
+@media(max-width:600px) { .sc-stage-workspace { grid-template-columns:1fr; } .sc-stage-workspace section { max-height:22vh; } }
