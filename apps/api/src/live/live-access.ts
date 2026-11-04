@@ -77,6 +77,11 @@ async function traditionalControlPeople(em: EntityManager, companyId: number, us
   return [...people.values()];
 }
 
+/** 批量预估使用，避免逐场读取同一部门和人员范围。 */
+export async function commissionOnlyControlIds(em: EntityManager, companyId: number): Promise<Set<number>> {
+  return new Set((await traditionalControlPeople(em, companyId)).map(p => p.id));
+}
+
 export async function commissionOnlyControl(em: EntityManager, companyId: number, controlId: unknown) {
   return !!controlId && (await traditionalControlPeople(em, companyId, Number(controlId))).length > 0;
 }
