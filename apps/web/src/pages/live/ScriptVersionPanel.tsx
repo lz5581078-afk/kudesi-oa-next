@@ -1,28 +1,32 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { ScriptAssetLibrary } from './ScriptAssetLibrary';
 import { initialOutline, labelRange } from './scriptOutline';
 import { ScriptArticleEditor } from './ScriptArticleEditor';
-import { OutlineTemplates } from './OutlineLayout';
+import { ProductQuestionArticle } from './ProductQuestionArticle';
 import { ScriptPreview } from './ScriptPreview';
 import { categories, type Asset, type ScriptVersion } from './scriptCues';
 
 export function ScriptVersionPanel({
   initial,
   manage,
-  dirty,
+  folderTitle,
   onDirty,
   onName,
 }: {
   initial: ScriptVersion;
   manage: boolean;
-  dirty: boolean;
+  folderTitle: string;
   onDirty: (v: boolean) => void;
   onName: (v: string) => void;
 }) {
   const [v, setV] = useState({ ...initial, outline: initialOutline(initial) }),
     [edit, setEdit] = useState(manage && !initial.body);
-  const [section, setSection] = useState<'script' | 'info' | 'assets'>('script');
+  const [section, setSection] = useState<'script' | 'questions' | 'info' | 'assets'>('script');
+  const [versionDirty, setVersionDirty] = useState(false);
+  const [questionDirty, setQuestionDirty] = useState(false);
+  useEffect(() => onDirty(versionDirty || questionDirty), [versionDirty, questionDirty, onDirty]);
+  const [openedQuestions, setOpenedQuestions] = useState(false);
   const [asset, setAsset] = useState(0),
     [busy, setBusy] = useState(false),
     [msg, setMsg] = useState('');
@@ -42,7 +46,7 @@ export function ScriptVersionPanel({
   const path = '/live/scripts/versions/' + v.id;
   function change(update: Partial<ScriptVersion>) {
     setV((old) => ({ ...old, ...update, outline: update.outline ?? old.outline }));
-    onDirty(true);
+    setVersionDirty(true);
     setMsg('');
   }
   async function save() {
@@ -62,9 +66,10 @@ export function ScriptVersionPanel({
       });
       setV((old) => ({ ...old, name: v.name.trim(), revision }));
       onName(v.name.trim());
-      onDirty(false);
+      setVersionDirty(false);
       setMsg('已保存');
       setEdit(false);
+      setSection('script');
     } catch (e) {
       setMsg((e as Error).message);
     } finally {
@@ -91,33 +96,59 @@ export function ScriptVersionPanel({
     <fieldset className="sc-panel" disabled={busy}>
       <div className="sc-bar sc-version-head">
         <h2>{v.name}</h2>
-        {dirty && <small>尚未保存</small>}
-        {(dirty || edit) && manage && (
+        {versionDirty && <small>尚未保存</small>}
+        {section !== 'questions' && (versionDirty || edit) && manage && (
           <button className="primary-button" disabled={!v.name.trim()} onClick={save}>
             保存版本
           </button>
         )}
-        {manage && (
-          <button className="secondary-button" onClick={() => setEdit(!edit)}>
+        {section !== 'questions' && manage && (
+          <button
+            className="secondary-button"
+            onClick={() => {
+              setEdit(!edit);
+              setSection('script');
+            }}
+          >
             {edit ? '预览话术' : '编辑版本'}
           </button>
         )}
       </div>
+      <div className="sc-edit-tabs" role="group" aria-label="编辑分区">
+        {(
+          [
+            ['script', '正文与标注'],
+            ['questions', '问题库'],
+            ['assets', '素材库'],
+            ['info', '版本资料'],
+          ] as const
+        )
+          .filter(([key]) => edit || key === 'script' || key === 'questions')
+          .map(([key, label]) => (
+            <button
+              key={key}
+              aria-pressed={section === key}
+              onClick={() => {
+                setSection(key);
+                if (key === 'questions') setOpenedQuestions(true);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+      </div>
+      {openedQuestions && (
+        <div hidden={section !== 'questions'}>
+          <ProductQuestionArticle
+            folder={v.folderId}
+            title={folderTitle}
+            manage={manage}
+            onDirty={setQuestionDirty}
+          />
+        </div>
+      )}
       {edit ? (
         <>
-          <div className="sc-edit-tabs" role="group" aria-label="编辑分区">
-            {(
-              [
-                ['script', '正文与标注'],
-                ['assets', '素材库'],
-                ['info', '版本资料'],
-              ] as const
-            ).map(([key, label]) => (
-              <button key={key} aria-pressed={section === key} onClick={() => setSection(key)}>
-                {label}
-              </button>
-            ))}
-          </div>
           <div hidden={section !== 'info'} className="sc-section">
             <label>
               版本名称
@@ -141,17 +172,6 @@ export function ScriptVersionPanel({
             )}
           </div>
           <div hidden={section !== 'script'} className="sc-section">
-            <OutlineTemplates
-              stages={v.outline}
-              apply={(names) => {
-                if (!window.confirm('按模板顺序设置环节名称？已有正文按当前位置保留。')) return;
-                const outline = names.map((name, i) => ({ name, length: v.outline[i]?.length ?? 0 }));
-                outline[outline.length - 1].length += v.outline
-                  .slice(names.length)
-                  .reduce((n, s) => n + s.length, 0);
-                change({ outline });
-              }}
-            />
             <ScriptArticleEditor
               v={v}
               change={change}
@@ -202,8 +222,10 @@ export function ScriptVersionPanel({
         </>
       ) : (
         <>
-          {v.notes && <p className="sc-notes">{v.notes}</p>}
-          <ScriptPreview v={v} onMark={manage ? openPicker : undefined} />
+          <div hidden={section !== 'script'}>
+            {v.notes && <p className="sc-notes">{v.notes}</p>}
+            <ScriptPreview v={v} onMark={manage ? openPicker : undefined} />
+          </div>
         </>
       )}
       {manage && (
@@ -249,28 +271,30 @@ export function ScriptVersionPanel({
             </button>
           </form>
           {!v.assets.length && <p>请先到素材库上传素材。</p>}
-          {Object.entries(categories).map(([key, label]) => {
-            const items = v.assets.filter((a) => a.category === key);
-            return (
-              items.length > 0 && (
-                <section key={key}>
-                  <h4>{label}</h4>
-                  {items.map((a) => (
-                    <button
-                      className="secondary-button"
-                      key={a.id}
-                      onClick={() => {
-                        if (range) mark(range.start, range.end, a.id);
-                        picker.current?.close();
-                      }}
-                    >
-                      {a.name}
-                    </button>
-                  ))}
-                </section>
-              )
-            );
-          })}
+          {Object.entries(categories)
+            .filter(([key]) => edit || key === 'script' || key === 'questions')
+            .map(([key, label]) => {
+              const items = v.assets.filter((a) => a.category === key);
+              return (
+                items.length > 0 && (
+                  <section key={key}>
+                    <h4>{label}</h4>
+                    {items.map((a) => (
+                      <button
+                        className="secondary-button"
+                        key={a.id}
+                        onClick={() => {
+                          if (range) mark(range.start, range.end, a.id);
+                          picker.current?.close();
+                        }}
+                      >
+                        {a.name}
+                      </button>
+                    ))}
+                  </section>
+                )
+              );
+            })}
         </dialog>
       )}
       {msg && <p role="status">{msg}</p>}

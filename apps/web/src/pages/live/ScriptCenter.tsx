@@ -374,7 +374,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                 key={detail.id}
                 initial={detail}
                 manage={manage}
-                dirty={dirty}
+                folderTitle={folderTitle ?? ''}
                 onDirty={setDirty}
                 onName={(name) =>
                   setLibrary({
@@ -383,14 +383,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                   })
                 }
               />
-              <a
-                className="sc-question-entry"
-                href={'/features/live?tab=scripts&questionArticle=' + folder}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                打开产品问题库 <small>在新标签页阅读 ↗</small>
-              </a>
+
             </>
           ) : (
             !error && <p className="sc-empty">正在读取版本…</p>
