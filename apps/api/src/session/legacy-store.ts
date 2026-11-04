@@ -1,7 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
-import { createChecker, resolvePermissions, workforceLoginBlock, todayShanghai } from '@kudesi/shared';
+import { createChecker, resolvePermissions, workforceLoginBlock, todayShanghai, RESOURCE_DEFS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
 import { loadLegacySessionModule } from './legacy-runtime/snapshot';
@@ -16,14 +16,27 @@ const TABLES = ['session_workspaces', 'session_devices', 'session_device_pairing
   'session_versions', 'session_device_keys', 'session_open_requests', 'managed_browser_sessions', 'session_remote_sessions',
   'session_remote_commands', 'session_agent_update_jobs', 'session_audit_logs', 'stores', 'employees', 'companies', 'store_abnormal_reasons'];
 const TABLE_TOKENS = new Set(TABLES);
-const SQL_TOKEN = /'(?:''|\\.|[^'\\])*'|"(?:""|\\.|[^"\\])*"|`[^`]+`|--[^\r\n]*|#[^\r\n]*|\/\*[\s\S]*?\*\/|\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
+const SQL_LITERAL = /'(?:''|\\.|[^'\\])*'|"(?:""|\\.|[^"\\])*"|`[^`]+`|--[^\r\n]*|#[^\r\n]*|\/\*[\s\S]*?\*\//;
+const SQL_TOKEN = new RegExp(`${SQL_LITERAL.source}|\\b[a-zA-Z_][a-zA-Z0-9_]*\\b`, 'g');
+const PLATFORM_QUERY_TOKEN = new RegExp(`${SQL_LITERAL.source}|LOWER\\(TRIM\\(s\\.platform\\)\\)|s\\.platform LIKE \\?`, 'g');
+const platformOptions = RESOURCE_DEFS.find(resource => resource.key === 'stores')!.fields.find(field => field.key === 'platform')!.options!;
+const sqlString = (value: string | number | boolean) => `'${String(value).replace(/'/g, "''")}'`;
+const PLATFORM_NAME_SQL = `(CASE LOWER(TRIM(s.platform)) ${platformOptions.map(option => `WHEN ${sqlString(option.value)} THEN ${sqlString(option.label)}`).join(' ')} ELSE s.platform END)`;
+/** Adapt only the shipped store-list expressions. Keep raw platform values and
+ * parameter binding intact; do not change device platforms or source records. */
+function platformQuerySql(sql: string) {
+  const code = sql.replace(new RegExp(SQL_LITERAL.source, 'g'), token => token.startsWith('`') ? token : ' ');
+  if (!/\b(?:FROM|JOIN)\s+`?(?:sm_legacy_)?stores`?\s+(?:AS\s+)?s\b/.test(code)) return sql;
+  return sql.replace(PLATFORM_QUERY_TOKEN, token => token === 'LOWER(TRIM(s.platform))' ? PLATFORM_NAME_SQL
+    : token === 's.platform LIKE ?' ? `CONCAT_WS(' ', s.platform, ${PLATFORM_NAME_SQL}) LIKE ?` : token);
+}
 /** Changes trusted, snapshot-owned table identifiers only; values remain bound parameters. */
 export const legacySql = (sql: string) => {
   const command = sql.replace(/\/\*[\s\S]*?\*\/|--[^\r\n]*|#[^\r\n]*/g, '');
   if (/^\s*(?:UPDATE|INSERT\s+INTO|REPLACE\s+INTO|DELETE\s+FROM)\s+`?(?:sm_legacy_)?(?:stores|employees|companies|store_abnormal_reasons|resource_change_logs)\b/i.test(command)) {
     throw new ForbiddenException('旧模块不能直接写入新版公共资料');
   }
-  return sql.replace(SQL_TOKEN, token => {
+  return platformQuerySql(sql).replace(SQL_TOKEN, token => {
     if (token.startsWith('`')) { const name = token.slice(1, -1); return TABLE_TOKENS.has(name) ? `\`sm_legacy_${name}\`` : token; }
     return TABLE_TOKENS.has(token) ? `sm_legacy_${token}` : token;
   });

@@ -4,6 +4,10 @@ export function pendingBrowserClose(browser) {
   return browser.closeSession;
 }
 
+export function browserCloseConfirmed(session) {
+  return session?.browserStatus === 'closed';
+}
+
 export async function pollBrowserClose({ sessionId, fetchJson, onUpdate, signal, timeoutMs = 70000, intervalMs = 350 }) {
   signal?.throwIfAborted();
   const controller = new AbortController();
@@ -26,7 +30,7 @@ export async function pollBrowserClose({ sessionId, fetchJson, onUpdate, signal,
       ]);
       controller.signal.throwIfAborted();
       onUpdate?.(next);
-      if (next.status === 'ended' && next.closeStage === 'safe_closed') return next;
+      if (browserCloseConfirmed(next)) return next;
       if (['error', 'expired', 'closed', 'ended'].includes(next.status)) {
         throw new Error(next.error || '关闭尚未确认，店铺浏览器可能仍在运行，请重试关闭');
       }
