@@ -110,3 +110,6 @@
   font-size: 12px;
   margin: 8px 0;
 }
+.live-selected-anchor-profile { display:block; margin-top:6px; font-size:12px; font-weight:400; color:var(--muted); }
+.live-checkin-choice { display:flex; flex-direction:column; gap:8px; min-width:180px; padding-bottom:10px; }
+.live-checkin-choice > span { padding-inline:10px; }
