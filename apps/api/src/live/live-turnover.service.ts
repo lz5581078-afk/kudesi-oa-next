@@ -42,26 +42,24 @@ export class LiveTurnoverService implements OnModuleInit, OnModuleDestroy {
     const s = await sessionRow(this.ds.manager, a.companyId, id);
     const [row] = await this.ds.query('SELECT payload_json,locked_at,last_error FROM live_turnover_snapshots WHERE company_id=? AND session_id=?', [a.companyId, id]);
     const data = this.payload(row?.payload_json);
-    if (data && (row.locked_at || !s.end_text)) return { ...data, locked: !!row.locked_at, refreshError: row.last_error || null };
-    return { sessionId: id, roomName: s.room_name, startAt: s.start_text, endAt: s.end_text || s.start_text, live: !s.end_text,
-      queriedAt: '', locked: false, available: false, ...emptyAmounts, stores: [], refreshError: row?.last_error || null,
-      reason: s.end_text ? '下播后最后统计中，服务器会自动完成并锁定' : '服务器正在统一统计营业额' };
+    const active = s.status === 'live' && !s.end_text;
+    if (data) return { ...data, live: active, locked: !!row.locked_at || !active, refreshError: row.last_error || null };
+    return { sessionId: id, roomName: s.room_name, startAt: s.start_text, endAt: s.end_text || s.start_text, live: active,
+      queriedAt: '', locked: !active, available: false, ...emptyAmounts, stores: [], refreshError: row?.last_error || null,
+      reason: active ? '服务器正在统一统计营业额' : '已停止销售查询，未保存可用销售数据' };
   }
 
   /** Independent of visitors, notifications and browser visibility. Leases coordinate API replicas. */
   async scan() {
     const now = wallNow(liveClock.now());
-    // Finalize newly ended broadcasts before historical backfill.
+    // Only currently broadcasting sessions can request external sales data. Never backfill ended sessions.
     const due: Array<{id:number;company_id:number}> = await this.ds.query(`SELECT s.id,s.company_id FROM live_sessions s
       JOIN companies c ON c.id=s.company_id AND c.status='active'
       LEFT JOIN live_turnover_snapshots t ON t.company_id=s.company_id AND t.session_id=s.id
-      WHERE (s.status='live' OR s.end_at IS NOT NULL) AND t.locked_at IS NULL
+      WHERE s.status='live' AND s.end_at IS NULL AND t.locked_at IS NULL
         AND (t.lease_until IS NULL OR t.lease_until<=?)
-        AND (t.next_refresh_at IS NULL OR t.next_refresh_at<=?
-          OR (s.end_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(t.payload_json,'$.live'))='true'))
-      ORDER BY CASE WHEN s.end_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(t.payload_json,'$.live'))='true' THEN 0
-        WHEN s.status='live' THEN 1 WHEN t.payload_json IS NOT NULL THEN 2 ELSE 3 END,
-        COALESCE(t.next_refresh_at,'1970-01-01'),s.id DESC LIMIT 6`, [now, now]);
+        AND (t.next_refresh_at IS NULL OR t.next_refresh_at<=?)
+      ORDER BY COALESCE(t.next_refresh_at,'1970-01-01'),s.id DESC LIMIT 6`, [now, now]);
     for (let i = 0; i < due.length; i += 2) await Promise.all(due.slice(i, i + 2).map(async s => {
       try { await this.update(Number(s.company_id), Number(s.id)); }
       catch { this.log.error(`营业额快照处理失败 #${s.id}，将自动重试`); }
@@ -74,13 +72,12 @@ export class LiveTurnoverService implements OnModuleInit, OnModuleDestroy {
     const s = await this.ds.transaction(async em => {
       await lockCompany(em, companyId);
       const session = await sessionRow(em, companyId, id, true);
+      if (session.status !== 'live' || session.end_text) return null;
       await em.query('INSERT IGNORE INTO live_turnover_snapshots(company_id,session_id) VALUES (?,?)', [companyId, id]);
       const [row] = await em.query(`SELECT *,DATE_FORMAT(lease_until,'%Y-%m-%d %H:%i:%s') lease_text,DATE_FORMAT(next_refresh_at,'%Y-%m-%d %H:%i:%s') next_text FROM live_turnover_snapshots WHERE company_id=? AND session_id=? FOR UPDATE`, [companyId, id]);
-      const now = wallNow(liveClock.now()), prior = this.payload(row.payload_json);
+      const now = wallNow(liveClock.now());
       if (row.locked_at || (row.lease_text && row.lease_text > now)) return null;
-      const closing = !!session.end_text && prior?.live === true;
-      if (row.next_text > now && !closing) return null;
-      if (session.status !== 'live' && !session.end_text) return null;
+      if (row.next_text > now) return null;
       await em.query('UPDATE live_turnover_snapshots SET lease_token=?,lease_until=? WHERE company_id=? AND session_id=?',
         [token, wallNow(new Date(+liveClock.now() + 300_000)), companyId, id]);
       return session;
@@ -98,19 +95,17 @@ export class LiveTurnoverService implements OnModuleInit, OnModuleDestroy {
       const now = wallNow(liveClock.now());
       if (row.locked_at || row.lease_token !== token || row.lease_text <= now) return;
       const sameBounds = latest.start_text === s.start_text && latest.end_text === s.end_text && JSON.stringify(channelsOf(latest)) === JSON.stringify(channelsOf(s));
-      if (!sameBounds) {
+      if (!sameBounds || latest.status !== 'live' || latest.end_text) {
         await em.query('UPDATE live_turnover_snapshots SET lease_token=NULL,lease_until=NULL,next_refresh_at=? WHERE company_id=? AND session_id=? AND lease_token=?', [now,companyId,id,token]);
         return;
       }
       const prior = this.payload(row.payload_json);
-      const closing = !!latest.end_text;
-      const locked = closing && value.available;
       const failures = value.available ? 0 : Number(row.failures) + 1;
       const next = wallNow(new Date(+liveClock.now() + (value.available ? 60_000 : Math.min(300_000, 30_000 * 2 ** Math.min(failures - 1, 4)))));
-      const payload = !value.available && !closing && prior?.available ? prior : value;
+      const payload = !value.available && prior?.available ? prior : value;
       await em.query(`UPDATE live_turnover_snapshots SET payload_json=?,locked_at=?,next_refresh_at=?,last_error=?,failures=?,lease_token=NULL,lease_until=NULL
         WHERE company_id=? AND session_id=? AND lease_token=? AND locked_at IS NULL`,
-        [JSON.stringify(payload), locked ? now : null, next, value.available ? null : value.reason.slice(0,500), failures, companyId, id, token]);
+        [JSON.stringify(payload), null, next, value.available ? null : value.reason.slice(0,500), failures, companyId, id, token]);
     });
   }
 
