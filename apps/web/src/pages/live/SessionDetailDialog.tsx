@@ -53,6 +53,7 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
         <>
           <div className="between"><strong>{s.roomName} · {s.date}</strong><SessionPill status={s.status} label={s.statusLabel} /></div>
           {s.status === 'returned' && s.returnReason && <div className="notice warn">已退回：{s.returnReason}。请修改下播报告后重新提交。</div>}
+          {!!s.settlementHistory?.length&&<details><summary>本场工资、提成结算记录</summary><ul>{s.settlementHistory.map((h,i)=><li key={i}>人员 #{h.userId} · {h.kind==='adjustment'?'补扣款调整':h.wageId&&h.commissionId?'工资及提成':h.wageId?'工资':'提成'} · 结算单 #{h.settlementId} · {{draft:'草稿占用',submitted:'审批中',returned:'已退回',approved:'已结算',voided:'已作废'}[h.status]??h.status} · {money(Number(h.payableCents))} · {h.approvedAt??'待确认'}</li>)}</ul></details>}
           <TrialProxyPerformance session={s}/>
           <CheckoutFeedbackRecords sessionId={s.id} records={s.checkoutFeedback} attendance={s.attendance}/>
           {s.reportSource==='manual'&&<p className="notice warn">人事手工填报 · 经办人编号 #{s.manualActorId} · 原因：{s.manualReason}</p>}

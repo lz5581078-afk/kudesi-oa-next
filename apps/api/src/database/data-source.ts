@@ -1,3 +1,4 @@
+import { LiveSplitSettlement1794000000000 } from './migrations/1794000000000-LiveSplitSettlement';
 import { DesktopAfterSales1791000000000 } from './migrations/1791000000000-DesktopAfterSales';
 import { LiveDailyWork1780000000000 } from './migrations/1780000000000-LiveDailyWork';
 import { LiveTurnoverSnapshots1779000000000 } from './migrations/1779000000000-LiveTurnoverSnapshots';
@@ -108,6 +109,8 @@ export function buildDataSourceOptions(env: NodeJS.ProcessEnv = process.env): Da
     migrationsRun: false,
   };
 }
+
+MIGRATIONS.push(LiveSplitSettlement1794000000000);
 
 /**
  * 让 MySQL 会话时区和上面的 timezone 一致。否则 `DEFAULT CURRENT_TIMESTAMP` 按数据库服务器自己的时区写入，

@@ -23,7 +23,7 @@ export const dailyWorkReview: FlowAdapter = {
       !r.report
     )
       liveFail('请先结束日常工作并填写工作内容');
-    if (await closedDay(em, user.companyId, r.day))
+    if (await closedDay(em, user.companyId, r.day,{dailyWorkId:Number(r.id)}))
       liveFail('该日期已进入工资结算，不能修改审核');
     payload.summary = `${r.user_name} · ${r.role === 'anchor' ? '主播' : '中控'}\n工作：${r.content}\n排班：${r.planned_start_text} 至 ${r.planned_end_text}\n实际：${r.actual_start_text} 至 ${r.actual_end_text}\n完成内容：${r.report}\n实际 ${r.minutes} 分钟；时薪 ${(Number(r.hourly_rate_cents) / 100).toFixed(2)} 元；预计工资 ${((Number(r.hourly_rate_cents) * Number(r.minutes)) / 6000).toFixed(2)} 元。`;
   },
@@ -90,7 +90,7 @@ export const dailyWorkReview: FlowAdapter = {
           r.actual_start_text,
           r.actual_end_text,
         );
-      if (await closedDay(em, run.companyId, r.day))
+      if (await closedDay(em, run.companyId, r.day,{dailyWorkId:Number(r.id)}))
         liveFail('该日期已进入工资结算，不能重复入账');
       await em.query(
         "UPDATE live_daily_work SET status='approved',approved_minutes=COALESCE(approved_minutes,minutes),updated_by=? WHERE company_id=? AND id=?",

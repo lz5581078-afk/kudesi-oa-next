@@ -80,8 +80,8 @@ export async function positionTypesOf(em: EntityManager, companyId: number, user
 }
 
 /** 场次按开播日归属工资周期，区间提交后禁止再修改该日业务。 */
-export async function closedDay(em: EntityManager, companyId: number, day: string): Promise<boolean> {
-  const rows = await em.query(`SELECT id FROM live_settlements WHERE company_id=? AND status IN ('submitted','approved') AND
-    COALESCE(period_from,STR_TO_DATE(CONCAT(month,'-01'),'%Y-%m-%d'))<=? AND COALESCE(period_to,LAST_DAY(CONCAT(month,'-01')))>=?`, [companyId,day,day]);
+export async function closedDay(em: EntityManager, companyId: number, day: string, source?:{sessionId?:number;dailyWorkId?:number}): Promise<boolean> {
+  const rows = await em.query(`SELECT id FROM live_settlements WHERE company_id=? AND status IN ('submitted','approved') AND (source_fingerprint IS NULL OR EXISTS(SELECT 1 FROM live_settlement_lines l WHERE l.company_id=live_settlements.company_id AND l.settlement_id=live_settlements.id AND ((? IS NOT NULL AND l.session_id=?) OR (? IS NOT NULL AND l.daily_work_id=?)))) AND
+    COALESCE(period_from,STR_TO_DATE(CONCAT(month,'-01'),'%Y-%m-%d'))<=? AND COALESCE(period_to,LAST_DAY(CONCAT(month,'-01')))>=?`, [companyId,source?.sessionId??null,source?.sessionId??null,source?.dailyWorkId??null,source?.dailyWorkId??null,day,day]);
   return rows.length>0;
 }
