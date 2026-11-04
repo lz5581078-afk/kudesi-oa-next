@@ -9,7 +9,7 @@ import { financeApi, type DocDetailDto, type OpenItem } from './financeApi';
 import { sessionApi, type VoucherFile } from './sessionApi';
 import { VoucherPanel } from './VoucherPanel';
 import { GoodsGrid } from './voucher/GoodsGrid';
-import { HandlerSelect } from './voucher/HandlerSelect';
+import { HandlerSelect, type StaffOption } from './voucher/HandlerSelect';
 import { PayAccounts } from './voucher/PayAccounts';
 import { TransferFee } from './voucher/TransferFee';
 import { MoneyGrid } from './voucher/MoneyGrid';
@@ -60,6 +60,8 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   const def = DOC_TYPE_MAP.get(type)!;
   const { can, user } = useAuth();
+  const [staff,setStaff]=useState<StaffOption[]>([]);
+  useEffect(()=>{let alive=true;Promise.resolve().then(()=>resourceApi.users()).then(rows=>{if(alive)setStaff(Array.isArray(rows)?rows:[]);}).catch(()=>undefined);return()=>{alive=false;};},[]);
   const ui = def.ui;
   const sourceInline=!!inline&&type!=='withdrawal'&&type!=='expense';
   const hasPayment = !!def.settle || !!def.moneySettlement;
@@ -298,7 +300,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   /** 费用约束随已选资料同步带入，避免晚返回把新行或用户选择的节点覆盖。 */
   const pickFee = (i: number, id: number | null, name: string, data?: Record<string, unknown>) => {
     const first = id ? String(data?.defaultObject ?? '').split(/[、,，]/).map(value => value.trim()).find(value => FEE_BOOKING_NODE_MAP.has(value) && value !== '不固定') : '';
-    setLines(current => current.map((line, index) => index === i ? { ...line, feeItemId: id, feeItemName: name, needObject: !!id && data?.requiredObject === 'yes', node: line.node || first || '' } : line));
+    setLines(current => current.map((line, index) => index === i ? { ...line, feeItemId: id, feeItemName: String(data?.name||name), feeItemLabel: [name,data?.code].filter(Boolean).join(' · '), needObject: !!id && data?.requiredObject === 'yes', node: line.node || first || '' } : line));
   };
   /** 名称单位与选中商品一起带入；未设置则保留行内单位，最后回退为件。 */
   const pickProduct = (i: number, id: number | null, name: string, data?: Record<string, unknown>, labels?: Record<string,string>) => {
@@ -392,7 +394,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         {def.warehouse
           ? <label>{ui.warehouseLabel} *<input aria-label="仓库" value={wh.name} maxLength={200} onChange={e => setWh({ id: null, name: e.target.value })} /></label>
           : type === 'expense' ? null : <label>归属部门<input aria-label="归属部门" value={department} maxLength={60} onChange={(e) => setDepartment(e.target.value)} /></label>}
-        <HandlerSelect value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); if (type !== 'withdrawal') setHandlerLegacy(''); }} />
+        <HandlerSelect options={staff} value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); if (type !== 'withdrawal') setHandlerLegacy(''); }} />
       </section>
       </DocumentHeadCard>
 
@@ -403,7 +405,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         <section>
           <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
           {ui.detailHint && <p className="reference-document-hint">{ui.detailHint}</p>}
-          <GoodsGrid def={def} type={type} lines={lines} setLines={setLines} setLine={setLine} priceOf={priceOf} hints={hints} onPickProduct={pickProduct} onPickFee={pickFee} addRow={addLine} gridRef={gridRef} totalCents={total} />
+          <GoodsGrid company={user?.companyId?{id:user.companyId,name:user.companyName||'当前公司'}:undefined} staff={staff} def={def} type={type} lines={lines} setLines={setLines} setLine={setLine} priceOf={priceOf} hints={hints} onPickProduct={pickProduct} onPickFee={pickFee} addRow={addLine} gridRef={gridRef} totalCents={total} />
           <div className="vc-grid-foot">
             <button type="button" className="secondary-button small" onClick={addLine}>{ui.feeAmountOnly ? '添加一行费用' : '+ 加一行'}</button>
             {!ui.feeAmountOnly && <span className="muted">{def.lines === 'product' ? `共 ${goodsLines.length} 种商品 · 数量合计 ${Number(qtyTotal.toFixed(4))}　` : ''}回车跳到下一格，最后一格回车加行；Shift+Delete 删当前行</span>}

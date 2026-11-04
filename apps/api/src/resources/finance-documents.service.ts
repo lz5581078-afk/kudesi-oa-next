@@ -9,7 +9,7 @@ import {
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, ResourceFile, User, FinanceDocument, FinanceDocumentAccount, FinanceDocumentEvent, FinanceDocumentLine, FinanceDocumentSettlement, FinanceEntry, ResourceRecord } from '../entities';
+import { AuditLog, Company, ResourceFile, User, FinanceDocument, FinanceDocumentAccount, FinanceDocumentEvent, FinanceDocumentLine, FinanceDocumentSettlement, FinanceEntry, ResourceRecord } from '../entities';
 import { ResourcesService } from './resources.service';
 
 const COST_VIEW = 'product.cost.view';
@@ -113,8 +113,11 @@ export class FinanceDocumentsService {
         const node = FEE_BOOKING_NODE_MAP.get(l.relatedNode);
         if (!node) throw new BadRequestException(`挂账节点「${l.relatedNode}」不认识`);
         if (l.relatedId) {
-          if (!node.resource) throw new BadRequestException(`挂账节点「${node.node}」没有对应的资料，只能写名字`);
-          await ensure(node.resource, l.relatedId, `挂账对象（${node.node}）`);
+          if(node.entity)await this.bookingEntityName(em,user,node.entity,l.relatedId);
+          else{
+            if (!node.resource) throw new BadRequestException(`挂账节点「${node.node}」没有对应的资料，只能写名字`);
+            await ensure(node.resource, l.relatedId, `挂账对象（${node.node}）`,record=>node.kind&&record.data.kind!==node.kind?'挂账账户类型与所选节点不一致':null);
+          }
         }
       } else if (l.relatedId) throw new BadRequestException('选了挂账对象就要选挂账节点');
       await ensure('finance-products', l.productId, '商品');
@@ -197,15 +200,27 @@ export class FinanceDocumentsService {
     return new Map(products.map(product=>{const raw=String(product.data.specUnit??'').trim();const unit=raw?unitLabelFor(units,field,product.data,raw):'件';if(unit.length>DOC_LINE_UNIT_MAX_LENGTH)throw new BadRequestException('商品单位不能超过40字，请先核对商品档案');return[product.id,unit]as const;}));
   }
 
+  private async bookingEntityName(em:EntityManager,user:AuthUser,entity:'company'|'user',id:number):Promise<string>{
+    if(entity==='company'){
+      if(id!==user.companyId)throw new BadRequestException('只能选择当前公司的挂账对象');
+      const company=await em.findOneBy(Company,{id:user.companyId});if(!company)throw new BadRequestException('挂账公司不存在');return company.name;
+    }
+    const employee=await em.findOneBy(User,{id,companyId:user.companyId});if(!employee)throw new BadRequestException('挂账人员不存在或不属于当前公司');return employee.name;
+  }
+
   private async writeLines(em: EntityManager, user: AuthUser, documentId: number, lines: DocLineInput[]) {
     const units=await this.productLineUnits(em,user,lines.filter(line=>!line.unit?.trim()));
+    const names=new Map<string,string>();
     await em.delete(FinanceDocumentLine, { documentId, companyId: user.companyId });
     let n = 0;
     for (const l of lines) {
+      let relatedName=l.relatedName?.trim()||null;
+      const entity=l.relatedNode?FEE_BOOKING_NODE_MAP.get(l.relatedNode)?.entity:undefined;
+      if(entity&&l.relatedId){const key=`${entity}:${l.relatedId}`;if(!names.has(key))names.set(key,await this.bookingEntityName(em,user,entity,l.relatedId));relatedName=names.get(key)!;}
       await em.insert(FinanceDocumentLine, {
         companyId: user.companyId, documentId, lineNo: ++n, productId: l.productId ?? null, feeItemId: l.feeItemId ?? null, qty: l.qty,
         unitPriceCents: l.unitPriceCents, unitCostCents: l.unitCostCents ?? null, memo: l.memo ?? null,
-        relatedNode: l.relatedNode ?? null, relatedId: l.relatedId ?? null, relatedName: l.relatedName?.trim() || null, itemName: l.itemName?.trim() || null, unit: l.unit?.trim() || (l.productId?units.get(l.productId)??'件':null),
+        relatedNode: l.relatedNode ?? null, relatedId: l.relatedId ?? null, relatedName, itemName: l.itemName?.trim() || null, unit: l.unit?.trim() || (l.productId?units.get(l.productId)??'件':null),
       });
     }
   }

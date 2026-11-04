@@ -4,6 +4,7 @@ import { SearchPick, money } from '../common';
 import type { LineHint } from '../financeApi';
 import { gridKeyDown } from './gridNav';
 import { emptyLine, type LineState } from './types';
+import type {StaffOption} from './HandlerSelect';
 
 export const unitPriceCents = (v: string, parse: (t: string) => number | null | undefined): number => { const c = parse(v); return typeof c === 'number' && !Number.isNaN(c) ? c : 0; };
 
@@ -20,6 +21,8 @@ interface Props {
   addRow: () => void;
   gridRef?: React.Ref<HTMLDivElement>;
   totalCents?: number;
+  company?:{id:number;name:string};
+  staff?:StaffOption[];
 }
 
 const outType = (t: DocType) => t === 'sale' || t === 'online-sale' || t === 'purchase-return';
@@ -39,7 +42,7 @@ function rowHint(type: DocType, l: LineState, h: LineHint | undefined, priceCent
 }
 
 /** 商品/费用明细网格：回车逐格录入、方向键换行、Shift+Delete 删行；商品行带库存与价格提示、赠品开关 */
-export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints, onPickProduct, onPickFee, addRow, gridRef, totalCents }: Props) {
+export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints, onPickProduct, onPickFee, addRow, gridRef, totalCents,company,staff=[] }: Props) {
   const isFee = def.lines === 'fee';
   const amountOnly = isFee && def.ui.feeAmountOnly;
   const delRow = (i: number) => setLines((ls) => (ls.length <= 1 ? [emptyLine()] : ls.filter((_, k) => k !== i)));
@@ -54,7 +57,7 @@ export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints,
               <td>
                 {!isFee
                   ? <SearchPick ariaLabel={`第${i + 1}行商品`} type="finance-products" value={l.productId} label={l.productLabel ?? l.productName} onChange={(id, name, data, labels) => onPickProduct(i, id, name, data, labels)} />
-                  : <SearchPick ariaLabel={`第${i + 1}行费用项目`} placeholder={amountOnly ? '搜索费用类型' : undefined} type="finance-fee-items" fieldKey="direction" fieldValue={def.feeDirection} value={l.feeItemId} label={l.feeItemName} onChange={(id, name, data) => onPickFee(i, id, name, data)} />}
+                  : <SearchPick ariaLabel={`第${i + 1}行费用项目`} placeholder={amountOnly ? '搜索费用类型' : undefined} type="finance-fee-items" fieldKey="direction" fieldValue={def.feeDirection} value={l.feeItemId} label={l.feeItemLabel ?? l.feeItemName} onChange={(id, name, data) => onPickFee(i, id, name, data)} />}
                 {!isFee && rowHint(type, l, l.productId ? hints.get(l.productId) : undefined, priceOf(l.price))}
               </td>
               {!isFee && <td data-cell="单位"><input aria-label={`第${i + 1}行单位`} maxLength={DOC_LINE_UNIT_MAX_LENGTH} value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} placeholder="单位" /></td>}
@@ -67,7 +70,11 @@ export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints,
                     </select>
                   </td>
                   <td data-cell="挂账对象">
-                    {l.node && FEE_BOOKING_NODE_MAP.get(l.node)?.resource
+                    {l.node&&FEE_BOOKING_NODE_MAP.get(l.node)?.entity==='company'&&company
+                      ? <SearchPick ariaLabel={`第${i+1}行挂账对象`} type="company" value={l.relatedId} label={l.relatedName} placeholder="搜索公司" options={[{id:company.id,title:company.name}]} onChange={(id,name)=>setLine(i,{relatedId:id,relatedName:name})}/>
+                      : l.node&&FEE_BOOKING_NODE_MAP.get(l.node)?.entity==='user'&&staff.some(employee=>employee.active||employee.id===l.relatedId)
+                      ? <SearchPick ariaLabel={`第${i+1}行挂账对象`} type="user" value={l.relatedId} label={l.relatedName} placeholder="搜索人员" options={staff.filter(employee=>employee.active||employee.id===l.relatedId).map(employee=>({id:employee.id,title:employee.active?employee.name:`${employee.name}（已停用）`}))} onChange={(id,name)=>setLine(i,{relatedId:id,relatedName:id?staff.find(employee=>employee.id===id)?.name||name:''})}/>
+                      : l.node && FEE_BOOKING_NODE_MAP.get(l.node)?.resource
                       ? <SearchPick ariaLabel={`第${i + 1}行挂账对象`} type={FEE_BOOKING_NODE_MAP.get(l.node)!.resource!} fieldKey={FEE_BOOKING_NODE_MAP.get(l.node)!.kind ? 'kind' : undefined} fieldValue={FEE_BOOKING_NODE_MAP.get(l.node)!.kind} value={l.relatedId} label={l.relatedName} placeholder={`搜索${l.node}`} onChange={(id, name) => setLine(i, { relatedId: id, relatedName: name })} />
                       : <input aria-label={`第${i + 1}行挂账对象`} value={l.relatedName} maxLength={100} placeholder={l.needObject ? '必填：写清挂在哪里' : l.node ? `${l.node}名称` : '先选挂账节点'} disabled={!l.node} onChange={(e) => setLine(i, { relatedName: e.target.value })} />}
                     {l.needObject && !l.relatedId && !l.relatedName.trim() && <span className="vc-bad">必须挂对象</span>}

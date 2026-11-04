@@ -5,6 +5,7 @@ export interface LineState {
   productId: number | null; productName: string; feeItemId: number | null; feeItemName: string; qty: string; price: string; memo: string;
   /** 选择器展示名，不代替单据商品名称或进入保存字段。 */
   productLabel?: string;
+  feeItemLabel?: string;
   /** 赠品：单价强制为 0，不能改价（管家婆 F7） */
   gift: boolean;
   /** 费用/收入行的挂账节点和对象 */

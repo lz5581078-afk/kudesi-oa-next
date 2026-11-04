@@ -4,7 +4,7 @@ import {DocForm} from './DocForm';
 import {VoucherPage} from './VoucherPage';
 import {financeApi} from './financeApi';
 import {resourceApi} from '../../resources/api';
-const auth=vi.hoisted(()=>({id:1,companyId:1,name:'合成管理员',permissions:{isCompanyAdmin:true,allow:[] as string[],deny:[] as string[]}}));
+const auth=vi.hoisted(()=>({id:1,companyId:1,name:'合成管理员',companyName:'合成当前公司',permissions:{isCompanyAdmin:true,allow:[] as string[],deny:[] as string[]}}));
 vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:auth,can:()=>true})}));
 vi.mock('./financeApi',async original=>({...await original<typeof import('./financeApi')>(),financeApi:{banks:vi.fn(),docs:vi.fn(),doc:vi.fn(),partyBalance:vi.fn(),lineHints:vi.fn(),create:vi.fn(),update:vi.fn(),issue:vi.fn(),post:vi.fn()}}));
 vi.mock('../../resources/api',async original=>({...await original<typeof import('../../resources/api')>(),resourceApi:{list:vi.fn(),users:vi.fn()}}));
@@ -49,4 +49,24 @@ it('制单宿主页切换公司重建表单，原版开单页不再自动读取�
   const view=render(<VoucherPage type="sale"/>);fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'旧公司合成单位'}});
   expect(screen.queryByRole('button',{name:'调入草稿'})).toBeNull();expect(fa.docs).not.toHaveBeenCalled();auth.companyId=2;view.rerender(<VoucherPage type="sale"/>);
   expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('件');expect(screen.queryByText(/最近的普通销售单/)).toBeNull();
+});
+
+it('费用公司对象从当前公司选择，保存真实ID而不提交可伪造名称，员工目录只读取一次',async()=>{
+  render(<DocForm type="expense" inline onSaved={vi.fn()}/>);await fillExpense();fireEvent.change(screen.getByLabelText('第1行挂账节点'),{target:{value:'公司'}});
+  fireEvent.click(screen.getByLabelText('第1行挂账对象'));fireEvent.click(await screen.findByRole('option',{name:'合成当前公司'}));
+  expect(screen.getByLabelText('第1行挂账对象').textContent).toContain('合成当前公司');fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));
+  await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({feeItemId:7,relatedNode:'公司',relatedId:1,relatedName:null})]})));
+  expect(resourceApi.users).toHaveBeenCalledTimes(1);expect(vi.mocked(resourceApi.list).mock.calls.some(([type])=>type==='company')).toBe(false);
+});
+it('人员对象与经办人共用本公司目录，切换节点清空旧对象且新选择不提供停用人员',async()=>{
+  vi.mocked(resourceApi.users).mockResolvedValue([{id:11,name:'合成人员甲',active:true},{id:22,name:'合成人员乙',active:true},{id:33,name:'合成停用人员',active:false}]);
+  render(<DocForm type="expense" inline onSaved={vi.fn()}/>);await fillExpense();fireEvent.change(screen.getByLabelText('第1行挂账节点'),{target:{value:'公司'}});fireEvent.click(screen.getByLabelText('第1行挂账对象'));fireEvent.click(await screen.findByRole('option',{name:'合成当前公司'}));
+  fireEvent.change(screen.getByLabelText('第1行挂账节点'),{target:{value:'人员'}});expect(screen.getByLabelText('第1行挂账对象').textContent).not.toContain('合成当前公司');
+  fireEvent.click(screen.getByLabelText('第1行挂账对象'));expect(screen.queryByRole('option',{name:/合成停用人员/})).toBeNull();fireEvent.click(await screen.findByRole('option',{name:'合成人员乙'}));fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));
+  await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({relatedNode:'人员',relatedId:22,relatedName:null})]})));expect(resourceApi.users).toHaveBeenCalledTimes(1);
+});
+it('人员目录确认为空时沿原版保留自由文字输入，不虚构人员ID',async()=>{
+  render(<DocForm type="expense" inline onSaved={vi.fn()}/>);await fillExpense();fireEvent.change(screen.getByLabelText('第1行挂账节点'),{target:{value:'人员'}});
+  expect(screen.getByLabelText('第1行挂账对象').tagName).toBe('INPUT');fireEvent.change(screen.getByLabelText('第1行挂账对象'),{target:{value:'合成原文字人员'}});fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));
+  await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({relatedNode:'人员',relatedId:null,relatedName:'合成原文字人员'})]})));
 });
