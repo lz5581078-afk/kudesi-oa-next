@@ -1,20 +1,69 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
+import { RouterLeaveBlocker } from '../../resources/grid/LeaveGuard';
+
+type ArticleProps = { manage: boolean; onDirty: (dirty: boolean) => void };
+
 export function ProductQuestionArticle({
   folder,
   title,
+  ...props
+}: ArticleProps & { folder: number; title: string }) {
+  return (
+    <QuestionArticleEditor
+      key={folder}
+      {...props}
+      heading="产品问题库"
+      caption={title + ' · 产品资料'}
+      path={'/live/scripts/folders/' + folder + '/question-article'}
+    />
+  );
+}
+
+export function PondQuestionArticle({ manage }: { manage: boolean }) {
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+  return (
+    <section className="sc-center card pad">
+      <RouterLeaveBlocker
+        when={dirty}
+        onBlocked={(request) => {
+          if (window.confirm('鱼塘问题库有未保存的修改，放弃修改并离开？')) request.go();
+          else request.cancel?.();
+        }}
+      />
+      <QuestionArticleEditor
+        manage={manage}
+        onDirty={setDirty}
+        heading="鱼塘问题库"
+        caption="公司共享"
+        path="/live/scripts/pond-question-article"
+      />
+    </section>
+  );
+}
+
+function QuestionArticleEditor({
+  path,
+  heading,
+  caption,
   manage,
   onDirty,
-}: {
-  folder: number;
-  title: string;
-  manage: boolean;
-  onDirty: (dirty: boolean) => void;
+}: ArticleProps & {
+  path: string;
+  heading: string;
+  caption: string;
 }) {
-  const path = '/live/scripts/folders/' + folder + '/question-article';
   const [article, setArticle] = useState<{ body: string; revision: number } | null>(null),
     [draft, setDraft] = useState(''),
-    [edit, setEdit] = useState(false),
     [busy, setBusy] = useState(false),
     [msg, setMsg] = useState(''),
     [retry, setRetry] = useState(0);
@@ -45,7 +94,6 @@ export function ProductQuestionArticle({
       });
       setArticle({ body: draft, revision });
       onDirty(false);
-      setEdit(false);
       setMsg('问题库已保存');
     } catch (e) {
       setMsg((e as Error).message);
@@ -55,34 +103,19 @@ export function ProductQuestionArticle({
   }
   return (
     <section className="sc-question-article">
-      <small>{title} · 产品资料</small>
+      <small>{caption}</small>
       <header className="sc-article-head">
-        <h2>产品问题库</h2>
-        {article &&
-          manage &&
-          (edit ? (
-            <div className="sc-bar">
-              <button
-                className="secondary-button"
-                disabled={busy}
-                onClick={() => {
-                  setDraft(article.body);
-                  setEdit(false);
-                  setMsg('');
-                  onDirty(false);
-                }}
-              >
-                取消
-              </button>
-              <button className="primary-button" disabled={busy} onClick={save}>
-                保存问题库
-              </button>
-            </div>
-          ) : (
-            <button className="secondary-button" onClick={() => setEdit(true)}>
-              编辑文章
-            </button>
-          ))}
+        <h2>{heading}</h2>
+        {article && manage && (
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy || draft === article.body}
+            onClick={save}
+          >
+            {busy ? '保存中…' : '保存问题库'}
+          </button>
+        )}
       </header>
       {msg && <p role="status">{msg}</p>}
       {!article ? (
@@ -91,15 +124,17 @@ export function ProductQuestionArticle({
         ) : (
           '正在读取…'
         )
-      ) : edit ? (
+      ) : manage ? (
         <textarea
-          aria-label="产品问题库正文"
+          aria-label={heading + '正文'}
+          placeholder="在这里输入问题和解答…"
           className="sc-editor"
           disabled={busy}
           maxLength={100000}
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value);
+            setMsg('');
             onDirty(e.target.value !== article.body);
           }}
         />

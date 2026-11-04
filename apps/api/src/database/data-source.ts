@@ -1,3 +1,4 @@
+import { LivePondArticle1795000000000 } from './migrations/1795000000000-LivePondArticle';
 import { LiveSplitSettlement1794000000000 } from './migrations/1794000000000-LiveSplitSettlement';
 import { ProductQuestionArticle1792000000000 } from './migrations/1792000000000-ProductQuestionArticle';
 import { LiveScriptOutline1790000000000 } from './migrations/1790000000000-LiveScriptOutline';
@@ -118,7 +119,7 @@ export function buildDataSourceOptions(env: NodeJS.ProcessEnv = process.env): Da
   };
 }
 
-MIGRATIONS.push(LiveSplitSettlement1794000000000);
+MIGRATIONS.push(LiveSplitSettlement1794000000000, LivePondArticle1795000000000);
 
 /**
  * 让 MySQL 会话时区和上面的 timezone 一致。否则 `DEFAULT CURRENT_TIMESTAMP` 按数据库服务器自己的时区写入，

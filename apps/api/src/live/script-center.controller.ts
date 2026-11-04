@@ -210,6 +210,35 @@ export class ScriptCenterController {
     return { category: dto.category.trim() };
   }
   @AuthenticatedOnly()
+  @Get('pond-question-article')
+  async pondArticle(@CurrentUser() u: AuthUser) {
+    this.view(u);
+    const [article] = await this.db.query(
+      'SELECT body,revision FROM live_pond_articles WHERE company_id=?', [u.companyId],
+    );
+    return article ?? { body: '', revision: 1 };
+  }
+  @RequirePermission('live.manage')
+  @Put('pond-question-article')
+  async savePondArticle(@CurrentUser() u: AuthUser, @Body() dto: QuestionArticle) {
+    const conflict = () => new ConflictException('问题库已变更，请保留草稿并重新打开核对');
+    if (dto.revision === 1) {
+      try {
+        await this.db.query('INSERT INTO live_pond_articles(company_id,body,revision) VALUES(?,?,2)', [u.companyId, dto.body]);
+      } catch (error) {
+        if ((error as {code?: string}).code === 'ER_DUP_ENTRY') throw conflict();
+        throw error;
+      }
+    } else {
+      const result = await this.db.query(
+        'UPDATE live_pond_articles SET body=?,revision=revision+1 WHERE company_id=? AND revision=?',
+        [dto.body, u.companyId, dto.revision],
+      );
+      if (!result.affectedRows) throw conflict();
+    }
+    return { revision: dto.revision + 1 };
+  }
+  @AuthenticatedOnly()
   @Get('folders/:id/question-article')
   async questionArticle(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) {
     this.view(u);

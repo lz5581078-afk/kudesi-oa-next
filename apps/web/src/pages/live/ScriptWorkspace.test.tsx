@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ScriptVersionPanel } from './ScriptVersionPanel';
+import { PondQuestionArticle } from './ProductQuestionArticle';
 import { api } from '../../api/client';
 
 vi.mock('../../api/client', () => ({ api: vi.fn() }));
@@ -75,7 +76,7 @@ it('问题库独立保存，切换页签保留版本草稿和离开提示', asyn
   const dirty = openEditor();
   fireEvent.change(screen.getByLabelText('话术正文'), { target: { value: '甲乙丙' } });
   fireEvent.click(screen.getByRole('button', { name: '问题库' }));
-  fireEvent.click(await screen.findByText('编辑文章'));
+  await screen.findByLabelText('产品问题库正文');
   fireEvent.change(screen.getByLabelText('产品问题库正文'), { target: { value: '谁适合种？' } });
   fireEvent.click(screen.getByRole('button', { name: '正文与标注' }));
   expect((screen.getByLabelText('话术正文') as HTMLTextAreaElement).value).toBe('甲乙丙');
@@ -87,4 +88,18 @@ it('问题库独立保存，切换页签保留版本草稿和离开提示', asyn
     body: { body: '谁适合种？', revision: 1 },
   });
   expect(dirty).toHaveBeenLastCalledWith(true);
+});
+
+it('鱼塘文章允许管理员直接填写保存，普通查看者只能阅读', async () => {
+  const page = render(<PondQuestionArticle manage />);
+  fireEvent.change(await screen.findByRole('textbox', {name:'鱼塘问题库正文'}), {target:{value:'鱼塘答疑'}});
+  fireEvent.click(screen.getByRole('button',{name:'保存问题库'}));
+  await screen.findByText('问题库已保存');
+  expect(api).toHaveBeenCalledWith('/live/scripts/pond-question-article', {
+    method: 'PUT', body: {body:'鱼塘答疑', revision:1}
+  });
+  page.rerender(<PondQuestionArticle manage={false}/>);
+  expect(screen.getByText('鱼塘答疑')).toBeTruthy();
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.queryByRole('button',{name:'保存问题库'})).toBeNull();
 });
