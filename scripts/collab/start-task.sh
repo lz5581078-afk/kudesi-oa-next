@@ -1,28 +1,31 @@
 #!/usr/bin/env bash
-# 用法：bash scripts/collab/start-task.sh <任务简称>
-# 从 integration 切出 feat/<任务简称>，并在 ../wt-<任务简称> 建独立工作目录（复用主目录的 node_modules）。
+# Reuse an existing task before creating a new isolated worktree.
 set -euo pipefail
 name="${1:-}"
-[ -n "$name" ] || { echo "用法：bash scripts/collab/start-task.sh <任务简称（英文/拼音，无空格）>"; exit 1; }
-[[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "任务简称只能用字母、数字、点、下划线、短横线"; exit 1; }
+[ -n "$name" ] || { echo '用法：bash scripts/collab/start-task.sh <任务简称>'; exit 1; }
+[[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || { echo '任务简称只允许英文、数字、点、横线、下划线'; exit 1; }
 root="$(git rev-parse --show-toplevel)"
-cd "$root"
-git fetch origin --prune 2>/dev/null || echo "（没有远程仓库，只用本地分支）"
-base_ref=""
-if git rev-parse --verify -q origin/integration >/dev/null; then base_ref="origin/integration"
-elif git rev-parse --verify -q integration >/dev/null; then base_ref="integration"
+common="$(git rev-parse --path-format=absolute --git-common-dir)"
+branch="feat/$name"
+existing="$(git worktree list --porcelain | awk -v branch="refs/heads/$branch" '/^worktree / {path=substr($0,10)} /^branch / {if (substr($0,8)==branch) print path}')"
+if [ -n "$existing" ]; then
+  echo "复用已有任务：$existing"
+  echo '先核对任务板和未提交内容；不要重复创建同一任务。'
+  exit 0
+fi
+# Always create siblings of the primary checkout, even when invoked in a worktree.
+primary="$(dirname "$common")"
+dir="$(dirname "$primary")/wt-$name"
+[ ! -e "$dir" ] || { echo "目录已存在，请先核对：$dir"; exit 1; }
+git fetch origin --prune
+if git show-ref --verify --quiet "refs/heads/$branch"; then
+  git worktree add "$dir" "$branch"
 else
-  main_ref="main"; git rev-parse --verify -q origin/main >/dev/null && main_ref="origin/main"
-  git branch integration "$main_ref"
-  git push -u origin integration 2>/dev/null || true
-  base_ref="integration"
+  git rev-parse --verify origin/integration >/dev/null
+  git worktree add -b "$branch" "$dir" origin/integration
 fi
-dir="$root/../wt-$name"
-[ -e "$dir" ] && { echo "目录已存在：$dir"; exit 1; }
-git worktree add -b "feat/$name" "$dir" "$base_ref"
-if [ -d "$root/node_modules" ] && [ ! -e "$dir/node_modules" ]; then
-  ln -s "$root/node_modules" "$dir/node_modules"
-  grep -qx node_modules "$root/.git/info/exclude" 2>/dev/null || echo node_modules >> "$root/.git/info/exclude"
+if [ -d "$primary/node_modules" ] && [ ! -e "$dir/node_modules" ]; then
+  ln -s "$primary/node_modules" "$dir/node_modules"
 fi
-echo "已建好：分支 feat/$name，工作目录 $dir"
-echo "下一步：cd $dir ；在 docs/协作/任务板.md 认领任务；改完提交并向 integration 提 PR。"
+echo "工作目录：$dir"
+echo "分支：${branch}；在任务板认领后开始修改。完成后按工作区管理规则验收回收。"
