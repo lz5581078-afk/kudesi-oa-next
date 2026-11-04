@@ -14,7 +14,7 @@ export interface PersonPhoto {
 export const personPhotoApi = {
   read: (id: number) => api<PersonPhoto>(`/live/people/${id}/photo`),
 };
-/** 按员工编号读取，点击时才申请短期照片链接，不加载人事附件或工资。 */
+/** 点击姓名读取受控照片和服务器本月业绩；按员工编号隔离，避免同名串人。 */
 export function PersonPhotoName({
   personId,
   name,
