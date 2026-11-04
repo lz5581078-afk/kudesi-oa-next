@@ -220,7 +220,7 @@ export const resourceApi = {
   },
   licenseRevenue: (id: number, from: string, to: string) => api<RevenueResult>(`/revenue/licenses/${id}?from=${from}&to=${to}`),
   departments: () => api<Array<{ id: number; name: string; parentId?: number | null }>>('/org/department-directory'),
-  users: () => api<Array<{ id: number; name: string; active: boolean }>>('/org/users'),
+  users: () => api<Array<{ id: number; name: string; active: boolean;departmentName?:string|null }>>('/org/users'),
 };
 
 /** 手机扫码上传：电脑端发起并轮询；手机端（免登录）只认令牌 */

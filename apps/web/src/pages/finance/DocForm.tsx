@@ -394,7 +394,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         {def.warehouse
           ? <label>{ui.warehouseLabel} *<input aria-label="仓库" value={wh.name} maxLength={200} onChange={e => setWh({ id: null, name: e.target.value })} /></label>
           : type === 'expense' ? null : <label>归属部门<input aria-label="归属部门" value={department} maxLength={60} onChange={(e) => setDepartment(e.target.value)} /></label>}
-        <HandlerSelect options={staff} value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); if (type !== 'withdrawal') setHandlerLegacy(''); }} />
+        <HandlerSelect placeholder={sourceInline&&type==='expense'?'搜索经办人':'选择经办人'} options={staff} value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); if (type !== 'withdrawal') setHandlerLegacy(''); }} />
       </section>
       </DocumentHeadCard>
 

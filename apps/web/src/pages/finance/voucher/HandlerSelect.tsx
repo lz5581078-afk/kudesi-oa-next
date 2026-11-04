@@ -6,8 +6,8 @@ import { ReferencePickContext, SearchPick } from '../common';
  * 经手人：从本公司员工档案里选（保存员工 id，显示姓名）。
  * 老单据里只有文字的经手人（没有员工 id）会作为第一个选项“xxx（原文字）”保留，不会丢；取不到员工名单时也至少能选当前这一个。
  */
-export interface StaffOption { id:number;name:string;active:boolean }
-export function HandlerSelect({ value, valueName, legacy, onChange, label = '经办人',options }: { value: number | null; valueName: string; legacy: string; onChange: (id: number | null, name: string) => void; label?: string;options?:StaffOption[] }) {
+export interface StaffOption { id:number;name:string;active:boolean;departmentName?:string|null }
+export function HandlerSelect({ value, valueName, legacy, onChange, label = '经办人',options,placeholder='选择经办人' }: { value: number | null; valueName: string; legacy: string; onChange: (id: number | null, name: string) => void; label?: string;options?:StaffOption[];placeholder?:string }) {
   const reference = useContext(ReferencePickContext);
   const [loaded, setStaff] = useState<StaffOption[]>([]);
   const staff=options??loaded;
@@ -20,7 +20,9 @@ export function HandlerSelect({ value, valueName, legacy, onChange, label = '经
   }, [options]);
   const list = staff.filter((s) => s.active || s.id === value);
   const known = value === null || list.some((s) => s.id === value);
-  if (reference) return <label>{label}<SearchPick type="user" ariaLabel={label} value={value} label={value ? valueName || staff.find(s => s.id === value)?.name : legacy ? `${legacy}（原文字）` : ''} placeholder="选择经办人" options={[...(!known && value ? [{id:value,title:valueName || `员工#${value}`}] : []),...list.map(staff => ({id:staff.id,title:staff.active ? staff.name : `${staff.name}（已停用）`}))]} onChange={(id,name) => onChange(id,id ? staff.find(row => row.id === id)?.name || name : '')}/></label>;
+  const staffLabel=(employee:StaffOption)=>`${employee.name}${employee.departmentName===undefined?'':` · ${employee.departmentName||'未分部门'}`}${employee.active?'':'（已停用）'}`;
+  const current=staff.find(employee=>employee.id===value);
+  if (reference) return <label>{label}<SearchPick type="user" ariaLabel={label} value={value} label={value ? current?staffLabel(current):valueName||`员工#${value}` : legacy ? `${legacy}（原文字）` : ''} placeholder={placeholder} options={[...(!known && value ? [{id:value,title:valueName || `员工#${value}`}] : []),...[...list].sort((a,b)=>a.id-b.id).map(employee => ({id:employee.id,title:staffLabel(employee)}))]} onChange={(id,name) => onChange(id,id ? staff.find(row => row.id === id)?.name || name : '')}/></label>;
   return (
     <label>{label}
       <select aria-label={label} value={value ?? ''} onChange={(e) => { const id = e.target.value ? Number(e.target.value) : null; onChange(id, id ? staff.find((x) => x.id === id)?.name ?? valueName : ''); }}>

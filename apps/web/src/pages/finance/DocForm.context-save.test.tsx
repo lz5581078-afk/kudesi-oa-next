@@ -85,3 +85,10 @@ it('新费用行只提供原20个挂账节点，历史或配置已带出的特�
   const doc={...draft,id:71,docType:'expense',docDate:'2026-11-03',amountCents:1000,paidCents:0,settlementMode:'credit',accounts:[],events:[],entries:[],lines:[{id:1,feeItemId:7,feeItemName:'合成费用',qty:1,unitPriceCents:1000,relatedNode:'仓库',relatedId:9,relatedName:'合成历史仓库'}]};fa.update.mockResolvedValue(doc as never);fa.issue.mockResolvedValue({...doc,status:'issued'} as never);
   render(<DocForm type="expense" doc={doc as never} inline onSaved={vi.fn()}/>);expect((screen.getByLabelText('第1行挂账节点') as HTMLSelectElement).value).toBe('仓库');expect(screen.getByRole('option',{name:'仓库'})).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'保存费用单'}));await waitFor(()=>expect(fa.update).toHaveBeenCalledWith(71,expect.objectContaining({lines:[expect.objectContaining({relatedNode:'仓库',relatedId:9})]})));
 });
+it('经办人沿原版按姓名和部门展示并可搜索部门，选择保存员工ID，不把部门串入姓名',async()=>{
+  vi.mocked(resourceApi.users).mockResolvedValue([{id:22,name:'合成经办乙',active:true,departmentName:'合成财务部'},{id:11,name:'合成经办甲',active:true,departmentName:null}]);
+  render(<DocForm type="sale" inline onSaved={vi.fn()}/>);await waitFor(()=>expect(resourceApi.users).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByLabelText('经办人'));expect(screen.getAllByRole('option').map(option=>option.textContent)).toEqual(['合成经办甲 · 未分部门','合成经办乙 · 合成财务部']);
+  fireEvent.change(screen.getByRole('textbox',{name:'搜索经办人'}),{target:{value:'合成财务部'}});fireEvent.click(screen.getByRole('option',{name:'合成经办乙 · 合成财务部'}));expect(screen.getByLabelText('经办人').textContent).toContain('合成经办乙 · 合成财务部');
+  fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({handlerId:22,handler:null})));
+});

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuditLog, Department, User } from '../entities';
 import { AuthUser } from '../common/auth.decorators';
 
@@ -43,9 +43,12 @@ export class OrgService {
     @InjectRepository(User) private readonly users: Repository<User>,
   ) {}
 
-  async directory(user: AuthUser): Promise<Array<{ id: number; name: string; active: boolean }>> {
-    const rows = await this.users.find({ where: { companyId: user.companyId }, select: ['id', 'name', 'status'], order: { name: 'ASC' } });
-    return rows.map((u) => ({ id: u.id, name: u.name, active: u.status === 'active' }));
+  async directory(user: AuthUser): Promise<Array<{ id: number; name: string; active: boolean;departmentName:string|null }>> {
+    const rows = await this.users.find({ where: { companyId: user.companyId }, select: ['id', 'name', 'status','departmentId'], order: { name: 'ASC' } });
+    const ids=[...new Set(rows.map(row=>row.departmentId).filter((id):id is number=>!!id))];
+    const departments=ids.length?await this.departments.find({where:{companyId:user.companyId,id:In(ids)},select:['id','name']}):[];
+    const names=new Map(departments.map(department=>[department.id,department.name]));
+    return rows.map((u) => ({ id: u.id, name: u.name, active: u.status === 'active',departmentName:u.departmentId?names.get(u.departmentId)??null:null }));
   }
 
   /** 部门通讯录（只含 id/名称），资料页的“选择部门”要用 */
