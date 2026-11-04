@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Query,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -21,6 +22,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsOptional,
   IsString,
   Length,
   MaxLength,
@@ -34,6 +36,12 @@ import { can } from './live-core';
 
 class Named {
   @IsString() @Length(1, 100) name!: string;
+}
+class ProductFolder extends Named {
+  @IsOptional() @IsString() @MaxLength(80) category?: string;
+}
+class FolderCategory {
+  @IsString() @MaxLength(80) category!: string;
 }
 class Media extends Named {
   @IsIn(['background', 'image', 'video']) category!: string;
@@ -75,7 +83,7 @@ export class ScriptCenterController {
   async library(@CurrentUser() u: AuthUser) {
     this.view(u);
     const [folders, versions] = await Promise.all([
-      this.db.query('SELECT id,name FROM live_script_folders WHERE company_id=? ORDER BY name,id', [
+      this.db.query('SELECT id,name,category FROM live_script_folders WHERE company_id=? ORDER BY name,id', [
         u.companyId,
       ]),
       this.db.query(
@@ -87,17 +95,25 @@ export class ScriptCenterController {
   }
   @RequirePermission('live.manage')
   @Post('folders')
-  async folder(@CurrentUser() u: AuthUser, @Body() dto: Named) {
+  async folder(@CurrentUser() u: AuthUser, @Body() dto: ProductFolder) {
     try {
-      const row = await this.db.query('INSERT INTO live_script_folders(company_id,name) VALUES(?,?)', [
+      const row = await this.db.query('INSERT INTO live_script_folders(company_id,name,category) VALUES(?,?,?)', [
         u.companyId,
         nameOf(dto.name),
+        dto.category?.trim() ?? '',
       ]);
       return { id: row.insertId };
     } catch (e) {
       if ((e as { code?: string }).code === 'ER_DUP_ENTRY') throw new ConflictException('已有同名产品文件夹');
       throw e;
     }
+  }
+  @RequirePermission('live.manage')
+  @Put('folders/:id/category')
+  async classify(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: FolderCategory) {
+    const result = await this.db.query('UPDATE live_script_folders SET category=? WHERE company_id=? AND id=?', [dto.category.trim(), u.companyId, id]);
+    if (!result.affectedRows) throw new NotFoundException('产品文件夹不存在');
+    return { category: dto.category.trim() };
   }
   @RequirePermission('live.manage')
   @Post('folders/:id/versions')
@@ -160,6 +176,7 @@ export class ScriptCenterController {
     @CurrentUser() u: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Param('asset', ParseIntPipe) asset: number,
+    @Query('download') download?: string,
   ) {
     this.view(u);
     const [row] = await this.db.query(
@@ -167,6 +184,6 @@ export class ScriptCenterController {
       [u.companyId, id, asset],
     );
     if (!row) throw new NotFoundException('素材不存在');
-    return this.files.urlOf(u.companyId, asset, 'live-script-media');
+    return this.files.urlOf(u.companyId, asset, 'live-script-media', download === '1');
   }
 }

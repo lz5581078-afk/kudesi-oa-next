@@ -24,7 +24,7 @@ export const QINIU_ZONES: Record<QiniuZone, { label: string; uploadHost: string 
 /** 文件存储抽象：业务代码只依赖它，测试里用内存实现替换。 */
 export interface ObjectStorage {
   upload(key: string, data: Buffer, mime: string, filename: string): Promise<void>;
-  downloadUrl(key: string, ttlSeconds?: number): string;
+  downloadUrl(key: string, ttlSeconds?: number, filename?: string): string;
   remove(key: string): Promise<void>;
 }
 
@@ -73,10 +73,11 @@ export class QiniuClient implements ObjectStorage {
     }
   }
 
-  downloadUrl(key: string, ttlSeconds = 300): string {
+  downloadUrl(key: string, ttlSeconds = 300, filename?: string): string {
     const base = `${this.cfg.domain.replace(/\/+$/, '')}/${key.split('/').map(encodeURIComponent).join('/')}`;
-    if (!this.cfg.isPrivate) return base;
-    const withExpiry = `${base}?e=${Math.floor(this.now() / 1000) + ttlSeconds}`;
+    const target = filename ? base + '?attname=' + encodeURIComponent(filename) : base;
+    if (!this.cfg.isPrivate) return target;
+    const withExpiry = `${target}${filename ? '&' : '?'}e=${Math.floor(this.now() / 1000) + ttlSeconds}`;
     return `${withExpiry}&token=${this.cfg.accessKey}:${this.sign(withExpiry)}`;
   }
 

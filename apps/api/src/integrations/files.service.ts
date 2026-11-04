@@ -159,12 +159,18 @@ export class FilesService {
   }
 
   /** 同 url()，但权限由调用方负责，并限定文件类型。 */
-  async urlOf(companyId: number, id: number, type: string) {
+  async urlOf(companyId: number, id: number, type: string, download = false) {
     const row = await this.dataSource.manager.findOne(ResourceFile, { where: { id, companyId, resourceType: type } });
     if (!row) throw new NotFoundException('文件不存在');
     const storage = row.storageKey.startsWith('local:') ? configuredLocalStorage() : await this.storage(companyId);
     if (!storage) throw new BadRequestException('本地文件存储尚未挂载');
-    return { url: storage.downloadUrl(row.storageKey, 300), expiresIn: 300, name: row.name, mime: row.mime };
+    const ext = row.storageKey.split('.').pop();
+    const filename = ext && !row.name.toLowerCase().endsWith('.' + ext) ? row.name + '.' + ext : row.name;
+    return {
+      ...(download ? { filename } : {}),
+      url: storage.downloadUrl(row.storageKey, 300, download ? filename : undefined),
+      expiresIn: 300, name: row.name, mime: row.mime,
+    };
   }
 
   /** 把一批文件绑定到某条记录，并删掉该记录上不在名单里的旧文件（返回要删的 key，事务提交后再删）。 */

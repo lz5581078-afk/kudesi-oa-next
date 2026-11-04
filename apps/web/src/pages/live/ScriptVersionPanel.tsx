@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { api } from '../../api/client';
+import { ScriptAssetLibrary } from './ScriptAssetLibrary';
 import { ScriptPreview } from './ScriptPreview';
-import { categories, moveCues, type Asset, type Category, type ScriptVersion } from './scriptCues';
+import { categories, moveCues, type Asset, type ScriptVersion } from './scriptCues';
 
 export function ScriptVersionPanel({
   initial,
@@ -20,13 +21,20 @@ export function ScriptVersionPanel({
     [edit, setEdit] = useState(manage && !initial.body);
   const [section, setSection] = useState<'script' | 'info' | 'assets'>('script');
   const [asset, setAsset] = useState(0),
-    [category, setCategory] = useState<Category>('image'),
-    [name, setName] = useState('');
-  const [file, setFile] = useState<File | null>(null),
     [busy, setBusy] = useState(false),
     [msg, setMsg] = useState('');
   const body = useRef<HTMLTextAreaElement>(null),
-    upload = useRef<HTMLInputElement>(null);
+    picker = useRef<HTMLDialogElement>(null);
+  const [range, setRange] = useState<{ start: number; end: number } | null>(null);
+  const mergeAssets = useCallback(
+    (items: Asset[]) =>
+      setV((old) => {
+        const existing = new Set(old.assets.map((a) => a.id));
+        const fresh = items.filter((a) => !existing.has(a.id));
+        return fresh.length ? { ...old, assets: [...old.assets, ...fresh] } : old;
+      }),
+    [],
+  );
   const path = '/live/scripts/versions/' + v.id;
   function change(update: Partial<ScriptVersion>) {
     setV({ ...v, ...update });
@@ -41,7 +49,7 @@ export function ScriptVersionPanel({
         method: 'PUT',
         body: { name: v.name, notes: v.notes, body: v.body, cues: v.cues, revision: v.revision },
       });
-      setV({ ...v, name: v.name.trim(), revision });
+      setV((old) => ({ ...old, name: v.name.trim(), revision }));
       onName(v.name.trim());
       onDirty(false);
       setMsg('已保存');
@@ -52,46 +60,20 @@ export function ScriptVersionPanel({
       setBusy(false);
     }
   }
-  async function addFile() {
-    if (!file || !name.trim()) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setMsg('请选择 10 MB 以内的文件');
-      return;
-    }
-    setBusy(true);
-    setMsg('');
-    try {
-      const data = new FormData();
-      data.append('name', name.trim());
-      data.append('category', category);
-      data.append('file', file);
-      const a = await api<Asset>(path + '/assets', { form: data });
-      setV((old) => ({ ...old, assets: [...old.assets, a] }));
-      setAsset(a.id);
-      setName('');
-      setFile(null);
-      if (upload.current) upload.current.value = '';
-      setMsg('素材已入库');
-    } catch (e) {
-      setMsg((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+  function openPicker(start: number, end: number) {
+    setRange({ start, end });
+    picker.current?.showModal();
   }
-  function mark() {
-    const input = body.current;
-    if (!input) return;
-    const start = input.selectionStart,
-      end = input.selectionEnd;
-    if (start === end || !asset) {
+  function mark(start: number, end: number, id: number) {
+    if (start === end || !id) {
       setMsg('请选中正文里的文字，再选择要展示的素材');
       return;
     }
-    if (v.cues.some((c) => c.asset === asset && c.start < end && c.end > start)) {
+    if (v.cues.some((c) => c.asset === id && c.start < end && c.end > start)) {
       setMsg('同一素材在这段话里已有标注');
       return;
     }
-    change({ cues: [...v.cues, { asset, start, end }].sort((a, b) => a.start - b.start) });
+    change({ cues: [...v.cues, { asset: id, start, end }].sort((a, b) => a.start - b.start) });
   }
   return (
     <fieldset className="sc-panel" disabled={busy}>
@@ -141,62 +123,23 @@ export function ScriptVersionPanel({
             </label>
           </div>
           <div hidden={section !== 'assets'} className="sc-section">
-            <h3>本版素材库 · {v.assets.length}</h3>
-            <div className="sc-bar">
-              <label>
-                素材分类
-                <select
-                  value={category}
-                  onChange={(e) => {
-                    setCategory(e.target.value as Category);
-                    setFile(null);
-                    if (upload.current) upload.current.value = '';
-                  }}
-                >
-                  {Object.entries(categories).map(([k, t]) => (
-                    <option key={k} value={k}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                素材名称（必填）
-                <input
-                  maxLength={100}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="例如：花育25籽粒特写"
-                />
-              </label>
-              <label>
-                素材文件（≤10 MB）
-                <input
-                  ref={upload}
-                  type="file"
-                  accept={category === 'video' ? 'video/mp4' : 'image/png,image/jpeg,image/gif,image/webp'}
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                />
-              </label>
-              <button className="secondary-button" disabled={!name.trim() || !file} onClick={addFile}>
-                上传入库
-              </button>
-            </div>
-            {Object.entries(categories).map(([k, t]) => (
-              <p key={k}>
-                <strong>{t}</strong>　
-                {v.assets
-                  .filter((a) => a.category === k)
-                  .map((a) => a.name)
-                  .join('、') || '暂无素材'}
-              </p>
-            ))}
+            <h3>本版素材库</h3>
+            {section === 'assets' && (
+              <ScriptAssetLibrary version={v.id} assets={v.assets} onAdded={mergeAssets} />
+            )}
           </div>
           <div hidden={section !== 'script'} className="sc-section">
             <label>
               话术正文
               <textarea
                 ref={body}
+                className="sc-editor"
+                onContextMenu={(e) => {
+                  const { selectionStart: start, selectionEnd: end } = e.currentTarget;
+                  if (start === end) return;
+                  e.preventDefault();
+                  openPicker(start, end);
+                }}
                 rows={10}
                 maxLength={30000}
                 value={v.body}
@@ -208,7 +151,9 @@ export function ScriptVersionPanel({
                 }
               />
             </label>
-            <p className="muted">选中要配素材的一段话。选区开头提示展示，结尾提示撤下。</p>
+            <p className="muted">
+              拖选一段正文，右键关联素材。中控会在段首看到展示提示，在段尾看到撤下提示。
+            </p>
             <div className="sc-bar">
               <label>
                 关联素材
@@ -221,10 +166,17 @@ export function ScriptVersionPanel({
                   ))}
                 </select>
               </label>
-              <button className="secondary-button" disabled={!asset} onClick={mark}>
+              <button
+                className="secondary-button"
+                disabled={!asset}
+                onClick={() => {
+                  if (body.current) mark(body.current.selectionStart, body.current.selectionEnd, asset);
+                }}
+              >
                 标注选中文字
               </button>
             </div>
+
             {v.cues.map((c, i) => (
               <div className="sc-cue" key={i}>
                 <strong>{v.assets.find((a) => a.id === c.asset)?.name}</strong>　「
@@ -242,8 +194,42 @@ export function ScriptVersionPanel({
       ) : (
         <>
           {v.notes && <p className="sc-notes">{v.notes}</p>}
-          <ScriptPreview v={v} />
+          <ScriptPreview v={v} onMark={manage ? openPicker : undefined} />
         </>
+      )}
+      {manage && (
+        <dialog ref={picker} className="sc-picker" aria-label="为选中文字关联素材">
+          <header>
+            <h3>关联素材</h3>
+            <button className="link-button" onClick={() => picker.current?.close()}>
+              关闭
+            </button>
+          </header>
+          {range && <blockquote>{v.body.slice(range.start, range.end)}</blockquote>}
+          {!v.assets.length && <p>请先到素材库上传素材。</p>}
+          {Object.entries(categories).map(([key, label]) => {
+            const items = v.assets.filter((a) => a.category === key);
+            return (
+              items.length > 0 && (
+                <section key={key}>
+                  <h4>{label}</h4>
+                  {items.map((a) => (
+                    <button
+                      className="secondary-button"
+                      key={a.id}
+                      onClick={() => {
+                        if (range) mark(range.start, range.end, a.id);
+                        picker.current?.close();
+                      }}
+                    >
+                      {a.name}
+                    </button>
+                  ))}
+                </section>
+              )
+            );
+          })}
+        </dialog>
       )}
       {msg && <p role="status">{msg}</p>}
     </fieldset>
