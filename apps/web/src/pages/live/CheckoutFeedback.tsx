@@ -1,12 +1,13 @@
 import {useEffect,useState} from 'react';
 import {liveApi,type CheckoutFeedbackRecord,type FeedbackImage,type FeedbackDraft,type SessionDetail} from './liveApi';
 import {errText} from './liveFormat';
-import {Modal} from './liveUi';
+import {LiveEvidenceViewer} from './LiveEvidenceViewer';
 const roleName=(role:string)=>({anchor:'主播',control:'中控',operator:'运营'}[role]??role);
 function EvidenceImage({sessionId,file,onRemove}:{sessionId:number;file:FeedbackImage;onRemove?:()=>void}){
  const [url,setUrl]=useState(''),[open,setOpen]=useState(false),[error,setError]=useState('');
  useEffect(()=>{let alive=true;liveApi.feedbackImageUrl(sessionId,file.id).then(d=>{if(alive)setUrl(d.url);}).catch(()=>{if(alive)setError('图片读取失败');});return()=>{alive=false;};},[sessionId,file.id]);
- return <div className="live-feedback-image"><button type="button" className="secondary-button" onClick={()=>setOpen(true)} disabled={!url} aria-label={`查看${file.name}`}>{url?<img src={url} alt={file.name}/>:error||file.name}</button><small>{file.name}</small>{onRemove&&<button type="button" className="link-button danger-text" onClick={onRemove} aria-label={`移除${file.name}`}>移除</button>}{open&&<Modal title={file.name} onClose={()=>setOpen(false)}><img src={url} alt={file.name} style={{maxWidth:'100%',maxHeight:'70vh',objectFit:'contain'}}/></Modal>}</div>;
+ useEffect(()=>{if(!open)return;let alive=true;liveApi.feedbackImageUrl(sessionId,file.id).then(d=>{if(alive)setUrl(d.url);}).catch(()=>{});return()=>{alive=false;};},[open,sessionId,file.id]);
+ return <div className="live-feedback-image"><button type="button" className="secondary-button" onClick={()=>setOpen(true)} disabled={!url} aria-label={`查看${file.name}`}>{url?<img src={url} alt={file.name}/>:error||file.name}</button><small>{file.name}</small>{onRemove&&<button type="button" className="link-button danger-text" onClick={onRemove} aria-label={`移除${file.name}`}>移除</button>}{open&&<LiveEvidenceViewer url={url} name={file.name} onClose={()=>setOpen(false)}/>}</div>;
 }
 export function CheckoutFeedbackFields({sessionId,role,onChange}:{sessionId:number;role:string;onChange:(draft:FeedbackDraft)=>void}){
  const [targets,setTargets]=useState<Array<{userId:number;name:string;role:string}>>([]),[scores,setScores]=useState<Record<number,number>>({}),[images,setImages]=useState<FeedbackImage[]>([]),[loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
