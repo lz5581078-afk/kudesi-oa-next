@@ -24,7 +24,7 @@ export class LiveFeedbackService {
    const s=await sessionRow(this.ds.manager,user.companyId,id);
    const [own]=await this.ds.query("SELECT id FROM live_session_checkins WHERE company_id=? AND session_id=? AND user_id=? AND role='control'",[user.companyId,id,user.id]);
    if(!own||Number(s.control_user_id)!==user.id)liveFail('只有本场已上播中控可上传数据图片',403);
-   if(reportsLocked(s,liveClock.now())||!['live','pending_report','returned'].includes(s.status)||await closedDay(this.ds.manager,user.companyId,s.session_day))liveFail('本场已锁定，不能上传图片',409);
+   if(reportsLocked(s,liveClock.now())||!['live','pending_report','returned'].includes(s.status)||await closedDay(this.ds.manager,user.companyId,s.session_day,{sessionId:Number(s.id)}))liveFail('本场已锁定，不能上传图片',409);
    if(!file||!sniffFile(file.buffer)?.image)liveFail('请上传本场直播数据图片（png、jpg、gif、webp）',400);
    const info=await this.files.putBlob(user.companyId,user.id,LIVE_EVIDENCE_TYPE,'evidence',file);
    await this.ds.manager.update(ResourceFile,{id:info.id,companyId:user.companyId,uploadedBy:user.id},{resourceId:id});

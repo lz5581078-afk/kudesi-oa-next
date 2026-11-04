@@ -132,7 +132,26 @@ class WageTrialDto {
   @IsString() @MaxLength(19) endAt!: string;
   @IsInt() @Min(1) hourlyRateCents!: number;
 }
+class SubmitSettlementDto { @IsInt() @Min(1) revision!:number; }
+class PaymentDto {
+  @IsInt() @Min(1) userId!:number;
+  @IsInt() @Min(-Number.MAX_SAFE_INTEGER) @Max(Number.MAX_SAFE_INTEGER) amountCents!:number;
+  @IsString() @MaxLength(100) requestKey!:string;
+  @IsString() @MaxLength(200) reference!:string;
+  @IsOptional() @IsString() @MaxLength(500) note?:string;
+}
+class SettlementAdjustmentDto {
+  @IsIn(['wage','commission']) kind!:'wage'|'commission';
+  @IsInt() @Min(1) lineId!:number;
+  @IsInt() @Min(-Number.MAX_SAFE_INTEGER) @Max(Number.MAX_SAFE_INTEGER) amountCents!:number;
+  @IsString() @MaxLength(100) reference!:string;
+  @IsString() @MaxLength(500) reason!:string;
+}
+class SettlementVoidDto { @IsString() @MaxLength(500) reason!:string; }
 class GenerateDto {
+  @IsOptional() @IsIn(['wage','commission','mixed']) kind?:'wage'|'commission'|'mixed';
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @ArrayUnique() @IsInt({each:true}) @Min(1,{each:true}) userIds?:number[];
+  @IsOptional() @IsInt() @Min(1) settlementId?:number;
   @IsOptional() @IsString() @MaxLength(7) month?: string;
   @IsOptional() @IsString() @MaxLength(10) from?:string;
   @IsOptional() @IsString() @MaxLength(10) to?:string;
@@ -330,8 +349,16 @@ export class LiveController {
   listSettlements(@CurrentUser() u: AuthUser) { return this.settlements.list(u); }
   @AuthenticatedOnly() @Get('settlements/:id')
   settlement(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.settlements.detail(u, id); }
+  @RequirePermission('live.manage') @Post('settlements/preview')
+  previewSettlement(@CurrentUser() u:AuthUser,@Body() b:GenerateDto){return this.settlements.preview(u,b);}
   @RequirePermission('live.manage') @Post('settlements')
-  generate(@CurrentUser() u: AuthUser, @Body() b: GenerateDto) { return this.settlements.generate(u, b.month??'', b.note, {from:b.from,to:b.to}); }
+  generate(@CurrentUser() u: AuthUser, @Body() b: GenerateDto) { return this.settlements.generate(u, b.month??'', b.note, {from:b.from,to:b.to,kind:b.kind,userIds:b.userIds,settlementId:b.settlementId}); }
+  @RequirePermission('live.manage') @Post('settlements/:id/adjustments')
+  adjustSettlement(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:SettlementAdjustmentDto){return this.settlements.adjustment(u,id,b);}
+  @RequirePermission('live.manage') @Post('settlements/:id/payments')
+  paySettlement(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:PaymentDto){return this.settlements.payment(u,id,b);}
+  @RequirePermission('live.manage') @Post('settlements/:id/void')
+  voidSettlement(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:SettlementVoidDto){return this.settlements.void(u,id,b.reason);}
   @RequirePermission('live.manage') @Post('settlements/:id/submit')
-  submitSettlement(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.settlements.submit(u, id); }
+  submitSettlement(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number,@Body() b:SubmitSettlementDto) { return this.settlements.submit(u, id,b.revision); }
 }

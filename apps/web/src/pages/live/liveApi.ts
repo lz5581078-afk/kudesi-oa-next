@@ -30,7 +30,7 @@ export interface ReportDto { pending?:boolean; storeLines?:LiveStoreLine[];
   manualActorId?:number|null;role: 'anchor' | 'control' | 'operator'; roleLabel: string; reporter: Person; endAt: string; salesCents: number; adSpendCents: number | null; ordersTotalCents: number | null; orderCount: number; note: string;
   orders: Array<{ orderId: string; amountCents: number; payTime: string | null; status: string | null }>;
 }
-export interface SessionDetail extends SessionRow { attendance?:Array<{correctedEndAt?:string|null;autoCheckout?:boolean;userId:number;name:string;role:string;startAt:string;endAt:string|null}>; checkoutFeedback?:CheckoutFeedbackRecord[]; controlCommissionOnly?:boolean; capturedOrders?:Array<{storeId:number;platform:string;shopId:string;orderId:string;paid:boolean;amountCents:number;refundCents:number;status:string;orderAt:string}>; myCheckins?:Array<{role:string;startAt:string;endAt:string|null}>; wages?:Array<{role:string;userId:number;minutes:number;hourlyRateCents:number;amountCents:number;note:string|null}>;
+export interface SessionDetail extends SessionRow {settlementHistory?:Array<{userId:number;role:string;wageId:number|null;commissionId:number|null;wageCents:number;commissionCents:number;payableCents:number;settlementId:number;status:string;kind:string;originalSettlementId:number|null;approvedAt:string|null}>; attendance?:Array<{correctedEndAt?:string|null;autoCheckout?:boolean;userId:number;name:string;role:string;startAt:string;endAt:string|null}>; checkoutFeedback?:CheckoutFeedbackRecord[]; controlCommissionOnly?:boolean; capturedOrders?:Array<{storeId:number;platform:string;shopId:string;orderId:string;paid:boolean;amountCents:number;refundCents:number;status:string;orderAt:string}>; myCheckins?:Array<{role:string;startAt:string;endAt:string|null}>; wages?:Array<{role:string;userId:number;minutes:number;hourlyRateCents:number;amountCents:number;note:string|null}>;
   submission?: SubmissionStatus | null;
   products: LiveProductSnapshot[]; reports: ReportDto[];
   commissions: Array<{ platform?:string;userId: number; name: string; role: string; roleLabel: string; rateUnits: number; amountCents: number; roiScaled: number | null; belowRoi: boolean }>;
@@ -81,8 +81,12 @@ export interface RuleVersion { id: number; effectiveFrom: string; note: string |
 export interface RuleList { canManage: boolean; currentId: number | null; versions: RuleVersion[] }
 export interface Trial { tierIndex: number; roiScaled: number | null; belowRoi: boolean; anchor: RoleAmount; control: RoleAmount; operator: RoleAmount }
 
-export interface SettlementHead { from?:string;to?:string;wageTotalCents?:number; id: number; month: string; status: 'draft' | 'submitted' | 'returned' | 'approved'; statusLabel: string; recordCount: number; commissionTotalCents: number; refundTotalCents: number; deductionTotalCents: number; payableTotalCents: number; refundsCheckedAt: string | null; note: string; returnReason: string | null; flowRunId: number | null; creatorName: string; submittedAt: string | null; approvedAt: string | null; revision: number }
+export interface SettlementScope {kind?:'wage'|'commission'|'mixed';userIds?:number[];settlementId?:number;from?:string;to?:string}
+export interface SettlementHead {legacy?:boolean;originalSettlementId?:number|null;kind?:'wage'|'commission'|'mixed'|'adjustment';userIds?:number[];paidTotalCents?:number;voidReason?:string; from?:string;to?:string;wageTotalCents?:number; id: number; month: string; status: 'draft' | 'submitted' | 'returned' | 'approved' | 'voided'; statusLabel: string; recordCount: number; commissionTotalCents: number; refundTotalCents: number; deductionTotalCents: number; payableTotalCents: number; refundsCheckedAt: string | null; note: string; returnReason: string | null; flowRunId: number | null; creatorName: string; submittedAt: string | null; approvedAt: string | null; revision: number }
 export interface SettlementDetail extends SettlementHead {
+  adjustments?:Array<{id:number;status:string;amountCents:number|string;note:string}>;
+  excluded?:Array<{userId:number;sessionId:number|null;date:string;kind:string;reason:string}>;
+  events?:Array<{id:number;event_type:string;actor_name:string;at:string;user_id:number|null;amount_cents:number|string;detail_json:unknown}>;
   canManage: boolean; byPerson: Array<{ userId: number; name: string; role: string; roleLabel: string; commissionCents: number; wageCents?:number;minutes?:number; deductionCents: number; payableCents: number; sessions: number }>;
   lines: Array<{ dailyWorkId?:number|null;unverifiedStores?:Array<{storeId:number;name:string;reason:string}>;platform?:string;id: number; sessionId: number; userId: number; userName: string; role: string; roleLabel: string; date: string; roomName: string; startTime: string; finalSalesCents: number; rateUnits: number; commissionCents: number; wageCents?:number;minutes?:number;hourlyRateCents?:number;source?:string;manualReason?:string; orderCount: number; ordersTotalCents: number; refundCents: number; deductionCents: number; payableCents: number }>;
   refunds: Array<{ shopId?:string;platform?:string;sessionId: number; orderId: string; orderAmountCents: number; refundCents: number; source: string; details: unknown; checkedAt: string }>;
@@ -147,10 +151,14 @@ export const liveApi = {
   rules: () => api<RuleList>('/live/rules'),
   createRule: (b: { effectiveFrom: string; note?: string; rules: RulesForm }) => post<{ id: number }>('/live/rules', b),
   trial: (b: { rules: RulesForm; sales: string; adSpend?: string }) => post<Trial>('/live/rules/trial', b),
-  settlements: () => api<{ canManage: boolean; defaultMonth: string; rows: SettlementHead[] }>('/live/settlements'),
+  settlements: () => api<{ canManage: boolean; defaultMonth: string; people?:Array<{id:number;name:string}>; rows: SettlementHead[] }>('/live/settlements'),
   settlement: (id: number) => api<SettlementDetail>(`/live/settlements/${id}`),
-  generateSettlement: (month: string, note?: string, range?:{from?:string;to?:string}) => post<{ id: number }>('/live/settlements', { month, note, ...range }),
-  submitSettlement: (id: number) => post<{ runId: number }>(`/live/settlements/${id}/submit`),
+  previewSettlement:(input:SettlementScope&{month?:string})=>post<{lines:Array<{kind:string;userId:number;sessionId:number|null;date:string;amountCents:number}>;excluded:NonNullable<SettlementDetail['excluded']>}>('/live/settlements/preview',input),
+  generateSettlement: (month: string, note?: string, range?:SettlementScope) => post<{ id: number }>('/live/settlements', { month, note, ...range }),
+  adjustSettlement:(id:number,input:{lineId:number;amountCents:number;reference:string;reason:string;kind:'wage'|'commission'})=>post<{id:number}>(`/live/settlements/${id}/adjustments`,input),
+  paySettlement:(id:number,input:{userId:number;amountCents:number;requestKey:string;reference:string;note?:string})=>post<{id:number}>(`/live/settlements/${id}/payments`,input),
+  voidSettlement:(id:number,reason:string)=>post<{id:number}>(`/live/settlements/${id}/void`,{reason}),
+  submitSettlement: (id: number,revision:number) => post<{ runId: number }>(`/live/settlements/${id}/submit`,{revision}),
 };
 
 export interface ManualBody { confirmUnlinkedStores?:boolean; storeLines?:LiveStoreLine[]; channels?:LiveChannelInput[];sessionId?:number;roomId:number;anchorId:number;controlId:number|null;operatorId:number|null;douyinAccountId:number;storeId:number;startAt:string;endAt:string;salesCents:number;adSpendCents:number;controlSalesCents?:number;operatorSalesCents?:number;reason:string;orderIds:string[]}
