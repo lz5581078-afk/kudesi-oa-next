@@ -11,6 +11,13 @@ import { deferredReportDigest } from './deferred-scope';
 import { LEGACY_SESSION_TABLES } from '../database/migrations/1777000000000-SessionLegacyRuntime';
 
 const known=new Set(`workforce_login_secrets staff_enrollment_invites after_sales_cases agent_releases ai_company_settings ai_models ai_providers audit_logs bundle_archive_jobs bundle_price_logs case_logs companies company_applications departments employee_compensation_records feishu_identities feishu_oauth_states finance_api_keys finance_cost_snapshots finance_doc_counters finance_document_accounts finance_document_events finance_document_lines finance_document_settlements finance_documents finance_entries finance_fee_snapshots finance_key_accounts finance_master_snapshots finance_product_data_verification_events flow_ccs flow_definitions flow_events flow_node_templates flow_reminder_logs flow_runs flow_steps flow_templates flow_timeout_events flow_timeout_incidents flow_timeout_penalties flow_timeout_policies form_drafts integration_settings jst_category_links jst_category_runs legacy_import_links legacy_source_rows live_daily_work live_checkin_qr_codes live_commission_records live_commission_rule_versions live_notification_settings live_notification_events live_notification_health live_room_settings live_trial_tickets live_schedules live_session_checkins live_session_order_snapshots live_session_orders live_session_products live_session_reports live_sessions live_turnover_snapshots live_settlement_lines live_settlement_refunds live_settlements live_wage_records migrations notifications order_appeals outbox_jobs outbox_switches phone_upload_sessions platform_admins platform_integration_apps position_duties position_permissions positions resource_category_options resource_change_logs resource_files resource_import_backups resource_links resource_records session_audit_logs session_bind_codes session_devices session_open_requests session_remote_devices session_remote_sessions session_remote_signals session_shops supervision_exceptions supervision_rules task_delay_requests task_routines user_permission_overrides users work_items`.split(' '));
+const scriptTables=['live_script_folders','live_script_versions'];
+async function guardScripts(em:EntityManager,lock:boolean){
+  for(const table of scriptTables){
+    const [occupied]=await em.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1${lock?' FOR UPDATE':''}`);
+    if(occupied)throw new MigrationError('话术中心已有资料，禁止整库重新迁入；需先单独保留话术及关联素材');
+  }
+}
 const technical=new Set(['companies','migrations','platform_admins','platform_integration_apps','agent_releases','integration_settings','ai_company_settings','ai_models','ai_providers','outbox_switches']);
 const qi=(n:string)=>{if(!/^[a-z_]+$/.test(n))throw new MigrationError('切换表名未核实');return '`'+n+'`';};
 const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
@@ -21,12 +28,13 @@ export interface CutoverOptions {apply:boolean;softwareFingerprint:string;backup
 
 export async function cutoverTables(ds:DataSource){
   const rows:Array<{name:string}>=await ds.query("SELECT TABLE_NAME name FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME");
-  const compatibleKnown=new Set([...known,...LEGACY_SESSION_TABLES]);
+  const compatibleKnown=new Set([...known,...LEGACY_SESSION_TABLES,...scriptTables]);
   if(rows.some(r=>!compatibleKnown.has(r.name))||rows.length!==compatibleKnown.size)throw new MigrationError('目标结构与切换清单不同，禁止清理未知表');
   // A newly migrated empty session schema must not disable the existing importer.
   // Once these two modules have data, refuse destructive full remigration rather
   // than silently deleting or orphaning their devices, mappings and credentials.
   for(const table of LEGACY_SESSION_TABLES){const [row]=await ds.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1`);if(row)throw new MigrationError('店铺登录兼容模块已有数据，禁止整库重新迁入；需先单独核对这两个模块');}
+  await guardScripts(ds.manager,false);
   return rows.map(r=>r.name);
 }
 /** Sequence DDL is deliberately outside the business transaction. It never
@@ -52,6 +60,7 @@ export async function runCutover(ds:DataSource,resources:ResourcesService,files:
     await q.startTransaction('REPEATABLE READ');q.data.cutoverPrepareOnly=!opts.apply;const em=q.manager;
     // Recheck under current locks before any deletion. Empty-table supremum
     // locks also prevent adoption/candidate inserts racing this full cutover.
+    await guardScripts(em,true);
     for(const table of LEGACY_SESSION_TABLES){const [row]=await em.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1 FOR UPDATE`);if(row)throw new MigrationError('店铺登录兼容模块已有数据，禁止整库重新迁入；需先单独核对这两个模块');}
     const companies=await em.find(Company),oldUsers=await em.find(User);
     const oldUserLinks:Array<{companyId:number;sourceCompanyId:number;sourceKey:string;targetId:number}>=await em.query("SELECT company_id companyId,source_company_id sourceCompanyId,source_key sourceKey,target_id targetId FROM legacy_import_links WHERE source_system='legacy-oa' AND target_type='user'");
