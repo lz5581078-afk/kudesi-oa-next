@@ -46,6 +46,8 @@ describe('工资提成明细的场次信息',()=>{
   expect(within(summary).getByText('5 小时 0 分')).toBeTruthy();
   expect(within(summary).getByText('2')).toBeTruthy();
   expect(within(summary).getByText('¥35.24')).toBeTruthy();
+  expect(within(summary).getByRole('columnheader',{name:'营业额'})).toBeTruthy();
+  expect(within(summary).getByText('¥2,101.00')).toBeTruthy();
  });
 });
 
@@ -54,6 +56,8 @@ it('只有日常工作工资时也显示工资行，不计入直播场次数且�
  vi.mocked(liveApi.wages).mockResolvedValue({month:'2026-11',scope:'all',totalCents:4500,summary:[],rows:[{dailyWorkId:9,id:-9,sessionId:0,userId:5,userName:'演示中控',role:'control',date:'2026-11-01',roomName:'直播办公室 · 日常工作',startAt:'2026-11-01 09:00',endAt:'2026-11-01 10:00',minutes:30,hourlyRateCents:9000,amountCents:4500,rateSource:'archive',note:'整理样品'}]});
  const open=vi.fn();render(<PayrollTab role="control" onOpen={open}/>);
  const table=await screen.findByRole('table',{name:'工资提成明细'});await within(table).findByText('直播办公室 · 日常工作');
+ const personSummary=within(screen.getByRole('table',{name:'工资汇总'})).getAllByRole('row')[1];
+ expect(within(personSummary).getAllByRole('cell')[3].textContent).toBe('¥0.00');
  const button=within(table).getByRole('button',{name:'日常工作'});expect((button as HTMLButtonElement).disabled).toBe(true);fireEvent.click(button);expect(open).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'导出明细'}));expect(vi.mocked(downloadText).mock.calls[0][1]).toContain('日常工作#9');
 });
