@@ -32,6 +32,14 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it('赠品入口保留对照站填写提示，编码简称输入转大写',()=>{
+ render(<RecordForm def={def} record={null} initial={{archiveType:'raw'}} onClose={vi.fn()} onSaved={vi.fn()}/>);
+ expect(screen.getByPlaceholderText('例如：购种合同、拌种剂10克')).toBeTruthy();
+ const code=screen.getByPlaceholderText('例如：HT、BZJ10G，仅字母和数字') as HTMLInputElement;
+ fireEvent.change(code,{target:{value:'bzj10g'}});
+ expect(code.value).toBe('BZJ10G');
+});
+
 const TYPES: Array<[string, Record<string, unknown>]> = [
   ['raw', { archiveType: 'raw' }], ['self_made', { archiveType: 'self_made' }], ['purchased_original', { archiveType: 'purchased', supplyMode: 'original_purchase' }], ['purchased_oem', { archiveType: 'purchased', supplyMode: 'supplier_oem' }],
   ['package', { archiveType: 'package' }], ['oem_package', { archiveType: 'oem_package' }], ['shipping_material', { archiveType: 'shipping_material' }], ['custom', { archiveType: 'zz_custom' }],
@@ -42,8 +50,8 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
     expect(productLayoutKey(initial)).toBe(key);
     render(<RecordForm def={def} record={null} initial={initial} onClose={() => undefined} onSaved={() => undefined} />);
     const sections = [...document.querySelectorAll('[data-sec]')].map(el => el.getAttribute('data-sec'));
-    const expected = PRODUCT_LAYOUTS[key as keyof typeof PRODUCT_LAYOUTS].sections.filter(s=>s.id!=='gift'&&!(key==='shipping_material'&&s.id==='extra')).filter(s => !(['package','oem_package'].includes(key) && s.id === 'category')).filter(s => !(key === 'custom' && ['cost','total','photos'].includes(s.id))).map(s => s.id);
-    // 真24七类表单无赠品字段分区；底层字段及历史保留。
+    const expected = PRODUCT_LAYOUTS[key as keyof typeof PRODUCT_LAYOUTS].sections.filter(s=>!(key==='shipping_material'&&s.id==='extra')).filter(s => !(['package','oem_package'].includes(key) && s.id === 'category')).filter(s => !(key === 'custom' && ['cost','total','photos'].includes(s.id))).map(s => s.id);
+    // 用户确认冲突以对照站为准，原料、外购成品和发货物料保留赠品入口。
     expect(sections).toEqual(expected);
     expect(document.querySelector('.rf-anchors')).toBeNull();
   });
@@ -101,11 +109,14 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
 });
 
 
-it.each(TYPES.filter(([key])=>key!=='custom'))('%s七族真实新增/编辑/复制不出现额外gift和shape字段，历史字段定义保留',(_key,initial)=>{
+it.each(TYPES.filter(([key])=>key!=='custom'))('%s新增/编辑/复制按对照站保留适用的赠品入口，不添加形态字段',(_key,initial)=>{
  for(const mode of ['create','edit','copy']){
   const data={...initial,categoryId:1,name:'合成历史档案',shape:'历史隐藏形态',giftShortName:'历史赠品简称',giftCodeShortName:'HISTGIFT'};
   const view=render(<RecordForm def={def} record={mode==='edit'?{...saved,data}:null} initial={mode==='edit'?undefined:{...data,...(mode==='copy'?{__copyOf:7}:{})}} onClose={vi.fn()} onSaved={vi.fn()}/>);
-  expect(document.querySelector('[data-sec=gift]')).toBeNull();expect(document.querySelector('[data-field=giftShortName]')).toBeNull();expect(document.querySelector('[data-field=giftCodeShortName]')).toBeNull();expect(document.querySelector('[data-field=shape]')).toBeNull();
+  const giftApplicable=['raw','purchased','shipping_material'].includes(String(initial.archiveType));
+  for(const selector of ['[data-sec=gift]','[data-field=giftShortName]','[data-field=giftCodeShortName]'])expect(Boolean(document.querySelector(selector))).toBe(giftApplicable);
+  if(giftApplicable){expect((screen.getByLabelText('赠品简称') as HTMLInputElement).value).toBe('历史赠品简称');expect((screen.getByLabelText('赠品编码简称') as HTMLInputElement).value).toBe('HISTGIFT');}
+  expect(document.querySelector('[data-field=shape]')).toBeNull();
   if(initial.archiveType==='shipping_material'){expect(document.querySelector('[data-sec=extra]')).toBeNull();expect(document.querySelector('[data-field=brandId]')).toBeNull();}
   if(initial.archiveType==='raw'){expect(screen.getByText('分类由原料档案主页面决定；如需调整，请在列表中使用“移动分类”。')).toBeTruthy();expect(screen.queryByText(/原料可对应的成品名/)).toBeNull();expect(screen.getByRole('button',{name:'增加来源'})).toBeTruthy();}
   expect(def.fields.find(field=>field.key==='giftShortName')).toBeTruthy();expect(def.fields.find(field=>field.key==='shape')).toBeTruthy();view.unmount();

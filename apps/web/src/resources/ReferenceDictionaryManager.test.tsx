@@ -32,7 +32,7 @@ it('档案品牌重名恢复停用原ID；删除沿原内层确认而不打开�
  const original={...row(1,'原品牌'),status:'inactive'};r.list.mockResolvedValue({items:[original],total:1,page:1,pageSize:200});
  r.changeStatus.mockImplementation(async()=>{const active={...original,status:'active'};r.list.mockResolvedValue({items:[active],total:1,page:1,pageSize:200});return active;});
  const confirm=vi.spyOn(window,'confirm');render(<ReferenceDictionaryManager presentation="product-brand" target="finance-brands" title="管理品牌" onClose={()=>{}}/>);
- await screen.findByText('暂无资料，请在上方新增。');fireEvent.change(screen.getByLabelText(/品牌名称/),{target:{value:'原品牌'}});fireEvent.click(screen.getByRole('button',{name:'新增品牌'}));
+ await screen.findByText('暂无品牌，请在上方新增。');fireEvent.change(screen.getByLabelText(/品牌名称/),{target:{value:'原品牌'}});fireEvent.click(screen.getByRole('button',{name:'新增品牌'}));
  await waitFor(()=>expect(r.changeStatus).toHaveBeenCalledWith('finance-brands',1,'active'));expect(r.create).not.toHaveBeenCalled();
  fireEvent.click(await screen.findByRole('button',{name:'删除品牌原品牌'}));expect(screen.getByRole('dialog',{name:'请确认操作'})).toBeTruthy();expect(r.remove).not.toHaveBeenCalled();expect(confirm).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'取消'}));expect(r.remove).not.toHaveBeenCalled();confirm.mockRestore();
@@ -66,4 +66,17 @@ it('原字典搜索支持名称拼音首字母，即使旧编码是人工修改�
  render(<ReferenceDictionaryManager presentation="base-code" target="finance-brands" title="品牌管理" onClose={()=>{}}/>);
  await screen.findByText('华泰');fireEvent.change(screen.getByRole('searchbox',{name:'搜索维护资料'}),{target:{value:' ht '}});
  expect(screen.getByText('华泰')).toBeTruthy();fireEvent.change(screen.getByRole('searchbox',{name:'搜索维护资料'}),{target:{value:'zzz'}});expect(screen.queryByText('华泰')).toBeNull();
+});
+
+it.each(['archive_unit','packaging_unit','shipping_unit'])('商品%s单位窗保留触发点焦点、真占位文字和独立呈现，不改变实际pool请求',async kind=>{
+ render(<><button autoFocus>原单位字段</button><ReferenceDictionaryManager presentation="product-unit" target="finance-product-units" kind={kind} title="维护商品单位" onClose={()=>{}}/></>);
+ await screen.findByRole('dialog',{name:'维护商品单位'});
+ const name=screen.getByPlaceholderText('例如：箱'),code=screen.getByPlaceholderText('例如：CTN');
+ expect(name.tagName).toBe('INPUT');expect(code.tagName).toBe('INPUT');expect(document.activeElement).toBe(screen.getByRole('button',{name:'原单位字段'}));
+ expect(name.closest('.product-archive-unit-backdrop')).toBeTruthy();expect(screen.getByRole('button',{name:'新增单位'})).toBeTruthy();expect(screen.queryByText('编码设置',{selector:'summary'})?.closest('details')?.open).toBe(true);
+ await waitFor(()=>expect(dictionary.context).toHaveBeenCalledWith('spec_unit',kind));expect(r.create).not.toHaveBeenCalled();expect(r.saveForm).not.toHaveBeenCalled();
+});
+it('商品品牌管理保持专属窗及原触发焦点、真实名称占位和新增按钮',async()=>{
+ render(<><button autoFocus>原品牌字段</button><ReferenceDictionaryManager presentation="product-brand" target="finance-brands" title="管理品牌" onClose={()=>{}}/></>);
+ await screen.findByRole('dialog',{name:'管理品牌'});expect(document.activeElement).toBe(screen.getByRole('button',{name:'原品牌字段'}));expect(screen.getByPlaceholderText('例如：华泰先行').closest('.product-archive-brand-backdrop')).toBeTruthy();expect(screen.getByRole('button',{name:'新增品牌'})).toBeTruthy();expect(screen.queryByLabelText('单位编码')).toBeNull();expect(r.create).not.toHaveBeenCalled();
 });

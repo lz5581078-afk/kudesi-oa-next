@@ -8,15 +8,15 @@
 .finance-bundle-reference #bundle-verification-workspace .data-table{min-width:1320px;font-size:14px;border-collapse:collapse}
 .finance-bundle-reference #bundle-verification-workspace .data-table th,.finance-bundle-reference #bundle-verification-workspace .data-table td{padding:11px 10px;vertical-align:middle;font-size:14px;line-height:normal;white-space:nowrap;border-bottom:1px solid #e5eaf1}
 .finance-bundle-reference #bundle-verification-workspace .data-table th{background:#f8fafc;color:#64748b;text-align:left}
-.finance-bundle-reference #bundle-verification-workspace .data-table th>button{display:inline-flex;flex-direction:row;align-items:center;gap:6px;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:700;text-align:left;text-decoration:none}
-.finance-bundle-reference #bundle-verification-workspace .data-table th>button:after{content:'↕';margin-left:5px;color:#a7b2bf;font-size:12px}
+.finance-bundle-reference #bundle-verification-workspace .data-table th>button{display:inline-flex;flex-direction:row;align-items:center;gap:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:700;text-align:left;text-decoration:none}
+.finance-bundle-reference #bundle-verification-workspace .data-table th>button:after{content:'↕';margin-left:6px;color:#a7b2bf;font-size:12px;line-height:12px}
 .finance-bundle-reference #bundle-verification-workspace .data-table th[aria-sort=ascending]>button:after{content:'↑';color:#087443}
 .finance-bundle-reference #bundle-verification-workspace .data-table th[aria-sort=descending]>button:after{content:'↓';color:#087443}
 .finance-bundle-reference #bundle-verification-workspace .data-table td>small{display:block;max-width:260px;margin-top:4px;color:#788694;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .finance-bundle-reference #bundle-verification-workspace .data-table td[data-label="商品名称 / 简称"]{white-space:nowrap;min-width:0}
 .finance-bundle-reference #bundle-verification-workspace .data-table td[data-label="商品名称 / 简称"]>button{margin:0;padding:0;border:0;background:none;font:inherit;color:inherit;text-align:left;text-decoration:none}
 .finance-bundle-reference #bundle-verification-workspace .data-table td[data-label="成本价 / 销售价"]{font-weight:400;color:inherit}
-.finance-bundle-reference #bundle-verification-workspace .data-table td[data-label="组成"]>button{display:inline-flex;flex-direction:row;align-items:center;gap:5px;margin:0;padding:0;border:0;background:none;color:#087443;text-decoration:none;font:inherit;font-weight:700}
+.finance-bundle-reference #bundle-verification-workspace .data-table td[data-label="组成"]>button{display:inline-flex;flex-direction:row;align-items:center;gap:5px;margin:0;padding:4px 0;border:0;background:none;color:#0e8062;text-decoration:none;font:inherit;font-weight:400}
 .finance-bundle-reference #bundle-verification-workspace .data-table td:first-child[data-label="组合编码"]>strong{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:#087443}
 .finance-bundle-reference .bundle-list-actions-cell{white-space:normal}
 .finance-bundle-reference .bundle-list-row-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-width:220px}

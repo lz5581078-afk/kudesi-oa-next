@@ -111,7 +111,7 @@ export function FinanceProductDetail({ record, onChanged }: { record: ResourceDt
     return <div key={`${node.block}-${i}`} className="wide">{block(node)}</div>;
   })}</div>;
   const viewOrder = !['package', 'oem_package'].includes(key) ? ['category', 'gift', 'base', 'code'] : [];
-  const ordered = sections.filter(sec => !(!canCost&&['total','cost'].includes(sec.id)) && !(key!=='custom'&&sec.id==='gift') && !(record.warehouseMode && ['sources','production','logistics','total','cost','result','pricing'].includes(sec.id)) && !(record && ['package','oem_package'].includes(key) && sec.id === 'category') && !(key === 'custom' && ['cost','total','photos'].includes(sec.id))).sort((a,b) => { const rank = (id: string) => { const index = viewOrder.indexOf(id); return index < 0 ? viewOrder.length : index; }; return rank(a.id) - rank(b.id); });
+  const ordered = sections.filter(sec => !(!canCost&&['total','cost'].includes(sec.id)) && !(record.warehouseMode && ['sources','production','logistics','total','cost','result','pricing'].includes(sec.id)) && !(record && ['package','oem_package'].includes(key) && sec.id === 'category') && !(key === 'custom' && ['cost','total','photos'].includes(sec.id))).sort((a,b) => { const rank = (id: string) => { const index = viewOrder.indexOf(id); return index < 0 ? viewOrder.length : index; }; return rank(a.id) - rank(b.id); });
   return <div className={`product-archive-view is-${key}`}>{ordered.map(sec => {
     let nodes = sec.nodes.filter(n => !(key!=='custom'&&n.kind==='field'&&['shape','weightManual'].includes(n.field.key))).filter(n => !(key === 'custom' && (n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName')));
     if(['package','oem_package'].includes(key)){
