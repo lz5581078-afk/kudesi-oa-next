@@ -1,3 +1,4 @@
+import {readCostBucketOrigins} from './product-cost-references';
 import { BadRequestException, Body, ConflictException, Controller, Get, NotFoundException, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
@@ -103,8 +104,8 @@ export class CostVersionController {
       state.costVersionRecalculating=true;
       try {
       for(const write of preview.writes) {
-        if(write.id)await this.resources.updateRecord(em,user,'finance-cost-skus',write.id,write.data,'按已确认预检结果更新成本快照');
-        else await this.resources.createRecord(em,user,'finance-cost-skus',write.data,'按已确认预检结果登记SKU成本快照');
+        const saved=write.id?await this.resources.updateRecord(em,user,'finance-cost-skus',write.id,write.data,'按已确认预检结果更新成本快照'):await this.resources.createRecord(em,user,'finance-cost-skus',write.data,'按已确认预检结果登记SKU成本快照');
+        await this.resources.patchData(em,user,'finance-cost-skus',saved.id,{costSourceProvenance:write.data.costSourceProvenance},'保存同次重算的实际成本来源');
       }
       } finally { delete state.costVersionRecalculating; }
       return {updated:preview.writes.filter(w=>w.id).length,created:preview.writes.filter(w=>!w.id).length};
@@ -144,7 +145,7 @@ export class CostVersionController {
         }
         const created = await this.resources.createRecord(em,user,type,values,`复制成本版本明细 #${old.id}`);
         ids.set(old.id,created.id);
-        if(type==='finance-cost-skus')await this.resources.patchData(em,user,type,created.id,{weightManual:old.data.weightManual===true},'复制单品重量设置');
+        if(type==='finance-cost-skus')await this.resources.patchData(em,user,type,created.id,{weightManual:old.data.weightManual===true,costSourceProvenance:{version:1,buckets:readCostBucketOrigins(old.data.costSourceProvenance)??{}}},'复制单品重量及实际来源设置');
         if (old.status === 'inactive') await this.resources.changeStatusRecord(em,user,type,created.id,'inactive','保留原版本停用状态');
       }
       return {id:version.id};

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FieldDef, ResourceDef } from '@kudesi/shared';
 
 /** 复制到剪贴板：先用浏览器接口，不可用（非 https、权限被拒）时退回选中复制。成功返回 true。 */
@@ -28,16 +28,17 @@ export async function copyText(text: string): Promise<boolean> {
 }
 
 /** 值后面的“复制”小按钮：点了变成“已复制”，1.5 秒后恢复；失败时提示手动复制。不触发所在行/卡片的点击。 */
-export function CopyButton({ value, label, className }: { value: string; label: string; className?: string }) {
+export function CopyButton({ value, label, className, text = '复制', icon, showEmpty = false }: { value: string; label: string; className?: string; text?: string; icon?: ReactNode; showEmpty?: boolean }) {
   const [state, setState] = useState<'idle' | 'ok' | 'fail'>('idle');
   const timer = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => () => clearTimeout(timer.current), []);
-  if (!value) return null;
+  if (!value && !showEmpty) return null;
   return (
     <button
       type="button"
       className={`link-button copy-btn${className ? ` ${className}` : ''}`}
       aria-label={`复制${label}`}
+      disabled={!value}
       onKeyDown={(e) => e.stopPropagation()}
       title={state === 'fail' ? '浏览器不允许复制，请手动选中后复制' : `复制${label}`}
       onClick={(e) => {
@@ -49,7 +50,7 @@ export function CopyButton({ value, label, className }: { value: string; label: 
         });
       }}
     >
-      {state === 'ok' ? '已复制' : state === 'fail' ? '复制失败' : '复制'}
+      {icon}{state === 'ok' ? '已复制' : state === 'fail' ? '复制失败' : text}
     </button>
   );
 }

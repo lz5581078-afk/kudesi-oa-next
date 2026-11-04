@@ -9,6 +9,7 @@ import { ResourcesService } from './resources.service';
 import { CostService } from './cost.service';
 import { CostVersionController } from './cost-version.controller';
 import { PricingDebugService } from './pricing-debug.service';
+import { ExpressService } from './express.service';
 import { DataToolsService } from './data-tools.service';
 
 const d=process.env.RESOURCE_DB_TEST==='1'?describe:describe.skip;
@@ -39,6 +40,8 @@ d('成本版本完整生命周期（隔离 MySQL）',()=>{
     bundleTitle=(await svc.get(boss,'finance-bundles',bundleId)).title;
     await svc.create(boss,'finance-margins',{profitPercent:25,reason:'测试默认利润率'});
     await svc.create(boss,'finance-freight-overrides',{weightFrom:0.5,weightTo:1,amount:200,reason:'测试统一快递费'});
+    // 报价与手工值须经明确重算保存为预估快照，成本读取不隐式创建快照。
+    await new ExpressService(ds,svc).recalculate(boss);
   });
   afterAll(async()=>{await ds?.destroy();});
 

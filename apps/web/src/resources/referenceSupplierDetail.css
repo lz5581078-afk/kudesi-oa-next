@@ -1,0 +1,49 @@
+/* 真24号 contact-archive-reference：仅供应商查看态，避免宿主详情通用规则覆盖。 */
+.rd.resource-detail.finance-detail-dialog.finance-detail-finance-suppliers{width:min(760px,calc(100vw - 24px));height:auto;max-height:calc(100dvh - 24px);line-height:normal}
+.rd.resource-detail.finance-detail-finance-suppliers .finance-detail-head{padding:15px 22px 13px;height:74px;min-height:74px;gap:20px}
+.rd.resource-detail.finance-detail-finance-suppliers .finance-detail-kicker{font-size:11px;font-weight:900;line-height:normal;margin:0;gap:8px}
+.rd.resource-detail.finance-detail-finance-suppliers .finance-detail-head .rd-title{font-size:21px;line-height:normal;margin:4px 0 0}
+.rd.resource-detail.finance-detail-finance-suppliers .finance-detail-head p{margin:4px 0 0;font-size:12px;line-height:normal}
+.rd.resource-detail.finance-detail-finance-suppliers .finance-detail-head .icon-button{width:36px;height:36px;padding:0;color:#56687d;border:0;border-radius:8px;box-shadow:none;outline:none}
+.rd.resource-detail.finance-detail-finance-suppliers .rd-body.finance-detail-body{display:grid;grid-auto-rows:max-content;align-content:start;flex:1;gap:10px;min-height:0;padding:12px 22px;background:#fff}
+.finance-detail-finance-suppliers .finance-supplier-category{grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;padding:10px 12px;border:1px solid #cce7d7;border-radius:9px;background:#f2fbf6}
+.finance-detail-finance-suppliers .finance-supplier-category>div{gap:7px;color:#2b7755;font-size:11px;font-weight:900}
+.finance-detail-finance-suppliers .finance-supplier-category strong{align-self:center;font-size:12px;color:#1d5b40}
+.finance-detail-finance-suppliers .finance-supplier-category small{grid-column:1/-1;font-size:10px;color:#728277}
+.finance-detail-finance-suppliers .finance-view-section{display:grid;gap:10px;padding:12px;border:1px solid #dce5ed;border-radius:10px;background:#fff}
+.finance-detail-finance-suppliers .finance-view-heading{gap:12px;padding-bottom:8px;margin:0;border-bottom:1px solid #edf1f5}
+.finance-detail-finance-suppliers .finance-view-heading h3{display:flex;align-items:center;font-size:13px;font-weight:900;color:#23364c;line-height:normal}
+.finance-detail-finance-suppliers .finance-view-step{width:22px;height:22px;margin-right:7px;flex:none;font-size:11px;font-weight:900;background:#16855a}
+.finance-detail-finance-suppliers .finance-view-heading>small{font-size:10px;color:#7a899a;line-height:normal}
+.finance-detail-finance-suppliers .finance-supplier-fields{gap:10px 12px;align-items:end}
+.finance-detail-finance-suppliers .finance-supplier-fields label{display:grid;gap:6px;min-width:0;font-size:16px;line-height:normal}
+.finance-detail-finance-suppliers .finance-supplier-fields label>span{font-size:11px;font-weight:850;color:#40536b}
+.finance-detail-finance-suppliers .finance-supplier-fields label>span em{margin-left:4px;color:#dc3e3e;font-size:10px;font-style:normal}
+.finance-detail-finance-suppliers .finance-supplier-fields input,.finance-detail-finance-suppliers .finance-supplier-fields textarea{height:38px;padding:0 10px;font-size:16px;line-height:normal;font-weight:400;border:1px solid #ccd8e5;border-radius:8px;background:#f2f5f8;color:#5f7085;-webkit-text-fill-color:#5f7085;opacity:1}
+.finance-detail-finance-suppliers .finance-supplier-fields textarea{height:92px;min-height:92px;margin-bottom:12px;padding:10px}
+.finance-detail-finance-suppliers .finance-supplier-code{display:grid;gap:8px;margin:0;padding:11px 12px;border:1px solid #dce5ec;border-radius:9px;background:#f8fafc}
+.finance-detail-finance-suppliers .finance-supplier-code .finance-view-heading{border:0;padding:0}
+.finance-detail-finance-suppliers .finance-supplier-code h3{color:#17613f;font-size:13px}
+.finance-detail-finance-suppliers .finance-supplier-code .finance-supplier-fields label{display:block}
+.finance-detail-finance-suppliers .finance-supplier-code .finance-supplier-fields{grid-template-columns:minmax(0,1fr)}
+.finance-detail-finance-suppliers .finance-supplier-code label>span{display:none}
+.finance-detail-finance-suppliers .finance-supplier-code input{height:40px;padding:0 11px;color:#315c46;-webkit-text-fill-color:#315c46;background:#e7f6ed}
+.finance-detail-finance-suppliers .finance-supplier-copy{display:grid;grid-template-columns:minmax(0,1fr) auto;min-height:40px;align-items:center;gap:0}
+.finance-detail-finance-suppliers .finance-supplier-copy input{border:0;border-radius:0;background:#f8fafc}
+.finance-detail-finance-suppliers .finance-supplier-copy button{display:inline-flex;align-items:center;gap:6px;align-self:stretch;padding:0 10px;border:0;border-left:1px solid #d7e1eb;background:#eef9f3;color:#176b49;font-size:11px;font-weight:850;text-decoration:none}
+.finance-detail-finance-suppliers .finance-supplier-copy button:disabled{color:#9aa7b5;background:#f3f5f7;cursor:not-allowed}
+.finance-detail-finance-suppliers .finance-supplier-copy-all{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid #d4dbe1;border-radius:8px;background:#fff;color:#344054;font-size:16px;font-weight:400;text-decoration:none}
+.finance-detail-finance-suppliers .finance-supplier-fields>.finance-supplier-payment{display:grid;gap:9px;padding:11px;border:1px solid #dbe5ed;border-radius:9px;background:#f8fafc}
+.finance-detail-finance-suppliers .finance-supplier-payment>div:first-child{display:grid;gap:3px}
+.finance-detail-finance-suppliers .finance-supplier-payment>div:first-child>span{font-size:11px;font-weight:850;color:#40536b}
+.finance-detail-finance-suppliers .finance-supplier-payment small{font-size:10px;color:#7a899a}
+.finance-detail-finance-suppliers .finance-payment-empty{display:grid;min-height:94px;place-content:center;justify-items:center;gap:6px;border:1px dashed #cfdbe6;border-radius:8px;background:#fff;color:#7c8da0;font-size:11px}
+.finance-detail-finance-suppliers .finance-supplier-payment .file-thumb:has(img){display:flex;width:max-content;max-width:100%;height:auto;padding:0;border:0;background:none}
+.finance-detail-finance-suppliers .finance-supplier-payment .file-name{display:none}
+.finance-detail-finance-suppliers .finance-supplier-payment .file-grid{margin:0}
+.finance-detail-finance-suppliers .finance-supplier-payment .file-open{width:132px;height:132px;padding:0;border:0;background:none}
+.finance-detail-finance-suppliers .finance-supplier-payment .file-open img{width:132px;height:132px;padding:5px;object-fit:contain;border:1px solid #d7e2ec;border-radius:8px;background:#fff}
+.rd.resource-detail.finance-detail-finance-suppliers .finance-detail-foot{justify-content:flex-end;padding:12px 22px;gap:10px;background:#f8fafc;border-top:1px solid #e2e8f0}
+.finance-detail-finance-suppliers .finance-detail-foot .primary-button{background:#07864f;border-color:#07864f;font-weight:700}
+@media(max-width:1100px){.finance-detail-finance-suppliers .finance-supplier-fields .wide{grid-column:auto}}
+@media(max-width:620px){.rd.resource-detail.finance-detail-dialog.finance-detail-finance-suppliers{width:calc(100vw - 12px);max-height:calc(100dvh - 12px);border-radius:14px}.rd.resource-detail.finance-detail-finance-suppliers .finance-detail-head,.rd.resource-detail.finance-detail-finance-suppliers .rd-body.finance-detail-body,.rd.resource-detail.finance-detail-finance-suppliers .finance-detail-foot{padding-left:14px;padding-right:14px}.finance-detail-finance-suppliers .finance-supplier-fields{grid-template-columns:1fr}.finance-detail-finance-suppliers .finance-supplier-category{grid-template-columns:1fr}.finance-detail-finance-suppliers .finance-supplier-category small{grid-column:auto}}

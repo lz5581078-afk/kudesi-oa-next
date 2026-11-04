@@ -1,3 +1,7 @@
+import {financeDictionaryContext,financeDictionaryPreview,type DictionaryUnitKind} from './finance-dictionary-context';
+import type {FinanceDictionaryKind} from './finance-dictionary-codes';
+import {independentDefinitionFacts} from './base-definition-facts';
+import { codeLifecycleCounts, codeVerificationState } from './finance-code-lifecycle';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -27,6 +31,11 @@ export class BaseCodeToolsService {
     private readonly outbox: OutboxService,
   ) {}
 
+  async definitionPreview(user:AuthUser,input:Record<string,unknown>){return independentDefinitionFacts(this.ds.manager,user.companyId,input);}
+
+  async dictionaryContext(user:AuthUser,kind:FinanceDictionaryKind,unitKind?:DictionaryUnitKind){return this.ds.transaction(em=>financeDictionaryContext(em,user,kind,unitKind));}
+  async dictionaryPreview(user:AuthUser,input:{kind:FinanceDictionaryKind;name:string;id?:number;parentId?:number;unitKind?:DictionaryUnitKind}){return this.ds.transaction(em=>financeDictionaryPreview(em,user,input));}
+
   private canCost(user: AuthUser) { return createChecker(user.permissions)('product.cost.view'); }
 
   private async load(em: EntityManager, user: AuthUser, id: number) {
@@ -37,19 +46,23 @@ export class BaseCodeToolsService {
 
   /** 三个状态页签的数量，以及每个分类下各状态的数量（页面左侧分类目录用） */
   async overview(user: AuthUser) {
-    const rows = await this.ds.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE }, select: ['id', 'status', 'data'] });
+    const rows = await this.ds.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE }, select: ['id', 'type', 'status', 'data'] });
     const status: Record<string, number> = {};
     const byCategory: Record<string, Record<string, number>> = {};
+    const byCodeCategory: Record<string, Record<string, number>> = {};
     // 有马甲的真实编码，验证通过后列表里隐藏，计数也不算（旧系统 display_hidden）
     const realWithAlias = new Set(rows.map((r) => num(r.data.canonicalId)).filter((x): x is number => x !== null));
     for (const r of rows) {
       if (r.status === 'verified' && realWithAlias.has(r.id)) continue;
       status[r.status] = (status[r.status] ?? 0) + 1;
+      const codeCategory = String(r.data.codeDictionaryCategoryId ?? 0);
+      byCodeCategory[codeCategory] ??= {};
+      byCodeCategory[codeCategory][r.status] = (byCodeCategory[codeCategory][r.status] ?? 0) + 1;
       const c = String(r.data.categoryId ?? 0);
       byCategory[c] ??= {};
       byCategory[c][r.status] = (byCategory[c][r.status] ?? 0) + 1;
     }
-    return { status, byCategory };
+    return { status, byCategory, byCodeCategory, ...codeLifecycleCounts(rows,realWithAlias) };
   }
 
   /** 核对报告：资料问题（按档案和引用路径分组）、二次验证的前后差异、将要上传的内容 */
@@ -72,8 +85,8 @@ export class BaseCodeToolsService {
       signature,
       issues: groupIssues(issues),
       issueCount: issues.length,
-      secondVerification: bc.status === 'reverify',
-      baselineMissing: bc.status === 'reverify' && !stored,
+      secondVerification: codeVerificationState(bc) === 'reverify',
+      baselineMissing: codeVerificationState(bc) === 'reverify' && !stored,
       changes: cost ? changes : stripCostChanges(changes),
       outbound: { labels: OUTBOUND_LABELS, values: cost ? out : stripOutboundCost(out) },
       uploadSignature: sigOf(JSON.stringify(out)),

@@ -108,3 +108,16 @@ describe('岗位工作台直达导航', () => {
     expect(withDeskNavigation(sections, [{ ...positions[0], departmentPath: '' }]).find((s) => s.id === 'workbench')!.pages.at(-1)!.group).toBe('未分配部门');
   });
 });
+
+it('财务单据中心按原入口仅列经营历程与草稿，历史收支关联路由和权限仍保留',()=>{
+ const finance=visibleSections(()=>true).find(section=>section.id==='finance')!;
+ expect(finance.pages.filter(page=>page.group==='单据中心').map(page=>page.id)).toEqual(['history','drafts']);
+ const history=NAV_SECTIONS.find(section=>section.id==='finance')!.pages.find(page=>page.id==='finance-ledger-history')!;
+ expect(history).toMatchObject({path:'/finance/finance-ledger-history',permission:'resource.finance-ledger-history.view',ready:true,menuHidden:true});
+ expect(searchNav(visibleSections(()=>true),'历史收支记录')).toEqual([]);
+});
+it('财务菜单按24号全部原入口顺序，扩展查询保留路由而不额外添加主菜单',()=>{
+ const finance=visibleSections(()=>true).find(section=>section.id==='finance')!;
+ expect(finance.pages.filter(page=>page.id!=='doc-withdrawal').map(page=>page.label)).toEqual(['财务经营','商品档案','供应商档案','客户档案','费用档案','经营历程','草稿中心','普通销售单','网店销售单','销售退货单','预收款单','收款单','付款单','转款单','预付款单','采购入库单','采购退货单','其他收入单','费用单','成本表','定价调试表','人力成本表','快递价格表','库存查询','现金银行查询','商品基础编码','商品组合编码','商品数据导入','资料维护']);
+ for(const id of ['unsettled-receipts','settlement-detail'])expect(NAV_SECTIONS.find(section=>section.id==='finance')!.pages.find(page=>page.id===id)).toMatchObject({path:`/finance/${id}`,ready:true,menuHidden:true});
+});

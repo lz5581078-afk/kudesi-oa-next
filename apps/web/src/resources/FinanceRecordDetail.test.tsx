@@ -44,7 +44,7 @@ describe('六类查看入口与源码查看态', () => {
     expect(screen.getByRole('region', { name: section })).toBeTruthy();
     expect(screen.queryByLabelText('隐藏空字段')).toBeNull();
     expect(screen.queryByText('编辑本区')).toBeNull();
-    expect([...document.querySelectorAll<HTMLInputElement>('input')].every(el => el.readOnly || el.disabled)).toBe(true);
+    expect([...document.querySelectorAll<HTMLInputElement>('input:not([type="file"])')].every(el => el.readOnly || el.disabled)).toBe(true);
     expect(resourceApi.update).not.toHaveBeenCalled();
     expect(resourceApi.create).not.toHaveBeenCalled();
   });
@@ -63,11 +63,30 @@ describe('六类查看入口与源码查看态', () => {
 
   it('只读供应商仍可复制银行信息，无编辑入口和写请求', async () => {
     auth.user.permissions = { isCompanyAdmin: false, allow: ['resource.finance-suppliers.view'], deny: [] };
-    show(dto('finance-suppliers', 1, { name: '演示供应商', bankAccountName: '演示公司', bank: '演示银行', bankAccountNo: 'DEMO-ACCOUNT' }));
+    show(dto('finance-suppliers', 1, { name: '演示供应商', bankAccountName: '演示公司', bank: '演示银行', bankAccountNo: 'DEMO-ACCOUNT' }),{initialEditing:true});
     await screen.findByRole('heading', { name: '查看供应商' });
     fireEvent.click(screen.getByRole('button', { name: '复制全部银行信息' }));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('供应商名称：演示供应商\n账户名称：演示公司\n开户行：演示银行\n银行账号：DEMO-ACCOUNT');
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
+    expect(resourceApi.update).not.toHaveBeenCalled();
+  });
+
+  it('供应商空银行项保留禁用复制按钮，编号复制留在补充资料，不改变真实空值', async () => {
+    show(dto('finance-suppliers', 1, { name: '演示供应商', code:'GYS-HC' }));
+    await screen.findByRole('heading', { name: '查看供应商' });
+    for(const label of ['账户名称','开户行','收款账号'])expect((screen.getByRole('button',{name:`复制${label}`}) as HTMLButtonElement).disabled).toBe(true);
+    const extra=screen.getByRole('button',{name:'复制供应商编号'}).closest('details');
+    expect(extra?.querySelector('summary')?.textContent).toBe('补充资料');
+    expect(extra?.open).toBe(false);
+    expect(resourceApi.update).not.toHaveBeenCalled();
+  });
+
+  it('供应商从列表直接编辑也只出现一层，取消后回到原查看窗口',async()=>{
+    show(dto('finance-suppliers',1,{name:'演示供应商'}),{initialEditing:true});
+    await screen.findByRole('dialog',{name:'编辑资料'});
+    expect(screen.queryByRole('dialog',{name:'供应商档案详情'})).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'取消编辑'}));
+    await screen.findByRole('heading',{name:'查看供应商'});
     expect(resourceApi.update).not.toHaveBeenCalled();
   });
 
@@ -76,7 +95,7 @@ describe('六类查看入口与源码查看态', () => {
     vi.mocked(resourceApi.list).mockImplementation(async type => ({ items: type === 'finance-product-sources' ? [source(1, 'active', '2026-10-01'), source(2, 'inactive', '2026-10-31'), source(3, 'active', '2026-10-20')] : [], total: type === 'finance-product-sources' ? 3 : 0, page: 1, pageSize: 200 }));
     show(dto('finance-products', 9, { archiveType: 'raw', name: '原料甲' }));
     const badge = await screen.findByText('当前最新成本');
-    expect(badge.closest('section')?.textContent).toContain('产区3');
+    expect((within(badge.closest('article')!).getByLabelText('产区') as HTMLInputElement).value).toBe('产区3');
     expect(screen.getAllByText('当前最新成本')).toHaveLength(1);
     expect(resourceApi.list).toHaveBeenCalledWith('finance-product-sources', expect.objectContaining({ showHidden: true }));
   });
@@ -94,11 +113,18 @@ describe('编码查看组成与权限', () => {
     vi.mocked(resourceApi.list).mockImplementation(async (_type, p) => ({ items: p?.page === 1 ? [first] : [second], total: 2, page: p?.page ?? 1, pageSize: 200 }));
     await screen.findByText('共 2 项');
     expect(screen.getByText('已失效档案')).toBeTruthy();
-    expect(screen.getByText('¥3.003085')).toBeTruthy();
+    expect(screen.getByText('¥3.0031')).toBeTruthy();expect(screen.getByText('成本 未维护')).toBeTruthy();
     expect(resourceApi.list).toHaveBeenCalledWith('finance-base-code-lines', expect.objectContaining({ fieldValue: 10, page: 2 }));
     await screen.findByText('当前没有组合 BOM 或聚水潭普通商品镜像引用。');
   });
 
+  it('基础只读来源八位元进入行乘积后按活GET元4终点，footer只用已存canonical价而非行和',async()=>{
+    const base=dto('finance-base-codes',1,{code:'STORED',origin:'composed',cost:0.01,purchasePrice:101.2345}),product=dto('finance-products',20,{name:'微小组成',totalCost:0.000101,purchasePrice:0.000101,weightG:1});show(base);vi.mocked(resourceApi.get).mockImplementation(async(_type,id)=>id===1?base:product);vi.mocked(resourceApi.list).mockResolvedValue({items:[dto('finance-base-code-lines',30,{productId:20,qty:49}),dto('finance-base-code-lines',31,{productId:20,qty:49})],total:2,page:1,pageSize:200});await screen.findByText('共 2 项');expect(screen.getAllByText('¥0.000').length).toBeGreaterThan(1);expect(screen.getByText('成本 ¥0.0001')).toBeTruthy();expect(screen.getByText('采购 ¥1.012')).toBeTruthy();
+  });
+  it('已返回金额只读保留八位兼容值，不宣称原数据库保存八位；明确unknown及成本ACL不以live来源补价',async()=>{
+    const base=dto('finance-base-codes',1,{code:'HISTORIC',productId:20,cost:12.345678,purchasePrice:null}),product=dto('finance-products',20,{name:'合法八位档案',totalCost:99.123456,purchasePrice:50,weightG:1});show(base);vi.mocked(resourceApi.get).mockImplementation(async(_type,id)=>id===1?base:product);vi.mocked(resourceApi.list).mockResolvedValue({items:[],total:0,page:1,pageSize:200});await screen.findByText('成本 ¥0.12345678');expect(screen.getByText('采购 未维护')).toBeTruthy();cleanup();
+    auth.user.permissions={isCompanyAdmin:false,allow:['resource.finance-base-codes.view','resource.finance-products.view'],deny:['product.cost.view']};show(base);await screen.findByText('共 1 项');expect(screen.queryByRole('columnheader',{name:'成本小计'})).toBeNull();expect(screen.queryByText(/0.12345678/)).toBeNull();expect(screen.queryByText(/成本 ¥/)).toBeNull();
+  });
   it('组合按主品、包装、赠品、其他和人工分组，赠品售价为零且金额不丢精度', async () => {
     const bundle = dto('finance-bundles', 1, { name: '演示组合', styleCode: 'STYLE+ZP-GIFT*1' });
     const base = dto('finance-base-codes', 20, { name: '基础商品甲', code: 'BASE', cost: 120.1234, salePrice: 345.6789, weightG: 500 });
@@ -169,8 +195,8 @@ describe('查看与编辑切换', () => {
   it('列表直达成本明细表格，保留新增入口且不回到详情', async () => {
     show(dto('finance-products', 1, { name: '商品甲', archiveType: 'raw' }), { initialTab: 'child:finance-product-costs|productId' });
     await screen.findByRole('heading', { name: '成本明细' });
-    expect(screen.getByRole('table', { name: '成本明细' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '＋ 新增成本' })).toBeTruthy();
+    expect(screen.getByText('尚未维护成本记录，可以手动新增或使用Excel批量导入。')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '新增成本' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: '供货来源' })).toBeNull();
   });
 });

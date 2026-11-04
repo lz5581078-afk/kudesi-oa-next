@@ -1,0 +1,43 @@
+/* 24号费用新增窗：仍使用统一RecordForm和资源规则。 */
+form.modal.rf.rf-reference.reference-expense-create{display:block;width:min(940px,calc(100vw - 48px));height:auto;max-height:calc(100dvh - 44px);overflow:auto;padding:18px;border:0;border-radius:8px;color:#172033;background:#fff;font:16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+form.modal.rf.rf-reference.reference-expense-create .rf-head{display:flex;align-items:flex-start;gap:16px;min-height:0!important;height:auto!important;margin:0;padding:0 0 14px!important;border:0;border-bottom:1px solid #e5edf7}
+form.modal.rf.rf-reference.reference-expense-create .reference-title{display:block}
+form.modal.rf.rf-reference.reference-expense-create .reference-title h2{margin:0;font-size:24px;line-height:normal}
+form.modal.rf.rf-reference.reference-expense-create .reference-title p{display:block;margin:0;color:#172033;font-size:16px;line-height:normal}
+form.modal.rf.rf-reference.reference-expense-create .rf-head>.icon-button{flex:none;width:auto;min-width:58px;height:38px;padding:0 12px;border:1px solid #cbd5e1;border-radius:8px;color:#334155;background:#fff;font-size:16px;font-weight:400}
+form.modal.rf.rf-reference.reference-expense-create .rf-main{display:block;overflow:visible}
+form.modal.rf.rf-reference.reference-expense-create .rf-scroll{display:grid;height:auto;max-height:none;overflow:visible;gap:10px;padding:0!important;background:#fff!important}
+form.modal.rf.rf-reference.reference-expense-create .reference-party-fields{display:grid;gap:9px;margin:0;padding:11px 12px!important;border:1px solid #dce9e2!important;border-radius:8px!important;background:#f8fbf9!important}
+form.modal.rf.rf-reference.reference-expense-create .reference-party-fields .rf-sec-title{display:flex;flex-direction:row;align-items:baseline;justify-content:space-between;gap:10px;margin:0!important;padding:0!important;border:0!important;color:#0f172a;font-size:14px!important;line-height:normal}
+form.modal.rf.rf-reference.reference-expense-create .rf-sec-title>small{margin-left:auto;color:#64748b;font-size:12px;font-weight:400;line-height:normal}
+form.modal.rf.rf-reference.reference-expense-create .reference-party-fields .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:0}
+form.modal.rf.rf-reference.reference-expense-create [aria-label="费用设置"] .form-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+form.modal.rf.rf-reference.reference-expense-create .reference-party-fields .form-grid>.rf-field,
+form.modal.rf.rf-reference.reference-expense-create .reference-party-fields .form-grid>label{display:grid;grid-column:auto;gap:6px;min-width:0;padding:0;border:0;border-radius:0;background:none}
+form.modal.rf.rf-reference.reference-expense-create .form-grid .rf-field>.rf-label{display:flex;flex-direction:row;align-items:baseline;justify-content:flex-start;flex-wrap:nowrap;gap:4px;min-height:0;margin:0;color:#64748b;font-size:13px;font-weight:700;line-height:normal}
+form.modal.rf.rf-reference.reference-expense-create .rf-label>.req{color:#dc3e3e;font-size:12px;font-weight:400}
+form.modal.rf.rf-reference.reference-expense-create .reference-party-fields .form-grid>[data-field=categoryId]{grid-column:1/-1}
+form.modal.rf.rf-reference.reference-expense-create .reference-party-fields .form-grid>[data-field=defaultObject]{grid-column:1/-1}
+form.modal.rf.rf-reference.reference-expense-create .form-grid .rf-field[data-field=defaultObject]>.rf-label{display:none}
+form.modal.rf.rf-reference.reference-expense-create .reference-archive-code{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px}
+form.modal.rf.rf-reference.reference-expense-create .reference-archive-code>button{height:38px;padding:0 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font-size:16px;font-weight:400;text-decoration:none}
+form.modal.rf.rf-reference.reference-expense-create input,
+form.modal.rf.rf-reference.reference-expense-create select,
+form.modal.rf.rf-reference.reference-expense-create textarea{width:100%;min-width:0;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#000;font:16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;outline:none}
+form.modal.rf.rf-reference.reference-expense-create input,
+form.modal.rf.rf-reference.reference-expense-create select{height:38px;padding:0 10px}
+form.modal.rf.rf-reference.reference-expense-create input:disabled{color:#64748b;background:#f1f5f9}
+form.modal.rf.rf-reference.reference-expense-create input:focus,
+form.modal.rf.rf-reference.reference-expense-create textarea:focus{border-color:#cbd5e1;box-shadow:none}
+form.modal.rf.rf-reference.reference-expense-create .fee-booking-node-buttons{display:flex;flex-wrap:wrap;gap:7px;margin:0}
+form.modal.rf.rf-reference.reference-expense-create .fee-booking-node-buttons>button{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:6px 11px;border:1px solid #dce9e2;border-radius:999px;color:#1e293b;background:#fff;font-size:13px;font-weight:700;white-space:nowrap}
+form.modal.rf.rf-reference.reference-expense-create .fee-booking-node-buttons>button[aria-pressed=true]{border-color:#0e8062;background:#edf8f2}
+form.modal.rf.rf-reference.reference-expense-create textarea{height:64px;min-height:60px;padding:9px 10px;resize:vertical}
+form.modal.rf.rf-reference.reference-expense-create [aria-label="其他说明"] .form-grid>.rf-field{gap:7px}
+form.modal.rf.rf-reference.reference-expense-create [aria-label="其他说明"] textarea{margin:0 0 12px}
+form.modal.rf.rf-reference.reference-expense-create .rf-foot{display:flex;align-items:center;justify-content:flex-start!important;gap:14px;margin:14px 0 0;padding:14px 0 0!important;height:auto;min-height:0;border-top:1px solid #e5edf7;background:#fff;box-shadow:none}
+form.modal.rf.rf-reference.reference-expense-create .rf-foot>button{order:0!important;flex:none;min-width:0;height:38px;padding:0 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font-size:16px;font-weight:400}
+form.modal.rf.rf-reference.reference-expense-create .rf-foot>.primary-button{color:#fff;border-color:#166534;background:#0e8062;font-weight:700}
+@media(max-width:620px){form.modal.rf.rf-reference.reference-expense-create{width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:14px}form.modal.rf.rf-reference.reference-expense-create .reference-party-fields .form-grid,form.modal.rf.rf-reference.reference-expense-create [aria-label="费用设置"] .form-grid{grid-template-columns:1fr}form.modal.rf.rf-reference.reference-expense-create .rf-sec-title{align-items:flex-start;flex-direction:column}}
+
+@media(max-width:1100px){form.modal.rf.rf-reference.reference-expense-create .reference-party-fields .form-grid>[data-field=categoryId]{grid-column:auto}}

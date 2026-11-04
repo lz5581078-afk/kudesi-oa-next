@@ -5,7 +5,7 @@ import { DataSource } from 'typeorm';
 import { PROVINCES } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, FinanceCostSnapshot, ResourceRecord, User } from '../entities';
 import { normalizeExpressRows } from '../integrations/ocr.service';
 import { buildServices } from '../test-support';
 import { CostService } from './cost.service';
@@ -65,6 +65,52 @@ d('数据板块工具（真实数据库）', () => {
     expect(h.rows[0].revision).toBe(2);
     expect(h.rows[0].changes.find((x: { field: string }) => x.field === 'preShipCostCents')).toMatchObject({ before: 1000, after: 1500 });
     expect(h.rows[1].changes).toEqual([]);
+    expect(h.rows[0].before).toMatchObject({ preShipCostCents: 1000, code: h.rows[1].code, name: h.rows[1].name });
+    expect(h.rows[1].before).toBeNull();
+    const reasonSearch = await tools.costHistory(boss, { bundleId: ids.bundle, keyword: '首次', page: 1, pageSize: 10 });
+    expect(reasonSearch.rows.some((row: { reason: string }) => row.reason === '首次')).toBe(true);
+    expect((await tools.costHistory({ ...boss, companyId: boss.companyId + 9999999 }, { keyword: '首次', page: 1, pageSize: 10 })).total).toBe(0);
+
+  });
+
+  it('历史利润率区分单品手填与继承，生效率相同也登记切换，旧记录不推填覆盖值', async () => {
+    const original = await ds.manager.findOneByOrFail(ResourceRecord, { id: ids.bundle, companyId: boss.companyId });
+    await svc.update(boss, 'finance-bundles', ids.bundle, { marginOverridePercent: 20, overrideReason: '合成明确单品利润率' });
+    expect((await tools.registerCost(boss, ids.bundle, '合成明确单品20')).recorded).toBe(1);
+    let h = await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    expect(h.rows[0]).toMatchObject({ marginPercent: 20, explicitMarginPercent: 20 });
+    expect(h.rows[0].before).toMatchObject({ marginPercent: 20, explicitMarginPercent: null });
+    expect(h.rows[0].changes).toContainEqual({ field: 'explicitMarginPercent', label: '利润率', before: null, after: 20 });
+    expect((await tools.registerCost(boss, ids.bundle, '合成未改变')).unchanged).toBe(1);
+    await svc.update(boss, 'finance-bundles', ids.bundle, { marginOverridePercent: '' });
+    expect((await tools.registerCost(boss, ids.bundle, '合成改回继承20')).recorded).toBe(1);
+    h = await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    expect(h.rows[0]).toMatchObject({ marginPercent: 20, explicitMarginPercent: null });
+    expect(h.rows[0].changes).toContainEqual({ field: 'explicitMarginPercent', label: '利润率', before: 20, after: null });
+    await svc.update(boss, 'finance-bundles', ids.bundle, { marginOverridePercent: 0, overrideReason: '合成零利润率' });
+    await tools.registerCost(boss, ids.bundle, '合成明确零利润');
+    expect((await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 })).rows[0]).toMatchObject({ marginPercent: 0, explicitMarginPercent: 0 });
+    await ds.manager.save(ResourceRecord, original);
+  });
+
+  it('历史留存当时分类和快递，编码名称单独变更也登记，旧记录不补当前字段', async () => {
+    const original = await ds.manager.findOneByOrFail(ResourceRecord, { id: ids.bundle, companyId: boss.companyId });
+    const category = await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '历史上下文分类', code: 'LSCTX' });
+    await ds.manager.update(ResourceRecord, { id: original.id }, { data: { ...original.data, code: 'SYNTHETIC-HISTORY-001', name: '合成历史改名', carrierName: '合成快递', bundleCategoryId: category.id } });
+    expect((await tools.registerCost(boss, ids.bundle, '合成上下文变更')).recorded).toBe(1);
+    const h = await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    const saved = h.rows[0];
+    expect(saved).toMatchObject({ code: 'SYNTHETIC-HISTORY-001', name: '合成历史改名', categoryId: category.id, carrierName: '合成快递', productCostCents: saved.preShipCostCents });
+    expect(saved.before).toMatchObject({ code: original.data.code, name: original.data.name });
+    expect(saved.changes.map((change: { field: string }) => change.field)).toEqual(expect.arrayContaining(['code', 'name', 'categoryId', 'carrierName']));
+    expect((await tools.registerCost(boss, ids.bundle, '没有变化')).unchanged).toBe(1);
+    await ds.manager.update(ResourceRecord, { id: original.id }, { data: { ...original.data, name: '今天的新名字', carrierName: '今天的快递' } });
+    expect((await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 })).rows[0]).toMatchObject({ name: '合成历史改名', categoryId: category.id, carrierName: '合成快递' });
+    await ds.manager.insert(FinanceCostSnapshot, { companyId: boss.companyId, bundleId: ids.bundle, code: 'SYNTHETIC-LEGACY', name: '合成无上下文历史', revision: 99, preShipCostCents: 1, weightG: 1, freightCents: null, marginPercent: null, minPriceCents: null, context: null, reason: '', eventType: 'manual', actorId: boss.id });
+    const legacy = (await tools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 })).rows[0];
+    expect(legacy.categoryId).toBeUndefined(); expect(legacy.carrierName).toBeUndefined(); expect(legacy.productCostCents).toBeUndefined();
+    expect(legacy.explicitMarginPercent).toBeUndefined();
+    await ds.manager.save(ResourceRecord, original);
   });
 
   it('包装方案：明细只能选包装档案；匹配规则按优先级、重量、编码命中，同优先级冲突要提示', async () => {
@@ -87,9 +133,9 @@ d('数据板块工具（真实数据库）', () => {
     const m2 = await tools.packagingMatch(boss, { usageScene: 'dispatch', targetType: 'bundle', targetCode: 'ZH-X', weightKg: 2 });
     expect(m2.matches).toHaveLength(2);
     expect(m2.ambiguous).toBe(true);
-    // 失效日期已过的方案不参与
+    // 原匹配预览只按启用状态/场景，日期事实保留且不额外改变命中
     await svc.update(boss, 'finance-packaging-schemes', s2.id, { effectiveTo: '2020-01-01' });
-    expect((await tools.packagingMatch(boss, { usageScene: 'dispatch', targetType: 'bundle', targetCode: 'ZH-X', weightKg: 2 })).matches).toHaveLength(1);
+    expect((await tools.packagingMatch(boss, { usageScene: 'dispatch', targetType: 'bundle', targetCode: 'ZH-X', weightKg: 2 })).matches).toHaveLength(2);
   });
 
   it('API 密钥：只有管理员能管；明文只返回一次；撤销后不能用', async () => {

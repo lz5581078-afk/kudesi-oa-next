@@ -18,7 +18,7 @@ const item = (id: number, title: string) => ({ id, title, status: 'active', data
 const BANKS = [item(5, '甲户'), item(6, '乙户')];
 beforeEach(() => {
   allowed = 'all';
-  vi.mocked(resourceApi.list).mockImplementation((async (type: string) => ({ items: type === 'bank-accounts' ? BANKS : type === 'finance-products' ? [item(3, '小油菜')] : type === 'finance-warehouses' ? [item(9, '总仓')] : [item(7, '老客户')], total: 1, page: 1, pageSize: 15 })) as never);
+  vi.mocked(resourceApi.list).mockImplementation((async (type: string) => ({ items: type === 'bank-accounts' ? BANKS : type === 'finance-products' ? [item(3, '小油菜')] : type === 'finance-warehouses' ? [item(9, '总仓')] : [item(7, '老客户')], total: type === 'bank-accounts' ? BANKS.length : 1, page: 1, pageSize: 200 })) as never);
   vi.mocked(resourceApi.get).mockResolvedValue({ data: {} } as never);
   vi.mocked(resourceApi.users).mockResolvedValue([{ id: 1, name: '老板', active: true }, { id: 2, name: '员工小王', active: true }, { id: 3, name: '离职小李', active: false }]);
   fa.banks.mockResolvedValue([{ id: 5, title: '甲户', balanceCents: 100000 }, { id: 6, title: '乙户', balanceCents: 50000 }] as never);
@@ -29,29 +29,29 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-const pickParty = async (label: string) => { fireEvent.focus(screen.getByLabelText(label)); fireEvent.click(await screen.findByRole('option', { name: '老客户' })); };
-const addAccount = async (label: string, name: string) => { fireEvent.focus(screen.getByLabelText(label)); fireEvent.click(await screen.findByRole('option', { name })); };
+const pickParty = async (label: string) => { fireEvent.click(screen.getByLabelText(label)); fireEvent.click(await screen.findByRole('option', { name: '老客户' })); };
+const addAccount = async (label: string, name: string) => { fireEvent.click(screen.getByLabelText(label)); fireEvent.click(await screen.findByRole('option', { name })); };
 const lastCreated = () => fa.create.mock.calls[0][0] as unknown as Record<string, unknown> & { accounts: Array<{ role: string; bankAccountId: number; amountCents: number }> };
 
 describe('收款单/付款单优惠金额', () => {
   it('收款单：优惠金额随单据提交，并显示“本次冲减应收 = 到账 + 优惠”', async () => {
-    render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
+    render(<DocForm type="receipt" onSaved={vi.fn()} />);
     await pickParty('客户');
     fireEvent.change(screen.getByLabelText('第1行收款来源'), { target: { value: '客户回款' } });
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '90' } });
     fireEvent.change(screen.getByLabelText('优惠金额'), { target: { value: '10' } });
     expect(within(screen.getByLabelText('本次冲减往来')).getByText('本次冲减应收').nextSibling!.textContent).toBe('¥100.00');
     await addAccount('收款账户', '甲户');
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated().discountCents).toBe(1000);
   });
   it('付款单：说明是对方给的折扣；不填优惠时提交 0', async () => {
-    render(<DocForm type="payment" inline onSaved={vi.fn()} />);
+    render(<DocForm type="payment" onSaved={vi.fn()} />);
     expect(screen.getByText(/对方给的折扣/)).toBeTruthy();
     expect(within(screen.getByLabelText('本次冲减往来')).getByText('本次冲减应付')).toBeTruthy();
     await pickParty('收款方').catch(() => undefined);
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated().discountCents).toBe(0);
   });
@@ -59,7 +59,7 @@ describe('收款单/付款单优惠金额', () => {
 
 describe('多账户收付款', () => {
   it('销售单：分两个账户收款，实收等于各账户之和，提交 accounts 且主账户是第一个', async () => {
-    render(<DocForm type="sale" inline onSaved={vi.fn()} />);
+    render(<DocForm type="sale" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '分多个账户收款' }));
     await addAccount('添加收款账户', '甲户');
     await addAccount('添加收款账户', '乙户');
@@ -67,7 +67,7 @@ describe('多账户收付款', () => {
     fireEvent.change(screen.getByLabelText('乙户收款金额'), { target: { value: '30' } });
     expect((screen.getByLabelText('收到金额') as HTMLInputElement).value).toBe('70.00');
     expect(screen.getByLabelText('分账户合计').textContent).toContain('¥70.00');
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     const b = lastCreated();
     expect(b.paidCents).toBe(7000);
@@ -75,7 +75,7 @@ describe('多账户收付款', () => {
     expect(b.accounts).toEqual([{ role: 'in', bankAccountId: 5, amountCents: 4000 }, { role: 'in', bankAccountId: 6, amountCents: 3000 }]);
   });
   it('付款单：各账户合计必须等于单据金额，不等就提示并给“差额填入”；改回单个账户后恢复原写法', async () => {
-    render(<DocForm type="payment" inline onSaved={vi.fn()} />);
+    render(<DocForm type="payment" onSaved={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('第1行付款用途'), { target: { value: '货款' } });
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: '分多个账户付款' }));
@@ -89,14 +89,14 @@ describe('多账户收付款', () => {
     expect(screen.getByLabelText('分账户合计').textContent).toContain('一致');
     fireEvent.click(screen.getByRole('button', { name: '改回单个账户' }));
     expect(screen.getByLabelText('付款账户')).toBeTruthy();
-    expect((screen.getByLabelText('付款账户') as HTMLInputElement).value).toBe('甲户');
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    expect(screen.getByLabelText('付款账户').textContent).toContain('甲户');
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated().accounts).toBeNull();
     expect(lastCreated().bankAccountId).toBe(5);
   });
   it('合计对不上时，开立被前端校验拦住且不请求服务器', async () => {
-    render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
+    render(<DocForm type="receipt" onSaved={vi.fn()} />);
     await pickParty('客户');
     fireEvent.change(screen.getByLabelText('第1行收款来源'), { target: { value: '回款' } });
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '100' } });
@@ -121,7 +121,7 @@ describe('多账户收付款', () => {
 
 describe('转款手续费与在途', () => {
   it('填手续费并选承担方、勾选先登记在途，随单据提交', async () => {
-    render(<DocForm type="transfer" inline onSaved={vi.fn()} />);
+    render(<DocForm type="transfer" onSaved={vi.fn()} />);
     await addAccount('添加转出账户', '甲户');
     await addAccount('添加转入账户', '乙户');
     fireEvent.change(screen.getByLabelText('转出账户甲户金额'), { target: { value: '50' } });
@@ -132,7 +132,7 @@ describe('转款手续费与在途', () => {
     expect(screen.getByText(/由转入账户/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('第1行转款用途'), { target: { value: '资金调拨' } });
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '50' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     const b = lastCreated();
     expect(b.feeCents).toBe(30);
@@ -140,7 +140,7 @@ describe('转款手续费与在途', () => {
     expect(b.inTransit).toBe(true);
   });
   it('不填手续费时不提交承担方；不是转款单没有这一栏', () => {
-    render(<DocForm type="transfer" inline onSaved={vi.fn()} />);
+    render(<DocForm type="transfer" onSaved={vi.fn()} />);
     expect((screen.getByLabelText('手续费承担方') as HTMLSelectElement).disabled).toBe(true);
     cleanup();
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
@@ -149,36 +149,90 @@ describe('转款手续费与在途', () => {
 });
 
 describe('经手人员工选择器', () => {
-  it('默认当前登录员工，可以改选其他在职员工，提交员工 id', async () => {
+  it('新建按旧版留空经办人，选择在职员工后提交员工 id', async () => {
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
-    const sel = screen.getByLabelText('经办人') as HTMLSelectElement;
-    expect(sel.value).toBe('1');
-    await waitFor(() => expect(within(sel).getByRole('option', { name: '员工小王' })).toBeTruthy());
-    expect(within(sel).queryByRole('option', { name: /离职小李/ })).toBeNull();
-    fireEvent.change(sel, { target: { value: '2' } });
+    const sel = screen.getByLabelText('经办人');
+    expect(sel.textContent).toContain('选择经办人');
+    fireEvent.click(sel);
+    await screen.findByRole('option', { name: '员工小王' });
+    expect(screen.queryByRole('option', { name: /离职小李/ })).toBeNull();
+    fireEvent.click(screen.getByRole('option', { name: '员工小王' }));
     await pickParty('客户');
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated().handlerId).toBe(2);
     expect(lastCreated().handler).toBeNull();
   });
+  it('费用单新建同样留空，草稿不把登录员工偷偷当作经办人', async () => {
+    render(<DocForm type="expense" onSaved={vi.fn()} />);
+    expect(screen.getByLabelText('经办人').textContent).toContain('选择经办人');
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalled());
+    expect(lastCreated()).toMatchObject({ handlerId: null, handler: null });
+  });
+  it('库存制单仓库恢复文字输入和总仓默认，保存文字并在清空后恢复默认', async () => {
+    render(<DocForm type="purchase-in" inline onSaved={vi.fn()} />);
+    const warehouse = screen.getByRole('textbox', { name: '仓库' }) as HTMLInputElement;
+    expect(warehouse.value).toBe('总仓');
+    fireEvent.change(warehouse, { target: { value: '合成文字仓库' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalled());
+    expect(lastCreated()).toMatchObject({ warehouseId: null, warehouseName: '合成文字仓库' });
+    fireEvent.click(screen.getByRole('button', { name: '清空单据' }));
+    expect(warehouse.value).toBe('总仓');
+  });
+
+  it('清空单据恢复日期、默认往来类型、部门和空经办人，不带上次手选值', async () => {
+    render(<DocForm type="payment" inline onSaved={vi.fn()} />);
+    const date = screen.getByLabelText('单据日期') as HTMLInputElement;
+    const initialDate = date.value;
+    fireEvent.change(date, { target: { value: '2020-01-02' } });
+    fireEvent.change(screen.getByLabelText('往来对象来源'), { target: { value: 'customer' } });
+    fireEvent.change(screen.getByLabelText('归属部门'), { target: { value: '合成临时部门' } });
+    fireEvent.click(screen.getByLabelText('经办人'));
+    fireEvent.click(await screen.findByRole('option', { name: '员工小王' }));
+    fireEvent.click(screen.getByRole('button', { name: '清空单据' }));
+    expect(date.value).toBe(initialDate);
+    expect((screen.getByLabelText('归属部门') as HTMLInputElement).value).toBe('财务部');
+    expect(screen.getByLabelText('经办人').textContent).toContain('选择经办人');
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(fa.create).toHaveBeenCalled());
+    expect(lastCreated()).toMatchObject({ handlerId: null, handler: null, date: initialDate, partyKind: 'supplier' });
+  });
+  it('店铺提现沿用当前默认经办人，不跟随其他制单页复原而改变', () => {
+    render(<DocForm type="withdrawal" inline onSaved={vi.fn()} />);
+    expect((screen.getByLabelText('经办人') as HTMLSelectElement).value).toBe('1');
+  });
   it('老数据里的文字经手人保持显示（原文字选项），保存时仍是文字、不丢', async () => {
     const doc = { id: 9, docNo: 'SK9', docType: 'receipt', status: 'draft', docDate: '2026-10-29', partyId: 7, partyName: '老客户', partyKind: 'customer', handler: '老张（外聘）', handlerId: null, bankAccountId: 5, bankName: '甲户', amountCents: 1000, paidCents: 0, offsetCents: 0, accounts: [], lines: [{ id: 1, lineNo: 1, itemName: '回款', qty: 1, unitPriceCents: 1000, productName: '', feeItemName: '' }], entries: [], events: [] } as unknown as DocDetailDto;
     fa.update.mockResolvedValue(doc as never);
     render(<DocForm type="receipt" doc={doc} onSaved={vi.fn()} onClose={vi.fn()} />);
-    const sel = screen.getByLabelText('经办人') as HTMLSelectElement;
-    expect(sel.value).toBe('');
-    expect(within(sel).getByRole('option', { name: '老张（外聘）（原文字）' })).toBeTruthy();
+    const sel = screen.getByLabelText('经办人');
+    expect(sel.textContent).toContain('老张（外聘）（原文字）');
     fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.update).toHaveBeenCalled());
     const b = fa.update.mock.calls[0][1] as unknown as Record<string, unknown>;
     expect(b.handler).toBe('老张（外聘）');
     expect(b.handlerId).toBeNull();
+    fireEvent.click(sel);
+    fireEvent.click(await screen.findByRole('option', { name: '员工小王' }));
+    fireEvent.click(sel);
+    fireEvent.click(screen.getByRole('option', { name: '清空当前选择' }));
+    expect(sel.textContent).toContain('选择经办人');
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
+    await waitFor(() => expect(fa.update).toHaveBeenLastCalledWith(9, expect.objectContaining({ handlerId: null, handler: null })));
+    cleanup();
+    const print=vi.spyOn(window,'print').mockImplementation(()=>{});fa.doc.mockResolvedValue(doc);
+    try {
+      render(<DocDetail id={doc.id} onClose={vi.fn()} onChanged={vi.fn()}/>);
+      fireEvent.click(await screen.findByRole('button',{name:'打印'}));
+      expect(print).toHaveBeenCalledTimes(1);expect(screen.getByText('老张（外聘）')).toBeTruthy();
+    }finally{print.mockRestore();}
   });
-  it('取不到员工名单时不影响开单，仍能用默认经手人', async () => {
+  it('取不到员工名单时新建仍留空，不伪造经办人', async () => {
     vi.mocked(resourceApi.users).mockRejectedValue(new Error('没权限'));
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
-    expect((screen.getByLabelText('经办人') as HTMLSelectElement).value).toBe('1');
+    expect(screen.getByLabelText('经办人').textContent).toContain('选择经办人');
   });
 });
 

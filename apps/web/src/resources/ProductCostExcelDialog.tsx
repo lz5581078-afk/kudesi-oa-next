@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { api, ApiError } from '../api/client';
-import { downloadXlsx, readXlsxRows } from './xlsx';
+import { downloadProductCostWorkbook, readProductCostWorkbook, productCostPhysicalIssues } from './productCostWorkbook';
 
 interface Issue { sheet: string; row: number; field: string; message: string }
 interface Result { errors: Issue[]; warnings: Issue[]; created: number; updated: number; rowCount: number; confirm?: string | null }
@@ -9,6 +9,7 @@ interface Table { headers: string[]; rows: string[][] }
 /** 商品档案成本 Excel 导入导出：先预检，没有问题才能导入；同档案、成本类型、生效开始的记录是更新，其余新增。 */
 export function ProductCostExcelDialog({ canImport, onClose, onDone }: { canImport: boolean; onClose: () => void; onDone: () => void }) {
   const input = useRef<HTMLInputElement>(null);
+  const sourceRows = useRef<number[]>([]);
   const [rows, setRows] = useState<Array<Record<string, string>> | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState('');
@@ -18,20 +19,17 @@ export function ProductCostExcelDialog({ canImport, onClose, onDone }: { canImpo
 
   const download = async (path: string, name: string) => {
     setError('');
-    try { const t = await api<Table>(path); await downloadXlsx(name, [t.headers, ...t.rows]); } catch (e) { fail(e); }
+    try { const t = await api<Table>(path); await downloadProductCostWorkbook(t, name); } catch (e) { fail(e); }
   };
 
   const pickFile = async (file: File) => {
     setError(''); setNotice(''); setResult(null); setRows(null); setBusy(true);
     try {
-      const table = await readXlsxRows(file);
-      const head = table[0] ?? [];
-      const need = ['档案编号', '成本类型', '单位成本', '计价单位', '生效开始'];
-      const miss = need.filter((h) => !head.includes(h));
-      if (miss.length) throw new Error(`缺少列：${miss.join('、')}（请用导出或模板文件）`);
-      const parsed = table.slice(1).map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ''])));
-      setRows(parsed);
-      setResult(await api<Result>('/finance/product-costs/import/preflight', { method: 'POST', body: { rows: parsed } }));
+      const parsed = await readProductCostWorkbook(file);
+      sourceRows.current = parsed.rowNumbers;
+      setRows(parsed.rows);
+      const checked=await api<Result>('/finance/product-costs/import/preflight', { method: 'POST', body: { rows: parsed.rows } });
+      setResult({...checked,errors:productCostPhysicalIssues(checked.errors,sourceRows.current),warnings:productCostPhysicalIssues(checked.warnings,sourceRows.current)});
     } catch (e) { fail(e); } finally { setBusy(false); }
   };
 

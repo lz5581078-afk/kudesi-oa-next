@@ -1,5 +1,10 @@
+import type {ResourceImportProfile} from '@kudesi/shared';
+import type { ResourceFormInput } from '@kudesi/shared';
 import type { ColFilter, GridSaveRequest, GridSaveResponse, ResourceDef } from '@kudesi/shared';
 import { api } from '../api/client';
+
+export interface ProfileWorkbookSheet {name:string;headers?:string[];rows:Array<Record<string,string>>}
+export interface ProfileImportResult {dryRun:boolean;committed:boolean;created:number;updated:number;mainCreated?:number;mainUpdated?:number;detailRows?:number;failed:number;results:Array<{sheet:string;step:string;line:number;action:string;title?:string;errors:string[]}>;issues:Array<{sheet:string;row:number;field:string;message:string}>;signature?:string}
 
 export interface FileInfo {
   id: number;
@@ -10,6 +15,10 @@ export interface FileInfo {
 
 export interface ResourceDto {
   catalog?: { mainStyleCode: string; weightG: number | null; costCents?: number | null; saleCents?: number | null; composition: Array<{name:string;qty:number;unit:string}>; packaging: Array<{name:string;qty:number;unit:string}> };
+  /** 同公司实际来源状态；缺失或无法唯一解析时为 null。 */
+  sourceStatus?:string|null;
+  baseCodeFacts?:{issueCount:number;canonicalId:number|null;canonicalState:'pending'|'verified'|'reverify'|null;aliasCount:number};
+  bomCostFacts?:{unitCost:number|null;freight:number|null;handlingFee:number|null};
   id: number;
   type: string;
   title: string;
@@ -19,6 +28,7 @@ export interface ResourceDto {
   data: Record<string, unknown>;
   secretConfigured: Record<string, boolean>;
   refLabels: Record<string, string>;
+  optionLabels?: Record<string, string>;
   files: Record<number, FileInfo>;
   /** 仓库角色模式：精简列、只读 */
   warehouseMode?: boolean;
@@ -26,6 +36,10 @@ export interface ResourceDto {
   updatedAt: string;
   /** 内容版本，表格编辑保存时用来发现别人改过 */
   version?: string;
+  /** Server-only archive-cost reference facts; missing/null is not a verified zero. */
+  referenceCount?:number|null;
+  knownReferenceCount?:number;
+  referenceState?:'known'|'unknown';
 }
 
 export interface ListResult {
@@ -41,6 +55,8 @@ export interface ListParams {
   page?: number;
   pageSize?: number;
   keyword?: string;
+  referenceSearch?:string;
+  referenceOrder?:boolean;
   status?: string;
   tab?: string;
   showHidden?: boolean;
@@ -59,7 +75,7 @@ export interface CategoryTreeResult {
   field: string;
   total: number;
   uncategorized: number;
-  nodes: Array<{ id: number; title: string; status: string; parentId: number; sort: number; count: number }>;
+  nodes: Array<{ id: number; title: string; status: string; parentId: number; sort: number; count: number; directCount?:number }>;
 }
 
 export interface ImportBackupInfo { id: number; recordCount: number; createdAt: string; restoredAt: string | null }
@@ -117,6 +133,8 @@ export function query(params: ListParams): string {
   if (params.page) q.set('page', String(params.page));
   if (params.pageSize) q.set('pageSize', String(params.pageSize));
   if (params.keyword) q.set('keyword', params.keyword);
+  if(params.referenceOrder)q.set('referenceOrder','1');
+  if (params.referenceSearch) q.set('referenceSearch',params.referenceSearch);
   if (params.status) q.set('status', params.status);
   if (params.tab) q.set('tab', params.tab);
   if (params.showHidden) q.set('showHidden', '1');
@@ -134,6 +152,9 @@ export function query(params: ListParams): string {
 export interface StoreJstShop { id: string; name: string; platform: string; expiresAt?: string | null; expiryStatus?: 'dated' | 'permanent' | 'unknown' }
 
 export const resourceApi = {
+  importProfiles:()=>api<{profiles:ResourceImportProfile[]}>('/resources/import-profiles'),
+  importProfile:(id:string,sheets:ProfileWorkbookSheet[],dryRun:boolean,signature?:string)=>api<ProfileImportResult>(`/resources/import-profiles/${encodeURIComponent(id)}`,{method:'POST',body:{sheets,dryRun,...(signature?{signature}:{})}}),
+
   refreshJushuitanShop: (id: number) => api<ResourceDto>(`/resources/stores/${id}/refresh-jushuitan`, { method: 'POST' }),
   jushuitanShops: () => api<StoreJstShop[]>('/resources/stores/jushuitan-shops'),
   reorderCategories: (type: string, orderedIds: number[]) => api<{ok: boolean; changed: number}>(`/resources/${type}/reorder`,{method:'POST',body:{orderedIds}}),
@@ -166,14 +187,15 @@ export const resourceApi = {
   gridSave: (type: string, body: GridSaveRequest) => api<GridSaveResponse<ResourceDto>>(`/resources/${type}/grid-save`, { method: 'POST', body }),
   list: (type: string, params: ListParams) => api<ListResult>(`/resources/${type}${query(params)}`),
   get: (type: string, id: number) => api<ResourceDto>(`/resources/${type}/${id}`),
+  saveForm: (type: string, body: ResourceFormInput) => api<ResourceDto>(`/resources/${type}/save-form`, { method: 'POST', body }),
   create: (type: string, values: Record<string, unknown>, status?: string) =>
     api<ResourceDto>(`/resources/${type}`, { method: 'POST', body: { values, status } }),
   update: (type: string, id: number, values: Record<string, unknown>) =>
     api<ResourceDto>(`/resources/${type}/${id}`, { method: 'PATCH', body: { values } }),
   changeStatus: (type: string, id: number, status: string, reason?: string) =>
     api<ResourceDto>(`/resources/${type}/${id}/status`, { method: 'POST', body: { status, reason } }),
-  remove: (type: string, id: number, reason: string) =>
-    api<{ ok: true }>(`/resources/${type}/${id}`, { method: 'DELETE', body: { reason } }),
+  remove: (type: string, id: number, reason: string, expectedVersion?: string) =>
+    api<{ ok: true }>(`/resources/${type}/${id}`, { method: 'DELETE', body: { reason, ...(expectedVersion === undefined ? {} : { expectedVersion }) } }),
   restore: (type: string, id: number, reason: string) =>
     api<ResourceDto>(`/resources/${type}/${id}/restore`, { method: 'POST', body: { reason } }),
   reveal: (type: string, id: number, field: string) => api<{ field: string; value: string }>(`/resources/${type}/${id}/secret/${field}`),
@@ -191,9 +213,10 @@ export const resourceApi = {
   recentChanges: () => api<RecentChange[]>('/resources/recent-changes'),
   expiring: (days: number) => api<ExpiringResult>(`/resources/expiring?days=${days}`),
   /** scope：不传=全部；传筛选条件=当前筛选结果；ids=所选 */
-  export: (type: string, includeHidden: boolean, scope: ListParams & { ids?: number[]; cols?: string[] } = {}) => {
+  export: (type: string, includeHidden: boolean, scope: ListParams & { ids?: number[]; cols?: string[];referenceArchive?:boolean } = {}) => {
     const q = new URLSearchParams(query({ ...scope, page: undefined, pageSize: undefined, showHidden: undefined }).replace(/^\?/, ''));
     if (includeHidden) q.set('includeHidden', '1');
+    if(scope.referenceArchive)q.set('referenceArchive','1');
     if (scope.ids?.length) q.set('ids', scope.ids.join(','));
     if (scope.cols?.length) q.set('cols', scope.cols.join(','));
     const qs = q.toString();
@@ -201,8 +224,8 @@ export const resourceApi = {
   },
   importBackups: (type: string) => api<ImportBackupInfo[]>(`/resources/${type}/import-backups`),
   restoreBackup: (type: string, id: number) => api<{ restored: number; removed: number; skippedDelete: number }>(`/resources/${type}/import-backups/${id}/restore`, { method: 'POST' }),
-  import: (type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number) =>
-    api<ImportResult>(`/resources/${type}/import`, { method: 'POST', body: { rows, dryRun, partial, ...(parentId ? { parentId } : {}) } }),
+  import: (type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number, reference?:{categoryId?:number}) =>
+    api<ImportResult>(`/resources/${type}/import`, { method: 'POST', body: { rows, dryRun, partial, ...(parentId ? { parentId } : {}),...(reference?{referenceArchive:true,referenceCategoryId:reference.categoryId}:{}) } }),
   uploadFile: (type: string, field: string, file: File) => {
     const form = new FormData();
     form.append('type', type);
@@ -218,7 +241,7 @@ export const resourceApi = {
   },
   licenseRevenue: (id: number, from: string, to: string) => api<RevenueResult>(`/revenue/licenses/${id}?from=${from}&to=${to}`),
   departments: () => api<Array<{ id: number; name: string; parentId?: number | null }>>('/org/department-directory'),
-  users: () => api<Array<{ id: number; name: string; active: boolean }>>('/org/users'),
+  users: () => api<Array<{ id: number; name: string; active: boolean;departmentName?:string|null }>>('/org/users'),
 };
 
 /** 手机扫码上传：电脑端发起并轮询；手机端（免登录）只认令牌 */
@@ -241,7 +264,7 @@ export const draftApi = {
   key: (moduleKey: string, parts: string[] = []) =>
     [moduleKey, ...parts].map((v) => encodeURIComponent(String(v ?? '').trim() || '_')).join(':').slice(0, 190),
   get: (key: string) => api<{ draft: { payload: Record<string, unknown>; title: string; updatedAt: string } | null }>(`/form-drafts/${encodeURIComponent(key)}`),
-  save: (key: string, body: { moduleKey: string; title: string; payload: Record<string, unknown> }) =>
+  save: (key: string, body: { moduleKey: string; title: string; sourceRecordId?: string; payload: Record<string, unknown> }) =>
     api<unknown>(`/form-drafts/${encodeURIComponent(key)}`, { method: 'PUT', body }),
   remove: (key: string) => api<unknown>(`/form-drafts/${encodeURIComponent(key)}`, { method: 'DELETE' }),
 };

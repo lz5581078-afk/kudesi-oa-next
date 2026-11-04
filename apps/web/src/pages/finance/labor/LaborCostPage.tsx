@@ -1,25 +1,26 @@
-import { BriefcaseBusiness, CalendarDays, CircleDollarSign, Database, UsersRound } from 'lucide-react';
+import './labor-version-editor.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getResourceDef } from '@kudesi/shared';
+import { getResourceDef, unitYuanText } from '@kudesi/shared';
+import { BriefcaseBusiness, CalendarRange, Check, CircleDollarSign, Copy, Database, FolderTree, Pencil, Plus, Search, Trash2, UsersRound } from 'lucide-react';
 import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
 import { ReasonDialog, RecordForm, clearRefCache } from '../../../resources/RecordForm';
 import { useResourceCan } from '../../../resources/RecordDetail';
 import { resourceApi, type ResourceDto } from '../../../resources/api';
-import { Pager, money } from '../common';
 import { CategoryTree, buildCategoryTree, findNode, subtreeIds } from './CategoryTree';
 import { CopyVersionDialog } from './CopyVersionDialog';
-import { DictionaryDialog } from './DictionaryDialog';
-import { FinanceModal } from '../FinanceModal';
+import { FinanceCategoryManager } from '../../../resources/FinanceCategoryManager';
+import './labor-page.css';
 
-const PAGE_SIZE = 20;
-const VERSION_STATUS: Record<string, string> = { draft: '草稿', active: '已启用', inactive: '已停用' };
 const err = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
 
 /** 人力成本表：成本版本 → 项目归档分类树 → 工作项目；工作分类和计价单位可自己维护。 */
 export function LaborCostPage() {
   const can = useResourceCan('finance-labor-costs');
-  const { can: has } = useAuth();
+  const { can: has, user } = useAuth();
+  const scopeKey = JSON.stringify([user?.companyId, user?.id]);
+  const scopeRef = useRef(scopeKey); scopeRef.current = scopeKey;
+  const mounted = useRef(false), versionRequest = useRef(0);
   const canSeeCost = has('product.cost.view');
   const [versions, setVersions] = useState<ResourceDto[] | null>(null);
   const [versionId, setVersionId] = useState<number | null>(null);
@@ -27,36 +28,54 @@ export function LaborCostPage() {
   const [items, setItems] = useState<ResourceDto[]>([]);
   const [selectedCat, setSelectedCat] = useState<number | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [page, setPage] = useState(1);
+  const [loadedVersion, setLoadedVersion] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [dialog, setDialog] = useState<'workTypes' | 'units' | null>(null);
   const [copying, setCopying] = useState(false);
   const [managing,setManaging] = useState(false);
   const request = useRef(0);
   const versionRef = useRef(versionId); versionRef.current = versionId;
   const [versionForm, setVersionForm] = useState<{ record: ResourceDto | null } | null>(null);
   const [itemForm, setItemForm] = useState<{ record: ResourceDto | null; initial?: Record<string, unknown> } | null>(null);
-  const [reason, setReason] = useState<{ title: string; hint?: string; confirm: string; run: (reason: string) => Promise<void> } | null>(null);
+  const [reason, setReason] = useState<{ title: string; hint?: string; confirm: string; danger?: boolean; run: (reason: string) => Promise<void> } | null>(null);
 
   const loadVersions = useCallback(async () => {
+    if (!mounted.current || scopeRef.current !== scopeKey) return;
+    const serial = ++versionRequest.current;
     try {
-      const r = await resourceApi.list('finance-labor-versions', { pageSize: 200, showHidden: true });
-      setVersions(r.items);
-      setVersionId((cur) => cur ?? r.items.find((v) => v.data.isDefault === true)?.id ?? r.items.find((v) => v.status === 'active')?.id ?? r.items[0]?.id ?? null);
+      const rows: ResourceDto[] = [];
+      for (let page = 1; ; page++) {
+        if (!mounted.current || serial !== versionRequest.current || scopeRef.current !== scopeKey) return;
+        const result = await resourceApi.list('finance-labor-versions', { page, pageSize: 200, showHidden: true });
+        rows.push(...result.items);
+        if (!result.items.length || rows.length >= result.total) break;
+      }
+      if (!mounted.current || serial !== versionRequest.current || scopeRef.current !== scopeKey) return;
+      const rank = (status: string) => ({ active: 0, draft: 1, inactive: 2 }[status] ?? 3);
+      rows.sort((a, b) => Number(b.data.isDefault === true) - Number(a.data.isDefault === true) || rank(a.status) - rank(b.status) || String(b.data.effectiveFrom ?? '').localeCompare(String(a.data.effectiveFrom ?? '')) || b.id - a.id);
+      setVersions(rows);
+      setVersionId(cur => rows.some(row => row.id === cur) ? cur : rows.find(row => row.data.isDefault === true)?.id ?? rows[0]?.id ?? null);
       setError('');
-    } catch (e) { setError(err(e)); }
-  }, []);
-  useEffect(() => { void loadVersions(); }, [loadVersions]);
+      return true;
+    } catch (e) { if (mounted.current && serial === versionRequest.current && scopeRef.current === scopeKey) setError(err(e)); return false; }
+  }, [scopeKey]);
+  useEffect(() => {
+    mounted.current = true; versionRef.current = null;
+    setVersions(null); setVersionId(null); setCats([]); setItems([]); setLoadedVersion(null); setError(''); setNotice('');
+    setItemForm(null); setVersionForm(null); setReason(null); setCopying(false);
+    void loadVersions();
+    return () => { mounted.current = false; versionRequest.current++; request.current++; };
+  }, [loadVersions]);
 
   const loadVersionData = useCallback(async () => {
-    if(versionId !== versionRef.current)return;
+    if(!mounted.current || scopeRef.current !== scopeKey || versionId !== versionRef.current)return;
     const serial = ++request.current;
     if (versionId === null) { setCats([]); setItems([]); return; }
     try {
       const all = async (type: string) => {
         const out: ResourceDto[] = [];
         for (let p = 1; ; p++) {
+          if (!mounted.current || serial !== request.current || scopeRef.current !== scopeKey) return out;
           const r = await resourceApi.list(type, { fieldKey: 'versionId', fieldValue: versionId, pageSize: 200, page: p, showHidden: true });
           out.push(...r.items);
           if (out.length >= r.total || !r.items.length) break;
@@ -64,120 +83,99 @@ export function LaborCostPage() {
         return out;
       };
       const [c, i] = await Promise.all([all('finance-labor-categories'), all('finance-labor-costs')]);
-      if (serial !== request.current) return;
-      setCats(c); setItems(i); setError('');
-    } catch (e) { if(serial === request.current)setError(err(e)); }
-  }, [versionId]);
-  useEffect(() => { setSelectedCat(null); setPage(1); setManaging(false); void loadVersionData(); return()=>{request.current++;}; }, [loadVersionData]);
+      if (!mounted.current || serial !== request.current || scopeRef.current !== scopeKey) return;
+      i.sort((a, b) => String(a.refLabels.archiveCategoryId ?? '').localeCompare(String(b.refLabels.archiveCategoryId ?? ''), 'zh-CN') || String(a.refLabels.workTypeId ?? '').localeCompare(String(b.refLabels.workTypeId ?? ''), 'zh-CN') || String(a.data.workCode ?? '').localeCompare(String(b.data.workCode ?? '')) || a.id - b.id);
+      setCats(c); setSelectedCat(current => c.some(row => row.id === current) ? current : null); setItems(i); setLoadedVersion(versionId); setError('');
+    } catch (e) { if(mounted.current && serial === request.current && scopeRef.current === scopeKey)setError(err(e)); }
+  }, [versionId, scopeKey]);
+  useEffect(() => { setSelectedCat(null); setKeyword(''); setManaging(false); setCats([]); setItems([]); setLoadedVersion(null); void loadVersionData(); return()=>{request.current++;}; }, [loadVersionData]);
 
   const version = versions?.find((v) => v.id === versionId) ?? null;
   const tree = useMemo(() => buildCategoryTree(cats, items.map((i) => (typeof i.data.archiveCategoryId === 'number' ? i.data.archiveCategoryId : null))), [cats, items]);
   const node = findNode(tree, selectedCat);
   const scope = node ? new Set(subtreeIds(node)) : null;
   const kw = keyword.trim().toLowerCase();
-  const filtered = items.filter((i) => (!scope || scope.has(Number(i.data.archiveCategoryId))) && (!kw || `${i.title} ${String(i.data.workCode ?? '')} ${String(i.data.workName ?? '')}`.toLowerCase().includes(kw)));
-  const shown = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const filtered = items.filter(i => (!scope || scope.has(Number(i.data.archiveCategoryId))) && (!kw || [i.data.workCode, i.data.workName, i.refLabels.archiveCategoryId, i.refLabels.workTypeId, i.refLabels.unitId, i.data.note].some(value => String(value ?? '').toLowerCase().includes(kw))));
+  const dataReady = versionId !== null && loadedVersion === versionId;
+  const defaultVersion = versions?.find(v => v.data.isDefault === true) ?? versions?.find(v => v.status === 'active');
   const isLeaf = node ? node.children.length === 0 : false;
 
   async function run(fn: () => Promise<unknown>, done?: string) {
     setError(''); setNotice('');
-    try { await fn(); if (done) setNotice(done); await loadVersions(); await loadVersionData(); } catch (e) { setError(err(e)); }
+    try { await fn(); if (!mounted.current || scopeRef.current !== scopeKey) return; if (done) setNotice(done); if (await loadVersions()) await loadVersionData(); } catch (e) { if (mounted.current && scopeRef.current === scopeKey) setError(err(e)); }
   }
   const locked = version?.status === 'inactive';
+  const selectWrittenVersion = (id: number | null) => { if (mounted.current && scopeRef.current === scopeKey) setVersionId(id); };
 
   return (
     <div className="labor-cost-page">
-      <div className="page-head between">
-        <div><small className="labor-kicker">财务模块 · 数据版本</small><h1>人力成本表</h1><p>按版本维护各类工作的计价标准，供成本核算和业务单据引用。</p></div>
-        <div className="toolbar">
-          {can('create') && <button type="button" className="primary-button" onClick={() => setVersionForm({ record: null })}>新建成本版本</button>}
-          {can('create') && <button type="button" className="secondary-button" onClick={() => setDialog('workTypes')}>维护工作分类</button>}
-          {can('create') && <button type="button" className="secondary-button" onClick={() => setDialog('units')}>维护计价单位</button>}
-        </div>
-      </div>
+      <header className="labor-page-heading">
+        <div><span>财务模块 · 数据版本</span><h1>人力成本表</h1><p>按版本维护各类工作的计价标准，供成本核算和业务单据引用。</p></div>
+        {can('create') && <button type="button" className="primary-button" onClick={() => setVersionForm({ record: null })}><Plus size={17}/>新建成本版本</button>}
+      </header>
       {error && <div role="alert" className="notice error">{error}</div>}
       {notice && <div role="status" className="notice ok">{notice}</div>}
       <section className="card labor-version-panel" aria-label="成本版本列表">
-        <header className="between"><div><h2>成本版本</h2><p className="muted">点击版本查看对应的分类和工作项目</p></div><span>{versions?.length ?? 0} 个版本</span></header>
-        {versions?.length === 0 && <div className="labor-empty"><strong>尚无成本版本</strong><small>新建版本后维护分类与工作项目</small></div>}
-        <div className="labor-version-rows">{(versions ?? []).map(v => <article key={v.id} className={`labor-version-row${v.id === versionId ? ' selected' : ''}`}>
-          <button type="button" className="labor-version-select" aria-pressed={v.id === versionId} onClick={() => setVersionId(v.id)}><strong>{v.title} <span className={`pill ${v.status === 'active' ? 'ok' : 'warn'}`}>{VERSION_STATUS[v.status]}</span>{v.data.isDefault === true && <span className="pill ok">默认</span>}</strong><code>{String(v.data.versionCode ?? '')}</code><small>{String(v.data.periodName || '未设置期间')} · {String(v.data.effectiveFrom || '立即')} 至 {String(v.data.effectiveTo || '长期')}</small></button>
-          <div className="row-actions">{can('edit') && <button type="button" className="link-button" onClick={() => { setVersionId(v.id); setVersionForm({ record: v }); }}>编辑版本</button>}
-          {can('create') && <button type="button" className="link-button" onClick={()=>{setVersionId(v.id);setCopying(true);}}>复制版本</button>}
-          {can('edit') && v.status!=='active' && <button type="button" className="link-button" onClick={()=>void run(()=>resourceApi.changeStatus('finance-labor-versions',v.id,'active'),'版本已启用')}>{v.status==='draft'?'启用版本':'恢复使用'}</button>}
-          {can('edit') && v.status==='active' && v.data.isDefault!==true && <button type="button" className="link-button" onClick={()=>void run(()=>resourceApi.update('finance-labor-versions',v.id,{isDefault:true}),'已设为默认版本')}>设为默认版本</button>}
-          {can('edit') && v.status==='active' && <button type="button" className="link-button" onClick={()=>setReason({title:`停用成本版本「${v.title}」`,hint:'停用后不能被新的构成选用，已在用构成保留。',confirm:'确认停用',run:async reason=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'inactive',reason);}})}>停用版本</button>}
-          {can('delete') && v.status==='draft' && <button type="button" className="link-button danger" onClick={()=>setReason({title:`删除成本版本「${v.title}」`,hint:'版本下还有分类或项目时不能删除。',confirm:'确认删除',run:async reason=>{await resourceApi.remove('finance-labor-versions',v.id,reason);if(versionId===v.id)setVersionId(null);}})}>删除版本</button>}
+        <header><div><Database size={18}/><div><h2>成本版本</h2><p>点击版本查看对应的分类和工作项目</p></div></div><span>{versions ? `${versions.length} 个版本` : '加载中…'}</span></header>
+        {versions?.length ? <div className="labor-version-rows">{versions.map(v => <article key={v.id} className={`labor-version-row${v.id === versionId ? ' selected' : ''}`}>
+          <button type="button" className="labor-version-select" aria-pressed={v.id === versionId} onClick={() => setVersionId(v.id)}><span className="labor-version-name"><strong>{v.title}</strong>{v.status === 'active' && <i>已启用</i>}</span><code>{String(v.data.versionCode ?? '')}</code><small>{String(v.data.periodName || '未设置期间')} · {String(v.data.effectiveFrom || '立即')} 至 {String(v.data.effectiveTo || '长期')} · {typeof v.data.itemCount === 'number' ? v.data.itemCount : v.id === versionId && dataReady ? items.length : '—'} 项</small></button>
+          <div className="row-actions">{can('create') && <button type="button" onClick={()=>{setVersionId(v.id);setCopying(true);}}><Copy size={15}/>复制版本</button>}
+          {can('edit') && v.status === 'draft' && <button type="button" onClick={() => { setVersionId(v.id); setVersionForm({ record: v }); }}><Pencil size={15}/>编辑版本</button>}
+          {can('edit') && v.status!=='active' && <button type="button" className="primary-button" onClick={()=>setReason({title:'请确认操作',hint:`确认启用“${v.title}”并设为默认人力成本版本吗？启用后仍可维护项目，成本变更将同步到当前引用。`,confirm:'确认',run:async()=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'active');selectWrittenVersion(v.id);}})}>{v.status==='draft' && <Check size={15}/>}{v.status==='draft'?'启用版本':'恢复使用'}</button>}
+          {can('edit') && v.status==='active' && v.data.isDefault!==true && <button type="button" aria-label="设为默认版本" className="link-button" onClick={()=>void run(async()=>{await resourceApi.update('finance-labor-versions',v.id,{isDefault:true});selectWrittenVersion(v.id);},'已设为默认版本')}>设为默认</button>}
+          {can('edit') && v.status==='active' && <button type="button" className="link-button" onClick={()=>setReason({title:'请确认操作',hint:`确认停用“${v.title}”吗？其他模块将不再读取这个版本。`,confirm:'确认',run:async()=>{await resourceApi.changeStatus('finance-labor-versions',v.id,'inactive');selectWrittenVersion(v.id);}})}>停用版本</button>}
+          {can('delete') && v.status==='draft' && <button type="button" aria-label="删除版本" className="link-button danger" onClick={()=>setReason({title:'请确认操作',hint:`确认删除版本“${v.title}”吗？版本内人力成本项目也会一并删除。`,confirm:'确认',danger:true,run:async()=>{await resourceApi.remove('finance-labor-versions',v.id,'人力成本表确认删除版本');selectWrittenVersion(null);}})}><Trash2 size={15}/>删除</button>}
           </div>
-        </article>)}</div>
+        </article>)}</div> : <div className="labor-version-empty"><strong>{versions ? '尚无成本版本' : '正在读取版本…'}</strong><small>新建版本后维护分类与工作项目</small></div>}
       </section>
 
-      <section className="labor-summary" aria-label="人力成本概览">
-        <div><Database size={20}/><span><small>当前默认版本</small><strong>{versions?.find(v=>v.data.isDefault === true)?.title ?? '尚未启用'}</strong></span></div>
-        <div><CalendarDays size={20}/><span><small>当前生效期间</small><strong>{String(versions?.find(v=>v.data.isDefault === true)?.data.periodName || '—')}</strong></span></div>
-        <div><BriefcaseBusiness size={20}/><span><small>所选版本项目</small><strong>{version ? items.length : '—'}</strong></span></div>
-        <div><CircleDollarSign size={20}/><span><small>启用计价标准</small><strong>{version ? items.filter(i=>i.status==='active').length : '—'}</strong></span></div>
+      <section className="labor-summary-strip" aria-label="人力成本概览">
+        <div><Database size={18}/><span>当前默认版本</span><strong>{versions ? defaultVersion?.title ?? '尚未启用' : '加载中…'}</strong></div>
+        <div><CalendarRange size={18}/><span>当前生效期间</span><strong>{defaultVersion ? String(defaultVersion.data.effectiveFrom || '立即') + ' 至 ' + String(defaultVersion.data.effectiveTo || '长期') : versions ? '-' : '加载中…'}</strong></div>
+        <div><BriefcaseBusiness size={18}/><span>所选版本项目</span><strong>{dataReady ? items.length + ' 项' : version ? '加载中…' : '—'}</strong></div>
+        <div><CircleDollarSign size={18}/><span>启用计价标准</span><strong>{dataReady ? items.filter(i => i.status === 'active').length + ' 项' : version ? '加载中…' : '—'}</strong></div>
       </section>
-      {!version && <div className="labor-detail-layout"><div><small>当前成本版本</small><h3>项目归档分类</h3><p className="muted">点击归档分类查看项目</p><p className="muted">请先选择成本版本</p></div><section className="labor-empty"><UsersRound size={32}/><strong>请在上方选择成本版本</strong><span>版本选中后，在这里维护对应的分类和工作计价标准。</span></section></div>}
-      {version && (
-        <div className="card">
-          <div className="toolbar">
-            <label>成本版本 <select aria-label="成本版本" value={versionId ?? ''} onChange={(e) => setVersionId(Number(e.target.value))}>
-              {(versions ?? []).map((v) => <option key={v.id} value={v.id}>{v.title}（{VERSION_STATUS[v.status] ?? v.status}{v.data.isDefault === true ? '，默认' : ''}）</option>)}</select></label>
-            <span className={version.status === 'active' ? 'chip ok' : 'chip muted'}>{VERSION_STATUS[version.status]}</span>
-            {version.data.isDefault === true && <span className="chip active">默认版本</span>}
-            <span className="muted">编号 {String(version.data.versionCode)} · 适用 {String(version.data.effectiveFrom ?? '不限')} ~ {String(version.data.effectiveTo ?? '长期')}{version.data.periodName ? ` · ${String(version.data.periodName)}` : ''}</span>
-          </div>
-          {version.status === 'draft' && <p className="muted">草稿版本里的项目还不能被成品构成、组合选用，启用后才可以。</p>}
-          {locked && <p className="muted">这个版本已停用，只能查看。</p>}
-        </div>
-      )}
-
-      {version && (
-        <div className="labor-detail-layout">
-          <div><div className="between"><h2>项目归档分类</h2>{(can('create') || can('edit')) && <button type="button" className="link-button" disabled={locked} onClick={()=>setManaging(true)}>管理归档</button>}</div>
-          <CategoryTree versionId={version.id} versionLocked={locked} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length}
-            onSelect={(id) => { setSelectedCat(id); setPage(1); }} onChanged={() => void loadVersionData()} management={false} /></div>
-          <section aria-label="工作项目" className="card">
-            <h2>工作项目列表</h2>
-            <div className="toolbar">
-              <input aria-label="搜索工作项目" placeholder="搜索工作名称或编号" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
-              {can('create') && <button type="button" className="primary-button" disabled={locked || (node !== null && !isLeaf)} title={node && !isLeaf ? '请选最末级分类' : undefined} onClick={() => setItemForm({ record: null })}>新增工作项目</button>}
-              {node && !isLeaf && <span className="muted">「{node.name}」还有下级分类，工作项目要放在最末级</span>}
-            </div>
-            <div className="table-scroll"><table className="data-table cards-narrow">
-              <thead><tr><th>工作编号</th><th>归档分类</th><th>工作分类</th><th>工作名称</th><th>计价单位</th><th className="num">单位人力成本</th><th>零值原因</th><th>状态</th><th /></tr></thead>
+      <div className="labor-reference-workspace"><div className="labor-detail-layout">
+        <aside className="labor-directory" aria-label="项目归档分类目录">
+          <header><div><span>当前成本版本</span><h2>项目归档分类</h2></div>{version && !locked && (can('create') || can('edit')) && <button type="button" disabled={!dataReady} onClick={()=>setManaging(true)}><FolderTree size={14}/>管理归档</button>}</header>
+          <div className="labor-directory-hint"><span>点击归档分类查看项目</span><span>末级归档可新增工作项目</span></div>
+          {version && dataReady && <CategoryTree versionId={version.id} tree={tree} selected={selectedCat} onSelect={setSelectedCat}/>}
+          {version && !dataReady && <p className="muted">正在读取项目归档…</p>}
+          {!version && <div className="labor-tree-empty">请先选择成本版本</div>}
+        </aside>
+        <section aria-label="工作项目" className="labor-project-list" aria-busy={!!version && !dataReady}>
+          <header><div><h2>工作项目列表</h2><span>共 {dataReady ? filtered.length : '—'} 条</span></div>{can('create') && !locked && isLeaf && dataReady && <button type="button" className="primary-button" onClick={() => setItemForm({ record: null })}><Plus size={14}/>新增工作项目</button>}</header>
+          {version ? <>
+            <div className="labor-search-toolbar"><label><Search size={16}/><input aria-label="搜索工作项目" placeholder="搜索工作编码、名称、分类或单位" value={keyword} onChange={e => setKeyword(e.target.value)}/></label><span>显示 {dataReady ? filtered.length : '—'} / {dataReady ? items.length : '—'} 项</span></div>
+            {version.status === 'active' && <p className="labor-version-hint">当前版本已启用，可新增和编辑；保存人力成本后，当前BOM及SKU成本表同步更新，历史记录保留。</p>}
+            {locked && <p className="labor-version-hint">当前版本已停用，不可新增或修改资料。</p>}
+            {dataReady && filtered.length > 0 && <div className="table-scroll"><table className="data-table labor-project-table">
+              <thead><tr><th>工作编码</th><th>工作名称</th><th>项目归档分类</th><th>工作分类</th><th>计价单位</th><th>单位人力成本</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>
               <tbody>
-                {shown.length === 0 && <tr><td colSpan={9} className="empty-state muted">{items.length === 0 ? '这个版本还没有工作项目。' : <>没有符合条件的工作项目。<button type="button" className="link-button" onClick={() => { setKeyword(''); setSelectedCat(null); setPage(1); }}>清除搜索和分类</button></>}</td></tr>}
-                {shown.map((i) => (
-                  <tr key={i.id}><td data-label="工作编号">{String(i.data.workCode ?? '')}</td><td data-label="归档分类">{i.refLabels.archiveCategoryId}</td><td data-label="工作分类">{i.refLabels.workTypeId}</td><td data-label="工作名称">{String(i.data.workName ?? '')}</td><td data-label="计价单位">{i.refLabels.unitId}</td>
-                    <td className="num" data-label="单位人力成本">{canSeeCost ? money(i.data.unitPrice as number | undefined) : '无权限'}</td><td data-label="零值原因">{String(i.data.zeroReason ?? '')}</td>
-                    <td data-label="状态">{i.status === 'active' ? '启用' : '停用'}</td>
-                    <td className="row-actions">
+                {filtered.map((i) => (
+                  <tr key={i.id}><td data-label="工作编码"><strong>{String(i.data.workCode ?? '')}</strong></td><td data-label="工作名称"><strong>{String(i.data.workName ?? '')}</strong></td><td data-label="项目归档分类">{i.refLabels.archiveCategoryId}</td><td data-label="工作分类">{i.refLabels.workTypeId}</td><td data-label="计价单位">{i.refLabels.unitId}</td>
+                    <td data-label="单位人力成本"><strong className="labor-project-money">{canSeeCost ? typeof i.data.unitPrice === 'number' && Number.isFinite(i.data.unitPrice) ? `¥${unitYuanText(i.data.unitPrice)}` : '未填写' : '无权限'}</strong></td>
+                    <td data-label="状态"><span className={`labor-project-status ${i.status}`}>{i.status === 'active' ? '启用' : '停用'}</span></td>
+                    <td data-label="备注">{String(i.data.note || '-')}</td>
+                    <td>{locked ? '-' : <div className="row-actions">
                       {can('edit') && <button type="button" className="link-button" disabled={locked} onClick={() => setItemForm({ record: i })}>编辑</button>}
-                      {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'zeroReason'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) })}>复制新增</button>}
-                      {!locked && can('disable') && (i.status === 'active'
-                        ? <button type="button" className="link-button" onClick={() => setReason({ title: `停用「${i.title}」`, hint: '被成品构成或组合用着的项目不能停用。', confirm: '确认停用', run: async (r) => { await resourceApi.changeStatus('finance-labor-costs', i.id, 'inactive', r); } })}>停用</button>
-                        : <button type="button" className="link-button" onClick={() => void run(() => resourceApi.changeStatus('finance-labor-costs', i.id, 'active'))}>启用</button>)}
-                      {!locked && can('delete') && <button type="button" className="link-button danger" onClick={() => setReason({ title: `删除「${i.title}」`, hint: '被成品构成或组合用着的项目不能删除，请改成停用。', confirm: '确认删除', run: async (r) => { await resourceApi.remove('finance-labor-costs', i.id, r); } })}>删除</button>}
-                    </td></tr>
+                      {can('create') && !locked && <button type="button" className="link-button" onClick={() => setItemForm({ record: null, initial: { __copyOf: i.id, ...Object.fromEntries(['archiveCategoryId', 'workTypeId', 'unitId', 'workName', 'unitPrice', 'note'].filter((k) => i.data[k] !== undefined && i.data[k] !== null).map((k) => [k, i.data[k]])) } })}><Copy size={13}/>复制新增</button>}
+                      {!locked && can('delete') && <button type="button" className="link-button danger" disabled={version.status !== 'draft'} onClick={() => setReason({ title: '请确认操作', hint: `确认删除人力成本项目“${String(i.data.workName || i.title)}”吗？`, confirm: '确认', danger: true, run: async () => { await resourceApi.remove('finance-labor-costs', i.id, '人力成本表确认删除项目'); } })}>删除</button>}
+                    </div>}</td></tr>
                 ))}
               </tbody>
-            </table></div>
-            {filtered.length > PAGE_SIZE && <Pager page={page} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />}
-            <p className="muted">单位人力成本填 0 时必须写明零值原因；已被成品构成或组合使用的项目，不能换版本、换计价单位、停用或删除。</p>
-          </section>
-        </div>
-      )}
+            </table></div>}
+            {!dataReady ? <div className="labor-list-empty">正在读取工作项目…</div> : filtered.length === 0 && <div className="labor-list-empty"><BriefcaseBusiness size={30}/><strong>{kw ? '没有匹配的工作项目' : node ? '当前归档分类暂无工作项目' : '当前版本暂无工作项目'}</strong><span>{!locked && !kw ? cats.length ? '请选择左侧最末级归档分类后新增项目。' : '请先在左侧管理当前版本的项目归档分类。' : '请调整搜索条件或切换归档分类。'}</span></div>}
+          </> : <div className="labor-list-empty no-version"><UsersRound size={36}/><strong>请在上方选择成本版本</strong><span>版本选中后，在这里维护对应的分类和工作计价标准。</span></div>}
+        </section>
+      </div></div>
 
-      {dialog === 'workTypes' && <DictionaryDialog type="finance-labor-work-types" title="维护工作分类" hint="工作分类如“包装、分拣、生产加工”，会参与工作编号。已经被工作项目使用的不能删除。" onClose={() => { setDialog(null); void loadVersionData(); }} />}
-      {managing && version && <FinanceModal title="管理项目归档分类" onClose={()=>setManaging(false)}><CategoryTree versionId={version.id} versionLocked={locked} cats={cats} tree={tree} selected={selectedCat} canEdit={can('create') || can('edit')} canDelete={can('delete')} total={items.length} onSelect={setSelectedCat} onChanged={()=>void loadVersionData()}/></FinanceModal>}
-      {dialog === 'units' && <DictionaryDialog type="finance-labor-units" title="维护计价单位" hint="计价单位如“元/袋、元/小时”。已经被工作项目使用的不能删除。" onClose={() => { setDialog(null); void loadVersionData(); }} />}
-      {copying && version && <CopyVersionDialog source={version} onClose={() => setCopying(false)} onCopied={(id) => { setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
-      {versionForm && <RecordForm def={getResourceDef('finance-labor-versions')!} record={versionForm.record} onClose={() => setVersionForm(null)} onSaved={(dto) => { clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} />}
-      {itemForm && version && <RecordForm def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...itemForm.initial, ...(node && isLeaf && !itemForm.record && !itemForm.initial ? { archiveCategoryId: node.id } : {}) }} lockedFields={itemForm.record ? undefined : ['versionId']}
-        onClose={() => setItemForm(null)} onSaved={() => { clearRefCache('finance-labor-costs'); setItemForm(null); void loadVersionData(); }} />}
-      {reason && <ReasonDialog title={reason.title} hint={reason.hint} confirmLabel={reason.confirm} danger onClose={() => setReason(null)} onConfirm={async (r) => { await reason.run(r); setReason(null); await loadVersions(); await loadVersionData(); }} />}
+      {managing && version && <FinanceCategoryManager key={`${scopeKey}:categories:${version.id}`} target="finance-labor-categories" context={{field:'versionId',value:version.id,label:'当前版本标识',text:String(version.data.versionCode || '-')}} presentation={{kicker:'人力成本表 · 归档设置',description:'按一级、二级、三级逐层维护，仅用于当前成本版本的项目归档和导航。',unit:'个工作项目',footer:'草稿版本可维护全部归档分类。'}} locked={locked} allowDelete={version.status==='draft'} guardDeleteReferences={false} confirmation="message" onClose={()=>setManaging(false)} onChanged={()=>void loadVersionData()}/>}
+      {copying && version && <CopyVersionDialog key={`${scopeKey}:${version.id}`} source={version} onClose={() => setCopying(false)} onCopied={(id) => { if(!mounted.current || scopeRef.current!==scopeKey)return;setCopying(false); clearRefCache('finance-labor-versions'); setVersionId(id); setNotice('已复制，新版本是草稿，检查后再启用'); void loadVersions(); }} />}
+      {versionForm && <div className="labor-version-form-host"><RecordForm key={`${scopeKey}:version:${versionForm.record?.id ?? 'new'}`} def={getResourceDef('finance-labor-versions')!} record={versionForm.record} initial={versionForm.record ? undefined : { versionCode: `RL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}` }} onClose={() => setVersionForm(null)} onSaved={(dto) => { if(!mounted.current || scopeRef.current!==scopeKey)return;clearRefCache('finance-labor-versions'); setVersionForm(null); setVersionId(dto.id); void loadVersions(); }} /></div>}
+      {itemForm && version && <RecordForm key={`${scopeKey}:item:${version.id}:${itemForm.record?.id ?? itemForm.initial?.__copyOf ?? 'new'}`} def={getResourceDef('finance-labor-costs')!} record={itemForm.record} initial={{ versionId: version.id, ...itemForm.initial, ...(node && isLeaf && !itemForm.record && !itemForm.initial ? { archiveCategoryId: node.id } : {}) }} lockedFields={['versionId', 'archiveCategoryId']}
+        onClose={() => setItemForm(null)} onSaved={() => { if(!mounted.current || scopeRef.current!==scopeKey)return;clearRefCache('finance-labor-costs'); setItemForm(null); void loadVersions(); void loadVersionData(); }} />}
+      {reason && <ReasonDialog title={reason.title} hint={reason.hint} confirmLabel={reason.confirm} danger={reason.danger} requireReason={false} onClose={() => setReason(null)} onConfirm={async (r) => { await reason.run(r); if(!mounted.current || scopeRef.current!==scopeKey)return;setReason(null); if (await loadVersions()) await loadVersionData(); }} />}
     </div>
   );
 }

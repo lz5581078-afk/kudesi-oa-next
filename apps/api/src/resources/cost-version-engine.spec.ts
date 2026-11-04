@@ -17,7 +17,7 @@ describe('版本成本计算',()=>{
   });
   it('手工科目优先，未手工维护时从来源取值；重量改变才重新估快递',()=>{
     const first=run([setting()]).rows[0];
-    expect(first.buckets.purchase).toBe(1000.1234);expect(first.freightCents).toBe(200);
+    expect(first.buckets.purchase).toBe(1000.12);expect(first.freightCents).toBe(200);
     const row=setting();row.data.estimatedWeightG=2000;row.data.purchaseCost=99.9999;row.data.markupPercent=0;
     const changed=run([row]).rows[0];expect(changed.freightCents).toBe(300);expect(changed.minPriceCents).toBe(400);
   });
@@ -26,7 +26,7 @@ describe('版本成本计算',()=>{
     const aux=record(21,'finance-cost-auxiliary',{versionId:1,auxTypeId:20,costBucket:'production',amount:12.3456});
     const assignment=record(22,'finance-cost-assignments',{versionId:1,skuSettingId:10,auxiliaryId:21,qty:2,mode:'add'});
     const fallback=record(23,'finance-cost-overrides',{versionId:1,skuSettingId:10,costBucket:'production',amount:50,mode:'fallback'});
-    const row=run([setting(),type,aux,assignment,fallback]).rows[0];expect(row.buckets.production).toBe(24.6912);
+    const row=run([setting(),type,aux,assignment,fallback]).rows[0];expect(row.buckets.production).toBe(24.69);
     fallback.data.mode='replace';expect(run([setting(),type,aux,assignment,fallback]).rows[0].buckets.production).toBe(50);
   });
   it('辅助类型的计价方式不改变已维护辅助单价，分摊仍按单价乘数量',()=>{
@@ -44,7 +44,7 @@ describe('版本成本计算',()=>{
   });
   it('发货包装计入快递前成本，投产试算不会漏掉这笔成本',()=>{
     const s=setting();s.data.shippingPackageCost=50;const row=run([s]).rows[0];
-    expect(row.preShipCostCents).toBe(1050.1234);expect(row.costIncludingFreightCents).toBe(1250.1234);
+    expect(row.preShipCostCents).toBe(1050.12);expect(row.costIncludingFreightCents).toBe(1250.12);
   });
   it('空版本不能启用，来源缺失和零值以警告提示而不阻断',()=>{
     expect(run([]).ready).toBe(false);
@@ -71,9 +71,9 @@ describe('版本成本计算',()=>{
     const s=setting();s.data.purchaseCost=900;s.data.estimatedExpressCost=200;
     const adjustment=record(30,'finance-cost-overrides',{versionId:1,skuSettingId:10,costBucket:'production',amount:50,mode:'add'});
     const result=recalculationPreview(version,[s,adjustment],[seed],()=>300);
-    expect(result.rows[0]).toMatchObject({previous:1100,proposed:1250.1234});
+    expect(result.rows[0]).toMatchObject({previous:1100,proposed:1250.12});
     const saved=record(10,'finance-cost-skus',result.writes[0].data);
-    expect(computeVersion(version,[saved,adjustment],[seed],()=>300).rows[0].costIncludingFreightCents).toBe(1250.1234);
+    expect(computeVersion(version,[saved,adjustment],[seed],()=>300).rows[0].costIncludingFreightCents).toBe(1250.12);
   });
   it('重量特殊调整保留到重算结果，并按调整后的重量估快递',()=>{
     const s=setting();s.data.estimatedWeightG=2000;s.data.weightManual=true;

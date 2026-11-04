@@ -89,6 +89,8 @@ d('聚水潭同步队列（真实数据库）', () => {
     expect(failed.total).toBe(1);
     expect((await svc.get(boss, 'finance-base-codes', ids.bc)).data.jstStatus).toBe('failed');
     await outbox.retry(boss, failed.rows[0].id);
+    const due=await ds.query('SELECT next_attempt_at <= NOW() AS dueNow FROM outbox_jobs WHERE company_id=? AND id=?',[boss.companyId,failed.rows[0].id]);
+    expect(Number(due[0].dueNow)).toBe(1); // Manual retry is immediately due on the worker's database clock.
     outbox.setSender(sender());
     expect((await outbox.processCompany(boss.companyId)).sent).toBe(1);
     expect((await svc.get(boss, 'finance-base-codes', ids.bc)).data.jstStatus).toBe('synced');

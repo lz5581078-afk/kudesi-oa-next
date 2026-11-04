@@ -11,10 +11,10 @@ const RECENT_KEY = 'kudesi.apply.recent';
 const readRecent = (): string[] => { try { const v = JSON.parse(remember.get(RECENT_KEY, '[]')); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; } };
 
 /** 申请中心：选一种流程、填表、提交。同一次填写用同一个 requestKey，重复点击不会重复发起；最近用过的排最前。 */
-export function ApplyPage() {
-  const [templates, setTemplates] = useState<TemplateInfo[] | null>(null);
+export function ApplyPage({initialTemplate,onClose,onSubmitted}:{initialTemplate?:TemplateInfo;onClose?:()=>void;onSubmitted?:(batchRef:string)=>void}={}) {
+  const [templates, setTemplates] = useState<TemplateInfo[] | null>(initialTemplate?[initialTemplate]:null);
   const [error, setError] = useState('');
-  const [sel, setSel] = useState<TemplateInfo | null>(null);
+  const [sel, setSel] = useState<TemplateInfo | null>(initialTemplate ?? null);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [openRun, setOpenRun] = useState<number | null>(null);
@@ -22,12 +22,12 @@ export function ApplyPage() {
   const [keyword, setKeyword] = useState('');
   const [recent, setRecent] = useState<string[]>(readRecent);
   const keyRef = useRef(newRequestKey());
-  useEffect(() => { flowApi.templates().then(setTemplates).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')); }, []);
+  useEffect(() => { if(initialTemplate)return;flowApi.templates().then(setTemplates).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')); }, []);
 
   const dirty = Object.values(values).some((v) => v !== '' && v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0));
   function closeForm() {
     if (dirty && !window.confirm('已填写的内容还没有提交，确定放弃吗？')) return;
-    setSel(null);
+    if(onClose)onClose();else setSel(null);
   }
 
   async function submit() {
@@ -40,10 +40,12 @@ export function ApplyPage() {
       if (split) {
         // 每个规格独立办理：拆成一规格一条流程；有失败的规格单独提示，已发起的不受影响
         const out = await skuApi.startSplit(rest, keyRef.current);
+        if(!out.runs.length){setError(`所有规格均未发起成功：${out.failed.map(item=>`${item.specName}（${item.message}）`).join('；') || '请核对后重试'}`);return;}
         keyRef.current = newRequestKey();
         setSubmitted(`「${sel.label}」已拆成 ${out.runs.length} 条独立流程（${out.runs.map((r) => `#${r.id}`).join('、')}）${out.failed.length ? `；${out.failed.length} 个规格没发起成功：${out.failed.map((f) => `${f.specName}（${f.message}）`).join('；')}` : ''}。`);
         setSel(null);
         setValues({});
+        if(onSubmitted){onSubmitted(out.batchKey);return;}
         if (out.runs[0]) setOpenRun(out.runs[0].id);
         return;
       }
@@ -55,6 +57,7 @@ export function ApplyPage() {
       setSubmitted(`「${sel.label}」已提交，编号 #${run.id}。办理进度可在“我发起的”查看。`);
       setSel(null);
       setValues({});
+      if(onSubmitted){onSubmitted(`run-${run.id}`);return;}
       setOpenRun(run.id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '提交失败');
@@ -70,7 +73,7 @@ export function ApplyPage() {
 
   return (
     <div>
-      <div className="page-head"><h1>申请中心</h1><Link to="/workbench/started" className="muted">我发起的 →</Link></div>
+      {!initialTemplate && <><div className="page-head"><h1>申请中心</h1><Link to="/workbench/started" className="muted">我发起的 →</Link></div>
       {submitted && <div role="status" className="notice ok-notice toast-line"><span>{submitted}</span><button type="button" aria-label="关闭提示" onClick={() => setSubmitted('')}>✕</button></div>}
       {error && !sel && <div role="alert" className="notice error">{error}</div>}
       <input type="search" className="search-input card-search" aria-label="搜索流程" placeholder="搜索想发起的流程" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
@@ -94,6 +97,7 @@ export function ApplyPage() {
           </section>
         ))}
       </div>
+      </>}
       {sel && (
         <div className="modal-backdrop" role="presentation">
           <form className="modal card" role="dialog" aria-label={`发起${sel.label}`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>

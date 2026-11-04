@@ -1,6 +1,8 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import {PRODUCT_REFERENCE_CSV_COLUMNS} from './product-reference-csv';
+import {referenceArchiveCsv} from './reference-archive-csv';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, Max, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsUUID, IsString, Matches, MaxLength, Max, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { createChecker } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission, RequireResourceAction } from '../common/auth.decorators';
 import { DataToolsService } from './data-tools.service';
@@ -11,6 +13,9 @@ class ListQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) pageSize?: number;
   @IsOptional() @IsString() @MaxLength(100) keyword?: string;
+  /** 原费用表多条搜索；普通资料keyword保留原100字契约。 */
+  @IsOptional() @IsString() @MaxLength(20000) referenceSearch?:string;
+  @IsOptional() @IsIn(['1']) referenceOrder?:string;
   @IsOptional() @IsString() @MaxLength(24) status?: string;
   @IsOptional() @IsString() @MaxLength(64) tab?: string;
   @IsOptional() @IsString() @MaxLength(48) fieldKey?: string;
@@ -52,8 +57,35 @@ class UpdateDto {
   @IsObject() values!: Record<string, unknown>;
 }
 
+class FormExpectedDto {
+  @IsInt() @Min(1) id!: number;
+  @IsString() @MaxLength(64) version!: string;
+}
+class FormRowDto {
+  @IsOptional() @IsInt() @Min(1) id?: number;
+  @IsObject() values!: Record<string, unknown>;
+}
+class FormCollectionDto {
+  @IsString() @MaxLength(64) type!: string;
+  @IsArray() @ArrayMaxSize(2000) @ValidateNested({ each: true }) @Type(() => FormExpectedDto) expected!: FormExpectedDto[];
+  @IsArray() @ArrayMaxSize(2000) @ValidateNested({ each: true }) @Type(() => FormRowDto) rows!: FormRowDto[];
+}
+class FormCopySourceDto {
+  @IsInt() @Min(1) id!:number;
+  @IsString() @MaxLength(64) version!:string;
+  @IsObject() files!:Record<string,number[]>;
+}
+class FormSaveDto extends SaveDto {
+  @IsOptional() @ValidateNested() @Type(()=>FormCopySourceDto) copySource?:FormCopySourceDto;
+  @IsUUID('4') requestKey!: string;
+  @IsOptional() @IsInt() @Min(1) id?: number;
+  @IsOptional() @IsString() @MaxLength(64) version?: string;
+  @IsOptional() @IsString() @MaxLength(500) statusReason?: string;
+  @IsArray() @ArrayMaxSize(8) @ValidateNested({ each: true }) @Type(() => FormCollectionDto) collections!: FormCollectionDto[];
+}
+
 class CategoryOrderDto {
-  @IsArray() @ArrayMaxSize(500) @IsInt({ each: true }) @Min(1, { each: true }) orderedIds!: number[];
+  @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) orderedIds!: number[];
 }
 
 class ArchivePrefixDto {
@@ -124,6 +156,7 @@ class PhotoIdsDto {
 }
 
 class DeleteDto {
+  @ValidateIf((_o, value) => value !== undefined) @IsString() @Matches(/^[a-f0-9]{16}$/) expectedVersion?: string;
   @IsString() @MaxLength(500) reason!: string;
 }
 
@@ -133,6 +166,19 @@ class ImportDto {
   /** true=有问题的行跳过，其余照常导入 */
   @IsOptional() @IsBoolean() partial?: boolean;
   @IsOptional() @IsInt() @Min(1) parentId?: number;
+  @IsOptional() @IsBoolean() referenceArchive?:boolean;
+  @IsOptional() @IsInt() @Min(1) referenceCategoryId?:number;
+}
+
+class ProfileSheetDto {
+  @IsString() @MaxLength(64) name!:string;
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @IsString({each:true}) headers?:string[];
+  @IsArray() @IsObject({each:true}) rows!:Array<Record<string,string>>;
+}
+class ProfileImportDto {
+  @IsArray() @ArrayMaxSize(12) @ValidateNested({each:true}) @Type(()=>ProfileSheetDto) sheets!:ProfileSheetDto[];
+  @IsBoolean() dryRun!:boolean;
+  @IsOptional() @IsString() @MaxLength(160) signature?:string;
 }
 
 class SimilarDto {
@@ -141,6 +187,7 @@ class SimilarDto {
 }
 
 class ExportQueryDto {
+  @IsOptional() @IsIn(['1']) referenceArchive?:string;
   @IsOptional() @IsString() includeHidden?: string;
   // 导出范围：带上列表当前的筛选条件=导出当前筛选结果；带 ids=导出所选；都不带=全部
   @IsOptional() @IsString() @MaxLength(100) keyword?: string;
@@ -163,6 +210,17 @@ class ExportQueryDto {
 @Controller('resources')
 export class ResourcesController {
   constructor(private readonly resources: ResourcesService, private readonly tools: DataToolsService, private readonly grid: GridSaveService) {}
+
+  @RequirePermission('finance.master-import.view')
+  @Get('import-profiles')
+  importProfiles() { return this.resources.importProfiles(); }
+
+  @AuthenticatedOnly()
+  @Post('import-profiles/:profile')
+  importProfile(@CurrentUser() user:AuthUser,@Param('profile') profile:string,@Body() body:ProfileImportDto) {
+    return this.resources.importProfile(user,profile,body.sheets,body.dryRun,body.signature);
+  }
+
 
   // 总览按每种资料的查看权限过滤，所以只要求登录
   // 商品档案下拉用：公司维护的单位与规格（名称+取值），不含敏感信息
@@ -208,6 +266,18 @@ export class ResourcesController {
     return this.resources.categoryTree(user, type, q.field, { tab: q.tab, status: q.status, showHidden: q.showHidden === '1' });
   }
 
+  @RequireResourceAction('create')
+  @Post(':type/code-preview')
+  codePreview(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() body: UpdateDto) {
+    return this.resources.codePreview(user, type, body.values);
+  }
+
+  @RequireResourceAction('edit')
+  @Post(':type/:id/code-preview')
+  codePreviewExisting(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() body: UpdateDto) {
+    return this.resources.codePreview(user, type, body.values, id);
+  }
+
   @RequireResourceAction('view')
   @Get(':type/column-facets')
   columnFacets(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: FacetQueryDto) {
@@ -217,15 +287,21 @@ export class ResourcesController {
   @RequireResourceAction('view')
   @Get(':type')
   list(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ListQueryDto) {
-    return this.resources.list(user, type, { ...q, showHidden: q.showHidden === '1', archived: q.archived === '1', expiring: q.expiring === '1' });
+    const {referenceSearch,referenceOrder,...base}=q;
+    if(referenceOrder&&type!=='finance-fee-items')throw new BadRequestException('该资料不支持此顺序偏好');
+    if(referenceSearch!==undefined&&(type!=='finance-fee-items'||q.keyword!==undefined))throw new BadRequestException('这个资料不支持此搜索条件，或重复提交了搜索条件');
+    return this.resources.list(user, type, { ...base, ...(referenceOrder?{referenceOrder:true}:{}), keyword:referenceSearch??q.keyword, showHidden: q.showHidden === '1', archived: q.archived === '1', expiring: q.expiring === '1' });
   }
 
   @RequireResourceAction('export')
   @Get(':type/export')
   export(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ExportQueryDto) {
+    if(q.referenceArchive&&type!=='finance-products'&&!referenceArchiveCsv(type))throw new BadRequestException('该资料没有原版CSV格式');
+    if(q.referenceArchive&&type==='finance-products'&&!Object.prototype.hasOwnProperty.call(PRODUCT_REFERENCE_CSV_COLUMNS,q.tab??''))throw new BadRequestException('请选择有效商品档案类型（原版CSV格式）');
     const ids = (q.ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    if(q.referenceArchive&&type==='finance-products'&&q.ids?.trim()&&!ids.length)throw new BadRequestException('请选择有效商品档案');
     return this.resources.exportCsv(user, type, q.includeHidden === '1', {
-      keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, colFilters: q.colFilters, archived: q.archived === '1', expiring: q.expiring === '1',
+      referenceArchive:q.referenceArchive==='1', keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, colFilters: q.colFilters, archived: q.archived === '1', expiring: q.expiring === '1',
       sortBy: q.sortBy, sortDir: q.sortDir, ids: ids.length ? ids : undefined,
       derivedKeys: (q.cols ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20),
     });
@@ -246,6 +322,9 @@ export class ResourcesController {
   @RequireResourceAction('import')
   @Post(':type/import')
   import(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: ImportDto) {
+    if(dto.referenceArchive&&!referenceArchiveCsv(type))throw new BadRequestException('该资料没有原版CSV格式');
+    if(dto.referenceCategoryId!==undefined&&!dto.referenceArchive)throw new BadRequestException('请使用原版分类导入上下文');
+    if(dto.referenceArchive)return this.resources.importRows(user,type,dto.rows,dto.dryRun,dto.partial===true,dto.parentId,{categoryId:dto.referenceCategoryId});
     return this.resources.importRows(user, type, dto.rows, dto.dryRun, dto.partial === true, dto.parentId);
   }
 
@@ -289,6 +368,13 @@ export class ResourcesController {
   @Post('finance-products/:id/warehouse-photos')
   warehousePhotos(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: PhotoIdsDto) {
     return this.resources.addWarehousePhotos(user, id, dto.fileIds);
+  }
+
+  // 操作权限随新增/编辑及每份子表逐项检查，配置未开放的资料不能使用。
+  @AuthenticatedOnly()
+  @Post(':type/save-form')
+  saveForm(@CurrentUser() user: AuthUser, @Param('type') type: string, @Body() dto: FormSaveDto) {
+    return this.resources.saveForm(user, type, dto);
   }
 
   @RequireResourceAction('create')
@@ -342,7 +428,7 @@ export class ResourcesController {
   @RequireResourceAction('delete')
   @Delete(':type/:id')
   remove(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: DeleteDto) {
-    return this.resources.remove(user, type, id, dto.reason);
+    return this.resources.remove(user, type, id, dto.reason, dto.expectedVersion);
   }
 
   @RequireResourceAction('delete')

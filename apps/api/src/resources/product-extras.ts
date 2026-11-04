@@ -1,3 +1,4 @@
+import { packagingCapacities } from './packaging-capacities';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { FINANCE_RESOURCE_DEFS, optionsKindOf } from '@kudesi/shared';
@@ -56,14 +57,14 @@ export function basicInfoFullName(data: Data, brandName: string, units?: UnitLis
   const optLabel = (key: string, value: unknown) => (units ? unitLabel(units, optionsKindOf(PRODUCT_DEF.fields.find((f) => f.key === key)!, data) ?? '', value) || optLabelStatic(key, value) : optLabelStatic(key, value));
   const type = str(data.archiveType);
   const name = str(data.name);
-  const qty = typeof data.specQty === 'number' ? String(data.specQty) : '';
+  const qty = str(data.specQty).trim();
   const unit = optLabel('specUnit', data.specUnit);
   if (type === 'package' || type === 'oem_package') {
-    const caps = str(data.capacities).split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
-    return join([optLabel('packagingCategory', data.packagingCategory) || data.shape, name, brandName, data.dimensions, data.dimensions ? optLabel('dimensionUnit', data.dimensionUnit) : '', ...(caps.length ? caps : qty ? [`${qty}${unit}`] : [])]);
+    const caps = packagingCapacities(data.capacities, units ?? new Map()).filter(capacity => capacity.quantityText).map(capacity => `${capacity.quantityText}${units ? unitLabel(units, 'spec_unit', capacity.code || capacity.unit) : optLabelStatic('specUnit', capacity.code || capacity.unit)}`);
+    return join([optLabel('packagingCategory', data.packagingCategory) || data.shape, name, brandName, data.dimensions, optLabel('dimensionUnit', data.dimensionUnit), ...(caps.length ? caps : qty ? [`${qty}${unit}`] : [])]);
   }
   if (type === 'raw' || type === 'shipping_material') return join([name, qty, unit, data.materialCode]);
-  if (type === 'self_made') return join([name, brandName, qty, unit, data.productPackagingSpec]);
+  if (type === 'self_made') return join([name, brandName, qty, unit, data.productPackagingSpec, optLabel('productPackagingUnit', data.productPackagingUnit), data.purchaseSpec]);
   if (type === 'purchased') return join([name, brandName, qty, unit, data.purchaseSpec, data.supplyMode === 'supplier_oem' ? '供应商OEM' : '原装采购']);
   return join([name, brandName, qty, unit, data.shape]);
 }

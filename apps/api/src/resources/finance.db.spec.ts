@@ -4,10 +4,14 @@ import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, ResourceRecord, User } from '../entities';
 import { buildServices } from '../test-support';
+import { buildSnapshot } from './base-code-support';
+import { getResourceDef } from '@kudesi/shared';
+import { ExpressService } from './express.service';
 import { CostService } from './cost.service';
 import { ResourcesService } from './resources.service';
+import { previewProductCode } from './finance-rules';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 
@@ -33,6 +37,170 @@ d('财务资料（真实数据库）', () => {
     ids.brand = (await svc.create(boss, 'finance-brands', { name: '果园先生' })).id;
   });
   afterAll(async () => { await ds?.destroy(); });
+
+  it.each(['suppliers', 'customers'])('往来单位 %s 列表只展示直属分类，分页和导出不混入下级，目录仍有汇总计数', async (kind) => {
+    const company = await ds.manager.save(Company, ds.manager.create(Company, { code: `direct${crypto.randomBytes(5).toString('hex')}`, name: '直属测试隔离公司', status: 'active' }));
+    const user = await ds.manager.save(User, ds.manager.create(User, { companyId: company.id, account: 'admin', passwordHash: 'x', name: '测试管理员', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
+    const actor = { ...boss, id: user.id, companyId: company.id };
+    const type = `finance-${kind}`;
+    const catType = kind === 'suppliers' ? 'finance-supplier-categories' : 'finance-customer-categories';
+    const root = await svc.create(actor, catType, { name: `直属测试${kind}` });
+    const child = await svc.create(actor, catType, { name: '末级目录', parentId: root.id });
+    const party = await svc.create(actor, type, { name: `直属单位${kind}`, categoryIds: [child.id] });
+    const q = { filters: JSON.stringify({ categoryIds: String(root.id) }), pageSize: 1 };
+    expect((await svc.list(actor, type, q)).total).toBe(0);
+    expect((await svc.exportCsv(actor, type, false, q)).csv).not.toContain(party.title);
+    const direct = await svc.list(actor, type, { filters: JSON.stringify({ categoryIds: String(child.id) }) });
+    expect(direct.total).toBe(1);
+    expect(direct.items[0].id).toBe(party.id);
+    const tree = await svc.categoryTree(actor, type, 'categoryIds', {});
+    expect(tree.nodes.find(node => node.id === root.id)?.count).toBe(1);
+    expect(tree.nodes.find(node => node.id === root.id)?.directCount).toBe(0);
+    expect(tree.nodes.find(node => node.id === child.id)?.directCount).toBe(1);
+    expect((await svc.list({ ...actor, companyId: 999999999 }, type, q)).total).toBe(0);
+  });
+
+  it('供货来源只因采购价修改切换最新成本，非价格修改保留时间且兼容旧记录', async () => {
+    const supplier = await svc.create(boss, 'finance-suppliers', { name: '报价时序测试供应商' });
+    const product = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '报价时序苹果', categoryId: ids.leaf, purchaseSpec: '千克', specQty: 1, specUnit: 'KG', purchasePrice: 100, freight: 1, handlingFee: 1 });
+    const a = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '甲产区', purchasePrice: 100 });
+    const b = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '乙产区', purchasePrice: 200 });
+    // 固定合成记录的时间，避免依赖机器时钟和毫秒先后。
+    for (const [id, priceUpdatedAt] of [[a.id, '2020-01-01T00:00:00Z'], [b.id, '2021-01-01T00:00:00Z']] as const) {
+      const record = await ds.manager.findOneByOrFail(ResourceRecord, { id });
+      await ds.manager.update(ResourceRecord, { id }, { data: { ...record.data, priceUpdatedAt } });
+    }
+    const edited = await svc.update(boss, 'finance-product-sources', a.id, { originArea: '甲产区修正' });
+    expect(edited.data.priceUpdatedAt).toBe('2020-01-01T00:00:00Z');
+    expect((await svc.get(boss, 'finance-products', product.id)).data.purchasePrice).toBe(200);
+    const repriced = await svc.update(boss, 'finance-product-sources', a.id, { purchasePrice: 300 });
+    expect(new Date(String(repriced.data.priceUpdatedAt)).getTime()).toBeGreaterThan(new Date('2021-01-01').getTime());
+    expect((await svc.get(boss, 'finance-products', product.id)).data.purchasePrice).toBe(300);
+    const legacy = await ds.manager.findOneByOrFail(ResourceRecord, { id: b.id });
+    delete legacy.data.priceUpdatedAt;
+    await ds.manager.query('UPDATE resource_records SET data = ?, updated_at = ? WHERE id = ? AND company_id = ?', [JSON.stringify(legacy.data), '2019-01-01 00:00:00', b.id, boss.companyId]);
+    const legacyTime = (await ds.manager.findOneByOrFail(ResourceRecord, { id: b.id })).updatedAt.toISOString();
+    const legacyEdited = await svc.update(boss, 'finance-product-sources', b.id, { originArea: '旧记录产区修正' });
+    expect(legacyEdited.data.priceUpdatedAt).toBe(legacyTime);
+    expect((await svc.get(boss, 'finance-products', product.id)).data.purchasePrice).toBe(300);
+    await expect(svc.update({ ...boss, companyId: 999999999 }, 'finance-product-sources', a.id, { purchasePrice: 999 })).rejects.toThrow();
+  });
+
+  it('发货物料文字规格贯穿保存、基础名称、编码与导入导出', async () => {
+    const category = await svc.create(boss, 'finance-categories', { archiveType: 'shipping_material', name: '文字规格测试类', code: 'WZGG' });
+    const data = { archiveType: 'shipping_material', name: '合成气泡袋', categoryId: category.id, specQty: '25*33+4', specUnit: 'EA', weightG: 10, purchasePrice: 100, freight: 5, handlingFee: 1 };
+    const product = await svc.create(boss, 'finance-products', data);
+    expect(product.data.specQty).toBe('25*33+4');
+    expect(product.data.basicInfoFullName).toContain('25*33+4');
+    expect(product.data.code).toContain('-25334EA');
+    const bases = await svc.list(boss, 'finance-base-codes', { fieldKey: 'productId', fieldValue: String(product.id) });
+    expect(bases.items[0].data.code).toContain('-25334EA');
+    expect(bases.items[0].data.spec).toBe('25*33+4EA');
+    const snapshot = await buildSnapshot(ds.manager, boss.companyId, await ds.manager.findOneByOrFail(ResourceRecord, { id: bases.items[0].id }));
+    expect(snapshot.snapshot.archives[0].specQty).toBe('25*33+4');
+    expect(snapshot.issues.some(i => i.message.includes('规格'))).toBe(false);
+    expect((await svc.exportCsv(boss, 'finance-products', false, { fieldKey: 'categoryId', fieldValue: String(category.id) })).csv).toContain('25*33+4');
+    const def = getResourceDef('finance-products')!;
+    const converted = await (svc as any).rowToInput(ds.manager, boss, def, { '档案类型': '发货物料档案', '规格数量': '25*33+4' });
+    expect(converted.errors).toEqual([]);
+    expect(converted.input.specQty).toBe('25*33+4');
+    await svc.update(boss, 'finance-products', product.id, { name: '合成气泡袋改名' });
+    expect((await svc.get(boss, 'finance-products', product.id)).data.specQty).toBe('25*33+4');
+  });
+
+  it('发货物料小数按文字取码，纯符号规格保留单位；预览和保存一致，既有编码不重写', async () => {
+    const category = await svc.create(boss, 'finance-categories', { archiveType: 'shipping_material', name: '符号编码测试类', code: 'FHFB' });
+    const data = { archiveType: 'shipping_material', name: '合成规格袋', categoryId: category.id, specQty: '2.50', specUnit: 'CM', weightG: 10, purchasePrice: 100, freight: 5, handlingFee: 1 };
+    const preview = await previewProductCode(ds.manager, svc, boss, data, null);
+    expect(preview.code).toMatch(/-250CM$/);
+    const created = await svc.create(boss, 'finance-products', data);
+    expect(created.data.code).toBe(preview.code);
+    const symbols = await svc.create(boss, 'finance-products', { ...data, name: '合成符号袋', specQty: '*+*' });
+    expect(symbols.data.code).toMatch(/-CM$/);
+    const legacy = await svc.create(boss, 'finance-products', { ...data, name: '合成历史袋', code: 'FH-LEGACY-2D5CM' });
+    expect((await svc.update(boss, 'finance-products', legacy.id, { name: '合成历史袋改名' })).data.code).toBe('FH-LEGACY-2D5CM');
+    const raw = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '合成数字原料', categoryId: ids.leaf, specQty: 2.5, specUnit: 'KG', purchaseSpec: '千克', purchasePrice: 100, freight: 5, handlingFee: 1 });
+    expect(raw.data.code).toMatch(/-2D5KG$/);
+  });
+
+  it('采购与自产按文字名称规格、包装规格及系统规格分段编码，预览与保存一致', async () => {
+    const cat = await svc.create(boss, 'finance-categories', { archiveType: 'original_purchase', name: '分段采购类', code: 'FDCG' });
+    const purchased = { archiveType: 'purchased', supplyMode: 'original_purchase', name: '分段采购', categoryId: cat.id, brandId: ids.brand, specQty: '2.50', specUnit: 'G', purchaseSpec: '袋', purchasePrice: 100, freight: 1, handlingFee: 1 };
+    const preview = await previewProductCode(ds.manager, svc, boss, purchased, null);
+    expect(preview.code).toMatch(/-250G-D$/);
+    expect((await svc.create(boss, 'finance-products', purchased)).data.code).toBe(preview.code);
+    const made = { archiveType: 'self_made', name: '分段自产', categoryId: ids.smCat, brandId: ids.brand, specQty: '混合2.50', specUnit: 'BOX', productPackagingSpec: '500g袋', productPackagingUnit: 'D', purchaseSpec: '千克' };
+    const madePreview = await previewProductCode(ds.manager, svc, boss, made, null);
+    expect(madePreview.code).toMatch(/-HH250BOX-500GDD-QK$/);
+    const saved = await svc.create(boss, 'finance-products', made);
+    expect(saved.data.code).toBe(madePreview.code);
+    expect(saved.data.basicInfoFullName).toBe(madePreview.basicInfoFullName);
+    expect(saved.data.basicInfoFullName).toContain('-500g袋-袋-千克');
+    expect((await svc.update(boss, 'finance-products', saved.id, { purchaseSpec: '斤', productPackagingUnit: 'BOX' })).data.code).toBe(saved.data.code);
+    const noNameSpec = { ...made, name: '无名称规格分段', specQty: '', specUnit: '', productPackagingSpec: '500', productPackagingUnit: 'D' };
+    const emptyPreview = await previewProductCode(ds.manager, svc, boss, noNameSpec, null);
+    expect(emptyPreview.code).toMatch(/-500D-QK$/);
+    expect((await svc.create(boss, 'finance-products', noNameSpec)).data.code).toBe(emptyPreview.code);
+  });
+
+  it('采购和自产文字名称规格不丢失，采购自动重量随名称规格变化重新计算', async () => {
+    const cat = await svc.create(boss, 'finance-categories', { archiveType: 'original_purchase', name: '文字采购规格', code: 'WZCG' });
+    const purchased = await svc.create(boss, 'finance-products', { archiveType: 'purchased', supplyMode: 'original_purchase', name: '合成采购测试', categoryId: cat.id, brandId: ids.brand, specQty: '净含量500g', specUnit: 'EA', purchaseSpec: '袋', purchasePrice: 100, freight: 1, handlingFee: 1 });
+    expect(purchased.data).toMatchObject({ specQty: '净含量500g', weightG: 500 });
+    const changed = await svc.update(boss, 'finance-products', purchased.id, { specQty: '25*33+4' });
+    expect(changed.data.weightG).toBeUndefined();
+    const manual = await svc.update(boss, 'finance-products', purchased.id, { weightManual: true, weightG: 123 });
+    expect(manual.data.weightG).toBe(123);
+    const made = await svc.create(boss, 'finance-products', { archiveType: 'self_made', name: '合成自产测试', categoryId: ids.smCat, brandId: ids.brand, specQty: '混合装', specUnit: 'BOX' });
+    expect(made.data.specQty).toBe('混合装');
+    expect(made.data.basicInfoFullName).toContain('混合装');
+    expect(made.data.code).toContain('-HHZBOX');
+    const oemCat = await svc.create(boss, 'finance-categories', { archiveType: 'supplier_oem', name: '文字OEM规格', code: 'WZOEM' });
+    const oem = await svc.create(boss, 'finance-products', { archiveType: 'purchased', supplyMode: 'supplier_oem', name: '合成OEM测试', categoryId: oemCat.id, brandId: ids.brand, specQty: '净含量500g', specUnit: 'EA', purchaseSpec: '袋', oemPackageWeightG: 25, purchasePrice: 100, freight: 1, handlingFee: 1 });
+    expect(oem.data.weightG).toBe(525);
+  });
+
+  it('发货物料来源系统规格独立维护，随当前报价传到档案及成本，且删除维护项不改历史来源', async () => {
+    const category = await svc.create(boss, 'finance-categories', { archiveType: 'shipping_material', name: '来源计量测试类', code: 'JLDW' });
+    const product = await svc.create(boss, 'finance-products', { archiveType: 'shipping_material', name: '计量测试胶带', categoryId: category.id, specQty: 1, specUnit: 'EA', weightG: 10, freight: 5, handlingFee: 1 });
+    const supplier = await svc.create(boss, 'finance-suppliers', { name: '物料计量测试商' });
+    const unitA = await svc.create(boss, 'finance-product-units', { kind: 'shipping_system_spec', name: '合成卷' });
+    const unitB = await svc.create(boss, 'finance-product-units', { kind: 'shipping_system_spec', name: '合成张' });
+    await expect(svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, purchasePrice: 100, systemSpec: '合成卷' })).rejects.toThrow(/产区/);
+    await expect(svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '山东', purchasePrice: 100 })).rejects.toThrow(/系统规格/);
+    const a = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '山东', purchasePrice: 100, systemSpec: '合成卷' });
+    const b = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '浙江', purchasePrice: 200, systemSpec: '合成张' });
+    for (const [id, priceUpdatedAt] of [[a.id, '2020-01-01T00:00:00Z'], [b.id, '2021-01-01T00:00:00Z']] as const) {
+      const record = await ds.manager.findOneByOrFail(ResourceRecord, { id });
+      await ds.manager.update(ResourceRecord, { id }, { data: { ...record.data, priceUpdatedAt } });
+    }
+    await svc.update(boss, 'finance-product-sources', a.id, { originArea: '产区修正' });
+    expect((await svc.get(boss, 'finance-products', product.id)).data).toMatchObject({ purchasePrice: 200, purchaseSpec: '合成张', totalCost: 206 });
+    await svc.update(boss, 'finance-product-sources', a.id, { purchasePrice: 150 });
+    expect((await svc.get(boss, 'finance-products', product.id)).data).toMatchObject({ purchasePrice: 150, purchaseSpec: '合成卷', totalCost: 156 });
+    const costs = await svc.list(boss, 'finance-product-costs', { fieldKey: 'productId', fieldValue: String(product.id) });
+    expect(costs.items.some(row => row.data.sourceType === 'raw_supply_source' && row.data.unitName === '合成卷')).toBe(true);
+    await svc.update(boss, 'finance-products', product.id, { name: '计量测试胶带改名' });
+    expect((await svc.get(boss, 'finance-products', product.id)).data.purchaseSpec).toBe('合成卷');
+    // 原系统规格管理删除名称，不更改已经使用该名称的历史资料。
+    await svc.remove(boss, 'finance-product-units', unitB.id, '删除维护名称');
+    expect((await svc.get(boss, 'finance-product-sources', b.id)).data.systemSpec).toBe('合成张');
+    expect((await svc.get(boss, 'finance-products', product.id)).data.purchaseSpec).toBe('合成卷');
+    const rawUnit = await svc.create(boss, 'finance-product-units', { kind: 'system_spec', name: '合成原料规格' });
+    const raw = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '规格删除测试原料', categoryId: ids.leaf, purchaseSpec: '合成原料规格', specQty: 1, specUnit: 'KG', weightManual: true, weightG: 10, freight: 1, handlingFee: 1 });
+    await svc.remove(boss, 'finance-product-units', rawUnit.id, '删除维护项保留历史');
+    expect((await svc.get(boss, 'finance-products', raw.id)).data.purchaseSpec).toBe('合成原料规格');
+    const options = await svc.unitOptions(boss);
+    expect(options.shipping_system_spec.map(option => option.value)).toEqual(expect.arrayContaining(['合成卷', '合成张']));
+    expect(options.system_spec.map(option => option.value)).toContain('合成原料规格');
+    expect(options.system_spec.map(option => option.value)).not.toContain('合成张');
+    const reused = await svc.create(boss, 'finance-product-sources', { productId: product.id, supplierId: supplier.id, originArea: '历史规格复用产区', purchasePrice: 180, systemSpec: '合成张' });
+    expect(reused.data.systemSpec).toBe('合成张');
+    const reusedRaw = await svc.create(boss, 'finance-products', { archiveType: 'raw', name: '历史规格复用原料', categoryId: ids.leaf, purchaseSpec: '合成原料规格', specQty: 1, specUnit: 'KG', weightManual: true, weightG: 10, freight: 1, handlingFee: 1 });
+    expect(reusedRaw.data.purchaseSpec).toBe('合成原料规格');
+    expect(await svc.unitOptions({ ...boss, companyId: boss.companyId + 9999999 })).toEqual({});
+    expect(unitA.data.code).toBeUndefined();
+  });
 
   it('分类：编码规范、自动沿用上级类型、最多 4 级、不能给有商品的分类加下级', async () => {
     await expect(svc.create(boss, 'finance-categories', { archiveType: 'raw', name: '坏码', code: 'a-b' })).rejects.toThrow(/分类码/);
@@ -80,12 +248,12 @@ d('财务资料（真实数据库）', () => {
     await expect(svc.create(boss, 'finance-products', { ...base, categoryId: ids.smCat })).rejects.toThrow(/不匹配/);
     await expect(svc.create(boss, 'finance-products', { ...base, categoryId: ids.leaf, purchasePrice: 0, freight: 100, handlingFee: 50 })).rejects.toThrow(/零值说明/);
     const p = await svc.create(boss, 'finance-products', { ...base, categoryId: ids.leaf, purchasePrice: 1000, freight: 200, handlingFee: 50 });
-    expect(p.data.code).toBe('YL-SGPG-HFSPG-2D5KG');
+    expect(p.data.code).toBe('YL-SG-PG-HFSPG-2D5KG');
     expect(p.data.totalCost).toBe(1250);
     ids.apple = p.id;
     // 同样的商品再建一个：自动编码加序号，不是报错
     const p2 = await svc.create(boss, 'finance-products', { ...base, name: '红富士苹果', categoryId: ids.leaf, purchasePrice: 900, freight: 100, handlingFee: 0, zeroValueReason: '装卸费：供应商承担' });
-    expect(p2.data.code).toBe('YL-SGPG-HFSPG-2D5KG-2');
+    expect(p2.data.code).toBe('YL-SG-PG-HFSPG-2D5KG-2');
     ids.apple2 = p2.id;
     await expect(svc.create(boss, 'finance-products', { ...base, code: 'bad code', categoryId: ids.leaf })).rejects.toThrow(/商品编码/);
     // 有商品的分类不能再加下级
@@ -207,8 +375,11 @@ d('财务资料（真实数据库）', () => {
     for (const [i, province] of ['北京', '上海', '广东', '浙江', '江苏'].entries()) {
       await svc.create(boss, 'finance-express-prices', { carrier: `快递${i}`, province, fixedPrice: 1000 });
     }
+    // 样本须由明确重算保存，读取SKU成本不会自动创建快递样本。
+    await new ExpressService(ds,svc).recalculate(boss);
     const est = await cost.one(boss, ids.bundle);
     expect(est.freightCents).toBe(1100);
+    expect(est.lines.find(line => line.role === 'main')?.unitName).toBe(prod.data.purchaseSpec);
     // 商品成本变 -> 成本表立刻变
     await svc.update(boss, 'finance-products', ids.apple, { purchasePrice: (prod.data.purchasePrice as number) + 100 });
     expect((await cost.one(boss, ids.bundle)).preShipCostCents).toBe(unit * 2 + 200);
@@ -242,6 +413,16 @@ d('财务资料（真实数据库）', () => {
     expect(s1.refLabels.categoryIds).toBe('种子供应商、种子供应商 / 玉米 / 甜玉米 / 四级');
     const s2 = await svc.create(boss, 'finance-suppliers', { name: '另一家', categoryIds: [c4.id] });
     expect(s2.data.code).toBe('GYS-ZZGYS-SJ-LYJ');
+    expect(s2.data.shortName).toBe('另一家');
+    const previewValues = { name: '编号预览测试', shortName: '预览', categoryIds: [c4.id] };
+    const preview = await svc.codePreview(boss, 'finance-suppliers', previewValues);
+    expect(await svc.codePreview(boss, 'finance-suppliers', previewValues)).toEqual(preview); // 预览不占号
+    const previewSaved = await svc.create(boss, 'finance-suppliers', previewValues);
+    expect(previewSaved.data.code).toBe(preview.code);
+    expect(previewSaved.data.shortCode).toBe(preview.shortCode);
+    await expect(svc.codePreview(ops, 'finance-suppliers', previewValues)).rejects.toThrow(/权限/);
+    await expect(svc.codePreview({ ...boss, companyId: 999999999 }, 'finance-suppliers', previewValues)).rejects.toThrow(/不存在/);
+    await expect(svc.codePreview(boss, 'finance-suppliers', { categoryIds: Array(11).fill(c4.id) })).rejects.toThrow(/分类不合法/);
     await expect(svc.create(boss, 'finance-suppliers', { name: '没选分类' })).rejects.toThrow(/分类/);
     await expect(svc.create(boss, 'finance-suppliers', { name: '坏分类', categoryIds: [999999] })).rejects.toThrow(/不存在/);
     const k = await svc.create(boss, 'finance-customers', { name: '老客户' });
@@ -251,9 +432,11 @@ d('财务资料（真实数据库）', () => {
     expect(f1.data.code).toBe('FY-991');
     expect(f1.data.requiredObject).toBe('no');
     const f2 = await svc.create(boss, 'finance-fee-items', { name: '手机卡', direction: 'offset', defaultObject: '手机号、店铺', requiredObject: 'no' });
-    expect(f2.data.requiredObject).toBe('yes');
-    expect(f2.data.defaultObject).toBe('店铺、手机号'); // 按选项顺序
+    expect(f2.data.requiredObject).toBe('no'); // 原档案允许明确设置；节点变更仍联动
+    expect(f2.data.defaultObject).toBe('手机号、店铺'); // 原选择顺序决定制单时的首个默认节点
     const f3 = await svc.create(boss, 'finance-fee-items', { name: '无节点', direction: 'current' });
     expect(f3.data.defaultObject).toBe('不固定');
+    const derived=await svc.create(boss,'finance-fee-items',{name:'未指定必挂要求',defaultObject:'店铺'});
+    expect(derived.data.requiredObject).toBe('yes');
   });
 });

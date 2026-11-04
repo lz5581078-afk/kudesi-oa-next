@@ -1,5 +1,5 @@
 import { EntityManager } from 'typeorm';
-import { FINANCE_RESOURCE_DEFS, PRODUCT_UNIT_CODED_KINDS, PRODUCT_UNIT_SEEDS, optionsKindOf, optionsKindsOf, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { FINANCE_RESOURCE_DEFS, PRODUCT_UNIT_CODED_KINDS, PRODUCT_UNIT_SEEDS, PRODUCT_SYSTEM_SPEC_KINDS, optionsKindOf, optionsKindsOf, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 
 export const UNIT_RESOURCE = 'finance-product-units';
@@ -10,7 +10,9 @@ export type UnitLists = Map<string, UnitItem[]>;
 
 /** 读公司维护的单位与规格列表（含已停用的，停用的只用于显示名称） */
 export async function loadUnitLists(em: EntityManager, companyId: number): Promise<UnitLists> {
-  const rows = await em.find(ResourceRecord, { where: { companyId, type: UNIT_RESOURCE } });
+  const rows = await em.find(ResourceRecord, { where: { companyId, type: UNIT_RESOURCE }, order: { id: 'ASC' } });
+  const order = (row: ResourceRecord) => typeof row.data.sortOrder === 'number' ? row.data.sortOrder : Number.MAX_SAFE_INTEGER;
+  rows.sort((a,b) => order(a) - order(b) || a.id - b.id);
   const out: UnitLists = new Map();
   for (const r of rows) {
     const kind = String(r.data.kind ?? '');
@@ -18,6 +20,33 @@ export async function loadUnitLists(em: EntityManager, companyId: number): Promi
     const list = out.get(kind) ?? [];
     list.push({ code: String(r.data.code ?? ''), name: String(r.data.name ?? ''), active: r.status === 'active' });
     out.set(kind, list);
+  }
+  return out;
+}
+
+/** 系统规格除维护项外，还保留本类档案及供货来源使用过的名字。仅用于选项，不虚构维护记录。 */
+export async function loadUnitOptionLists(em: EntityManager, companyId: number): Promise<UnitLists> {
+  const out = await loadUnitLists(em, companyId);
+  const used: Array<{ archiveType: string; name: string }> = await em.query(`
+    SELECT JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.archiveType')) AS archiveType,
+      JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.purchaseSpec')) AS name
+    FROM resource_records p WHERE p.company_id=? AND p.type='finance-products' AND p.status<>'deleted'
+      AND JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.archiveType')) IN ('raw','self_made','purchased','package','oem_package','shipping_material')
+    UNION
+    SELECT JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.archiveType')) AS archiveType,
+      JSON_UNQUOTE(JSON_EXTRACT(s.data,'$.systemSpec')) AS name
+    FROM resource_records s JOIN resource_records p ON p.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(s.data,'$.productId')) AS UNSIGNED)
+      AND p.company_id=s.company_id AND p.type='finance-products'
+    WHERE s.company_id=? AND s.type='finance-product-sources' AND s.status<>'deleted' AND p.status<>'deleted'
+      AND JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.archiveType')) IN ('raw','self_made','purchased','package','oem_package','shipping_material')`, [companyId, companyId]);
+  for (const row of used) {
+    const name = typeof row.name === 'string' && row.name !== 'null' ? row.name.trim() : '';
+    if (!name) continue;
+    const kind = PRODUCT_SYSTEM_SPEC_KINDS[row.archiveType];
+    if (!kind) continue;
+    const items = out.get(kind) ?? [];
+    if (!items.some(item => item.active && item.name === name)) items.push({ code: '', name, active: true });
+    out.set(kind, items);
   }
   return out;
 }

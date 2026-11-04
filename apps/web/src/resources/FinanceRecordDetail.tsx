@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Database, FolderTree, ImagePlus, X } from 'lucide-react';
+import { ClipboardList, Copy, Database, FolderTree, ImagePlus, X } from 'lucide-react';
 import { createChecker, type ResourceDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 import { CopyButton } from './CopyValue';
@@ -14,6 +14,8 @@ import { referencePartyGroups, referenceRecordLabel } from './referenceFormLayou
 import { FileList } from './FilesField';
 import type { DetailNav } from './DetailHead';
 import './financeRecordDetail.css';
+import './referenceSupplierDetail.css';
+import './referenceCustomerDetail.css';
 
 export function FinanceDetailBackdrop({ children }: { children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
@@ -31,32 +33,40 @@ export function FinanceDetailBackdrop({ children }: { children: ReactNode }) {
   }}>{children}</div>;
 }
 
-export function FinanceDetailHead({ def, record, nav, onClose }: { def: ResourceDef; record: ResourceDto; nav?: DetailNav; onClose: () => void }) {
+export function FinanceDetailHead({ def, record, nav, onClose, productOnly=false }: { def: ResourceDef; record: ResourceDto; nav?: DetailNav; onClose: () => void; productOnly?:boolean }) {
   const supplier = def.key === 'finance-suppliers', product = def.key === 'finance-products', code = ['finance-base-codes', 'finance-bundles'].includes(def.key);
-  const label = referenceRecordLabel(def.key, record.data), status = statusOf(def, record.status);
+  const customer=['finance-customers','finance-fee-items'].includes(def.key);
+  const sourceLabel=referenceRecordLabel(def.key,record.data);
+  const label=product&&productOnly?sourceLabel.replace(/\s/g,''):sourceLabel, status=statusOf(def,record.status);
   const title = supplier ? '查看供应商' : code ? `${label}详情` : String(record.data.name || record.title || `${label}详情`);
-  return <header className="finance-detail-head"><div>{supplier && <small className="finance-detail-kicker"><FolderTree size={20} />财务基础资料</small>}<div className="finance-detail-title"><h2 className="rd-title">{title}</h2>{product && !['raw', 'shipping_material'].includes(String(record.data.archiveType)) && <span className={`pill ${status.tone}`}>{status.label}</span>}</div><p>{supplier ? '查看供应商资料，银行信息可整组或逐项复制。' : code ? String(record.data.code || record.title) : product ? `查看${label}的基础资料和系统编号。` : `${def.label}详情、分类归属和操作记录。`}</p></div><div className="finance-detail-head-actions">{nav && <div className="finance-detail-nav"><button type="button" aria-label="上一条" disabled={!nav.onPrev} onClick={nav.onPrev}>↑</button><small aria-label={`第 ${nav.index} 条，共 ${nav.total} 条`}>{nav.index}/{nav.total}</small><button type="button" aria-label="下一条" disabled={!nav.onNext} onClick={nav.onNext}>↓</button></div>}<button type="button" className="icon-button" aria-label="关闭详情" onClick={onClose}><X size={22} /></button></div></header>;
+  return <header className="finance-detail-head"><div>{supplier && <small className="finance-detail-kicker"><FolderTree size={20} />财务基础资料</small>}<div className="finance-detail-title"><h2 className="rd-title">{title}</h2>{product && !['raw', 'shipping_material'].includes(String(record.data.archiveType)) && <span className={`pill ${status.tone}${productOnly?` source-product-view-status${record.status==='inactive'?' is-inactive':''}`:''}`}>{product&&productOnly?(record.status==='inactive'?'停用':'正常'):status.label}</span>}</div><p>{supplier ? '查看供应商资料，银行信息可整组或逐项复制。' : code ? String(record.data.code || record.title) : product ? `查看${label}的基础资料和系统编号。` : `${def.label}详情、分类归属和操作记录。`}</p></div><div className="finance-detail-head-actions">{nav && !(product&&productOnly) && <div className="finance-detail-nav"><button type="button" aria-label="上一条" disabled={!nav.onPrev} onClick={nav.onPrev}>↑</button><small aria-label={`第 ${nav.index} 条，共 ${nav.total} 条`}>{nav.index}/{nav.total}</small><button type="button" aria-label="下一条" disabled={!nav.onNext} onClick={nav.onNext}>↓</button></div>}<button type="button" className={customer?'secondary-button':'icon-button'} aria-label="关闭详情" onClick={onClose}>{customer?'关闭':<X size={22} />}</button></div></header>;
 }
 
-function SupplierDetail({ def, record }: { def: ResourceDef; record: ResourceDto }) {
+function SupplierDetail({ def, record, extraActions, onProductChanged }: { def: ResourceDef; record: ResourceDto; extraActions?:ReactNode; onProductChanged?:()=>void }) {
   const { user } = useAuth();
   const groups = referencePartyGroups(def.key, resourceFields(def, record.data, record.status, p => !!user && createChecker(user.permissions)(p)));
   const bank = [['供应商名称', record.data.name || record.title], ['账户名称', record.data.bankAccountName], ['开户行', record.data.bank], ['银行账号', record.data.bankAccountNo]].filter(([, value]) => String(value ?? '').trim()).map(([label, value]) => `${label}：${String(value).trim()}`).join('\n');
   return <>{groups.filter(([title]) => title !== '补充资料').map(([title, fields]) => title === '归入分类'
     ? <section className="finance-supplier-category" key={title}><div><FolderTree size={20} /><span>归入分类</span></div><strong>{record.refLabels.categoryIds || '未选择分类'}</strong><small>{record.refLabels.categoryIds?.includes('种子') ? '种子供应商可关联多个供应产品分类' : '供应商显示在该目录的直属列表中'}</small></section>
-    : <FinanceSection key={title} title={title} step={['基础资料', '联系资料', '收款与银行资料'].indexOf(title) + 1 || undefined} hint={title === '基础资料' ? '与新增供应商的字段排列一致' : title === '联系资料' ? '用于业务联系和后续单据引用' : title === '收款与银行资料' ? <CopyButton value={bank} label="全部银行信息" /> : '编码按分类和名称生成'} className={title === '系统自动编号' ? 'finance-supplier-code' : 'finance-supplier-section'}><div className="finance-supplier-fields">{fields.map(field => {
+    : <FinanceSection key={title} title={title} step={['基础资料', '联系资料', '收款与银行资料'].indexOf(title) + 1 || undefined} hint={title === '基础资料' ? '与新增供应商的字段排列一致' : title === '联系资料' ? '用于业务联系和后续单据引用' : title === '收款与银行资料' ? <CopyButton value={bank} label="全部银行信息" text="复制全部" icon={<Copy size={14}/>} className="finance-supplier-copy-all" /> : '编码按分类和名称生成'} className={title === '系统自动编号' ? 'finance-supplier-code' : 'finance-supplier-section'}><div className="finance-supplier-fields">{fields.map(field => {
       const bankField = ['bankAccountName', 'bank', 'bankAccountNo'].includes(field.key);
-      return field.type === 'files' ? <div key={field.key} className="wide"><span>{field.label}</span><small>支持微信、支付宝或银行收款码图片</small>{Array.isArray(record.data[field.key]) && (record.data[field.key] as number[]).length ? <FileList ids={record.data[field.key] as number[]} files={record.files} /> : <div className="finance-payment-empty"><ImagePlus size={22} /><span>尚未上传</span></div>}</div> : <label key={field.key} className={['note', 'bankAccountNo'].includes(field.key) || title === '系统自动编号' ? 'wide' : undefined}><span>{field.label}</span><div className={bankField ? 'finance-supplier-copy' : undefined}>{field.type === 'textarea' ? <textarea value={displayValue(field, record)} disabled /> : <input value={displayValue(field, record)} disabled />}{(bankField || field.key === 'code') && <CopyButton value={displayValue(field, record)} label={def.fields.find(f => f.key === field.key)?.label ?? field.label} />}</div></label>;
-    })}</div></FinanceSection>)}{groups.some(([title]) => title === '补充资料') && <details className="finance-detail-extra"><summary>补充资料</summary><FinanceFields def={def} record={record} keys={groups.find(([title]) => title === '补充资料')![1].map(f => f.key)} /></details>}</>;
+      return field.type === 'files' ? <div key={field.key} className="wide finance-supplier-payment"><div><span>{field.label}</span><small>支持微信、支付宝或银行收款码图片</small></div>{Array.isArray(record.data[field.key]) && (record.data[field.key] as number[]).length ? <FileList ids={record.data[field.key] as number[]} files={record.files} /> : <div className="finance-payment-empty"><ImagePlus size={22} /><span>尚未上传</span></div>}</div> : <label key={field.key} className={['note', 'bankAccountNo'].includes(field.key) || title === '系统自动编号' ? 'wide' : undefined}><span>{field.label}{field.required&&<em>必填</em>}</span><div className={bankField ? 'finance-supplier-copy' : undefined}>{field.type === 'textarea' ? <textarea value={displayValue(field, record)} disabled /> : <input value={bankField?String(record.data[field.key] ?? ''):displayValue(field, record)} disabled />}{bankField && <CopyButton value={String(record.data[field.key] ?? '').trim()} label={def.fields.find(f => f.key === field.key)?.label ?? field.label} icon={<Copy size={13}/>} showEmpty />}</div></label>;
+    })}</div></FinanceSection>)}{(groups.some(([title]) => title === '补充资料') || Boolean(record.data.code) || Boolean(extraActions)) && <details className="finance-detail-extra"><summary>补充资料</summary><FinanceFields def={def} record={record} keys={groups.find(([title]) => title === '补充资料')?.[1].map(f => f.key) ?? []} /><CopyButton value={String(record.data.code || '')} label="供应商编号" />{extraActions}</details>}</>;
 }
 
-export function FinanceDetailBody({ def, record }: { def: ResourceDef; record: ResourceDto }) {
+export function FinanceDetailBody({ def, record, extraActions, onProductChanged }: { def: ResourceDef; record: ResourceDto; extraActions?:ReactNode; onProductChanged?:()=>void }) {
   const { user } = useAuth();
-  if (def.key === 'finance-products') return <FinanceProductDetail record={record} />;
+  if (def.key === 'finance-products') return <FinanceProductDetail record={record} onChanged={onProductChanged} />;
   if (def.key === 'finance-base-codes') return <FinanceBaseCodeDetail record={record} />;
   if (def.key === 'finance-bundles') return <FinanceBundleDetail record={record} />;
-  if (def.key === 'finance-suppliers') return <SupplierDetail def={def} record={record} />;
+  if (def.key === 'finance-suppliers') return <SupplierDetail def={def} record={record} extraActions={extraActions} />;
   const groups = referencePartyGroups(def.key, resourceFields(def, record.data, record.status, p => !!user && createChecker(user.permissions)(p)));
+  if(['finance-customers','finance-fee-items'].includes(def.key)){
+    const customer=def.key==='finance-customers',categoryKey=customer?'categoryIds':'categoryId',label=customer?'客户':'费用';
+    const basic=groups.find(([title])=>title==='基础信息')?.[1]??[];
+    const rest=groups.find(([title])=>title==='补充资料')?.[1]??[];
+    return <><FinanceSection title="基础信息" icon={<Database size={18}/>}><FinanceFields def={def} record={record} plain keys={basic.filter(field=>field.key!==categoryKey).map(field=>[field.key,field.label])} before={<><div><dt>{label}分类</dt><dd>{record.refLabels[categoryKey]||'未分类'}</dd></div><div><dt>状态</dt><dd><span className={`pill ${statusOf(def,record.status).tone}`}>{record.status==='active'?'正常':statusOf(def,record.status).label}</span></dd></div></>}/></FinanceSection><ReferenceRecordHistory key={record.updatedAt} type={def.key} id={record.id} label={label} icon={<ClipboardList size={18}/>}/><details className="finance-detail-extra"><summary>补充资料</summary>{rest.length>0&&<FinanceFields def={def} record={record} keys={rest.map(field=>field.key)}/>}<div className="finance-reference-copy-actions">{basic.filter(field=>field.key!==categoryKey).map(field=><CopyButton key={field.key} value={displayValue(field,record)} label={field.label}/>)}</div>{extraActions}</details></>;
+  }
   const group = groups.find(([title]) => title === '基础信息')!;
   const extra = groups.find(([title]) => title === '补充资料')?.[1] ?? [];
   return <><FinanceSection title="基础信息" hint={<Database size={18} />}><dl className="finance-view-fields"><div><dt>{def.key === 'finance-customers' ? '客户分类' : '费用分类'}</dt><dd>{record.refLabels[def.key === 'finance-customers' ? 'categoryIds' : 'categoryId'] || '未分类'}</dd></div><div><dt>状态</dt><dd><span className={`pill ${statusOf(def, record.status).tone}`}>{statusOf(def, record.status).label}</span></dd></div></dl><FinanceFields def={def} record={record} keys={group[1].filter(f => !['categoryIds', 'categoryId'].includes(f.key)).map(f => [f.key, f.label])} /></FinanceSection>{groups.filter(([title]) => !['基础信息', '补充资料'].includes(title)).map(([title, fields]) => <FinanceSection key={title} title={title}><FinanceFields def={def} record={record} keys={fields.map(f => [f.key, f.label])} /></FinanceSection>)}<ReferenceRecordHistory key={record.updatedAt} type={def.key} id={record.id} label={def.key === 'finance-customers' ? '客户' : '费用'} />{extra.length > 0 && <details className="finance-detail-extra"><summary>补充资料</summary><FinanceFields def={def} record={record} keys={extra.map(f => f.key)} /></details>}</>;

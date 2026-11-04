@@ -1,0 +1,45 @@
+import 'reflect-metadata';
+import {randomBytes,randomUUID} from 'crypto';
+import {DataSource,EntityManager} from 'typeorm';
+import {INestApplication,ValidationPipe} from '@nestjs/common';
+import {APP_GUARD} from '@nestjs/core';
+import {Test} from '@nestjs/testing';
+import type {ResourceFormInput} from '@kudesi/shared';
+import {PermissionsGuard} from '../common/permissions.guard';
+import type {AuthUser} from '../common/auth.decorators';
+import {buildDataSourceOptions} from '../database/data-source';
+import {Company,ResourceFormMutation,ResourceChangeLog,ResourceRecord,User} from '../entities';
+import {buildServices} from '../test-support';
+import {DataToolsService} from './data-tools.service';
+import {GridSaveService} from './grid-save.service';
+import {ResourcesController} from './resources.controller';
+import {ResourcesService} from './resources.service';
+const d=process.env.RESOURCE_DB_TEST==='1'?describe:describe.skip;
+d('原档案单位显式整组操作',()=>{
+ let ds:DataSource,svc:ResourcesService,user:AuthUser,app:INestApplication,url:string;
+ const actor=async()=>{const company=await ds.manager.save(Company,ds.manager.create(Company,{code:'unit'+randomBytes(6).toString('hex'),name:'合成单位公司',status:'active'}));const row=await ds.manager.save(User,ds.manager.create(User,{companyId:company.id,account:'admin',name:'合成用户',passwordHash:'x',status:'active',isCompanyAdmin:true,mustChangePassword:false}));return{id:row.id,companyId:company.id,name:row.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}};};
+ beforeAll(async()=>{ds=await new DataSource({...buildDataSourceOptions({...process.env,DB_NAME:process.env.TEST_DB_NAME}),migrationsRun:true} as never).initialize();svc=buildServices(ds).resources;const module=await Test.createTestingModule({controllers:[ResourcesController],providers:[{provide:DataToolsService,useValue:{}},{provide:GridSaveService,useValue:{}},{provide:ResourcesService,useValue:svc},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile();app=module.createNestApplication();app.useGlobalPipes(new ValidationPipe({transform:true,whitelist:true,forbidNonWhitelisted:true}));app.use((req:{headers:Record<string,string>;user?:AuthUser},_res:unknown,next:()=>void)=>{req.user=req.headers.authorization==='create'?{...user,permissions:{isCompanyAdmin:false,allow:['resource.finance-product-units.create','resource.finance-product-units.view'],deny:[]}}:user;next();});await app.listen(0,'127.0.0.1');url=await app.getUrl();});
+ beforeEach(async()=>{user=await actor();});afterAll(async()=>{await app?.close();await ds?.destroy();});
+ const body=(kind='archive_unit',action='add'):ResourceFormInput=>({requestKey:randomUUID(),values:{kind,name:action==='remove'?'斤':'合成新单位',code:action==='remove'?'J':'HCNEW',__sourceUnitDefaults:{version:1,kind,action,...(action==='remove'?{code:'B'}:{})}},collections:[]});
+ const post=(data:unknown,auth='admin')=>fetch(url+'/resources/finance-product-units/save-form',{method:'POST',headers:{'Content-Type':'application/json',authorization:auth},body:JSON.stringify(data)});
+ const rows=()=>ds.manager.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-product-units'},order:{id:'ASC'}});
+ it.each(['archive_unit','packaging_unit','shipping_unit'])('%s首次显式新增保留六条真实默认项，HTTP原样重试不重复，命令不存储',async kind=>{const request=body(kind),res=await post(request);expect(res.status).toBe(201);const saved=await res.json();expect((await rows()).map(row=>row.data.code)).toEqual(['B','J','D','PCS','G','KG','HCNEW']);expect((await rows()).every(row=>row.data.kind===kind&&!('__sourceUnitDefaults'in row.data))).toBe(true);const replay=await post(request);expect(replay.status).toBe(201);expect((await replay.json()).id).toBe(saved.id);expect(await rows()).toHaveLength(7);expect((await post(body(kind))).status).toBe(409);});
+ it('删除虚拟默认项物化六条后走统一删除，留下五条；无create+delete权限不能执行',async()=>{expect((await post(body('archive_unit','remove'),'create')).status).toBe(403);expect(await rows()).toHaveLength(0);const request=body('archive_unit','remove'),res=await post(request);expect(res.status).toBe(201);expect((await rows()).filter(row=>!row.archivedAt&&row.status!=='deleted').map(row=>row.data.code)).toEqual(['D','PCS','G','KG','J']);expect((await post(request)).status).toBe(201);});
+ it('最后一步故障整组默认项/主行/日志/幂等意图回滚，原key可以真实重试',async()=>{const request=body(),before=await ds.manager.count(ResourceChangeLog,{where:{companyId:user.companyId}}),original=EntityManager.prototype.update,spy=jest.spyOn(EntityManager.prototype,'update').mockImplementation(function(this:EntityManager,...args:Parameters<typeof original>){if(args[0]===ResourceFormMutation)throw new Error('合成最终故障');return original.apply(this,args);});try{await expect(svc.saveForm(user,'finance-product-units',structuredClone(request))).rejects.toThrow('合成最终故障');}finally{spy.mockRestore();}expect(await rows()).toHaveLength(0);expect(await ds.manager.count(ResourceChangeLog,{where:{companyId:user.companyId}})).toBe(before);expect(await ds.manager.count(ResourceFormMutation,{where:{companyId:user.companyId,requestKey:request.requestKey}})).toBe(0);expect((await post(request)).status).toBe(201);});
+ it('并发不同新增只有一组成功，公司/kind隔离；独立spec与普通create不初始化',async()=>{const result=await Promise.all([post(body()),post({...body(),values:{...body().values,name:'另一新单位',code:'HCOTHER'}})]);expect(result.map(res=>res.status).sort()).toEqual([201,409]);expect(await rows()).toHaveLength(7);expect((await post(body('packaging_unit'))).status).toBe(201);const other=await actor();await svc.create(other,'finance-product-units',{kind:'archive_unit',name:'普通创建',code:'ORDINARY'});expect(await ds.manager.count(ResourceRecord,{where:{companyId:other.companyId,type:'finance-product-units'}})).toBe(1);user=await actor();expect((await post(body('spec_unit'))).status).toBe(201);expect(await rows()).toHaveLength(1);});
+ it('默认身份不可被新项抢占，非法成员/跨kind命令拒绝且无部分初始化',async()=>{for(const values of [{...body().values,name:'包'},{...body().values,code:'B'},{...body().values,code:'b'},{...body().values,code:'B+'},{...body('archive_unit','remove').values,__sourceUnitDefaults:{version:1,kind:'archive_unit',action:'remove',code:'UNKNOWN'}},{...body().values,__sourceUnitDefaults:{version:1,kind:'shipping_unit',action:'add'}}]){const res=await post({...body(),values});expect([400,409]).toContain(res.status);expect(await rows()).toHaveLength(0);}});
+ it('真实新建商品form锁定源名称池，旧无marker复制保持旧口径，引用默认项删除整组回滚',async()=>{
+  const category=await svc.create(user,'finance-categories',{archiveType:'raw',name:'合成原料分类',code:'HC'});
+  const supplierCategory=await svc.create(user,'finance-supplier-categories',{name:'合成供应商分类',code:'SUP'});
+  const supplier=await svc.create(user,'finance-suppliers',{name:'合成供应商',categoryIds:[supplierCategory.id]});
+  const values={archiveType:'raw',categoryId:category.id,name:'合成原料',specQty:1,specUnit:'B',purchaseSpec:'千克',freight:1,handlingFee:1};
+  const productRequest=():ResourceFormInput=>({requestKey:randomUUID(),values:{...values,unitDictionaryKind:'spec_unit'},collections:[{type:'finance-product-sources',expected:[],rows:[{values:{supplierId:supplier.id,originArea:'合成产区',purchasePrice:100}}]}]});
+  const product=await svc.saveForm(user,'finance-products',productRequest());expect(product.data.unitDictionaryKind).toBe('archive_unit');
+  const deleted=await post(body('archive_unit','remove'));expect(deleted.status).toBe(400);expect(await rows()).toHaveLength(0);expect(await ds.manager.count(ResourceFormMutation,{where:{companyId:user.companyId,resourceType:'finance-product-units'}})).toBe(0);
+  const old=await svc.create(user,'finance-products',{...values,name:'原普通档案',purchasePrice:100});expect(old.data.unitDictionaryKind).toBeUndefined();
+  const copy=productRequest();copy.values.name='原普通档案副本';copy.copySource={id:old.id,version:old.version!,files:{}};
+  const copied=await svc.saveForm(user,'finance-products',copy);expect(copied.data.unitDictionaryKind).toBeUndefined();
+  const markedCopy=productRequest();markedCopy.values.name='新源档案副本';markedCopy.copySource={id:product.id,version:product.version!,files:{}};expect((await svc.saveForm(user,'finance-products',markedCopy)).data.unitDictionaryKind).toBe('archive_unit');
+ });
+
+});

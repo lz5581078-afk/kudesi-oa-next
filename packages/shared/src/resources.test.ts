@@ -20,6 +20,16 @@ import {
   visibleSections,
 } from './index';
 
+it('原财务往来与费用停用只要求非空原因，普通状态仍保留两个字默认',()=>{
+ for(const type of ['finance-suppliers','finance-customers','finance-fee-items']){
+  expect(validateStatusChange(getResourceDef(type)!,'inactive','停')).toBeNull();
+  expect(validateStatusChange(getResourceDef(type)!,'inactive','  ')).not.toBeNull();
+ }
+ const ordinary={...getResourceDef('finance-customers')!,statuses:[{value:'inactive',label:'停用',tone:'muted' as const,requiresReason:true}]};
+ expect(validateStatusChange(ordinary,'inactive','停')).not.toBeNull();
+ expect(validateStatusChange(ordinary,'inactive','停用')).toBeNull();
+});
+
 describe('资源定义自身的一致性', () => {
   it('key 不重复，标题字段/唯一字段/页签字段/父子关系/引用目标都真实存在', () => {
     const keys = RESOURCE_DEFS.map((d) => d.key);

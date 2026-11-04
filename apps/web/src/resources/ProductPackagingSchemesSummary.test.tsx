@@ -1,0 +1,31 @@
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { ProductPackagingSchemesSummary } from './ProductPackagingSchemesSummary';
+import { resourceApi, type ResourceDto } from './api';
+const identity=vi.hoisted(()=>({companyId:1,create:true}));
+const template=vi.hoisted(()=>vi.fn().mockResolvedValue(undefined));
+vi.mock('../auth/AuthContext',()=>({useAuth:()=>({user:{companyId:identity.companyId,id:1,permissions:{isCompanyAdmin:identity.create,allow:['resource.finance-packaging-schemes.view'],deny:[]}},can:(permission:string)=>!permission.endsWith('.create')||identity.create})}));
+vi.mock('./api',()=>({resourceApi:{list:vi.fn()}}));
+vi.mock('./PackagingExcelDialog',()=>({downloadPackagingSchemeTemplate:template,PackagingExcelDialog:({initialFile,onDone}:{initialFile?:File;onDone:()=>void})=><div role="dialog"><span>{initialFile?.name}</span><button onClick={onDone}>完成导入</button></div>}));
+const row=(id:number,usageScene:string):ResourceDto=>({id,type:'finance-packaging-schemes',title:'合成方案'+id,data:{usageScene},status:'active',statusReason:null,refLabels:{},files:{},secretConfigured:{},createdAt:'',updatedAt:''});
+beforeEach(()=>{identity.companyId=1;identity.create=true;});afterEach(()=>{cleanup();vi.resetAllMocks();});
+it('包装两入口按原场景计数完整201条，并复用模板与文件预检入口',async()=>{
+ const rows=Array.from({length:201},(_,i)=>row(i+1,i%2?'production':'dispatch'));
+ vi.mocked(resourceApi.list).mockImplementation(async(_type,q)=>({items:rows.slice(((q?.page??1)-1)*200,(q?.page??1)*200),total:201,page:q?.page??1,pageSize:200}));
+ const changed=vi.fn(),view=render(<ProductPackagingSchemesSummary archiveType="package" onChanged={changed}/>);
+ await screen.findByText('当前相关方案 101 个');expect(resourceApi.list).toHaveBeenCalledWith('finance-packaging-schemes',expect.objectContaining({page:2,showHidden:true}));
+ fireEvent.click(screen.getByRole('button',{name:'方案模板'}));expect(template).toHaveBeenCalledTimes(1);
+ fireEvent.change(screen.getByLabelText('导入包装方案文件'),{target:{files:[new File(['x'],'合成方案.xlsx')]}});expect(screen.getByRole('dialog').textContent).toContain('合成方案.xlsx');
+ fireEvent.click(screen.getByText('完成导入'));expect(changed).toHaveBeenCalledOnce();expect(screen.queryByRole('dialog')).toBeNull();
+ view.rerender(<ProductPackagingSchemesSummary archiveType="oem_package"/>);await screen.findByText('当前相关方案 100 个');expect(screen.getByText(/自产包装和供应商OEM方案/)).toBeTruthy();
+});
+it('没有新增权限不出现导入，切公司隐藏旧文件且迟到计数不覆盖',async()=>{
+ let finish!:(value:{items:ResourceDto[];total:number;page:number;pageSize:number})=>void;
+ const pending=new Promise<{items:ResourceDto[];total:number;page:number;pageSize:number}>(resolve=>{finish=resolve;});
+ vi.mocked(resourceApi.list).mockImplementation(async()=>identity.companyId===1?pending:{items:[],total:0,page:1,pageSize:200});
+ const view=render(<ProductPackagingSchemesSummary archiveType="package"/>);
+ fireEvent.change(screen.getByLabelText('导入包装方案文件'),{target:{files:[new File(['x'],'前公司方案.xlsx')]}});expect(screen.getByRole('dialog')).toBeTruthy();
+ identity.companyId=2;identity.create=false;view.rerender(<ProductPackagingSchemesSummary archiveType="package"/>);
+ expect(screen.queryByRole('dialog')).toBeNull();expect(screen.queryByRole('button',{name:'导入方案'})).toBeNull();await screen.findByText('当前相关方案 0 个');
+ await act(async()=>finish({items:[row(9,'dispatch')],total:1,page:1,pageSize:200}));expect(screen.getByText('当前相关方案 0 个')).toBeTruthy();
+});

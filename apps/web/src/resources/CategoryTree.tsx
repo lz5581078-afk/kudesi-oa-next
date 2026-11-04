@@ -1,3 +1,7 @@
+import {applyExpenseSortOrder} from '@kudesi/shared';
+import {productReferenceNoun} from './productReferenceList';
+import {useExpenseSortPreference} from './ExpenseSortPreference';
+import { Check, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getResourceDef, createChecker, resourcePermission, permissionOwner, type FieldDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
@@ -16,7 +20,7 @@ const FLAT_UNSET: Record<string, string> = { user: '没有使用人', department
  * 列表左侧的目录：一眼看到该板块下所有分类（或位置、使用人、部门）和各自的数量，点一下就筛选（含下级）。
  * 资料有几种浏览维度时（固定资产：分类 / 位置 / 使用人 / 部门），上面一排切换；配置了 treeManage 的维度可以点“管理”就地增删改排序。
  */
-function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, onSelect, onPath, canManage, onChanged, rootId, createExtra, hint, onLeaf }: {
+function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, onSelect, onPath, canManage, canCreate, onChanged, rootId, createExtra, hint, onLeaf, onBack, referenceProduct }: {
   type: string;
   fields: FieldDef[];
   tab: string;
@@ -28,10 +32,13 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   onPath?: (key: string, path: string) => void;
   /** 这个维度当前用户能不能就地管理（有对方资料的编辑权限，且资料配置允许） */
   canManage?: (field: FieldDef) => boolean;
+  canCreate?: (field:FieldDef)=>boolean;
   /** 管理动作改了目录（分类名、参数、排序、删除）后，让列表重新加载 */
   onChanged?: () => void;
   /** 分级布局：只显示这个顶级分类和它的下级；“全部”就是这个顶级分类本身（选中它 = 筛整个顶级分类） */
   rootId?: number;
+  onBack?:()=>void;
+  referenceProduct?:boolean;
   /** 就地新增分类时一并提交的字段（如商品分类的所属档案类型） */
   createExtra?: Record<string, unknown>;
   /** 目录上方的一行提示（如“请选择最末级分类后新增”） */
@@ -39,19 +46,25 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   /** 当前选中的分类是不是最末级（没有下级）；分级布局里新增资料要先选最末级 */
   onLeaf?: (leaf: boolean) => void;
 }) {
+  const expenseSort=useExpenseSortPreference();
   const top = rootId ?? 0;
+  const referenceContact = !!rootId && ['finance-suppliers', 'finance-customers'].includes(type);
+  const contactNoun = type === 'finance-suppliers' ? '供应商' : '客户';
   const [activeKey, setActiveKey] = useState(() => fields.find((f) => values[f.key])?.key ?? fields[0].key);
   const field = fields.find((f) => f.key === activeKey) ?? fields[0];
   const value = values[field.key] ?? '';
   const flat = field.ref === 'user' || field.ref === 'department';
-  const [tree, setTree] = useState<CategoryTreeResult | null>(null);
+  const [reload, setReload] = useState(0);
+  const queryKey = JSON.stringify([type, field.key, tab, status, showHidden, reloadKey, reload]);
+  const [loadedTree, setLoadedTree] = useState<{ key: string; result: CategoryTreeResult } | null>(null);
+  const tree = loadedTree?.key === queryKey ? loadedTree.result : null;
   const [error, setError] = useState('');
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [kw, setKw] = useState('');
   const [mOpen, setMOpen] = useState(false); // 手机上目录折叠成一行，点开再选
   const [manage, setManage] = useState(false);
   const [financeManage, setFinanceManage] = useState(false);
-  const [reload, setReload] = useState(0);
+  const [feeCreateParent,setFeeCreateParent]=useState<number|null>(null);
   const [adding, setAdding] = useState<{ parent: number; name: string } | null>(null);
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
   const [deleting, setDeleting] = useState<Node | null>(null);
@@ -62,11 +75,12 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   const target = field.ref!;
   const financeTree = ['finance-categories', 'finance-supplier-categories', 'finance-customer-categories', 'finance-fee-categories'].includes(target);
 
-  useEffect(() => { setTree(null); setKw(''); setAdding(null); setRenaming(null); if (!manageable) setManage(false); }, [field.key, manageable]);
+  useEffect(() => { setKw(''); setAdding(null); setRenaming(null); if (!manageable) setManage(false); }, [field.key, manageable]);
   useEffect(() => {
     let alive = true;
+    setLoadedTree(null);
     resourceApi.categoryTree(type, { field: field.key, tab: tab || undefined, status: status || undefined, showHidden })
-      .then((r) => { if (alive) { setTree(r); setError(''); } })
+      .then((r) => { if (alive) { setLoadedTree({ key: queryKey, result: r }); setError(''); } })
       .catch(() => alive && setError('分类目录加载失败'));
     return () => { alive = false; };
   }, [type, field.key, tab, status, showHidden, reloadKey, reload]);
@@ -74,8 +88,9 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   const kids = useMemo(() => {
     const m = new Map<number, Node[]>();
     for (const n of tree?.nodes ?? []) m.set(n.parentId, [...(m.get(n.parentId) ?? []), n]);
+    if(type==='finance-fee-items'&&expenseSort)for(const [parent,nodes] of m)m.set(parent,applyExpenseSortOrder(nodes,expenseSort.value.categoryOrders[String(parent||'root')]));
     return m;
-  }, [tree]);
+  }, [tree,expenseSort?.value]);
   const byId = useMemo(() => new Map((tree?.nodes ?? []).map((n) => [n.id, n])), [tree]);
 
   // 默认展开一级；选中的分类，上面各级自动展开
@@ -89,10 +104,14 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   }, [tree, value, kids, byId]);
 
   useEffect(() => {
-    if (!onLeaf || !tree) return;
+    if (!onLeaf) return;
     const cur = Number(value) || top;
-    onLeaf((kids.get(cur) ?? []).length === 0);
-  }, [onLeaf, tree, value, kids, top]);
+    const node = byId.get(cur);
+    const contactRoot = ['finance-suppliers', 'finance-customers'].includes(type) && cur === top;
+    let inScope = !top || cur === top;
+    for (let n = node, i = 0; n && !inScope && i < 32; n = byId.get(n.parentId), i++) inScope = n.parentId === top;
+    onLeaf(Boolean(tree && node && inScope && !contactRoot && !['inactive', 'deleted'].includes(node.status) && !kids.has(cur)));
+  }, [onLeaf, tree, value, kids, top, byId, type]);
 
   // 把每个维度当前选中的路径告诉外面（筛选标签条、新建时预填用）
   useEffect(() => {
@@ -178,15 +197,15 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
         <li key={n.id} role="treeitem" aria-expanded={sub.length ? expanded : undefined} aria-selected={active}>
           <div
             className={`cat-row${active ? ' active' : ''}${n.status === 'inactive' ? ' stopped' : ''}${manage ? ' managing' : ''}${drag === n.id ? ' dragging' : ''}`}
-            style={{ paddingLeft: 6 + depth * 14 }}
+            style={{ paddingLeft: referenceContact ? 6 + depth * 28 : 6 + depth * 14 }}
             draggable={manage && !editing}
             onDragStart={(e) => { if (!manage) return; setDrag(n.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(n.id)); }}
             onDragOver={(e) => { if (manage && drag !== null && byId.get(drag)?.parentId === n.parentId) e.preventDefault(); }}
             onDrop={(e) => { e.preventDefault(); const from = drag; setDrag(null); if (from !== null && from !== n.id) void reorder(n.parentId, from, n.id); }}
             onDragEnd={() => setDrag(null)}
           >
-            <button type="button" className="cat-toggle" tabIndex={-1} disabled={!sub.length} aria-label={expanded ? '收起' : '展开'} onClick={() => toggle(n.id)}>
-              {sub.length ? (expanded ? '▾' : '▸') : '·'}
+            <button type="button" className="cat-toggle" tabIndex={-1} disabled={!sub.length} aria-label={referenceContact ? sub.length ? expanded ? '收起下级分类' : '展开下级分类' : '没有下级分类' : expanded ? '收起' : '展开'} onClick={() => toggle(n.id)}>
+              {referenceContact ? sub.length ? expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} /> : <span /> : sub.length ? (expanded ? '▾' : '▸') : '·'}
             </button>
             {editing ? (
               <form className="cat-edit grow" onSubmit={renameNode}>
@@ -195,9 +214,9 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
                 <button type="button" className="res-btn sm" onClick={() => setRenaming(null)}>取消</button>
               </form>
             ) : (
-              <button type="button" className="cat-name" title={n.title} onClick={() => onSelect(field.key, active ? '' : String(n.id))}>{n.title}</button>
+              <button type="button" className="cat-name" title={n.title} onClick={() => { onSelect(field.key, referenceContact || referenceProduct ? String(n.id) : active ? '' : String(n.id)); if(referenceContact && sub.length && !expanded) setOpen(cur => new Set(cur).add(n.id)); }}>{referenceContact ? <><span>{active && <Check size={13}/ >}{n.title}</span><small>{n.directCount ? `${n.directCount} 条` : sub.length ? `${sub.length} 个下级` : n.directCount === undefined && n.count ? `${n.count} 条` : '空分类'}</small></> : n.title}</button>
             )}
-            {!editing && <span className="cat-count">{n.count}</span>}
+            {!editing && !referenceContact && <span className="cat-count">{n.count}</span>}
             {manage && !editing && (
               <span className="cat-acts">
                 <button type="button" aria-label={`给「${n.title}」加下级`} title="加下级" onClick={() => { setAdding({ parent: n.id, name: '' }); setOpen((cur) => new Set(cur).add(n.id)); }}>＋下级</button>
@@ -215,10 +234,12 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
     });
   }
 
+  const contactPath: string[] = [];
+  for(let n = byId.get(Number(value) || top), i=0; n && i<32; n=byId.get(n.parentId),i++) contactPath.unshift(n.title);
   const feeColumns = type === 'finance-fee-items' && !!rootId;
   const feePath: number[] = [];
   for (let n = byId.get(Number(value) || top), depth = 0; n && depth < 8; n = byId.get(n.parentId), depth++) feePath.unshift(n.id);
-  const feeLevels: Array<{ parent: number; level: number; nodes: Node[] }> = [];
+  const feeLevels: Array<{ parent: number; level: number; nodes: Node[]; placeholder?:boolean }> = [];
   if (feeColumns) {
     let parent = top;
     for (let level = 1; level < 8; level++) {
@@ -230,12 +251,12 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
       parent = next;
     }
     if (!feeLevels.length) feeLevels.push({ parent: top, level: 2, nodes: [] });
-    if (feeLevels.length === 1) feeLevels.push({ parent: Number(value) || top, level: 3, nodes: [] });
+    if (feeLevels.length === 1) feeLevels.push({ parent: Number(value) || top, level: 3, nodes: [],placeholder:true });
   }
   const multi = fields.length > 1;
   const unsetText = flat ? (FLAT_UNSET[field.ref!] ?? '没有') : `未设置${field.label}`;
   return (
-    <aside className="cat-tree" aria-label="分类目录">
+    <aside className={`cat-tree${referenceContact ? ' reference-contact-directory' : ''}${referenceProduct?' reference-product-directory':''}`} aria-label="分类目录">
       <button type="button" className="cat-fold" aria-expanded={mOpen} onClick={() => setMOpen((v) => !v)}>
         {multi ? `按${field.label}浏览` : '分类目录'}{value ? '（已选）' : ''} {mOpen ? '▴' : '▾'}
       </button>
@@ -249,14 +270,21 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
           ))}
         </div>
       )}
-      {feeColumns ? <div className="finance-fee-directory">
-        <header><h2>费用分类</h2>{manageable && <button type="button" onClick={() => setFinanceManage(true)}>管理分类</button>}</header>
-        <p>当前费用分类 <strong>{byId.get(Number(value) || top)?.title || '费用分类'}</strong></p>
-        <div className="finance-fee-directory-columns">{feeLevels.slice(-2).map(column => <section key={column.level} aria-label={`${column.level}级分类`}>
-          <header><strong>{column.level}级分类</strong>{manageable && column.nodes.length > 0 && <button type="button" onClick={() => setFinanceManage(true)}>新增</button>}</header>
-          {column.nodes.length === 0 ? <p>当前分类没有下级，右侧列表只显示本级费用档案。</p> : column.nodes.map(n => <button type="button" key={n.id} className={feePath.includes(n.id) ? 'active' : ''} onClick={() => onSelect(field.key, feePath.includes(n.id) ? n.parentId === top ? '' : String(n.parentId) : String(n.id))}><span>{n.title}</span>{(kids.get(n.id) ?? []).length > 0 ? <em>›</em> : n.count > 0 ? <small>{n.count} 条</small> : null}</button>)}
+      {referenceProduct ? <div className="reference-product-directory-body"><header><div><span>{productReferenceNoun(tab)}分类</span><h3>分类目录</h3></div>{manageable&&<button type="button" onClick={()=>setFinanceManage(true)}>管理分类</button>}</header><p><span>点击分类查看资料</span><strong>末级分类可新增{productReferenceNoun(tab)}</strong></p>{error&&<p role="alert">{error}</p>}<ul role="tree" aria-label={`${productReferenceNoun(tab)}分类目录`}>{rows(top,0)}</ul>{tree&&!(kids.get(top)??[]).length&&<p>暂无分类</p>}</div> : referenceContact ? <div className="reference-contact-directory-body">
+        <header><h2>分类目录</h2>{manageable && <button type="button" onClick={() => setFinanceManage(true)}>管理分类</button>}</header>
+        <div className="reference-contact-directory-hint"><span>点击分类查看直属{contactNoun}</span><b>{Number(value) === top || !value ? '请选择最末级分类后新增档案' : `当前：${contactPath.join(' / ')}`}</b></div>
+        {error && <p role="alert">{error}</p>}
+        <ul role="tree" aria-label={`${contactNoun}分类目录`}>{rows(top, 0)}</ul>
+        {tree && !(kids.get(top) ?? []).length && <p>暂无下级分类</p>}
+
+      </div> : feeColumns ? <div className="finance-fee-directory">
+        <header><div className="finance-fee-directory-title"><GitBranch size={18}/><h2>费用分类</h2></div><div className="finance-fee-directory-actions">{onBack&&<button type="button" onClick={onBack}>返回顶级</button>}{manageable&&<button type="button" onClick={()=>setFinanceManage(true)}>管理分类</button>}</div></header>
+        <p>当前费用分类 <strong>{contactPath.join(' / ')||byId.get(Number(value)||top)?.title||'费用分类'}</strong></p>
+        <div className="finance-fee-directory-columns">{feeLevels.slice(-2).map(column=><section key={column.level} aria-label={`${column.level}级分类`}>
+          <header><strong>{column.level}级分类</strong>{(canCreate?.(field)??manageable)&&!column.placeholder&&<button type="button" onClick={()=>setFeeCreateParent(column.parent)}>新增</button>}</header>
+          <div>{column.placeholder?<p className="finance-fee-column-placeholder">当前分类没有下级，右侧列表只显示本级费用档案。</p>:column.nodes.map(n=><button type="button" key={n.id} className={feePath.includes(n.id)?'active':''} draggable={!!expenseSort} onDragStart={e=>{setDrag(n.id);e.dataTransfer.effectAllowed='move';}} onDragOver={e=>{if(drag&&byId.get(drag)?.parentId===n.parentId)e.preventDefault();}} onDrop={e=>{e.preventDefault();if(drag&&byId.get(drag)?.parentId===n.parentId)expenseSort?.move('categoryOrders',String(n.parentId||'root'),(kids.get(n.parentId)??[]).map(row=>row.id),drag,n.id);setDrag(null);}} onDragEnd={()=>setDrag(null)} onClick={()=>onSelect(field.key,feePath.includes(n.id)?n.parentId===top?'':String(n.parentId):String(n.id))}><span>{n.title}{(kids.get(n.id)??[]).length>0&&<em>›</em>}</span>{(n.directCount??((kids.get(n.id)??[]).length?0:n.count))>0&&<small>{n.directCount??n.count} 条</small>}</button>)}</div>
         </section>)}</div>
-        <details className="finance-fee-directory-search"><summary>查找分类</summary><input className="cat-search" aria-label="找分类" placeholder="找分类" value={kw} onChange={e => setKw(e.target.value)} />{kw && <ul role="tree">{rows(top, 0)}</ul>}<button type="button" className="cat-all" onClick={() => onSelect(field.key, '')}>返回当前顶级分类</button></details>
+
         {error && <p role="alert">{error}</p>}
       </div> : <>
       <div className="cat-head">
@@ -280,7 +308,8 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
       {tree && !rootId && tree.uncategorized > 0 && <div className="muted cat-un">{unsetText} {tree.uncategorized} 条</div>}
       </>}
       </div>
-      {financeManage && <FinanceCategoryManager target={target} archiveType={target === 'finance-categories' ? String(createExtra?.archiveType ?? (tab || '')) || undefined : undefined} rootId={rootId} selectedId={Number(value) || undefined} maxDepth={['finance-base-codes','finance-bundles'].includes(type) ? 4 : 3} counts={Object.fromEntries((tree?.nodes ?? []).map(n => [n.id, n.count]))} onPick={id => onSelect(field.key, String(id))} onChanged={changed} onClose={() => setFinanceManage(false)} />}
+      {feeCreateParent!==null&&<FinanceCategoryManager target={target} rootId={rootId} editorOnlyParentId={feeCreateParent} onChanged={changed} onClose={()=>setFeeCreateParent(null)}/>}
+      {financeManage && <FinanceCategoryManager target={target} archiveType={target === 'finance-categories' ? String(createExtra?.archiveType ?? (tab || '')) || undefined : undefined} rootId={rootId} selectedId={Number(value) || undefined} maxDepth={['finance-base-codes','finance-bundles'].includes(type) ? 4 : 3} counts={Object.fromEntries((tree?.nodes ?? []).map(n => [n.id, n.count]))} directCounts={Object.fromEntries((tree?.nodes??[]).filter(n=>n.directCount!==undefined).map(n=>[n.id,n.directCount!]))} onPick={id => onSelect(field.key, String(id))} onChanged={changed} onClose={() => setFinanceManage(false)} />}
       {deleting && (
         <ReasonDialog
           title={`删除「${deleting.title}」`}

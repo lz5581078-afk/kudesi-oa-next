@@ -52,4 +52,22 @@ describe('期初预付登记 HTTP', () => {
     expect(files.putBlob).toHaveBeenCalledWith(2, 4, 'opening-prepayment-voucher', 'voucher', expect.objectContaining({ size: 8 }));
     expect(docs.checkOpeningPrepayment.mock.invocationCallOrder[0]).toBeLessThan(files.putBlob.mock.invocationCallOrder[0]);
   });
+  it('DTO接受12份并拒绝13份，身份仍只取登录上下文',async()=>{
+    const twelve={...body,fileIds:Array.from({length:12},(_,i)=>i+1)};
+    expect((await post(twelve)).status).toBe(201);expect(docs.registerOpeningPrepayment).toHaveBeenCalledWith(expect.objectContaining({companyId:2,id:4}),5,twelve);
+    docs.registerOpeningPrepayment.mockClear();expect((await post({...body,fileIds:Array.from({length:13},(_,i)=>i+1)})).status).toBe(400);expect(docs.registerOpeningPrepayment).not.toHaveBeenCalled();
+  });
+  it('专用上传按真实文件头拒绝GIF/伪装文件及空文件，不先写存储',async()=>{
+    for(const [content,type] of [['GIF89a','image/png'],['<html>','application/pdf'],['','application/pdf']]){
+      const form=new FormData();form.append('file',new Blob([content],{type}),'合成凭证.pdf');
+      expect((await fetch(url+'/finance/docs/5/opening-vouchers',{method:'POST',headers:{authorization:'Bearer opening'},body:form})).status).toBe(400);
+    }
+    expect(files.putBlob).not.toHaveBeenCalled();
+  });
+  it('专用上传拒绝超过2MB；2MB的PDF边界交给统一文件服务',async()=>{
+    const send=(size:number)=>{const data=new Uint8Array(size);data.set(new TextEncoder().encode('%PDF-'));const form=new FormData();form.append('file',new Blob([data],{type:'application/pdf'}),'合成边界.pdf');return fetch(url+'/finance/docs/5/opening-vouchers',{method:'POST',headers:{authorization:'Bearer opening'},body:form});};
+    expect((await send(2*1024*1024+1)).status).toBe(413);expect(files.putBlob).not.toHaveBeenCalled();
+    expect((await send(2*1024*1024)).status).toBe(201);expect(files.putBlob).toHaveBeenCalledWith(2,4,'opening-prepayment-voucher','voucher',expect.objectContaining({size:2*1024*1024}));
+  });
+
 });

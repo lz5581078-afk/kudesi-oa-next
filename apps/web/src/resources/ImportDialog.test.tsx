@@ -11,7 +11,7 @@ vi.mock('./api', async (orig) => {
 import { resourceApi } from './api';
 import { ImportDialog } from './ImportDialog';
 
-beforeEach(() => vi.mocked(resourceApi.import).mockResolvedValue({ dryRun: true, committed: false, created: 1, updated: 0, failed: 1, results: [{ line: 2, action: 'create', errors: [] }, { line: 3, action: 'error', errors: ['名称必填'] }] } as never));
+beforeEach(() => {vi.mocked(resourceApi.import).mockResolvedValue({ dryRun: true, committed: false, created: 1, updated: 0, failed: 1, results: [{ line: 2, action: 'create', errors: [] }, { line: 3, action: 'error', errors: ['名称必填'] }] } as never);});
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const csv = (name = '供应商.csv', body = '供应商名称\n甲\n') => {
   const f = new File([body], name, { type: 'text/csv' });
@@ -51,4 +51,12 @@ describe('导入向导', () => {
     expect(screen.queryByText('正常甲')).toBeNull();
     expect(screen.getByText('名称必填')).toBeTruthy();
   });
+});
+
+it('文件读取期间卸载不发迟到预检，提交中卸载不触发旧页面完成回调',async()=>{
+  let resolveRead!:(value:ArrayBuffer)=>void;const file=csv();file.arrayBuffer=()=>new Promise(done=>{resolveRead=done;});const done=vi.fn(),view=render(<ImportDialog embedded def={getResourceDef('finance-suppliers')!} onClose={vi.fn()} onDone={done}/>);
+  fireEvent.change(screen.getByLabelText('选择 Excel 或 CSV 文件'),{target:{files:[file]}});view.unmount();resolveRead(new TextEncoder().encode('供应商名称\n甲\n').buffer as ArrayBuffer);await Promise.resolve();await Promise.resolve();expect(resourceApi.import).not.toHaveBeenCalled();
+  let resolveCommit!:(value:never)=>void;vi.mocked(resourceApi.import).mockResolvedValueOnce({dryRun:true,committed:false,created:1,updated:0,failed:0,results:[{line:2,action:'create',errors:[]}]} as never).mockReturnValueOnce(new Promise(done=>{resolveCommit=done;}));
+  const second=render(<ImportDialog embedded def={getResourceDef('finance-suppliers')!} onClose={vi.fn()} onDone={done}/>);fireEvent.change(screen.getByLabelText('选择 Excel 或 CSV 文件'),{target:{files:[csv()]}});await screen.findByText(/共 1 行/);
+  fireEvent.click(screen.getByRole('button',{name:'确认导入本地系统'}));fireEvent.click(screen.getByRole('button',{name:'确认导入本地系统'}));expect(resourceApi.import).toHaveBeenCalledTimes(2);second.unmount();resolveCommit({committed:true,created:1,updated:0,failed:0,results:[]} as never);await Promise.resolve();expect(done).not.toHaveBeenCalled();
 });

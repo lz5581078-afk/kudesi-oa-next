@@ -1,6 +1,8 @@
+import {COST_SOURCE_BUCKETS,costSourceProvenance,readCostBucketOrigins,type CostBucketOrigins,type CostSourceBucket,type CostSourceProvenance} from './product-cost-references';
+import type {BucketCostReference} from './cost-seed-buckets';
 import { createHash } from 'crypto';
 import { In, type EntityManager } from 'typeorm';
-import { multiplyUnitCents, sumUnitCents, unitCentsTicks, scaledDecimal, todayInChina } from '@kudesi/shared';
+import { multiplyUnitCents,quantizeUnitCents, sumUnitCents, unitCentsTicks, scaledDecimal, todayInChina } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 import type { CostRow } from './cost.service';
 import { costVersionActivationPlan } from './cost-version-dates';
@@ -9,8 +11,8 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 export const COST_VERSION_TYPES = ['finance-cost-versions','finance-cost-skus','finance-cost-aux-types','finance-cost-auxiliary','finance-cost-assignments','finance-cost-overrides','finance-cost-production-rates'];
 export const COST_GLOBAL_TYPES = ['finance-cost-aux-types','finance-cost-production-rates'];
 export const COST_BUCKET_FIELDS = { purchase:'purchaseCost', transfer:'transferCost', pre_ship_package:'preShipPackageCost', production:'productionCost', shipping_package:'shippingPackageCost', express:'estimatedExpressCost' } as const;
-export type VersionCostRow = CostRow & { settingId: number; skuType: string; skuId: number; buckets: Record<string, number | null>; markupPercent: number; costVersionId: number; costVersionName: string; warnings: string[] };
-export interface CostSeed { skuType: string; skuId: number; row: CostRow; productIds: number[]; categoryIds: number[]; buckets?: Record<string,number | null>; warnings?:string[];issues?:string[];components?:Array<{baseId:number;qty:number;lossRate:number;include:boolean;effectiveFrom:string;effectiveTo:string}>;laborCostCents?:number }
+export type VersionCostRow = CostRow & { settingId: number; skuType: string; skuId: number; buckets: Record<string, number | null>; markupPercent: number; costVersionId: number; costVersionName: string; warnings: string[];sourceProvenance?:CostSourceProvenance };
+export interface CostSeed { skuType: string; skuId: number; row: CostRow; productIds: number[]; categoryIds: number[]; buckets?: Record<string,number | null>; warnings?:string[];issues?:string[];components?:Array<{baseId:number;qty:number;lossRate:number;include:boolean;effectiveFrom:string;effectiveTo:string}>;laborCostCents?:number;archiveCostSources?:BucketCostReference[] }
 const num = (v: unknown): number | null => typeof v === 'number' && Number.isFinite(v) ? v : null;
 const validDay = (data: Record<string, unknown>, day: string) => (!data.effectiveFrom || String(data.effectiveFrom) <= day) && (!data.effectiveTo || String(data.effectiveTo) >= day);
 export const versionSignature = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -56,17 +58,21 @@ export function computeVersion(version: ResourceRecord, records: ResourceRecord[
     const skuType=String(setting.data.skuType),skuId=Number(setting.data[skuType==='base_code'?'baseCodeId':'bundleId']);
     const seed=seeds.find(s=>s.skuType===skuType && s.skuId===skuId),source=seed?.row;
     const warnings=[...(seed?.warnings ?? [])],issues:string[]=[...(seed?.issues ?? [])];
+    const origins:CostBucketOrigins={},storedOrigins=readCostBucketOrigins(setting.data.costSourceProvenance);
+    if(seed?.archiveCostSources)for(const bucket of COST_SOURCE_BUCKETS)origins[bucket]=seed.archiveCostSources.filter(row=>row.bucket===bucket).map(({productId,archiveCostId})=>({productId,archiveCostId}));
     if(!source)warnings.push('来源SKU已停用或不存在，历史成本保留');
     const weightG=num(setting.data.estimatedWeightG) ?? source?.weightG ?? 0;
     const buckets:Record<string,number | null>={purchase:source?.preShipCostCents ?? 0,transfer:0,pre_ship_package:0,production:0,shipping_package:0,express:0};
     if(seed?.buckets)for(const key of Object.keys(buckets))buckets[key]=seed.buckets[key] ?? 0;
     if(applyRules && skuType==='bundle' && seed?.components){
       for(const key of Object.keys(buckets))buckets[key]=0;
+      for(const bucket of COST_SOURCE_BUCKETS)origins[bucket]=[];
       for(const component of seed.components){
         if(!component.include || (component.effectiveFrom && component.effectiveFrom>day) || (component.effectiveTo && component.effectiveTo<day))continue;
         const base=baseRows.get(component.baseId);
         if(!base){warnings.push(`缺少组成基础编码 #${component.baseId} 的候选成本，当前按 0 计算`);continue;}
-        for(const key of Object.keys(buckets))buckets[key]=sumUnitCents([buckets[key] ?? 0,multiplyUnitCents(base.buckets[key] ?? 0,component.qty,component.lossRate)]);
+        for(const key of Object.keys(buckets))buckets[key]=sumUnitCents([buckets[key] ?? 0,multiplyUnitCents(base.buckets[key] ?? 0,component.qty,component.lossRate,6,4,2)]);
+        if(component.qty>0)for(const bucket of COST_SOURCE_BUCKETS){const facts=base.sourceProvenance?.buckets[bucket];if(!facts)delete origins[bucket];else if(origins[bucket])origins[bucket]!.push(...facts);}
       }
       buckets.production=sumUnitCents([buckets.production ?? 0,seed.laborCostCents ?? 0]);
     }
@@ -75,18 +81,18 @@ export function computeVersion(version: ResourceRecord, records: ResourceRecord[
       buckets.express=sumUnitCents([buckets.express ?? 0,express ?? 0]);
       if(express===null)warnings.push('没有匹配的快递预估，快递成本暂按 0 计算');
     }
-    for(const [bucket,field]of Object.entries(COST_BUCKET_FIELDS))if(num(setting.data[field])!==null)buckets[bucket]=num(setting.data[field]);
+    for(const [bucket,field]of Object.entries(COST_BUCKET_FIELDS))if(num(setting.data[field])!==null){buckets[bucket]=num(setting.data[field]);const key=bucket as CostSourceBucket;if(storedOrigins&&Object.hasOwn(storedOrigins,key))origins[key]=storedOrigins[key]!.map(row=>({...row}));else delete origins[key];}
     const apply=(bucket:string,amount:number,mode:unknown)=>{
       if(!(bucket in buckets)){issues.push('成本科目不合法');return;}
-      if(mode==='replace')buckets[bucket]=amount;
-      else if(mode==='fallback'){if(!buckets[bucket])buckets[bucket]=amount;}
-      else buckets[bucket]=sumUnitCents([buckets[bucket] ?? 0,amount]);
+      if(mode==='replace'){buckets[bucket]=quantizeUnitCents(amount,4,2);origins[bucket as CostSourceBucket]=[];}
+      else if(mode==='fallback'){if(!buckets[bucket]){buckets[bucket]=quantizeUnitCents(amount,4,2);origins[bucket as CostSourceBucket]=[];}}
+      else buckets[bucket]=quantizeUnitCents(sumUnitCents([buckets[bucket] ?? 0,amount]),4,2);
     };
     if(applyRules){
       for(const assignment of assignments.filter(r=>r.data.skuSettingId===setting.id)){
         const item=auxiliary.find(r=>r.id===assignment.data.auxiliaryId),kind=item && types.find(r=>r.id===item.data.auxTypeId);
         if(!item || !kind){warnings.push('分摊引用的辅助成本或类型已停用');continue;}
-        apply(String(item.data.costBucket),multiplyUnitCents(Number(assignment.data.unitAmount ?? item.data.amount ?? 0),Number(assignment.data.qty || 0)),assignment.data.mode);
+        apply(String(item.data.costBucket),multiplyUnitCents(Number(assignment.data.unitAmount ?? item.data.amount ?? 0),Number(assignment.data.qty || 0),0,6,4,2),assignment.data.mode);
       }
       const standard=standards.find(r=>{
         const d=r.data;
@@ -98,12 +104,14 @@ export function computeVersion(version: ResourceRecord, records: ResourceRecord[
       if(standard){const d=standard.data,fixed=Number(d.fixedAmount || 0),unit=Number(d.unitAmount || 0);const amount=d.calculationMethod==='per_kg'?perKgCost(unit,weightG):d.calculationMethod==='fixed_plus_kg'?sumUnitCents([fixed,perKgCost(unit,weightG)]):fixed || unit;apply('production',amount,'add');}
       for(const override of overrides.filter(r=>r.data.skuSettingId===setting.id))apply(String(override.data.costBucket),Number(override.data.amount || 0),override.data.mode);
     }
-    const pre=sumUnitCents(['purchase','transfer','pre_ship_package','production','shipping_package'].map(k=>buckets[k] ?? 0)),total=sumUnitCents(Object.values(buckets).map(v=>v ?? 0));
+    // 原 cost-calculator 的派生输出保留四位元，字段仍可输入六位元单价。
+    const pre=quantizeUnitCents(sumUnitCents(['purchase','transfer','pre_ship_package','production','shipping_package'].map(k=>buckets[k] ?? 0)),4,2),total=quantizeUnitCents(sumUnitCents([pre,buckets.express??0]),4,2);
+    for(const key of Object.keys(buckets))if(buckets[key]!==null)buckets[key]=quantizeUnitCents(buckets[key]!,4,2);
     const markup=num(setting.data.markupPercent) ?? Number(version.data.defaultMarkupPercent),minimum=markedUpPrice(total,markup);
     if(total===0)warnings.push('总成本为 0，请确认实际情况');
     if(weightG===0)warnings.push('预计重量为 0，请确认实际情况');
     if(buckets.express===0)warnings.push('预计快递成本为 0，请确认实际情况');
-    const row={...(source ?? {bundleId:skuId,code:String(setting.data.skuCode || ''),name:String(setting.data.skuName || ''),status:'pending',categoryId:null,categoryName:'',carrierName:'',lines:[],updatedAtMs:0}),bundleId:skuId,settingId:setting.id,skuType,skuId,buckets,costVersionId:version.id,costVersionName:version.title,markupPercent:markup,preShipCostCents:pre,weightG,freightCents:buckets.express,freightMethod:'版本成本',costIncludingFreightCents:total,minPriceCents:minimum,marginPercent:total && minimum?Number(((minimum-total)/minimum*100).toFixed(6)):0,marginSource:'版本加价率',marginOverride:false,inheritedMargin:{percent:null,source:'版本加价率'},revision:versionSignature([version.id,setting.id,buckets,markup]),issues,warnings:[...new Set(warnings)]} as VersionCostRow;
+    const row={sourceProvenance:costSourceProvenance(origins),...(source ?? {bundleId:skuId,code:String(setting.data.skuCode || ''),name:String(setting.data.skuName || ''),status:'pending',categoryId:null,categoryName:'',carrierName:'',lines:[],updatedAtMs:0}),bundleId:skuId,settingId:setting.id,skuType,skuId,buckets,costVersionId:version.id,costVersionName:version.title,markupPercent:markup,preShipCostCents:pre,weightG,freightCents:buckets.express,freightMethod:'版本成本',costIncludingFreightCents:total,minPriceCents:minimum,marginPercent:total && minimum?Number(((minimum-total)/minimum*100).toFixed(6)):0,marginSource:'版本加价率',marginOverride:false,inheritedMargin:{percent:null,source:'版本加价率'},revision:versionSignature([version.id,setting.id,buckets,markup]),issues,warnings:[...new Set(warnings)]} as VersionCostRow;
     if(skuType==='base_code')baseRows.set(skuId,row);
     return row;
   });
@@ -126,7 +134,7 @@ export function recalculationPreview(version: ResourceRecord, records: ResourceR
   const proposed=computeVersion(version,[...globalsAndAdjustments,...candidates],seeds,freight,true);
   const previous=computeVersion(version,records,seeds,freight);
   const rows=proposed.rows.map(row=>({skuType:row.skuType,skuId:row.skuId,code:row.code,name:row.name,settingId:row.settingId>0?row.settingId:null,previous:previous.rows.find(p=>p.settingId===row.settingId)?.costIncludingFreightCents ?? null,proposed:row.costIncludingFreightCents,issues:row.issues}));
-  const writes=candidates.map(candidate=>{const row=proposed.rows.find(r=>r.settingId===candidate.id)!;return {id:candidate.id>0?candidate.id:null,data:{...candidate.data,...Object.fromEntries(Object.entries(COST_BUCKET_FIELDS).map(([bucket,field])=>[field,row.buckets[bucket]]))}};});
+  const writes=candidates.map(candidate=>{const row=proposed.rows.find(r=>r.settingId===candidate.id)!;return {id:candidate.id>0?candidate.id:null,data:{...candidate.data,costSourceProvenance:{version:1,buckets:row.sourceProvenance?.buckets??{}},...Object.fromEntries(Object.entries(COST_BUCKET_FIELDS).map(([bucket,field])=>[field,row.buckets[bucket]]))} as Record<string,unknown>};});
   const signature=versionSignature([version.id,version.status,version.data,records.filter(r=>COST_GLOBAL_TYPES.includes(r.type) || r.data.versionId===version.id).map(r=>[r.id,r.status,r.data]),writes,rows]);
   const unavailable=existing.filter(r=>r.status==='active' && !candidates.some(c=>c.id===r.id)).map(r=>`${String(r.data.skuCode || r.id)}：来源SKU不存在、已停用或尚未验证`);
   return {rows,writes,signature,ready:proposed.ready,issues:proposed.issues,warnings:[...proposed.warnings,...unavailable],businessDate:String(version.data.effectiveFrom || todayInChina()),changed:rows.filter(r=>r.previous!==r.proposed).length};

@@ -4,6 +4,14 @@ import { ProductQuestionArticle1792000000000 } from './migrations/1792000000000-
 import { LiveScriptOutline1790000000000 } from './migrations/1790000000000-LiveScriptOutline';
 import { LiveScriptFolderCategory1789000000000 } from './migrations/1789000000000-LiveScriptFolderCategory';
 import { LiveScriptCenter1788000000000 } from './migrations/1788000000000-LiveScriptCenter';
+import { UserPreferences1791000000000 } from './migrations/1791000000000-UserPreferences';
+import { FinanceLineItemSnapshots1787000000000 } from './migrations/1787000000000-FinanceLineItemSnapshots';
+import { FinanceEntryUnit1785000000000 } from './migrations/1785000000000-FinanceEntryUnit';
+import { FinanceRelatedNameSnapshot1786000000000 } from './migrations/1786000000000-FinanceRelatedNameSnapshot';
+import { CostSnapshotContext1784000000000 } from './migrations/1784000000000-CostSnapshotContext';
+import { ResourceFormMutation1782000000000 } from './migrations/1782000000000-ResourceFormMutation';
+import { DocSettlementMode1781000000000 } from './migrations/1781000000000-DocSettlementMode';
+import { DocCounterpartySummary1783000000000 } from './migrations/1783000000000-DocCounterpartySummary';
 import { LiveDailyWork1780000000000 } from './migrations/1780000000000-LiveDailyWork';
 import { LiveTurnoverSnapshots1779000000000 } from './migrations/1779000000000-LiveTurnoverSnapshots';
 import { EnrollmentPermanent1775000000000 } from './migrations/1775000000000-EnrollmentPermanent';
@@ -91,6 +99,14 @@ export const MIGRATIONS = [InitialSchema1730000000000, ResourceTables17300001000
 MIGRATIONS.push(LiveScriptCenter1788000000000);
 MIGRATIONS.push(LiveScriptFolderCategory1789000000000, LiveScriptOutline1790000000000, ProductQuestionArticle1792000000000);
 MIGRATIONS.push(LiveDailyWork1780000000000);
+MIGRATIONS.push(DocSettlementMode1781000000000);
+MIGRATIONS.push(ResourceFormMutation1782000000000);
+MIGRATIONS.push(DocCounterpartySummary1783000000000);
+MIGRATIONS.push(CostSnapshotContext1784000000000);
+MIGRATIONS.push(FinanceEntryUnit1785000000000);
+MIGRATIONS.push(FinanceRelatedNameSnapshot1786000000000);
+MIGRATIONS.push(FinanceLineItemSnapshots1787000000000);
+MIGRATIONS.push(UserPreferences1791000000000);
 MIGRATIONS.push(SessionLegacyRuntime1777000000000);
 MIGRATIONS.push(SessionBrowserHistory1778000000000);
 

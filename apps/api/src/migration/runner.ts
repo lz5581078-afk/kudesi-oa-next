@@ -359,7 +359,11 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
             if(r.type==='finance-product-sources'&&r.sourceUpdatedAt){
               const stamp=new Date(r.sourceUpdatedAt.replace(' ','T')+'+08:00');
               if(!Number.isFinite(stamp.getTime()))throw new MigrationError('供货来源更新时间无效，不能判断当前来源');
-              await em.update(ResourceRecord,{id:record.id,companyId:company.id},{data:{...record.data,legacySourceId:r.id}});
+              const rawPriceTime = r.sourcePriceUpdatedAt || r.sourceUpdatedAt;
+              const priceTime = new Date(rawPriceTime.replace(' ', 'T') + (/(Z|[+-]\d{2}:\d{2})$/.test(rawPriceTime) ? '' : '+08:00'));
+              if (!Number.isFinite(priceTime.getTime())) throw new MigrationError('供货来源采购价更新时间无效');
+              const priceUpdatedAt = resourceCreated.has(record.id) ? priceTime.toISOString() : record.data.priceUpdatedAt || priceTime.toISOString();
+              await em.update(ResourceRecord,{id:record.id,companyId:company.id},{data:{...record.data,legacySourceId:r.id,priceUpdatedAt}});
               sourceStamps.push({id:record.id,stamp});
             }
             await register(r.type, r.id, record.id);

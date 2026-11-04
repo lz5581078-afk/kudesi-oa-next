@@ -36,3 +36,26 @@ describe('SKU计算设置',()=>{
     fireEvent.change(screen.getByLabelText('编码类型'),{target:{value:'bundle'}});expect(screen.getByRole('button',{name:'保存SKU计算设置'}).hasAttribute('disabled')).toBe(true);
   });
 });
+
+it('查询失败可按同词重试，恢复后清旧错误，改词立即取消旧SKU选择', async () => {
+  vi.mocked(costVersionsApi.skuOptions).mockRejectedValueOnce(new Error('合成查询失败')).mockResolvedValue({rows:[option],total:1,page:1,pageSize:30});
+  render(<CostSkuEditor version={version} record={null} onClose={()=>{}} onSaved={()=>{}}/>);
+  await screen.findByText('合成查询失败');
+  fireEvent.click(screen.getByRole('button',{name:'查询SKU'}));
+  fireEvent.click(await screen.findByRole('button',{name:'选择'}));
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.change(screen.getByLabelText('搜索成本SKU'),{target:{value:'另一商品'}});
+  expect(screen.getByRole('button',{name:'保存SKU计算设置'}).hasAttribute('disabled')).toBe(true);
+  expect(screen.queryByRole('heading',{name:'BC-8 · 参考商品'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'保存SKU计算设置'}));
+  expect(resourceApi.create).not.toHaveBeenCalled();
+});
+
+it('采用参考重量按支持的六位公斤精度回填，可继续保存', async () => {
+  render(<CostSkuEditor version={version} record={null} onClose={()=>{}} onSaved={()=>{}}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'选择'}));
+  fireEvent.click(screen.getByRole('button',{name:/采用参考重量/}));
+  expect((screen.getByLabelText('预计重量覆盖（kg）') as HTMLInputElement).value).toBe('1.234568');
+  fireEvent.click(screen.getByRole('button',{name:'保存SKU计算设置'}));
+  await waitFor(()=>expect(resourceApi.create).toHaveBeenCalledWith('finance-cost-skus',expect.objectContaining({estimatedWeightG:1234.568})));
+});

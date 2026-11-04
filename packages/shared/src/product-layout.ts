@@ -1,3 +1,4 @@
+import { productCapacity } from './product-capacities';
 /**
  * 商品档案“新增 / 编辑 / 详情”共用的一份布局（旧版 10-24 的商品抽屉：每种档案类型一套分区、顺序、必填、显示条件）。
  *
@@ -6,7 +7,7 @@
  * 详情页、新增表单、编辑表单都读这一份，所以三处的分区、顺序、显示条件不会各写各的。
  */
 import { FINANCE_RESOURCE_DEFS } from './finance-resources';
-import type { FieldDef } from './resources';
+import { resolveFieldDef, type FieldDef } from './resources';
 
 export type ProductLayoutKey = 'raw' | 'self_made' | 'purchased_original' | 'purchased_oem' | 'package' | 'oem_package' | 'shipping_material' | 'custom';
 
@@ -93,7 +94,7 @@ const B = (block: ProductBlock, extra: Omit<BlockItem, 'block'> = {}): BlockItem
 const S = (id: string, title: string, items: readonly LayoutItem[], extra: { hint?: string; step?: string } = {}): ProductSection => ({ id, title, items, ...extra });
 
 const GIFT_HINT = '两项均填写后才可作为赠品。简称用于组合名称，编码简称用于组合编码；同公司跨档案排重，不修改已生成的组合。';
-const CODE_PURCHASED = '编码顺序：外购档案-供货类型（YZ/OEM）-分类-品牌-名称-名称规格+名称单位。系统规格不参与编码。';
+const CODE_PURCHASED = '编码顺序：外购档案-供货类型（YZ/OEM）-分类-品牌-名称-名称规格+名称单位-系统规格。规格和单位合并为一段，例如 100G。';
 const CODE_SELF = '编码顺序：自产档案-分类-品牌-名称-名称规格+名称单位（选填）。可在“人工修正”里手改。';
 const LOGISTICS_HINT = '两项费用分别维护、统一汇总，并与当前系统规格和采购价一起留存历史；手工修改后保存会生成新的历史记录。';
 
@@ -171,17 +172,17 @@ const PURCHASED_OEM: ProductLayout = {
 
 const PACKAGE_LIKE = (key: 'package' | 'oem_package'): ProductLayout => ({
   key,
-  header: ['archiveType'],
+  header: ['archiveType', 'categoryId', 'supplierId'],
   sections: [
     CATEGORY,
-    S('code', key === 'package' ? '产品包装编号' : 'OEM 包装编号', [B('code')], { hint: '系统根据分类、品牌、名称和全部适用容量生成' }),
+    S('code', key === 'package' ? '产品包装编号' : 'OEM包装编号', [B('code')], { hint: '编号随分类、品牌、名称和容量组的全部适用容量自动更新。' }),
     S('base', '包装基础信息', [
       F('packagingCategory', { required: true }), F('name', { label: '包装名称' }), F('brandId', { required: true }),
       F('dimensions'), F('dimensionUnit'), F('shape', { whenFilled: true }), F('note'), B('fullName'),
     ], { hint: '只保留建档所需的包装资料' }),
     S('capacities', '容量组', [B('capacities')], { hint: '同一种包装可维护多个容量' }),
     S('production', '生产与重量', [F('printingCompany', { label: '包装印刷公司' }), B('weight', { required: true })], { hint: '记录印刷方和单件重量' }),
-    S('stock', '库存与采购价', [F('orderStock'), F('actualStock'), F('purchaseSpec', { required: true }), F('supplierId', { help: '' }), F('purchasePrice', { required: true, help: '按系统规格计价，单位元' })], { hint: '维护库存参数、采购价和库存业务使用的系统规格，不触发自动增减' }),
+    S('stock', '库存与采购价', [F('orderStock'), F('actualStock'), F('purchaseSpec', { required: true }), F('purchasePrice', { required: true, help: '按系统规格计价，单位元' })], { hint: '维护库存参数、采购价和库存业务使用的系统规格，不触发自动增减' }),
     LOGISTICS, TOTAL, PHOTOS,
   ],
 });
@@ -277,7 +278,7 @@ export interface ProductProblemContext {
   canCost: boolean;
   /** 已有的（或表单里填好的）供货来源行数 / 构成行数，由界面传入 */
   sources?: Array<{ supplierId?: unknown; originArea?: unknown; systemSpec?: unknown; purchasePrice?: unknown }> | null;
-  composition?: Array<{ group: CompositionGroup; id?: unknown; qty?: unknown }> | null;
+  composition?: Array<{ group: CompositionGroup; id?: unknown; qty?: unknown; sourceRowId?: unknown; sourceVersion?: unknown }> | null;
   /** 编辑已有档案时，状态切换等场景不卡必填（和服务端一致） */
   lenient?: boolean;
 }
@@ -300,12 +301,14 @@ export function productFormProblems(values: Record<string, unknown>, ctx: Produc
   req('name');
   for (const k of ['brandId', 'packagingCategory', 'productPackagingSpec', 'productPackagingUnit', 'purchaseSpec']) req(k);
   if (t !== 'self_made' && !['package', 'oem_package'].includes(t)) {
-    if (!(Number(values.specQty) > 0)) out.specQty = `${meta('specQty').label}必须大于 0`;
+    if (resolveFieldDef(productFieldDef('specQty')!, values).type === 'text') req('specQty');
+    else if (!(Number(values.specQty) > 0)) out.specQty = `${meta('specQty').label}必须大于 0`;
     req('specUnit');
   }
   if (['package', 'oem_package'].includes(t)) {
     const lines = String(values.capacities ?? '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
     if (!lines.length) out.capacities = '请至少填写一个容量（数量和单位）';
+    else if (lines.some(line => { const capacity = productCapacity(line); return capacity.quantity === null || capacity.quantity <= 0 || !capacity.unit; })) out.capacities = '每条容量都要填写大于0的数量和单位';
     if (present(values.dimensions) && !present(values.dimensionUnit)) out.dimensionUnit = '填了尺寸，请选择尺寸单位';
     for (const k of ['orderStock', 'actualStock']) if (present(values[k]) && Number(values[k]) < 0) out[k] = '库存不能小于 0';
   }
@@ -334,7 +337,7 @@ export function productFormProblems(values: Record<string, unknown>, ctx: Produc
     const rows = ctx.composition ?? [];
     if (ctx.composition === null) { /* 没有读取构成的权限：交给服务端 */ }
     else if (!rows.length) out.composition = '请至少增加一条原料、包装或人工成本';
-    else if (rows.some((r) => !present(r.id) || !(Number(r.qty) > 0))) out.composition = '原料、包装和人工明细必须选择档案，并填写大于 0 的倍数';
+    else if (rows.some((r) => (!present(r.id) && !(r.group === 'labor' && Number.isSafeInteger(r.sourceRowId) && Number(r.sourceRowId) > 0 && typeof r.sourceVersion === 'string' && r.sourceVersion.trim())) || !(Number(r.qty) > 0))) out.composition = '原料、包装和人工明细必须选择档案，并填写大于 0 的倍数';
   }
   if (t === 'purchased_oem' && (ctx.composition ?? []).some((r) => !present(r.id) || !(Number(r.qty) > 0))) out.composition = 'OEM 包装明细必须选择档案，并填写大于 0 的用量';
   return out;
@@ -371,7 +374,7 @@ export function resolveProductSections(values: Record<string, unknown>, opts: { 
       if (!def || !applies(def)) continue;
       if (i.whenFilled && !present(values[i.field])) continue;
       const help = i.help !== undefined ? (i.help || undefined) : def.help;
-      nodes.push({ kind: 'field', wide: i.wide, field: { ...def, group: s.title, label: i.label ?? def.label, required: i.required ?? def.required, help } });
+      nodes.push({ kind: 'field', wide: i.wide, field: { ...resolveFieldDef(def, values), group: s.title, label: i.label ?? def.label, required: i.required ?? def.required, help } });
     }
     if (nodes.length) out.push({ id: s.id, title: s.title, hint: s.hint, step: s.step, nodes });
   }

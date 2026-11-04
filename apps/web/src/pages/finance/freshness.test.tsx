@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { freshnessTone } from './freshness';
+import { freshnessTone,fmtUpdated } from './freshness';
 
 describe('余额新旧分档', () => {
   const now = Date.parse('2026-10-26T12:00:00+08:00');
@@ -18,3 +18,5 @@ describe('余额新旧分档', () => {
     expect(freshnessTone(ago(-5), now)).toBe('fresh'); // 未来时间当刚更新
   });
 });
+
+it('余额时间显示保留原北京壁钟与斜杠日期，带时区值仍按真实瞬间转换',()=>{expect(fmtUpdated('2026-10-24 18:00:00')).toBe('2026/10/24 18:00:00');expect(fmtUpdated('2026-10-24T10:00:00Z')).toBe('2026/10/24 18:00:00');expect(fmtUpdated(null)).toBe('未记录');expect(fmtUpdated('invalid')).toBe('未记录');});

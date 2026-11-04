@@ -10,6 +10,7 @@ import { ExpressService } from './express.service';
 const DATE = /^(\d{4}-\d{2}-\d{2})?$/;
 
 class RuleDto {
+  @IsOptional() @IsString() @MaxLength(5000) note?: string;
   @IsString() @MaxLength(20) province!: string;
   @IsOptional() @IsNumber() @Min(0) shipWeightMin?: number | null;
   @IsOptional() @IsNumber() @Min(0) shipWeightMax?: number | null;
@@ -20,7 +21,12 @@ class RuleDto {
   @IsOptional() @IsInt() @Min(0) firstPrice?: number | null;
   @IsOptional() @IsInt() @Min(0) extraPrice?: number | null;
 }
+class RecognitionRequestDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) providerId?: number;
+  @IsOptional() @IsString() @MaxLength(150) modelId?: string;
+}
 class ReplaceRulesDto {
+  @IsOptional() @IsBoolean() activate?: boolean;
   @IsIn(['ai', 'manual']) source!: 'ai' | 'manual';
   @IsArray() @ArrayMaxSize(3000) @ValidateNested({ each: true }) @Type(() => RuleDto) rules!: RuleDto[];
 }
@@ -33,6 +39,7 @@ class PriceConfirmDto {
   @IsOptional() @IsString() @MaxLength(5000) extraRemark?: string;
 }
 class SurchargeDto {
+  @IsOptional() @IsString() @MaxLength(5000) note?: string;
   @IsString() @MaxLength(160) name!: string;
   @IsOptional() @Matches(DATE) effectiveStart?: string;
   @IsOptional() @Matches(DATE) effectiveEnd?: string;
@@ -45,6 +52,7 @@ class SurchargeDto {
   @IsOptional() @IsNumber() @Min(0) weightEnd?: number | null;
 }
 class SurchargeConfirmDto {
+  @IsOptional() @IsString() @MaxLength(5000) batchNote?: string;
   @IsString() @MaxLength(160) batchName!: string;
   @IsArray() @ArrayMaxSize(500) @ValidateNested({ each: true }) @Type(() => SurchargeDto) rows!: SurchargeDto[];
   @IsOptional() @IsString() @MaxLength(200) fileName?: string;
@@ -53,6 +61,10 @@ class SurchargeConfirmDto {
   @IsOptional() @IsInt() @Min(1) evidenceFileId?: number;
 }
 class ReasonDto { @IsString() @MaxLength(200) reason!: string }
+class RecalculateDto {
+  @IsOptional() @IsInt() @Min(1) @Max(100) parcelLimit?: number;
+  @IsOptional() @IsInt() @Min(0) revision?: number;
+}
 class ParcelLimitDto { @IsInt() @Min(1) @Max(100) parcelLimit!: number }
 class OverrideDto {
   @IsNumber() @Min(0) weightFrom!: number;
@@ -60,6 +72,10 @@ class OverrideDto {
   /** 分；null = 取消这个重量段的手工运费 */
   @IsOptional() @IsInt() @Min(0) @Max(100_000_000) amount?: number | null;
   @IsOptional() @IsString() @MaxLength(300) reason?: string;
+}
+class BatchOverridesDto {
+  @IsInt() @Min(0) revision!: number;
+  @IsArray() @ArrayMaxSize(500) @ValidateNested({ each: true }) @Type(() => OverrideDto) rows!: OverrideDto[];
 }
 class ZoneRunDto { @IsNumber() @Min(0.01) @Max(1000) maxWeightKg!: number }
 class PageDto {
@@ -89,15 +105,20 @@ export class ExpressController {
   @RequirePermission('resource.finance-express-prices.edit')
   @Put('versions/:id/rules')
   replaceRules(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: ReplaceRulesDto) {
-    return this.express.replaceRules(u, id, b.source, b.rules, '整表保存价格规则');
+    return this.express.replaceRules(u, id, b.source, b.rules, '整表保存价格规则', b.activate);
   }
+
+  @RequirePermission('resource.finance-express-prices.edit')
+  @Get('ai-models')
+  recognitionOptions(@CurrentUser() u: AuthUser) { return this.ocr.expressRecognitionOptions(u); }
 
   @RequirePermission('resource.finance-express-prices.edit')
   @Post('versions/:id/recognize-price')
   @HttpCode(200)
   @UseInterceptors(FileInterceptor('file', UPLOAD))
-  recognizePrice(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) _id: number, @UploadedFile() file: Upload | undefined) {
-    return this.ocr.recognizeExpressDocument(u, file, 'price_table', PROVINCES);
+  async recognizePrice(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @UploadedFile() file: Upload | undefined, @Body() b: RecognitionRequestDto) {
+    await this.express.versionDetail(u, id);
+    return this.ocr.recognizeExpressDocument(u, file, 'price_table', PROVINCES, b);
   }
 
   @RequirePermission('resource.finance-express-prices.edit')
@@ -109,14 +130,20 @@ export class ExpressController {
   @Post('versions/:id/recognize-surcharge')
   @HttpCode(200)
   @UseInterceptors(FileInterceptor('file', UPLOAD))
-  recognizeSurcharge(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) _id: number, @UploadedFile() file: Upload | undefined) {
-    return this.ocr.recognizeExpressDocument(u, file, 'surcharge_notice', PROVINCES);
+  async recognizeSurcharge(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @UploadedFile() file: Upload | undefined, @Body() b: RecognitionRequestDto) {
+    await this.express.versionDetail(u, id);
+    return this.ocr.recognizeExpressDocument(u, file, 'surcharge_notice', PROVINCES, b);
   }
 
   @RequirePermission('resource.finance-express-prices.edit')
   @Post('versions/:id/recognize-surcharge/confirm')
   @HttpCode(200)
   confirmSurcharge(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: SurchargeConfirmDto) { return this.express.confirmSurchargeRecognition(u, id, b); }
+
+  @RequirePermission('resource.finance-express-prices.edit')
+  @Post('versions/:id/surcharge-batches')
+  @HttpCode(200)
+  createSurcharge(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: SurchargeConfirmDto) { return this.express.confirmSurchargeRecognition(u, id, { ...b, modelName: '人工录入' }, 'manual'); }
 
   @RequirePermission('resource.finance-express-prices.delete')
   @Post('versions/:id/delete')
@@ -147,7 +174,7 @@ export class ExpressController {
   @RequirePermission('resource.finance-freight-overrides.edit', 'product.cost.edit')
   @Post('estimates/recalculate')
   @HttpCode(200)
-  recalc(@CurrentUser() u: AuthUser) { return this.express.recalculate(u); }
+  recalc(@CurrentUser() u: AuthUser, @Body() b: RecalculateDto) { return this.express.recalculate(u, b.parcelLimit, b.revision); }
 
   @RequirePermission('resource.finance-freight-overrides.edit', 'product.cost.edit')
   @Put('estimates/parcel-limit')
@@ -156,6 +183,10 @@ export class ExpressController {
   @RequirePermission('resource.finance-freight-overrides.edit', 'product.cost.edit')
   @Put('estimates/override')
   override(@CurrentUser() u: AuthUser, @Body() b: OverrideDto) { return this.express.setOverride(u, b.weightFrom, b.weightTo, b.amount ?? null, b.reason); }
+
+  @RequirePermission('resource.finance-freight-overrides.edit', 'product.cost.edit')
+  @Put('estimates/overrides')
+  overrides(@CurrentUser() u: AuthUser, @Body() b: BatchOverridesDto) { return this.express.saveOverrides(u, b.revision, b.rows.map(row => ({ ...row, amount: row.amount ?? null }))); }
 
   // ---------- 分区建议生成记录 ----------
 

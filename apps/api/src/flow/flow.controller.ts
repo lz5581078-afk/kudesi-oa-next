@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
+import {FlowConfirmationDto} from './flow-confirmation.dto';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ValidateNested, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { FlowService } from './flow.service';
 
@@ -26,10 +27,17 @@ class ReassignDto {
   @IsOptional() @IsBoolean() dryRun?: boolean;
 }
 class PassDto {
+  @IsOptional() @ValidateNested() @Type(()=>FlowConfirmationDto) confirmation?:FlowConfirmationDto;
   @IsInt() revision!: number;
   @IsInt() stepId!: number;
   @IsOptional() @IsObject() form?: Record<string, unknown>;
   @IsOptional() @IsString() @MaxLength(500) comment?: string;
+}
+class StepDraftDto {
+  @IsInt() @Min(1) revision!:number;
+  @IsInt() @Min(1) stepId!:number;
+  @IsOptional() @IsObject() form?:Record<string,unknown>;
+  @IsOptional() @IsObject() draftContext?:Record<string,unknown>;
 }
 class ReasonDto {
   @IsInt() revision!: number;
@@ -41,6 +49,8 @@ class WithdrawDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 class ResubmitDto {
+  @IsOptional() @IsString() @MaxLength(500) comment?:string;
+  @IsOptional() @ValidateNested() @Type(()=>FlowConfirmationDto) confirmation?:FlowConfirmationDto;
   @IsInt() revision!: number;
   @IsObject() payload!: Record<string, unknown>;
 }
@@ -50,7 +60,62 @@ class TransferDto {
   @IsInt() toUserId!: number;
   @IsString() @MaxLength(500) reason!: string;
 }
+class ApplicationDraftVersionDto {
+  @IsInt() @Min(1) id!:number;
+  @IsInt() @Min(1) revision!:number;
+}
+class ApplicationDraftCreateDto {
+  @IsOptional() @IsObject() confirmations?:Record<string,boolean>;
+  @IsString() @MaxLength(40) templateKey!:string;
+  @IsInt() @Min(1) definitionId!:number;
+  @IsString() @MaxLength(60) requestKey!:string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @IsObject({each:true}) payloads!:Record<string,unknown>[];
+}
+class ApplicationDraftSaveDto {
+  @IsInt() @Min(1) revision!:number;
+  @IsObject() payload!:Record<string,unknown>;
+}
+class ApplicationDraftSubmitDto {
+  @IsOptional() @IsString() @MaxLength(500) comment?:string;
+  @IsOptional() @ValidateNested() @Type(()=>FlowConfirmationDto) confirmation?:FlowConfirmationDto;
+  @IsInt() @Min(1) revision!:number;
+  @IsString() @MaxLength(60) requestKey!:string;
+}
+class ApplicationDraftSubmitItemDto extends ApplicationDraftVersionDto {
+  @IsOptional() @ValidateNested() @Type(()=>FlowConfirmationDto) confirmation?:FlowConfirmationDto;
+}
+class ApplicationDraftSubmitManyDto {
+  @IsOptional() @IsString() @MaxLength(500) comment?:string;
+  @IsString() @MaxLength(60) requestKey!:string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @ValidateNested({each:true}) @Type(()=>ApplicationDraftSubmitItemDto) items!:ApplicationDraftSubmitItemDto[];
+}
+class ApplicationDraftStopDto {
+ @IsInt() @Min(1) revision!:number;
+ @IsIn(['cancel','reject']) kind!:'cancel'|'reject';
+ @IsString() @MaxLength(500) reason!:string;
+}
+class ApplicationDraftDeleteDto {
+  @IsInt() @Min(1) revision!:number;
+  @IsString() @MaxLength(500) reason!:string;
+}
+class ApplicationDraftAddDto {
+  @IsOptional() @ValidateNested() @Type(()=>ApplicationDraftVersionDto) copySource?:ApplicationDraftVersionDto;
+  @IsString() @MaxLength(64) headerVersion!:string;
+  @IsString() @MaxLength(60) requestKey!:string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @IsObject({each:true}) payloads!:Record<string,unknown>[];
+}
+class ApplicationDraftRemoveBatchDto {
+  @IsString() @MaxLength(64) headerVersion!:string;
+  @IsArray() @ArrayMaxSize(100) @ValidateNested({each:true}) @Type(()=>ApplicationDraftVersionDto) expected!:ApplicationDraftVersionDto[];
+  @IsString() @MaxLength(500) reason!:string;
+}
+class ApplicationDraftSharedDto {
+  @IsString() @MaxLength(64) headerVersion!:string;
+  @IsArray() @ArrayMaxSize(100) @ValidateNested({each:true}) @Type(()=>ApplicationDraftVersionDto) expected!:ApplicationDraftVersionDto[];
+  @IsObject() payload!:Record<string,unknown>;
+}
 class RunsQuery {
+  @IsOptional() @IsIn(['true','false']) groupSku?:string;
   @IsIn(['started', 'cc', 'all']) view!: 'started' | 'cc' | 'all';
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() templateKey?: string;
@@ -95,18 +160,58 @@ export class FlowController {
   publish(@CurrentUser() user: AuthUser, @Param('key') key: string) { return this.flow.publish(user, key); }
 
   @RequirePermission('flow.apply.view')
+  @Get('application-drafts/templates/:key')
+  applicationDraftTemplates(@CurrentUser() user:AuthUser,@Param('key') key:string){return this.flow.applicationDraftTemplates(user,key);}
+  @RequirePermission('flow.apply.view')
+  @Post('runs/drafts')
+  createApplicationDrafts(@CurrentUser() user:AuthUser,@Body() body:ApplicationDraftCreateDto){return this.flow.createApplicationDrafts(user,body);}
+  @AuthenticatedOnly()
+  @Get('application-drafts/:key/:ref')
+  applicationDraftHeader(@CurrentUser() user:AuthUser,@Param('key') key:string,@Param('ref') ref:string){return this.flow.applicationDraftHeader(user,key,ref);}
+  @RequirePermission('flow.apply.view')
+  @Post('application-drafts/:key/:ref/items')
+  addApplicationDrafts(@CurrentUser() user:AuthUser,@Param('key') key:string,@Param('ref') ref:string,@Body() body:ApplicationDraftAddDto){return this.flow.addApplicationDrafts(user,key,ref,body.headerVersion,body.requestKey,body.payloads,body.copySource);}
+  @RequirePermission('flow.apply.view')
+  @Delete('application-drafts/:key/:ref')
+  removeApplicationDraftBatch(@CurrentUser() user:AuthUser,@Param('key') key:string,@Param('ref') ref:string,@Body() body:ApplicationDraftRemoveBatchDto){return this.flow.removeApplicationDraftBatch(user,key,ref,body.headerVersion,body.expected,body.reason);}
+
+  @RequirePermission('flow.apply.view')
+  @Put('runs/:id/draft')
+  saveApplicationDraft(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() body:ApplicationDraftSaveDto){return this.flow.saveApplicationDraft(user,id,body.revision,body.payload);}
+  @RequirePermission('flow.apply.view')
+  @Put('application-drafts/:key/:ref/shared')
+  sharedApplicationDraft(@CurrentUser() user:AuthUser,@Param('key') key:string,@Param('ref') ref:string,@Body() body:ApplicationDraftSharedDto){return this.flow.saveApplicationDraftShared(user,key,ref,body.expected,body.payload,body.headerVersion);}
+  @RequirePermission('flow.apply.view')
+  @Post('application-drafts/:key/:ref/submit')
+  @HttpCode(200)
+  submitApplicationDrafts(@CurrentUser() user:AuthUser,@Param('key') key:string,@Param('ref') ref:string,@Body() body:ApplicationDraftSubmitManyDto){return this.flow.submitApplicationDrafts(user,key,ref,body.items,body.requestKey,body.comment);}
+  @RequirePermission('flow.apply.view')
+  @Post('runs/:id/draft/submit')
+  submitApplicationDraft(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() body:ApplicationDraftSubmitDto){return this.flow.submitApplicationDraft(user,id,body.revision,body.requestKey,body.confirmation,body.comment);}
+  @RequirePermission('flow.apply.view')
+  @Post('runs/:id/draft/stop')
+  stopApplicationDraft(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() body:ApplicationDraftStopDto){return this.flow.stopApplicationDraft(user,id,body.revision,body.kind,body.reason);}
+  @RequirePermission('flow.apply.view')
+  @Delete('runs/:id/draft')
+  removeApplicationDraft(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() body:ApplicationDraftDeleteDto){return this.flow.removeApplicationDraft(user,id,body.revision,body.reason);}
+
+  @RequirePermission('flow.apply.view')
   @Post('runs')
   start(@CurrentUser() user: AuthUser, @Body() b: StartDto) { return this.flow.start(user, b.templateKey, b.payload, b.requestKey); }
 
   @AuthenticatedOnly()
   @Get('runs')
   list(@CurrentUser() user: AuthUser, @Query() q: RunsQuery) {
-    return this.flow.listRuns(user, { view: q.view, status: q.status, templateKey: q.templateKey, keyword: q.keyword, overdue: q.overdue, departmentId: q.departmentId, handler: q.handler, returned: q.returned, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
+    return this.flow.listRuns(user, { ...(q.groupSku==='true'?{groupSku:true}:{}),view: q.view, status: q.status, templateKey: q.templateKey, keyword: q.keyword, overdue: q.overdue, departmentId: q.departmentId, handler: q.handler, returned: q.returned, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
   }
 
   @AuthenticatedOnly()
   @Get('runs/:id')
   detail(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.flow.detail(user, id); }
+
+  @AuthenticatedOnly()
+  @Put('runs/:id/step-draft')
+  saveStepDraft(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() body:StepDraftDto){return this.flow.saveStepDraft(user,id,body);}
 
   @AuthenticatedOnly()
   @Post('runs/:id/pass')

@@ -1,0 +1,34 @@
+import {act,cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+import {getResourceDef} from '@kudesi/shared';
+const state=vi.hoisted(()=>({requests:[] as Array<{resolve:(value:unknown)=>void;reject:(error:Error)=>void}>}));
+vi.mock('../auth/AuthContext',()=>({useAuth:()=>({user:{id:1,companyId:1,permissions:{isCompanyAdmin:true,allow:[],deny:[]}}})}));
+vi.mock('../api/client',async original=>({...await original<typeof import('../api/client')>(),api:vi.fn((path:string)=>path==='/finance/products/code-preview'?new Promise((resolve,reject)=>state.requests.push({resolve,reject})):Promise.resolve({rows:[],items:[],total:0}))}));
+vi.mock('./api',async original=>{const actual=await original<typeof import('./api')>();return {...actual,resourceApi:{...actual.resourceApi,list:vi.fn(async()=>({items:[],total:0})),similarCheck:vi.fn(async()=>({blocked:[],warnings:[]}))},draftApi:{...actual.draftApi,get:vi.fn(async()=>({draft:null}))}};});
+import {RecordForm} from './RecordForm';
+import {resetUnitOptionsForTest} from './unitOptions';
+const def=getResourceDef('finance-products')!;
+const initial={__copyOf:7,__copyVersion:'v7',archiveType:'purchased',supplyMode:'original_purchase',categoryId:1,name:'合成快速复制',brandId:2,specQty:1,specUnit:'KG',purchaseSpec:'千克',weightG:1000,purchasePrice:100,freight:1,handlingFee:1};
+const preview=(code:string)=>({code,manual:false,basicInfoFullName:'合成真实预览',notes:[]});
+const save=()=>screen.getByRole('button',{name:'保存'}) as HTMLButtonElement;
+beforeEach(()=>{state.requests=[];resetUnitOptionsForTest({});});afterEach(cleanup);
+it('快速复制后立即保存等待真实450ms预览；同步提交也不能打开空编号确认，草稿仍可保存',async()=>{
+ render(<RecordForm def={def} record={null} initial={initial} onClose={vi.fn()} onSaved={vi.fn()}/>);
+ expect(save().disabled).toBe(true);expect((screen.getByRole('button',{name:'保存草稿'}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.submit(screen.getByRole('dialog',{name:'新增商品档案'}));
+ expect(screen.getByText('编号预览尚未完成，请稍后保存或检查预览错误。')).toBeTruthy();expect(screen.queryByRole('dialog',{name:'核算资料确认'})).toBeNull();
+ await waitFor(()=>expect(state.requests).toHaveLength(1));act(()=>state.requests[0].resolve(preview('WG-CURRENT')));
+ await waitFor(()=>expect(save().disabled).toBe(false));fireEvent.click(save());
+ const dialog=await screen.findByRole('dialog',{name:'核算资料确认'});expect(dialog.querySelector('.product-quality-errors')).toBeNull();expect((within(dialog).getByRole('button',{name:'确认并保存'}) as HTMLButtonElement).disabled).toBe(false);
+});
+it('改名清除旧预览，迟到旧请求不解除门闩；失败保留错误，人工编号不等待自动请求',async()=>{
+ render(<RecordForm def={def} record={null} initial={initial} onClose={vi.fn()} onSaved={vi.fn()}/>);
+ await waitFor(()=>expect(state.requests).toHaveLength(1));
+ fireEvent.change(screen.getByLabelText(/^原装采购成品名称/),{target:{value:'第二个名称'}});expect(save().disabled).toBe(true);
+ await waitFor(()=>expect(state.requests).toHaveLength(2));act(()=>state.requests[0].resolve(preview('STALE')));
+ expect(save().disabled).toBe(true);expect((screen.getByRole('textbox',{name:'系统自动编号'}) as HTMLInputElement).value).not.toBe('STALE');
+ act(()=>state.requests[1].resolve(preview('CURRENT')));await waitFor(()=>expect(save().disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText(/^原装采购成品名称/),{target:{value:'第三个名称'}});expect(save().disabled).toBe(true);fireEvent.submit(screen.getByRole('dialog',{name:'新增商品档案'}));expect(screen.queryByRole('dialog',{name:'核算资料确认'})).toBeNull();
+ await waitFor(()=>expect(state.requests).toHaveLength(3));act(()=>state.requests[2].reject(new Error('合成真实预览错误')));await screen.findByText('合成真实预览错误');expect(save().disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'人工修正'}));fireEvent.change(screen.getByRole('textbox',{name:'系统自动编号'}),{target:{value:'MANUAL-CURRENT'}});expect(save().disabled).toBe(false);fireEvent.click(save());const dialog=await screen.findByRole('dialog',{name:'核算资料确认'});expect(dialog.querySelector('.product-quality-errors')).toBeNull();
+});

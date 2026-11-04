@@ -4,9 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const apiMock = vi.fn();
 vi.mock('../api/client', async (orig) => ({ ...(await orig<typeof import('../api/client')>()), api: (...a: unknown[]) => apiMock(...a) }));
 const downloadXlsx = vi.fn();
-vi.mock('./xlsx', () => ({
-  downloadXlsx: (...a: unknown[]) => downloadXlsx(...a),
-  readXlsxRows: vi.fn().mockResolvedValue([['档案编号', '成本类型', '单位成本', '计价单位', '生效开始'], ['YL-1', '采购成本', '1.5', '千克', '2026-01-01']]),
+vi.mock('./productCostWorkbook', () => ({
+  downloadProductCostWorkbook: (...a: unknown[]) => downloadXlsx(...a),
+  productCostPhysicalIssues:(issues:unknown)=>issues,
+  readProductCostWorkbook: vi.fn().mockResolvedValue({rows:[{'档案编号':'YL-1','成本类型':'采购成本','单位成本':'1.5','计价单位':'千克','生效开始':'2026-01-01'}],rowNumbers:[2]}),
 }));
 import { ProductCostExcelDialog } from './ProductCostExcelDialog';
 
@@ -17,7 +18,7 @@ describe('商品档案成本 Excel', () => {
     apiMock.mockResolvedValue({ headers: ['档案编号'], rows: [['YL-1']] });
     render(<ProductCostExcelDialog canImport onClose={() => undefined} onDone={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: '导出全部成本记录' }));
-    await waitFor(() => expect(downloadXlsx).toHaveBeenCalledWith('商品档案成本记录.xlsx', [['档案编号'], ['YL-1']]));
+    await waitFor(() => expect(downloadXlsx).toHaveBeenCalledWith({headers:['档案编号'],rows:[['YL-1']]}, '商品档案成本记录.xlsx'));
   });
 
   it('选文件先预检，没问题才出现确认导入；导入后提示结果', async () => {

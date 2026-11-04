@@ -9,16 +9,21 @@ import { InventoryPage } from './InventoryPage';
 import { Shops } from './StoreWithdrawalPage';
 import { financeApi } from './financeApi';
 import { makeSessionApi } from './sessionApi';
+import { resourceApi } from '../../resources/api';
+
+const cashAuth = vi.hoisted(() => ({ canReadAccounts: true, companyId: 1 }));
 
 vi.mock('../../auth/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, name: '测试员' }, loading: false, can: createChecker({ isCompanyAdmin: true, allow: [], deny: [] }) }),
+  useAuth: () => ({ user: { id: 1, companyId: cashAuth.companyId, name: '测试员' }, loading: false, can: (key: string) => key === 'resource.bank-accounts.view' ? cashAuth.canReadAccounts : createChecker({ isCompanyAdmin: true, allow: [], deny: [] })(key) }),
 }));
+vi.mock('../../resources/api', async orig => { const mod = await orig<typeof import('../../resources/api')>(); return { ...mod, resourceApi: { ...mod.resourceApi, list: vi.fn() } }; });
 vi.mock('./financeApi', () => ({
   financeApi: { overview: vi.fn(), docs: vi.fn(), banks: vi.fn(), storeFunds: vi.fn(), keyAccounts: vi.fn(), setKeyAccount: vi.fn(), ledger: vi.fn(), inventory: vi.fn() },
 }));
 const fa = vi.mocked(financeApi);
-beforeEach(() => vi.clearAllMocks());
-afterEach(cleanup);
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver',class { observe() {} unobserve() {} disconnect() {} }); vi.clearAllMocks(); cashAuth.canReadAccounts = true; cashAuth.companyId = 1; vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 200 }); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('财务经营', () => {
   const overview = (month: string) => ({
@@ -27,31 +32,31 @@ describe('财务经营', () => {
     ledger: [{ date: '2026-03-10', direction: 'out' as const, kind: 'expense', amountCents: 700, documentId: 3, docNo: 'FY1', docType: 'expense', storeName: '甲店', source: '流程自动记账' }],
     revenueCents: 10000, cogsCents: 4000, grossProfitCents: 6000, expenseCents: 700, otherIncomeCents: 0, netProfitCents: 5300, receivableCents: 0, payableCents: 0, advanceReceiptCents: 0, prepaymentCents: 0, bankCents: 1000, drafts: 0, issued: 0,
   });
-  it('店铺利润有主体列，台账有店铺和来源列；勾选“全部时间”用 all 重新查，趋势改按月', async () => {
+  it('原经营中心保留主体、店铺和来源列，店铺日报始终按全部日期读取', async () => {
     fa.overview.mockImplementation(async (m) => overview(m ?? '2026-03'));
     render(<MemoryRouter><FinanceOverviewPage /></MemoryRouter>);
     expect(await screen.findByText('主体甲公司')).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: '主体' })).toBeTruthy();
-    expect(screen.getAllByRole('columnheader', { name: '店铺' }).length).toBe(2); // 店铺利润表和台账各一列
+    expect(screen.getByRole('columnheader', { name: /^主体/ })).toBeTruthy();
+    expect(screen.getAllByRole('columnheader', { name: /^店铺/ }).length).toBe(2); // 店铺利润表和台账各一列
     expect(screen.getByRole('columnheader', { name: '来源' })).toBeTruthy();
     expect(screen.getByText('流程自动记账')).toBeTruthy();
-    expect(screen.getByText('利润趋势（按日）')).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('全部时间'));
-    await screen.findByText('利润趋势（按月）');
+    expect(screen.getByRole('heading', { name: '利润趋势' })).toBeTruthy();
     expect(fa.overview).toHaveBeenLastCalledWith('all');
     expect(screen.queryByLabelText('月份')).toBeNull();
-    expect(screen.getByText(/全部时间 经营情况/)).toBeTruthy();
+    expect(screen.queryByLabelText('全部时间')).toBeNull();
   });
 });
 
 describe('经营历程', () => {
-  it('有收支方向筛选、汇总条（数量/收入/支出/净额）和来源列', async () => {
+  it('原收支筛选、四项汇总和来源列在完整查询结果上计算', async () => {
     fa.docs.mockResolvedValue({ total: 2, amountCents: 0, paidCents: 0, incomeCents: 50000, expenseCents: 20000, page: 1, pageSize: 20, rows: [
       { id: 1, docNo: 'XS1', docType: 'sale', typeLabel: '普通销售单', status: 'posted', docDate: '2026-03-10', amountCents: 50000, paidCents: 0, bankName: null, handler: null, auditedAt: null, createdBy: 1, memo: null, reversesId: null, partyName: '老客户', createdByName: '老板', direction: 'in', source: '手工制单' },
       { id: 2, docNo: 'FY1', docType: 'expense', typeLabel: '费用单', status: 'posted', docDate: '2026-03-10', amountCents: 20000, paidCents: 0, bankName: null, handler: null, auditedAt: null, createdBy: 1, memo: null, reversesId: null, partyName: null, createdByName: '老板', direction: 'out', source: '流程自动记账' },
     ] });
     render(<MemoryRouter><DocumentsPage scope="history" /></MemoryRouter>);
     const bar = await screen.findByLabelText('汇总');
+    fireEvent.click(screen.getByRole('button',{name:'重置'}));
+    await screen.findByText('XS1');
     expect(within(bar).getByText('2 条')).toBeTruthy();
     expect(within(bar).getByText('¥500.00')).toBeTruthy();
     expect(within(bar).getByText('¥200.00')).toBeTruthy();
@@ -59,14 +64,16 @@ describe('经营历程', () => {
     expect(screen.getByRole('columnheader', { name: '来源' })).toBeTruthy();
     expect(screen.getByText('流程自动记账')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('收支方向'), { target: { value: 'out' } });
-    await waitFor(() => expect(fa.docs).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'history', direction: 'out' })));
+    expect(screen.queryByText('XS1')).toBeNull();
+    expect(screen.getByText('FY1')).toBeTruthy();
+    expect(fa.docs).toHaveBeenCalledTimes(1);
   });
-  it('草稿中心没有收支方向筛选和来源列', async () => {
+  it('草稿中心没有收支筛选，保留原来源列', async () => {
     fa.docs.mockResolvedValue({ total: 0, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: [] });
     render(<MemoryRouter><DocumentsPage scope="drafts" /></MemoryRouter>);
-    await screen.findByText('没有单据');
+    await screen.findByText('共 0 条');
     expect(screen.queryByLabelText('收支方向')).toBeNull();
-    expect(screen.queryByRole('columnheader', { name: '来源' })).toBeNull();
+    expect(screen.getByRole('columnheader', { name: /^来源/ })).toBeTruthy();
   });
 });
 
@@ -74,11 +81,11 @@ describe('库存查询', () => {
   it('库存状态可选“缺货”，按 out 重新查询', async () => {
     fa.inventory.mockResolvedValue([]);
     render(<MemoryRouter><InventoryPage /></MemoryRouter>);
-    await waitFor(() => expect(fa.inventory).toHaveBeenCalled());
+    expect(fa.inventory).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('库存状态'), { target: { value: 'out' } });
     fireEvent.click(screen.getByRole('button', { name: '查询' })); // 改条件后点“查询”才发请求（对齐旧版）
     await waitFor(() => expect(fa.inventory).toHaveBeenLastCalledWith(expect.objectContaining({ stockStatus: 'out' })));
-    expect(screen.getByText('没有符合条件的库存，请调整条件后重新查询')).toBeTruthy();
+    expect(await screen.findByText('暂无库存快照')).toBeTruthy();
   });
 });
 
@@ -105,31 +112,71 @@ describe('现金银行查询', () => {
     expect(within(await screen.findByRole('dialog')).getByText('拼店')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     const stale = within(row).getByTitle('超过 30 天没更新');
-    expect(stale.className).toContain('bad');
+    expect(stale.className).toContain('is-stale');
     fireEvent.click(within(row).getByRole('button', { name: '设为重点' }));
     await waitFor(() => expect(fa.setKeyAccount).toHaveBeenCalledWith(2, true));
     // 店铺资金：平台页签
-    fireEvent.click(screen.getByRole('button', { name: /展开 2 个店铺/ }));
+    fireEvent.click(screen.getByRole('button', { name: /展开 2 家店铺/ }));
     expect(screen.getByText(/拼多多 \/ 拼店/)).toBeTruthy();
     expect(screen.getByText(/淘宝 \/ 淘店/)).toBeTruthy();
-    expect(screen.getByText('未记录')).toBeTruthy(); // 淘店没有更新记录
+    expect(screen.getAllByText('最后更新：未记录')).toHaveLength(4); // 四项资金分别显示自己的更新时间
     fireEvent.click(screen.getByRole('tab', { name: /^淘宝/ }));
     expect(screen.queryByText(/拼多多 \/ 拼店/)).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /^全部店铺/ }));
     const storeRow = screen.getByText(/拼多多 \/ 拼店/).closest('tr')!;
+    expect(within(storeRow).getAllByTitle('24 小时内更新')).toHaveLength(4);
     fireEvent.click(within(storeRow).getByRole('button', { name: '查看账户' }));
     const dlg = await screen.findByRole('dialog');
     expect(within(dlg).getByText('拼店收款户')).toBeTruthy();
     expect(within(dlg).queryByText('招行主户')).toBeNull();
   });
-  it('有在途待确认的转款时：汇总卡片和账户行显示在途金额，不计入余额', async () => {
-    fa.banks.mockResolvedValue([acct(1, '招行主户', 'company_public', { inTransitCents: 250000 }), acct(2, '拼店收款户', 'store_public')]);
-    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
-    expect(await screen.findByText('在途待确认转款')).toBeTruthy();
-    const row = screen.getByText('招行主户').closest('tr')!;
-    expect(within(row).getByTitle(/确认入账后才计入余额/).textContent).toBe('¥2,500.00');
-    expect(within(row).getByText('¥100.00')).toBeTruthy(); // 余额仍是 10000 分
+  it('原页面四项汇总不增加在途卡或操作，实际银行余额仍不包含在途款',async()=>{
+    fa.banks.mockResolvedValue([acct(1,'招行主户','company_public',{inTransitCents:250000}),acct(2,'拼店收款户','store_public')]);render(<MemoryRouter><CashBankPage/></MemoryRouter>);
+    const row=(await screen.findByText('招行主户')).closest('tr')!;expect(within(row).getByText('¥100.00')).toBeTruthy();
+    expect(screen.queryByText('在途待确认转款')).toBeNull();expect(within(screen.getByLabelText('汇总')).getAllByText(/个|¥/)).toHaveLength(4);expect(screen.queryByRole('button',{name:'导出账户余额'})).toBeNull();
   });
+  it('缺店铺编号时显示平台店铺ID；查看收款账户只列关联的店铺账户，不混入公司或其他账户', async () => {
+    fa.banks.mockResolvedValue([acct(1, '关联公司公户', 'company_public', { storeIds: [12] }), acct(2, '关联店铺个人卡', 'store_personal_card', { storeIds: [12] }), acct(3, '关联其他卡', 'other', { storeIds: [12] })]);
+    fa.storeFunds.mockResolvedValue([{ storeId: 12, name: '合成店铺', storeNo: '', platformStoreId: 'SYNTHETIC-STORE-12', platform: 'pdd', platformLabel: '拼多多', snapshotDate: '', updatedAt: null, withdrawableCents: 0, depositCents: 0, frozenCents: 0, promotionCents: 0 }]);
+    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
+    await screen.findByRole('button',{name:'展开 1 家店铺'});
+    fireEvent.click(screen.getByRole('button', { name: /展开 1 家店铺/ }));
+    expect(screen.getByText('SYNTHETIC-STORE-12')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '查看账户' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('关联店铺个人卡')).toBeTruthy();
+    expect(within(dialog).queryByText('关联公司公户')).toBeNull();
+    expect(within(dialog).queryByText('关联其他卡')).toBeNull();
+  });
+  it('有资料查看权限时直接显示账号并可按账号搜索，跨全部分页读取而非只看首批', async () => {
+    vi.mocked(resourceApi.list).mockImplementation(async (_type, query) => ({ items: [{ id: query?.page === 2 ? 2 : 1, title: '合成账号', data: { accountNo: query?.page === 2 ? '6222000000000002' : '6222000000000001' } }], total: 2 }) as never);
+    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
+    expect(await screen.findByText('6222000000000001')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '显示账号' })).toBeNull();
+    expect(resourceApi.list).toHaveBeenCalledWith('bank-accounts', { page: 2, pageSize: 200, showHidden: true });
+    fireEvent.change(screen.getByLabelText('搜索账户'), { target: { value: '6222000000000002' } });
+    expect(screen.queryByText('招行主户')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /展开 1 个账户/ }));
+    expect(screen.getByText('拼店收款户')).toBeTruthy();
+    expect(screen.getByText('6222000000000002')).toBeTruthy();
+  });
+  it('没有银行资料查看权限时不读账号，现金余额的既有查看权限不被扩大', async () => {
+    cashAuth.canReadAccounts = false;
+    render(<MemoryRouter><CashBankPage /></MemoryRouter>);
+    await screen.findByText('招行主户');
+    expect(resourceApi.list).not.toHaveBeenCalled();
+    expect(screen.getByText('无查看权限')).toBeTruthy();
+  });
+  it('店铺编号与平台店铺ID分别可搜索，不加原页面没有的刷新或账本入口',async()=>{
+    fa.storeFunds.mockResolvedValueOnce([{storeId:11,name:'拼店',storeNo:'S1',platformStoreId:'PLATFORM-SYNTHETIC-001',platform:'pdd',platformLabel:'拼多多',snapshotDate:'',updatedAt:null,withdrawableCents:5000,depositCents:0,frozenCents:0,promotionCents:0}]);
+    render(<MemoryRouter><CashBankPage/></MemoryRouter>);await screen.findByText('招行主户');fireEvent.change(screen.getByLabelText('搜索账户'),{target:{value:'PLATFORM-SYNTHETIC-001'}});
+    fireEvent.click(screen.getByRole('button',{name:'展开 1 家店铺'}));expect(screen.getByText(/拼多多 \/ 拼店/)).toBeTruthy();expect(screen.queryByRole('button',{name:'刷新'})).toBeNull();expect(screen.queryByRole('button',{name:'招行主户'})).toBeNull();
+  });
+  it('读取失败不显示虚假的零余额，也不把未读账户当成完整空表',async()=>{
+    fa.storeFunds.mockRejectedValueOnce(new Error('合成资金读取失败'));render(<MemoryRouter><CashBankPage/></MemoryRouter>);await screen.findByText('合成资金读取失败');
+    expect(screen.getByRole('heading',{name:'账户查询失败'})).toBeTruthy();expect(within(screen.getByLabelText('汇总')).queryByText('¥0.00')).toBeNull();expect(screen.queryByRole('table')).toBeNull();
+  });
+
 });
 
 describe('店铺提现的店铺列表', () => {

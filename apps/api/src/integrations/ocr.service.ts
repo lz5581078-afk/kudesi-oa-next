@@ -116,14 +116,30 @@ export class OcrService {
     return { ...out, rawText: reply.slice(0, 4000) };
   }
 
+  async expressRecognitionOptions(user: AuthUser) {
+    if (!createChecker(user.permissions)('resource.finance-express-prices.edit')) throw new ForbiddenException('没有权限执行此操作');
+    if (!this.ai) return { providers: [], current: null };
+    const options = await this.ai.defaults(user.companyId);
+    const current = options.scopes.find(scope => scope.key === 'express_price_recognition')?.current;
+    return {
+      providers: options.providers.filter(p => p.status === 'active').map(p => ({ id: p.id, name: p.name, status: p.status, models: p.models.filter(model => /^gpt-(?!image)/i.test(model.trim())) })).filter(p => p.models.length > 0),
+      current: current ? { providerId: current.providerId, modelId: current.modelId } : null,
+    };
+  }
+
   /**
    * 快递价格表 / 临时加收通知识别（图片、Excel、CSV、文本都行）。只返回待确认的草稿，不入库。
    * 价格表识别要有快递价格表的“编辑”权限，加收通知同理。
    */
-  async recognizeExpressDocument(user: AuthUser, file: UploadedFile | undefined, kind: RecognitionKind, provinces: readonly string[]) {
+  async recognizeExpressDocument(user: AuthUser, file: UploadedFile | undefined, kind: RecognitionKind, provinces: readonly string[], selection?: { providerId?: number; modelId?: string }) {
     const can = createChecker(user.permissions);
     if (!can('resource.finance-express-prices.edit')) throw new ForbiddenException('没有权限执行此操作');
-    const cfg = await this.visionFor(user.companyId, 'express_price_recognition');
+    let cfg: VisionConfig | null;
+    if (selection?.providerId !== undefined || selection?.modelId !== undefined) {
+      if (!this.ai || !selection.providerId || !selection.modelId?.trim()) throw new BadRequestException('请选择 AI 模型');
+      cfg = await this.ai.resolveSelectedVision(user.companyId, selection.providerId, selection.modelId);
+      await this.ai.setDefault(user, 'express_price_recognition', selection.providerId, selection.modelId);
+    } else cfg = await this.visionFor(user.companyId, 'express_price_recognition');
     if (!cfg || !cfg.enabled) throw new BadRequestException('还没有启用识别接口，请先到“系统 → 接口设置”填写并启用');
     if (!file || file.size === 0) throw new BadRequestException('没有收到文件');
     if (file.size > 8 * 1024 * 1024) throw new BadRequestException('文件不能超过 8MB');

@@ -29,7 +29,7 @@ export function FlowFieldsForm({ fields, values, onChange, labels, templateKey, 
   if (templateKey === SKU_TEMPLATE && fields.some((f) => f.key === 'config')) {
     return (
       <>
-        <SkuWarehouseFields specs={(Array.isArray(context?.specs) ? context!.specs : []) as never} values={values} onChange={onChange} />
+        <SkuWarehouseFields runId={typeof context?._runId==='number'?context._runId:undefined} sourceQuantity={context?._applicationDraftOrigin===true} specs={(Array.isArray(context?.specs) ? context!.specs : []) as never} values={values} onChange={onChange} />
         <FlowFieldsForm fields={fields.filter((f) => f.type !== 'json')} values={values} onChange={onChange} />
       </>
     );

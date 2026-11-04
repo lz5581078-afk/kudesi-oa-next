@@ -15,16 +15,17 @@ export function usePartyBalance(partyKind: string | null, partyId: number | null
 }
 
 /** 明细行提示：账面库存、最近进价/售价（后者由服务端按成本/价格权限决定给不给） */
-export function useLineHints(productIds: number[], warehouseId: number | null): Map<number, LineHint> {
+export function useLineHints(productIds: number[], warehouseId: number | null, warehouseName?: string): Map<number, LineHint> {
   const [map, setMap] = useState<Map<number, LineHint>>(new Map());
   const key = [...new Set(productIds)].sort((a, b) => a - b).join(',');
   useEffect(() => {
     if (!key) { setMap(new Map()); return undefined; }
     let alive = true;
+    setMap(new Map());
     const t = setTimeout(() => {
-      Promise.resolve().then(() => financeApi.lineHints(key.split(',').map(Number), warehouseId ?? undefined)).then((r) => { if (alive && Array.isArray(r)) setMap(new Map(r.map((h) => [h.productId, h]))); }).catch(() => undefined);
+      Promise.resolve().then(() => financeApi.lineHints(key.split(',').map(Number), warehouseId ?? undefined, warehouseName)).then((r) => { if (alive && Array.isArray(r)) setMap(new Map(r.map((h) => [h.productId, h]))); }).catch(() => undefined);
     }, 250);
     return () => { alive = false; clearTimeout(t); };
-  }, [key, warehouseId]);
+  }, [key, warehouseId, warehouseName]);
   return map;
 }

@@ -1,0 +1,43 @@
+.product-view-cost-grid{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));align-items:end;gap:12px}
+.product-view-cost-grid>div{min-height:62px;display:grid;align-content:center;gap:5px;padding:9px 12px;border:1px solid #dce6e1;border-radius:8px;background:#fff}
+.product-view-cost-grid small,.product-view-freight-history small{color:#7a8898;font-size:10px}
+.product-view-cost-grid strong{overflow:hidden;color:#24364a;font-size:13px;text-overflow:ellipsis;white-space:nowrap}
+.product-view-cost-grid .is-total{border-color:#9ed2b7;background:#eaf7f0}.product-view-cost-grid .is-total strong{color:#087346;font-size:16px}
+.product-view-procurement-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.product-view-procurement-grid label{display:grid;gap:8px}
+.product-view-purchase-stat{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.product-view-purchase-stat>div{min-height:62px;display:grid;align-content:center;gap:4px;border:1px solid #dce5ed;border-radius:8px;padding:8px 11px;background:#f6f9fb}.product-view-purchase-stat span{color:#7b8796;font-size:11px}.product-view-purchase-stat strong{color:#1d4734;font-size:15px}.product-view-purchase-stat button{min-height:40px;white-space:nowrap}
+.product-view-purchase-history{display:grid;gap:6px;max-height:156px;overflow:auto;border:1px solid #dfe6ed;border-radius:8px;padding:8px;background:#fff}.product-view-purchase-history>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 9px;border-radius:6px;background:#f6f9fb}.product-view-purchase-history span,.product-view-purchase-history p{margin:0;color:#748195;font-size:12px}
+.product-view-freight-help{margin:9px 0 0;color:#748295;font-size:11px}.product-view-freight-history{display:grid;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #dde7e2;overflow:auto}.product-view-freight-history>div{display:grid;grid-template-columns:90px repeat(2,minmax(90px,.55fr)) repeat(3,minmax(105px,.65fr)) minmax(210px,1.3fr);align-items:center;gap:12px;padding:10px 12px;border:1px solid #dfe8e3;border-radius:8px;background:#fff}.product-view-freight-history>div>strong{color:#087346;font-size:14px}.product-view-freight-history span{min-width:0;display:grid;gap:3px;overflow-wrap:anywhere;color:#344559;font-size:12px}
+.product-view-procurement .product-view-settlement-overview{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr) auto) minmax(150px,1.15fr);align-items:stretch;gap:8px;padding:14px 16px;border-bottom:1px solid #e1e7ed;background:#fff}
+.product-view-procurement .product-view-settlement-overview>div{display:grid;gap:3px;min-height:64px;padding:10px 12px;border:1px solid #dce4eb;border-radius:7px;background:#f9fbfc}
+.product-view-procurement .product-view-settlement-overview small,.product-view-procurement .product-view-settlement-overview span{margin:0;color:#718095;font-size:10px}
+.product-view-procurement .product-view-settlement-overview strong{color:#26384d;font-size:15px}
+.product-view-procurement .product-view-settlement-overview>i{align-self:center;color:#9aa7b7;font-style:normal;font-weight:900}
+.product-view-procurement .product-view-settlement-overview>.is-total{border-color:#9ed2b7;background:#eaf7f0}.product-view-procurement .product-view-settlement-overview>.is-total strong{color:#087346;font-size:17px}
+.product-view-procurement .product-view-procurement-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.product-view-procurement.is-self .product-view-procurement-grid{gap:12px;margin:14px 16px 0}
+.product-view-procurement .product-view-procurement-grid>label,.product-view-procurement .product-view-purchase-panel>label{display:grid;min-width:0;align-content:start;gap:7px;margin:0}
+.product-view-procurement.is-self .product-view-system-spec,.product-view-procurement.is-self .product-view-weighing{padding:13px;border:1px solid #dbe4ec;border-radius:8px;background:#fbfcfe}
+.product-view-procurement .product-view-procurement-grid label>span,.product-view-procurement .product-view-purchase-panel label>span{display:flex;align-items:center;gap:7px;color:#40516a;font-size:12px;font-weight:800}
+.product-view-procurement em{color:#de3838;font-style:normal}
+.product-view-procurement .product-view-system-spec>span>button{display:inline-block;margin-left:auto;padding:0;color:#087d4a;border:0;background:transparent;font-size:12px;opacity:.55}
+.product-view-procurement .product-view-procurement-grid input,.product-view-procurement .product-view-price-input input{box-sizing:border-box;width:100%;min-width:0;height:40px;margin:0;padding:0 11px;border:1px solid #cfd9e4;border-radius:8px;background:#fff;color:#172235;font:inherit}
+.product-view-procurement .product-view-procurement-grid input:read-only{color:#536278;background:#f3f6f9}
+.product-view-procurement .product-view-procurement-grid label>small{margin:0;color:#7a8798;font-size:11px}
+.product-view-procurement .product-view-weight-control{position:relative;min-width:0}.product-view-procurement .product-view-weight-control input{padding-right:38px}.product-view-procurement .product-view-weight-control>b{position:absolute;right:11px;top:50%;transform:translateY(-50%);color:#64748b;font-size:12px}
+.product-view-procurement .product-view-weight-breakdown{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:7px;padding:8px;border:1px solid #dce5ed;border-radius:8px;background:#fff}
+.product-view-procurement .product-view-weight-breakdown>span,.product-view-procurement .product-view-price-formula>span{display:grid;min-width:0;gap:2px}
+.product-view-procurement .product-view-weight-breakdown small,.product-view-procurement .product-view-price-formula small{margin:0;color:#7b8797;font-size:10px;white-space:nowrap}
+.product-view-procurement .product-view-weight-breakdown b,.product-view-procurement .product-view-price-formula b{font-size:12px;color:#5f4a2d;white-space:nowrap}
+.product-view-procurement .product-view-weight-breakdown>i,.product-view-procurement .product-view-price-formula>i{color:#91a0b1;font-style:normal;font-weight:900}
+.product-view-procurement .product-view-weight-breakdown .is-total,.product-view-procurement .product-view-price-formula .is-total{padding:5px 7px;border-radius:6px;background:#eaf8f1}.product-view-procurement .is-total b{color:#087346}
+.product-view-procurement .product-view-purchase-panel{display:grid;grid-template-columns:minmax(175px,1fr) repeat(2,minmax(125px,1fr)) auto;align-items:end;gap:12px;margin-top:14px}
+.product-view-procurement.is-self .product-view-purchase-panel{grid-template-columns:minmax(165px,.7fr) minmax(420px,2fr) repeat(2,minmax(118px,.55fr)) auto;margin:12px 16px 16px;padding:13px;border:1px solid #dbe4ec;border-radius:8px;background:#fbfcfe}
+.product-view-procurement.is-oem .product-view-purchase-panel{grid-template-columns:minmax(175px,.85fr) minmax(330px,1.7fr) repeat(2,minmax(125px,.65fr)) auto}
+.product-view-procurement .product-view-price-input{position:relative}.product-view-procurement .product-view-price-input>b{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9a6b2f}.product-view-procurement .product-view-price-input input{padding-left:28px}
+.product-view-procurement .product-view-price-formula{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:7px;min-height:62px;padding:8px;border:1px solid #dce5ed;border-radius:8px;background:#fff}
+.product-view-procurement .product-view-price-formula.is-self{grid-template-columns:repeat(4,minmax(0,1fr) auto) minmax(0,1.15fr);gap:6px}
+.product-view-procurement .product-view-purchase-stat{display:grid;align-content:center;gap:4px;min-height:62px;padding:8px 11px;border:1px solid #dce5ed;border-radius:8px;background:#f6f9fb}
+.product-view-procurement .product-view-purchase-stat span{color:#7b8796;font-size:11px}.product-view-procurement .product-view-purchase-stat strong{color:#1d4734;font-size:15px}
+.product-view-procurement .product-view-purchase-panel>button{min-height:40px;white-space:nowrap}
+@media(max-width:720px){.product-view-procurement .product-view-procurement-grid,.product-view-procurement .product-view-purchase-panel,.product-view-procurement.is-self .product-view-purchase-panel,.product-view-procurement.is-oem .product-view-purchase-panel{grid-template-columns:1fr}.product-view-procurement .product-view-price-formula{grid-column:1/-1}}
+@media(max-width:560px){.product-view-procurement .product-view-settlement-overview{grid-template-columns:1fr}.product-view-procurement .product-view-settlement-overview>i{display:none}}

@@ -1,15 +1,21 @@
+import type {BucketCostReference} from './cost-seed-buckets';
+import { registeredCostValues, costRegistrationFallback, type RegisteredCostValues } from './cost-registration';
+import { calculateCostComponents, type CostLine } from './cost-components';
+export type { CostLine } from './cost-components';
+import { costBreakdown, readCostComposition, type CostBreakdown } from '@kudesi/shared';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { bundleOwnership } from './product-exclusive';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  multiplyUnitCents, sumUnitCents, PROVINCES, todayInChina, minSalePriceCentsByMicroPercent, percentToMicro, resolveMargin, createChecker, buildEstimateRows, buildAutomaticRecommendations, groupAutomaticRecommendations, sortRecommendationRules,
-  freightFromEstimateRows, validParcelLimit, type EstimateRow,
+  sumUnitCents, PROVINCES, todayInChina, minSalePriceCentsByMicroPercent, percentToMicro, resolveMargin, createChecker, buildAutomaticRecommendations, groupAutomaticRecommendations, sortRecommendationRules,
+  freightFromEstimateRows,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
-import { buildPriceGroups, DEFAULT_PARCEL_LIMIT } from './express-groups';
+import { buildPriceGroups } from './express-groups';
+import { readFreightSnapshot } from './express-estimate-snapshot';
 import { buildXlsx } from './xlsx-lite';
 import type { CostSeed } from './cost-version-engine';
 import { bundleLaborCost, bundleSeedBuckets, costSeedBuckets } from './cost-seed-buckets';
@@ -17,10 +23,9 @@ import { bundleLaborCost, bundleSeedBuckets, costSeedBuckets } from './cost-seed
 type Data = Record<string, unknown>;
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
-const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
+const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs','finance-labor-units', 'finance-margins', 'finance-categories', 'finance-code-dictionaries', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
 const EXPRESS_TYPES = ['finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-express-prices'];
 
-export interface CostLine { role: string; code: string; name: string; qty: number; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
 export interface CostRow {
   bundleId: number; code: string; name: string; status: string; categoryId: number | null; categoryName: string;
   preShipCostCents: number | null; weightG: number | null;
@@ -36,7 +41,7 @@ export interface CostRow {
   costIncludingFreightCents: number | null;
   /** 乐观锁令牌：保存售价设置时原样带回，别人先改过就拒绝 */
   revision: string;
-  minPriceCents: number | null; issues: string[]; lines: CostLine[];
+  minPriceCents: number | null; issues: string[]; lines: CostLine[]; breakdown?: CostBreakdown;
   /** 排序用：组合最近修改时间 */
   updatedAtMs: number;
 }
@@ -71,20 +76,16 @@ export class CostService {
     const rows = await em.find(ResourceRecord, { where: { companyId, type: In(TYPES) } });
     const by = (t: string) => rows.filter((r) => r.type === t);
     const map = (t: string) => new Map(by(t).map((r) => [r.id, r]));
-    // 运费和“预估运费一览”页用同一套引擎：合作中的当前版本（含版本的可发货重量范围）→ 按重量段取各省最低价 → 手工金额（拆包时也沿用）
+    // 当前合作报价仅用于分区建议；成本运费与“预估运费一览”共读已保存快照。
     const groups = buildPriceGroups(rows.filter((r) => EXPRESS_TYPES.includes(r.type)), businessDate);
     const snap = rows.find((r) => r.type === 'finance-freight-estimates' && r.uniqueKey === 'default');
-    const limit = snap ? num(snap.data.parcelLimit) : null;
-    const parcelLimit = validParcelLimit(limit) ? limit : DEFAULT_PARCEL_LIMIT;
-    const estimateRows: EstimateRow[] = buildEstimateRows(groups, PROVINCES, parcelLimit);
-    for (const o of by('finance-freight-overrides').filter((r) => r.status === 'active')) {
-      const from = num(o.data.weightFrom), to = num(o.data.weightTo), amount = num(o.data.amount);
-      const row = estimateRows.find((r) => r.start === from && r.end === to);
-      if (row && amount !== null) row.manualAmount = amount;
-    }
+    // 运费引用已确认的重量段快照；读取成本不会隐式重建快递报价样本。
+    const {rows:estimateRows,parcelLimit}=readFreightSnapshot(snap,rows);
+    const laborUnits=map('finance-labor-units');
+    const labor=new Map<number,ResourceRecord>(by('finance-labor-costs').map((row):[number,ResourceRecord]=>{const referenced=row.data.unitId!==undefined&&row.data.unitId!==null&&row.data.unitId!=='';return [row.id,{...row,data:{...row.data,unitName:referenced?laborUnits.get(Number(row.data.unitId))?.title??'':str(row.data.unitName)}}];}));
     return {
       bundles: by('finance-bundles'), lines: by('finance-bundle-lines'), baseCodeLines: by('finance-base-code-lines'), baseCodes: map('finance-base-codes'), products: map('finance-products'),
-      labor: map('finance-labor-costs'), margins: by('finance-margins'), categories: map('finance-categories'),
+      labor, margins: by('finance-margins'), categories: new Map([...by('finance-categories'),...by('finance-code-dictionaries').filter(row=>row.data.kind==='product_category')].map(row=>[row.id,row])),
       groups, freight: { rows: estimateRows, parcelLimit },
     };
   }
@@ -118,59 +119,20 @@ export class CostService {
     return { percent: resolveMargin(chain.map((x) => x.v)), source: hit?.s ?? '未设置' };
   }
 
-  row(d: CostData, b: ResourceRecord): CostRow {
-    const issues: string[] = [];
-    const lines: CostLine[] = [];
-    let cost: number | null = 0, weight = 0;
-    // 组合自己的分类树（旧系统 bundle_category）：成本表分类、分类利润率都按它汇总
-    const categoryId = num(b.data.bundleCategoryId);
-    for (const l of d.lines.filter((x) => num(x.data.bundleId) === b.id).sort((x, y) => x.id - y.id)) {
-      const qty = num(l.data.qty) ?? 0, role = str(l.data.role);
-      let unit: number | null = null, w = 0, code = '', name = '';
-      let hasWeight = false;
-      if (role === 'labor') {
-        const lab = d.labor.get(num(l.data.laborId) ?? -1);
-        unit = lab ? num(lab.data.unitPrice) : null;
-        name = lab?.title ?? '人工';
-        code = '人工';
-      } else {
-        const bc = d.baseCodes.get(num(l.data.baseCodeId) ?? -1);
-        const p = bc ? d.products.get(num(bc.data.productId) ?? -1) : undefined;
-        if (bc?.data.origin === 'composed') {
-          // 多构成基础编码：成本、重量 = 构成行 数量×商品档案 汇总
-          const parts = d.baseCodeLines.filter((x) => num(x.data.baseCodeId) === bc.id);
-          let c: number | null = parts.length ? 0 : null;
-          for (const part of parts) {
-            const pp = d.products.get(num(part.data.productId) ?? -1);
-            const pc = pp ? num(pp.data.totalCost) : null;
-            const q = num(part.data.qty) ?? 0;
-            c = c === null || pc === null ? null : sumUnitCents([c, multiplyUnitCents(pc, q)]);
-            w += q * (pp ? (num(pp.data.weightG) ?? 0) : 0);
-          }
-          unit = c;
-        } else {
-          unit = p ? num(p.data.totalCost) : null;
-          w = p ? (num(p.data.weightG) ?? 0) : 0;
-        }
-        hasWeight = true;
-        code = str(bc?.data.code);
-        name = str(bc?.data.name) || bc?.title || '';
-      }
-      const sub = unit === null ? null : multiplyUnitCents(unit, qty);
-      if (sub === null) { issues.push(`「${name || code}」还没有成本`); cost = null; } else if (cost !== null) cost = sumUnitCents([cost,sub]);
-      weight += w * qty;
-      lines.push({ role, code, name, qty, unitCostCents: unit, subtotalCents: sub, unitWeightG: hasWeight ? w : null, weightG: Math.round(w * qty * 1e6) / 1e6 });
-    }
-    if (lines.length === 0) { cost = null; issues.push('还没有构成'); }
-    let weightG: number | null = Math.round(weight * 1e6) / 1e6;
-    if (str(b.data.weightMode) === 'manual') weightG = num(b.data.manualWeightG);
-    if (!weightG) { weightG = null; issues.push('没有重量'); }
+  row(d: CostData, b: ResourceRecord, previous?: RegisteredCostValues): CostRow {
+    const { lines, cost: currentCost, issues, weightG: automaticWeightG } = calculateCostComponents(d, b.id);
+    const categoryId = num(b.data.codeDictionaryCategoryId) ?? num(b.data.bundleCategoryId);
+    const cost = currentCost ?? previous?.preShipCostCents ?? null;
+    const currentWeightG = str(b.data.weightMode) === 'manual' ? num(b.data.manualWeightG) : automaticWeightG;
+    let weightG = currentWeightG !== null && currentWeightG > 0 ? currentWeightG : previous?.weightG ?? null;
+    if (currentWeightG === null || currentWeightG <= 0) issues.push('没有重量');
+    if (weightG !== null && weightG <= 0) weightG = null;
 
     let freight: number | null = null, method: string | null = null;
     const manual = num(b.data.manualFreight);
     if (manual !== null) { freight = manual; method = '手工填写'; } else if (weightG) {
       const est = this.freightFor(d, weightG / 1000);
-      if (est) { freight = est.cents; method = est.method; } else issues.push('运费无法预估（这个重量段报价不足 3 个省，或超出可发货重量）');
+      if (est) { freight = est.cents; method = est.method; } else issues.push('缺少可用的重量段运费预估，请核对已保存预估快递费');
     }
     const own = num(b.data.marginOverridePercent);
     const inherited = this.marginFor(d, categoryId);
@@ -187,7 +149,7 @@ export class CostService {
       marginOverride: own !== null, inheritedMargin: inherited, carrierName: str(b.data.carrierName),
       costIncludingFreightCents: cost === null || freight === null ? null : sumUnitCents([cost,freight]),
       revision: bundleRevision(b),
-      minPriceCents: min, issues, lines, updatedAtMs: b.updatedAt ? new Date(b.updatedAt).getTime() : 0,
+      minPriceCents: min, issues, lines, breakdown: costBreakdown({ preShipCostCents: currentCost, weightG: currentWeightG, lines }, readCostComposition(b.data.snapshot), { preShipCostCents: cost, weightG }), updatedAtMs: b.updatedAt ? new Date(b.updatedAt).getTime() : 0,
     };
   }
 
@@ -208,7 +170,7 @@ export class CostService {
     const mine = new Map(d.margins.map((m) => [str(m.data.scopeKey), m]));
     const categories: CategoryNode[] = [];
     for (const c of d.categories.values()) {
-      if (c.status !== 'active' || c.data.archiveType !== 'bundle') continue; // 只列组合分类树
+      if (c.status !== 'active' || c.data.archiveType !== 'bundle' && c.data.kind!=='product_category') continue; // 只列组合分类树
       const own = mine.get(`cat:${c.id}`);
       const ownPercent = own ? num(own.data.profitPercent) : null;
       const count = total(c.id);
@@ -235,23 +197,29 @@ export class CostService {
     const records=await (em ?? this.dataSource.manager).find(ResourceRecord,{where:{companyId:user.companyId,type:In(['finance-product-costs','finance-product-freight-history','finance-labor-versions'])}});
     const context={...d,laborVersions:records.filter(r=>r.type==='finance-labor-versions'),archiveCosts:records.filter(r=>r.type==='finance-product-costs'),freightHistories:records.filter(r=>r.type==='finance-product-freight-history')};
     const seeds: CostSeed[] = rows.filter(r => COST_TABLE_STATUSES.includes(r.status)).map(row => {
-      const warnings:string[]=[],issues:string[]=[];
+      const warnings:string[]=[],issues:string[]=[],archiveCostSources:BucketCostReference[]=[];
       const ids = d.lines.filter(l => l.data.bundleId === row.bundleId).map(l => Number(l.data.baseCodeId));
-      return {skuType:'bundle',skuId:row.bundleId,row,buckets:bundleSeedBuckets(context,row.bundleId,businessDate,warnings),warnings,issues,laborCostCents:bundleLaborCost(context,row.bundleId,businessDate,warnings,issues),components:d.lines.filter(l=>l.data.bundleId===row.bundleId && l.data.role!=='labor').map(l=>({baseId:Number(d.baseCodes.get(Number(l.data.baseCodeId))?.data.canonicalId || l.data.baseCodeId),qty:Number(l.data.qty),lossRate:Number(l.data.lossRate || 0),include:!l.data.costTreatment || l.data.costTreatment==='include',effectiveFrom:String(l.data.effectiveFrom || ''),effectiveTo:String(l.data.effectiveTo || '')})),productIds:ids.flatMap(id => {const b=d.baseCodes.get(id);return b?.data.productId ? [Number(b.data.productId)] : d.baseCodeLines.filter(l=>l.data.baseCodeId===id).map(l=>Number(l.data.productId));}),categoryIds:[...(row.categoryId ? [row.categoryId] : [])]};
+      return {skuType:'bundle',skuId:row.bundleId,row,buckets:bundleSeedBuckets(context,row.bundleId,businessDate,warnings,archiveCostSources),archiveCostSources,warnings,issues,laborCostCents:bundleLaborCost(context,row.bundleId,businessDate,warnings,issues),components:d.lines.filter(l=>l.data.bundleId===row.bundleId && l.data.role!=='labor').map(l=>({baseId:Number(d.baseCodes.get(Number(l.data.baseCodeId))?.data.canonicalId || l.data.baseCodeId),qty:Number(l.data.qty),lossRate:Number(l.data.lossRate || 0),include:!l.data.costTreatment || l.data.costTreatment==='include',effectiveFrom:String(l.data.effectiveFrom || ''),effectiveTo:String(l.data.effectiveTo || '')})),productIds:ids.flatMap(id => {const b=d.baseCodes.get(id);return b?.data.productId ? [Number(b.data.productId)] : d.baseCodeLines.filter(l=>l.data.baseCodeId===id).map(l=>Number(l.data.productId));}),categoryIds:[...(row.categoryId ? [row.categoryId] : [])]};
     });
     for (const base of d.baseCodes.values()) {
       if (!COST_TABLE_STATUSES.includes(base.status) || typeof base.data.canonicalId==='number') continue;
-      const row = this.row({...d,lines:[Object.assign(new ResourceRecord(),{id:base.id,data:{bundleId:base.id,baseCodeId:base.id,role:'main',qty:1}})]}, {...base,data:{...base.data,bundleCategoryId:base.data.categoryId}});
-      const warnings:string[]=[];
+      const row = this.row({...d,lines:[Object.assign(new ResourceRecord(),{id:base.id,data:{bundleId:base.id,baseCodeId:base.id,role:'main',qty:1}})]}, {...base,data:{...base.data,bundleCategoryId:base.data.codeDictionaryCategoryId ?? base.data.categoryId}});
+      const warnings:string[]=[],archiveCostSources:BucketCostReference[]=[];
       const productIds = base.data.productId ? [Number(base.data.productId)] : d.baseCodeLines.filter(l=>l.data.baseCodeId===base.id).map(l=>Number(l.data.productId));
-      seeds.push({skuType:'base_code',skuId:base.id,row,buckets:costSeedBuckets(context,base.id,businessDate,warnings),warnings,productIds,categoryIds:row.categoryId ? [row.categoryId] : []});
+      seeds.push({skuType:'base_code',skuId:base.id,row,buckets:costSeedBuckets(context,base.id,businessDate,warnings,archiveCostSources),archiveCostSources,warnings,productIds,categoryIds:row.categoryId ? [row.categoryId] : []});
     }
     return {d,seeds};
   }
 
   /** 当前SKU成本登记表：与旧版定价调试保持实时联动，期间版本通过日期匹配接口读取。 */
   async allRows(user: AuthUser, em?: EntityManager) {
-    return this.liveAllRows(user,em);
+    const live = await this.liveAllRows(user, em);
+    const missing = live.rows.filter(row => COST_TABLE_STATUSES.includes(row.status) && (row.preShipCostCents === null || row.weightG === null));
+    if (!missing.length) return live;
+    const previous = await registeredCostValues(em ?? this.dataSource.manager, user.companyId, missing.map(row => row.bundleId));
+    const byId = new Map(live.d.bundles.map(bundle => [bundle.id, bundle]));
+    const ids = new Set(missing.map(row => row.bundleId));
+    return { d: live.d, rows: live.rows.map(row => ids.has(row.bundleId) ? this.row(live.d, byId.get(row.bundleId)!, costRegistrationFallback(previous.get(row.bundleId), byId.get(row.bundleId)!.data.snapshot)) : row) };
   }
 
   /** 成本表的行：只含已验证（含需重新验证）的组合；按关键字、分类（含下级）筛选，最近修改的在前 */
@@ -291,7 +259,7 @@ export class CostService {
     const tree = this.categoryTree(d, every);
     return {
       total: all.length, page: q.page, pageSize: q.pageSize, rows: all.slice(start, start + q.pageSize),
-      ...tree, canEdit: createChecker(user.permissions)('product.cost.edit'),
+      ...tree, canEdit: createChecker(user.permissions)('product.cost.edit'), canFill: createChecker(user.permissions)('product.cost.edit') && createChecker(user.permissions)('finance.cost-history.view'),
     };
   }
 

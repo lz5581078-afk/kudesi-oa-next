@@ -28,6 +28,38 @@ d('费用档案：仓库/公户挂账节点（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
+  it('客户新增仍必须末级，原编辑分类可改父级且保留原编号',async()=>{
+    const parent=await svc.create(boss,'finance-customer-categories',{name:'合成客户父类',categoryCode:'HCF'});
+    const leaf=await svc.create(boss,'finance-customer-categories',{name:'合成客户子类',categoryCode:'HCZ',parentId:parent.id});
+    await expect(svc.create(boss,'finance-customers',{name:'父类不准新增',categoryIds:[parent.id]})).rejects.toThrow(/最末级/);
+    const row=await svc.create(boss,'finance-customers',{name:'允许编辑归属的客户',categoryIds:[leaf.id]});
+    const saved=await svc.saveForm(boss,'finance-customers',{requestKey:crypto.randomUUID(),id:row.id,version:row.version!,values:{...row.data,categoryIds:[parent.id]},collections:[]});
+    expect(saved.data.categoryIds).toEqual([parent.id]);expect(saved.data.code).toBe(row.data.code);
+    await expect(svc.saveForm(boss,'finance-customers',{requestKey:crypto.randomUUID(),id:row.id,version:row.version!,values:{...row.data,name:'旧版本不得覆盖'},collections:[]})).rejects.toThrow(/修改|版本|更新/);
+    expect((await svc.get(boss,'finance-customers',row.id)).data.name).toBe(row.data.name);
+    const stopped=await svc.saveForm(boss,'finance-customers',{requestKey:crypto.randomUUID(),id:row.id,version:saved.version!,values:saved.data,status:'inactive',statusReason:'停',collections:[]});
+    expect(stopped.status).toBe('inactive');expect(stopped.statusReason).toBe('停');
+    await expect(svc.create(boss,'finance-customers',{name:'仍不准父类新增',categoryIds:[parent.id]})).rejects.toThrow(/最末级/);
+  });
+
+  it('复制可继承源档案旧父级归属，必须有来源查看权与当前版本，不能借复制更换另一父级',async()=>{
+    const top=await svc.create(boss,'finance-customer-categories',{name:'合成复制父类',categoryCode:'CPF'});
+    const leaf=await svc.create(boss,'finance-customer-categories',{name:'合成复制子类',categoryCode:'CPZ',parentId:top.id});
+    const otherTop=await svc.create(boss,'finance-customer-categories',{name:'另一复制父类',categoryCode:'LCP'});
+    await svc.create(boss,'finance-customer-categories',{name:'另一复制子类',categoryCode:'LCZ',parentId:otherTop.id});
+    const original=await svc.create(boss,'finance-customers',{name:'合成可复制客户',categoryIds:[leaf.id]});
+    const source=await svc.saveForm(boss,'finance-customers',{id:original.id,version:original.version,requestKey:crypto.randomUUID(),values:{categoryIds:[top.id]},collections:[]});
+    const input={requestKey:crypto.randomUUID(),values:{name:'合成可复制客户副本',categoryIds:[top.id]},collections:[],copySource:{id:source.id,version:source.version!,files:{}}};
+    const copied=await svc.saveForm(boss,'finance-customers',input);
+    expect(copied.id).not.toBe(source.id);expect(copied.data.categoryIds).toEqual([top.id]);expect(copied.data.code).not.toBe(source.data.code);
+    expect((await svc.saveForm(boss,'finance-customers',input)).id).toBe(copied.id);
+    await expect(svc.create(boss,'finance-customers',input.values)).rejects.toThrow(/最末级/);
+    await expect(svc.saveForm(boss,'finance-customers',{...input,requestKey:crypto.randomUUID(),values:{...input.values,categoryIds:[otherTop.id]}})).rejects.toThrow(/最末级/);
+    await expect(svc.saveForm({...boss,permissions:{isCompanyAdmin:false,allow:['resource.finance-customers.create'],deny:[]}},'finance-customers',{...input,requestKey:crypto.randomUUID()})).rejects.toThrow(/查看/);
+    await svc.update(boss,'finance-customers',source.id,{note:'源版本改变'});
+    await expect(svc.saveForm(boss,'finance-customers',{...input,requestKey:crypto.randomUUID()})).rejects.toThrow(/刚被修改/);
+  });
+
   it('种子导入保留“仓库”，“公户”转成“公司公户”；修正脚本只找回被丢成不固定的', async () => {
     await new FeeArchiveService(ds, svc).seed(boss);
     const fy16 = (await svc.list(boss, 'finance-fee-items', { keyword: 'FY-016', page: 1, pageSize: 5 } as never)).items[0] as { id: number; data: Record<string, unknown> };
@@ -58,7 +90,9 @@ d('费用档案：仓库/公户挂账节点（真实数据库）', () => {
     expect(a.data.code).toBe('GYS-ZZGYS-YM-RNZY');
     const b = await svc.create(boss, 'finance-suppliers', { name: '润农装业', categoryIds: [leaf.id], phone: '13800002222', shortName: '润农装', code: undefined });
     expect(b.data.code).toBe('GYS-ZZGYS-YM-RNZY2');
-    await expect(svc.create(boss, 'finance-suppliers', { name: '润农种业', categoryIds: [leaf.id], phone: '13800001111' })).rejects.toThrow(/重复/);
+    const copy=await svc.create(boss, 'finance-suppliers', { name: '润农种业', categoryIds: [leaf.id], phone: '13800001111' });
+    expect(copy.data.code).not.toBe(a.data.code); // 原24号用生成后的不同编号比较，内容相似仅确认，不误拦复制。
+    await expect(svc.create(boss, 'finance-suppliers', { name:'另一供应商',categoryIds:[leaf.id],code:String(a.data.code).replaceAll('-','') })).rejects.toThrow(/重复/);
     const sim = await svc.similarCheck(boss, 'finance-suppliers', { name: '润农种业有限公司', phone: '13800001111' });
     expect(sim.warnings.map((w) => w.id)).toContain(a.id);
     // 只停用不触发查重
@@ -78,6 +112,8 @@ d('费用档案：仓库/公户挂账节点（真实数据库）', () => {
     const extra = await svc.create(boss, 'finance-fee-items', { name: '新加的费用', direction: 'expense' });
     const view = await snaps.view(boss, s.id);
     expect(view.items.find((i) => i.code === 'FY-016')?.name).toBe(fy16.title);
+    expect(view.items.find((i) => i.code === 'FY-016')).toMatchObject({defaultObject:expect.anything(),relationRequirement:expect.any(String)});
+    expect(view.items.find((i) => i.code === 'FY-016')).not.toHaveProperty('data');
     const r = await snaps.restore(boss, s.id);
     expect(r.stopped).toBeGreaterThanOrEqual(1);
     expect((await svc.get(boss, 'finance-fee-items', fy16.id)).title).toBe(fy16.title);
