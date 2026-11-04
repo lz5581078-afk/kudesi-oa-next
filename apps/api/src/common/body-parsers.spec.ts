@@ -12,6 +12,8 @@ class AudioDto { @IsString() @MaxLength(5130000) audio!: string }
 class ProbeController {
   @Post('ordinary') ordinary(@Body() dto: ValueDto) { return { value: dto.value }; }
   @Post('collector/file') file(@Body() dto: AudioDto) { return { bytes: dto.audio.length }; }
+  @Post('desktop-after-sales-collection/1/commit') salePage(@Body() dto: AudioDto) { return { bytes: dto.audio.length }; }
+  @Post('desktop-after-sales/import') saleDetail(@Body() dto: AudioDto) { return { bytes: dto.audio.length }; }
 }
 const login = jest.fn(async (_account: string, _password: string) => { throw new UnauthorizedException('账号或密码不正确'); });
 @Module({ controllers: [AuthController, ProbeController], providers: [{ provide: AuthService, useValue: { login } }] })
@@ -51,6 +53,13 @@ describe('真实Nest启动的请求体解析（无数据库、无实际账号）
   });
   it('超过6MB的音频请求仍被拒绝', async () => {
     expect((await post('collector/file', JSON.stringify({ audio: 'a'.repeat(6 * 1024 * 1024 + 1) }))).status).toBe(413);
+  });
+  it('售后页及详情可超过普通100KB限制，但各自上限仍生效',async()=>{
+    const body=JSON.stringify({audio:'x'.repeat(200000)});
+    expect((await post('desktop-after-sales-collection/1/commit',body)).status).toBe(201);
+    expect((await post('desktop-after-sales/import',body)).status).toBe(201);
+    expect((await post('desktop-after-sales/import',JSON.stringify({audio:'x'.repeat(1024*1024+1)}))).status).toBe(413);
+    expect((await post('desktop-after-sales-collection/1/commit',JSON.stringify({audio:'x'.repeat(6*1024*1024+1)}))).status).toBe(413);
   });
   it('无效JSON、缺字段、多余字段仍拒绝，不进入登录服务', async () => {
     for (const body of ['{"account":', '{}', JSON.stringify({ account: 'x', password: 'x', companyId: 1 })])

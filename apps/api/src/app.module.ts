@@ -1,4 +1,7 @@
 import { AnchorMonthController, AnchorMonthService } from './live/anchor-month.controller';
+import { DesktopAfterSalesCollectionService } from './service/desktop-after-sales-collection.service';
+import { DesktopAfterSalesCollaborationService } from './service/desktop-after-sales-collaboration.service';
+import { DesktopAfterSalesCollectionController, DesktopAfterSalesSharedController } from './service/desktop-after-sales.controller';
 import { DesktopAfterSalesController } from './service/desktop-after-sales.controller';
 import { DesktopAfterSalesService } from './service/desktop-after-sales.service';
 import { LivePersonPhotoController, LivePersonPhotoService } from './live/person-photo.controller';
@@ -222,7 +225,7 @@ const env = loadEnv();
     JwtModule.register({ secret: env.jwtSecret, signOptions: { expiresIn: env.jwtExpiresIn as never } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
   ],
-  controllers: [AnchorMonthController, DesktopAfterSalesController, LivePersonPhotoController, DailyWorkController, LegacySessionController, LegacySessionEngineController, LiveFeedbackController,StaffFeishuController, AssistantController, StaffEnrollmentAdminController, StaffEnrollmentPublicController, CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, CostVersionController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, ExclusiveController, JstCenterController, CompatiblePurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, MaintenanceRemoteAssistController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
+  controllers: [AnchorMonthController, DesktopAfterSalesCollectionController, DesktopAfterSalesSharedController, DesktopAfterSalesController, LivePersonPhotoController, DailyWorkController, LegacySessionController, LegacySessionEngineController, LiveFeedbackController,StaffFeishuController, AssistantController, StaffEnrollmentAdminController, StaffEnrollmentPublicController, CollectorTextController, CollectorController, SpeechSettingsController, JstMaintenanceController, CatalogApiController, ConnectionStatusController, FeishuAuthController, LocalFilesController, HealthController, AuthController, CompanyApplyController, PlatformController, PlatformIntegrationController, OrgController, OrgAdminController, AuditController, BankFundController, AssetsController, FeeLedgerController, ResourceCategoriesController, ResourcesController, IntegrationSettingsController, AiSettingsController, FilesController, OcrController, RevenueController, CostController, CostVersionController, FeeArchiveController, LaborController, PackagingImportController, EmployeePartyController, OutboxController, FeishuNoticeController, CategoryToolsController, ProductCodePreviewController, DataToolsController, ExternalFeedController, LegacyVerifiedFeedController, ExpressController, BaseCodeToolsController, BundleToolsController, FinanceDocumentsController, FlowController, FlowDesignerController, SkuApplyController, PurchaseController, ExclusiveController, JstCenterController, CompatiblePurchaseController, TaskController, SessionController, MaintenanceController, AgentController, RemoteAssistController, RemoteAssistAgentController, MaintenanceRemoteAssistController, FormDraftsController, PhoneUploadController, ProductCostExcelController, WorkspaceController, AfterSalesController, AppealsController, SupervisionController, LiveController, WorkforceController],
   providers: [
     AuthService, FeishuAuthService, FeishuBindingPolicy, ExternalConfigService, FeishuClient, AssistantService,
     { provide: OUTBOX_SENDER, useClass: JushuitanSenderFactory },
@@ -282,6 +285,8 @@ const env = loadEnv();
     CaseSupport,
     AfterSalesService,
     DesktopAfterSalesService,
+    DesktopAfterSalesCollectionService,
+    DesktopAfterSalesCollaborationService,
     AppealsService,
     SupervisionService,
     SupervisionScheduler,

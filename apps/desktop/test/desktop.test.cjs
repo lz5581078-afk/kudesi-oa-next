@@ -53,3 +53,7 @@ test('initial hotkey stays registered and a conflict preserves the previous key'
 test('visible order form values are captured, hidden and password fields are never captured',()=>{
  const r=runDom('<pre>订单编号：4400001\n售后单号：85110001\n</pre><table><tr><td>收货人：</td><td><input value="演示买家"><input type="password" value="do-not-read"><input hidden value="hidden-value"></td></tr></table>','https://erp321.com/app/order/order/OrderEditorNew.aspx');assert.equal(r.detail[0].fields['收货人'],'演示买家');assert.equal(JSON.stringify(r).includes('do-not-read'),false);assert.equal(JSON.stringify(r).includes('hidden-value'),false);
 });
+test('legacy JT grid maps archived source labels and ignores hidden refund-account columns',()=>{
+ const r=runDom('<p>演示公司 [客服]</p><div><div><div><div class="_jt_cell_head">售后单号</div><div class="_jt_cell_head">内部订单号</div><div class="_jt_cell_head">申请日期</div><div class="_jt_cell_head">状态</div><div hidden class="_jt_cell_head">买家退款账号</div></div></div><div class="_jt_row"><div>85110001</div><div><a>4400001</a></div><div>2025-10-09 12:00:00</div><div>已确认</div><div>never-read-bank</div></div></div>','https://erp321.com/app/Service/aftersale/aftersale.aspx');
+ assert.equal(r.rows.length,1);assert.equal(r.rows[0].fields['申请时间'],'2025-10-09 12:00:00');assert.equal(r.rows[0].fields['售后单状态'],'已确认');assert.equal(JSON.stringify(r).includes('never-read-bank'),false);
+});

@@ -1,18 +1,19 @@
 {
   "name": "@kudesi/desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "酷得斯 OA 桌面客户端",
   "author": "Kudesi",
   "main": "src/main.cjs",
   "scripts": {
     "start": "electron .",
-    "typecheck": "node scripts/check.cjs && tsc -p tsconfig.json",
+    "typecheck": "node scripts/navigation.cjs && node scripts/check.cjs && tsc -p tsconfig.json",
     "test": "node --test test/*.test.cjs",
     "build": "npm run typecheck && npm test",
-    "dist:win": "electron-builder --win nsis --x64 --publish never",
-    "dist:mac": "electron-builder --mac dir --publish never",
-    "test:native": "electron scripts/native-smoke.cjs"
+    "dist:win": "node scripts/navigation.cjs && electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "node scripts/navigation.cjs && electron-builder --mac dir --publish never",
+    "test:native": "electron scripts/native-smoke.cjs",
+    "prestart": "node scripts/navigation.cjs"
   },
   "devDependencies": {
     "electron": "45.2.2",
@@ -30,7 +31,8 @@
     },
     "files": [
       "src/**/*",
-      "build/icon.png"
+      "build/icon.png",
+      "build/navigation.json"
     ],
     "win": {
       "icon": "build/icon.ico",
