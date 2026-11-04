@@ -45,7 +45,8 @@ export class DesktopAfterSalesService {
   }
   private project(u:AuthUser,s:DesktopSaleSnapshot){
     const can=createChecker(u.permissions);const fields={...s.fields};
-    if(!can('product.price.view'))for(const k of ['原订单下单金额','线上申请金额','实退金额','支付金额','商品总成交金额','优惠抵扣金额','运费','应付总金额','实际已付'] as const)delete fields[k];
+    if(!can('product.cost.view'))delete fields['原订单采购金额'];
+    if(!can('product.price.view'))for(const k of ['原订单下单金额','线上申请金额','实退金额','支付金额','商品总成交金额','优惠抵扣金额','运费','应付总金额','实际已付','实际收货金额'] as const)delete fields[k];
     // Unstructured goods/log text can contain costs and quoted unit prices.
     if(!can('product.price.view')||!can('product.cost.view')){delete fields['商品信息'];delete fields['商品明细'];delete fields['售后日志'];delete fields['订单操作日志'];}
     return {...s,fields};
