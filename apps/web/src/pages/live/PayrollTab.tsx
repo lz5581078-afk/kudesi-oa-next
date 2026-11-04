@@ -1,3 +1,4 @@
+import { PersonPhotoName, SelectedAnchorProfile } from './PersonPhotoName';
 import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { downloadText, toCsv } from '../../resources/csv';
@@ -153,6 +154,7 @@ export function PayrollTab({
                 </option>
               ))}
             </select>
+            {role==='anchor'&&<SelectedAnchorProfile personId={Number(personId)} name={people.find(([id])=>String(id)===personId)?.[1]}/>}
           </label>
         )}
         <button className="secondary-button" onClick={exportCsv} disabled={!data}>
@@ -204,7 +206,7 @@ export function PayrollTab({
               {data && !summary.size && <tr><td colSpan={commissionOnly?4:6} className="live-empty">该期间暂无已审核的工资与提成。</td></tr>}
               {[...summary].map(([id, p]) => (
                 <tr key={id}>
-                  <td data-label="人员">{p.name}</td>
+                  <td data-label="人员">{role==='anchor'?<PersonPhotoName personId={id} name={p.name}/>:p.name}</td>
                   <td data-label="场次">{p.count}</td>
                   <td data-label={commissionOnly?"直播时长":"计薪时长"}>{minutesText(p.minutes)}{p.unknownDurations>0 && <small>（{p.unknownDurations}场未记录）</small>}</td>
                   <td data-label="营业额">{money(p.sales)}</td>
@@ -244,7 +246,7 @@ export function PayrollTab({
                     <span className="live-payroll-date">{r.date} <strong>{hm(r.startAt,r.date)}–{r.endAt?hm(r.endAt,r.date):'下播时间未记录'}</strong></span>
                     {r.dailyWorkId?<span>{r.roomName}<small> · {r.dailyContent}</small></span>:<span>{r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'} · <small>产品：{productText(r.products)}</small></span>}
                   </td>
-                  <td data-label="人员">{r.userName}</td>
+                  <td data-label="人员">{r.role==='anchor'?<PersonPhotoName personId={r.userId} name={r.userName}/>:r.userName}</td>
                   <td data-label={commissionOnly?"直播时长":"时长 / 时薪"}>
                     {r.minutes==null ? '时长未记录' : minutesText(r.minutes)}
                     {!commissionOnly && <><br />{money(r.hourlyRateCents)}/时</>}

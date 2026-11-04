@@ -1,3 +1,4 @@
+import { PersonPhotoName } from './PersonPhotoName';
 import { useEffect, useState } from 'react';
 import { liveAddDays } from '@kudesi/shared';
 import { liveApi, type ScheduleRow } from './liveApi';
@@ -24,6 +25,6 @@ export function ManualSchedulePicker({onPick}: {onPick:(row: ScheduleRow)=>void}
     {error ? <p role="alert" className="notice error">{error} <button className="secondary-button small" onClick={()=>setRetry(n=>n+1)}>重试</button></p> : !rows ? <p role="status">正在查询排场…</p> :
       !rows.length ? <p>这段时间没有可补报的排场。</p> :
       <div className="live-scroll"><table className="data-table live-responsive-table" aria-label="可补报排班"><thead><tr><th>排场时段</th><th>直播间</th><th>主播 / 运营</th><th>填报情况</th><th>操作</th></tr></thead>
-      <tbody>{rows.map(s=><tr key={s.id}><td data-label="排场时段">{s.start.slice(0,16)} 至 {s.end.slice(0,16)}</td><td data-label="直播间">{s.roomName}</td><td data-label="主播 / 运营">{s.anchor.name} / {s.operator?.name || '无'}</td><td data-label="填报情况">{s.sessionId?'已有开播记录，可补报':'未登记开播'}</td><td data-label="操作"><button className="secondary-button small" onClick={()=>onPick(s)}>补录这次排场</button></td></tr>)}</tbody></table></div>}
+      <tbody>{rows.map(s=><tr key={s.id}><td data-label="排场时段">{s.start.slice(0,16)} 至 {s.end.slice(0,16)}</td><td data-label="直播间">{s.roomName}</td><td data-label="主播 / 运营"><PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/> / {s.operator?.name || '无'}</td><td data-label="填报情况">{s.sessionId?'已有开播记录，可补报':'未登记开播'}</td><td data-label="操作"><button className="secondary-button small" onClick={()=>onPick(s)}>补录这次排场</button></td></tr>)}</tbody></table></div>}
   </fieldset>;
 }

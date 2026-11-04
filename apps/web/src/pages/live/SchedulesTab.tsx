@@ -27,7 +27,7 @@ function CancelDialog({ row, onClose, onDone }: { row: ScheduleRow; onClose: () 
   }
   return (
     <Modal error={error} title="取消排场" size="small" onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>返回</button><button type="button" className="primary-button danger-fill" onClick={() => void go()}>确认取消</button></>}>
-      <p>{row.date} {row.startTime}–{row.endTime} · {row.roomName} · 主播 {row.anchor.name}。取消后会通知相关人员。</p>
+      <p>{row.date} {row.startTime}–{row.endTime} · {row.roomName} · 主播 <PersonPhotoName personId={row.anchor.id} name={row.anchor.name}/>。取消后会通知相关人员。</p>
       <label className="live-field">取消原因（必填）<textarea aria-label="取消原因" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
     </Modal>
   );

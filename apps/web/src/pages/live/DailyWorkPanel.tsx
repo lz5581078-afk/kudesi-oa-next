@@ -1,3 +1,4 @@
+import { PersonPhotoName, SelectedAnchorProfile } from './PersonPhotoName';
 import { Building2, CalendarDays, ClipboardCheck, Clock3, Plus, QrCode, RefreshCw, ArrowRight, Users } from 'lucide-react';
 import { RunDetail } from '../flow/RunDetail';
 import { useCallback, useEffect, useState, useRef } from 'react';
@@ -181,6 +182,7 @@ function DailySchedule({
                 </option>
               ))}
           </select>
+          {role==='anchor'&&<SelectedAnchorProfile personId={Number(person)} name={options?.find(p=>String(p.id)===person)?.name}/>}
         </label>
         <label>
           开始时间（北京时间）
@@ -388,7 +390,7 @@ export function DailyWorkPanel({
           <li key={r.id}>
             <div className="daily-work-heading">
               <strong>
-                {r.name} · {r.role === 'anchor' ? '主播' : '中控'}
+                {r.role==='anchor'?<PersonPhotoName personId={r.userId} name={r.name}/>:r.name} · {r.role === 'anchor' ? '主播' : '中控'}
               </strong>
               <span className={r.overdue ? 'pill bad' : 'pill'}>
                 {r.overdue ? '超时未结束' : r.statusLabel}
@@ -611,7 +613,7 @@ export function DailyOfficeCard({ date }: { date: string }) {
       <div className="daily-office-people">
         {working.slice(0,4).map(r=><div className="daily-office-person" key={r.id}>
           <span className="daily-person-avatar" aria-hidden="true">{r.name.slice(0,1)}</span>
-          <div><div className="daily-person-heading"><strong>{r.name}</strong><small>{r.role==='anchor'?'主播':'中控'}</small><span className={r.overdue?'daily-overdue':'daily-elapsed'}>{r.elapsedMinutes??0} 分钟</span></div><p>{r.content}</p><small>{r.startAt?.slice(11,16)} 开始{r.overdue?' · 已超时1小时':''}</small></div>
+          <div><div className="daily-person-heading"><strong>{r.role==='anchor'?<PersonPhotoName personId={r.userId} name={r.name}/>:r.name}</strong><small>{r.role==='anchor'?'主播':'中控'}</small><span className={r.overdue?'daily-overdue':'daily-elapsed'}>{r.elapsedMinutes??0} 分钟</span></div><p>{r.content}</p><small>{r.startAt?.slice(11,16)} 开始{r.overdue?' · 已超时1小时':''}</small></div>
         </div>)}
         {data&&!working.length&&<div className="daily-office-idle"><Users size={25} strokeWidth={1.5} aria-hidden="true"/><strong>当前无人进行日常工作</strong><span>安排工作后，人员可扫码打卡</span></div>}
         {!data&&!error&&<p className="muted" role="status">正在读取工作状态…</p>}

@@ -1,10 +1,11 @@
+import { PersonPhotoName, SelectedAnchorProfile } from './PersonPhotoName';
 import { useCallback, useEffect, useState } from 'react';
 import { LIVE_PLATFORMS, LIVE_SESSION_STATUS } from '@kudesi/shared';
 import { Pager } from '../finance/common';
 import { downloadText, toCsv } from '../../resources/csv';
 import { liveApi, type Options, type SessionList } from './liveApi';
 import { errText, hm, money, yuanText } from './liveFormat';
-import { SessionPill, names } from './liveUi';
+import { SessionPill } from './liveUi';
 
 const PAGE = 20;
 const KEY = 'kudesi.live.sessionFilters';
@@ -55,7 +56,7 @@ export function SessionsTab({ presetStatus, onOpen, refreshKey = 0 }: { presetSt
         <label className="live-field">开始日期<input aria-label="场次开始日期" type="date" value={f.from} onChange={set('from')} /></label>
         <label className="live-field">结束日期<input aria-label="场次结束日期" type="date" value={f.to} onChange={set('to')} /></label>
         <label className="live-field">直播间<select aria-label="场次直播间" value={f.roomId} onChange={set('roomId')}><option value="">全部</option>{opts?.rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
-        <label className="live-field">主播<select aria-label="场次主播" value={f.anchorId} onChange={set('anchorId')}><option value="">全部</option>{opts?.anchors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        <label className="live-field">主播<select aria-label="场次主播" value={f.anchorId} onChange={set('anchorId')}><option value="">全部</option>{opts?.anchors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><SelectedAnchorProfile personId={Number(f.anchorId)} name={opts?.anchors.find(p=>String(p.id)===f.anchorId)?.name}/></label>
         <label className="live-field">中控<select aria-label="场次中控" value={f.controlId} onChange={set('controlId')}><option value="">全部</option>{opts?.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         {!presetStatus && <label className="live-field">状态<select aria-label="场次状态" value={f.status} onChange={set('status')}><option value="">全部</option>{Object.entries(LIVE_SESSION_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>}
 
@@ -64,7 +65,7 @@ export function SessionsTab({ presetStatus, onOpen, refreshKey = 0 }: { presetSt
       {d && d.rows.length === 0 && <p className="muted pad" role="status">{presetStatus ? '目前没有待审核的场次。' : '没有符合条件的场次。'}</p>}
       <ul className="live-list">{d?.rows.map((s) => (
         <li key={s.id}>
-          <div className="main"><strong>{s.date} {hm(s.startAt)}–{s.endAt ? hm(s.endAt, s.date) : '直播中'} · {s.roomName}</strong><small>{names(s.anchor, s.control, s.operator)} · {s.channels?.length ? s.channels.map(c=>`${LIVE_PLATFORMS[c.platform]} ${c.accountName}`).join('；') : s.douyinAccount.name}{s.finalSalesCents !== null ? ` · 最终销售额 ${money(s.finalSalesCents)}` : ''}{s.returnReason ? ` · 退回：${s.returnReason}` : ''}</small></div>
+          <div className="main"><strong>{s.date} {hm(s.startAt)}–{s.endAt ? hm(s.endAt, s.date) : '直播中'} · {s.roomName}</strong><small><PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/>{s.control ? ` / ${s.control.name}` : ''}{s.operator ? ` / ${s.operator.name}` : ''} · {s.channels?.length ? s.channels.map(c=>`${LIVE_PLATFORMS[c.platform]} ${c.accountName}`).join('；') : s.douyinAccount.name}{s.finalSalesCents !== null ? ` · 最终销售额 ${money(s.finalSalesCents)}` : ''}{s.returnReason ? ` · 退回：${s.returnReason}` : ''}</small></div>
           <SessionPill status={s.status} label={s.statusLabel} />
           <button type="button" className={presetStatus ? "primary-button small" : "secondary-button small"} onClick={() => onOpen(s.id)}>{presetStatus ? '去审核' : '详情'}</button>
         </li>
