@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { categories, type Asset, type ScriptVersion } from './scriptCues';
 
+import { initialOutline, offsets } from './scriptOutline';
+import { OutlineLayout } from './OutlineLayout';
 import { AssetDownload } from './ScriptAssetLibrary';
 
 export function ScriptPreview({
@@ -29,14 +31,22 @@ export function ScriptPreview({
     };
   }, [active, v.id]);
   // Keep each original paragraph together even when a cue starts mid-sentence.
-  const paragraphs = Array.from(v.body.matchAll(/[^\n]*\n|[^\n]+$/g), (m) => {
-    const start = m.index!,
-      end = start + m[0].length;
-    const cues = v.cues.filter((c) => c.start < end && c.end > start);
-    const points = [
-      ...new Set([start, end, ...cues.flatMap((c) => [Math.max(start, c.start), Math.min(end, c.end)])]),
-    ].sort((a, b) => a - b);
-    return { start, end, cues, points };
+  const stages = initialOutline(v),
+    starts = offsets(stages);
+  const paragraphs = stages.flatMap((stage, i) => {
+    const text = v.body.slice(starts[i], starts[i] + stage.length);
+    const lines = Array.from(text.matchAll(/[^\n]*\n|[^\n]+$/g), (m) => ({
+      start: starts[i] + m.index!,
+      end: starts[i] + m.index! + m[0].length,
+    }));
+    if (!lines.length) lines.push({ start: starts[i], end: starts[i] });
+    return lines.map(({ start, end }, line) => {
+      const cues = v.cues.filter((c) => c.start < end && c.end > start);
+      const points = [
+        ...new Set([start, end, ...cues.flatMap((c) => [Math.max(start, c.start), Math.min(end, c.end)])]),
+      ].sort((a, b) => a - b);
+      return { start, end, cues: start === end ? [] : cues, points, stage: i, first: line === 0 };
+    });
   });
   const color = (id: number) => `hsl(${(v.assets.findIndex((a) => a.id === id) * 137 + 159) % 360} 55% 87%)`;
   function arrow(assetId: number, start: boolean, position: number) {
@@ -97,97 +107,116 @@ export function ScriptPreview({
           ))}
         </details>
       )}
-      <div className="sc-reading">
-        <div
-          className="sc-lines"
-          onContextMenu={(e) => {
-            const sel = window.getSelection();
-            if (!onMark || !sel?.rangeCount || sel.isCollapsed) return;
-            const range = sel.getRangeAt(0);
-            if (!e.currentTarget.contains(range.commonAncestorContainer)) return;
-            // Only count original prose; the arrow controls live outside each paragraph.
-            function offset(node: Node, index: number) {
-              const el = node instanceof Element ? node : node.parentElement;
-              const prose = el?.closest<HTMLElement>('.sc-prose');
-              if (!prose) return null;
-              const prefix = document.createRange();
-              prefix.selectNodeContents(prose);
-              prefix.setEnd(node, index);
-              return Number(prose.dataset.start) + prefix.toString().length;
-            }
-            const start = offset(range.startContainer, range.startOffset),
-              end = offset(range.endContainer, range.endOffset);
-            if (start !== null && end !== null && end > start) {
+      <OutlineLayout stages={stages}>
+        <div className="sc-reading">
+          <div
+            className="sc-lines"
+            onContextMenu={(e) => {
+              const sel = window.getSelection();
+              if (!onMark || !sel?.rangeCount || sel.isCollapsed) return;
+              const range = sel.getRangeAt(0);
+              if (!e.currentTarget.contains(range.commonAncestorContainer)) return;
+              // Only count original prose; the arrow controls live outside each paragraph.
+              function offset(node: Node, index: number) {
+                const el = node instanceof Element ? node : node.parentElement;
+                const prose = el?.closest<HTMLElement>('.sc-prose');
+                if (!prose) return null;
+                const prefix = document.createRange();
+                prefix.selectNodeContents(prose);
+                prefix.setEnd(node, index);
+                return Number(prose.dataset.start) + prefix.toString().length;
+              }
+              const start = offset(range.startContainer, range.startOffset),
+                end = offset(range.endContainer, range.endOffset);
+              if (start !== null && end !== null && end > start) {
+                e.preventDefault();
+                onMark(start, end);
+              }
+            }}
+            onCopy={(e) => {
+              const selection = window.getSelection();
+              if (!selection?.rangeCount) return;
+              const range = selection.getRangeAt(0);
+              if (!e.currentTarget.contains(range.commonAncestorContainer)) return;
+              e.clipboardData.setData('text/plain', range.cloneContents().textContent ?? '');
               e.preventDefault();
-              onMark(start, end);
-            }
-          }}
-          onCopy={(e) => {
-            const selection = window.getSelection();
-            if (!selection?.rangeCount) return;
-            const range = selection.getRangeAt(0);
-            if (!e.currentTarget.contains(range.commonAncestorContainer)) return;
-            e.clipboardData.setData('text/plain', range.cloneContents().textContent ?? '');
-            e.preventDefault();
-          }}
-        >
-          {!v.body && <p className="muted">这个版本还没有正文。</p>}
-          {paragraphs.map(({ start, end, cues, points }) => (
-            <div className="sc-line" key={start}>
-              <aside>{cues.filter((c) => c.start >= start).map((c) => arrow(c.asset, true, c.start))}</aside>
-              <span className="sc-prose" data-start={start}>
-                {points.slice(0, -1).map((left, i) => {
-                  const right = points[i + 1],
-                    spans = cues.filter((c) => c.start <= left && c.end >= right);
-                  const colors = [...new Set(spans.map((c) => color(c.asset)))];
-                  const asset = v.assets.find((a) => a.id === spans[spans.length - 1]?.asset);
-                  const show = () => {
-                    if (asset) setActive(asset);
-                  };
-                  return (
-                    <span
-                      key={left}
-                      onMouseEnter={show}
-                      onClick={show}
-                      style={{
-                        background:
-                          colors.length > 1
-                            ? 'linear-gradient(to bottom,' + colors.join(',') + ')'
-                            : colors[0],
-                      }}
-                    >
-                      {v.body.slice(left, right)}
-                    </span>
-                  );
-                })}
-              </span>
-              <aside>{cues.filter((c) => c.end <= end).map((c) => arrow(c.asset, false, c.end))}</aside>
-            </div>
-          ))}
-        </div>
-        {active && (
-          <aside className="sc-media" aria-label="素材预览">
-            <div className="sc-bar">
-              <strong>
-                {categories[active.category]} · {active.name}
-              </strong>
-              <AssetDownload version={v.id} asset={active} />
-              <button className="link-button" onClick={() => setActive(null)}>
-                收起
-              </button>
-            </div>
-            {media?.id !== active.id ? (
-              '加载中…'
-            ) : media.error ? (
-              <p role="alert">{media.error}</p>
-            ) : active.category === 'video' ? (
-              <video key={active.id} controls playsInline src={media.url} />
-            ) : (
-              <img alt={active.name} src={media.url} />
+            }}
+          >
+            {!v.body && <p className="muted">这个版本还没有正文。</p>}
+            {paragraphs.map(({ start, end, cues, points, stage, first }) =>
+              start === end ? (
+                <div
+                  key={stage + ':empty'}
+                  data-stage={stage}
+                  className="sc-empty-stage"
+                  data-heading={stages[stage].name}
+                  aria-label={stages[stage].name + '，暂无正文'}
+                />
+              ) : (
+                <div
+                  className="sc-line"
+                  key={stage + ':' + start}
+                  data-stage={stage}
+                  data-heading={first ? stages[stage].name : undefined}
+                >
+                  <aside>
+                    {cues.filter((c) => c.start >= start).map((c) => arrow(c.asset, true, c.start))}
+                  </aside>
+                  <span className="sc-prose" data-start={start}>
+                    {points.slice(0, -1).map((left, i) => {
+                      const right = points[i + 1],
+                        spans = cues.filter((c) => c.start <= left && c.end >= right);
+                      const colors = [...new Set(spans.map((c) => color(c.asset)))];
+                      const asset = v.assets.find((a) => a.id === spans[spans.length - 1]?.asset);
+                      const show = () => {
+                        if (asset) setActive(asset);
+                      };
+                      return (
+                        <span
+                          key={left}
+                          onMouseEnter={show}
+                          onClick={show}
+                          style={{
+                            background:
+                              colors.length > 1
+                                ? 'linear-gradient(to bottom,' + colors.join(',') + ')'
+                                : colors[0],
+                          }}
+                        >
+                          {v.body.slice(left, right)}
+                        </span>
+                      );
+                    })}
+                  </span>
+                  <aside>{cues.filter((c) => c.end <= end).map((c) => arrow(c.asset, false, c.end))}</aside>
+                </div>
+              ),
             )}
-          </aside>
-        )}
-      </div>
+          </div>
+          {active && (
+            <aside className="sc-media" aria-label="素材预览">
+              <div className="sc-bar">
+                <strong>
+                  {categories[active.category]} · {active.name}
+                </strong>
+                <AssetDownload version={v.id} asset={active} />
+                <button className="link-button" onClick={() => setActive(null)}>
+                  收起
+                </button>
+              </div>
+              {media?.id !== active.id ? (
+                '加载中…'
+              ) : media.error ? (
+                <p role="alert">{media.error}</p>
+              ) : active.category === 'video' ? (
+                <video key={active.id} controls playsInline src={media.url} />
+              ) : (
+                <img alt={active.name} src={media.url} />
+              )}
+            </aside>
+          )}
+        </div>
+      </OutlineLayout>
     </section>
   );
 }
