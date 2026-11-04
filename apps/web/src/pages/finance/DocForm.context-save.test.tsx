@@ -121,7 +121,7 @@ it('原开单表头保留各单据的占位与来源选项，切换来源清空�
   view.unmount();render(<DocForm type="receipt" inline onSaved={vi.fn()}/>);
   const source=screen.getByLabelText('往来对象来源') as HTMLSelectElement;expect(Array.from(source.options).map(option=>option.textContent)).toEqual(['客户档案','店铺档案']);
   fireEvent.click(screen.getByLabelText('客户'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));fireEvent.change(source,{target:{value:'store'}});expect(screen.getByLabelText('客户').textContent).toContain('客户名称');
-  fireEvent.click(screen.getByLabelText('客户'));await screen.findByRole('option',{name:'合成费用'});expect(resourceApi.list).toHaveBeenLastCalledWith('stores',expect.anything());fireEvent.click(screen.getByRole('option',{name:'合成费用'}));
+  fireEvent.click(screen.getByLabelText('客户'));await screen.findByRole('option',{name:'其他 · 合成费用'});expect(resourceApi.list).toHaveBeenLastCalledWith('stores',expect.anything());fireEvent.click(screen.getByRole('option',{name:'其他 · 合成费用'}));expect(screen.getByLabelText('客户').textContent).toContain('其他 · 合成费用');
   fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({partyKind:'store',partyId:7})));
 });
 it('原独立费用表头没有部门时只显示经办姓名，不沿用常规单据的未分部门后缀',async()=>{
@@ -203,4 +203,13 @@ it('费用目录确认为空才恢复原手工费用类型，文字按项目保�
   const item=await screen.findByPlaceholderText('费用类型');fireEvent.change(item,{target:{value:'合成手工费用'}});
   fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'12.34'}});fireEvent.click(screen.getByRole('button',{name:'欠款'}));fireEvent.click(screen.getByRole('button',{name:'保存费用单'}));
   await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({feeItemId:null,itemName:'合成手工费用',qty:1,unitPriceCents:1234})]})));
+});
+
+it('空目录手填费用或挂账文字未输金额也属于未保存修改，清空后解除提醒',async()=>{
+  vi.mocked(resourceApi.list).mockResolvedValue({items:[],total:0,page:1,pageSize:200} as never);render(<DocForm type="expense" inline onSaved={vi.fn()}/>);
+  const field=await screen.findByPlaceholderText('费用类型');fireEvent.change(field,{target:{value:'合成未保存费用'}});
+  const first=new Event('beforeunload',{cancelable:true});window.dispatchEvent(first);expect(first.defaultPrevented).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:'清空'}));const clear=new Event('beforeunload',{cancelable:true});window.dispatchEvent(clear);expect(clear.defaultPrevented).toBe(false);
+  fireEvent.change(screen.getByLabelText('第1行挂账节点'),{target:{value:'手机号'}});const object=await screen.findByRole('textbox',{name:'第1行挂账对象'});fireEvent.change(object,{target:{value:'合成未保存对象'}});
+  const second=new Event('beforeunload',{cancelable:true});window.dispatchEvent(second);expect(second.defaultPrevented).toBe(true);
 });

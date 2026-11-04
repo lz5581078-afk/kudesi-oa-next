@@ -244,7 +244,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
     }
     setAlloc(next);
   };
-  const dirty = !doc && !!(party.id || counterpartyName || summary || memo || paid.trim() && Number(paid) !== 0 || discount || offset.trim() && Number(offset) !== 0 || moneyLines.some((l) => l.item || l.amount) || docNo || lines.some((l) => l.productId || l.feeItemId || l.price) || outs.length || ins.length || multi.length || fee || inTransit);
+  const dirty = !doc && !!(party.id || counterpartyName || summary || memo || paid.trim() && Number(paid) !== 0 || discount || offset.trim() && Number(offset) !== 0 || moneyLines.some((l) => l.item || l.amount) || docNo || lines.some((l) => l.productId || l.feeItemId || l.feeItemName.trim() || l.relatedName.trim() || l.node || l.memo || l.price) || outs.length || ins.length || multi.length || fee || inTransit);
   useUnsavedWarning(!!inline && dirty);
   const goodsLines = lines.filter((l) => l.productId);
   const qtyTotal = goodsLines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
@@ -400,7 +400,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
                   {kinds.map((k) => <option key={k} value={k}>{originalFields?'':'来自'}{originalFields&&k==='employee'?'人员':PARTY_KIND_LABEL[k]}档案</option>)}
                 </select>
               )}
-              <SearchPick ariaLabel={partyLabel} type={PARTY_KIND_RESOURCE[partyKind]} value={party.id} label={party.name} placeholder={originalFields?sourcePartyPlaceholder[type]:`搜索${PARTY_KIND_LABEL[partyKind]}`} onChange={(id, name) => setParty({ id, name })} />
+              <SearchPick ariaLabel={partyLabel} referenceLabel={originalFields?'party':undefined} type={PARTY_KIND_RESOURCE[partyKind]} value={party.id} label={party.name} placeholder={originalFields?sourcePartyPlaceholder[type]:`搜索${PARTY_KIND_LABEL[partyKind]}`} onChange={(id, name) => setParty({ id, name })} />
             </div>
           </PartyField>
         )}

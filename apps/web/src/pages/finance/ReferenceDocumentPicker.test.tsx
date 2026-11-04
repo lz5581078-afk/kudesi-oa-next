@@ -79,3 +79,12 @@ it('账户按原类型/主体店铺/尾号显示并可搜类型，缺少账号�
   fireEvent.click(screen.getByRole('button',{name:'选择资料'}));await screen.findByRole('option',{name:'公司出纳账户 · 合成所属人 · 尾号1234'});
   fireEvent.change(screen.getByRole('textbox'),{target:{value:'公司出纳账户'}});fireEvent.click(screen.getByRole('option',{name:'公司出纳账户 · 合成所属人 · 尾号1234'}));expect(change).toHaveBeenCalledWith(5,'公司出纳账户 · 合成所属人 · 尾号1234',account.data,undefined);
 });
+
+it('原单据表头对象显示客户名称编码与店铺平台名称编号，完整文字保留在选中态',async()=>{
+  const customer={...item(7,'合成客户标题'),data:{name:'合成客户',code:'CLIENT'}};
+  expect(referencePickOption('finance-customers',customer as never,'party')).toMatchObject({title:'合成客户 · CLIENT'});
+  expect(referencePickOption('stores',{...item(8),data:{name:'合成店',storeNo:'STORE8',platform:'pdd'}} as never,'party').title).toBe('拼多多 · 合成店 · STORE8');
+  expect(referencePickOption('stores',{...item(8),data:{name:'合成店',storeNo:'STORE8',platform:'SYNTH'},optionLabels:{platform:'合成平台'}} as never,'party').title).toBe('合成平台 · 合成店 · STORE8');
+  vi.mocked(resourceApi.list).mockResolvedValue(response([customer]));const change=vi.fn();render(<ReferencePickContext.Provider value><SearchPick type="finance-customers" referenceLabel="party" ariaLabel="客户" value={null} onChange={change}/></ReferencePickContext.Provider>);
+  fireEvent.click(screen.getByRole('button',{name:'客户'}));fireEvent.click(await screen.findByRole('option',{name:'合成客户 · CLIENT'}));expect(change).toHaveBeenCalledWith(7,'合成客户 · CLIENT',customer.data,undefined);
+});

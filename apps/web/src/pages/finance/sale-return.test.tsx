@@ -32,7 +32,7 @@ it('网店销售沿原版手工选择收款账户，不因只有一个关联账�
   vi.mocked(resourceApi.list).mockImplementation((async (type: string) => ({ items: [{ id: type === 'bank-accounts' ? 21 : 7, title: type === 'bank-accounts' ? '拼多多店铺户' : '一号店', status: 'active', data: {}, type }], total: 1, page: 1, pageSize: 15 })) as never);
   render(<DocForm type="online-sale" inline onSaved={vi.fn()} />);
   fireEvent.click(screen.getByLabelText('销售店铺'));
-  fireEvent.click(await screen.findByRole('option', { name: '一号店' }));
+  fireEvent.click(await screen.findByRole('option', { name: '其他 · 一号店' }));
   expect(screen.getByLabelText('收款账户').textContent).not.toContain('拼多多店铺户');
   expect(vi.mocked(resourceApi.list).mock.calls.some(([type])=>type==='bank-accounts')).toBe(false);
   fireEvent.click(screen.getByLabelText('收款账户'));
