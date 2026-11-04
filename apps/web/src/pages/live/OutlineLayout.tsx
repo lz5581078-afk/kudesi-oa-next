@@ -23,6 +23,7 @@ export function OutlineLayout({ stages, children }: { stages: Stage[]; children:
         {stages.map((s, i) => (
           <button
             key={i}
+            disabled={s.length===0}
             type="button"
             aria-current={i === current ? 'location' : undefined}
             onClick={() => {

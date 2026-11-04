@@ -59,6 +59,10 @@ class Question {
   @IsString() @Length(1, 200) question!: string;
   @IsString() @Length(1, 1500) answer!: string;
 }
+class QuestionArticle {
+  @IsString() @MaxLength(100000) body!: string;
+  @IsInt() @Min(1) revision!: number;
+}
 class Template extends Named {
   @IsArray()
   @ArrayMinSize(1)
@@ -205,6 +209,35 @@ export class ScriptCenterController {
     if (!result.affectedRows) throw new NotFoundException('产品文件夹不存在');
     return { category: dto.category.trim() };
   }
+  @AuthenticatedOnly()
+  @Get('folders/:id/question-article')
+  async questionArticle(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    this.view(u);
+    const [row] = await this.db.query(
+      'SELECT faq_article body,faq,faq_revision revision FROM live_script_folders WHERE id=? AND company_id=?',
+      [id, u.companyId],
+    );
+    if (!row) throw new NotFoundException('产品文件夹不存在');
+    const legacy: Question[] = typeof row.faq === 'string' ? JSON.parse(row.faq) : (row.faq ?? []);
+    return {
+      body: row.body ?? legacy.map((q) => q.question + '\n' + q.answer).join('\n\n'),
+      revision: row.revision,
+    };
+  }
+  @RequirePermission('live.manage')
+  @Put('folders/:id/question-article')
+  async saveQuestionArticle(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: QuestionArticle,
+  ) {
+    const result = await this.db.query(
+      'UPDATE live_script_folders SET faq_article=?,faq_revision=faq_revision+1 WHERE company_id=? AND id=? AND faq_revision=?',
+      [dto.body, u.companyId, id, dto.revision],
+    );
+    if (!result.affectedRows) throw new ConflictException('问题库已变更，请保留草稿并重新打开核对');
+    return { revision: dto.revision + 1 };
+  }
   @RequirePermission('live.manage')
   @Post('folders/:id/versions')
   async create(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: Named) {
@@ -277,7 +310,7 @@ export class ScriptCenterController {
       if (!result.affectedRows) throw new ConflictException('版本已变更，请保留草稿并重新打开版本核对');
       if (dto.faq) {
         const updated = await em.query(
-          'UPDATE live_script_folders f JOIN live_script_versions v ON v.folder_id=f.id AND v.company_id=f.company_id SET f.faq=?,f.faq_revision=f.faq_revision+1 WHERE v.company_id=? AND v.id=? AND f.faq_revision=?',
+          'UPDATE live_script_folders f JOIN live_script_versions v ON v.folder_id=f.id AND v.company_id=f.company_id SET f.faq=?,f.faq_revision=f.faq_revision+1 WHERE v.company_id=? AND v.id=? AND f.faq_revision=? AND f.faq_article IS NULL',
           [JSON.stringify(dto.faq), u.companyId, id, dto.faqRevision],
         );
         if (!updated.affectedRows)

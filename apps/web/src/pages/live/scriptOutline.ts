@@ -58,3 +58,28 @@ export function reorderStage(stages: Stage[], body: string, cues: Cue[], from: n
     cues: moved.sort((a, b) => a.start - b.start),
   };
 }
+
+// A boundary can belong to either neighbour, including an empty template stage.
+// Prefer the stage the writer explicitly opened at that position.
+export function stageAt(stages: Stage[], position: number, preferred: number) {
+  const starts = offsets(stages);
+  if (
+    stages[preferred] &&
+    position >= starts[preferred] &&
+    position <= starts[preferred] + stages[preferred].length
+  )
+    return preferred;
+  const i = stages.findIndex((s, j) => position >= starts[j] && position < starts[j] + s.length);
+  return i < 0 ? Math.max(0, stages.length - 1) : i;
+}
+export function editStages(stages: Stage[], start: number, end: number, inserted: number, preferred: number) {
+  const starts = offsets(stages),
+    owner = stageAt(stages, start, preferred);
+  return stages.map((s, i) => ({
+    ...s,
+    length:
+      s.length -
+      Math.max(0, Math.min(starts[i] + s.length, end) - Math.max(starts[i], start)) +
+      (i === owner ? inserted : 0),
+  }));
+}
