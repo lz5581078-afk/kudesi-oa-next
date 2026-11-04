@@ -58,6 +58,15 @@ d('商品档案原编号同步（隔离数据库）',()=>{
    expect(rows).toHaveLength(1);expect(rows[0].id).toBe(linked.id);expect(rows[0].status).toBe(status);expect(rows[0].data.code).toBe(linked.data.code);
   }
  });
+ it('自动资料随商品改名、规格和分类更新；手工专属资料保持独立，成本仍联动',async()=>{
+  const p=await raw('同步前','SYNC-PROFILE-BEFORE'),bc=await base(p.id),nextCategory=await svc.create(boss,'finance-categories',{archiveType:'raw',name:'新合成分类',code:'NEXTSYNC'});
+  await svc.changeStatus(boss,'finance-base-codes',bc.id,'verified');
+  await svc.update(boss,'finance-products',p.id,{name:'同步后',code:'SYNC-PROFILE-AFTER',specQty:250,specUnit:'G',purchaseSpec:'250克',categoryId:nextCategory.id});
+  const updated=await base(p.id);expect(updated.id).toBe(bc.id);expect(updated.status).toBe('reverify');expect(updated.data).toMatchObject({varietyName:'同步后',spec:'250G',categoryId:nextCategory.id,code:'SYNC-PROFILE-AFTER'});expect(updated.data.profileManual).not.toBe(true);
+  await svc.update(boss,'finance-base-codes',bc.id,{varietyName:'人工品种',spec:'专属规格',name:'人工名称'});
+  await svc.update(boss,'finance-products',p.id,{name:'再次改名',specQty:500,specUnit:'G',code:'SYNC-PROFILE-THIRD',purchasePrice:222});
+  expect((await base(p.id)).data).toMatchObject({varietyName:'人工品种',spec:'专属规格',name:'人工名称',code:'SYNC-PROFILE-AFTER',profileManual:true,cost:224});
+ });
  it('客户端伪造origin或事务标志不能取得精确原号同步特权',async()=>{
   const p=await raw('合成防伪','SYNC-TRUSTED'),bc=await base(p.id);
   await expect(svc.update(boss,'finance-base-codes',bc.id,{code:'FORGED-CODE',origin:'archive_sync'})).rejects.toThrow(/原因/);

@@ -2,7 +2,7 @@ import {skuDuplicateState} from './sku-duplicate-confirmation';
 import {bundleLaborUnit} from '../resources/bundle-component-validation';
 import {costCompositionFacts} from '../resources/cost-components';
 import {skuReuseLibrary} from './sku-reuse';
-import {skuCatalog} from './sku-catalog';
+import {SKU_ROLE_ARCHIVES,skuCatalog} from './sku-catalog';
 import {inheritedSkuBrandId} from './sku-brand';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -20,9 +20,7 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 
 export type SkuOptionKind = 'main' | 'gift' | 'package' | 'label' | 'other' | 'labor' | 'names';
-const ARCHIVE_BY_KIND: Record<string, string[]> = {
-  main: ['raw', 'purchased'], gift: ['raw', 'purchased', 'shipping_material'], package: ['package', 'oem_package'], label: ['shipping_material'], other: ['shipping_material'],
-};
+const ARCHIVE_BY_KIND = SKU_ROLE_ARCHIVES;
 
 /** SKU 批量申请的辅助接口：给申请表单提供可选项（不要求有财务资料的查看权限），给详情页提供「会生成什么编码」的预览。 */
 @Injectable()

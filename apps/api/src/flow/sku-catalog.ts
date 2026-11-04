@@ -4,7 +4,7 @@ import {createChecker,todayInChina} from '@kudesi/shared';
 import type {AuthUser} from '../common/auth.decorators';
 import {ResourceRecord} from '../entities';
 const families:Record<string,string>={'原料档案':'raw','原装采购成品':'purchased','供应商OEM成品':'purchased','产品包装档案':'package','发货物料档案':'shipping_material'};
-export const SKU_ROLE_ARCHIVES:Record<string,readonly string[]>={main:['raw','purchased'],gift:['raw','purchased','shipping_material'],package:['package','oem_package'],label:['shipping_material'],other:['shipping_material']};
+export const SKU_ROLE_ARCHIVES:Record<string,readonly string[]>={main:['raw','purchased'],gift:['raw','purchased','shipping_material'],package:['package'],label:['shipping_material'],other:['shipping_material']};
 const text=(value:unknown)=>typeof value==='string'?value:'';
 function pathOf(index:Map<number,ResourceRecord>,id:unknown,includeInactive=false){const path:ResourceRecord[]=[],seen=new Set<number>();let row=index.get(Number(id));while(row){if(seen.has(row.id)||(!includeInactive&&row.status!=='active')||row.archivedAt)return [];seen.add(row.id);path.unshift(row);if(row.data.parentId==null)return path;row=index.get(Number(row.data.parentId));if(!row)return [];}return path;}
 export function skuCodeSource(base:ResourceRecord,records:ResourceRecord[]){
