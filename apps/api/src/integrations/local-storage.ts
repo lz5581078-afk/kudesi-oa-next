@@ -10,7 +10,7 @@ export class LocalStorage implements ObjectStorage {
   }
   private location(key: string) {
     key = key.replace(/^local:/, '');
-    if (!/^oa\/\d+\/[a-z0-9-]+\/\d{6}\/[0-9a-f-]+\.(png|jpg|gif|webp|pdf)$/.test(key)) throw new Error('文件路径无效');
+    if (!/^oa\/\d+\/[a-z0-9-]+\/\d{6}\/[0-9a-f-]+\.(png|jpg|gif|webp|pdf|mp4)$/.test(key)) throw new Error('文件路径无效');
     return path.join(this.root, key);
   }
   async upload(key: string, data: Buffer): Promise<void> {

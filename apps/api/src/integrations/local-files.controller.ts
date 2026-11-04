@@ -1,3 +1,4 @@
+import { isScriptMp4 } from '../live/script-media';
 import { Controller, Get, Header, Param, Query, ForbiddenException, StreamableFile } from '@nestjs/common';
 import { Public } from '../common/auth.decorators';
 import { configuredLocalStorage } from './local-storage';
@@ -14,7 +15,7 @@ export class LocalFilesController {
       const storage = configuredLocalStorage();
       if (!storage) throw new Error();
       const data = await storage.readSigned(token, expires ?? '', signature ?? '');
-      const kind = sniffFile(data);
+      const kind = sniffFile(data) ?? (isScriptMp4(data) ? {mime:'video/mp4'} : null);
       if (!kind) throw new Error();
       return new StreamableFile(data, { type: kind.mime, disposition: 'inline', length: data.length });
     } catch { throw new ForbiddenException('文件链接无效或已过期'); }
