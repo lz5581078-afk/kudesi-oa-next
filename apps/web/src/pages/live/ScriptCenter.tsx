@@ -21,6 +21,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
   const [detail, setDetail] = useState<ScriptVersion | null>(null),
     [dirty, setDirty] = useState(false),
     [error, setError] = useState('');
+  const [creating, setCreating] = useState<'folder' | 'version' | null>(null);
   const [folderName, setFolderName] = useState(''),
     [versionName, setVersionName] = useState(''),
     [busy, setBusy] = useState(false),
@@ -31,7 +32,11 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
       .then((data) => {
         if (!live) return;
         setLibrary(data);
-        setFolder((old) => old || data.folders[0]?.id || 0);
+        if (!retry) {
+          const first = data.folders[0]?.id || 0;
+          setFolder(first);
+          setVersion(data.versions.find((v) => v.folderId === first)?.id ?? 0);
+        }
       })
       .catch((e) => {
         if (live) setError(e.message);
@@ -78,6 +83,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
         { body: { name } },
       );
       setDirty(false);
+      setCreating(null);
       if (kind === 'folder') {
         setLibrary({ ...library, folders: [...library.folders, { id, name }] });
         setFolderName('');
@@ -104,7 +110,14 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
           else r.cancel?.();
         }}
       />
-      <h2>话术中心</h2>
+      <header className="sc-title">
+        <h2>话术中心</h2>
+        {library && (
+          <span>
+            {library.folders.length} 个产品 · {library.versions.length} 个版本
+          </span>
+        )}
+      </header>
       {error && (
         <p role="alert">
           {error}{' '}
@@ -127,7 +140,18 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
       ) : (
         <div className="sc-layout">
           <fieldset className="sc-nav" disabled={busy}>
-            <h3>产品文件夹</h3>
+            <div className="sc-nav-head">
+              <h3>产品文件夹</h3>
+              {manage && (
+                <button
+                  className="link-button"
+                  aria-expanded={creating === 'folder'}
+                  onClick={() => setCreating(creating === 'folder' ? null : 'folder')}
+                >
+                  ＋ 新建文件夹
+                </button>
+              )}
+            </div>
             <select
               aria-label="产品文件夹"
               value={folder}
@@ -135,7 +159,8 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                 if (leave()) {
                   setDirty(false);
                   setFolder(+e.target.value);
-                  setVersion(0);
+                  setCreating(null);
+                  setVersion(library.versions.find((v) => v.folderId === +e.target.value)?.id ?? 0);
                   setVersionName('');
                 }
               }}
@@ -147,7 +172,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                 </option>
               ))}
             </select>
-            {manage && (
+            {manage && creating === 'folder' && (
               <div className="sc-bar">
                 <input
                   aria-label="新产品文件夹名称"
@@ -167,13 +192,24 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
             )}
             {folder > 0 && (
               <>
-                <h3>话术版本</h3>
+                <div className="sc-nav-head">
+                  <h3>话术版本</h3>
+                  {manage && (
+                    <button
+                      className="link-button"
+                      aria-expanded={creating === 'version'}
+                      onClick={() => setCreating(creating === 'version' ? null : 'version')}
+                    >
+                      ＋ 新建版本
+                    </button>
+                  )}
+                </div>
                 {!versions.length && <small>此产品还没有话术版本。</small>}
                 {versions.map((v) => (
                   <button
                     key={v.id}
                     aria-pressed={v.id === version}
-                    className={v.id === version ? 'primary-button' : 'secondary-button'}
+                    className="sc-version-link"
                     onClick={() => {
                       if (v.id !== version && leave()) {
                         setDirty(false);
@@ -184,7 +220,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                     {v.name}
                   </button>
                 ))}
-                {manage && (
+                {manage && creating === 'version' && (
                   <div className="sc-bar">
                     <input
                       aria-label="新版本名称"
@@ -220,7 +256,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
               }
             />
           ) : (
-            <p className="muted">{version ? '正在读取版本…' : '选择产品和版本，查看话术及素材提示。'}</p>
+            <p className="sc-empty">{version ? '正在读取版本…' : '选择产品和版本，查看话术及素材提示。'}</p>
           )}
         </div>
       )}
