@@ -1,12 +1,12 @@
 # 旧会话核心快照
 
-`vendor/` 是旧 OA 提交 `0fb7fdad2f3805e3579bd4f870199c880668aaa1` 的逐字源码快照，文件内容未做表名替换或业务重写。`snapshot-manifest.json` 记录每个来源路径与 SHA-256。`snapshot.ts` 只验证和加载本目录资产，运行时不访问旧工作目录。
+`vendor/` 以旧 OA 提交 `0fb7fdad2f3805e3579bd4f870199c880668aaa1` 为来源，未做表名替换。除 `remote-assistance-service.js` 的安全关闭适配外，其余文件保持逐字源码快照。该适配区分媒体停止和浏览器确认关闭，并校验关闭目标的公司、工作区、设备、店铺和用户所属关系；历史 `ended + open` 也必须建立真实关闭任务，不能返回假成功。`snapshot-manifest.json` 为此文件保留 `sourceSha256`、标记 `modified` 并记录当前 SHA-256；其他文件记录来源路径与原 SHA-256。`snapshot.ts` 只验证和加载本目录资产，运行时不访问旧工作目录。
 
 包含 17 个 `server/modules/session-manager` 模块、5 个匹配的 `agent/platforms` 模块，以及原 `agent/config.js`、`agent/version.json`，共 24 个文件。后两份用于直接验证原 `ensureShopProfile` 的编号语义，加载模块不会读取电脑配置，验证不调用 `loadConfig`。该版本服务端 `platform-registry.js` 自包含，不依赖助手平台目录；助手平台目录保留的是同提交的适配与认证校验源码，不包含助手安装包或原生二进制。相对 `require` 保持原目录结构。服务端外部包仅使用现有 `express`、`ws`，其余是 Node 内建模块。
 
 没有复制旧 `server/index.js`、数据库配置、种子、业务密钥工具、默认加密回退或任何凭据。调用方必须注入新版可信身份、权限、加密、事务和命名空间适配；不能使用旧默认权限 SQL 查询新版组织表。旧状态写入必须由连接层转交新版资料事务服务，不能通过资料视图修改状态。下载、升级包和远程传输策略由连接层提供，默认服务读取的旧发布路径不能冒充已安装资产。
 
-构建时须将 `vendor/` 和 `snapshot-manifest.json` 原样复制到编译后的 `legacy-runtime/` 旁；不能只发布 TypeScript 编译输出。加载入口为 `loadLegacySessionModule('routes')`，加载前验证全部快照文件摘要。更新旧源码必须重新生成并审查清单，不在快照里手工修补业务。
+构建时须将 `vendor/` 和 `snapshot-manifest.json` 原样复制到编译后的 `legacy-runtime/` 旁；不能只发布 TypeScript 编译输出。加载入口为 `loadLegacySessionModule('routes')`，加载前验证全部快照文件摘要。更新来源或新增适配必须重新生成并审查清单，明确保留来源摘要和适配说明，不把本地适配冒充未修改的旧源码。
 
 结构由 `1777000000000-SessionLegacyRuntime.ts` 建立：13 个带 `sm_legacy_` 前缀的原会话表、店铺 ID 映射、3 个连接层状态表以及 4 个资料视图。迁移不导入数据、不生成工作区、不恢复设备认证、不重放任务。内部会话 FK 与唯一约束保留；无法指向视图的旧公司/员工/店铺 FK 未建立，连接层必须校验并锁定同公司所属关系。映射表显式连接旧店铺 ID 和新版资料 ID，不按名字猜测。
 
