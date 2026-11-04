@@ -244,6 +244,18 @@ d('成本表与定价调试表（真实数据库）', () => {
     const comps = await debug.components(boss, { categoryId: ids.rootCat, page: 1 });
     expect(comps.rows.some((r) => r.id === bc)).toBe(true);
     expect(comps.categories.some((c) => c.id === ids.leaf)).toBe(true);
+    expect(comps.categories.some((c) => c.id === ids.bcat || c.id===ids.broot)).toBe(false);
+  });
+
+  it('定价筛选目录排除已删除/禁用和隐藏真实编码，保留马甲并支持简称搜索',async()=>{
+    const insert=async(code:string,status:string,data:Record<string,unknown>={})=>ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:boss.companyId,type:'finance-base-codes',title:code,status,data:{code,name:code,...data}}));
+    const real=await insert('SYN-COMP-REAL','verified');
+    const alias=await insert('SYN-COMP-ALIAS','verified',{canonicalId:real.id});
+    await insert('SYN-COMP-DELETED','deleted');await insert('SYN-COMP-DISABLED','disabled');
+    const visible=await insert('SYN-COMP-PENDING','pending',{shortName:'合成目录专属简称'});
+    const result=await debug.components(boss,{keyword:'SYN-COMP-',page:1});
+    expect(result.rows.map(row=>row.id).sort()).toEqual([alias.id,visible.id].sort());
+    expect((await debug.components(boss,{keyword:'合成目录专属简称',page:1})).rows.map(row=>row.id)).toEqual([visible.id]);
   });
 
   it('公司低价独立权限仅增加低价字段及导出，不开放成本或改变试算；撤销后立即脱敏',async()=>{
@@ -335,18 +347,32 @@ d('成本表与定价调试表（真实数据库）', () => {
     const branch = await svc.create(boss, 'finance-express-branches', { carrierId: carrier.id, name: '总部' });
     const version = await svc.create(boss, 'finance-express-versions', { branchId: branch.id, versionName: 'v1', shippingWeightMax: 5 });
     await svc.update(boss, 'finance-express-versions', version.id, { cooperationStatus: 'active' });
-    await svc.create(boss, 'finance-express-prices', { versionId: version.id, province: 'ALL', shipWeightMin: 0, fixedPrice: 1000 });
+    // 网点已自动建立创始版本；本用例明确切换至用于报价核对的自建版本。
+    await svc.update(boss, 'finance-express-branches', branch.id, { currentVersionId: version.id });
+    const quote = await svc.create(boss, 'finance-express-prices', { versionId: version.id, province: 'ALL', shipWeightMin: 0, fixedPrice: 1000 });
     const live = async (g: number) => (await cost.freightEstimate(boss, g)).cents;
     const page = async (kg: number) => (await ex.getEstimates(boss)).rows.find((r) => kg > r.start && kg <= r.end && !r.parcels)!;
+    // 首次尚无已确认样本；只读成本或预估页面都不自行重算。
+    expect((await ex.getEstimates(boss)).rows).toEqual([]);expect(await live(4000)).toBeNull();
+    await ex.recalculate(boss);
     // 与预估运费一览页同一个金额（固定价 10 元 ×1.1）
     const auto = (await page(4)).autoAmount;
     expect(auto).toBe(1100);
     expect(await live(4000)).toBe(auto);
     expect((await cost.freightEstimate(boss, 4000)).method).toMatch(/provincial/);
+    // 上游报价变动不暗中重建已确认快递样本；成本页与预估页保持同一旧样本。
+    const calculatedAt=(await ex.getEstimates(boss)).calculatedAt;
+    await svc.update(boss,'finance-express-prices',quote.id,{fixedPrice:2000});
+    expect(await live(4000)).toBe(1100);expect((await page(4)).autoAmount).toBe(1100);
+    expect((await ex.getEstimates(boss)).calculatedAt).toBe(calculatedAt);
+    await ex.recalculate(boss);expect(await live(4000)).toBe(2200);
+    await svc.update(boss,'finance-express-prices',quote.id,{fixedPrice:1000});await ex.recalculate(boss);
     // 版本只能发 5kg 以内：8kg 没有价格，不猜
     expect(await live(8000)).toBeNull();
     // 手工金额：成本表立刻跟着走
+    const beforeManual=(await ex.getEstimates(boss)).calculatedAt;
     await ex.setOverride(boss, 3, 4, 5000, '测试手工');
+    expect((await ex.getEstimates(boss)).calculatedAt).toBe(beforeManual);
     expect(await live(4000)).toBe(5000);
     expect((await cost.freightEstimate(boss, 4000)).method).toBe('manual_override');
     expect(await live(3500)).toBe(5000);

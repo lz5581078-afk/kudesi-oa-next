@@ -1,197 +1,122 @@
-import { useCallback, useEffect, useState } from 'react';
-import { getResourceDef } from '@kudesi/shared';
-import { ApiError } from '../../../api/client';
-import { ReasonDialog, RecordForm } from '../../../resources/RecordForm';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { todayInChina } from '@kudesi/shared';
+import { ReasonDialog } from '../../../resources/RecordForm';
 import { useResourceCan } from '../../../resources/RecordDetail';
-import { resourceApi, type ResourceDto } from '../../../resources/api';
+import { resourceApi } from '../../../resources/api';
 import { money } from '../common';
-import { expressApi, type TreeBranch, type TreeCarrier, type TreeVersion, type VersionDetail } from './expressApi';
-import { PriceMatrixEditor } from './PriceMatrixEditor';
+import { QueryPanel, QueryTable, type Col } from '../query/QueryKit';
+import { expressApi, type BatchRow, type RuleRow, type SurchargeRow, type TreeBranch, type TreeCarrier, type TreeVersion, type VersionDetail } from './expressApi';
+import { HierarchyForm } from './HierarchyForm';
+import { ManualPriceDialog } from './ManualPriceDialog';
+import { PriceRuleDialog } from './PriceRuleDialog';
 import { RecognizeDialog } from './RecognizeDialog';
+import { SurchargeDialog } from './SurchargeDialog';
+import './versionPanel.css';
 
-const COOP = [['pending', '待确认'], ['active', '合作中'], ['paused', '已暂停']] as const;
-const CHARGE: Record<string, string> = { fixed: '固定金额', percent: '按比例', per_kg: '按公斤' };
-const err = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
+const COOP = { pending: '待确认', active: '合作中', paused: '已暂停' } as const;
+const CHARGE = { fixed: '固定金额', percent: '按比例', per_kg: '按公斤' };
+const when = (value?: string) => value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '-';
+const weight = (row: RuleRow) => `${row.minExclusive ? '>' : '≥'}${row.shipWeightMin ?? 0}kg${row.shipWeightMax == null ? '以上' : ` 且 ${row.maxExclusive ? '<' : '≤'}${row.shipWeightMax}kg`}${row.fixedPrice == null ? `（首重${row.firstWeight ?? 1}kg）` : ''}`;
+const surchargeWeight = (row: SurchargeRow) => row.weightMode === 'below' ? `${row.weightEnd}kg以内` : row.weightMode === 'above' ? `${row.weightStart}kg以上` : row.weightMode === 'between' ? `${row.weightStart}–${row.weightEnd}kg` : '全重量段';
+type Rule = RuleRow & { id: number; source: string };
+type Action = { kind: 'rule-delete' | 'batch-stop' | 'batch-delete' | 'surcharge-stop' | 'surcharge-delete'; id: number; name: string };
+const recognitionName = (kind: string) => ({ price_table: '价格表识别', surcharge_notice: '加收通知识别', manual_price: '手工创建价格表', manual_surcharge: '手工新增加收' }[kind] || kind);
 
-type SubTab = 'final' | 'price' | 'surcharge' | 'info';
-
-/** 一个价格版本的全部内容：合作状态、价格矩阵（AI/手工两套）、临时加收、合作备注。 */
-export function VersionPanel({ carrier, branch, version, onChanged, onDeleted }: { carrier: TreeCarrier; branch: TreeBranch; version: TreeVersion; onChanged: () => void; onDeleted: () => void }) {
-  const canPrice = useResourceCan('finance-express-prices');
-  const [tab, setTab] = useState<SubTab>('final');
+/** Version content follows the original page: base quotations, configuration, batches and cooperation notes. */
+export function VersionPanel({ carrier, branch, version, onChanged, onBack }: { carrier: TreeCarrier; branch: TreeBranch; version: TreeVersion; onChanged: () => void; onDeleted?: () => void; onBack?: () => void }) {
+  const can = useResourceCan('finance-express-prices');
   const [detail, setDetail] = useState<VersionDetail | null>(null);
-  const [source, setSource] = useState<'ai' | 'manual'>('manual');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [editing, setEditing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState(''), [notice, setNotice] = useState('');
+  const [editing, setEditing] = useState(false), [manual, setManual] = useState(false), [surcharge, setSurcharge] = useState(false);
   const [recognize, setRecognize] = useState<'price' | 'surcharge' | null>(null);
-  const [surchargeForm, setSurchargeForm] = useState<{ id: number | null } | null>(null);
-  const [batchDelete, setBatchDelete] = useState<number | null>(null);
-  const [ruleForm,setRuleForm] = useState<ResourceDto | null>(null);
-  const [ruleDelete,setRuleDelete] = useState<number | null>(null);
-
+  const [rule, setRule] = useState<Rule | null>(null), [action, setAction] = useState<Action | null>(null);
+  const [info, setInfo] = useState<{ title: string; content: ReactNode } | null>(null);
+  const [remark, setRemark] = useState(''), [remarkDirty, setRemarkDirty] = useState(false);
+  const remarkRef = useRef(''), dirtyRemarkRef = useRef(false), savingRemark = useRef(false);
   const load = useCallback(async () => {
-    try {
-      const d = await expressApi.version(version.id);
-      setDetail(d);
-      setError('');
-    } catch (e) { setError(err(e)); }
+    try { const result = await expressApi.version(version.id); setDetail(result); setError(''); }
+    catch (e) { setError((e as Error).message || '读取失败'); }
   }, [version.id]);
-  useEffect(() => { setDetail(null); setNotice(''); void load(); }, [load]);
-  useEffect(() => { if (detail) setSource(detail.effectiveSource); }, [detail?.version.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  useEffect(() => { setDetail(null); void load(); }, [load]);
+  useEffect(() => { if (detail && !remarkDirty) { const value = String(detail.version.data.remark ?? ''); setRemark(value); remarkRef.current = value; } }, [detail, remarkDirty]);
   const refresh = () => { void load(); onChanged(); };
-  async function run(fn: () => Promise<unknown>, done?: string) {
+  async function run(operation: () => Promise<unknown>, message?: string) {
     setError(''); setNotice('');
-    try { await fn(); if (done) setNotice(done); refresh(); } catch (e) { setError(err(e)); }
+    try { await operation(); if (message) setNotice(message); refresh(); }
+    catch (e) { setError((e as Error).message || '操作失败'); }
   }
-
-  const rules = detail?.rules.filter((r) => r.source === source) ?? [];
-  const aiCount = detail?.rules.filter((r) => r.source === 'ai').length ?? 0;
-  const manualCount = (detail?.rules.length ?? 0) - aiCount;
+  async function saveRemark() {
+    if (!dirtyRemarkRef.current || savingRemark.current || !can('edit')) return;
+    savingRemark.current = true;
+    const value = remarkRef.current;
+    let saved = false;
+    try {
+      await resourceApi.update('finance-express-versions', version.id, { remark: value });
+      setDetail(current => current ? { ...current, version: { ...current.version, data: { ...current.version.data, remark: value } } } : current);
+      if (remarkRef.current === value) { dirtyRemarkRef.current = false; setRemarkDirty(false); }
+      onChanged(); saved = true;
+    } catch (e) { setError((e as Error).message || '备注保存失败'); }
+    finally { savingRemark.current = false; }
+    if (saved && dirtyRemarkRef.current && remarkRef.current !== value) void saveRemark();
+  }
   const data = detail?.version.data ?? {};
-  const remark = String(data.remark ?? '');
-
-  return (
-    <div className="version-panel">
-      <div className="page-head between">
-        <h2>{carrier.name} / {branch.name} / {version.name}</h2>
-        <div className="toolbar">
-          {version.inUse ? <span className="chip ok">正在参与运费预估</span> : <span className="chip muted">暂不参与运费预估</span>}
-          {version.isCurrent ? <span className="chip active">当前版本</span> : canPrice('edit') && <button type="button" className="secondary-button small" onClick={() => void run(() => resourceApi.update('finance-express-branches', branch.id, { currentVersionId: version.id }), '已设为这个网点的当前版本')}>设为当前版本</button>}
-        </div>
+  const rules = detail?.rules.filter(row => row.source === detail.effectiveSource).sort((a, b) => (a.shipWeightMax ?? Infinity) - (b.shipWeightMax ?? Infinity) || (a.shipWeightMin ?? 0) - (b.shipWeightMin ?? 0) || a.id - b.id) ?? [];
+  const ruleColumns: Col<Rule>[] = [
+    { key: 'date', head: '查询日期', cell: () => todayInChina(), csv: () => todayInChina() },
+    { key: 'province', head: '省份', cell: row => row.province === 'ALL' ? '全国' : row.province, csv: row => row.province },
+    { key: 'weight', head: '重量', cell: weight, csv: weight, sortValue: row => row.shipWeightMax ?? Infinity },
+    { key: 'amount', head: '基础运费', cell: row => money(row.fixedPrice ?? row.firstPrice), csv: row => row.fixedPrice ?? row.firstPrice },
+    { key: 'version', head: '使用版本', cell: () => version.name, csv: () => version.name },
+    { key: 'description', head: '规则说明', cell: row => row.fixedPrice == null ? '首重续重公式' : '基础价格规则', csv: row => row.fixedPrice == null ? '首重续重公式' : '基础价格规则' },
+    { key: 'actions', head: '操作', action: true, cell: row => <div className="row-actions">{can('edit') && <button type="button" className="secondary-button small" aria-label={`修改 ${row.province} ${weight(row)}`} onClick={() => setRule(row)}>修改</button>}{can('delete') && <button type="button" className="secondary-button small danger" aria-label={`删除 ${row.province} ${weight(row)}`} onClick={() => setAction({ kind: 'rule-delete', id: row.id, name: `${row.province} ${weight(row)}` })}>删除</button>}</div> },
+  ];
+  const recordsColumns: Col<VersionDetail['recognitions'][number]>[] = [
+    { key: 'time', head: '时间', cell: row => when(row.createdAtKey), csv: row => row.createdAtKey }, { key: 'type', head: '类型', cell: row => recognitionName(row.recognitionType), csv: row => recognitionName(row.recognitionType) },
+    { key: 'file', head: '文件/凭据', cell: row => row.fileName || '-', csv: row => row.fileName }, { key: 'model', head: '模型/来源', cell: row => row.modelName || '-', csv: row => row.modelName },
+    { key: 'status', head: '状态', cell: row => row.recognitionType === 'manual_surcharge' ? '已生效' : '已确认导入', csv: row => row.status }, { key: 'count', head: '结果数', cell: row => row.resultCount ?? row.resultText ?? 0, csv: row => row.resultCount ?? row.resultText },
+  ];
+  async function evidence(batch: BatchRow) {
+    if (batch.evidence?.[0]) { try { const result = await resourceApi.fileUrl(batch.evidence[0]); window.open(result.url, '_blank', 'noopener'); } catch (e) { setError((e as Error).message || '凭据读取失败'); } }
+    else setInfo({ title: '原始凭据', content: <p>{batch.fileName ? `当前只保存了文件名：${batch.fileName}` : '暂无原始凭据'}</p> });
+  }
+  async function confirmAction() {
+    if (!action) return;
+    if (action.kind === 'rule-delete') await resourceApi.remove('finance-express-prices', action.id, '人工确认删除价格规则');
+    if (action.kind === 'batch-delete') await expressApi.remove('surcharge-batches', action.id, '人工确认删除加收批次');
+    if (action.kind === 'batch-stop') await resourceApi.changeStatus('finance-express-fee-batches', action.id, 'stopped', '人工确认停用加收批次');
+    if (action.kind === 'surcharge-stop') await resourceApi.changeStatus('finance-express-surcharges', action.id, 'stopped', '人工确认停用加收规则');
+    if (action.kind === 'surcharge-delete') await resourceApi.remove('finance-express-surcharges', action.id, '人工确认删除加收规则');
+    setAction(null); refresh();
+  }
+  const surchargeColumns: Col<SurchargeRow>[] = [
+    { key: 'name', head: '加收名称', cell: row => row.name, csv: row => row.name }, { key: 'type', head: '加收方式', cell: row => CHARGE[row.chargeType], csv: row => CHARGE[row.chargeType] },
+    { key: 'province', head: '适用省份', cell: row => row.areaScope || '-', csv: row => row.areaScope }, { key: 'weight', head: '重量范围', cell: surchargeWeight, csv: surchargeWeight },
+    { key: 'amount', head: '加收值', cell: row => row.chargeType === 'percent' ? `${row.percent ?? 0}%` : money(row.amount), csv: row => row.percent ?? row.amount },
+    { key: 'start', head: '生效日期', cell: row => row.effectiveStart || '-', csv: row => row.effectiveStart }, { key: 'end', head: '失效日期', cell: row => row.effectiveEnd || '长期', csv: row => row.effectiveEnd },
+    { key: 'file', head: '凭据', cell: row => row.fileName || '-', csv: row => row.fileName }, { key: 'status', head: '状态', cell: row => row.status === 'active' ? '启用' : '停用', csv: row => row.status },
+    { key: 'note', head: '备注', cell: row => row.note || '-', csv: row => row.note }, { key: 'actions', head: '操作', action: true, cell: row => <div className="row-actions">{row.status === 'active' && can('disable') && <button type="button" className="link-button" onClick={() => setAction({ kind: 'surcharge-stop', id: row.id, name: row.name })}>停用</button>}{can('delete') && <button type="button" className="link-button danger" onClick={() => setAction({ kind: 'surcharge-delete', id: row.id, name: row.name })}>删除</button>}</div> },
+  ];
+  return <div className="express-version-content">
+    <div className="express-version-summary"><div><strong>{carrier.name} / {branch.name} / {version.name}</strong><span><b>{COOP[version.cooperationStatus]}</b> · {version.effectiveStart || '未设生效日'} 至 {version.effectiveEnd || '长期'}</span></div><div className="row-actions">{onBack && <button type="button" className="secondary-button" onClick={onBack}>返回版本列表</button>}{can('edit') && <button type="button" className="primary-button" onClick={() => setEditing(true)}>编辑版本资料</button>}</div></div>
+    {error && <div role="alert" className="notice error">{error}</div>}{notice && <div role="status" className="notice ok">{notice}</div>}
+    {!detail ? !error && <p>读取中…</p> : <>
+      <div className="express-version-layout"><QueryPanel title="基础价格规则"><QueryTable cols={ruleColumns} rows={rules} rowKey={row => row.id} empty="暂无基础价格规则" foot={false} caption="基础价格规则" controls={{ storageKey: `express-prices:${version.id}`, pageSize: 50, searchPlaceholder: '搜索省份、重量、版本' }} /></QueryPanel>
+        <aside className="express-version-side"><QueryPanel title="配置选项"><div className="express-config-actions">{can('edit') && <><button type="button" className="primary-button" onClick={() => setRecognize('price')}>上传价格表识别</button><button type="button" className="secondary-button" onClick={() => setManual(true)}>手工维护价格</button></>}<button type="button" className="secondary-button" onClick={() => setInfo({ title: '原始价格表', content: <><p>{String(data.attachmentName || '暂未上传原始价格表')}</p><strong>{data.attachmentName ? '已保存原始价格表文件名' : '还没有原始价格表'}</strong><p>{String(data.attachmentName || '通过“上传价格表识别”确认导入后，会把本次上传文件记录为当前原始价格表。')}</p></> })}>查看原始价格表</button>{can('edit') && <><button type="button" className="secondary-button" onClick={() => setRecognize('surcharge')}>上传加收通知识别</button><button type="button" className="secondary-button" onClick={() => setSurcharge(true)}>新增临时加收</button></>}<button type="button" className="secondary-button" onClick={() => setInfo({ title: '快递价格历史记录', content: <QueryTable cols={recordsColumns} rows={detail.recognitions} rowKey={row => row.id} empty="还没有识别记录" foot={false} caption="快递价格历史记录" controls={{ storageKey: `express-recognition:${version.id}`, pageSize: 8, searchPlaceholder: '搜索上传文件、识别类型或模型' }} /> })}>查看识别记录</button></div><label className="express-price-source">最终价格依据<select aria-label="最终价格依据" disabled={!can('edit')} value={String(data.priceSource || detail.effectiveSource)} onChange={e => void run(() => resourceApi.update('finance-express-versions', version.id, { priceSource: e.target.value }))}><option value="ai">AI 识别价格表</option><option value="manual">手工创建价格表</option></select></label></QueryPanel>
+          <QueryPanel title="版本信息"><dl><div><dt>合作状态</dt><dd>{COOP[version.cooperationStatus]}</dd></div><div><dt>生效日期</dt><dd>{version.effectiveStart || '-'}</dd></div><div><dt>失效日期</dt><dd>{version.effectiveEnd || '长期有效'}</dd></div><div><dt>可发货重量</dt><dd>{version.shippingWeightMin ?? 0}–{version.shippingWeightMax ?? '不限'}kg</dd></div><div><dt>原始价格表</dt><dd>{String(data.attachmentName || '未上传')}</dd></div></dl></QueryPanel>
+          <QueryPanel title="当前口径"><dl><div><dt>版本命中</dt><dd>同一日期只能命中一个基础价格版本。</dd></div><div><dt>加收命中</dt><dd>同一日期可命中多条临时加收，并逐条累加。</dd></div><div><dt>AI识别</dt><dd>价格表和加收截图只做预填，人工确认后生效。</dd></div></dl></QueryPanel></aside>
       </div>
-      {!version.inUse && (
-        <p className="muted">
-          {!version.isCurrent ? '它不是网点的当前版本；' : ''}{version.cooperationStatus !== 'active' ? '合作状态不是“合作中”；' : ''}{version.status === 'inactive' ? '版本已停用；' : ''}运费预估和分区建议只读取“当前版本 + 合作中 + 日期有效”的价格。
-        </p>
-      )}
-      <div className="toolbar">
-        <label>合作状态 <select aria-label="合作状态" disabled={!canPrice('edit')} value={version.cooperationStatus} onChange={(e) => void run(() => resourceApi.update('finance-express-versions', version.id, { cooperationStatus: e.target.value }), '合作状态已更新')}>{COOP.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-        <span className="muted">有效期：{version.effectiveStart || '不限'} ~ {version.effectiveEnd || '长期'}；可发货 {version.shippingWeightMin ?? 0} ~ {version.shippingWeightMax ?? '不限'} kg</span>
-        {canPrice('edit') && <button type="button" className="secondary-button small" onClick={() => setEditing(true)}>修改版本信息</button>}
-        {canPrice('delete') && <button type="button" className="secondary-button small danger" onClick={() => setDeleting(true)}>删除版本</button>}
-      </div>
-      {notice && <div role="status" className="notice ok">{notice}</div>}
-      {error && <div role="alert" className="notice error">{error}</div>}
-
-      <div className="tab-group" role="tablist" aria-label="版本内容">
-        {([['final', '最终价格'], ['price', '原始 / 手工价格'], ['surcharge', `临时加收（${detail?.surcharges.length ?? version.surchargeCount}）`], ['info', '合作备注与识别记录']] as const).map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? 'chip active' : 'chip'} onClick={() => setTab(id)}>{label}</button>
-        ))}
-      </div>
-
-      {!detail && !error && <p className="muted">加载中…</p>}
-      {detail && tab === 'final' && <section className="card" aria-label="最终价格表">
-        <div className="toolbar"><label>最终价格依据<select aria-label="最终价格依据" disabled={!canPrice('edit')} value={String(data.priceSource ?? '')} onChange={e=>void run(()=>resourceApi.update('finance-express-versions',version.id,{priceSource:e.target.value || null}),'最终价格依据已更新')}><option value="">自动（有手工用手工）</option><option value="ai">AI 识别价格表</option><option value="manual">手工价格表</option></select></label>
-          <button type="button" className="secondary-button" onClick={()=>{setSource('ai');setTab('price');}}>查看原始价格表</button>
-          {canPrice('edit') && <><button type="button" className="secondary-button" onClick={()=>{setSource('manual');setTab('price');}}>手工维护价格</button><button type="button" className="secondary-button" onClick={()=>setRecognize('price')}>上传价格表识别</button><button type="button" className="secondary-button" onClick={()=>setRecognize('surcharge')}>上传加收通知识别</button></>}
-        </div><p className="muted">当前采用{detail.effectiveSource==='ai'?'AI识别价格表':'手工价格表'}，临时加收在对应页签维护。</p>
-        <div className="table-scroll"><table className="data-table"><thead><tr><th>省份</th><th>重量范围（kg）</th><th>计价方式</th><th>固定价 / 首重价</th><th>续重价</th><th>操作</th></tr></thead><tbody>
-          {detail.rules.filter(r=>r.source===detail.effectiveSource).map(r=><tr key={r.id}><td>{r.province}</td><td>{r.minExclusive?'＞':'≥'}{r.shipWeightMin ?? 0}，{r.shipWeightMax == null?'不限':`${r.maxExclusive?'＜':'≤'}${r.shipWeightMax}`}</td><td>{r.fixedPrice != null?'区间统一价':`首重 ${r.firstWeight ?? 1}kg / 续重`}</td><td>{money(r.fixedPrice ?? r.firstPrice)}</td><td>{r.fixedPrice != null?'—':money(r.extraPrice)}</td><td className="row-actions">{canPrice('edit') && <button type="button" className="link-button" onClick={()=>void run(async()=>setRuleForm(await resourceApi.get('finance-express-prices',r.id)))}>修改</button>}{canPrice('delete') && <button type="button" className="link-button danger" onClick={()=>setRuleDelete(r.id)}>删除</button>}</td></tr>)}
-          {!detail.rules.some(r=>r.source===detail.effectiveSource) && <tr><td colSpan={6} className="empty-state muted">该版本还没有当前采用的价格规则。</td></tr>}
-        </tbody></table></div>
-      </section>}
-      {detail && tab === 'price' && (
-        <div>
-          <div className="toolbar">
-            <span>价格来源：</span>
-            <button type="button" className={source === 'ai' ? 'chip active' : 'chip'} onClick={() => setSource('ai')}>AI 识别价格表（{aiCount}）</button>
-            <button type="button" className={source === 'manual' ? 'chip active' : 'chip'} onClick={() => setSource('manual')}>手工价格表（{manualCount}）</button>
-            <label>最终价格依据 <select aria-label="最终价格依据" disabled={!canPrice('edit')} value={String(data.priceSource ?? '')} onChange={(e) => void run(() => resourceApi.update('finance-express-versions', version.id, { priceSource: e.target.value || null }), '最终价格依据已更新')}>
-              <option value="">自动（有手工用手工）</option><option value="ai">AI 识别价格表</option><option value="manual">手工价格表</option></select></label>
-            {canPrice('edit') && <button type="button" className="secondary-button" onClick={() => setRecognize('price')}>AI 识别价格表</button>}
-          </div>
-          <p className="muted">现在实际生效的是：{detail.effectiveSource === 'ai' ? 'AI 识别价格表' : '手工价格表'}。两套价格可以并存，只有“最终价格依据”选中的那一套参与运费预估。</p>
-          <PriceMatrixEditor versionId={version.id} source={source} rules={rules} canEdit={canPrice('edit')} onSaved={refresh} />
-        </div>
-      )}
-
-      {detail && tab === 'surcharge' && (
-        <div>
-          <div className="toolbar">
-            {canPrice('edit') && <button type="button" className="primary-button" onClick={() => setSurchargeForm({ id: null })}>手工新增加收</button>}
-            {canPrice('edit') && <button type="button" className="secondary-button" onClick={() => setRecognize('surcharge')}>AI 识别加收通知</button>}
-          </div>
-          <p className="muted">临时加收只做记录和查询，不计入运费预估和分区建议。</p>
-          {detail.batches.length === 0 && detail.surcharges.length === 0 && <p className="muted">这个版本还没有加收通知。</p>}
-          {detail.batches.map((b) => (
-            <div key={b.id} className="card">
-              <div className="between"><strong>{b.batchName}</strong>
-                <span className="row-actions">
-                  <span className={b.status === 'active' ? 'chip ok' : 'chip muted'}>{b.status === 'active' ? '已生效' : '已停用'}</span>
-                  {b.evidence?.[0] ? <button type="button" className="secondary-button small" onClick={() => void resourceApi.fileUrl(b.evidence![0]).then((r) => window.open(r.url, '_blank', 'noopener')).catch(() => undefined)}>查看原始凭据</button> : null}
-                  {canPrice('edit') && <button type="button" className="secondary-button small" onClick={() => void run(() => b.status === 'active' ? resourceApi.changeStatus('finance-express-fee-batches', b.id, 'stopped', '通知已过期或作废') : resourceApi.changeStatus('finance-express-fee-batches', b.id, 'active'))}>{b.status === 'active' ? '停用整批' : '恢复整批'}</button>}
-                  {canPrice('delete') && <button type="button" className="secondary-button small danger" onClick={() => setBatchDelete(b.id)}>删除整批</button>}
-                </span></div>
-              <p className="muted">{b.source === 'ai' ? 'AI 识别' : '手工'}{b.fileName ? `，文件：${b.fileName}` : ''}</p>
-              <SurchargeTable rows={detail.surcharges.filter((s) => s.batchId === b.id)} canEdit={canPrice('edit')} onEdit={(id) => setSurchargeForm({ id })} />
-            </div>
-          ))}
-          {detail.surcharges.some((s) => !s.batchId) && (
-            <div className="card"><strong>未归入批次</strong><SurchargeTable rows={detail.surcharges.filter((s) => !s.batchId)} canEdit={canPrice('edit')} onEdit={(id) => setSurchargeForm({ id })} /></div>
-          )}
-        </div>
-      )}
-
-      {detail && tab === 'info' && (
-        <div>
-          <h3>合作备注</h3>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{remark || <span className="muted">没有备注。合作内容、退改费、其他费用和特殊口径可以写在这里（点“修改版本信息”）。</span>}</p>
-          {data.attachmentName ? <p>原始价格表：{String(data.attachmentName)}</p> : null}
-          <h3>识别记录</h3>
-          {detail.recognitions.length === 0 ? <p className="muted">还没有识别过。</p> : (
-            <table className="data-table"><thead><tr><th>时间</th><th>类型</th><th>文件</th><th>模型</th><th>结果</th></tr></thead><tbody>
-              {detail.recognitions.map((r) => <tr key={r.id}><td>{r.createdAtKey ? new Date(r.createdAtKey).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '—'}</td><td>{r.recognitionType === 'price_table' ? '价格表' : '加收通知'}</td><td>{r.fileName || '—'}</td><td>{r.modelName || '—'}</td><td>{r.resultText}</td></tr>)}
-            </tbody></table>
-          )}
-        </div>
-      )}
-
-      {editing && <RecordForm def={getResourceDef('finance-express-versions')!} record={versionRecord(detail, version)} lockedFields={['branchId']} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); refresh(); }} />}
-      {surchargeForm && (
-        <SurchargeFormHost id={surchargeForm.id} versionId={version.id} onClose={() => setSurchargeForm(null)} onSaved={() => { setSurchargeForm(null); refresh(); }} />
-      )}
-      {recognize && <RecognizeDialog versionId={version.id} kind={recognize} onClose={() => setRecognize(null)} onDone={(m) => { setRecognize(null); setNotice(m); refresh(); }} />}
-      {deleting && (
-        <ReasonDialog title={`删除价格版本「${version.name}」`} hint={`会连同它的 ${version.aiRuleCount + version.manualRuleCount} 条价格规则、加收和识别记录一起删除，不能恢复。`} confirmLabel="确认删除" danger onClose={() => setDeleting(false)}
-          onConfirm={async (reason) => { await expressApi.remove('versions', version.id, reason); setDeleting(false); onDeleted(); }} />
-      )}
-      {batchDelete !== null && (
-        <ReasonDialog title="删除整批加收通知" hint="批次下的所有加收规则会一起删除，不能恢复。" confirmLabel="确认删除" danger onClose={() => setBatchDelete(null)}
-          onConfirm={async (reason) => { await expressApi.remove('surcharge-batches', batchDelete, reason); setBatchDelete(null); refresh(); }} />
-      )}
-      {ruleForm && <RecordForm def={getResourceDef('finance-express-prices')!} record={ruleForm} initial={ruleForm.data} lockedFields={['versionId','source']} onClose={()=>setRuleForm(null)} onSaved={()=>{setRuleForm(null);refresh();}}/>}
-      {ruleDelete !== null && <ReasonDialog title="删除价格规则" confirmLabel="确认删除" danger onClose={()=>setRuleDelete(null)} onConfirm={async reason=>{await resourceApi.remove('finance-express-prices',ruleDelete,reason);setRuleDelete(null);refresh();}}/>}
-    </div>
-  );
-}
-
-/** RecordForm 需要完整的记录对象；详情接口里已有字段，拼一个即可 */
-function versionRecord(detail: VersionDetail | null, v: TreeVersion) {
-  if (!detail) return null;
-  return { id: v.id, type: 'finance-express-versions', title: v.name, status: v.status, statusReason: null, data: detail.version.data, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '', updatedAt: '' };
-}
-
-function SurchargeTable({ rows, canEdit, onEdit }: { rows: VersionDetail['surcharges']; canEdit: boolean; onEdit: (id: number) => void }) {
-  if (!rows.length) return <p className="muted">这个批次下没有规则。</p>;
-  return (
-    <div className="table-scroll"><table className="data-table">
-      <thead><tr><th>名称</th><th>省份</th><th>日期</th><th>加收</th><th>重量范围</th><th>状态</th>{canEdit && <th />}</tr></thead>
-      <tbody>{rows.map((s) => (
-        <tr key={s.id}><td>{s.name}</td><td>{s.areaScope || '—'}</td><td>{s.effectiveStart || '—'} ~ {s.effectiveEnd || '长期'}</td>
-          <td>{CHARGE[s.chargeType]} {s.chargeType === 'percent' ? `${s.percent ?? '—'}%` : money(s.amount)}{s.chargeType === 'per_kg' ? '/kg' : ''}</td>
-          <td>{s.weightMode === 'below' ? `${s.weightEnd}kg 以内` : s.weightMode === 'above' ? `${s.weightStart}kg 以上` : s.weightMode === 'between' ? `${s.weightStart}~${s.weightEnd}kg` : '全部重量'}</td>
-          <td>{s.status === 'active' ? '启用' : '停用'}</td>{canEdit && <td><button type="button" className="link-button" onClick={() => onEdit(s.id)}>修改</button></td>}</tr>
-      ))}</tbody>
-    </table></div>
-  );
-}
-
-function SurchargeFormHost({ id, versionId, onClose, onSaved }: { id: number | null; versionId: number; onClose: () => void; onSaved: () => void }) {
-  const [record, setRecord] = useState<Awaited<ReturnType<typeof resourceApi.get>> | null | undefined>(id === null ? null : undefined);
-  useEffect(() => { if (id !== null) void resourceApi.get('finance-express-surcharges', id).then(setRecord).catch(() => onClose()); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (record === undefined) return null;
-  return <RecordForm def={getResourceDef('finance-express-surcharges')!} record={record} initial={{ versionId }} lockedFields={['versionId']} onClose={onClose} onSaved={onSaved} />;
+      <QueryPanel title="临时加收与上传记录"><div className="express-surcharge-section"><strong>加收通知批次</strong><p>每次上传识别或手工新增都是一个模块；整批可停用或删除，规则仍可单条处理。</p>{detail.batches.map(batch => {
+        const rows = detail.surcharges.filter(row => row.batchId === batch.id), active = rows.filter(row => row.status === 'active');
+        return <section key={batch.id} className="express-surcharge-batch"><header><div><strong>{batch.batchName}</strong><small>{batch.source === 'manual' ? '手工新增' : 'AI识别'}{batch.createdAtKey ? ` · ${when(batch.createdAtKey)}` : ''}{batch.fileName ? ` · ${batch.fileName}` : ''}</small></div><div className="row-actions"><span className="pill">{batch.status === 'active' ? '已生效' : '已停用'}</span><button type="button" className="secondary-button" onClick={() => void evidence(batch)}>查看凭据</button>{active.length > 0 && can('disable') && <button type="button" className="secondary-button" onClick={() => setAction({ kind: 'batch-stop', id: batch.id, name: batch.batchName })}>停用整批</button>}{can('delete') && <button type="button" className="secondary-button danger" onClick={() => setAction({ kind: 'batch-delete', id: batch.id, name: batch.batchName })}>删除整批</button>}</div></header><div className="express-surcharge-batch-meta"><span><b>规则总数</b>{rows.length} 条</span><span><b>有效规则</b>{active.length} 条</span><span><b>原始凭据</b>{batch.fileName || '-'}</span><span><b>模型/来源</b>{batch.modelName || (batch.source === 'manual' ? '人工录入' : '-')}</span></div>{batch.note && <p>{batch.note}</p>}<QueryTable cols={surchargeColumns} rows={rows} rowKey={row => row.id} empty="没有加收规则" caption="本批次加收规则" foot={false} controls={{ storageKey: `express-surcharge:${batch.id}`, pageSize: 8, searchPlaceholder: '搜索本批次加收名称、地区或金额' }} /></section>;
+      })}{detail.surcharges.some(row => !row.batchId) && <QueryTable cols={surchargeColumns} rows={detail.surcharges.filter(row => !row.batchId)} rowKey={row => row.id} empty="没有历史散项" foot={false} caption="历史散项" controls={{ storageKey: `express-surcharge-legacy:${version.id}`, pageSize: 8 }} />}{!detail.batches.length && !detail.surcharges.length && <div className="empty-state"><strong>还没有临时加收</strong><p>上传加收通知识别或手工新增后，会按每次上传批次分模块显示。</p></div>}<details><summary>查看上传识别记录</summary><QueryTable cols={recordsColumns} rows={detail.recognitions} rowKey={row => row.id} empty="还没有识别记录" foot={false} controls={{ storageKey: `express-recognition-inline:${version.id}`, searchPlaceholder: '搜索上传文件或识别类型' }} /></details></div></QueryPanel>
+      <QueryPanel title="合作备注"><label className="express-cooperation-note">快递合作具体内容、退改费、其他费用和特殊口径<textarea value={remark} disabled={!can('edit')} placeholder="例如：退改费规则、特殊区域费用、对账注意事项、快递合作联系人口径、赔付或拦截费用等。" onChange={e => { setRemark(e.target.value); remarkRef.current = e.target.value; dirtyRemarkRef.current = true; setRemarkDirty(true); }} onBlur={() => void saveRemark()} /></label><small>备注会保存到当前价格历史版本里，不影响其他版本。</small></QueryPanel>
+    </>}
+    {editing && <HierarchyForm carriers={[carrier]} state={{ kind: 'version', id: version.id, branchId: branch.id }} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); refresh(); }} />}
+    {manual && detail && <ManualPriceDialog versionId={version.id} rules={detail.rules.filter(row => row.source === 'manual')} onClose={() => setManual(false)} onSaved={() => { setManual(false); refresh(); }} />}
+    {recognize && <RecognizeDialog versionId={version.id} kind={recognize} onClose={() => setRecognize(null)} onDone={message => { setRecognize(null); setNotice(message); refresh(); }} />}
+    {surcharge && <SurchargeDialog versionId={version.id} onClose={() => setSurcharge(false)} onSaved={() => { setSurcharge(false); refresh(); }} />}
+    {rule && <PriceRuleDialog rule={rule} onClose={() => setRule(null)} onSaved={() => { setRule(null); refresh(); }} />}
+    {action && <ReasonDialog requireReason={false} title={action.kind.endsWith('stop') ? '确认停用' : '确认删除'} hint={`${action.kind.endsWith('stop') ? '确定停用' : '确定删除'}“${action.name}”吗？${action.kind === 'batch-delete' ? '该批次下的规则也会一起删除。' : ''}`} confirmLabel={action.kind.endsWith('stop') ? '确认停用' : '确认删除'} danger onClose={() => setAction(null)} onConfirm={confirmAction} />}
+    {info && <div className="modal-backdrop" role="presentation"><section className="modal card wide express-info-dialog" role="dialog" aria-modal="true" aria-label={info.title}><div className="modal-head"><h3>{info.title}</h3><button type="button" className="secondary-button" onClick={() => setInfo(null)}>关闭</button></div><div className="modal-body">{info.content}</div></section></div>}
+  </div>;
 }

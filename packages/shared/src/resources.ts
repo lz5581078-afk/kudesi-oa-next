@@ -72,6 +72,13 @@ export interface FieldDef {
   moneyInput?: { nativeNumber?: boolean; currency?: string };
   /** 由系统计算，表单里不显示、提交的值会被忽略（如利润） */
   readonly?: boolean;
+  /** 仅控制当前表单的只读呈现，仍保留原字段的保存和导入语义。 */
+  formReadOnly?: boolean;
+  /** 可选引用联动：读取所选资料后带入默认字段；已有引用初次打开不覆盖历史值。 */
+  referenceFill?: {
+    targets: readonly { field: string; source: string; whenEmpty?: boolean; clearOnEmpty?: boolean }[];
+    locks?: readonly { field: string; unlessSource: string }[];
+  };
   /** 自动汇总字段可仅用于检索、列表和详情，不占用编辑表单。 */
   hideInForm?: boolean;
   /** type=decimal：小数位数上限（默认 4） */

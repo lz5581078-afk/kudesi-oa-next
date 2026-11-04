@@ -1,0 +1,145 @@
+/* Layout measurements from the enabled pricing debug view. Scoped to this page and its picker. */
+.pricing-debug-page.pricing-reference { padding:20px 24px; color:#20363e; }
+.pricing-debug-page.pricing-reference .pricing-debug-layout { grid-template-columns:minmax(300px,32%) minmax(0,1fr); gap:12px; margin-top:18px; }
+.pricing-debug-page.pricing-reference .pricing-debug-panel { padding:0; gap:0; border:1px solid #d8e3e7; border-radius:8px; background:white; overflow:hidden; }
+.pricing-debug-page.pricing-reference .pricing-debug-panel>header,.pricing-debug-page.pricing-reference .pricing-debug-panel>footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; padding:16px 18px; border-bottom:1px solid #e4ecef; }
+.pricing-debug-page.pricing-reference .pricing-debug-panel>footer { border-top:1px solid #e4ecef; border-bottom:0; font-size:12px; }
+.pricing-debug-page.pricing-reference .pricing-debug-panel h2 { margin:0; font-size:17px; }
+.pricing-debug-page.pricing-reference .pricing-debug-panel button { border:1px solid #ccd8df; border-radius:6px; padding:7px 12px; background:white; color:#23414a; font:inherit; cursor:pointer; }
+.pricing-debug-page.pricing-reference .pricing-debug-panel button:disabled { opacity:.55; cursor:default; }
+.pricing-debug-page.pricing-reference .pricing-debug-panel .primary-button { background:#08745c; color:white; border-color:#08745c; }
+.pricing-debug-page.pricing-reference .pricing-debug-filters { display:flex; align-items:center; gap:8px; padding:12px; }
+.pricing-debug-filters .pricing-component-filter { flex:1; }
+.pricing-debug-page.pricing-reference .pricing-debug-filters>input { width:0; flex:1; height:38px; min-width:0; padding:9px 10px; border:1px solid #ccd8df; border-radius:6px; }
+.pricing-debug-filters>select { max-width:42%; min-width:0; padding:9px 10px; border:1px solid #ccd8df; border-radius:6px; }
+.pricing-debug-page.pricing-reference .pricing-debug-filters .pricing-component-filter>button { height:38px; padding:6px; }
+.pricing-debug-page.pricing-reference .pricing-debug-filters .pricing-debug-add-all { display:inline-flex; align-items:center; justify-content:center; gap:4px; flex-shrink:0; white-space:nowrap; height:38px; padding:6px 8px; font-size:12px; }
+.pricing-debug-page.pricing-reference .pricing-debug-select-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 18px; border-top:1px solid #edf1f3; background:#f7faf9; font-size:13px; }
+.pricing-debug-select-bar label { display:flex; align-items:center; gap:8px; }
+.pricing-debug-select-bar input,.pricing-debug-slider-cell input[type=range] { accent-color:#08745c; }
+.pricing-debug-page.pricing-reference .pricing-debug-list { max-height:630px; border:0; border-top:1px solid #edf1f3; border-radius:0; overflow:auto; }
+.pricing-debug-page.pricing-reference .pricing-debug-item { gap:10px; padding:11px 18px; border-bottom:1px solid #edf1f3; }
+.pricing-debug-item:hover { background:#f3f8f6; }
+.pricing-debug-page.pricing-reference .pricing-debug-item strong { font-size:13px; }
+.pricing-debug-page.pricing-reference .pricing-debug-item small,.pricing-debug-page.pricing-reference .pricing-debug-item em { font-size:12px; margin-top:3px; }
+.pricing-debug-page.pricing-reference .pricing-debug-workspace>header,.pricing-debug-page.pricing-reference .pricing-debug-workspace>footer { padding:10px 12px; }
+.pricing-debug-page.pricing-reference .pricing-debug-results { max-height:660px; overflow:auto; scrollbar-gutter:stable; }
+.pricing-debug-page.pricing-reference .pricing-debug-table { width:100%; min-width:930px; table-layout:fixed; border-collapse:collapse; }
+.pricing-debug-page.pricing-reference .pricing-debug-table-internal { min-width:1010px; }
+.pricing-debug-col-product { width:27%; }
+.pricing-debug-col-input { width:84px; }
+.pricing-debug-col-status { width:90px; }
+.pricing-debug-col-floor { width:80px; }
+.pricing-debug-col-action { width:60px; }
+.pricing-debug-page.pricing-reference .pricing-debug-table td,.pricing-debug-page.pricing-reference .pricing-debug-table th { padding:8px 10px; font-size:13px; vertical-align:middle; max-width:none; white-space:normal; overflow:visible; }
+.pricing-debug-table thead { position:sticky; top:0; z-index:1; }
+.pricing-debug-table th { background:#f7faf9; color:#526b76; }
+.pricing-debug-page.pricing-reference .pricing-debug-slider-cell { min-width:0; position:relative; }
+.pricing-debug-page.pricing-reference .pricing-debug-table input[type=number] { width:100%; box-sizing:border-box; padding:6px; border:1px solid #ccd8df; border-radius:5px; font-size:12px; }
+.pricing-debug-slider-cell input[type=range] { height:18px; margin:0; padding:0; box-sizing:border-box; cursor:pointer; }
+.pricing-debug-page.pricing-reference .pricing-debug-slider-values { height:36px; min-height:36px; margin-right:92px; line-height:16px; font-variant-numeric:tabular-nums; }
+.pricing-debug-slider-values small { height:16px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pricing-debug-page.pricing-reference .pricing-debug-profit-manual { position:absolute; right:10px; bottom:8px; width:84px; display:flex; flex-direction:column; gap:2px; }
+.pricing-debug-profit-manual label { display:flex; align-items:center; gap:3px; margin:0; font-size:12px; color:#657985; }
+.pricing-debug-page.pricing-reference .pricing-debug-profit-manual input[type=number] { height:22px; padding:2px 4px; min-width:0; }
+.pricing-debug-page.pricing-reference .pricing-debug-profit-manual>button { padding:2px 4px; font-size:11px; line-height:15px; color:#08745c; }
+.pricing-debug-copy-row { display:flex; align-items:flex-start; gap:4px; justify-content:space-between; }
+.pricing-debug-copy-row>strong,.pricing-debug-copy-row>small { flex:1; min-width:0; overflow-wrap:anywhere; }
+.pricing-debug-page.pricing-reference .pricing-debug-copy-row>button { display:flex; flex-shrink:0; padding:2px; border:0; color:#5b7b82; }
+.pricing-debug-export-tools { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.pricing-debug-export-tools>small { min-width:155px; text-align:right; font-size:12px; }
+.pricing-debug-page.pricing-reference .pricing-debug-export-tools button { display:flex; align-items:center; gap:6px; }
+.pricing-component-filter { display:flex; min-width:0; gap:6px; }
+.pricing-component-filter>button:first-child { display:flex; align-items:center; gap:8px; flex:1; min-width:0; text-align:left; }
+.pricing-component-filter>button:first-child span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pricing-component-filter svg { flex-shrink:0; }
+.pricing-component-dialog { box-sizing:border-box; width:min(900px,calc(100vw - 24px)); height:min(660px,calc(100dvh - 24px)); max-width:none; max-height:none; padding:0; border:1px solid #d8e3e7; border-radius:8px; color:#20363e; background:white; box-shadow:0 20px 60px #183d3526; }
+.pricing-component-dialog[open] { display:flex; flex-direction:column; }
+.pricing-component-dialog::backdrop { background:#152a3d66; }
+.pricing-component-dialog button { display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid #ccd8df; border-radius:5px; padding:8px 10px; background:white; color:#23414a; font:inherit; cursor:pointer; }
+.pricing-component-dialog button:disabled { opacity:.5; cursor:default; }
+.pricing-component-dialog .primary-button { background:#08745c; color:white; border-color:#08745c; }
+.pricing-component-dialog>header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #e4ecef; }
+.pricing-component-dialog h2 { margin:0; font-size:18px; }
+.pricing-component-dialog .pricing-component-search { display:flex; align-items:center; gap:8px; margin:14px 20px; padding:10px; border:1px solid #ccd8df; border-radius:5px; }
+.pricing-component-search input { width:100%; min-width:0; padding:0; border:0; outline:0; font:inherit; background:transparent; }
+.pricing-component-search:focus-within { outline:2px solid #168369; outline-offset:2px; }
+.pricing-component-dialog .pricing-component-search>button { padding:0; border:0; flex-shrink:0; }
+.pricing-component-dialog .pricing-component-columns { flex:1; min-height:0; display:grid; grid-template-columns:260px minmax(0,1fr); gap:0; border-top:1px solid #e4ecef; }
+.pricing-component-columns>section { display:flex; flex-direction:column; min-width:0; min-height:0; }
+.pricing-component-columns>section:first-child { background:#f6faf8; border-right:1px solid #e4ecef; }
+.pricing-component-columns h3 { display:flex; justify-content:space-between; gap:8px; margin:0; padding:14px 18px; font-size:13px; }
+.pricing-component-columns h3>span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pricing-component-columns h3>small { flex-shrink:0; font-weight:400; }
+.pricing-component-dialog .pricing-component-categories,.pricing-component-dialog .pricing-component-products { flex:1; min-height:0; max-height:none; overflow:auto; padding:0 10px 10px; }
+.pricing-component-categories>button,.pricing-component-products>button { display:flex; width:100%; justify-content:flex-start; border:0; border-radius:4px; padding:12px 10px; background:transparent; text-align:left; }
+.pricing-component-products>button { border-bottom:1px solid #e4ecef; border-radius:0; }
+.pricing-component-categories>button:hover,.pricing-component-products>button:hover,.pricing-component-tree-row:hover { background:#eaf5ef; }
+.pricing-component-products>button span { min-width:0; flex:1; overflow-wrap:anywhere; }
+.pricing-component-products strong { display:block; font-size:14px; }
+.pricing-component-products small { display:block; color:#657985; font-size:12px; margin-top:4px; }
+.pricing-component-dialog .pricing-component-tree-row { display:flex; align-items:center; min-height:36px; border-radius:4px; }
+.pricing-component-dialog .pricing-component-tree-row>button { border:0; background:transparent; justify-content:flex-start; min-width:0; text-align:left; padding:8px 4px; font-size:13px; }
+.pricing-component-tree-row>button:last-child { flex:1; }
+.pricing-component-dialog .pricing-component-toggle,.pricing-component-tree-spacer { width:24px; flex:0 0 24px; }
+.pricing-component-dialog .active { background:#dff1e8; color:#075b48; }
+.pricing-component-pagination { display:flex; align-items:center; justify-content:flex-end; gap:6px; padding:10px 15px; border-top:1px solid #e4ecef; font-size:12px; }
+.pricing-component-pagination>span { margin-right:auto; }
+.pricing-component-dialog>footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 20px; border-top:1px solid #d8e3e7; }
+.pricing-component-dialog>footer>span { min-width:0; overflow-wrap:anywhere; font-size:13px; }
+.pricing-component-dialog>footer>button { flex-shrink:0; }
+@media(max-width:1100px) { .pricing-debug-page.pricing-reference .pricing-debug-layout { grid-template-columns:1fr; } }
+@media(max-width:900px) { .pricing-debug-page.pricing-reference { padding:14px; } }
+@media(max-width:600px) {
+  .pricing-component-dialog .pricing-component-columns { grid-template-columns:minmax(115px,34%) minmax(0,1fr); }
+  .pricing-component-columns h3 { padding:10px; font-size:12px; }
+  .pricing-component-dialog .pricing-component-categories,.pricing-component-dialog .pricing-component-products { padding:0 4px 6px; }
+  .pricing-component-categories>button,.pricing-component-products>button { padding:10px 6px; font-size:12px; }
+  .pricing-component-dialog>header,.pricing-component-dialog>footer { padding:12px; }
+  .pricing-component-dialog .pricing-component-search { margin:12px; }
+  .pricing-component-tree-row { padding-left:0!important; }
+  .pricing-component-tree-row>button>svg { display:none; }
+  .pricing-component-tree-row .pricing-component-toggle>svg { display:block; }
+  .pricing-component-dialog .pricing-component-toggle,.pricing-component-tree-spacer { width:16px; flex-basis:16px; }
+  .pricing-debug-page.pricing-reference .pricing-debug-filters { padding:10px; gap:5px; }
+  .pricing-debug-page.pricing-reference .pricing-debug-filters>input { font-size:12px; padding:6px; }
+  .pricing-debug-page.pricing-reference .pricing-debug-item { flex-wrap:wrap; }
+}
+/* Native picker controls must not inherit the generic resource directory's column/card layout. */
+dialog.pricing-component-dialog.pricing-reference-picker { font-size:16px; line-height:normal; }
+dialog.pricing-component-dialog.pricing-reference-picker button { display:inline-flex; flex-direction:row; align-items:center; justify-content:center; flex:none; height:auto; min-height:0; min-width:0; font-weight:400; letter-spacing:normal; line-height:normal; box-shadow:none; }
+dialog.pricing-component-dialog.pricing-reference-picker>header>.icon-button { width:auto; height:auto; padding:8px 10px; border:1px solid #ccd8df; border-radius:5px; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-search { display:flex; flex-direction:row; align-items:center; gap:8px; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-search>svg { flex:none; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-search>input { display:block; width:100%; flex:1; min-width:0; height:40px; margin:0; padding:0; border:0; border-radius:0; box-shadow:none; background:transparent; font:inherit; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-categories>button,
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-products>button { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; width:100%; height:auto; flex:none; gap:6px; padding:12px 10px; border:0; border-radius:4px; background:transparent; text-align:left; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-products>button { border-bottom:1px solid #e4ecef; border-radius:0; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-tree-row>button { display:inline-flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:6px; padding:8px 4px; border:0; border-radius:5px; background:transparent; text-align:left; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-tree-row>button:last-child { flex:1; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-tree-row>button>span,
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-categories>button>span { display:block; min-width:0; flex:1; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-products>button>span { display:block; min-width:0; flex:1; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-products>button>svg { flex:none; color:#08745c; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-categories>button.active,
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-tree-row.active { background:#dff1e8; color:#075b48; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-categories>button:hover,
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-products>button:hover { background:#eaf5ef; }
+dialog.pricing-component-dialog.pricing-reference-picker>footer>.primary-button { background:#08745c; color:white; border-color:#08745c; font-weight:700; }
+
+dialog.pricing-component-dialog.pricing-reference-picker { font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-tree-row>button { font-size:13px; }
+dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-search>input { height:auto; min-height:0; padding:9px 10px; font-size:16px; font-weight:400; line-height:normal; }
+dialog.pricing-component-dialog.pricing-reference-picker>footer>.primary-button { padding:8px 10px; gap:6px; font-size:16px; font-weight:700; line-height:normal; }
+
+.pricing-debug-page.pricing-reference { font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif; font-size:16px; line-height:normal; }
+.pricing-debug-page.pricing-reference .pricing-reference-title { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.pricing-debug-page.pricing-reference .pricing-reference-title h1 { margin:0 0 7px; font-size:25px; }
+.pricing-debug-page.pricing-reference .pricing-reference-title p { margin:0; color:#64748b; }
+.pricing-debug-page.pricing-reference .pricing-debug-panel small { font-size:12px; color:#657985; }
+.pricing-debug-page.pricing-reference .pricing-debug-table td:last-child>button { padding:5px 7px; font-size:12px; white-space:nowrap; }
+@media(max-width:600px) {
+  dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-categories>button,
+  dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-products>button { padding:10px 6px; font-size:12px; }
+  dialog.pricing-component-dialog.pricing-reference-picker .pricing-component-tree-row>button { font-size:12px; }
+}

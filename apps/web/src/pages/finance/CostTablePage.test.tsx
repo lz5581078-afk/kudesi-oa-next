@@ -3,15 +3,18 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import { CurrentCostTable as CostTablePage } from './CostTablePage';
+import { CostRegistrationDialog } from './CostRegistrationDialog';
 import { costBreakdown } from '@kudesi/shared';
 import { financeApi, type CostRow, type CostTableData } from './financeApi';
 
+const identity = vi.hoisted(() => ({user:{companyId:1,id:1,permissions:{isCompanyAdmin:false,allow:['product.cost.view','product.price.view'],deny:[] as string[]}}}));
+vi.mock('../../auth/AuthContext',()=>({useAuth:()=>identity}));
 vi.mock('./financeApi', async (orig) => {
   const real = await orig<typeof import('./financeApi')>();
   return { ...real, financeApi: { exportCostTable: vi.fn(), previewCostRegistration: vi.fn(), registerCost: vi.fn(), costTable: vi.fn(), saveCostPricing: vi.fn(), saveCategoryMargin: vi.fn(), skuCostHistory: vi.fn() } };
 });
 const m = vi.mocked(financeApi);
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { identity.user={companyId:1,id:1,permissions:{isCompanyAdmin:false,allow:['product.cost.view','product.price.view'],deny:[] as string[]}}; cleanup(); vi.clearAllMocks(); });
 
 const row = (over: Partial<CostRow> = {}): CostRow => ({
   bundleId: 7, code: 'ZH-TB-001', name: '苹果礼盒', status: 'verified', categoryId: 3, categoryName: '苹果类', preShipCostCents: 10250, weightG: 2500,
@@ -42,6 +45,18 @@ describe('当前SKU成本清单', () => {
     expect(screen.getByText('¥126.04')).toBeTruthy(); // 最低售价
     fireEvent.click(screen.getByRole('button', { name: '苹果类 3 12.345678% · 分类设置' }));
     await waitFor(() => expect(m.costTable).toHaveBeenLastCalledWith(expect.objectContaining({ categoryId: 3 })));
+  });
+
+  it('六位元成本和细小重量在组成窗保留，Escape关闭组成窗', async () => {
+    const precise = row({preShipCostCents:0.0123, weightG:0.123, lines:[{role:'main',code:'FINE',name:'细小用量',qty:1,unitName:'克',unitCostCents:0.0123,subtotalCents:0.0123,unitWeightG:0.123,weightG:0.123}]});
+    m.costTable.mockResolvedValue(table(false,[precise]));
+    renderPage(); await screen.findByText('ZH-TB-001');
+    fireEvent.click(screen.getByRole('button',{name:'查看苹果礼盒成本组成'}));
+    expect(screen.getAllByText('¥0.000123').length).toBeGreaterThan(1);
+    fireEvent.keyDown(document,{key:'Escape'});
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'查看苹果礼盒重量组成'}));
+    expect(screen.getAllByText('0.000123 kg').length).toBeGreaterThan(1);
   });
 
   it('没有编辑权限的人看不到“维护售价”和分类“设置”；仍能看成本历史', async () => {
@@ -185,17 +200,29 @@ describe('当前SKU成本清单', () => {
     await waitFor(() => expect(m.saveCategoryMargin).toHaveBeenCalledWith(0, { revision: 'none', profitPercent: 18.5, reason: '整体上调' }));
   });
 
-  it('导出 Excel：带着当前分类和搜索条件，导出结果交给浏览器下载', async () => {
-    m.costTable.mockResolvedValue(table(true));
-    m.exportCostTable.mockResolvedValue({ fileName: 'SKU成本表.xlsx', fileBase64: 'AAEC', rowCount: 1 });
-    const url = vi.fn(() => 'blob:x');
-    Object.assign(URL, { createObjectURL: url, revokeObjectURL: vi.fn() });
-    renderPage();
-    await screen.findByText('ZH-TB-001');
-    fireEvent.click(screen.getByText('苹果类'));
-    fireEvent.click(screen.getByRole('button', { name: '导出 Excel' }));
-    await waitFor(() => expect(m.exportCostTable).toHaveBeenCalledWith({ categoryId: 3, keyword: undefined }));
-    await screen.findByText(/已导出 1 条/);
+  it.each(['company','user','permissions'])('切换%s后清空成本与弹窗，旧身份的迟到读取不回填', async field => {
+    let finish!: (value: CostTableData) => void;
+    m.costTable.mockResolvedValueOnce(table(true)).mockImplementationOnce(() => new Promise(resolve => {finish=resolve;})).mockResolvedValue(table(false,[]));
+    const view=renderPage();await screen.findByText('ZH-TB-001');
+    fireEvent.click(screen.getByRole('button',{name:'刷新成本表'}));
+    await waitFor(() => expect(finish).toBeTruthy());
+    fireEvent.click(screen.getByRole('button',{name:'查看苹果礼盒成本组成'}));
+    if(field==='company') identity.user={...identity.user,companyId:2};
+    else if(field==='user') identity.user={...identity.user,id:2};
+    else identity.user={...identity.user,permissions:{...identity.user.permissions,allow:[],deny:['product.cost.view']}};
+    view.rerender(<MemoryRouter><CostTablePage/></MemoryRouter>);
+    expect(screen.queryByRole('dialog')).toBeNull();expect(screen.queryByText('ZH-TB-001')).toBeNull();
+    finish(table(true,[row({code:'OLD-SCOPE'})]));
+    await waitFor(() => expect(m.costTable).toHaveBeenCalledTimes(3));
+    expect(screen.queryByText('OLD-SCOPE')).toBeNull();
+  });
+
+  it('后台刷新失败保留原记录同时显示读取失败，不静默冒充刷新成功',async()=>{
+    m.costTable.mockResolvedValue(table(false));renderPage();await screen.findByText('ZH-TB-001');
+    m.costTable.mockRejectedValueOnce(new ApiError(503,'合成成本后台刷新失败'));
+    window.dispatchEvent(new Event('focus'));
+    expect((await screen.findByRole('alert')).textContent).toContain('合成成本后台刷新失败');
+    expect(screen.getByText('ZH-TB-001')).toBeTruthy();
   });
 
   it('每 15 秒自动刷新一次', async () => {
@@ -211,18 +238,24 @@ describe('当前SKU成本清单', () => {
   });
 });
 
-describe('SKU成本表：使用细节', () => {
-  it('SKU组合编码可一键复制；有搜索条件时出现“清除筛选”', async () => {
-    m.costTable.mockResolvedValue(table(true));
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
-    renderPage();
-    await screen.findByText('ZH-TB-001');
-    fireEvent.click(screen.getByRole('button', { name: '复制SKU组合编码' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('ZH-TB-001'));
-    expect(screen.queryByRole('button', { name: '清除筛选' })).toBeNull();
-    fireEvent.change(screen.getByLabelText('搜索SKU成本'), { target: { value: '苹果' } });
-    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
-    expect((screen.getByLabelText('搜索SKU成本') as HTMLInputElement).value).toBe('');
+describe('SKU成本表原入口', () => {
+  it('仅保留原刷新和补齐动作，没有额外导出、清筛或编码复制按钮', async () => {
+    m.costTable.mockResolvedValue(table(true));renderPage();await screen.findByText('ZH-TB-001');
+    expect(screen.getByRole('button',{name:'刷新成本表'})).toBeTruthy();
+    for(const name of ['导出 Excel','清除筛选','复制SKU组合编码']) expect(screen.queryByRole('button',{name})).toBeNull();
+    fireEvent.change(screen.getByLabelText('搜索SKU成本'),{target:{value:'苹果'}});
+    expect(screen.queryByRole('button',{name:'清除筛选'})).toBeNull();
+  });
+});
+
+describe('补齐已验证SKU窗口', () => {
+  it('Escape关闭预览，正在补齐时保留窗口且不能关闭', () => {
+    const close=vi.fn();
+    const props={preview:{rows:[],issues:[],signature:'synthetic'},error:'',onClose:close,onRefresh:vi.fn(),onConfirm:vi.fn()};
+    const view=render(<CostRegistrationDialog {...props} busy={false}/>);
+    fireEvent.keyDown(document,{key:'Escape'});expect(close).toHaveBeenCalledOnce();
+    close.mockClear();view.rerender(<CostRegistrationDialog {...props} busy/>);
+    fireEvent.keyDown(document,{key:'Escape'});expect(close).not.toHaveBeenCalled();
+    expect((screen.getByRole('button',{name:'关闭补齐预览'}) as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -1,92 +1,18 @@
-import { RefreshCw } from 'lucide-react';
-import { CostHistoryArchives } from './CostHistoryArchives';
-import { CostHistoryRecords } from './CostHistoryRecords';
 import { FormEvent, useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
-import { SearchPick, money, pct } from './common';
+import { SearchPick, money } from './common';
 import { JstSyncItems } from './jst/JstSyncItems';
 import { JstSyncExtras } from './jst/JstSyncExtras';
 import { api } from '../../api/client';
 import { CopyButton } from '../../resources/CopyValue';
 import { FeishuSwitchCard } from './jst/FeishuSwitchCard';
-import { financeApi, type MarginHistoryRow, type PricingHistoryRow, type OutboxJobRow, type ApiKeyRow, type CostSnapshotRow, type PackagingMatch, type ResetPreview, type SnapshotRow } from './financeApi';
+import { financeApi, type OutboxJobRow, type ApiKeyRow, type PackagingMatch, type ResetPreview, type SnapshotRow } from './financeApi';
 
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
 const when = (s: string) => new Date(s).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 
-/** 成本历史：每个组合每次成本/重量/运费/利润率/最低售价变化的快照。验证通过时自动登记，也能手工登记。 */
-export function CostHistoryPage() {
-  const [rows, setRows] = useState<CostSnapshotRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [keyword, setKeyword] = useState('');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false);
-  // 三种记录：成本变更（每次成本/重量/运费/利润率/最低售价的变化）、售价维护（使用快递、单品利润率）、分类利润率调整
-  const [source, setSource] = useState<'changes' | 'pricing' | 'margins' | 'archive'>('changes');
-  const [pricingRows, setPricingRows] = useState<PricingHistoryRow[]>([]);
-  const [marginRows, setMarginRows] = useState<MarginHistoryRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [refresh, setRefresh] = useState(0);
-  useEffect(() => {
-    if (source === 'archive') { setLoading(false); setError(''); setTotal(0); return; }
-    let active = true;
-    setLoading(true); setError(''); setRows([]); setPricingRows([]); setMarginRows([]); setTotal(0);
-    const timer = setTimeout(() => {
-      const q = { keyword: keyword.trim() || undefined, page };
-      const request = source === 'pricing' ? financeApi.pricingHistory(q).then(r => { if (active) { setPricingRows(r.rows); setTotal(r.total); } })
-        : source === 'margins' ? financeApi.marginHistory(q).then(r => { if (active) { setMarginRows(r.rows); setTotal(r.total); } })
-        : financeApi.costHistory(q).then(r => { if (active) { setRows(r.rows); setTotal(r.total); } });
-      void request.catch(e => { if (active) setError(msg(e)); }).finally(() => { if (active) setLoading(false); });
-    }, 150);
-    return () => { active = false; clearTimeout(timer); };
-  }, [page, keyword, source, refresh]);
-  async function register() {
-    setBusy(true); setError(''); setNotice('');
-    try { const r = await financeApi.registerCost({ reason: '手工登记' }); setNotice(`登记了 ${r.recorded} 个组合的新成本，${r.unchanged} 个没有变化`); setRefresh(v => v + 1); } catch (e) { setError(msg(e)); }
-    setBusy(false);
-  }
+export { CostHistoryPage } from './CostHistoryPage';
 
-  return (
-    <div className="finance-cost-history-page">
-      <header className="finance-history-heading"><h2>成本历史</h2><p>已确认的成本与售价变更</p></header><div className="finance-history-toolbar"><select aria-label="历史类型" value={source} onChange={(e) => { setSource(e.target.value as typeof source); setPage(1); setKeyword(''); }}><option value="changes">成本变更记录</option><option value="pricing">售价维护记录</option><option value="margins">分类利润率记录</option><option value="archive">旧版成本档案（只读）</option></select>{source !== 'archive' && <input aria-label="搜索成本历史" placeholder={source === 'margins' ? '分类或修改原因' : 'SKU编码、名称或修改原因'} value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />}<span>{total} 条</span><button type="button" className="secondary-button" aria-label="刷新历史" disabled={loading} onClick={() => setRefresh(v => v + 1)}><RefreshCw size={16} /></button>{source === 'changes' && <button type="button" className="secondary-button finance-history-register" disabled={busy} onClick={register}>{busy ? '登记中…' : '登记所有已验证组合的当前成本'}</button>}</div>
-      {notice && <div role="status" className="notice ok">{notice}</div>}
-      {error && <div role="alert" className="notice error">{error}</div>}
-      {source === 'pricing' && (
-        <div className="table-scroll"><table className="data-table">
-          <thead><tr><th>时间</th><th>组合</th><th>使用快递</th><th>单品利润率</th><th>操作人</th><th>修改原因</th></tr></thead>
-          <tbody>
-            {pricingRows.length === 0 && <tr><td colSpan={6} className="empty-state muted">{loading ? '正在加载…' : '还没有售价维护记录。在成本表里点“维护售价”保存后会出现在这里。'}</td></tr>}
-            {pricingRows.map((r) => (
-              <tr key={r.id}><td>{when(r.createdAt)}</td><td><strong>{r.code}</strong><div className="muted">{r.name}</div></td><td>{r.beforeCarrier || '未指定'} → <strong>{r.afterCarrier || '未指定'}</strong></td>
-                <td>{r.beforePercent === null ? '继承' : pct(r.beforePercent)} → <strong>{r.afterPercent === null ? '继承' : pct(r.afterPercent)}</strong></td><td>{r.actorName}</td><td>{r.reason}</td></tr>
-            ))}
-          </tbody>
-        </table></div>
-      )}
-      {source === 'margins' && (
-        <div className="table-scroll"><table className="data-table">
-          <thead><tr><th>时间</th><th>分类</th><th>利润率变化</th><th>操作人</th><th>修改原因</th></tr></thead>
-          <tbody>
-            {marginRows.length === 0 && <tr><td colSpan={5} className="empty-state muted">{loading ? '正在加载…' : '还没有分类利润率记录。'}</td></tr>}
-            {marginRows.map((r) => (
-              <tr key={r.id}><td>{when(r.createdAt)}</td><td>{r.scopeName}</td><td>{r.beforePercent === null ? '未设置（继承）' : pct(r.beforePercent)} → <strong>{r.afterPercent === null ? '未设置（继承）' : pct(r.afterPercent)}</strong></td><td>{r.actorName}</td><td>{r.reason}</td></tr>
-            ))}
-          </tbody>
-        </table></div>
-      )}
-      {source === 'archive' && <CostHistoryArchives key={refresh} onTotal={setTotal} />}
-      {source === 'changes' && <CostHistoryRecords key={`${page}:${keyword}:${refresh}`} rows={rows} busy={loading} />}
-      {source !== 'archive' && <div className="toolbar"><button type="button" className="secondary-button small" disabled={loading || page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span className="muted">共 {total} 条 · 第 {page} 页</span><button type="button" className="secondary-button small" disabled={loading || page * 20 >= total} onClick={() => setPage(page + 1)}>下一页</button></div>}
-    </div>
-  );
-}
-
-const SCENES = [['', '全部场景'], ['production', '生产包装'], ['supplier_oem', '供应商 OEM 包装'], ['dispatch', '发货包装']];
-const TREAT: Record<string, string> = { include: '计入成本', included_in_parent: '含在上级内', reference_only: '仅参考' };
-
-/** 包装方案匹配试算：输入对象和重量，看会命中哪个包装方案；同优先级命中多条会提示冲突。 */
 export function PackagingMatchPage() {
   const [scene, setScene] = useState('');
   const [targetType, setTargetType] = useState<'bundle' | 'base_code' | 'product_archive'>('bundle');

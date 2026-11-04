@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowRight, Copy, Download, Trash2 } from 'lucide-react';
+import './pricing-reference.css';
+import { useCostIdentityKey } from './CostIdentityBoundary';
 import { ApiError } from '../../api/client';
 import { money, yuanToCents } from './common';
 import { financeApi, type DebugExportInput, type DebugList, type DebugProfit, type DebugQuote, type DebugRow, type DebugSlider } from './financeApi';
@@ -14,22 +17,20 @@ const yuan = (cents: number) => `${(cents / 100).toFixed(2).replace(/\.00$/, '')
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
 const priceText = (cents: number) => (cents / 100).toFixed(2);
 const PAGE = 30;
-const FILTER_KEY = 'kudesi.pricing-debug.filters';
-interface SavedFilters { keyword: string; exclusive: '' | 'mine'; component: ComponentFilterValue | null }
-function readFilters(): SavedFilters {
-  try { const v = JSON.parse(sessionStorage.getItem(FILTER_KEY) || 'null'); if (v && typeof v === 'object') return { keyword: String(v.keyword ?? ''), exclusive: v.exclusive === 'mine' ? 'mine' : '', component: v.component ?? null }; } catch { /* 读不到就用默认 */ }
-  return { keyword: '', exclusive: '', component: null };
-}
 
 /**
  * 定价调试表：从成本表挑组合，按“公司低价”调预留利润（0–140 档），投产和售价互相联动，导出 Excel。
  * 只试算，不会改正式售价或成本。
  */
 export function PricingDebugPage() {
-  const [saved] = useState(readFilters);
-  const [keyword, setKeyword] = useState(saved.keyword);
-  const [exclusive, setExclusive] = useState<'' | 'mine'>(saved.exclusive);
-  const [component, setComponent] = useState<ComponentFilterValue | null>(saved.component);
+  const identity = useCostIdentityKey();
+  return <PricingDebugContent key={identity}/>;
+}
+
+function PricingDebugContent() {
+  const [keyword, setKeyword] = useState('');
+  const [exclusive, setExclusive] = useState<'' | 'mine'>('');
+  const [component, setComponent] = useState<ComponentFilterValue | null>(null);
   const [page, setPage] = useState(1);
   const [resultPage, setResultPage] = useState(1);
   const [data, setData] = useState<DebugList>({ rows: [], total: 0, page: 1, pageSize: PAGE, canViewInternals: false });
@@ -44,16 +45,11 @@ export function PricingDebugPage() {
   const [exporting, setExporting] = useState(false);
   const [addingAll, setAddingAll] = useState(false);
   const serial = useRef(0);
-  const resultRef = useRef<HTMLElement>(null);
   const quoteTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const quoteSerial = useRef<Record<number, number>>({});
   const sliderTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const sliderSerial = useRef<Record<number, number>>({});
   const cancelled = useRef(false);
-
-  useEffect(() => { try { sessionStorage.setItem(FILTER_KEY, JSON.stringify({ keyword, exclusive, component })); } catch { /* 存不了不影响使用 */ } }, [keyword, exclusive, component]);
-  const hasFilter = Boolean(keyword || exclusive || component);
-  const clearFilters = () => { setKeyword(''); setExclusive(''); setComponent(null); setPage(1); };
 
   const categoryId = component?.baseCodeId ? undefined : component?.categoryId;
   const baseCodeId = component?.baseCodeId;
@@ -68,7 +64,7 @@ export function PricingDebugPage() {
         // 已选的商品用最新数据刷新（低价、是否可试算）
         setSelected((old) => Object.fromEntries(Object.entries(old).map(([id, row]) => [id, r.rows.find((x) => x.id === Number(id)) ?? row])));
       })
-      .catch((e) => { if (current === serial.current && !quiet) setError(msg(e)); })
+      .catch((e) => { if (current === serial.current) setError(msg(e)); })
       .finally(() => { if (current === serial.current) setLoading(false); });
   }, [keyword, categoryId, baseCodeId, exclusive, page]);
   useEffect(() => { setLoading(true); const t = setTimeout(() => load(), 220); return () => { clearTimeout(t); serial.current++; }; }, [load]);
@@ -78,7 +74,10 @@ export function PricingDebugPage() {
     window.addEventListener('focus', refresh);
     return () => { clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, [load]);
-  useEffect(() => () => { cancelled.current = true; Object.values(quoteTimers.current).forEach(clearTimeout); Object.values(sliderTimers.current).forEach(clearTimeout); }, []);
+  useEffect(() => {
+    cancelled.current = false;
+    return () => { cancelled.current = true; Object.values(quoteTimers.current).forEach(clearTimeout); Object.values(sliderTimers.current).forEach(clearTimeout); };
+  }, []);
 
   const scheduleSlider = useCallback((id: number, step: number, profit?: DebugProfit) => {
     clearTimeout(sliderTimers.current[id]);
@@ -126,12 +125,6 @@ export function PricingDebugPage() {
 
   // 当前结果页上的商品：档位变了或还没算过的，算一遍
   const chosen = sortPricingRows(Object.values(selected));
-  useEffect(() => {
-    if (!chosen.length) return;
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [chosen.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
   const resultPages = Math.max(1, Math.ceil(chosen.length / 20));
   const visibleResultPage = Math.min(resultPage, resultPages);
   const visibleChosen = chosen.slice((visibleResultPage - 1) * 20, visibleResultPage * 20);
@@ -216,7 +209,6 @@ export function PricingDebugPage() {
     setAddingAll(false);
   }
   function clearSelection() {
-    if (chosen.length > 1 && !window.confirm(`确定清空已选的 ${chosen.length} 项？已填的投产、售价和利润都会丢失。`)) return;
     Object.keys(selected).forEach((id) => forget(Number(id)));
     setSelected({}); setForms({}); setQuotes({}); setSliders({}); setResultPage(1);
   }
@@ -224,10 +216,11 @@ export function PricingDebugPage() {
     let copied = false;
     try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(value); copied = true; } } catch { /* 用下面的备用办法 */ }
     if (!copied) {
+      const previous = document.activeElement as HTMLElement | null;
       const ta = document.createElement('textarea');
       ta.value = value; ta.style.position = 'fixed'; ta.style.opacity = '0';
       document.body.appendChild(ta);
-      try { ta.select(); copied = document.execCommand('copy'); } catch { /* 复制失败 */ } finally { ta.remove(); }
+      try { ta.select(); copied = document.execCommand('copy'); } catch { /* 复制失败 */ } finally { ta.remove(); previous?.focus({ preventScroll: true }); }
     }
     setFeedback(copied ? `已复制${label}` : `复制${label}失败，请手动复制`);
   }
@@ -252,6 +245,7 @@ export function PricingDebugPage() {
         };
       });
       const r = await financeApi.debugExport(inputs);
+      if (cancelled.current) return;
       const bytes = Uint8Array.from(window.atob(r.fileBase64), (c) => c.charCodeAt(0));
       const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       const a = document.createElement('a');
@@ -272,26 +266,24 @@ export function PricingDebugPage() {
   const pageCount = Math.max(1, Math.ceil(data.total / data.pageSize));
   const pageSelected = data.rows.filter((r) => selected[r.id]).length;
   const allPageSelected = data.rows.length > 0 && pageSelected === data.rows.length;
-  const weightText = (r: DebugRow) => (r.weightG && r.weightG > 0 ? `${Number((r.weightG / 1000).toFixed(3))} kg` : '重量未记录');
+  const weightText = (r: DebugRow) => (r.weightG && r.weightG > 0 ? `${Number((r.weightG / 1000).toFixed(6))} kg` : '重量未记录');
 
   return (
-    <div className="pricing-debug-page">
-      <div className="page-head"><h1>定价调试表</h1></div>
-      <p className="muted">从当前SKU成本表选择组合商品；按公司低价调节预留利润，试算不修改正式售价或成本。</p>
+    <div className="pricing-debug-page pricing-reference">
+      <header className="pricing-reference-title"><h1>定价调试表</h1><p>从当前SKU成本表选择组合商品；按公司低价调节预留利润，试算不修改正式售价或成本。</p></header>
       <div className="pricing-debug-layout">
         <section className="card pricing-debug-panel">
           <header className="between"><h2>挑选商品</h2><small className="muted">{loading ? '正在筛选…' : `筛选结果 ${data.total} 项`}</small></header>
-          <div className="toolbar">
+          <div className="pricing-debug-filters">
             <PricingComponentFilter value={component} disabled={addingAll} onChange={(v) => { setComponent(v); setPage(1); }} />
-            <select aria-label="专属品筛选" disabled={addingAll} value={exclusive} onChange={(e) => { setExclusive(e.target.value as '' | 'mine'); setPage(1); }}>
+            <select aria-label="专属品筛选" value={exclusive} onChange={(e) => { setExclusive(e.target.value as '' | 'mine'); setPage(1); }}>
               <option value="">全部商品</option>
               <option value="mine">我的专属品</option>
             </select>
             <input type="search" aria-label="搜索组合编码或名称" placeholder="搜索组合编码或名称" disabled={addingAll} value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
-            {hasFilter && <button type="button" className="secondary-button" disabled={addingAll} onClick={clearFilters}>清除筛选</button>}
-            <button type="button" className="primary-button" disabled={loading || addingAll || exporting || Boolean(error) || !data.total} onClick={addAll}>{addingAll ? '加入中…' : '全选到右侧 →'}</button>
+            <button type="button" className="primary-button pricing-debug-add-all" disabled={loading || addingAll || exporting || Boolean(error) || !data.total} onClick={addAll}><ArrowRight size={15}/>{addingAll ? '加入中…' : '全选到右侧'}</button>
           </div>
-          <div className="between">
+          <div className="pricing-debug-select-bar">
             <label className="check-line"><input type="checkbox" aria-label="全选当前页商品" checked={allPageSelected} ref={(n) => { if (n) n.indeterminate = pageSelected > 0 && !allPageSelected; }}
               disabled={loading || addingAll || exporting || Boolean(error) || !data.rows.length} onChange={(e) => togglePage(e.target.checked)} />{allPageSelected ? '取消全选' : '全选'} <small className="muted">本页 {data.rows.length} 项</small></label>
             <small className="muted">按重量由轻到重</small>
@@ -305,21 +297,22 @@ export function PricingDebugPage() {
                 {canViewFloorPrice && <em>公司低价 {money(row.minPriceCents)}</em>}
               </label>
             ))}
-            {loading ? <p className="muted" role="status">正在加载…</p> : !error && !data.rows.length && <p className="muted">没有匹配的SKU成本项目{hasFilter && <> <button type="button" className="link-button" onClick={clearFilters}>清除筛选</button></>}</p>}
+            {loading ? <p className="muted" role="status">正在加载…</p> : !error && !data.rows.length && <p className="muted">没有匹配的当前SKU成本项目</p>}
           </div>
           <footer className="between"><span className="muted">共 {data.total} 项 · 第 {page}/{pageCount} 页</span>
             <span className="row-actions"><button type="button" className="secondary-button small" disabled={page <= 1 || loading || addingAll} onClick={() => setPage(page - 1)}>上一页</button><button type="button" className="secondary-button small" disabled={page >= pageCount || loading || addingAll} onClick={() => setPage(page + 1)}>下一页</button></span></footer>
         </section>
 
-        <section className="card pricing-debug-panel pricing-debug-workspace" ref={resultRef}>
+        <section className="card pricing-debug-panel pricing-debug-workspace">
           <header className="between"><h2>联动试算</h2>
-            <span className="row-actions"><small className="muted">已选 {chosen.length} 项 · 可导出 {exportable.length} 项</small>
-              <button type="button" className="secondary-button small" disabled={exporting || addingAll || !chosen.length} onClick={clearSelection}>清空</button>
-              <button type="button" className="primary-button small" disabled={exporting || addingAll || !exportable.length} onClick={exportResults}>{exporting ? '导出中…' : '导出 Excel'}</button></span></header>
+            <span className="pricing-debug-export-tools"><small className="muted">已选 {chosen.length} 项 · 可导出 {exportable.length} 项</small>
+              <button type="button" className="secondary-button small" disabled={exporting || addingAll || !chosen.length} onClick={clearSelection}><Trash2 size={14}/>清空</button>
+              <button type="button" className="secondary-button small" disabled={exporting || addingAll || !exportable.length} onClick={exportResults}><Download size={14}/>{exporting ? '导出中…' : '导出 Excel'}</button></span></header>
           {feedback && <div role="status" className="notice ok">{feedback}</div>}
-          <div className="table-scroll">
-            <table className="data-table pricing-debug-table">
-              <thead><tr><th>商品与分类</th><th>预留利润</th><th>目标投产</th><th>试算售价（元）</th><th>状态</th>{canViewFloorPrice && <th className="num">公司低价</th>}<th>操作</th></tr></thead>
+          <div className="pricing-debug-results">
+            <table className={`data-table pricing-debug-table${canViewFloorPrice ? ' pricing-debug-table-internal' : ''}`}>
+              <colgroup><col className="pricing-debug-col-product"/><col className="pricing-debug-col-slider"/><col className="pricing-debug-col-input"/><col className="pricing-debug-col-input"/><col className="pricing-debug-col-status"/>{canViewFloorPrice && <col className="pricing-debug-col-floor"/>}<col className="pricing-debug-col-action"/></colgroup>
+              <thead><tr><th>商品与分类</th><th>预留利润</th><th>目标投产</th><th>试算售价</th><th>状态</th>{canViewFloorPrice && <th>公司低价</th>}<th>操作</th></tr></thead>
               <tbody>
                 {visibleChosen.map((row) => {
                   const f = forms[row.id] ?? defaultForm(), q = quotes[row.id], s = sliders[row.id];
@@ -327,8 +320,8 @@ export function PricingDebugPage() {
                   return (
                     <tr key={row.id}>
                       <td>
-                        <div><strong>{row.skuName}</strong> <button type="button" className="link-button" aria-label={`复制商品名称 ${row.skuName}`} onClick={() => copyText(row.skuName, '商品名称')}>复制</button>{row.exclusiveOwners?.map((g) => <small className="pricing-exclusive-label" key={g.id}>{g.mine ? '我的专属品' : `${g.ownerName}的专属品`} · 至{new Date(g.endsAt).toLocaleDateString('zh-CN')}</small>)}</div>
-                        <div className="muted">{row.skuCode} · {row.categoryName} · {weightText(row)} <button type="button" className="link-button" aria-label={`复制SKU编码 ${row.skuCode}`} onClick={() => copyText(row.skuCode, 'SKU编码')}>复制</button></div>
+                        <div className="pricing-debug-copy-row"><strong>{row.skuName}</strong> <button type="button" className="link-button" aria-label={`复制商品名称 ${row.skuName}`} onClick={() => copyText(row.skuName, '商品名称')}><Copy size={13}/></button>{row.exclusiveOwners?.map((g) => <small className="pricing-exclusive-label" key={g.id}>{g.mine ? '我的专属品' : `${g.ownerName}的专属品`} · 至{new Date(g.endsAt).toLocaleDateString('zh-CN')}</small>)}</div>
+                        <div className="pricing-debug-copy-row"><small className="muted">{row.skuCode} · {row.categoryName} · {weightText(row)}</small><button type="button" className="link-button" aria-label={`复制SKU编码 ${row.skuCode}`} onClick={() => copyText(row.skuCode, 'SKU编码')}><Copy size={13}/></button></div>
                       </td>
                       <td className="pricing-debug-slider-cell">
                         <input aria-label={`${row.skuName} 预留利润`} type="range" disabled={exporting} min={0} max={140} step={1} value={f.step} onChange={(e) => update(row.id, 'step', Number(e.target.value))} />
@@ -339,9 +332,9 @@ export function PricingDebugPage() {
                               ? <><small>预留利润 {yuan(s.reservedProfitCents!)}{s.reservedProfitPercent != null && <span>（{s.reservedProfitPercent}%）</span>}</small><small>预留利润后售价 {money(s.priceCents)}</small></>
                               : <><small>预留利润 —</small><small title={s?.message}>{s?.message || '暂无可用价格'}</small></>}
                         </div>
-                        <div className="row-actions">
-                          <input aria-label={`${row.skuName} 手填预留利润金额`} type="number" min="0" step="0.01" placeholder="利润金额" disabled={exporting || addingAll || !row.ready}
-                            value={f.profitDraft ?? (sliderOk ? (s.reservedProfitCents! / 100).toFixed(2) : '')} onChange={(e) => setProfit(row.id, e.target.value)} />元
+                        <div className="pricing-debug-profit-manual">
+                          <label><input aria-label={`${row.skuName} 手填预留利润金额`} type="number" min="0" step="0.01" placeholder="利润金额" disabled={exporting || addingAll || !row.ready}
+                            value={f.profitDraft ?? (sliderOk ? (s.reservedProfitCents! / 100).toFixed(2) : '')} onChange={(e) => setProfit(row.id, e.target.value)} /><span>元</span></label>
                           <button type="button" className="secondary-button small" disabled={exporting || addingAll || !row.ready || (f.profitDraft == null && !sliderOk) || f.profitDraft === ''}
                             title="按此商品的预留利润比例同步右侧所有已选商品" onClick={() => setProfit(row.id, f.profitDraft ?? (s!.reservedProfitCents! / 100).toFixed(2), true)}>同步利润率</button>
                         </div>
@@ -349,7 +342,7 @@ export function PricingDebugPage() {
                       <td><input aria-label={`${row.skuName} 目标投产`} type="number" disabled={exporting} min="1.01" step="0.01" placeholder="填投产" value={f.roi} onChange={(e) => update(row.id, 'roi', e.target.value)} /></td>
                       <td><input aria-label={`${row.skuName} 试算售价`} type="number" disabled={exporting} min="0.01" step="0.01" placeholder="填售价" value={f.price} onChange={(e) => update(row.id, 'price', e.target.value)} /></td>
                       <td>{q?.pending ? '试算中…' : q?.available === false ? q.message : q?.available ? '已试算' : sliderOk ? '档位已调试' : '待填写'}</td>
-                      {canViewFloorPrice && <td className="num">{money(row.minPriceCents)}</td>}
+                      {canViewFloorPrice && <td>{money(row.minPriceCents)}</td>}
                       <td><button type="button" className="link-button" disabled={exporting} onClick={() => toggle(row)}>移除</button></td>
                     </tr>
                   );
@@ -365,12 +358,7 @@ export function PricingDebugPage() {
           )}
         </section>
       </div>
-      {chosen.length > 0 && (
-        <div className="pricing-mobile-bar" role="status">
-          <span>已选 {chosen.length} 项 · 可导出 {exportable.length} 项</span>
-          <button type="button" className="secondary-button small" onClick={() => resultRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })}>去试算</button>
-        </div>
-      )}
+
     </div>
   );
 }

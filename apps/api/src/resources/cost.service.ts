@@ -8,12 +8,13 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  sumUnitCents, PROVINCES, todayInChina, minSalePriceCentsByMicroPercent, percentToMicro, resolveMargin, createChecker, buildEstimateRows, buildAutomaticRecommendations, groupAutomaticRecommendations, sortRecommendationRules,
-  freightFromEstimateRows, validParcelLimit, type EstimateRow,
+  sumUnitCents, PROVINCES, todayInChina, minSalePriceCentsByMicroPercent, percentToMicro, resolveMargin, createChecker, buildAutomaticRecommendations, groupAutomaticRecommendations, sortRecommendationRules,
+  freightFromEstimateRows,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
-import { buildPriceGroups, DEFAULT_PARCEL_LIMIT } from './express-groups';
+import { buildPriceGroups } from './express-groups';
+import { readFreightSnapshot } from './express-estimate-snapshot';
 import { buildXlsx } from './xlsx-lite';
 import type { CostSeed } from './cost-version-engine';
 import { bundleLaborCost, bundleSeedBuckets, costSeedBuckets } from './cost-seed-buckets';
@@ -74,17 +75,11 @@ export class CostService {
     const rows = await em.find(ResourceRecord, { where: { companyId, type: In(TYPES) } });
     const by = (t: string) => rows.filter((r) => r.type === t);
     const map = (t: string) => new Map(by(t).map((r) => [r.id, r]));
-    // 运费和“预估运费一览”页用同一套引擎：合作中的当前版本（含版本的可发货重量范围）→ 按重量段取各省最低价 → 手工金额（拆包时也沿用）
+    // 当前合作报价仅用于分区建议；成本运费与“预估运费一览”共读已保存快照。
     const groups = buildPriceGroups(rows.filter((r) => EXPRESS_TYPES.includes(r.type)), businessDate);
     const snap = rows.find((r) => r.type === 'finance-freight-estimates' && r.uniqueKey === 'default');
-    const limit = snap ? num(snap.data.parcelLimit) : null;
-    const parcelLimit = validParcelLimit(limit) ? limit : DEFAULT_PARCEL_LIMIT;
-    const estimateRows: EstimateRow[] = buildEstimateRows(groups, PROVINCES, parcelLimit);
-    for (const o of by('finance-freight-overrides').filter((r) => r.status === 'active')) {
-      const from = num(o.data.weightFrom), to = num(o.data.weightTo), amount = num(o.data.amount);
-      const row = estimateRows.find((r) => r.start === from && r.end === to);
-      if (row && amount !== null) row.manualAmount = amount;
-    }
+    // 运费引用已确认的重量段快照；读取成本不会隐式重建快递报价样本。
+    const {rows:estimateRows,parcelLimit}=readFreightSnapshot(snap,rows);
     return {
       bundles: by('finance-bundles'), lines: by('finance-bundle-lines'), baseCodeLines: by('finance-base-code-lines'), baseCodes: map('finance-base-codes'), products: map('finance-products'),
       labor: map('finance-labor-costs'), margins: by('finance-margins'), categories: map('finance-categories'),
@@ -134,7 +129,7 @@ export class CostService {
     const manual = num(b.data.manualFreight);
     if (manual !== null) { freight = manual; method = '手工填写'; } else if (weightG) {
       const est = this.freightFor(d, weightG / 1000);
-      if (est) { freight = est.cents; method = est.method; } else issues.push('运费无法预估（这个重量段报价不足 3 个省，或超出可发货重量）');
+      if (est) { freight = est.cents; method = est.method; } else issues.push('缺少可用的重量段运费预估，请核对已保存预估快递费');
     }
     const own = num(b.data.marginOverridePercent);
     const inherited = this.marginFor(d, categoryId);

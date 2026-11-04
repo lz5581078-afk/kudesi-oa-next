@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { costMoney } from './CostDialogs';
 import type { CostRegisterPreview } from './financeApi';
@@ -6,6 +7,11 @@ import type { CostRegisterPreview } from './financeApi';
 export function CostRegistrationDialog({ preview, busy, error, onClose, onRefresh, onConfirm }: {
   preview: CostRegisterPreview; busy: boolean; error: string; onClose: () => void; onRefresh: () => void; onConfirm: () => void;
 }) {
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) onClose(); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [busy, onClose]);
   return <div className="modal-backdrop finance-cost-registration-backdrop"><section className="modal card finance-cost-registration" role="dialog" aria-modal="true" aria-label="补齐已验证SKU">
     <header><h2>补齐已验证SKU</h2><button type="button" className="icon-button" aria-label="关闭补齐预览" disabled={busy} onClick={onClose}><X size={18}/></button></header>
     <p>待补齐 {preview.rows.length} 条 · 需核对 {preview.issues.length} 条</p>

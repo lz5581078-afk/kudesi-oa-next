@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../../auth/AuthContext';
 import { ApiError } from '../../../api/client';
 import { sortRecommendationRules } from '@kudesi/shared';
 import { Pager, money } from '../common';
 import { expressApi, type ZoneRule, type ZoneRunSummary } from './expressApi';
+import { useExpressWorkspace } from './ExpressWorkspaceContext';
 import { zoneCsvLines } from './zoneCsv';
 
 const err = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
@@ -14,7 +15,15 @@ const priceText = (r: ZoneRule) => (r.amount !== null ? money(r.amount) : r.pric
 
 /** 分区建议：每次生成都留一条记录，以后能回头翻；生成后不会随价格变动，要看最新的重新生成一次。 */
 export function ZoneRunsPage() {
+  const workspace = useExpressWorkspace();
   const { can } = useAuth();
+  const canDelete = can('resource.finance-express-prices.delete');
+  const initializedLimit = useRef(false);
+  const openRequest = useRef(0);
+  const selectedId = useRef<number | null>(null);
+  const loadRequest = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; openRequest.current++; loadRequest.current++; }; }, []);
   const canGenerate = can('resource.finance-express-prices.edit');
   const [maxW, setMaxW] = useState('30');
   const [runs, setRuns] = useState<{ items: ZoneRunSummary[]; total: number } | null>(null);
@@ -24,32 +33,46 @@ export function ZoneRunsPage() {
   const [busy, setBusy] = useState(false);
 
   const open = useCallback(async (id: number) => {
-    try { setActive(await expressApi.zoneRun(id)); setError(''); } catch (e) { setError(err(e)); }
+    const request = ++openRequest.current;
+    selectedId.current = id;
+    setActive(null);
+    try {
+      const result = await expressApi.zoneRun(id);
+      if (mounted.current && request === openRequest.current) { setActive(result); setError(''); }
+    } catch (e) { if (mounted.current && request === openRequest.current) setError(err(e)); }
   }, []);
   const load = useCallback(async (p: number, openFirst = false) => {
+    const request = ++loadRequest.current;
     try {
       const r = await expressApi.zoneRuns(p, 5);
+      if (!mounted.current || request !== loadRequest.current) return;
+      setError('');
       setRuns(r);
+      if (!initializedLimit.current) {
+        initializedLimit.current = true;
+        if (r.items[0]) setMaxW(String(r.items[0].maxWeightKg));
+      }
       if (openFirst && r.items[0]) await open(r.items[0].id);
-    } catch (e) { setError(err(e)); }
+    } catch (e) { if (mounted.current && request === loadRequest.current) setError(err(e)); }
   }, [open]);
   useEffect(() => { void load(page, page === 1 && active === null); }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function generate() {
     const n = Number(maxW);
-    if (!(n > 0) || n > 1000) return setError('最高重量要在 0 到 1000 公斤之间');
+    if (!Number.isFinite(n) || n < 0.01 || n > 1000) return setError('最高重量要在 0 到 1000 公斤之间');
     setBusy(true); setError('');
     try {
       const r = await expressApi.generateZone(n);
       setPage(1);
       await load(1);
       await open(r.id);
+      workspace?.refreshCounts();
     } catch (e) { setError(err(e)); }
     setBusy(false);
   }
   async function remove(id: number) {
     if (!window.confirm('删除这条生成记录？不会影响价格数据。')) return;
-    try { await expressApi.deleteZoneRun(id); if (active?.id === id) setActive(null); await load(page); } catch (e) { setError(err(e)); }
+    try { await expressApi.deleteZoneRun(id); if (selectedId.current === id) { selectedId.current = null; openRequest.current++; setActive(null); } await load(page); workspace?.refreshCounts(); } catch (e) { setError(err(e)); }
   }
   function exportCsv() {
     if (!active) return;
@@ -61,9 +84,9 @@ export function ZoneRunsPage() {
   return (
     <div>
       <div className="page-head between">
-        <h1>分区建议</h1>
+        {workspace ? <h2>聚水潭快递分区建议</h2> : <h1>分区建议</h1>}
         <div className="toolbar">
-          <label>最高重量（kg）<input type="number" min="0.01" step="any" aria-label="最高重量" value={maxW} onChange={(e) => setMaxW(e.target.value)} style={{ width: 90 }} /></label>
+          <label>最高重量（kg）<input type="number" min="0.01" step="any" aria-label="最高重量" value={maxW} onChange={(e) => { initializedLimit.current = true; setMaxW(e.target.value); }} style={{ width: 90 }} /></label>
           {canGenerate && <button type="button" className="primary-button" disabled={busy} onClick={() => void generate()}>{busy ? '生成中…' : '生成分区建议'}</button>}
           <button type="button" className="secondary-button" disabled={!active?.rules.length} onClick={exportCsv}>导出清单</button>
         </div>
@@ -86,7 +109,7 @@ export function ZoneRunsPage() {
             <button type="button" className={active?.id === r.id ? 'tree-item active' : 'tree-item'} onClick={() => void open(r.id)}>
               第 {r.sequence} 次 · {when(r.createdAt)} · 上限 {r.maxWeightKg}kg · {r.cooperatingVersionCount} 个价格版本 · {r.ruleCount} 条规则
             </button>
-            {canGenerate && <button type="button" className="link-button danger" onClick={() => void remove(r.id)}>删除记录</button>}
+            {canDelete && <button type="button" className="link-button danger" onClick={() => void remove(r.id)}>删除记录</button>}
           </li>
         ))}
       </ul>

@@ -1,15 +1,12 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../../api/client';
-import { money } from '../common';
 import { resourceApi } from '../../../resources/api';
-import { expressApi, type PriceRecognition, type RuleRow, type SurchargeRecognition } from './expressApi';
+import { expressApi, type RecognitionModels, type PriceRecognition, type RuleRow, type SurchargeDraft, type SurchargeRecognition } from './expressApi';
 
-const CHARGE: Record<string, string> = { fixed: '固定金额', percent: '按比例', per_kg: '按公斤' };
-const WEIGHT: Record<string, string> = { all: '全部重量', below: '以内', above: '以上', between: '区间' };
+import { correctedRecognitionRows, RecognitionPreview, type RecognitionEdits } from './RecognitionPreview';
+import './recognitionPreview.css';
+
 const err = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
-
-const rangeText = (r: RuleRow) => `${r.minExclusive ? '>' : '≥'}${r.shipWeightMin ?? 0}kg${r.shipWeightMax == null ? '' : ` ~ ${r.maxExclusive ? '<' : '≤'}${r.shipWeightMax}kg`}`;
-const priceText = (r: RuleRow) => (r.fixedPrice != null ? money(r.fixedPrice) : `首重${r.firstWeight ?? '—'}kg ${money(r.firstPrice)} + 续重 ${money(r.extraPrice)}/kg`);
 
 /**
  * AI 识别：价格表（图片、Excel、CSV）或临时加收通知。识别结果先列出来给人核对，
@@ -19,23 +16,49 @@ export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionI
   const input = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [models, setModels] = useState<RecognitionModels | null>(null);
+  const [model, setModel] = useState('');
+  useEffect(() => {
+    let active = true;
+    void expressApi.recognitionModels().then(options => {
+      if (!active) return;
+      setModels(options);
+      const current = options.current;
+      const preferred = current && options.providers.some(p => p.id === current.providerId && p.models.includes(current.modelId)) ? `${current.providerId}:${current.modelId}` : '';
+      const first = options.providers.find(p => p.models.length);
+      setModel(current ? preferred : first ? `${first.id}:${first.models[0]}` : '');
+    }).catch(e => { if (active) setError(err(e)); });
+    return () => { active = false; };
+  }, []);
   const [error, setError] = useState('');
   const [result, setResult] = useState<PriceRecognition | SurchargeRecognition | null>(null);
+  const [edits, setEdits] = useState<RecognitionEdits>({});
   const [skip, setSkip] = useState<Set<number>>(new Set());
   const [batchName, setBatchName] = useState('');
+  const [batchNote, setBatchNote] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [remark, setRemark] = useState('');
 
-  async function pick(file: File | undefined) {
-    if (!file) return;
+  function pick(file: File | undefined) {
+    if (busy) return;
+    setPicked(file ?? null); setResult(null); setEdits({}); setSkip(new Set()); setError('');
+  }
+
+  async function recognize() {
+    if (!picked) return setError('请先上传文件');
+    const selected = models?.providers.flatMap(p => p.models.map(id => ({ value: `${p.id}:${id}`, providerId: p.id, modelId: id }))).find(option => option.value === model);
+    if (!selected) return setError('请先选择 AI 模型');
+    const file = picked;
     setBusy(true); setError('');
     try {
-      const r = await expressApi.recognize(versionId, kind, file);
+      const r = await expressApi.recognize(versionId, kind, file, { providerId: selected.providerId, modelId: selected.modelId });
       setResult(r);
+      setEdits({});
+      setBatchNote('');
       setPicked(file);
       setSkip(new Set(r.rows.flatMap((x, i) => (x.warnings.length ? [i] : []))));
-      if (r.kind === 'surcharge_notice') setBatchName(r.batchName || file.name.replace(/\.[^.]+$/, ''));
+      if (r.kind === 'surcharge_notice') { setBatchName(r.batchName || file.name.replace(/\.[^.]+$/, '')); setBatchNote(r.batchNote ?? ''); }
       else { setStart(r.effectiveStart); setEnd(r.effectiveEnd); setRemark(r.extraRemark); }
     } catch (e) { setError(err(e)); }
     setBusy(false);
@@ -47,40 +70,58 @@ export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionI
     setBusy(true); setError('');
     try {
       if (result.kind === 'price_table') {
-        const rules = result.rows.filter((_, i) => !skip.has(i)).map(({ warnings: _w, ...r }) => r);
+        const rules = correctedRecognitionRows(result, edits, skip) as RuleRow[];
         if (!rules.length) throw new Error('没有勾选任何价格行');
         const r = await expressApi.confirmPrice(versionId, { rules, fileName: result.fileName, modelName: result.modelName, effectiveStart: start || undefined, effectiveEnd: end || undefined, extraRemark: remark || undefined });
         onDone(`已导入 ${r.created} 条价格，并把这个版本的最终价格依据改为“AI 识别价格表”`);
       } else {
-        const rows = result.rows.filter((_, i) => !skip.has(i)).map(({ warnings: _w, ...r }) => r);
+        const rows = correctedRecognitionRows(result, edits, skip) as Array<Omit<SurchargeDraft, 'warnings'>>;
+        if (!batchName.trim()) throw new Error('请填写批次名称');
         if (!rows.length) throw new Error('没有勾选任何加收规则');
         // 图片类通知把原图留作凭据（Excel/CSV 没有图，不留）
         let evidenceFileId: number | undefined;
         if (picked && picked.type.startsWith('image/')) evidenceFileId = (await resourceApi.uploadFile('finance-express-fee-batches', 'evidence', picked)).id;
-        const r = await expressApi.confirmSurcharge(versionId, { batchName, rows, fileName: result.fileName, modelName: result.modelName, evidenceFileId });
+        const r = await expressApi.confirmSurcharge(versionId, { batchName: batchName.trim(), ...(batchNote.trim() ? { batchNote: batchNote.trim() } : {}), rows, fileName: result.fileName, modelName: result.modelName, evidenceFileId });
         onDone(`已保存加收通知「${batchName}」，共 ${r.created} 条规则`);
       }
     } catch (e) { setError(err(e)); setBusy(false); }
   }
 
+  function addRule(index: number, mode: 'fixed' | 'formula') {
+    if (!result || result.kind !== 'price_table' || busy) return;
+    const province = edits[index]?.province ?? result.rows[index].province;
+    const nextIndex = result.rows.length;
+    setResult({ ...result, rows: [...result.rows, { province, shipWeightMin: 0, shipWeightMax: null, fixedPrice: null, firstWeight: null, firstPrice: null, extraPrice: null, warnings: [] }] });
+    setEdits(current => ({ ...current, [nextIndex]: { ruleType: mode, ...(mode === 'fixed' ? { fixedPrice: '' } : { firstWeight: '1', firstPrice: '', extraPrice: '' }) } }));
+  }
+  function removeRule(index: number) {
+    if (!result || result.kind !== 'price_table' || busy) return;
+    setResult({ ...result, rows: result.rows.filter((_, i) => i !== index) });
+    setSkip(current => new Set([...current].filter(i => i !== index).map(i => i > index ? i - 1 : i)));
+    setEdits(current => Object.fromEntries(Object.entries(current).filter(([key]) => Number(key) !== index).map(([key, value]) => [Number(key) > index ? Number(key) - 1 : key, value])));
+  }
+
   const toggle = (i: number, on: boolean) => setSkip((s) => { const n = new Set(s); if (on) n.delete(i); else n.add(i); return n; });
-  const title = kind === 'price' ? 'AI 识别价格表' : 'AI 识别临时加收通知';
+  const title = kind === 'price' ? '上传价格表 AI 识别' : '上传加收通知 AI 识别';
   return (
     <div className="modal-backdrop" role="presentation">
-      <div className="modal wide" role="dialog" aria-label={title}>
-        <div className="modal-head"><strong>{title}</strong></div>
+      <div className="modal wide express-recognition-dialog" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="modal-head"><div><h3>{title}</h3><p>选择企业 AI 模型，上传文件后先预览识别结果，可修改后再确认导入。</p></div><button type="button" className="secondary-button" onClick={onClose}>关闭</button></div>
         <div className="modal-body">
-          <input ref={input} type="file" hidden aria-label="选择要识别的文件" accept="image/png,image/jpeg,image/webp,.xlsx,.csv,.txt" onChange={(e) => void pick(e.target.files?.[0])} />
-          {!result && (
-            <>
-              <p>{kind === 'price' ? '上传快递报价单：图片、Excel（xlsx）、CSV 都可以。识别结果不会直接生效，要你核对后确认。' : '上传快递公司发来的临时加收通知（图片、Excel、CSV）。识别结果会按“一份通知 = 一个批次”保存。'}</p>
-              <button type="button" className="primary-button" disabled={busy} onClick={() => input.current?.click()}>{busy ? '识别中，请稍等…' : '选择文件'}</button>
-            </>
-          )}
+          <>
+              <div className="form-grid"><label>AI 模型<select aria-label="AI 模型" disabled={busy} value={model} onChange={e => setModel(e.target.value)}><option value="">请选择 AI 模型</option>{models?.providers.flatMap(p => p.models.map(id => <option key={`${p.id}:${id}`} value={`${p.id}:${id}`}>{p.name} / {id}</option>))}</select></label><label>上传文件<input ref={input} type="file" aria-label="选择要识别的文件" accept="image/png,image/jpeg,image/webp,.xlsx,.csv,.txt,.json" disabled={busy} onChange={e => pick(e.target.files?.[0])} /></label></div>
+              <div className="express-recognition-upload" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); pick(e.dataTransfer.files?.[0]); }}>
+                <strong>{picked?.name || '选择文件，也可以把图片/CSV/TXT 拖到这里'}</strong>
+                <span>Excel 文件建议先另存为 CSV；图片类通知可直接上传给 AI 识别。</span>
+              </div>
+              <div className="toolbar"><button type="button" className="primary-button" disabled={busy || !picked} onClick={() => void recognize()}>{busy ? 'AI 识别中…' : '开始识别'}</button>
+              <button type="button" className="secondary-button" disabled={busy} onClick={() => { pick(undefined); if (input.current) input.current.value = ''; }}>清空</button></div>
+          </>
           {error && <div role="alert" className="notice error">{error}</div>}
           {result && (
             <>
               <p className="muted">文件：{result.fileName || '—'}，识别模型：{result.modelName}。有提醒的行默认不导入，核对无误后可以勾选。</p>
+              <p className="muted">可修改省份、重量和金额后再确认导入；金额以元填写，空的结束重量表示以上。</p>
               {result.warnings.map((w) => <div key={w} className="bad-text">⚠ {w}</div>)}
               {result.kind === 'price_table' ? (
                 <>
@@ -89,35 +130,21 @@ export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionI
                     <label>失效日期<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
                   </div>
                   <label>识别到的合作口径 / 退改费等（会追加到版本备注）<textarea rows={4} value={remark} onChange={(e) => setRemark(e.target.value)} /></label>
-                  <div className="table-scroll"><table className="data-table">
-                    <thead><tr><th>导入</th><th>省份</th><th>重量段</th><th>价格</th><th>提醒</th></tr></thead>
-                    <tbody>{result.rows.map((r, i) => (
-                      <tr key={i}><td><input type="checkbox" aria-label={`导入第${i + 1}行`} checked={!skip.has(i)} onChange={(e) => toggle(i, e.target.checked)} /></td>
-                        <td>{r.province === 'ALL' ? '全国' : r.province}</td><td>{rangeText(r)}</td><td>{priceText(r)}</td><td className="bad-text">{r.warnings.join('；')}</td></tr>
-                    ))}</tbody>
-                  </table></div>
                   <p className="muted">确认后：会替换这个版本里已有的“AI 识别”价格，并把最终价格依据改为 AI 识别；手工那一套不动。</p>
                 </>
               ) : (
                 <>
                   <label>批次名称<input value={batchName} maxLength={160} onChange={(e) => setBatchName(e.target.value)} /></label>
-                  <div className="table-scroll"><table className="data-table">
-                    <thead><tr><th>导入</th><th>名称</th><th>省份</th><th>日期</th><th>加收</th><th>重量</th><th>提醒</th></tr></thead>
-                    <tbody>{result.rows.map((r, i) => (
-                      <tr key={i}><td><input type="checkbox" aria-label={`导入第${i + 1}行`} checked={!skip.has(i)} onChange={(e) => toggle(i, e.target.checked)} /></td>
-                        <td>{r.name}</td><td>{r.areaScope}</td><td>{r.effectiveStart || '—'} ~ {r.effectiveEnd || '长期'}</td>
-                        <td>{CHARGE[r.chargeType]} {r.chargeType === 'percent' ? `${r.percent ?? '—'}%` : money(r.amount)}{r.chargeType === 'per_kg' ? '/kg' : ''}</td>
-                        <td>{WEIGHT[r.weightMode]}{r.weightStart != null ? ` ${r.weightStart}` : ''}{r.weightEnd != null ? `~${r.weightEnd}` : ''}</td><td className="bad-text">{r.warnings.join('；')}</td></tr>
-                    ))}</tbody>
-                  </table></div>
+                  <label>批次备注<input value={batchNote} maxLength={5000} onChange={e => setBatchNote(e.target.value)} /></label>
+
                 </>
               )}
+              <RecognitionPreview result={result} edits={edits} skip={skip} busy={busy} onEdit={(i, field, value) => setEdits(current => ({ ...current, [i]: { ...current[i], [field]: value } }))} onToggle={toggle} onAdd={addRule} onRemove={removeRule} />
             </>
           )}
         </div>
         <div className="modal-foot">
-          <button type="button" className="secondary-button" onClick={onClose}>{result ? '放弃' : '关闭'}</button>
-          {result && <button type="button" className="secondary-button" disabled={busy} onClick={() => input.current?.click()}>换一个文件重新识别</button>}
+          {result && <button type="button" className="secondary-button" disabled={busy} onClick={() => setResult(null)}>重新识别</button>}
           {result && <button type="button" className="primary-button" disabled={busy} onClick={() => void confirm()}>{busy ? '保存中…' : '确认导入'}</button>}
         </div>
       </div>

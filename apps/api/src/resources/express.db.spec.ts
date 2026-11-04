@@ -49,7 +49,12 @@ d('快递价格表（真实数据库）', () => {
     const zb = await svc.create(boss, 'finance-express-branches', { carrierId: zt.id, name: '总部' });
     await expect(svc.update(boss, 'finance-express-carriers', jt.id, { defaultBranchId: zb.id })).rejects.toThrow(/下的网点/);
     const v1 = await svc.create(boss, 'finance-express-versions', { branchId: b1.id, versionName: '2026春', shippingWeightMax: 30 });
-    expect((await svc.get(boss, 'finance-express-branches', b1.id)).data.currentVersionId).toBe(v1.id);
+    const initialId = Number((await svc.get(boss, 'finance-express-branches', b1.id)).data.currentVersionId);
+    const initial = await svc.get(boss, 'finance-express-versions', initialId);
+    expect(initial.data).toMatchObject({ branchId: b1.id, versionName: '创始版本', cooperationStatus: 'pending', remark: '新建经营网点时自动生成' });
+    expect(initial.status).toBe('active');
+    expect(initialId).not.toBe(v1.id);
+    await svc.update(boss, 'finance-express-branches', b1.id, { currentVersionId: v1.id });
     expect(v1.data.cooperationStatus).toBe('pending');
     await expect(svc.create(boss, 'finance-express-versions', { branchId: b1.id, versionName: '2026春' })).rejects.toThrow(/同名价格版本/);
     const v2 = await svc.create(boss, 'finance-express-versions', { branchId: b1.id, versionName: '2026秋' });
@@ -104,9 +109,11 @@ d('快递价格表（真实数据库）', () => {
       const c = await svc.create(boss, 'finance-express-carriers', { name: `估价${i}` });
       const b = await svc.create(boss, 'finance-express-branches', { carrierId: c.id, name: '网点' });
       const v = await svc.create(boss, 'finance-express-versions', { branchId: b.id, versionName: 'v', cooperationStatus: 'active' });
+      await svc.update(boss, 'finance-express-branches', b.id, { currentVersionId: v.id });
       await ex.replaceRules(boss, v.id, 'manual', [fixed(p)], '测试');
     }
-    const est = await ex.getEstimates(boss);
+    expect((await ex.getEstimates(boss)).rows).toEqual([]);
+    const est = await ex.recalculate(boss);
     expect(est.parcelLimit).toBe(30);
     expect(est.cooperatingGroups).toBeGreaterThanOrEqual(6);
     const first = est.rows.find((r) => r.key === '0-0.5')!;
@@ -172,6 +179,106 @@ d('快递价格表（真实数据库）', () => {
     // 原始凭据：只能挂上传到这个字段的文件，随便写个文件号会被拒绝
     await expect(ex.confirmSurchargeRecognition(boss, v.id, { batchName: 'y', rows: [{ name: '好', chargeType: 'fixed', amount: 100 }], evidenceFileId: 999999 })).rejects.toThrow();
     expect((await ex.versionDetail(boss, v.id)).batches).toHaveLength(1); // 失败整体回滚
+  });
+
+  it('预估快照明确重算才换自动样本，批量手工保留计算时间并拒绝过期与并发覆盖', async () => {
+    const company = await ds.manager.save(Company, ds.manager.create(Company, { code: `snap${crypto.randomBytes(4).toString('hex')}`, name: '合成快照公司', status: 'active' }));
+    const userRecord = await ds.manager.save(User, ds.manager.create(User, { companyId: company.id, account: 'admin', passwordHash: 'x', name: '合成管理员', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
+    const user: AuthUser = { ...boss, id: userRecord.id, companyId: company.id };
+    const carrier = await svc.create(user, 'finance-express-carriers', { name: '合成快照快递' });
+    const branch = await svc.create(user, 'finance-express-branches', { carrierId: carrier.id, name: '快照网点' });
+    const versionId = Number((await svc.get(user, 'finance-express-branches', branch.id)).data.currentVersionId);
+    await svc.update(user, 'finance-express-versions', versionId, { cooperationStatus: 'active', shippingWeightMax: 30 });
+    await ex.replaceRules(user, versionId, 'manual', [fixed(300)], '合成报价');
+    expect((await ex.getEstimates(user)).rows).toEqual([]);
+    await expect(ex.saveOverrides(user, 0, [{ weightFrom: 0, weightTo: 0.5, amount: 0 }])).rejects.toThrow(/先重新计算/);
+    const initial = await ex.recalculate(user, 30, 0);
+    expect(initial.rows[0].autoAmount).toBe(330);
+    await ex.replaceRules(user, versionId, 'manual', [fixed(600)], '调整报价');
+    const unchanged = await ex.getEstimates(user);
+    expect(unchanged.rows[0].autoAmount).toBe(330);
+    expect(unchanged.rows[0].provinceQuotes[0].amount).toBe(300);
+    const manual = await ex.saveOverrides(user, initial.revision, [{ weightFrom: 0, weightTo: 0.5, amount: 0 }, { weightFrom: 0.5, weightTo: 1, amount: 75 }]);
+    expect(manual.calculatedAt).toBe(initial.calculatedAt);
+    expect(manual.rows[0]).toMatchObject({ autoAmount: 330, manualAmount: 0 });
+    expect(manual.rows[0].provinceQuotes[0].amount).toBe(300);
+    expect(manual.rows.find(row => row.key === '30-30.5')?.parcels?.[1].amount).toBe(0);
+    await expect(ex.saveOverrides(user, initial.revision, [{ weightFrom: 0, weightTo: 0.5, amount: 999 }])).rejects.toThrow(/其他人更新/);
+    const recalculated = await ex.recalculate(user, 30, manual.revision);
+    expect(recalculated.rows[0]).toMatchObject({ autoAmount: 660, manualAmount: 0 });
+    expect(recalculated.rows[0].provinceQuotes[0].amount).toBe(600);
+    const results = await Promise.allSettled([ex.saveOverrides(user, recalculated.revision, [{ weightFrom: 1, weightTo: 2, amount: 700 }]), ex.saveOverrides(user, recalculated.revision, [{ weightFrom: 2, weightTo: 3, amount: 800 }])]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+    const before = await ex.getEstimates(user);
+    const originalCreate = svc.createRecord.bind(svc);
+    let writes = 0;
+    const spy = jest.spyOn(svc, 'createRecord').mockImplementation(async (...args) => { if (args[2] === 'finance-freight-overrides' && ++writes === 2) throw new Error('合成第二行失败'); return originalCreate(...args); });
+    try { await expect(ex.saveOverrides(user, before.revision, [{ weightFrom: 3, weightTo: 4, amount: 100 }, { weightFrom: 4, weightTo: 5, amount: 200 }])).rejects.toThrow(/第二行失败/); }
+    finally { spy.mockRestore(); }
+    const after = await ex.getEstimates(user);
+    expect(after.revision).toBe(before.revision);
+    expect(after.calculatedAt).toBe(before.calculatedAt);
+    expect(after.rows.find(row => row.key === '3-4')?.manualAmount).toBeNull();
+    expect(after.overrides.some(row => row.weightFrom === 3 && row.weightTo === 4)).toBe(false);
+    const otherCompany = await ex.getEstimates(boss);
+    await ex.saveOverrides(boss, otherCompany.revision, [{ weightFrom: 0, weightTo: 0.5, amount: 999 }]);
+    expect((await ex.getEstimates(user)).rows[0].manualAmount).toBe(0);
+  });
+
+  it('手工确认保留独立规则并原子切换价格来源、同步启停和留下手工记录', async () => {
+    const carrier = await svc.create(boss, 'finance-express-carriers', { name: '合成手工维护' });
+    const branch = await svc.create(boss, 'finance-express-branches', { carrierId: carrier.id, name: '手工网点' });
+    const versionId = Number((await svc.get(boss, 'finance-express-branches', branch.id)).data.currentVersionId);
+    await svc.update(boss, 'finance-express-versions', versionId, { cooperationStatus: 'active' });
+    await ex.replaceRules(boss, versionId, 'ai', [fixed(500)], '合成AI报价');
+    await ex.replaceRules(boss, versionId, 'manual', [{ ...fixed(300), note: '第一条独立规则' }, { ...fixed(400), note: '第二条独立规则' }], '手工确认', true);
+    let detail = await ex.versionDetail(boss, versionId);
+    expect(detail.effectiveSource).toBe('manual');
+    expect(detail.rules.filter(r => r.source === 'manual')).toHaveLength(2);
+    expect(detail.rules).toEqual(expect.arrayContaining([expect.objectContaining({ fixedPrice: 300, note: '第一条独立规则' }), expect.objectContaining({ fixedPrice: 400, note: '第二条独立规则' })]));
+    expect(detail.recognitions).toEqual([expect.objectContaining({ recognitionType: 'manual_price' })]);
+    const list = await svc.list(boss, 'finance-express-prices', { pageSize: 100 });
+    expect(list.items.filter(r => r.data.versionId === versionId && r.data.source === 'manual').every(r => r.status === 'active')).toBe(true);
+    expect(list.items.filter(r => r.data.versionId === versionId && r.data.source === 'ai').every(r => r.status === 'inactive')).toBe(true);
+    await expect(ex.replaceRules(boss, versionId, 'manual', [{ province: '广东', shipWeightMin: 5, shipWeightMax: 1, fixedPrice: 900 }], '失败确认', true)).rejects.toThrow();
+    detail = await ex.versionDetail(boss, versionId);
+    expect(detail.rules.filter(r => r.source === 'manual')).toHaveLength(2);
+    expect(detail.recognitions).toHaveLength(1);
+    await expect(ex.replaceRules(boss, versionId, 'ai', [fixed(999)], '错误激活入口', true)).rejects.toThrow(/手工/);
+  });
+
+  it('识别修正备注完整保存；价格确认后续失败时回滚规则、来源及记录', async () => {
+    const c = await svc.create(boss, 'finance-express-carriers', { name: '备注回滚快递' });
+    const b = await svc.create(boss, 'finance-express-branches', { carrierId: c.id, name: '备注网点' });
+    const v = await svc.create(boss, 'finance-express-versions', { branchId: b.id, versionName: '备注版本' });
+    await ex.confirmPriceRecognition(boss, v.id, { rules: [{ ...fixed(300), note: '统一价说明' }], fileName: '原始报价.csv' });
+    let detail = await ex.versionDetail(boss, v.id);
+    expect(detail.rules[0]).toMatchObject({ note: '统一价说明' });
+    await expect(ex.confirmPriceRecognition(boss, v.id, { rules: [{ ...fixed(999), note: '不应落库' }], effectiveStart: '2026-12-01', effectiveEnd: '2026-01-01' })).rejects.toThrow();
+    detail = await ex.versionDetail(boss, v.id);
+    expect(detail.rules).toHaveLength(1);
+    expect(detail.rules[0]).toMatchObject({ fixedPrice: 300, note: '统一价说明' });
+    expect(detail.recognitions).toHaveLength(1);
+    const surcharge = await ex.confirmSurchargeRecognition(boss, v.id, { batchName: '加收说明', batchNote: '批次备注', rows: [{ name: '偏远', chargeType: 'fixed', amount: 123, note: '规则备注' }] });
+    detail = await ex.versionDetail(boss, v.id);
+    expect(detail.batches.find(row => row.id === surcharge.batchId)).toMatchObject({ note: '批次备注' });
+    expect(detail.surcharges[0]).toMatchObject({ note: '规则备注' });
+    const other: AuthUser = { ...boss, companyId: boss.companyId + 100000 };
+    await expect(ex.confirmPriceRecognition(other, v.id, { rules: [fixed(1)] })).rejects.toThrow(/不存在/);
+    expect((await ex.versionDetail(boss, v.id)).rules[0]).toMatchObject({ fixedPrice: 300 });
+  });
+
+  it('手工加收多省同批写入，备注与人工来源保留且失败不留下空批次', async () => {
+    const before = await ex.versionDetail(boss, ids.v1);
+    const result = await ex.confirmSurchargeRecognition(boss, ids.v1, { batchName: '合成手工多省', batchNote: '批次口径', modelName: '人工录入', rows: ['广东', '山东'].map(areaScope => ({ name: '合成加收', areaScope, chargeType: 'percent' as const, percent: 12.5, note: '每省规则' })) }, 'manual');
+    const detail = await ex.versionDetail(boss, ids.v1);
+    expect(detail.batches.find(batch => batch.id === result.batchId)).toMatchObject({ source: 'manual', note: '批次口径', modelName: '人工录入', fileName: '手工新增' });
+    expect(detail.surcharges).toHaveLength(before.surcharges.length + 2);
+    expect(detail.surcharges).toEqual(expect.arrayContaining([expect.objectContaining({ batchId: result.batchId, areaScope: '广东' }), expect.objectContaining({ batchId: result.batchId, areaScope: '山东' })]));
+    expect(detail.recognitions).toEqual(expect.arrayContaining([expect.objectContaining({ recognitionType: 'manual_surcharge', resultCount: 2 })]));
+    await expect(ex.confirmSurchargeRecognition(boss, ids.v1, { batchName: '合成失败', rows: [{ name: '有效', chargeType: 'fixed', amount: 100 }, { name: '无效', chargeType: 'fixed' }] }, 'manual')).rejects.toThrow();
+    expect((await ex.versionDetail(boss, ids.v1)).batches).toHaveLength(before.batches.length + 1);
   });
 
   it('加收：按方式校验金额；停用批次会停掉批次下的加收；删批次级联', async () => {

@@ -2,8 +2,10 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CostHistoryArchives } from './CostHistoryArchives';
 import { resourceApi, type ResourceDto } from '../../resources/api';
+const identity = vi.hoisted(() => ({user:{companyId:1,id:1,permissions:{isCompanyAdmin:false,allow:['product.cost.view','product.price.view'],deny:[] as string[]}}}));
+vi.mock('../../auth/AuthContext',()=>({useAuth:()=>identity}));
 vi.mock('../../resources/api', () => ({ resourceApi: { list: vi.fn(), create: vi.fn(), update: vi.fn() } }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { identity.user={companyId:1,id:1,permissions:{isCompanyAdmin:false,allow:['product.cost.view','product.price.view'],deny:[] as string[]}}; cleanup(); vi.clearAllMocks(); });
 const resource = (type: string, id: number, data: Record<string, unknown>): ResourceDto => ({ id, type, title: String(data.versionName || data.skuName || data.costName || ''), data, status: 'draft', statusReason: null, refLabels: {}, files: {}, secretConfigured: {}, createdAt: '', updatedAt: '2026-10-24T00:00:00Z' });
 const version = resource('finance-cost-versions', 7, { versionName: '合成秋季版本', effectiveFrom: '2026-08-15' });
 const list = (items: ResourceDto[], total = items.length) => ({ items, total, page: 1, pageSize: 200 });
@@ -22,7 +24,7 @@ describe('旧版成本档案只读入口', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看档案' }));
     expect(screen.getByText('SYNTHETIC-001')).toBeTruthy();
     expect(screen.getByText('未设置')).toBeTruthy(); expect(screen.queryByText('¥999.000')).toBeNull();
-    expect(screen.getByText('¥0.000')).toBeTruthy(); expect(screen.getByText('25%')).toBeTruthy(); expect(screen.getByText('¥1.235')).toBeTruthy();
+    expect(screen.getByText('¥0.000')).toBeTruthy(); expect(screen.getByText('25%')).toBeTruthy(); expect(screen.getByText('¥1.234567')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '辅助成本' }));
     await screen.findByText('合成辅助成本'); expect(screen.getByText('合成备注')).toBeTruthy();
     expect(resourceApi.create).not.toHaveBeenCalled(); expect(resourceApi.update).not.toHaveBeenCalled();

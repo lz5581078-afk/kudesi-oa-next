@@ -74,6 +74,23 @@ d('AI 服务商（真实数据库）', () => {
     expect(((await ai.overview(admin.companyId)).providers[0] as { lastSyncError: string }).lastSyncError).not.toContain('sk-secret-123');
   });
 
+  it('快递本次选择仅允许本公司启用服务商与已知模型，目录不含端点或密钥', async () => {
+    const { id } = await ai.save(admin, null, { name: '合成快递模型', baseUrl: 'https://synthetic.example.com/v1', apiKey: 'synthetic-test-only', modelName: 'gpt-synthetic-model' });
+    expect(await ai.resolveSelectedVision(admin.companyId, id, 'gpt-synthetic-model')).toMatchObject({ model: 'gpt-synthetic-model', enabled: true });
+    await expect(ai.resolveSelectedVision(other.companyId, id, 'gpt-synthetic-model')).rejects.toThrow(/不存在/);
+    await expect(ai.resolveSelectedVision(admin.companyId, id, 'arbitrary-model')).rejects.toThrow(/不在该服务商/);
+    const ocr = new OcrService(buildServices(ds).settings, ai);
+    const editor: AuthUser = { ...admin, permissions: { isCompanyAdmin: false, allow: ['resource.finance-express-prices.edit'], deny: [] } };
+    const options = await ocr.expressRecognitionOptions(editor);
+    expect(options.providers.find(p => p.id === id)).toEqual({ id, name: '合成快递模型', status: 'active', models: ['gpt-synthetic-model'] });
+    expect(JSON.stringify(options)).not.toContain('synthetic-test-only');
+    expect(JSON.stringify(options)).not.toContain('synthetic.example.com');
+    await ai.save(admin, id, { name: '合成快递模型', baseUrl: 'https://synthetic.example.com/v1', modelName: 'gpt-synthetic-model', status: 'testing' });
+    await expect(ai.resolveSelectedVision(admin.companyId, id, 'gpt-synthetic-model')).rejects.toThrow(/已启用/);
+    expect((await ocr.expressRecognitionOptions(editor)).providers.some(p => p.id === id)).toBe(false);
+    await ai.remove(admin, id);
+  });
+
   it('识别场景默认模型：只能选已同步或服务商默认的模型；识别时优先用它', async () => {
     const [p] = (await ai.overview(admin.companyId)).providers as Array<{ id: number }>;
     await expect(ai.setDefault(admin, 'nope', p.id, 'gpt-4o')).rejects.toThrow(/场景/);

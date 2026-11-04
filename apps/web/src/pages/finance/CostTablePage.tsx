@@ -1,7 +1,8 @@
+import { useCostIdentityKey } from './CostIdentityBoundary';
 import { CostRegistrationDialog } from './CostRegistrationDialog';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
-import { CopyButton } from '../../resources/CopyValue';
+import { History, Pencil, RefreshCw, X } from 'lucide-react';
 import { Pager, money, pct } from './common';
 import { CostCategoryTree } from './CostCategoryTree';
 import { BreakdownDialog, costMoney, PricingEditDialog, SkuHistoryDialog, type EditTarget } from './CostDialogs';
@@ -21,6 +22,11 @@ const REFRESH_MS = 15000;
 
 /** 成本表：每个商品组合的成本、重量、运费、含运费成本、利润率、最低售价，现算，不存副本；15 秒自动刷新。 */
 export function CurrentCostTable() {
+  const identity = useCostIdentityKey();
+  return <CurrentCostTableContent key={identity}/>;
+}
+
+function CurrentCostTableContent() {
   const [keyword, setKeyword] = useState('');
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
@@ -45,22 +51,10 @@ export function CurrentCostTable() {
         if (!quiet) setError('');
         setPage((p) => Math.min(p, Math.max(1, Math.ceil(r.total / r.pageSize))));
       })
-      .catch((e) => { if (current === serial.current && !quiet) setError(e instanceof ApiError ? e.message : '加载失败'); })
+      .catch((e) => { if (current === serial.current) setError(e instanceof ApiError ? e.message : '加载失败'); })
       .finally(() => { if (current === serial.current) setBusy(false); });
   }, [keyword, categoryId, page]);
 
-  async function exportTable() {
-    setError('');
-    try {
-      const r = await financeApi.exportCostTable({ categoryId: categoryId ?? undefined, keyword: keyword.trim() || undefined });
-      const bytes = Uint8Array.from(window.atob(r.fileBase64), (c) => c.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-      const a = document.createElement('a');
-      a.href = url; a.download = r.fileName; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
-      setNotice(`已导出 ${r.rowCount} 条（按当前分类和搜索条件）`);
-    } catch (e) { setError(e instanceof ApiError ? e.message : '导出失败'); }
-  }
 
   useEffect(() => { const t = setTimeout(() => load(), 200); return () => { clearTimeout(t); serial.current++; }; }, [load]);
   useEffect(() => {
@@ -91,12 +85,9 @@ export function CurrentCostTable() {
     <div>
       <div className="page-head between">
         <h1>SKU成本表</h1>
-        <div className="row-actions">
-          <button type="button" className="secondary-button" disabled={busy} onClick={() => void exportTable()}>导出 Excel</button>
-          <button type="button" className="secondary-button" disabled={busy} onClick={() => load()}>刷新</button>
-        </div>
+
       </div>
-      {notice && <div role="status" className="notice ok">{notice} <button type="button" className="link-button" onClick={() => setNotice('')}>关闭</button></div>}
+      {notice && <div role="status" className="notice ok">{notice} <button type="button" className="link-button" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14}/></button></div>}
       {error && !editing && !registration && <div role="alert" className="notice error">{error}</div>}
       <div className="cost-layout">
         <CostCategoryTree data={data} selected={categoryId} onSelect={(id) => { setCategoryId(id); setPage(1); }}
@@ -106,16 +97,16 @@ export function CurrentCostTable() {
             <input className="search-box" type="search" aria-label="搜索SKU成本" placeholder="SKU组合编码 / SKU名称" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
             <span className="muted">{data.total} 条</span>
             {data.canFill && <button type="button" className="secondary-button" disabled={busy || registering} onClick={() => void previewMissing()}>补齐已验证SKU</button>}
-            {(keyword || categoryId !== null) && <button type="button" className="secondary-button small" onClick={() => { setKeyword(''); setCategoryId(null); setPage(1); }}>清除筛选</button>}
+            <button type="button" className="secondary-button" aria-label="刷新成本表" title="刷新成本表" disabled={busy} onClick={() => load()}><RefreshCw size={16}/></button>
           </div>
           <div className="table-scroll">
             <table className="data-table cards-narrow">
               <thead><tr><th>SKU组合编码</th><th>SKU名称</th><th className="num">成本</th><th className="num">预发货成本</th><th className="num">重量（kg）</th><th>使用快递</th><th className="num">预估运费</th><th className="num">含快递成本</th><th className="num">利润率</th><th className="num">最低售价</th><th>操作</th></tr></thead>
               <tbody>
-                {data.rows.length === 0 && <tr><td colSpan={11} className="empty-state muted">{busy ? '正在加载成本资料…' : '暂无符合条件的SKU成本。先去“商品组合编码”建组合并验证。'}</td></tr>}
+                {data.rows.length === 0 && <tr><td colSpan={11} className="empty-state muted">{busy ? '正在加载成本资料…' : '暂无符合条件的SKU成本'}</td></tr>}
                 {data.rows.map((r) => (
                   <tr key={r.bundleId}>
-                    <td className="mono" data-label="SKU组合编码">{r.code}<CopyButton value={r.code} label="SKU组合编码" /></td>
+                    <td className="mono" data-label="SKU组合编码">{r.code}</td>
                     <td data-label="SKU名称" title={r.issues.join('；') || undefined}>{r.name}</td>
                     <td className="num" data-label="成本"><button type="button" className="link-button" aria-label={`查看${r.name}成本组成`} onClick={() => setBreakdown({ row: r, kind: 'cost' })}>{costMoney(r.preShipCostCents)}</button></td>
                     <td className="num" data-label="预发货成本">{costMoney(r.preShipCostCents)}</td>
@@ -127,8 +118,8 @@ export function CurrentCostTable() {
                     <td className="num strong" data-label="最低售价">{money(r.minPriceCents)}</td>
                     <td>
                       <div className="row-actions">
-                        {data.canEdit && <button type="button" className="link-button" aria-label={`维护${r.name}售价`} onClick={() => { setError(''); setEditing({ kind: 'sku', row: r }); }}>维护售价</button>}
-                        <button type="button" className="link-button" aria-label={`查看${r.name}成本历史`} onClick={() => setHistory(r)}>成本历史</button>
+                        {data.canEdit && <button type="button" className="link-button" aria-label={`维护${r.name}售价`} onClick={() => { setError(''); setEditing({ kind: 'sku', row: r }); }}><Pencil size={16}/></button>}
+                        <button type="button" className="link-button" aria-label={`查看${r.name}成本历史`} onClick={() => setHistory(r)}><History size={16}/></button>
                       </div>
                     </td>
                   </tr>

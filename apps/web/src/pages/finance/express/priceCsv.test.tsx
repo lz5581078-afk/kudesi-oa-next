@@ -18,6 +18,10 @@ describe('手工价格表 CSV', () => {
     expect(r.errors).toHaveLength(3);
     expect(r.errors[0]).toContain('第 3 行');
   });
+  it('导出导入保留每条价格规则的备注', () => {
+    const rules = [{ province: '广东', shipWeightMin: 0, shipWeightMax: 1, fixedPrice: 300, note: '报价备注，含特殊费用' }];
+    expect(parseRulesCsv(rulesToCsv(rules)).rules[0]).toMatchObject(rules[0]);
+  });
   it('表头不对时提示', () => {
     expect(parseRulesCsv('a,b\n1,2').errors[0]).toContain('表头');
   });

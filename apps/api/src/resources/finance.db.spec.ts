@@ -8,6 +8,7 @@ import { Company, ResourceRecord, User } from '../entities';
 import { buildServices } from '../test-support';
 import { buildSnapshot } from './base-code-support';
 import { getResourceDef } from '@kudesi/shared';
+import { ExpressService } from './express.service';
 import { CostService } from './cost.service';
 import { ResourcesService } from './resources.service';
 import { previewProductCode } from './finance-rules';
@@ -372,6 +373,8 @@ d('财务资料（真实数据库）', () => {
     for (const [i, province] of ['北京', '上海', '广东', '浙江', '江苏'].entries()) {
       await svc.create(boss, 'finance-express-prices', { carrier: `快递${i}`, province, fixedPrice: 1000 });
     }
+    // 样本须由明确重算保存，读取SKU成本不会自动创建快递样本。
+    await new ExpressService(ds,svc).recalculate(boss);
     const est = await cost.one(boss, ids.bundle);
     expect(est.freightCents).toBe(1100);
     expect(est.lines.find(line => line.role === 'main')?.unitName).toBe(prod.data.purchaseSpec);

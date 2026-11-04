@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useCostIdentityKey } from './CostIdentityBoundary';
 import { resourceApi, type ResourceDto } from '../../resources/api';
 
 async function records(type: string, versionId?: number) {
@@ -10,10 +11,15 @@ async function records(type: string, versionId?: number) {
   }
 }
 const text = (v: unknown) => v == null ? '' : String(v);
-const amount = (v: unknown) => v === undefined ? '未记录' : v === null ? '未设置' : typeof v === 'number' && Number.isFinite(v) ? `¥${(v / 100).toFixed(3)}` : '未记录';
+const amount = (v: unknown) => v === undefined ? '未记录' : v === null ? '未设置' : typeof v === 'number' && Number.isFinite(v) ? `¥${(v / 100).toLocaleString('zh-CN', { minimumFractionDigits: 3, maximumFractionDigits: 6 })}` : '未记录';
 const status: Record<string, string> = { draft: '草稿', active: '已启用', inactive: '已停用' };
 /** 旧版版本档案只读入口；沿用统一资料权限，只读已留存值，不调用当前来源试算。 */
 export function CostHistoryArchives({ onTotal }: { onTotal?: (total: number) => void }) {
+  const identity = useCostIdentityKey();
+  return <CostHistoryArchivesContent key={identity} onTotal={onTotal}/>;
+}
+
+function CostHistoryArchivesContent({ onTotal }: { onTotal?: (total: number) => void }) {
   const [versions, setVersions] = useState<ResourceDto[] | null>(null);
   const [counts, setCounts] = useState<Record<number, number>>({});
   const [selected, setSelected] = useState<ResourceDto | null>(null);

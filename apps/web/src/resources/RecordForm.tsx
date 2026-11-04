@@ -1,3 +1,4 @@
+import { useReferenceFieldFill } from './useReferenceFieldFill';
 import { StoreJstSelect } from './StoreJstSelect';
 import { CascadePicker } from './CascadePicker';
 import { Fragment, FormEvent, type CSSProperties, useEffect, useMemo, useRef, useState, useId } from 'react';
@@ -79,15 +80,16 @@ export function AttrsInput({ field, def, values, value, onChange }: { field: Fie
   );
 }
 
-export function FieldInput({ field, value, onChange, configured, labelNow, type, known, onKnown, values, inputId }: {
+export function FieldInput({ field, value, onChange, configured, labelNow, type, known, onKnown, values, inputId, readOnly = false }: {
   field: FieldDef; value: unknown; onChange: (v: unknown) => void; configured?: boolean; labelNow?: string;
   type: string; known: Record<number, FileInfo>; onKnown: (f: FileInfo) => void;
   /** 整张表单当前的值（“规格单位”这类按档案类型换列表的字段要看它） */
-  values?: Record<string, unknown>; inputId?: string;
+  values?: Record<string, unknown>; inputId?: string; readOnly?: boolean;
 }) {
   const units = useUnitOptions();
   useCategoryVersion(); // 分类改名/新增后下拉立即刷新
   const str = value === undefined || value === null ? '' : String(value);
+  if (readOnly) return <input id={inputId} readOnly value={field.type === 'select' ? field.options?.find(option=>option.value===str)?.label ?? str : str}/>;
   if (type === 'finance-products' && values?.archiveType === 'raw' && field.key === 'purchaseSpec') {
     const own = fieldOptions(field, values, units);
     const options = own.length ? own : PRODUCT_UNIT_SEEDS.filter(([kind]) => kind === 'system_spec').map(([,label]) => ({ value:label,label }));
@@ -303,7 +305,8 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       .then((r) => alive && setRefLock(r.lockedFields.length ? { label: r.label, fields: r.lockedFields, items: r.items } : null)).catch(() => undefined);
     return () => { alive = false; };
   }, [def.key, record]);
-  const locked = useMemo(() => [...(lockedFields ?? []), ...(refLock?.fields ?? [])], [lockedFields, refLock]);
+  const referenceFill = useReferenceFieldFill(def,record,values,setValues,JSON.stringify([me?.companyId,me?.id,me?.permissions?.isCompanyAdmin,[...(me?.permissions?.allow ?? [])].sort(),[...(me?.permissions?.deny ?? [])].sort()]));
+  const locked = [...(lockedFields ?? []), ...(refLock?.fields ?? []), ...referenceFill.locked];
   // 商品档案：分区、顺序、叫法、必填、显示条件全部来自 product-layout（详情页读的是同一份）
   const resolved = useMemo(() => (def.key === 'finance-products' ? resolveProductSections(values, { canUse: (p) => (me ? createChecker(me.permissions)(p) : false) }) : null), [def.key, values, me]);
   const visible = useMemo(() => {
@@ -541,6 +544,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       const shown = new Set([...visible.map((f) => f.key), ...(!onlyGroup || sectionHas(onlyGroup, 'supplySources') ? ['supplySources'] : []), ...(!onlyGroup || sectionHas(onlyGroup, 'composition') ? ['composition'] : [])]);
       for (const [k, msg] of Object.entries(probs)) if (shown.has(k) && !(next[k] && /数字|日期格式/.test(next[k]))) next[k] = msg;
     }
+    Object.assign(next,referenceFill.problems);
     setErrors(next);
     const first = visible.find((f) => next[f.key]);
     if (first) setTimeout(() => {
@@ -605,6 +609,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       {def.key === 'finance-fee-items' && f.key === 'defaultObject' ? <FeeBookingNodes value={values.defaultObject} onChange={value => setValues(cur => ({...cur,defaultObject:value}))}/> : isReferenceParty && (f.key === 'code' || def.key === 'finance-suppliers' && f.key === 'shortCode') ? <ArchiveCodeInput inputId={inputId} label={f.label} value={values[f.key]} preview={f.key === 'code' ? archiveCode.code : archiveCode.shortCode} manual={f.key === 'code' ? manualCode : manualShortCode} onManual={f.key === 'code' ? setManualCode : setManualShortCode} onChange={v => setValues(cur => ({...cur,[f.key]:v}))} error={f.key === 'code' ? archiveCode.error : undefined}/> : def.key === 'finance-customers' && f.key === 'categoryIds' ? <><RefSelect inputId={inputId} leafOnly field={{...f,type:'ref'}} value={Array.isArray(values.categoryIds) ? values.categoryIds[0] : null} labelNow={record?.refLabels.categoryIds} onChange={v => setValues(cur => ({...cur,categoryIds:v ? [v] : []}))} />{Array.isArray(values.categoryIds) && values.categoryIds.length > 1 && <small>当前同时归属：{record?.refLabels.categoryIds}；重新选择后归入所选分类。</small>}</> : f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
         inputId={inputId}
         field={f}
+        readOnly={f.formReadOnly || referenceFill.locked.includes(f.key)}
         value={def.draft ? values[f.key] : lockedFields?.includes(f.key) ? initial?.[f.key] : values[f.key]}
         configured={record?.secretConfigured[f.key]}
         labelNow={record?.refLabels[f.key]}
@@ -717,6 +722,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           {referenceStatus && record && <ReferenceRecordHistory type={def.key} id={record.id} label={def.label.replace(/档案$/,'')} />}
           {referenceStatus && groups.find(([g]) => g === '补充资料') && <details className="reference-extra"><summary>更多设置</summary><div className="form-grid">{groups.find(([g]) => g === '补充资料')![1].map(f=>renderField(f))}</div></details>}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
+          {referenceFill.error && <div role="alert" className="notice error">{referenceFill.error} <button type="button" onClick={referenceFill.retry}>重试引用资料</button></div>}
           {error && <div role="alert" className="notice error">{error}</div>}
           </div>
         </div>
@@ -737,7 +743,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           {draftEnabled && <button type="button" className="secondary-button finance-form-draft" disabled={busy} onClick={() => void saveDraft()}>保存草稿</button>}
           {!record && onContinued && (isProduct || isReferenceParty && def.key !== 'finance-fee-items') && <button type="button" className="secondary-button finance-form-keep" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新增</button>}
           {!record && onContinued && (isProduct || isReferenceParty) && <button type="button" className="secondary-button finance-form-next" disabled={busy} onClick={() => void prepare('blank')}>保存并继续新增</button>}
-          {!(def.key === 'finance-fee-items' && !record && onContinued) && <button type="submit" className="primary-button finance-form-save" disabled={busy}>{busy ? '保存中…' : def.form?.saveLabel ? def.form.saveLabel : isProduct && layoutKey === 'custom' ? '保存商品' : isProduct && record ? '保存修改' : '保存'}</button>}
+          {!(def.key === 'finance-fee-items' && !record && onContinued) && <button type="submit" className="primary-button finance-form-save" disabled={busy || referenceFill.pending || !!referenceFill.error}>{busy ? '保存中…' : def.form?.saveLabel ? def.form.saveLabel : isProduct && layoutKey === 'custom' ? '保存商品' : isProduct && record ? '保存修改' : '保存'}</button>}
         </div>
       </form>
       {quality && (

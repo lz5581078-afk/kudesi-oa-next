@@ -34,7 +34,7 @@ export function rulesToCsv(rules: RuleRow[]): string {
     ...rules.map((r) => {
       const formula = r.fixedPrice === null || r.fixedPrice === undefined;
       return [r.province === 'ALL' ? '全国' : r.province, formula ? '首重续重' : '区间统一价', wt(r.shipWeightMin ?? 0), wt(r.shipWeightMax), formula ? '' : centsToYuan(r.fixedPrice),
-        formula ? String(r.firstWeight === 0 ? 0 : 1) : '', formula ? centsToYuan(r.firstPrice) : '', formula ? centsToYuan(r.extraPrice) : '', '', r.minExclusive ? '是' : '否', r.maxExclusive ? '是' : '否'];
+        formula ? String(r.firstWeight === 0 ? 0 : 1) : '', formula ? centsToYuan(r.firstPrice) : '', formula ? centsToYuan(r.extraPrice) : '', r.note ?? '', r.minExclusive ? '是' : '否', r.maxExclusive ? '是' : '否'];
     }),
   ]);
 }
@@ -62,7 +62,7 @@ export function parseRulesCsv(text: string): { rules: RuleRow[]; errors: string[
     const typeText = cell(r, 'ruleType');
     const formula = typeText.includes('首重') || (!typeText && cell(r, 'extra') !== '');
     const yes = (k: string, fallback: boolean) => (cell(r, k) === '' ? fallback : cell(r, k) === '是');
-    const base: RuleRow = { province, shipWeightMin: start, shipWeightMax: end, minExclusive: yes('minEx', start > 0) || undefined, maxExclusive: yes('maxEx', false) || undefined };
+    const base: RuleRow = { ...(cell(r, 'remark') ? { note: cell(r, 'remark') } : {}), province, shipWeightMin: start, shipWeightMax: end, minExclusive: yes('minEx', start > 0) || undefined, maxExclusive: yes('maxEx', false) || undefined };
     if (formula) {
       const first = yuanToCents(cell(r, 'firstAmount'));
       const extra = yuanToCents(cell(r, 'extra'));

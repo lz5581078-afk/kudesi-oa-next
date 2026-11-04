@@ -182,6 +182,18 @@ export class AiProviderService {
     return { ok: true };
   }
 
+  /** Explicit per-request selection; credentials stay server-side and callers cannot supply an endpoint. */
+  async resolveSelectedVision(companyId: number, providerId: number, modelId: string): Promise<VisionConfig> {
+    const provider = await this.owned(companyId, providerId);
+    if (provider.status !== 'active') throw new BadRequestException('请选择已启用的 AI 服务商');
+    const model = modelId.trim();
+    if (!model) throw new BadRequestException('请选择 AI 模型');
+    const [known] = await this.ds.query('SELECT 1 AS ok FROM ai_models WHERE company_id = ? AND provider_id = ? AND model_id = ?', [companyId, providerId, model]);
+    if (!known && provider.model_name !== model) throw new BadRequestException('这个模型不在该服务商的模型清单里');
+    try { return { baseUrl: provider.base_url, apiKey: this.crypto.decrypt(provider.api_key_enc), model, enabled: true }; }
+    catch { throw new BadRequestException('这个服务商的 API Key 无法解密，请重新保存 API Key'); }
+  }
+
   /** 给识别功能用：这个场景选了默认模型就用它，没选返回 null（调用方回退到“接口设置”里的识别大模型）。 */
   async resolveVision(companyId: number, scope: AiScope): Promise<VisionConfig | null> {
     const [r] = await this.ds.query(

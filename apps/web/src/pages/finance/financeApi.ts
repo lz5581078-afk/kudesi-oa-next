@@ -114,7 +114,7 @@ export const financeApi = {
   exportCostTable: (p: { categoryId?: number; keyword?: string }) => api<{ fileName: string; fileBase64: string; rowCount: number }>(`/finance/cost-table/export${qs(p)}`),
   saveCostPricing: (bundleId: number, b: CostPricingSave) => api<{ ok: true; changed: boolean }>(`/finance/cost-table/${bundleId}/pricing`, { method: 'PUT', body: b }),
   saveCategoryMargin: (categoryId: number, b: { revision: string; profitPercent: number | null; reason: string }) => api<{ ok: true; changed: boolean }>(`/finance/cost-table/category-margins/${categoryId}`, { method: 'PUT', body: b }),
-  skuCostHistory: (bundleId: number, page = 1) => api<{ changes: { total: number; rows: CostSnapshotRow[] }; pricing: { total: number; rows: PricingHistoryRow[] } }>(`/finance/cost-table/${bundleId}/history${qs({ page })}`),
+  skuCostHistory: (bundleId: number, page = 1, keyword?: string) => api<{ changes: { total: number; rows: CostSnapshotRow[] }; pricing: { total: number; rows: PricingHistoryRow[] } }>(`/finance/cost-table/${bundleId}/history${qs({ page, keyword })}`),
   marginHistory: (p: { keyword?: string; page?: number }) => api<Paged<MarginHistoryRow>>(`/finance/cost-history/margins${qs(p)}`),
   pricingHistory: (p: { keyword?: string; page?: number }) => api<Paged<PricingHistoryRow>>(`/finance/cost-history/pricing${qs(p)}`),
   debugComponents: (p: { categoryId?: number; keyword?: string; page?: number }) => api<DebugComponents>(`/finance/pricing-debug/components${qs(p)}`),

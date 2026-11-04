@@ -1,0 +1,19 @@
+.express-hierarchy-form { width: min(600px, calc(100vw - 24px)); }
+.express-hierarchy-form .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.express-hierarchy-form h3 { margin: 0; font-size: 18px; }
+.express-hierarchy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.express-hierarchy-grid > label { display: grid; gap: 6px; min-width: 0; font-size: 13px; }
+.express-hierarchy-grid input, .express-hierarchy-grid select, .express-hierarchy-grid textarea { width: 100%; min-width: 0; }
+.express-hierarchy-wide { grid-column: 1 / -1; }
+.express-hierarchy-weight { min-width: 0; border: 1px solid #dce5eb; margin: 0; padding: 12px; }
+.express-hierarchy-weight legend { padding: 0 4px; font-size: 13px; }
+.express-hierarchy-weight p { color: #5e7180; font-size: 12px; line-height: 1.6; margin: 10px 0 0; }
+@media (max-width: 520px) { .express-hierarchy-grid { grid-template-columns: 1fr; } }
+.express-hierarchy-form { display: block; padding: 18px; max-height: min(88vh,900px); overflow: auto; border-radius: 8px; background: #fff; opacity: 1; }
+.express-hierarchy-form .modal-head { padding: 0 0 14px; margin-bottom: 16px; }
+.express-hierarchy-form .modal-body { padding: 0; gap: 0; max-height: none; overflow: visible; background: #fff; }
+.express-hierarchy-form .modal-foot { padding: 14px 0 0; margin-top: 20px; }
+.express-hierarchy-grid > label { color: #334b59; font-weight: 700; }
+.express-hierarchy-grid input, .express-hierarchy-grid select { height: 38px; }
+.express-hierarchy-grid textarea { min-height: 82px; margin-bottom: 12px; padding: 10px; }
+.express-rule-bound { display: grid; grid-template-columns: 62px minmax(0,1fr); gap: 6px; }

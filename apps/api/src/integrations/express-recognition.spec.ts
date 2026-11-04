@@ -79,3 +79,14 @@ describe('快递价格表识别整理', () => {
     await expect(ocr.recognizeExpressDocument(boss, { originalname: 'a.bin', buffer: bin, size: bin.length }, 'price_table', PROVINCES)).rejects.toThrow(/只能识别/);
   });
 });
+
+describe('快递识别备注', () => {
+  it('保留省份备注、复杂规则独立备注及通知批次备注', () => {
+    const price = normalizePriceTable({ priceRows: [{ province: '广东', price1kg: 3, remark: '省份备注', priceRules: [{ weightScope: '1-30kg', ruleType: 'formula', firstWeightType: '0', firstWeightAmount: 3, continuedWeightAmount: 0.5, remark: '公式备注' }] }] }, PROVINCES);
+    expect(price.rows[0]).toMatchObject({ note: '省份备注' });
+    expect(price.rows[1]).toMatchObject({ note: '公式备注' });
+    const surcharge = normalizeSurchargeNotice({ batchName: '通知', batchRemark: '批次口径', surcharges: [{ surchargeName: '偏远', areaScope: '广东', amount: 1, remark: '加收口径' }] }, PROVINCES);
+    expect(surcharge.batchNote).toBe('批次口径');
+    expect(surcharge.rows[0]).toMatchObject({ note: '加收口径' });
+  });
+});

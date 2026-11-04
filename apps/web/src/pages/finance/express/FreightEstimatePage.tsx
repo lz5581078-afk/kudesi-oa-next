@@ -1,127 +1,75 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../../../auth/AuthContext';
-import { ApiError } from '../../../api/client';
-import { Pager, centsToYuan, money, yuanToCents } from '../common';
+import { centsToYuan, money, yuanToCents } from '../common';
+import { useExpressWorkspace } from './ExpressWorkspaceContext';
 import { expressApi, type EstimateRow, type Estimates } from './expressApi';
+import './freightEstimate.css';
 
 const PAGE_SIZE = 50;
-const METHOD: Record<string, string> = {
-  provincial_majority_mean_plus_10_percent: '各省最低价，取相差 15% 内的多数省份均价 ×1.1',
-  provincial_upper_trimmed_mean_plus_10_percent: '各省最低价，去掉最高约 20% 后均价 ×1.1',
-  split_parcel_sum: '超过单包上限，按拆包累加',
-};
-const err = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
-const range = (r: EstimateRow) => `${r.start} ~ ${r.end} kg`;
+const range = (row: EstimateRow) => `${row.start}–${row.end}kg`;
+const formatTime = (text: string) => new Date(text).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 
-/** 成本表预估快递费：按重量段汇总各合作快递的最低价，估出一个典型运费；可以给某个重量段手工定价，拆包时同样生效。 */
+/** Edits span every page and are submitted together; automatic amounts belong to the saved snapshot. */
 export function FreightEstimatePage() {
+  const hosted = Boolean(useExpressWorkspace());
   const { can } = useAuth();
   const canEdit = can('resource.finance-freight-overrides.edit') && can('product.cost.edit');
   const [data, setData] = useState<Estimates | null>(null);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [limit, setLimit] = useState('30');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
-  const [open, setOpen] = useState<string | null>(null);
-  const [edit, setEdit] = useState<{ key: string; text: string } | null>(null);
-
-  const apply = (d: Estimates) => { setData(d); setLimit(String(d.parcelLimit)); };
-  const load = useCallback(async () => {
-    try { apply(await expressApi.estimates()); setError(''); } catch (e) { setError(err(e)); }
+  function apply(result: Estimates) {
+    setData(result); setLimit(String(result.parcelLimit)); setPage(1);
+    setDrafts(Object.fromEntries(result.rows.filter(row => !row.parcels).map(row => [row.key, centsToYuan(row.manualAmount)])));
+  }
+  useEffect(() => {
+    let active = true;
+    void expressApi.estimates().then(result => { if (active) apply(result); }).catch(e => { if (active) setError((e as Error).message || '预估运费读取失败'); });
+    return () => { active = false; };
   }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  async function run(fn: () => Promise<Estimates>, done: string) {
-    setBusy(true); setError(''); setNotice('');
-    try { apply(await fn()); setNotice(done); } catch (e) { setError(err(e)); }
-    setBusy(false);
+  async function run(operation: () => Promise<Estimates>) {
+    if (busy) return;
+    setBusy(true); setError('');
+    try { apply(await operation()); }
+    catch (e) { setError((e as Error).message || '保存失败'); }
+    finally { setBusy(false); }
   }
-  function saveLimit() {
-    const n = Number(limit);
-    if (!Number.isInteger(n) || n < 1 || n > 100) return setError('单包重量上限要填 1 到 100 之间的整数（公斤）');
-    void run(() => expressApi.setParcelLimit(n), `单包上限已改为 ${n}kg，已重新计算`);
+  function recalculate() {
+    const value = Number(limit);
+    if (!Number.isInteger(value) || value < 1 || value > 100) return setError('单包重量上限要填 1 到 100 之间的整数（公斤）');
+    void run(() => expressApi.recalculate(value, data?.revision ?? 0));
   }
-  function saveManual(r: EstimateRow) {
-    const cents = yuanToCents(edit?.text ?? '');
-    if (cents === null || Number.isNaN(cents) || cents < 0) return setError('手工运费要填大于等于 0 的金额（最多两位小数，可以填 0）');
-    void run(() => expressApi.setOverride(r.start, r.end, cents), `「${range(r)}」已设为手工运费`).then(() => setEdit(null));
+  function saveManual() {
+    if (!data) return;
+    const changes: Array<{ weightFrom: number; weightTo: number; amount: number | null }> = [];
+    for (const row of data.rows.filter(row => !row.parcels)) {
+      const value = yuanToCents(drafts[row.key] ?? '');
+      if (value !== null && (!Number.isSafeInteger(value) || value < 0 || value > 100_000_000)) return setError(`${range(row)} 的手工运费必须是非负金额（最多两位小数）。`);
+      changes.push({ weightFrom: row.start, weightTo: row.end, amount: value });
+    }
+    void run(() => expressApi.saveOverrides(data.revision ?? 0, changes));
   }
-
   const rows = data?.rows ?? [];
-  const shown = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  return (
-    <div>
-      <div className="page-head between">
-        <h1>成本表预估快递费</h1>
-        <div className="toolbar">
-          <label>单包重量上限（kg）<input type="number" min={1} max={100} step={1} aria-label="单包重量上限" value={limit} disabled={!canEdit} onChange={(e) => setLimit(e.target.value)} style={{ width: 80 }} /></label>
-          {canEdit && <button type="button" className="secondary-button" disabled={busy || String(data?.parcelLimit) === limit} onClick={saveLimit}>保存上限</button>}
-          {canEdit && <button type="button" className="primary-button" disabled={busy} onClick={() => void run(() => expressApi.recalculate(), '已重新计算并保存')}>{busy ? '计算中…' : '重新计算'}</button>}
-        </div>
-      </div>
-      <div className="notice">
-        <strong>这张表怎么算的</strong>
-        <ol>
-          <li>只看“当前版本 + 合作中 + 日期有效”的价格；每个省取各家最便宜的报价，再取相差 15% 内的多数省份的均价，上浮 10%。省份太少（不足 3 个）的重量段不估价。</li>
-          <li>6kg 以上凑不成多数时，会去掉最高约 20% 的省份再取均价。</li>
-          <li>超过单包上限的重量，按“整包 + 余量”拆开累加；某个重量段设了手工运费，拆出来的包裹碰到这个段也按手工运费算。</li>
-        </ol>
-      </div>
-      {notice && <div role="status" className="notice ok">{notice}</div>}
-      {error && <div role="alert" className="notice error">{error}</div>}
-      {data && <p className="muted">目前有 {data.cooperatingGroups} 个价格版本参与计算；{data.calculatedAt ? `上次保存快照：${new Date(data.calculatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : '还没有保存过快照，点“重新计算”保存'}。</p>}
-      {data && data.orphanOverrides.length > 0 && <div className="notice warn">有 {data.orphanOverrides.length} 条手工运费的重量段在当前单包上限下已不是标准段（{data.orphanOverrides.map((o) => `${o.weightFrom}~${o.weightTo}kg`).join('、')}），暂时不生效。</div>}
-      <div className="table-scroll"><table className="data-table">
-        <thead><tr><th>重量段</th><th>估算方式</th><th className="num">自动估价</th><th className="num">手工运费</th><th className="num">最终运费</th><th /></tr></thead>
-        <tbody>
-          {data && rows.length === 0 && <tr><td colSpan={6} className="empty-state muted">还没有可用的价格。请先在“快递价格”里把网点的当前版本设为“合作中”。</td></tr>}
-          {shown.map((r) => {
-            const isBase = !r.parcels;
-            const final = r.manualAmount ?? r.autoAmount;
-            return (
-              <Fragment key={r.key}>
-                <tr>
-                  <td>{range(r)}</td>
-                  <td>{r.autoAmount === null ? <span className="muted">无法估价（省份样本不足）</span> : METHOD[r.method] ?? r.method}</td>
-                  <td className="num">{money(r.autoAmount)}</td>
-                  <td className="num">
-                    {isBase && edit?.key === r.key ? (
-                      <span className="row-actions">
-                        <input aria-label={`${range(r)} 手工运费`} autoFocus inputMode="decimal" style={{ width: 90 }} value={edit.text} onChange={(e) => setEdit({ key: r.key, text: e.target.value })} />
-                        <button type="button" className="secondary-button small" disabled={busy} onClick={() => saveManual(r)}>保存</button>
-                        <button type="button" className="link-button" onClick={() => setEdit(null)}>取消</button>
-                      </span>
-                    ) : isBase ? (
-                      <span className="row-actions">{r.manualAmount !== null ? money(r.manualAmount) : '—'}
-                        {canEdit && <button type="button" className="link-button" onClick={() => setEdit({ key: r.key, text: centsToYuan(r.manualAmount ?? r.autoAmount) })}>{r.manualAmount !== null ? '改' : '手工定价'}</button>}
-                        {canEdit && r.manualAmount !== null && <button type="button" className="link-button danger" disabled={busy} onClick={() => void run(() => expressApi.setOverride(r.start, r.end, null), `「${range(r)}」已取消手工运费`)}>取消手工</button>}</span>
-                    ) : <span className="muted">不能单独定价</span>}
-                  </td>
-                  <td className="num"><strong>{money(final)}</strong></td>
-                  <td><button type="button" className="link-button" aria-expanded={open === r.key} onClick={() => setOpen(open === r.key ? null : r.key)}>{open === r.key ? '收起' : '明细'}</button></td>
-                </tr>
-                {open === r.key && (
-                  <tr><td colSpan={6} className="detail-cell">
-                    {r.parcels ? (
-                      <div>拆包：{r.parcels.map((p, i) => <span key={i}>{i ? ' + ' : ''}{p.count} 个 {p.weight}kg 包裹 × {money(p.amount)}{p.source === 'manual' ? '（手工）' : ''}</span>)}</div>
-                    ) : (
-                      <div>
-                        <p>参与估价 {r.sampleCount} 个省份，取其中 {r.includedCount} 个，样本均价 {r.baseAverage === null ? '—' : money(Math.round(r.baseAverage))}。
-                          {r.excludedHighProvinces.length > 0 && `剔除偏高：${r.excludedHighProvinces.join('、')}。`}{r.excludedLowProvinces.length > 0 && `剔除偏低：${r.excludedLowProvinces.join('、')}。`}</p>
-                        <div className="table-scroll"><table className="data-table compact"><thead><tr><th>省份</th><th>最低价</th><th>来自</th><th>适用规则</th></tr></thead><tbody>
-                          {r.provinceQuotes.map((q) => <tr key={q.province}><td>{q.province}</td><td>{money(q.amount)}</td><td>{q.carrierName} / {q.branchName} / {q.versionName}</td><td>{q.rule}</td></tr>)}
-                        </tbody></table></div>
-                      </div>
-                    )}
-                  </td></tr>
-                )}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table></div>
-      {rows.length > PAGE_SIZE && <Pager page={page} total={rows.length} pageSize={PAGE_SIZE} onPage={setPage} />}
-    </div>
-  );
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  return <section className="express-freight-estimate">
+    {hosted ? <h2>成本表预估快递费</h2> : <h1>成本表预估快递费</h1>}
+    <div className="express-freight-head"><div><strong>连续重量段的典型省份报价预估</strong><span>每省先取当前合作报价中的最低价，优先选价格相差不超过 15%、覆盖超过半数省份的最大一组；从 6–7kg 重量段起若无法形成多数价格组，则剔除最高约 20% 的省份报价（孤立的最低价也剔除）后取均价。两种均价均上浮 10%；不足 3 个有报价省份时不自动估价。不含临时加收，手工金额优先。组合成本表刷新后采用，历史成本快照在下次重算时采用。</span></div><label>单包上限 <input aria-label="单包重量上限" type="number" min="1" max="100" step="1" value={limit} disabled={busy || !canEdit} onChange={e => setLimit(e.target.value)} /> kg · 总重至 1000kg</label>{canEdit && <button type="button" className="primary-button" disabled={busy} onClick={recalculate}>{busy ? '处理中…' : '重新计算'}</button>}</div>
+    {error && <div className="express-freight-error" role="alert">{error} <button type="button" disabled={busy} onClick={() => void run(expressApi.estimates)}>重试读取</button></div>}
+    {data?.calculatedAt && <div className="express-freight-notice">上次计算：{formatTime(data.calculatedAt)}。价格表或预估口径变化后请重新计算；保存手工金额不会改变自动报价来源。</div>}
+    {data?.requiresRecalculation && <div className="express-freight-notice">发货范围或旧预估口径已变更，请重新计算。手工金额仍按已保存值使用。</div>}
+    {!rows.length ? <div className="empty-state"><strong>还没有成本表预估运费</strong><p>点击“重新计算”生成连续重量段；没有合作报价的段也可以填写手工运费。</p></div> : <>
+      <div className="express-freight-scroll"><table className="express-freight-table"><thead><tr><th>重量段</th><th>预估运费</th><th>省份报价样本</th><th>手工运费（元）/ 拆包明细</th><th>最终采用</th><th>取值方式</th></tr></thead><tbody>{rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(row => {
+        const draft = drafts[row.key] ?? '';
+        const manual = draft.trim() !== '';
+        const preview = manual ? yuanToCents(draft) : row.autoAmount;
+        return <tr key={row.key}><td><strong>{range(row)}</strong><small>大于 {row.start}，不超过 {row.end}kg</small></td><td>{row.shippingUnavailable ? '发货范围已变更，请重新计算' : row.autoAmount == null ? '无可用自动估价' : <><b>{money(row.autoAmount)}</b><small>{row.parcels ? '各包运费合计' : `样本均价 ${money(row.baseAverage)} × 1.10`}</small></>}</td>
+          <td>{row.parcels ? <details><summary>查看各包运费</summary>{row.parcels.map((part, i) => <p key={i}>{part.count} 包 × {part.weight}kg：每包 {part.amount == null ? '缺少报价' : money(part.amount)}{part.source === 'manual' ? '（手工价）' : ''}</p>)}</details> : row.sampleCount ? <details><summary>采纳 {row.includedCount}/{row.sampleCount} 省 · 查看明细</summary><p>采纳：{row.includedProvinces.join('、') || '无'}</p><p>剔除偏低：{row.excludedLowProvinces.join('、') || '无'}</p><p>剔除偏高：{row.excludedHighProvinces.join('、') || '无'}</p><ul>{row.provinceQuotes.map(quote => <li key={quote.province}>{quote.province} {money(quote.amount)} · {quote.carrierName} / {quote.branchName}</li>)}</ul></details> : '无省份报价'}</td>
+          <td>{row.parcels ? <span>{row.parcels.map(part => `${part.count}包 × ${part.weight}kg`).join(' + ')}</span> : <input aria-label={`${row.start}至${row.end}公斤手工运费`} type="number" min="0" step="0.01" placeholder="留空用自动价" value={draft} disabled={busy || !canEdit} onChange={e => setDrafts(current => ({ ...current, [row.key]: e.target.value }))} />}</td><td><strong>{money(preview)}</strong></td><td>{row.parcels ? row.autoAmount == null ? '部分包裹缺少报价' : '拆包合计（含单包手工调整）' : manual ? '手工优先' : row.autoAmount == null ? '无可用自动估价' : row.method === 'provincial_upper_trimmed_mean_plus_10_percent' ? '高价尾部剔除均价 +10%' : '多数省份均价 +10%'}</td></tr>;
+      })}</tbody></table></div>
+      <div className="express-freight-actions"><span>共 {rows.length} 段 · 第 {page}/{pageCount} 页</span><div>{[['首页', 1], ['上一页', page - 1], ['下一页', page + 1], ['末页', pageCount]].map(([label, target], i) => <button type="button" key={label} disabled={i < 2 ? page <= 1 : page >= pageCount} onClick={() => setPage(Number(target))}>{label}</button>)}</div></div>
+      <div className="express-freight-actions"><span>手工运费可填 0；清空后恢复自动预估价。未保存的输入不会进入成本表。</span>{canEdit && <button type="button" className="primary-button" disabled={busy} onClick={saveManual}>保存手工调整</button>}</div>
+    </>}
+  </section>;
 }

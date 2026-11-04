@@ -61,13 +61,16 @@ export class PricingDebugService {
     const pageSize = 30;
     const ids = q.categoryId ? this.descendants(d, q.categoryId) : null;
     const kw = (q.keyword ?? '').trim().toLowerCase();
+    // 与基础编码主目录的display_hidden语义一致：隐藏有马甲的已验证真实编码。
+    const aliased = new Set([...d.baseCodes.values()].map(base=>num(base.data.canonicalId)).filter((id):id is number=>id!==null));
     const list = [...d.baseCodes.values()]
-      .filter((b) => b.status !== 'disabled')
+      .filter((b) => !['disabled','deleted'].includes(b.status))
+      .filter((b) => b.status!=='verified' || !aliased.has(b.id))
       .filter((b) => !ids || ids.has(num(b.data.categoryId) ?? -1))
-      .filter((b) => !kw || `${str(b.data.code)} ${str(b.data.name)} ${b.title}`.toLowerCase().includes(kw))
+      .filter((b) => !kw || `${str(b.data.code)} ${str(b.data.name)} ${str(b.data.shortName)} ${b.title}`.toLowerCase().includes(kw))
       .sort((a, b) => (str(a.data.name) || a.title).localeCompare(str(b.data.name) || b.title, 'zh-CN') || a.id - b.id);
     return {
-      categories: [...d.categories.values()].filter((c) => c.status === 'active').map((c) => ({ id: c.id, name: c.title, parentId: num(c.data.parentId) })),
+      categories: [...d.categories.values()].filter((c) => c.status === 'active' && c.data.archiveType!=='bundle').sort((a,b)=>(num(a.data.sort) ?? 100)-(num(b.data.sort) ?? 100) || a.id-b.id).map((c) => ({ id: c.id, name: c.title, parentId: num(c.data.parentId) })),
       rows: list.slice((q.page - 1) * pageSize, q.page * pageSize).map((b) => ({ id: b.id, code: str(b.data.code), name: str(b.data.name) || b.title, categoryId: num(b.data.categoryId) })),
       total: list.length, page: q.page, pageSize,
     };

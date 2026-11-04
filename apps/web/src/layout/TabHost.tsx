@@ -1,4 +1,4 @@
-import { ComponentType } from 'react';
+import { ComponentType, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { PageTab } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -7,7 +7,7 @@ import './tabHost.css';
 export interface HostTab extends PageTab { Component: ComponentType }
 
 /** 宿主页面：把旧程序里“页面内的 Tab/面板”做成标签页，而不是单独的菜单项。 */
-export function TabHost({ tabs, hideNavigation = false }: { tabs: HostTab[]; hideNavigation?: boolean }) {
+export function TabHost({ tabs, hideNavigation = false, beforeNavigation }: { tabs: HostTab[]; hideNavigation?: boolean; beforeNavigation?: ReactNode }) {
   const { can } = useAuth();
   const [params, setParams] = useSearchParams();
   const visible = tabs.filter((t, i) => i === 0 || can(t.permission));
@@ -15,6 +15,7 @@ export function TabHost({ tabs, hideNavigation = false }: { tabs: HostTab[]; hid
   const Page = current.Component;
   return (
     <div>
+      {beforeNavigation}
       {!hideNavigation && visible.length > 1 && (
         <div className="tab-group host-tabs" role="tablist" aria-label="页面分区">
           {visible.map((t) => (

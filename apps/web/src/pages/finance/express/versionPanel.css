@@ -1,0 +1,28 @@
+.express-version-content { display: grid; gap: 14px; min-width: 0; }
+.express-version-summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px; border: 1px solid #dce5eb; border-left: 3px solid #097f59; background: #fff; }
+.express-version-summary > div:first-child { display: grid; gap: 6px; }
+.express-version-summary strong { font-size: 16px; color: #183a35; }
+.express-version-summary span { font-size: 12px; color: #5e7180; }
+.express-version-layout { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 14px; align-items: start; }
+.express-version-side { display: grid; gap: 14px; }
+.express-config-actions { display: grid; gap: 8px; padding: 14px; }
+.express-price-source { display: grid; gap: 6px; margin: 0 14px 14px; font-size: 12px; font-weight: 700; }
+.express-version-side dl { display: grid; gap: 10px; margin: 0; padding: 14px; }
+.express-version-side dl > div { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 10px; font-size: 12px; }
+.express-version-side dt { font-weight: 700; color: #5e7180; }
+.express-version-side dd { margin: 0; overflow-wrap: anywhere; }
+.express-surcharge-section { padding: 14px; }
+.express-surcharge-section > p, .express-surcharge-batch p, .express-surcharge-batch small { font-size: 12px; color: #5e7180; }
+.express-surcharge-batch { border: 1px solid #dce5eb; padding: 14px; margin: 14px 0; }
+.express-surcharge-batch > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.express-surcharge-batch > header > div:first-child { display: grid; gap: 5px; }
+.express-surcharge-batch-meta { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin: 14px 0; }
+.express-surcharge-batch-meta > span { display: grid; gap: 4px; font-size: 12px; }
+.express-surcharge-batch-meta b { color: #5e7180; font-size: 11px; }
+.express-cooperation-note { display: grid; gap: 8px; padding: 14px; font-size: 14px; font-weight: 800; }
+.express-cooperation-note textarea { width: 100%; min-height: 220px; line-height: 1.6; padding: 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
+.express-version-content > .qk-panel > small { display: block; padding: 0 14px 14px; font-size: 12px; color: #5e7180; }
+.express-info-dialog { background: #fff; border-radius: 8px; }
+.express-info-dialog .modal-head { display: flex; justify-content: space-between; gap: 12px; }
+@media (max-width: 1100px) { .express-version-layout { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 600px) { .express-version-summary, .express-surcharge-batch > header { align-items: flex-start; flex-direction: column; } .express-surcharge-batch-meta { grid-template-columns: repeat(2,minmax(0,1fr)); } }
