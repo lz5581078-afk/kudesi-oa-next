@@ -1,0 +1,9 @@
+import {extractProductBomCostFacts} from './product-bom-cost-facts';
+const row=(data:Record<string,unknown>,type='finance-product-boms')=>({type,data});
+const facts={version:1,componentId:7,unitCost:1000.1234,freight:0,handlingFee:null};
+describe('BOM已存报价只读投影',()=>{
+ it('物流保存八位元但采购报价仍六位元，坏物流不得投影',()=>{expect(extractProductBomCostFacts(row({componentId:7,archiveBomCostSnapshot:{...facts,freight:12.345678,handlingFee:0.000001}}))).toEqual({unitCost:1000.1234,freight:12.345678,handlingFee:0.000001});for(const extra of [{freight:12.3456789},{handlingFee:99_999_999_999},{unitCost:12.345678}])expect(extractProductBomCostFacts(row({componentId:7,archiveBomCostSnapshot:{...facts,...extra}}))).toBeUndefined();});
+ it('只投影匹配的三项保存金额，零保真且不返回来源ID/schema',()=>{expect(extractProductBomCostFacts(row({componentId:7,archiveBomCostSnapshot:facts}))).toEqual({unitCost:1000.1234,freight:0,handlingFee:null});expect(extractProductBomCostFacts(row({laborId:8,archiveBomCostSnapshot:{version:1,laborId:8,unitCost:0,freight:0,handlingFee:0}}))).toEqual({unitCost:0,freight:0,handlingFee:0});});
+ it('旧无marker/未知schema/缺项/不同或双引用不能伪造保存事实',()=>{for(const data of [{componentId:7},{componentId:7,archiveBomCostSnapshot:{...facts,version:2}},{componentId:7,archiveBomCostSnapshot:{...facts,unitCost:undefined}},{componentId:8,archiveBomCostSnapshot:facts},{componentId:7,laborId:8,archiveBomCostSnapshot:facts},{componentId:7,archiveBomCostSnapshot:{...facts,laborId:8}},{laborId:7,archiveBomCostSnapshot:facts},{componentId:'7',archiveBomCostSnapshot:facts}])expect(extractProductBomCostFacts(row(data))).toBeUndefined();expect(extractProductBomCostFacts(row({componentId:7,archiveBomCostSnapshot:facts},'finance-products'))).toBeUndefined();});
+ it('拒绝负数/非有限数/字符串/非法报价精度，不把坏金额变0',()=>{for(const value of [-1,NaN,Infinity,'100',undefined,0.00001])expect(extractProductBomCostFacts(row({componentId:7,archiveBomCostSnapshot:{...facts,unitCost:value}}))).toBeUndefined();});
+});

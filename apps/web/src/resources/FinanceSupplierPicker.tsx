@@ -1,20 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronRight, FolderTree, Search, X } from 'lucide-react';
-import { resourceApi, type ResourceDto } from './api';
+import { type ResourceDto } from './api';
+import {useAuth} from '../auth/AuthContext';
+import {loadResourceDirectory} from './resourceDirectory';
 import './financeSupplierPicker.css';
 
-async function readAll(type: string) {
-  const rows: ResourceDto[] = [];
-  for (let page = 1; ; page++) {
-    const result = await resourceApi.list(type, { page, pageSize: 200 });
-    rows.push(...result.items);
-    if (rows.length >= result.total || !result.items.length) return rows.filter(row => row.status === 'active');
-  }
-}
-
 /** 商品供货来源沿用旧版的独立选择窗口：逐级浏览直属供应商，搜索则跨分类查找。 */
-export function FinanceSupplierPicker({ value, onChange, labelNow, inputId }: { value: unknown; onChange: (id: number) => void; labelNow?: string; inputId?: string }) {
+type Props={value:unknown;onChange:(id:number)=>void;labelNow?:string;inputId?:string};
+export function FinanceSupplierPicker(props:Props){const{user}=useAuth();return <SupplierPicker key={JSON.stringify([user?.id,user?.companyId,user?.permissions])} {...props}/>;}
+function SupplierPicker({value,onChange,labelNow,inputId}:Props) {
   const [open, setOpen] = useState(false), [path, setPath] = useState<number[]>([]), [keyword, setKeyword] = useState('');
   const [data, setData] = useState<{ suppliers: ResourceDto[]; categories: ResourceDto[] } | null>(null);
   const [error, setError] = useState(''), [revision, setRevision] = useState(0);
@@ -22,8 +17,8 @@ export function FinanceSupplierPicker({ value, onChange, labelNow, inputId }: { 
   useEffect(() => {
     let alive = true;
     setError(''); setData(null);
-    Promise.all([readAll('finance-suppliers'), readAll('finance-supplier-categories')])
-      .then(([suppliers, categories]) => { if (alive) setData({ suppliers, categories }); })
+    Promise.all(['finance-suppliers','finance-supplier-categories'].map(type=>loadResourceDirectory(type,()=>alive,undefined,{preserveOrder:true})))
+      .then(([suppliers, categories]) => { if (alive&&suppliers&&categories) setData({ suppliers, categories }); })
       .catch(() => { if (alive) setError('供应商资料读取失败，当前选择仍保留。'); });
     return () => { alive = false; };
   }, [revision]);

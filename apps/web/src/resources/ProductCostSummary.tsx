@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { COST_BUCKETS, unitYuanText, type ResourceDef } from '@kudesi/shared';
+import { COST_BUCKETS, type ResourceDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 import { currentProductPurchasePrice } from './productPurchasePrice';
 import { useProductPurchaseHistory, purchasePriceStats, purchaseRecordedAt } from './ProductPurchaseHistory';
 
-const yuan = (v: unknown) => (v === undefined || v === null || v === '' || !Number.isFinite(Number(v)) ? null : `¥${unitYuanText(Number(v))}`);
+const yuan = (v: unknown) => (v === undefined || v === null || v === '' || !Number.isFinite(Number(v)) ? null : `¥${(Number(v)/100).toFixed(8).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')}`);
 const bucketLabel = (v: unknown) => COST_BUCKETS.find((o) => o.value === v)?.label ?? String(v ?? '');
 
 /** 商品档案详情顶部的成本汇总：采购价 + 运费 + 装卸费 = 总成本价，上次/近 3 个月平均采购价，最新档案成本。 */
@@ -38,7 +38,7 @@ export function ProductCostSummary({ def, record, reference = false }: { def: Re
         <dt>上次采购价</dt>
         <dd>{history === null ? '读取中…' : last ? yuan(last.data.purchasePrice) : <span className="muted">暂无</span>}</dd>
         <dt>3 个月平均采购价</dt>
-        <dd>{history === null ? '读取中…' : avg === null ? <span className="muted">暂无</span> : `¥${unitYuanText(avg)}`}</dd>
+        <dd>{history === null ? '读取中…' : avg === null ? <span className="muted">暂无</span> : `¥${(avg/100).toFixed(8).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')}`}</dd>
       </dl>
       {(reference || priced.length > 0) && <button type="button" className="link-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>历史采购价（{priced.length}）</button>}
       {historyError && <p role="alert">历史采购价读取失败。<button type="button" onClick={retry}>重试</button></p>}

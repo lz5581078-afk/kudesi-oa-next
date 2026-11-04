@@ -2,9 +2,12 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, ChevronRight, FolderTree, Search, X } from 'lucide-react';
 import { pinyin } from 'pinyin-pro';
-import { unitYuanText, type CompositionGroup } from '@kudesi/shared';
+import { type CompositionGroup } from '@kudesi/shared';
 import { resourceApi, type ResourceDto } from './api';
+import {loadResourceDirectory} from './resourceDirectory';
 import { useAuth } from '../auth/AuthContext';
+import {productReferenceCostText} from './productReferenceList';
+import {productionProductLabel} from './productionProductLabel';
 import './financeSupplierPicker.css';
 import './financeCompositionPicker.css';
 
@@ -14,38 +17,32 @@ const scopes = {
 } as const;
 type Catalog = { items: ResourceDto[]; categories: ResourceDto[]; version?: ResourceDto };
 
-export function formatCompositionCost(cents: number): string {
+export function formatCompositionCost(cents: number,centScale=4): string {
   if (!Number.isFinite(cents)) return '未填写';
-  const [whole, decimals = ''] = unitYuanText(cents).split('.');
-  return `¥${whole}.${decimals.padEnd(3, '0')}`;
+  return productReferenceCostText(cents,centScale);
 }
 
-async function readAll(type: string, query: { tab?: string; fieldKey?: string; fieldValue?: number } = {}) {
-  const rows: ResourceDto[] = [];
-  for (let page = 1; ; page++) {
-    const result = await resourceApi.list(type, { ...query, page, pageSize: 200 });
-    rows.push(...result.items);
-    if (!result.items.length || rows.length >= result.total) return rows.filter(row => row.status === 'active' && !row.archived);
-  }
-}
+async function readAll(type:string,query:{tab?:string;fieldKey?:string;fieldValue?:number}={},current:()=>boolean){return await loadResourceDirectory(type,current,undefined,{preserveOrder:true,scopedQuery:query})??[];}
 
-async function catalog(group: CompositionGroup): Promise<Catalog> {
+export async function loadFinanceCompositionCatalog(group: CompositionGroup,current:()=>boolean): Promise<Catalog> {
   if (group !== 'labor') {
-    const [items, categories] = await Promise.all([readAll('finance-products', { tab: scopes[group].archive }), readAll('finance-categories', { tab: scopes[group].archive })]);
+    const [items, categories] = await Promise.all([readAll('finance-products', { tab: scopes[group].archive },current), readAll('finance-categories', { tab: scopes[group].archive },current)]);
     return { items: items.filter(row => row.data.archiveType === scopes[group].archive), categories: categories.filter(row => row.data.archiveType === scopes[group].archive) };
   }
   const day = new Date().toISOString().slice(0, 10);
-  const versions = (await readAll('finance-labor-versions')).filter(row => (!row.data.effectiveFrom || String(row.data.effectiveFrom) <= day) && (!row.data.effectiveTo || String(row.data.effectiveTo) >= day));
+  const versions = (await readAll('finance-labor-versions',{},current)).filter(row => (!row.data.effectiveFrom || String(row.data.effectiveFrom) <= day) && (!row.data.effectiveTo || String(row.data.effectiveTo) >= day));
   versions.sort((a, b) => Number(b.data.isDefault === true) - Number(a.data.isDefault === true) || String(b.data.effectiveFrom ?? '').localeCompare(String(a.data.effectiveFrom ?? '')) || b.id - a.id);
   const version = versions[0];
   if (!version) return { items: [], categories: [] };
   const filter = { fieldKey: 'versionId', fieldValue: version.id };
-  const [items, categories] = await Promise.all([readAll('finance-labor-costs', filter), readAll('finance-labor-categories', filter)]);
+  const [items, categories] = await Promise.all([readAll('finance-labor-costs', filter,current), readAll('finance-labor-categories', filter,current)]);
   return { version, items: items.filter(row => row.data.versionId === version.id), categories: categories.filter(row => row.data.versionId === version.id) };
 }
 
 /** 生产组成共用的直接搜索与分类窗；只走通用资料接口，人工限定当前有效版本。 */
-export function FinanceCompositionPicker({ group, value, onChange, labelNow, categoriesEnabled = true, canCost = true }: { group: CompositionGroup; value: number | null; onChange: (id: number) => void; labelNow?: string; categoriesEnabled?: boolean; canCost?: boolean }) {
+type PickerProps={group:CompositionGroup;value:number|null;onChange:(id:number)=>void;labelNow?:string;categoriesEnabled?:boolean;canCost?:boolean};
+export function FinanceCompositionPicker(props:PickerProps){const{user}=useAuth();return <CompositionPicker key={JSON.stringify([user?.id,user?.companyId,user?.permissions])} {...props}/>;}
+function CompositionPicker({group,value,onChange,labelNow,categoriesEnabled=true,canCost=true}:PickerProps) {
   const { user } = useAuth();
   const { label } = scopes[group], labor = group === 'labor';
   const [inline, setInline] = useState(false), [modal, setModal] = useState(false), [keyword, setKeyword] = useState(''), [path, setPath] = useState<number[]>([]);
@@ -57,13 +54,13 @@ export function FinanceCompositionPicker({ group, value, onChange, labelNow, cat
     if (!opened) return;
     let alive = true;
     setData(null); setError('');
-    void catalog(group).then(result => { if (alive) setData(result); }).catch(e => { if (alive) setError(e instanceof Error ? e.message : '资料读取失败'); });
+    void loadFinanceCompositionCatalog(group,()=>alive).then(result => { if (alive) setData(result); }).catch(e => { if (alive) setError(e instanceof Error ? e.message : '资料读取失败'); });
     return () => { alive = false; };
   }, [opened, group, revision, user?.companyId]);
   useEffect(() => {
     let alive = true;
     setHistoricalLabel('');
-    if (value && !labelNow) void Promise.resolve().then(() => resourceApi.get(labor ? 'finance-labor-costs' : 'finance-products', value)).then(row => { if (alive) setHistoricalLabel(labor ? `${row.data.workName || row.title} · ${row.data.workCode || '无编号'}` : String(row.data.basicInfoFullName || row.title)); }).catch(() => undefined);
+    if (value && !labelNow) void Promise.resolve().then(() => resourceApi.get(labor ? 'finance-labor-costs' : 'finance-products', value)).then(row => { if (alive) setHistoricalLabel(labor ? `${row.data.workName || row.title} · ${row.data.workCode || '无编号'}` : productionProductLabel(row)); }).catch(() => undefined);
     return () => { alive = false; };
   }, [value, labelNow, labor, user?.companyId]);
   const closeModal = () => { setModal(false); setKeyword(''); trigger.current?.focus(); };
@@ -80,12 +77,12 @@ export function FinanceCompositionPicker({ group, value, onChange, labelNow, cat
     for (let row = byId.get(id); row && !seen.has(row.id); row = byId.get(Number(row.data.parentId))) { seen.add(row.id); names.unshift(row.title); }
     return names.join(' / ');
   };
-  const nameOf = (row: ResourceDto) => String(labor ? row.data.workName || row.title : row.data.basicInfoFullName || row.title);
+  const nameOf = (row: ResourceDto) => labor ? String(row.data.workName || row.title) : productionProductLabel(row);
   const codeOf = (row: ResourceDto) => String(row.data[labor ? 'workCode' : 'code'] || '无编号');
   const categoryOf = (row: ResourceDto) => Number(row.data[labor ? 'archiveCategoryId' : 'categoryId'] || 0);
   const metaOf = (row: ResourceDto) => `${categoryPath(categoryOf(row)) || '未分类'}${labor ? '' : ` · ${row.data.purchaseSpec || '未维护规格'}`}`;
   const word = keyword.trim().toLocaleLowerCase();
-  const matches = (row: ResourceDto) => [nameOf(row), codeOf(row), categoryPath(categoryOf(row)), row.data.name, row.refLabels.brandId, row.data.specQty, row.data.specUnit, row.data.purchaseSpec, row.refLabels.workTypeId, row.refLabels.unitId, data?.version?.data.versionCode, pinyin(String(row.data[labor ? 'workName' : 'name'] || row.title), { pattern: 'first', toneType: 'none', separator: '' })].some(text => String(text ?? '').toLocaleLowerCase().includes(word));
+  const matches = (row: ResourceDto) => [nameOf(row), codeOf(row), categoryPath(categoryOf(row)), row.data.name, row.data.basicInfoFullName, row.refLabels.brandId, row.data.specQty, row.data.specUnit, row.data.purchaseSpec, row.refLabels.workTypeId, row.refLabels.unitId, data?.version?.data.versionCode, pinyin(String(row.data[labor ? 'workName' : 'name'] || row.title), { pattern: 'first', toneType: 'none', separator: '' })].some(text => String(text ?? '').toLocaleLowerCase().includes(word));
   const parent = path.at(-1) ?? 0;
   const children = categories.filter(row => Number(row.data.parentId || 0) === parent).sort((a, b) => Number(a.data.sortOrder ?? a.data.sort ?? 0) - Number(b.data.sortOrder ?? b.data.sort ?? 0) || a.title.localeCompare(b.title, 'zh-CN'));
   const shown = items.filter(row => word ? matches(row) : !modal || parent > 0 && categoryOf(row) === parent);

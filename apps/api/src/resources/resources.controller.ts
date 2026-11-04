@@ -1,3 +1,4 @@
+import {PRODUCT_REFERENCE_CSV_COLUMNS} from './product-reference-csv';
 import {referenceArchiveCsv} from './reference-archive-csv';
 import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
@@ -214,7 +215,7 @@ export class ResourcesController {
   @Get('import-profiles')
   importProfiles() { return this.resources.importProfiles(); }
 
-  @RequirePermission('finance.master-import.view')
+  @AuthenticatedOnly()
   @Post('import-profiles/:profile')
   importProfile(@CurrentUser() user:AuthUser,@Param('profile') profile:string,@Body() body:ProfileImportDto) {
     return this.resources.importProfile(user,profile,body.sheets,body.dryRun,body.signature);
@@ -295,8 +296,10 @@ export class ResourcesController {
   @RequireResourceAction('export')
   @Get(':type/export')
   export(@CurrentUser() user: AuthUser, @Param('type') type: string, @Query() q: ExportQueryDto) {
-    if(q.referenceArchive&&!referenceArchiveCsv(type))throw new BadRequestException('该资料没有原版CSV格式');
+    if(q.referenceArchive&&type!=='finance-products'&&!referenceArchiveCsv(type))throw new BadRequestException('该资料没有原版CSV格式');
+    if(q.referenceArchive&&type==='finance-products'&&!Object.prototype.hasOwnProperty.call(PRODUCT_REFERENCE_CSV_COLUMNS,q.tab??''))throw new BadRequestException('请选择有效商品档案类型（原版CSV格式）');
     const ids = (q.ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    if(q.referenceArchive&&type==='finance-products'&&q.ids?.trim()&&!ids.length)throw new BadRequestException('请选择有效商品档案');
     return this.resources.exportCsv(user, type, q.includeHidden === '1', {
       referenceArchive:q.referenceArchive==='1', keyword: q.keyword, status: q.status, tab: q.tab, filters: q.filters, colFilters: q.colFilters, archived: q.archived === '1', expiring: q.expiring === '1',
       sortBy: q.sortBy, sortDir: q.sortDir, ids: ids.length ? ids : undefined,

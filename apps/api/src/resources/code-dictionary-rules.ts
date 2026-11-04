@@ -1,3 +1,4 @@
+import {sourceCategoryCode} from './finance-dictionary-codes';
 import {assertCodeCategoryName} from './code-category-names';
 import { pinyin } from 'pinyin-pro';
 import { BadRequestException } from '@nestjs/common';
@@ -16,11 +17,12 @@ export async function beforeCodeDictionary({em,user,data,existing}:BeforeSaveCon
   if(!code){
     code=String(existing?.data.code || '').trim();
     if(!code){
-      const base=(pinyin(String(data.name),{pattern:'first',toneType:'none',type:'array'}).join('').replace(/[^A-Z0-9]/gi,'').toUpperCase() || (kind==='variety'?'PZ':'FL')).slice(0,24);
-      const used=new Set(rows.filter(row=>row.data.kind===kind).map(row=>String(row.data.code).toUpperCase()));
-      code=base;for(let suffix=2;used.has(code);suffix++)code=base+suffix;
+      const codes=rows.filter(row=>row.data.kind===kind).map(row=>String(row.data.code));
+      if(kind==='product_category')code=sourceCategoryCode(String(data.name),codes).code;
+      else{const base=pinyin(String(data.name),{pattern:'first',toneType:'none',type:'array',nonZh:'consecutive'}).join('').replace(/[^A-Z0-9]/gi,'').toUpperCase()||'PZ',used=new Set(codes);code=base;for(let suffix=2;used.has(code);suffix++)code=base+suffix;}
     }
   }
+  if(code.length>48)throw new BadRequestException('编码不能超过48个字符，请手工填写可用编码');
   data.code=code;
   if(!/^[A-Z0-9][A-Z0-9_+*/.-]*$/.test(code))throw new BadRequestException('编码字典编码格式不正确');
   if(kind==='variety' && data.parentId!=null)throw new BadRequestException('品种字典不能设置上级');

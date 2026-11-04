@@ -147,6 +147,8 @@ d('成本组成验证快照（真实数据库）', () => {
     const record = await ds.manager.findOneByOrFail(ResourceRecord, { id: productId });
     const data = { ...record.data }; delete data.weightG; delete data.totalCost;
     await ds.manager.save(ResourceRecord, { ...record, data });
+    // 当前报价来自已存基础编码镜像；同时清该事实，验证/登记快照仍必须保留。
+    for(const base of await ds.manager.find(ResourceRecord,{where:{companyId:record.companyId,type:'finance-base-codes'}}))if(base.data.productId===productId&&base.data.canonicalId==null&&!['composed','external_import'].includes(String(base.data.origin))){const values={...base.data};delete values.cost;await ds.manager.save(ResourceRecord,{...base,data:values});}
   }
 
   async function fill(tools: DataToolsService, bundleId?: number) {

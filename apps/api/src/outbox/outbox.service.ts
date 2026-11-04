@@ -21,6 +21,16 @@ const MAX_ATTEMPTS = 5;
 const SYNCABLE = ['finance-base-codes', 'finance-bundles'] as const;
 type Syncable = (typeof SYNCABLE)[number];
 
+/** Optional current-page read scope; never turns an empty/invalid scope into a full list. */
+export function parseSyncItemIds(value:string|undefined):number[]|undefined {
+  if(value===undefined)return undefined;
+  if(typeof value!=='string'||!/^([1-9]\d*)(,[1-9]\d*)*$/.test(value))throw new BadRequestException('资料ID必须是正整数列表');
+  const tokens=value.split(',');if(tokens.length>50)throw new BadRequestException('一次最多读取50条资料');
+  const ids=tokens.map(Number);if(ids.some(id=>!Number.isSafeInteger(id)||id<1))throw new BadRequestException('资料ID必须是安全正整数');
+  return [...new Set(ids)];
+}
+
+
 export interface RemoteCategory { id: string; name: string; parentId: string; sort: number | null; enable: boolean | null }
 export interface OutboxSender {
   /** 没有接入真实接口时为 false：worker 不会发送任何东西 */
@@ -334,12 +344,13 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
    * 同步清单：已验证的基础编码/组合，对照上次真正上传的内容列出差异，
    * 状态：未同步 / 排队中 / 等待回查确认 / 已同步 / 同步失败 / 资料待补齐；每条带自己的同步记录。
    */
-  async items(user: AuthUser, q: { type: string; keyword?: string; state?: string; page: number; pageSize: number }) {
+  async items(user: AuthUser, q: { type: string; keyword?: string; state?: string; ids?:number[]; page: number; pageSize: number }) {
     if (!SYNCABLE.includes(q.type as Syncable)) throw new BadRequestException('这种资料不支持同步到聚水潭');
     const t = q.type as Syncable;
     const em = this.dataSource.manager;
     const canCost = createChecker(user.permissions)('product.cost.view');
     const qb = em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :c AND r.type = :t AND r.status = :s', { c: user.companyId, t, s: 'verified' });
+    if(q.ids!==undefined){if(!Array.isArray(q.ids)||q.ids.some(id=>typeof id!=='number'))throw new BadRequestException('资料ID必须是正整数列表');const ids=parseSyncItemIds(q.ids.join(','))!;qb.andWhere('r.id IN (:...scopeIds)',{scopeIds:ids});}
     if (q.keyword?.trim()) qb.andWhere('r.searchText LIKE :k', { k: `%${q.keyword.trim().replace(/[%_\\]/g, '\\$&')}%` });
     if (q.state) {
       // 按状态筛选要对全部已验证的资料算一遍状态，再分页（状态由上传记录和差异决定，不能只靠 SQL）

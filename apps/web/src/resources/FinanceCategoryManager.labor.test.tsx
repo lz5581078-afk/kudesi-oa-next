@@ -45,8 +45,9 @@ it('三级新增固定所属版本和父级，编号输入大写；编辑没有�
   fireEvent.click(screen.getByRole('button', { name: /^合成二级 / }));
   fireEvent.click(within(screen.getByRole('region', { name: '三级分类' })).getByRole('button', { name: '新增' }));
   const editor = screen.getByRole('dialog', { name: '新增三级分类' });
+  expect(within(editor).getByText('用于归档目录识别')).toBeTruthy();
   fireEvent.change(within(editor).getByRole('textbox', { name: /分类名称/ }), { target: { value: '合成新末级' } });
-  fireEvent.change(within(editor).getByRole('textbox', { name: '分类标识' }), { target: { value: 'new-code' } });
+  fireEvent.change(within(editor).getByRole('textbox', { name: /分类标识/ }), { target: { value: 'new-code' } });
   fireEvent.click(within(editor).getByRole('button', { name: '确认创建' }));
   await waitFor(() => expect(resourceApi.create).toHaveBeenCalledWith(target, expect.objectContaining({ versionId: 10, parentId: 2, name: '合成新末级', code: 'NEW-CODE', sortOrder: 0 })));
   await screen.findByRole('button', { name: '编辑合成新末级' });

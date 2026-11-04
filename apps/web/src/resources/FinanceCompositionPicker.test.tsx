@@ -121,6 +121,7 @@ describe('生产组成的直接搜索与分类选择', () => {
     await waitFor(() => expect(finishRaw).toBeTruthy());
     compositionAuth.companyId = 2;
     rerender(<FinanceCompositionPicker group="package" value={null} onChange={vi.fn()}/>);
+    fireEvent.focus(screen.getByRole('combobox'));
     await screen.findByRole('alert');
     failPackage = false; fireEvent.click(screen.getByRole('button', { name: '重试' }));
     await screen.findByRole('option', { name: /新包装选项/ });
@@ -144,3 +145,5 @@ describe('生产组成的直接搜索与分类选择', () => {
     expect(qty.value).toBe('2.5');
   });
 });
+
+it('生产组成空续页不能把200项假作完整目录',async()=>{const rows=Array.from({length:201},(_,index)=>record(index+1,'原料'+index,{archiveType:'raw'}));vi.mocked(resourceApi.list).mockImplementation(async(type,query)=>({items:type==='finance-products'&&query?.page===1?rows.slice(0,200):[],total:type==='finance-products'?201:0,page:query?.page||1,pageSize:200}));render(<FinanceCompositionPicker group="raw" value={null} onChange={()=>{}}/>);fireEvent.focus(screen.getByRole('combobox'));expect((await screen.findByRole('alert')).textContent).toContain('目录读取不完整');expect(screen.queryByRole('option')).toBeNull();});

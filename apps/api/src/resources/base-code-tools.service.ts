@@ -1,3 +1,5 @@
+import {financeDictionaryContext,financeDictionaryPreview,type DictionaryUnitKind} from './finance-dictionary-context';
+import type {FinanceDictionaryKind} from './finance-dictionary-codes';
 import {independentDefinitionFacts} from './base-definition-facts';
 import { codeLifecycleCounts, codeVerificationState } from './finance-code-lifecycle';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
@@ -30,6 +32,9 @@ export class BaseCodeToolsService {
   ) {}
 
   async definitionPreview(user:AuthUser,input:Record<string,unknown>){return independentDefinitionFacts(this.ds.manager,user.companyId,input);}
+
+  async dictionaryContext(user:AuthUser,kind:FinanceDictionaryKind,unitKind?:DictionaryUnitKind){return this.ds.transaction(em=>financeDictionaryContext(em,user,kind,unitKind));}
+  async dictionaryPreview(user:AuthUser,input:{kind:FinanceDictionaryKind;name:string;id?:number;parentId?:number;unitKind?:DictionaryUnitKind}){return this.ds.transaction(em=>financeDictionaryPreview(em,user,input));}
 
   private canCost(user: AuthUser) { return createChecker(user.permissions)('product.cost.view'); }
 

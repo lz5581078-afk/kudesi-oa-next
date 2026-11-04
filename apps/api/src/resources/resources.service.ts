@@ -1,11 +1,21 @@
+import {beginSourceProductQuality,sourceQualitySavedRows,endSourceProductQuality,sourceProductQualityActive,sourceQualityValues} from './source-product-quality';
+import {deriveBaseCodeListFacts,type BaseCodeListFacts} from './base-code-list-facts';
+import {deriveBaseCodeSourceStatuses} from './base-code-source-statuses';
+import {extractProductBomCostFacts} from './product-bom-cost-facts';
+import {recordVersion} from './resource-record-version';
 import {EXPENSE_SORT_KEY,normalizeExpenseSortPreference} from '@kudesi/shared';
+import {deriveProductReferenceList} from './product-reference-list';
+import {deriveProductFinishedNames} from './product-reference-finished-names';
+import {exportProductReferenceCsv,PRODUCT_REFERENCE_CSV_COLUMNS} from './product-reference-csv';
+import {deriveProductReferenceSortIds,isProductReferenceSortKey} from './product-reference-sort';
+import {loadProductCostReferences,syncProductCostSnapshotReferences} from './product-cost-references';
 import {UserPreference} from '../entities';
 import {referenceArchiveCsv,type ArchiveCsvImportContext} from './reference-archive-csv';
 import {beforeBomVersionLock} from './bundle-bom-versions';
 import {markCategorySyncDirty} from '../outbox/category-sync-policy';
 import { importedBaseWeight } from './external-base-code-rules';
 import { importedProductIdentity } from './finance-rules';
-import { getResourceImportProfile, RESOURCE_IMPORT_PROFILES } from '@kudesi/shared';
+import { getResourceImportProfile,getSourceProductImportProfile, RESOURCE_IMPORT_PROFILES } from '@kudesi/shared';
 import { validateProfileWorkbook, prepareProfileStep, bindProfileAlias, profileStepAccepts, type ProfileSheetInput, type ProfileAliases, type ProfileRecord } from './resource-import-profile';
 import { withTrustedResourceImport } from './resource-import-capability';
 import { beginPurchaseHistoryBatch, flushPurchaseHistory } from './product-purchase-history';
@@ -72,6 +82,8 @@ import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, befo
 import { previewArchiveCode } from './finance-rules';
 
 export interface ResourceDto {
+  sourceStatus?:string|null;
+  baseCodeFacts?:BaseCodeListFacts;
   id: number;
   type: string;
   title: string;
@@ -91,6 +103,10 @@ export interface ResourceDto {
   files: Record<number, FileInfo>;
   /** 仓库角色模式：只给了精简列、不含日志和关联（旧仓库档案视图） */
   warehouseMode?: boolean;
+  bomCostFacts?:{unitCost:number|null;freight:number|null;handlingFee:number|null};
+  referenceCount?:number|null;
+  knownReferenceCount?:number;
+  referenceState?:'known'|'unknown';
   createdAt: Date;
   updatedAt: Date;
   version?: string;
@@ -176,10 +192,7 @@ const PHONE_FACT_FIELDS: Record<string, { numberKey: string; idKey: string; hold
   partners: { numberKey: 'cardPhone', idKey: 'cardPhoneId', holderKey: 'cardPhoneHolder' },
 };
 
-/** 记录版本：内容一变就变（不靠只有秒精度的 updatedAt），表格编辑保存时用来发现别人改过 */
-export function recordVersion(r: ResourceRecord): string {
-  return createHash('sha1').update(JSON.stringify([r.title, r.status, r.data, r.secrets, r.archivedAt ? 1 : 0, r.updatedAt ? new Date(r.updatedAt).getTime() : 0])).digest('hex').slice(0, 16);
-}
+export {recordVersion} from './resource-record-version';
 
 @Injectable()
 export class ResourcesService implements RuleHost {
@@ -328,6 +341,9 @@ export class ResourcesService implements RuleHost {
   private toDto(def: ResourceDef, r: ResourceRecord, labels: Record<string, string>, fileMap: Map<number, FileInfo>): ResourceDto {
     const secrets = this.readSecrets(r);
     const data: Record<string, unknown> = { ...r.data };
+    delete data.costSourceProvenance;
+    delete data.archiveBomCostSnapshot;
+    delete data.sourceFinishedRowToken;
     // Migration evidence is internal. Its costs must not bypass field ACLs.
     for (const key of Object.keys(data)) if (key.startsWith('_legacy')) delete data[key];
     const secretConfigured: Record<string, boolean> = {};
@@ -375,6 +391,7 @@ export class ResourcesService implements RuleHost {
     const restricted = restrictedFieldKeys(def, createChecker(user.permissions));
     // 仓库角色模式：商品档案只给精简列（成本价格另由字段权限脱敏）
     const warehouseKeep = def.key === 'finance-products' && (await isWarehouseMode(em, user)) ? new Set(WAREHOUSE_PRODUCT_FIELDS) : null;
+    const canReadBomFacts=def.key==='finance-product-boms'&&createChecker(user.permissions)('product.cost.view')&&!(await isWarehouseMode(em,user));
     const labels = await this.refLabelsFor(em, companyId, def, records);
     const fileIds = records.flatMap((r) =>
       def.fields.filter((f) => f.type === 'files').flatMap((f) => (Array.isArray(r.data[f.key]) ? (r.data[f.key] as number[]) : [])),
@@ -385,10 +402,26 @@ export class ResourcesService implements RuleHost {
     const derivedCols = def.derivedColumns?.length ? await deriveColumns(em, companyId, def, records) : null;
     const workforce = def.key === 'workforce' ? await deriveWorkforce(em, companyId, records) : null;
     const accountCols = hasAccountDerive(def) ? await deriveAccountFields(em, companyId, def, records) : null;
+    const productReference = def.key==='finance-products' ? await deriveProductReferenceList(em,companyId,records) : null;
+    const productFinishedNames=def.key==='finance-products'?await deriveProductFinishedNames(em,companyId,records):null;
+    const productCostReferences=def.key==='finance-product-costs'?await loadProductCostReferences(em,companyId,records):null;
+    const baseCodeSourceStatuses=def.key==='finance-base-codes'?await deriveBaseCodeSourceStatuses(em,companyId,records):null;
+    const baseCodeFacts=def.key==='finance-base-codes'?await deriveBaseCodeListFacts(em,companyId,records):null;
     const optionFields = def.fields.filter(field => field.type === 'select' && field.optionsFrom?.resource === 'finance-product-units');
     const units = records.length && optionFields.length ? await loadUnitLists(em, companyId) : null;
     return records.map((r) => {
       const dto = this.toDto(def, r, labels.get(r.id) ?? {}, fileMap);
+      if(productReference)Object.assign(dto.data,productReference.get(r.id)??{});
+      if(productFinishedNames?.has(r.id))dto.data.__finishedNameDetails=productFinishedNames.get(r.id);
+      if(productCostReferences)Object.assign(dto,productCostReferences.get(r.id)??{});
+      if(baseCodeSourceStatuses)dto.sourceStatus=baseCodeSourceStatuses.get(r.id)??null;
+      if(baseCodeFacts?.has(r.id))dto.baseCodeFacts=baseCodeFacts.get(r.id);
+      if(def.key==='finance-products'&&dto.data.sourceQualityConfirmations){
+        const receipts=dto.data.sourceQualityConfirmations;
+        if(warehouseKeep||!createChecker(user.permissions)('product.cost.view'))delete dto.data.sourceQualityConfirmations;
+        else dto.data.sourceQualityConfirmations=Object.fromEntries(Object.entries(receipts as Record<string,unknown>).flatMap(([key,value])=>{const row=value as {reason?:unknown;context?:unknown}|null;return row&&typeof row.reason==='string'&&typeof row.context==='string'?[[key,{reason:row.reason,context:row.context}]]:[];}));
+      }
+      if(canReadBomFacts){const facts=extractProductBomCostFacts(r);if(facts)dto.bomCostFacts=facts;}
       const acc = accountCols?.get(r.id);
       if (acc) { Object.assign(dto.data, acc.data); Object.assign(dto.refLabels, acc.labels); }
       if (def.fields.some((f) => f.key === 'passwordState')) dto.data.passwordState = dto.secretConfigured.password ? '已维护' : '未设置';
@@ -531,6 +564,7 @@ export class ResourcesService implements RuleHost {
     input: Record<string, unknown>,
     options: { status?: string; note?: string; cleanup?: string[]; logAction?: string; reason?: string; legacyRegistration?:LegacyRegistration; copySource?:ResourceRecord; statusReason?:string } = {},
   ): Promise<ResourceRecord> {
+    if(def.key==='finance-products'&&(Object.hasOwn(input,'__sourceQuality')||Object.hasOwn(input,'sourceQualityConfirmations')))throw new BadRequestException('不能直接写入核算资料确认，需通过完整档案表单办理');
     if (def.readOnly) {
       if (existing || !canAppendReadonly(em, user.companyId, def.key)) throw new ForbiddenException('历史记录只读，不能新增或修改');
       def = { ...def, fields: def.fields.map(f => ({ ...f, readonly: false })) };
@@ -727,6 +761,7 @@ export class ResourcesService implements RuleHost {
         });
       }
     }
+    if(def.key==='finance-cost-skus')await syncProductCostSnapshotReferences(em,user.companyId,record);
   }
 
   // ---------- RuleHost ----------
@@ -1053,11 +1088,14 @@ export class ResourcesService implements RuleHost {
       if (!(await applyViewFilter(listQb, em, user.companyId, type, k, v, todayShanghai(), i))) throw new BadRequestException('筛选条件不合法');
     }
     applyTabFilter(listQb, def, q.tab);
-    const referenceStatusSort = ['finance-suppliers','finance-customers','finance-fee-items'].includes(type) && q.sortBy === STATUS_COL;
+    const referenceStatusSort = ['finance-suppliers','finance-customers','finance-fee-items','finance-products'].includes(type) && q.sortBy === STATUS_COL;
+    const productReferenceSort=type==='finance-products'&&isProductReferenceSortKey(q.sortBy)?q.sortBy:null;
+    if(productReferenceSort&&await isWarehouseMode(em,user))throw new ForbiddenException('当前岗位不能按此档案字段排序');
+    if(productReferenceSort==='__freightHandling'&&!createChecker(user.permissions)('product.cost.view'))throw new ForbiddenException('没有查看成本的权限');
     const derivedSort = q.sortBy ? def.derivedColumns?.find((d) => d.key === q.sortBy) : undefined;
-    const sortF = q.sortBy && !derivedSort ? def.fields.find((f) => f.key === q.sortBy) : undefined;
+    const sortF = q.sortBy && !derivedSort && !productReferenceSort ? def.fields.find((f) => f.key === q.sortBy) : undefined;
     if (sortF && restricted.has(sortF.key)) throw new ForbiddenException(`没有权限按“${sortF.label}”排序`);
-    if (q.sortBy && !referenceStatusSort && !derivedSort && (!sortF || !['text', 'textarea', 'number', 'decimal', 'money', 'date', 'monthday', 'select', 'ref'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
+    if (q.sortBy && !referenceStatusSort && !derivedSort && !productReferenceSort && (!sortF || !['text', 'textarea', 'number', 'decimal', 'money', 'date', 'monthday', 'select', 'ref'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
     if (sortF) {
       const dir = q.sortDir === 'asc' ? 'ASC' : 'DESC';
       const numeric = ['number', 'decimal', 'money'].includes(sortF.type);
@@ -1097,7 +1135,12 @@ export class ResourcesService implements RuleHost {
     }
     let records: ResourceRecord[];
     let total: number;
-    if (derivedSort) {
+    if(productReferenceSort){
+      // 原档案投影列先按完整匹配集排序，再分页；不能只排显示页或静默截断。
+      const all=await listQb.getMany(),byId=new Map(all.map(record=>[record.id,record]));
+      const ids=await deriveProductReferenceSortIds(em,user.companyId,all,productReferenceSort,q.sortDir==='asc'?'asc':'desc');
+      total=ids.length;records=ids.slice((page-1)*pageSize,page*pageSize).map(id=>byId.get(id)!);
+    } else if (derivedSort) {
       // 派生列排序：先算出全部符合条件记录的统计值再排（最多 5000 条），再取这一页
       const all = await listQb.orderBy('r.id', 'DESC').limit(5000).getMany();
       const vals = await deriveColumns(em, user.companyId, def, all);
@@ -1319,10 +1362,12 @@ export class ResourcesService implements RuleHost {
         return result;
       },
       endCopy: em=>this.files.endCopyScope(em),
-      lock:(em,def)=>beforeBomVersionLock(em,user,def.key),
-      before: (em, def, existing) => beforeFormSaveRule(def.key, { em, host: this, user, existing }),
+      lock:async(em,def)=>{if(['finance-product-units','finance-products'].includes(def.key)&&!await em.findOne(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}}))throw new NotFoundException('公司不存在');await beforeBomVersionLock(em,user,def.key);},
+      before: async(em,def,existing)=>{if(def.key==='finance-products')await beginSourceProductQuality({em,user,existing,input});await beforeFormSaveRule(def.key,{em,host:this,user,existing,input});},
       after: (em, def, record) => afterFormSaveRule(def.key, { em, host: this, user, record }),
-      save: (em, def, existing, values, options) => this.saveRecord(em, user, def, existing, values, options),
+      save: (em, def, existing, values, options) => this.saveRecord(em, user, def, existing, def.key==='finance-products'&&sourceProductQualityActive(em,user)?sourceQualityValues(values):values, options),
+      afterCollectionSaved:(em,parent,child,rows)=>sourceQualitySavedRows(em,parent,child,rows),
+      end:em=>endSourceProductQuality(em),
       remove: (em, childType, childId, reason, objects) => this.removeRecord(em, user, childType, childId, reason, objects),
     }, cleanup);
     await this.files.deleteObjects(user.companyId, cleanup);
@@ -1476,7 +1521,7 @@ export class ResourcesService implements RuleHost {
     const cleanup: string[] = [];
     const record = await this.dataSource.transaction(async (em) => {
       // 编码分类共用名称空间，必须先取公司锁，再锁单行；与目录维护及导入保持同序。
-      if (type === 'finance-base-codes' || type === 'finance-base-code-lines' || type === 'finance-bundles' || type === 'finance-bundle-revisions' || type === 'finance-bundle-bom-versions' || type === 'finance-code-dictionaries' || type === 'finance-categories' || type === 'finance-scenarios' || type === 'finance-brands' || type === 'finance-platforms') await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
+      if (type === 'finance-base-codes' || type === 'finance-base-code-lines' || type === 'finance-bundles' || type === 'finance-bundle-revisions' || type === 'finance-bundle-bom-versions' || type === 'finance-code-dictionaries' || type === 'finance-categories' || type === 'finance-scenarios' || type === 'finance-brands' || type === 'finance-platforms' || type === 'finance-product-units') await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
       if ((def.parent?.type ?? def.key) === 'finance-labor-costs') await lockLaborCompany(em, user.companyId);
       if (row.id === undefined) return this.saveRecord(em, user, def, null, row.values, { cleanup, note });
       const existing = await em.findOne(ResourceRecord, { where: { id: row.id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
@@ -1743,9 +1788,15 @@ export class ResourcesService implements RuleHost {
     if (archivePolicyOf(type)) throw new BadRequestException('该资料应走归档流程');
     if (reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
     await beforeBomVersionLock(em,user,type);
+    if(['finance-product-costs','finance-product-units'].includes(type))await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
     const existing = currentRead ? await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } }) : await this.load(em, user, type, id);
     if (!existing) throw new NotFoundException('记录不存在');
     if (expectedVersion !== undefined && expectedVersion !== recordVersion(existing)) throw new ConflictException('这条资料刚被别人修改过，请刷新后再处理');
+    if(type==='finance-product-costs'){
+      const usage=(await loadProductCostReferences(em,user.companyId,[existing])).get(existing.id);
+      if(!usage||usage.referenceState==='unknown')throw new ConflictException('已有成本快照未记录完整来源，请核对后再处理；可先停用。');
+      if((usage.referenceCount??0)>0)throw new ConflictException('已被SKU成本快照引用，只能停用');
+    }
     await beforeDeleteRule(def.key, { em, host: this, user, record: existing });
     const incoming = await em.find(ResourceLink, { where: { companyId: user.companyId, targetType: type, targetId: id, relation: Not('manual') }, ...(currentRead ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
     if (incoming.length > 0) {
@@ -1803,6 +1854,10 @@ export class ResourcesService implements RuleHost {
     const strip = (v: Record<string, unknown> | null) => {
       if (!v) return v;
       const copy = { ...v };
+      delete copy.costSourceProvenance;
+      delete copy.archiveBomCostSnapshot;
+      delete copy.sourceFinishedRowToken;
+      delete copy.sourceQualityConfirmations;
       for (const key of Object.keys(copy)) if (key.startsWith('_legacy')) delete copy[key];
       for (const k of hide) delete copy[k];
       return copy;
@@ -2094,6 +2149,17 @@ export class ResourcesService implements RuleHost {
 
   async exportCsv(user: AuthUser, type: string, includeHidden: boolean, scope: Partial<ListQuery> & {referenceArchive?:boolean} = {}) {
     const def = this.def(type);
+    if(scope.referenceArchive&&type==='finance-products'){
+      const family=scope.tab??'';
+      if(!Object.prototype.hasOwnProperty.call(PRODUCT_REFERENCE_CSV_COLUMNS,family))throw new BadRequestException('请选择有效商品档案类型（原版CSV格式）');
+      const query=this.dataSource.manager.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:companyId AND r.type=:type AND r.archivedAt IS NULL AND r.status IN (:...states)',{companyId:user.companyId,type,states:['active','inactive']});
+      if(['original_purchase','supplier_oem'].includes(family))query.andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.archiveType'))='purchased' AND COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.supplyMode')),''),'original_purchase')=:mode",{mode:family});
+      else query.andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.archiveType'))=:family",{family});
+      if(scope.ids?.length)query.andWhere('r.id IN (:...ids)',{ids:scope.ids});
+      const records=await query.orderBy('r.id','DESC').getMany();
+      const items=await this.toDtos(this.dataSource.manager,user,def,records);
+      return exportProductReferenceCsv(this.dataSource.manager,user,family,items,createChecker(user.permissions)('product.cost.view')&&!(await isWarehouseMode(this.dataSource.manager,user)),{selectedCount:scope.ids?.length});
+    }
     if(scope.referenceArchive&&!referenceArchiveCsv(type))throw new BadRequestException('该资料没有原版CSV格式');
     const hidden = restrictedFieldKeys(def, createChecker(user.permissions));
     const fields = def.fields.filter((f) => f.type !== 'secret' && !f.listOnly && !hidden.has(f.key));
@@ -2376,7 +2442,7 @@ export class ResourcesService implements RuleHost {
     const profile=getResourceImportProfile(id);if(!profile)throw new NotFoundException('导入模块不存在');
     const issues=validateProfileWorkbook(profile,sheets);
     const can=createChecker(user.permissions);
-    if(!can('finance.master-import.view'))throw new ForbiddenException('没有商品数据导入权限');
+    if(!getSourceProductImportProfile(id)&&!can('finance.master-import.view'))throw new ForbiddenException('没有商品数据导入权限');
     const usedSteps=profile.steps.filter(step=>sheets.some(sheet=>sheet.name===step.sheet && sheet.rows.some(row=>profileStepAccepts(step,row))) || !!step.replaceChildren && profile.steps.some(owner=>owner.namespace?.name===step.replaceChildren!.ownerNamespace && sheets.some(sheet=>sheet.name===owner.sheet && sheet.rows.some(row=>profileStepAccepts(owner,row)))));
     for(const type of new Set(usedSteps.map(step=>step.resource))){this.def(type);if(!can(resourcePermission(permissionOwner(type),'import')))throw new ForbiddenException('没有目标资料的导入权限');}
     if(issues.length)return {dryRun,committed:false,created:0,updated:0,mainCreated:0,mainUpdated:0,detailRows:0,failed:issues.length,results:[],issues,signature:null};

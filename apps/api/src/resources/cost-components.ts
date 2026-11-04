@@ -1,4 +1,4 @@
-import { multiplyUnitCents, sumUnitCents, type CostBreakdownLine, type CostCompositionFacts } from '@kudesi/shared';
+import { LOGISTICS_CENT_SCALE,multiplyUnitCents,sumUnitCentsProducts,type UnitCentsProduct, type CostBreakdownLine, type CostCompositionFacts } from '@kudesi/shared';
 import { EntityManager, In } from 'typeorm';
 import { ResourceRecord } from '../entities';
 
@@ -15,6 +15,7 @@ interface ComponentContext {
 /** 成本表与验证快照使用同一份组成计算，缺失重量不能当成0混入合计。 */
 export function calculateCostComponents(d: ComponentContext, bundleId: number): { lines: CostLine[]; cost: number | null; weightG: number | null; issues: string[] } {
   const lines: CostLine[] = [], issues: string[] = [];
+  const costTerms:UnitCentsProduct[]=[];
   let cost: number | null = 0, weightG: number | null = 0;
   for (const row of d.lines.filter(line => line.data.bundleId === bundleId).sort((a,b) => a.id - b.id)) {
     const line = row.data, qty = num(line.qty) ?? 0, role = str(line.role);
@@ -34,27 +35,28 @@ export function calculateCostComponents(d: ComponentContext, bundleId: number): 
       unitName = base?.data.origin === 'composed' ? str(line.unit) : str(product?.data.purchaseSpec) || str(line.unit);
       if (base?.data.origin === 'composed') {
         const parts = d.baseCodeLines.filter(part => part.data.baseCodeId === base.id);
-        unit = parts.length ? 0 : null; weight = parts.length ? 0 : null;
+        unit = num(base.data.cost); weight = parts.length ? 0 : null;
         for (const part of parts) {
           const product = d.products.get(num(part.data.productId) ?? -1), quantity = num(part.data.qty) ?? 0;
-          const price = product ? num(product.data.totalCost) : null, grams = product ? num(product.data.weightG) : null;
-          unit = unit === null || price === null || quantity <= 0 ? null : sumUnitCents([unit, multiplyUnitCents(price,quantity,0,6)]);
+          const grams = product ? num(product.data.weightG) : null;
           weight = weight === null || grams === null || quantity <= 0 ? null : weight + grams * quantity;
         }
       } else if(base?.data.origin==='external_import'){unit=num(base.data.externalCost);weight=num(base.data.weightG);unitName=str(line.unit)||str(base.data.baseUnit)||str(base.data.codeSpecUnit);}
-      else { unit = product ? num(product.data.totalCost) : null; weight = product ? num(product.data.weightG) : null; }
+      // 普通基础编码读取真实已存报价：原 DB cost_price 是四位元终点，不能以档案八位总额替换。
+      else { unit = base ? num(base.data.cost) : null; weight = product ? num(product.data.weightG) : null; }
       // 专属重量与来源商品的自动重量独立；马甲使用真实编码的专属重量。
       if (base?.data.profileWeightOverride !== undefined) weight = num(base.data.profileWeightOverride);
     }
-    const subtotal = unit === null || qty <= 0 ? null : multiplyUnitCents(unit,qty,0,6);
+    const subtotal = unit === null || qty <= 0 ? null : multiplyUnitCents(unit,qty,0,6,LOGISTICS_CENT_SCALE,4);
     const subtotalWeight = weight === null || qty <= 0 ? null : roundWeight(weight * qty);
     if (subtotal === null) { issues.push(`「${name || code}」还没有完整成本或有效数量`); cost = null; }
-    else if (cost !== null) cost = sumUnitCents([cost, subtotal]);
+    else costTerms.push({value:unit!,quantity:qty});
     if (subtotalWeight === null) { issues.push(`「${name || code}」还没有完整重量或有效数量`); weightG = null; }
     else if (weightG !== null) weightG += weight! * qty;
     lines.push({ role, code, name, qty, unitName, unitCostCents: unit, subtotalCents: subtotal, unitWeightG: role === 'labor' ? null : weight, weightG: subtotalWeight });
   }
   if (!lines.length) { cost = null; weightG = null; issues.push('还没有构成'); }
+  else if(cost!==null)cost=sumUnitCentsProducts(costTerms,6,LOGISTICS_CENT_SCALE,4);
   return { lines, cost, weightG: weightG === null ? null : roundWeight(weightG), issues };
 }
 

@@ -106,9 +106,9 @@ export function ActiveChips({ chips, summary, onClearAll }: { chips: Chip[]; sum
   );
 }
 
-export function ColumnsPop({ fields, picked, onChange, defaults, iconOnly = false, requiredKeys = [] }: { iconOnly?:boolean; requiredKeys?:string[]; fields: FieldDef[]; picked: string[]; onChange: (keys: string[]) => void; defaults: FieldDef[] }) {
+export function ColumnsPop({ fields, picked, onChange, defaults, iconOnly = false, requiredKeys = [], referenceProduct=false }: { referenceProduct?:boolean; iconOnly?:boolean; requiredKeys?:string[]; fields: FieldDef[]; picked: string[]; onChange: (keys: string[]) => void; defaults: FieldDef[] }) {
   return (
-    <ToolPop label={iconOnly ? "显示字段" : "显示列"} trigger={iconOnly ? <Settings size={16}/> : <><ColumnsIcon /><span className="lbl">显示列</span></>} panelClass="res-cols">
+    <ToolPop label={iconOnly || referenceProduct ? "显示字段" : "显示列"} trigger={referenceProduct?<><Settings size={16}/><span>列设置</span></>:iconOnly ? <Settings size={16}/> : <><ColumnsIcon /><span className="lbl">显示列</span></>} panelClass="res-cols">
       {() => (
         <>
           <div className="res-pop-body res-cols-list">

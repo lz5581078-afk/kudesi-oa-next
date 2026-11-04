@@ -187,3 +187,5 @@ describe('名称规格保留文字', () => {
     expect(validateResourceInput(def, { specQty: '2.5' }, { status: 'active', existing }).values.specQty).toBe(2.5);
   });
 });
+
+it('存量文件人工有真实行和版本即可校验倍数，不需要虚构人工ID',()=>{const values={archiveType:'self_made',categoryId:1,name:'合成自产',brandId:1,productPackagingSpec:'1',productPackagingUnit:'D',purchaseSpec:'斤'};const row={group:'labor' as const,qty:1.123456,sourceRowId:12,sourceVersion:'actual-version'};expect(productFormProblems(values,{canCost:true,composition:[row]})).toEqual({});for(const invalid of [{...row,sourceRowId:0},{...row,sourceVersion:''},{...row,qty:0},{...row,group:'raw' as const}])expect(productFormProblems(values,{canCost:true,composition:[invalid]}).composition).toBeTruthy();});

@@ -1,7 +1,9 @@
+import {Pencil} from 'lucide-react';
+import {ProductArchiveCostPanel} from './ProductArchiveCostPanel';
 import { StoreJstRefresh } from './StoreJstSelect';
 import { copyInitialOf } from './HierRowActions';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { useUnitOptions } from './unitOptions';
+import { useUnitOptions, unitOptionLabel } from './unitOptions';
 import { sourcePriceTime, RESOURCE_DEFS, resolveProductSections, groupTitle, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
 import { Link } from 'react-router-dom';
 import { recordLink } from './recordLink';
@@ -42,7 +44,9 @@ export { useResourceCan };
 export function childDefaults(childType: string, isNew: boolean, parent: ResourceDto): Record<string, unknown> {
   if (!isNew || childType !== 'finance-product-costs') return {};
   const d = parent.data;
-  const unit = String(d.purchaseSpec || [d.specQty, d.specUnit].filter(Boolean).join('') || '');
+  const unitField=getResourceDef('finance-products')!.fields.find(field=>field.key==='specUnit')!;
+  const code=String(d.specUnit||'');
+  const unit = unitOptionLabel(unitField,d,code) || unitField.options?.find(option=>option.value===code)?.label || code || '件';
   return { costType: 'purchase', ...(unit ? { unitName: unit } : {}), effectiveFrom: todayShanghai(), manualOverride: true, manualLockReason: '人工确认成本' };
 }
 
@@ -69,7 +73,12 @@ const CHILD_COLS: Record<string, readonly string[]> = {
 /** 这些卡片的每一项带字段名（保管人、存放位置…），并显示密码类字段“已维护/未设置”和备注（旧 U 盾表、银行卡列表的信息） */
 const LABELED_CHILDREN = new Set(['u-shields', 'bank-store-links', 'bank-accounts', 'duty-group-members']);
 
-export function ChildPanel({ parentDef, parent, childType, field }: { parentDef: ResourceDef; parent: ResourceDto; childType: string; field: string }) {
+export function ChildPanel({ parentDef, parent, childType, field, onChanged }: { parentDef: ResourceDef; parent: ResourceDto; childType: string; field: string; onChanged?:()=>void }) {
+  if(childType==='finance-product-costs')return <ProductArchiveCostPanel parent={parent} def={getResourceDef(childType)!} defaults={childDefaults(childType,true,parent)} isCurrent={isCurrentCost} onChanged={onChanged}/>;
+  return <GenericChildPanel parentDef={parentDef} parent={parent} childType={childType} field={field}/>;
+}
+
+function GenericChildPanel({ parentDef, parent, childType, field }: { parentDef: ResourceDef; parent: ResourceDto; childType: string; field: string }) {
   const def = getResourceDef(childType)!;
   const can = useResourceCan(childType);
   const [items, setItems] = useState<ResourceDto[]>([]);
@@ -78,8 +87,8 @@ export function ChildPanel({ parentDef, parent, childType, field }: { parentDef:
   const [error, setError] = useState('');
   const reload = useCallback(async () => {
     try {
-      const list = childType === 'finance-product-costs' ? await allDetailRows(childType, field, parent.id) : (await resourceApi.list(childType, { pageSize: 100, showHidden: true, fieldKey: field, fieldValue: parent.id })).items;
-      setItems(childType === 'finance-product-costs' ? [...list].sort((a, b) => String(b.data.effectiveFrom ?? '').localeCompare(String(a.data.effectiveFrom ?? ''))) : list);
+      const list = (await resourceApi.list(childType, { pageSize: 100, showHidden: true, fieldKey: field, fieldValue: parent.id })).items;
+      setItems(list);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
@@ -88,29 +97,21 @@ export function ChildPanel({ parentDef, parent, childType, field }: { parentDef:
     void reload();
   }, [reload]);
   const cols = (CHILD_COLS[childType] ? CHILD_COLS[childType].map((k) => def.fields.find((f) => f.key === k)).filter((f): f is NonNullable<typeof f> => !!f) : def.fields.filter((f) => f.list && f.key !== field));
-  const costs = childType === 'finance-product-costs';
   const labeled = LABELED_CHILDREN.has(childType);
   const secrets = labeled ? def.fields.filter((f) => f.type === 'secret') : [];
   return (
-    <section className={costs ? 'finance-cost-panel' : undefined}>
+    <section>
       <div className="between">
-        {costs ? <span className="muted">业务日期：{todayShanghai()}</span> : <h2 className="section-title">{def.label}（{items.length}）</h2>}
-        {can('create') && <button type="button" className="secondary-button small" onClick={() => setEditing('new')}>{costs ? '＋ 新增成本' : '＋ 新增'}</button>}
+        <h2 className="section-title">{def.label}（{items.length}）</h2>
+        {can('create') && <button type="button" className="secondary-button small" onClick={() => setEditing('new')}>{'＋ 新增'}</button>}
       </div>
       {error && <div role="alert" className="notice error">{error}</div>}
       {items.length === 0 && <p className="muted">还没有{def.label}</p>}
-      {costs ? <div className="finance-cost-table-scroll"><table className="finance-cost-table" aria-label="成本明细"><thead><tr><th>成本类型</th><th>单位成本</th><th>生效期间</th><th>来源</th><th>状态</th><th>操作</th></tr></thead><tbody>{items.map(it => <tr key={it.id}>
-        <td>{displayValue(def.fields.find(f => f.key === 'costType')!, it)}</td>
-        <td><strong>{displayValue(def.fields.find(f => f.key === 'unitCost')!, it)}</strong><small>/{String(it.data.unitName || parent.data.purchaseSpec || '未维护计价单位')}</small>{Boolean(it.data.manualOverride) && <small>手工锁定{it.data.manualLockReason ? ` · ${String(it.data.manualLockReason)}` : ''}</small>}</td>
-        <td>{String(it.data.effectiveFrom || '未维护')}<small>至 {String(it.data.effectiveTo || '长期')}</small></td>
-        <td>{displayValue(def.fields.find(f => f.key === 'sourceType')!, it)}{Boolean(it.data.sourceRef || it.data.calculationMethod) && <small>{String(it.data.sourceRef || it.data.calculationMethod)}</small>}</td>
-        <td>{isCurrentCost(it, items) ? '当前生效' : statusOf(def, it.status).label}</td>
-        <td><div className="row-actions">{can('edit') && <button type="button" className="link-button" onClick={() => setEditing(it)}>编辑</button>}{can('disable') && <StatusControl def={def} id={it.id} current={it.status} onChanged={reload} onError={setError} />}{can('delete') && <button type="button" className="link-button danger-text" onClick={() => setDeleting(it)}>删除…</button>}</div></td>
-      </tr>)}</tbody></table></div> : items.map((it) => (
+      {items.map((it) => (
 
         <div key={it.id} className="line-item col">
           <div className="between">
-            <strong>{it.title}{childType === 'finance-product-costs' && isCurrentCost(it, items) && <span className="pill ok"> 当前生效</span>}{childType === 'finance-product-sources' && isLatestSource(it, items) && <span className="pill ok"> 当前最新成本</span>}</strong>
+            <strong>{it.title}{childType === 'finance-product-sources' && isLatestSource(it, items) && <span className="pill ok"> 当前最新成本</span>}</strong>
             <span className={`pill ${statusOf(def, it.status).tone === 'muted' ? 'warn' : statusOf(def, it.status).tone}`}>{statusOf(def, it.status).label}</span>
           </div>
           <small className="muted">{[...cols.map((f) => { const v = displayValue(f, it); return v && labeled ? `${f.label} ${v}` : v; }), ...secrets.map((f) => `${f.label}${it.secretConfigured[f.key] ? '已维护' : '未设置'}`)].filter(Boolean).join(' · ')}</small>
@@ -130,7 +131,6 @@ export function ChildPanel({ parentDef, parent, childType, field }: { parentDef:
           record={editing === 'new' ? null : editing}
           initial={{ [field]: parent.id, ...childDefaults(childType, editing === 'new', parent), ...(childType === 'bank-accounts' && parent.data.category ? { kind: parent.data.category === 'ecommerce' ? 'store_public' : 'company_public' } : {}) }}
           lockedFields={[field]}
-          inline={costs}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -399,7 +399,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
 
   return (
     <Frame><aside className={finance ? `rd resource-detail finance-detail-dialog finance-detail-${def.key === 'finance-products' ? String(record.data.archiveType) : def.key}${productCosts ? ' finance-detail-costs' : ''}` : wide ? 'rd resource-detail rd-wide' : 'rd resource-detail'} aria-label={`${def.label}详情`} role={finance ? 'dialog' : undefined} aria-modal={finance ? true : undefined}>
-      {productCosts ? <header className="finance-cost-head"><div><h2>成本明细</h2><p>{String(record.data.code || '')} · {record.title}</p></div><button type="button" className="secondary-button" aria-label="关闭详情" onClick={onClose}>关闭</button></header> : finance ? <FinanceDetailHead def={def} record={record} nav={nav} onClose={onClose} /> : <DetailHead
+      {productCosts ? <header className="finance-cost-head"><div><h2>成本明细</h2><p>{String(record.data.code || '')} · {record.title}</p></div><button type="button" className="secondary-button" aria-label="关闭详情" onClick={onClose}>关闭</button></header> : finance ? <FinanceDetailHead def={def} record={record} nav={nav} productOnly={def.key==='finance-products'} onClose={onClose} /> : <DetailHead
         def={def}
         record={record}
         nav={editing ? undefined : nav}
@@ -423,7 +423,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
       </div>}
       <div className={finance ? 'rd-body finance-detail-body' : 'rd-body'} ref={body} onScroll={onBodyScroll}>
         {error && <div role="alert" className="notice error">{error}</div>}
-        {finance && tab === 'info' && <FinanceDetailBody key={`${def.key}:${record.id}`} def={def} record={record} extraActions={referenceParty&&financeMore.length>0?<MoreMenu items={financeMore}/>:undefined} />}
+        {finance && tab === 'info' && <FinanceDetailBody key={`${def.key}:${record.id}`} def={def} record={record} onProductChanged={reloadAll} extraActions={referenceParty&&financeMore.length>0?<MoreMenu items={financeMore}/>:undefined} />}
         {!finance && editing && <RecordForm def={def} record={record} inline inDetail onCloseReady={handler => { closeEditor.current = handler; }} onClose={() => setEditing(false)} onSaved={dto => { setEditing(false); setRecord(dto); setLogs(null); setRelations(null); onChanged(); }} />}
         {!finance && !editing && tab === 'info' && (
           <div className={`rd-info${groups.size <= 1 ? ' no-anchors' : ''}`}>
@@ -524,7 +524,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
             {linkDialog && <RelationDialog type={def.key} id={id} link={linkDialog === 'new' ? undefined : linkDialog} canView={canView} onClose={() => setLinkDialog(null)} onSaved={() => { setLinkDialog(null); setRelations(null); }} />}
           </section>
         )}
-        {tab.startsWith('child:') && <ChildPanel key={tab} parentDef={def} parent={record} childType={tab.slice(6).split('|')[0]} field={tab.split('|')[1]} />}
+        {tab.startsWith('child:') && <ChildPanel key={tab} parentDef={def} parent={record} childType={tab.slice(6).split('|')[0]} field={tab.split('|')[1]} onChanged={reloadAll} />}
         {tab === 'revenue' && <RevenuePanel licenseId={record.id} />}
         {tab === 'contents' && <LocationContentsPanel id={record.id} />}
         {tab === 'flow' && <AssetFlowPanel record={record} version={record.updatedAt} />}
@@ -555,10 +555,10 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
           {baseCopy && <button type="button" className="secondary-button" onClick={baseCopy.run}>复制新建</button>}
           {def.key === 'finance-base-codes' && statusSlot}
           {def.key === 'finance-products' && <button type="button" className="secondary-button" onClick={onClose}>关闭</button>}
-          {live && can('edit') && <button type="button" className="primary-button" onClick={() => setEditing(true)}>{def.key === 'finance-products' ? `编辑${financeLabel}` : def.key === 'finance-bundles' ? '修改' : '编辑'}</button>}
+          {live && can('edit') && <button type="button" className="primary-button" onClick={() => setEditing(true)}>{def.key === 'finance-products' ? <><Pencil size={16}/>{`编辑${financeLabel.replace('供应商 OEM 成品','供应商OEM成品')}`}</> : def.key === 'finance-bundles' ? '修改' : '编辑'}</button>}
           {live && def.key === 'finance-bundles' && can('edit') && <button type="button" className="secondary-button" onClick={() => setRevising(true)}>修改组成</button>}
           {quick}
-          {financeMore.length > 0 && !(referenceParty&&tab==='info') && <MoreMenu items={financeMore} />}
+          {financeMore.length > 0 && def.key!=='finance-products' && !(referenceParty&&tab==='info') && <MoreMenu items={financeMore} />}
           {def.key !== 'finance-products' && <button type="button" className="secondary-button" onClick={onClose}>关闭</button>}
         </div>
       </footer>}

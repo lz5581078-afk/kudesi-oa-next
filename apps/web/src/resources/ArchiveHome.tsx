@@ -19,7 +19,7 @@ export interface HierEntry { key: string; title: string; subtitle: string; rootI
 
 const TAB_ACCENT: Record<string, string> = { raw: 'green', self_made: 'blue', original_purchase: 'orange', supplier_oem: 'teal', package: 'purple', shipping_material: 'blue', oem_package: 'teal' };
 /** 商品档案顶级分类（档案类型）的说明，旧版同款文字 */
-const TAB_BLURB: Record<string, string> = {
+export const TAB_BLURB: Record<string, string> = {
   raw: '种子、原料、辅料等采购和生产使用的商品资料。',
   self_made: '公司自有生产、加工和包装后的成品商品。',
   purchased: '外部采购后直接销售或组合销售的成品商品。',

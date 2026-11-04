@@ -1,3 +1,7 @@
+import {lockSourceUnitCompany,materializeSourceUnits} from './source-unit-form';
+import {bomUnitReferences} from './bom-unit-references';
+import {sourceUnitCode} from './finance-dictionary-codes';
+import {trustedResourceImport} from './resource-import-capability';
 import { packagingCapacities } from './packaging-capacities';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
@@ -41,13 +45,15 @@ export async function productsUsingUnit(em: EntityManager, companyId: number, ki
       .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.archiveType')) IN ('package','oem_package')").getMany();
     capacityProducts = packaging.filter(row => String(row.data.specUnit ?? '') !== value && packagingCapacities(row.data.capacities, units).some(capacity => (capacity.code || capacity.unit) === value)).length;
   }
-  return products + lines + capacityProducts + codes + baseLines;
+  const history=await bomUnitReferences(em,companyId,value);if(history.unknown)throw new BadRequestException('历史BOM单位记录不完整，请先核对后再更改或删除单位');
+  return products + lines + capacityProducts + codes + baseLines+history.count;
 }
 
 /** 常用单位用固定编码（克 G、千克 KG…），其它取名称拼音首字母（对照旧系统 suggestUnitCode） */
 const KEEP_CASE = ['packaging_category', 'dimension_unit'];
 
 function suggestCode(name: string, kind: string): string {
+  if(['spec_unit','archive_unit','shipping_unit','packaging_unit'].includes(kind))return sourceUnitCode(name);
   const seeded = PRODUCT_UNIT_SEEDS.find((s) => s[0] === kind && s[1] === name && s[2]);
   if (seeded) return seeded[2];
   const seededAny = PRODUCT_UNIT_SEEDS.find((s) => s[1] === name && s[2] && !KEEP_CASE.includes(s[0]));
@@ -57,22 +63,30 @@ function suggestCode(name: string, kind: string): string {
 
 export async function beforeUnit(ctx: BeforeSaveContext) {
   const { em, user, data, existing } = ctx;
+  await lockSourceUnitCompany(em,user.companyId);
   const kind = str(data.kind);
   const name = str(data.name).normalize('NFKC').trim().replace(/\s+/g, ' ');
   if (!name) throw new BadRequestException('名称必填');
+  if((!existing||name!==str(existing.data.name))&&name.length>(kind==='spec_unit'?160:80))throw new BadRequestException('名称超过本类字典允许长度');
   data.name = name;
   const coded = (PRODUCT_UNIT_CODED_KINDS as readonly string[]).includes(kind);
+  if(existing&&coded&&!str(existing.data.code)&&!Object.prototype.hasOwnProperty.call(ctx.input??{},'code')){if(str(existing.data.kind)!==kind)throw new BadRequestException('种类建好后不能改');data.code=existing.data.code;return;}
   if (coded) {
     // 单位编码一律大写（旧系统规则）；包装类别、尺寸单位保留原有大小写（bag、cm 这类内置编码已在商品里用着）
-    const raw = (str(data.code) || suggestCode(name, kind)).replace(/[^A-Za-z0-9]/g, '');
-    const code = KEEP_CASE.includes(kind) ? raw : raw.toUpperCase();
-    if (!code) throw new BadRequestException('编码只能是英文字母和数字，请手动填写');
+    const supplied=str(data.code),sameCode=!!existing&&supplied===str(existing.data.code);
+    if(existing&&!supplied&&Object.prototype.hasOwnProperty.call(ctx.input??{},'code'))throw new BadRequestException('已有单位编码不能为空');
+    const raw=sameCode?supplied:(supplied||(!existing?suggestCode(name,kind):str(existing?.data.code))).replace(trustedResourceImport(em,user,'dictionaries')&&kind==='spec_unit'?/[^A-Za-z0-9+*]/g:/[^A-Za-z0-9]/g,'');
+    const code=sameCode?supplied:KEEP_CASE.includes(kind)?raw:raw.toUpperCase();
+    const imported=kind==='spec_unit'&&(trustedResourceImport(em,user,'dictionaries')||em.queryRunner?.data.legacyImport===true);
+    if(code.length>(kind==='spec_unit'?48:32))throw new BadRequestException('编码超过本类字典允许长度');
+    if(!sameCode&&!(imported?/^[A-Z0-9+*]+$/:KEEP_CASE.includes(kind)?/^[A-Za-z0-9]+$/:/^[A-Z0-9]+$/).test(code))throw new BadRequestException('编码只能是英文字母和数字，请手动填写');
     // 自定义档案类型的编码就是商品里存的“档案类型”取值，不能和内置类型（raw、package…）重名（比较不分大小写）
     if (kind === 'archive_type' && CATEGORY_ROOTS.some((r) => r.value.toLowerCase() === code.toLowerCase())) throw new BadRequestException(`编码「${code}」和内置档案类型重名，请换一个`);
     data.code = code;
   } else {
     delete data.code; // 系统规格没有编码
   }
+  await materializeSourceUnits(ctx);
   if (!existing) return;
   if (str(existing.data.kind) !== kind) throw new BadRequestException('种类建好后不能改');
   const oldValue = coded ? str(existing.data.code) : str(existing.data.name);

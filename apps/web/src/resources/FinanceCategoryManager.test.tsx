@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resourceApi } from './api';
 import { ApiError } from '../api/client';
+import {financeDictionaryApi} from './financeDictionaryApi';
+vi.mock('./financeDictionaryApi',()=>({financeDictionaryApi:{context:vi.fn(),preview:vi.fn()}}));
 import { FinanceCategoryManager } from './FinanceCategoryManager';
 
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [] as string[], deny: [] as string[] } } };
@@ -10,7 +12,7 @@ vi.mock('./CodeCategorySync',()=>({CodeCategorySync:()=> <div>聚水潭商品分
 vi.mock('./api', () => ({ resourceApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(), saveArchivePrefix:vi.fn(), reorderCategories:vi.fn() } }));
 const node = (id: number, name: string, parentId = 0) => ({ id, title: name, data: { name, code: `C${id}`, parentId, archiveType: 'raw', sort: id * 10 }, status: 'active' });
 const nodes = [node(1, '种子'), node(2, '稻种', 1), node(3, '籼稻', 2)];
-beforeEach(() => { auth.user.permissions.isCompanyAdmin = true; auth.user.permissions.allow = []; vi.mocked(resourceApi.list).mockResolvedValue({ items: nodes, total: 3, page: 1, pageSize: 200 } as never); vi.mocked(resourceApi.create).mockResolvedValue(node(4, '新分类', 2) as never); vi.mocked(resourceApi.update).mockResolvedValue(nodes[0] as never); });
+beforeEach(() => { vi.mocked(financeDictionaryApi.context).mockResolvedValue({kind:'product_category',rows:[]});vi.mocked(financeDictionaryApi.preview).mockResolvedValue({code:'XFL',baseCode:'XFL',conflict:false,errors:[],nameConflict:null,nameMaxLength:160,codeMaxLength:48,usage:null}); auth.user.permissions.isCompanyAdmin = true; auth.user.permissions.allow = []; vi.mocked(resourceApi.list).mockResolvedValue({ items: nodes, total: 3, page: 1, pageSize: 200 } as never); vi.mocked(resourceApi.create).mockResolvedValue(node(4, '新分类', 2) as never); vi.mocked(resourceApi.update).mockResolvedValue(nodes[0] as never); });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 const show = () => render(<FinanceCategoryManager target="finance-categories" archiveType="raw" selectedId={3} onChanged={vi.fn()} onClose={vi.fn()} />);
 
@@ -81,8 +83,10 @@ describe('24号分类管理：逐级维护与保存失败保护', () => {
     await waitFor(()=>expect(resourceApi.list).toHaveBeenCalledWith('finance-code-dictionaries',expect.objectContaining({fieldKey:'kind',fieldValue:'product_category'})));
     fireEvent.click(within(screen.getByRole('region',{name:'一级分类'})).getByRole('button',{name:'新增'}));
     fireEvent.change(screen.getByRole('textbox',{name:/分类名称/}),{target:{value:'合成编码分类'}});
+    await waitFor(()=>expect((screen.getByRole('textbox',{name:'分类标识'}) as HTMLInputElement).value).toBe('XFL'));
+    await waitFor(()=>expect((screen.getByRole('button',{name:'确认创建'}) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button',{name:'确认创建'}));
-    await waitFor(()=>expect(resourceApi.create).toHaveBeenCalledWith('finance-code-dictionaries',{kind:'product_category',name:'合成编码分类',code:'',sort:0}));
+    await waitFor(()=>expect(resourceApi.create).toHaveBeenCalledWith('finance-code-dictionaries',{kind:'product_category',name:'合成编码分类',code:'XFL',sort:0}));
   });
 
 });

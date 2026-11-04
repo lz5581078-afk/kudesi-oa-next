@@ -1,0 +1,57 @@
+import 'reflect-metadata';
+import {randomBytes} from 'crypto';
+import {DataSource,In} from 'typeorm';
+import {todayInChina} from '@kudesi/shared';
+import type {AuthUser} from '../common/auth.decorators';
+import {buildDataSourceOptions} from '../database/data-source';
+import {Company,ResourceRecord,ResourceLink,User} from '../entities';
+import {buildServices} from '../test-support';
+import {CostService} from './cost.service';
+import {CostVersionController} from './cost-version.controller';
+import {loadProductCostReferences,readCostBucketOrigins,syncProductCostSnapshotReferences} from './product-cost-references';
+const d=process.env.RESOURCE_DB_TEST==='1'?describe:describe.skip;
+d('商品档案成本实际来源引用（真实MySQL）',()=>{
+ let ds:DataSource,svc:ReturnType<typeof buildServices>['resources'],cost:CostService,controller:CostVersionController,user:AuthUser,other:AuthUser,productId:number,baseId:number,costId:number,leafId:number;
+ const key=()=>randomBytes(5).toString('hex'),day=todayInChina(),tomorrow=(()=>{const d=new Date(day+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+1);return d.toISOString().slice(0,10);})();
+ const record=(id:number,type:string)=>ds.manager.findOneByOrFail(ResourceRecord,{id,type,companyId:user.companyId});
+ const version=async()=>{for(const v of (await svc.list(user,'finance-cost-versions',{status:'active',showHidden:true,pageSize:200})).items)await svc.changeStatus(user,'finance-cost-versions',v.id,'inactive','本项场景结束');return svc.create(user,'finance-cost-versions',{versionName:'引用事实'+key(),defaultMarkupPercent:20,effectiveFrom:day});};
+ const sku=(versionId:number,extra:Record<string,unknown>={})=>svc.create(user,'finance-cost-skus',{versionId,skuType:'base_code',baseCodeId:baseId,...extra});
+ const activate=async(id:number)=>controller.activate(user,id,{signature:(await controller.preview(user,id)).activationSignature});
+ beforeAll(async()=>{
+  ds=new DataSource({...buildDataSourceOptions({...process.env,DB_NAME:process.env.TEST_DB_NAME}),migrationsRun:true} as never);await ds.initialize();svc=buildServices(ds).resources;cost=new CostService(ds);controller=new CostVersionController(ds,svc,cost);
+  const actor=async()=>{const c=await ds.manager.save(Company,ds.manager.create(Company,{code:key(),name:'来源事实公司',status:'active'})),u=await ds.manager.save(User,ds.manager.create(User,{companyId:c.id,account:'admin',passwordHash:'x',name:'合成管理员',isCompanyAdmin:true,status:'active',mustChangePassword:false}));return{id:u.id,companyId:c.id,name:u.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}};};user=await actor();other=await actor();
+  const root=await svc.create(user,'finance-categories',{archiveType:'raw',name:'原料',code:'YL'});leafId=(await svc.create(user,'finance-categories',{archiveType:'raw',name:'苹果',code:'PG',parentId:root.id})).id;
+  productId=(await svc.create(user,'finance-products',{archiveType:'raw',name:'事实苹果',categoryId:leafId,purchaseSpec:'千克',specQty:1,specUnit:'KG',purchasePrice:1000,freight:200,handlingFee:50})).id;
+  costId=(await svc.create(user,'finance-product-costs',{productId,costType:'purchase',unitCost:1000.1234,unitName:'千克',effectiveFrom:day,effectiveTo:day,sourceType:'manual'})).id;
+  baseId=(await svc.create(user,'finance-base-codes',{productId})).id;await svc.changeStatus(user,'finance-base-codes',baseId,'verified');
+ });afterAll(async()=>{await ds?.destroy();});
+ it('同次真实选价保留ID，排除未来/停用/过期；自动填值和同值提交不丢来源，人工改值清对应来源',async()=>{
+  const future=await svc.create(user,'finance-product-costs',{productId,costType:'purchase',unitCost:5000,effectiveFrom:tomorrow}),past=await svc.create(user,'finance-product-costs',{productId,costType:'purchase',unitCost:50,effectiveFrom:'2020-01-01',effectiveTo:'2020-01-02'}),stopped=await svc.create(user,'finance-product-costs',{productId,costType:'production',unitCost:90,effectiveFrom:day},'inactive');
+  const seeds=(await cost.versionSeeds(user)).seeds,source=seeds.find(row=>row.skuType==='base_code'&&row.skuId===baseId)!;expect(source.archiveCostSources).toContainEqual({productId,archiveCostId:costId,bucket:'purchase'});expect(source.archiveCostSources?.some(row=>[future.id,past.id,stopped.id].includes(row.archiveCostId))).toBe(false);
+  const v=await version(),item=await sku(v.id),initial=await record(item.id,'finance-cost-skus');expect(readCostBucketOrigins(initial.data.costSourceProvenance)?.purchase).toEqual([{productId,archiveCostId:costId}]);const amount=initial.data.purchaseCost;
+  await svc.update(user,'finance-cost-skus',item.id,{purchaseCost:amount});expect((await record(item.id,'finance-cost-skus')).data.costSourceProvenance).toEqual(initial.data.costSourceProvenance);
+  const viewer:AuthUser={...user,permissions:{isCompanyAdmin:false,allow:['finance.cost-versions.view'],deny:['product.cost.view','product.cost.edit']}};for(const result of [await svc.get(viewer,'finance-cost-skus',item.id),await svc.list(viewer,'finance-cost-skus',{fieldKey:'versionId',fieldValue:String(v.id)}),await svc.logs(viewer,'finance-cost-skus',item.id)])expect(JSON.stringify(result)).not.toContain('costSourceProvenance');
+  await svc.update(user,'finance-cost-skus',item.id,{purchaseCost:1100.4567});expect(readCostBucketOrigins((await record(item.id,'finance-cost-skus')).data.costSourceProvenance)?.purchase).toEqual([]);await activate(v.id);expect(((await record(item.id,'finance-cost-skus')).data.snapshot as {sourceProvenance:{archiveCosts:unknown[]}}).sourceProvenance.archiveCosts).toEqual([]);
+ });
+ it('显式重算替换实际来源，启用同事务留snapshot+links，canonical重建不丢；复制草稿保留来源而不伪造旧snapshot',async()=>{
+  const v=await version(),item=await sku(v.id,{purchaseCost:999});const pre=await controller.recalculatePreview(user,v.id);await controller.recalculate(user,v.id,{signature:pre.signature});expect(readCostBucketOrigins((await record(item.id,'finance-cost-skus')).data.costSourceProvenance)?.purchase).toEqual([{productId,archiveCostId:costId}]);
+  await activate(v.id);const saved=await record(item.id,'finance-cost-skus'),snapshot=saved.data.snapshot as {sourceProvenance:{version:number;archiveCosts:unknown[]}};expect(snapshot.sourceProvenance.archiveCosts).toEqual([{productId,archiveCostId:costId}]);const links=()=>ds.manager.find(ResourceLink,{where:{companyId:user.companyId,sourceId:item.id,targetType:'finance-product-costs'}});expect((await links()).map(row=>row.targetId)).toEqual([costId]);await ds.transaction(em=>svc.resyncLinks(em,user,'finance-cost-skus',item.id));expect((await links()).map(row=>row.targetId)).toEqual([costId]);
+  const cloned=await controller.copy(user,v.id,{versionCode:key(),versionName:'复制来源事实'}),children=await ds.manager.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-cost-skus'}}),copy=children.find(row=>row.data.versionId===cloned.id)!;expect(copy.data.snapshot).toBeUndefined();expect(readCostBucketOrigins(copy.data.costSourceProvenance)?.purchase).toEqual([{productId,archiveCostId:costId}]);expect(await ds.manager.count(ResourceLink,{where:{companyId:user.companyId,sourceId:copy.id,targetType:'finance-product-costs'}})).toBe(0);
+  const info=(await loadProductCostReferences(ds.manager,user.companyId,[await record(costId,'finance-product-costs')])).get(costId)!;expect(info.referenceCount).toBeGreaterThan(0);await expect(svc.remove(user,'finance-product-costs',costId,'引用保护测试')).rejects.toThrow(/引用/);
+ });
+ it('快照与来源链接写入后故障同事务全回滚，不留半个激活版本',async()=>{
+  const v=await version(),item=await sku(v.id),original=svc.patchData.bind(svc);let sawLinks=false;
+  const spy=jest.spyOn(svc,'patchData').mockImplementation(async(em,actor,type,id,data,note,options)=>{await original(em,actor,type,id,data,note,options);if(type==='finance-cost-skus'&&data.snapshot){const row=await em.findOneByOrFail(ResourceRecord,{companyId:actor.companyId,type,id});await syncProductCostSnapshotReferences(em,actor.companyId,row);sawLinks=await em.count(ResourceLink,{where:{companyId:actor.companyId,sourceId:id,targetType:'finance-product-costs'}})>0;throw Error('合成来源落库故障');}});
+  try{await expect(activate(v.id)).rejects.toThrow('合成来源落库故障');}finally{spy.mockRestore();}expect(sawLinks).toBe(true);expect((await svc.get(user,'finance-cost-versions',v.id)).status).toBe('draft');expect((await record(item.id,'finance-cost-skus')).data.snapshot).toBeUndefined();expect(await ds.manager.count(ResourceLink,{where:{companyId:user.companyId,sourceId:item.id,targetType:'finance-product-costs'}})).toBe(0);
+ });
+ it('普通请求不能伪造server-only来源；旧无marker复制不追认，跨公司ID不能重建链接',async()=>{
+  const v=await version(),item=await sku(v.id),before=await record(item.id,'finance-cost-skus');
+  try{await svc.update(user,'finance-cost-skus',item.id,{costSourceProvenance:{version:1,buckets:{purchase:[{productId,archiveCostId:999999}]}}});}catch{}expect((await record(item.id,'finance-cost-skus')).data.costSourceProvenance).toEqual(before.data.costSourceProvenance);
+  const legacy=await record(item.id,'finance-cost-skus');delete legacy.data.costSourceProvenance;await ds.manager.save(legacy);const copy=await controller.copy(user,v.id,{versionCode:key(),versionName:'旧来源未知副本'}),cloned=(await ds.manager.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-cost-skus'}})).find(row=>row.data.versionId===copy.id)!;expect(readCostBucketOrigins(cloned.data.costSourceProvenance)).toEqual({});
+  await ds.transaction(async em=>{const source=await em.findOneByOrFail(ResourceRecord,{companyId:user.companyId,type:'finance-cost-skus',id:item.id});source.data.snapshot={sourceProvenance:{version:1,complete:true,archiveCosts:[{productId,archiveCostId:costId}],buckets:{purchase:[{productId,archiveCostId:costId}],transfer:[],pre_ship_package:[],production:[],shipping_package:[],express:[]}}};await expect(syncProductCostSnapshotReferences(em,other.companyId,source)).resolves.toBeUndefined();expect(await em.count(ResourceLink,{where:{companyId:other.companyId,targetId:costId}})).toBe(0);source.companyId=other.companyId;await expect(syncProductCostSnapshotReferences(em,other.companyId,source)).rejects.toThrow(/本公司/);});
+ });
+ it('旧快照只按显式同公司productId标未知，名称/金额/当前base关系不猜；不锁另一无关档案',async()=>{
+  const p=(await svc.create(user,'finance-products',{archiveType:'raw',name:'无关梨',categoryId:leafId,purchaseSpec:'千克',specQty:1,specUnit:'KG',purchasePrice:800,freight:100,handlingFee:10})).id,unrelated=await svc.create(user,'finance-product-costs',{productId:p,costType:'purchase',unitCost:800,effectiveFrom:day});const v=await version(),item=await sku(v.id);const legacy=await record(item.id,'finance-cost-skus');legacy.data.snapshot={productId,lines:[{name:'同名不能代替ID',unitCostCents:800}],capturedAt:day,sourceProvenance:{version:999,archiveCosts:[{productId:p,archiveCostId:unrelated.id}]}};await ds.manager.save(legacy);const frozen=JSON.parse(JSON.stringify((await record(item.id,'finance-cost-skus')).data.snapshot));
+  await ds.transaction(em=>svc.resyncLinks(em,user,'finance-cost-skus',item.id));const infos=await loadProductCostReferences(ds.manager,user.companyId,[await record(costId,'finance-product-costs'),await record(unrelated.id,'finance-product-costs')]);expect(infos.get(costId)).toMatchObject({referenceCount:null,referenceState:'unknown'});expect(infos.get(unrelated.id)).toEqual({referenceCount:0,knownReferenceCount:0,referenceState:'known'});expect((await record(item.id,'finance-cost-skus')).data.snapshot).toEqual(frozen);await expect(svc.remove(user,'finance-product-costs',unrelated.id,'无真实引用可删除')).resolves.toBeDefined();
+ });
+});

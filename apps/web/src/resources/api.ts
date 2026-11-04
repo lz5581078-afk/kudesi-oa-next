@@ -14,6 +14,10 @@ export interface FileInfo {
 }
 
 export interface ResourceDto {
+  /** 同公司实际来源状态；缺失或无法唯一解析时为 null。 */
+  sourceStatus?:string|null;
+  baseCodeFacts?:{issueCount:number;canonicalId:number|null;canonicalState:'pending'|'verified'|'reverify'|null;aliasCount:number};
+  bomCostFacts?:{unitCost:number|null;freight:number|null;handlingFee:number|null};
   id: number;
   type: string;
   title: string;
@@ -31,6 +35,10 @@ export interface ResourceDto {
   updatedAt: string;
   /** 内容版本，表格编辑保存时用来发现别人改过 */
   version?: string;
+  /** Server-only archive-cost reference facts; missing/null is not a verified zero. */
+  referenceCount?:number|null;
+  knownReferenceCount?:number;
+  referenceState?:'known'|'unknown';
 }
 
 export interface ListResult {

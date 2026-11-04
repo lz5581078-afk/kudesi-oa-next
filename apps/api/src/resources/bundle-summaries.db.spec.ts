@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, ResourceRecord, User } from '../entities';
+import { Company, ResourceRecord, User, OutboxJob } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
 import { buildServices } from '../test-support';
 import { BundleToolsService } from './bundle-tools.service';
@@ -23,16 +23,20 @@ d('组合主页整页摘要（隔离数据库）',()=>{
  const insert=(type:string,data:Record<string,unknown>,companyId=actor.companyId)=>ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId,type,title:String(data.name||data.code||'合成摘要'),data,status:'active',createdBy:actor.id,updatedBy:actor.id}));
  it('只加载一次成本目录，按实际行数列组成/包装，成本重量复用现计算且售价只计普通镜像非赠品',async()=>{
   const product=await insert('finance-products',{archiveType:'package',totalCost:8.1234,weightG:5,purchaseSpec:'张'});
-  const base=await insert('finance-base-codes',{productId:product.id,code:'BZ-SUM',name:'合成包装',salePrice:99999});
+  const base=await insert('finance-base-codes',{productId:product.id,code:'BZ-SUM',name:'合成包装',cost:8.12,salePrice:99999});
   await insert('finance-jst-skus',{skuId:'BZ-SUM',goodsType:'normal',salePrice:312.3456});
   await insert('finance-jst-skus',{skuId:'BZ-SUM',goodsType:'combine',salePrice:99999},foreignCompany);
   const bundle=await insert('finance-bundles',{code:'ZH-SUM',mainStyleCode:'ZH-STYLE'});
   for(const [role,qty] of [['main',2],['package',1],['gift',3]] as const)await insert('finance-bundle-lines',{bundleId:bundle.id,baseCodeId:base.id,role,qty});
   const load=jest.spyOn(CostService.prototype,'load');
   const summary=(await tools.summaries(actor,[bundle.id])).rows[0];expect(load).toHaveBeenCalledTimes(1);load.mockRestore();
-  expect(summary).toMatchObject({mainStyleCode:'ZH-STYLE',componentCount:3,packageCount:3,weightG:30,cost:48.7404,salePrice:937.0368});
+  expect(summary).toMatchObject({mainStyleCode:'ZH-STYLE',componentCount:3,packageCount:3,weightG:30,cost:48.72,salePrice:937.0368});
   expect(summary.packageSummary.split('；')).toHaveLength(3);
   const costData=await new CostService(ds).load(actor.companyId);expect(summary.cost).toBe(new CostService(ds).row(costData,bundle).preShipCostCents);
+  // Source镜像元4已存价8.12分×总数量6；缺镜像事实必须unknown，不能借当前档案8.1234分补价。
+  const missing={...base.data};delete missing.cost;base.data=missing;await ds.manager.save(ResourceRecord,base);
+  expect((await tools.summaries(actor,[bundle.id])).rows[0].cost).toBeNull();
+  expect((await ds.manager.findOneByOrFail(ResourceRecord,{id:product.id,companyId:actor.companyId})).data.totalCost).toBe(8.1234);
  });
  it('没有真实普通镜像返回null，可信0保留；cost/price服务端分别脱敏且公司隔离',async()=>{
   const base=await insert('finance-base-codes',{code:'ZERO-SUM',salePrice:9999}),bundle=await insert('finance-bundles',{code:'ZERO-BUNDLE'});
@@ -62,6 +66,12 @@ d('组合主页整页摘要（隔离数据库）',()=>{
   const foreign=await insert('finance-products',{archiveType:'package',code:'PRIVATE-DIRECT',name:'不能泄露',totalCost:999,weightG:999},foreignCompany);
   await ds.manager.update(ResourceRecord,{id:line.id},{data:{...line.data,productId:foreign.id}});
   const hidden=await tools.report(actor,bundle.id);expect(JSON.stringify(hidden)).not.toContain('PRIVATE-DIRECT');expect(hidden.components[0].cost).toBeNull();
+ });
+
+ it('主页issueCount取同一实际验证报告，含草稿缺项；只读不写资源或队列/不返回问题文本金额',async()=>{
+  const bundle=await insert('finance-bundles',{code:'ISSUES-COUNT',name:'真实缺项合成组合'});const count=await ds.manager.count(ResourceRecord,{where:{companyId:actor.companyId}}),jobs=await ds.manager.count(OutboxJob,{where:{companyId:actor.companyId}});
+  const report=await tools.report(actor,bundle.id),summary=(await tools.summaries(actor,[bundle.id])).rows[0];expect(report.issues.length).toBeGreaterThan(0);expect(summary.issueCount).toBe(report.issues.length);expect(summary).not.toHaveProperty('issues');
+  const viewer={...actor,permissions:{isCompanyAdmin:false,allow:['resource.finance-bundles.view'],deny:['product.cost.view','product.price.view']}};const hidden=(await tools.summaries(viewer,[bundle.id])).rows[0];expect(hidden.issueCount).toBe(report.issues.length);for(const key of ['cost','salePrice','issues','outbound','components'])expect(hidden).not.toHaveProperty(key);expect(await ds.manager.count(ResourceRecord,{where:{companyId:actor.companyId}})).toBe(count);expect(await ds.manager.count(OutboxJob,{where:{companyId:actor.companyId}})).toBe(jobs);
  });
 
 });

@@ -5,6 +5,7 @@ import { api, ApiError } from '../../../api/client';
 import { FieldInput } from '../../../resources/RecordForm';
 import type { ResourceDto } from '../../../resources/api';
 import '../../../resources/sectionedForm.css';
+import './labor-version-editor.css';
 
 /** 复制是整版本的原子操作；字段和分区沿用通用版本资料配置。 */
 export function CopyVersionDialog({ source, onClose, onCopied }: { source: ResourceDto; onClose: () => void; onCopied: (newId: number) => void }) {
@@ -42,7 +43,7 @@ export function CopyVersionDialog({ source, onClose, onCopied }: { source: Resou
     } catch (err) { if (mounted.current) { setError(err instanceof ApiError ? err.message : '复制失败'); setBusy(false); working.current = false; } }
   }
   return <div className="modal-backdrop sectioned-backdrop" onMouseDown={event => { if(event.target === event.currentTarget && !working.current)onClose(); }}>
-    <form ref={form} className="modal card rf sectioned-editor rf-sectioned" style={{ '--sectioned-width': `${presentation.width}px`, '--sectioned-title': `${presentation.titleSize}px` } as CSSProperties} role="dialog" aria-modal="true" aria-label="复制人力成本版本" onSubmit={submit}>
+    <form ref={form} className="modal card rf sectioned-editor rf-sectioned labor-version-editor" style={{ '--sectioned-width': `${presentation.width}px`, '--sectioned-title': `${presentation.titleSize}px` } as CSSProperties} role="dialog" aria-modal="true" aria-label="复制人力成本版本" onSubmit={submit}>
       <header className="modal-head rf-head"><div className="rf-sectioned-icon"><UsersRound size={20}/></div><div className="rf-sectioned-heading"><span>{presentation.sectionLabel}</span><h2>复制人力成本版本</h2><p>{presentation.subtitle}</p></div><span className="rf-gap"/><button type="button" className="icon-button" aria-label="关闭" disabled={busy} onClick={onClose}><X size={18}/></button></header>
       <div className="rf-main"><div className="rf-scroll">{error && <p className="notice error" role="alert">{error}</p>}{presentation.sections.map(section => <section key={section.title} className="rf-sec rf-configured-section" aria-label={section.title}><header><h3>{section.title}</h3><small>{section.hint}</small></header><div className="form-grid">{section.fields.map(key => {
         const field = def.fields.find(candidate => candidate.key === key)!;

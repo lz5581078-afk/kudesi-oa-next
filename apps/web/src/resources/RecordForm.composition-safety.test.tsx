@@ -36,7 +36,7 @@ describe('生产组成分区编辑保存安全', () => {
   it('新增的空组成行必须先选资料和倍数，不能和旧完整行一起被静默省略', async () => {
     render(<RecordForm def={def} record={row(9, 'finance-products', { archiveType: 'self_made', name: '合成成品' })} onlyGroup="生产资料与成本" onClose={vi.fn()} onSaved={vi.fn()}/>);
     await screen.findByRole('spinbutton', { name: '组成数量' });
-    fireEvent.click(screen.getByRole('button', { name: '＋ 添加原料组成' }));
+    fireEvent.click(screen.getByRole('button', { name: '增加原料' }));
     fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
     expect(await screen.findByText('原料、包装和人工明细必须选择档案，并填写大于 0 的倍数')).toBeTruthy();
     expect(screen.getAllByRole('spinbutton', { name: '组成数量' })).toHaveLength(2);
@@ -45,7 +45,7 @@ describe('生产组成分区编辑保存安全', () => {
   it('单独编辑供货来源也保留完整性校验，不能省略未填完的来源后保存', async () => {
     render(<RecordForm def={def} record={row(9, 'finance-products', { archiveType: 'raw', name: '合成原料', purchaseSpec: '斤' })} onlyGroup="供货来源" onClose={vi.fn()} onSaved={vi.fn()}/>);
     await waitFor(() => expect(resourceApi.list).toHaveBeenCalledWith('finance-product-sources', expect.objectContaining({ fieldValue: 9 })));
-    fireEvent.click(screen.getByRole('button', { name: '＋ 添加供货来源' }));
+    fireEvent.click(screen.getByRole('button', { name: '增加来源' }));
     fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
     expect(await screen.findByText(/请至少维护一条完整供货来源/)).toBeTruthy();
     expect(resourceApi.saveForm).not.toHaveBeenCalled();

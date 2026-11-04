@@ -1,3 +1,4 @@
+import {loadResourceDirectory} from './resourceDirectory';
 import { useEffect, useState } from 'react';
 import { createChecker, unitYuanText } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -17,14 +18,8 @@ export function BaseProfileSourceExtras({ source, canCost: allowedCost = true }:
     let alive = true;
     setState({ key, rows: null, error: '' });
     (async () => {
-      const rows: ResourceDto[] = [];
-      for (let page = 1; alive; page++) {
-        const result = await resourceApi.list('finance-product-sources', { fieldKey: 'productId', fieldValue: source.id, page, pageSize: 200 });
-        if (!alive) return;
-        rows.push(...result.items);
-        if (!result.items.length || rows.length >= result.total) break;
-      }
-      if (alive) setState({ key, rows, error: '' });
+      const rows=await loadResourceDirectory('finance-product-sources',()=>alive,undefined,{preserveOrder:true,scopedQuery:{fieldKey:'productId',fieldValue:source.id}});
+      if (alive&&rows) setState({ key, rows, error: '' });
     })().catch(() => { if (alive) setState({ key, rows: null, error: '供货来源暂不可读。' }); });
     return () => { alive = false; };
   }, [key, retry]);

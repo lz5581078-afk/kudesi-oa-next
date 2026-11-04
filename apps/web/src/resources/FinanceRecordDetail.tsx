@@ -33,15 +33,16 @@ export function FinanceDetailBackdrop({ children }: { children: ReactNode }) {
   }}>{children}</div>;
 }
 
-export function FinanceDetailHead({ def, record, nav, onClose }: { def: ResourceDef; record: ResourceDto; nav?: DetailNav; onClose: () => void }) {
+export function FinanceDetailHead({ def, record, nav, onClose, productOnly=false }: { def: ResourceDef; record: ResourceDto; nav?: DetailNav; onClose: () => void; productOnly?:boolean }) {
   const supplier = def.key === 'finance-suppliers', product = def.key === 'finance-products', code = ['finance-base-codes', 'finance-bundles'].includes(def.key);
   const customer=['finance-customers','finance-fee-items'].includes(def.key);
-  const label = referenceRecordLabel(def.key, record.data), status = statusOf(def, record.status);
+  const sourceLabel=referenceRecordLabel(def.key,record.data);
+  const label=product&&productOnly?sourceLabel.replace(/\s/g,''):sourceLabel, status=statusOf(def,record.status);
   const title = supplier ? '查看供应商' : code ? `${label}详情` : String(record.data.name || record.title || `${label}详情`);
-  return <header className="finance-detail-head"><div>{supplier && <small className="finance-detail-kicker"><FolderTree size={20} />财务基础资料</small>}<div className="finance-detail-title"><h2 className="rd-title">{title}</h2>{product && !['raw', 'shipping_material'].includes(String(record.data.archiveType)) && <span className={`pill ${status.tone}`}>{status.label}</span>}</div><p>{supplier ? '查看供应商资料，银行信息可整组或逐项复制。' : code ? String(record.data.code || record.title) : product ? `查看${label}的基础资料和系统编号。` : `${def.label}详情、分类归属和操作记录。`}</p></div><div className="finance-detail-head-actions">{nav && <div className="finance-detail-nav"><button type="button" aria-label="上一条" disabled={!nav.onPrev} onClick={nav.onPrev}>↑</button><small aria-label={`第 ${nav.index} 条，共 ${nav.total} 条`}>{nav.index}/{nav.total}</small><button type="button" aria-label="下一条" disabled={!nav.onNext} onClick={nav.onNext}>↓</button></div>}<button type="button" className={customer?'secondary-button':'icon-button'} aria-label="关闭详情" onClick={onClose}>{customer?'关闭':<X size={22} />}</button></div></header>;
+  return <header className="finance-detail-head"><div>{supplier && <small className="finance-detail-kicker"><FolderTree size={20} />财务基础资料</small>}<div className="finance-detail-title"><h2 className="rd-title">{title}</h2>{product && !['raw', 'shipping_material'].includes(String(record.data.archiveType)) && <span className={`pill ${status.tone}${productOnly?` source-product-view-status${record.status==='inactive'?' is-inactive':''}`:''}`}>{product&&productOnly?(record.status==='inactive'?'停用':'正常'):status.label}</span>}</div><p>{supplier ? '查看供应商资料，银行信息可整组或逐项复制。' : code ? String(record.data.code || record.title) : product ? `查看${label}的基础资料和系统编号。` : `${def.label}详情、分类归属和操作记录。`}</p></div><div className="finance-detail-head-actions">{nav && !(product&&productOnly) && <div className="finance-detail-nav"><button type="button" aria-label="上一条" disabled={!nav.onPrev} onClick={nav.onPrev}>↑</button><small aria-label={`第 ${nav.index} 条，共 ${nav.total} 条`}>{nav.index}/{nav.total}</small><button type="button" aria-label="下一条" disabled={!nav.onNext} onClick={nav.onNext}>↓</button></div>}<button type="button" className={customer?'secondary-button':'icon-button'} aria-label="关闭详情" onClick={onClose}>{customer?'关闭':<X size={22} />}</button></div></header>;
 }
 
-function SupplierDetail({ def, record, extraActions }: { def: ResourceDef; record: ResourceDto; extraActions?:ReactNode }) {
+function SupplierDetail({ def, record, extraActions, onProductChanged }: { def: ResourceDef; record: ResourceDto; extraActions?:ReactNode; onProductChanged?:()=>void }) {
   const { user } = useAuth();
   const groups = referencePartyGroups(def.key, resourceFields(def, record.data, record.status, p => !!user && createChecker(user.permissions)(p)));
   const bank = [['供应商名称', record.data.name || record.title], ['账户名称', record.data.bankAccountName], ['开户行', record.data.bank], ['银行账号', record.data.bankAccountNo]].filter(([, value]) => String(value ?? '').trim()).map(([label, value]) => `${label}：${String(value).trim()}`).join('\n');
@@ -53,9 +54,9 @@ function SupplierDetail({ def, record, extraActions }: { def: ResourceDef; recor
     })}</div></FinanceSection>)}{(groups.some(([title]) => title === '补充资料') || Boolean(record.data.code) || Boolean(extraActions)) && <details className="finance-detail-extra"><summary>补充资料</summary><FinanceFields def={def} record={record} keys={groups.find(([title]) => title === '补充资料')?.[1].map(f => f.key) ?? []} /><CopyButton value={String(record.data.code || '')} label="供应商编号" />{extraActions}</details>}</>;
 }
 
-export function FinanceDetailBody({ def, record, extraActions }: { def: ResourceDef; record: ResourceDto; extraActions?:ReactNode }) {
+export function FinanceDetailBody({ def, record, extraActions, onProductChanged }: { def: ResourceDef; record: ResourceDto; extraActions?:ReactNode; onProductChanged?:()=>void }) {
   const { user } = useAuth();
-  if (def.key === 'finance-products') return <FinanceProductDetail record={record} />;
+  if (def.key === 'finance-products') return <FinanceProductDetail record={record} onChanged={onProductChanged} />;
   if (def.key === 'finance-base-codes') return <FinanceBaseCodeDetail record={record} />;
   if (def.key === 'finance-bundles') return <FinanceBundleDetail record={record} />;
   if (def.key === 'finance-suppliers') return <SupplierDetail def={def} record={record} extraActions={extraActions} />;

@@ -24,4 +24,8 @@ describe('单价输入',()=>{
     fireEvent.change(input,{target:{value:'0.0000001'}});
     expect(screen.getByRole('status').textContent).toBe('NaN');
   });
+  it('only the trusted logistics scale accepts eight yuan decimals and rejects nine',()=>{
+    render(<Form scale={6}/>);const input=screen.getByRole('textbox');fireEvent.change(input,{target:{value:'0.12345678'}});expect(screen.getByRole('status').textContent).toBe('12.345678');expect(input).toHaveProperty('value','0.12345678');fireEvent.change(input,{target:{value:'0.123456789'}});expect(screen.getByRole('status').textContent).toBe('NaN');
+  });
+
 });

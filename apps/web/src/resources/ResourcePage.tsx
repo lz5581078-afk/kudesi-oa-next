@@ -1,10 +1,14 @@
 import {applyExpenseSortOrder} from '@kudesi/shared';
+import {isReferenceProductFamily,productReferenceColumns,productReferenceRequiredColumns,productReferencePageSize,saveProductReferencePageSize,productReferenceNoun} from './productReferenceList';
 import {loadResourceDirectory} from './resourceDirectory';
 import {ExpenseSortProvider,useExpenseSortPreference} from './ExpenseSortPreference';
-import {ClipboardList} from 'lucide-react';
+import {ClipboardList,Settings2,Download,Upload,Plus} from 'lucide-react';
+import {type SourceProductFamily} from '@kudesi/shared';
+import {downloadProductArchiveTemplate} from './sourceProductArchiveImport';
+import {SourceProductArchiveImportDialog} from './SourceProductArchiveImportDialog';
 import {ReferenceSearch} from '../pages/finance/query/ReferenceSearch';
 import '../pages/finance/query/referenceQueryTable.css';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {Fragment,type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fieldOptions, loadUnitOptions, useUnitOptions } from './unitOptions';
 import { selectChoices, useCategoryOptions } from './categoryOptions';
 import { CategoryManageDialog } from './CategoryManageDialog';
@@ -13,6 +17,7 @@ import { rowActionsFor } from './RowActions';
 import { HierRowActions } from './HierRowActions';
 import { HierBar } from './HierBar';
 import './financeBaseDesign.css';
+import './productReferenceList.css';
 import { resourceDescription, PARTY_SEED_CATEGORIES, WAREHOUSE_PRODUCT_FIELDS, archivePolicyOf, dueBadgeFor, expirySources, getResourceDef, hasFeeDefaults, describeColFilter, STATUS_COL, unitYuanText, resourceTabInitial, resourceTabOptions, resourcePagePath, todayShanghai, treeFilterField, browseFilterFields, permissionOwner, resourcePermission, viewFiltersOf, createChecker, gridPolicyOf, SPECIAL_PERMISSIONS, type ColFilter, type FieldDef } from '@kudesi/shared';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -24,6 +29,7 @@ import { FeeSnapshotsDialog } from './FeeSnapshotsDialog';
 import { PackagingExcelDialog } from './PackagingExcelDialog';
 import { ProductPackagingSchemesSummary } from './ProductPackagingSchemesSummary';
 import { ProductCostExcelDialog } from './ProductCostExcelDialog';
+import {useProductCostExcelActions} from './useProductCostExcelActions';
 import { ImportDialog } from './ImportDialog';
 import { TaxPendingButton } from './TaxPendingDialog';
 import { ReasonLibraryDialog } from './ReasonLibraryDialog';
@@ -109,6 +115,7 @@ function useColumns(type: string, all: FieldDef[], defaults: FieldDef[], scope?:
 
 /** 通用资料页：列表（搜索/分类页签/状态/分页/列设置）+ 右侧详情抽屉 + 新增/导入/导出，全部由资源定义生成。 */
 type ResourcePageProps={type:string;lockedTab?:string;title?:string;embedded?:boolean;hier?:HierContext};
+function SourceProductListFrame({children}:{children:ReactNode}){return <div className="reference-product-table-block">{children}</div>;}
 export function ResourcePage(props:ResourcePageProps){return <ExpenseSortProvider enabled={!!props.hier&&props.type==='finance-fee-items'}><ResourcePageBody {...props}/></ExpenseSortProvider>;}
 function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps){
   const expenseSort=useExpenseSortPreference();
@@ -116,10 +123,12 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   const referenceContact = !!hier && ['finance-suppliers','finance-customers'].includes(type);
   const referenceFee = !!hier && type==='finance-fee-items';
   const referenceArchive = referenceContact || referenceFee;
+  const referenceProduct = !!hier && type==='finance-products'&&isReferenceProductFamily(lockedTab);
+  const referenceList = referenceArchive || referenceProduct;
   const financeBase = Boolean(hier) || ['finance-packaging-schemes', 'finance-zero-reasons', 'finance-product-units', 'finance-supplier-categories', 'finance-customer-categories', 'finance-fee-categories'].includes(type);
   const isMobile = useIsMobile();
   const [density, setDensity] = useDensity();
-  const colWidths = useColumnWidths(type);
+  const colWidths = useColumnWidths(referenceProduct?`${type}.reference24.${lockedTab}`:type);
   const hasAppbar = useHasAppbarSlot();
   useAppbarBare(!embedded);
   const can = useResourceCan(type);
@@ -142,7 +151,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   const [showHidden, setShowHidden] = useState(false);
   const [archived, setArchived] = useState(false);
   const [expiring, setExpiring] = useState(false);
-  const [pageSize, setPageSize] = useState<number>(() => { const n = readPrefs(type).pageSize; return n && (PAGE_SIZES as readonly number[]).includes(n) ? n : referenceArchive ? 30 : 20; });
+  const [pageSize, setPageSize] = useState<number>(() => { const n = readPrefs(type).pageSize; return referenceProduct ? productReferencePageSize(lockedTab||'') : n && (PAGE_SIZES as readonly number[]).includes(n) ? n : referenceArchive ? 30 : 20; });
   const [sort, setSort] = useState<{ by: string; dir: 'asc' | 'desc' } | null>(null);
   const [filterVals, setFilterVals] = useState<Record<string, string>>(() => readPrefs(type).filters ?? {});
   const [filterOpts, setFilterOpts] = useState<Record<string, Array<{ id: number | string; label: string }>>>({});
@@ -186,14 +195,19 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   const [page, setPage] = useState(1);
   const [checked, setChecked] = useState<number[]>([]);
   const archivePickedRows=useRef(new Map<number,ResourceDto>());
-  const archiveSelectionScope=JSON.stringify([type,hier?.rootId,filterVals[treeField?.key??''],showHidden]);
-  useEffect(()=>{if(referenceArchive){setChecked([]);archivePickedRows.current.clear();}},[referenceArchive,archiveSelectionScope]);
+  const archiveSelectionScope=JSON.stringify([type,hier?.rootId,filterVals[treeField?.key??''],showHidden,...(referenceProduct?[tab,keyword,status,me?.companyId,me?.id,me?.permissions]:[])]);
+  useEffect(()=>{if(referenceList){setChecked([]);archivePickedRows.current.clear();}},[referenceList,archiveSelectionScope]);
   const [batchMsg, setBatchMsg] = useState('');
   const referenceImportInput=useRef<HTMLInputElement>(null),referenceImportPending=useRef(false);
+  const productCostImportInput=useRef<HTMLInputElement>(null),productArchiveImportInput=useRef<HTMLInputElement>(null),productOperations=useRef<HTMLDetailsElement>(null);
+  const [productImportFile,setProductImportFile]=useState<{file:File;scope:string}|null>(null),[productTemplateBusy,setProductTemplateBusy]=useState(false);
   const [referenceImportBusy,setReferenceImportBusy]=useState(false);
   const referenceTransferScope=JSON.stringify([type,me?.companyId,me?.id,me?.permissions]);
+  const referenceListIdentity=referenceList?referenceTransferScope:'';
   const referenceTransferScopeRef=useRef(referenceTransferScope),referenceImportSequence=useRef(0),referenceTransferMounted=useRef(false);
   referenceTransferScopeRef.current=referenceTransferScope;
+  const productTransferScope=JSON.stringify([referenceTransferScope,tab]),productTransferScopeRef=useRef(productTransferScope);productTransferScopeRef.current=productTransferScope;
+  useEffect(()=>{setProductTemplateBusy(false);},[productTransferScope]);
   useEffect(()=>{referenceTransferMounted.current=true;referenceImportSequence.current++;referenceImportPending.current=false;setReferenceImportBusy(false);return()=>{referenceTransferMounted.current=false;referenceImportSequence.current++;};},[referenceTransferScope]);
   const [data, setData] = useState<ListResult | null>(null);
   const directoryTotal=useRef<number|undefined>(undefined);
@@ -229,6 +243,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   const derivedFields = useMemo<FieldDef[]>(() => (def.derivedColumns ?? []).map((d) => ({ key: d.key, label: d.label, type: d.kind === 'sum' && d.format === 'money' ? 'money' : 'number', group: '统计', readonly: true, list: d.list !== false })), [def]);
   const derivedKeys = useMemo(() => new Set(derivedFields.map((f) => f.key)), [derivedFields]);
   const shownFields = useMemo(() => {
+    if(referenceProduct)return productReferenceColumns(def,tab);
     const fields=def.fields.filter(f=>f.type!=='secret'&&(!f.listOnly||f.list===true)).map(f=>referenceContact&&['phone','bankAccountNo'].includes(f.key)?{...f,label:f.key==='phone'?'联系电话':'银行账号'}:referenceFee?{...f,label:({defaultObject:'挂账节点',requiredObject:'费用单要求'} as Record<string,string>)[f.key]||f.label}:type==='finance-products'&&hier?{...f,label:({code:'系统自动编号',basicInfoFullName:'基础信息全名',categoryId:'所属分类',totalCost:'最新成本'} as Record<string,string>)[f.key]||f.label}:f);
     if(referenceArchive){
       const virtual:FieldDef[]=[{key:'__status',label:'状态',type:'text',group:'基本信息'},{key:'__actions',label:'操作',type:'text',group:'基本信息'}];
@@ -236,22 +251,20 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
       return keys.map(key=>[...fields,...virtual].find(field=>field.key===key)).filter((field):field is FieldDef=>!!field);
     }
     return [...fields,...derivedFields];
-  },[def,derivedFields,type,hier,referenceContact,referenceFee,referenceArchive]);
+  },[def,derivedFields,type,hier,referenceContact,referenceFee,referenceArchive,referenceProduct,tab]);
   const defaults = useMemo(() => {
     if(referenceContact) return (type==='finance-suppliers' ? ['code','name','shortName','shortCode','contact','phone','bankAccountName'] : ['code','name','contact','phone','__status']).concat('__actions').map(key=>shownFields.find(f=>f.key===key)).filter((f):f is FieldDef=>!!f);
     if(referenceFee)return ['code','name','defaultObject','relationRequirement','requiredObject','__status','__actions'].map(key=>shownFields.find(field=>field.key===key)).filter((field):field is FieldDef=>!!field);
-    if (type === 'finance-products' && hier) {
-      const keys = ['code', 'basicInfoFullName', 'categoryId', ...(['package', 'oem_package'].includes(tab) ? ['packagingCategory', 'dimensions', 'capacities', 'orderStock', 'actualStock'] : []), 'purchaseSpec', 'purchasePrice', 'freight', 'handlingFee', 'totalCost'];
-      return keys.map(key => shownFields.find(f => f.key === key)).filter((f): f is FieldDef => !!f);
-    }
+    if(referenceProduct)return shownFields;
+    if (type === 'finance-products' && hier) {const keys=['code','basicInfoFullName','categoryId',...(['package','oem_package'].includes(tab)?['packagingCategory','dimensions','capacities','orderStock','actualStock']:[]),'purchaseSpec','purchasePrice','freight','handlingFee','totalCost'];return keys.map(key=>shownFields.find(field=>field.key===key)).filter((field):field is FieldDef=>!!field);}
     return [...def.fields.filter((f) => f.list), ...derivedFields.filter((f) => f.list)];
-  }, [def, derivedFields, shownFields, type, hier, tab, referenceContact, referenceFee]);
-  const [storedColKeys, saveColKeys] = useColumns(type, shownFields, defaults, referenceArchive ? 'reference24' : type === 'finance-products' && hier ? tab : undefined, !referenceArchive);
-  const requiredColKeys = referenceArchive ? type==='finance-suppliers' ? ['name','__actions'] : ['__actions'] : [];
+  }, [def, derivedFields, shownFields, type, hier, tab, referenceContact, referenceFee,referenceProduct]);
+  const [storedColKeys, saveColKeys] = useColumns(type, shownFields, defaults, referenceArchive ? 'reference24' : referenceProduct ? `reference24.${tab}` : type==='finance-products'&&hier?tab:undefined, !referenceList);
+  const requiredColKeys = referenceArchive ? type==='finance-suppliers' ? ['name','__actions'] : ['__actions'] : referenceProduct ? productReferenceRequiredColumns(tab) : [];
   const colKeys = [...new Set([...storedColKeys,...requiredColKeys])];
   const setColKeys = (next:string[]) => saveColKeys([...new Set([...next,...requiredColKeys])]);
   const warehouseMode = Boolean(data?.items.some((i) => i.warehouseMode));
-  const columns = (referenceArchive ? shownFields.filter(f=>colKeys.includes(f.key)).map(f=>f.key) : colKeys).map((k) => shownFields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
+  const columns = (referenceList ? shownFields.filter(f=>colKeys.includes(f.key)).map(f=>f.key) : colKeys).map((k) => shownFields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f))
     .filter(f => !['__status','__actions'].includes(f.key))
     .filter((f) => !warehouseMode || WAREHOUSE_PRODUCT_FIELDS.includes(f.key))
     .filter((f) => !(wantGroup && f.key === groupCfg?.field)); // 按这个字段分组时，列里不再重复显示
@@ -264,7 +277,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
     setTab(lockedTab ?? '');
     setStatus(readPrefs(type).status ?? '');
     const n = readPrefs(type).pageSize;
-    setPageSize(n && (PAGE_SIZES as readonly number[]).includes(n) ? n : referenceArchive ? 30 : 20);
+    setPageSize(referenceProduct ? productReferencePageSize(lockedTab||'') : n && (PAGE_SIZES as readonly number[]).includes(n) ? n : referenceArchive ? 30 : 20);
     setShowHidden(false);
     setPage(1);
     // 同一资料内 lockedTab 变化不关掉刚由 ?open 打开的详情
@@ -306,23 +319,25 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
     const serial=++listRequest.current;
     try {
       const result=await resourceApi.list(type, { page: wantGroup ? 1 : page, pageSize: wantGroup ? 200 : pageSize, keyword:referenceFee?undefined:keyword.trim()||undefined, referenceSearch:referenceFee?keyword.trim()||undefined:undefined, referenceOrder:referenceFee||undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters });
-      if(referenceArchive&&serial!==listRequest.current)return;
+      if(referenceList&&serial!==listRequest.current)return;
+      if(referenceList)for(const row of result.items)if(archivePickedRows.current.has(row.id))archivePickedRows.current.set(row.id,row);
       setData(result);
       setError('');
       if (type === 'finance-product-units') void loadUnitOptions(true); // 单位列表变了，商品档案的下拉也要跟着变
     } catch (e) {
-      if(referenceArchive&&serial!==listRequest.current)return;
+      if(referenceList&&serial!==listRequest.current)return;
       setError(e instanceof ApiError ? e.message : '加载失败');
     }
-  }, [expenseSort?.revision,referenceArchive,referenceFee,type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals, colFilters, wantGroup]);
+  }, [expenseSort?.revision,referenceList,referenceListIdentity,referenceArchive,referenceFee,type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals, colFilters, wantGroup]);
 
+  const currentLoad=useRef(load);currentLoad.current=load;
   useEffect(() => { setArchived(false); setExpiring(false); setSort(null); }, [type]);
 
   useEffect(() => {
-    if(referenceArchive){listRequest.current++;setData(null);}
+    if(referenceList){listRequest.current++;setData(null);}
     const t = setTimeout(() => void load(), 200); // 输入搜索时稍作防抖
-    return () => {clearTimeout(t);if(referenceArchive)listRequest.current++;};
-  }, [load,referenceArchive]);
+    return () => {clearTimeout(t);if(referenceList)listRequest.current++;};
+  }, [load,referenceList]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
   const hiddenExists = def.statuses.some((s) => s.hidden);
@@ -385,6 +400,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const canManageCategories = !!catOptions && can('view') && !!me && createChecker(me.permissions)(SPECIAL_PERMISSIONS.resourceCategoriesManage);
   const costCan = colCan;
+  const productCostExcel=useProductCostExcelActions({canImport:costCan('product.cost.edit')&&costCan('resource.finance-product-costs.create'),confirm:async message=>window.confirm(message),onDone:()=>void currentLoad.current()});
   async function seedFees() {
     if (!window.confirm('把旧程序里的费用类别树和费用项目（约 380 项）导入进来？已经有的编号不会重复，也不会被覆盖。')) return;
     setSeeding(true);
@@ -425,6 +441,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   function newInitial(): Record<string, unknown> | undefined {
     const init: Record<string, unknown> = {};
     if (tab && def.tabsBy) Object.assign(init, resourceTabInitial(def, tab));
+    if(referenceProduct)init.unitDictionaryKind=tab==='shipping_material'?'shipping_unit':'archive_unit';
     for (const bf of browseFields) {
       const picked = Number(filterVals[bf.key]);
       if (picked) init[bf.key] = bf.type === 'refs' ? [picked] : picked;
@@ -435,10 +452,10 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   const filtered = Boolean(colFilters.length || keyword.trim() || (tab && !lockedTab) || status || archived || expiring || Object.entries(filterVals).some(([k, v]) => v && !(rootVal && k === treeField?.key && v === rootVal)));
   const clearPicked=()=>{setChecked([]);archivePickedRows.current.clear();};
   const onCheck = (ids:number[],on:boolean)=>{
-    if(referenceArchive)for(const id of ids){const row=data?.items.find(item=>item.id===id);if(on&&row)archivePickedRows.current.set(id,row);else if(!on)archivePickedRows.current.delete(id);}
+    if(referenceList)for(const id of ids){const row=data?.items.find(item=>item.id===id);if(on&&row)archivePickedRows.current.set(id,row);else if(!on)archivePickedRows.current.delete(id);}
     setChecked(cur=>on?[...new Set([...cur,...ids])]:cur.filter(id=>!ids.includes(id)));
   };
-  const archiveBatchRows=[...new Map([...(data?.items??[]).map(row=>[row.id,row] as const),...archivePickedRows.current]).values()];
+  const archiveBatchRows=[...new Map([...archivePickedRows.current,...(data?.items??[]).map(row=>[row.id,row] as const)]).values()];
   function clearFilters() {
     if (colFilters.length) commitCol({ filters: [], labels: {} });
     setKeyword(''); setStatus(''); setArchived(false); setExpiring(false); setFilterVals(rootVal && treeField ? { [treeField.key]: rootVal } : {}); setTab(lockedTab ?? ''); setPage(1);
@@ -471,16 +488,23 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
     const identity=referenceMoveScope,current=()=>referenceTransferMounted.current&&referenceMoveScopeRef.current===identity;
     try{const category=filterVals[treeField?.key??'']||String(hier?.rootId||'');const rows=await loadResourceDirectory(type,current,undefined,{includeInactive:showHidden,showHidden,preserveOrder:true,scopedQuery:{referenceOrder:true,filters:category?{categoryId:category}:undefined}});if(rows&&current())expenseSort.move('itemOrders',category||'all',rows.map(row=>row.id),source,target);}catch(e){if(current())setError(e instanceof Error?e.message:'顺序读取失败，请重试');}
   }
+  async function downloadSourceProductTemplate(example:boolean){
+    if(!referenceProduct||productTemplateBusy)return;
+    const scope=productTransferScope;const valid=()=>referenceTransferMounted.current&&productTransferScopeRef.current===scope;
+    setProductTemplateBusy(true);productOperations.current?.removeAttribute('open');
+    try{await downloadProductArchiveTemplate(tab as SourceProductFamily,example,valid);}catch(error){if(valid())setBatchMsg(error instanceof Error?error.message:'模板下载失败');}finally{if(valid())setProductTemplateBusy(false);}
+  }
   async function doExport(scope: 'filtered' | 'all' | 'picked') {
     const identity=referenceTransferScope;
     try {
       const cols = colKeys.filter((k) => derivedKeys.has(k));
-      const out = await resourceApi.export(type, showHidden || archived, scope === 'all' ? { cols, ...(referenceArchive?{referenceArchive:true}:{}) } : scope === 'picked'
+      const out = await resourceApi.export(type, showHidden || archived, referenceProduct?{referenceArchive:true,tab,...(scope==='picked'?{ids:checked}:{})}:scope === 'all' ? { cols, ...(referenceArchive?{referenceArchive:true}:{}) } : scope === 'picked'
         ? { ids: checked, cols,...(referenceArchive?{referenceArchive:true}:{}) }
         : { cols,...(referenceArchive?{referenceArchive:true}:{}), keyword: referenceFee ? undefined : keyword.trim() || undefined, tab: tab || undefined, status: status || undefined, archived, expiring, filters: filterVals, colFilters, sortBy: sort?.by, sortDir: sort?.dir });
-      if(referenceArchive&&(!referenceTransferMounted.current||referenceTransferScopeRef.current!==identity))return;
+      if(referenceList&&(!referenceTransferMounted.current||referenceTransferScopeRef.current!==identity))return;
       downloadText(out.filename, out.csv);
     } catch (e) {
+      if(referenceList&&(!referenceTransferMounted.current||referenceTransferScopeRef.current!==identity))return;
       setError(e instanceof ApiError ? e.message : '导出失败');
     }
   }
@@ -671,6 +695,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
     </fieldset>
   );
 
+  const MainFrame=referenceProduct?SourceProductListFrame:Fragment;
   const productLabel = type === 'finance-products' ? referenceRecordLabel(type, ['original_purchase', 'supplier_oem'].includes(tab) ? { archiveType: 'purchased', supplyMode: tab } : { archiveType: tab }) : '';
   const financeListTitle = referenceFee ? `${paths[treeField?.key ?? ''] || hier?.title || '费用分类'}直属费用档案` : productLabel ? `${productLabel}列表` : `${(referenceContact ? paths[treeField?.key ?? ''] : paths[treeField?.key ?? '']?.split(' / ').at(-1)) || hier?.title || def.label}${def.label.replace('档案', '')}列表`;
   const toolbar = !hier ? standardToolbar : (
@@ -678,28 +703,40 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
       <div className="finance-base-list-topline">
         <div className="finance-base-list-title">{referenceFee&&<ClipboardList size={18}/>}<h3>{financeListTitle}</h3><span>共 {data?.total ?? 0} 条</span></div>
         <div className="res-actions">
-          {referenceFee ? <>{can('import')&&<button type="button" className="res-btn" disabled={referenceImportBusy} onClick={startReferenceImport}>导入</button>}{can('export')&&<button type="button" className="res-btn" onClick={()=>void doExport(checked.length?'picked':'filtered')}>导出{checked.length?` ${checked.length}`:''}</button>}</> : <ToolPop label="资料操作" trigger="资料操作" align="right" panelClass="finance-base-operations">{()=>referenceContact?<div className="finance-base-operation-actions">{can('import')&&<button type="button" className="res-btn" disabled={referenceImportBusy} onClick={startReferenceImport}>导入</button>}{can('export')&&<button type="button" className="res-btn" onClick={()=>void doExport(checked.length?'picked':'filtered')}>导出{checked.length?`已选 ${checked.length}`:''}</button>}</div>:<><div className="finance-base-operation-query">{searchTools}</div><div className="finance-base-operation-actions">{actions}</div></>}</ToolPop>}
+          {referenceFee ? <>{can('import')&&<button type="button" className="res-btn" disabled={referenceImportBusy} onClick={startReferenceImport}>导入</button>}{can('export')&&<button type="button" className="res-btn" onClick={()=>void doExport(checked.length?'picked':'filtered')}>导出{checked.length?` ${checked.length}`:''}</button>}</> : referenceProduct?<details ref={productOperations} className="reference-product-operations"><summary><Settings2/>资料操作</summary><div>
+            {can('import')&&<button type="button" onClick={()=>{productOperations.current?.removeAttribute('open');productArchiveImportInput.current?.click();}}><Upload/>导入{productReferenceNoun(tab)}</button>}
+            <button type="button" disabled={productTemplateBusy} onClick={()=>void downloadSourceProductTemplate(false)}><Download/>下载空白模板</button>
+            <button type="button" disabled={productTemplateBusy} onClick={()=>void downloadSourceProductTemplate(true)}><Download/>下载填写示例</button>
+            {costCan('product.cost.view')&&costCan('resource.finance-product-costs.view')&&<button type="button" disabled={productCostExcel.busy} onClick={()=>{productOperations.current?.removeAttribute('open');void productCostExcel.downloadTemplate();}}><Download/>下载成本模板</button>}
+            {costCan('product.cost.edit')&&costCan('resource.finance-product-costs.create')&&<button type="button" disabled={productCostExcel.busy} onClick={()=>{productOperations.current?.removeAttribute('open');productCostImportInput.current?.click();}}><Upload/>导入成本</button>}
+            {can('export')&&<button type="button" onClick={()=>{productOperations.current?.removeAttribute('open');void doExport(checked.length?'picked':'all');}}><Download/>{checked.length?`导出已选 ${checked.length}`:`导出${productReferenceNoun(tab)}`}</button>}
+          </div></details>:<ToolPop label="资料操作" trigger="资料操作" align="right" panelClass="finance-base-operations">{()=>referenceContact?<div className="finance-base-operation-actions">{can('import')&&<button type="button" className="res-btn" disabled={referenceImportBusy} onClick={startReferenceImport}>导入</button>}{can('export')&&<button type="button" className="res-btn" onClick={()=>void doExport(checked.length?'picked':'filtered')}>导出{checked.length?`已选 ${checked.length}`:''}</button>}</div>:<><div className="finance-base-operation-query">{searchTools}</div><div className="finance-base-operation-actions">{actions}</div></>}</ToolPop>}
           {referenceArchive && !gridOn && <BatchBar referenceArchive currentCategoryId={Number(filterVals[treeField?.key ?? ''])||hier?.rootId} allowDelete={canDel} def={def} type={type} rows={archiveBatchRows} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={()=>void load()} onExport={()=>void doExport('picked')} onClear={clearPicked}/>}
           {referenceFee&&can('create')&&<button type="button" className="res-btn" onClick={()=>setSnapshotsOpen(true)}>存为历史包</button>}
           {hiddenButton}
 
-          {can('create') && (!def.hierarchy?.leafHint || leaf) && <button type="button" className="res-btn primary" disabled={gridLocked} onClick={startCreate} aria-label="＋ 新增">{referenceFee ? '新增' : <>{referenceContact ? '新增' : '＋ 新增'}{productLabel || def.label.replace('档案', '')}</>}</button>}
-          {!referenceFee && (!isMobile || referenceContact) && <ColumnsPop fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} iconOnly={referenceContact} requiredKeys={referenceContact ? type==='finance-suppliers'?['name','__actions']:['__actions']:undefined} />}
+          {can('create') && (!def.hierarchy?.leafHint || leaf) && <button type="button" className="res-btn primary" disabled={gridLocked} onClick={startCreate} aria-label={referenceProduct?`新增${productLabel}`:"＋ 新增"}>{referenceFee ? '新增' : <>{referenceProduct?<><Plus/>新增</>:referenceContact?'新增':'＋ 新增'}{productLabel || def.label.replace('档案', '')}</>}</button>}
+          {!referenceFee && (!isMobile || referenceContact || referenceProduct) && <ColumnsPop fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} iconOnly={referenceContact} referenceProduct={referenceProduct} requiredKeys={referenceProduct?requiredColKeys:referenceContact ? type==='finance-suppliers'?['name','__actions']:['__actions']:undefined} />}
         </div>
       </div>
-      {!referenceArchive && (filtered || chips.length > 0) && data && <ActiveChips chips={chips} summary={filtered ? `找到 ${data.total} 条符合条件的${def.label}` : ''} onClearAll={clearFilters} />}
+      {!referenceList && (filtered || chips.length > 0) && data && <ActiveChips chips={chips} summary={filtered ? `找到 ${data.total} 条符合条件的${def.label}` : ''} onClearAll={clearFilters} />}
     </fieldset>
   );
 
   return (
-    <div className={`res-page${type === 'workforce' ? ' workforce-page' : ''}${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}${referenceContact ? ' reference-contact-page' : ''}${referenceFee ? ' reference-fee-page' : ''}${financeBase ? ` finance-base-page finance-base-${type}` : ''}`}>
+    <div className={`res-page${type === 'workforce' ? ' workforce-page' : ''}${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}${referenceContact ? ' reference-contact-page' : ''}${referenceFee ? ' reference-fee-page' : ''}${referenceProduct?' reference-product-page':''}${financeBase ? ` finance-base-page finance-base-${type}` : ''}`}>
       {referenceArchive&&<input hidden type="file" accept=".csv,text/csv" aria-label="导入原版CSV" ref={referenceImportInput} onChange={event=>{const file=event.target.files?.[0];event.target.value='';void importReferenceFile(file);}}/>}
+      {referenceProduct&&<input hidden type="file" accept={tab==='self_made'?'.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv':'.csv,text/csv'} aria-label="导入商品档案原版文件" ref={productArchiveImportInput} onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)setProductImportFile({file,scope:productTransferScope});}}/>}
+      {referenceProduct&&productImportFile?.scope===productTransferScope&&<SourceProductArchiveImportDialog key={productTransferScope} family={tab as SourceProductFamily} file={productImportFile.file} onClose={()=>setProductImportFile(null)} onDone={message=>{setBatchMsg(message);void load();}}/>}
+      {referenceProduct&&<input hidden type="file" accept=".xlsx" aria-label="导入商品档案成本" ref={productCostImportInput} onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)void productCostExcel.pickFile(file);}}/>}
       {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
       {hier && <HierBar showBack={!referenceFee} title={referenceArchive ? paths[treeField?.key ?? '']?.split(' / ').at(-1) || hier.title : hier.title} subtitle={hier.subtitle} onBack={hier.onBack} />}
+      {referenceProduct&&<div className="reference-product-storage-status" role="status" aria-live="polite">{error|| (data?'数据已保存到数据库':'正在从数据库加载档案…')}</div>}
       {hier && type === 'finance-products' && (tab === 'package' || tab === 'oem_package') && <ProductPackagingSchemesSummary archiveType={tab} onChanged={() => void load()} />}
       <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
         {browseFields.length > 0 && (
           <CategoryTree
+            referenceProduct={referenceProduct}
             type={type}
             fields={browseFields}
             tab={tab}
@@ -720,11 +757,14 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
           />
         )}
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
+          <MainFrame>
           {toolbar}
           {referenceFee&&<div className="reference-fee-table-tools"><ReferenceSearch label="搜索费用档案" placeholder="搜索费用编号、费用名称、分类或备注" value={keyword} onChange={value=>{setKeyword(value);setPage(1);}}/><span>共 {data?.total??0} 条</span><ColumnsPop iconOnly fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} requiredKeys={['__actions']}/></div>}
           {type === 'workforce' && <UnfiledBanner refreshKey={data?.total} canEdit={colCan('org.staff.view') && colCan('org.staff.edit')} onEdit={setEditingStaff} />}
           {error && <div role="alert" className="notice error m">{error}</div>}
-          {!referenceArchive && !gridOn && checked.length > 0 && <BatchBar allowDelete={Boolean(hier) && canDel} def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
+          {referenceProduct&&productCostExcel.error&&<div role="alert" className="notice error m">{productCostExcel.error}</div>}
+          {referenceProduct&&productCostExcel.notice&&<div role="status" className="notice m">{productCostExcel.notice}</div>}
+          {!referenceList && !gridOn && checked.length > 0 && <BatchBar allowDelete={Boolean(hier) && canDel} def={def} type={type} rows={data?.items ?? []} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={() => void load()} onExport={() => void doExport('picked')} onClear={() => setChecked([])} />}
           {batchMsg && <div role="status" className="notice m between"><span>{batchMsg}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setBatchMsg('')}>✕</button></div>}
           {grouping && groupCfg?.chips && allGroups && allGroups.length > 1 && (
             <div className="res-tags" role="group" aria-label={`按${groupField?.label ?? ''}看`}>
@@ -760,8 +800,9 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
           ) : (
             <ResourceTable
               referenceArchive={referenceArchive}
+              referenceProduct={referenceProduct}
               onRowMove={referenceFee?(source,target)=>void moveFeeRow(source,target):undefined}
-              showStatus={!referenceArchive || colKeys.includes('__status')}
+              showStatus={!referenceList || colKeys.includes('__status')}
               onCellSaved={()=>void load()}
               def={def}
               type={type}
@@ -784,13 +825,13 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
               folded={foldedGroups}
               onToggleGroup={toggleGroup}
               onAddInGroup={addInGroup}
-              rowActions={rowActions}
+              rowActions={referenceProduct&&!colKeys.includes('__actions')?undefined:rowActions}
               rowActionsLabel={hier || type === 'workforce' ? '操作' : ['licenses', 'tax-profiles', 'qualifications', 'partners', 'trademarks'].includes(type) ? '查看' : undefined}
               actWidth={hier ? (type === 'finance-products' ? 340 : 270) : undefined}
             />
           )}
-          <div className={referenceArchive?"res-foot qk-reference-pagination":"res-foot"} hidden={referenceArchive && totalPages === 1}>
-            {referenceArchive?<><span>共 {data?.total??0} 条 · 第 {page}/{totalPages} 页</span><div><button type="button" disabled={page<=1} onClick={()=>setPage(1)}>首页</button><button type="button" disabled={page<=1} onClick={()=>setPage(page-1)}>上一页</button><button type="button" disabled={page>=totalPages} onClick={()=>setPage(page+1)}>下一页</button><button type="button" disabled={page>=totalPages} onClick={()=>setPage(totalPages)}>末页</button></div></>:<>
+          <div className={referenceList?"res-foot qk-reference-pagination":"res-foot"} hidden={referenceArchive && totalPages === 1}>
+            {referenceArchive?<><span>共 {data?.total??0} 条 · 第 {page}/{totalPages} 页</span><div><button type="button" disabled={page<=1} onClick={()=>setPage(1)}>首页</button><button type="button" disabled={page<=1} onClick={()=>setPage(page-1)}>上一页</button><button type="button" disabled={page>=totalPages} onClick={()=>setPage(page+1)}>下一页</button><button type="button" disabled={page>=totalPages} onClick={()=>setPage(totalPages)}>末页</button></div></>:referenceProduct?<><span>共 {data?.total??0} 条 · 第 {page}/{totalPages} 页</span><div><label>每页 <select aria-label="每页" value={pageSize} onChange={e=>{const value=Number(e.target.value);saveProductReferencePageSize(tab,value);setPageSize(value);setPage(1);}}>{[20,30,50].map(value=><option key={value} value={value}>{value} 条</option>)}</select></label><button type="button" disabled={page<=1} onClick={()=>setPage(1)}>首页</button><button type="button" disabled={page<=1} onClick={()=>setPage(page-1)}>上一页</button><button type="button" disabled={page>=totalPages} onClick={()=>setPage(page+1)}>下一页</button><button type="button" disabled={page>=totalPages} onClick={()=>setPage(totalPages)}>末页</button></div></>:<>
             <span className="res-foot-sum">共 {data?.total ?? 0} 条{checked.length > 0 && !gridOn ? <> · 已勾选 {checked.length} 条</> : null}</span>
             {grouping
               ? <span className="res-foot-sum">{rowGroups?.length ?? 0} 个分组{data && data.total > data.items.length ? ` · 只显示前 ${data.items.length} 条，请用筛选缩小范围` : ''}</span>
@@ -806,6 +847,8 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
               )}
             </>}
           </div>
+          {referenceProduct&&!gridOn&&checked.length>0&&<BatchBar referenceProduct archiveFamily={tab} currentCategoryId={Number(filterVals[treeField?.key??''])||undefined} def={def} type={type} rows={archiveBatchRows} checked={checked} can={can} filterOpts={filterOpts} onMessage={setBatchMsg} onDone={()=>void load()} onExport={()=>void doExport('picked')} onClear={clearPicked}/>}
+          </MainFrame>
         </section>
       </div>
 

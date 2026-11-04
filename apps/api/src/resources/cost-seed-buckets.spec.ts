@@ -6,7 +6,7 @@ const source=():VersionSeedData=>({baseCodes:new Map([[1,r(1,{productId:2})]]),p
 describe('版本来源成本按业务日期取值',()=>{
   it('各科目选业务日期有效记录，未来价格和已停用价格不污染历史',()=>{
     const d=source();d.archiveCosts=[r(10,{productId:2,costType:'purchase',unitCost:100.1234,effectiveFrom:'2026-01-01',effectiveTo:'2026-06-30'}),r(11,{productId:2,costType:'purchase',unitCost:200,effectiveFrom:'2026-07-01'}),r(12,{productId:2,costType:'production',unitCost:30,effectiveFrom:'2026-01-01'}),r(13,{productId:2,costType:'purchase',unitCost:999,effectiveFrom:'2026-02-01'},'inactive')];
-    expect(costSeedBuckets(d,1,'2026-03-01')).toMatchObject({purchase:100.1234,production:30});
+    expect(costSeedBuckets(d,1,'2026-03-01')).toMatchObject({purchase:100.12,production:30});
     expect(costSeedBuckets(d,1,'2026-08-01').purchase).toBe(200);
     const warnings:string[]=[];expect(costSeedBuckets(d,1,'2025-01-01',warnings).purchase).toBe(0);expect(warnings.join()).toMatch(/没有有效成本/);
   });

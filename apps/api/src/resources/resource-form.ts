@@ -9,6 +9,8 @@ interface FormHost {
   lock?(em:EntityManager,def:ResourceDef):Promise<void>;
   before?(em: EntityManager, def: ResourceDef, existing: ResourceRecord | null): Promise<void>;
   after?(em: EntityManager, def: ResourceDef, parent: ResourceRecord): Promise<void>;
+  afterCollectionSaved?(em:EntityManager,parent:ResourceRecord,child:ResourceDef,rows:Array<{index:number;record:ResourceRecord}>):void|Promise<void>;
+  end?(em:EntityManager):void;
   version(record: ResourceRecord): string;
   copy?(em: EntityManager, def: ResourceDef, source: ResourceRecord, request: NonNullable<ResourceFormInput['copySource']>, values: Record<string, unknown>): Promise<Record<string, unknown>>;
   endCopy?(em: EntityManager): void;
@@ -42,6 +44,7 @@ export async function saveResourceForm(ds: DataSource, user: AuthUser, def: Reso
   if (old) return replay(old);
   try {
     return await ds.transaction(async em => {
+      try {
       // 唯一键让同一请求的并发重试等待事务结果，不重复创建主档或子行。
       const attempt = await em.save(ResourceFormMutation, em.create(ResourceFormMutation, { companyId: user.companyId, actorId: user.id, resourceType: def.key, requestKey: input.requestKey, requestHash: hash, recordId: null }));
       await host.lock?.(em,def);
@@ -99,18 +102,26 @@ export async function saveResourceForm(ds: DataSource, user: AuthUser, def: Reso
       } finally {host.endCopy?.(em);}
       if (changingStatus || initialExpenseStop) { parent.statusReason = input.statusReason?.trim() || null; await em.save(ResourceRecord, parent); }
       for (const { child, field, rows, removed } of prepared) {
-        for (const [index, row] of rows.entries()) if (row.changed) {
-          try { await host.save(em, child, row.before, { ...row.values, [field]: parent.id }, { cleanup, note: '随主档整组保存' }); }
-          catch (error) {
-            if (!(error instanceof HttpException)) throw error;
-            throw new HttpException(`${child.label}第${index + 1}行：${error.message}`, error.getStatus());
+        const savedRows:Array<{index:number;record:ResourceRecord}>=[];
+        for (const [index, row] of rows.entries()) {
+          let saved=row.before;
+          if (row.changed) {
+            try { saved=await host.save(em, child, row.before, { ...row.values, [field]: parent.id }, { cleanup, note: '随主档整组保存' }); }
+            catch (error) {
+              if (!(error instanceof HttpException)) throw error;
+              throw new HttpException(`${child.label}第${index + 1}行：${error.message}`, error.getStatus());
+            }
           }
+          if(!saved)throw new BadRequestException('子表保存结果不完整');
+          savedRows.push({index,record:saved});
         }
         for (const row of removed) await host.remove(em, child.key, row.id, '在主档表单中移除', cleanup);
+        await host.afterCollectionSaved?.(em,parent,child,savedRows);
       }
       await host.after?.(em, def, parent);
       await em.update(ResourceFormMutation, { id: attempt.id }, { recordId: parent.id });
       return parent.id;
+      } finally {host.end?.(em);}
     });
   } catch (error) {
     // 并发相同请求的唯一键冲突：只复用相同公司、操作者及完整请求的已提交结果。

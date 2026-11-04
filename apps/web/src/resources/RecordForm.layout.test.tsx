@@ -4,6 +4,7 @@ import { FINANCE_RESOURCE_DEFS, PRODUCT_LAYOUTS, productLayoutKey } from '@kudes
 
 const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] } } };
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => auth }));
+vi.mock('../api/client',async original=>{const actual=await original<typeof import('../api/client')>();return {...actual,api:vi.fn((path:string,options?:unknown)=>path==='/finance/products/code-preview'?Promise.resolve({code:'HC-REAL-PREVIEW',basicInfoFullName:'合成预览',manual:false,notes:[]}):actual.api(path,options as Parameters<typeof actual.api>[1]))};});
 const create = vi.fn();
 const saveForm = vi.fn();
 const update = vi.fn();
@@ -41,8 +42,8 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
     expect(productLayoutKey(initial)).toBe(key);
     render(<RecordForm def={def} record={null} initial={initial} onClose={() => undefined} onSaved={() => undefined} />);
     const sections = [...document.querySelectorAll('[data-sec]')].map(el => el.getAttribute('data-sec'));
-    const expected = PRODUCT_LAYOUTS[key as keyof typeof PRODUCT_LAYOUTS].sections.filter(s => !(['package','oem_package'].includes(key) && s.id === 'category')).filter(s => !(key === 'custom' && ['cost','total','photos'].includes(s.id))).map(s => s.id);
-    // 分类改为上下文卡片，赠品设置按源码顺序直接展开。
+    const expected = PRODUCT_LAYOUTS[key as keyof typeof PRODUCT_LAYOUTS].sections.filter(s=>s.id!=='gift'&&!(key==='shipping_material'&&s.id==='extra')).filter(s => !(['package','oem_package'].includes(key) && s.id === 'category')).filter(s => !(key === 'custom' && ['cost','total','photos'].includes(s.id))).map(s => s.id);
+    // 真24七类表单无赠品字段分区；底层字段及历史保留。
     expect(sections).toEqual(expected);
     expect(document.querySelector('.rf-anchors')).toBeNull();
   });
@@ -59,6 +60,7 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
 
   it('必填没填：点保存把每一项标出来，包括供货来源和重量，不发请求', async () => {
     render(<RecordForm def={def} record={null} initial={{ archiveType: 'shipping_material' }} onClose={() => undefined} onSaved={() => undefined} />);
+    await waitFor(()=>expect((screen.getByRole('textbox',{name:'系统自动编号'}) as HTMLInputElement).value).toBe('HC-REAL-PREVIEW'));
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     expect(await screen.findByText('请选择最下级分类')).toBeTruthy();
     expect(screen.getByText(/请至少维护一条完整供货来源/)).toBeTruthy();
@@ -73,7 +75,7 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
       return { items: [], total: 0 };
     });
     update.mockResolvedValue({ ...saved, id: 7 });
-    const record = { ...saved, id: 7, title: '番茄种子', data: { archiveType: 'raw', categoryId: 1, name: '番茄种子', specQty: 500, specUnit: 'G', purchaseSpec: '斤', freight: 100, handlingFee: 50, weightG: 500 } };
+    const record = { ...saved, id: 7, title: '番茄种子', data: { archiveType: 'raw', categoryId: 1, code:'YL-SYNTHETIC',giftShortName:'历史赠品简称',giftCodeShortName:'HISTGIFT',shape:'历史形态',name: '番茄种子', specQty: 500, specUnit: 'G', purchaseSpec: '斤', freight: 100, handlingFee: 50, weightG: 500 } };
     render(<RecordForm def={def} record={record} onClose={() => undefined} onSaved={() => undefined} />);
     await waitFor(() => expect(screen.getAllByLabelText('产区')).toHaveLength(2));
     fireEvent.change(screen.getAllByLabelText('来源采购价')[0], { target: { value: '13' } });
@@ -82,6 +84,7 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
     fireEvent.click(await screen.findByRole('button', { name: '确认并保存' }));
     await waitFor(() => expect(saveForm).toHaveBeenCalled());
     expect(saveForm.mock.calls[0][1]).toMatchObject({ id: 7, collections: [{ type: 'finance-product-sources', expected: [{ id: 41 }, { id: 42 }], rows: [{ id: 41, values: { supplierId: 3, purchasePrice: 1300 } }] }] });
+    expect(saveForm.mock.calls[0][1].values).toMatchObject({giftShortName:'历史赠品简称',giftCodeShortName:'HISTGIFT',shape:'历史形态'});
     expect(remove).not.toHaveBeenCalled();
     expect(update.mock.calls.some(c => c[0] === 'finance-product-sources')).toBe(false);
     // 档案本身不直接写采购价（由来源汇出）
@@ -95,4 +98,16 @@ describe('商品档案表单：每种档案类型的分区顺序来自同一份�
     render(<RecordForm def={def} record={null} initial={{ archiveType: 'raw', __copyOf: 7, name: '番茄种子' }} onClose={() => undefined} onSaved={() => undefined} />);
     await waitFor(() => expect((screen.getByLabelText('产区') as HTMLInputElement).value).toBe('山东'));
   });
+});
+
+
+it.each(TYPES.filter(([key])=>key!=='custom'))('%s七族真实新增/编辑/复制不出现额外gift和shape字段，历史字段定义保留',(_key,initial)=>{
+ for(const mode of ['create','edit','copy']){
+  const data={...initial,categoryId:1,name:'合成历史档案',shape:'历史隐藏形态',giftShortName:'历史赠品简称',giftCodeShortName:'HISTGIFT'};
+  const view=render(<RecordForm def={def} record={mode==='edit'?{...saved,data}:null} initial={mode==='edit'?undefined:{...data,...(mode==='copy'?{__copyOf:7}:{})}} onClose={vi.fn()} onSaved={vi.fn()}/>);
+  expect(document.querySelector('[data-sec=gift]')).toBeNull();expect(document.querySelector('[data-field=giftShortName]')).toBeNull();expect(document.querySelector('[data-field=giftCodeShortName]')).toBeNull();expect(document.querySelector('[data-field=shape]')).toBeNull();
+  if(initial.archiveType==='shipping_material'){expect(document.querySelector('[data-sec=extra]')).toBeNull();expect(document.querySelector('[data-field=brandId]')).toBeNull();}
+  if(initial.archiveType==='raw'){expect(screen.getByText('分类由原料档案主页面决定；如需调整，请在列表中使用“移动分类”。')).toBeTruthy();expect(screen.queryByText(/原料可对应的成品名/)).toBeNull();expect(screen.getByRole('button',{name:'增加来源'})).toBeTruthy();}
+  expect(def.fields.find(field=>field.key==='giftShortName')).toBeTruthy();expect(def.fields.find(field=>field.key==='shape')).toBeTruthy();view.unmount();
+ }
 });

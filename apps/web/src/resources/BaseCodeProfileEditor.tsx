@@ -1,7 +1,7 @@
 import { loadResourceDirectory } from './resourceDirectory';
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { createChecker, getResourceDef, unitYuanText } from '@kudesi/shared';
+import { createChecker, getResourceDef, LOGISTICS_CENT_SCALE, unitYuanText } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../api/client';
 import { resourceApi, type ResourceDto } from './api';
@@ -11,7 +11,7 @@ import './baseCodeProfileEditor.css';
 const KEYS = ['code', 'styleCode', 'name', 'shortName', 'spec', 'codeDictionaryCategoryId', 'weightG'] as const;
 const LABELS = { code: '商品编码', styleCode: '款式编码', name: '商品名称', shortName: '商品简称', spec: '颜色及规格' };
 
-const sourceCostText = (cents: number) => { const [whole, fraction = ''] = unitYuanText(cents).split('.'); return whole + '.' + fraction.padEnd(3, '0'); };
+const sourceCostText = (cents: number) => { const [whole, fraction = ''] = unitYuanText(cents,LOGISTICS_CENT_SCALE).split('.'); return whole + '.' + fraction.padEnd(3, '0'); };
 
 /** 专属字段与只读来源上下排列，保存动作沿用资料服务及生效引用锁。 */
 type BaseProfileProps={record:ResourceDto;onClose:()=>void;onSaved:(row:ResourceDto)=>void};

@@ -20,7 +20,7 @@ describe('基础编码只读供货来源',()=>{
   vi.mocked(resourceApi.list).mockImplementation(async(_type,q)=>({items:q?.page===1?Array.from({length:200},(_,i)=>row(i+1)):[row(201)],total:201}) as never);
   render(<BaseProfileSourceExtras source={source(7)}/>);
   await screen.findByDisplayValue('合成供应商201');
-  expect(resourceApi.list).toHaveBeenLastCalledWith('finance-product-sources',{fieldKey:'productId',fieldValue:7,page:2,pageSize:200});
+  expect(resourceApi.list).toHaveBeenLastCalledWith('finance-product-sources',{fieldKey:'productId',fieldValue:7,page:2,pageSize:200,showHidden:true});
   expect(screen.getAllByDisplayValue('袋')).toHaveLength(201);
   expect(screen.getAllByDisplayValue('0.123456')).toHaveLength(201);
  });
@@ -82,3 +82,5 @@ describe('基础编码来源档案的供应商OEM组成',()=>{
   expect(screen.queryByText('· ¥0.080')).toBeNull();
  });
 });
+
+it('来源只读不能把空续页当成完整清单，失败不显示已读取的部分报价',async()=>{vi.mocked(resourceApi.list).mockImplementation(async(_type,q)=>({items:q?.page===1?Array.from({length:200},(_,i)=>row(i+1)):[],total:201,page:q?.page??1,pageSize:200}));render(<BaseProfileSourceExtras source={source(7)}/>);await screen.findByRole('alert');expect(screen.queryByDisplayValue('合成供应商1')).toBeNull();expect(screen.queryByText('未维护供货来源')).toBeNull();});

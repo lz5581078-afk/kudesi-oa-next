@@ -1,3 +1,4 @@
+import {deriveBundleReferenceDetail} from './bundle-reference-detail';
 import {captureBomVersion,listBomVersions} from './bundle-bom-versions';
 import {codeCategoryRuleSet} from './bundle-naming-source';
 import {bundleGenerationProfile,type BundleGenerationProfile} from './bundle-generation-profile';
@@ -75,7 +76,7 @@ export class BundleToolsService {
     const salePrices = new Map(mirrors.filter(row=>row.data.goodsType==='normal').map(row=>[str(row.data.skuId),num(row.data.salePrice)]));
     const bundles = new Map(d.bundles.map(bundle => [bundle.id, bundle]));
     if (ids.some(id => !bundles.has(id))) throw new NotFoundException('组合不存在');
-    return { rows: ids.map(id => {
+    return { rows: await Promise.all(ids.map(async id => {
       const b = bundles.get(id)!, values = pricing.row(d, b);
       const lines = d.lines.filter(line => line.data.bundleId === id).sort((a,b) => Number(a.data.sortOrder || 0) - Number(b.data.sortOrder || 0) || a.id-b.id);
       const packages: string[] = [], saleParts: number[] = [];
@@ -93,12 +94,12 @@ export class BundleToolsService {
           else saleParts.push(multiplyUnitCents(price, qty,0,6));
         }
       }
-      return { id, mainStyleCode: str(b.data.mainStyleCode) || null,
+      return { id, issueCount:(await this.report(user,id,em,{pricing,pricingData:d})).issues.length, mainStyleCode: str(b.data.mainStyleCode) || null,
         weightG: values.weightG, componentCount: lines.length, packageCount: packages.length, packageSummary: packages.join('；'),
         ...(can('product.cost.view') ? { cost: values.preShipCostCents } : {}),
         ...(can('product.price.view') ? { salePrice: saleMissing || !lines.length ? null : sumUnitCents(saleParts) } : {}),
       };
-    }) };
+    })) };
   }
 
   private async resolveLines(em: EntityManager, user: AuthUser, lines: LineInput[]) {
@@ -272,7 +273,7 @@ export class BundleToolsService {
       }
       const revisions=(await this.resources.findWhere(em,user.companyId,'finance-bundle-revisions','bundleId',id)).sort((a,b)=>b.id-a.id),pending=revisions.find(row=>row.id===bundle.data.pendingRevisionId&&row.status==='pending');
       const parsed=pending?readRevisionPayload(pending.data.payload):null;
-      return {baseUnits,sourceToken:bundleCompositionToken(bundle,records),profile:Object.fromEntries(['code','name','shortName','bomVersion','weightMode'].map(key=>[key,bundle.data[key]])),lines:lines.map((line,index)=>({...line,label:facts[`${line.laborId?'labor':line.productId?'archive':'base'}:${line.laborId??line.productId??line.baseCodeId}`]?.title||records[index].title})),facts,weightG:current.weightG,weightMode:bundle.data.weightMode==='manual'?'manual':'auto',canManualWeight:createChecker(user.permissions)('product.cost.edit'),pending:pending&&parsed?{id:pending.id,reason:str(pending.data.reason),lines:parsed.lines,...(parsed.weight?{weightG:parsed.weight.grams,weightMode:parsed.weight.mode}:{})}:null,history:revisions.map(row=>({id:row.id,status:row.status,reason:str(row.data.reason),createdAt:row.createdAt}))};
+      return {referenceDetail:await deriveBundleReferenceDetail(em,user,bundle,records),baseUnits,sourceToken:bundleCompositionToken(bundle,records),profile:Object.fromEntries(['code','name','shortName','bomVersion','weightMode'].map(key=>[key,bundle.data[key]])),lines:lines.map((line,index)=>({...line,label:facts[`${line.laborId?'labor':line.productId?'archive':'base'}:${line.laborId??line.productId??line.baseCodeId}`]?.title||records[index].title})),facts,weightG:current.weightG,weightMode:bundle.data.weightMode==='manual'?'manual':'auto',canManualWeight:createChecker(user.permissions)('product.cost.edit'),pending:pending&&parsed?{id:pending.id,reason:str(pending.data.reason),lines:parsed.lines,...(parsed.weight?{weightG:parsed.weight.grams,weightMode:parsed.weight.mode}:{})}:null,history:revisions.map(row=>({id:row.id,status:row.status,reason:str(row.data.reason),createdAt:row.createdAt}))};
     });
   }
 
@@ -312,13 +313,13 @@ export class BundleToolsService {
     return { lines, revision: null };
   }
 
-  async report(user: AuthUser, id: number, em: EntityManager = this.ds.manager) {
+  async report(user: AuthUser, id: number, em: EntityManager = this.ds.manager, context?:{pricing:CostService;pricingData:Awaited<ReturnType<CostService['load']>>}) {
     const b = await this.load(em, user, id);
     const cost = this.canCost(user);
     const { lines, revision } = await this.currentLines(em, user, b);
     const prospective=Object.assign(new ResourceRecord(),b,{data:{...b.data,...(revision?revisionWeightPatch(readRevisionPayload(revision.data.payload),revision.data.reason):{})}});
-    const pricing = new CostService(this.ds);
-    const pricingData = await pricing.load(user.companyId, em);
+    const pricing = context?.pricing??new CostService(this.ds);
+    const pricingData = context?.pricingData??await pricing.load(user.companyId, em);
     const values = pricing.row({ ...pricingData, lines: lines.map((l, i) => em.create(ResourceRecord, { id: i + 1, companyId: user.companyId, type: 'finance-bundle-lines', data: { ...l, bundleId: b.id } })) }, prospective);
     const units = await loadUnitLists(em, user.companyId);
     const unitField = getResourceDef('finance-bundle-lines')!.fields.find(f => f.key === 'unit')!;

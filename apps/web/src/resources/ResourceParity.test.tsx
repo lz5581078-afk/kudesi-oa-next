@@ -128,7 +128,7 @@ describe('专用资料查看不再遗漏编辑字段', () => {
     ['package', undefined], ['oem_package', undefined], ['shipping_material', undefined], ['custom', undefined],
   ])('%s/%s：每个实际编辑输入字段都能在只读查看中找到', async (archiveType, supplyMode) => {
     const def = getResourceDef('finance-products')!;
-    const record = dto(def, { archiveType, supplyMode, name: '商品字段验收', specQty: 500, specUnit: 'G', shape: '圆形', giftShortName: '赠品简称甲', giftCodeShortName: 'ZP', zeroValueReason: '实际运费为零', freight: 0, brandId: 1, purchaseSpec: '斤', categoryId: 1 });
+    const record = dto(def, { archiveType, supplyMode, name: '商品字段验收', specQty: 500, specUnit: 'G', shape: '圆形', giftShortName: '赠品简称甲', giftCodeShortName: 'ZP', dimensions:'20×30',dimensionUnit:'cm', zeroValueReason: '实际运费为零', freight: 0, brandId: 1, purchaseSpec: '斤', categoryId: 1 });
     const form = render(<MemoryRouter><RecordForm def={def} record={record} onClose={vi.fn()} onSaved={vi.fn()} /></MemoryRouter>);
     const editable = [...form.container.querySelectorAll<HTMLElement>('.rf-field[data-field]')].map(el => el.dataset.field!);
     form.unmount();
@@ -137,6 +137,7 @@ describe('专用资料查看不再遗漏编辑字段', () => {
     await waitFor(() => expect(document.querySelector('.finance-detail-dialog')).toBeTruthy());
     const view = document.querySelector('.resource-detail')!;
     for (const key of editable) expect(view.querySelector(`[data-field="${key}"]`), `${archiveType}/${supplyMode} 缺少 ${key}`).toBeTruthy();
+    if(['package','oem_package'].includes(archiveType))expect(view.querySelector('[data-field=dimensions]')?.textContent).toContain('20×30 cm');
   });
 
   it.each(['raw','self_made'])('仓库只读模式%s不额外读取供货、组成和成本资料', async archiveType => {

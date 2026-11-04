@@ -41,6 +41,16 @@ d('商品档案与基础编码（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
+  it('原料停用只要求非空原因，启用无需原因，空原因不改变现状态',async()=>{
+    const product=await mkRaw({name:'合成状态核对原料'});
+    await expect(svc.changeStatus(boss,'finance-products',product.id,'inactive',' ')).rejects.toThrow();
+    expect((await svc.get(boss,'finance-products',product.id)).status).toBe('active');
+    await svc.changeStatus(boss,'finance-products',product.id,'inactive','停');
+    expect((await svc.get(boss,'finance-products',product.id)).status).toBe('inactive');
+    await svc.changeStatus(boss,'finance-products',product.id,'active');
+    expect((await svc.get(boss,'finance-products',product.id)).status).toBe('active');
+  });
+
   it('赠品简称、赠品编码简称：规范化、格式校验、跨档案排重；只有原料/外购成品/发货物料有', async () => {
     const a = await mkRaw({ name: '赠品苹果', giftShortName: ' 红苹果 ', giftCodeShortName: 'hpg1' });
     expect(a.data.giftShortName).toBe('红苹果');

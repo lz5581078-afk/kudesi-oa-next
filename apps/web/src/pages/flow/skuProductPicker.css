@@ -7,3 +7,7 @@
 
 /* Match the source modal: opposite insets stretch auto height within its margins. */
 .sku-product-dialog{position:fixed;inset:0;margin:16px auto;row-gap:normal;column-gap:normal}.sku-product-dialog>footer{margin:0;flex:0 0 auto}@media(max-width:700px){.sku-product-dialog{margin:6px auto}}
+
+.sku-product-dialog{font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}.sku-product-dialog .sku-product-rows>label>input[type=checkbox]{margin:3px 3px 3px 4px}
+
+.sku-product-dialog .sku-product-rows strong{display:block;margin:0}.sku-product-dialog .sku-product-rows small{margin:0}

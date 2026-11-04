@@ -1,3 +1,4 @@
+import type {BucketCostReference} from './cost-seed-buckets';
 import { registeredCostValues, costRegistrationFallback, type RegisteredCostValues } from './cost-registration';
 import { calculateCostComponents, type CostLine } from './cost-components';
 export type { CostLine } from './cost-components';
@@ -196,16 +197,16 @@ export class CostService {
     const records=await (em ?? this.dataSource.manager).find(ResourceRecord,{where:{companyId:user.companyId,type:In(['finance-product-costs','finance-product-freight-history','finance-labor-versions'])}});
     const context={...d,laborVersions:records.filter(r=>r.type==='finance-labor-versions'),archiveCosts:records.filter(r=>r.type==='finance-product-costs'),freightHistories:records.filter(r=>r.type==='finance-product-freight-history')};
     const seeds: CostSeed[] = rows.filter(r => COST_TABLE_STATUSES.includes(r.status)).map(row => {
-      const warnings:string[]=[],issues:string[]=[];
+      const warnings:string[]=[],issues:string[]=[],archiveCostSources:BucketCostReference[]=[];
       const ids = d.lines.filter(l => l.data.bundleId === row.bundleId).map(l => Number(l.data.baseCodeId));
-      return {skuType:'bundle',skuId:row.bundleId,row,buckets:bundleSeedBuckets(context,row.bundleId,businessDate,warnings),warnings,issues,laborCostCents:bundleLaborCost(context,row.bundleId,businessDate,warnings,issues),components:d.lines.filter(l=>l.data.bundleId===row.bundleId && l.data.role!=='labor').map(l=>({baseId:Number(d.baseCodes.get(Number(l.data.baseCodeId))?.data.canonicalId || l.data.baseCodeId),qty:Number(l.data.qty),lossRate:Number(l.data.lossRate || 0),include:!l.data.costTreatment || l.data.costTreatment==='include',effectiveFrom:String(l.data.effectiveFrom || ''),effectiveTo:String(l.data.effectiveTo || '')})),productIds:ids.flatMap(id => {const b=d.baseCodes.get(id);return b?.data.productId ? [Number(b.data.productId)] : d.baseCodeLines.filter(l=>l.data.baseCodeId===id).map(l=>Number(l.data.productId));}),categoryIds:[...(row.categoryId ? [row.categoryId] : [])]};
+      return {skuType:'bundle',skuId:row.bundleId,row,buckets:bundleSeedBuckets(context,row.bundleId,businessDate,warnings,archiveCostSources),archiveCostSources,warnings,issues,laborCostCents:bundleLaborCost(context,row.bundleId,businessDate,warnings,issues),components:d.lines.filter(l=>l.data.bundleId===row.bundleId && l.data.role!=='labor').map(l=>({baseId:Number(d.baseCodes.get(Number(l.data.baseCodeId))?.data.canonicalId || l.data.baseCodeId),qty:Number(l.data.qty),lossRate:Number(l.data.lossRate || 0),include:!l.data.costTreatment || l.data.costTreatment==='include',effectiveFrom:String(l.data.effectiveFrom || ''),effectiveTo:String(l.data.effectiveTo || '')})),productIds:ids.flatMap(id => {const b=d.baseCodes.get(id);return b?.data.productId ? [Number(b.data.productId)] : d.baseCodeLines.filter(l=>l.data.baseCodeId===id).map(l=>Number(l.data.productId));}),categoryIds:[...(row.categoryId ? [row.categoryId] : [])]};
     });
     for (const base of d.baseCodes.values()) {
       if (!COST_TABLE_STATUSES.includes(base.status) || typeof base.data.canonicalId==='number') continue;
       const row = this.row({...d,lines:[Object.assign(new ResourceRecord(),{id:base.id,data:{bundleId:base.id,baseCodeId:base.id,role:'main',qty:1}})]}, {...base,data:{...base.data,bundleCategoryId:base.data.codeDictionaryCategoryId ?? base.data.categoryId}});
-      const warnings:string[]=[];
+      const warnings:string[]=[],archiveCostSources:BucketCostReference[]=[];
       const productIds = base.data.productId ? [Number(base.data.productId)] : d.baseCodeLines.filter(l=>l.data.baseCodeId===base.id).map(l=>Number(l.data.productId));
-      seeds.push({skuType:'base_code',skuId:base.id,row,buckets:costSeedBuckets(context,base.id,businessDate,warnings),warnings,productIds,categoryIds:row.categoryId ? [row.categoryId] : []});
+      seeds.push({skuType:'base_code',skuId:base.id,row,buckets:costSeedBuckets(context,base.id,businessDate,warnings,archiveCostSources),archiveCostSources,warnings,productIds,categoryIds:row.categoryId ? [row.categoryId] : []});
     }
     return {d,seeds};
   }

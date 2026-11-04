@@ -1,5 +1,7 @@
+import {getSourceProductImportProfile} from './source-product-import-profiles';
+export * from './source-product-import-profiles';
 /** Workbook layouts are data. Every write is performed by the normal resource rules. */
-export type ImportCellTransform = 'text' | 'upper' | 'number' | 'money' | 'kg-to-g' | 'boolean' | 'unit';
+export type ImportCellTransform = 'text' | 'upper' | 'number' | 'money' | 'kg-to-g' | 'boolean' | 'unit' | 'weight-to-g' | 'semicolon-lines';
 export interface ImportValue {
   column?: string;
   aliases?: readonly string[];
@@ -7,13 +9,14 @@ export interface ImportValue {
   fallback?: string | number | boolean | null;
   transform?: ImportCellTransform;
   unitKind?:string;
+  unitColumn?:string;
   map?: Readonly<Record<string, string>>;
   required?: boolean;
   today?: boolean;
   firstOf?: readonly ImportValue[];
   when?: { column: string; equals?: string; nonEmpty?: boolean; then: ImportValue; otherwise: ImportValue };
   related?: { sheet: string; ownerColumn: string; childColumn: string; value: ImportValue; prefer?: { column: string; in: readonly string[] } };
-  reference?: { resource: string; fields?: Readonly<Record<string, ImportValue>>; anyFields?: readonly string[]; value?: ImportValue; namespace?: string; aliasValue?:ImportValue; activeOnly?: boolean; optionalMissing?:boolean; importedOwner?:boolean; returnField?:string };
+  reference?: { resource: string; fields?: Readonly<Record<string, ImportValue>>; anyFields?: readonly string[]; value?: ImportValue; namespace?: string; aliasValue?:ImportValue; activeOnly?: boolean; optionalMissing?:boolean; importedOwner?:boolean; returnField?:string; pathSeparator?:string; pathField?:string };
 }
 export interface ResourceImportStep {
   id: string;
@@ -21,12 +24,13 @@ export interface ResourceImportStep {
   resource: string;
   fields: Readonly<Record<string, ImportValue>>;
   status?: ImportValue;
+  statusReason?: ImportValue;
   where?: readonly { column: string; in?: readonly string[]; nonEmpty?: boolean; empty?: boolean }[];
   matchFields?: readonly string[];
   deduplicate?: readonly string[];
   rejectDuplicate?:readonly string[];
   conflictingRows?:readonly {field:string;values:readonly [string,string];identityFields:readonly string[];equalFields:readonly string[];message:string}[];
-  namespace?: { name: string; columns: readonly string[]; savedFields?:readonly string[] };
+  namespace?: { name: string; columns: readonly string[]; savedFields?:readonly string[]; uniqueSource?:boolean };
   createOnly?: boolean;
   identity?:'product-code';
   rejectReferencedBy?: readonly { resource: string; field: string }[];
@@ -103,4 +107,4 @@ export const RESOURCE_IMPORT_PROFILES: readonly ResourceImportProfile[] = [
   ]},
 ];
 
-export function getResourceImportProfile(id:string) { return RESOURCE_IMPORT_PROFILES.find(profile=>profile.id===id); }
+export function getResourceImportProfile(id:string) { return RESOURCE_IMPORT_PROFILES.find(profile=>profile.id===id) ?? getSourceProductImportProfile(id); }

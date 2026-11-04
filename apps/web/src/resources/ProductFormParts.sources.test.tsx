@@ -70,7 +70,7 @@ describe('发货物料的来源系统规格', () => {
       expect(screen.queryByRole('dialog', { name: '管理系统规格' })).toBeNull();
       expect(screen.getByRole('dialog', { name: '新增物料' })).toBeTruthy();
       expect(outerEscape).not.toHaveBeenCalled();
-      expect(resourceApi.list).toHaveBeenCalledWith('finance-product-units', expect.objectContaining({ tab: 'shipping_system_spec' }));
+      expect(resourceApi.list).toHaveBeenCalledWith('finance-product-units', expect.objectContaining({ fieldKey:'kind',fieldValue:'shipping_system_spec' }));
     } finally { document.removeEventListener('keydown', outerEscape); }
   });
   it('管理窗选择已有名称后回填并关闭；新增后立即回填且窗口保持打开，不出现编码字段', async () => {
@@ -113,3 +113,4 @@ describe('删除最后一条来源', () => {
     expect(sourceCollection(changed, [original], true)).toMatchObject({ expected: [{ id: 8, version: 'v8' }], rows: [] });
   });
 });
+it('编辑供货来源真实第201项不截断，空续页/重复/total漂移必须报错而非空来源',async()=>{const items=Array.from({length:201},(_,i)=>({id:i+1,type:'finance-product-sources',title:'来源'+i,data:{supplierId:1,purchasePrice:100},status:'active',refLabels:{},files:{},secretConfigured:{},createdAt:'',updatedAt:'',statusReason:null}));vi.mocked(resourceApi.list).mockImplementation(async(_type,q)=>({items:items.slice(((q?.page??1)-1)*200,(q?.page??1)*200),total:201,page:q?.page??1,pageSize:200}));expect(await loadSourceRows(1)).toHaveLength(201);vi.mocked(resourceApi.list).mockImplementation(async(_type,q)=>({items:q?.page===1?items.slice(0,200):[],total:201,page:q?.page??1,pageSize:200}));await expect(loadSourceRows(1)).rejects.toThrow(/不完整/);vi.mocked(resourceApi.list).mockImplementation(async(_type,q)=>({items:q?.page===1?items.slice(0,200):[items[0]],total:201,page:q?.page??1,pageSize:200}));await expect(loadSourceRows(1)).rejects.toThrow(/重复|不完整/);vi.mocked(resourceApi.list).mockImplementation(async(_type,q)=>({items:q?.page===1?items.slice(0,200):[items[200]],total:q?.page===1?201:202,page:q?.page??1,pageSize:200}));await expect(loadSourceRows(1)).rejects.toThrow(/变化|不完整/);});

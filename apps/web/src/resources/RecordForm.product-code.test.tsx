@@ -13,6 +13,7 @@ vi.mock('./CodePreview', async () => {
     useEffect(() => { onPreview(String(values.code || `AUTO-${values.capacities || 'RAW'}`)); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
     return null;
   } };
+
 });
 const def = getResourceDef('finance-products')!;
 const record = (archiveType = 'package'): ResourceDto => ({ id: 7, type: def.key, title: '合成包装', status: 'active', statusReason: null, data: { archiveType, categoryId: 1, name: '合成包装', code: 'EXISTING-CODE', brandId: 2, packagingCategory: 'bag', capacities: '500G', purchaseSpec: '千克', specQty: 1, specUnit: 'KG', weightG: 10, purchasePrice: 100, freight: 1, handlingFee: 1 }, version: 'synthetic-version', refLabels: {}, files: {}, secretConfigured: {}, createdAt: '', updatedAt: '' });
@@ -41,12 +42,20 @@ describe('商品档案自动与人工编号', () => {
     await save();
     expect(vi.mocked(resourceApi.saveForm).mock.calls[0][1].values.code).toBe('MANUAL-PACKAGE');
   });
-  it('已有原料默认沿用人工编号，恢复自动后才重新预览', async () => {
+  it('已有原料默认沿用人工编号，真原料入口不额外显示恢复自动操作', async () => {
     render(<RecordForm def={def} record={record('raw')} onClose={vi.fn()} onSaved={vi.fn()} />);
     const input = screen.getByRole('textbox', { name: '系统自动编号' }) as HTMLInputElement;
     expect(input.readOnly).toBe(false); expect(input.value).toBe('EXISTING-CODE');
-    fireEvent.click(screen.getByRole('button', { name: '恢复自动编号' }));
-    await waitFor(() => expect(input.readOnly).toBe(true));
-    await waitFor(() => expect(input.value).toBe('AUTO-500G'));
+    expect(screen.queryByRole('button',{name:'恢复自动编号'})).toBeNull();
+    fireEvent.change(screen.getByLabelText(/^原料名称/),{target:{value:'改名仍保人工编号'}});
+    expect(input.readOnly).toBe(false);expect(input.value).toBe('EXISTING-CODE');
+  });
+  it('自产真实更多设置恢复自动后才重新预览',async()=>{
+    render(<RecordForm def={def} record={record('self_made')} onClose={vi.fn()} onSaved={vi.fn()}/>);
+    const input=screen.getByRole('textbox',{name:'系统自动编号'}) as HTMLInputElement;
+    expect(input.value).toBe('EXISTING-CODE');
+    fireEvent.click(screen.getByText('更多设置',{selector:'summary'}));
+    fireEvent.click(screen.getByRole('button',{name:'恢复自动编号'}));
+    await waitFor(()=>expect(input.readOnly).toBe(true));await waitFor(()=>expect(input.value).toBe('AUTO-500G'));
   });
 });

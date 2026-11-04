@@ -4,6 +4,9 @@ import { ApiError } from '../api/client';
 import { resourceApi, type ResourceDto } from './api';
 import { loadRefOptions } from './RecordForm';
 import { FinanceArchiveMoveDialog } from './FinanceArchiveMoveDialog';
+import {ProductArchiveMoveDialog} from './ProductArchiveMoveDialog';
+import {ProductArchiveActionDialog} from './ProductArchiveActionDialog';
+import {productReferenceNoun} from './productReferenceList';
 import {ReasonDialog} from './ResourceConfirmDialog';
 
 type Result = { done: number; failed: Array<{ id: number; message: string }> };
@@ -70,10 +73,12 @@ function ReasonPickDialog({ title, pickField, reasonLabel, reasonRequired, confi
  * 勾选后的批量操作条：批量修改字段（config.batch）、停用/启用所选（所有资料）、带原因的批量动作（config.batchActions）、导出所选。
  * 服务端逐条校验权限、状态联动和归档，这里只负责收集输入。
  */
-export function BatchBar({ referenceArchive = false, currentCategoryId, allowDelete, def, type, rows, checked, can, filterOpts, onMessage, onDone, onExport, onClear }: {
+export function BatchBar({ referenceArchive = false, referenceProduct=false, archiveFamily='', currentCategoryId, allowDelete, def, type, rows, checked, can, filterOpts, onMessage, onDone, onExport, onClear }: {
   /** 分级布局：多一个“批量删除”（逐条写同一个原因，被引用的会失败并列出） */
   allowDelete?: boolean;
   referenceArchive?: boolean;
+  referenceProduct?:boolean;
+  archiveFamily?:string;
   currentCategoryId?:number;
   def: ResourceDef; type: string; rows: ResourceDto[]; checked: number[];
   can: (action: 'edit' | 'disable' | 'export') => boolean;
@@ -82,16 +87,16 @@ export function BatchBar({ referenceArchive = false, currentCategoryId, allowDel
 }) {
   const [batchField, setBatchField] = useState('');
   const [batchValue, setBatchValue] = useState('');
-  const [dialog, setDialog] = useState<{ kind: 'move' } | { kind: 'delete' } | { kind: 'status'; status: string; label: string; requiresReason: boolean; ids: number[] } | { kind: 'action'; action: BatchAction } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: 'move'; ids?:number[] } | { kind: 'delete' } | { kind: 'status'; status: string; label: string; requiresReason: boolean; ids: number[] } | { kind: 'action'; action: BatchAction } | null>(null);
   const batchFields = (def.batch ?? []).filter((k) => k !== 'status').map((k) => def.fields.find((f) => f.key === k)).filter((f): f is FieldDef => Boolean(f));
   const picked = rows.filter((r) => checked.includes(r.id));
   const financeParty=['finance-suppliers','finance-customers','finance-fee-items'].includes(type);
   // 停用 = 停用状态（没有就取第一个隐藏状态）；启用 = 默认状态。和旧系统一样：已经是目标状态的不重复处理
   const offStatus = def.statuses.find((s) => s.value === 'inactive') ?? def.statuses.find((s) => s.hidden && s.value !== 'deleted' && s.value !== 'cancelled');
   const onStatus = def.statuses.find((s) => s.value === def.defaultStatus);
-  const toOff = offStatus ? picked.filter((r) => r.status !== offStatus.value && !r.archived) : [];
+  const toOff = offStatus ? picked.filter((r) => (referenceProduct?r.status===onStatus?.value:r.status !== offStatus.value) && !r.archived) : [];
   const hiddenValues = new Set(def.statuses.filter((x) => x.hidden).map((x) => x.value));
-  const toOn = offStatus && onStatus ? picked.filter((r) => hiddenValues.has(r.status) && r.status !== onStatus.value && !r.archived) : [];
+  const toOn = offStatus && onStatus ? picked.filter((r) => (referenceProduct?r.status===offStatus.value:hiddenValues.has(r.status) && r.status !== onStatus.value) && !r.archived) : [];
   const run = async (fn: () => Promise<Result>, ok: string) => {
     const r = await fn();
     onMessage(`${ok} ${r.done} 条${failText(r)}`);
@@ -105,6 +110,21 @@ export function BatchBar({ referenceArchive = false, currentCategoryId, allowDel
   }
 
   const extras = (children: ReactNode) => referenceArchive ? null : children;
+  if(referenceProduct){
+    const noun=productReferenceNoun(archiveFamily);
+    const statusDialog=dialog?.kind==='status'?dialog:null;
+    return <div className="reference-product-batch" role="group" aria-label="批量操作"><span>已选 {checked.length} 条</span>
+      {can('edit')&&<button type="button" onClick={()=>setDialog({kind:'move',ids:checked})}>移动分类</button>}
+      {can('disable')&&offStatus&&<button type="button" className="product-status-off" disabled={!toOff.length} onClick={()=>setDialog({kind:'status',status:offStatus.value,label:'停用',requiresReason:true,ids:toOff.map(row=>row.id)})}>批量停用</button>}
+      {can('disable')&&onStatus&&<button type="button" className="product-status-on" disabled={!toOn.length} onClick={()=>setDialog({kind:'status',status:onStatus.value,label:'启用',requiresReason:false,ids:toOn.map(row=>row.id)})}>批量启用</button>}
+      {dialog?.kind==='move'&&<ProductArchiveMoveDialog family={archiveFamily} initialCategoryId={currentCategoryId} count={dialog.ids?.length??checked.length} onClose={()=>setDialog(null)} onConfirm={async id=>{const result=await resourceApi.batch(type,dialog.ids??checked,{categoryId:id});onMessage(`已移动 ${result.done} 条${failText(result)}`);if(result.failed.length){setDialog({kind:'move',ids:result.failed.map(item=>item.id)});onDone();throw new Error(result.failed.map(item=>`#${item.id}：${item.message}`).join('；'));}setDialog(null);onClear();onDone();}}/>}
+      {statusDialog&&<ProductArchiveActionDialog mode={statusDialog.status===onStatus?.value?'on':'off'} title={statusDialog.ids.length===1?picked.find(row=>row.id===statusDialog.ids[0])?.title||`已选择的${noun}`:''} recordLabel={noun} selectedCount={statusDialog.ids.length} onClose={()=>setDialog(null)} onConfirm={async reason=>{
+        const result=await resourceApi.batchStatus(type,statusDialog.ids,statusDialog.status,reason);
+        onMessage(`已${statusDialog.label} ${result.done} 条${failText(result)}`);
+        if(result.failed.length){setDialog({...statusDialog,ids:result.failed.map(item=>item.id)});onDone();throw new Error(result.failed.map(item=>`#${item.id}：${item.message}`).join('；'));}
+        setDialog(null);onClear();onDone();
+      }}/>} </div>;
+  }
   return (
     <div className={referenceArchive ? 'reference-archive-batch' : 'res-batch'} role="group" aria-label="批量操作">
       {referenceArchive && <>{can('edit') && <button type="button" className="res-btn" disabled={!checked.length} onClick={()=>setDialog({kind:'move'})}>移动分类{checked.length ? ` ${checked.length}` : ''}</button>}{allowDelete && <button type="button" className="res-btn danger-text" disabled={!checked.length} onClick={()=>setDialog({kind:'delete'})}>批量删除{checked.length ? ` ${checked.length}` : ''}</button>}</>}

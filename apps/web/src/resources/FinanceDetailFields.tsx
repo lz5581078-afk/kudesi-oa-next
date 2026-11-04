@@ -1,3 +1,5 @@
+import {loadResourceDirectory} from './resourceDirectory';
+import {referenceIdentity} from './referenceOptionsCache';
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { createChecker, restrictedFieldKeys, permissionOwner, resourcePermission, resolveProductSections, todayShanghai, unitYuanText, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -12,7 +14,7 @@ export const detailNumber = (value: unknown): number | null => !['number', 'stri
 export const detailMoney = (value: unknown) => detailNumber(value) === null ? '未维护' : `¥${unitYuanText(Number(value))}`;
 export const detailWeight = (value: unknown) => detailNumber(value) === null ? '未维护' : `${(Number(value) / 1000).toFixed(6)} kg`;
 
-export function FinanceSection({ title, hint, icon, step, children, className = '' }: { title: string; hint?: ReactNode; icon?:ReactNode; step?: number; children: ReactNode; className?: string }) {
+export function FinanceSection({ title, hint, icon, step, children, className = '' }: { title: string; hint?: ReactNode; icon?:ReactNode; step?: number|string; children: ReactNode; className?: string }) {
   return <section className={`finance-view-section ${className}`} aria-label={title}><div className="finance-view-heading"><h3>{icon}{step && <i className="finance-view-step" aria-hidden="true">{step}</i>}{title}</h3>{hint && <small>{hint}</small>}</div>{children}</section>;
 }
 
@@ -32,23 +34,20 @@ export function FinanceFields({ def, record, keys, before, plain=false }: { def:
 }
 
 export interface DetailRow { row: ResourceDto; item: ResourceDto | null }
-export async function allDetailRows(type: string, fieldKey: string, fieldValue: number): Promise<ResourceDto[]> {
-  const rows: ResourceDto[] = [];
-  for (let page = 1; ; page++) {
-    const result = await resourceApi.list(type, { fieldKey, fieldValue, page, pageSize: 200, showHidden: true });
-    rows.push(...result.items);
-    if (!result.items.length || rows.length >= result.total) return rows;
-  }
+export async function allDetailRows(type:string,fieldKey:string,fieldValue:number,current:()=>boolean=()=>true):Promise<ResourceDto[]>{
+ return await loadResourceDirectory(type,current,undefined,{includeInactive:true,preserveOrder:true,scopedQuery:{fieldKey,fieldValue}})??[];
 }
 
 /** 用于查看组成/供货来源的完整分页读取；引用无权读取时保留原行，不能伪装成空组成。 */
 export function useFinanceDetailRows(type: string, field: string, id: number, version: string, refs: (row: ResourceDto) => [string, number] | null) {
   const [state, setState] = useState<{ key: string; rows: DetailRow[] | null; error: string }>({ key: '', rows: null, error: '' });
-  const key = `${type}:${field}:${id}:${version}`;
+  const {user}=useAuth();
+  const key = JSON.stringify([referenceIdentity(user),type,field,id,version]);
   useEffect(() => {
     let alive = true;
     (async () => {
-      const rows = await allDetailRows(type, field, id);
+      const rows = await allDetailRows(type,field,id,()=>alive);
+      if(!alive)return;
       const targets = new Map(rows.map(row => refs(row)).filter((r): r is [string, number] => r !== null).map(r => [r.join(':'), r]));
       const found = new Map(await Promise.all([...targets].map(async ([key, [target, targetId]]) => {
         try { return [key, await resourceApi.get(target, targetId)] as const; } catch { return [key, null] as const; }

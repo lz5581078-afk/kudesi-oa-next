@@ -36,7 +36,7 @@ db('直接档案 BOM 沿统一修订与验证发布（隔离 MySQL）',()=>{
   const lines=async()=>ds.manager.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-bundle-lines'},order:{id:'ASC'}});
   const payload=async(productId=second.id)=> (await lines()).map(line=>({...line.data,...(line.data.productId?{productId,qty:2.345,lossRate:1.2345,isRequired:false,costTreatment:'reference_only',note:'保留真实档案控制列'}:{})}));
   const envelope=async(input:Array<Record<string,unknown>>,weight?:{mode:'auto'|'manual';grams:number})=>JSON.stringify({version:1,sourceToken:bundleCompositionToken(await ds.manager.findOneByOrFail(ResourceRecord,{id:bundle.id,companyId:user.companyId}),await lines()),lines:input,...(weight?{weight}:{})});
-  return{user,category,first,second,base,bundle,lines,payload,envelope};
+  return{user,category,main,first,second,base,bundle,lines,payload,envelope};
  };
  it('直接档案修订发布保留productId与控制列、六位元报价精度、同一验证事务和BOM版本',async()=>{
   const f=await fixture();const revision=await resources.create(f.user,'finance-bundle-revisions',{bundleId:f.bundle.id,reason:'真实档案替换并修订数量',payload:await f.envelope((await f.payload()).map(line=>line.productId?{...line,role:'main',cost:999999,unitCost:999999}:line))});
@@ -48,7 +48,11 @@ db('直接档案 BOM 沿统一修订与验证发布（隔离 MySQL）',()=>{
   expect((await resources.get(f.user,'finance-bundle-revisions',revision.id)).status).toBe('published');
   const fresh=await resources.get(f.user,'finance-bundles',f.bundle.id);expect(fresh).toMatchObject({status:'verified',data:{bomVersion:'V02'}});expect(fresh.data.pendingRevisionId).toBeUndefined();
   const cost=new CostService(ds),data=await cost.load(f.user.companyId),row=cost.row(data,data.bundles.find(bundle=>bundle.id===f.bundle.id)!);
-  expect(row.preShipCostCents).toBe(1028.9289);expect(row.weightG).toBe(3895.059615);
+  // 真24 0054 cost_price DECIMAL(18,4)：档案530.4567分先落镜像530.46分；直接档案行不走该镜像。
+  expect((await resources.get(f.user,'finance-products',f.main.id)).data.totalCost).toBe(530.4567);
+  expect((await resources.get(f.user,'finance-base-codes',f.base.id)).data.cost).toBe(530.46);
+  // 530.46 + 212.5681 × 2.345 = 1028.9321945 分，组合末尾一次舍入至六位元。
+  expect(row.preShipCostCents).toBe(1028.9322);expect(row.weightG).toBe(3895.059615);
   const product=await resources.get(f.user,'finance-products',f.second.id);
   expect(JSON.parse(String(fresh.data.snapshot)).lines.find((line:{ref:string})=>line.ref===product.data.code)).toMatchObject({qty:2.345,cost:212.5681,weightG:1234.567});
  });

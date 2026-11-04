@@ -13,7 +13,7 @@ export interface VerifyResult { results: Array<{ id: number; ok: boolean; error?
 export interface DeleteGroup { token: string; ids: number[]; code: string; name: string; aliasCount: number; everSynced: boolean; canDelete: boolean; reason: string }
 export interface DeleteExecResult { results: Array<{ code: string; ok: boolean; error?: string; disableQueued?: boolean }> }
 
-export interface BundleSummary { id:number; mainStyleCode:string|null; weightG:number|null; componentCount:number; packageCount:number; packageSummary:string; cost?:number|null; salePrice?:number|null }
+export interface BundleSummary { id:number; issueCount?:number; mainStyleCode:string|null; weightG:number|null; componentCount:number; packageCount:number; packageSummary:string; cost?:number|null; salePrice?:number|null }
 export interface BundleReport {
   id: number; code: string; name: string; styleCode: string; shortName: string; status: string;
   components: Array<{ role: string; code: string; name: string; qty: number; weightG: number | null; cost?: number | null; unit?: string; includeInJst?: boolean; isRequired?: boolean; lossRate?: number; costBucket?: string; costTreatment?: string }>;
@@ -27,7 +27,9 @@ export interface LineInput {
   costBucket?: string; costTreatment?: string; sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; note?: string;
 }
 export interface BundleBomVersion{id:number|null;versionNo:string;status:string;activatedAt:string|null;sealedAt:string|null;used:boolean;editable:boolean;sourceToken:string;lines:LineInput[];remark:string}
-export interface BundleComposition {baseUnits?:Record<number,{unit:string;label:string;available:boolean}>;sourceToken:string;profile:Record<string,unknown>;lines:Array<LineInput&{label:string}>;facts:Record<string,{title:string;code:string;unit:string;weightG:number|null;available:boolean}>;weightG:number|null;weightMode:'auto'|'manual';canManualWeight:boolean;pending:{id:number;reason:string;lines:Array<LineInput&{label?:string}>;weightG?:number;weightMode?:'auto'|'manual'}|null;history:Array<{id:number;status:string;reason:string;createdAt:string}>}
+export interface BundleReferenceLine {id:number;role:string;name:string;code:string;spec:string;qty:number|null;unit:string;weightG:number|null;isRawFinishedName:boolean;cost?:number|null;costSubtotal?:number|null;costSource?:string;saleSubtotal?:number|null}
+export interface BundleReferenceDetail {id:number;code:string;name:string;shortName:string;mainStyleCode:string;styleCode:string;platform:string;spec:string;costVersionName?:string;lines:BundleReferenceLine[]}
+export interface BundleComposition {referenceDetail?:BundleReferenceDetail;baseUnits?:Record<number,{unit:string;label:string;available:boolean}>;sourceToken:string;profile:Record<string,unknown>;lines:Array<LineInput&{label:string}>;facts:Record<string,{title:string;code:string;unit:string;weightG:number|null;available:boolean}>;weightG:number|null;weightMode:'auto'|'manual';canManualWeight:boolean;pending:{id:number;reason:string;lines:Array<LineInput&{label?:string}>;weightG?:number;weightMode?:'auto'|'manual'}|null;history:Array<{id:number;status:string;reason:string;createdAt:string}>}
 export interface TargetInput { sourceBundleId?:number;sourceToken?:string; platformId: number; scenarioId: number; manualStyleCode?:string;manualPropertiesValue?:string;baseUnit?:string;weightMode?:'auto'|'manual';manualWeightG?:number;overrideReason?:string;configNo?: string; bundleCategoryId?: number; brandId?: number; manualCode?: string; manualName?: string; manualShortName?: string; manualReason?: string }
 export interface PreviewTarget {
   platformId: number; platformName: string; scenarioId: number; scenarioName: string; configNo: string; code: string; name: string; styleCode: string; shortName: string; mainStyleCode?:string;propertiesValue?:string;baseUnit?:string;weightG?:number|null;cost?:number|null;errors?:string[];

@@ -1,5 +1,5 @@
 import { EntityManager } from 'typeorm';
-import { sumUnitCents } from '@kudesi/shared';
+import { sumUnitCents, LOGISTICS_CENT_SCALE } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import type { RuleHost } from './resource-rules';
@@ -21,11 +21,11 @@ export function purchasePriceSnapshot(product: Pick<ResourceRecord, 'data'>): Pr
   if (derived) {
     const total = num(d.totalCost), freight = num(d.freight), handling = num(d.handlingFee);
     if (total === null || freight === null || handling === null) return null;
-    price = sumUnitCents([total, -freight, -handling]);
+    price = sumUnitCents([total, -freight, -handling],LOGISTICS_CENT_SCALE);
   }
   if (price === null || price < 0) return null;
   const raw = d.supplyMode === 'supplier_oem' ? num(d.purchasePrice) : null;
-  const packaging = raw === null ? null : sumUnitCents([price, -raw]);
+  const packaging = raw === null ? null : sumUnitCents([price, -raw],LOGISTICS_CENT_SCALE);
   return {
     purchasePrice: price, systemSpec: String(d.purchaseSpec || ''),
     priceBasis: d.supplyMode === 'supplier_oem' ? 'oem_total' : derived ? 'production_total' : 'direct',

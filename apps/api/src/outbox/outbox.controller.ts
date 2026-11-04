@@ -3,7 +3,7 @@ import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { CategorySyncService, type CategoryScope } from './category-sync.service';
-import { OutboxService } from './outbox.service';
+import { OutboxService, parseSyncItemIds } from './outbox.service';
 import { PriceSyncService } from './price-sync.service';
 
 class SwitchDto { @IsBoolean() enabled!: boolean; @IsOptional() @IsString() @MaxLength(200) note?: string }
@@ -27,6 +27,7 @@ class CategoryAutomaticDto extends CategoryScopeDto { @IsBoolean() enabled!:bool
 class CategoryStatusDto extends CategoryScopeDto { @IsOptional() @Type(()=>Number) @IsInt() @Min(1) @Max(10000) page?:number }
 class PageDto { @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number }
 class ItemsDto {
+  @IsOptional() @IsString() @MaxLength(1000) ids?: string;
   @IsIn(['finance-base-codes', 'finance-bundles']) type!: string;
   @IsOptional() @IsString() @MaxLength(60) keyword?: string;
   @IsOptional() @IsIn(['not_synced', 'queued', 'confirming', 'synced', 'failed', 'incomplete']) state?: string;
@@ -63,7 +64,7 @@ export class OutboxController {
 
   @RequirePermission('finance.jst-sync.view')
   @Get('items')
-  items(@CurrentUser() u: AuthUser, @Query() q: ItemsDto) { return this.outbox.items(u, { type: q.type, keyword: q.keyword, state: q.state, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
+  items(@CurrentUser() u: AuthUser, @Query() q: ItemsDto) { return this.outbox.items(u, { type: q.type, keyword: q.keyword, state: q.state, ids:parseSyncItemIds(q.ids), page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
 
   @RequirePermission('finance.jst-sync.view')
   @Get('items/summary')

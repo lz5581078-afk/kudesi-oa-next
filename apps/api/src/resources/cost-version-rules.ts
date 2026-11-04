@@ -1,3 +1,4 @@
+import {readCostBucketOrigins,syncProductCostSnapshotReferences,type CostSourceBucket} from './product-cost-references';
 import { randomBytes } from 'crypto';
 import { costVersionActivationPlan } from './cost-version-dates';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
@@ -34,7 +35,7 @@ export async function beforeCostVersionSave(ctx: BeforeSaveContext, type: string
       if(!preview.ready)fail(preview.issues.slice(0,8).join('；') || '版本没有SKU成本，不能启用');
       if(data.activationSignature!==preview.activationSignature)throw new ConflictException('成本或版本数据已变化，请重新预检后启用');
       if(preview.transition)await host.patchData(em,user,type,preview.transition.id,{effectiveTo:preview.transition.effectiveTo},`启用新版本「${String(data.versionName)}」，衔接前一默认版本截止日期`);
-      if(!existing.data.lockedAt)for(const row of preview.rows)await host.patchData(em,user,'finance-cost-skus',row.settingId,{snapshot:row},'成本版本启用：锁定成本快照');
+      if(!existing.data.lockedAt)for(const row of preview.rows){await host.patchData(em,user,'finance-cost-skus',row.settingId,{snapshot:row},'成本版本启用：锁定成本快照');const stored=await em.findOneByOrFail(ResourceRecord,{companyId:user.companyId,type:'finance-cost-skus',id:row.settingId});await syncProductCostSnapshotReferences(em,user.companyId,stored);}
       data.lockedAt=existing.data.lockedAt || new Date().toISOString();
       data.isDefault=true;delete data.activationSignature;
     } else if(existing && ctx.status==='active' && (data.effectiveFrom!==existing.data.effectiveFrom || data.effectiveTo!==existing.data.effectiveTo)) {
@@ -57,6 +58,9 @@ export async function beforeCostVersionSave(ctx: BeforeSaveContext, type: string
     return ref!;
   };
   if (type === 'finance-cost-skus') {
+    const origins=readCostBucketOrigins(existing?.data.costSourceProvenance)??{version:1,buckets:{}}.buckets;
+    for(const [bucket,field]of Object.entries(COST_BUCKET_FIELDS))if(!existing||data[field]!==existing.data[field]){if(typeof data[field]==='number')origins[bucket as CostSourceBucket]=[];else delete origins[bucket as CostSourceBucket];}
+    data.costSourceProvenance={version:1,buckets:origins};
     const refType = data.skuType === 'base_code' ? 'finance-base-codes' : 'finance-bundles';
     const field = data.skuType === 'base_code' ? 'baseCodeId' : 'bundleId';
     if (!Number.isSafeInteger(data[field]) || Number(data[field]) <= 0) fail('请选择有效的来源SKU');
@@ -78,7 +82,7 @@ export async function beforeCostVersionSave(ctx: BeforeSaveContext, type: string
       if(data.estimatedWeightG==null && seed?.row.weightG)data.estimatedWeightG=seed.row.weightG;
       const candidate=Object.assign(new ResourceRecord(),{id:existing?.id ?? -1,companyId:user.companyId,type,status:ctx.status,title:String(data.skuName),data});
       const row=computeVersion(version!,[...records.filter(r=>r.id!==existing?.id),candidate],seeds,w=>cost.freightFor(d,w/1000)?.cents ?? null).rows.find(r=>r.settingId===candidate.id);
-      if(row)for(const [bucket,field]of Object.entries(COST_BUCKET_FIELDS))if(data[field]==null && row.buckets[bucket]!=null)data[field]=row.buckets[bucket];
+      if(row)for(const [bucket,field]of Object.entries(COST_BUCKET_FIELDS))if(data[field]==null && row.buckets[bucket]!=null){data[field]=row.buckets[bucket];const facts=row.sourceProvenance?.buckets[bucket as CostSourceBucket];if(facts)origins[bucket as CostSourceBucket]=facts.map(source=>({...source}));}
     }
   }
   if(data.effectiveFrom && data.effectiveTo && String(data.effectiveFrom)>String(data.effectiveTo))fail('生效结束不能早于生效开始');

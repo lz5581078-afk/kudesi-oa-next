@@ -8,7 +8,7 @@ export interface ProfileLookup {
   find(resource:string, fields:Record<string,unknown>, any?:{fields:readonly string[];value:string}):Promise<ProfileRecord[]>;
 }
 export interface ProfileAliases { [namespace:string]:Map<string,ProfileRecord> }
-export interface PreparedProfileRow { line:number; source:Record<string,string>; input:Record<string,unknown>; status?:string; errors:string[] }
+export interface PreparedProfileRow { line:number; source:Record<string,string>; input:Record<string,unknown>; status?:string; statusReason?:string; errors:string[] }
 export const nonEmptyProfileRow=(row:Record<string,string>)=>!!row && typeof row==='object' && !Array.isArray(row) && Object.values(row).some(value=>String(value ?? '').trim()!=='');
 export const profileStepAccepts=(step:ResourceImportStep,row:Record<string,string>)=>nonEmptyProfileRow(row) && (step.where ?? []).every(filter=>{const value=String(row[filter.column] ?? '').trim();return (!filter.in || filter.in.includes(value)) && (!filter.nonEmpty || !!value) && (!filter.empty || !value);});
 const blank=(value:unknown)=>value===undefined || value===null || value==='';
@@ -21,6 +21,7 @@ export function validateProfileWorkbook(profile:ResourceImportProfile,sheets:Pro
     const definition=profile.sheets.find(item=>item.name===sheet.name);
     if(!definition){if(sheet.name!=='说明')issues.push({sheet:sheet.name,row:0,field:'',message:'该工作表不属于此导入模块'});continue;}
     count+=sheet.rows.filter(nonEmptyProfileRow).length;
+    for(const step of profile.steps.filter(step=>step.sheet===sheet.name&&step.namespace?.uniqueSource)){const seen=new Set<string>();for(const [index,row]of sheet.rows.entries()){if(!nonEmptyProfileRow(row)||!profileStepAccepts(step,row))continue;const values=step.namespace!.columns.map(column=>String(row[column]??'').trim()),id=key(values);if(seen.has(id))issues.push({sheet:sheet.name,row:index+2,field:step.namespace!.columns.join('/'),message:'文件内主表编号重复'});seen.add(id);}}
     const headers=sheet.headers ?? [...new Set(sheet.rows.flatMap(row=>Object.keys(row)))];
     if(new Set(headers).size!==headers.length)issues.push({sheet:sheet.name,row:1,field:'',message:'工作表列名重复'});
     const unexpected=headers.filter(header=>!definition.headers.includes(header));
@@ -37,16 +38,16 @@ export function validateProfileWorkbook(profile:ResourceImportProfile,sheets:Pro
   return issues;
 }
 
-async function readValue(expression:ImportValue,row:Record<string,string>,sheets:ProfileSheetInput[],lookup:ProfileLookup,aliases:ProfileAliases,today:string):Promise<unknown> {
+async function readValue(expression:ImportValue,row:Record<string,string>,sheets:ProfileSheetInput[],lookup:ProfileLookup,aliases:ProfileAliases,today:string,moneyScale=4):Promise<unknown> {
   if(Object.prototype.hasOwnProperty.call(expression,'literal'))return expression.literal;
   if(expression.today)return today;
-  if(expression.when){const raw=String(row[expression.when.column] ?? '').trim();return readValue(expression.when.nonEmpty ? (raw ? expression.when.then : expression.when.otherwise) : (raw===expression.when.equals ? expression.when.then : expression.when.otherwise),row,sheets,lookup,aliases,today);}
-  if(expression.firstOf){for(const item of expression.firstOf){const value=await readValue(item,row,sheets,lookup,aliases,today);if(!blank(value))return value;}return undefined;}
+  if(expression.when){const raw=String(row[expression.when.column] ?? '').trim();return readValue(expression.when.nonEmpty ? (raw ? expression.when.then : expression.when.otherwise) : (raw===expression.when.equals ? expression.when.then : expression.when.otherwise),row,sheets,lookup,aliases,today,moneyScale);}
+  if(expression.firstOf){for(const item of expression.firstOf){const value=await readValue(item,row,sheets,lookup,aliases,today,moneyScale);if(!blank(value))return value;}return undefined;}
   if(expression.related){
     const relation=expression.related;const owner=row[relation.ownerColumn];
     const candidates=(sheets.find(sheet=>sheet.name===relation.sheet)?.rows ?? []).filter(child=>key([child[relation.childColumn]])===key([owner]));
     const chosen=relation.prefer ? candidates.find(child=>relation.prefer!.in.includes(String(child[relation.prefer!.column] ?? '').trim())) ?? candidates[0] : candidates[0];
-    return chosen ? readValue(relation.value,chosen,sheets,lookup,aliases,today) : undefined;
+    return chosen ? readValue(relation.value,chosen,sheets,lookup,aliases,today,moneyScale) : undefined;
   }
   if(expression.reference){
     const reference=expression.reference;const fields:Record<string,unknown>={};
@@ -54,6 +55,13 @@ async function readValue(expression:ImportValue,row:Record<string,string>,sheets
     const value=reference.value ? await readValue(reference.value,row,sheets,lookup,aliases,today) : undefined;
     if(reference.value && blank(value))return null;
     if(!Object.keys(fields).length && !reference.anyFields?.length)return undefined;
+    if(reference.pathSeparator){
+      if(!reference.pathField || !/^[A-Za-z][A-Za-z0-9]*$/.test(reference.pathField))throw new Error('分类路径配置无效');
+      const segments=String(value??'').split(reference.pathSeparator).map(part=>part.trim()).filter(Boolean);if(!segments.length)throw new Error('所属分类必填');
+      let parent:ProfileRecord|undefined;
+      for(const name of segments){const candidates=(await lookup.find(reference.resource,{...fields,name,[reference.pathField]:parent?.id??null})).filter(item=>reference.activeOnly===false||!['disabled','deleted','inactive','archived'].includes(item.status));if(candidates.length!==1){if(reference.optionalMissing&&!candidates.length)return null;throw new Error(`分类路径${candidates.length?'存在重名':'不存在或已停用'}：${String(value)}`);}parent=candidates[0];}
+      return reference.returnField?parent!.data[reference.returnField]:parent!.id;
+    }
     const declaredCode=reference.aliasValue ? await readValue(reference.aliasValue,row,sheets,lookup,aliases,today) : fields.code;
     const aliased=reference.namespace && !blank(declaredCode) ? aliases[reference.namespace]?.get(key([declaredCode])) : undefined;
     if(reference.importedOwner && !aliased)throw new Error('找不到主表中的所属资料');
@@ -71,9 +79,11 @@ async function readValue(expression:ImportValue,row:Record<string,string>,sheets
   if(expression.map){const mapped=expression.map[String(value)];if(mapped===undefined)throw new Error(`${expression.column}“${value}”不在可选项里`);value=mapped;}
   const text=String(value);
   switch(expression.transform){
+    case 'semicolon-lines':return text.split(/[；;\r\n]+/).map(part=>part.trim()).filter(Boolean).join('\n');
+    case 'weight-to-g':{const unit=String(row[expression.unitColumn??'重量单位']||'千克').trim(),factor=['g','克'].includes(unit)?1:['斤','jin'].includes(unit)?500:['kg','公斤','千克'].includes(unit)?1000:NaN;const n=Number(text),result=n*factor;if(!Number.isFinite(result)||n<0||!/^\d+(?:\.\d{1,6})?$/.test(text)||!Number.isSafeInteger(Math.round(result*1000)))throw new Error(`${expression.column}重量或单位无效`);return result;}
     case 'upper':return text.toUpperCase();
     case 'number':{const n=Number(text);if(!Number.isFinite(n))throw new Error(`${expression.column}不是有效数字`);return n;}
-    case 'money':{try{return yuanToPreciseCents(text);}catch{throw new Error(`${expression.column}金额最多保留元小数点后6位`);}}
+    case 'money':{try{return yuanToPreciseCents(text,moneyScale);}catch(error){throw new Error((error as Error).message.includes('安全')?`${expression.column}金额超出安全整数范围`:`${expression.column}金额最多保留元小数点后${moneyScale+2}位`);}}
     case 'kg-to-g':{if(!/^\d+(?:\.\d{1,6})?$/.test(text))throw new Error(`${expression.column}公斤重量必须非负且最多六位小数`);const result=Number(scaledDecimal(text,6))/1000;if(!Number.isSafeInteger(Math.round(result*1000)))throw new Error(`${expression.column}重量过大`);return result;}
     case 'boolean':{if(['1','true','是','必选','启用','正常','yes','active'].includes(text.toLowerCase()))return true;if(['0','false','否','不必选','停用','no','inactive'].includes(text.toLowerCase()))return false;throw new Error(`${expression.column}应填写是或否`);}
     case 'unit':{const units=await lookup.find('finance-product-units',expression.unitKind?{kind:expression.unitKind}:{}, {fields:['name','code'],value:text});const codes=[...new Set(units.filter(unit=>unit.status==='active').map(unit=>String(unit.data.code || '')))];if(codes.length===1 && codes[0])return codes[0];if(codes.length>1)throw new Error(`${expression.column}单位存在重名编码，无法确定`);if(expression.unitKind)throw new Error(`${expression.column}单位不存在：${text}`);const unit=unitOptionFromText(text);if(!unit)throw new Error(`${expression.column}单位不存在：${text}`);return unit.value;}
@@ -91,10 +101,11 @@ export async function prepareProfileStep(profile:ResourceImportProfile,step:Reso
   const result:PreparedProfileRow[]=[];const seen=new Map<string,Record<string,unknown>>();
   for(const {row,line,errors:initialErrors} of rows){
     const input:Record<string,unknown>={};const errors:string[]=[...(initialErrors ?? [])];
-    for(const [field,expression] of Object.entries(step.fields))try{const value=await readValue(expression,row,sheets,lookup,aliases,today);if(value!==undefined)input[field]=value;}catch(error){errors.push(`${expression.column ?? field}：${(error as Error).message}`);}
+    for(const [field,expression] of Object.entries(step.fields))try{const definition=getResourceDef(step.resource)?.fields.find(item=>item.key===field),scale=definition?.type==='money'?definition.scale??0:4;const value=await readValue(expression,row,sheets,lookup,aliases,today,scale);if(value!==undefined)input[field]=value;}catch(error){errors.push(`${expression.column ?? field}：${(error as Error).message}`);}
+    let statusReason:string|undefined;if(step.statusReason)try{const value=await readValue(step.statusReason,row,sheets,lookup,aliases,today);statusReason=blank(value)?'':String(value);}catch(error){errors.push(`停用原因：${(error as Error).message}`);}
     let status:string | undefined;if(step.status)try{const value=await readValue(step.status,row,sheets,lookup,aliases,today);if(!blank(value))status=String(value);}catch(error){errors.push(`状态：${(error as Error).message}`);}
     if(step.deduplicate?.length && !errors.length){const id=key(step.deduplicate.map(field=>input[field]));const previous=seen.get(id);if(previous){if(JSON.stringify(previous)!==JSON.stringify(input))errors.push('同一自然键出现冲突资料');else continue;}else seen.set(id,input);}
-    result.push({line,source:row,input,status,errors});
+    result.push({line,source:row,input,status,statusReason,errors});
   }
   return result;
 }

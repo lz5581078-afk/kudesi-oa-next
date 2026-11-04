@@ -1,3 +1,4 @@
+import type {ResourceFormInput} from '@kudesi/shared';
 import {beforeBomVersionDelete,detachBomOwner} from './bundle-bom-versions';
 import {beforePlatformDelete} from './platform-rules';
 import {markCategorySyncDirty} from '../outbox/category-sync-policy';
@@ -505,7 +506,7 @@ export async function afterCreateRule(type: string, ctx: AfterCreateContext): Pr
 }
 
 /** 可选整组阶段；默认资料没有附加动作，仍使用同一事务和资料规则。 */
-export async function beforeFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; existing: ResourceRecord | null }) {
+export async function beforeFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; existing: ResourceRecord | null;input?:ResourceFormInput }) {
   await FINANCE_BEFORE_FORM_SAVE[type]?.(ctx);
 }
 export async function afterFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }) {

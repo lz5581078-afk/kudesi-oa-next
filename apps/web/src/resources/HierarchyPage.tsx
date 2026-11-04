@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getResourceDef } from '@kudesi/shared';
 import { resourceApi } from './api';
-import { ArchiveHome, useHierTabs } from './ArchiveHome';
+import { ArchiveHome, TAB_BLURB, useHierTabs } from './ArchiveHome';
 import { ResourcePage, type HierContext } from './ResourcePage';
 
 /**
@@ -31,7 +31,7 @@ export function HierarchyPage({ type }: { type: string }) {
   const back = () => go('');
   if (cfg.kind === 'tab') {
     const tab = tabs.find((t) => t.value === g);
-    return <ResourcePage key={g} type={type} lockedTab={g} hier={{ title: tab?.label ?? entry?.title ?? def.label, subtitle: entry?.subtitle ?? cfg.subtitle, onBack: back }} />;
+    return <ResourcePage key={g} type={type} lockedTab={g} hier={{ title: tab?.label ?? entry?.title ?? def.label, subtitle: entry?.subtitle ?? (type==='finance-products'?TAB_BLURB[g]:undefined) ?? cfg.subtitle, onBack: back }} />;
   }
   if (g === 'all') return <ResourcePage key="all" type={type} hier={{ title: `全部${def.label.replace('档案', '')}`, subtitle: cfg.subtitle, onBack: back }} />;
   const known = entry?.key === g ? entry : rootTitle?.id === g ? rootTitle : null;

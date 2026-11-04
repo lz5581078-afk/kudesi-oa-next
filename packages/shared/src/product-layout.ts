@@ -278,7 +278,7 @@ export interface ProductProblemContext {
   canCost: boolean;
   /** 已有的（或表单里填好的）供货来源行数 / 构成行数，由界面传入 */
   sources?: Array<{ supplierId?: unknown; originArea?: unknown; systemSpec?: unknown; purchasePrice?: unknown }> | null;
-  composition?: Array<{ group: CompositionGroup; id?: unknown; qty?: unknown }> | null;
+  composition?: Array<{ group: CompositionGroup; id?: unknown; qty?: unknown; sourceRowId?: unknown; sourceVersion?: unknown }> | null;
   /** 编辑已有档案时，状态切换等场景不卡必填（和服务端一致） */
   lenient?: boolean;
 }
@@ -337,7 +337,7 @@ export function productFormProblems(values: Record<string, unknown>, ctx: Produc
     const rows = ctx.composition ?? [];
     if (ctx.composition === null) { /* 没有读取构成的权限：交给服务端 */ }
     else if (!rows.length) out.composition = '请至少增加一条原料、包装或人工成本';
-    else if (rows.some((r) => !present(r.id) || !(Number(r.qty) > 0))) out.composition = '原料、包装和人工明细必须选择档案，并填写大于 0 的倍数';
+    else if (rows.some((r) => (!present(r.id) && !(r.group === 'labor' && Number.isSafeInteger(r.sourceRowId) && Number(r.sourceRowId) > 0 && typeof r.sourceVersion === 'string' && r.sourceVersion.trim())) || !(Number(r.qty) > 0))) out.composition = '原料、包装和人工明细必须选择档案，并填写大于 0 的倍数';
   }
   if (t === 'purchased_oem' && (ctx.composition ?? []).some((r) => !present(r.id) || !(Number(r.qty) > 0))) out.composition = 'OEM 包装明细必须选择档案，并填写大于 0 的用量';
   return out;

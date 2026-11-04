@@ -1,3 +1,6 @@
+import {Plus} from 'lucide-react';
+import {withSourceQualityKey} from './sourceQualityRows';
+import {loadResourceDirectory} from './resourceDirectory';
 import { useEffect, useState } from 'react';
 import { PRODUCT_UNIT_SEEDS, sourcePriceTime, type ResourceFormCollection, type FieldDef } from '@kudesi/shared';
 import { MoneyControl, RefSelect } from './RecordForm';
@@ -8,27 +11,28 @@ import { fieldOptions, useUnitOptions } from './unitOptions';
 import { ManageLink } from './ManageLink';
 
 /** 供货来源行（原料、发货物料）：同一个组件用于新增和编辑，与主档在同一事务内按差异保存。 */
-export interface SourceRow { rowId?: number; version?: string; supplierId: number | null; originArea: string; systemSpec: string; purchasePrice: unknown; note?: string; stopped?: boolean; priceUpdatedAt?: string; updatedAt?: string; supplierLabel?: string }
+export interface SourceRow { qualityKey?:string; rowId?: number; version?: string; supplierId: number | null; originArea: string; systemSpec: string; purchasePrice: unknown; note?: string; stopped?: boolean; priceUpdatedAt?: string; updatedAt?: string; supplierLabel?: string }
 
 const SUPPLIER: FieldDef = { key: 'supplierId', label: '供应商', type: 'ref', group: '基础', ref: 'finance-suppliers' };
 const SOURCE_SPEC: FieldDef = { key: 'systemSpec', label: '系统规格', type: 'select', group: '基础', optionsFrom: { resource: 'finance-product-units', kind: 'shipping_system_spec' }, options: PRODUCT_UNIT_SEEDS.filter(([kind]) => kind === 'shipping_system_spec').map(([, name]) => ({ value: name, label: name })) };
-export const blankSource = (): SourceRow => ({ supplierId: null, originArea: '', systemSpec: '', purchasePrice: '', priceUpdatedAt: new Date().toISOString() });
+export const blankSource = (): SourceRow => withSourceQualityKey({ supplierId: null, originArea: '', systemSpec: '', purchasePrice: '', priceUpdatedAt: new Date().toISOString() });
 
-export async function loadSourceRows(productId: number): Promise<SourceRow[]> {
-  const items: import('./api').ResourceDto[] = [];
-  for (let page = 1; ; page++) { const r = await resourceApi.list('finance-product-sources', { fieldKey: 'productId', fieldValue: productId, page, pageSize: 200, showHidden: true }); items.push(...r.items); if (items.length >= r.total || !r.items.length) break; }
-  return items.map((i) => ({
+export async function loadSourceRows(productId: number,current:()=>boolean=()=>true): Promise<SourceRow[]> {
+  const items=await loadResourceDirectory('finance-product-sources',current,undefined,{includeInactive:true,preserveOrder:true,scopedQuery:{fieldKey:'productId',fieldValue:productId}})??[];
+  return items.map((i) => withSourceQualityKey({
     rowId: i.id, version: i.version, supplierId: typeof i.data.supplierId === 'number' ? i.data.supplierId : null, originArea: String(i.data.originArea ?? ''), systemSpec: String(i.data.systemSpec ?? ''),
     priceUpdatedAt: typeof i.data.priceUpdatedAt === 'string' ? i.data.priceUpdatedAt : undefined, updatedAt: i.updatedAt, supplierLabel: i.refLabels?.supplierId,
     purchasePrice: i.data.purchasePrice ?? '', note: String(i.data.note ?? ''), stopped: i.status !== 'active',
   }));
 }
 
+export function orderedSourceRows(rows:SourceRow[]):SourceRow[]{return [...rows].filter(r=>r.supplierId).sort((a,b)=>sourcePriceTime(a.priceUpdatedAt,a.updatedAt)-sourcePriceTime(b.priceUpdatedAt,b.updatedAt));}
+
 /** 完整子表由通用表单事务保存；按编辑采购价的先后提交，最后改价的成为当前报价。 */
 export function sourceCollection(rows: SourceRow[], original: SourceRow[], canCost: boolean): ResourceFormCollection {
   return {
     type: 'finance-product-sources', expected: original.filter(r => r.rowId).map(r => ({ id: r.rowId!, version: r.version ?? '' })),
-    rows: [...rows].filter(r => r.supplierId).sort((a,b) => sourcePriceTime(a.priceUpdatedAt,a.updatedAt)-sourcePriceTime(b.priceUpdatedAt,b.updatedAt)).map(r => ({
+    rows: orderedSourceRows(rows).map(r => ({
       ...(r.rowId ? { id: r.rowId } : {}), values: { supplierId: r.supplierId, originArea: r.originArea, systemSpec: r.systemSpec, ...(r.note !== undefined ? { note: r.note } : {}), ...(canCost && r.purchasePrice !== '' && !Number.isNaN(r.purchasePrice) ? { purchasePrice: r.purchasePrice } : {}) },
     })),
   };
@@ -47,7 +51,7 @@ export function SourcesDraft({ rows, onChange, canCost, needSpec, error, referen
     const shown = rows.length ? rows : [blankSource()];
     const change = (i: number, patch: Partial<SourceRow>) => onChange(shown.map((r,k) => k === i ? {...r,...patch,...('purchasePrice' in patch && patch.purchasePrice !== r.purchasePrice ? {priceUpdatedAt:new Date().toISOString()} : {})} : r));
     const latest = latestSource(shown);
-    return <div className="reference-sources" data-field="supplySources"><div className="reference-lines-actions"><button type="button" className="secondary-button small" onClick={() => onChange([...rows,blankSource()])}>＋ 添加供货来源</button></div>{shown.map((r,i) => <section key={r.rowId ?? i} className={`reference-source${r === latest ? ' is-latest' : ''}`}><header><strong>来源 {String(i + 1).padStart(2,'0')}</strong>{r === latest && <span>当前最新成本</span>}<button type="button" className="link-button danger" aria-label="删除供货来源" onClick={() => onChange(rows.length > 1 ? rows.filter((_,k)=>k!==i) : [blankSource()])}>去掉</button></header><div className={`reference-source-grid${needSpec ? ' has-system-spec' : ''}`}><label>供应商名称 <b className="req">必填</b><FinanceSupplierPicker labelNow={r.supplierLabel} value={r.supplierId} onChange={v=>change(i,{supplierId:v})}/></label><label>产区 <b className="req">必填</b><input aria-label="产区" maxLength={80} value={r.originArea} onChange={e=>change(i,{originArea:e.target.value})}/></label>{needSpec && <label>系统规格 <b className="req">必填</b><ManageLink field={SOURCE_SPEC} inPlace onChoose={value => change(i, { systemSpec: String(value) })} />{specSelect(r, value => change(i, { systemSpec: value }))}</label>}{canCost && <label>采购价 <b className="req">必填</b><small className="reference-source-unit">元/{needSpec ? r.systemSpec : pricingUnit}</small><MoneyControl ariaLabel="来源采购价" value={r.purchasePrice} scale={4} onChange={v=>change(i,{purchasePrice:v})}/></label>}</div></section>)}{error && <small className="field-error" role="alert">{error}</small>}</div>;
+    return <div className="reference-sources" data-field="supplySources"><div className="reference-lines-actions"><button type="button" className="secondary-button small" onClick={() => onChange([...rows,blankSource()])}><Plus size={15}/>增加来源</button></div>{shown.map((r,i) => <section key={r.rowId ?? i} className={`reference-source${r === latest ? ' is-latest' : ''}`}><header><strong>来源 {String(i + 1).padStart(2,'0')}</strong>{r === latest && <span>当前最新成本</span>}<button type="button" className="link-button danger" aria-label="删除供货来源" onClick={() => onChange(rows.length > 1 ? rows.filter((_,k)=>k!==i) : [blankSource()])}>去掉</button></header><div className={`reference-source-grid${needSpec ? ' has-system-spec' : ''}`}><label>供应商名称 <b className="req">必填</b><FinanceSupplierPicker labelNow={r.supplierLabel} value={r.supplierId} onChange={v=>change(i,{supplierId:v})}/></label><label>产区 <b className="req">必填</b><input aria-label="产区" maxLength={80} value={r.originArea} onChange={e=>change(i,{originArea:e.target.value})}/></label>{needSpec && <label>系统规格 <b className="req">必填</b><ManageLink field={SOURCE_SPEC} inPlace onChoose={value => change(i, { systemSpec: String(value) })} />{specSelect(r, value => change(i, { systemSpec: value }))}</label>}{canCost && <label>采购价 <b className="req">必填</b><small className="reference-source-unit">元/{needSpec ? r.systemSpec : pricingUnit}</small><MoneyControl ariaLabel="来源采购价" value={r.purchasePrice} scale={4} appearance={{nativeNumber:true,currency:"¥"}} displayDecimals={8} placeholder="0" onChange={v=>change(i,{purchasePrice:v})}/></label>}</div></section>)}{error && <small className="field-error" role="alert">{error}</small>}</div>;
   }
   return (
     <div className="rf-rows" data-field="supplySources">
@@ -76,15 +80,22 @@ export function SourcesDraft({ rows, onChange, canCost, needSpec, error, referen
 const UNIT_G: Record<string, number> = { g: 1, kg: 1000, jin: 500 };
 const UNIT_LABEL: Record<string, string> = { g: '克', kg: '千克', jin: '斤' };
 
+export function PackageWeightFields({values,defaultUnit,onChange,error}:{values:Record<string,unknown>;defaultUnit:'g'|'kg';onChange:(patch:Record<string,unknown>)=>void;error?:string}){
+ const unit=String(values.weightUnit||defaultUnit),grams=values.weightG==null||values.weightG===''?null:Number(values.weightG),[text,setText]=useState(()=>grams===null?'':String(grams/(UNIT_G[unit]??1)));
+ useEffect(()=>setText(grams===null?'':String(Math.round(grams/(UNIT_G[unit]??1)*1e9)/1e9)),[grams,unit]);
+ const apply=(value:string,nextUnit:string)=>{const number=Number(value);onChange({weightManual:true,weightUnit:nextUnit,weightG:value===''?'':Number.isFinite(number)?Math.round(number*(UNIT_G[nextUnit]??1)*1e6)/1e6:NaN});};
+ return <div className="reference-package-weight-fields s8"><label data-field="weightG"><span className="rf-label">重量 <b className="req">必填</b></span><input aria-label="重量" type="number" min="0" step="any" value={text} placeholder="请输入重量" onChange={event=>{setText(event.target.value);apply(event.target.value,unit);}}/>{error&&<small className="field-error" role="alert">{error}</small>}</label><label><span className="rf-label">重量单位 <b className="req">必填</b></span><select aria-label="重量输入单位" value={unit} onChange={event=>apply(text,event.target.value)}>{Object.entries(UNIT_LABEL).filter(([code])=>['g','kg'].includes(code)||code===unit).map(([code,label])=><option key={code} value={code}>{label}</option>)}</select></label></div>;
+}
+
 /**
  * 重量块（旧版“称重重量 / 物料重量”）：
  * - 包装类、发货物料、自建类型：直接填，可选克/千克/斤（斤、千克换算成克存，所选单位一并留存）；
  * - 其余类型：自动换算，勾选“人工修正重量”后才能自己填克数。
  */
-export function WeightBlock({ values, onChange, manualOnly, required, error, defaultUnit = 'g' }: {
-  values: Record<string, unknown>; onChange: (patch: Record<string, unknown>) => void; manualOnly: boolean; required?: boolean; error?: string; defaultUnit?: 'g' | 'kg';
+export function WeightBlock({ values, onChange, manualOnly, required, error, defaultUnit = 'g', reference=false,automaticOnly=false,fixedUnit,referencePackaging=false,correctionLabel='人工修正',blankWhenUnknown=false }: {
+  values: Record<string, unknown>; onChange: (patch: Record<string, unknown>) => void; manualOnly: boolean; required?: boolean; error?: string; defaultUnit?: 'g' | 'kg'; reference?:boolean;automaticOnly?:boolean;fixedUnit?:'kg';referencePackaging?:boolean;correctionLabel?:string;blankWhenUnknown?:boolean;
 }) {
-  const unit = String(values.weightUnit || defaultUnit);
+  const unit = fixedUnit||String(values.weightUnit || defaultUnit);
   const f = UNIT_G[unit] ?? 1;
   const manual = manualOnly || values.weightManual === true;
   const grams = values.weightG === undefined || values.weightG === '' || values.weightG === null ? '' : Number(values.weightG);
@@ -99,16 +110,17 @@ export function WeightBlock({ values, onChange, manualOnly, required, error, def
   const autoHint = `不勾选时按${values.archiveType === 'raw' ? '系统规格' : '规格数量和单位'}自动换算${values.archiveType === 'self_made' ? '，自产成品按构成汇总' : ''}`;
   return (
     <div className="rf-weight" data-field="weightG">
-      {!manualOnly && (
+      {reference&&!manualOnly&&!automaticOnly&&<button type="button" className="reference-weight-toggle" aria-label={manual?'恢复自动重量':'人工修正重量'} onClick={()=>onChange({weightManual:!manual})}>{manual?'恢复自动计算':correctionLabel}</button>}
+      {!reference&&!manualOnly && (
         <label className="rf-check"><input type="checkbox" checked={values.weightManual === true} onChange={(e) => onChange({ weightManual: e.target.checked })} /> 人工修正重量<FieldHint text={autoHint} /></label>
       )}
-      {manual ? (
+      {reference&&(!manual||automaticOnly)?<div className="rf-weight-row"><input aria-label="重量" type="number" step="0.000001" readOnly value={grams===''?blankWhenUnknown?'':'0':text}/><span>{fixedUnit?'kg':UNIT_LABEL[unit]||unit}</span></div>:manual ? (
         <div className="rf-weight-row">
-          <input aria-label="重量" inputMode="decimal" value={text} placeholder={required ? '必填' : ''} onChange={(e) => setValue(e.target.value, unit)} />
-          <select aria-label="重量输入单位" value={unit} onChange={(e) => { onChange({ weightUnit: e.target.value }); setText(grams === '' ? '' : String(Math.round((grams / (UNIT_G[e.target.value] ?? 1)) * 1e6) / 1e6)); }}>
-            {Object.entries(UNIT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-          {grams !== '' && unit !== 'g' && <small className="muted">= {grams} 克</small>}
+          <input aria-label="重量" type={reference?'number':undefined} min={reference?0:undefined} step={reference?'0.000001':undefined} inputMode="decimal" value={text} placeholder={required ? '必填' : ''} onChange={(e) => setValue(e.target.value, unit)} />
+          {fixedUnit?<span>kg</span>:<select aria-label="重量输入单位" value={unit} onChange={(e) => { if(referencePackaging){const n=Number(text);onChange({weightUnit:e.target.value,weightManual:true,weightG:text===''?'':Number.isFinite(n)?Math.round(n*(UNIT_G[e.target.value]??1)*1e6)/1e6:NaN});}else{onChange({ weightUnit: e.target.value }); setText(grams === '' ? '' : String(Math.round((grams / (UNIT_G[e.target.value] ?? 1)) * 1e6) / 1e6));} }}>
+            {Object.entries(UNIT_LABEL).filter(([key])=>!referencePackaging||['g','kg'].includes(key)||key===unit).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>}
+          {!reference && grams !== '' && unit !== 'g' && <small className="muted">= {grams} 克</small>}
         </div>
       ) : (
         <span className="rf-auto">{grams !== '' ? `自动换算：${grams} 克` : '保存后自动换算'}</span>

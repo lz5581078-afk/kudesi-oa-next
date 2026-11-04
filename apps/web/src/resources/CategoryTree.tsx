@@ -1,4 +1,5 @@
 import {applyExpenseSortOrder} from '@kudesi/shared';
+import {productReferenceNoun} from './productReferenceList';
 import {useExpenseSortPreference} from './ExpenseSortPreference';
 import { Check, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -19,7 +20,7 @@ const FLAT_UNSET: Record<string, string> = { user: '没有使用人', department
  * 列表左侧的目录：一眼看到该板块下所有分类（或位置、使用人、部门）和各自的数量，点一下就筛选（含下级）。
  * 资料有几种浏览维度时（固定资产：分类 / 位置 / 使用人 / 部门），上面一排切换；配置了 treeManage 的维度可以点“管理”就地增删改排序。
  */
-function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, onSelect, onPath, canManage, canCreate, onChanged, rootId, createExtra, hint, onLeaf, onBack }: {
+function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, onSelect, onPath, canManage, canCreate, onChanged, rootId, createExtra, hint, onLeaf, onBack, referenceProduct }: {
   type: string;
   fields: FieldDef[];
   tab: string;
@@ -37,6 +38,7 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   /** 分级布局：只显示这个顶级分类和它的下级；“全部”就是这个顶级分类本身（选中它 = 筛整个顶级分类） */
   rootId?: number;
   onBack?:()=>void;
+  referenceProduct?:boolean;
   /** 就地新增分类时一并提交的字段（如商品分类的所属档案类型） */
   createExtra?: Record<string, unknown>;
   /** 目录上方的一行提示（如“请选择最末级分类后新增”） */
@@ -212,7 +214,7 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
                 <button type="button" className="res-btn sm" onClick={() => setRenaming(null)}>取消</button>
               </form>
             ) : (
-              <button type="button" className="cat-name" title={n.title} onClick={() => { onSelect(field.key, referenceContact ? String(n.id) : active ? '' : String(n.id)); if(referenceContact && sub.length && !expanded) setOpen(cur => new Set(cur).add(n.id)); }}>{referenceContact ? <><span>{active && <Check size={13}/ >}{n.title}</span><small>{n.directCount ? `${n.directCount} 条` : sub.length ? `${sub.length} 个下级` : n.directCount === undefined && n.count ? `${n.count} 条` : '空分类'}</small></> : n.title}</button>
+              <button type="button" className="cat-name" title={n.title} onClick={() => { onSelect(field.key, referenceContact || referenceProduct ? String(n.id) : active ? '' : String(n.id)); if(referenceContact && sub.length && !expanded) setOpen(cur => new Set(cur).add(n.id)); }}>{referenceContact ? <><span>{active && <Check size={13}/ >}{n.title}</span><small>{n.directCount ? `${n.directCount} 条` : sub.length ? `${sub.length} 个下级` : n.directCount === undefined && n.count ? `${n.count} 条` : '空分类'}</small></> : n.title}</button>
             )}
             {!editing && !referenceContact && <span className="cat-count">{n.count}</span>}
             {manage && !editing && (
@@ -254,7 +256,7 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   const multi = fields.length > 1;
   const unsetText = flat ? (FLAT_UNSET[field.ref!] ?? '没有') : `未设置${field.label}`;
   return (
-    <aside className={`cat-tree${referenceContact ? ' reference-contact-directory' : ''}`} aria-label="分类目录">
+    <aside className={`cat-tree${referenceContact ? ' reference-contact-directory' : ''}${referenceProduct?' reference-product-directory':''}`} aria-label="分类目录">
       <button type="button" className="cat-fold" aria-expanded={mOpen} onClick={() => setMOpen((v) => !v)}>
         {multi ? `按${field.label}浏览` : '分类目录'}{value ? '（已选）' : ''} {mOpen ? '▴' : '▾'}
       </button>
@@ -268,7 +270,7 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
           ))}
         </div>
       )}
-      {referenceContact ? <div className="reference-contact-directory-body">
+      {referenceProduct ? <div className="reference-product-directory-body"><header><div><span>{productReferenceNoun(tab)}分类</span><h3>分类目录</h3></div>{manageable&&<button type="button" onClick={()=>setFinanceManage(true)}>管理分类</button>}</header><p><span>点击分类查看资料</span><strong>末级分类可新增{productReferenceNoun(tab)}</strong></p>{error&&<p role="alert">{error}</p>}<ul role="tree" aria-label={`${productReferenceNoun(tab)}分类目录`}>{rows(top,0)}</ul>{tree&&!(kids.get(top)??[]).length&&<p>暂无分类</p>}</div> : referenceContact ? <div className="reference-contact-directory-body">
         <header><h2>分类目录</h2>{manageable && <button type="button" onClick={() => setFinanceManage(true)}>管理分类</button>}</header>
         <div className="reference-contact-directory-hint"><span>点击分类查看直属{contactNoun}</span><b>{Number(value) === top || !value ? '请选择最末级分类后新增档案' : `当前：${contactPath.join(' / ')}`}</b></div>
         {error && <p role="alert">{error}</p>}

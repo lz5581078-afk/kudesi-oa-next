@@ -4,11 +4,12 @@ import { BaseCodeProfileEditor } from './BaseCodeProfileEditor';
 import { BundleProfileEditor } from './BundleProfileEditor';
 import { resourceApi, type ResourceDto } from './api';
 import { api } from '../api/client';
-vi.mock('../auth/AuthContext',()=>({useAuth:()=>({user:{permissions:{isCompanyAdmin:true,allow:[],deny:[]}}})}));
+const auth={user:{permissions:{isCompanyAdmin:true,allow:[] as string[],deny:[] as string[]}}};
+vi.mock('../auth/AuthContext',()=>({useAuth:()=>auth}));
 vi.mock('../api/client',()=>({api:vi.fn()}));
 vi.mock('./api',()=>({resourceApi:{list:vi.fn(),get:vi.fn(),confirmBaseProfile:vi.fn(),confirmBundleProfile:vi.fn()}}));
 const record = {id:1,type:'finance-base-codes',title:'原料',status:'pending',data:{code:'YL-1',styleCode:'YL',name:'原料',shortName:'原料简称',categoryId:4,weightG:500},refLabels:{categoryId:'原料分类'},files:{},secretConfigured:{},statusReason:null,createdAt:'',updatedAt:''} as ResourceDto;
-beforeEach(()=>{vi.mocked(api).mockResolvedValue({lockedFields:[],items:[]});vi.mocked(resourceApi.list).mockResolvedValue({items:[{id:4,title:'原料分类',status:'active',data:{archiveType:'raw'}}],total:1} as never);vi.mocked(resourceApi.confirmBaseProfile).mockResolvedValue(record);vi.mocked(resourceApi.confirmBundleProfile).mockResolvedValue(record);});
+beforeEach(()=>{auth.user.permissions={isCompanyAdmin:true,allow:[],deny:[]};vi.mocked(api).mockResolvedValue({lockedFields:[],items:[]});vi.mocked(resourceApi.list).mockResolvedValue({items:[{id:4,title:'原料分类',status:'active',data:{archiveType:'raw'}}],total:1} as never);vi.mocked(resourceApi.confirmBaseProfile).mockResolvedValue(record);vi.mocked(resourceApi.confirmBundleProfile).mockResolvedValue(record);});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 describe('独立编辑链路',()=>{
   it('基础编码以kg录入，保留六位克精度；失败保留输入并能重试',async()=>{
@@ -40,6 +41,14 @@ describe('独立编辑链路',()=>{
     await screen.findByText('苹果-合成品牌-500-克-袋-原装采购',{selector:'.base-profile-source-name strong'});
     expect(screen.getByText('来源商品档案已删除，以下为保留的档案资料。')).toBeTruthy();
     expect(screen.getByText('¥7.000 / 袋',{selector:'.base-profile-source-cost strong'})).toBeTruthy();
+  });
+  it('来源只读总成本保留八位元与微小非零，不变更任何用户报价输入或发出写请求',async()=>{
+    vi.mocked(resourceApi.get).mockResolvedValue({...record,type:'finance-products',data:{archiveType:'package',name:'八位来源',totalCost:12.345678,purchaseSpec:'张'}});
+    const view=render(<BaseCodeProfileEditor record={{...record,data:{...record.data,productId:8}}} onClose={()=>{}} onSaved={()=>{}}/>);await screen.findByText('¥0.12345678 / 张',{selector:'.base-profile-source-cost strong'});expect(resourceApi.confirmBaseProfile).not.toHaveBeenCalled();view.unmount();
+    vi.mocked(resourceApi.get).mockResolvedValue({...record,type:'finance-products',data:{archiveType:'package',name:'微小来源',totalCost:0.000001,purchaseSpec:'张'}});render(<BaseCodeProfileEditor record={{...record,data:{...record.data,productId:8}}} onClose={()=>{}} onSaved={()=>{}}/>);await screen.findByText('¥0.00000001 / 张',{selector:'.base-profile-source-cost strong'});expect(resourceApi.confirmBaseProfile).not.toHaveBeenCalled();
+  });
+  it('来源财务只读显示仍服从成本ACL，接口意外带值也不展示',async()=>{
+    auth.user.permissions={isCompanyAdmin:false,allow:['resource.finance-base-codes.edit'],deny:['product.cost.view']};vi.mocked(resourceApi.get).mockResolvedValue({...record,type:'finance-products',data:{archiveType:'package',name:'受限来源',basicInfoFullName:'可见来源名',totalCost:12.345678,purchaseSpec:'张'}});render(<BaseCodeProfileEditor record={{...record,data:{...record.data,productId:8}}} onClose={()=>{}} onSaved={()=>{}}/>);await screen.findByText('可见来源名',{selector:'.base-profile-source-name strong'});expect(document.querySelector('.base-profile-source-cost')).toBeNull();expect(screen.queryByText(/0.12345678/)).toBeNull();expect(resourceApi.confirmBaseProfile).not.toHaveBeenCalled();
   });
   it('生效引用锁住身份字段，名称仍可编辑',async()=>{
     vi.mocked(api).mockResolvedValue({lockedFields:['code','styleCode','categoryId','weightG'],items:[]});

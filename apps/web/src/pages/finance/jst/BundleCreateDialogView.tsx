@@ -1,17 +1,18 @@
 import {useEffect,useRef,useState} from 'react';
 import {Boxes,Plus,RotateCcw,Trash2,X} from 'lucide-react';
-import {unitYuanText,multiplyUnitCents} from '@kudesi/shared';
+import {LOGISTICS_CENT_SCALE,multiplyUnitCents} from '@kudesi/shared';
 import type {ResourceDto} from '../../../resources/api';
 import type {LineRow} from './BundleLineEditor';
 import {BundleCategorySelect} from './BundleLineEditor';
 import type {PreviewTarget} from './jstApi';
+import {productReferenceCostText} from '../../../resources/productReferenceList';
 import './bundleCreateDialog.css';
 export type CreateManual={code?:string;styleCode?:string;name?:string;shortName?:string};
 export type CreateProfile={spec:string;unit:string;kg:string;manualWeight:boolean};
 const groups=[['main','主商品'],['package','包装'],['label','标签说明书贴纸'],['other','打包材料'],['labor','人工'],['gift','赠品']] as const;
 const matches=(role:string,group:string)=>group==='label'?['label','instruction'].includes(role):group==='other'?['other','auxiliary'].includes(role):role===group;
-const money=(value:unknown)=>{if(typeof value!=='number'||!Number.isFinite(value))return '待补齐';const [whole,decimal='']=unitYuanText(value).split('.');return '¥'+whole+'.'+decimal.padEnd(3,'0');};
-const subtotal=(price:unknown,qty:number)=>{if(typeof price!=='number')return '待补齐';try{return money(multiplyUnitCents(price,qty,0,6));}catch{return '待补齐';}};
+const money=(value:unknown)=>{if(typeof value!=='number'||!Number.isFinite(value))return '待补齐';return productReferenceCostText(value,LOGISTICS_CENT_SCALE);};
+const subtotal=(price:unknown,qty:number)=>{if(typeof price!=='number')return '待补齐';try{return money(multiplyUnitCents(price,qty,0,6,LOGISTICS_CENT_SCALE));}catch{return '待补齐';}};
 export interface BundleCreateViewProps{
  sourceTotals?:{spec?:string;unit?:string;weightG?:number;cost?:number};sourceBundle?:ResourceDto;rows:LineRow[];platforms:ResourceDto[];scenarios:ResourceDto[];sources:Record<string,ResourceDto>;picked:number[];scenarioId:number|'';categoryId:number|'';categoryLabel:string;fixedCategory:boolean;brand:string;brandBusy:boolean;brandDirty?:boolean;manual:Record<number,CreateManual>;profile:CreateProfile;preview:PreviewTarget[]|null;busy:boolean;error:string;notice:string;ready:boolean;canCost:boolean;canWeight:boolean;canManageScenario:boolean;
  onClose:()=>void;onPick:(role:string)=>void;onLine:(index:number,patch:Partial<LineRow>)=>void;onRemove:(index:number)=>void;onPlatform:(id:number,checked:boolean)=>void;onScenario:(id:number)=>void;onCategory:(id:number|'')=>void;onManageScenario:()=>void;onBrand:(name:string)=>void;onRememberBrand:()=>void;onManual:(id:number,patch:Partial<CreateManual>)=>void;onProfile:(patch:Partial<CreateProfile>)=>void;onCheck:()=>void;onSave:()=>void;onRetry:()=>void;

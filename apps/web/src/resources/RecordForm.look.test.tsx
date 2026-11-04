@@ -34,7 +34,7 @@ afterEach(cleanup);
 
 const open = (initial: Record<string, unknown>) => render(<RecordForm def={def} record={null} initial={initial} onClose={() => undefined} onSaved={() => undefined} />);
 
-describe('24号商品档案表单：上下文、双列字段、零值说明', () => {
+describe('24号商品档案表单：上下文、双列字段、逐项确认入口', () => {
   it('分区提示在标题旁，分类用上下文卡片，不显示侧边分区导航', () => {
     const { container } = open({ archiveType: 'raw' });
     expect(container.querySelector('.rf-sec-hint')).toBeNull();
@@ -46,7 +46,7 @@ describe('24号商品档案表单：上下文、双列字段、零值说明', ()
     expect(container.querySelector('.required-hint')).toBeNull();
   });
 
-  it('零值说明默认不出现，运费填 0 后才出现；规格和单位使用双列字段', () => {
+  it('原料不显示原版没有的通用零值说明框，零费沿逐项确认；规格和单位使用双列字段', () => {
     const { container } = open({ archiveType: 'raw', specQty: 500 });
     expect(container.querySelector('[data-field="zeroValueReason"]')).toBeNull();
     expect(container.querySelector('[data-field="specQty"]')?.className).toContain('s6');
@@ -54,8 +54,8 @@ describe('24号商品档案表单：上下文、双列字段、零值说明', ()
     expect(container.querySelector('[data-field="freight"]')?.className).toContain('s6');
     expect(container.querySelector('[data-field="handlingFee"]')?.className).toContain('s6');
     cleanup();
-    const again = open({ archiveType: 'raw', freight: 0 });
-    expect(again.container.querySelector('[data-field="zeroValueReason"]')).toBeTruthy();
+    const again = open({ archiveType: 'raw', freight: 0,zeroValueReason:'历史运费说明' });
+    expect(again.container.querySelector('[data-field="zeroValueReason"]')).toBeNull();
   });
 
   it('“管理单位与规格”改成单位字段旁的小链接', () => {

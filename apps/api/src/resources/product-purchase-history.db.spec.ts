@@ -47,10 +47,10 @@ d('独立采购变价事实（隔离数据库）',()=>{
   const pack=await svc.create(boss,'finance-products',{archiveType:'oem_package',categoryId:packageCat,brandId,name:'合成OEM包装',packagingCategory:'bag',capacities:'500G',specQty:500,specUnit:'G',purchaseSpec:'张',weightG:10,purchasePrice:8,freight:1,handlingFee:1});
   const p=await svc.create(boss,'finance-products',{archiveType:'purchased',supplyMode:'supplier_oem',categoryId:oemCat,brandId,name:'合成OEM',specQty:500,specUnit:'G',purchaseSpec:'袋',purchasePrice:650,freight:20,handlingFee:10});
   const b=await svc.create(boss,'finance-product-boms',{productId:p.id,componentId:pack.id,qty:2.5});
-  let rows=await history(p.id);expect(rows).toHaveLength(1);expect(rows[0].data).toMatchObject({purchasePrice:675,rawMaterialPurchasePrice:650,packagingCost:25,priceBasis:'oem_total'});
+  let rows=await history(p.id);expect(rows).toHaveLength(1);expect(rows[0].data).toMatchObject({purchasePrice:670,rawMaterialPurchasePrice:650,packagingCost:20,priceBasis:'oem_total'});
   await svc.update(boss,'finance-products',p.id,{freight:30});expect(await history(p.id)).toHaveLength(1);
-  await svc.update(boss,'finance-products',pack.id,{purchasePrice:12});rows=await history(p.id);expect(rows).toHaveLength(2);expect(rows.map(r=>r.data.purchasePrice).sort()).toEqual([675,685]);
-  await svc.update(boss,'finance-product-boms',b.id,{qty:3});expect((await history(p.id)).map(r=>r.data.purchasePrice).sort()).toEqual([675,685,692]);
+  await svc.update(boss,'finance-products',pack.id,{purchasePrice:12});rows=await history(p.id);expect(rows).toHaveLength(2);expect(rows.map(r=>r.data.purchasePrice).sort()).toEqual([670,680]);
+  await svc.update(boss,'finance-product-boms',b.id,{qty:3});expect((await history(p.id)).map(r=>r.data.purchasePrice).sort()).toEqual([670,680,686]);
  });
  it('历史最终追加失败会回滚主档/子表/审计，原请求重试只记一次',async()=>{
   const input={requestKey:randomUUID(),values:{archiveType:'raw',categoryId:rawCat,name:'合成历史追加失败',specQty:1,specUnit:'KG',purchaseSpec:'千克',freight:1,handlingFee:1},collections:[{type:'finance-product-sources',expected:[],rows:[{values:{supplierId,originArea:'合成来源',purchasePrice:456}}]}]};
@@ -67,7 +67,7 @@ d('独立采购变价事实（隔离数据库）',()=>{
   const a=await packaging('合成整组包装甲',8),b=await packaging('合成整组包装乙',20);
   const input={requestKey:randomUUID(),values:{archiveType:'purchased',supplyMode:'supplier_oem',categoryId:oemCat,brandId,name:'合成整组OEM历史',specQty:500,specUnit:'G',purchaseSpec:'袋',purchasePrice:650,freight:20,handlingFee:10},collections:[{type:'finance-product-boms',expected:[],rows:[{values:{componentId:a.id,qty:1}},{values:{componentId:b.id,qty:2}}]}]};
   const p=await svc.saveForm(boss,'finance-products',input),rows=await history(p.id);
-  expect(rows).toHaveLength(1);expect(rows[0].data).toMatchObject({purchasePrice:704,rawMaterialPurchasePrice:650,packagingCost:54});
+  expect(rows).toHaveLength(1);expect(rows[0].data).toMatchObject({purchasePrice:698,rawMaterialPurchasePrice:650,packagingCost:48});
  });
  it('只读能力不可由管理员/伪造请求绕过，公司隔离且成本字段服务端移除',async()=>{
   const p=await raw({purchasePrice:321}),row=(await history(p.id))[0];
@@ -78,4 +78,17 @@ d('独立采购变价事实（隔离数据库）',()=>{
   const reader={...boss,permissions:{isCompanyAdmin:false,allow:['resource.finance-products.view'],deny:['product.cost.view']}};
   const masked=(await history(p.id,reader))[0];expect(masked.data.purchasePrice).toBeUndefined();expect(masked.data.rawMaterialPurchasePrice).toBeUndefined();expect(masked.title).not.toContain('321');
  });
+ it('Source OEM仅包装采购计价，包装物流独立进入派生台账；微量采购六位元后加本档八位物流',async()=>{
+  const pack=await svc.create(boss,'finance-products',{archiveType:'oem_package',categoryId:packageCat,brandId,name:'非零物流包装',packagingCategory:'bag',capacities:'500G',specQty:500,specUnit:'G',purchaseSpec:'张',weightG:10,purchasePrice:8,freight:12.345678,handlingFee:23.456789});
+  let p=await svc.create(boss,'finance-products',{archiveType:'purchased',supplyMode:'supplier_oem',categoryId:oemCat,brandId,name:'非零物流OEM',specQty:500,specUnit:'G',purchaseSpec:'袋',purchasePrice:650,freight:11,handlingFee:22});
+  const line=await svc.create(boss,'finance-product-boms',{productId:p.id,componentId:pack.id,qty:2.5}),saved=await ds.manager.findOneByOrFail(ResourceRecord,{id:line.id}),snapshot=structuredClone(saved.data.archiveBomCostSnapshot);
+  p=await svc.get(boss,'finance-products',p.id);expect(p.data.totalCost).toBe(703);expect((await history(p.id)).at(-1)?.data).toMatchObject({purchasePrice:670,packagingCost:20});
+  const ledger=(await svc.list(boss,'finance-product-costs',{fieldKey:'productId',fieldValue:String(p.id),pageSize:200})).items.find(row=>row.data.sourceType==='production_bom');expect(ledger?.data.unitCost).toBe(109.51);
+  await svc.update(boss,'finance-products',pack.id,{freight:13.345678});expect((await svc.get(boss,'finance-products',p.id)).data.totalCost).toBe(703);expect(await history(p.id)).toHaveLength(1);expect((await ds.manager.findOneByOrFail(ResourceRecord,{id:line.id})).data.archiveBomCostSnapshot).toEqual(snapshot);
+  await svc.update(boss,'finance-product-boms',line.id,{qty:0.123456});expect((await svc.get(boss,'finance-products',p.id)).data.totalCost).toBe(683.9876);expect((await history(p.id))[0].data).toMatchObject({purchasePrice:650.9876,packagingCost:0.9876});
+  await svc.update(boss,'finance-products',p.id,{freight:11.000001});expect((await svc.get(boss,'finance-products',p.id)).data.totalCost).toBe(683.987601);expect(await history(p.id)).toHaveLength(2);expect((await svc.get(boss,'finance-product-costs',ledger!.id)).data.unitCost).toBe(5.53);
+ });
+
+ it('OEM无包装的真实整组新建有总价但不虚造生产派生成本记录',async()=>{const p=await svc.saveForm(boss,'finance-products',{requestKey:randomUUID(),values:{archiveType:'purchased',supplyMode:'supplier_oem',categoryId:oemCat,brandId,name:'供应商自带包装OEM',specQty:500,specUnit:'G',purchaseSpec:'袋',purchasePrice:650,freight:11,handlingFee:22,zeroValueReason:'包装组成：合成供应商自带包装\n人力组成：合成供应商承担人工'},collections:[{type:'finance-product-boms',expected:[],rows:[]}]});expect(p.data.totalCost).toBe(683);expect((await history(p.id))[0].data.purchasePrice).toBe(650);expect((await svc.list(boss,'finance-product-costs',{fieldKey:'productId',fieldValue:String(p.id),pageSize:200})).items).toHaveLength(0);});
+
 });

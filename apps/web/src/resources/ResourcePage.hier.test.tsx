@@ -33,6 +33,21 @@ const row = (id: number, name: string, status = 'active') => ({ id, type: 'finan
 const hier = { title: '种子供应商', subtitle: '种子相关', rootId: 1, onBack: vi.fn() };
 const renderIt = () => render(<MemoryRouter><ResourcePage type="finance-suppliers" hier={hier} /></MemoryRouter>);
 
+it.each([['raw','原料'],['shipping_material','发货物料'],['self_made','自产成品'],['original_purchase','外购成品'],['supplier_oem','外购成品'],['package','产品包装'],['oem_package','OEM包装']])('原版商品%s六项资料操作保持文件入口，导出不夹带表内筛选',async(family,noun)=>{
+ const product={...row(501,'合成商品'),type:'finance-products',data:{name:'合成商品',code:'HC-PRODUCT',basicInfoFullName:'合成商品全名',archiveType:['original_purchase','supplier_oem'].includes(family)?'purchased':family,supplyMode:family,categoryId:3}};
+ vi.mocked(resourceApi.list).mockResolvedValue({items:[product],total:1,page:1,pageSize:30} as never);
+ render(<MemoryRouter><ResourcePage type="finance-products" lockedTab={family} hier={{title:'合成商品档案',subtitle:'',onBack:vi.fn()}}/></MemoryRouter>);
+ await screen.findByText('合成商品全名');
+ fireEvent.click(screen.getByText('资料操作',{exact:true}));
+ const menu=screen.getByText('资料操作',{exact:true}).closest('details')!;
+ expect(Array.from(menu.querySelectorAll('button')).map(button=>button.textContent)).toEqual([`导入${noun}`,'下载空白模板','下载填写示例','下载成本模板','导入成本',`导出${noun}`]);
+ expect(within(menu).queryByRole('searchbox')).toBeNull();
+ expect(within(menu).queryByText(/行高|表格编辑|高级筛选/)).toBeNull();
+ fireEvent.click(within(menu).getByRole('button',{name:`导出${noun}`}));
+ await waitFor(()=>expect(resourceApi.export).toHaveBeenCalledWith('finance-products',false,{referenceArchive:true,tab:family}));
+ expect(screen.getByLabelText('导入商品档案原版文件').getAttribute('accept')).toContain(family==='self_made'?'.xlsx,.csv':'.csv');
+});
+
 beforeEach(() => {
   leafValue = false;
   vi.mocked(resourceApi.get).mockImplementation(async(_type,id)=>row(id,id===1?'润农':'绿源',id===1?'active':'inactive'));
@@ -86,8 +101,8 @@ describe('分级布局下的列表页', () => {
     expect(screen.getByRole('button', { name: '启用：绿源' })).toBeTruthy(); // 停用的是“启用”
     fireEvent.click(screen.getByRole('button', { name: '编辑：润农' }));
     await waitFor(()=>expect(resourceApi.get).toHaveBeenCalledWith('finance-suppliers',1));
-    const editor=await screen.findByRole('dialog',{name:'编辑供应商档案'});
-    expect((within(editor).getByLabelText(/供应商名称/) as HTMLInputElement).value).toBe('润农');
+    await screen.findByText('编辑表单:润农');
+    expect(formProps.mock.calls.at(-1)![0].record).toMatchObject({id:1,data:{name:'润农'}});
     cleanup(); formProps.mockClear();
     renderIt();
     await screen.findByText('润农');
