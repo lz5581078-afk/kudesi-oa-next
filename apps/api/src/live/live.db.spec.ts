@@ -1,4 +1,5 @@
 import { assertAccountTime } from './live-platforms';
+import { liveManagementRecipients } from './live-management-recipients';
 import { LiveFeedbackService } from './live-feedback.controller';
 import { FilesService } from '../integrations/files.service';
 import { FakeStorage } from '../test-support';
@@ -829,9 +830,13 @@ d('直播管理（真实数据库）', () => {
       refunds:async(_c:number,_shop:string,orders:Array<{orderId:string}>)=>{seen.push(orders.map(o=>o.orderId));return new Map([['NEW',{cents:2000,source:'refund',details:[]}],['OLD',{cents:50000,source:'refund',details:[]}]]);},
     } as unknown as LiveOrderSource);
     clock('2027-01-16 12:00:00');
-    expect(await turnover.read(manager,id)).toMatchObject({available:false,locked:false});
+    expect(await turnover.read(manager,id)).toMatchObject({available:false,locked:true});
+    await turnover.update(company,id); expect(seen).toEqual([]);
+    await ds.query("UPDATE live_sessions SET end_at=NULL,status='live' WHERE company_id=? AND id=?",[company,id]);
+    clock(endAt);
     expect(seen).toEqual([]); // A visitor cannot cause external I/O.
     await turnover.update(company,id);
+    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[endAt,company,id]);
     expect(await turnover.read(manager,id)).toMatchObject({sessionId:id,live:false,locked:true,startAt,endAt,orderCount:1,turnoverCents:10000,refundCents:2000});
     const replica=new LiveTurnoverService(ds,{turnoverOrders:async()=>{throw new Error('locked snapshots must not query again');}} as unknown as LiveOrderSource);
     clock('2027-01-17 12:00:00');await replica.update(company,id);
@@ -843,7 +848,7 @@ d('直播管理（真实数据库）', () => {
     expect(tile.current).toMatchObject({id,endAt,status:'pending_report'});
   });
 
-  it('服务器营业额跨进程一致，直播定时更新，下播失败重试后锁定，之后退款变化不再改额',async()=>{
+  it('服务器仅在播时更新，下播后不再调用销售接口，保留最后在播快照',async()=>{
     const day='2027-03-10';clock(day+' 11:00:00');
     const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,ids.account,'账号',ids.store,'店铺','SNAP',day,day+' 10:00:00',anchor.id]);
     const id=Number(result.insertId);
@@ -858,16 +863,18 @@ d('直播管理（真实数据库）', () => {
     clock(day+' 11:01:01');refund=1000;await second.update(company,id);
     expect(await first.read(manager,id)).toMatchObject({turnoverCents:9000});
     await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:01:02',company,id]);
-    clock(day+' 11:01:03');fetch.mockResolvedValueOnce({available:false,reason:'外部接口暂时失败',orders:[]});
-    await first.update(company,id);
-    expect(await second.read(manager,id)).toMatchObject({available:false,turnoverCents:null,locked:false});
+    const stoppedCalls=fetch.mock.calls.length;
+    clock(day+' 11:01:03');await first.update(company,id);
     clock(day+' 11:01:34');await second.update(company,id);
-    expect(await first.read(manager,id)).toMatchObject({available:true,turnoverCents:9000,locked:true,endAt:day+' 11:01:02'});
+    expect(fetch).toHaveBeenCalledTimes(stoppedCalls);
+    expect(await first.read(manager,id)).toMatchObject({available:true,turnoverCents:9000,locked:true,live:false,endAt:day+' 11:01:01'});
     const calls=fetch.mock.calls.length;refund=9000;clock(day+' 13:00:00');await first.update(company,id);
     expect(fetch).toHaveBeenCalledTimes(calls);expect(await second.read(manager,id)).toMatchObject({turnoverCents:9000,locked:true});
+    const stopped = jest.spyOn(first,'update').mockResolvedValue(undefined);
+    await first.scan(); expect(stopped).not.toHaveBeenCalledWith(company,id); stopped.mockRestore();
   });
 
-  it('旧直播查询遇上下播会丢弃；租约超时可恢复且最终快照不会被慢请求覆盖',async()=>{
+  it('查询期间下播则丢弃响应，结束场次不重试；在播租约过期可恢复',async()=>{
     const day='2027-03-11';clock(day+' 11:00:00');
     const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,ids.account,'账号',ids.store,'店铺','RACE',day,day+' 10:00:00',anchor.id]);
     const id=Number(result.insertId);
@@ -879,15 +886,18 @@ d('直播管理（真实数据库）', () => {
     const pending=service.update(company,id);await started;
     await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:00:01',company,id]);
     resolve({available:true,truncated:false,orders:[]});await pending;
-    expect(await service.read(manager,id)).toMatchObject({available:false,locked:false});
+    expect(await service.read(manager,id)).toMatchObject({available:false,locked:true});
     await ds.query("UPDATE live_turnover_snapshots SET lease_token='interrupted-process',lease_until=?,next_refresh_at=? WHERE company_id=? AND session_id=?",[day+' 11:05:00',day+' 10:00:00',company,id]);
     await replica.update(company,id);expect(fetch).toHaveBeenCalledTimes(1);
-    clock(day+' 11:05:01');await replica.update(company,id);
-    expect(await service.read(manager,id)).toMatchObject({turnoverCents:0,locked:true,endAt:day+' 11:00:01'});
+    clock(day+' 11:05:01');await replica.update(company,id);expect(fetch).toHaveBeenCalledTimes(1);
+    await ds.query("UPDATE live_sessions SET end_at=NULL,status='live' WHERE company_id=? AND id=?",[company,id]);
+    await replica.update(company,id);
+    expect(await service.read(manager,id)).toMatchObject({turnoverCents:0,locked:false});
+    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:05:02',company,id]);
     const before=fetch.mock.calls.length;await service.update(company,id);expect(fetch).toHaveBeenCalledTimes(before);
   });
 
-  it('过期进程的慢查询不能覆盖另一进程已经锁定的营业额',async()=>{
+  it('过期进程的慢查询不能覆盖另一进程保存的在播快照，下播后保留已存数据',async()=>{
     const day='2027-03-12';clock(day+' 11:00:00');
     const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,ids.account,'账号',ids.store,'店铺','LEASE',day,day+' 10:00:00',anchor.id]);
     const id=Number(result.insertId);let entered!:()=>void,resolve!:(v:unknown)=>void;
@@ -896,9 +906,9 @@ d('直播管理（真实数据库）', () => {
     const fake={turnoverOrders:fetch,refunds:async()=>new Map([['STALE',{cents:0,source:'refund',details:[]}]])} as unknown as LiveOrderSource;
     const oldWorker=new LiveTurnoverService(ds,fake),newWorker=new LiveTurnoverService(ds,fake);
     const old=oldWorker.update(company,id);await started;
-    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:00:01',company,id]);
     clock(day+' 11:05:01');await newWorker.update(company,id);
-    expect(await newWorker.read(manager,id)).toMatchObject({turnoverCents:0,locked:true});
+    expect(await newWorker.read(manager,id)).toMatchObject({turnoverCents:0,locked:false});
+    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:05:02',company,id]);
     resolve({available:true,truncated:false,orders:[{...order('STALE',99000),orderTime:day+' 10:30:00'}]});await old;
     expect(await oldWorker.read(manager,id)).toMatchObject({turnoverCents:0,locked:true});
   });
@@ -1382,6 +1392,43 @@ d('直播管理（真实数据库）', () => {
     expect((await sessions.detail(manager,live.id)).endAt).toBe('2026-04-20 16:00:00');
     await schedules.cancel(manager,afterActual.id,'测试取消');
   });
-
-
+  it('新增排班同步总经理部门主岗/兼岗及子部门，排班参与人去重，排除停用和外公司且失败不通知', async () => {
+    clock('2026-12-01 06:00:00');
+    const { management: existingManagement, hr: existingHr } = await liveManagementRecipients(ds.manager, company);
+    const department = async (companyId: number, name: string, parentId: number | null = null, status = 'active') => Number((await ds.query('INSERT INTO departments(company_id,name,parent_id,status) VALUES(?,?,?,?)', [companyId,name,parentId,status])).insertId);
+    const dept = await department(company, '总经理部门'), childDept = await department(company, '总经办助理组', dept);
+    const member = async (name: string, extra: Record<string,unknown> = {}, companyId = company) => mkUser(companyId, `gm-${crypto.randomBytes(8).toString('hex')}`, name, extra);
+    const boss = await member('总经理收件人', { departmentId: dept });
+    const child = await member('子部门收件人', { departmentId: childDept });
+    const job = Number((await ds.query("INSERT INTO positions(company_id,name,department_id,status) VALUES(?,?,?,'active')", [company,'总经办兼岗',dept])).insertId);
+    const primary = await member('岗位收件人', { positionId: job });
+    const secondary = await member('兼岗收件人', { extraPositionIds: [job] });
+    await ds.manager.update(User, { id: operator.id, companyId: company }, { departmentId: dept });
+    const disabled = await member('停用人员', { departmentId: dept, status: 'disabled' });
+    const disabledDept = await member('停用部门人员', { departmentId: await department(company,'总经理部',null,'inactive') });
+    const foreignId = await member('其他公司总经理', { departmentId: await department(foreign.companyId,'总经理部门') }, foreign.companyId);
+    const account = await rec(company,'self-media','总经理通知测试号',{ name:'测试直播号',platform:'douyin',livePermission:true,storeIds:[ids.store] });
+    const send = jest.fn();
+    const notices = new FeishuNoticeService(ds, { configured: true, send });
+    await ds.query("INSERT INTO outbox_switches(company_id,channel,enabled) VALUES(?,'feishu',1) ON DUPLICATE KEY UPDATE enabled=1", [company]);
+    const service = new LiveScheduleService(ds, notices);
+    const form = input({ date:'2026-12-01',startTime:'07:00',endTime:'08:00',douyinAccountId:account,storeId:ids.store });
+    const before = await ds.manager.count(Notification, { where: { companyId: company } });
+    const schedule = await service.create(manager, form);
+    const rows = await ds.query("SELECT user_id,link,body FROM notifications WHERE company_id=? AND title='新排班' AND body LIKE '2026-12-01 07:00%'", [company]);
+    const direct = [...new Set([anchor.id,control.id,operator.id,boss,child,primary,secondary,...existingManagement])];
+    const expected = [...new Set([...direct,...existingHr])];
+    expect(rows.map((r: any) => Number(r.user_id)).sort()).toEqual(expected.sort());
+    expect(rows.some((r: any) => [disabled,disabledDept,foreignId].includes(Number(r.user_id)))).toBe(false);
+    expect(rows.filter((r: any) => [boss,child,primary,secondary,operator.id].includes(Number(r.user_id))).every((r: any) => r.link === '/features/live' && r.body.includes('小主播') && r.body.includes('小中控'))).toBe(true);
+    const queued = await ds.query("SELECT payload_json FROM outbox_jobs WHERE company_id=? AND resource_type='live-schedule' AND resource_id=?", [company,schedule.id]);
+    const queuedUsers = queued.map((r: any) => Number((typeof r.payload_json === 'string' ? JSON.parse(r.payload_json) : r.payload_json).userId));
+    expect(queuedUsers.filter((id: number) => direct.includes(id))).toHaveLength(direct.length);
+    expect(new Set(queuedUsers).size).toBe(queuedUsers.length);
+    expect(send).not.toHaveBeenCalled();
+    const after = await ds.manager.count(Notification, { where: { companyId: company } });
+    expect(after - before).toBe(expected.length);
+    await expect(service.create(manager, form)).rejects.toThrow(/重叠/);
+    expect(await ds.manager.count(Notification, { where: { companyId: company } })).toBe(after);
+  });
 });

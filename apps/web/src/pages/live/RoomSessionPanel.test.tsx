@@ -25,9 +25,9 @@ it('场次变化丢弃旧请求结果，结束后保持实际下播时间和时�
  vi.mocked(liveApi.turnover).mockReturnValueOnce(new Promise(r=>{resolve=r;})).mockResolvedValue({...data,sessionId:8,turnoverCents:9000});
  const {rerender}=render(<RoomSessionPanel session={session} day="2026-11-02" now="2026-11-02 11:00:00"/>);
  rerender(<RoomSessionPanel session={{...session,id:8,endAt:'2026-11-02 10:40:00'}} day="2026-11-02" now="2026-11-02 15:00:00"/>);
- await screen.findByText('¥90.00');resolve(data);await waitFor(()=>expect(screen.queryByText('¥180.00')).toBeNull());expect(screen.getByText('40 分')).toBeTruthy();expect(screen.getByText('已下播')).toBeTruthy();
+ expect(liveApi.turnover).toHaveBeenCalledTimes(1);fireEvent.click(screen.getByRole('button',{name:'查看本场营业额'}));await screen.findAllByText('¥90.00');resolve(data);await waitFor(()=>expect(screen.queryByText('¥180.00')).toBeNull());expect(screen.getByText('40 分')).toBeTruthy();expect(screen.getByText('已下播')).toBeTruthy();
 });
-it('直播查询完成一分钟后再查，慢请求不叠加；下播立即查且保留下播后的刷新周期',async()=>{
+it('直播查询完成一分钟后再查，慢请求不叠加；下播后立即停止查询',async()=>{
  vi.useFakeTimers();
  vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
  let resolve!:(v:typeof data)=>void;
@@ -42,12 +42,12 @@ it('直播查询完成一分钟后再查，慢请求不叠加；下播立即查�
  await act(async()=>{await vi.advanceTimersByTimeAsync(1);});
  expect(liveApi.turnover).toHaveBeenCalledTimes(2);
  await act(async()=>{rerender(<RoomSessionPanel session={{...session,endAt:'2026-11-02 11:00:00'}} day="2026-11-02" now="2026-11-02 11:00:00"/>);});
- expect(liveApi.turnover).toHaveBeenCalledTimes(3);
+ expect(liveApi.turnover).toHaveBeenCalledTimes(2);
  await act(async()=>{await vi.advanceTimersByTimeAsync(30_000);});
- expect(liveApi.turnover).toHaveBeenCalledTimes(4);
+ expect(liveApi.turnover).toHaveBeenCalledTimes(2);
  unmount();
  await vi.advanceTimersByTimeAsync(60_000);
- expect(liveApi.turnover).toHaveBeenCalledTimes(4);
+ expect(liveApi.turnover).toHaveBeenCalledTimes(2);
 });
 
 it('姓名后小字分别显示已报未报，缺少历史记录不误判，无人员不显示状态',async()=>{
@@ -64,11 +64,12 @@ it('显示实际多账号完整名称，历史账号回退，未开播不冒用�
  rerender(<RoomSessionAccounts session={null}/>);expect(screen.queryByText('账号')).toBeNull();
 });
 
-it('下播最终快照锁定后不再轮询或因页面重新可见而刷新，不显示更新时间',async()=>{
+it('已下播卡片不自动查询，手动查看只读已存快照且不轮询',async()=>{
  vi.useFakeTimers();vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
  vi.mocked(liveApi.turnover).mockResolvedValue({...data,live:false,locked:true});
  await act(async()=>{render(<RoomSessionPanel session={{...session,endAt:'2026-11-02 11:00:00'}} day="2026-11-02" now="2026-11-02 12:00:00"/>);});
- expect(screen.getByText('本场营业额已锁定')).toBeTruthy();expect(screen.queryByText(/更新于/)).toBeNull();
+ expect(liveApi.turnover).not.toHaveBeenCalled();expect(screen.getByText('下播已停止销售查询')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'查看本场营业额'}));await act(async()=>{});expect(screen.queryByText(/更新于/)).toBeNull();
  await act(async()=>{await vi.advanceTimersByTimeAsync(120_000);document.dispatchEvent(new Event('visibilitychange'));});
  expect(liveApi.turnover).toHaveBeenCalledTimes(1);
  fireEvent.click(screen.getByRole('button',{name:'查看本场营业额'}));
