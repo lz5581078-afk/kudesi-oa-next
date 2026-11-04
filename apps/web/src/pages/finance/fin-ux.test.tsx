@@ -135,17 +135,17 @@ describe('开单页细节', () => {
     expect(fa.create).not.toHaveBeenCalled();
     confirm.mockRestore();
   });
-  it('商品明细：最后一行按回车自动加一行；只剩一行时删除变成清空', async () => {
+  it('商品明细：行尾回车加行，原删除按钮只留一行并恢复默认单位', async () => {
     render(<DocForm type="sale" inline onSaved={vi.fn()} />);
     const before = screen.getAllByLabelText(/行单价$/).length;
     fireEvent.keyDown(screen.getAllByLabelText(/行备注$/)[before - 1], { key: 'Enter' });
     await waitFor(() => expect(screen.getAllByLabelText(/行单价$/).length).toBe(before + 1));
-    expect(screen.getByText(/共 0 种商品/)).toBeTruthy();
+    expect(screen.queryByText(/共 0 种商品/)).toBeNull();
     cleanup();
     render(<DocForm type="sale" inline onSaved={vi.fn()} />);
     for (let i = 0; i < 3; i += 1) fireEvent.click(screen.getAllByRole('button', { name: /^删除第1行$/ })[0]);
     expect(screen.getAllByLabelText(/行单价$/).length).toBe(1);
-    expect(screen.getByRole('button', { name: '删除第1行' }).textContent).toBe('清空');
+    expect(screen.getByRole('button', { name: '删除第1行' }).textContent).toBe('删');
   });
   it('既有编辑保留未结清提示和本单合计', async () => {
     render(<DocForm type="sale" onSaved={vi.fn()} />);

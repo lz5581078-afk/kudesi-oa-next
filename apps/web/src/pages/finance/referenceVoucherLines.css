@@ -1,0 +1,21 @@
+.reference-document.reference-document-source .reference-voucher-lines{overflow:visible;border:0;border-radius:0;background:transparent;padding-top:12px}
+.reference-voucher-goods-lines{--voucher-columns:minmax(160px,1.35fr) 58px 76px 86px 96px minmax(140px,1fr) 44px}
+.reference-voucher-money-lines{--voucher-columns:minmax(180px,1.2fr) 120px minmax(180px,1fr) 44px}
+.reference-voucher-fee-lines{--voucher-columns:minmax(160px,1.3fr) minmax(110px,.75fr) minmax(150px,1fr) 94px minmax(150px,1.1fr) 44px}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines{display:grid;gap:6px;width:100%;min-width:0;margin:0;border:0;border-spacing:0;background:transparent;font:16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;color:#172033}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines thead{display:block;padding:0 6px 4px}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines tbody{display:grid;gap:6px}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines thead tr,.reference-document.reference-document-source .reference-voucher-lines .doc-lines tbody tr{display:grid;grid-template-columns:var(--voucher-columns);gap:6px;align-items:center;width:100%;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines thead th,.reference-document.reference-document-source .reference-voucher-lines .doc-lines thead th:nth-child(n){position:static;z-index:auto;width:auto;min-width:0;margin:0;padding:0;border:0;background:transparent;color:#20754e;text-align:left;font-size:12px;font-weight:900;white-space:normal}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines tbody td{display:block;min-width:0;max-width:none;width:auto;margin:0;padding:0;border:0;background:transparent;font:inherit;text-align:left;vertical-align:middle;overflow:visible;white-space:normal;text-overflow:clip}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines td[data-cell]::before{display:none}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines input,.reference-document.reference-document-source .reference-voucher-lines .doc-lines select{display:block;width:100%;min-width:0;height:38px;min-height:0;padding:0 10px;color:#0f172a;background:#fff;border:1px solid #cfe2d0;border-radius:8px;font:inherit;box-sizing:border-box}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines output{display:flex;align-items:center;height:38px;padding:0 10px;color:#17613f;background:#fff;border:1px solid #cfe2d0;border-radius:8px;font-weight:900;box-sizing:border-box}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines tfoot{display:block;margin-top:6px}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines tfoot tr{display:block;width:100%;margin:0;padding:0;border:0}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines tfoot td{display:flex;justify-content:flex-end;align-items:center;gap:0;height:44px;margin:0;padding:0 12px;color:#206846;background:#f7fcf6;border:1px solid #cfe8d2;border-radius:8px;font:inherit;box-sizing:border-box}
+.reference-document.reference-document-source .reference-voucher-lines .doc-lines tfoot b{margin-left:12px;font-size:18px}
+.reference-document-source .reference-voucher-delete{width:100%;height:38px;padding:1px 6px;color:#dc2626;background:#fff7f7;border:1px solid #fecaca;border-radius:8px;font:900 16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;cursor:pointer}
+.reference-document-source .reference-voucher-add-row{display:flex}
+.reference-document.reference-document-source .reference-voucher-add-row>.secondary-button{height:auto;min-height:0;margin-top:14px;padding:9px 16px;color:#137443;background:#f8fff8;border:1px dashed #23925f;border-radius:8px;font:900 16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;cursor:pointer}
+@media(max-width:820px){.reference-document.reference-document-source .reference-voucher-lines .doc-lines thead{display:none}.reference-voucher-lines{--voucher-columns:1fr}}

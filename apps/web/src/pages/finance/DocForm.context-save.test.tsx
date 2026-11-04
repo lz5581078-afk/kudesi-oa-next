@@ -132,3 +132,17 @@ it('原独立费用表头没有部门时只显示经办姓名，不沿用常规�
   render(<DocForm type="expense" inline onSaved={vi.fn()}/>);await waitFor(()=>expect(resourceApi.users).toHaveBeenCalledTimes(1));fireEvent.click(screen.getByLabelText('经办人'));
   expect(screen.getByRole('listbox').textContent).not.toContain('未分部门');expect(Array.from(screen.getByRole('listbox').querySelectorAll('[role=option]')).map(option=>option.textContent)).toEqual(['合成无部门人员','合成财务人员 · 合成财务部']);fireEvent.click(screen.getByRole('option',{name:'合成无部门人员'}));expect(screen.getByLabelText('经办人').textContent).toContain('合成无部门人员');expect(screen.queryByText(/未分部门/)).toBeNull();
 });
+it('原商品七列去掉额外赠品和优惠控件，六位报价仍按整数分结算，删最后一行恢复原空行',async()=>{
+  render(<DocForm type="sale" inline onSaved={vi.fn()}/>);
+  expect(screen.getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['商品','单位','数量','单价','小计','备注','操作']);expect(screen.queryByLabelText('第1行赠品')).toBeNull();expect(screen.queryByLabelText('优惠金额')).toBeNull();
+  fireEvent.click(screen.getByLabelText('第1行商品'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));
+  fireEvent.change(screen.getByLabelText('第1行数量'),{target:{value:'2.5'}});fireEvent.change(screen.getByLabelText('第1行单价'),{target:{value:'0.123456'}});expect(screen.getByRole('status').textContent).toBe('¥0.31');expect(screen.getByLabelText('第1行单价').getAttribute('step')).toBe('0.000001');
+  fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({discountCents:0,lines:[expect.objectContaining({productId:7,unit:'件',qty:2.5,unitPriceCents:12.3456})]})));
+  fireEvent.click(screen.getByRole('button',{name:'删除第1行'}));expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('件');expect((screen.getByLabelText('第1行数量') as HTMLInputElement).value).toBe('');expect((screen.getByLabelText('第1行单价') as HTMLInputElement).value).toBe('');expect(screen.getByLabelText('第1行商品').textContent).toContain('选择商品');
+});
+it('原金额四列没有常用词建议，增删行只保存保留的项目和金额',async()=>{
+  const view=render(<DocForm type="receipt" inline onSaved={vi.fn()}/>);expect(screen.getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['收款来源','金额','备注','操作']);expect(view.container.querySelector('datalist')).toBeNull();expect(screen.getByLabelText('第1行收款来源').getAttribute('list')).toBeNull();
+  fireEvent.change(screen.getByLabelText('第1行收款来源'),{target:{value:'合成删除项'}});fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'12.34'}});fireEvent.click(screen.getByRole('button',{name:'添加一行明细'}));
+  fireEvent.change(screen.getByLabelText('第2行收款来源'),{target:{value:'合成保留项'}});fireEvent.change(screen.getByLabelText('第2行金额'),{target:{value:'0.01'}});expect(view.container.querySelector('tfoot')?.textContent).toContain('¥12.35');fireEvent.click(screen.getByRole('button',{name:'删除第1行'}));
+  fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({itemName:'合成保留项',qty:1,unitPriceCents:1})]})));
+});

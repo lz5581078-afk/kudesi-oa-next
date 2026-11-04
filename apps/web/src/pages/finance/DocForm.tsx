@@ -23,8 +23,11 @@ import { useLineHints, usePartyBalance } from './voucher/useVoucherHints';
 import './referenceVoucherShell.css';
 import {ReferenceVoucherPayment,ReferenceVoucherNote,ReferenceVoucherHeading} from './ReferenceVoucherPayment';
 import './referenceVoucherHead.css';
+import './referenceVoucherLines.css';
 
 const sourcePartyPlaceholder:Partial<Record<DocType,string>>={sale:'客户名称','online-sale':'选择店铺','sale-return':'客户名称','advance-receipt':'客户名称',receipt:'客户名称',payment:'供应商、客户、人员等',prepayment:'供应商名称','purchase-in':'供应商名称','purchase-return':'供应商名称','other-income':'平台、供应商、人员或其他来源'};
+
+const sourceLineTotalLabel:Partial<Record<DocType,string>>={sale:'商品合计金额：','online-sale':'商品合计金额：','sale-return':'退货合计金额：','advance-receipt':'预收合计金额：',receipt:'收款合计金额：',payment:'付款合计金额：',prepayment:'预付合计金额：','purchase-in':'采购合计金额：','purchase-return':'退货合计金额：','other-income':'收入合计金额：',expense:'费用合计金额：'};
 
 const unitPriceOf = (v: string) => { if (!v.trim()) return null; try { return yuanToPreciseCents(v); } catch { return NaN; } };
 
@@ -408,15 +411,14 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
 
       {structuredLines && (
         <section>
-          <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
-          {ui.detailHint && <p className="reference-document-hint">{ui.detailHint}</p>}
-          <GoodsGrid company={user?.companyId?{id:user.companyId,name:user.companyName||'当前公司'}:undefined} staff={staff} def={def} type={type} lines={lines} setLines={setLines} setLine={setLine} priceOf={priceOf} hints={hints} onPickProduct={pickProduct} onPickFee={pickFee} addRow={addLine} gridRef={gridRef} totalCents={total} />
-          <div className="vc-grid-foot">
-            <button type="button" className="secondary-button small" onClick={addLine}>{ui.feeAmountOnly ? '添加一行费用' : '+ 加一行'}</button>
-            {!ui.feeAmountOnly && <span className="muted">{def.lines === 'product' ? `共 ${goodsLines.length} 种商品 · 数量合计 ${Number(qtyTotal.toFixed(4))}　` : ''}回车跳到下一格，最后一格回车加行；Shift+Delete 删当前行</span>}
-            {!ui.feeAmountOnly && <span className="vc-grid-total">{def.lines === 'product' && discountC > 0 ? `明细合计 ${money(gross)} − 优惠 ${money(discountC)} = ` : ''}{ui.totalLabel}　<b>{money(total)}</b></span>}
+          <>{originalFields?<ReferenceVoucherHeading step={2} title={ui.detailTitle} hint={ui.detailHint}/>:<><h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>{ui.detailHint && <p className="reference-document-hint">{ui.detailHint}</p>}</>}</>
+          <GoodsGrid source={originalFields} totalLabel={sourceLineTotalLabel[type]} company={user?.companyId?{id:user.companyId,name:user.companyName||'当前公司'}:undefined} staff={staff} def={def} type={type} lines={lines} setLines={setLines} setLine={setLine} priceOf={priceOf} hints={hints} onPickProduct={pickProduct} onPickFee={pickFee} addRow={addLine} gridRef={gridRef} totalCents={total} />
+          <div className={originalFields?"reference-voucher-add-row":"vc-grid-foot"}>
+            <button type="button" className="secondary-button small" onClick={addLine}>{ui.feeAmountOnly ? '添加一行费用' : originalFields?'添加一行商品':'+ 加一行'}</button>
+            {!originalFields&&!ui.feeAmountOnly && <span className="muted">{def.lines === 'product' ? `共 ${goodsLines.length} 种商品 · 数量合计 ${Number(qtyTotal.toFixed(4))}　` : ''}回车跳到下一格，最后一格回车加行；Shift+Delete 删当前行</span>}
+            {!originalFields&&!ui.feeAmountOnly && <span className="vc-grid-total">{def.lines === 'product' && discountC > 0 ? `明细合计 ${money(gross)} − 优惠 ${money(discountC)} = ` : ''}{ui.totalLabel}　<b>{money(total)}</b></span>}
           </div>
-          {def.lines === 'product' && (
+          {!originalFields&&def.lines === 'product' && (
             <label className="vc-discount">整单优惠 / 抹零（元）
               <input inputMode="decimal" aria-label="优惠金额" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="没有就留空；优惠后才是应收/应付金额" />
             </label>
@@ -426,13 +428,12 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
 
       {!structuredLines && (
         <section>
-          <h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>
-          {ui.detailHint && <p className="reference-document-hint">{ui.detailHint}</p>}
-          <MoneyGrid type={type} label={moneyItem} lines={moneyLines} setLines={setMoneyLines} gridRef={gridRef} />
-          <div className="vc-grid-foot">
-            <button type="button" className="secondary-button small" onClick={() => setMoneyLines((ls) => [...ls, emptyMoney()])}>+ 加一行</button>
-            <span className="muted">回车跳到下一格，最后一格回车加行；Shift+Delete 删当前行</span>
-            <span className="vc-grid-total">{ui.totalLabel}　<b>{money(moneyCents)}</b></span>
+          <>{originalFields?<ReferenceVoucherHeading step={2} title={ui.detailTitle} hint={ui.detailHint}/>:<><h3 className="section-title"><span className="step">2</span>{ui.detailTitle}</h3>{ui.detailHint && <p className="reference-document-hint">{ui.detailHint}</p>}</>}</>
+          <MoneyGrid source={originalFields} totalLabel={sourceLineTotalLabel[type]} totalCents={moneyCents} type={type} label={moneyItem} lines={moneyLines} setLines={setMoneyLines} gridRef={gridRef} />
+          <div className={originalFields?"reference-voucher-add-row":"vc-grid-foot"}>
+            <button type="button" className="secondary-button small" onClick={() => setMoneyLines((ls) => [...ls, emptyMoney()])}>{originalFields?'添加一行明细':'+ 加一行'}</button>
+            {!originalFields&&<span className="muted">回车跳到下一格，最后一格回车加行；Shift+Delete 删当前行</span>}
+            {!originalFields&&<span className="vc-grid-total">{ui.totalLabel}　<b>{money(moneyCents)}</b></span>}
           </div>
         </section>
       )}

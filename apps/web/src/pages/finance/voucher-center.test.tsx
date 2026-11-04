@@ -48,7 +48,7 @@ describe('明细网格键盘录入', () => {
   });
   it('上下方向键在同一列换行', () => {
     render(<DocForm type="sale" inline onSaved={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: '+ 加一行' }));
+    fireEvent.click(screen.getByRole('button', { name: '添加一行商品' }));
     const q1 = screen.getByLabelText('第1行数量');
     q1.focus();
     fireEvent.keyDown(q1, { key: 'ArrowDown' });
@@ -97,7 +97,7 @@ describe('商品名称单位的原版联动', () => {
     ],total:2,page:1,pageSize:80} as never);
     render(<DocForm type="sale" inline onSaved={vi.fn()}/>);
     await pickProduct();
-    fireEvent.click(screen.getByRole('button',{name:'+ 加一行'}));
+    fireEvent.click(screen.getByRole('button',{name:'添加一行商品'}));
     await pickProduct(2);
     fireEvent.click(screen.getByRole('button',{name:'删除第1行'}));
     fireEvent.click(screen.getByLabelText('第1行商品'));
@@ -134,7 +134,7 @@ describe('费用档案的选择约束', () => {
 
 describe('赠品与整单优惠', () => {
   it('勾选赠品后单价锁成 0、金额为 0；优惠金额进合计并随单据提交', async () => {
-    render(<DocForm type="sale" inline onSaved={vi.fn()} />);
+    render(<DocForm type="sale" onSaved={vi.fn()} />);
     await pickProduct(1);
     fireEvent.change(screen.getByLabelText('第1行数量'), { target: { value: '10' } });
     fireEvent.change(screen.getByLabelText('第1行单价'), { target: { value: '10' } });
@@ -143,20 +143,20 @@ describe('赠品与整单优惠', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ 加一行' }));
     fireEvent.click(screen.getByLabelText('第2行赠品'));
     expect((screen.getByLabelText('第2行单价') as HTMLInputElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     const b = fa.create.mock.calls[0][0] as { discountCents: number; lines: Array<{ unitPriceCents: number }> };
     expect(b.discountCents).toBe(300);
     expect(b.lines[0].unitPriceCents).toBe(1000);
   });
   it('退货等商品类单据都有优惠金额；收款单、付款单也有（第二批：影响往来）；预收款单这类没有', () => {
-    render(<DocForm type="purchase-in" inline onSaved={vi.fn()} />);
+    render(<DocForm type="purchase-in" onSaved={vi.fn()} />);
     expect(screen.getByLabelText('优惠金额')).toBeTruthy();
     cleanup();
     render(<DocForm type="receipt" onSaved={vi.fn()} />);
     expect(screen.getByLabelText('优惠金额')).toBeTruthy();
     cleanup();
-    render(<DocForm type="advance-receipt" inline onSaved={vi.fn()} />);
+    render(<DocForm type="advance-receipt" onSaved={vi.fn()} />);
     expect(screen.queryByLabelText('优惠金额')).toBeNull();
   });
 });

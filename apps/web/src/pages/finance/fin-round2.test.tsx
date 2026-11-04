@@ -29,7 +29,7 @@ describe('金额类单据：多行明细', () => {
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '12.5' } });
     fireEvent.change(screen.getByLabelText(/^第1行(?!金额|备注)/), { target: { value: '货款' } });
-    fireEvent.click(screen.getByRole('button', { name: '+ 加一行' }));
+    fireEvent.click(screen.getByRole('button', { name: '添加一行明细' }));
     fireEvent.change(screen.getByLabelText('第2行金额'), { target: { value: '7.5' } });
     fireEvent.change(screen.getByLabelText(/^第2行(?!金额|备注)/), { target: { value: '运费' } });
     expect(document.querySelector('.slip-total-card')!.textContent).toContain('¥20.00');
