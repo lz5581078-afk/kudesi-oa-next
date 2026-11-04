@@ -1,3 +1,4 @@
+import { DesktopAfterSalesPage } from './pages/service/DesktopAfterSalesPage';
 import { FeishuEnrollmentSetup } from './auth/FeishuEnrollmentSetup';
 import { FeishuBindCallback } from './auth/FeishuLogin';
 import { ComponentType } from 'react';
@@ -145,6 +146,7 @@ PAGE_COMPONENTS['finance.finance-bundles'] = BundlesPage;
 PAGE_COMPONENTS['finance.jst-upload'] = JstUploadPage;
 
 // 售后、订单申诉、兜底监督
+PAGE_COMPONENTS['after-sales.workspace'] = DesktopAfterSalesPage;
 PAGE_COMPONENTS['after-sales.table'] = AfterSalesPage;
 PAGE_COMPONENTS['after-sales.appeals'] = AppealsPage;
 PAGE_COMPONENTS['supervision.center'] = SupervisionPage;
