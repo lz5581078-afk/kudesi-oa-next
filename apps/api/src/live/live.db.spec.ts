@@ -1394,7 +1394,7 @@ d('直播管理（真实数据库）', () => {
   });
   it('新增排班同步总经理部门主岗/兼岗及子部门，排班参与人去重，排除停用和外公司且失败不通知', async () => {
     clock('2026-12-01 06:00:00');
-    const { management: existingManagement } = await liveManagementRecipients(ds.manager, company);
+    const { management: existingManagement, hr: existingHr } = await liveManagementRecipients(ds.manager, company);
     const department = async (companyId: number, name: string, parentId: number | null = null, status = 'active') => Number((await ds.query('INSERT INTO departments(company_id,name,parent_id,status) VALUES(?,?,?,?)', [companyId,name,parentId,status])).insertId);
     const dept = await department(company, '总经理部门'), childDept = await department(company, '总经办助理组', dept);
     const member = async (name: string, extra: Record<string,unknown> = {}, companyId = company) => mkUser(companyId, `gm-${crypto.randomBytes(8).toString('hex')}`, name, extra);
@@ -1416,12 +1416,15 @@ d('直播管理（真实数据库）', () => {
     const before = await ds.manager.count(Notification, { where: { companyId: company } });
     const schedule = await service.create(manager, form);
     const rows = await ds.query("SELECT user_id,link,body FROM notifications WHERE company_id=? AND title='新排班' AND body LIKE '2026-12-01 07:00%'", [company]);
-    const expected = [...new Set([anchor.id,control.id,operator.id,boss,child,primary,secondary,...existingManagement])];
+    const direct = [...new Set([anchor.id,control.id,operator.id,boss,child,primary,secondary,...existingManagement])];
+    const expected = [...new Set([...direct,...existingHr])];
     expect(rows.map((r: any) => Number(r.user_id)).sort()).toEqual(expected.sort());
     expect(rows.some((r: any) => [disabled,disabledDept,foreignId].includes(Number(r.user_id)))).toBe(false);
     expect(rows.filter((r: any) => [boss,child,primary,secondary,operator.id].includes(Number(r.user_id))).every((r: any) => r.link === '/features/live' && r.body.includes('小主播') && r.body.includes('小中控'))).toBe(true);
     const queued = await ds.query("SELECT payload_json FROM outbox_jobs WHERE company_id=? AND resource_type='live-schedule' AND resource_id=?", [company,schedule.id]);
-    expect(queued).toHaveLength(expected.length);
+    const queuedUsers = queued.map((r: any) => Number((typeof r.payload_json === 'string' ? JSON.parse(r.payload_json) : r.payload_json).userId));
+    expect(queuedUsers.filter((id: number) => direct.includes(id))).toHaveLength(direct.length);
+    expect(new Set(queuedUsers).size).toBe(queuedUsers.length);
     expect(send).not.toHaveBeenCalled();
     const after = await ds.manager.count(Notification, { where: { companyId: company } });
     expect(after - before).toBe(expected.length);
