@@ -1,0 +1,8 @@
+.reference-document.reference-document-source .reference-voucher-basic{display:grid;grid-template-columns:240px minmax(220px,1fr) minmax(180px,220px) minmax(160px,220px);gap:10px;padding-top:12px;border-top:0}
+.reference-document.reference-document-source .reference-voucher-expense-basic{grid-template-columns:240px minmax(220px,1fr) minmax(180px,220px)}
+.reference-document.reference-document-source .reference-voucher-basic label,.reference-document.reference-document-source .reference-voucher-basic .slip-party-field{display:grid;gap:6px;margin:0;color:#496656;font:900 12px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.reference-document.reference-document-source .reference-voucher-basic input,.reference-document.reference-document-source .reference-voucher-basic select{width:100%;height:38px;min-height:0;padding:0 10px;color:#0f172a;background:#fff;border:1px solid #cfe2d0;border-radius:8px;font:inherit;box-sizing:border-box}
+.reference-voucher-basic .slip-party-row{gap:6px}
+.reference-voucher-basic .reference-document-picker,.reference-voucher-basic .reference-document-picker-trigger,.reference-voucher-basic .reference-document-picker-menu,.reference-voucher-basic .reference-document-picker-menu .pick-list,.reference-voucher-basic .reference-document-picker-menu .pick-list>li,.reference-voucher-basic .reference-document-picker-menu .pick-list button{font:900 12px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.reference-document-source .reference-voucher-section-head{border-bottom-color:#e6ebf1}
+@media(max-width:820px){.reference-document.reference-document-source .reference-voucher-basic{grid-template-columns:1fr}}

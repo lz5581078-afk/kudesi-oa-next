@@ -21,7 +21,10 @@ import { printSlip } from './voucher/printSlip';
 import { emptyLine, emptyLines, emptyMoney, type AcctState, type LineState, type MoneyLine } from './voucher/types';
 import { useLineHints, usePartyBalance } from './voucher/useVoucherHints';
 import './referenceVoucherShell.css';
-import {ReferenceVoucherPayment,ReferenceVoucherNote} from './ReferenceVoucherPayment';
+import {ReferenceVoucherPayment,ReferenceVoucherNote,ReferenceVoucherHeading} from './ReferenceVoucherPayment';
+import './referenceVoucherHead.css';
+
+const sourcePartyPlaceholder:Partial<Record<DocType,string>>={sale:'客户名称','online-sale':'选择店铺','sale-return':'客户名称','advance-receipt':'客户名称',receipt:'客户名称',payment:'供应商、客户、人员等',prepayment:'供应商名称','purchase-in':'供应商名称','purchase-return':'供应商名称','other-income':'平台、供应商、人员或其他来源'};
 
 const unitPriceOf = (v: string) => { if (!v.trim()) return null; try { return yuanToPreciseCents(v); } catch { return NaN; } };
 
@@ -51,6 +54,7 @@ const ORIGIN: Partial<Record<DocType, { scope: DocType; kind: PartyKind; label: 
  * 没结清的部分自动挂应收/应付。保存草稿时允许没填完，开立/过账时严格校验。
  */
 function DocumentHeadCard({ reference, children }: { reference: boolean; children: ReactNode }) { return reference ? <section className="reference-document-head-card">{children}</section> : <Fragment>{children}</Fragment>; }
+function PartyField({reference,children}:{reference:boolean;children:ReactNode}){return reference?<div className="slip-party slip-party-field">{children}</div>:<label className="slip-party">{children}</label>;}
 
 export function DocForm(props: Props) {
   const {user}=useAuth();
@@ -359,23 +363,22 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
       <div className="slip-main">
       <DocumentHeadCard reference={type !== 'withdrawal'}>
       {type === 'withdrawal' && <p className="muted slip-hint">过账结果：{def.posting}</p>}
-      <h3 className="section-title"><span className="step">1</span>{ui.partyTitle || '单据信息'}</h3>
-      {ui.partyHint && <p className="reference-document-hint">{ui.partyHint}</p>}
-      <section className="slip-head">
-        {type !== 'expense' && <label>单据编号<input aria-label="单据编号" value={docNo} maxLength={32} onChange={(e) => setDocNo(e.target.value)} placeholder={doc ? '' : `不填则自动生成（${def.prefix}${date.replace(/-/g, '')}001）`} disabled={!!doc && doc.status !== 'draft'} /></label>}
+      {originalFields?<ReferenceVoucherHeading step={1} title={ui.partyTitle||'单据信息'} hint={ui.partyHint}/>:<><h3 className="section-title"><span className="step">1</span>{ui.partyTitle || '单据信息'}</h3>{ui.partyHint && <p className="reference-document-hint">{ui.partyHint}</p>}</>}
+      <section className={`slip-head${originalFields?' reference-voucher-basic':''}${originalFields&&type==='expense'?' reference-voucher-expense-basic':''}`}>
+        {type !== 'expense' && <label>单据编号<input aria-label="单据编号" value={docNo} maxLength={32} onChange={(e) => setDocNo(e.target.value)} placeholder={originalFields?'留空由系统自动生成':doc ? '' : `不填则自动生成（${def.prefix}${date.replace(/-/g, '')}001）`} disabled={!!doc && doc.status !== 'draft'} /></label>}
         <label>单据日期<input type="date" aria-label="单据日期" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
         {type === 'expense' && <label className="slip-party">相关单位<input aria-label="相关单位" maxLength={160} placeholder="供应商、司机、平台等" value={counterpartyName} onChange={e => setCounterpartyName(e.target.value)} /></label>}
         {def.party && type !== 'expense' && (
-          <label className="slip-party">{ui.partyLabel}{def.partyRequired ? ' *' : ''}
+          <PartyField reference={originalFields}>{ui.partyLabel}{def.partyRequired&&!originalFields ? ' *' : ''}
             <div className="slip-party-row">
               {kinds.length > 1 && (
                 <select aria-label="往来对象来源" value={partyKind} onChange={(e) => { if (e.target.value === 'employee') void financeApi.syncEmployees().catch(() => undefined); setPartyKind(e.target.value as PartyKind); setParty({ id: null, name: '' }); }}>
-                  {kinds.map((k) => <option key={k} value={k}>来自{PARTY_KIND_LABEL[k]}档案</option>)}
+                  {kinds.map((k) => <option key={k} value={k}>{originalFields?'':'来自'}{originalFields&&k==='employee'?'人员':PARTY_KIND_LABEL[k]}档案</option>)}
                 </select>
               )}
-              <SearchPick ariaLabel={ui.partyLabel} type={PARTY_KIND_RESOURCE[partyKind]} value={party.id} label={party.name} placeholder={`搜索${PARTY_KIND_LABEL[partyKind]}`} onChange={(id, name) => setParty({ id, name })} />
+              <SearchPick ariaLabel={ui.partyLabel} type={PARTY_KIND_RESOURCE[partyKind]} value={party.id} label={party.name} placeholder={originalFields?sourcePartyPlaceholder[type]:`搜索${PARTY_KIND_LABEL[partyKind]}`} onChange={(id, name) => setParty({ id, name })} />
             </div>
-          </label>
+          </PartyField>
         )}
         {!originalFields && def.party && party.id && <div className="slip-wide"><PartyBalanceBar balance={partyBalance} extraReceivable={def.settle === 'in' && def.lines === 'product' ? Math.max(rest, 0) : 0} /></div>}
         {!originalFields && origin && partyKind === origin.kind && (
@@ -394,9 +397,9 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         {def.store && <label>店铺 *<SearchPick ariaLabel="店铺" type="stores" value={store.id} label={store.name} onChange={(id, name) => setStore({ id, name })} /></label>}
         {def.store && <label>平台提现流水号 *<input aria-label="平台提现流水号" value={refNo} maxLength={80} onChange={(e) => setRefNo(e.target.value)} placeholder="平台后台提现记录里的流水号，不能重复" /></label>}
         {def.warehouse
-          ? <label>{ui.warehouseLabel} *<input aria-label="仓库" value={wh.name} maxLength={200} onChange={e => setWh({ id: null, name: e.target.value })} /></label>
+          ? <label>{originalFields&&type==='sale'?'仓库':ui.warehouseLabel}{originalFields?'':' *'}<input aria-label="仓库" value={wh.name} maxLength={200} onChange={e => setWh({ id: null, name: e.target.value })} /></label>
           : type === 'expense' ? null : <label>归属部门<input aria-label="归属部门" value={department} maxLength={60} onChange={(e) => setDepartment(e.target.value)} /></label>}
-        <HandlerSelect placeholder={sourceInline&&type==='expense'?'搜索经办人':'选择经办人'} options={staff} value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); if (type !== 'withdrawal') setHandlerLegacy(''); }} />
+        <HandlerSelect showUnassignedDepartment={!(originalFields&&type==='expense')} placeholder={sourceInline&&type==='expense'?'搜索经办人':'选择经办人'} options={staff} value={handlerId} valueName={handlerName} legacy={handlerLegacy} onChange={(id, name) => { setHandlerId(id); setHandlerName(name); if (type !== 'withdrawal') setHandlerLegacy(''); }} />
       </section>
       </DocumentHeadCard>
 

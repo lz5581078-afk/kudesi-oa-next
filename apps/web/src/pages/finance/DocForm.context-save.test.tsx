@@ -118,3 +118,17 @@ it('经办人沿原版按姓名和部门展示并可搜索部门，选择保存�
   fireEvent.change(screen.getByRole('textbox',{name:'搜索经办人'}),{target:{value:'合成财务部'}});fireEvent.click(screen.getByRole('option',{name:'合成经办乙 · 合成财务部'}));expect(screen.getByLabelText('经办人').textContent).toContain('合成经办乙 · 合成财务部');
   fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({handlerId:22,handler:null})));
 });
+it('原开单表头保留各单据的占位与来源选项，切换来源清空旧ID并读取对应档案',async()=>{
+  const view=render(<DocForm type="sale" inline onSaved={vi.fn()}/>);
+  expect(screen.getByRole('heading',{level:2,name:'客户和出货'})).toBeTruthy();expect(screen.getByLabelText('单据编号').getAttribute('placeholder')).toBe('留空由系统自动生成');expect(screen.getByLabelText('客户').textContent).toContain('客户名称');expect(screen.getByLabelText('仓库').parentElement?.textContent).toBe('仓库');
+  view.unmount();render(<DocForm type="receipt" inline onSaved={vi.fn()}/>);
+  const source=screen.getByLabelText('往来对象来源') as HTMLSelectElement;expect(Array.from(source.options).map(option=>option.textContent)).toEqual(['客户档案','店铺档案']);
+  fireEvent.click(screen.getByLabelText('客户'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));fireEvent.change(source,{target:{value:'store'}});expect(screen.getByLabelText('客户').textContent).toContain('客户名称');
+  fireEvent.click(screen.getByLabelText('客户'));await screen.findByRole('option',{name:'合成费用'});expect(resourceApi.list).toHaveBeenLastCalledWith('stores',expect.anything());fireEvent.click(screen.getByRole('option',{name:'合成费用'}));
+  fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({partyKind:'store',partyId:7})));
+});
+it('原独立费用表头没有部门时只显示经办姓名，不沿用常规单据的未分部门后缀',async()=>{
+  vi.mocked(resourceApi.users).mockResolvedValue([{id:11,name:'合成无部门人员',active:true,departmentName:null},{id:22,name:'合成财务人员',active:true,departmentName:'合成财务部'}]);
+  render(<DocForm type="expense" inline onSaved={vi.fn()}/>);await waitFor(()=>expect(resourceApi.users).toHaveBeenCalledTimes(1));fireEvent.click(screen.getByLabelText('经办人'));
+  expect(screen.getByRole('listbox').textContent).not.toContain('未分部门');expect(Array.from(screen.getByRole('listbox').querySelectorAll('[role=option]')).map(option=>option.textContent)).toEqual(['合成无部门人员','合成财务人员 · 合成财务部']);fireEvent.click(screen.getByRole('option',{name:'合成无部门人员'}));expect(screen.getByLabelText('经办人').textContent).toContain('合成无部门人员');expect(screen.queryByText(/未分部门/)).toBeNull();
+});
