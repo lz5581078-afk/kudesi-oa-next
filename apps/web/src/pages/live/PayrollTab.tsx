@@ -1,3 +1,4 @@
+import { PersonPhotoName, SelectedAnchorProfile } from './PersonPhotoName';
 import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { downloadText, toCsv } from '../../resources/csv';
@@ -152,6 +153,7 @@ export function PayrollTab({
                 </option>
               ))}
             </select>
+            {role==='anchor'&&<SelectedAnchorProfile personId={Number(personId)} name={people.find(([id])=>String(id)===personId)?.[1]}/>}
           </label>
         )}
         <button className="secondary-button" onClick={exportCsv} disabled={!data}>
@@ -200,7 +202,7 @@ export function PayrollTab({
             <tbody>
               {[...summary].map(([id, p]) => (
                 <tr key={id}>
-                  <td>{p.name}</td>
+                  <td>{role==='anchor'?<PersonPhotoName personId={id} name={p.name}/>:p.name}</td>
                   <td>{p.count}</td>
                   <td>{minutesText(p.minutes)}{p.unknownDurations>0 && <small>（{p.unknownDurations}场未记录）</small>}</td>
                   {!commissionOnly && <td>{money(p.wage)}</td>}
@@ -239,7 +241,7 @@ export function PayrollTab({
                     <span className="live-payroll-date">{r.date} <strong>{hm(r.startAt,r.date)}–{r.endAt?hm(r.endAt,r.date):'下播时间未记录'}</strong></span>
                     {r.dailyWorkId?<span>{r.roomName}<small> · {r.dailyContent}</small></span>:<span>{r.roomName} · {LIVE_PLATFORMS[r.platform??'']??'历史场次'} · <small>产品：{productText(r.products)}</small></span>}
                   </td>
-                  <td>{r.userName}</td>
+                  <td>{r.role==='anchor'?<PersonPhotoName personId={r.userId} name={r.userName}/>:r.userName}</td>
                   <td>
                     {r.minutes==null ? '时长未记录' : minutesText(r.minutes)}
                     {!commissionOnly && <><br />{money(r.hourlyRateCents)}/时</>}

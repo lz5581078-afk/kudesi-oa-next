@@ -1,3 +1,4 @@
+import { PersonPhotoName } from './PersonPhotoName';
 import { CheckoutFeedbackRecords } from './CheckoutFeedback';
 import { TrialProxyPerformance } from './TrialProxyPerformance';
 import { StorePerformanceTable, storeDrafts, storePayload } from './StorePerformanceTable';
@@ -126,13 +127,13 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
       {run.me.canReject && <button type="button" className="secondary-button danger" onClick={() => setStop('reject')}>拒绝</button>}
       <button type="button" className="primary-button" disabled={busy || needsRefresh || !run.me.canPass} onClick={() => void act('pass')}>{busy ? '提交中…' : '审核通过'}</button>
     </>}</div></div>}>
-      <p className="muted live-review-summary">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt)} · 主播 {session.anchor.name}{session.control ? `，中控 ${session.control.name}` : ''}</p>
+      <p className="muted live-review-summary">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt)} · 主播 <PersonPhotoName personId={session.anchor.id} name={session.anchor.name}/>{session.control ? `，中控 ${session.control.name}` : ''}</p>
       <TrialProxyPerformance session={session}/>
       {!!abnormal.length&&<div className="notice error" role="alert">{abnormal.map(a=>a.name).join('、')}：未报下播，下播时间异常。系统已在锁定时自动下播，请核实并填写正确下播时间后再继续。</div>}
       <CheckoutFeedbackRecords sessionId={session.id} records={session.checkoutFeedback} attendance={session.attendance}/>
       <div className="live-scroll"><table className="data-table" aria-label="上报对比">
         <thead><tr><th>角色</th><th>填报人</th><th className="num">所报销售额</th><th className="num">勾选订单合计</th><th className="num">订单数</th><th className="num">投流</th></tr></thead>
-        <tbody>{session.reports.map((r) => <tr key={r.role}><td>{r.roleLabel}</td><td>{r.reporter.name}</td><td className="num">{money(r.salesCents)}</td><td className="num">{money(r.ordersTotalCents)}</td><td className="num">{r.orderCount}</td><td className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
+        <tbody>{session.reports.map((r) => <tr key={r.role}><td>{r.roleLabel}</td><td>{r.role==='anchor'?<PersonPhotoName personId={r.reporter.id} name={r.reporter.name}/>:r.reporter.name}</td><td className="num">{money(r.salesCents)}</td><td className="num">{money(r.ordersTotalCents)}</td><td className="num">{r.orderCount}</td><td className="num">{money(r.adSpendCents)}</td></tr>)}</tbody>
       </table></div>
       {multi&&<div className="live-scroll"><table className="data-table" aria-label="逐店上报对比"><thead><tr><th>平台 / 店铺</th><th>角色</th><th>营业额</th><th>投流</th><th>订单核对</th></tr></thead><tbody>{session.reports.flatMap(r=>(r.storeLines??[]).map(l=><tr key={`${r.role}:${l.storeId}`}><td>{LIVE_PLATFORMS[l.platform]} · {session.channels!.flatMap(c=>c.stores).find(s=>s.id===l.storeId)?.name}</td><td>{r.roleLabel}</td><td>{money(l.salesCents)}</td><td>{r.role==='control'?money(l.adSpendCents):'—'}</td><td>{l.verified?`已核对 ${money(l.ordersTotalCents??0)}`:`特殊核定：${l.reason||'未核对订单'}`}</td></tr>))}</tbody></table></div>}
       {stop ? (

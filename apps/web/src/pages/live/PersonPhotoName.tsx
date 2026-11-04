@@ -94,7 +94,7 @@ export function PersonPhotoName({
     };
     document.addEventListener('pointerdown', outside);
     const escape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !cropOpen && !detailOpen) {
+      if (e.key === 'Escape' && !cropOpen && !detailOpen && document.querySelectorAll('[role=dialog]').item(document.querySelectorAll('[role=dialog]').length-1)===panel.current) {
         e.stopPropagation();
         close();
       }
@@ -109,6 +109,7 @@ export function PersonPhotoName({
       document.removeEventListener('keydown', escape);
     };
   }, [open, cropOpen, detailOpen]);
+  useEffect(()=>{if(open)panel.current?.querySelector<HTMLButtonElement>('button')?.focus();},[open]);
   const valid = Number.isSafeInteger(personId) && Number(personId) > 0;
   useEffect(() => {
     if (!open || !valid) return;
@@ -141,8 +142,9 @@ export function PersonPhotoName({
         aria-expanded={open}
         aria-haspopup="dialog"
         title={`查看${name}的照片与本月直播业绩`}
-        aria-label={`查看${name}照片`}
+        aria-label={`查看${name}资料`}
         onClick={(e) => {
+          e.preventDefault();
           e.stopPropagation();
           if (open) {
             close();
@@ -161,7 +163,7 @@ export function PersonPhotoName({
             ref={panel}
             className={`live-person-photo-popover${position.below ? ' is-below' : ''}`}
             role="dialog"
-            aria-label={`${name} · 人员照片`}
+            aria-label={`${name} · 主播资料`}
             style={
               {
                 left: position.left,
@@ -171,6 +173,12 @@ export function PersonPhotoName({
               } as React.CSSProperties
             }
             onKeyDown={(e) => {
+              if(e.key==='Tab'&&!cropOpen&&!detailOpen){
+                const controls=[...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), [tabindex="0"]')??[])].filter(el=>el.getClientRects().length);
+                const first=controls[0],last=controls[controls.length-1];
+                if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}
+                else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
+              }
               if (e.key === 'Escape') {
                 e.stopPropagation();
                 if (!cropOpen && !detailOpen) close();
@@ -233,4 +241,10 @@ export function PersonPhotoName({
         )}
     </span>
   );
+}
+
+/** Native options cannot contain buttons; keep a separate name link beside the selected value. */
+export function SelectedAnchorProfile({personId,name}:{personId?:number;name?:string}) {
+  if(!Number.isSafeInteger(personId)||Number(personId)<=0||!name)return null;
+  return <span className="live-selected-anchor-profile">主播资料：<PersonPhotoName key={personId} personId={personId} name={name}/></span>;
 }

@@ -1,3 +1,4 @@
+import { PersonPhotoName } from './PersonPhotoName';
 import type { LiveProductSnapshot } from '@kudesi/shared';
 import { ManualProductEditor } from './ManualProductEditor';
 import { productEntries, emptyManualProduct } from './liveProducts';
@@ -89,7 +90,7 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
           </div>}
           <div className={`live-start-people${schedule?' wide':''}`}>
             <dl className="live-start-people-summary">
-              <div><dt>主播</dt><dd aria-label="本场主播">{String(schedule?.anchor.id)===anchorId?schedule?.anchor.name:opts.anchors.find(p=>String(p.id)===anchorId)?.name??(identity.isAnchor?'本人':'待选择')}</dd></div>
+              <div><dt>主播</dt><dd aria-label="本场主播"><PersonPhotoName personId={Number(anchorId)||schedule?.anchor.id} name={String(schedule?.anchor.id)===anchorId?schedule?.anchor.name??'待选择':opts.anchors.find(p=>String(p.id)===anchorId)?.name??(identity.isAnchor?'本人':'待选择')}/></dd></div>
               <div><dt>中控</dt><dd>{opts.controls.find(p=>String(p.id)===controlId)?.name??(identity.isControl&&!identity.isAnchor?'本人':'未安排')}</dd></div>
               {operatorId&&<div><dt>运营</dt><dd>{opts.operators.find(p=>String(p.id)===operatorId)?.name??schedule?.operator?.name??'待核对'}</dd></div>}
             </dl>
@@ -119,7 +120,7 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
           </section>
           <section className="live-start-section live-start-confirm" aria-label="上播确认"><header><span>04</span><div><h3>确认上播</h3><p>检查完成后，点击底部按钮提交</p></div></header>
           {beforePlan && <p className="notice warn">尚未到计划开播时间。{early ? '请再次点击“仍要提前开播”确认。' : '继续开播需要二次确认。'}</p>}
-      {trialAnchor&&<label className="wide notice warn"><input type="checkbox" checked={trialConfirmed} onChange={e=>setTrialConfirmed(e.target.checked)}/> 确认本场由试播主播「{schedule!.anchor.name}」上播，由我代报上下播，时间用于该主播工资和提成核算</label>}
+      {trialAnchor&&<label className="wide notice warn"><input type="checkbox" aria-label={`确认本场由试播主播「${schedule!.anchor.name}」上播，由我代报上下播，时间用于该主播工资和提成核算`} checked={trialConfirmed} onChange={e=>setTrialConfirmed(e.target.checked)}/> 确认本场由试播主播「<PersonPhotoName personId={schedule!.anchor.id} name={schedule!.anchor.name}/>」上播，由我代报上下播，时间用于该主播工资和提成核算</label>}
           <label className="live-start-check"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/><span>已核对本场人员、直播账号、关联店铺和产品<small>{identity.isControl ? '中控上播前必须确认' : '请核对后确认上播'}</small></span></label>
           </section>
         </div>
@@ -151,7 +152,7 @@ export function StartDialog(props:Parameters<typeof StartForm>[0]){
   if(!loaded)return <Modal bodyClassName="live-start-body" title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班和实际场次…</p>}</Modal>;
   if(existing)return <JoinDialog session={existing} role={props.role??(existing.canJoinAnchor?'anchor':'control')} onClose={props.onClose} onDone={props.onDone}/>;
   const visibleSessions=showOtherSessions?joinable:joinable.filter(s=>s.canJoinAnchor||!!s.control);
-  if(!props.schedule&&!chosen)return <Modal bodyClassName="live-start-body live-start-selection" title="选择本次排班" onClose={props.onClose}><p>{plans.length||visibleSessions.length?'请选择本次要播的场次。':'当前没有已安排给你的待上播场次。'}</p><div className="live-checkin-actions">{visibleSessions.map(s=><button className="primary-button live-clock-button" key={`session-${s.id}`} onClick={()=>setExisting(s)}><small>直播中 · 加入本场</small><strong>{s.roomName}</strong><span>主播 {s.anchor.name}</span></button>)}{!showOtherSessions&&visibleSessions.length<joinable.length&&<button type="button" className="secondary-button live-clock-button" onClick={()=>setShowOtherSessions(true)}>选择其他可加入场次</button>}{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}><small>待上播 · 我的排班</small><strong>{s.roomName}</strong><span>{s.date} · {s.startTime}–{s.endTime}</span></button>)}{!plans.length&&!joinable.length&&<p>没有可开播的排班，请联系人事安排。</p>}</div></Modal>;
+  if(!props.schedule&&!chosen)return <Modal bodyClassName="live-start-body live-start-selection" title="选择本次排班" onClose={props.onClose}><p>{plans.length||visibleSessions.length?'请选择本次要播的场次。':'当前没有已安排给你的待上播场次。'}</p><div className="live-checkin-actions">{visibleSessions.map(s=><div className="live-checkin-choice" key={`session-${s.id}`}><button type="button" className="primary-button live-clock-button" aria-label={`直播中 · 加入本场 ${s.roomName} · 主播 ${s.anchor.name}`} onClick={()=>setExisting(s)}><small>直播中 · 加入本场</small><strong>{s.roomName}</strong></button><span>主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/></span></div>)}{!showOtherSessions&&visibleSessions.length<joinable.length&&<button type="button" className="secondary-button live-clock-button" onClick={()=>setShowOtherSessions(true)}>选择其他可加入场次</button>}{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}><small>待上播 · 我的排班</small><strong>{s.roomName}</strong><span>{s.date} · {s.startTime}–{s.endTime}</span></button>)}{!plans.length&&!joinable.length&&<p>没有可开播的排班，请联系人事安排。</p>}</div></Modal>;
   return <StartForm {...props} schedule={chosen} onExisting={setExisting}/>;
 }
 

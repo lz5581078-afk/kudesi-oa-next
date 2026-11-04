@@ -1,3 +1,4 @@
+import { SelectedAnchorProfile } from './PersonPhotoName';
 import { ApiError } from '../../api/client';
 import { Modal } from './liveUi';
 import { ManualSessionPicker } from './ManualSessionPicker';
@@ -157,6 +158,7 @@ function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; cha
           </option>
         ))}
       </select>
+      {key==='anchorId'&&<SelectedAnchorProfile personId={Number(f[key])} name={rows.find(p=>String(p.id)===f[key])?.name??loadedSession?.anchor.name}/>}
     </label>
   );
   return (
