@@ -6,19 +6,45 @@ import {financeApi} from './financeApi';
 import {resourceApi} from '../../resources/api';
 const auth=vi.hoisted(()=>({id:1,companyId:1,name:'合成管理员',companyName:'合成当前公司',permissions:{isCompanyAdmin:true,allow:[] as string[],deny:[] as string[]}}));
 vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:auth,can:()=>true})}));
-vi.mock('./financeApi',async original=>({...await original<typeof import('./financeApi')>(),financeApi:{banks:vi.fn(),docs:vi.fn(),doc:vi.fn(),partyBalance:vi.fn(),lineHints:vi.fn(),create:vi.fn(),update:vi.fn(),issue:vi.fn(),post:vi.fn()}}));
+vi.mock('./financeApi',async original=>({...await original<typeof import('./financeApi')>(),financeApi:{banks:vi.fn(),openItems:vi.fn(),docs:vi.fn(),doc:vi.fn(),partyBalance:vi.fn(),lineHints:vi.fn(),create:vi.fn(),update:vi.fn(),issue:vi.fn(),post:vi.fn()}}));
 vi.mock('../../resources/api',async original=>({...await original<typeof import('../../resources/api')>(),resourceApi:{list:vi.fn(),users:vi.fn()}}));
 const fa=vi.mocked(financeApi),draft={id:51,docNo:'SYNTHETIC-51',status:'draft'};
 const deferred=()=>{let resolve!:(value:never)=>void;const promise=new Promise<never>(done=>{resolve=done;});return{promise,resolve};};
 beforeEach(()=>{
   vi.resetAllMocks();auth.id=1;auth.companyId=1;auth.permissions={isCompanyAdmin:true,allow:[],deny:[]};
-  fa.banks.mockResolvedValue([]);fa.docs.mockResolvedValue({rows:[],total:0} as never);fa.partyBalance.mockResolvedValue(null as never);fa.lineHints.mockResolvedValue([]);fa.create.mockResolvedValue(draft as never);fa.update.mockResolvedValue(draft as never);fa.issue.mockResolvedValue({...draft,status:'issued'} as never);
+  fa.banks.mockResolvedValue([]);fa.openItems.mockResolvedValue([]);fa.docs.mockResolvedValue({rows:[],total:0} as never);fa.partyBalance.mockResolvedValue(null as never);fa.lineHints.mockResolvedValue([]);fa.create.mockResolvedValue(draft as never);fa.update.mockResolvedValue(draft as never);fa.issue.mockResolvedValue({...draft,status:'issued'} as never);
   vi.mocked(resourceApi.users).mockResolvedValue([]);vi.mocked(resourceApi.list).mockResolvedValue({items:[{id:7,title:'合成费用',status:'active',data:{name:'合成费用'},refLabels:{}}],total:1,page:1,pageSize:200} as never);
 });
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 const fillExpense=async()=>{
   fireEvent.click(screen.getByLabelText('第1行费用项目'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'10'}});fireEvent.click(screen.getByRole('button',{name:'欠款'}));
 };
+it('原新开单收付款仅展示原模式、账户和金额，不读取额外余额或原单；备注使用单行输入',async()=>{
+  render(<DocForm type="receipt" inline onSaved={vi.fn()}/>);
+  expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('');
+  expect(screen.getByLabelText('备注').tagName).toBe('INPUT');
+  for(const label of ['冲抵金额','银行流水号','优惠金额','结算依据'])expect(screen.queryByLabelText(label)).toBeNull();
+  expect(screen.queryByRole('button',{name:'分多个账户收款'})).toBeNull();
+  fireEvent.click(screen.getByLabelText('客户'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));
+  expect(fa.banks).not.toHaveBeenCalled();expect(fa.partyBalance).not.toHaveBeenCalled();expect(fa.lineHints).not.toHaveBeenCalled();expect(fa.openItems).not.toHaveBeenCalled();expect(fa.docs).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('第1行收款来源'),{target:{value:'合成回款'}});fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'10'}});
+  await waitFor(()=>expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('10'));
+  fireEvent.click(screen.getByLabelText('收款账户'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));
+  fireEvent.change(screen.getByLabelText('备注'),{target:{value:'合成回款备注'}});fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));
+  await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({partyId:7,bankAccountId:7,paidCents:1000,settlementMode:'full',memo:'合成回款备注',offsetCents:0,accounts:null})));
+});
+it('原费用预付款模式随明细合计变化，手改实付转部分付款并清除隐藏冲抵',async()=>{
+  render(<DocForm type="expense" inline onSaved={vi.fn()}/>);
+  expect(screen.getByLabelText('备注').tagName).toBe('TEXTAREA');expect(screen.queryByLabelText('冲抵金额')).toBeNull();expect(screen.queryByLabelText('挂账往来档案')).toBeNull();
+  await fillExpense();fireEvent.click(screen.getByRole('button',{name:'用预付款结算'}));
+  expect((screen.getByLabelText('实付金额') as HTMLInputElement).value).toBe('0');
+  fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'20'}});
+  fireEvent.change(screen.getByLabelText('实付金额'),{target:{value:'3'}});
+  expect(screen.getByRole('button',{name:'付了部分'}).getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(screen.getByLabelText('付款账户'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));
+  fireEvent.click(screen.getByRole('button',{name:'保存费用单'}));
+  await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({paidCents:300,offsetCents:0,settlementMode:'part',bankAccountId:7})));
+});
 it('连续submit只能发起一个草稿保存请求，成功只回调一次',async()=>{
   const pending=deferred(),saved=vi.fn();fa.create.mockReturnValue(pending.promise);render(<DocForm type="expense" onSaved={saved}/>);
   const form=screen.getByRole('dialog',{name:'新建费用单'});fireEvent.submit(form);fireEvent.submit(form);expect(fa.create).toHaveBeenCalledTimes(1);

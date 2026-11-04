@@ -147,8 +147,8 @@ describe('开单页细节', () => {
     expect(screen.getAllByLabelText(/行单价$/).length).toBe(1);
     expect(screen.getByRole('button', { name: '删除第1行' }).textContent).toBe('清空');
   });
-  it('收款金额比单据少时提示还差多少未结清；底部一直显示本单合计', async () => {
-    render(<DocForm type="sale" inline onSaved={vi.fn()} />);
+  it('既有编辑保留未结清提示和本单合计', async () => {
+    render(<DocForm type="sale" onSaved={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('第1行数量'), { target: { value: '2' } });
     fireEvent.change(screen.getByLabelText('第1行单价'), { target: { value: '10' } });
     fireEvent.click(screen.getByRole('button', { name: '收了部分款' }));

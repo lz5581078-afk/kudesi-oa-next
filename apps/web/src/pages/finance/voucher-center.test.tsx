@@ -153,7 +153,7 @@ describe('赠品与整单优惠', () => {
     render(<DocForm type="purchase-in" inline onSaved={vi.fn()} />);
     expect(screen.getByLabelText('优惠金额')).toBeTruthy();
     cleanup();
-    render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
+    render(<DocForm type="receipt" onSaved={vi.fn()} />);
     expect(screen.getByLabelText('优惠金额')).toBeTruthy();
     cleanup();
     render(<DocForm type="advance-receipt" inline onSaved={vi.fn()} />);
@@ -163,7 +163,7 @@ describe('赠品与整单优惠', () => {
 
 describe('往来余额与行提示', () => {
   it('选了客户显示应收、预收和赊销额度；挂账后超额给提醒', async () => {
-    render(<DocForm type="sale" inline onSaved={vi.fn()} />);
+    render(<DocForm type="sale" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByLabelText('客户'));
     fireEvent.click(await screen.findByRole('option', { name: '老客户' }));
     const bar = await screen.findByLabelText('往来余额');
@@ -178,12 +178,12 @@ describe('往来余额与行提示', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('超过赊销额度');
   });
   it('商品行显示账面库存，销售数量超过库存标红；采购行显示上次进价对比', async () => {
-    render(<DocForm type="sale" inline onSaved={vi.fn()} />);
+    render(<DocForm type="sale" onSaved={vi.fn()} />);
     await pickProduct(1);
     fireEvent.change(screen.getByLabelText('第1行数量'), { target: { value: '8' } });
     expect(await screen.findByText(/库存 5（不够出/)).toBeTruthy();
     cleanup();
-    render(<DocForm type="purchase-in" inline onSaved={vi.fn()} />);
+    render(<DocForm type="purchase-in" onSaved={vi.fn()} />);
     await pickProduct(1);
     fireEvent.change(screen.getByLabelText('第1行单价'), { target: { value: '15' } });
     expect(await screen.findByText(/上次进价 ¥12.00，本次偏高/)).toBeTruthy();
@@ -191,7 +191,7 @@ describe('往来余额与行提示', () => {
   it('取不到余额或提示（接口报错）也不影响开单', async () => {
     fa.partyBalance.mockRejectedValue(new Error('x'));
     fa.lineHints.mockRejectedValue(new Error('x'));
-    render(<DocForm type="sale" inline onSaved={vi.fn()} />);
+    render(<DocForm type="sale" onSaved={vi.fn()} />);
     await pickProduct(1);
     expect(screen.getByLabelText('第1行数量')).toBeTruthy();
   });
@@ -202,19 +202,19 @@ describe('金额单部分到账与退货冲欠款', () => {
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('第1行收款来源'), { target: { value: '客户回款' } });
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '10.00' } });
-    await waitFor(() => expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('10.00'));
+    await waitFor(() => expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('10'));
     fireEvent.click(screen.getByRole('button', { name: '部分到账' }));
     fireEvent.change(screen.getByLabelText('到账金额'), { target: { value: '3.00' } });
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({ settlementMode: 'part', paidCents: 300, lines: [expect.objectContaining({ unitPriceCents: 1000 })] })));
   });
-  it('新单自动填入0.00不拦截离开，真实输入金额或冲抵后才提示未保存', async () => {
+  it('新单到账金额留空不拦截离开，真实输入金额后才提示未保存', async () => {
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
-    await waitFor(() => expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('0.00'));
+    await waitFor(() => expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe(''));
     const clean = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(clean);
     expect(clean.defaultPrevented).toBe(false);
-    fireEvent.change(screen.getByLabelText('冲抵金额'), { target: { value: '1.00' } });
+    fireEvent.change(screen.getByLabelText('到账金额'), { target: { value: '1.00' } });
     const dirty = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(dirty);
     expect(dirty.defaultPrevented).toBe(true);
@@ -317,13 +317,13 @@ describe('费用单与退货单的旧版结算方式', () => {
     expect(await screen.findByText('金额格式不对（最多两位小数）')).toBeTruthy();
     expect(fa.create).not.toHaveBeenCalled();
   });
-  it('费用单有“用预付款结算”和冲抵预付款', () => {
-    render(<DocForm type="expense" inline onSaved={vi.fn()} />);
+  it('既有费用编辑保留“用预付款结算”和冲抵预付款', () => {
+    render(<DocForm type="expense" onSaved={vi.fn()} />);
     expect(screen.getByRole('button', { name: '用预付款结算' })).toBeTruthy();
     expect(screen.getByLabelText('冲抵金额')).toBeTruthy();
   });
   it('采购退货单可以关联原采购入库单', async () => {
-    render(<DocForm type="purchase-return" inline onSaved={vi.fn()} />);
+    render(<DocForm type="purchase-return" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByLabelText('供应商'));
     fireEvent.click(await screen.findByRole('option', { name: '老客户' }));
     await waitFor(() => expect(fa.docs).toHaveBeenCalledWith(expect.objectContaining({ scope: 'purchase-in', status: 'posted' })));

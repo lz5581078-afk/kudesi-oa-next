@@ -23,7 +23,7 @@ vi.mock('./financeApi', () => ({
 const fa = vi.mocked(financeApi);
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver',class { observe() {} unobserve() {} disconnect() {} }); vi.clearAllMocks(); cashAuth.canReadAccounts = true; cashAuth.companyId = 1; vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 200 }); });
-afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('财务经营', () => {
   const overview = (month: string) => ({

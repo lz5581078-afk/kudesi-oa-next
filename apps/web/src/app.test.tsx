@@ -321,9 +321,9 @@ describe('财务 · 制单中心', () => {
     expect(within(slip).getAllByText('¥37.50').length).toBeGreaterThan(0);
     // 结算方式：收了全款 → 收到金额等于合计，欠款为 0
     fireEvent.click(within(slip).getByRole('button', { name: '收了全款' }));
-    expect((within(slip).getByLabelText('收到金额') as HTMLInputElement).value).toBe('37.50');
+    expect((within(slip).getByLabelText('收到金额') as HTMLInputElement).value).toBe('37.5');
     fireEvent.click(within(slip).getByRole('button', { name: '欠款' }));
-    expect((within(slip).getByLabelText('收到金额') as HTMLInputElement).value).toBe('');
+    expect((within(slip).getByLabelText('收到金额') as HTMLInputElement).value).toBe('0');
     first.unmount();
     renderAt('/finance/doc-transfer');
     const t = await screen.findByRole('form', { name: '转款单开单' });

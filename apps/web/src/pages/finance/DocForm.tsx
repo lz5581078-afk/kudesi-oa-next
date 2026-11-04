@@ -21,6 +21,7 @@ import { printSlip } from './voucher/printSlip';
 import { emptyLine, emptyLines, emptyMoney, type AcctState, type LineState, type MoneyLine } from './voucher/types';
 import { useLineHints, usePartyBalance } from './voucher/useVoucherHints';
 import './referenceVoucherShell.css';
+import {ReferenceVoucherPayment,ReferenceVoucherNote} from './ReferenceVoucherPayment';
 
 const unitPriceOf = (v: string) => { if (!v.trim()) return null; try { return yuanToPreciseCents(v); } catch { return NaN; } };
 
@@ -64,6 +65,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   useEffect(()=>{let alive=true;Promise.resolve().then(()=>resourceApi.users()).then(rows=>{if(alive)setStaff(Array.isArray(rows)?rows:[]);}).catch(()=>undefined);return()=>{alive=false;};},[]);
   const ui = def.ui;
   const sourceInline=!!inline&&type!=='withdrawal';
+  const originalFields=sourceInline&&!doc&&type!=='transfer';
   const hasPayment = !!def.settle || !!def.moneySettlement;
   const structuredLines = !!def.lines && !ui.moneyEntry;
   const kinds = def.partyKinds;
@@ -132,13 +134,13 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   useEffect(() => {
     originImport.current++;
     setOrigId(''); setOrigNote(''); setOrigSales([]); setOrigQty([]);
-    if (!origin || partyKind !== origin.kind || !party.id || !party.name) return;
+    if (originalFields || !origin || partyKind !== origin.kind || !party.id || !party.name) return;
     let alive = true;
     financeApi.docs({ scope: origin.scope, status: 'posted', keyword: party.name })
       .then((r) => alive && setOrigSales(r.rows.filter((x) => x.partyName === party.name).map((x) => ({ id: x.id, docNo: x.docNo, docDate: x.docDate, amountCents: x.amountCents }))))
       .catch(() => alive && setOrigNote(`没有权限查看${origin.label}，不能关联`));
     return () => { alive = false; originImport.current++; };
-  }, [origin, partyKind, party.id, party.name]);
+  }, [origin, partyKind, party.id, party.name,originalFields]);
   async function importOriginal() {
     if (!origId) return;
     const serial=++originImport.current,current=()=>mounted.current&&originImport.current===serial;
@@ -157,7 +159,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
 
   const [balances, setBalances] = useState<Map<number, number>>(new Map());
   const needBalance = def.bank !== 'none' || !!def.settle;
-  useEffect(() => { if (needBalance) financeApi.banks().then((r) => setBalances(new Map(r.map((b) => [b.id, b.balanceCents])))).catch(() => undefined); }, [needBalance]);
+  useEffect(() => { if (needBalance&&!originalFields) financeApi.banks().then((r) => setBalances(new Map(r.map((b) => [b.id, b.balanceCents])))).catch(() => undefined); }, [needBalance,originalFields]);
   const noticeRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
@@ -174,13 +176,13 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   }, [def.store, store.id]);
 
   useEffect(() => {
-    if (!canSettle || settleBy === 'amount' || !party.id) { setOpen([]); return; }
+    if (originalFields || !canSettle || settleBy === 'amount' || !party.id) { setOpen([]); return; }
     financeApi.openItems({ dir: type === 'receipt' ? 'in' : 'out', partyKind, partyId: party.id }).then(setOpen).catch(() => setOpen([]));
-  }, [canSettle, settleBy, party.id, partyKind, type]);
+  }, [canSettle, settleBy, party.id, partyKind, type,originalFields]);
 
   const [balanceTick, setBalanceTick] = useState(0);
-  const partyBalance = usePartyBalance(def.party ? partyKind : null, party.id, balanceTick);
-  const hints = useLineHints(def.lines === 'product' ? lines.map((l) => l.productId).filter((x): x is number => !!x) : [], wh.id, def.warehouse ? wh.name : undefined);
+  const partyBalance = usePartyBalance(!originalFields&&def.party ? partyKind : null, originalFields?null:party.id, balanceTick);
+  const hints = useLineHints(!originalFields&&def.lines === 'product' ? lines.map((l) => l.productId).filter((x): x is number => !!x) : [], wh.id, def.warehouse ? wh.name : undefined);
 
   const parse = (t: string) => { const v = yuanToCents(t); if (Number.isNaN(v)) throw new Error('金额格式不对（最多两位小数）'); return v; };
   const priceOf = (t: string) => { const v = unitPriceOf(t); return typeof v === 'number' && !Number.isNaN(v) ? v : 0; };
@@ -236,9 +238,9 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const origExcess = origQty.map((o) => { const back = lines.filter((l) => l.productId === o.productId).reduce((x, l) => x + (Number(l.qty) || 0), 0); return back - o.qty > 1e-9 ? `${o.name}：退 ${back} > 原单 ${o.qty}` : ''; }).filter(Boolean);
   // 选了“全款/用预收预付结算”后，改明细金额时收付款金额跟着变
   useEffect(() => {
-    if (payMode === 'full') setPaid(centsToYuan(total));
+    if (payMode === 'full') setPaid(originalFields?(total?String(total/100):''):centsToYuan(total));
     else if (payMode === 'offset') setOffset(centsToYuan(total));
-  }, [total, payMode]);
+  }, [total, payMode,originalFields]);
   const restLabel = def.moneySettlement ? '尚未实际收付金额' : def.settle === 'in' ? (type === 'purchase-return' ? '还没退回' : '欠款（挂应收）') : type === 'sale-return' ? '暂未退款（冲客户欠款）' : type === 'purchase-in' ? '欠款（挂应付）' : type === 'expense' ? '欠款（挂应付）' : '未结清';
 
   const pickMode = (m: PayMode) => {
@@ -249,9 +251,9 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
       if (m === 'part') return;
       setMultiOn(false);
     }
-    if (m === 'full') { setPaid(centsToYuan(total)); setOffset(''); }
-    else if (m === 'credit' || m === 'debt') { setPaid(''); setOffset(''); }
-    else if (m === 'offset') { setPaid(''); setOffset(centsToYuan(total)); }
+    if (m === 'full') { setPaid(originalFields?(total?String(total/100):''):centsToYuan(total)); setOffset(''); }
+    else if (m === 'credit' || m === 'debt') { setPaid(originalFields?'0':''); setOffset(''); }
+    else if (m === 'offset') { setPaid(originalFields?'0':''); setOffset(centsToYuan(total)); }
   };
 
   const reset = () => {
@@ -375,8 +377,8 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
             </div>
           </label>
         )}
-        {def.party && party.id && <div className="slip-wide"><PartyBalanceBar balance={partyBalance} extraReceivable={def.settle === 'in' && def.lines === 'product' ? Math.max(rest, 0) : 0} /></div>}
-        {origin && partyKind === origin.kind && (
+        {!originalFields && def.party && party.id && <div className="slip-wide"><PartyBalanceBar balance={partyBalance} extraReceivable={def.settle === 'in' && def.lines === 'product' ? Math.max(rest, 0) : 0} /></div>}
+        {!originalFields && origin && partyKind === origin.kind && (
           <div className="slip-orig">
             <label>关联{origin.label}（选填，用于对照退货数量）
               <select aria-label={`关联${origin.label}`} value={origId} disabled={!party.id} onChange={(e) => setOrigId(e.target.value)}>
@@ -435,8 +437,8 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
       {type !== 'withdrawal' && !sourceInline && <details className="reference-document-extra"><summary>过账说明</summary><p className="muted slip-hint">过账结果：{def.posting}</p></details>}
       </div>
       <aside className="slip-side" aria-label="单据功能区">
-      <div className="slip-total-card"><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{def.lines && <span className="muted">共 {parsedCount} 行{discountC > 0 ? ` · 已优惠 ${money(discountC)}` : ''}</span>}</div>
-      <section className="slip-settle">
+      <div className={`slip-total-card${originalFields?' reference-voucher-total':''}`}><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{!originalFields&&def.lines && <span className="muted">共 {parsedCount} 行{discountC > 0 ? ` · 已优惠 ${money(discountC)}` : ''}</span>}</div>
+      {originalFields?<ReferenceVoucherPayment ui={ui} title={settleTitle} expense={type==='expense'} mode={payMode} onMode={pickMode} bank={bank} onBank={(id,name)=>setBank({id,name})} paid={paid} onPaid={value=>{setPaid(value);setPayMode('part');setOffset('');}}/>:<section className="slip-settle">
         <h3 className="section-title"><span className="step">3</span>{settleTitle}</h3>
         {hasPayment && (
           <div className="pay-modes" role="group" aria-label="结算方式">
@@ -496,10 +498,10 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
             <div className={rest < 0 ? 'bad' : undefined}><dt>{restLabel}</dt><dd>{money(rest)}</dd></div>
           </dl>
         )}
-      </section>
+      </section>}
 
       {def.store && <VoucherPanel files={vouchers} shopId={shopId} onChange={(f) => { setVouchers(f); setVouchersDirty(true); }} />}
-      {type === 'expense' ? <section className="expense-note-fields">
+      {originalFields?<ReferenceVoucherNote expense={type==='expense'} summary={summary} onSummary={setSummary} memo={memo} onMemo={setMemo}/>:type === 'expense' ? <section className="expense-note-fields">
         <label>单据摘要<input aria-label="单据摘要" placeholder="不填则自动生成" maxLength={255} value={summary} onChange={e => setSummary(e.target.value)} /></label>
         <label>单据备注<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>
       </section> : <label>{def.lines ? '备注' : `${moneyItem} / 备注`}<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>}

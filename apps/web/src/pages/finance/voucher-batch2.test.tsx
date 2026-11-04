@@ -35,23 +35,23 @@ const lastCreated = () => fa.create.mock.calls[0][0] as unknown as Record<string
 
 describe('收款单/付款单优惠金额', () => {
   it('收款单：优惠金额随单据提交，并显示“本次冲减应收 = 到账 + 优惠”', async () => {
-    render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
+    render(<DocForm type="receipt" onSaved={vi.fn()} />);
     await pickParty('客户');
     fireEvent.change(screen.getByLabelText('第1行收款来源'), { target: { value: '客户回款' } });
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '90' } });
     fireEvent.change(screen.getByLabelText('优惠金额'), { target: { value: '10' } });
     expect(within(screen.getByLabelText('本次冲减往来')).getByText('本次冲减应收').nextSibling!.textContent).toBe('¥100.00');
     await addAccount('收款账户', '甲户');
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated().discountCents).toBe(1000);
   });
   it('付款单：说明是对方给的折扣；不填优惠时提交 0', async () => {
-    render(<DocForm type="payment" inline onSaved={vi.fn()} />);
+    render(<DocForm type="payment" onSaved={vi.fn()} />);
     expect(screen.getByText(/对方给的折扣/)).toBeTruthy();
     expect(within(screen.getByLabelText('本次冲减往来')).getByText('本次冲减应付')).toBeTruthy();
     await pickParty('收款方').catch(() => undefined);
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated().discountCents).toBe(0);
   });
@@ -59,7 +59,7 @@ describe('收款单/付款单优惠金额', () => {
 
 describe('多账户收付款', () => {
   it('销售单：分两个账户收款，实收等于各账户之和，提交 accounts 且主账户是第一个', async () => {
-    render(<DocForm type="sale" inline onSaved={vi.fn()} />);
+    render(<DocForm type="sale" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '分多个账户收款' }));
     await addAccount('添加收款账户', '甲户');
     await addAccount('添加收款账户', '乙户');
@@ -67,7 +67,7 @@ describe('多账户收付款', () => {
     fireEvent.change(screen.getByLabelText('乙户收款金额'), { target: { value: '30' } });
     expect((screen.getByLabelText('收到金额') as HTMLInputElement).value).toBe('70.00');
     expect(screen.getByLabelText('分账户合计').textContent).toContain('¥70.00');
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     const b = lastCreated();
     expect(b.paidCents).toBe(7000);
@@ -75,7 +75,7 @@ describe('多账户收付款', () => {
     expect(b.accounts).toEqual([{ role: 'in', bankAccountId: 5, amountCents: 4000 }, { role: 'in', bankAccountId: 6, amountCents: 3000 }]);
   });
   it('付款单：各账户合计必须等于单据金额，不等就提示并给“差额填入”；改回单个账户后恢复原写法', async () => {
-    render(<DocForm type="payment" inline onSaved={vi.fn()} />);
+    render(<DocForm type="payment" onSaved={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('第1行付款用途'), { target: { value: '货款' } });
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: '分多个账户付款' }));
@@ -90,20 +90,20 @@ describe('多账户收付款', () => {
     fireEvent.click(screen.getByRole('button', { name: '改回单个账户' }));
     expect(screen.getByLabelText('付款账户')).toBeTruthy();
     expect(screen.getByLabelText('付款账户').textContent).toContain('甲户');
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated().accounts).toBeNull();
     expect(lastCreated().bankAccountId).toBe(5);
   });
   it('合计对不上时，开立被前端校验拦住且不请求服务器', async () => {
-    render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
+    render(<DocForm type="receipt" onSaved={vi.fn()} />);
     await pickParty('客户');
     fireEvent.change(screen.getByLabelText('第1行收款来源'), { target: { value: '回款' } });
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: '分多个账户收款' }));
     await addAccount('添加收款账户', '甲户');
     fireEvent.change(screen.getByLabelText('甲户收款金额'), { target: { value: '60' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存收款单' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存并开立' }));
     expect((await screen.findByRole('alert')).textContent).toContain('各账户金额合计');
     expect(fa.create).not.toHaveBeenCalled();
   });

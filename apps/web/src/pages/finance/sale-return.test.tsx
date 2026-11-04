@@ -15,7 +15,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 it('销售退货：选客户后只列出他的已过账销售单，带入原单商品明细', async () => {
-  render(<DocForm type="sale-return" inline onSaved={vi.fn()} />);
+  render(<DocForm type="sale-return" onSaved={vi.fn()} />);
   const party = screen.getByLabelText('客户');
   fireEvent.click(party);
   fireEvent.click(await screen.findByRole('option', { name: '老客户' }));
@@ -28,7 +28,7 @@ it('销售退货：选客户后只列出他的已过账销售单，带入原单�
   expect(screen.getByLabelText('第1行商品').textContent).toContain('苹果');
 });
 
-it('网店销售沿原版手工选择收款账户，不因只有一个关联账户擅自代选；佣金估算保留', async () => {
+it('网店销售沿原版手工选择收款账户，不因只有一个关联账户擅自代选；不新增佣金估算', async () => {
   vi.mocked(resourceApi.list).mockImplementation((async (type: string) => ({ items: [{ id: type === 'bank-accounts' ? 21 : 7, title: type === 'bank-accounts' ? '拼多多店铺户' : '一号店', status: 'active', data: {}, type }], total: 1, page: 1, pageSize: 15 })) as never);
   render(<DocForm type="online-sale" inline onSaved={vi.fn()} />);
   fireEvent.click(screen.getByLabelText('销售店铺'));
@@ -38,13 +38,13 @@ it('网店销售沿原版手工选择收款账户，不因只有一个关联账�
   fireEvent.click(screen.getByLabelText('收款账户'));
   fireEvent.click(await screen.findByRole('option',{name:'拼多多店铺户'}));
   expect(screen.getByLabelText('收款账户').textContent).toContain('拼多多店铺户');
-  expect(screen.getByLabelText('平台佣金率')).toBeTruthy();
+  expect(screen.queryByLabelText('平台佣金率')).toBeNull();
 });
 
 it('带入原单等待期间改选客户，迟到的原商品不填入新客户的退货行',async()=>{
   let resolve!:(value:DocDetailDto)=>void;vi.mocked(financeApi.doc).mockReturnValue(new Promise(done=>{resolve=done;}));
   vi.mocked(resourceApi.list).mockResolvedValue({items:[{id:7,title:'老客户',status:'active',data:{}},{id:8,title:'新客户',status:'active',data:{}}],total:2,page:1,pageSize:200} as never);
-  render(<DocForm type="sale-return" inline onSaved={vi.fn()}/>);fireEvent.click(screen.getByLabelText('客户'));fireEvent.click(await screen.findByRole('option',{name:'老客户'}));
+  render(<DocForm type="sale-return" onSaved={vi.fn()}/>);fireEvent.click(screen.getByLabelText('客户'));fireEvent.click(await screen.findByRole('option',{name:'老客户'}));
   await waitFor(()=>expect((screen.getByLabelText('关联原销售单') as HTMLSelectElement).options).toHaveLength(2));fireEvent.change(screen.getByLabelText('关联原销售单'),{target:{value:'11'}});fireEvent.click(screen.getByRole('button',{name:'带入原单明细'}));
   fireEvent.click(screen.getByLabelText('客户'));fireEvent.click(await screen.findByRole('option',{name:'新客户'}));
   await act(async()=>{resolve({docType:'sale',status:'posted',partyKind:'customer',partyId:7,lines:[{productId:3,productName:'旧客户商品',qty:10,unitPriceCents:500,unit:'箱'}]} as unknown as DocDetailDto);});
@@ -52,6 +52,6 @@ it('带入原单等待期间改选客户，迟到的原商品不填入新客户�
 });
 it('同名不同客户或未过账原单不能带入，避免只按显示名称错误关联',async()=>{
   vi.mocked(financeApi.doc).mockResolvedValue({docType:'sale',status:'posted',partyKind:'customer',partyId:8,lines:[{productId:3,productName:'同名另一客户商品',qty:10,unitPriceCents:500}]} as unknown as DocDetailDto);
-  render(<DocForm type="sale-return" inline onSaved={vi.fn()}/>);fireEvent.click(screen.getByLabelText('客户'));fireEvent.click(await screen.findByRole('option',{name:'老客户'}));
+  render(<DocForm type="sale-return" onSaved={vi.fn()}/>);fireEvent.click(screen.getByLabelText('客户'));fireEvent.click(await screen.findByRole('option',{name:'老客户'}));
   await waitFor(()=>expect((screen.getByLabelText('关联原销售单') as HTMLSelectElement).options).toHaveLength(2));fireEvent.change(screen.getByLabelText('关联原销售单'),{target:{value:'11'}});fireEvent.click(screen.getByRole('button',{name:'带入原单明细'}));await screen.findByText(/原单不属于当前往来对象/);expect(screen.getByLabelText('第1行商品').textContent).not.toContain('同名另一客户商品');
 });
