@@ -1,9 +1,13 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { resourceApi } from '../../resources/api';
-import { ReferencePickContext, SearchPick } from './common';
+import { ReferencePickContext, SearchPick, referenceProductLabel } from './common';
 vi.mock('../../resources/api',()=>({resourceApi:{list:vi.fn()}}));
 afterEach(()=>{cleanup();vi.useRealTimers();vi.clearAllMocks();});
+it('商品选择器显示原名称、品牌与名称规格，保留文字规格和公司单位名，不使用基础信息全称',()=>{
+  expect(referenceProductLabel({title:'合成商品',data:{name:'合成名称',basicInfoFullName:'另一种基础全称',specQty:'00500',specUnit:'SYNTHUNIT',purchaseSpec:'千克'},refLabels:{brandId:'合成品牌'},optionLabels:{specUnit:'合成托盘'}})).toBe('合成名称 · 合成品牌 · 00500合成托盘');
+  expect(referenceProductLabel({title:'合成商品',data:{specQty:0,specUnit:'B'},refLabels:{}})).toBe('合成商品 · 0包');
+});
 it('点击展开搜索，旧搜索晚返回不能覆盖新结果；选择后保留资料ID',async()=>{
   vi.useFakeTimers();
   let resolveOld!:(value:unknown)=>void;
@@ -19,7 +23,7 @@ it('点击展开搜索，旧搜索晚返回不能覆盖新结果；选择后保�
   await act(async()=>{resolveOld({items:[{id:1,title:'旧商品',status:'active',data:{}}],total:1});});
   expect(screen.queryByRole('option',{name:'旧商品'})).toBeNull();
   fireEvent.click(screen.getByRole('option',{name:'新商品 · NEW'}));
-  expect(change).toHaveBeenCalledWith(2,'新商品',{code:'NEW'});
+  expect(change).toHaveBeenCalledWith(2,'新商品',{code:'NEW'},undefined);
   expect(screen.queryByRole('listbox')).toBeNull();
 });
 it('读取失败保留选中的账户，重试与关闭不会清空账户',async()=>{

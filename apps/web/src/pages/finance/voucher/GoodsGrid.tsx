@@ -15,7 +15,7 @@ interface Props {
   setLine: (i: number, patch: Partial<LineState>) => void;
   priceOf: (text: string) => number;
   hints: Map<number, LineHint>;
-  onPickProduct: (i: number, id: number | null, name: string, data?: Record<string, unknown>) => void;
+  onPickProduct: (i: number, id: number | null, name: string, data?: Record<string, unknown>, optionLabels?: Record<string,string>) => void;
   onPickFee: (i: number, id: number | null, name: string, data?: Record<string, unknown>) => void;
   addRow: () => void;
   gridRef?: React.Ref<HTMLDivElement>;
@@ -53,7 +53,7 @@ export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints,
               {!amountOnly && <td data-cell="#" className="vc-no">{i + 1}</td>}
               <td>
                 {!isFee
-                  ? <SearchPick ariaLabel={`第${i + 1}行商品`} type="finance-products" value={l.productId} label={l.productName} onChange={(id, name, data) => onPickProduct(i, id, name, data)} />
+                  ? <SearchPick ariaLabel={`第${i + 1}行商品`} type="finance-products" value={l.productId} label={l.productLabel ?? l.productName} onChange={(id, name, data, labels) => onPickProduct(i, id, name, data, labels)} />
                   : <SearchPick ariaLabel={`第${i + 1}行费用项目`} placeholder={amountOnly ? '搜索费用类型' : undefined} type="finance-fee-items" fieldKey="direction" fieldValue={def.feeDirection} value={l.feeItemId} label={l.feeItemName} onChange={(id, name, data) => onPickFee(i, id, name, data)} />}
                 {!isFee && rowHint(type, l, l.productId ? hints.get(l.productId) : undefined, priceOf(l.price))}
               </td>

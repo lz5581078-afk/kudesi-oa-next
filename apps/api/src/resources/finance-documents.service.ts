@@ -1,10 +1,11 @@
 import { INVENTORY_UNIT_SQL } from './finance-inventory-units';
 import { categoryLabelMap } from './category-options';
+import { loadUnitLists, unitLabelFor } from './unit-options';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
-  cashSettlementAmount, unitOptionFromText, DOC_LINE_UNIT_MAX_LENGTH, averageUnitCents, querySearchTerms, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
+  cashSettlementAmount, DOC_LINE_UNIT_MAX_LENGTH, averageUnitCents, querySearchTerms, lineAmount, settledLineCents, validUnitCents, OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, CONFIRM_TRANSFER_PERMISSION, buildTransferConfirmEntries, payRole, hasMoneyDiscount, DOC_DIRECTION, DOC_TYPE_MAP, getResourceDef, DOC_TYPES, FEE_BOOKING_NODE_MAP, docTypesOfDirection, hasBankRef, PARTY_KIND_LABEL, PARTY_KIND_RESOURCE, buildEntries, effectivePaid, todayInChina, createChecker, docTotal, negateEntries, validateDoc,
   SETTLE_BY_LABEL, type DocInput, type DocLineInput, type DocType, type Entry, type SettleBy,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -192,7 +193,8 @@ export class FinanceDocumentsService {
     const ids=[...new Set(lines.map(line=>line.productId).filter((id):id is number=>!!id))];
     if(!ids.length)return new Map<number,string>();
     const products=await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-products',id:In(ids)}});
-    return new Map(products.map(product=>{const raw=String(product.data.specUnit??'').trim();const unit=raw?(unitOptionFromText(raw)?.label||raw):'件';if(unit.length>DOC_LINE_UNIT_MAX_LENGTH)throw new BadRequestException('商品单位不能超过40字，请先核对商品档案');return[product.id,unit]as const;}));
+    const units=await loadUnitLists(em,user.companyId),field=getResourceDef('finance-products')!.fields.find(field=>field.key==='specUnit')!;
+    return new Map(products.map(product=>{const raw=String(product.data.specUnit??'').trim();const unit=raw?unitLabelFor(units,field,product.data,raw):'件';if(unit.length>DOC_LINE_UNIT_MAX_LENGTH)throw new BadRequestException('商品单位不能超过40字，请先核对商品档案');return[product.id,unit]as const;}));
   }
 
   private async writeLines(em: EntityManager, user: AuthUser, documentId: number, lines: DocLineInput[]) {

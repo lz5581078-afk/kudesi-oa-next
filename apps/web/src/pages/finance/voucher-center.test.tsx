@@ -26,7 +26,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 const pickProduct = async (row = 1) => {
   fireEvent.click(screen.getByLabelText(`第${row}行商品`));
-  fireEvent.click(await screen.findByRole('option', { name: '小油菜' }));
+  fireEvent.click(await screen.findByRole('option', { name: /^小油菜(?: ·.*)?$/ }));
 };
 
 describe('明细网格键盘录入', () => {
@@ -55,6 +55,14 @@ describe('明细网格键盘录入', () => {
 });
 
 describe('商品名称单位的原版联动', () => {
+  it('公司维护的自定义单位取服务端选项显示名，不把编码或其他种类的名称当作行单位', async () => {
+    vi.mocked(resourceApi.list).mockResolvedValue({items:[{...item(3,'小油菜','finance-products'),data:{specUnit:'SYNTHUNIT'},optionLabels:{specUnit:'合成托盘'}}],total:1,page:1,pageSize:80} as never);
+    render(<DocForm type="sale" inline onSaved={vi.fn()}/>);
+    await pickProduct();
+    expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('合成托盘');
+    fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));
+    await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({productId:3,unit:'合成托盘'})]})));
+  });
   it('选择时同步带出名称单位；没有设置时保留行内单位或回退为件，不再异步清空或覆盖手填', async () => {
     vi.mocked(resourceApi.list).mockResolvedValue({items:[
       {...item(3,'小油菜','finance-products'),data:{specUnit:'包',purchaseSpec:'kg'}},
@@ -91,7 +99,7 @@ describe('商品名称单位的原版联动', () => {
     await pickProduct(2);
     fireEvent.click(screen.getByRole('button',{name:'删除第1行'}));
     fireEvent.click(screen.getByLabelText('第1行商品'));
-    fireEvent.click(await screen.findByRole('option',{name:'合成箱装'}));
+    fireEvent.click(await screen.findByRole('option',{name:'合成箱装 · 箱'}));
     expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('箱');
     expect(resourceApi.get).not.toHaveBeenCalledWith('finance-products',expect.anything());
   });

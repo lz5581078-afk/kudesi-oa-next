@@ -44,6 +44,8 @@ d('仓库角色模式（真实数据库）', () => {
     expect(r.warehouseMode).toBe(true);
     expect(r.data.name).toBe('仓库苹果');
     expect(r.data.basicInfoFullName).toBeTruthy();
+    expect(r.optionLabels?.specUnit).toBe('千克');
+    expect(Object.keys(r.optionLabels ?? {}).every(key => Object.prototype.hasOwnProperty.call(r.data,key))).toBe(true);
     for (const k of ['note', 'purchasePrice', 'freight', 'totalCost', 'giftShortName', 'zeroValueReason', 'supplierId']) expect(r.data).not.toHaveProperty(k);
     const list = await svc.list(wh, 'finance-products', {} as never);
     expect(list.items[0].warehouseMode).toBe(true);

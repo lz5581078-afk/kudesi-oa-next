@@ -289,10 +289,10 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
     setLines(current => current.map((line, index) => index === i ? { ...line, feeItemId: id, feeItemName: name, needObject: !!id && data?.requiredObject === 'yes', node: line.node || first || '' } : line));
   };
   /** 名称单位与选中商品一起带入；未设置则保留行内单位，最后回退为件。 */
-  const pickProduct = (i: number, id: number | null, name: string, data?: Record<string, unknown>) => {
+  const pickProduct = (i: number, id: number | null, name: string, data?: Record<string, unknown>, labels?: Record<string,string>) => {
     const rawUnit = id ? String(data?.specUnit ?? '').trim() : '';
-    const unit = unitOptionFromText(rawUnit)?.label || rawUnit;
-    setLines(current => current.map((line, index) => index === i ? { ...line, productId: id, productName: name, unit: unit || line.unit || '件' } : line));
+    const unit = id && labels?.specUnit || unitOptionFromText(rawUnit)?.label || rawUnit;
+    setLines(current => current.map((line, index) => index === i ? { ...line, productId: id, productName: String(data?.name || name), productLabel: [name, data?.code].filter(Boolean).join(' · '), unit: unit || line.unit || '件' } : line));
   };
   const moneyItem = ui.moneyItemLabel ?? '项目';
   const parsedCount = structuredLines ? lines.filter((l) => l.productId || l.feeItemId || l.price).length : moneyLines.filter(l => l.item || l.amount).length;

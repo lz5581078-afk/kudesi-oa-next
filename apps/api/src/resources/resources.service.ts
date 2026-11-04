@@ -72,6 +72,8 @@ export interface ResourceDto {
   secretConfigured: Record<string, boolean>;
   /** 引用字段 → 显示名 */
   refLabels: Record<string, string>;
+  /** 已返回的动态选项字段 → 当前公司显示名（含停用历史项）；不改变存储值。 */
+  optionLabels?: Record<string, string>;
   /** 文件字段里的文件信息（文件 id → 名称/类型/大小） */
   files: Record<number, FileInfo>;
   /** 仓库角色模式：只给了精简列、不含日志和关联（旧仓库档案视图） */
@@ -369,6 +371,8 @@ export class ResourcesService implements RuleHost {
     const derivedCols = def.derivedColumns?.length ? await deriveColumns(em, companyId, def, records) : null;
     const workforce = def.key === 'workforce' ? await deriveWorkforce(em, companyId, records) : null;
     const accountCols = hasAccountDerive(def) ? await deriveAccountFields(em, companyId, def, records) : null;
+    const optionFields = def.fields.filter(field => field.type === 'select' && field.optionsFrom?.resource === 'finance-product-units');
+    const units = records.length && optionFields.length ? await loadUnitLists(em, companyId) : null;
     return records.map((r) => {
       const dto = this.toDto(def, r, labels.get(r.id) ?? {}, fileMap);
       const acc = accountCols?.get(r.id);
@@ -388,6 +392,10 @@ export class ResourcesService implements RuleHost {
         for (const k of Object.keys(dto.refLabels)) if (!warehouseKeep.has(k)) delete dto.refLabels[k];
         dto.secretConfigured = {};
         dto.warehouseMode = true;
+      }
+      if (units) {
+        const optionLabels = Object.fromEntries(optionFields.filter(field => dto.data[field.key] !== undefined && dto.data[field.key] !== null).map(field => [field.key, unitLabelFor(units, field, dto.data, dto.data[field.key])]));
+        if (Object.keys(optionLabels).length) dto.optionLabels = optionLabels;
       }
       return dto;
     });

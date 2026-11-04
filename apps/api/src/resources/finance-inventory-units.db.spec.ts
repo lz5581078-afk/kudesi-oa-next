@@ -75,4 +75,27 @@ d('库存单位快照、旧明细与单位内扣减（真实隔离数据库）',
     expect((await docs.inventoryLedger({...actor,companyId:actor.companyId+100000},{productId:item.id,warehouseId,unit:'袋'})).rows).toEqual([]);
   });
 
+  it('自定义名称单位按本公司及单位种类解析，改名停用不覆盖已保存快照，资料返回显示名而不改编码',async()=>{
+    await resources.seedUnitDefaults(actor);
+    const named=await resources.create(actor,'finance-product-units',{kind:'spec_unit',code:'SYNTHUNIT',name:'合成托盘'});
+    await resources.create(actor,'finance-product-units',{kind:'shipping_unit',code:'SYNTHUNIT',name:'合成卷材'});
+    const foreign=await ds.manager.save(Company,ds.manager.create(Company,{code:`ul${randomBytes(5).toString('hex')}`,name:'合成其他字典公司',status:'active'}));
+    const foreignUser=await ds.manager.save(User,ds.manager.create(User,{companyId:foreign.id,account:'synthetic-unit',name:'合成单位管理员',passwordHash:'x',isCompanyAdmin:true,status:'active',mustChangePassword:false}));
+    const foreignActor={...actor,companyId:foreign.id,id:foreignUser.id};
+    await resources.create(foreignActor,'finance-product-units',{kind:'spec_unit',code:'SYNTHUNIT',name:'其他公司专有单位'});
+    const item=await resources.create(actor,'finance-products',{archiveType:'raw',name:'合成自定单位商品',categoryId,specQty:1,specUnit:'SYNTHUNIT',purchaseSpec:'千克',purchasePrice:1000,freight:1,handlingFee:1});
+    expect(item.data.specUnit).toBe('SYNTHUNIT');expect(item.optionLabels?.specUnit).toBe('合成托盘');
+    expect((await resources.list(actor,'finance-products',{page:1,pageSize:200})).items.find(row=>row.id===item.id)?.optionLabels?.specUnit).toBe('合成托盘');
+    const stored=await purchase(item.id);expect(stored.lines[0].unit).toBe('合成托盘');expect(stored.entries.find(entry=>entry.kind==='inventory')?.unit).toBe('合成托盘');
+    const shippingCategory=await resources.create(actor,'finance-categories',{archiveType:'shipping_material',name:'合成专用发货分类',code:'SYNSHIP'});
+    const shipping=await resources.create(actor,'finance-products',{archiveType:'shipping_material',name:'合成自定发货商品',categoryId:shippingCategory.id,specQty:1,specUnit:'SYNTHUNIT',purchaseSpec:'卷',weightG:10,purchasePrice:1000,freight:1,handlingFee:1});
+    expect(shipping.optionLabels?.specUnit).toBe('合成卷材');expect((await draft(shipping.id,undefined)).lines[0].unit).toBe('合成卷材');
+    await resources.update(actor,'finance-product-units',named.id,{name:'合成新托盘'});await resources.changeStatus(actor,'finance-product-units',named.id,'inactive','合成历史显示核对');
+    expect((await resources.get(actor,'finance-products',item.id)).optionLabels?.specUnit).toBe('合成新托盘');
+    expect((await draft(item.id,undefined)).lines[0].unit).toBe('合成新托盘');
+    expect((await docs.get(actor,stored.id)).lines[0].unit).toBe('合成托盘');expect((await stock(item.id))[0].unit).toBe('合成托盘');
+    const reader={...actor,permissions:{isCompanyAdmin:false,allow:['resource.finance-products.view'],deny:[]}};
+    const visible=await resources.get(reader,'finance-products',item.id);expect(visible.optionLabels?.specUnit).toBe('合成新托盘');expect(visible.data).not.toHaveProperty('purchasePrice');
+    expect(JSON.stringify(visible.optionLabels)).not.toContain('其他公司专有单位');
+  });
 });

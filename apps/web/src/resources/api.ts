@@ -19,6 +19,7 @@ export interface ResourceDto {
   data: Record<string, unknown>;
   secretConfigured: Record<string, boolean>;
   refLabels: Record<string, string>;
+  optionLabels?: Record<string, string>;
   files: Record<number, FileInfo>;
   /** 仓库角色模式：精简列、只读 */
   warehouseMode?: boolean;
