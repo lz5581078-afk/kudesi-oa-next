@@ -59,10 +59,10 @@ export function PayrollTab({
   for(const w of data?.wages?.rows??[])if(w.dailyWorkId)allRows.push({dailyContent:w.note,dailyWorkId:w.dailyWorkId,id:w.id,sessionId:0,userId:w.userId,userName:w.userName,role:w.role??role,roleLabel:role==='anchor'?'主播':'中控',date:w.date,roomName:w.roomName,startAt:w.startAt,endAt:w.endAt,douyinName:'',platform:'',finalSalesCents:0,adSpendCents:0,roiScaled:null,belowRoi:false,rateUnits:0,amountCents:0,ruleVersionId:0,wageCents:w.amountCents,minutes:w.minutes,hourlyRateCents:w.hourlyRateCents,totalCents:w.amountCents});
   const rows = allRows.filter((r) => !personId || String(r.userId) === personId);
   const people = [...new Map(allRows.map((r) => [r.userId, r.userName])).entries()];
-  const summary = new Map<number, { name: string; count: number; minutes: number; wage: number; commission: number; unknownDurations: number }>();
+  const summary = new Map<number, { name: string; count: number; minutes: number; wage: number; commission: number; sales: number; unknownDurations: number }>();
   const countedSessions=new Set<string>();
   for (const r of rows) {
-    const p = summary.get(r.userId) ?? { name: r.userName, count: 0, minutes: 0, wage: 0, commission: 0, unknownDurations: 0 };
+    const p = summary.get(r.userId) ?? { name: r.userName, count: 0, minutes: 0, wage: 0, commission: 0, sales: 0, unknownDurations: 0 };
     const key=`${r.userId}:${r.sessionId}`;
     if(!r.dailyWorkId&&!countedSessions.has(key)){
       p.count++;countedSessions.add(key);
@@ -71,6 +71,7 @@ export function PayrollTab({
     if(!commissionOnly)p.minutes += r.minutes ?? 0;
     p.wage += r.wageCents;
     p.commission += r.amountCents;
+    p.sales += r.finalSalesCents;
     summary.set(r.userId, p);
   }
   function exportCsv() {
@@ -192,6 +193,7 @@ export function PayrollTab({
                 <th>人员</th>
                 <th>场次</th>
                 <th>{commissionOnly ? '直播时长' : '计薪时长'}</th>
+                <th title="当前筛选范围内，已审核场次各平台核定营业额合计">营业额</th>
                 {!commissionOnly && <th>时间工资</th>}
                 <th>提成</th>
                 {!commissionOnly && <th>合计</th>}
@@ -203,6 +205,7 @@ export function PayrollTab({
                   <td>{p.name}</td>
                   <td>{p.count}</td>
                   <td>{minutesText(p.minutes)}{p.unknownDurations>0 && <small>（{p.unknownDurations}场未记录）</small>}</td>
+                  <td>{money(p.sales)}</td>
                   {!commissionOnly && <td>{money(p.wage)}</td>}
                   <td>{money(p.commission)}</td>
                   {!commissionOnly && <td>

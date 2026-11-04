@@ -230,6 +230,7 @@ describe("多平台直播表单与工资", () => {
     expect(summary.textContent).toContain("180.00");
     const row = within(summary).getAllByRole("row")[1];
     expect(within(row).getAllByRole("cell")[1].textContent).toBe("1");
-    expect(within(row).getAllByRole("cell")[3].textContent).toBe("¥150.00");
+    expect(within(row).getAllByRole("cell")[3].textContent).toBe("¥3,000.00");
+    expect(within(row).getAllByRole("cell")[4].textContent).toBe("¥150.00");
   });
 });
