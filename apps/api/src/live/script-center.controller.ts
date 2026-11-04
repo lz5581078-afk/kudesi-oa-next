@@ -20,6 +20,7 @@ import { DataSource } from 'typeorm';
 import {
   ArrayMaxSize,
   IsArray,
+  ArrayMinSize,
   IsIn,
   IsInt,
   IsOptional,
@@ -51,7 +52,39 @@ class Cue {
   @IsInt() @Min(0) start!: number;
   @IsInt() @Min(1) end!: number;
 }
+class Stage extends Named {
+  @IsInt() @Min(0) length!: number;
+}
+class Question {
+  @IsString() @Length(1, 200) question!: string;
+  @IsString() @Length(1, 1500) answer!: string;
+}
+class Template extends Named {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(80)
+  @IsString({ each: true })
+  @Length(1, 100, { each: true })
+  stages!: string[];
+}
+class TemplateUpdate extends Template {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(80) @IsString({ each: true }) previous!: string[];
+}
 class Script extends Named {
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(80)
+  @ValidateNested({ each: true })
+  @Type(() => Stage)
+  outline?: Stage[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @ValidateNested({ each: true })
+  @Type(() => Question)
+  faq?: Question[];
+  @IsOptional() @IsInt() @Min(1) faqRevision?: number;
   @IsString() @MaxLength(10000) notes!: string;
   @IsString() @MaxLength(30000) body!: string;
   @IsArray() @ArrayMaxSize(300) @ValidateNested({ each: true }) @Type(() => Cue) cues!: Cue[];
@@ -72,11 +105,16 @@ export class ScriptCenterController {
   }
   private async version(company: number, id: number) {
     const [v] = await this.db.query(
-      'SELECT id,folder_id folderId,name,notes,body,cues,revision FROM live_script_versions WHERE company_id=? AND id=?',
+      'SELECT v.id,v.folder_id folderId,v.name,v.notes,v.body,v.cues,v.revision,v.outline,f.faq,f.faq_revision faqRevision FROM live_script_versions v JOIN live_script_folders f ON f.company_id=v.company_id AND f.id=v.folder_id WHERE v.company_id=? AND v.id=?',
       [company, id],
     );
     if (!v) throw new NotFoundException('话术版本不存在');
-    return { ...v, cues: typeof v.cues === 'string' ? JSON.parse(v.cues) : v.cues };
+    return {
+      ...v,
+      outline: typeof v.outline === 'string' ? JSON.parse(v.outline) : v.outline,
+      faq: typeof v.faq === 'string' ? JSON.parse(v.faq) : (v.faq ?? []),
+      cues: typeof v.cues === 'string' ? JSON.parse(v.cues) : v.cues,
+    };
   }
   @AuthenticatedOnly()
   @Get()
@@ -93,15 +131,60 @@ export class ScriptCenterController {
     ]);
     return { folders, versions };
   }
+  @AuthenticatedOnly()
+  @Get('templates')
+  async templates(@CurrentUser() u: AuthUser) {
+    this.view(u);
+    const rows = await this.db.query(
+      'SELECT id,name,stages FROM live_script_templates WHERE company_id=? ORDER BY name,id',
+      [u.companyId],
+    );
+    return rows.map((r: { id: number; name: string; stages: string | string[] }) => ({
+      ...r,
+      stages: typeof r.stages === 'string' ? JSON.parse(r.stages) : r.stages,
+    }));
+  }
+  @RequirePermission('live.manage')
+  @Post('templates')
+  async template(@CurrentUser() u: AuthUser, @Body() dto: Template) {
+    const name = nameOf(dto.name),
+      stages = dto.stages.map(nameOf);
+    try {
+      const result = await this.db.query(
+        'INSERT INTO live_script_templates(company_id,name,stages) VALUES(?,?,?)',
+        [u.companyId, name, JSON.stringify(stages)],
+      );
+      return { id: result.insertId, name, stages };
+    } catch (e) {
+      if ((e as { code?: string }).code === 'ER_DUP_ENTRY')
+        throw new ConflictException('模板名已使用，请换一个名称');
+      throw e;
+    }
+  }
+  @RequirePermission('live.manage')
+  @Put('templates/:id')
+  async updateTemplate(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: TemplateUpdate,
+  ) {
+    const stages = dto.stages.map(nameOf),
+      name = nameOf(dto.name);
+    const result = await this.db.query(
+      'UPDATE live_script_templates SET stages=? WHERE company_id=? AND id=? AND name=? AND stages=CAST(? AS JSON)',
+      [JSON.stringify(stages), u.companyId, id, name, JSON.stringify(dto.previous)],
+    );
+    if (!result.affectedRows) throw new ConflictException('模板已变更，请重新打开后核对');
+    return { id, name, stages };
+  }
   @RequirePermission('live.manage')
   @Post('folders')
   async folder(@CurrentUser() u: AuthUser, @Body() dto: ProductFolder) {
     try {
-      const row = await this.db.query('INSERT INTO live_script_folders(company_id,name,category) VALUES(?,?,?)', [
-        u.companyId,
-        nameOf(dto.name),
-        dto.category?.trim() ?? '',
-      ]);
+      const row = await this.db.query(
+        'INSERT INTO live_script_folders(company_id,name,category) VALUES(?,?,?)',
+        [u.companyId, nameOf(dto.name), dto.category?.trim() ?? ''],
+      );
       return { id: row.insertId };
     } catch (e) {
       if ((e as { code?: string }).code === 'ER_DUP_ENTRY') throw new ConflictException('已有同名产品文件夹');
@@ -110,17 +193,33 @@ export class ScriptCenterController {
   }
   @RequirePermission('live.manage')
   @Put('folders/:id/category')
-  async classify(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: FolderCategory) {
-    const result = await this.db.query('UPDATE live_script_folders SET category=? WHERE company_id=? AND id=?', [dto.category.trim(), u.companyId, id]);
+  async classify(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: FolderCategory,
+  ) {
+    const result = await this.db.query(
+      'UPDATE live_script_folders SET category=? WHERE company_id=? AND id=?',
+      [dto.category.trim(), u.companyId, id],
+    );
     if (!result.affectedRows) throw new NotFoundException('产品文件夹不存在');
     return { category: dto.category.trim() };
   }
   @RequirePermission('live.manage')
   @Post('folders/:id/versions')
   async create(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: Named) {
+    const [preset] = await this.db.query(
+      'SELECT stages FROM live_script_templates WHERE company_id=? AND name=?',
+      [u.companyId, '默认目录'],
+    );
+    const names: string[] = preset
+      ? typeof preset.stages === 'string'
+        ? JSON.parse(preset.stages)
+        : preset.stages
+      : ['留人', '互动', '塑品', '逼单', '追单'];
     const result = await this.db.query(
-      "INSERT INTO live_script_versions(company_id,folder_id,name,notes,body,cues) SELECT company_id,id,?,'','',JSON_ARRAY() FROM live_script_folders WHERE company_id=? AND id=?",
-      [nameOf(dto.name), u.companyId, id],
+      "INSERT INTO live_script_versions(company_id,folder_id,name,notes,body,cues,outline) SELECT company_id,id,?,'','',JSON_ARRAY(),? FROM live_script_folders WHERE company_id=? AND id=?",
+      [nameOf(dto.name), JSON.stringify(names.map((name) => ({ name, length: 0 }))), u.companyId, id],
     );
     if (!result.affectedRows) throw new NotFoundException('产品文件夹不存在');
     return { id: result.insertId };
@@ -149,12 +248,41 @@ export class ScriptCenterController {
       );
       if (assets.length !== ids.length) throw new BadRequestException('标注只能使用本版本素材');
     }
-    const result = await this.db.query(
-      'UPDATE live_script_versions SET name=?,notes=?,body=?,cues=?,revision=revision+1 WHERE company_id=? AND id=? AND revision=?',
-      [nameOf(dto.name), dto.notes, dto.body, JSON.stringify(dto.cues), u.companyId, id, dto.revision],
-    );
-    if (!result.affectedRows) throw new ConflictException('版本已变更，请保留草稿并重新打开版本核对');
-    return { revision: dto.revision + 1 };
+    if (
+      dto.outline &&
+      (dto.outline.some((s) => !s.name.trim()) ||
+        dto.outline.reduce((n, s) => n + s.length, 0) !== dto.body.length)
+    )
+      throw new BadRequestException('目录环节与正文长度不符');
+    if (dto.faq && (dto.faqRevision == null || dto.faq.some((q) => !q.question.trim() || !q.answer.trim())))
+      throw new BadRequestException('请填全问题和回答');
+    return this.db.transaction(async (em) => {
+      const result = await em.query(
+        'UPDATE live_script_versions SET name=?,notes=?,outline=COALESCE(?,outline),body=?,cues=?,revision=revision+1 WHERE company_id=? AND id=? AND revision=? AND (? OR outline IS NULL OR BINARY body=BINARY ?)',
+        [
+          nameOf(dto.name),
+          dto.notes,
+          dto.outline ? JSON.stringify(dto.outline) : null,
+          dto.body,
+          JSON.stringify(dto.cues),
+          u.companyId,
+          id,
+          dto.revision,
+          !!dto.outline,
+          dto.body,
+        ],
+      );
+      if (!result.affectedRows) throw new ConflictException('版本已变更，请保留草稿并重新打开版本核对');
+      if (dto.faq) {
+        const updated = await em.query(
+          'UPDATE live_script_folders f JOIN live_script_versions v ON v.folder_id=f.id AND v.company_id=f.company_id SET f.faq=?,f.faq_revision=f.faq_revision+1 WHERE v.company_id=? AND v.id=? AND f.faq_revision=?',
+          [JSON.stringify(dto.faq), u.companyId, id, dto.faqRevision],
+        );
+        if (!updated.affectedRows)
+          throw new ConflictException('其他版本已修改产品问题库，请保留草稿并重新核对');
+      }
+      return { revision: dto.revision + 1, ...(dto.faq ? { faqRevision: dto.faqRevision! + 1 } : {}) };
+    });
   }
   @RequirePermission('live.manage')
   @Post('versions/:id/assets')
