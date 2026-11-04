@@ -12,14 +12,14 @@ import { LiveManagementService } from './live-management.service';
 import 'reflect-metadata';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
-import { LIVE_DEFAULT_RULES, liveComputeCommission, liveSettleLine as liveSettleLineFor, type StepDef } from '@kudesi/shared';
+import { LIVE_DEFAULT_RULES, liveVersionFor, liveComputeCommission, liveSettleLine as liveSettleLineFor, type StepDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
 import { Company, Department, Notification, ResourceFile, ResourceRecord, User } from '../entities';
 import { FlowService } from '../flow/flow.service';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { buildServices } from '../test-support';
-import { ensureDefaultLiveRules, liveClock } from './live-core';
+import { ensureDefaultLiveRules, ruleVersions, liveClock } from './live-core';
 import { LiveLedgerService } from './live-ledger.service';
 import { LiveOrder, LiveOrderCandidates, LiveOrderSource, LiveRefund, type LiveSourceStatus } from './live-order-source';
 import { FeishuNoticeService } from '../outbox/feishu-notice.service';
@@ -104,7 +104,7 @@ d('直播管理（真实数据库）', () => {
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test_u9' }), migrationsRun: true } as never);
     await ds.initialize();
     const s = buildServices(ds);
-    flow = new FlowService(ds, s.resources, new FinanceDocumentsService(ds));
+    flow = new FlowService(ds, s.resources, new FinanceDocumentsService(ds),undefined,undefined,undefined,source);
     schedules = new LiveScheduleService(ds);
     sessions = new LiveSessionService(ds, flow, source);
     ledger = new LiveLedgerService(ds);
@@ -341,7 +341,7 @@ d('直播管理（真实数据库）', () => {
   });
 
   it('月结：必须只读核对退款（查不到不生成）；按原比例扣减；提交后锁月；审批通过后锁定', async () => {
-    clock('2026-10-05 10:00:00');
+    clock('2026-10-10 10:00:00');
     const unconfigured = new LiveSettlementService(ds, flow, new (await import('./live-order-source')).UnconfiguredLiveOrderSource());
     await expect(unconfigured.generate(manager, '2026-09')).rejects.toThrow(/不能生成结算单.*授权/);
     // 有要核对退款的订单、但聚水潭读取没就绪（没授权）时，明确提示，不生成残缺结算单
@@ -374,7 +374,7 @@ d('直播管理（真实数据库）', () => {
     await expect(settlements.generate(manager, '2026-09')).rejects.toThrow(/正在审批中/);
     clock('2026-09-30 23:00:00');
     await expect(sessions.start(manager, { roomId: ids.s1, anchorId: anchor.id, ...baseStart() })).rejects.toThrow(/结算审批/);
-    clock('2026-10-05 11:00:00');
+    clock('2026-10-10 11:00:00');
     const run = (await settlements.detail(manager, id)).flowRunId!;
     const f = await flow.detail(reviewer, run);
     await flow.pass(reviewer, run, { revision: f.revision, stepId: f.activeStep!.id });
@@ -535,7 +535,7 @@ d('直播管理（真实数据库）', () => {
   });
 
   it('区间工资结算：时间工资加提成、特殊核定、重叠与结算日锁定',async()=>{
-    clock('2026-08-20 18:00:00');
+    clock('2026-09-10 18:00:00');
     const made=await settlements.generate(manager,'',undefined,{from:'2026-08-18',to:'2026-08-18'});
     const detail=await settlements.detail(manager,made.id);
     expect(detail).toMatchObject({from:'2026-08-18',to:'2026-08-18',wageTotalCents:20000});
@@ -552,8 +552,8 @@ d('直播管理（真实数据库）', () => {
     await expect(management.manual(manager,{sessionId:sid,roomId:ids.s1,anchorId:original.anchor.id,controlId:control.id,operatorId:operator.id,douyinAccountId:ids.account,storeId:ids.store,startAt:'2026-08-18 10:00:00',endAt:'2026-08-18 12:00:00',salesCents:100000,adSpendCents:0,reason:'修改'})).rejects.toThrow(/结算/);
     const f=await flow.detail(reviewer,(await settlements.detail(manager,made.id)).flowRunId!);
     clock('2026-08-18 23:00:00');
-    await expect(flow.pass(reviewer,f.id,{revision:f.revision,stepId:f.activeStep!.id})).rejects.toThrow(/日期范围结束后/);
-    clock('2026-08-20 18:00:00');
+    await expect(flow.pass(reviewer,f.id,{revision:f.revision,stepId:f.activeStep!.id})).rejects.toThrow(/次月10日|日期范围结束后/);
+    clock('2026-09-10 18:00:00');
     await flow.pass(reviewer,f.id,{revision:f.revision,stepId:f.activeStep!.id});
     expect((await settlements.detail(manager,made.id)).status).toBe('approved');
     // 月内其他日期仍能补报，不扩大成整月锁定。
@@ -614,6 +614,7 @@ d('直播管理（真实数据库）', () => {
       expect(approved.commissions.find(c=>c.platform===platform&&c.role==='anchor')?.amountCents).toBe(p.anchor.amountCents);
     }
     const settlementService=new LiveSettlementService(ds,flow,perShop);
+    clock('2026-08-10 10:00:00');
     const settled=await settlementService.generate(manager,'',undefined,{from:'2026-07-04',to:'2026-07-04'});
     const payroll=await settlementService.detail(manager,settled.id);
     expect(payroll.lines).toHaveLength(9);expect(payroll.wageTotalCents).toBe(24000);
@@ -637,7 +638,7 @@ d('直播管理（真实数据库）', () => {
     const submitted=await service.submit(anchor,start.id),run=await flow.detail(reviewer,submitted.runId);
     await flow.pass(reviewer,run.id,{revision:run.revision,stepId:run.activeStep!.id,form:{finalSource:'anchor'}});
     const payroll=new LiveSettlementService(ds,flow,offline);
-    clock('2026-06-16 12:00:00');
+    clock('2026-07-10 12:00:00');
     const generated=await payroll.generate(manager,'',undefined,{from:'2026-06-15',to:'2026-06-15'});
     const detail=await payroll.detail(manager,generated.id);
     expect(detail.lines.every(l=>l.unverifiedStores.length===1)).toBe(true);
@@ -820,6 +821,30 @@ d('直播管理（真实数据库）', () => {
     expect((await schedules.overview(foreign,day)).groups.north.flatMap(r=>r.current?[r.current.id]:[])).not.toContain(id);
   });
 
+  it('全览当日汇总包含未审核实际发生金额、跨公司隔离且查看费用需全员权限', async () => {
+    const day='2030-06-11';clock(day+' 11:00:00');let createdId:number|null=null;
+    const profiles=await ds.query('SELECT id,pay_type,hourly_rate FROM users WHERE company_id=? AND id IN (?,?)',[company,anchor.id,control.id]);
+    try {
+      await ds.query("UPDATE users SET pay_type='hourly',hourly_rate=5000 WHERE company_id=? AND id IN (?,?)",[company,anchor.id,control.id]);
+      const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,control_user_id,operator_user_id,douyin_account_id,douyin_account_name,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,control.id,operator.id,ids.account,'测试',day,day+' 10:00:00',anchor.id]);
+      const id=Number(result.insertId);createdId=id;
+      await ds.query('INSERT INTO live_turnover_snapshots(company_id,session_id,payload_json) VALUES(?,?,?)',[company,id,JSON.stringify({available:true,turnoverCents:100000,stores:[{storeId:ids.store,platform:'douyin',available:true,turnoverCents:100000}]})]);
+      await ds.query("INSERT INTO live_session_reports(company_id,session_id,role,reporter_user_id,end_at,sales_cents,ad_spend_cents) VALUES(?,?,'control',?,?,100000,2000)",[company,id,control.id,day+' 11:00:00']);
+      const all=await schedules.overview(admin,day);
+      const rules=liveVersionFor(await ruleVersions(ds.manager,company),day)!.rules;
+      const calc=liveComputeCommission({rules,finalSalesCents:100000,adSpendCents:null});
+      expect(all.financials).toMatchObject({adSpend:{totalCents:2000,missingSessions:0},sessions:1,turnoverCents:100000,missingSalesSessions:0,costs:{wageCents:10000,commissionCents:calc.anchor.amountCents+calc.control.amountCents+calc.operator.amountCents,missingSessions:0}});
+      const limited=au(manager.id,company,'仅全览',['features.live.view']);
+      expect((await schedules.overview(limited,day)).financials.costs).toBeNull();
+      expect((await schedules.overview(limited,day)).financials.adSpend).toBeNull();
+      expect((await schedules.overview(foreign,day)).financials).toMatchObject({sessions:0,turnoverCents:0});
+      expect((await schedules.overview(admin,'2030-06-12')).financials).toMatchObject({sessions:0,turnoverCents:0});
+    } finally {
+      if(createdId)await ds.query('DELETE FROM live_sessions WHERE company_id=? AND id=?',[company,createdId]);
+      for(const p of profiles)await ds.query('UPDATE users SET pay_type=?,hourly_rate=? WHERE company_id=? AND id=?',[p.pay_type,p.hourly_rate,company,p.id]);
+    }
+  });
+
   it('本场营业额真实公司鉴权、时间窗、退款归属与已结束场次回看', async () => {
     const startAt='2027-01-15 10:00:00', endAt='2027-01-15 11:00:00';
     const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,end_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'pending_report',?,'anchor')`,[company,ids.n1,'直播间-北1',anchor.id,ids.account,'抖音一号',ids.store,'抖音店','JST1','2027-01-15',startAt,endAt,anchor.id]);
@@ -829,9 +854,13 @@ d('直播管理（真实数据库）', () => {
       refunds:async(_c:number,_shop:string,orders:Array<{orderId:string}>)=>{seen.push(orders.map(o=>o.orderId));return new Map([['NEW',{cents:2000,source:'refund',details:[]}],['OLD',{cents:50000,source:'refund',details:[]}]]);},
     } as unknown as LiveOrderSource);
     clock('2027-01-16 12:00:00');
-    expect(await turnover.read(manager,id)).toMatchObject({available:false,locked:false});
+    expect(await turnover.read(manager,id)).toMatchObject({available:false,locked:true});
+    await turnover.update(company,id); expect(seen).toEqual([]);
+    await ds.query("UPDATE live_sessions SET end_at=NULL,status='live' WHERE company_id=? AND id=?",[company,id]);
+    clock(endAt);
     expect(seen).toEqual([]); // A visitor cannot cause external I/O.
     await turnover.update(company,id);
+    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[endAt,company,id]);
     expect(await turnover.read(manager,id)).toMatchObject({sessionId:id,live:false,locked:true,startAt,endAt,orderCount:1,turnoverCents:10000,refundCents:2000});
     const replica=new LiveTurnoverService(ds,{turnoverOrders:async()=>{throw new Error('locked snapshots must not query again');}} as unknown as LiveOrderSource);
     clock('2027-01-17 12:00:00');await replica.update(company,id);
@@ -843,7 +872,7 @@ d('直播管理（真实数据库）', () => {
     expect(tile.current).toMatchObject({id,endAt,status:'pending_report'});
   });
 
-  it('服务器营业额跨进程一致，直播定时更新，下播失败重试后锁定，之后退款变化不再改额',async()=>{
+  it('服务器仅在播时更新，下播后不再调用销售接口，保留最后在播快照',async()=>{
     const day='2027-03-10';clock(day+' 11:00:00');
     const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,ids.account,'账号',ids.store,'店铺','SNAP',day,day+' 10:00:00',anchor.id]);
     const id=Number(result.insertId);
@@ -858,16 +887,18 @@ d('直播管理（真实数据库）', () => {
     clock(day+' 11:01:01');refund=1000;await second.update(company,id);
     expect(await first.read(manager,id)).toMatchObject({turnoverCents:9000});
     await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:01:02',company,id]);
-    clock(day+' 11:01:03');fetch.mockResolvedValueOnce({available:false,reason:'外部接口暂时失败',orders:[]});
-    await first.update(company,id);
-    expect(await second.read(manager,id)).toMatchObject({available:false,turnoverCents:null,locked:false});
+    const stoppedCalls=fetch.mock.calls.length;
+    clock(day+' 11:01:03');await first.update(company,id);
     clock(day+' 11:01:34');await second.update(company,id);
-    expect(await first.read(manager,id)).toMatchObject({available:true,turnoverCents:9000,locked:true,endAt:day+' 11:01:02'});
+    expect(fetch).toHaveBeenCalledTimes(stoppedCalls);
+    expect(await first.read(manager,id)).toMatchObject({available:true,turnoverCents:9000,locked:true,live:false,endAt:day+' 11:01:01'});
     const calls=fetch.mock.calls.length;refund=9000;clock(day+' 13:00:00');await first.update(company,id);
     expect(fetch).toHaveBeenCalledTimes(calls);expect(await second.read(manager,id)).toMatchObject({turnoverCents:9000,locked:true});
+    const stopped = jest.spyOn(first,'update').mockResolvedValue(undefined);
+    await first.scan(); expect(stopped).not.toHaveBeenCalledWith(company,id); stopped.mockRestore();
   });
 
-  it('旧直播查询遇上下播会丢弃；租约超时可恢复且最终快照不会被慢请求覆盖',async()=>{
+  it('查询期间下播则丢弃响应，结束场次不重试；在播租约过期可恢复',async()=>{
     const day='2027-03-11';clock(day+' 11:00:00');
     const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,ids.account,'账号',ids.store,'店铺','RACE',day,day+' 10:00:00',anchor.id]);
     const id=Number(result.insertId);
@@ -879,15 +910,18 @@ d('直播管理（真实数据库）', () => {
     const pending=service.update(company,id);await started;
     await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:00:01',company,id]);
     resolve({available:true,truncated:false,orders:[]});await pending;
-    expect(await service.read(manager,id)).toMatchObject({available:false,locked:false});
+    expect(await service.read(manager,id)).toMatchObject({available:false,locked:true});
     await ds.query("UPDATE live_turnover_snapshots SET lease_token='interrupted-process',lease_until=?,next_refresh_at=? WHERE company_id=? AND session_id=?",[day+' 11:05:00',day+' 10:00:00',company,id]);
     await replica.update(company,id);expect(fetch).toHaveBeenCalledTimes(1);
-    clock(day+' 11:05:01');await replica.update(company,id);
-    expect(await service.read(manager,id)).toMatchObject({turnoverCents:0,locked:true,endAt:day+' 11:00:01'});
+    clock(day+' 11:05:01');await replica.update(company,id);expect(fetch).toHaveBeenCalledTimes(1);
+    await ds.query("UPDATE live_sessions SET end_at=NULL,status='live' WHERE company_id=? AND id=?",[company,id]);
+    await replica.update(company,id);
+    expect(await service.read(manager,id)).toMatchObject({turnoverCents:0,locked:false});
+    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:05:02',company,id]);
     const before=fetch.mock.calls.length;await service.update(company,id);expect(fetch).toHaveBeenCalledTimes(before);
   });
 
-  it('过期进程的慢查询不能覆盖另一进程已经锁定的营业额',async()=>{
+  it('过期进程的慢查询不能覆盖另一进程保存的在播快照，下播后保留已存数据',async()=>{
     const day='2027-03-12';clock(day+' 11:00:00');
     const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,douyin_account_id,douyin_account_name,store_id,store_name,jst_shop_id,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,ids.account,'账号',ids.store,'店铺','LEASE',day,day+' 10:00:00',anchor.id]);
     const id=Number(result.insertId);let entered!:()=>void,resolve!:(v:unknown)=>void;
@@ -896,9 +930,9 @@ d('直播管理（真实数据库）', () => {
     const fake={turnoverOrders:fetch,refunds:async()=>new Map([['STALE',{cents:0,source:'refund',details:[]}]])} as unknown as LiveOrderSource;
     const oldWorker=new LiveTurnoverService(ds,fake),newWorker=new LiveTurnoverService(ds,fake);
     const old=oldWorker.update(company,id);await started;
-    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:00:01',company,id]);
     clock(day+' 11:05:01');await newWorker.update(company,id);
-    expect(await newWorker.read(manager,id)).toMatchObject({turnoverCents:0,locked:true});
+    expect(await newWorker.read(manager,id)).toMatchObject({turnoverCents:0,locked:false});
+    await ds.query("UPDATE live_sessions SET end_at=?,status='pending_report' WHERE company_id=? AND id=?",[day+' 11:05:02',company,id]);
     resolve({available:true,truncated:false,orders:[{...order('STALE',99000),orderTime:day+' 10:30:00'}]});await old;
     expect(await oldWorker.read(manager,id)).toMatchObject({turnoverCents:0,locked:true});
   });
@@ -1049,6 +1083,7 @@ d('直播管理（真实数据库）', () => {
     await approve(made.id,{finalSource:'operator'});
     const final=await sessions.detail(manager,made.id);expect(final.finalSalesSource).toBe('operator');expect(final.wages.map(w=>[w.role,w.minutes])).toEqual(expect.arrayContaining([['anchor',70],['control',55]]));
     source.refundMap.set('QR1',5000);clock('2026-12-02 10:00:00');
+    clock('2027-01-10 10:00:00');
     const payroll=await settlements.generate(manager,'2026-12',undefined,{from:'2026-12-01',to:'2026-12-01'});
     const detail=await settlements.detail(manager,payroll.id);expect(detail.refundTotalCents).toBe(3000);expect(detail.refunds.find(r=>r.orderId==='QR1')?.refundCents).toBe(5000);
     const anchorLine=detail.lines.find(l=>l.role==='anchor')!;

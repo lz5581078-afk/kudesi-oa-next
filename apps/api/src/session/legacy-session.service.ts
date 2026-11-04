@@ -172,6 +172,34 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
       }
     }
     req.legacyMaintenanceCandidates = ws === 'company_store_maintenance' && (req.path === '/shop-candidates' || (req.path === '/managed-shops' && req.method === 'POST'));
+    if (req.path === '/managed-shops' && req.method === 'POST') {
+      const ids = [...new Set<number>(req.body.storeIds ?? [])].sort((a, b) => a - b);
+      if (!ids.length) throw new BadRequestException('至少选择一家店铺');
+      const placeholders = ids.map(() => '?').join(',');
+      const result = await this.store.forMaintenanceCandidates(!!req.legacyMaintenanceCandidates, () => this.store.withTransaction(async tx => {
+        // Serialize first-time additions too: locking only an existing managed
+        // row leaves competing inserts on different devices unprotected.
+        await tx.query(`SELECT id FROM sm_legacy_store_ids WHERE company_id=? AND id IN (${placeholders}) ORDER BY id FOR UPDATE`, [user.companyId, ...ids]);
+        const managed = await tx.query(`SELECT store_id,status FROM session_managed_shops WHERE company_id=? AND workspace_id=? AND store_id IN (${placeholders}) ORDER BY store_id FOR UPDATE`, [user.companyId, workspaceId, ...ids]);
+        if (managed.some(row => row.status === 'active')) throw new ConflictException('所选店铺已在当前清单，请刷新；更换电脑请使用分配操作');
+        // Removed entries may still own a browser or remote session. Restoring
+        // must not silently move that live environment to another device.
+        for (const [table, column, statuses] of [
+          ['session_open_requests', 'store_id', "'queued','claimed','running','waiting_human','opening','restoring','waiting_login'"],
+          ['managed_browser_sessions', 'shop_id', "'open','closing'"],
+          ['session_remote_sessions', 'shop_id', "'requested','connected','closing'"],
+        ]) {
+          const live = await tx.query(`SELECT id FROM ${table} WHERE company_id=? AND workspace_id=? AND ${column} IN (${placeholders}) AND status IN (${statuses}) LIMIT 1 FOR UPDATE`, [user.companyId, workspaceId, ...ids]);
+          if (live.length) throw new ConflictException('店铺仍有登录任务、浏览器或远程会话，请结束并安全关闭后再加入');
+        }
+        const added = await this.store.module('managed-shop-service').addManagedShops({ companyId: user.companyId, workspaceId, employeeId: user.id,
+          storeIds: ids, assignedDeviceId: req.body.assignedDeviceId, withTransaction: (work: (sql: typeof tx) => Promise<unknown>) => work(tx) });
+        await tx.execute(`INSERT INTO session_audit_logs(company_id,workspace_id,employee_id,device_id,event_type,outcome,summary)
+          VALUES(?,?,?,?,'managed_shops_added','success',?)`, [user.companyId, workspaceId, user.id, added.assignedDevice.id, `已将 ${added.selected} 家店铺加入登录态管理`]);
+        return added;
+      }));
+      res.status(201).json(result); return true;
+    }
     if (action === 'remote' && req.method === 'DELETE' && /^\/open-requests\/[\da-f-]{36}$/i.test(req.path)) {
       const id = req.path.split('/').pop();
       const [request] = await this.store.query('SELECT id FROM session_open_requests WHERE id=? AND company_id=? AND workspace_id=? AND requested_by_employee_id=?', [id, user.companyId, workspaceId, user.id]);
@@ -213,8 +241,10 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
       if (!result.affectedRows) throw new NotFoundException('电脑不存在'); res.json({ ok: true }); return true;
     }
     if (action === 'remote') {
-      // Cleanup must remain possible after a policy is disabled.
-      const cleanup = req.method === 'DELETE' || req.path.endsWith('/end');
+      // Cleanup and its exact owner-scoped status poll remain possible after a
+      // device policy is disabled. This does not allow frame, ticket or input.
+      const cleanup = req.method === 'DELETE' || req.path.endsWith('/end') ||
+        (req.method === 'GET' && /^\/remote-sessions\/[\da-f-]{36}$/i.test(req.path));
       if (!cleanup && (req.path === '/remote-sessions' || req.path === '/open-requests')) {
         if (!await this.store.remoteAllowed(user.companyId, workspaceId, req.body.deviceId, user.id)) throw new ForbiddenException('该电脑未允许远程控制');
       } else if (!cleanup) {
@@ -285,7 +315,7 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
       return rows.map(r => ({ ...r, mode: 'control', reason: '店铺远程协助', endReason: null, endReasonLabel: r.status === 'ended' ? '已结束' : null, endedByName: '', durationSeconds: r.acceptedAt ? Math.max(0, Math.round((new Date(r.endedAt ?? Date.now()).getTime() - new Date(r.acceptedAt).getTime()) / 1000)) : 0, inputCount: null, extendCount: null }));
     }
     if (req.path === '/oa-remote/stop-all') {
-      const ended = await this.store.execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE company_id=? AND workspace_id=? AND status IN ('requested','connected')", [user.companyId, workspaceId]);
+      const ended = await this.store.execute("UPDATE session_remote_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE company_id=? AND workspace_id=? AND status IN ('requested','connected')", [user.companyId, workspaceId]);
       const disabled = await this.store.ds.query('UPDATE sm_legacy_remote_policies SET enabled=0 WHERE company_id=? AND workspace_id=?', [user.companyId, workspaceId]);
       return { ended: ended.affectedRows, disabledDevices: disabled.affectedRows };
     }
@@ -295,7 +325,7 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
       const [device] = await tx.query("SELECT id FROM session_devices WHERE id=? AND company_id=? AND workspace_id=? AND status<>'deleted' FOR UPDATE", [deviceId, user.companyId, workspaceId]);
       if (!device) throw new NotFoundException('电脑不存在');
       await tx.execute('INSERT INTO sm_legacy_remote_policies(company_id,workspace_id,device_id,enabled,allow_control,max_minutes) VALUES(?,?,?,?,?,10) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),allow_control=VALUES(allow_control)', [user.companyId, workspaceId, deviceId, req.body.enabled ? 1 : 0, req.body.allowControl ? 1 : 0]);
-      if (!req.body.enabled) await tx.execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE company_id=? AND workspace_id=? AND device_id=? AND status IN ('requested','connected')", [user.companyId, workspaceId, deviceId]);
+      if (!req.body.enabled) await tx.execute("UPDATE session_remote_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE company_id=? AND workspace_id=? AND device_id=? AND status IN ('requested','connected')", [user.companyId, workspaceId, deviceId]);
     });
     return { ok: true };
   }
@@ -310,7 +340,7 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
           const [capture] = await em.query("SELECT * FROM sm_legacy_captures WHERE id=? AND status='pending' FOR UPDATE", [candidate.id]);
           if (!capture || (!remoteGloballyDisabled() && Date.now() - new Date(capture.created_at).getTime() <= 30_000)) return;
           await em.query("UPDATE sm_legacy_captures SET status='failed',error_text='截图超时或远程已停用',finished_at=CURRENT_TIMESTAMP(3) WHERE id=? AND company_id=? AND workspace_id=? AND status='pending'", [capture.id, capture.company_id, capture.workspace_id]);
-          if (capture.owns_remote) await this.store.forManager(em).execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE id=? AND company_id=? AND workspace_id=? AND user_id=? AND status IN ('requested','connected')", [capture.remote_session_id, capture.company_id, capture.workspace_id, capture.user_id]);
+          if (capture.owns_remote) await this.store.forManager(em).execute("UPDATE session_remote_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE id=? AND company_id=? AND workspace_id=? AND user_id=? AND status IN ('requested','connected')", [capture.remote_session_id, capture.company_id, capture.workspace_id, capture.user_id]);
         });
       }
       const sessions = await this.store.query(`SELECT id,company_id,workspace_id,user_id,device_id FROM session_remote_sessions WHERE status IN ('requested','connected') ${deviceId ? 'AND device_id=?' : ''}`, deviceId ? [deviceId] : []);
@@ -322,7 +352,7 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
           SET c.status='failed',c.error_message='远程控制权限已停止，输入已取消',c.completed_at=CURRENT_TIMESTAMP
           WHERE r.id=? AND r.company_id=? AND r.workspace_id=? AND c.status IN ('queued','running')`, [s.id, s.company_id, s.workspace_id]);
         if (await this.store.captureAllowed(Number(s.company_id), Number(s.workspace_id), s.device_id, Number(s.user_id), s.id)) continue;
-        await this.store.execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP,frame_data=NULL,error_message='远程权限已失效' WHERE id=? AND company_id=? AND workspace_id=? AND status IN ('requested','connected')", [s.id, s.company_id, s.workspace_id]);
+        await this.store.execute("UPDATE session_remote_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP,frame_data=NULL,error_message='远程权限已失效' WHERE id=? AND company_id=? AND workspace_id=? AND status IN ('requested','connected')", [s.id, s.company_id, s.workspace_id]);
       }
     } finally { this.sweeping = false; }
   }

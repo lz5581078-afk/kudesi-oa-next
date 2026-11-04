@@ -38,7 +38,7 @@ const addSource = async () => {
   fireEvent.change(screen.getByLabelText('来源采购价'), { target: { value: '8' } });
 };
 const fillRaw = async (name: string) => { fill('原料名称', name); fill('系统规格', '千克'); fill('运费', '1'); fill('装卸费', '1'); await addSource(); };
-const clickSave=async(name='保存')=>{await waitFor(()=>expect((screen.getByRole('textbox',{name:'系统自动编号'}) as HTMLInputElement).value).not.toBe(''),{timeout:3000});fireEvent.click(screen.getByRole('button',{name}));};
+const clickSave=async(name='保存')=>{await waitFor(()=>expect((screen.getByRole('textbox',{name:/^(系统自动编号|产品包装编号|OEM包装编号)$/}) as HTMLInputElement).value).not.toBe(''),{timeout:3000});fireEvent.click(screen.getByRole('button',{name}));};
 const confirmQuality = async () => { const dialog=await screen.findByRole('dialog',{name:'核算资料确认'});for(const button of within(dialog).queryAllByRole('button',{name:'确认不需要'})){const row=button.closest('.product-quality-row')!;fireEvent.change(within(row as HTMLElement).getByRole('combobox'),{target:{value:'合成无此组成'}});fireEvent.click(button);}expect(dialog.querySelector('.product-quality-errors')?.textContent??'').toBe('');fireEvent.click(await screen.findByRole('button', { name: '确认并保存' })); };
 
 beforeEach(() => {
@@ -371,7 +371,7 @@ it.each([
  expect(document.querySelector('.reference-category-context [data-field="categoryId"]')).toBeNull();
  expect(screen.getByText('先保存这条商品档案，再添加图片。')).toBeTruthy();
  expect(document.querySelector('[data-field="photos"] input[type=file]')).toBeNull();
- expect((document.querySelector('input[aria-label="系统自动编号"]') as HTMLInputElement).disabled).toBe(true);
+ expect((document.querySelector('[data-sec=code] input') as HTMLInputElement).disabled).toBe(true);
  if(['self_made','purchased','oem_package'].includes(archiveType))expect(document.querySelector('[data-field="brandId"] input[role=combobox]')).toBeTruthy();
  if(archiveType==='self_made'){
   const price=screen.getByLabelText('总采购价') as HTMLInputElement;expect(price.readOnly).toBe(true);expect(price.value).toBe('0');

@@ -1,0 +1,29 @@
+.anchor-month-panel { width:100%; min-width:0; text-align:left; font-weight:400; }
+.anchor-month-panel > header { display:flex; justify-content:space-between; align-items:start; gap:12px; margin-bottom:14px; }
+.anchor-month-panel h3 { margin:0; font-size:16px; }
+.anchor-month-panel h3 small { color:var(--muted); font-size:13px; }
+.anchor-month-panel header p, .anchor-month-panel > .muted { margin:6px 0; color:var(--muted); font-size:12px; }
+.anchor-month-totals { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:10px 0; }
+.anchor-month-totals > div { padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); min-width:0; }
+.anchor-month-totals dt { color:var(--muted); font-size:12px; margin-bottom:6px; }
+.anchor-month-totals dd { margin:0; font-size:18px; font-weight:650; overflow-wrap:anywhere; }
+.anchor-month-totals dd small { font-size:12px; font-weight:400; }
+.anchor-month-incomplete { font-size:12px; color:#946323; margin:8px 0; }
+.anchor-month-table { overflow-x:auto; max-width:100%; margin-top:14px; }
+.anchor-month-table table { min-width:720px; width:100%; border-collapse:collapse; font-size:13px; }
+.anchor-month-table th { color:var(--muted); text-align:left; font-weight:500; }
+.anchor-month-table th,.anchor-month-table td { padding:10px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.anchor-month-table td small { display:block; color:var(--muted); margin-top:4px; }
+.anchor-month-empty { padding:24px; text-align:center; background:var(--bg); border-radius:10px; }
+.anchor-month-picked { margin-top:10px; padding:12px; border-radius:10px; background:var(--bg); font-size:13px; }
+.anchor-month-picked .anchor-month-totals { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.anchor-month-picked .anchor-month-totals dd { font-size:14px; }
+.live-person-photo-popover:has(.anchor-month-panel) { width:min(920px,calc(100vw - 16px)); }
+.live-person-photo-popover:has(.anchor-month-panel) .live-person-photo-view > img { width:112px; align-self:flex-start; }
+.workforce-live-month { margin:16px 0; border:1px solid var(--border); border-radius:12px; padding:16px; }
+@media(max-width:600px) { .anchor-month-totals { grid-template-columns:repeat(2,minmax(0,1fr)); } .anchor-month-panel > header { flex-wrap:wrap; } .anchor-month-totals dd { font-size:16px; } }
+@media(min-width:601px) {
+ .live-person-photo-popover:has(.anchor-month-panel) .live-person-photo-view { display:grid; grid-template-columns:140px minmax(0,1fr); align-items:start; }
+ .live-person-photo-popover .live-person-photo-view > .anchor-month-panel { grid-column:2; grid-row:1 / span 4; }
+ .live-person-photo-popover .live-person-photo-view > .live-person-photo-upload { grid-column:1; }
+}

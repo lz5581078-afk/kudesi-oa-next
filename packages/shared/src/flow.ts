@@ -462,6 +462,7 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
     entry: { path: '/features/live-desk', label: '在“直播管理”里提交' },
     fields: [
       { key: 'settlementId', label: '结算单', type: 'number', group: '结算', required: true },
+      { key: 'settlementRevision', label: '核对版本', type: 'number', group: '结算' },
     ],
     stepFields: {},
     steps: [

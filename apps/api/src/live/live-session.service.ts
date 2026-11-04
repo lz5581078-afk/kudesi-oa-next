@@ -286,7 +286,7 @@ export class LiveSessionService {
       await lockCompany(em,a.companyId);const s=await sessionRow(em,a.companyId,Number(first.id),true);
       if(reportsLocked(s,liveClock.now())||!['live','pending_report','returned'].includes(s.status))liveFail('本场已锁定，不能再报下播',409);
       if(s.start_text!==first.start_text||s.end_text!==first.end_text||JSON.stringify(channelsOf(s))!==JSON.stringify(channelsOf(first)))liveFail('场次信息变化，请刷新重试',409);
-      if(await closedDay(em,a.companyId,s.session_day))liveFail('本场已进入结算，不能修改',409);
+      if(await closedDay(em,a.companyId,s.session_day,{sessionId:Number(s.id)}))liveFail('本场已进入结算，不能修改',409);
       const [current]=await em.query('SELECT end_at FROM live_session_checkins WHERE company_id=? AND id=? FOR UPDATE',[a.companyId,clock.id]);
       if(current.end_at && !clock.end_text)liveFail('本人已下播，请刷新查看',409);
       if(endAt<=s.start_text)liveFail('下播时间必须晚于开播时间',400);
@@ -410,7 +410,7 @@ export class LiveSessionService {
           [a.companyId, sessionId, role, a.userId, endAt, sales, adSpend, needsOrders ? total : null, picked.length, text(input.note) || null]);
         reportId = Number(ins.insertId);
       }
-      if (await closedDay(em,a.companyId,s.session_day))liveFail('该日期已进入工资结算，不能修改');
+      if (await closedDay(em,a.companyId,s.session_day,{sessionId:Number(s.id)}))liveFail('该日期已进入工资结算，不能修改');
       if (checked) await persistStoreLines(em,a.companyId,sessionId,reportId,checked);
       for (const o of picked) {
         await em.query('INSERT INTO live_session_orders (company_id, session_id, report_id, order_id, inner_order_id, amount_cents, pay_time, order_status, shop_id) VALUES (?,?,?,?,?,?,?,?,?)',
@@ -505,6 +505,7 @@ export class LiveSessionService {
     if (s.flow_run_id) { try { flow = await this.flow.detail(user, Number(s.flow_run_id)); } catch { flow = null; } }
     return {
       ...serializeSession(s),
+      settlementHistory: (await em.query(`SELECT l.user_id userId,l.role,l.wage_record_id wageId,l.commission_record_id commissionId,l.wage_cents wageCents,l.commission_cents commissionCents,l.payable_cents payableCents,h.id settlementId,h.status,h.settlement_kind kind,h.original_settlement_id originalSettlementId,DATE_FORMAT(h.approved_at,'%Y-%m-%d %H:%i:%s') approvedAt FROM live_settlement_lines l JOIN live_settlements h ON h.company_id=l.company_id AND h.id=l.settlement_id WHERE l.company_id=? AND l.session_id=? ORDER BY h.id,l.id`,[a.companyId,id])).filter((r:Row)=>showMoney(Number(r.userId))),
       checkoutFeedback: await checkoutFeedbackRecords(em,a.companyId,id),
       attendance: await checkoutAttendance(em,a.companyId,id),
       capturedOrders: await em.query("SELECT store_id storeId,platform,shop_id shopId,order_id orderId,paid,amount_cents amountCents,refund_cents refundCents,order_status status,DATE_FORMAT(order_at,'%Y-%m-%d %H:%i:%s') orderAt FROM live_session_order_snapshots WHERE company_id=? AND session_id=? ORDER BY order_at,shop_id,order_id",[a.companyId,id]),

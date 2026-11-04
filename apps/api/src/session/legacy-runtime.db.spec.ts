@@ -117,6 +117,58 @@ db('发布快照在真实Nest中的页面协议与远程信令接入（隔离MyS
     expect((await old('/overview', { auth: 'invalid' })).status).toBe(401);
   });
 
+  it('两个用途的重复加入不能改绑电脑，恢复必须等待旧浏览器关闭，并发加入只有一个成功', async () => {
+    const load = createRequire(path.resolve(__dirname, '../../../agent/legacy-runtime/index.js'));
+    const publicKeyPem = load('./config.js').createDeviceKeyPair().publicKey;
+    for (const ws of [workspace, 'company_store_maintenance'] as SessionWorkspace[]) {
+      const localDevices: any[] = [];
+      for (let i = 0; i < 2; i++) {
+        const pairing = await old('/pairings', { method: 'POST', ws, body: {} });
+        const device = await old('/agent/register', { method: 'POST', ws, body: { pairingCode: pairing.body.code,
+          name: `加入保护-${i}`, hostname: 'synthetic-only', platform: 'win32', arch: 'x64', agentVersion: '0.3.45', publicKeyPem } });
+        expect(device.status).toBe(201); localDevices.push(device.body);
+        expect((await old('/agent/heartbeat', { method: 'POST', ws, auth: device.body.deviceToken,
+          body: { agentVersion: '0.3.45', currentStep: 'idle', currentRequestId: null, activeBrowserSessionIds: [] } })).status).toBe(200);
+      }
+      const name = `加入保护-${randomBytes(5).toString('hex')}`;
+      await services.resources.create(boss, 'stores', { name, platform: 'pdd' });
+      const candidates = await old('/shop-candidates', { ws });
+      const id = candidates.body.shops.find((row: any) => row.name === name).id;
+      const add = (deviceId: string) => old('/managed-shops', { method: 'POST', ws, body: { storeIds: [id], assignedDeviceId: deviceId } });
+      const results = await Promise.all(localDevices.map(d => add(d.deviceId)));
+      expect(results.map(r => r.status).sort()).toEqual([201, 409]);
+      const owner = localDevices[results.findIndex(r => r.status === 201)];
+      const other = localDevices.find(d => d !== owner);
+      expect((await add(owner.deviceId)).status).toBe(409);
+      expect((await add(other.deviceId)).status).toBe(409);
+      await store.execute('UPDATE session_managed_shops SET withdrawal_login_account=?,withdrawal_login_password=? WHERE company_id=? AND store_id=?',
+        ['preserved-account', services.crypto.encrypt('synthetic-preserved-secret'), boss.companyId, id]);
+      const opened = await old('/open-requests', { method: 'POST', ws, body: { storeId: id, deviceId: owner.deviceId } });
+      expect(opened.status).toBe(201);
+      // A stale restore must not reassign even a queued login request.
+      await store.execute("UPDATE session_managed_shops SET status='removed' WHERE company_id=? AND store_id=?", [boss.companyId, id]);
+      expect((await add(other.deviceId)).status).toBe(409);
+      await store.execute("UPDATE session_open_requests SET status='completed' WHERE id=?", [opened.body.id]);
+      const [scope] = await store.query('SELECT workspace_id FROM session_managed_shops WHERE company_id=? AND store_id=?', [boss.companyId, id]);
+      const browserId = randomUUID();
+      await store.execute(`INSERT INTO managed_browser_sessions(id,company_id,workspace_id,user_id,device_id,shop_id,local_profile_id,page_url,status)
+        VALUES(?,?,?,?,?,?,?,?,'open')`, [browserId, boss.companyId, scope.workspace_id, boss.id, owner.deviceId, id, randomUUID(), 'https://mms.pinduoduo.com/home/']);
+      expect((await add(other.deviceId)).status).toBe(409);
+      const [unchanged] = await store.query('SELECT assigned_device_id,withdrawal_login_account,withdrawal_login_password FROM session_managed_shops WHERE company_id=? AND store_id=?', [boss.companyId, id]);
+      expect(unchanged.assigned_device_id).toBe(owner.deviceId);
+      expect(unchanged.withdrawal_login_account).toBe('preserved-account');
+      expect(services.crypto.decrypt(unchanged.withdrawal_login_password)).toBe('synthetic-preserved-secret');
+      await store.execute("UPDATE managed_browser_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP WHERE id=?", [browserId]);
+      const remoteId = randomUUID();
+      await store.execute(`INSERT INTO session_remote_sessions(id,company_id,workspace_id,user_id,device_id,shop_id,browser_session_id,status,expires_at)
+        VALUES(?,?,?,?,?,?,?,'requested',DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 10 MINUTE))`, [remoteId, boss.companyId, scope.workspace_id, boss.id, owner.deviceId, id, browserId]);
+      expect((await add(other.deviceId)).status).toBe(409);
+      await store.execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP WHERE id=?", [remoteId]);
+      expect((await add(other.deviceId)).status).toBe(201);
+      expect((await store.query('SELECT assigned_device_id FROM session_managed_shops WHERE company_id=? AND store_id=?', [boss.companyId, id]))[0].assigned_device_id).toBe(other.deviceId);
+    }
+  }, 30000);
+
   it('原助手完整心跳字段可用，两个用途分别绑定且分配CAS拒绝过时页面', async () => {
     const helperRoot = path.resolve(__dirname, '../../../agent/legacy-runtime');
     const load = createRequire(path.join(helperRoot, 'index.js'));
@@ -298,7 +350,7 @@ db('发布快照在真实Nest中的页面协议与远程信令接入（隔离MyS
     process.env.KUDESI_REMOTE_ASSIST_DISABLED = '1';
     expect((await old(`/remote-sessions/${created.body.id}/webrtc-ticket`, { method: 'POST', auth: remoteToken, body: {} })).status).toBe(403);
     await runtime.sweep();
-    expect((await store.query('SELECT status FROM session_remote_sessions WHERE id=?', [created.body.id]))[0].status).toBe('ended');
+    expect((await store.query('SELECT status FROM session_remote_sessions WHERE id=?', [created.body.id]))[0].status).toBe('closed');
     delete process.env.KUDESI_REMOTE_ASSIST_DISABLED;
   });
 
@@ -410,5 +462,92 @@ db('发布快照在真实Nest中的页面协议与远程信令接入（隔离MyS
     const [preserved] = await store.query('SELECT user_id,status,local_profile_id FROM managed_browser_sessions WHERE id=?', [browser.body.id]);
     expect(Number(preserved.user_id)).toBe(boss.id); expect(preserved.status).toBe('open'); expect(preserved.local_profile_id).toBe(profile);
     expect((await store.query('SELECT status FROM session_remote_sessions WHERE id=?', [capture.remote_session_id]))[0].status).toBe('closed');
+  }, 30000);
+  async function closeFixture(ws: SessionWorkspace) {
+    const load = createRequire(path.resolve(__dirname, '../../../agent/legacy-runtime/index.js'));
+    const userCall = (p: string, options: Parameters<typeof old>[1] = {}) => old(p, { ...options, ws });
+    const paired = await userCall('/pairings', { method: 'POST', body: {} });
+    const registered = await userCall('/agent/register', { method: 'POST', body: { pairingCode: paired.body.code,
+      name: '关闭协议合成电脑', hostname: 'synthetic-close', platform: 'win32', arch: 'x64', agentVersion: '0.3.45',
+      publicKeyPem: load('./config.js').createDeviceKeyPair().publicKey } });
+    expect(registered.status).toBe(201);
+    const device = registered.body;
+    const deviceCall = (p: string, body?: unknown, method = 'POST') => userCall(`/agent${p}`, { method, body, auth: device.deviceToken });
+    expect((await deviceCall('/heartbeat', { agentVersion: '0.3.45', currentStep: 'idle', currentRequestId: null, activeBrowserSessionIds: [] })).status).toBe(200);
+    const name = `关闭协议合成店-${randomBytes(5).toString('hex')}`;
+    await services.resources.create(boss, 'stores', { name, platform: 'pdd' });
+    const candidates = await userCall('/shop-candidates');
+    const shop = candidates.body.shops.find((row: any) => row.name === name);
+    expect(shop?.id).toBeTruthy();
+    expect((await userCall('/managed-shops', { method: 'POST', body: { storeIds: [shop.id], assignedDeviceId: device.deviceId } })).status).toBe(201);
+    const opened = await userCall('/open-requests', { method: 'POST', body: { storeId: shop.id, deviceId: device.deviceId } });
+    expect(opened.status).toBe(201);
+    expect((await deviceCall('/open-requests', undefined, 'GET')).body.request.id).toBe(opened.body.id);
+    const profile = randomUUID();
+    expect((await deviceCall('/bindings', { storeId: String(shop.id), localProfileId: profile, platformCode: 'pdd', loginStatus: 'pending' })).status).toBe(200);
+    const browser = await deviceCall('/browser-sessions', { openRequestId: opened.body.id, storeId: String(shop.id), localProfileId: profile,
+      platformCode: 'pdd', pageUrl: 'https://mms.pinduoduo.com/home/' });
+    expect(browser.status).toBe(201);
+    expect((await deviceCall(`/open-requests/${opened.body.id}`, { status: 'completed', progress: 100, currentStep: 'completed' }, 'PATCH')).status).toBe(200);
+    expect((await userCall(`/oa-remote/devices/${device.deviceId}`, { method: 'POST', body: { enabled: true, allowControl: true, maxMinutes: 10 } })).status).toBe(200);
+    const remote = await userCall('/remote-sessions', { method: 'POST', body: { browserSessionId: browser.body.id, deviceId: device.deviceId, shopId: shop.id } });
+    expect(remote.status).toBe(201);
+    return { userCall, deviceCall, device, browser: browser.body, shop, profile, id: remote.body.id,
+      acknowledgement: { action: 'browser_closed', sessionId: remote.body.id, browserSessionId: browser.body.id, shopId: String(shop.id), localProfileId: profile } };
+  }
+
+  it.each((['finance_withdrawal', 'company_store_maintenance'] as SessionWorkspace[]).flatMap(ws =>
+    ['stop-all', 'device-policy', 'sweep'].map(mode => ({ ws, mode }))))('$ws $mode仅停止媒体；仍可精确关闭并等设备确认', async ({ ws, mode }) => {
+    const f = await closeFixture(ws);
+    const previousDisabled = process.env.KUDESI_REMOTE_ASSIST_DISABLED;
+    try {
+      if (mode === 'stop-all') expect((await f.userCall('/oa-remote/stop-all', { method: 'POST', body: {} })).status).toBe(200);
+      if (mode === 'device-policy') expect((await f.userCall(`/oa-remote/devices/${f.device.deviceId}`, { method: 'POST', body: { enabled: false } })).status).toBe(200);
+      if (mode === 'sweep') { process.env.KUDESI_REMOTE_ASSIST_DISABLED = '1'; await runtime.sweep(); }
+      const stopped = await f.userCall(`/remote-sessions/${f.id}`);
+      expect(stopped.status).toBe(200); expect(stopped.body).toMatchObject({ status: 'closed', browserStatus: 'open' });
+      expect((await f.userCall(`/remote-sessions/${f.id}/frame`)).status).toBe(403);
+      expect((await f.userCall(`/remote-sessions/${f.id}/webrtc-ticket`, { method: 'POST', body: {} })).status).toBe(403);
+      expect((await f.userCall(`/remote-sessions/${f.id}/commands`, { method: 'POST', body: { kind: 'click', point: { x: 0.5, y: 0.5 } } })).status).toBe(403);
+      expect((await old(`/remote-sessions/${f.id}`, { ws: ws === 'finance_withdrawal' ? 'company_store_maintenance' : 'finance_withdrawal' })).status).toBe(404);
+      const requested = await f.userCall(`/remote-sessions/${f.id}`, { method: 'DELETE' });
+      expect(requested.status).toBe(200); expect(requested.body).toMatchObject({ status: 'closing', browserStatus: 'closing' });
+      const jobs = await f.deviceCall('/remote?transport=webrtc', undefined, 'GET');
+      expect(jobs.status).toBe(200); expect(jobs.body.sessions).toEqual([]);
+      expect(jobs.body.closeJobs).toEqual(expect.arrayContaining([expect.objectContaining({ remoteSessionId: f.id, browserSessionId: f.browser.id, localProfileId: f.profile })]));
+      expect((await f.deviceCall('/remote', { ...f.acknowledgement, localProfileId: randomUUID() })).status).toBe(403);
+      expect((await f.userCall(`/remote-sessions/${f.id}`)).body.browserStatus).toBe('closing');
+      expect((await f.deviceCall('/remote', f.acknowledgement)).body).toMatchObject({ status: 'ended', browserStatus: 'closed' });
+      expect((await f.userCall(`/remote-sessions/${f.id}`)).body).toMatchObject({ status: 'ended', browserStatus: 'closed', closeStage: 'safe_closed' });
+      expect((await store.query('SELECT status,local_profile_id FROM managed_browser_sessions WHERE id=?', [f.browser.id]))[0]).toMatchObject({ status: 'closed', local_profile_id: f.profile });
+    } finally {
+      if (previousDisabled === undefined) delete process.env.KUDESI_REMOTE_ASSIST_DISABLED; else process.env.KUDESI_REMOTE_ASSIST_DISABLED = previousDisabled;
+    }
+  }, 30000);
+
+  it('历史ended/open必须重新关闭；超时不假成功，精确迟到确认才完成', async () => {
+    const f = await closeFixture(workspace);
+    await store.execute("UPDATE session_remote_sessions SET status='ended' WHERE id=?", [f.id]);
+    expect((await f.userCall(`/remote-sessions/${f.id}`, { method: 'DELETE' })).body).toMatchObject({ status: 'closing', browserStatus: 'closing' });
+    await store.execute('UPDATE session_remote_sessions SET close_requested_at=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 2 MINUTE) WHERE id=?', [f.id]);
+    const timedOut = await f.userCall(`/remote-sessions/${f.id}`);
+    expect(timedOut.status).toBe(200); expect(timedOut.body).toMatchObject({ status: 'error', closeStage: 'close_failed', browserStatus: 'closing' });
+    expect((await f.deviceCall('/remote', f.acknowledgement)).body).toMatchObject({ status: 'ended', browserStatus: 'closed' });
+  }, 30000);
+
+  it('当前权限不足或设备关闭失败不能冒充成功，失败保留Profile并可重试', async () => {
+    const f = await closeFixture(workspace);
+    expect((await f.userCall(`/remote-sessions/${f.id}`, { method: 'DELETE', auth: viewer })).status).toBe(403);
+    expect((await store.query('SELECT status FROM managed_browser_sessions WHERE id=?', [f.browser.id]))[0].status).toBe('open');
+    expect((await f.userCall(`/remote-sessions/${f.id}`, { method: 'DELETE' })).body.status).toBe('closing');
+    const failed = await f.deviceCall('/remote', { action: 'browser_close_failed', sessionId: f.id, error: 'synthetic: browser still open' });
+    expect(failed.status).toBe(200); expect(failed.body).toMatchObject({ status: 'error', closeStage: 'close_failed' });
+    expect((await f.userCall(`/remote-sessions/${f.id}`)).body).toMatchObject({ status: 'error', closeStage: 'close_failed', browserStatus: 'open' });
+    // A delayed acknowledgement after explicit failure is insufficient while
+    // the persisted browser is open; a new exact close request is required.
+    expect((await f.deviceCall('/remote', f.acknowledgement)).status).toBe(409);
+    expect((await store.query('SELECT status,local_profile_id FROM managed_browser_sessions WHERE id=?', [f.browser.id]))[0]).toMatchObject({ status: 'open', local_profile_id: f.profile });
+    expect((await f.userCall(`/remote-sessions/${f.id}`, { method: 'DELETE' })).body).toMatchObject({ status: 'closing', browserStatus: 'closing' });
+    expect((await f.deviceCall('/remote', f.acknowledgement)).body).toMatchObject({ status: 'ended', browserStatus: 'closed' });
   }, 30000);
 });

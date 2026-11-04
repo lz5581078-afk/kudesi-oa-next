@@ -6,6 +6,9 @@ import { CostSnapshotContext1784000000000 } from './migrations/1784000000000-Cos
 import { ResourceFormMutation1782000000000 } from './migrations/1782000000000-ResourceFormMutation';
 import { DocSettlementMode1781000000000 } from './migrations/1781000000000-DocSettlementMode';
 import { DocCounterpartySummary1783000000000 } from './migrations/1783000000000-DocCounterpartySummary';
+import { LiveSplitSettlement1794000000000 } from './migrations/1794000000000-LiveSplitSettlement';
+import { DesktopAfterSalesWorkspace1793000000000 } from './migrations/1793000000000-DesktopAfterSalesWorkspace';
+import { DesktopAfterSales1791000000000 } from './migrations/1791000000000-DesktopAfterSales';
 import { LiveDailyWork1780000000000 } from './migrations/1780000000000-LiveDailyWork';
 import { LiveTurnoverSnapshots1779000000000 } from './migrations/1779000000000-LiveTurnoverSnapshots';
 import { EnrollmentPermanent1775000000000 } from './migrations/1775000000000-EnrollmentPermanent';
@@ -86,6 +89,8 @@ loadDotenv({ path: path.resolve(__dirname, '../../../../.env') });
 
 export const MIGRATIONS = [InitialSchema1730000000000, ResourceTables1730000100000, IntegrationsAndFiles1730000200000, FinanceDocuments1730000300000, FlowEngine1730000400000, TaskCenter1730000500000, StoreWithdrawal1730000600000, WithdrawalVoucher1730000700000, FinanceSettlement1730000800000, FinanceAudit1730000900000, TransferAccountsAndLineObjects1730001000000, DocumentSettlements1730001100000, DataTools1730001200000, Outbox1730001300000, ImportBackups1730001400000, ManualLinks1730001500000, OrgProfile1730001600000, ExtraPositions1730001700000, FinanceKeyAccountsAndDeviceUpdates1730003000000, CostSnapshotMargin61730004000000, RemoteAssist1730006000000, AgentReleases1730007000000, PlatformAdmin1731000000000, LegacyImport1732000000000, LegacySourceHash1733000000000, UnitPricePrecision1734000000000, ResourceArchive1735000000000, ResourceLinkProps1735000000001, FeeSnapshots1741000000000, OrgPeopleFields1738000000000, FormDrafts1739000000000, PhoneUploadSessions1739000001000, BundleSyncExtras1740000000000, ProductVerificationEvents1739000002000, DocLineItemNameUnit1743000000000, TaskReviewStages1747000000000, AfterSalesSupervision1748000000000, ResourceLinkKind1751000000000, FlowCustomTemplates1746000000000, FlowTimeouts1746000001000, TaskSupervision1745000000000, AiProviders1745000001000, PlatformIntegrationApps1745000002000, LiveManagement1749000000000, ResourceCategoryOptions1752000000000, DocDiscount1753000000000, DocPayAccountsTransferFee1754000000000, FlowGaps1755000000000, FeishuIdentity1756000000000, SkuSnapshotPrecision1757000000000, SessionMaintenanceParity1758000000000, LegacySourceRows1759000000000, TaskStoreContext1760000000000, LivePayroll1761000000000, StaffEnrollment1762000000000, LiveScheduleProducts1763000000000, EnrollmentFeishu1764000000000, LiveMultiplatform1765000000000, LiveManualProducts1766000000000, LiveNotifications1767000000000, LiveRoomCheckin1768000000000, LiveRoomQr1771000000000, LiveCheckinQr1772000000000, EnrollmentWorkforce1773000000000, EnrollmentPermanent1775000000000, LiveTurnoverSnapshots1779000000000];
 
+MIGRATIONS.push(DesktopAfterSalesWorkspace1793000000000);
+MIGRATIONS.push(DesktopAfterSales1791000000000);
 MIGRATIONS.push(LiveDailyWork1780000000000);
 MIGRATIONS.push(DocSettlementMode1781000000000);
 MIGRATIONS.push(ResourceFormMutation1782000000000);
@@ -122,6 +127,8 @@ export function buildDataSourceOptions(env: NodeJS.ProcessEnv = process.env): Da
     migrationsRun: false,
   };
 }
+
+MIGRATIONS.push(LiveSplitSettlement1794000000000);
 
 /**
  * 让 MySQL 会话时区和上面的 timezone 一致。否则 `DEFAULT CURRENT_TIMESTAMP` 按数据库服务器自己的时区写入，

@@ -7,9 +7,18 @@ vi.mock('../api/client', async orig => ({ ...await orig<typeof import('../api/cl
 vi.mock('./api', () => ({ resourceApi: { list: vi.fn(), update: vi.fn(), create: vi.fn(), remove: vi.fn() } }));
 import { resetUnitOptionsForTest } from './unitOptions';
 import { resourceApi } from './api';
-import { SourcesDraft, latestSource, loadSourceRows, sourceCollection, type SourceRow } from './ProductFormParts';
+import { SourcesDraft, WeightBlock, latestSource, loadSourceRows, sourceCollection, type SourceRow } from './ProductFormParts';
 const row = (over: Partial<SourceRow>): SourceRow => ({ supplierId: 1, originArea: '测试', systemSpec: '斤', purchasePrice: 100, ...over });
 afterEach(() => { cleanup(); vi.clearAllMocks(); resetUnitOptionsForTest({}); });
+it('发货物料切换重量单位保留实际重量，单件录入按所选单位换算核算重量',()=>{
+ function WeightHarness(){const [values,setValues]=useState<Record<string,unknown>>({weightG:1000,weightUnit:'kg'});return <WeightBlock values={values} referenceShipping manualOnly defaultUnit="kg" onChange={patch=>setValues(current=>({...current,...patch}))}/>;}
+ render(<WeightHarness/>);
+ const input=screen.getByLabelText('发货物料单件重量') as HTMLInputElement,unit=screen.getByLabelText('发货物料重量单位');
+ expect(input.value).toBe('1');expect(screen.getByText('1 kg')).toBeTruthy();
+ fireEvent.change(unit,{target:{value:'g'}});expect(input.value).toBe('1000');expect(screen.getByText('1 kg')).toBeTruthy();
+ fireEvent.change(input,{target:{value:'250'}});expect(screen.getByText('0.25 kg')).toBeTruthy();
+ fireEvent.change(unit,{target:{value:'jin'}});expect(input.value).toBe('0.5');expect(screen.getByText('0.25 kg')).toBeTruthy();
+});
 describe('供货来源的采购价时序', () => {
   it('最新预览按采购价时间，跳过停用来源；旧记录回退更新时间', () => {
     const a = row({ rowId: 1, priceUpdatedAt: '2020-01-01', updatedAt: '2026-01-01' });

@@ -1,3 +1,4 @@
+import { dayEstimate } from './live-day-estimate';
 import { assertNoDailyWork } from './daily-work-core';
 import { scheduleFingerprint } from './live-checkin-core';
 import { channelsOf, validateChannels, assertAccountTime } from './live-platforms';
@@ -257,6 +258,7 @@ export class LiveScheduleService {
       }
       return { role, members: [...members.values()].sort((a,b) => b.sessions - a.sessions || a.name.localeCompare(b.name, 'zh-CN') || a.id - b.id) };
     });
+    const financials = await dayEstimate(this.em, a, daily, nowText);
     const daySummary = { sessions: daily.length, live: daily.filter(s => s.status === 'live').length, people: people.size, roles };
     const tiles = rooms.map((room) => {
       const roomSessions = sessions.filter((s) => Number(s.room_id) === room.id);
@@ -289,7 +291,7 @@ export class LiveScheduleService {
       return { ...room, status, statusLabel: ({ live: '正在直播', finished: '今日已结束', idle: '未开播' } as Record<string, string>)[status], live: view(live), current: view(live ?? roomSessions.filter(s => s.session_day === day).slice(-1)[0] ?? null), next: upcoming, timeline: items };
     });
     return {
-      date: day, now: nowText, daySummary, groups: liveGroupRooms(tiles), corridorFound: rooms.length > 0,
+      date: day, now: nowText, daySummary, financials, groups: liveGroupRooms(tiles), corridorFound: rooms.length > 0,
       totals: { rooms: tiles.length, live: tiles.filter((t) => t.status === 'live').length, scheduled: schedules.length, pendingReview: sessions.filter((s) => s.status === 'submitted').length },
     };
   }

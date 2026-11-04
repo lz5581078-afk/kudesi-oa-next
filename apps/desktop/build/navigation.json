@@ -1,0 +1,4 @@
+{
+  "collector": "/after-sales/desktop-collector",
+  "shared": "/after-sales/shared/:id"
+}

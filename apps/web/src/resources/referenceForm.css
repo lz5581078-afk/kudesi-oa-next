@@ -64,6 +64,30 @@
 .modal.rf.rf-reference.reference-shipping_material .reference-section-gift{padding:0 0 20px;border:0;border-bottom:1px solid #e5eaf0;border-radius:0;background:transparent}
 .modal.rf.rf-reference.reference-shipping_material .rf-foot>.finance-form-save{border:1px solid #cfd9e5}
 
+.modal.rf.rf-reference.reference-shipping_material{width:min(940px,calc(100vw - 32px))}
+.reference-shipping_material .reference-section-sources .rf-sec-title>small,.reference-shipping_material .reference-section-logistics .rf-sec-title>small{display:none}
+.modal.rf.rf-reference.reference-shipping_material .shipping-weight-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1.3fr);gap:16px;align-items:end;font:16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;line-height:normal}
+.modal.rf.rf-reference.reference-shipping_material .shipping-weight-grid label{display:grid;gap:8px;min-width:0}
+.reference-shipping_material .shipping-weight-grid label>span{font-size:13px;font-weight:600}
+.reference-shipping_material .shipping-weight-grid em{color:#d92d20;font-size:12px;font-style:normal}
+.modal.rf.rf-reference.reference-shipping_material .shipping-weight-grid input,.modal.rf.rf-reference.reference-shipping_material .shipping-weight-grid select{box-sizing:border-box;width:100%;height:42px;min-width:0;border:1px solid #c6d3df;border-radius:6px;background:#fff;padding:0 12px;font:inherit}
+.reference-shipping_material .shipping-weight-result{display:grid;gap:8px;padding:10px 14px;border-left:3px solid #14835b;background:#f0f9f5;min-width:0}
+.reference-shipping_material .shipping-weight-result span{font-size:12px;color:#607080}
+.reference-shipping_material .shipping-weight-result output{font-weight:700;color:#126c4b;overflow-wrap:anywhere}
+.rf-reference .purchased-net-weight-hint{min-height:16px;color:#08784a;font-size:11px;font-weight:750}
+.modal.rf.rf-reference.reference-package .reference-package-dimensions,.modal.rf.rf-reference.reference-oem_package .reference-package-dimensions{grid-column:1/-1!important}
+.reference-package-dimensions>div{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px}
+.reference-package-dimensions>.rf-label{display:flex;align-items:center;gap:5px}
+.reference-package-dimensions>.rf-label .rf-manage{margin-left:auto}
+.reference-package-dimensions .reference-dimension-unit{display:contents}
+.modal.rf.rf-reference.rf-p:not(.reference-custom) .form-grid input,.modal.rf.rf-reference.rf-p:not(.reference-custom) .form-grid select,.modal.rf.rf-reference.rf-p:not(.reference-custom) .form-grid textarea{font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;font-size:16px;line-height:normal}
+.modal.rf.rf-reference .reference-package-dimensions{display:grid;gap:6px}
+.modal.rf.rf-reference .reference-package-dimensions>.rf-label{min-height:0;font-size:12px;line-height:normal;font-weight:700}
+.modal.rf.rf-reference .form-grid>.reference-package-dimensions{gap:6px}
+.reference-package-dimensions>.rf-label .reference-optional{font-size:10px;font-weight:700}
+.reference-package-dimensions>.rf-label .rf-manage{font-weight:700}
+@media(max-width:600px){.modal.rf.rf-reference.reference-shipping_material .shipping-weight-grid{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:12px}.reference-shipping_material .shipping-weight-result{grid-column:1/-1}}
+
 .reference-lines[data-field=capacities] .reference-line-label{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:18px}
 .reference-lines[data-field=capacities] .reference-line-label .rf-manage{margin:0}
 .reference-lines[data-field=capacities] .reference-line-label .req{font-size:12px;font-weight:500;color:inherit}

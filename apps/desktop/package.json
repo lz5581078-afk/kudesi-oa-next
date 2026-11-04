@@ -1,0 +1,61 @@
+{
+  "name": "@kudesi/desktop",
+  "version": "0.2.0",
+  "private": true,
+  "description": "酷得斯 OA 桌面客户端",
+  "author": "Kudesi",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "typecheck": "node scripts/navigation.cjs && node scripts/check.cjs && tsc -p tsconfig.json",
+    "test": "node --test test/*.test.cjs",
+    "build": "npm run typecheck && npm test",
+    "dist:win": "node scripts/navigation.cjs && electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "node scripts/navigation.cjs && electron-builder --mac dir --publish never",
+    "test:native": "electron scripts/native-smoke.cjs",
+    "prestart": "node scripts/navigation.cjs"
+  },
+  "devDependencies": {
+    "electron": "45.2.2",
+    "electron-builder": "26.18.0",
+    "typescript": "^5.6.3",
+    "@types/node": "^22.10.0",
+    "jsdom": "^25.0.1"
+  },
+  "build": {
+    "appId": "com.kudesi.oa.desktop",
+    "productName": "酷得斯OA",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "build/navigation.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "KudesiOA-Setup-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": false
+    },
+    "toolsets": {
+      "nsis": "1.2.1"
+    },
+    "executableName": "KudesiOA"
+  }
+}

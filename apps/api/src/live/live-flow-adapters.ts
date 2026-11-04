@@ -26,7 +26,7 @@ export const liveSessionReview: FlowAdapter = {
     const session = await sessionRow(em, user.companyId, sessionIdOf(payload), true);
     if (!isParticipant(session, user.id) && !can(user, 'live.manage')) liveFail('只有本场主播或中控可以提交审核', 403);
     await checkSubmittable(em, user.companyId, session);
-    if (await closedDay(em, user.companyId, String(session.session_day))) liveFail('该日期已在结算审批或已结算，不能提交审核');
+    if (await closedDay(em, user.companyId, String(session.session_day),{sessionId:Number(session.id)})) liveFail('该日期已在结算审批或已结算，不能提交审核');
   },
   async onStart({ em, user, payload, run }) {
     await em.query(
@@ -65,13 +65,14 @@ export const liveSessionReview: FlowAdapter = {
 export const liveSettlement: FlowAdapter = {
   key: 'live-settlement',
   async title(em: EntityManager, companyId, payload) {
-    const [row] = await em.query('SELECT month, payable_total_cents FROM live_settlements WHERE company_id = ? AND id = ?', [companyId, settlementIdOf(payload)]);
+    const [row] = await em.query(`SELECT month,DATE_FORMAT(period_from,'%Y-%m-%d') period_from,DATE_FORMAT(period_to,'%Y-%m-%d') period_to,settlement_kind,payable_total_cents FROM live_settlements WHERE company_id = ? AND id = ?`, [companyId, settlementIdOf(payload)]);
     if (!row) liveFail('结算单不存在', 404);
-    return `${row.period_from??row.month} 至 ${row.period_to??row.month} 直播工资结算（应发 ${(Number(row.payable_total_cents) / 100).toFixed(2)} 元）`.slice(0, 190);
+    return `${row.period_from??row.month} 至 ${row.period_to??row.month} 直播${row.settlement_kind==='commission'?'提成结算':row.settlement_kind==='adjustment'?'补扣款调整':'工资结算'}（应发 ${(Number(row.payable_total_cents) / 100).toFixed(2)} 元）`.slice(0, 190);
   },
   async validateStart({ em, user, payload }) {
     if (!can(user, 'live.manage')) liveFail('没有提交月结审批的权限', 403);
     const row = await lockedSettlement(em, user.companyId, settlementIdOf(payload));
+    if(Number(payload.settlementRevision)!==Number(row.revision))liveFail('结算单已重新核对，请刷新确认最新金额后提交',409);
     if (!['draft', 'returned'].includes(row.status)) liveFail(row.status === 'approved' ? '结算单已审批通过' : `结算单${SETTLEMENT_STATUS[row.status] ?? ''}，不能重复提交`);
     await validateSettlementSources(em, user.companyId, row);
   },

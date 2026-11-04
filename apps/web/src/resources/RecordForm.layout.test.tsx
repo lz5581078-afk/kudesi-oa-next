@@ -40,6 +40,16 @@ it('赠品入口保留对照站填写提示，编码简称输入转大写',()=>{
  expect(code.value).toBe('BZJ10G');
 });
 
+it('外购名称规格净重随规格单位换算，人工纠错重量不冒充商品净重',()=>{
+ render(<RecordForm def={def} record={null} initial={{archiveType:'purchased',supplyMode:'original_purchase',specQty:1,specUnit:'KG',weightG:1700,weightManual:true}} onClose={vi.fn()} onSaved={vi.fn()}/>);
+ expect(screen.getByRole('heading',{name:'新增外购成品 · 原装采购'})).toBeTruthy();
+ expect(screen.getByText('商品净重：1 kg')).toBeTruthy();
+ fireEvent.change(screen.getByRole('textbox',{name:/名称规格/}),{target:{value:'500'}});
+ fireEvent.change(screen.getByRole('combobox',{name:/名称单位/}),{target:{value:'G'}});
+ expect(screen.getByText('商品净重：0.5 kg')).toBeTruthy();
+ expect((screen.getByLabelText('重量') as HTMLInputElement).value).toBe('1.7');
+});
+
 const TYPES: Array<[string, Record<string, unknown>]> = [
   ['raw', { archiveType: 'raw' }], ['self_made', { archiveType: 'self_made' }], ['purchased_original', { archiveType: 'purchased', supplyMode: 'original_purchase' }], ['purchased_oem', { archiveType: 'purchased', supplyMode: 'supplier_oem' }],
   ['package', { archiveType: 'package' }], ['oem_package', { archiveType: 'oem_package' }], ['shipping_material', { archiveType: 'shipping_material' }], ['custom', { archiveType: 'zz_custom' }],

@@ -1,0 +1,24 @@
+.live-modal-backdrop:has(.live-evidence-viewer) { padding: 16px; align-items: center; overflow: hidden; }
+.live-modal-backdrop .live-modal:has(.live-evidence-viewer) { width: calc(100vw - 32px); max-width: none; height: calc(100dvh - 32px); }
+.live-modal-backdrop .live-modal .live-evidence-viewer { padding: 0; gap: 0; max-height: none; overflow: hidden; }
+.live-evidence-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; flex-wrap: wrap; flex-shrink: 0; }
+.live-evidence-name { flex: 1 1 140px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 12px; }
+.live-evidence-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.live-evidence-controls .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; font-size: 13px; padding: 0 10px; }
+.live-evidence-controls output { min-width: 46px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+.live-evidence-help { padding: 0 20px 10px; margin: 0; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.live-evidence-viewport { flex: 1; min-height: 0; overflow: auto; background: var(--bg); border-top: 1px solid var(--border); overscroll-behavior: contain; }
+.live-evidence-canvas { min-width: 100%; min-height: 100%; width: max-content; }
+.live-evidence-canvas img { display: block; max-width: none; max-height: none; object-fit: initial; }
+.live-evidence-viewer > .notice { margin: 0 20px 10px; }
+@media(max-width: 600px) {
+  .live-modal-backdrop:has(.live-evidence-viewer) { padding: 0; }
+  .live-modal-backdrop .live-modal:has(.live-evidence-viewer) { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+  .live-evidence-tools { padding: 10px 12px; gap: 8px; }
+  .live-evidence-name { flex-basis: 100%; }
+  .live-evidence-controls { gap: 6px; }
+  .live-evidence-controls .secondary-button { min-height: 38px; padding: 0 9px; font-size: 12px; }
+  .live-evidence-help { padding: 0 12px 10px; }
+}
+.live-modal:has(.live-evidence-viewer) .modal-head { padding: 12px 16px; gap: 12px; }
+.live-modal:has(.live-evidence-viewer) .modal-head h2 { margin: 0; font-size: 18px; }

@@ -203,7 +203,7 @@ export class LiveManagementService {
         if(original && JSON.stringify(channelsOf(s))!==JSON.stringify(channelsOf(original)))liveFail('场次账号店铺已变化，请刷新后补报');
         if(s.jst_shop_id!==store!.jstShopId)liveFail('店铺聚水潭绑定与原场次不同，请先核对绑定');
         if (!['live', 'pending_report', 'returned'].includes(s.status)) liveFail('待审核或已审核场次不能补报');
-        if (await closedDay(em, user.companyId, s.session_day)) liveFail('原场次日期已进入结算');
+        if (await closedDay(em, user.companyId, s.session_day,{sessionId:Number(s.id)})) liveFail('原场次日期已进入结算');
         if (
           Number(s.anchor_user_id) !== input.anchorId ||
           Number(s.control_user_id ?? 0) !== Number(input.controlId ?? 0) ||

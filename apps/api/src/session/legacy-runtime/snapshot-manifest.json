@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "sourceRepository": "kudesi-oa",
   "sourceCommit": "0fb7fdad2f3805e3579bd4f870199c880668aaa1",
-  "policy": "Files copied byte-for-byte. No legacy server bootstrap, business-secret defaults, environment, credentials or installer binaries included.",
+  "policy": "Original source hashes retained; remote-assistance-service has a scoped safe-close confirmation adaptation. No legacy server bootstrap, business-secret defaults, environment, credentials or installer binaries included.",
   "dependencies": [
     "node builtins",
     "express",
@@ -56,9 +56,11 @@
       "snapshot": "vendor/server/modules/session-manager/platform-registry.js"
     },
     {
-      "sha256": "81102343302928ea6b15f90500af10c3e27ddf40044c01beb28bff6d5d4596d0",
+      "sha256": "af44bd35da8ee5bdb8e433a010694f0d7a238afe4cc4a02a95c2a2f51ad9477c",
       "source": "server/modules/session-manager/remote-assistance-service.js",
-      "snapshot": "vendor/server/modules/session-manager/remote-assistance-service.js"
+      "snapshot": "vendor/server/modules/session-manager/remote-assistance-service.js",
+      "sourceSha256": "81102343302928ea6b15f90500af10c3e27ddf40044c01beb28bff6d5d4596d0",
+      "modified": true
     },
     {
       "sha256": "8816e272887e829b5fda37ee60506b7e62ec647c7af70129a92e580da8709d84",

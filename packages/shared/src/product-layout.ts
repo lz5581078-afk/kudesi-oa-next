@@ -94,7 +94,7 @@ const B = (block: ProductBlock, extra: Omit<BlockItem, 'block'> = {}): BlockItem
 const S = (id: string, title: string, items: readonly LayoutItem[], extra: { hint?: string; step?: string } = {}): ProductSection => ({ id, title, items, ...extra });
 
 const GIFT_HINT = '两项均填写后才可作为赠品。简称用于组合名称，编码简称用于组合编码；同公司跨档案排重，不修改已生成的组合。';
-const CODE_PURCHASED = '编码顺序：外购档案-供货类型（YZ/OEM）-分类-品牌-名称-名称规格+名称单位。系统规格不参与编码。';
+const CODE_PURCHASED = '编码顺序：外购档案-供货类型（YZ/OEM）-分类-品牌-名称-名称规格+名称单位-系统规格。规格和单位合并为一段，例如 100G。';
 const CODE_SELF = '编码顺序：自产档案-分类-品牌-名称-名称规格+名称单位（选填）。可在“人工修正”里手改。';
 const LOGISTICS_HINT = '两项费用分别维护、统一汇总，并与当前系统规格和采购价一起留存历史；手工修改后保存会生成新的历史记录。';
 
@@ -175,7 +175,7 @@ const PACKAGE_LIKE = (key: 'package' | 'oem_package'): ProductLayout => ({
   header: ['archiveType', 'categoryId', 'supplierId'],
   sections: [
     CATEGORY,
-    S('code', key === 'package' ? '产品包装编号' : 'OEM 包装编号', [B('code')], { hint: '系统根据分类、品牌、名称和全部适用容量生成' }),
+    S('code', key === 'package' ? '产品包装编号' : 'OEM包装编号', [B('code')], { hint: '编号随分类、品牌、名称和容量组的全部适用容量自动更新。' }),
     S('base', '包装基础信息', [
       F('packagingCategory', { required: true }), F('name', { label: '包装名称' }), F('brandId', { required: true }),
       F('dimensions'), F('dimensionUnit'), F('shape', { whenFilled: true }), F('note'), B('fullName'),

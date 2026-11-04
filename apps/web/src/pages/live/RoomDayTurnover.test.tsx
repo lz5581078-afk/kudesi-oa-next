@@ -83,3 +83,25 @@ it('跨日场次未出现在实际直播列表时，仍查询排场关联的场�
   expect(liveApi.turnover).toHaveBeenCalledWith(7);
   expect(screen.queryByRole('button', { name: '刷新营业额' })).toBeNull();
 });
+
+it('历史场次只在打开详情时读已存快照一次，仅在播场次继续自动查询', async () => {
+  vi.useFakeTimers();
+  const ended = { ...day().sessions[0], id: 8, status: 'approved', endAt: `${props.date} 11:00:00` };
+  vi.mocked(liveApi.roomDay).mockResolvedValue({ ...day(), sessions: [...day().sessions, ended] });
+  await act(async () => { render(<RoomDayDialog {...props} />); });
+  expect(liveApi.turnover).toHaveBeenCalledWith(7);
+  expect(liveApi.turnover).toHaveBeenCalledWith(8);
+  vi.mocked(liveApi.turnover).mockClear();
+  await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+  expect(vi.mocked(liveApi.turnover).mock.calls.every(([id]) => id === 7)).toBe(true);
+  expect(liveApi.turnover).toHaveBeenCalledTimes(4);
+});
+
+it('当天没有在播场次时，手动详情读完已存数据后不再自动查询', async () => {
+  vi.useFakeTimers();
+  vi.mocked(liveApi.roomDay).mockResolvedValue({ ...day(), sessions: [{ ...day().sessions[0], status: 'approved', endAt: `${props.date} 11:00:00` }] });
+  await act(async () => { render(<RoomDayDialog {...props} />); });
+  expect(liveApi.turnover).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
+  expect(liveApi.turnover).toHaveBeenCalledTimes(1);
+});

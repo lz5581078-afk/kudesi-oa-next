@@ -5,7 +5,7 @@ import { roomProductItems } from './roomProducts';
 import { productText } from './liveProducts';
 import { useAuth } from '../../auth/AuthContext';
 import { RoomSettingsDialog } from './RoomSettingsDialog';
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { liveApi, type Overview, type RoomDay, type RoomTile, type TimelineItem, type SessionTurnover } from './liveApi';
 import { errText, hm, minutesText, money, todayText } from './liveFormat';
 import { Modal, SchedulePill, SessionPill } from './liveUi';
@@ -55,14 +55,15 @@ export function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId
     const locked = new Set<number>();
     setTurnovers({});
     const ids = [...new Set([...(d?.sessions.map(s => s.id) ?? []), ...(d?.schedules.flatMap(s => s.sessionId === null ? [] : [s.sessionId]) ?? [])])];
-    const read = async () => {
-      await Promise.all(ids.filter(id => !locked.has(id)).map(id => liveApi.turnover(id).then(
+    const liveIds = new Set([...(d?.sessions.filter(s => s.status === 'live' && !s.endAt).map(s => s.id) ?? []), ...(d?.schedules.filter(s => s.status === 'live' && s.sessionId !== null).map(s => s.sessionId!) ?? [])]);
+    const read = async (initial = false) => {
+      await Promise.all(ids.filter(id => (initial || liveIds.has(id)) && !locked.has(id)).map(id => liveApi.turnover(id).then(
         data => { if (active) { if (data.locked) locked.add(id); setTurnovers(current => ({ ...current, [id]: { data } })); } },
         e => { if (active) setTurnovers(current => ({ ...current, [id]: { error: errText(e, '读取营业额失败') } })); },
       )));
-      if (active && ids.some(id => !locked.has(id))) timer = setTimeout(() => { if (document.visibilityState === 'visible') void read(); else timer = setTimeout(() => void read(), 30_000); }, 30_000);
+      if (active && ids.some(id => liveIds.has(id) && !locked.has(id))) timer = setTimeout(() => { if (document.visibilityState === 'visible') void read(); else timer = setTimeout(() => void read(), 30_000); }, 30_000);
     };
-    if (ids.length) void read();
+    if (ids.length) void read(true);
     return () => { active = false; if (timer) clearTimeout(timer); };
   }, [d]);
   const turnover = (id: number | null) => {
@@ -106,7 +107,10 @@ export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => 
   const [d, setD] = useState<Overview | null>(null);
   const [error, setError] = useState('');
   const [room, setRoom] = useState<number | null>(null);
-  const load = useCallback(() => { liveApi.overview(date).then((x) => { setD(x); setError(''); }).catch((e) => setError(errText(e, '读取失败'))); }, [date]);
+  const request = useRef(0);
+  const load = useCallback(() => { const id = ++request.current; liveApi.overview(date).then((x) => { if (id === request.current) { setD(x); setError(''); } }).catch((e) => { if (id === request.current) setError(errText(e, '读取失败')); }); }, [date]);
+  const financials = d?.date === date ? d.financials : undefined;
+  const dayLabel = date === todayText() ? '今日' : '当日';
   useEffect(load, [load]);
   useEffect(() => {
     const tick = () => { if (document.visibilityState === 'visible') load(); };
@@ -121,10 +125,24 @@ export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => 
     <div className="live-page live-overview">
       <div className="live-overview-toolbar">
       <div className="live-filter card">
-        <label className="live-field">日期<input aria-label="全览日期" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
+        <div className="live-overview-controls"><label className="live-field">日期<input aria-label="全览日期" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
         <div className="tab-group" role="group" aria-label="筛选">{FILTERS.map(([k, label]) => <button key={k} type="button" className={filter === k ? 'chip active' : 'chip'} onClick={() => setFilter(k)}>{label}</button>)}</div>
         <button type="button" className="secondary-button" onClick={load}>刷新</button>
-        {d && <span className="muted" role="status">数据截至 {hm(d.now)}</span>}
+        {d && <span className="muted" role="status">数据截至 {hm(d.now)}</span>}</div>
+        <div className="live-overview-financials" aria-label="当日营业额与费用">
+          <div className="live-financial-stat" title="按开播日期汇总已结束及正在直播场次，营业额读取服务器最近快照，已结束场次无快照时采用填报值。">
+            <span>{dayLabel}直播营业额</span><strong>{financials ? money(financials.turnoverCents) : '—'}</strong>
+            <small>{financials?.missingSalesSessions ? `已统计 · ${financials.missingSalesSessions}场待更新` : '截至当前 · 含未审核'}</small>
+          </div>
+          <div className="live-financial-stat" title={financials?.costs ? `主播、中控工资 ${money(financials.costs.wageCents)}；主播、中控、运营提成 ${money(financials.costs.commissionCents)}。按本人实际时段计薪，工资每人每场只算一次，提成分平台计算；以审核结果为准。` : '查看全部费用需全员提成查看权限。'}>
+            <span>{dayLabel}费用</span><strong>{financials?.costs ? money(financials.costs.totalCents) : '—'}</strong>
+            <small>{financials ? financials.costs ? financials.costs.missingSessions ? `已统计 · ${financials.costs.missingSessions}场待完善` : '实时预估 · 含未审核' : '无全员费用查看权限' : '读取中'}</small>
+          </div>
+          <div className="live-financial-stat" title="未审核场次取中控已填报的投流合计；已审核取各平台核定投流，每个平台只统计一次。未填报时不计作零，不计入前面的工资及提成费用。">
+            <span>{dayLabel}投流费用</span><strong>{financials?.adSpend ? money(financials.adSpend.totalCents) : '—'}</strong>
+            <small>{financials?.adSpend ? financials.adSpend.missingSessions ? `已填报 · ${financials.adSpend.missingSessions}场待填报` : '已填报 · 含未审核' : financials?.costs === null ? '无全员费用查看权限' : '读取中'}</small>
+          </div>
+        </div>
         <button type="button" className="secondary-button live-summary-trigger" disabled={!d?.daySummary || d.date !== date} onClick={() => setSummaryOpen(true)}>本日直播情况汇总</button>
       </div>
       {d && (

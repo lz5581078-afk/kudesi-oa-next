@@ -149,6 +149,52 @@ db('旧登录模块资料迁入与真实帧凭证桥接（独立MySQL）', () =>
     expect(await legacyAdoptionFingerprint(ds, user.companyId, user.id)).not.toBe(p.sourceHash);
   });
 
+  it('两用途平台排序和中文搜索兼容编码及原中文，候选搜索不改变资料平台值', async () => {
+    const platforms = [['jd', '京东'], ['douyin', '抖音电商'], ['pdd', '拼多多'], ['kuaishou', '快手电商'], ['taobao', '淘宝/天猫'], ['tmall', '天猫']] as const;
+    const sourceRows: Array<{ id: number; platform: string; code: string }> = [];
+    for (const [code, chinese] of platforms) {
+      for (const platform of [code, chinese]) {
+        const record = await services.resources.create(user, 'stores', { name: `平台回归-${code}-${sourceRows.length}`, platform: code });
+        if (platform !== code) await ds.query("UPDATE resource_records SET data=JSON_SET(data,'$.platform',?) WHERE company_id=? AND id=?", [platform, user.companyId, record.id]);
+        sourceRows.push({ id: record.id, platform, code });
+        for (const workspace of ['finance_withdrawal', 'company_store_maintenance']) await ds.manager.save(SessionShop, {
+          companyId: user.companyId, workspace, storeId: record.id, deviceId: nativeDevice.id, loginAccount: '', loginPasswordEnc: null,
+          autoLogin: false, loginState: 'none', status: 'active',
+        });
+      }
+    }
+    await adopt();
+    const candidates: Array<{ id: number; code: string; chinese: string }> = [];
+    for (const [code, chinese] of platforms) {
+      const record = await services.resources.create(user, 'stores', { name: `候选平台-${code}`, platform: code });
+      candidates.push({ id: record.id, code, chinese });
+    }
+    const mapping = await ds.transaction(em => ensureLegacyStoreMappings(em, user.companyId, [...sourceRows, ...candidates].map(row => row.id)));
+    const overview = store.module('overview-service'), managed = store.module('managed-shop-service');
+    for (const key of ['finance_withdrawal', 'company_store_maintenance'] as const) {
+      const workspaceId = await store.workspace(user, key);
+      const list = (options: Record<string, unknown>) => overview.getOverview({ companyId: user.companyId, workspaceId, query: store.query, pageSize: 200, ...options });
+      const ascending = await list({ keyword: '平台回归-', sort: 'platform_asc' });
+      const descending = await list({ keyword: '平台回归-', sort: 'platform_desc' });
+      expect(ascending.shops.map((shop: any) => shop.platformCode)).toEqual(['pdd', 'pdd', 'taobao', 'taobao', 'taobao', 'taobao', 'douyin', 'douyin', 'kuaishou', 'kuaishou', 'jd', 'jd']);
+      expect(descending.shops.map((shop: any) => shop.platformCode)).toEqual(['jd', 'jd', 'kuaishou', 'kuaishou', 'douyin', 'douyin', 'taobao', 'taobao', 'taobao', 'taobao', 'pdd', 'pdd']);
+      for (const [code, chinese] of platforms) {
+        // The shorter standard display name also matches old aliases such as 抖音电商.
+        const keyword = code === 'taobao' ? '淘宝' : code === 'douyin' ? '抖音' : code === 'kuaishou' ? '快手' : chinese;
+        const matched = await list({ keyword });
+        const expected = sourceRows.filter(row => row.code === code).map(row => mapping.get(row.id));
+        expect(matched.shops.map((shop: any) => Number(shop.id))).toEqual(expect.arrayContaining(expected));
+        const available = await managed.searchAvailableShops({ companyId: user.companyId, workspaceId, keyword, query: store.query });
+        expect(available.map((shop: any) => Number(shop.id))).toEqual([mapping.get(candidates.find(row => row.code === code)!.id)]);
+        const byCode = await list({ keyword: code });
+        expect(byCode.shops.map((shop: any) => Number(shop.id))).toContain(mapping.get(sourceRows.find(row => row.platform === code)!.id));
+      }
+    }
+    const stored = await ds.query("SELECT id,JSON_UNQUOTE(JSON_EXTRACT(data,'$.platform')) platform FROM resource_records WHERE company_id=? AND id IN (?)", [user.companyId, sourceRows.map(row => row.id)]);
+    expect(stored.map((row: any) => ({ id: Number(row.id), platform: row.platform })).sort((a: any, b: any) => a.id-b.id))
+      .toEqual(sourceRows.map(({ id, platform }) => ({ id, platform })).sort((a, b) => a.id-b.id));
+  }, 30000);
+
   const browserFixture = async (owner: AuthUser = user) => {
     await adopt();
     const [workspace] = await store.query("SELECT id FROM session_workspaces WHERE company_id=? AND workspace_key='finance_withdrawal'", [user.companyId]);

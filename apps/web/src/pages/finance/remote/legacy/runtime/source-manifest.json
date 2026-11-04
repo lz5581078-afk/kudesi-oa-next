@@ -5,8 +5,8 @@
   "files": [
     {
       "path": "PddRemoteAssistDialog.jsx",
-      "sha256": "896769d89f1e5de9cc82e8651b24f449121fa3209968da6e1bf0572c09d74260",
-      "adaptation": "Module-local new-OA authenticated transport import; explicit purpose=remote on remote open requests",
+      "sha256": "1112e6d11f942eba8dd38aaa81f9472de6beb3d6af55180a6a8103d3c3eeb9b8",
+      "adaptation": "Module-local authenticated transport and purpose=remote; truthful close acknowledgement, isolated toolbar and terminal/loading presentation; media/input geometry unchanged",
       "sourceSha256": "4b01da6e819f5a01749e15db0826bd602162881d05677c0d8df9b0904fa738ab"
     },
     {
@@ -36,13 +36,15 @@
     },
     {
       "path": "remote-close-recovery.mjs",
-      "sha256": "e6b3cdd28a16dd0ed642d7615e8cd75d04e5d9ccd0c1ecf84cb21c4b3b597edc",
-      "adaptation": "Unchanged"
+      "sha256": "bae324bf994d9d880c78191f020b01b11e62da28d219a943d5b6c26eb77ab2ae",
+      "adaptation": "Require persisted browserStatus=closed instead of media-ended labels for safe-close confirmation",
+      "sourceSha256": "e6b3cdd28a16dd0ed642d7615e8cd75d04e5d9ccd0c1ecf84cb21c4b3b597edc"
     },
     {
       "path": "session-manager.css",
-      "sha256": "41513ad73517ab400c947cdf372b1e30e64214fa1e404eed013f9ee3d70c76f2",
-      "adaptation": "Unchanged"
+      "sha256": "524a7faad00e988e3b1e3de740b6ddd98acb39409618cd056d7016e9f4f6ef68",
+      "adaptation": "Module-scoped toolbar, error/empty media and responsive layout adaptation for the new OA host",
+      "sourceSha256": "41513ad73517ab400c947cdf372b1e30e64214fa1e404eed013f9ee3d70c76f2"
     }
   ]
 }

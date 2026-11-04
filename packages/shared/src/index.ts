@@ -68,3 +68,5 @@ export * from './resource-import-profiles';
 
 export * from './bundle-naming';
 export * from './base-code-definition';
+
+export * from './desktop-after-sales';
