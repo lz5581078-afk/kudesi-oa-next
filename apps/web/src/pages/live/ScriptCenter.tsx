@@ -1,3 +1,4 @@
+import { ChevronRight, FileText, Folder } from 'lucide-react';
 import { RouterLeaveBlocker } from '../../resources/grid/LeaveGuard';
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
@@ -32,11 +33,6 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
       .then((data) => {
         if (!live) return;
         setLibrary(data);
-        if (!retry) {
-          const first = data.folders[0]?.id || 0;
-          setFolder(first);
-          setVersion(data.versions.find((v) => v.folderId === first)?.id ?? 0);
-        }
       })
       .catch((e) => {
         if (live) setError(e.message);
@@ -100,7 +96,24 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
       setBusy(false);
     }
   }
+  function openLevel(folderId: number, versionId = 0) {
+    if (busy || !leave()) return;
+    setDirty(false);
+    setCreating(null);
+    setFolderName('');
+    setVersionName('');
+    setError('');
+    setFolder(folderId);
+    setVersion(versionId);
+  }
   const versions = library?.versions.filter((v) => v.folderId === folder) ?? [];
+  const folderTitle = library?.folders.find((f) => f.id === folder)?.name;
+  const versionTitle = versions.find((v) => v.id === version)?.name;
+  const kind = folder ? 'version' : 'folder';
+  const itemName = folder ? '版本' : '文件夹';
+  const draftName = folder ? versionName : folderName;
+  const cards = folder ? versions : (library?.folders ?? []);
+  const Icon = folder ? FileText : Folder;
   return (
     <section className="sc-center card pad">
       <RouterLeaveBlocker
@@ -138,110 +151,103 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
       {!library ? (
         !error && '正在读取话术库…'
       ) : (
-        <div className="sc-layout">
-          <fieldset className="sc-nav" disabled={busy}>
-            <div className="sc-nav-head">
-              <h3>产品文件夹</h3>
-              {manage && (
-                <button
-                  className="link-button"
-                  aria-expanded={creating === 'folder'}
-                  onClick={() => setCreating(creating === 'folder' ? null : 'folder')}
-                >
-                  ＋ 新建文件夹
-                </button>
-              )}
-            </div>
-            <select
-              aria-label="产品文件夹"
-              value={folder}
-              onChange={(e) => {
-                if (leave()) {
-                  setDirty(false);
-                  setFolder(+e.target.value);
-                  setCreating(null);
-                  setVersion(library.versions.find((v) => v.folderId === +e.target.value)?.id ?? 0);
-                  setVersionName('');
-                }
-              }}
-            >
-              {!folder && <option value={0}>尚无产品文件夹</option>}
-              {library.folders.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
-            {manage && creating === 'folder' && (
-              <div className="sc-bar">
-                <input
-                  aria-label="新产品文件夹名称"
-                  placeholder="输入产品名称"
-                  value={folderName}
-                  maxLength={100}
-                  onChange={(e) => setFolderName(e.target.value)}
-                />
-                <button
-                  className="secondary-button"
-                  disabled={!folderName.trim()}
-                  onClick={() => add('folder')}
-                >
-                  新建文件夹
-                </button>
-              </div>
-            )}
-            {folder > 0 && (
-              <>
-                <div className="sc-nav-head">
-                  <h3>话术版本</h3>
-                  {manage && (
-                    <button
-                      className="link-button"
-                      aria-expanded={creating === 'version'}
-                      onClick={() => setCreating(creating === 'version' ? null : 'version')}
-                    >
-                      ＋ 新建版本
-                    </button>
-                  )}
-                </div>
-                {!versions.length && <small>此产品还没有话术版本。</small>}
-                {versions.map((v) => (
-                  <button
-                    key={v.id}
-                    aria-pressed={v.id === version}
-                    className="sc-version-link"
-                    onClick={() => {
-                      if (v.id !== version && leave()) {
-                        setDirty(false);
-                        setVersion(v.id);
-                      }
-                    }}
-                  >
-                    {v.name}
+        <>
+          {folder > 0 && (
+            <nav className="sc-path" aria-label="话术目录路径">
+              <button className="link-button" disabled={busy} onClick={() => openLevel(0)}>
+                全部产品
+              </button>
+              <ChevronRight aria-hidden="true" size={15} />
+              {version ? (
+                <>
+                  <button className="link-button" onClick={() => openLevel(folder)}>
+                    {folderTitle}
                   </button>
-                ))}
-                {manage && creating === 'version' && (
-                  <div className="sc-bar">
-                    <input
-                      aria-label="新版本名称"
-                      placeholder="输入新版本名称"
-                      value={versionName}
-                      maxLength={100}
-                      onChange={(e) => setVersionName(e.target.value)}
-                    />
-                    <button
-                      className="secondary-button"
-                      disabled={!versionName.trim()}
-                      onClick={() => add('version')}
-                    >
-                      新建版本
-                    </button>
-                  </div>
+                  <ChevronRight aria-hidden="true" size={15} />
+                  <strong aria-current="page">{versionTitle}</strong>
+                </>
+              ) : (
+                <strong aria-current="page">{folderTitle}</strong>
+              )}
+            </nav>
+          )}
+          {!version ? (
+            <section className="sc-directory">
+              <header className="sc-directory-head">
+                <h3>{folder ? '话术版本' : '产品文件夹'}</h3>
+                {manage && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    aria-expanded={creating === kind}
+                    disabled={busy}
+                    onClick={() => setCreating(creating === kind ? null : kind)}
+                  >
+                    ＋ 新建{itemName}
+                  </button>
                 )}
-              </>
-            )}
-          </fieldset>
-          {detail && detail.id === version ? (
+              </header>
+              {manage && creating === kind && (
+                <form
+                  className="sc-create"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!busy) void add(kind);
+                  }}
+                >
+                  <input
+                    autoFocus
+                    aria-label={folder ? '新版本名称' : '新产品文件夹名称'}
+                    maxLength={100}
+                    placeholder={folder ? '输入版本名称' : '输入产品名称'}
+                    value={draftName}
+                    disabled={busy}
+                    onChange={(e) => (folder ? setVersionName : setFolderName)(e.target.value)}
+                  />
+                  <button className="primary-button" disabled={busy || !draftName.trim()}>
+                    创建
+                  </button>
+                  <button
+                    type="button"
+                    className="link-button"
+                    disabled={busy}
+                    onClick={() => setCreating(null)}
+                  >
+                    取消
+                  </button>
+                </form>
+              )}
+              {cards.length ? (
+                <div className="sc-tiles">
+                  {cards.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="sc-tile"
+                      disabled={busy}
+                      onClick={() => (folder ? openLevel(folder, item.id) : openLevel(item.id))}
+                    >
+                      <Icon className="sc-tile-icon" aria-hidden="true" size={26} />
+                      <span>
+                        <strong>{item.name}</strong>
+                        <small>
+                          {folder
+                            ? '打开话术'
+                            : library.versions.filter((v) => v.folderId === item.id).length + ' 个版本'}
+                        </small>
+                      </span>
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="sc-empty">
+                  {folder ? '这个产品还没有话术版本。' : '还没有产品文件夹。'}
+                  {manage ? '点击上方新建即可开始。' : ''}
+                </p>
+              )}
+            </section>
+          ) : detail && detail.id === version ? (
             <ScriptVersionPanel
               key={detail.id}
               initial={detail}
@@ -256,9 +262,9 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
               }
             />
           ) : (
-            <p className="sc-empty">{version ? '正在读取版本…' : '选择产品和版本，查看话术及素材提示。'}</p>
+            !error && <p className="sc-empty">正在读取版本…</p>
           )}
-        </div>
+        </>
       )}
     </section>
   );
