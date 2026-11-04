@@ -16,7 +16,7 @@ function parseDrafts(drafts: Draft[]): RuleRow[] {
   const rows: PriceRecognition['rows'] = [];
   const edits: RecognitionEdits = {};
   for (const d of drafts) {
-    if (![d.from, d.to, d.fixed, d.first, d.extra].some(value => value.trim())) continue;
+    if (!d.from.trim() && !d.to.trim()) continue;
     const i = rows.length;
     rows.push({ province: d.province, minExclusive: d.minExclusive, maxExclusive: d.maxExclusive, warnings: [] });
     edits[i] = { ruleType: d.mode, shipWeightMin: d.from || '0', shipWeightMax: d.to, fixedPrice: d.fixed, firstWeight: d.firstWeight, firstPrice: d.first, extraPrice: d.extra, note: d.note };

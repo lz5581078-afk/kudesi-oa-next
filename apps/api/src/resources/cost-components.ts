@@ -38,7 +38,7 @@ export function calculateCostComponents(d: ComponentContext, bundleId: number): 
         for (const part of parts) {
           const product = d.products.get(num(part.data.productId) ?? -1), quantity = num(part.data.qty) ?? 0;
           const price = product ? num(product.data.totalCost) : null, grams = product ? num(product.data.weightG) : null;
-          unit = unit === null || price === null || quantity <= 0 ? null : sumUnitCents([unit, multiplyUnitCents(price, quantity)]);
+          unit = unit === null || price === null || quantity <= 0 ? null : sumUnitCents([unit, multiplyUnitCents(price,quantity,0,6)]);
           weight = weight === null || grams === null || quantity <= 0 ? null : weight + grams * quantity;
         }
       } else if(base?.data.origin==='external_import'){unit=num(base.data.externalCost);weight=num(base.data.weightG);unitName=str(line.unit)||str(base.data.baseUnit)||str(base.data.codeSpecUnit);}
@@ -46,7 +46,7 @@ export function calculateCostComponents(d: ComponentContext, bundleId: number): 
       // 专属重量与来源商品的自动重量独立；马甲使用真实编码的专属重量。
       if (base?.data.profileWeightOverride !== undefined) weight = num(base.data.profileWeightOverride);
     }
-    const subtotal = unit === null || qty <= 0 ? null : multiplyUnitCents(unit, qty);
+    const subtotal = unit === null || qty <= 0 ? null : multiplyUnitCents(unit,qty,0,6);
     const subtotalWeight = weight === null || qty <= 0 ? null : roundWeight(weight * qty);
     if (subtotal === null) { issues.push(`「${name || code}」还没有完整成本或有效数量`); cost = null; }
     else if (cost !== null) cost = sumUnitCents([cost, subtotal]);

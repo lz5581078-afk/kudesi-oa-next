@@ -214,7 +214,7 @@ function BundlesContent() {
       {dialog === 'regen' && <BundleRegenDialog onClose={() => setDialog(null)} onDone={() => void reload()} />}
       {dialog === 'naming' && <NamingCenterDialog isAdmin={isAdmin} onClose={() => setDialog(null)} />}
       {verifyIds && <BundleVerifyDialog ids={verifyIds} isAdmin={isAdmin} onClose={() => setVerifyIds(null)} onDone={() => { setChecked([]); void reload(); }} />}
-      {revise && <RevisionDialog bundle={revise} onClose={() => setRevise(null)} onDone={() => { setChecked([]); void reload(); }} />}
+      {revise && <RevisionDialog bundle={revise} onVerify={()=>setVerifyIds([revise.id])} onApply={()=>{setRevise(null);setApplications(true);}} onClose={() => setRevise(null)} onDone={() => { setChecked([]); void reload(); }} />}
       {manual && <BundleManualDialog bundle={manual} onClose={() => setManual(null)} onDone={() => { setChecked([]); void reload(); }} />}
       {remove && <RemoveDialog bundle={remove} isAdmin={isAdmin} onClose={() => setRemove(null)} onDone={() => { setChecked([]); void reload(); }} />}
     </div>

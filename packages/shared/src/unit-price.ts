@@ -16,14 +16,16 @@ export function yuanToPreciseCents(value: string | number, centScale = UNIT_CENT
 }
 export function unitCentsTicks(value: number): bigint { return scaledDecimal(value, UNIT_CENT_SCALE); }
 const roundRatio = (n: bigint, d: bigint) => n < 0n ? -((-n + d / 2n) / d) : (n + d / 2n) / d;
+const safeInteger = (value:bigint):number => { if(value>BigInt(Number.MAX_SAFE_INTEGER)||value<BigInt(Number.MIN_SAFE_INTEGER))throw new Error('金额超出安全整数范围');return Number(value); };
 export function sumUnitCents(values: number[]): number { return Number(values.reduce((s,v)=>s+unitCentsTicks(v),0n)) / Number(TICKS); }
-export function multiplyUnitCents(value: number, quantity: number, lossPercent = 0): number {
-  const n = unitCentsTicks(value) * scaledDecimal(quantity,4) * (100_000_000n + scaledDecimal(lossPercent,6));
-  return Number(roundRatio(n, 10_000n * 100_000_000n)) / Number(TICKS);
+export function multiplyUnitCents(value: number, quantity: number, lossPercent = 0, quantityScale:4|6 = 4): number {
+  const n = unitCentsTicks(value) * scaledDecimal(quantity,quantityScale) * (100_000_000n + scaledDecimal(lossPercent,6));
+  const rounded=roundRatio(n,10n ** BigInt(quantityScale)*100_000_000n);
+  return (quantityScale===6?safeInteger(rounded):Number(rounded))/Number(TICKS);
 }
 /** 单据行在数量乘单价之后才结算到分，避免先舍入单价。 */
 export function settledLineCents(value: number, quantity: number): number {
-  return Number(roundRatio(unitCentsTicks(value) * scaledDecimal(quantity,4), TICKS * 10_000n));
+  return safeInteger(roundRatio(unitCentsTicks(value) * scaledDecimal(quantity,4), TICKS * 10_000n));
 }
 export function unitYuanText(cents: number): string { return (cents / 100).toFixed(6).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''); }
 

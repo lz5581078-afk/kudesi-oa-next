@@ -4,7 +4,7 @@ import { resourceApi, type ResourceDto } from '../../../resources/api';
 import type { LineInput } from './jstApi';
 
 /** 组合构成的行编辑器（批量生成、构成修订共用）：用途、基础编码/人工、数量，展开后还有旧系统 BOM 行的其余字段。 */
-export interface LineRow extends LineInput { label: string }
+export interface LineRow extends LineInput { label: string;sourceKind?:'archive'|'base' }
 
 export const ROLE_LABEL: Record<string, string> = Object.fromEntries(BUNDLE_ROLES.map((o) => [o.value, o.label]));
 const SELECTABLE_ROLES = BUNDLE_ROLES.filter((o) => o.value !== 'labor');
@@ -111,8 +111,8 @@ export function LineEditor({ rows, onChange, lockGifts, allowLabor, grouped }: {
 
 /** 提交给接口的行：去掉显示用的 label 和空值 */
 export function toLineInput(r: LineRow): LineInput {
-  const { label: _l, ...rest } = r;
-  return Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && v !== '' && v !== null)) as unknown as LineInput;
+  const keys:Array<keyof LineInput>=['role','baseCodeId','productId','laborId','qty','unit','lossRate','isRequired','includeInJst','costBucket','costTreatment','sortOrder','effectiveFrom','effectiveTo','note'];
+  return Object.fromEntries(keys.filter(key=>r[key]!==undefined&&r[key]!==''&&r[key]!==null).map(key=>[key,r[key]])) as unknown as LineInput;
 }
 
 /** 组合分类：只能选组合分类树里的最末级分类（带路径）。 */

@@ -65,6 +65,10 @@ export interface AfterCommitContext extends FlowServices {
 export interface FlowAdapter {
   key: string;
   title(em: EntityManager, companyId: number, payload: Record<string, unknown>): Promise<string>;
+  /** 配置启用的申请草稿允许不完整资料，但仍核验已填值和引用。 */
+  validateDraft?(ctx: StartContext): Promise<void>;
+  validateDraftShared?(ctx:StartContext):Promise<void>;
+  draftIdentity?(payload:Record<string,unknown>):string;
   validateStart?(ctx: StartContext): Promise<void>;
   /** 流程刚发起、发起步骤已记录、还没进入下一步时调用：业务适配器在这里建自己的业务记录（run 已有编号）；和流转同一个事务 */
   onStart?(ctx: StartContext & { run: FlowRun }): Promise<void>;

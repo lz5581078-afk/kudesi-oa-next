@@ -25,6 +25,7 @@ export interface LineInput {
   role: string; baseCodeId?: number; productId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean;
   costBucket?: string; costTreatment?: string; sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; note?: string;
 }
+export interface BundleComposition {baseUnits?:Record<number,{unit:string;label:string;available:boolean}>;sourceToken:string;profile:Record<string,unknown>;lines:Array<LineInput&{label:string}>;facts:Record<string,{title:string;code:string;unit:string;weightG:number|null;available:boolean}>;weightG:number|null;weightMode:'auto'|'manual';canManualWeight:boolean;pending:{id:number;reason:string;lines:Array<LineInput&{label?:string}>;weightG?:number;weightMode?:'auto'|'manual'}|null;history:Array<{id:number;status:string;reason:string;createdAt:string}>}
 export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number; manualCode?: string; manualName?: string; manualShortName?: string; manualReason?: string }
 export interface PreviewTarget {
   platformId: number; platformName: string; scenarioId: number; scenarioName: string; configNo: string; code: string; name: string; styleCode: string; shortName: string;
@@ -72,12 +73,13 @@ export const jstApi = {
 
   bundleOverview: () => api<{ status: Record<string, number>; verification?:Record<string,number>; unknownInactive?:number; byBundleLifecycleCategory?:Record<string,Record<string,Record<string,number>>> }>('/finance/bundles/overview'),
   bundleSummaries: (ids:number[]) => api<{rows:BundleSummary[]}>(`/finance/bundles/summaries?ids=${ids.join(',')}`),
+  bundleComposition:(id:number)=>api<BundleComposition>(`/finance/bundles/${id}/composition`),
   bundleReport: (id: number) => api<BundleReport>(`/finance/bundles/${id}/report`),
   bundlePreview: (lines: LineInput[], targets: TargetInput[]) => api<{ targets: PreviewTarget[]; namingRule: boolean }>('/finance/bundles/preview', { method: 'POST', body: { lines, targets } }),
   bundleGenerate: (lines: LineInput[], targets: TargetInput[]) => api<{ created: Array<{ id: number; code: string; reused: boolean }> }>('/finance/bundles/generate', { method: 'POST', body: { lines, targets } }),
   bundleVerify: (items: Array<{ id: number; signature: string; uploadSignature?: string }>, confirmed: boolean, syncToJst: boolean, replaceConfirmed: boolean) =>
     api<VerifyResult>('/finance/bundles/verify', { method: 'POST', body: { items, confirmed, syncToJst, replaceConfirmed } }),
-  bundleRevise: (id: number, reason: string, lines: LineInput[]) => api<{ id: number }>(`/finance/bundles/${id}/revisions`, { method: 'POST', body: { reason, lines } }),
+  bundleRevise: (id: number, reason: string, lines: LineInput[],facts?:{sourceToken:string;weight?:{mode:'auto'|'manual';grams:number}}) => api<{ id: number }>(`/finance/bundles/${id}/revisions`, { method: 'POST', body: { reason, lines,...facts } }),
   bundleCancelRevision: (id: number, reason: string) => api<{ ok: true }>(`/finance/bundles/${id}/revisions/cancel`, { method: 'POST', body: { reason } }),
   bundleDeletion: (id: number) => api<{ id: number; code: string; name: string; canDelete: boolean; reason: string; token: string }>(`/finance/bundles/${id}/deletion`),
   bundleDelete: (id: number, token: string, confirmCode: string, reason: string) => api<{ ok: true }>(`/finance/bundles/${id}/deletion`, { method: 'POST', body: { token, confirmCode, reason } }),

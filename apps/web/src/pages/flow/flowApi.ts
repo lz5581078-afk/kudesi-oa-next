@@ -34,6 +34,10 @@ export interface RoutineDto { supervisorId?: number | null; requiresReview?: boo
 export type RoutineBody = { supervisorId?: number | null; requiresReview?: boolean; feedbackPreset?: string | null; completionStandard?: string | null; title: string; description?: string; assigneeId: number; frequency: string; weekday?: number | null; monthDay?: number | null; dueDays: number; active?: boolean };
 export interface NotificationDto { unread: number; items: Array<{ id: number; kind: string; title: string; body: string | null; link: string | null; createdAt: string; read: boolean }> }
 
+export interface ApplicationDraftTemplate {id:number;version:number;status:string;label:string;steps:Array<{key:string;name:string;type:string;handlerName:string}>;issues:string[]}
+export interface ApplicationHeader {batchKey:string;title:string;requesterId:number;definitionId:number;definitionVersion:number;headerVersion:string;shared:Record<string,unknown>;steps:Array<{key:string;name:string;type:string}>;createdAt:string;canAdd:boolean}
+export interface ApplicationDraftResult {batchKey:string;headerVersion:string;runs:Array<{id:number;revision:number}>}
+export interface DraftReference {id:number;code:string;name:string;spec:string;clear:boolean;restrictedUsage:boolean;successful:Array<{id:number;code:string;name:string}>;inProgress:Array<{runId:number;itemId:string;batchRef:string;title:string;specName:string;status:string;requesterName:string;createdAt:string;nodeName:string;ownerName:string;matchedLines:Array<{role:string;quantity:number}>}>}
 const qs = (o: Record<string, string | number | boolean | undefined>) => {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== '' && v !== false) q.set(k, String(v));
@@ -43,6 +47,16 @@ const qs = (o: Record<string, string | number | boolean | undefined>) => {
 const post = <T,>(path: string, body: unknown) => api<T>(path, { method: 'POST', body });
 
 export const flowApi = {
+  applicationDraftTemplates:(key:string)=>api<{templates:ApplicationDraftTemplate[]}>(`/flow/application-drafts/templates/${encodeURIComponent(key)}`),
+  createApplicationDrafts:(body:{templateKey:string;definitionId:number;requestKey:string;confirmations:Record<string,boolean>;payloads:Record<string,unknown>[]})=>post<ApplicationDraftResult>('/flow/runs/drafts',body),
+  applicationDraftHeader:(key:string,ref:string)=>api<ApplicationHeader>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}`),
+  addApplicationDrafts:(key:string,ref:string,body:{headerVersion:string;requestKey:string;payloads:Record<string,unknown>[]})=>post<ApplicationDraftResult>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}/items`,body),
+  saveApplicationDraft:(id:number,body:{revision:number;payload:Record<string,unknown>})=>api<RunDetailDto>(`/flow/runs/${id}/draft`,{method:'PUT',body}),
+  saveApplicationDraftShared:(key:string,ref:string,body:{headerVersion:string;expected:Array<{id:number;revision:number}>;payload:Record<string,unknown>})=>api<{ok:true;headerVersion:string}>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}/shared`,{method:'PUT',body}),
+  submitApplicationDrafts:(key:string,ref:string,body:{requestKey:string;items:Array<{id:number;revision:number}>})=>post<{ref:string;ok:number;failed:number;results:Array<{runId:number;ok:boolean;message?:string}>}>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}/submit`,body),
+  removeApplicationDraft:(id:number,revision:number,reason:string)=>api<{ok:true;headerVersion:string}>(`/flow/runs/${id}/draft`,{method:'DELETE',body:{revision,reason}}),
+  removeApplicationDraftBatch:(key:string,ref:string,body:{headerVersion:string;expected:Array<{id:number;revision:number}>;reason:string})=>api<{ok:true}>(`/flow/application-drafts/${encodeURIComponent(key)}/${encodeURIComponent(ref)}`,{method:'DELETE',body}),
+
   templates: () => api<TemplateInfo[]>('/flow/templates'),
   start: (templateKey: string, payload: Record<string, unknown>, requestKey: string) => post<RunDetailDto>('/flow/runs', { templateKey, payload, requestKey }),
   runs: (p: { groupSku?:boolean; view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page?: number; pageSize?: number }) => api<RunList>(`/flow/runs${qs(p)}`),

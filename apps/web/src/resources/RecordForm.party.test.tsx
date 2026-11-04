@@ -8,8 +8,8 @@ vi.mock('./api', async orig => ({ ...await orig<typeof import('./api')>(), resou
 import { RecordForm } from './RecordForm';
 import { copyInitialOf,copyValuesOf } from './HierRowActions';
 import type { ResourceDto } from './api';
-beforeEach(() => { mocks.create.mockResolvedValue({id:8,title:'新资料',data:{}});mocks.saveForm.mockResolvedValue({id:9,title:'停用费用',status:'inactive',data:{}});mocks.getDraft.mockResolvedValue({draft:null});mocks.saveDraft.mockResolvedValue({});mocks.removeDraft.mockResolvedValue({});mocks.api.mockImplementation(async (_path:string,body:{body:{values:Record<string,unknown>}}) => ({code:'GYS-AUTO',shortCode:body.body.values.shortName==='简称'?'JC':'X'})); });
-afterEach(() => {cleanup();vi.clearAllMocks();});
+beforeEach(() => { vi.spyOn(window,'alert').mockImplementation(()=>{});mocks.create.mockResolvedValue({id:8,title:'新资料',data:{}});mocks.saveForm.mockResolvedValue({id:9,title:'停用费用',status:'inactive',data:{}});mocks.getDraft.mockResolvedValue({draft:null});mocks.saveDraft.mockResolvedValue({});mocks.removeDraft.mockResolvedValue({});mocks.api.mockImplementation(async (_path:string,body:{body:{values:Record<string,unknown>}}) => ({code:'GYS-AUTO',shortCode:body.body.values.shortName==='简称'?'JC':'X'})); });
+afterEach(() => {cleanup();vi.clearAllMocks();vi.mocked(window.alert).mockRestore();});
 const mount = (type='finance-suppliers') => render(<RecordForm def={getResourceDef(type)!} record={null} initial={{categoryIds:[3],categoryId:3}} onClose={()=>undefined} onSaved={()=>undefined} onContinued={()=>undefined}/>);
 
 it('供应商简称跟随名称直到人工修改，编号可预览和人工修正，继续新增保留分类并清空资料', async () => {
@@ -22,24 +22,31 @@ it('供应商简称跟随名称直到人工修改，编号可预览和人工修�
   await waitFor(()=>expect((screen.getByLabelText('供应商编号') as HTMLInputElement).value).toBe('GYS-AUTO'));
   expect((screen.getByLabelText('简称编号') as HTMLInputElement).value).toBe('JC');
   fireEvent.click(screen.getByRole('button',{name:'保存并继续新增'}));
-  await screen.findByText(/可以继续新增/);
+  await waitFor(()=>expect(mocks.create).toHaveBeenCalled());
   expect(mocks.create).toHaveBeenCalledWith('finance-suppliers',expect.objectContaining({name:'乙种业',shortName:'简称',categoryIds:[3]}),'active');
   expect((screen.getByLabelText(/供应商名称/) as HTMLInputElement).value).toBe('');
   expect((screen.getByLabelText('供应商简称') as HTMLInputElement).value).toBe('');
   fireEvent.change(screen.getByLabelText(/供应商名称/),{target:{value:'丙种业'}});
   fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));
   await waitFor(()=>expect(mocks.saveDraft).toHaveBeenCalledWith('party-draft',expect.objectContaining({payload:expect.objectContaining({categoryIds:[3],name:'丙种业'})})));
+  expect(window.alert).toHaveBeenCalledWith('草稿已保存，再次点击新增时会自动恢复。');
 });
 
 it('费用保存并继续新增清空名称与备注，保留目录、挂账节点和费用口径', async () => {
   mount('finance-fee-items');
+  fireEvent.blur(screen.getByLabelText(/费用类型名称/));expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'保存并继续新增'}));expect(window.alert).toHaveBeenCalledWith('请填写费用类型名称');expect(mocks.create).not.toHaveBeenCalled();
   expect((screen.getByLabelText('适用平台') as HTMLSelectElement).value).toBe('any');
   expect((screen.getByLabelText('是否走流程') as HTMLSelectElement).value).toBe('by_amount');
+  expect(within(screen.getByLabelText('是否走流程')).getAllByRole('option').map(option=>option.textContent)).toEqual(['是','否','按金额判断']);
+  expect(within(screen.getByLabelText('收支方向')).getAllByRole('option').map(option=>option.textContent)).toEqual(['支出','收入','冲减','往来']);
+  await screen.findByRole('option',{name:'未分类'});
+  expect(screen.queryByRole('heading',{name:'其他说明'})).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:'店铺'}));
   fireEvent.click(screen.getByRole('button',{name:'手机号'}));
   fireEvent.change(screen.getByLabelText(/费用类型名称/),{target:{value:'测试费用'}});
   fireEvent.click(screen.getByRole('button',{name:'保存并继续新增'}));
-  await screen.findByText(/可以继续新增/);
+  await waitFor(()=>expect(mocks.create).toHaveBeenCalled());
   expect((screen.getByLabelText(/费用类型名称/) as HTMLInputElement).value).toBe('');
   expect(mocks.create).toHaveBeenCalledWith('finance-fee-items',expect.objectContaining({categoryId:3,direction:'expense',defaultObject:'店铺、手机号'}),'active');
   expect(screen.getByRole('button',{name:'店铺'}).getAttribute('aria-pressed')).toBe('true');
@@ -68,10 +75,10 @@ it('联系编号人工修正不添加恢复自动；费用使用修改/自动且
 
 it('费用草稿恢复停用状态，保存时独立弹理由并沿已有saveForm，草稿标记不进正式body',async()=>{
  mocks.getDraft.mockResolvedValue({draft:{payload:{name:'停用费用草稿',direction:'expense',categoryId:3,__draftStatus:'inactive',__archiveState:{manualCode:false}}}});
- const view=mount('finance-fee-items');await screen.findByText(/已恢复/);
- expect((screen.getByLabelText('状态')as HTMLSelectElement).value).toBe('inactive');
+ const view=mount('finance-fee-items');await screen.findByDisplayValue('停用费用草稿');
+ expect((screen.getByLabelText('状态')as HTMLSelectElement).value).toBe('inactive');expect(screen.queryByText(/已恢复/)).toBeNull();expect(screen.queryByRole('button',{name:'清除草稿'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(mocks.saveDraft).toHaveBeenCalledWith('party-draft',expect.objectContaining({payload:expect.objectContaining({__draftStatus:'inactive'})})));
- view.unmount();mount('finance-fee-items');await screen.findByText(/已恢复/);
+ view.unmount();mount('finance-fee-items');await screen.findByDisplayValue('停用费用草稿');
  fireEvent.click(screen.getByRole('button',{name:'保存并继续新增'}));const dialog=await screen.findByRole('dialog',{name:'停用费用类型'});
  fireEvent.change(within(dialog).getByRole('textbox'),{target:{value:'合成停用原因'}});fireEvent.click(within(dialog).getByRole('button',{name:'确认并保存'}));
  await waitFor(()=>expect(mocks.saveForm).toHaveBeenCalledWith('finance-fee-items',expect.objectContaining({requestKey:expect.any(String),status:'inactive',statusReason:'合成停用原因',collections:[],values:expect.objectContaining({name:'停用费用草稿'})})));
@@ -91,7 +98,8 @@ it('复制最终saveForm才发送真实source版本/文件IDs，连续保留新�
  const def=getResourceDef('finance-suppliers')!,row=copiedSupplier();
  mocks.saveForm.mockResolvedValue({...row,id:42,version:'copy-v2',title:'新副本',data:{...row.data,paymentQr:[72]},files:{72:{id:72,name:'副本收款码.png',mime:'image/png',size:8}}});
  render(<RecordForm def={def} record={null} initial={copyInitialOf(def,row)} onClose={()=>undefined} onSaved={()=>undefined} onContinued={()=>undefined}/>);
- fireEvent.click(screen.getByRole('button',{name:'不清除保存继续新增'}));await screen.findByText(/可以继续新增/);
+ fireEvent.click(screen.getByRole('button',{name:'不清除保存继续新增'}));await waitFor(()=>expect(mocks.saveForm).toHaveBeenCalled());
+ await waitFor(()=>expect(window.alert).toHaveBeenCalledWith('保存成功，当前内容已保留，可以继续新增。'));expect(screen.queryByText(/可以继续新增/)).toBeNull();
  expect(mocks.saveForm).toHaveBeenLastCalledWith('finance-suppliers',expect.objectContaining({copySource:{id:41,version:'source-v1',files:{paymentQr:[71]}},values:expect.objectContaining({paymentQr:[],bankAccountNo:'6222123456789000'})}));
  fireEvent.click(screen.getByRole('button',{name:'保存并继续新增'}));await waitFor(()=>expect(mocks.saveForm).toHaveBeenCalledTimes(2));
  expect(mocks.saveForm.mock.calls[1][1].copySource).toEqual({id:42,version:'copy-v2',files:{paymentQr:[72]}});

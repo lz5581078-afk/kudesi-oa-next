@@ -1,3 +1,5 @@
+import { tokenStore, ApiError } from '../../../api/client';
+import { versionWeightLabel, expressDateTime } from './versionWeightLabel';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { todayInChina } from '@kudesi/shared';
 import { ClipboardList, Database, FileCheck2, Settings } from 'lucide-react';
@@ -17,11 +19,11 @@ import './versionPanel.css';
 
 const COOP = { pending: '待确认', active: '合作中', paused: '已暂停' } as const;
 const CHARGE = { fixed: '固定金额', percent: '按比例', per_kg: '按公斤' };
-const when = (value?: string) => value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '-';
-const weight = (row: RuleRow) => `${row.minExclusive ? '>' : '≥'}${row.shipWeightMin ?? 0}kg${row.shipWeightMax == null ? '以上' : ` 且 ${row.maxExclusive ? '<' : '≤'}${row.shipWeightMax}kg`}${row.fixedPrice == null ? `（首重${row.firstWeight ?? 1}kg）` : ''}`;
+const when = expressDateTime;
+const weight = (row: RuleRow) => `${row.minExclusive || row.maxExclusive ? `${row.minExclusive ? '>' : '≥'}${row.shipWeightMin ?? 0}kg${row.shipWeightMax == null ? '以上' : ` 且 ${row.maxExclusive ? '<' : '≤'}${row.shipWeightMax}kg`}` : row.shipWeightMax == null ? `${row.shipWeightMin ?? 0}kg以上` : `${row.shipWeightMin ?? 0}-${row.shipWeightMax}kg`}${row.fixedPrice == null ? `（首重${row.firstWeight ?? 1}kg）` : ''}`;
 const surchargeWeight = (row: SurchargeRow) => row.weightMode === 'below' ? `${row.weightEnd}kg以内` : row.weightMode === 'above' ? `${row.weightStart}kg以上` : row.weightMode === 'between' ? `${row.weightStart}–${row.weightEnd}kg` : '全重量段';
-type Rule = RuleRow & { id: number; source: string };
-type Action = { kind: 'rule-delete' | 'batch-stop' | 'batch-delete' | 'surcharge-stop' | 'surcharge-delete'; id: number; name: string };
+type Rule = RuleRow & { id: number; source: string; version?: string };
+type Action = { kind: 'rule-delete' | 'batch-stop' | 'batch-delete' | 'surcharge-stop' | 'surcharge-delete'; id: number; name: string; version?: string };
 const recognitionName = (kind: string) => ({ price_table: '价格表识别', surcharge_notice: '加收通知识别', manual_price: '手工创建价格表', manual_surcharge: '手工新增加收' }[kind] || kind);
 
 /** Version content follows the original page: base quotations, configuration, batches and cooperation notes. */
@@ -34,9 +36,10 @@ export function VersionPanel({ carrier, branch, version, onChanged, onBack }: { 
   const [rule, setRule] = useState<Rule | null>(null), [action, setAction] = useState<Action | null>(null);
   const [info, setInfo] = useState<{ title: string; content: ReactNode } | null>(null);
   const [remark, setRemark] = useState(''), [remarkDirty, setRemarkDirty] = useState(false);
+  const remarkScope = useRef(tokenStore.get());
   const remarkRef = useRef(''), dirtyRemarkRef = useRef(false), savingRemark = useRef(false);
   const load = useCallback(async () => {
-    try { const result = await expressApi.version(version.id); setDetail(result); setError(''); }
+    try { const result = await expressApi.version(version.id); if (tokenStore.get() !== remarkScope.current) return; setDetail(result); setError(''); }
     catch (e) { setError((e as Error).message || '读取失败'); }
   }, [version.id]);
   useEffect(() => { setDetail(null); void load(); }, [load]);
@@ -48,18 +51,18 @@ export function VersionPanel({ carrier, branch, version, onChanged, onBack }: { 
     catch (e) { setError((e as Error).message || '操作失败'); }
   }
   async function saveRemark() {
-    if (!dirtyRemarkRef.current || savingRemark.current || !can('edit')) return;
+    if (!dirtyRemarkRef.current || savingRemark.current || !can('edit') || tokenStore.get() !== remarkScope.current) return;
     savingRemark.current = true;
     const value = remarkRef.current;
-    let saved = false;
     try {
       await resourceApi.update('finance-express-versions', version.id, { remark: value });
+      if (tokenStore.get() !== remarkScope.current) return;
       setDetail(current => current ? { ...current, version: { ...current.version, data: { ...current.version.data, remark: value } } } : current);
       if (remarkRef.current === value) { dirtyRemarkRef.current = false; setRemarkDirty(false); }
-      onChanged(); saved = true;
-    } catch (e) { setError((e as Error).message || '备注保存失败'); }
+      onChanged();
+    } catch (e) { if (tokenStore.get() === remarkScope.current) setError((e as Error).message || '备注保存失败'); }
     finally { savingRemark.current = false; }
-    if (saved && dirtyRemarkRef.current && remarkRef.current !== value) void saveRemark();
+    if (dirtyRemarkRef.current && remarkRef.current !== value) void saveRemark();
   }
   const data = detail?.version.data ?? {};
   const rules = detail?.rules.filter(row => row.source === detail.effectiveSource).sort((a, b) => (a.shipWeightMax ?? Infinity) - (b.shipWeightMax ?? Infinity) || (a.shipWeightMin ?? 0) - (b.shipWeightMin ?? 0) || a.id - b.id) ?? [];
@@ -70,7 +73,7 @@ export function VersionPanel({ carrier, branch, version, onChanged, onBack }: { 
     { key: 'amount', head: '基础运费', cell: row => money(row.fixedPrice ?? row.firstPrice), csv: row => row.fixedPrice ?? row.firstPrice },
     { key: 'version', head: '使用版本', cell: () => version.name, csv: () => version.name },
     { key: 'description', head: '规则说明', cell: row => row.fixedPrice == null ? '首重续重公式' : '基础价格规则', csv: row => row.fixedPrice == null ? '首重续重公式' : '基础价格规则' },
-    { key: 'actions', head: '操作', action: true, cell: row => <div className="row-actions">{can('edit') && <button type="button" className="secondary-button small" aria-label={`修改 ${row.province} ${weight(row)}`} onClick={() => setRule(row)}>修改</button>}{can('delete') && <button type="button" className="secondary-button small danger" aria-label={`删除 ${row.province} ${weight(row)}`} onClick={() => setAction({ kind: 'rule-delete', id: row.id, name: `${row.province} ${weight(row)}` })}>删除</button>}</div> },
+    { key: 'actions', head: '操作', action: true, cell: row => <div className="row-actions">{can('edit') && <button type="button" className="secondary-button small" aria-label={`修改 ${row.province} ${weight(row)}`} onClick={() => setRule(row)}>修改</button>}{can('delete') && <button type="button" className="secondary-button small danger" aria-label={`删除 ${row.province} ${weight(row)}`} onClick={() => setAction({ kind: 'rule-delete', id: row.id, version: row.version, name: `${row.province} ${weight(row)}` })}>删除</button>}</div> },
   ];
   const recordsColumns: Col<VersionDetail['recognitions'][number]>[] = [
     { key: 'time', head: '时间', cell: row => when(row.createdAtKey), csv: row => row.createdAtKey }, { key: 'type', head: '类型', cell: row => recognitionName(row.recognitionType), csv: row => recognitionName(row.recognitionType) },
@@ -83,7 +86,10 @@ export function VersionPanel({ carrier, branch, version, onChanged, onBack }: { 
   }
   async function confirmAction() {
     if (!action) return;
-    if (action.kind === 'rule-delete') await resourceApi.remove('finance-express-prices', action.id, '人工确认删除价格规则');
+    if (action.kind === 'rule-delete') {
+      if (!action.version) throw new ApiError(409, '价格规则版本缺失，请关闭窗口并刷新后重试。');
+      await resourceApi.remove('finance-express-prices', action.id, '人工确认删除价格规则', action.version);
+    }
     if (action.kind === 'batch-delete') await expressApi.remove('surcharge-batches', action.id, '人工确认删除加收批次');
     if (action.kind === 'batch-stop') await resourceApi.changeStatus('finance-express-fee-batches', action.id, 'stopped', '人工确认停用加收批次');
     if (action.kind === 'surcharge-stop') await resourceApi.changeStatus('finance-express-surcharges', action.id, 'stopped', '人工确认停用加收规则');
@@ -104,14 +110,14 @@ export function VersionPanel({ carrier, branch, version, onChanged, onBack }: { 
     {!detail ? !error && <p>读取中…</p> : <>
       <div className="express-version-layout"><ExpressPanel title="基础价格规则" icon={ClipboardList}><QueryTable cols={ruleColumns} rows={rules} rowKey={row => row.id} empty="暂无基础价格规则" foot={false} caption="基础价格规则" controls={{ storageKey: `express-prices:${version.id}`, pageSize: 20, searchPlaceholder: '搜索省份、重量、版本' }} /></ExpressPanel>
         <aside className="express-version-side"><ExpressPanel title="配置选项" icon={Settings}><div className="express-config-actions">{can('edit') && <><button type="button" className="primary-button" onClick={() => setRecognize('price')}>上传价格表识别</button><button type="button" className="secondary-button" onClick={() => setManual(true)}>手工维护价格</button></>}<button type="button" className="secondary-button" onClick={() => setInfo({ title: '原始价格表', content: <><p>{String(data.attachmentName || '暂未上传原始价格表')}</p><strong>{data.attachmentName ? '已保存原始价格表文件名' : '还没有原始价格表'}</strong><p>{String(data.attachmentName || '通过“上传价格表识别”确认导入后，会把本次上传文件记录为当前原始价格表。')}</p></> })}>查看原始价格表</button>{can('edit') && <><button type="button" className="secondary-button" onClick={() => setRecognize('surcharge')}>上传加收通知识别</button><button type="button" className="secondary-button" onClick={() => setSurcharge(true)}>新增临时加收</button></>}<button type="button" className="secondary-button" onClick={() => setInfo({ title: '快递价格历史记录', content: <QueryTable cols={recordsColumns} rows={detail.recognitions} rowKey={row => row.id} empty="还没有识别记录" foot={false} caption="快递价格历史记录" controls={{ storageKey: `express-recognition:${version.id}`, pageSize: 20, searchPlaceholder: '搜索上传文件、识别类型或模型' }} /> })}>查看识别记录</button></div><label className="express-price-source">最终价格依据<select aria-label="最终价格依据" disabled={!can('edit')} value={String(data.priceSource || detail.effectiveSource)} onChange={e => void run(() => resourceApi.update('finance-express-versions', version.id, { priceSource: e.target.value }))}><option value="ai">AI 识别价格表</option><option value="manual">手工创建价格表</option></select></label></ExpressPanel>
-          <ExpressPanel title="版本信息" icon={Database}><dl><div><dt>合作状态</dt><dd>{COOP[version.cooperationStatus]}</dd></div><div><dt>生效日期</dt><dd>{version.effectiveStart || '-'}</dd></div><div><dt>失效日期</dt><dd>{version.effectiveEnd || '长期有效'}</dd></div><div><dt>可发货重量</dt><dd>{version.shippingWeightMin ?? 0}–{version.shippingWeightMax ?? '不限'}kg</dd></div><div><dt>原始价格表</dt><dd>{String(data.attachmentName || '未上传')}</dd></div></dl></ExpressPanel>
+          <ExpressPanel title="版本信息" icon={Database}><dl><div><dt>合作状态</dt><dd>{COOP[version.cooperationStatus]}</dd></div><div><dt>生效日期</dt><dd>{version.effectiveStart || '-'}</dd></div><div><dt>失效日期</dt><dd>{version.effectiveEnd || '长期有效'}</dd></div><div><dt>可发货重量</dt><dd>{versionWeightLabel(version)}</dd></div><div><dt>原始价格表</dt><dd>{String(data.attachmentName || '未上传')}</dd></div></dl></ExpressPanel>
           <ExpressPanel title="当前口径" icon={FileCheck2}><dl><div><dt>版本命中</dt><dd>同一日期只能命中一个基础价格版本。</dd></div><div><dt>加收命中</dt><dd>同一日期可命中多条临时加收，并逐条累加。</dd></div><div><dt>AI识别</dt><dd>价格表和加收截图只做预填，人工确认后生效。</dd></div></dl></ExpressPanel></aside>
       </div>
       <ExpressPanel title="临时加收与上传记录" icon={FileCheck2}><div className="express-surcharge-section"><div className="express-surcharge-section-title"><strong>加收通知批次</strong><span>每次上传识别或手工新增都是一个模块；整批可停用或删除，规则仍可单条处理。</span></div>{detail.batches.map(batch => {
         const rows = detail.surcharges.filter(row => row.batchId === batch.id), active = rows.filter(row => row.status === 'active');
         return <section key={batch.id} className="express-surcharge-batch"><header><div><strong>{batch.batchName}</strong><small>{batch.source === 'manual' ? '手工新增' : 'AI识别'}{batch.createdAtKey ? ` · ${when(batch.createdAtKey)}` : ''}{batch.fileName ? ` · ${batch.fileName}` : ''}</small></div><div className="row-actions"><span className="pill">{batch.status === 'active' ? '已生效' : '已停用'}</span><button type="button" className="secondary-button" onClick={() => void evidence(batch)}>查看凭据</button>{active.length > 0 && can('disable') && <button type="button" className="secondary-button" onClick={() => setAction({ kind: 'batch-stop', id: batch.id, name: batch.batchName })}>停用整批</button>}{can('delete') && <button type="button" className="secondary-button danger" onClick={() => setAction({ kind: 'batch-delete', id: batch.id, name: batch.batchName })}>删除整批</button>}</div></header><div className="express-surcharge-batch-meta"><span><b>规则总数</b>{rows.length} 条</span><span><b>有效规则</b>{active.length} 条</span><span><b>原始凭据</b>{batch.fileName || '-'}</span><span><b>模型/来源</b>{batch.modelName || (batch.source === 'manual' ? '人工录入' : '-')}</span></div>{batch.note && <p>{batch.note}</p>}<QueryTable cols={surchargeColumns} rows={rows} rowKey={row => row.id} empty="没有加收规则" caption="本批次加收规则" foot={false} controls={{ storageKey: `express-surcharge:${batch.id}`, pageSize: 8, searchPlaceholder: '搜索本批次加收名称、地区或金额' }} /></section>;
       })}{detail.surcharges.some(row => !row.batchId) && <QueryTable cols={surchargeColumns} rows={detail.surcharges.filter(row => !row.batchId)} rowKey={row => row.id} empty="没有历史散项" foot={false} caption="历史散项" controls={{ storageKey: `express-surcharge-legacy:${version.id}`, pageSize: 8 }} />}{!detail.batches.length && !detail.surcharges.length && <div className="empty-state"><strong>还没有临时加收</strong><p>上传加收通知识别或手工新增后，会按每次上传批次分模块显示。</p></div>}<details><summary>查看上传识别记录</summary><QueryTable cols={recordsColumns} rows={detail.recognitions} rowKey={row => row.id} empty="还没有识别记录" foot={false} controls={{ storageKey: `express-recognition-inline:${version.id}`, searchPlaceholder: '搜索上传文件或识别类型' }} /></details></div></ExpressPanel>
-      <ExpressPanel title="合作备注" icon={FileCheck2}><label className="express-cooperation-note">快递合作具体内容、退改费、其他费用和特殊口径<textarea value={remark} disabled={!can('edit')} placeholder="例如：退改费规则、特殊区域费用、对账注意事项、快递合作联系人口径、赔付或拦截费用等。" onChange={e => { setRemark(e.target.value); remarkRef.current = e.target.value; dirtyRemarkRef.current = true; setRemarkDirty(true); }} onBlur={() => void saveRemark()} /></label><small>备注会保存到当前价格历史版本里，不影响其他版本。</small></ExpressPanel>
+      <ExpressPanel title="合作备注" icon={FileCheck2}><label className="express-cooperation-note">快递合作具体内容、退改费、其他费用和特殊口径<textarea value={remark} disabled={!can('edit')} placeholder="例如：退改费规则、特殊区域费用、对账注意事项、快递合作联系人口径、赔付或拦截费用等。" onChange={e => { setRemark(e.target.value); remarkRef.current = e.target.value; dirtyRemarkRef.current = true; setRemarkDirty(true); void saveRemark(); }} onBlur={() => void saveRemark()} /></label><small>备注会保存到当前价格历史版本里，不影响其他版本。</small></ExpressPanel>
     </>}
     {editing && <HierarchyForm carriers={[carrier]} state={{ kind: 'version', id: version.id, branchId: branch.id }} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); refresh(); }} />}
     {manual && detail && <ManualPriceDialog versionId={version.id} rules={detail.rules.filter(row => row.source === 'manual')} onClose={() => setManual(false)} onSaved={() => { setManual(false); refresh(); }} />}

@@ -16,6 +16,14 @@ describe('按省份手工创建快递价格表', () => {
     await waitFor(() => expect(done).toHaveBeenCalled());
     expect(expressApi.saveRules).toHaveBeenCalledWith(4, 'manual', [expect.objectContaining({ fixedPrice: 300, note: '第一条' }), expect.objectContaining({ fixedPrice: 425, note: '第二条保留' })], true);
   });
+  it('两端重量均空的草稿即使填写金额也不生成无限重量规则', async () => {
+    vi.mocked(expressApi.saveRules).mockResolvedValue({ created: 1, removed: 0 });
+    render(<ManualPriceDialog versionId={4} rules={[{ province: '广东', shipWeightMin: 0, shipWeightMax: 1, fixedPrice: 300 }]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.click(within(screen.getByRole('region', { name: '广东规则' })).getByRole('button', { name: '加区间统一价' }));
+    fireEvent.change(within(screen.getByRole('group', { name: '广东第2条规则' })).getByLabelText('区间统一价'), { target: { value: '5.00' } });
+    fireEvent.click(screen.getByRole('button', { name: '确认生成手工价格表' }));
+    await waitFor(() => expect(expressApi.saveRules).toHaveBeenCalledWith(4, 'manual', [expect.objectContaining({ shipWeightMin: 0, shipWeightMax: 1, fixedPrice: 300 })], true));
+  });
   it('每省可加区间和公式，未完整填写拦截，删除空白条后0公斤首重公式保持0', async () => {
     vi.mocked(expressApi.saveRules).mockResolvedValue({ created: 1, removed: 0 });
     render(<ManualPriceDialog versionId={4} rules={[]} onClose={vi.fn()} onSaved={vi.fn()} />);

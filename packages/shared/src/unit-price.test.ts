@@ -26,6 +26,8 @@ describe('精细单价与整数分结算边界',()=>{
     expect(minSalePriceCentsByMicroPercent({preShipCostCents:0.75,freightCents:0,marginMicroPercent:0})).toBe(1);
     expect(minSalePriceCentsByMicroPercent({preShipCostCents:100.25,freightCents:100,marginMicroPercent:25_000_000})).toBe(267);
   });
+  it('组成明确采用六位数量，默认四位与单据结算边界不变',()=>{expect(multiplyUnitCents(212.5681,1.123456,0,6)).toBe(238.8109);expect(()=>multiplyUnitCents(100,1.123456)).toThrow();expect(()=>multiplyUnitCents(100,1.1234567,0,6)).toThrow();expect(()=>settledLineCents(100,1.123456)).toThrow();});
+  it('极小单价与六位组成数量精确相乘，结算及新精度转换拒绝不安全整数',()=>{expect(multiplyUnitCents(0.0001,999999.999999,0,6)).toBe(100);expect(multiplyUnitCents(0.0001,0.000001,0,6)).toBe(0);expect(settledLineCents(Number.MAX_SAFE_INTEGER,1)).toBe(Number.MAX_SAFE_INTEGER);expect(settledLineCents(Number.MIN_SAFE_INTEGER,1)).toBe(Number.MIN_SAFE_INTEGER);expect(()=>settledLineCents(Number.MAX_SAFE_INTEGER,2)).toThrow(/安全整数/);expect(()=>multiplyUnitCents(1000000000,1000000,0,6)).toThrow(/安全整数/);});
   it('财务档案允许精细单价，银行余额等金额不放开',()=>{
     const product=RESOURCE_DEFS.find(d=>d.key==='finance-products')!;
     expect(validateResourceInput(product,{purchasePrice:0.25},{status:'active',existing:{archiveType:'raw',name:'原料',categoryId:1,specQty:1,specUnit:'J'}}).errors).toEqual([]);

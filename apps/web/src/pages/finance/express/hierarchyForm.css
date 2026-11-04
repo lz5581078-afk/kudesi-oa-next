@@ -17,3 +17,19 @@
 .express-hierarchy-grid input, .express-hierarchy-grid select { height: 38px; }
 .express-hierarchy-grid textarea { min-height: 82px; margin-bottom: 12px; padding: 10px; }
 .express-rule-bound { display: grid; grid-template-columns: 62px minmax(0,1fr); gap: 6px; }
+
+.express-hierarchy-backdrop { display:grid; place-items:center; padding:24px; background:#0f172a85; }
+.express-hierarchy-form fieldset.express-hierarchy-grid { border:0; border-radius:0; margin:0; padding:0; }
+.express-hierarchy-form .express-hierarchy-grid input,
+.express-hierarchy-form .express-hierarchy-grid select,
+.express-hierarchy-form .express-hierarchy-grid textarea { border:1px solid #cbd5e1; border-radius:8px; background:#fff; padding:0 10px; outline:none; box-shadow:none; font:inherit; }
+.express-hierarchy-form .express-hierarchy-grid textarea { padding:10px; margin-bottom:0; resize:vertical; }
+.express-hierarchy-form .express-hierarchy-grid input:focus,
+.express-hierarchy-form .express-hierarchy-grid select:focus,
+.express-hierarchy-form .express-hierarchy-grid textarea:focus { outline:none; box-shadow:none; border-color:#cbd5e1; }
+.express-hierarchy-form .modal-head { align-items:flex-start; }
+.express-hierarchy-form .secondary-button,
+.express-hierarchy-form .primary-button { height:38px; border-radius:8px; padding:0 12px; }
+
+.express-price-rule-backdrop { padding:12px; }
+.express-price-rule-form { width:min(600px,100%); max-height:calc(100dvh - 24px); }

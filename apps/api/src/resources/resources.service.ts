@@ -26,6 +26,7 @@ import {
   browseFilterFields,
   SIMILARITY_RESOURCES,
   PRODUCT_SIMILARITY_FIELDS,
+  FEE_SIMILARITY_FIELDS,
   UNIT_OPTIONS,
   unitOptionFromText,
   optionsKindsOf,
@@ -1470,11 +1471,19 @@ export class ResourcesService implements RuleHost {
   /** 往来档案（供应商、客户）保存前的相似/重复检测 */
   async similarCheck(user: AuthUser, type: string, values: Record<string, unknown>, excludeId?: number) {
     if (!SIMILARITY_RESOURCES.includes(type)) throw new BadRequestException('这类资料不做相似检测');
-    const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'data'] });
+    const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type,archivedAt:IsNull(),status:Not('deleted') }, select: ['id', 'data'] });
     const isProduct = type === 'finance-products';
     // 商品档案只和同一档案类型的比，且已删除/归档的不算
     let pool = isProduct ? rows.filter((x) => x.data.archiveType === values.archiveType) : rows;
     let cand = values;
+    if(['finance-suppliers','finance-customers','finance-fee-items'].includes(type)){
+      const existing=excludeId===undefined?undefined:await this.load(this.dataSource.manager,user,type,excludeId);
+      cand={...values,...await previewArchiveCode(this,this.dataSource.manager,user,type,values,existing)};
+    }
+    if(type==='finance-fee-items'){
+      const readable=(data:Record<string,unknown>)=>Object.fromEntries(Object.entries(data).map(([key,value])=>[key,key==='direction'&&value==='expense'?'支出':this.def(type).fields.find(field=>field.key===key)?.options?.find(option=>option.value===value)?.label??value]));
+      cand=readable(cand);pool=pool.map(row=>({...row,data:readable(row.data)}) as ResourceRecord);
+    }
     if (isProduct) {
       // 品牌、规格单位显示成名称，比较提示里才看得懂
       const brands = new Map((await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-brands' }, select: ['id', 'title'] })).map((b) => [b.id, b.title] as const));
@@ -1483,7 +1492,7 @@ export class ResourcesService implements RuleHost {
       cand = readable(values);
       pool = pool.map((x) => ({ ...x, data: readable(x.data) }) as ResourceRecord);
     }
-    const r = inspectArchiveSimilarity(cand, pool.map((x) => ({ id: x.id, data: x.data })), excludeId, isProduct ? PRODUCT_SIMILARITY_FIELDS : undefined);
+    const r = inspectArchiveSimilarity(cand, pool.map((x) => ({ id: x.id, data: x.data })), excludeId, isProduct ? PRODUCT_SIMILARITY_FIELDS : type==='finance-fee-items'?FEE_SIMILARITY_FIELDS:undefined);
     // 商品编码是自动生成、本来就不会相同，“已填字段完全相同”在商品上只提示（需确认），不直接拦截
     if (isProduct) return { blocked: [], warnings: [...r.blocked, ...r.warnings].slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })) };
     return { blocked: r.blocked.slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })), warnings: r.warnings.slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })) };
@@ -1659,25 +1668,33 @@ export class ResourcesService implements RuleHost {
     return this.get(user, type, id);
   }
 
-  async remove(user: AuthUser, type: string, id: number, reason: string | undefined) {
+  async remove(user: AuthUser, type: string, id: number, reason: string | undefined, expectedVersion?: string) {
+    if (expectedVersion !== undefined && !/^[a-f0-9]{16}$/.test(expectedVersion)) throw new BadRequestException('记录版本无效');
     const def = this.def(type);
     if (def.readOnly) throw new ForbiddenException('历史记录只读，不能删除');
     // 旧系统里这些资料不物理删除：删除 = 归档
-    if (type === 'workforce' || archivePolicyOf(type)) return this.archive(user, type, id, reason);
+    if (type === 'workforce' || archivePolicyOf(type)) {
+      if (expectedVersion !== undefined) throw new BadRequestException('此删除入口不支持归档版本校验');
+      return this.archive(user, type, id, reason);
+    }
     if (!reason || reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
     const cleanup: string[] = [];
-    await this.dataSource.transaction(em => this.removeRecord(em,user,type,id,reason,cleanup));
+    await this.dataSource.transaction(async em => {
+      if (expectedVersion !== undefined) await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
+      await this.removeRecord(em,user,type,id,reason,cleanup,expectedVersion !== undefined,expectedVersion);
+    });
     await this.files.deleteObjects(user.companyId, cleanup);
     return { ok: true };
   }
 
   /** 组合操作在同一事务内删除，仍执行统一引用校验和日志。 */
-  async removeRecord(em: EntityManager, user: AuthUser, type: string, id: number, reason: string, cleanup: string[] = [], currentRead = false) {
+  async removeRecord(em: EntityManager, user: AuthUser, type: string, id: number, reason: string, cleanup: string[] = [], currentRead = false, expectedVersion?: string) {
     const def = this.def(type);
     if (archivePolicyOf(type)) throw new BadRequestException('该资料应走归档流程');
     if (reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
     const existing = currentRead ? await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } }) : await this.load(em, user, type, id);
     if (!existing) throw new NotFoundException('记录不存在');
+    if (expectedVersion !== undefined && expectedVersion !== recordVersion(existing)) throw new ConflictException('这条资料刚被别人修改过，请刷新后再处理');
     await beforeDeleteRule(def.key, { em, host: this, user, record: existing });
     const incoming = await em.find(ResourceLink, { where: { companyId: user.companyId, targetType: type, targetId: id, relation: Not('manual') }, ...(currentRead ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
     if (incoming.length > 0) {

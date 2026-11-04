@@ -64,7 +64,7 @@ export function HierarchyForm({ state, carriers, onClose, onSaved }: { state: Hi
     } catch (e) { setError((e as Error).message || '保存失败'); setBusy(false); }
   }
   const title = state.kind === 'version' ? id ? '编辑价格版本' : '新建价格版本' : `${id ? '编辑' : '新增'}${state.kind === 'carrier' ? '快递公司' : '经营网点'}`;
-  return <div className="modal-backdrop" role="presentation"><form className="modal express-hierarchy-form" role="dialog" aria-modal="true" aria-label={title} onSubmit={e => void save(e)}>
+  return <div className="modal-backdrop express-hierarchy-backdrop" role="presentation"><form className="modal express-hierarchy-form" role="dialog" aria-modal="true" aria-label={title} onSubmit={e => void save(e)}>
     <div className="modal-head"><h3>{title}</h3><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>关闭</button></div>
     <div className="modal-body">{error && <div className="notice error" role="alert">{error}</div>}{!loaded ? <p className="muted">读取中…</p> : <fieldset disabled={busy} className="express-hierarchy-grid">
       {state.kind === 'branch' && <label>所属快递公司<select value={values.carrierId ?? ''} onChange={e => update('carrierId', e.target.value)}>{!carriers.length && <option value="">请先新增快递公司</option>}{carriers.map(c => <option value={c.id} key={c.id}>{c.name}</option>)}</select></label>}

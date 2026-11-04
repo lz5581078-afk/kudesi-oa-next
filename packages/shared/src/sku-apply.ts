@@ -12,6 +12,8 @@ export interface SkuSpec {
   main: SkuLine[];
   gift: SkuLine[];
   note?: string;
+  /** 本规格显式品牌；缺省沿用申请默认品牌，再由主商品继承。 */
+  brandId?: number;
   /** 系统里已经有相同构成的组合编码时，申请人必须写明为什么还要申请 */
   reuseReason?: string;
 }
@@ -49,7 +51,7 @@ function normLines(raw: unknown, what: string, errors: string[]): SkuLine[] {
 }
 
 /** 整理并校验规格清单；返回整理后的清单和中文错误列表 */
-export function normalizeSpecs(raw: unknown): { specs: SkuSpec[]; errors: string[] } {
+export function normalizeSpecs(raw: unknown, options: { allowIncomplete?: boolean } = {}): { specs: SkuSpec[]; errors: string[] } {
   const errors: string[] = [];
   if (!Array.isArray(raw) || raw.length === 0) return { specs: [], errors: ['请至少填写一个规格'] };
   if (raw.length > SKU_MAX_SPECS) return { specs: [], errors: [`一张申请单最多 ${SKU_MAX_SPECS} 个规格`] };
@@ -62,12 +64,15 @@ export function normalizeSpecs(raw: unknown): { specs: SkuSpec[]; errors: string
     else if (name.length > 100) errors.push(`${label}的名称不能超过 100 字`);
     else if (names.has(name.toLowerCase())) errors.push(`规格名称「${name}」重复了`);
     names.add(name.toLowerCase());
+    const brandId=o.brandId===undefined||o.brandId===null||o.brandId===''?undefined:Number(o.brandId);
+    if(brandId!==undefined&&(!Number.isSafeInteger(brandId)||brandId<=0))errors.push(`${label}的组合品牌无效`);
     const main = normLines(o.main, `${label}的主商品`, errors);
     const gift = normLines(o.gift, `${label}的赠品`, errors);
-    if (main.length === 0) errors.push(`${label}至少要有一个主商品`);
-    const note = typeof o.note === 'string' ? o.note.trim().slice(0, 500) : undefined;
+    if (!options.allowIncomplete && main.length === 0) errors.push(`${label}至少要有一个主商品`);
+    if(typeof o.note==='string'&&o.note.trim().length>1000)errors.push(`${label}的运营需求不能超过1000字`);
+    const note = typeof o.note === 'string' ? o.note.trim().slice(0, 1000) : undefined;
     const reuseReason = typeof o.reuseReason === 'string' ? o.reuseReason.trim().slice(0, 500) : undefined;
-    return { name, main, gift, ...(note ? { note } : {}), ...(reuseReason ? { reuseReason } : {}) };
+    return { name, main, gift,...(brandId!==undefined?{brandId}:{}), ...(note ? { note } : {}), ...(reuseReason ? { reuseReason } : {}) };
   });
   return { specs, errors };
 }

@@ -258,6 +258,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     await bt.cancelRevision(boss, ids.b1, '作废');
     void r2;
     await ds.query("UPDATE outbox_jobs SET status = 'done' WHERE company_id = ? AND resource_type = 'finance-bundles' AND status IN ('pending', 'sending')", [boss.companyId]);
+    const identityBefore=await svc.get(boss,'finance-bundles',ids.b1);
     const r3 = await bt.createRevision(boss, ids.b1, '主品改 3 件', newLines);
     const rep3 = await bt.report(boss, ids.b1);
     expect(rep3.pendingRevision?.id).toBe(r3.id);
@@ -266,7 +267,8 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     const after = await svc.get(boss, 'finance-bundles', ids.b1);
     expect(after.status).toBe('verified');
     expect(after.data.pendingRevisionId).toBeUndefined();
-    expect(after.data.code).toBe('ZZ-TB-PG-3');
+    for(const field of ['code','name','styleCode','shortName','mainStyleCode'])expect(after.data[field]).toBe(identityBefore.data[field]);
+    expect(rep3.outbound.sku_id).toBe(after.data.code);expect(rep3.outbound.i_id).toBe(after.data.styleCode);
     expect((await svc.get(boss, 'finance-bundle-revisions', r3.id)).status).toBe('published');
   });
 

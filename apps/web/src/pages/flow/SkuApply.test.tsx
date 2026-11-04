@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act,cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SkuSpec, WarehouseSpec } from '@kudesi/shared';
@@ -6,6 +6,8 @@ import { api } from '../../api/client';
 import { SkuApplyFields, SkuPreview, SkuWarehouseFields } from './SkuApply';
 
 vi.mock('../../api/client', async (orig) => ({ ...(await orig<typeof import('../../api/client')>()), api: vi.fn() }));
+const auth=vi.hoisted(()=>({companyId:1,id:1,permissions:{isCompanyAdmin:true,allow:[] as string[],deny:[] as string[]}}));
+vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:auth})}));
 const apiMock = vi.mocked(api);
 
 function Harness({ initial }: { initial: Record<string, unknown> }) {
@@ -156,4 +158,10 @@ describe('SKU 批量申请：数量系列、独立办理、历史配置', () => 
     expect(screen.getByText('BOX-A 纸箱')).toBeTruthy();
     expect(JSON.parse(screen.getByTestId('wh').textContent!).config[0]).toEqual({ lines: [{ role: 'package', baseCodeId: 31, qty: 2 }], notRequired: { label: '没有标签' } });
   });
+});
+
+it('预览保留小数分报价精度，身份变更立即移除旧成本并忽略迟到旧请求',async()=>{
+ const preview=(name:string,cost:number)=>({runId:1,status:'draft',batchName:'测试',scenario:'标准',platforms:[],warehouseDone:false,canCost:true,planError:'',costNote:'实时',specs:[{name,weightG:1,notRequired:{},lines:[{roleLabel:'主商品',code:name,name,qty:1,weightG:1,cost}],warehouse:[],targets:[],created:[]}]});
+ apiMock.mockResolvedValueOnce(preview('原公司成本',1.2345));const view=render(<SkuPreview runId={1} refreshKey={0}/>);expect(await screen.findByText('¥0.012345')).toBeTruthy();
+ let finish!:(value:ReturnType<typeof preview>)=>void;apiMock.mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));view.rerender(<SkuPreview runId={1} refreshKey={1}/>);expect(screen.queryByText('¥0.012345')).toBeNull();apiMock.mockResolvedValueOnce({...preview('新公司资料',0),canCost:false});auth.companyId=2;view.rerender(<SkuPreview runId={1} refreshKey={1}/>);await screen.findAllByText('新公司资料');await act(async()=>finish(preview('迟到原公司',99)));expect(screen.queryByText('迟到原公司')).toBeNull();expect(screen.queryByText('单价成本')).toBeNull();auth.companyId=1;
 });

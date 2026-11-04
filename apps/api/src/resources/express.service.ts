@@ -10,7 +10,7 @@ import { Company, ResourceLink, ResourceRecord } from '../entities';
 import { resolveSource, syncBranchRules, syncVersionRules, versionEnabled } from './express-rules';
 import { readFreightSnapshot } from './express-estimate-snapshot';
 import { FilesService } from '../integrations/files.service';
-import { ResourcesService } from './resources.service';
+import { ResourcesService, recordVersion } from './resources.service';
 
 type Data = Record<string, unknown>;
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -117,7 +117,7 @@ export class ExpressService {
       branch: { id: branch.id, name: branch.title, jstLogisticsName: str(branch.data.jstLogisticsName) },
       carrier: { id: carrier.id, name: carrier.title },
       effectiveSource: resolveSource(v, pick('finance-express-prices')),
-      rules: pick('finance-express-prices').map((r) => ({ id: r.id, source: str(r.data.source) || 'manual', ...r.data })),
+      rules: pick('finance-express-prices').map((r) => ({ ...r.data, id: r.id, source: str(r.data.source) || 'manual', version: recordVersion(r) })),
       batches: pick('finance-express-fee-batches').map((r) => ({ id: r.id, status: r.status, createdAtKey: r.createdAt, ...r.data })),
       surcharges: pick('finance-express-surcharges').map((r) => ({ id: r.id, status: r.status, ...r.data })),
       recognitions: pick('finance-express-recognitions').sort((a, b) => b.id - a.id).slice(0, 20).map((r) => ({ id: r.id, status: r.status, ...r.data })),

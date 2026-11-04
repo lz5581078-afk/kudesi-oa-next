@@ -115,6 +115,8 @@ export interface FlowTemplate {
   key: string;
   label: string;
   description: string;
+  /** 默认关闭的申请草稿阶段；先建首发起节点，不产生待办，提交时才完整校验。 */
+  applicationDraft?: { maxBatchSize: number; confirmations?:readonly {key:string;label:string}[]; titleField:string; itemLabel?:string; sharedFields: readonly string[] };
   /** 发起时填写的字段 */
   fields: readonly FieldDef[];
   /** 某一步办理时要填写的字段 */
@@ -155,12 +157,12 @@ export function validatePostingDecl(t: FlowTemplate): string[] {
   return errors;
 }
 
-export type RunStatus = 'running' | 'completed' | 'cancelled' | 'rejected';
-export const RUN_STATUS_LABEL: Record<RunStatus, string> = { running: '办理中', completed: '已完成', cancelled: '已废除', rejected: '已拒绝' };
+export type RunStatus = 'draft' | 'running' | 'completed' | 'cancelled' | 'rejected';
+export const RUN_STATUS_LABEL: Record<RunStatus, string> = { draft:'待提交',running: '办理中', completed: '已完成', cancelled: '已废除', rejected: '已拒绝' };
 export type StepStatus = 'active' | 'done' | 'returned' | 'cancelled' | 'rejected' | 'transferred' | 'skipped';
-export type FlowAction = 'submit' | 'pass' | 'return' | 'cancel' | 'reject' | 'withdraw' | 'resubmit' | 'transfer' | 'abnormal' | 'draft';
+export type FlowAction = 'submit' | 'pass' | 'return' | 'cancel' | 'reject' | 'withdraw' | 'resubmit' | 'transfer' | 'abnormal' | 'draft' | 'draft_save';
 export const FLOW_ACTION_LABEL: Record<FlowAction, string> = {
-  submit: '发起', pass: '通过', return: '退回', cancel: '废除', reject: '拒绝', withdraw: '撤回', resubmit: '重新提交', transfer: '转交', abnormal: '上报异常', draft: '生成入库单草稿',
+  draft_save:'保存申请草稿',submit: '发起', pass: '通过', return: '退回', cancel: '废除', reject: '拒绝', withdraw: '撤回', resubmit: '重新提交', transfer: '转交', abnormal: '上报异常', draft: '生成入库单草稿',
 };
 
 /**
@@ -324,6 +326,7 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
   },
   {
     key: 'sku-batch-apply',
+    applicationDraft:{maxBatchSize:100,confirmations:[{key:'referenceSearched',label:'商品查询'}],titleField:'batchName',itemLabel:'规格',sharedFields:['scenarioId','brandId','platformIds','bundleCategoryId']},
     label: 'SKU 批量申请',
     description: '运营一次申请多个新商品组合编码：运营填规格（主商品、赠品）→ 仓库补包装、标签、人工 → 财务核对后自动生成商品组合编码。财务通过后可选择加入聚水潭同步队列（只入队，总开关打开后才会发送）。',
     fields: [

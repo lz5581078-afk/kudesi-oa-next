@@ -11,6 +11,9 @@ class OptionsQuery {
   @IsOptional() @IsString() @MaxLength(1500) ids?: string;
 }
 
+class DraftReferenceQuery {
+  @IsString() @MaxLength(100) keyword!:string;
+}
 class HistoryQuery {
   @IsOptional() @IsString() @MaxLength(200) @Matches(/^[0-9,]*$/) mainIds?: string;
   @IsOptional() @IsString() @MaxLength(50) keyword?: string;
@@ -54,6 +57,10 @@ export class SkuApplyController {
   @RequirePermission('flow.apply.view')
   @Get('options')
   options(@CurrentUser() user: AuthUser, @Query() q: OptionsQuery) { return this.sku.options(user, q.kind, q.keyword, q.ids); }
+
+  @RequirePermission('flow.apply.view')
+  @Get('draft-references')
+  draftReferences(@CurrentUser() user:AuthUser,@Query() query:DraftReferenceQuery){return this.sku.draftReferences(user,query.keyword);}
 
   /** 能不能看由流程可见性决定（发起人、办理人、抄送、有流程总览权限的人） */
   @AuthenticatedOnly()

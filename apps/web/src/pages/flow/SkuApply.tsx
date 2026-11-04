@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { WAREHOUSE_GROUPS, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseGroupKey, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
+import { unitYuanText, WAREHOUSE_GROUPS, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseGroupKey, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
+import {useAuth} from '../../auth/AuthContext';
+import type {ApplicationHeader,DraftReference} from './flowApi';
 import { Link } from 'react-router-dom';
 import { ApiError, api } from '../../api/client';
 
@@ -10,6 +12,7 @@ interface Opt { id: number; code: string; name: string; spec?: string }
 type Kind = 'main' | 'gift' | 'package' | 'label' | 'other' | 'labor';
 
 export const skuApi = {
+  draftReferences:(keyword:string)=>api<{items:DraftReference[]}>(`/flow/sku-apply/draft-references?keyword=${encodeURIComponent(keyword)}`),
   meta: () => api<{ scenarios: Array<{ id: number; name: string }>; platforms: Array<{ id: number; name: string }>; brands?: Array<{ id: number; name: string }>; bundleCategories?: Array<{ id: number; name: string }> }>('/flow/sku-apply/options?kind=meta'),
   options: (kind: Kind, keyword: string) => api<{ items: Opt[] }>(`/flow/sku-apply/options?kind=${kind}&keyword=${encodeURIComponent(keyword)}`),
   names: (ids: number[]) => api<{ items: Opt[] }>(`/flow/sku-apply/options?kind=names&ids=${ids.join(',')}`),
@@ -21,15 +24,16 @@ export const skuApi = {
 export interface BatchItem { runId: number; revision: number; stepId?: number | null }
 export interface BatchBoard {
   ref: string; batchKey: string | null; batchName: string; requesterName: string; total: number; runCount: number;
-  counts: { running: number; completed: number; ended: number; returned: number; mine: number };
+  applicationHeader?:ApplicationHeader;
+  counts: { draft?:number;running: number; completed: number; ended: number; returned: number; mine: number };
   me: { isRequester: boolean; holdStepKey: string | null; holdStepName: string; holdCount: number; canReturnAll: boolean };
-  items: Array<{ runId: number; specIndex: number; specName: string; specCount: number; runStatus: string; revision: number; stepId: number | null; stepKey: string | null; stepName: string; enteredVia: string | null; dueAt: string | null; overdue: boolean; recipients: string[]; mine: boolean; canResubmit: boolean; returnReason: string | null; returnedBy: string | null; returnedAt: string | null }>;
+  items: Array<{ runId: number; canEditDraft?:boolean; specIndex: number; specName: string; specCount: number; runStatus: string; revision: number; stepId: number | null; stepKey: string | null; stepName: string; enteredVia: string | null; dueAt: string | null; overdue: boolean; recipients: string[]; mine: boolean; canResubmit: boolean; returnReason: string | null; returnedBy: string | null; returnedAt: string | null }>;
   history: Array<{ id: number; runId: number; action: string; note: string | null; actorName: string; createdAt: string; specNames: string[] }>;
 }
 export interface BatchOutcome { results: Array<{ runId: number; ok: boolean; message?: string }>; ok: number; failed: number }
 export const skuBatchApi = {
   board: (ref: string) => api<BatchBoard>(`/flow/sku-apply/applications/${encodeURIComponent(ref)}`),
-  act: (b: { ref: string; action: 'pass' | 'return' | 'reject' | 'cancel' | 'resubmit'; items: Array<{ runId: number; revision: number; stepId?: number }>; comment?: string; form?: Record<string, unknown> }) => api<BatchOutcome>('/flow/sku-apply/applications/act', { method: 'POST', body: b }),
+  act: (b: { ref: string; action: 'pass' | 'return' | 'reject' | 'cancel' | 'resubmit'; items: Array<{ runId: number; canEditDraft?:boolean; revision: number; stepId?: number }>; comment?: string; form?: Record<string, unknown> }) => api<BatchOutcome>('/flow/sku-apply/applications/act', { method: 'POST', body: b }),
   returnAll: (b: { ref: string; items: Array<{ runId: number; revision: number; stepId?: number }>; reason: string }) => api<{ ok: true; count: number }>('/flow/sku-apply/applications/return-all', { method: 'POST', body: b }),
   returnSpecs: (b: { runId: number; revision: number; stepId: number; specs: string[]; reason: string }) => api<{ ok: true; ref: string; newRunId: number; split: boolean }>('/flow/sku-apply/applications/return-specs', { method: 'POST', body: b }),
 };
@@ -79,44 +83,19 @@ function LineRows({ lines, names, onChange }: { lines: Array<{ baseCodeId: numbe
   );
 }
 
+function SkuSpecBrand({spec,defaultBrand,brands,onChange}:{spec:SkuSpec;defaultBrand:unknown;brands:Array<{id:number;name:string}>;onChange:(id:number|undefined)=>void}){
+ const inherited=brands.find(brand=>brand.id===Number(defaultBrand));
+ return <label><span>组合品牌 *</span><select aria-label={`规格 ${spec.name||'未命名'} 组合品牌`} value={spec.brandId??''} onChange={event=>onChange(event.target.value?Number(event.target.value):undefined)}><option value="">{inherited?`使用默认品牌：${inherited.name}`:'使用主商品品牌'}</option>{brands.map(brand=><option key={brand.id} value={brand.id}>{brand.name}</option>)}</select><small>{spec.brandId?'本规格单独设置':defaultBrand?'使用本申请统一品牌':'使用主商品品牌'}</small></label>;
+}
+
 /** 运营填：申请名称、场景、平台、规格清单（每个规格 = 主商品 + 赠品）。 */
-export function SkuApplyFields({ values, onChange }: { values: Record<string, unknown>; onChange: (key: string, v: unknown) => void }) {
-  const [meta, setMeta] = useState<Awaited<ReturnType<typeof skuApi.meta>> | null>(null);
-  const [names, setNames] = useState<Names>({});
-  const specs = (Array.isArray(values.specs) ? values.specs : []) as SkuSpec[];
-  const platformIds = (Array.isArray(values.platformIds) ? values.platformIds : []) as number[];
-  useEffect(() => { skuApi.meta().then(setMeta).catch(() => setMeta({ scenarios: [], platforms: [], bundleCategories: [] })); }, []);
-  // 重新提交时，已有的商品要显示名称
-  useEffect(() => {
-    const need = [...new Set(specs.flatMap((s) => [...s.main, ...s.gift].map((l) => l.baseCodeId)))].filter((id) => !names[id]);
-    if (need.length) skuApi.names(need).then((r) => setNames((cur) => ({ ...cur, ...Object.fromEntries(r.items.map((o) => [o.id, `${o.code} ${o.name}`])) }))).catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values.specs]);
-  const [series, setSeries] = useState<Record<number, string>>({});
-  const [seriesError, setSeriesError] = useState('');
-  const setSpecs = (next: SkuSpec[]) => onChange('specs', next);
-  /** 数量系列（旧系统“批量生成规格”）：以这个规格为模板，按 1,2,5,10 这样的数量各生成一个规格，赠品照旧，仓库组成之后再配 */
-  function makeSeries(i: number) {
-    const base = specs[i];
-    const nums = (series[i] ?? '').split(/[,，\s]+/).filter(Boolean).map(Number);
-    if (base.main.length !== 1) { setSeriesError('数量系列要求这个规格只有一个主商品'); return; }
-    if (!nums.length || nums.length > 30 || nums.some((n) => !Number.isSafeInteger(n) || n <= 0) || new Set(nums).size !== nums.length) { setSeriesError('请输入 1 到 30 个不重复的正整数，用逗号分隔'); return; }
-    if (specs.length + nums.length > 100) { setSeriesError('规格总数不能超过 100 个'); return; }
-    const made = nums.map((n): SkuSpec => ({ ...base, name: `${base.name || '规格'} · ${n}件`, main: [{ ...base.main[0], qty: n }], gift: base.gift.map((l) => ({ ...l })), reuseReason: '' }));
-    setSeriesError('');
-    setSeries((cur) => ({ ...cur, [i]: '' }));
-    setSpecs([...specs.slice(0, i + 1), ...made, ...specs.slice(i + 1)]);
-  }
-  const patch = (i: number, p: Partial<SkuSpec>) => setSpecs(specs.map((s, j) => (j === i ? { ...s, ...p } : s)));
-  const pick = (i: number, role: 'main' | 'gift', o: Opt) => {
-    setNames((cur) => ({ ...cur, [o.id]: `${o.code} ${o.name}` }));
-    const cur = specs[i][role];
-    patch(i, { [role]: cur.some((l) => l.baseCodeId === o.id) ? cur : [...cur, { baseCodeId: o.id, qty: 1 }] } as Partial<SkuSpec>);
-  };
-  return (
-    <div className="sku-form">
+export function SkuSharedFields({values,onChange,includeTitle=true,readOnly=false}:{values:Record<string,unknown>;onChange:(key:string,value:unknown)=>void;includeTitle?:boolean;readOnly?:boolean}){
+  const [meta,setMeta]=useState<Awaited<ReturnType<typeof skuApi.meta>>|null>(null);
+  const platformIds=(Array.isArray(values.platformIds)?values.platformIds:[]) as number[];
+  useEffect(()=>{let alive=true;skuApi.meta().then(data=>{if(alive)setMeta(data);}).catch(()=>{if(alive)setMeta({scenarios:[],platforms:[],bundleCategories:[]});});return()=>{alive=false;};},[]);
+  return <fieldset disabled={readOnly} className="sku-shared-fields">
       <div className="form-grid">
-        <label className="wide"><span>申请名称<b className="req"> *</b></span><input value={String(values.batchName ?? '')} maxLength={140} placeholder="例如：10 月新品组合" onChange={(e) => onChange('batchName', e.target.value)} /></label>
+        {includeTitle && <label className="wide"><span>申请名称<b className="req"> *</b></span><input value={String(values.batchName ?? '')} maxLength={140} placeholder="例如：10 月新品组合" onChange={(e) => onChange('batchName', e.target.value)} /></label>}
         <label><span>销售场景<b className="req"> *</b></span>
           <select value={String(values.scenarioId ?? '')} onChange={(e) => onChange('scenarioId', e.target.value ? Number(e.target.value) : '')}>
             <option value="">（请选择）</option>
@@ -146,36 +125,75 @@ export function SkuApplyFields({ values, onChange }: { values: Record<string, un
           <small className="muted">每个规格在每个选中的平台各生成一个商品组合编码</small>
         </div>
       </div>
-      <h4 className="section-title">规格清单（{specs.length} 个，最多 100 个）</h4>
+  </fieldset>;
+}
+
+export function SkuApplyFields({ values, onChange,hideShared=false,singleSpec=false }: { values: Record<string, unknown>; onChange: (key: string, v: unknown) => void;hideShared?:boolean;singleSpec?:boolean }) {
+  const [names, setNames] = useState<Names>({});
+  const [brands,setBrands]=useState<Array<{id:number;name:string}>>([]);
+  useEffect(()=>{let alive=true;skuApi.meta().then(meta=>{if(alive)setBrands(meta.brands??[]);}).catch(()=>undefined);return()=>{alive=false;};},[]);
+  const specs = (Array.isArray(values.specs) ? values.specs : []) as SkuSpec[];
+  // 重新提交时，已有的商品要显示名称
+  useEffect(() => {
+    const need = [...new Set(specs.flatMap((s) => [...s.main, ...s.gift].map((l) => l.baseCodeId)))].filter((id) => !names[id]);
+    if (need.length) skuApi.names(need).then((r) => setNames((cur) => ({ ...cur, ...Object.fromEntries(r.items.map((o) => [o.id, `${o.code} ${o.name}`])) }))).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values.specs]);
+  const [series, setSeries] = useState<Record<number, string>>({});
+  const [seriesError, setSeriesError] = useState('');
+  const setSpecs = (next: SkuSpec[]) => onChange('specs', next);
+  /** 数量系列（旧系统“批量生成规格”）：以这个规格为模板，按 1,2,5,10 这样的数量各生成一个规格，赠品照旧，仓库组成之后再配 */
+  function makeSeries(i: number) {
+    const base = specs[i];
+    const nums = (series[i] ?? '').split(/[,，\s]+/).filter(Boolean).map(Number);
+    if (base.main.length !== 1) { setSeriesError('数量系列要求这个规格只有一个主商品'); return; }
+    if (!nums.length || nums.length > 30 || nums.some((n) => !Number.isSafeInteger(n) || n <= 0) || new Set(nums).size !== nums.length) { setSeriesError('请输入 1 到 30 个不重复的正整数，用逗号分隔'); return; }
+    if (specs.length + nums.length > 100) { setSeriesError('规格总数不能超过 100 个'); return; }
+    const made = nums.map((n): SkuSpec => ({ ...base, name: `${base.name || '规格'} · ${n}件`, main: [{ ...base.main[0], qty: n }], gift: base.gift.map((l) => ({ ...l })), reuseReason: '' }));
+    setSeriesError('');
+    setSeries((cur) => ({ ...cur, [i]: '' }));
+    setSpecs([...specs.slice(0, i + 1), ...made, ...specs.slice(i + 1)]);
+  }
+  const patch = (i: number, p: Partial<SkuSpec>) => setSpecs(specs.map((s, j) => (j === i ? { ...s, ...p } : s)));
+  const pick = (i: number, role: 'main' | 'gift', o: Opt) => {
+    setNames((cur) => ({ ...cur, [o.id]: `${o.code} ${o.name}` }));
+    const cur = specs[i][role];
+    patch(i, { [role]: cur.some((l) => l.baseCodeId === o.id) ? cur : [...cur, { baseCodeId: o.id, qty: 1 }] } as Partial<SkuSpec>);
+  };
+  return (
+    <div className="sku-form">
+      {!hideShared&&<SkuSharedFields values={values} onChange={onChange}/>}
+      {!singleSpec&&<h4 className="section-title">规格清单（{specs.length} 个，最多 100 个）</h4>}
       {specs.map((s, i) => (
         <section key={i} className="sku-spec card">
           <div className="between">
-            <label className="grow"><span>规格 {i + 1} 名称</span><input value={s.name} maxLength={100} onChange={(e) => patch(i, { name: e.target.value })} /></label>
-            <span className="row-actions">
+            <label className="grow"><span>{singleSpec?'内部规格名称':`规格 ${i+1} 名称`}</span><input value={s.name} maxLength={100} onChange={(e) => patch(i, { name: e.target.value })} /></label>
+            {!singleSpec&&<span className="row-actions">
               <button type="button" className="link-button" disabled={specs.length >= 100} onClick={() => setSpecs([...specs.slice(0, i + 1), { ...s, name: s.name ? `${s.name}（副本）` : '', main: s.main.map((l) => ({ ...l })), gift: s.gift.map((l) => ({ ...l })), reuseReason: '' }, ...specs.slice(i + 1)])}>复制这个规格</button>
               <button type="button" className="link-button" onClick={() => { if ((s.name || s.main.length || s.gift.length) && !window.confirm(`确定删除规格 ${i + 1}${s.name ? `「${s.name}」` : ''}？已选的商品会一起去掉。`)) return; setSpecs(specs.filter((_, j) => j !== i)); }}>删除这个规格</button>
-            </span>
+            </span>}
           </div>
           <div className="sku-cols">
             <div><strong>主商品（必填）</strong><LineRows lines={s.main} names={names} onChange={(l) => patch(i, { main: l })} /><ItemPicker kind="main" label="添加主商品" onPick={(o) => pick(i, 'main', o)} /></div>
             <div><strong>赠品</strong><LineRows lines={s.gift} names={names} onChange={(l) => patch(i, { gift: l })} /><ItemPicker kind="gift" label="添加赠品" onPick={(o) => pick(i, 'gift', o)} /></div>
           </div>
-          {s.main.length === 1 && (
+          {!singleSpec&&s.main.length === 1 && (
             <div className="sku-series row-actions">
               <input aria-label={`规格 ${i + 1} 数量系列`} placeholder="数量系列，如 1, 2, 5, 10" value={series[i] ?? ''} onChange={(e) => setSeries((cur) => ({ ...cur, [i]: e.target.value }))} />
               <button type="button" className="secondary-button small" disabled={!(series[i] ?? '').trim() || specs.length >= 100} onClick={() => makeSeries(i)}>按数量生成规格</button>
             </div>
           )}
-          <label><span>备注（选填）</span><input value={s.note ?? ''} maxLength={500} onChange={(e) => patch(i, { note: e.target.value })} /></label>
+          <SkuSpecBrand spec={s} brands={brands} defaultBrand={values.brandId} onChange={brandId=>patch(i,{brandId})}/>
+          <label><span>{singleSpec?'运营需求':'备注（选填）'}</span>{singleSpec?<textarea value={s.note??''} maxLength={1000} onChange={event=>patch(i,{note:event.target.value})}/>:<input value={s.note ?? ''} maxLength={1000} onChange={(e) => patch(i, { note: e.target.value })} />}</label>
           <label><span>已有相同组合时，为什么还要申请（选填）</span><input value={s.reuseReason ?? ''} maxLength={500} placeholder="系统里已有主商品、赠品相同的编码时必须填写" onChange={(e) => patch(i, { reuseReason: e.target.value })} /></label>
         </section>
       ))}
       {seriesError && <div role="alert" className="notice error">{seriesError}</div>}
-      <button type="button" className="secondary-button" disabled={specs.length >= 100} onClick={() => setSpecs([...specs, { name: '', main: [], gift: [] }])}>＋ 添加规格</button>
-      {specs.length > 1 && (
+      {!singleSpec&&<button type="button" className="secondary-button" disabled={specs.length >= 100} onClick={() => setSpecs([...specs, { name: '', main: [], gift: [] }])}>＋ 添加规格</button>}
+      {!singleSpec&&specs.length > 1 && (
         <label className="check sku-split"><input type="checkbox" checked={values.splitSpecs === true} onChange={(e) => onChange('splitSpecs', e.target.checked)} /> 每个规格独立办理（拆成 {specs.length} 条流程，仓库、财务可以各自先办先走；同批可互相查看）</label>
       )}
-      <label className="wide"><span>备注</span><textarea rows={2} maxLength={500} value={String(values.note ?? '')} onChange={(e) => onChange('note', e.target.value)} /></label>
+      {!singleSpec&&<label className="wide"><span>备注</span><textarea rows={2} maxLength={500} value={String(values.note ?? '')} onChange={(e) => onChange('note', e.target.value)} /></label>}
     </div>
   );
 }
@@ -293,13 +311,17 @@ export interface SkuPreviewDto {
   }>;
 }
 interface PreviewLine { roleLabel: string; code: string; name: string; qty: number; weightG: number | null; cost?: number | null }
-const yuan = (c: number) => `¥${(c / 100).toFixed(2)}`;
+const yuan = (c: number) => `¥${unitYuanText(c)}`;
 
 /** 流程详情里的规格明细：会生成（或已生成）哪些编码、物料、重量，有成本权限的人还能看到成本。 */
-export function SkuPreview({ runId, refreshKey }: { runId: number; refreshKey: number }) {
+export function SkuPreview(props:{runId:number;refreshKey:number}){
+  const {user}=useAuth();const identity=JSON.stringify([user?.companyId,user?.id,user?.permissions.isCompanyAdmin,[...(user?.permissions.allow??[])].sort(),[...(user?.permissions.deny??[])].sort()]);
+  return <SkuPreviewView key={`${identity}:${props.runId}:${props.refreshKey}`} {...props}/>;
+}
+function SkuPreviewView({ runId, refreshKey }: { runId: number; refreshKey: number }) {
   const [data, setData] = useState<SkuPreviewDto | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => { skuApi.preview(runId).then(setData).catch((e) => setError(e instanceof ApiError ? e.message : '规格明细加载失败')); }, [runId, refreshKey]);
+  useEffect(() => { let alive=true;setData(null);setError('');skuApi.preview(runId).then(value=>{if(alive)setData(value);}).catch((e) => {if(alive)setError(e instanceof ApiError ? e.message : '规格明细加载失败');});return()=>{alive=false;}; }, [runId, refreshKey]);
   if (error) return <p role="alert" className="muted">{error}</p>;
   if (!data) return <p className="muted">正在加载规格明细…</p>;
   const lineTable = (lines: PreviewLine[]) => (

@@ -1,3 +1,4 @@
+import {BundleCompositionEditor} from './BundleCompositionEditor';
 import { loadBundleLines } from './loadBundleLines';
 import { useEffect, useState } from 'react';
 import { unitYuanText } from '@kudesi/shared';
@@ -262,60 +263,7 @@ export function BundleVerifyDialog({ ids, isAdmin, onClose, onDone }: { ids: num
 }
 
 /** 构成修订：已验证的组合要改主品时，提交一份“待发布”的新构成；赠品原样不能动；随组合验证生效。 */
-export function RevisionDialog({ bundle, onClose, onDone }: { bundle: ResourceDto; onClose: () => void; onDone: () => void }) {
-  const [rows, setRows] = useState<LineRow[] | null>(null);
-  const [reason, setReason] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const pendingId = typeof bundle.data.pendingRevisionId === 'number' ? bundle.data.pendingRevisionId : null;
-  const [pending, setPending] = useState<ResourceDto | null>(null);
-  useEffect(() => {
-    let alive=true;setRows(null);setError('');
-    loadBundleLines(bundle.id,()=>alive).then(items=>{
-      if(!alive||!items)return;
-      const keys = ['unit', 'lossRate', 'isRequired', 'includeInJst', 'costBucket', 'costTreatment', 'sortOrder', 'effectiveFrom', 'effectiveTo', 'note'];
-      setRows(items.map(l=>({role:String(l.data.role),baseCodeId:typeof l.data.baseCodeId==='number'?l.data.baseCodeId:undefined,productId:typeof l.data.productId==='number'?l.data.productId:undefined,laborId:typeof l.data.laborId==='number'?l.data.laborId:undefined,qty:Number(l.data.qty),label:l.refLabels.baseCodeId||l.refLabels.productId||l.refLabels.laborId||l.title,...Object.fromEntries(keys.filter(k=>l.data[k]!==undefined&&l.data[k]!==null&&l.data[k]!=='').map(k=>[k,l.data[k]]))})));
-    }).catch(e=>{if(alive)setError(msg(e));});
-    if(pendingId)resourceApi.get('finance-bundle-revisions',pendingId).then(row=>{if(alive)setPending(row);}).catch(()=>{if(alive)setError('待验证修订读取失败，请关闭后重试。');});
-    return()=>{alive=false;};
-  }, [bundle.id,pendingId]);
-  async function submit() {
-    setBusy(true); setError('');
-    try { await jstApi.bundleRevise(bundle.id, reason.trim(), (rows ?? []).filter((r) => r.baseCodeId || r.productId || r.laborId).map(toLineInput)); onDone(); onClose(); } catch (e) { setError(msg(e)); }
-    setBusy(false);
-  }
-  async function cancel() {
-    const why = window.prompt('取消这份修订的原因');
-    if (!why) return;
-    try { await jstApi.bundleCancelRevision(bundle.id, why); onDone(); onClose(); } catch (e) { setError(msg(e)); }
-  }
-  return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="modal card wide" role="dialog" aria-label="修改组合构成">
-        <div className="modal-head between"><strong>修改构成：{bundle.title}</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
-        <div className="modal-body">
-          {error && <div role="alert" className="notice error">{error}</div>}
-          {pendingId && pending ? (
-            <div className="notice warn">
-              <p>已经有一份待发布的修订：{String(pending.data.reason)}。到“核对并验证”里验证这个组合，修订就会生效。</p>
-              <button type="button" className="secondary-button" onClick={() => void cancel()}>取消这份修订</button>
-            </div>
-          ) : (
-            <>
-              <p className="muted">赠品必须原样保留（商品和数量都不能改），主品等可以改；至少保留一个主品。提交后组合会进入“需重新验证”，验证通过时新构成才生效，聚水潭上的编码按验证结果更新。</p>
-              {rows ? <LineEditor rows={rows} onChange={setRows} lockGifts allowLabor /> : <p className="muted">加载中…</p>}
-              <label>修订原因（必填）<textarea rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
-            </>
-          )}
-        </div>
-        <div className="modal-foot">
-          <button type="button" className="secondary-button" onClick={onClose}>关闭</button>
-          {!pendingId && <button type="button" className="primary-button" disabled={busy || reason.trim().length < 2 || !rows?.some((r) => r.role === 'main' && (r.baseCodeId||r.productId))} onClick={() => void submit()}>提交修订</button>}
-        </div>
-      </div>
-    </div>
-  );
-}
+export function RevisionDialog(props:{bundle:ResourceDto;onClose:()=>void;onDone:()=>void;onVerify?:()=>void;onApply?:()=>void}){return <BundleCompositionEditor {...props}/>;}
 
 /** 删除（没验证过、没同步过、没有成本历史才能删，要输入编码确认）或失效归档（上传过聚水潭的同时排停用任务）。 */
 export function RemoveDialog({ bundle, isAdmin, onClose, onDone }: { bundle: ResourceDto; isAdmin: boolean; onClose: () => void; onDone: () => void }) {

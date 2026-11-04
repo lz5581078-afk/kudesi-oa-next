@@ -181,8 +181,8 @@ export const resourceApi = {
     api<ResourceDto>(`/resources/${type}/${id}`, { method: 'PATCH', body: { values } }),
   changeStatus: (type: string, id: number, status: string, reason?: string) =>
     api<ResourceDto>(`/resources/${type}/${id}/status`, { method: 'POST', body: { status, reason } }),
-  remove: (type: string, id: number, reason: string) =>
-    api<{ ok: true }>(`/resources/${type}/${id}`, { method: 'DELETE', body: { reason } }),
+  remove: (type: string, id: number, reason: string, expectedVersion?: string) =>
+    api<{ ok: true }>(`/resources/${type}/${id}`, { method: 'DELETE', body: { reason, ...(expectedVersion === undefined ? {} : { expectedVersion }) } }),
   restore: (type: string, id: number, reason: string) =>
     api<ResourceDto>(`/resources/${type}/${id}/restore`, { method: 'POST', body: { reason } }),
   reveal: (type: string, id: number, field: string) => api<{ field: string; value: string }>(`/resources/${type}/${id}/secret/${field}`),

@@ -119,3 +119,8 @@
 @media (max-width: 760px) { .express-workspace-overview > div:nth-child(2) { border-right: 0; } .express-workspace-overview > div:nth-child(-n+2) { border-bottom: 1px solid #dce5eb; } .express-branch-row { grid-template-columns: minmax(0,1fr); gap: 10px; } .express-carrier-heading, .express-current-branch { flex-direction: column; align-items: flex-start; } }
 @media (max-width: 520px) { .express-workspace-location { gap: 6px; overflow: hidden; } .express-workspace-location > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .express-branch-metadata { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 .express-host-workspace .host-tabs .chip.active::after { content: none; }
+
+.express-branch-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.express-branch-title strong { color: #0f172a; font-size: 16px; }
+.express-branch-title small { color: #166534; font-size: 12px; font-weight: 800; }
+@media (max-width: 1100px) { .express-workspace-title { padding: 16px; } }

@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
-import { FLOW_TEMPLATES, normalizeSpecs, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
+import { FLOW_TEMPLATES, createChecker, normalizeSpecs, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { AuditLog, FlowEvent, FlowRun, FlowStep, Notification, WorkItem } from '../entities';
 import { BundleToolsService } from '../resources/bundle-tools.service';
@@ -45,7 +45,13 @@ export class SkuBatchService {
 
   async board(user: AuthUser, ref: string) {
     const em = this.ds.manager;
-    const runs = await this.members(em, user, ref);
+    let runs:FlowRun[];
+    try{runs=await this.members(em,user,ref);}catch(error){
+      if(!(error instanceof NotFoundException))throw error;
+      const header=await this.flow.applicationDraftHeader(user,SKU_TEMPLATE,ref),names=await this.flow.userNames(em,user.companyId,[header.requesterId]);
+      return {ref,batchKey:ref,batchName:header.title,requesterId:header.requesterId,requesterName:names.get(header.requesterId)??'',total:0,runCount:0,counts:{draft:0,running:0,completed:0,ended:0,returned:0,mine:0},me:{isRequester:header.requesterId===user.id,holdStepKey:null,holdStepName:'',holdCount:0,canReturnAll:false},items:[],history:[],applicationHeader:header};
+    }
+    const applicationHeader=runs.some(run=>run.payload._applicationDraftOrigin===true)?await this.flow.applicationDraftHeader(user,SKU_TEMPLATE,ref):undefined;
     const runIds = runs.map((r) => r.id);
     const steps = await em.find(FlowStep, { where: { runId: In(runIds) }, order: { seq: 'ASC' } });
     const active = new Map<number, FlowStep>();
@@ -69,6 +75,7 @@ export class SkuBatchService {
           runId: run.id, specIndex: i, specName: sp.name, specCount: specs.length, runStatus: run.status, revision: run.revision,
           stepId: st?.id ?? null, stepKey: st?.stepKey ?? null, stepName: st?.stepName ?? (run.status === 'completed' ? '已完成' : run.status === 'running' ? '' : '已结束'), stepType: st?.stepType ?? null,
           enteredVia: st?.enteredVia ?? null, dueAt: st?.dueAt ?? null, overdue: !!st?.dueAt && st.dueAt.getTime() < now, recipients: (st?.recipients ?? []).map((u) => names.get(u) ?? ''),
+          canEditDraft:run.status==='draft'&&run.requesterId===user.id&&createChecker(user.permissions)('flow.apply.view'),
           mine: iHold, canResubmit: run.status === 'running' && run.requesterId === user.id && st?.stepType === 'submit',
           returnReason: ret?.comment ?? null, returnedBy: ret?.handledBy ? names.get(ret.handledBy) ?? '' : null, returnedAt: ret?.finishedAt ?? null,
         });
@@ -86,8 +93,8 @@ export class SkuBatchService {
     const first = runs[0];
     return {
       ref, batchKey: str(first.payload._batchKey) || null, batchName: str(first.payload.batchName), requesterId: first.requesterId, requesterName: names.get(first.requesterId) ?? '',
-      total: items.length, runCount: runs.length,
-      counts: { running: items.filter((x) => x.runStatus === 'running').length, completed: items.filter((x) => x.runStatus === 'completed').length, ended: items.filter((x) => x.runStatus === 'cancelled' || x.runStatus === 'rejected').length, returned: items.filter((x) => x.runStatus === 'running' && x.enteredVia === 'return').length, mine: items.filter((x) => x.mine).length },
+      total: items.length, runCount: runs.length,...(applicationHeader?{applicationHeader}:{}),
+      counts: { draft:items.filter(x=>x.runStatus==='draft').length,running: items.filter((x) => x.runStatus === 'running').length, completed: items.filter((x) => x.runStatus === 'completed').length, ended: items.filter((x) => x.runStatus === 'cancelled' || x.runStatus === 'rejected').length, returned: items.filter((x) => x.runStatus === 'running' && x.enteredVia === 'return').length, mine: items.filter((x) => x.mine).length },
       me: { isRequester: first.requesterId === user.id, holdStepKey: holdKey, holdStepName: holdKey ? active.get(atHold[0].id)?.stepName ?? '' : '', holdCount: hold?.[1] ?? 0, canReturnAll },
       items,
       history: events.map((e) => {

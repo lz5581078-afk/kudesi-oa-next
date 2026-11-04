@@ -912,7 +912,7 @@ export class FlowRun {
   @Column({ name: 'definition_id', type: 'int', unsigned: true }) definitionId!: number;
   @Column({ name: 'template_key', type: 'varchar', length: 40 }) templateKey!: string;
   @Column({ type: 'varchar', length: 200 }) title!: string;
-  @Column({ type: 'varchar', length: 12, default: 'running' }) status!: 'running' | 'completed' | 'cancelled' | 'rejected';
+  @Column({ type: 'varchar', length: 12, default: 'running' }) status!: 'draft' | 'running' | 'completed' | 'cancelled' | 'rejected';
   @Column({ name: 'requester_id', type: 'int', unsigned: true }) requesterId!: number;
   @Column({ name: 'current_step_key', type: 'varchar', length: 32, nullable: true }) currentStepKey!: string | null;
   @Column({ type: 'json' }) payload!: Record<string, unknown>;

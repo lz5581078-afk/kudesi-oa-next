@@ -1,8 +1,10 @@
+import {bundleLaborUnit} from './bundle-component-validation';
+import {bundleCompositionToken,readRevisionPayload,revisionWeightPatch,type RevisionWeight} from './bundle-revision-facts';
 import { codeLifecycleCounts, codeVerificationState } from './finance-code-lifecycle';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
-import { createChecker, getResourceDef, multiplyUnitCents, sumUnitCents } from '@kudesi/shared';
+import { createChecker, getResourceDef, multiplyUnitCents, sumUnitCents,restrictedFieldKeys } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { Company, ResourceRecord } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
@@ -83,7 +85,7 @@ export class BundleToolsService {
         if (line.data.role !== 'gift') {
           const price = salePrices.get(str(selected?.data.code)) ?? null, qty = num(line.data.qty);
           if (price === null || qty === null) saleMissing = true;
-          else saleParts.push(multiplyUnitCents(price, qty));
+          else saleParts.push(multiplyUnitCents(price, qty,0,6));
         }
       }
       return { id, mainStyleCode: str(b.data.mainStyleCode) || null,
@@ -208,14 +210,40 @@ export class BundleToolsService {
 
   // ---------- 构成修订 ----------
 
-  async createRevision(user: AuthUser, bundleId: number, reason: string, lines: LineInput[]) {
+  async composition(user:AuthUser,id:number){
+    return this.ds.transaction(async em=>{
+      const bundle=await this.load(em,user,id),records=await this.lineRecords(em,user,id),lines=records.map(row=>pickLine(row.data));
+      const {costCompositionFacts}=await import('./cost-components');const current=await costCompositionFacts(em,user.companyId,bundle.data,lines);
+      const units=await loadUnitLists(em,user.companyId),unitField=getResourceDef('finance-bundle-lines')!.fields.find(field=>field.key==='unit')!;
+      const baseUnits:Record<number,{unit:string;label:string;available:boolean}>={};
+      if(createChecker(user.permissions)('resource.finance-base-codes.view')){
+        const bases=await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-base-codes'}}),byId=new Map(bases.map(row=>[row.id,row]));
+        const products=await em.createQueryBuilder(ResourceRecord,'p').select('p.id','id').addSelect("COALESCE(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.specUnit')),'null'),''),NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.purchaseSpec')),'null'))",'unit').where('p.companyId=:companyId AND p.type=:type',{companyId:user.companyId,type:'finance-products'}).getRawMany<{id:number;unit:string|null}>(),productUnits=new Map(products.map(row=>[Number(row.id),row.unit||'']));
+        for(const row of bases.filter(row=>row.status==='verified'&&!row.archivedAt)){const real=typeof row.data.canonicalId==='number'?byId.get(row.data.canonicalId):row;const unit=str(row.data.baseUnit)||str(row.data.codeSpecUnit)||(['composed','external_import'].includes(str(real?.data.origin))?str(real?.data.codeSpecUnit):productUnits.get(Number(real?.data.productId))||'');baseUnits[row.id]={unit,label:unitLabelFor(units,unitField,{},unit),available:!!real&&real.status==='verified'&&!real.archivedAt&&!!unit};}
+      }
+      const facts:Record<string,{title:string;code:string;unit:string;weightG:number|null;available:boolean}>={};
+      for(const [index,line]of lines.entries()){
+        const kind=line.laborId?'labor':line.productId?'archive':'base',type=kind==='labor'?'finance-labor-costs':kind==='archive'?'finance-products':'finance-base-codes',sourceId=Number(line.laborId??line.productId??line.baseCodeId);
+        const source=await em.findOne(ResourceRecord,{where:{companyId:user.companyId,type,id:sourceId}});
+        facts[`${kind}:${sourceId}`]={title:source?(kind==='base'?str(source.data.name)||source.title:kind==='labor'?str(source.data.workName)||source.title:str(source.data.name)||source.title):records[index].title,code:str(source?.data.code)||str(source?.data.workCode),unit:kind==='labor'?source?await bundleLaborUnit(em,user.companyId,source):'':unitLabelFor(units,unitField,line,line.unit||(kind==='base'?baseUnits[sourceId]?.unit:source?.data.specUnit)),weightG:current.lines[index]?.unitWeightG??null,available:!!source&&!source.archivedAt&&source.status===(kind==='base'?'verified':'active')};
+      }
+      const revisions=(await this.resources.findWhere(em,user.companyId,'finance-bundle-revisions','bundleId',id)).sort((a,b)=>b.id-a.id),pending=revisions.find(row=>row.id===bundle.data.pendingRevisionId&&row.status==='pending');
+      const parsed=pending?readRevisionPayload(pending.data.payload):null;
+      return {baseUnits,sourceToken:bundleCompositionToken(bundle,records),profile:Object.fromEntries(['code','name','shortName','bomVersion','weightMode'].map(key=>[key,bundle.data[key]])),lines:lines.map((line,index)=>({...line,label:facts[`${line.laborId?'labor':line.productId?'archive':'base'}:${line.laborId??line.productId??line.baseCodeId}`]?.title||records[index].title})),facts,weightG:current.weightG,weightMode:bundle.data.weightMode==='manual'?'manual':'auto',canManualWeight:createChecker(user.permissions)('product.cost.edit'),pending:pending&&parsed?{id:pending.id,reason:str(pending.data.reason),lines:parsed.lines,...(parsed.weight?{weightG:parsed.weight.grams,weightMode:parsed.weight.mode}:{})}:null,history:revisions.map(row=>({id:row.id,status:row.status,reason:str(row.data.reason),createdAt:row.createdAt}))};
+    });
+  }
+
+  async createRevision(user: AuthUser, bundleId: number, reason: string, lines: LineInput[], facts?:{sourceToken:string;weight?:RevisionWeight}) {
     if (await this.pendingJobs(user, bundleId)) throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请等它发完再改构成');
     const cur = await this.load(this.ds.manager, user, bundleId);
     const app = await unfinishedApplications(this.ds.manager, user.companyId, cur, await this.lineRecords(this.ds.manager, user, bundleId));
     if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再改构成`);
     return this.ds.transaction(async (em) => {
-      await this.load(em, user, bundleId);
-      const r = await this.resources.createRecord(em, user, 'finance-bundle-revisions', { bundleId, reason, payload: JSON.stringify(lines) }, '提交构成修订');
+      await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+      const locked=await em.findOne(ResourceRecord,{where:{id:bundleId,type:TYPE,companyId:user.companyId},lock:{mode:'pessimistic_write'}});if(!locked)throw new NotFoundException('组合不存在');
+      const current=await this.lineRecords(em,user,bundleId);
+      const payload={version:1,lines,sourceToken:facts?.sourceToken??bundleCompositionToken(locked,current),...(facts?.weight?{weight:facts.weight}:{})};
+      const r = await this.resources.createRecord(em, user, 'finance-bundle-revisions', { bundleId, reason, payload: JSON.stringify(payload) }, '提交构成修订');
       return { id: r.id };
     });
   }
@@ -234,7 +262,7 @@ export class BundleToolsService {
   private async currentLines(em: EntityManager, user: AuthUser, b: ResourceRecord): Promise<{ lines: LineInput[]; revision: ResourceRecord | null }> {
     const revId = num(b.data.pendingRevisionId);
     const revision = revId ? await em.findOne(ResourceRecord, { where: { id: revId, companyId: user.companyId, type: 'finance-bundle-revisions' } }) : null;
-    if (revision && revision.status === 'pending') return { lines: JSON.parse(str(revision.data.payload)) as LineInput[], revision };
+    if (revision && revision.status === 'pending') return { lines: readRevisionPayload(revision.data.payload).lines as unknown as LineInput[], revision };
     const lines = (await this.lineRecords(em, user, b.id)).map((l) => pickLine(l.data) as unknown as LineInput);
     return { lines, revision: null };
   }
@@ -243,9 +271,10 @@ export class BundleToolsService {
     const b = await this.load(em, user, id);
     const cost = this.canCost(user);
     const { lines, revision } = await this.currentLines(em, user, b);
+    const prospective=Object.assign(new ResourceRecord(),b,{data:{...b.data,...(revision?revisionWeightPatch(readRevisionPayload(revision.data.payload),revision.data.reason):{})}});
     const pricing = new CostService(this.ds);
     const pricingData = await pricing.load(user.companyId, em);
-    const values = pricing.row({ ...pricingData, lines: lines.map((l, i) => em.create(ResourceRecord, { id: i + 1, companyId: user.companyId, type: 'finance-bundle-lines', data: { ...l, bundleId: b.id } })) }, b);
+    const values = pricing.row({ ...pricingData, lines: lines.map((l, i) => em.create(ResourceRecord, { id: i + 1, companyId: user.companyId, type: 'finance-bundle-lines', data: { ...l, bundleId: b.id } })) }, prospective);
     const units = await loadUnitLists(em, user.companyId);
     const unitField = getResourceDef('finance-bundle-lines')!.fields.find(f => f.key === 'unit')!;
     const issues: string[] = [];
@@ -256,7 +285,7 @@ export class BundleToolsService {
       const priced = values.lines[index];
       if (l.role === 'labor') {
         const lab = pricingData.labor.get(Number(l.laborId));
-        components.push({ role: l.role, code: '', name: lab?.title ?? '已删除的人工项目', qty: l.qty, weightG: null, cost: cost ? priced.unitCostCents : undefined, unit: '', includeInJst: false, isRequired: l.isRequired !== false, costTreatment: str(l.costTreatment) || 'include' });
+        components.push({ role: l.role, code: '', name: lab?.title ?? '已删除的人工项目', qty: l.qty, weightG: null, cost: cost ? priced.unitCostCents : undefined, unit: lab?await bundleLaborUnit(em,user.companyId,lab):'', includeInJst: false, isRequired: l.isRequired !== false, costTreatment: str(l.costTreatment) || 'include' });
         continue;
       }
       if (typeof l.productId === 'number') {
@@ -273,12 +302,13 @@ export class BundleToolsService {
     // 旧系统验证问题清单：分类、必填文本、单位、成本、重量、进聚水潭行等一次列全
     const platformId = num(b.data.platformId);
     const platform = platformId === null ? null : await em.findOne(ResourceRecord, { where: { id: platformId, companyId: user.companyId, type: 'finance-platforms' } });
-    for (const m of await bundleIssues(em, user.companyId, b.data, lines as never, platform?.status)) if (!issues.includes(m)) issues.push(m);
-    const snapJson = await bundleSnapshotJson(em, user.companyId, b.data, lines as never);
+    for (const m of await bundleIssues(em, user.companyId, prospective.data, lines as never, platform?.status)) if (!issues.includes(m)) issues.push(m);
+    const snapJson = await bundleSnapshotJson(em, user.companyId, prospective.data, lines as never);
     const stored = this.parse(b.data.snapshot);
     const now = JSON.parse(snapJson) as BundleSnap;
     let changes = stored ? this.diff(stored, now) : [];
-    if (!cost) changes = changes.filter((c) => !COST_FIELDS.has(c.field));
+    const restricted=restrictedFieldKeys(getResourceDef(TYPE)!,createChecker(user.permissions));
+    changes=changes.filter(change=>!restricted.has(change.field)&&(cost||!COST_FIELDS.has(change.field)));
     const uploaded = str(b.data.jstUploadedCode);
     const outbound = { sku_id: str(b.data.code), i_id: str(b.data.styleCode), name: str(b.data.name), short_name: str(b.data.shortName), weight: Math.round(totalWeight * 1000) / 1_000_000, cost_price: cost ? totalCost == null ? null : totalCost / 100 : undefined };
     return {

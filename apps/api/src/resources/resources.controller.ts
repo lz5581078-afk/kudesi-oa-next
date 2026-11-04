@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsUUID, IsString, MaxLength, Max, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsUUID, IsString, Matches, MaxLength, Max, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { createChecker } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission, RequireResourceAction } from '../common/auth.decorators';
 import { DataToolsService } from './data-tools.service';
@@ -151,6 +151,7 @@ class PhotoIdsDto {
 }
 
 class DeleteDto {
+  @ValidateIf((_o, value) => value !== undefined) @IsString() @Matches(/^[a-f0-9]{16}$/) expectedVersion?: string;
   @IsString() @MaxLength(500) reason!: string;
 }
 
@@ -410,7 +411,7 @@ export class ResourcesController {
   @RequireResourceAction('delete')
   @Delete(':type/:id')
   remove(@CurrentUser() user: AuthUser, @Param('type') type: string, @Param('id', ParseIntPipe) id: number, @Body() dto: DeleteDto) {
-    return this.resources.remove(user, type, id, dto.reason);
+    return this.resources.remove(user, type, id, dto.reason, dto.expectedVersion);
   }
 
   @RequireResourceAction('delete')

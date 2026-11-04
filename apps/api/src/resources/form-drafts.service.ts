@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource,Not,Like } from 'typeorm';
 import { createChecker, getResourceDef, permissionOwner, resourcePermission, restrictedFieldKeys } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
@@ -58,7 +58,9 @@ export class FormDraftsService {
 
   async remove(user: AuthUser, key: string) {
     this.check(user, key);
-    await this.ds.manager.delete(FormDraft, { companyId: user.companyId, userId: user.id, draftKey: key });
+    const existing=await this.ds.manager.findOneBy(FormDraft,{companyId:user.companyId,userId:user.id,draftKey:key});
+    if(existing?.moduleKey.startsWith('flow-application:'))throw new ForbiddenException('申请索引只能通过流程申请操作');
+    await this.ds.manager.delete(FormDraft, { companyId: user.companyId, userId: user.id, draftKey: key,moduleKey:Not(Like('flow-application:%')) });
     return { ok: true };
   }
 }

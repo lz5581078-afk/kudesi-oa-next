@@ -1,10 +1,11 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In } from 'typeorm';
-import { createChecker, normalizeSpecs, sumUnitCents, multiplyUnitCents, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
+import { createChecker, getResourceDef, normalizeSpecs, sumUnitCents, multiplyUnitCents, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { Company, FlowRun, ResourceRecord } from '../entities';
+import { Company, FlowRun, FlowStep, ResourceRecord } from '../entities';
 import { BundleToolsService } from '../resources/bundle-tools.service';
+import {codeEnabledState} from '../resources/finance-code-lifecycle';
 import { FlowService } from './flow.service';
 import { CreatedBundle, SKU_TEMPLATE, checkApplication, platformIdsOf } from './sku-apply';
 import { createHash } from 'crypto';
@@ -58,6 +59,25 @@ export class SkuApplyService {
     return { items: out };
   }
 
+  /** 原新建申请第一步的只读商品查询：仅编码/名称/规格与可见使用记录，不返回成本。 */
+  async draftReferences(user:AuthUser,keyword:string){
+    if(!createChecker(user.permissions)('flow.apply.view'))throw new ForbiddenException('没有查询申请商品的权限');
+    const term=keyword?.trim();if(!term)throw new BadRequestException('请输入商品名称或基本编码');
+    const em=this.ds.manager,states=getResourceDef('finance-base-codes')!.statuses.filter(status=>codeEnabledState({type:'finance-base-codes',status:status.value})==='active').map(status=>status.value),candidates=(await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:company AND r.type=:type AND r.archivedAt IS NULL',{company:user.companyId,type:'finance-base-codes'}).andWhere('r.status IN (:...states)',{states}).andWhere('r.searchText LIKE :keyword',{keyword:`%${term.slice(0,100)}%`}).orderBy('r.updatedAt','DESC').addOrderBy('r.id','DESC').take(30).getMany()).filter(row=>codeEnabledState(row)==='active').slice(0,30),baseIds=new Set(candidates.map(row=>row.id));
+    if(!candidates.length)return {items:[]};
+    const links=await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:company AND r.type=:type',{company:user.companyId,type:'finance-bundle-lines'}).andWhere("JSON_EXTRACT(r.data,'$.baseCodeId') IN (:...ids)",{ids:[...baseIds]}).getMany(),bundleIds=[...new Set(links.map(row=>Number(row.data.bundleId)).filter(id=>Number.isSafeInteger(id)&&id>0))];
+    const bundles=bundleIds.length?(await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-bundles',id:In(bundleIds)}})).filter(row=>!row.archivedAt&&codeEnabledState(row)==='active'):[];
+    const pending=await em.find(FlowRun,{where:{companyId:user.companyId,templateKey:SKU_TEMPLATE,status:In(['draft','running'])},order:{id:'DESC'},take:1000});
+    const usages=new Map<number,Array<Record<string,unknown>>>(),restricted=new Set<number>();
+    for(const run of pending){
+      const specs=normalizeSpecs(run.payload.specs,{allowIncomplete:true}).specs,matching=specs.filter(spec=>[...spec.main,...spec.gift].some(line=>baseIds.has(line.baseCodeId)));if(!matching.length)continue;
+      if(!await this.flow.canSeeRun(em,user,run)){for(const spec of matching)for(const line of [...spec.main,...spec.gift])if(baseIds.has(line.baseCodeId))restricted.add(line.baseCodeId);continue;}
+      const active=await em.findOne(FlowStep,{where:{companyId:user.companyId,runId:run.id,status:'active'},order:{seq:'DESC'}}),names=await this.flow.userNames(em,user.companyId,[run.requesterId,...(active?.recipients??[])]);
+      for(const [index,spec] of matching.entries())for(const id of baseIds){const lines=[...spec.main.map(line=>({...line,role:'main'})),...spec.gift.map(line=>({...line,role:'gift'}))].filter(line=>line.baseCodeId===id);if(!lines.length)continue;const rows=usages.get(id)??[];rows.push({runId:run.id,itemId:`${run.id}:${index}`,batchRef:str(run.payload._batchKey)||`run-${run.id}`,title:str(run.payload.batchName)||run.title,specName:spec.name,status:run.status,requesterName:names.get(run.requesterId)??'',createdAt:run.createdAt,nodeName:active?.stepName??'',ownerName:(active?.recipients??[]).map(id=>names.get(id)??'').join('、'),matchedLines:lines.map(line=>({role:line.role,quantity:line.qty}))});usages.set(id,rows);}
+    }
+    return {items:candidates.map(base=>{const successful=bundles.filter(bundle=>links.some(line=>Number(line.data.baseCodeId)===base.id&&Number(line.data.bundleId)===bundle.id)).map(bundle=>({id:bundle.id,code:str(bundle.data.code)||bundle.title,name:str(bundle.data.name)||bundle.title})),inProgress=usages.get(base.id)??[];return {id:base.id,code:str(base.data.code)||base.title,name:str(base.data.name)||base.title,spec:str(base.data.spec),successful,inProgress,restrictedUsage:restricted.has(base.id),clear:!successful.length&&!inProgress.length&&!restricted.has(base.id)};})};
+  }
+
   /** 组合分类树里的最末级分类（带路径名），申请表单里必选一个 */
   private async bundleCategoryLeaves(companyId: number) {
     const all = (await this.ds.manager.find(ResourceRecord, { where: { companyId, type: 'finance-categories' } })).filter((r) => r.status === 'active' && r.data.archiveType === 'bundle');
@@ -87,7 +107,7 @@ export class SkuApplyService {
     let plan: Awaited<ReturnType<typeof checkApplication>>['plan'] | null = null;
     let planError = '';
     // 已完成的申请不再做检查（编码已经生成，再预览会显示成“已有”）
-    if (run.status === 'running') {
+    if (run.status === 'running'||run.status==='draft') {
       try { plan = (await checkApplication(em, user, this.bundles, { ...run.payload }, { strict: false, selfRunId: run.id, warehouse: wh })).plan; } catch (e) { planError = (e as Error).message; }
     }
     const rows = [];

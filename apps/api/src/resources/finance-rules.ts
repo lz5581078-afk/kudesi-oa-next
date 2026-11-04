@@ -1,3 +1,6 @@
+import {normalizeBundleComponent} from './bundle-component-validation';
+import {assertCompositionToken,bundleCompositionToken,readRevisionPayload,normalizedRevisionWeight,revisionWeightPatch,writeRevisionPayload} from './bundle-revision-facts';
+import {unfinishedApplications} from './bundle-guards';
 import { codeVerificationState, codeVerificationSignature } from './finance-code-lifecycle';
 import { trustedResourceImport } from './resource-import-capability';
 import { beforeCodeDictionary } from './code-dictionary-rules';
@@ -11,10 +14,10 @@ import { systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/sh
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { pinyin } from 'pinyin-pro';
-import { EntityManager } from 'typeorm';
-import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, UNIT_OPTIONS, FEE_BOOKING_NODE_MAP, FINANCE_RESOURCE_DEFS, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS } from '@kudesi/shared';
+import { EntityManager,IsNull,Not } from 'typeorm';
+import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, UNIT_OPTIONS, FEE_BOOKING_NODE_MAP, FINANCE_RESOURCE_DEFS, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS,FEE_SIMILARITY_FIELDS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ProductVerificationEvent, ResourceLink, ResourceRecord } from '../entities';
+import { Company, ProductVerificationEvent, ResourceLink, ResourceRecord } from '../entities';
 
 const parseJsonOrNull = (v: unknown): unknown => { if (typeof v !== 'string') return v ?? null; try { return JSON.parse(v); } catch { return null; } };
 import { beforeExclusive } from './product-exclusive';
@@ -664,6 +667,7 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
 async function beforeBundle(ctx: BeforeSaveContext) {
   const { em, host, user, data, existing, status } = ctx;
   await validateCodingReferences(ctx);
+  if(status==='verified'&&existing&&existing.status!=='verified'&&typeof existing.data.pendingRevisionId==='number'){const revision=await rec(em,user.companyId,'finance-bundle-revisions',existing.data.pendingRevisionId);if(revision?.status==='pending')Object.assign(data,revisionWeightPatch(readRevisionPayload(revision.data.payload),revision.data.reason));}
   const platform = await rec(em, user.companyId, 'finance-platforms', data.platformId);
   const scenario = await rec(em, user.companyId, 'finance-scenarios', data.scenarioId);
   if (!platform || !scenario) throw new BadRequestException('请选择销售平台和销售场景');
@@ -711,11 +715,14 @@ async function beforeBundle(ctx: BeforeSaveContext) {
     // 有待发布的构成修订：按修订后的构成验证，验证通过后随之发布
     const revId = num(existing.data.pendingRevisionId);
     const revision = revId ? await rec(em, user.companyId, 'finance-bundle-revisions', revId) : null;
-    const currentLines = (await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'bundleId', existing.id)).map((l) => l.data);
-    if (revision && revision.status === 'pending' && revision.data.sourceToken !== sig(...currentLines.map(lineKey).sort())) {
+    const currentRows=await host.findWhere(em,user.companyId,'finance-bundle-lines','bundleId',existing.id);
+    const currentLines=currentRows.map(row=>row.data);
+    const parsed=revision?.status==='pending'?readRevisionPayload(revision.data.payload):null;
+    if (revision && revision.status === 'pending' && revision.data.sourceToken !== (parsed?.legacy?sig(...currentLines.map(lineKey).sort()):bundleCompositionToken(existing,currentRows))) {
       throw new BadRequestException('提交修订之后，组合的构成又被改过了，请取消这份修订后重新提交');
     }
-    const lines: Data[] = revision && revision.status === 'pending' ? (JSON.parse(str(revision.data.payload)) as Data[]) : currentLines;
+    const lines:Data[]=parsed?parsed.lines:currentLines;
+    if(parsed){const [{n}]=await em.query("SELECT COUNT(*) n FROM outbox_jobs WHERE company_id=? AND resource_type='finance-bundles' AND resource_id=? AND status IN ('pending','sending')",[user.companyId,existing.id]);if(Number(n))throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请等它发完再发布构成');const app=await unfinishedApplications(em,user.companyId,existing,currentRows);if(app)throw new ConflictException('有还没办完的 SKU 批量申请用到了这个组合，请先完成或撤销');for(const line of lines)await normalizeBundleComponent(em,host,user,line);}
     const merged = { ...existing.data, ...data };
     const issues = await bundleIssues(em, user.companyId, merged, lines, platform.status);
     if (issues.length && !em.queryRunner?.data.legacyImport) throw new BadRequestException(`验证前请先处理 ${issues.length} 个问题：${issues.slice(0, 4).join('；')}${issues.length > 4 ? ' 等' : ''}`);
@@ -779,59 +786,36 @@ async function beforeNamingRule({ em, user, data }: BeforeSaveContext) {
 
 /** 组合构成修订：只能改主品等，赠品必须原样不变；一个组合同时只有一份待发布的修订，随组合验证发布。 */
 async function beforeBundleRevision({ em, host, user, data, existing, status }: BeforeSaveContext) {
-  const bundle = await rec(em, user.companyId, 'finance-bundles', data.bundleId);
-  if (!bundle) throw new BadRequestException('组合不存在');
-  if (status === 'published' && existing?.status !== 'published') throw new BadRequestException('构成修订只能随组合验证发布，不能手工改成已发布');
-  if (existing && existing.status !== 'pending') throw new BadRequestException('只有待发布的修订能修改或取消');
-  if (status === 'cancelled') return;
-  if (bundle.status === 'archived') throw new BadRequestException('组合已失效归档，不能再改构成');
-  const reason = str(data.reason).trim();
-  if (reason.length < 2 || reason.length > 500) throw new BadRequestException('请写明修订原因（2～500 字）');
-  data.reason = reason;
-  let lines: Data[];
-  try { lines = JSON.parse(str(data.payload)) as Data[]; } catch { throw new BadRequestException('新构成的格式不对'); }
-  if (!Array.isArray(lines) || lines.length === 0 || lines.length > 50) throw new BadRequestException('新构成要有 1～50 行');
-  const norm: Data[] = [];
-  for (const l of lines) {
-    const role = str(l.role);
-    if (!(num(l.qty) !== null && (num(l.qty) as number) > 0)) throw new BadRequestException('数量必须大于 0');
-    if ((role === 'main' || role === 'gift') && l.productId==null && !Number.isInteger(l.qty)) throw new BadRequestException('主品和赠品的数量必须是整数');
-    if (role === 'labor') {
-      if (!(await rec(em, user.companyId, 'finance-labor-costs', l.laborId))) throw new BadRequestException('请选择人工项目');
-      const row: Data = { role, laborId: l.laborId, qty: l.qty };
-      normalizeLineExtras(row, null, null);
-      norm.push(pickLine({ ...l, ...row }));
-    } else if(l.productId!=null){
-      if(l.baseCodeId!=null || l.laborId!=null)throw new BadRequestException('每行只能选择一种组件来源');
-      const product=await rec(em,user.companyId,'finance-products',l.productId);
-      if(!product || product.status!=='active' || product.archivedAt)throw new BadRequestException('档案组件不存在或已停用');
-      const category=await rec(em,user.companyId,'finance-categories',product.data.categoryId);
-      if(!category || category.status!=='active' || (await host.findWhere(em,user.companyId,'finance-categories','parentId',category.id)).length)throw new BadRequestException('档案组件必须属于有效的末级分类');
-      const row:Data={...l,role,productId:product.id,qty:l.qty};
-      normalizeLineExtras(row,null,product);
-      norm.push(pickLine(row));
-    } else {
-      const bc = await rec(em, user.companyId, 'finance-base-codes', l.baseCodeId);
-      if (!bc) throw new BadRequestException('请选择基础编码');
-      if (bc.status !== 'verified') throw new BadRequestException(`基础编码「${bc.title}」还没验证，验证通过后才能加入组合`);
-      const row: Data = { ...l, role, baseCodeId: bc.id, qty: l.qty };
-      const real = typeof bc.data.canonicalId === 'number' ? (await rec(em, user.companyId, 'finance-base-codes', bc.data.canonicalId)) ?? bc : bc;
-      normalizeLineExtras(row, bc, await rec(em, user.companyId, 'finance-products', real.data.productId));
-      norm.push(pickLine(row));
-    }
-  }
-  if (!norm.some((l) => l.role === 'main')) throw new BadRequestException('至少要有一个主品');
-  const current = (await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'bundleId', bundle.id)).map((l) => l.data);
-  const gifts = (xs: Data[]) => xs.filter((l) => l.role === 'gift').map((l) => `${lineKey(l)}:${str(l.unit)}:${l.includeInJst === false ? 0 : 1}`).sort().join('|');
-  if (gifts(current) !== gifts(norm)) throw new BadRequestException('修订不能改赠品（商品、数量、单位及上传设置必须和现在完全一样）；要换赠品，请新建一个组合');
-  const fp = (xs: Data[]) => JSON.stringify(xs.map((l) => { const { sortOrder: _s, ...r } = pickLine(l) as Data; return JSON.stringify(Object.entries(r).sort()); }).sort());
-  if (fp(current) === fp(norm)) throw new BadRequestException('组成没有变化，无需创建新版本');
-  const other = (await host.findWhere(em, user.companyId, 'finance-bundle-revisions', 'bundleId', bundle.id)).find((r) => r.status === 'pending' && r.id !== existing?.id);
-  if (other) throw new BadRequestException('这个组合已经有一份待发布的修订，请先取消它');
-  data.payload = JSON.stringify(norm);
-  data.sourceToken = sig(...current.map(lineKey).sort());
-  if (!existing) data.createdAtKey = new Date().toISOString();
-  data.label = `${bundle.title} 构成修订`.slice(0, 200);
+  await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+  const bundle=typeof data.bundleId==='number'?await em.findOne(ResourceRecord,{where:{id:data.bundleId,companyId:user.companyId,type:'finance-bundles'},lock:{mode:'pessimistic_write'}}):null;
+  if(!bundle)throw new BadRequestException('组合不存在');
+  if(status==='published'&&existing?.status!=='published')throw new BadRequestException('构成修订只能随组合验证发布，不能手工改成已发布');
+  if(existing&&existing.status!=='pending')throw new BadRequestException('只有待发布的修订能修改或取消');
+  if(status==='cancelled')return;
+  if(bundle.status==='archived'||bundle.archivedAt)throw new BadRequestException('组合已失效归档，不能再改构成');
+  const reason=str(data.reason).trim();if(reason.length<2||reason.length>500)throw new BadRequestException('请写明修订原因（2～500 字）');data.reason=reason;
+  const payload=readRevisionPayload(data.payload);
+  if(payload.legacy)throw new BadRequestException('请重新打开组成编辑器，取得完整来源令牌后提交');
+  const currentRows=await host.findWhere(em,user.companyId,'finance-bundle-lines','bundleId',bundle.id);
+  assertCompositionToken(payload.sourceToken,bundle,currentRows);
+  const lines=payload.lines;
+  if(!lines.length||lines.filter(line=>line.role!=='labor').length>200||lines.filter(line=>line.role==='labor').length>100)throw new BadRequestException('材料组成应为1至200项，人工不能超过100项');
+  const other=(await host.findWhere(em,user.companyId,'finance-bundle-revisions','bundleId',bundle.id)).find(row=>row.status==='pending'&&row.id!==existing?.id);
+  if(other)throw new BadRequestException('这个组合已经有一份待发布的修订，请先取消它');
+  const [{n}]=await em.query("SELECT COUNT(*) n FROM outbox_jobs WHERE company_id=? AND resource_type='finance-bundles' AND resource_id=? AND status IN ('pending','sending')",[user.companyId,bundle.id]);
+  if(Number(n))throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请等它发完再改构成');
+  const app=await unfinishedApplications(em,user.companyId,bundle,currentRows);if(app)throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再改构成`);
+  const norm:Data[]=[],seen=new Set<string>();
+  for(const input of lines){const row=await normalizeBundleComponent(em,host,user,input);const key=`${row.role}:${row.productId?`P${row.productId}`:row.laborId?`L${row.laborId}`:`B${row.baseCodeId}`}:${row.unit||''}`;if(seen.has(key))throw new BadRequestException('组件、角色和单位重复，请合并');seen.add(key);norm.push(row);}
+  if(!norm.some(line=>line.role==='main'))throw new BadRequestException('至少要有一个主品');
+  const current=currentRows.map(row=>row.data),gifts=(rows:Data[])=>rows.filter(line=>line.role==='gift').map(line=>`${lineKey(line)}:${str(line.unit)}:${line.includeInJst===false?0:1}`).sort().join('|');
+  if(gifts(current)!==gifts(norm))throw new BadRequestException('修订不能改赠品（商品、数量、单位及上传设置必须和现在完全一样）；要换赠品，请新建一个组合');
+  const weight=payload.weight?await normalizedRevisionWeight(em,user,bundle,norm,payload.weight):undefined;
+  const fp=(rows:Data[])=>JSON.stringify(rows.map(line=>{const {sortOrder:_s,...rest}=pickLine(line);return JSON.stringify(Object.entries(rest).sort());}).sort());
+  const oldWeight=await costCompositionFacts(em,user.companyId,bundle.data,current);
+  if(fp(current)===fp(norm)&&(!weight||weight.mode===str(bundle.data.weightMode||'auto')&&weight.grams===oldWeight.weightG))throw new BadRequestException('组成、人工和重量没有变化，无需创建新版本');
+  data.payload=writeRevisionPayload(payload,norm,weight);data.sourceToken=payload.sourceToken;
+  if(!existing)data.createdAtKey=new Date().toISOString();data.label=`${bundle.title} 构成修订`.slice(0,200);
 }
 
 async function beforeBundleLine(ctx: BeforeSaveContext) {
@@ -841,6 +825,7 @@ async function beforeBundleLine(ctx: BeforeSaveContext) {
   if (bundle.status === 'archived') throw new BadRequestException('组合已失效归档，不能再改构成');
   if (!((num(data.qty) ?? 0) > 0)) throw new BadRequestException('数量必须大于 0');
   const role = str(data.role);
+  if(['baseCodeId','productId','laborId'].filter(key=>data[key]!=null).length!==1 || role==='labor'&&data.laborId==null || role!=='labor'&&data.laborId!=null)throw new BadRequestException('每行只能选择一种组件来源');
   let name = '';
   if (role === 'labor') {
     const labor = await rec(em, user.companyId, 'finance-labor-costs', data.laborId);
@@ -849,8 +834,7 @@ async function beforeBundleLine(ctx: BeforeSaveContext) {
     delete data.baseCodeId;
     name = labor.title;
   } else if(data.productId!=null){
-    const oldDirect=ctx.existing?.data.productId===data.productId;
-    if(!oldDirect && !trustedResourceImport(em,user,'bundle_codes') && !publishing.get(em)?.has(bundle.id))throw new BadRequestException('直接档案组件只能由历史BOM导入建立');
+    const normalized=await normalizeBundleComponent(em,ctx.host,user,data,trustedResourceImport(em,user,'bundle_codes'));Object.assign(data,normalized);
     if(data.baseCodeId!=null || data.laborId!=null)throw new BadRequestException('每行只能选择一种组件来源');
     const product=await rec(em,user.companyId,'finance-products',data.productId);
     if(!product || product.status!=='active')throw new BadRequestException('档案组件不存在或已停用');
@@ -862,7 +846,7 @@ async function beforeBundleLine(ctx: BeforeSaveContext) {
     delete data.laborId;
     name = bc.title;
   }
-  if (role === 'main' || role === 'gift') {
+  if ((role === 'main' || role === 'gift') && data.productId==null) {
     if (!Number.isInteger(num(data.qty)) && !trustedResourceImport(em,user,'bundle_codes') && !publishing.get(em)?.has(bundle.id) && ctx.existing?.data.qty!==data.qty) throw new BadRequestException('主品和赠品的数量必须是整数');
   }
   let product: ResourceRecord | null = null;
@@ -1000,7 +984,6 @@ const catToken = (c: ResourceRecord) => (str(c.data.categoryCode) || initials(c.
  */
 const beforeParty = (prefix: string, type: string) => async (ctx: BeforeSaveContext) => {
   const { data, em, user, existing } = ctx;
-  const typed = { code: str(data.code), shortCode: str(data.shortCode) }; // 用户自己填的；自动生成的编号不参与查重
   const catType = type === 'finance-suppliers' ? 'finance-supplier-categories' : 'finance-customer-categories';
   const catIds = Array.isArray(data.categoryIds) ? (data.categoryIds as unknown[]).filter((x): x is number => typeof x === 'number') : [];
   const catsChanged = !existing || JSON.stringify(catIds) !== JSON.stringify(existing.data.categoryIds ?? []);
@@ -1015,8 +998,8 @@ const beforeParty = (prefix: string, type: string) => async (ctx: BeforeSaveCont
   }
   Object.assign(data, await previewArchiveCode(ctx.host, em, user, type, data, existing));
   if (existing && Object.keys(SIMILARITY_FIELDS).every((k) => str(data[k]) === str(existing.data[k]))) return; // 没改这些字段（如只是停用）不查重
-  const others = await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'data'] });
-  const { blocked } = inspectArchiveSimilarity({ ...data, ...typed }, others.map((o) => ({ id: o.id, data: o.data })), existing?.id);
+  const others = await em.find(ResourceRecord, { where: { companyId: user.companyId, type,archivedAt:IsNull(),status:Not('deleted') }, select: ['id', 'data'] });
+  const { blocked } = inspectArchiveSimilarity(data, others.map((o) => ({ id: o.id, data: o.data })), existing?.id);
   if (blocked.length) throw new BadRequestException(`与已有资料重复：${formatSimilarityMatch(blocked[0])}`);
 };
 
@@ -1084,6 +1067,12 @@ async function beforeFeeItem(ctx: BeforeSaveContext) {
   if (bad) throw new BadRequestException(`挂账节点“${bad}”不存在`);
   data.defaultObject = nodes.length ? nodes.join('、') : '不固定';
   data.requiredObject = nodes.some((n) => n !== '公司') ? 'yes' : 'no';
+  if(!existing || !Object.keys(FEE_SIMILARITY_FIELDS).every(key=>str(data[key])===str(existing.data[key]))){
+    const others=await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-fee-items',archivedAt:IsNull(),status:Not('deleted')},select:['id','data']});
+    const {blocked}=inspectArchiveSimilarity(data,others.map(row=>({id:row.id,data:row.data})),existing?.id,FEE_SIMILARITY_FIELDS);
+    if(blocked.length)throw new BadRequestException(`与已有资料重复：${formatSimilarityMatch(blocked[0])}`);
+  }
+
 }
 
 export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Promise<void>> = {
@@ -1470,7 +1459,7 @@ export async function composeBundleFor(host: RuleHost, em: EntityManager, user: 
 
 /** 按构成重新生成组合编码和名称；已验证的组合构成一变就要重新验证。 */
 export async function refreshBundle(host: RuleHost, em: EntityManager, user: AuthUser, bundleId: number, note = '按构成重新生成编码'): Promise<void> {
-  if (deferred.has(bundleId)) return;
+  if (deferred.has(bundleId) || publishing.get(em)?.has(bundleId)) return;
   const bundle = await rec(em, user.companyId, 'finance-bundles', bundleId);
   if (!bundle) return;
   const out = await composeBundleFor(host, em, user, bundle);
@@ -1490,7 +1479,7 @@ async function publishRevision(host: RuleHost, em: EntityManager, user: AuthUser
       await em.delete(ResourceLink, { companyId: user.companyId, sourceId: l.id });
       await em.delete(ResourceRecord, { id: l.id, companyId: user.companyId });
     }
-    for (const l of JSON.parse(str(revision.data.payload)) as Data[]) {
+    for (const l of readRevisionPayload(revision.data.payload).lines) {
       await host.createRecord(em, user, 'finance-bundle-lines', { ...pickLine(l), bundleId }, '发布构成修订');
     }
     await refreshBundle(host, em, user, bundleId);

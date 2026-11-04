@@ -58,7 +58,9 @@ d('费用档案：仓库/公户挂账节点（真实数据库）', () => {
     expect(a.data.code).toBe('GYS-ZZGYS-YM-RNZY');
     const b = await svc.create(boss, 'finance-suppliers', { name: '润农装业', categoryIds: [leaf.id], phone: '13800002222', shortName: '润农装', code: undefined });
     expect(b.data.code).toBe('GYS-ZZGYS-YM-RNZY2');
-    await expect(svc.create(boss, 'finance-suppliers', { name: '润农种业', categoryIds: [leaf.id], phone: '13800001111' })).rejects.toThrow(/重复/);
+    const copy=await svc.create(boss, 'finance-suppliers', { name: '润农种业', categoryIds: [leaf.id], phone: '13800001111' });
+    expect(copy.data.code).not.toBe(a.data.code); // 原24号用生成后的不同编号比较，内容相似仅确认，不误拦复制。
+    await expect(svc.create(boss, 'finance-suppliers', { name:'另一供应商',categoryIds:[leaf.id],code:String(a.data.code).replaceAll('-','') })).rejects.toThrow(/重复/);
     const sim = await svc.similarCheck(boss, 'finance-suppliers', { name: '润农种业有限公司', phone: '13800001111' });
     expect(sim.warnings.map((w) => w.id)).toContain(a.id);
     // 只停用不触发查重

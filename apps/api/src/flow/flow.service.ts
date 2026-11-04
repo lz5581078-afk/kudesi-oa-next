@@ -1,3 +1,6 @@
+import { CryptoService } from '../common/crypto.service';
+import { FlowApplicationHeaderStore } from './flow-application-header';
+import { FlowApplicationDrafts, type DraftCreateInput } from './flow-application-drafts';
 import { listSkuApplications } from './sku-application-list';
 import { LiveOrderSource } from '../live/live-order-source';
 import { writeNotification } from '../outbox/write-notification';
@@ -28,7 +31,7 @@ type Def = { steps: StepDef[]; escalateUserIds: number[] };
 /** 批量办理时不逐条发的站内通知种类（改发一条汇总）；飞书入队不受影响 */
 const QUIET_KINDS = new Set(['todo', 'returned', 'result']);
 /** 同一张申请单拆开办理的规格之间的批次标记（payload 里下划线开头的业务痕迹） */
-export const BATCH_MARKS = ['_batchKey', '_splitIndex', '_splitTotal'];
+export const BATCH_MARKS = ['_batchKey', '_splitIndex', '_splitTotal','_splitRequestHash','_applicationDraftOrigin','_draftCreateHash','_draftSubmission'];
 
 /** 把模板的字段包成一个“资料定义”，复用资料的字段校验（必填、日期、金额整数分、选项……） */
 const pseudoDef = (key: string, fields: FlowTemplate['fields']) =>
@@ -52,6 +55,7 @@ export class FlowService {
     @Optional() private readonly outbox?: OutboxService,
     @Optional() private readonly feishu?: FeishuNoticeService,
     @Optional() private readonly liveOrders?: LiveOrderSource,
+    @Optional() private readonly applicationCrypto?:CryptoService,
   ) {}
   private readonly log = new Logger('Flow');
   private readonly quietEms = new WeakSet<EntityManager>();
@@ -416,6 +420,29 @@ export class FlowService {
 
   // ================= 发起 =================
 
+  private applicationDrafts(){
+    return new FlowApplicationDrafts(this.dataSource,{
+      template:(em,company,key,id)=>this.tpl(em,company,key,id),
+      starterAllowed:(em,user,scope)=>this.canStartWith(em,user,scope),services:this.svc(),
+      event:(em,run,user,action,step,note)=>this.event(em,run,user,action,step,note),
+      activate:(em,user,run,steps,first)=>this.activateStartIn(em,user,run,steps,first),
+      detail:(em,user,id)=>this.detailIn(em,user,id),
+      visible:(em,user,run)=>this.canSeeRun(em,user,run),
+      handlers:async(em,user,step)=>{const ids=await this.resolveRecipients(em,user.companyId,step,user.id);const names=await this.userNames(em,user.companyId,ids);return ids.map(id=>names.get(id)??'').filter(Boolean);},
+    },this.applicationCrypto?new FlowApplicationHeaderStore(this.applicationCrypto):undefined);
+  }
+  applicationDraftTemplates(user:AuthUser,key:string){return this.applicationDrafts().templates(user,key);}
+  createApplicationDrafts(user:AuthUser,input:DraftCreateInput){return this.applicationDrafts().create(user,input);}
+  applicationDraftHeader(user:AuthUser,key:string,ref:string){return this.applicationDrafts().read(user,key,ref);}
+  addApplicationDrafts(user:AuthUser,key:string,ref:string,version:string,requestKey:string,payloads:Record<string,unknown>[]){return this.applicationDrafts().add(user,key,ref,version,requestKey,payloads);}
+  removeApplicationDraftBatch(user:AuthUser,key:string,ref:string,version:string,expected:Array<{id:number;revision:number}>,reason:string){return this.applicationDrafts().removeApplication(user,key,ref,version,expected,reason);}
+
+  saveApplicationDraft(user:AuthUser,id:number,revision:number,payload:Record<string,unknown>){return this.applicationDrafts().save(user,id,revision,payload);}
+  saveApplicationDraftShared(user:AuthUser,key:string,ref:string,expected:Array<{id:number;revision:number}>,payload:Record<string,unknown>,headerVersion:string){return this.applicationDrafts().shared(user,key,ref,expected,payload,headerVersion);}
+  submitApplicationDraft(user:AuthUser,id:number,revision:number,requestKey:string){return this.applicationDrafts().submit(user,id,revision,requestKey);}
+  submitApplicationDrafts(user:AuthUser,key:string,ref:string,items:Array<{id:number;revision:number}>,requestKey:string){return this.applicationDrafts().submitMany(user,key,ref,items,requestKey);}
+  removeApplicationDraft(user:AuthUser,id:number,revision:number,reason:string){return this.applicationDrafts().remove(user,id,revision,reason);}
+
   async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string, opts: { internal?: boolean } = {}) {
     return this.dataSource.transaction(em=>this.startIn(em,user,templateKey,payloadIn,requestKey,opts));
   }
@@ -453,14 +480,17 @@ export class FlowService {
       currentStepKey: steps[0].key, payload, stepsSnapshot: steps, escalateUserIds: def.escalateUserIds, requestKey: requestKey ?? null,
     } as never);
     const run = (await em.findOne(FlowRun, { where: { id: Number(ins.identifiers[0].id) } }))!;
-    const first = await em.insert(FlowStep, {
-      companyId: user.companyId, runId: run.id, seq: 1, stepKey: steps[0].key, stepName: steps[0].name, stepType: steps[0].type,
-      status: 'done', recipients: [user.id], handledBy: user.id, action: 'submit', finishedAt: new Date(),
-    });
-    await this.event(em, run, user.id, 'submit', Number(first.identifiers[0].id));
-    await adapter.onStart?.({ em, user, payload, run, ...this.svc() });
-    await this.enter(em, user, run, steps, 1, 'normal');
+    await this.activateStartIn(em,user,run,steps);
     return this.detailIn(em, user, run.id);
+  }
+
+  private async activateStartIn(em:EntityManager,user:AuthUser,run:FlowRun,steps:StepDef[],pending?:FlowStep){
+    const t=await this.runTpl(em,run),adapter=adapterFor(t);let firstId:number;
+    if(pending){pending.status='done';pending.action='submit';pending.handledBy=user.id;pending.finishedAt=new Date();await em.save(FlowStep,pending);firstId=pending.id;}
+    else{const inserted=await em.insert(FlowStep,{companyId:run.companyId,runId:run.id,seq:1,stepKey:steps[0].key,stepName:steps[0].name,stepType:steps[0].type,status:'done',recipients:[user.id],handledBy:user.id,action:'submit',finishedAt:new Date()});firstId=Number(inserted.identifiers[0].id);}
+    await this.event(em,run,user.id,'submit',firstId);
+    await adapter.onStart?.({em,user,payload:run.payload,run,...this.svc()});
+    await this.enter(em,user,run,steps,1,'normal');
   }
 
   /** 进入第 idx 步：解析办理人、建步骤记录和待办、抄送、通知；end 步直接完成流程 */
@@ -502,6 +532,13 @@ export class FlowService {
   /** 开启一个办理步骤：找办理人、建待办、通知、抄送；返回它的到期时间 */
   private async openStep(em: EntityManager, run: FlowRun, t: FlowTemplate, def: StepDef, via: string, keepDue?: Date | null, recipientsOverride?: number[]): Promise<Date | null> {
     const adapter = adapterFor(t);
+    if(run.payload._applicationDraftOrigin===true && t.applicationDraft && def.type!=='submit' && def.type!=='end'){
+      const live=await em.findOneBy(FlowDefinition,{companyId:run.companyId,templateKey:run.templateKey,status:'active'});
+      const current=(live?.steps as StepDef[]|undefined)?.find(step=>step.key===def.key && step.type===def.type);
+      if(!current)throw new ConflictException('节点配置已变化或流程未启用，原申请已保留，请联系管理员');
+      // 路径仍来自原快照，只在节点入场时读取当前处理人和时限。
+      def={...def,assignee:current.assignee,dueMinutes:current.dueMinutes,remind:current.remind};
+    }
     const prev = def.assignee?.source === 'previous_handler' ? await em.findOne(FlowStep, { where: { runId: run.id, status: 'done', handledBy: Not(0) }, order: { seq: 'DESC' } }) : null;
     const recipients = recipientsOverride ?? await this.resolveRecipients(em, run.companyId, def, run.requesterId, prev?.handledBy, run.payload);
     const last = await em.findOne(FlowStep, { where: { runId: run.id }, order: { seq: 'DESC' } });

@@ -5,9 +5,10 @@ import { DataSource } from 'typeorm';
 import { PROVINCES } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, ResourceFile, User } from '../entities';
+import { Company, ResourceFile, ResourceChangeLog, User } from '../entities';
 import { buildServices } from '../test-support';
 import { ExpressService } from './express.service';
+import { GridSaveService } from './grid-save.service';
 import { ResourcesService } from './resources.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
@@ -374,4 +375,36 @@ d('快递价格表（真实数据库）', () => {
     await svc.create(boss, 'finance-express-prices', { carrier: '老规则快递', province: 'ALL', fixedPrice: 500 });
     expect((await ex.getEstimates(boss)).cooperatingGroups).toBe(before + 1);
   });
+  it('单条规则版本拒绝陈旧编辑/删除且不产生审计，当前版本可删；跨公司及旧删除调用保持边界', async () => {
+    const carrier = await svc.create(boss, 'finance-express-carriers', {name:'版本冲突合成'});
+    const branch = await svc.create(boss, 'finance-express-branches', {carrierId:carrier.id,name:'合成网点'});
+    const versionId = Number(branch.data.currentVersionId);
+    const rule = await svc.create(boss, 'finance-express-prices', { versionId, province: '广东', shipWeightMin: 0, fixedPrice: 333 });
+    const projection = (await ex.versionDetail(boss, versionId)).rules.find(r => r.id === rule.id)!;
+    expect(projection.version).toBe(rule.version);
+    await svc.update(boss, 'finance-express-prices', rule.id, { fixedPrice: 444 });
+    const auditBefore = await ds.manager.count(ResourceChangeLog, { where: { companyId: boss.companyId } });
+    const deleteObjects = jest.spyOn(files, 'deleteObjects');
+    deleteObjects.mockClear();
+    const changed = await new GridSaveService(svc).save(boss, 'finance-express-prices', { updates:[{id:rule.id,version:rule.version,data:{fixedPrice:555}}] });
+    expect(changed.results[0]).toMatchObject({ok:false,code:'conflict'});
+    await expect(svc.remove(boss, 'finance-express-prices', rule.id, '合成删除', rule.version)).rejects.toThrow(/刚被/);
+    expect((await svc.get(boss, 'finance-express-prices', rule.id)).data.fixedPrice).toBe(444);
+    expect(deleteObjects).not.toHaveBeenCalled();
+    deleteObjects.mockRestore();
+    expect(await ds.manager.count(ResourceChangeLog, { where: { companyId: boss.companyId } })).toBe(auditBefore);
+    const c = await ds.manager.save(Company, ds.manager.create(Company, {code:`e${crypto.randomBytes(5).toString('hex')}`,name:'隔离合成',status:'active'}));
+    let fresh = await svc.get(boss, 'finance-express-prices', rule.id);
+    await expect(svc.remove({...boss,companyId:c.id}, 'finance-express-prices', rule.id, '合成删除', fresh.version)).rejects.toThrow(/不存在/);
+    const updated = await new GridSaveService(svc).save(boss, 'finance-express-prices', {updates:[{id:rule.id,version:fresh.version,data:{fixedPrice:555}}]});
+    expect(updated.results[0]).toMatchObject({ok:true});
+    fresh = await svc.get(boss, 'finance-express-prices', rule.id);
+    expect(fresh.data.fixedPrice).toBe(555);
+    await svc.remove(boss, 'finance-express-prices', rule.id, '合成删除', fresh.version);
+    await expect(svc.get(boss, 'finance-express-prices', rule.id)).rejects.toThrow(/不存在/);
+    const legacy = await svc.create(boss, 'finance-express-carriers', {name:`旧调用${Date.now()}`});
+    await svc.remove(boss, 'finance-express-carriers', legacy.id, '合成删除');
+    await expect(svc.get(boss, 'finance-express-carriers', legacy.id)).rejects.toThrow(/不存在/);
+  });
+
 });

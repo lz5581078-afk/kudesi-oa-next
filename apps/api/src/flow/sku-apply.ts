@@ -40,6 +40,8 @@ export function specLines(spec: SkuSpec, wh?: WarehouseSpec): LineInput[] {
   for (const l of (wh?.lines ?? []) as WarehouseLine[]) lines.push(l.role === 'labor' ? { role: 'labor', laborId: l.laborId, qty: l.qty } : { role: l.role, baseCodeId: l.baseCodeId, qty: l.qty });
   return lines;
 }
+export const effectiveSkuBrandId=(spec:SkuSpec,payload:Record<string,unknown>)=>spec.brandId??num(payload.brandId);
+
 const lineSig = (lines: LineInput[]) => lines.map((l) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` : l.baseCodeId}:${l.qty}`).sort().join('|');
 
 /** 检查每个商品：存在、同公司、已验证、档案类型符合用途、主品赠品有成本 */
@@ -93,10 +95,10 @@ export async function checkApplication(em: EntityManager, user: AuthUser, bundle
       else await checkBaseCode(em, user.companyId, l.baseCodeId!, l.role, cache);
     }
     const lines = specLines(spec, wh);
-    const sig = lineSig(lines);
+    const sig = `${lineSig(lines)}|brand:${effectiveSkuBrandId(spec,payload)??''}`;
     if (seen.has(sig)) throw new BadRequestException(`规格「${spec.name}」和「${seen.get(sig)}」的构成完全一样，不用重复申请`);
     seen.set(sig, spec.name);
-    const pre = await bundles.preview(asEngine(user), lines, platformIds.map((platformId): TargetInput => ({ platformId, scenarioId, brandId: num(payload.brandId) ?? undefined })), em);
+    const pre = await bundles.preview(asEngine(user), lines, platformIds.map((platformId): TargetInput => ({ platformId, scenarioId, brandId: effectiveSkuBrandId(spec,payload) ?? undefined })), em);
     const targets = pre.targets.map((t): PlanTarget => ({ platformId: t.platformId, platformName: t.platformName, code: t.code, name: t.name, reuse: t.reuse, duplicates: t.duplicates, ok: t.ok }));
     // 编码被「本地组合编码」占用 = 系统里已经有主品、赠品相同的组合（编码只由主品、赠品、平台、场景决定）
     const sameBundle = (t: PlanTarget) => !t.reuse && t.duplicates.length > 0 && t.duplicates.every((d) => d.layer === 'bundle');
@@ -121,14 +123,14 @@ export async function checkApplication(em: EntityManager, user: AuthUser, bundle
 /** 其他在办的 SKU 申请里，同样的构成 × 平台 × 场景不能再申请一遍（只比运营填的主品和赠品） */
 async function assertNoInflightOverlap(em: EntityManager, companyId: number, specs: SkuSpec[], platformIds: number[], scenarioId: number, selfRunId?: number, brandId?: number | null) {
   const runs = await em.find(FlowRun, { where: { companyId, templateKey: SKU_TEMPLATE, status: 'running' } });
-  const mine = new Map(specs.map((s) => [lineSig(specLines(s)), s.name]));
+  const mine = new Map(specs.map((s) => [`${lineSig(specLines(s))}|brand:${s.brandId??brandId??''}`, s.name]));
   for (const r of runs) {
     if (r.id === selfRunId) continue;
     const otherPlatforms = platformIdsOf(r.payload);
-    if (num(r.payload.scenarioId) !== scenarioId || num(r.payload.brandId) !== (brandId ?? null) || !otherPlatforms.some((p) => platformIds.includes(p))) continue;
+    if (num(r.payload.scenarioId) !== scenarioId || !otherPlatforms.some((p) => platformIds.includes(p))) continue;
     const other = normalizeSpecs(r.payload.specs).specs;
     for (const o of other) {
-      const hit = mine.get(lineSig(specLines(o)));
+      const hit = mine.get(`${lineSig(specLines(o))}|brand:${effectiveSkuBrandId(o,r.payload)??''}`);
       if (hit) throw new BadRequestException(`规格「${hit}」和在办的申请 #${r.id}（${r.title}）里的规格「${o.name}」重复，请等它办完或沟通后再申请`);
     }
   }
@@ -158,11 +160,30 @@ const notify = (em: EntityManager, companyId: number, userId: number, title: str
 
 export interface CreatedBundle { spec: string; bundleId: number; code: string; reused: boolean }
 
+async function validateDraftShared(em:EntityManager,user:AuthUser,payload:Record<string,unknown>){
+    for(const [field,type] of [['scenarioId','finance-scenarios'],['brandId','finance-brands'],['bundleCategoryId','finance-categories']] as const){const id=payload[field];if(id!==undefined&&id!==null&&id!==''&&!await em.findOne(ResourceRecord,{where:{id:Number(id),companyId:user.companyId,type}}))throw new BadRequestException('申请公共资料不存在或不属于本公司');}
+    for(const id of platformIdsOf(payload))if(!await em.findOne(ResourceRecord,{where:{id,companyId:user.companyId,type:'finance-platforms'}}))throw new BadRequestException('销售平台不存在或不属于本公司');
+}
+
 export const skuBatchApply: FlowAdapter = {
   key: SKU_TEMPLATE,
   async title(_em, _companyId, p) {
     const n = Array.isArray(p.specs) ? p.specs.length : 0;
     return `SKU 批量申请 · ${str(p.batchName)} · ${n} 个规格`.slice(0, 200);
+  },
+  async validateDraftShared({em,user,payload}){await validateDraftShared(em,user,payload);},
+  draftIdentity(payload){return normalizeSpecs(payload.specs,{allowIncomplete:true}).specs[0]?.name.trim().toLocaleLowerCase() ?? '';},
+  async validateDraft({em,user,payload}){
+    if(!str(payload.batchName).trim())throw new BadRequestException('请填写申请标题');
+    const normalized=normalizeSpecs(payload.specs,{allowIncomplete:true});
+    if(normalized.errors.length)throw new BadRequestException(normalized.errors.join('；'));
+    if(normalized.specs.length!==1)throw new BadRequestException('每个草稿流程只保存一个规格');
+    payload.specs=normalized.specs;
+    for(const spec of normalized.specs)if(spec.brandId){const brand=await em.findOneBy(ResourceRecord,{id:spec.brandId,companyId:user.companyId,type:'finance-brands',status:'active'});if(!brand)throw new BadRequestException('规格组合品牌不存在或已停用');}
+    for(const spec of normalized.specs)for(const line of [...spec.main,...spec.gift]){
+      if(!await em.findOne(ResourceRecord,{where:{id:line.baseCodeId,companyId:user.companyId,type:'finance-base-codes'}}))throw new BadRequestException('所选商品不属于本公司或已删除');
+    }
+    await validateDraftShared(em,user,payload);
   },
   async validateStart({ em, user, payload, bundles }) {
     if (!bundles) throw new BadRequestException('服务没有准备好');
@@ -211,7 +232,7 @@ export const skuBatchApply: FlowAdapter = {
     const actor = asEngine(user);
     const created: CreatedBundle[] = [];
     for (const [i, spec] of specs.entries()) {
-      const res = await bundles.generate(actor, specLines(spec, wh[i]), platformIds.map((platformId) => ({ platformId, scenarioId, brandId: num(payload.brandId) ?? undefined, bundleCategoryId: num(payload.bundleCategoryId) ?? undefined })), em);
+      const res = await bundles.generate(actor, specLines(spec, wh[i]), platformIds.map((platformId) => ({ platformId, scenarioId, brandId: effectiveSkuBrandId(spec,payload) ?? undefined, bundleCategoryId: num(payload.bundleCategoryId) ?? undefined })), em);
       for (const c of res.created) {
         const rec = await em.findOne(ResourceRecord, { where: { id: c.id, companyId: user.companyId, type: 'finance-bundles' } });
         if (!rec) continue;

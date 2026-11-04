@@ -60,12 +60,12 @@ export function loadRefOptions(target:string,scope=''){
  });
 }
 
-type RefSelectProps = { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string; inputId?: string; leafOnly?: boolean };
+type RefSelectProps = { field: FieldDef; value: unknown; onChange: (v: number | null) => void; labelNow?: string; inputId?: string; leafOnly?: boolean;emptyLabel?:string };
 
 export function RefSelect(props:RefSelectProps){const {user}=useAuth();const scope=referenceIdentity(user);return props.field.refOptions?.complete?<CompleteRefSelect {...props}/>:<PagedRefSelect key={JSON.stringify([scope,props.field.ref])} {...props} scope={scope}/>;}
 
 /** 小字典按原生下拉读取全部候选；不把第51/201项变成另一种搜索交互。 */
-function CompleteRefSelect({ field, value, onChange, labelNow, inputId, leafOnly = false }: RefSelectProps) {
+function CompleteRefSelect({ field, value, onChange, labelNow, inputId, leafOnly = false,emptyLabel }: RefSelectProps) {
   const { user } = useAuth();
   const version = useRefVersion();
   const scope = JSON.stringify([user?.companyId, user?.id, user?.permissions, field.ref, field.refOptions, leafOnly, version]);
@@ -104,7 +104,7 @@ function CompleteRefSelect({ field, value, onChange, labelNow, inputId, leafOnly
   const selected = typeof value === 'number' ? value : '';
   return <div className="resource-ref-control">
     <select ref={select} id={inputId} aria-label={field.label} value={selected} disabled={!current?.rows} onChange={event => onChange(event.target.value ? Number(event.target.value) : null)}>
-      <option value="">{current?.rows ? `请选择${field.label}` : current?.error ? '读取失败' : '加载中…'}</option>
+      <option value="">{current?.rows ? emptyLabel ?? `请选择${field.label}` : current?.error ? '读取失败' : '加载中…'}</option>
       {selected !== '' && !options.some(option => option.value === selected) && <option value={selected}>{labelNow || `#${selected}`}</option>}
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
@@ -112,7 +112,7 @@ function CompleteRefSelect({ field, value, onChange, labelNow, inputId, leafOnly
   </div>;
 }
 
-function PagedRefSelect({ field, value, onChange, labelNow, inputId, leafOnly = false,scope }: RefSelectProps&{scope:string}) {
+function PagedRefSelect({ field, value, onChange, labelNow, inputId, leafOnly = false,scope,emptyLabel='（不选）' }: RefSelectProps&{scope:string}) {
   const version = useRefVersion();
   const [options, setOptions] = useState<RefOptions | null>(null);
   const [failed, setFailed] = useState(false);
@@ -132,7 +132,7 @@ function PagedRefSelect({ field, value, onChange, labelNow, inputId, leafOnly = 
     <div className="resource-ref-control">
       {search.searchable && <input type="search" className="ref-search" aria-label={`搜索${field.label}`} placeholder="输入关键字搜索…" value={search.keyword} onChange={(e) => search.setKeyword(e.target.value)} />}
       <select id={inputId} aria-label={field.label} value={current} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} disabled={!options}>
-        <option value="">{options ? '（不选）' : '加载中…'}</option>
+        <option value="">{options ? emptyLabel : '加载中…'}</option>
         {missing && <option value={current}>{labelNow ?? `#${current}`}</option>}
         {list.map((o) => (
           // 已停用的员工不能新选；若本来就是这个值则保留显示

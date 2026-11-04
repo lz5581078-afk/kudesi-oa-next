@@ -27,7 +27,7 @@ export interface VersionDetail {
   branch: { id: number; name: string; jstLogisticsName: string };
   carrier: { id: number; name: string };
   effectiveSource: 'ai' | 'manual';
-  rules: Array<RuleRow & { id: number; source: string }>;
+  rules: Array<RuleRow & { id: number; source: string; version?: string }>;
   batches: BatchRow[];
   surcharges: SurchargeRow[];
   recognitions: Array<{ id: number; recognitionType: string; status?: string; resultCount?: number; fileName?: string; modelName?: string; resultText?: string; createdAtKey?: string }>;
