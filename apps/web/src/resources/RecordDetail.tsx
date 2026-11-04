@@ -1,5 +1,5 @@
 import { StoreJstRefresh } from './StoreJstSelect';
-import { copyValuesOf } from './HierRowActions';
+import { copyInitialOf } from './HierRowActions';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useUnitOptions } from './unitOptions';
 import { sourcePriceTime, RESOURCE_DEFS, resolveProductSections, groupTitle, relationKindLabel, addDaysText, todayShanghai, archivePolicyOf, createChecker, getResourceDef, permissionOwner, resourcePermission, type ResourceDef } from '@kudesi/shared';
@@ -362,8 +362,8 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
   const moreItems: Array<{ key: string; label: string; danger?: boolean; title?: string; run: () => void }> = [];
   if (record.archived && def.key !== 'workforce' && can('delete')) moreItems.push({ key: 'restore', label: '恢复…', run: () => setRestoring(true) });
   if (live && onCopy && can('create')) {
-    moreItems.push({ key: 'copy', label: '复制新建', title: '按这条的内容新建一条，编码、图片不带过去', run: () => {
-      const values = { ...copyValuesOf(def, record.data), ...(def.key.startsWith('finance-') ? { __copyOf: record.id } : {}) };
+    moreItems.push({ key: 'copy', label: '复制新建', title: def.fields.some(f=>f.type==='files' && f.copyOnCreate)?'按这条的内容新建一条，编码重新生成':'按这条的内容新建一条，编码、图片不带过去', run: () => {
+      const values = copyInitialOf(def,record);
       onCopy(values);
     } });
   }

@@ -431,7 +431,7 @@ d('财务资料（真实数据库）', () => {
     expect(f1.data.requiredObject).toBe('no');
     const f2 = await svc.create(boss, 'finance-fee-items', { name: '手机卡', direction: 'offset', defaultObject: '手机号、店铺', requiredObject: 'no' });
     expect(f2.data.requiredObject).toBe('yes');
-    expect(f2.data.defaultObject).toBe('店铺、手机号'); // 按选项顺序
+    expect(f2.data.defaultObject).toBe('手机号、店铺'); // 原选择顺序决定制单时的首个默认节点
     const f3 = await svc.create(boss, 'finance-fee-items', { name: '无节点', direction: 'current' });
     expect(f3.data.defaultObject).toBe('不固定');
   });

@@ -1,11 +1,12 @@
-import { BadRequestException } from '@nestjs/common';
+import { directCodeStatus, finishCodeLifecycleSave, resolveCodeStatus, isCodeResource } from './finance-code-lifecycle';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { importingMissingLegacyReason } from '../migration/legacy-state-context';
 import { EntityManager } from 'typeorm';
 import { addDays, normalizePhone, normalizeReconcileDay } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceLink, ResourceRecord } from '../entities';
 import { CERT_AFTER_DELETE, CERT_AFTER_SAVE, CERT_BEFORE_SAVE, custodyRules, licenseFlags } from './entity-rules';
-import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE, FINANCE_BEFORE_FORM_SAVE, FINANCE_AFTER_FORM_SAVE } from './finance-rules';
+import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE, FINANCE_BEFORE_FORM_SAVE, FINANCE_AFTER_FORM_SAVE, bundleSnapshotJson } from './finance-rules';
 import { beforeUnitDelete } from './unit-rules';
 import { ASSET_BEFORE_DELETE, ASSET_BEFORE_SAVE } from './asset-rules';
 import { broadbandPhoneRule, isLegacyImport, phoneParentRule } from './fee-rules';
@@ -47,6 +48,8 @@ export interface BeforeSaveContext {
   em: EntityManager;
   host: RuleHost;
   user: AuthUser;
+  /** 原始提交仅供服务端业务字段保护，不写入资料。 */
+  input?: Readonly<Record<string,unknown>>;
   /** 将要保存的字段值（可修改） */
   data: Record<string, unknown>;
   existing: ResourceRecord | null;
@@ -236,10 +239,11 @@ function syncLocations(data: Record<string, unknown>, existing: ResourceRecord |
 }
 
 export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Promise<void> {
+  if(isCodeResource(type)&&Object.hasOwn(ctx.input??{},'verificationState'))throw new ForbiddenException('验证状态只能由服务端业务动作记录');
   if (COST_VERSION_TYPES.includes(type)) return beforeCostVersionSave(ctx,type);
   if (type === 'workforce') return workforceBeforeSave(ctx);
   const financeRule = FINANCE_BEFORE_SAVE[type];
-  if (financeRule) return financeRule(ctx);
+  if (financeRule) { await financeRule(ctx); await finishCodeLifecycleSave(type,ctx,bundleSnapshotJson); return; }
   const assetRule = ASSET_BEFORE_SAVE[type];
   if (assetRule) return assetRule(ctx);
   switch (type) {
@@ -497,3 +501,7 @@ export async function beforeFormSaveRule(type: string, ctx: { em: EntityManager;
 export async function afterFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }) {
   await FINANCE_AFTER_FORM_SAVE[type]?.(ctx);
 }
+
+/** 未声明该业务规则的资源保持原状态流程。 */
+export const beforeStatusChangeRule=(type:string,ctx:{em:EntityManager;user:AuthUser;id:number;status:string})=>resolveCodeStatus(type,ctx,bundleSnapshotJson);
+export const beforeDirectStatusRule=directCodeStatus;

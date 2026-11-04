@@ -31,6 +31,16 @@ describe('快递版本原布局与内层', () => {
     fireEvent.click(within(confirm).getByRole('button', { name: '确认停用' }));
     await waitFor(() => expect(resourceApi.changeStatus).toHaveBeenCalledWith('finance-express-fee-batches', 5, 'stopped', '人工确认停用加收批次'));
   });
+  it('基础价格规则沿原表默认20条分页，搜索及页内核对仍可使用', async () => {
+    vi.mocked(expressApi.version).mockResolvedValue({ ...detail, rules: Array.from({ length: 21 }, (_, index) => ({ ...detail.rules[0], id: index + 20, shipWeightMin: index, shipWeightMax: index + 1 })) });
+    render(<VersionPanel carrier={carrier} branch={branch} version={version} onChanged={vi.fn()} />);
+    const table = await screen.findByRole('table', { name: '基础价格规则' });
+    expect(within(table).getAllByRole('row')).toHaveLength(21);
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(screen.getByLabelText('基础价格规则搜索')).toBeTruthy();
+  });
+
   it('备注在上一保存尚未完成时继续输入，后续值不会被旧响应覆盖', async () => {
     vi.mocked(expressApi.version).mockResolvedValue(detail);
     let finish!: () => void;

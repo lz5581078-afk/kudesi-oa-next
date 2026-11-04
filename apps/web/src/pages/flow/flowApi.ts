@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 export interface TemplateInfo { key: string; label: string; description: string; fields: FieldDef[]; stepFields: Record<string, FieldDef[]>; active: boolean; version: number | null; custom?: boolean; steps?: Array<{ name: string; type: string }>; startable?: boolean }
 export interface RunRow {
   id: number; templateKey: string; templateLabel: string; title: string; status: string; requesterName: string; stepName: string | null; handlers: string[];
+  batchRef?:string;specCount?:number;completedSpecs?:number;progress?:Array<{name:string;handlers:string[];count:number;returned:boolean}>;
   dueAt: string | null; createdAt: string; finishedAt: string | null; overdue: boolean; stepEnteredAt?: string | null;
 }
 export interface RunList { total: number; page: number; pageSize: number; rows: RunRow[] }
@@ -44,7 +45,7 @@ const post = <T,>(path: string, body: unknown) => api<T>(path, { method: 'POST',
 export const flowApi = {
   templates: () => api<TemplateInfo[]>('/flow/templates'),
   start: (templateKey: string, payload: Record<string, unknown>, requestKey: string) => post<RunDetailDto>('/flow/runs', { templateKey, payload, requestKey }),
-  runs: (p: { view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page?: number; pageSize?: number }) => api<RunList>(`/flow/runs${qs(p)}`),
+  runs: (p: { groupSku?:boolean; view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page?: number; pageSize?: number }) => api<RunList>(`/flow/runs${qs(p)}`),
   run: (id: number) => api<RunDetailDto>(`/flow/runs/${id}`),
   pass: (id: number, b: { revision: number; stepId: number; form?: Record<string, unknown>; comment?: string }) => post<RunDetailDto>(`/flow/runs/${id}/pass`, b),
   back: (id: number, b: { revision: number; stepId: number; reason: string }) => post<RunDetailDto>(`/flow/runs/${id}/return`, b),

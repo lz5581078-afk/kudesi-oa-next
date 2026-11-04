@@ -66,12 +66,12 @@ export class PricingDebugService {
     const list = [...d.baseCodes.values()]
       .filter((b) => !['disabled','deleted'].includes(b.status))
       .filter((b) => b.status!=='verified' || !aliased.has(b.id))
-      .filter((b) => !ids || ids.has(num(b.data.categoryId) ?? -1))
+      .filter((b) => !ids || ids.has(num(b.data.codeDictionaryCategoryId) ?? num(b.data.categoryId) ?? -1))
       .filter((b) => !kw || `${str(b.data.code)} ${str(b.data.name)} ${str(b.data.shortName)} ${b.title}`.toLowerCase().includes(kw))
       .sort((a, b) => (str(a.data.name) || a.title).localeCompare(str(b.data.name) || b.title, 'zh-CN') || a.id - b.id);
     return {
       categories: [...d.categories.values()].filter((c) => c.status === 'active' && c.data.archiveType!=='bundle').sort((a,b)=>(num(a.data.sort) ?? 100)-(num(b.data.sort) ?? 100) || a.id-b.id).map((c) => ({ id: c.id, name: c.title, parentId: num(c.data.parentId) })),
-      rows: list.slice((q.page - 1) * pageSize, q.page * pageSize).map((b) => ({ id: b.id, code: str(b.data.code), name: str(b.data.name) || b.title, categoryId: num(b.data.categoryId) })),
+      rows: list.slice((q.page - 1) * pageSize, q.page * pageSize).map((b) => ({ id: b.id, code: str(b.data.code), name: str(b.data.name) || b.title, categoryId: num(b.data.codeDictionaryCategoryId) ?? num(b.data.categoryId) })),
       total: list.length, page: q.page, pageSize,
     };
   }

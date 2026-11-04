@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { RUN_STATUS_LABEL } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
@@ -6,6 +6,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { Pager } from '../finance/common';
 import { ReassignDialog } from './ReassignDialog';
 import { RunDetail } from './RunDetail';
+import { SKU_TEMPLATE } from './SkuApply';
 import { SkuBatchPanel } from './SkuBatchPanel';
 import { RUN_TONE, flowApi, fmtTime, type RunList, type TemplateInfo } from './flowApi';
 import { dueHint, dwell, useDebounced } from './flowUi';
@@ -20,7 +21,7 @@ const EMPTY_HINT: Record<View, string> = {
 };
 
 /** 我发起的 / 抄送我的 / 流程总览：同一张列表，只是范围不同（总览要流程总览权限，服务端把关）。 */
-export function RunsPage({ view }: { view: View }) {
+export function RunsPage({ view,skuApplications=false,reloadToken=0 }: { view: View;skuApplications?:boolean;reloadToken?:number }) {
   const [params, setParams] = useSearchParams();
   const { can, user } = useAuth();
   const [status, setStatus] = useState('');
@@ -40,8 +41,10 @@ export function RunsPage({ view }: { view: View }) {
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [error, setError] = useState('');
-  const open = Number(params.get('run')) || null;
-  const batchOpen = params.get('batch');
+  const [applicationBatch,setApplicationBatch]=useState<string|null>(null);
+  const open = skuApplications?null:Number(params.get('run')) || null;
+  const batchOpen = skuApplications?applicationBatch:params.get('batch');
+  const requestSequence=useRef(0);
   const [reassign, setReassign] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -49,18 +52,18 @@ export function RunsPage({ view }: { view: View }) {
   useEffect(() => { setStatus(''); setTemplateKey(''); setKeyword(''); setOverdue(false); setDepartmentId(''); setHandler(''); setReturned(false); setPage(1); }, [view]);
 
   const load = useCallback(() => {
-    setLoading(true);
-    flowApi.runs({ view, status, templateKey, keyword: kw, overdue, returned, departmentId: departmentId ? Number(departmentId) : undefined, handler: handlerKw, page })
-      .then((r) => { setList(r); setError(''); setUpdatedAt(Date.now()); })
-      .catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'))
-      .finally(() => setLoading(false));
+    const request=++requestSequence.current;setLoading(true);
+    flowApi.runs({ view, status, templateKey:skuApplications?SKU_TEMPLATE:templateKey,...(skuApplications?{groupSku:true}:{}), keyword: kw, overdue, returned, departmentId: departmentId ? Number(departmentId) : undefined, handler: handlerKw, page })
+      .then((r) => { if(request!==requestSequence.current)return;setList(r); setError(''); setUpdatedAt(Date.now()); })
+      .catch((e) => {if(request===requestSequence.current)setError(e instanceof ApiError ? e.message : '加载失败');})
+      .finally(() => {if(request===requestSequence.current)setLoading(false);});
     if (view === 'all') {
       Promise.all([flowApi.runs({ view, status: 'running', pageSize: 1 }), flowApi.runs({ view, overdue: true, pageSize: 1 }), flowApi.runs({ view, returned: true, pageSize: 1 })])
         .then(([a, b, c]) => setStats({ running: a.total, overdue: b.total, returned: c.total })).catch(() => undefined);
     }
-  }, [view, status, templateKey, kw, overdue, returned, departmentId, handlerKw, page]);
-  useEffect(load, [load]);
-  useEffect(() => { flowApi.templates().then(setTemplates).catch(() => undefined); }, []);
+  }, [view, status, templateKey, kw, overdue, returned, departmentId, handlerKw, page,skuApplications,reloadToken]);
+  useEffect(()=>{load();return()=>{requestSequence.current++;};}, [load]);
+  useEffect(() => { if(skuApplications)return;flowApi.templates().then(setTemplates).catch(() => undefined); }, []);
   useEffect(() => { if (view === 'all') orgApi.departments().then((d) => setDepts(flattenDepartments(d))).catch(() => undefined); }, [view]);
   // 流程总览是看板：页面可见时每分钟自动刷新一次
   useEffect(() => {
@@ -73,6 +76,16 @@ export function RunsPage({ view }: { view: View }) {
   const clear = () => { setStatus(''); setTemplateKey(''); setKeyword(''); setOverdue(false); setReturned(false); setDepartmentId(''); setHandler(''); setPage(1); };
   const now = Date.now();
 
+  if(skuApplications)return <section className="sku-application-list">
+    <div className="sku-application-my-heading"><h3>我的申请</h3><small>{loading?'正在加载申请...':`${list?.total ?? 0} 张申请单`}</small><button type="button" className="secondary-button" disabled={loading} onClick={load}>刷新</button></div>
+    {error&&<div role="alert" className="notice error">{error}<button type="button" onClick={load}>重试</button></div>}
+    <div className="table-scroll"><table className="data-table"><thead><tr><th>申请单</th><th>状态</th><th>当前节点 / 处理人</th><th>验证进度</th><th>创建时间</th><th>操作</th></tr></thead><tbody>
+      {list?.rows.map(row=><tr key={row.batchRef ?? row.id}><td><strong>{row.title}</strong><small>申请单 {row.batchRef ?? `#${row.id}`} · {row.specCount ?? 0} 个规格</small></td><td>{row.progress?.some(step=>step.returned)?'有退回':({running:'流转中',completed:'已完成',cancelled:'已废除',rejected:'已拒绝',mixed:'部分已结束'} as Record<string,string>)[row.status] ?? row.status}</td><td>{row.progress?.map((step,index)=><div key={index}><strong>{step.returned?'退回 · ':''}{step.name} <b>{step.count} 个规格</b></strong><small>处理人：{step.handlers.join('、') || '待分配'}</small></div>)}</td><td><strong>{row.completedSpecs ?? 0} / {row.specCount ?? 0}</strong><small>规格已验证</small></td><td>{fmtTime(row.createdAt)}</td><td><button type="button" className="secondary-button" disabled={loading} onClick={()=>setApplicationBatch(row.batchRef ?? `run-${row.id}`)}>查看申请</button></td></tr>)}
+      {!list?.rows.length&&<tr><td colSpan={6}>{loading?'正在加载我的申请...':error?'申请加载失败，请重试':'暂无我发起的申请'}</td></tr>}
+    </tbody></table></div>
+    {list&&<Pager page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage}/>}
+    {batchOpen&&<SkuBatchPanel key={batchOpen} batchKey={batchOpen} onClose={()=>setApplicationBatch(null)} onChanged={load}/>}
+  </section>;
   return (
     <div>
       <div className="page-head">

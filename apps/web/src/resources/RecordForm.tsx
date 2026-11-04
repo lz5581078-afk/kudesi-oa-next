@@ -1,10 +1,14 @@
+import { ReasonDialog } from './ResourceConfirmDialog';
+import { ReferencePartyCreateActions } from './ReferencePartyCreateActions';
+import './referencePartyCreate.css';
+import { matchesProductCategoryFamily } from './productCategoryFamily';
 import { useReferenceFieldFill } from './useReferenceFieldFill';
 import { StoreJstSelect } from './StoreJstSelect';
 import { CascadePicker } from './CascadePicker';
 import { Fragment, FormEvent, type CSSProperties, useEffect, useMemo, useRef, useState, useId } from 'react';
 import { fieldOptions, useUnitOptions, unitOptionsLoaded } from './unitOptions';
 import { selectChoices, useCategoryVersion } from './categoryOptions';
-import { PRODUCT_UNIT_SEEDS, optionsKindOf, groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayout, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, permissionOwner, resourcePermission, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { PRODUCT_UNIT_SEEDS, optionsKindOf, groupTitle, SIMILARITY_RESOURCES, isComposedArchive, resolveProductSections, productFormProblems, productLayout, productLayoutKey, type ResolvedNode, type QualityOptions, unitYuanText, sumUnitCents, systemWeightG, specificationWeightG, yuanToPreciseCents, createChecker, permissionOwner, resourcePermission, type FieldDef, type ResourceDef, type ResourceFormInput } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError, api } from '../api/client';
 import { CodePreview } from './CodePreview';
@@ -216,15 +220,19 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   useEffect(() => {
     if (inline) return;
     const previous = document.activeElement as HTMLElement | null;
-    formRef.current?.querySelector<HTMLButtonElement>('[aria-label="关闭"]')?.focus();
+    if(!record && REFERENCE_PARTIES.includes(def.key))formRef.current?.querySelector<HTMLInputElement>('[data-field="name"] input')?.focus();
+    else formRef.current?.querySelector<HTMLButtonElement>('[aria-label="关闭"]')?.focus();
     return () => { if (previous?.isConnected) previous.focus(); };
   }, [inline]);
   const copyOf = typeof initial?.__copyOf === 'number' ? initial.__copyOf : null;
-  const [values, setValues] = useState<Record<string, unknown>>(() => { const v: Record<string, unknown> = { ...(!record && def.key === 'finance-fee-items' ? {direction:'expense',platform:'any',isCommon:'yes',needFlow:'by_amount'} : {}), ...(record?.data ?? {}), ...(initial ?? {}) }; delete v.__copyOf; return record ? v : initialFormValues(def, v); });
+  const [copySource,setCopySource]=useState<ResourceFormInput['copySource']>(()=>!record && copyOf && typeof initial?.__copyVersion==='string' ? {id:copyOf,version:initial.__copyVersion,files:Object.fromEntries(def.fields.filter(f=>f.type==='files' && f.copyOnCreate && Array.isArray(initial[f.key])).map(f=>[f.key,initial[f.key] as number[]]))} : undefined);
+  const [values, setValues] = useState<Record<string, unknown>>(() => { const v: Record<string, unknown> = { ...(!record && def.key === 'finance-fee-items' ? {direction:'expense',platform:'any',isCommon:'yes',needFlow:'by_amount'} : {}), ...(record?.data ?? {}), ...(initial ?? {}) }; delete v.__copyOf; delete v.__copyVersion; delete v.__copyFiles; return record ? v : initialFormValues(def, v); });
   const [status, setStatus] = useState(record?.status ?? def.defaultStatus);
   const [statusReason, setStatusReason] = useState('');
-  const referenceStatus = ['finance-customers','finance-fee-items'].includes(def.key);
+  const referenceStatus = def.key==='finance-fee-items' || def.key==='finance-customers' && !!record;
+  const contactCreate=!record && ['finance-suppliers','finance-customers'].includes(def.key);
   const [error, setError] = useState('');
+  const [feeReasonSave,setFeeReasonSave]=useState<{body:Record<string,unknown>;mode:SaveMode}|null>(null);
   const [bomRows, setBomRows] = useState<BomDraftRow[]>([]);
   const [bomOrig, setBomOrig] = useState<BomDraftRow[]>([]);
   const [sourceRows, setSourceRows] = useState<SourceRow[]>([]);
@@ -234,8 +242,8 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const formRequestKey = useRef('');
-  if (def.key === 'finance-products' && !formRequestKey.current) formRequestKey.current = crypto.randomUUID();
-  const [known, setKnown] = useState<Record<number, FileInfo>>(record?.files ?? {});
+  if (['finance-products','finance-fee-items','finance-suppliers'].includes(def.key) && !formRequestKey.current) formRequestKey.current = crypto.randomUUID();
+  const [known, setKnown] = useState<Record<number, FileInfo>>(record?.files ?? initial?.__copyFiles as Record<number,FileInfo> ?? {});
   // 新建时填了内容就关闭，先确认，免得点错丢内容（旧系统同款）
   const startValues = useRef(JSON.stringify(values));
   const formUnits = useUnitOptions();
@@ -272,7 +280,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
   const dirty = status !== (record?.status ?? def.defaultStatus) || JSON.stringify(values) !== startValues.current || (startRows.current !== null && rowsKey !== startRows.current);
   const requestClose = () => {
     if (busy) return;
-    if (dirty && def.form?.confirmClose !== false && !window.confirm(record ? '修改的内容还没有保存，关闭后会丢失。确定直接关闭吗？' : '新增的资料还没有保存，关闭后填写的内容会丢失。确定直接关闭吗？')) return;
+    if (!REFERENCE_PARTIES.includes(def.key) && dirty && def.form?.confirmClose !== false && !window.confirm(record ? '修改的内容还没有保存，关闭后会丢失。确定直接关闭吗？' : '新增的资料还没有保存，关闭后填写的内容会丢失。确定直接关闭吗？')) return;
     onClose();
   };
   const closeRef = useRef(requestClose);
@@ -324,7 +332,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       const fields = record ? resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)) : visible;
       return def.form.sections.map(section => [section.title, section.fields.flatMap(key => fields.find(field => field.key === key) ?? [])] as [string, FieldDef[]]);
     }
-    if (isReferenceParty) return referencePartyGroups(def.key, record ? resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)) : visible);
+    if (isReferenceParty) return referencePartyGroups(def.key, record ? resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)) : visible,!record);
     if (resolved) return resolved.filter((s) => !onlyGroup || s.title === onlyGroup).map((s) => [s.title, visible.filter((f) => f.group === s.title)] as [string, FieldDef[]]);
     const fields = record ? resourceFields(def, values, status, p => !!me && createChecker(me.permissions)(p)).filter(f => !onlyGroup || f.group === onlyGroup) : visible;
     return resourceGroups(fields);
@@ -343,11 +351,12 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     let alive = true;
     draftApi.get(draftKey).then(async (r) => {
       if (!alive || !r.draft) return;
-      const { __productParts, __archiveState, __draftStatus, ...fields } = r.draft.payload;
+      const { __productParts, __archiveState, __draftStatus, __copyContext, ...fields } = r.draft.payload;
       for (const key of def.draft?.keyFields ?? []) delete fields[key];
       for (const key of def.draft?.omitFields ?? []) delete fields[key];
       if (def.draft && def.codePreview) delete fields[def.codePreview.field];
-      if (def.draft?.includeStatus && typeof __draftStatus === 'string' && def.statuses.some(option => option.value === __draftStatus)) setStatus(current => current === status ? __draftStatus : current);
+      if ((def.draft?.includeStatus || isReferenceParty) && typeof __draftStatus === 'string' && def.statuses.some(option => option.value === __draftStatus)) setStatus(current => current === status ? __draftStatus : current);
+      if(def.fields.some(f=>f.type==='files' && f.copyOnCreate) && __copyContext && typeof __copyContext==='object'){const context=__copyContext as {source?:ResourceFormInput['copySource'];files?:Record<number,FileInfo>};setCopySource(context.source);setKnown(context.files ?? {});}
       let categoryMessage = '';
       if (isProduct && fields.categoryId) {
         try {
@@ -356,7 +365,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           const selected = options.find(option => option.value === Number(fields.categoryId));
           const archive = fields.archiveType ?? initial?.archiveType;
           const family = archive === 'purchased' ? fields.supplyMode || initial?.supplyMode || 'original_purchase' : archive;
-          if (!selected || selected.leaf === false || selected.archiveType && selected.archiveType !== family) {
+          if (!selected || selected.leaf === false || selected.archiveType && !matchesProductCategoryFamily(String(family ?? ''),selected)) {
             fields.categoryId = '';
             categoryMessage = '草稿原分类已失效或不再是本档案的末级分类，请重新选择后保存。';
           }
@@ -427,9 +436,9 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       const payload: Record<string, unknown> = { ...currentBody(), ...(isProduct ? { archiveType: values.archiveType, ...(values.supplyMode ? { supplyMode: values.supplyMode } : {}), __productParts: {
         sources: sourceRows.map(({ rowId: _r, ...row }) => row),
         composition: bomRows.map(({ rowId: _r, ...row }) => row), manualCode,
-      } } : {}), ...(isReferenceParty ? { __archiveState: { manualCode, manualShortCode, shortNameManual } } : {}) };
+      } } : {}), ...(isReferenceParty ? { __archiveState: { manualCode, manualShortCode, shortNameManual } } : {}), ...(copySource ? {__copyContext:{source:copySource,files:known}} : {}) };
       for (const key of def.draft?.omitFields ?? []) delete payload[key];
-      await draftApi.save(draftKey, { moduleKey: `resource:${def.key}`, title: `新增${def.label}`, ...(def.draft && copyOf ? { sourceRecordId: String(copyOf) } : {}), payload: { ...payload, ...(def.draft?.includeStatus ? { __draftStatus: status } : {}) } });
+      await draftApi.save(draftKey, { moduleKey: `resource:${def.key}`, title: `新增${def.label}`, ...(def.draft && copyOf ? { sourceRecordId: String(copyOf) } : {}), payload: { ...payload, ...(def.draft?.includeStatus || isReferenceParty ? { __draftStatus: status } : {}) } });
       if (formRef.current) onClose();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '草稿保存失败');
@@ -463,6 +472,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         setBusy(false);
         return;
       }
+      if(!record && def.key==='finance-fee-items' && status==='inactive'){setFeeReasonSave({body,mode});setBusy(false);return;}
       await commit(body, mode);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存失败，请重试');
@@ -470,7 +480,7 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     }
   }
 
-  async function commit(body: Record<string, unknown>, mode: SaveMode) {
+  async function commit(body: Record<string, unknown>, mode: SaveMode,initialStatusReason?:string) {
     setBusy(true);
     setError('');
     try {
@@ -483,6 +493,12 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           ...(wantComposition && partsKnown.composition && (!onlyGroup || sectionHas(onlyGroup, 'composition')) ? [bomCollection(bomRows, bomOrig)] : []),
         ];
         saved = await resourceApi.saveForm(def.key, { requestKey: formRequestKey.current, ...(record ? { id: record.id, version: record.version } : {}), values: body, status, statusReason, collections });
+      } else if(!record && copySource){
+        const copiedFiles:Record<string,number[]>={};const safeBody={...body};
+        for(const [key,ids] of Object.entries(copySource.files)){const selected=Array.isArray(safeBody[key]) ? safeBody[key] as number[] : [];const kept=selected.filter(id=>ids.includes(id));if(kept.length){copiedFiles[key]=kept;safeBody[key]=selected.filter(id=>!ids.includes(id));}}
+        saved=await resourceApi.saveForm(def.key,{requestKey:formRequestKey.current,values:safeBody,status,collections:[],copySource:{...copySource,files:copiedFiles}});
+      } else if(!record && def.key==='finance-fee-items' && status==='inactive'){
+        saved=await resourceApi.saveForm(def.key,{requestKey:formRequestKey.current,values:body,status,statusReason:initialStatusReason ?? statusReason,collections:[]});
       } else if (record && (referenceStatus || def.form?.status) && status !== record.status) {
         const result = await resourceApi.gridSave(def.key, { updates: [{ id: record.id, version: record.version, data: body, status, statusReason }], note: '资料编辑' });
         const item = result.results[0];
@@ -506,8 +522,12 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
       setManualShortCode(false);
       setShortNameManual(mode === 'keep' && Boolean(values.shortName));
       if (isReferenceParty && def.key !== 'finance-fee-items' && mode === 'blank') setStatus(def.defaultStatus);
-      setKnown({});
-      if (isProduct) formRequestKey.current = crypto.randomUUID();
+      if(!record && def.fields.some(f=>f.type==='files' && f.copyOnCreate)){
+        if(mode==='keep'){const files=Object.fromEntries(def.fields.filter(f=>f.type==='files' && f.copyOnCreate && Array.isArray(saved.data[f.key])).map(f=>[f.key,saved.data[f.key] as number[]]));setCopySource({id:saved.id,version:saved.version!,files});setValues(cur=>({...cur,...Object.fromEntries(Object.entries(files))}));setKnown(saved.files ?? {});}
+        else{setCopySource(undefined);setKnown({});}
+      }else setKnown({});
+      if (isProduct || def.key==='finance-fee-items' || def.key==='finance-suppliers') formRequestKey.current = crypto.randomUUID();
+      if(def.key==='finance-fee-items')setStatusReason('');
       setDraftNote(`已保存「${String(saved.title ?? '')}」，可以继续新增。`);
       setBusy(false);
     } catch (err) {
@@ -606,7 +626,8 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
     return (
     <div key={f.key} data-field={f.key} data-kind={f.type} onBlur={() => { const p = fieldProblem(f); if (p !== (errors[f.key] ?? '')) setErrors((cur) => ({ ...cur, [f.key]: p })); }} className={['rf-field', reference ? `s${wide || f.type === 'refs' ? 12 : referenceFieldSpan(def.key, f)}` : '', !reference && (wide ?? resourceFieldWide(f)) ? 'wide' : '', errors[f.key] ? 'invalid' : ''].filter(Boolean).join(' ') || undefined}>
       <Caption className="rf-label" htmlFor={compound ? undefined : inputId}>{isProduct && f.key === 'name' && ['self_made','purchased_original','purchased_oem','shipping_material'].includes(layoutKey) ? `${referenceLabel}名称` : isProduct && layoutKey === 'custom' && f.key === 'specQty' ? '多少' : isProduct && layoutKey === 'custom' && f.key === 'shape' ? '形态样式' : f.label}{f.required && (!def.form || def.form.requiredBadges) && <b className="req" title="必填">{reference || def.form ? '必填' : ' *'}</b>}{def.form?.requiredBadges && !f.required && <small className="rf-optional">选填</small>}{isProduct && ['materialCode','note'].includes(f.key) && !f.required && <small className="reference-optional">选填</small>}{!reference && isProduct && f.help && <FieldHint text={f.help} />}{isProduct && <ManageLink field={f} values={values} inPlace={reference} onChoose={value => { if (!locked.includes(f.key)) { if (f.initialOption) touchedInitialOptions.current.add(f.key); setValues(current => ({ ...current, [f.key]: value })); setErrors(current => ({ ...current, [f.key]: '' })); } }} />}<ResourceDictionaryButton field={f} disabled={locked.includes(f.key)} onChoose={id => { if (!locked.includes(f.key)) setValues(current => ({ ...current, [f.key]: id })); }} /></Caption>
-      {def.key === 'finance-fee-items' && f.key === 'defaultObject' ? <FeeBookingNodes value={values.defaultObject} onChange={value => setValues(cur => ({...cur,defaultObject:value}))}/> : isReferenceParty && (f.key === 'code' || def.key === 'finance-suppliers' && f.key === 'shortCode') ? <ArchiveCodeInput inputId={inputId} label={f.label} value={values[f.key]} preview={f.key === 'code' ? archiveCode.code : archiveCode.shortCode} manual={f.key === 'code' ? manualCode : manualShortCode} onManual={f.key === 'code' ? setManualCode : setManualShortCode} onChange={v => setValues(cur => ({...cur,[f.key]:v}))} error={f.key === 'code' ? archiveCode.error : undefined}/> : def.key === 'finance-customers' && f.key === 'categoryIds' ? <><RefSelect inputId={inputId} leafOnly field={{...f,type:'ref'}} value={Array.isArray(values.categoryIds) ? values.categoryIds[0] : null} labelNow={record?.refLabels.categoryIds} onChange={v => setValues(cur => ({...cur,categoryIds:v ? [v] : []}))} />{Array.isArray(values.categoryIds) && values.categoryIds.length > 1 && <small>当前同时归属：{record?.refLabels.categoryIds}；重新选择后归入所选分类。</small>}</> : f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
+      {def.key==='finance-suppliers' && f.key==='paymentQr' && <small className="reference-payment-hint">支持微信、支付宝或银行收款码图片，不超过 2MB</small>}
+      {def.key === 'finance-fee-items' && f.key === 'defaultObject' ? <FeeBookingNodes value={values.defaultObject} onChange={value => setValues(cur => ({...cur,defaultObject:value}))}/> : isReferenceParty && (f.key === 'code' || def.key === 'finance-suppliers' && f.key === 'shortCode') ? <ArchiveCodeInput mode={def.key==='finance-fee-items'?'expense':'contact'} editing={!!record} inputId={inputId} label={f.label} value={values[f.key]} preview={f.key === 'code' ? archiveCode.code : archiveCode.shortCode} manual={f.key === 'code' ? manualCode : manualShortCode} onManual={f.key === 'code' ? setManualCode : setManualShortCode} onChange={v => setValues(cur => ({...cur,[f.key]:v}))} error={f.key === 'code' ? archiveCode.error : undefined}/> : def.key === 'finance-customers' && f.key === 'categoryIds' ? <><RefSelect inputId={inputId} leafOnly field={{...f,type:'ref'}} value={Array.isArray(values.categoryIds) ? values.categoryIds[0] : null} labelNow={record?.refLabels.categoryIds} onChange={v => setValues(cur => ({...cur,categoryIds:v ? [v] : []}))} />{Array.isArray(values.categoryIds) && values.categoryIds.length > 1 && <small>当前同时归属：{record?.refLabels.categoryIds}；重新选择后归入所选分类。</small>}</> : f.type === 'attrs' ? <AttrsInput field={f} def={def} values={values} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} /> : <FieldInput
         inputId={inputId}
         field={f}
         readOnly={f.formReadOnly || referenceFill.locked.includes(f.key)}
@@ -660,12 +681,12 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
         const first = controls[0], last = controls[controls.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
         if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
-      }} className={inline ? `inline-form resource-inline-editor${inDetail ? ' resource-detail-editor' : ''}` : `modal card rf${reference ? ' finance-base-editor' : def.form ? ' sectioned-editor' : ' resource-editor'}${isProduct ? ' rf-p' : ''}${def.form ? ' rf-sectioned' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}` : ''}`} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={onlyGroup ? `编辑${onlyGroup}` : def.form ? record ? def.form.editTitle : def.form.createTitle : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
+      }} className={inline ? `inline-form resource-inline-editor${inDetail ? ' resource-detail-editor' : ''}` : `modal card rf${reference ? ' finance-base-editor' : def.form ? ' sectioned-editor' : ' resource-editor'}${isProduct ? ' rf-p' : ''}${def.form ? ' rf-sectioned' : ''}${reference ? ` rf-reference${referenceMaintenance ? ' reference-maintenance' : ''} reference-${isProduct ? productLayoutKey(values) : def.key}${contactCreate?' reference-contact-create':''}` : ''}`} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-label={onlyGroup ? `编辑${onlyGroup}` : def.form ? record ? def.form.editTitle : def.form.createTitle : record ? `编辑${def.label}` : `新增${def.label}`} onSubmit={submit}>
         {!inline && <div className="modal-head rf-head">
-          {def.form ? <><div className="rf-sectioned-icon">{def.form.icon === 'users' ? <UsersRound size={20}/> : <Database size={22}/>}</div><div className="rf-sectioned-heading"><span>{def.form.sectionLabel || def.label}</span><h2>{record ? def.form.editTitle : def.form.createTitle}</h2><p>{def.form.subtitle}</p></div></> : reference ? <div className="reference-title">{def.key === 'finance-suppliers' && <small className="reference-party-kicker"><FolderTree size={20}/>财务基础资料</small>}{isProduct && values.archiveType === 'purchased' && <small>外购成品档案 · {values.supplyMode === 'supplier_oem' ? '供应商 OEM' : '原装采购'}</small>}<h2>{record ? referenceStatus || (isProduct && layoutKey === 'custom') ? String(values.name || referenceLabel) : `编辑${isProduct ? String(values.name || referenceLabel) : referenceLabel}` : `新增${referenceLabel}`}</h2><p>{isProduct && layoutKey === 'custom' ? '先确认分类，再维护基础信息；编号按分类、可选品牌、名称、规格和可选形态样式生成，空白可选段会直接省略。' : def.key === 'finance-fee-items' ? '费用类型用于后续费用单、流程和财务归集；挂账节点支持多选。' : referenceStatus ? `${def.label}详情、分类归属和操作记录。` : isReferenceParty ? record ? `在原位编辑${referenceLabel}资料，保存后立即生效。` : `填写${referenceLabel}基础资料，保存后归入当前分类。` : record ? `维护${referenceLabel}基础信息、规格及关联资料。` : `填写${referenceLabel}基础资料即可保存。`}</p></div> : <><strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>{record && <span className="rf-sub" title={record.title}>{record.title}</span>}</>}
+          {def.form ? <><div className="rf-sectioned-icon">{def.form.icon === 'users' ? <UsersRound size={20}/> : <Database size={22}/>}</div><div className="rf-sectioned-heading"><span>{def.form.sectionLabel || def.label}</span><h2>{record ? def.form.editTitle : def.form.createTitle}</h2><p>{def.form.subtitle}</p></div></> : reference ? <div className="reference-title">{(def.key === 'finance-suppliers' || contactCreate) && <small className="reference-party-kicker"><FolderTree size={20}/>财务基础资料</small>}{isProduct && values.archiveType === 'purchased' && <small>外购成品档案 · {values.supplyMode === 'supplier_oem' ? '供应商 OEM' : '原装采购'}</small>}<h2>{record ? referenceStatus || (isProduct && layoutKey === 'custom') ? String(values.name || referenceLabel) : `编辑${isProduct ? String(values.name || referenceLabel) : referenceLabel}` : `新增${referenceLabel}`}</h2><p>{isProduct && layoutKey === 'custom' ? '先确认分类，再维护基础信息；编号按分类、可选品牌、名称、规格和可选形态样式生成，空白可选段会直接省略。' : def.key === 'finance-fee-items' ? '费用类型用于后续费用单、流程和财务归集；挂账节点支持多选。' : contactCreate ? '填写基础资料即可保存；档案会直接归入当前最末级分类。' : referenceStatus ? `${def.label}详情、分类归属和操作记录。` : isReferenceParty ? record ? `在原位编辑${referenceLabel}资料，保存后立即生效。` : `填写${referenceLabel}基础资料，保存后归入当前分类。` : record ? `维护${referenceLabel}基础信息、规格及关联资料。` : `填写${referenceLabel}基础资料即可保存。`}</p></div> : <><strong>{record ? `编辑${def.label}` : `新增${def.label}`}</strong>{record && <span className="rf-sub" title={record.title}>{record.title}</span>}</>}
           <span className="rf-gap" />
           {!reference && !def.form && visible.some((f) => f.required) && <span className="muted rf-req-hint"><b className="req">*</b> 必填</span>}
-          <button type="button" className={`icon-button${referenceStatus || isProduct && layoutKey === 'custom' ? ' reference-full-close' : ''}`} aria-label="关闭" onClick={requestClose}>{referenceStatus || isProduct && layoutKey === 'custom' ? '关闭' : reference ? <X size={20} /> : '✕'}</button>
+          <button type="button" className={`icon-button${referenceStatus && !contactCreate || isProduct && layoutKey === 'custom' ? ' reference-full-close' : ''}`} aria-label="关闭" onClick={requestClose}>{referenceStatus && !contactCreate || isProduct && layoutKey === 'custom' ? '关闭' : reference ? <X size={20} /> : '✕'}</button>
         </div>}
         <div className={showAnchors ? 'rf-main with-anchors' : 'rf-main'}>
           {showAnchors && (
@@ -711,16 +732,16 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
               <header><h3>{section.step && <i>{section.step}</i>}{group}</h3>{context ? <ResourceFormContext field={context} value={values[context.key]} label={section.contextLabel || context.label} currentLabel={record && values[context.key] === record.data[context.key] ? record.refLabels[context.key] : undefined}/> : section.hint && <small>{section.hint}</small>}</header>
               <div className="form-grid">{state && <div className="rf-configured-status"><span>状态</span><button type="button" role="switch" aria-label="状态" aria-checked={status === state.activeValue} disabled={!!record && !(me && createChecker(me.permissions)(resourcePermission(permissionOwner(def.key), 'disable')))} onClick={() => setStatus(status === state.activeValue ? state.inactiveValue : state.activeValue)}><i/><strong>{status === state.activeValue ? state.activeText : state.inactiveText}</strong></button><small>{status === state.activeValue ? state.activeHint : state.inactiveHint}</small></div>}{fields.map(field => renderField(field, section.wideFields?.includes(field.key) ?? false))}</div>
             </section>;
-          }) : groups.map(([group, fields]) => group === '补充资料' && referenceStatus ? null : group === '补充资料' && reference ? <details key={group} className="rf-sec reference-extra"><summary>更多设置</summary><div className="form-grid">{fields.map(f => renderField(f))}</div></details> : (
+          }) : groups.map(([group, fields]) => group === '补充资料' && isReferenceParty ? null : group === '补充资料' && reference ? <details key={group} className="rf-sec reference-extra"><summary>更多设置</summary><div className="form-grid">{fields.map(f => renderField(f))}</div></details> : (
             <section key={group} id={secId(group)} data-layout="full" className={`rf-sec reference-party-${group === '归入分类' ? 'category' : group === '系统自动编号' ? 'code' : 'fields'}`} aria-label={group}>
-              {group === '归入分类' && isReferenceParty ? def.key === 'finance-suppliers' ? <SupplierCategoryContext value={Array.isArray(values.categoryIds) ? values.categoryIds as number[] : []} labelNow={record?.refLabels.categoryIds} onChange={ids => setValues(cur => ({...cur,categoryIds:ids}))}/> : <ReferenceCategoryContext party label={referenceLabel} editing={!!record} path={record?.refLabels.categoryIds ?? ''}>{!record && fields.map(f => renderField(f))}</ReferenceCategoryContext> : <>
-              {(!inline || inDetail) && <h3 className="rf-sec-title">{isReferenceParty && ['基础资料','联系资料','收款与银行资料'].includes(group) && <i className="rf-step">{['基础资料','联系资料','收款与银行资料'].indexOf(group) + 1}</i>}{referenceStatus && group === '基础信息' && <Database size={18}/>} {secTitle(group)}{def.key === 'finance-fee-items' && <small>{({ '基础信息': '先确定费用叫什么、放在哪个目录。', '费用设置': '控制费用单里怎么使用这个费用类型。', '挂账节点': '可以多选，费用单后续会按这些资料节点归集和统计。' } as Record<string,string>)[group]}</small>}{def.key === 'finance-suppliers' && group === '基础资料' && <small>{record ? '与新增供应商的字段排列一致' : '采购和结算使用的基础信息'}</small>}{def.key === 'finance-suppliers' && group === '联系资料' && <small>用于业务联系和后续单据引用</small>}{group === '系统自动编号' && <small>编码按分类和名称生成</small>}</h3>}
-              <div className="form-grid">{fields.map(f => <Fragment key={f.key}>{renderField(f)}{def.key === 'finance-fee-items' && f.key === 'isCommon' && <label className="s6"><span className="rf-label">费用单必须挂归属对象</span><select title="按挂账节点自动判断，修改挂账节点可改变要求" disabled value={String(values.defaultObject || '').split(/[、,，]/).some(n => n && n !== '公司' && n !== '不固定') ? 'yes' : 'no'}><option value="yes">是</option><option value="no">否</option></select><small className="muted">按挂账节点自动判断</small></label>}{referenceStatus && (def.key === 'finance-fee-items' ? f.key === 'needFlow' : ['categoryId','categoryIds'].includes(f.key)) && <label className={def.key === 'finance-fee-items' ? 's3' : 's6'}><span className="rf-label">状态</span><select value={status} disabled={!!record && !(me && createChecker(me.permissions)(`resource.${def.key}.disable`))} onChange={e => setStatus(e.target.value)}><option value="active">正常</option><option value="inactive">停用</option></select></label>}</Fragment>)}{referenceStatus && status !== record?.status && status === 'inactive' && <label className="s12">停用原因<textarea value={statusReason} maxLength={500} onChange={e => setStatusReason(e.target.value)} /></label>}</div></>}
+              {group === '归入分类' && isReferenceParty ? def.key === 'finance-suppliers' || contactCreate ? <SupplierCategoryContext type={def.key} value={Array.isArray(values.categoryIds) ? values.categoryIds as number[] : []} labelNow={record?.refLabels.categoryIds} onChange={ids => setValues(cur => ({...cur,categoryIds:ids}))}/> : <ReferenceCategoryContext party label={referenceLabel} editing={!!record} path={record?.refLabels.categoryIds ?? ''}>{!record && fields.map(f => renderField(f))}</ReferenceCategoryContext> : <>
+              {(!inline || inDetail) && <h3 className="rf-sec-title">{isReferenceParty && ['基础资料','联系资料','收款与银行资料'].includes(group) && <i className="rf-step">{['基础资料','联系资料','收款与银行资料'].indexOf(group) + 1}</i>}{referenceStatus && group === '基础信息' && <Database size={18}/>} {secTitle(group)}{def.key === 'finance-fee-items' && <small>{({ '基础信息': '先确定费用叫什么、放在哪个目录。', '费用设置': '控制费用单里怎么使用这个费用类型。', '挂账节点': '可以多选，费用单后续会按这些资料节点归集和统计。' } as Record<string,string>)[group]}</small>}{(def.key === 'finance-suppliers' || contactCreate) && group === '基础资料' && <small>{record ? '与新增供应商的字段排列一致' : '带“必填”的项目必须填写'}</small>}{(def.key === 'finance-suppliers' || contactCreate) && group === '联系资料' && <small>用于业务联系和后续单据引用</small>}{contactCreate && group==='收款与银行资料' && <small>用于付款、对账和快速复制</small>}{group === '系统自动编号' && <small>编码按分类和名称生成</small>}</h3>}
+              <div className="form-grid">{fields.map(f => <Fragment key={f.key}>{renderField(f)}{def.key === 'finance-fee-items' && record && f.key === 'isCommon' && <label className="s6"><span className="rf-label">费用单必须挂归属对象</span><select title="按挂账节点自动判断，修改挂账节点可改变要求" disabled value={String(values.defaultObject || '').split(/[、,，]/).some(n => n && n !== '公司' && n !== '不固定') ? 'yes' : 'no'}><option value="yes">是</option><option value="no">否</option></select><small className="muted">按挂账节点自动判断</small></label>}{referenceStatus && (def.key === 'finance-fee-items' ? f.key === 'needFlow' : ['categoryId','categoryIds'].includes(f.key)) && <label className={def.key === 'finance-fee-items' ? 's3' : 's6'}><span className="rf-label">状态</span><select value={status} disabled={!!record && !(me && createChecker(me.permissions)(`resource.${def.key}.disable`))} onChange={e => setStatus(e.target.value)}><option value="active">正常</option><option value="inactive">停用</option></select></label>}</Fragment>)}{referenceStatus && record && group==='基础信息' && status !== record.status && status === 'inactive' && <label className="s12">停用原因<textarea value={statusReason} maxLength={500} onChange={e => setStatusReason(e.target.value)} /></label>}</div></>}
             </section>
           ))}
           {isProduct && layoutKey === 'custom' && <details className="reference-extra"><summary>更多设置</summary><div className="form-grid">{resolved?.filter(sec => ['cost','total','photos'].includes(sec.id)).flatMap(sec => sec.nodes).map(renderNode)}{resolved?.find(sec=>sec.id==='base')?.nodes.filter(n => n.kind === 'field' && n.field.key === 'note' || n.kind === 'block' && n.block === 'fullName').map(renderNode)}</div></details>}
           {referenceStatus && record && <ReferenceRecordHistory type={def.key} id={record.id} label={def.label.replace(/档案$/,'')} />}
-          {referenceStatus && groups.find(([g]) => g === '补充资料') && <details className="reference-extra"><summary>更多设置</summary><div className="form-grid">{groups.find(([g]) => g === '补充资料')![1].map(f=>renderField(f))}</div></details>}
+          {referenceStatus && !isReferenceParty && groups.find(([g]) => g === '补充资料') && <details className="reference-extra"><summary>更多设置</summary><div className="form-grid">{groups.find(([g]) => g === '补充资料')![1].map(f=>renderField(f))}</div></details>}
           {refLock && <div role="status" className="notice warn">该商品编码{refLock.label}（{refLock.items.slice(0, 3).map((i) => `${i.sourceLabel}：${i.name}`).join('；')}），编码和来源已锁定，只能修改商品名称、简称、颜色及规格和启停状态。</div>}
           {referenceFill.error && <div role="alert" className="notice error">{referenceFill.error} <button type="button" onClick={referenceFill.retry}>重试引用资料</button></div>}
           {error && <div role="alert" className="notice error">{error}</div>}
@@ -738,14 +759,17 @@ function GenericRecordForm({ def, record, initial, lockedFields, onlyGroup, inli
           </div>
         )}
         <div className="modal-foot rf-foot">
+          {!record && isReferenceParty && onContinued ? <ReferencePartyCreateActions expense={def.key==='finance-fee-items'} busy={busy} onKeep={()=>void prepare('keep')} onNext={()=>void prepare('blank')} onDraft={()=>void saveDraft()} onSave={()=>void prepare('close')} onClose={requestClose}/> : <>
           {dirty && !reference && !def.form && <span className="muted dirty-hint">{record ? '有未保存的修改' : '已填写内容尚未保存'}</span>}
           <button type="button" className="secondary-button finance-form-cancel" disabled={busy} onClick={requestClose}>{isReferenceParty && record ? '取消编辑' : '取消'}</button>
           {draftEnabled && <button type="button" className="secondary-button finance-form-draft" disabled={busy} onClick={() => void saveDraft()}>保存草稿</button>}
           {!record && onContinued && (isProduct || isReferenceParty && def.key !== 'finance-fee-items') && <button type="button" className="secondary-button finance-form-keep" disabled={busy} onClick={() => void prepare('keep')}>不清除保存继续新增</button>}
           {!record && onContinued && (isProduct || isReferenceParty) && <button type="button" className="secondary-button finance-form-next" disabled={busy} onClick={() => void prepare('blank')}>保存并继续新增</button>}
           {!(def.key === 'finance-fee-items' && !record && onContinued) && <button type="submit" className="primary-button finance-form-save" disabled={busy || referenceFill.pending || !!referenceFill.error}>{busy ? '保存中…' : def.form?.saveLabel ? def.form.saveLabel : isProduct && layoutKey === 'custom' ? '保存商品' : isProduct && record ? '保存修改' : '保存'}</button>}
+          </>}
         </div>
       </form>
+      {feeReasonSave && <ReasonDialog title="停用费用类型" hint={`请填写停用“${String(feeReasonSave.body.name || '')}”的原因。`} confirmLabel="确认并保存" onClose={()=>setFeeReasonSave(null)} onConfirm={async reason=>{const pending=feeReasonSave;await commit(pending.body,pending.mode,reason);setFeeReasonSave(null);}}/>}
       {quality && (
         <ProductQualityDialog
           values={quality.body}

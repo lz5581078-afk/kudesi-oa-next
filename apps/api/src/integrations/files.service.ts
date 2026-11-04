@@ -5,7 +5,7 @@ import * as crypto from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { createChecker, FLOW_TEMPLATES, getResourceDef, permissionOwner, resourcePermission, ResourceAction, type FieldDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceFile } from '../entities';
+import { ResourceFile,ResourceRecord } from '../entities';
 import { canWarehouseUploadPhotos } from '../resources/warehouse-mode';
 import { IntegrationSettingsService } from './integration-settings.service';
 import { ObjectStorage, QiniuClient, QiniuConfig } from './qiniu.client';
@@ -61,6 +61,23 @@ function flowFileField(type: string, fieldKey: string): FieldDef | null {
 
 @Injectable()
 export class FilesService {
+  private readonly copiedFiles=new WeakMap<EntityManager,Set<number>>();
+  endCopyScope(em:EntityManager){this.copiedFiles.delete(em);}
+
+  /** 调用方已锁定和核验来源；本方法只从真实绑定行创建独立文件登记。 */
+  async cloneFor(em:EntityManager,user:AuthUser,type:string,fieldKey:string,source:ResourceRecord,ids:number[]):Promise<number[]>{
+    const field=getResourceDef(type)?.fields.find(f=>f.key===fieldKey && f.type==='files' && f.copyOnCreate);
+    const actual=source.data[fieldKey];
+    if(!field || source.companyId!==user.companyId || source.type!==type || !Array.isArray(ids) || ids.length>(field.maxFiles ?? 9) || new Set(ids).size!==ids.length || ids.some(id=>!Number.isSafeInteger(id)||id<=0||!Array.isArray(actual)||!actual.includes(id)))throw new BadRequestException('复制文件来源不合法');
+    const result:number[]=[];
+    for(const id of ids){
+      const original=await em.findOne(ResourceFile,{where:{id,companyId:user.companyId,resourceType:type,fieldKey,resourceId:source.id},lock:{mode:'pessimistic_write'}});
+      if(!original)throw new BadRequestException('复制文件来源已失效');
+      const copy=await em.save(ResourceFile,em.create(ResourceFile,{companyId:user.companyId,resourceType:type,resourceId:null,fieldKey,storageKey:original.storageKey,name:original.name,mime:original.mime,size:original.size,uploadedBy:user.id}));
+      const scope=this.copiedFiles.get(em) ?? new Set<number>();scope.add(copy.id);this.copiedFiles.set(em,scope);result.push(copy.id);
+    }
+    return result;
+  }
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly settings: IntegrationSettingsService,
@@ -90,7 +107,8 @@ export class FilesService {
     // 仓库角色只读商品档案，但可以上传商品照片（旧仓库档案视图）
     if (!flowField && !(await canWarehouseUploadPhotos(this.dataSource.manager, user, type, fieldKey))) this.assertCan(user, type, 'create', 'edit');
     if (!file || file.size === 0) throw new BadRequestException('没有收到文件');
-    if (file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('文件不能超过 10MB');
+    const limit=Math.min(field.maxFileBytes ?? MAX_UPLOAD_BYTES,MAX_UPLOAD_BYTES);
+    if(file.size>limit || file.buffer.length>limit)throw new BadRequestException(`文件不能超过 ${limit/1024/1024}MB`);
     const kind = sniffFile(file.buffer);
     if (!kind || (field.accept === 'image' && !kind.image)) {
       throw new BadRequestException(field.accept === 'image' ? '只能上传图片（png、jpg、gif、webp）' : '只能上传图片或 PDF');
@@ -102,15 +120,18 @@ export class FilesService {
     try {
       await storage.upload(key, file.buffer, kind.mime, name);
     } catch (e) {
+      await storage.remove(key).catch(()=>undefined);
       throw new BadRequestException(`上传到七牛失败：${(e as Error).message}`);
     }
-    const row = await this.dataSource.manager.save(
+    let row:ResourceFile;
+    try {row = await this.dataSource.manager.save(
       ResourceFile,
       this.dataSource.manager.create(ResourceFile, {
         companyId: user.companyId, resourceType: type, resourceId: null, fieldKey,
         storageKey: key, name, mime: kind.mime, size: file.size, uploadedBy: user.id,
       }),
     );
+    }catch(error){await storage.remove(key).catch(()=>undefined);throw error;}
     return { id: row.id, name: row.name, mime: row.mime, size: row.size };
   }
 
@@ -213,11 +234,17 @@ export class FilesService {
   async verify(em: EntityManager, companyId: number, type: string, fieldKey: string, ids: number[], recordId: number | null) {
     if (ids.length === 0) return;
     const rows = await em.find(ResourceFile, { where: { companyId, id: In(ids) } });
+    const field=getResourceDef(type)?.fields.find(field=>field.key===fieldKey && field.type==='files');
+    const previous=recordId && (field?.replacementOnly || field?.maxFileBytes) ? await em.findOne(ResourceRecord,{where:{companyId,id:recordId,type}}):null;
+    const prior=Array.isArray(previous?.data[fieldKey]) ? previous!.data[fieldKey] as number[] : [];
+    if(field?.replacementOnly && ids.some(id=>!prior.includes(id) && !this.copiedFiles.get(em)?.has(id)) && ids.length>1)throw new BadRequestException('收款码每次只能替换一张图片');
     for (const id of ids) {
       const r = rows.find((x) => x.id === id);
       if (!r || r.resourceType !== type || r.fieldKey !== fieldKey || (r.resourceId !== null && r.resourceId !== recordId)) {
         throw new BadRequestException('包含无效的文件，请重新上传');
       }
+      if(!prior.includes(id) && !this.copiedFiles.get(em)?.has(id) && field?.maxFileBytes && r.size>field.maxFileBytes)throw new BadRequestException(`文件不能超过 ${field.maxFileBytes/1024/1024}MB`);
+      if(!prior.includes(id) && !this.copiedFiles.get(em)?.has(id) && (field?.replacementOnly || field?.maxFileBytes) && field?.accept==='image' && !r.mime.startsWith('image/'))throw new BadRequestException('只能上传图片');
     }
   }
 
@@ -244,6 +271,8 @@ export class FilesService {
     if (keys.length === 0) return;
     try {
       await Promise.all(keys.map(async (k) => {
+        // 各副本拥有独立登记；最后活引用释放后才移除共享对象。
+        if(await this.dataSource.manager.exists(ResourceFile,{where:{companyId,storageKey:k}}))return;
         const storage = k.startsWith('local:') ? configuredLocalStorage() : await this.storage(companyId);
         if (!storage) return;
         await storage.remove(k).catch((e) => console.warn(`删除文件失败 ${k}：${(e as Error).message}`));

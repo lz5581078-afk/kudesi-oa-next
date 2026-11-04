@@ -11,20 +11,23 @@ let cache: CategoryOptionsPayload = {};
 let version = 0;
 let loaded = false;
 let inflight: Promise<void> | null = null;
+let generation=0,request=0;
 const listeners = new Set<() => void>();
 const emit = () => { version += 1; listeners.forEach((l) => l()); };
 
 export function loadCategoryOptions(force = false): Promise<void> {
   if (loaded && !force) return Promise.resolve();
   if (inflight && !force) return inflight;
-  inflight = api<CategoryOptionsPayload>('/resources/category-options')
-    .then((p) => { cache = p; loaded = true; emit(); })
-    .catch(() => { loaded = true; })
-    .finally(() => { inflight = null; });
-  return inflight;
+  const owner=generation,serial=++request,current=()=>owner===generation&&serial===request;
+  const task = api<CategoryOptionsPayload>('/resources/category-options')
+    .then((p) => { if(current()){cache = p; loaded = true; emit();} })
+    .catch(() => { if(current())loaded = true; })
+    .finally(() => { if(inflight===task)inflight = null; });
+  inflight=task;return task;
 }
 
 export function resetCategoryOptions(payload: CategoryOptionsPayload = {}, isLoaded = false) {
+  generation++;request++;
   cache = payload;
   loaded = isLoaded;
   inflight = null;

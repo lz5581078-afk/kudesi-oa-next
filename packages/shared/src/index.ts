@@ -62,3 +62,5 @@ export { productCapacity, productCapacityText } from './product-capacities';
 
 export * from './query-search';
 export * from './finance-reference-labels';
+
+export * from './resource-import-profiles';

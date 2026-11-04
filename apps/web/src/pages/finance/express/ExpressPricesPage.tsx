@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Database } from 'lucide-react';
+import { ExpressPanel } from './ExpressPanel';
 import { ApiError } from '../../../api/client';
 import { ReasonDialog } from '../../../resources/RecordForm';
 import { useResourceCan } from '../../../resources/RecordDetail';
@@ -86,7 +88,7 @@ export function ExpressPricesPage() {
         {branch && <><span>/</span><button type="button" className="link-button" onClick={() => setSelected(null)}>{branch.c.name} / {branch.b.name}</button></>}
         {found && <><span>/</span><strong>{found.v.name}</strong></>}
       </nav>}
-      {!branch && !found && <section className="express-carrier-panel" aria-label="快递公司与经营网点"><header className="express-carrier-heading"><h2>快递公司与经营网点</h2>{can('create') && <button type="button" className="primary-button" onClick={() => setForm({ kind: 'carrier', id: null })}>新增快递公司</button>}</header>{(carriers ?? []).map(c => <section key={c.id} className="express-carrier-section">
+      {!branch && !found && <ExpressPanel title="快递公司与经营网点" icon={Database} className="express-carrier-panel" actions={can('create') && <button type="button" className="primary-button" onClick={() => setForm({ kind: 'carrier', id: null })}>新增快递公司</button>}>{(carriers ?? []).map(c => <section key={c.id} className="express-carrier-section">
         <header className="express-carrier-heading"><div><strong>{c.name}</strong><small>{c.branches.length} 个经营网点</small></div><div className="row-actions">
           {can('edit') && <button type="button" className="secondary-button small" onClick={() => setForm({ kind: 'carrier', id: c.id })}>编辑快递公司</button>}
           {can('create') && <button type="button" className="secondary-button small" onClick={() => setForm({ kind: 'branch', id: null, carrierId: c.id })}>新增网点</button>}
@@ -104,10 +106,10 @@ export function ExpressPricesPage() {
             </div>
           </article>;
         })}{!c.branches.length && <p className="muted">这个快递公司还没有经营网点</p>}</div>
-      </section>)}</section>}
+      </section>)}</ExpressPanel>}
       {branch && !found && <section aria-label="价格版本列表">
         <div className="express-current-branch"><div><strong>{branch.c.name} / {branch.b.name}</strong><span>{branch.b.versions.length} 个价格版本 · 当前版本：{branch.b.versions.find(v => v.isCurrent)?.name || '未设置'}</span></div><button type="button" className="secondary-button" onClick={() => setBranchId(null)}>返回网点列表</button></div>
-        <header className="express-carrier-heading"><h2>价格版本</h2>{can('create') && <button type="button" className="primary-button" onClick={() => setForm({ kind: 'version', branchId: branch.b.id })}>新建价格版本</button>}</header>
+        <ExpressPanel title="价格版本" icon={Database} className="express-versions-panel" actions={can('create') && <button type="button" className="primary-button" onClick={() => setForm({ kind: 'version', branchId: branch.b.id })}>新建价格版本</button>}>
         <div className="express-version-cards">{[...branch.b.versions].sort((a, b) => b.id - a.id).map(v => <article key={v.id} className={`express-version-card${v.isCurrent ? ' is-current' : ''}`}>
           <header><div><strong>{v.name}</strong><small>{v.createdAt ? `建立：${new Date(v.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : '历史版本'}</small></div><span className="pill">{v.isCurrent ? '启用中' : v.status === 'active' ? '启用中' : v.status === 'draft' ? '草稿' : '已停用'}</span></header>
           <div className="express-version-metadata"><span><b>生效</b>{v.effectiveStart || '-'}</span><span><b>失效</b>{v.effectiveEnd || '长期有效'}</span><span className="express-version-weight"><b>可发货重量</b>{v.shippingWeightMin ?? 0}–{v.shippingWeightMax ?? '不限'} kg</span><span><b>规则</b>{v.ruleCount ?? (v.priceSource === 'ai' ? v.aiRuleCount : v.manualRuleCount)} 条</span><span><b>加收</b>{v.surchargeCount} 条</span><span><b>识别</b>{v.recognitionCount ?? 0} 次</span><span><b>原始表</b>{v.attachmentName ? '已上传' : '未上传'}</span></div>
@@ -116,14 +118,14 @@ export function ExpressPricesPage() {
             {!v.isCurrent && can('edit') && <button type="button" className="secondary-button express-version-current" disabled={busy} onClick={() => void change(() => resourceApi.update('finance-express-branches', branch.b.id, { currentVersionId: v.id }))}>设为当前版本</button>}
             <footer>{can('delete') && <button type="button" className="secondary-button danger" onClick={() => setRemoval({ kind: 'versions', id: v.id, name: v.name })}>删除版本</button>}{can('edit') && <button type="button" className="express-cooperation-switch" role="switch" aria-label={`${v.name}合作开关`} aria-checked={v.cooperationStatus === 'active'} disabled={busy} onClick={() => void change(() => resourceApi.update('finance-express-versions', v.id, { cooperationStatus: v.cooperationStatus === 'active' ? 'paused' : 'active' }))}><i aria-hidden="true"/><span>{v.cooperationStatus === 'active' ? '合作中' : '合作关闭'}</span></button>}</footer>
           </div>
-        </article>)}</div>{!branch.b.versions.length && <p className="muted">还没有价格版本</p>}
+        </article>)}</div>{!branch.b.versions.length && <p className="muted">还没有价格版本</p>}</ExpressPanel>
       </section>}
       {found && <section aria-label="价格版本详情"><VersionPanel key={found.v.id} carrier={found.c} branch={found.b} version={found.v} onChanged={() => void load()} onBack={() => { setBranchId(found.b.id); setSelected(null); }} onDeleted={() => { setSelected(null); void load(); }} /></section>}
 
       {form && <HierarchyForm carriers={carriers ?? []} state={form} onClose={() => setForm(null)} onSaved={() => { setForm(null); if (form.kind === 'version') setBranchId(form.branchId); void load(); }} />}
       {removal && (
-        <ReasonDialog title={`删除${removal.kind === 'carriers' ? '快递公司' : removal.kind === 'versions' ? '价格版本' : '经营网点'}「${removal.name}」`} hint="会连同下面所有的网点、价格版本、价格规则、加收和识别记录一起删除，不能恢复。" confirmLabel="确认删除" danger onClose={() => setRemoval(null)}
-          onConfirm={async (reason) => { await expressApi.remove(removal.kind, removal.id, reason); setRemoval(null); setSelected(null); await load(); }} />
+        <ReasonDialog requireReason={false} title="确认删除" hint={`确定删除${removal.kind === 'carriers' ? '快递公司' : removal.kind === 'versions' ? '价格版本' : '经营网点'}“${removal.name}”吗？${removal.kind === 'versions' ? '该版本下的价格表、临时加收和识别记录会一并移除。' : removal.kind === 'branches' ? '该网点下的价格版本、价格表、临时加收和识别记录会一并移除。' : '该快递公司下的经营网点、价格版本、价格表、临时加收和识别记录会一并移除。'}`} confirmLabel="确认删除" danger onClose={() => setRemoval(null)}
+          onConfirm={async () => { await expressApi.remove(removal.kind, removal.id, `人工确认删除${removal.kind === 'carriers' ? '快递公司' : removal.kind === 'versions' ? '价格版本' : '经营网点'}`); setRemoval(null); setSelected(null); await load(); }} />
       )}
     </div>
   );

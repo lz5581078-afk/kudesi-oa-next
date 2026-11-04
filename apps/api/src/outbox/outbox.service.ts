@@ -1,7 +1,9 @@
+import { recordTrustedJstMirrorSalePrice } from './jst-mirror-sale-price';
+import { restrictOutboundPayload } from './outbound-payload-permissions';
 import { assertJstNormalPricePrecision } from './jst-price-precision';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Inject, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, In } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { OutboxJob, OutboxSwitch, ResourceRecord } from '../entities';
 import { ResourcesService } from '../resources/resources.service';
@@ -29,6 +31,8 @@ export interface OutboxSender {
   send(job: { kind: string; idempotencyKey: string; payload: Record<string, unknown> }): Promise<void | { remoteId?: string }>;
   /** 读聚水潭上现有的商品分类（分类同步用）；不支持就不提供，分类同步只按上次同步记录比对 */
   readCategories?(): Promise<RemoteCategory[]>;
+  /** 完整只读普通商品查重；实现必须拒绝未读完的分页，只投影核对必要字段。 */
+  searchNormal?(identity: { skuId: string; styleId: string; name: string }): Promise<Array<{ skuId: string; styleId: string; name: string; spec: string; category: string }>>;
   /** 回读：按款式/商品编码读出聚水潭上现在的内容（组合装含 childList），用来确认写入结果；读不到返回 null */
   read?(skuId: string, kind?: string): Promise<Record<string, unknown> | null>;
 }
@@ -217,14 +221,19 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 手工上传的普通商品资料：只加入队列（总开关开着、接入真实接口后才会发送），结果回写上传记录。 */
-  async enqueueUpload(user: AuthUser, recordId: number, payload: Record<string, unknown>) {
+  async enqueueUpload(user: AuthUser, recordId: number, payload: Record<string, unknown>, options: { em?: EntityManager; expectedTargetKey?: string; idempotencyKey?: string } = {}) {
     this.admin(user);
     try { assertJstNormalPricePrecision(payload); } catch (e) { throw new BadRequestException((e as Error).message); }
     const sender = await this.senderFor(user.companyId);
+    if (options.expectedTargetKey !== undefined && (!sender.targetKey || sender.targetKey !== options.expectedTargetKey)) throw new ConflictException('聚水潭账号在查重之后变了，请重新查重');
+    const em = options.em ?? this.dataSource.manager;
+    const record = await em.findOne(ResourceRecord, { where: { id: recordId, companyId: user.companyId, type: 'finance-jst-uploads' } });
+    if (!record) throw new NotFoundException('上传记录不存在');
     payload = { ...payload, ...(sender.targetKey ? { targetKey: sender.targetKey } : {}) };
-    const res = await this.dataSource.manager.query(
+    const res = await em.query(
       'INSERT IGNORE INTO outbox_jobs (company_id, channel, kind, resource_type, resource_id, idempotency_key, payload_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [user.companyId, JST_CHANNEL, 'normal_product_upload', 'finance-jst-uploads', recordId, `upload:${recordId}`, JSON.stringify(payload), user.id]);
+      [user.companyId, JST_CHANNEL, 'normal_product_upload', 'finance-jst-uploads', recordId, options.idempotencyKey ?? `upload:${recordId}`, JSON.stringify(payload), user.id]);
+    if (!res.affectedRows && options.em) throw new ConflictException('此份上传已入队，请刷新上传记录');
     return { queued: !!res.affectedRows };
   }
 
@@ -372,10 +381,11 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       [...args, q.pageSize, (q.page - 1) * q.pageSize]);
     const counts = await this.dataSource.query('SELECT status, COUNT(*) AS n FROM outbox_jobs WHERE company_id = ? AND channel = ? GROUP BY status', [user.companyId, JST_CHANNEL]);
     // 成本价、采购价是敏感信息：没有成本查看权限的人，队列里的上传内容也不带这两项
-    const canCost = createChecker(user.permissions)('product.cost.view');
+    const can = createChecker(user.permissions);
+    const canCost = can('product.cost.view'), canPrice = can('product.price.view');
     for (const row of rows as { payload: unknown }[]) {
       const pl = typeof row.payload === 'string' ? (JSON.parse(row.payload) as Record<string, unknown>) : (row.payload as Record<string, unknown> | null);
-      if (pl) row.payload = canCost ? pl : stripOutboundCost(pl);
+      if (pl) row.payload = restrictOutboundPayload(pl, canCost, canPrice);
     }
     return { total: Number(n), page: q.page, pageSize: q.pageSize, counts: Object.fromEntries(counts.map((c: { status: string; n: string }) => [c.status, Number(c.n)])), rows };
   }
@@ -430,6 +440,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
         const same = ['weight', 'cost_price', 'purchase_price'].includes(k) ? Number(got[k]) === Math.round(Number(p[k]) * 1000000) / 1000000 : (String(got[k] ?? '') === String(p[k]) || (k === 'c_name' && String(got[k] ?? '') === String(p[k]).split('/').at(-1)));
         if (!same) throw new Error(`普通商品回读字段 ${k} 不一致，请人工核对`);
       }
+      await recordTrustedJstMirrorSalePrice(this.dataSource, this.resources, job.companyId, str(p.sku_id), got, message => this.log.warn(message));
       return;
     }
     const bundleKinds = ['bundle_upsert', 'bundle_replace', 'bundle_price_update', 'bundle_disable'];

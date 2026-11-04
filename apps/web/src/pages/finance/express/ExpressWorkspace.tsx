@@ -24,7 +24,8 @@ export function ExpressWorkspace({ tabs }: { tabs: HostTab[] }) {
     return () => { active = false; };
   }, []);
   useEffect(refreshCounts, [refreshCounts]);
-  const context = useMemo(() => ({ setLocation, acceptCarriers, refreshCounts }), [refreshCounts]);
+  const cooperatingVersionCount = carriers ? carriers.flatMap(carrier => carrier.branches).filter(branch => branch.versions.some(version => version.isCurrent && version.cooperationStatus === 'active')).length : null;
+  const context = useMemo(() => ({ setLocation, acceptCarriers, refreshCounts, cooperatingVersionCount }), [refreshCounts, cooperatingVersionCount]);
   const detail = Boolean(location?.branchName);
   const beforeNavigation = <>
     <div className="express-workspace-title"><h1>快递价格表</h1><p>快递公司、经营网点、价格版本与分区运费</p></div>

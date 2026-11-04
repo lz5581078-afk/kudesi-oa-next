@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FreightEstimatePage } from './FreightEstimatePage';
 import { PriceMatrixEditor } from './PriceMatrixEditor';
@@ -10,10 +10,10 @@ import { expressApi, type EstimateRow, type Estimates } from './expressApi';
 vi.mock('../../../auth/AuthContext', () => ({ useAuth: () => ({ can: () => true }) }));
 vi.mock('./expressApi', async (orig) => {
   const real = await orig<typeof import('./expressApi')>();
-  return { ...real, expressApi: { estimates: vi.fn(), recalculate: vi.fn(), setParcelLimit: vi.fn(), setOverride: vi.fn(), saveOverrides: vi.fn(), saveRules: vi.fn(), recognitionModels: vi.fn().mockResolvedValue({ providers: [{ id: 1, name: '合成服务商', status: 'active', models: ['m1'] }], current: { providerId: 1, modelId: 'm1' } }), recognize: vi.fn(), confirmPrice: vi.fn(), confirmSurcharge: vi.fn(), zoneRuns: vi.fn(), zoneRun: vi.fn(), generateZone: vi.fn(), deleteZoneRun: vi.fn() } };
+  return { ...real, expressApi: { tree: vi.fn().mockResolvedValue({ carriers: [{ branches: [{ versions: [{ isCurrent: true, cooperationStatus: 'active' }] }] }] }), estimates: vi.fn(), recalculate: vi.fn(), setParcelLimit: vi.fn(), setOverride: vi.fn(), saveOverrides: vi.fn(), saveRules: vi.fn(), recognitionModels: vi.fn().mockResolvedValue({ providers: [{ id: 1, name: '合成服务商', status: 'active', models: ['m1'] }], current: { providerId: 1, modelId: 'm1' } }), recognize: vi.fn(), confirmPrice: vi.fn(), confirmSurcharge: vi.fn(), zoneRuns: vi.fn(), zoneRun: vi.fn(), generateZone: vi.fn(), deleteZoneRun: vi.fn() } };
 });
 const m = vi.mocked(expressApi);
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 
 const row = (start: number, end: number, over: Partial<EstimateRow> = {}): EstimateRow => ({
   key: `${start}-${end}`, start, end, method: 'provincial_majority_mean_plus_10_percent', autoAmount: 880, manualAmount: null, sampleCount: 34, includedCount: 30, baseAverage: 800,
@@ -89,6 +89,8 @@ describe('AI 识别', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始识别' }));
     await screen.findByText('价格不全');
     expect((screen.getByLabelText('导入第2行') as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByLabelText(/版本里没填才会补上/)).toBeNull();
+    expect(screen.getByText(/保留手工价格和已选择的最终价格依据/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '确认导入' }));
     await waitFor(() => expect(done).toHaveBeenCalled());
     expect(m.confirmPrice).toHaveBeenCalledWith(4, expect.objectContaining({ rules: [{ province: '广东', shipWeightMin: 0, shipWeightMax: 1, fixedPrice: 300 }], effectiveStart: '2026-01-01', extraRemark: '退改费：10元' }));
@@ -99,8 +101,8 @@ describe('分区建议生成记录', () => {
   it('生成后出现在记录里并显示结果；上限超范围不提交', async () => {
     m.zoneRuns.mockResolvedValueOnce({ total: 0, page: 1, pageSize: 5, items: [] });
     render(<ZoneRunsPage />);
-    await screen.findByText(/还没有生成过/);
-    fireEvent.change(screen.getByLabelText('最高重量'), { target: { value: '2000' } });
+    await screen.findByText(/还没有生成记录/);
+    fireEvent.change(screen.getByLabelText('分区建议最高重量（kg）'), { target: { value: '2000' } });
     fireEvent.click(screen.getByRole('button', { name: '生成分区建议' }));
     expect((await screen.findByRole('alert')).textContent).toMatch(/0 到 1000/);
     expect(m.generateZone).not.toHaveBeenCalled();
@@ -108,10 +110,10 @@ describe('分区建议生成记录', () => {
     m.generateZone.mockResolvedValue(run);
     m.zoneRuns.mockResolvedValue({ total: 1, page: 1, pageSize: 5, items: [run] });
     m.zoneRun.mockResolvedValue({ ...run, rules: [{ provinces: ['广东'], provinceScope: '广东', carrierName: '极兔', branchName: '兰山', jstLogisticsName: '淘宝-极兔', versionName: '春', suggestedRuleName: '淘宝-极兔-0至1kg', weightStart: 0, weightEnd: 1, weightStartOperator: '>=', weightEndOperator: '<=', amount: 300, priceLabel: '', rule: '' }] });
-    fireEvent.change(screen.getByLabelText('最高重量'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('分区建议最高重量（kg）'), { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: '生成分区建议' }));
-    await screen.findByText('淘宝-极兔-0至1kg');
-    expect(screen.getByText('¥3.00')).toBeTruthy();
+    await screen.findAllByText('淘宝-极兔-0至1kg');
+    expect(screen.getAllByText('¥3.00').length).toBeGreaterThan(0);
     expect(m.generateZone).toHaveBeenCalledWith(30);
   });
 });
@@ -188,6 +190,36 @@ describe('识别结果确认前修正', () => {
 });
 
 describe('分区建议记录切换', () => {
+  it('详情保留七列、搜索、列设置与30条分页；列表不自动展开', async () => {
+    const run = { id: 31, sequence: 31, createdAt: '2026-11-03T00:00:00Z', maxWeightKg: 30, cooperatingVersionCount: 1, combinationCount: 31, ruleCount: 31 };
+    m.zoneRuns.mockResolvedValue({ total: 1, page: 1, pageSize: 5, items: [run] });
+    m.zoneRun.mockResolvedValue({ ...run, rules: Array.from({ length: 31 }, (_, index) => ({ provinces: ['广东'], provinceScope: '广东', carrierName: '合成快递', branchName: '合成网点', jstLogisticsName: '合成映射', versionName: '合成版本', suggestedRuleName: `建议${index}`, weightStart: index, weightEnd: index + 1, weightStartOperator: '>=' as const, weightEndOperator: '<=' as const, amount: 300, priceLabel: '3元', rule: '合成规则' })) });
+    render(<ZoneRunsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '查看第31次详情' }));
+    const table = await screen.findByRole('table', { name: '分区建议规则' });
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(7);
+    expect(within(table).getAllByRole('row')).toHaveLength(31);
+    fireEvent.click(screen.getAllByRole('button', { name: '下一页' })[0]);
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    fireEvent.change(screen.getByRole('textbox', { name: '分区建议规则搜索' }), { target: { value: '建议7' } });
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(within(table).getByText('建议7')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '显示字段' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '聚水潭仍需确认' }));
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(6);
+    fireEvent.click(screen.getByRole('button', { name: '返回生成记录' }));
+    expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it('没有合作中的当前版本时按原版禁用生成，并给出维护提示', async () => {
+    m.tree.mockResolvedValueOnce({ carriers: [] });
+    m.zoneRuns.mockResolvedValue({ total: 0, page: 1, pageSize: 5, items: [] });
+    render(<ZoneRunsPage />);
+    await screen.findByText('当前没有合作中的价格版本。可先在网点的价格版本中设置合作状态。');
+    expect((screen.getByRole('button', { name: '生成分区建议' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(m.generateZone).not.toHaveBeenCalled();
+  });
+
   it('使用最新记录的重量上限，切换后较慢的旧结果不能覆盖新选择', async () => {
     const first = { id: 1, sequence: 1, createdAt: '2026-10-26T00:00:00Z', maxWeightKg: 60, cooperatingVersionCount: 1, combinationCount: 1, ruleCount: 0 };
     const second = { ...first, id: 2, sequence: 2 };
@@ -195,13 +227,17 @@ describe('分区建议记录切换', () => {
     let finishFirst!: (r: typeof first & { rules: [] }) => void;
     m.zoneRun.mockImplementation(id => id === 2 ? new Promise(resolve => { finishFirst = resolve; }) : Promise.resolve({ ...first, rules: [] }));
     render(<ZoneRunsPage />);
-    const button = await screen.findByRole('button', { name: /第 1 次 ·/ });
-    expect((screen.getByLabelText('最高重量') as HTMLInputElement).value).toBe('60');
-    fireEvent.click(button);
-    await screen.findByRole('heading', { name: '第 1 次结果' });
+    await screen.findByRole('button', { name: '查看第2次详情' });
+    expect((screen.getByLabelText('分区建议最高重量（kg）') as HTMLInputElement).value).toBe('60');
+    expect(m.zoneRun).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '删除记录' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '查看第2次详情' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回生成记录' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看第1次详情' }));
+    await screen.findByText('第 1 次分区建议');
     finishFirst({ ...second, rules: [] });
-    await waitFor(() => expect(screen.queryByRole('heading', { name: '第 2 次结果' })).toBeNull());
-    expect(screen.getByRole('heading', { name: '第 1 次结果' })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('第 2 次分区建议')).toBeNull());
+    expect(screen.getByText('第 1 次分区建议')).toBeTruthy();
   });
 });
 

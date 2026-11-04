@@ -31,12 +31,14 @@ export const RESET_TYPES: Array<{ type: string; label: string; optional?: boolea
   { type: 'finance-packaging-schemes', label: '包装方案' },
   { type: 'finance-base-codes', label: '基础编码' },
   { type: 'finance-product-boms', label: '商品构成（BOM）' },
+  { type: 'finance-product-sources', label: '商品供货来源' },
   { type: 'finance-products', label: '商品档案' },
   { type: 'finance-margins', label: '分类利润率' },
   { type: 'finance-categories', label: '商品分类' },
   { type: 'finance-brands', label: '品牌' },
+  { type: 'finance-code-dictionaries', label: '商品编码分类与品种字典' },
+  { type: 'finance-product-units', label: '商品单位与规格（保留档案类型定义）' },
   { type: 'finance-platforms', label: '销售平台', optional: true },
-  { type: 'finance-scenarios', label: '销售场景', optional: true },
 ];
 
 /** 数据板块的小工具：成本历史、包装方案匹配试算、API 密钥、主数据重置 */
@@ -126,8 +128,7 @@ export class DataToolsService {
   async packagingMatch(user: AuthUser, t: { usageScene?: string; targetType: 'base_code' | 'bundle' | 'product_archive'; targetCode?: string; categoryId?: number; brandId?: number; scenarioId?: number; weightKg?: number }) {
     const em = this.dataSource.manager;
     const schemes = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-packaging-schemes', status: 'active' } });
-    const day = new Date().toISOString().slice(0, 10);
-    const live = schemes.filter((s) => (!t.usageScene || s.data.usageScene === t.usageScene) && (!str(s.data.effectiveFrom) || str(s.data.effectiveFrom) <= day) && (!str(s.data.effectiveTo) || str(s.data.effectiveTo) >= day));
+    const live = schemes.filter((s) => !t.usageScene || s.data.usageScene === t.usageScene);
     const rules = live.length ? await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-packaging-rules', status: 'active' } }) : [];
     const sm = new Map(live.map((s) => [s.id, s]));
     const hits = rules
@@ -141,7 +142,7 @@ export class DataToolsService {
     if (hits[0]) {
       const sc = sm.get(num(hits[0].r.data.schemeId) ?? -1)!;
       const lines = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-packaging-lines' } });
-      const mine = lines.filter((l) => num(l.data.schemeId) === sc.id);
+      const mine = lines.filter((l) => num(l.data.schemeId) === sc.id).sort((a,b) => (num(a.data.sortOrder) ?? 0) - (num(b.data.sortOrder) ?? 0) || a.id-b.id);
       const comps = mine.length ? await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-products', id: In(mine.map((l) => num(l.data.componentId) ?? 0)) } }) : [];
       const cn = new Map(comps.map((c) => [c.id, c.title]));
       selected = { scheme: { id: sc.id, code: str(sc.data.schemeCode), name: sc.title, usageScene: str(sc.data.usageScene) },
@@ -193,17 +194,22 @@ export class DataToolsService {
   async externalFeed(companyId: number) { return { amountUnit: 'cent', rows: await this.cost.verifiedFeed(companyId) }; }
 
   // ---------- 主数据重置 ----------
-  private scope(includePlatforms: boolean) { return RESET_TYPES.filter((t) => !t.optional || includePlatforms); }
+  private scope(includePlatforms:boolean, capturedTypes?:readonly string[]) {
+    // 老快照按当时保存的范围恢复，不能因新增类型扩大清理范围。
+    const catalog=capturedTypes?[...RESET_TYPES,{type:'finance-scenarios',label:'销售场景',optional:true}]:RESET_TYPES;
+    return catalog.filter(type=>capturedTypes?capturedTypes.includes(type.type):!type.optional||includePlatforms);
+  }
+  private inResetScope(record:ResourceRecord){return record.type!=='finance-product-units'||record.data.kind!=='archive_type';}
   private confirmText(companyId: number) { return `RESET-COMPANY-${companyId}`; }
 
   async resetPreview(user: AuthUser, includePlatforms: boolean) {
     this.admin(user);
-    const rows = await this.dataSource.query(`SELECT type, COUNT(*) AS n FROM resource_records WHERE company_id = ? AND type IN (${this.scope(includePlatforms).map(() => '?').join(',')}) GROUP BY type`, [user.companyId, ...this.scope(includePlatforms).map((t) => t.type)]);
+    const rows = await this.dataSource.query(`SELECT type, COUNT(*) AS n FROM resource_records WHERE company_id = ? AND type IN (${this.scope(includePlatforms).map(() => '?').join(',')}) AND (type<>'finance-product-units' OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(data,'$.kind')),'')<>'archive_type') GROUP BY type`, [user.companyId, ...this.scope(includePlatforms).map((t) => t.type)]);
     const m = new Map(rows.map((r: { type: string; n: string }) => [r.type, Number(r.n)]));
     const [{ n: docLines }] = await this.dataSource.query('SELECT COUNT(*) AS n FROM finance_document_lines WHERE company_id = ? AND product_id IS NOT NULL', [user.companyId]);
     const blockedByCostVersions = await this.costReferences(this.dataSource.manager,user.companyId);
     const tables = this.scope(includePlatforms).map((t) => ({ type: t.type, label: t.label, count: (m.get(t.type) as number) ?? 0 }));
-    return { includePlatforms, confirmation: this.confirmText(user.companyId), total: tables.reduce((s, t) => s + t.count, 0), tables, blockedByDocuments: Number(docLines), blockedByCostVersions, exclusions: ['客户、供应商、费用档案、仓库、快递价格表、人工成本', '财务单据和账务', '成本版本、锁定成本与成本历史', '聚水潭相关外部数据'] };
+    return { includePlatforms, confirmation: this.confirmText(user.companyId), total: tables.reduce((s, t) => s + t.count, 0), tables, blockedByDocuments: Number(docLines), blockedByCostVersions, exclusions: ['客户、供应商、费用档案、仓库、快递价格表、人工成本', '财务单据和账务', '成本版本、锁定成本与成本历史', '聚水潭相关外部数据', '档案类型定义、销售场景', '独立采购价/运费/档案成本历史'] };
   }
 
   private async guardCostReferences(em: EntityManager, companyId: number) {
@@ -218,19 +224,19 @@ export class DataToolsService {
     return skus+standards;
   }
 
-  private async capture(em: EntityManager, companyId: number, includePlatforms: boolean, operation: string, label: string, userId: number) {
-    const types = this.scope(includePlatforms).map((t) => t.type);
-    const records = await em.find(ResourceRecord, { where: { companyId, type: In(types) }, order: { id: 'ASC' } });
+  private async capture(em: EntityManager, companyId: number, includePlatforms: boolean, operation: string, label: string, userId: number,capturedTypes?:readonly string[]) {
+    const types = this.scope(includePlatforms,capturedTypes).map((t) => t.type);
+    const records = (await em.find(ResourceRecord, { where: { companyId, type: In(types) }, order: { id: 'ASC' } })).filter(record=>this.inResetScope(record));
     const ids = records.map((r) => r.id);
     const links = ids.length ? await em.find(ResourceLink, { where: [{ companyId, sourceId: In(ids) }, { companyId, targetId: In(ids) }] }) : [];
     const res = await em.insert(FinanceMasterSnapshot, { companyId, operation, label, scopeJson: { includePlatforms, types }, snapshotJson: JSON.stringify({ records, links }), rowCount: records.length + links.length, createdBy: userId });
     return { id: Number(res.identifiers[0].id), rowCount: records.length + links.length };
   }
 
-  private async clear(em: EntityManager, companyId: number, includePlatforms: boolean) {
+  private async clear(em: EntityManager, companyId: number, includePlatforms: boolean,capturedTypes?:readonly string[]) {
     const out: Array<{ type: string; label: string; count: number }> = [];
-    for (const t of this.scope(includePlatforms)) {
-      const ids = (await em.find(ResourceRecord, { where: { companyId, type: t.type }, select: ['id'] })).map((r) => r.id);
+    for (const t of this.scope(includePlatforms,capturedTypes)) {
+      const ids = (await em.find(ResourceRecord, { where: { companyId, type: t.type } })).filter(record=>this.inResetScope(record)).map((r) => r.id);
       if (ids.length) {
         await em.delete(ResourceLink, { companyId, sourceId: In(ids) });
         await em.delete(ResourceLink, { companyId, targetId: In(ids) });
@@ -273,10 +279,10 @@ export class DataToolsService {
       await em.query("SELECT value FROM finance_doc_counters WHERE company_id = ? AND counter_key = 'lock:posting' FOR UPDATE", [user.companyId]);
       const snap = await em.findOne(FinanceMasterSnapshot, { where: { id, companyId: user.companyId } });
       if (!snap) throw new NotFoundException('备份快照不存在');
-      const scope = snap.scopeJson as { includePlatforms?: boolean };
+      const scope = snap.scopeJson as { includePlatforms?: boolean;types?:string[] };
       const includePlatforms = scope.includePlatforms !== false;
-      const safety = await this.capture(em, user.companyId, includePlatforms, 'pre_restore', `恢复快照 #${id} 前的安全快照`, user.id);
-      await this.clear(em, user.companyId, includePlatforms);
+      const safety = await this.capture(em, user.companyId, includePlatforms, 'pre_restore', `恢复快照 #${id} 前的安全快照`, user.id,scope.types);
+      await this.clear(em, user.companyId, includePlatforms,scope.types);
       const data = JSON.parse(snap.snapshotJson) as { records: Array<Record<string, unknown>>; links: Array<Record<string, unknown>> };
       const date = (v: unknown) => (typeof v === 'string' ? new Date(v) : v);
       for (const r of data.records) await em.insert(ResourceRecord, { ...r, createdAt: date(r.createdAt) } as never);

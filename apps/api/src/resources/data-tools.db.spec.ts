@@ -133,9 +133,9 @@ d('数据板块工具（真实数据库）', () => {
     const m2 = await tools.packagingMatch(boss, { usageScene: 'dispatch', targetType: 'bundle', targetCode: 'ZH-X', weightKg: 2 });
     expect(m2.matches).toHaveLength(2);
     expect(m2.ambiguous).toBe(true);
-    // 失效日期已过的方案不参与
+    // 原匹配预览只按启用状态/场景，日期事实保留且不额外改变命中
     await svc.update(boss, 'finance-packaging-schemes', s2.id, { effectiveTo: '2020-01-01' });
-    expect((await tools.packagingMatch(boss, { usageScene: 'dispatch', targetType: 'bundle', targetCode: 'ZH-X', weightKg: 2 })).matches).toHaveLength(1);
+    expect((await tools.packagingMatch(boss, { usageScene: 'dispatch', targetType: 'bundle', targetCode: 'ZH-X', weightKg: 2 })).matches).toHaveLength(2);
   });
 
   it('API 密钥：只有管理员能管；明文只返回一次；撤销后不能用', async () => {

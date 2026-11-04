@@ -9,6 +9,8 @@ interface FormHost {
   before?(em: EntityManager, def: ResourceDef, existing: ResourceRecord | null): Promise<void>;
   after?(em: EntityManager, def: ResourceDef, parent: ResourceRecord): Promise<void>;
   version(record: ResourceRecord): string;
+  copy?(em: EntityManager, def: ResourceDef, source: ResourceRecord, request: NonNullable<ResourceFormInput['copySource']>, values: Record<string, unknown>): Promise<Record<string, unknown>>;
+  endCopy?(em: EntityManager): void;
   save(em: EntityManager, def: ResourceDef, existing: ResourceRecord | null, values: Record<string, unknown>, options: { status?: string; reason?: string; cleanup: string[]; note: string }): Promise<ResourceRecord>;
   remove(em: EntityManager, type: string, id: number, reason: string, cleanup: string[]): Promise<unknown>;
 }
@@ -20,7 +22,7 @@ export async function saveResourceForm(ds: DataSource, user: AuthUser, def: Reso
     if (!can(resourcePermission(permissionOwner(type), action))) throw new ForbiddenException(`没有${getResourceDef(type)?.label ?? type}的${({ create: '新增', edit: '编辑', delete: '删除', view: '查看', disable: '修改状态' })[action]}权限`);
   };
   requireAction(def.key, input.id ? 'edit' : 'create');
-  if (!def.formChildren?.length || !/^[a-f0-9-]{36}$/i.test(input.requestKey)) throw new BadRequestException('整组保存配置或请求标识不合法');
+  if (!def.formChildren || !/^[a-f0-9-]{36}$/i.test(input.requestKey)) throw new BadRequestException('整组保存配置或请求标识不合法');
   if (!Array.isArray(input.collections) || input.collections.length > 8 || new Set(input.collections.map(c => c.type)).size !== input.collections.length) throw new BadRequestException('子表参数不合法');
   for (const collection of input.collections) {
     const child = getResourceDef(collection.type);
@@ -70,14 +72,28 @@ export async function saveResourceForm(ds: DataSource, user: AuthUser, def: Reso
         prepared.push({ child, field, rows, removed });
       }
       const changingStatus = existing && input.status && input.status !== existing.status;
-      if (changingStatus) {
+      const initialExpenseStop=!existing && def.key==='finance-fee-items' && input.status==='inactive';
+      if (changingStatus || initialExpenseStop) {
         requireAction(def.key, 'disable');
         const problem = validateStatusChange(def, input.status!, input.statusReason);
         if (problem) throw new BadRequestException(problem);
       }
-      await host.before?.(em, def, existing);
-      const parent = await host.save(em, def, existing, input.values, { status: input.status, reason: input.statusReason, cleanup, note: '整组保存资料' });
-      if (changingStatus) { parent.statusReason = input.statusReason?.trim() || null; await em.save(ResourceRecord, parent); }
+      let parent:ResourceRecord;
+      try {
+        let values=input.values;
+        if(input.copySource){
+          const copy=input.copySource;
+          if(existing || !def.fields.some(f=>f.type==='files' && f.copyOnCreate) || !host.copy || !Number.isSafeInteger(copy.id) || copy.id<=0 || typeof copy.version!=='string' || !copy.files || Array.isArray(copy.files) || typeof copy.files!=='object')throw new BadRequestException('复制来源不合法');
+          requireAction(def.key,'view');
+          const source=await em.findOne(ResourceRecord,{where:{companyId:user.companyId,type:def.key,id:copy.id},lock:{mode:'pessimistic_write'}});
+          if(!source || source.archivedAt)throw new NotFoundException('复制来源不存在');
+          if(host.version(source)!==copy.version)throw new ConflictException('复制来源刚被修改，请重新打开复制窗口');
+          values=await host.copy(em,def,source,copy,values);
+        }
+        await host.before?.(em, def, existing);
+        parent = await host.save(em, def, existing, values, { status: input.status, reason: input.statusReason, cleanup, note: input.copySource ? `复制资料 #${input.copySource.id}` : '整组保存资料' });
+      } finally {host.endCopy?.(em);}
+      if (changingStatus || initialExpenseStop) { parent.statusReason = input.statusReason?.trim() || null; await em.save(ResourceRecord, parent); }
       for (const { child, field, rows, removed } of prepared) {
         for (const [index, row] of rows.entries()) if (row.changed) {
           try { await host.save(em, child, row.before, { ...row.values, [field]: parent.id }, { cleanup, note: '随主档整组保存' }); }

@@ -51,6 +51,7 @@ class TransferDto {
   @IsString() @MaxLength(500) reason!: string;
 }
 class RunsQuery {
+  @IsOptional() @IsIn(['true','false']) groupSku?:string;
   @IsIn(['started', 'cc', 'all']) view!: 'started' | 'cc' | 'all';
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() templateKey?: string;
@@ -101,7 +102,7 @@ export class FlowController {
   @AuthenticatedOnly()
   @Get('runs')
   list(@CurrentUser() user: AuthUser, @Query() q: RunsQuery) {
-    return this.flow.listRuns(user, { view: q.view, status: q.status, templateKey: q.templateKey, keyword: q.keyword, overdue: q.overdue, departmentId: q.departmentId, handler: q.handler, returned: q.returned, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
+    return this.flow.listRuns(user, { ...(q.groupSku==='true'?{groupSku:true}:{}),view: q.view, status: q.status, templateKey: q.templateKey, keyword: q.keyword, overdue: q.overdue, departmentId: q.departmentId, handler: q.handler, returned: q.returned, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
   }
 
   @AuthenticatedOnly()

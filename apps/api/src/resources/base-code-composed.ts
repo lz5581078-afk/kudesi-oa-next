@@ -1,3 +1,5 @@
+import { codeVerificationState, codeVerificationSignature } from './finance-code-lifecycle';
+import { trustedResourceImport } from './resource-import-capability';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { ResourceRecord } from '../entities';
@@ -71,7 +73,7 @@ export async function inspectBaseCodeReferences(em: EntityManager, companyId: nu
 
 const LOCK_MSG = '该商品编码已有生效引用，只允许修改商品名称、简称、颜色及规格和启停状态';
 /** 身份字段：编码、款式编码、来源商品、多构成的分类/品牌/规格 */
-export const BASE_CODE_IDENTITY_FIELDS = ['code', 'styleCode', 'productId', 'canonicalId', 'origin', 'varietyName', 'codeCategoryId', 'codeBrandId', 'codeSpecQty', 'codeSpecUnit'] as const;
+export const BASE_CODE_IDENTITY_FIELDS = ['code', 'styleCode', 'productId', 'canonicalId', 'origin', 'varietyName', 'codeCategoryId', 'codeBrandId', 'codeSpecQty', 'codeSpecUnit', 'codeDictionaryCategoryId','varietyDictionaryId','externalCost','externalPurchasePrice'] as const;
 const IDENTITY: readonly string[] = BASE_CODE_IDENTITY_FIELDS;
 
 /** 保存基础编码前：已有生效引用时，身份字段不能变；被已验证组合引用时不能停用。 */
@@ -113,7 +115,7 @@ export async function beforeBaseCodeLine(ctx: BeforeSaveContext): Promise<void> 
   const { em, host, user, data, existing } = ctx;
   const bc = await rec(em, user.companyId, 'finance-base-codes', data.baseCodeId);
   if (!bc) throw new BadRequestException('基础编码不存在');
-  if (!isComposed(bc)) throw new BadRequestException('只有“多构成”的基础编码才有构成行');
+  if (!isComposed(bc) && bc.data.origin!=='external_import') throw new BadRequestException('只有“多构成”的基础编码才有构成行');
   if (existing && existing.data.baseCodeId !== data.baseCodeId) throw new BadRequestException('构成行不能换到别的基础编码');
   const product = await rec(em, user.companyId, 'finance-products', data.productId);
   if (!product) throw new BadRequestException('商品档案不存在');
@@ -122,7 +124,7 @@ export async function beforeBaseCodeLine(ctx: BeforeSaveContext): Promise<void> 
   if (qty === null || !(qty > 0)) throw new BadRequestException('数量必须大于 0');
   data.role = data.role === 'main' ? 'main' : 'auxiliary';
   const dup = (await host.findWhere(em, user.companyId, 'finance-base-code-lines', 'baseCodeId', bc.id)).find((l) => l.id !== existing?.id && l.data.productId === product.id);
-  if (dup) throw new BadRequestException('同一个商品档案不能重复添加，请直接修改数量');
+  if (dup && !trustedResourceImport(em,user,'base_codes')) throw new BadRequestException('同一个商品档案不能重复添加，请直接修改数量');
   if (existing && bc.data.productId === existing.data.productId && product.id !== bc.data.productId) throw new BadRequestException('这是基础编码的主要商品档案，不能换成别的商品');
   if (!em.queryRunner?.data.legacyImport) {
     const changed = !existing || existing.data.productId !== data.productId || existing.data.qty !== data.qty;
@@ -143,9 +145,9 @@ export async function afterBaseCodeLineChange(
   const { em, host, user } = ctx;
   await refreshComposedTotals(host, em, user, baseCodeId);
   const bc = await rec(em, user.companyId, 'finance-base-codes', baseCodeId);
-  if (!bc || bc.status !== 'verified' || !bc.data.snapshot) return;
+  if (!bc || codeVerificationState(bc) !== 'verified' || !bc.data.snapshot) return;
   const { signature } = await buildSnapshot(em, user.companyId, bc);
-  if (signature === bc.data.signature) return;
+  if (signature === (bc.status==='verified'?bc.data.signature:codeVerificationSignature(bc))) return;
   await host.setStatusDirect(em, user, 'finance-base-codes', bc.id, 'reverify', '基础编码的商品组成变了，需要重新验证');
   await markBundles(bc.id);
 }

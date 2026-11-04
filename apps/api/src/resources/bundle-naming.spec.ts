@@ -1,4 +1,4 @@
-import { DEFAULT_RULE, NamingItem, composeBundle } from './bundle-naming';
+import { DEFAULT_RULE, NamingItem, composeBundle, resolvedMainStyleCode } from './bundle-naming';
 
 const item = (over: Partial<NamingItem>): NamingItem => ({
   id: 1, code: 'SG-HFS-5J', name: '红富士苹果5斤', shortName: '红富士', styleCode: 'SG-HFS', spec: '5斤', qty: 1,
@@ -27,5 +27,18 @@ describe('组合命名（旧系统规则）', () => {
     const r = composeBundle(null, input([item({})], [item({ id: 9, code: 'G-1', name: '赠品', giftName: '小赠', giftCode: 'XZ', qty: 2, identity: 'g' })]));
     expect(r.errors).toEqual([]);
     expect(r.code).toContain('+ZP-XZ*2');
+    expect(r.mainStyleCode).toBe('ZH-KDS-HFS');
+    expect(r.styleCode).toBe(r.mainStyleCode+'+ZP-XZ*2');
   });
+  it('主款式按当前最终手改款式的原公式取得，不用自动结果覆盖手改或猜资料不全值',()=>{
+    const automatic=composeBundle(null,input([item({})]));
+    expect(resolvedMainStyleCode(automatic,'CUSTOM+ZP-XZ*2')).toBe('CUSTOM');
+    expect(resolvedMainStyleCode(automatic,'import_style+ZP-X')).toBe('import_style');
+    expect(resolvedMainStyleCode(automatic,'')).toBe(automatic.mainStyleCode);
+    const incomplete=composeBundle(null,input([item({})],[item({id:9,code:'GIFT',giftCode:undefined,giftName:undefined})]));
+    expect(incomplete.errors.length).toBeGreaterThan(0);
+    expect(resolvedMainStyleCode(incomplete,'')).toBeUndefined();
+    expect(resolvedMainStyleCode(incomplete,'KNOWN+ZP-G')).toBe('KNOWN');
+  });
+
 });

@@ -59,4 +59,16 @@ describe('24号分类管理：逐级维护与保存失败保护', () => {
     await screen.findByText('籼稻');expect(screen.queryByText('其他目录')).toBeNull();expect(screen.queryByText('其他顶级')).toBeNull();
   });
 
+  it('编码分类以字符串kind隔离，统一创建保留kind且不提交档案类型',async()=>{
+    vi.mocked(resourceApi.list).mockResolvedValue({items:[],total:0,page:1,pageSize:200});
+    const created={...node(4,'合成编码分类'),type:'finance-code-dictionaries',data:{kind:'product_category',name:'合成编码分类',code:'HC',sort:0}};
+    vi.mocked(resourceApi.create).mockResolvedValue(created as never);
+    render(<FinanceCategoryManager target="finance-code-dictionaries" maxDepth={2} context={{field:'kind',value:'product_category',label:'商品编码分类',text:'商品编码分类'}} onChanged={vi.fn()} onClose={vi.fn()}/>);
+    await waitFor(()=>expect(resourceApi.list).toHaveBeenCalledWith('finance-code-dictionaries',expect.objectContaining({fieldKey:'kind',fieldValue:'product_category'})));
+    fireEvent.click(within(screen.getByRole('region',{name:'一级分类'})).getByRole('button',{name:'新增'}));
+    fireEvent.change(screen.getByRole('textbox',{name:/分类名称/}),{target:{value:'合成编码分类'}});
+    fireEvent.click(screen.getByRole('button',{name:'确认创建'}));
+    await waitFor(()=>expect(resourceApi.create).toHaveBeenCalledWith('finance-code-dictionaries',{kind:'product_category',name:'合成编码分类',code:'',sort:0}));
+  });
+
 });

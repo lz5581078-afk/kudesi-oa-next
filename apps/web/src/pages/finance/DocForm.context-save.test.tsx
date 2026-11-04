@@ -213,3 +213,9 @@ it('空目录手填费用或挂账文字未输金额也属于未保存修改，�
   fireEvent.change(screen.getByLabelText('第1行挂账节点'),{target:{value:'手机号'}});const object=await screen.findByRole('textbox',{name:'第1行挂账对象'});fireEvent.change(object,{target:{value:'合成未保存对象'}});
   const second=new Event('beforeunload',{cancelable:true});window.dispatchEvent(second);expect(second.defaultPrevented).toBe(true);
 });
+
+it('费用资料的首选挂账节点保持原选择顺序，不因同时勾选公司而抢占店铺默认',async()=>{
+  vi.mocked(resourceApi.list).mockResolvedValue({items:[{id:7,title:'合成首选店铺费用',status:'active',data:{name:'合成首选店铺费用',defaultObject:'店铺、公司',requiredObject:'yes'},refLabels:{}}],total:1,page:1,pageSize:200} as never);
+  render(<DocForm type="expense" inline onSaved={vi.fn()}/>);fireEvent.click(screen.getByLabelText('第1行费用项目'));fireEvent.click(await screen.findByRole('option',{name:'合成首选店铺费用'}));
+  expect((screen.getByLabelText('第1行挂账节点')as HTMLSelectElement).value).toBe('店铺');expect(fa.create).not.toHaveBeenCalled();
+});

@@ -65,7 +65,13 @@ class FormCollectionDto {
   @IsArray() @ArrayMaxSize(2000) @ValidateNested({ each: true }) @Type(() => FormExpectedDto) expected!: FormExpectedDto[];
   @IsArray() @ArrayMaxSize(2000) @ValidateNested({ each: true }) @Type(() => FormRowDto) rows!: FormRowDto[];
 }
+class FormCopySourceDto {
+  @IsInt() @Min(1) id!:number;
+  @IsString() @MaxLength(64) version!:string;
+  @IsObject() files!:Record<string,number[]>;
+}
 class FormSaveDto extends SaveDto {
+  @IsOptional() @ValidateNested() @Type(()=>FormCopySourceDto) copySource?:FormCopySourceDto;
   @IsUUID('4') requestKey!: string;
   @IsOptional() @IsInt() @Min(1) id?: number;
   @IsOptional() @IsString() @MaxLength(64) version?: string;
@@ -156,6 +162,17 @@ class ImportDto {
   @IsOptional() @IsInt() @Min(1) parentId?: number;
 }
 
+class ProfileSheetDto {
+  @IsString() @MaxLength(64) name!:string;
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @IsString({each:true}) headers?:string[];
+  @IsArray() @IsObject({each:true}) rows!:Array<Record<string,string>>;
+}
+class ProfileImportDto {
+  @IsArray() @ArrayMaxSize(12) @ValidateNested({each:true}) @Type(()=>ProfileSheetDto) sheets!:ProfileSheetDto[];
+  @IsBoolean() dryRun!:boolean;
+  @IsOptional() @IsString() @MaxLength(160) signature?:string;
+}
+
 class SimilarDto {
   @IsObject() values!: Record<string, unknown>;
   @IsOptional() @IsInt() excludeId?: number;
@@ -184,6 +201,17 @@ class ExportQueryDto {
 @Controller('resources')
 export class ResourcesController {
   constructor(private readonly resources: ResourcesService, private readonly tools: DataToolsService, private readonly grid: GridSaveService) {}
+
+  @RequirePermission('finance.master-import.view')
+  @Get('import-profiles')
+  importProfiles() { return this.resources.importProfiles(); }
+
+  @RequirePermission('finance.master-import.view')
+  @Post('import-profiles/:profile')
+  importProfile(@CurrentUser() user:AuthUser,@Param('profile') profile:string,@Body() body:ProfileImportDto) {
+    return this.resources.importProfile(user,profile,body.sheets,body.dryRun,body.signature);
+  }
+
 
   // 总览按每种资料的查看权限过滤，所以只要求登录
   // 商品档案下拉用：公司维护的单位与规格（名称+取值），不含敏感信息

@@ -1,7 +1,8 @@
+import { codeLifecycleCounts, codeVerificationState } from './finance-code-lifecycle';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
-import { createChecker, getResourceDef } from '@kudesi/shared';
+import { createChecker, getResourceDef, multiplyUnitCents, sumUnitCents } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { Company, ResourceRecord } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
@@ -19,12 +20,12 @@ const TYPE = 'finance-bundles';
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-export interface LineInput { sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean; costBucket?: string; costTreatment?: string; note?: string }
+export interface LineInput { sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; role: string; baseCodeId?: number; productId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean; costBucket?: string; costTreatment?: string; note?: string }
 export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number; manualCode?: string; manualName?: string; manualShortName?: string; manualReason?: string }
 interface SnapLine { role: string; ref: string; qty: number; weightG: number | null; cost: number | null; [key: string]: unknown }
 interface BundleSnap { profile: Record<string, unknown>; lines: SnapLine[] }
 
-const lineKey = (l: LineInput) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` : l.baseCodeId}:${l.qty}`;
+const lineKey = (l: LineInput) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` : l.productId ? `P${l.productId}` : l.baseCodeId}:${l.qty}`;
 
 /** 商品组合编码页面用的辅助接口：批量生成、重复检查、核对验证、构成修订、删除/归档。 */
 @Injectable()
@@ -49,10 +50,48 @@ export class BundleToolsService {
 
   /** 各状态的数量（页面的状态页签用） */
   async overview(user: AuthUser) {
-    const rows = await this.ds.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE }, select: ['id', 'status'] });
+    const rows = await this.ds.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE }, select: ['id', 'type', 'status', 'data'] });
     const status: Record<string, number> = {};
     for (const r of rows) status[r.status] = (status[r.status] ?? 0) + 1;
-    return { status };
+    return { status, ...codeLifecycleCounts(rows) };
+  }
+
+  /** 主表整页摘要：目录/组成只加载一次，使用与成本表一致的计算及权限。 */
+  async summaries(user: AuthUser, ids: number[]) {
+    if (!Array.isArray(ids) || ids.length > 200 || ids.some(id => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) throw new BadRequestException('组合ID必须是不重复的正整数，最多200个');
+    if (!ids.length) return { rows: [] };
+    const can = createChecker(user.permissions);
+    if (!can('resource.finance-bundles.view')) throw new ForbiddenException('没有权限查看组合编码');
+    const pricing = new CostService(this.ds), em = this.ds.manager;
+    const d = await pricing.load(user.companyId, em);
+    const mirrors = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-jst-skus' } });
+    const salePrices = new Map(mirrors.filter(row=>row.data.goodsType==='normal').map(row=>[str(row.data.skuId),num(row.data.salePrice)]));
+    const bundles = new Map(d.bundles.map(bundle => [bundle.id, bundle]));
+    if (ids.some(id => !bundles.has(id))) throw new NotFoundException('组合不存在');
+    return { rows: ids.map(id => {
+      const b = bundles.get(id)!, values = pricing.row(d, b);
+      const lines = d.lines.filter(line => line.data.bundleId === id).sort((a,b) => Number(a.data.sortOrder || 0) - Number(b.data.sortOrder || 0) || a.id-b.id);
+      const packages: string[] = [], saleParts: number[] = [];
+      let saleMissing = false;
+      for (const line of lines) {
+        const selected = d.baseCodes.get(Number(line.data.baseCodeId));
+        const base = selected?.data.canonicalId ? d.baseCodes.get(Number(selected.data.canonicalId)) : selected;
+        const product = d.products.get(Number(line.data.productId ?? base?.data.productId));
+        const componentCode = str(selected?.data.code) || str(product?.data.code), componentName = str(selected?.data.name) || selected?.title || product?.title || '资料暂不可读';
+        if (line.data.role === 'package' || componentCode.startsWith('BZ-') || ['package','oem_package'].includes(str(product?.data.archiveType))) packages.push(`${componentCode} ${componentName} ×${str(line.data.qty)}`.trim());
+        // 售价只取同公司普通商品真实镜像；缺失不填成0，赠品按原口径不计销售价。
+        if (line.data.role !== 'gift') {
+          const price = salePrices.get(str(selected?.data.code)) ?? null, qty = num(line.data.qty);
+          if (price === null || qty === null) saleMissing = true;
+          else saleParts.push(multiplyUnitCents(price, qty));
+        }
+      }
+      return { id, mainStyleCode: str(b.data.mainStyleCode) || null,
+        weightG: values.weightG, componentCount: lines.length, packageCount: packages.length, packageSummary: packages.join('；'),
+        ...(can('product.cost.view') ? { cost: values.preShipCostCents } : {}),
+        ...(can('product.price.view') ? { salePrice: saleMissing || !lines.length ? null : sumUnitCents(saleParts) } : {}),
+      };
+    }) };
   }
 
   private async resolveLines(em: EntityManager, user: AuthUser, lines: LineInput[]) {
@@ -85,7 +124,9 @@ export class BundleToolsService {
       seen.add(k);
     }
     const { mains, gifts } = await this.resolveLines(em, user, lines);
-    const rule = await findNamingRule(this.resources, em, user.companyId, (await em.findOne(ResourceRecord, { where: { id: Number(mains[0].bc.data.productId), companyId: user.companyId, type: 'finance-products' } }))?.data.categoryId);
+    const productId = num(mains[0].bc.data.productId);
+    const source = productId !== null && Number.isSafeInteger(productId) && productId > 0 ? await em.findOne(ResourceRecord, { where: { id: productId, companyId: user.companyId, type: 'finance-products' } }) : null;
+    const rule = await findNamingRule(this.resources, em, user.companyId, source?.data.categoryId);
     const mySig = sigOf(...lines.map(lineKey).sort());
     const allBundles = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: TYPE } });
     const allLines = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-bundle-lines' } });
@@ -218,13 +259,20 @@ export class BundleToolsService {
         components.push({ role: l.role, code: '', name: lab?.title ?? '已删除的人工项目', qty: l.qty, weightG: null, cost: cost ? priced.unitCostCents : undefined, unit: '', includeInJst: false, isRequired: l.isRequired !== false, costTreatment: str(l.costTreatment) || 'include' });
         continue;
       }
-      const bc = await em.findOne(ResourceRecord, { where: { id: Number(l.baseCodeId), companyId: user.companyId, type: 'finance-base-codes' } });
+      if (typeof l.productId === 'number') {
+        const product=pricingData.products.get(l.productId);
+        if(!product)issues.push('构成里的商品档案已被删除');
+        components.push({role:l.role,productId:l.productId,sourceType:'product_archive',code:str(product?.data.code),name:product?.title || '已删除的商品档案',qty:l.qty,weightG:priced.unitWeightG,cost:cost?priced.unitCostCents:undefined,unit:unitLabelFor(units,unitField,l as unknown as Record<string,unknown>,l.unit),includeInJst:l.includeInJst===true,isRequired:l.isRequired!==false,lossRate:l.lossRate??0,costBucket:str(l.costBucket),costTreatment:str(l.costTreatment)||'include'});
+        continue;
+      }
+      const bc = pricingData.baseCodes.get(num(l.baseCodeId) ?? -1);
       if (!bc) { issues.push('构成里有基础编码已被删除'); continue; }
       if (bc.status !== 'verified') issues.push(`基础编码「${bc.title}」还没验证`);
       components.push({ role: l.role, code: str(bc.data.code), name: str(bc.data.name) || bc.title, qty: l.qty, weightG: priced.unitWeightG, cost: cost ? priced.unitCostCents : undefined, unit: unitLabelFor(units, unitField, l as unknown as Record<string, unknown>, l.unit), includeInJst: l.includeInJst === true, isRequired: l.isRequired !== false, lossRate: l.lossRate ?? 0, costBucket: str(l.costBucket), costTreatment: str(l.costTreatment) || 'include' });
     }
     // 旧系统验证问题清单：分类、必填文本、单位、成本、重量、进聚水潭行等一次列全
-    const platform = await em.findOne(ResourceRecord, { where: { id: Number(b.data.platformId), companyId: user.companyId, type: 'finance-platforms' } });
+    const platformId = num(b.data.platformId);
+    const platform = platformId === null ? null : await em.findOne(ResourceRecord, { where: { id: platformId, companyId: user.companyId, type: 'finance-platforms' } });
     for (const m of await bundleIssues(em, user.companyId, b.data, lines as never, platform?.status)) if (!issues.includes(m)) issues.push(m);
     const snapJson = await bundleSnapshotJson(em, user.companyId, b.data, lines as never);
     const stored = this.parse(b.data.snapshot);
@@ -238,7 +286,7 @@ export class BundleToolsService {
       components, totalWeightG: Math.round(totalWeight * 1e6) / 1e6, totalCost: cost ? totalCost : undefined,
       pendingRevision: revision ? { id: revision.id, reason: str(revision.data.reason) } : null,
       signature: sigOf(snapJson, b.status),
-      issues, secondVerification: b.status === 'reverify', baselineMissing: b.status === 'reverify' && !stored, changes,
+      issues, secondVerification: codeVerificationState(b) === 'reverify', baselineMissing: codeVerificationState(b) === 'reverify' && !stored, changes,
       outbound, uploadSignature: sigOf(JSON.stringify({ ...outbound, cost_price: undefined, lines: lines.map(lineKey).sort() })),
       uploadedCode: uploaded || null, replacing: !!uploaded && uploaded !== str(b.data.code), jstStatus: str(b.data.jstStatus) || 'not_synced',
     };

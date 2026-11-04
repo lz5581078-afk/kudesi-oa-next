@@ -20,3 +20,14 @@
 .express-freight-actions > div { display: flex; gap: 6px; }
 .express-freight-actions button { flex-shrink: 0; }
 @media (max-width: 760px) { .express-freight-head, .express-freight-actions { align-items: flex-start; flex-direction: column; } .express-freight-head > button { width: 100%; } }
+.express-freight-head label input, .express-freight-table input { all: revert; box-sizing: border-box; min-width: 0; padding: 7px; font: inherit; }
+.express-freight-head label input { width: 65px; }
+.express-freight-table input { width: 140px; max-width: 100%; }
+.express-freight-empty { padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfdfb; }
+.express-freight-empty strong, .express-freight-empty span { display: block; }
+.express-freight-empty span { margin-top: 5px; color: #64748b; font-size: 13px; }
+.express-freight-samples summary { color: #087c56; cursor: pointer; white-space: nowrap; }
+.express-freight-samples > div { min-width: 280px; max-width: 420px; padding: 8px 0; color: #526676; }
+.express-freight-samples p { margin: 4px 0; white-space: normal; }
+.express-freight-samples ul { max-height: 160px; overflow-y: auto; padding-left: 20px; margin: 8px 0 0; }
+.express-freight-samples li { margin: 3px 0; }

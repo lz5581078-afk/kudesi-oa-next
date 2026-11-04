@@ -2,6 +2,6 @@
 export function archiveBaseCodeIdentity(value: unknown): { code: string; styleCode: string } | null {
   if (typeof value !== 'string') return null;
   const code = value.trim().toUpperCase();
-  if (code.length > 48 || !/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(code)) return null;
+  if (code.length > 48 || !/^[A-Z0-9+*]+(?:-[A-Z0-9+*]+)*$/.test(code)) return null;
   return { code, styleCode: code };
 }

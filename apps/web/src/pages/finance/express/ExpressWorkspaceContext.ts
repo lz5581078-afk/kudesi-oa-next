@@ -7,5 +7,6 @@ export const ExpressWorkspaceContext = createContext<{
   setLocation: (location: ExpressLocation | null) => void;
   acceptCarriers: (carriers: TreeCarrier[]) => void;
   refreshCounts: () => void;
+  cooperatingVersionCount: number | null;
 } | null>(null);
 export const useExpressWorkspace = () => useContext(ExpressWorkspaceContext);

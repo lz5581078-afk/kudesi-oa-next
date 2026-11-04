@@ -1,6 +1,10 @@
+import type {ResourceImportProfile} from '@kudesi/shared';
 import type { ResourceFormInput } from '@kudesi/shared';
 import type { ColFilter, GridSaveRequest, GridSaveResponse, ResourceDef } from '@kudesi/shared';
 import { api } from '../api/client';
+
+export interface ProfileWorkbookSheet {name:string;headers?:string[];rows:Array<Record<string,string>>}
+export interface ProfileImportResult {dryRun:boolean;committed:boolean;created:number;updated:number;mainCreated?:number;mainUpdated?:number;detailRows?:number;failed:number;results:Array<{sheet:string;step:string;line:number;action:string;title?:string;errors:string[]}>;issues:Array<{sheet:string;row:number;field:string;message:string}>;signature?:string}
 
 export interface FileInfo {
   id: number;
@@ -135,6 +139,9 @@ export function query(params: ListParams): string {
 export interface StoreJstShop { id: string; name: string; platform: string; expiresAt?: string | null; expiryStatus?: 'dated' | 'permanent' | 'unknown' }
 
 export const resourceApi = {
+  importProfiles:()=>api<{profiles:ResourceImportProfile[]}>('/resources/import-profiles'),
+  importProfile:(id:string,sheets:ProfileWorkbookSheet[],dryRun:boolean,signature?:string)=>api<ProfileImportResult>(`/resources/import-profiles/${encodeURIComponent(id)}`,{method:'POST',body:{sheets,dryRun,...(signature?{signature}:{})}}),
+
   refreshJushuitanShop: (id: number) => api<ResourceDto>(`/resources/stores/${id}/refresh-jushuitan`, { method: 'POST' }),
   jushuitanShops: () => api<StoreJstShop[]>('/resources/stores/jushuitan-shops'),
   reorderCategories: (type: string, orderedIds: number[]) => api<{ok: boolean; changed: number}>(`/resources/${type}/reorder`,{method:'POST',body:{orderedIds}}),

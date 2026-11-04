@@ -16,6 +16,7 @@ import { resourceApi, type ListResult, type ResourceDto } from './api';
 import { CategoryTree } from './CategoryTree';
 import { FeeSnapshotsDialog } from './FeeSnapshotsDialog';
 import { PackagingExcelDialog } from './PackagingExcelDialog';
+import { ProductPackagingSchemesSummary } from './ProductPackagingSchemesSummary';
 import { ProductCostExcelDialog } from './ProductCostExcelDialog';
 import { ImportDialog } from './ImportDialog';
 import { TaxPendingButton } from './TaxPendingDialog';
@@ -202,8 +203,9 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
   // 派生列（配置 derivedColumns）：按页现算的数字，当作只读列显示，服务端可排序、可导出
   const derivedFields = useMemo<FieldDef[]>(() => (def.derivedColumns ?? []).map((d) => ({ key: d.key, label: d.label, type: d.kind === 'sum' && d.format === 'money' ? 'money' : 'number', group: '统计', readonly: true, list: d.list !== false })), [def]);
   const derivedKeys = useMemo(() => new Set(derivedFields.map((f) => f.key)), [derivedFields]);
-  const shownFields = useMemo(() => [...def.fields.filter((f) => f.type !== 'secret').map(f => type === 'finance-products' && hier ? { ...f, label: ({ code: '系统自动编号', basicInfoFullName: '基础信息全名', categoryId: '所属分类', totalCost: '最新成本' } as Record<string,string>)[f.key] || f.label } : f), ...derivedFields], [def, derivedFields, type, hier]);
+  const shownFields = useMemo(() => [...def.fields.filter((f) => f.type !== 'secret' && (!f.listOnly || f.list === true)).map(f => type === 'finance-fee-items' && hier ? {...f,label:({defaultObject:'挂账节点',requiredObject:'费用单要求'} as Record<string,string>)[f.key]||f.label} : type === 'finance-products' && hier ? { ...f, label: ({ code: '系统自动编号', basicInfoFullName: '基础信息全名', categoryId: '所属分类', totalCost: '最新成本' } as Record<string,string>)[f.key] || f.label } : f), ...derivedFields], [def, derivedFields, type, hier]);
   const defaults = useMemo(() => {
+    if(type==='finance-fee-items'&&hier)return ['code','name','defaultObject','relationRequirement','requiredObject'].map(key=>shownFields.find(field=>field.key===key)).filter((field):field is FieldDef=>!!field);
     if (type === 'finance-products' && hier) {
       const keys = ['code', 'basicInfoFullName', 'categoryId', ...(['package', 'oem_package'].includes(tab) ? ['packagingCategory', 'dimensions', 'capacities', 'orderStock', 'actualStock'] : []), 'purchaseSpec', 'purchasePrice', 'freight', 'handlingFee', 'totalCost'];
       return keys.map(key => shownFields.find(f => f.key === key)).filter((f): f is FieldDef => !!f);
@@ -611,6 +613,7 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
     <div className={`res-page${type === 'workforce' ? ' workforce-page' : ''}${selected !== null ? ' has-detail' : ''}${embedded ? ' embedded' : ''}${hier ? ' hier' : ''}${financeBase ? ` finance-base-page finance-base-${type}` : ''}`}>
       {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
       {hier && <HierBar title={hier.title} subtitle={hier.subtitle} onBack={hier.onBack} />}
+      {hier && type === 'finance-products' && (tab === 'package' || tab === 'oem_package') && <ProductPackagingSchemesSummary archiveType={tab} onChanged={() => void load()} />}
       <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
         {browseFields.length > 0 && (
           <CategoryTree
@@ -667,9 +670,10 @@ export function ResourcePage({ type, lockedTab, title, embedded, hier }: { type:
               />
             ) : <div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />加载中…</div>
           ) : isMobile ? (
-            <ResourceCards def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} rowActions={type === 'workforce' ? rowActions : undefined} />
+            <ResourceCards onCellSaved={()=>void load()} def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} rowActions={type === 'workforce' ? rowActions : undefined} />
           ) : (
             <ResourceTable
+              onCellSaved={()=>void load()}
               def={def}
               type={type}
               rows={data ? data.items : null}

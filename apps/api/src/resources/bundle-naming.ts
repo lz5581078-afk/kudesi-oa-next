@@ -162,7 +162,13 @@ export function giftAliasIssue(g: NamingItem): string {
 
 // ---------- 按规则渲染 ----------
 
-export interface Composed { code: string; name: string; styleCode: string; shortName: string; propertiesValue: string; errors: string[] }
+export interface Composed { mainStyleCode: string; code: string; name: string; styleCode: string; shortName: string; propertiesValue: string; errors: string[] }
+/** 主款式来自当前最终手改款式；自动结果有资料错误时不记录推测值。 */
+export function resolvedMainStyleCode(composed: Pick<Composed,'mainStyleCode'|'errors'>, manualStyle: string): string | undefined {
+  const finalStyle=manualStyle.trim();
+  return finalStyle ? finalStyle.split('+ZP-')[0] || undefined : composed.errors.length ? undefined : composed.mainStyleCode || undefined;
+}
+
 
 const dedupeSegs = (xs: string[]) => xs.filter(Boolean);
 
@@ -236,7 +242,7 @@ export function composeBundle(ruleIn: NamingRule | null, i: NamingInput): Compos
   const bodyName = mains.map((m) => m.name).join('+') + (gifts.length ? `+赠:${gifts.map((g) => g.name).join('+')}` : '');
   const name = `${rule.namePrefix}${bodyName}`;
   return {
-    code, name: name.slice(0, 255), styleCode, shortName: bodyName.slice(0, 160), propertiesValue: c.specification.slice(0, 255),
+    mainStyleCode: mainStyle, code, name: name.slice(0, 255), styleCode, shortName: bodyName.slice(0, 160), propertiesValue: c.specification.slice(0, 255),
     errors: [...new Set(errors)],
   };
 }

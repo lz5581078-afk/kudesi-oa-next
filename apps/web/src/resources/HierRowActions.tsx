@@ -8,11 +8,16 @@ import { ReasonDialog, clearRefCache } from './RecordForm';
 export function copyValuesOf(def: ResourceDef, data: Record<string, unknown>): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const f of def.fields) {
-    if (f.readonly || f.type === 'files' || f.type === 'secret' || f.type === 'sensitive' || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key) || (def.key === 'finance-products' && COPY_OMIT_FIELDS.includes(f.key))) continue;
+    if (f.readonly || f.type === 'files' && !f.copyOnCreate || f.type === 'secret' || f.type === 'sensitive' && !f.copyOnCreate || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key) || (def.key === 'finance-products' && COPY_OMIT_FIELDS.includes(f.key))) continue;
     const v = data[f.key];
     if (v !== undefined && v !== null && v !== '') values[f.key] = v;
   }
   return values;
+}
+
+/** 文件只显示待复制事实；最终保存才由服务器在事务里产生新绑定。 */
+export function copyInitialOf(def:ResourceDef,row:ResourceDto):Record<string,unknown>{
+  return {...copyValuesOf(def,row.data),...(def.key.startsWith('finance-')?{__copyOf:row.id}:{}),...(def.fields.some(f=>f.type==='files' && f.copyOnCreate)?{__copyVersion:row.version,__copyFiles:row.files}: {})};
 }
 
 /**
@@ -42,7 +47,7 @@ export function HierRowActions({ def, row, can, onOpen, onEdit, onCopy, onCost, 
     <span className="row-acts hier-acts" onClick={(e) => e.stopPropagation()}>
       <button type="button" className="row-act" aria-label={`查看：${row.title}`} onClick={act(() => onOpen(row.id))}>查看</button>
       {live && can('edit') && <button type="button" className="row-act" aria-label={`编辑：${row.title}`} onClick={act(() => onEdit(row))}>编辑</button>}
-      {live && can('create') && <button type="button" className="row-act" aria-label={`复制新增：${row.title}`} title="按这条的内容新增一条，编号、图片不带过去" onClick={act(() => onCopy({ ...copyValuesOf(def, row.data), ...(def.key.startsWith('finance-') ? { __copyOf: row.id } : {}) }))}>复制新增</button>}
+      {live && can('create') && <button type="button" className="row-act" aria-label={`复制新增：${row.title}`} title={def.fields.some(f=>f.type==='files' && f.copyOnCreate)?'按这条的内容新增一条，编号重新生成':'按这条的内容新增一条，编号、图片不带过去'} onClick={act(() => onCopy(copyInitialOf(def,row)))}>复制新增</button>}
       {onCost && <button type="button" className="row-act" aria-label={`成本明细：${row.title}`} onClick={act(() => onCost(row.id))}>成本明细</button>}
       {live && can('disable') && off && on && (
         <button type="button" className="row-act" aria-label={`${stopped ? '启用' : '停用'}：${row.title}`} onClick={act(() => setAsking(stopped ? 'on' : 'off'))}>{stopped ? '启用' : '停用'}</button>

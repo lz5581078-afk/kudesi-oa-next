@@ -1,3 +1,4 @@
+import { loadBundleLines } from './loadBundleLines';
 import { useEffect, useState } from 'react';
 import { unitYuanText } from '@kudesi/shared';
 import { ApiError } from '../../../api/client';
@@ -13,7 +14,7 @@ const NAMING_FIELDS: Array<[string, string]> = [
 ];
 
 /** 新建组合编码：选构成（按主商品/包装/标签/打包材料/人工/赠品分组）+ 多个销售平台，先检查（复用、四层重复），每个平台的编码/名称/简称可手填覆盖，全部没问题才一起生成，生成后是“待验证”。 */
-export function GenerateDialog({ onClose, onDone, sourceBundle }: { onClose: () => void; onDone: () => void; sourceBundle?: ResourceDto }) {
+export function GenerateDialog({ onClose, onDone, sourceBundle, initialCategoryId }: { onClose: () => void; onDone: () => void; sourceBundle?: ResourceDto; initialCategoryId?: number }) {
   const [rows, setRows] = useState<LineRow[]>([{ role: 'main', qty: 1, label: '' }]);
   const [platforms, setPlatforms] = useState<ResourceDto[]>([]);
   const [scenarios, setScenarios] = useState<ResourceDto[]>([]);
@@ -30,7 +31,7 @@ export function GenerateDialog({ onClose, onDone, sourceBundle }: { onClose: () 
     resourceApi.list('finance-platforms', { pageSize: 100 }).then((r) => setPlatforms(r.items)).catch(() => undefined);
     resourceApi.list('finance-scenarios', { pageSize: 100 }).then((r) => { setScenarios(r.items); if (!sourceBundle && r.items[0]) setScenarioId(r.items[0].id); }).catch(() => undefined);
   }, []);
-  const [categoryId, setCategoryId] = useState<number | ''>(Number(sourceBundle?.data.bundleCategoryId) || '');
+  const [categoryId, setCategoryId] = useState<number | ''>(Number(sourceBundle?.data.bundleCategoryId) || initialCategoryId || '');
   const [brandId, setBrandId] = useState<number | ''>(Number(sourceBundle?.data.brandId) || '');
   const [brands, setBrands] = useState<ResourceDto[]>([]);
   useEffect(() => { resourceApi.list('finance-brands', { pageSize: 200, status: 'active' }).then((r) => setBrands(r.items)).catch(() => undefined); }, []);
@@ -40,13 +41,12 @@ export function GenerateDialog({ onClose, onDone, sourceBundle }: { onClose: () 
     if(!sourceBundle)return;
     let live=true;
     (async()=>{
-      const items:ResourceDto[]=[];
-      for(let page=1;;page++){const r=await resourceApi.list('finance-bundle-lines',{fieldKey:'bundleId',fieldValue:sourceBundle.id,page,pageSize:200});items.push(...r.items);if(items.length>=r.total || !r.items.length)break;}
-      if(live){setRows(items.map(item=>({...item.data,role:String(item.data.role),qty:Number(item.data.qty),label:item.refLabels.baseCodeId || item.refLabels.laborId || item.title} as LineRow)));setSourceLoading(false);}
+      const items=await loadBundleLines(sourceBundle.id,()=>live);if(!items)return;
+      if(live){setRows(items.map(item=>({...item.data,role:String(item.data.role),qty:Number(item.data.qty),label:item.refLabels.baseCodeId || item.refLabels.productId || item.refLabels.laborId || item.title} as LineRow)));setSourceLoading(false);}
     })().catch(e=>{if(live){setSourceError(msg(e));setSourceLoading(false);}});
     return()=>{live=false;};
   },[sourceBundle]);
-  const lines = (): LineInput[] => rows.filter((r) => r.baseCodeId || r.laborId).map(toLineInput);
+  const lines = (): LineInput[] => rows.filter((r) => r.baseCodeId || r.productId || r.laborId).map(toLineInput);
   const targets = () => picked.map((p) => {
     const m = manual[p];
     return { platformId: p, scenarioId: Number(scenarioId), bundleCategoryId: categoryId || undefined, brandId: brandId || undefined,
@@ -270,19 +270,18 @@ export function RevisionDialog({ bundle, onClose, onDone }: { bundle: ResourceDt
   const pendingId = typeof bundle.data.pendingRevisionId === 'number' ? bundle.data.pendingRevisionId : null;
   const [pending, setPending] = useState<ResourceDto | null>(null);
   useEffect(() => {
-    resourceApi.list('finance-bundle-lines', { fieldKey: 'bundleId', fieldValue: bundle.id, pageSize: 100 }).then((r) => {
+    let alive=true;setRows(null);setError('');
+    loadBundleLines(bundle.id,()=>alive).then(items=>{
+      if(!alive||!items)return;
       const keys = ['unit', 'lossRate', 'isRequired', 'includeInJst', 'costBucket', 'costTreatment', 'sortOrder', 'effectiveFrom', 'effectiveTo', 'note'];
-      setRows(r.items.map((l) => ({
-        role: String(l.data.role), baseCodeId: typeof l.data.baseCodeId === 'number' ? l.data.baseCodeId : undefined, laborId: typeof l.data.laborId === 'number' ? l.data.laborId : undefined, qty: Number(l.data.qty),
-        label: String(l.refLabels.baseCodeId ?? l.refLabels.laborId ?? ''),
-        ...Object.fromEntries(keys.filter((k) => l.data[k] !== undefined && l.data[k] !== null && l.data[k] !== '').map((k) => [k, l.data[k]])),
-      })));
-    }).catch((e) => setError(msg(e)));
-    if (pendingId) resourceApi.get('finance-bundle-revisions', pendingId).then(setPending).catch(() => undefined);
-  }, [bundle.id, pendingId]);
+      setRows(items.map(l=>({role:String(l.data.role),baseCodeId:typeof l.data.baseCodeId==='number'?l.data.baseCodeId:undefined,productId:typeof l.data.productId==='number'?l.data.productId:undefined,laborId:typeof l.data.laborId==='number'?l.data.laborId:undefined,qty:Number(l.data.qty),label:l.refLabels.baseCodeId||l.refLabels.productId||l.refLabels.laborId||l.title,...Object.fromEntries(keys.filter(k=>l.data[k]!==undefined&&l.data[k]!==null&&l.data[k]!=='').map(k=>[k,l.data[k]]))})));
+    }).catch(e=>{if(alive)setError(msg(e));});
+    if(pendingId)resourceApi.get('finance-bundle-revisions',pendingId).then(row=>{if(alive)setPending(row);}).catch(()=>{if(alive)setError('待验证修订读取失败，请关闭后重试。');});
+    return()=>{alive=false;};
+  }, [bundle.id,pendingId]);
   async function submit() {
     setBusy(true); setError('');
-    try { await jstApi.bundleRevise(bundle.id, reason.trim(), (rows ?? []).filter((r) => r.baseCodeId || r.laborId).map(toLineInput)); onDone(); onClose(); } catch (e) { setError(msg(e)); }
+    try { await jstApi.bundleRevise(bundle.id, reason.trim(), (rows ?? []).filter((r) => r.baseCodeId || r.productId || r.laborId).map(toLineInput)); onDone(); onClose(); } catch (e) { setError(msg(e)); }
     setBusy(false);
   }
   async function cancel() {
@@ -311,7 +310,7 @@ export function RevisionDialog({ bundle, onClose, onDone }: { bundle: ResourceDt
         </div>
         <div className="modal-foot">
           <button type="button" className="secondary-button" onClick={onClose}>关闭</button>
-          {!pendingId && <button type="button" className="primary-button" disabled={busy || reason.trim().length < 2 || !rows?.some((r) => r.role === 'main' && r.baseCodeId)} onClick={() => void submit()}>提交修订</button>}
+          {!pendingId && <button type="button" className="primary-button" disabled={busy || reason.trim().length < 2 || !rows?.some((r) => r.role === 'main' && (r.baseCodeId||r.productId))} onClick={() => void submit()}>提交修订</button>}
         </div>
       </div>
     </div>

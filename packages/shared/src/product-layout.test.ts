@@ -32,10 +32,11 @@ describe('商品档案布局（详情、新增、编辑共用的一份）', () =
     }
   });
 
-  it('字段定义里的每个字段，至少出现在一种档案类型的布局里（没有字段被排丢）', () => {
+  it('可见字段至少出现在一种档案布局；内部字典来源不进入产品布局', () => {
     const all = new Set(KEYS.flatMap((k) => layoutFieldKeys(PRODUCT_LAYOUTS[k])));
-    const lost = def.fields.map((f) => f.key).filter((k) => !all.has(k));
+    const lost = def.fields.filter(f=>!f.listOnly).map((f) => f.key).filter((k) => !all.has(k));
     expect(lost).toEqual([]);
+    expect(all.has('unitDictionaryKind')).toBe(false);
   });
 
   it('字段的显示条件（showWhen）和布局一致：布局放了它的类型，条件都成立', () => {

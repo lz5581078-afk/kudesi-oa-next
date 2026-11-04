@@ -12,6 +12,7 @@ export interface VerifyResult { results: Array<{ id: number; ok: boolean; error?
 export interface DeleteGroup { token: string; ids: number[]; code: string; name: string; aliasCount: number; everSynced: boolean; canDelete: boolean; reason: string }
 export interface DeleteExecResult { results: Array<{ code: string; ok: boolean; error?: string; disableQueued?: boolean }> }
 
+export interface BundleSummary { id:number; mainStyleCode:string|null; weightG:number|null; componentCount:number; packageCount:number; packageSummary:string; cost?:number|null; salePrice?:number|null }
 export interface BundleReport {
   id: number; code: string; name: string; styleCode: string; shortName: string; status: string;
   components: Array<{ role: string; code: string; name: string; qty: number; weightG: number | null; cost?: number | null; unit?: string; includeInJst?: boolean; isRequired?: boolean; lossRate?: number; costBucket?: string; costTreatment?: string }>;
@@ -21,7 +22,7 @@ export interface BundleReport {
   uploadSignature: string; uploadedCode: string | null; replacing: boolean; jstStatus: string;
 }
 export interface LineInput {
-  role: string; baseCodeId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean;
+  role: string; baseCodeId?: number; productId?: number; laborId?: number; qty: number; unit?: string; lossRate?: number; isRequired?: boolean; includeInJst?: boolean;
   costBucket?: string; costTreatment?: string; sortOrder?: number; effectiveFrom?: string; effectiveTo?: string; note?: string;
 }
 export interface TargetInput { platformId: number; scenarioId: number; configNo?: string; bundleCategoryId?: number; brandId?: number; manualCode?: string; manualName?: string; manualShortName?: string; manualReason?: string }
@@ -61,7 +62,7 @@ export const jstApi = {
   categoryExecute: (scope: CategoryScope, signature: string) => api<{ runId: number; queued: number; retired: number }>('/finance/jst-sync/category/execute', { method: 'POST', body: { scope, signature, confirmed: true } }),
   categoryRuns: (page: number) => api<{ page: number; rows: CategoryRun[] }>(`/finance/jst-sync/category/runs?page=${page}`),
 
-  baseOverview: () => api<{ status: Record<string, number>; byCategory: Record<string, Record<string, number>> }>('/finance/base-codes/overview'),
+  baseOverview: () => api<{ status: Record<string, number>; byCategory: Record<string, Record<string, number>>; byCodeCategory?:Record<string,Record<string,number>>; verification?:Record<string,number>; unknownInactive?:number }>('/finance/base-codes/overview'),
   baseReport: (id: number) => api<BaseCodeReport>(`/finance/base-codes/${id}/report`),
   baseVerify: (items: Array<{ id: number; signature: string; uploadSignature?: string }>, confirmed: boolean, syncToJst: boolean, replaceConfirmed: boolean) =>
     api<VerifyResult>('/finance/base-codes/verify', { method: 'POST', body: { items, confirmed, syncToJst, replaceConfirmed } }),
@@ -69,7 +70,8 @@ export const jstApi = {
   baseDeleteExecute: (mode: 'pending' | 'source', groups: Array<{ token: string; ids: number[] }>, reason: string, disableConfirmed: boolean) =>
     api<DeleteExecResult>('/finance/base-codes/deletion/execute', { method: 'POST', body: { mode, groups, reason, disableConfirmed } }),
 
-  bundleOverview: () => api<{ status: Record<string, number> }>('/finance/bundles/overview'),
+  bundleOverview: () => api<{ status: Record<string, number>; verification?:Record<string,number>; unknownInactive?:number; byBundleLifecycleCategory?:Record<string,Record<string,Record<string,number>>> }>('/finance/bundles/overview'),
+  bundleSummaries: (ids:number[]) => api<{rows:BundleSummary[]}>(`/finance/bundles/summaries?ids=${ids.join(',')}`),
   bundleReport: (id: number) => api<BundleReport>(`/finance/bundles/${id}/report`),
   bundlePreview: (lines: LineInput[], targets: TargetInput[]) => api<{ targets: PreviewTarget[]; namingRule: boolean }>('/finance/bundles/preview', { method: 'POST', body: { lines, targets } }),
   bundleGenerate: (lines: LineInput[], targets: TargetInput[]) => api<{ created: Array<{ id: number; code: string; reused: boolean }> }>('/finance/bundles/generate', { method: 'POST', body: { lines, targets } }),
@@ -81,12 +83,12 @@ export const jstApi = {
   bundleDelete: (id: number, token: string, confirmCode: string, reason: string) => api<{ ok: true }>(`/finance/bundles/${id}/deletion`, { method: 'POST', body: { token, confirmCode, reason } }),
   bundleArchive: (id: number, reason: string, disableConfirmed: boolean) => api<{ ok: true; disableQueued: boolean }>(`/finance/bundles/${id}/archive`, { method: 'POST', body: { reason, disableConfirmed } }),
 
-  uploadOptions: () => api<{ categories: string[]; brands: string[] }>('/finance/jst-maintenance/options'),
-  uploadCheck: (b: { skuId?: string; styleId?: string; name?: string }) =>
-    api<{ hasHighRisk: boolean; hasWarning: boolean; matches: Array<{ source: string; field: string; level: 'high' | 'warning'; hit: string }> }>('/finance/jst-maintenance/check-duplicate', { method: 'POST', body: b }),
-  upload: (form: Record<string, string | number>) => api<{ id: number; queued: boolean; warnings: unknown[] }>('/finance/jst-maintenance/upload', { method: 'POST', body: { form } }),
-  uploadLogs: (p: { keyword?: string; page: number }) => {
-    const q = new URLSearchParams({ page: String(p.page), pageSize: '20', ...(p.keyword ? { keyword: p.keyword } : {}) });
-    return api<{ total: number; rows: Array<{ id: number; skuId: string; styleId: string; name: string; status: string; message: string; createdAt: string }> }>(`/finance/jst-maintenance/logs?${q}`);
+  uploadOptions: () => api<{ categories: string[]; categoryOptions?: Array<{ value: string; label: string; disabled: boolean; reason?: string }>; brands: string[]; errors?: Record<string, string> }>('/finance/jst-maintenance/options'),
+  uploadCheck: (body: { skuId?: string; styleId?: string; name?: string; categoryName?: string }) =>
+    api<{ signature: string | null; hasHighRisk: boolean; hasWarning: boolean; errors: string[]; matches: Array<{ source: string; field: string; level: 'high' | 'warning'; hit: string; skuId: string; styleId: string; name: string; spec: string; category: string }> }>('/finance/jst-maintenance/check-duplicate', { method: 'POST', body }),
+  upload: (form: Record<string, string | number>, signature: string, confirmed: boolean) => api<{ id: number; queued: boolean; warnings: unknown[] }>('/finance/jst-maintenance/upload', { method: 'POST', body: { form, signature, confirmed } }),
+  uploadLogs: (params: { keyword?: string; page: number }) => {
+    const query = new URLSearchParams({ page: String(params.page), pageSize: '30', ...(params.keyword ? { keyword: params.keyword } : {}) });
+    return api<{ total: number; rows: Array<{ id: number; skuId: string; styleId: string; name: string; status: string; message: string; createdAt: string }> }>(`/finance/jst-maintenance/logs?${query}`);
   },
 };

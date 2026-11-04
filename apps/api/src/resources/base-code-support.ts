@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { EntityManager } from 'typeorm';
-import { sumUnitCents, multiplyUnitCents } from '@kudesi/shared';
+import { sumUnitCents, multiplyUnitCents, unitYuanText } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 
 /**
@@ -16,12 +16,13 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined
 export const sigOf = (...parts: unknown[]) => crypto.createHash('sha256').update(parts.map((p) => String(p ?? '')).join('|')).digest('hex').slice(0, 24);
 
 /** 带成本/价格的字段（没有 product.cost.view 的人看不到） */
-export const COST_FIELDS = new Set(['totalCost', 'purchasePrice', 'freight', 'handlingFee', 'cost', 'cost_price', 'purchase_price']);
+export const COST_FIELDS = new Set(['totalCost', 'purchasePrice', 'freight', 'handlingFee', 'cost', 'cost_price', 'purchase_price','importLaborAmounts']);
 
 export const FIELD_LABELS: Record<string, string> = {
   code: '编码', styleCode: '款式编码', components: '商品组成', name: '名称', shortName: '简称', spec: '颜色及规格', varietyName: '品种',
   weightG: '重量(克)', totalCost: '总成本', purchasePrice: '采购价', freight: '运费', handlingFee: '装卸费',
   specQty: '规格数量', specUnit: '规格单位', categoryName: '分类', archiveType: '档案类型', bom: '配方构成', brandName: '品牌',
+  importLaborAmounts:'原文件人工成本金额',
   profileWeightG: '专属重量(克)', profileCategoryId: '专属分类',
 };
 
@@ -44,6 +45,7 @@ export interface ArchiveSnap {
   /** 从谁引用到它：自上而下的档案名 */
   parentPath: string[];
   bom: string;
+  importLaborAmounts?:string;
 }
 
 export interface Issue {
@@ -107,7 +109,8 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
       categoryId: num(d.categoryId), categoryName: cat.map((c) => c.title).join('/'), brandName: brand?.title ?? '',
       weightG: num(d.weightG), totalCost: num(d.totalCost), purchasePrice: num(d.purchasePrice), freight: num(d.freight), handlingFee: num(d.handlingFee),
       specQty: typeof d.specQty === 'string' && d.specQty.trim() ? (Number.isFinite(Number(d.specQty)) ? Number(d.specQty) : d.specQty.trim()) : num(d.specQty), specUnit: str(d.specUnit), parentPath: path,
-      bom: boms.map((b) => `${b.data.laborId ? `L${b.data.laborId}` : `P${b.data.componentId}`}x${b.data.qty}+${b.data.lossPercent ?? 0}`).join(';'),
+      ...(boms.some(b=>b.data.importLineKind==='labor')?{importLaborAmounts:JSON.stringify(boms.filter(b=>b.data.importLineKind==='labor').map(b=>[b.id,b.data.importLaborCost]))}:{}),
+      bom: boms.map((b) => `${b.data.importLineKind==='labor' ? `IMPORT-LABOR:${b.data.importLaborName}` : b.data.laborId ? `L${b.data.laborId}` : `P${b.data.componentId}`}x${b.data.qty}+${b.data.lossPercent ?? 0}`).join(';'),
     };
     archives.push(a);
 
@@ -144,9 +147,19 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
   });
   const real = typeof bc.data.canonicalId === 'number' ? await one(em, companyId, 'finance-base-codes', bc.data.canonicalId) : null;
   if (typeof bc.data.canonicalId === 'number' && !real) issues.push({ archiveKey: 'canonical', productId: productId ?? 0, archiveName: str(bc.data.name), parentPath: [], message: '真实基础编码不存在' });
+  const external=bc.data.origin==='external_import';
+  const externalProfile=external ? {origin:'external_import',codeDictionaryCategoryId:bc.data.codeDictionaryCategoryId,varietyDictionaryId:bc.data.varietyDictionaryId,weightG:num(bc.data.weightG),cost:num(bc.data.externalCost),purchasePrice:num(bc.data.externalPurchasePrice),specQty:bc.data.codeSpecQty,specUnit:bc.data.codeSpecUnit,baseUnit:bc.data.baseUnit} : {};
+  if(external){
+    const missing=(message:string)=>issues.push({archiveKey:'base-code',productId:0,archiveName:str(bc.data.name)||bc.title,parentPath:[],message});
+    if(!bc.data.codeDictionaryCategoryId)missing('没有选择商品编码分类');
+    if(!(Number(bc.data.weightG)>0))missing('重量必须大于0（克）');
+    if(num(bc.data.externalCost)===null)missing('没有导入成本价');
+    if(!(Number(bc.data.codeSpecQty)>0) || !bc.data.codeSpecUnit)missing('规格数量和规格单位没有填全');
+  }
   const snapshot: Snapshot = {
     profile: {
       ...profile(bc),
+      ...externalProfile,
       ...(composed ? { components: lines.map((l) => `${l.data.productId}x${l.data.qty}:${l.data.role}`).join(';') } : {}),
     },
     ...(real ? { canonical: profile(real) } : {}),
@@ -170,7 +183,7 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): Change[] {
   for (const [key, a] of now) {
     const b = was.get(key);
     if (!b) { out.push({ source: a.name, field: 'archive', label: '新增的下级档案', before: null, after: a.name }); continue; }
-    for (const f of ['code', 'name', 'weightG', 'totalCost', 'purchasePrice', 'freight', 'handlingFee', 'specQty', 'specUnit', 'categoryName', 'brandName', 'bom'] as const) push(a.name, f, b[f], a[f]);
+    for (const f of ['code', 'name', 'weightG', 'totalCost', 'purchasePrice', 'freight', 'handlingFee', 'specQty', 'specUnit', 'categoryName', 'brandName', 'bom','importLaborAmounts'] as const) push(a.name, f, b[f], a[f]);
   }
   for (const [key, b] of was) if (!now.has(key)) out.push({ source: b.name, field: 'archive', label: '去掉的下级档案', before: b.name, after: null });
   return out;
@@ -219,14 +232,17 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
   const real = typeof bc.data.canonicalId === 'number' ? await one(em, companyId, 'finance-base-codes', bc.data.canonicalId) : bc;
   const composed = real?.data.origin === 'composed';
   const p = await one(em, companyId, 'finance-products', real?.data.productId);
-  const cat = await categoryPath(em, companyId, bc.data.profileCategoryOverride ?? (composed ? bc.data.codeCategoryId : p?.data.categoryId ?? bc.data.categoryId));
-  const brand = await one(em, companyId, 'finance-brands', composed ? bc.data.codeBrandId : p?.data.brandId);
+  const external=real?.data.origin==='external_import';
+  const codingPath:ResourceRecord[]=[];
+  if(bc.data.codeDictionaryCategoryId){let cur=await one(em,companyId,'finance-code-dictionaries',bc.data.codeDictionaryCategoryId);const seen=new Set<number>();while(cur && !seen.has(cur.id)){seen.add(cur.id);codingPath.unshift(cur);cur=await one(em,companyId,'finance-code-dictionaries',cur.data.parentId);}}
+  const cat = codingPath.length ? codingPath : await categoryPath(em, companyId, bc.data.profileCategoryOverride ?? (composed ? bc.data.codeCategoryId : p?.data.categoryId ?? bc.data.categoryId));
+  const brand = await one(em, companyId, 'finance-brands', composed || external ? bc.data.codeBrandId : p?.data.brandId);
   const facts = composed ? await composedFacts(em, companyId, real!.id) : null;
   const w = real?.data.profileWeightOverride !== undefined ? num(real.data.profileWeightOverride) : composed ? facts!.weightG : num(p?.data.weightG) ?? num(real?.data.weightG);
   const cost = composed ? facts!.cost : num(p?.data.totalCost) ?? num(real?.data.cost);
-  const buy = composed ? facts!.purchasePrice ?? cost : num(p?.data.purchasePrice) ?? cost;
-  const qty = composed ? num(bc.data.codeSpecQty) : p?.data.specQty == null ? null : str(p.data.specQty).trim() || null;
-  const unit = composed ? str(bc.data.codeSpecUnit) : str(p?.data.specUnit);
+  const buy = external ? num(real?.data.externalPurchasePrice) : composed ? facts!.purchasePrice ?? cost : num(p?.data.purchasePrice) ?? cost;
+  const qty = composed || external ? num(bc.data.codeSpecQty) : p?.data.specQty == null ? null : str(p.data.specQty).trim() || null;
+  const unit = composed || external ? str(bc.data.codeSpecUnit) : str(p?.data.specUnit);
   return {
     sku_id: str(bc.data.code),
     i_id: str(bc.data.styleCode),
@@ -237,8 +253,8 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
     brand: brand?.title ?? '',
     unit,
     weight: w === null ? null : Math.round(w * 1000) / 1_000_000,
-    cost_price: cost === null ? null : cost / 100,
-    purchase_price: buy === null ? null : buy / 100,
+    cost_price: cost === null ? null : Number(unitYuanText(cost)),
+    purchase_price: buy === null ? null : Number(unitYuanText(buy)),
   };
 }
 

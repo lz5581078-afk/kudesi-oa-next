@@ -10,6 +10,8 @@ export interface ResourceFormInput {
   requestKey: string;
   id?: number;
   version?: string;
+  /** 只在最终新增事务中复制；不属于正式资料字段。 */
+  copySource?: { id: number; version: string; files: Record<string, number[]> };
   values: Record<string, unknown>;
   status?: string;
   statusReason?: string;

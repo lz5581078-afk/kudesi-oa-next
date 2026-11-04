@@ -68,8 +68,8 @@ export function LineEditor({ rows, onChange, lockGifts, allowLabor, grouped }: {
               <Fragment key={i}>
                 {head && <tr className="section-row"><th colSpan={5} scope="colgroup">{SECTIONS[sectionOf(r.role)].label}</th></tr>}
                 <tr>
-                  <td><select aria-label="用途" disabled={locked} value={r.role} onChange={(e) => set(i, { role: e.target.value, ...(e.target.value === 'labor' ? { baseCodeId: undefined, label: '' } : { laborId: undefined }) })}>{roles.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></td>
-                  <td>{locked ? r.label : labor ? <LaborPick value={r.laborId} onPick={(id, label) => set(i, { laborId: id, label })} /> : <CodePick value={r.baseCodeId} label={r.label} onPick={(id, label) => set(i, { baseCodeId: id, label })} />}</td>
+                  <td><select aria-label="用途" disabled={locked} value={r.role} onChange={(e) => set(i, { role: e.target.value, ...(e.target.value === 'labor' ? { baseCodeId: undefined, productId:undefined, label: '' } : { laborId: undefined }) })}>{roles.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></td>
+                  <td>{r.productId&&<small>商品档案</small>}{locked ? r.label : labor ? <LaborPick value={r.laborId} onPick={(id, label) => set(i, { laborId: id, baseCodeId:undefined,productId:undefined, label })} /> : <CodePick value={r.baseCodeId} label={r.label} onPick={(id, label) => set(i, { baseCodeId: id,laborId:undefined,productId:undefined, label })} />}</td>
                   <td><input aria-label="数量" type="number" min={0.001} step="any" style={{ width: 80 }} disabled={locked} value={r.qty} onChange={(e) => set(i, { qty: Number(e.target.value) })} /></td>
                   <td>{labor ? '—' : <select aria-label="单位" disabled={locked} value={r.unit ?? ''} onChange={(e) => set(i, { unit: e.target.value || undefined })}><option value="">按档案</option>{UNIT_OPTIONS.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}</select>}</td>
                   <td>

@@ -1,12 +1,14 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor,within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { getResourceDef } from '@kudesi/shared';
-const mocks = vi.hoisted(() => ({ create:vi.fn(), getDraft:vi.fn(), saveDraft:vi.fn(), removeDraft:vi.fn(), api:vi.fn() }));
+const mocks = vi.hoisted(() => ({ create:vi.fn(), saveForm:vi.fn(),getDraft:vi.fn(), saveDraft:vi.fn(), removeDraft:vi.fn(), api:vi.fn(),upload:vi.fn() }));
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({user:{permissions:{isCompanyAdmin:true,allow:[],deny:[]}}}) }));
 vi.mock('../api/client', async orig => ({ ...await orig<typeof import('../api/client')>(), api: (...args:unknown[]) => mocks.api(...args) }));
-vi.mock('./api', async orig => ({ ...await orig<typeof import('./api')>(), resourceApi:{...await orig<typeof import('./api')>().then(m => m.resourceApi),create:(...args:unknown[])=>mocks.create(...args),list:vi.fn().mockResolvedValue({items:[],total:0}),similarCheck:vi.fn().mockResolvedValue({warnings:[],blocked:[]})},draftApi:{key:()=> 'party-draft',get:()=>mocks.getDraft(),save:(...args:unknown[])=>mocks.saveDraft(...args),remove:()=>mocks.removeDraft()} }));
+vi.mock('./api', async orig => ({ ...await orig<typeof import('./api')>(), resourceApi:{...await orig<typeof import('./api')>().then(m => m.resourceApi),create:(...args:unknown[])=>mocks.create(...args),saveForm:(...args:unknown[])=>mocks.saveForm(...args),uploadFile:(...args:unknown[])=>mocks.upload(...args),fileUrl:vi.fn().mockResolvedValue({url:'data:image/png;base64,AA=='}),list:vi.fn().mockResolvedValue({items:[],total:0}),similarCheck:vi.fn().mockResolvedValue({warnings:[],blocked:[]})},draftApi:{key:()=> 'party-draft',get:()=>mocks.getDraft(),save:(...args:unknown[])=>mocks.saveDraft(...args),remove:()=>mocks.removeDraft()} }));
 import { RecordForm } from './RecordForm';
-beforeEach(() => { mocks.create.mockResolvedValue({id:8,title:'新资料',data:{}});mocks.getDraft.mockResolvedValue({draft:null});mocks.saveDraft.mockResolvedValue({});mocks.removeDraft.mockResolvedValue({});mocks.api.mockImplementation(async (_path:string,body:{body:{values:Record<string,unknown>}}) => ({code:'GYS-AUTO',shortCode:body.body.values.shortName==='简称'?'JC':'X'})); });
+import { copyInitialOf,copyValuesOf } from './HierRowActions';
+import type { ResourceDto } from './api';
+beforeEach(() => { mocks.create.mockResolvedValue({id:8,title:'新资料',data:{}});mocks.saveForm.mockResolvedValue({id:9,title:'停用费用',status:'inactive',data:{}});mocks.getDraft.mockResolvedValue({draft:null});mocks.saveDraft.mockResolvedValue({});mocks.removeDraft.mockResolvedValue({});mocks.api.mockImplementation(async (_path:string,body:{body:{values:Record<string,unknown>}}) => ({code:'GYS-AUTO',shortCode:body.body.values.shortName==='简称'?'JC':'X'})); });
 afterEach(() => {cleanup();vi.clearAllMocks();});
 const mount = (type='finance-suppliers') => render(<RecordForm def={getResourceDef(type)!} record={null} initial={{categoryIds:[3],categoryId:3}} onClose={()=>undefined} onSaved={()=>undefined} onContinued={()=>undefined}/>);
 
@@ -44,4 +46,68 @@ it('费用保存并继续新增清空名称与备注，保留目录、挂账节�
   fireEvent.click(screen.getByRole('button',{name:'不固定'}));
   expect(screen.getByRole('button',{name:'店铺'}).getAttribute('aria-pressed')).toBe('false');
   expect(mocks.removeDraft).toHaveBeenCalled();
+});
+
+it('客户新增使用真实联系抽屉固定归属与分段，底部五按钮顺序不混入详情状态',async()=>{
+ mount('finance-customers');
+ expect(screen.getByRole('region',{name:'系统自动编号'})).toBeTruthy();expect(screen.getByRole('region',{name:'基础资料'})).toBeTruthy();expect(screen.getByRole('region',{name:'联系资料'})).toBeTruthy();
+ expect(screen.queryByLabelText('客户分类')).toBeNull();expect(screen.queryByLabelText('状态')).toBeNull();
+ const footer=document.querySelector('.rf-foot')!;
+ expect(within(footer as HTMLElement).getAllByRole('button').map(button=>button.textContent)).toEqual(['不清除保存继续新增','保存并继续新增','保存草稿','保存','关闭']);
+ expect(document.activeElement).toBe(screen.getByLabelText(/客户名称/));
+ fireEvent.change(screen.getByLabelText('联系电话'),{target:{value:'138 0000 0001 / 400-123-4567 转9'}});fireEvent.change(screen.getByLabelText(/客户名称/),{target:{value:'自由联系电话客户'}});fireEvent.click(within(footer as HTMLElement).getByRole('button',{name:'保存'}));
+ await waitFor(()=>expect(mocks.create).toHaveBeenCalledWith('finance-customers',expect.objectContaining({phone:'138 0000 0001 / 400-123-4567 转9'}),'active'));
+});
+it('联系编号人工修正不添加恢复自动；费用使用修改/自动且无新增挂对象只读控件',async()=>{
+ const view=mount();const code=document.querySelector('[data-field=code]')!;
+ fireEvent.click(within(code as HTMLElement).getByRole('button',{name:'人工修正'}));expect(within(code as HTMLElement).getByRole('button',{name:'人工修正'})).toBeTruthy();expect(screen.queryByRole('button',{name:'恢复自动'})).toBeNull();
+ view.unmount();mount('finance-fee-items');const feeCode=document.querySelector('[data-field=code]')!;
+ fireEvent.click(within(feeCode as HTMLElement).getByRole('button',{name:'修改'}));expect(within(feeCode as HTMLElement).getByRole('button',{name:'自动'})).toBeTruthy();expect(screen.queryByText('费用单必须挂归属对象')).toBeNull();
+ expect(within(document.querySelector('.rf-foot')as HTMLElement).getAllByRole('button').map(button=>button.textContent)).toEqual(['取消','保存草稿','保存并继续新增']);
+});
+
+it('费用草稿恢复停用状态，保存时独立弹理由并沿已有saveForm，草稿标记不进正式body',async()=>{
+ mocks.getDraft.mockResolvedValue({draft:{payload:{name:'停用费用草稿',direction:'expense',categoryId:3,__draftStatus:'inactive',__archiveState:{manualCode:false}}}});
+ const view=mount('finance-fee-items');await screen.findByText(/已恢复/);
+ expect((screen.getByLabelText('状态')as HTMLSelectElement).value).toBe('inactive');
+ fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(mocks.saveDraft).toHaveBeenCalledWith('party-draft',expect.objectContaining({payload:expect.objectContaining({__draftStatus:'inactive'})})));
+ view.unmount();mount('finance-fee-items');await screen.findByText(/已恢复/);
+ fireEvent.click(screen.getByRole('button',{name:'保存并继续新增'}));const dialog=await screen.findByRole('dialog',{name:'停用费用类型'});
+ fireEvent.change(within(dialog).getByRole('textbox'),{target:{value:'合成停用原因'}});fireEvent.click(within(dialog).getByRole('button',{name:'确认并保存'}));
+ await waitFor(()=>expect(mocks.saveForm).toHaveBeenCalledWith('finance-fee-items',expect.objectContaining({requestKey:expect.any(String),status:'inactive',statusReason:'合成停用原因',collections:[],values:expect.objectContaining({name:'停用费用草稿'})})));
+ expect(mocks.saveForm.mock.calls[0][1].values).not.toHaveProperty('__draftStatus');expect(mocks.create).not.toHaveBeenCalled();
+});
+
+const copiedSupplier=():ResourceDto=>({id:41,type:'finance-suppliers',statusReason:null,createdAt:'2026-11-04T00:00:00Z',updatedAt:'2026-11-04T00:00:00Z',version:'source-v1',title:'源供应商',status:'active',data:{name:'源供应商',categoryIds:[3],paymentQr:[71],bankAccountName:'原户名',bank:'原银行',bankAccountNo:'6222123456789000'},files:{71:{id:71,name:'原收款码.png',mime:'image/png',size:8}},refLabels:{},secretConfigured:{}});
+it('供应商复制保留原可见银行账号和收款码预览，取消零写入，其他sensitive/files默认不复制',async()=>{
+ const def=getResourceDef('finance-suppliers')!,row=copiedSupplier(),close=vi.fn();
+ const initial=copyInitialOf(def,row);expect(initial.bankAccountNo).toBe('6222123456789000');
+ expect(copyValuesOf({...def,fields:def.fields.map(field=>({...field,copyOnCreate:undefined}))},row.data)).not.toHaveProperty('bankAccountNo');
+ render(<RecordForm def={def} record={null} initial={initial} onClose={close} onSaved={()=>undefined} onContinued={()=>undefined}/>);
+ expect(screen.getByText('原收款码.png')).toBeTruthy();expect((screen.getByLabelText('银行账号')as HTMLInputElement).value).toBe('6222123456789000');
+ expect(mocks.saveForm).not.toHaveBeenCalled();fireEvent.click(within(document.querySelector('.rf-foot')as HTMLElement).getByRole('button',{name:'关闭'}));expect(close).toHaveBeenCalled();expect(mocks.create).not.toHaveBeenCalled();expect(mocks.saveForm).not.toHaveBeenCalled();
+});
+it('复制最终saveForm才发送真实source版本/文件IDs，连续保留新增以上次新绑定为源，空白继续后不继承',async()=>{
+ const def=getResourceDef('finance-suppliers')!,row=copiedSupplier();
+ mocks.saveForm.mockResolvedValue({...row,id:42,version:'copy-v2',title:'新副本',data:{...row.data,paymentQr:[72]},files:{72:{id:72,name:'副本收款码.png',mime:'image/png',size:8}}});
+ render(<RecordForm def={def} record={null} initial={copyInitialOf(def,row)} onClose={()=>undefined} onSaved={()=>undefined} onContinued={()=>undefined}/>);
+ fireEvent.click(screen.getByRole('button',{name:'不清除保存继续新增'}));await screen.findByText(/可以继续新增/);
+ expect(mocks.saveForm).toHaveBeenLastCalledWith('finance-suppliers',expect.objectContaining({copySource:{id:41,version:'source-v1',files:{paymentQr:[71]}},values:expect.objectContaining({paymentQr:[],bankAccountNo:'6222123456789000'})}));
+ fireEvent.click(screen.getByRole('button',{name:'保存并继续新增'}));await waitFor(()=>expect(mocks.saveForm).toHaveBeenCalledTimes(2));
+ expect(mocks.saveForm.mock.calls[1][1].copySource).toEqual({id:42,version:'copy-v2',files:{paymentQr:[72]}});
+ await waitFor(()=>expect((screen.getByLabelText(/供应商名称/)as HTMLInputElement).value).toBe(''));
+ fireEvent.change(screen.getByLabelText(/供应商名称/),{target:{value:'后续普通新增'}});fireEvent.click(within(document.querySelector('.rf-foot')as HTMLElement).getByRole('button',{name:'保存'}));await waitFor(()=>expect(mocks.create).toHaveBeenCalled());
+ expect(mocks.create.mock.calls.at(-1)![1].paymentQr).toEqual([]);
+});
+it('复制预览可删除或换图，保存只绑定新上传不再克隆原图',async()=>{
+ const def=getResourceDef('finance-suppliers')!,row=copiedSupplier();mocks.upload.mockResolvedValue({id:99,name:'替换图.png',mime:'image/png',size:8});
+ render(<RecordForm def={def} record={null} initial={copyInitialOf(def,row)} onClose={()=>undefined} onSaved={()=>undefined} onContinued={()=>undefined}/>);
+ fireEvent.change(screen.getByLabelText('上传收款码'),{target:{files:[new File(['png'],'替换图.png',{type:'image/png'})]}});await screen.findByText('替换图.png');
+ fireEvent.click(within(document.querySelector('.rf-foot')as HTMLElement).getByRole('button',{name:'保存'}));await waitFor(()=>expect(mocks.saveForm).toHaveBeenCalled());expect(mocks.saveForm.mock.calls[0][1]).toMatchObject({copySource:{id:41,files:{}},values:{paymentQr:[99]}});
+});
+
+it('复制窗口移除原收款码后保存不克隆且保持银行原值',async()=>{
+ const row=copiedSupplier();render(<RecordForm def={getResourceDef('finance-suppliers')!} record={null} initial={copyInitialOf(getResourceDef('finance-suppliers')!,row)} onClose={()=>undefined} onSaved={()=>undefined}/>);
+ fireEvent.click(screen.getByRole('button',{name:'移除 原收款码.png'}));expect(screen.queryByText('原收款码.png')).toBeNull();
+ fireEvent.submit(document.querySelector('form')!);await waitFor(()=>expect(mocks.saveForm).toHaveBeenCalled());expect(mocks.saveForm.mock.calls[0][1]).toMatchObject({copySource:{files:{}},values:{paymentQr:[],bankAccountNo:'6222123456789000'}});
 });

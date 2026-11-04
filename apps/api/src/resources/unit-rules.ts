@@ -12,8 +12,9 @@ const str = (v: unknown) => (v === undefined || v === null ? '' : String(v));
 /** 商品档案里用到这一项的数量：编码类存编码，系统规格存名称（旧系统删除/改编码前的“已被引用”检查） */
 export async function productsUsingUnit(em: EntityManager, companyId: number, kind: string, value: string): Promise<number> {
   const col: Record<string, { field: string; extra?: string }> = {
-    spec_unit: { field: 'specUnit', extra: "AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.archiveType')), '') <> 'shipping_material'" },
-    shipping_unit: { field: 'specUnit', extra: "AND JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.archiveType')) = 'shipping_material'" },
+    archive_unit:{field:'specUnit',extra:"AND JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.unitDictionaryKind')) = 'archive_unit'"},
+    spec_unit: { field: 'specUnit', extra: "AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.archiveType')), '') <> 'shipping_material' AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.unitDictionaryKind')), '') <> 'archive_unit'" },
+    shipping_unit: { field: 'specUnit', extra: "AND JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.archiveType')) = 'shipping_material' AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.unitDictionaryKind')), '') <> 'archive_unit'" },
     packaging_unit: { field: 'productPackagingUnit' },
     system_spec: { field: 'purchaseSpec' },
     packaging_category: { field: 'packagingCategory' },
@@ -26,8 +27,10 @@ export async function productsUsingUnit(em: EntityManager, companyId: number, ki
     .where("r.companyId = :c AND r.type = 'finance-products'", { c: companyId })
     .andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${c.field}')) = :v ${c.extra ?? ''}`, { v: value })
     .getCount();
-  if (!['spec_unit', 'shipping_unit'].includes(kind)) return products;
-  const lines = await em.createQueryBuilder(ResourceRecord, 'r')
+  if (!['archive_unit','spec_unit', 'shipping_unit'].includes(kind)) return products;
+  const codes=kind==='spec_unit' ? await em.createQueryBuilder(ResourceRecord,'r').where("r.companyId=:c AND r.type='finance-base-codes'",{c:companyId}).andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.codeSpecUnit')) = :v",{v:value}).getCount() : 0;
+  const baseLines=kind==='archive_unit' ? await em.createQueryBuilder(ResourceRecord,'r').where("r.companyId=:c AND r.type='finance-base-code-lines'",{c:companyId}).andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.unit')) = :v",{v:value}).getCount() : 0;
+  const lines = kind==='archive_unit' ? 0 : await em.createQueryBuilder(ResourceRecord, 'r')
     .where("r.companyId = :c AND r.type = 'finance-bundle-lines'", { c: companyId })
     .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.unit')) = :v", { v: value }).getCount();
   let capacityProducts = 0;
@@ -38,7 +41,7 @@ export async function productsUsingUnit(em: EntityManager, companyId: number, ki
       .andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.archiveType')) IN ('package','oem_package')").getMany();
     capacityProducts = packaging.filter(row => String(row.data.specUnit ?? '') !== value && packagingCapacities(row.data.capacities, units).some(capacity => (capacity.code || capacity.unit) === value)).length;
   }
-  return products + lines + capacityProducts;
+  return products + lines + capacityProducts + codes + baseLines;
 }
 
 /** 常用单位用固定编码（克 G、千克 KG…），其它取名称拼音首字母（对照旧系统 suggestUnitCode） */

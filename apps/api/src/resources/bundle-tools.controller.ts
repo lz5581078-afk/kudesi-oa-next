@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, BadRequestException } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Length, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
@@ -76,6 +76,13 @@ export class BundleToolsController {
   @RequirePermission('resource.finance-bundles.view')
   @Get('overview')
   overview(@CurrentUser() u: AuthUser) { return this.tools.overview(u); }
+
+  @RequirePermission('resource.finance-bundles.view')
+  @Get('summaries')
+  summaries(@CurrentUser() u: AuthUser, @Query('ids') value: unknown) {
+    if (typeof value !== 'string' || !/^[1-9]\d*(?:,[1-9]\d*)*$/.test(value)) throw new BadRequestException('组合ID必须是逗号分隔的正整数');
+    return this.tools.summaries(u, value.split(',').map(Number));
+  }
 
   @RequirePermission('resource.finance-bundles.create')
   @Post('preview')

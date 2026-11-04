@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
-import { createChecker, permissionOwner, resourcePermission, resolveProductSections, todayShanghai, unitYuanText, type ResourceDef } from '@kudesi/shared';
+import { createChecker, restrictedFieldKeys, permissionOwner, resourcePermission, resolveProductSections, todayShanghai, unitYuanText, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { resourceApi, type ResourceDto } from './api';
 import { resourceFields, resourceGroups, resourceFieldWide } from './resourceFieldLayout';
@@ -19,10 +19,11 @@ export function FinanceSection({ title, hint, step, children, className = '' }: 
 export function FinanceFields({ def, record, keys }: { def: ResourceDef; record: ResourceDto; keys: Array<string | [string, string]> }) {
   const { user } = useAuth();
   const can = user ? createChecker(user.permissions) : () => false;
+  const restricted = restrictedFieldKeys(def, can);
   return <dl className="finance-view-fields">{keys.map(item => {
     const [key, label] = typeof item === 'string' ? [item, undefined] : item;
     const field = def.fields.find(f => f.key === key);
-    if (!field || field.permission && !can(field.permission) || field?.showWhen && !field.showWhen.in.includes(String(field.showWhen.field === 'status' ? record.status : record.data[field.showWhen.field] ?? ''))) return null;
+    if (!field || restricted.has(key) || field?.showWhen && !field.showWhen.in.includes(String(field.showWhen.field === 'status' ? record.status : record.data[field.showWhen.field] ?? ''))) return null;
     return <Fragment key={key}><div data-field={key} data-kind={field.type} className={resourceFieldWide(field) ? 'wide' : undefined}><dt>{label ?? field.label}</dt><dd>{field.type === 'secret' ? <SecretCell def={def} record={record} fieldKey={key} /> : field.type === 'files'
       ? <FileList ids={Array.isArray(record.data[key]) ? record.data[key] as number[] : []} files={record.files} />
       : <InfoValue def={def} record={record} f={field} today={todayShanghai()} canView={type => can(resourcePermission(permissionOwner(type), 'view'))} />}</dd></div>{def.key === 'finance-fee-items' && key === 'isCommon' && <div data-field="requiresObject"><dt>费用单必须挂归属对象</dt><dd>{String(record.data.defaultObject || '').split(/[、,，]/).some(n => n && n !== '公司' && n !== '不固定') ? '是' : '否'}</dd></div>}</Fragment>;

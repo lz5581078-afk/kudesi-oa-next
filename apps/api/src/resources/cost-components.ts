@@ -24,6 +24,8 @@ export function calculateCostComponents(d: ComponentContext, bundleId: number): 
       unit = labor ? num(labor.data.unitPrice) : null;
       name = labor?.title ?? '人工'; code = str(labor?.data.code) || '人工';
       unitName = str(labor?.data.unitName).replace(/^元\s*[\/／]\s*/, '');
+    } else if(line.productId!=null){
+      const product=d.products.get(Number(line.productId));unit=num(product?.data.totalCost);weight=num(product?.data.weightG);code=str(product?.data.code);name=product?.title ?? '';unitName=str(line.unit)||str(product?.data.specUnit);
     } else {
       const selected = d.baseCodes.get(num(line.baseCodeId) ?? -1);
       const base = typeof selected?.data.canonicalId === 'number' ? d.baseCodes.get(selected.data.canonicalId) : selected;
@@ -39,7 +41,8 @@ export function calculateCostComponents(d: ComponentContext, bundleId: number): 
           unit = unit === null || price === null || quantity <= 0 ? null : sumUnitCents([unit, multiplyUnitCents(price, quantity)]);
           weight = weight === null || grams === null || quantity <= 0 ? null : weight + grams * quantity;
         }
-      } else { unit = product ? num(product.data.totalCost) : null; weight = product ? num(product.data.weightG) : null; }
+      } else if(base?.data.origin==='external_import'){unit=num(base.data.externalCost);weight=num(base.data.weightG);unitName=str(line.unit)||str(base.data.baseUnit)||str(base.data.codeSpecUnit);}
+      else { unit = product ? num(product.data.totalCost) : null; weight = product ? num(product.data.weightG) : null; }
       // 专属重量与来源商品的自动重量独立；马甲使用真实编码的专属重量。
       if (base?.data.profileWeightOverride !== undefined) weight = num(base.data.profileWeightOverride);
     }
@@ -64,7 +67,7 @@ export async function costCompositionFacts(em: EntityManager, companyId: number,
   if (canonicalIds.length) bases.push(...await em.find(ResourceRecord, { where: { companyId, type: 'finance-base-codes', id: In(canonicalIds) } }));
   const allBaseIds = bases.map(base => base.id);
   const parts = allBaseIds.length ? await em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type', { companyId, type: 'finance-base-code-lines' }).andWhere("JSON_EXTRACT(r.data, '$.baseCodeId') IN (:...baseIds)", { baseIds: allBaseIds }).getMany() : [];
-  const productIds = [...new Set([...bases.map(base => num(base.data.productId)), ...parts.map(part => num(part.data.productId))].filter((id): id is number => id !== null))];
+  const productIds = [...new Set([...bases.map(base => num(base.data.productId)), ...parts.map(part => num(part.data.productId)),...input.map(line=>num(line.productId))].filter((id): id is number => id !== null))];
   const products = productIds.length ? await em.find(ResourceRecord, { where: { companyId, type: 'finance-products', id: In(productIds) } }) : [];
   const labor = laborIds.length ? await em.find(ResourceRecord, { where: { companyId, type: 'finance-labor-costs', id: In(laborIds) } }) : [];
   const map = (rows: ResourceRecord[]) => new Map(rows.map(row => [row.id, row]));

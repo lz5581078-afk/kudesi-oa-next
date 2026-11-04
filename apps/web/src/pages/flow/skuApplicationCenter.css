@@ -1,0 +1,11 @@
+.modal.card.sku-application-center{display:flex;flex-direction:column;width:min(1320px,calc(100vw - 36px));max-height:calc(100dvh - 36px);overflow:hidden;padding:0;border-radius:14px;background:#f6f8fb}
+.sku-application-center>.modal-head{padding:16px 22px;border-bottom:1px solid #dce4ee;background:#fff}
+.sku-application-center>.modal-head h2{margin:0;font-size:20px;color:#1c2e44}
+.sku-application-center>.modal-body{overflow:auto;padding:18px 22px}
+.sku-application-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.sku-application-template{padding:14px;margin-bottom:18px;border:1px solid #dce5ed;border-radius:10px;background:#fff}
+.sku-application-template ol{display:flex;flex-wrap:wrap;gap:10px;padding:0;margin:12px 0 0;list-style:none}
+.sku-application-template li{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid #dde6ef;border-radius:8px}
+.sku-application-template li>span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#edf5ff;color:#2869aa}
+.sku-application-my-heading{display:flex;align-items:center;gap:10px;margin-bottom:10px}.sku-application-my-heading h3{margin:0}.sku-application-my-heading>button{margin-left:auto}
+.sku-application-list .data-table{background:#fff}.sku-application-list .data-table td{padding:12px;vertical-align:top}.sku-application-list .data-table td small{display:block;margin-top:4px;color:#738294;font-size:11px}.sku-application-list .data-table td>div+div{margin-top:8px}.sku-application-list .data-table td b{font-size:11px;margin-left:7px;color:#60758c}

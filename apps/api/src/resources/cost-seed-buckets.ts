@@ -13,6 +13,10 @@ const historyDay=(value:unknown)=>{const date=new Date(String(value));return Num
 export function costSeedBuckets(d:VersionSeedData,baseId:number,day:string,warnings:string[]=[]):Buckets {
   const selected=d.baseCodes.get(baseId),base=selected?.data.canonicalId?d.baseCodes.get(Number(selected.data.canonicalId)):selected,out=empty();
   if(!base){warnings.push(`基础编码 #${baseId} 不存在`);return out;}
+  if(base.data.origin==='external_import'){
+    if(typeof base.data.externalCost==='number')out.purchase=base.data.externalCost;else warnings.push(`${base.title} 没有导入成本，当前按 0 计算`);
+    return out;
+  }
   const links=base.data.origin==='composed'?d.baseCodeLines.filter(l=>l.data.baseCodeId===base.id):[{data:{productId:base.data.productId,qty:1}}];
   if(!links.length)warnings.push(`${base.title} 没有关联商品组成，当前按 0 计算`);
   for(const link of links){
@@ -44,6 +48,7 @@ export function bundleSeedBuckets(d:VersionSeedData,bundleId:number,day:string,w
     if(!valid(part,day) || (part.costTreatment && part.costTreatment!=='include'))continue;
     const amounts=empty();
     if(part.role==='labor')continue;
+    else if(part.productId!=null){const product=d.products.get(Number(part.productId));if(typeof product?.data.totalCost==='number')amounts.purchase=product.data.totalCost;else warnings.push('直接档案组件没有完整成本');}
     else Object.assign(amounts,costSeedBuckets(d,Number(part.baseCodeId),day,warnings));
     add(out,amounts,Number(part.qty || 0),Number(part.lossRate || 0));
   }

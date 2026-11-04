@@ -36,8 +36,6 @@ export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionI
   const [skip, setSkip] = useState<Set<number>>(new Set());
   const [batchName, setBatchName] = useState('');
   const [batchNote, setBatchNote] = useState('');
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
   const [remark, setRemark] = useState('');
 
   function pick(file: File | undefined) {
@@ -59,7 +57,7 @@ export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionI
       setPicked(file);
       setSkip(new Set(r.rows.flatMap((x, i) => (x.warnings.length ? [i] : []))));
       if (r.kind === 'surcharge_notice') { setBatchName(r.batchName || file.name.replace(/\.[^.]+$/, '')); setBatchNote(r.batchNote ?? ''); }
-      else { setStart(r.effectiveStart); setEnd(r.effectiveEnd); setRemark(r.extraRemark); }
+      else setRemark(r.extraRemark);
     } catch (e) { setError(err(e)); }
     setBusy(false);
     if (input.current) input.current.value = '';
@@ -72,8 +70,8 @@ export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionI
       if (result.kind === 'price_table') {
         const rules = correctedRecognitionRows(result, edits, skip) as RuleRow[];
         if (!rules.length) throw new Error('没有勾选任何价格行');
-        const r = await expressApi.confirmPrice(versionId, { rules, fileName: result.fileName, modelName: result.modelName, effectiveStart: start || undefined, effectiveEnd: end || undefined, extraRemark: remark || undefined });
-        onDone(`已导入 ${r.created} 条价格，并把这个版本的最终价格依据改为“AI 识别价格表”`);
+        const r = await expressApi.confirmPrice(versionId, { rules, fileName: result.fileName, modelName: result.modelName, effectiveStart: result.effectiveStart || undefined, effectiveEnd: result.effectiveEnd || undefined, extraRemark: remark || undefined });
+        onDone(`已导入 ${r.created} 条 AI 识别价格`);
       } else {
         const rows = correctedRecognitionRows(result, edits, skip) as Array<Omit<SurchargeDraft, 'warnings'>>;
         if (!batchName.trim()) throw new Error('请填写批次名称');
@@ -125,12 +123,8 @@ export function RecognizeDialog({ versionId, kind, onClose, onDone }: { versionI
               {result.warnings.map((w) => <div key={w} className="bad-text">⚠ {w}</div>)}
               {result.kind === 'price_table' ? (
                 <>
-                  <div className="form-grid">
-                    <label>生效日期（版本里没填才会补上）<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
-                    <label>失效日期<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
-                  </div>
                   <label>识别到的合作口径 / 退改费等（会追加到版本备注）<textarea rows={4} value={remark} onChange={(e) => setRemark(e.target.value)} /></label>
-                  <p className="muted">确认后：会替换这个版本里已有的“AI 识别”价格，并把最终价格依据改为 AI 识别；手工那一套不动。</p>
+                  <p className="muted">确认后替换这个版本已有的 AI 识别价格，保留手工价格和已选择的最终价格依据。</p>
                 </>
               ) : (
                 <>

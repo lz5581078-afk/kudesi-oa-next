@@ -22,7 +22,7 @@ import { bundleLaborCost, bundleSeedBuckets, costSeedBuckets } from './cost-seed
 type Data = Record<string, unknown>;
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
-const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
+const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lines', 'finance-base-codes', 'finance-products', 'finance-labor-costs', 'finance-margins', 'finance-categories', 'finance-code-dictionaries', 'finance-express-prices', 'finance-freight-overrides', 'finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-freight-estimates'];
 const EXPRESS_TYPES = ['finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-express-prices'];
 
 export interface CostRow {
@@ -82,7 +82,7 @@ export class CostService {
     const {rows:estimateRows,parcelLimit}=readFreightSnapshot(snap,rows);
     return {
       bundles: by('finance-bundles'), lines: by('finance-bundle-lines'), baseCodeLines: by('finance-base-code-lines'), baseCodes: map('finance-base-codes'), products: map('finance-products'),
-      labor: map('finance-labor-costs'), margins: by('finance-margins'), categories: map('finance-categories'),
+      labor: map('finance-labor-costs'), margins: by('finance-margins'), categories: new Map([...by('finance-categories'),...by('finance-code-dictionaries').filter(row=>row.data.kind==='product_category')].map(row=>[row.id,row])),
       groups, freight: { rows: estimateRows, parcelLimit },
     };
   }
@@ -118,7 +118,7 @@ export class CostService {
 
   row(d: CostData, b: ResourceRecord, previous?: RegisteredCostValues): CostRow {
     const { lines, cost: currentCost, issues, weightG: automaticWeightG } = calculateCostComponents(d, b.id);
-    const categoryId = num(b.data.bundleCategoryId);
+    const categoryId = num(b.data.codeDictionaryCategoryId) ?? num(b.data.bundleCategoryId);
     const cost = currentCost ?? previous?.preShipCostCents ?? null;
     const currentWeightG = str(b.data.weightMode) === 'manual' ? num(b.data.manualWeightG) : automaticWeightG;
     let weightG = currentWeightG !== null && currentWeightG > 0 ? currentWeightG : previous?.weightG ?? null;
@@ -167,7 +167,7 @@ export class CostService {
     const mine = new Map(d.margins.map((m) => [str(m.data.scopeKey), m]));
     const categories: CategoryNode[] = [];
     for (const c of d.categories.values()) {
-      if (c.status !== 'active' || c.data.archiveType !== 'bundle') continue; // 只列组合分类树
+      if (c.status !== 'active' || c.data.archiveType !== 'bundle' && c.data.kind!=='product_category') continue; // 只列组合分类树
       const own = mine.get(`cat:${c.id}`);
       const ownPercent = own ? num(own.data.profitPercent) : null;
       const count = total(c.id);
@@ -200,7 +200,7 @@ export class CostService {
     });
     for (const base of d.baseCodes.values()) {
       if (!COST_TABLE_STATUSES.includes(base.status) || typeof base.data.canonicalId==='number') continue;
-      const row = this.row({...d,lines:[Object.assign(new ResourceRecord(),{id:base.id,data:{bundleId:base.id,baseCodeId:base.id,role:'main',qty:1}})]}, {...base,data:{...base.data,bundleCategoryId:base.data.categoryId}});
+      const row = this.row({...d,lines:[Object.assign(new ResourceRecord(),{id:base.id,data:{bundleId:base.id,baseCodeId:base.id,role:'main',qty:1}})]}, {...base,data:{...base.data,bundleCategoryId:base.data.codeDictionaryCategoryId ?? base.data.categoryId}});
       const warnings:string[]=[];
       const productIds = base.data.productId ? [Number(base.data.productId)] : d.baseCodeLines.filter(l=>l.data.baseCodeId===base.id).map(l=>Number(l.data.productId));
       seeds.push({skuType:'base_code',skuId:base.id,row,buckets:costSeedBuckets(context,base.id,businessDate,warnings),warnings,productIds,categoryIds:row.categoryId ? [row.categoryId] : []});

@@ -1,0 +1,35 @@
+import {useEffect,useRef,useState} from 'react';
+import {useAuth} from '../../auth/AuthContext';
+import {ApiError} from '../../api/client';
+import {ApplyPage} from './ApplyPage';
+import {RunsPage} from './RunsPage';
+import {SkuBatchPanel} from './SkuBatchPanel';
+import {SKU_TEMPLATE} from './SkuApply';
+import {flowApi,type TemplateInfo} from './flowApi';
+import './skuApplicationCenter.css';
+
+/** 商品组合编码的申请入口，先显示自己的真实申请，再显式发起。 */
+export function SkuApplicationCenter({onClose}:{onClose:()=>void}){
+ const {user}=useAuth();
+ const identity=JSON.stringify([user?.companyId,user?.id,user?.permissions.isCompanyAdmin,[...(user?.permissions.allow??[])].sort(),[...(user?.permissions.deny??[])].sort()]);
+ return <SkuApplicationWorkspace key={identity} onClose={onClose}/>;
+}
+function SkuApplicationWorkspace({onClose}:{onClose:()=>void}){
+ const {can}=useAuth();
+ const host=useRef<HTMLElement>(null);
+ const [template,setTemplate]=useState<TemplateInfo|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[creating,setCreating]=useState(false),[revision,setRevision]=useState(0),[batch,setBatch]=useState<string|null>(null);
+ useEffect(()=>{let alive=true;flowApi.templates().then(rows=>{if(alive)setTemplate(rows.find(row=>row.key===SKU_TEMPLATE)??null);}).catch(e=>{if(alive)setError(e instanceof ApiError?e.message:'申请模板加载失败');}).finally(()=>{if(alive)setLoading(false);});return()=>{alive=false;};},[]);
+ useEffect(()=>{const close=(event:KeyboardEvent)=>{if(event.key==='Escape'&&!event.defaultPrevented&&!creating&&!batch&&!host.current?.querySelector('[role="dialog"]')){event.preventDefault();onClose();}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[creating,batch,onClose]);
+ return <div className="modal-backdrop" role="presentation"><section ref={host} className="modal card sku-application-center" role="dialog" aria-modal="true" aria-label="SKU批量申请">
+  <header className="modal-head between"><h2>SKU批量申请</h2><button type="button" className="icon-button" aria-label="关闭SKU批量申请" autoFocus onClick={onClose}>✕</button></header>
+  <div className="modal-body">
+   <div className="sku-application-toolbar"><button type="button" className="primary-button" disabled={loading||!can('flow.apply.view')||!template?.active||template.startable===false} onClick={()=>setCreating(true)}>新建申请</button></div>
+   {error&&<div role="alert" className="notice error">{error}</div>}
+   {!loading&&!template&&<p className="notice">尚未建立SKU申请模板。</p>}
+   {template&&<section className="sku-application-template"><strong>{template.label} <span className="pill">{template.active?'已启用':'未启用'}</span></strong>{!template.active&&<p>模板未启用，暂不能提交申请。</p>}{template.steps?.length? <ol aria-label="申请办理步骤">{template.steps.map((step,index)=><li key={`${index}:${step.name}`}><span>{index+1}</span><strong>{step.name}</strong><small>{step.type==='end'?'完成归档':''}</small></li>)}</ol>:null}</section>}
+   <RunsPage view="started" skuApplications reloadToken={revision}/>
+  </div>
+  {creating&&template&&<ApplyPage initialTemplate={template} onClose={()=>setCreating(false)} onSubmitted={ref=>{setCreating(false);setRevision(value=>value+1);setBatch(ref);}}/>}
+  {batch&&<SkuBatchPanel key={batch} batchKey={batch} onClose={()=>setBatch(null)} onChanged={()=>setRevision(value=>value+1)}/>}
+ </section></div>;
+}

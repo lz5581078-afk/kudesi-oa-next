@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { phoneStoreImportColumns, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
 import { csvToObjects, downloadText, parseCsv, toCsv } from './csv';
@@ -18,6 +18,8 @@ async function readCsvText(file: File): Promise<string> {
 
 /** 导入：先选文件 → 预览（逐行校验，不落库）→ 无错误才允许确认导入；有错整体不导入。 */
 export function ImportDialog({ def, onClose, onDone, embedded = false, parentId }: { def: ResourceDef; onClose: () => void; onDone: (message?: string) => void; embedded?: boolean; parentId?: number }) {
+  const mounted=useRef(false),sequence=useRef(0),inFlight=useRef(false);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;sequence.current++;};},[]);
   const [onlyBad, setOnlyBad] = useState(false);
   useCategoryVersion();
   const optsOf = (f: FieldDef) => selectChoices(def.key, f, (x) => x.options ?? [], { mode: 'form' }); // 页签分类用本公司的名称
@@ -29,51 +31,46 @@ export function ImportDialog({ def, onClose, onDone, embedded = false, parentId 
   const [over, setOver] = useState(false);
   const [backups, setBackups] = useState<ImportBackupInfo[]>([]);
   const [restoreMsg, setRestoreMsg] = useState('');
-  const loadBackups = () => def.key.startsWith('finance-cost-') ? Promise.resolve() : resourceApi.importBackups(def.key).then(setBackups).catch(() => setBackups([]));
+  const loadBackups = () => def.key.startsWith('finance-cost-') ? Promise.resolve() : resourceApi.importBackups(def.key).then(items=>{if(mounted.current)setBackups(items);}).catch(() => {if(mounted.current)setBackups([]);});
   useEffect(() => { void loadBackups(); }, [def.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const importable = def.fields.filter((f) => (f.type !== 'secret' || f.importable) && f.type !== 'attrs' && !f.readonly && (!parentId || f.key !== def.parent?.field));
+  const importable = def.fields.filter((f) => (f.type !== 'secret' || f.importable) && f.type !== 'attrs' && !f.readonly && !f.listOnly && (!parentId || f.key !== def.parent?.field));
   // 手机号导入：各平台“编号 / 店铺”列，把号码绑到对应平台的店铺
   const extraHeaders = def.key === 'phones' ? phoneStoreImportColumns().flatMap((c) => [c.noHeader, c.nameHeader]) : [];
 
   async function onFile(file: File | undefined) {
-    if (!file) return;
-    setError('');
-    setPreview(null);
-    if (file.size > 10 * 1024 * 1024) { setRows([]); setFileName(''); return setError(`文件 ${(file.size / 1048576).toFixed(1)} MB，超过 10 MB 上限，请拆成多个文件分别导入`); }
+    if (!file||inFlight.current) return;
+    const request=++sequence.current,current=()=>mounted.current&&sequence.current===request;
+    setError('');setPreview(null);setRows([]);setFileName('');
+    if (file.size > 10 * 1024 * 1024) return setError(`文件 ${(file.size / 1048576).toFixed(1)} MB，超过 10 MB 上限，请拆成多个文件分别导入`);
+    inFlight.current=true;setBusy(true);
     setFileName(`${file.name}（${file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / 1048576).toFixed(1)} MB`}）`);
-    let objects: Array<Record<string, string>>;
     try {
-      objects = csvToObjects(isXlsx(file) ? await readXlsxRows(file) : parseCsv(await readCsvText(file)));
-    } catch {
-      return setError('读不出这个文件，请用 .xlsx 或 .csv，第一行是表头');
-    }
-    if (objects.length === 0) return setError('文件里没有数据行（第一行应为表头）');
-    if (objects.length > 2000) return setError('一次最多导入 2000 行');
-    setRows(objects);
-    setBusy(true);
-    try {
-      setPreview(await resourceApi.import(def.key, objects, true, false, parentId));
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : '预览失败');
-    }
-    setBusy(false);
+      let objects:Array<Record<string,string>>;
+      try{objects=csvToObjects(isXlsx(file)?await readXlsxRows(file):parseCsv(await readCsvText(file)));}
+      catch{throw new Error('读不出这个文件，请用 .xlsx 或 .csv，第一行是表头');}
+      if(!current())return;
+      if(!objects.length)throw new Error('文件里没有数据行（第一行应为表头）');
+      if(objects.length>2000)throw new Error('一次最多导入 2000 行');
+      setRows(objects);
+      const result=await resourceApi.import(def.key,objects,true,false,parentId);
+      if(current())setPreview(result);
+    }catch(e){if(current())setError(e instanceof Error?e.message:'预览失败');}
+    finally{if(current()){inFlight.current=false;setBusy(false);}}
   }
 
   async function commit(partial = false) {
-    setBusy(true);
+    if(inFlight.current||!preview||!rows.length||(!partial&&preview.failed>0))return;
+    inFlight.current=true;const request=++sequence.current,current=()=>mounted.current&&sequence.current===request;
+    setBusy(true);setError('');
     try {
-      const res = await resourceApi.import(def.key, rows, false, partial, parentId);
-      if (!res.committed) {
-        setPreview(res);
-        setBusy(false);
-        return;
-      }
-      onDone(`导入完成：新建 ${res.created} 条，更新 ${res.updated} 条${res.failed ? `，跳过有问题的 ${res.failed} 行` : ''}。`);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : '导入失败');
-      setBusy(false);
-    }
+      const res=await resourceApi.import(def.key,rows,false,partial,parentId);
+      if(!current())return;
+      if(!res.committed){setPreview(res);return;}
+      setRows([]);setPreview(null);setFileName('');
+      onDone(`导入完成：新建 ${res.created} 条，更新 ${res.updated} 条${res.failed?`，跳过有问题的 ${res.failed} 行`:''}。`);
+    }catch(e){if(current())setError(e instanceof ApiError?e.message:'导入失败');}
+    finally{if(current()){inFlight.current=false;setBusy(false);}}
   }
 
   async function restore(b: ImportBackupInfo) {
@@ -100,13 +97,14 @@ export function ImportDialog({ def, onClose, onDone, embedded = false, parentId 
     if (files.length > 1) return setError('一次只能导入一个文件，请只拖入一个');
     void onFile(files[0]);
   }
-  function discard() { setRows([]); setPreview(null); setFileName(''); setError(''); }
+  function discard() { if(inFlight.current)return;setRows([]); setPreview(null); setFileName(''); setError(''); }
   function errorReport() {
     if (!preview) return;
     const bad = preview.results.filter((r) => r.action === 'error');
     downloadText(`${def.label}-导入错误报告.csv`, toCsv([['行号', '问题'], ...bad.map((r) => [String(r.line), r.errors.join('；')])]));
   }
   const instructions = () => downloadText(`${def.label}-填写说明.csv`, toCsv(instructionRows()));
+
 
   return (
     <div className={embedded ? 'import-inline' : 'modal-backdrop'} role="presentation">

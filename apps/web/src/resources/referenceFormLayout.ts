@@ -7,11 +7,11 @@ export function referenceRecordLabel(type: string, values: Record<string, unknow
 }
 
 /** 顺序取自 24 号往来档案编辑界面；新增的数据字段保留在补充资料区。 */
-export function referencePartyGroups(type: string, fields: FieldDef[]): Array<[string, FieldDef[]]> {
+export function referencePartyGroups(type: string, fields: FieldDef[],creating=false): Array<[string, FieldDef[]]> {
   const groups: ReadonlyArray<readonly [string, readonly string[]]> = type === 'finance-fee-items'
     ? [['基础信息', ['code', 'name', 'categoryId']], ['费用设置', ['accountingSubject', 'direction', 'platform', 'isCommon', 'needFlow']], ['挂账节点', ['defaultObject']], ['其他说明', ['relationRequirement', 'note']]]
-    : type === 'finance-customers' ? [['基础信息', ['categoryIds', 'code', 'name', 'contact', 'phone', 'note']]]
-    : [['归入分类', ['categoryIds']], ['系统自动编号', ['code']], ['基础资料', ['name', 'shortName', 'shortCode']], ['联系资料', ['contact', 'phone', 'note']], ['收款与银行资料', ['bankAccountName', 'bank', 'bankAccountNo', 'paymentQr']]];
+    : type === 'finance-customers' && !creating ? [['基础信息', ['categoryIds', 'code', 'name', 'contact', 'phone', 'note']]]
+    : [['归入分类', ['categoryIds']], ['系统自动编号', ['code']], ['基础资料', type==='finance-customers'?['name']:['name', 'shortName', 'shortCode']], ['联系资料', ['contact', 'phone', 'note']], ...(type==='finance-suppliers' ? [['收款与银行资料', ['bankAccountName', 'bank', 'bankAccountNo', 'paymentQr']]] as const : [])];
   const used = new Set<string>(), result: Array<[string, FieldDef[]]> = [];
   for (const [title, keys] of groups) {
     const list = keys.flatMap(key => { const f = fields.find(f => f.key === key); if (!f) return []; used.add(key); return [{ ...f, label: type === 'finance-fee-items' ? ({categoryId:'所属费用目录',code:'费用类型编号',name:'费用类型名称',accountingSubject:'会计/核算科目',isCommon:'是否常用',defaultObject:'挂账节点',note:'备注'} as Record<string,string>)[key] ?? f.label : key === 'phone' ? '联系电话' : key === 'bankAccountNo' ? '银行账号' : f.label }]; });

@@ -1,3 +1,4 @@
+import { listSkuApplications } from './sku-application-list';
 import { LiveOrderSource } from '../live/live-order-source';
 import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
@@ -416,46 +417,50 @@ export class FlowService {
   // ================= 发起 =================
 
   async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string, opts: { internal?: boolean } = {}) {
+    return this.dataSource.transaction(em=>this.startIn(em,user,templateKey,payloadIn,requestKey,opts));
+  }
+
+  /** 同一现入场内核；批量业务传入外层事务，不另外开启连接或流程引擎。 */
+  async startIn(em:EntityManager,user:AuthUser,templateKey:string,payloadIn:Record<string,unknown>,requestKey?:string,opts:{internal?:boolean}={}){
+    if(!em.queryRunner?.isTransactionActive)throw new BadRequestException('流程入场必须在事务中执行');
     if (!opts.internal) {
       // 有专门业务页面的流程（售后、申诉）：权限由业务模块自己判断，申请中心/接口不能绕过业务页面直接发起
-      const t0 = await this.tpl(this.dataSource.manager, user.companyId, templateKey);
+      const t0 = await this.tpl(em, user.companyId, templateKey);
       if (t0.entry) throw new BadRequestException(`这条流程要${t0.entry.label}`);
       this.need(user, 'flow.apply.view', '没有发起流程的权限');
     }
     if (requestKey !== undefined && !/^[A-Za-z0-9_-]{12,80}$/.test(requestKey)) throw new BadRequestException('requestKey 要 12 到 80 位字母数字');
-    return this.dataSource.transaction(async (em) => {
-      if (requestKey) {
-        const dup = await em.findOne(FlowRun, { where: { companyId: user.companyId, requestKey } });
-        if (dup) return this.detailIn(em, user, dup.id);
-      }
-      const def = await em.findOne(FlowDefinition, { where: { companyId: user.companyId, templateKey: templateKey, status: 'active' } });
-      if (!def) {
-        await this.tpl(em, user.companyId, templateKey); // 不存在的流程给“没有这种流程”
-        throw new BadRequestException('这条流程还没有启用，请管理员先在“流程配置”里配置办理人并发布');
-      }
-      if (!(await this.canStartWith(em, user, def.starterScope))) throw new ForbiddenException('你不在这条流程的发起人范围内，不能发起；需要发起请联系管理员调整发起人范围');
-      const t = await this.tpl(em, user.companyId, templateKey, def.id);
-      const adapter = adapterFor(t);
-      const checked = validateResourceInput(pseudoDef(t.key, t.fields), this.without(payloadIn, this.restricted(user, t.fields)), { status: '' });
-      if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
-      const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
-      await adapter.validateStart?.({ em, user, payload, ...this.svc() });
-      const title = await adapter.title(em, user.companyId, payload);
-      const steps = def.steps as StepDef[];
-      const ins = await em.insert(FlowRun, {
-        companyId: user.companyId, definitionId: def.id, templateKey: t.key, title, status: 'running', requesterId: user.id,
-        currentStepKey: steps[0].key, payload, stepsSnapshot: steps, escalateUserIds: def.escalateUserIds, requestKey: requestKey ?? null,
-      } as never);
-      const run = (await em.findOne(FlowRun, { where: { id: Number(ins.identifiers[0].id) } }))!;
-      const first = await em.insert(FlowStep, {
-        companyId: user.companyId, runId: run.id, seq: 1, stepKey: steps[0].key, stepName: steps[0].name, stepType: steps[0].type,
-        status: 'done', recipients: [user.id], handledBy: user.id, action: 'submit', finishedAt: new Date(),
-      });
-      await this.event(em, run, user.id, 'submit', Number(first.identifiers[0].id));
-      await adapter.onStart?.({ em, user, payload, run, ...this.svc() });
-      await this.enter(em, user, run, steps, 1, 'normal');
-      return this.detailIn(em, user, run.id);
+    if (requestKey) {
+      const dup = await em.findOne(FlowRun, { where: { companyId: user.companyId, requestKey } });
+      if (dup) return this.detailIn(em, user, dup.id);
+    }
+    const def = await em.findOne(FlowDefinition, { where: { companyId: user.companyId, templateKey: templateKey, status: 'active' } });
+    if (!def) {
+      await this.tpl(em, user.companyId, templateKey); // 不存在的流程给“没有这种流程”
+      throw new BadRequestException('这条流程还没有启用，请管理员先在“流程配置”里配置办理人并发布');
+    }
+    if (!(await this.canStartWith(em, user, def.starterScope))) throw new ForbiddenException('你不在这条流程的发起人范围内，不能发起；需要发起请联系管理员调整发起人范围');
+    const t = await this.tpl(em, user.companyId, templateKey, def.id);
+    const adapter = adapterFor(t);
+    const checked = validateResourceInput(pseudoDef(t.key, t.fields), this.without(payloadIn, this.restricted(user, t.fields)), { status: '' });
+    if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
+    const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
+    await adapter.validateStart?.({ em, user, payload, ...this.svc() });
+    const title = await adapter.title(em, user.companyId, payload);
+    const steps = def.steps as StepDef[];
+    const ins = await em.insert(FlowRun, {
+      companyId: user.companyId, definitionId: def.id, templateKey: t.key, title, status: 'running', requesterId: user.id,
+      currentStepKey: steps[0].key, payload, stepsSnapshot: steps, escalateUserIds: def.escalateUserIds, requestKey: requestKey ?? null,
+    } as never);
+    const run = (await em.findOne(FlowRun, { where: { id: Number(ins.identifiers[0].id) } }))!;
+    const first = await em.insert(FlowStep, {
+      companyId: user.companyId, runId: run.id, seq: 1, stepKey: steps[0].key, stepName: steps[0].name, stepType: steps[0].type,
+      status: 'done', recipients: [user.id], handledBy: user.id, action: 'submit', finishedAt: new Date(),
     });
+    await this.event(em, run, user.id, 'submit', Number(first.identifiers[0].id));
+    await adapter.onStart?.({ em, user, payload, run, ...this.svc() });
+    await this.enter(em, user, run, steps, 1, 'normal');
+    return this.detailIn(em, user, run.id);
   }
 
   /** 进入第 idx 步：解析办理人、建步骤记录和待办、抄送、通知；end 步直接完成流程 */
@@ -987,7 +992,11 @@ export class FlowService {
     };
   }
 
-  async listRuns(user: AuthUser, q: { view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page: number; pageSize: number }) {
+  async listRuns(user: AuthUser, q: { groupSku?:boolean; view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page: number; pageSize: number }) {
+    if(q.groupSku){
+      if(q.view!=='started' || q.templateKey!=='sku-batch-apply' || q.status || q.overdue || q.departmentId || q.handler || q.returned)throw new BadRequestException('SKU申请汇总只支持我的SKU申请范围');
+      return listSkuApplications(this.dataSource,user,q,ids=>this.userNames(this.dataSource.manager,user.companyId,ids),(await this.labelMap(user.companyId)).get('sku-batch-apply') ?? 'SKU批量申请');
+    }
     if (q.view === 'all') this.need(user, 'flow.overview.view', '没有查看流程总览的权限');
     const where = ['r.company_id = ?'];
     const args: unknown[] = [user.companyId];

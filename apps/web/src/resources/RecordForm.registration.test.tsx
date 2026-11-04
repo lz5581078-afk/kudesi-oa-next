@@ -3,6 +3,7 @@ import { afterEach,describe,expect,it,vi } from 'vitest';
 import { getResourceDef,type FieldDef } from '@kudesi/shared';
 import { clearRefCache,RefSelect } from './RecordForm';
 import { resourceApi,type ResourceDto } from './api';
+vi.mock('../auth/AuthContext',()=>({useAuth:()=>({user:{id:1,companyId:1,permissions:{isCompanyAdmin:true,allow:[],deny:[]}},can:()=>true})}));
 const row=(type:string,id:number,title:string,data:Record<string,unknown>,refLabels:Record<string,string>={}):ResourceDto=>({type,id,title,data,refLabels,status:'normal',statusReason:null,secretConfigured:{},files:{},createdAt:'2026-10-31T00:00:00Z',updatedAt:'2026-10-31T00:00:00Z'});
 afterEach(()=>{cleanup();clearRefCache();vi.restoreAllMocks();});
 describe('同号登记选择',()=>{

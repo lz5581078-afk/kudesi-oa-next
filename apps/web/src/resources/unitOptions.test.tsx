@@ -45,4 +45,16 @@ describe('商品档案的单位下拉读公司维护的列表', () => {
     expect(screen.getByRole('option', { name: '旧包材单位' })).toBeTruthy();
     expect(displayValue(unit, { data: { unit: 'BAG' }, secretConfigured: {}, refLabels: {} } as never)).toBe('旧包材单位');
   });
+  it('导入档案同码不同名严格按单位来源选择与显示，旧记录继续原规格单位',()=>{
+    resetUnitOptionsForTest({archive_unit:[{value:'SAME',label:'档案专属名称'}],spec_unit:[{value:'SAME',label:'编码规格名称'}],shipping_unit:[{value:'SAME',label:'发货物料名称'}]});
+    const onChange=vi.fn();
+    const {rerender}=render(<FieldInput {...base} onChange={onChange} field={field('specUnit')} value="SAME" values={{archiveType:'raw',unitDictionaryKind:'archive_unit'}} />);
+    expect(screen.getByRole('option',{name:'档案专属名称'})).toBeTruthy();expect(screen.queryByRole('option',{name:'编码规格名称'})).toBeNull();
+    expect(displayValue(field('specUnit'),{data:{specUnit:'SAME',archiveType:'raw',unitDictionaryKind:'archive_unit'},refLabels:{},secretConfigured:{}} as never)).toBe('档案专属名称');
+    rerender(<FieldInput {...base} field={field('specUnit')} value="SAME" values={{archiveType:'raw'}} />);
+    expect(screen.getByRole('option',{name:'编码规格名称'})).toBeTruthy();expect(screen.queryByRole('option',{name:'档案专属名称'})).toBeNull();
+    rerender(<FieldInput {...base} field={field('specUnit')} value="SAME" values={{archiveType:'shipping_material'}} />);
+    expect(screen.getByRole('option',{name:'发货物料名称'})).toBeTruthy();
+  });
+
 });

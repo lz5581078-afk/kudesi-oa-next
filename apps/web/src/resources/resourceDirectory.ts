@@ -1,15 +1,23 @@
 import { resourceApi, type ResourceDto } from './api';
 
-export async function loadResourceDirectory(target: string, current: () => boolean, sortField?: string): Promise<ResourceDto[] | null> {
-  const rows: ResourceDto[] = [];
+export async function loadResourceDirectory(target: string, current: () => boolean, sortField?: string, options?: { includeInactive?: boolean;preserveOrder?:boolean;showHidden?:boolean }): Promise<ResourceDto[] | null> {
+  const rows: ResourceDto[] = [], seen = new Set<number>();
+  let total: number | null = null;
   for (let page = 1; ; page++) {
     if (!current()) return null;
-    const result = await resourceApi.list(target, { page, pageSize: 200, showHidden: true });
+    const result = await resourceApi.list(target, { page, pageSize: 200, showHidden: options?.showHidden??true });
     if (!current()) return null;
-    rows.push(...result.items);
-    if (!result.items.length || rows.length >= result.total) break;
+    if (!Number.isSafeInteger(result.total) || result.total < 0 || !Array.isArray(result.items) || total !== null && result.total !== total) throw new Error('目录读取不完整，请重试');
+    total = result.total;
+    for (const row of result.items) {
+      if (!Number.isSafeInteger(row.id) || row.id <= 0 || seen.has(row.id)) throw new Error('目录读取不完整，请重试');
+      seen.add(row.id); rows.push(row);
+    }
+    if (seen.size > total || !result.items.length && seen.size < total) throw new Error('目录读取不完整，请重试');
+    if (seen.size === total) break;
   }
-  const active = [...new Map(rows.filter(row => row.status === 'active' && !row.archived).map(row => [row.id, row])).values()];
+  const visible = rows.filter(row => (options?.includeInactive || row.status === 'active') && !row.archived);
+  if(options?.preserveOrder)return visible;
   const order = (row: ResourceDto) => Number(row.data[sortField ?? '']) || 0;
-  return active.sort((a, b) => order(a) - order(b) || a.title.localeCompare(b.title, 'zh-CN') || a.id - b.id);
+  return visible.sort((a, b) => order(a) - order(b) || a.title.localeCompare(b.title, 'zh-CN') || a.id - b.id);
 }

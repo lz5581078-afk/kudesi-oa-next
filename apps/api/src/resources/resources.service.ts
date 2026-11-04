@@ -1,4 +1,10 @@
-import { beforeFormSaveRule, afterFormSaveRule } from './resource-rules';
+import { importedBaseWeight } from './external-base-code-rules';
+import { importedProductIdentity } from './finance-rules';
+import { getResourceImportProfile, RESOURCE_IMPORT_PROFILES } from '@kudesi/shared';
+import { validateProfileWorkbook, prepareProfileStep, bindProfileAlias, profileStepAccepts, type ProfileSheetInput, type ProfileAliases, type ProfileRecord } from './resource-import-profile';
+import { withTrustedResourceImport } from './resource-import-capability';
+import { beginPurchaseHistoryBatch, flushPurchaseHistory } from './product-purchase-history';
+import { beforeFormSaveRule, afterFormSaveRule, beforeStatusChangeRule, beforeDirectStatusRule } from './resource-rules';
 import { saveResourceForm } from './resource-form';
 import type { ResourceFormInput } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
@@ -594,7 +600,7 @@ export class ResourcesService implements RuleHost {
       if (f.showWhen && f.showWhen.field === 'status' && !f.showWhen.in.includes(status)) delete data[f.key];
     }
 
-    const rule = { em, host: this, user, data, existing, status, hasSensitive: (key: string) => Boolean(secrets[key]) };
+    const rule = { em, host: this, user, input, data, existing, status, hasSensitive: (key: string) => Boolean(secrets[key]) };
     if (def.key === 'stores') await validateStoreJst(data, existing?.data, () => this.jushuitanShops(user, def.key));
     await beforeSaveRule(def.key, rule);
     status = rule.status;
@@ -883,6 +889,8 @@ export class ResourcesService implements RuleHost {
     const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type } });
     if (!record || record.status === status) return;
     const before = { ...record, data: { ...record.data } } as ResourceRecord;
+    status = beforeDirectStatusRule(type,record,status);
+    if(record.status===status && sameJson(before.data,record.data))return;
     record.status = status;
     record.statusReason = null;
     record.updatedBy = user.id;
@@ -1014,12 +1022,27 @@ export class ResourcesService implements RuleHost {
     const derivedSort = q.sortBy ? def.derivedColumns?.find((d) => d.key === q.sortBy) : undefined;
     const sortF = q.sortBy && !derivedSort ? def.fields.find((f) => f.key === q.sortBy) : undefined;
     if (sortF && restricted.has(sortF.key)) throw new ForbiddenException(`没有权限按“${sortF.label}”排序`);
-    if (q.sortBy && !derivedSort && (!sortF || !['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
+    if (q.sortBy && !derivedSort && (!sortF || !['text', 'textarea', 'number', 'decimal', 'money', 'date', 'monthday', 'select', 'ref'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
     if (sortF) {
       const dir = q.sortDir === 'asc' ? 'ASC' : 'DESC';
-      const numeric = sortF.type === 'number' || sortF.type === 'money';
+      const numeric = ['number', 'decimal', 'money'].includes(sortF.type);
       const expr = `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${sortF.key}'))`;
-      listQb.addSelect(numeric ? `CAST(${expr} AS DECIMAL(30,6))` : expr, 'sortv').orderBy('sortv', dir).addOrderBy('r.id', 'DESC');
+      let sortExpr = numeric ? `CAST(${expr} AS DECIMAL(30,6))` : expr;
+      if (sortF.type === 'ref') {
+        // 与 DTO 引用标签一致；分类使用完整路径，禁止跨公司标题影响当前列表顺序。
+        const missing = `CONCAT('#', ${expr}, '（已不存在）')`;
+        if (isTreeResource(sortF.ref!)) {
+          const paths = await this.treePaths(em, user.companyId, sortF.ref!);
+          listQb.setParameter('sortRefPaths', JSON.stringify(Object.fromEntries(paths)));
+          sortExpr = `COALESCE(JSON_UNQUOTE(JSON_EXTRACT(:sortRefPaths, CONCAT('$.', JSON_QUOTE(${expr})))), ${missing})`;
+        } else {
+          const entity = sortF.ref === 'user' ? User : sortF.ref === 'department' ? Department : ResourceRecord;
+          const target = entity === ResourceRecord ? ' AND sortref.type = :sortRefType' : '';
+          listQb.leftJoin(entity, 'sortref', `sortref.id = CAST(${expr} AS UNSIGNED) AND sortref.companyId = :sortRefCompany${target}`, { sortRefCompany: user.companyId, sortRefType: sortF.ref });
+          sortExpr = `COALESCE(sortref.${entity === ResourceRecord ? 'title' : 'name'}, ${missing})`;
+        }
+      }
+      listQb.addSelect(sortExpr, 'sortv').orderBy('sortv', dir).addOrderBy('r.id', 'DESC');
     } else if (def.sortField) {
       // 经营数据这类按日期倒序；日期是 YYYY-MM-DD，按文本排序即可
       listQb.addSelect(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.sortField}'))`, 'sortv').orderBy('sortv', 'DESC').addOrderBy('r.id', 'DESC');
@@ -1235,6 +1258,20 @@ export class ResourcesService implements RuleHost {
     const cleanup: string[] = [];
     const id = await saveResourceForm(this.dataSource, user, this.def(type), input, {
       version: recordVersion,
+      copy: async (em,def,source,request,values)=>{
+        const can=createChecker(user.permissions),blocked=readOnlyFieldKeys(def,can),hidden=restrictedFieldKeys(def,can);
+        const result={...values},keys=Object.keys(request.files);
+        if(new Set(keys).size!==keys.length)throw new BadRequestException('复制字段重复');
+        for(const key of keys){
+          const field=def.fields.find(f=>f.key===key && f.copyOnCreate);
+          if(!field || field.type!=='files' || blocked.has(key) || hidden.has(key))throw new ForbiddenException('没有复制此字段的权限');
+          const current=result[key];
+          if(current!==undefined && (!Array.isArray(current) || current.length))throw new BadRequestException('复制文件不能与新上传混用');
+          result[key]=await this.files.cloneFor(em,user,def.key,key,source,request.files[key]);
+        }
+        return result;
+      },
+      endCopy: em=>this.files.endCopyScope(em),
       before: (em, def, existing) => beforeFormSaveRule(def.key, { em, host: this, user, existing }),
       after: (em, def, record) => afterFormSaveRule(def.key, { em, host: this, user, record }),
       save: (em, def, existing, values, options) => this.saveRecord(em, user, def, existing, values, options),
@@ -1343,10 +1380,11 @@ export class ResourcesService implements RuleHost {
     if (typeof values.name !== 'string' || !values.name.trim() || typeof values.shortName !== 'string' || !values.shortName.trim()) throw new BadRequestException('商品名称和商品简称必填');
     if (!['active', 'inactive'].includes(String(values.status))) throw new BadRequestException('请选择启用或停用');
     await this.dataSource.transaction(async em => {
+      if(!await em.findOne(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}}))throw new NotFoundException('记录不存在');
       const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
       if (!record) throw new NotFoundException('记录不存在');
       if (record.archivedAt || record.status === 'archived') throw new ConflictException('这条资料已归档，请先恢复再修改');
-      const status = values.status === 'inactive' ? 'inactive' : record.status === 'inactive' ? 'pending' : record.status;
+      const status = (await beforeStatusChangeRule(type,{em,user,id,status:values.status==='inactive'?'inactive':'active'}))?.status ?? record.status;
       if (status !== record.status && !createChecker(user.permissions)(resourcePermission(type, 'disable'))) throw new ForbiddenException('没有改状态的权限');
       const reason = String(values.statusReason ?? '').trim();
       if (status !== record.status) {
@@ -1369,7 +1407,7 @@ export class ResourcesService implements RuleHost {
   async confirmBaseProfile(user: AuthUser, type: string, id: number, values: Record<string, unknown>) {
     if (type === 'finance-bundles') return this.confirmBundleProfile(user, type, id, values);
     if (type !== 'finance-base-codes') throw new BadRequestException('这类资料没有基础编码专属资料');
-    const allowed = new Set(['code', 'styleCode', 'name', 'shortName', 'spec', 'categoryId', 'weightG', 'codeChangeReason']);
+    const allowed = new Set(['code', 'styleCode', 'name', 'shortName', 'spec', 'categoryId', 'codeDictionaryCategoryId', 'weightG', 'codeChangeReason']);
     if (Object.keys(values).some(k => !allowed.has(k))) throw new BadRequestException('专属资料只能修改编码、名称、简称、规格、分类和重量');
     await this.dataSource.transaction(async em => {
       const record = await this.load(em, user, type, id);
@@ -1531,9 +1569,11 @@ export class ResourcesService implements RuleHost {
   /** 事务组合动作使用完整的状态校验与保存流程。 */
   async changeStatusRecord(em: EntityManager, user: AuthUser, type: string, id: number, status: string, reason?: string) {
     const def = this.def(type);
+    const transition = await beforeStatusChangeRule(type,{em,user,id,status});
+    status = transition?.status ?? status;
     const problem = validateStatusChange(def, status, reason);
     if (problem) throw new BadRequestException(problem);
-    const existing = await this.load(em, user, type, id);
+    const existing = transition?.record ?? await this.load(em, user, type, id);
     if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再改状态');
     if (existing.status === status) return;
     const needsReason = def.statuses.find((s) => s.value === status)?.requiresReason;
@@ -2109,30 +2149,24 @@ export class ResourcesService implements RuleHost {
    * 批量导入：先在事务里真正执行一遍，出任何错都整体回滚；预览（dryRun）也一律回滚。
    * 有唯一字段的资料按它“有则更新、无则新建”，没有唯一字段的都是新建。
    */
-  async importRows(user: AuthUser, type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number) {
-    const def = this.def(type);
-    const parentField = parentId ? def.fields.find(f => f.key === def.parent?.field && f.type === 'ref' && f.ref === def.parent?.type) : undefined;
-    if (parentId && !parentField) throw new BadRequestException('该资料不支持指定上级导入');
-    if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('没有可导入的行');
-    if (rows.length > MAX_IMPORT_ROWS) throw new BadRequestException(`一次最多导入 ${MAX_IMPORT_ROWS} 行`);
-
-    const results: Array<{ line: number; action: 'create' | 'update' | 'error'; title?: string; errors: string[]; warnings?: string[] }> = [];
-    const cleanup: string[] = [];
-    // 真正导入前先留一份整类快照，导错了可以一键恢复；预览不留
-    const backupId = dryRun ? null : await this.createImportBackup(user, type);
-    try {
-      await this.dataSource.transaction(async (em) => {
+  /** Shared transactional import kernel. Callers own the outer commit/rollback boundary. */
+  async importRowsInTransaction(em:EntityManager,user:AuthUser,type:string,rows:Array<Record<string,string>>,options:{parentId?:number;cleanup?:string[];lines?:number[];matchFields?:readonly string[];createOnly?:boolean;rejectReferencedBy?:readonly {resource:string;field:string}[];strictFields?:boolean;convert?:(row:Record<string,string>,index:number)=>Promise<{input:Record<string,unknown>;status?:string;errors:string[]}>;onSaved?:(saved:ResourceRecord,row:Record<string,string>)=>void | Promise<void>}={}) {
+    const def=this.def(type),cleanup=options.cleanup ?? [];
+    const parentId=options.parentId;
+    const parentField=parentId ? def.fields.find(field=>field.key===def.parent?.field && field.type==='ref' && field.ref===def.parent?.type) : undefined;
+    if(parentId && !parentField)throw new BadRequestException('该资料不支持指定上级导入');
+    const results:Array<{line:number;action:'create'|'update'|'error';title?:string;errors:string[];warnings?:string[]}>=[];
         for (let i = 0; i < rows.length; i++) {
-          const line = i + 2; // 第 1 行是表头
+          const line = options.lines?.[i] ?? i + 2; // 第 1 行是表头
           const row = parentField ? Object.fromEntries(Object.entries(rows[i]).filter(([key]) => key !== parentField.key && key !== parentField.label)) : rows[i];
-          const converted = await this.rowToInput(em, user, def, row);
+          const converted = options.convert ? await options.convert(row,i) : await this.rowToInput(em, user, def, row);
           if (parentField) converted.input[parentField.key] = parentId;
           if (converted.errors.length > 0) {
             results.push({ line, action: 'error', errors: converted.errors });
             continue;
           }
           try {
-            const uniqueKey = def.uniqueField ? this.uniqueKeyOf(def, converted.input[def.uniqueField]) : null;
+            const uniqueKey = !options.matchFields && def.uniqueField ? this.uniqueKeyOf(def, converted.input[def.uniqueField]) : null;
             let existing = uniqueKey
               ? await this.findByUnique(em, user.companyId, type, String(converted.input[def.uniqueField!]))
               : null;
@@ -2152,24 +2186,58 @@ export class ResourcesService implements RuleHost {
                 existing=matches[0] ?? null;
               }
             }
+            if(options.matchFields?.length){
+              const qb=em.createQueryBuilder(ResourceRecord,'r').where('r.companyId = :c AND r.type = :t',{c:user.companyId,t:type});
+              options.matchFields.forEach((field,index)=>{
+                if(!/^[A-Za-z][A-Za-z0-9]*$/.test(field) || !def.fields.some(f=>f.key===field))throw new BadRequestException('导入匹配字段无效');
+                const value=converted.input[field];
+                if(value==null)qb.andWhere(`(JSON_EXTRACT(r.data, '$.${field}') IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${field}')) = 'null')`);
+                else qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${field}')) = :profile${index}`,{[`profile${index}`]:String(value)});
+              });
+              const matches=await qb.take(2).getMany();if(matches.length>1)throw new ConflictException('导入匹配到多条记录，请先处理重复资料');existing=matches[0] ?? null;
+            }
+            if(existing && options.createOnly)throw new ConflictException('系统中已存在该编码，导入不能静默覆盖');
+            if(existing)for(const reference of options.rejectReferencedBy ?? []){
+              if((await this.findWhere(em,user.companyId,reference.resource,reference.field,existing.id)).length)throw new ConflictException('该编码已被下游引用，不允许通过导入覆盖');
+            }
+            if(options.strictFields && existing && converted.status && converted.status!==existing.status && !createChecker(user.permissions)(resourcePermission(permissionOwner(type),'disable')))throw new ForbiddenException('修改导入记录状态需要状态修改权限');
+            if(options.strictFields){const blocked=readOnlyFieldKeys(def,createChecker(user.permissions));for(const key of Object.keys(converted.input))if(!def.fields.some(field=>field.key===key))throw new BadRequestException(`导入配置包含未知字段：${key}`);else if(blocked.has(key))throw new ForbiddenException('导入包含当前权限不可修改的字段');}
             if (!existing) existing = await certImportMatch(type, { em, host: this, user, input: converted.input });
             const saved = await em.transaction((inner) =>
-              this.saveRecord(inner, user, def, existing, converted.input, { status: converted.status, note: '批量导入', cleanup }),
+              this.saveRecord(em, user, def, existing, converted.input, { status: converted.status, note: '批量导入', cleanup }),
             );
             let warnings: string[] | undefined;
             if (type === 'phones') {
               const storeDef = this.def('stores');
               const bound = await em.transaction((inner) =>
-                bindPhoneStores(inner, user, saved, rows[i], (store, input) => this.saveRecord(inner, user, storeDef, store, input, { note: `手机号导入绑定：${saved.title}`, cleanup })),
+                bindPhoneStores(em, user, saved, rows[i], (store, input) => this.saveRecord(em, user, storeDef, store, input, { note: `手机号导入绑定：${saved.title}`, cleanup })),
               );
               if (bound.warnings.length) warnings = bound.warnings;
             }
+            await options.onSaved?.(saved,rows[i]);
             results.push({ line, action: existing ? 'update' : 'create', title: saved.title, errors: [], warnings });
           } catch (e) {
             const message = (e as { response?: { message?: string | string[] } }).response?.message ?? (e as Error).message;
             results.push({ line, action: 'error', errors: [Array.isArray(message) ? message.join('；') : String(message)] });
           }
         }
+    return results;
+  }
+
+  async importRows(user: AuthUser, type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number) {
+    const def = this.def(type);
+    const parentField = parentId ? def.fields.find(f => f.key === def.parent?.field && f.type === 'ref' && f.ref === def.parent?.type) : undefined;
+    if (parentId && !parentField) throw new BadRequestException('该资料不支持指定上级导入');
+    if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('没有可导入的行');
+    if (rows.length > MAX_IMPORT_ROWS) throw new BadRequestException(`一次最多导入 ${MAX_IMPORT_ROWS} 行`);
+
+    const results: Array<{ line: number; action: 'create' | 'update' | 'error'; title?: string; errors: string[]; warnings?: string[] }> = [];
+    const cleanup: string[] = [];
+    // 真正导入前先留一份整类快照，导错了可以一键恢复；预览不留
+    const backupId = dryRun ? null : await this.createImportBackup(user, type);
+    try {
+      await this.dataSource.transaction(async (em) => {
+        results.push(...await this.importRowsInTransaction(em,user,type,rows,{parentId,cleanup}));
         // 默认有一行有问题就整批不导入；partial=只导入没问题的行（局部成功），有问题的行原样返回
         if (dryRun || (!partial && results.some((r) => r.action === 'error'))) throw new Rollback();
       });
@@ -2190,6 +2258,80 @@ export class ResourcesService implements RuleHost {
       failed,
       results,
     };
+  }
+
+  importProfiles() { return {profiles:RESOURCE_IMPORT_PROFILES}; }
+
+  async importProfile(user:AuthUser,id:string,sheets:ProfileSheetInput[],dryRun:boolean,signature?:string) {
+    const profile=getResourceImportProfile(id);if(!profile)throw new NotFoundException('导入模块不存在');
+    const issues=validateProfileWorkbook(profile,sheets);
+    const can=createChecker(user.permissions);
+    if(!can('finance.master-import.view'))throw new ForbiddenException('没有商品数据导入权限');
+    const usedSteps=profile.steps.filter(step=>sheets.some(sheet=>sheet.name===step.sheet && sheet.rows.some(row=>profileStepAccepts(step,row))) || !!step.replaceChildren && profile.steps.some(owner=>owner.namespace?.name===step.replaceChildren!.ownerNamespace && sheets.some(sheet=>sheet.name===owner.sheet && sheet.rows.some(row=>profileStepAccepts(owner,row)))));
+    for(const type of new Set(usedSteps.map(step=>step.resource))){this.def(type);if(!can(resourcePermission(permissionOwner(type),'import')))throw new ForbiddenException('没有目标资料的导入权限');}
+    if(issues.length)return {dryRun,committed:false,created:0,updated:0,mainCreated:0,mainUpdated:0,detailRows:0,failed:issues.length,results:[],issues,signature:null};
+    const results:Array<{sheet:string;step:string;line:number;action:'create'|'update'|'error';title?:string;errors:string[]}>=[];
+    const cleanup:string[]=[];let currentSignature='';let committed=false;
+    try {
+      await this.dataSource.transaction(async em=>{
+        await em.findOne(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+        const baseline=await em.find(ResourceRecord,{where:{companyId:user.companyId},order:{id:'ASC'},lock:{mode:'pessimistic_write'}});
+        currentSignature=this.crypto.indexTokens(JSON.stringify([user.companyId,user.id,profile.id,todayShanghai(),sheets,baseline.map(row=>[row.id,row.type,row.status,row.updatedAt,row.data])]))[0];
+        if(!dryRun && (!signature || signature!==currentSignature))throw new ConflictException('资料或工作簿已变化，请重新预检后导入');
+        const aliases:ProfileAliases={};
+        const owners=(namespace:string)=>[...new Map([...(aliases[namespace]?.values() ?? [])].map(row=>[row.id,row])).values()];
+        const lookupCache=new Map<string,ResourceRecord[]>();
+        const lookup={find:async(type:string,fields:Record<string,unknown>,any?:{fields:readonly string[];value:string})=>{
+          let rows=lookupCache.get(type);
+          if(!rows){rows=await em.find(ResourceRecord,{where:{companyId:user.companyId,type}});lookupCache.set(type,rows);}
+          const equal=(left:unknown,right:unknown)=>left==null && right==null || String(left ?? '').trim().toLocaleLowerCase('zh-CN')===String(right ?? '').trim().toLocaleLowerCase('zh-CN');
+          return rows.filter(row=>Object.entries(fields).every(([field,value])=>equal(row.data[field],value)) && (!any || any.fields.some(field=>equal(field==='title'?row.title:row.data[field],any.value)))) as ProfileRecord[];
+        }};
+        beginPurchaseHistoryBatch(em,null);
+        await withTrustedResourceImport(em,user,profile.id,async()=>{
+          const replaced=new Set<string>();
+          for(const step of usedSteps){
+            lookupCache.clear();
+            if(step.replaceChildren){
+              const {parentField,ownerNamespace}=step.replaceChildren;
+              const key=`${step.resource}:${parentField}:${ownerNamespace}`;
+              if(!replaced.has(key)){
+                replaced.add(key);
+                for(const owner of owners(ownerNamespace)){
+                  const children=await this.findWhere(em,user.companyId,step.resource,parentField,owner.id);
+                  if(children.length && !can(resourcePermission(permissionOwner(step.resource),'delete')))throw new ForbiddenException('覆盖原构成需要目标资料删除权限');
+                  for(const child of children)await this.removeRecord(em,user,step.resource,child.id,'工作簿整组替换构成',cleanup);
+                }
+              }
+            }
+            const rows=await prepareProfileStep(profile,step,sheets,lookup,aliases,todayShanghai());
+            if(step.identity==='product-code')for(const row of rows)if(!row.errors.length)try{row.input.code=await importedProductIdentity(em,user,row.input);}catch(error){row.errors.push((error as Error).message);}
+            for(const constraint of step.conflictingRows ?? [])for(const row of rows.filter(row=>row.input[constraint.field]===constraint.values[1]))if(rows.some(other=>other.input[constraint.field]===constraint.values[0] && [...constraint.identityFields,...constraint.equalFields].every(field=>(other.input[field] ?? null)===(row.input[field] ?? null))))row.errors.push(constraint.message);
+            if(step.rejectDuplicate?.length){const seen=new Set<string>();for(const row of rows){const key=JSON.stringify(step.rejectDuplicate.map(field=>String(row.input[field] ?? '').toLowerCase()));if(seen.has(key))row.errors.push('文件内相同自然键重复');else seen.add(key);}}
+            for(let offset=0;offset<rows.length;offset+=MAX_IMPORT_ROWS){const chunk=rows.slice(offset,offset+MAX_IMPORT_ROWS);
+              const out=await this.importRowsInTransaction(em,user,step.resource,chunk.map(row=>row.source),{cleanup,strictFields:true,lines:chunk.map(row=>row.line),matchFields:step.matchFields,createOnly:step.createOnly,rejectReferencedBy:step.rejectReferencedBy,convert:async(_row,index)=>chunk[index],onSaved:(saved,row)=>bindProfileAlias(step,row,saved,aliases)});
+              results.push(...out.map(row=>({...row,sheet:step.sheet,step:step.id})));
+            }
+          }
+          const weightFacts=profile.finalize==='base-import' ? await em.find(ResourceRecord,{where:{companyId:user.companyId,type:In(['finance-base-code-lines','finance-products','finance-product-units'])}}):[];
+          if(profile.finalize==='base-import')for(const owner of owners('base-codes')){
+            const current=await this.load(em,user,'finance-base-codes',owner.id);
+            const weight=await importedBaseWeight({em,user},current,weightFacts);
+            if(weight!==null && weight!==current.data.weightG)await this.saveRecord(em,user,this.def('finance-base-codes'),current,{weightG:weight},{note:'按原工作簿组成或重量单位补全导入重量',cleanup});
+          }
+          for(const constraint of profile.requiredChildren ?? [])for(const owner of owners(constraint.ownerNamespace)){
+            const children=await this.findWhere(em,user.companyId,constraint.resource,constraint.parentField,owner.id);
+            if(!children.some(child=>child.data[constraint.field]===constraint.equals))results.push({sheet:profile.steps.find(step=>step.namespace?.name===constraint.ownerNamespace)?.sheet ?? '',step:'integrity',line:0,action:'error',title:owner.title,errors:[constraint.message]});
+          }
+          await flushPurchaseHistory(this,em,user);
+        });
+        if(dryRun || results.some(row=>row.action==='error'))throw new Rollback();
+        committed=true;
+      });
+    }catch(error){if(!(error instanceof Rollback))throw error;}
+    if(committed)await this.files.deleteObjects(user.companyId,cleanup);
+    const isDetail=(row:typeof results[number])=>{const step=profile.steps.find(step=>step.id===row.step);return !!step && !!this.def(step.resource).parent;};
+    return {dryRun,committed,created:results.filter(row=>row.action==='create').length,updated:results.filter(row=>row.action==='update').length,mainCreated:results.filter(row=>row.action==='create' && !isDetail(row)).length,mainUpdated:results.filter(row=>row.action==='update' && !isDetail(row)).length,detailRows:results.filter(row=>row.action!=='error' && isDetail(row)).length,failed:results.filter(row=>row.action==='error').length,results,issues:[],signature:currentSignature};
   }
 
   // ---------- 导入备份 ----------

@@ -24,7 +24,7 @@ describe('商品档案详情：成本汇总', () => {
     const def = getResourceDef('finance-products')!;
     vi.mocked(resourceApi.get).mockResolvedValue(dto({ type: 'finance-products', title: '黄瓜种', data: { archiveType: 'raw', purchaseSpec: '斤', purchasePrice: 1000, freight: 200, handlingFee: 100, totalCost: 1300, latestUnitCost: 1250, latestCostType: 'purchase', latestCostFrom: '2026-10-01' } }));
     const recent = new Date().toISOString();
-    vi.mocked(resourceApi.list).mockImplementation(async (t: string) => ({ items: t === 'finance-product-freight-history' ? [dto({ id: 5, createdAt: recent, data: { purchasePrice: 1000 } }), dto({ id: 4, createdAt: recent, data: { purchasePrice: 800 } })] : [], total: 2, page: 1, pageSize: 100 }) as never);
+    vi.mocked(resourceApi.list).mockImplementation(async (t: string) => ({ items: t === 'finance-product-purchase-history' ? [dto({ id: 5, createdAt: recent, data: { purchasePrice: 1000 } }), dto({ id: 4, createdAt: recent, data: { purchasePrice: 800 } })] : [], total: 2, page: 1, pageSize: 100 }) as never);
     render(<MemoryRouter><RecordDetail def={def} id={1} onClose={() => undefined} onChanged={() => undefined} /></MemoryRouter>);
     const box = await screen.findByLabelText('成本汇总');
     expect(box.textContent).toContain('元/斤');

@@ -28,16 +28,16 @@ d('商品档案原编号同步（隔离数据库）',()=>{
  const base=async(productId:number,user=boss)=>(await svc.list(user,'finance-base-codes',{fieldKey:'productId',fieldValue:String(productId),showHidden:true,pageSize:200})).items[0];
  it('48位原号精确创建并更新，49/160位保持既有独立生成兼容，不伪造手改原因',async()=>{
   for(const size of [48,49,160]){
-   const code='A'.repeat(size),p=await raw(`合成边界${size}`,code),bc=await base(p.id);
+   const code='A+1-B*2'+'A'.repeat(size-7),p=await raw(`合成边界${size}`,code),bc=await base(p.id);
    expect(p.data.code).toBe(code);
    if(size===48){expect(bc.data.code).toBe(code);expect(bc.data.styleCode).toBe(code);}
    else {expect(bc.data.code).not.toBe(code);expect(String(bc.data.code).length).toBeLessThanOrEqual(48);}
    expect(bc.data.codeChangeReason).toBeUndefined();expect(bc.data.profileManual).not.toBe(true);
   }
-  const p=await raw('合成变更','SYNC-ORIGINAL');
-  const changed=await svc.update(boss,'finance-products',p.id,{name:'合成变更后',code:'SYNC-CHANGED'});
+  const p=await raw('合成变更','SYNC+ORIGINAL*1');
+  const changed=await svc.update(boss,'finance-products',p.id,{name:'合成变更后',code:'SYNC+CHANGED*2'});
   const bc=await base(p.id);
-  expect(bc.data).toMatchObject({code:'SYNC-CHANGED',styleCode:'SYNC-CHANGED',name:changed.data.basicInfoFullName});
+  expect(bc.data).toMatchObject({code:'SYNC+CHANGED*2',styleCode:'SYNC+CHANGED*2',name:changed.data.basicInfoFullName});
   expect(bc.data.profileManual).not.toBe(true);
   await svc.changeStatus(boss,'finance-base-codes',bc.id,'verified');
   await svc.update(boss,'finance-products',p.id,{code:'SYNC-VERIFIED-CHANGED'});
@@ -66,13 +66,13 @@ d('商品档案原编号同步（隔离数据库）',()=>{
  });
  it('同公司编码冲突使整组保存回滚，主档/来源/基础编码均不改变',async()=>{
   const owner=await raw('合成占用','SYNC-OWNER'),owned=await base(owner.id);
-  await svc.update(boss,'finance-base-codes',owned.id,{code:'SYNC-CONFLICT',codeChangeReason:'合成手改'});
+  await svc.update(boss,'finance-base-codes',owned.id,{code:'SYNC+CONFLICT*2',codeChangeReason:'合成手改'});
   const p=await raw('合成回滚','SYNC-ROLLBACK');
   const before=await ds.manager.find(ResourceRecord,{where:{companyId:boss.companyId},order:{id:'ASC'}});
   const graph=(rows:ResourceRecord[])=>rows.map(r=>[r.id,r.type,r.data,r.status]);
-  await expect(svc.saveForm(boss,'finance-products',{requestKey:randomUUID(),id:p.id,version:p.version,values:{name:'不应保存',code:'SYNC-CONFLICT'},collections:[{type:'finance-product-sources',expected:[],rows:[{values:{supplierId,originArea:'不应新增',purchasePrice:222}}]}]})).rejects.toThrow(/存在|编码/);
+  await expect(svc.saveForm(boss,'finance-products',{requestKey:randomUUID(),id:p.id,version:p.version,values:{name:'不应保存',code:'SYNC+CONFLICT*2'},collections:[{type:'finance-product-sources',expected:[],rows:[{values:{supplierId,originArea:'不应新增',purchasePrice:222}}]}]})).rejects.toThrow(/存在|编码/);
   expect(graph(await ds.manager.find(ResourceRecord,{where:{companyId:boss.companyId},order:{id:'ASC'}}))).toEqual(graph(before));
-  await expect(svc.saveForm(boss,'finance-products',{requestKey:randomUUID(),values:{archiveType:'raw',categoryId,name:'不应创建',code:'SYNC-CONFLICT',specQty:1,specUnit:'KG',purchaseSpec:'千克',freight:1,handlingFee:1},collections:[{type:'finance-product-sources',expected:[],rows:[{values:{supplierId,originArea:'不应新增',purchasePrice:222}}]}]})).rejects.toThrow(/存在|编码/);
+  await expect(svc.saveForm(boss,'finance-products',{requestKey:randomUUID(),values:{archiveType:'raw',categoryId,name:'不应创建',code:'SYNC+CONFLICT*2',specQty:1,specUnit:'KG',purchaseSpec:'千克',freight:1,handlingFee:1},collections:[{type:'finance-product-sources',expected:[],rows:[{values:{supplierId,originArea:'不应新增',purchasePrice:222}}]}]})).rejects.toThrow(/存在|编码/);
   expect(graph(await ds.manager.find(ResourceRecord,{where:{companyId:boss.companyId},order:{id:'ASC'}}))).toEqual(graph(before));
  });
  it('不同公司可有同一原号，跨公司来源ID不能用于基础编码创建',async()=>{

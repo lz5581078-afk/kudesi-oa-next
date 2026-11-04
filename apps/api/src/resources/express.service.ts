@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
@@ -7,8 +7,9 @@ import {
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { Company, ResourceLink, ResourceRecord } from '../entities';
-import { resolveSource, syncVersionRules, versionEnabled } from './express-rules';
+import { resolveSource, syncBranchRules, syncVersionRules, versionEnabled } from './express-rules';
 import { readFreightSnapshot } from './express-estimate-snapshot';
+import { FilesService } from '../integrations/files.service';
 import { ResourcesService } from './resources.service';
 
 type Data = Record<string, unknown>;
@@ -49,7 +50,7 @@ export interface SurchargeInput {
 
 @Injectable()
 export class ExpressService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource, private readonly resources: ResourcesService) {}
+  constructor(@InjectDataSource() private readonly dataSource: DataSource, private readonly resources: ResourcesService, @Optional() private readonly files?: FilesService) {}
 
   private async all(em: EntityManager, companyId: number, types: string[]) {
     return em.find(ResourceRecord, { where: { companyId, type: In(types) }, order: { id: 'ASC' } });
@@ -126,8 +127,11 @@ export class ExpressService {
   // ---------- 价格规则整表替换（矩阵编辑 / AI 识别确认共用） ----------
 
   /** 直接删记录和它的引用关系（不逐条留日志；调用方在版本上留一条汇总日志） */
-  private async dropRecords(em: EntityManager, companyId: number, ids: number[]) {
+  private async dropRecords(em: EntityManager, companyId: number, ids: number[], cleanup?: string[]) {
     if (!ids.length) return;
+    if (cleanup && this.files) {
+      for (const record of await em.find(ResourceRecord, { where: { companyId, id: In(ids) } })) cleanup.push(...await this.files.deleteAllFor(em, companyId, record.type, record.id));
+    }
     for (let i = 0; i < ids.length; i += 500) {
       const part = ids.slice(i, i + 500);
       await em.delete(ResourceLink, { companyId, sourceId: In(part) });
@@ -177,25 +181,40 @@ export class ExpressService {
   }
 
   /** 先清掉版本下的全部内容，再清掉网点对它的引用；最后由调用方删版本本身 */
-  private async emptyVersion(em: EntityManager, user: AuthUser, version: ResourceRecord) {
+  private async emptyVersion(em: EntityManager, user: AuthUser, version: ResourceRecord, cleanup: string[], selectReplacement = true) {
     const kids = await this.all(em, user.companyId, ['finance-express-prices', 'finance-express-fee-batches', 'finance-express-surcharges', 'finance-express-recognitions']);
-    await this.dropRecords(em, user.companyId, kids.filter((k) => k.data.versionId === version.id).map((k) => k.id));
+    await this.dropRecords(em, user.companyId, kids.filter((k) => k.data.versionId === version.id).map((k) => k.id), cleanup);
     const branch = await em.findOne(ResourceRecord, { where: { id: num(version.data.branchId) ?? -1, companyId: user.companyId, type: 'finance-express-branches' } });
     if (branch && branch.data.currentVersionId === version.id) {
-      await this.resources.patchData(em, user, 'finance-express-branches', branch.id, { currentVersionId: null }, `价格版本「${version.title}」被删除，当前版本清空`);
+      const next = selectReplacement ? (await this.resources.findWhere(em, user.companyId, 'finance-express-versions', 'branchId', branch.id)).filter(row => row.id !== version.id).sort((a, b) => a.id - b.id)[0] : undefined;
+      await this.resources.patchData(em, user, 'finance-express-branches', branch.id, { currentVersionId: next?.id ?? null }, `价格版本「${version.title}」被删除，当前版本改为${next ? `「${next.title}」` : '空'}`);
       await this.unlink(em, user.companyId, branch.id, version.id);
+      if (next) await em.save(ResourceLink, em.create(ResourceLink, { companyId: user.companyId, sourceType: 'finance-express-branches', sourceId: branch.id, relation: 'currentVersionId', targetType: 'finance-express-versions', targetId: next.id }));
+      if (selectReplacement) await syncBranchRules(this.resources, em, user, branch.id);
     }
   }
 
-  async deleteVersion(user: AuthUser, id: number, reason: string) {
-    await this.dataSource.transaction(async (em) => this.emptyVersion(em, user, await this.load(em, user, 'finance-express-versions', id)));
-    return this.resources.remove(user, 'finance-express-versions', id, reason);
+  private async deleteHierarchy(user: AuthUser, type: string, id: number, reason: string, empty: (em: EntityManager, record: ResourceRecord, cleanup: string[]) => Promise<void>) {
+    if (!this.files) throw new Error('快递删除缺少附件清理服务');
+    const cleanup: string[] = [];
+    await this.dataSource.transaction(async em => {
+      await this.lockEstimates(em, user);
+      const record = await this.load(em, user, type, id);
+      await empty(em, record, cleanup);
+      await this.resources.removeRecord(em, user, type, id, reason, cleanup);
+    });
+    await this.files.deleteObjects(user.companyId, cleanup);
+    return { ok: true };
   }
 
-  private async emptyBranch(em: EntityManager, user: AuthUser, branch: ResourceRecord) {
+  async deleteVersion(user: AuthUser, id: number, reason: string) {
+    return this.deleteHierarchy(user, 'finance-express-versions', id, reason, (em, version, cleanup) => this.emptyVersion(em, user, version, cleanup));
+  }
+
+  private async emptyBranch(em: EntityManager, user: AuthUser, branch: ResourceRecord, cleanup: string[]) {
     for (const v of await this.resources.findWhere(em, user.companyId, 'finance-express-versions', 'branchId', branch.id)) {
-      await this.emptyVersion(em, user, v);
-      await this.dropRecords(em, user.companyId, [v.id]);
+      await this.emptyVersion(em, user, v, cleanup, false);
+      await this.dropRecords(em, user.companyId, [v.id], cleanup);
     }
     const carrier = await em.findOne(ResourceRecord, { where: { id: num(branch.data.carrierId) ?? -1, companyId: user.companyId, type: 'finance-express-carriers' } });
     if (carrier && carrier.data.defaultBranchId === branch.id) {
@@ -207,28 +226,23 @@ export class ExpressService {
   }
 
   async deleteBranch(user: AuthUser, id: number, reason: string) {
-    await this.dataSource.transaction(async (em) => this.emptyBranch(em, user, await this.load(em, user, 'finance-express-branches', id)));
-    return this.resources.remove(user, 'finance-express-branches', id, reason);
+    return this.deleteHierarchy(user, 'finance-express-branches', id, reason, (em, branch, cleanup) => this.emptyBranch(em, user, branch, cleanup));
   }
 
   async deleteCarrier(user: AuthUser, id: number, reason: string) {
-    await this.dataSource.transaction(async (em) => {
-      const carrier = await this.load(em, user, 'finance-express-carriers', id);
+    return this.deleteHierarchy(user, 'finance-express-carriers', id, reason, async (em, carrier, cleanup) => {
       for (const b of await this.resources.findWhere(em, user.companyId, 'finance-express-branches', 'carrierId', id)) {
-        await this.emptyBranch(em, user, b);
-        await this.dropRecords(em, user.companyId, [b.id]);
+        await this.emptyBranch(em, user, b, cleanup);
+        await this.dropRecords(em, user.companyId, [b.id], cleanup);
       }
       await this.unlink(em, user.companyId, carrier.id, num(carrier.data.defaultBranchId) ?? -1);
     });
-    return this.resources.remove(user, 'finance-express-carriers', id, reason);
   }
 
   async deleteSurchargeBatch(user: AuthUser, id: number, reason: string) {
-    await this.dataSource.transaction(async (em) => {
-      await this.load(em, user, 'finance-express-fee-batches', id);
-      await this.dropRecords(em, user.companyId, (await this.resources.findWhere(em, user.companyId, 'finance-express-surcharges', 'batchId', id)).map((s) => s.id));
+    return this.deleteHierarchy(user, 'finance-express-fee-batches', id, reason, async (em, _batch, cleanup) => {
+      await this.dropRecords(em, user.companyId, (await this.resources.findWhere(em, user.companyId, 'finance-express-surcharges', 'batchId', id)).map((s) => s.id), cleanup);
     });
-    return this.resources.remove(user, 'finance-express-fee-batches', id, reason);
   }
 
   // ---------- AI 识别确认 ----------
@@ -238,15 +252,21 @@ export class ExpressService {
     return this.dataSource.transaction(async (em) => {
       const res = await this.replaceRulesInTransaction(em, user, versionId, 'ai', p.rules, '确认 AI 识别结果');
       const v = await this.load(em, user, 'finance-express-versions', versionId);
-      const patch: Data = { priceSource: 'ai' };
-      if (!v.data.effectiveStart && p.effectiveStart) patch.effectiveStart = p.effectiveStart;
-      if (!v.data.effectiveEnd && p.effectiveEnd) patch.effectiveEnd = p.effectiveEnd;
-      if (p.fileName && !v.data.attachmentName) patch.attachmentName = p.fileName.slice(0, 200);
-      if (p.extraRemark?.trim()) {
+      const patch: Data = { priceSource: str(v.data.priceSource) || 'ai' };
+      if (p.effectiveStart) patch.effectiveStart = p.effectiveStart;
+      if (p.effectiveEnd) patch.effectiveEnd = p.effectiveEnd;
+      if (p.fileName) patch.attachmentName = p.fileName;
+      const remarks = [...new Set(p.rules.map(rule => rule.note?.trim()).filter((note): note is string => Boolean(note)))];
+      const additions = [p.extraRemark?.trim() || '', remarks.length ? `规则备注：\n${remarks.map(note => `- ${note}`).join('\n')}` : ''].filter(Boolean);
+      if (additions.length) {
+        const uploadedAt = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+        const addition = `【${uploadedAt} 上传价格表识别出的附加内容】\n文件：${p.fileName || '-'}\n${additions.join('\n')}`;
         const old = str(v.data.remark).trim();
-        patch.remark = `${old ? `${old}\n\n` : ''}【AI 识别补充 ${todayInChina()}】\n${p.extraRemark.trim()}`.slice(0, 20000);
+        const next = `${old ? `${old}\n\n` : ''}${addition}`;
+        if (next.length > 20000) throw new BadRequestException('追加识别说明后合作备注超过20000字，请先整理版本备注后重试');
+        patch.remark = next;
       }
-      await this.resources.updateRecord(em, user, 'finance-express-versions', versionId, patch, '确认 AI 识别：最终价格依据改为 AI 识别价格表');
+      await this.resources.updateRecord(em, user, 'finance-express-versions', versionId, patch, '确认 AI 识别价格：保留既有最终价格依据，更新本次日期和原始文件');
       await this.saveSystem(em, user, 'finance-express-recognitions', `价格表识别 ${p.fileName ?? ''}`, {
         label: `价格表识别 ${p.fileName ?? ''}`, versionId, recognitionType: 'price_table', fileName: p.fileName, modelName: p.modelName, resultText: `${res.created} 条价格规则`, resultCount: res.created, createdAtKey: new Date().toISOString(),
       }, null, 'recorded');
@@ -407,18 +427,20 @@ export class ExpressService {
   async generateZoneRun(user: AuthUser, maxWeightKg: number) {
     if (!(maxWeightKg > 0) || maxWeightKg > 1000) throw new BadRequestException('生成上限要在 0 到 1000 公斤之间');
     return this.dataSource.transaction(async (em) => {
+      await this.lockEstimates(em, user);
       const groups = await this.groupsNow(em, user.companyId);
       if (!groups.length) throw new BadRequestException('现在没有“合作中”的当前价格版本，没法生成分区建议。请先到快递价格里把网点的当前版本设为“合作中”。');
       const raw = buildAutomaticRecommendations(groups, PROVINCES, maxWeightKg);
-      if (!raw.length) throw new BadRequestException('合作中的价格版本里没有能覆盖这个重量范围的价格规则');
       const rules = sortRecommendationRules(groupAutomaticRecommendations(raw));
+      if (!rules.length) throw new BadRequestException('当前合作价格表没有可生成的有效分区规则，请先检查生效日期、重量范围和报价。');
+      const combinationCount = raw.filter(row => row.carrierName).length;
       const prev = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-zone-runs' }, select: ['id', 'data'] });
       const sequence = prev.reduce((m, r) => Math.max(m, num(r.data.sequence) ?? 0), 0) + 1;
       const now = new Date().toISOString();
       const rec = await this.saveSystem(em, user, 'finance-zone-runs', `第 ${sequence} 次分区建议`, {
-        label: `第 ${sequence} 次分区建议`, sequence, createdAtKey: now, maxWeightKg, cooperatingVersionCount: groups.length, combinationCount: new Set(raw.map((r) => `${r.sourceKey}`)).size, ruleCount: rules.length, rowsJson: JSON.stringify(rules),
+        label: `第 ${sequence} 次分区建议`, sequence, createdAtKey: now, maxWeightKg, cooperatingVersionCount: groups.length, combinationCount, ruleCount: rules.length, rowsJson: JSON.stringify(rules),
       });
-      return { id: rec.id, sequence, createdAt: now, maxWeightKg, cooperatingVersionCount: groups.length, ruleCount: rules.length };
+      return { id: rec.id, sequence, createdAt: now, maxWeightKg, cooperatingVersionCount: groups.length, combinationCount, ruleCount: rules.length };
     });
   }
 

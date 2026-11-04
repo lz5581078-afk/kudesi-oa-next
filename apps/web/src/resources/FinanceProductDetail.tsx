@@ -1,4 +1,4 @@
-import { sourcePriceTime } from '@kudesi/shared';
+import { sourcePriceTime, unitYuanText } from '@kudesi/shared';
 import { Fragment } from 'react';
 import { FolderTree } from 'lucide-react';
 import { COMPOSITION_GROUP_LABEL, createChecker, getResourceDef, multiplyUnitCents, productLayoutKey, resolveProductSections, type ResolvedNode, type CompositionGroup } from '@kudesi/shared';
@@ -14,6 +14,7 @@ import { FileList } from './FilesField';
 const def = getResourceDef('finance-products')!;
 const productRef = (row: ResourceDto): [string, number] | null => typeof row.data.laborId === 'number' ? ['finance-labor-costs', row.data.laborId] : typeof row.data.componentId === 'number' ? ['finance-products', row.data.componentId] : null;
 const sourceRef = () => null;
+const sourceUnitMoney = (value: unknown) => { const n = detailNumber(value); if (n === null) return '待补齐'; const [whole, fraction = ''] = unitYuanText(n).split('.'); return `¥${whole}.${fraction.padEnd(3, '0')}`; };
 
 function ProductSources({ record, canCost }: { record: ResourceDto; canCost: boolean }) {
   const { rows, error } = useFinanceDetailRows('finance-product-sources', 'productId', record.id, record.updatedAt, sourceRef);
@@ -25,7 +26,7 @@ function ProductSources({ record, canCost }: { record: ResourceDto; canCost: boo
   </section>)}{rows?.length === 0 && <p className="finance-view-empty">未维护供货来源</p>}</FinanceSection>;
 }
 
-function ProductComposition({ record, canCost }: { record: ResourceDto; canCost: boolean }) {
+export function ProductComposition({ record, canCost, sourceProfile = false }: { record: ResourceDto; canCost: boolean; sourceProfile?: boolean }) {
   const { rows, error } = useFinanceDetailRows('finance-product-boms', 'productId', record.id, record.updatedAt, productRef);
   const oem = record.data.supplyMode === 'supplier_oem';
   const groups: string[] = oem ? ['oem_package'] : ['raw', 'package', 'oem_package', 'labor'];
@@ -33,6 +34,13 @@ function ProductComposition({ record, canCost }: { record: ResourceDto; canCost:
   if (rows?.some(r => !groups.includes(groupOf(r)))) groups.push('unknown');
   const inGroup = (group: string, r: NonNullable<typeof rows>[number]) => group === 'unknown' ? !groups.filter(g => g !== 'unknown').includes(groupOf(r)) : groupOf(r) === group;
   const facts = calculateDraftFacts((rows ?? []).map(({ row, item }) => ({ kind: row.data.laborId ? 'labor' as const : 'component' as const, id: Number(row.data.laborId || row.data.componentId) || null, group: (row.data.laborId ? 'labor' : item?.data.archiveType === 'package' || item?.data.archiveType === 'oem_package' ? item.data.archiveType : 'raw') as CompositionGroup, qty: detailNumber(row.data.qty) ?? '', loss: detailNumber(row.data.lossPercent) ?? '' })), new Map((rows ?? []).flatMap(({ row, item }) => item ? [[`${row.data.laborId ? 'labor' : 'component'}:${item.id}`, item] as const] : [])), canCost);
+  if (sourceProfile) {
+    if (rows?.length === 0) return null;
+    return <FinanceSection title={oem ? '供应商OEM组成' : '生产资料与成本'}>
+      <DetailRowsState error={error} loading={!rows && !error} empty={false} />
+      {rows && groups.filter(group => rows.some(row => inGroup(group, row))).map(group => <section key={group} className="base-profile-source-section"><h4>{COMPOSITION_GROUP_LABEL[group as CompositionGroup]?.title ?? '暂不可读的组成'}</h4><dl>{rows.filter(row => inGroup(group, row)).map(({ row, item }) => <div key={row.id}><dt>{item?.title || row.refLabels.laborId || row.refLabels.componentId || '资料暂不可读'}</dt><dd><span>{detailNumber(row.data.qty) ?? '未维护'} {String(item?.data.purchaseSpec || item?.data.unitName || row.data.unitName || '')}</span>{canCost && <small> · {sourceUnitMoney(item?.data[group === 'labor' ? 'unitPrice' : 'purchasePrice'])}</small>}</dd></div>)}</dl></section>)}
+    </FinanceSection>;
+  }
   return <FinanceSection title={oem ? '供应商OEM组成' : '生产资料与成本'} hint={oem ? '记录供应商使用公司OEM包装形成外购成品的物理组成' : '记录自产成品消耗的原料、产品包装和人工成本'}>
     <DetailRowsState error={error} loading={!rows && !error} empty={false} />
     {!oem && rows && <div className="finance-production-overview">{[['原料', ['raw']], ['包装', ['package', 'oem_package']], ['人工', ['labor']]].map(([title, keys], i) => <div key={String(title)}><small>{String(i + 1).padStart(2, '0')}</small><strong>{title}</strong><span>{rows.filter(r => (keys as string[]).includes(groupOf(r))).length} 项</span></div>)}</div>}

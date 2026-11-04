@@ -5,7 +5,7 @@ import { DataSource } from 'typeorm';
 import { PROVINCES } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, ResourceFile, User } from '../entities';
 import { buildServices } from '../test-support';
 import { ExpressService } from './express.service';
 import { ResourcesService } from './resources.service';
@@ -16,6 +16,7 @@ d('快递价格表（真实数据库）', () => {
   let ds: DataSource;
   let svc: ResourcesService;
   let ex: ExpressService;
+  let files: ReturnType<typeof buildServices>['files'];
   let boss: AuthUser;
   const ids: Record<string, number> = {};
   const fixed = (price: number, province = 'ALL') => ({ province, shipWeightMin: 0, shipWeightMax: null, fixedPrice: price });
@@ -23,8 +24,10 @@ d('快递价格表（真实数据库）', () => {
   beforeAll(async () => {
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
     await ds.initialize();
-    svc = buildServices(ds).resources;
-    ex = new ExpressService(ds, svc);
+    const services = buildServices(ds);
+    svc = services.resources;
+    files = services.files;
+    ex = new ExpressService(ds, svc, services.files);
     const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `e${crypto.randomBytes(5).toString('hex')}`, name: '快递测试', status: 'active' }));
     const u = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: 'admin', passwordHash: 'x', name: '老板', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
     boss = { id: u.id, companyId: c.id, name: '老板', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
@@ -60,7 +63,7 @@ d('快递价格表（真实数据库）', () => {
     const v2 = await svc.create(boss, 'finance-express-versions', { branchId: b1.id, versionName: '2026秋' });
     const zv = await svc.create(boss, 'finance-express-versions', { branchId: zb.id, versionName: 'v1' });
     await expect(svc.update(boss, 'finance-express-branches', b1.id, { currentVersionId: zv.id })).rejects.toThrow(/下的版本/);
-    Object.assign(ids, { jt: jt.id, b1: b1.id, b2: b2.id, zt: zt.id, zb: zb.id, v1: v1.id, v2: v2.id, zv: zv.id });
+    Object.assign(ids, { jt: jt.id, b1: b1.id, b2: b2.id, zt: zt.id, zb: zb.id, initialId, v1: v1.id, v2: v2.id, zv: zv.id });
   });
 
   it('价格规则：挂版本后快递公司/网点/可发货范围由层级带出；只有“当前版本 + 合作中”的规则才是启用状态', async () => {
@@ -145,6 +148,7 @@ d('快递价格表（真实数据库）', () => {
   it('分区建议：生成一次留一条记录，可翻看；没有合作中的版本时拒绝', async () => {
     const run = await ex.generateZoneRun(boss, 5);
     expect(run.sequence).toBe(1);
+    expect(run.combinationCount).toBeGreaterThan(run.cooperatingVersionCount);
     const run2 = await ex.generateZoneRun(boss, 10);
     expect(run2.sequence).toBe(2);
     const list = await ex.listZoneRuns(boss, 1, 5);
@@ -156,6 +160,8 @@ d('快递价格表（真实数据库）', () => {
     await expect(ex.generateZoneRun(boss, 0)).rejects.toThrow(/0 到 1000/);
     await ex.deleteZoneRun(boss, run.id);
     expect((await ex.listZoneRuns(boss, 1, 5)).total).toBe(1);
+    const concurrent = await Promise.all([ex.generateZoneRun(boss, 5), ex.generateZoneRun(boss, 5)]);
+    expect(concurrent.map(row => row.sequence).sort((a, b) => a - b)).toEqual([3, 4]);
   });
 
   it('确认 AI 识别：替换 AI 价格、价格依据改为 AI、补全有效期和备注、留识别记录；加收通知存成批次', async () => {
@@ -179,6 +185,33 @@ d('快递价格表（真实数据库）', () => {
     // 原始凭据：只能挂上传到这个字段的文件，随便写个文件号会被拒绝
     await expect(ex.confirmSurchargeRecognition(boss, v.id, { batchName: 'y', rows: [{ name: '好', chargeType: 'fixed', amount: 100 }], evidenceFileId: 999999 })).rejects.toThrow();
     expect((await ex.versionDetail(boss, v.id)).batches).toHaveLength(1); // 失败整体回滚
+  });
+
+  it('重新识别覆盖非空日期和本次附件，保留手工来源及手工规则，过长备注整体回滚', async () => {
+    const carrier = await svc.create(boss, 'finance-express-carriers', { name: '合成重识别快递' });
+    const branch = await svc.create(boss, 'finance-express-branches', { carrierId: carrier.id, name: '重识别网点' });
+    const versionId = Number((await svc.get(boss, 'finance-express-branches', branch.id)).data.currentVersionId);
+    await svc.update(boss, 'finance-express-versions', versionId, { cooperationStatus: 'active', effectiveStart: '2025-01-01', effectiveEnd: '2026-12-31', attachmentName: '旧报价.csv', remark: '旧合作条款' });
+    await ex.replaceRules(boss, versionId, 'manual', [fixed(450)], '原手工价格', true);
+    await ex.confirmPriceRecognition(boss, versionId, { rules: [{ ...fixed(300, '广东'), note: '规则说明' }, { ...fixed(350, '山东'), note: '规则说明' }], effectiveStart: '2026-11-01', effectiveEnd: '2027-01-01', fileName: '本次报价.csv', extraRemark: '附加说明' });
+    let detail = await ex.versionDetail(boss, versionId);
+    expect(detail.version.data).toMatchObject({ priceSource: 'manual', effectiveStart: '2026-11-01', effectiveEnd: '2027-01-01', attachmentName: '本次报价.csv' });
+    expect(detail.effectiveSource).toBe('manual');
+    expect(detail.rules).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'manual', fixedPrice: 450 }), expect.objectContaining({ source: 'ai', fixedPrice: 300 })]));
+    expect(String(detail.version.data.remark)).toContain('旧合作条款');
+    expect(String(detail.version.data.remark)).toContain('文件：本次报价.csv');
+    expect(String(detail.version.data.remark).match(/规则说明/g)).toHaveLength(1);
+    await ex.confirmPriceRecognition(boss, versionId, { rules: [fixed(600)], effectiveStart: '', effectiveEnd: '', fileName: '更新报价.csv' });
+    detail = await ex.versionDetail(boss, versionId);
+    expect(detail.version.data).toMatchObject({ effectiveStart: '2026-11-01', effectiveEnd: '2027-01-01', attachmentName: '更新报价.csv', priceSource: 'manual' });
+    const oldRemark = '甲'.repeat(19990);
+    await svc.update(boss, 'finance-express-versions', versionId, { remark: oldRemark });
+    const records = detail.recognitions.length;
+    await expect(ex.confirmPriceRecognition(boss, versionId, { rules: [fixed(999)], fileName: '不应替换.csv', extraRemark: '这次说明不能截断旧备注' })).rejects.toThrow(/超过20000/);
+    detail = await ex.versionDetail(boss, versionId);
+    expect(detail.version.data).toMatchObject({ attachmentName: '更新报价.csv', remark: oldRemark, priceSource: 'manual' });
+    expect(detail.recognitions).toHaveLength(records);
+    expect(detail.rules).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'ai', fixedPrice: 600 }), expect.objectContaining({ source: 'manual', fixedPrice: 450 })]));
   });
 
   it('预估快照明确重算才换自动样本，批量手工保留计算时间并拒绝过期与并发覆盖', async () => {
@@ -293,10 +326,40 @@ d('快递价格表（真实数据库）', () => {
     await expect(svc.get(boss, 'finance-express-surcharges', s.id)).rejects.toThrow(/不存在/);
   });
 
-  it('级联删除：删版本清空规则并解除网点当前版本；删网点/公司连带下级，默认网点自动顺延', async () => {
+  it('级联附件仅在提交后清理对象；父级删除失败时附件登记仍在', async () => {
+    const carrier = await svc.create(boss, 'finance-express-carriers', { name: '合成附件清理快递' });
+    const branch = await svc.create(boss, 'finance-express-branches', { carrierId: carrier.id, name: '合成附件网点' });
+    const versionId = Number(branch.data.currentVersionId);
+    const batch = await svc.create(boss, 'finance-express-fee-batches', { versionId, batchName: '合成凭据批次' });
+    const file = await ds.manager.save(ResourceFile, ds.manager.create(ResourceFile, { companyId: boss.companyId, resourceType: 'finance-express-fee-batches', resourceId: batch.id, fieldKey: 'evidence', storageKey: 'synthetic-only-proof', name: '合成凭据.png', mime: 'image/png', size: 1, uploadedBy: boss.id }));
+    const cleanup = jest.spyOn(files, 'deleteObjects').mockResolvedValue();
+    const fail = jest.spyOn(svc, 'removeRecord').mockRejectedValueOnce(new Error('合成父级删除失败'));
+    try {
+      await expect(ex.deleteCarrier(boss, carrier.id, '合成回滚')).rejects.toThrow('合成父级删除失败');
+      expect(await ds.manager.findOneBy(ResourceFile, { id: file.id })).not.toBeNull();
+      expect(cleanup).not.toHaveBeenCalled();
+      fail.mockRestore();
+      await ex.deleteCarrier(boss, carrier.id, '合成清理');
+      expect(await ds.manager.findOneBy(ResourceFile, { id: file.id })).toBeNull();
+      expect(cleanup).toHaveBeenCalledWith(boss.companyId, ['synthetic-only-proof']);
+    } finally { fail.mockRestore(); cleanup.mockRestore(); }
+  });
+
+  it('删除末步失败时，级联子项、当前版本和引用在同一事务回滚', async () => {
+    const before = await ex.versionDetail(boss, ids.v1);
+    const fail = jest.spyOn(svc, 'removeRecord').mockRejectedValueOnce(new Error('合成删除末步失败'));
+    try {
+      await expect(ex.deleteVersion(boss, ids.v1, '回滚验证')).rejects.toThrow('合成删除末步失败');
+    } finally { fail.mockRestore(); }
+    expect((await svc.get(boss, 'finance-express-branches', ids.b1)).data.currentVersionId).toBe(ids.v1);
+    expect(await ex.versionDetail(boss, ids.v1)).toEqual(before);
+    await expect(svc.remove(boss, 'finance-express-versions', ids.v1, '验证引用')).rejects.toThrow(/引用/);
+  });
+
+  it('级联删除：删当前版本清空规则并顺延到首个剩余版本；删网点/公司连带下级，默认网点自动顺延', async () => {
     await expect(svc.remove(boss, 'finance-express-versions', ids.v1, '直接删')).rejects.toThrow(/引用/);
     await ex.deleteVersion(boss, ids.v1, '测试级联');
-    expect((await svc.get(boss, 'finance-express-branches', ids.b1)).data.currentVersionId).toBeUndefined();
+    expect((await svc.get(boss, 'finance-express-branches', ids.b1)).data.currentVersionId).toBe(ids.initialId);
     expect((await svc.list(boss, 'finance-express-prices', { pageSize: 200 })).items.filter((x) => x.data.versionId === ids.v1)).toEqual([]);
     // 默认网点是 b2；删 b2 后顺延到 b1
     await ex.deleteBranch(boss, ids.b2, '测试');

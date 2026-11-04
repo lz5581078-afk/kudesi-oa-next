@@ -1,13 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { createChecker, normalizeSpecs, sumUnitCents, multiplyUnitCents, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { FlowRun, ResourceRecord } from '../entities';
+import { Company, FlowRun, ResourceRecord } from '../entities';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { FlowService } from './flow.service';
 import { CreatedBundle, SKU_TEMPLATE, checkApplication, platformIdsOf } from './sku-apply';
-import { randomBytes } from 'crypto';
+import { createHash } from 'crypto';
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
@@ -154,25 +154,47 @@ export class SkuApplyService {
 
   /** 每个规格独立办理：一次填完，拆成一个规格一条流程（各自走仓库、财务），同一批用 batchKey 关联；先整体检查，再逐条发起 */
   async startSplit(user: AuthUser, payloadIn: Record<string, unknown>, requestKey: string) {
-    const payload = { ...payloadIn };
-    delete payload.splitSpecs;
-    const specs = normalizeSpecs(payload.specs).specs;
-    if (specs.length < 2) throw new BadRequestException('只有一个规格不用拆开办理，直接发起即可');
-    if (specs.length > 100) throw new BadRequestException('一次最多 100 个规格');
-    // 整体检查一遍（和不拆开时一样的规则）：有问题就整体不发起，免得发起了一半
-    await checkApplication(this.ds.manager, user, this.bundles, { ...payload }, { strict: true });
-    const batchKey = `B${Date.now().toString(36)}${randomBytes(3).toString('hex')}`.slice(0, 20);
-    const runs: Array<{ id: number; specName: string }> = [];
-    const failed: Array<{ specName: string; message: string }> = [];
-    for (const [i, spec] of specs.entries()) {
-      try {
-        const run = await this.flow.start(user, SKU_TEMPLATE, { ...payload, specs: [spec] }, `${requestKey}-${i}`.slice(0, 80));
-        // 引擎只保存模板里声明的字段；批次标记是业务痕迹（下划线开头，页面上不显示），发起后补写
-        await this.ds.query("UPDATE flow_runs SET payload = JSON_SET(payload, '$._batchKey', ?, '$._splitIndex', ?, '$._splitTotal', ?) WHERE id = ? AND company_id = ?", [batchKey, i + 1, specs.length, run.id, user.companyId]);
-        runs.push({ id: run.id, specName: spec.name });
-      } catch (e) { failed.push({ specName: spec.name, message: (e as Error).message }); }
-    }
-    return { batchKey, runs, failed };
+    if(!createChecker(user.permissions)('flow.apply.view'))throw new ForbiddenException('没有发起流程的权限');
+    if(typeof requestKey!=='string'||!/^[A-Za-z0-9_-]{12,60}$/.test(requestKey))throw new BadRequestException('requestKey 要12到60位字母数字');
+    const payload={...payloadIn};delete payload.splitSpecs;
+    const norm=normalizeSpecs(payload.specs),specs=norm.specs;
+    if(norm.errors.length)throw new BadRequestException(norm.errors.join('；'));
+    if(specs.length<2)throw new BadRequestException('只有一个规格不用拆开办理，直接发起即可');
+    if(specs.length>100)throw new BadRequestException('一次最多100个规格');
+    const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).filter(([,v])=>v!==undefined).sort(([a],[b])=>a.localeCompare(b)).map(([key,v])=>[key,canonical(v)])):value;
+    const inputOf=(p:Record<string,unknown>,sp:unknown)=>({batchName:String(p.batchName??'').trim(),scenarioId:p.scenarioId??null,brandId:p.brandId||null,platformIds:platformIdsOf(p).sort((a,b)=>a-b),bundleCategoryId:p.bundleCategoryId??null,note:String(p.note??'').trim(),specs:sp});
+    const fingerprint=(value:unknown)=>createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+    const hash=fingerprint(inputOf(payload,specs)),keys=specs.map((_,i)=>`${requestKey}-${i}`);
+    return this.ds.transaction(async em=>{
+      await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+      const previous=await em.find(FlowRun,{where:{companyId:user.companyId,requestKey:In(keys)},lock:{mode:'pessimistic_write'}});
+      for(const run of previous){
+        const index=keys.indexOf(run.requestKey!);
+        if(run.requesterId!==user.id || run.templateKey!==SKU_TEMPLATE)throw new ConflictException('请求标识已被其他申请使用');
+        if(run.payload._splitRequestHash ? run.payload._splitRequestHash!==hash : fingerprint(inputOf(run.payload,normalizeSpecs(run.payload.specs).specs))!==fingerprint(inputOf(payload,[specs[index]])) || run.payload._splitTotal!==undefined && Number(run.payload._splitTotal)!==specs.length || run.payload._splitIndex!==undefined && Number(run.payload._splitIndex)!==index+1)throw new ConflictException('同一请求标识的申请内容已变化，请核对原申请');
+      }
+      const oldKeys=[...new Set(previous.map(run=>str(run.payload._batchKey)).filter(Boolean))];
+      if(oldKeys.length>1 || oldKeys.some(key=>!/^B[0-9a-z]{1,19}$/.test(key)))throw new ConflictException('原申请的批次归组不一致，请先核对原申请');
+      const batchKey=oldKeys[0] ?? `B${fingerprint([user.companyId,user.id,requestKey]).slice(0,19)}`;
+      const missing=specs.filter((_,i)=>!previous.some(run=>run.requestKey===keys[i]));
+      // 重放已提交事实不重新拿当前商品资料覆盖；只有尚未创建的规格需要再次严格检查。
+      if(missing.length)await checkApplication(em,user,this.bundles,{...payload,specs:missing},{strict:true});
+      const runs:Array<{id:number;specName:string}>=[],failed:Array<{specName:string;message:string}>=[];
+      for(const [i,spec] of specs.entries()){
+        const point=`sku_split_${i}`;await em.query(`SAVEPOINT ${point}`);
+        try{
+          const old=previous.find(run=>run.requestKey===keys[i]);
+          const started=old ?? await this.flow.startIn(em,user,SKU_TEMPLATE,{...payload,specs:[spec]},keys[i]);
+          // 原有归组绝不改写；新入场与标记同事务，失败不会留下无归组的流程或待办。
+          if(!old?.payload._batchKey){
+            const record=await em.findOneByOrFail(FlowRun,{id:started.id,companyId:user.companyId});
+            await em.update(FlowRun,{id:record.id,companyId:user.companyId},{payload:{...record.payload,_batchKey:batchKey,_splitIndex:i+1,_splitTotal:specs.length,_splitRequestHash:hash}});
+          }
+          runs.push({id:started.id,specName:spec.name});await em.query(`RELEASE SAVEPOINT ${point}`);
+        }catch(error){await em.query(`ROLLBACK TO SAVEPOINT ${point}`);await em.query(`RELEASE SAVEPOINT ${point}`);failed.push({specName:spec.name,message:(error as Error).message});}
+      }
+      return {batchKey,runs,failed};
+    });
   }
 
   /** 同一批拆开办理的申请：每个规格现在到哪一步了（只列你能看到的） */

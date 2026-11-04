@@ -1,4 +1,5 @@
 import { StoreJstBadge } from './StoreJstSelect';
+import {FeeBookingNodeCell} from './FeeBookingNodeCell';
 import { useRef, type ReactNode } from 'react';
 import { dueBadgeFor, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
@@ -45,6 +46,7 @@ interface Props {
   rowActionsLabel?: string;
   /** 操作列宽（默认 196，分级布局的行内操作多一些） */
   actWidth?: number;
+  onCellSaved?:()=>void;
 }
 
 /**
@@ -97,12 +99,12 @@ export function ResourceTable(p: Props) {
           <input type="checkbox" aria-label={`勾选 ${row.title}`} checked={p.checked.includes(row.id)} onChange={(e) => p.onCheck([row.id], e.target.checked)} />
         </td>
         {columns.map((f, i) => {
-          const text = displayValue(f, row);
+          const text = p.type==='finance-fee-items'&&f.key==='requiredObject'?['yes','是'].includes(String(row.data.requiredObject))?'必须挂对象':'可不挂对象':displayValue(f, row);
           const due = dueBadgeFor(p.type, f.key, row.data, row.status, p.today);
           return (
             <td key={f.key} data-label={f.label} className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`}>
               <div className="cell">
-                <span className="cell-t" title={text || undefined}>{p.type === 'stores' && f.key === 'jushuitanShopId' ? <StoreJstBadge data={row.data} /> : text}</span>
+                <span className="cell-t" title={text || undefined}>{p.type === 'stores' && f.key === 'jushuitanShopId' ? <StoreJstBadge data={row.data} /> : p.type==='finance-fee-items'&&f.key==='defaultObject'?<FeeBookingNodeCell record={row} onSaved={p.onCellSaved}/>:text}</span>
                 {isCopyable(def, f) && f.type !== 'number' && text && <CopyButton value={text} label={f.label} />}
                 {due && <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`} title="到期提醒按今天的日期实时计算">{due.text}</span>}
               </div>
@@ -171,14 +173,14 @@ export function ResourceTable(p: Props) {
 }
 
 /** 手机上的卡片列表：第一行是名称和状态，下面最多四项关键内容，点整张卡片查看详情。 */
-export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns' | 'checked' | 'onCheck' | 'selected' | 'onOpen' | 'today' | 'empty' | 'loadingText' | 'groups' | 'folded' | 'onToggleGroup' | 'onAddInGroup' | 'rowActions'>) {
+export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns' | 'checked' | 'onCheck' | 'selected' | 'onOpen' | 'today' | 'empty' | 'loadingText' | 'groups' | 'folded' | 'onToggleGroup' | 'onAddInGroup' | 'rowActions'|'onCellSaved'>) {
   const { def, rows } = p;
   if (!rows) return <div className="res-cards-wrap"><div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />{p.loadingText ?? '加载中…'}</div></div>;
   if (rows.length === 0) return <div className="res-cards-wrap">{p.empty}</div>;
   const metaCols = p.columns.filter((f) => f.key !== def.titleField && !(p.type === 'stores' && f.key === 'jushuitanShopId'));
   const renderCard = (row: ResourceDto) => {
     const st = statusOf(def, row.status);
-    const metas = metaCols.map((f) => ({ f, text: displayValue(f, row) })).filter((m) => m.text).slice(0, 4);
+    const metas = metaCols.map((f) => ({ f, text: p.type==='finance-fee-items'&&f.key==='requiredObject'?['yes','是'].includes(String(row.data.requiredObject))?'必须挂对象':'可不挂对象':displayValue(f, row) })).filter((m) => m.text).slice(0, 4);
     return (
       <li key={row.id} className={`res-card${row.id === p.selected ? ' selected' : ''}`} tabIndex={0} aria-selected={row.id === p.selected}
         onClick={() => p.onOpen(row.id)}
@@ -189,6 +191,7 @@ export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns'
           <span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>
         </div>
         {p.rowActions && <div className="res-card-actions">{p.rowActions(row)}</div>}
+        {p.type==='finance-fee-items'&&p.columns.some(field=>field.key==='defaultObject')&&!metas.some(({f})=>f.key==='defaultObject')&&<div><span>挂账节点 </span><FeeBookingNodeCell record={row} onSaved={p.onCellSaved}/></div>}
         {p.type === 'stores' && <div style={{ marginTop: 8 }}><StoreJstBadge data={row.data} /></div>}
         {metas.length > 0 && (
           <dl className="res-card-meta">
@@ -197,7 +200,7 @@ export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns'
               return (
                 <div key={f.key} data-label={f.label}>
                   <dt>{f.label}</dt>
-                  <dd>{text}{isCopyable(def, f) && f.type !== 'number' && <> <CopyButton value={text} label={f.label} /></>}{due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`}>{due.text}</span></>}</dd>
+                  <dd>{p.type==='finance-fee-items'&&f.key==='defaultObject'?<FeeBookingNodeCell record={row} onSaved={p.onCellSaved}/>:text}{isCopyable(def, f) && f.type !== 'number' && <> <CopyButton value={text} label={f.label} /></>}{due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`}>{due.text}</span></>}</dd>
                 </div>
               );
             })}

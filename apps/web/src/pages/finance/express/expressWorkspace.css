@@ -75,3 +75,47 @@
 .express-host-workspace .host-tabs button { min-height: 44px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 2px; color: #526675; background: none; font-weight: 700; }
 .express-host-workspace .host-tabs button[aria-selected="true"] { color: #097f59; border-bottom-color: #097f59; }
 @media (max-width: 760px) { .express-host-workspace .host-tabs { gap: 14px; overflow-x: auto; } .express-host-workspace .host-tabs button { white-space: nowrap; } }
+/* The original express page inherits a 16px native control font and one grid shell. */
+.express-host-workspace { min-width: 0; color: #1d303b; font: 16px/normal Inter,'PingFang SC','Microsoft YaHei',Arial,sans-serif; }
+.express-host-workspace > div { display: grid; gap: 18px; min-width: 0; }
+.express-workspace-title { display: block; margin: 0; }
+.express-workspace-title h1 { margin: 0 0 7px; font-size: 25px; line-height: normal; }
+.express-workspace-title p { color: #64748b; font-size: 16px; line-height: normal; }
+.express-workspace-overview { border-color: #dce5eb; }
+.express-workspace-overview > div { border-color: #dce5eb; }
+.express-workspace-overview span { color: #5e7180; }
+.express-host-workspace .host-tabs { margin-top: 0; }
+.express-host-workspace .host-tabs button { display: inline-block; margin: 0; font: inherit; font-weight: 700; box-shadow: none; }
+.express-host-workspace .primary-button, .express-host-workspace .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; min-height: 0; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font: inherit; cursor: pointer; white-space: nowrap; }
+.express-host-workspace .primary-button { border-color: #166534; background: #0e8062; color: #fff; font-weight: 700; }
+.express-host-workspace .secondary-button:disabled { opacity: .55; cursor: not-allowed; }
+.express-host-workspace .express-carrier-heading button.danger, .express-host-workspace .express-branch-actions button.danger { all: revert; font: inherit; }
+.express-panel, .express-zone-runs, .express-freight-estimate { min-width: 0; padding: 16px; border: 1px solid #dce4ef; border-radius: 8px; background: #fff; box-shadow: 0 10px 30px #0f172a0d; }
+.express-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin: 0 0 14px; }
+.express-panel-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.express-panel-title > svg { flex: none; }
+.express-panel-title h2 { margin: 0; font-size: 16px; font-weight: 700; line-height: normal; }
+.express-panel-actions { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.express-branch-row { border-radius: 8px; }
+.express-branch-row:hover { border-color: #8ac9b1; }
+.express-price-workspace > section[aria-label="价格版本列表"] { display: grid; gap: 18px; }
+.express-current-branch { margin: 0; padding: 14px 16px; gap: 14px; border: 1px solid #d8e3de; border-radius: 8px; }
+.express-current-branch > div { display: block; }
+.express-current-branch strong { display: block; font-size: 17px; }
+.express-current-branch span { display: block; margin-top: 4px; color: #64748b; font-size: 13px; }
+.express-price-workspace .express-version-card { border-color: #d8e3de; border-radius: 8px; box-shadow: none; }
+.express-price-workspace .express-version-card.is-current { border-color: #0e8062; border-left-color: #097f59; }
+.express-version-card > header > div { display: block; }
+.express-version-card > header strong { color: #0f172a; font-size: 17px; }
+.express-version-card > header small { display: block; margin-top: 4px; color: #64748b; font-size: 12px; }
+.express-version-metadata > span { color: #334155; }
+.express-version-metadata b { color: #64748b; }
+.express-version-card p { margin: 0; color: #64748b; font-size: 13px; line-height: 1.5; }
+.express-version-actions > button { justify-self: end; min-width: 0; }
+.express-version-actions > button:first-child, .express-version-actions > .express-version-current { justify-self: start; }
+.express-version-actions footer { padding-top: 6px; border-top: 1px solid #edf1f4; }
+.express-host-workspace .express-version-actions footer > button.danger { height: auto; min-height: 32px; padding: 5px 9px; border: 1px solid #edc7c7; border-radius: 6px; background: #fff; color: #b43838; font-size: 12px; }
+@media (max-width: 1100px) { .express-branch-row { grid-template-columns: minmax(140px,200px) minmax(0,1fr); } .express-branch-actions { grid-column: 1 / -1; justify-content: flex-start; padding-top: 8px; border-top: 1px solid #dce5eb; } }
+@media (max-width: 760px) { .express-workspace-overview > div:nth-child(2) { border-right: 0; } .express-workspace-overview > div:nth-child(-n+2) { border-bottom: 1px solid #dce5eb; } .express-branch-row { grid-template-columns: minmax(0,1fr); gap: 10px; } .express-carrier-heading, .express-current-branch { flex-direction: column; align-items: flex-start; } }
+@media (max-width: 520px) { .express-workspace-location { gap: 6px; overflow: hidden; } .express-workspace-location > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .express-branch-metadata { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+.express-host-workspace .host-tabs .chip.active::after { content: none; }

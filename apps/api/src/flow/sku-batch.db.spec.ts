@@ -5,7 +5,7 @@ import { DataSource } from 'typeorm';
 import type { StepDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, Notification, ResourceRecord, User } from '../entities';
+import { Company, FlowRun, FlowStep, WorkItem, Notification, ResourceRecord, User } from '../entities';
 import { FeishuNoticeService } from '../outbox/feishu-notice.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
@@ -126,6 +126,53 @@ d('SKU 申请汇总（真实数据库）', () => {
   };
   const auditCount = async (action: string) =>
     (await ds.manager.count(AuditLog, { where: { companyId: admin.companyId, action } }));
+
+  it('组合编码申请入口按整申请分页，完整计数规格；默认逐流程与其他人的mine范围不变',async()=>{
+    const before=await flow.listRuns(ops,{view:'started',templateKey:'sku-batch-apply',page:1,pageSize:100});
+    const one=await split(3),two=await split(2);
+    const grouped=await flow.listRuns(ops,{view:'started',templateKey:'sku-batch-apply',groupSku:true,page:1,pageSize:1});
+    expect(grouped.total).toBe(before.total+2);expect(grouped.rows).toHaveLength(1);
+    const second=await flow.listRuns(ops,{view:'started',templateKey:'sku-batch-apply',groupSku:true,page:2,pageSize:1});
+    const rows=[...grouped.rows,...second.rows] as Array<{batchRef:string;specCount:number;progress:Array<{name:string;count:number;handlers:string[]}>}>;
+    expect(rows.find(row=>row.batchRef===one.batchKey)?.specCount).toBe(3);expect(rows.find(row=>row.batchRef===two.batchKey)?.specCount).toBe(2);
+    expect(rows.find(row=>row.batchRef===one.batchKey)?.progress).toEqual([expect.objectContaining({name:'仓库完善',count:3,handlers:['仓库']})]);
+    expect((await flow.listRuns(ops,{view:'started',templateKey:'sku-batch-apply',page:1,pageSize:100})).total).toBe(before.total+5);
+    expect((await flow.listRuns(stranger,{view:'started',templateKey:'sku-batch-apply',groupSku:true,page:1,pageSize:20})).total).toBe(0);
+    await expect(flow.listRuns(admin,{view:'all',templateKey:'sku-batch-apply',groupSku:true,page:1,pageSize:20})).rejects.toThrow(/只支持我的SKU/);
+    await expect(flow.listRuns(ops,{view:'started',templateKey:'leave',groupSku:true,page:1,pageSize:20})).rejects.toThrow(/只支持我的SKU/);
+    const board=await batch.board(ops,one.batchKey);expect(board.total).toBe(3);expect(board.requesterId).toBe(ops.id);
+  });
+
+  it('拆规格重复及并发首发保持同一批次/原run，已进入后续节点也不重归组，改内容或其他人复用拒绝',async()=>{
+    const data=payload([qspec('稳定甲',ids.pearBc,nextQty()),qspec('稳定乙',ids.pearBc,nextQty())]),request=key();
+    const [first,concurrent]=await Promise.all([sku.startSplit(ops,data,request),sku.startSplit(ops,data,request)]);
+    expect(first.failed).toEqual([]);expect(concurrent.failed).toEqual([]);expect(concurrent.batchKey).toBe(first.batchKey);expect(concurrent.runs).toEqual(first.runs);
+    expect(await ds.manager.count(FlowRun,{where:{companyId:ops.companyId,requestKey:`${request}-0`}})).toBe(1);
+    const moved=await whPass(wh,await flow.detail(wh,first.runs[0].id),[whLines()]);expect(moved.activeStep?.key).toBe('review');
+    const retry=await sku.startSplit(ops,data,request);expect(retry).toEqual(first);expect((await batch.board(ops,first.batchKey)).total).toBe(2);
+    await expect(sku.startSplit(ops,{...data,batchName:'改内容'},request)).rejects.toThrow(/内容已变化/);
+    await expect(sku.startSplit(admin,data,request)).rejects.toThrow(/其他申请/);
+    await expect(sku.startSplit({...ops,companyId:admin.companyId+999999},data,request)).rejects.toThrow();expect((await batch.board(ops,first.batchKey)).total).toBe(2);
+  });
+
+  it('新规格入场后失败回滚run/step/todo再保留其他规格成功，重试仅补失败项且沿原key',async()=>{
+    const data=payload([qspec('回滚甲',ids.pearBc,nextQty()),qspec('回滚乙',ids.pearBc,nextQty())]),request=key();
+    const original=flow.startIn.bind(flow);let failedRun=0;let injected=false;
+    const spy=jest.spyOn(flow,'startIn').mockImplementation(async(...args)=>{const run=await original(...args);if(!injected){injected=true;failedRun=run.id;throw new Error('合成入场后失败');}return run;});
+    let first:Awaited<ReturnType<SkuApplyService['startSplit']>>;
+    try{first=await sku.startSplit(ops,data,request);}finally{spy.mockRestore();}
+    expect(first!.failed).toEqual([{specName:'回滚甲',message:'合成入场后失败'}]);expect(first!.runs).toHaveLength(1);
+    expect(await ds.manager.findOneBy(FlowRun,{companyId:ops.companyId,id:failedRun})).toBeNull();expect(await ds.manager.count(FlowStep,{where:{companyId:ops.companyId,runId:failedRun}})).toBe(0);expect(await ds.manager.count(WorkItem,{where:{companyId:ops.companyId,runId:failedRun}})).toBe(0);
+    const retry=await sku.startSplit(ops,data,request);expect(retry.failed).toEqual([]);expect(retry.batchKey).toBe(first!.batchKey);expect(retry.runs[1].id).toBe(first!.runs[0].id);expect((await batch.board(ops,first!.batchKey)).total).toBe(2);
+  });
+
+  it('旧派生requestKey已有归组原样复用，旧key始终可查；跨公司不能读原汇总或改变归组',async()=>{
+    const data=payload([qspec('旧归组甲',ids.pearBc,nextQty()),qspec('旧归组乙',ids.pearBc,nextQty())]),request=key(),first=await sku.startSplit(ops,data,request),legacyKey='Blegacy'+crypto.randomBytes(4).toString('hex');
+    for(const item of first.runs)await ds.query("UPDATE flow_runs SET payload=JSON_REMOVE(JSON_SET(payload,'$._batchKey',?),'$._splitRequestHash') WHERE company_id=? AND id=?",[legacyKey,ops.companyId,item.id]);
+    const retry=await sku.startSplit(ops,data,request);expect(retry.batchKey).toBe(legacyKey);expect(retry.runs).toEqual(first.runs);expect((await batch.board(ops,legacyKey)).total).toBe(2);
+    const company=await ds.manager.save(Company,ds.manager.create(Company,{code:`other${crypto.randomBytes(4).toString('hex')}`,name:'合成另一公司',status:'active'}));const actor=au(await mkUser(company.id,'other','另一公司'),company.id,'另一公司',['flow.apply.view']);
+    await expect(batch.board(actor,legacyKey)).rejects.toThrow(/不存在|查看权限/);await expect(sku.startSplit(actor,data,request)).rejects.toThrow();expect((await batch.board(ops,legacyKey)).total).toBe(2);
+  });
 
   it('汇总待办：同一张申请单的多个规格在办理人待办里只占一行，带规格数；汇总看板列出每个规格', async () => {
     const out = await split(3);

@@ -5,12 +5,31 @@ import { useAuth } from '../auth/AuthContext';
 import { FinanceCategoryManager } from './FinanceCategoryManager';
 import { clearRefCache } from './RecordForm';
 import { resourceApi, type ResourceDto } from './api';
+import { matchesProductCategoryFamily } from './productCategoryFamily';
 
 export function ReferenceProductCategoryPicker({ values, onChange, labelNow }: { values: Record<string, unknown>; onChange: (id: number | null) => void; labelNow?: string }) {
  const { user }=useAuth(); const canCreate=!!user&&createChecker(user.permissions)('resource.finance-categories.create');
  const family=values.archiveType==='purchased'?String(values.supplyMode || 'original_purchase'):String(values.archiveType ?? '');
- const [rows,setRows]=useState<ResourceDto[]>([]),[keyword,setKeyword]=useState(''),[error,setError]=useState(''),[manager,setManager]=useState(false),[version,setVersion]=useState(0),[loading,setLoading]=useState(true);
- useEffect(()=>{let alive=true;setLoading(true);setError('');(async()=>{const all:ResourceDto[]=[];for(let page=1;;page++){const r=await resourceApi.list('finance-categories',{page,pageSize:200,tab:family});all.push(...r.items);if(all.length>=r.total||!r.items.length)break;}if(alive)setRows(all.filter(r=>r.status==='active'&&r.data.archiveType===family));})().catch(()=>alive&&setError('分类读取失败，请重试。')).finally(()=>alive&&setLoading(false));return()=>{alive=false;};},[family,version]);
+ const [keyword,setKeyword]=useState(''),[manager,setManager]=useState(false),[version,setVersion]=useState(0);
+ const scope=JSON.stringify([user?.companyId,user?.id,user?.permissions,family,version]);
+ const [state,setState]=useState<{scope:string;rows:ResourceDto[];error:string;loading:boolean}>({scope:'',rows:[],error:'',loading:true});
+ const rows=state.scope===scope?state.rows:[],error=state.scope===scope?state.error:'',loading=state.scope!==scope||state.loading;
+ useEffect(()=>{let alive=true;setState({scope,rows:[],error:'',loading:true});(async()=>{
+   const all=new Map<number,ResourceDto>();
+   for(const tab of family==='supplier_oem'?[family,'original_purchase']:[family]){
+     const seen=new Set<number>();let total:number|null=null;
+     for(let page=1;alive;page++){
+       const result=await resourceApi.list('finance-categories',{page,pageSize:200,tab});if(!alive)return;
+       if(!Number.isSafeInteger(result.total)||result.total<0||total!==null&&result.total!==total)throw new Error('分类读取不完整');
+       total=result.total;
+       for(const row of result.items){if(seen.has(row.id))throw new Error('分类读取不完整');seen.add(row.id);all.set(row.id,row);}
+       if(seen.size>total||!result.items.length&&seen.size<total)throw new Error('分类读取不完整');
+       if(seen.size===total)break;
+     }
+   }
+   if(alive)setState({scope,rows:[...all.values()].filter(row=>row.status==='active'&&matchesProductCategoryFamily(family,row.data)),error:'',loading:false});
+ })().catch(()=>{if(alive)setState({scope,rows:[],error:'分类读取失败，请重试。',loading:false});});return()=>{alive=false;};},[scope,family]);
+
  const byId=new Map(rows.map(r=>[r.id,r]));
  const path=(id:number)=>{const names:string[]=[],seen=new Set<number>();for(let r=byId.get(id);r&&!seen.has(r.id);r=byId.get(Number(r.data.parentId))){seen.add(r.id);names.unshift(r.title);}return names.join(' / ');};
  const leaf=rows.filter(r=>!rows.some(c=>c.data.parentId===r.id));

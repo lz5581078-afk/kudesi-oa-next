@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useState } from 'react';
+import {AlertTriangle,Trash2} from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import { SearchPick, money } from './common';
 import { JstSyncItems } from './jst/JstSyncItems';
@@ -13,6 +14,10 @@ const when = (s: string) => new Date(s).toLocaleString('zh-CN', { timeZone: 'Asi
 
 export { CostHistoryPage } from './CostHistoryPage';
 
+const SCENES = [['', '全部场景'], ['production', '生产包装'], ['supplier_oem', '供应商 OEM 包装'], ['dispatch', '发货包装']];
+const TREAT: Record<string, string> = { include: '计入成本', included_in_parent: '含在上级内', reference_only: '仅参考' };
+
+/** 包装方案匹配试算：输入对象和重量，看会命中哪个包装方案；同优先级命中多条会提示冲突。 */
 export function PackagingMatchPage() {
   const [scene, setScene] = useState('');
   const [targetType, setTargetType] = useState<'bundle' | 'base_code' | 'product_archive'>('bundle');
@@ -135,7 +140,7 @@ export function ApiKeysPage() {
 }
 
 /** 主数据整体重置：先自动留快照再清空商品基础资料；输入确认文本才执行；可以随时从快照恢复。 */
-export function MasterResetPage({ embedded = false }: { embedded?: boolean } = {}) {
+export function MasterResetPage({ embedded = false,presentation,blocked=false,onBusyChange,onFeedback }: { embedded?: boolean;presentation?:'master';blocked?:boolean;onBusyChange?:(busy:boolean)=>void;onFeedback?:(message:{type:'error'|'success';text:string}|null)=>void } = {}) {
   const [includePlatforms, setIncludePlatforms] = useState(true);
   const [pre, setPre] = useState<ResetPreview | null>(null);
   const [snaps, setSnaps] = useState<SnapshotRow[]>([]);
@@ -144,20 +149,44 @@ export function MasterResetPage({ embedded = false }: { embedded?: boolean } = {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const alive=useRef(false),readSerial=useRef(0),writing=useRef(false);
+  useEffect(()=>{onBusyChange?.(busy);return()=>onBusyChange?.(false);},[busy,onBusyChange]);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;readSerial.current++;};},[]);
   const load = async () => {
-    try { setPre(await financeApi.resetPreview(includePlatforms)); setSnaps(await financeApi.snapshots()); } catch (e) { setError(msg(e)); }
+    const request=++readSerial.current,current=()=>alive.current&&readSerial.current===request;
+    setError('');setBusy(true);onFeedback?.(null);
+    try{const [preview,snapshots]=await Promise.all([financeApi.resetPreview(includePlatforms),presentation==='master'?Promise.resolve([]):financeApi.snapshots()]);if(current()){setPre(preview);setSnaps(snapshots);}}
+    catch(e){if(current()){setPre(null);setError(msg(e));onFeedback?.({type:'error',text:msg(e)});}}
+    finally{if(current())setBusy(false);}
   };
-  useEffect(() => { void load(); }, [includePlatforms]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{readSerial.current++;setPre(null);setConfirm('');if(presentation!=='master')void load();else setBusy(false);},[includePlatforms,presentation]); // eslint-disable-line react-hooks/exhaustive-deps
   async function reset() {
-    setBusy(true); setError(''); setNotice('');
-    try { const r = await financeApi.resetExecute({ confirm, includePlatforms }); setNotice(`已清空 ${r.totalDeleted} 条，备份快照 #${r.snapshot.id}`); setConfirm(''); await load(); } catch (e) { setError(msg(e)); }
-    setBusy(false);
+    if(blocked||writing.current||!pre||confirm!==pre.confirmation||pre.blockedByDocuments>0||(pre.blockedByCostVersions??0)>0)return;
+    writing.current=true;setBusy(true);setError('');setNotice('');onFeedback?.(null);
+    try{const r=await financeApi.resetExecute({confirm,includePlatforms});if(!alive.current)return;setNotice(presentation==='master'?`已清理 ${r.totalDeleted} 条本地商品基础资料，并创建可恢复快照 #${r.snapshot.id}。`:`已清空 ${r.totalDeleted} 条，备份快照 #${r.snapshot.id}`);setConfirm('');if(presentation==='master'){setPre(null);onFeedback?.({type:'success',text:`已清理 ${r.totalDeleted} 条本地商品基础资料，并创建可恢复快照 #${r.snapshot.id}。`});}else await load();}
+    catch(e){if(alive.current){setError(msg(e));onFeedback?.({type:'error',text:msg(e)});}}
+    finally{writing.current=false;if(alive.current)setBusy(false);}
   }
   async function restore(s: SnapshotRow) {
-    setBusy(true); setError(''); setNotice('');
-    try { const r = await financeApi.restoreSnapshot(s.id, restoreText[s.id] ?? ''); setNotice(`已从快照 #${s.id} 恢复 ${r.restored} 条`); await load(); } catch (e) { setError(msg(e)); }
-    setBusy(false);
+    if(writing.current||restoreText[s.id]!==s.confirmation)return;
+    writing.current=true;setBusy(true);setError('');setNotice('');onFeedback?.(null);
+    try{const r=await financeApi.restoreSnapshot(s.id,restoreText[s.id]??'');if(!alive.current)return;setNotice(`已从快照 #${s.id} 恢复 ${r.restored} 条`);await load();}
+    catch(e){if(alive.current){setError(msg(e));onFeedback?.({type:'error',text:msg(e)});}}
+    finally{writing.current=false;if(alive.current)setBusy(false);}
   }
+
+  if(presentation==='master')return <section className="mdi-card danger-zone" aria-label="清空待导入商品基础资料">
+    <div className="mdi-card-title"><AlertTriangle aria-hidden="true"/><div><h3>清空待导入商品基础资料</h3><p>先统计，再创建完整快照并按依赖顺序清空。不会清理五类档案类型定义、聚水潭镜像、库存、成本、订单和组织数据。</p></div></div>
+    <label className="mdi-check"><input type="checkbox" disabled={busy||blocked} checked={includePlatforms} onChange={event=>setIncludePlatforms(event.target.checked)}/>同时清空销售平台</label>
+    <button type="button" disabled={busy||blocked} onClick={()=>void load()}><Trash2 aria-hidden="true"/>预览清理范围</button>
+    {error&&!onFeedback&&<div role="alert" className="mdi-message error">{error}</div>}{notice&&!onFeedback&&<div role="status" className="mdi-message success">{notice}</div>}
+    {pre&&<div className="mdi-reset-preview"><p>共将清理 <strong>{pre.total}</strong> 条。执行前会自动创建可恢复快照。</p><div className="mdi-counts">{pre.tables.map(table=><span key={table.type}>{table.label}：{table.count}</span>)}</div>
+      {(pre.blockedByCostVersions??0)>0&&<p role="alert">已有 {pre.blockedByCostVersions} 项成本版本或生产标准引用，不能整体重置主数据。</p>}{pre.blockedByDocuments>0&&<p role="alert">有 {pre.blockedByDocuments} 行财务单据明细用到了商品档案，目前不能重置。</p>}
+      <label><span>输入确认文本：<code>{pre.confirmation}</code></span><input aria-label="确认文本" value={confirm} onChange={event=>setConfirm(event.target.value)}/></label>
+      <button type="button" className="danger" disabled={busy||blocked||confirm!==pre.confirmation||pre.blockedByDocuments>0||(pre.blockedByCostVersions??0)>0} onClick={()=>void reset()}><Trash2 aria-hidden="true"/>创建快照并清空</button>
+    </div>}
+  </section>;
+
   return (
     <div>
       <div className="page-head">{embedded ? <h2>清空待导入商品基础资料</h2> : <h1>主数据重置</h1>}</div>
@@ -166,7 +195,7 @@ export function MasterResetPage({ embedded = false }: { embedded?: boolean } = {
       {notice && <div role="status" className="notice ok">{notice}</div>}
       {pre && (
         <section>
-          <label className="check-line"><input type="checkbox" checked={includePlatforms} onChange={(e) => setIncludePlatforms(e.target.checked)} />同时清空销售平台和销售场景</label>
+          <label className="check-line"><input type="checkbox" disabled={busy} checked={includePlatforms} onChange={(e) => setIncludePlatforms(e.target.checked)} />同时清空销售平台</label>
           <table className="data-table"><thead><tr><th>将清空的资料</th><th className="num">条数</th></tr></thead>
             <tbody>{pre.tables.map((t) => <tr key={t.type}><td>{t.label}</td><td className="num">{t.count}</td></tr>)}</tbody>
             <tfoot><tr><th>合计</th><th className="num">{pre.total}</th></tr></tfoot></table>

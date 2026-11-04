@@ -31,11 +31,12 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
   beforeAll(async () => {
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
     await ds.initialize();
-    svc = buildServices(ds).resources;
+    const services = buildServices(ds);
+    svc = services.resources;
     outbox = new OutboxService(ds, svc);
     bc = new BaseCodeToolsService(ds, svc, outbox);
     bt = new BundleToolsService(ds, svc, outbox);
-    jm = new JstMaintenanceService(ds, svc, outbox);
+    jm = new JstMaintenanceService(ds, svc, outbox, services.crypto);
     const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `j${crypto.randomBytes(5).toString('hex')}`, name: '聚水潭分类测试', status: 'active' }));
     const u = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: 'admin', passwordHash: 'x', name: '老板', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
     boss = { id: u.id, companyId: c.id, name: '老板', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
@@ -289,6 +290,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
   });
 
   it('资料维护：普通商品上传服务端校验必填项和重复，只加入出站队列，上传记录不带成本价', async () => {
+    const sender = jest.spyOn(outbox, 'senderFor').mockResolvedValue({ configured: true, targetKey: 'synthetic-maintenance-target', send: async () => undefined, readCategories: async () => [{ id: '1', parentId: '0', name: '水果', sort: null, enable: true }, { id: '2', parentId: '1', name: '苹果类', sort: null, enable: true }], searchNormal: async () => [] });
     const form = { skuId: 'NEW-SKU-1', styleId: 'NEW-STYLE', name: '手工商品', shortName: '手工', propertiesValue: '红色;100g', categoryName: '水果/苹果类', brand: '测试牌', costPrice: 12.5, purchasePrice: 10, weight: 0.5, unit: '个' };
     await expect(jm.upload(boss, { ...form, brand: '', weight: undefined })).rejects.toThrow(/品牌、重量/);
     await expect(jm.upload(boss, { ...form, costPrice: -1 })).rejects.toThrow(/数字/);
@@ -301,7 +303,8 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     expect(dup.matches.some((m) => m.field === 'styleId' && m.level === 'warning')).toBe(true);
     await expect(jm.upload(boss, { ...form, skuId: 'EXIST-1' })).rejects.toThrow(/已经存在/);
     await expect(jm.upload(ops, form)).rejects.toThrow(/管理员/);
-    const r = await jm.upload(boss, form);
+    const checked = await jm.checkDuplicate(boss, form);
+    const r = await jm.upload(boss, form, { signature: checked.signature!, confirmed: true });
     expect(r.queued).toBe(true);
     expect(r.warnings).toHaveLength(1);
     const logs = await jm.logs(boss, { page: 1, pageSize: 10, keyword: 'NEW-SKU' });
@@ -312,6 +315,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     expect(jobs.rows).toHaveLength(1);
     const plain = await outbox.jobs({ ...ops, permissions: { isCompanyAdmin: false, allow: ['finance.jst-sync.view'], deny: [] } }, { page: 1, pageSize: 10, kind: 'normal_product' });
     expect(JSON.stringify(plain.rows)).not.toContain('12.5');
+    sender.mockRestore();
   });
 
   it('同步清单：已验证的编码对照上次上传内容列差异，给出状态和同步记录，没有成本权限的看不到成本', async () => {

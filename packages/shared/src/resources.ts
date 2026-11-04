@@ -57,10 +57,12 @@ export interface FieldDef {
   initialValue?: string | number | boolean;
   /** 下拉可多选：保存为用顿号连接的选项值（按选项顺序、去重） */
   multi?: boolean;
+  /** 部分业务以第一个选择作为下游默认值；默认仍按字典顺序规范多选。 */
+  preserveSelectionOrder?: boolean;
   /** type=ref：目标资源 key，或 'user'（员工） */
   ref?: string;
   /** 原生单选目录需完整读取；编码展示与维护排序由字段声明。 */
-  refOptions?: { complete: true; codeField?: string; sortField?: string; manageLabel?: string; initialFocus?: boolean };
+  refOptions?: { complete: true; codeField?: string; sortField?: string; manageLabel?: string; initialFocus?: boolean; filters?:Readonly<Record<string,string|number>>;pathField?:string;leafOnly?:boolean };
   /** 在列表中显示的默认列 */
   list?: boolean;
   /** 参与关键词搜索 */
@@ -85,12 +87,20 @@ export interface FieldDef {
   scale?: number;
   /** 要有这个权限键才看得到/改得了这个字段（如成本字段需要 product.cost.view）；服务端强制，不只是前端隐藏 */
   permission?: string;
+  /** 必须同时具备这些查看权限；用于一段内容含多种受限字段的情况。 */
+  readPermissions?: readonly string[];
   /** 要有这个权限才能修改（不设则同 permission）；没有时提交的值被丢弃 */
   writePermission?: string;
   /** type=attrs：属性名来自所选分类（本记录里这个引用字段指向的记录）的 customFields（逗号分隔）；值是 名称→内容 */
   attrsFrom?: string;
   /** type=files：最多几个文件（默认 9） */
   maxFiles?: number;
+  /** Optional field-specific upload limit; existing attached facts are preserved. */
+  maxFileBytes?:number;
+  /** Upload one replacement only after it succeeds; does not truncate existing attachments. */
+  replacementOnly?:boolean;
+  /** 最后整组新增时允许从同公司原资料复制；仅文件或加密资料，密码不允许。 */
+  copyOnCreate?:boolean;
   /** type=files：只收图片，还是图片和 PDF 都收（默认都收） */
   accept?: 'image' | 'any';
   /** type=files：电脑上可以点“手机上传”，扫码用手机拍照/选图传到这个字段（只收图片） */
@@ -102,7 +112,7 @@ export interface FieldDef {
    * 下拉的值是列表项的编码，显示名称。kindBy：列表种类随另一个字段的值变（如发货物料用自己的单位表）。
    * 公司还没有维护该种类时，退回 options 里的默认选项。
    */
-  optionsFrom?: { resource: string; kind: string; alsoKinds?: string[]; kindBy?: { field: string; map: Record<string, string> } };
+  optionsFrom?: { resource: string; kind: string; alsoKinds?: string[]; kindOverride?:{field:string;map:Record<string,string>}; kindBy?: { field: string; map: Record<string, string> } };
   /** 只在列表里当一列用（读时派生的摘要之类），详情和表单里不显示 */
   listOnly?: boolean;
   /** 旧叫法：导入表格里列标题写旧名称也认（字段改名后，员工手里的旧模板还能用） */
@@ -329,6 +339,7 @@ export function groupTitle(def: Pick<ResourceDef, 'fields' | 'groupTitleBy'>, gr
   return label ? `${label}${g.suffix}` : group;
 }
 
+import { CODE_DICTIONARY_RESOURCE_DEFS } from './code-dictionary-resources';
 import { FINANCE_RESOURCE_DEFS } from './finance-resources';
 import { COST_VERSION_RESOURCE_DEFS } from './cost-version-resources';
 import { ABNORMAL, CANCELLED, INACTIVE, NORMAL, NOTE, attrs, date, files, money, o, ref, refs, secret, select, sensitive, text, textarea } from './resource-kit';
@@ -356,6 +367,7 @@ function sealFields(prefix: string, label: string): FieldDef[] {
 
 export const RESOURCE_DEFS: readonly ResourceDef[] = [
   ...FINANCE_RESOURCE_DEFS,
+  ...CODE_DICTIONARY_RESOURCE_DEFS,
   ...COST_VERSION_RESOURCE_DEFS,
   {
     key: 'licenses',
@@ -1502,6 +1514,8 @@ export function treeFilterField(def: ResourceDef): FieldDef | undefined {
 export function optionsKindOf(field: FieldDef, values: Record<string, unknown>): string | null {
   const from = field.optionsFrom;
   if (!from) return null;
+  const override=from.kindOverride?.map[String(values[from.kindOverride.field] ?? '')];
+  if(override)return override;
   if (from.kindBy) return from.kindBy.map[String(values[from.kindBy.field] ?? '')] ?? from.kind;
   return from.kind;
 }
@@ -1520,14 +1534,14 @@ export function resourcePermission(key: string, action: ResourceAction): string 
 
 /** 当前用户没有权限的字段 key（成本等受限字段）。 */
 export function restrictedFieldKeys(def: ResourceDef, can: (permission: string) => boolean): Set<string> {
-  const hidden = new Set(def.fields.filter((f) => f.permission && !can(f.permission)).map((f) => f.key));
+  const hidden = new Set(def.fields.filter((f) => f.permission && !can(f.permission) || f.readPermissions?.some(permission => !can(permission))).map((f) => f.key));
   if (def.zeroValueConfirmation && hidden.has(def.zeroValueConfirmation.valueField)) hidden.add(def.zeroValueConfirmation.confirmationField);
   return hidden;
 }
 
 /** 当前用户不能修改的字段（看不到的，或缺少修改权限的）。 */
 export function readOnlyFieldKeys(def: ResourceDef, can: (permission: string) => boolean): Set<string> {
-  const blocked = new Set(def.fields.filter((f) => (f.permission && !can(f.permission)) || (f.writePermission && !can(f.writePermission))).map((f) => f.key));
+  const blocked = new Set(def.fields.filter((f) => (f.permission && !can(f.permission)) || f.readPermissions?.some(permission => !can(permission)) || (f.writePermission && !can(f.writePermission))).map((f) => f.key));
   if (def.zeroValueConfirmation && blocked.has(def.zeroValueConfirmation.valueField)) blocked.add(def.zeroValueConfirmation.confirmationField);
   return blocked;
 }
@@ -1661,7 +1675,7 @@ export function validateResourceInput(
           const picked = new Set(String(raw).split(/[、,，]/).map((x) => x.trim()).filter(Boolean));
           const bad = [...picked].some((x) => !field.options?.some((opt) => opt.value === x));
           if (bad) errors.push(`${label}的取值不合法`);
-          else values[field.key] = (field.options ?? []).map((o) => o.value).filter((v) => picked.has(v)).join('、');
+          else values[field.key] = (field.preserveSelectionOrder?[...picked]:(field.options ?? []).map((o) => o.value).filter((v) => picked.has(v))).join('、');
           break;
         }
         {

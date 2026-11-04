@@ -7,12 +7,13 @@ import { resourceApi, type ResourceDto } from './api';
 import { ReasonDialog } from './TreeManage';
 import { ReasonDialog as MessageConfirm } from './ResourceConfirmDialog';
 import './financeCategoryManager.css';
+import { matchesProductCategoryFamily } from './productCategoryFamily';
 
 /** 财务档案的分类设置：逐级选中、独立编辑层、同级排序。所有写入仍走资料权限和校验。 */
 export function FinanceCategoryManager({ target, archiveType, rootId, selectedId, maxDepth = 3, counts = {}, context, presentation, locked = false, allowDelete = true, guardDeleteReferences = true, confirmation = 'reason', onPick, onChanged, onClose }: {
   target: string; archiveType?: string; rootId?: number; selectedId?: number; maxDepth?: number;
   counts?: Record<number, number>; onPick?: (id: number) => void; onChanged: () => void; onClose: () => void;
-  context?: { field: string; value: number; label: string; text: string };
+  context?: { field: string; value: number | string; label: string; text: string };
   presentation?: { kicker: string; description: string; unit: string; footer: string };
   locked?: boolean; allowDelete?: boolean; guardDeleteReferences?: boolean; confirmation?: 'reason' | 'message';
 }) {
@@ -52,7 +53,7 @@ export function FinanceCategoryManager({ target, archiveType, rootId, selectedId
     return () => { mounted.current = false; request.current++; };
   }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
   const allById = new Map(allRows.map(r=>[r.id,r]));
-  const rows = allRows.filter(r => (!def.categoryOrder || r.status === 'active') && (!context || r.data[context.field] === context.value) && (target !== 'finance-categories' || !family || r.data.archiveType === family) && (!rootId || (()=>{const seen=new Set<number>();for(let current:ResourceDto|undefined=r;current&&!seen.has(current.id);current=allById.get(Number(current.data.parentId))){if(current.id===rootId)return true;seen.add(current.id);}return false;})()));
+  const rows = allRows.filter(r => (!def.categoryOrder || r.status === 'active') && (!context || r.data[context.field] === context.value) && (target !== 'finance-categories' || !family || matchesProductCategoryFamily(family,r.data)) && (!rootId || (()=>{const seen=new Set<number>();for(let current:ResourceDto|undefined=r;current&&!seen.has(current.id);current=allById.get(Number(current.data.parentId))){if(current.id===rootId)return true;seen.add(current.id);}return false;})()));
   useEffect(() => {
     if(target !== 'finance-categories' || !prefixFamily || prefixFamily === 'bundle') return;
     let alive=true; setPrefixReady(false); setPrefixEdit(false);
