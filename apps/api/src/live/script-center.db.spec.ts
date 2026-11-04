@@ -65,7 +65,10 @@ import { ScriptCenterController } from './script-center.controller';
     expect(await api.detail(actor, v.id)).toMatchObject({
       ...draft,
       revision: 2,
-      outline: [{name:"留人",length:draft.body.length}, ...["互动","塑品","逼单","追单"].map(name=>({name,length:0}))],
+      outline: [
+        { name: '留人', length: draft.body.length },
+        ...['互动', '塑品', '逼单', '追单'].map((name) => ({ name, length: 0 })),
+      ],
       assets: [{ id: a.id, name: '籽粒特写' }],
     });
     await expect(api.save(actor, v.id, draft)).rejects.toThrow('版本已变更');
@@ -73,6 +76,24 @@ import { ScriptCenterController } from './script-center.controller';
     await expect(
       api.save(actor, v.id, { ...draft, revision: 2, cues: [{ asset: a.id, start: 0, end: 999 }] }),
     ).rejects.toThrow('范围');
+    // Existing question/answer rows remain readable until the product article is edited.
+    await ds.query('UPDATE live_script_folders SET faq=? WHERE id=?', [
+      JSON.stringify([{ question: '怎么种？', answer: '先整地。' }]),
+      folder.id,
+    ]);
+    const article = await api.questionArticle(actor, folder.id);
+    expect(article.body).toBe('怎么种？\n先整地。');
+    await api.saveQuestionArticle(actor, folder.id, {
+      body: '售前问题\n\n栽培提示',
+      revision: article.revision,
+    });
+    expect((await api.detail(actor, v.id)).revision).toBe(2);
+    await expect(
+      api.saveQuestionArticle(actor, folder.id, { body: '过期草稿', revision: article.revision }),
+    ).rejects.toThrow('问题库已变更');
+    await expect(api.questionArticle({ ...actor, companyId: c.id + 1000000 }, folder.id)).rejects.toThrow(
+      '不存在',
+    );
     await expect(api.url({ ...actor, companyId: c.id + 1000000 }, v.id, a.id)).rejects.toThrow('不存在');
     expect((await api.url(actor, v.id, a.id)).mime).toBe('image/png');
   }, 120000);
