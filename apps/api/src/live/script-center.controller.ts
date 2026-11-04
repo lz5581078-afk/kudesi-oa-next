@@ -258,11 +258,13 @@ export class ScriptCenterController {
       throw new BadRequestException('请填全问题和回答');
     return this.db.transaction(async (em) => {
       const result = await em.query(
-        'UPDATE live_script_versions SET name=?,notes=?,outline=COALESCE(?,outline),body=?,cues=?,revision=revision+1 WHERE company_id=? AND id=? AND revision=? AND (? OR outline IS NULL OR BINARY body=BINARY ?)',
+        "UPDATE live_script_versions SET name=?,notes=?,outline=CASE WHEN ? IS NOT NULL THEN CAST(? AS JSON) WHEN outline IS NOT NULL AND body='' THEN JSON_SET(outline,'$[0].length',CAST(? AS UNSIGNED)) ELSE outline END,body=?,cues=?,revision=revision+1 WHERE company_id=? AND id=? AND revision=? AND (? OR outline IS NULL OR body='' OR BINARY body=BINARY ?)",
         [
           nameOf(dto.name),
           dto.notes,
+          dto.outline ? 1 : null,
           dto.outline ? JSON.stringify(dto.outline) : null,
+          dto.body.length,
           dto.body,
           JSON.stringify(dto.cues),
           u.companyId,
