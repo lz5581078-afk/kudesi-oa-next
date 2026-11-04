@@ -241,8 +241,10 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
       if (!result.affectedRows) throw new NotFoundException('电脑不存在'); res.json({ ok: true }); return true;
     }
     if (action === 'remote') {
-      // Cleanup must remain possible after a policy is disabled.
-      const cleanup = req.method === 'DELETE' || req.path.endsWith('/end');
+      // Cleanup and its exact owner-scoped status poll remain possible after a
+      // device policy is disabled. This does not allow frame, ticket or input.
+      const cleanup = req.method === 'DELETE' || req.path.endsWith('/end') ||
+        (req.method === 'GET' && /^\/remote-sessions\/[\da-f-]{36}$/i.test(req.path));
       if (!cleanup && (req.path === '/remote-sessions' || req.path === '/open-requests')) {
         if (!await this.store.remoteAllowed(user.companyId, workspaceId, req.body.deviceId, user.id)) throw new ForbiddenException('该电脑未允许远程控制');
       } else if (!cleanup) {
@@ -313,7 +315,7 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
       return rows.map(r => ({ ...r, mode: 'control', reason: '店铺远程协助', endReason: null, endReasonLabel: r.status === 'ended' ? '已结束' : null, endedByName: '', durationSeconds: r.acceptedAt ? Math.max(0, Math.round((new Date(r.endedAt ?? Date.now()).getTime() - new Date(r.acceptedAt).getTime()) / 1000)) : 0, inputCount: null, extendCount: null }));
     }
     if (req.path === '/oa-remote/stop-all') {
-      const ended = await this.store.execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE company_id=? AND workspace_id=? AND status IN ('requested','connected')", [user.companyId, workspaceId]);
+      const ended = await this.store.execute("UPDATE session_remote_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE company_id=? AND workspace_id=? AND status IN ('requested','connected')", [user.companyId, workspaceId]);
       const disabled = await this.store.ds.query('UPDATE sm_legacy_remote_policies SET enabled=0 WHERE company_id=? AND workspace_id=?', [user.companyId, workspaceId]);
       return { ended: ended.affectedRows, disabledDevices: disabled.affectedRows };
     }
@@ -323,7 +325,7 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
       const [device] = await tx.query("SELECT id FROM session_devices WHERE id=? AND company_id=? AND workspace_id=? AND status<>'deleted' FOR UPDATE", [deviceId, user.companyId, workspaceId]);
       if (!device) throw new NotFoundException('电脑不存在');
       await tx.execute('INSERT INTO sm_legacy_remote_policies(company_id,workspace_id,device_id,enabled,allow_control,max_minutes) VALUES(?,?,?,?,?,10) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),allow_control=VALUES(allow_control)', [user.companyId, workspaceId, deviceId, req.body.enabled ? 1 : 0, req.body.allowControl ? 1 : 0]);
-      if (!req.body.enabled) await tx.execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE company_id=? AND workspace_id=? AND device_id=? AND status IN ('requested','connected')", [user.companyId, workspaceId, deviceId]);
+      if (!req.body.enabled) await tx.execute("UPDATE session_remote_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE company_id=? AND workspace_id=? AND device_id=? AND status IN ('requested','connected')", [user.companyId, workspaceId, deviceId]);
     });
     return { ok: true };
   }
@@ -338,7 +340,7 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
           const [capture] = await em.query("SELECT * FROM sm_legacy_captures WHERE id=? AND status='pending' FOR UPDATE", [candidate.id]);
           if (!capture || (!remoteGloballyDisabled() && Date.now() - new Date(capture.created_at).getTime() <= 30_000)) return;
           await em.query("UPDATE sm_legacy_captures SET status='failed',error_text='截图超时或远程已停用',finished_at=CURRENT_TIMESTAMP(3) WHERE id=? AND company_id=? AND workspace_id=? AND status='pending'", [capture.id, capture.company_id, capture.workspace_id]);
-          if (capture.owns_remote) await this.store.forManager(em).execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE id=? AND company_id=? AND workspace_id=? AND user_id=? AND status IN ('requested','connected')", [capture.remote_session_id, capture.company_id, capture.workspace_id, capture.user_id]);
+          if (capture.owns_remote) await this.store.forManager(em).execute("UPDATE session_remote_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP,frame_data=NULL WHERE id=? AND company_id=? AND workspace_id=? AND user_id=? AND status IN ('requested','connected')", [capture.remote_session_id, capture.company_id, capture.workspace_id, capture.user_id]);
         });
       }
       const sessions = await this.store.query(`SELECT id,company_id,workspace_id,user_id,device_id FROM session_remote_sessions WHERE status IN ('requested','connected') ${deviceId ? 'AND device_id=?' : ''}`, deviceId ? [deviceId] : []);
@@ -350,7 +352,7 @@ export class LegacySessionRuntime implements OnApplicationBootstrap, OnModuleDes
           SET c.status='failed',c.error_message='远程控制权限已停止，输入已取消',c.completed_at=CURRENT_TIMESTAMP
           WHERE r.id=? AND r.company_id=? AND r.workspace_id=? AND c.status IN ('queued','running')`, [s.id, s.company_id, s.workspace_id]);
         if (await this.store.captureAllowed(Number(s.company_id), Number(s.workspace_id), s.device_id, Number(s.user_id), s.id)) continue;
-        await this.store.execute("UPDATE session_remote_sessions SET status='ended',closed_at=CURRENT_TIMESTAMP,frame_data=NULL,error_message='远程权限已失效' WHERE id=? AND company_id=? AND workspace_id=? AND status IN ('requested','connected')", [s.id, s.company_id, s.workspace_id]);
+        await this.store.execute("UPDATE session_remote_sessions SET status='closed',closed_at=CURRENT_TIMESTAMP,frame_data=NULL,error_message='远程权限已失效' WHERE id=? AND company_id=? AND workspace_id=? AND status IN ('requested','connected')", [s.id, s.company_id, s.workspace_id]);
       }
     } finally { this.sweeping = false; }
   }
