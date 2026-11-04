@@ -105,7 +105,7 @@ d('直播管理（真实数据库）', () => {
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test_u9' }), migrationsRun: true } as never);
     await ds.initialize();
     const s = buildServices(ds);
-    flow = new FlowService(ds, s.resources, new FinanceDocumentsService(ds));
+    flow = new FlowService(ds, s.resources, new FinanceDocumentsService(ds),undefined,undefined,undefined,source);
     schedules = new LiveScheduleService(ds);
     sessions = new LiveSessionService(ds, flow, source);
     ledger = new LiveLedgerService(ds);
@@ -342,7 +342,7 @@ d('直播管理（真实数据库）', () => {
   });
 
   it('月结：必须只读核对退款（查不到不生成）；按原比例扣减；提交后锁月；审批通过后锁定', async () => {
-    clock('2026-10-05 10:00:00');
+    clock('2026-10-10 10:00:00');
     const unconfigured = new LiveSettlementService(ds, flow, new (await import('./live-order-source')).UnconfiguredLiveOrderSource());
     await expect(unconfigured.generate(manager, '2026-09')).rejects.toThrow(/不能生成结算单.*授权/);
     // 有要核对退款的订单、但聚水潭读取没就绪（没授权）时，明确提示，不生成残缺结算单
@@ -375,7 +375,7 @@ d('直播管理（真实数据库）', () => {
     await expect(settlements.generate(manager, '2026-09')).rejects.toThrow(/正在审批中/);
     clock('2026-09-30 23:00:00');
     await expect(sessions.start(manager, { roomId: ids.s1, anchorId: anchor.id, ...baseStart() })).rejects.toThrow(/结算审批/);
-    clock('2026-10-05 11:00:00');
+    clock('2026-10-10 11:00:00');
     const run = (await settlements.detail(manager, id)).flowRunId!;
     const f = await flow.detail(reviewer, run);
     await flow.pass(reviewer, run, { revision: f.revision, stepId: f.activeStep!.id });
@@ -536,7 +536,7 @@ d('直播管理（真实数据库）', () => {
   });
 
   it('区间工资结算：时间工资加提成、特殊核定、重叠与结算日锁定',async()=>{
-    clock('2026-08-20 18:00:00');
+    clock('2026-09-10 18:00:00');
     const made=await settlements.generate(manager,'',undefined,{from:'2026-08-18',to:'2026-08-18'});
     const detail=await settlements.detail(manager,made.id);
     expect(detail).toMatchObject({from:'2026-08-18',to:'2026-08-18',wageTotalCents:20000});
@@ -553,8 +553,8 @@ d('直播管理（真实数据库）', () => {
     await expect(management.manual(manager,{sessionId:sid,roomId:ids.s1,anchorId:original.anchor.id,controlId:control.id,operatorId:operator.id,douyinAccountId:ids.account,storeId:ids.store,startAt:'2026-08-18 10:00:00',endAt:'2026-08-18 12:00:00',salesCents:100000,adSpendCents:0,reason:'修改'})).rejects.toThrow(/结算/);
     const f=await flow.detail(reviewer,(await settlements.detail(manager,made.id)).flowRunId!);
     clock('2026-08-18 23:00:00');
-    await expect(flow.pass(reviewer,f.id,{revision:f.revision,stepId:f.activeStep!.id})).rejects.toThrow(/日期范围结束后/);
-    clock('2026-08-20 18:00:00');
+    await expect(flow.pass(reviewer,f.id,{revision:f.revision,stepId:f.activeStep!.id})).rejects.toThrow(/次月10日|日期范围结束后/);
+    clock('2026-09-10 18:00:00');
     await flow.pass(reviewer,f.id,{revision:f.revision,stepId:f.activeStep!.id});
     expect((await settlements.detail(manager,made.id)).status).toBe('approved');
     // 月内其他日期仍能补报，不扩大成整月锁定。
@@ -615,6 +615,7 @@ d('直播管理（真实数据库）', () => {
       expect(approved.commissions.find(c=>c.platform===platform&&c.role==='anchor')?.amountCents).toBe(p.anchor.amountCents);
     }
     const settlementService=new LiveSettlementService(ds,flow,perShop);
+    clock('2026-08-10 10:00:00');
     const settled=await settlementService.generate(manager,'',undefined,{from:'2026-07-04',to:'2026-07-04'});
     const payroll=await settlementService.detail(manager,settled.id);
     expect(payroll.lines).toHaveLength(9);expect(payroll.wageTotalCents).toBe(24000);
@@ -638,7 +639,7 @@ d('直播管理（真实数据库）', () => {
     const submitted=await service.submit(anchor,start.id),run=await flow.detail(reviewer,submitted.runId);
     await flow.pass(reviewer,run.id,{revision:run.revision,stepId:run.activeStep!.id,form:{finalSource:'anchor'}});
     const payroll=new LiveSettlementService(ds,flow,offline);
-    clock('2026-06-16 12:00:00');
+    clock('2026-07-10 12:00:00');
     const generated=await payroll.generate(manager,'',undefined,{from:'2026-06-15',to:'2026-06-15'});
     const detail=await payroll.detail(manager,generated.id);
     expect(detail.lines.every(l=>l.unverifiedStores.length===1)).toBe(true);
@@ -1063,6 +1064,7 @@ d('直播管理（真实数据库）', () => {
     await approve(made.id,{finalSource:'operator'});
     const final=await sessions.detail(manager,made.id);expect(final.finalSalesSource).toBe('operator');expect(final.wages.map(w=>[w.role,w.minutes])).toEqual(expect.arrayContaining([['anchor',70],['control',55]]));
     source.refundMap.set('QR1',5000);clock('2026-12-02 10:00:00');
+    clock('2027-01-10 10:00:00');
     const payroll=await settlements.generate(manager,'2026-12',undefined,{from:'2026-12-01',to:'2026-12-01'});
     const detail=await settlements.detail(manager,payroll.id);expect(detail.refundTotalCents).toBe(3000);expect(detail.refunds.find(r=>r.orderId==='QR1')?.refundCents).toBe(5000);
     const anchorLine=detail.lines.find(l=>l.role==='anchor')!;

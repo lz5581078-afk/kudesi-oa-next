@@ -1,9 +1,9 @@
-import { checkOverlap, periodOf, payrollSources } from './live-payroll-core';
+import { checkOverlap, periodOf, payrollSources, scopedPayrollSources, scopeOf, assertCommissionDate } from './live-payroll-core';
 import { EntityManager } from 'typeorm';
 import { liveToday } from '@kudesi/shared';
-import { Row, liveFail, lockCompany, wallNow } from './live-core';
+import { Row, liveClock, liveFail, lockCompany, wallNow } from './live-core';
 
-export const SETTLEMENT_STATUS: Record<string, string> = { draft: '待提交', submitted: '审批中', returned: '已退回', approved: '已结算' };
+export const SETTLEMENT_STATUS: Record<string, string> = { draft: '待提交', submitted: '审批中', returned: '已退回', approved: '已结算', voided:'已作废' };
 
 export async function lockedSettlement(em: EntityManager, companyId: number, id: number): Promise<Row> {
   await lockCompany(em, companyId);
@@ -15,8 +15,23 @@ export async function lockedSettlement(em: EntityManager, companyId: number, id:
 /** 提交、审批前再核对一次：本月场次都已审核，且提成记录和结算明细一一对应（期间有变化要退回重新核对）。 */
 export async function validateSettlementSources(em: EntityManager, companyId: number, row: Row) {
   const p=periodOf(row);
+  if(row.original_settlement_id){
+    const [original]:Row[]=await em.query("SELECT status FROM live_settlements WHERE company_id=? AND id=?",[companyId,row.original_settlement_id]);
+    if(original?.status!=='approved')liveFail('原结算单未确认，不能调整',409);
+    const lines:Row[]=await em.query('SELECT * FROM live_settlement_lines WHERE company_id=? AND settlement_id=?',[companyId,row.id]);
+    if(lines.length!==1||!lines[0].original_line_id||Number(lines[0].payable_cents)!==Number(row.payable_total_cents))liveFail('调整明细发生变化',409);
+    return;
+  }
+  if(row.source_fingerprint){
+    const sources=await scopedPayrollSources(em,companyId,p.from,p.to,scopeOf(row));
+    assertCommissionDate(sources.records.map(r=>r.day),liveClock.now());
+    const fingerprint=JSON.stringify({records:sources.records,wages:sources.wages,dailyWork:sources.dailyWork,orders:sources.orders});
+    if(fingerprint!==row.source_fingerprint) liveFail('本期收入或订单有变化，请退回重新核对',409);
+    return;
+  }
   await checkOverlap(em,companyId,p.from,p.to,Number(row.id));
   const sources=await payrollSources(em,companyId,p.from,p.to);
+  assertCommissionDate(sources.records.map(r=>r.day),liveClock.now());
   const lines:Row[]=await em.query('SELECT * FROM live_settlement_lines WHERE company_id=? AND settlement_id=? ORDER BY commission_record_id',[companyId,row.id]);
   const commissionLines=lines.filter(l=>!l.daily_work_id);
   if(sources.records.length+sources.dailyWork.length!==Number(row.record_count)||sources.records.length!==commissionLines.length||sources.records.some((r,i)=>Number(r.id)!==Number(commissionLines[i].commission_record_id)))liveFail('本期提成记录有变化，请退回重新核对');
@@ -33,6 +48,7 @@ export async function markSubmitted(em: EntityManager, ctx: { companyId: number;
   const row = await lockedSettlement(em, ctx.companyId, settlementId);
   if (!['draft', 'returned'].includes(row.status)) liveFail(row.status === 'approved' ? '结算单已审批通过' : '结算单正在审批中');
   await validateSettlementSources(em, ctx.companyId, row);
+  await em.query(`INSERT INTO live_settlement_events(company_id,settlement_id,event_type,actor_id,detail_json) VALUES(?,?,'submitted',?,?)`,[ctx.companyId,settlementId,ctx.actorId,JSON.stringify({runId})]);
   await em.query(
     "UPDATE live_settlements SET status = 'submitted', return_reason = NULL, flow_run_id = COALESCE(?, flow_run_id), submitted_by = ?, submitted_at = ?, revision = revision + 1 WHERE company_id = ? AND id = ?",
     [runId, ctx.actorId, wallNow(ctx.now), ctx.companyId, settlementId],
@@ -51,7 +67,8 @@ export async function approveSettlement(em: EntityManager, ctx: { companyId: num
   const row = await lockedSettlement(em, ctx.companyId, settlementId);
   if (row.status !== 'submitted' || Number(row.flow_run_id) !== ctx.runId) liveFail('结算单已不在审批中，请刷新后核对');
   await validateSettlementSources(em, ctx.companyId, row);
-  if (periodOf(row).to >= liveToday(ctx.now)) liveFail('只能在结算日期范围结束后完成工资结算审批');
+  if (!row.original_settlement_id && periodOf(row).to >= liveToday(ctx.now)) liveFail('只能在结算日期范围结束后完成工资结算审批');
+  await em.query(`INSERT INTO live_settlement_events(company_id,settlement_id,event_type,actor_id,detail_json) VALUES(?,?,'approved',?,?)`,[ctx.companyId,settlementId,ctx.actorId,JSON.stringify({runId:ctx.runId})]);
   await em.query("UPDATE live_settlements SET status = 'approved', approved_by = ?, approved_at = ?, return_reason = NULL, revision = revision + 1 WHERE company_id = ? AND id = ?", [ctx.actorId, wallNow(ctx.now), ctx.companyId, settlementId]);
 }
 
