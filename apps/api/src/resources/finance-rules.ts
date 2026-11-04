@@ -1302,7 +1302,11 @@ async function syncProductBaseCode(host: RuleHost, em: EntityManager, user: Auth
     if (bc.data.origin === 'external_import' || bc.status === 'deleted') continue;
     // 原 linkage 的人工资料覆盖不冻结实时成本；专属重量覆盖仍按现有明确字段保留。
     const patch:Data = {cost,purchasePrice,weightG:bc.data.profileWeightOverride??p.data.weightG};
-    if(bc.data.origin==='archive_sync'&&bc.data.profileManual!==true&&!['disabled'].includes(bc.status))Object.assign(patch,{name:full,shortName:full,...archiveIdentity});
+    if(bc.data.origin==='archive_sync'&&bc.data.profileManual!==true&&!['disabled'].includes(bc.status))Object.assign(patch,{
+      name:full,shortName:full,varietyName:str(p.data.name),
+      spec:`${p.data.specQty??''}${str(p.data.specUnit)}`,
+      categoryId:bc.data.profileCategoryOverride??p.data.categoryId,...archiveIdentity,
+    });
     if (Object.entries(patch).some(([key, value]) => bc.data[key] !== value)) {
       await host.patchData(em, user, 'finance-base-codes', bc.id, patch, '商品档案变化，同步基础编码资料');
     }
