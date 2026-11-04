@@ -12,13 +12,15 @@
   },
   "scripts": {
     "build:shared": "npm run build -w @kudesi/shared",
-    "build": "npm run build:shared && npm run build -w @kudesi/api && npm run build -w @kudesi/web && npm run build -w @kudesi/agent",
-    "typecheck": "npm run build:shared && npm run typecheck -w @kudesi/api && npm run typecheck -w @kudesi/web && npm run typecheck -w @kudesi/agent",
-    "test": "npm run build:shared && npm test -w @kudesi/shared && npm test -w @kudesi/api && npm test -w @kudesi/web && npm test -w @kudesi/agent",
+    "build": "npm run build:shared && npm run build -w @kudesi/api && npm run build -w @kudesi/web && npm run build -w @kudesi/agent && npm run build -w @kudesi/desktop",
+    "typecheck": "npm run build:shared && npm run typecheck -w @kudesi/api && npm run typecheck -w @kudesi/web && npm run typecheck -w @kudesi/agent && npm run typecheck -w @kudesi/desktop",
+    "test": "npm run build:shared && npm test -w @kudesi/shared && npm test -w @kudesi/api && npm test -w @kudesi/web && npm test -w @kudesi/agent && npm run test -w @kudesi/desktop",
     "dev:api": "npm run start:dev -w @kudesi/api",
     "dev:web": "npm run dev -w @kudesi/web",
     "db:migrate": "npm run migration:run -w @kudesi/api",
     "db:seed": "npm run seed -w @kudesi/api",
-    "db:platform-admin": "npm run platform-admin -w @kudesi/api"
+    "db:platform-admin": "npm run platform-admin -w @kudesi/api",
+    "dev:desktop": "npm start -w @kudesi/desktop",
+    "desktop:win": "npm run dist:win -w @kudesi/desktop"
   }
 }
