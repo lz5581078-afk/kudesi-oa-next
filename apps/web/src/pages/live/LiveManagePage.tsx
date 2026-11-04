@@ -1,3 +1,4 @@
+import { ScriptCenter } from './ScriptCenter';
 import { DailyWorkPanel } from './DailyWorkPanel';
 import { LiveQr } from './LiveQr';
 import { NotificationsTab } from './NotificationsTab';
@@ -18,7 +19,7 @@ import { SettlementsTab } from './SettlementsTab';
 
 const TAB_KEY = 'kudesi.live.tab';
 const TABS = [
-  ['overview', '全览'], ['schedules', '排场'], ['daily','日常工作'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'],
+  ['overview', '全览'], ['schedules', '排场'], ['scripts','话术中心'], ['daily','日常工作'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -49,6 +50,7 @@ export function LiveManagePage() {
         {visible.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={k === current} className={k === current ? 'chip active' : 'chip'} onClick={() => pick(k)}>{label}</button>)}
       </div>
       {current === 'overview' && <OverviewTab onOpenSession={setOpenId} />}
+      {current === 'scripts' && <ScriptCenter manage={can('live.manage')} />}
       {current === 'daily' && <DailyWorkPanel date={params.get('date')??undefined}/>}
       {current === 'schedules' && <SchedulesTab />}
       {current === 'sessions' && <SessionsTab onOpen={setOpenId} refreshKey={tick} />}

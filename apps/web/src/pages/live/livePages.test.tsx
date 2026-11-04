@@ -150,7 +150,7 @@ describe('直播管理', () => {
     wrap(<LiveManagePage />);
     expect(await screen.findByText('还没有直播间')).toBeTruthy();
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['全览', '排场', '日常工作', '场次记录', '待审核', '主播工资', '中控工资', '运营提成', '提成规则']);
+    expect(tabs).toEqual(['全览', '排场', '话术中心', '日常工作', '场次记录', '待审核', '主播工资', '中控工资', '运营提成', '提成规则']);
     cleanup();
     allow = ['features.live.view', 'live.commissions.view'];
     wrap(<LiveManagePage />);

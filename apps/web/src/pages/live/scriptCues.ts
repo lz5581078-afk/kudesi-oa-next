@@ -1,0 +1,44 @@
+export type Category = 'background' | 'image' | 'video';
+export const categories = { background: '背景图', image: '图片', video: '视频' };
+export interface Asset {
+  id: number;
+  name: string;
+  category: Category;
+}
+export interface Cue {
+  asset: number;
+  start: number;
+  end: number;
+}
+export interface ScriptVersion {
+  id: number;
+  folderId: number;
+  name: string;
+  notes: string;
+  body: string;
+  cues: Cue[];
+  revision: number;
+  assets: Asset[];
+}
+
+// DOM selection and stored offsets both use UTF-16. Anchor edits to the actual caret,
+// including when the same sentence occurs more than once.
+export function moveCues(before: string, after: string, caret: number, cues: Cue[]): Cue[] {
+  if (before === after) return cues;
+  let end = before.length,
+    nextEnd = after.length;
+  while (nextEnd > caret && end > 0 && before[end - 1] === after[nextEnd - 1]) {
+    end--;
+    nextEnd--;
+  }
+  let start = 0;
+  while (start < end && start < nextEnd && before[start] === after[start]) start++;
+  const delta = after.length - before.length;
+  return cues.flatMap((c) => {
+    if (c.end <= start) return [c];
+    if (c.start >= end) return [{ ...c, start: c.start + delta, end: c.end + delta }];
+    const left = Math.min(c.start, start),
+      right = c.end > end ? c.end + delta : nextEnd;
+    return right > left ? [{ ...c, start: left, end: right }] : [];
+  });
+}
