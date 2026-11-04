@@ -11,8 +11,14 @@ export function liveRoomTarget(value:string):string|null {
     return `/features/live-desk?${room?`room=${Number(room)}&`:''}company=${Number(company)}${token?`&token=${token}`:''}${url.searchParams.get('daily')==='1'?'&daily=1':''}`;
   } catch {return null;}
 }
+function uploadTarget(value:string) {
+  const url=new URL(value,'https://oa.local'), id=url.searchParams.get('upload'), section=url.searchParams.get('section');
+  if(url.origin==='https://oa.local' && url.pathname==='/features/live' && url.searchParams.get('tab')==='scripts' && id && /^[1-9]\d{0,9}$/.test(id) && section && ['background','image','video'].includes(section))
+    return '/features/live?tab=scripts&upload='+id+'&section='+section;
+  return null;
+}
 export function rememberLiveRoom() {
-  const value=liveRoomTarget(location.pathname+location.search);
+  const value=liveRoomTarget(location.pathname+location.search) || uploadTarget(location.pathname+location.search);
   if(value){sessionStorage.setItem(KEY,value);sessionStorage.setItem(TIME,String(Date.now()));}
   else if(location.pathname==='/features/live-desk'&&['room','company','token'].some(key=>new URLSearchParams(location.search).has(key)))clearLiveRoom();
 }
@@ -20,7 +26,7 @@ export function pendingLiveRoom() {
   // This timeout only clears an abandoned login redirect; the QR itself has no expiry.
   const time=Number(sessionStorage.getItem(TIME));
   if(!time||Date.now()-time>30*60_000){clearLiveRoom();return '/';}
-  return liveRoomTarget(sessionStorage.getItem(KEY)??'')??'/';
+  const value=sessionStorage.getItem(KEY)??'';return liveRoomTarget(value)??uploadTarget(value)??'/';
 }
 export function consumeLiveRoom(){return pendingLiveRoom();}
 export function clearLiveRoom(){sessionStorage.removeItem(KEY);sessionStorage.removeItem(TIME);}
