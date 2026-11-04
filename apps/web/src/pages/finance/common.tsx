@@ -1,17 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { unitOptionFromText } from '@kudesi/shared';
-import { resourceApi, type ResourceDto } from '../../resources/api';
+import { resourceApi } from '../../resources/api';
+import {ReferenceResourcePick} from './ReferenceResourcePick';
+import type {PickOption,SearchPickProps} from './referencePickOptions';
 import './referenceDocumentPicker.css';
 
 export const ReferencePickContext = createContext(false);
-export interface PickOption { id: number; title: string; detail?: string; data?: Record<string, unknown>; optionLabels?: Record<string,string> }
-/** 制单商品选择器的名称/品牌/名称规格；基础信息全称属于另一种展示口径。 */
-export function referenceProductLabel(item: Pick<ResourceDto,'title'|'data'|'refLabels'|'optionLabels'>): string {
-  const text=(value:unknown)=>String(value??'').trim();
-  const rawUnit=text(item.data.specUnit),unit=item.optionLabels?.specUnit||unitOptionFromText(rawUnit)?.label||rawUnit;
-  return [text(item.data.name)||item.title||'未命名商品',text(item.refLabels?.brandId),[text(item.data.specQty),unit].filter(Boolean).join('')].filter(Boolean).join(' · ');
-}
-
+export {referenceProductLabel} from './referencePickOptions';
+export type {PickOption} from './referencePickOptions';
 /** 元（文本）→ 分；空串 → null；非法 → NaN */
 export function yuanToCents(text: string): number | null {
   const t = text.trim();
@@ -26,50 +21,30 @@ export const referenceMoney = (value: number | null | undefined) => typeof value
 export const DOC_STATUS_TONE: Record<string, string> = { draft: 'muted', issued: 'warn', posted: 'ok', reversed: 'bad' };
 
 /** 搜索式选择：输入关键字，从资料里找；用于商品、客户、费用项目等可能很多的资料。 */
-export function SearchPick({ type, value, label, onChange, placeholder, fieldKey, fieldValue, ariaLabel, options }: {
-  type: string; value: number | null | undefined; label?: string; onChange: (id: number | null, label: string, data?: Record<string, unknown>, optionLabels?: Record<string,string>) => void;
-  placeholder?: string; fieldKey?: string; fieldValue?: string; ariaLabel?: string;
-  options?: PickOption[];
-}) {
-  const reference = useContext(ReferencePickContext);
+export function SearchPick(props:SearchPickProps) {
+ const reference=useContext(ReferencePickContext);
+ return reference?<ReferenceResourcePick {...props}/>:<RemoteSearchPick {...props}/>;
+}
+function RemoteSearchPick({ type, value, label, onChange, placeholder, fieldKey, fieldValue, ariaLabel, options }:SearchPickProps) {
   const [text, setText] = useState(label ?? '');
   const [items, setItems] = useState<PickOption[]>([]);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const request = useRef(0);
-  const root = useRef<HTMLDivElement>(null);
-  const [keyword, setKeyword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   useEffect(() => { setText(label ?? ''); }, [label, value]);
   useEffect(() => { request.current++; clearTimeout(timer.current); setItems([]); setOpen(false); return () => { request.current++; clearTimeout(timer.current); }; }, [type, fieldKey, fieldValue]);
-  useEffect(() => {
-    if (!reference || !open) return;
-    const outside = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', outside);
-    return () => document.removeEventListener('mousedown', outside);
-  }, [reference, open]);
   const search = (kw: string) => {
     clearTimeout(timer.current);
     const version = ++request.current;
-    setLoading(true); setError('');
-    if (options) { setItems(options.filter(option => option.title.toLocaleLowerCase().includes(kw.trim().toLocaleLowerCase())).slice(0,80)); setLoading(false); return; }
+    if (options) { setItems(options.filter(option => option.title.toLocaleLowerCase().includes(kw.trim().toLocaleLowerCase())).slice(0,80)); return; }
     timer.current = setTimeout(() => {
-      resourceApi.list(type, { keyword: kw, pageSize: reference ? 80 : 15, fieldKey, fieldValue })
-        .then((r) => { if (request.current === version) setItems(r.items.filter((i) => i.status !== 'inactive' && i.status !== 'deleted').map((i) => ({ id: i.id, data: i.data, optionLabels: i.optionLabels, title: reference && type === 'finance-products' ? referenceProductLabel(i) : i.title, ...(reference && i.data?.code ? { detail: String(i.data.code) } : {}) }))); })
-        .catch(() => { if (request.current === version) { setItems([]); setError('资料读取失败，请重试'); } })
-        .finally(() => { if (request.current === version) setLoading(false); });
+      resourceApi.list(type, { keyword: kw, pageSize: 15, fieldKey, fieldValue })
+        .then((r) => { if (request.current === version) setItems(r.items.filter((i) => i.status !== 'inactive' && i.status !== 'deleted').map((i) => ({ id: i.id, data: i.data, optionLabels: i.optionLabels, title: i.title }))); })
+        .catch(() => { if (request.current === version) setItems([]); });
     }, 200);
   };
   const optionsKey = JSON.stringify(options);
-  useEffect(() => { if (open && options) search(keyword); }, [optionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (reference) return <div className="pick reference-document-picker" ref={root} onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); root.current?.querySelector<HTMLButtonElement>('.reference-document-picker-trigger')?.focus(); } }}>
-    <button type="button" data-grid-picker className="reference-document-picker-trigger" aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} onClick={() => { setOpen(!open); if (!open) { setKeyword(''); search(''); } }}><span className={!value ? 'placeholder' : ''}>{label || placeholder || '请选择资料'}</span><b aria-hidden="true">{open ? '▲' : '▼'}</b></button>
-    {open && <div className="reference-document-picker-menu" data-picker-menu><input autoFocus aria-label={`搜索${ariaLabel || '资料'}`} placeholder={`搜索${placeholder || ariaLabel || '资料'}`} value={keyword} onChange={event => { setKeyword(event.target.value); search(event.target.value); }}/><ul role="listbox" className="pick-list">
-      {value && <li><button type="button" role="option" aria-selected={false} onClick={() => { onChange(null,''); setOpen(false); }}>清空选择</button></li>}
-      {loading ? <li role="status">正在加载资料…</li> : error ? <li role="alert">{error}<button type="button" onClick={() => search(keyword)}>重试</button></li> : !items.length ? <li className="muted">没有找到</li> : items.map(item => <li key={item.id}><button type="button" role="option" aria-selected={item.id === value} onClick={() => { onChange(item.id,item.title,item.data,item.optionLabels); setOpen(false); }}>{item.title}{item.detail ? ` · ${item.detail}` : ''}</button></li>)}
-    </ul></div>}
-  </div>;
+  useEffect(() => { if (open && options) search(''); }, [optionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="pick">
       <input

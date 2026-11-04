@@ -18,7 +18,7 @@ const item = (id: number, title: string) => ({ id, title, status: 'active', data
 const BANKS = [item(5, '甲户'), item(6, '乙户')];
 beforeEach(() => {
   allowed = 'all';
-  vi.mocked(resourceApi.list).mockImplementation((async (type: string) => ({ items: type === 'bank-accounts' ? BANKS : type === 'finance-products' ? [item(3, '小油菜')] : type === 'finance-warehouses' ? [item(9, '总仓')] : [item(7, '老客户')], total: 1, page: 1, pageSize: 15 })) as never);
+  vi.mocked(resourceApi.list).mockImplementation((async (type: string) => ({ items: type === 'bank-accounts' ? BANKS : type === 'finance-products' ? [item(3, '小油菜')] : type === 'finance-warehouses' ? [item(9, '总仓')] : [item(7, '老客户')], total: type === 'bank-accounts' ? BANKS.length : 1, page: 1, pageSize: 200 })) as never);
   vi.mocked(resourceApi.get).mockResolvedValue({ data: {} } as never);
   vi.mocked(resourceApi.users).mockResolvedValue([{ id: 1, name: '老板', active: true }, { id: 2, name: '员工小王', active: true }, { id: 3, name: '离职小李', active: false }]);
   fa.banks.mockResolvedValue([{ id: 5, title: '甲户', balanceCents: 100000 }, { id: 6, title: '乙户', balanceCents: 50000 }] as never);
@@ -217,7 +217,7 @@ describe('经手人员工选择器', () => {
     fireEvent.click(sel);
     fireEvent.click(await screen.findByRole('option', { name: '员工小王' }));
     fireEvent.click(sel);
-    fireEvent.click(screen.getByRole('option', { name: '清空选择' }));
+    fireEvent.click(screen.getByRole('option', { name: '清空当前选择' }));
     expect(sel.textContent).toContain('选择经办人');
     fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.update).toHaveBeenLastCalledWith(9, expect.objectContaining({ handlerId: null, handler: null })));

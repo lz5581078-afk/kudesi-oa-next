@@ -78,7 +78,7 @@ describe('商品名称单位的原版联动', () => {
     fireEvent.click(await screen.findByRole('option',{name:'无名称单位'}));
     expect(unit().value).toBe('用户改箱');
     fireEvent.click(screen.getByLabelText('第1行商品'));
-    fireEvent.click(await screen.findByRole('option',{name:'清空选择'}));
+    fireEvent.click(await screen.findByRole('option',{name:'清空当前选择'}));
     expect(unit().value).toBe('用户改箱');
     fireEvent.change(unit(),{target:{value:''}});
     fireEvent.click(screen.getByLabelText('第1行商品'));
@@ -124,7 +124,7 @@ describe('费用档案的选择约束', () => {
     expect((screen.getByLabelText('第1行挂账对象') as HTMLInputElement).value).toBe('合成公司');
     expect(screen.queryByText('必须挂对象')).toBeNull();
     fireEvent.click(screen.getByLabelText('第1行费用项目'));
-    fireEvent.click(await screen.findByRole('option',{name:'清空选择'}));
+    fireEvent.click(await screen.findByRole('option',{name:'清空当前选择'}));
     expect(screen.queryByText('必须挂对象')).toBeNull();
     expect(resourceApi.get).not.toHaveBeenCalledWith('finance-fee-items',expect.anything());
   });
