@@ -12,11 +12,26 @@ interface Inputs {
 const amount = (v: unknown): number | null => v != null && Number.isSafeInteger(Number(v)) && Number(v) >= 0 ? Number(v) : null;
 const json = (v: unknown) => typeof v === 'string' ? JSON.parse(v) : v;
 
+/** 投流是场次/平台的费用，不能累加各角色提成记录中的重复快照。 */
+function sessionAdSpend(session:Row, reports:Row[], commissions:Row[]):number|null {
+  if (session.status === 'approved' && commissions.length) {
+    const platforms = new Map<string,number>();
+    for (const row of commissions) {
+      const cents = amount(row.ad_spend_cents), key = String(row.platform || '');
+      if (cents === null || (platforms.has(key) && platforms.get(key) !== cents)) return null;
+      platforms.set(key,cents);
+    }
+    return [...platforms.values()].reduce((n,cents)=>n+cents,0);
+  }
+  // 中控逐店填报时服务端已经校验总投流=逐店合计；只取这一份总额。
+  return amount(reports.find(r=>r.role==='control')?.ad_spend_cents);
+}
+
 /** Read-only estimate; approved sessions use ledger amounts, never ledger + estimate. */
 export function computeDayEstimate(sessions: Row[], now: string, input: Inputs, canViewCosts: boolean) {
   sessions = sessions.filter(s => s.start_text <= now);
-  let turnoverCents = 0, wageCents = 0, commissionCents = 0;
-  const missingSales = new Set<number>(), missingCosts = new Set<number>();
+  let turnoverCents = 0, wageCents = 0, commissionCents = 0, adSpendCents = 0;
+  const missingSales = new Set<number>(), missingCosts = new Set<number>(), missingAdSpend = new Set<number>();
   for (const s of sessions) {
     const id = Number(s.id), reports = input.reports.filter(r => Number(r.session_id) === id);
     const base = primaryReport(reports);
@@ -54,6 +69,8 @@ export function computeDayEstimate(sessions: Row[], now: string, input: Inputs, 
     }
     if (sales === null) missingSales.add(id); else turnoverCents += sales;
     if (!canViewCosts) continue;
+    const ads = sessionAdSpend(s,reports,input.commissions.filter(r=>Number(r.session_id)===id));
+    if (ads === null) missingAdSpend.add(id); else adSpendCents += ads;
     if (s.status === 'approved') {
       wageCents += input.wages.filter(r => Number(r.session_id) === id && ['anchor','control'].includes(r.role)).reduce((n,r) => n + Number(r.amount_cents),0);
       commissionCents += input.commissions.filter(r => Number(r.session_id) === id).reduce((n,r) => n + Number(r.amount_cents),0);
@@ -91,6 +108,7 @@ export function computeDayEstimate(sessions: Row[], now: string, input: Inputs, 
     } catch { missingCosts.add(id); }
   }
   return { sessions:sessions.length,turnoverCents,missingSalesSessions:missingSales.size,
+    adSpend:canViewCosts ? {totalCents:adSpendCents,missingSessions:missingAdSpend.size} : null,
     costs:canViewCosts ? {wageCents,commissionCents,totalCents:wageCents+commissionCents,missingSessions:missingCosts.size} : null };
 }
 
@@ -110,7 +128,7 @@ export async function dayEstimate(em:EntityManager,a:LiveAccess,sessions:Row[],n
     const [checkins,profiles,wages,commissions,versions,commissionOnly]=await Promise.all([
       read('live_session_checkins',"*,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') start_text,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text"),
       em.query('SELECT id,pay_type,hourly_rate FROM users WHERE company_id=? AND id IN (?)',[a.companyId,people]),
-      read('live_wage_records','session_id,role,amount_cents'),read('live_commission_records','session_id,amount_cents'),
+      read('live_wage_records','session_id,role,amount_cents'),read('live_commission_records','session_id,platform,ad_spend_cents,amount_cents'),
       em.query("SELECT id,DATE_FORMAT(effective_from,'%Y-%m-%d') effective_from,rules_json FROM live_commission_rule_versions WHERE company_id=?",[a.companyId]),
       commissionOnlyControlIds(em,a.companyId),
     ]);

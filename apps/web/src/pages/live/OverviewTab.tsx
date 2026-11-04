@@ -138,6 +138,10 @@ export function OverviewTab({ onOpenSession }: { onOpenSession: (id: number) => 
             <span>{dayLabel}费用</span><strong>{financials?.costs ? money(financials.costs.totalCents) : '—'}</strong>
             <small>{financials ? financials.costs ? financials.costs.missingSessions ? `已统计 · ${financials.costs.missingSessions}场待完善` : '实时预估 · 含未审核' : '无全员费用查看权限' : '读取中'}</small>
           </div>
+          <div className="live-financial-stat" title="未审核场次取中控已填报的投流合计；已审核取各平台核定投流，每个平台只统计一次。未填报时不计作零，不计入前面的工资及提成费用。">
+            <span>{dayLabel}投流费用</span><strong>{financials?.adSpend ? money(financials.adSpend.totalCents) : '—'}</strong>
+            <small>{financials?.adSpend ? financials.adSpend.missingSessions ? `已填报 · ${financials.adSpend.missingSessions}场待填报` : '已填报 · 含未审核' : financials?.costs === null ? '无全员费用查看权限' : '读取中'}</small>
+          </div>
         </div>
         <button type="button" className="secondary-button live-summary-trigger" disabled={!d?.daySummary || d.date !== date} onClick={() => setSummaryOpen(true)}>本日直播情况汇总</button>
       </div>
