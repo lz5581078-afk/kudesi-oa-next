@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { categories, type Asset, type ScriptVersion } from './scriptCues';
 
-import { initialOutline, offsets } from './scriptOutline';
+import { initialOutline, offsets, stageAt } from './scriptOutline';
 import { OutlineLayout } from './OutlineLayout';
 import { AssetDownload } from './ScriptAssetLibrary';
 
@@ -33,20 +33,19 @@ export function ScriptPreview({
   // Keep each original paragraph together even when a cue starts mid-sentence.
   const stages = initialOutline(v),
     starts = offsets(stages);
-  const paragraphs = stages.flatMap((stage, i) => {
-    const text = v.body.slice(starts[i], starts[i] + stage.length);
-    const lines = Array.from(text.matchAll(/[^\n]*\n|[^\n]+$/g), (m) => ({
-      start: starts[i] + m.index!,
-      end: starts[i] + m.index! + m[0].length,
-    }));
-    if (!lines.length) lines.push({ start: starts[i], end: starts[i] });
-    return lines.map(({ start, end }, line) => {
-      const cues = v.cues.filter((c) => c.start < end && c.end > start);
-      const points = [
-        ...new Set([start, end, ...cues.flatMap((c) => [Math.max(start, c.start), Math.min(end, c.end)])]),
-      ].sort((a, b) => a - b);
-      return { start, end, cues: start === end ? [] : cues, points, stage: i, first: line === 0 };
-    });
+  const paragraphs = Array.from(v.body.matchAll(/[^\n]*\n|[^\n]+$/g), (m) => {
+    const start = m.index!,
+      end = start + m[0].length;
+    const cues = v.cues.filter((c) => c.start < end && c.end > start);
+    const points = [
+      ...new Set([
+        start,
+        end,
+        ...starts.filter((p) => p > start && p < end),
+        ...cues.flatMap((c) => [Math.max(start, c.start), Math.min(end, c.end)]),
+      ]),
+    ].sort((a, b) => a - b);
+    return { start, end, cues, points };
   });
   const color = (id: number) => `hsl(${(v.assets.findIndex((a) => a.id === id) * 137 + 159) % 360} 55% 87%)`;
   function arrow(assetId: number, start: boolean, position: number) {
@@ -143,55 +142,41 @@ export function ScriptPreview({
             }}
           >
             {!v.body && <p className="muted">这个版本还没有正文。</p>}
-            {paragraphs.map(({ start, end, cues, points, stage, first }) =>
-              start === end ? (
-                <div
-                  key={stage + ':empty'}
-                  data-stage={stage}
-                  className="sc-empty-stage"
-                  data-heading={stages[stage].name}
-                  aria-label={stages[stage].name + '，暂无正文'}
-                />
-              ) : (
-                <div
-                  className="sc-line"
-                  key={stage + ':' + start}
-                  data-stage={stage}
-                  data-heading={first ? stages[stage].name : undefined}
-                >
-                  <aside>
-                    {cues.filter((c) => c.start >= start).map((c) => arrow(c.asset, true, c.start))}
-                  </aside>
-                  <span className="sc-prose" data-start={start}>
-                    {points.slice(0, -1).map((left, i) => {
-                      const right = points[i + 1],
-                        spans = cues.filter((c) => c.start <= left && c.end >= right);
-                      const colors = [...new Set(spans.map((c) => color(c.asset)))];
-                      const asset = v.assets.find((a) => a.id === spans[spans.length - 1]?.asset);
-                      const show = () => {
-                        if (asset) setActive(asset);
-                      };
-                      return (
-                        <span
-                          key={left}
-                          onMouseEnter={show}
-                          onClick={show}
-                          style={{
-                            background:
-                              colors.length > 1
-                                ? 'linear-gradient(to bottom,' + colors.join(',') + ')'
-                                : colors[0],
-                          }}
-                        >
-                          {v.body.slice(left, right)}
-                        </span>
-                      );
-                    })}
-                  </span>
-                  <aside>{cues.filter((c) => c.end <= end).map((c) => arrow(c.asset, false, c.end))}</aside>
-                </div>
-              ),
-            )}
+            {paragraphs.map(({ start, end, cues, points }) => (
+              <div className="sc-line" key={start}>
+                <aside>
+                  {cues.filter((c) => c.start >= start).map((c) => arrow(c.asset, true, c.start))}
+                </aside>
+                <span className="sc-prose" data-start={start}>
+                  {points.slice(0, -1).map((left, i) => {
+                    const right = points[i + 1],
+                      spans = cues.filter((c) => c.start <= left && c.end >= right);
+                    const colors = [...new Set(spans.map((c) => color(c.asset)))];
+                    const asset = v.assets.find((a) => a.id === spans[spans.length - 1]?.asset);
+                    const show = () => {
+                      if (asset) setActive(asset);
+                    };
+                    return (
+                      <span
+                        key={left}
+                        data-stage={stageAt(stages, left, -1)}
+                        onMouseEnter={show}
+                        onClick={show}
+                        style={{
+                          background:
+                            colors.length > 1
+                              ? 'linear-gradient(to bottom,' + colors.join(',') + ')'
+                              : colors[0],
+                        }}
+                      >
+                        {v.body.slice(left, right)}
+                      </span>
+                    );
+                  })}
+                </span>
+                <aside>{cues.filter((c) => c.end <= end).map((c) => arrow(c.asset, false, c.end))}</aside>
+              </div>
+            ))}
           </div>
           {active && (
             <aside className="sc-media" aria-label="素材预览">

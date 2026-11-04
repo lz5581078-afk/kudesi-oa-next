@@ -1,10 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { ScriptAssetLibrary } from './ScriptAssetLibrary';
-import { initialOutline, offsets, labelRange, reorderStage } from './scriptOutline';
-import { OutlineLayout, OutlineTemplates } from './OutlineLayout';
+import { initialOutline, labelRange } from './scriptOutline';
+import { ScriptArticleEditor } from './ScriptArticleEditor';
+import { OutlineTemplates } from './OutlineLayout';
 import { ScriptPreview } from './ScriptPreview';
-import { categories, moveCues, type Asset, type ScriptVersion } from './scriptCues';
+import { categories, type Asset, type ScriptVersion } from './scriptCues';
 
 export function ScriptVersionPanel({
   initial,
@@ -38,13 +39,6 @@ export function ScriptVersionPanel({
     [],
   );
   const [stageName, setStageName] = useState('');
-  const faq = v.faq ?? [],
-    [faqChanged, setFaqChanged] = useState(false);
-  const starts = offsets(v.outline);
-  function updateFaq(items: typeof faq) {
-    setFaqChanged(true);
-    change({ faq: items });
-  }
   const path = '/live/scripts/versions/' + v.id;
   function change(update: Partial<ScriptVersion>) {
     setV((old) => ({ ...old, ...update, outline: update.outline ?? old.outline }));
@@ -55,7 +49,7 @@ export function ScriptVersionPanel({
     setBusy(true);
     setMsg('');
     try {
-      const { revision, faqRevision } = await api<{ revision: number; faqRevision?: number }>(path, {
+      const { revision } = await api<{ revision: number }>(path, {
         method: 'PUT',
         body: {
           name: v.name,
@@ -64,11 +58,9 @@ export function ScriptVersionPanel({
           cues: v.cues,
           revision: v.revision,
           outline: v.outline,
-          ...(faqChanged ? { faq, faqRevision: v.faqRevision } : {}),
         },
       });
-      setV((old) => ({ ...old, name: v.name.trim(), revision, faqRevision: faqRevision ?? old.faqRevision }));
-      setFaqChanged(false);
+      setV((old) => ({ ...old, name: v.name.trim(), revision }));
       onName(v.name.trim());
       onDirty(false);
       setMsg('已保存');
@@ -160,93 +152,14 @@ export function ScriptVersionPanel({
                 change({ outline });
               }}
             />
-            <OutlineLayout stages={v.outline}>
-              {v.outline.map((s, i) => {
-                const start = starts[i],
-                  end = start + s.length,
-                  text = v.body.slice(start, end);
-                const move = (to: number) => change(reorderStage(v.outline, v.body, v.cues, i, to));
-                return (
-                  <section key={i} data-stage={i} className="sc-write-stage">
-                    <div className="sc-bar">
-                      <label>
-                        环节名称
-                        <input
-                          value={s.name}
-                          maxLength={100}
-                          onChange={(e) =>
-                            change({
-                              outline: v.outline.map((item, j) =>
-                                i === j ? { ...item, name: e.target.value } : item,
-                              ),
-                            })
-                          }
-                        />
-                      </label>
-                      <button className="link-button" disabled={i === 0} onClick={() => move(i - 1)}>
-                        上移
-                      </button>
-                      <button
-                        className="link-button"
-                        disabled={i === v.outline.length - 1}
-                        onClick={() => move(i + 1)}
-                      >
-                        下移
-                      </button>
-                      <button
-                        className="link-button"
-                        disabled={v.outline.length === 1}
-                        onClick={() => {
-                          if (s.length && !window.confirm('移除这个环节？文字会并入相邻环节。')) return;
-                          const outline = v.outline.filter((_, j) => j !== i).map((t) => ({ ...t }));
-                          outline[Math.max(0, i - 1)].length += s.length;
-                          change({ outline });
-                        }}
-                      >
-                        移除环节
-                      </button>
-                    </div>
-                    <textarea
-                      aria-label={s.name + '正文'}
-                      rows={Math.min(18, Math.max(4, text.split('\n').length + 1))}
-                      value={text}
-                      placeholder={'写入' + (s.name || '本环节') + '话术…'}
-                      maxLength={30000 - v.body.length + s.length}
-                      onSelect={(e) => {
-                        selection.current = {
-                          start: start + e.currentTarget.selectionStart,
-                          end: start + e.currentTarget.selectionEnd,
-                        };
-                      }}
-                      onContextMenu={(e) => {
-                        const a = e.currentTarget.selectionStart,
-                          b = e.currentTarget.selectionEnd;
-                        if (a < b) {
-                          e.preventDefault();
-                          openPicker(start + a, start + b);
-                        }
-                      }}
-                      onChange={(e) => {
-                        const value = e.target.value,
-                          body = v.body.slice(0, start) + value + v.body.slice(end);
-                        change({
-                          body,
-                          cues: moveCues(v.body, body, start + e.target.selectionStart, v.cues),
-                          outline: v.outline.map((t, j) => (j === i ? { ...t, length: value.length } : t)),
-                        });
-                      }}
-                    />
-                  </section>
-                );
-              })}
-              <button
-                className="secondary-button"
-                disabled={v.outline.length >= 80}
-                onClick={() => change({ outline: [...v.outline, { name: '新环节', length: 0 }] })}
-              >
-                ＋ 添加环节
-              </button>
-            </OutlineLayout>
+            <ScriptArticleEditor
+              v={v}
+              change={change}
+              onSelect={(s) => {
+                selection.current = s;
+              }}
+              onMark={openPicker}
+            />
             <p className="muted">
               拖选一段正文，右键关联素材。中控会在段首看到展示提示，在段尾看到撤下提示。
             </p>
@@ -293,56 +206,6 @@ export function ScriptVersionPanel({
           <ScriptPreview v={v} onMark={manage ? openPicker : undefined} />
         </>
       )}
-      <section className="sc-faq">
-        <div className="sc-bar">
-          <h3>产品问题库</h3>
-          <small>同一产品的各版话术共用</small>
-        </div>
-        {faq.length === 0 && <p className="muted">暂无问答。</p>}
-        {faq.map((q, i) =>
-          edit ? (
-            <div key={i} className="sc-faq-edit">
-              <label>
-                问题
-                <input
-                  maxLength={200}
-                  value={q.question}
-                  onChange={(e) =>
-                    updateFaq(faq.map((r, j) => (j === i ? { ...r, question: e.target.value } : r)))
-                  }
-                />
-              </label>
-              <label>
-                回答
-                <textarea
-                  maxLength={1500}
-                  value={q.answer}
-                  onChange={(e) =>
-                    updateFaq(faq.map((r, j) => (j === i ? { ...r, answer: e.target.value } : r)))
-                  }
-                />
-              </label>
-              <button className="link-button" onClick={() => updateFaq(faq.filter((_, j) => i !== j))}>
-                移除问答
-              </button>
-            </div>
-          ) : (
-            <details key={i}>
-              <summary>{q.question}</summary>
-              <p>{q.answer}</p>
-            </details>
-          ),
-        )}
-        {edit && (
-          <button
-            className="secondary-button"
-            disabled={faq.length >= 40}
-            onClick={() => updateFaq([...faq, { question: '', answer: '' }])}
-          >
-            ＋ 添加问答
-          </button>
-        )}
-      </section>
       {manage && (
         <dialog ref={picker} className="sc-picker" aria-label="为选中文字关联素材">
           <header>

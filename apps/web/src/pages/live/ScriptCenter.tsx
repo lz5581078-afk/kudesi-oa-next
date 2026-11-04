@@ -2,6 +2,7 @@ import { ChevronRight, FileText, Folder } from 'lucide-react';
 import { RouterLeaveBlocker } from '../../resources/grid/LeaveGuard';
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
+import { ProductQuestionArticle } from './ProductQuestionArticle';
 import { ScriptVersionPanel } from './ScriptVersionPanel';
 import type { ScriptVersion } from './scriptCues';
 import './scriptCenter.css';
@@ -20,6 +21,8 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
   const [library, setLibrary] = useState<Library | null>(null),
     [folder, setFolder] = useState(0),
     [version, setVersion] = useState(0);
+  const [entryFolder] = useState(() => Number(new URLSearchParams(location.search).get('questionArticle')));
+  const [questions, setQuestions] = useState(false);
   const [detail, setDetail] = useState<ScriptVersion | null>(null),
     [dirty, setDirty] = useState(false),
     [error, setError] = useState('');
@@ -36,6 +39,10 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
       .then((data) => {
         if (!live) return;
         setLibrary(data);
+        if (retry === 0 && data.folders.some((f) => f.id === entryFolder)) {
+          setFolder(entryFolder);
+          setQuestions(true);
+        }
       })
       .catch((e) => {
         if (live) setError(e.message);
@@ -43,7 +50,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
     return () => {
       live = false;
     };
-  }, [retry]);
+  }, [retry, entryFolder]);
   useEffect(() => {
     let live = true;
     setDetail(null);
@@ -69,7 +76,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
   function leave() {
-    return !dirty || window.confirm('当前版本有未保存的修改，放弃修改并切换？');
+    return !dirty || window.confirm('当前文章有未保存的修改，放弃修改并切换？');
   }
   async function add(kind: 'folder' | 'version') {
     const name = (kind === 'folder' ? folderName : versionName).trim();
@@ -102,7 +109,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
       setBusy(false);
     }
   }
-  function openLevel(folderId: number, versionId = 0) {
+  function openLevel(folderId: number, versionId = 0, article = false) {
     if (busy || !leave()) return;
     setDirty(false);
     setCreating(null);
@@ -111,6 +118,7 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
     setError('');
     setClassifying(false);
     setClassification('');
+    setQuestions(article);
     setFolder(folderId);
     setVersion(versionId);
   }
@@ -209,20 +217,27 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                 全部产品
               </button>
               <ChevronRight aria-hidden="true" size={15} />
-              {version ? (
+              {version || questions ? (
                 <>
                   <button className="link-button" onClick={() => openLevel(folder)}>
                     {folderTitle}
                   </button>
                   <ChevronRight aria-hidden="true" size={15} />
-                  <strong aria-current="page">{versionTitle}</strong>
+                  <strong aria-current="page">{questions ? '产品问题库' : versionTitle}</strong>
                 </>
               ) : (
                 <strong aria-current="page">{folderTitle}</strong>
               )}
             </nav>
           )}
-          {!version ? (
+          {questions ? (
+            <ProductQuestionArticle
+              folder={folder}
+              title={folderTitle ?? ''}
+              manage={manage}
+              onDirty={setDirty}
+            />
+          ) : !version ? (
             <section className="sc-directory">
               <header className="sc-directory-head">
                 <h3>{folder ? '话术版本' : '产品文件夹'}</h3>
@@ -242,6 +257,11 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
                   </button>
                 )}
               </header>
+              {!!folder && (
+                <button className="sc-question-entry" onClick={() => openLevel(folder, 0, true)}>
+                  产品问题库 <small>查看产品问题文章 →</small>
+                </button>
+              )}
               {manage && !!folder && (
                 <div className="sc-classify">
                   {classifying ? (
@@ -348,19 +368,30 @@ export function ScriptCenter({ manage }: { manage: boolean }) {
               )}
             </section>
           ) : detail && detail.id === version ? (
-            <ScriptVersionPanel
-              key={detail.id}
-              initial={detail}
-              manage={manage}
-              dirty={dirty}
-              onDirty={setDirty}
-              onName={(name) =>
-                setLibrary({
-                  ...library,
-                  versions: library.versions.map((v) => (v.id === version ? { ...v, name } : v)),
-                })
-              }
-            />
+            <>
+              {' '}
+              <ScriptVersionPanel
+                key={detail.id}
+                initial={detail}
+                manage={manage}
+                dirty={dirty}
+                onDirty={setDirty}
+                onName={(name) =>
+                  setLibrary({
+                    ...library,
+                    versions: library.versions.map((v) => (v.id === version ? { ...v, name } : v)),
+                  })
+                }
+              />
+              <a
+                className="sc-question-entry"
+                href={'/features/live?tab=scripts&questionArticle=' + folder}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                打开产品问题库 <small>在新标签页阅读 ↗</small>
+              </a>
+            </>
           ) : (
             !error && <p className="sc-empty">正在读取版本…</p>
           )}
