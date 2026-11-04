@@ -1,4 +1,5 @@
 import { assertAccountTime } from './live-platforms';
+import { liveManagementRecipients } from './live-management-recipients';
 import { LiveFeedbackService } from './live-feedback.controller';
 import { FilesService } from '../integrations/files.service';
 import { FakeStorage } from '../test-support';
@@ -1298,6 +1299,40 @@ d('直播管理（真实数据库）', () => {
     expect((await sessions.detail(manager,live.id)).endAt).toBe('2026-04-20 16:00:00');
     await schedules.cancel(manager,afterActual.id,'测试取消');
   });
-
-
+  it('新增排班同步总经理部门主岗/兼岗及子部门，排班参与人去重，排除停用和外公司且失败不通知', async () => {
+    clock('2026-12-01 06:00:00');
+    const { management: existingManagement } = await liveManagementRecipients(ds.manager, company);
+    const department = async (companyId: number, name: string, parentId: number | null = null, status = 'active') => Number((await ds.query('INSERT INTO departments(company_id,name,parent_id,status) VALUES(?,?,?,?)', [companyId,name,parentId,status])).insertId);
+    const dept = await department(company, '总经理部门'), childDept = await department(company, '总经办助理组', dept);
+    const member = async (name: string, extra: Record<string,unknown> = {}, companyId = company) => mkUser(companyId, `gm-${crypto.randomBytes(8).toString('hex')}`, name, extra);
+    const boss = await member('总经理收件人', { departmentId: dept });
+    const child = await member('子部门收件人', { departmentId: childDept });
+    const job = Number((await ds.query("INSERT INTO positions(company_id,name,department_id,status) VALUES(?,?,?,'active')", [company,'总经办兼岗',dept])).insertId);
+    const primary = await member('岗位收件人', { positionId: job });
+    const secondary = await member('兼岗收件人', { extraPositionIds: [job] });
+    await ds.manager.update(User, { id: operator.id, companyId: company }, { departmentId: dept });
+    const disabled = await member('停用人员', { departmentId: dept, status: 'disabled' });
+    const disabledDept = await member('停用部门人员', { departmentId: await department(company,'总经理部',null,'inactive') });
+    const foreignId = await member('其他公司总经理', { departmentId: await department(foreign.companyId,'总经理部门') }, foreign.companyId);
+    const account = await rec(company,'self-media','总经理通知测试号',{ name:'测试直播号',platform:'douyin',livePermission:true,storeIds:[ids.store] });
+    const send = jest.fn();
+    const notices = new FeishuNoticeService(ds, { configured: true, send });
+    await ds.query("INSERT INTO outbox_switches(company_id,channel,enabled) VALUES(?,'feishu',1) ON DUPLICATE KEY UPDATE enabled=1", [company]);
+    const service = new LiveScheduleService(ds, notices);
+    const form = input({ date:'2026-12-01',startTime:'07:00',endTime:'08:00',douyinAccountId:account,storeId:ids.store });
+    const before = await ds.manager.count(Notification, { where: { companyId: company } });
+    const schedule = await service.create(manager, form);
+    const rows = await ds.query("SELECT user_id,link,body FROM notifications WHERE company_id=? AND title='新排班' AND body LIKE '2026-12-01 07:00%'", [company]);
+    const expected = [...new Set([anchor.id,control.id,operator.id,boss,child,primary,secondary,...existingManagement])];
+    expect(rows.map((r: any) => Number(r.user_id)).sort()).toEqual(expected.sort());
+    expect(rows.some((r: any) => [disabled,disabledDept,foreignId].includes(Number(r.user_id)))).toBe(false);
+    expect(rows.filter((r: any) => [boss,child,primary,secondary,operator.id].includes(Number(r.user_id))).every((r: any) => r.link === '/features/live' && r.body.includes('小主播') && r.body.includes('小中控'))).toBe(true);
+    const queued = await ds.query("SELECT payload_json FROM outbox_jobs WHERE company_id=? AND resource_type='live-schedule' AND resource_id=?", [company,schedule.id]);
+    expect(queued).toHaveLength(expected.length);
+    expect(send).not.toHaveBeenCalled();
+    const after = await ds.manager.count(Notification, { where: { companyId: company } });
+    expect(after - before).toBe(expected.length);
+    await expect(service.create(manager, form)).rejects.toThrow(/重叠/);
+    expect(await ds.manager.count(Notification, { where: { companyId: company } })).toBe(after);
+  });
 });

@@ -1,4 +1,5 @@
 import { assertNoDailyWork } from './daily-work-core';
+import { liveManagementRecipients } from './live-management-recipients';
 import { scheduleFingerprint } from './live-checkin-core';
 import { channelsOf, validateChannels, assertAccountTime } from './live-platforms';
 import { LiveChannelInput } from '@kudesi/shared';
@@ -108,11 +109,12 @@ export class LiveScheduleService {
    * 排班通知：站内通知 + 飞书“直播助手”通道（走现有出站队列，开关和发送器没启用时只积压不发送）。
    * 同一排班同一版本每人每种消息只入队一次；排班再变更时，旧版本还没发出的消息作废（移除通知保留）。
    */
-  private async notify(em: EntityManager, companyId: number, ids: Array<number | null | undefined>, title: string, body: string, ref: { scheduleId: number; version: number; kind: 'schedule' | 'changed' | 'removed' | 'cancelled' | 'reminder' }) {
+  private async notify(em: EntityManager, companyId: number, ids: Array<number | null | undefined>, title: string, body: string, ref: { scheduleId: number; version: number; kind: 'schedule' | 'changed' | 'removed' | 'cancelled' | 'reminder' }, managementIds: number[] = []) {
     for (const uid of [...new Set(ids.filter((v): v is number => !!v).map(Number))]) {
-      const saved = await writeNotification(em, { companyId, userId: uid, kind: 'live_schedule', title: title.slice(0, 200), body: body.slice(0, 500), link: '/features/live-desk' }, { key: `${ref.kind}:${ref.scheduleId}:${ref.version}`, channel: 'live', resourceType: 'live-schedule', resourceId: ref.scheduleId, kind: ref.kind });
+      const link = managementIds.includes(uid) ? '/features/live' : '/features/live-desk';
+      const saved = await writeNotification(em, { companyId, userId: uid, kind: 'live_schedule', title: title.slice(0, 200), body: body.slice(0, 500), link }, { key: `${ref.kind}:${ref.scheduleId}:${ref.version}`, channel: 'live', resourceType: 'live-schedule', resourceId: ref.scheduleId, kind: ref.kind });
       if (!saved.feishuQueued) await this.feishu?.enqueue(em, companyId, 'live-schedule', `${ref.kind}:${ref.scheduleId}:${ref.version}`, {
-        channel: 'live', userId: uid, title: title.slice(0, 200), body: body.slice(0, 500), link: '/features/live-desk', resourceType: 'live-schedule', resourceId: ref.scheduleId, kind: ref.kind,
+        channel: 'live', userId: uid, title: title.slice(0, 200), body: body.slice(0, 500), link, resourceType: 'live-schedule', resourceId: ref.scheduleId, kind: ref.kind,
       });
     }
   }
@@ -152,7 +154,8 @@ export class LiveScheduleService {
       const id = Number(res.insertId);
       await em.query('UPDATE live_schedules SET channels_json=? WHERE company_id=? AND id=?',[JSON.stringify(v.channels),a.companyId,id]);
       const [row] = await em.query(`${SCHEDULE_SELECT} WHERE s.company_id = ? AND s.id = ?`, [a.companyId, id]);
-      await this.notify(em, a.companyId, [v.anchorId, v.controlId, v.operatorId], '新排班', this.summary(row), { scheduleId: id, version: Number(row.notification_version), kind: 'schedule' });
+      const { management } = await liveManagementRecipients(em, a.companyId);
+      await this.notify(em, a.companyId, [v.anchorId, v.controlId, v.operatorId, ...management], '新排班', this.summary(row), { scheduleId: id, version: Number(row.notification_version), kind: 'schedule' }, management);
       return { id };
     });
   }
