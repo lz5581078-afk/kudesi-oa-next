@@ -829,12 +829,14 @@ d('直播管理（真实数据库）', () => {
       const result=await ds.query(`INSERT INTO live_sessions(company_id,room_id,room_name,anchor_user_id,control_user_id,operator_user_id,douyin_account_id,douyin_account_name,session_date,start_at,status,started_by,started_role) VALUES(?,?,?,?,?,?,?,?,?,?,'live',?,'anchor')`,[company,ids.n1,'北1',anchor.id,control.id,operator.id,ids.account,'测试',day,day+' 10:00:00',anchor.id]);
       const id=Number(result.insertId);createdId=id;
       await ds.query('INSERT INTO live_turnover_snapshots(company_id,session_id,payload_json) VALUES(?,?,?)',[company,id,JSON.stringify({available:true,turnoverCents:100000,stores:[{storeId:ids.store,platform:'douyin',available:true,turnoverCents:100000}]})]);
+      await ds.query("INSERT INTO live_session_reports(company_id,session_id,role,reporter_user_id,end_at,sales_cents,ad_spend_cents) VALUES(?,?,'control',?,?,100000,2000)",[company,id,control.id,day+' 11:00:00']);
       const all=await schedules.overview(admin,day);
       const rules=liveVersionFor(await ruleVersions(ds.manager,company),day)!.rules;
       const calc=liveComputeCommission({rules,finalSalesCents:100000,adSpendCents:null});
-      expect(all.financials).toMatchObject({sessions:1,turnoverCents:100000,missingSalesSessions:0,costs:{wageCents:10000,commissionCents:calc.anchor.amountCents+calc.control.amountCents+calc.operator.amountCents,missingSessions:0}});
+      expect(all.financials).toMatchObject({adSpend:{totalCents:2000,missingSessions:0},sessions:1,turnoverCents:100000,missingSalesSessions:0,costs:{wageCents:10000,commissionCents:calc.anchor.amountCents+calc.control.amountCents+calc.operator.amountCents,missingSessions:0}});
       const limited=au(manager.id,company,'仅全览',['features.live.view']);
       expect((await schedules.overview(limited,day)).financials.costs).toBeNull();
+      expect((await schedules.overview(limited,day)).financials.adSpend).toBeNull();
       expect((await schedules.overview(foreign,day)).financials).toMatchObject({sessions:0,turnoverCents:0});
       expect((await schedules.overview(admin,'2030-06-12')).financials).toMatchObject({sessions:0,turnoverCents:0});
     } finally {
