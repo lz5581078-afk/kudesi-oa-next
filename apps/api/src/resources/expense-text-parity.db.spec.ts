@@ -25,6 +25,14 @@ suite('24号费用单自由单位与独立摘要', () => {
   afterAll(async () => { await ds?.destroy(); });
   const input = (extra: Partial<DocInput> = {}): DocInput => ({ type: 'expense', date: '2026-10-24', counterpartyName: '合成临时司机', settlementMode: 'full', paidCents: 1800, bankAccountId: bank, lines: [{ feeItemId: fee, qty: 1, unitPriceCents: 1800 }], ...extra });
   const balance = async () => (await docs.bankBalances(actor)).find(row => row.id === bank)!.balanceCents;
+  it('手填3元预付冲抵只消耗3元预付，费用10元剩余7元挂真实供应商，不重复支出银行',async()=>{
+    const before=await balance();
+    const advance=await docs.post(actor,(await docs.createDraft(actor,{type:'prepayment',date:'2026-10-24',partyId:supplier,bankAccountId:bank,settlementMode:'full',paidCents:1000,lines:[{itemName:'合成预付',qty:1,unitPriceCents:1000}]})).id);
+    expect(await balance()).toBe(before-1000);
+    const draft=await docs.createDraft(actor,input({partyId:supplier,partyKind:'supplier',settlementMode:'offset',paidCents:0,offsetCents:300,bankAccountId:null,lines:[{feeItemId:fee,qty:1,unitPriceCents:1000}]}));
+    const posted=await docs.post(actor,draft.id);expect(posted).toMatchObject({paidCents:0,offsetCents:300,settlementMode:'offset'});expect(posted.entries.some(row=>row.kind==='bank')).toBe(false);expect(posted.entries.find(row=>row.kind==='prepayment')).toMatchObject({accountId:supplier,amountCents:-300});expect(posted.entries.find(row=>row.kind==='payable')).toMatchObject({accountId:supplier,amountCents:-700});expect(await balance()).toBe(before-1000);
+    const copy=await docs.copyAsDraft(actor,draft.id);expect(copy).toMatchObject({paidCents:0,offsetCents:300,settlementMode:'offset'});await docs.deleteDraft(actor,copy.id);await docs.reverse(actor,draft.id,'合成部分预付冲回');await docs.reverse(actor,advance.id,'合成预付来源冲回');expect(await balance()).toBe(before);
+  });
 
   it('自由单位、独立摘要和备注经过保存、过账、复制、修改说明、红冲仍分别保留', async () => {
     const before = await balance();

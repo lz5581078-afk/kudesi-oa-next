@@ -26,6 +26,18 @@ suite('财务24号金额单实际收付', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
   const balance = async () => (await docs.bankBalances(actor)).find(row => row.id === bank)!.balanceCents;
+  it('暂未付款按钮后明确手填3元，保留方式并按看得见的3元记账，不静默改成0',async()=>{
+    const before=await balance(),draft=await docs.createDraft(actor,{type:'payment',date:'2026-10-24',partyId:supplier,bankAccountId:bank,settlementMode:'credit',paidCents:300,lines:[{itemName:'合成手填付款',qty:1,unitPriceCents:1000}]});
+    expect(draft).toMatchObject({paidCents:300,settlementMode:'credit'});const posted=await docs.post(actor,draft.id);expect(posted.entries.find(entry=>entry.kind==='bank')?.amountCents).toBe(-300);expect(await balance()).toBe(before-300);await docs.reverse(actor,draft.id,'合成手填付款冲回');expect(await balance()).toBe(before);
+  });
+  it.each(['advance-receipt','receipt','payment','prepayment'] as const)('%s 保留全款选中但实填3元，保存/更新/过账/复制/红冲均按3元，显式0不默认为10',async type=>{
+    const before=await balance(),incoming=type==='receipt'||type==='advance-receipt';
+    const input={type,date:'2026-10-24',partyId:incoming?customer:supplier,bankAccountId:bank,settlementMode:'full' as const,paidCents:300,lines:[{itemName:'合成手填用途',qty:1,unitPriceCents:1000}]};
+    const created=await docs.createDraft(actor,input);expect(created).toMatchObject({amountCents:1000,paidCents:300,settlementMode:'full'});
+    expect(await docs.updateDraft(actor,created.id,input)).toMatchObject({paidCents:300,settlementMode:'full'});const posted=await docs.post(actor,created.id);expect(posted.entries.find(entry=>entry.kind==='bank')?.amountCents).toBe(incoming?300:-300);expect(await balance()).toBe(before+(incoming?300:-300));
+    const copy=await docs.copyAsDraft(actor,created.id);expect(copy).toMatchObject({amountCents:1000,paidCents:300,settlementMode:'full'});await docs.deleteDraft(actor,copy.id);await docs.reverse(actor,created.id,'合成手填实际金额冲回');expect(await balance()).toBe(before);
+    const zero=await docs.createDraft(actor,{...input,paidCents:0,bankAccountId:null});expect(zero.paidCents).toBe(0);expect((await docs.post(actor,zero.id)).entries.some(entry=>entry.kind==='bank')).toBe(false);expect(await balance()).toBe(before);
+  });
   it.each(['advance-receipt', 'receipt', 'payment', 'prepayment'] as const)('%s 合计10元实际3元，保存/过账/复制/红冲均保留金额及方式', async type => {
     const before = await balance();
     const incoming = type === 'receipt' || type === 'advance-receipt';

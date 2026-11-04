@@ -261,10 +261,10 @@ export function effectivePaid(def: DocTypeDef, input: Pick<DocInput, 'paidCents'
 
 /** 金额单实际收付：旧单没有模式时保持全额，新单按用户选择及账户分配计算。 */
 export function cashSettlementAmount(def: DocTypeDef, input: Pick<DocInput, 'settlementMode' | 'paidCents' | 'accounts'>, total: number): number {
-  if (!def.moneySettlement || !input.settlementMode || input.settlementMode === 'full') return total;
-  if (input.settlementMode === 'credit') return 0;
+  if (!def.moneySettlement || !input.settlementMode) return total;
   if (input.accounts?.length) return input.accounts.reduce((sum, account) => sum + account.amountCents, 0);
-  return input.paidCents ?? 0;
+  // 模式按钮提供默认值；用户明确填写的实际金额才决定记账，不能被“全款”标签覆盖。
+  return input.paidCents ?? (input.settlementMode === 'full' ? total : 0);
 }
 
 /** 明细合计（未扣优惠） */
@@ -381,7 +381,7 @@ export function validateDoc(input: DocInput, phase: 'issue' | 'post' = 'post'): 
     const sum = split.reduce((s, a) => s + (Number.isFinite(a.amountCents) ? a.amountCents : 0), 0);
     if (def.settle) {
       if (input.paidCents !== null && input.paidCents !== undefined && input.paidCents !== sum) errors.push(`各账户金额合计 ${(sum / 100).toFixed(2)} 元，要等于${def.ui.amountLabel} ${(input.paidCents / 100).toFixed(2)} 元`);
-    } else if (sum !== cashSettlementAmount(def, input, total)) errors.push(`各账户金额合计 ${(sum / 100).toFixed(2)} 元，要等于本单金额 ${(total / 100).toFixed(2)} 元`);
+    } else if (sum !== (def.moneySettlement && input.settlementMode === 'full' ? total : cashSettlementAmount(def, input, total))) errors.push(`各账户金额合计 ${(sum / 100).toFixed(2)} 元，要等于本单金额 ${(total / 100).toFixed(2)} 元`);
   }
   if (def.lines && total <= 0) errors.push('单据金额必须大于 0');
   const offset = input.offsetCents ?? 0;

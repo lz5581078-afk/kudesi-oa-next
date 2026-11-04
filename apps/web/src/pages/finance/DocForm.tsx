@@ -30,6 +30,9 @@ const sourcePartyPlaceholder:Partial<Record<DocType,string>>={sale:'客户名称
 
 const sourceLineTotalLabel:Partial<Record<DocType,string>>={sale:'商品合计金额：','online-sale':'商品合计金额：','sale-return':'退货合计金额：','advance-receipt':'预收合计金额：',receipt:'收款合计金额：',payment:'付款合计金额：',prepayment:'预付合计金额：','purchase-in':'采购合计金额：','purchase-return':'退货合计金额：','other-income':'收入合计金额：',expense:'费用合计金额：',transfer:'转款合计金额：'};
 
+const sourceAmountFollowsTotal=(type:DocType,mode:PayMode|'')=>mode==='full'||mode==='part'&&(type==='receipt'||type==='advance-receipt');
+const sourceAmountStartsAtZero=(type:DocType,mode:PayMode)=>mode==='debt'||mode==='credit'&&type!=='sale-return';
+
 const unitPriceOf = (v: string) => { if (!v.trim()) return null; try { return yuanToPreciseCents(v); } catch { return NaN; } };
 
 interface Props {
@@ -103,7 +106,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const moneyCents = moneyLines.reduce((sum, l) => { const c = yuanToCents(l.amount); return sum + (c && !Number.isNaN(c) ? c : 0); }, 0);
   const amount = moneyCents ? centsToYuan(moneyCents) : '';
   const [offset, setOffset] = useState(doc?.offsetCents ? centsToYuan(doc.offsetCents) : '');
-  const [paid, setPaid] = useState(doc && def.moneySettlement && !doc.settlementMode ? centsToYuan(doc.amountCents) : doc?.paidCents ? centsToYuan(doc.paidCents) : '');
+  const [paid, setPaid] = useState(doc && def.moneySettlement && !doc.settlementMode ? centsToYuan(doc.amountCents) : doc?.settlementMode ? centsToYuan(doc.paidCents) : doc?.paidCents ? centsToYuan(doc.paidCents) : '');
   const [discount, setDiscount] = useState(doc?.discountCents ? centsToYuan(doc.discountCents) : '');
   const [payMode, setPayMode] = useState<PayMode | ''>(doc ? doc.settlementMode ?? (def.moneySettlement ? 'full' : doc.paidCents || doc.offsetCents ? 'part' : 'credit') : ui.payModes[0]?.mode ?? '');
   const [memo, setMemo] = useState(doc?.memo ?? '');
@@ -204,12 +207,13 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
       ? [...outs.map((a) => ({ role: 'out' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })), ...ins.map((a) => ({ role: 'in' as const, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 }))]
       : multiOn && payDir ? multi.map((a) => ({ role: payDir, bankAccountId: a.id, amountCents: parse(a.amount) ?? 0 })) : null;
     const feeC = def.bank === 'transfer' ? parse(fee) ?? 0 : 0;
+    const sourceOffset=originalFields&&payMode==='offset';
     return {
       ...(type === 'expense' ? { counterpartyName, summary } : {}), accounts, type, date, settlementMode: type !== 'withdrawal' ? payMode || null : null, docNo: docNo.trim() || null, partyId: party.id, partyKind: def.party ? partyKind : null, bankAccountId: multiOn && multi[0] ? multi[0].id : bank.id, toBankAccountId: toBank.id, warehouseId: wh.id, ...(def.warehouse ? { warehouseName: wh.name } : {}),
       feeCents: feeC, feeBearer: feeC ? feeBearer : null, inTransit: def.bank === 'transfer' ? inTransit : false,
-      storeId: def.store ? store.id : null, refNo: hasBankRef(def) ? refNo : null, amountCents: null, offsetCents: parse(offset) ?? 0,
+      storeId: def.store ? store.id : null, refNo: hasBankRef(def) ? refNo : null, amountCents: null, offsetCents: sourceOffset?parse(paid)??0:originalFields?0:parse(offset)??0,
       discountCents: def.lines === 'product' || hasMoneyDiscount(type) ? parse(discount) ?? 0 : 0,
-      paidCents: hasPayment ? (multiOn && payDir ? multiCents : parse(paid) ?? (def.lines === 'fee' && payMode === 'full' ? null : def.moneySettlement && payMode === 'full' ? moneyCents : 0)) : 0, handlerId, handler: handlerId ? null : handlerLegacy.trim() || null, department: department.trim() || null,
+      paidCents: sourceOffset?0:hasPayment ? (originalFields?parse(paid)??0:multiOn && payDir ? multiCents : parse(paid) ?? (def.lines === 'fee' && payMode === 'full' ? null : def.moneySettlement && payMode === 'full' ? moneyCents : 0)) : 0, handlerId, handler: handlerId ? null : handlerLegacy.trim() || null, department: department.trim() || null,
       lines: structuredLines ? parsedLines : moneyLines.filter((l) => l.item.trim() || l.amount.trim() || l.memo.trim()).map((l) => ({ ...l.original, qty: 1, unitPriceCents: parse(l.amount) ?? 0, itemName: l.item.trim(), memo: l.memo.trim() || undefined })), memo: memo || undefined,
       settleBy: canSettle ? settleBy : null,
       settlements: canSettle && settleBy !== 'amount'
@@ -222,8 +226,8 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const discountC = (() => { try { return def.lines === 'product' ? parse(discount) ?? 0 : 0; } catch { return 0; } })();
   /** 收款单/付款单的优惠金额：冲减往来余额、计入财务费用，不是单据金额的一部分 */
   const moneyDiscC = (() => { try { return hasMoneyDiscount(type) ? parse(discount) ?? 0 : 0; } catch { return 0; } })();
-  const paidC = (() => { try { return hasPayment ? (multiOn && payDir ? multiCents : parse(paid) ?? 0) : 0; } catch { return 0; } })();
-  const offsetC = (() => { try { return parse(offset) ?? 0; } catch { return 0; } })();
+  const paidC = (() => { try { return originalFields&&payMode==='offset'?0:hasPayment ? (multiOn && payDir ? multiCents : parse(paid) ?? 0) : 0; } catch { return 0; } })();
+  const offsetC = (() => { try { return originalFields?payMode==='offset'?parse(paid)??0:0:parse(offset) ?? 0; } catch { return 0; } })();
   const rest = total - paidC - (def.moneySettlement ? 0 : offsetC);
   const settleTotal = (() => { try { return (def.moneySettlement ? paidC : parse(amount) ?? 0) + offsetC + moneyDiscC; } catch { return 0; } })();
   const allocated = Object.values(alloc).reduce((a, v) => { const c = yuanToCents(v); return a + (Number.isNaN(c) || !c ? 0 : c); }, 0);
@@ -246,24 +250,30 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const bankDelta = def.bank === 'out' || (def.settle === 'out') ? -(hasPayment ? paidC : (Number(amount) ? Math.round(Number(amount) * 100) : 0)) : (hasPayment ? paidC : (Number(amount) ? Math.round(Number(amount) * 100) : 0));
   const bankAfter = bankBal !== undefined && bankDelta !== 0 ? bankBal + bankDelta : null;
   const origExcess = origQty.map((o) => { const back = lines.filter((l) => l.productId === o.productId).reduce((x, l) => x + (Number(l.qty) || 0), 0); return back - o.qty > 1e-9 ? `${o.name}：退 ${back} > 原单 ${o.qty}` : ''; }).filter(Boolean);
-  // 选了“全款/用预收预付结算”后，改明细金额时收付款金额跟着变
+  // 原开单按各方式带出金额；已存单据首次加载保留原实付及冲抵。
+  const paymentSync=useRef<string>();
   useEffect(() => {
-    if (payMode === 'full') setPaid(originalFields?(total?String(total/100):''):centsToYuan(total));
-    else if (payMode === 'offset') setOffset(centsToYuan(total));
-  }, [total, payMode,originalFields]);
+    const signature=JSON.stringify([type,total,payMode,originalFields]);
+    if(paymentSync.current===signature)return;
+    const initial=paymentSync.current===undefined;paymentSync.current=signature;
+    if(initial&&doc)return;
+    if (originalFields?sourceAmountFollowsTotal(type,payMode):payMode==='full') setPaid(originalFields?(total?String(total/100):''):centsToYuan(total));
+    else if (!originalFields&&payMode === 'offset') setOffset(centsToYuan(total));
+  }, [total, payMode,originalFields,type,doc]);
   const restLabel = def.moneySettlement ? '尚未实际收付金额' : def.settle === 'in' ? (type === 'purchase-return' ? '还没退回' : '欠款（挂应收）') : type === 'sale-return' ? '暂未退款（冲客户欠款）' : type === 'purchase-in' ? '欠款（挂应付）' : type === 'expense' ? '欠款（挂应付）' : '未结清';
 
   const pickMode = (m: PayMode) => {
     setPayMode(m);
+    if(originalFields){setOffset('');if(sourceAmountFollowsTotal(type,m))setPaid(total?String(total/100):'');else if(sourceAmountStartsAtZero(type,m))setPaid('0');return;}
     if (multiOn && payDir) {
       // 分账户时：全款 = 把差额补进最后一个账户；欠款/用预收预付结算没有收付款账户，改回单账户
       if (m === 'full') { if (multi.length) { const last = multi[multi.length - 1]; const cur = yuanToCents(last.amount) || 0; setMulti(multi.map((x) => (x === last ? { ...x, amount: centsToYuan(Math.max(0, cur + total - multiCents)) } : x))); } setOffset(''); return; }
       if (m === 'part') return;
       setMultiOn(false);
     }
-    if (m === 'full') { setPaid(originalFields?(total?String(total/100):''):centsToYuan(total)); setOffset(''); }
-    else if (m === 'credit' || m === 'debt') { setPaid(originalFields?'0':''); setOffset(''); }
-    else if (m === 'offset') { setPaid(originalFields?'0':''); setOffset(centsToYuan(total)); }
+    if (m === 'full') { setPaid(centsToYuan(total)); setOffset(''); }
+    else if (m === 'credit' || m === 'debt') { setPaid(''); setOffset(''); }
+    else if (m === 'offset') { setPaid(''); setOffset(centsToYuan(total)); }
   };
 
   const reset = () => {
@@ -447,7 +457,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
       </div>
       <aside className="slip-side" aria-label="单据功能区">
       <div className={`slip-total-card${originalFields?' reference-voucher-total':''}`}><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{!originalFields&&def.lines && <span className="muted">共 {parsedCount} 行{discountC > 0 ? ` · 已优惠 ${money(discountC)}` : ''}</span>}</div>
-      {originalFields?sourceTransfer?<ReferenceTransferSummary title={settleTitle} outs={outs} ins={ins} totalCents={total}/>:<ReferenceVoucherPayment ui={ui} title={settleTitle} expense={type==='expense'} mode={payMode} onMode={pickMode} bank={bank} onBank={(id,name)=>setBank({id,name})} paid={paid} onPaid={value=>{setPaid(value);setPayMode('part');setOffset('');}}/>:<section className="slip-settle">
+      {originalFields?sourceTransfer?<ReferenceTransferSummary title={settleTitle} outs={outs} ins={ins} totalCents={total}/>:<ReferenceVoucherPayment ui={ui} title={settleTitle} expense={type==='expense'} mode={payMode} onMode={pickMode} bank={bank} onBank={(id,name)=>setBank({id,name})} paid={paid} onPaid={setPaid}/>:<section className="slip-settle">
         <h3 className="section-title"><span className="step">3</span>{settleTitle}</h3>
         {hasPayment && (
           <div className="pay-modes" role="group" aria-label="结算方式">

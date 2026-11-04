@@ -4,6 +4,7 @@ import {DocForm} from './DocForm';
 import {VoucherPage} from './VoucherPage';
 import {financeApi} from './financeApi';
 import {resourceApi} from '../../resources/api';
+import {StrictMode} from 'react';
 const auth=vi.hoisted(()=>({id:1,companyId:1,name:'合成管理员',companyName:'合成当前公司',permissions:{isCompanyAdmin:true,allow:[] as string[],deny:[] as string[]}}));
 vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:auth,can:()=>true})}));
 vi.mock('./financeApi',async original=>({...await original<typeof import('./financeApi')>(),financeApi:{banks:vi.fn(),openItems:vi.fn(),docs:vi.fn(),doc:vi.fn(),partyBalance:vi.fn(),lineHints:vi.fn(),create:vi.fn(),update:vi.fn(),issue:vi.fn(),post:vi.fn()}}));
@@ -33,17 +34,13 @@ it('原新开单收付款仅展示原模式、账户和金额，不读取额外�
   fireEvent.change(screen.getByLabelText('备注'),{target:{value:'合成回款备注'}});fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));
   await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({partyId:7,bankAccountId:7,paidCents:1000,settlementMode:'full',memo:'合成回款备注',offsetCents:0,accounts:null})));
 });
-it('原费用预付款模式随明细合计变化，手改实付转部分付款并清除隐藏冲抵',async()=>{
+it('原费用预付款模式保留实付输入，改明细不擅自改掉预付额，保存分清冲抵与现金',async()=>{
   render(<DocForm type="expense" inline onSaved={vi.fn()}/>);
   expect(screen.getByLabelText('备注').tagName).toBe('TEXTAREA');expect(screen.queryByLabelText('冲抵金额')).toBeNull();expect(screen.queryByLabelText('挂账往来档案')).toBeNull();
-  await fillExpense();fireEvent.click(screen.getByRole('button',{name:'用预付款结算'}));
-  expect((screen.getByLabelText('实付金额') as HTMLInputElement).value).toBe('0');
-  fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'20'}});
-  fireEvent.change(screen.getByLabelText('实付金额'),{target:{value:'3'}});
-  expect(screen.getByRole('button',{name:'付了部分'}).getAttribute('aria-pressed')).toBe('true');
-  fireEvent.click(screen.getByLabelText('付款账户'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));
-  fireEvent.click(screen.getByRole('button',{name:'保存费用单'}));
-  await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({paidCents:300,offsetCents:0,settlementMode:'part',bankAccountId:7})));
+  await fillExpense();fireEvent.click(screen.getByRole('button',{name:'已付全款'}));fireEvent.click(screen.getByRole('button',{name:'用预付款结算'}));
+  expect((screen.getByLabelText('实付金额') as HTMLInputElement).value).toBe('10');fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'20'}});expect((screen.getByLabelText('实付金额') as HTMLInputElement).value).toBe('10');
+  fireEvent.change(screen.getByLabelText('实付金额'),{target:{value:'3'}});expect(screen.getByRole('button',{name:'用预付款结算'}).getAttribute('aria-pressed')).toBe('true');fireEvent.click(screen.getByRole('button',{name:'保存费用单'}));
+  await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({paidCents:0,offsetCents:300,settlementMode:'offset',bankAccountId:null})));
 });
 it('连续submit只能发起一个草稿保存请求，成功只回调一次',async()=>{
   const pending=deferred(),saved=vi.fn();fa.create.mockReturnValue(pending.promise);render(<DocForm type="expense" onSaved={saved}/>);
@@ -148,6 +145,19 @@ it('原金额四列没有常用词建议，增删行只保存保留的项目和�
 });
 const transferBanks=()=>vi.mocked(resourceApi.list).mockResolvedValue({items:[{id:71,title:'合成甲户',status:'active',data:{}},{id:72,title:'合成乙户',status:'active',data:{}},{id:73,title:'合成丙户',status:'active',data:{}}],total:3,page:1,pageSize:200} as never);
 const addTransfer=async(role:'转出'|'转入',name:string)=>{fireEvent.click(screen.getByLabelText(`选择${role}账户`));fireEvent.click(await screen.findByRole('option',{name}));fireEvent.click(screen.getByRole('button',{name:`添加${role}账户`}));};
+it('原收款手填金额保留已到账选择，清空提交显式0，部分到账仍按原明细变动带出合计',async()=>{
+  render(<DocForm type="receipt" inline onSaved={vi.fn()}/>);fireEvent.change(screen.getByLabelText('第1行收款来源'),{target:{value:'合成回款'}});fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'10'}});
+  fireEvent.change(screen.getByLabelText('到账金额'),{target:{value:'3'}});expect(screen.getByRole('button',{name:'已到账'}).getAttribute('aria-pressed')).toBe('true');fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({paidCents:300,settlementMode:'full'})));
+  await waitFor(()=>expect((screen.getByLabelText('第1行金额') as HTMLInputElement).value).toBe(''));fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'10'}});fireEvent.change(screen.getByLabelText('到账金额'),{target:{value:''}});fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledTimes(2));expect(fa.create).toHaveBeenLastCalledWith(expect.objectContaining({paidCents:0,settlementMode:'full'}));
+  await waitFor(()=>expect((screen.getByLabelText('第1行金额') as HTMLInputElement).value).toBe(''));fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'10'}});fireEvent.click(screen.getByRole('button',{name:'部分到账'}));expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('10');fireEvent.change(screen.getByLabelText('到账金额'),{target:{value:'3'}});fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'12'}});expect((screen.getByLabelText('到账金额') as HTMLInputElement).value).toBe('12');expect(screen.getByRole('button',{name:'部分到账'}).getAttribute('aria-pressed')).toBe('true');
+});
+it('原预付模式切换到部分付款时保留本次输入，实际付款不叠加旧冲抵',async()=>{
+  render(<DocForm type="expense" inline onSaved={vi.fn()}/>);await fillExpense();fireEvent.click(screen.getByRole('button',{name:'已付全款'}));fireEvent.click(screen.getByRole('button',{name:'用预付款结算'}));fireEvent.change(screen.getByLabelText('实付金额'),{target:{value:'3'}});fireEvent.click(screen.getByRole('button',{name:'付了部分'}));expect((screen.getByLabelText('实付金额') as HTMLInputElement).value).toBe('3');fireEvent.click(screen.getByLabelText('付款账户'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));fireEvent.click(screen.getByRole('button',{name:'保存费用单'}));await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({paidCents:300,offsetCents:0,settlementMode:'part'})));
+});
+it.each([{mode:'full',cents:300},{mode:'full',cents:0},{mode:'offset',cents:300}] as const)('已有$mode草稿$cents分在严格模式加载和重存保留实际金额，不被初始化联动覆盖',async({mode,cents})=>{
+  const type=mode==='full'?'receipt':'expense',doc={...draft,docType:type,docDate:'2026-10-24',amountCents:1000,paidCents:mode==='full'?cents:0,offsetCents:mode==='offset'?cents:0,settlementMode:mode,partyId:7,partyKind:mode==='full'?'customer':'supplier',partyName:'合成往来',bankAccountId:7,bankName:'合成账户',accounts:[],events:[],entries:[],lines:mode==='full'?[{itemName:'合成用途',qty:1,unitPriceCents:1000}]:[{feeItemId:7,feeItemName:'合成费用',qty:1,unitPriceCents:1000}]};fa.update.mockResolvedValue(doc as never);
+  render(<StrictMode><DocForm type={type} doc={doc as never} inline onSaved={vi.fn()}/></StrictMode>);expect((screen.getByLabelText(mode==='full'?'到账金额':'冲抵金额') as HTMLInputElement).value).toBe((cents/100).toFixed(2));fireEvent.click(screen.getByRole('button',{name:mode==='full'?'保存草稿':'保存费用单'}));await waitFor(()=>expect(fa.update).toHaveBeenCalledWith(51,expect.objectContaining({paidCents:mode==='full'?cents:0,offsetCents:mode==='offset'?cents:0,settlementMode:mode})));
+});
 it('原转款先选择再添加，已添加账户在本侧候选中排除，移除和清空释放账户及待添加选择',async()=>{
   transferBanks();render(<DocForm type="transfer" inline onSaved={vi.fn()}/>);
   expect(screen.queryByLabelText('归属部门')).toBeNull();expect(screen.queryByLabelText('转款手续费')).toBeNull();expect(screen.queryByRole('button',{name:/互换转出/})).toBeNull();expect(fa.banks).not.toHaveBeenCalled();

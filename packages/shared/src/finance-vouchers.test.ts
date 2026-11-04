@@ -3,6 +3,20 @@ import { allocateDiscount, buildEntries, docTotal, DOC_TYPE_MAP, validateDoc, ty
 
 const sum = (e: Array<{ amount: number }>) => e.reduce((s, x) => s + x.amount, 0);
 const prod = (id: number, qty: number, price: number) => ({ productId: id, qty, unitPriceCents: price });
+it('已有分账户编辑的全额分配要求继续保留，部分收款明确选择部分模式',()=>{
+  const input:DocInput={type:'receipt',date:'2026-10-24',partyId:7,settlementMode:'full',paidCents:600,accounts:[{role:'in',bankAccountId:5,amountCents:600}],lines:[{itemName:'合成回款',qty:1,unitPriceCents:1000}]};
+  expect(validateDoc(input).join()).toContain('各账户金额合计');expect(validateDoc({...input,settlementMode:'part'})).toEqual([]);expect(validateDoc({...input,accounts:null,bankAccountId:5})).toEqual([]);
+});
+it.each(['advance-receipt','receipt','payment','prepayment'] as const)('%s 模式只提供默认，明确填写3元不被全款或未付标签改记为10元或0元',type=>{
+  const incoming=type==='advance-receipt'||type==='receipt';
+  for(const settlementMode of ['full','credit'] as const){
+    if(settlementMode==='credit'&&!DOC_TYPE_MAP.get(type)!.ui.payModes.some(item=>item.mode==='credit'))continue;
+    const input:DocInput={type,date:'2026-10-24',partyId:7,bankAccountId:5,settlementMode,paidCents:300,lines:[{itemName:'合成用途',qty:1,unitPriceCents:1000}]};
+    expect(validateDoc(input)).toEqual([]);const entries=buildEntries(input,()=>null);expect(entries.find(entry=>entry.kind==='bank')?.amount).toBe(incoming?300:-300);expect(sum(entries)).toBe(0);
+    expect(buildEntries({...input,paidCents:0,bankAccountId:null},()=>null).some(entry=>entry.kind==='bank')).toBe(false);
+    expect(buildEntries({...input,paidCents:0,settlementMode:null},()=>null).find(entry=>entry.kind==='bank')?.amount).toBe(incoming?1000:-1000);
+  }
+});
 
 describe('整单优惠（管家婆优惠金额/抹零）', () => {
   it('把优惠按行金额比例摊开，尾差补在最后一行，合计等于优惠', () => {
