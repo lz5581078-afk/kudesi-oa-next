@@ -13,6 +13,9 @@ export interface Cue {
 export interface ScriptVersion {
   id: number;
   folderId: number;
+  outline?: import('./scriptOutline').Stage[] | null;
+  faq?: {question:string;answer:string}[];
+  faqRevision?:number;
   name: string;
   notes: string;
   body: string;

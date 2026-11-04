@@ -520,3 +520,87 @@
 .sc-picker section button {
   margin: 4px 6px 0 0;
 }
+.sc-outline-layout {
+  display: grid;
+  grid-template-columns: minmax(110px, 170px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.sc-outline-layout nav {
+  display: grid;
+  gap: 4px;
+  position: sticky;
+  top: 12px;
+  padding: 10px;
+  background: #f4f8f7;
+  border-radius: 8px;
+  max-height: 75vh;
+  overflow: auto;
+}
+.sc-outline-layout nav strong {
+  font-size: 0.85rem;
+  color: #45635e;
+  padding: 4px;
+}
+.sc-outline-layout nav button {
+  display: flex;
+  text-align: left;
+  gap: 8px;
+  align-items: baseline;
+  padding: 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.sc-outline-layout nav button[aria-current] {
+  background: #d6ede8;
+  color: #105c52;
+  font-weight: bold;
+}
+.sc-outline-layout nav small {
+  color: #5b7973;
+}
+.sc-outline-content {
+  min-width: 0;
+}
+.sc-write-stage,
+.sc-faq {
+  padding: 12px 0;
+  border-top: 1px solid #d6e3e0;
+}
+.sc-write-stage textarea {
+  margin-top: 8px;
+  line-height: 1.75;
+}
+.sc-empty-stage::before,
+.sc-line[data-heading]::before {
+  content: attr(data-heading);
+  grid-column: 1/-1;
+  color: #18675f;
+  font-weight: bold;
+  display: block;
+  user-select: none;
+  padding-top: 10px;
+}
+.sc-faq-edit,
+.sc-faq details {
+  padding: 10px 0;
+  border-bottom: 1px solid #deebe7;
+}
+.sc-faq details p {
+  white-space: pre-wrap;
+}
+@media (max-width: 700px) {
+  .sc-outline-layout {
+    grid-template-columns: 86px minmax(0, 1fr);
+    gap: 8px;
+  }
+  .sc-outline-layout nav {
+    padding: 4px;
+  }
+  .sc-outline-layout nav small {
+    display: none;
+  }
+}
