@@ -16,7 +16,7 @@ import {
 import { ResourceFile, User } from '../entities';
 import { FilesService } from '../integrations/files.service';
 import { loadLiveAccess, requireView } from './live-access';
-import { liveFail, positionTypesOf } from './live-core';
+import { can, liveFail, positionTypesOf } from './live-core';
 
 @Injectable()
 export class LivePersonPhotoService {
@@ -26,7 +26,9 @@ export class LivePersonPhotoService {
   ) {}
   /** 直播查看权限仅能读该员工绑定的人员照，不授予人事档案、证件或其他附件权限。 */
   async photo(user: AuthUser, userId: number) {
-    requireView(await loadLiveAccess(this.ds.manager, user));
+    const hr=can(user,resourcePermission('workforce','view'));
+    const access=await loadLiveAccess(this.ds.manager,user);
+    if(!hr) requireView(access);
     const person = await this.ds.manager.findOne(User, {
       where: { companyId: user.companyId, id: userId },
       select: ['id', 'name'],
@@ -37,7 +39,7 @@ export class LivePersonPhotoService {
       user.companyId,
       userId,
     );
-    if (!roles.has('live_anchor')) {
+    if (!hr && !roles.has('live_anchor')) {
       const [known] = await this.ds.query(
         'SELECT (EXISTS(SELECT 1 FROM live_sessions WHERE company_id=? AND anchor_user_id=?) OR EXISTS(SELECT 1 FROM live_schedules WHERE company_id=? AND anchor_user_id=?)) allowed',
         [user.companyId, userId, user.companyId, userId],
@@ -48,6 +50,7 @@ export class LivePersonPhotoService {
       "SELECT id,data FROM resource_records WHERE company_id=? AND type='workforce' AND archived_at IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.userId'))=? ORDER BY id DESC LIMIT 1",
       [user.companyId, String(userId)],
     );
+    if(hr&&!access.canView&&!record)liveFail('兼职档案不存在',404);
     const data =
       typeof record?.data === 'string' ? JSON.parse(record.data) : record?.data;
     const id =
