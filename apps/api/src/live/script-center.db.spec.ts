@@ -42,6 +42,14 @@ import { ScriptCenterController } from './script-center.controller';
     });
     const api = new ScriptCenterController(ds, services.files);
     const folder = await api.folder(actor, { name: '花育25' });
+    expect(await api.pondArticle(actor)).toEqual({body:'', revision:1});
+    await api.savePondArticle(actor,{body:'鱼塘专用',revision:1});
+    await expect(api.savePondArticle(actor,{body:'旧草稿',revision:1})).rejects.toThrow('已变更');
+    await api.savePondArticle(actor,{body:'鱼塘新版',revision:2});
+    await expect(api.savePondArticle(actor,{body:'旧稿',revision:2})).rejects.toThrow('已变更');
+    expect(await api.pondArticle(actor)).toEqual({body:'鱼塘新版',revision:3});
+    expect((await api.questionArticle(actor,folder.id)).body).toBe('');
+    expect(await api.pondArticle({...actor,companyId:0})).toEqual({body:'',revision:1});
     const v = await api.create(actor, folder.id, { name: '初播' }),
       second = await api.create(actor, folder.id, { name: '返场' });
     const image = {
